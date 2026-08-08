@@ -1,0 +1,61 @@
+# DarkEngine6 clang-format style
+# Tuned to match Render/Renderer.cpp (Allman braces, 4-space indent, aligned assigns).
+
+BasedOnStyle: LLVM
+Language: Cpp
+
+# --- Indentation / whitespace ---
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+AccessModifierOffset: -4
+NamespaceIndentation: None
+IndentCaseLabels: false
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+
+# --- Line length ---
+# 0 = no hard wrap (matches long D3D12 call sites in Renderer.cpp)
+ColumnLimit: 0
+
+# --- Braces (Allman: opening brace on its own line for fn / if / for / class / namespace) ---
+BreakBeforeBraces: Allman
+AllowShortBlocksOnASingleLine: Empty
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+
+# --- Pointers / references: Type* name, Type& name ---
+PointerAlignment: Left
+ReferenceAlignment: Pointer
+DerivePointerAlignment: false
+SpaceAfterCStyleCast: false
+
+# --- Spacing ---
+SpaceBeforeParens: ControlStatements
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCpp11BracedList: false
+Cpp11BracedListStyle: false
+
+# --- Alignment (m_width / m_height style member and field assigns) ---
+AlignConsecutiveAssignments: Consecutive
+AlignConsecutiveDeclarations: Consecutive
+AlignTrailingComments: true
+AlignEscapedNewlines: Left
+
+# --- Includes ---
+SortIncludes: false
+IncludeBlocks: Preserve
+
+# --- Constructors / templates / packing ---
+BreakConstructorInitializers: BeforeColon
+PackConstructorInitializers: Never
+AlwaysBreakTemplateDeclarations: Yes
+BinPackArguments: true
+BinPackParameters: true
+AllowAllParametersOfDeclarationOnNextLine: true
+
+# --- Namespaces / comments ---
+FixNamespaceComments: true
+ReflowComments: false

@@ -1,0 +1,48 @@
+#pragma once
+
+#include "Geometry/MeshGen.h"
+
+#include <cstdint>
+#include <d3d12.h>
+#include <wrl/client.h>
+
+namespace Dark
+{
+
+    class Renderer;
+
+    using Microsoft::WRL::ComPtr;
+
+    // Interleaved vertex matching the BasicMesh shader input layout.
+    struct MeshVertex 
+    {
+        float px, py, pz;
+        float nx, ny, nz;
+        float u, v;
+    };
+
+    // GPU mesh built from MeshGen::MeshData (default-heap VB/IB).
+    class Mesh 
+    {
+    public:
+        Mesh() = default;
+
+        // Uploads mesh data to the GPU. Blocks until the copy completes.
+        static Mesh Create(Renderer& renderer, const MeshGen::MeshData& data);
+
+        void draw(ID3D12GraphicsCommandList* cmd) const;
+
+        uint32_t indexCount()  const { return m_indexCount; }
+        uint32_t vertexCount() const { return m_vertexCount; }
+        bool     valid()       const { return m_vb != nullptr && m_indexCount > 0; }
+
+    private:
+        ComPtr<ID3D12Resource> m_vb;
+        ComPtr<ID3D12Resource> m_ib;
+        D3D12_VERTEX_BUFFER_VIEW m_vbv{};
+        D3D12_INDEX_BUFFER_VIEW  m_ibv{};
+        uint32_t m_indexCount  = 0;
+        uint32_t m_vertexCount = 0;
+    };
+
+} // namespace DE

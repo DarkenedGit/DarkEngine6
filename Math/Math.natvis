@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
+
+  <Type Name="Dark::Math::Vector2f">
+    <DisplayString>Vector2f  X: {x}  Y: {y}</DisplayString>
+    <Expand>
+      <Item Name="x">x</Item>
+      <Item Name="y">y</Item>
+    </Expand>
+  </Type>
+
+  <Type Name="Dark::Math::Vect2f">
+    <DisplayString>Vect2f  X: {x}  Y: {y}</DisplayString>
+  </Type>
+
+  <Type Name="Dark::Math::Vector3f">
+    <DisplayString>Vector3f  X: {x}  Y: {y}  Z: {z}</DisplayString>
+    <Expand>
+      <Item Name="x">x</Item>
+      <Item Name="y">y</Item>
+      <Item Name="z">z</Item>
+    </Expand>
+  </Type>
+
+  <Type Name="Dark::Math::Vect3f">
+    <DisplayString>Vect3f  X: {x}  Y: {y}  Z: {z}</DisplayString>
+  </Type>
+
+  <Type Name="Dark::Math::Vector4f">
+    <DisplayString>Vector4f  X: {x}  Y: {y}  Z: {z}  W: {w}</DisplayString>
+    <Expand>
+      <Item Name="x">x</Item>
+      <Item Name="y">y</Item>
+      <Item Name="z">z</Item>
+      <Item Name="w">w</Item>
+    </Expand>
+  </Type>
+
+  <Type Name="Dark::Math::Vect4f">
+    <DisplayString>Vect4f  X: {x}  Y: {y}  Z: {z}  W: {w}</DisplayString>
+  </Type>
+
+  <Type Name="Dark::Math::Matrix3f">
+    <DisplayString>Matrix3f</DisplayString>
+    <Expand>
+      <Item Name="[0]">m_afEntry[0],m_afEntry[1],m_afEntry[2]</Item>
+      <Item Name="row0">m_afEntry[0],sb</Item>
+      <CustomListItems MaxItemsPerView="9">
+        <Variable Name="i" InitialValue="0"/>
+        <Loop>
+          <Item Name="[{i}]">m_afEntry[i]</Item>
+          <Exec>i++</Exec>
+          <Break Condition="i &gt;= 9"/>
+        </Loop>
+      </CustomListItems>
+    </Expand>
+  </Type>
+
+  <Type Name="Dark::Math::Matrix4f">
+    <DisplayString>Matrix4f</DisplayString>
+    <Expand>
+      <CustomListItems MaxItemsPerView="16">
+        <Variable Name="i" InitialValue="0"/>
+        <Loop>
+          <Item Name="[{i}]">m_afEntry[i]</Item>
+          <Exec>i++</Exec>
+          <Break Condition="i &gt;= 16"/>
+        </Loop>
+      </CustomListItems>
+    </Expand>
+  </Type>
+
+  <Type Name="Dark::Math::Quaternion">
+    <DisplayString>Quaternion  W: {w}  X: {x}  Y: {y}  Z: {z}</DisplayString>
+  </Type>
+
+  <Type Name="Dark::Math::Sphere2f">
+    <DisplayString>Circle2  Center=({Center.x},{Center.y})  R={Radius}</DisplayString>
+  </Type>
+
+  <Type Name="Dark::Math::Sphere3f">
+    <DisplayString>Sphere  Center=({Center.x},{Center.y},{Center.z})  R={Radius}</DisplayString>
+  </Type>
+
+  <Type Name="Dark::Math::Aabb2f">
+    <DisplayString>AABB2  Min=({Min.x},{Min.y})  Max=({Max.x},{Max.y})</DisplayString>
+  </Type>
+
+  <Type Name="Dark::Math::Aabb3f">
+    <DisplayString>AABB  Min=({Min.x},{Min.y},{Min.z})  Max=({Max.x},{Max.y},{Max.z})</DisplayString>
+  </Type>
+
+  <Type Name="Dark::Math::Box2f">
+    <DisplayString>OBB2  Center=({Center.x},{Center.y})</DisplayString>
+  </Type>
+
+  <Type Name="Dark::Math::Box3f">
+    <DisplayString>OBB  Center=({Center.x},{Center.y},{Center.z})</DisplayString>
+  </Type>
+
+  <Type Name="Dark::Math::Ray2f">
+    <DisplayString>Ray2  O=({Origin.x},{Origin.y})  D=({Direction.x},{Direction.y})</DisplayString>
+  </Type>
+
+  <Type Name="Dark::Math::Ray3f">
+    <DisplayString>Ray  O=({Origin.x},{Origin.y},{Origin.z})  D=({Direction.x},{Direction.y},{Direction.z})</DisplayString>
+  </Type>
+
+  <Type Name="Dark::Math::Plane4f">
+    <DisplayString>Plane  N=({x},{y},{z})  D={w}</DisplayString>
+  </Type>
+
+</AutoVisualizer>
