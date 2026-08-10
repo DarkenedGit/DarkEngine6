@@ -131,7 +131,7 @@ namespace Dark
 			return tOut <= 1.0f;
 		}
 
-		static bool SweptAabbAabb2(const Aabb2f& a, const Aabb2f& b, const Vector2f& v, float& tOut)
+		static bool SweptAabbAabb2(const AABox2f& a, const AABox2f& b, const Vector2f& v, float& tOut)
 		{
 			if (a.Intersects(b))
 			{
@@ -611,9 +611,14 @@ namespace Dark
 				return hit;
 			}
 			Vector2f dir = delta * (1.0f / len);
-			RayHit2D rh = Intersect(Ray2f(p0, dir), circle);
-			if (!rh.hit)
-				return hit;
+            RayHit2D rh;
+
+			if (!Intersect(Ray2f(p0, dir), circle, rh))
+			{
+                hit.hit = false;
+                return hit;
+			}
+
 			float t = rh.t / len;
 			if (t > 1.0f)
 				return hit;
@@ -639,8 +644,8 @@ namespace Dark
 				return hit;
 			}
 			Vector2f dir = delta * (1.0f / len);
-			RayHit2D rh = Intersect(Ray2f(p0, dir), box);
-			if (!rh.hit)
+			RayHit2D rh{};
+			if (!Intersect(Ray2f(p0, dir), box, rh) || !rh.hit)
 				return hit;
 			float t = rh.t / len;
 			if (t > 1.0f)
@@ -666,8 +671,8 @@ namespace Dark
 				return hit;
 			}
 			Vector2f dir = delta * (1.0f / len);
-			RayHit2D rh = Intersect(Ray2f(p0, dir), box);
-			if (!rh.hit)
+			RayHit2D rh{};
+			if (!Intersect(Ray2f(p0, dir), box, rh) || !rh.hit)
 				return hit;
 			float t = rh.t / len;
 			if (t > 1.0f)

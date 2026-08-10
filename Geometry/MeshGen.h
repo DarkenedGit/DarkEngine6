@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Math/DarkMath.h"
 #include <vector>
 #include <cmath>
 #include <stdexcept>
@@ -10,81 +11,83 @@
 // ============================================================
 //
 //  Every generator produces a MeshData struct containing:
-//    positions  – float3 vertices  (x, y, z)
-//    normals    – float3 per-vertex normals
-//    uvs        – float2 texture coordinates
+//    positions  – Vector3f vertices  (x, y, z)
+//    normals    – Vector3f per-vertex normals
+//    uvs        – Vector2f texture coordinates
 //    indices    – uint32 triangle list (CCW winding)
 //
 //  All shapes are centred at the origin unless noted.
 //  Y is up.
 // ============================================================
 
-namespace MeshGen
+namespace Dark
+{
+namespace Geometry
 {
 
 // ---- Basic value types ------------------------------------
 
-struct float2 { float x, y; };
-struct float3 { float x, y, z; };
-
 struct MeshData
 {
-    std::vector<float3>   positions;
-    std::vector<float3>   normals;
-    std::vector<float2>   uvs;
-    std::vector<uint32_t> indices;
+    std::vector<Math::Vector3f> positions;
+    std::vector<Math::Vector3f> normals;
+    std::vector<Math::Vector2f> uvs;
+    std::vector<uint32_t>       indices;
 };
 
 // ---- Internal helpers (implementation detail) -------------
 namespace detail
 {
-    inline float3 normalize(float3 v)
-    {
-        float len = std::sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
-        if (len < 1e-8f) return {0,1,0};
-        return { v.x/len, v.y/len, v.z/len };
-    }
+//inline float3 normalize(float3 v)
+//{
+//    float len = std::sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
+//    if (len < 1e-8f) return {0,1,0};
+//    return { v.x/len, v.y/len, v.z/len };
+//}
 
-    inline float3 cross(float3 a, float3 b)
-    {
-        return { a.y*b.z - a.z*b.y,
-                 a.z*b.x - a.x*b.z,
-                 a.x*b.y - a.y*b.x };
-    }
+//inline float3 cross(float3 a, float3 b)
+//{
+//    return { a.y*b.z - a.z*b.y,
+//             a.z*b.x - a.x*b.z,
+//             a.x*b.y - a.y*b.x };
+//}
 
-    inline float3 sub(float3 a, float3 b){ return {a.x-b.x,a.y-b.y,a.z-b.z}; }
-    inline float3 add(float3 a, float3 b){ return {a.x+b.x,a.y+b.y,a.z+b.z}; }
-    inline float3 scale(float3 a,float s){ return {a.x*s,a.y*s,a.z*s}; }
+//inline float3 sub(float3 a, float3 b){ return {a.x-b.x,a.y-b.y,a.z-b.z}; }
+//inline float3 add(float3 a, float3 b){ return {a.x+b.x,a.y+b.y,a.z+b.z}; }
+//inline float3 scale(float3 a,float s){ return {a.x*s,a.y*s,a.z*s}; }
 
-    // Push a flat (shared normal) quad as two triangles
-    inline void pushQuad(MeshData& m,
-                         uint32_t a,uint32_t b,uint32_t c,uint32_t d)
-    {
-        m.indices.push_back(a); m.indices.push_back(b); m.indices.push_back(c);
-        m.indices.push_back(a); m.indices.push_back(c); m.indices.push_back(d);
-    }
+// Push a flat (shared normal) quad as two triangles
+inline void pushQuad(MeshData& m, uint32_t a, uint32_t b, uint32_t c, uint32_t d)
+{
+    m.indices.push_back(a);
+    m.indices.push_back(b);
+    m.indices.push_back(c);
+    m.indices.push_back(a);
+    m.indices.push_back(c);
+    m.indices.push_back(d);
+}
 
-    // Compute smooth normals by accumulating face normals
-    inline void computeSmoothedNormals(MeshData& m)
+// Compute smooth normals by accumulating face normals
+inline void computeSmoothedNormals(MeshData& m)
+{
+    m.normals.assign(m.positions.size(), { 0, 0, 0 });
+    for (size_t i = 0; i + 2 < m.indices.size(); i += 3)
     {
-        m.normals.assign(m.positions.size(), {0,0,0});
-        for (size_t i = 0; i+2 < m.indices.size(); i += 3)
+        auto   i0 = m.indices[i], i1 = m.indices[i + 1], i2 = m.indices[i + 2];
+        Math::Vector3f e1 = m.positions[i1] - m.positions[i0];
+        Math::Vector3f e2 = m.positions[i2] - m.positions[i0];
+        Math::Vector3f fn = e1.Cross(e2);
+        for (auto idx : { i0, i1, i2 })
         {
-            auto i0=m.indices[i], i1=m.indices[i+1], i2=m.indices[i+2];
-            float3 e1 = sub(m.positions[i1], m.positions[i0]);
-            float3 e2 = sub(m.positions[i2], m.positions[i0]);
-            float3 fn = cross(e1, e2);
-            for (auto idx : {i0,i1,i2})
-            {
-                m.normals[idx].x += fn.x;
-                m.normals[idx].y += fn.y;
-                m.normals[idx].z += fn.z;
-            }
+            m.normals[idx].x += fn.x;
+            m.normals[idx].y += fn.y;
+            m.normals[idx].z += fn.z;
         }
-        for (auto& n : m.normals) n = normalize(n);
     }
+    for ( Math::Vector3f& n : m.normals)
+        n.Normalize();
+}
 } // namespace detail
-
 
 // ============================================================
 //  1. SPHERE
@@ -263,10 +266,12 @@ MeshData CreateGroundPlane(float size = 40.0f, float y = 0.0f, float uvScale = 8
 // ============================================================
 struct LineMeshData
 {
-    std::vector<float3>   positions;
-    std::vector<uint32_t> indices; // line list pairs
+    std::vector<Math::Vector3f> positions;
+    std::vector<uint32_t>       indices; // line list pairs
 };
 
 LineMeshData CreateGridLines(float halfExtent = 20.0f, int divisions = 40, float y = 0.0f);
 
-} // namespace MeshGen
+} // namespace Geometry
+
+} // namespace Dark

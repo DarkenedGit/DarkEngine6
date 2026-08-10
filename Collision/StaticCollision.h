@@ -7,8 +7,8 @@
 #include "Math/Ray3f.h"
 #include "Math/Sphere2f.h"
 #include "Math/Sphere3f.h"
-#include "Math/Aabb2f.h"
-#include "Math/Aabb3f.h"
+#include "Math/AABox2f.h"
+#include "Math/AABox3f.h"
 #include "Math/Box2f.h"
 #include "Math/Box3f.h"
 #include "Render/Frustum3f.h"
@@ -33,9 +33,9 @@ namespace Dark
 		bool Intersects(const Math::Aabb2f& aabb, const Math::Box2f& box);
 		bool Intersects(const Math::Box2f& a, const Math::Box2f& b);
 
-		RayHit2D Intersect(const Math::Ray2f& ray, const Math::Sphere2f& circle);
-		RayHit2D Intersect(const Math::Ray2f& ray, const Math::Aabb2f& box);
-		RayHit2D Intersect(const Math::Ray2f& ray, const Math::Box2f& box);
+		bool Intersect(const Math::Ray2f& ray, const Math::Sphere2f& circle, RayHit2D& results);
+        bool Intersect(const Math::Ray2f& ray, const Math::Aabb2f& box, RayHit2D& results);
+        bool Intersect(const Math::Ray2f& ray, const Math::Box2f& box, RayHit2D& results);
 
 		inline bool Intersects(const Math::Sphere2f& c, const Math::Vector2f& p) { return Intersects(p, c); }
 		inline bool Intersects(const Math::Aabb2f& b, const Math::Vector2f& p) { return Intersects(p, b); }
@@ -46,7 +46,7 @@ namespace Dark
 
 
 		// =====================================================================
-		// Static intersection tests (no motion).
+		// 3D Static intersection tests (no motion).
 		// Overloads cover point / ray / sphere / AABB / OBB / frustum.
 		// Ray queries return RayHit with parametric t along the ray.
 		// =====================================================================

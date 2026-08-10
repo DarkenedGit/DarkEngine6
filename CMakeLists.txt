@@ -5,6 +5,11 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Emit compile_commands.json for clang-based tools (Sourcetrail, clangd, etc.).
+# Note: Visual Studio generators do not write this file; use the Ninja configure
+# in scripts/setup-sourcetrail.ps1 (build-sourcetrail/) for a working database.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 option(DE_ENABLE_ASSERTS "Enable DE_ASSERT" ON)
 option(DE_BUILD_TESTS "Build UnitTests executable and CTest targets" ON)
 
@@ -31,6 +36,7 @@ endfunction()
 set(DE_ENGINE_FOLDERS
     AI
     Assets
+    Character
     Collision
     Core
     ECS

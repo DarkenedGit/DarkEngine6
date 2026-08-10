@@ -43,7 +43,7 @@ namespace Dark
 			return true;
 		}
 
-		bool Ray2f::IntersectAabb(const Aabb2f& box, float& tMin, float& tMax) const
+		bool Ray2f::IntersectAabb(const AABox2f& box, float& tMin, float& tMax) const
 		{
 			tMin = 0.0f;
 			tMax = Infinity;

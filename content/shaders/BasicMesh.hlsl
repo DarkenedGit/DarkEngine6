@@ -1,5 +1,4 @@
 // Basic lit textured mesh shader — row-major matrices (matches Dark::Math::Matrix4f).
-// Embedded copy lives in MeshPipeline.cpp (runtime compile); keep in sync.
 #pragma pack_matrix(row_major)
 
 cbuffer FrameConstants : register(b0)

@@ -59,7 +59,7 @@ private:
     void fillParticleDescFromEmitter(int emitterIndex, Dark::ParticleEmitterDesc& out) const;
     void syncSelectedEmitterFromUi();
 
-    const Dark::Mesh* meshForType(Dark::SceneObjectType type) const;
+    const Dark::Geometry::Mesh* meshForType(Dark::SceneObjectType type) const;
     Dark::SceneObject* findObject(Dark::Entity e);
     const Dark::SceneObject* findObject(Dark::Entity e) const;
     Dark::ParticleEmitter* selectedEmitter();
@@ -69,10 +69,10 @@ private:
     Dark::MeshPipeline m_meshPipeline;
     Dark::LinePipeline m_linePipeline;
 
-    Dark::Mesh     m_cubeMesh;
-    Dark::Mesh     m_sphereMesh;
-    Dark::Mesh     m_groundMesh;
-    Dark::LineMesh m_gridMesh;
+    Dark::Geometry::Mesh m_cubeMesh;
+    Dark::Geometry::Mesh m_sphereMesh;
+    Dark::Geometry::Mesh m_groundMesh;
+    Dark::Geometry::LineMesh m_gridMesh;
 
     Dark::AssetRef<Dark::Material> m_propMaterial;
     Dark::AssetRef<Dark::Material> m_groundMaterial;

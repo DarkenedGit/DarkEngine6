@@ -16,7 +16,7 @@ namespace Dark
 			Math::Vector2f normal = Math::Vector2f::ZERO;
 			float          depth = 0.0f;
 
-			explicit operator bool() const { return hit; }
+			//explicit operator bool() const { return hit; }
 		};
 
 		struct RayHit2D
@@ -27,7 +27,7 @@ namespace Dark
 			Math::Vector2f point = Math::Vector2f::ZERO;
 			Math::Vector2f normal = Math::Vector2f::ZERO;
 
-			explicit operator bool() const { return hit; }
+			//explicit operator bool() const { return hit; }
 		};
 
 		struct SweptHit2D
@@ -37,7 +37,7 @@ namespace Dark
 			Math::Vector2f point = Math::Vector2f::ZERO;
 			Math::Vector2f normal = Math::Vector2f::ZERO;
 
-			explicit operator bool() const { return hit; }
+			//explicit operator bool() const { return hit; }
 		};
 
 
@@ -51,7 +51,7 @@ namespace Dark
 			Math::Vector3f normal = Math::Vector3f::ZERO; // from B toward A when meaningful
 			float          depth  = 0.0f;                 // penetration depth (>=0) when overlapping
 
-			explicit operator bool() const { return hit; }
+			//explicit operator bool() const { return hit; }
 		};
 
 		// Parametric / ray query: t is distance along the ray (if direction is unit).
@@ -63,7 +63,7 @@ namespace Dark
 			Math::Vector3f point  = Math::Vector3f::ZERO;
 			Math::Vector3f normal = Math::Vector3f::ZERO;
 
-			explicit operator bool() const { return hit; }
+			//explicit operator bool() const { return hit; }
 		};
 
 		// Continuous (linear motion) test over time interval [0, 1].
@@ -76,7 +76,7 @@ namespace Dark
 			Math::Vector3f point  = Math::Vector3f::ZERO;
 			Math::Vector3f normal = Math::Vector3f::ZERO; // contact normal at TOI (B→A)
 
-			explicit operator bool() const { return hit; }
+			//explicit operator bool() const { return hit; }
 		};
 
 	}

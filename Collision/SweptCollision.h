@@ -5,11 +5,11 @@
 #include "Math/Vector3f.h"
 #include "Math/Sphere2f.h"
 #include "Math/Sphere3f.h"
-#include "Math/Aabb2f.h"
-#include "Math/Aabb3f.h"
+#include "Math/AABox2f.h"
+#include "Math/AABox3f.h"
 #include "Math/Box2f.h"
 #include "Math/Box3f.h"
-#include "Math/Frustum3f.h"
+#include "Render/Frustum3f.h"
 
 namespace Dark
 {

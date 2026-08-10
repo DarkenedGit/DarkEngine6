@@ -484,36 +484,40 @@ namespace Dark
 			return true;
 		}
 
-		RayHit2D Intersect(const Ray2f& ray, const Sphere2f& circle)
+		bool Intersect(const Ray2f& ray, const Sphere2f& circle, RayHit2D& results)
 		{
-			RayHit2D hit;
 			float t = 0.0f;
 			if (!ray.IntersectCircle(circle, t))
-				return hit;
-			hit.hit = true;
-			hit.t = t;
-			hit.point = ray.PointAt(t);
-			hit.normal = hit.point - circle.Center;
-			hit.normal.Normalize();
-			return hit;
+			{
+                results.hit = false;
+                return results.hit;
+			}
+
+			results.hit = true;
+            results.t   = t;
+            results.point = ray.PointAt(t);
+            results.normal = results.point - circle.Center;
+            results.normal.Normalize();
+            return results.hit;
 		}
 
-		RayHit2D Intersect(const Ray2f& ray, const Aabb2f& box)
+		bool Intersect(const Ray2f& ray, const Aabb2f& box, RayHit2D& results)
 		{
-			RayHit2D hit;
 			float tMin = 0.0f, tMax = 0.0f;
-			if (!ray.IntersectAabb(box, tMin, tMax))
-				return hit;
-			hit.hit = true;
-			hit.t = tMin;
-			hit.tExit = tMax;
-			hit.point = ray.PointAt(tMin);
-			return hit;
+            if (!ray.IntersectAabb(box, tMin, tMax))
+            {
+                results.hit = false;
+                return results.hit;
+            }
+            results.hit = true;
+            results.t   = tMin;
+            results.tExit = tMax;
+            results.point = ray.PointAt(tMin);
+            return results.hit;
 		}
 
-		RayHit2D Intersect(const Ray2f& ray, const Box2f& box)
+		bool Intersect(const Ray2f& ray, const Box2f& box, RayHit2D& results)
 		{
-			RayHit2D hit;
 			float t0 = 0.0f;
 			float t1 = 1.0e10f;
 
@@ -528,13 +532,16 @@ namespace Dark
 				ClipRaySlab(-bDir.y, +bOrigin.y - box.Extent[1], t0, t1);
 
 			if (!ok || t1 < 0.0f)
-				return hit;
+            {
+                results.hit = false;
+                return results.hit;
+            }
 
-			hit.hit = true;
-			hit.t = (t0 >= 0.0f) ? t0 : 0.0f;
-			hit.tExit = t1;
-			hit.point = ray.PointAt(hit.t);
-			return hit;
+			results.hit = true;
+            results.t   = (t0 >= 0.0f) ? t0 : 0.0f;
+            results.tExit = t1;
+            results.point = ray.PointAt(results.t);
+            return results.hit;
 		}
 	}
 }

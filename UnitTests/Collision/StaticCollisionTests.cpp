@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include "Collision/StaticCollision.h"
 #include "Math/Sphere3f.h"
-#include "Math/Aabb3f.h"
+#include "Math/AABox3f.h"
 #include "Math/Ray3f.h"
 #include "Math/Vector3f.h"
 

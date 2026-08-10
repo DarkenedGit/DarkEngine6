@@ -6,7 +6,10 @@
 
 namespace Dark
 {
-namespace {
+namespace Geometry
+{
+namespace
+{
 
 bool FailedHr(HRESULT hr, const char* what)
 {
@@ -17,9 +20,9 @@ bool FailedHr(HRESULT hr, const char* what)
 }
 
 ComPtr<ID3D12Resource> CreateBuffer(
-    ID3D12Device* device,
-    uint64_t size,
-    D3D12_HEAP_TYPE heapType,
+    ID3D12Device*         device,
+    uint64_t              size,
+    D3D12_HEAP_TYPE       heapType,
     D3D12_RESOURCE_STATES initialState)
 {
     D3D12_HEAP_PROPERTIES heap{};
@@ -47,7 +50,7 @@ ComPtr<ID3D12Resource> CreateBuffer(
 
 } // namespace
 
-LineMesh LineMesh::Create(Renderer& renderer, const MeshGen::LineMeshData& data)
+LineMesh LineMesh::Create(Renderer& renderer, const LineMeshData& data)
 {
     LineMesh mesh;
     if (data.positions.empty() || data.indices.empty())
@@ -56,8 +59,8 @@ LineMesh LineMesh::Create(Renderer& renderer, const MeshGen::LineMeshData& data)
         return mesh;
     }
 
-    ID3D12Device* device = renderer.device();
-    const uint64_t vbBytes = data.positions.size() * sizeof(MeshGen::float3);
+    ID3D12Device*  device  = renderer.device();
+    const uint64_t vbBytes = data.positions.size() * sizeof(Math::Vector3f);
     const uint64_t ibBytes = data.indices.size() * sizeof(uint32_t);
 
     mesh.m_vertexCount = static_cast<uint32_t>(data.positions.size());
@@ -90,12 +93,12 @@ LineMesh LineMesh::Create(Renderer& renderer, const MeshGen::LineMeshData& data)
         uploadIb->Unmap(0, nullptr);
     }
 
-    ComPtr<ID3D12CommandAllocator> alloc;
+    ComPtr<ID3D12CommandAllocator>    alloc;
     ComPtr<ID3D12GraphicsCommandList> list;
     if (FailedHr(
             device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc)),
-            "LineMesh allocator")
-        || FailedHr(
+            "LineMesh allocator") ||
+        FailedHr(
             device->CreateCommandList(
                 0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc.Get(), nullptr, IID_PPV_ARGS(&list)),
             "LineMesh list"))
@@ -127,7 +130,7 @@ LineMesh LineMesh::Create(Renderer& renderer, const MeshGen::LineMeshData& data)
     renderer.waitForGpu();
 
     mesh.m_vbv.BufferLocation = mesh.m_vb->GetGPUVirtualAddress();
-    mesh.m_vbv.StrideInBytes  = sizeof(MeshGen::float3);
+    mesh.m_vbv.StrideInBytes  = sizeof(Math::Vector3f);
     mesh.m_vbv.SizeInBytes    = static_cast<UINT>(vbBytes);
     mesh.m_ibv.BufferLocation = mesh.m_ib->GetGPUVirtualAddress();
     mesh.m_ibv.Format         = DXGI_FORMAT_R32_UINT;
@@ -146,5 +149,5 @@ void LineMesh::draw(ID3D12GraphicsCommandList* cmd) const
     cmd->IASetIndexBuffer(&m_ibv);
     cmd->DrawIndexedInstanced(m_indexCount, 1, 0, 0, 0);
 }
-
+} // namespace Geometry
 } // namespace Dark

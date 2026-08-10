@@ -1,9 +1,8 @@
 #include "Render/MeshPipeline.h"
+#include "Render/ShaderCompile.h"
 #include "Core/Log.h"
 
 #include <d3dcompiler.h>
-
-#include <cstring>
 
 namespace Dark
 {
@@ -14,79 +13,6 @@ bool FailedHr(HRESULT hr, const char* what)
     if (SUCCEEDED(hr))
         return false;
     DE_LOG_ERROR("{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
-    return true;
-}
-
-// Embedded so the sandbox runs without depending on CWD / shader copy paths.
-static const char kBasicMeshHlsl[] = R"HLSL(
-#pragma pack_matrix(row_major)
-
-cbuffer FrameConstants : register(b0)
-{
-    float4x4 worldViewProj;
-    float4x4 world;
-    float4   color;
-    float3   lightDirWS;
-    float    _pad0;
-};
-
-Texture2D    gAlbedo : register(t0);
-SamplerState gSamp   : register(s0);
-
-struct VSInput
-{
-    float3 position : POSITION;
-    float3 normal   : NORMAL;
-    float2 uv       : TEXCOORD0;
-};
-
-struct PSInput
-{
-    float4 position : SV_POSITION;
-    float3 normalWS : NORMAL;
-    float2 uv       : TEXCOORD0;
-};
-
-PSInput VSMain(VSInput input)
-{
-    PSInput o;
-    o.position = mul(float4(input.position, 1.0f), worldViewProj);
-    o.normalWS = mul(float4(input.normal, 0.0f), world).xyz;
-    o.uv       = input.uv;
-    return o;
-}
-
-float4 PSMain(PSInput input) : SV_TARGET
-{
-    float4 albedo = gAlbedo.Sample(gSamp, input.uv) * color;
-    float3 n = normalize(input.normalWS);
-    float3 l = normalize(lightDirWS);
-    float  ndotl = saturate(dot(n, l));
-    float3 ambient = 0.22f * albedo.rgb;
-    float3 diffuse = ndotl * albedo.rgb;
-    return float4(ambient + diffuse, albedo.a);
-}
-)HLSL";
-
-bool CompileShader(const char* src, const char* entry, const char* target, ComPtr<ID3DBlob>& outBytecode)
-{
-    ComPtr<ID3DBlob> errors;
-    UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
-#if defined(_DEBUG)
-    flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
-#endif
-
-    const HRESULT hr = D3DCompile(
-        src, strlen(src), "BasicMesh.hlsl",
-        nullptr, nullptr, entry, target, flags, 0,
-        &outBytecode, &errors);
-
-    if (FAILED(hr))
-    {
-        const char* msg = errors ? static_cast<const char*>(errors->GetBufferPointer()) : "unknown";
-        DE_LOG_ERROR("Shader compile failed ({}): {}", entry, msg);
-        return false;
-    }
     return true;
 }
 
@@ -170,8 +96,8 @@ bool MeshPipeline::create(ID3D12Device* device)
 
     ComPtr<ID3DBlob> vs;
     ComPtr<ID3DBlob> ps;
-    if (!CompileShader(kBasicMeshHlsl, "VSMain", "vs_5_0", vs)
-        || !CompileShader(kBasicMeshHlsl, "PSMain", "ps_5_0", ps))
+    if (!compileShaderFromContent("shaders/BasicMesh.hlsl", "VSMain", "vs_5_0", vs)
+        || !compileShaderFromContent("shaders/BasicMesh.hlsl", "PSMain", "ps_5_0", ps))
     {
         return false;
     }

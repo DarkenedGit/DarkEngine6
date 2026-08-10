@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<config>
+	<source_groups>
+		<source_group_de6-cdb-0001-dark-engine>
+			<name>DarkEngine6 (Compilation Database)</name>
+			<status>enabled</status>
+			<type>C/C++ from Compilation Database</type>
+			<build_file_path>
+				<!-- Prefer full DB from scripts/setup-sourcetrail.ps1.
+				     Switch to compile_commands.engine.json to skip gtest/imgui TUs. -->
+				<compilation_db_path>./compile_commands.json</compilation_db_path>
+			</build_file_path>
+			<!-- Index headers under these roots even when not listed as TUs. -->
+			<indexed_header_paths>
+				<indexed_header_path>./</indexed_header_path>
+			</indexed_header_paths>
+			<!-- Keep third-party / generated noise out of the graph. -->
+			<exclude_filters>
+				<exclude_filter>**/build/**</exclude_filter>
+				<exclude_filter>**/build-sourcetrail/**</exclude_filter>
+				<exclude_filter>**/_deps/**</exclude_filter>
+				<exclude_filter>**/third_party/**</exclude_filter>
+				<exclude_filter>**/imgui-src/**</exclude_filter>
+				<exclude_filter>**/imgui-build/**</exclude_filter>
+				<exclude_filter>**/googletest*/**</exclude_filter>
+				<exclude_filter>**/content/**</exclude_filter>
+			</exclude_filters>
+			<header_search_paths>
+				<header_search_path>./</header_search_path>
+				<header_search_path>./third_party</header_search_path>
+			</header_search_paths>
+			<compiler_flags>
+				<!-- Extra flags for Clang-based indexing of MSVC-oriented sources. -->
+				<compiler_flag>-std=c++20</compiler_flag>
+				<compiler_flag>-fms-extensions</compiler_flag>
+				<compiler_flag>-fms-compatibility</compiler_flag>
+				<compiler_flag>-DNOMINMAX</compiler_flag>
+				<compiler_flag>-DWIN32_LEAN_AND_MEAN</compiler_flag>
+				<compiler_flag>-DDE_ENABLE_ASSERTS=1</compiler_flag>
+			</compiler_flags>
+		</source_group_de6-cdb-0001-dark-engine>
+	</source_groups>
+	<version>8</version>
+</config>

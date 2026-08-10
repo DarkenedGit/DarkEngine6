@@ -7,17 +7,22 @@
 
 namespace Dark
 {
-namespace {
+namespace Geometry
+{
+
+namespace
+{
 
 void ThrowIfFailed(HRESULT hr, const char* what)
 {
-    if (FAILED(hr)) {
+    if (FAILED(hr))
+    {
         DE_LOG_ERROR("{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
         throw std::runtime_error(what);
     }
 }
 
-ComPtr<ID3D12Resource> CreateBuffer(ID3D12Device* device, uint64_t size, D3D12_HEAP_TYPE heapType, D3D12_RESOURCE_STATES initialState) 
+ComPtr<ID3D12Resource> CreateBuffer(ID3D12Device* device, uint64_t size, D3D12_HEAP_TYPE heapType, D3D12_RESOURCE_STATES initialState)
 {
     D3D12_HEAP_PROPERTIES heap{};
     heap.Type = heapType;
@@ -43,9 +48,9 @@ ComPtr<ID3D12Resource> CreateBuffer(ID3D12Device* device, uint64_t size, D3D12_H
 
 } // namespace
 
-Mesh Mesh::Create(Renderer& renderer, const MeshGen::MeshData& data) 
+Mesh Mesh::Create(Renderer& renderer, const MeshData& data)
 {
-    if (data.positions.empty() || data.indices.empty()) 
+    if (data.positions.empty() || data.indices.empty())
     {
         throw std::runtime_error("Mesh::Create: empty mesh data");
     }
@@ -54,9 +59,9 @@ Mesh Mesh::Create(Renderer& renderer, const MeshGen::MeshData& data)
         throw std::runtime_error("Mesh::Create: normals size mismatch");
     }
 
-    const size_t nVerts = data.positions.size();
+    const size_t            nVerts = data.positions.size();
     std::vector<MeshVertex> verts(nVerts);
-    for (size_t i = 0; i < nVerts; ++i) 
+    for (size_t i = 0; i < nVerts; ++i)
     {
         verts[i].px = data.positions[i].x;
         verts[i].py = data.positions[i].y;
@@ -64,19 +69,19 @@ Mesh Mesh::Create(Renderer& renderer, const MeshGen::MeshData& data)
         verts[i].nx = data.normals[i].x;
         verts[i].ny = data.normals[i].y;
         verts[i].nz = data.normals[i].z;
-        if (i < data.uvs.size()) 
+        if (i < data.uvs.size())
         {
             verts[i].u = data.uvs[i].x;
             verts[i].v = data.uvs[i].y;
-        } 
-        else 
+        }
+        else
         {
             verts[i].u = 0.0f;
             verts[i].v = 0.0f;
         }
     }
 
-    ID3D12Device* device = renderer.device();
+    ID3D12Device*  device  = renderer.device();
     const uint64_t vbBytes = verts.size() * sizeof(MeshVertex);
     const uint64_t ibBytes = data.indices.size() * sizeof(uint32_t);
 
@@ -106,7 +111,7 @@ Mesh Mesh::Create(Renderer& renderer, const MeshGen::MeshData& data)
     }
 
     // One-shot copy list so we don't disturb the frame-recording list.
-    ComPtr<ID3D12CommandAllocator> alloc;
+    ComPtr<ID3D12CommandAllocator>    alloc;
     ComPtr<ID3D12GraphicsCommandList> list;
     ThrowIfFailed(
         device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc)),
@@ -162,5 +167,5 @@ void Mesh::draw(ID3D12GraphicsCommandList* cmd) const
     cmd->IASetIndexBuffer(&m_ibv);
     cmd->DrawIndexedInstanced(m_indexCount, 1, 0, 0, 0);
 }
-
-} // namespace DE
+} // namespace Geometry
+} // namespace Dark

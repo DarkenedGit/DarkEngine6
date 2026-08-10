@@ -7,7 +7,7 @@ namespace Dark
 {
 	namespace Math
 	{
-		// Axis-aligned bounding box in 2D (min/max corners).
+		// Axis-aligned box in 2D (min/max corners).
 		class Aabb2f
 		{
 		public:
@@ -42,5 +42,8 @@ namespace Dark
 			void GetCorners(Vector2f outCorners[4]) const;
 			Sphere2f ToBoundingCircle() const;
 		};
+
+		// Historical alias used by some includes.
+		using AABox2f = Aabb2f;
 	}
 }

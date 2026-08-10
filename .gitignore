@@ -1,4 +1,12 @@
 build/
+build-sourcetrail/
+
+# Sourcetrail / clang tooling
+compile_commands.json
+compile_commands.engine.json
+*.srctrldb
+*.srctrldb-journal
+*.srctrlbm
 
 # Prerequisites
 *.d

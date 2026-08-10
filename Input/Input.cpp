@@ -126,7 +126,9 @@ void Input::onMouseMove(int x, int y)
     if (m_mousePosValid)
     {
         m_mouseDeltaX += x - m_mouseX;
-        m_mouseDeltaY += y - m_mouseY;
+        // Invert vertical delta: screen Y grows downward; look code expects
+        // mouse-up to be the opposite sign of raw Windows delta.
+        m_mouseDeltaY += m_mouseY - y;
     }
     m_mouseX = x;
     m_mouseY = y;

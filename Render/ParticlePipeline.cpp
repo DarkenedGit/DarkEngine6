@@ -1,8 +1,8 @@
 #include "Render/ParticlePipeline.h"
+#include "Render/ShaderCompile.h"
 #include "Core/Log.h"
 
 #include <d3dcompiler.h>
-#include <cstring>
 
 namespace Dark
 {
@@ -13,64 +13,6 @@ bool FailedHr(HRESULT hr, const char* what)
     if (SUCCEEDED(hr))
         return false;
     DE_LOG_ERROR("{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
-    return true;
-}
-
-static const char kParticleHlsl[] = R"HLSL(
-#pragma pack_matrix(row_major)
-
-cbuffer FrameConstants : register(b0)
-{
-    float4x4 viewProj;
-};
-
-Texture2D    gSprite : register(t0);
-SamplerState gSamp   : register(s0);
-
-struct VSInput
-{
-    float3 position : POSITION;
-    float2 uv       : TEXCOORD0;
-    float4 color    : COLOR0;
-};
-
-struct PSInput
-{
-    float4 position : SV_POSITION;
-    float2 uv       : TEXCOORD0;
-    float4 color    : COLOR0;
-};
-
-PSInput VSMain(VSInput input)
-{
-    PSInput o;
-    o.position = mul(float4(input.position, 1.0f), viewProj);
-    o.uv       = input.uv;
-    o.color    = input.color;
-    return o;
-}
-
-float4 PSMain(PSInput input) : SV_TARGET
-{
-    float4 tex = gSprite.Sample(gSamp, input.uv);
-    return tex * input.color;
-}
-)HLSL";
-
-bool CompileShader(const char* src, const char* entry, const char* target, ComPtr<ID3DBlob>& out)
-{
-    ComPtr<ID3DBlob> errors;
-    UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
-#if defined(_DEBUG)
-    flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
-#endif
-    HRESULT hr = D3DCompile(src, strlen(src), "Particle.hlsl", nullptr, nullptr, entry, target, flags, 0, &out, &errors);
-    if (FAILED(hr))
-    {
-        const char* msg = errors ? static_cast<const char*>(errors->GetBufferPointer()) : "unknown";
-        DE_LOG_ERROR("Particle shader compile failed ({}): {}", entry, msg);
-        return false;
-    }
     return true;
 }
 
@@ -127,7 +69,8 @@ bool ParticlePipeline::create(ID3D12Device* device, bool additive)
         return false;
 
     ComPtr<ID3DBlob> vs, ps;
-    if (!CompileShader(kParticleHlsl, "VSMain", "vs_5_0", vs) || !CompileShader(kParticleHlsl, "PSMain", "ps_5_0", ps))
+    if (!compileShaderFromContent("shaders/Particle.hlsl", "VSMain", "vs_5_0", vs)
+        || !compileShaderFromContent("shaders/Particle.hlsl", "PSMain", "ps_5_0", ps))
         return false;
 
     D3D12_INPUT_ELEMENT_DESC layout[] = {

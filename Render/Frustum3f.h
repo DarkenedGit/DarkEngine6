@@ -4,7 +4,7 @@
 #include "Math/Plane4f.h"
 #include "Math/Vector3f.h"
 #include "Math/Sphere3f.h"
-#include "Math/Aabb3f.h"
+#include "Math/AABox3f.h"
 #include "Math/Box3f.h"
 #include "Math/Matrix4f.h"
 

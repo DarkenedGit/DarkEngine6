@@ -7,7 +7,7 @@
 #include "Geometry/MeshGen.h"
 #include "Input/InputCodes.h"
 #include "Collision/StaticCollision.h"
-#include "Math/Aabb3f.h"
+#include "Math/AABox3f.h"
 #include "Math/Matrix4f.h"
 #include "Math/Quaternion.h"
 #include "Math/Vector3f.h"
@@ -22,6 +22,7 @@
 
 using namespace Dark;
 using namespace Math;
+using namespace Geometry;
 
 namespace {
 
@@ -250,10 +251,10 @@ void EditorApp::onInit()
         DE_LOG_WARN("EditorApp: ImGui init failed — particle UI disabled");
     }
 
-    m_cubeMesh   = Mesh::Create(renderer(), MeshGen::CreateCube(1.0f));
-    m_sphereMesh = Mesh::Create(renderer(), MeshGen::CreateSphere(0.5f, 16, 24));
-    m_groundMesh = Mesh::Create(renderer(), MeshGen::CreateGroundPlane(40.0f, 0.0f, 10.0f));
-    m_gridMesh   = LineMesh::Create(renderer(), MeshGen::CreateGridLines(20.0f, 40, 0.01f));
+    m_cubeMesh   = Mesh::Create(renderer(), CreateCube(1.0f));
+    m_sphereMesh = Mesh::Create(renderer(), CreateSphere(0.5f, 16, 24));
+    m_groundMesh = Mesh::Create(renderer(), CreateGroundPlane(40.0f, 0.0f, 10.0f));
+    m_gridMesh   = LineMesh::Create(renderer(), CreateGridLines(20.0f, 40, 0.01f));
 
     m_propMaterial = std::make_shared<Material>();
     if (!m_propMaterial->createFromAlbedoPath(renderer(), assets(), "textures/dark_engine_cube.png", 80, 160, 220))

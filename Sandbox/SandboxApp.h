@@ -22,9 +22,9 @@ private:
     Dark::Entity m_camera;
     Dark::Entity m_cube;
 
-    Dark::Mesh         m_cubeMesh;
-    Dark::MeshPipeline m_meshPipeline;
-    Dark::Camera3D     m_viewCamera;
+    Dark::Geometry::Mesh    m_cubeMesh;
+    Dark::MeshPipeline      m_meshPipeline;
+    Dark::Camera3D          m_viewCamera;
 
     Dark::AssetRef<Dark::Material> m_cubeMaterial;
 

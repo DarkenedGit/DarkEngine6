@@ -11,28 +11,31 @@ namespace Dark
 
 class Renderer;
 
-using Microsoft::WRL::ComPtr;
-
-// GPU line-list mesh (positions only) for grids / debug draw.
-class LineMesh
+namespace Geometry
 {
-public:
-    LineMesh() = default;
 
-    static LineMesh Create(Renderer& renderer, const MeshGen::LineMeshData& data);
+    using Microsoft::WRL::ComPtr;
 
-    void draw(ID3D12GraphicsCommandList* cmd) const;
+    // GPU line-list mesh (positions only) for grids / debug draw.
+    class LineMesh
+    {
+    public:
+        LineMesh() = default;
 
-    bool     valid()      const { return m_vb != nullptr && m_indexCount > 0; }
-    uint32_t indexCount() const { return m_indexCount; }
+        static LineMesh Create(Renderer& renderer, const LineMeshData& data);
 
-private:
-    ComPtr<ID3D12Resource>   m_vb;
-    ComPtr<ID3D12Resource>   m_ib;
-    D3D12_VERTEX_BUFFER_VIEW m_vbv{};
-    D3D12_INDEX_BUFFER_VIEW  m_ibv{};
-    uint32_t                 m_indexCount  = 0;
-    uint32_t                 m_vertexCount = 0;
-};
+        void draw(ID3D12GraphicsCommandList* cmd) const;
 
+        bool     valid() const { return m_vb != nullptr && m_indexCount > 0; }
+        uint32_t indexCount() const { return m_indexCount; }
+
+    private:
+        ComPtr<ID3D12Resource>   m_vb;
+        ComPtr<ID3D12Resource>   m_ib;
+        D3D12_VERTEX_BUFFER_VIEW m_vbv{};
+        D3D12_INDEX_BUFFER_VIEW  m_ibv{};
+        uint32_t                 m_indexCount  = 0;
+        uint32_t                 m_vertexCount = 0;
+    };
+} // namespace Geometry
 } // namespace Dark

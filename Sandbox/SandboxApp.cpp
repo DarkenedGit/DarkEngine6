@@ -15,6 +15,7 @@
 
 using namespace Dark;
 using namespace Math;
+using namespace Geometry;
 
 void mountContentRoots(AssetManager& assets)
 {
@@ -184,7 +185,7 @@ void SandboxApp::onInit()
         return;
     }
 
-    const MeshGen::MeshData cubeData = MeshGen::CreateCube(1.0f);
+    const MeshData cubeData = CreateCube(1.0f);
     m_cubeMesh                       = Mesh::Create(renderer(), cubeData);
 
     m_cubeMaterial = std::make_shared<Material>();

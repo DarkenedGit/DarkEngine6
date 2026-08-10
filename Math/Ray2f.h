@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Vector2f.h"
-#include "Aabb2f.h"
+#include "AABox2f.h"
 #include "Sphere2f.h"
 
 namespace Dark
@@ -21,7 +21,7 @@ namespace Dark
 
 			// Returns true and sets t (distance along ray) on hit. t >= 0.
 			bool IntersectCircle(const Sphere2f& circle, float& t) const;
-			bool IntersectAabb(const Aabb2f& box, float& tMin, float& tMax) const;
+            bool IntersectAabb(const AABox2f& box, float& tMin, float& tMax) const;
 		};
 	}
 }
