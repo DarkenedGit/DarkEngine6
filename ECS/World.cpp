@@ -4,22 +4,22 @@ namespace Dark
 {
     World::World() = default;
 
-    Entity World::createEntity() 
+    Entity World::createEntity()
     {
         EntityID id;
-        if (!m_free.empty()) 
+        if (!m_free.empty())
         {
             id = m_free.back();
             m_free.pop_back();
         }
-        else 
+        else
         {
             id = m_nextID++;
         }
-        return Entity{id};
+        return Entity{ id };
     }
 
-    void World::destroyEntity(Entity e) 
+    void World::destroyEntity(Entity e)
     {
         // Remove all components from every pool
         for (auto& [cid, pool] : m_pools)
@@ -28,10 +28,10 @@ namespace Dark
         m_free.push_back(e.id());
     }
 
-    bool World::alive(Entity e) const 
+    bool World::alive(Entity e) const
     {
         // An entity is alive if its id is in range and not in the free list
-        if (!e.valid() || e.id() >= m_nextID) 
+        if (!e.valid() || e.id() >= m_nextID)
             return false;
         for (const auto& fid : m_free)
         {

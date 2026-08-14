@@ -5,9 +5,14 @@
 #include "Core/Paths.h"
 #include "Geometry/MeshGen.h"
 #include "Input/InputCodes.h"
+#include "Math/MathHelper.h"
 #include "Math/Matrix4f.h"
 #include "Math/Quaternion.h"
+#include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
+#include "Render/Frustum3f.h"
+#include "Terrain/SplatMap.h"
+#include "Water/WaterWaves.h"
 
 #include <cstring>
 #include <filesystem>
@@ -16,6 +21,7 @@
 using namespace Dark;
 using namespace Math;
 using namespace Geometry;
+using namespace Terrain;
 
 void mountContentRoots(AssetManager& assets)
 {
@@ -103,9 +109,25 @@ void SandboxApp::registerDefaultActions()
     a.bindButtonAsAxis("pitch", GamepadButton::DPadUp, 1.0f);
     a.bindButtonAsAxis("pitch", GamepadButton::DPadDown, -1.0f);
 
+    a.bindKeyAsAxis("fly_forward", Key::I, 1.0f);
+    a.bindKeyAsAxis("fly_forward", Key::K, -1.0f);
+    a.bindKeyAsAxis("fly_strafe", Key::J, -1.0f);
+    a.bindKeyAsAxis("fly_strafe", Key::L, 1.0f);
+    a.bindKeyAsAxis("fly_climb", Key::U, 1.0f);
+    a.bindKeyAsAxis("fly_climb", Key::O, -1.0f);
+
+    a.bindKey("time_back", Key::LeftBracket);
+    a.bindKey("time_fwd", Key::RightBracket);
+    a.bindKey("time_toggle", Key::Digit0);
+    a.bindKey("weather_clear", Key::Digit1);
+    a.bindKey("weather_partly", Key::Digit2);
+    a.bindKey("weather_overcast", Key::Digit3);
+    a.bindKey("weather_storm", Key::Digit4);
+
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(Space/A) reset(R/Y) speed(+/- / shoulders) "
-        "yaw(A/D / stick X) pitch(W/S / stick Y)");
+        "yaw(A/D / stick X) pitch(W/S / stick Y) "
+        "fly(IJKL U/O, RMB look) time([/]) flow(0) weather(1-4)");
 }
 
 void SandboxApp::handleRuntimeCommands(float dt)
@@ -132,6 +154,52 @@ void SandboxApp::handleRuntimeCommands(float dt)
         DE_LOG_INFO("Command: reset cube");
     }
 
+    if (input().actionPressed("time_back"))
+    {
+        m_env.timeOfDay -= 0.75f;
+        if (m_env.timeOfDay < 0.0f)
+            m_env.timeOfDay += 24.0f;
+        m_env.evaluate();
+        DE_LOG_INFO("Sky: time {:.2f}h  elev {:.1f} deg", m_env.timeOfDay, m_env.sunElevation() * 57.2958f);
+    }
+    if (input().actionPressed("time_fwd"))
+    {
+        m_env.timeOfDay += 0.75f;
+        if (m_env.timeOfDay >= 24.0f)
+            m_env.timeOfDay -= 24.0f;
+        m_env.evaluate();
+        DE_LOG_INFO("Sky: time {:.2f}h  elev {:.1f} deg", m_env.timeOfDay, m_env.sunElevation() * 57.2958f);
+    }
+    if (input().actionPressed("time_toggle"))
+    {
+        m_env.timeScale = (m_env.timeScale == 0.0f) ? 0.35f : 0.0f;
+        DE_LOG_INFO("Sky: time scale = {:.2f} h/s", m_env.timeScale);
+    }
+    if (input().actionPressed("weather_clear"))
+    {
+        m_env.weather = Sky::WeatherState::Clear();
+        m_env.evaluate();
+        DE_LOG_INFO("Sky: weather clear");
+    }
+    if (input().actionPressed("weather_partly"))
+    {
+        m_env.weather = Sky::WeatherState::PartlyCloudy();
+        m_env.evaluate();
+        DE_LOG_INFO("Sky: weather partly cloudy");
+    }
+    if (input().actionPressed("weather_overcast"))
+    {
+        m_env.weather = Sky::WeatherState::Overcast();
+        m_env.evaluate();
+        DE_LOG_INFO("Sky: weather overcast");
+    }
+    if (input().actionPressed("weather_storm"))
+    {
+        m_env.weather = Sky::WeatherState::Storm();
+        m_env.evaluate();
+        DE_LOG_INFO("Sky: weather storm");
+    }
+
     if (input().actionPressed("speed_up"))
     {
         m_spinSpeed += 0.2f;
@@ -147,6 +215,8 @@ void SandboxApp::handleRuntimeCommands(float dt)
             m_spinSpeed = 0.0f;
         DE_LOG_INFO("Command: spin speed = {:.2f}", m_spinSpeed);
     }
+
+    updateFlyCamera(dt);
 
     // Continuous axes
     const float yawCmd   = input().actionAxis("yaw");
@@ -169,6 +239,56 @@ void SandboxApp::handleRuntimeCommands(float dt)
             xf->rotation = spin * xf->rotation;
             xf->rotation.Normalize();
         }
+
+        xf->position.y = m_terrain.heightAtWorld(xf->position.x, xf->position.z) + 0.5f;
+    }
+}
+
+void SandboxApp::updateFlyCamera(float dt)
+{
+    const float forward = input().actionAxis("fly_forward");
+    const float strafe  = input().actionAxis("fly_strafe");
+    const float climb   = input().actionAxis("fly_climb");
+    const float speed   = input().keyDown(Key::LeftShift) ? 48.0f : 18.0f;
+
+    if (forward != 0.0f)
+        m_viewCamera.Walk(forward * speed * dt);
+    if (strafe != 0.0f)
+        m_viewCamera.Strafe(strafe * speed * dt);
+    if (climb != 0.0f)
+        m_viewCamera.Climb(climb * speed * dt);
+
+    if (input().mouseDown(MouseButton::Right))
+    {
+        const float sens = 0.0045f;
+        m_viewCamera.RotateY(static_cast<float>(input().mouseDeltaX()) * sens);
+        m_viewCamera.Pitch(static_cast<float>(input().mouseDeltaY()) * -sens);
+    }
+
+    if (auto* xf = world().get<TransformComponent>(m_camera))
+        xf->position = m_viewCamera.GetPosition();
+}
+
+void SandboxApp::syncTerrainLod()
+{
+    m_terrain.updateLod(m_viewCamera.GetPosition());
+    const bool terrainDirty = m_terrain.needsRebuild();
+    const bool waterDirty   = m_water.needsRebuild();
+    if (!terrainDirty && !waterDirty)
+        return;
+
+    renderer().waitForGpu();
+    if (terrainDirty)
+    {
+        m_terrain.rebuildDirtyCpuMeshes();
+        if (!m_terrain.uploadDirty(renderer()))
+            DE_LOG_ERROR("SandboxApp: terrain upload failed");
+    }
+    if (waterDirty)
+    {
+        m_water.rebuildDirtyCpuMeshes();
+        if (!m_water.uploadDirty(renderer()))
+            DE_LOG_ERROR("SandboxApp: water upload failed");
     }
 }
 
@@ -183,6 +303,98 @@ void SandboxApp::onInit()
     {
         DE_LOG_FATAL("SandboxApp: MeshPipeline create failed");
         return;
+    }
+    if (!m_terrainPipeline.create(renderer().device()))
+    {
+        DE_LOG_FATAL("SandboxApp: TerrainPipeline create failed");
+        return;
+    }
+    if (!m_waterPipeline.create(renderer().device()))
+    {
+        DE_LOG_FATAL("SandboxApp: WaterPipeline create failed");
+        return;
+    }
+    if (!m_skyPipeline.create(renderer().device()))
+    {
+        DE_LOG_FATAL("SandboxApp: SkyPipeline create failed");
+        return;
+    }
+
+    m_env.timeOfDay = 16.2f;
+    m_env.weather   = Sky::WeatherState::PartlyCloudy();
+    m_env.evaluate();
+
+    {
+        Terrain::TerrainDesc terrainDesc;
+        terrainDesc.chunkCells       = 16;
+        terrainDesc.lodDistanceCount = 5;
+        terrainDesc.lodDistances[0]  = 40.0f;
+        terrainDesc.lodDistances[1]  = 80.0f;
+        terrainDesc.lodDistances[2]  = 160.0f;
+        terrainDesc.lodDistances[3]  = 320.0f;
+        terrainDesc.lodDistances[4]  = 640.0f;
+
+        HeightMap base;
+        HeightMap detail;
+        if (!base.createFbm(129, 129, 1337u, 6, 3.5f, 1.0f, 2.1f, 0.48f, 2.0f, 22.0f)
+            || !detail.createFbm(129, 129, 9001u, 3, 18.0f, 0.12f, 2.0f, 0.5f, 2.0f, 22.0f)
+            || !base.addLayer(detail, 1.0f))
+        {
+            DE_LOG_FATAL("SandboxApp: height map create failed");
+            return;
+        }
+        const float extent = 128.0f * 2.0f;
+        base.setOrigin(Vector3f{ -0.5f * extent, 0.0f, -0.5f * extent });
+        terrainDesc.heightMap = std::move(base);
+
+        Terrain::SplatMap splat;
+        if (!splat.generateFromHeight(terrainDesc.heightMap))
+        {
+            DE_LOG_FATAL("SandboxApp: splat generate failed");
+            return;
+        }
+        if (!m_terrain.create(std::move(terrainDesc)))
+        {
+            DE_LOG_FATAL("SandboxApp: terrain create failed");
+            return;
+        }
+        if (!m_terrainMaterial.createDefault(renderer(), splat))
+        {
+            DE_LOG_FATAL("SandboxApp: terrain material create failed");
+            return;
+        }
+        m_terrain.updateLod(Vector3f{ 0.0f, 50.0f, -80.0f });
+        if (!m_terrain.createGpu(renderer()))
+        {
+            DE_LOG_FATAL("SandboxApp: terrain GPU upload failed");
+            return;
+        }
+
+        const Aabb3f terrainBox = m_terrain.bounds();
+        const float waterLevel = Lerp(terrainBox.Min.y, terrainBox.Max.y, 0.38f);
+        Water::WaterDesc waterDesc;
+        waterDesc.chunkCells       = 16;
+        waterDesc.waterLevel       = waterLevel;
+        waterDesc.lodDistanceCount = 5;
+        waterDesc.lodDistances[0]  = 40.0f;
+        waterDesc.lodDistances[1]  = 80.0f;
+        waterDesc.lodDistances[2]  = 160.0f;
+        waterDesc.lodDistances[3]  = 320.0f;
+        waterDesc.lodDistances[4]  = 640.0f;
+        waterDesc.params           = Water::defaultWaterParams(waterLevel);
+        waterDesc.params.flowDir   = Vector2f(1.0f, 0.35f);
+        if (!m_water.create(m_terrain.heightMap(), waterDesc))
+        {
+            DE_LOG_FATAL("SandboxApp: water create failed");
+            return;
+        }
+        m_water.updateLod(Vector3f{ 0.0f, 50.0f, -80.0f });
+        if (!m_water.createGpu(renderer()))
+        {
+            DE_LOG_FATAL("SandboxApp: water GPU upload failed");
+            return;
+        }
+        DE_LOG_INFO("SandboxApp: water level {:.2f}, {} wet chunks", waterLevel, m_water.wetChunkCount());
     }
 
     const MeshData cubeData = CreateCube(1.0f);
@@ -209,35 +421,42 @@ void SandboxApp::onInit()
     const float aspect = (renderer().height() > 0)
         ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height())
         : 1.0f;
-    m_viewCamera.SetLens(/*fovY*/ 1.04719755f /*60deg*/, aspect, 0.1f, 1000.0f);
-    m_viewCamera.LookAt(Vector3f(2.5f, 2.0f, -4.0f), Vector3f(0.0f, 0.0f, 0.0f), Vector3f(0.0f, 1.0f, 0.0f));
+    m_viewCamera.SetLens(/*fovY*/ 1.04719755f /*60deg*/, aspect, 0.5f, 2000.0f);
+    m_viewCamera.LookAt(Vector3f(0.0f, 48.0f, -86.0f), Vector3f(0.0f, 8.0f, 0.0f), Vector3f(0.0f, 1.0f, 0.0f));
 
     m_camera = world().createEntity();
     world().emplace<TagComponent>(m_camera, "Main Camera");
-    world().emplace<TransformComponent>(m_camera, Vector3f{ 2.5f, 2.0f, -4.0f }, Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
-    world().emplace<CameraComponent>(m_camera, /* fovDeg */ 60.0f, /* near */ 0.1f, /* far */ 1000.0f, /* primary */ true);
+    world().emplace<TransformComponent>(m_camera, m_viewCamera.GetPosition(), Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
+    world().emplace<CameraComponent>(m_camera, /* fovDeg */ 60.0f, /* near */ 0.5f, /* far */ 2000.0f, /* primary */ true);
 
+    const float groundY = m_terrain.heightAtWorld(0.0f, 0.0f) + 0.5f;
     m_cube = world().createEntity();
     world().emplace<TagComponent>(m_cube, "Cube");
-    world().emplace<TransformComponent>(m_cube);
+    world().emplace<TransformComponent>(m_cube, Vector3f{ 0.0f, groundY, 0.0f }, Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
     auto& meshComp       = world().emplace<MeshComponent>(m_cube);
     meshComp.meshAssetID = NULL_ASSET;
     meshComp.matAssetID  = matId;
     meshComp.castShadow  = true;
 
     DE_LOG_INFO(
-        "SandboxApp: cube mesh {} verts / {} indices, aspect {:.3f}, material id={}, albedo {}x{}",
+        "SandboxApp: cube mesh {} verts / {} indices, aspect {:.3f}, material id={}, albedo {}x{}, terrain {}x{} chunks",
         m_cubeMesh.vertexCount(),
         m_cubeMesh.indexCount(),
         aspect,
         matId,
         m_cubeMaterial->albedo().width(),
-        m_cubeMaterial->albedo().height());
+        m_cubeMaterial->albedo().height(),
+        m_terrain.chunksX(),
+        m_terrain.chunksZ());
 }
 
 void SandboxApp::onUpdate(float dt)
 {
     handleRuntimeCommands(dt);
+    m_env.tick(dt);
+    m_water.tick(dt);
+    m_water.updateLod(m_viewCamera.GetPosition());
+    syncTerrainLod();
 }
 
 void SandboxApp::onRender()
@@ -245,6 +464,11 @@ void SandboxApp::onRender()
     renderer().beginFrame();
 
     auto* cmd = renderer().commandList();
+
+    const Frustum3f frustum(m_viewCamera.GetViewProj());
+    m_skyPipeline.draw(cmd, m_viewCamera, m_env);
+    m_terrain.draw(cmd, m_terrainPipeline, m_terrainMaterial, m_viewCamera, &frustum, &m_env);
+
     m_meshPipeline.bind(cmd);
 
     AssetRef<Material> material;
@@ -278,16 +502,22 @@ void SandboxApp::onRender()
         cb.color[3] = 1.0f;
     }
 
-    cb.lightDirWS[0] = 0.4f;
-    cb.lightDirWS[1] = 0.8f;
-    cb.lightDirWS[2] = -0.3f;
-    cb.pad0          = 0.0f;
+    cb.lightDirWS[0]   = m_env.lightDir().x;
+    cb.lightDirWS[1]   = m_env.lightDir().y;
+    cb.lightDirWS[2]   = m_env.lightDir().z;
+    cb.ambientScale    = 0.22f;
+    cb.lightColor[0]   = m_env.lightColor().x;
+    cb.lightColor[1]   = m_env.lightColor().y;
+    cb.lightColor[2]   = m_env.lightColor().z;
 
     m_meshPipeline.setConstants(cmd, cb);
     m_cubeMesh.draw(cmd);
 
-    renderer().stats().drawCalls = 1;
-    renderer().stats().triangles = m_cubeMesh.indexCount() / 3;
+    m_water.draw(cmd, m_waterPipeline, m_viewCamera, &frustum, &m_env);
+
+    renderer().stats().drawCalls = m_terrain.lastDrawCalls() + m_water.lastDrawCalls() + 2;
+    renderer().stats().triangles =
+        m_terrain.lastTriangles() + m_water.lastTriangles() + m_cubeMesh.indexCount() / 3;
 
     renderer().endFrame();
 }
@@ -298,5 +528,8 @@ void SandboxApp::onShutdown()
     if (m_cubeMaterial)
         assets().unload(m_cubeMaterial->id);
     m_cubeMaterial.reset();
+    m_water = Water::WaterWorld{};
+    m_terrainMaterial = TerrainMaterial{};
+    m_terrain = Terrain::TerrainWorld{};
     DE_LOG_INFO("SandboxApp: shutdown");
 }

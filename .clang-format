@@ -1,5 +1,4 @@
 # DarkEngine6 clang-format style
-# Tuned to match Render/Renderer.cpp (Allman braces, 4-space indent, aligned assigns).
 
 BasedOnStyle: LLVM
 Language: Cpp
@@ -9,19 +8,18 @@ IndentWidth: 4
 TabWidth: 4
 UseTab: Never
 AccessModifierOffset: -4
-NamespaceIndentation: None
+NamespaceIndentation: All
 IndentCaseLabels: false
 KeepEmptyLinesAtTheStartOfBlocks: false
 MaxEmptyLinesToKeep: 1
 
 # --- Line length ---
-# 0 = no hard wrap (matches long D3D12 call sites in Renderer.cpp)
-ColumnLimit: 0
+ColumnLimit: 200
 
 # --- Braces (Allman: opening brace on its own line for fn / if / for / class / namespace) ---
 BreakBeforeBraces: Allman
 AllowShortBlocksOnASingleLine: Empty
-AllowShortFunctionsOnASingleLine: Inline
+AllowShortFunctionsOnASingleLine: Empty
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
 AllowShortCaseLabelsOnASingleLine: false
@@ -49,9 +47,9 @@ SortIncludes: false
 IncludeBlocks: Preserve
 
 # --- Constructors / templates / packing ---
-BreakConstructorInitializers: BeforeColon
+BreakConstructorInitializers: AfterColon
 PackConstructorInitializers: Never
-AlwaysBreakTemplateDeclarations: Yes
+AlwaysBreakTemplateDeclarations: No
 BinPackArguments: true
 BinPackParameters: true
 AllowAllParametersOfDeclarationOnNextLine: true

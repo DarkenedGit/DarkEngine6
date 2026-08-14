@@ -11,9 +11,9 @@ namespace Dark
 {
     // ─── Transform ───────────────────────────────────────────────────────────────
 
-    struct TransformComponent 
+    struct TransformComponent
     {
-        Math::Vector3f   position{ 0, 0, 0};
+        Math::Vector3f   position{ 0, 0, 0 };
         Math::Quaternion rotation{ 1, 0, 0, 0 };
         Math::Vector3f   scale{ 1, 1, 1 };
     };
@@ -30,24 +30,24 @@ namespace Dark
     struct MeshComponent
     {
         // AssetManager ids (0 = none / use procedural or unbound resources).
-        AssetID  meshAssetID = NULL_ASSET;
-        AssetID  matAssetID  = NULL_ASSET;
-        bool     castShadow  = true;
+        AssetID meshAssetID = NULL_ASSET;
+        AssetID matAssetID  = NULL_ASSET;
+        bool    castShadow  = true;
     };
 
     // ─── Camera ──────────────────────────────────────────────────────────────────
 
-    struct CameraComponent 
+    struct CameraComponent
     {
-        float fovDeg    = 60.0f;
-        float nearZ     = 0.01f;
-        float farZ      = 1000.0f;
-        bool  primary   = false;
+        float fovDeg  = 60.0f;
+        float nearZ   = 0.01f;
+        float farZ    = 1000.0f;
+        bool  primary = false;
     };
 
     // ─── Directional light ───────────────────────────────────────────────────────
 
-    struct DirectionalLightComponent 
+    struct DirectionalLightComponent
     {
         Math::Vector3f color     = { 1, 1, 1 };
         float          intensity = 1.0f;

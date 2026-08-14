@@ -5,14 +5,14 @@
 class Character
 {
     //Physical
-    Body        mBody;
-    BodyStatus  mBodyStatus;
+    Body       mBody;
+    BodyStatus mBodyStatus;
 
     //Not part of body as items can effect.
-    float   mClimbSpeed;
-    float   mVerticality;  // How high can normally jump;
-    float   mRunSpeed;
-    float   mSprintSpeed;
+    float mClimbSpeed;
+    float mVerticality; // How high can normally jump;
+    float mRunSpeed;
+    float mSprintSpeed;
 
     //Skills
     std::vector<Language> mLanguages;

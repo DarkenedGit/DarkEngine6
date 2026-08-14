@@ -3,9 +3,9 @@ struct Eye
 {
     float mDist;
     float mAngleOfRotation; //How much eyes can rotate before you have to turn head.
-    float mReactionTime; //Time to focus on item, maybe never if its a lazy eye?
-    float mFOVCentral;   //High detail vision;
-    float mFOVPeripheral;//Motion detection vision;
+    float mReactionTime;    //Time to focus on item, maybe never if its a lazy eye?
+    float mFOVCentral;      //High detail vision;
+    float mFOVPeripheral;   //Motion detection vision;
 };
 
 struct Sight
@@ -38,10 +38,9 @@ struct Hearing
     float mMinFrequency;
     float mMaxFrequency;
 
-    float mAuditoryFatigue;   //Can't hear after concusion
-    bool  mAuditoryClipping;  //Ringing in ears after concusion 
+    float mAuditoryFatigue;  //Can't hear after concusion
+    bool  mAuditoryClipping; //Ringing in ears after concusion
 };
-
 
 struct Mouth
 {
@@ -59,7 +58,6 @@ struct OralSkills
     float mBite;
 };
 
-
 struct Brain
 {
     float mIQ;
@@ -71,7 +69,6 @@ struct CognitiveFitness
     float mReaction;
     float mConscious;
 };
-
 
 struct Skull
 {
@@ -106,32 +103,32 @@ struct SkinStatus
 
 struct HumanHead
 {
-    Eye         mEyes[2];
-    Sight       mSight;
+    Eye   mEyes[2];
+    Sight mSight;
 
-    Ear         mEars[2];
-    Hearing     mHearing;
+    Ear     mEars[2];
+    Hearing mHearing;
 
-    Mouth       mMouth;
-    OralSkills  mOral;
+    Mouth      mMouth;
+    OralSkills mOral;
 
-    Brain       mBrain;
+    Brain            mBrain;
     CognitiveFitness mCognitive;
 
-    Skull       mSkull;
-    SkullState  mSkullStatus;
-    
-    HeadSkin    mFaceSkin;
-    SkinStatus  mSkinStatus;
+    Skull      mSkull;
+    SkullState mSkullStatus;
+
+    HeadSkin   mFaceSkin;
+    SkinStatus mSkinStatus;
 };
 
 struct HeadStatus
 {
-    float mStroke;      //Part of your brain is damaged, lost memories, lost motor control
-    float mConcusion;   //You temperarially have no recall
+    float mStroke;        //Part of your brain is damaged, lost memories, lost motor control
+    float mConcusion;     //You temperarially have no recall
     float mDisorientated; //Your senses are delayed and often not right.
-    float mDeaf;    //You can not hear
-    float mBlind;   //You can not see
-    float mUgly;    //No one wants to look at you.
-    float mGrating; //No one wants to listen too.
+    float mDeaf;          //You can not hear
+    float mBlind;         //You can not see
+    float mUgly;          //No one wants to look at you.
+    float mGrating;       //No one wants to listen too.
 };

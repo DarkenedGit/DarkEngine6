@@ -834,6 +834,10 @@ void EditorApp::onRender()
         cbData.lightDirWS[0] = 0.35f;
         cbData.lightDirWS[1] = 0.85f;
         cbData.lightDirWS[2] = -0.35f;
+        cbData.ambientScale  = 0.22f;
+        cbData.lightColor[0] = 1.0f;
+        cbData.lightColor[1] = 0.96f;
+        cbData.lightColor[2] = 0.88f;
         m_meshPipeline.setConstants(cmd, cbData);
         mesh.draw(cmd);
     };

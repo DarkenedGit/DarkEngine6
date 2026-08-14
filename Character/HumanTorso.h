@@ -11,7 +11,7 @@ struct Lungs
     float mCapasity;
     float mConversion;
     float mRatePerMin;
-    float mPressure;  // From Diaphram
+    float mPressure; // From Diaphram
     float mInfection;
 };
 
@@ -45,7 +45,7 @@ struct Spine
 
 struct HumanTorso
 {
-    Ribs mRibs;
+    Ribs  mRibs;
     float mProtection;
 
     Lungs mLungs;
@@ -55,20 +55,20 @@ struct HumanTorso
     float mHypotension;
 
     Stomach mStomach;
-    float mStarvation;
+    float   mStarvation;
 
     Spine mSpine;
-    float  mBackPain;
-    float  mParalization;
+    float mBackPain;
+    float mParalization;
 };
 
 struct TorsoStatus
 {
-    float  mBackPain;
-    float  mSholderPain;
-    float  mUpperParalization;
-    float  mLowerParalization;
-    float  mBreathingPain;
-    float  mStomachPain;
-    float  mLungAsphyxiation;
+    float mBackPain;
+    float mSholderPain;
+    float mUpperParalization;
+    float mLowerParalization;
+    float mBreathingPain;
+    float mStomachPain;
+    float mLungAsphyxiation;
 };

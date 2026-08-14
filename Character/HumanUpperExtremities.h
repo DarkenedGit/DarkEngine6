@@ -6,9 +6,9 @@ struct Arm
     float mSpeed;
     float mMotionRange;
 
-    float  mBoneDamage;
-    float  mMuscleDamage;
-    float  mJointDamage;
+    float mBoneDamage;
+    float mMuscleDamage;
+    float mJointDamage;
 };
 
 struct Hand
@@ -22,7 +22,7 @@ struct Hand
 
 struct HumanUpperExtremities
 {
-    Arm mArms[2];
+    Arm  mArms[2];
     Hand mHands[2];
     // Status effects on the above.
 };

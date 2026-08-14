@@ -10,14 +10,13 @@ namespace Dark
 
     // Process-wide counter so each component *type* gets a unique pool id.
     // (A per-template static counter would restart at 0 for every T and alias all pools.)
-    inline ComponentID allocateComponentID() 
+    inline ComponentID allocateComponentID()
     {
         static ComponentID counter = 0;
         return counter++;
     }
 
-    template<typename T>
-    ComponentID componentID() 
+    template <typename T> ComponentID componentID()
     {
         static const ComponentID id = allocateComponentID();
         return id;

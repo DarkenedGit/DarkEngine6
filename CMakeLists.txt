@@ -47,6 +47,9 @@ set(DE_ENGINE_FOLDERS
     Particles
     Render
     Shaders
+    Sky
+    Terrain
+    Water
 )
 
 set(DE_ENGINE_SOURCES "")

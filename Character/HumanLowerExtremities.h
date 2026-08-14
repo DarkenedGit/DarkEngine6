@@ -8,8 +8,8 @@ struct Posterior
 
 struct Hips
 {
-    float   mStrength;
-    float   mRangeOfMotion;
+    float mStrength;
+    float mRangeOfMotion;
 };
 
 struct Genital
@@ -22,13 +22,12 @@ struct Genital
 
 struct Pelvis
 {
-    Posterior   mArse;
-    float       mPain;
+    Posterior mArse;
+    float     mPain;
 
-    Hips        mHips;
-    float       mPain;
-    float       mArthritis;
-
+    Hips  mHips;
+    float mPain;
+    float mArthritis;
 };
 
 struct Thigh
@@ -39,9 +38,9 @@ struct Thigh
 
 struct Knee
 {
-    float   mStrength;
-    float   mRangeOfMotion;
-    float   mArthritis;
+    float mStrength;
+    float mRangeOfMotion;
+    float mArthritis;
 };
 
 struct Shin
@@ -53,8 +52,8 @@ struct Shin
 struct Leg
 {
     Thigh mThigh;
-    Knee mKnee;
-    Shin mShin;
+    Knee  mKnee;
+    Shin  mShin;
 
     float mSpeed;
     float mRangeOfMotion;
@@ -68,12 +67,12 @@ struct Foot
 
 struct HumanLowerExtremities
 {
-    Pelvis  mPelvis;
-    
+    Pelvis mPelvis;
+
     Genital mGenitalia;
 
-    Leg     mLegs[2];
-    Foot    mFeet[2];
+    Leg  mLegs[2];
+    Foot mFeet[2];
 };
 
 struct LowerExtremitiesStatus
