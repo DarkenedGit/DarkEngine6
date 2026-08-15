@@ -38,24 +38,6 @@ namespace Dark
         // ---- Internal helpers (implementation detail) -------------
         namespace detail
         {
-            //inline float3 normalize(float3 v)
-            //{
-            //    float len = std::sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
-            //    if (len < 1e-8f) return {0,1,0};
-            //    return { v.x/len, v.y/len, v.z/len };
-            //}
-
-            //inline float3 cross(float3 a, float3 b)
-            //{
-            //    return { a.y*b.z - a.z*b.y,
-            //             a.z*b.x - a.x*b.z,
-            //             a.x*b.y - a.y*b.x };
-            //}
-
-            //inline float3 sub(float3 a, float3 b){ return {a.x-b.x,a.y-b.y,a.z-b.z}; }
-            //inline float3 add(float3 a, float3 b){ return {a.x+b.x,a.y+b.y,a.z+b.z}; }
-            //inline float3 scale(float3 a,float s){ return {a.x*s,a.y*s,a.z*s}; }
-
             // Push a flat (shared normal) quad as two triangles
             inline void pushQuad(MeshData& m, uint32_t a, uint32_t b, uint32_t c, uint32_t d)
             {

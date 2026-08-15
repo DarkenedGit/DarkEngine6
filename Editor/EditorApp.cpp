@@ -265,7 +265,7 @@ void EditorApp::onInit()
     assets().registerAsset(m_propMaterial);
 
     m_groundMaterial = std::make_shared<Material>();
-    if (!m_groundMaterial->createSolid(renderer(), 48, 52, 60, 255))
+    if (!m_groundMaterial->createSolid(renderer(), assets(), 48, 52, 60, 255))
     {
         DE_LOG_FATAL("EditorApp: ground material failed");
         return;

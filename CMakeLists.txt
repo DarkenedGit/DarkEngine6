@@ -61,12 +61,23 @@ endforeach()
 de_glob_folder(DE_SANDBOX_SOURCES Sandbox)
 de_glob_folder(DE_EDITOR_SOURCES Editor)
 
+# Runtime HLSL lives under content/shaders (not the empty Shaders/ source folder).
+# Add them to DarkEngine so they appear in the VS solution; do not compile them.
+file(GLOB_RECURSE DE_SHADER_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/content/shaders/*.hlsl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/content/shaders/*.hlsli"
+)
+list(APPEND DE_ENGINE_SOURCES ${DE_SHADER_SOURCES})
+
 # Non-C/C++ files are IDE-visible only (not passed to the compiler).
 foreach(src IN LISTS DE_ENGINE_SOURCES DE_SANDBOX_SOURCES DE_EDITOR_SOURCES)
     get_filename_component(_ext "${src}" EXT)
     string(TOLOWER "${_ext}" _ext)
     if(NOT _ext MATCHES "\\.(c|cc|cpp|cxx)$")
         set_source_files_properties("${src}" PROPERTIES HEADER_FILE_ONLY TRUE)
+    endif()
+    if(_ext MATCHES "\\.(hlsl|hlsli)$")
+        set_source_files_properties("${src}" PROPERTIES VS_TOOL_OVERRIDE "None")
     endif()
 endforeach()
 

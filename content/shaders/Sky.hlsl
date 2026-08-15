@@ -119,6 +119,8 @@ float3 EvaluateSky(float3 v)
     float cosM = dot(v, moonDir);
     float sunVis = saturate((sunElevation + 0.02f) / 0.08f) * (1.0f - 0.88f * coverage);
     float moonVis = saturate((moonDir.y + 0.02f) / 0.10f) * (1.0f - dayF) * (1.0f - 0.7f * coverage);
+    float horizonAmt = 1.0f - saturate(max(sunElevation, 0.0f) / 0.28f);
+    horizonAmt = horizonAmt * horizonAmt * (3.0f - 2.0f * horizonAmt);
 
     // Tight corona (real sun is ~0.5°). High g + tiny scale = small glow, not a hemisphere.
     float mieS = MiePhase(cosS, 0.86f);
@@ -128,9 +130,36 @@ float3 EvaluateSky(float3 v)
     base += sunColor * (0.12f * ray + 0.35f * mieS) * sunVis;
     base += moonColor * (1.2f * mieM * moonVis);
 
-    float ang = acos(saturate(cosS));
-    float disc = (1.0f - smoothstep(0.007f, 0.016f, ang)) * sunVis; // ~0.8° disc
-    base += float3(1.0f, 0.96f, 0.88f) * (3.0f * disc);
+    // Limb-darkened disc. Radius grows near the horizon (keep in sync with Environment::sunAngularRadius).
+    float radius = lerp(0.0046f, 0.0150f, horizonAmt);
+    float ang    = acos(saturate(cosS));
+    float r      = ang / max(radius, 1e-5f);
+    float edge   = 1.0f - smoothstep(0.88f, 1.06f, r);
+    float mu     = sqrt(saturate(1.0f - r * r)); // 1 at center, 0 at limb
+    float limb   = 0.22f + 0.78f * mu;
+    float3 discCol = lerp(float3(1.00f, 0.72f, 0.32f), float3(1.00f, 0.97f, 0.90f), mu);
+    base += discCol * (2.8f * limb * edge * sunVis);
+
+    // Horizon sunset glow band: gaussian in elevation, stronger toward the sun.
+    float duskAmt = saturate((0.34f - sunElevation) / 0.38f) * (1.0f - 0.72f * coverage);
+    if (duskAmt > 1e-3f)
+    {
+        float bandY = 0.045f + 0.02f * horizonAmt;
+        float bandW = 0.055f + 0.04f * horizonAmt;
+        float dy    = (v.y - bandY) / bandW;
+        float band  = exp(-dy * dy);
+
+        float2 vh = v.xz;
+        float2 sh = sunDir.xz;
+        float vhm = length(vh);
+        float shm = length(sh);
+        float az = 0.5f;
+        if (vhm > 1e-4f && shm > 1e-4f)
+            az = saturate(dot(vh / vhm, sh / shm) * 0.5f + 0.5f);
+        float azW = pow(az, 1.35f);
+        float3 glow = lerp(float3(1.00f, 0.38f, 0.08f), float3(1.00f, 0.62f, 0.22f), az);
+        base += glow * (0.62f * band * azW * duskAmt * (0.65f + 0.35f * saturate(turbidity / 8.0f)));
+    }
 
     float lum = dot(base, float3(0.2126f, 0.7152f, 0.0722f));
     float3 overcast = lum * float3(0.92f, 0.95f, 1.00f);

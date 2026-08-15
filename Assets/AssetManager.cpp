@@ -1,5 +1,6 @@
 #include "Assets/AssetManager.h"
 #include "Core/Log.h"
+#include "Render/Renderer.h"
 
 namespace Dark
 {
@@ -38,6 +39,8 @@ namespace Dark
         const std::filesystem::path  canonical = std::filesystem::weakly_canonical(abs, ec);
         const std::filesystem::path& mounted   = ec ? abs : canonical;
 
+        std::lock_guard<std::mutex> lock(m_mutex);
+
         // Skip duplicate mounts.
         for (const auto& existing : m_mounts)
         {
@@ -51,6 +54,7 @@ namespace Dark
 
     std::filesystem::path AssetManager::resolve(const std::string& vpath) const
     {
+        std::lock_guard<std::mutex> lock(m_mutex);
         for (const auto& mount : m_mounts)
         {
             const auto      candidate = mount / vpath;
@@ -69,6 +73,7 @@ namespace Dark
             return NULL_ASSET;
         }
 
+        std::lock_guard<std::mutex> lock(m_mutex);
         const AssetID id = allocID();
         asset->id        = id;
         m_assets[id]     = std::move(asset);
@@ -80,6 +85,7 @@ namespace Dark
     {
         if (id == NULL_ASSET)
             return {};
+        std::lock_guard<std::mutex> lock(m_mutex);
         const auto it = m_assets.find(id);
         if (it == m_assets.end())
             return {};
@@ -88,17 +94,38 @@ namespace Dark
 
     void AssetManager::unload(AssetID id)
     {
+        std::lock_guard<std::mutex> lock(m_mutex);
         m_assets.erase(id);
     }
 
     void AssetManager::collectGarbage()
     {
-        std::erase_if(m_assets,
-                      [](const auto& kv)
-                      {
-                          return kv.second.use_count() == 1; // only manager holds it
-                      });
-        DE_LOG_TRACE("AssetManager: GC pass complete ({} assets remaining)", m_assets.size());
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            std::erase_if(m_assets,
+                          [](const auto& kv)
+                          {
+                              return kv.second.use_count() == 1; // only manager holds it
+                          });
+            DE_LOG_TRACE("AssetManager: GC pass complete ({} assets remaining)", m_assets.size());
+        }
+        m_textures.collectUnused();
+    }
+
+    std::shared_ptr<Texture2D> AssetManager::loadTexture(Renderer& renderer, const std::string& virtualPath)
+    {
+        const std::filesystem::path path = resolve(virtualPath);
+        if (path.empty())
+        {
+            DE_LOG_ERROR("AssetManager: texture not found '{}'", virtualPath);
+            return {};
+        }
+        return m_textures.loadFile(renderer, path);
+    }
+
+    std::shared_ptr<Texture2D> AssetManager::loadSolidTexture(Renderer& renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a)
+    {
+        return m_textures.loadSolid(renderer, r, g, b, a);
     }
 
 } // namespace Dark

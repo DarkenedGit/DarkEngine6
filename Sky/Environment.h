@@ -57,6 +57,9 @@ public:
     // Analytic sky / reflection color for a world-space view direction.
     Math::Vector3f evaluateSky(const Math::Vector3f& viewDir) const;
 
+    // Apparent solar half-angle in radians. Grows near the horizon (refraction / airlight).
+    static float sunAngularRadius(float sunElevationRadians);
+
     static void sunMoonDirections(
         float timeOfDayHours,
         float dayOfYear,

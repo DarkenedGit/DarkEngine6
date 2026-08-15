@@ -5,6 +5,7 @@
 #include "Render/MeshPipeline.h"
 
 #include <cstdint>
+#include <memory>
 #include <string>
 
 namespace Dark
@@ -32,7 +33,7 @@ namespace Dark
                                   uint8_t fallbackA = 255);
 
         // Solid-color material (1x1 albedo).
-        bool createSolid(Renderer& renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
+        bool createSolid(Renderer& renderer, AssetManager& assets, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
 
         // Bind albedo SRV (descriptor heap + root table).
         void bind(ID3D12GraphicsCommandList* cmd, UINT albedoSrvRootIndex) const;
@@ -44,14 +45,19 @@ namespace Dark
 
         bool isValid() const
         {
-            return m_albedo.valid();
+            return m_albedo && m_albedo->valid();
         }
         uint64_t   sortKey() const;
         Texture2D& albedo()
         {
-            return m_albedo;
+            return *m_albedo;
         }
         const Texture2D& albedo() const
+        {
+            return *m_albedo;
+        }
+
+        const std::shared_ptr<Texture2D>& albedoPtr() const
         {
             return m_albedo;
         }
@@ -62,7 +68,7 @@ namespace Dark
         }
 
     private:
-        Texture2D m_albedo;
+        std::shared_ptr<Texture2D> m_albedo;
         float     m_baseColor[4]{ 1.0f, 1.0f, 1.0f, 1.0f };
     };
 

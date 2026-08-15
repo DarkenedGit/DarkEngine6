@@ -138,6 +138,15 @@ void Environment::sunMoonDirections(
     outMoonDir.Normalize();
 }
 
+float Environment::sunAngularRadius(float sunElevationRadians)
+{
+    // High sun ~0.26° half-angle. On the horizon the disc + airlight reads larger.
+    const float high = 0.0046f;
+    const float low  = 0.0150f;
+    const float h    = 1.0f - SmoothStep(0.0f, 0.28f, Max(sunElevationRadians, 0.0f));
+    return Lerp(high, low, h * h * (3.0f - 2.0f * h));
+}
+
 void Environment::tick(float dt)
 {
     if (timeScale != 0.0f)
@@ -240,6 +249,7 @@ Vector3f Environment::evaluateSky(const Vector3f& viewDir) const
     const float ray  = RayleighPhase(cosS);
 
     const float sunVis = SmoothStep(-0.02f, 0.06f, elev) * (1.0f - 0.88f * cover);
+    const float horizonAmt = 1.0f - SmoothStep(0.0f, 0.28f, Max(elev, 0.0f));
     base.x += m_sunColor.x * (0.12f * ray + 0.35f * mieS) * sunVis;
     base.y += m_sunColor.y * (0.12f * ray + 0.35f * mieS) * sunVis;
     base.z += m_sunColor.z * (0.12f * ray + 0.35f * mieS) * sunVis;
@@ -247,10 +257,42 @@ Vector3f Environment::evaluateSky(const Vector3f& viewDir) const
     const float moonVis = SmoothStep(-0.02f, 0.08f, m_moonDir.y) * (1.0f - dayF) * (1.0f - 0.7f * cover);
     base = base + m_moonColor * (1.2f * mieM * moonVis);
 
-    // ~0.8° disc (half-angle ~0.4°).
-    const float ang  = acosf(cosS);
-    const float disc = (1.0f - SmoothStep(0.007f, 0.016f, ang)) * sunVis;
-    base             = base + Vector3f(1.0f, 0.96f, 0.88f) * (3.0f * disc);
+    // Limb-darkened disc. Radius grows near the horizon (keep in sync with Sky.hlsl).
+    const float radius = sunAngularRadius(elev);
+    const float ang    = acosf(cosS);
+    const float r      = ang / Max(radius, 1.0e-5f);
+    const float edge   = 1.0f - SmoothStep(0.88f, 1.06f, r);
+    const float mu     = sqrtf(Max(1.0f - r * r, 0.0f)); // 1 at center, 0 at limb
+    const float limb   = 0.22f + 0.78f * mu;            // linear limb darkening
+    const Vector3f discCol = Vector3f(1.00f, 0.72f, 0.32f) * (1.0f - mu)
+        + Vector3f(1.00f, 0.97f, 0.90f) * mu;
+    base = base + discCol * (2.8f * limb * edge * sunVis);
+
+    // Horizon sunset glow band: gaussian in elevation, stronger toward the sun.
+    const float duskAmt = SmoothStep(0.34f, -0.04f, elev) * (1.0f - 0.72f * cover);
+    if (duskAmt > 1.0e-3f)
+    {
+        const float bandY = 0.045f + 0.02f * horizonAmt;
+        const float bandW = 0.055f + 0.04f * horizonAmt;
+        const float dy    = (vy - bandY) / bandW;
+        const float band  = expf(-dy * dy);
+
+        Vector2f vh(v.x, v.z);
+        Vector2f sh(m_sunDir.x, m_sunDir.z);
+        const float vhm = vh.Magnitude();
+        const float shm = sh.Magnitude();
+        float az = 0.5f;
+        if (vhm > 1.0e-4f && shm > 1.0e-4f)
+        {
+            vh *= (1.0f / vhm);
+            sh *= (1.0f / shm);
+            az = Clamp(vh.x * sh.x + vh.y * sh.y, -1.0f, 1.0f) * 0.5f + 0.5f;
+        }
+        const float azW = powf(az, 1.35f);
+        const Vector3f glow = Vector3f(1.00f, 0.38f, 0.08f) * (1.0f - az)
+            + Vector3f(1.00f, 0.62f, 0.22f) * az;
+        base = base + glow * (0.62f * band * azW * duskAmt * (0.65f + 0.35f * turb / 8.0f));
+    }
 
     const float lum = 0.2126f * base.x + 0.7152f * base.y + 0.0722f * base.z;
     Vector3f    overcast(lum * 0.92f, lum * 0.95f, lum * 1.00f);

@@ -17,20 +17,21 @@ namespace Dark
     {
         type = AssetType::Material;
 
-        const auto path = assets.resolve(virtualAlbedoPath);
-        if (!path.empty() && m_albedo.createFromFile(renderer, path))
+        m_albedo = assets.loadTexture(renderer, virtualAlbedoPath);
+        if (m_albedo && m_albedo->valid())
         {
             m_baseColor[0] = 1.0f;
             m_baseColor[1] = 1.0f;
             m_baseColor[2] = 1.0f;
             m_baseColor[3] = 1.0f;
-            DE_LOG_INFO("Material: albedo '{}'", virtualAlbedoPath);
+            DE_LOG_INFO("Material: albedo '{}' (cached {}x{})", virtualAlbedoPath, m_albedo->width(), m_albedo->height());
             return true;
         }
 
         DE_LOG_WARN("Material: failed to load albedo '{}' — solid fallback ({},{},{},{})", virtualAlbedoPath, fallbackR, fallbackG, fallbackB, fallbackA);
 
-        if (!m_albedo.createSolidColor(renderer, fallbackR, fallbackG, fallbackB, fallbackA))
+        m_albedo = assets.loadSolidTexture(renderer, fallbackR, fallbackG, fallbackB, fallbackA);
+        if (!m_albedo || !m_albedo->valid())
         {
             DE_LOG_ERROR("Material: solid fallback create failed");
             return false;
@@ -43,10 +44,11 @@ namespace Dark
         return true;
     }
 
-    bool Material::createSolid(Renderer& renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a)
+    bool Material::createSolid(Renderer& renderer, AssetManager& assets, uint8_t r, uint8_t g, uint8_t b, uint8_t a)
     {
         type = AssetType::Material;
-        if (!m_albedo.createSolidColor(renderer, r, g, b, a))
+        m_albedo = assets.textureCache().loadSolid(renderer, r, g, b, a);
+        if (!m_albedo || !m_albedo->valid())
             return false;
 
         m_baseColor[0] = 1.0f;
@@ -58,9 +60,9 @@ namespace Dark
 
     void Material::bind(ID3D12GraphicsCommandList* cmd, UINT albedoSrvRootIndex) const
     {
-        if (!cmd || !m_albedo.valid())
+        if (!cmd || !m_albedo || !m_albedo->valid())
             return;
-        m_albedo.bind(cmd, albedoSrvRootIndex);
+        m_albedo->bind(cmd, albedoSrvRootIndex);
     }
 
     void Material::applySurface(MeshFrameConstants& constants) const
