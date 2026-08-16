@@ -68,6 +68,7 @@ namespace Dark
 
     private:
         void           ensureCapacity();
+        void           resetRibbonSeq();
         void           spawnOne();
         float          rand01();
         Math::Vector3f randomUnitDirectionInCone(const Math::Vector3f& axis, float spreadRad);
@@ -82,6 +83,8 @@ namespace Dark
         float    m_emitCarry  = 0.0f;
         float    m_age        = 0.0f;
         uint32_t m_aliveCount = 0;
+        uint32_t m_nextRibbon = 0;
+        uint32_t m_ribbonSeq[kMaxRibbonCount]{};
 
         std::mt19937 m_rng{ std::random_device{}() };
     };

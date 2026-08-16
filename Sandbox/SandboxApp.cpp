@@ -319,6 +319,11 @@ void SandboxApp::onInit()
         DE_LOG_FATAL("SandboxApp: SkyPipeline create failed");
         return;
     }
+    if (!m_shadows.create(renderer().device()))
+    {
+        DE_LOG_FATAL("SandboxApp: ShadowSystem create failed");
+        return;
+    }
 
     m_env.timeOfDay = 16.2f;
     m_env.weather   = Sky::WeatherState::PartlyCloudy();
@@ -418,6 +423,9 @@ void SandboxApp::onInit()
         return;
     }
 
+    m_terrainMaterial.setShadowSrv(renderer().device(), m_shadows.srvCpu());
+    m_cubeMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
+
     const float aspect = (renderer().height() > 0)
         ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height())
         : 1.0f;
@@ -465,9 +473,42 @@ void SandboxApp::onRender()
 
     auto* cmd = renderer().commandList();
 
+    Aabb3f sceneBounds = m_terrain.bounds();
+    if (auto* xf = world().get<TransformComponent>(m_cube))
+        sceneBounds.ExpandToInclude(xf->position);
+    m_shadows.update(
+        m_viewCamera,
+        m_env.lightDir(),
+        sceneBounds,
+        m_env.sunElevation(),
+        m_env.weather.cloudCoverage);
+
+    if (m_shadows.isValid() && m_shadows.enabled())
+    {
+        m_shadows.beginCapture(cmd);
+        for (int i = 0; i < m_shadows.cascadeCount(); ++i)
+        {
+            m_shadows.beginCascade(cmd, i);
+            m_terrain.drawDepth(cmd);
+            if (auto* xf = world().get<TransformComponent>(m_cube))
+            {
+                const Matrix4f worldMat = makeWorldMatrix(*xf);
+                const Matrix4f wvp      = worldMat * m_shadows.cascade(i).viewProj;
+                m_shadows.pipeline().setWvp(cmd, wvp.m_afEntry);
+                m_cubeMesh.draw(cmd);
+            }
+        }
+        m_shadows.endCapture(cmd);
+        renderer().bindSceneTargets();
+    }
+    else if (m_shadows.isValid())
+    {
+        m_shadows.endCapture(cmd);
+    }
+
     const Frustum3f frustum(m_viewCamera.GetViewProj());
     m_skyPipeline.draw(cmd, m_viewCamera, m_env);
-    m_terrain.draw(cmd, m_terrainPipeline, m_terrainMaterial, m_viewCamera, &frustum, &m_env);
+    m_terrain.draw(cmd, m_terrainPipeline, m_terrainMaterial, m_viewCamera, &frustum, &m_env, &m_shadows);
 
     m_meshPipeline.bind(cmd);
 
@@ -480,6 +521,7 @@ void SandboxApp::onRender()
 
     if (material && material->isValid())
         material->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+    m_shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
 
     MeshFrameConstants cb{};
     if (auto* xf = world().get<TransformComponent>(m_cube))
@@ -502,6 +544,7 @@ void SandboxApp::onRender()
         cb.color[3] = 1.0f;
     }
 
+    const Vector3f camPos = m_viewCamera.GetPosition();
     cb.lightDirWS[0]   = m_env.lightDir().x;
     cb.lightDirWS[1]   = m_env.lightDir().y;
     cb.lightDirWS[2]   = m_env.lightDir().z;
@@ -509,6 +552,9 @@ void SandboxApp::onRender()
     cb.lightColor[0]   = m_env.lightColor().x;
     cb.lightColor[1]   = m_env.lightColor().y;
     cb.lightColor[2]   = m_env.lightColor().z;
+    cb.cameraPos[0]    = camPos.x;
+    cb.cameraPos[1]    = camPos.y;
+    cb.cameraPos[2]    = camPos.z;
 
     m_meshPipeline.setConstants(cmd, cb);
     m_cubeMesh.draw(cmd);
@@ -531,5 +577,6 @@ void SandboxApp::onShutdown()
     m_water = Water::WaterWorld{};
     m_terrainMaterial = TerrainMaterial{};
     m_terrain = Terrain::TerrainWorld{};
+    m_shadows = ShadowSystem{};
     DE_LOG_INFO("SandboxApp: shutdown");
 }

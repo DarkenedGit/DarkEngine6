@@ -152,6 +152,35 @@ namespace Dark
         return true;
     }
 
+    bool Texture2D::createSoftStreak(Renderer& renderer, uint32_t size)
+    {
+        if (size < 4)
+            size = 4;
+
+        std::vector<uint8_t> pixels(static_cast<size_t>(size) * size * 4u);
+        const float          inv = 1.0f / (static_cast<float>(size) - 1.0f);
+        for (uint32_t y = 0; y < size; ++y)
+        {
+            const float v      = static_cast<float>(y) * inv;
+            float       across = 1.0f - std::fabs(v * 2.0f - 1.0f);
+            across             = across * across * (3.0f - 2.0f * across);
+            for (uint32_t x = 0; x < size; ++x)
+            {
+                const uint8_t alpha = static_cast<uint8_t>(across * 255.0f + 0.5f);
+                const size_t  i     = (static_cast<size_t>(y) * size + x) * 4u;
+                pixels[i + 0]       = 255;
+                pixels[i + 1]       = 255;
+                pixels[i + 2]       = 255;
+                pixels[i + 3]       = alpha;
+            }
+        }
+
+        if (!createFromRGBA(renderer, pixels.data(), size, size, size * 4u))
+            return false;
+        DE_LOG_INFO("Texture2D: soft streak {}x{}", size, size);
+        return true;
+    }
+
     bool Texture2D::createFromRGBA(Renderer& renderer, const uint8_t* rgba, uint32_t width, uint32_t height, uint32_t rowPitchBytes)
     {
         if (!rgba || width == 0 || height == 0 || rowPitchBytes < width * 4u)

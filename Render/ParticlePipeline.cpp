@@ -45,7 +45,7 @@ namespace Dark
 
         D3D12_STATIC_SAMPLER_DESC samp{};
         samp.Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
-        samp.AddressU         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        samp.AddressU         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
         samp.AddressV         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
         samp.AddressW         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
         samp.MaxLOD           = D3D12_FLOAT32_MAX;

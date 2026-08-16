@@ -39,6 +39,7 @@ namespace Dark
         ParticlePipeline m_pipeAdditive;
         ParticlePipeline m_pipeAlpha;
         Texture2D        m_sprite;
+        Texture2D        m_streak;
 
         Microsoft::WRL::ComPtr<ID3D12Resource> m_uploadVB;
         uint32_t                               m_uploadCapacityQuads = 0;

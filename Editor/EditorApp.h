@@ -6,6 +6,7 @@
 #include "Render/MeshPipeline.h"
 #include "Render/LinePipeline.h"
 #include "Render/Camera3D.h"
+#include "Render/ShadowSystem.h"
 #include "Render/Material.h"
 #include "Editor/SceneTypes.h"
 #include "Editor/EditorImGui.h"
@@ -68,6 +69,7 @@ private:
 
     Dark::MeshPipeline m_meshPipeline;
     Dark::LinePipeline m_linePipeline;
+    Dark::ShadowSystem m_shadows;
 
     Dark::Geometry::Mesh m_cubeMesh;
     Dark::Geometry::Mesh m_sphereMesh;

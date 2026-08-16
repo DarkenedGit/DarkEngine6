@@ -19,9 +19,11 @@ namespace Dark
         float ambientScale;
         float lightColor[3];
         float pad1;
+        float cameraPos[3];
+        float pad2;
     };
 
-    static_assert(sizeof(MeshFrameConstants) == 44 * sizeof(float), "root constant size");
+    static_assert(sizeof(MeshFrameConstants) == 48 * sizeof(float), "root constant size");
 
     // PSO + root signature for MeshGen meshes (pos/normal/uv) with one albedo texture.
     class MeshPipeline
@@ -30,6 +32,8 @@ namespace Dark
         // Root parameter indices (must match create()).
         static constexpr UINT kRootConstants = 0;
         static constexpr UINT kRootAlbedoSrv = 1;
+        static constexpr UINT kRootShadowCbv = 2;
+        static constexpr UINT kSrvCount      = 2; // albedo + shadow
 
         MeshPipeline() = default;
 

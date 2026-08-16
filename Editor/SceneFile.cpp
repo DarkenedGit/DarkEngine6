@@ -111,6 +111,9 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             p["shapeSize"]       = vec3ToJson(o.shapeSize);
             p["additiveBlend"]   = o.additiveBlend;
             p["simulationSpeed"] = o.simulationSpeed;
+            p["renderMode"]      = o.renderMode;
+            p["ribbonCount"]     = o.ribbonCount;
+            p["ribbonUvScale"]   = o.ribbonUvScale;
             jo["particle"]       = std::move(p);
         }
         arr.push_back(std::move(jo));
@@ -236,6 +239,9 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             o.shape           = p.value("shape", 0);
             o.additiveBlend   = p.value("additiveBlend", true);
             o.simulationSpeed = p.value("simulationSpeed", 1.0f);
+            o.renderMode      = p.value("renderMode", 0);
+            o.ribbonCount     = p.value("ribbonCount", 1u);
+            o.ribbonUvScale   = p.value("ribbonUvScale", 1.0f);
             if (p.contains("lifetime") && p["lifetime"].is_array() && p["lifetime"].size() >= 2)
             {
                 o.lifetimeMin = p["lifetime"][0].get<float>();

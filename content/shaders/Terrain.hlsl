@@ -25,6 +25,9 @@ Texture2D    gLayer3 : register(t3);
 Texture2D    gSplat  : register(t4);
 SamplerState gSamp   : register(s0);
 
+#define SHADOW_T t5
+#include "Shadow.hlsli"
+
 struct VSInput
 {
     float3 position : POSITION;
@@ -68,11 +71,11 @@ float4 PSMain(PSInput input) : SV_TARGET
     float3 n     = normalize(input.normalWS);
     float3 l     = normalize(lightDirWS);
     float  ndotl = saturate(dot(n, l));
+    float3 cam   = float3(cameraPosX, cameraPosY, cameraPosZ);
+    float  shadow = ComputeShadow(input.worldPos, cam);
     float3 ambient = ambientColor * albedo.rgb;
-    float3 diffuse = ndotl * lightColor * albedo.rgb;
+    float3 diffuse = ndotl * lightColor * albedo.rgb * shadow;
     float3 lit     = ambient + diffuse;
-
-    float3 cam = float3(cameraPosX, cameraPosY, cameraPosZ);
     float dist = length(input.worldPos - cam);
     float fog  = 1.0f - exp(-fogDensity * dist);
     lit = lerp(lit, fogColor, saturate(fog));

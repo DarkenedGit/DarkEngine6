@@ -1,4 +1,5 @@
 #include "Particles/ParticleRenderer.h"
+#include "Particles/ParticleRibbon.h"
 #include "Render/Renderer.h"
 #include "Core/Log.h"
 
@@ -40,6 +41,11 @@ namespace Dark
         if (!m_sprite.createSoftCircle(renderer, 64))
         {
             DE_LOG_ERROR("ParticleRenderer: soft sprite failed");
+            return false;
+        }
+        if (!m_streak.createSoftStreak(renderer, 64))
+        {
+            DE_LOG_ERROR("ParticleRenderer: soft streak failed");
             return false;
         }
         if (!ensureUploadCapacity(renderer, 256))
@@ -97,55 +103,72 @@ namespace Dark
 
         const Vector3f camRight = camera.GetRight();
         const Vector3f camUp    = camera.GetUp();
+        const bool     ribbon   = emitter.desc().renderMode == ParticleEmitterDesc::RenderMode::Ribbon;
 
         m_cpuVerts.clear();
         m_cpuVerts.reserve(static_cast<size_t>(emitter.aliveCount()) * 6u);
 
-        for (const Particle& p : emitter.particles())
+        if (ribbon)
         {
-            if (!p.alive)
-                continue;
-
-            const float t    = 1.0f - (p.life / p.maxLife); // 0 birth → 1 death
-            const float size = p.size0 + (p.size1 - p.size0) * t;
-            float       col[4];
-            lerpColor(p.color0, p.color1, t, col);
-
-            const float hx = size * 0.5f;
-            const float hy = size * 0.5f;
-
-            // Billboard corners in world space
-            const Vector3f c = p.position;
-            const Vector3f r = camRight * hx;
-            const Vector3f u = camUp * hy;
-
-            const Vector3f bl(c.x - r.x - u.x, c.y - r.y - u.y, c.z - r.z - u.z);
-            const Vector3f br(c.x + r.x - u.x, c.y + r.y - u.y, c.z + r.z - u.z);
-            const Vector3f tr(c.x + r.x + u.x, c.y + r.y + u.y, c.z + r.z + u.z);
-            const Vector3f tl(c.x - r.x + u.x, c.y - r.y + u.y, c.z - r.z + u.z);
-
-            auto push = [&](const Vector3f& pos, float uu, float vv)
+            const uint32_t ribbons = clampRibbonCount(emitter.desc().ribbonCount);
+            std::vector<RibbonNode> nodes;
+            for (uint32_t r = 0; r < ribbons; ++r)
             {
-                ParticleVertex v{};
-                v.px = pos.x;
-                v.py = pos.y;
-                v.pz = pos.z;
-                v.u  = uu;
-                v.v  = vv;
-                v.r  = col[0];
-                v.g  = col[1];
-                v.b  = col[2];
-                v.a  = col[3];
-                m_cpuVerts.push_back(v);
-            };
+                collectRibbonNodes(emitter.particles(), r, nodes);
+                appendCameraFacingRibbon(
+                    nodes.data(),
+                    static_cast<uint32_t>(nodes.size()),
+                    camera.GetPosition(),
+                    emitter.desc().ribbonUvScale,
+                    m_cpuVerts);
+            }
+        }
+        else
+        {
+            for (const Particle& p : emitter.particles())
+            {
+                if (!p.alive)
+                    continue;
 
-            // two triangles: bl-br-tr, bl-tr-tl
-            push(bl, 0, 1);
-            push(br, 1, 1);
-            push(tr, 1, 0);
-            push(bl, 0, 1);
-            push(tr, 1, 0);
-            push(tl, 0, 0);
+                const float t    = 1.0f - (p.life / p.maxLife); // 0 birth → 1 death
+                const float size = p.size0 + (p.size1 - p.size0) * t;
+                float       col[4];
+                lerpColor(p.color0, p.color1, t, col);
+
+                const float hx = size * 0.5f;
+                const float hy = size * 0.5f;
+
+                const Vector3f c = p.position;
+                const Vector3f r = camRight * hx;
+                const Vector3f u = camUp * hy;
+
+                const Vector3f bl(c.x - r.x - u.x, c.y - r.y - u.y, c.z - r.z - u.z);
+                const Vector3f br(c.x + r.x - u.x, c.y + r.y - u.y, c.z + r.z - u.z);
+                const Vector3f tr(c.x + r.x + u.x, c.y + r.y + u.y, c.z + r.z + u.z);
+                const Vector3f tl(c.x - r.x + u.x, c.y - r.y + u.y, c.z - r.z + u.z);
+
+                auto push = [&](const Vector3f& pos, float uu, float vv)
+                {
+                    ParticleVertex v{};
+                    v.px = pos.x;
+                    v.py = pos.y;
+                    v.pz = pos.z;
+                    v.u  = uu;
+                    v.v  = vv;
+                    v.r  = col[0];
+                    v.g  = col[1];
+                    v.b  = col[2];
+                    v.a  = col[3];
+                    m_cpuVerts.push_back(v);
+                };
+
+                push(bl, 0, 1);
+                push(br, 1, 1);
+                push(tr, 1, 0);
+                push(bl, 0, 1);
+                push(tr, 1, 0);
+                push(tl, 0, 0);
+            }
         }
 
         if (m_cpuVerts.empty())
@@ -165,7 +188,8 @@ namespace Dark
         std::memcpy(fc.viewProj, vp.m_afEntry, sizeof(float) * 16);
         pipe.setConstants(cmd, fc);
 
-        m_sprite.bind(cmd, ParticlePipeline::kRootSrv);
+        Texture2D& sprite = ribbon ? m_streak : m_sprite;
+        sprite.bind(cmd, ParticlePipeline::kRootSrv);
 
         D3D12_VERTEX_BUFFER_VIEW vbv{};
         vbv.BufferLocation = m_uploadVB->GetGPUVirtualAddress();

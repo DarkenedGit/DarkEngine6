@@ -37,7 +37,7 @@ namespace Dark
         srvRange.RegisterSpace                     = 0;
         srvRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-        D3D12_ROOT_PARAMETER rootParams[2]{};
+        D3D12_ROOT_PARAMETER rootParams[3]{};
         rootParams[kRootConstants].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
         rootParams[kRootConstants].ShaderVisibility         = D3D12_SHADER_VISIBILITY_ALL;
         rootParams[kRootConstants].Constants.ShaderRegister = 0;
@@ -49,26 +49,35 @@ namespace Dark
         rootParams[kRootSrvTable].DescriptorTable.NumDescriptorRanges = 1;
         rootParams[kRootSrvTable].DescriptorTable.pDescriptorRanges   = &srvRange;
 
-        D3D12_STATIC_SAMPLER_DESC samp{};
-        samp.Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
-        samp.AddressU         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-        samp.AddressV         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-        samp.AddressW         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-        samp.MipLODBias       = 0.0f;
-        samp.MaxAnisotropy    = 1;
-        samp.ComparisonFunc   = D3D12_COMPARISON_FUNC_NEVER;
-        samp.BorderColor      = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
-        samp.MinLOD           = 0.0f;
-        samp.MaxLOD           = D3D12_FLOAT32_MAX;
-        samp.ShaderRegister   = 0;
-        samp.RegisterSpace    = 0;
-        samp.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+        rootParams[kRootShadowCbv].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        rootParams[kRootShadowCbv].ShaderVisibility          = D3D12_SHADER_VISIBILITY_PIXEL;
+        rootParams[kRootShadowCbv].Descriptor.ShaderRegister = 1;
+        rootParams[kRootShadowCbv].Descriptor.RegisterSpace  = 0;
+
+        D3D12_STATIC_SAMPLER_DESC samps[2]{};
+        samps[0].Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        samps[0].AddressU         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        samps[0].AddressV         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        samps[0].AddressW         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        samps[0].MaxLOD           = D3D12_FLOAT32_MAX;
+        samps[0].ShaderRegister   = 0;
+        samps[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+        samps[1].Filter           = D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
+        samps[1].AddressU         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+        samps[1].AddressV         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+        samps[1].AddressW         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+        samps[1].ComparisonFunc   = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+        samps[1].BorderColor      = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
+        samps[1].MaxLOD           = D3D12_FLOAT32_MAX;
+        samps[1].ShaderRegister   = 1;
+        samps[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
         D3D12_ROOT_SIGNATURE_DESC rsDesc{};
-        rsDesc.NumParameters     = 2;
+        rsDesc.NumParameters     = 3;
         rsDesc.pParameters       = rootParams;
-        rsDesc.NumStaticSamplers = 1;
-        rsDesc.pStaticSamplers   = &samp;
+        rsDesc.NumStaticSamplers = 2;
+        rsDesc.pStaticSamplers   = samps;
         rsDesc.Flags             = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
         ComPtr<ID3DBlob> rsBlob;

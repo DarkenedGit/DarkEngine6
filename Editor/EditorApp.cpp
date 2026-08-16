@@ -99,6 +99,9 @@ void descFromSceneData(const SceneObjectData& d, ParticleEmitterDesc& out)
     out.shapeSize       = d.shapeSize;
     out.additiveBlend   = d.additiveBlend;
     out.simulationSpeed = d.simulationSpeed;
+    out.renderMode      = static_cast<ParticleEmitterDesc::RenderMode>(d.renderMode);
+    out.ribbonCount     = d.ribbonCount;
+    out.ribbonUvScale   = d.ribbonUvScale;
 }
 
 void sceneDataFromDesc(const ParticleEmitterDesc& src, SceneObjectData& d)
@@ -126,6 +129,9 @@ void sceneDataFromDesc(const ParticleEmitterDesc& src, SceneObjectData& d)
     d.shapeSize       = src.shapeSize;
     d.additiveBlend   = src.additiveBlend;
     d.simulationSpeed = src.simulationSpeed;
+    d.renderMode      = static_cast<int>(src.renderMode);
+    d.ribbonCount     = src.ribbonCount;
+    d.ribbonUvScale   = src.ribbonUvScale;
 }
 
 } // namespace
@@ -241,6 +247,11 @@ void EditorApp::onInit()
         DE_LOG_FATAL("EditorApp: mesh/line pipeline failed");
         return;
     }
+    if (!m_shadows.create(renderer().device()))
+    {
+        DE_LOG_FATAL("EditorApp: ShadowSystem create failed");
+        return;
+    }
     if (!m_particleRenderer.create(renderer()))
     {
         DE_LOG_FATAL("EditorApp: particle renderer failed");
@@ -272,6 +283,8 @@ void EditorApp::onInit()
     }
     m_groundMaterial->setBaseColor(0.35f, 0.38f, 0.42f, 1.0f);
     assets().registerAsset(m_groundMaterial);
+    m_propMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
+    m_groundMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
 
     const float aspect = (renderer().height() > 0)
         ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height())
@@ -818,11 +831,47 @@ void EditorApp::onRender()
         m_imgui.beginFrame();
 
     const Matrix4f viewProj = m_camera.GetViewProj();
+    const Vector3f lightDir(0.35f, 0.85f, -0.35f);
+    Aabb3f sceneBounds(Vector3f(-22.0f, -2.0f, -22.0f), Vector3f(22.0f, 16.0f, 22.0f));
+    for (const SceneObject& so : m_objects)
+    {
+        if (const auto* xf = world().get<TransformComponent>(so.entity))
+            sceneBounds.ExpandToInclude(xf->position);
+    }
+    m_shadows.update(m_camera, lightDir, sceneBounds, 0.8f, 0.20f);
+    if (m_shadows.isValid() && m_shadows.enabled())
+    {
+        m_shadows.beginCapture(cmd);
+        for (int i = 0; i < m_shadows.cascadeCount(); ++i)
+        {
+            m_shadows.beginCascade(cmd, i);
+            if (m_showSolid && m_groundMesh.valid())
+                m_groundMesh.draw(cmd);
+            for (const SceneObject& so : m_objects)
+            {
+                const auto* xf = world().get<TransformComponent>(so.entity);
+                const Mesh* mesh = meshForType(so.type);
+                if (!xf || !mesh || !mesh->valid())
+                    continue;
+                const Matrix4f worldMat = makeWorldMatrix(*xf);
+                const Matrix4f wvp      = worldMat * m_shadows.cascade(i).viewProj;
+                m_shadows.pipeline().setWvp(cmd, wvp.m_afEntry);
+                mesh->draw(cmd);
+            }
+        }
+        m_shadows.endCapture(cmd);
+        renderer().bindSceneTargets();
+    }
+    else if (m_shadows.isValid())
+    {
+        m_shadows.endCapture(cmd);
+    }
 
     auto drawMesh = [&](const Mesh& mesh, const Matrix4f& world, Material* material, float cr, float cg, float cb) {
         m_meshPipeline.bind(cmd);
         if (material && material->isValid())
             material->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+        m_shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
         MeshFrameConstants cbData{};
         const Matrix4f wvp = world * viewProj;
         copyMatrix(cbData.worldViewProj, wvp);
@@ -831,13 +880,17 @@ void EditorApp::onRender()
         cbData.color[1] = cg;
         cbData.color[2] = cb;
         cbData.color[3] = 1.0f;
-        cbData.lightDirWS[0] = 0.35f;
-        cbData.lightDirWS[1] = 0.85f;
-        cbData.lightDirWS[2] = -0.35f;
+        cbData.lightDirWS[0] = lightDir.x;
+        cbData.lightDirWS[1] = lightDir.y;
+        cbData.lightDirWS[2] = lightDir.z;
         cbData.ambientScale  = 0.22f;
         cbData.lightColor[0] = 1.0f;
         cbData.lightColor[1] = 0.96f;
         cbData.lightColor[2] = 0.88f;
+        const Vector3f cam = m_camera.GetPosition();
+        cbData.cameraPos[0] = cam.x;
+        cbData.cameraPos[1] = cam.y;
+        cbData.cameraPos[2] = cam.z;
         m_meshPipeline.setConstants(cmd, cbData);
         mesh.draw(cmd);
     };
@@ -920,6 +973,7 @@ void EditorApp::onShutdown()
         assets().unload(m_groundMaterial->id);
     m_propMaterial.reset();
     m_groundMaterial.reset();
+    m_shadows = ShadowSystem{};
     m_emitters.clear();
     m_objects.clear();
     DE_LOG_INFO("EditorApp: shutdown");

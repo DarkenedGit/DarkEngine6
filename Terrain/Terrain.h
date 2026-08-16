@@ -17,6 +17,7 @@ class Renderer;
 class TerrainPipeline;
 class TerrainMaterial;
 class Camera3D;
+class ShadowSystem;
 
 namespace Sky
 {
@@ -71,7 +72,11 @@ public:
         const TerrainMaterial& material,
         const Camera3D& camera,
         const Math::Frustum3f* frustum = nullptr,
-        const Sky::Environment* env = nullptr) const;
+        const Sky::Environment* env = nullptr,
+        const ShadowSystem* shadows = nullptr) const;
+
+    // Depth-only casters. Caller binds ShadowPipeline and sets light WVP.
+    void drawDepth(ID3D12GraphicsCommandList* cmd) const;
 
     float heightAtWorld(float x, float z) const;
     bool tryHeightAtWorld(float x, float z, float& outY) const;

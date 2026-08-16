@@ -37,6 +37,7 @@ public:
 
     void bind(ID3D12GraphicsCommandList* cmd, UINT srvTableRootIndex) const;
     void applySurface(TerrainFrameConstants& constants) const;
+    void setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
 
     bool isValid() const { return m_srvHeap != nullptr && m_splat.valid(); }
 

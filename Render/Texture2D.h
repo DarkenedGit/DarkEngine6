@@ -35,6 +35,9 @@ namespace Dark
         // Soft circular sprite (for particles); size should be power-of-two (e.g. 64).
         bool createSoftCircle(Renderer& renderer, uint32_t size = 64);
 
+        // Soft streak: fades across V (width), uniform along U. For ribbon particles.
+        bool createSoftStreak(Renderer& renderer, uint32_t size = 64);
+
         // Raw RGBA8 upload (rowPitchBytes usually width*4).
         bool createFromRGBA(Renderer& renderer, const uint8_t* rgba, uint32_t width, uint32_t height, uint32_t rowPitchBytes);
 

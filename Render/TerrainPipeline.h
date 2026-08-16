@@ -34,7 +34,8 @@ namespace Dark
     public:
         static constexpr UINT kRootConstants = 0;
         static constexpr UINT kRootSrvTable  = 1;
-        static constexpr UINT kSrvCount      = 5; // layers 0-3 + splat
+        static constexpr UINT kRootShadowCbv = 2;
+        static constexpr UINT kSrvCount      = 6; // layers 0-3 + splat + shadow
 
         TerrainPipeline() = default;
 

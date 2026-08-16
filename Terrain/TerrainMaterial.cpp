@@ -80,17 +80,29 @@ bool TerrainMaterial::packSrvHeap(ID3D12Device* device)
     const UINT incr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     D3D12_CPU_DESCRIPTOR_HANDLE dst = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
 
-    Texture2D* src[TerrainPipeline::kSrvCount] = {
+    Texture2D* src[] = {
         &m_layerTex[0], &m_layerTex[1], &m_layerTex[2], &m_layerTex[3], &m_splat
     };
-    for (UINT i = 0; i < TerrainPipeline::kSrvCount; ++i)
+    for (UINT i = 0; i < 5; ++i)
     {
         device->CopyDescriptorsSimple(1, dst, src[i]->cpuHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         dst.ptr += incr;
     }
+    // Slot 5 (shadow) is filled later by setShadowSrv.
 
     m_gpuHandle = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
     return true;
+}
+
+void TerrainMaterial::setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu)
+{
+    if (!device || !m_srvHeap || shadowCpu.ptr == 0)
+        return;
+
+    const UINT incr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    D3D12_CPU_DESCRIPTOR_HANDLE dst = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
+    dst.ptr += static_cast<SIZE_T>(incr) * 5u;
+    device->CopyDescriptorsSimple(1, dst, shadowCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 }
 
 bool TerrainMaterial::createDefault(Renderer& renderer, const Terrain::SplatMap& splat)

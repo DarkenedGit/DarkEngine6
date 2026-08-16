@@ -73,6 +73,23 @@ void ParticleEditorPanel::draw(Dark::ParticleEmitter& emitter, bool* open)
     ImGui::ColorEdit4("End color", d.endColor);
     ImGui::Checkbox("Additive blend", &d.additiveBlend);
 
+    ImGui::SeparatorText("Render");
+    const char* modes[] = { "Billboard", "Ribbon" };
+    int         mode    = static_cast<int>(d.renderMode);
+    if (ImGui::Combo("Render mode", &mode, modes, 2))
+        d.renderMode = static_cast<Dark::ParticleEmitterDesc::RenderMode>(mode);
+    if (d.renderMode == Dark::ParticleEmitterDesc::RenderMode::Ribbon)
+    {
+        int ribbons = static_cast<int>(d.ribbonCount);
+        if (ImGui::SliderInt("Ribbon count", &ribbons, 1, static_cast<int>(Dark::kMaxRibbonCount)))
+            d.ribbonCount = static_cast<uint32_t>(ribbons);
+        ImGui::DragFloat("Ribbon UV scale", &d.ribbonUvScale, 0.05f, 0.1f, 16.0f);
+        ImGui::TextWrapped(
+            "Ribbon links particles in spawn order into a camera-facing strip. "
+            "Raise emission rate and lifetime for a longer trail; zero start speed "
+            "makes the strip follow the emitter.");
+    }
+
     ImGui::SeparatorText("Forces / direction");
     ImGui::DragFloat3("Gravity", &d.gravity.x, 0.05f);
     ImGui::DragFloat3("Direction", &d.direction.x, 0.02f);

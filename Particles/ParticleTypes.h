@@ -53,7 +53,20 @@ namespace Dark
 
         bool  additiveBlend   = true;
         float simulationSpeed = 1.0f;
+
+        enum class RenderMode : uint8_t
+        {
+            Billboard = 0,
+            Ribbon,
+        };
+        RenderMode renderMode = RenderMode::Billboard;
+
+        // Independent camera-facing strips. New particles round-robin across ribbons.
+        uint32_t ribbonCount   = 1;
+        float    ribbonUvScale = 1.0f; // U tiling along the strip
     };
+
+    constexpr uint32_t kMaxRibbonCount = 16;
 
     // Live particle instance (CPU sim).
     struct Particle
@@ -66,8 +79,18 @@ namespace Dark
         float          size1   = 0.05f;
         float          color0[4]{ 1, 1, 1, 1 };
         float          color1[4]{ 1, 1, 1, 0 };
-        float          rotation = 0.0f;
-        bool           alive    = false;
+        float          rotation  = 0.0f;
+        uint32_t       ribbonId  = 0;
+        uint32_t       seq       = 0;
+        bool           alive     = false;
+    };
+
+    // One control point on a ribbon (age already baked into size/color).
+    struct RibbonNode
+    {
+        Math::Vector3f position{};
+        float          size = 0.2f;
+        float          color[4]{ 1, 1, 1, 1 };
     };
 
     // GPU billboard vertex (CPU expands quads).

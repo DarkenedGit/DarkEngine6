@@ -95,6 +95,9 @@ namespace Dark
         Math::Vector3f shapeSize{ 0.25f, 0.0f, 0.25f };
         bool        additiveBlend = true;
         float       simulationSpeed = 1.0f;
+        int         renderMode    = 0; // ParticleEmitterDesc::RenderMode
+        uint32_t    ribbonCount   = 1;
+        float       ribbonUvScale = 1.0f;
     };
 
     struct SceneFileData

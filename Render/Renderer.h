@@ -76,6 +76,10 @@ namespace Dark
             return m_stats;
         }
 
+        void bindSceneTargets();
+        const D3D12_VIEWPORT& viewport() const { return m_viewport; }
+        const D3D12_RECT&     scissor() const { return m_scissor; }
+
     private:
         void initD3D12(Window& window);
         void createDepthResources();

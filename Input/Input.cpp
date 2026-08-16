@@ -11,9 +11,6 @@
 
 namespace Dark
 {
-    namespace
-    {
-
         constexpr float kStickDeadzone    = 0.2f;
         constexpr float kTriggerThreshold = 0.1f; // unused for digital; triggers are analog
 
@@ -53,8 +50,6 @@ namespace Dark
                 return 0;
             }
         }
-
-    } // namespace
 
     float Input::applyStickDeadzone(float v, float deadzone)
     {

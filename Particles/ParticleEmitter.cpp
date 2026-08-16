@@ -1,4 +1,5 @@
 #include "Particles/ParticleEmitter.h"
+#include "Particles/ParticleRibbon.h"
 #include "Math/MathDefines.h"
 
 #include <cmath>
@@ -34,6 +35,9 @@ namespace Dark
             m_desc.maxParticles = 1;
         if (m_desc.maxParticles > 100000)
             m_desc.maxParticles = 100000;
+        m_desc.ribbonCount = clampRibbonCount(m_desc.ribbonCount);
+        if (m_desc.ribbonUvScale <= 0.0f)
+            m_desc.ribbonUvScale = 1.0f;
         ensureCapacity();
     }
 
@@ -57,6 +61,7 @@ namespace Dark
             for (Particle& p : m_particles)
                 p.alive = false;
             m_aliveCount = 0;
+            resetRibbonSeq();
         }
     }
 
@@ -86,6 +91,14 @@ namespace Dark
         m_particles.assign(m_desc.maxParticles, Particle{});
         m_aliveCount = 0;
         m_emitCarry  = 0.0f;
+        resetRibbonSeq();
+    }
+
+    void ParticleEmitter::resetRibbonSeq()
+    {
+        m_nextRibbon = 0;
+        for (uint32_t i = 0; i < kMaxRibbonCount; ++i)
+            m_ribbonSeq[i] = 0;
     }
 
     float ParticleEmitter::rand01()
@@ -175,6 +188,12 @@ namespace Dark
             p.color1[i] = m_desc.endColor[i];
         }
         p.rotation = rand01() * 6.28318530718f;
+
+        const uint32_t ribbons = clampRibbonCount(m_desc.ribbonCount);
+        p.ribbonId             = m_nextRibbon % ribbons;
+        p.seq                  = m_ribbonSeq[p.ribbonId]++;
+        m_nextRibbon           = (m_nextRibbon + 1u) % ribbons;
+
         ++m_aliveCount;
     }
 

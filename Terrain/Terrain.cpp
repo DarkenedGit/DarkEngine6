@@ -1,6 +1,7 @@
 #include "Terrain/Terrain.h"
 #include "Terrain/TerrainMaterial.h"
 #include "Render/TerrainPipeline.h"
+#include "Render/ShadowSystem.h"
 #include "Render/Camera3D.h"
 #include "Render/Frustum3f.h"
 #include "Render/Renderer.h"
@@ -216,7 +217,8 @@ void TerrainWorld::draw(
     const TerrainMaterial& material,
     const Camera3D& camera,
     const Frustum3f* frustum,
-    const Sky::Environment* env) const
+    const Sky::Environment* env,
+    const ShadowSystem* shadows) const
 {
     m_lastDrawCalls = 0;
     m_lastTriangles = 0;
@@ -225,6 +227,8 @@ void TerrainWorld::draw(
 
     pipeline.bind(cmd);
     material.bind(cmd, TerrainPipeline::kRootSrvTable);
+    if (shadows)
+        shadows->bindReceiverCbv(cmd, TerrainPipeline::kRootShadowCbv);
 
     const Matrix4f world    = Matrix4f::IDENTITY;
     const Matrix4f viewProj = camera.GetViewProj();
@@ -281,6 +285,18 @@ void TerrainWorld::draw(
         c.gpu.draw(cmd);
         ++m_lastDrawCalls;
         m_lastTriangles += c.gpu.indexCount() / 3u;
+    }
+}
+
+void TerrainWorld::drawDepth(ID3D12GraphicsCommandList* cmd) const
+{
+    if (!cmd)
+        return;
+    for (const TerrainChunk& c : m_chunks)
+    {
+        if (!c.gpu.valid())
+            continue;
+        c.gpu.draw(cmd);
     }
 }
 

@@ -100,7 +100,8 @@ namespace Dark
         if (!readTextFile(path, source))
             return false;
 
-        const std::string sourceName = path.filename().string();
+        // Full path so D3D_COMPILE_STANDARD_FILE_INCLUDE resolves sibling .hlsli files.
+        const std::string sourceName = path.string();
 
         ComPtr<ID3DBlob> errors;
         UINT             flags = D3DCOMPILE_ENABLE_STRICTNESS;
@@ -108,7 +109,18 @@ namespace Dark
         flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
 #endif
 
-        const HRESULT hr = D3DCompile(source.data(), source.size(), sourceName.c_str(), nullptr, nullptr, entry, target, flags, 0, &outBytecode, &errors);
+        const HRESULT hr = D3DCompile(
+            source.data(),
+            source.size(),
+            sourceName.c_str(),
+            nullptr,
+            D3D_COMPILE_STANDARD_FILE_INCLUDE,
+            entry,
+            target,
+            flags,
+            0,
+            &outBytecode,
+            &errors);
 
         if (FAILED(hr))
         {

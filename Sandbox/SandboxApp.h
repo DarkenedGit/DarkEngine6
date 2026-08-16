@@ -5,6 +5,7 @@
 #include "Render/TerrainPipeline.h"
 #include "Render/WaterPipeline.h"
 #include "Render/SkyPipeline.h"
+#include "Render/ShadowSystem.h"
 #include "Render/Camera3D.h"
 #include "Sky/Environment.h"
 #include "Render/Material.h"
@@ -36,6 +37,7 @@ private:
     Dark::TerrainPipeline   m_terrainPipeline;
     Dark::WaterPipeline     m_waterPipeline;
     Dark::SkyPipeline       m_skyPipeline;
+    Dark::ShadowSystem      m_shadows;
     Dark::Camera3D          m_viewCamera;
     Dark::Sky::Environment  m_env;
 
