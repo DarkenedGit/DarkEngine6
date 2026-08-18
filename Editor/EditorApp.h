@@ -6,9 +6,13 @@
 #include "Render/MeshPipeline.h"
 #include "Render/LinePipeline.h"
 #include "Render/Camera3D.h"
+#include "Render/Camera2D.h"
 #include "Render/ShadowSystem.h"
 #include "Render/Material.h"
-#include "Editor/SceneTypes.h"
+#include "Render/SpritePipeline.h"
+#include "Render/Texture2D.h"
+#include "Scene/SceneTypes.h"
+#include "Math/Aabb2f.h"
 #include "Editor/EditorImGui.h"
 #include "Editor/ParticleEditorPanel.h"
 #include "Particles/ParticleEmitter.h"
@@ -31,8 +35,31 @@ public:
 private:
     void registerActions();
     void updateCamera(float dt);
+    void updateCamera2D(float dt);
     void handleEditorCommands(float dt);
     void drawEditorUi();
+    void applySceneMode(Dark::SceneMode mode);
+    void newScene3D();
+    void newScene2D();
+    bool ensure2DResources();
+    void rebuildGrid2D();
+    void clampCamera2D();
+    bool worldFromMouse2D(Dark::Math::Vector2f& out);
+    Dark::Math::Aabb2f objectBounds2D(Dark::SceneObjectType type, const Dark::Math::Vector3f& pos, const Dark::Math::Vector3f& scale) const;
+    Dark::Entity pickObject2D(const Dark::Math::Vector2f& world);
+    void drawSprite2D(
+        ID3D12GraphicsCommandList* cmd,
+        const Dark::Texture2D& texture,
+        const Dark::Math::Vector2f& pos,
+        const Dark::Math::Vector2f& size,
+        float z,
+        float cr,
+        float cg,
+        float cb,
+        float uvSx,
+        float uvSy);
+    void renderScene3D(ID3D12GraphicsCommandList* cmd);
+    void renderScene2D(ID3D12GraphicsCommandList* cmd);
 
     bool groundHitFromMouse(Dark::Math::Vector3f& outPoint);
     bool groundHitFromRay(const Dark::Math::Ray3f& ray, Dark::Math::Vector3f& outPoint) const;
@@ -80,6 +107,23 @@ private:
     Dark::AssetRef<Dark::Material> m_groundMaterial;
 
     Dark::Camera3D m_camera;
+    Dark::Camera2D m_camera2D;
+    Dark::SceneMode m_sceneMode = Dark::SceneMode::Scene3D;
+
+    Dark::SpritePipeline     m_spritePipe;
+    Dark::Geometry::Mesh     m_quadMesh;
+    Dark::Geometry::LineMesh m_grid2D;
+    Dark::Geometry::LineMesh m_boxOutline2D;
+    Dark::Texture2D          m_texPlatform;
+    Dark::Texture2D          m_texCoin;
+    Dark::Texture2D          m_texSpawn;
+    bool                     m_2dReady = false;
+
+    Dark::Math::Vector2f m_worldMin{ 0.0f, 0.0f };
+    Dark::Math::Vector2f m_worldMax{ 96.0f, 22.0f };
+    bool                 m_panning = false;
+    int                  m_panMouseX = 0;
+    int                  m_panMouseY = 0;
 
     std::vector<Dark::SceneObject>                   m_objects;
     std::vector<std::unique_ptr<Dark::ParticleEmitter>> m_emitters;

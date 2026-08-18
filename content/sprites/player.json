@@ -1,0 +1,53 @@
+{
+  "inset": true,
+  "clips": [
+    {
+      "name": "idle",
+      "texture": "textures/Ferret_Idle.png",
+      "columns": 8,
+      "rows": 1,
+      "count": 8,
+      "frameWidth": 284,
+      "frameHeight": 218,
+      "padding": 1,
+      "fps": 8,
+      "loop": true
+    },
+    {
+      "name": "run",
+      "texture": "textures/Ferret_Run.png",
+      "columns": 6,
+      "rows": 1,
+      "count": 6,
+      "frameWidth": 313,
+      "frameHeight": 158,
+      "padding": 1,
+      "fps": 12,
+      "loop": true
+    },
+    {
+      "name": "jump",
+      "texture": "textures/Ferret_Jump.png",
+      "columns": 7,
+      "rows": 1,
+      "count": 7,
+      "frameWidth": 297,
+      "frameHeight": 256,
+      "padding": 1,
+      "fps": 12,
+      "loop": false
+    },
+    {
+      "name": "stand",
+      "texture": "textures/Ferret_Standing.png",
+      "columns": 6,
+      "rows": 1,
+      "count": 6,
+      "frameWidth": 328,
+      "frameHeight": 584,
+      "padding": 1,
+      "fps": 6,
+      "loop": true
+    }
+  ]
+}

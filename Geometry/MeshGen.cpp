@@ -1015,6 +1015,41 @@ namespace Dark
         }
 
         // ============================================================
+        // 17a. XY QUAD
+        // ============================================================
+        MeshData CreateQuadXY(float width, float height)
+        {
+            if (width < 1.0e-4f)
+                width = 1.0e-4f;
+            if (height < 1.0e-4f)
+                height = 1.0e-4f;
+
+            MeshData       m;
+            const float    hx = width * 0.5f;
+            const float    hy = height * 0.5f;
+            const Vector3f n  = { 0.0f, 0.0f, 1.0f };
+            const Vector3f bl = { -hx, -hy, 0.0f };
+            const Vector3f br = { hx, -hy, 0.0f };
+            const Vector3f tr = { hx, hy, 0.0f };
+            const Vector3f tl = { -hx, hy, 0.0f };
+
+            auto pushV = [&](Vector3f p, Vector2f uv)
+            {
+                m.positions.push_back(p);
+                m.normals.push_back(n);
+                m.uvs.push_back(uv);
+            };
+            pushV(bl, { 0.0f, 1.0f });
+            pushV(br, { 1.0f, 1.0f });
+            pushV(tr, { 1.0f, 0.0f });
+            pushV(tl, { 0.0f, 0.0f });
+            // Camera2D looks +Z; cull is off on the sprite PSO.
+            pushIdx(m, 0, 1, 2);
+            pushIdx(m, 0, 2, 3);
+            return m;
+        }
+
+        // ============================================================
         // 17. GROUND PLANE
         // ============================================================
         MeshData CreateGroundPlane(float size, float y, float uvScale)
@@ -1077,6 +1112,47 @@ namespace Dark
                 m.indices.push_back(b);
                 m.indices.push_back(b + 1);
             }
+            return m;
+        }
+
+        LineMeshData CreateGridLinesXY(float x0, float y0, float x1, float y1, float step, float z)
+        {
+            LineMeshData m;
+            if (x1 < x0)
+                std::swap(x0, x1);
+            if (y1 < y0)
+                std::swap(y0, y1);
+            if (step < 0.05f)
+                step = 0.05f;
+
+            for (float x = x0; x <= x1 + 0.5f * step; x += step)
+            {
+                const uint32_t b = static_cast<uint32_t>(m.positions.size());
+                m.positions.push_back({ x, y0, z });
+                m.positions.push_back({ x, y1, z });
+                m.indices.push_back(b);
+                m.indices.push_back(b + 1);
+            }
+            for (float y = y0; y <= y1 + 0.5f * step; y += step)
+            {
+                const uint32_t b = static_cast<uint32_t>(m.positions.size());
+                m.positions.push_back({ x0, y, z });
+                m.positions.push_back({ x1, y, z });
+                m.indices.push_back(b);
+                m.indices.push_back(b + 1);
+            }
+            return m;
+        }
+
+        LineMeshData CreateBoxOutlineXY()
+        {
+            LineMeshData m;
+            m.positions.push_back({ -0.5f, -0.5f, 0.0f });
+            m.positions.push_back({ 0.5f, -0.5f, 0.0f });
+            m.positions.push_back({ 0.5f, 0.5f, 0.0f });
+            m.positions.push_back({ -0.5f, 0.5f, 0.0f });
+            const uint32_t edges[] = { 0, 1, 1, 2, 2, 3, 3, 0 };
+            m.indices.assign(edges, edges + 8);
             return m;
         }
 

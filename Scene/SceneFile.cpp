@@ -1,17 +1,23 @@
-#include "Editor/SceneFile.h"
+#include "Scene/SceneFile.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
 
-#include <nlohmann/json.hpp>
+#include "third_party/nlohmann/json.hpp"
 
 #include <fstream>
 #include <sstream>
 
 namespace Dark
 {
-namespace {
+namespace
+{
 
 using json = nlohmann::json;
+
+json vec2ToJson(const Math::Vector2f& v)
+{
+    return json::array({ v.x, v.y });
+}
 
 json vec3ToJson(const Math::Vector3f& v)
 {
@@ -28,17 +34,30 @@ json colorToJson(const float c[4])
     return json::array({ c[0], c[1], c[2], c[3] });
 }
 
-bool readVec3(const json& j, Math::Vector3f& out, std::string* err, const char* field)
+bool readVec2(const json& j, Math::Vector2f& out, std::string* err, const char* field)
 {
-    if (!j.is_array() || j.size() < 3)
+    if (!j.is_array() || j.size() < 2)
     {
         if (err)
-            *err = std::string("expected array[3] for ") + field;
+            *err = std::string("expected array[2] for ") + field;
         return false;
     }
     out.x = j[0].get<float>();
     out.y = j[1].get<float>();
-    out.z = j[2].get<float>();
+    return true;
+}
+
+bool readVec3(const json& j, Math::Vector3f& out, std::string* err, const char* field)
+{
+    if (!j.is_array() || j.size() < 2)
+    {
+        if (err)
+            *err = std::string("expected array[2|3] for ") + field;
+        return false;
+    }
+    out.x = j[0].get<float>();
+    out.y = j[1].get<float>();
+    out.z = (j.size() >= 3) ? j[2].get<float>() : 0.0f;
     return true;
 }
 
@@ -79,6 +98,14 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
     json root;
     root["version"] = scene.version > 0 ? scene.version : 1;
     root["name"]    = scene.name.empty() ? "untitled" : scene.name;
+    root["mode"]    = toString(scene.mode);
+    if (scene.mode == SceneMode::Scene2D)
+    {
+        json world;
+        world["min"] = vec2ToJson(scene.worldMin);
+        world["max"] = vec2ToJson(scene.worldMax);
+        root["world"] = std::move(world);
+    }
 
     json arr = json::array();
     for (const SceneObjectData& o : scene.objects)
@@ -148,7 +175,7 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
         return false;
     }
 
-    DE_LOG_INFO("SceneFile: saved {} objects → {}", scene.objects.size(), path.string());
+    DE_LOG_INFO("SceneFile: saved {} objects ({}) → {}", scene.objects.size(), toString(scene.mode), path.string());
     return true;
 }
 
@@ -168,7 +195,6 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
     ss << in.rdbuf();
     const std::string text = ss.str();
 
-    // allow_exceptions = false → discarded on parse error (no throw)
     const json root = json::parse(text, nullptr, false);
     if (root.is_discarded() || !root.is_object())
     {
@@ -179,6 +205,27 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
 
     outScene.version = root.value("version", 1);
     outScene.name    = root.value("name", std::string("untitled"));
+    const std::string modeStr = root.value("mode", std::string("3d"));
+    if (!tryParseSceneMode(modeStr, outScene.mode))
+        outScene.mode = SceneMode::Scene3D;
+
+    if (root.contains("world") && root["world"].is_object())
+    {
+        const json& w = root["world"];
+        std::string err;
+        if (w.contains("min") && !readVec2(w["min"], outScene.worldMin, &err, "world.min"))
+        {
+            if (errorOut)
+                *errorOut = err;
+            return false;
+        }
+        if (w.contains("max") && !readVec2(w["max"], outScene.worldMax, &err, "world.max"))
+        {
+            if (errorOut)
+                *errorOut = err;
+            return false;
+        }
+    }
 
     if (!root.contains("objects") || !root["objects"].is_array())
     {
@@ -278,7 +325,6 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             o.hasParticle = true;
         }
 
-        // Guard zero scale
         if (o.scale.x == 0.0f)
             o.scale.x = 1.0f;
         if (o.scale.y == 0.0f)
@@ -289,7 +335,7 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
         outScene.objects.push_back(o);
     }
 
-    DE_LOG_INFO("SceneFile: loaded {} objects ← {}", outScene.objects.size(), path.string());
+    DE_LOG_INFO("SceneFile: loaded {} objects ({}) ← {}", outScene.objects.size(), toString(outScene.mode), path.string());
     return true;
 }
 
@@ -312,7 +358,6 @@ std::filesystem::path defaultScenePath(const std::filesystem::path& preferredNam
             return fs::weakly_canonical(c, ec);
     }
 
-    // Prefer write location next to the exe.
     if (!exeDir.empty())
         return exeDir / "content" / "scenes" / name;
 

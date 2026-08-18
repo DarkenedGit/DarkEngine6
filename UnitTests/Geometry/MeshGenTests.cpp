@@ -59,3 +59,33 @@ TEST(MeshGen, GroundPlaneIsFrontFacingFromAbove)
     EXPECT_EQ(CountTrianglesWithCrossYSign(ground, -1.0f), 2);
     EXPECT_EQ(CountTrianglesWithCrossYSign(ground, 1.0f), 0);
 }
+
+TEST(MeshGen, QuadXYIsCenteredInPlane)
+{
+    const MeshData q = CreateQuadXY(4.0f, 2.0f);
+    ASSERT_EQ(q.positions.size(), 4u);
+    ASSERT_EQ(q.indices.size(), 6u);
+    ASSERT_EQ(q.uvs.size(), 4u);
+
+    Vector3f minP(1.0e9f, 1.0e9f, 1.0e9f);
+    Vector3f maxP(-1.0e9f, -1.0e9f, -1.0e9f);
+    for (const Vector3f& p : q.positions)
+    {
+        EXPECT_NEAR(p.z, 0.0f, 1.0e-5f);
+        minP.x = Min(minP.x, p.x);
+        minP.y = Min(minP.y, p.y);
+        maxP.x = Max(maxP.x, p.x);
+        maxP.y = Max(maxP.y, p.y);
+    }
+    EXPECT_NEAR(minP.x, -2.0f, 1.0e-5f);
+    EXPECT_NEAR(maxP.x, 2.0f, 1.0e-5f);
+    EXPECT_NEAR(minP.y, -1.0f, 1.0e-5f);
+    EXPECT_NEAR(maxP.y, 1.0f, 1.0e-5f);
+}
+
+TEST(MeshGen, BoxOutlineXYHasFourEdges)
+{
+    const LineMeshData outline = CreateBoxOutlineXY();
+    EXPECT_EQ(outline.positions.size(), 4u);
+    EXPECT_EQ(outline.indices.size(), 8u);
+}

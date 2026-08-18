@@ -1,6 +1,6 @@
 #include "EditorApp.h"
 
-#include "Editor/SceneFile.h"
+#include "Scene/SceneFile.h"
 #include "ECS/Components.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
@@ -8,17 +8,23 @@
 #include "Input/InputCodes.h"
 #include "Collision/StaticCollision.h"
 #include "Math/AABox3f.h"
+#include "Math/Aabb2f.h"
+#include "Math/MathHelper.h"
 #include "Math/Matrix4f.h"
 #include "Math/Quaternion.h"
+#include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
 #include "Math/Ray3f.h"
+#include "Geometry/LineMesh.h"
 
 #include <imgui.h>
 
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <vector>
 
 using namespace Dark;
 using namespace Math;
@@ -76,6 +82,60 @@ void copyColor(float dst[4], const float src[4])
     dst[1] = src[1];
     dst[2] = src[2];
     dst[3] = src[3];
+}
+
+bool createChecker(
+    Renderer& renderer,
+    Texture2D& out,
+    uint8_t r0, uint8_t g0, uint8_t b0,
+    uint8_t r1, uint8_t g1, uint8_t b1,
+    uint32_t size = 32,
+    uint32_t cell = 8)
+{
+    std::vector<uint8_t> px(static_cast<size_t>(size) * size * 4u);
+    for (uint32_t y = 0; y < size; ++y)
+    {
+        for (uint32_t x = 0; x < size; ++x)
+        {
+            const bool   alt = ((x / cell) + (y / cell)) & 1u;
+            const size_t i   = (static_cast<size_t>(y) * size + x) * 4u;
+            px[i + 0]        = alt ? r1 : r0;
+            px[i + 1]        = alt ? g1 : g0;
+            px[i + 2]        = alt ? b1 : b0;
+            px[i + 3]        = 255;
+        }
+    }
+    return out.createFromRGBA(renderer, px.data(), size, size, size * 4u);
+}
+
+Vector3f defaultScale2D(SceneObjectType type)
+{
+    switch (type)
+    {
+    case SceneObjectType::Platform: return Vector3f(4.0f, 0.6f, 1.0f);
+    case SceneObjectType::Coin:     return Vector3f(0.5f, 0.5f, 1.0f);
+    case SceneObjectType::Spawn:    return Vector3f(0.8f, 1.4f, 1.0f);
+    default:                        return Vector3f(1.0f, 1.0f, 1.0f);
+    }
+}
+
+void defaultColor2D(SceneObjectType type, float out[4])
+{
+    switch (type)
+    {
+    case SceneObjectType::Platform:
+        out[0] = 0.72f; out[1] = 0.52f; out[2] = 0.32f; out[3] = 1.0f;
+        break;
+    case SceneObjectType::Coin:
+        out[0] = 0.95f; out[1] = 0.80f; out[2] = 0.25f; out[3] = 1.0f;
+        break;
+    case SceneObjectType::Spawn:
+        out[0] = 0.20f; out[1] = 0.80f; out[2] = 0.70f; out[3] = 1.0f;
+        break;
+    default:
+        out[0] = 1.0f; out[1] = 1.0f; out[2] = 1.0f; out[3] = 1.0f;
+        break;
+    }
 }
 
 void descFromSceneData(const SceneObjectData& d, ParticleEmitterDesc& out)
@@ -143,6 +203,238 @@ float EditorApp::snap(float v, float grid)
     return std::floor(v / grid + 0.5f) * grid;
 }
 
+bool EditorApp::ensure2DResources()
+{
+    if (m_2dReady)
+        return true;
+    if (!m_spritePipe.create(renderer().device()))
+    {
+        DE_LOG_ERROR("Editor: SpritePipeline failed");
+        return false;
+    }
+    m_quadMesh      = Mesh::Create(renderer(), CreateQuadXY(1.0f, 1.0f));
+    m_boxOutline2D  = LineMesh::Create(renderer(), CreateBoxOutlineXY());
+    if (!m_quadMesh.valid())
+    {
+        DE_LOG_ERROR("Editor: 2D quad mesh failed");
+        return false;
+    }
+    if (!createChecker(renderer(), m_texPlatform, 118, 86, 52, 92, 66, 40)
+        || !m_texCoin.createSolidColor(renderer(), 236, 196, 64)
+        || !m_texSpawn.createSolidColor(renderer(), 48, 196, 168))
+    {
+        DE_LOG_ERROR("Editor: 2D textures failed");
+        return false;
+    }
+    rebuildGrid2D();
+    m_2dReady = true;
+    return true;
+}
+
+void EditorApp::rebuildGrid2D()
+{
+    renderer().waitForGpu();
+    const float x0 = std::floor(m_worldMin.x) - 1.0f;
+    const float y0 = std::floor(m_worldMin.y) - 1.0f;
+    const float x1 = std::ceil(m_worldMax.x) + 1.0f;
+    const float y1 = std::ceil(m_worldMax.y) + 1.0f;
+    m_grid2D = LineMesh::Create(renderer(), CreateGridLinesXY(x0, y0, x1, y1, 1.0f, 3.0f));
+}
+
+void EditorApp::clampCamera2D()
+{
+    const float halfW = m_camera2D.GetVisibleWidth() * 0.5f;
+    const float halfH = m_camera2D.GetVisibleHeight() * 0.5f;
+    const float worldW = m_worldMax.x - m_worldMin.x;
+    const float worldH = m_worldMax.y - m_worldMin.y;
+    Vector2f cam = m_camera2D.GetPosition();
+    if (m_camera2D.GetVisibleWidth() >= worldW)
+        cam.x = 0.5f * (m_worldMin.x + m_worldMax.x);
+    else
+        cam.x = Clamp(cam.x, m_worldMin.x + halfW, m_worldMax.x - halfW);
+    if (m_camera2D.GetVisibleHeight() >= worldH)
+        cam.y = 0.5f * (m_worldMin.y + m_worldMax.y);
+    else
+        cam.y = Clamp(cam.y, m_worldMin.y + halfH, m_worldMax.y - halfH);
+    m_camera2D.SetPosition(cam);
+}
+
+void EditorApp::applySceneMode(SceneMode mode)
+{
+    m_sceneMode = mode;
+    if (mode == SceneMode::Scene2D)
+    {
+        ensure2DResources();
+        renderer().setClearColor(0.38f, 0.62f, 0.86f, 1.0f);
+        m_placeType = SceneObjectType::Platform;
+        m_camera2D.SetViewportSize(static_cast<float>(renderer().width()), static_cast<float>(renderer().height()));
+        m_camera2D.SetOrthoHeight(16.0f);
+        m_camera2D.SetClipPlanes(0.0f, 80.0f);
+        m_camera2D.SetZoom(1.0f);
+        m_camera2D.SetPosition(0.5f * (m_worldMin.x + m_worldMax.x), 0.5f * (m_worldMin.y + m_worldMax.y));
+        clampCamera2D();
+    }
+    else
+    {
+        renderer().setClearColor(0.05f, 0.05f, 0.07f, 1.0f);
+        m_placeType = SceneObjectType::Cube;
+    }
+}
+
+void EditorApp::newScene3D()
+{
+    applySceneMode(SceneMode::Scene3D);
+    m_scenePath = defaultScenePath("level.json");
+    m_sceneName = "level";
+    clearScene();
+    DE_LOG_INFO("Editor: new 3D scene");
+}
+
+void EditorApp::newScene2D()
+{
+    applySceneMode(SceneMode::Scene2D);
+    m_scenePath = defaultScenePath("level2d.json");
+    m_sceneName = "level2d";
+    clearScene();
+    m_worldMin = Vector2f(0.0f, 0.0f);
+    m_worldMax = Vector2f(96.0f, 22.0f);
+    rebuildGrid2D();
+    float platCol[4]{};
+    float spawnCol[4]{};
+    defaultColor2D(SceneObjectType::Platform, platCol);
+    defaultColor2D(SceneObjectType::Spawn, spawnCol);
+    spawnObject(SceneObjectType::Platform, Vector3f(14.0f, 0.7f, 0.0f), Vector3f(28.0f, 1.4f, 1.0f), Quaternion::IDENTITY, platCol);
+    spawnObject(SceneObjectType::Spawn, Vector3f(3.0f, 3.5f, 0.0f), defaultScale2D(SceneObjectType::Spawn), Quaternion::IDENTITY, spawnCol);
+    m_camera2D.SetPosition(14.0f, 6.0f);
+    clampCamera2D();
+    DE_LOG_INFO("Editor: new 2D scene");
+}
+
+bool EditorApp::worldFromMouse2D(Vector2f& out)
+{
+    out = m_camera2D.ScreenToWorld(
+        Vector2f(static_cast<float>(input().mouseX()), static_cast<float>(input().mouseY())),
+        static_cast<float>(renderer().width()),
+        static_cast<float>(renderer().height()));
+    return true;
+}
+
+Aabb2f EditorApp::objectBounds2D(SceneObjectType type, const Vector3f& pos, const Vector3f& scale) const
+{
+    Vector2f half(0.5f * std::fabs(scale.x), 0.5f * std::fabs(scale.y));
+    if (type == SceneObjectType::Coin)
+        half = Vector2f(0.28f, 0.28f);
+    return Aabb2f::FromCenterExtents(Vector2f(pos.x, pos.y), half);
+}
+
+Entity EditorApp::pickObject2D(const Vector2f& worldPos)
+{
+    Entity best{};
+    float  bestArea = 1.0e30f;
+    for (const SceneObject& so : m_objects)
+    {
+        if (!isScene2DType(so.type))
+            continue;
+        const auto* xf = this->world().get<TransformComponent>(so.entity);
+        if (!xf)
+            continue;
+        const Aabb2f box = objectBounds2D(so.type, xf->position, xf->scale);
+        if (!box.Contains(worldPos))
+            continue;
+        const float area = box.Area();
+        if (area < bestArea)
+        {
+            bestArea = area;
+            best     = so.entity;
+        }
+    }
+    return best;
+}
+
+void EditorApp::updateCamera2D(float dt)
+{
+    m_camera2D.SetViewportSize(static_cast<float>(renderer().width()), static_cast<float>(renderer().height()));
+
+    const bool uiMouse = m_imgui.wantCaptureMouse();
+    const bool uiKey   = m_imgui.wantCaptureKeyboard();
+
+    if (!uiMouse && (input().mouseDown(MouseButton::Middle) || input().mouseDown(MouseButton::Right)))
+    {
+        if (!m_panning)
+        {
+            m_panning   = true;
+            m_panMouseX = input().mouseX();
+            m_panMouseY = input().mouseY();
+        }
+        const float dx = static_cast<float>(input().mouseX() - m_panMouseX);
+        const float dy = static_cast<float>(input().mouseY() - m_panMouseY);
+        m_panMouseX    = input().mouseX();
+        m_panMouseY    = input().mouseY();
+        const float vw = static_cast<float>(renderer().width());
+        const float vh = static_cast<float>(renderer().height());
+        if (vw > 1.0f && vh > 1.0f)
+        {
+            m_camera2D.Move(Vector2f(
+                -dx / vw * m_camera2D.GetVisibleWidth(),
+                dy / vh * m_camera2D.GetVisibleHeight()));
+        }
+    }
+    else
+    {
+        m_panning = false;
+    }
+
+    if (!uiKey)
+    {
+        float speed = m_moveSpeed;
+        if (input().keyDown(Key::LeftShift) || input().keyDown(Key::RightShift))
+            speed *= 2.5f;
+        m_camera2D.Move(Vector2f(input().actionAxis("move_x") * speed * dt, input().actionAxis("move_z") * speed * dt));
+    }
+
+    if (!uiMouse && input().mouseWheel() != 0.0f)
+    {
+        Vector2f before{};
+        worldFromMouse2D(before);
+        m_camera2D.ZoomBy(input().mouseWheel() > 0.0f ? 1.12f : 1.0f / 1.12f);
+        Vector2f after{};
+        worldFromMouse2D(after);
+        m_camera2D.Move(Vector2f(before.x - after.x, before.y - after.y));
+    }
+
+    clampCamera2D();
+}
+
+void EditorApp::drawSprite2D(
+    ID3D12GraphicsCommandList* cmd,
+    const Texture2D& texture,
+    const Vector2f& pos,
+    const Vector2f& size,
+    float z,
+    float cr,
+    float cg,
+    float cb,
+    float uvSx,
+    float uvSy)
+{
+    if (!cmd || !texture.valid() || !m_quadMesh.valid())
+        return;
+    const Matrix4f world = Matrix4f::ScaleMatrixXYZ(size.x, size.y, 1.0f)
+        * Matrix4f::TranslationMatrix(pos.x, pos.y, z);
+    const Matrix4f wvp = world * m_camera2D.GetViewProj();
+    SpriteConstants sc{};
+    copyMatrix(sc.worldViewProj, wvp);
+    sc.color[0]    = cr;
+    sc.color[1]    = cg;
+    sc.color[2]    = cb;
+    sc.color[3]    = 1.0f;
+    sc.uvScale[0]  = uvSx;
+    sc.uvScale[1]  = uvSy;
+    texture.bind(cmd, SpritePipeline::kRootAlbedoSrv);
+    m_spritePipe.setConstants(cmd, sc);
+    m_quadMesh.draw(cmd);
+}
+
 const Mesh* EditorApp::meshForType(SceneObjectType type) const
 {
     switch (type)
@@ -152,6 +444,9 @@ const Mesh* EditorApp::meshForType(SceneObjectType type) const
     case SceneObjectType::ParticleEmitter:
         // Small proxy cube marks emitter origin
         return &m_cubeMesh;
+    case SceneObjectType::Platform:
+    case SceneObjectType::Coin:
+    case SceneObjectType::Spawn:
     case SceneObjectType::Cube:
     default:
         return &m_cubeMesh;
@@ -229,8 +524,8 @@ void EditorApp::registerActions()
     a.bindAxis("look_y", GamepadAxis::RightY, 1.0f);
 
     DE_LOG_INFO(
-        "Editor: F2 particle UI | 1/2/3 cube/sphere/emitter | P place | Ctrl+S/O save/load | "
-        "C color | Del delete");
+        "Editor: F3 toggle 2D/3D | F2 particle UI | 1/2/3 place type | P place | "
+        "MMB/RMB pan (2D) | wheel zoom | Ctrl+S/O save/load | C color | Del delete");
 }
 
 void EditorApp::onInit()
@@ -291,6 +586,9 @@ void EditorApp::onInit()
         : 1.0f;
     m_camera.SetLens(1.04719755f, aspect, 0.05f, 500.0f);
     m_camera.LookAt(Vector3f(8.0f, 6.0f, -10.0f), Vector3f(0.0f, 0.0f, 0.0f), Vector3f(0.0f, 1.0f, 0.0f));
+    m_camera2D.SetViewportSize(static_cast<float>(renderer().width()), static_cast<float>(renderer().height()));
+    m_camera2D.SetOrthoHeight(16.0f);
+    m_camera2D.SetClipPlanes(0.0f, 80.0f);
 
     if (std::filesystem::exists(m_scenePath))
         loadScene();
@@ -302,6 +600,12 @@ void EditorApp::onInit()
 
 void EditorApp::updateCamera(float dt)
 {
+    if (m_sceneMode == SceneMode::Scene2D)
+    {
+        updateCamera2D(dt);
+        return;
+    }
+
     if (m_imgui.wantCaptureMouse() && !input().mouseDown(MouseButton::Right))
     {
         // Still allow pad look
@@ -402,7 +706,8 @@ Entity EditorApp::spawnObject(
     xf.position = pos;
     xf.scale    = scale;
     xf.rotation = rot;
-    if (type != SceneObjectType::ParticleEmitter && xf.position.y < 0.5f * xf.scale.y)
+    if (m_sceneMode == SceneMode::Scene3D && isScene3DType(type) && type != SceneObjectType::ParticleEmitter
+        && xf.position.y < 0.5f * xf.scale.y)
         xf.position.y = 0.5f * xf.scale.y;
     world().emplace<TransformComponent>(e, xf);
 
@@ -438,6 +743,22 @@ Entity EditorApp::spawnObject(
 
 Entity EditorApp::placeAtCursor(SceneObjectType type)
 {
+    if (m_sceneMode == SceneMode::Scene2D)
+    {
+        if (!isScene2DType(type))
+            type = SceneObjectType::Platform;
+        Vector2f p{};
+        worldFromMouse2D(p);
+        if (m_gridSnap > 0.0f)
+        {
+            p.x = snap(p.x, m_gridSnap);
+            p.y = snap(p.y, m_gridSnap);
+        }
+        float col[4]{};
+        defaultColor2D(type, col);
+        return spawnObject(type, Vector3f(p.x, p.y, 0.0f), defaultScale2D(type), Quaternion::IDENTITY, col, nullptr);
+    }
+
     Vector3f hit{};
     bool ok = groundHitFromMouse(hit);
     if (!ok)
@@ -509,10 +830,20 @@ void EditorApp::selectNext(int delta)
 
 void EditorApp::cyclePlaceType(int delta)
 {
-    int t = static_cast<int>(m_placeType) + delta;
-    const int n = static_cast<int>(SceneObjectType::Count);
-    t = ((t % n) + n) % n;
-    m_placeType = static_cast<SceneObjectType>(t);
+    const SceneObjectType types3D[] = {
+        SceneObjectType::Cube, SceneObjectType::Sphere, SceneObjectType::ParticleEmitter
+    };
+    const SceneObjectType types2D[] = {
+        SceneObjectType::Platform, SceneObjectType::Coin, SceneObjectType::Spawn
+    };
+    const SceneObjectType* types = (m_sceneMode == SceneMode::Scene2D) ? types2D : types3D;
+    const int n = 3;
+    int idx = 0;
+    for (int i = 0; i < n; ++i)
+        if (types[i] == m_placeType)
+            idx = i;
+    idx = ((idx + delta) % n + n) % n;
+    m_placeType = types[idx];
     DE_LOG_INFO("Editor: place type = {}", toString(m_placeType));
 }
 
@@ -537,8 +868,11 @@ void EditorApp::clearScene()
 bool EditorApp::saveScene()
 {
     SceneFileData data{};
-    data.version = 1;
-    data.name    = m_sceneName;
+    data.version  = 1;
+    data.name     = m_sceneName;
+    data.mode     = m_sceneMode;
+    data.worldMin = m_worldMin;
+    data.worldMax = m_worldMax;
 
     for (const SceneObject& so : m_objects)
     {
@@ -581,7 +915,12 @@ bool EditorApp::loadScene()
     }
 
     clearScene();
-    m_sceneName = data.name.empty() ? "level" : data.name;
+    m_worldMin  = data.worldMin;
+    m_worldMax  = data.worldMax;
+    applySceneMode(data.mode);
+    m_sceneName = data.name.empty() ? (data.mode == SceneMode::Scene2D ? "level2d" : "level") : data.name;
+    if (data.mode == SceneMode::Scene2D)
+        rebuildGrid2D();
 
     for (const SceneObjectData& d : data.objects)
     {
@@ -633,12 +972,20 @@ void EditorApp::handleEditorCommands(float dt)
             selectNext(+1);
         if (input().actionPressed("select_prev"))
             selectNext(-1);
+        if (input().keyPressed(Key::F3))
+        {
+            if (m_sceneMode == SceneMode::Scene2D)
+                applySceneMode(SceneMode::Scene3D);
+            else
+                applySceneMode(SceneMode::Scene2D);
+            DE_LOG_INFO("Editor: mode {}", toString(m_sceneMode));
+        }
         if (input().actionPressed("type_cube"))
-            m_placeType = SceneObjectType::Cube;
+            m_placeType = (m_sceneMode == SceneMode::Scene2D) ? SceneObjectType::Platform : SceneObjectType::Cube;
         if (input().actionPressed("type_sphere"))
-            m_placeType = SceneObjectType::Sphere;
+            m_placeType = (m_sceneMode == SceneMode::Scene2D) ? SceneObjectType::Coin : SceneObjectType::Sphere;
         if (input().actionPressed("type_particle"))
-            m_placeType = SceneObjectType::ParticleEmitter;
+            m_placeType = (m_sceneMode == SceneMode::Scene2D) ? SceneObjectType::Spawn : SceneObjectType::ParticleEmitter;
         if (input().actionPressed("cycle_type"))
             cyclePlaceType(+1);
         if (input().actionPressed("cycle_color"))
@@ -653,12 +1000,22 @@ void EditorApp::handleEditorCommands(float dt)
     {
         m_lmbDownX = input().mouseX();
         m_lmbDownY = input().mouseY();
-        const Ray3f ray = m_camera.ScreenPointToRay(
-            static_cast<float>(input().mouseX()),
-            static_cast<float>(input().mouseY()),
-            static_cast<float>(renderer().width()),
-            static_cast<float>(renderer().height()));
-        Entity hit = pickObject(ray);
+        Entity hit{};
+        if (m_sceneMode == SceneMode::Scene2D)
+        {
+            Vector2f p{};
+            worldFromMouse2D(p);
+            hit = pickObject2D(p);
+        }
+        else
+        {
+            const Ray3f ray = m_camera.ScreenPointToRay(
+                static_cast<float>(input().mouseX()),
+                static_cast<float>(input().mouseY()),
+                static_cast<float>(renderer().width()),
+                static_cast<float>(renderer().height()));
+            hit = pickObject(ray);
+        }
         if (hit.valid())
         {
             m_selected = hit;
@@ -675,28 +1032,46 @@ void EditorApp::handleEditorCommands(float dt)
 
     if (!uiMouse && m_dragging && m_selected.valid() && input().mouseDown(MouseButton::Left))
     {
-        Vector3f hit{};
-        if (groundHitFromMouse(hit))
+        if (m_sceneMode == SceneMode::Scene2D)
         {
+            Vector2f p{};
+            worldFromMouse2D(p);
             if (m_gridSnap > 0.0f)
             {
-                hit.x = snap(hit.x, m_gridSnap);
-                hit.z = snap(hit.z, m_gridSnap);
+                p.x = snap(p.x, m_gridSnap);
+                p.y = snap(p.y, m_gridSnap);
             }
             if (auto* xf = world().get<TransformComponent>(m_selected))
             {
-                xf->position.x = hit.x;
-                xf->position.z = hit.z;
-                SceneObject* so = findObject(m_selected);
-                if (so && so->type == SceneObjectType::ParticleEmitter)
-                    xf->position.y = 0.5f;
-                else
-                    xf->position.y = 0.5f * xf->scale.y;
-
-                if (so && so->emitterIndex >= 0 && so->emitterIndex < static_cast<int>(m_emitters.size())
-                    && m_emitters[static_cast<size_t>(so->emitterIndex)])
+                xf->position.x = p.x;
+                xf->position.y = p.y;
+            }
+        }
+        else
+        {
+            Vector3f hit{};
+            if (groundHitFromMouse(hit))
+            {
+                if (m_gridSnap > 0.0f)
                 {
-                    m_emitters[static_cast<size_t>(so->emitterIndex)]->setTransform(xf->position, xf->rotation);
+                    hit.x = snap(hit.x, m_gridSnap);
+                    hit.z = snap(hit.z, m_gridSnap);
+                }
+                if (auto* xf = world().get<TransformComponent>(m_selected))
+                {
+                    xf->position.x = hit.x;
+                    xf->position.z = hit.z;
+                    SceneObject* so = findObject(m_selected);
+                    if (so && so->type == SceneObjectType::ParticleEmitter)
+                        xf->position.y = 0.5f;
+                    else
+                        xf->position.y = 0.5f * xf->scale.y;
+
+                    if (so && so->emitterIndex >= 0 && so->emitterIndex < static_cast<int>(m_emitters.size())
+                        && m_emitters[static_cast<size_t>(so->emitterIndex)])
+                    {
+                        m_emitters[static_cast<size_t>(so->emitterIndex)]->setTransform(xf->position, xf->rotation);
+                    }
                 }
             }
         }
@@ -712,10 +1087,25 @@ void EditorApp::drawEditorUi()
     {
         if (ImGui::BeginMenu("File"))
         {
+            if (ImGui::MenuItem("New 3D Scene"))
+                newScene3D();
+            if (ImGui::MenuItem("New 2D Scene"))
+                newScene2D();
+            ImGui::Separator();
             if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
                 saveScene();
             if (ImGui::MenuItem("Load Scene", "Ctrl+O"))
                 loadScene();
+            if (ImGui::MenuItem("Open 3D Level"))
+            {
+                m_scenePath = defaultScenePath("level.json");
+                loadScene();
+            }
+            if (ImGui::MenuItem("Open 2D Level"))
+            {
+                m_scenePath = defaultScenePath("level2d.json");
+                loadScene();
+            }
             ImGui::Separator();
             if (ImGui::MenuItem("Quit", "Esc"))
                 requestQuit();
@@ -723,6 +1113,9 @@ void EditorApp::drawEditorUi()
         }
         if (ImGui::BeginMenu("View"))
         {
+            bool mode2d = m_sceneMode == SceneMode::Scene2D;
+            if (ImGui::MenuItem("2D Scene", "F3", mode2d))
+                applySceneMode(mode2d ? SceneMode::Scene3D : SceneMode::Scene2D);
             ImGui::MenuItem("Particle Panel", "F2", &m_showParticlePanel);
             ImGui::MenuItem("Grid", nullptr, &m_showGrid);
             ImGui::MenuItem("Solid Ground", nullptr, &m_showSolid);
@@ -730,24 +1123,45 @@ void EditorApp::drawEditorUi()
         }
         if (ImGui::BeginMenu("Create"))
         {
-            if (ImGui::MenuItem("Cube", "1+P"))
+            if (m_sceneMode == SceneMode::Scene2D)
             {
-                m_placeType = SceneObjectType::Cube;
-                placeAtCursor(m_placeType);
+                if (ImGui::MenuItem("Platform", "1+P"))
+                {
+                    m_placeType = SceneObjectType::Platform;
+                    placeAtCursor(m_placeType);
+                }
+                if (ImGui::MenuItem("Coin", "2+P"))
+                {
+                    m_placeType = SceneObjectType::Coin;
+                    placeAtCursor(m_placeType);
+                }
+                if (ImGui::MenuItem("Player Spawn", "3+P"))
+                {
+                    m_placeType = SceneObjectType::Spawn;
+                    placeAtCursor(m_placeType);
+                }
             }
-            if (ImGui::MenuItem("Sphere", "2+P"))
+            else
             {
-                m_placeType = SceneObjectType::Sphere;
-                placeAtCursor(m_placeType);
-            }
-            if (ImGui::MenuItem("Particle Emitter", "3+P"))
-            {
-                m_placeType = SceneObjectType::ParticleEmitter;
-                placeAtCursor(m_placeType);
+                if (ImGui::MenuItem("Cube", "1+P"))
+                {
+                    m_placeType = SceneObjectType::Cube;
+                    placeAtCursor(m_placeType);
+                }
+                if (ImGui::MenuItem("Sphere", "2+P"))
+                {
+                    m_placeType = SceneObjectType::Sphere;
+                    placeAtCursor(m_placeType);
+                }
+                if (ImGui::MenuItem("Particle Emitter", "3+P"))
+                {
+                    m_placeType = SceneObjectType::ParticleEmitter;
+                    placeAtCursor(m_placeType);
+                }
             }
             ImGui::EndMenu();
         }
-        ImGui::Text("  |  objects:%d  place:%s", (int)m_objects.size(), toString(m_placeType));
+        ImGui::Text("  |  %s  objects:%d  place:%s", toString(m_sceneMode), (int)m_objects.size(), toString(m_placeType));
         ImGui::EndMainMenuBar();
     }
 
@@ -788,6 +1202,9 @@ void EditorApp::drawEditorUi()
     // Hierarchy
     if (ImGui::Begin("Scene"))
     {
+        ImGui::TextUnformatted(m_sceneMode == SceneMode::Scene2D ? "Mode: 2D" : "Mode: 3D");
+        ImGui::TextWrapped("%s", m_scenePath.string().c_str());
+        ImGui::Separator();
         for (size_t i = 0; i < m_objects.size(); ++i)
         {
             SceneObject& so = m_objects[i];
@@ -801,6 +1218,52 @@ void EditorApp::drawEditorUi()
         }
     }
     ImGui::End();
+
+    if (m_sceneMode == SceneMode::Scene2D && ImGui::Begin("2D Level"))
+    {
+        ImGui::Text("MMB/RMB drag to pan, wheel to zoom, P to place.");
+        float wmin[2] = { m_worldMin.x, m_worldMin.y };
+        float wmax[2] = { m_worldMax.x, m_worldMax.y };
+        if (ImGui::DragFloat2("World min", wmin, 0.25f))
+        {
+            m_worldMin = Vector2f(wmin[0], wmin[1]);
+            rebuildGrid2D();
+        }
+        if (ImGui::DragFloat2("World max", wmax, 0.25f))
+        {
+            m_worldMax = Vector2f(wmax[0], wmax[1]);
+            rebuildGrid2D();
+        }
+        ImGui::SliderFloat("Snap", &m_gridSnap, 0.0f, 4.0f, "%.2f");
+        ImGui::Separator();
+        if (SceneObject* so = findObject(m_selected))
+        {
+            if (auto* xf = world().get<TransformComponent>(so->entity))
+            {
+                ImGui::Text("Selected: %s", toString(so->type));
+                float pos[2] = { xf->position.x, xf->position.y };
+                float size[2] = { xf->scale.x, xf->scale.y };
+                if (ImGui::DragFloat2("Position", pos, 0.05f))
+                {
+                    xf->position.x = pos[0];
+                    xf->position.y = pos[1];
+                }
+                if (ImGui::DragFloat2("Size", size, 0.05f, 0.05f, 200.0f))
+                {
+                    xf->scale.x = Max(0.05f, size[0]);
+                    xf->scale.y = Max(0.05f, size[1]);
+                }
+                ImGui::ColorEdit3("Tint", so->color);
+                if (ImGui::Button("Delete"))
+                    deleteSelected();
+            }
+        }
+        else
+        {
+            ImGui::TextUnformatted("No selection. Click an object or press P to place.");
+        }
+        ImGui::End();
+    }
 }
 
 void EditorApp::onUpdate(float dt)
@@ -830,6 +1293,110 @@ void EditorApp::onRender()
     if (m_imgui.isReady())
         m_imgui.beginFrame();
 
+    if (m_sceneMode == SceneMode::Scene2D)
+        renderScene2D(cmd);
+    else
+        renderScene3D(cmd);
+
+    if (m_imgui.isReady())
+    {
+        drawEditorUi();
+        m_imgui.render(renderer());
+    }
+
+    renderer().endFrame();
+}
+
+void EditorApp::renderScene2D(ID3D12GraphicsCommandList* cmd)
+{
+    if (!cmd || !ensure2DResources())
+        return;
+
+    m_spritePipe.bind(cmd);
+
+    auto drawObj = [&](const SceneObject& so, const TransformComponent& xf) {
+        const bool selected = m_selected.valid() && m_selected.id() == so.entity.id();
+        float cr = so.color[0], cg = so.color[1], cb = so.color[2];
+        if (selected)
+        {
+            cr = cr * 0.55f + 1.0f * 0.45f;
+            cg = cg * 0.55f + 0.85f * 0.45f;
+            cb = cb * 0.55f + 0.20f * 0.45f;
+        }
+        const Vector2f pos(xf.position.x, xf.position.y);
+        const Vector2f size(std::fabs(xf.scale.x), std::fabs(xf.scale.y));
+        const Texture2D* tex = &m_texPlatform;
+        float z = 2.0f;
+        float uvx = size.x;
+        float uvy = size.y;
+        if (so.type == SceneObjectType::Coin)
+        {
+            tex = &m_texCoin;
+            z   = 1.2f;
+            uvx = 1.0f;
+            uvy = 1.0f;
+        }
+        else if (so.type == SceneObjectType::Spawn)
+        {
+            tex = &m_texSpawn;
+            z   = 1.0f;
+            uvx = 1.0f;
+            uvy = 1.0f;
+        }
+        drawSprite2D(cmd, *tex, pos, size, z, cr, cg, cb, uvx, uvy);
+    };
+
+    for (const SceneObject& so : m_objects)
+    {
+        if (!isScene2DType(so.type))
+            continue;
+        const auto* xf = world().get<TransformComponent>(so.entity);
+        if (xf)
+            drawObj(so, *xf);
+    }
+
+    if (m_showGrid && m_grid2D.valid())
+    {
+        m_linePipeline.bind(cmd);
+        LineFrameConstants lc{};
+        copyMatrix(lc.worldViewProj, m_camera2D.GetViewProj());
+        lc.color[0] = 0.20f;
+        lc.color[1] = 0.35f;
+        lc.color[2] = 0.50f;
+        lc.color[3] = 1.0f;
+        m_linePipeline.setConstants(cmd, lc);
+        m_grid2D.draw(cmd);
+    }
+
+    if (m_selected.valid() && m_boxOutline2D.valid())
+    {
+        if (const SceneObject* so = findObject(m_selected))
+        {
+            if (const auto* xf = world().get<TransformComponent>(so->entity))
+            {
+                const Aabb2f box = objectBounds2D(so->type, xf->position, xf->scale);
+                const Vector2f c = box.Center();
+                const Vector2f s = box.Size();
+                const Matrix4f world = Matrix4f::ScaleMatrixXYZ(s.x, s.y, 1.0f)
+                    * Matrix4f::TranslationMatrix(c.x, c.y, 0.4f);
+                m_linePipeline.bind(cmd);
+                LineFrameConstants lc{};
+                copyMatrix(lc.worldViewProj, world * m_camera2D.GetViewProj());
+                lc.color[0] = 1.0f;
+                lc.color[1] = 0.85f;
+                lc.color[2] = 0.15f;
+                lc.color[3] = 1.0f;
+                m_linePipeline.setConstants(cmd, lc);
+                m_boxOutline2D.draw(cmd);
+            }
+        }
+    }
+
+    renderer().stats().drawCalls = static_cast<uint32_t>(m_objects.size() + 2);
+}
+
+void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
+{
     const Matrix4f viewProj = m_camera.GetViewProj();
     const Vector3f lightDir(0.35f, 0.85f, -0.35f);
     Aabb3f sceneBounds(Vector3f(-22.0f, -2.0f, -22.0f), Vector3f(22.0f, 16.0f, 22.0f));
@@ -914,6 +1481,8 @@ void EditorApp::onRender()
     uint32_t draws = 0;
     for (const SceneObject& so : m_objects)
     {
+        if (!isScene3DType(so.type))
+            continue;
         const auto* xf = world().get<TransformComponent>(so.entity);
         if (!xf)
             continue;
@@ -952,14 +1521,7 @@ void EditorApp::onRender()
         ++draws;
     }
 
-    if (m_imgui.isReady())
-    {
-        drawEditorUi();
-        m_imgui.render(renderer());
-    }
-
     renderer().stats().drawCalls = draws;
-    renderer().endFrame();
 }
 
 void EditorApp::onShutdown()
@@ -973,6 +1535,12 @@ void EditorApp::onShutdown()
         assets().unload(m_groundMaterial->id);
     m_propMaterial.reset();
     m_groundMaterial.reset();
+    m_texPlatform = Texture2D{};
+    m_texCoin     = Texture2D{};
+    m_texSpawn    = Texture2D{};
+    m_quadMesh    = Mesh{};
+    m_grid2D      = LineMesh{};
+    m_boxOutline2D = LineMesh{};
     m_shadows = ShadowSystem{};
     m_emitters.clear();
     m_objects.clear();

@@ -196,6 +196,12 @@ namespace Dark
         MeshData CreateArch(float innerRadius = 0.6f, float outerRadius = 1.0f, float depth = 0.4f, float arcAngle = 3.14159265f, int slices = 32);
 
         // ============================================================
+        // 17a. XY QUAD (unit square in the XY plane, facing +Z)
+        //     width / height — full edge lengths, centred on origin
+        // ============================================================
+        MeshData CreateQuadXY(float width = 1.0f, float height = 1.0f);
+
+        // ============================================================
         // 17. GROUND PLANE (XZ, Y-up normal)
         //     size     – edge length of the square
         //     y        – height of the plane
@@ -216,6 +222,12 @@ namespace Dark
         };
 
         LineMeshData CreateGridLines(float halfExtent = 20.0f, int divisions = 40, float y = 0.0f);
+
+        // Axis-aligned grid in the XY plane (side-view / 2D).
+        LineMeshData CreateGridLinesXY(float x0, float y0, float x1, float y1, float step = 1.0f, float z = 0.0f);
+
+        // Unit AABB outline in the XY plane (line list). Scale/translate per box.
+        LineMeshData CreateBoxOutlineXY();
 
     } // namespace Geometry
 

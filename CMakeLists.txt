@@ -46,8 +46,10 @@ set(DE_ENGINE_FOLDERS
     Network
     Particles
     Render
+    Scene
     Shaders
     Sky
+    Sprite
     Terrain
     Water
 )
@@ -59,6 +61,7 @@ foreach(folder IN LISTS DE_ENGINE_FOLDERS)
 endforeach()
 
 de_glob_folder(DE_SANDBOX_SOURCES Sandbox)
+de_glob_folder(DE_SANDBOX2D_SOURCES Sandbox2D)
 de_glob_folder(DE_EDITOR_SOURCES Editor)
 
 # Runtime HLSL lives under content/shaders (not the empty Shaders/ source folder).
@@ -70,7 +73,7 @@ file(GLOB_RECURSE DE_SHADER_SOURCES CONFIGURE_DEPENDS
 list(APPEND DE_ENGINE_SOURCES ${DE_SHADER_SOURCES})
 
 # Non-C/C++ files are IDE-visible only (not passed to the compiler).
-foreach(src IN LISTS DE_ENGINE_SOURCES DE_SANDBOX_SOURCES DE_EDITOR_SOURCES)
+foreach(src IN LISTS DE_ENGINE_SOURCES DE_SANDBOX_SOURCES DE_SANDBOX2D_SOURCES DE_EDITOR_SOURCES)
     get_filename_component(_ext "${src}" EXT)
     string(TOLOWER "${_ext}" _ext)
     if(NOT _ext MATCHES "\\.(c|cc|cpp|cxx)$")
@@ -137,6 +140,30 @@ add_custom_command(TARGET Sandbox POST_BUILD
             -DDST=$<TARGET_FILE_DIR:Sandbox>/content
             -P ${CMAKE_SOURCE_DIR}/cmake/CopyContent.cmake
     COMMENT "Copying content/ next to Sandbox.exe"
+)
+
+# --- Sandbox2D executable (side-scrolling 2D template) -----------------------------
+add_executable(Sandbox2D WIN32 ${DE_SANDBOX2D_SOURCES})
+
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${DE_SANDBOX2D_SOURCES})
+
+target_link_libraries(Sandbox2D PRIVATE DarkEngine)
+
+if (COMMAND de_set_compiler_options)
+    de_set_compiler_options(Sandbox2D)
+endif()
+
+set_target_properties(Sandbox2D PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>"
+)
+
+add_custom_command(TARGET Sandbox2D POST_BUILD
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC=${CMAKE_SOURCE_DIR}/content
+            -DDST=$<TARGET_FILE_DIR:Sandbox2D>/content
+            -P ${CMAKE_SOURCE_DIR}/cmake/CopyContent.cmake
+    COMMENT "Copying content/ next to Sandbox2D.exe"
 )
 
 # --- Dear ImGui (Editor UI) --------------------------------------------------------

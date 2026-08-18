@@ -77,6 +77,7 @@ namespace Dark
         }
 
         void bindSceneTargets();
+        void setClearColor(float r, float g, float b, float a = 1.0f);
         const D3D12_VIEWPORT& viewport() const { return m_viewport; }
         const D3D12_RECT&     scissor() const { return m_scissor; }
 
@@ -108,6 +109,7 @@ namespace Dark
         D3D12_RECT     m_scissor{};
 
         FrameStats m_stats{};
+        float      m_clearColor[4]{ 0.05f, 0.05f, 0.07f, 1.0f };
     };
 
 } // namespace Dark

@@ -2,6 +2,7 @@
 
 #include "ECS/Entity.h"
 #include "Math/Quaternion.h"
+#include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
 
 #include <cstdint>
@@ -12,14 +13,53 @@
 namespace Dark
 {
 
+    enum class SceneMode : uint8_t
+    {
+        Scene3D = 0,
+        Scene2D,
+    };
+
+    inline const char* toString(SceneMode mode)
+    {
+        return mode == SceneMode::Scene2D ? "2d" : "3d";
+    }
+
+    inline bool tryParseSceneMode(std::string_view s, SceneMode& out)
+    {
+        if (s == "2d" || s == "2D")
+        {
+            out = SceneMode::Scene2D;
+            return true;
+        }
+        if (s == "3d" || s == "3D" || s.empty())
+        {
+            out = SceneMode::Scene3D;
+            return true;
+        }
+        return false;
+    }
+
     // Serializable prop kind used by the level editor.
     enum class SceneObjectType : uint8_t
     {
         Cube = 0,
         Sphere,
         ParticleEmitter,
+        Platform,
+        Coin,
+        Spawn,
         Count
     };
+
+    inline bool isScene3DType(SceneObjectType t)
+    {
+        return t == SceneObjectType::Cube || t == SceneObjectType::Sphere || t == SceneObjectType::ParticleEmitter;
+    }
+
+    inline bool isScene2DType(SceneObjectType t)
+    {
+        return t == SceneObjectType::Platform || t == SceneObjectType::Coin || t == SceneObjectType::Spawn;
+    }
 
     inline const char* toString(SceneObjectType t)
     {
@@ -28,6 +68,9 @@ namespace Dark
         case SceneObjectType::Cube:            return "cube";
         case SceneObjectType::Sphere:          return "sphere";
         case SceneObjectType::ParticleEmitter: return "particle_emitter";
+        case SceneObjectType::Platform:        return "platform";
+        case SceneObjectType::Coin:            return "coin";
+        case SceneObjectType::Spawn:           return "spawn";
         default:                               return "unknown";
         }
     }
@@ -47,6 +90,21 @@ namespace Dark
         if (s == "particle_emitter" || s == "emitter" || s == "particle")
         {
             out = SceneObjectType::ParticleEmitter;
+            return true;
+        }
+        if (s == "platform")
+        {
+            out = SceneObjectType::Platform;
+            return true;
+        }
+        if (s == "coin")
+        {
+            out = SceneObjectType::Coin;
+            return true;
+        }
+        if (s == "spawn" || s == "player_spawn")
+        {
+            out = SceneObjectType::Spawn;
             return true;
         }
         return false;
@@ -104,6 +162,9 @@ namespace Dark
     {
         int         version = 1;
         std::string name    = "untitled";
+        SceneMode   mode    = SceneMode::Scene3D;
+        Math::Vector2f worldMin{ 0.0f, 0.0f };
+        Math::Vector2f worldMax{ 96.0f, 22.0f };
         std::vector<SceneObjectData> objects;
     };
 
