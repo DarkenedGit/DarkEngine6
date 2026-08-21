@@ -600,6 +600,15 @@ void EditorApp::onInit()
 
 void EditorApp::updateCamera(float dt)
 {
+    const uint32_t rw = renderer().width();
+    const uint32_t rh = renderer().height();
+    if (rh > 0)
+    {
+        const float aspect = static_cast<float>(rw) / static_cast<float>(rh);
+        if (std::fabs(m_camera.GetAspect() - aspect) > 1e-4f)
+            m_camera.SetLens(m_camera.GetFovY(), aspect, m_camera.GetNearZ(), m_camera.GetFarZ());
+    }
+
     if (m_sceneMode == SceneMode::Scene2D)
     {
         updateCamera2D(dt);

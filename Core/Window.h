@@ -23,6 +23,10 @@ public:
 
     uint32_t width()  const { return m_width; }
     uint32_t height() const { return m_height; }
+    // Physical-pixel scale (96 DPI = 1.0). Valid after construction.
+    float    dpiScale() const { return m_dpiScale; }
+    // True if WM_SIZE changed the client area since the last call.
+    bool     takeSizeChanged();
     void*    nativeHandle() const; // HWND on Win32
 
     // Keyboard / focus events are forwarded to this Input (optional).
@@ -37,11 +41,14 @@ public:
 
 private:
     static long long __stdcall wndProc(HWND__* hwnd, unsigned msg, unsigned long long wp, long long lp);
+    static void enableProcessDpiAwareness();
 
     HWND__*  m_hwnd   = nullptr;
     uint32_t m_width  = 0;
     uint32_t m_height = 0;
+    float    m_dpiScale = 1.0f;
     bool     m_closed = false;
+    bool     m_sizeChanged = false;
     Input*   m_input  = nullptr;
 
     WindowMessageHook m_msgHook     = nullptr;

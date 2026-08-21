@@ -34,6 +34,9 @@ namespace Dark
         void endFrame();
         void present();
 
+        // Recreate back buffers + depth for a new client size (no-op if unchanged).
+        bool resize(uint32_t width, uint32_t height);
+
         // Drain the graphics queue (resource uploads, teardown).
         void waitForGpu();
 
@@ -83,7 +86,9 @@ namespace Dark
 
     private:
         void initD3D12(Window& window);
-        void createDepthResources();
+        bool createRenderTargets();
+        bool createDepthResources();
+        void updateViewport();
         void moveToNextFrame();
 
         ComPtr<ID3D12Device>              m_device;
@@ -102,6 +107,7 @@ namespace Dark
 
         UINT     m_frameIndex        = 0;
         UINT     m_rtvDescriptorSize = 0;
+        UINT     m_swapChainFlags    = 0;
         uint32_t m_width             = 0;
         uint32_t m_height            = 0;
 
