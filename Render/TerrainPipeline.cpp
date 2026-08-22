@@ -1,4 +1,5 @@
 #include "Render/TerrainPipeline.h"
+#include "Render/PsoUtil.h"
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
 
@@ -22,7 +23,9 @@ namespace Dark
     bool TerrainPipeline::create(ID3D12Device* device)
     {
         m_rootSignature.Reset();
-        m_pso.Reset();
+        m_psoSolid.Reset();
+        m_psoWire.Reset();
+        m_psoPoint.Reset();
 
         if (!device)
         {
@@ -131,22 +134,23 @@ namespace Dark
         psoDesc.DSVFormat             = DXGI_FORMAT_D32_FLOAT;
         psoDesc.SampleDesc            = { 1, 0 };
 
-        if (FailedHr(device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pso)), "CreateGraphicsPipelineState (terrain)"))
+        if (!createFillVariantPsos(device, psoDesc, m_psoSolid, m_psoWire, m_psoPoint))
         {
             m_rootSignature.Reset();
             return false;
         }
 
-        DE_LOG_INFO("TerrainPipeline: ready (4 layers + splat)");
+        DE_LOG_INFO("TerrainPipeline: ready (4 layers + splat, solid/wire/point)");
         return true;
     }
 
-    void TerrainPipeline::bind(ID3D12GraphicsCommandList* cmd) const
+    void TerrainPipeline::bind(ID3D12GraphicsCommandList* cmd, DebugFill fill) const
     {
-        if (!cmd || !m_pso)
+        ID3D12PipelineState* pso = selectFillPso(fill, m_psoSolid.Get(), m_psoWire.Get(), m_psoPoint.Get());
+        if (!cmd || !pso)
             return;
         cmd->SetGraphicsRootSignature(m_rootSignature.Get());
-        cmd->SetPipelineState(m_pso.Get());
+        cmd->SetPipelineState(pso);
     }
 
     void TerrainPipeline::setConstants(ID3D12GraphicsCommandList* cmd, const TerrainFrameConstants& constants) const

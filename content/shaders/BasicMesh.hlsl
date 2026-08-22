@@ -11,7 +11,7 @@ cbuffer FrameConstants : register(b0)
     float3   lightColor;
     float    _pad1;
     float3   cameraPos;
-    float    _pad2;
+    float    lighting; // 1 = lit, 0 = albedo only
 };
 
 Texture2D    gAlbedo : register(t0);
@@ -49,6 +49,8 @@ PSInput VSMain(VSInput input)
 float4 PSMain(PSInput input) : SV_TARGET
 {
     float4 albedo = gAlbedo.Sample(gSamp, input.uv) * color;
+    if (lighting < 0.5f)
+        return albedo;
     float3 n = normalize(input.normalWS);
     float3 l = normalize(lightDirWS);
     float  ndotl = saturate(dot(n, l));

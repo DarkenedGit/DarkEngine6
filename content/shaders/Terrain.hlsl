@@ -16,6 +16,7 @@ cbuffer FrameConstants : register(b0)
     float    cameraPosY;
     float3   fogColor;
     float    cameraPosZ;
+    float    lighting; // 1 = lit, 0 = albedo only
 };
 
 Texture2D    gLayer0 : register(t0);
@@ -67,12 +68,18 @@ float4 PSMain(PSInput input) : SV_TARGET
         + splat.a * gLayer3.Sample(gSamp, input.uv * layerTiling.w);
 
     albedo *= color;
+    if (lighting < 0.5f)
+        return albedo;
 
     float3 n     = normalize(input.normalWS);
     float3 l     = normalize(lightDirWS);
     float  ndotl = saturate(dot(n, l));
     float3 cam   = float3(cameraPosX, cameraPosY, cameraPosZ);
-    float  shadow = ComputeShadow(input.worldPos, cam);
+    // Heightfield is drawn into the cascades, then sampled as a receiver.
+    // Without a normal offset, sun-facing slopes fail the depth test and the
+    // Lambert term is multiplied to ~0 (ambient only — looks unlit).
+    float  recvOffset = 0.75f + 1.75f * (1.0f - ndotl);
+    float  shadow = ComputeShadow(input.worldPos + n * recvOffset, cam);
     float3 ambient = ambientColor * albedo.rgb;
     float3 diffuse = ndotl * lightColor * albedo.rgb * shadow;
     float3 lit     = ambient + diffuse;

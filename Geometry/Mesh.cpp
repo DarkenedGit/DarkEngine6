@@ -192,13 +192,20 @@ namespace Dark
             return mesh;
         }
 
-        void Mesh::draw(ID3D12GraphicsCommandList* cmd) const
+        void Mesh::draw(ID3D12GraphicsCommandList* cmd, bool pointList) const
         {
             if (!cmd || !valid())
                 return;
 
-            cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
             cmd->IASetVertexBuffers(0, 1, &m_vbv);
+            if (pointList)
+            {
+                cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_POINTLIST);
+                cmd->DrawInstanced(m_vertexCount, 1, 0, 0);
+                return;
+            }
+
+            cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
             cmd->IASetIndexBuffer(&m_ibv);
             cmd->DrawIndexedInstanced(m_indexCount, 1, 0, 0, 0);
         }

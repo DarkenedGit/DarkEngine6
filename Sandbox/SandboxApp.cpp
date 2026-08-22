@@ -132,13 +132,17 @@ void SandboxApp::registerDefaultActions()
     a.bindKey("weather_partly", Key::Digit2);
     a.bindKey("weather_overcast", Key::Digit3);
     a.bindKey("weather_storm", Key::Digit4);
+    a.bindKey("debug_fill", Key::F1);
+    a.bindKey("debug_lighting", Key::F2);
+    a.bindKey("debug_shadow_enable", Key::F7);
     a.bindKey("debug_shadows", Key::F8);
     a.bindKey("debug_depth", Key::F9);
 
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(Space/A) reset(R/Y) speed(+/- / RB) "
         "cube yaw/pitch(A/D W/S / D-pad) fly(IJKL U/O, LS move, RS look, triggers climb, "
-        "LB/L3 sprint, RMB look) time([/]) weather(1-4) F8 shadow maps F9 depth");
+        "LB/L3 sprint, RMB look) time([/]) weather(1-4) "
+        "F1 fill F2 lighting F7 shadows F8 shadow maps F9 depth");
 }
 
 void SandboxApp::handleRuntimeCommands(float dt)
@@ -209,6 +213,22 @@ void SandboxApp::handleRuntimeCommands(float dt)
         m_env.weather = Sky::WeatherState::Storm();
         m_env.evaluate();
         DE_LOG_INFO("Sky: weather storm");
+    }
+    if (input().actionPressed("debug_fill"))
+    {
+        renderer().debugState().cycleFill();
+        DE_LOG_INFO("Sandbox: fill = {}", toString(renderer().debugState().fill));
+    }
+    if (input().actionPressed("debug_lighting"))
+    {
+        renderer().debugState().lighting = !renderer().debugState().lighting;
+        DE_LOG_INFO("Sandbox: lighting = {}", renderer().debugState().lighting);
+    }
+    if (input().actionPressed("debug_shadow_enable"))
+    {
+        renderer().debugState().shadows = !renderer().debugState().shadows;
+        m_shadows.setDebugEnabled(renderer().debugState().shadows);
+        DE_LOG_INFO("Sandbox: shadows = {}", renderer().debugState().shadows);
     }
     if (input().actionPressed("debug_shadows"))
     {
@@ -543,9 +563,12 @@ void SandboxApp::onRender()
 
     const Frustum3f frustum(m_viewCamera.GetViewProj());
     m_skyPipeline.draw(cmd, m_viewCamera, m_env);
-    m_terrain.draw(cmd, m_terrainPipeline, m_terrainMaterial, m_viewCamera, &frustum, &m_env, &m_shadows);
+    m_terrain.draw(
+        cmd, m_terrainPipeline, m_terrainMaterial, m_viewCamera, &frustum, &m_env, &m_shadows,
+        &renderer().debugState());
 
-    m_meshPipeline.bind(cmd);
+    const DebugFill fill = renderer().debugState().fill;
+    m_meshPipeline.bind(cmd, fill);
 
     AssetRef<Material> material;
     if (auto* meshComp = world().get<MeshComponent>(m_cube))
@@ -590,11 +613,12 @@ void SandboxApp::onRender()
     cb.cameraPos[0]    = camPos.x;
     cb.cameraPos[1]    = camPos.y;
     cb.cameraPos[2]    = camPos.z;
+    cb.lighting        = renderer().debugState().lighting ? 1.0f : 0.0f;
 
     m_meshPipeline.setConstants(cmd, cb);
-    m_cubeMesh.draw(cmd);
+    m_cubeMesh.draw(cmd, fill == DebugFill::Points);
 
-    m_water.draw(cmd, m_waterPipeline, m_viewCamera, &frustum, &m_env);
+    m_water.draw(cmd, m_waterPipeline, m_viewCamera, &frustum, &m_env, &renderer().debugState());
 
     renderer().stats().drawCalls = m_terrain.lastDrawCalls() + m_water.lastDrawCalls() + 2;
     renderer().stats().triangles =

@@ -218,14 +218,17 @@ void TerrainWorld::draw(
     const Camera3D& camera,
     const Frustum3f* frustum,
     const Sky::Environment* env,
-    const ShadowSystem* shadows) const
+    const ShadowSystem* shadows,
+    const DebugRenderState* debug) const
 {
     m_lastDrawCalls = 0;
     m_lastTriangles = 0;
     if (!cmd || !pipeline.isValid() || !material.isValid())
         return;
 
-    pipeline.bind(cmd);
+    const DebugFill fill = debug ? debug->fill : DebugFill::Solid;
+    const bool lighting  = !debug || debug->lighting;
+    pipeline.bind(cmd, fill);
     material.bind(cmd, TerrainPipeline::kRootSrvTable);
     if (shadows)
         shadows->bindReceiverCbv(cmd, TerrainPipeline::kRootShadowCbv);
@@ -274,15 +277,19 @@ void TerrainWorld::draw(
         cb.fogColor[2]     = 0.72f;
         cb.fogDensity      = 0.0f;
     }
+    cb.lighting = lighting ? 1.0f : 0.0f;
+    if (!lighting)
+        cb.fogDensity = 0.0f;
     pipeline.setConstants(cmd, cb);
 
+    const bool pointList = fill == DebugFill::Points;
     for (const TerrainChunk& c : m_chunks)
     {
         if (!c.gpu.valid())
             continue;
         if (frustum && !frustum->Intersects(c.bounds))
             continue;
-        c.gpu.draw(cmd);
+        c.gpu.draw(cmd, pointList);
         ++m_lastDrawCalls;
         m_lastTriangles += c.gpu.indexCount() / 3u;
     }

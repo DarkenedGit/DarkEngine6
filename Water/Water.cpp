@@ -303,14 +303,17 @@ void WaterWorld::draw(
     const WaterPipeline& pipeline,
     const Camera3D& camera,
     const Frustum3f* frustum,
-    const Sky::Environment* env) const
+    const Sky::Environment* env,
+    const DebugRenderState* debug) const
 {
     m_lastDrawCalls = 0;
     m_lastTriangles = 0;
     if (!cmd || !pipeline.isValid())
         return;
 
-    pipeline.bind(cmd);
+    const DebugFill fill = debug ? debug->fill : DebugFill::Solid;
+    const bool lighting  = !debug || debug->lighting;
+    pipeline.bind(cmd, fill);
 
     const Matrix4f viewProj = camera.GetViewProj();
     WaterFrameConstants cb{};
@@ -319,16 +322,17 @@ void WaterWorld::draw(
     const Vector3f cam = camera.GetPosition();
     const float    camPos[3] = { cam.x, cam.y, cam.z };
     const float    light[3]  = { 0.35f, 0.85f, -0.35f };
-    WaterPipeline::fillConstants(cb, cb.worldViewProj, camPos, m_time, light, m_params, env);
+    WaterPipeline::fillConstants(cb, cb.worldViewProj, camPos, m_time, light, m_params, env, lighting);
     pipeline.setConstants(cmd, cb);
 
+    const bool pointList = fill == DebugFill::Points;
     for (const WaterChunk& c : m_chunks)
     {
         if (!c.wet || !c.gpu.valid())
             continue;
         if (frustum && !frustum->Intersects(c.bounds))
             continue;
-        c.gpu.draw(cmd);
+        c.gpu.draw(cmd, pointList);
         ++m_lastDrawCalls;
         m_lastTriangles += c.gpu.indexCount() / 3u;
     }

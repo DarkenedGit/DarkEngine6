@@ -1,5 +1,8 @@
 #pragma once
 
+#include "Render/DebugRenderState.h"
+
+#include <cstddef>
 #include <cstdint>
 #include <d3d12.h>
 #include <wrl/client.h>
@@ -9,7 +12,8 @@ namespace Dark
 
     using Microsoft::WRL::ComPtr;
 
-    // Root constants for Terrain.hlsl. 44 dwords (world/view/proj + lighting + 4 tilings).
+    // Root constants for Terrain.hlsl. Must match the HLSL cbuffer packing
+    // (float3+float share a float4). 57 dwords, lighting at byte 224 = cb0[14].x.
     struct TerrainFrameConstants
     {
         float worldViewProj[16];
@@ -24,9 +28,12 @@ namespace Dark
         float cameraPosY;
         float fogColor[3];
         float cameraPosZ;
+        float lighting = 1.0f; // 1 = Lambert+shadow+fog, 0 = albedo only
     };
 
-    static_assert(sizeof(TerrainFrameConstants) == 56 * sizeof(float), "terrain root constant size");
+    static_assert(sizeof(TerrainFrameConstants) == 57 * sizeof(float), "terrain root constant size");
+    static_assert(offsetof(TerrainFrameConstants, lightDirWS) == 144, "lightDirWS pack");
+    static_assert(offsetof(TerrainFrameConstants, lighting) == 224, "lighting pack");
 
     // PSO for height-map terrain: pos/normal/uv, 4 albedo layers + 1 splat map.
     class TerrainPipeline
@@ -41,17 +48,19 @@ namespace Dark
 
         bool create(ID3D12Device* device);
 
-        void bind(ID3D12GraphicsCommandList* cmd) const;
+        void bind(ID3D12GraphicsCommandList* cmd, DebugFill fill = DebugFill::Solid) const;
         void setConstants(ID3D12GraphicsCommandList* cmd, const TerrainFrameConstants& constants) const;
 
         bool isValid() const
         {
-            return m_pso != nullptr;
+            return m_psoSolid != nullptr && m_psoWire != nullptr && m_psoPoint != nullptr;
         }
 
     private:
         ComPtr<ID3D12RootSignature> m_rootSignature;
-        ComPtr<ID3D12PipelineState> m_pso;
+        ComPtr<ID3D12PipelineState> m_psoSolid;
+        ComPtr<ID3D12PipelineState> m_psoWire;
+        ComPtr<ID3D12PipelineState> m_psoPoint;
     };
 
 } // namespace Dark

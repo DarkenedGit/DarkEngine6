@@ -3,6 +3,7 @@
 #include "Geometry/Mesh.h"
 #include "Math/AABox3f.h"
 #include "Math/Vector3f.h"
+#include "Render/DebugRenderState.h"
 #include "Terrain/HeightMap.h"
 #include "Terrain/SplatMap.h"
 #include "Terrain/TerrainLod.h"
@@ -73,7 +74,8 @@ public:
         const Camera3D& camera,
         const Math::Frustum3f* frustum = nullptr,
         const Sky::Environment* env = nullptr,
-        const ShadowSystem* shadows = nullptr) const;
+        const ShadowSystem* shadows = nullptr,
+        const DebugRenderState* debug = nullptr) const;
 
     // Depth-only casters. Caller binds ShadowPipeline and sets light WVP.
     void drawDepth(ID3D12GraphicsCommandList* cmd) const;

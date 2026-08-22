@@ -47,6 +47,10 @@ public:
     bool enabled() const { return m_enabled; }
     bool isValid() const { return m_resource != nullptr && m_pipeline.isValid(); }
 
+    // Debug overlay / F7: when false, skip capture and pack strength 0.
+    void setDebugEnabled(bool enabled) { m_debugEnabled = enabled; }
+    bool debugEnabled() const { return m_debugEnabled; }
+
     D3D12_CPU_DESCRIPTOR_HANDLE srvCpu() const { return m_srvCpu; }
     int debugSliceOffset() const { return m_frame * m_cascadeCount; }
 
@@ -64,6 +68,7 @@ private:
     int            m_cascadeCount = kMaxShadowCascades;
     int            m_frame        = 0;
     bool           m_enabled      = false;
+    bool           m_debugEnabled = true;
 
     ComPtr<ID3D12Resource>       m_resource;
     ComPtr<ID3D12DescriptorHeap> m_dsvHeap;

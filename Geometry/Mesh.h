@@ -35,7 +35,9 @@ namespace Dark
             // Non-throwing upload. On failure `out` is left empty and false is returned.
             static bool tryCreate(Renderer& renderer, const MeshData& data, Mesh& out);
 
-            void draw(ID3D12GraphicsCommandList* cmd) const;
+            // pointList: POINTLIST + DrawInstanced(vertexCount). Shadow capture
+            // must keep the default (indexed triangle list).
+            void draw(ID3D12GraphicsCommandList* cmd, bool pointList = false) const;
 
             uint32_t indexCount() const
             {

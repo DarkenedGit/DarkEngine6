@@ -509,6 +509,9 @@ void EditorApp::registerActions()
     a.bindKey("cycle_type", Key::T);
     a.bindKey("cycle_color", Key::C);
     a.bindKey("toggle_particle_ui", Key::F2);
+    a.bindKey("debug_fill", Key::F1);
+    a.bindKey("debug_lighting", Key::F6);
+    a.bindKey("debug_shadow_enable", Key::F7);
 
     a.bindKeyAsAxis("move_x", Key::D, 1.0f);
     a.bindKeyAsAxis("move_x", Key::A, -1.0f);
@@ -524,8 +527,8 @@ void EditorApp::registerActions()
     a.bindAxis("look_y", GamepadAxis::RightY, 1.0f);
 
     DE_LOG_INFO(
-        "Editor: F3 toggle 2D/3D | F2 particle UI | 1/2/3 place type | P place | "
-        "MMB/RMB pan (2D) | wheel zoom | Ctrl+S/O save/load | C color | Del delete");
+        "Editor: F3 toggle 2D/3D | F2 particle UI | F1 fill F6 lighting F7 shadows | "
+        "1/2/3 place type | P place | MMB/RMB pan (2D) | wheel zoom | Ctrl+S/O save/load | C color | Del delete");
 }
 
 void EditorApp::onInit()
@@ -971,6 +974,22 @@ void EditorApp::handleEditorCommands(float dt)
             loadScene();
         if (input().actionPressed("toggle_particle_ui"))
             m_showParticlePanel = !m_showParticlePanel;
+        if (input().actionPressed("debug_fill"))
+        {
+            renderer().debugState().cycleFill();
+            DE_LOG_INFO("Editor: fill = {}", toString(renderer().debugState().fill));
+        }
+        if (input().actionPressed("debug_lighting"))
+        {
+            renderer().debugState().lighting = !renderer().debugState().lighting;
+            DE_LOG_INFO("Editor: lighting = {}", renderer().debugState().lighting);
+        }
+        if (input().actionPressed("debug_shadow_enable"))
+        {
+            renderer().debugState().shadows = !renderer().debugState().shadows;
+            m_shadows.setDebugEnabled(renderer().debugState().shadows);
+            DE_LOG_INFO("Editor: shadows = {}", renderer().debugState().shadows);
+        }
         if (input().actionPressed("toggle_grid"))
             m_showGrid = !m_showGrid;
         if (input().actionPressed("toggle_solid"))
@@ -1443,8 +1462,9 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         m_shadows.endCapture(cmd);
     }
 
+    const DebugFill fill = renderer().debugState().fill;
     auto drawMesh = [&](const Mesh& mesh, const Matrix4f& world, Material* material, float cr, float cg, float cb) {
-        m_meshPipeline.bind(cmd);
+        m_meshPipeline.bind(cmd, fill);
         if (material && material->isValid())
             material->bind(cmd, MeshPipeline::kRootAlbedoSrv);
         m_shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
@@ -1467,8 +1487,9 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         cbData.cameraPos[0] = cam.x;
         cbData.cameraPos[1] = cam.y;
         cbData.cameraPos[2] = cam.z;
+        cbData.lighting     = renderer().debugState().lighting ? 1.0f : 0.0f;
         m_meshPipeline.setConstants(cmd, cbData);
-        mesh.draw(cmd);
+        mesh.draw(cmd, fill == DebugFill::Points);
     };
 
     if (m_showSolid && m_groundMesh.valid())

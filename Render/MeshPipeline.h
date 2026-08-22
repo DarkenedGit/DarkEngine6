@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Render/DebugRenderState.h"
+
 #include <cstdint>
 #include <d3d12.h>
 #include <wrl/client.h>
@@ -20,7 +22,7 @@ namespace Dark
         float lightColor[3];
         float pad1;
         float cameraPos[3];
-        float pad2;
+        float lighting; // 1 = Lambert+shadow, 0 = albedo only
     };
 
     static_assert(sizeof(MeshFrameConstants) == 48 * sizeof(float), "root constant size");
@@ -40,17 +42,19 @@ namespace Dark
         // Build root signature + PSO. Returns false on failure (no exceptions).
         bool create(ID3D12Device* device);
 
-        void bind(ID3D12GraphicsCommandList* cmd) const;
+        void bind(ID3D12GraphicsCommandList* cmd, DebugFill fill = DebugFill::Solid) const;
         void setConstants(ID3D12GraphicsCommandList* cmd, const MeshFrameConstants& constants) const;
 
         bool isValid() const
         {
-            return m_pso != nullptr;
+            return m_psoSolid != nullptr && m_psoWire != nullptr && m_psoPoint != nullptr;
         }
 
     private:
         ComPtr<ID3D12RootSignature> m_rootSignature;
-        ComPtr<ID3D12PipelineState> m_pso;
+        ComPtr<ID3D12PipelineState> m_psoSolid;
+        ComPtr<ID3D12PipelineState> m_psoWire;
+        ComPtr<ID3D12PipelineState> m_psoPoint;
     };
 
 } // namespace Dark

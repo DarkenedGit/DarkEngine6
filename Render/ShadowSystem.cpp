@@ -163,7 +163,7 @@ void ShadowSystem::update(
     uint32_t frameIndex)
 {
     m_frame   = static_cast<int>(frameIndex % static_cast<uint32_t>(kBufferedFrames));
-    m_enabled = isValid() && sunElevation > 0.04f && cloudCoverage < 0.92f;
+    m_enabled = m_debugEnabled && isValid() && sunElevation > 0.04f && cloudCoverage < 0.92f;
     const float strength = m_enabled
         ? Clamp((sunElevation - 0.04f) / 0.10f, 0.0f, 1.0f) * (1.0f - SmoothStep(0.55f, 0.92f, cloudCoverage))
         : 0.0f;

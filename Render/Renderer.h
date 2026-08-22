@@ -1,4 +1,6 @@
 #pragma once
+#include "Render/DebugRenderState.h"
+
 #include <cstdint>
 #include <d3d12.h>
 #include <dxgi1_6.h>
@@ -88,6 +90,9 @@ namespace Dark
         const D3D12_VIEWPORT& viewport() const { return m_viewport; }
         const D3D12_RECT&     scissor() const { return m_scissor; }
 
+        DebugRenderState&       debugState() { return m_debugState; }
+        const DebugRenderState& debugState() const { return m_debugState; }
+
     private:
         void initD3D12(Window& window);
         bool createRenderTargets();
@@ -121,8 +126,9 @@ namespace Dark
         D3D12_VIEWPORT m_viewport{};
         D3D12_RECT     m_scissor{};
 
-        FrameStats m_stats{};
-        float      m_clearColor[4]{ 0.05f, 0.05f, 0.07f, 1.0f };
+        FrameStats       m_stats{};
+        float            m_clearColor[4]{ 0.05f, 0.05f, 0.07f, 1.0f };
+        DebugRenderState m_debugState{};
     };
 
 } // namespace Dark

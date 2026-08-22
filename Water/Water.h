@@ -4,6 +4,7 @@
 #include "Math/AABox3f.h"
 #include "Math/MathDefines.h"
 #include "Math/Vector3f.h"
+#include "Render/DebugRenderState.h"
 #include "Terrain/TerrainLod.h"
 #include "Water/WaterWaves.h"
 
@@ -85,7 +86,8 @@ public:
         const WaterPipeline& pipeline,
         const Camera3D& camera,
         const Math::Frustum3f* frustum = nullptr,
-        const Sky::Environment* env = nullptr) const;
+        const Sky::Environment* env = nullptr,
+        const DebugRenderState* debug = nullptr) const;
 
     float heightAtWorld(float x, float z) const;
     bool  tryHeightAtWorld(float x, float z, float& outY) const;

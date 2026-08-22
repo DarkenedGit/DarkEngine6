@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Render/DebugRenderState.h"
 #include "Sky/Environment.h"
 #include "Water/WaterWaves.h"
 
@@ -46,10 +47,13 @@ public:
 
     bool create(ID3D12Device* device);
 
-    void bind(ID3D12GraphicsCommandList* cmd) const;
+    void bind(ID3D12GraphicsCommandList* cmd, DebugFill fill = DebugFill::Solid) const;
     void setConstants(ID3D12GraphicsCommandList* cmd, const WaterFrameConstants& constants) const;
 
-    bool isValid() const { return m_pso != nullptr; }
+    bool isValid() const
+    {
+        return m_psoSolid != nullptr && m_psoWire != nullptr && m_psoPoint != nullptr;
+    }
 
     static void fillConstants(
         WaterFrameConstants& out,
@@ -58,11 +62,14 @@ public:
         float time,
         const float lightDir[3],
         const Water::WaterParams& params,
-        const Sky::Environment* env = nullptr);
+        const Sky::Environment* env = nullptr,
+        bool lighting = true);
 
 private:
     ComPtr<ID3D12RootSignature> m_rootSignature;
-    ComPtr<ID3D12PipelineState> m_pso;
+    ComPtr<ID3D12PipelineState> m_psoSolid;
+    ComPtr<ID3D12PipelineState> m_psoWire;
+    ComPtr<ID3D12PipelineState> m_psoPoint;
 };
 
 } // namespace Dark

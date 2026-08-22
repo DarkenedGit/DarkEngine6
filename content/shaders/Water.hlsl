@@ -98,6 +98,18 @@ float3 SkyColor(float3 dir)
 float4 PSMain(PSInput input) : SV_TARGET
 {
     float3 n = normalize(input.normalWS);
+
+    float depth = waterLevel - input.terrainY;
+    float shallow = saturate(1.0f - depth / max(shoreDepth, 1e-3f));
+    float3 body = lerp(deepColor, shallowColor, shallow);
+    float alpha = opacity * saturate(depth / max(shoreDepth * 0.35f, 1e-3f));
+
+    if (specPower < 0.0f)
+    {
+        alpha = saturate(alpha);
+        return float4(body, alpha);
+    }
+
     float3 v = normalize(cameraPos - input.worldPos);
     float3 l = normalize(lightDir);
 
@@ -111,16 +123,11 @@ float4 PSMain(PSInput input) : SV_TARGET
     float  spec  = pow(saturate(dot(n, h)), specPower);
     float  ndotl = saturate(dot(n, l));
 
-    float depth = waterLevel - input.terrainY;
-    float shallow = saturate(1.0f - depth / max(shoreDepth, 1e-3f));
-    float3 body = lerp(deepColor, shallowColor, shallow);
-
     float3 color = body * (0.18f + 0.55f * ndotl);
     color = lerp(color, sky, fres);
     color += spec * 0.85f;
 
     // Shore: fade out as the land rises through the surface.
-    float alpha = opacity * saturate(depth / max(shoreDepth * 0.35f, 1e-3f));
     alpha = saturate(alpha + fres * 0.15f);
     return float4(color, alpha);
 }
