@@ -13,6 +13,7 @@
 #include "Terrain/Terrain.h"
 #include "Terrain/TerrainMaterial.h"
 #include "Water/Water.h"
+#include "Audio/SoundClip.h"
 
 class SandboxApp : public Dark::Application
 {
@@ -49,6 +50,10 @@ private:
     Dark::Terrain::TerrainWorld m_terrain;
     Dark::TerrainMaterial       m_terrainMaterial;
     Dark::Water::WaterWorld     m_water;
+
+    std::shared_ptr<Dark::SoundClip> m_sfxReset;
+    std::shared_ptr<Dark::SoundClip> m_sfxClick;
+    std::shared_ptr<Dark::SoundClip> m_music;
 
     bool  m_spinPaused     = false;
     float m_spinSpeed      = 0.8f;

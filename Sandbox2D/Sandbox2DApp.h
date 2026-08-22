@@ -11,6 +11,7 @@
 #include "Sprite/SpriteSheet.h"
 #include "Math/Aabb2f.h"
 #include "Math/Vector2f.h"
+#include "Audio/SoundClip.h"
 
 #include <box2d/box2d.h>
 
@@ -111,6 +112,10 @@ private:
     Dark::Math::Vector2f m_spawn{ 3.0f, 3.5f };
     Dark::Math::Vector2f m_worldMin{ 0.0f, 0.0f };
     Dark::Math::Vector2f m_worldMax{ 96.0f, 22.0f };
+
+    std::shared_ptr<Dark::SoundClip> m_sfxJump;
+    std::shared_ptr<Dark::SoundClip> m_sfxCoin;
+    std::shared_ptr<Dark::SoundClip> m_sfxReset;
 
     b2WorldId m_physWorld      = b2_nullWorldId;
     b2BodyId  m_playerBody     = b2_nullBodyId;

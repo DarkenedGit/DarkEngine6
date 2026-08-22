@@ -1,5 +1,6 @@
-// Multi-frequency Gerstner water. Vertex Y is rest water level; waves are
-// evaluated here so every LOD uses the same closed form (no edge cracks).
+// Multi-frequency Gerstner water. Vertex Y is rest water level.
+// VS displaces so LOD seams share the same closed form; PS re-evaluates the
+// analytic normal so specular/fresnel are per-pixel (not Gouraud on big tris).
 // TEXCOORD0.y is terrain height at that XZ, used for shore fade.
 #pragma pack_matrix(row_major)
 
@@ -34,10 +35,9 @@ struct VSInput
 
 struct PSInput
 {
-    float4 position  : SV_POSITION;
-    float3 worldPos  : TEXCOORD0;
-    float3 normalWS  : TEXCOORD1;
-    float  terrainY  : TEXCOORD2;
+    float4 position : SV_POSITION;
+    float2 restXZ   : TEXCOORD0;
+    float  terrainY : TEXCOORD1;
 };
 
 void Gerstner(float2 xz, out float3 offset, out float3 normal)
@@ -74,18 +74,21 @@ void Gerstner(float2 xz, out float3 offset, out float3 normal)
     normal = normalize(float3(-nx, ny, -nz));
 }
 
+float3 GerstnerDisplace(float2 xz)
+{
+    float3 offset;
+    float3 n;
+    Gerstner(xz, offset, n);
+    return offset;
+}
+
 PSInput VSMain(VSInput input)
 {
     PSInput o;
-    float3 offset;
-    float3 n;
-    Gerstner(input.position.xz, offset, n);
-
-    float3 world = input.position + offset;
-    o.worldPos  = world;
-    o.normalWS  = n;
-    o.terrainY  = input.uv.y;
-    o.position  = mul(float4(world, 1.0f), worldViewProj);
+    float3 world = input.position + GerstnerDisplace(input.position.xz);
+    o.restXZ     = input.position.xz;
+    o.terrainY   = input.uv.y;
+    o.position   = mul(float4(world, 1.0f), worldViewProj);
     return o;
 }
 
@@ -97,8 +100,6 @@ float3 SkyColor(float3 dir)
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    float3 n = normalize(input.normalWS);
-
     float depth = waterLevel - input.terrainY;
     float shallow = saturate(1.0f - depth / max(shoreDepth, 1e-3f));
     float3 body = lerp(deepColor, shallowColor, shallow);
@@ -110,7 +111,12 @@ float4 PSMain(PSInput input) : SV_TARGET
         return float4(body, alpha);
     }
 
-    float3 v = normalize(cameraPos - input.worldPos);
+    float3 offset;
+    float3 n;
+    Gerstner(input.restXZ, offset, n);
+    float3 worldPos = float3(input.restXZ.x, waterLevel, input.restXZ.y) + offset;
+
+    float3 v = normalize(cameraPos - worldPos);
     float3 l = normalize(lightDir);
 
     float ndotv = saturate(dot(n, v));

@@ -11,6 +11,8 @@ Application::Application(const AppConfig& cfg)
 {
     Log::init();
     m_window.setInput(&m_input);
+    if (!m_audio.create())
+        DE_LOG_WARN("Audio: disabled (no device or XAudio2 init failed)");
     DE_LOG_INFO("DarkEngine6 v0.1 — starting up (D3D12)");
 }
 
@@ -43,6 +45,7 @@ void Application::run()
             dt = 1.0f / 60.0f;
 
         onUpdate(dt);
+        m_audio.tick();
         onRender();
         m_renderer.present();
     }

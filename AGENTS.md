@@ -72,7 +72,7 @@ try { ... } catch (const std::exception& e) { ... }
 
 | Area | Policy |
 |------|--------|
-| `AI/`, `Assets/`, `Collision/`, `Core/`, `ECS/`, `Geometry/`, `Math/`, `Network/`, `Render/`, `Shaders/`, `Sandbox/` | **No exceptions** |
+| `AI/`, `Assets/`, `Audio/`, `Collision/`, `Core/`, `ECS/`, `Geometry/`, `Math/`, `Network/`, `Render/`, `Shaders/`, `Sandbox/` | **No exceptions** |
 | `UnitTests/` | Prefer no exceptions in *our* test code; GoogleTest may use them internally — do not wrap production APIs in try/catch to “make tests work” |
 | `build/_deps/` (GoogleTest, etc.) | Third-party; do not edit to remove exceptions |
 

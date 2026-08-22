@@ -36,6 +36,7 @@ endfunction()
 set(DE_ENGINE_FOLDERS
     AI
     Assets
+    Audio
     Character
     Collision
     Core
@@ -101,6 +102,8 @@ target_link_libraries(DarkEngine
         d3dcompiler
         windowscodecs
         xinput
+        xaudio2
+        ole32
 )
 
 target_compile_definitions(DarkEngine

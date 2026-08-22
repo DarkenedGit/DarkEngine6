@@ -598,6 +598,11 @@ void EditorApp::onInit()
     else
         DE_LOG_INFO("EditorApp: no default scene at {}", m_scenePath.string());
 
+    m_sfxPlace  = audio().loadOrBlip(assets(), "audio/place.wav", 620.0f, 0.09f, 0.4f);
+    m_sfxDelete = audio().loadOrBlip(assets(), "audio/delete.wav", 300.0f, 0.12f, 0.4f);
+    m_sfxSave   = audio().loadOrBlip(assets(), "audio/ui_click.wav", 1400.0f, 0.06f, 0.35f);
+    audio().setMasterVolume(0.8f);
+
     DE_LOG_INFO("EditorApp: ready ({} objects)", m_objects.size());
 }
 
@@ -768,7 +773,10 @@ Entity EditorApp::placeAtCursor(SceneObjectType type)
         }
         float col[4]{};
         defaultColor2D(type, col);
-        return spawnObject(type, Vector3f(p.x, p.y, 0.0f), defaultScale2D(type), Quaternion::IDENTITY, col, nullptr);
+        const Entity e = spawnObject(type, Vector3f(p.x, p.y, 0.0f), defaultScale2D(type), Quaternion::IDENTITY, col, nullptr);
+        if (e.valid())
+            audio().play3D(m_sfxPlace, Vector3f(p.x, p.y, 0.0f), 0.65f);
+        return e;
     }
 
     Vector3f hit{};
@@ -794,13 +802,17 @@ Entity EditorApp::placeAtCursor(SceneObjectType type)
         hit.y = 0.5f;
     else
         hit.y = 0.5f * scale.y;
-    return spawnObject(type, hit, scale, Quaternion::IDENTITY, col, nullptr);
+    const Entity e = spawnObject(type, hit, scale, Quaternion::IDENTITY, col, nullptr);
+    if (e.valid())
+        audio().play3D(m_sfxPlace, hit, 0.65f);
+    return e;
 }
 
 void EditorApp::deleteSelected()
 {
     if (!m_selected.valid())
         return;
+    audio().play2D(m_sfxDelete, 0.55f);
     if (SceneObject* so = findObject(m_selected))
     {
         if (so->type == SceneObjectType::ParticleEmitter && so->emitterIndex >= 0)
@@ -913,6 +925,7 @@ bool EditorApp::saveScene()
         return false;
     }
     DE_LOG_INFO("Editor: saved {} objects → {}", data.objects.size(), m_scenePath.string());
+    audio().play2D(m_sfxSave, 0.45f);
     return true;
 }
 
@@ -1311,6 +1324,21 @@ void EditorApp::onUpdate(float dt)
             m_emitters[static_cast<size_t>(so.emitterIndex)]->setTransform(xf->position, xf->rotation);
         m_emitters[static_cast<size_t>(so.emitterIndex)]->update(dt);
     }
+
+    AudioListener lis{};
+    if (m_sceneMode == SceneMode::Scene2D)
+    {
+        lis.position = Vector3f(m_camera2D.GetPosition().x, m_camera2D.GetPosition().y, 0.0f);
+        lis.forward  = Vector3f(0.0f, 0.0f, 1.0f);
+        lis.up       = Vector3f(0.0f, 1.0f, 0.0f);
+    }
+    else
+    {
+        lis.position = m_camera.GetPosition();
+        lis.forward  = m_camera.GetLook();
+        lis.up       = m_camera.GetUp();
+    }
+    audio().setListener(lis);
 }
 
 void EditorApp::onRender()
@@ -1574,5 +1602,9 @@ void EditorApp::onShutdown()
     m_shadows = ShadowSystem{};
     m_emitters.clear();
     m_objects.clear();
+    audio().stopAll();
+    m_sfxPlace.reset();
+    m_sfxDelete.reset();
+    m_sfxSave.reset();
     DE_LOG_INFO("EditorApp: shutdown");
 }

@@ -158,14 +158,20 @@ void SandboxApp::handleRuntimeCommands(float dt)
     {
         m_spinPaused = !m_spinPaused;
         DE_LOG_INFO("Command: pause spin = {}", m_spinPaused);
+        audio().play2D(m_sfxClick, 0.5f);
     }
 
     if (input().actionPressed("reset"))
     {
         m_spinSpeed  = 0.8f;
         m_spinPaused = false;
+        Vector3f pos{};
         if (auto* xf = world().get<TransformComponent>(m_cube))
+        {
             xf->rotation = Quaternion::IDENTITY;
+            pos = xf->position;
+        }
+        audio().play3D(m_sfxReset, pos, 0.7f);
         DE_LOG_INFO("Command: reset cube");
     }
 
@@ -349,6 +355,14 @@ void SandboxApp::onInit()
     mountContentRoots(assets());
     registerDefaultActions();
 
+    m_sfxReset = audio().loadOrBlip(assets(), "audio/whoosh.wav", 180.0f, 0.22f, 0.35f);
+    m_sfxClick = audio().loadOrBlip(assets(), "audio/ui_click.wav", 1400.0f, 0.06f, 0.35f);
+    m_music    = audio().loadWav(assets(), "audio/ambient_loop.wav");
+    if (!m_music)
+        m_music = audio().createTone(110.0f, 2.0f, 0.12f);
+    audio().setMusic(m_music, 0.10f);
+    audio().setMasterVolume(0.85f);
+
     if (!m_meshPipeline.create(renderer().device()))
     {
         DE_LOG_FATAL("SandboxApp: MeshPipeline create failed");
@@ -519,6 +533,12 @@ void SandboxApp::onUpdate(float dt)
     m_water.tick(dt);
     m_water.updateLod(m_viewCamera.GetPosition());
     syncTerrainLod();
+
+    AudioListener lis{};
+    lis.position = m_viewCamera.GetPosition();
+    lis.forward  = m_viewCamera.GetLook();
+    lis.up       = m_viewCamera.GetUp();
+    audio().setListener(lis);
 }
 
 void SandboxApp::onRender()
@@ -704,5 +724,9 @@ void SandboxApp::onShutdown()
     m_terrain = Terrain::TerrainWorld{};
     m_shadows = ShadowSystem{};
     m_debugOverlay = DebugOverlay{};
+    audio().stopAll();
+    m_sfxReset.reset();
+    m_sfxClick.reset();
+    m_music.reset();
     DE_LOG_INFO("SandboxApp: shutdown");
 }

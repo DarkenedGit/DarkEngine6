@@ -77,7 +77,13 @@ namespace Dark
         //     stacks    – latitude subdivisions  (≥ 2)
         //     slices    – longitude subdivisions (≥ 3)
         // ============================================================
-        MeshData CreateSphere(float radius = 1.0f, int stacks = 24, int slices = 48);
+        bool CreateSphere(MeshData& mesh, float radius = 1.0f, int stacks = 24, int slices = 48);
+        inline MeshData CreateSphere(float radius, int stacks = 24, int slices = 48)
+        {
+            MeshData mesh;
+            CreateSphere(mesh, radius, stacks, slices);
+            return mesh;
+        }
 
         // ============================================================
         //  2. CONE

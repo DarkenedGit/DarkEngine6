@@ -1,4 +1,5 @@
-#include "MeshGen.h"
+#include "Geometry/MeshGen.h"
+#include "Core/Log.h"
 #include <cmath>
 #include <array>
 
@@ -22,13 +23,21 @@ namespace Dark
         // ============================================================
         //  1. SPHERE
         // ============================================================
-        MeshData CreateSphere(float radius, int stacks, int slices)
+        bool CreateSphere(MeshData& m, float radius, int stacks, int slices)
         {
             if (stacks < 2)
-                throw std::invalid_argument("stacks must be >= 2");
+            {
+                //throw std::invalid_argument("stacks must be >= 2");
+                DE_LOG_ERROR("stacks must be >= 2");
+                return false;
+            }
             if (slices < 3)
-                throw std::invalid_argument("slices must be >= 3");
-            MeshData    m;
+            {
+//                throw std::invalid_argument("slices must be >= 3");
+                DE_LOG_ERROR("slices must be >= 3");
+                return false;
+            }
+
             const float PI = (float)M_PI;
             for (int i = 0; i <= stacks; ++i)
             {
@@ -57,7 +66,7 @@ namespace Dark
                         pushIdx(m, a, d, c);
                 }
             }
-            return m;
+            return true;
         }
 
         // ============================================================

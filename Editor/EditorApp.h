@@ -18,6 +18,8 @@
 #include "Particles/ParticleEmitter.h"
 #include "Particles/ParticleRenderer.h"
 
+#include "Audio/SoundClip.h"
+
 #include <filesystem>
 #include <memory>
 #include <vector>
@@ -146,6 +148,10 @@ private:
 
     float m_moveSpeed = 8.0f;
     float m_lookSpeed = 0.005f;
+
+    std::shared_ptr<Dark::SoundClip> m_sfxPlace;
+    std::shared_ptr<Dark::SoundClip> m_sfxDelete;
+    std::shared_ptr<Dark::SoundClip> m_sfxSave;
 
     bool m_dragging = false;
     int  m_lmbDownX = 0;

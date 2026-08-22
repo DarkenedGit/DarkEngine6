@@ -400,6 +400,7 @@ void Sandbox2DApp::applyPlayerControl(float dt)
         m_player.grounded   = false;
         m_player.coyote     = 0.0f;
         m_player.jumpBuffer = 0.0f;
+        audio().play2D(m_sfxJump, 0.7f);
     }
 
     m_player.jumpBuffer = Max(0.0f, m_player.jumpBuffer - dt);
@@ -516,6 +517,11 @@ void Sandbox2DApp::onInit()
     m_camera.SetPosition(m_player.pos.x, m_player.pos.y + 1.0f);
     m_score = 0;
 
+    m_sfxJump  = audio().loadOrBlip(assets(), "audio/jump.wav", 420.0f, 0.14f, 0.5f);
+    m_sfxCoin  = audio().loadOrBlip(assets(), "audio/coin.wav", 880.0f, 0.16f, 0.45f);
+    m_sfxReset = audio().loadOrBlip(assets(), "audio/whoosh.wav", 180.0f, 0.22f, 0.35f);
+    audio().setMasterVolume(0.85f);
+
     DE_LOG_INFO(
         "Sandbox2D: {} platforms, {} coins, camera ortho height {:.1f}",
         m_platforms.size(),
@@ -558,6 +564,7 @@ void Sandbox2DApp::updatePlayer(float dt)
         {
             c.collected = true;
             ++m_score;
+            audio().play3D(m_sfxCoin, Vector3f(c.pos.x, c.pos.y, 0.0f), 0.8f);
             DE_LOG_INFO("Sandbox2D: coin +1  score {}", m_score);
         }
     }
@@ -565,6 +572,7 @@ void Sandbox2DApp::updatePlayer(float dt)
     if (m_player.pos.y < -6.0f)
     {
         DE_LOG_INFO("Sandbox2D: fell — respawn");
+        audio().play2D(m_sfxReset, 0.55f);
         resetPlayer();
     }
 }
@@ -617,6 +625,7 @@ void Sandbox2DApp::onUpdate(float dt)
             c.collected = false;
         m_score = 0;
         resetPlayer();
+        audio().play2D(m_sfxReset, 0.5f);
         DE_LOG_INFO("Sandbox2D: reset");
     }
     if (input().actionPressed("debug"))
@@ -624,6 +633,12 @@ void Sandbox2DApp::onUpdate(float dt)
         m_showCollision = !m_showCollision;
         DE_LOG_INFO("Sandbox2D: collision debug {}", m_showCollision);
     }
+
+    AudioListener lis{};
+    lis.position = Vector3f(m_camera.GetPosition().x, m_camera.GetPosition().y, 0.0f);
+    lis.forward  = Vector3f(0.0f, 0.0f, 1.0f);
+    lis.up       = Vector3f(0.0f, 1.0f, 0.0f);
+    audio().setListener(lis);
 
     updatePlayer(dt);
     updatePlayerAnim(dt);
@@ -778,5 +793,9 @@ void Sandbox2DApp::onShutdown()
     m_texWhite    = Texture2D{};
     m_quad        = Mesh{};
     m_boxOutline  = LineMesh{};
+    audio().stopAll();
+    m_sfxJump.reset();
+    m_sfxCoin.reset();
+    m_sfxReset.reset();
     DE_LOG_INFO("Sandbox2D: shutdown (score {})", m_score);
 }
