@@ -1,5 +1,6 @@
 build/
 build-sourcetrail/
+third_party/box2d/build/
 
 # Sourcetrail / clang tooling
 compile_commands.json

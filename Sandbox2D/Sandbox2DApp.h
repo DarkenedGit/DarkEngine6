@@ -12,6 +12,8 @@
 #include "Math/Aabb2f.h"
 #include "Math/Vector2f.h"
 
+#include <box2d/box2d.h>
+
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -57,8 +59,14 @@ private:
     void resetPlayer();
     void updatePlayer(float dt);
     void updateCamera(float dt);
-    void moveAxis(int axis, float dt);
-    void depenetrate();
+
+    void destroyPhysics();
+    bool createPhysicsWorld();
+    bool createPlayerBody();
+    void createPlatformBodies();
+    void applyPlayerControl(float dt);
+    void syncPlayerFromBody();
+    bool playerGrounded() const;
 
     void drawSprite(
         ID3D12GraphicsCommandList* cmd,
@@ -103,4 +111,9 @@ private:
     Dark::Math::Vector2f m_spawn{ 3.0f, 3.5f };
     Dark::Math::Vector2f m_worldMin{ 0.0f, 0.0f };
     Dark::Math::Vector2f m_worldMax{ 96.0f, 22.0f };
+
+    b2WorldId m_physWorld      = b2_nullWorldId;
+    b2BodyId  m_playerBody     = b2_nullBodyId;
+    b2ShapeId m_playerShape    = b2_nullShapeId;
+    float     m_physAccum      = 0.0f;
 };

@@ -210,16 +210,221 @@ bool Sandbox2DApp::tryLoadLevel()
     return true;
 }
 
+void Sandbox2DApp::destroyPhysics()
+{
+    if (B2_IS_NON_NULL(m_physWorld))
+        b2DestroyWorld(m_physWorld);
+    m_physWorld   = b2_nullWorldId;
+    m_playerBody  = b2_nullBodyId;
+    m_playerShape = b2_nullShapeId;
+    m_physAccum   = 0.0f;
+}
+
+bool Sandbox2DApp::createPhysicsWorld()
+{
+    destroyPhysics();
+
+    b2WorldDef worldDef = b2DefaultWorldDef();
+    worldDef.gravity    = { 0.0f, -38.0f };
+    m_physWorld         = b2CreateWorld(&worldDef);
+    if (!b2World_IsValid(m_physWorld))
+    {
+        DE_LOG_ERROR("Sandbox2D: Box2D world create failed");
+        m_physWorld = b2_nullWorldId;
+        return false;
+    }
+
+    createPlatformBodies();
+    if (!createPlayerBody())
+    {
+        destroyPhysics();
+        return false;
+    }
+
+    DE_LOG_INFO("Sandbox2D: Box2D world ready ({} platforms)", m_platforms.size());
+    return true;
+}
+
+void Sandbox2DApp::createPlatformBodies()
+{
+    if (!b2World_IsValid(m_physWorld))
+        return;
+
+    b2ShapeDef shapeDef           = b2DefaultShapeDef();
+    shapeDef.material.friction    = 0.6f;
+    shapeDef.material.restitution = 0.0f;
+
+    for (const Platform& p : m_platforms)
+    {
+        const Vector2f c = p.box.Center();
+        const Vector2f h = p.box.Extents();
+        if (h.x <= 0.0f || h.y <= 0.0f)
+            continue;
+
+        b2BodyDef bodyDef = b2DefaultBodyDef();
+        bodyDef.type      = b2_staticBody;
+        bodyDef.position  = { c.x, c.y };
+        const b2BodyId body = b2CreateBody(m_physWorld, &bodyDef);
+        if (!b2Body_IsValid(body))
+            continue;
+
+        const b2Polygon box = b2MakeBox(h.x, h.y);
+        b2CreatePolygonShape(body, &shapeDef, &box);
+    }
+}
+
+bool Sandbox2DApp::createPlayerBody()
+{
+    if (!b2World_IsValid(m_physWorld))
+        return false;
+
+    b2BodyDef bodyDef          = b2DefaultBodyDef();
+    bodyDef.type               = b2_dynamicBody;
+    bodyDef.position           = { m_spawn.x, m_spawn.y };
+    bodyDef.motionLocks.angularZ = true;
+    bodyDef.enableSleep        = false;
+    bodyDef.isAwake            = true;
+    m_playerBody               = b2CreateBody(m_physWorld, &bodyDef);
+    if (!b2Body_IsValid(m_playerBody))
+    {
+        DE_LOG_ERROR("Sandbox2D: player body create failed");
+        m_playerBody = b2_nullBodyId;
+        return false;
+    }
+
+    // Slightly rounded box so the player slides off platform corners instead of catching.
+    constexpr float kRadius = 0.06f;
+    const float hw = Max(m_player.half.x - kRadius, 0.08f);
+    const float hh = Max(m_player.half.y - kRadius, 0.08f);
+
+    b2ShapeDef shapeDef           = b2DefaultShapeDef();
+    shapeDef.density              = 1.0f;
+    shapeDef.material.friction    = 0.0f;
+    shapeDef.material.restitution = 0.0f;
+    shapeDef.enableContactEvents  = true;
+
+    const b2Polygon hull = b2MakeRoundedBox(hw, hh, kRadius);
+    m_playerShape        = b2CreatePolygonShape(m_playerBody, &shapeDef, &hull);
+    if (!b2Shape_IsValid(m_playerShape))
+    {
+        DE_LOG_ERROR("Sandbox2D: player shape create failed");
+        m_playerShape = b2_nullShapeId;
+        return false;
+    }
+    return true;
+}
+
+void Sandbox2DApp::syncPlayerFromBody()
+{
+    if (!b2Body_IsValid(m_playerBody))
+        return;
+    const b2Vec2 p = b2Body_GetPosition(m_playerBody);
+    const b2Vec2 v = b2Body_GetLinearVelocity(m_playerBody);
+    m_player.pos   = Vector2f(p.x, p.y);
+    m_player.vel   = Vector2f(v.x, v.y);
+}
+
+bool Sandbox2DApp::playerGrounded() const
+{
+    if (!b2Body_IsValid(m_playerBody))
+        return false;
+
+    const int capacity = b2Body_GetContactCapacity(m_playerBody);
+    if (capacity <= 0)
+        return false;
+
+    b2ContactData contacts[8];
+    const int n = b2Body_GetContactData(m_playerBody, contacts, 8);
+    for (int i = 0; i < n; ++i)
+    {
+        if (contacts[i].manifold.pointCount <= 0)
+            continue;
+
+        b2Vec2 nrm = contacts[i].manifold.normal;
+        if (B2_ID_EQUALS(contacts[i].shapeIdA, m_playerShape))
+        {
+            nrm.x = -nrm.x;
+            nrm.y = -nrm.y;
+        }
+        // Normal from platform to player. Up-facing contact is ground.
+        if (nrm.y > 0.55f)
+            return true;
+    }
+    return false;
+}
+
+void Sandbox2DApp::applyPlayerControl(float dt)
+{
+    if (!b2Body_IsValid(m_playerBody))
+        return;
+
+    const float move = input().actionAxis("move");
+    if (std::fabs(move) > 0.15f)
+        m_player.facing = (move > 0.0f) ? 1.0f : -1.0f;
+
+    constexpr float kMaxRun   = 8.5f;
+    constexpr float kAccel    = 48.0f;
+    constexpr float kFriction = 36.0f;
+    constexpr float kJumpVel  = 14.0f;
+    constexpr float kCoyote   = 0.10f;
+    constexpr float kBuffer   = 0.10f;
+    constexpr float kMaxFall  = -22.0f;
+
+    b2Vec2 vel = b2Body_GetLinearVelocity(m_playerBody);
+
+    if (std::fabs(move) > 0.05f)
+        vel.x += move * kAccel * dt;
+    else if (m_player.grounded)
+    {
+        if (vel.x > 0.0f)
+            vel.x = Max(0.0f, vel.x - kFriction * dt);
+        else
+            vel.x = Min(0.0f, vel.x + kFriction * dt);
+    }
+    vel.x = Clamp(vel.x, -kMaxRun, kMaxRun);
+
+    if (vel.y < kMaxFall)
+        vel.y = kMaxFall;
+
+    if (input().actionPressed("jump"))
+        m_player.jumpBuffer = kBuffer;
+
+    if (m_player.grounded)
+        m_player.coyote = kCoyote;
+
+    if (m_player.jumpBuffer > 0.0f && m_player.coyote > 0.0f)
+    {
+        vel.y               = kJumpVel;
+        m_player.grounded   = false;
+        m_player.coyote     = 0.0f;
+        m_player.jumpBuffer = 0.0f;
+    }
+
+    m_player.jumpBuffer = Max(0.0f, m_player.jumpBuffer - dt);
+    m_player.coyote     = Max(0.0f, m_player.coyote - dt);
+
+    b2Body_SetLinearVelocity(m_playerBody, vel);
+}
+
 void Sandbox2DApp::resetPlayer()
 {
-    m_player.pos        = m_spawn;
-    m_player.vel        = Vector2f(0.0f, 0.0f);
-    m_player.grounded   = false;
-    m_player.facing     = 1.0f;
+    m_player.pos         = m_spawn;
+    m_player.vel         = Vector2f(0.0f, 0.0f);
+    m_player.grounded    = false;
+    m_player.facing      = 1.0f;
     m_player.coyote      = 0.0f;
     m_player.jumpBuffer  = 0.0f;
     m_player.wasGrounded = false;
+    m_physAccum          = 0.0f;
     m_playerAnim.play("idle", true);
+
+    if (b2Body_IsValid(m_playerBody))
+    {
+        b2Body_SetTransform(m_playerBody, b2Vec2{ m_spawn.x, m_spawn.y }, b2Rot_identity);
+        b2Body_SetLinearVelocity(m_playerBody, b2Vec2_zero);
+        b2Body_SetAngularVelocity(m_playerBody, 0.0f);
+        b2Body_SetAwake(m_playerBody, true);
+    }
 }
 
 void Sandbox2DApp::onInit()
@@ -300,6 +505,11 @@ void Sandbox2DApp::onInit()
 
     if (!tryLoadLevel())
         buildLevel();
+    if (!createPhysicsWorld())
+    {
+        DE_LOG_FATAL("Sandbox2D: physics init failed");
+        return;
+    }
     resetPlayer();
     m_camera.SetPosition(m_player.pos.x, m_player.pos.y + 1.0f);
     m_score = 0;
@@ -311,150 +521,30 @@ void Sandbox2DApp::onInit()
         m_camera.GetOrthoHeight());
 }
 
-void Sandbox2DApp::moveAxis(int axis, float dt)
-{
-    Vector2f delta(0.0f, 0.0f);
-    if (axis == 0)
-        delta.x = m_player.vel.x * dt;
-    else
-        delta.y = m_player.vel.y * dt;
-
-    if (delta.x == 0.0f && delta.y == 0.0f)
-        return;
-
-    const Aabb2f box = playerBounds(m_player.pos, m_player.half);
-    float        bestT = 1.0f;
-    bool         hit   = false;
-    for (const Platform& p : m_platforms)
-    {
-        const SweptHit2D h = SweptIntersects(box, delta, p.box);
-        if (h.hit && h.t < bestT)
-        {
-            bestT = h.t;
-            hit   = true;
-        }
-    }
-
-    if (hit)
-    {
-        const float t = Max(bestT - 1.0e-4f, 0.0f);
-        m_player.pos += delta * t;
-        if (axis == 0)
-            m_player.vel.x = 0.0f;
-        else
-        {
-            if (m_player.vel.y < 0.0f)
-                m_player.grounded = true;
-            m_player.vel.y = 0.0f;
-        }
-    }
-    else
-    {
-        m_player.pos += delta;
-    }
-}
-
-void Sandbox2DApp::depenetrate()
-{
-    Aabb2f box = playerBounds(m_player.pos, m_player.half);
-    for (const Platform& p : m_platforms)
-    {
-        if (!Intersects(box, p.box))
-            continue;
-
-        const float overlapL = box.Max.x - p.box.Min.x;
-        const float overlapR = p.box.Max.x - box.Min.x;
-        const float overlapB = box.Max.y - p.box.Min.y;
-        const float overlapT = p.box.Max.y - box.Min.y;
-
-        float       best     = overlapL;
-        int         axis     = 0;
-        float       sign     = -1.0f;
-        if (overlapR < best)
-        {
-            best = overlapR;
-            axis = 0;
-            sign = 1.0f;
-        }
-        if (overlapB < best)
-        {
-            best = overlapB;
-            axis = 1;
-            sign = -1.0f;
-        }
-        if (overlapT < best)
-        {
-            best = overlapT;
-            axis = 1;
-            sign = 1.0f;
-        }
-
-        if (axis == 0)
-        {
-            m_player.pos.x += sign * (best + 1.0e-4f);
-            m_player.vel.x = 0.0f;
-        }
-        else
-        {
-            m_player.pos.y += sign * (best + 1.0e-4f);
-            if (sign > 0.0f)
-                m_player.grounded = true;
-            m_player.vel.y = 0.0f;
-        }
-        box = playerBounds(m_player.pos, m_player.half);
-    }
-}
-
 void Sandbox2DApp::updatePlayer(float dt)
 {
-    const float move = input().actionAxis("move");
-    if (std::fabs(move) > 0.15f)
-        m_player.facing = (move > 0.0f) ? 1.0f : -1.0f;
+    if (!b2World_IsValid(m_physWorld) || !b2Body_IsValid(m_playerBody))
+        return;
 
-    constexpr float kMaxRun  = 8.5f;
-    constexpr float kAccel   = 48.0f;
-    constexpr float kFriction = 36.0f;
-    constexpr float kGravity = -38.0f;
-    constexpr float kJumpVel = 14.0f;
-    constexpr float kCoyote  = 0.10f;
-    constexpr float kBuffer  = 0.10f;
+    constexpr float kStep    = 1.0f / 60.0f;
+    constexpr int   kSubStep = 4;
+    constexpr int   kMaxSteps = 5;
 
-    if (std::fabs(move) > 0.05f)
-        m_player.vel.x += move * kAccel * dt;
-    else if (m_player.grounded)
+    applyPlayerControl(dt);
+
+    m_physAccum += dt;
+    int steps = 0;
+    while (m_physAccum >= kStep && steps < kMaxSteps)
     {
-        if (m_player.vel.x > 0.0f)
-            m_player.vel.x = Max(0.0f, m_player.vel.x - kFriction * dt);
-        else
-            m_player.vel.x = Min(0.0f, m_player.vel.x + kFriction * dt);
+        b2World_Step(m_physWorld, kStep, kSubStep);
+        m_physAccum -= kStep;
+        ++steps;
     }
-    m_player.vel.x = Clamp(m_player.vel.x, -kMaxRun, kMaxRun);
+    if (steps == kMaxSteps)
+        m_physAccum = 0.0f;
 
-    m_player.vel.y += kGravity * dt;
-    if (m_player.vel.y < -22.0f)
-        m_player.vel.y = -22.0f;
-
-    if (input().actionPressed("jump"))
-        m_player.jumpBuffer = kBuffer;
-
-    if (m_player.grounded)
-        m_player.coyote = kCoyote;
-
-    if (m_player.jumpBuffer > 0.0f && m_player.coyote > 0.0f)
-    {
-        m_player.vel.y        = kJumpVel;
-        m_player.grounded     = false;
-        m_player.coyote       = 0.0f;
-        m_player.jumpBuffer   = 0.0f;
-    }
-
-    m_player.jumpBuffer = Max(0.0f, m_player.jumpBuffer - dt);
-    m_player.coyote     = Max(0.0f, m_player.coyote - dt);
-    m_player.grounded   = false;
-
-    moveAxis(0, dt);
-    moveAxis(1, dt);
-    depenetrate();
+    syncPlayerFromBody();
+    m_player.grounded = playerGrounded();
 
     const Aabb2f coinHit = playerBounds(m_player.pos, m_player.half);
     for (Coin& c : m_coins)
@@ -674,6 +764,7 @@ void Sandbox2DApp::onRender()
 void Sandbox2DApp::onShutdown()
 {
     renderer().waitForGpu();
+    destroyPhysics();
     m_playerAnim.setSheet(nullptr);
     m_playerAnim.clearClips();
     m_playerSheets.clear();

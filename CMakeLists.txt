@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.21)
-project(DarkEngine6 LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.22)
+project(DarkEngine6 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -117,6 +117,35 @@ if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CompilerOptions.cmake")
     endif()
 endif()
 
+# --- Box2D (third_party, used by Sandbox2D) ----------------------------------------
+# Box2D 3.x is a C library. When it is not the top-level project its samples,
+# tests, and docs are already skipped (PROJECT_IS_TOP_LEVEL). Force the options
+# off anyway so a cache from a standalone Box2D configure cannot leak in.
+set(BOX2D_SAMPLES OFF CACHE BOOL "Build the Box2D samples" FORCE)
+set(BOX2D_UNIT_TESTS OFF CACHE BOOL "Build the Box2D unit tests" FORCE)
+set(BOX2D_BENCHMARKS OFF CACHE BOOL "Build the Box2D benchmarks" FORCE)
+set(BOX2D_DOCS OFF CACHE BOOL "Build the Box2D documentation" FORCE)
+set(BOX2D_PROFILE OFF CACHE BOOL "Enable profiling with Tracy" FORCE)
+set(BOX2D_VALIDATE OFF CACHE BOOL "Enable heavy Box2D validation" FORCE)
+
+# Box2D's CMakeLists overwrites these globals; restore them after add_subdirectory.
+set(_de_save_runtime_outdir "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+set(_de_save_library_outdir "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
+set(_de_save_verbose "${CMAKE_VERBOSE_MAKEFILE}")
+
+add_subdirectory(third_party/box2d EXCLUDE_FROM_ALL)
+
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${_de_save_runtime_outdir}")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${_de_save_library_outdir}")
+set(CMAKE_VERBOSE_MAKEFILE "${_de_save_verbose}")
+unset(_de_save_runtime_outdir)
+unset(_de_save_library_outdir)
+unset(_de_save_verbose)
+
+if (TARGET box2d)
+    set_target_properties(box2d PROPERTIES FOLDER "ThirdParty")
+endif()
+
 # --- Sandbox executable ------------------------------------------------------------
 add_executable(Sandbox WIN32 ${DE_SANDBOX_SOURCES})
 
@@ -147,7 +176,7 @@ add_executable(Sandbox2D WIN32 ${DE_SANDBOX2D_SOURCES})
 
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${DE_SANDBOX2D_SOURCES})
 
-target_link_libraries(Sandbox2D PRIVATE DarkEngine)
+target_link_libraries(Sandbox2D PRIVATE DarkEngine box2d)
 
 if (COMMAND de_set_compiler_options)
     de_set_compiler_options(Sandbox2D)
