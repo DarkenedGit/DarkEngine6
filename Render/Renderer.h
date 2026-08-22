@@ -80,7 +80,11 @@ namespace Dark
         }
 
         void bindSceneTargets();
+        void bindColorTargetOnly();
         void setClearColor(float r, float g, float b, float a = 1.0f);
+        void transitionDepth(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
+        D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu() const { return m_depthSrvCpu; }
+        ID3D12Resource*             depthResource() const { return m_depthStencil.Get(); }
         const D3D12_VIEWPORT& viewport() const { return m_viewport; }
         const D3D12_RECT&     scissor() const { return m_scissor; }
 
@@ -98,6 +102,9 @@ namespace Dark
         ComPtr<ID3D12DescriptorHeap>      m_dsvHeap;
         ComPtr<ID3D12Resource>            m_renderTargets[kFrameCount];
         ComPtr<ID3D12Resource>            m_depthStencil;
+        ComPtr<ID3D12DescriptorHeap>      m_depthSrvHeap;
+        D3D12_CPU_DESCRIPTOR_HANDLE       m_depthSrvCpu{};
+        D3D12_RESOURCE_STATES             m_depthState = D3D12_RESOURCE_STATE_DEPTH_WRITE;
         ComPtr<ID3D12CommandAllocator>    m_commandAllocators[kFrameCount];
         ComPtr<ID3D12GraphicsCommandList> m_commandList;
         ComPtr<ID3D12Fence>               m_fence;

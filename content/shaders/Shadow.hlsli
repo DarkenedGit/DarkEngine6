@@ -12,7 +12,7 @@ cbuffer ShadowConstants : register(b1)
 {
     float4x4 cascadeViewProj[3];
     float4   cascadeSplits; // xyz = cascade far in view-Z, w = map size
-    float4   shadowParams;  // x=bias, y=strength, z=count, w unused
+    float4   shadowParams;  // x=bias, y=strength, z=count, w=array slice offset
     float3   shadowLook;
     float    _shadowPad;
 };
@@ -53,7 +53,7 @@ float SampleCascadePCF(float3 worldPos, int cascade)
         [unroll]
         for (int x = -1; x <= 1; ++x)
         {
-            float3 uv = float3(uvz.xy + float2(x, y) * texel, (float)cascade);
+            float3 uv = float3(uvz.xy + float2(x, y) * texel, (float)cascade + shadowParams.w);
             sum += gShadowMap.SampleCmpLevelZero(gShadowSamp, uv, uvz.z);
         }
     }

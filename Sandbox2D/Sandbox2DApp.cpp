@@ -93,6 +93,7 @@ void Sandbox2DApp::registerActions()
     a.bindKey("jump", Key::W);
     a.bindKey("jump", Key::Up);
     a.bindButton("jump", GamepadButton::A);
+    a.bindButton("jump", GamepadButton::B);
 
     a.bindKeyAsAxis("move", Key::A, -1.0f);
     a.bindKeyAsAxis("move", Key::D, 1.0f);
@@ -103,9 +104,10 @@ void Sandbox2DApp::registerActions()
     a.bindButtonAsAxis("move", GamepadButton::DPadRight, 1.0f);
 
     a.bindKey("debug", Key::F1);
+    a.bindButton("debug", GamepadButton::Start);
 
     DE_LOG_INFO(
-        "Sandbox2D: move(A/D / arrows / stick) jump(Space/W / A) reset(R/Y) debug(F1) quit(Esc)");
+        "Sandbox2D: move(A/D / arrows / LS / D-pad) jump(Space/W / A/B) reset(R/Y) debug(F1/Start) quit(Esc/Back)");
 }
 
 void Sandbox2DApp::buildLevel()

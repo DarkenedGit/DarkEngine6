@@ -145,7 +145,8 @@ void packShadowConstants(
     uint32_t mapSize,
     float depthBias,
     float strength,
-    const Vector3f& cameraLook)
+    const Vector3f& cameraLook,
+    float sliceOffset)
 {
     std::memset(&out, 0, sizeof(out));
     if (cascadeCount < 1)
@@ -164,7 +165,7 @@ void packShadowConstants(
     out.params[0] = depthBias;
     out.params[1] = Clamp(strength, 0.0f, 1.0f);
     out.params[2] = static_cast<float>(cascadeCount);
-    out.params[3] = 0.0f;
+    out.params[3] = sliceOffset;
 
     out.cameraLook[0] = cameraLook.x;
     out.cameraLook[1] = cameraLook.y;

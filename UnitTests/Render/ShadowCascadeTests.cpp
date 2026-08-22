@@ -67,7 +67,7 @@ TEST(ShadowCascades, PackWritesSplitsBiasAndLook)
     cascades[2].splitFar = 200.0f;
 
     ShadowConstants cb{};
-    packShadowConstants(cb, cascades, 3, 2048, 0.0015f, 1.25f, Vector3f(0.0f, 0.0f, 1.0f));
+    packShadowConstants(cb, cascades, 3, 2048, 0.0015f, 1.25f, Vector3f(0.0f, 0.0f, 1.0f), 3.0f);
     EXPECT_FLOAT_EQ(cb.cascadeSplits[0], 12.0f);
     EXPECT_FLOAT_EQ(cb.cascadeSplits[1], 48.0f);
     EXPECT_FLOAT_EQ(cb.cascadeSplits[2], 200.0f);
@@ -75,6 +75,7 @@ TEST(ShadowCascades, PackWritesSplitsBiasAndLook)
     EXPECT_FLOAT_EQ(cb.params[0], 0.0015f);
     EXPECT_FLOAT_EQ(cb.params[1], 1.0f); // clamped
     EXPECT_FLOAT_EQ(cb.params[2], 3.0f);
+    EXPECT_FLOAT_EQ(cb.params[3], 3.0f); // ping-pong slice offset
     EXPECT_FLOAT_EQ(cb.cameraLook[2], 1.0f);
 }
 

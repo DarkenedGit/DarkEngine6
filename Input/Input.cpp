@@ -60,6 +60,39 @@ namespace Dark
         return sign * ((a - deadzone) / (1.0f - deadzone));
     }
 
+    void Input::applyRadialDeadzone(float& x, float& y, float deadzone)
+    {
+        const float mag = std::sqrt(x * x + y * y);
+        if (mag < deadzone)
+        {
+            x = 0.0f;
+            y = 0.0f;
+            return;
+        }
+        float scaled = (mag - deadzone) / (1.0f - deadzone);
+        if (scaled > 1.0f)
+            scaled = 1.0f;
+        const float inv = scaled / mag;
+        x *= inv;
+        y *= inv;
+    }
+
+    int Input::resolvePad(int padIndex) const
+    {
+        if (padIndex < 0 || padIndex >= kMaxGamepads)
+            return -1;
+        if (m_pads[padIndex].connected)
+            return padIndex;
+        if (padIndex != 0)
+            return padIndex;
+        for (int i = 1; i < kMaxGamepads; ++i)
+        {
+            if (m_pads[i].connected)
+                return i;
+        }
+        return 0;
+    }
+
     void Input::beginFrame()
     {
         for (DigitalState& k : m_keys)
@@ -222,49 +255,54 @@ namespace Dark
 
     bool Input::gamepadConnected(int padIndex) const
     {
-        if (padIndex < 0 || padIndex >= kMaxGamepads)
+        const int p = resolvePad(padIndex);
+        if (p < 0)
             return false;
-        return m_pads[padIndex].connected;
+        return m_pads[p].connected;
     }
 
     bool Input::buttonDown(GamepadButton button, int padIndex) const
     {
-        if (padIndex < 0 || padIndex >= kMaxGamepads)
+        const int p = resolvePad(padIndex);
+        if (p < 0)
             return false;
         const int i = static_cast<int>(button);
         if (i < 0 || i >= static_cast<int>(GamepadButton::Count))
             return false;
-        return m_pads[padIndex].buttons[i].down;
+        return m_pads[p].buttons[i].down;
     }
 
     bool Input::buttonPressed(GamepadButton button, int padIndex) const
     {
-        if (padIndex < 0 || padIndex >= kMaxGamepads)
+        const int p = resolvePad(padIndex);
+        if (p < 0)
             return false;
         const int i = static_cast<int>(button);
         if (i < 0 || i >= static_cast<int>(GamepadButton::Count))
             return false;
-        return m_pads[padIndex].buttons[i].pressed;
+        return m_pads[p].buttons[i].pressed;
     }
 
     bool Input::buttonReleased(GamepadButton button, int padIndex) const
     {
-        if (padIndex < 0 || padIndex >= kMaxGamepads)
+        const int p = resolvePad(padIndex);
+        if (p < 0)
             return false;
         const int i = static_cast<int>(button);
         if (i < 0 || i >= static_cast<int>(GamepadButton::Count))
             return false;
-        return m_pads[padIndex].buttons[i].released;
+        return m_pads[p].buttons[i].released;
     }
 
     float Input::axis(GamepadAxis axisId, int padIndex) const
     {
-        if (padIndex < 0 || padIndex >= kMaxGamepads)
+        const int p = resolvePad(padIndex);
+        if (p < 0)
             return 0.0f;
         const int i = static_cast<int>(axisId);
         if (i < 0 || i >= static_cast<int>(GamepadAxis::Count))
             return 0.0f;
-        return m_pads[padIndex].axes[i];
+        return m_pads[p].axes[i];
     }
 
     bool Input::actionDown(const char* name) const
@@ -289,9 +327,14 @@ namespace Dark
 
     void Input::updateDevices()
     {
+        ++m_padPollTick;
         for (int p = 0; p < kMaxGamepads; ++p)
         {
-            PadState&    pad = m_pads[p];
+            PadState& pad = m_pads[p];
+            // Empty XInput slots are expensive; retry disconnected pads every ~0.5s.
+            if (!pad.connected && ((m_padPollTick + static_cast<uint32_t>(p)) % 30u) != 0)
+                continue;
+
             XINPUT_STATE xs{};
             const DWORD  result = XInputGetState(static_cast<DWORD>(p), &xs);
 
@@ -338,13 +381,22 @@ namespace Dark
                 updateButton(pad.buttons[bi], now);
             }
 
-            auto normStick   = [](SHORT v) { return static_cast<float>(v) / 32767.0f; };
+            auto normStick = [](SHORT v) {
+                float f = static_cast<float>(v) / 32767.0f;
+                if (f > 1.0f)
+                    f = 1.0f;
+                if (f < -1.0f)
+                    f = -1.0f;
+                return f;
+            };
             auto normTrigger = [](BYTE v) { return static_cast<float>(v) / 255.0f; };
 
-            float lx = applyStickDeadzone(normStick(g.sThumbLX), kStickDeadzone);
-            float ly = applyStickDeadzone(normStick(g.sThumbLY), kStickDeadzone);
-            float rx = applyStickDeadzone(normStick(g.sThumbRX), kStickDeadzone);
-            float ry = applyStickDeadzone(normStick(g.sThumbRY), kStickDeadzone);
+            float lx = normStick(g.sThumbLX);
+            float ly = normStick(g.sThumbLY);
+            float rx = normStick(g.sThumbRX);
+            float ry = normStick(g.sThumbRY);
+            applyRadialDeadzone(lx, ly, kStickDeadzone);
+            applyRadialDeadzone(rx, ry, kStickDeadzone);
 
             // XInput Y is up-positive; keep that for game code.
             pad.axes[static_cast<int>(GamepadAxis::LeftX)]        = lx;

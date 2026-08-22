@@ -6,6 +6,7 @@
 #include "Render/WaterPipeline.h"
 #include "Render/SkyPipeline.h"
 #include "Render/ShadowSystem.h"
+#include "Render/DebugOverlay.h"
 #include "Render/Camera3D.h"
 #include "Sky/Environment.h"
 #include "Render/Material.h"
@@ -28,6 +29,7 @@ private:
     void handleRuntimeCommands(float dt);
     void updateFlyCamera(float dt);
     void syncTerrainLod();
+    void drawDebugOverlays(ID3D12GraphicsCommandList* cmd);
 
     Dark::Entity m_camera;
     Dark::Entity m_cube;
@@ -38,6 +40,7 @@ private:
     Dark::WaterPipeline     m_waterPipeline;
     Dark::SkyPipeline       m_skyPipeline;
     Dark::ShadowSystem      m_shadows;
+    Dark::DebugOverlay      m_debugOverlay;
     Dark::Camera3D          m_viewCamera;
     Dark::Sky::Environment  m_env;
 
@@ -47,6 +50,8 @@ private:
     Dark::TerrainMaterial       m_terrainMaterial;
     Dark::Water::WaterWorld     m_water;
 
-    bool  m_spinPaused = false;
-    float m_spinSpeed  = 0.8f;
+    bool  m_spinPaused     = false;
+    float m_spinSpeed      = 0.8f;
+    bool  m_showShadowMaps = false;
+    bool  m_showDepth      = false;
 };

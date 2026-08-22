@@ -55,11 +55,11 @@ namespace Dark
                 m.normals.assign(m.positions.size(), { 0, 0, 0 });
                 for (size_t i = 0; i + 2 < m.indices.size(); i += 3)
                 {
-                    auto           i0 = m.indices[i], i1 = m.indices[i + 1], i2 = m.indices[i + 2];
+                    uint32_t       i0 = m.indices[i], i1 = m.indices[i + 1], i2 = m.indices[i + 2];
                     Math::Vector3f e1 = m.positions[i1] - m.positions[i0];
                     Math::Vector3f e2 = m.positions[i2] - m.positions[i0];
                     Math::Vector3f fn = e1.Cross(e2);
-                    for (auto idx : { i0, i1, i2 })
+                    for (uint32_t idx : { i0, i1, i2 })
                     {
                         m.normals[idx].x += fn.x;
                         m.normals[idx].y += fn.y;

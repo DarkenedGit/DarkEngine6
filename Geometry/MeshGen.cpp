@@ -218,18 +218,20 @@ namespace Dark
             // Walk the quad the opposite way from the side faces. D3D culls in
             // Y-down screen space, so a +Y surface needs CW math winding to be
             // front-facing under FrontCounterClockwise=TRUE.
-            addBoxFace(m, { -hw, hh, -hd }, { -hw, hh, hd }, { hw, hh, hd }, { hw, hh, -hd }, { 0, 1, 0 }, { 0, 1 }, { 0, 0 }, { 1, 0 }, { 1, 1 });
+            addBoxFace(m, { -hw, hh, -hd }, { -hw, hh, hd }, { hw, hh, hd }, { hw, hh, -hd },       { 0, 1, 0 }, { 0, 1 }, { 0, 0 }, { 1, 0 }, { 1, 1 });
             // -Y bottom
-            addBoxFace(m, { -hw, -hh, hd }, { hw, -hh, hd }, { hw, -hh, -hd }, { -hw, -hh, -hd }, { 0, -1, 0 }, { 0, 1 }, { 1, 1 }, { 1, 0 }, { 0, 0 });
+            addBoxFace(m, { -hw, -hh, hd }, { hw, -hh, hd }, { hw, -hh, -hd }, { -hw, -hh, -hd },   { 0, -1, 0 }, { 0, 1 }, { 1, 1 }, { 1, 0 }, { 0, 0 });
+            
             // +Z front (outside looking -Z: +X is left in LH view — swap U)
-            addBoxFace(m, { -hw, -hh, hd }, { hw, -hh, hd }, { hw, hh, hd }, { -hw, hh, hd }, { 0, 0, 1 }, { 1, 1 }, { 0, 1 }, { 0, 0 }, { 1, 0 });
+            addBoxFace(m, { -hw, -hh, hd }, { hw, -hh, hd }, { hw, hh, hd }, { -hw, hh, hd },       { 0, 0, 1 }, { 1, 1 }, { 0, 1 }, { 0, 0 }, { 1, 0 });
             // -Z back (camera default) — outside looking +Z: +X right
             // verts are BR, BL, TL, TR so UVs are not the naive (0,1)… sequence
-            addBoxFace(m, { hw, -hh, -hd }, { -hw, -hh, -hd }, { -hw, hh, -hd }, { hw, hh, -hd }, { 0, 0, -1 }, { 1, 1 }, { 0, 1 }, { 0, 0 }, { 1, 0 });
+            addBoxFace(m, { hw, -hh, -hd }, { -hw, -hh, -hd }, { -hw, hh, -hd }, { hw, hh, -hd },   { 0, 0, -1 }, { 1, 1 }, { 0, 1 }, { 0, 0 }, { 1, 0 });
+
             // +X right (outside looking -X: +Z is left)
-            addBoxFace(m, { hw, -hh, hd }, { hw, -hh, -hd }, { hw, hh, -hd }, { hw, hh, hd }, { 1, 0, 0 }, { 1, 1 }, { 0, 1 }, { 0, 0 }, { 1, 0 });
+            addBoxFace(m, { hw, -hh, hd },  { hw, -hh, -hd }, { hw, hh, -hd }, { hw, hh, hd },       { 1, 0, 0 }, { 1, 1 }, { 0, 1 }, { 0, 0 }, { 1, 0 });
             // -X left (outside looking +X: +Z is right)
-            addBoxFace(m, { -hw, -hh, -hd }, { -hw, -hh, hd }, { -hw, hh, hd }, { -hw, hh, -hd }, { -1, 0, 0 }, { 0, 1 }, { 1, 1 }, { 1, 0 }, { 0, 0 });
+            addBoxFace(m, { -hw, -hh, -hd }, { -hw, -hh, hd }, { -hw, hh, hd }, { -hw, hh, -hd },   { -1, 0, 0 }, { 0, 1 }, { 1, 1 }, { 1, 0 }, { 0, 0 });
 
             return m;
         }

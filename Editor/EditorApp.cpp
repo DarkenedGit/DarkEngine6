@@ -1414,7 +1414,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         if (const auto* xf = world().get<TransformComponent>(so.entity))
             sceneBounds.ExpandToInclude(xf->position);
     }
-    m_shadows.update(m_camera, lightDir, sceneBounds, 0.8f, 0.20f);
+    m_shadows.update(m_camera, lightDir, sceneBounds, 0.8f, 0.20f, renderer().frameIndex());
     if (m_shadows.isValid() && m_shadows.enabled())
     {
         m_shadows.beginCapture(cmd);

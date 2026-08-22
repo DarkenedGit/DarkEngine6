@@ -125,6 +125,10 @@ namespace Dark
         bool         m_mousePosValid = false;
 
         static float applyStickDeadzone(float v, float deadzone);
+        static void  applyRadialDeadzone(float& x, float& y, float deadzone);
+        int          resolvePad(int padIndex) const;
+
+        uint32_t m_padPollTick = 0;
     };
 
 } // namespace Dark

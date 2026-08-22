@@ -12,8 +12,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 {
     Dark::AppConfig cfg{};
     cfg.title  = "DarkEngine6 Sandbox";
-    cfg.width  = 1280;
-    cfg.height = 720;
+    cfg.width  = 2560;
+    cfg.height = 1600;
     cfg.vsync  = true;
 
     SandboxApp app{cfg};

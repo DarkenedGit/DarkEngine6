@@ -35,7 +35,7 @@ struct ShadowConstants
 {
     float cascadeViewProj[kMaxShadowCascades][16];
     float cascadeSplits[4]; // x,y,z = cascade far in view-Z, w = map size
-    float params[4];        // bias, strength, cascadeCount, 0
+    float params[4];        // bias, strength, cascadeCount, array-slice offset
     float cameraLook[3];
     float pad;
 };
@@ -71,6 +71,7 @@ void packShadowConstants(
     uint32_t mapSize,
     float depthBias,
     float strength,
-    const Math::Vector3f& cameraLook);
+    const Math::Vector3f& cameraLook,
+    float sliceOffset = 0.0f);
 
 } // namespace Dark

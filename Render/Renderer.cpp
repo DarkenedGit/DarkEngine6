@@ -219,7 +219,7 @@ namespace Dark
         depthDesc.Height           = m_height;
         depthDesc.DepthOrArraySize = 1;
         depthDesc.MipLevels        = 1;
-        depthDesc.Format           = DXGI_FORMAT_D32_FLOAT;
+        depthDesc.Format           = DXGI_FORMAT_R32_TYPELESS;
         depthDesc.SampleDesc       = { 1, 0 };
         depthDesc.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
         depthDesc.Flags            = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
@@ -242,6 +242,25 @@ namespace Dark
         dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
         dsvDesc.Flags         = D3D12_DSV_FLAG_NONE;
         m_device->CreateDepthStencilView(m_depthStencil.Get(), &dsvDesc, m_dsvHeap->GetCPUDescriptorHandleForHeapStart());
+
+        m_depthSrvHeap.Reset();
+        D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc{};
+        srvHeapDesc.NumDescriptors = 1;
+        srvHeapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        srvHeapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+        if (FAILED(m_device->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&m_depthSrvHeap))))
+        {
+            DE_LOG_ERROR("Renderer: CreateDescriptorHeap depth SRV failed");
+            return false;
+        }
+        m_depthSrvCpu = m_depthSrvHeap->GetCPUDescriptorHandleForHeapStart();
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+        srvDesc.Format                    = DXGI_FORMAT_R32_FLOAT;
+        srvDesc.ViewDimension             = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Shader4ComponentMapping   = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srvDesc.Texture2D.MipLevels       = 1;
+        m_device->CreateShaderResourceView(m_depthStencil.Get(), &srvDesc, m_depthSrvCpu);
+        m_depthState = D3D12_RESOURCE_STATE_DEPTH_WRITE;
         return true;
     }
 
@@ -259,6 +278,8 @@ namespace Dark
         for (uint32_t i = 0; i < kFrameCount; ++i)
             m_renderTargets[i].Reset();
         m_depthStencil.Reset();
+        m_depthSrvHeap.Reset();
+        m_depthSrvCpu = {};
 
         const HRESULT hr = m_swapChain->ResizeBuffers(
             kFrameCount, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, m_swapChainFlags);
@@ -300,15 +321,25 @@ namespace Dark
         m_commandList->RSSetViewports(1, &m_viewport);
         m_commandList->RSSetScissorRects(1, &m_scissor);
 
-        // PRESENT -> RENDER_TARGET
-        D3D12_RESOURCE_BARRIER barrier{};
-        barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        barrier.Flags                  = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-        barrier.Transition.pResource   = m_renderTargets[m_frameIndex].Get();
-        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-        barrier.Transition.StateAfter  = D3D12_RESOURCE_STATE_RENDER_TARGET;
-        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        m_commandList->ResourceBarrier(1, &barrier);
+        D3D12_RESOURCE_BARRIER barriers[2]{};
+        UINT barrierCount = 0;
+        barriers[barrierCount].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barriers[barrierCount].Transition.pResource   = m_renderTargets[m_frameIndex].Get();
+        barriers[barrierCount].Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+        barriers[barrierCount].Transition.StateAfter  = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        barriers[barrierCount].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        ++barrierCount;
+        if (m_depthStencil && m_depthState != D3D12_RESOURCE_STATE_DEPTH_WRITE)
+        {
+            barriers[barrierCount].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barriers[barrierCount].Transition.pResource   = m_depthStencil.Get();
+            barriers[barrierCount].Transition.StateBefore = m_depthState;
+            barriers[barrierCount].Transition.StateAfter  = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+            barriers[barrierCount].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            ++barrierCount;
+            m_depthState = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+        }
+        m_commandList->ResourceBarrier(barrierCount, barriers);
 
         D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
         rtv.ptr += static_cast<SIZE_T>(m_frameIndex) * m_rtvDescriptorSize;
@@ -339,6 +370,29 @@ namespace Dark
         rtv.ptr += static_cast<SIZE_T>(m_frameIndex) * m_rtvDescriptorSize;
         D3D12_CPU_DESCRIPTOR_HANDLE dsv = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
         m_commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+    }
+
+    void Renderer::bindColorTargetOnly()
+    {
+        if (!m_commandList)
+            return;
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
+        rtv.ptr += static_cast<SIZE_T>(m_frameIndex) * m_rtvDescriptorSize;
+        m_commandList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+    }
+
+    void Renderer::transitionDepth(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
+    {
+        if (!cmd || !m_depthStencil || m_depthState == after)
+            return;
+        D3D12_RESOURCE_BARRIER b{};
+        b.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        b.Transition.pResource   = m_depthStencil.Get();
+        b.Transition.StateBefore = m_depthState;
+        b.Transition.StateAfter  = after;
+        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        cmd->ResourceBarrier(1, &b);
+        m_depthState = after;
     }
 
     void Renderer::endFrame()

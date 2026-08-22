@@ -89,32 +89,41 @@ void SandboxApp::registerDefaultActions()
     a.bindKey("speed_up", Key::Equal);
     a.bindButton("speed_up", GamepadButton::RightShoulder);
     a.bindKey("speed_down", Key::Minus);
-    a.bindButton("speed_down", GamepadButton::LeftShoulder);
+    a.bindButton("speed_down", GamepadButton::X);
 
-    // Yaw: A/D, arrows, left stick X, D-pad L/R
+    // Cube yaw/pitch: A/D W/S, arrows, D-pad (left stick is camera move).
     a.bindKeyAsAxis("yaw", Key::A, -1.0f);
     a.bindKeyAsAxis("yaw", Key::D, 1.0f);
     a.bindKeyAsAxis("yaw", Key::Left, -1.0f);
     a.bindKeyAsAxis("yaw", Key::Right, 1.0f);
-    a.bindAxis("yaw", GamepadAxis::LeftX, 1.0f);
     a.bindButtonAsAxis("yaw", GamepadButton::DPadLeft, -1.0f);
     a.bindButtonAsAxis("yaw", GamepadButton::DPadRight, 1.0f);
 
-    // Pitch: W/S, arrows, left stick Y, D-pad U/D
     a.bindKeyAsAxis("pitch", Key::W, 1.0f);
     a.bindKeyAsAxis("pitch", Key::S, -1.0f);
     a.bindKeyAsAxis("pitch", Key::Up, 1.0f);
     a.bindKeyAsAxis("pitch", Key::Down, -1.0f);
-    a.bindAxis("pitch", GamepadAxis::LeftY, 1.0f);
     a.bindButtonAsAxis("pitch", GamepadButton::DPadUp, 1.0f);
     a.bindButtonAsAxis("pitch", GamepadButton::DPadDown, -1.0f);
 
     a.bindKeyAsAxis("fly_forward", Key::I, 1.0f);
     a.bindKeyAsAxis("fly_forward", Key::K, -1.0f);
+    a.bindAxis("fly_forward", GamepadAxis::LeftY, 1.0f);
+
     a.bindKeyAsAxis("fly_strafe", Key::J, -1.0f);
     a.bindKeyAsAxis("fly_strafe", Key::L, 1.0f);
+    a.bindAxis("fly_strafe", GamepadAxis::LeftX, 1.0f);
+
     a.bindKeyAsAxis("fly_climb", Key::U, 1.0f);
     a.bindKeyAsAxis("fly_climb", Key::O, -1.0f);
+    a.bindAxis("fly_climb", GamepadAxis::RightTrigger, 1.0f);
+    a.bindAxis("fly_climb", GamepadAxis::LeftTrigger, -1.0f);
+
+    a.bindAxis("look_yaw", GamepadAxis::RightX, 1.0f);
+    a.bindAxis("look_pitch", GamepadAxis::RightY, 1.0f);
+
+    a.bindButton("sprint", GamepadButton::LeftThumb);
+    a.bindButton("sprint", GamepadButton::LeftShoulder);
 
     a.bindKey("time_back", Key::LeftBracket);
     a.bindKey("time_fwd", Key::RightBracket);
@@ -123,11 +132,13 @@ void SandboxApp::registerDefaultActions()
     a.bindKey("weather_partly", Key::Digit2);
     a.bindKey("weather_overcast", Key::Digit3);
     a.bindKey("weather_storm", Key::Digit4);
+    a.bindKey("debug_shadows", Key::F8);
+    a.bindKey("debug_depth", Key::F9);
 
     DE_LOG_INFO(
-        "Input: quit(Esc/Back) pause(Space/A) reset(R/Y) speed(+/- / shoulders) "
-        "yaw(A/D / stick X) pitch(W/S / stick Y) "
-        "fly(IJKL U/O, RMB look) time([/]) flow(0) weather(1-4)");
+        "Input: quit(Esc/Back) pause(Space/A) reset(R/Y) speed(+/- / RB) "
+        "cube yaw/pitch(A/D W/S / D-pad) fly(IJKL U/O, LS move, RS look, triggers climb, "
+        "LB/L3 sprint, RMB look) time([/]) weather(1-4) F8 shadow maps F9 depth");
 }
 
 void SandboxApp::handleRuntimeCommands(float dt)
@@ -199,6 +210,16 @@ void SandboxApp::handleRuntimeCommands(float dt)
         m_env.evaluate();
         DE_LOG_INFO("Sky: weather storm");
     }
+    if (input().actionPressed("debug_shadows"))
+    {
+        m_showShadowMaps = !m_showShadowMaps;
+        DE_LOG_INFO("Sandbox: shadow map overlay = {}", m_showShadowMaps);
+    }
+    if (input().actionPressed("debug_depth"))
+    {
+        m_showDepth = !m_showDepth;
+        DE_LOG_INFO("Sandbox: depth overlay = {}", m_showDepth);
+    }
 
     if (input().actionPressed("speed_up"))
     {
@@ -249,7 +270,8 @@ void SandboxApp::updateFlyCamera(float dt)
     const float forward = input().actionAxis("fly_forward");
     const float strafe  = input().actionAxis("fly_strafe");
     const float climb   = input().actionAxis("fly_climb");
-    const float speed   = input().keyDown(Key::LeftShift) ? 48.0f : 18.0f;
+    const bool  sprint  = input().keyDown(Key::LeftShift) || input().actionDown("sprint");
+    const float speed   = sprint ? 48.0f : 18.0f;
 
     if (forward != 0.0f)
         m_viewCamera.Walk(forward * speed * dt);
@@ -264,6 +286,14 @@ void SandboxApp::updateFlyCamera(float dt)
         m_viewCamera.RotateY(static_cast<float>(input().mouseDeltaX()) * sens);
         m_viewCamera.Pitch(static_cast<float>(input().mouseDeltaY()) * -sens);
     }
+
+    constexpr float kPadLook = 2.1f;
+    const float lookYaw   = input().actionAxis("look_yaw");
+    const float lookPitch = input().actionAxis("look_pitch");
+    if (lookYaw != 0.0f)
+        m_viewCamera.RotateY(lookYaw * kPadLook * dt);
+    if (lookPitch != 0.0f)
+        m_viewCamera.Pitch(lookPitch * kPadLook * dt);
 
     if (auto* xf = world().get<TransformComponent>(m_camera))
         xf->position = m_viewCamera.GetPosition();
@@ -323,6 +353,10 @@ void SandboxApp::onInit()
     {
         DE_LOG_FATAL("SandboxApp: ShadowSystem create failed");
         return;
+    }
+    if (!m_debugOverlay.create(renderer().device()))
+    {
+        DE_LOG_WARN("SandboxApp: DebugOverlay create failed — F8/F9 disabled");
     }
 
     m_env.timeOfDay = 16.2f;
@@ -481,7 +515,8 @@ void SandboxApp::onRender()
         m_env.lightDir(),
         sceneBounds,
         m_env.sunElevation(),
-        m_env.weather.cloudCoverage);
+        m_env.weather.cloudCoverage,
+        renderer().frameIndex());
 
     if (m_shadows.isValid() && m_shadows.enabled())
     {
@@ -565,7 +600,73 @@ void SandboxApp::onRender()
     renderer().stats().triangles =
         m_terrain.lastTriangles() + m_water.lastTriangles() + m_cubeMesh.indexCount() / 3;
 
+    drawDebugOverlays(cmd);
     renderer().endFrame();
+}
+
+void SandboxApp::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
+{
+    if (!cmd || !m_debugOverlay.isValid())
+        return;
+    if (!m_showShadowMaps && !m_showDepth)
+        return;
+
+    // Unbind the DSV so we can sample the scene depth. Do not rebind it afterwards
+    // while it remains PIXEL_SHADER_RESOURCE (endFrame does not write depth).
+    renderer().bindColorTargetOnly();
+    m_debugOverlay.beginFrame(renderer().frameIndex());
+
+    const LONG sw = static_cast<LONG>(renderer().width());
+    const LONG sh = static_cast<LONG>(renderer().height());
+    const LONG pad = 12;
+    LONG tile = sh / 5;
+    if (tile < 96)
+        tile = 96;
+    if (tile > 220)
+        tile = 220;
+
+    if (m_showDepth && renderer().depthResource())
+    {
+        renderer().transitionDepth(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        const LONG x = pad;
+        const LONG y = sh - pad - tile;
+        m_debugOverlay.draw2D(
+            cmd, renderer().device(), renderer().depthSrvCpu(), x, y, tile, tile, 24.0f, false);
+    }
+
+    if (m_showShadowMaps && m_shadows.isValid())
+    {
+        const int n = m_shadows.cascadeCount();
+        LONG x0 = pad;
+        if (m_showDepth)
+            x0 += tile + pad;
+        const LONG y = sh - pad - tile;
+        const LONG gap = 8;
+        LONG tw = tile;
+        const LONG need = n * tw + (n - 1) * gap;
+        if (x0 + need > sw - pad && n > 0)
+        {
+            const LONG avail = sw - pad - x0 - (n - 1) * gap;
+            if (avail > 64)
+                tw = avail / n;
+        }
+        const float slice0 = static_cast<float>(m_shadows.debugSliceOffset());
+        for (int i = 0; i < n; ++i)
+        {
+            const LONG x = x0 + i * (tw + gap);
+            m_debugOverlay.drawArray(
+                cmd,
+                renderer().device(),
+                m_shadows.srvCpu(),
+                x,
+                y,
+                tw,
+                tile,
+                slice0 + static_cast<float>(i),
+                1.25f,
+                true);
+        }
+    }
 }
 
 void SandboxApp::onShutdown()
@@ -578,5 +679,6 @@ void SandboxApp::onShutdown()
     m_terrainMaterial = TerrainMaterial{};
     m_terrain = Terrain::TerrainWorld{};
     m_shadows = ShadowSystem{};
+    m_debugOverlay = DebugOverlay{};
     DE_LOG_INFO("SandboxApp: shutdown");
 }
