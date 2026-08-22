@@ -76,6 +76,17 @@ bool EditorImGui::init(Dark::Window& window, Dark::Renderer& renderer)
     style.WindowRounding = 4.0f;
     style.FrameRounding  = 3.0f;
 
+    // Rasterize at the monitor DPI so hit-testing matches the OS cursor.
+    // DisplaySize/mouse stay in physical pixels (Win32 backend); we only scale
+    // style metrics and the font atlas, not io.DisplayFramebufferScale.
+    const float dpiScale = window.dpiScale();
+    if (dpiScale > 1.01f)
+        style.ScaleAllSizes(dpiScale);
+    ImFontConfig fontCfg{};
+    fontCfg.SizePixels = 13.0f * (dpiScale > 0.1f ? dpiScale : 1.0f);
+    io.Fonts->AddFontDefault(&fontCfg);
+    DE_LOG_INFO("EditorImGui: dpi scale {:.2f}", dpiScale);
+
     if (!ImGui_ImplWin32_Init(m_hwnd))
     {
         DE_LOG_ERROR("EditorImGui: Win32 init failed");

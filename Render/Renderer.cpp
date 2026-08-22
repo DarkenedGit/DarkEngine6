@@ -111,6 +111,8 @@ namespace Dark
         queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
         ThrowIfFailed(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_commandQueue)), "CreateCommandQueue");
 
+        m_swapChainFlags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+
         DXGI_SWAP_CHAIN_DESC1 scDesc{};
         scDesc.Width       = m_width;
         scDesc.Height      = m_height;
@@ -119,7 +121,8 @@ namespace Dark
         scDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
         scDesc.BufferCount = kFrameCount;
         scDesc.SwapEffect  = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-        scDesc.Flags       = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+        scDesc.Scaling     = DXGI_SCALING_STRETCH;
+        scDesc.Flags       = m_swapChainFlags;
 
         ComPtr<IDXGISwapChain1> swapChain1;
         ThrowIfFailed(factory->CreateSwapChainForHwnd(m_commandQueue.Get(), hwnd, &scDesc, nullptr, nullptr, &swapChain1), "CreateSwapChainForHwnd");
@@ -138,15 +141,11 @@ namespace Dark
         ThrowIfFailed(m_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)), "CreateDescriptorHeap RTV");
         m_rtvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
-        D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
-        for (uint32_t i = 0; i < kFrameCount; ++i)
-        {
-            ThrowIfFailed(m_swapChain->GetBuffer(i, IID_PPV_ARGS(&m_renderTargets[i])), "SwapChain GetBuffer");
-            m_device->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, rtvHandle);
-            rtvHandle.ptr += m_rtvDescriptorSize;
+        if (!createRenderTargets())
+            ThrowIfFailed(E_FAIL, "createRenderTargets");
 
+        for (uint32_t i = 0; i < kFrameCount; ++i)
             ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_commandAllocators[i])), "CreateCommandAllocator");
-        }
 
         // DSV heap + depth buffer
         D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc{};
@@ -154,7 +153,8 @@ namespace Dark
         dsvHeapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
         dsvHeapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
         ThrowIfFailed(m_device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_dsvHeap)), "CreateDescriptorHeap DSV");
-        createDepthResources();
+        if (!createDepthResources())
+            ThrowIfFailed(E_FAIL, "createDepthResources");
 
         ThrowIfFailed(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocators[m_frameIndex].Get(), nullptr, IID_PPV_ARGS(&m_commandList)), "CreateCommandList");
         // Start closed; beginFrame resets and opens it each frame.
@@ -175,14 +175,41 @@ namespace Dark
             throw std::runtime_error("CreateEvent for fence failed");
         }
 
-        m_viewport = { 0.0f, 0.0f, static_cast<float>(m_width), static_cast<float>(m_height), 0.0f, 1.0f };
-        m_scissor  = { 0, 0, static_cast<LONG>(m_width), static_cast<LONG>(m_height) };
+        updateViewport();
 
         DE_LOG_INFO("Renderer: D3D12 ready ({}x{}, {} buffers)", m_width, m_height, kFrameCount);
     }
 
-    void Renderer::createDepthResources()
+    bool Renderer::createRenderTargets()
     {
+        if (!m_device || !m_swapChain || !m_rtvHeap)
+            return false;
+
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
+        for (uint32_t i = 0; i < kFrameCount; ++i)
+        {
+            if (FAILED(m_swapChain->GetBuffer(i, IID_PPV_ARGS(&m_renderTargets[i]))))
+            {
+                DE_LOG_ERROR("Renderer: SwapChain GetBuffer failed");
+                return false;
+            }
+            m_device->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, rtvHandle);
+            rtvHandle.ptr += m_rtvDescriptorSize;
+        }
+        return true;
+    }
+
+    void Renderer::updateViewport()
+    {
+        m_viewport = { 0.0f, 0.0f, static_cast<float>(m_width), static_cast<float>(m_height), 0.0f, 1.0f };
+        m_scissor  = { 0, 0, static_cast<LONG>(m_width), static_cast<LONG>(m_height) };
+    }
+
+    bool Renderer::createDepthResources()
+    {
+        if (!m_device || !m_dsvHeap || m_width == 0 || m_height == 0)
+            return false;
+
         D3D12_HEAP_PROPERTIES heapProps{};
         heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
 
@@ -202,14 +229,58 @@ namespace Dark
         clear.DepthStencil.Depth   = 1.0f;
         clear.DepthStencil.Stencil = 0;
 
-        ThrowIfFailed(m_device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &depthDesc, D3D12_RESOURCE_STATE_DEPTH_WRITE, &clear, IID_PPV_ARGS(&m_depthStencil)),
-                      "CreateCommittedResource depth");
+        if (FAILED(m_device->CreateCommittedResource(
+                &heapProps, D3D12_HEAP_FLAG_NONE, &depthDesc, D3D12_RESOURCE_STATE_DEPTH_WRITE, &clear,
+                IID_PPV_ARGS(&m_depthStencil))))
+        {
+            DE_LOG_ERROR("Renderer: CreateCommittedResource depth failed");
+            return false;
+        }
 
         D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
         dsvDesc.Format        = DXGI_FORMAT_D32_FLOAT;
         dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
         dsvDesc.Flags         = D3D12_DSV_FLAG_NONE;
         m_device->CreateDepthStencilView(m_depthStencil.Get(), &dsvDesc, m_dsvHeap->GetCPUDescriptorHandleForHeapStart());
+        return true;
+    }
+
+    bool Renderer::resize(uint32_t width, uint32_t height)
+    {
+        if (!m_swapChain || !m_device)
+            return false;
+        if (width == 0 || height == 0)
+            return true;
+        if (width == m_width && height == m_height)
+            return true;
+
+        waitForGpu();
+
+        for (uint32_t i = 0; i < kFrameCount; ++i)
+            m_renderTargets[i].Reset();
+        m_depthStencil.Reset();
+
+        const HRESULT hr = m_swapChain->ResizeBuffers(
+            kFrameCount, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, m_swapChainFlags);
+        if (FAILED(hr))
+        {
+            DE_LOG_ERROR("Renderer: ResizeBuffers failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
+            return false;
+        }
+
+        m_width  = width;
+        m_height = height;
+        m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+
+        if (!createRenderTargets() || !createDepthResources())
+        {
+            DE_LOG_ERROR("Renderer: resize recreate targets failed");
+            return false;
+        }
+
+        updateViewport();
+        DE_LOG_INFO("Renderer: resized to {}x{}", m_width, m_height);
+        return true;
     }
 
     void Renderer::beginFrame()

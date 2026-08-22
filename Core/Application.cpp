@@ -31,6 +31,8 @@ void Application::run()
         // Edges cleared first, then OS messages fill keyboard pressed/released.
         m_input.beginFrame();
         m_window.pollEvents();
+        if (m_window.takeSizeChanged())
+            m_renderer.resize(m_window.width(), m_window.height());
         m_input.updateDevices();
 
         const float now = m_window.getTime();
