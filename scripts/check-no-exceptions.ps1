@@ -19,7 +19,7 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 
 $defaultRoots = @(
-    "AI", "Assets", "Audio", "Collision", "Core", "ECS", "Geometry",
+    "AI", "Assets", "Audio", "Collision", "Core", "ECS", "Editor", "Geometry",
     "Math", "Network", "Render", "Sandbox", "Shaders"
 )
 

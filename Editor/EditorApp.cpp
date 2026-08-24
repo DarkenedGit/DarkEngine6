@@ -2,6 +2,7 @@
 
 #include "Scene/SceneFile.h"
 #include "ECS/Components.h"
+#include "Network/Replication.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Geometry/MeshGen.h"
@@ -116,6 +117,71 @@ Vector3f defaultScale2D(SceneObjectType type)
     case SceneObjectType::Coin:     return Vector3f(0.5f, 0.5f, 1.0f);
     case SceneObjectType::Spawn:    return Vector3f(0.8f, 1.4f, 1.0f);
     default:                        return Vector3f(1.0f, 1.0f, 1.0f);
+    }
+}
+
+uint32_t packRgba8(const float c[4])
+{
+    auto u8 = [](float v) -> uint32_t {
+        if (v < 0.0f)
+            v = 0.0f;
+        if (v > 1.0f)
+            v = 1.0f;
+        return static_cast<uint32_t>(v * 255.0f + 0.5f);
+    };
+    return (u8(c[0]) << 24) | (u8(c[1]) << 16) | (u8(c[2]) << 8) | u8(c[3]);
+}
+
+void unpackRgba8(uint32_t rgba, float out[4])
+{
+    out[0] = static_cast<float>((rgba >> 24) & 0xFFu) / 255.0f;
+    out[1] = static_cast<float>((rgba >> 16) & 0xFFu) / 255.0f;
+    out[2] = static_cast<float>((rgba >> 8) & 0xFFu) / 255.0f;
+    out[3] = static_cast<float>(rgba & 0xFFu) / 255.0f;
+}
+
+bool isReplicatedProp(SceneObjectType type)
+{
+    return type == SceneObjectType::Cube || type == SceneObjectType::Sphere;
+}
+
+NetPrefab prefabFromType(SceneObjectType type)
+{
+    return type == SceneObjectType::Sphere ? NetPrefab::Sphere : NetPrefab::Cube;
+}
+
+SceneObjectType typeFromPrefab(NetPrefab prefab)
+{
+    switch (prefab)
+    {
+    case NetPrefab::Sphere:
+        return SceneObjectType::Sphere;
+    case NetPrefab::Platform:
+        return SceneObjectType::Platform;
+    case NetPrefab::Coin:
+        return SceneObjectType::Coin;
+    case NetPrefab::Player2D:
+        return SceneObjectType::Spawn;
+    case NetPrefab::Cube:
+    case NetPrefab::PlayerPawn:
+    default:
+        return SceneObjectType::Cube;
+    }
+}
+
+const char* netRoleLabel(NetRole role)
+{
+    switch (role)
+    {
+    case NetRole::Joining:
+        return "Joining…";
+    case NetRole::Host:
+        return "Host";
+    case NetRole::Client:
+        return "Client";
+    case NetRole::Idle:
+    default:
+        return "Idle";
     }
 }
 
@@ -636,6 +702,14 @@ void EditorApp::onInit()
     m_sfxSave   = audio().loadOrBlip(assets(), "audio/ui_click.wav", 1400.0f, 0.06f, 0.35f);
     audio().setMasterVolume(0.8f);
 
+    // Callbacks must exist before Application::applyNetConfig runs -host/-join.
+    network().setWantsPawn(false);
+    network().setSceneMode(m_sceneMode == SceneMode::Scene2D ? 1u : 0u);
+    network().setPlayerName("Editor");
+    network().setSpawnCallback(&EditorApp::onNetSpawn, this);
+    network().setDespawnCallback(&EditorApp::onNetDespawn, this);
+    network().setPeerCallback(&EditorApp::onNetPeer, this);
+
     DE_LOG_INFO("EditorApp: ready ({} objects)", m_objects.size());
 }
 
@@ -749,6 +823,9 @@ Entity EditorApp::spawnObject(
     const float color[4],
     const ParticleEmitterDesc* particleDesc)
 {
+    if (netClientLocked())
+        return {};
+
     Entity e = world().createEntity();
     world().emplace<TagComponent>(e, toString(type));
 
@@ -787,6 +864,8 @@ Entity EditorApp::spawnObject(
 
     m_objects.push_back(so);
     m_selected = e;
+    if (isReplicatedProp(type))
+        network().registerEntity(world(), e, prefabFromType(type), ClientId::Host, packRgba8(so.color));
     DE_LOG_INFO("Editor: spawn {} #{} (emitters={})", toString(type), e.id(), m_emitters.size());
     return e;
 }
@@ -843,9 +922,16 @@ Entity EditorApp::placeAtCursor(SceneObjectType type)
 
 void EditorApp::deleteSelected()
 {
-    if (!m_selected.valid())
+    if (netClientLocked() || !m_selected.valid())
         return;
     audio().play2D(m_sfxDelete, 0.55f);
+    if (world().has<NetworkedComponent>(m_selected))
+    {
+        // unregisterEntity destroys and runs the despawn callback (erases m_objects).
+        network().unregisterEntity(world(), m_selected);
+        DE_LOG_INFO("Editor: deleted ({} remaining)", m_objects.size());
+        return;
+    }
     if (SceneObject* so = findObject(m_selected))
     {
         if (so->type == SceneObjectType::ParticleEmitter && so->emitterIndex >= 0)
@@ -914,12 +1000,187 @@ void EditorApp::cycleSelectedColor()
 
 void EditorApp::clearScene()
 {
-    for (SceneObject& o : m_objects)
-        world().destroyEntity(o.entity);
+    std::vector<Entity> ents;
+    ents.reserve(m_objects.size());
+    for (const SceneObject& o : m_objects)
+        ents.push_back(o.entity);
+    for (Entity e : ents)
+    {
+        if (world().has<NetworkedComponent>(e))
+            network().unregisterEntity(world(), e);
+        else if (world().alive(e))
+            world().destroyEntity(e);
+    }
     m_objects.clear();
     m_emitters.clear();
     m_selected = {};
     m_dragging = false;
+}
+
+bool EditorApp::netClientLocked()
+{
+    return network().role() == NetRole::Client;
+}
+
+bool EditorApp::canHostSession()
+{
+    return network().role() == NetRole::Idle && m_sceneMode == SceneMode::Scene3D;
+}
+
+bool EditorApp::canJoinSession()
+{
+    return network().role() == NetRole::Idle && m_sceneMode == SceneMode::Scene3D && m_objects.empty();
+}
+
+void EditorApp::registerReplicatedProps()
+{
+    uint32_t n = 0;
+    for (const SceneObject& so : m_objects)
+    {
+        if (!isReplicatedProp(so.type))
+            continue;
+        if (network().registerEntity(world(), so.entity, prefabFromType(so.type), ClientId::Host, packRgba8(so.color)))
+            ++n;
+    }
+    DE_LOG_INFO(LogCategory::Networking, "Editor: registered {}/{} props for host", n, kNetMaxReplicated);
+}
+
+void EditorApp::hostNetworkSession()
+{
+    if (!canHostSession())
+    {
+        DE_LOG_WARN(LogCategory::Networking, "Editor: host requires Idle 3D (2D host waits for a later update)");
+        return;
+    }
+    network().setWantsPawn(false);
+    network().setSceneMode(0);
+    network().setPlayerName("Editor");
+    registerReplicatedProps();
+    if (!network().host(kNetDefaultPort))
+        DE_LOG_ERROR(LogCategory::Networking, "Editor: host session failed");
+}
+
+void EditorApp::joinNetworkSession()
+{
+    if (!canJoinSession())
+    {
+        DE_LOG_WARN(LogCategory::Networking, "Editor: join requires an empty 3D scene");
+        return;
+    }
+    Address addr{};
+    addr.port = kNetDefaultPort;
+    if (!parseIPv4(m_joinAddress, addr))
+    {
+        DE_LOG_ERROR(LogCategory::Networking, "Editor: invalid join IP '{}'", m_joinAddress);
+        return;
+    }
+    if (addr.port == 0)
+        addr.port = kNetDefaultPort;
+    network().setWantsPawn(false);
+    network().setSceneMode(0);
+    if (!network().join(addr))
+        DE_LOG_ERROR(LogCategory::Networking, "Editor: join failed");
+}
+
+void EditorApp::drawNetworkMenu()
+{
+    if (!ImGui::BeginMenu("Network"))
+        return;
+
+    const NetRole  role     = network().role();
+    const bool     hostOk   = canHostSession();
+    const bool     joinOk   = canJoinSession();
+    const uint32_t peerN    = network().peerCount();
+    uint32_t       propN    = 0;
+    for (const SceneObject& so : m_objects)
+    {
+        if (isReplicatedProp(so.type))
+            ++propN;
+    }
+
+    if (ImGui::MenuItem("Host Session", "26160", false, hostOk))
+        hostNetworkSession();
+    if (!hostOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        if (m_sceneMode != SceneMode::Scene3D)
+            ImGui::SetTooltip("2D host waits for a later update");
+        else
+            ImGui::SetTooltip("Disconnect first");
+    }
+
+    ImGui::SetNextItemWidth(180.0f);
+    ImGui::InputText("Join IP", m_joinAddress, sizeof(m_joinAddress));
+    if (ImGui::MenuItem("Join", nullptr, false, joinOk))
+        joinNetworkSession();
+    if (!joinOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Join requires an empty 3D scene");
+
+    if (ImGui::MenuItem("Disconnect", nullptr, false, role != NetRole::Idle))
+        network().disconnect();
+
+    ImGui::Separator();
+    if (role == NetRole::Host)
+        ImGui::Text("Role: Host (%u peers)", peerN);
+    else
+        ImGui::Text("Role: %s", netRoleLabel(role));
+    ImGui::Text("Peers: %u", peerN);
+    ImGui::Text("Packets in/out: %llu / %llu",
+                static_cast<unsigned long long>(network().packetsIn()),
+                static_cast<unsigned long long>(network().packetsOut()));
+    ImGui::Text("RTT: %.1f ms", network().rttMs(ClientId::Host));
+    ImGui::Text("Replicated: %u/%u", propN, kNetMaxReplicated);
+    ImGui::TextUnformatted("LAN only — no authentication");
+    ImGui::TextDisabled("Scale gizmo is local-only (not replicated)");
+    ImGui::EndMenu();
+}
+
+bool EditorApp::onNetSpawn(World& world, Entity e, NetPrefab prefab, const TransformComponent& xf, uint32_t colorRgba8, void* user)
+{
+    (void)xf;
+    auto* self = static_cast<EditorApp*>(user);
+    if (!self || !e.valid())
+        return false;
+    if (self->findObject(e))
+        return true;
+
+    if (!world.has<MeshComponent>(e))
+    {
+        auto& mc       = world.emplace<MeshComponent>(e);
+        mc.matAssetID  = self->m_propMaterial ? self->m_propMaterial->id : NULL_ASSET;
+        mc.meshAssetID = NULL_ASSET;
+    }
+
+    SceneObject so{};
+    so.entity       = e;
+    so.type         = typeFromPrefab(prefab);
+    so.emitterIndex = -1;
+    unpackRgba8(colorRgba8, so.color);
+    self->m_objects.push_back(so);
+    return true;
+}
+
+void EditorApp::onNetDespawn(World& world, Entity e, NetId id, void* user)
+{
+    (void)world;
+    (void)id;
+    auto* self = static_cast<EditorApp*>(user);
+    if (!self)
+        return;
+    if (self->m_selected.valid() && self->m_selected.id() == e.id())
+    {
+        self->m_selected = {};
+        self->m_dragging = false;
+    }
+    std::erase_if(self->m_objects, [&](const SceneObject& o) { return o.entity.id() == e.id(); });
+}
+
+void EditorApp::onNetPeer(const NetPeerInfo& info, NetPeerEvent event, void* user)
+{
+    (void)user;
+    DE_LOG_INFO(LogCategory::Networking, "Editor: peer {} {} (wantsPawn={})",
+                static_cast<unsigned>(info.id),
+                event == NetPeerEvent::Joined ? "joined" : "left",
+                info.wantsPawn ? 1 : 0);
 }
 
 bool EditorApp::saveScene()
@@ -1064,9 +1325,9 @@ void EditorApp::handleEditorCommands(float dt)
             cyclePlaceType(+1);
         if (input().actionPressed("cycle_color"))
             cycleSelectedColor();
-        if (input().actionPressed("delete"))
+        if (input().actionPressed("delete") && !netClientLocked())
             deleteSelected();
-        if (input().actionPressed("place"))
+        if (input().actionPressed("place") && !netClientLocked())
             placeAtCursor(m_placeType);
     }
 
@@ -1104,7 +1365,8 @@ void EditorApp::handleEditorCommands(float dt)
     if (input().mouseReleased(MouseButton::Left))
         m_dragging = false;
 
-    if (!uiMouse && m_dragging && m_selected.valid() && input().mouseDown(MouseButton::Left))
+    if (!uiMouse && m_dragging && m_selected.valid() && input().mouseDown(MouseButton::Left)
+        && !netClientLocked())
     {
         if (m_sceneMode == SceneMode::Scene2D)
         {
@@ -1197,19 +1459,20 @@ void EditorApp::drawEditorUi()
         }
         if (ImGui::BeginMenu("Create"))
         {
+            const bool createOk = !netClientLocked();
             if (m_sceneMode == SceneMode::Scene2D)
             {
-                if (ImGui::MenuItem("Platform", "1+P"))
+                if (ImGui::MenuItem("Platform", "1+P", false, createOk))
                 {
                     m_placeType = SceneObjectType::Platform;
                     placeAtCursor(m_placeType);
                 }
-                if (ImGui::MenuItem("Coin", "2+P"))
+                if (ImGui::MenuItem("Coin", "2+P", false, createOk))
                 {
                     m_placeType = SceneObjectType::Coin;
                     placeAtCursor(m_placeType);
                 }
-                if (ImGui::MenuItem("Player Spawn", "3+P"))
+                if (ImGui::MenuItem("Player Spawn", "3+P", false, createOk))
                 {
                     m_placeType = SceneObjectType::Spawn;
                     placeAtCursor(m_placeType);
@@ -1217,24 +1480,27 @@ void EditorApp::drawEditorUi()
             }
             else
             {
-                if (ImGui::MenuItem("Cube", "1+P"))
+                if (ImGui::MenuItem("Cube", "1+P", false, createOk))
                 {
                     m_placeType = SceneObjectType::Cube;
                     placeAtCursor(m_placeType);
                 }
-                if (ImGui::MenuItem("Sphere", "2+P"))
+                if (ImGui::MenuItem("Sphere", "2+P", false, createOk))
                 {
                     m_placeType = SceneObjectType::Sphere;
                     placeAtCursor(m_placeType);
                 }
-                if (ImGui::MenuItem("Particle Emitter", "3+P"))
+                if (ImGui::MenuItem("Particle Emitter", "3+P", false, createOk))
                 {
                     m_placeType = SceneObjectType::ParticleEmitter;
                     placeAtCursor(m_placeType);
                 }
             }
+            if (!createOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Spectators cannot place or delete objects");
             ImGui::EndMenu();
         }
+        drawNetworkMenu();
         ImGui::Text("  |  %s  objects:%d  place:%s", toString(m_sceneMode), (int)m_objects.size(), toString(m_placeType));
         ImGui::EndMainMenuBar();
     }
@@ -1261,7 +1527,7 @@ void EditorApp::drawEditorUi()
                 ImGui::TextWrapped(
                     "Select a particle emitter in the scene (place with Create menu or key 3 then P), "
                     "or create one below.");
-                if (ImGui::Button("Create Emitter at Cursor"))
+                if (ImGui::Button("Create Emitter at Cursor") && !netClientLocked())
                 {
                     m_placeType = SceneObjectType::ParticleEmitter;
                     placeAtCursor(m_placeType);
@@ -1317,18 +1583,18 @@ void EditorApp::drawEditorUi()
                 ImGui::Text("Selected: %s", toString(so->type));
                 float pos[2] = { xf->position.x, xf->position.y };
                 float size[2] = { xf->scale.x, xf->scale.y };
-                if (ImGui::DragFloat2("Position", pos, 0.05f))
+                if (ImGui::DragFloat2("Position", pos, 0.05f) && !netClientLocked())
                 {
                     xf->position.x = pos[0];
                     xf->position.y = pos[1];
                 }
-                if (ImGui::DragFloat2("Size", size, 0.05f, 0.05f, 200.0f))
+                if (ImGui::DragFloat2("Size", size, 0.05f, 0.05f, 200.0f) && !netClientLocked())
                 {
                     xf->scale.x = Max(0.05f, size[0]);
                     xf->scale.y = Max(0.05f, size[1]);
                 }
                 ImGui::ColorEdit3("Tint", so->color);
-                if (ImGui::Button("Delete"))
+                if (ImGui::Button("Delete") && !netClientLocked())
                     deleteSelected();
             }
         }
@@ -1617,6 +1883,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 
 void EditorApp::onShutdown()
 {
+    network().shutdown();
     m_imgui.shutdown(renderer());
     m_particleRenderer.destroy(renderer());
     renderer().waitForGpu();

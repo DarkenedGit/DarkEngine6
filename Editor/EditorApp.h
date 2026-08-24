@@ -80,6 +80,18 @@ private:
     void         cyclePlaceType(int delta);
     void         cycleSelectedColor();
 
+    bool netClientLocked();
+    bool canHostSession();
+    bool canJoinSession();
+    void registerReplicatedProps();
+    void hostNetworkSession();
+    void joinNetworkSession();
+    void drawNetworkMenu();
+
+    static bool onNetSpawn(Dark::World& world, Dark::Entity e, Dark::NetPrefab prefab, const Dark::TransformComponent& xf, uint32_t colorRgba8, void* user);
+    static void onNetDespawn(Dark::World& world, Dark::Entity e, Dark::NetId id, void* user);
+    static void onNetPeer(const Dark::NetPeerInfo& info, Dark::NetPeerEvent event, void* user);
+
     void clearScene();
     bool saveScene();
     bool loadScene();
@@ -156,4 +168,6 @@ private:
     bool m_dragging = false;
     int  m_lmbDownX = 0;
     int  m_lmbDownY = 0;
+
+    char m_joinAddress[64]{"127.0.0.1"};
 };
