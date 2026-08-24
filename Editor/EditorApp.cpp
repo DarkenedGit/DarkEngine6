@@ -262,6 +262,12 @@ void sceneDataFromDesc(const ParticleEmitterDesc& src, SceneObjectData& d)
 
 } // namespace
 
+EditorApp::EditorApp(const AppConfig& cfg)
+    : Application(cfg)
+    , m_cliJoin(cfg.netJoin.ipv4 != 0 || cfg.netJoin.port != 0)
+{
+}
+
 float EditorApp::snap(float v, float grid)
 {
     if (grid <= 0.0f)
@@ -363,6 +369,8 @@ void EditorApp::applySceneMode(SceneMode mode)
 
 void EditorApp::newScene3D()
 {
+    if (netSceneLocked())
+        return;
     applySceneMode(SceneMode::Scene3D);
     m_scenePath = defaultScenePath("level.json");
     m_sceneName = "level";
@@ -372,6 +380,8 @@ void EditorApp::newScene3D()
 
 void EditorApp::newScene2D()
 {
+    if (netSceneLocked())
+        return;
     applySceneMode(SceneMode::Scene2D);
     m_scenePath = defaultScenePath("level2d.json");
     m_sceneName = "level2d";
@@ -692,7 +702,12 @@ void EditorApp::onInit()
     m_camera2D.SetOrthoHeight(16.0f);
     m_camera2D.SetClipPlanes(0.0f, 80.0f);
 
-    if (std::filesystem::exists(m_scenePath))
+    if (m_cliJoin)
+    {
+        applySceneMode(SceneMode::Scene3D);
+        DE_LOG_INFO(LogCategory::Networking, "Editor: CLI join — starting with empty 3D scene");
+    }
+    else if (std::filesystem::exists(m_scenePath))
         loadScene();
     else
         DE_LOG_INFO("EditorApp: no default scene at {}", m_scenePath.string());
@@ -1000,6 +1015,8 @@ void EditorApp::cycleSelectedColor()
 
 void EditorApp::clearScene()
 {
+    if (netSceneLocked())
+        return;
     std::vector<Entity> ents;
     ents.reserve(m_objects.size());
     for (const SceneObject& o : m_objects)
@@ -1019,7 +1036,13 @@ void EditorApp::clearScene()
 
 bool EditorApp::netClientLocked()
 {
-    return network().role() == NetRole::Client;
+    const NetRole role = network().role();
+    return role == NetRole::Joining || role == NetRole::Client;
+}
+
+bool EditorApp::netSceneLocked()
+{
+    return network().role() != NetRole::Idle;
 }
 
 bool EditorApp::canHostSession()
@@ -1058,6 +1081,25 @@ void EditorApp::hostNetworkSession()
     registerReplicatedProps();
     if (!network().host(kNetDefaultPort))
         DE_LOG_ERROR(LogCategory::Networking, "Editor: host session failed");
+}
+
+void EditorApp::discardLocalSceneForJoin()
+{
+    std::vector<Entity> ents;
+    ents.reserve(m_objects.size());
+    for (const SceneObject& o : m_objects)
+        ents.push_back(o.entity);
+    for (Entity e : ents)
+    {
+        if (world().has<NetworkedComponent>(e))
+            network().unregisterEntity(world(), e);
+        else if (world().alive(e))
+            world().destroyEntity(e);
+    }
+    m_objects.clear();
+    m_emitters.clear();
+    m_selected = {};
+    m_dragging = false;
 }
 
 void EditorApp::joinNetworkSession()
@@ -1225,6 +1267,8 @@ bool EditorApp::saveScene()
 
 bool EditorApp::loadScene()
 {
+    if (netSceneLocked())
+        return false;
     SceneFileData data{};
     std::string err;
     if (!loadSceneFromJson(m_scenePath, data, &err))
@@ -1277,7 +1321,7 @@ void EditorApp::handleEditorCommands(float dt)
     {
         if (input().keyPressed(Key::F5) || (ctrl && input().keyPressed(Key::S)))
             saveScene();
-        if (input().keyPressed(Key::F9) || (ctrl && input().keyPressed(Key::O)))
+        if ((input().keyPressed(Key::F9) || (ctrl && input().keyPressed(Key::O))) && !netSceneLocked())
             loadScene();
         if (input().actionPressed("toggle_particle_ui"))
             m_showParticlePanel = !m_showParticlePanel;
@@ -1423,25 +1467,28 @@ void EditorApp::drawEditorUi()
     {
         if (ImGui::BeginMenu("File"))
         {
-            if (ImGui::MenuItem("New 3D Scene"))
+            const bool sceneOk = !netSceneLocked();
+            if (ImGui::MenuItem("New 3D Scene", nullptr, false, sceneOk))
                 newScene3D();
-            if (ImGui::MenuItem("New 2D Scene"))
+            if (ImGui::MenuItem("New 2D Scene", nullptr, false, sceneOk))
                 newScene2D();
             ImGui::Separator();
             if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
                 saveScene();
-            if (ImGui::MenuItem("Load Scene", "Ctrl+O"))
+            if (ImGui::MenuItem("Load Scene", "Ctrl+O", false, sceneOk))
                 loadScene();
-            if (ImGui::MenuItem("Open 3D Level"))
+            if (ImGui::MenuItem("Open 3D Level", nullptr, false, sceneOk))
             {
                 m_scenePath = defaultScenePath("level.json");
                 loadScene();
             }
-            if (ImGui::MenuItem("Open 2D Level"))
+            if (ImGui::MenuItem("Open 2D Level", nullptr, false, sceneOk))
             {
                 m_scenePath = defaultScenePath("level2d.json");
                 loadScene();
             }
+            if (!sceneOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Disconnect before changing the scene");
             ImGui::Separator();
             if (ImGui::MenuItem("Quit", "Esc"))
                 requestQuit();
@@ -1608,6 +1655,11 @@ void EditorApp::drawEditorUi()
 
 void EditorApp::onUpdate(float dt)
 {
+    const NetRole role = network().role();
+    if (role == NetRole::Joining && m_lastNetRole != NetRole::Joining)
+        discardLocalSceneForJoin();
+    m_lastNetRole = role;
+
     updateCamera(dt);
     handleEditorCommands(dt);
 

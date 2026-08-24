@@ -27,7 +27,7 @@
 class EditorApp : public Dark::Application
 {
 public:
-    using Application::Application;
+    explicit EditorApp(const Dark::AppConfig& cfg);
 
     void onInit() override;
     void onUpdate(float dt) override;
@@ -81,11 +81,13 @@ private:
     void         cycleSelectedColor();
 
     bool netClientLocked();
+    bool netSceneLocked();
     bool canHostSession();
     bool canJoinSession();
     void registerReplicatedProps();
     void hostNetworkSession();
     void joinNetworkSession();
+    void discardLocalSceneForJoin();
     void drawNetworkMenu();
 
     static bool onNetSpawn(Dark::World& world, Dark::Entity e, Dark::NetPrefab prefab, const Dark::TransformComponent& xf, uint32_t colorRgba8, void* user);
@@ -170,4 +172,7 @@ private:
     int  m_lmbDownY = 0;
 
     char m_joinAddress[64]{"127.0.0.1"};
+
+    bool          m_cliJoin     = false;
+    Dark::NetRole m_lastNetRole = Dark::NetRole::Idle;
 };
