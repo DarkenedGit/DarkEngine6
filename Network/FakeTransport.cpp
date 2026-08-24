@@ -140,13 +140,12 @@ namespace Dark
         src = d.src;
 
         const uint32_t bytes = static_cast<uint32_t>(d.bytes.size());
-        if (bytes > kNetMaxPayload || bytes > capacity || (bytes > 0 && !buffer))
+        if (bytes == 0 || bytes > kNetMaxPayload || bytes > capacity || !buffer)
         {
             outSize = 0;
             return true;
         }
-        if (bytes > 0)
-            std::memcpy(buffer, d.bytes.data(), bytes);
+        std::memcpy(buffer, d.bytes.data(), bytes);
         outSize = bytes;
         return true;
     }

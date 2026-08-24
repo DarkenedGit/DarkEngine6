@@ -8,6 +8,10 @@
 #include <WinSock2.h>
 #include <WS2tcpip.h>
 
+#ifndef SIO_UDP_CONNRESET
+#define SIO_UDP_CONNRESET _WSAIOW(IOC_VENDOR, 12)
+#endif
+
 #include <cstring>
 
 namespace Dark
@@ -20,6 +24,11 @@ namespace Dark
         SOCKET asSocket(uintptr_t h)
         {
             return static_cast<SOCKET>(h);
+        }
+
+        bool isIcmpReset(int err)
+        {
+            return err == WSAECONNRESET || err == WSAENETRESET || err == WSAECONNREFUSED;
         }
     }
 
@@ -43,6 +52,12 @@ namespace Dark
             return false;
         }
         m_socket = static_cast<uintptr_t>(s);
+
+        // Unconnected UDP: ICMP Port Unreachable must not fail later recvfrom (WSAECONNRESET).
+        BOOL  disableConnReset = FALSE;
+        DWORD ioctlBytes       = 0;
+        if (::WSAIoctl(s, SIO_UDP_CONNRESET, &disableConnReset, sizeof(disableConnReset), nullptr, 0, &ioctlBytes, nullptr, nullptr) != 0)
+            DE_LOG_WARN(LogCategory::Networking, "UdpSocket: SIO_UDP_CONNRESET failed ({})", WSAGetLastError());
 
         u_long nonblock = 1;
         if (::ioctlsocket(s, FIONBIO, &nonblock) != 0)
@@ -102,7 +117,7 @@ namespace Dark
         if (sent == SOCKET_ERROR)
         {
             const int err = WSAGetLastError();
-            if (err == WSAEWOULDBLOCK)
+            if (err == WSAEWOULDBLOCK || isIcmpReset(err))
                 return false;
             DE_LOG_ERROR(LogCategory::Networking, "UdpSocket: sendto failed ({})", err);
             return false;
@@ -117,42 +132,48 @@ namespace Dark
             return false;
 
         uint8_t scratch[2048];
-        sockaddr_in from{};
-        int         fromLen = sizeof(from);
-        const int n = ::recvfrom(asSocket(m_socket), reinterpret_cast<char*>(scratch), static_cast<int>(sizeof(scratch)), 0,
-                                 reinterpret_cast<sockaddr*>(&from), &fromLen);
-        if (n == SOCKET_ERROR)
+        for (;;)
         {
-            const int err = WSAGetLastError();
-            if (err == WSAEWOULDBLOCK)
-                return false;
-            if (err == WSAEMSGSIZE)
+            sockaddr_in from{};
+            int         fromLen = sizeof(from);
+            const int n = ::recvfrom(asSocket(m_socket), reinterpret_cast<char*>(scratch), static_cast<int>(sizeof(scratch)), 0,
+                                     reinterpret_cast<sockaddr*>(&from), &fromLen);
+            if (n == SOCKET_ERROR)
             {
-                DE_LOG_WARN(LogCategory::Networking, "UdpSocket: dropped oversize datagram");
-                src.ipv4 = ntohl(from.sin_addr.s_addr);
-                src.port = ntohs(from.sin_port);
-                outSize  = 0;
+                const int err = WSAGetLastError();
+                if (err == WSAEWOULDBLOCK)
+                    return false;
+                if (isIcmpReset(err))
+                    continue;
+                if (err == WSAEMSGSIZE)
+                {
+                    DE_LOG_WARN(LogCategory::Networking, "UdpSocket: dropped oversize datagram");
+                    src.ipv4 = ntohl(from.sin_addr.s_addr);
+                    src.port = ntohs(from.sin_port);
+                    outSize  = 0;
+                    return true;
+                }
+                DE_LOG_ERROR(LogCategory::Networking, "UdpSocket: recvfrom failed ({})", err);
+                return false;
+            }
+
+            src.ipv4 = ntohl(from.sin_addr.s_addr);
+            src.port = ntohs(from.sin_port);
+
+            // n == 0 (empty datagram) is dequeued but not delivered, same as oversize.
+            const uint32_t bytes = static_cast<uint32_t>(n);
+            if (bytes == 0 || bytes > kNetMaxPayload || bytes > capacity || !buffer)
+            {
+                if (bytes != 0)
+                    DE_LOG_WARN(LogCategory::Networking, "UdpSocket: dropped oversize datagram ({} bytes)", bytes);
+                outSize = 0;
                 return true;
             }
-            DE_LOG_ERROR(LogCategory::Networking, "UdpSocket: recvfrom failed ({})", err);
-            return false;
-        }
 
-        src.ipv4 = ntohl(from.sin_addr.s_addr);
-        src.port = ntohs(from.sin_port);
-
-        const uint32_t bytes = static_cast<uint32_t>(n);
-        if (bytes > kNetMaxPayload || bytes > capacity || (bytes > 0 && !buffer))
-        {
-            DE_LOG_WARN(LogCategory::Networking, "UdpSocket: dropped oversize datagram ({} bytes)", bytes);
-            outSize = 0;
+            std::memcpy(buffer, scratch, bytes);
+            outSize = bytes;
             return true;
         }
-
-        if (bytes > 0)
-            std::memcpy(buffer, scratch, bytes);
-        outSize = bytes;
-        return true;
     }
 
     void UdpSocket::close()

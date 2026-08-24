@@ -16,7 +16,8 @@ namespace Dark
 
         virtual bool sendTo(const Address& dest, const void* data, uint32_t size) = 0;
 
-        // true: a datagram was dequeued (outSize 1..capacity, or 0 if dropped oversize).
+        // true: a datagram was dequeued. outSize is 1..capacity on success, or 0 if
+        // dequeued but not delivered (oversize, empty, or capacity too small).
         // false: would-block or socket error (already logged).
         virtual bool recvFrom(Address& src, void* buffer, uint32_t capacity, uint32_t& outSize) = 0;
 
