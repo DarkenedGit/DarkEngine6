@@ -468,6 +468,20 @@ void Sandbox2DApp::applyPlayerControl(float dt)
     m_player.jumpBuffer = Max(0.0f, m_player.jumpBuffer - dt);
     m_player.coyote     = Max(0.0f, m_player.coyote - dt);
 
+    // Client PawnState is rejected above kNetPawnMaxSpeed; hypot(run, fall -22) exceeds it.
+    // 0.9 leaves slack for 20 Hz wall-clock jitter on the host (early packet → dist/dt > 20).
+    if (network().role() == NetRole::Client)
+    {
+        constexpr float kSendSpeed = kNetPawnMaxSpeed * 0.9f;
+        const float     spd        = std::sqrt(vel.x * vel.x + vel.y * vel.y);
+        if (spd > kSendSpeed && spd > 0.0f)
+        {
+            const float s = kSendSpeed / spd;
+            vel.x *= s;
+            vel.y *= s;
+        }
+    }
+
     b2Body_SetLinearVelocity(m_playerBody, vel);
 }
 
@@ -490,7 +504,9 @@ void Sandbox2DApp::resetPlayer()
         b2Body_SetAngularVelocity(m_playerBody, 0.0f);
         b2Body_SetAwake(m_playerBody, true);
     }
-    syncLocalPawnTransform();
+    // Client Transform is speed-clamped in updatePlayer so R/fall teleports are not rejected.
+    if (network().role() != NetRole::Client)
+        syncLocalPawnTransform(0.0f);
 }
 
 void Sandbox2DApp::registerLevelEntities()
@@ -632,7 +648,7 @@ void Sandbox2DApp::spawnOwnedPawn(ClientId owner, float offsetX)
     m_remotePawns.push_back(rp);
 }
 
-void Sandbox2DApp::syncLocalPawnTransform()
+void Sandbox2DApp::syncLocalPawnTransform(float dt)
 {
     Entity pawn = m_playerEntity.valid() ? m_playerEntity : network().localPawn();
     if (!pawn.valid())
@@ -640,7 +656,20 @@ void Sandbox2DApp::syncLocalPawnTransform()
     TransformComponent* xf = world().get<TransformComponent>(pawn);
     if (!xf)
         return;
-    xf->position = Vector3f(m_player.pos.x, m_player.pos.y, 0.0f);
+
+    const Vector3f target(m_player.pos.x, m_player.pos.y, 0.0f);
+    if (network().role() == NetRole::Client && dt > 0.0f)
+    {
+        const Vector3f delta   = target - xf->position;
+        const float    dist    = delta.Magnitude();
+        const float    maxStep = kNetPawnMaxSpeed * 0.9f * dt;
+        if (dist > maxStep && maxStep > 0.0f)
+            xf->position += delta * (maxStep / dist);
+        else
+            xf->position = target;
+    }
+    else
+        xf->position = target;
     xf->rotation = rotationFromFacing(m_player.facing);
 }
 
@@ -984,7 +1013,7 @@ void Sandbox2DApp::updatePlayer(float dt)
 
     syncPlayerFromBody();
     m_player.grounded = playerGrounded();
-    syncLocalPawnTransform();
+    syncLocalPawnTransform(dt);
     collectCoinsHostAuthority();
 
     if (m_player.pos.y < -6.0f)

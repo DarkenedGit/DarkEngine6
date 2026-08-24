@@ -88,7 +88,7 @@ private:
     void restoreLocalLevel();
     void spawnOwnedPawn(Dark::ClientId owner, float offsetX);
     Dark::Entity findPawn(Dark::ClientId owner);
-    void syncLocalPawnTransform();
+    void syncLocalPawnTransform(float dt);
     void collectCoinsHostAuthority();
     bool ensureClientPhysics();
 
