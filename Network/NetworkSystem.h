@@ -1,11 +1,14 @@
 #pragma once
 
+#include "ECS/Entity.h"
 #include "Network/NetTypes.h"
 #include "Network/Reliability.h"
+#include "Network/Replication.h"
 #include "Network/Transport.h"
 
 #include <cstdint>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 namespace Dark
@@ -27,6 +30,8 @@ namespace Dark
         // nullptr → host()/join() create an owned UdpSocket.
         void setTransport(ITransport* transport);
 
+        void setSpawnCallback(NetSpawnFn fn, void* user);
+        void setDespawnCallback(NetDespawnFn fn, void* user);
         void setPeerCallback(NetPeerFn fn, void* user);
         void setSceneMode(uint8_t mode);
         void setWantsPawn(bool wants);
@@ -46,6 +51,20 @@ namespace Dark
         bool     isConnected(ClientId id) const;
         bool     isValid() const;
 
+        // Idle or Host. Client/Joining → false.
+        // If already has NetworkedComponent → true (no second emplace).
+        // If tagged count == 32 → false.
+        // Idle: emplace with netId=0. host() assigns ids.
+        // Host: assign NetId, queue Spawn if peers exist.
+        bool registerEntity(World& world, Entity e, NetPrefab prefab, ClientId owner = ClientId::Host, uint32_t colorRgba8 = 0xFFFFFFFFu);
+        // Unmap, Host-queue Despawn if netId!=0, NetDespawnFn, destroyEntity.
+        // No-op if !has<NetworkedComponent>. Apps do not also destroyEntity.
+        void unregisterEntity(World& world, Entity e);
+
+        Entity entityFor(NetId id) const; // Entity{} if unknown
+        NetId  netIdFor(Entity e) const;  // NULL_NET_ID if unknown
+        Entity localPawn() const;         // owner==local && (PlayerPawn || Player2D); else {}
+
         void poll(World& world, float dt);
         void flush(World& world, float dt);
 
@@ -60,6 +79,8 @@ namespace Dark
         uint64_t reliableResends() const;
 
     private:
+        static constexpr uint32_t kInterpSlots = 8;
+
         struct Peer
         {
             ClientId           id               = ClientId::Invalid;
@@ -80,6 +101,35 @@ namespace Dark
             float    windowStart = 0.f;
         };
 
+        struct InterpPose
+        {
+            uint32_t tick = 0;
+            float    px   = 0.f;
+            float    py   = 0.f;
+            float    pz   = 0.f;
+            float    qw   = 1.f;
+            float    qx   = 0.f;
+            float    qy   = 0.f;
+            float    qz   = 0.f;
+        };
+
+        struct InterpTrack
+        {
+            InterpPose slots[kInterpSlots]{};
+            uint8_t    count      = 0;
+            uint32_t   latestTick = 0;
+            bool       hasLatest  = false;
+        };
+
+        struct PawnAccepted
+        {
+            float px      = 0.f;
+            float py      = 0.f;
+            float pz      = 0.f;
+            float timeSec = 0.f;
+            bool  has     = false;
+        };
+
         ITransport* transport() const;
         bool        ensureSocket(uint16_t port);
         void        closeOwned();
@@ -88,6 +138,7 @@ namespace Dark
         void        logAddress(const char* prefix, const Address& addr) const;
         bool        allowPacket(const Address& src);
         void        warnDrop(const char* why);
+        void        warnNan(const char* why);
 
         Peer*       findPeerByAddr(const Address& addr);
         const Peer* findPeerByAddr(const Address& addr) const;
@@ -104,13 +155,38 @@ namespace Dark
         bool sendReject(const Address& dest, ConnectRejectReason reason);
         bool sendDisconnectBurst(Peer& peer, uint8_t reason);
         bool sendHeartbeat(Peer& peer, uint32_t tick);
+        bool sendSnapshot(Peer& peer, World& world);
+        bool sendPawnState(Peer& peer, World& world);
 
-        void handleDatagram(const Address& src, const uint8_t* data, uint32_t size);
-        void handleConnectRequest(const Address& src, const uint8_t* payload, uint32_t size);
-        void handleJoinPacket(Peer& peer, const uint8_t* data, uint32_t size);
-        void handleConnectedPacket(Peer& peer, const uint8_t* data, uint32_t size);
+        void bindWorld(World& world);
+        void assignIdleNetIds(World& world);
+        void clearReplicaMaps();
+        void destroyRemoteReplicas();
+        void parkHostReplicas();
+        bool queueSpawn(Peer& peer, World& world, Entity e, const NetworkedComponent& nc);
+        void queueSpawnAllPeers(World& world, Entity e, const NetworkedComponent& nc);
+        void queueDespawnAllPeers(NetId id);
+        void queueJoinSpawns(Peer& peer, World& world);
+
+        void handleDatagram(World& world, const Address& src, const uint8_t* data, uint32_t size);
+        void handleConnectRequest(World& world, const Address& src, const uint8_t* payload, uint32_t size);
+        void handleJoinPacket(World& world, Peer& peer, const uint8_t* data, uint32_t size);
+        void handleConnectedPacket(World& world, Peer& peer, const uint8_t* data, uint32_t size);
         void onConnectAccept(Peer& peer, const uint8_t* payload, uint32_t size);
         void onConnectReject(const uint8_t* payload, uint32_t size);
+        void applyDelivered(World& world, Peer& peer);
+        void applyReliable(World& world, Peer& peer, uint8_t op, const std::vector<uint8_t>& payload);
+        void applyUnreliable(World& world, Peer& peer, uint8_t op, const uint8_t* payload, uint32_t size);
+        void applySpawn(World& world, const uint8_t* payload, uint32_t size);
+        void applyDespawn(World& world, const uint8_t* payload, uint32_t size);
+        void applySnapshot(World& world, const uint8_t* payload, uint32_t size);
+        void applyPawnState(World& world, Peer& peer, const uint8_t* payload, uint32_t size);
+        void writeInterp(World& world);
+        void pushInterpSlot(NetId id, uint32_t tick, float px, float py, float pz, float qw, float qx, float qy, float qz);
+        bool sampleInterp(const InterpTrack& tr, uint32_t latestRecv, InterpPose& out) const;
+        void rememberPawnPose(NetId id, float px, float py, float pz);
+        void teardownEntity(World& world, Entity e, NetId id, bool queueDespawn);
+
         void dropPeer(Peer& peer, bool notifyLeft, bool sendDisconnect, uint8_t disconnectReason);
         void failJoin(const char* why);
         void checkPeerTimeouts();
@@ -120,13 +196,18 @@ namespace Dark
         NetRole     m_role     = NetRole::Idle;
         ClientId    m_localId  = ClientId::Invalid;
         ITransport* m_injected = nullptr;
+        World*      m_world    = nullptr;
 
-        std::unique_ptr<UdpSocket>        m_owned;
+        std::unique_ptr<UdpSocket>         m_owned;
         std::vector<std::unique_ptr<Peer>> m_peers;
         std::vector<RateSlot>              m_rates;
 
-        NetPeerFn m_peerFn   = nullptr;
-        void*     m_peerUser = nullptr;
+        NetSpawnFn   m_spawnFn    = nullptr;
+        void*        m_spawnUser  = nullptr;
+        NetDespawnFn m_despawnFn  = nullptr;
+        void*        m_despawnUser = nullptr;
+        NetPeerFn    m_peerFn     = nullptr;
+        void*        m_peerUser   = nullptr;
 
         uint32_t m_sessionToken = 0;
         uint32_t m_serverTick   = 0;
@@ -138,12 +219,21 @@ namespace Dark
         UUID     m_playerId{ 0ull };
         Address  m_serverAddr{};
 
+        NetId                                m_nextNetId = 1;
+        std::unordered_map<NetId, EntityID>  m_netToEntity;
+        std::unordered_map<EntityID, NetId>  m_entityToNet;
+        std::unordered_map<NetId, InterpTrack>   m_interp;
+        std::unordered_map<NetId, PawnAccepted> m_pawnLast;
+        uint32_t                             m_latestRecvTick = 0;
+        bool                                 m_hasRecvTick    = false;
+
         float m_now               = 0.f;
         float m_joinTimeoutAccum  = 0.f;
         float m_joinRetryAccum    = 0.f;
         float m_netAccum          = 0.f;
         float m_lastMagicWarnSec  = -1.f;
         float m_lastDropWarnSec   = -1.f;
+        float m_lastNanWarnSec    = -1.f;
 
         uint64_t m_packetsIn       = 0;
         uint64_t m_packetsOut      = 0;

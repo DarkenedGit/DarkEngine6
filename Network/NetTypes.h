@@ -41,6 +41,17 @@ namespace Dark
         Mode    = 3
     };
 
+    enum class NetPrefab : uint8_t
+    {
+        Unknown    = 0,
+        Cube       = 1,
+        Sphere     = 2,
+        PlayerPawn = 3,
+        Platform   = 4,
+        Coin       = 5,
+        Player2D   = 6
+    };
+
     enum class NetPeerEvent : uint8_t
     {
         Joined = 0,
@@ -69,8 +80,11 @@ namespace Dark
     constexpr float    kNetAcceptRetrySec   = 0.1f; // 10 Hz
     constexpr uint32_t kNetMaxPktPerSec     = 200;
     constexpr uint32_t kNetRecvBudget       = 32;
-    constexpr uint8_t  kNetDisconnectBurst  = 3;
-    constexpr uint8_t  kNetDisconnectUser   = 0;
+    constexpr uint8_t  kNetDisconnectBurst   = 3;
+    constexpr uint8_t  kNetDisconnectUser    = 0;
     constexpr uint8_t  kNetDisconnectTimeout = 1;
+    constexpr uint32_t kNetMaxReplicated     = 32;
+    constexpr uint32_t kNetInterpDelayTicks  = 2;
+    constexpr float    kNetPawnMaxSpeed      = 20.0f;
 
 } // namespace Dark
