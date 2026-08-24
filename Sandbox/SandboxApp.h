@@ -1,6 +1,7 @@
 #pragma once
 #include "Core/Application.h"
 #include "Geometry/Mesh.h"
+#include "Network/Replication.h"
 #include "Render/MeshPipeline.h"
 #include "Render/TerrainPipeline.h"
 #include "Render/WaterPipeline.h"
@@ -28,9 +29,19 @@ public:
 private:
     void registerDefaultActions();
     void handleRuntimeCommands(float dt);
+    void handleNetHotkeys();
+    void applyNetRole();
     void updateFlyCamera(float dt);
+    void updatePawnMotion(float dt);
+    void spawnOwnedPawn(Dark::ClientId owner, float offsetX);
+    Dark::Entity findPawn(Dark::ClientId owner);
+    void ensureLocalCube();
     void syncTerrainLod();
     void drawDebugOverlays(ID3D12GraphicsCommandList* cmd);
+
+    static bool onNetSpawn(Dark::World& world, Dark::Entity e, Dark::NetPrefab prefab, const Dark::TransformComponent& xf, uint32_t colorRgba8, void* user);
+    static void onNetDespawn(Dark::World& world, Dark::Entity e, Dark::NetId id, void* user);
+    static void onNetPeer(const Dark::NetPeerInfo& info, Dark::NetPeerEvent event, void* user);
 
     Dark::Entity m_camera;
     Dark::Entity m_cube;
@@ -55,8 +66,10 @@ private:
     std::shared_ptr<Dark::SoundClip> m_sfxClick;
     std::shared_ptr<Dark::SoundClip> m_music;
 
-    bool  m_spinPaused     = false;
-    float m_spinSpeed      = 0.8f;
-    bool  m_showShadowMaps = false;
-    bool  m_showDepth      = false;
+    Dark::AssetID m_cubeMatId      = Dark::NULL_ASSET;
+    Dark::NetRole m_netRole        = Dark::NetRole::Idle;
+    bool          m_spinPaused     = false;
+    float         m_spinSpeed      = 0.8f;
+    bool          m_showShadowMaps = false;
+    bool          m_showDepth      = false;
 };

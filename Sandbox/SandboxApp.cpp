@@ -10,6 +10,8 @@
 #include "Math/Quaternion.h"
 #include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
+#include "Network/NetTypes.h"
+#include "Network/Replication.h"
 #include "Render/Frustum3f.h"
 #include "Terrain/SplatMap.h"
 #include "Water/WaterWaves.h"
@@ -17,6 +19,7 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <vector>
 
 using namespace Dark;
 using namespace Math;
@@ -72,6 +75,40 @@ Math::Matrix4f makeWorldMatrix(const TransformComponent& xf)
     return S * R * T;
 }
 
+const char* netRoleName(NetRole role)
+{
+    switch (role)
+    {
+    case NetRole::Idle:
+        return "Idle";
+    case NetRole::Joining:
+        return "Joining";
+    case NetRole::Host:
+        return "Host";
+    case NetRole::Client:
+        return "Client";
+    default:
+        return "?";
+    }
+}
+
+uint32_t pawnPaletteColor(ClientId id)
+{
+    static constexpr uint32_t kPalette[8] = {
+        0x3DA6F2FFu, 0xE85D4CFFu, 0x5BD96CFFu, 0xF2C14EFFu, 0xC86BFFFFu, 0xF28C3CFFu, 0x4CD4E8FFu, 0xE8E8E8FFu,
+    };
+    const unsigned i = static_cast<unsigned>(id);
+    return kPalette[i < 8u ? i : 0u];
+}
+
+void unpackRgba8(uint32_t rgba, float out[4])
+{
+    out[0] = static_cast<float>((rgba >> 24) & 0xFFu) / 255.0f;
+    out[1] = static_cast<float>((rgba >> 16) & 0xFFu) / 255.0f;
+    out[2] = static_cast<float>((rgba >> 8) & 0xFFu) / 255.0f;
+    out[3] = static_cast<float>(rgba & 0xFFu) / 255.0f;
+}
+
 void SandboxApp::registerDefaultActions()
 {
     ActionMap& a = input().actions();
@@ -91,20 +128,20 @@ void SandboxApp::registerDefaultActions()
     a.bindKey("speed_down", Key::Minus);
     a.bindButton("speed_down", GamepadButton::X);
 
-    // Cube yaw/pitch: A/D W/S, arrows, D-pad (left stick is camera move).
+    // Cube yaw/pitch: WASD only (host). Arrows + D-pad drive the local pawn XZ.
     a.bindKeyAsAxis("yaw", Key::A, -1.0f);
     a.bindKeyAsAxis("yaw", Key::D, 1.0f);
-    a.bindKeyAsAxis("yaw", Key::Left, -1.0f);
-    a.bindKeyAsAxis("yaw", Key::Right, 1.0f);
-    a.bindButtonAsAxis("yaw", GamepadButton::DPadLeft, -1.0f);
-    a.bindButtonAsAxis("yaw", GamepadButton::DPadRight, 1.0f);
-
     a.bindKeyAsAxis("pitch", Key::W, 1.0f);
     a.bindKeyAsAxis("pitch", Key::S, -1.0f);
-    a.bindKeyAsAxis("pitch", Key::Up, 1.0f);
-    a.bindKeyAsAxis("pitch", Key::Down, -1.0f);
-    a.bindButtonAsAxis("pitch", GamepadButton::DPadUp, 1.0f);
-    a.bindButtonAsAxis("pitch", GamepadButton::DPadDown, -1.0f);
+
+    a.bindKeyAsAxis("pawn_x", Key::Left, -1.0f);
+    a.bindKeyAsAxis("pawn_x", Key::Right, 1.0f);
+    a.bindButtonAsAxis("pawn_x", GamepadButton::DPadLeft, -1.0f);
+    a.bindButtonAsAxis("pawn_x", GamepadButton::DPadRight, 1.0f);
+    a.bindKeyAsAxis("pawn_z", Key::Up, 1.0f);
+    a.bindKeyAsAxis("pawn_z", Key::Down, -1.0f);
+    a.bindButtonAsAxis("pawn_z", GamepadButton::DPadUp, 1.0f);
+    a.bindButtonAsAxis("pawn_z", GamepadButton::DPadDown, -1.0f);
 
     a.bindKeyAsAxis("fly_forward", Key::I, 1.0f);
     a.bindKeyAsAxis("fly_forward", Key::K, -1.0f);
@@ -134,19 +171,25 @@ void SandboxApp::registerDefaultActions()
     a.bindKey("weather_storm", Key::Digit4);
     a.bindKey("debug_fill", Key::F1);
     a.bindKey("debug_lighting", Key::F2);
+    a.bindKey("net_disconnect", Key::F4);
+    a.bindKey("net_host", Key::F5);
+    a.bindKey("net_join", Key::F6);
     a.bindKey("debug_shadow_enable", Key::F7);
     a.bindKey("debug_shadows", Key::F8);
     a.bindKey("debug_depth", Key::F9);
 
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(Space/A) reset(R/Y) speed(+/- / RB) "
-        "cube yaw/pitch(A/D W/S / D-pad) fly(IJKL U/O, LS move, RS look, triggers climb, "
+        "cube yaw/pitch(WASD host) pawn XZ(arrows/D-pad) fly(IJKL U/O, LS move, RS look, triggers climb, "
         "LB/L3 sprint, RMB look) time([/]) weather(1-4) "
-        "F1 fill F2 lighting F7 shadows F8 shadow maps F9 depth");
+        "F4 disconnect F5 host F6 join  F1 fill F2 lighting F7 shadows F8 shadow maps F9 depth");
 }
 
 void SandboxApp::handleRuntimeCommands(float dt)
 {
+    handleNetHotkeys();
+    applyNetRole();
+
     if (input().actionPressed("quit"))
     {
         DE_LOG_INFO("Command: quit");
@@ -166,10 +209,13 @@ void SandboxApp::handleRuntimeCommands(float dt)
         m_spinSpeed  = 0.8f;
         m_spinPaused = false;
         Vector3f pos{};
-        if (auto* xf = world().get<TransformComponent>(m_cube))
+        if (m_cube.valid())
         {
-            xf->rotation = Quaternion::IDENTITY;
-            pos = xf->position;
+            if (auto* xf = world().get<TransformComponent>(m_cube))
+            {
+                xf->rotation = Quaternion::IDENTITY;
+                pos          = xf->position;
+            }
         }
         audio().play3D(m_sfxReset, pos, 0.7f);
         DE_LOG_INFO("Command: reset cube");
@@ -264,26 +310,30 @@ void SandboxApp::handleRuntimeCommands(float dt)
     }
 
     updateFlyCamera(dt);
+    updatePawnMotion(dt);
 
-    // Continuous axes
-    const float yawCmd   = input().actionAxis("yaw");
-    const float pitchCmd = input().actionAxis("pitch");
-    constexpr float kTurnRate = 1.8f; // rad/s
-
-    if (auto* xf = world().get<TransformComponent>(m_cube))
+    if (auto* xf = m_cube.valid() ? world().get<TransformComponent>(m_cube) : nullptr)
     {
-        if (yawCmd != 0.0f || pitchCmd != 0.0f)
+        const NetRole role = network().role();
+        if (role == NetRole::Host)
         {
-            const Quaternion yawQ   = Quaternion::FromAxisAngle(Vector3f::Y_AXIS, yawCmd * kTurnRate * dt);
-            const Quaternion pitchQ = Quaternion::FromAxisAngle(Vector3f::X_AXIS, pitchCmd * kTurnRate * dt);
-            xf->rotation = yawQ * pitchQ * xf->rotation;
-            xf->rotation.Normalize();
+            constexpr float kTurnRate = 1.8f; // rad/s
+            const float     yawCmd    = input().actionAxis("yaw");
+            const float     pitchCmd  = input().actionAxis("pitch");
+            if (yawCmd != 0.0f || pitchCmd != 0.0f)
+            {
+                const Quaternion yawQ   = Quaternion::FromAxisAngle(Vector3f::Y_AXIS, yawCmd * kTurnRate * dt);
+                const Quaternion pitchQ = Quaternion::FromAxisAngle(Vector3f::X_AXIS, pitchCmd * kTurnRate * dt);
+                xf->rotation            = yawQ * pitchQ * xf->rotation;
+                xf->rotation.Normalize();
+            }
         }
 
-        if (!m_spinPaused)
+        // Host (and offline Idle) still spin the cube. Clients must not.
+        if ((role == NetRole::Host || role == NetRole::Idle) && !m_spinPaused)
         {
             const Quaternion spin = Quaternion::FromAxisAngle(Vector3f::Y_AXIS, m_spinSpeed * dt);
-            xf->rotation = spin * xf->rotation;
+            xf->rotation          = spin * xf->rotation;
             xf->rotation.Normalize();
         }
 
@@ -323,6 +373,167 @@ void SandboxApp::updateFlyCamera(float dt)
 
     if (auto* xf = world().get<TransformComponent>(m_camera))
         xf->position = m_viewCamera.GetPosition();
+}
+
+void SandboxApp::handleNetHotkeys()
+{
+    if (input().actionPressed("net_host"))
+    {
+        if (network().host(kNetDefaultPort))
+            DE_LOG_INFO(LogCategory::Networking, "Sandbox: hosting on port {}", kNetDefaultPort);
+    }
+    if (input().actionPressed("net_join"))
+    {
+        Address addr{};
+        addr.port = kNetDefaultPort;
+        parseIPv4("127.0.0.1", addr);
+        if (network().join(addr))
+            DE_LOG_INFO(LogCategory::Networking, "Sandbox: joining 127.0.0.1:{}", kNetDefaultPort);
+    }
+    if (input().actionPressed("net_disconnect"))
+    {
+        network().disconnect();
+        DE_LOG_INFO(LogCategory::Networking, "Sandbox: disconnect");
+    }
+}
+
+void SandboxApp::applyNetRole()
+{
+    const NetRole role = network().role();
+    if (role != m_netRole)
+    {
+        DE_LOG_INFO(
+            LogCategory::Networking,
+            "Sandbox: role {} peers {} rtt {:.1f}ms pkts in/out {}/{}",
+            netRoleName(role),
+            network().peerCount(),
+            network().rttMs(network().localClientId()),
+            network().packetsIn(),
+            network().packetsOut());
+        m_netRole = role;
+    }
+
+    // Idle-tagged replicas (netId=0) must not sit beside the host's spawned cube/pawns.
+    if (role == NetRole::Client)
+    {
+        std::vector<Entity> stale;
+        world().each<NetworkedComponent>([&](Entity e, NetworkedComponent& nc) {
+            if (nc.netId == NULL_NET_ID)
+                stale.push_back(e);
+        });
+        for (Entity e : stale)
+            network().unregisterEntity(world(), e);
+        m_cube = {};
+    }
+
+    if (role == NetRole::Host && !network().localPawn().valid())
+        spawnOwnedPawn(ClientId::Host, -2.0f);
+
+    if (role == NetRole::Idle)
+        ensureLocalCube();
+}
+
+void SandboxApp::updatePawnMotion(float dt)
+{
+    const Entity pawn = network().localPawn();
+    if (!pawn.valid())
+        return;
+    TransformComponent* xf = world().get<TransformComponent>(pawn);
+    if (!xf)
+        return;
+
+    const float ax = input().actionAxis("pawn_x");
+    const float az = input().actionAxis("pawn_z");
+    if (ax != 0.0f || az != 0.0f)
+    {
+        Vector3f delta{ ax, 0.0f, az };
+        const float mag = delta.Magnitude();
+        if (mag > 1.0f)
+            delta *= (1.0f / mag);
+        xf->position += delta * (kNetPawnMaxSpeed * dt);
+    }
+
+    xf->position.y = m_terrain.heightAtWorld(xf->position.x, xf->position.z) + 0.5f;
+}
+
+Entity SandboxApp::findPawn(ClientId owner)
+{
+    Entity found{};
+    world().each<NetworkedComponent>([&](Entity e, NetworkedComponent& nc) {
+        if (!found.valid() && nc.prefab == NetPrefab::PlayerPawn && nc.owner == owner)
+            found = e;
+    });
+    return found;
+}
+
+void SandboxApp::spawnOwnedPawn(ClientId owner, float offsetX)
+{
+    if (findPawn(owner).valid())
+        return;
+
+    Vector3f pos{ offsetX, 0.0f, 0.0f };
+    if (m_cube.valid())
+    {
+        if (const TransformComponent* xf = world().get<TransformComponent>(m_cube))
+        {
+            pos.x = xf->position.x + offsetX;
+            pos.z = xf->position.z;
+        }
+    }
+    pos.y = m_terrain.heightAtWorld(pos.x, pos.z) + 0.5f;
+
+    Entity e = world().createEntity();
+    world().emplace<TagComponent>(e, "PlayerPawn");
+    world().emplace<TransformComponent>(e, pos, Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
+    if (!network().registerEntity(world(), e, NetPrefab::PlayerPawn, owner, pawnPaletteColor(owner)))
+    {
+        world().destroyEntity(e);
+        DE_LOG_ERROR(LogCategory::Networking, "Sandbox: failed to register pawn for client {}", static_cast<unsigned>(owner));
+    }
+}
+
+void SandboxApp::ensureLocalCube()
+{
+    if (m_cube.valid() && world().alive(m_cube))
+        return;
+
+    const float groundY = m_terrain.heightAtWorld(0.0f, 0.0f) + 0.5f;
+    m_cube              = world().createEntity();
+    world().emplace<TagComponent>(m_cube, "Cube");
+    world().emplace<TransformComponent>(m_cube, Vector3f{ 0.0f, groundY, 0.0f }, Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
+    auto& meshComp       = world().emplace<MeshComponent>(m_cube);
+    meshComp.meshAssetID = NULL_ASSET;
+    meshComp.matAssetID  = m_cubeMatId;
+    meshComp.castShadow  = true;
+    network().registerEntity(world(), m_cube, NetPrefab::Cube);
+}
+
+bool SandboxApp::onNetSpawn(World&, Entity, NetPrefab, const TransformComponent&, uint32_t, void*)
+{
+    return true;
+}
+
+void SandboxApp::onNetDespawn(World&, Entity e, NetId, void* user)
+{
+    auto* app = static_cast<SandboxApp*>(user);
+    if (app && app->m_cube == e)
+        app->m_cube = {};
+}
+
+void SandboxApp::onNetPeer(const NetPeerInfo& info, NetPeerEvent event, void* user)
+{
+    auto* app = static_cast<SandboxApp*>(user);
+    if (!app)
+        return;
+
+    if (event == NetPeerEvent::Joined && info.wantsPawn)
+        app->spawnOwnedPawn(info.id, 2.0f * static_cast<float>(static_cast<uint8_t>(info.id)));
+    else if (event == NetPeerEvent::Left)
+    {
+        const Entity pawn = app->findPawn(info.id);
+        if (pawn.valid())
+            app->network().unregisterEntity(app->world(), pawn);
+    }
 }
 
 void SandboxApp::syncTerrainLod()
@@ -491,6 +702,7 @@ void SandboxApp::onInit()
         DE_LOG_FATAL("SandboxApp: material register failed");
         return;
     }
+    m_cubeMatId = matId;
 
     m_terrainMaterial.setShadowSrv(renderer().device(), m_shadows.srvCpu());
     m_cubeMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
@@ -515,6 +727,13 @@ void SandboxApp::onInit()
     meshComp.matAssetID  = matId;
     meshComp.castShadow  = true;
 
+    network().setWantsPawn(true);
+    network().setSceneMode(0);
+    network().setSpawnCallback(&SandboxApp::onNetSpawn, this);
+    network().setDespawnCallback(&SandboxApp::onNetDespawn, this);
+    network().setPeerCallback(&SandboxApp::onNetPeer, this);
+    network().registerEntity(world(), m_cube, NetPrefab::Cube);
+
     DE_LOG_INFO(
         "SandboxApp: cube mesh {} verts / {} indices, aspect {:.3f}, material id={}, albedo {}x{}, terrain {}x{} chunks",
         m_cubeMesh.vertexCount(),
@@ -525,6 +744,8 @@ void SandboxApp::onInit()
         m_cubeMaterial->albedo().height(),
         m_terrain.chunksX(),
         m_terrain.chunksZ());
+    DE_LOG_INFO(LogCategory::Networking, "Sandbox net: Sandbox.exe -host   and   Sandbox.exe -join 127.0.0.1");
+    DE_LOG_INFO(LogCategory::Networking, "Sandbox net: F5 host :26160  F6 join 127.0.0.1:26160  F4 disconnect");
 }
 
 void SandboxApp::onUpdate(float dt)
@@ -549,8 +770,10 @@ void SandboxApp::onRender()
     auto* cmd = renderer().commandList();
 
     Aabb3f sceneBounds = m_terrain.bounds();
-    if (auto* xf = world().get<TransformComponent>(m_cube))
-        sceneBounds.ExpandToInclude(xf->position);
+    world().each<NetworkedComponent>([&](Entity e, NetworkedComponent&) {
+        if (const TransformComponent* xf = world().get<TransformComponent>(e))
+            sceneBounds.ExpandToInclude(xf->position);
+    });
     m_shadows.update(
         m_viewCamera,
         m_env.lightDir(),
@@ -567,13 +790,15 @@ void SandboxApp::onRender()
             m_shadows.beginCascade(cmd, i);
             const Frustum3f casterFrustum(m_shadows.cascade(i).viewProj);
             m_terrain.drawDepth(cmd, &casterFrustum);
-            if (auto* xf = world().get<TransformComponent>(m_cube))
-            {
+            world().each<NetworkedComponent>([&](Entity e, NetworkedComponent&) {
+                const TransformComponent* xf = world().get<TransformComponent>(e);
+                if (!xf)
+                    return;
                 const Matrix4f worldMat = makeWorldMatrix(*xf);
                 const Matrix4f wvp      = worldMat * m_shadows.cascade(i).viewProj;
                 m_shadows.pipeline().setWvp(cmd, wvp.m_afEntry);
                 m_cubeMesh.draw(cmd);
-            }
+            });
         }
         m_shadows.endCapture(cmd);
         renderer().bindSceneTargets();
@@ -592,10 +817,12 @@ void SandboxApp::onRender()
     const DebugFill fill = renderer().debugState().fill;
     m_meshPipeline.bind(cmd, fill);
 
-    AssetRef<Material> material;
-    if (auto* meshComp = world().get<MeshComponent>(m_cube))
-        material = assets().getAs<Material>(meshComp->matAssetID);
-
+    AssetRef<Material> material = m_cubeMaterial;
+    if (m_cube.valid())
+    {
+        if (auto* meshComp = world().get<MeshComponent>(m_cube))
+            material = assets().getAs<Material>(meshComp->matAssetID);
+    }
     if (!material)
         material = m_cubeMaterial;
 
@@ -604,16 +831,6 @@ void SandboxApp::onRender()
     m_shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
 
     MeshFrameConstants cb{};
-    if (auto* xf = world().get<TransformComponent>(m_cube))
-    {
-        const Matrix4f worldMat = makeWorldMatrix(*xf);
-        const Matrix4f viewProj = m_viewCamera.GetViewProj();
-        const Matrix4f wvp      = worldMat * viewProj;
-
-        copyMatrix(cb.worldViewProj, wvp);
-        copyMatrix(cb.world, worldMat);
-    }
-
     if (material)
         material->applySurface(cb);
     else
@@ -624,27 +841,40 @@ void SandboxApp::onRender()
         cb.color[3] = 1.0f;
     }
 
-    const Vector3f camPos = m_viewCamera.GetPosition();
-    cb.lightDirWS[0]   = m_env.lightDir().x;
-    cb.lightDirWS[1]   = m_env.lightDir().y;
-    cb.lightDirWS[2]   = m_env.lightDir().z;
-    cb.ambientScale    = 0.22f;
-    cb.lightColor[0]   = m_env.lightColor().x;
-    cb.lightColor[1]   = m_env.lightColor().y;
-    cb.lightColor[2]   = m_env.lightColor().z;
-    cb.cameraPos[0]    = camPos.x;
-    cb.cameraPos[1]    = camPos.y;
-    cb.cameraPos[2]    = camPos.z;
-    cb.lighting        = renderer().debugState().lighting ? 1.0f : 0.0f;
+    const Vector3f camPos   = m_viewCamera.GetPosition();
+    const Matrix4f viewProj = m_viewCamera.GetViewProj();
+    cb.lightDirWS[0]        = m_env.lightDir().x;
+    cb.lightDirWS[1]        = m_env.lightDir().y;
+    cb.lightDirWS[2]        = m_env.lightDir().z;
+    cb.ambientScale         = 0.22f;
+    cb.lightColor[0]        = m_env.lightColor().x;
+    cb.lightColor[1]        = m_env.lightColor().y;
+    cb.lightColor[2]        = m_env.lightColor().z;
+    cb.cameraPos[0]         = camPos.x;
+    cb.cameraPos[1]         = camPos.y;
+    cb.cameraPos[2]         = camPos.z;
+    cb.lighting             = renderer().debugState().lighting ? 1.0f : 0.0f;
 
-    m_meshPipeline.setConstants(cmd, cb);
-    m_cubeMesh.draw(cmd, fill == DebugFill::Points);
+    uint32_t meshDraws = 0;
+    world().each<NetworkedComponent>([&](Entity e, NetworkedComponent& nc) {
+        const TransformComponent* xf = world().get<TransformComponent>(e);
+        if (!xf)
+            return;
+        const Matrix4f worldMat = makeWorldMatrix(*xf);
+        const Matrix4f wvp      = worldMat * viewProj;
+        copyMatrix(cb.worldViewProj, wvp);
+        copyMatrix(cb.world, worldMat);
+        unpackRgba8(nc.colorRgba8, cb.color);
+        m_meshPipeline.setConstants(cmd, cb);
+        m_cubeMesh.draw(cmd, fill == DebugFill::Points);
+        ++meshDraws;
+    });
 
     m_water.draw(cmd, m_waterPipeline, m_viewCamera, &frustum, &m_env, &renderer().debugState());
 
-    renderer().stats().drawCalls = m_terrain.lastDrawCalls() + m_water.lastDrawCalls() + 2;
+    renderer().stats().drawCalls = m_terrain.lastDrawCalls() + m_water.lastDrawCalls() + meshDraws + 1;
     renderer().stats().triangles =
-        m_terrain.lastTriangles() + m_water.lastTriangles() + m_cubeMesh.indexCount() / 3;
+        m_terrain.lastTriangles() + m_water.lastTriangles() + meshDraws * (m_cubeMesh.indexCount() / 3);
 
     drawDebugOverlays(cmd);
     renderer().endFrame();
@@ -717,6 +947,7 @@ void SandboxApp::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
 
 void SandboxApp::onShutdown()
 {
+    network().shutdown();
     renderer().waitForGpu();
     if (m_cubeMaterial)
         assets().unload(m_cubeMaterial->id);
