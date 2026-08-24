@@ -4,6 +4,7 @@
 #include "ECS/World.h"
 #include "Assets/AssetManager.h"
 #include "Audio/AudioSystem.h"
+#include "Network/NetworkSystem.h"
 #include "Render/Renderer.h"
 #include "Input/Input.h"
 
@@ -15,7 +16,14 @@ namespace Dark
         uint32_t    width  = 2560;
         uint32_t    height = 1600;
         bool        vsync  = true;
+
+        bool     netHost      = false;
+        uint16_t netHostPort  = kNetDefaultPort;
+        Address  netJoin{};          // ipv4==0 && port==0 → do not join
+        uint8_t  netSceneMode = 0;   // 0 = 3D, 1 = 2D; apps may override
     };
+
+    bool parseNetCommandLine(const char* lpCmdLine, AppConfig& cfg);
 
     class Application
     {
@@ -31,27 +39,32 @@ namespace Dark
         virtual void onRender() {}
         virtual void onShutdown() {}
 
-        World&        world()    { return m_world; }
-        AssetManager& assets()   { return m_assets; }
-        AudioSystem&  audio()    { return m_audio; }
-        Renderer&     renderer() { return m_renderer; }
-        Input&        input()    { return m_input; }
-        const Input&  input() const { return m_input; }
-        Window&       window()   { return m_window; }
+        World&         world()    { return m_world; }
+        AssetManager&  assets()   { return m_assets; }
+        AudioSystem&   audio()    { return m_audio; }
+        NetworkSystem& network()  { return m_network; }
+        Renderer&      renderer() { return m_renderer; }
+        Input&         input()    { return m_input; }
+        const Input&   input() const { return m_input; }
+        Window&        window()   { return m_window; }
 
     private:
+        void applyNetConfig();
+
         LogSession m_logSession;
 
     protected:
-        Window       m_window;
-        Input        m_input;
-        World        m_world;
-        AssetManager m_assets;
-        Renderer     m_renderer;
-        AudioSystem  m_audio;
+        Window        m_window;
+        Input         m_input;
+        World         m_world;
+        AssetManager  m_assets;
+        Renderer      m_renderer;
+        AudioSystem   m_audio;
+        NetworkSystem m_network; // after audio: sockets destroyed before HWND
 
     private:
-        bool m_running = true;
+        AppConfig m_config;
+        bool      m_running = true;
     };
 
 } // namespace Dark

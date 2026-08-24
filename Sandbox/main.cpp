@@ -6,15 +6,14 @@
 #endif
 #include <Windows.h>
 
-#include <exception>
-
-int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) 
+int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR lpCmdLine, int)
 {
     Dark::AppConfig cfg{};
     cfg.title  = "DarkEngine6 Sandbox";
     cfg.width  = 2560;
     cfg.height = 1600;
     cfg.vsync  = true;
+    Dark::parseNetCommandLine(lpCmdLine, cfg);
 
     SandboxApp app{cfg};
     app.run();

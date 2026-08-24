@@ -6,13 +6,14 @@
 #endif
 #include <Windows.h>
 
-int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
+int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR lpCmdLine, int)
 {
     Dark::AppConfig cfg{};
     cfg.title  = "DarkEngine6 Editor";
     cfg.width  = 2560;
     cfg.height = 1600;
     cfg.vsync  = true;
+    Dark::parseNetCommandLine(lpCmdLine, cfg);
 
     EditorApp app{cfg};
     app.run();
