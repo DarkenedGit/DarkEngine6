@@ -62,6 +62,7 @@ namespace Dark
         bool pendingOverflow() const { return m_pendingOverflow; }
         uint32_t pendingCount() const { return static_cast<uint32_t>(m_pending.size()); }
         uint32_t pendingBytes() const { return m_pendingBytes; }
+        uint32_t resends() const { return m_resends; }
         uint16_t pendingIdAt(uint32_t i) const;
 
         // Test hooks: next values written / accepted (never 0).

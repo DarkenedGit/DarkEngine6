@@ -1,9 +1,14 @@
 #pragma once
 
+#include "Core/UUID.h"
+
 #include <cstdint>
 
 namespace Dark
 {
+
+    using NetId = uint32_t;
+    constexpr NetId NULL_NET_ID = 0;
 
     struct Address
     {
@@ -15,8 +20,57 @@ namespace Dark
     // Dotted-quad, optional ":port". "127.0.0.1" leaves port unchanged.
     bool parseIPv4(const char* s, Address& out);
 
-    constexpr uint32_t kNetMagic           = 0x314E4544u;
-    constexpr uint8_t  kNetProtocolVersion = 1;
-    constexpr uint8_t  kNetHeaderSize      = 24;
+    enum class ClientId : uint8_t
+    {
+        Host    = 0,
+        Invalid = 0xFF // remotes 1..7
+    };
+
+    enum class NetRole : uint8_t
+    {
+        Idle = 0,
+        Joining,
+        Host,
+        Client
+    };
+
+    enum class ConnectRejectReason : uint8_t
+    {
+        Version = 1,
+        Full    = 2,
+        Mode    = 3
+    };
+
+    enum class NetPeerEvent : uint8_t
+    {
+        Joined = 0,
+        Left
+    };
+
+    struct NetPeerInfo
+    {
+        ClientId id        = ClientId::Invalid;
+        Address  addr{};
+        UUID     playerId{ 0ull };
+        bool     wantsPawn = false;
+    };
+
+    using NetPeerFn = void (*)(const NetPeerInfo& info, NetPeerEvent event, void* user);
+
+    constexpr uint32_t kNetMagic            = 0x314E4544u;
+    constexpr uint8_t  kNetProtocolVersion  = 1;
+    constexpr uint8_t  kNetHeaderSize       = 24;
+    constexpr uint16_t kNetDefaultPort      = 26160;
+    constexpr uint32_t kNetMaxClients       = 8;
+    constexpr float    kNetTickHz           = 20.0f;
+    constexpr float    kNetJoinTimeoutSec   = 5.0f;
+    constexpr float    kNetPeerTimeoutSec   = 2.0f;
+    constexpr float    kNetConnectRetrySec  = 0.1f; // 10 Hz
+    constexpr float    kNetAcceptRetrySec   = 0.1f; // 10 Hz
+    constexpr uint32_t kNetMaxPktPerSec     = 200;
+    constexpr uint32_t kNetRecvBudget       = 32;
+    constexpr uint8_t  kNetDisconnectBurst  = 3;
+    constexpr uint8_t  kNetDisconnectUser   = 0;
+    constexpr uint8_t  kNetDisconnectTimeout = 1;
 
 } // namespace Dark
