@@ -171,6 +171,7 @@ void SandboxApp::registerDefaultActions()
     a.bindKey("weather_storm", Key::Digit4);
     a.bindKey("debug_fill", Key::F1);
     a.bindKey("debug_lighting", Key::F2);
+    a.bindKey("net_browse", Key::F3);
     a.bindKey("net_disconnect", Key::F4);
     a.bindKey("net_host", Key::F5);
     a.bindKey("net_join", Key::F6);
@@ -182,7 +183,7 @@ void SandboxApp::registerDefaultActions()
         "Input: quit(Esc/Back) pause(Space/A) reset(R/Y) speed(+/- / RB) "
         "cube yaw/pitch(WASD host) pawn XZ(arrows/D-pad) fly(IJKL U/O, LS move, RS look, triggers climb, "
         "LB/L3 sprint, RMB look) time([/]) weather(1-4) "
-        "F4 disconnect F5 host F6 join  F1 fill F2 lighting F7 shadows F8 shadow maps F9 depth");
+        "F3 browse LAN F4 disconnect F5 host F6 join  F1 fill F2 lighting F7 shadows F8 shadow maps F9 depth");
 }
 
 void SandboxApp::handleRuntimeCommands(float dt)
@@ -379,11 +380,15 @@ void SandboxApp::handleNetHotkeys()
 {
     if (input().actionPressed("net_host"))
     {
+        m_netBrowsing    = false;
+        m_browseLogCount = ~0u;
         if (network().host(kNetDefaultPort))
             DE_LOG_INFO(LogCategory::Networking, "Sandbox: hosting on port {}", kNetDefaultPort);
     }
     if (input().actionPressed("net_join"))
     {
+        m_netBrowsing    = false;
+        m_browseLogCount = ~0u;
         Address addr{};
         addr.port = kNetDefaultPort;
         parseIPv4("127.0.0.1", addr);
@@ -392,9 +397,48 @@ void SandboxApp::handleNetHotkeys()
     }
     if (input().actionPressed("net_disconnect"))
     {
+        m_netBrowsing    = false;
+        m_browseLogCount = ~0u;
         network().disconnect();
         DE_LOG_INFO(LogCategory::Networking, "Sandbox: disconnect");
     }
+    if (input().actionPressed("net_browse"))
+    {
+        if (network().role() != NetRole::Idle)
+            DE_LOG_WARN(LogCategory::Networking, "Sandbox: browse requires Idle (disconnect first)");
+        else if (network().browse())
+        {
+            m_netBrowsing    = true;
+            m_browseLogCount = ~0u;
+            DE_LOG_INFO(LogCategory::Networking, "Sandbox: browsing LAN :{} (same-PC two binds of :{} is unreliable; use F6 or -join)",
+                        kNetBeaconPort, kNetBeaconPort);
+        }
+        else
+            DE_LOG_WARN(LogCategory::Networking, "Sandbox: browse bind failed; typed IP / CLI still work");
+    }
+
+    if (m_netBrowsing && network().role() == NetRole::Idle)
+    {
+        const uint32_t n = network().sessionCount();
+        if (n != m_browseLogCount)
+        {
+            m_browseLogCount = n;
+            DE_LOG_INFO(LogCategory::Networking, "Sandbox: {} LAN session(s)", n);
+            for (uint32_t i = 0; i < n; ++i)
+            {
+                NetSessionInfo s{};
+                if (!network().sessionAt(i, s))
+                    continue;
+                const uint32_t ip = s.address.ipv4;
+                DE_LOG_INFO(LogCategory::Networking, "Sandbox: session '{}' {}.{}.{}.{}:{} peers {} mode {}",
+                            s.name[0] ? s.name : "(unnamed)",
+                            (ip >> 24) & 255u, (ip >> 16) & 255u, (ip >> 8) & 255u, ip & 255u,
+                            s.address.port, s.peerCount, s.sceneMode);
+            }
+        }
+    }
+    else if (network().role() != NetRole::Idle)
+        m_netBrowsing = false;
 }
 
 void SandboxApp::applyNetRole()
@@ -729,6 +773,7 @@ void SandboxApp::onInit()
 
     network().setWantsPawn(true);
     network().setSceneMode(0);
+    network().setPlayerName("Sandbox");
     network().setSpawnCallback(&SandboxApp::onNetSpawn, this);
     network().setDespawnCallback(&SandboxApp::onNetDespawn, this);
     network().setPeerCallback(&SandboxApp::onNetPeer, this);
@@ -745,7 +790,7 @@ void SandboxApp::onInit()
         m_terrain.chunksX(),
         m_terrain.chunksZ());
     DE_LOG_INFO(LogCategory::Networking, "Sandbox net: Sandbox.exe -host   and   Sandbox.exe -join 127.0.0.1");
-    DE_LOG_INFO(LogCategory::Networking, "Sandbox net: F5 host :26160  F6 join 127.0.0.1:26160  F4 disconnect");
+    DE_LOG_INFO(LogCategory::Networking, "Sandbox net: F5 host :26160  F6 join 127.0.0.1:26160  F4 disconnect  F3 browse :26161");
 }
 
 void SandboxApp::onUpdate(float dt)

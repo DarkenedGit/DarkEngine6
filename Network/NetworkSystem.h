@@ -45,6 +45,12 @@ namespace Dark
         void disconnect();
         void shutdown(); // idempotent
 
+        // LAN discovery (K25). Idle only. stopBrowse is idempotent; also called from host/join/shutdown.
+        bool     browse();
+        void     stopBrowse();
+        uint32_t sessionCount() const;
+        bool     sessionAt(uint32_t i, NetSessionInfo& out) const;
+
         NetRole  role() const { return m_role; }
         ClientId localClientId() const { return m_localId; }
         uint32_t peerCount() const;
@@ -150,6 +156,7 @@ namespace Dark
 
         bool flushPeer(Peer& peer);
         bool sendRawUnreliable(const Address& dest, uint8_t opcode, const void* payload, uint32_t len, uint32_t token);
+        bool sendRawUnreliableOn(ITransport* t, const Address& dest, uint8_t opcode, const void* payload, uint32_t len, uint32_t token);
         bool sendConnectRequest();
         bool sendAccept(Peer& peer);
         bool sendReject(const Address& dest, ConnectRejectReason reason);
@@ -193,14 +200,25 @@ namespace Dark
         void checkPendingOverflow();
         void retryAccepts(float dt);
 
+        ITransport* discoveryTransport() const;
+        void        startBeacon(uint16_t gamePort);
+        void        stopBeacon();
+        void        tickBeacon(float dt);
+        bool        sendBeacon();
+        void        pollBrowse(float dt);
+        void        applyBeacon(const Address& src, const uint8_t* payload, uint32_t size);
+        void        ageSessions(float dt);
+
         NetRole     m_role     = NetRole::Idle;
         ClientId    m_localId  = ClientId::Invalid;
         ITransport* m_injected = nullptr;
         World*      m_world    = nullptr;
 
         std::unique_ptr<UdpSocket>         m_owned;
+        std::unique_ptr<UdpSocket>         m_discovery; // browse bind :26161, or host beacon send (ephemeral)
         std::vector<std::unique_ptr<Peer>> m_peers;
         std::vector<RateSlot>              m_rates;
+        std::vector<NetSessionInfo>        m_sessions;
 
         NetSpawnFn   m_spawnFn    = nullptr;
         void*        m_spawnUser  = nullptr;
@@ -227,13 +245,18 @@ namespace Dark
         uint32_t                             m_latestRecvTick = 0;
         bool                                 m_hasRecvTick    = false;
 
-        float m_now               = 0.f;
-        float m_joinTimeoutAccum  = 0.f;
-        float m_joinRetryAccum    = 0.f;
-        float m_netAccum          = 0.f;
-        float m_lastMagicWarnSec  = -1.f;
-        float m_lastDropWarnSec   = -1.f;
-        float m_lastNanWarnSec    = -1.f;
+        float    m_now               = 0.f;
+        float    m_joinTimeoutAccum  = 0.f;
+        float    m_joinRetryAccum    = 0.f;
+        float    m_netAccum          = 0.f;
+        float    m_beaconAccum       = 0.f;
+        float    m_lastMagicWarnSec  = -1.f;
+        float    m_lastDropWarnSec   = -1.f;
+        float    m_lastNanWarnSec    = -1.f;
+        uint16_t m_beaconHostPort    = 0;
+        bool     m_browsing          = false;
+        bool     m_beaconing         = false;
+        bool     m_browseFailed      = false;
 
         uint64_t m_packetsIn       = 0;
         uint64_t m_packetsOut      = 0;

@@ -455,7 +455,11 @@ namespace Dark
 
     bool NetworkSystem::sendRawUnreliable(const Address& dest, uint8_t opcode, const void* payload, uint32_t len, uint32_t token)
     {
-        ITransport* t = transport();
+        return sendRawUnreliableOn(transport(), dest, opcode, payload, len, token);
+    }
+
+    bool NetworkSystem::sendRawUnreliableOn(ITransport* t, const Address& dest, uint8_t opcode, const void* payload, uint32_t len, uint32_t token)
+    {
         if (!t)
             return false;
         if (len > 0 && !payload)
@@ -604,6 +608,7 @@ namespace Dark
             DE_LOG_ERROR(LogCategory::Networking, "NetworkSystem: host() while not Idle");
             return false;
         }
+        stopBrowse();
         if (!ensureSocket(port))
         {
             DE_LOG_ERROR(LogCategory::Networking, "NetworkSystem: host() bind failed");
@@ -627,6 +632,17 @@ namespace Dark
         if (m_world)
             assignIdleNetIds(*m_world);
         logAddress("NetworkSystem: hosting", boundAddress());
+
+        uint16_t advertised = port;
+        if (m_injected)
+        {
+            advertised = boundAddress().port;
+            if (advertised == 0)
+                advertised = (port != 0) ? port : kNetDefaultPort;
+        }
+        else if (advertised == 0)
+            advertised = boundAddress().port ? boundAddress().port : kNetDefaultPort;
+        startBeacon(advertised);
         return true;
     }
 
@@ -637,6 +653,7 @@ namespace Dark
             DE_LOG_ERROR(LogCategory::Networking, "NetworkSystem: join() while not Idle");
             return false;
         }
+        stopBrowse();
         if (!ensureSocket(0))
         {
             DE_LOG_ERROR(LogCategory::Networking, "NetworkSystem: join() bind failed");
@@ -676,6 +693,8 @@ namespace Dark
 
     void NetworkSystem::disconnect()
     {
+        stopBeacon();
+        stopBrowse();
         if (m_role == NetRole::Idle)
         {
             closeOwned();
@@ -698,6 +717,8 @@ namespace Dark
 
     void NetworkSystem::shutdown()
     {
+        stopBeacon();
+        stopBrowse();
         if (m_role != NetRole::Idle)
             disconnect();
         else
@@ -917,6 +938,10 @@ namespace Dark
 
     void NetworkSystem::handleDatagram(World& world, const Address& src, const uint8_t* data, uint32_t size)
     {
+        const ParsedDatagram probe = parseDatagram(data, size);
+        if (probe.framed && probe.hasUnreliable && probe.opcode == static_cast<uint8_t>(NetOpcode::Beacon))
+            return; // listen-only on browse(); never mix with session, never reply
+
         Peer* peer = findPeerByAddr(src);
         if (peer)
         {
@@ -1020,14 +1045,17 @@ namespace Dark
     void NetworkSystem::poll(World& world, float dt)
     {
         bindWorld(world);
+        if (dt < 0.f)
+            dt = 0.f;
+        if (m_browsing)
+            pollBrowse(dt);
+
         if (m_role == NetRole::Idle)
             return;
         ITransport* t = transport();
         if (!t)
             return;
 
-        if (dt < 0.f)
-            dt = 0.f;
         m_now += dt;
 
         if (m_role == NetRole::Host)
@@ -1136,6 +1164,9 @@ namespace Dark
         }
 
         checkPendingOverflow();
+
+        if (m_beaconing)
+            tickBeacon(dt);
     }
 
     void NetworkSystem::bindWorld(World& world)
@@ -1882,6 +1913,222 @@ namespace Dark
         if (!w.begin(buf, sizeof(buf)) || !writePawnState(w, p))
             return false;
         return peer.channel.setUnreliable(static_cast<uint8_t>(NetOpcode::PawnState), buf, w.size());
+    }
+
+    ITransport* NetworkSystem::discoveryTransport() const
+    {
+        return m_injected ? m_injected : m_discovery.get();
+    }
+
+    bool NetworkSystem::browse()
+    {
+        if (m_role != NetRole::Idle)
+        {
+            DE_LOG_ERROR(LogCategory::Networking, "NetworkSystem: browse() while not Idle");
+            return false;
+        }
+        if (m_browsing)
+            return true;
+        if (m_browseFailed)
+            return false;
+
+        if (m_injected)
+        {
+            m_browsing = true;
+            m_sessions.clear();
+            DE_LOG_INFO(LogCategory::Networking, "NetworkSystem: browsing (injected transport)");
+            return true;
+        }
+
+        m_discovery = std::make_unique<UdpSocket>();
+        if (!m_discovery->open(kNetBeaconPort, true, false))
+        {
+            m_discovery.reset();
+            m_browseFailed = true;
+            DE_LOG_WARN(LogCategory::Networking, "NetworkSystem: browse bind :{} failed; typed IP / CLI still work", kNetBeaconPort);
+            return false;
+        }
+
+        m_browsing = true;
+        m_sessions.clear();
+        DE_LOG_INFO(LogCategory::Networking, "NetworkSystem: browsing :{} (same-PC two binds of :{} is unreliable)", kNetBeaconPort, kNetBeaconPort);
+        return true;
+    }
+
+    void NetworkSystem::stopBrowse()
+    {
+        m_browsing     = false;
+        m_browseFailed = false;
+        m_sessions.clear();
+        if (!m_beaconing && m_discovery)
+        {
+            m_discovery->close();
+            m_discovery.reset();
+        }
+    }
+
+    uint32_t NetworkSystem::sessionCount() const
+    {
+        return static_cast<uint32_t>(m_sessions.size());
+    }
+
+    bool NetworkSystem::sessionAt(uint32_t i, NetSessionInfo& out) const
+    {
+        if (i >= m_sessions.size())
+            return false;
+        out = m_sessions[i];
+        return true;
+    }
+
+    void NetworkSystem::startBeacon(uint16_t gamePort)
+    {
+        stopBeacon();
+        m_beaconHostPort = gamePort;
+        if (m_beaconHostPort == 0)
+            m_beaconHostPort = kNetDefaultPort;
+
+        if (m_injected)
+        {
+            m_beaconing   = true;
+            m_beaconAccum = kNetBeaconIntervalSec; // first flush sends; host() must not mix with session recvs
+            return;
+        }
+
+        m_discovery = std::make_unique<UdpSocket>();
+        if (!m_discovery->open(0, false, true))
+        {
+            DE_LOG_WARN(LogCategory::Networking, "NetworkSystem: beacon socket failed; typed IP / CLI still work");
+            m_discovery.reset();
+            m_beaconing = false;
+            return;
+        }
+
+        m_beaconing   = true;
+        m_beaconAccum = kNetBeaconIntervalSec;
+        DE_LOG_INFO(LogCategory::Networking, "NetworkSystem: beaconing 1 Hz to 255.255.255.255:{}", kNetBeaconPort);
+    }
+
+    void NetworkSystem::stopBeacon()
+    {
+        m_beaconing      = false;
+        m_beaconAccum    = 0.f;
+        m_beaconHostPort = 0;
+        if (!m_browsing && m_discovery)
+        {
+            m_discovery->close();
+            m_discovery.reset();
+        }
+    }
+
+    void NetworkSystem::tickBeacon(float dt)
+    {
+        if (!m_beaconing)
+            return;
+        m_beaconAccum += dt;
+        if (m_beaconAccum < kNetBeaconIntervalSec)
+            return;
+        m_beaconAccum = 0.f;
+        sendBeacon();
+    }
+
+    bool NetworkSystem::sendBeacon()
+    {
+        ITransport* t = discoveryTransport();
+        if (!t)
+            return false;
+
+        BeaconPayload p{};
+        p.hostPort  = m_beaconHostPort;
+        p.peerCount = static_cast<uint8_t>(peerCount() > 255u ? 255u : peerCount());
+        p.sceneMode = m_sceneMode;
+        std::memcpy(p.name, m_name, 32);
+
+        uint8_t      buf[kBeaconBytes];
+        PacketWriter w;
+        if (!w.begin(buf, sizeof(buf)) || !writeBeacon(w, p))
+            return false;
+
+        Address dest{};
+        dest.ipv4 = 0xFFFFFFFFu;
+        dest.port = kNetBeaconPort;
+        return sendRawUnreliableOn(t, dest, static_cast<uint8_t>(NetOpcode::Beacon), buf, w.size(), 0);
+    }
+
+    void NetworkSystem::pollBrowse(float dt)
+    {
+        ageSessions(dt);
+        ITransport* t = discoveryTransport();
+        if (!t)
+            return;
+
+        uint32_t recvd = 0;
+        for (; recvd < kNetRecvBudget; ++recvd)
+        {
+            Address  src{};
+            uint8_t  buf[kNetMaxPayload];
+            uint32_t n = 0;
+            if (!t->recvFrom(src, buf, sizeof(buf), n))
+                break;
+            if (n == 0)
+                continue;
+            const ParsedDatagram parsed = parseDatagram(buf, n);
+            if (!parsed.framed || !parsed.hasUnreliable)
+                continue;
+            if (parsed.opcode != static_cast<uint8_t>(NetOpcode::Beacon))
+                continue;
+            if (parsed.header.version != kNetProtocolVersion)
+                continue;
+            applyBeacon(src, parsed.payload, parsed.payloadSize);
+        }
+    }
+
+    void NetworkSystem::applyBeacon(const Address& src, const uint8_t* payload, uint32_t size)
+    {
+        PacketReader r;
+        BeaconPayload p{};
+        if (!r.begin(payload, size) || !readBeacon(r, p))
+            return;
+
+        Address game = src;
+        game.port    = p.hostPort != 0 ? p.hostPort : kNetDefaultPort;
+
+        for (NetSessionInfo& s : m_sessions)
+        {
+            if (s.address == game)
+            {
+                copyNetName(s.name, p.name);
+                s.sceneMode = p.sceneMode;
+                s.peerCount = p.peerCount;
+                s.ageSec    = 0.f;
+                return;
+            }
+        }
+
+        if (m_sessions.size() >= kNetMaxClients * 4u)
+            return;
+
+        NetSessionInfo s{};
+        s.address   = game;
+        copyNetName(s.name, p.name);
+        s.sceneMode = p.sceneMode;
+        s.peerCount = p.peerCount;
+        s.ageSec    = 0.f;
+        m_sessions.push_back(s);
+    }
+
+    void NetworkSystem::ageSessions(float dt)
+    {
+        for (size_t i = 0; i < m_sessions.size();)
+        {
+            m_sessions[i].ageSec += dt;
+            if (m_sessions[i].ageSec >= kNetSessionAgeOutSec)
+            {
+                m_sessions[i] = m_sessions.back();
+                m_sessions.pop_back();
+            }
+            else
+                ++i;
+        }
     }
 
 } // namespace Dark

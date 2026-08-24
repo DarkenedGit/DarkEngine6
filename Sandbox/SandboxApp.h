@@ -68,6 +68,8 @@ private:
 
     Dark::AssetID m_cubeMatId      = Dark::NULL_ASSET;
     Dark::NetRole m_netRole        = Dark::NetRole::Idle;
+    uint32_t      m_browseLogCount = ~0u;
+    bool          m_netBrowsing    = false;
     bool          m_spinPaused     = false;
     float         m_spinSpeed      = 0.8f;
     bool          m_showShadowMaps = false;

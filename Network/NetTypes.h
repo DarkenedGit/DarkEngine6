@@ -66,12 +66,22 @@ namespace Dark
         bool     wantsPawn = false;
     };
 
+    struct NetSessionInfo
+    {
+        Address address{}; // ipv4 from recvfrom; port = Beacon.hostPort (game port)
+        char    name[32]{};
+        uint8_t sceneMode = 0;
+        uint8_t peerCount = 0;
+        float   ageSec    = 0.f;
+    };
+
     using NetPeerFn = void (*)(const NetPeerInfo& info, NetPeerEvent event, void* user);
 
     constexpr uint32_t kNetMagic            = 0x314E4544u;
     constexpr uint8_t  kNetProtocolVersion  = 1;
     constexpr uint8_t  kNetHeaderSize       = 24;
     constexpr uint16_t kNetDefaultPort      = 26160;
+    constexpr uint16_t kNetBeaconPort       = 26161;
     constexpr uint32_t kNetMaxClients       = 8;
     constexpr float    kNetTickHz           = 20.0f;
     constexpr float    kNetJoinTimeoutSec   = 5.0f;
@@ -85,6 +95,8 @@ namespace Dark
     constexpr uint8_t  kNetDisconnectTimeout = 1;
     constexpr uint32_t kNetMaxReplicated     = 32;
     constexpr uint32_t kNetInterpDelayTicks  = 2;
-    constexpr float    kNetPawnMaxSpeed      = 20.0f;
+    constexpr float    kNetPawnMaxSpeed       = 20.0f;
+    constexpr float    kNetBeaconIntervalSec  = 1.0f;
+    constexpr float    kNetSessionAgeOutSec   = 3.0f;
 
 } // namespace Dark

@@ -37,7 +37,7 @@ namespace Dark
         close();
     }
 
-    bool UdpSocket::open(uint16_t port)
+    bool UdpSocket::open(uint16_t port, bool reuseAddr, bool broadcast)
     {
         close();
         if (!NetSockets::startup())
@@ -67,6 +67,13 @@ namespace Dark
             return false;
         }
 
+        if (reuseAddr)
+        {
+            BOOL opt = TRUE;
+            if (::setsockopt(s, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&opt), sizeof(opt)) != 0)
+                DE_LOG_WARN(LogCategory::Networking, "UdpSocket: SO_REUSEADDR failed ({})", WSAGetLastError());
+        }
+
         sockaddr_in addr{};
         addr.sin_family      = AF_INET;
         addr.sin_port        = htons(port);
@@ -76,6 +83,13 @@ namespace Dark
             DE_LOG_ERROR(LogCategory::Networking, "UdpSocket: bind({}) failed ({})", port, WSAGetLastError());
             close();
             return false;
+        }
+
+        if (broadcast)
+        {
+            BOOL opt = TRUE;
+            if (::setsockopt(s, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char*>(&opt), sizeof(opt)) != 0)
+                DE_LOG_WARN(LogCategory::Networking, "UdpSocket: SO_BROADCAST failed ({}); typed IP / CLI still work", WSAGetLastError());
         }
 
         sockaddr_in bound{};

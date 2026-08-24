@@ -70,6 +70,7 @@ namespace Dark
         if (size > 0 && !data)
             return;
 
+        // 255.255.255.255: copy to every registered endpoint except src (K25 Beacon tests).
         const bool broadcast = (dest.ipv4 == 0xFFFFFFFFu);
         if (broadcast)
         {

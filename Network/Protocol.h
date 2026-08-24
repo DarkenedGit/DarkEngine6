@@ -104,6 +104,29 @@ namespace Dark
         }
     }
 
+    constexpr uint32_t kBeaconBytes = 36;
+
+    struct BeaconPayload
+    {
+        uint16_t hostPort  = 0;
+        uint8_t  peerCount = 0;
+        uint8_t  sceneMode = 0;
+        char     name[32]{};
+    };
+
+    inline bool writeBeacon(PacketWriter& w, const BeaconPayload& p)
+    {
+        return w.writeU16(p.hostPort) && w.writeU8(p.peerCount) && w.writeU8(p.sceneMode) && w.writeBytes(p.name, 32);
+    }
+
+    inline bool readBeacon(PacketReader& r, BeaconPayload& p)
+    {
+        if (!r.readU16(p.hostPort) || !r.readU8(p.peerCount) || !r.readU8(p.sceneMode) || !r.readBytes(p.name, 32))
+            return false;
+        p.name[31] = 0;
+        return true;
+    }
+
     constexpr uint32_t kSpawnBytes     = 52;
     constexpr uint32_t kDespawnBytes   = 4;
     constexpr uint32_t kPawnStateBytes = 32;

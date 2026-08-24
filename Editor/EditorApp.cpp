@@ -1129,6 +1129,9 @@ void EditorApp::drawNetworkMenu()
     if (!ImGui::BeginMenu("Network"))
         return;
 
+    if (network().role() == NetRole::Idle)
+        network().browse();
+
     const NetRole  role     = network().role();
     const bool     hostOk   = canHostSession();
     const bool     joinOk   = canJoinSession();
@@ -1156,6 +1159,41 @@ void EditorApp::drawNetworkMenu()
         joinNetworkSession();
     if (!joinOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("Join requires an empty 3D scene");
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("LAN sessions");
+    ImGui::TextDisabled("Same-PC :26161 bind is unreliable — use typed IP / CLI");
+    const uint32_t discovered = network().sessionCount();
+    if (discovered == 0)
+        ImGui::TextDisabled("(none)");
+    for (uint32_t i = 0; i < discovered; ++i)
+    {
+        NetSessionInfo s{};
+        if (!network().sessionAt(i, s))
+            continue;
+        const uint32_t ip = s.address.ipv4;
+        char           line[96];
+        std::snprintf(line, sizeof(line), "%s  %u.%u.%u.%u:%u  peers %u  %s",
+                      s.name[0] ? s.name : "(unnamed)",
+                      (ip >> 24) & 255u, (ip >> 16) & 255u, (ip >> 8) & 255u, ip & 255u,
+                      s.address.port, s.peerCount, s.sceneMode ? "2D" : "3D");
+        const bool canClick = joinOk && s.sceneMode == 0;
+        ImGui::PushID(static_cast<int>(i));
+        if (ImGui::MenuItem(line, nullptr, false, canClick))
+        {
+            std::snprintf(m_joinAddress, sizeof(m_joinAddress), "%u.%u.%u.%u:%u",
+                          (ip >> 24) & 255u, (ip >> 16) & 255u, (ip >> 8) & 255u, ip & 255u, s.address.port);
+            joinNetworkSession();
+        }
+        if (!canClick && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            if (s.sceneMode != 0)
+                ImGui::SetTooltip("2D join waits for a later update");
+            else
+                ImGui::SetTooltip("Join requires an empty 3D scene");
+        }
+        ImGui::PopID();
+    }
 
     if (ImGui::MenuItem("Disconnect", nullptr, false, role != NetRole::Idle))
         network().disconnect();
