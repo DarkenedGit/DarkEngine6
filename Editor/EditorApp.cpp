@@ -142,12 +142,23 @@ void unpackRgba8(uint32_t rgba, float out[4])
 
 bool isReplicatedProp(SceneObjectType type)
 {
-    return type == SceneObjectType::Cube || type == SceneObjectType::Sphere;
+    return type == SceneObjectType::Cube || type == SceneObjectType::Sphere
+        || type == SceneObjectType::Platform || type == SceneObjectType::Coin;
 }
 
 NetPrefab prefabFromType(SceneObjectType type)
 {
-    return type == SceneObjectType::Sphere ? NetPrefab::Sphere : NetPrefab::Cube;
+    switch (type)
+    {
+    case SceneObjectType::Sphere:
+        return NetPrefab::Sphere;
+    case SceneObjectType::Platform:
+        return NetPrefab::Platform;
+    case SceneObjectType::Coin:
+        return NetPrefab::Coin;
+    default:
+        return NetPrefab::Cube;
+    }
 }
 
 SceneObjectType typeFromPrefab(NetPrefab prefab)
@@ -1047,12 +1058,12 @@ bool EditorApp::netSceneLocked()
 
 bool EditorApp::canHostSession()
 {
-    return network().role() == NetRole::Idle && m_sceneMode == SceneMode::Scene3D;
+    return network().role() == NetRole::Idle;
 }
 
 bool EditorApp::canJoinSession()
 {
-    return network().role() == NetRole::Idle && m_sceneMode == SceneMode::Scene3D && m_objects.empty();
+    return network().role() == NetRole::Idle && m_objects.empty();
 }
 
 void EditorApp::registerReplicatedProps()
@@ -1072,11 +1083,11 @@ void EditorApp::hostNetworkSession()
 {
     if (!canHostSession())
     {
-        DE_LOG_WARN(LogCategory::Networking, "Editor: host requires Idle 3D (2D host waits for a later update)");
+        DE_LOG_WARN(LogCategory::Networking, "Editor: host requires Idle (disconnect first)");
         return;
     }
     network().setWantsPawn(false);
-    network().setSceneMode(0);
+    network().setSceneMode(m_sceneMode == SceneMode::Scene2D ? 1u : 0u);
     network().setPlayerName("Editor");
     registerReplicatedProps();
     if (!network().host(kNetDefaultPort))
@@ -1106,7 +1117,8 @@ void EditorApp::joinNetworkSession()
 {
     if (!canJoinSession())
     {
-        DE_LOG_WARN(LogCategory::Networking, "Editor: join requires an empty 3D scene");
+        DE_LOG_WARN(LogCategory::Networking, "Editor: join requires an empty {} scene",
+                    m_sceneMode == SceneMode::Scene2D ? "2D" : "3D");
         return;
     }
     Address addr{};
@@ -1119,7 +1131,7 @@ void EditorApp::joinNetworkSession()
     if (addr.port == 0)
         addr.port = kNetDefaultPort;
     network().setWantsPawn(false);
-    network().setSceneMode(0);
+    network().setSceneMode(m_sceneMode == SceneMode::Scene2D ? 1u : 0u);
     if (!network().join(addr))
         DE_LOG_ERROR(LogCategory::Networking, "Editor: join failed");
 }
@@ -1146,19 +1158,14 @@ void EditorApp::drawNetworkMenu()
     if (ImGui::MenuItem("Host Session", "26160", false, hostOk))
         hostNetworkSession();
     if (!hostOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-    {
-        if (m_sceneMode != SceneMode::Scene3D)
-            ImGui::SetTooltip("2D host waits for a later update");
-        else
-            ImGui::SetTooltip("Disconnect first");
-    }
+        ImGui::SetTooltip("Disconnect first");
 
     ImGui::SetNextItemWidth(180.0f);
     ImGui::InputText("Join IP", m_joinAddress, sizeof(m_joinAddress));
     if (ImGui::MenuItem("Join", nullptr, false, joinOk))
         joinNetworkSession();
     if (!joinOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("Join requires an empty 3D scene");
+        ImGui::SetTooltip("Join requires an empty scene of the current mode");
 
     ImGui::Separator();
     ImGui::TextUnformatted("LAN sessions");
@@ -1177,7 +1184,8 @@ void EditorApp::drawNetworkMenu()
                       s.name[0] ? s.name : "(unnamed)",
                       (ip >> 24) & 255u, (ip >> 16) & 255u, (ip >> 8) & 255u, ip & 255u,
                       s.address.port, s.peerCount, s.sceneMode ? "2D" : "3D");
-        const bool canClick = joinOk && s.sceneMode == 0;
+        const uint8_t wantMode = m_sceneMode == SceneMode::Scene2D ? 1u : 0u;
+        const bool    canClick = joinOk && s.sceneMode == wantMode;
         ImGui::PushID(static_cast<int>(i));
         if (ImGui::MenuItem(line, nullptr, false, canClick))
         {
@@ -1187,10 +1195,10 @@ void EditorApp::drawNetworkMenu()
         }
         if (!canClick && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         {
-            if (s.sceneMode != 0)
-                ImGui::SetTooltip("2D join waits for a later update");
+            if (s.sceneMode != wantMode)
+                ImGui::SetTooltip("Host scene mode does not match (switch to an empty %s scene)", s.sceneMode ? "2D" : "3D");
             else
-                ImGui::SetTooltip("Join requires an empty 3D scene");
+                ImGui::SetTooltip("Join requires an empty scene of the current mode");
         }
         ImGui::PopID();
     }

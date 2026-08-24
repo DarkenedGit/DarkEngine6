@@ -3,10 +3,14 @@
 #include "Collision/Collision.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
+#include "ECS/Components.h"
 #include "Geometry/MeshGen.h"
 #include "Input/InputCodes.h"
 #include "Math/MathHelper.h"
 #include "Math/Matrix4f.h"
+#include "Math/Quaternion.h"
+#include "Math/Vector3f.h"
+#include "Network/NetTypes.h"
 #include "Scene/SceneFile.h"
 #include "Sprite/SpriteSheet.h"
 
@@ -76,6 +80,51 @@ Aabb2f playerBounds(const Vector2f& pos, const Vector2f& half)
     return Aabb2f::FromCenterExtents(pos, half);
 }
 
+const char* netRoleName(NetRole role)
+{
+    switch (role)
+    {
+    case NetRole::Idle:
+        return "Idle";
+    case NetRole::Joining:
+        return "Joining";
+    case NetRole::Host:
+        return "Host";
+    case NetRole::Client:
+        return "Client";
+    default:
+        return "?";
+    }
+}
+
+uint32_t pawnPaletteColor(ClientId id)
+{
+    static constexpr uint32_t kPalette[8] = {
+        0x3DA6F2FFu, 0xE85D4CFFu, 0x5BD96CFFu, 0xF2C14EFFu, 0xC86BFFFFu, 0xF28C3CFFu, 0x4CD4E8FFu, 0xE8E8E8FFu,
+    };
+    const unsigned i = static_cast<unsigned>(id);
+    return kPalette[i < 8u ? i : 0u];
+}
+
+void unpackRgba8(uint32_t rgba, float out[4])
+{
+    out[0] = static_cast<float>((rgba >> 24) & 0xFFu) / 255.0f;
+    out[1] = static_cast<float>((rgba >> 16) & 0xFFu) / 255.0f;
+    out[2] = static_cast<float>((rgba >> 8) & 0xFFu) / 255.0f;
+    out[3] = static_cast<float>(rgba & 0xFFu) / 255.0f;
+}
+
+float facingFromRotation(const Quaternion& q)
+{
+    const Vector3f right = q.Rotate(Vector3f::X_AXIS);
+    return right.x >= 0.0f ? 1.0f : -1.0f;
+}
+
+Quaternion rotationFromFacing(float facing)
+{
+    return Quaternion::FromAxisAngle(Vector3f::Y_AXIS, facing < 0.0f ? Pi : 0.0f);
+}
+
 } // namespace
 
 void Sandbox2DApp::registerActions()
@@ -106,8 +155,13 @@ void Sandbox2DApp::registerActions()
     a.bindKey("debug", Key::F1);
     a.bindButton("debug", GamepadButton::Start);
 
+    a.bindKey("net_disconnect", Key::F4);
+    a.bindKey("net_host", Key::F5);
+    a.bindKey("net_join", Key::F6);
+
     DE_LOG_INFO(
         "Sandbox2D: move(A/D / arrows / LS / D-pad) jump(Space/W / A/B) reset(R/Y) debug(F1/Start) quit(Esc/Back)");
+    DE_LOG_INFO(LogCategory::Networking, "Sandbox2D net: F5 host :26160  F6 join 127.0.0.1:26160  F4 disconnect");
 }
 
 void Sandbox2DApp::buildLevel()
@@ -220,6 +274,8 @@ void Sandbox2DApp::destroyPhysics()
     m_playerBody  = b2_nullBodyId;
     m_playerShape = b2_nullShapeId;
     m_physAccum   = 0.0f;
+    for (Platform& p : m_platforms)
+        p.body = b2_nullBodyId;
 }
 
 bool Sandbox2DApp::createPhysicsWorld()
@@ -247,32 +303,38 @@ bool Sandbox2DApp::createPhysicsWorld()
     return true;
 }
 
-void Sandbox2DApp::createPlatformBodies()
+void Sandbox2DApp::addPlatformBody(Platform& p)
 {
-    if (!b2World_IsValid(m_physWorld))
+    if (!b2World_IsValid(m_physWorld) || b2Body_IsValid(p.body))
+        return;
+
+    const Vector2f c = p.box.Center();
+    const Vector2f h = p.box.Extents();
+    if (h.x <= 0.0f || h.y <= 0.0f)
         return;
 
     b2ShapeDef shapeDef           = b2DefaultShapeDef();
     shapeDef.material.friction    = 0.6f;
     shapeDef.material.restitution = 0.0f;
 
-    for (const Platform& p : m_platforms)
-    {
-        const Vector2f c = p.box.Center();
-        const Vector2f h = p.box.Extents();
-        if (h.x <= 0.0f || h.y <= 0.0f)
-            continue;
+    b2BodyDef bodyDef = b2DefaultBodyDef();
+    bodyDef.type      = b2_staticBody;
+    bodyDef.position  = { c.x, c.y };
+    const b2BodyId body = b2CreateBody(m_physWorld, &bodyDef);
+    if (!b2Body_IsValid(body))
+        return;
 
-        b2BodyDef bodyDef = b2DefaultBodyDef();
-        bodyDef.type      = b2_staticBody;
-        bodyDef.position  = { c.x, c.y };
-        const b2BodyId body = b2CreateBody(m_physWorld, &bodyDef);
-        if (!b2Body_IsValid(body))
-            continue;
+    const b2Polygon box = b2MakeBox(h.x, h.y);
+    b2CreatePolygonShape(body, &shapeDef, &box);
+    p.body = body;
+}
 
-        const b2Polygon box = b2MakeBox(h.x, h.y);
-        b2CreatePolygonShape(body, &shapeDef, &box);
-    }
+void Sandbox2DApp::createPlatformBodies()
+{
+    if (!b2World_IsValid(m_physWorld))
+        return;
+    for (Platform& p : m_platforms)
+        addPlatformBody(p);
 }
 
 bool Sandbox2DApp::createPlayerBody()
@@ -428,6 +490,357 @@ void Sandbox2DApp::resetPlayer()
         b2Body_SetAngularVelocity(m_playerBody, 0.0f);
         b2Body_SetAwake(m_playerBody, true);
     }
+    syncLocalPawnTransform();
+}
+
+void Sandbox2DApp::registerLevelEntities()
+{
+    for (Platform& p : m_platforms)
+    {
+        if (p.entity.valid() && world().alive(p.entity) && world().has<NetworkedComponent>(p.entity))
+            continue;
+
+        Entity e = world().createEntity();
+        const Vector2f c = p.box.Center();
+        const Vector2f s = p.box.Size();
+        TransformComponent xf{};
+        xf.position = Vector3f(c.x, c.y, 0.0f);
+        xf.scale    = Vector3f(s.x, s.y, 1.0f);
+        world().emplace<TagComponent>(e, "Platform");
+        world().emplace<TransformComponent>(e, xf);
+        if (!network().registerEntity(world(), e, NetPrefab::Platform))
+        {
+            world().destroyEntity(e);
+            DE_LOG_WARN(LogCategory::Networking, "Sandbox2D: failed to register platform");
+            continue;
+        }
+        if (NetworkedComponent* nc = world().get<NetworkedComponent>(e))
+            nc->replicateTransform = false;
+        p.entity = e;
+    }
+
+    for (Coin& c : m_coins)
+    {
+        if (c.entity.valid() && world().alive(c.entity) && world().has<NetworkedComponent>(c.entity))
+            continue;
+
+        Entity e = world().createEntity();
+        TransformComponent xf{};
+        xf.position = Vector3f(c.pos.x, c.pos.y, 0.0f);
+        xf.scale    = Vector3f(0.45f, 0.45f, 1.0f);
+        world().emplace<TagComponent>(e, "Coin");
+        world().emplace<TransformComponent>(e, xf);
+        if (!network().registerEntity(world(), e, NetPrefab::Coin))
+        {
+            world().destroyEntity(e);
+            DE_LOG_WARN(LogCategory::Networking, "Sandbox2D: failed to register coin");
+            continue;
+        }
+        if (NetworkedComponent* nc = world().get<NetworkedComponent>(e))
+            nc->replicateTransform = false;
+        c.entity = e;
+    }
+}
+
+void Sandbox2DApp::createLocalPlayerEntity()
+{
+    if (m_playerEntity.valid() && world().alive(m_playerEntity))
+        return;
+
+    Entity e = world().createEntity();
+    TransformComponent xf{};
+    xf.position = Vector3f(m_player.pos.x, m_player.pos.y, 0.0f);
+    xf.rotation = rotationFromFacing(m_player.facing);
+    world().emplace<TagComponent>(e, "Player2D");
+    world().emplace<TransformComponent>(e, xf);
+    if (!network().registerEntity(world(), e, NetPrefab::Player2D, ClientId::Host, pawnPaletteColor(ClientId::Host)))
+    {
+        world().destroyEntity(e);
+        DE_LOG_ERROR(LogCategory::Networking, "Sandbox2D: failed to register local Player2D");
+        return;
+    }
+    m_playerEntity = e;
+}
+
+void Sandbox2DApp::unregisterIdleReplicas()
+{
+    std::vector<Entity> stale;
+    world().each<NetworkedComponent>([&](Entity e, NetworkedComponent& nc) {
+        if (nc.netId == NULL_NET_ID)
+            stale.push_back(e);
+    });
+    for (Entity e : stale)
+        network().unregisterEntity(world(), e);
+}
+
+void Sandbox2DApp::restoreLocalLevel()
+{
+    m_remotePawns.clear();
+    m_playerEntity = {};
+    m_platforms.clear();
+    m_coins.clear();
+    destroyPhysics();
+    if (!tryLoadLevel())
+        buildLevel();
+    if (!createPhysicsWorld())
+        DE_LOG_ERROR(LogCategory::Networking, "Sandbox2D: physics restore failed");
+    resetPlayer();
+    registerLevelEntities();
+    createLocalPlayerEntity();
+    m_score = 0;
+}
+
+Entity Sandbox2DApp::findPawn(ClientId owner)
+{
+    Entity found{};
+    world().each<NetworkedComponent>([&](Entity e, NetworkedComponent& nc) {
+        if (!found.valid() && nc.prefab == NetPrefab::Player2D && nc.owner == owner)
+            found = e;
+    });
+    return found;
+}
+
+void Sandbox2DApp::spawnOwnedPawn(ClientId owner, float offsetX)
+{
+    if (findPawn(owner).valid())
+        return;
+
+    const Vector2f pos(m_spawn.x + offsetX, m_spawn.y);
+    Entity e = world().createEntity();
+    TransformComponent xf{};
+    xf.position = Vector3f(pos.x, pos.y, 0.0f);
+    world().emplace<TagComponent>(e, "Player2D");
+    world().emplace<TransformComponent>(e, xf);
+    const uint32_t color = pawnPaletteColor(owner);
+    if (!network().registerEntity(world(), e, NetPrefab::Player2D, owner, color))
+    {
+        world().destroyEntity(e);
+        DE_LOG_ERROR(LogCategory::Networking, "Sandbox2D: failed to register pawn for client {}", static_cast<unsigned>(owner));
+        return;
+    }
+
+    if (owner == ClientId::Host)
+    {
+        m_playerEntity = e;
+        m_player.pos   = pos;
+        return;
+    }
+
+    RemotePawn rp{};
+    rp.entity      = e;
+    rp.colorRgba8  = color;
+    m_remotePawns.push_back(rp);
+}
+
+void Sandbox2DApp::syncLocalPawnTransform()
+{
+    Entity pawn = m_playerEntity.valid() ? m_playerEntity : network().localPawn();
+    if (!pawn.valid())
+        return;
+    TransformComponent* xf = world().get<TransformComponent>(pawn);
+    if (!xf)
+        return;
+    xf->position = Vector3f(m_player.pos.x, m_player.pos.y, 0.0f);
+    xf->rotation = rotationFromFacing(m_player.facing);
+}
+
+bool Sandbox2DApp::ensureClientPhysics()
+{
+    if (network().role() != NetRole::Client)
+        return b2World_IsValid(m_physWorld);
+    if (!network().localPawn().valid())
+        return false;
+    if (b2Body_IsValid(m_playerBody))
+        return true;
+
+    if (const TransformComponent* xf = world().get<TransformComponent>(network().localPawn()))
+    {
+        m_spawn       = Vector2f(xf->position.x, xf->position.y);
+        m_player.pos  = m_spawn;
+        m_player.facing = facingFromRotation(xf->rotation);
+    }
+    return createPhysicsWorld();
+}
+
+void Sandbox2DApp::collectCoinsHostAuthority()
+{
+    const NetRole role = network().role();
+    if (role == NetRole::Client)
+        return;
+
+    auto overlaps = [&](const Vector2f& pos) {
+        const Aabb2f hit = playerBounds(pos, m_player.half);
+        std::vector<Entity> eaten;
+        for (Coin& c : m_coins)
+        {
+            if (c.collected)
+                continue;
+            const Aabb2f coinBox = Aabb2f::FromCenterExtents(c.pos, Vector2f(0.28f, 0.28f));
+            if (!Intersects(hit, coinBox))
+                continue;
+            ++m_score;
+            audio().play3D(m_sfxCoin, Vector3f(c.pos.x, c.pos.y, 0.0f), 0.8f);
+            DE_LOG_INFO("Sandbox2D: coin +1  score {}", m_score);
+            if (role == NetRole::Host && c.entity.valid())
+                eaten.push_back(c.entity);
+            else
+                c.collected = true;
+        }
+        for (Entity e : eaten)
+            network().unregisterEntity(world(), e);
+    };
+
+    overlaps(m_player.pos);
+    if (role != NetRole::Host)
+        return;
+    for (const RemotePawn& rp : m_remotePawns)
+    {
+        const TransformComponent* xf = world().get<TransformComponent>(rp.entity);
+        if (xf)
+            overlaps(Vector2f(xf->position.x, xf->position.y));
+    }
+}
+
+void Sandbox2DApp::handleNetHotkeys()
+{
+    if (input().actionPressed("net_host"))
+    {
+        if (network().host(kNetDefaultPort))
+            DE_LOG_INFO(LogCategory::Networking, "Sandbox2D: hosting on port {}", kNetDefaultPort);
+    }
+    if (input().actionPressed("net_join"))
+    {
+        Address addr{};
+        addr.port = kNetDefaultPort;
+        parseIPv4("127.0.0.1", addr);
+        if (network().join(addr))
+            DE_LOG_INFO(LogCategory::Networking, "Sandbox2D: joining 127.0.0.1:{}", kNetDefaultPort);
+    }
+    if (input().actionPressed("net_disconnect"))
+    {
+        network().disconnect();
+        DE_LOG_INFO(LogCategory::Networking, "Sandbox2D: disconnect");
+    }
+}
+
+void Sandbox2DApp::applyNetRole()
+{
+    const NetRole role = network().role();
+    if (role != m_netRole)
+    {
+        DE_LOG_INFO(
+            LogCategory::Networking,
+            "Sandbox2D: role {} peers {} rtt {:.1f}ms pkts in/out {}/{}",
+            netRoleName(role),
+            network().peerCount(),
+            network().rttMs(network().localClientId()),
+            network().packetsIn(),
+            network().packetsOut());
+
+        if (role == NetRole::Client)
+            destroyPhysics();
+        else if (role == NetRole::Idle && m_netRole == NetRole::Client)
+            restoreLocalLevel();
+
+        m_netRole = role;
+    }
+
+    if (role == NetRole::Client)
+        unregisterIdleReplicas();
+
+    if (role == NetRole::Host && !network().localPawn().valid())
+        spawnOwnedPawn(ClientId::Host, 0.0f);
+
+    if (role == NetRole::Client)
+        ensureClientPhysics();
+}
+
+bool Sandbox2DApp::onNetSpawn(World& world, Entity e, NetPrefab prefab, const TransformComponent& xf, uint32_t colorRgba8, void* user)
+{
+    auto* app = static_cast<Sandbox2DApp*>(user);
+    if (!app || !e.valid())
+        return false;
+
+    if (prefab == NetPrefab::Platform)
+    {
+        Platform p;
+        p.box = Aabb2f::FromCenterExtents(
+            Vector2f(xf.position.x, xf.position.y),
+            Vector2f(0.5f * std::fabs(xf.scale.x), 0.5f * std::fabs(xf.scale.y)));
+        p.entity = e;
+        app->m_platforms.push_back(p);
+        app->addPlatformBody(app->m_platforms.back());
+        return true;
+    }
+    if (prefab == NetPrefab::Coin)
+    {
+        Coin c;
+        c.pos    = Vector2f(xf.position.x, xf.position.y);
+        c.entity = e;
+        app->m_coins.push_back(c);
+        return true;
+    }
+    if (prefab == NetPrefab::Player2D)
+    {
+        const NetworkedComponent* nc = world.get<NetworkedComponent>(e);
+        const ClientId owner = nc ? nc->owner : ClientId::Invalid;
+        if (owner == app->network().localClientId())
+        {
+            app->m_playerEntity = e;
+            app->m_player.pos     = Vector2f(xf.position.x, xf.position.y);
+            app->m_player.facing  = facingFromRotation(xf.rotation);
+            app->ensureClientPhysics();
+            return true;
+        }
+        for (const RemotePawn& rp : app->m_remotePawns)
+        {
+            if (rp.entity == e)
+                return true;
+        }
+        RemotePawn rp{};
+        rp.entity     = e;
+        rp.colorRgba8 = colorRgba8;
+        app->m_remotePawns.push_back(rp);
+        return true;
+    }
+    return true;
+}
+
+void Sandbox2DApp::onNetDespawn(World&, Entity e, NetId, void* user)
+{
+    auto* app = static_cast<Sandbox2DApp*>(user);
+    if (!app)
+        return;
+
+    if (app->m_playerEntity == e)
+        app->m_playerEntity = {};
+
+    std::erase_if(app->m_platforms, [&](Platform& p) {
+        if (p.entity != e)
+            return false;
+        if (b2Body_IsValid(p.body) && b2World_IsValid(app->m_physWorld))
+            b2DestroyBody(p.body);
+        p.body = b2_nullBodyId;
+        return true;
+    });
+    std::erase_if(app->m_coins, [&](const Coin& c) { return c.entity == e; });
+    std::erase_if(app->m_remotePawns, [&](const RemotePawn& rp) { return rp.entity == e; });
+}
+
+void Sandbox2DApp::onNetPeer(const NetPeerInfo& info, NetPeerEvent event, void* user)
+{
+    auto* app = static_cast<Sandbox2DApp*>(user);
+    if (!app)
+        return;
+
+    if (event == NetPeerEvent::Joined && info.wantsPawn)
+        app->spawnOwnedPawn(info.id, 1.5f * static_cast<float>(static_cast<uint8_t>(info.id)));
+    else if (event == NetPeerEvent::Left)
+    {
+        const Entity pawn = app->findPawn(info.id);
+        if (pawn.valid())
+            app->network().unregisterEntity(app->world(), pawn);
+    }
 }
 
 void Sandbox2DApp::onInit()
@@ -449,8 +862,16 @@ void Sandbox2DApp::onInit()
         return;
     }
 
-    m_quad       = Mesh::Create(renderer(), CreateQuadXY(1.0f, 1.0f));
-    m_boxOutline = LineMesh::Create(renderer(), CreateBoxOutlineXY());
+    {
+        MeshData mesh_data;
+        CreateQuadXY(mesh_data, 1.0f, 1.0f);
+        m_quad = Mesh::Create(renderer(), mesh_data);
+    }
+    {
+        LineMeshData outline;
+        CreateBoxOutlineXY(outline);
+        m_boxOutline = LineMesh::Create(renderer(), outline);
+    }
     if (!m_quad.valid())
     {
         DE_LOG_FATAL("Sandbox2D: quad mesh failed");
@@ -517,6 +938,15 @@ void Sandbox2DApp::onInit()
     m_camera.SetPosition(m_player.pos.x, m_player.pos.y + 1.0f);
     m_score = 0;
 
+    network().setWantsPawn(true);
+    network().setSceneMode(1);
+    network().setPlayerName("Sandbox2D");
+    network().setSpawnCallback(&Sandbox2DApp::onNetSpawn, this);
+    network().setDespawnCallback(&Sandbox2DApp::onNetDespawn, this);
+    network().setPeerCallback(&Sandbox2DApp::onNetPeer, this);
+    registerLevelEntities();
+    createLocalPlayerEntity();
+
     m_sfxJump  = audio().loadOrBlip(assets(), "audio/jump.wav", 420.0f, 0.14f, 0.5f);
     m_sfxCoin  = audio().loadOrBlip(assets(), "audio/coin.wav", 880.0f, 0.16f, 0.45f);
     m_sfxReset = audio().loadOrBlip(assets(), "audio/whoosh.wav", 180.0f, 0.22f, 0.35f);
@@ -527,6 +957,7 @@ void Sandbox2DApp::onInit()
         m_platforms.size(),
         m_coins.size(),
         m_camera.GetOrthoHeight());
+    DE_LOG_INFO(LogCategory::Networking, "Sandbox2D net: Sandbox2D.exe -host   and   Sandbox2D.exe -join 127.0.0.1");
 }
 
 void Sandbox2DApp::updatePlayer(float dt)
@@ -553,21 +984,8 @@ void Sandbox2DApp::updatePlayer(float dt)
 
     syncPlayerFromBody();
     m_player.grounded = playerGrounded();
-
-    const Aabb2f coinHit = playerBounds(m_player.pos, m_player.half);
-    for (Coin& c : m_coins)
-    {
-        if (c.collected)
-            continue;
-        const Aabb2f coinBox = Aabb2f::FromCenterExtents(c.pos, Vector2f(0.28f, 0.28f));
-        if (Intersects(coinHit, coinBox))
-        {
-            c.collected = true;
-            ++m_score;
-            audio().play3D(m_sfxCoin, Vector3f(c.pos.x, c.pos.y, 0.0f), 0.8f);
-            DE_LOG_INFO("Sandbox2D: coin +1  score {}", m_score);
-        }
-    }
+    syncLocalPawnTransform();
+    collectCoinsHostAuthority();
 
     if (m_player.pos.y < -6.0f)
     {
@@ -599,7 +1017,24 @@ void Sandbox2DApp::updateCamera(float dt)
     if (wheel != 0.0f)
         m_camera.ZoomBy(wheel > 0.0f ? 1.12f : 1.0f / 1.12f);
 
-    Vector2f target(m_player.pos.x + m_player.facing * 2.4f, m_player.pos.y + 1.1f);
+    Vector2f follow = m_player.pos;
+    float    facing = m_player.facing;
+    const bool spectator = network().role() == NetRole::Client && !network().localPawn().valid();
+    if (spectator)
+    {
+        follow = m_spawn;
+        facing = 1.0f;
+        if (!m_remotePawns.empty())
+        {
+            if (const TransformComponent* xf = world().get<TransformComponent>(m_remotePawns.front().entity))
+            {
+                follow = Vector2f(xf->position.x, xf->position.y);
+                facing = facingFromRotation(xf->rotation);
+            }
+        }
+    }
+
+    Vector2f target(follow.x + facing * 2.4f, follow.y + 1.1f);
     const float blend = 1.0f - std::exp(-7.0f * dt);
     Vector2f cam = m_camera.GetPosition();
     cam.x += (target.x - cam.x) * blend;
@@ -614,6 +1049,9 @@ void Sandbox2DApp::updateCamera(float dt)
 
 void Sandbox2DApp::onUpdate(float dt)
 {
+    handleNetHotkeys();
+    applyNetRole();
+
     if (input().actionPressed("quit"))
     {
         requestQuit();
@@ -621,9 +1059,12 @@ void Sandbox2DApp::onUpdate(float dt)
     }
     if (input().actionPressed("reset"))
     {
-        for (Coin& c : m_coins)
-            c.collected = false;
-        m_score = 0;
+        if (network().role() == NetRole::Idle)
+        {
+            for (Coin& c : m_coins)
+                c.collected = false;
+            m_score = 0;
+        }
         resetPlayer();
         audio().play2D(m_sfxReset, 0.5f);
         DE_LOG_INFO("Sandbox2D: reset");
@@ -685,6 +1126,27 @@ void Sandbox2DApp::drawSprite(
     m_quad.draw(cmd);
 }
 
+void Sandbox2DApp::drawPawnSprite(
+    ID3D12GraphicsCommandList* cmd,
+    const Vector2f& pos,
+    float facing,
+    float tintR,
+    float tintG,
+    float tintB)
+{
+    const Texture2D* playerTex = m_playerAnim.currentTexture();
+    if (!playerTex)
+        return;
+    const SpriteUvRect uv = m_playerAnim.currentUv();
+    const SpriteSheet* sheet = m_playerAnim.currentSheet();
+    const float fw = (sheet && sheet->frameWidth() > 0) ? static_cast<float>(sheet->frameWidth()) : 32.0f;
+    const float fh = (sheet && sheet->frameHeight() > 0) ? static_cast<float>(sheet->frameHeight()) : 32.0f;
+    constexpr float kSpriteHeight = 1.50f;
+    const Vector2f playerSize(kSpriteHeight * (fw / fh), kSpriteHeight);
+    const Vector2f spritePos(pos.x, pos.y - m_player.half.y + kSpriteHeight * 0.5f);
+    drawSprite(cmd, *playerTex, spritePos, playerSize, 1.0f, tintR, tintG, tintB, 1, uv.du, uv.dv, facing, uv.u, uv.v);
+}
+
 void Sandbox2DApp::onRender()
 {
     renderer().beginFrame();
@@ -718,30 +1180,26 @@ void Sandbox2DApp::onRender()
         drawSprite(cmd, m_texCoin, c.pos, Vector2f(0.45f, 0.45f), 1.2f, 1, 1, 1, 1, 1, 1);
     }
 
-    if (const Texture2D* playerTex = m_playerAnim.currentTexture())
+    const bool drawLocal = network().role() != NetRole::Client || network().localPawn().valid();
+    if (drawLocal)
+        drawPawnSprite(cmd, m_player.pos, m_player.facing, 1.0f, 1.0f, 1.0f);
+
+    for (const RemotePawn& rp : m_remotePawns)
     {
-        const SpriteUvRect uv = m_playerAnim.currentUv();
-        const SpriteSheet* sheet = m_playerAnim.currentSheet();
-        const float fw = (sheet && sheet->frameWidth() > 0) ? static_cast<float>(sheet->frameWidth()) : 32.0f;
-        const float fh = (sheet && sheet->frameHeight() > 0) ? static_cast<float>(sheet->frameHeight()) : 32.0f;
-        constexpr float kSpriteHeight = 1.50f;
-        const Vector2f playerSize(kSpriteHeight * (fw / fh), kSpriteHeight);
-        const Vector2f spritePos(m_player.pos.x, m_player.pos.y - m_player.half.y + kSpriteHeight * 0.5f);
-        drawSprite(
+        if (!rp.entity.valid() || rp.entity == m_playerEntity)
+            continue;
+        const TransformComponent* xf = world().get<TransformComponent>(rp.entity);
+        if (!xf)
+            continue;
+        float tint[4]{};
+        unpackRgba8(rp.colorRgba8, tint);
+        drawPawnSprite(
             cmd,
-            *playerTex,
-            spritePos,
-            playerSize,
-            1.0f,
-            1,
-            1,
-            1,
-            1,
-            uv.du,
-            uv.dv,
-            m_player.facing,
-            uv.u,
-            uv.v);
+            Vector2f(xf->position.x, xf->position.y),
+            facingFromRotation(xf->rotation),
+            tint[0],
+            tint[1],
+            tint[2]);
     }
 
     if (m_showCollision && m_boxOutline.valid())
@@ -774,12 +1232,13 @@ void Sandbox2DApp::onRender()
         }
     }
 
-    renderer().stats().drawCalls = static_cast<uint32_t>(m_platforms.size() + m_coins.size() + 6);
+    renderer().stats().drawCalls = static_cast<uint32_t>(m_platforms.size() + m_coins.size() + m_remotePawns.size() + 6);
     renderer().endFrame();
 }
 
 void Sandbox2DApp::onShutdown()
 {
+    network().shutdown();
     renderer().waitForGpu();
     destroyPhysics();
     m_playerAnim.setSheet(nullptr);

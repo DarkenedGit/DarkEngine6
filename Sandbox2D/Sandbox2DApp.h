@@ -3,6 +3,7 @@
 #include "Core/Application.h"
 #include "Geometry/Mesh.h"
 #include "Geometry/LineMesh.h"
+#include "Network/Replication.h"
 #include "Render/Camera2D.h"
 #include "Render/SpritePipeline.h"
 #include "Render/LinePipeline.h"
@@ -33,13 +34,16 @@ private:
     struct Platform
     {
         Dark::Math::Aabb2f box;
-        float              z = 2.0f;
+        float              z    = 2.0f;
+        Dark::Entity       entity{};
+        b2BodyId           body = b2_nullBodyId;
     };
 
     struct Coin
     {
         Dark::Math::Vector2f pos;
         bool                 collected = false;
+        Dark::Entity         entity{};
     };
 
     struct Player
@@ -47,11 +51,17 @@ private:
         Dark::Math::Vector2f pos;
         Dark::Math::Vector2f vel;
         Dark::Math::Vector2f half{ 0.38f, 0.68f };
-        bool                 grounded   = false;
-        float                facing     = 1.0f;
+        bool                 grounded    = false;
+        float                facing      = 1.0f;
         float                coyote      = 0.0f;
         float                jumpBuffer  = 0.0f;
         bool                 wasGrounded = false;
+    };
+
+    struct RemotePawn
+    {
+        Dark::Entity entity{};
+        uint32_t     colorRgba8 = 0xFFFFFFFFu;
     };
 
     void registerActions();
@@ -65,9 +75,22 @@ private:
     bool createPhysicsWorld();
     bool createPlayerBody();
     void createPlatformBodies();
+    void addPlatformBody(Platform& p);
     void applyPlayerControl(float dt);
     void syncPlayerFromBody();
     bool playerGrounded() const;
+
+    void handleNetHotkeys();
+    void applyNetRole();
+    void registerLevelEntities();
+    void createLocalPlayerEntity();
+    void unregisterIdleReplicas();
+    void restoreLocalLevel();
+    void spawnOwnedPawn(Dark::ClientId owner, float offsetX);
+    Dark::Entity findPawn(Dark::ClientId owner);
+    void syncLocalPawnTransform();
+    void collectCoinsHostAuthority();
+    bool ensureClientPhysics();
 
     void drawSprite(
         ID3D12GraphicsCommandList* cmd,
@@ -85,7 +108,19 @@ private:
         float uvOffX = 0.0f,
         float uvOffY = 0.0f);
 
+    void drawPawnSprite(
+        ID3D12GraphicsCommandList* cmd,
+        const Dark::Math::Vector2f& pos,
+        float facing,
+        float tintR,
+        float tintG,
+        float tintB);
+
     void updatePlayerAnim(float dt);
+
+    static bool onNetSpawn(Dark::World& world, Dark::Entity e, Dark::NetPrefab prefab, const Dark::TransformComponent& xf, uint32_t colorRgba8, void* user);
+    static void onNetDespawn(Dark::World& world, Dark::Entity e, Dark::NetId id, void* user);
+    static void onNetPeer(const Dark::NetPeerInfo& info, Dark::NetPeerEvent event, void* user);
 
     Dark::Camera2D        m_camera;
     Dark::SpritePipeline  m_spritePipe;
@@ -103,11 +138,14 @@ private:
     Dark::Texture2D m_texHillMid;
     Dark::Texture2D m_texWhite;
 
-    Player               m_player;
+    Player                m_player;
+    Dark::Entity          m_playerEntity{};
     std::vector<Platform> m_platforms;
     std::vector<Coin>     m_coins;
-    uint32_t              m_score        = 0;
+    std::vector<RemotePawn> m_remotePawns;
+    uint32_t              m_score         = 0;
     bool                  m_showCollision = false;
+    Dark::NetRole         m_netRole       = Dark::NetRole::Idle;
 
     Dark::Math::Vector2f m_spawn{ 3.0f, 3.5f };
     Dark::Math::Vector2f m_worldMin{ 0.0f, 0.0f };

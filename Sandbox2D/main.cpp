@@ -9,10 +9,11 @@
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR lpCmdLine, int)
 {
     Dark::AppConfig cfg{};
-    cfg.title  = "DarkEngine6 Sandbox2D";
-    cfg.width  = 1280;
-    cfg.height = 720;
-    cfg.vsync  = true;
+    cfg.title        = "DarkEngine6 Sandbox2D";
+    cfg.width        = 1280;
+    cfg.height       = 720;
+    cfg.vsync        = true;
+    cfg.netSceneMode = 1;
     Dark::parseNetCommandLine(lpCmdLine, cfg);
 
     Sandbox2DApp app{ cfg };
