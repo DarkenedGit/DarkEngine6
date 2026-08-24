@@ -72,11 +72,14 @@ namespace Dark
         // ============================================================
         //  2. CONE
         // ============================================================
-        MeshData CreateCone(float radius, float height, int slices, bool capBase)
+        bool CreateCone(MeshData& m, float radius, float height, int slices, bool capBase)
         {
             if (slices < 3)
-                throw std::invalid_argument("slices must be >= 3");
-            MeshData    m;
+            {
+                DE_LOG_ERROR("slices must be >= 3");
+                return false;            
+            }
+
             const float halfH = height * .5f;
             const float twoPi = 2.f * (float)M_PI;
             float       len   = sqrtf(radius * radius + height * height);
@@ -117,17 +120,20 @@ namespace Dark
                 for (int i = 0; i < slices; ++i)
                     pushIdx(m, base, base + 2 + i, base + 1 + i);
             }
-            return m;
+            return true;
         }
 
         // ============================================================
         //  3. CYLINDER
         // ============================================================
-        MeshData CreateCylinder(float radiusTop, float radiusBottom, float height, int slices, bool capTop, bool capBottom)
+        bool CreateCylinder(MeshData& m, float radiusTop, float radiusBottom, float height, int slices, bool capTop, bool capBottom)
         {
             if (slices < 3)
-                throw std::invalid_argument("slices must be >= 3");
-            MeshData    m;
+            {
+                DE_LOG_ERROR("slices must be >= 3");
+                return false;
+            }
+
             const float halfH = height * .5f, twoPi = 2.f * (float)M_PI;
             float       dr  = radiusBottom - radiusTop;
             float       len = sqrtf(dr * dr + height * height);
@@ -177,7 +183,7 @@ namespace Dark
                 addCap(radiusTop, halfH, 1.f);
             if (capBottom)
                 addCap(radiusBottom, -halfH, -1.f);
-            return m;
+            return true;
         }
 
         // ============================================================
@@ -204,17 +210,16 @@ namespace Dark
         // ============================================================
         //  4. CUBE
         // ============================================================
-        MeshData CreateCube(float size)
+        bool CreateCube(MeshData& m, float size)
         {
-            return CreateCuboid(size, size, size);
+            return CreateCuboid(m, size, size, size);
         }
 
         // ============================================================
         //  6. CUBOID
         // ============================================================
-        MeshData CreateCuboid(float w, float h, float d)
+        bool CreateCuboid(MeshData& m, float w, float h, float d)
         {
-            MeshData    m;
             const float hw = w * .5f, hh = h * .5f, hd = d * .5f;
 
             // Vertex order kept from the winding that matches the PSO.
@@ -242,15 +247,14 @@ namespace Dark
             // -X left (outside looking +X: +Z is right)
             addBoxFace(m, { -hw, -hh, -hd }, { -hw, -hh, hd }, { -hw, hh, hd }, { -hw, hh, -hd },   { -1, 0, 0 }, { 0, 1 }, { 1, 1 }, { 1, 0 }, { 0, 0 });
 
-            return m;
+            return true;
         }
 
         // ============================================================
         //  5. PYRAMID
         // ============================================================
-        MeshData CreatePyramid(float baseSize, float height)
+        bool CreatePyramid(MeshData& m, float baseSize, float height)
         {
-            MeshData m;
             float    hb = baseSize * .5f, hh = height * .5f;
             Vector3f BL = { -hb, -hh, -hb }, BR = { hb, -hh, -hb }, FR = { hb, -hh, hb }, FL = { -hb, -hh, hb }, AP = { 0, hh, 0 };
 
@@ -291,15 +295,14 @@ namespace Dark
             m.uvs.push_back({ 0, 0 });
             pushIdx(m, base + 0, base + 2, base + 1);
             pushIdx(m, base + 0, base + 3, base + 2);
-            return m;
+            return true;
         }
 
         // ============================================================
         //  7. OCTAHEDRON
         // ============================================================
-        MeshData CreateOctahedron(float radius)
+        bool CreateOctahedron(MeshData& m, float radius)
         {
-            MeshData    m;
             const float r       = radius;
             Vector3f    V[6]    = { { r, 0, 0 }, { -r, 0, 0 }, { 0, r, 0 }, { 0, -r, 0 }, { 0, 0, r }, { 0, 0, -r } };
             int         F[8][3] = { { 2, 0, 4 }, { 2, 4, 1 }, { 2, 1, 5 }, { 2, 5, 0 }, { 3, 4, 0 }, { 3, 1, 4 }, { 3, 5, 1 }, { 3, 0, 5 } };
@@ -320,15 +323,14 @@ namespace Dark
                 m.uvs.push_back({ 1, 0 });
                 pushIdx(m, base, base + 1, base + 2);
             }
-            return m;
+            return true;
         }
 
         // ============================================================
         //  8. TRIANGULAR PRISM
         // ============================================================
-        MeshData CreateTriangularPrism(float baseSize, float height)
+        bool CreateTriangularPrism(MeshData& m, float baseSize, float height)
         {
-            MeshData    m;
             const float hh = height * .5f;
             const float r  = baseSize / sqrtf(3.f);
             Vector3f    bot[3], top_[3];
@@ -372,15 +374,14 @@ namespace Dark
             };
             triCap(top_[0], top_[1], top_[2], { 0, 1, 0 });
             triCap(bot[0], bot[2], bot[1], { 0, -1, 0 });
-            return m;
+            return true;
         }
 
         // ============================================================
         //  9. DODECAHEDRON
         // ============================================================
-        MeshData CreateDodecahedron(float radius)
+        bool CreateDodecahedron(MeshData& m, float radius)
         {
-            MeshData    m;
             const float phi  = (1.f + sqrtf(5.f)) * .5f;
             const float iphi = 1.f / phi;
             const float a = 1.f, b_ = iphi, c_ = phi;
@@ -425,15 +426,14 @@ namespace Dark
                     pushIdx(m, base, base + 1, base + 2);
                 }
             }
-            return m;
+            return true;
         }
 
         // ============================================================
         // 10. HEXAGONAL PRISM
         // ============================================================
-        MeshData CreateHexagonalPrism(float radius, float height, bool capTop, bool capBottom)
+        bool CreateHexagonalPrism(MeshData& m, float radius, float height, bool capTop, bool capBottom)
         {
-            MeshData    m;
             const float hh = height * .5f, twoPi = 2.f * (float)M_PI;
             const int   N = 6;
             for (int i = 0; i < N; ++i)
@@ -479,19 +479,25 @@ namespace Dark
                 addCap(hh, 1.f);
             if (capBottom)
                 addCap(-hh, -1.f);
-            return m;
+            return true;
         }
 
         // ============================================================
         // 11. ELLIPSOID
         // ============================================================
-        MeshData CreateEllipsoid(float rx, float ry, float rz, int stacks, int slices)
+        bool CreateEllipsoid(MeshData& m, float rx, float ry, float rz, int stacks, int slices)
         {
             if (stacks < 2)
-                throw std::invalid_argument("stacks must be >= 2");
+            {
+                DE_LOG_ERROR("stacks must be >= 2");
+                return false;
+            }
             if (slices < 3)
-                throw std::invalid_argument("slices must be >= 3");
-            MeshData    m;
+            {
+                DE_LOG_ERROR("slices must be >= 3");
+                return false;
+            }
+
             const float PI = (float)M_PI;
             for (int i = 0; i <= stacks; ++i)
             {
@@ -520,19 +526,26 @@ namespace Dark
                         pushIdx(m, a, d, c);
                 }
             }
-            return m;
+            return true;
         }
 
         // ============================================================
         // 12. TORUS
         // ============================================================
-        MeshData CreateTorus(float R, float r, int majorSlices, int minorSlices)
+        bool CreateTorus(MeshData& m, float R, float r, int majorSlices, int minorSlices)
         {
             if (majorSlices < 3)
-                throw std::invalid_argument("majorSlices must be >= 3");
+            {
+                DE_LOG_ERROR("majorSlices must be >= 3");
+                return false;
+            }
+             
             if (minorSlices < 3)
-                throw std::invalid_argument("minorSlices must be >= 3");
-            MeshData    m;
+            {
+                DE_LOG_ERROR("minorSlices must be >= 3");
+                return false;
+            }
+
             const float twoPi = 2.f * (float)M_PI;
             for (int i = 0; i <= majorSlices; ++i)
             {
@@ -559,7 +572,7 @@ namespace Dark
                     pushIdx(m, a, c, d);
                 }
             }
-            return m;
+            return true;
         }
 
         // ============================================================
@@ -572,16 +585,23 @@ namespace Dark
         //
         //  cylinderTop = (height/2 - radius)  clamped to >= 0
         // ============================================================
-        MeshData CreateCapsule(float radius, float height, int slices, int capStacks)
+        bool CreateCapsule(MeshData& m, float radius, float height, int slices, int capStacks)
         {
             if (slices < 3)
-                throw std::invalid_argument("slices must be >= 3");
+            {
+                DE_LOG_ERROR("slices must be >= 3");
+                return false;
+            }
+            
             if (capStacks < 1)
-                throw std::invalid_argument("capStacks must be >= 1");
+            {
+                DE_LOG_ERROR("capStacks must be >= 1");
+                return false;
+            }
+
             if (height < 2.f * radius)
                 height = 2.f * radius; // degenerate → sphere
 
-            MeshData    m;
             const float PI    = (float)M_PI;
             const float twoPi = 2.f * PI;
             const float halfH = height * .5f;
@@ -650,16 +670,19 @@ namespace Dark
                     pushIdx(m, a, d, c);
                 }
             }
-            return m;
+            return true;
         }
 
         // ============================================================
         // 14. ICOSAHEDRON  (with optional geodesic subdivision)
         // ============================================================
-        MeshData CreateIcosahedron(float radius, int subdivisions)
+        bool CreateIcosahedron(MeshData& m, float radius, int subdivisions)
         {
             if (subdivisions < 0)
-                throw std::invalid_argument("subdivisions must be >= 0");
+            {
+                DE_LOG_ERROR("subdivisions must be >= 0");
+                return false;
+            }
 
             // Golden ratio
             const float t = (1.f + sqrtf(5.f)) * .5f;
@@ -704,7 +727,6 @@ namespace Dark
             }
 
             // Emit mesh — flat-shaded for subdivisions==0, smooth otherwise
-            MeshData m;
             if (subdivisions == 0)
             {
                 // Flat shaded: unique verts per face
@@ -748,7 +770,7 @@ namespace Dark
                     pushIdx(m, base, base + 1, base + 2);
                 }
             }
-            return m;
+            return true;
         }
 
         // ============================================================
@@ -759,14 +781,20 @@ namespace Dark
         //  A Frenet-Serret frame is computed analytically and a circle of
         //  tubeRadius is swept around it.
         // ============================================================
-        MeshData CreateSpring(float coilRadius, float tubeRadius, float coils, float height, int coilSlices, int tubeSlices)
+        bool CreateSpring(MeshData& m, float coilRadius, float tubeRadius, float coils, float height, int coilSlices, int tubeSlices)
         {
             if (coilSlices < 4)
-                throw std::invalid_argument("coilSlices must be >= 4");
+            {
+                DE_LOG_ERROR("coilSlices must be >= 4");
+                return false;
+            }
+            
             if (tubeSlices < 3)
-                throw std::invalid_argument("tubeSlices must be >= 3");
+            {
+                DE_LOG_ERROR("tubeSlices must be >= 3");
+                return false;
+            }
 
-            MeshData    m;
             const float PI    = (float)M_PI;
             const float twoPi = 2.f * PI;
 
@@ -847,7 +875,7 @@ namespace Dark
                     pushIdx(m, a, c, d);
                 }
             }
-            return m;
+            return true;
         }
 
         // ============================================================
@@ -867,14 +895,20 @@ namespace Dark
         //  For a full semicircle (arcAngle = π) the arch sits with its
         //  feet at Y = 0 and its crown at Y = outerRadius.
         // ============================================================
-        MeshData CreateArch(float innerRadius, float outerRadius, float depth, float arcAngle, int slices)
+        bool CreateArch(MeshData& m, float innerRadius, float outerRadius, float depth, float arcAngle, int slices)
         {
             if (slices < 2)
-                throw std::invalid_argument("slices must be >= 2");
+            {
+                DE_LOG_ERROR("slices must be >= 2");
+                return false;
+            }
+            
             if (outerRadius <= innerRadius)
-                throw std::invalid_argument("outerRadius must be > innerRadius");
+            {
+                DE_LOG_ERROR("outerRadius must be > innerRadius");
+                return false;
+            }
 
-            MeshData    m;
             const float halfD = depth * .5f;
 
             // Arch is centred so that angle=0 is at -X axis and sweeps CCW
@@ -1022,20 +1056,19 @@ namespace Dark
                 addCap(1.f, n);
             }
 
-            return m;
+            return true;
         }
 
         // ============================================================
         // 17a. XY QUAD
         // ============================================================
-        MeshData CreateQuadXY(float width, float height)
+        bool CreateQuadXY(MeshData& m, float width, float height)
         {
             if (width < 1.0e-4f)
                 width = 1.0e-4f;
             if (height < 1.0e-4f)
                 height = 1.0e-4f;
 
-            MeshData       m;
             const float    hx = width * 0.5f;
             const float    hy = height * 0.5f;
             const Vector3f n  = { 0.0f, 0.0f, 1.0f };
@@ -1057,15 +1090,14 @@ namespace Dark
             // Camera2D looks +Z; cull is off on the sprite PSO.
             pushIdx(m, 0, 1, 2);
             pushIdx(m, 0, 2, 3);
-            return m;
+            return true;
         }
 
         // ============================================================
         // 17. GROUND PLANE
         // ============================================================
-        MeshData CreateGroundPlane(float size, float y, float uvScale)
+        bool CreateGroundPlane(MeshData& m, float size, float y, float uvScale)
         {
-            MeshData    m;
             const float h = size * 0.5f;
             // CCW when viewed from +Y (outward normal +Y)
             // bl, br, tr, tl in XZ (bl = -X,-Z)
@@ -1089,15 +1121,14 @@ namespace Dark
             // CW in Y-up XZ so the plane is front-facing in D3D Y-down screen space.
             pushIdx(m, 0, 1, 2);
             pushIdx(m, 0, 2, 3);
-            return m;
+            return true;
         }
 
         // ============================================================
         // 18. GRID LINES
         // ============================================================
-        LineMeshData CreateGridLines(float halfExtent, int divisions, float y)
+        bool CreateGridLines(LineMeshData& m, float halfExtent, int divisions, float y)
         {
-            LineMeshData m;
             if (divisions < 1)
                 divisions = 1;
 
@@ -1123,12 +1154,11 @@ namespace Dark
                 m.indices.push_back(b);
                 m.indices.push_back(b + 1);
             }
-            return m;
+            return true;
         }
 
-        LineMeshData CreateGridLinesXY(float x0, float y0, float x1, float y1, float step, float z)
+        bool CreateGridLinesXY(LineMeshData& m, float x0, float y0, float x1, float y1, float step, float z)
         {
-            LineMeshData m;
             if (x1 < x0)
                 std::swap(x0, x1);
             if (y1 < y0)
@@ -1152,19 +1182,19 @@ namespace Dark
                 m.indices.push_back(b);
                 m.indices.push_back(b + 1);
             }
-            return m;
+            return true;
         }
 
-        LineMeshData CreateBoxOutlineXY()
+        bool CreateBoxOutlineXY(LineMeshData& m)
         {
-            LineMeshData m;
             m.positions.push_back({ -0.5f, -0.5f, 0.0f });
             m.positions.push_back({ 0.5f, -0.5f, 0.0f });
             m.positions.push_back({ 0.5f, 0.5f, 0.0f });
             m.positions.push_back({ -0.5f, 0.5f, 0.0f });
+            
             const uint32_t edges[] = { 0, 1, 1, 2, 2, 3, 3, 0 };
             m.indices.assign(edges, edges + 8);
-            return m;
+            return true;
         }
 
     } // namespace Geometry

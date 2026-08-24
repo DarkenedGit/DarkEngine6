@@ -470,8 +470,9 @@ void SandboxApp::onInit()
         DE_LOG_INFO("SandboxApp: water level {:.2f}, {} wet chunks", waterLevel, m_water.wetChunkCount());
     }
 
-    const MeshData cubeData = CreateCube(1.0f);
-    m_cubeMesh                       = Mesh::Create(renderer(), cubeData);
+    MeshData cubeData;
+    CreateCube(cubeData, 1.0f);
+    m_cubeMesh = Mesh::Create(renderer(), cubeData);
 
     m_cubeMaterial = std::make_shared<Material>();
     if (!m_cubeMaterial->createFromAlbedoPath(
@@ -564,7 +565,8 @@ void SandboxApp::onRender()
         for (int i = 0; i < m_shadows.cascadeCount(); ++i)
         {
             m_shadows.beginCascade(cmd, i);
-            m_terrain.drawDepth(cmd);
+            const Frustum3f casterFrustum(m_shadows.cascade(i).viewProj);
+            m_terrain.drawDepth(cmd, &casterFrustum);
             if (auto* xf = world().get<TransformComponent>(m_cube))
             {
                 const Matrix4f worldMat = makeWorldMatrix(*xf);

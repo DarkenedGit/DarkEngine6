@@ -121,7 +121,7 @@ namespace Dark
             m_comInited = false; // already inited with a different model; still usable
         else if (FAILED(hr))
         {
-            DE_LOG_ERROR("Audio: CoInitializeEx failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
+            DE_LOG_ERROR(LogCategory::Audio, "Audio: CoInitializeEx failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
             m_device.reset();
             return false;
         }
@@ -138,7 +138,7 @@ namespace Dark
         }
         if (FAILED(hr) || !m_device->xaudio)
         {
-            DE_LOG_ERROR("Audio: XAudio2Create failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
+            DE_LOG_ERROR(LogCategory::Audio, "Audio: XAudio2Create failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
             m_device.reset();
             return false;
         }
@@ -152,7 +152,7 @@ namespace Dark
         hr = m_device->xaudio->CreateMasteringVoice(&m_device->master);
         if (FAILED(hr) || !m_device->master)
         {
-            DE_LOG_ERROR("Audio: CreateMasteringVoice failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
+            DE_LOG_ERROR(LogCategory::Audio, "Audio: CreateMasteringVoice failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
             m_device.reset();
             return false;
         }
@@ -174,7 +174,7 @@ namespace Dark
             m_voices[i] = std::make_unique<VoiceSlot>();
 
         m_valid = true;
-        DE_LOG_INFO("Audio: XAudio2 ready ({} output channels)", m_device->dstChannels);
+        DE_LOG_INFO(LogCategory::Audio, "Audio: XAudio2 ready ({} output channels)", m_device->dstChannels);
         return true;
     }
 
@@ -230,7 +230,7 @@ namespace Dark
         const std::filesystem::path resolved = assets.resolve(virtualPath);
         if (resolved.empty())
         {
-            DE_LOG_WARN("Audio: could not resolve '{}'", virtualPath);
+            DE_LOG_WARN(LogCategory::Audio, "Audio: could not resolve '{}'", virtualPath);
             return {};
         }
         return loadWav(resolved);
@@ -279,7 +279,7 @@ namespace Dark
     {
         if (auto clip = loadWav(assets, virtualPath))
             return clip;
-        DE_LOG_WARN("Audio: using tone fallback for '{}'", virtualPath ? virtualPath : "");
+        DE_LOG_WARN(LogCategory::Audio, "Audio: using tone fallback for '{}'", virtualPath ? virtualPath : "");
         return createBlip(fallbackFreqHz, fallbackDurationSec, fallbackAmp);
     }
 
@@ -298,7 +298,7 @@ namespace Dark
         const HRESULT hr = m_device->xaudio->CreateSourceVoice(&slot.voice, &fmt);
         if (FAILED(hr) || !slot.voice)
         {
-            DE_LOG_ERROR("Audio: CreateSourceVoice failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
+            DE_LOG_ERROR(LogCategory::Audio, "Audio: CreateSourceVoice failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
             return false;
         }
         slot.format = fmt;
@@ -456,7 +456,7 @@ namespace Dark
         const HRESULT hr = slot.voice->SubmitSourceBuffer(&buf);
         if (FAILED(hr))
         {
-            DE_LOG_ERROR("Audio: SubmitSourceBuffer failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
+            DE_LOG_ERROR(LogCategory::Audio, "Audio: SubmitSourceBuffer failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
             slot.inUse = false;
             slot.clip.reset();
             return 0;

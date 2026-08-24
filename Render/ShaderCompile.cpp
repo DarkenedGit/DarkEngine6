@@ -63,14 +63,14 @@ namespace Dark
         std::ifstream file(path, std::ios::binary | std::ios::ate);
         if (!file)
         {
-            DE_LOG_ERROR("readTextFile: cannot open '{}'", path.string());
+            DE_LOG_ERROR(LogCategory::Render, "readTextFile: cannot open '{}'", path.string());
             return false;
         }
 
         const std::streamoff size = file.tellg();
         if (size < 0)
         {
-            DE_LOG_ERROR("readTextFile: tellg failed for '{}'", path.string());
+            DE_LOG_ERROR(LogCategory::Render, "readTextFile: tellg failed for '{}'", path.string());
             return false;
         }
 
@@ -78,7 +78,7 @@ namespace Dark
         std::vector<char> buf(static_cast<size_t>(size));
         if (size > 0 && !file.read(buf.data(), size))
         {
-            DE_LOG_ERROR("readTextFile: read failed for '{}'", path.string());
+            DE_LOG_ERROR(LogCategory::Render, "readTextFile: read failed for '{}'", path.string());
             return false;
         }
 
@@ -92,7 +92,7 @@ namespace Dark
 
         if (!entry || !target)
         {
-            DE_LOG_ERROR("compileShaderFromFile: null entry/target");
+            DE_LOG_ERROR(LogCategory::Render, "compileShaderFromFile: null entry/target");
             return false;
         }
 
@@ -125,7 +125,7 @@ namespace Dark
         if (FAILED(hr))
         {
             const char* msg = errors ? static_cast<const char*>(errors->GetBufferPointer()) : "unknown";
-            DE_LOG_ERROR("Shader compile failed ({} {} from '{}'): {}", entry, target, path.string(), msg);
+            DE_LOG_ERROR(LogCategory::Render, "Shader compile failed ({} {} from '{}'): {}", entry, target, path.string(), msg);
             outBytecode.Reset();
             return false;
         }
@@ -137,20 +137,20 @@ namespace Dark
     {
         if (!relativeUnderContent || relativeUnderContent[0] == '\0')
         {
-            DE_LOG_ERROR("compileShaderFromContent: empty path");
+            DE_LOG_ERROR(LogCategory::Render, "compileShaderFromContent: empty path");
             return false;
         }
 
         const std::filesystem::path resolved = resolveContentPath(relativeUnderContent);
         if (resolved.empty())
         {
-            DE_LOG_ERROR("compileShaderFromContent: could not find '{}' under content roots "
+            DE_LOG_ERROR(LogCategory::Render, "compileShaderFromContent: could not find '{}' under content roots "
                          "(exe/content, cwd/content, ...)",
                          relativeUnderContent);
             return false;
         }
 
-        DE_LOG_INFO("compileShaderFromContent: loading '{}'", resolved.string());
+        DE_LOG_INFO(LogCategory::Render, "compileShaderFromContent: loading '{}'", resolved.string());
         return compileShaderFromFile(resolved, entry, target, outBytecode);
     }
 

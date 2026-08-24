@@ -8,7 +8,7 @@ namespace Dark
 {
     namespace Geometry
     {
-
+        using namespace Math;
         namespace
         {
 
@@ -72,21 +72,16 @@ namespace Dark
             std::vector<MeshVertex> verts(nVerts);
             for (size_t i = 0; i < nVerts; ++i)
             {
-                verts[i].px = data.positions[i].x;
-                verts[i].py = data.positions[i].y;
-                verts[i].pz = data.positions[i].z;
-                verts[i].nx = data.normals[i].x;
-                verts[i].ny = data.normals[i].y;
-                verts[i].nz = data.normals[i].z;
+                verts[i].point = data.positions[i];
+                verts[i].normal = data.normals[i];
                 if (i < data.uvs.size())
                 {
-                    verts[i].u = data.uvs[i].x;
-                    verts[i].v = data.uvs[i].y;
+                    verts[i].uv = data.uvs[i];
                 }
                 else
                 {
-                    verts[i].u = 0.0f;
-                    verts[i].v = 0.0f;
+                    verts[i].uv = Vect2f::ZERO;
+                    ;
                 }
             }
 

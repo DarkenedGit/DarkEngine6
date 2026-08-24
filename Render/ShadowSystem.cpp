@@ -17,7 +17,7 @@ bool FailedHr(HRESULT hr, const char* what)
 {
     if (SUCCEEDED(hr))
         return false;
-    DE_LOG_ERROR("{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
+    DE_LOG_ERROR(LogCategory::Render, "{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
     return true;
 }
 
@@ -140,7 +140,7 @@ bool ShadowSystem::createResources(ID3D12Device* device)
         return false;
     m_cbGpu = m_cbUpload->GetGPUVirtualAddress();
 
-    DE_LOG_INFO("ShadowSystem: {} cascades @ {}px ({} buffered frames)", m_cascadeCount, m_settings.mapSize, kBufferedFrames);
+    DE_LOG_INFO(LogCategory::Render, "ShadowSystem: {} cascades @ {}px ({} buffered frames)", m_cascadeCount, m_settings.mapSize, kBufferedFrames);
     return true;
 }
 

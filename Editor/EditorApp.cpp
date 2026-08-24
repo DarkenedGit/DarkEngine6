@@ -212,8 +212,18 @@ bool EditorApp::ensure2DResources()
         DE_LOG_ERROR("Editor: SpritePipeline failed");
         return false;
     }
-    m_quadMesh      = Mesh::Create(renderer(), CreateQuadXY(1.0f, 1.0f));
-    m_boxOutline2D  = LineMesh::Create(renderer(), CreateBoxOutlineXY());
+    {
+        MeshData mesh_data;
+        CreateQuadXY(mesh_data, 1.0f, 1.0f);
+        m_quadMesh = Mesh::Create(renderer(), mesh_data);
+    }
+
+    {
+        LineMeshData mesh_data;
+        CreateBoxOutlineXY(mesh_data);
+        m_boxOutline2D = LineMesh::Create(renderer(), mesh_data);
+    }
+
     if (!m_quadMesh.valid())
     {
         DE_LOG_ERROR("Editor: 2D quad mesh failed");
@@ -238,7 +248,11 @@ void EditorApp::rebuildGrid2D()
     const float y0 = std::floor(m_worldMin.y) - 1.0f;
     const float x1 = std::ceil(m_worldMax.x) + 1.0f;
     const float y1 = std::ceil(m_worldMax.y) + 1.0f;
-    m_grid2D = LineMesh::Create(renderer(), CreateGridLinesXY(x0, y0, x1, y1, 1.0f, 3.0f));
+    {
+        LineMeshData mesh_data;
+        CreateGridLinesXY(mesh_data,x0, y0, x1, y1, 1.0f, 3.0f);
+        m_grid2D = LineMesh::Create(renderer(), mesh_data);
+    }
 }
 
 void EditorApp::clampCamera2D()
@@ -560,10 +574,29 @@ void EditorApp::onInit()
         DE_LOG_WARN("EditorApp: ImGui init failed — particle UI disabled");
     }
 
-    m_cubeMesh   = Mesh::Create(renderer(), CreateCube(1.0f));
-    m_sphereMesh = Mesh::Create(renderer(), CreateSphere(0.5f, 16, 24));
-    m_groundMesh = Mesh::Create(renderer(), CreateGroundPlane(40.0f, 0.0f, 10.0f));
-    m_gridMesh   = LineMesh::Create(renderer(), CreateGridLines(20.0f, 40, 0.01f));
+    {
+        MeshData data;
+        CreateCube(data, 1.0f);
+        m_cubeMesh   = Mesh::Create(renderer(), data);
+    }
+
+    { 
+        MeshData data;
+        CreateSphere(data, 0.5f, 16, 24);
+        m_sphereMesh = Mesh::Create(renderer(), data);
+    }
+
+    {
+        MeshData data;
+        CreateGroundPlane(data, 40.0f, 0.0f, 10.0f);
+        m_groundMesh = Mesh::Create(renderer(),data);
+    }
+
+    {
+        LineMeshData data;
+        CreateGridLines(data, 20.0f, 40, 0.01f);
+        m_gridMesh = LineMesh::Create(renderer(), data);
+    }
 
     m_propMaterial = std::make_shared<Material>();
     if (!m_propMaterial->createFromAlbedoPath(renderer(), assets(), "textures/dark_engine_cube.png", 80, 160, 220))

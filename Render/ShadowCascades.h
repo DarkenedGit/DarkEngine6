@@ -19,8 +19,8 @@ struct ShadowSettings
     int      cascadeCount  = kMaxShadowCascades;
     float    maxDistance   = 280.0f;
     float    splitLambda   = 0.65f;
-    float    casterMargin  = 220.0f;
-    float    depthBias     = 0.0015f;
+    float    casterMargin  = 24.0f;  // extra light-camera pullback (metres)
+    float    depthBias     = 0.05f;  // receiver bias in world metres
 };
 
 struct CascadeData
@@ -28,6 +28,7 @@ struct CascadeData
     Math::Matrix4f viewProj;
     float          splitNear = 0.0f;
     float          splitFar  = 0.0f;
+    float          zRange    = 1.0f; // light-space ortho far-near, metres
 };
 
 // GPU cbuffer (b1). Keep in sync with content/shaders/Shadow.hlsli.
@@ -35,12 +36,13 @@ struct ShadowConstants
 {
     float cascadeViewProj[kMaxShadowCascades][16];
     float cascadeSplits[4]; // x,y,z = cascade far in view-Z, w = map size
-    float params[4];        // bias, strength, cascadeCount, array-slice offset
+    float params[4];        // world-space bias, strength, cascadeCount, array-slice offset
     float cameraLook[3];
     float pad;
+    float cascadeInvZ[4]; // xyz = 1 / light-space Z range (world metres -> NDC)
 };
 
-static_assert(sizeof(ShadowConstants) == (48 + 4 + 4 + 4) * sizeof(float), "shadow cbuffer size");
+static_assert(sizeof(ShadowConstants) == (48 + 4 + 4 + 4 + 4) * sizeof(float), "shadow cbuffer size");
 
 void computePracticalSplits(
     float nearZ,
@@ -55,7 +57,8 @@ void extractFrustumCorners(
     float farZ,
     Math::Vector3f outCorners[8]);
 
-// Texel-snapped ortho from the light, covering the slice + scene depth for casters.
+// Texel-snapped light ortho around the slice's bounding sphere. Scene AABB
+// only pulls the near plane back so casters in front of the slice still write.
 bool buildCascadeMatrix(
     const Math::Vector3f corners[8],
     const Math::Vector3f& lightDirToward,

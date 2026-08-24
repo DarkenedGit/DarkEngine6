@@ -13,7 +13,7 @@ namespace Dark
         {
             if (SUCCEEDED(hr))
                 return false;
-            DE_LOG_ERROR("{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
+            DE_LOG_ERROR(LogCategory::Render, "{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
             return true;
         }
 
@@ -25,7 +25,7 @@ namespace Dark
         m_pso.Reset();
         if (!device)
         {
-            DE_LOG_ERROR("SpritePipeline::create: null device");
+            DE_LOG_ERROR(LogCategory::Render, "SpritePipeline::create: null device");
             return false;
         }
 
@@ -69,7 +69,7 @@ namespace Dark
         if (FailedHr(D3D12SerializeRootSignature(&rsDesc, D3D_ROOT_SIGNATURE_VERSION_1, &rsBlob, &rsErr), "D3D12SerializeRootSignature (sprite)"))
         {
             if (rsErr)
-                DE_LOG_ERROR("Sprite root signature error: {}", static_cast<const char*>(rsErr->GetBufferPointer()));
+                DE_LOG_ERROR(LogCategory::Render, "Sprite root signature error: {}", static_cast<const char*>(rsErr->GetBufferPointer()));
             return false;
         }
         if (FailedHr(
@@ -129,7 +129,7 @@ namespace Dark
             return false;
         }
 
-        DE_LOG_INFO("SpritePipeline: ready (2D unlit)");
+        DE_LOG_INFO(LogCategory::Render, "SpritePipeline: ready (2D unlit)");
         return true;
     }
 

@@ -295,13 +295,15 @@ void TerrainWorld::draw(
     }
 }
 
-void TerrainWorld::drawDepth(ID3D12GraphicsCommandList* cmd) const
+void TerrainWorld::drawDepth(ID3D12GraphicsCommandList* cmd, const Frustum3f* casterFrustum) const
 {
     if (!cmd)
         return;
     for (const TerrainChunk& c : m_chunks)
     {
         if (!c.gpu.valid())
+            continue;
+        if (casterFrustum && !casterFrustum->Intersects(c.bounds))
             continue;
         c.gpu.draw(cmd);
     }

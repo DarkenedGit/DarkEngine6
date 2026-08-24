@@ -75,10 +75,11 @@ float4 PSMain(PSInput input) : SV_TARGET
     float3 l     = normalize(lightDirWS);
     float  ndotl = saturate(dot(n, l));
     float3 cam   = float3(cameraPosX, cameraPosY, cameraPosZ);
-    // Heightfield is drawn into the cascades, then sampled as a receiver.
-    // Without a normal offset, sun-facing slopes fail the depth test and the
-    // Lambert term is multiplied to ~0 (ambient only — looks unlit).
-    float  recvOffset = 0.75f + 1.75f * (1.0f - ndotl);
+    // Heightfield is drawn into the cascades. A few centimetres of normal
+    // offset (more on grazing slopes) hides LOD acne without leaping past a
+    // 1m cube sitting on the ground. The old 0.75–2.5m offset sampled above
+    // the cube and erased its contact shadow.
+    float  recvOffset = 0.06f + 0.28f * (1.0f - ndotl) * (1.0f - ndotl);
     float  shadow = ComputeShadow(input.worldPos + n * recvOffset, cam);
     float3 ambient = ambientColor * albedo.rgb;
     float3 diffuse = ndotl * lightColor * albedo.rgb * shadow;

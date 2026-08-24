@@ -35,6 +35,12 @@ namespace Dark
             std::vector<uint32_t>       indices;
         };
 
+        struct LineMeshData
+        {
+            std::vector<Math::Vector3f> positions;
+            std::vector<uint32_t>       indices; // line list pairs
+        };
+
         // ---- Internal helpers (implementation detail) -------------
         namespace detail
         {
@@ -78,12 +84,6 @@ namespace Dark
         //     slices    – longitude subdivisions (≥ 3)
         // ============================================================
         bool CreateSphere(MeshData& mesh, float radius = 1.0f, int stacks = 24, int slices = 48);
-        inline MeshData CreateSphere(float radius, int stacks = 24, int slices = 48)
-        {
-            MeshData mesh;
-            CreateSphere(mesh, radius, stacks, slices);
-            return mesh;
-        }
 
         // ============================================================
         //  2. CONE
@@ -92,7 +92,7 @@ namespace Dark
         //     slices    – circumference subdivisions
         //     capCenter – include base-cap geometry
         // ============================================================
-        MeshData CreateCone(float radius = 1.0f, float height = 2.0f, int slices = 36, bool capCenter = true);
+        bool CreateCone(MeshData& mesh, float radius = 1.0f, float height = 2.0f, int slices = 36, bool capCenter = true);
 
         // ============================================================
         //  3. CYLINDER
@@ -100,44 +100,44 @@ namespace Dark
         //     height, slices
         //     capTop / capBottom       – include end-cap geometry
         // ============================================================
-        MeshData CreateCylinder(float radiusTop = 1.0f, float radiusBottom = 1.0f, float height = 2.0f, int slices = 36, bool capTop = true, bool capBottom = true);
+        bool CreateCylinder(MeshData& mesh, float radiusTop = 1.0f, float radiusBottom = 1.0f, float height = 2.0f, int slices = 36, bool capTop = true, bool capBottom = true);
 
         // ============================================================
         //  4. CUBE  (all sides = size)
         // ============================================================
-        MeshData CreateCube(float size = 1.0f);
+        bool CreateCube(MeshData& mesh, float size = 1.0f);
 
         // ============================================================
         //  5. PYRAMID  (square base)
         //     baseSize  – side length of square base
         //     height
         // ============================================================
-        MeshData CreatePyramid(float baseSize = 1.0f, float height = 2.0f);
+        bool CreatePyramid(MeshData& mesh, float baseSize = 1.0f, float height = 2.0f);
 
         // ============================================================
         //  6. CUBOID  (box with independent dimensions)
         //     width (X), height (Y), depth (Z)
         // ============================================================
-        MeshData CreateCuboid(float width = 2.0f, float height = 1.0f, float depth = 1.0f);
+        bool CreateCuboid(MeshData& mesh, float width = 2.0f, float height = 1.0f, float depth = 1.0f);
 
         // ============================================================
         //  7. OCTAHEDRON  (regular, all 8 equilateral triangular faces)
         //     radius – circumscribed sphere radius
         // ============================================================
-        MeshData CreateOctahedron(float radius = 1.0f);
+        bool CreateOctahedron(MeshData& mesh, float radius = 1.0f);
 
         // ============================================================
         //  8. TRIANGULAR PRISM
         //     baseSize – side length of equilateral triangular base
         //     height   – length along prism axis (Y)
         // ============================================================
-        MeshData CreateTriangularPrism(float baseSize = 1.0f, float height = 2.0f);
+        bool CreateTriangularPrism(MeshData& mesh, float baseSize = 1.0f, float height = 2.0f);
 
         // ============================================================
         //  9. DODECAHEDRON  (regular, 12 pentagonal faces)
         //     radius – circumscribed sphere radius
         // ============================================================
-        MeshData CreateDodecahedron(float radius = 1.0f);
+        bool CreateDodecahedron(MeshData& mesh, float radius = 1.0f);
 
         // ============================================================
         // 10. HEXAGONAL PRISM
@@ -145,14 +145,14 @@ namespace Dark
         //     height
         //     capTop / capBottom
         // ============================================================
-        MeshData CreateHexagonalPrism(float radius = 1.0f, float height = 2.0f, bool capTop = true, bool capBottom = true);
+        bool CreateHexagonalPrism(MeshData& mesh, float radius = 1.0f, float height = 2.0f, bool capTop = true, bool capBottom = true);
 
         // ============================================================
         // 11. ELLIPSOID
         //     radiusX, radiusY, radiusZ – semi-axes
         //     stacks / slices
         // ============================================================
-        MeshData CreateEllipsoid(float radiusX = 1.5f, float radiusY = 1.0f, float radiusZ = 0.75f, int stacks = 24, int slices = 48);
+        bool CreateEllipsoid(MeshData& mesh, float radiusX = 1.5f, float radiusY = 1.0f, float radiusZ = 0.75f, int stacks = 24, int slices = 48);
 
         // ============================================================
         // 12. TORUS
@@ -161,7 +161,7 @@ namespace Dark
         //     majorSlices – segments around the large circle
         //     minorSlices – segments around the tube
         // ============================================================
-        MeshData CreateTorus(float majorRadius = 1.0f, float minorRadius = 0.3f, int majorSlices = 48, int minorSlices = 24);
+        bool CreateTorus(MeshData& mesh, float majorRadius = 1.0f, float minorRadius = 0.3f, int majorSlices = 48, int minorSlices = 24);
 
         // ============================================================
         // 13. CAPSULE
@@ -170,7 +170,7 @@ namespace Dark
         //     slices     – longitude subdivisions
         //     capStacks  – latitude subdivisions per hemisphere (≥ 1)
         // ============================================================
-        MeshData CreateCapsule(float radius = 0.5f, float height = 2.0f, int slices = 32, int capStacks = 8);
+        bool CreateCapsule(MeshData& mesh, float radius = 0.5f, float height = 2.0f, int slices = 32, int capStacks = 8);
 
         // ============================================================
         // 14. ICOSAHEDRON
@@ -178,7 +178,7 @@ namespace Dark
         //     subdivisions – number of subdivision iterations (0 = raw 20 faces,
         //                    1–4 = progressively smoother geodesic sphere)
         // ============================================================
-        MeshData CreateIcosahedron(float radius = 1.0f, int subdivisions = 0);
+        bool CreateIcosahedron(MeshData& mesh, float radius = 1.0f, int subdivisions = 0);
 
         // ============================================================
         // 15. SPRING (helical tube)
@@ -189,7 +189,7 @@ namespace Dark
         //     tubeSlices  – segments around the tube cross-section
         //     height      – total height of the spring along its axis
         // ============================================================
-        MeshData CreateSpring(float coilRadius = 1.0f, float tubeRadius = 0.15f, float coils = 4.0f, float height = 3.0f, int coilSlices = 64, int tubeSlices = 16);
+        bool CreateSpring(MeshData& mesh, float coilRadius = 1.0f, float tubeRadius = 0.15f, float coils = 4.0f, float height = 3.0f, int coilSlices = 64, int tubeSlices = 16);
 
         // ============================================================
         // 16. ARCH
@@ -199,13 +199,13 @@ namespace Dark
         //     arcAngle     – angular span in radians (default π = semicircle)
         //     slices       – segments along the arc
         // ============================================================
-        MeshData CreateArch(float innerRadius = 0.6f, float outerRadius = 1.0f, float depth = 0.4f, float arcAngle = 3.14159265f, int slices = 32);
+        bool CreateArch(MeshData& mesh, float innerRadius = 0.6f, float outerRadius = 1.0f, float depth = 0.4f, float arcAngle = 3.14159265f, int slices = 32);
 
         // ============================================================
         // 17a. XY QUAD (unit square in the XY plane, facing +Z)
         //     width / height — full edge lengths, centred on origin
         // ============================================================
-        MeshData CreateQuadXY(float width = 1.0f, float height = 1.0f);
+        bool CreateQuadXY(MeshData& mesh, float width = 1.0f, float height = 1.0f);
 
         // ============================================================
         // 17. GROUND PLANE (XZ, Y-up normal)
@@ -213,7 +213,7 @@ namespace Dark
         //     y        – height of the plane
         //     uvScale  – texture tiling
         // ============================================================
-        MeshData CreateGroundPlane(float size = 40.0f, float y = 0.0f, float uvScale = 8.0f);
+        bool CreateGroundPlane(MeshData& mesh, float size = 40.0f, float y = 0.0f, float uvScale = 8.0f);
 
         // ============================================================
         // 18. GRID LINES (line-list indices; use with LineMesh / LinePipeline)
@@ -221,19 +221,13 @@ namespace Dark
         //     divisions  – cells along each axis
         //     y          – plane height
         // ============================================================
-        struct LineMeshData
-        {
-            std::vector<Math::Vector3f> positions;
-            std::vector<uint32_t>       indices; // line list pairs
-        };
-
-        LineMeshData CreateGridLines(float halfExtent = 20.0f, int divisions = 40, float y = 0.0f);
+        bool CreateGridLines(LineMeshData& data, float halfExtent = 20.0f, int divisions = 40, float y = 0.0f);
 
         // Axis-aligned grid in the XY plane (side-view / 2D).
-        LineMeshData CreateGridLinesXY(float x0, float y0, float x1, float y1, float step = 1.0f, float z = 0.0f);
+        bool CreateGridLinesXY(LineMeshData& data, float x0, float y0, float x1, float y1, float step = 1.0f, float z = 0.0f);
 
         // Unit AABB outline in the XY plane (line list). Scale/translate per box.
-        LineMeshData CreateBoxOutlineXY();
+        bool CreateBoxOutlineXY(LineMeshData& data);
 
     } // namespace Geometry
 

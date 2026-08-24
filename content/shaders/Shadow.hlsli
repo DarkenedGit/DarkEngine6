@@ -12,9 +12,10 @@ cbuffer ShadowConstants : register(b1)
 {
     float4x4 cascadeViewProj[3];
     float4   cascadeSplits; // xyz = cascade far in view-Z, w = map size
-    float4   shadowParams;  // x=bias, y=strength, z=count, w=array slice offset
+    float4   shadowParams;  // x=world-space bias (m), y=strength, z=count, w=array slice offset
     float3   shadowLook;
     float    _shadowPad;
+    float4   cascadeInvZ;   // xyz = 1 / light-space Z range per cascade
 };
 
 Texture2DArray           gShadowMap  : register(SHADOW_T);
@@ -39,7 +40,9 @@ float SampleCascadePCF(float3 worldPos, int cascade)
     float  w  = max(abs(lp.w), 1e-5f);
     float3 uvz = lp.xyz / w;
     uvz.xy = uvz.xy * float2(0.5f, -0.5f) + 0.5f;
-    uvz.z -= shadowParams.x; // receiver bias
+    // World-space bias -> NDC using this cascade's ortho Z range so a 1m
+    // caster still wins against the receiver on a large terrain.
+    uvz.z -= shadowParams.x * cascadeInvZ[cascade];
 
     if (uvz.x < 0.0f || uvz.x > 1.0f || uvz.y < 0.0f || uvz.y > 1.0f || uvz.z < 0.0f || uvz.z > 1.0f)
         return 1.0f;

@@ -42,7 +42,7 @@ namespace Dark::AI
     {
         if (child && child->m_parent != this)
         {
-            DE_LOG_ERROR("HsmState '{}': initial child '{}' is not a direct child", m_name, child ? child->m_name : std::string("(null)"));
+            DE_LOG_ERROR(LogCategory::AI, "HsmState '{}': initial child '{}' is not a direct child", m_name, child ? child->m_name : std::string("(null)"));
             return *this;
         }
         m_initial = child;
@@ -60,7 +60,7 @@ namespace Dark::AI
         // Prevent trivial cycles (base == this).
         if (base == this)
         {
-            DE_LOG_ERROR("HsmState '{}': cannot set base to self", m_name);
+            DE_LOG_ERROR(LogCategory::AI, "HsmState '{}': cannot set base to self", m_name);
             return *this;
         }
         m_base = base;

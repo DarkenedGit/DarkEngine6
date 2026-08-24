@@ -13,7 +13,7 @@ namespace Dark
         {
             if (SUCCEEDED(hr))
                 return false;
-            DE_LOG_ERROR("{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
+            DE_LOG_ERROR(LogCategory::Render, "{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
             return true;
         }
 
@@ -123,7 +123,7 @@ namespace Dark
         if (FailedHr(device->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&m_pso)), "Particle PSO"))
             return false;
 
-        DE_LOG_INFO("ParticlePipeline: ready ({})", additive ? "additive" : "alpha");
+        DE_LOG_INFO(LogCategory::Render, "ParticlePipeline: ready ({})", additive ? "additive" : "alpha");
         return true;
     }
 

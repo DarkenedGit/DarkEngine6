@@ -1,4 +1,5 @@
 #pragma once
+#include "Core/Log.h"
 #include "Core/Window.h"
 #include "ECS/World.h"
 #include "Assets/AssetManager.h"
@@ -37,6 +38,9 @@ namespace Dark
         Input&        input()    { return m_input; }
         const Input&  input() const { return m_input; }
         Window&       window()   { return m_window; }
+
+    private:
+        LogSession m_logSession;
 
     protected:
         Window       m_window;

@@ -28,7 +28,8 @@ int CountTrianglesWithCrossYSign(const MeshData& mesh, float ySign)
 
 TEST(MeshGen, CuboidTopIsFrontFacingFromAbove)
 {
-    const MeshData cube = CreateCube(2.0f);
+    MeshData cube;
+    CreateCube(cube, 2.0f);
     ASSERT_GE(cube.indices.size(), 6u);
 
     // First face emitted by CreateCuboid is +Y. Those two triangles must be
@@ -55,14 +56,16 @@ TEST(MeshGen, CuboidTopIsFrontFacingFromAbove)
 
 TEST(MeshGen, GroundPlaneIsFrontFacingFromAbove)
 {
-    const MeshData ground = CreateGroundPlane(10.0f, 0.0f, 1.0f);
+    MeshData ground;
+    CreateGroundPlane(ground, 10.0f, 0.0f, 1.0f);
     EXPECT_EQ(CountTrianglesWithCrossYSign(ground, -1.0f), 2);
     EXPECT_EQ(CountTrianglesWithCrossYSign(ground, 1.0f), 0);
 }
 
 TEST(MeshGen, QuadXYIsCenteredInPlane)
 {
-    const MeshData q = CreateQuadXY(4.0f, 2.0f);
+    MeshData q;
+    CreateQuadXY(q, 4.0f, 2.0f);
     ASSERT_EQ(q.positions.size(), 4u);
     ASSERT_EQ(q.indices.size(), 6u);
     ASSERT_EQ(q.uvs.size(), 4u);
@@ -85,7 +88,8 @@ TEST(MeshGen, QuadXYIsCenteredInPlane)
 
 TEST(MeshGen, BoxOutlineXYHasFourEdges)
 {
-    const LineMeshData outline = CreateBoxOutlineXY();
+    LineMeshData outline;
+    CreateBoxOutlineXY(outline);
     EXPECT_EQ(outline.positions.size(), 4u);
     EXPECT_EQ(outline.indices.size(), 8u);
 }

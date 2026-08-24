@@ -14,7 +14,7 @@ namespace Dark
         {
             if (SUCCEEDED(hr))
                 return false;
-            DE_LOG_ERROR("{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
+            DE_LOG_ERROR(LogCategory::Render, "{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
             return true;
         }
 
@@ -29,7 +29,7 @@ namespace Dark
 
         if (!device)
         {
-            DE_LOG_ERROR("MeshPipeline::create: null device");
+            DE_LOG_ERROR(LogCategory::Render, "MeshPipeline::create: null device");
             return false;
         }
 
@@ -93,7 +93,7 @@ namespace Dark
         if (FailedHr(D3D12SerializeRootSignature(&rsDesc, D3D_ROOT_SIGNATURE_VERSION_1, &rsBlob, &rsErr), "D3D12SerializeRootSignature"))
         {
             if (rsErr)
-                DE_LOG_ERROR("Root signature error: {}", static_cast<const char*>(rsErr->GetBufferPointer()));
+                DE_LOG_ERROR(LogCategory::Render, "Root signature error: {}", static_cast<const char*>(rsErr->GetBufferPointer()));
             return false;
         }
 
@@ -146,7 +146,7 @@ namespace Dark
             return false;
         }
 
-        DE_LOG_INFO("MeshPipeline: ready (textured, solid/wire/point)");
+        DE_LOG_INFO(LogCategory::Render, "MeshPipeline: ready (textured, solid/wire/point)");
         return true;
     }
 

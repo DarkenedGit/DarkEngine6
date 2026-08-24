@@ -13,7 +13,7 @@ namespace Dark
         {
             if (SUCCEEDED(hr))
                 return false;
-            DE_LOG_ERROR("{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
+            DE_LOG_ERROR(LogCategory::Render, "{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
             return true;
         }
 
@@ -95,7 +95,7 @@ namespace Dark
                 "D3D12SerializeRootSignature (debug overlay)"))
         {
             if (rsErr)
-                DE_LOG_ERROR("Debug overlay RS: {}", static_cast<const char*>(rsErr->GetBufferPointer()));
+                DE_LOG_ERROR(LogCategory::Render, "Debug overlay RS: {}", static_cast<const char*>(rsErr->GetBufferPointer()));
             return false;
         }
         if (FailedHr(
@@ -134,7 +134,7 @@ namespace Dark
         m_frame   = 0;
         m_draw    = 0;
 
-        DE_LOG_INFO("DebugOverlay: ready");
+        DE_LOG_INFO(LogCategory::Render, "DebugOverlay: ready");
         return true;
     }
 

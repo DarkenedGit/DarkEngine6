@@ -19,7 +19,7 @@ bool FailedHr(HRESULT hr, const char* what)
 {
     if (SUCCEEDED(hr))
         return false;
-    DE_LOG_ERROR("{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
+    DE_LOG_ERROR(LogCategory::Render, "{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
     return true;
 }
 
@@ -31,7 +31,7 @@ bool SkyPipeline::create(ID3D12Device* device)
     m_pso.Reset();
     if (!device)
     {
-        DE_LOG_ERROR("SkyPipeline::create: null device");
+        DE_LOG_ERROR(LogCategory::Render, "SkyPipeline::create: null device");
         return false;
     }
 
@@ -55,7 +55,7 @@ bool SkyPipeline::create(ID3D12Device* device)
             "D3D12SerializeRootSignature (sky)"))
     {
         if (rsErr)
-            DE_LOG_ERROR("Sky root signature error: {}", static_cast<const char*>(rsErr->GetBufferPointer()));
+            DE_LOG_ERROR(LogCategory::Render, "Sky root signature error: {}", static_cast<const char*>(rsErr->GetBufferPointer()));
         return false;
     }
 
@@ -105,7 +105,7 @@ bool SkyPipeline::create(ID3D12Device* device)
         return false;
     }
 
-    DE_LOG_INFO("SkyPipeline: ready (atmosphere + weather)");
+    DE_LOG_INFO(LogCategory::Render, "SkyPipeline: ready (atmosphere + weather)");
     return true;
 }
 

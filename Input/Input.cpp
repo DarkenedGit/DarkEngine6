@@ -342,7 +342,7 @@ namespace Dark
             {
                 if (pad.connected)
                 {
-                    DE_LOG_INFO("Input: gamepad {} disconnected", p);
+                    DE_LOG_INFO(LogCategory::Input, "Input: gamepad {} disconnected", p);
                     // Release any held buttons
                     for (DigitalState& b : pad.buttons)
                     {
@@ -360,7 +360,7 @@ namespace Dark
             }
 
             if (!pad.connected)
-                DE_LOG_INFO("Input: gamepad {} connected", p);
+                DE_LOG_INFO(LogCategory::Input, "Input: gamepad {} connected", p);
             pad.connected = true;
 
             const XINPUT_GAMEPAD& g = xs.Gamepad;

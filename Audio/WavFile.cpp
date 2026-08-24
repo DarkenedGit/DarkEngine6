@@ -30,7 +30,7 @@ namespace Dark
         std::ifstream f(path, std::ios::binary);
         if (!f)
         {
-            DE_LOG_ERROR("Wav: cannot open '{}'", path.string());
+            DE_LOG_ERROR(LogCategory::Audio, "Wav: cannot open '{}'", path.string());
             return false;
         }
 
@@ -41,7 +41,7 @@ namespace Dark
             return false;
         if (std::memcmp(riff, "RIFF", 4) != 0 || std::memcmp(wave, "WAVE", 4) != 0)
         {
-            DE_LOG_ERROR("Wav: not a RIFF/WAVE file '{}'", path.string());
+            DE_LOG_ERROR(LogCategory::Audio, "Wav: not a RIFF/WAVE file '{}'", path.string());
             return false;
         }
 
@@ -63,7 +63,7 @@ namespace Dark
             {
                 if (size < 16)
                 {
-                    DE_LOG_ERROR("Wav: fmt chunk too small in '{}'", path.string());
+                    DE_LOG_ERROR(LogCategory::Audio, "Wav: fmt chunk too small in '{}'", path.string());
                     return false;
                 }
                 uint16_t blockAlign = 0;
@@ -95,27 +95,27 @@ namespace Dark
 
         if (!haveFmt || dataBytes.empty())
         {
-            DE_LOG_ERROR("Wav: missing fmt/data in '{}'", path.string());
+            DE_LOG_ERROR(LogCategory::Audio, "Wav: missing fmt/data in '{}'", path.string());
             return false;
         }
         if (audioFormat != 1)
         {
-            DE_LOG_ERROR("Wav: only PCM supported (format {}) '{}'", audioFormat, path.string());
+            DE_LOG_ERROR(LogCategory::Audio, "Wav: only PCM supported (format {}) '{}'", audioFormat, path.string());
             return false;
         }
         if (channels < 1 || channels > 2)
         {
-            DE_LOG_ERROR("Wav: unsupported channel count {} '{}'", channels, path.string());
+            DE_LOG_ERROR(LogCategory::Audio, "Wav: unsupported channel count {} '{}'", channels, path.string());
             return false;
         }
         if (bits != 8 && bits != 16)
         {
-            DE_LOG_ERROR("Wav: unsupported bit depth {} '{}'", bits, path.string());
+            DE_LOG_ERROR(LogCategory::Audio, "Wav: unsupported bit depth {} '{}'", bits, path.string());
             return false;
         }
         if (sampleRate < 8000 || sampleRate > 96000)
         {
-            DE_LOG_ERROR("Wav: unsupported sample rate {} '{}'", sampleRate, path.string());
+            DE_LOG_ERROR(LogCategory::Audio, "Wav: unsupported sample rate {} '{}'", sampleRate, path.string());
             return false;
         }
 

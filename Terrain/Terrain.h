@@ -78,7 +78,9 @@ public:
         const DebugRenderState* debug = nullptr) const;
 
     // Depth-only casters. Caller binds ShadowPipeline and sets light WVP.
-    void drawDepth(ID3D12GraphicsCommandList* cmd) const;
+    // Pass the cascade clip frustum so chunks outside this slice are skipped
+    // (otherwise every cascade is a sun's-eye view of the whole terrain).
+    void drawDepth(ID3D12GraphicsCommandList* cmd, const Math::Frustum3f* casterFrustum = nullptr) const;
 
     float heightAtWorld(float x, float z) const;
     bool tryHeightAtWorld(float x, float z, float& outY) const;

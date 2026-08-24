@@ -14,7 +14,7 @@ bool FailedHr(HRESULT hr, const char* what)
 {
     if (SUCCEEDED(hr))
         return false;
-    DE_LOG_ERROR("{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
+    DE_LOG_ERROR(LogCategory::Render, "{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
     return true;
 }
 
@@ -46,7 +46,7 @@ bool ShadowPipeline::create(ID3D12Device* device)
             "D3D12SerializeRootSignature (shadow)"))
     {
         if (rsErr)
-            DE_LOG_ERROR("Shadow root signature error: {}", static_cast<const char*>(rsErr->GetBufferPointer()));
+            DE_LOG_ERROR(LogCategory::Render, "Shadow root signature error: {}", static_cast<const char*>(rsErr->GetBufferPointer()));
         return false;
     }
 
@@ -76,8 +76,8 @@ bool ShadowPipeline::create(ID3D12Device* device)
     pso.RasterizerState.CullMode              = D3D12_CULL_MODE_BACK;
     pso.RasterizerState.FrontCounterClockwise = TRUE;
     pso.RasterizerState.DepthClipEnable       = TRUE;
-    pso.RasterizerState.DepthBias             = 2500;
-    pso.RasterizerState.SlopeScaledDepthBias  = 1.5f;
+    pso.RasterizerState.DepthBias             = 4000;
+    pso.RasterizerState.SlopeScaledDepthBias  = 2.5f;
     pso.RasterizerState.DepthBiasClamp        = 0.0f;
 
     pso.DepthStencilState.DepthEnable    = TRUE;
@@ -97,7 +97,7 @@ bool ShadowPipeline::create(ID3D12Device* device)
         return false;
     }
 
-    DE_LOG_INFO("ShadowPipeline: ready (depth-only CSM caster)");
+    DE_LOG_INFO(LogCategory::Render, "ShadowPipeline: ready (depth-only CSM caster)");
     return true;
 }
 

@@ -23,7 +23,7 @@ Prefer explicit, return-based failure:
 |-----------|--------|
 | Operation can fail | `bool` return, or a small result/status type |
 | Need a reason | out-param error string / enum, or log + `false` |
-| D3D12 / Win32 HRESULT | check `FAILED(hr)`, log with `DE_LOG_ERROR`, return `false` / abort init |
+| D3D12 / Win32 HRESULT | check `FAILED(hr)`, log with `DE_LOG_ERROR(LogCategory::Render, ...)`, return `false` / abort init |
 | Programmer bug | `DE_ASSERT` (debug break), not throw |
 | Unrecoverable startup | log `DE_LOG_FATAL`, return non-zero from `WinMain` / skip frame / early `return` |
 
@@ -35,7 +35,7 @@ bool Renderer::initD3D12(Window& window)
 {
     if (!window.nativeHandle())
     {
-        DE_LOG_ERROR("Renderer: window has no HWND");
+        DE_LOG_ERROR(LogCategory::Render, "Renderer: window has no HWND");
         return false;
     }
     // ...
@@ -89,7 +89,7 @@ If any appear under engine/Sandbox paths, remove them.
 
 - C++20, MSVC-friendly; project uses `.clang-format` (Allman braces, 4-space indent).
 - Engine library target: `DarkEngine`. Sample app: `Sandbox`. Tests: `UnitTests`.
-- Logging: `DE_LOG_INFO` / `WARN` / `ERROR` / `FATAL` from `Core/Log.h`.
+- Logging: `DE_LOG_INFO` / `WARN` / `ERROR` / `FATAL` from `Core/Log.h`. Pass `LogCategory` as the first argument (`Render`, `Audio`, `Collision`, `AI`, `Input`, `Networking`) so subsystems can be filtered with `Log::setCategoryEnabled`. Omit the category to log under `Core`. Error/Fatal still emit when a category is disabled.
 - Do not reformat the whole tree unless asked; keep diffs focused.
 - Build (Debug): `cmake --build build --config Debug`
 - Tests: `cmake --build build --config Debug --target UnitTests` then `build\bin\Debug\UnitTests.exe`

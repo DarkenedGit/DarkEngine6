@@ -16,7 +16,7 @@ namespace Dark
         {
             if (SUCCEEDED(hr))
                 return false;
-            DE_LOG_ERROR("{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
+            DE_LOG_ERROR(LogCategory::Render, "{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
             return true;
         }
 
@@ -63,7 +63,7 @@ namespace Dark
                 return false;
             if (w == 0 || h == 0)
             {
-                DE_LOG_ERROR("Texture2D: empty image '{}'", path.string());
+                DE_LOG_ERROR(LogCategory::Render, "Texture2D: empty image '{}'", path.string());
                 return false;
             }
 
@@ -88,7 +88,7 @@ namespace Dark
     {
         if (path.empty() || !std::filesystem::exists(path))
         {
-            DE_LOG_ERROR("Texture2D: file not found '{}'", path.string());
+            DE_LOG_ERROR(LogCategory::Render, "Texture2D: file not found '{}'", path.string());
             return false;
         }
 
@@ -102,7 +102,7 @@ namespace Dark
         if (!createFromRGBA(renderer, pixels.data(), width, height, rowPitch))
             return false;
 
-        DE_LOG_INFO("Texture2D: loaded '{}' ({}x{})", path.string(), width, height);
+        DE_LOG_INFO(LogCategory::Render, "Texture2D: loaded '{}' ({}x{})", path.string(), width, height);
         return true;
     }
 
@@ -111,7 +111,7 @@ namespace Dark
         const uint8_t px[4] = { r, g, b, a };
         if (!createFromRGBA(renderer, px, 1, 1, 4))
             return false;
-        DE_LOG_INFO("Texture2D: solid color ({},{},{},{})", r, g, b, a);
+        DE_LOG_INFO(LogCategory::Render, "Texture2D: solid color ({},{},{},{})", r, g, b, a);
         return true;
     }
 
@@ -148,7 +148,7 @@ namespace Dark
 
         if (!createFromRGBA(renderer, pixels.data(), size, size, size * 4u))
             return false;
-        DE_LOG_INFO("Texture2D: soft circle {}x{}", size, size);
+        DE_LOG_INFO(LogCategory::Render, "Texture2D: soft circle {}x{}", size, size);
         return true;
     }
 
@@ -177,7 +177,7 @@ namespace Dark
 
         if (!createFromRGBA(renderer, pixels.data(), size, size, size * 4u))
             return false;
-        DE_LOG_INFO("Texture2D: soft streak {}x{}", size, size);
+        DE_LOG_INFO(LogCategory::Render, "Texture2D: soft streak {}x{}", size, size);
         return true;
     }
 
@@ -185,14 +185,14 @@ namespace Dark
     {
         if (!rgba || width == 0 || height == 0 || rowPitchBytes < width * 4u)
         {
-            DE_LOG_ERROR("Texture2D: invalid pixel data");
+            DE_LOG_ERROR(LogCategory::Render, "Texture2D: invalid pixel data");
             return false;
         }
 
         ID3D12Device* device = renderer.device();
         if (!device)
         {
-            DE_LOG_ERROR("Texture2D: null device");
+            DE_LOG_ERROR(LogCategory::Render, "Texture2D: null device");
             return false;
         }
 

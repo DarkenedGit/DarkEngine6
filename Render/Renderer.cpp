@@ -17,7 +17,7 @@ namespace Dark
     {
         if (FAILED(hr))
         {
-            DE_LOG_ERROR("{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
+            DE_LOG_ERROR(LogCategory::Render, "{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
             throw std::runtime_error(what);
         }
     }
@@ -29,7 +29,7 @@ namespace Dark
         if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug))))
         {
             debug->EnableDebugLayer();
-            DE_LOG_INFO("D3D12 debug layer enabled");
+            DE_LOG_INFO(LogCategory::Render, "D3D12 debug layer enabled");
         }
     }
 #endif
@@ -93,7 +93,7 @@ namespace Dark
             ComPtr<IDXGIAdapter> warp;
             ThrowIfFailed(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp)), "EnumWarpAdapter");
             ThrowIfFailed(warp.As(&adapter), "WARP As IDXGIAdapter1");
-            DE_LOG_WARN("Renderer: using WARP software adapter");
+            DE_LOG_WARN(LogCategory::Render, "Renderer: using WARP software adapter");
         }
 
         ThrowIfFailed(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&m_device)), "D3D12CreateDevice");
@@ -103,7 +103,7 @@ namespace Dark
             adapter->GetDesc1(&desc);
             char name[128]{};
             WideCharToMultiByte(CP_UTF8, 0, desc.Description, -1, name, sizeof(name), nullptr, nullptr);
-            DE_LOG_INFO("D3D12 device: {}", name);
+            DE_LOG_INFO(LogCategory::Render, "D3D12 device: {}", name);
         }
 
         D3D12_COMMAND_QUEUE_DESC queueDesc{};
@@ -177,7 +177,7 @@ namespace Dark
 
         updateViewport();
 
-        DE_LOG_INFO("Renderer: D3D12 ready ({}x{}, {} buffers)", m_width, m_height, kFrameCount);
+        DE_LOG_INFO(LogCategory::Render, "Renderer: D3D12 ready ({}x{}, {} buffers)", m_width, m_height, kFrameCount);
     }
 
     bool Renderer::createRenderTargets()
@@ -190,7 +190,7 @@ namespace Dark
         {
             if (FAILED(m_swapChain->GetBuffer(i, IID_PPV_ARGS(&m_renderTargets[i]))))
             {
-                DE_LOG_ERROR("Renderer: SwapChain GetBuffer failed");
+                DE_LOG_ERROR(LogCategory::Render, "Renderer: SwapChain GetBuffer failed");
                 return false;
             }
             m_device->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, rtvHandle);
@@ -233,7 +233,7 @@ namespace Dark
                 &heapProps, D3D12_HEAP_FLAG_NONE, &depthDesc, D3D12_RESOURCE_STATE_DEPTH_WRITE, &clear,
                 IID_PPV_ARGS(&m_depthStencil))))
         {
-            DE_LOG_ERROR("Renderer: CreateCommittedResource depth failed");
+            DE_LOG_ERROR(LogCategory::Render, "Renderer: CreateCommittedResource depth failed");
             return false;
         }
 
@@ -250,7 +250,7 @@ namespace Dark
         srvHeapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
         if (FAILED(m_device->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&m_depthSrvHeap))))
         {
-            DE_LOG_ERROR("Renderer: CreateDescriptorHeap depth SRV failed");
+            DE_LOG_ERROR(LogCategory::Render, "Renderer: CreateDescriptorHeap depth SRV failed");
             return false;
         }
         m_depthSrvCpu = m_depthSrvHeap->GetCPUDescriptorHandleForHeapStart();
@@ -285,7 +285,7 @@ namespace Dark
             kFrameCount, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, m_swapChainFlags);
         if (FAILED(hr))
         {
-            DE_LOG_ERROR("Renderer: ResizeBuffers failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
+            DE_LOG_ERROR(LogCategory::Render, "Renderer: ResizeBuffers failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
             return false;
         }
 
@@ -295,12 +295,12 @@ namespace Dark
 
         if (!createRenderTargets() || !createDepthResources())
         {
-            DE_LOG_ERROR("Renderer: resize recreate targets failed");
+            DE_LOG_ERROR(LogCategory::Render, "Renderer: resize recreate targets failed");
             return false;
         }
 
         updateViewport();
-        DE_LOG_INFO("Renderer: resized to {}x{}", m_width, m_height);
+        DE_LOG_INFO(LogCategory::Render, "Renderer: resized to {}x{}", m_width, m_height);
         return true;
     }
 

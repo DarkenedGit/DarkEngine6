@@ -15,7 +15,7 @@ namespace Dark::AI
     {
         if (m_running)
         {
-            DE_LOG_ERROR("HsmMachine::setRoot: stop the machine before changing root");
+            DE_LOG_ERROR(LogCategory::AI, "HsmMachine::setRoot: stop the machine before changing root");
             return;
         }
         m_root = root;
@@ -28,7 +28,7 @@ namespace Dark::AI
     {
         if (!m_root)
         {
-            DE_LOG_ERROR("HsmMachine::start: root is null");
+            DE_LOG_ERROR(LogCategory::AI, "HsmMachine::start: root is null");
             return false;
         }
         if (m_running)
@@ -86,7 +86,7 @@ namespace Dark::AI
     {
         if (sources.empty())
         {
-            DE_LOG_ERROR("HsmMachine::addSharedTransition: no sources");
+            DE_LOG_ERROR(LogCategory::AI, "HsmMachine::addSharedTransition: no sources");
             return false;
         }
 
@@ -94,7 +94,7 @@ namespace Dark::AI
         {
             if (!src)
             {
-                DE_LOG_ERROR("HsmMachine::addSharedTransition: null source");
+                DE_LOG_ERROR(LogCategory::AI, "HsmMachine::addSharedTransition: null source");
                 return false;
             }
             // Each source gets a copy of the same logical edge (shared definition).
@@ -130,7 +130,7 @@ namespace Dark::AI
 
         if (!checkEnterGuards(enterChain, ctx))
         {
-            DE_LOG_ERROR("HsmMachine::start: enter guard failed");
+            DE_LOG_ERROR(LogCategory::AI, "HsmMachine::start: enter guard failed");
             return false;
         }
 
@@ -203,7 +203,7 @@ namespace Dark::AI
         HsmState* target = t.target;
         if (!target)
         {
-            DE_LOG_ERROR("HsmMachine: external/local transition missing target");
+            DE_LOG_ERROR(LogCategory::AI, "HsmMachine: external/local transition missing target");
             return false;
         }
 
@@ -341,7 +341,7 @@ namespace Dark::AI
             }
             else
             {
-                DE_LOG_ERROR("HsmMachine: composite '{}' has no initial child and no history", start->name());
+                DE_LOG_ERROR(LogCategory::AI, "HsmMachine: composite '{}' has no initial child and no history", start->name());
                 return false;
             }
         }
@@ -352,7 +352,7 @@ namespace Dark::AI
                 // Composite with no children path required — treat as leaf-like.
                 if (start->children().empty())
                     return true;
-                DE_LOG_ERROR("HsmMachine: composite '{}' has no initial child", start->name());
+                DE_LOG_ERROR(LogCategory::AI, "HsmMachine: composite '{}' has no initial child", start->name());
                 return false;
             }
             cur = start->initial();
@@ -364,7 +364,7 @@ namespace Dark::AI
         {
             if (!cur->initial())
             {
-                DE_LOG_ERROR("HsmMachine: composite '{}' has no initial child", cur->name());
+                DE_LOG_ERROR(LogCategory::AI, "HsmMachine: composite '{}' has no initial child", cur->name());
                 return false;
             }
             cur = cur->initial();

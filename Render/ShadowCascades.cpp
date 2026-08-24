@@ -36,6 +36,8 @@ void computePracticalSplits(float nearZ, float farZ, int cascadeCount, float lam
 
 void extractFrustumCorners(const Camera3D& camera, float nearZ, float farZ, Vector3f outCorners[8])
 {
+    // Match the basis the main view uses (Walk/Pitch leave it dirty until this).
+    camera.UpdateViewMatrix();
     const Vector3f pos   = camera.GetPosition();
     const Vector3f look  = camera.GetLook();
     const Vector3f right = camera.GetRight();
@@ -85,23 +87,51 @@ bool buildCascadeMatrix(
         center += corners[i];
     center *= (1.0f / 8.0f);
 
-    const float eyeDist = 400.0f;
-    const Vector3f eye  = center + lightDir * eyeDist;
+    // Sit the light camera far enough that every frustum corner and scene
+    // caster stays in front of it. A fixed 400m eye with a 256m terrain +
+    // large margin pushed minZ near (or behind) the eye and flattened a 1m
+    // cube into less than one NDC bias unit.
+    float pullBack = 16.0f;
+    auto considerTowardLight = [&](const Vector3f& p)
+    {
+        pullBack = Max(pullBack, (p - center).Dot(lightDir) + 8.0f);
+    };
+    for (int i = 0; i < 8; ++i)
+        considerTowardLight(corners[i]);
+    if (sceneBounds.IsValid())
+    {
+        Vector3f sc[8];
+        sceneBounds.GetCorners(sc);
+        for (int i = 0; i < 8; ++i)
+            considerTowardLight(sc[i]);
+    }
+    pullBack += Max(casterMargin, 0.0f);
+
+    const Vector3f eye  = center + lightDir * pullBack;
     const Matrix4f view = Matrix4f::LookAtLHMatrix(eye, center, up);
 
-    float minX =  1.0e20f, minY =  1.0e20f, minZ =  1.0e20f;
-    float maxX = -1.0e20f, maxY = -1.0e20f, maxZ = -1.0e20f;
+    // World-space sphere of the slice. Light-space AABBs elongate at a
+    // grazing sun until they swallow the whole terrain, so the F8 preview
+    // (and the crop window) look world-locked as the camera moves.
+    float radius = 1.0f;
+    for (int i = 0; i < 8; ++i)
+    {
+        const Vector3f d = corners[i] - center;
+        radius = Max(radius, sqrtf(d.MagnitudeSqrd()));
+    }
+
+    float minZ =  1.0e20f;
+    float maxZ = -1.0e20f;
     for (int i = 0; i < 8; ++i)
     {
         const Vector4f lp = view * Vector4f(corners[i].x, corners[i].y, corners[i].z, 1.0f);
-        minX = Min(minX, lp.x);
-        minY = Min(minY, lp.y);
         minZ = Min(minZ, lp.z);
-        maxX = Max(maxX, lp.x);
-        maxY = Max(maxY, lp.y);
         maxZ = Max(maxZ, lp.z);
     }
 
+    // Pull the near plane back for casters closer to the light than the
+    // slice. Expanding maxZ to the whole scene AABB only burns depth
+    // precision — those points cannot shadow the slice.
     if (sceneBounds.IsValid())
     {
         Vector3f sc[8];
@@ -110,31 +140,28 @@ bool buildCascadeMatrix(
         {
             const Vector4f lp = view * Vector4f(sc[i].x, sc[i].y, sc[i].z, 1.0f);
             minZ = Min(minZ, lp.z);
-            maxZ = Max(maxZ, lp.z);
         }
     }
-    minZ -= casterMargin;
+    minZ = Max(minZ - 1.0f, 0.05f);
 
-    // Square the XY extent so camera yaw doesn't change resolution.
-    const float halfW = 0.5f * (maxX - minX);
-    const float halfH = 0.5f * (maxY - minY);
-    float       radius = Max(halfW, halfH);
-    if (radius < 1.0f)
-        radius = 1.0f;
-    float cx = 0.5f * (minX + maxX);
-    float cy = 0.5f * (minY + maxY);
+    const Vector4f lightCenter = view * Vector4f(center.x, center.y, center.z, 1.0f);
+    float          cx          = lightCenter.x;
+    float          cy          = lightCenter.y;
 
     const float map = (mapSize > 0) ? static_cast<float>(mapSize) : 1024.0f;
     const float texel = (2.0f * radius) / map;
     cx = floorf(cx / texel) * texel;
     cy = floorf(cy / texel) * texel;
+    radius += texel;
 
+    maxZ += 1.0f;
     if (maxZ <= minZ)
         maxZ = minZ + 1.0f;
 
     const Matrix4f proj = Matrix4f::OrthographicOffCenterLHMatrix(
         cx - radius, cx + radius, cy - radius, cy + radius, minZ, maxZ);
     out.viewProj = view * proj;
+    out.zRange   = maxZ - minZ;
     return true;
 }
 
@@ -162,7 +189,7 @@ void packShadowConstants(
     out.cascadeSplits[2] = cascades[Min(2, cascadeCount - 1)].splitFar;
     out.cascadeSplits[3] = static_cast<float>(mapSize);
 
-    out.params[0] = depthBias;
+    out.params[0] = Max(depthBias, 0.0f);
     out.params[1] = Clamp(strength, 0.0f, 1.0f);
     out.params[2] = static_cast<float>(cascadeCount);
     out.params[3] = sliceOffset;
@@ -170,6 +197,12 @@ void packShadowConstants(
     out.cameraLook[0] = cameraLook.x;
     out.cameraLook[1] = cameraLook.y;
     out.cameraLook[2] = cameraLook.z;
+
+    for (int i = 0; i < cascadeCount; ++i)
+        out.cascadeInvZ[i] = 1.0f / Max(cascades[i].zRange, 1.0f);
+    for (int i = cascadeCount; i < kMaxShadowCascades; ++i)
+        out.cascadeInvZ[i] = out.cascadeInvZ[Max(cascadeCount - 1, 0)];
+    out.cascadeInvZ[3] = 0.0f;
 }
 
 } // namespace Dark

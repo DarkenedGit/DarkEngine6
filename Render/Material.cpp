@@ -15,7 +15,7 @@ namespace Dark
         {
             if (SUCCEEDED(hr))
                 return false;
-            DE_LOG_ERROR("{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
+            DE_LOG_ERROR(LogCategory::Render, "{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
             return true;
         }
 
@@ -72,19 +72,19 @@ namespace Dark
             m_baseColor[3] = 1.0f;
             if (!packSrvHeap(renderer.device()))
             {
-                DE_LOG_ERROR("Material: failed to pack SRV heap for '{}'", virtualAlbedoPath);
+                DE_LOG_ERROR(LogCategory::Render, "Material: failed to pack SRV heap for '{}'", virtualAlbedoPath);
                 return false;
             }
-            DE_LOG_INFO("Material: albedo '{}' (cached {}x{})", virtualAlbedoPath, m_albedo->width(), m_albedo->height());
+            DE_LOG_INFO(LogCategory::Render, "Material: albedo '{}' (cached {}x{})", virtualAlbedoPath, m_albedo->width(), m_albedo->height());
             return true;
         }
 
-        DE_LOG_WARN("Material: failed to load albedo '{}' — solid fallback ({},{},{},{})", virtualAlbedoPath, fallbackR, fallbackG, fallbackB, fallbackA);
+        DE_LOG_WARN(LogCategory::Render, "Material: failed to load albedo '{}' — solid fallback ({},{},{},{})", virtualAlbedoPath, fallbackR, fallbackG, fallbackB, fallbackA);
 
         m_albedo = assets.loadSolidTexture(renderer, fallbackR, fallbackG, fallbackB, fallbackA);
         if (!m_albedo || !m_albedo->valid())
         {
-            DE_LOG_ERROR("Material: solid fallback create failed");
+            DE_LOG_ERROR(LogCategory::Render, "Material: solid fallback create failed");
             return false;
         }
 
@@ -94,7 +94,7 @@ namespace Dark
         m_baseColor[3] = 1.0f;
         if (!packSrvHeap(renderer.device()))
         {
-            DE_LOG_ERROR("Material: failed to pack SRV heap for solid fallback");
+            DE_LOG_ERROR(LogCategory::Render, "Material: failed to pack SRV heap for solid fallback");
             return false;
         }
         return true;

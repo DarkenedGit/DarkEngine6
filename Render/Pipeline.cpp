@@ -6,7 +6,7 @@ namespace Dark
 
     Pipeline::Pipeline(const PipelineDesc& desc)
     {
-        DE_LOG_WARN("Pipeline: stub — PSO creation not yet implemented (vs='{}', ps='{}')", desc.vertexShaderPath, desc.pixelShaderPath);
+        DE_LOG_WARN(LogCategory::Render, "Pipeline: stub — PSO creation not yet implemented (vs='{}', ps='{}')", desc.vertexShaderPath, desc.pixelShaderPath);
     }
 
     Pipeline::~Pipeline() = default;

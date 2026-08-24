@@ -17,9 +17,9 @@ namespace Dark
         // Interleaved vertex matching the BasicMesh shader input layout.
         struct MeshVertex
         {
-            float px, py, pz;
-            float nx, ny, nz;
-            float u, v;
+            Math::Vector3f point;
+            Math::Vector3f normal;
+            Math::Vector2f uv;
         };
 
         // GPU mesh built from MeshGen::MeshData (default-heap VB/IB).

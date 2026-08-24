@@ -14,7 +14,7 @@ namespace Dark
         m_wav = PcmWav{};
         if (!loadPcmWav(path, m_wav))
             return false;
-        DE_LOG_INFO(
+        DE_LOG_INFO(LogCategory::Audio, 
             "SoundClip: '{}'  {} Hz  {} ch  {} frames",
             path.string(),
             m_wav.sampleRate,
