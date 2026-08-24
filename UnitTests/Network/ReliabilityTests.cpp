@@ -38,6 +38,41 @@ namespace
             return false;
         return readDatagramHeader(r, h);
     }
+
+    bool skipReliables(PacketReader& r, uint8_t count)
+    {
+        for (uint8_t i = 0; i < count; ++i)
+        {
+            uint16_t id  = 0;
+            uint16_t len = 0;
+            uint8_t  op  = 0;
+            if (!r.readU16(id) || !r.readU16(len) || !r.readU8(op))
+                return false;
+            if (len == 0 || len > kNetMaxReliableLen)
+                return false;
+            const uint32_t payloadLen = static_cast<uint32_t>(len) - 1u;
+            if (payloadLen)
+            {
+                uint8_t skip[kNetMaxReliableLen];
+                if (!r.readBytes(skip, payloadLen))
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    class FailTransport : public ITransport
+    {
+    public:
+        bool sendTo(const Address&, const void*, uint32_t) override { return false; }
+        bool recvFrom(Address&, void*, uint32_t, uint32_t& outSize) override
+        {
+            outSize = 0;
+            return false;
+        }
+        Address localAddress() const override { return {}; }
+        void close() override {}
+    };
 } // namespace
 
 TEST(Reliability, HeaderRoundTrip)
@@ -202,6 +237,10 @@ TEST(Reliability, WrapSkipsZero)
         EXPECT_EQ(h.reliableAck, 65535);
         EXPECT_NE(h.reliableAck, 0);
     }
+    ASSERT_TRUE(a.receive(buf, n));
+    EXPECT_EQ(a.pendingCount(), 1u);
+    EXPECT_EQ(a.pendingIdAt(0), 1);
+    EXPECT_NE(a.pendingIdAt(0), 65535);
 
     ASSERT_TRUE(tb.recvFrom(src, buf, sizeof(buf), n));
     {
@@ -217,6 +256,13 @@ TEST(Reliability, WrapSkipsZero)
         EXPECT_NE(id, 0);
     }
     ASSERT_TRUE(b.receive(buf, n));
+    EXPECT_EQ(a.pendingCount(), 1u);
+    EXPECT_EQ(a.pendingIdAt(0), 1);
+
+    ASSERT_TRUE(b.flush(tb, addrA, 0.0f));
+    ASSERT_TRUE(ta.recvFrom(src, buf, sizeof(buf), n));
+    ASSERT_TRUE(a.receive(buf, n));
+    EXPECT_EQ(a.pendingCount(), 0u);
 
     uint8_t              op = 0;
     std::vector<uint8_t> pl;
@@ -320,10 +366,102 @@ TEST(Reliability, UnknownMagicAndVersionDropped)
     badVer[4] = 99;
     EXPECT_FALSE(b.receive(badVer, n));
 
+    uint8_t badSize[kNetMaxPayload];
+    const uint8_t sizes[] = { 0, 23, static_cast<uint8_t>(n + 1 > 255 ? 255 : n + 1) };
+    for (uint8_t s : sizes)
+    {
+        std::memcpy(badSize, buf, n);
+        badSize[6] = s;
+        EXPECT_FALSE(b.receive(badSize, n)) << "headerSize=" << static_cast<int>(s);
+    }
+
     EXPECT_TRUE(b.receive(buf, n));
     uint8_t              op = 0;
     std::vector<uint8_t> pl;
     ASSERT_TRUE(b.popReliable(op, pl));
+}
+
+TEST(Reliability, PackingReservesUnreliableTail)
+{
+    FakeHub            hub;
+    const Address      addrA = makeAddr(10, 0, 0, 1, 1);
+    const Address      addrB = makeAddr(10, 0, 0, 2, 2);
+    FakeTransport      ta(hub, addrA);
+    FakeTransport      tb(hub, addrB);
+    ReliabilityChannel a;
+
+    constexpr uint32_t kRelLen  = 400;
+    constexpr uint32_t kUnrLen  = 800;
+    constexpr uint8_t  kUnrOp   = 8;
+    std::vector<uint8_t> rel(kRelLen, 0x11);
+    std::vector<uint8_t> unr(kUnrLen, 0x22);
+    for (int i = 0; i < 4; ++i)
+        ASSERT_TRUE(a.queueReliable(6, rel.data(), kRelLen));
+    ASSERT_TRUE(a.setUnreliable(kUnrOp, unr.data(), kUnrLen));
+    ASSERT_TRUE(a.flush(ta, addrB, 0.0f));
+
+    std::vector<std::vector<uint8_t>> dgs;
+    Address  src{};
+    uint8_t  buf[kNetMaxPayload]{};
+    uint32_t n = 0;
+    while (tb.recvFrom(src, buf, sizeof(buf), n))
+    {
+        ASSERT_GT(n, 0u);
+        dgs.emplace_back(buf, buf + n);
+    }
+    ASSERT_GE(dgs.size(), 2u);
+
+    {
+        PacketReader   r;
+        DatagramHeader h{};
+        ASSERT_TRUE(parseHeader(dgs[0].data(), static_cast<uint32_t>(dgs[0].size()), h, r));
+        ASSERT_TRUE(skipReliables(r, h.reliableCount));
+        ASSERT_GT(r.remaining(), 0u);
+        uint8_t op = 0;
+        ASSERT_TRUE(r.readU8(op));
+        EXPECT_EQ(op, kUnrOp);
+        EXPECT_EQ(r.remaining(), kUnrLen);
+        std::vector<uint8_t> tail(kUnrLen);
+        ASSERT_TRUE(r.readBytes(tail.data(), kUnrLen));
+        EXPECT_EQ(tail, unr);
+    }
+
+    for (size_t i = 1; i < dgs.size(); ++i)
+    {
+        PacketReader   r;
+        DatagramHeader h{};
+        ASSERT_TRUE(parseHeader(dgs[i].data(), static_cast<uint32_t>(dgs[i].size()), h, r));
+        EXPECT_GT(h.reliableCount, 0);
+        ASSERT_TRUE(skipReliables(r, h.reliableCount));
+        EXPECT_EQ(r.remaining(), 0u);
+    }
+}
+
+TEST(Reliability, FailedSendDoesNotMarkPendingSent)
+{
+    FailTransport      fail;
+    ReliabilityChannel a;
+    const Address      dest = makeAddr(10, 0, 0, 2, 2);
+    const uint8_t      payload[] = { 1 };
+    ASSERT_TRUE(a.queueReliable(6, payload, 1));
+    ASSERT_TRUE(a.setUnreliable(8, payload, 1));
+    EXPECT_FALSE(a.flush(fail, dest, 0.0f));
+    EXPECT_EQ(a.outgoingSeq(), 0);
+    EXPECT_EQ(a.pendingCount(), 1u);
+    EXPECT_EQ(a.pendingIdAt(0), 1);
+
+    FakeHub            hub;
+    const Address      addrA = makeAddr(10, 0, 0, 1, 1);
+    FakeTransport      ta(hub, addrA);
+    FakeTransport      tb(hub, dest);
+    ReliabilityChannel b;
+    ASSERT_TRUE(a.flush(ta, dest, 0.0f));
+    recvAll(tb, b);
+    uint8_t              op = 0;
+    std::vector<uint8_t> pl;
+    ASSERT_TRUE(b.popReliable(op, pl));
+    EXPECT_TRUE(b.hasUnreliable());
+    EXPECT_EQ(b.unreliableOpcode(), 8);
 }
 
 TEST(Reliability, PendingCapFailsQueue)

@@ -62,12 +62,6 @@ namespace Dark
         m_reliableExpected = (id == 0) ? 1 : id;
     }
 
-    uint16_t ReliabilityChannel::allocSeq()
-    {
-        m_outgoingSeq = nextId(m_outgoingSeq);
-        return m_outgoingSeq;
-    }
-
     uint16_t ReliabilityChannel::advertisedReliableAck() const
     {
         if (!m_gotReliable)
@@ -212,20 +206,14 @@ namespace Dark
 
         const bool haveReliables = start < m_pending.size();
         if (!hasUnr && !haveReliables && !m_ackDirty)
-        {
-            m_hasUnreliableOut    = false;
-            m_unreliableOutOpcode = 0;
-            m_unreliableOut.clear();
             return true;
-        }
 
         bool     sentUnreliable = false;
         size_t   idx            = start;
         uint32_t flushBytes     = 0;
-        bool     ok             = true;
         bool     first          = true;
 
-        while (ok)
+        while (true)
         {
             const bool     includeUnr = hasUnr && !sentUnreliable;
             const uint32_t reserve    = includeUnr ? unrBytes : 0u;
@@ -243,11 +231,12 @@ namespace Dark
                     return false;
             }
 
-            uint8_t count = 0;
-            while (idx < m_pending.size() && count < 255)
+            size_t  packIdx = idx;
+            uint8_t count   = 0;
+            while (packIdx < m_pending.size() && count < 255)
             {
-                PendingReliable& p    = m_pending[idx];
-                const uint32_t   need = frameBytes(static_cast<uint32_t>(p.payload.size()));
+                const PendingReliable& p    = m_pending[packIdx];
+                const uint32_t         need = frameBytes(static_cast<uint32_t>(p.payload.size()));
                 if (w.size() + need + reserve > kNetMaxPayload)
                     break;
                 const uint16_t len = static_cast<uint16_t>(1u + p.payload.size());
@@ -255,11 +244,8 @@ namespace Dark
                     return false;
                 if (!p.payload.empty() && !w.writeBytes(p.payload.data(), static_cast<uint32_t>(p.payload.size())))
                     return false;
-                if (p.lastSendTime >= 0.f)
-                    ++m_resends;
-                p.lastSendTime = nowSeconds;
                 ++count;
-                ++idx;
+                ++packIdx;
             }
 
             if (includeUnr)
@@ -273,13 +259,17 @@ namespace Dark
             if (!first && count == 0 && !includeUnr)
                 break;
 
+            const uint32_t dgSize = w.size();
+            if (flushBytes + dgSize > kNetFlushByteCap)
+                break;
+
             DatagramHeader h{};
             h.magic         = kNetMagic;
             h.version       = kNetProtocolVersion;
             h.headerFlags   = 0;
             h.headerSize    = kNetHeaderSize;
             h.reserved      = 0;
-            h.seq           = allocSeq();
+            h.seq           = nextId(m_outgoingSeq);
             h.ack           = m_incomingSeq;
             h.ackBits       = m_ackBits;
             h.connToken     = m_token;
@@ -291,16 +281,18 @@ namespace Dark
             if (!hw.begin(buf, kNetHeaderSize) || !writeDatagramHeader(hw, h))
                 return false;
 
-            const uint32_t dgSize = w.size();
-            if (flushBytes + dgSize > kNetFlushByteCap)
-                break;
             if (!transport.sendTo(dest, buf, dgSize))
-            {
-                ok = false;
-                break;
-            }
+                return false;
 
-            flushBytes += dgSize;
+            m_outgoingSeq = h.seq;
+            for (size_t i = idx; i < packIdx; ++i)
+            {
+                if (m_pending[i].lastSendTime >= 0.f)
+                    ++m_resends;
+                m_pending[i].lastSendTime = nowSeconds;
+            }
+            idx            = packIdx;
+            flushBytes     += dgSize;
             m_ackDirty     = false;
             sentUnreliable = sentUnreliable || includeUnr;
             first          = false;
@@ -309,10 +301,13 @@ namespace Dark
                 break;
         }
 
-        m_hasUnreliableOut    = false;
-        m_unreliableOutOpcode = 0;
-        m_unreliableOut.clear();
-        return ok;
+        if (sentUnreliable)
+        {
+            m_hasUnreliableOut    = false;
+            m_unreliableOutOpcode = 0;
+            m_unreliableOut.clear();
+        }
+        return true;
     }
 
     bool ReliabilityChannel::receive(const uint8_t* datagram, uint32_t size)
@@ -430,6 +425,13 @@ namespace Dark
         payload = std::move(m_delivered.front().payload);
         m_delivered.pop_front();
         return true;
+    }
+
+    uint16_t ReliabilityChannel::pendingIdAt(uint32_t i) const
+    {
+        if (i >= m_pending.size())
+            return 0;
+        return m_pending[static_cast<size_t>(i)].id;
     }
 
 } // namespace Dark

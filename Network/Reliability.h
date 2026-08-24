@@ -10,9 +10,6 @@
 namespace Dark
 {
 
-    constexpr uint32_t kNetMagic             = 0x314E4544u;
-    constexpr uint8_t  kNetProtocolVersion   = 1;
-    constexpr uint8_t  kNetHeaderSize        = 24;
     constexpr uint16_t kNetMaxReliableLen    = 512; // opcode + payload
     constexpr uint32_t kNetPendingCapBytes   = 16u * 1024u;
     constexpr float    kNetResendIntervalSec = 0.1f;
@@ -65,6 +62,7 @@ namespace Dark
         bool pendingOverflow() const { return m_pendingOverflow; }
         uint32_t pendingCount() const { return static_cast<uint32_t>(m_pending.size()); }
         uint32_t pendingBytes() const { return m_pendingBytes; }
+        uint16_t pendingIdAt(uint32_t i) const;
 
         // Test hooks: next values written / accepted (never 0).
         void forceNextSeq(uint16_t seq);
@@ -90,7 +88,6 @@ namespace Dark
             std::vector<uint8_t> payload;
         };
 
-        uint16_t allocSeq();
         uint16_t advertisedReliableAck() const;
         void     applyRemoteReliableAck(uint16_t reliableAck);
         void     noteIncomingSeq(uint16_t seq);
