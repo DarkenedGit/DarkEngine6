@@ -242,6 +242,21 @@ namespace Dark
         }
     }
 
+    void NetworkSystem::drainInjected()
+    {
+        // FakeTransport keeps a queue across sessions; owned UdpSocket close/open already drops the OS buffer.
+        // Do not close() injected endpoints — tests reuse them and FakeHub would unregister.
+        ITransport* t = m_injected;
+        if (!t)
+            return;
+        Address  src{};
+        uint8_t  buf[kNetMaxPayload];
+        uint32_t n = 0;
+        while (t->recvFrom(src, buf, sizeof(buf), n))
+        {
+        }
+    }
+
     void NetworkSystem::resetToIdle()
     {
         m_role              = NetRole::Idle;
@@ -256,6 +271,7 @@ namespace Dark
         m_netAccum          = 0.f;
         m_serverAddr        = {};
         m_playerId          = UUID{ 0ull };
+        drainInjected();
     }
 
     NetworkSystem::Peer* NetworkSystem::findPeerByAddr(const Address& addr)
@@ -503,6 +519,7 @@ namespace Dark
             return false;
         }
 
+        drainInjected();
         m_role         = NetRole::Host;
         m_localId      = ClientId::Host;
         m_playerId     = UUID{};
@@ -529,6 +546,7 @@ namespace Dark
             return false;
         }
 
+        drainInjected();
         m_serverAddr       = server;
         m_playerId         = UUID{};
         m_localId          = ClientId::Invalid;

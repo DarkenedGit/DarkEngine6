@@ -293,6 +293,72 @@ TEST(Session, HostRejectsWhenFull)
     EXPECT_EQ(host.role(), NetRole::Host);
 }
 
+TEST(Session, HostDrainsStaleInboxBeforeSession)
+{
+    FakeHub       hub;
+    FakeTransport tHost(hub, kHostAddr);
+    FakeTransport tClient(hub, kClientAddr);
+    NetworkSystem host;
+    NetworkSystem client;
+    host.setTransport(&tHost);
+    client.setTransport(&tClient);
+
+    World w;
+    ASSERT_TRUE(client.join(kHostAddr));
+    EXPECT_EQ(client.role(), NetRole::Joining);
+    ASSERT_TRUE(host.host());
+    host.poll(w, 0.f);
+    EXPECT_EQ(host.peerCount(), 0u);
+    EXPECT_EQ(host.role(), NetRole::Host);
+    EXPECT_EQ(client.role(), NetRole::Joining);
+}
+
+TEST(Session, JoinDrainsStaleAcceptFromPriorSession)
+{
+    FakeHub       hub;
+    FakeTransport tHost(hub, kHostAddr);
+    FakeTransport tClient(hub, kClientAddr);
+    NetworkSystem host;
+    NetworkSystem client;
+    host.setTransport(&tHost);
+    client.setTransport(&tClient);
+
+    World w;
+    ASSERT_TRUE(handshake(host, client, w));
+    client.disconnect();
+    host.disconnect();
+    EXPECT_EQ(client.role(), NetRole::Idle);
+
+    uint8_t  buf[kNetMaxPayload]{};
+    uint32_t n   = 0;
+    uint16_t seq = 0;
+    PacketWriter wPkt;
+    ASSERT_TRUE(wPkt.begin(buf, sizeof(buf)));
+    DatagramHeader h{};
+    h.magic         = kNetMagic;
+    h.version       = kNetProtocolVersion;
+    h.headerSize    = kNetHeaderSize;
+    h.seq           = nextSeq(seq);
+    h.connToken     = 0xDEADBEEFu;
+    ASSERT_TRUE(writeDatagramHeader(wPkt, h));
+    ASSERT_TRUE(wPkt.writeU8(static_cast<uint8_t>(NetOpcode::ConnectAccept)));
+    ConnectAcceptPayload acc{};
+    acc.clientId   = 1;
+    acc.connToken  = 0xDEADBEEFu;
+    acc.netTickHz  = 20;
+    acc.maxClients = 8;
+    acc.serverTick = 0;
+    ASSERT_TRUE(writeConnectAccept(wPkt, acc));
+    n = wPkt.size();
+    ASSERT_TRUE(tHost.sendTo(kClientAddr, buf, n));
+
+    ASSERT_TRUE(client.join(kHostAddr));
+    EXPECT_EQ(client.role(), NetRole::Joining);
+    client.poll(w, 0.f);
+    EXPECT_EQ(client.role(), NetRole::Joining);
+    EXPECT_EQ(client.localClientId(), ClientId::Invalid);
+}
+
 TEST(Session, ShutdownIdempotentAndDoesNotDeleteInjected)
 {
     FakeHub       hub;

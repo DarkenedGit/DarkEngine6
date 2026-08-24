@@ -83,6 +83,7 @@ namespace Dark
         ITransport* transport() const;
         bool        ensureSocket(uint16_t port);
         void        closeOwned();
+        void        drainInjected();
         void        resetToIdle();
         void        logAddress(const char* prefix, const Address& addr) const;
         bool        allowPacket(const Address& src);
