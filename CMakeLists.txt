@@ -104,6 +104,10 @@ target_link_libraries(DarkEngine
         xinput
         xaudio2
         ole32
+    PRIVATE
+        # UDP in Network/UdpSocket.cpp. PRIVATE on this STATIC lib still
+        # propagates to Sandbox / Editor / UnitTests at final link (CMake 3.13+).
+        ws2_32
 )
 
 target_compile_definitions(DarkEngine
