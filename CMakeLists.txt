@@ -40,6 +40,7 @@ set(DE_ENGINE_FOLDERS
     Character
     Collision
     Core
+    Debug
     ECS
     Geometry
     Input
@@ -64,6 +65,10 @@ endforeach()
 de_glob_folder(DE_SANDBOX_SOURCES Sandbox)
 de_glob_folder(DE_SANDBOX2D_SOURCES Sandbox2D)
 de_glob_folder(DE_EDITOR_SOURCES Editor)
+de_glob_folder(DE_UI_SOURCES Ui)
+de_glob_folder(DE_VISUALDEBUGGER_SOURCES VisualDebugger)
+list(APPEND DE_EDITOR_SOURCES ${DE_UI_SOURCES})
+list(APPEND DE_VISUALDEBUGGER_SOURCES ${DE_UI_SOURCES})
 
 # Runtime HLSL lives under content/shaders (not the empty Shaders/ source folder).
 # Add them to DarkEngine so they appear in the VS solution; do not compile them.
@@ -74,7 +79,7 @@ file(GLOB_RECURSE DE_SHADER_SOURCES CONFIGURE_DEPENDS
 list(APPEND DE_ENGINE_SOURCES ${DE_SHADER_SOURCES})
 
 # Non-C/C++ files are IDE-visible only (not passed to the compiler).
-foreach(src IN LISTS DE_ENGINE_SOURCES DE_SANDBOX_SOURCES DE_SANDBOX2D_SOURCES DE_EDITOR_SOURCES)
+foreach(src IN LISTS DE_ENGINE_SOURCES DE_SANDBOX_SOURCES DE_SANDBOX2D_SOURCES DE_EDITOR_SOURCES DE_VISUALDEBUGGER_SOURCES)
     get_filename_component(_ext "${src}" EXT)
     string(TOLOWER "${_ext}" _ext)
     if(NOT _ext MATCHES "\\.(c|cc|cpp|cxx)$")
@@ -108,6 +113,7 @@ target_link_libraries(DarkEngine
         # UDP in Network/UdpSocket.cpp. PRIVATE on this STATIC lib still
         # propagates to Sandbox / Editor / UnitTests at final link (CMake 3.13+).
         ws2_32
+        psapi
 )
 
 target_compile_definitions(DarkEngine
@@ -207,7 +213,7 @@ include(FetchContent)
 FetchContent_Declare(
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG        v1.91.8
+    GIT_TAG        v1.91.8-docking
     GIT_SHALLOW    TRUE
 )
 FetchContent_GetProperties(imgui)
@@ -260,6 +266,27 @@ add_custom_command(TARGET Editor POST_BUILD
             -DDST=$<TARGET_FILE_DIR:Editor>/content
             -P ${CMAKE_SOURCE_DIR}/cmake/CopyContent.cmake
     COMMENT "Copying content/ next to Editor.exe"
+)
+
+# --- Visual Debugger executable ----------------------------------------------------
+add_executable(VisualDebugger WIN32 ${DE_VISUALDEBUGGER_SOURCES})
+
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${DE_VISUALDEBUGGER_SOURCES})
+
+target_link_libraries(VisualDebugger PRIVATE DarkEngine imgui_editor)
+
+target_include_directories(VisualDebugger PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party"
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
+)
+
+if (COMMAND de_set_compiler_options)
+    de_set_compiler_options(VisualDebugger)
+endif()
+
+set_target_properties(VisualDebugger PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
 
 # --- Unit tests --------------------------------------------------------------------

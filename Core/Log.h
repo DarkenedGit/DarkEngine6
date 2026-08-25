@@ -24,6 +24,7 @@ namespace Dark
         AI,
         Input,
         Networking,
+        Debug,
         Count
     };
 
@@ -50,6 +51,8 @@ namespace Dark
 
         // Optional test hook. Invoked with the formatted message (no prefix) after filters pass.
         static void setCapture(CaptureFn fn);
+        static void addCapture(CaptureFn fn);
+        static void removeCapture(CaptureFn fn);
 
         static bool shouldLog(LogLevel level, LogCategory category);
 

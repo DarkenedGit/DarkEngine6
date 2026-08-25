@@ -158,10 +158,11 @@ void Sandbox2DApp::registerActions()
     a.bindKey("net_disconnect", Key::F4);
     a.bindKey("net_host", Key::F5);
     a.bindKey("net_join", Key::F6);
+    a.bindKey("debug_listen", Key::F10);
 
     DE_LOG_INFO(
         "Sandbox2D: move(A/D / arrows / LS / D-pad) jump(Space/W / A/B) reset(R/Y) debug(F1/Start) quit(Esc/Back)");
-    DE_LOG_INFO(LogCategory::Networking, "Sandbox2D net: F5 host :26160  F6 join 127.0.0.1:26160  F4 disconnect");
+    DE_LOG_INFO(LogCategory::Networking, "Sandbox2D net: F5 host :26160  F6 join 127.0.0.1:26160  F4 disconnect  F10 visual debugger");
 }
 
 void Sandbox2DApp::buildLevel()
@@ -749,6 +750,18 @@ void Sandbox2DApp::handleNetHotkeys()
     {
         network().disconnect();
         DE_LOG_INFO(LogCategory::Networking, "Sandbox2D: disconnect");
+    }
+    if (input().actionPressed("debug_listen"))
+    {
+        if (debug().isListening())
+        {
+            debug().shutdown();
+            DE_LOG_INFO(LogCategory::Debug, "Sandbox2D: Visual Debugger listen stopped");
+        }
+        else if (debug().listen(kDebugDefaultPort))
+            DE_LOG_INFO(LogCategory::Debug, "Sandbox2D: Visual Debugger listening TCP {}", debug().boundAddress().port);
+        else
+            DE_LOG_ERROR(LogCategory::Debug, "Sandbox2D: Visual Debugger listen failed");
     }
 }
 

@@ -165,6 +165,30 @@ namespace Dark
                 joinAddr = addr;
                 continue;
             }
+
+            if (tokenEq(tok, "-debug"))
+            {
+                cfg.debugListen     = true;
+                cfg.debugListenPort = kDebugDefaultPort;
+                const char* peek = p;
+                char        next[96];
+                if (nextToken(peek, next, sizeof(next)) && next[0] != 0 && parsePortDigits(next, cfg.debugListenPort))
+                    p = peek;
+                continue;
+            }
+
+            if (tokenStartsWith(tok, "-debug:"))
+            {
+                uint16_t port = 0;
+                if (!parsePortDigits(tok + 7, port))
+                {
+                    DE_LOG_ERROR(LogCategory::Debug, "parseNetCommandLine: invalid -debug port");
+                    continue;
+                }
+                cfg.debugListen     = true;
+                cfg.debugListenPort = port;
+                continue;
+            }
         }
 
         if (sawHost && sawJoin)
@@ -201,6 +225,7 @@ namespace Dark
 
     Application::~Application()
     {
+        m_debug.shutdown();
         m_network.shutdown();
         m_window.setInput(nullptr);
         DE_LOG_INFO("DarkEngine6 — shutting down");
@@ -218,10 +243,18 @@ namespace Dark
             m_network.join(m_config.netJoin);
     }
 
+    void Application::applyDebugConfig()
+    {
+        m_debug.setAppTitle(m_config.title);
+        if (m_config.debugListen)
+            m_debug.listen(m_config.debugListenPort);
+    }
+
     void Application::run()
     {
         onInit();
         applyNetConfig();
+        applyDebugConfig();
 
         float lastTime = 0.0f;
 
@@ -241,12 +274,40 @@ namespace Dark
             if (dt < 0.0f || dt > 0.25f)
                 dt = 1.0f / 60.0f;
 
+            m_debug.perf().beginFrame();
+
+            float t0 = m_window.getTime();
             m_network.poll(m_world, dt);
+            m_debug.perf().add(PerfSlot::NetPoll, m_window.getTime() - t0);
+
+            t0 = m_window.getTime();
+            m_debug.poll(dt);
+            m_debug.perf().add(PerfSlot::DebugFlush, m_window.getTime() - t0);
+
+            t0 = m_window.getTime();
             onUpdate(dt);
+            m_debug.perf().add(PerfSlot::Update, m_window.getTime() - t0);
+
+            t0 = m_window.getTime();
             m_audio.tick();
+            m_debug.perf().add(PerfSlot::Audio, m_window.getTime() - t0);
+
+            t0 = m_window.getTime();
             m_network.flush(m_world, dt);
+            m_debug.perf().add(PerfSlot::NetFlush, m_window.getTime() - t0);
+
+            t0 = m_window.getTime();
             onRender();
+            m_debug.perf().add(PerfSlot::Render, m_window.getTime() - t0);
+
+            t0 = m_window.getTime();
             m_renderer.present();
+            m_debug.perf().add(PerfSlot::Present, m_window.getTime() - t0);
+
+            const DebugFrameStats fs{m_renderer.stats().drawCalls, m_renderer.stats().triangles};
+            const float rtt = (m_network.role() == NetRole::Idle) ? 0.0f : m_network.rttMs(m_network.localClientId());
+            m_debug.perf().endFrame(dt, fs, m_network.packetsIn(), m_network.packetsOut(), rtt);
+            m_debug.flush(&m_world, fs, m_network.packetsIn(), m_network.packetsOut(), rtt, dt);
         }
 
         onShutdown();

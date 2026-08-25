@@ -1,9 +1,12 @@
 #include "Particles/ParticleEmitter.h"
 #include "Particles/ParticleRibbon.h"
 #include "Math/MathDefines.h"
+#include "Core/MemoryTracker.h"
 
 #include <cmath>
 #include <algorithm>
+#include <atomic>
+#include <cstdio>
 
 namespace Dark
 {
@@ -27,6 +30,30 @@ namespace Dark
         }
 
     } // namespace
+
+    namespace
+    {
+        std::atomic<uint32_t> g_emitterMemId{1};
+    }
+
+    ParticleEmitter::ParticleEmitter()
+    {
+        m_memId = g_emitterMemId.fetch_add(1, std::memory_order_relaxed);
+        publishMemory();
+    }
+
+    ParticleEmitter::~ParticleEmitter()
+    {
+        if (m_memName[0])
+            MemoryTracker::clear(m_memName);
+    }
+
+    void ParticleEmitter::publishMemory()
+    {
+        std::snprintf(m_memName, sizeof(m_memName), "Particles/%u", m_memId);
+        const uint64_t stride = sizeof(Particle);
+        MemoryTracker::set(m_memName, static_cast<uint64_t>(m_aliveCount) * stride, static_cast<uint64_t>(m_particles.size()) * stride, m_aliveCount);
+    }
 
     void ParticleEmitter::setDesc(const ParticleEmitterDesc& desc)
     {
@@ -92,6 +119,7 @@ namespace Dark
         m_aliveCount = 0;
         m_emitCarry  = 0.0f;
         resetRibbonSeq();
+        publishMemory();
     }
 
     void ParticleEmitter::resetRibbonSeq()
@@ -259,6 +287,7 @@ namespace Dark
             p.position.z += p.velocity.z * dt;
             ++m_aliveCount;
         }
+        publishMemory();
     }
 
 } // namespace Dark

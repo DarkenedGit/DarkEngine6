@@ -178,12 +178,13 @@ void SandboxApp::registerDefaultActions()
     a.bindKey("debug_shadow_enable", Key::F7);
     a.bindKey("debug_shadows", Key::F8);
     a.bindKey("debug_depth", Key::F9);
+    a.bindKey("debug_listen", Key::F10);
 
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(Space/A) reset(R/Y) speed(+/- / RB) "
         "cube yaw/pitch(WASD host) pawn XZ(arrows/D-pad) fly(IJKL U/O, LS move, RS look, triggers climb, "
         "LB/L3 sprint, RMB look) time([/]) weather(1-4) "
-        "F3 browse LAN F4 disconnect F5 host F6 join  F1 fill F2 lighting F7 shadows F8 shadow maps F9 depth");
+        "F3 browse LAN F4 disconnect F5 host F6 join  F1 fill F2 lighting F7 shadows F8 shadow maps F9 depth F10 visual debugger");
 }
 
 void SandboxApp::handleRuntimeCommands(float dt)
@@ -401,6 +402,18 @@ void SandboxApp::handleNetHotkeys()
         m_browseLogCount = ~0u;
         network().disconnect();
         DE_LOG_INFO(LogCategory::Networking, "Sandbox: disconnect");
+    }
+    if (input().actionPressed("debug_listen"))
+    {
+        if (debug().isListening())
+        {
+            debug().shutdown();
+            DE_LOG_INFO(LogCategory::Debug, "Sandbox: Visual Debugger listen stopped");
+        }
+        else if (debug().listen(kDebugDefaultPort))
+            DE_LOG_INFO(LogCategory::Debug, "Sandbox: Visual Debugger listening TCP {}", debug().boundAddress().port);
+        else
+            DE_LOG_ERROR(LogCategory::Debug, "Sandbox: Visual Debugger listen failed");
     }
     if (input().actionPressed("net_browse"))
     {

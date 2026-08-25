@@ -66,6 +66,7 @@ TEST_F(LogTest, CategoryNames)
     EXPECT_STREQ(Log::categoryName(LogCategory::AI), "AI");
     EXPECT_STREQ(Log::categoryName(LogCategory::Input), "Input");
     EXPECT_STREQ(Log::categoryName(LogCategory::Networking), "Networking");
+    EXPECT_STREQ(Log::categoryName(LogCategory::Debug), "Debug");
 }
 
 TEST_F(LogTest, CategoriesEnabledByDefault)
@@ -76,6 +77,7 @@ TEST_F(LogTest, CategoriesEnabledByDefault)
     EXPECT_TRUE(Log::isCategoryEnabled(LogCategory::AI));
     EXPECT_TRUE(Log::isCategoryEnabled(LogCategory::Input));
     EXPECT_TRUE(Log::isCategoryEnabled(LogCategory::Networking));
+    EXPECT_TRUE(Log::isCategoryEnabled(LogCategory::Debug));
     EXPECT_TRUE(Log::isCategoryEnabled(LogCategory::Core));
 }
 

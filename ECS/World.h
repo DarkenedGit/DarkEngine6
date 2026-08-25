@@ -14,8 +14,13 @@ namespace Dark
 
     struct IComponentPool
     {
-        virtual ~IComponentPool()        = default;
-        virtual void remove(EntityID id) = 0;
+        virtual ~IComponentPool()           = default;
+        virtual void        remove(EntityID id) = 0;
+        virtual const char* typeName() const    = 0;
+        virtual uint32_t    count() const       = 0;
+        virtual uint32_t    stride() const      = 0;
+        virtual uint64_t    bytesUsed() const   = 0;
+        virtual uint64_t    bytesCapacity() const = 0;
     };
 
     template <typename T> class ComponentPool : public IComponentPool
@@ -69,6 +74,12 @@ namespace Dark
             return m_components;
         }
 
+        const char* typeName() const override { return componentTypeName<T>(); }
+        uint32_t    count() const override { return static_cast<uint32_t>(m_components.size()); }
+        uint32_t    stride() const override { return static_cast<uint32_t>(sizeof(T)); }
+        uint64_t    bytesUsed() const override { return static_cast<uint64_t>(m_components.size()) * sizeof(T); }
+        uint64_t    bytesCapacity() const override { return static_cast<uint64_t>(m_components.capacity()) * sizeof(T); }
+
     private:
         std::unordered_map<EntityID, uint32_t> m_sparse;
         std::vector<EntityID>                  m_dense;
@@ -109,6 +120,16 @@ namespace Dark
         {
             auto* pool = getPool<T>();
             return pool ? pool->get(e.id()) : nullptr;
+        }
+
+        template <typename Fn> void forEachPool(Fn&& fn) const
+        {
+            for (const auto& [cid, pool] : m_pools)
+            {
+                (void)cid;
+                if (pool)
+                    fn(*pool);
+            }
         }
 
         // Single-component view — iterate entities that have T

@@ -5,6 +5,7 @@
 #include "Assets/AssetManager.h"
 #include "Audio/AudioSystem.h"
 #include "Network/NetworkSystem.h"
+#include "Debug/DebugServer.h"
 #include "Render/Renderer.h"
 #include "Input/Input.h"
 
@@ -21,6 +22,9 @@ namespace Dark
         uint16_t netHostPort  = kNetDefaultPort;
         Address  netJoin{};          // ipv4==0 && port==0 → do not join
         uint8_t  netSceneMode = 0;   // 0 = 3D, 1 = 2D; apps may override
+
+        bool     debugListen     = false;
+        uint16_t debugListenPort = kDebugDefaultPort;
     };
 
     bool parseNetCommandLine(const char* lpCmdLine, AppConfig& cfg);
@@ -43,6 +47,7 @@ namespace Dark
         AssetManager&  assets()   { return m_assets; }
         AudioSystem&   audio()    { return m_audio; }
         NetworkSystem& network()  { return m_network; }
+        DebugServer&   debug()    { return m_debug; }
         Renderer&      renderer() { return m_renderer; }
         Input&         input()    { return m_input; }
         const Input&   input() const { return m_input; }
@@ -50,6 +55,7 @@ namespace Dark
 
     private:
         void applyNetConfig();
+        void applyDebugConfig();
 
         LogSession m_logSession;
 
@@ -61,6 +67,7 @@ namespace Dark
         Renderer      m_renderer;
         AudioSystem   m_audio;
         NetworkSystem m_network; // after audio: sockets destroyed before HWND
+        DebugServer   m_debug;   // after network: debug TCP dies before game sockets / HWND
 
     private:
         AppConfig m_config;

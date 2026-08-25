@@ -29,6 +29,7 @@ namespace Dark
             std::atomic<uint32_t> enabledMask{kAllCategoriesMask};
             std::atomic<int>      minLevel{static_cast<int>(LogLevel::Trace)};
             Log::CaptureFn        capture = nullptr;
+            Log::CaptureFn        extra[4]{};
 
             ~LogState()
             {
@@ -199,6 +200,8 @@ namespace Dark
             return "Input";
         case LogCategory::Networking:
             return "Networking";
+        case LogCategory::Debug:
+            return "Debug";
         default:
             return "?";
         }
@@ -209,6 +212,40 @@ namespace Dark
         auto& s = state();
         std::lock_guard<std::mutex> lock(s.mutex);
         s.capture = fn;
+    }
+
+    void Log::addCapture(CaptureFn fn)
+    {
+        if (!fn)
+            return;
+        auto& s = state();
+        std::lock_guard<std::mutex> lock(s.mutex);
+        for (CaptureFn& slot : s.extra)
+        {
+            if (slot == fn)
+                return;
+        }
+        for (CaptureFn& slot : s.extra)
+        {
+            if (!slot)
+            {
+                slot = fn;
+                return;
+            }
+        }
+    }
+
+    void Log::removeCapture(CaptureFn fn)
+    {
+        if (!fn)
+            return;
+        auto& s = state();
+        std::lock_guard<std::mutex> lock(s.mutex);
+        for (CaptureFn& slot : s.extra)
+        {
+            if (slot == fn)
+                slot = nullptr;
+        }
     }
 
     bool Log::shouldLog(LogLevel level, LogCategory category)
@@ -229,12 +266,15 @@ namespace Dark
         const std::string line = std::format("[DE/{}][{}] {}\n", levelName(level), categoryName(category), message);
 
         CaptureFn   cap = nullptr;
+        CaptureFn   extra[4]{};
         std::string captured;
         {
             auto& s = state();
             std::lock_guard<std::mutex> lock(s.mutex);
             cap = s.capture;
-            if (cap)
+            for (uint32_t i = 0; i < 4; ++i)
+                extra[i] = s.extra[i];
+            if (cap || extra[0] || extra[1] || extra[2] || extra[3])
                 captured.assign(message);
 
             if (s.file)
@@ -250,6 +290,11 @@ namespace Dark
 
         if (cap)
             cap(level, category, captured.c_str());
+        for (CaptureFn fn : extra)
+        {
+            if (fn)
+                fn(level, category, captured.c_str());
+        }
     }
 
 } // namespace Dark

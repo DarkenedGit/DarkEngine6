@@ -11,6 +11,8 @@ namespace Dark
 
     struct NetworkedComponent
     {
+        static constexpr const char* kTypeName = "Networked";
+
         NetId     netId              = NULL_NET_ID; // 0 until host() if registered while Idle
         ClientId  owner              = ClientId::Host;
         NetPrefab prefab             = NetPrefab::Unknown;

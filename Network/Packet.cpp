@@ -61,6 +61,11 @@ namespace Dark
         return true;
     }
 
+    bool PacketWriter::writeU64(uint64_t v)
+    {
+        return writeU32(static_cast<uint32_t>(v)) && writeU32(static_cast<uint32_t>(v >> 32));
+    }
+
     bool PacketWriter::writeF32(float v)
     {
         return writeU32(std::bit_cast<uint32_t>(v));
@@ -126,6 +131,16 @@ namespace Dark
         v = static_cast<uint32_t>(m_buf[m_pos]) | (static_cast<uint32_t>(m_buf[m_pos + 1]) << 8)
             | (static_cast<uint32_t>(m_buf[m_pos + 2]) << 16) | (static_cast<uint32_t>(m_buf[m_pos + 3]) << 24);
         m_pos += 4;
+        return true;
+    }
+
+    bool PacketReader::readU64(uint64_t& v)
+    {
+        uint32_t lo = 0;
+        uint32_t hi = 0;
+        if (!readU32(lo) || !readU32(hi))
+            return false;
+        v = static_cast<uint64_t>(lo) | (static_cast<uint64_t>(hi) << 32);
         return true;
     }
 

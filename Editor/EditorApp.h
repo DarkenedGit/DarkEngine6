@@ -89,6 +89,7 @@ private:
     void joinNetworkSession();
     void discardLocalSceneForJoin();
     void drawNetworkMenu();
+    void drawDebugMenu();
 
     static bool onNetSpawn(Dark::World& world, Dark::Entity e, Dark::NetPrefab prefab, const Dark::TransformComponent& xf, uint32_t colorRgba8, void* user);
     static void onNetDespawn(Dark::World& world, Dark::Entity e, Dark::NetId id, void* user);

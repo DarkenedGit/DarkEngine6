@@ -22,4 +22,12 @@ namespace Dark
         return id;
     }
 
+    template <typename T> const char* componentTypeName()
+    {
+        if constexpr (requires { T::kTypeName; })
+            return T::kTypeName;
+        else
+            return "Unnamed";
+    }
+
 } // namespace Dark

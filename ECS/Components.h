@@ -13,6 +13,8 @@ namespace Dark
 
     struct TransformComponent
     {
+        static constexpr const char* kTypeName = "Transform";
+
         Math::Vector3f   position{ 0, 0, 0 };
         Math::Quaternion rotation{ 1, 0, 0, 0 };
         Math::Vector3f   scale{ 1, 1, 1 };
@@ -22,6 +24,8 @@ namespace Dark
 
     struct TagComponent
     {
+        static constexpr const char* kTypeName = "Tag";
+
         std::string name = "Entity";
     };
 
@@ -29,6 +33,8 @@ namespace Dark
 
     struct MeshComponent
     {
+        static constexpr const char* kTypeName = "Mesh";
+
         // AssetManager ids (0 = none / use procedural or unbound resources).
         AssetID meshAssetID = NULL_ASSET;
         AssetID matAssetID  = NULL_ASSET;
@@ -39,6 +45,8 @@ namespace Dark
 
     struct CameraComponent
     {
+        static constexpr const char* kTypeName = "Camera";
+
         float fovDeg  = 60.0f;
         float nearZ   = 0.01f;
         float farZ    = 1000.0f;
@@ -49,6 +57,8 @@ namespace Dark
 
     struct DirectionalLightComponent
     {
+        static constexpr const char* kTypeName = "DirectionalLight";
+
         Math::Vector3f color     = { 1, 1, 1 };
         float          intensity = 1.0f;
     };

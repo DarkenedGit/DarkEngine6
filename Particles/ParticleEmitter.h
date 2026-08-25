@@ -15,7 +15,11 @@ namespace Dark
     class ParticleEmitter
     {
     public:
-        ParticleEmitter() = default;
+        ParticleEmitter();
+        ~ParticleEmitter();
+
+        ParticleEmitter(const ParticleEmitter&)            = delete;
+        ParticleEmitter& operator=(const ParticleEmitter&) = delete;
 
         void                       setDesc(const ParticleEmitterDesc& desc);
         const ParticleEmitterDesc& desc() const
@@ -87,6 +91,10 @@ namespace Dark
         uint32_t m_ribbonSeq[kMaxRibbonCount]{};
 
         std::mt19937 m_rng{ std::random_device{}() };
+
+        void     publishMemory();
+        uint32_t m_memId = 0;
+        char     m_memName[32]{};
     };
 
 } // namespace Dark

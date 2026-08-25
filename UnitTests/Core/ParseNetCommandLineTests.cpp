@@ -129,6 +129,39 @@ TEST(ParseNetCommandLine, InvalidJoinDoesNotSet)
     EXPECT_FALSE(cfg.netHost);
 }
 
+TEST(ParseNetCommandLine, DebugDefaultPort)
+{
+    AppConfig cfg{};
+    ASSERT_TRUE(parseNetCommandLine("-debug", cfg));
+    EXPECT_TRUE(cfg.debugListen);
+    EXPECT_EQ(cfg.debugListenPort, kDebugDefaultPort);
+}
+
+TEST(ParseNetCommandLine, DebugSpacePort)
+{
+    AppConfig cfg{};
+    ASSERT_TRUE(parseNetCommandLine("-debug 27000", cfg));
+    EXPECT_TRUE(cfg.debugListen);
+    EXPECT_EQ(cfg.debugListenPort, 27000);
+}
+
+TEST(ParseNetCommandLine, DebugColonPort)
+{
+    AppConfig cfg{};
+    ASSERT_TRUE(parseNetCommandLine("-debug:26162", cfg));
+    EXPECT_TRUE(cfg.debugListen);
+    EXPECT_EQ(cfg.debugListenPort, 26162);
+}
+
+TEST(ParseNetCommandLine, DebugCompatibleWithHost)
+{
+    AppConfig cfg{};
+    ASSERT_TRUE(parseNetCommandLine("-host -debug", cfg));
+    EXPECT_TRUE(cfg.netHost);
+    EXPECT_TRUE(cfg.debugListen);
+    EXPECT_EQ(cfg.debugListenPort, kDebugDefaultPort);
+}
+
 TEST(ParseNetCommandLine, DoesNotTouchNonNetFields)
 {
     AppConfig cfg{};

@@ -656,7 +656,7 @@ void EditorApp::onInit()
         DE_LOG_FATAL("EditorApp: particle renderer failed");
         return;
     }
-    if (!m_imgui.init(window(), renderer()))
+    if (!m_imgui.init(window(), renderer(), "editor_imgui.ini", false))
     {
         DE_LOG_WARN("EditorApp: ImGui init failed — particle UI disabled");
     }
@@ -1222,6 +1222,32 @@ void EditorApp::drawNetworkMenu()
     ImGui::EndMenu();
 }
 
+void EditorApp::drawDebugMenu()
+{
+    if (!ImGui::BeginMenu("Debug"))
+        return;
+
+    const bool listening = debug().isListening();
+    if (ImGui::MenuItem(listening ? "Stop Visual Debugger Listen" : "Listen for Visual Debugger", "26162"))
+    {
+        if (listening)
+        {
+            debug().shutdown();
+            DE_LOG_INFO(LogCategory::Debug, "Editor: Visual Debugger listen stopped");
+        }
+        else if (debug().listen(kDebugDefaultPort))
+            DE_LOG_INFO(LogCategory::Debug, "Editor: Visual Debugger listening TCP {}", debug().boundAddress().port);
+        else
+            DE_LOG_ERROR(LogCategory::Debug, "Editor: Visual Debugger listen failed");
+    }
+    if (listening)
+        ImGui::Text("Listening TCP %u%s", debug().boundAddress().port, debug().hasClient() ? "  (debugger connected)" : "");
+    else
+        ImGui::TextUnformatted("Not listening");
+    ImGui::TextUnformatted("LAN only — no authentication");
+    ImGui::EndMenu();
+}
+
 bool EditorApp::onNetSpawn(World& world, Entity e, NetPrefab prefab, const TransformComponent& xf, uint32_t colorRgba8, void* user)
 {
     (void)xf;
@@ -1594,6 +1620,7 @@ void EditorApp::drawEditorUi()
             ImGui::EndMenu();
         }
         drawNetworkMenu();
+        drawDebugMenu();
         ImGui::Text("  |  %s  objects:%d  place:%s", toString(m_sceneMode), (int)m_objects.size(), toString(m_placeType));
         ImGui::EndMainMenuBar();
     }
