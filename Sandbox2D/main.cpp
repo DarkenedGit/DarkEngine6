@@ -17,6 +17,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR lpCmdLine, int)
     Dark::parseNetCommandLine(lpCmdLine, cfg);
 
     Sandbox2DApp app{ cfg };
+    if (!app.initOk())
+    {
+        DE_LOG_FATAL("Failed to start");
+        return 1;
+    }
     app.run();
     return 0;
 }

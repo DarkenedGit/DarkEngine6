@@ -214,13 +214,15 @@ namespace Dark
         : m_logSession()
         , m_window(cfg.title, cfg.width, cfg.height)
         , m_input()
-        , m_renderer(m_window)
+        , m_renderer(m_window, cfg.vsync)
         , m_config(cfg)
     {
         m_window.setInput(&m_input);
         if (!m_audio.create())
             DE_LOG_WARN(LogCategory::Audio, "Audio: disabled (no device or XAudio2 init failed)");
         DE_LOG_INFO("DarkEngine6 v0.1 — starting up (D3D12)");
+        if (!initOk())
+            DE_LOG_FATAL(LogCategory::Render, "Renderer init failed");
     }
 
     Application::~Application()
@@ -252,6 +254,9 @@ namespace Dark
 
     void Application::run()
     {
+        if (!initOk())
+            return;
+
         onInit();
         applyNetConfig();
         applyDebugConfig();
@@ -301,7 +306,11 @@ namespace Dark
             m_debug.perf().add(PerfSlot::Render, m_window.getTime() - t0);
 
             t0 = m_window.getTime();
-            m_renderer.present();
+            if (!m_renderer.present())
+            {
+                DE_LOG_ERROR(LogCategory::Render, "Present failed; stopping");
+                break;
+            }
             m_debug.perf().add(PerfSlot::Present, m_window.getTime() - t0);
 
             const DebugFrameStats fs{m_renderer.stats().drawCalls, m_renderer.stats().triangles};

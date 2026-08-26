@@ -16,6 +16,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR lpCmdLine, int)
     Dark::parseNetCommandLine(lpCmdLine, cfg);
 
     EditorApp app{cfg};
+    if (!app.initOk())
+    {
+        DE_LOG_FATAL("Failed to start");
+        return 1;
+    }
     app.run();
     return 0;
 }

@@ -35,6 +35,7 @@ namespace Dark
         explicit Application(const AppConfig& cfg = {});
         virtual ~Application();
 
+        bool initOk() const { return m_window.nativeHandle() != nullptr && m_renderer.isValid(); }
         void run();
         void requestQuit() { m_running = false; }
 

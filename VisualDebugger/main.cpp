@@ -87,6 +87,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR lpCmdLine, int)
         DE_LOG_ERROR(Dark::LogCategory::Debug, "VisualDebugger: invalid -join address");
 
     DebuggerApp app{cfg, join};
+    if (!app.initOk())
+    {
+        DE_LOG_FATAL("Failed to start");
+        return 1;
+    }
     app.run();
     return 0;
 }
