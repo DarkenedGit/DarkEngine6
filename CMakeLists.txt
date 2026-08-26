@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(DarkEngine6 LANGUAGES C CXX)
+project(DarkEngine6 VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,6 +12,31 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(DE_ENABLE_ASSERTS "Enable DE_ASSERT" ON)
 option(DE_BUILD_TESTS "Build UnitTests executable and CTest targets" ON)
+
+# --- Generated Core/Version.h ------------------------------------------------------
+set(DE_ENGINE_GIT "")
+find_package(Git QUIET)
+if(GIT_FOUND)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" rev-parse --short HEAD
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        OUTPUT_VARIABLE DE_ENGINE_GIT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+        RESULT_VARIABLE _de_git_result
+    )
+    if(NOT _de_git_result EQUAL 0)
+        set(DE_ENGINE_GIT "")
+    endif()
+    unset(_de_git_result)
+endif()
+
+set(DE_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/Core/Version.h.in"
+    "${DE_GENERATED_DIR}/Core/Version.h"
+    @ONLY
+)
 
 # --- Collect sources via wildcards -------------------------------------------------
 # CONFIGURE_DEPENDS re-scans when files are added/removed (VS / Ninja).
@@ -96,8 +121,14 @@ add_library(DarkEngine STATIC ${DE_ENGINE_SOURCES})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${DE_ENGINE_SOURCES})
 
 target_include_directories(DarkEngine
-    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${DE_GENERATED_DIR}
 )
+
+target_sources(DarkEngine PRIVATE "${DE_GENERATED_DIR}/Core/Version.h")
+set_source_files_properties("${DE_GENERATED_DIR}/Core/Version.h" PROPERTIES HEADER_FILE_ONLY TRUE)
+source_group("generated" FILES "${DE_GENERATED_DIR}/Core/Version.h")
 
 target_link_libraries(DarkEngine
     PUBLIC

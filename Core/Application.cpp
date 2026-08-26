@@ -1,5 +1,6 @@
 #include "Core/Application.h"
 #include "Core/Log.h"
+#include "Core/Version.h"
 
 #include <cstdint>
 
@@ -220,7 +221,10 @@ namespace Dark
         m_window.setInput(&m_input);
         if (!m_audio.create())
             DE_LOG_WARN(LogCategory::Audio, "Audio: disabled (no device or XAudio2 init failed)");
-        DE_LOG_INFO("DarkEngine6 v0.1 — starting up (D3D12)");
+        if constexpr (kEngineHasGit)
+            DE_LOG_INFO("DarkEngine6 {} ({}) — starting up (D3D12)", kEngineVersion, kEngineGit);
+        else
+            DE_LOG_INFO("DarkEngine6 {} — starting up (D3D12)", kEngineVersion);
         if (!initOk())
             DE_LOG_FATAL(LogCategory::Render, "Renderer init failed");
     }

@@ -1,6 +1,7 @@
 #include "SandboxApp.h"
 
 #include "ECS/Components.h"
+#include "Core/ContentRoots.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Geometry/MeshGen.h"
@@ -30,23 +31,11 @@ void mountContentRoots(AssetManager& assets)
 {
     namespace fs = std::filesystem;
 
-    const fs::path exeDir = executableDirectory();
-    const fs::path cwd    = fs::current_path();
-
-    const fs::path candidates[] = {
-        exeDir / "content",
-        cwd / "content",
-        exeDir / ".." / ".." / ".." / "content",
-        cwd / ".." / ".." / ".." / "content",
-    };
-
     bool any = false;
-    for (const fs::path& c : candidates)
+    for (const fs::path& c : contentRootCandidates())
     {
-        if (c.empty())
-            continue;
         std::error_code ec;
-        if (fs::exists(c, ec) && !ec && fs::is_directory(c, ec) && !ec)
+        if (!c.empty() && fs::exists(c, ec) && !ec && fs::is_directory(c, ec) && !ec)
         {
             assets.mountDirectory(c);
             any = true;
@@ -57,8 +46,8 @@ void mountContentRoots(AssetManager& assets)
     {
         DE_LOG_ERROR(
             "SandboxApp: no content directory found. Tried next to exe ('{}') and cwd ('{}').",
-            exeDir.string(),
-            cwd.string());
+            executableDirectory().string(),
+            fs::current_path().string());
     }
 }
 
