@@ -9,7 +9,7 @@ cbuffer LoadingScreenConstants : register(b0)
     float  reducedMotion;
     float4 background;
     float3 spinnerColor;
-    float  pass;
+    float  drawPass; // C++ LoadingScreenConstants::pass (HLSL 'pass' is reserved)
     float2 resolution;
     float  logoAspect;
     float  spinnerOpacity;
@@ -44,7 +44,7 @@ float2 letterboxUv(float2 uv, float2 res, float aspect)
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    if (pass > 0.5)
+    if (drawPass > 0.5)
     {
         float g = gFont.Sample(gSamp, input.uv).r;
         return float4(1.0, 1.0, 1.0, g * fade);

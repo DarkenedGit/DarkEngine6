@@ -59,7 +59,6 @@ namespace Dark
 
     private:
         static constexpr UINT kSrvPerFrame = 2;
-        static constexpr UINT kHeapSize    = 4; // 2 SRVs × Renderer::kFrameCount
 
         ComPtr<ID3D12RootSignature>  m_rootSignature;
         ComPtr<ID3D12PipelineState>  m_pso;

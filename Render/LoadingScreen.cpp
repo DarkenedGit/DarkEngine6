@@ -21,7 +21,7 @@ cbuffer LoadingScreenConstants : register(b0)
     float  reducedMotion;
     float4 background;
     float3 spinnerColor;
-    float  pass;
+    float  drawPass; // C++ LoadingScreenConstants::pass (HLSL 'pass' is reserved)
     float2 resolution;
     float  logoAspect;
     float  spinnerOpacity;
@@ -56,7 +56,7 @@ float2 letterboxUv(float2 uv, float2 res, float aspect)
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    if (pass > 0.5)
+    if (drawPass > 0.5)
     {
         float g = gFont.Sample(gSamp, input.uv).r;
         return float4(1.0, 1.0, 1.0, g * fade);
@@ -213,7 +213,10 @@ float4 PSMain(PSInput input) : SV_TARGET
         ComPtr<ID3DBlob> vs;
         ComPtr<ID3DBlob> ps;
         if (!compileEmbedded("VSMain", "vs_5_0", vs) || !compileEmbedded("PSMain", "ps_5_0", ps))
+        {
+            shutdown(renderer);
             return false;
+        }
 
         D3D12_GRAPHICS_PIPELINE_STATE_DESC pso{};
         pso.pRootSignature = m_rootSignature.Get();
@@ -247,19 +250,18 @@ float4 PSMain(PSInput input) : SV_TARGET
 
         if (FailedHr(device->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&m_pso)), "CreateGraphicsPipelineState (LoadingScreen)"))
         {
-            m_rootSignature.Reset();
+            shutdown(renderer);
             return false;
         }
         m_pso->SetName(L"LoadingScreen.PSO");
 
         D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
-        heapDesc.NumDescriptors = kHeapSize;
+        heapDesc.NumDescriptors = kSrvPerFrame * Renderer::kFrameCount;
         heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap (LoadingScreen)"))
         {
-            m_pso.Reset();
-            m_rootSignature.Reset();
+            shutdown(renderer);
             return false;
         }
         m_srvHeap->SetName(L"LoadingScreen.Heap");
@@ -267,8 +269,9 @@ float4 PSMain(PSInput input) : SV_TARGET
         m_gpu     = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
         m_srvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-        const uint8_t white[4] = { 255, 255, 255, 255 };
-        if (!m_logo.createFromRGBA(renderer, white, 1, 1, 4) || !m_font.createFromRGBA(renderer, white, 1, 1, 4))
+        const uint8_t logoPx[4] = { 255, 255, 255, 0 };   // transparent: fallback is bg + spinner
+        const uint8_t fontPx[4] = { 255, 255, 255, 255 }; // glyph in .r; opaque strip exercises pass 1
+        if (!m_logo.createFromRGBA(renderer, logoPx, 1, 1, 4) || !m_font.createFromRGBA(renderer, fontPx, 1, 1, 4))
         {
             DE_LOG_ERROR(LogCategory::Render, "LoadingScreen::create: 1x1 fallback textures failed");
             shutdown(renderer);
@@ -298,12 +301,13 @@ float4 PSMain(PSInput input) : SV_TARGET
         if (w == 0 || h == 0)
             return;
 
-        renderer.bindColorTargetOnly();
-
-        const UINT frame = renderer.frameIndex() % Renderer::kFrameCount;
-        const UINT base  = frame * kSrvPerFrame;
-        if (base + 1 >= kHeapSize)
+        const UINT heapSize = kSrvPerFrame * Renderer::kFrameCount;
+        const UINT frame    = renderer.frameIndex() % Renderer::kFrameCount;
+        const UINT base     = frame * kSrvPerFrame;
+        if (base + 1 >= heapSize)
             return;
+
+        renderer.bindColorTargetOnly();
 
         D3D12_CPU_DESCRIPTOR_HANDLE destLogo = m_cpu;
         destLogo.ptr += static_cast<SIZE_T>(base) * m_srvIncr;
