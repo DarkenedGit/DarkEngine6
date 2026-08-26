@@ -13,6 +13,7 @@ This is a working engine-in-progress, not a finished product. The README describ
 | `Sandbox2D` | exe | Side-scrolling 2D sample (Box2D) |
 | `Editor` | exe | ImGui editor (Win32 + DX12), including a particle panel and a Network host/join menu |
 | `UnitTests` | exe | GoogleTest suite |
+| `VisualDebugger` | exe | Performance and Debugging, connect to sandbox |
 
 Engine folders compiled into `DarkEngine`:
 
