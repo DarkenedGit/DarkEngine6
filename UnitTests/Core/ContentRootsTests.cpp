@@ -6,6 +6,7 @@
 #include <chrono>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 using namespace Dark;
 
@@ -18,6 +19,26 @@ std::filesystem::path weaklyNorm(const std::filesystem::path& p)
     std::filesystem::path n = std::filesystem::weakly_canonical(p, ec);
     return ec ? p.lexically_normal() : n;
 }
+
+struct ScopedTempDir
+{
+    std::filesystem::path path;
+
+    explicit ScopedTempDir(std::filesystem::path p)
+        : path(std::move(p))
+    {
+    }
+
+    ~ScopedTempDir()
+    {
+        std::error_code ec;
+        if (!path.empty())
+            std::filesystem::remove_all(path, ec);
+    }
+
+    ScopedTempDir(const ScopedTempDir&)            = delete;
+    ScopedTempDir& operator=(const ScopedTempDir&) = delete;
+};
 
 } // namespace
 
@@ -41,12 +62,13 @@ TEST(ContentRoots, CandidateJoinOrderVsTempDir)
     namespace fs = std::filesystem;
 
     std::error_code ec;
-    const auto      stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-    const fs::path  tmpRoot = fs::temp_directory_path(ec) / ("darkengine6_content_roots_ut_" + std::to_string(stamp));
+    const auto      stamp   = std::chrono::steady_clock::now().time_since_epoch().count();
+    const fs::path  tmpBase = fs::temp_directory_path(ec);
     ASSERT_FALSE(ec);
+    ScopedTempDir tmp(tmpBase / ("darkengine6_content_roots_ut_" + std::to_string(stamp)));
 
-    const fs::path exeDir = tmpRoot / "build" / "bin" / "Debug";
-    const fs::path cwd    = tmpRoot / "cwd_other";
+    const fs::path exeDir = tmp.path / "build" / "bin" / "Debug";
+    const fs::path cwd    = tmp.path / "cwd_other";
 
     fs::create_directories(exeDir, ec);
     ASSERT_FALSE(ec);
@@ -62,13 +84,11 @@ TEST(ContentRoots, CandidateJoinOrderVsTempDir)
     EXPECT_EQ(got[4], weaklyNorm(exeDir / ".." / ".." / "content"));
     EXPECT_EQ(got[5], weaklyNorm(cwd / ".." / ".." / "content"));
 
-    EXPECT_EQ(got[2], weaklyNorm(tmpRoot / "content"));
-    EXPECT_EQ(got[4], weaklyNorm(tmpRoot / "build" / "content"));
+    EXPECT_EQ(got[2], weaklyNorm(tmp.path / "content"));
+    EXPECT_EQ(got[4], weaklyNorm(tmp.path / "build" / "content"));
 
     for (const fs::path& p : got)
         EXPECT_EQ(p.filename(), "content");
-
-    fs::remove_all(tmpRoot, ec);
 }
 
 TEST(ContentRoots, DuplicateExeAndCwdAreUnique)
@@ -76,11 +96,12 @@ TEST(ContentRoots, DuplicateExeAndCwdAreUnique)
     namespace fs = std::filesystem;
 
     std::error_code ec;
-    const auto      stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-    const fs::path  tmpRoot = fs::temp_directory_path(ec) / ("darkengine6_content_roots_dup_ut_" + std::to_string(stamp));
+    const auto      stamp   = std::chrono::steady_clock::now().time_since_epoch().count();
+    const fs::path  tmpBase = fs::temp_directory_path(ec);
     ASSERT_FALSE(ec);
+    ScopedTempDir tmp(tmpBase / ("darkengine6_content_roots_dup_ut_" + std::to_string(stamp)));
 
-    const fs::path exeDir = tmpRoot / "build" / "bin" / "Debug";
+    const fs::path exeDir = tmp.path / "build" / "bin" / "Debug";
     fs::create_directories(exeDir, ec);
     ASSERT_FALSE(ec);
 
@@ -89,8 +110,6 @@ TEST(ContentRoots, DuplicateExeAndCwdAreUnique)
     EXPECT_EQ(got[0], weaklyNorm(exeDir / "content"));
     EXPECT_EQ(got[1], weaklyNorm(exeDir / ".." / ".." / ".." / "content"));
     EXPECT_EQ(got[2], weaklyNorm(exeDir / ".." / ".." / "content"));
-
-    fs::remove_all(tmpRoot, ec);
 }
 
 TEST(ContentRoots, DefaultCandidatesUseContentSuffix)

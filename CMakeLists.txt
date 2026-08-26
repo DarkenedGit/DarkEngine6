@@ -14,29 +14,72 @@ option(DE_ENABLE_ASSERTS "Enable DE_ASSERT" ON)
 option(DE_BUILD_TESTS "Build UnitTests executable and CTest targets" ON)
 
 # --- Generated Core/Version.h ------------------------------------------------------
-set(DE_ENGINE_GIT "")
+# Git hash is filled by cmake/GenerateVersion.cmake (configure + whenever HEAD moves).
 find_package(Git QUIET)
+set(DE_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
+set(DE_GENERATED_VERSION_H "${DE_GENERATED_DIR}/Core/Version.h")
+set(DE_VERSION_IN "${CMAKE_CURRENT_SOURCE_DIR}/Core/Version.h.in")
+set(DE_GENERATE_VERSION_CMAKE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateVersion.cmake")
+
+set(_de_git_exe "")
 if(GIT_FOUND)
-    execute_process(
-        COMMAND "${GIT_EXECUTABLE}" rev-parse --short HEAD
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-        OUTPUT_VARIABLE DE_ENGINE_GIT
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        ERROR_QUIET
-        RESULT_VARIABLE _de_git_result
-    )
-    if(NOT _de_git_result EQUAL 0)
-        set(DE_ENGINE_GIT "")
-    endif()
-    unset(_de_git_result)
+    set(_de_git_exe "${GIT_EXECUTABLE}")
 endif()
 
-set(DE_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
-configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/Core/Version.h.in"
-    "${DE_GENERATED_DIR}/Core/Version.h"
-    @ONLY
+set(_de_version_deps
+    "${DE_VERSION_IN}"
+    "${DE_GENERATE_VERSION_CMAKE}"
 )
+set(_de_git_dir "")
+if(EXISTS "${CMAKE_SOURCE_DIR}/.git/HEAD")
+    set(_de_git_dir "${CMAKE_SOURCE_DIR}/.git")
+elseif(EXISTS "${CMAKE_SOURCE_DIR}/.git")
+    file(READ "${CMAKE_SOURCE_DIR}/.git" _de_gitfile)
+    if(_de_gitfile MATCHES "gitdir:[ \t]*([^\n\r]+)")
+        set(_de_git_dir "${CMAKE_MATCH_1}")
+        if(NOT IS_ABSOLUTE "${_de_git_dir}")
+            get_filename_component(_de_git_dir "${CMAKE_SOURCE_DIR}/${_de_git_dir}" ABSOLUTE)
+        endif()
+    endif()
+    unset(_de_gitfile)
+endif()
+if(_de_git_dir AND EXISTS "${_de_git_dir}/HEAD")
+    list(APPEND _de_version_deps "${_de_git_dir}/HEAD")
+    file(READ "${_de_git_dir}/HEAD" _de_head_contents)
+    if(_de_head_contents MATCHES "ref:[ \t]*([^\n\r]+)")
+        if(EXISTS "${_de_git_dir}/${CMAKE_MATCH_1}")
+            list(APPEND _de_version_deps "${_de_git_dir}/${CMAKE_MATCH_1}")
+        endif()
+    endif()
+    unset(_de_head_contents)
+endif()
+unset(_de_git_dir)
+
+set(_de_generate_version_cmd
+    "${CMAKE_COMMAND}"
+    "-DCMAKE_PROJECT_VERSION_MAJOR=${CMAKE_PROJECT_VERSION_MAJOR}"
+    "-DCMAKE_PROJECT_VERSION_MINOR=${CMAKE_PROJECT_VERSION_MINOR}"
+    "-DCMAKE_PROJECT_VERSION_PATCH=${CMAKE_PROJECT_VERSION_PATCH}"
+    "-DCMAKE_PROJECT_VERSION=${CMAKE_PROJECT_VERSION}"
+    "-DGIT_EXECUTABLE=${_de_git_exe}"
+    "-DSOURCE_DIR=${CMAKE_SOURCE_DIR}"
+    "-DVERSION_IN=${DE_VERSION_IN}"
+    "-DVERSION_OUT=${DE_GENERATED_VERSION_H}"
+    -P "${DE_GENERATE_VERSION_CMAKE}"
+)
+
+execute_process(COMMAND ${_de_generate_version_cmd})
+
+add_custom_command(
+    OUTPUT "${DE_GENERATED_VERSION_H}"
+    COMMAND ${_de_generate_version_cmd}
+    DEPENDS ${_de_version_deps}
+    COMMENT "Generating Core/Version.h"
+    VERBATIM
+)
+unset(_de_git_exe)
+unset(_de_generate_version_cmd)
+unset(_de_version_deps)
 
 # --- Collect sources via wildcards -------------------------------------------------
 # CONFIGURE_DEPENDS re-scans when files are added/removed (VS / Ninja).

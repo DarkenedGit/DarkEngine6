@@ -3,7 +3,6 @@
 #include "ECS/Components.h"
 #include "Core/ContentRoots.h"
 #include "Core/Log.h"
-#include "Core/Paths.h"
 #include "Geometry/MeshGen.h"
 #include "Input/InputCodes.h"
 #include "Math/MathHelper.h"
@@ -20,6 +19,7 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <string>
 #include <vector>
 
 using namespace Dark;
@@ -31,8 +31,10 @@ void mountContentRoots(AssetManager& assets)
 {
     namespace fs = std::filesystem;
 
+    const std::vector<fs::path> candidates = contentRootCandidates();
+
     bool any = false;
-    for (const fs::path& c : contentRootCandidates())
+    for (const fs::path& c : candidates)
     {
         std::error_code ec;
         if (!c.empty() && fs::exists(c, ec) && !ec && fs::is_directory(c, ec) && !ec)
@@ -44,10 +46,16 @@ void mountContentRoots(AssetManager& assets)
 
     if (!any)
     {
+        std::string listed;
+        for (const fs::path& c : candidates)
+        {
+            if (!listed.empty())
+                listed += " | ";
+            listed += c.string();
+        }
         DE_LOG_ERROR(
-            "SandboxApp: no content directory found. Tried next to exe ('{}') and cwd ('{}').",
-            executableDirectory().string(),
-            fs::current_path().string());
+            "SandboxApp: no content directory found. Tried: {}",
+            listed.empty() ? std::string("<none>") : listed);
     }
 }
 
