@@ -3,6 +3,7 @@
 #include "Render/LoadingScreenConfig.h"
 #include "Render/Texture2D.h"
 
+#include <chrono>
 #include <cstdint>
 #include <d3d12.h>
 #include <string>
@@ -62,6 +63,10 @@ namespace Dark
 
         bool tryLoadConfig(const AppConfig& cfg);
         void tryLoadAssets(Renderer& renderer);
+        void setPhase(LoadingPhase phase);
+        void skipCurrentPhaseDwell();
+        float remainingDwell() const;
+        LoadingPhase phase() const { return m_phase; }
         const LoadingScreenConfig& config() const { return m_config; }
 
     private:
@@ -78,6 +83,10 @@ namespace Dark
         D3D12_GPU_DESCRIPTOR_HANDLE  m_gpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_cpu{};
         UINT                         m_srvIncr = 0;
+        LoadingPhase                 m_phase = LoadingPhase::Engine;
+        std::chrono::steady_clock::time_point m_phaseStart{};
+        bool                         m_skipDwell = false;
+        bool                         m_triedAssets = false;
     };
 
 } // namespace Dark

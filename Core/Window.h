@@ -27,6 +27,8 @@ public:
     float    dpiScale() const { return m_dpiScale; }
     // True if WM_SIZE changed the client area since the last call.
     bool     takeSizeChanged();
+    bool     isMinimized() const { return m_minimized; }
+    bool     isFocused() const { return m_focused; }
     void*    nativeHandle() const; // HWND on Win32
 
     // Keyboard / focus events are forwarded to this Input (optional).
@@ -49,6 +51,8 @@ private:
     float    m_dpiScale = 1.0f;
     bool     m_closed = false;
     bool     m_sizeChanged = false;
+    bool     m_minimized = false;
+    bool     m_focused = true;
     Input*   m_input  = nullptr;
 
     WindowMessageHook m_msgHook     = nullptr;

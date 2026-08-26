@@ -890,11 +890,15 @@ void Sandbox2DApp::onInit()
         DE_LOG_FATAL("Sandbox2D: SpritePipeline create failed");
         return;
     }
+    if (!pumpBootFrame())
+        return;
     if (!m_linePipe.create(renderer().device()))
     {
         DE_LOG_FATAL("Sandbox2D: LinePipeline create failed");
         return;
     }
+    if (!pumpBootFrame())
+        return;
 
     {
         MeshData mesh_data;

@@ -7,6 +7,7 @@
 #include "Network/NetworkSystem.h"
 #include "Debug/DebugServer.h"
 #include "Render/Renderer.h"
+#include "Render/LoadingScreen.h"
 #include "Input/Input.h"
 
 namespace Dark
@@ -31,9 +32,13 @@ namespace Dark
         const char* hostName      = nullptr;
         const char* hostVersion   = nullptr;
         const char* loadingConfig = nullptr;
+        bool        cliNoSplash   = false; // -no-splash
+        bool        cliSplash     = false; // -splash
     };
 
     bool parseNetCommandLine(const char* lpCmdLine, AppConfig& cfg);
+    bool parseAppCommandLine(const char* lpCmdLine, AppConfig& cfg);
+    bool shouldShowSplash(const AppConfig& cfg, bool jsonEnabled);
 
     class Application
     {
@@ -45,10 +50,15 @@ namespace Dark
         void run();
         void requestQuit() { m_running = false; }
 
+        bool pumpBootFrame();
+        bool splashActive() const { return m_splashActive; }
+        const AppConfig& config() const { return m_config; }
+
         virtual void onInit() {}
         virtual void onUpdate(float dt) {}
         virtual void onRender() {}
         virtual void onShutdown() {}
+        virtual void onSplashFinished() {}
 
         World&         world()    { return m_world; }
         AssetManager&  assets()   { return m_assets; }
@@ -63,6 +73,13 @@ namespace Dark
     private:
         void applyNetConfig();
         void applyDebugConfig();
+        void mountDefaultContentRoots();
+        bool shouldShowSplash() const;
+        bool pumpSplashFrame();
+        void presentClearOnly();
+        void runFadeLoop();
+        bool skipPressed() const;
+        LoadingDrawState makeDrawState() const;
 
         LogSession m_logSession;
 
@@ -77,8 +94,12 @@ namespace Dark
         DebugServer   m_debug;   // after network: debug TCP dies before game sockets / HWND
 
     private:
-        AppConfig m_config;
-        bool      m_running = true;
+        LoadingScreen m_loading;
+        AppConfig     m_config;
+        bool          m_running        = true;
+        bool          m_bootPresenting = false;
+        bool          m_splashActive   = false;
+        float         m_bootFade       = 1.0f;
     };
 
 } // namespace Dark

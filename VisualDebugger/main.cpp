@@ -1,5 +1,6 @@
 #include "DebuggerApp.h"
 #include "Core/Log.h"
+#include "Core/Version.h"
 #include "Network/NetTypes.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -77,10 +78,15 @@ namespace
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR lpCmdLine, int)
 {
     Dark::AppConfig cfg{};
-    cfg.title  = "DarkEngine6 Visual Debugger";
-    cfg.width  = 1600;
-    cfg.height = 900;
-    cfg.vsync  = true;
+    cfg.title       = "DarkEngine6 Visual Debugger";
+    cfg.width       = 1600;
+    cfg.height      = 900;
+    cfg.vsync       = true;
+    cfg.hostId      = "debugger";
+    cfg.hostName    = "Visual Debugger";
+    cfg.hostVersion = Dark::kEngineVersion;
+    cfg.showSplash  = false;
+    Dark::parseAppCommandLine(lpCmdLine, cfg);
 
     Dark::Address join{};
     if (!parseDebugJoin(lpCmdLine, join))

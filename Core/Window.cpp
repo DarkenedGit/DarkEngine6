@@ -186,7 +186,14 @@ long long __stdcall Window::wndProc(HWND__* hwndRaw, unsigned msg, unsigned long
         }
         return 0;
 
+    case WM_SETFOCUS:
+        if (self)
+            self->m_focused = true;
+        return 0;
+
     case WM_KILLFOCUS:
+        if (self)
+            self->m_focused = false;
         if (input)
             input->onFocusLost();
         return 0;
@@ -240,16 +247,22 @@ long long __stdcall Window::wndProc(HWND__* hwndRaw, unsigned msg, unsigned long
         return 0;
 
     case WM_SIZE:
-        if (self && wp != SIZE_MINIMIZED)
+        if (self)
         {
-            const uint32_t w = static_cast<uint32_t>(lp & 0xFFFF);
-            const uint32_t h = static_cast<uint32_t>((lp >> 16) & 0xFFFF);
-            if (w > 0 && h > 0)
+            if (wp == SIZE_MINIMIZED)
+                self->m_minimized = true;
+            else
             {
-                if (w != self->m_width || h != self->m_height)
-                    self->m_sizeChanged = true;
-                self->m_width  = w;
-                self->m_height = h;
+                self->m_minimized = false;
+                const uint32_t w = static_cast<uint32_t>(lp & 0xFFFF);
+                const uint32_t h = static_cast<uint32_t>((lp >> 16) & 0xFFFF);
+                if (w > 0 && h > 0)
+                {
+                    if (w != self->m_width || h != self->m_height)
+                        self->m_sizeChanged = true;
+                    self->m_width  = w;
+                    self->m_height = h;
+                }
             }
         }
         return 0;
@@ -335,6 +348,8 @@ Window::Window(const char* title, uint32_t width, uint32_t height)
 
     m_hwnd = reinterpret_cast<HWND__*>(hwnd);
     m_dpiScale = queryHwndDpiScale(hwnd);
+    m_minimized = IsIconic(hwnd) != FALSE;
+    m_focused   = (GetForegroundWindow() == hwnd);
 
     RECT client{};
     if (GetClientRect(hwnd, &client))

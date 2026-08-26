@@ -22,6 +22,7 @@ public:
     using Application::Application;
 
     void onInit() override;
+    void onSplashFinished() override;
     void onUpdate(float dt) override;
     void onRender() override;
     void onShutdown() override;

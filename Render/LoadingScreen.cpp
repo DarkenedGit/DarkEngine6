@@ -6,6 +6,7 @@
 
 #include <d3dcompiler.h>
 
+#include <chrono>
 #include <filesystem>
 #include <vector>
 
@@ -548,9 +549,10 @@ float4 PSMain(PSInput input) : SV_TARGET
         m_engineLogo = Texture2D{};
         m_hostLogo   = Texture2D{};
         m_font       = Texture2D{};
-        m_cpu        = {};
-        m_gpu        = {};
-        m_srvIncr    = 0;
+        m_cpu          = {};
+        m_gpu          = {};
+        m_srvIncr      = 0;
+        m_triedAssets  = false;
     }
 
     bool LoadingScreen::tryLoadConfig(const AppConfig& cfg)
@@ -560,10 +562,46 @@ float4 PSMain(PSInput input) : SV_TARGET
         return true;
     }
 
+    void LoadingScreen::setPhase(LoadingPhase phase)
+    {
+        m_phase      = phase;
+        m_phaseStart = std::chrono::steady_clock::now();
+        m_skipDwell  = false;
+    }
+
+    void LoadingScreen::skipCurrentPhaseDwell()
+    {
+        m_skipDwell = true;
+    }
+
+    float LoadingScreen::remainingDwell() const
+    {
+        if (m_skipDwell)
+            return 0.0f;
+
+        float minSeconds = 0.0f;
+        switch (m_phase)
+        {
+        case LoadingPhase::Engine:
+            minSeconds = m_config.engine.minSeconds;
+            break;
+        case LoadingPhase::Host:
+            minSeconds = m_config.host.minSeconds;
+            break;
+        default:
+            return 0.0f;
+        }
+
+        const float elapsed = std::chrono::duration<float>(std::chrono::steady_clock::now() - m_phaseStart).count();
+        const float rem     = minSeconds - elapsed;
+        return rem > 0.0f ? rem : 0.0f;
+    }
+
     void LoadingScreen::tryLoadAssets(Renderer& renderer)
     {
-        if (!isReady() || !renderer.isValid() || !renderer.device())
+        if (m_triedAssets || !isReady() || !renderer.isValid() || !renderer.device())
             return;
+        m_triedAssets = true;
 
         renderer.waitForGpu();
 

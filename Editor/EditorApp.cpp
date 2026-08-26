@@ -638,16 +638,22 @@ void EditorApp::onInit()
         DE_LOG_FATAL("EditorApp: mesh/line pipeline failed");
         return;
     }
+    if (!pumpBootFrame())
+        return;
     if (!m_shadows.create(renderer().device()))
     {
         DE_LOG_FATAL("EditorApp: ShadowSystem create failed");
         return;
     }
+    if (!pumpBootFrame())
+        return;
     if (!m_particleRenderer.create(renderer()))
     {
         DE_LOG_FATAL("EditorApp: particle renderer failed");
         return;
     }
+    if (!pumpBootFrame())
+        return;
     if (!m_imgui.init(window(), renderer(), "editor_imgui.ini", false))
     {
         DE_LOG_WARN("EditorApp: ImGui init failed — particle UI disabled");

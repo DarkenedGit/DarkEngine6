@@ -1,5 +1,6 @@
 #include "EditorApp.h"
 #include "Core/Log.h"
+#include "Core/Version.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -9,11 +10,19 @@
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR lpCmdLine, int)
 {
     Dark::AppConfig cfg{};
-    cfg.title  = "DarkEngine6 Editor";
-    cfg.width  = 2560;
-    cfg.height = 1600;
-    cfg.vsync  = true;
+    cfg.title       = "DarkEngine6 Editor";
+    cfg.width       = 2560;
+    cfg.height      = 1600;
+    cfg.vsync       = true;
+    cfg.hostId      = "editor";
+    cfg.hostName    = "Editor";
+    cfg.hostVersion = Dark::kEngineVersion;
+    cfg.showSplash  = false;
+#if defined(_DEBUG)
+    cfg.showSplash = false;
+#endif
     Dark::parseNetCommandLine(lpCmdLine, cfg);
+    Dark::parseAppCommandLine(lpCmdLine, cfg);
 
     EditorApp app{cfg};
     if (!app.initOk())

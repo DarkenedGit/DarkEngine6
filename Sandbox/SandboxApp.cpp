@@ -625,7 +625,6 @@ void SandboxApp::onInit()
     m_music    = audio().loadWav(assets(), "audio/ambient_loop.wav");
     if (!m_music)
         m_music = audio().createTone(110.0f, 2.0f, 0.12f);
-    audio().setMusic(m_music, 0.10f);
     audio().setMasterVolume(0.85f);
 
     if (!m_meshPipeline.create(renderer().device()))
@@ -633,30 +632,42 @@ void SandboxApp::onInit()
         DE_LOG_FATAL("SandboxApp: MeshPipeline create failed");
         return;
     }
+    if (!pumpBootFrame())
+        return;
     if (!m_terrainPipeline.create(renderer().device()))
     {
         DE_LOG_FATAL("SandboxApp: TerrainPipeline create failed");
         return;
     }
+    if (!pumpBootFrame())
+        return;
     if (!m_waterPipeline.create(renderer().device()))
     {
         DE_LOG_FATAL("SandboxApp: WaterPipeline create failed");
         return;
     }
+    if (!pumpBootFrame())
+        return;
     if (!m_skyPipeline.create(renderer().device()))
     {
         DE_LOG_FATAL("SandboxApp: SkyPipeline create failed");
         return;
     }
+    if (!pumpBootFrame())
+        return;
     if (!m_shadows.create(renderer().device()))
     {
         DE_LOG_FATAL("SandboxApp: ShadowSystem create failed");
         return;
     }
+    if (!pumpBootFrame())
+        return;
     if (!m_debugOverlay.create(renderer().device()))
     {
         DE_LOG_WARN("SandboxApp: DebugOverlay create failed — F8/F9 disabled");
     }
+    if (!pumpBootFrame())
+        return;
 
     m_env.timeOfDay = 16.2f;
     m_env.weather   = Sky::WeatherState::PartlyCloudy();
@@ -701,12 +712,16 @@ void SandboxApp::onInit()
             DE_LOG_FATAL("SandboxApp: terrain material create failed");
             return;
         }
+        if (!pumpBootFrame())
+            return;
         m_terrain.updateLod(Vector3f{ 0.0f, 50.0f, -80.0f });
         if (!m_terrain.createGpu(renderer()))
         {
             DE_LOG_FATAL("SandboxApp: terrain GPU upload failed");
             return;
         }
+        if (!pumpBootFrame())
+            return;
 
         const Aabb3f terrainBox = m_terrain.bounds();
         const float waterLevel = Lerp(terrainBox.Min.y, terrainBox.Max.y, 0.38f);
@@ -732,6 +747,8 @@ void SandboxApp::onInit()
             DE_LOG_FATAL("SandboxApp: water GPU upload failed");
             return;
         }
+        if (!pumpBootFrame())
+            return;
         DE_LOG_INFO("SandboxApp: water level {:.2f}, {} wet chunks", waterLevel, m_water.wetChunkCount());
     }
 
@@ -749,6 +766,8 @@ void SandboxApp::onInit()
         DE_LOG_FATAL("SandboxApp: material create failed");
         return;
     }
+    if (!pumpBootFrame())
+        return;
 
     const AssetID matId = assets().registerAsset(m_cubeMaterial);
     if (matId == NULL_ASSET)
@@ -801,6 +820,12 @@ void SandboxApp::onInit()
         m_terrain.chunksZ());
     DE_LOG_INFO(LogCategory::Networking, "Sandbox net: Sandbox.exe -host   and   Sandbox.exe -join 127.0.0.1");
     DE_LOG_INFO(LogCategory::Networking, "Sandbox net: F5 host :26160  F6 join 127.0.0.1:26160  F4 disconnect  F3 browse :26161");
+}
+
+void SandboxApp::onSplashFinished()
+{
+    if (m_music)
+        audio().setMusic(m_music, 0.10f);
 }
 
 void SandboxApp::onUpdate(float dt)
