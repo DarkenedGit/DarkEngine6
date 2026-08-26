@@ -630,6 +630,7 @@ void SandboxApp::onInit()
     if (!m_meshPipeline.create(renderer().device()))
     {
         DE_LOG_FATAL("SandboxApp: MeshPipeline create failed");
+        requestQuit();
         return;
     }
     if (!pumpBootFrame())
@@ -637,6 +638,7 @@ void SandboxApp::onInit()
     if (!m_terrainPipeline.create(renderer().device()))
     {
         DE_LOG_FATAL("SandboxApp: TerrainPipeline create failed");
+        requestQuit();
         return;
     }
     if (!pumpBootFrame())
@@ -644,6 +646,7 @@ void SandboxApp::onInit()
     if (!m_waterPipeline.create(renderer().device()))
     {
         DE_LOG_FATAL("SandboxApp: WaterPipeline create failed");
+        requestQuit();
         return;
     }
     if (!pumpBootFrame())
@@ -651,6 +654,7 @@ void SandboxApp::onInit()
     if (!m_skyPipeline.create(renderer().device()))
     {
         DE_LOG_FATAL("SandboxApp: SkyPipeline create failed");
+        requestQuit();
         return;
     }
     if (!pumpBootFrame())
@@ -658,6 +662,7 @@ void SandboxApp::onInit()
     if (!m_shadows.create(renderer().device()))
     {
         DE_LOG_FATAL("SandboxApp: ShadowSystem create failed");
+        requestQuit();
         return;
     }
     if (!pumpBootFrame())
@@ -690,6 +695,7 @@ void SandboxApp::onInit()
             || !base.addLayer(detail, 1.0f))
         {
             DE_LOG_FATAL("SandboxApp: height map create failed");
+            requestQuit();
             return;
         }
         const float extent = 128.0f * 2.0f;
@@ -700,16 +706,19 @@ void SandboxApp::onInit()
         if (!splat.generateFromHeight(terrainDesc.heightMap))
         {
             DE_LOG_FATAL("SandboxApp: splat generate failed");
+            requestQuit();
             return;
         }
         if (!m_terrain.create(std::move(terrainDesc)))
         {
             DE_LOG_FATAL("SandboxApp: terrain create failed");
+            requestQuit();
             return;
         }
         if (!m_terrainMaterial.createDefault(renderer(), splat))
         {
             DE_LOG_FATAL("SandboxApp: terrain material create failed");
+            requestQuit();
             return;
         }
         if (!pumpBootFrame())
@@ -718,6 +727,7 @@ void SandboxApp::onInit()
         if (!m_terrain.createGpu(renderer()))
         {
             DE_LOG_FATAL("SandboxApp: terrain GPU upload failed");
+            requestQuit();
             return;
         }
         if (!pumpBootFrame())
@@ -739,12 +749,14 @@ void SandboxApp::onInit()
         if (!m_water.create(m_terrain.heightMap(), waterDesc))
         {
             DE_LOG_FATAL("SandboxApp: water create failed");
+            requestQuit();
             return;
         }
         m_water.updateLod(Vector3f{ 0.0f, 50.0f, -80.0f });
         if (!m_water.createGpu(renderer()))
         {
             DE_LOG_FATAL("SandboxApp: water GPU upload failed");
+            requestQuit();
             return;
         }
         if (!pumpBootFrame())
@@ -764,6 +776,7 @@ void SandboxApp::onInit()
             /*fallback*/ 64, 166, 242, 255))
     {
         DE_LOG_FATAL("SandboxApp: material create failed");
+        requestQuit();
         return;
     }
     if (!pumpBootFrame())
@@ -773,6 +786,7 @@ void SandboxApp::onInit()
     if (matId == NULL_ASSET)
     {
         DE_LOG_FATAL("SandboxApp: material register failed");
+        requestQuit();
         return;
     }
     m_cubeMatId = matId;

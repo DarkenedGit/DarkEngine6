@@ -888,6 +888,7 @@ void Sandbox2DApp::onInit()
     if (!m_spritePipe.create(renderer().device()))
     {
         DE_LOG_FATAL("Sandbox2D: SpritePipeline create failed");
+        requestQuit();
         return;
     }
     if (!pumpBootFrame())
@@ -895,6 +896,7 @@ void Sandbox2DApp::onInit()
     if (!m_linePipe.create(renderer().device()))
     {
         DE_LOG_FATAL("Sandbox2D: LinePipeline create failed");
+        requestQuit();
         return;
     }
     if (!pumpBootFrame())
@@ -913,6 +915,7 @@ void Sandbox2DApp::onInit()
     if (!m_quad.valid())
     {
         DE_LOG_FATAL("Sandbox2D: quad mesh failed");
+        requestQuit();
         return;
     }
 
@@ -935,6 +938,7 @@ void Sandbox2DApp::onInit()
         if (!m_playerSheet.createProceduralHero(renderer()))
         {
             DE_LOG_FATAL("Sandbox2D: player sprite sheet failed");
+            requestQuit();
             return;
         }
         clips = defaultHeroClips();
@@ -953,6 +957,7 @@ void Sandbox2DApp::onInit()
         || !m_texWhite.createSolidColor(renderer(), 255, 255, 255))
     {
         DE_LOG_FATAL("Sandbox2D: textures failed");
+        requestQuit();
         return;
     }
 
@@ -970,6 +975,7 @@ void Sandbox2DApp::onInit()
     if (!createPhysicsWorld())
     {
         DE_LOG_FATAL("Sandbox2D: physics init failed");
+        requestQuit();
         return;
     }
     resetPlayer();

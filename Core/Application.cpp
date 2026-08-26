@@ -481,6 +481,11 @@ namespace Dark
         {
             m_splashActive = true;
             presentClearOnly();
+            if (!m_running || m_window.shouldClose())
+            {
+                m_splashActive = false;
+                return;
+            }
             splashCreated = m_loading.create(m_renderer);
 
             DE_LOG_INFO("LoadingScreen: engine phase ({:.2f}s min)", m_loading.config().engine.minSeconds);
@@ -491,6 +496,9 @@ namespace Dark
                     break;
                 m_loading.tryLoadAssets(m_renderer);
             }
+
+            if (m_running && !m_window.shouldClose())
+                m_loading.tryLoadAssets(m_renderer);
 
             if (!m_running || m_window.shouldClose())
             {

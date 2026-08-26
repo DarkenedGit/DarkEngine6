@@ -636,6 +636,7 @@ void EditorApp::onInit()
     if (!m_meshPipeline.create(renderer().device()) || !m_linePipeline.create(renderer().device()))
     {
         DE_LOG_FATAL("EditorApp: mesh/line pipeline failed");
+        requestQuit();
         return;
     }
     if (!pumpBootFrame())
@@ -643,6 +644,7 @@ void EditorApp::onInit()
     if (!m_shadows.create(renderer().device()))
     {
         DE_LOG_FATAL("EditorApp: ShadowSystem create failed");
+        requestQuit();
         return;
     }
     if (!pumpBootFrame())
@@ -650,6 +652,7 @@ void EditorApp::onInit()
     if (!m_particleRenderer.create(renderer()))
     {
         DE_LOG_FATAL("EditorApp: particle renderer failed");
+        requestQuit();
         return;
     }
     if (!pumpBootFrame())
@@ -687,6 +690,7 @@ void EditorApp::onInit()
     if (!m_propMaterial->createFromAlbedoPath(renderer(), assets(), "textures/dark_engine_cube.png", 80, 160, 220))
     {
         DE_LOG_FATAL("EditorApp: prop material failed");
+        requestQuit();
         return;
     }
     assets().registerAsset(m_propMaterial);
@@ -695,6 +699,7 @@ void EditorApp::onInit()
     if (!m_groundMaterial->createSolid(renderer(), assets(), 48, 52, 60, 255))
     {
         DE_LOG_FATAL("EditorApp: ground material failed");
+        requestQuit();
         return;
     }
     m_groundMaterial->setBaseColor(0.35f, 0.38f, 0.42f, 1.0f);
