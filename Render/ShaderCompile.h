@@ -12,7 +12,7 @@ namespace Dark
     using Microsoft::WRL::ComPtr;
 
     // Resolve a path relative to a content root (e.g. "shaders/BasicMesh.hlsl").
-    // Searches: <exe>/content, <cwd>/content, and a few VS-output parent walks.
+    // Searches contentRootCandidates(). Absolute paths are used as-is if present.
     // Returns empty path if not found.
     std::filesystem::path resolveContentPath(const std::filesystem::path& relativeUnderContent);
 

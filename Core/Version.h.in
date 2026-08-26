@@ -1,0 +1,20 @@
+// CMake template for generated Core/Version.h (do not edit the output header).
+#pragma once
+
+#define DE_ENGINE_VERSION_MAJOR @CMAKE_PROJECT_VERSION_MAJOR@
+#define DE_ENGINE_VERSION_MINOR @CMAKE_PROJECT_VERSION_MINOR@
+#define DE_ENGINE_VERSION_PATCH @CMAKE_PROJECT_VERSION_PATCH@
+#define DE_ENGINE_VERSION_STRING "@CMAKE_PROJECT_VERSION@"
+#define DE_ENGINE_GIT "@DE_ENGINE_GIT@"
+
+namespace Dark
+{
+
+    inline constexpr int  kEngineVersionMajor = DE_ENGINE_VERSION_MAJOR;
+    inline constexpr int  kEngineVersionMinor = DE_ENGINE_VERSION_MINOR;
+    inline constexpr int  kEngineVersionPatch = DE_ENGINE_VERSION_PATCH;
+    inline constexpr char kEngineVersion[]    = DE_ENGINE_VERSION_STRING;
+    inline constexpr char kEngineGit[]        = DE_ENGINE_GIT;
+    inline constexpr bool kEngineHasGit       = kEngineGit[0] != '\0';
+
+} // namespace Dark

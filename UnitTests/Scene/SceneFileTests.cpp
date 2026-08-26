@@ -100,3 +100,10 @@ TEST(SceneFile, MissingModeDefaultsTo3D)
     std::error_code ec;
     std::filesystem::remove(path, ec);
 }
+
+TEST(SceneFile, DefaultScenePathUsesScenesFolder)
+{
+    const auto p = defaultScenePath("level2d.json");
+    EXPECT_EQ(p.filename(), "level2d.json");
+    EXPECT_EQ(p.parent_path().filename(), "scenes");
+}

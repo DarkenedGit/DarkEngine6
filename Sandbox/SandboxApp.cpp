@@ -1,8 +1,8 @@
 #include "SandboxApp.h"
 
 #include "ECS/Components.h"
+#include "Core/ContentRoots.h"
 #include "Core/Log.h"
-#include "Core/Paths.h"
 #include "Geometry/MeshGen.h"
 #include "Input/InputCodes.h"
 #include "Math/MathHelper.h"
@@ -19,6 +19,7 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <string>
 #include <vector>
 
 using namespace Dark;
@@ -30,23 +31,13 @@ void mountContentRoots(AssetManager& assets)
 {
     namespace fs = std::filesystem;
 
-    const fs::path exeDir = executableDirectory();
-    const fs::path cwd    = fs::current_path();
-
-    const fs::path candidates[] = {
-        exeDir / "content",
-        cwd / "content",
-        exeDir / ".." / ".." / ".." / "content",
-        cwd / ".." / ".." / ".." / "content",
-    };
+    const std::vector<fs::path> candidates = contentRootCandidates();
 
     bool any = false;
     for (const fs::path& c : candidates)
     {
-        if (c.empty())
-            continue;
         std::error_code ec;
-        if (fs::exists(c, ec) && !ec && fs::is_directory(c, ec) && !ec)
+        if (!c.empty() && fs::exists(c, ec) && !ec && fs::is_directory(c, ec) && !ec)
         {
             assets.mountDirectory(c);
             any = true;
@@ -55,10 +46,16 @@ void mountContentRoots(AssetManager& assets)
 
     if (!any)
     {
+        std::string listed;
+        for (const fs::path& c : candidates)
+        {
+            if (!listed.empty())
+                listed += " | ";
+            listed += c.string();
+        }
         DE_LOG_ERROR(
-            "SandboxApp: no content directory found. Tried next to exe ('{}') and cwd ('{}').",
-            exeDir.string(),
-            cwd.string());
+            "SandboxApp: no content directory found. Tried: {}",
+            listed.empty() ? std::string("<none>") : listed);
     }
 }
 
@@ -628,38 +625,54 @@ void SandboxApp::onInit()
     m_music    = audio().loadWav(assets(), "audio/ambient_loop.wav");
     if (!m_music)
         m_music = audio().createTone(110.0f, 2.0f, 0.12f);
-    audio().setMusic(m_music, 0.10f);
     audio().setMasterVolume(0.85f);
 
     if (!m_meshPipeline.create(renderer().device()))
     {
         DE_LOG_FATAL("SandboxApp: MeshPipeline create failed");
+        requestQuit();
         return;
     }
+    if (!pumpBootFrame())
+        return;
     if (!m_terrainPipeline.create(renderer().device()))
     {
         DE_LOG_FATAL("SandboxApp: TerrainPipeline create failed");
+        requestQuit();
         return;
     }
+    if (!pumpBootFrame())
+        return;
     if (!m_waterPipeline.create(renderer().device()))
     {
         DE_LOG_FATAL("SandboxApp: WaterPipeline create failed");
+        requestQuit();
         return;
     }
+    if (!pumpBootFrame())
+        return;
     if (!m_skyPipeline.create(renderer().device()))
     {
         DE_LOG_FATAL("SandboxApp: SkyPipeline create failed");
+        requestQuit();
         return;
     }
+    if (!pumpBootFrame())
+        return;
     if (!m_shadows.create(renderer().device()))
     {
         DE_LOG_FATAL("SandboxApp: ShadowSystem create failed");
+        requestQuit();
         return;
     }
+    if (!pumpBootFrame())
+        return;
     if (!m_debugOverlay.create(renderer().device()))
     {
         DE_LOG_WARN("SandboxApp: DebugOverlay create failed — F8/F9 disabled");
     }
+    if (!pumpBootFrame())
+        return;
 
     m_env.timeOfDay = 16.2f;
     m_env.weather   = Sky::WeatherState::PartlyCloudy();
@@ -682,6 +695,7 @@ void SandboxApp::onInit()
             || !base.addLayer(detail, 1.0f))
         {
             DE_LOG_FATAL("SandboxApp: height map create failed");
+            requestQuit();
             return;
         }
         const float extent = 128.0f * 2.0f;
@@ -692,24 +706,32 @@ void SandboxApp::onInit()
         if (!splat.generateFromHeight(terrainDesc.heightMap))
         {
             DE_LOG_FATAL("SandboxApp: splat generate failed");
+            requestQuit();
             return;
         }
         if (!m_terrain.create(std::move(terrainDesc)))
         {
             DE_LOG_FATAL("SandboxApp: terrain create failed");
+            requestQuit();
             return;
         }
         if (!m_terrainMaterial.createDefault(renderer(), splat))
         {
             DE_LOG_FATAL("SandboxApp: terrain material create failed");
+            requestQuit();
             return;
         }
+        if (!pumpBootFrame())
+            return;
         m_terrain.updateLod(Vector3f{ 0.0f, 50.0f, -80.0f });
         if (!m_terrain.createGpu(renderer()))
         {
             DE_LOG_FATAL("SandboxApp: terrain GPU upload failed");
+            requestQuit();
             return;
         }
+        if (!pumpBootFrame())
+            return;
 
         const Aabb3f terrainBox = m_terrain.bounds();
         const float waterLevel = Lerp(terrainBox.Min.y, terrainBox.Max.y, 0.38f);
@@ -727,14 +749,18 @@ void SandboxApp::onInit()
         if (!m_water.create(m_terrain.heightMap(), waterDesc))
         {
             DE_LOG_FATAL("SandboxApp: water create failed");
+            requestQuit();
             return;
         }
         m_water.updateLod(Vector3f{ 0.0f, 50.0f, -80.0f });
         if (!m_water.createGpu(renderer()))
         {
             DE_LOG_FATAL("SandboxApp: water GPU upload failed");
+            requestQuit();
             return;
         }
+        if (!pumpBootFrame())
+            return;
         DE_LOG_INFO("SandboxApp: water level {:.2f}, {} wet chunks", waterLevel, m_water.wetChunkCount());
     }
 
@@ -750,13 +776,17 @@ void SandboxApp::onInit()
             /*fallback*/ 64, 166, 242, 255))
     {
         DE_LOG_FATAL("SandboxApp: material create failed");
+        requestQuit();
         return;
     }
+    if (!pumpBootFrame())
+        return;
 
     const AssetID matId = assets().registerAsset(m_cubeMaterial);
     if (matId == NULL_ASSET)
     {
         DE_LOG_FATAL("SandboxApp: material register failed");
+        requestQuit();
         return;
     }
     m_cubeMatId = matId;
@@ -804,6 +834,12 @@ void SandboxApp::onInit()
         m_terrain.chunksZ());
     DE_LOG_INFO(LogCategory::Networking, "Sandbox net: Sandbox.exe -host   and   Sandbox.exe -join 127.0.0.1");
     DE_LOG_INFO(LogCategory::Networking, "Sandbox net: F5 host :26160  F6 join 127.0.0.1:26160  F4 disconnect  F3 browse :26161");
+}
+
+void SandboxApp::onSplashFinished()
+{
+    if (m_music)
+        audio().setMusic(m_music, 0.10f);
 }
 
 void SandboxApp::onUpdate(float dt)

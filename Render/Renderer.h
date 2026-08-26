@@ -26,15 +26,20 @@ namespace Dark
     public:
         static constexpr uint32_t kFrameCount = 2;
 
-        explicit Renderer(Window& window);
+        explicit Renderer(Window& window, bool vsync = true);
         ~Renderer();
 
         Renderer(const Renderer&)            = delete;
         Renderer& operator=(const Renderer&) = delete;
 
-        void beginFrame();
-        void endFrame();
-        void present();
+        bool isValid() const { return m_valid; }
+
+        bool beginFrame();
+        bool endFrame();
+        // true if SUCCEEDED(hr), including DXGI_STATUS_OCCLUDED.
+        bool present();
+
+        void setVsync(bool vsync) { m_vsync = vsync; }
 
         // Recreate back buffers + depth for a new client size (no-op if unchanged).
         bool resize(uint32_t width, uint32_t height);
@@ -84,6 +89,7 @@ namespace Dark
         void bindSceneTargets();
         void bindColorTargetOnly();
         void setClearColor(float r, float g, float b, float a = 1.0f);
+        const float* clearColor() const { return m_clearColor; }
         void transitionDepth(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
         D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu() const { return m_depthSrvCpu; }
         ID3D12Resource*             depthResource() const { return m_depthStencil.Get(); }
@@ -94,11 +100,11 @@ namespace Dark
         const DebugRenderState& debugState() const { return m_debugState; }
 
     private:
-        void initD3D12(Window& window);
+        bool initD3D12(Window& window);
         bool createRenderTargets();
         bool createDepthResources();
         void updateViewport();
-        void moveToNextFrame();
+        bool moveToNextFrame();
 
         ComPtr<ID3D12Device>              m_device;
         ComPtr<ID3D12CommandQueue>        m_commandQueue;
@@ -128,6 +134,8 @@ namespace Dark
 
         FrameStats       m_stats{};
         float            m_clearColor[4]{ 0.05f, 0.05f, 0.07f, 1.0f };
+        bool             m_valid = false;
+        bool             m_vsync = true;
         DebugRenderState m_debugState{};
     };
 

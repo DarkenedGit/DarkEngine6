@@ -1,6 +1,6 @@
 #include "Scene/SceneFile.h"
+#include "Core/ContentRoots.h"
 #include "Core/Log.h"
-#include "Core/Paths.h"
 
 #include "third_party/nlohmann/json.hpp"
 
@@ -344,24 +344,24 @@ std::filesystem::path defaultScenePath(const std::filesystem::path& preferredNam
     namespace fs = std::filesystem;
     const fs::path name = preferredName.empty() ? fs::path("level.json") : preferredName;
 
-    const fs::path exeDir = executableDirectory();
-    const fs::path candidates[] = {
-        exeDir / "content" / "scenes" / name,
-        fs::current_path() / "content" / "scenes" / name,
-        exeDir / ".." / ".." / ".." / "content" / "scenes" / name,
-    };
-
-    for (const fs::path& c : candidates)
+    fs::path fallback;
+    for (const fs::path& root : contentRootCandidates())
     {
+        const fs::path  c  = root / "scenes" / name;
         std::error_code ec;
         if (fs::exists(c, ec) && !ec)
-            return fs::weakly_canonical(c, ec);
+        {
+            const fs::path canonical = fs::weakly_canonical(c, ec);
+            return ec ? c : canonical;
+        }
+        if (fallback.empty())
+            fallback = c;
     }
 
-    if (!exeDir.empty())
-        return exeDir / "content" / "scenes" / name;
+    if (!fallback.empty())
+        return fallback;
 
-    return fs::current_path() / "content" / "scenes" / name;
+    return fs::path("content") / "scenes" / name;
 }
 
 } // namespace Dark

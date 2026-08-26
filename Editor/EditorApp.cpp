@@ -3,8 +3,8 @@
 #include "Scene/SceneFile.h"
 #include "ECS/Components.h"
 #include "Network/Replication.h"
+#include "Core/ContentRoots.h"
 #include "Core/Log.h"
-#include "Core/Paths.h"
 #include "Geometry/MeshGen.h"
 #include "Input/InputCodes.h"
 #include "Collision/StaticCollision.h"
@@ -48,15 +48,7 @@ constexpr int kPaletteCount = static_cast<int>(sizeof(kPalette) / sizeof(kPalett
 void mountContentRoots(AssetManager& assets)
 {
     namespace fs = std::filesystem;
-    const fs::path exeDir = executableDirectory();
-    const fs::path cwd    = fs::current_path();
-    const fs::path candidates[] = {
-        exeDir / "content",
-        cwd / "content",
-        exeDir / ".." / ".." / ".." / "content",
-        cwd / ".." / ".." / ".." / "content",
-    };
-    for (const fs::path& c : candidates)
+    for (const fs::path& c : contentRootCandidates())
     {
         std::error_code ec;
         if (!c.empty() && fs::exists(c, ec) && !ec && fs::is_directory(c, ec) && !ec)
@@ -644,18 +636,27 @@ void EditorApp::onInit()
     if (!m_meshPipeline.create(renderer().device()) || !m_linePipeline.create(renderer().device()))
     {
         DE_LOG_FATAL("EditorApp: mesh/line pipeline failed");
+        requestQuit();
         return;
     }
+    if (!pumpBootFrame())
+        return;
     if (!m_shadows.create(renderer().device()))
     {
         DE_LOG_FATAL("EditorApp: ShadowSystem create failed");
+        requestQuit();
         return;
     }
+    if (!pumpBootFrame())
+        return;
     if (!m_particleRenderer.create(renderer()))
     {
         DE_LOG_FATAL("EditorApp: particle renderer failed");
+        requestQuit();
         return;
     }
+    if (!pumpBootFrame())
+        return;
     if (!m_imgui.init(window(), renderer(), "editor_imgui.ini", false))
     {
         DE_LOG_WARN("EditorApp: ImGui init failed — particle UI disabled");
@@ -689,6 +690,7 @@ void EditorApp::onInit()
     if (!m_propMaterial->createFromAlbedoPath(renderer(), assets(), "textures/dark_engine_cube.png", 80, 160, 220))
     {
         DE_LOG_FATAL("EditorApp: prop material failed");
+        requestQuit();
         return;
     }
     assets().registerAsset(m_propMaterial);
@@ -697,6 +699,7 @@ void EditorApp::onInit()
     if (!m_groundMaterial->createSolid(renderer(), assets(), 48, 52, 60, 255))
     {
         DE_LOG_FATAL("EditorApp: ground material failed");
+        requestQuit();
         return;
     }
     m_groundMaterial->setBaseColor(0.35f, 0.38f, 0.42f, 1.0f);

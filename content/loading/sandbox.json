@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "host": {
+    "image": "textures/loading/sandbox_logo.png",
+    "title": "Sandbox"
+  }
+}

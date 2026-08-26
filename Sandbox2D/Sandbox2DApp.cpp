@@ -1,8 +1,8 @@
 #include "Sandbox2DApp.h"
 
 #include "Collision/Collision.h"
+#include "Core/ContentRoots.h"
 #include "Core/Log.h"
-#include "Core/Paths.h"
 #include "ECS/Components.h"
 #include "Geometry/MeshGen.h"
 #include "Input/InputCodes.h"
@@ -59,15 +59,7 @@ bool createChecker(
 void mountContentRoots(AssetManager& assets)
 {
     namespace fs = std::filesystem;
-    const fs::path exeDir = executableDirectory();
-    const fs::path cwd    = fs::current_path();
-    const fs::path candidates[] = {
-        exeDir / "content",
-        cwd / "content",
-        exeDir / ".." / ".." / ".." / "content",
-        cwd / ".." / ".." / ".." / "content",
-    };
-    for (const fs::path& c : candidates)
+    for (const fs::path& c : contentRootCandidates())
     {
         std::error_code ec;
         if (!c.empty() && fs::exists(c, ec) && !ec && fs::is_directory(c, ec) && !ec)
@@ -896,13 +888,19 @@ void Sandbox2DApp::onInit()
     if (!m_spritePipe.create(renderer().device()))
     {
         DE_LOG_FATAL("Sandbox2D: SpritePipeline create failed");
+        requestQuit();
         return;
     }
+    if (!pumpBootFrame())
+        return;
     if (!m_linePipe.create(renderer().device()))
     {
         DE_LOG_FATAL("Sandbox2D: LinePipeline create failed");
+        requestQuit();
         return;
     }
+    if (!pumpBootFrame())
+        return;
 
     {
         MeshData mesh_data;
@@ -917,6 +915,7 @@ void Sandbox2DApp::onInit()
     if (!m_quad.valid())
     {
         DE_LOG_FATAL("Sandbox2D: quad mesh failed");
+        requestQuit();
         return;
     }
 
@@ -939,6 +938,7 @@ void Sandbox2DApp::onInit()
         if (!m_playerSheet.createProceduralHero(renderer()))
         {
             DE_LOG_FATAL("Sandbox2D: player sprite sheet failed");
+            requestQuit();
             return;
         }
         clips = defaultHeroClips();
@@ -957,6 +957,7 @@ void Sandbox2DApp::onInit()
         || !m_texWhite.createSolidColor(renderer(), 255, 255, 255))
     {
         DE_LOG_FATAL("Sandbox2D: textures failed");
+        requestQuit();
         return;
     }
 
@@ -974,6 +975,7 @@ void Sandbox2DApp::onInit()
     if (!createPhysicsWorld())
     {
         DE_LOG_FATAL("Sandbox2D: physics init failed");
+        requestQuit();
         return;
     }
     resetPlayer();

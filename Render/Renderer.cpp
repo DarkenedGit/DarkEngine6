@@ -7,20 +7,21 @@
 #endif
 #include <Windows.h>
 
-#include <stdexcept>
-#include <string>
-
 namespace Dark
 {
 
-    void ThrowIfFailed(HRESULT hr, const char* what)
+    namespace
     {
-        if (FAILED(hr))
+        bool checkHr(HRESULT hr, const char* what)
         {
-            DE_LOG_ERROR(LogCategory::Render, "{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
-            throw std::runtime_error(what);
+            if (FAILED(hr))
+            {
+                DE_LOG_ERROR(LogCategory::Render, "{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
+                return false;
+            }
+            return true;
         }
-    }
+    } // namespace
 
 #if defined(_DEBUG)
     void EnableDebugLayer()
@@ -34,9 +35,10 @@ namespace Dark
     }
 #endif
 
-    Renderer::Renderer(Window& window)
+    Renderer::Renderer(Window& window, bool vsync)
+        : m_vsync(vsync)
     {
-        initD3D12(window);
+        m_valid = initD3D12(window);
     }
 
     Renderer::~Renderer()
@@ -49,7 +51,7 @@ namespace Dark
         }
     }
 
-    void Renderer::initD3D12(Window& window)
+    bool Renderer::initD3D12(Window& window)
     {
         m_width  = window.width();
         m_height = window.height();
@@ -57,7 +59,8 @@ namespace Dark
         HWND hwnd = static_cast<HWND>(window.nativeHandle());
         if (!hwnd)
         {
-            throw std::runtime_error("Renderer: window has no HWND");
+            DE_LOG_ERROR(LogCategory::Render, "Renderer: window has no HWND");
+            return false;
         }
 
 #if defined(_DEBUG)
@@ -70,7 +73,8 @@ namespace Dark
 #endif
 
         ComPtr<IDXGIFactory6> factory;
-        ThrowIfFailed(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&factory)), "CreateDXGIFactory2");
+        if (!checkHr(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&factory)), "CreateDXGIFactory2"))
+            return false;
 
         // Prefer a hardware adapter that supports D3D12 feature level 11_0+.
         ComPtr<IDXGIAdapter1> adapter;
@@ -91,12 +95,15 @@ namespace Dark
         {
             // Fallback: WARP (software) for machines without a D3D12 GPU.
             ComPtr<IDXGIAdapter> warp;
-            ThrowIfFailed(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp)), "EnumWarpAdapter");
-            ThrowIfFailed(warp.As(&adapter), "WARP As IDXGIAdapter1");
+            if (!checkHr(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp)), "EnumWarpAdapter"))
+                return false;
+            if (!checkHr(warp.As(&adapter), "WARP As IDXGIAdapter1"))
+                return false;
             DE_LOG_WARN(LogCategory::Render, "Renderer: using WARP software adapter");
         }
 
-        ThrowIfFailed(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&m_device)), "D3D12CreateDevice");
+        if (!checkHr(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&m_device)), "D3D12CreateDevice"))
+            return false;
 
         {
             DXGI_ADAPTER_DESC1 desc{};
@@ -109,7 +116,8 @@ namespace Dark
         D3D12_COMMAND_QUEUE_DESC queueDesc{};
         queueDesc.Type  = D3D12_COMMAND_LIST_TYPE_DIRECT;
         queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-        ThrowIfFailed(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_commandQueue)), "CreateCommandQueue");
+        if (!checkHr(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_commandQueue)), "CreateCommandQueue"))
+            return false;
 
         m_swapChainFlags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
 
@@ -125,12 +133,14 @@ namespace Dark
         scDesc.Flags       = m_swapChainFlags;
 
         ComPtr<IDXGISwapChain1> swapChain1;
-        ThrowIfFailed(factory->CreateSwapChainForHwnd(m_commandQueue.Get(), hwnd, &scDesc, nullptr, nullptr, &swapChain1), "CreateSwapChainForHwnd");
+        if (!checkHr(factory->CreateSwapChainForHwnd(m_commandQueue.Get(), hwnd, &scDesc, nullptr, nullptr, &swapChain1), "CreateSwapChainForHwnd"))
+            return false;
 
         // Alt-Enter handled by the app if desired; disable DXGI's default fullscreen toggle.
         factory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);
 
-        ThrowIfFailed(swapChain1.As(&m_swapChain), "QueryInterface IDXGISwapChain3");
+        if (!checkHr(swapChain1.As(&m_swapChain), "QueryInterface IDXGISwapChain3"))
+            return false;
         m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
 
         // RTV heap
@@ -138,29 +148,37 @@ namespace Dark
         rtvHeapDesc.NumDescriptors = kFrameCount;
         rtvHeapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
         rtvHeapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-        ThrowIfFailed(m_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)), "CreateDescriptorHeap RTV");
+        if (!checkHr(m_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)), "CreateDescriptorHeap RTV"))
+            return false;
         m_rtvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
         if (!createRenderTargets())
-            ThrowIfFailed(E_FAIL, "createRenderTargets");
+            return false;
 
         for (uint32_t i = 0; i < kFrameCount; ++i)
-            ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_commandAllocators[i])), "CreateCommandAllocator");
+        {
+            if (!checkHr(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_commandAllocators[i])), "CreateCommandAllocator"))
+                return false;
+        }
 
         // DSV heap + depth buffer
         D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc{};
         dsvHeapDesc.NumDescriptors = 1;
         dsvHeapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
         dsvHeapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-        ThrowIfFailed(m_device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_dsvHeap)), "CreateDescriptorHeap DSV");
+        if (!checkHr(m_device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_dsvHeap)), "CreateDescriptorHeap DSV"))
+            return false;
         if (!createDepthResources())
-            ThrowIfFailed(E_FAIL, "createDepthResources");
+            return false;
 
-        ThrowIfFailed(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocators[m_frameIndex].Get(), nullptr, IID_PPV_ARGS(&m_commandList)), "CreateCommandList");
+        if (!checkHr(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocators[m_frameIndex].Get(), nullptr, IID_PPV_ARGS(&m_commandList)), "CreateCommandList"))
+            return false;
         // Start closed; beginFrame resets and opens it each frame.
-        ThrowIfFailed(m_commandList->Close(), "CommandList Close (init)");
+        if (!checkHr(m_commandList->Close(), "CommandList Close (init)"))
+            return false;
 
-        ThrowIfFailed(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)), "CreateFence");
+        if (!checkHr(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)), "CreateFence"))
+            return false;
         // Match D3D12HelloFrameBuffering: fence starts at 0; the value we will
         // Signal after the first use of this back-buffer slot is 1.
         for (uint32_t i = 0; i < kFrameCount; ++i)
@@ -172,12 +190,14 @@ namespace Dark
         m_fenceEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
         if (!m_fenceEvent)
         {
-            throw std::runtime_error("CreateEvent for fence failed");
+            DE_LOG_ERROR(LogCategory::Render, "CreateEvent for fence failed");
+            return false;
         }
 
         updateViewport();
 
         DE_LOG_INFO(LogCategory::Render, "Renderer: D3D12 ready ({}x{}, {} buffers)", m_width, m_height, kFrameCount);
+        return true;
     }
 
     bool Renderer::createRenderTargets()
@@ -304,19 +324,22 @@ namespace Dark
         return true;
     }
 
-    void Renderer::beginFrame()
+    bool Renderer::beginFrame()
     {
         m_stats = {};
 
-        if (!m_device || !m_commandList || !m_fence)
+        if (!m_valid || !m_device || !m_commandList || !m_fence)
         {
-            throw std::runtime_error("Renderer::beginFrame: device not initialized");
+            DE_LOG_ERROR(LogCategory::Render, "Renderer::beginFrame: device not initialized");
+            return false;
         }
 
         // m_frameIndex was advanced in moveToNextFrame(), which already waited until
         // this slot's prior GPU work finished. Safe to reset its allocator now.
-        ThrowIfFailed(m_commandAllocators[m_frameIndex]->Reset(), "CommandAllocator Reset");
-        ThrowIfFailed(m_commandList->Reset(m_commandAllocators[m_frameIndex].Get(), nullptr), "CommandList Reset");
+        if (!checkHr(m_commandAllocators[m_frameIndex]->Reset(), "CommandAllocator Reset"))
+            return false;
+        if (!checkHr(m_commandList->Reset(m_commandAllocators[m_frameIndex].Get(), nullptr), "CommandList Reset"))
+            return false;
 
         m_commandList->RSSetViewports(1, &m_viewport);
         m_commandList->RSSetScissorRects(1, &m_scissor);
@@ -349,6 +372,7 @@ namespace Dark
 
         m_commandList->ClearRenderTargetView(rtv, m_clearColor, 0, nullptr);
         m_commandList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+        return true;
     }
 
     void Renderer::setClearColor(float r, float g, float b, float a)
@@ -395,8 +419,14 @@ namespace Dark
         m_depthState = after;
     }
 
-    void Renderer::endFrame()
+    bool Renderer::endFrame()
     {
+        if (!m_valid || !m_commandList || !m_commandQueue)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Renderer::endFrame: device not initialized");
+            return false;
+        }
+
         // RENDER_TARGET -> PRESENT
         D3D12_RESOURCE_BARRIER barrier{};
         barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -407,24 +437,46 @@ namespace Dark
         barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
         m_commandList->ResourceBarrier(1, &barrier);
 
-        ThrowIfFailed(m_commandList->Close(), "CommandList Close");
+        if (!checkHr(m_commandList->Close(), "CommandList Close"))
+            return false;
 
         ID3D12CommandList* lists[] = { m_commandList.Get() };
         m_commandQueue->ExecuteCommandLists(1, lists);
+        return true;
     }
 
-    void Renderer::present()
+    bool Renderer::present()
     {
-        ThrowIfFailed(m_swapChain->Present(1, 0), "Present");
-        moveToNextFrame();
+        if (!m_valid || !m_swapChain)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Present: renderer not initialized");
+            return false;
+        }
+
+        const HRESULT hr = m_swapChain->Present(m_vsync ? 1u : 0u, 0);
+        if (FAILED(hr))
+        {
+            const HRESULT removed = m_device ? m_device->GetDeviceRemovedReason() : S_OK;
+            if (FAILED(removed))
+                DE_LOG_ERROR(LogCategory::Render, "Present: device removed ({})", static_cast<unsigned>(removed));
+            else
+                DE_LOG_ERROR(LogCategory::Render, "Present failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
+            return false;
+        }
+
+        return moveToNextFrame();
     }
 
-    void Renderer::moveToNextFrame()
+    bool Renderer::moveToNextFrame()
     {
+        if (!m_commandQueue || !m_fence || !m_swapChain)
+            return false;
+
         // Signal a unique, monotonically increasing fence value for the work just
         // submitted with this back-buffer / allocator slot.
         const UINT64 currentFenceValue = m_fenceValues[m_frameIndex];
-        ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), currentFenceValue), "Queue Signal");
+        if (!checkHr(m_commandQueue->Signal(m_fence.Get(), currentFenceValue), "Queue Signal"))
+            return false;
 
         // Advance to the swap-chain's next buffer.
         m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
@@ -433,12 +485,14 @@ namespace Dark
         // this slot's command allocator (cannot Reset it until then).
         if (m_fence->GetCompletedValue() < m_fenceValues[m_frameIndex])
         {
-            ThrowIfFailed(m_fence->SetEventOnCompletion(m_fenceValues[m_frameIndex], m_fenceEvent), "SetEventOnCompletion (next frame)");
+            if (!checkHr(m_fence->SetEventOnCompletion(m_fenceValues[m_frameIndex], m_fenceEvent), "SetEventOnCompletion (next frame)"))
+                return false;
             WaitForSingleObjectEx(m_fenceEvent, INFINITE, FALSE);
         }
 
         // Next signal for this slot must be strictly greater than any prior signal.
         m_fenceValues[m_frameIndex] = currentFenceValue + 1;
+        return true;
     }
 
     void Renderer::waitForGpu()

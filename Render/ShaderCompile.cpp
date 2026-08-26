@@ -1,6 +1,6 @@
 #include "Render/ShaderCompile.h"
+#include "Core/ContentRoots.h"
 #include "Core/Log.h"
-#include "Core/Paths.h"
 
 #include <d3dcompiler.h>
 
@@ -26,19 +26,7 @@ namespace Dark
             return {};
         }
 
-        const fs::path exeDir = executableDirectory();
-        const fs::path cwd    = fs::current_path();
-
-        const fs::path roots[] = {
-            exeDir / "content",
-            cwd / "content",
-            exeDir / ".." / ".." / ".." / "content", // VS: build/bin/Debug -> repo content
-            cwd / ".." / ".." / ".." / "content",
-            exeDir / ".." / ".." / "content",
-            cwd / ".." / ".." / "content",
-        };
-
-        for (const fs::path& root : roots)
+        for (const fs::path& root : contentRootCandidates())
         {
             if (root.empty())
                 continue;

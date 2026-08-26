@@ -63,6 +63,29 @@ CMake options:
 - `DE_ENABLE_ASSERTS` (default ON)
 - `DE_BUILD_TESTS` (default ON)
 
+## Boot splash
+
+Sandbox and Sandbox2D show a two-phase boot splash (engine logo, then host) in all configs. Editor shows it in **Release** only (`_DEBUG` starts with splash off). VisualDebugger stays off unless you pass `-splash`.
+
+| Control | Effect |
+|---------|--------|
+| `-splash` | Force splash on (beats Editor Debug / VisualDebugger `showSplash = false`) |
+| `-no-splash` | Force splash off |
+| env `DE_NO_SPLASH` (any non-empty value) | Force splash off (CI) |
+| `content/loading/engine.json` `"enabled": false` | Off unless `-splash` |
+| `AppConfig.showSplash` | Host default; `false` wins unless `-splash` |
+
+First match wins: `DE_NO_SPLASH` → `-no-splash` → `-splash` → `showSplash == false` → JSON `enabled == false` → on.
+
+Skip (Escape, left click, gamepad Start) zeros remaining dwell of the **current** phase. It does not abort `onInit` or quit the process.
+
+- **Debug:** skip is always allowed for engine and host (`skipOnKey` cannot disable this).
+- **Release:** engine dwell is unskippable; host is skippable (`skipOnKey`, default true).
+
+Quit during splash is Alt-F4 / window close, not Escape.
+
+JSON overlay: `content/loading/engine.json` then `content/loading/<hostId>.json` (`sandbox`, `sandbox2d`, `editor`). `engine.json` keeps `host.image` empty so hosts do not share art. `"reducedMotion": true` uses a bar plus a 2 s opacity breathe (no ring) and skips the 0.2 s fade-out to gameplay. `"animation": "none"` uses a frozen full-opacity bar (no ring, no breathe); fade-out still runs.
+
 ## Layout
 
 ```

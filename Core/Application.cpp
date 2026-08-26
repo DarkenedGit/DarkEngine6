@@ -1,7 +1,18 @@
 #include "Core/Application.h"
+#include "Core/ContentRoots.h"
 #include "Core/Log.h"
+#include "Core/Version.h"
+#include "Input/InputCodes.h"
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <Windows.h>
 
 #include <cstdint>
+#include <cstdlib>
+#include <filesystem>
+#include <stdlib.h>
 
 namespace Dark
 {
@@ -210,21 +221,67 @@ namespace Dark
         return true;
     }
 
+    bool parseAppCommandLine(const char* lpCmdLine, AppConfig& cfg)
+    {
+        const char* p = lpCmdLine ? lpCmdLine : "";
+        char        tok[96];
+
+        while (nextToken(p, tok, sizeof(tok)))
+        {
+            if (tok[0] == 0)
+                continue;
+            if (tokenEq(tok, "-no-splash"))
+                cfg.cliNoSplash = true;
+            else if (tokenEq(tok, "-splash"))
+                cfg.cliSplash = true;
+        }
+        return true;
+    }
+
+    bool shouldShowSplash(const AppConfig& cfg, bool jsonEnabled)
+    {
+        char*  env = nullptr;
+        size_t len = 0;
+        if (_dupenv_s(&env, &len, "DE_NO_SPLASH") == 0 && env && env[0] != '\0')
+        {
+            free(env);
+            return false;
+        }
+        free(env);
+
+        if (cfg.cliNoSplash)
+            return false;
+        if (cfg.cliSplash)
+            return true;
+        if (!cfg.showSplash)
+            return false;
+        if (!jsonEnabled)
+            return false;
+        return true;
+    }
+
     Application::Application(const AppConfig& cfg)
         : m_logSession()
         , m_window(cfg.title, cfg.width, cfg.height)
         , m_input()
-        , m_renderer(m_window)
+        , m_renderer(m_window, cfg.vsync)
         , m_config(cfg)
     {
         m_window.setInput(&m_input);
         if (!m_audio.create())
             DE_LOG_WARN(LogCategory::Audio, "Audio: disabled (no device or XAudio2 init failed)");
-        DE_LOG_INFO("DarkEngine6 v0.1 — starting up (D3D12)");
+        if constexpr (kEngineHasGit)
+            DE_LOG_INFO("DarkEngine6 {} ({}) — starting up (D3D12)", kEngineVersion, kEngineGit);
+        else
+            DE_LOG_INFO("DarkEngine6 {} — starting up (D3D12)", kEngineVersion);
+        if (!initOk())
+            DE_LOG_FATAL(LogCategory::Render, "Renderer init failed");
     }
 
     Application::~Application()
     {
+        if (m_loading.isReady())
+            m_loading.shutdown(m_renderer);
         m_debug.shutdown();
         m_network.shutdown();
         m_window.setInput(nullptr);
@@ -250,13 +307,245 @@ namespace Dark
             m_debug.listen(m_config.debugListenPort);
     }
 
+    void Application::mountDefaultContentRoots()
+    {
+        namespace fs = std::filesystem;
+        for (const fs::path& c : contentRootCandidates())
+        {
+            std::error_code ec;
+            if (!c.empty() && fs::exists(c, ec) && !ec && fs::is_directory(c, ec) && !ec)
+                m_assets.mountDirectory(c);
+        }
+    }
+
+    bool Application::shouldShowSplash() const
+    {
+        return Dark::shouldShowSplash(m_config, m_loading.config().enabled);
+    }
+
+    bool Application::skipPressed() const
+    {
+        if (m_input.keyPressed(Key::Escape))
+            return true;
+        if (m_input.mousePressed(MouseButton::Left))
+            return true;
+        for (int i = 0; i < kMaxGamepads; ++i)
+        {
+            if (m_input.buttonPressed(GamepadButton::Start, i))
+                return true;
+        }
+        return false;
+    }
+
+    LoadingDrawState Application::makeDrawState() const
+    {
+        LoadingDrawState state;
+        state.phase         = m_loading.phase();
+        state.timeSec       = m_window.getTime();
+        state.fade          = m_bootFade;
+        state.reducedMotion = m_loading.config().reducedMotion;
+        return state;
+    }
+
+    void Application::presentClearOnly()
+    {
+        const float savedClear[4] = {
+            m_renderer.clearColor()[0], m_renderer.clearColor()[1],
+            m_renderer.clearColor()[2], m_renderer.clearColor()[3]
+        };
+        const float* bg = m_loading.config().background;
+        m_renderer.setClearColor(bg[0], bg[1], bg[2], bg[3]);
+
+        DE_LOG_INFO("LoadingScreen: first present (clear)");
+        bool ok = false;
+        if (m_renderer.beginFrame())
+            ok = m_renderer.endFrame() && m_renderer.present();
+
+        m_renderer.setClearColor(savedClear[0], savedClear[1], savedClear[2], savedClear[3]);
+        if (!ok)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Present failed; stopping");
+            m_running = false;
+        }
+    }
+
+    bool Application::pumpSplashFrame()
+    {
+        if (m_bootPresenting)
+            return m_running && !m_window.shouldClose();
+
+        m_bootPresenting = true;
+
+        m_input.beginFrame();
+        m_window.pollEvents();
+        if (m_window.takeSizeChanged())
+            m_renderer.resize(m_window.width(), m_window.height());
+        m_input.updateDevices();
+        m_audio.tick();
+
+        if (m_window.shouldClose())
+        {
+            m_running        = false;
+            m_bootPresenting = false;
+            return false;
+        }
+
+        if (m_window.isFocused() && skipPressed())
+        {
+#if defined(_DEBUG)
+            m_loading.skipCurrentPhaseDwell();
+#else
+            if (m_loading.phase() != LoadingPhase::Engine && m_loading.config().skipOnKey)
+                m_loading.skipCurrentPhaseDwell();
+#endif
+        }
+
+        if (m_window.isMinimized())
+        {
+            MsgWaitForMultipleObjects(0, nullptr, FALSE, 16, QS_ALLINPUT);
+            m_bootPresenting = false;
+            return m_running;
+        }
+
+        const float savedClear[4] = {
+            m_renderer.clearColor()[0], m_renderer.clearColor()[1],
+            m_renderer.clearColor()[2], m_renderer.clearColor()[3]
+        };
+        const float* bg = m_loading.config().background;
+        m_renderer.setClearColor(bg[0], bg[1], bg[2], bg[3]);
+
+        if (!m_renderer.beginFrame())
+        {
+            DE_LOG_ERROR(LogCategory::Render, "beginFrame failed; stopping");
+            m_running        = false;
+            m_bootPresenting = false;
+            m_renderer.setClearColor(savedClear[0], savedClear[1], savedClear[2], savedClear[3]);
+            return false;
+        }
+        m_loading.draw(m_renderer, makeDrawState());
+        if (!m_renderer.endFrame() || !m_renderer.present())
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Present failed; stopping");
+            m_running        = false;
+            m_bootPresenting = false;
+            m_renderer.setClearColor(savedClear[0], savedClear[1], savedClear[2], savedClear[3]);
+            return false;
+        }
+        m_renderer.setClearColor(savedClear[0], savedClear[1], savedClear[2], savedClear[3]);
+
+        m_bootPresenting = false;
+        return true;
+    }
+
+    bool Application::pumpBootFrame()
+    {
+        if (!splashActive())
+            return m_running && !m_window.shouldClose();
+        return pumpSplashFrame();
+    }
+
+    void Application::runFadeLoop()
+    {
+        if (m_loading.config().reducedMotion)
+            return;
+
+        m_loading.setPhase(LoadingPhase::FadeOut);
+        constexpr float kFadeSeconds = 0.2f;
+        const float     fadeStart    = m_window.getTime();
+        while (m_running && !m_window.shouldClose())
+        {
+            const float t = m_window.getTime() - fadeStart;
+            if (t >= kFadeSeconds)
+                break;
+            m_bootFade = 1.0f - (t / kFadeSeconds);
+            if (m_bootFade < 0.0f)
+                m_bootFade = 0.0f;
+            if (!pumpSplashFrame())
+                break;
+        }
+        m_bootFade = 1.0f;
+    }
+
     void Application::run()
     {
-        onInit();
+        if (!initOk())
+            return;
+
+        mountDefaultContentRoots();
+        m_loading.tryLoadConfig(m_config);
+        const bool splash  = shouldShowSplash();
+        bool       onInitRan     = false;
+        bool       splashCreated = false;
+
+        if (splash)
+        {
+            m_splashActive = true;
+            presentClearOnly();
+            if (!m_running || m_window.shouldClose())
+            {
+                m_splashActive = false;
+                return;
+            }
+            splashCreated = m_loading.create(m_renderer);
+
+            DE_LOG_INFO("LoadingScreen: engine phase ({:.2f}s min)", m_loading.config().engine.minSeconds);
+            m_loading.setPhase(LoadingPhase::Engine);
+            while (m_running && !m_window.shouldClose() && m_loading.remainingDwell() > 0.0f)
+            {
+                if (!pumpSplashFrame())
+                    break;
+                m_loading.tryLoadAssets(m_renderer);
+            }
+
+            if (m_running && !m_window.shouldClose())
+                m_loading.tryLoadAssets(m_renderer);
+
+            if (!m_running || m_window.shouldClose())
+            {
+                if (splashCreated)
+                    m_loading.shutdown(m_renderer);
+                m_splashActive = false;
+                return;
+            }
+
+            DE_LOG_INFO("LoadingScreen: host phase '{}'", m_config.hostId ? m_config.hostId : "app");
+            m_loading.setPhase(LoadingPhase::Host);
+            onInitRan = true;
+            onInit();
+
+            while (m_running && !m_window.shouldClose() && m_loading.remainingDwell() > 0.0f)
+            {
+                if (!pumpSplashFrame())
+                    break;
+            }
+
+            if (m_running && !m_window.shouldClose())
+                runFadeLoop();
+
+            DE_LOG_INFO("LoadingScreen: teardown");
+            if (splashCreated)
+                m_loading.shutdown(m_renderer);
+            m_splashActive = false;
+        }
+        else
+        {
+            onInitRan = true;
+            onInit();
+        }
+
+        if (!m_running || m_window.shouldClose())
+        {
+            if (onInitRan)
+                onShutdown();
+            return;
+        }
+
+        onSplashFinished();
+
         applyNetConfig();
         applyDebugConfig();
 
-        float lastTime = 0.0f;
+        float lastTime = m_window.getTime();
 
         while (m_running && !m_window.shouldClose())
         {
@@ -301,7 +590,11 @@ namespace Dark
             m_debug.perf().add(PerfSlot::Render, m_window.getTime() - t0);
 
             t0 = m_window.getTime();
-            m_renderer.present();
+            if (!m_renderer.present())
+            {
+                DE_LOG_ERROR(LogCategory::Render, "Present failed; stopping");
+                break;
+            }
             m_debug.perf().add(PerfSlot::Present, m_window.getTime() - t0);
 
             const DebugFrameStats fs{m_renderer.stats().drawCalls, m_renderer.stats().triangles};
