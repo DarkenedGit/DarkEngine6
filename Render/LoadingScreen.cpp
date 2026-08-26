@@ -469,10 +469,13 @@ float4 PSMain(PSInput input) : SV_TARGET
         cmd->SetGraphicsRootDescriptorTable(kRootSrv, gpu);
         cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-        const bool reduced = state.reducedMotion || m_config.reducedMotion;
+        // "none" is a static bar (same GPU path as reducedMotion); fade-out still runs unless reducedMotion.
+        const bool reducedCfg = state.reducedMotion || m_config.reducedMotion;
+        const bool noneAnim   = (m_config.animation == "none");
+        const bool reduced    = reducedCfg || noneAnim;
 
         LoadingScreenConstants cb{};
-        cb.timeSec         = state.timeSec;
+        cb.timeSec         = (noneAnim && !reducedCfg) ? 0.0f : state.timeSec;
         cb.fade            = state.fade;
         cb.phase           = phaseValue(state.phase);
         cb.reducedMotion   = reduced ? 1.0f : 0.0f;

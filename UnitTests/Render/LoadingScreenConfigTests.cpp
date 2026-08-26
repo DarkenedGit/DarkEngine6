@@ -71,6 +71,14 @@ TEST(LoadingScreenConfig, InvalidTypesKeepPrevious)
     EXPECT_NEAR(cfg.background[3], 1.0f, 1.0e-6f);
 }
 
+TEST(LoadingScreenConfig, AnimationNoneAndReducedMotion)
+{
+    LoadingScreenConfig cfg{};
+    ASSERT_TRUE(mergeLoadingScreenConfigJson(cfg, R"({ "animation": "none", "reducedMotion": true })"));
+    EXPECT_EQ(cfg.animation, "none");
+    EXPECT_TRUE(cfg.reducedMotion);
+}
+
 TEST(LoadingScreenConfig, HostImageOverlayDoesNotWipeMinSeconds)
 {
     LoadingScreenConfig cfg{};

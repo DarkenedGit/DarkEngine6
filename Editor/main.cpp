@@ -17,7 +17,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR lpCmdLine, int)
     cfg.hostId      = "editor";
     cfg.hostName    = "Editor";
     cfg.hostVersion = Dark::kEngineVersion;
-    cfg.showSplash  = false;
+#if defined(_DEBUG)
+    cfg.showSplash = false;
+#else
+    cfg.showSplash = true;
+#endif
     Dark::parseNetCommandLine(lpCmdLine, cfg);
     Dark::parseAppCommandLine(lpCmdLine, cfg);
 
