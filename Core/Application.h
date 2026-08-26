@@ -25,6 +25,12 @@ namespace Dark
 
         bool     debugListen     = false;
         uint16_t debugListenPort = kDebugDefaultPort;
+
+        bool        showSplash    = false;
+        const char* hostId        = "app";
+        const char* hostName      = nullptr;
+        const char* hostVersion   = nullptr;
+        const char* loadingConfig = nullptr;
     };
 
     bool parseNetCommandLine(const char* lpCmdLine, AppConfig& cfg);

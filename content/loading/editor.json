@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "host": {
+    "image": "textures/loading/editor_logo.png",
+    "title": "Editor"
+  }
+}

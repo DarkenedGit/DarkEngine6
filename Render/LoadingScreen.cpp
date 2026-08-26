@@ -1,8 +1,15 @@
 #include "Render/LoadingScreen.h"
 #include "Render/Renderer.h"
+#include "Render/ShaderCompile.h"
+#include "Core/Application.h"
 #include "Core/Log.h"
 
 #include <d3dcompiler.h>
+
+#include <filesystem>
+#include <vector>
+
+#include "Render/LoadingScreenFont.inl"
 
 namespace Dark
 {
@@ -145,6 +152,167 @@ float4 PSMain(PSInput input) : SV_TARGET
             }
         }
 
+        bool nextCodepoint(const std::string& s, size_t& i, uint32_t& cp)
+        {
+            if (i >= s.size())
+                return false;
+            const unsigned char c = static_cast<unsigned char>(s[i]);
+            if (c < 0x80)
+            {
+                cp = c;
+                ++i;
+                return true;
+            }
+            if ((c & 0xE0) == 0xC0 && i + 1 < s.size())
+            {
+                const unsigned char c1 = static_cast<unsigned char>(s[i + 1]);
+                cp                     = (static_cast<uint32_t>(c & 0x1F) << 6) | static_cast<uint32_t>(c1 & 0x3F);
+                i += 2;
+                return true;
+            }
+            if ((c & 0xF0) == 0xE0 && i + 2 < s.size())
+            {
+                cp = (static_cast<uint32_t>(c & 0x0F) << 12)
+                    | (static_cast<uint32_t>(static_cast<unsigned char>(s[i + 1]) & 0x3F) << 6)
+                    | static_cast<uint32_t>(static_cast<unsigned char>(s[i + 2]) & 0x3F);
+                i += 3;
+                return true;
+            }
+            if ((c & 0xF8) == 0xF0 && i + 3 < s.size())
+            {
+                cp = '?';
+                i += 4;
+                return true;
+            }
+            cp = '?';
+            ++i;
+            return true;
+        }
+
+        int glyphIndex(uint32_t cp)
+        {
+            if (cp >= 0x20 && cp <= 0x7E)
+                return static_cast<int>(cp - 0x20);
+            if (cp == 0xA9)
+                return 95;
+            if (cp == 0xB7)
+                return 96;
+            return static_cast<int>('?' - 0x20);
+        }
+
+        bool rasterizeVersionLine(const std::string& text, std::vector<uint8_t>& rgba, uint32_t& outW, uint32_t& outH)
+        {
+            std::vector<int> indices;
+            size_t           i  = 0;
+            uint32_t         cp = 0;
+            while (nextCodepoint(text, i, cp))
+                indices.push_back(glyphIndex(cp));
+            if (indices.empty())
+                return false;
+
+            constexpr int kPad = 1;
+            const uint32_t w   = static_cast<uint32_t>(indices.size() * (kGlyphW + kPad) + kPad);
+            const uint32_t h   = static_cast<uint32_t>(kGlyphH);
+            rgba.assign(static_cast<size_t>(w) * static_cast<size_t>(h) * 4u, 0);
+
+            for (size_t n = 0; n < indices.size(); ++n)
+            {
+                const int gi = indices[n];
+                if (gi < 0 || gi >= kGlyphCount)
+                    continue;
+                const int ox = static_cast<int>(n) * (kGlyphW + kPad) + kPad;
+                for (int row = 0; row < kGlyphH; ++row)
+                {
+                    const uint8_t bits = kGlyphs[gi][row];
+                    for (int col = 0; col < kGlyphW; ++col)
+                    {
+                        if ((bits & static_cast<uint8_t>(0x80 >> col)) == 0)
+                            continue;
+                        const size_t p = (static_cast<size_t>(row) * w + static_cast<size_t>(ox + col)) * 4u;
+                        rgba[p + 0]    = 255;
+                        rgba[p + 1]    = 255;
+                        rgba[p + 2]    = 255;
+                        rgba[p + 3]    = 255;
+                    }
+                }
+            }
+            outW = w;
+            outH = h;
+            return true;
+        }
+
+        bool createSplashPso(ID3D12Device* device, ID3D12RootSignature* rs, ID3DBlob* vs, ID3DBlob* ps, ComPtr<ID3D12PipelineState>& outPso)
+        {
+            outPso.Reset();
+            if (!device || !rs || !vs || !ps)
+                return false;
+
+            D3D12_GRAPHICS_PIPELINE_STATE_DESC pso{};
+            pso.pRootSignature = rs;
+            pso.VS             = { vs->GetBufferPointer(), vs->GetBufferSize() };
+            pso.PS             = { ps->GetBufferPointer(), ps->GetBufferSize() };
+            pso.SampleMask     = UINT_MAX;
+
+            D3D12_RENDER_TARGET_BLEND_DESC& rt = pso.BlendState.RenderTarget[0];
+            rt.BlendEnable                     = TRUE;
+            rt.RenderTargetWriteMask           = D3D12_COLOR_WRITE_ENABLE_ALL;
+            rt.SrcBlend                        = D3D12_BLEND_SRC_ALPHA;
+            rt.DestBlend                       = D3D12_BLEND_INV_SRC_ALPHA;
+            rt.BlendOp                         = D3D12_BLEND_OP_ADD;
+            rt.SrcBlendAlpha                   = D3D12_BLEND_ONE;
+            rt.DestBlendAlpha                  = D3D12_BLEND_INV_SRC_ALPHA;
+            rt.BlendOpAlpha                    = D3D12_BLEND_OP_ADD;
+
+            pso.RasterizerState.FillMode        = D3D12_FILL_MODE_SOLID;
+            pso.RasterizerState.CullMode        = D3D12_CULL_MODE_NONE;
+            pso.RasterizerState.DepthClipEnable = TRUE;
+
+            pso.DepthStencilState.DepthEnable   = FALSE;
+            pso.DepthStencilState.StencilEnable = FALSE;
+
+            pso.InputLayout           = { nullptr, 0 };
+            pso.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+            pso.NumRenderTargets      = 1;
+            pso.RTVFormats[0]         = DXGI_FORMAT_R8G8B8A8_UNORM;
+            pso.DSVFormat             = DXGI_FORMAT_UNKNOWN;
+            pso.SampleDesc            = { 1, 0 };
+
+            if (FailedHr(device->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&outPso)), "CreateGraphicsPipelineState (LoadingScreen)"))
+            {
+                outPso.Reset();
+                return false;
+            }
+            return true;
+        }
+
+        bool loadSplashLogo(Renderer& renderer, const std::string& virtualPath, Texture2D& dest, const wchar_t* resourceName)
+        {
+            if (virtualPath.empty())
+                return false;
+
+            std::filesystem::path path;
+            if (!resolveSplashAsset(virtualPath, path))
+            {
+                DE_LOG_WARN(LogCategory::Render, "LoadingScreen: logo path rejected or missing '{}'", virtualPath);
+                return false;
+            }
+
+            Texture2D tex;
+            if (!tex.createFromFile(renderer, path))
+                return false;
+
+            if (tex.width() > 1024 || tex.height() > 1024)
+            {
+                DE_LOG_WARN(LogCategory::Render, "LoadingScreen: logo '{}' is {}x{} (cap 1024), using 1x1", path.string(), tex.width(), tex.height());
+                return false;
+            }
+
+            dest = std::move(tex);
+            if (dest.resource() && resourceName)
+                dest.resource()->SetName(resourceName);
+            return true;
+        }
+
     } // namespace
 
     bool LoadingScreen::create(Renderer& renderer)
@@ -217,38 +385,7 @@ float4 PSMain(PSInput input) : SV_TARGET
             shutdown(renderer);
             return false;
         }
-
-        D3D12_GRAPHICS_PIPELINE_STATE_DESC pso{};
-        pso.pRootSignature = m_rootSignature.Get();
-        pso.VS             = { vs->GetBufferPointer(), vs->GetBufferSize() };
-        pso.PS             = { ps->GetBufferPointer(), ps->GetBufferSize() };
-        pso.SampleMask     = UINT_MAX;
-
-        D3D12_RENDER_TARGET_BLEND_DESC& rt = pso.BlendState.RenderTarget[0];
-        rt.BlendEnable                     = TRUE;
-        rt.RenderTargetWriteMask           = D3D12_COLOR_WRITE_ENABLE_ALL;
-        rt.SrcBlend                        = D3D12_BLEND_SRC_ALPHA;
-        rt.DestBlend                       = D3D12_BLEND_INV_SRC_ALPHA;
-        rt.BlendOp                         = D3D12_BLEND_OP_ADD;
-        rt.SrcBlendAlpha                   = D3D12_BLEND_ONE;
-        rt.DestBlendAlpha                  = D3D12_BLEND_INV_SRC_ALPHA;
-        rt.BlendOpAlpha                    = D3D12_BLEND_OP_ADD;
-
-        pso.RasterizerState.FillMode        = D3D12_FILL_MODE_SOLID;
-        pso.RasterizerState.CullMode        = D3D12_CULL_MODE_NONE;
-        pso.RasterizerState.DepthClipEnable = TRUE;
-
-        pso.DepthStencilState.DepthEnable   = FALSE;
-        pso.DepthStencilState.StencilEnable = FALSE;
-
-        pso.InputLayout           = { nullptr, 0 };
-        pso.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-        pso.NumRenderTargets      = 1;
-        pso.RTVFormats[0]         = DXGI_FORMAT_R8G8B8A8_UNORM;
-        pso.DSVFormat             = DXGI_FORMAT_UNKNOWN;
-        pso.SampleDesc            = { 1, 0 };
-
-        if (FailedHr(device->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&m_pso)), "CreateGraphicsPipelineState (LoadingScreen)"))
+        if (!createSplashPso(device, m_rootSignature.Get(), vs.Get(), ps.Get(), m_pso))
         {
             shutdown(renderer);
             return false;
@@ -269,16 +406,19 @@ float4 PSMain(PSInput input) : SV_TARGET
         m_gpu     = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
         m_srvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-        const uint8_t logoPx[4] = { 255, 255, 255, 0 };   // transparent: fallback is bg + spinner
-        const uint8_t fontPx[4] = { 255, 255, 255, 255 }; // glyph in .r; opaque strip exercises pass 1
-        if (!m_logo.createFromRGBA(renderer, logoPx, 1, 1, 4) || !m_font.createFromRGBA(renderer, fontPx, 1, 1, 4))
+        const uint8_t logoPx[4] = { 255, 255, 255, 0 }; // transparent: fallback is bg + spinner
+        const uint8_t fontPx[4] = { 0, 0, 0, 0 };       // .r = 0 until version atlas is blitted
+        if (!m_engineLogo.createFromRGBA(renderer, logoPx, 1, 1, 4) || !m_hostLogo.createFromRGBA(renderer, logoPx, 1, 1, 4)
+            || !m_font.createFromRGBA(renderer, fontPx, 1, 1, 4))
         {
             DE_LOG_ERROR(LogCategory::Render, "LoadingScreen::create: 1x1 fallback textures failed");
             shutdown(renderer);
             return false;
         }
-        if (m_logo.resource())
-            m_logo.resource()->SetName(L"LoadingScreen.Logo");
+        if (m_engineLogo.resource())
+            m_engineLogo.resource()->SetName(L"LoadingScreen.EngineLogo");
+        if (m_hostLogo.resource())
+            m_hostLogo.resource()->SetName(L"LoadingScreen.HostLogo");
         if (m_font.resource())
             m_font.resource()->SetName(L"LoadingScreen.Font");
 
@@ -288,7 +428,7 @@ float4 PSMain(PSInput input) : SV_TARGET
 
     void LoadingScreen::draw(Renderer& renderer, const LoadingDrawState& state)
     {
-        if (!isReady() || !m_srvHeap || !m_logo.valid() || !m_font.valid())
+        if (!isReady() || !m_srvHeap || !m_engineLogo.valid() || !m_hostLogo.valid() || !m_font.valid())
             return;
 
         ID3D12Device*              device = renderer.device();
@@ -307,13 +447,15 @@ float4 PSMain(PSInput input) : SV_TARGET
         if (base + 1 >= heapSize)
             return;
 
+        const Texture2D& logo = (state.phase == LoadingPhase::Engine) ? m_engineLogo : m_hostLogo;
+
         renderer.bindColorTargetOnly();
 
         D3D12_CPU_DESCRIPTOR_HANDLE destLogo = m_cpu;
         destLogo.ptr += static_cast<SIZE_T>(base) * m_srvIncr;
         D3D12_CPU_DESCRIPTOR_HANDLE destFont = m_cpu;
         destFont.ptr += static_cast<SIZE_T>(base + 1) * m_srvIncr;
-        device->CopyDescriptorsSimple(1, destLogo, m_logo.cpuHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        device->CopyDescriptorsSimple(1, destLogo, logo.cpuHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         device->CopyDescriptorsSimple(1, destFont, m_font.cpuHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
         D3D12_GPU_DESCRIPTOR_HANDLE gpu = m_gpu;
@@ -326,21 +468,23 @@ float4 PSMain(PSInput input) : SV_TARGET
         cmd->SetGraphicsRootDescriptorTable(kRootSrv, gpu);
         cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
+        const bool reduced = state.reducedMotion || m_config.reducedMotion;
+
         LoadingScreenConstants cb{};
         cb.timeSec         = state.timeSec;
         cb.fade            = state.fade;
         cb.phase           = phaseValue(state.phase);
-        cb.reducedMotion   = state.reducedMotion ? 1.0f : 0.0f;
-        cb.background[0]   = 0.05f;
-        cb.background[1]   = 0.05f;
-        cb.background[2]   = 0.07f;
-        cb.background[3]   = 1.0f;
-        cb.spinnerColor[0] = 0.25f;
-        cb.spinnerColor[1] = 0.65f;
-        cb.spinnerColor[2] = 0.95f;
+        cb.reducedMotion   = reduced ? 1.0f : 0.0f;
+        cb.background[0]   = m_config.background[0];
+        cb.background[1]   = m_config.background[1];
+        cb.background[2]   = m_config.background[2];
+        cb.background[3]   = m_config.background[3];
+        cb.spinnerColor[0] = m_config.spinnerColor[0];
+        cb.spinnerColor[1] = m_config.spinnerColor[1];
+        cb.spinnerColor[2] = m_config.spinnerColor[2];
         cb.resolution[0]   = static_cast<float>(w);
         cb.resolution[1]   = static_cast<float>(h);
-        cb.logoAspect      = (m_logo.height() > 0) ? static_cast<float>(m_logo.width()) / static_cast<float>(m_logo.height()) : 1.0f;
+        cb.logoAspect      = (logo.height() > 0) ? static_cast<float>(logo.width()) / static_cast<float>(logo.height()) : 1.0f;
         cb.spinnerOpacity  = 1.0f;
 
         cmd->RSSetViewports(1, &renderer.viewport());
@@ -350,32 +494,43 @@ float4 PSMain(PSInput input) : SV_TARGET
         cmd->SetGraphicsRoot32BitConstants(kRootConstants, 16, &cb, 0);
         cmd->DrawInstanced(3, 1, 0, 0);
 
-        // Bottom-left version line; scales with physical back-buffer height (DPI-sized window).
-        LONG lineH = static_cast<LONG>(h) / 90;
-        if (lineH < 14)
-            lineH = 14;
-        if (lineH > 48)
-            lineH = 48;
-        const LONG pad = lineH;
-        const LONG x   = pad;
-        const LONG y   = static_cast<LONG>(h) - pad - lineH;
-        const LONG tw  = static_cast<LONG>(w) - pad * 2;
-        if (tw > 0 && lineH > 0 && y >= 0)
+        const UINT fw = m_font.width();
+        const UINT fh = m_font.height();
+        if (fw > 1 && fh > 0)
         {
-            D3D12_VIEWPORT vp{};
-            vp.TopLeftX = static_cast<float>(x);
-            vp.TopLeftY = static_cast<float>(y);
-            vp.Width    = static_cast<float>(tw);
-            vp.Height   = static_cast<float>(lineH);
-            vp.MinDepth = 0.0f;
-            vp.MaxDepth = 1.0f;
-            D3D12_RECT sc{ x, y, x + tw, y + lineH };
-            cmd->RSSetViewports(1, &vp);
-            cmd->RSSetScissorRects(1, &sc);
+            LONG lineH = static_cast<LONG>(h) / 90;
+            if (lineH < 14)
+                lineH = 14;
+            if (lineH > 48)
+                lineH = 48;
+            const LONG pad = lineH;
+            LONG       tw  = static_cast<LONG>(static_cast<float>(lineH) * static_cast<float>(fw) / static_cast<float>(fh));
+            const LONG maxW = static_cast<LONG>(w) - pad * 2;
+            if (tw > maxW)
+                tw = maxW;
 
-            cb.pass = 1.0f;
-            cmd->SetGraphicsRoot32BitConstants(kRootConstants, 16, &cb, 0);
-            cmd->DrawInstanced(3, 1, 0, 0);
+            const std::string& anchor = m_config.versionText.anchor;
+            const bool         top    = (anchor == "top-left" || anchor == "top-right");
+            const bool         right  = (anchor == "bottom-right" || anchor == "top-right");
+            const LONG         x      = right ? (static_cast<LONG>(w) - pad - tw) : pad;
+            const LONG         y      = top ? pad : (static_cast<LONG>(h) - pad - lineH);
+            if (tw > 0 && lineH > 0 && x >= 0 && y >= 0)
+            {
+                D3D12_VIEWPORT vp{};
+                vp.TopLeftX = static_cast<float>(x);
+                vp.TopLeftY = static_cast<float>(y);
+                vp.Width    = static_cast<float>(tw);
+                vp.Height   = static_cast<float>(lineH);
+                vp.MinDepth = 0.0f;
+                vp.MaxDepth = 1.0f;
+                D3D12_RECT sc{ x, y, x + tw, y + lineH };
+                cmd->RSSetViewports(1, &vp);
+                cmd->RSSetScissorRects(1, &sc);
+
+                cb.pass = 1.0f;
+                cmd->SetGraphicsRoot32BitConstants(kRootConstants, 16, &cb, 0);
+                cmd->DrawInstanced(3, 1, 0, 0);
+            }
         }
 
         cmd->RSSetViewports(1, &renderer.viewport());
@@ -390,11 +545,68 @@ float4 PSMain(PSInput input) : SV_TARGET
         m_pso.Reset();
         m_rootSignature.Reset();
         m_srvHeap.Reset();
-        m_logo = Texture2D{};
-        m_font = Texture2D{};
-        m_cpu  = {};
-        m_gpu  = {};
-        m_srvIncr = 0;
+        m_engineLogo = Texture2D{};
+        m_hostLogo   = Texture2D{};
+        m_font       = Texture2D{};
+        m_cpu        = {};
+        m_gpu        = {};
+        m_srvIncr    = 0;
+    }
+
+    bool LoadingScreen::tryLoadConfig(const AppConfig& cfg)
+    {
+        loadLoadingScreenConfig(cfg, m_config);
+        m_versionLine = makeLoadingVersionLine(m_config, cfg.hostName, cfg.hostVersion);
+        return true;
+    }
+
+    void LoadingScreen::tryLoadAssets(Renderer& renderer)
+    {
+        if (!isReady() || !renderer.isValid() || !renderer.device())
+            return;
+
+        renderer.waitForGpu();
+
+        loadSplashLogo(renderer, m_config.engine.image, m_engineLogo, L"LoadingScreen.EngineLogo");
+        loadSplashLogo(renderer, m_config.host.image, m_hostLogo, L"LoadingScreen.HostLogo");
+
+        if (m_versionLine.empty())
+            m_versionLine = makeLoadingVersionLine(m_config, nullptr, nullptr);
+
+        if (!m_versionLine.empty())
+        {
+            std::vector<uint8_t> rgba;
+            uint32_t             fw = 0;
+            uint32_t             fh = 0;
+            if (rasterizeVersionLine(m_versionLine, rgba, fw, fh))
+            {
+                Texture2D font;
+                if (font.createFromRGBA(renderer, rgba.data(), fw, fh, fw * 4u))
+                {
+                    m_font = std::move(font);
+                    if (m_font.resource())
+                        m_font.resource()->SetName(L"LoadingScreen.Font");
+                }
+            }
+        }
+
+        std::filesystem::path hlsl;
+        if (resolveSplashAsset("shaders/LoadingScreen.hlsl", hlsl))
+        {
+            ComPtr<ID3DBlob> vs;
+            ComPtr<ID3DBlob> ps;
+            if (compileShaderFromFile(hlsl, "VSMain", "vs_5_0", vs) && compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps))
+            {
+                renderer.waitForGpu();
+                ComPtr<ID3D12PipelineState> diskPso;
+                if (createSplashPso(renderer.device(), m_rootSignature.Get(), vs.Get(), ps.Get(), diskPso))
+                {
+                    m_pso = std::move(diskPso);
+                    m_pso->SetName(L"LoadingScreen.PSO");
+                    DE_LOG_INFO(LogCategory::Render, "LoadingScreen: replaced embedded PSO from '{}'", hlsl.string());
+                }
+            }
+        }
     }
 
 } // namespace Dark

@@ -1,14 +1,17 @@
 #pragma once
 
+#include "Render/LoadingScreenConfig.h"
 #include "Render/Texture2D.h"
 
 #include <cstdint>
 #include <d3d12.h>
+#include <string>
 #include <wrl/client.h>
 
 namespace Dark
 {
 
+    struct AppConfig;
     class Renderer;
 
     using Microsoft::WRL::ComPtr;
@@ -57,14 +60,21 @@ namespace Dark
         void shutdown(Renderer& renderer);
         bool isReady() const { return m_pso != nullptr; }
 
+        bool tryLoadConfig(const AppConfig& cfg);
+        void tryLoadAssets(Renderer& renderer);
+        const LoadingScreenConfig& config() const { return m_config; }
+
     private:
         static constexpr UINT kSrvPerFrame = 2;
 
         ComPtr<ID3D12RootSignature>  m_rootSignature;
         ComPtr<ID3D12PipelineState>  m_pso;
         ComPtr<ID3D12DescriptorHeap> m_srvHeap;
-        Texture2D                    m_logo;
+        Texture2D                    m_engineLogo;
+        Texture2D                    m_hostLogo;
         Texture2D                    m_font;
+        LoadingScreenConfig          m_config;
+        std::string                  m_versionLine;
         D3D12_GPU_DESCRIPTOR_HANDLE  m_gpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_cpu{};
         UINT                         m_srvIncr = 0;
