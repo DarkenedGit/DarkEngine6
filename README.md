@@ -84,7 +84,7 @@ Skip (Escape, left click, gamepad Start) zeros remaining dwell of the **current*
 
 Quit during splash is Alt-F4 / window close, not Escape.
 
-JSON overlay: `content/loading/engine.json` then `content/loading/<hostId>.json` (`sandbox`, `sandbox2d`, `editor`). `engine.json` keeps `host.image` empty so hosts do not share art. `"reducedMotion": true` uses a static bar (no ring) and skips the 0.2 s fade-out to gameplay. `"animation": "none"` also uses the static bar.
+JSON overlay: `content/loading/engine.json` then `content/loading/<hostId>.json` (`sandbox`, `sandbox2d`, `editor`). `engine.json` keeps `host.image` empty so hosts do not share art. `"reducedMotion": true` uses a bar plus a 2 s opacity breathe (no ring) and skips the 0.2 s fade-out to gameplay. `"animation": "none"` uses a frozen full-opacity bar (no ring, no breathe); fade-out still runs.
 
 ## Layout
 

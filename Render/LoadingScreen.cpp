@@ -475,7 +475,8 @@ float4 PSMain(PSInput input) : SV_TARGET
         const bool reduced    = reducedCfg || noneAnim;
 
         LoadingScreenConstants cb{};
-        cb.timeSec         = (noneAnim && !reducedCfg) ? 0.0f : state.timeSec;
+        // 0.5 → sin(0.5*pi)==1 so the none-bar is full opacity, not the 0.85 trough of the breathe.
+        cb.timeSec         = (noneAnim && !reducedCfg) ? 0.5f : state.timeSec;
         cb.fade            = state.fade;
         cb.phase           = phaseValue(state.phase);
         cb.reducedMotion   = reduced ? 1.0f : 0.0f;

@@ -79,6 +79,26 @@ TEST(LoadingScreenConfig, AnimationNoneAndReducedMotion)
     EXPECT_TRUE(cfg.reducedMotion);
 }
 
+TEST(LoadingScreenConfig, AnimationNoneDoesNotImplyReducedMotion)
+{
+    LoadingScreenConfig cfg{};
+    ASSERT_TRUE(mergeLoadingScreenConfigJson(cfg, R"({ "animation": "none" })"));
+    EXPECT_EQ(cfg.animation, "none");
+    EXPECT_FALSE(cfg.reducedMotion);
+
+    ASSERT_TRUE(mergeLoadingScreenConfigJson(cfg, R"({ "reducedMotion": true })"));
+    EXPECT_EQ(cfg.animation, "none");
+    EXPECT_TRUE(cfg.reducedMotion);
+}
+
+TEST(LoadingScreenConfig, ReducedMotionLeavesAnimationRing)
+{
+    LoadingScreenConfig cfg{};
+    ASSERT_TRUE(mergeLoadingScreenConfigJson(cfg, R"({ "reducedMotion": true })"));
+    EXPECT_TRUE(cfg.reducedMotion);
+    EXPECT_EQ(cfg.animation, "ring");
+}
+
 TEST(LoadingScreenConfig, HostImageOverlayDoesNotWipeMinSeconds)
 {
     LoadingScreenConfig cfg{};
