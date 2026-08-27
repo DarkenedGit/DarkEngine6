@@ -102,19 +102,20 @@ bool PathChase::init(Renderer& renderer, Terrain::TerrainWorld& terrain, Water::
     }
 
     const Vector3f trees[] = {
-        { 18.0f, 0, 12.0f },  { -22.0f, 0, 8.0f }, { 30.0f, 0, -16.0f }, { -14.0f, 0, -28.0f }, { 8.0f, 0, 36.0f },
-        { -36.0f, 0, 20.0f }, { 42.0f, 0, 6.0f },  { -8.0f, 0, 48.0f },  { 24.0f, 0, -40.0f }, { -28.0f, 0, -12.0f },
+        { 12.0f, 0, 8.0f },  { -10.0f, 0, 10.0f }, { 14.0f, 0, -6.0f }, { -8.0f, 0, -12.0f }, { 6.0f, 0, 16.0f },
+        { -16.0f, 0, 4.0f }, { 18.0f, 0, 2.0f },   { 4.0f, 0, -18.0f }, { -14.0f, 0, -8.0f }, { 10.0f, 0, -14.0f },
     };
     m_treePos.clear();
     m_cubes.clear();
     const Vector3f origin = { 0.0f, terrain.heightAtWorld(0.0f, 0.0f) + 0.5f, 0.0f };
     m_cubes.push_back(Aabb3f::FromCenterExtents(origin, Vector3f{ 0.5f, 0.5f, 0.5f }));
+    const Vector3f treeHalf{ 2.0f, 3.0f, 2.0f };
     for (const Vector3f& t : trees)
     {
         Vector3f p = t;
-        p.y        = terrain.heightAtWorld(p.x, p.z) + 0.5f;
+        p.y        = terrain.heightAtWorld(p.x, p.z) + treeHalf.y;
         m_treePos.push_back(p);
-        m_cubes.push_back(Aabb3f::FromCenterExtents(p, Vector3f{ 0.5f, 0.5f, 0.5f }));
+        m_cubes.push_back(Aabb3f::FromCenterExtents(p, treeHalf));
     }
 
     if (!bake(terrain, water))
@@ -141,17 +142,17 @@ bool PathChase::spawnWalker(World& world, Terrain::TerrainWorld& terrain)
 bool PathChase::spawnAgents(Terrain::TerrainWorld& terrain)
 {
     std::mt19937 rng{ 20260826u };
-    const auto&  hm = terrain.heightMap();
-    std::uniform_real_distribution<float> ux(hm.origin().x + 4.0f, hm.origin().x + hm.cellSize() * static_cast<float>(hm.width() - 2) - 4.0f);
-    std::uniform_real_distribution<float> uz(hm.origin().z + 4.0f, hm.origin().z + hm.cellSize() * static_cast<float>(hm.height() - 2) - 4.0f);
+    std::uniform_real_distribution<float> ux(-22.0f, 22.0f);
+    std::uniform_real_distribution<float> uz(-22.0f, 22.0f);
+    const Vector3f seeds[3] = { { 16.0f, 0, -10.0f }, { -14.0f, 0, -12.0f }, { 8.0f, 0, 18.0f } };
 
     for (int i = 0; i < 3; ++i)
     {
         bool ok = false;
         for (int tries = 0; tries < 256; ++tries)
         {
-            const float x = ux(rng);
-            const float z = uz(rng);
+            const float x = (tries == 0) ? seeds[i].x : ux(rng);
+            const float z = (tries == 0) ? seeds[i].z : uz(rng);
             if (!m_walk.walkableWorld(x, z))
                 continue;
             bool hit = false;
@@ -164,7 +165,7 @@ bool PathChase::spawnAgents(Terrain::TerrainWorld& terrain)
             }
             if (hit)
                 continue;
-            m_agents[static_cast<size_t>(i)].pos      = Vector3f{ x, terrain.heightAtWorld(x, z) + 0.5f, z };
+            m_agents[static_cast<size_t>(i)].pos      = Vector3f{ x, terrain.heightAtWorld(x, z) + 1.0f, z };
             m_agents[static_cast<size_t>(i)].repathAt = static_cast<float>(i) * (0.5f / 3.0f);
             m_agents[static_cast<size_t>(i)].givenUp  = false;
             ok = true;
@@ -238,7 +239,7 @@ void PathChase::follow(Agent& a, float dt, Terrain::TerrainWorld& terrain)
         a.pos.z = next.z;
         remain -= step;
     }
-    a.pos.y = terrain.heightAtWorld(a.pos.x, a.pos.z) + 0.5f;
+    a.pos.y = terrain.heightAtWorld(a.pos.x, a.pos.z) + 1.0f;
 }
 
 void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld& terrain, Entity hostPawn)
@@ -300,29 +301,36 @@ void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld
 
 void PathChase::drawMeshes(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPipe, ShadowSystem& shadows, const Camera3D& camera, const MeshFrameConstants& baseCb, Geometry::Mesh& cubeMesh, DebugFill fill)
 {
-    if (!cmd)
+    if (!cmd || !cubeMesh.valid())
         return;
     meshPipe.bind(cmd, fill);
     shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
 
     MeshFrameConstants cb = baseCb;
+    cb.lighting           = 0.0f;
     const Matrix4f viewProj = camera.GetViewProj();
-    auto drawAt = [&](const Vector3f& p, Material* mat) {
+    auto drawAt = [&](const Vector3f& p, Material* mat, const Vector3f& scale, float r, float g, float b) {
         if (mat && mat->isValid())
             mat->bind(cmd, MeshPipeline::kRootAlbedoSrv);
-        const Matrix4f world = makeWorld(p, Vector3f{ 1, 1, 1 });
+        cb.color[0] = r;
+        cb.color[1] = g;
+        cb.color[2] = b;
+        cb.color[3] = 1.0f;
+        const Matrix4f world = makeWorld(p, scale);
         copyMatrix(cb.worldViewProj, world * viewProj);
         copyMatrix(cb.world, world);
         meshPipe.setConstants(cmd, cb);
         cubeMesh.draw(cmd, fill == DebugFill::Points);
     };
 
+    const Vector3f treeScale{ 4.0f, 6.0f, 4.0f };
+    const Vector3f aiScale{ 2.0f, 2.0f, 2.0f };
     if (m_drawWalker)
-        drawAt(m_walkerPos, m_aiMat.get());
+        drawAt(m_walkerPos, m_aiMat.get(), aiScale, 1.0f, 0.35f, 0.12f);
     for (const Vector3f& t : m_treePos)
-        drawAt(t, m_treeMat.get());
+        drawAt(t, m_treeMat.get(), treeScale, 0.15f, 0.75f, 0.18f);
     for (const Agent& a : m_agents)
-        drawAt(a.pos, m_aiMat.get());
+        drawAt(a.pos, m_aiMat.get(), aiScale, 1.0f, 0.35f, 0.12f);
 }
 
 void PathChase::drawPaths(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Matrix4f& viewProj)

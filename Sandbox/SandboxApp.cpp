@@ -764,7 +764,13 @@ void SandboxApp::onInit()
 
     MeshData cubeData;
     CreateCube(cubeData, 1.0f);
-    m_cubeMesh.Create(renderer(), cubeData);
+    m_cubeMesh = Mesh::Create(renderer(), cubeData);
+    if (!m_cubeMesh.valid())
+    {
+        DE_LOG_FATAL("SandboxApp: cube mesh upload failed");
+        requestQuit();
+        return;
+    }
 
     m_cubeMaterial = std::make_shared<Material>();
     if (!m_cubeMaterial->createFromAlbedoPath( renderer(), assets(), "textures/dark_engine_cube.png", /*fallback*/ 64, 166, 242, 255))
@@ -803,6 +809,8 @@ void SandboxApp::onInit()
 
     m_terrainMaterial.setShadowSrv(renderer().device(), m_shadows.srvCpu());
     m_cubeMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
+    m_treeMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
+    m_aiMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
 
     const float aspect = (renderer().height() > 0) ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height()) : 1.0f;
     m_viewCamera.SetLens(/*fovY*/ 1.04719755f /*60deg*/, aspect, 0.5f, 2000.0f);
@@ -978,13 +986,13 @@ void SandboxApp::onRender()
         ++meshDraws;
     });
 
+    if (m_chaseOk)
+        m_chase.drawMeshes(cmd, m_meshPipeline, m_shadows, m_viewCamera, cb, m_cubeMesh, fill);
+
     m_water.draw(cmd, m_waterPipeline, m_viewCamera, &frustum, &m_env, &renderer().debugState());
 
     if (m_chaseOk)
-    {
-        m_chase.drawMeshes(cmd, m_meshPipeline, m_shadows, m_viewCamera, cb, m_cubeMesh, fill);
         m_chase.drawPaths(cmd, renderer(), viewProj);
-    }
 
     renderer().stats().drawCalls = m_terrain.lastDrawCalls() + m_water.lastDrawCalls() + meshDraws + 1;
     renderer().stats().triangles =

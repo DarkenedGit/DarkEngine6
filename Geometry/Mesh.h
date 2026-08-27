@@ -30,7 +30,7 @@ namespace Dark
 
             // Uploads mesh data to the GPU. Blocks until the copy completes.
             // Returns an invalid mesh on failure (does not throw).
-            static Mesh Create(Renderer& renderer, const MeshData& data);
+            [[nodiscard]] static Mesh Create(Renderer& renderer, const MeshData& data);
 
             // Non-throwing upload. On failure `out` is left empty and false is returned.
             static bool tryCreate(Renderer& renderer, const MeshData& data, Mesh& out);
