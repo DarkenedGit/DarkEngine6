@@ -53,9 +53,7 @@ void mountContentRoots(AssetManager& assets)
                 listed += " | ";
             listed += c.string();
         }
-        DE_LOG_ERROR(
-            "SandboxApp: no content directory found. Tried: {}",
-            listed.empty() ? std::string("<none>") : listed);
+        DE_LOG_ERROR("SandboxApp: no content directory found. Tried: {}", listed.empty() ? std::string("<none>") : listed);
     }
 }
 
@@ -126,10 +124,10 @@ void SandboxApp::registerDefaultActions()
     a.bindButton("speed_down", GamepadButton::X);
 
     // Cube yaw/pitch: WASD only (host). Arrows + D-pad drive the local pawn XZ.
-    a.bindKeyAsAxis("yaw", Key::A, -1.0f);
-    a.bindKeyAsAxis("yaw", Key::D, 1.0f);
-    a.bindKeyAsAxis("pitch", Key::W, 1.0f);
-    a.bindKeyAsAxis("pitch", Key::S, -1.0f);
+    a.bindKeyAsAxis("yaw", Key::Q, -1.0f);
+    a.bindKeyAsAxis("yaw", Key::E, 1.0f);
+    a.bindKeyAsAxis("pitch", Key::Z, 1.0f);
+    a.bindKeyAsAxis("pitch", Key::C, -1.0f);
 
     a.bindKeyAsAxis("pawn_x", Key::Left, -1.0f);
     a.bindKeyAsAxis("pawn_x", Key::Right, 1.0f);
@@ -140,16 +138,16 @@ void SandboxApp::registerDefaultActions()
     a.bindButtonAsAxis("pawn_z", GamepadButton::DPadUp, 1.0f);
     a.bindButtonAsAxis("pawn_z", GamepadButton::DPadDown, -1.0f);
 
-    a.bindKeyAsAxis("fly_forward", Key::I, 1.0f);
-    a.bindKeyAsAxis("fly_forward", Key::K, -1.0f);
+    a.bindKeyAsAxis("fly_forward", Key::W, 1.0f);
+    a.bindKeyAsAxis("fly_forward", Key::S, -1.0f);
     a.bindAxis("fly_forward", GamepadAxis::LeftY, 1.0f);
 
-    a.bindKeyAsAxis("fly_strafe", Key::J, -1.0f);
-    a.bindKeyAsAxis("fly_strafe", Key::L, 1.0f);
+    a.bindKeyAsAxis("fly_strafe", Key::A, -1.0f);
+    a.bindKeyAsAxis("fly_strafe", Key::D, 1.0f);
     a.bindAxis("fly_strafe", GamepadAxis::LeftX, 1.0f);
 
-    a.bindKeyAsAxis("fly_climb", Key::U, 1.0f);
-    a.bindKeyAsAxis("fly_climb", Key::O, -1.0f);
+    a.bindKeyAsAxis("fly_climb", Key::Q, 1.0f);
+    a.bindKeyAsAxis("fly_climb", Key::Z, -1.0f);
     a.bindAxis("fly_climb", GamepadAxis::RightTrigger, 1.0f);
     a.bindAxis("fly_climb", GamepadAxis::LeftTrigger, -1.0f);
 
@@ -766,21 +764,33 @@ void SandboxApp::onInit()
 
     MeshData cubeData;
     CreateCube(cubeData, 1.0f);
-    m_cubeMesh = Mesh::Create(renderer(), cubeData);
+    m_cubeMesh.Create(renderer(), cubeData);
 
     m_cubeMaterial = std::make_shared<Material>();
-    if (!m_cubeMaterial->createFromAlbedoPath(
-            renderer(),
-            assets(),
-            "textures/dark_engine_cube.png",
-            /*fallback*/ 64, 166, 242, 255))
+    if (!m_cubeMaterial->createFromAlbedoPath( renderer(), assets(), "textures/dark_engine_cube.png", /*fallback*/ 64, 166, 242, 255))
     {
         DE_LOG_FATAL("SandboxApp: material create failed");
         requestQuit();
         return;
     }
+
     if (!pumpBootFrame())
         return;
+
+    m_treeMaterial = std::make_shared<Material>();
+    if (!m_treeMaterial->createSolid(renderer(), assets(), 46, 140, 62, 255))
+    {
+        DE_LOG_FATAL("SandboxApp: tree material failed");
+        requestQuit();
+        return;
+    }
+    m_aiMaterial = std::make_shared<Material>();
+    if (!m_aiMaterial->createSolid(renderer(), assets(), 220, 90, 40, 255))
+    {
+        DE_LOG_FATAL("SandboxApp: ai material failed");
+        requestQuit();
+        return;
+    }
 
     const AssetID matId = assets().registerAsset(m_cubeMaterial);
     if (matId == NULL_ASSET)
@@ -794,9 +804,7 @@ void SandboxApp::onInit()
     m_terrainMaterial.setShadowSrv(renderer().device(), m_shadows.srvCpu());
     m_cubeMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
 
-    const float aspect = (renderer().height() > 0)
-        ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height())
-        : 1.0f;
+    const float aspect = (renderer().height() > 0) ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height()) : 1.0f;
     m_viewCamera.SetLens(/*fovY*/ 1.04719755f /*60deg*/, aspect, 0.5f, 2000.0f);
     m_viewCamera.LookAt(Vector3f(0.0f, 48.0f, -86.0f), Vector3f(0.0f, 8.0f, 0.0f), Vector3f(0.0f, 1.0f, 0.0f));
 
@@ -834,6 +842,10 @@ void SandboxApp::onInit()
         m_terrain.chunksZ());
     DE_LOG_INFO(LogCategory::Networking, "Sandbox net: Sandbox.exe -host   and   Sandbox.exe -join 127.0.0.1");
     DE_LOG_INFO(LogCategory::Networking, "Sandbox net: F5 host :26160  F6 join 127.0.0.1:26160  F4 disconnect  F3 browse :26161");
+
+    m_chaseOk = m_chase.init(renderer(), m_terrain, m_water, world(), m_cubeMesh, m_treeMaterial, m_aiMaterial);
+    if (!m_chaseOk)
+        DE_LOG_ERROR(LogCategory::AI, "SandboxApp: path chase init failed");
 }
 
 void SandboxApp::onSplashFinished()
@@ -849,6 +861,8 @@ void SandboxApp::onUpdate(float dt)
     m_water.tick(dt);
     m_water.updateLod(m_viewCamera.GetPosition());
     syncTerrainLod();
+    if (m_chaseOk)
+        m_chase.tick(dt, world(), input(), m_terrain, network().localPawn());
 
     AudioListener lis{};
     lis.position = m_viewCamera.GetPosition();
@@ -965,6 +979,12 @@ void SandboxApp::onRender()
     });
 
     m_water.draw(cmd, m_waterPipeline, m_viewCamera, &frustum, &m_env, &renderer().debugState());
+
+    if (m_chaseOk)
+    {
+        m_chase.drawMeshes(cmd, m_meshPipeline, m_shadows, m_viewCamera, cb, m_cubeMesh, fill);
+        m_chase.drawPaths(cmd, renderer(), viewProj);
+    }
 
     renderer().stats().drawCalls = m_terrain.lastDrawCalls() + m_water.lastDrawCalls() + meshDraws + 1;
     renderer().stats().triangles =

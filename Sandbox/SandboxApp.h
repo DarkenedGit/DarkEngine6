@@ -15,6 +15,7 @@
 #include "Terrain/TerrainMaterial.h"
 #include "Water/Water.h"
 #include "Audio/SoundClip.h"
+#include "PathChase.h"
 
 class SandboxApp : public Dark::Application
 {
@@ -58,6 +59,10 @@ private:
     Dark::Sky::Environment  m_env;
 
     Dark::AssetRef<Dark::Material> m_cubeMaterial;
+    Dark::AssetRef<Dark::Material> m_treeMaterial;
+    Dark::AssetRef<Dark::Material> m_aiMaterial;
+    Dark::PathChase                m_chase;
+    bool                           m_chaseOk = false;
 
     Dark::Terrain::TerrainWorld m_terrain;
     Dark::TerrainMaterial       m_terrainMaterial;
