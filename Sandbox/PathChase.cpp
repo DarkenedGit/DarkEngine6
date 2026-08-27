@@ -8,6 +8,7 @@
 #include "Network/NetTypes.h"
 #include "Render/Camera3D.h"
 #include "Render/Renderer.h"
+#include "Render/ShadowSystem.h"
 #include "Terrain/Terrain.h"
 #include "Water/Water.h"
 
@@ -297,8 +298,13 @@ void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld
     }
 }
 
-void PathChase::drawMeshes(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPipe, ShadowSystem&, const Camera3D& camera, const MeshFrameConstants& baseCb, Geometry::Mesh& cubeMesh, DebugFill fill)
+void PathChase::drawMeshes(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPipe, ShadowSystem& shadows, const Camera3D& camera, const MeshFrameConstants& baseCb, Geometry::Mesh& cubeMesh, DebugFill fill)
 {
+    if (!cmd)
+        return;
+    meshPipe.bind(cmd, fill);
+    shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
+
     MeshFrameConstants cb = baseCb;
     const Matrix4f viewProj = camera.GetViewProj();
     auto drawAt = [&](const Vector3f& p, Material* mat) {
@@ -361,6 +367,7 @@ void PathChase::drawPaths(ID3D12GraphicsCommandList* cmd, Renderer& renderer, co
     m_lineIbv[fi].SizeInBytes = static_cast<UINT>(idx.size() * sizeof(uint32_t));
 
     m_lines.bind(cmd);
+    cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_LINELIST);
     LineFrameConstants lc{};
     copyMatrix(lc.worldViewProj, viewProj);
     lc.color[0] = 1.0f;
