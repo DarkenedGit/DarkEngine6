@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AI/HunterBrain.h"
 #include "AI/Pathfinder.h"
 #include "AI/Walkability.h"
 #include "ECS/Entity.h"
@@ -48,17 +49,23 @@ private:
     struct Agent
     {
         Math::Vector3f     pos{};
+        Math::Vector3f     forward{ 0.0f, 0.0f, 1.0f };
+        Math::Vector3f     lastSeen{};
+        Math::Vector3f     wanderDest{};
+        AI::HunterBrain    brain;
         AI::PathResult     path;
         int                waypoint = 0;
-        float          repathAt = 0.0f;
-        bool           givenUp  = false;
+        float              repathAt = 0.0f;
+        bool               givenUp  = false;
+        bool               hasLastSeen = false;
     };
 
     bool bake(Terrain::TerrainWorld& terrain, Water::WaterWorld& water);
     bool spawnWalker(World& world, Terrain::TerrainWorld& terrain);
     bool spawnAgents(Terrain::TerrainWorld& terrain);
     void follow(Agent& a, float dt, Terrain::TerrainWorld& terrain);
-    void repath(Agent& a, int self, float now);
+    void repath(Agent& a, int self, float now, float destX, float destZ);
+    bool pickWanderDest(Agent& a);
     bool createLineBuffers(Renderer& renderer);
 
     AI::Walkability m_walk;
@@ -76,7 +83,7 @@ private:
     AssetRef<Material> m_treeMat;
     AssetRef<Material> m_aiMat;
 
-    static constexpr uint32_t kMaxLineVerts = 512;
+    static constexpr uint32_t kMaxLineVerts = 2048;
     Microsoft::WRL::ComPtr<ID3D12Resource> m_lineVb[2];
     Microsoft::WRL::ComPtr<ID3D12Resource> m_lineIb[2];
     D3D12_VERTEX_BUFFER_VIEW m_lineVbv[2]{};
