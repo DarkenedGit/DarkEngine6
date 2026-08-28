@@ -35,6 +35,9 @@ private:
     void applyNetRole();
     void updateFlyCamera(float dt);
     void updatePawnMotion(float dt);
+    void updatePossessed(float dt);
+    void updateShoulderCamera();
+    Dark::Entity possessedBody();
     void spawnOwnedPawn(Dark::ClientId owner, float offsetX);
     Dark::Entity findPawn(Dark::ClientId owner);
     void ensureLocalCube();
@@ -80,4 +83,11 @@ private:
     float         m_spinSpeed      = 0.8f;
     bool          m_showShadowMaps = false;
     bool          m_showDepth      = false;
+    float         m_lookYaw        = 0.0f;
+    float         m_lookPitch      = 0.18f;
+    bool          m_playerWet      = false;
+    float         m_footstepAcc    = 0.0f;
+    uint32_t      m_waterVoice     = 0;
+    std::shared_ptr<Dark::SoundClip> m_sfxStep;
+    std::shared_ptr<Dark::SoundClip> m_sfxWater;
 };

@@ -393,6 +393,37 @@ void Window::pollEvents()
     }
 }
 
+void Window::setCursorCaptured(bool capture)
+{
+    if (m_cursorCaptured == capture)
+        return;
+    m_cursorCaptured = capture;
+    HWND hwnd = reinterpret_cast<HWND>(m_hwnd);
+    if (!hwnd)
+        return;
+    if (capture)
+    {
+        RECT client{};
+        GetClientRect(hwnd, &client);
+        POINT tl{ client.left, client.top };
+        POINT br{ client.right, client.bottom };
+        ClientToScreen(hwnd, &tl);
+        ClientToScreen(hwnd, &br);
+        RECT clip{ tl.x, tl.y, br.x, br.y };
+        ClipCursor(&clip);
+        while (ShowCursor(FALSE) >= 0)
+        {
+        }
+    }
+    else
+    {
+        ClipCursor(nullptr);
+        while (ShowCursor(TRUE) < 0)
+        {
+        }
+    }
+}
+
 float Window::getTime() const
 {
     using namespace std::chrono;

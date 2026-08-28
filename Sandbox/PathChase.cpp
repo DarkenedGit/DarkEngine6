@@ -273,7 +273,7 @@ void PathChase::follow(Agent& a, float dt, Terrain::TerrainWorld& terrain)
     a.pos.y = terrain.heightAtWorld(a.pos.x, a.pos.z) + 1.0f;
 }
 
-void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld& terrain, Entity hostPawn)
+void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld& terrain, Entity hostPawn, bool playerInWater)
 {
     m_time += dt;
     if (hostPawn.valid())
@@ -302,7 +302,7 @@ void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld
         }
     }
 
-    const bool playerWet = m_walk.destWet(m_walkerPos.x, m_walkerPos.z);
+    const bool playerWet = playerInWater;
     constexpr float kStandoff = 2.25f;
     for (int i = 0; i < 3; ++i)
     {
@@ -399,23 +399,50 @@ void PathChase::drawPaths(ID3D12GraphicsCommandList* cmd, Renderer& renderer, co
     const uint32_t fi = renderer.frameIndex() % 2;
     std::vector<Vector3f> verts;
     std::vector<uint32_t> idx;
-    verts.reserve(256);
-    idx.reserve(256);
+    verts.reserve(512);
+    idx.reserve(512);
+    auto addSeg = [&](const Vector3f& a, const Vector3f& b) {
+        const uint32_t i0 = static_cast<uint32_t>(verts.size());
+        verts.push_back(a);
+        verts.push_back(b);
+        idx.push_back(i0);
+        idx.push_back(i0 + 1);
+    };
     for (const Agent& a : m_agents)
     {
-        if (a.givenUp || a.path.points.size() < 2)
-            continue;
-        const uint32_t base = static_cast<uint32_t>(verts.size());
-        for (const Vector3f& p : a.path.points)
+        if (a.path.points.size() >= 2 && a.brain.leaf() != AI::HunterLeaf::Wander)
         {
-            Vector3f q = p;
-            q.y += 0.4f;
-            verts.push_back(q);
+            for (size_t i = 0; i + 1 < a.path.points.size(); ++i)
+            {
+                Vector3f p0 = a.path.points[i];
+                Vector3f p1 = a.path.points[i + 1];
+                p0.y += 0.4f;
+                p1.y += 0.4f;
+                addSeg(p0, p1);
+            }
         }
-        for (uint32_t i = 0; i + 1 < static_cast<uint32_t>(a.path.points.size()); ++i)
+        Vector3f eye{ a.pos.x, a.pos.y + 0.5f, a.pos.z };
+        Vector3f fwd = a.forward;
+        fwd.y = 0.0f;
+        if (fwd.MagnitudeSqrd() < 1.0e-6f)
+            fwd = Vector3f{ 0.0f, 0.0f, 1.0f };
+        fwd.Normalize();
+        Vector3f right{ -fwd.z, 0.0f, fwd.x };
+        const float half = 35.0f * 3.14159265f / 180.0f;
+        const float range = 12.0f;
+        Vector3f leftRay  = fwd * std::cos(half) + right * std::sin(half);
+        Vector3f rightRay = fwd * std::cos(half) - right * std::sin(half);
+        leftRay.Normalize();
+        rightRay.Normalize();
+        addSeg(eye, eye + leftRay * range);
+        addSeg(eye, eye + rightRay * range);
+        addSeg(eye + leftRay * range, eye + rightRay * range);
+        if (a.hasLastSeen && a.brain.leaf() == AI::HunterLeaf::Memory)
         {
-            idx.push_back(base + i);
-            idx.push_back(base + i + 1);
+            Vector3f p = a.lastSeen;
+            p.y += 1.2f;
+            addSeg(Vector3f{ p.x - 0.6f, p.y, p.z }, Vector3f{ p.x + 0.6f, p.y, p.z });
+            addSeg(Vector3f{ p.x, p.y, p.z - 0.6f }, Vector3f{ p.x, p.y, p.z + 0.6f });
         }
     }
     if (verts.empty() || idx.empty() || verts.size() > kMaxLineVerts)

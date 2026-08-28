@@ -35,6 +35,9 @@ public:
     void setInput(Input* input) { m_input = input; }
     Input* input() const { return m_input; }
 
+    void setCursorCaptured(bool capture);
+    bool cursorCaptured() const { return m_cursorCaptured; }
+
     void setMessageHook(WindowMessageHook hook, void* user = nullptr)
     {
         m_msgHook = hook;
@@ -53,6 +56,7 @@ private:
     bool     m_sizeChanged = false;
     bool     m_minimized = false;
     bool     m_focused = true;
+    bool     m_cursorCaptured = false;
     Input*   m_input  = nullptr;
 
     WindowMessageHook m_msgHook     = nullptr;

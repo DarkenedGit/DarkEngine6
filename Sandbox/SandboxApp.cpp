@@ -5,9 +5,12 @@
 #include "Core/Log.h"
 #include "Geometry/MeshGen.h"
 #include "Input/InputCodes.h"
+#include "Collision/Collision.h"
 #include "Math/MathHelper.h"
 #include "Math/Matrix4f.h"
 #include "Math/Quaternion.h"
+#include "Math/Ray3f.h"
+#include "Math/Sphere3f.h"
 #include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
 #include "Network/NetTypes.h"
@@ -16,6 +19,7 @@
 #include "Terrain/SplatMap.h"
 #include "Water/WaterWaves.h"
 
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <memory>
@@ -138,13 +142,13 @@ void SandboxApp::registerDefaultActions()
     a.bindButtonAsAxis("pawn_z", GamepadButton::DPadUp, 1.0f);
     a.bindButtonAsAxis("pawn_z", GamepadButton::DPadDown, -1.0f);
 
-    a.bindKeyAsAxis("fly_forward", Key::W, 1.0f);
-    a.bindKeyAsAxis("fly_forward", Key::S, -1.0f);
-    a.bindAxis("fly_forward", GamepadAxis::LeftY, 1.0f);
-
-    a.bindKeyAsAxis("fly_strafe", Key::A, -1.0f);
-    a.bindKeyAsAxis("fly_strafe", Key::D, 1.0f);
-    a.bindAxis("fly_strafe", GamepadAxis::LeftX, 1.0f);
+    a.bindKeyAsAxis("move_x", Key::A, -1.0f);
+    a.bindKeyAsAxis("move_x", Key::D, 1.0f);
+    a.bindAxis("move_x", GamepadAxis::LeftX, 1.0f);
+    a.bindKeyAsAxis("move_z", Key::W, 1.0f);
+    a.bindKeyAsAxis("move_z", Key::S, -1.0f);
+    a.bindAxis("move_z", GamepadAxis::LeftY, 1.0f);
+    a.bindKey("sprint", Key::LeftShift);
 
     a.bindKeyAsAxis("fly_climb", Key::Q, 1.0f);
     a.bindKeyAsAxis("fly_climb", Key::Z, -1.0f);
@@ -177,8 +181,8 @@ void SandboxApp::registerDefaultActions()
 
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(Space/A) reset(R/Y) speed(+/- / RB) "
-        "cube yaw/pitch(WASD host) pawn XZ(arrows/D-pad) fly(IJKL U/O, LS move, RS look, triggers climb, "
-        "LB/L3 sprint, RMB look) time([/]) weather(1-4) "
+        "possessed WASD/LS move, mouse+RS look, Shift/LB sprint, swim in water, "
+        "time([/]) weather(1-4) "
         "F3 browse LAN F4 disconnect F5 host F6 join  F1 fill F2 lighting F7 shadows F8 shadow maps F9 depth F10 visual debugger");
 }
 
@@ -306,8 +310,12 @@ void SandboxApp::handleRuntimeCommands(float dt)
         DE_LOG_INFO("Command: spin speed = {:.2f}", m_spinSpeed);
     }
 
-    updateFlyCamera(dt);
-    updatePawnMotion(dt);
+    if (window().isFocused())
+        window().setCursorCaptured(true);
+    else
+        window().setCursorCaptured(false);
+    updatePossessed(dt);
+    updateShoulderCamera();
 
     if (auto* xf = m_cube.valid() ? world().get<TransformComponent>(m_cube) : nullptr)
     {
@@ -508,6 +516,145 @@ void SandboxApp::updatePawnMotion(float dt)
     xf->position.y = m_terrain.heightAtWorld(xf->position.x, xf->position.z) + 0.5f;
 }
 
+Entity SandboxApp::possessedBody()
+{
+    const Entity pawn = network().localPawn();
+    if (pawn.valid())
+        return pawn;
+    return m_chase.walker();
+}
+
+void SandboxApp::updatePossessed(float dt)
+{
+    const Entity body = possessedBody();
+    TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    if (!xf)
+        return;
+
+    constexpr float kMouseSens = 0.0045f;
+    constexpr float kPadLook   = 2.1f;
+    constexpr float kWalk      = 8.0f;
+    constexpr float kSprint    = 16.0f;
+    constexpr float kRadius    = 0.45f;
+
+    m_lookYaw += static_cast<float>(input().mouseDeltaX()) * kMouseSens;
+    m_lookPitch += static_cast<float>(input().mouseDeltaY()) * -kMouseSens;
+    m_lookYaw += input().actionAxis("look_yaw") * kPadLook * dt;
+    m_lookPitch += input().actionAxis("look_pitch") * kPadLook * dt;
+    m_lookPitch = Math::Clamp(m_lookPitch, -0.96f, 0.96f);
+
+    Vector3f look{ std::sinf(m_lookYaw) * std::cosf(m_lookPitch), std::sinf(m_lookPitch), std::cosf(m_lookYaw) * std::cosf(m_lookPitch) };
+    Vector3f flat = look;
+    flat.y = 0.0f;
+    if (flat.MagnitudeSqrd() > 1.0e-6f)
+        flat.Normalize();
+    Vector3f right = Vector3f{ 0.0f, 1.0f, 0.0f }.Cross(flat);
+    if (right.MagnitudeSqrd() > 1.0e-6f)
+        right.Normalize();
+
+    const float mx = input().actionAxis("move_x");
+    const float mz = input().actionAxis("move_z");
+    Vector3f wish = right * mx + flat * mz;
+    const float mag = wish.Magnitude();
+    if (mag > 1.0f)
+        wish *= (1.0f / mag);
+
+    const float landY = m_terrain.heightAtWorld(xf->position.x, xf->position.z);
+    const float waterY = m_water.params().waterLevel;
+    if (!m_playerWet && landY < waterY - 0.25f)
+        m_playerWet = true;
+    if (m_playerWet && landY > waterY + 0.35f)
+        m_playerWet = false;
+
+    const bool sprint = !m_playerWet && input().actionDown("sprint");
+    const float speed = m_playerWet ? 5.0f : (sprint ? kSprint : kWalk);
+    Vector3f delta = wish * (speed * dt);
+
+    if (delta.MagnitudeSqrd() > 1.0e-10f)
+    {
+        Sphere3f ball{ Vector3f{ xf->position.x, xf->position.y, xf->position.z }, kRadius };
+        for (const Aabb3f& cube : m_chase.cubes())
+        {
+            const Dark::Collision::SweptHit3D hit = Dark::Collision::SweptIntersects(ball, delta, cube);
+            if (hit.hit && hit.t < 1.0f)
+            {
+                delta *= Math::Max(0.0f, hit.t - 0.02f);
+                break;
+            }
+        }
+        xf->position.x += delta.x;
+        xf->position.z += delta.z;
+    }
+
+    if (m_playerWet)
+        xf->position.y = waterY + 0.35f;
+    else
+        xf->position.y = m_terrain.heightAtWorld(xf->position.x, xf->position.z) + 0.5f;
+
+    const float stepSpeed = Vector3f{ delta.x, 0.0f, delta.z }.Magnitude() / Math::Max(dt, 1.0e-4f);
+    if (!m_playerWet && stepSpeed > 2.0f)
+    {
+        m_footstepAcc += dt * (stepSpeed * 0.35f);
+        if (m_footstepAcc >= 1.0f)
+        {
+            m_footstepAcc = 0.0f;
+            audio().play2D(m_sfxStep, 0.35f);
+        }
+    }
+    else
+        m_footstepAcc = 0.0f;
+
+    if (m_playerWet)
+    {
+        if (m_waterVoice == 0 || !audio().isPlaying(m_waterVoice))
+            m_waterVoice = audio().play2D(m_sfxWater, 0.28f, true);
+    }
+    else if (m_waterVoice != 0)
+    {
+        audio().stop(m_waterVoice);
+        m_waterVoice = 0;
+    }
+}
+
+void SandboxApp::updateShoulderCamera()
+{
+    const Entity body = possessedBody();
+    const TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    if (!xf)
+        return;
+
+    const Vector3f target{ xf->position.x, xf->position.y + 1.15f, xf->position.z };
+    Vector3f look{ std::sinf(m_lookYaw) * std::cosf(m_lookPitch), std::sinf(m_lookPitch), std::cosf(m_lookYaw) * std::cosf(m_lookPitch) };
+    look.Normalize();
+    Vector3f right = look.Cross(Vector3f{ 0.0f, 1.0f, 0.0f });
+    if (right.MagnitudeSqrd() < 1.0e-6f)
+        right = Vector3f::X_AXIS;
+    right.Normalize();
+
+    constexpr float kBoom = 2.4f;
+    constexpr float kMinBoom = 0.28f;
+    Vector3f boom = look * -kBoom + right * 0.42f + Vector3f{ 0.0f, 0.28f, 0.0f };
+    float boomLen = boom.Magnitude();
+    if (boomLen < 1.0e-3f)
+        boomLen = kBoom;
+    Vector3f boomDir = boom * (1.0f / boomLen);
+
+    Ray3f ray{ target, boomDir };
+    const Dark::Collision::RayHit3D hit = m_terrain.raycast(ray, boomLen);
+    if (hit.hit && hit.t < boomLen)
+        boomLen = Math::Max(kMinBoom, hit.t - 0.12f);
+    boomLen = Math::Max(kMinBoom, boomLen);
+
+    Vector3f cam = target + boomDir * boomLen;
+    if (m_playerWet)
+        cam.y = Math::Max(cam.y, m_water.params().waterLevel + 0.45f);
+
+    m_viewCamera.SetLens(1.04719755f, m_viewCamera.GetAspect(), 0.18f, 2000.0f);
+    m_viewCamera.LookAt(cam, target, Vector3f{ 0.0f, 1.0f, 0.0f });
+    if (auto* cxf = world().get<TransformComponent>(m_camera))
+        cxf->position = m_viewCamera.GetPosition();
+}
+
 Entity SandboxApp::findPawn(ClientId owner)
 {
     Entity found{};
@@ -620,6 +767,8 @@ void SandboxApp::onInit()
 
     m_sfxReset = audio().loadOrBlip(assets(), "audio/whoosh.wav", 180.0f, 0.22f, 0.35f);
     m_sfxClick = audio().loadOrBlip(assets(), "audio/ui_click.wav", 1400.0f, 0.06f, 0.35f);
+    m_sfxStep  = audio().loadOrBlip(assets(), "audio/place.wav", 90.0f, 0.05f, 0.4f);
+    m_sfxWater = audio().loadOrBlip(assets(), "audio/whoosh.wav", 70.0f, 0.8f, 0.25f);
     m_music    = audio().loadWav(assets(), "audio/ambient_loop.wav");
     if (!m_music)
         m_music = audio().createTone(110.0f, 2.0f, 0.12f);
@@ -813,7 +962,7 @@ void SandboxApp::onInit()
     m_aiMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
 
     const float aspect = (renderer().height() > 0) ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height()) : 1.0f;
-    m_viewCamera.SetLens(/*fovY*/ 1.04719755f /*60deg*/, aspect, 0.5f, 2000.0f);
+    m_viewCamera.SetLens(/*fovY*/ 1.04719755f /*60deg*/, aspect, 0.18f, 2000.0f);
     m_viewCamera.LookAt(Vector3f(0.0f, 48.0f, -86.0f), Vector3f(0.0f, 8.0f, 0.0f), Vector3f(0.0f, 1.0f, 0.0f));
 
     m_camera = world().createEntity();
@@ -870,7 +1019,7 @@ void SandboxApp::onUpdate(float dt)
     m_water.updateLod(m_viewCamera.GetPosition());
     syncTerrainLod();
     if (m_chaseOk)
-        m_chase.tick(dt, world(), input(), m_terrain, network().localPawn());
+        m_chase.tick(dt, world(), input(), m_terrain, possessedBody(), m_playerWet);
 
     AudioListener lis{};
     lis.position = m_viewCamera.GetPosition();
