@@ -29,7 +29,7 @@ namespace Dark
 
         SpritePipeline() = default;
 
-        bool create(ID3D12Device* device);
+        bool create(ID3D12Device* device, bool enableDepth = true);
 
         void bind(ID3D12GraphicsCommandList* cmd) const;
         void setConstants(ID3D12GraphicsCommandList* cmd, const SpriteConstants& constants) const;

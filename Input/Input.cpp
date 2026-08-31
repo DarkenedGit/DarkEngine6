@@ -179,6 +179,13 @@ namespace Dark
         m_mousePosValid = true;
     }
 
+    void Input::warpMouse(int x, int y)
+    {
+        m_mouseX        = x;
+        m_mouseY        = y;
+        m_mousePosValid = true;
+    }
+
     void Input::onMouseButton(MouseButton button, bool down)
     {
         const int i = static_cast<int>(button);

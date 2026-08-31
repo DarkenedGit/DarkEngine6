@@ -66,6 +66,17 @@ namespace Dark
 			return fabsf(a - b) <= epsilon;
 		}
 
+		// Wrap radians into [-Pi, Pi].
+		inline float WrapPi(float a)
+		{
+			a = fmodf(a, TwoPi);
+			if (a > Pi)
+				a -= TwoPi;
+			else if (a < -Pi)
+				a += TwoPi;
+			return a;
+		}
+
 		// Returns the polar angle of the point (x,y) in [0, 2*PI).
 		float AngleFromXY(float x, float y);
 

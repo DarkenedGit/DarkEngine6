@@ -19,7 +19,7 @@ namespace Dark
 
     } // namespace
 
-    bool SpritePipeline::create(ID3D12Device* device)
+    bool SpritePipeline::create(ID3D12Device* device, bool enableDepth)
     {
         m_rootSignature.Reset();
         m_pso.Reset();
@@ -111,8 +111,8 @@ namespace Dark
         pso.RasterizerState.CullMode        = D3D12_CULL_MODE_NONE;
         pso.RasterizerState.DepthClipEnable = TRUE;
 
-        pso.DepthStencilState.DepthEnable    = TRUE;
-        pso.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+        pso.DepthStencilState.DepthEnable    = enableDepth ? TRUE : FALSE;
+        pso.DepthStencilState.DepthWriteMask = enableDepth ? D3D12_DEPTH_WRITE_MASK_ALL : D3D12_DEPTH_WRITE_MASK_ZERO;
         pso.DepthStencilState.DepthFunc      = D3D12_COMPARISON_FUNC_LESS;
         pso.DepthStencilState.StencilEnable  = FALSE;
 

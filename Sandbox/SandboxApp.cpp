@@ -116,8 +116,13 @@ void SandboxApp::registerDefaultActions()
     a.bindKey("quit", Key::Escape);
     a.bindButton("quit", GamepadButton::Back);
 
-    a.bindKey("pause", Key::Space);
-    a.bindButton("pause", GamepadButton::A);
+    a.bindKey("pause", Key::P);
+    a.bindButton("pause", GamepadButton::Start);
+
+    a.bindKey("jump", Key::Space);
+    a.bindButton("jump", GamepadButton::A);
+    a.bindKey("attack", Key::F);
+    a.bindButton("attack", GamepadButton::B);
 
     a.bindKey("reset", Key::R);
     a.bindButton("reset", GamepadButton::Y);
@@ -180,8 +185,8 @@ void SandboxApp::registerDefaultActions()
     a.bindKey("debug_listen", Key::F10);
 
     DE_LOG_INFO(
-        "Input: quit(Esc/Back) pause(Space/A) reset(R/Y) speed(+/- / RB) "
-        "possessed WASD/LS move, mouse+RS look, Shift/LB sprint, swim in water, "
+        "Input: quit(Esc/Back) pause(P/Start) reset(R/Y) speed(+/- / RB) "
+        "possessed WASD/LS move, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, Shift/LB sprint, swim in water, "
         "time([/]) weather(1-4) "
         "F3 browse LAN F4 disconnect F5 host F6 join  F1 fill F2 lighting F7 shadows F8 shadow maps F9 depth F10 visual debugger");
 }
@@ -533,14 +538,14 @@ void SandboxApp::updatePossessed(float dt)
 
     constexpr float kMouseSens = 0.0045f;
     constexpr float kPadLook   = 2.1f;
-    constexpr float kWalk      = 8.0f;
-    constexpr float kSprint    = 16.0f;
     constexpr float kRadius    = 0.45f;
 
     m_lookYaw += static_cast<float>(input().mouseDeltaX()) * kMouseSens;
-    m_lookPitch += static_cast<float>(input().mouseDeltaY()) * -kMouseSens;
+    // mouseDeltaY is already up-positive; add it so mouse-up looks up.
+    m_lookPitch += static_cast<float>(input().mouseDeltaY()) * kMouseSens;
     m_lookYaw += input().actionAxis("look_yaw") * kPadLook * dt;
     m_lookPitch += input().actionAxis("look_pitch") * kPadLook * dt;
+    m_lookYaw   = Math::WrapPi(m_lookYaw);
     m_lookPitch = Math::Clamp(m_lookPitch, -0.96f, 0.96f);
 
     Vector3f look{ std::sinf(m_lookYaw) * std::cosf(m_lookPitch), std::sinf(m_lookPitch), std::cosf(m_lookYaw) * std::cosf(m_lookPitch) };
@@ -559,20 +564,36 @@ void SandboxApp::updatePossessed(float dt)
     if (mag > 1.0f)
         wish *= (1.0f / mag);
 
-    const float landY = m_terrain.heightAtWorld(xf->position.x, xf->position.z);
-    const float waterY = m_water.params().waterLevel;
-    if (!m_playerWet && landY < waterY - 0.25f)
-        m_playerWet = true;
-    if (m_playerWet && landY > waterY + 0.35f)
-        m_playerWet = false;
+    if (!m_havePlayerSpawn)
+    {
+        m_playerSpawn     = xf->position;
+        m_havePlayerSpawn = true;
+    }
 
-    const bool sprint = !m_playerWet && input().actionDown("sprint");
-    const float speed = m_playerWet ? 5.0f : (sprint ? kSprint : kWalk);
-    Vector3f delta = wish * (speed * dt);
+    PlayerMotorInput motorIn{};
+    motorIn.wish        = m_playerHealth.alive() ? wish : Vector3f{ 0.0f, 0.0f, 0.0f };
+    motorIn.sprint      = m_playerHealth.alive() && input().actionDown("sprint");
+    motorIn.jumpPressed = m_playerHealth.alive() && input().actionPressed("jump");
 
+    struct HeightCtx
+    {
+        Terrain::TerrainWorld* terrain;
+    };
+    HeightCtx ctx{ &m_terrain };
+    PlayerGroundQuery ground{};
+    ground.user = &ctx;
+    ground.waterY = m_water.params().waterLevel;
+    ground.heightAt = [](void* user, float x, float z) -> float {
+        return static_cast<HeightCtx*>(user)->terrain->heightAtWorld(x, z);
+    };
+
+    const Vector3f before = xf->position;
+    const PlayerMotorResult motorOut = m_motor.tick(xf->position, motorIn, dt, ground);
+
+    Vector3f delta{ xf->position.x - before.x, 0.0f, xf->position.z - before.z };
     if (delta.MagnitudeSqrd() > 1.0e-10f)
     {
-        Sphere3f ball{ Vector3f{ xf->position.x, xf->position.y, xf->position.z }, kRadius };
+        Sphere3f ball{ Vector3f{ before.x, xf->position.y, before.z }, kRadius };
         for (const Aabb3f& cube : m_chase.cubes())
         {
             const Dark::Collision::SweptHit3D hit = Dark::Collision::SweptIntersects(ball, delta, cube);
@@ -582,23 +603,36 @@ void SandboxApp::updatePossessed(float dt)
                 break;
             }
         }
-        xf->position.x += delta.x;
-        xf->position.z += delta.z;
+        xf->position.x = before.x + delta.x;
+        xf->position.z = before.z + delta.z;
+        if (dt > 1.0e-4f)
+            m_motor.setHorizontalVelocity(delta.x / dt, delta.z / dt);
     }
 
-    if (m_playerWet)
-        xf->position.y = waterY + 0.35f;
-    else
-        xf->position.y = m_terrain.heightAtWorld(xf->position.x, xf->position.z) + 0.5f;
+    m_playerWet = m_motor.state() == PlayerMoveState::Swimming;
+
+    if (motorOut.jumped)
+        audio().play2D(m_sfxGrunt, 0.7f);
+    if (motorOut.landed)
+        audio().play2D(m_sfxLand, 0.75f);
+    if (motorOut.splashed)
+        audio().play2D(m_sfxSplash, 0.8f);
+    if (motorOut.landed || motorOut.splashed)
+        m_footstepAcc = 0.0f;
 
     const float stepSpeed = Vector3f{ delta.x, 0.0f, delta.z }.Magnitude() / Math::Max(dt, 1.0e-4f);
-    if (!m_playerWet && stepSpeed > 2.0f)
+    const bool  stepping  = (m_motor.state() == PlayerMoveState::Grounded || m_motor.state() == PlayerMoveState::Swimming) && stepSpeed > 2.0f;
+    if (stepping)
     {
-        m_footstepAcc += dt * (stepSpeed * 0.35f);
+        const float cadence = m_motor.state() == PlayerMoveState::Swimming ? 0.55f : 0.35f;
+        m_footstepAcc += dt * (stepSpeed * cadence);
         if (m_footstepAcc >= 1.0f)
         {
             m_footstepAcc = 0.0f;
-            audio().play2D(m_sfxStep, 0.35f);
+            if (m_motor.state() == PlayerMoveState::Swimming)
+                audio().play2D(m_sfxSplash, 0.42f);
+            else
+                audio().play2D(m_sfxStep, 0.35f);
         }
     }
     else
@@ -613,6 +647,101 @@ void SandboxApp::updatePossessed(float dt)
     {
         audio().stop(m_waterVoice);
         m_waterVoice = 0;
+    }
+}
+
+void SandboxApp::respawnPlayer()
+{
+    const Entity body = possessedBody();
+    if (TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr)
+        xf->position = m_playerSpawn;
+    m_motor.reset();
+    m_playerHealth.revive();
+    m_playerWet        = false;
+    m_playerDeadTimer  = 0.0f;
+    m_attackCooldown   = 0.0f;
+    m_hurtSoundTimer   = 0.0f;
+    DE_LOG_INFO("Player: respawned");
+}
+
+void SandboxApp::updateCombat(float dt)
+{
+    if (m_hurtSoundTimer > 0.0f)
+        m_hurtSoundTimer -= dt;
+    if (m_attackCooldown > 0.0f)
+        m_attackCooldown -= dt;
+
+    m_playerHealth.tick(dt);
+
+    if (!m_playerHealth.alive())
+    {
+        m_playerDeadTimer += dt;
+        if (m_playerDeadTimer >= 2.5f)
+            respawnPlayer();
+        return;
+    }
+
+    if (!m_chaseOk)
+        return;
+
+    constexpr float kStandoff = 2.25f;
+    constexpr float kContactDps = 12.0f;
+    const Entity body = possessedBody();
+    const TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    if (!xf)
+        return;
+
+    const float before = m_playerHealth.hp();
+    for (int i = 0; i < m_chase.hunterCount(); ++i)
+    {
+        if (!m_chase.hunterAlive(i))
+            continue;
+        const Vector3f& hp = m_chase.hunterPos(i);
+        const float dx = hp.x - xf->position.x;
+        const float dz = hp.z - xf->position.z;
+        if (dx * dx + dz * dz > kStandoff * kStandoff)
+            continue;
+        if (m_playerHealth.applyDamage(kContactDps * dt) )
+        {
+            DE_LOG_INFO("Player: down");
+            audio().play2D(m_sfxReset, 0.55f);
+        }
+    }
+    if (m_playerHealth.hp() < before && m_hurtSoundTimer <= 0.0f)
+    {
+        audio().play2D(m_sfxGrunt, 0.45f);
+        m_hurtSoundTimer = 0.55f;
+    }
+
+    const bool attack = input().actionPressed("attack") || input().mousePressed(MouseButton::Left);
+    if (!m_playerHealth.alive() || !attack || m_attackCooldown > 0.0f)
+        return;
+
+    m_attackCooldown = 0.45f;
+    audio().play2D(m_sfxClick, 0.4f);
+
+    Vector3f look{ std::sinf(m_lookYaw), 0.0f, std::cosf(m_lookYaw) };
+    if (look.MagnitudeSqrd() > 1.0e-6f)
+        look.Normalize();
+    else
+        look = Vector3f{ 0.0f, 0.0f, 1.0f };
+
+    constexpr float kMeleeRange = 2.7f;
+    constexpr float kMeleeDot   = 0.25f;
+    constexpr float kMeleeDmg   = 16.0f;
+    for (int i = 0; i < m_chase.hunterCount(); ++i)
+    {
+        if (!m_chase.hunterAlive(i))
+            continue;
+        Vector3f to = m_chase.hunterPos(i) - xf->position;
+        to.y        = 0.0f;
+        const float dist = to.Magnitude();
+        if (dist > kMeleeRange || dist < 1.0e-4f)
+            continue;
+        to *= (1.0f / dist);
+        if (look.Dot(to) < kMeleeDot)
+            continue;
+        m_chase.applyHunterDamage(i, kMeleeDmg);
     }
 }
 
@@ -768,7 +897,10 @@ void SandboxApp::onInit()
     m_sfxReset = audio().loadOrBlip(assets(), "audio/whoosh.wav", 180.0f, 0.22f, 0.35f);
     m_sfxClick = audio().loadOrBlip(assets(), "audio/ui_click.wav", 1400.0f, 0.06f, 0.35f);
     m_sfxStep  = audio().loadOrBlip(assets(), "audio/place.wav", 90.0f, 0.05f, 0.4f);
-    m_sfxWater = audio().loadOrBlip(assets(), "audio/whoosh.wav", 70.0f, 0.8f, 0.25f);
+    m_sfxWater  = audio().loadOrBlip(assets(), "audio/whoosh.wav", 70.0f, 0.8f, 0.25f);
+    m_sfxGrunt  = audio().loadOrBlip(assets(), "audio/grunt.wav", 140.0f, 0.18f, 0.5f);
+    m_sfxLand   = audio().loadOrBlip(assets(), "audio/land.wav", 70.0f, 0.12f, 0.55f);
+    m_sfxSplash = audio().loadOrBlip(assets(), "audio/splash.wav", 220.0f, 0.22f, 0.45f);
     m_music    = audio().loadWav(assets(), "audio/ambient_loop.wav");
     if (!m_music)
         m_music = audio().createTone(110.0f, 2.0f, 0.12f);
@@ -780,6 +912,8 @@ void SandboxApp::onInit()
         requestQuit();
         return;
     }
+    if (!m_healthHud.create(renderer()))
+        DE_LOG_ERROR("SandboxApp: health HUD failed");
     if (!pumpBootFrame())
         return;
     if (!m_terrainPipeline.create(renderer().device()))
@@ -932,10 +1066,17 @@ void SandboxApp::onInit()
     if (!pumpBootFrame())
         return;
 
+    m_treeTrunkMaterial = std::make_shared<Material>();
+    if (!m_treeTrunkMaterial->createSolid(renderer(), assets(), 118, 78, 38, 255))
+    {
+        DE_LOG_FATAL("SandboxApp: tree trunk material failed");
+        requestQuit();
+        return;
+    }
     m_treeMaterial = std::make_shared<Material>();
     if (!m_treeMaterial->createSolid(renderer(), assets(), 46, 140, 62, 255))
     {
-        DE_LOG_FATAL("SandboxApp: tree material failed");
+        DE_LOG_FATAL("SandboxApp: tree canopy material failed");
         requestQuit();
         return;
     }
@@ -958,6 +1099,7 @@ void SandboxApp::onInit()
 
     m_terrainMaterial.setShadowSrv(renderer().device(), m_shadows.srvCpu());
     m_cubeMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
+    m_treeTrunkMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
     m_treeMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
     m_aiMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
 
@@ -1000,9 +1142,15 @@ void SandboxApp::onInit()
     DE_LOG_INFO(LogCategory::Networking, "Sandbox net: Sandbox.exe -host   and   Sandbox.exe -join 127.0.0.1");
     DE_LOG_INFO(LogCategory::Networking, "Sandbox net: F5 host :26160  F6 join 127.0.0.1:26160  F4 disconnect  F3 browse :26161");
 
-    m_chaseOk = m_chase.init(renderer(), m_terrain, m_water, world(), m_cubeMesh, m_treeMaterial, m_aiMaterial);
+    m_chaseOk = m_chase.init(renderer(), m_terrain, m_water, world(), m_cubeMesh, m_treeTrunkMaterial, m_treeMaterial, m_aiMaterial);
     if (!m_chaseOk)
         DE_LOG_ERROR(LogCategory::AI, "SandboxApp: path chase init failed");
+
+    HealthSettings playerHp;
+    playerHp.maxHp       = 100.0f;
+    playerHp.regenPerSec = 10.0f;
+    playerHp.regenDelay  = 3.5f;
+    m_playerHealth       = Health{ playerHp };
 }
 
 void SandboxApp::onSplashFinished()
@@ -1020,6 +1168,7 @@ void SandboxApp::onUpdate(float dt)
     syncTerrainLod();
     if (m_chaseOk)
         m_chase.tick(dt, world(), input(), m_terrain, possessedBody(), m_playerWet);
+    updateCombat(dt);
 
     AudioListener lis{};
     lis.position = m_viewCamera.GetPosition();
@@ -1143,6 +1292,8 @@ void SandboxApp::onRender()
     if (m_chaseOk)
         m_chase.drawPaths(cmd, renderer(), viewProj);
 
+    m_healthHud.draw(cmd, renderer().width(), renderer().height(), m_playerHealth.ratio());
+
     renderer().stats().drawCalls = m_terrain.lastDrawCalls() + m_water.lastDrawCalls() + meshDraws + 1;
     renderer().stats().triangles =
         m_terrain.lastTriangles() + m_water.lastTriangles() + meshDraws * (m_cubeMesh.indexCount() / 3);
@@ -1231,6 +1382,11 @@ void SandboxApp::onShutdown()
     audio().stopAll();
     m_sfxReset.reset();
     m_sfxClick.reset();
+    m_sfxStep.reset();
+    m_sfxWater.reset();
+    m_sfxGrunt.reset();
+    m_sfxLand.reset();
+    m_sfxSplash.reset();
     m_music.reset();
     DE_LOG_INFO("SandboxApp: shutdown");
 }

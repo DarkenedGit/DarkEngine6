@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import math
+import random
 import struct
 import wave
 from pathlib import Path
@@ -75,6 +76,68 @@ def mix(*bufs: list[float]) -> list[float]:
     return out
 
 
+def grunt(dur: float = 0.22, amp: float = 0.55) -> list[float]:
+    n = int(SR * dur)
+    out = []
+    rng = random.Random(7)
+    phase1 = 0.0
+    phase2 = 0.0
+    for i in range(n):
+        t = i / SR
+        u = t / dur
+        f1 = 170.0 - 55.0 * u
+        f2 = 290.0 - 80.0 * u
+        phase1 += 2.0 * math.pi * f1 / SR
+        phase2 += 2.0 * math.pi * f2 / SR
+        env = math.exp(-6.5 * u)
+        if u < 0.04:
+            env *= u / 0.04
+        noise = (rng.random() * 2.0 - 1.0) * 0.28
+        s = (math.sin(phase1) * 0.62 + math.sin(phase2) * 0.22 + noise) * amp * env
+        out.append(s)
+    return out
+
+
+def land(dur: float = 0.14, amp: float = 0.62) -> list[float]:
+    n = int(SR * dur)
+    out = []
+    rng = random.Random(3)
+    phase = 0.0
+    for i in range(n):
+        t = i / SR
+        u = t / dur
+        f = 92.0 - 40.0 * u
+        phase += 2.0 * math.pi * f / SR
+        env = math.exp(-14.0 * u)
+        if u < 0.02:
+            env *= u / 0.02
+        noise = (rng.random() * 2.0 - 1.0) * 0.45 * math.exp(-18.0 * u)
+        out.append((math.sin(phase) * 0.7 + noise) * amp * env)
+    return out
+
+
+def splash(dur: float = 0.32, amp: float = 0.58) -> list[float]:
+    n = int(SR * dur)
+    out = []
+    rng = random.Random(11)
+    p1 = 0.0
+    p2 = 0.0
+    for i in range(n):
+        t = i / SR
+        u = t / dur
+        f1 = 240.0 - 90.0 * u
+        f2 = 520.0 - 220.0 * u
+        p1 += 2.0 * math.pi * f1 / SR
+        p2 += 2.0 * math.pi * f2 / SR
+        env = math.exp(-5.5 * u)
+        if u < 0.03:
+            env *= u / 0.03
+        noise = (rng.random() * 2.0 - 1.0) * 0.7 * math.exp(-4.0 * u)
+        s = (math.sin(p1) * 0.22 + math.sin(p2) * 0.12 + noise) * amp * env
+        out.append(s)
+    return out
+
+
 def ambient(dur: float = 2.0, amp: float = 0.12) -> list[float]:
     n = int(SR * dur)
     out = []
@@ -94,6 +157,9 @@ def main() -> None:
     write_mono(ROOT / "place.wav", blip(620.0, 0.09, 0.4))
     write_mono(ROOT / "delete.wav", chirp(480.0, 180.0, 0.12, 0.4))
     write_mono(ROOT / "whoosh.wav", chirp(180.0, 90.0, 0.22, 0.35))
+    write_mono(ROOT / "grunt.wav", grunt())
+    write_mono(ROOT / "land.wav", land())
+    write_mono(ROOT / "splash.wav", splash())
     write_mono(ROOT / "ambient_loop.wav", ambient())
     print(f"wrote wavs to {ROOT}")
 

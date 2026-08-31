@@ -15,6 +15,9 @@
 #include "Terrain/TerrainMaterial.h"
 #include "Water/Water.h"
 #include "Audio/SoundClip.h"
+#include "Character/Health.h"
+#include "Character/PlayerMotor.h"
+#include "Render/HealthHud.h"
 #include "PathChase.h"
 
 class SandboxApp : public Dark::Application
@@ -36,6 +39,8 @@ private:
     void updateFlyCamera(float dt);
     void updatePawnMotion(float dt);
     void updatePossessed(float dt);
+    void updateCombat(float dt);
+    void respawnPlayer();
     void updateShoulderCamera();
     Dark::Entity possessedBody();
     void spawnOwnedPawn(Dark::ClientId owner, float offsetX);
@@ -62,6 +67,7 @@ private:
     Dark::Sky::Environment  m_env;
 
     Dark::AssetRef<Dark::Material> m_cubeMaterial;
+    Dark::AssetRef<Dark::Material> m_treeTrunkMaterial;
     Dark::AssetRef<Dark::Material> m_treeMaterial;
     Dark::AssetRef<Dark::Material> m_aiMaterial;
     Dark::PathChase                m_chase;
@@ -88,6 +94,17 @@ private:
     bool          m_playerWet      = false;
     float         m_footstepAcc    = 0.0f;
     uint32_t      m_waterVoice     = 0;
+    Dark::PlayerMotor                m_motor;
+    Dark::Health                     m_playerHealth;
+    Dark::HealthHud                  m_healthHud;
+    Dark::Math::Vector3f             m_playerSpawn{ 0.0f, 0.5f, 0.0f };
+    bool                             m_havePlayerSpawn = false;
+    float                            m_playerDeadTimer = 0.0f;
+    float                            m_attackCooldown  = 0.0f;
+    float                            m_hurtSoundTimer  = 0.0f;
     std::shared_ptr<Dark::SoundClip> m_sfxStep;
     std::shared_ptr<Dark::SoundClip> m_sfxWater;
+    std::shared_ptr<Dark::SoundClip> m_sfxGrunt;
+    std::shared_ptr<Dark::SoundClip> m_sfxLand;
+    std::shared_ptr<Dark::SoundClip> m_sfxSplash;
 };

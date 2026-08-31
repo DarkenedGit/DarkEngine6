@@ -43,6 +43,8 @@ namespace Dark
         void onMouseMove(int x, int y);
         void onMouseButton(MouseButton button, bool down);
         void onMouseWheel(float delta); // +1 typically per notch up
+        // Set absolute cursor position without adding to this frame's delta (cursor recenter).
+        void warpMouse(int x, int y);
 
         int mouseX() const
         {

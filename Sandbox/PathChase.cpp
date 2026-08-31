@@ -4,12 +4,14 @@
 #include "Core/Log.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
+#include "Geometry/MeshGen.h"
 #include "Input/Input.h"
 #include "Math/Matrix4f.h"
 #include "Network/NetTypes.h"
 #include "Render/Camera3D.h"
 #include "Render/Renderer.h"
 #include "Render/ShadowSystem.h"
+#include "Terrain/HeightMap.h"
 #include "Terrain/Terrain.h"
 #include "Water/Water.h"
 
@@ -24,6 +26,12 @@ namespace Dark
 {
 namespace
 {
+    constexpr float kTreeHeight = 6.0f;
+    constexpr float kTrunkH     = kTreeHeight * (1.0f / 3.0f);
+    constexpr float kCanopyH    = kTreeHeight - kTrunkH;
+    constexpr float kTrunkR     = 0.5f;
+    constexpr float kCanopyR    = 2.0f;
+
     void copyMatrix(float dst[16], const Matrix4f& m)
     {
         std::memcpy(dst, &m, sizeof(float) * 16);
@@ -87,10 +95,11 @@ bool PathChase::bake(Terrain::TerrainWorld& terrain, Water::WaterWorld& water)
     return m_finder.bind(&m_walk);
 }
 
-bool PathChase::init(Renderer& renderer, Terrain::TerrainWorld& terrain, Water::WaterWorld& water, World& world, Geometry::Mesh&, AssetRef<Material> treeMat, AssetRef<Material> aiMat)
+bool PathChase::init(Renderer& renderer, Terrain::TerrainWorld& terrain, Water::WaterWorld& water, World& world, Geometry::Mesh&, AssetRef<Material> trunkMat, AssetRef<Material> canopyMat, AssetRef<Material> aiMat)
 {
-    m_treeMat = treeMat;
-    m_aiMat   = aiMat;
+    m_trunkMat  = trunkMat;
+    m_canopyMat = canopyMat;
+    m_aiMat     = aiMat;
     if (!m_lines.create(renderer.device()))
     {
         DE_LOG_ERROR(LogCategory::AI, "PathChase: LinePipeline create failed");
@@ -102,6 +111,19 @@ bool PathChase::init(Renderer& renderer, Terrain::TerrainWorld& terrain, Water::
         return false;
     }
 
+    MeshData trunkData;
+    MeshData canopyData;
+    if (!CreateCylinder(trunkData, 1.0f, 1.0f, 1.0f, 16, true, true) || !Mesh::tryCreate(renderer, trunkData, m_trunkMesh))
+    {
+        DE_LOG_ERROR(LogCategory::AI, "PathChase: trunk mesh failed");
+        return false;
+    }
+    if (!CreateCone(canopyData, 1.0f, 1.0f, 16, true) || !Mesh::tryCreate(renderer, canopyData, m_canopyMesh))
+    {
+        DE_LOG_ERROR(LogCategory::AI, "PathChase: canopy mesh failed");
+        return false;
+    }
+
     const Vector3f trees[] = {
         { 12.0f, 0, 8.0f },  { -10.0f, 0, 10.0f }, { 14.0f, 0, -6.0f }, { -8.0f, 0, -12.0f }, { 6.0f, 0, 16.0f },
         { -16.0f, 0, 4.0f }, { 18.0f, 0, 2.0f },   { 4.0f, 0, -18.0f }, { -14.0f, 0, -8.0f }, { 10.0f, 0, -14.0f },
@@ -110,13 +132,14 @@ bool PathChase::init(Renderer& renderer, Terrain::TerrainWorld& terrain, Water::
     m_cubes.clear();
     const Vector3f origin = { 0.0f, terrain.heightAtWorld(0.0f, 0.0f) + 0.5f, 0.0f };
     m_cubes.push_back(Aabb3f::FromCenterExtents(origin, Vector3f{ 0.5f, 0.5f, 0.5f }));
-    const Vector3f treeHalf{ 2.0f, 3.0f, 2.0f };
+    const Vector3f trunkHalf{ kTrunkR, kTrunkH * 0.5f, kTrunkR };
     for (const Vector3f& t : trees)
     {
         Vector3f p = t;
-        p.y        = terrain.heightAtWorld(p.x, p.z) + treeHalf.y;
+        p.y        = terrain.heightAtWorld(p.x, p.z);
         m_treePos.push_back(p);
-        m_cubes.push_back(Aabb3f::FromCenterExtents(p, treeHalf));
+        Vector3f trunkCenter{ p.x, p.y + kTrunkH * 0.5f, p.z };
+        m_cubes.push_back(Aabb3f::FromCenterExtents(trunkCenter, trunkHalf));
     }
 
     if (!bake(terrain, water))
@@ -147,7 +170,7 @@ bool PathChase::spawnAgents(Terrain::TerrainWorld& terrain)
     std::uniform_real_distribution<float> uz(-22.0f, 22.0f);
     const Vector3f seeds[3] = { { 16.0f, 0, -10.0f }, { -14.0f, 0, -12.0f }, { 8.0f, 0, 18.0f } };
 
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < kHunterCount; ++i)
     {
         bool ok = false;
         for (int tries = 0; tries < 256; ++tries)
@@ -171,6 +194,12 @@ bool PathChase::spawnAgents(Terrain::TerrainWorld& terrain)
             a.forward  = Vector3f{ 0.0f, 0.0f, 1.0f };
             a.repathAt = static_cast<float>(i) * (0.5f / 3.0f);
             a.givenUp  = false;
+            a.deadFor  = 0.0f;
+            HealthSettings hs;
+            hs.maxHp       = 48.0f;
+            hs.regenPerSec = 5.0f;
+            hs.regenDelay  = 4.0f;
+            a.health       = Health{ hs };
             if (!a.brain.start())
             {
                 DE_LOG_ERROR(LogCategory::AI, "PathChase: hunter brain start failed");
@@ -276,6 +305,7 @@ void PathChase::follow(Agent& a, float dt, Terrain::TerrainWorld& terrain)
 void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld& terrain, Entity hostPawn, bool playerInWater)
 {
     m_time += dt;
+    tickHunterHealth(dt);
     if (hostPawn.valid())
     {
         m_drawWalker = false;
@@ -304,9 +334,15 @@ void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld
 
     const bool playerWet = playerInWater;
     constexpr float kStandoff = 2.25f;
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < kHunterCount; ++i)
     {
         Agent& a = m_agents[static_cast<size_t>(i)];
+        if (!a.health.alive())
+            continue;
+        const float dx = a.pos.x - m_walkerPos.x;
+        const float dz = a.pos.z - m_walkerPos.z;
+        const bool  standoff = (dx * dx + dz * dz) <= kStandoff * kStandoff;
+
         AI::HunterSightQuery q;
         q.eye       = Vector3f{ a.pos.x, a.pos.y + 0.5f, a.pos.z };
         q.forward   = a.forward;
@@ -314,7 +350,7 @@ void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld
         q.coneDeg   = 70.0f;
         q.range     = 25.0f;
         q.heightMap = m_walk.heightMap();
-        const bool sees = !playerWet && q.heightMap && AI::sees(q);
+        const bool sees = !playerWet && (standoff || (q.heightMap && AI::sees(q)));
         if (sees)
         {
             a.lastSeen     = m_walkerPos;
@@ -322,9 +358,16 @@ void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld
         }
         a.brain.tick(dt, sees, playerWet);
 
-        const float dx = a.pos.x - m_walkerPos.x;
-        const float dz = a.pos.z - m_walkerPos.z;
-        const bool  standoff = (dx * dx + dz * dz) <= kStandoff * kStandoff;
+        if (standoff)
+        {
+            Vector3f to{ -dx, 0.0f, -dz };
+            if (to.MagnitudeSqrd() > 1.0e-6f)
+            {
+                to.Normalize();
+                a.forward = to;
+            }
+        }
+
         const AI::HunterLeaf leaf = a.brain.leaf();
         if ((leaf == AI::HunterLeaf::Chase || leaf == AI::HunterLeaf::Memory) && standoff)
             continue;
@@ -368,7 +411,9 @@ void PathChase::drawMeshes(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPip
     MeshFrameConstants cb = baseCb;
     cb.lighting           = 0.0f;
     const Matrix4f viewProj = camera.GetViewProj();
-    auto drawAt = [&](const Vector3f& p, Material* mat, const Vector3f& scale, float r, float g, float b) {
+    auto drawAt = [&](const Vector3f& p, Mesh& mesh, Material* mat, const Vector3f& scale, float r, float g, float b) {
+        if (!mesh.valid())
+            return;
         if (mat && mat->isValid())
             mat->bind(cmd, MeshPipeline::kRootAlbedoSrv);
         cb.color[0] = r;
@@ -379,17 +424,28 @@ void PathChase::drawMeshes(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPip
         copyMatrix(cb.worldViewProj, world * viewProj);
         copyMatrix(cb.world, world);
         meshPipe.setConstants(cmd, cb);
-        cubeMesh.draw(cmd, fill == DebugFill::Points);
+        mesh.draw(cmd, fill == DebugFill::Points);
     };
 
-    const Vector3f treeScale{ 4.0f, 6.0f, 4.0f };
+    const Vector3f trunkScale{ kTrunkR, kTrunkH, kTrunkR };
+    const Vector3f canopyScale{ kCanopyR, kCanopyH, kCanopyR };
     const Vector3f aiScale{ 2.0f, 2.0f, 2.0f };
     if (m_drawWalker)
-        drawAt(m_walkerPos, m_aiMat.get(), aiScale, 1.0f, 0.35f, 0.12f);
+        drawAt(m_walkerPos, cubeMesh, m_aiMat.get(), aiScale, 1.0f, 0.35f, 0.12f);
     for (const Vector3f& t : m_treePos)
-        drawAt(t, m_treeMat.get(), treeScale, 0.15f, 0.75f, 0.18f);
+    {
+        const Vector3f trunkPos{ t.x, t.y + kTrunkH * 0.5f, t.z };
+        const Vector3f canopyPos{ t.x, t.y + kTrunkH + kCanopyH * 0.5f, t.z };
+        drawAt(trunkPos, m_trunkMesh, m_trunkMat.get(), trunkScale, 0.45f, 0.28f, 0.12f);
+        drawAt(canopyPos, m_canopyMesh, m_canopyMat.get(), canopyScale, 0.15f, 0.75f, 0.18f);
+    }
     for (const Agent& a : m_agents)
-        drawAt(a.pos, m_aiMat.get(), aiScale, 1.0f, 0.35f, 0.12f);
+    {
+        if (!a.health.alive())
+            continue;
+        const float hurt = 0.35f + 0.65f * a.health.ratio();
+        drawAt(a.pos, cubeMesh, m_aiMat.get(), aiScale, 1.0f * hurt, 0.35f * hurt, 0.12f);
+    }
 }
 
 void PathChase::drawPaths(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Matrix4f& viewProj)
@@ -410,6 +466,8 @@ void PathChase::drawPaths(ID3D12GraphicsCommandList* cmd, Renderer& renderer, co
     };
     for (const Agent& a : m_agents)
     {
+        if (!a.health.alive())
+            continue;
         if (a.path.points.size() >= 2 && a.brain.leaf() != AI::HunterLeaf::Wander)
         {
             for (size_t i = 0; i + 1 < a.path.points.size(); ++i)
@@ -472,6 +530,79 @@ void PathChase::drawPaths(ID3D12GraphicsCommandList* cmd, Renderer& renderer, co
     cmd->IASetVertexBuffers(0, 1, &m_lineVbv[fi]);
     cmd->IASetIndexBuffer(&m_lineIbv[fi]);
     cmd->DrawIndexedInstanced(static_cast<UINT>(idx.size()), 1, 0, 0, 0);
+}
+
+bool PathChase::hunterAlive(int i) const
+{
+    if (i < 0 || i >= kHunterCount)
+        return false;
+    return m_agents[static_cast<size_t>(i)].health.alive();
+}
+
+const Vector3f& PathChase::hunterPos(int i) const
+{
+    const int idx = (i < 0 || i >= kHunterCount) ? 0 : i;
+    return m_agents[static_cast<size_t>(idx)].pos;
+}
+
+bool PathChase::applyHunterDamage(int i, float amount)
+{
+    if (i < 0 || i >= kHunterCount)
+        return false;
+    Agent& a = m_agents[static_cast<size_t>(i)];
+    const bool killed = a.health.applyDamage(amount);
+    if (killed)
+    {
+        a.deadFor = 0.0f;
+        a.path.points.clear();
+        a.waypoint = 0;
+        DE_LOG_INFO(LogCategory::AI, "Hunter {} down", i);
+    }
+    return killed;
+}
+
+void PathChase::tickHunterHealth(float dt)
+{
+    for (int i = 0; i < kHunterCount; ++i)
+    {
+        Agent& a = m_agents[static_cast<size_t>(i)];
+        if (a.health.alive())
+        {
+            a.health.tick(dt);
+            continue;
+        }
+        a.deadFor += dt;
+        if (a.deadFor < 8.0f || !m_walk.valid())
+            continue;
+
+        std::mt19937 rng{ static_cast<unsigned>((m_time + static_cast<float>(i)) * 1000.0f) + 91u };
+        std::uniform_real_distribution<float> ux(-22.0f, 22.0f);
+        std::uniform_real_distribution<float> uz(-22.0f, 22.0f);
+        bool placed = false;
+        for (int tries = 0; tries < 64; ++tries)
+        {
+            const float x = ux(rng);
+            const float z = uz(rng);
+            if (!m_walk.walkableWorld(x, z))
+                continue;
+            a.pos = Vector3f{ x, 0.0f, z };
+            if (const Terrain::HeightMap* hm = m_walk.heightMap())
+                a.pos.y = hm->heightAtWorld(x, z) + 1.0f;
+            placed = true;
+            break;
+        }
+        if (!placed)
+            continue;
+        a.health.revive();
+        a.deadFor     = 0.0f;
+        a.path.points.clear();
+        a.waypoint    = 0;
+        a.givenUp     = false;
+        a.hasLastSeen = false;
+        a.forward     = Vector3f{ 0.0f, 0.0f, 1.0f };
+        a.brain.start();
+        DE_LOG_INFO(LogCategory::AI, "Hunter {} recovered", i);
+    }
 }
 
 } // namespace Dark

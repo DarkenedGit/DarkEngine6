@@ -34,6 +34,17 @@ TEST(MathHelper, DegreesRadians)
     EXPECT_TRUE(NearEqual(DegreesToRadians(90.0f), HalfPi));
 }
 
+TEST(MathHelper, WrapPi)
+{
+    EXPECT_NEAR(WrapPi(0.0f), 0.0f, 1.0e-5f);
+    EXPECT_NEAR(WrapPi(TwoPi), 0.0f, 1.0e-5f);
+    EXPECT_NEAR(WrapPi(-TwoPi), 0.0f, 1.0e-5f);
+    EXPECT_NEAR(WrapPi(Pi), Pi, 1.0e-5f);
+    EXPECT_NEAR(WrapPi(-Pi), -Pi, 1.0e-5f);
+    EXPECT_NEAR(WrapPi(3.0f * Pi), Pi, 1.0e-4f);
+    EXPECT_NEAR(WrapPi(-3.0f * Pi), -Pi, 1.0e-4f);
+}
+
 TEST(MathHelper, NearEqual)
 {
     EXPECT_TRUE(NearEqual(1.0f, 1.0f));

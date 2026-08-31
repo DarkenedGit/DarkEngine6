@@ -47,6 +47,7 @@ public:
 private:
     static long long __stdcall wndProc(HWND__* hwnd, unsigned msg, unsigned long long wp, long long lp);
     static void enableProcessDpiAwareness();
+    void recenterCapturedCursor();
 
     HWND__*  m_hwnd   = nullptr;
     uint32_t m_width  = 0;

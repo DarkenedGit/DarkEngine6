@@ -391,6 +391,8 @@ void Window::pollEvents()
         TranslateMessage(&msg);
         DispatchMessageA(&msg);
     }
+    if (m_cursorCaptured)
+        recenterCapturedCursor();
 }
 
 void Window::setCursorCaptured(bool capture)
@@ -414,6 +416,7 @@ void Window::setCursorCaptured(bool capture)
         while (ShowCursor(FALSE) >= 0)
         {
         }
+        recenterCapturedCursor();
     }
     else
     {
@@ -422,6 +425,20 @@ void Window::setCursorCaptured(bool capture)
         {
         }
     }
+}
+
+void Window::recenterCapturedCursor()
+{
+    HWND hwnd = reinterpret_cast<HWND>(m_hwnd);
+    if (!hwnd || m_width == 0 || m_height == 0)
+        return;
+    const int cx = static_cast<int>(m_width / 2);
+    const int cy = static_cast<int>(m_height / 2);
+    POINT p{ cx, cy };
+    ClientToScreen(hwnd, &p);
+    SetCursorPos(p.x, p.y);
+    if (m_input)
+        m_input->warpMouse(cx, cy);
 }
 
 float Window::getTime() const
