@@ -86,6 +86,31 @@ TEST(MeshGen, QuadXYIsCenteredInPlane)
     EXPECT_NEAR(maxP.y, 1.0f, 1.0e-5f);
 }
 
+TEST(MeshGen, CrossSpansBothAxes)
+{
+    MeshData cross;
+    ASSERT_TRUE(CreateCross(cross, 2.0f, 0.4f, 0.3f));
+    ASSERT_GE(cross.positions.size(), 16u);
+    ASSERT_GE(cross.indices.size(), 72u);
+
+    float minX = 1.0e9f, maxX = -1.0e9f, minY = 1.0e9f, maxY = -1.0e9f, minZ = 1.0e9f, maxZ = -1.0e9f;
+    for (const Vector3f& p : cross.positions)
+    {
+        minX = Min(minX, p.x);
+        maxX = Max(maxX, p.x);
+        minY = Min(minY, p.y);
+        maxY = Max(maxY, p.y);
+        minZ = Min(minZ, p.z);
+        maxZ = Max(maxZ, p.z);
+    }
+    EXPECT_NEAR(minX, -1.0f, 1.0e-4f);
+    EXPECT_NEAR(maxX, 1.0f, 1.0e-4f);
+    EXPECT_NEAR(minY, -1.0f, 1.0e-4f);
+    EXPECT_NEAR(maxY, 1.0f, 1.0e-4f);
+    EXPECT_NEAR(minZ, -0.15f, 1.0e-4f);
+    EXPECT_NEAR(maxZ, 0.15f, 1.0e-4f);
+}
+
 TEST(MeshGen, BoxOutlineXYHasFourEdges)
 {
     LineMeshData outline;

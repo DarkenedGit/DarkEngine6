@@ -19,7 +19,7 @@ namespace Dark
 
     } // namespace
 
-    bool ParticlePipeline::create(ID3D12Device* device, bool additive)
+    bool ParticlePipeline::create(ID3D12Device* device, bool additive, int depthBias, float slopeScaledDepthBias)
     {
         m_rootSignature.Reset();
         m_pso.Reset();
@@ -105,9 +105,11 @@ namespace Dark
             rt.BlendOpAlpha   = D3D12_BLEND_OP_ADD;
         }
 
-        pso.RasterizerState.FillMode        = D3D12_FILL_MODE_SOLID;
-        pso.RasterizerState.CullMode        = D3D12_CULL_MODE_NONE;
-        pso.RasterizerState.DepthClipEnable = TRUE;
+        pso.RasterizerState.FillMode             = D3D12_FILL_MODE_SOLID;
+        pso.RasterizerState.CullMode             = D3D12_CULL_MODE_NONE;
+        pso.RasterizerState.DepthClipEnable      = TRUE;
+        pso.RasterizerState.DepthBias            = depthBias;
+        pso.RasterizerState.SlopeScaledDepthBias = slopeScaledDepthBias;
 
         pso.DepthStencilState.DepthEnable    = TRUE;
         pso.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;

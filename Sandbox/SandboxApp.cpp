@@ -709,8 +709,8 @@ void SandboxApp::updateCombat(float dt)
     }
     if (m_playerHealth.hp() < before && m_hurtSoundTimer <= 0.0f)
     {
-        audio().play2D(m_sfxGrunt, 0.45f);
-        m_hurtSoundTimer = 0.55f;
+        audio().play2D(m_sfxPain, 0.7f);
+        m_hurtSoundTimer = 0.40f;
     }
 
     const bool attack = input().actionPressed("attack") || input().mousePressed(MouseButton::Left);
@@ -741,7 +741,119 @@ void SandboxApp::updateCombat(float dt)
         to *= (1.0f / dist);
         if (look.Dot(to) < kMeleeDot)
             continue;
-        m_chase.applyHunterDamage(i, kMeleeDmg);
+        const bool wasAlive = m_chase.hunterAlive(i);
+        if (m_chase.applyHunterDamage(i, kMeleeDmg))
+        {
+            const Vector3f hit = m_chase.hunterPos(i);
+            audio().play3D(m_sfxPain, hit, 0.75f);
+            spawnHunterBlood(hit);
+            if (wasAlive && !m_chase.hunterAlive(i))
+                m_bloodSplats.spawn(hit.x, hit.z, m_terrain.heightMap());
+        }
+    }
+}
+
+void SandboxApp::spawnHunterBlood(const Vector3f& pos)
+{
+    m_blood.setTransform(Vector3f{ pos.x, pos.y + 0.45f, pos.z });
+    m_blood.emitBurst(12);
+}
+
+void SandboxApp::placeHealthPacks()
+{
+    m_healthPackCount = 0;
+    const Vector3f spots[] = {
+        { 5.0f, 0.0f, 5.0f },
+        { -7.0f, 0.0f, 7.0f },
+        { 8.0f, 0.0f, -8.0f },
+        { -4.0f, 0.0f, -7.0f },
+    };
+    const float waterY = m_water.params().waterLevel;
+    for (const Vector3f& s : spots)
+    {
+        if (m_healthPackCount >= kMaxHealthPacks)
+            break;
+        const float gy = m_terrain.heightAtWorld(s.x, s.z);
+        if (gy < waterY - 0.2f)
+            continue;
+        HealthPack& p = m_healthPacks[m_healthPackCount++];
+        p.pos       = Vector3f{ s.x, gy + 0.95f, s.z };
+        p.active    = true;
+        p.respawnIn = 0.0f;
+    }
+    DE_LOG_INFO("SandboxApp: {} health packs", m_healthPackCount);
+}
+
+void SandboxApp::updateHealthPacks(float dt)
+{
+    m_packSpin += 1.85f * dt;
+    if (m_packSpin > Math::TwoPi)
+        m_packSpin -= Math::TwoPi;
+    m_packBob += dt;
+
+    const Entity body = possessedBody();
+    TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+
+    constexpr float kPickupR  = 1.2f;
+    constexpr float kHeal     = 50.0f;
+    constexpr float kRespawn  = 16.0f;
+    const float     r2        = kPickupR * kPickupR;
+
+    for (int i = 0; i < m_healthPackCount; ++i)
+    {
+        HealthPack& p = m_healthPacks[i];
+        if (!p.active)
+        {
+            p.respawnIn -= dt;
+            if (p.respawnIn <= 0.0f)
+                p.active = true;
+            continue;
+        }
+        if (!xf || !m_playerHealth.alive() || m_playerHealth.hp() >= m_playerHealth.maxHp())
+            continue;
+        const float dx = xf->position.x - p.pos.x;
+        const float dy = xf->position.y - p.pos.y;
+        const float dz = xf->position.z - p.pos.z;
+        if (dx * dx + dy * dy + dz * dz > r2)
+            continue;
+        m_playerHealth.heal(kHeal);
+        audio().play2D(m_sfxHeal, 0.7f);
+        p.active    = false;
+        p.respawnIn = kRespawn;
+        DE_LOG_INFO("Player: health pack +{:.0f} ({:.0f}/{:.0f})", kHeal, m_playerHealth.hp(), m_playerHealth.maxHp());
+    }
+}
+
+void SandboxApp::drawHealthPacks(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, MeshFrameConstants& cb)
+{
+    if (!cmd || !m_crossMesh.valid() || m_healthPackCount <= 0)
+        return;
+
+    m_meshPipeline.bind(cmd, renderer().debugState().fill);
+    m_shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
+    if (m_packMaterial && m_packMaterial->isValid())
+        m_packMaterial->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+
+    const Quaternion rot = Quaternion::FromAxisAngle(Vector3f::Y_AXIS, m_packSpin);
+    const Matrix4f   R   = rot.ToMatrix4();
+    const Matrix4f   S   = Matrix4f::ScaleMatrixXYZ(0.9f, 0.9f, 0.9f);
+    cb.color[0] = 1.0f;
+    cb.color[1] = 0.12f;
+    cb.color[2] = 0.14f;
+    cb.color[3] = 1.0f;
+
+    for (int i = 0; i < m_healthPackCount; ++i)
+    {
+        const HealthPack& p = m_healthPacks[i];
+        if (!p.active)
+            continue;
+        const float y = p.pos.y + 0.08f * std::sinf(m_packBob * 2.6f);
+        const Matrix4f T     = Matrix4f::TranslationMatrix(p.pos.x, y, p.pos.z);
+        const Matrix4f world = S * R * T;
+        copyMatrix(cb.worldViewProj, world * viewProj);
+        copyMatrix(cb.world, world);
+        m_meshPipeline.setConstants(cmd, cb);
+        m_crossMesh.draw(cmd, renderer().debugState().fill == DebugFill::Points);
     }
 }
 
@@ -901,6 +1013,8 @@ void SandboxApp::onInit()
     m_sfxGrunt  = audio().loadOrBlip(assets(), "audio/grunt.wav", 140.0f, 0.18f, 0.5f);
     m_sfxLand   = audio().loadOrBlip(assets(), "audio/land.wav", 70.0f, 0.12f, 0.55f);
     m_sfxSplash = audio().loadOrBlip(assets(), "audio/splash.wav", 220.0f, 0.22f, 0.45f);
+    m_sfxPain   = audio().loadOrBlip(assets(), "audio/pain.wav", 380.0f, 0.12f, 0.5f);
+    m_sfxHeal   = audio().loadOrBlip(assets(), "audio/coin.wav", 880.0f, 0.16f, 0.4f);
     m_music    = audio().loadWav(assets(), "audio/ambient_loop.wav");
     if (!m_music)
         m_music = audio().createTone(110.0f, 2.0f, 0.12f);
@@ -914,6 +1028,38 @@ void SandboxApp::onInit()
     }
     if (!m_healthHud.create(renderer()))
         DE_LOG_ERROR("SandboxApp: health HUD failed");
+    if (!m_particles.create(renderer()))
+        DE_LOG_ERROR("SandboxApp: particle renderer failed");
+    if (!m_bloodSplats.create(renderer()))
+        DE_LOG_ERROR("SandboxApp: blood splat pool failed");
+    {
+        ParticleEmitterDesc blood{};
+        blood.name          = "Blood";
+        blood.maxParticles  = 128;
+        blood.emissionRate  = 0.0f;
+        blood.duration      = 0.0f;
+        blood.looping       = false;
+        blood.lifetime      = { 0.22f, 0.50f };
+        blood.startSpeed    = { 1.8f, 4.2f };
+        blood.startSize     = { 0.07f, 0.14f };
+        blood.endSize       = { 0.02f, 0.05f };
+        blood.startColor[0] = 0.72f;
+        blood.startColor[1] = 0.04f;
+        blood.startColor[2] = 0.06f;
+        blood.startColor[3] = 0.95f;
+        blood.endColor[0]   = 0.28f;
+        blood.endColor[1]   = 0.00f;
+        blood.endColor[2]   = 0.01f;
+        blood.endColor[3]   = 0.00f;
+        blood.gravity       = Vector3f{ 0.0f, -11.0f, 0.0f };
+        blood.direction     = Vector3f{ 0.0f, 1.0f, 0.0f };
+        blood.spreadDegrees = 75.0f;
+        blood.shape         = ParticleEmitterDesc::Shape::Sphere;
+        blood.shapeSize     = Vector3f{ 0.12f, 0.0f, 0.0f };
+        blood.additiveBlend = false;
+        m_blood.setDesc(blood);
+        m_blood.stop(true);
+    }
     if (!pumpBootFrame())
         return;
     if (!m_terrainPipeline.create(renderer().device()))
@@ -1054,6 +1200,13 @@ void SandboxApp::onInit()
         requestQuit();
         return;
     }
+    MeshData crossData;
+    if (!CreateCross(crossData, 1.0f, 0.30f, 0.22f) || !Mesh::tryCreate(renderer(), crossData, m_crossMesh))
+    {
+        DE_LOG_FATAL("SandboxApp: health pack mesh failed");
+        requestQuit();
+        return;
+    }
 
     m_cubeMaterial = std::make_shared<Material>();
     if (!m_cubeMaterial->createFromAlbedoPath( renderer(), assets(), "textures/dark_engine_cube.png", /*fallback*/ 64, 166, 242, 255))
@@ -1087,6 +1240,13 @@ void SandboxApp::onInit()
         requestQuit();
         return;
     }
+    m_packMaterial = std::make_shared<Material>();
+    if (!m_packMaterial->createSolid(renderer(), assets(), 214, 28, 36, 255))
+    {
+        DE_LOG_FATAL("SandboxApp: health pack material failed");
+        requestQuit();
+        return;
+    }
 
     const AssetID matId = assets().registerAsset(m_cubeMaterial);
     if (matId == NULL_ASSET)
@@ -1102,6 +1262,7 @@ void SandboxApp::onInit()
     m_treeTrunkMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
     m_treeMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
     m_aiMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
+    m_packMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
 
     const float aspect = (renderer().height() > 0) ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height()) : 1.0f;
     m_viewCamera.SetLens(/*fovY*/ 1.04719755f /*60deg*/, aspect, 0.18f, 2000.0f);
@@ -1151,6 +1312,7 @@ void SandboxApp::onInit()
     playerHp.regenPerSec = 10.0f;
     playerHp.regenDelay  = 3.5f;
     m_playerHealth       = Health{ playerHp };
+    placeHealthPacks();
 }
 
 void SandboxApp::onSplashFinished()
@@ -1169,6 +1331,8 @@ void SandboxApp::onUpdate(float dt)
     if (m_chaseOk)
         m_chase.tick(dt, world(), input(), m_terrain, possessedBody(), m_playerWet);
     updateCombat(dt);
+    updateHealthPacks(dt);
+    m_blood.update(dt);
 
     AudioListener lis{};
     lis.position = m_viewCamera.GetPosition();
@@ -1287,10 +1451,17 @@ void SandboxApp::onRender()
     if (m_chaseOk)
         m_chase.drawMeshes(cmd, m_meshPipeline, m_shadows, m_viewCamera, cb, m_cubeMesh, fill);
 
+    drawHealthPacks(cmd, viewProj, cb);
+
     m_water.draw(cmd, m_waterPipeline, m_viewCamera, &frustum, &m_env, &renderer().debugState());
 
     if (m_chaseOk)
         m_chase.drawPaths(cmd, renderer(), viewProj);
+
+    if (m_blood.aliveCount() > 0)
+        m_particles.draw(cmd, m_viewCamera, m_blood, false);
+
+    m_bloodSplats.draw(cmd, m_viewCamera);
 
     m_healthHud.draw(cmd, renderer().width(), renderer().height(), m_playerHealth.ratio());
 
@@ -1387,6 +1558,10 @@ void SandboxApp::onShutdown()
     m_sfxGrunt.reset();
     m_sfxLand.reset();
     m_sfxSplash.reset();
+    m_sfxPain.reset();
+    m_sfxHeal.reset();
+    m_particles.destroy(renderer());
+    m_bloodSplats.destroy(renderer());
     m_music.reset();
     DE_LOG_INFO("SandboxApp: shutdown");
 }

@@ -26,7 +26,7 @@ namespace Dark
 
         ParticlePipeline() = default;
 
-        bool create(ID3D12Device* device, bool additive);
+        bool create(ID3D12Device* device, bool additive, int depthBias = 0, float slopeScaledDepthBias = 0.0f);
         void bind(ID3D12GraphicsCommandList* cmd) const;
         void setConstants(ID3D12GraphicsCommandList* cmd, const ParticleFrameConstants& c) const;
 

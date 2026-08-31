@@ -121,6 +121,14 @@ namespace Dark
         bool CreateCuboid(MeshData& mesh, float width = 2.0f, float height = 1.0f, float depth = 1.0f);
 
         // ============================================================
+        //  6b. CROSS  (plus-sign: two overlapping cuboids in XY, thickness in Z)
+        //     armLength — full span of each bar
+        //     armWidth  — bar thickness in the plane
+        //     depth     — bar thickness along Z
+        // ============================================================
+        bool CreateCross(MeshData& mesh, float armLength = 1.0f, float armWidth = 0.28f, float depth = 0.22f);
+
+        // ============================================================
         //  7. OCTAHEDRON  (regular, all 8 equilateral triangular faces)
         //     radius – circumscribed sphere radius
         // ============================================================

@@ -550,7 +550,8 @@ bool PathChase::applyHunterDamage(int i, float amount)
     if (i < 0 || i >= kHunterCount)
         return false;
     Agent& a = m_agents[static_cast<size_t>(i)];
-    const bool killed = a.health.applyDamage(amount);
+    const float before = a.health.hp();
+    const bool  killed = a.health.applyDamage(amount);
     if (killed)
     {
         a.deadFor = 0.0f;
@@ -558,7 +559,7 @@ bool PathChase::applyHunterDamage(int i, float amount)
         a.waypoint = 0;
         DE_LOG_INFO(LogCategory::AI, "Hunter {} down", i);
     }
-    return killed;
+    return a.health.hp() < before;
 }
 
 void PathChase::tickHunterHealth(float dt)

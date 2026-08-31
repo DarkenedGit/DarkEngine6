@@ -250,6 +250,19 @@ namespace Dark
             return true;
         }
 
+        bool CreateCross(MeshData& m, float armLength, float armWidth, float depth)
+        {
+            if (armLength < 1.0e-3f)
+                armLength = 1.0e-3f;
+            if (armWidth < 1.0e-3f)
+                armWidth = 1.0e-3f;
+            if (depth < 1.0e-3f)
+                depth = 1.0e-3f;
+            if (!CreateCuboid(m, armWidth, armLength, depth))
+                return false;
+            return CreateCuboid(m, armLength, armWidth, depth);
+        }
+
         // ============================================================
         //  5. PYRAMID
         // ============================================================

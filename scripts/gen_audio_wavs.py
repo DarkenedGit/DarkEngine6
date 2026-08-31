@@ -98,6 +98,28 @@ def grunt(dur: float = 0.22, amp: float = 0.55) -> list[float]:
     return out
 
 
+def pain(dur: float = 0.14, amp: float = 0.58) -> list[float]:
+    n = int(SR * dur)
+    out = []
+    rng = random.Random(19)
+    phase1 = 0.0
+    phase2 = 0.0
+    for i in range(n):
+        t = i / SR
+        u = t / dur
+        f1 = 320.0 - 140.0 * u
+        f2 = 520.0 - 180.0 * u
+        phase1 += 2.0 * math.pi * f1 / SR
+        phase2 += 2.0 * math.pi * f2 / SR
+        env = math.exp(-9.0 * u)
+        if u < 0.03:
+            env *= u / 0.03
+        noise = (rng.random() * 2.0 - 1.0) * 0.32
+        s = (math.sin(phase1) * 0.55 + math.sin(phase2) * 0.28 + noise) * amp * env
+        out.append(s)
+    return out
+
+
 def land(dur: float = 0.14, amp: float = 0.62) -> list[float]:
     n = int(SR * dur)
     out = []
@@ -158,6 +180,7 @@ def main() -> None:
     write_mono(ROOT / "delete.wav", chirp(480.0, 180.0, 0.12, 0.4))
     write_mono(ROOT / "whoosh.wav", chirp(180.0, 90.0, 0.22, 0.35))
     write_mono(ROOT / "grunt.wav", grunt())
+    write_mono(ROOT / "pain.wav", pain())
     write_mono(ROOT / "land.wav", land())
     write_mono(ROOT / "splash.wav", splash())
     write_mono(ROOT / "ambient_loop.wav", ambient())

@@ -18,6 +18,9 @@
 #include "Character/Health.h"
 #include "Character/PlayerMotor.h"
 #include "Render/HealthHud.h"
+#include "Particles/ParticleEmitter.h"
+#include "Particles/ParticleRenderer.h"
+#include "Particles/BloodSplatPool.h"
 #include "PathChase.h"
 
 class SandboxApp : public Dark::Application
@@ -40,7 +43,11 @@ private:
     void updatePawnMotion(float dt);
     void updatePossessed(float dt);
     void updateCombat(float dt);
+    void spawnHunterBlood(const Dark::Math::Vector3f& pos);
     void respawnPlayer();
+    void placeHealthPacks();
+    void updateHealthPacks(float dt);
+    void drawHealthPacks(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, Dark::MeshFrameConstants& cb);
     void updateShoulderCamera();
     Dark::Entity possessedBody();
     void spawnOwnedPawn(Dark::ClientId owner, float offsetX);
@@ -107,4 +114,23 @@ private:
     std::shared_ptr<Dark::SoundClip> m_sfxGrunt;
     std::shared_ptr<Dark::SoundClip> m_sfxLand;
     std::shared_ptr<Dark::SoundClip> m_sfxSplash;
+    std::shared_ptr<Dark::SoundClip> m_sfxPain;
+    Dark::ParticleEmitter            m_blood;
+    Dark::ParticleRenderer           m_particles;
+    Dark::BloodSplatPool             m_bloodSplats;
+
+    struct HealthPack
+    {
+        Dark::Math::Vector3f pos{};
+        bool                 active    = false;
+        float                respawnIn = 0.0f;
+    };
+    static constexpr int             kMaxHealthPacks = 4;
+    HealthPack                       m_healthPacks[kMaxHealthPacks]{};
+    int                              m_healthPackCount = 0;
+    float                            m_packSpin        = 0.0f;
+    float                            m_packBob         = 0.0f;
+    Dark::Geometry::Mesh             m_crossMesh;
+    Dark::AssetRef<Dark::Material>   m_packMaterial;
+    std::shared_ptr<Dark::SoundClip> m_sfxHeal;
 };
