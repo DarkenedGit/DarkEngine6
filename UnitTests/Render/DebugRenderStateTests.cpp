@@ -10,6 +10,7 @@ TEST(DebugRenderState, DefaultsAreLitSolidWithShadows)
     EXPECT_EQ(s.fill, DebugFill::Solid);
     EXPECT_TRUE(s.lighting);
     EXPECT_TRUE(s.shadows);
+    EXPECT_FALSE(s.aces);
 }
 
 TEST(DebugRenderState, CycleFillWraps)

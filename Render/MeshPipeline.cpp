@@ -161,7 +161,7 @@ namespace Dark
             return false;
         }
 
-        const char* passName = pass == MeshPass::GBuffer ? "GBuffer" : (pass == MeshPass::ForwardHdr ? "HDR16" : "UNORM");
+        const char* passName = pass == MeshPass::GBuffer ? "GBuffer" : "UNORM";
         DE_LOG_INFO(LogCategory::Render, "MeshPipeline: ready (textured, solid/wire/point, {})", passName);
         return true;
     }

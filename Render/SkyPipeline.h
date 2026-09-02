@@ -54,7 +54,8 @@ public:
     bool create(ID3D12Device* device, SkyPass pass = SkyPass::ForwardFirst, DXGI_FORMAT colorFormat = DXGI_FORMAT_R8G8B8A8_UNORM);
 
     void bind(ID3D12GraphicsCommandList* cmd) const;
-    void draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, const Sky::Environment& env) const;
+    // exposure < 0 uses Environment::exposure(). Pass 1 when ACES owns exposure.
+    void draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, const Sky::Environment& env, float exposure = -1.0f) const;
 
     bool isValid() const { return m_pso != nullptr; }
 

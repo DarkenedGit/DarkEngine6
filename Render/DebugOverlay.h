@@ -55,7 +55,16 @@ namespace Dark
             float contrast,
             bool invert);
 
-        bool isValid() const { return m_pso2D != nullptr && m_psoArray != nullptr; }
+        void drawColor(
+            ID3D12GraphicsCommandList* cmd,
+            ID3D12Device* device,
+            D3D12_CPU_DESCRIPTOR_HANDLE srcSrv,
+            LONG x,
+            LONG y,
+            LONG w,
+            LONG h);
+
+        bool isValid() const { return m_pso2D != nullptr && m_psoArray != nullptr && m_psoColor != nullptr; }
 
     private:
         void draw(
@@ -69,13 +78,14 @@ namespace Dark
             LONG h,
             const DebugOverlayConstants& constants);
 
-        static constexpr UINT kDrawsPerFrame  = 4;
+        static constexpr UINT kDrawsPerFrame  = 8;
         static constexpr UINT kBufferedFrames = 2;
         static constexpr UINT kHeapSize       = kDrawsPerFrame * kBufferedFrames;
 
         ComPtr<ID3D12RootSignature>  m_rootSignature;
         ComPtr<ID3D12PipelineState>  m_pso2D;
         ComPtr<ID3D12PipelineState>  m_psoArray;
+        ComPtr<ID3D12PipelineState>  m_psoColor;
         ComPtr<ID3D12DescriptorHeap> m_srvHeap;
         D3D12_GPU_DESCRIPTOR_HANDLE  m_gpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_cpu{};

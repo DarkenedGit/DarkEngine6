@@ -101,6 +101,7 @@ private:
     float         m_spinSpeed      = 0.8f;
     bool          m_showShadowMaps = false;
     bool          m_showDepth      = false;
+    bool          m_showGBuffer    = false;
     float         m_lookYaw        = 0.0f;
     float         m_lookPitch      = 0.18f;
     bool          m_playerWet      = false;

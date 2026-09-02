@@ -111,6 +111,8 @@ namespace Dark
         void setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
 
         D3D12_CPU_DESCRIPTOR_HANDLE hdrSrvCpu() const;
+        D3D12_CPU_DESCRIPTOR_HANDLE albedoSrvCpu() const;
+        D3D12_CPU_DESCRIPTOR_HANDLE attribSrvCpu() const;
         D3D12_GPU_DESCRIPTOR_HANDLE lightingTableGpu() const;
         ID3D12DescriptorHeap*       lightingHeap() const;
         bool hasGBuffer() const;

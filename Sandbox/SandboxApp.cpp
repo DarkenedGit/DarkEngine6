@@ -33,28 +33,17 @@ using namespace Terrain;
 
 MeshPass liveMeshPass(const Renderer& r)
 {
-    switch (r.scenePath())
-    {
-    case ScenePath::HdrForward:
-        return MeshPass::ForwardHdr;
-    case ScenePath::HybridDeferred:
-        return MeshPass::GBuffer;
-    default:
-        return MeshPass::ForwardUnorm;
-    }
+    return r.scenePath() == ScenePath::HybridDeferred ? MeshPass::GBuffer : MeshPass::ForwardUnorm;
 }
 
 TerrainPass liveTerrainPass(const Renderer& r)
 {
-    switch (r.scenePath())
-    {
-    case ScenePath::HdrForward:
-        return TerrainPass::ForwardHdr;
-    case ScenePath::HybridDeferred:
-        return TerrainPass::GBuffer;
-    default:
-        return TerrainPass::ForwardUnorm;
-    }
+    return r.scenePath() == ScenePath::HybridDeferred ? TerrainPass::GBuffer : TerrainPass::ForwardUnorm;
+}
+
+bool useAcesTonemap(const Renderer& r)
+{
+    return r.hasSceneBuffers() && r.debugState().aces && r.debugState().lighting;
 }
 
 SkyPass liveSkyPass(const Renderer& r)
@@ -214,12 +203,15 @@ void SandboxApp::registerDefaultActions()
     a.bindKey("debug_shadows", Key::F8);
     a.bindKey("debug_depth", Key::F9);
     a.bindKey("debug_listen", Key::F10);
+    a.bindKey("debug_gbuffer", Key::F11);
+    a.bindKey("debug_aces", Key::F12);
 
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(P/Start) reset(R/Y) speed(+/- / RB) "
         "possessed WASD/LS move, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, Shift/LB sprint, swim in water, "
         "time([/]) weather(1-4) "
-        "F3 browse LAN F4 disconnect F5 host F6 join  F1 fill F2 lighting F7 shadows F8 shadow maps F9 depth F10 visual debugger");
+        "F3 browse LAN F4 disconnect F5 host F6 join  F1 fill F2 lighting F7 shadows F8 shadow maps F9 depth F10 visual debugger "
+        "F11 G-buffer F12 ACES  -forward for UNORM forward");
 }
 
 void SandboxApp::handleRuntimeCommands(float dt)
@@ -328,6 +320,16 @@ void SandboxApp::handleRuntimeCommands(float dt)
     {
         m_showDepth = !m_showDepth;
         DE_LOG_INFO("Sandbox: depth overlay = {}", m_showDepth);
+    }
+    if (input().actionPressed("debug_gbuffer"))
+    {
+        m_showGBuffer = !m_showGBuffer;
+        DE_LOG_INFO("Sandbox: G-buffer overlay = {}", m_showGBuffer);
+    }
+    if (input().actionPressed("debug_aces"))
+    {
+        renderer().debugState().aces = !renderer().debugState().aces;
+        DE_LOG_INFO("Sandbox: ACES = {} (display curve on HDR; lighting-off stays copy)", renderer().debugState().aces);
     }
 
     if (input().actionPressed("speed_up"))
@@ -1492,8 +1494,9 @@ void SandboxApp::onRender()
     const Matrix4f  viewProj = m_viewCamera.GetViewProj();
     uint32_t        meshDraws = 0;
 
+    const float skyExposure = useAcesTonemap(renderer()) ? 1.0f : m_env.exposure();
     if (!deferred)
-        m_skyPipeline.draw(cmd, m_viewCamera, m_env);
+        m_skyPipeline.draw(cmd, m_viewCamera, m_env, skyExposure);
 
     AssetRef<Material> material = m_cubeMaterial;
     if (m_cube.valid())
@@ -1560,7 +1563,7 @@ void SandboxApp::onRender()
         m_lighting.draw(cmd, renderer(), m_shadows, lc);
 
         renderer().bindHdr(true);
-        m_skyPipeline.draw(cmd, m_viewCamera, m_env);
+        m_skyPipeline.draw(cmd, m_viewCamera, m_env, skyExposure);
     }
     else
     {
@@ -1626,7 +1629,8 @@ void SandboxApp::onRender()
     if (renderer().hasSceneBuffers())
     {
         renderer().bindColorTargetOnly();
-        m_tonemap.draw(cmd, renderer(), 0.0f, 1.0f);
+        const bool aces = useAcesTonemap(renderer());
+        m_tonemap.draw(cmd, renderer(), aces ? 1.0f : 0.0f, aces ? m_env.exposure() : 1.0f);
     }
 
     m_healthHud.draw(cmd, renderer().width(), renderer().height(), m_playerHealth.ratio());
@@ -1643,7 +1647,7 @@ void SandboxApp::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
 {
     if (!cmd || !m_debugOverlay.isValid())
         return;
-    if (!m_showShadowMaps && !m_showDepth)
+    if (!m_showShadowMaps && !m_showDepth && !m_showGBuffer)
         return;
 
     // Unbind the DSV so we can sample the scene depth. Do not rebind it afterwards
@@ -1659,6 +1663,17 @@ void SandboxApp::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
         tile = 96;
     if (tile > 220)
         tile = 220;
+
+    if (m_showGBuffer && renderer().hasGBuffer())
+    {
+        const LONG y = pad;
+        const D3D12_CPU_DESCRIPTOR_HANDLE albedo = renderer().albedoSrvCpu();
+        const D3D12_CPU_DESCRIPTOR_HANDLE attrib = renderer().attribSrvCpu();
+        if (albedo.ptr != 0)
+            m_debugOverlay.drawColor(cmd, renderer().device(), albedo, pad, y, tile, tile);
+        if (attrib.ptr != 0)
+            m_debugOverlay.drawColor(cmd, renderer().device(), attrib, pad + tile + 8, y, tile, tile);
+    }
 
     if (m_showDepth && renderer().depthResource())
     {

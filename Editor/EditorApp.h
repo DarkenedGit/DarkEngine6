@@ -10,6 +10,7 @@
 #include "Render/Camera3D.h"
 #include "Render/Camera2D.h"
 #include "Render/ShadowSystem.h"
+#include "Render/DebugOverlay.h"
 #include "Render/Material.h"
 #include "Render/SpritePipeline.h"
 #include "Render/Texture2D.h"
@@ -118,6 +119,7 @@ private:
     Dark::LinePipeline    m_linePipeline3D;
     Dark::TonemapPipeline          m_tonemap;
     Dark::DeferredLightingPipeline m_lighting;
+    Dark::DebugOverlay             m_debugOverlay;
     Dark::ShadowSystem    m_shadows;
 
     Dark::Geometry::Mesh m_cubeMesh;
@@ -162,8 +164,9 @@ private:
     std::filesystem::path m_scenePath;
     std::string           m_sceneName = "level";
 
-    bool  m_showGrid  = true;
-    bool  m_showSolid = true;
+    bool  m_showGrid    = true;
+    bool  m_showSolid   = true;
+    bool  m_showGBuffer = false;
     float m_gridSnap  = 1.0f;
 
     float m_moveSpeed = 8.0f;

@@ -14,13 +14,13 @@ namespace Dark
     enum class MeshPass : uint8_t
     {
         ForwardUnorm = 0,
-        ForwardHdr,
         GBuffer,
     };
 
     inline DXGI_FORMAT meshPassColorFormat(MeshPass pass)
     {
-        return pass == MeshPass::ForwardHdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
+        (void)pass;
+        return DXGI_FORMAT_R8G8B8A8_UNORM;
     }
 
     struct MeshGBufferConstants

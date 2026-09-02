@@ -161,7 +161,7 @@ namespace Dark
             return false;
         }
 
-        const char* passName = pass == TerrainPass::GBuffer ? "GBuffer" : (pass == TerrainPass::ForwardHdr ? "HDR16" : "UNORM");
+        const char* passName = pass == TerrainPass::GBuffer ? "GBuffer" : "UNORM";
         DE_LOG_INFO(LogCategory::Render, "TerrainPipeline: ready (4 layers + splat, solid/wire/point, {})", passName);
         return true;
     }

@@ -46,6 +46,8 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE albedoRtv() const { return m_albedoRtv; }
         D3D12_CPU_DESCRIPTOR_HANDLE attribRtv() const { return m_attribRtv; }
         D3D12_CPU_DESCRIPTOR_HANDLE hdrSrvCpu() const { return m_hdrSrvCpu; }
+        D3D12_CPU_DESCRIPTOR_HANDLE albedoSrvCpu() const;
+        D3D12_CPU_DESCRIPTOR_HANDLE attribSrvCpu() const;
         D3D12_GPU_DESCRIPTOR_HANDLE lightingTableGpu() const { return m_lightingGpu; }
         ID3D12DescriptorHeap*       lightingHeap() const { return m_lightingHeap.Get(); }
         D3D12_RESOURCE_STATES       hdrState() const { return m_hdrState; }
@@ -74,6 +76,7 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE  m_attribRtv{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_hdrSrvCpu{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_lightingGpu{};
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_lightingCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_shadowCpu{};
         D3D12_RESOURCE_STATES        m_hdrState    = D3D12_RESOURCE_STATE_COMMON;
         D3D12_RESOURCE_STATES        m_albedoState = D3D12_RESOURCE_STATE_COMMON;

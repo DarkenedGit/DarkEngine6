@@ -119,7 +119,7 @@ void SkyPipeline::bind(ID3D12GraphicsCommandList* cmd) const
     cmd->SetPipelineState(m_pso.Get());
 }
 
-void SkyPipeline::draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, const Sky::Environment& env) const
+void SkyPipeline::draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, const Sky::Environment& env, float exposure) const
 {
     if (!cmd || !m_pso)
         return;
@@ -158,7 +158,7 @@ void SkyPipeline::draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, c
     cb.windDir[0]     = env.weather.windDir.x;
     cb.windDir[1]     = env.weather.windDir.y;
     cb.sunElevation    = env.sunElevation();
-    cb.exposure        = env.exposure();
+    cb.exposure        = exposure >= 0.0f ? exposure : env.exposure();
     cb.cameraRight[0]  = right.x;
     cb.cameraRight[1]  = right.y;
     cb.cameraRight[2]  = right.z;

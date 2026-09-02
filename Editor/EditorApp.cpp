@@ -620,8 +620,8 @@ void EditorApp::registerActions()
     a.bindAxis("look_y", GamepadAxis::RightY, 1.0f);
 
     DE_LOG_INFO(
-        "Editor: F3 toggle 2D/3D | F2 particle UI | F1 fill F6 lighting F7 shadows | "
-        "1/2/3 place type | P place | MMB/RMB pan (2D) | wheel zoom | Ctrl+S/O save/load | C color | Del delete");
+        "Editor: F3 toggle 2D/3D | F2 particle UI | F1 fill F6 lighting F7 shadows | F11 G-buffer | "
+        "1/2/3 place type | P place | MMB/RMB pan (2D) | wheel zoom | Ctrl+S/O save/load | C color | Del delete | -forward");
 }
 
 void EditorApp::onInit()
@@ -636,11 +636,7 @@ void EditorApp::onInit()
     if (!renderer().enableSceneBuffers(config().scenePath))
         DE_LOG_ERROR(LogCategory::Render, "EditorApp: SceneBuffers enable failed; SwapChainForward");
 
-    MeshPass meshPass = MeshPass::ForwardUnorm;
-    if (renderer().scenePath() == ScenePath::HdrForward)
-        meshPass = MeshPass::ForwardHdr;
-    else if (renderer().scenePath() == ScenePath::HybridDeferred)
-        meshPass = MeshPass::GBuffer;
+    const MeshPass meshPass = renderer().scenePath() == ScenePath::HybridDeferred ? MeshPass::GBuffer : MeshPass::ForwardUnorm;
     if (!m_meshPipeline.create(renderer().device(), meshPass) || !m_linePipeline.create(renderer().device()))
     {
         DE_LOG_FATAL("EditorApp: mesh/line pipeline failed");
@@ -667,6 +663,8 @@ void EditorApp::onInit()
             requestQuit();
             return;
         }
+        if (!m_debugOverlay.create(renderer().device()))
+            DE_LOG_WARN("EditorApp: DebugOverlay create failed — G-buffer tiles disabled");
     }
     if (!pumpBootFrame())
         return;
@@ -1446,6 +1444,11 @@ void EditorApp::handleEditorCommands(float dt)
             m_shadows.setDebugEnabled(renderer().debugState().shadows);
             DE_LOG_INFO("Editor: shadows = {}", renderer().debugState().shadows);
         }
+        if (input().keyPressed(Key::F11) && renderer().hasGBuffer())
+        {
+            m_showGBuffer = !m_showGBuffer;
+            DE_LOG_INFO("Editor: G-buffer overlay = {}", m_showGBuffer);
+        }
         if (input().actionPressed("toggle_grid"))
             m_showGrid = !m_showGrid;
         if (input().actionPressed("toggle_solid"))
@@ -1607,6 +1610,14 @@ void EditorApp::drawEditorUi()
             ImGui::MenuItem("Particle Panel", "F2", &m_showParticlePanel);
             ImGui::MenuItem("Grid", nullptr, &m_showGrid);
             ImGui::MenuItem("Solid Ground", nullptr, &m_showSolid);
+            if (renderer().hasSceneBuffers())
+            {
+                bool aces = renderer().debugState().aces;
+                if (ImGui::MenuItem("ACES Tonemap", nullptr, aces))
+                    renderer().debugState().aces = !aces;
+            }
+            if (renderer().hasGBuffer())
+                ImGui::MenuItem("G-buffer Tiles", "F11", &m_showGBuffer);
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Create"))
@@ -2103,7 +2114,20 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     if (renderer().hasSceneBuffers())
     {
         renderer().bindColorTargetOnly();
-        m_tonemap.draw(cmd, renderer(), 0.0f, 1.0f);
+        const bool aces = renderer().hasSceneBuffers() && renderer().debugState().aces && renderer().debugState().lighting;
+        m_tonemap.draw(cmd, renderer(), aces ? 1.0f : 0.0f, 1.0f);
+        if (m_showGBuffer && m_debugOverlay.isValid() && renderer().hasGBuffer())
+        {
+            m_debugOverlay.beginFrame(renderer().frameIndex());
+            const LONG tile = 160;
+            const LONG pad  = 12;
+            const D3D12_CPU_DESCRIPTOR_HANDLE albedo = renderer().albedoSrvCpu();
+            const D3D12_CPU_DESCRIPTOR_HANDLE attrib = renderer().attribSrvCpu();
+            if (albedo.ptr != 0)
+                m_debugOverlay.drawColor(cmd, renderer().device(), albedo, pad, pad, tile, tile);
+            if (attrib.ptr != 0)
+                m_debugOverlay.drawColor(cmd, renderer().device(), attrib, pad + tile + 8, pad, tile, tile);
+        }
     }
 
     renderer().stats().drawCalls = draws;

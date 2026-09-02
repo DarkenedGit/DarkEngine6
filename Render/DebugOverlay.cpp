@@ -52,6 +52,7 @@ namespace Dark
         m_rootSignature.Reset();
         m_pso2D.Reset();
         m_psoArray.Reset();
+        m_psoColor.Reset();
         m_srvHeap.Reset();
         if (!device)
             return false;
@@ -109,15 +110,18 @@ namespace Dark
         ComPtr<ID3DBlob> vs;
         ComPtr<ID3DBlob> ps2d;
         ComPtr<ID3DBlob> psArr;
+        ComPtr<ID3DBlob> psColor;
         if (!compileShaderFromContent("shaders/DebugOverlay2D.hlsl", "VSMain", "vs_5_0", vs)
             || !compileShaderFromContent("shaders/DebugOverlay2D.hlsl", "PSMain", "ps_5_0", ps2d)
-            || !compileShaderFromContent("shaders/DebugOverlayArray.hlsl", "PSMain", "ps_5_0", psArr))
+            || !compileShaderFromContent("shaders/DebugOverlayArray.hlsl", "PSMain", "ps_5_0", psArr)
+            || !compileShaderFromContent("shaders/DebugOverlayColor.hlsl", "PSMain", "ps_5_0", psColor))
         {
             return false;
         }
 
         if (!createPso(device, m_rootSignature.Get(), vs.Get(), ps2d.Get(), m_pso2D, "PSO debug overlay 2D")
-            || !createPso(device, m_rootSignature.Get(), vs.Get(), psArr.Get(), m_psoArray, "PSO debug overlay array"))
+            || !createPso(device, m_rootSignature.Get(), vs.Get(), psArr.Get(), m_psoArray, "PSO debug overlay array")
+            || !createPso(device, m_rootSignature.Get(), vs.Get(), psColor.Get(), m_psoColor, "PSO debug overlay color"))
         {
             return false;
         }
@@ -173,6 +177,19 @@ namespace Dark
     {
         DebugOverlayConstants c{ slice, contrast, invert ? 1.0f : 0.0f, 0.0f };
         draw(cmd, device, m_psoArray.Get(), srcSrv, x, y, w, h, c);
+    }
+
+    void DebugOverlay::drawColor(
+        ID3D12GraphicsCommandList* cmd,
+        ID3D12Device* device,
+        D3D12_CPU_DESCRIPTOR_HANDLE srcSrv,
+        LONG x,
+        LONG y,
+        LONG w,
+        LONG h)
+    {
+        DebugOverlayConstants c{ 0.0f, 1.0f, 0.0f, 0.0f };
+        draw(cmd, device, m_psoColor.Get(), srcSrv, x, y, w, h, c);
     }
 
     void DebugOverlay::draw(

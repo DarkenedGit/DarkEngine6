@@ -35,8 +35,9 @@ namespace Dark
         m_hdrRtv      = {};
         m_albedoRtv   = {};
         m_attribRtv   = {};
-        m_hdrSrvCpu   = {};
-        m_lightingGpu = {};
+        m_hdrSrvCpu     = {};
+        m_lightingGpu   = {};
+        m_lightingCpu   = {};
         m_hdrState    = D3D12_RESOURCE_STATE_COMMON;
         m_albedoState = D3D12_RESOURCE_STATE_COMMON;
         m_attribState = D3D12_RESOURCE_STATE_COMMON;
@@ -160,6 +161,7 @@ namespace Dark
                 reset();
                 return false;
             }
+            m_lightingCpu = m_lightingHeap->GetCPUDescriptorHandleForHeapStart();
             m_lightingGpu = m_lightingHeap->GetGPUDescriptorHandleForHeapStart();
             packLightingHeap(device, depthSrvCpu);
         }
@@ -204,6 +206,22 @@ namespace Dark
             device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingDepth, m_srvIncr), depthSrvCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         if (m_shadowCpu.ptr != 0)
             device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingShadow, m_srvIncr), m_shadowCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE SceneBuffers::albedoSrvCpu() const
+    {
+        if (!m_lightingHeap)
+            return {};
+        return m_lightingCpu;
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE SceneBuffers::attribSrvCpu() const
+    {
+        if (!m_lightingHeap)
+            return {};
+        D3D12_CPU_DESCRIPTOR_HANDLE h = m_lightingCpu;
+        h.ptr += static_cast<SIZE_T>(kLightingAttrib) * m_srvIncr;
+        return h;
     }
 
     void SceneBuffers::setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu)

@@ -127,23 +127,19 @@ TEST(ApplyDeferredScenePath, MapsForwardFlag)
 {
     AppConfig on{};
     on.cliForward = true;
-    applyDeferredScenePath(on, ScenePath::HdrForward);
+    applyDeferredScenePath(on, ScenePath::HybridDeferred);
     EXPECT_EQ(on.scenePath, ScenePath::SwapChainForward);
 
     AppConfig off{};
-    applyDeferredScenePath(off, ScenePath::HdrForward);
-    EXPECT_EQ(off.scenePath, ScenePath::HdrForward);
-
-    AppConfig deferred{};
-    applyDeferredScenePath(deferred, ScenePath::HybridDeferred);
-    EXPECT_EQ(deferred.scenePath, ScenePath::HybridDeferred);
+    applyDeferredScenePath(off, ScenePath::HybridDeferred);
+    EXPECT_EQ(off.scenePath, ScenePath::HybridDeferred);
 }
 
 TEST(ApplyDeferredScenePath, ParseThenMap)
 {
     AppConfig cfg{};
     ASSERT_TRUE(parseAppCommandLine("-forward", cfg));
-    applyDeferredScenePath(cfg, ScenePath::HdrForward);
+    applyDeferredScenePath(cfg, ScenePath::HybridDeferred);
     EXPECT_TRUE(cfg.cliForward);
     EXPECT_EQ(cfg.scenePath, ScenePath::SwapChainForward);
 }

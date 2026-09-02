@@ -17,6 +17,7 @@ namespace Dark
         DebugFill fill     = DebugFill::Solid;
         bool      lighting = true;
         bool      shadows  = true;
+        bool      aces     = false; // PR3 soak: Narkowicz display curve on HDR tonemap
 
         void cycleFill();
     };
