@@ -33,12 +33,33 @@ using namespace Terrain;
 
 MeshPass liveMeshPass(const Renderer& r)
 {
-    return r.scenePath() == ScenePath::SwapChainForward ? MeshPass::ForwardUnorm : MeshPass::ForwardHdr;
+    switch (r.scenePath())
+    {
+    case ScenePath::HdrForward:
+        return MeshPass::ForwardHdr;
+    case ScenePath::HybridDeferred:
+        return MeshPass::GBuffer;
+    default:
+        return MeshPass::ForwardUnorm;
+    }
 }
 
 TerrainPass liveTerrainPass(const Renderer& r)
 {
-    return r.scenePath() == ScenePath::SwapChainForward ? TerrainPass::ForwardUnorm : TerrainPass::ForwardHdr;
+    switch (r.scenePath())
+    {
+    case ScenePath::HdrForward:
+        return TerrainPass::ForwardHdr;
+    case ScenePath::HybridDeferred:
+        return TerrainPass::GBuffer;
+    default:
+        return TerrainPass::ForwardUnorm;
+    }
+}
+
+SkyPass liveSkyPass(const Renderer& r)
+{
+    return r.scenePath() == ScenePath::HybridDeferred ? SkyPass::DeferredLast : SkyPass::ForwardFirst;
 }
 
 void mountContentRoots(AssetManager& assets)
@@ -867,6 +888,40 @@ void SandboxApp::drawHealthPacks(ID3D12GraphicsCommandList* cmd, const Matrix4f&
     }
 }
 
+void SandboxApp::drawHealthPacksGBuffer(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj)
+{
+    if (!cmd || !m_crossMesh.valid() || m_healthPackCount <= 0)
+        return;
+
+    const DebugFill fill = renderer().debugState().fill;
+    m_meshPipeline.bind(cmd, fill);
+    if (m_packMaterial && m_packMaterial->isValid())
+        m_packMaterial->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+
+    const Quaternion rot = Quaternion::FromAxisAngle(Vector3f::Y_AXIS, m_packSpin);
+    const Matrix4f   R   = rot.ToMatrix4();
+    const Matrix4f   S   = Matrix4f::ScaleMatrixXYZ(0.9f, 0.9f, 0.9f);
+    MeshGBufferConstants cb{};
+    cb.color[0] = 1.0f;
+    cb.color[1] = 0.12f;
+    cb.color[2] = 0.14f;
+    cb.color[3] = 1.0f;
+
+    for (int i = 0; i < m_healthPackCount; ++i)
+    {
+        const HealthPack& p = m_healthPacks[i];
+        if (!p.active)
+            continue;
+        const float y = p.pos.y + 0.08f * std::sinf(m_packBob * 2.6f);
+        const Matrix4f T     = Matrix4f::TranslationMatrix(p.pos.x, y, p.pos.z);
+        const Matrix4f world = S * R * T;
+        copyMatrix(cb.worldViewProj, world * viewProj);
+        copyMatrix(cb.world, world);
+        m_meshPipeline.setGBufferConstants(cmd, cb);
+        m_crossMesh.draw(cmd, fill == DebugFill::Points);
+    }
+}
+
 void SandboxApp::updateShoulderCamera()
 {
     const Entity body = possessedBody();
@@ -1091,7 +1146,7 @@ void SandboxApp::onInit()
     }
     if (!pumpBootFrame())
         return;
-    if (!m_skyPipeline.create(renderer().device(), SkyPass::ForwardFirst, renderer().sceneColorFormat()))
+    if (!m_skyPipeline.create(renderer().device(), liveSkyPass(renderer()), renderer().sceneColorFormat()))
     {
         DE_LOG_FATAL("SandboxApp: SkyPipeline create failed");
         requestQuit();
@@ -1114,6 +1169,12 @@ void SandboxApp::onInit()
     if (renderer().hasSceneBuffers() && !m_tonemap.create(renderer().device()))
     {
         DE_LOG_FATAL("SandboxApp: TonemapPipeline create failed");
+        requestQuit();
+        return;
+    }
+    if (renderer().scenePath() == ScenePath::HybridDeferred && !m_lighting.create(renderer().device()))
+    {
+        DE_LOG_FATAL("SandboxApp: DeferredLightingPipeline create failed");
         requestQuit();
         return;
     }
@@ -1282,6 +1343,7 @@ void SandboxApp::onInit()
     m_treeMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
     m_aiMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
     m_packMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
+    renderer().setShadowSrv(m_shadows.srvCpu());
 
     const float aspect = (renderer().height() > 0) ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height()) : 1.0f;
     m_viewCamera.SetLens(/*fovY*/ 1.04719755f /*60deg*/, aspect, 0.18f, 2000.0f);
@@ -1408,7 +1470,13 @@ void SandboxApp::onRender()
         m_shadows.endCapture(cmd);
     }
 
-    if (renderer().hasSceneBuffers())
+    const bool deferred = renderer().scenePath() == ScenePath::HybridDeferred;
+    if (deferred)
+    {
+        renderer().bindGBuffer();
+        renderer().clearGBuffer();
+    }
+    else if (renderer().hasSceneBuffers())
     {
         renderer().bindHdr(true);
         renderer().clearHdr();
@@ -1419,13 +1487,13 @@ void SandboxApp::onRender()
     }
 
     const Frustum3f frustum(m_viewCamera.GetViewProj());
-    m_skyPipeline.draw(cmd, m_viewCamera, m_env);
-    m_terrain.draw(
-        cmd, m_terrainPipeline, m_terrainMaterial, m_viewCamera, &frustum, &m_env, &m_shadows,
-        &renderer().debugState());
+    const DebugFill fill     = renderer().debugState().fill;
+    const Vector3f  camPos   = m_viewCamera.GetPosition();
+    const Matrix4f  viewProj = m_viewCamera.GetViewProj();
+    uint32_t        meshDraws = 0;
 
-    const DebugFill fill = renderer().debugState().fill;
-    m_meshPipeline.bind(cmd, fill);
+    if (!deferred)
+        m_skyPipeline.draw(cmd, m_viewCamera, m_env);
 
     AssetRef<Material> material = m_cubeMaterial;
     if (m_cube.valid())
@@ -1436,54 +1504,114 @@ void SandboxApp::onRender()
     if (!material)
         material = m_cubeMaterial;
 
-    if (material && material->isValid())
-        material->bind(cmd, MeshPipeline::kRootAlbedoSrv);
-    m_shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
+    if (deferred)
+    {
+        m_terrain.drawGBuffer(cmd, m_terrainPipeline, m_terrainMaterial, m_viewCamera, &frustum, &renderer().debugState());
+        m_meshPipeline.bind(cmd, fill);
+        if (material && material->isValid())
+            material->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+        MeshGBufferConstants gcb{};
+        if (material)
+            material->applySurface(gcb.color);
+        else
+        {
+            gcb.color[0] = 1.0f;
+            gcb.color[1] = 1.0f;
+            gcb.color[2] = 1.0f;
+            gcb.color[3] = 1.0f;
+        }
+        world().each<NetworkedComponent>([&](Entity e, NetworkedComponent& nc) {
+            const TransformComponent* xf = world().get<TransformComponent>(e);
+            if (!xf)
+                return;
+            const Matrix4f worldMat = makeWorldMatrix(*xf);
+            copyMatrix(gcb.worldViewProj, worldMat * viewProj);
+            copyMatrix(gcb.world, worldMat);
+            unpackRgba8(nc.colorRgba8, gcb.color);
+            m_meshPipeline.setGBufferConstants(cmd, gcb);
+            m_cubeMesh.draw(cmd, fill == DebugFill::Points);
+            ++meshDraws;
+        });
+        if (m_chaseOk)
+            m_chase.drawMeshesGBuffer(cmd, m_meshPipeline, m_viewCamera, m_cubeMesh, fill);
+        drawHealthPacksGBuffer(cmd, viewProj);
 
-    MeshFrameConstants cb{};
-    if (material)
-        material->applySurface(cb);
+        renderer().bindHdr(false);
+        renderer().clearHdr();
+        LightingConstants lc{};
+        copyMatrix(lc.invViewProj, viewProj.Inverse());
+        lc.cameraPos[0]     = camPos.x;
+        lc.cameraPos[1]     = camPos.y;
+        lc.cameraPos[2]     = camPos.z;
+        lc.fogDensity       = m_env.fogDensity();
+        lc.lightDirWS[0]    = m_env.lightDir().x;
+        lc.lightDirWS[1]    = m_env.lightDir().y;
+        lc.lightDirWS[2]    = m_env.lightDir().z;
+        lc.lighting         = renderer().debugState().lighting ? 1.0f : 0.0f;
+        lc.lightColor[0]    = m_env.lightColor().x;
+        lc.lightColor[1]    = m_env.lightColor().y;
+        lc.lightColor[2]    = m_env.lightColor().z;
+        lc.ambientColor[0]  = m_env.ambientColor().x;
+        lc.ambientColor[1]  = m_env.ambientColor().y;
+        lc.ambientColor[2]  = m_env.ambientColor().z;
+        lc.fogColor[0]      = m_env.fogColor().x;
+        lc.fogColor[1]      = m_env.fogColor().y;
+        lc.fogColor[2]      = m_env.fogColor().z;
+        m_lighting.draw(cmd, renderer(), m_shadows, lc);
+
+        renderer().bindHdr(true);
+        m_skyPipeline.draw(cmd, m_viewCamera, m_env);
+    }
     else
     {
-        cb.color[0] = 1.0f;
-        cb.color[1] = 1.0f;
-        cb.color[2] = 1.0f;
-        cb.color[3] = 1.0f;
+        m_terrain.draw(
+            cmd, m_terrainPipeline, m_terrainMaterial, m_viewCamera, &frustum, &m_env, &m_shadows,
+            &renderer().debugState());
+
+        m_meshPipeline.bind(cmd, fill);
+        if (material && material->isValid())
+            material->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+        m_shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
+
+        MeshFrameConstants cb{};
+        if (material)
+            material->applySurface(cb);
+        else
+        {
+            cb.color[0] = 1.0f;
+            cb.color[1] = 1.0f;
+            cb.color[2] = 1.0f;
+            cb.color[3] = 1.0f;
+        }
+        cb.lightDirWS[0] = m_env.lightDir().x;
+        cb.lightDirWS[1] = m_env.lightDir().y;
+        cb.lightDirWS[2] = m_env.lightDir().z;
+        cb.ambientScale  = 0.22f;
+        cb.lightColor[0] = m_env.lightColor().x;
+        cb.lightColor[1] = m_env.lightColor().y;
+        cb.lightColor[2] = m_env.lightColor().z;
+        cb.cameraPos[0]  = camPos.x;
+        cb.cameraPos[1]  = camPos.y;
+        cb.cameraPos[2]  = camPos.z;
+        cb.lighting      = renderer().debugState().lighting ? 1.0f : 0.0f;
+
+        world().each<NetworkedComponent>([&](Entity e, NetworkedComponent& nc) {
+            const TransformComponent* xf = world().get<TransformComponent>(e);
+            if (!xf)
+                return;
+            const Matrix4f worldMat = makeWorldMatrix(*xf);
+            copyMatrix(cb.worldViewProj, worldMat * viewProj);
+            copyMatrix(cb.world, worldMat);
+            unpackRgba8(nc.colorRgba8, cb.color);
+            m_meshPipeline.setConstants(cmd, cb);
+            m_cubeMesh.draw(cmd, fill == DebugFill::Points);
+            ++meshDraws;
+        });
+
+        if (m_chaseOk)
+            m_chase.drawMeshes(cmd, m_meshPipeline, m_shadows, m_viewCamera, cb, m_cubeMesh, fill);
+        drawHealthPacks(cmd, viewProj, cb);
     }
-
-    const Vector3f camPos   = m_viewCamera.GetPosition();
-    const Matrix4f viewProj = m_viewCamera.GetViewProj();
-    cb.lightDirWS[0]        = m_env.lightDir().x;
-    cb.lightDirWS[1]        = m_env.lightDir().y;
-    cb.lightDirWS[2]        = m_env.lightDir().z;
-    cb.ambientScale         = 0.22f;
-    cb.lightColor[0]        = m_env.lightColor().x;
-    cb.lightColor[1]        = m_env.lightColor().y;
-    cb.lightColor[2]        = m_env.lightColor().z;
-    cb.cameraPos[0]         = camPos.x;
-    cb.cameraPos[1]         = camPos.y;
-    cb.cameraPos[2]         = camPos.z;
-    cb.lighting             = renderer().debugState().lighting ? 1.0f : 0.0f;
-
-    uint32_t meshDraws = 0;
-    world().each<NetworkedComponent>([&](Entity e, NetworkedComponent& nc) {
-        const TransformComponent* xf = world().get<TransformComponent>(e);
-        if (!xf)
-            return;
-        const Matrix4f worldMat = makeWorldMatrix(*xf);
-        const Matrix4f wvp      = worldMat * viewProj;
-        copyMatrix(cb.worldViewProj, wvp);
-        copyMatrix(cb.world, worldMat);
-        unpackRgba8(nc.colorRgba8, cb.color);
-        m_meshPipeline.setConstants(cmd, cb);
-        m_cubeMesh.draw(cmd, fill == DebugFill::Points);
-        ++meshDraws;
-    });
-
-    if (m_chaseOk)
-        m_chase.drawMeshes(cmd, m_meshPipeline, m_shadows, m_viewCamera, cb, m_cubeMesh, fill);
-
-    drawHealthPacks(cmd, viewProj, cb);
 
     m_water.draw(cmd, m_waterPipeline, m_viewCamera, &frustum, &m_env, &renderer().debugState());
 

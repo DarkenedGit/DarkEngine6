@@ -636,7 +636,11 @@ void EditorApp::onInit()
     if (!renderer().enableSceneBuffers(config().scenePath))
         DE_LOG_ERROR(LogCategory::Render, "EditorApp: SceneBuffers enable failed; SwapChainForward");
 
-    const MeshPass meshPass = renderer().scenePath() == ScenePath::SwapChainForward ? MeshPass::ForwardUnorm : MeshPass::ForwardHdr;
+    MeshPass meshPass = MeshPass::ForwardUnorm;
+    if (renderer().scenePath() == ScenePath::HdrForward)
+        meshPass = MeshPass::ForwardHdr;
+    else if (renderer().scenePath() == ScenePath::HybridDeferred)
+        meshPass = MeshPass::GBuffer;
     if (!m_meshPipeline.create(renderer().device(), meshPass) || !m_linePipeline.create(renderer().device()))
     {
         DE_LOG_FATAL("EditorApp: mesh/line pipeline failed");
@@ -654,6 +658,12 @@ void EditorApp::onInit()
         if (!m_tonemap.create(renderer().device()))
         {
             DE_LOG_FATAL("EditorApp: TonemapPipeline create failed");
+            requestQuit();
+            return;
+        }
+        if (renderer().scenePath() == ScenePath::HybridDeferred && !m_lighting.create(renderer().device()))
+        {
+            DE_LOG_FATAL("EditorApp: DeferredLightingPipeline create failed");
             requestQuit();
             return;
         }
@@ -725,6 +735,7 @@ void EditorApp::onInit()
     assets().registerAsset(m_groundMaterial);
     m_propMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
     m_groundMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
+    renderer().setShadowSrv(m_shadows.srvCpu());
 
     const float aspect = (renderer().height() > 0)
         ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height())
@@ -1939,7 +1950,13 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         m_shadows.endCapture(cmd);
     }
 
-    if (renderer().hasSceneBuffers())
+    const bool deferred = renderer().scenePath() == ScenePath::HybridDeferred;
+    if (deferred)
+    {
+        renderer().bindGBuffer();
+        renderer().clearGBuffer();
+    }
+    else if (renderer().hasSceneBuffers())
     {
         renderer().bindHdr(true);
         renderer().clearHdr();
@@ -1954,36 +1971,51 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         m_meshPipeline.bind(cmd, fill);
         if (material && material->isValid())
             material->bind(cmd, MeshPipeline::kRootAlbedoSrv);
-        m_shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
-        MeshFrameConstants cbData{};
         const Matrix4f wvp = world * viewProj;
-        copyMatrix(cbData.worldViewProj, wvp);
-        copyMatrix(cbData.world, world);
-        cbData.color[0] = cr;
-        cbData.color[1] = cg;
-        cbData.color[2] = cb;
-        cbData.color[3] = 1.0f;
-        cbData.lightDirWS[0] = lightDir.x;
-        cbData.lightDirWS[1] = lightDir.y;
-        cbData.lightDirWS[2] = lightDir.z;
-        cbData.ambientScale  = 0.22f;
-        cbData.lightColor[0] = 1.0f;
-        cbData.lightColor[1] = 0.96f;
-        cbData.lightColor[2] = 0.88f;
-        const Vector3f cam = m_camera.GetPosition();
-        cbData.cameraPos[0] = cam.x;
-        cbData.cameraPos[1] = cam.y;
-        cbData.cameraPos[2] = cam.z;
-        cbData.lighting     = renderer().debugState().lighting ? 1.0f : 0.0f;
-        m_meshPipeline.setConstants(cmd, cbData);
+        if (deferred)
+        {
+            MeshGBufferConstants gcb{};
+            copyMatrix(gcb.worldViewProj, wvp);
+            copyMatrix(gcb.world, world);
+            gcb.color[0] = cr;
+            gcb.color[1] = cg;
+            gcb.color[2] = cb;
+            gcb.color[3] = 1.0f;
+            m_meshPipeline.setGBufferConstants(cmd, gcb);
+        }
+        else
+        {
+            m_shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
+            MeshFrameConstants cbData{};
+            copyMatrix(cbData.worldViewProj, wvp);
+            copyMatrix(cbData.world, world);
+            cbData.color[0] = cr;
+            cbData.color[1] = cg;
+            cbData.color[2] = cb;
+            cbData.color[3] = 1.0f;
+            cbData.lightDirWS[0] = lightDir.x;
+            cbData.lightDirWS[1] = lightDir.y;
+            cbData.lightDirWS[2] = lightDir.z;
+            cbData.ambientScale  = 0.22f;
+            cbData.lightColor[0] = 1.0f;
+            cbData.lightColor[1] = 0.96f;
+            cbData.lightColor[2] = 0.88f;
+            const Vector3f cam = m_camera.GetPosition();
+            cbData.cameraPos[0] = cam.x;
+            cbData.cameraPos[1] = cam.y;
+            cbData.cameraPos[2] = cam.z;
+            cbData.lighting     = renderer().debugState().lighting ? 1.0f : 0.0f;
+            m_meshPipeline.setConstants(cmd, cbData);
+        }
         mesh.draw(cmd, fill == DebugFill::Points);
     };
 
     if (m_showSolid && m_groundMesh.valid())
         drawMesh(m_groundMesh, Matrix4f{}, m_groundMaterial.get(), 0.45f, 0.48f, 0.52f);
 
-    if (m_showGrid && m_gridMesh.valid())
-    {
+    auto drawGrid = [&]() {
+        if (!m_showGrid || !m_gridMesh.valid())
+            return;
         LinePipeline& lines = m_linePipeline3D.isValid() ? m_linePipeline3D : m_linePipeline;
         lines.bind(cmd);
         LineFrameConstants lc{};
@@ -1994,7 +2026,10 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         lc.color[3] = 1.0f;
         lines.setConstants(cmd, lc);
         m_gridMesh.draw(cmd);
-    }
+    };
+
+    if (!deferred)
+        drawGrid();
 
     uint32_t draws = 0;
     for (const SceneObject& so : m_objects)
@@ -2024,6 +2059,32 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         }
         drawMesh(*mesh, makeWorldMatrix(*xf), m_propMaterial.get(), cr, cg, cb);
         ++draws;
+    }
+
+    if (deferred)
+    {
+        renderer().bindHdr(false);
+        renderer().clearHdr();
+        LightingConstants lc{};
+        copyMatrix(lc.invViewProj, viewProj.Inverse());
+        const Vector3f cam = m_camera.GetPosition();
+        lc.cameraPos[0]    = cam.x;
+        lc.cameraPos[1]    = cam.y;
+        lc.cameraPos[2]    = cam.z;
+        lc.fogDensity      = 0.0f;
+        lc.lightDirWS[0]   = lightDir.x;
+        lc.lightDirWS[1]   = lightDir.y;
+        lc.lightDirWS[2]   = lightDir.z;
+        lc.lighting        = renderer().debugState().lighting ? 1.0f : 0.0f;
+        lc.lightColor[0]   = 1.0f;
+        lc.lightColor[1]   = 0.96f;
+        lc.lightColor[2]   = 0.88f;
+        lc.ambientColor[0] = 0.22f;
+        lc.ambientColor[1] = 0.22f;
+        lc.ambientColor[2] = 0.22f;
+        m_lighting.draw(cmd, renderer(), m_shadows, lc);
+        renderer().bindHdr(true);
+        drawGrid();
     }
 
     // Particles (after opaque, depth write off)

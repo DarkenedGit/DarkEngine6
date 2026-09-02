@@ -108,10 +108,12 @@ namespace Dark
         void bindHdr(bool bindDepth);
         void clearGBuffer();
         void clearHdr();
+        void setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
 
         D3D12_CPU_DESCRIPTOR_HANDLE hdrSrvCpu() const;
         D3D12_GPU_DESCRIPTOR_HANDLE lightingTableGpu() const;
         ID3D12DescriptorHeap*       lightingHeap() const;
+        bool hasGBuffer() const;
 
         DebugRenderState&       debugState() { return m_debugState; }
         const DebugRenderState& debugState() const { return m_debugState; }

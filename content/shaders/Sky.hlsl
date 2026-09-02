@@ -31,15 +31,25 @@ struct PSInput
     float2 clipXY   : TEXCOORD0;
 };
 
-PSInput VSMain(uint id : SV_VertexID)
+PSInput VSCommon(uint id, float clipZ)
 {
     float2 pos = float2((id << 1) & 2, id & 2) * 2.0f - 1.0f;
     // Standard fullscreen triangle: (-1,-1), (-1,3), (3,-1) via vertex id 0,1,2
     // The bit trick above gives (-1,-1), (3,-1), (-1,3) — also covers the screen.
     PSInput o;
-    o.position = float4(pos, 0.0f, 1.0f);
+    o.position = float4(pos, clipZ, 1.0f);
     o.clipXY   = pos;
     return o;
+}
+
+PSInput VSMain(uint id : SV_VertexID)
+{
+    return VSCommon(id, 0.0f);
+}
+
+PSInput VSMainDeferred(uint id : SV_VertexID)
+{
+    return VSCommon(id, 1.0f);
 }
 
 float Hash21(float2 p)

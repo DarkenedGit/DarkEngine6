@@ -7,6 +7,7 @@
 #include "Render/WaterPipeline.h"
 #include "Render/SkyPipeline.h"
 #include "Render/TonemapPipeline.h"
+#include "Render/DeferredLightingPipeline.h"
 #include "Render/ShadowSystem.h"
 #include "Render/DebugOverlay.h"
 #include "Render/Camera3D.h"
@@ -49,6 +50,7 @@ private:
     void placeHealthPacks();
     void updateHealthPacks(float dt);
     void drawHealthPacks(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, Dark::MeshFrameConstants& cb);
+    void drawHealthPacksGBuffer(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj);
     void updateShoulderCamera();
     Dark::Entity possessedBody();
     void spawnOwnedPawn(Dark::ClientId owner, float offsetX);
@@ -69,7 +71,8 @@ private:
     Dark::TerrainPipeline   m_terrainPipeline;
     Dark::WaterPipeline     m_waterPipeline;
     Dark::SkyPipeline       m_skyPipeline;
-    Dark::TonemapPipeline   m_tonemap;
+    Dark::TonemapPipeline           m_tonemap;
+    Dark::DeferredLightingPipeline  m_lighting;
     Dark::ShadowSystem      m_shadows;
     Dark::DebugOverlay      m_debugOverlay;
     Dark::Camera3D          m_viewCamera;

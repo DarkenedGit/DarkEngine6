@@ -16,12 +16,23 @@ namespace Dark
     {
         ForwardUnorm = 0,
         ForwardHdr,
+        GBuffer,
     };
 
     inline DXGI_FORMAT terrainPassColorFormat(TerrainPass pass)
     {
         return pass == TerrainPass::ForwardHdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
     }
+
+    struct TerrainGBufferConstants
+    {
+        float worldViewProj[16];
+        float world[16];
+        float color[4];
+        float layerTiling[4];
+    };
+
+    static_assert(sizeof(TerrainGBufferConstants) == 40 * sizeof(float), "gbuffer terrain CB");
 
     // Root constants for Terrain.hlsl. Must match the HLSL cbuffer packing
     // (float3+float share a float4). 57 dwords, lighting at byte 224 = cb0[14].x.
@@ -61,6 +72,7 @@ namespace Dark
 
         void bind(ID3D12GraphicsCommandList* cmd, DebugFill fill = DebugFill::Solid) const;
         void setConstants(ID3D12GraphicsCommandList* cmd, const TerrainFrameConstants& constants) const;
+        void setGBufferConstants(ID3D12GraphicsCommandList* cmd, const TerrainGBufferConstants& constants) const;
 
         bool isValid() const
         {

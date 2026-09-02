@@ -20,7 +20,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR lpCmdLine, int)
     cfg.showSplash  = true;
     Dark::parseNetCommandLine(lpCmdLine, cfg);
     Dark::parseAppCommandLine(lpCmdLine, cfg);
-    Dark::applyDeferredScenePath(cfg, Dark::ScenePath::HdrForward);
+    Dark::applyDeferredScenePath(cfg, Dark::ScenePath::HybridDeferred);
 
     SandboxApp app{cfg};
     if (!app.initOk())

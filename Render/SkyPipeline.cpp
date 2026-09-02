@@ -34,11 +34,7 @@ bool SkyPipeline::create(ID3D12Device* device, SkyPass pass, DXGI_FORMAT colorFo
         DE_LOG_ERROR(LogCategory::Render, "SkyPipeline::create: null device");
         return false;
     }
-    if (pass != SkyPass::ForwardFirst)
-    {
-        DE_LOG_ERROR(LogCategory::Render, "SkyPipeline::create: DeferredLast is PR2");
-        return false;
-    }
+    const bool deferredLast = pass == SkyPass::DeferredLast;
 
     D3D12_ROOT_PARAMETER rootParams[1]{};
     rootParams[kRootConstants].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
@@ -74,7 +70,8 @@ bool SkyPipeline::create(ID3D12Device* device, SkyPass pass, DXGI_FORMAT colorFo
 
     ComPtr<ID3DBlob> vs;
     ComPtr<ID3DBlob> ps;
-    if (!compileShaderFromContent("shaders/Sky.hlsl", "VSMain", "vs_5_0", vs)
+    const char* vsEntry = deferredLast ? "VSMainDeferred" : "VSMain";
+    if (!compileShaderFromContent("shaders/Sky.hlsl", vsEntry, "vs_5_0", vs)
         || !compileShaderFromContent("shaders/Sky.hlsl", "PSMain", "ps_5_0", ps))
     {
         return false;
@@ -91,9 +88,9 @@ bool SkyPipeline::create(ID3D12Device* device, SkyPass pass, DXGI_FORMAT colorFo
     psoDesc.RasterizerState.CullMode        = D3D12_CULL_MODE_NONE;
     psoDesc.RasterizerState.DepthClipEnable = TRUE;
 
-    psoDesc.DepthStencilState.DepthEnable    = FALSE;
+    psoDesc.DepthStencilState.DepthEnable    = deferredLast ? TRUE : FALSE;
     psoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-    psoDesc.DepthStencilState.DepthFunc      = D3D12_COMPARISON_FUNC_ALWAYS;
+    psoDesc.DepthStencilState.DepthFunc      = deferredLast ? D3D12_COMPARISON_FUNC_EQUAL : D3D12_COMPARISON_FUNC_ALWAYS;
 
     psoDesc.InputLayout           = { nullptr, 0 };
     psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
@@ -110,7 +107,7 @@ bool SkyPipeline::create(ID3D12Device* device, SkyPass pass, DXGI_FORMAT colorFo
         return false;
     }
 
-    DE_LOG_INFO(LogCategory::Render, "SkyPipeline: ready (atmosphere + weather)");
+    DE_LOG_INFO(LogCategory::Render, "SkyPipeline: ready ({})", deferredLast ? "DeferredLast" : "ForwardFirst");
     return true;
 }
 

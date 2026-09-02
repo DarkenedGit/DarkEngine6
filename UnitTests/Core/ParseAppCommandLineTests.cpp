@@ -133,6 +133,10 @@ TEST(ApplyDeferredScenePath, MapsForwardFlag)
     AppConfig off{};
     applyDeferredScenePath(off, ScenePath::HdrForward);
     EXPECT_EQ(off.scenePath, ScenePath::HdrForward);
+
+    AppConfig deferred{};
+    applyDeferredScenePath(deferred, ScenePath::HybridDeferred);
+    EXPECT_EQ(deferred.scenePath, ScenePath::HybridDeferred);
 }
 
 TEST(ApplyDeferredScenePath, ParseThenMap)

@@ -295,6 +295,44 @@ void TerrainWorld::draw(
     }
 }
 
+void TerrainWorld::drawGBuffer(
+    ID3D12GraphicsCommandList* cmd,
+    const TerrainPipeline& pipeline,
+    const TerrainMaterial& material,
+    const Camera3D& camera,
+    const Frustum3f* frustum,
+    const DebugRenderState* debug) const
+{
+    m_lastDrawCalls = 0;
+    m_lastTriangles = 0;
+    if (!cmd || !pipeline.isValid() || !material.isValid())
+        return;
+
+    const DebugFill fill = debug ? debug->fill : DebugFill::Solid;
+    pipeline.bind(cmd, fill);
+    material.bind(cmd, TerrainPipeline::kRootSrvTable);
+
+    const Matrix4f world    = Matrix4f::IDENTITY;
+    const Matrix4f viewProj = camera.GetViewProj();
+    TerrainGBufferConstants cb{};
+    CopyMatrix(cb.worldViewProj, world * viewProj);
+    CopyMatrix(cb.world, world);
+    material.applySurface(cb);
+    pipeline.setGBufferConstants(cmd, cb);
+
+    const bool pointList = fill == DebugFill::Points;
+    for (const TerrainChunk& c : m_chunks)
+    {
+        if (!c.gpu.valid())
+            continue;
+        if (frustum && !frustum->Intersects(c.bounds))
+            continue;
+        c.gpu.draw(cmd, pointList);
+        ++m_lastDrawCalls;
+        m_lastTriangles += c.gpu.indexCount() / 3u;
+    }
+}
+
 void TerrainWorld::drawDepth(ID3D12GraphicsCommandList* cmd, const Frustum3f* casterFrustum) const
 {
     if (!cmd)

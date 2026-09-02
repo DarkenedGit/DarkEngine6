@@ -77,6 +77,14 @@ public:
         const ShadowSystem* shadows = nullptr,
         const DebugRenderState* debug = nullptr) const;
 
+    void drawGBuffer(
+        ID3D12GraphicsCommandList* cmd,
+        const TerrainPipeline& pipeline,
+        const TerrainMaterial& material,
+        const Camera3D& camera,
+        const Math::Frustum3f* frustum = nullptr,
+        const DebugRenderState* debug = nullptr) const;
+
     // Depth-only casters. Caller binds ShadowPipeline and sets light WVP.
     // Pass the cascade clip frustum so chunks outside this slice are skipped
     // (otherwise every cascade is a sun's-eye view of the whole terrain).

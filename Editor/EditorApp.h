@@ -6,6 +6,7 @@
 #include "Render/MeshPipeline.h"
 #include "Render/LinePipeline.h"
 #include "Render/TonemapPipeline.h"
+#include "Render/DeferredLightingPipeline.h"
 #include "Render/Camera3D.h"
 #include "Render/Camera2D.h"
 #include "Render/ShadowSystem.h"
@@ -115,7 +116,8 @@ private:
     Dark::MeshPipeline    m_meshPipeline;
     Dark::LinePipeline    m_linePipeline;
     Dark::LinePipeline    m_linePipeline3D;
-    Dark::TonemapPipeline m_tonemap;
+    Dark::TonemapPipeline          m_tonemap;
+    Dark::DeferredLightingPipeline m_lighting;
     Dark::ShadowSystem    m_shadows;
 
     Dark::Geometry::Mesh m_cubeMesh;

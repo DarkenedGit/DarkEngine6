@@ -15,12 +15,22 @@ namespace Dark
     {
         ForwardUnorm = 0,
         ForwardHdr,
+        GBuffer,
     };
 
     inline DXGI_FORMAT meshPassColorFormat(MeshPass pass)
     {
         return pass == MeshPass::ForwardHdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
     }
+
+    struct MeshGBufferConstants
+    {
+        float worldViewProj[16];
+        float world[16];
+        float color[4];
+    };
+
+    static_assert(sizeof(MeshGBufferConstants) == 36 * sizeof(float), "gbuffer mesh CB");
 
     // Root constants layout (all 32-bit slots), matches BasicMesh.hlsl cbuffer.
     struct MeshFrameConstants
@@ -55,6 +65,7 @@ namespace Dark
 
         void bind(ID3D12GraphicsCommandList* cmd, DebugFill fill = DebugFill::Solid) const;
         void setConstants(ID3D12GraphicsCommandList* cmd, const MeshFrameConstants& constants) const;
+        void setGBufferConstants(ID3D12GraphicsCommandList* cmd, const MeshGBufferConstants& constants) const;
 
         bool isValid() const
         {

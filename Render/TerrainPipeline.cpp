@@ -33,6 +33,8 @@ namespace Dark
             return false;
         }
 
+        const bool gbuffer = pass == TerrainPass::GBuffer;
+
         D3D12_DESCRIPTOR_RANGE srvRange{};
         srvRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
         srvRange.NumDescriptors                    = kSrvCount;
@@ -45,17 +47,13 @@ namespace Dark
         rootParams[kRootConstants].ShaderVisibility         = D3D12_SHADER_VISIBILITY_ALL;
         rootParams[kRootConstants].Constants.ShaderRegister = 0;
         rootParams[kRootConstants].Constants.RegisterSpace  = 0;
-        rootParams[kRootConstants].Constants.Num32BitValues = static_cast<UINT>(sizeof(TerrainFrameConstants) / 4);
+        rootParams[kRootConstants].Constants.Num32BitValues =
+            gbuffer ? static_cast<UINT>(sizeof(TerrainGBufferConstants) / 4) : static_cast<UINT>(sizeof(TerrainFrameConstants) / 4);
 
         rootParams[kRootSrvTable].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         rootParams[kRootSrvTable].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
         rootParams[kRootSrvTable].DescriptorTable.NumDescriptorRanges = 1;
         rootParams[kRootSrvTable].DescriptorTable.pDescriptorRanges   = &srvRange;
-
-        rootParams[kRootShadowCbv].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
-        rootParams[kRootShadowCbv].ShaderVisibility          = D3D12_SHADER_VISIBILITY_PIXEL;
-        rootParams[kRootShadowCbv].Descriptor.ShaderRegister = 1;
-        rootParams[kRootShadowCbv].Descriptor.RegisterSpace  = 0;
 
         D3D12_STATIC_SAMPLER_DESC samps[2]{};
         samps[0].Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
@@ -76,10 +74,22 @@ namespace Dark
         samps[1].ShaderRegister   = 1;
         samps[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
+        UINT paramCount = 2;
+        UINT sampCount  = 1;
+        if (!gbuffer)
+        {
+            rootParams[kRootShadowCbv].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
+            rootParams[kRootShadowCbv].ShaderVisibility          = D3D12_SHADER_VISIBILITY_PIXEL;
+            rootParams[kRootShadowCbv].Descriptor.ShaderRegister = 1;
+            rootParams[kRootShadowCbv].Descriptor.RegisterSpace  = 0;
+            paramCount = 3;
+            sampCount  = 2;
+        }
+
         D3D12_ROOT_SIGNATURE_DESC rsDesc{};
-        rsDesc.NumParameters     = 3;
+        rsDesc.NumParameters     = paramCount;
         rsDesc.pParameters       = rootParams;
-        rsDesc.NumStaticSamplers = 2;
+        rsDesc.NumStaticSamplers = sampCount;
         rsDesc.pStaticSamplers   = samps;
         rsDesc.Flags             = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
@@ -97,9 +107,10 @@ namespace Dark
             return false;
         }
 
+        const char* shader = gbuffer ? "shaders/TerrainGBuffer.hlsl" : "shaders/Terrain.hlsl";
         ComPtr<ID3DBlob> vs;
         ComPtr<ID3DBlob> ps;
-        if (!compileShaderFromContent("shaders/Terrain.hlsl", "VSMain", "vs_5_0", vs) || !compileShaderFromContent("shaders/Terrain.hlsl", "PSMain", "ps_5_0", ps))
+        if (!compileShaderFromContent(shader, "VSMain", "vs_5_0", vs) || !compileShaderFromContent(shader, "PSMain", "ps_5_0", ps))
         {
             return false;
         }
@@ -115,6 +126,7 @@ namespace Dark
         psoDesc.VS                                               = { vs->GetBufferPointer(), vs->GetBufferSize() };
         psoDesc.PS                                               = { ps->GetBufferPointer(), ps->GetBufferSize() };
         psoDesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+        psoDesc.BlendState.RenderTarget[1].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
         psoDesc.SampleMask                                       = UINT_MAX;
 
         psoDesc.RasterizerState.FillMode              = D3D12_FILL_MODE_SOLID;
@@ -129,8 +141,17 @@ namespace Dark
 
         psoDesc.InputLayout           = { inputLayout, _countof(inputLayout) };
         psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-        psoDesc.NumRenderTargets      = 1;
-        psoDesc.RTVFormats[0]         = terrainPassColorFormat(pass);
+        if (gbuffer)
+        {
+            psoDesc.NumRenderTargets = 2;
+            psoDesc.RTVFormats[0]    = DXGI_FORMAT_R8G8B8A8_UNORM;
+            psoDesc.RTVFormats[1]    = DXGI_FORMAT_R8G8B8A8_UNORM;
+        }
+        else
+        {
+            psoDesc.NumRenderTargets = 1;
+            psoDesc.RTVFormats[0]    = terrainPassColorFormat(pass);
+        }
         psoDesc.DSVFormat             = DXGI_FORMAT_D32_FLOAT;
         psoDesc.SampleDesc            = { 1, 0 };
 
@@ -140,8 +161,8 @@ namespace Dark
             return false;
         }
 
-        DE_LOG_INFO(LogCategory::Render, "TerrainPipeline: ready (4 layers + splat, solid/wire/point, {})",
-                    pass == TerrainPass::ForwardHdr ? "HDR16" : "UNORM");
+        const char* passName = pass == TerrainPass::GBuffer ? "GBuffer" : (pass == TerrainPass::ForwardHdr ? "HDR16" : "UNORM");
+        DE_LOG_INFO(LogCategory::Render, "TerrainPipeline: ready (4 layers + splat, solid/wire/point, {})", passName);
         return true;
     }
 
@@ -159,6 +180,13 @@ namespace Dark
         if (!cmd || !m_rootSignature)
             return;
         cmd->SetGraphicsRoot32BitConstants(kRootConstants, static_cast<UINT>(sizeof(TerrainFrameConstants) / 4), &constants, 0);
+    }
+
+    void TerrainPipeline::setGBufferConstants(ID3D12GraphicsCommandList* cmd, const TerrainGBufferConstants& constants) const
+    {
+        if (!cmd || !m_rootSignature)
+            return;
+        cmd->SetGraphicsRoot32BitConstants(kRootConstants, static_cast<UINT>(sizeof(TerrainGBufferConstants) / 4), &constants, 0);
     }
 
 } // namespace Dark
