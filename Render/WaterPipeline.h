@@ -45,7 +45,7 @@ public:
 
     WaterPipeline() = default;
 
-    bool create(ID3D12Device* device);
+    bool create(ID3D12Device* device, DXGI_FORMAT colorFormat = DXGI_FORMAT_R8G8B8A8_UNORM);
 
     void bind(ID3D12GraphicsCommandList* cmd, DebugFill fill = DebugFill::Solid) const;
     void setConstants(ID3D12GraphicsCommandList* cmd, const WaterFrameConstants& constants) const;

@@ -1,15 +1,18 @@
 #pragma once
 #include "Render/DebugRenderState.h"
+#include "Render/ScenePath.h"
 
 #include <cstdint>
 #include <d3d12.h>
 #include <dxgi1_6.h>
+#include <memory>
 #include <wrl/client.h>
 
 namespace Dark
 {
 
     class Window;
+    class SceneBuffers;
 
     using Microsoft::WRL::ComPtr;
 
@@ -96,6 +99,20 @@ namespace Dark
         const D3D12_VIEWPORT& viewport() const { return m_viewport; }
         const D3D12_RECT&     scissor() const { return m_scissor; }
 
+        bool      enableSceneBuffers(ScenePath path);
+        ScenePath scenePath() const { return m_scenePath; }
+        bool      hasSceneBuffers() const;
+        DXGI_FORMAT sceneColorFormat() const;
+
+        void bindGBuffer();
+        void bindHdr(bool bindDepth);
+        void clearGBuffer();
+        void clearHdr();
+
+        D3D12_CPU_DESCRIPTOR_HANDLE hdrSrvCpu() const;
+        D3D12_GPU_DESCRIPTOR_HANDLE lightingTableGpu() const;
+        ID3D12DescriptorHeap*       lightingHeap() const;
+
         DebugRenderState&       debugState() { return m_debugState; }
         const DebugRenderState& debugState() const { return m_debugState; }
 
@@ -134,8 +151,11 @@ namespace Dark
 
         FrameStats       m_stats{};
         float            m_clearColor[4]{ 0.05f, 0.05f, 0.07f, 1.0f };
-        bool             m_valid = false;
-        bool             m_vsync = true;
+        bool             m_valid           = false;
+        bool             m_vsync           = true;
+        bool             m_frameSubmitted  = false;
+        ScenePath        m_scenePath       = ScenePath::SwapChainForward;
+        std::unique_ptr<SceneBuffers> m_sceneBuffers;
         DebugRenderState m_debugState{};
     };
 

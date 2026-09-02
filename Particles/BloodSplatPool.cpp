@@ -162,7 +162,7 @@ namespace Dark
         m_next     = 0;
         m_active   = 0;
         m_seed     = 17;
-        if (!m_pipe.create(renderer.device(), false, -4, -3.0f))
+        if (!m_pipe.create(renderer.device(), false, -4, -3.0f, renderer.sceneColorFormat()))
         {
             DE_LOG_ERROR(LogCategory::Render, "BloodSplatPool: pipeline failed");
             return false;

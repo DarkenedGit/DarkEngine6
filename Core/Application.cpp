@@ -234,8 +234,15 @@ namespace Dark
                 cfg.cliNoSplash = true;
             else if (tokenEq(tok, "-splash"))
                 cfg.cliSplash = true;
+            else if (tokenEq(tok, "-forward"))
+                cfg.cliForward = true;
         }
         return true;
+    }
+
+    void applyDeferredScenePath(AppConfig& cfg, ScenePath whenEnabled)
+    {
+        cfg.scenePath = cfg.cliForward ? ScenePath::SwapChainForward : whenEnabled;
     }
 
     bool shouldShowSplash(const AppConfig& cfg, bool jsonEnabled)
@@ -553,7 +560,13 @@ namespace Dark
             m_input.beginFrame();
             m_window.pollEvents();
             if (m_window.takeSizeChanged())
-                m_renderer.resize(m_window.width(), m_window.height());
+            {
+                if (!m_renderer.resize(m_window.width(), m_window.height()))
+                {
+                    DE_LOG_ERROR(LogCategory::Render, "resize failed; stopping");
+                    break;
+                }
+            }
             m_input.updateDevices();
 
             const float now = m_window.getTime();
@@ -588,6 +601,9 @@ namespace Dark
             t0 = m_window.getTime();
             onRender();
             m_debug.perf().add(PerfSlot::Render, m_window.getTime() - t0);
+
+            if (!m_running)
+                break;
 
             t0 = m_window.getTime();
             if (!m_renderer.present())

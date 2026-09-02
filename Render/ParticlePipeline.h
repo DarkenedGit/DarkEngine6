@@ -26,7 +26,8 @@ namespace Dark
 
         ParticlePipeline() = default;
 
-        bool create(ID3D12Device* device, bool additive, int depthBias = 0, float slopeScaledDepthBias = 0.0f);
+        bool create(ID3D12Device* device, bool additive, int depthBias = 0, float slopeScaledDepthBias = 0.0f,
+                    DXGI_FORMAT colorFormat = DXGI_FORMAT_R8G8B8A8_UNORM);
         void bind(ID3D12GraphicsCommandList* cmd) const;
         void setConstants(ID3D12GraphicsCommandList* cmd, const ParticleFrameConstants& c) const;
 

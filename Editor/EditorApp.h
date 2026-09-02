@@ -5,6 +5,7 @@
 #include "Geometry/LineMesh.h"
 #include "Render/MeshPipeline.h"
 #include "Render/LinePipeline.h"
+#include "Render/TonemapPipeline.h"
 #include "Render/Camera3D.h"
 #include "Render/Camera2D.h"
 #include "Render/ShadowSystem.h"
@@ -111,9 +112,11 @@ private:
 
     static float snap(float v, float grid);
 
-    Dark::MeshPipeline m_meshPipeline;
-    Dark::LinePipeline m_linePipeline;
-    Dark::ShadowSystem m_shadows;
+    Dark::MeshPipeline    m_meshPipeline;
+    Dark::LinePipeline    m_linePipeline;
+    Dark::LinePipeline    m_linePipeline3D;
+    Dark::TonemapPipeline m_tonemap;
+    Dark::ShadowSystem    m_shadows;
 
     Dark::Geometry::Mesh m_cubeMesh;
     Dark::Geometry::Mesh m_sphereMesh;

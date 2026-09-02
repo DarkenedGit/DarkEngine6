@@ -120,7 +120,7 @@ namespace Dark
         pso.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
         pso.NumRenderTargets      = 1;
         pso.RTVFormats[0]         = DXGI_FORMAT_R8G8B8A8_UNORM;
-        pso.DSVFormat             = DXGI_FORMAT_D32_FLOAT;
+        pso.DSVFormat             = enableDepth ? DXGI_FORMAT_D32_FLOAT : DXGI_FORMAT_UNKNOWN;
         pso.SampleDesc            = { 1, 0 };
 
         if (FailedHr(device->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&m_pso)), "CreateGraphicsPipelineState (sprite)"))

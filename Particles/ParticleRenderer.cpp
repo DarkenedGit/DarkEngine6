@@ -33,7 +33,8 @@ namespace Dark
     bool ParticleRenderer::create(Renderer& renderer)
     {
         m_renderer = &renderer;
-        if (!m_pipeAdditive.create(renderer.device(), true) || !m_pipeAlpha.create(renderer.device(), false))
+        const DXGI_FORMAT colorFormat = renderer.sceneColorFormat();
+        if (!m_pipeAdditive.create(renderer.device(), true, 0, 0.0f, colorFormat) || !m_pipeAlpha.create(renderer.device(), false, 0, 0.0f, colorFormat))
         {
             DE_LOG_ERROR("ParticleRenderer: pipeline create failed");
             return false;

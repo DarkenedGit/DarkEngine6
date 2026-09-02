@@ -51,6 +51,8 @@ TEST(ParseAppCommandLine, EmptyAndNullLeaveFlags)
     EXPECT_TRUE(parseAppCommandLine(nullptr, a));
     EXPECT_FALSE(a.cliNoSplash);
     EXPECT_FALSE(a.cliSplash);
+    EXPECT_FALSE(a.cliForward);
+    EXPECT_EQ(a.scenePath, ScenePath::SwapChainForward);
     EXPECT_FALSE(a.showSplash);
 
     AppConfig b{};
@@ -111,6 +113,35 @@ TEST(ParseAppCommandLine, DoesNotTouchNetFields)
     EXPECT_EQ(cfg.netJoin.port, 2);
     EXPECT_TRUE(cfg.cliNoSplash);
     EXPECT_TRUE(cfg.cliSplash);
+}
+
+TEST(ParseAppCommandLine, ForwardFlag)
+{
+    AppConfig cfg{};
+    ASSERT_TRUE(parseAppCommandLine("-forward", cfg));
+    EXPECT_TRUE(cfg.cliForward);
+    EXPECT_EQ(cfg.scenePath, ScenePath::SwapChainForward);
+}
+
+TEST(ApplyDeferredScenePath, MapsForwardFlag)
+{
+    AppConfig on{};
+    on.cliForward = true;
+    applyDeferredScenePath(on, ScenePath::HdrForward);
+    EXPECT_EQ(on.scenePath, ScenePath::SwapChainForward);
+
+    AppConfig off{};
+    applyDeferredScenePath(off, ScenePath::HdrForward);
+    EXPECT_EQ(off.scenePath, ScenePath::HdrForward);
+}
+
+TEST(ApplyDeferredScenePath, ParseThenMap)
+{
+    AppConfig cfg{};
+    ASSERT_TRUE(parseAppCommandLine("-forward", cfg));
+    applyDeferredScenePath(cfg, ScenePath::HdrForward);
+    EXPECT_TRUE(cfg.cliForward);
+    EXPECT_EQ(cfg.scenePath, ScenePath::SwapChainForward);
 }
 
 TEST(ParseAppCommandLine, TogetherWithParseNet)

@@ -19,7 +19,7 @@ namespace Dark
 
     } // namespace
 
-    bool ParticlePipeline::create(ID3D12Device* device, bool additive, int depthBias, float slopeScaledDepthBias)
+    bool ParticlePipeline::create(ID3D12Device* device, bool additive, int depthBias, float slopeScaledDepthBias, DXGI_FORMAT colorFormat)
     {
         m_rootSignature.Reset();
         m_pso.Reset();
@@ -118,7 +118,7 @@ namespace Dark
         pso.InputLayout           = { layout, _countof(layout) };
         pso.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
         pso.NumRenderTargets      = 1;
-        pso.RTVFormats[0]         = DXGI_FORMAT_R8G8B8A8_UNORM;
+        pso.RTVFormats[0]         = colorFormat;
         pso.DSVFormat             = DXGI_FORMAT_D32_FLOAT;
         pso.SampleDesc            = { 1, 0 };
 

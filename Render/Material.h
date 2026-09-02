@@ -44,6 +44,7 @@ namespace Dark
         void setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
 
         // Write surface tint into frame constants (color slot used by BasicMesh).
+        void applySurface(float color[4]) const;
         void applySurface(MeshFrameConstants& constants) const;
 
         void setBaseColor(float r, float g, float b, float a = 1.0f);

@@ -20,7 +20,7 @@ namespace Dark
 
     } // namespace
 
-    bool TerrainPipeline::create(ID3D12Device* device)
+    bool TerrainPipeline::create(ID3D12Device* device, TerrainPass pass)
     {
         m_rootSignature.Reset();
         m_psoSolid.Reset();
@@ -130,7 +130,7 @@ namespace Dark
         psoDesc.InputLayout           = { inputLayout, _countof(inputLayout) };
         psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
         psoDesc.NumRenderTargets      = 1;
-        psoDesc.RTVFormats[0]         = DXGI_FORMAT_R8G8B8A8_UNORM;
+        psoDesc.RTVFormats[0]         = terrainPassColorFormat(pass);
         psoDesc.DSVFormat             = DXGI_FORMAT_D32_FLOAT;
         psoDesc.SampleDesc            = { 1, 0 };
 
@@ -140,7 +140,8 @@ namespace Dark
             return false;
         }
 
-        DE_LOG_INFO(LogCategory::Render, "TerrainPipeline: ready (4 layers + splat, solid/wire/point)");
+        DE_LOG_INFO(LogCategory::Render, "TerrainPipeline: ready (4 layers + splat, solid/wire/point, {})",
+                    pass == TerrainPass::ForwardHdr ? "HDR16" : "UNORM");
         return true;
     }
 

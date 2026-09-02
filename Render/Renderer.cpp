@@ -1,4 +1,5 @@
 #include "Render/Renderer.h"
+#include "Render/SceneBuffers.h"
 #include "Core/Window.h"
 #include "Core/Log.h"
 
@@ -319,6 +320,16 @@ namespace Dark
             return false;
         }
 
+        if (m_sceneBuffers)
+        {
+            if (!m_sceneBuffers->createHdr(m_device.Get(), m_width, m_height))
+            {
+                DE_LOG_ERROR(LogCategory::Render, "Renderer: SceneBuffers resize failed");
+                m_sceneBuffers.reset();
+                return false;
+            }
+        }
+
         updateViewport();
         DE_LOG_INFO(LogCategory::Render, "Renderer: resized to {}x{}", m_width, m_height);
         return true;
@@ -326,7 +337,8 @@ namespace Dark
 
     bool Renderer::beginFrame()
     {
-        m_stats = {};
+        m_stats          = {};
+        m_frameSubmitted = false;
 
         if (!m_valid || !m_device || !m_commandList || !m_fence)
         {
@@ -400,6 +412,9 @@ namespace Dark
     {
         if (!m_commandList)
             return;
+        if (m_sceneBuffers)
+            m_sceneBuffers->transitionHdr(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
         D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
         rtv.ptr += static_cast<SIZE_T>(m_frameIndex) * m_rtvDescriptorSize;
         m_commandList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
@@ -442,6 +457,7 @@ namespace Dark
 
         ID3D12CommandList* lists[] = { m_commandList.Get() };
         m_commandQueue->ExecuteCommandLists(1, lists);
+        m_frameSubmitted = true;
         return true;
     }
 
@@ -450,6 +466,11 @@ namespace Dark
         if (!m_valid || !m_swapChain)
         {
             DE_LOG_ERROR(LogCategory::Render, "Present: renderer not initialized");
+            return false;
+        }
+        if (!m_frameSubmitted)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Present: no frame submitted");
             return false;
         }
 
@@ -512,6 +533,113 @@ namespace Dark
         }
 
         m_fenceValues[m_frameIndex] = fenceValue + 1;
+    }
+
+    bool Renderer::hasSceneBuffers() const
+    {
+        return m_sceneBuffers && m_sceneBuffers->valid();
+    }
+
+    DXGI_FORMAT Renderer::sceneColorFormat() const
+    {
+        return hasSceneBuffers() ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
+    }
+
+    bool Renderer::enableSceneBuffers(ScenePath path)
+    {
+        if (!m_valid || !m_device)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "enableSceneBuffers: device not initialized");
+            return false;
+        }
+
+        if (path == ScenePath::SwapChainForward)
+        {
+            if (m_sceneBuffers)
+            {
+                waitForGpu();
+                m_sceneBuffers.reset();
+            }
+            m_scenePath = ScenePath::SwapChainForward;
+            return true;
+        }
+
+        if (m_sceneBuffers && m_scenePath == path && m_sceneBuffers->matches(m_width, m_height))
+            return true;
+
+        waitForGpu();
+        auto buffers = std::make_unique<SceneBuffers>();
+        if (!buffers->createHdr(m_device.Get(), m_width, m_height))
+        {
+            DE_LOG_ERROR(LogCategory::Render, "enableSceneBuffers: HDR create failed");
+            m_sceneBuffers.reset();
+            m_scenePath = ScenePath::SwapChainForward;
+            return false;
+        }
+        m_sceneBuffers = std::move(buffers);
+        m_scenePath    = path;
+        DE_LOG_INFO(LogCategory::Render, "enableSceneBuffers: path={} HDR {}x{}", static_cast<unsigned>(path), m_width, m_height);
+        return true;
+    }
+
+    void Renderer::bindGBuffer()
+    {
+        DE_LOG_ERROR(LogCategory::Render, "bindGBuffer: G-buffer not allocated (PR2)");
+    }
+
+    void Renderer::bindHdr(bool bindDepth)
+    {
+        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->valid())
+        {
+            DE_LOG_ERROR(LogCategory::Render, "bindHdr: no SceneBuffers");
+            return;
+        }
+
+        m_sceneBuffers->transitionHdr(m_commandList.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+        m_commandList->RSSetViewports(1, &m_viewport);
+        m_commandList->RSSetScissorRects(1, &m_scissor);
+
+        const D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_sceneBuffers->hdrRtv();
+        if (bindDepth)
+        {
+            transitionDepth(m_commandList.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            D3D12_CPU_DESCRIPTOR_HANDLE dsv = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
+            m_commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+        }
+        else
+        {
+            transitionDepth(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            m_commandList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+        }
+    }
+
+    void Renderer::clearGBuffer()
+    {
+        DE_LOG_ERROR(LogCategory::Render, "clearGBuffer: G-buffer not allocated (PR2)");
+    }
+
+    void Renderer::clearHdr()
+    {
+        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->valid())
+            return;
+        m_commandList->ClearRenderTargetView(m_sceneBuffers->hdrRtv(), m_clearColor, 0, nullptr);
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE Renderer::hdrSrvCpu() const
+    {
+        if (!m_sceneBuffers)
+            return {};
+        return m_sceneBuffers->hdrSrvCpu();
+    }
+
+    D3D12_GPU_DESCRIPTOR_HANDLE Renderer::lightingTableGpu() const
+    {
+        return {};
+    }
+
+    ID3D12DescriptorHeap* Renderer::lightingHeap() const
+    {
+        return nullptr;
     }
 
 } // namespace Dark

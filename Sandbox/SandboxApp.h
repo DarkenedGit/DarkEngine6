@@ -6,6 +6,7 @@
 #include "Render/TerrainPipeline.h"
 #include "Render/WaterPipeline.h"
 #include "Render/SkyPipeline.h"
+#include "Render/TonemapPipeline.h"
 #include "Render/ShadowSystem.h"
 #include "Render/DebugOverlay.h"
 #include "Render/Camera3D.h"
@@ -68,6 +69,7 @@ private:
     Dark::TerrainPipeline   m_terrainPipeline;
     Dark::WaterPipeline     m_waterPipeline;
     Dark::SkyPipeline       m_skyPipeline;
+    Dark::TonemapPipeline   m_tonemap;
     Dark::ShadowSystem      m_shadows;
     Dark::DebugOverlay      m_debugOverlay;
     Dark::Camera3D          m_viewCamera;

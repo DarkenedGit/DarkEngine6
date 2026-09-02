@@ -123,9 +123,14 @@ namespace Dark
         cmd->SetGraphicsRootDescriptorTable(albedoSrvRootIndex, m_gpuHandle);
     }
 
+    void Material::applySurface(float color[4]) const
+    {
+        std::memcpy(color, m_baseColor, sizeof(m_baseColor));
+    }
+
     void Material::applySurface(MeshFrameConstants& constants) const
     {
-        std::memcpy(constants.color, m_baseColor, sizeof(m_baseColor));
+        applySurface(constants.color);
     }
 
     void Material::setBaseColor(float r, float g, float b, float a)

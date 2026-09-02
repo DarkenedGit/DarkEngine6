@@ -31,6 +31,16 @@ using namespace Math;
 using namespace Geometry;
 using namespace Terrain;
 
+MeshPass liveMeshPass(const Renderer& r)
+{
+    return r.scenePath() == ScenePath::SwapChainForward ? MeshPass::ForwardUnorm : MeshPass::ForwardHdr;
+}
+
+TerrainPass liveTerrainPass(const Renderer& r)
+{
+    return r.scenePath() == ScenePath::SwapChainForward ? TerrainPass::ForwardUnorm : TerrainPass::ForwardHdr;
+}
+
 void mountContentRoots(AssetManager& assets)
 {
     namespace fs = std::filesystem;
@@ -1020,7 +1030,10 @@ void SandboxApp::onInit()
         m_music = audio().createTone(110.0f, 2.0f, 0.12f);
     audio().setMasterVolume(0.85f);
 
-    if (!m_meshPipeline.create(renderer().device()))
+    if (!renderer().enableSceneBuffers(config().scenePath))
+        DE_LOG_ERROR(LogCategory::Render, "SandboxApp: SceneBuffers enable failed; SwapChainForward");
+
+    if (!m_meshPipeline.create(renderer().device(), liveMeshPass(renderer())))
     {
         DE_LOG_FATAL("SandboxApp: MeshPipeline create failed");
         requestQuit();
@@ -1062,7 +1075,7 @@ void SandboxApp::onInit()
     }
     if (!pumpBootFrame())
         return;
-    if (!m_terrainPipeline.create(renderer().device()))
+    if (!m_terrainPipeline.create(renderer().device(), liveTerrainPass(renderer())))
     {
         DE_LOG_FATAL("SandboxApp: TerrainPipeline create failed");
         requestQuit();
@@ -1070,7 +1083,7 @@ void SandboxApp::onInit()
     }
     if (!pumpBootFrame())
         return;
-    if (!m_waterPipeline.create(renderer().device()))
+    if (!m_waterPipeline.create(renderer().device(), renderer().sceneColorFormat()))
     {
         DE_LOG_FATAL("SandboxApp: WaterPipeline create failed");
         requestQuit();
@@ -1078,7 +1091,7 @@ void SandboxApp::onInit()
     }
     if (!pumpBootFrame())
         return;
-    if (!m_skyPipeline.create(renderer().device()))
+    if (!m_skyPipeline.create(renderer().device(), SkyPass::ForwardFirst, renderer().sceneColorFormat()))
     {
         DE_LOG_FATAL("SandboxApp: SkyPipeline create failed");
         requestQuit();
@@ -1097,6 +1110,12 @@ void SandboxApp::onInit()
     if (!m_debugOverlay.create(renderer().device()))
     {
         DE_LOG_WARN("SandboxApp: DebugOverlay create failed — F8/F9 disabled");
+    }
+    if (renderer().hasSceneBuffers() && !m_tonemap.create(renderer().device()))
+    {
+        DE_LOG_FATAL("SandboxApp: TonemapPipeline create failed");
+        requestQuit();
+        return;
     }
     if (!pumpBootFrame())
         return;
@@ -1343,7 +1362,11 @@ void SandboxApp::onUpdate(float dt)
 
 void SandboxApp::onRender()
 {
-    renderer().beginFrame();
+    if (!renderer().beginFrame())
+    {
+        requestQuit();
+        return;
+    }
 
     auto* cmd = renderer().commandList();
 
@@ -1379,11 +1402,20 @@ void SandboxApp::onRender()
             });
         }
         m_shadows.endCapture(cmd);
-        renderer().bindSceneTargets();
     }
     else if (m_shadows.isValid())
     {
         m_shadows.endCapture(cmd);
+    }
+
+    if (renderer().hasSceneBuffers())
+    {
+        renderer().bindHdr(true);
+        renderer().clearHdr();
+    }
+    else
+    {
+        renderer().bindSceneTargets();
     }
 
     const Frustum3f frustum(m_viewCamera.GetViewProj());
@@ -1462,6 +1494,12 @@ void SandboxApp::onRender()
         m_particles.draw(cmd, m_viewCamera, m_blood, false);
 
     m_bloodSplats.draw(cmd, m_viewCamera);
+
+    if (renderer().hasSceneBuffers())
+    {
+        renderer().bindColorTargetOnly();
+        m_tonemap.draw(cmd, renderer(), 0.0f, 1.0f);
+    }
 
     m_healthHud.draw(cmd, renderer().width(), renderer().height(), m_playerHealth.ratio());
 

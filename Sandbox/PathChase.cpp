@@ -100,7 +100,7 @@ bool PathChase::init(Renderer& renderer, Terrain::TerrainWorld& terrain, Water::
     m_trunkMat  = trunkMat;
     m_canopyMat = canopyMat;
     m_aiMat     = aiMat;
-    if (!m_lines.create(renderer.device()))
+    if (!m_lines.create(renderer.device(), renderer.sceneColorFormat()))
     {
         DE_LOG_ERROR(LogCategory::AI, "PathChase: LinePipeline create failed");
         return false;

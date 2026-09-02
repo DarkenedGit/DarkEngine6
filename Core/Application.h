@@ -34,11 +34,14 @@ namespace Dark
         const char* loadingConfig = nullptr;
         bool        cliNoSplash   = false; // -no-splash
         bool        cliSplash     = false; // -splash
+        bool        cliForward    = false; // -forward (keep swap-chain forward 3D)
+        ScenePath   scenePath     = ScenePath::SwapChainForward; // request; live path is Renderer::scenePath()
     };
 
     bool parseNetCommandLine(const char* lpCmdLine, AppConfig& cfg);
     bool parseAppCommandLine(const char* lpCmdLine, AppConfig& cfg);
     bool shouldShowSplash(const AppConfig& cfg, bool jsonEnabled);
+    void applyDeferredScenePath(AppConfig& cfg, ScenePath whenEnabled);
 
     class Application
     {

@@ -11,6 +11,17 @@ namespace Dark
 
     using Microsoft::WRL::ComPtr;
 
+    enum class MeshPass : uint8_t
+    {
+        ForwardUnorm = 0,
+        ForwardHdr,
+    };
+
+    inline DXGI_FORMAT meshPassColorFormat(MeshPass pass)
+    {
+        return pass == MeshPass::ForwardHdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
+    }
+
     // Root constants layout (all 32-bit slots), matches BasicMesh.hlsl cbuffer.
     struct MeshFrameConstants
     {
@@ -40,7 +51,7 @@ namespace Dark
         MeshPipeline() = default;
 
         // Build root signature + PSO. Returns false on failure (no exceptions).
-        bool create(ID3D12Device* device);
+        bool create(ID3D12Device* device, MeshPass pass = MeshPass::ForwardUnorm);
 
         void bind(ID3D12GraphicsCommandList* cmd, DebugFill fill = DebugFill::Solid) const;
         void setConstants(ID3D12GraphicsCommandList* cmd, const MeshFrameConstants& constants) const;

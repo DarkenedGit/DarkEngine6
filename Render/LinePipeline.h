@@ -25,7 +25,7 @@ namespace Dark
 
         LinePipeline() = default;
 
-        bool create(ID3D12Device* device);
+        bool create(ID3D12Device* device, DXGI_FORMAT colorFormat = DXGI_FORMAT_R8G8B8A8_UNORM);
         void bind(ID3D12GraphicsCommandList* cmd) const;
         void setConstants(ID3D12GraphicsCommandList* cmd, const LineFrameConstants& constants) const;
 

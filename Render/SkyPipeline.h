@@ -13,6 +13,12 @@ class Camera3D;
 
 using Microsoft::WRL::ComPtr;
 
+enum class SkyPass : uint8_t
+{
+    ForwardFirst = 0, // depth off, z=0, draw first (today / PR1)
+    DeferredLast,     // PR2: EQUAL, z=w, after lighting
+};
+
 struct SkyFrameConstants
 {
     float cameraPos[3];
@@ -45,7 +51,7 @@ public:
 
     SkyPipeline() = default;
 
-    bool create(ID3D12Device* device);
+    bool create(ID3D12Device* device, SkyPass pass = SkyPass::ForwardFirst, DXGI_FORMAT colorFormat = DXGI_FORMAT_R8G8B8A8_UNORM);
 
     void bind(ID3D12GraphicsCommandList* cmd) const;
     void draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, const Sky::Environment& env) const;

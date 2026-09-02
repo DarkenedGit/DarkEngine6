@@ -25,13 +25,18 @@ bool FailedHr(HRESULT hr, const char* what)
 
 } // namespace
 
-bool SkyPipeline::create(ID3D12Device* device)
+bool SkyPipeline::create(ID3D12Device* device, SkyPass pass, DXGI_FORMAT colorFormat)
 {
     m_rootSignature.Reset();
     m_pso.Reset();
     if (!device)
     {
         DE_LOG_ERROR(LogCategory::Render, "SkyPipeline::create: null device");
+        return false;
+    }
+    if (pass != SkyPass::ForwardFirst)
+    {
+        DE_LOG_ERROR(LogCategory::Render, "SkyPipeline::create: DeferredLast is PR2");
         return false;
     }
 
@@ -93,7 +98,7 @@ bool SkyPipeline::create(ID3D12Device* device)
     psoDesc.InputLayout           = { nullptr, 0 };
     psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     psoDesc.NumRenderTargets      = 1;
-    psoDesc.RTVFormats[0]         = DXGI_FORMAT_R8G8B8A8_UNORM;
+    psoDesc.RTVFormats[0]         = colorFormat;
     psoDesc.DSVFormat             = DXGI_FORMAT_D32_FLOAT;
     psoDesc.SampleDesc            = { 1, 0 };
 

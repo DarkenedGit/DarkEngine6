@@ -633,11 +633,30 @@ void EditorApp::onInit()
     m_scenePath = defaultScenePath("level.json");
     m_sceneName = "level";
 
-    if (!m_meshPipeline.create(renderer().device()) || !m_linePipeline.create(renderer().device()))
+    if (!renderer().enableSceneBuffers(config().scenePath))
+        DE_LOG_ERROR(LogCategory::Render, "EditorApp: SceneBuffers enable failed; SwapChainForward");
+
+    const MeshPass meshPass = renderer().scenePath() == ScenePath::SwapChainForward ? MeshPass::ForwardUnorm : MeshPass::ForwardHdr;
+    if (!m_meshPipeline.create(renderer().device(), meshPass) || !m_linePipeline.create(renderer().device()))
     {
         DE_LOG_FATAL("EditorApp: mesh/line pipeline failed");
         requestQuit();
         return;
+    }
+    if (renderer().hasSceneBuffers())
+    {
+        if (!m_linePipeline3D.create(renderer().device(), renderer().sceneColorFormat()))
+        {
+            DE_LOG_FATAL("EditorApp: 3D line pipeline failed");
+            requestQuit();
+            return;
+        }
+        if (!m_tonemap.create(renderer().device()))
+        {
+            DE_LOG_FATAL("EditorApp: TonemapPipeline create failed");
+            requestQuit();
+            return;
+        }
     }
     if (!pumpBootFrame())
         return;
@@ -1770,7 +1789,11 @@ void EditorApp::onUpdate(float dt)
 
 void EditorApp::onRender()
 {
-    renderer().beginFrame();
+    if (!renderer().beginFrame())
+    {
+        requestQuit();
+        return;
+    }
     auto* cmd = renderer().commandList();
 
     if (m_imgui.isReady())
@@ -1910,11 +1933,20 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             }
         }
         m_shadows.endCapture(cmd);
-        renderer().bindSceneTargets();
     }
     else if (m_shadows.isValid())
     {
         m_shadows.endCapture(cmd);
+    }
+
+    if (renderer().hasSceneBuffers())
+    {
+        renderer().bindHdr(true);
+        renderer().clearHdr();
+    }
+    else
+    {
+        renderer().bindSceneTargets();
     }
 
     const DebugFill fill = renderer().debugState().fill;
@@ -1952,14 +1984,15 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 
     if (m_showGrid && m_gridMesh.valid())
     {
-        m_linePipeline.bind(cmd);
+        LinePipeline& lines = m_linePipeline3D.isValid() ? m_linePipeline3D : m_linePipeline;
+        lines.bind(cmd);
         LineFrameConstants lc{};
         copyMatrix(lc.worldViewProj, viewProj);
         lc.color[0] = 0.25f;
         lc.color[1] = 0.55f;
         lc.color[2] = 0.75f;
         lc.color[3] = 1.0f;
-        m_linePipeline.setConstants(cmd, lc);
+        lines.setConstants(cmd, lc);
         m_gridMesh.draw(cmd);
     }
 
@@ -2004,6 +2037,12 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         ParticleEmitter& em = *m_emitters[static_cast<size_t>(so.emitterIndex)];
         m_particleRenderer.draw(cmd, m_camera, em, em.desc().additiveBlend);
         ++draws;
+    }
+
+    if (renderer().hasSceneBuffers())
+    {
+        renderer().bindColorTargetOnly();
+        m_tonemap.draw(cmd, renderer(), 0.0f, 1.0f);
     }
 
     renderer().stats().drawCalls = draws;
