@@ -301,7 +301,8 @@ void TerrainWorld::drawGBuffer(
     const TerrainMaterial& material,
     const Camera3D& camera,
     const Frustum3f* frustum,
-    const DebugRenderState* debug) const
+    const DebugRenderState* debug,
+    const Matrix4f* prevViewProj) const
 {
     m_lastDrawCalls = 0;
     m_lastTriangles = 0;
@@ -314,9 +315,11 @@ void TerrainWorld::drawGBuffer(
 
     const Matrix4f world    = Matrix4f::IDENTITY;
     const Matrix4f viewProj = camera.GetViewProj();
+    const Matrix4f prevVP   = prevViewProj ? *prevViewProj : viewProj;
     TerrainGBufferConstants cb{};
     CopyMatrix(cb.worldViewProj, world * viewProj);
     CopyMatrix(cb.world, world);
+    CopyMatrix(cb.prevWorldViewProj, world * prevVP);
     material.applySurface(cb);
     pipeline.setGBufferConstants(cmd, cb);
 

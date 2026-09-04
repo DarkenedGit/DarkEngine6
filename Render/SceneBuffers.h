@@ -13,9 +13,13 @@ namespace Dark
     class SceneBuffers
     {
     public:
-        static constexpr UINT kRtvHdr    = 0;
-        static constexpr UINT kRtvAlbedo = 1;
-        static constexpr UINT kRtvAttrib = 2;
+        static constexpr UINT kRtvHdr      = 0;
+        static constexpr UINT kRtvAlbedo   = 1;
+        static constexpr UINT kRtvAttrib   = 2;
+        static constexpr UINT kRtvVelocity = 3;
+        static constexpr UINT kRtvPost     = 4;
+        static constexpr UINT kRtvHistory  = 5;
+        static constexpr UINT kRtvCountGBuffer = 6;
         static constexpr UINT kLightingAlbedo = 0;
         static constexpr UINT kLightingAttrib = 1;
         static constexpr UINT kLightingDepth  = 2;
@@ -42,10 +46,19 @@ namespace Dark
         ID3D12Resource*             hdr() const { return m_hdr.Get(); }
         ID3D12Resource*             albedo() const { return m_albedo.Get(); }
         ID3D12Resource*             attrib() const { return m_attrib.Get(); }
+        ID3D12Resource*             velocity() const { return m_velocity.Get(); }
+        ID3D12Resource*             post() const { return m_post.Get(); }
+        ID3D12Resource*             history() const { return m_history.Get(); }
         D3D12_CPU_DESCRIPTOR_HANDLE hdrRtv() const { return m_hdrRtv; }
         D3D12_CPU_DESCRIPTOR_HANDLE albedoRtv() const { return m_albedoRtv; }
         D3D12_CPU_DESCRIPTOR_HANDLE attribRtv() const { return m_attribRtv; }
+        D3D12_CPU_DESCRIPTOR_HANDLE velocityRtv() const { return m_velocityRtv; }
+        D3D12_CPU_DESCRIPTOR_HANDLE postRtv() const { return m_postRtv; }
         D3D12_CPU_DESCRIPTOR_HANDLE hdrSrvCpu() const { return m_hdrSrvCpu; }
+        D3D12_CPU_DESCRIPTOR_HANDLE velocitySrvCpu() const { return m_velocitySrvCpu; }
+        D3D12_CPU_DESCRIPTOR_HANDLE postSrvCpu() const { return m_postSrvCpu; }
+        D3D12_CPU_DESCRIPTOR_HANDLE historySrvCpu() const { return m_historySrvCpu; }
+        D3D12_CPU_DESCRIPTOR_HANDLE historyRtv() const { return m_historyRtv; }
         D3D12_CPU_DESCRIPTOR_HANDLE albedoSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE attribSrvCpu() const;
         D3D12_GPU_DESCRIPTOR_HANDLE lightingTableGpu() const { return m_lightingGpu; }
@@ -53,10 +66,16 @@ namespace Dark
         D3D12_RESOURCE_STATES       hdrState() const { return m_hdrState; }
         D3D12_RESOURCE_STATES       albedoState() const { return m_albedoState; }
         D3D12_RESOURCE_STATES       attribState() const { return m_attribState; }
+        D3D12_RESOURCE_STATES       velocityState() const { return m_velocityState; }
+        D3D12_RESOURCE_STATES       postState() const { return m_postState; }
+        D3D12_RESOURCE_STATES       historyState() const { return m_historyState; }
 
         void transitionHdr(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
         void transitionAlbedo(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
         void transitionAttrib(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
+        void transitionVelocity(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
+        void transitionPost(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
+        void transitionHistory(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
 
         void setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
         void packLightingHeap(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu);
@@ -68,19 +87,34 @@ namespace Dark
         ComPtr<ID3D12Resource>       m_hdr;
         ComPtr<ID3D12Resource>       m_albedo;
         ComPtr<ID3D12Resource>       m_attrib;
+        ComPtr<ID3D12Resource>       m_velocity;
+        ComPtr<ID3D12Resource>       m_post;
+        ComPtr<ID3D12Resource>       m_history;
         ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
         ComPtr<ID3D12DescriptorHeap> m_hdrSrvHeap;
+        ComPtr<ID3D12DescriptorHeap> m_velocitySrvHeap;
+        ComPtr<ID3D12DescriptorHeap> m_postSrvHeap;
+        ComPtr<ID3D12DescriptorHeap> m_historySrvHeap;
         ComPtr<ID3D12DescriptorHeap> m_lightingHeap;
         D3D12_CPU_DESCRIPTOR_HANDLE  m_hdrRtv{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_albedoRtv{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_attribRtv{};
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_velocityRtv{};
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_postRtv{};
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_historyRtv{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_hdrSrvCpu{};
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_velocitySrvCpu{};
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_postSrvCpu{};
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_historySrvCpu{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_lightingGpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_lightingCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_shadowCpu{};
-        D3D12_RESOURCE_STATES        m_hdrState    = D3D12_RESOURCE_STATE_COMMON;
-        D3D12_RESOURCE_STATES        m_albedoState = D3D12_RESOURCE_STATE_COMMON;
-        D3D12_RESOURCE_STATES        m_attribState = D3D12_RESOURCE_STATE_COMMON;
+        D3D12_RESOURCE_STATES        m_hdrState      = D3D12_RESOURCE_STATE_COMMON;
+        D3D12_RESOURCE_STATES        m_albedoState   = D3D12_RESOURCE_STATE_COMMON;
+        D3D12_RESOURCE_STATES        m_attribState   = D3D12_RESOURCE_STATE_COMMON;
+        D3D12_RESOURCE_STATES        m_velocityState = D3D12_RESOURCE_STATE_COMMON;
+        D3D12_RESOURCE_STATES        m_postState     = D3D12_RESOURCE_STATE_COMMON;
+        D3D12_RESOURCE_STATES        m_historyState  = D3D12_RESOURCE_STATE_COMMON;
         UINT                         m_rtvIncr     = 0;
         UINT                         m_srvIncr     = 0;
         uint32_t                     m_width       = 0;

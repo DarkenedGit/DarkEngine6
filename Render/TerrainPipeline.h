@@ -30,9 +30,10 @@ namespace Dark
         float world[16];
         float color[4];
         float layerTiling[4];
+        float prevWorldViewProj[16];
     };
 
-    static_assert(sizeof(TerrainGBufferConstants) == 40 * sizeof(float), "gbuffer terrain CB");
+    static_assert(sizeof(TerrainGBufferConstants) == 56 * sizeof(float), "gbuffer terrain CB");
 
     // Root constants for Terrain.hlsl. Must match the HLSL cbuffer packing
     // (float3+float share a float4). 57 dwords, lighting at byte 224 = cb0[14].x.

@@ -7,6 +7,7 @@
 #include "ECS/Entity.h"
 #include "Geometry/Mesh.h"
 #include "Math/AABox3f.h"
+#include "Math/Matrix4f.h"
 #include "Math/Vector3f.h"
 #include "Render/LinePipeline.h"
 #include "Render/Material.h"
@@ -42,7 +43,7 @@ public:
 
     void tick(float dt, World& world, Input& input, Terrain::TerrainWorld& terrain, Entity hostPawn, bool playerInWater);
     void drawMeshes(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPipe, ShadowSystem& shadows, const Camera3D& camera, const MeshFrameConstants& baseCb, Geometry::Mesh& cubeMesh, DebugFill fill);
-    void drawMeshesGBuffer(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPipe, const Camera3D& camera, Geometry::Mesh& cubeMesh, DebugFill fill);
+    void drawMeshesGBuffer(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPipe, const Camera3D& camera, const Math::Matrix4f& prevViewProj, Geometry::Mesh& cubeMesh, DebugFill fill);
     void drawDepth(ID3D12GraphicsCommandList* cmd, const ShadowSystem& shadows, int cascade, Geometry::Mesh& cubeMesh) const;
     void expandBounds(Math::Aabb3f& bounds) const;
     void drawPaths(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Math::Matrix4f& viewProj);
@@ -90,6 +91,9 @@ private:
     std::array<Agent, kHunterCount> m_agents{};
     Entity          m_walker{};
     Math::Vector3f  m_walkerPos{};
+    Math::Vector3f  m_prevWalkerPos{};
+    std::array<Math::Vector3f, kHunterCount> m_prevAgentPos{};
+    bool            m_havePrevXforms = false;
     float           m_time = 0.0f;
     float           m_agentR = 0.8f;
     bool            m_drawWalker = true;

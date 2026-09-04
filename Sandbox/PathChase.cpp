@@ -502,7 +502,7 @@ void PathChase::expandBounds(Aabb3f& bounds) const
     }
 }
 
-void PathChase::drawMeshesGBuffer(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPipe, const Camera3D& camera, Geometry::Mesh& cubeMesh, DebugFill fill)
+void PathChase::drawMeshesGBuffer(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPipe, const Camera3D& camera, const Matrix4f& prevViewProj, Geometry::Mesh& cubeMesh, DebugFill fill)
 {
     if (!cmd || !cubeMesh.valid())
         return;
@@ -510,7 +510,7 @@ void PathChase::drawMeshesGBuffer(ID3D12GraphicsCommandList* cmd, MeshPipeline& 
 
     MeshGBufferConstants cb{};
     const Matrix4f viewProj = camera.GetViewProj();
-    auto drawAt = [&](const Vector3f& p, Mesh& mesh, Material* mat, const Vector3f& scale, float r, float g, float b) {
+    auto drawAt = [&](const Vector3f& p, const Vector3f& prevP, Mesh& mesh, Material* mat, const Vector3f& scale, float r, float g, float b) {
         if (!mesh.valid())
             return;
         if (mat && mat->isValid())
@@ -519,9 +519,11 @@ void PathChase::drawMeshesGBuffer(ID3D12GraphicsCommandList* cmd, MeshPipeline& 
         cb.color[1] = g;
         cb.color[2] = b;
         cb.color[3] = 1.0f;
-        const Matrix4f world = makeWorld(p, scale);
+        const Matrix4f world     = makeWorld(p, scale);
+        const Matrix4f prevWorld = makeWorld(prevP, scale);
         copyMatrix(cb.worldViewProj, world * viewProj);
         copyMatrix(cb.world, world);
+        copyMatrix(cb.prevWorldViewProj, prevWorld * prevViewProj);
         meshPipe.setGBufferConstants(cmd, cb);
         mesh.draw(cmd, fill == DebugFill::Points);
     };
@@ -529,22 +531,29 @@ void PathChase::drawMeshesGBuffer(ID3D12GraphicsCommandList* cmd, MeshPipeline& 
     const Vector3f trunkScale{ kTrunkR, kTrunkH, kTrunkR };
     const Vector3f canopyScale{ kCanopyR, kCanopyH, kCanopyR };
     const Vector3f aiScale{ 2.0f, 2.0f, 2.0f };
+    const Vector3f walkerPrev = m_havePrevXforms ? m_prevWalkerPos : m_walkerPos;
     if (m_drawWalker)
-        drawAt(m_walkerPos, cubeMesh, m_aiMat.get(), aiScale, 1.0f, 0.35f, 0.12f);
+        drawAt(m_walkerPos, walkerPrev, cubeMesh, m_aiMat.get(), aiScale, 1.0f, 0.35f, 0.12f);
     for (const Vector3f& t : m_treePos)
     {
         const Vector3f trunkPos{ t.x, t.y + kTrunkH * 0.5f, t.z };
         const Vector3f canopyPos{ t.x, t.y + kTrunkH + kCanopyH * 0.5f, t.z };
-        drawAt(trunkPos, m_trunkMesh, m_trunkMat.get(), trunkScale, 0.45f, 0.28f, 0.12f);
-        drawAt(canopyPos, m_canopyMesh, m_canopyMat.get(), canopyScale, 0.15f, 0.75f, 0.18f);
+        drawAt(trunkPos, trunkPos, m_trunkMesh, m_trunkMat.get(), trunkScale, 0.45f, 0.28f, 0.12f);
+        drawAt(canopyPos, canopyPos, m_canopyMesh, m_canopyMat.get(), canopyScale, 0.15f, 0.75f, 0.18f);
     }
-    for (const Agent& a : m_agents)
+    for (int i = 0; i < kHunterCount; ++i)
     {
+        const Agent& a = m_agents[static_cast<size_t>(i)];
         if (!a.health.alive())
             continue;
+        const Vector3f prev = m_havePrevXforms ? m_prevAgentPos[static_cast<size_t>(i)] : a.pos;
         const float hurt = 0.35f + 0.65f * a.health.ratio();
-        drawAt(a.pos, cubeMesh, m_aiMat.get(), aiScale, 1.0f * hurt, 0.35f * hurt, 0.12f);
+        drawAt(a.pos, prev, cubeMesh, m_aiMat.get(), aiScale, 1.0f * hurt, 0.35f * hurt, 0.12f);
     }
+    m_prevWalkerPos = m_walkerPos;
+    for (int i = 0; i < kHunterCount; ++i)
+        m_prevAgentPos[static_cast<size_t>(i)] = m_agents[static_cast<size_t>(i)].pos;
+    m_havePrevXforms = true;
 }
 
 void PathChase::drawPaths(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Matrix4f& viewProj)

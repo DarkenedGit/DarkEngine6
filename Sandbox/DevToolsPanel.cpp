@@ -125,11 +125,20 @@ void SandboxApp::drawDevTools()
         {
             if (ImGui::Checkbox("G-buffer tiles", &m_showGBuffer))
                 DE_LOG_INFO("Sandbox: G-buffer overlay = {}", m_showGBuffer);
+            if (ImGui::Checkbox("Velocity tile", &m_showVelocity))
+                DE_LOG_INFO("Sandbox: velocity overlay = {}", m_showVelocity);
         }
         if (renderer().hasSceneBuffers())
         {
             if (ImGui::Checkbox("ACES tonemap", &dbg.aces))
                 DE_LOG_INFO("Sandbox: ACES = {}", dbg.aces);
+        }
+        if (renderer().hasGBuffer())
+        {
+            if (ImGui::Checkbox("TAA", &dbg.taa))
+                DE_LOG_INFO("Sandbox: TAA = {}", dbg.taa);
+            if (ImGui::Checkbox("Motion blur", &dbg.motionBlur))
+                DE_LOG_INFO("Sandbox: motion blur = {}", dbg.motionBlur);
         }
     }
 

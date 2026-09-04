@@ -23,6 +23,7 @@ namespace Dark
         float nearZ        = 0.18f;
         float farZ         = 2000.0f;
         float uniformBlur  = 0.0f; // 0 depth CoC, 1 full-frame defocus
+        bool  usePostHdr   = false; // motion-blur dest instead of scene HDR
     };
 
     class TonemapPipeline

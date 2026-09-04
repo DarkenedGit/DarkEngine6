@@ -29,18 +29,33 @@ namespace Dark
         m_hdr.Reset();
         m_albedo.Reset();
         m_attrib.Reset();
+        m_velocity.Reset();
+        m_post.Reset();
+        m_history.Reset();
         m_rtvHeap.Reset();
         m_hdrSrvHeap.Reset();
+        m_velocitySrvHeap.Reset();
+        m_postSrvHeap.Reset();
+        m_historySrvHeap.Reset();
         m_lightingHeap.Reset();
-        m_hdrRtv      = {};
-        m_albedoRtv   = {};
-        m_attribRtv   = {};
-        m_hdrSrvCpu     = {};
-        m_lightingGpu   = {};
-        m_lightingCpu   = {};
-        m_hdrState    = D3D12_RESOURCE_STATE_COMMON;
-        m_albedoState = D3D12_RESOURCE_STATE_COMMON;
-        m_attribState = D3D12_RESOURCE_STATE_COMMON;
+        m_hdrRtv         = {};
+        m_albedoRtv      = {};
+        m_attribRtv      = {};
+        m_velocityRtv    = {};
+        m_postRtv        = {};
+        m_historyRtv     = {};
+        m_hdrSrvCpu      = {};
+        m_velocitySrvCpu = {};
+        m_postSrvCpu     = {};
+        m_historySrvCpu  = {};
+        m_lightingGpu    = {};
+        m_lightingCpu    = {};
+        m_hdrState       = D3D12_RESOURCE_STATE_COMMON;
+        m_albedoState    = D3D12_RESOURCE_STATE_COMMON;
+        m_attribState    = D3D12_RESOURCE_STATE_COMMON;
+        m_velocityState  = D3D12_RESOURCE_STATE_COMMON;
+        m_postState      = D3D12_RESOURCE_STATE_COMMON;
+        m_historyState   = D3D12_RESOURCE_STATE_COMMON;
         m_width       = 0;
         m_height      = 0;
     }
@@ -105,7 +120,7 @@ namespace Dark
         m_srvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
         D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc{};
-        rtvHeapDesc.NumDescriptors = gbuffer ? 3u : 1u;
+        rtvHeapDesc.NumDescriptors = gbuffer ? kRtvCountGBuffer : 1u;
         rtvHeapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
         rtvHeapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
         if (!checkHr(device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)), "SceneBuffers CreateDescriptorHeap RTV"))
@@ -141,16 +156,54 @@ namespace Dark
         {
             const float albedoClear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
             const float attribClear[4] = { 0.5f, 0.5f, 1.0f, 0.0f };
+            const float velocityClear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+            const float postClear[4]     = { 0.0f, 0.0f, 0.0f, 1.0f };
             if (!createColorTarget(device, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, albedoClear, L"DE.GBuffer.Albedo", m_albedo, m_albedoState)
-                || !createColorTarget(device, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, attribClear, L"DE.GBuffer.Attrib", m_attrib, m_attribState))
+                || !createColorTarget(device, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, attribClear, L"DE.GBuffer.Attrib", m_attrib, m_attribState)
+                || !createColorTarget(device, width, height, DXGI_FORMAT_R16G16_FLOAT, velocityClear, L"DE.GBuffer.Velocity", m_velocity, m_velocityState)
+                || !createColorTarget(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, postClear, L"DE.HdrPost", m_post, m_postState)
+                || !createColorTarget(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, postClear, L"DE.TaaHistory", m_history, m_historyState))
             {
                 reset();
                 return false;
             }
-            m_albedoRtv = offsetHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), kRtvAlbedo, m_rtvIncr);
-            m_attribRtv = offsetHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), kRtvAttrib, m_rtvIncr);
+            m_albedoRtv   = offsetHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), kRtvAlbedo, m_rtvIncr);
+            m_attribRtv   = offsetHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), kRtvAttrib, m_rtvIncr);
+            m_velocityRtv = offsetHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), kRtvVelocity, m_rtvIncr);
+            m_postRtv     = offsetHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), kRtvPost, m_rtvIncr);
+            m_historyRtv  = offsetHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), kRtvHistory, m_rtvIncr);
             device->CreateRenderTargetView(m_albedo.Get(), nullptr, m_albedoRtv);
             device->CreateRenderTargetView(m_attrib.Get(), nullptr, m_attribRtv);
+            device->CreateRenderTargetView(m_velocity.Get(), nullptr, m_velocityRtv);
+            device->CreateRenderTargetView(m_post.Get(), nullptr, m_postRtv);
+            device->CreateRenderTargetView(m_history.Get(), nullptr, m_historyRtv);
+
+            D3D12_DESCRIPTOR_HEAP_DESC velSrvDesc{};
+            velSrvDesc.NumDescriptors = 1;
+            velSrvDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+            if (!checkHr(device->CreateDescriptorHeap(&velSrvDesc, IID_PPV_ARGS(&m_velocitySrvHeap)), "SceneBuffers CreateDescriptorHeap velocity SRV")
+                || !checkHr(device->CreateDescriptorHeap(&velSrvDesc, IID_PPV_ARGS(&m_postSrvHeap)), "SceneBuffers CreateDescriptorHeap post SRV")
+                || !checkHr(device->CreateDescriptorHeap(&velSrvDesc, IID_PPV_ARGS(&m_historySrvHeap)), "SceneBuffers CreateDescriptorHeap history SRV"))
+            {
+                reset();
+                return false;
+            }
+            m_velocitySrvCpu = m_velocitySrvHeap->GetCPUDescriptorHandleForHeapStart();
+            m_postSrvCpu     = m_postSrvHeap->GetCPUDescriptorHandleForHeapStart();
+            m_historySrvCpu  = m_historySrvHeap->GetCPUDescriptorHandleForHeapStart();
+            D3D12_SHADER_RESOURCE_VIEW_DESC velSrv{};
+            velSrv.Format                  = DXGI_FORMAT_R16G16_FLOAT;
+            velSrv.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
+            velSrv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            velSrv.Texture2D.MipLevels     = 1;
+            device->CreateShaderResourceView(m_velocity.Get(), &velSrv, m_velocitySrvCpu);
+            D3D12_SHADER_RESOURCE_VIEW_DESC postSrv{};
+            postSrv.Format                  = DXGI_FORMAT_R16G16B16A16_FLOAT;
+            postSrv.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
+            postSrv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            postSrv.Texture2D.MipLevels     = 1;
+            device->CreateShaderResourceView(m_post.Get(), &postSrv, m_postSrvCpu);
+            device->CreateShaderResourceView(m_history.Get(), &postSrv, m_historySrvCpu);
 
             D3D12_DESCRIPTOR_HEAP_DESC lightDesc{};
             lightDesc.NumDescriptors = kLightingCount;
@@ -168,7 +221,7 @@ namespace Dark
 
         m_width  = width;
         m_height = height;
-        DE_LOG_INFO(LogCategory::Render, "SceneBuffers: HDR {}x{}{} ", width, height, gbuffer ? " + G-buffer" : "");
+        DE_LOG_INFO(LogCategory::Render, "SceneBuffers: HDR {}x{}{}", width, height, gbuffer ? " + G-buffer + velocity + TAA history" : "");
         return true;
     }
 
@@ -185,6 +238,21 @@ namespace Dark
     void SceneBuffers::transitionAttrib(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
     {
         transition(cmd, m_attrib.Get(), m_attribState, after);
+    }
+
+    void SceneBuffers::transitionVelocity(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
+    {
+        transition(cmd, m_velocity.Get(), m_velocityState, after);
+    }
+
+    void SceneBuffers::transitionPost(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
+    {
+        transition(cmd, m_post.Get(), m_postState, after);
+    }
+
+    void SceneBuffers::transitionHistory(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
+    {
+        transition(cmd, m_history.Get(), m_historyState, after);
     }
 
     void SceneBuffers::packLightingHeap(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu)

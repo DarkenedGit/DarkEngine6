@@ -143,9 +143,11 @@ namespace Dark
         psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
         if (gbuffer)
         {
-            psoDesc.NumRenderTargets = 2;
+            psoDesc.NumRenderTargets = 3;
             psoDesc.RTVFormats[0]    = DXGI_FORMAT_R8G8B8A8_UNORM;
             psoDesc.RTVFormats[1]    = DXGI_FORMAT_R8G8B8A8_UNORM;
+            psoDesc.RTVFormats[2]    = DXGI_FORMAT_R16G16_FLOAT;
+            psoDesc.BlendState.RenderTarget[2].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
         }
         else
         {

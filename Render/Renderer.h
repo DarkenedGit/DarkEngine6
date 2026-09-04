@@ -94,6 +94,7 @@ namespace Dark
         void setClearColor(float r, float g, float b, float a = 1.0f);
         const float* clearColor() const { return m_clearColor; }
         void transitionDepth(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
+        void transitionVelocity(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
         D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu() const { return m_depthSrvCpu; }
         ID3D12Resource*             depthResource() const { return m_depthStencil.Get(); }
         const D3D12_VIEWPORT& viewport() const { return m_viewport; }
@@ -106,11 +107,18 @@ namespace Dark
 
         void bindGBuffer();
         void bindHdr(bool bindDepth);
+        void bindPostHdr();
+        void bindHdrColorTarget();
+        void bindTaaTarget();
+        void copyPostToHistory(ID3D12GraphicsCommandList* cmd);
         void clearGBuffer();
         void clearHdr();
         void setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
 
         D3D12_CPU_DESCRIPTOR_HANDLE hdrSrvCpu() const;
+        D3D12_CPU_DESCRIPTOR_HANDLE postHdrSrvCpu() const;
+        D3D12_CPU_DESCRIPTOR_HANDLE velocitySrvCpu() const;
+        D3D12_CPU_DESCRIPTOR_HANDLE historySrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE albedoSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE attribSrvCpu() const;
         D3D12_GPU_DESCRIPTOR_HANDLE lightingTableGpu() const;

@@ -53,6 +53,7 @@ namespace Dark
         m_pso2D.Reset();
         m_psoArray.Reset();
         m_psoColor.Reset();
+        m_psoVelocity.Reset();
         m_srvHeap.Reset();
         if (!device)
             return false;
@@ -111,17 +112,20 @@ namespace Dark
         ComPtr<ID3DBlob> ps2d;
         ComPtr<ID3DBlob> psArr;
         ComPtr<ID3DBlob> psColor;
+        ComPtr<ID3DBlob> psVel;
         if (!compileShaderFromContent("shaders/DebugOverlay2D.hlsl", "VSMain", "vs_5_0", vs)
             || !compileShaderFromContent("shaders/DebugOverlay2D.hlsl", "PSMain", "ps_5_0", ps2d)
             || !compileShaderFromContent("shaders/DebugOverlayArray.hlsl", "PSMain", "ps_5_0", psArr)
-            || !compileShaderFromContent("shaders/DebugOverlayColor.hlsl", "PSMain", "ps_5_0", psColor))
+            || !compileShaderFromContent("shaders/DebugOverlayColor.hlsl", "PSMain", "ps_5_0", psColor)
+            || !compileShaderFromContent("shaders/DebugOverlayVelocity.hlsl", "PSMain", "ps_5_0", psVel))
         {
             return false;
         }
 
         if (!createPso(device, m_rootSignature.Get(), vs.Get(), ps2d.Get(), m_pso2D, "PSO debug overlay 2D")
             || !createPso(device, m_rootSignature.Get(), vs.Get(), psArr.Get(), m_psoArray, "PSO debug overlay array")
-            || !createPso(device, m_rootSignature.Get(), vs.Get(), psColor.Get(), m_psoColor, "PSO debug overlay color"))
+            || !createPso(device, m_rootSignature.Get(), vs.Get(), psColor.Get(), m_psoColor, "PSO debug overlay color")
+            || !createPso(device, m_rootSignature.Get(), vs.Get(), psVel.Get(), m_psoVelocity, "PSO debug overlay velocity"))
         {
             return false;
         }
@@ -190,6 +194,20 @@ namespace Dark
     {
         DebugOverlayConstants c{ 0.0f, 1.0f, 0.0f, 0.0f };
         draw(cmd, device, m_psoColor.Get(), srcSrv, x, y, w, h, c);
+    }
+
+    void DebugOverlay::drawVelocity(
+        ID3D12GraphicsCommandList* cmd,
+        ID3D12Device* device,
+        D3D12_CPU_DESCRIPTOR_HANDLE srcSrv,
+        LONG x,
+        LONG y,
+        LONG w,
+        LONG h,
+        float contrast)
+    {
+        DebugOverlayConstants c{ 0.0f, contrast, 0.0f, 0.0f };
+        draw(cmd, device, m_psoVelocity.Get(), srcSrv, x, y, w, h, c);
     }
 
     void DebugOverlay::draw(

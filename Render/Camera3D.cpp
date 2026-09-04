@@ -1,4 +1,5 @@
 #include "Camera3D.h"
+#include "Render/TaaJitter.h"
 #include "Math/MathDefines.h"
 #include "Math/Matrix3f.h"
 #include <cmath>
@@ -23,7 +24,8 @@ namespace Dark
         m_OrthoHeight(10.0f),
         m_ViewDirty(true),
         m_View(Mat4f::IDENTITY),
-        m_Proj(Mat4f::IDENTITY)
+        m_Proj(Mat4f::IDENTITY),
+        m_ProjUnjittered(Mat4f::IDENTITY)
     {
         SetLens(m_FovY, m_Aspect, m_NearZ, m_FarZ);
     }
@@ -87,12 +89,25 @@ namespace Dark
 
     void Camera3D::RebuildProjPerspective()
     {
-        m_Proj = Matrix4f::PerspectiveFovLHMatrix(m_FovY, m_Aspect, m_NearZ, m_FarZ);
+        m_Proj           = Matrix4f::PerspectiveFovLHMatrix(m_FovY, m_Aspect, m_NearZ, m_FarZ);
+        m_ProjUnjittered = m_Proj;
     }
 
     void Camera3D::RebuildProjOrthographic()
     {
-        m_Proj = Matrix4f::OrthographicLHMatrix(m_NearZ, m_FarZ, m_OrthoWidth, m_OrthoHeight);
+        m_Proj           = Matrix4f::OrthographicLHMatrix(m_NearZ, m_FarZ, m_OrthoWidth, m_OrthoHeight);
+        m_ProjUnjittered = m_Proj;
+    }
+
+    void Camera3D::SetSubpixelJitter(float pixelX, float pixelY, uint32_t width, uint32_t height)
+    {
+        m_Proj = m_ProjUnjittered;
+        applyNdcJitter(m_Proj, pixelX, pixelY, width, height);
+    }
+
+    void Camera3D::ClearSubpixelJitter()
+    {
+        m_Proj = m_ProjUnjittered;
     }
 
     void Camera3D::LookAt(const Vector3f& pos, const Vector3f& target, const Vector3f& worldUp)

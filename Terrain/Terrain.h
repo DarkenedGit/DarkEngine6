@@ -2,6 +2,7 @@
 
 #include "Geometry/Mesh.h"
 #include "Math/AABox3f.h"
+#include "Math/Matrix4f.h"
 #include "Math/Vector3f.h"
 #include "Render/DebugRenderState.h"
 #include "Terrain/HeightMap.h"
@@ -83,7 +84,8 @@ public:
         const TerrainMaterial& material,
         const Camera3D& camera,
         const Math::Frustum3f* frustum = nullptr,
-        const DebugRenderState* debug = nullptr) const;
+        const DebugRenderState* debug = nullptr,
+        const Math::Matrix4f* prevViewProj = nullptr) const;
 
     // Depth-only casters. Caller binds ShadowPipeline and sets light WVP.
     // Pass the cascade clip frustum so chunks outside this slice are skipped

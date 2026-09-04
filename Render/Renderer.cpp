@@ -414,11 +414,21 @@ namespace Dark
         if (!m_commandList)
             return;
         if (m_sceneBuffers)
+        {
             m_sceneBuffers->transitionHdr(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            m_sceneBuffers->transitionPost(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        }
 
         D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
         rtv.ptr += static_cast<SIZE_T>(m_frameIndex) * m_rtvDescriptorSize;
         m_commandList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+    }
+
+    void Renderer::transitionVelocity(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
+    {
+        if (!m_sceneBuffers)
+            return;
+        m_sceneBuffers->transitionVelocity(cmd, after);
     }
 
     void Renderer::transitionDepth(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
@@ -605,13 +615,16 @@ namespace Dark
 
         m_sceneBuffers->transitionAlbedo(m_commandList.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
         m_sceneBuffers->transitionAttrib(m_commandList.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+        m_sceneBuffers->transitionVelocity(m_commandList.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
         transitionDepth(m_commandList.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
         m_commandList->RSSetViewports(1, &m_viewport);
         m_commandList->RSSetScissorRects(1, &m_scissor);
 
-        D3D12_CPU_DESCRIPTOR_HANDLE rtvs[2] = { m_sceneBuffers->albedoRtv(), m_sceneBuffers->attribRtv() };
-        D3D12_CPU_DESCRIPTOR_HANDLE dsv     = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
-        m_commandList->OMSetRenderTargets(2, rtvs, FALSE, &dsv);
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvs[3] = {
+            m_sceneBuffers->albedoRtv(), m_sceneBuffers->attribRtv(), m_sceneBuffers->velocityRtv()
+        };
+        D3D12_CPU_DESCRIPTOR_HANDLE dsv = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
+        m_commandList->OMSetRenderTargets(3, rtvs, FALSE, &dsv);
     }
 
     void Renderer::bindHdr(bool bindDepth)
@@ -626,6 +639,7 @@ namespace Dark
         {
             m_sceneBuffers->transitionAlbedo(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             m_sceneBuffers->transitionAttrib(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            m_sceneBuffers->transitionVelocity(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         }
 
         m_sceneBuffers->transitionHdr(m_commandList.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -649,19 +663,76 @@ namespace Dark
             {
                 DE_ASSERT(m_sceneBuffers->albedoState() == D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
                 DE_ASSERT(m_sceneBuffers->attribState() == D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                DE_ASSERT(m_sceneBuffers->velocityState() == D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             }
 #endif
         }
+    }
+
+    void Renderer::bindPostHdr()
+    {
+        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->post())
+        {
+            DE_LOG_ERROR(LogCategory::Render, "bindPostHdr: no post target");
+            return;
+        }
+        m_sceneBuffers->transitionHdr(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        if (m_sceneBuffers->hasGBuffer())
+            m_sceneBuffers->transitionVelocity(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        transitionDepth(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        m_sceneBuffers->transitionPost(m_commandList.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+        m_commandList->RSSetViewports(1, &m_viewport);
+        m_commandList->RSSetScissorRects(1, &m_scissor);
+        const D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_sceneBuffers->postRtv();
+        m_commandList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+    }
+
+    void Renderer::bindHdrColorTarget()
+    {
+        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->valid())
+        {
+            DE_LOG_ERROR(LogCategory::Render, "bindHdrColorTarget: no HDR target");
+            return;
+        }
+        m_sceneBuffers->transitionPost(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        if (m_sceneBuffers->hasGBuffer())
+            m_sceneBuffers->transitionVelocity(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        transitionDepth(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        m_sceneBuffers->transitionHdr(m_commandList.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+        m_commandList->RSSetViewports(1, &m_viewport);
+        m_commandList->RSSetScissorRects(1, &m_scissor);
+        const D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_sceneBuffers->hdrRtv();
+        m_commandList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+    }
+
+    void Renderer::bindTaaTarget()
+    {
+        bindPostHdr();
+        if (m_sceneBuffers)
+            m_sceneBuffers->transitionHistory(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    }
+
+    void Renderer::copyPostToHistory(ID3D12GraphicsCommandList* cmd)
+    {
+        if (!cmd || !m_sceneBuffers || !m_sceneBuffers->post() || !m_sceneBuffers->history())
+            return;
+        m_sceneBuffers->transitionPost(cmd, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        m_sceneBuffers->transitionHistory(cmd, D3D12_RESOURCE_STATE_COPY_DEST);
+        cmd->CopyResource(m_sceneBuffers->history(), m_sceneBuffers->post());
+        m_sceneBuffers->transitionPost(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        m_sceneBuffers->transitionHistory(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     }
 
     void Renderer::clearGBuffer()
     {
         if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->hasGBuffer())
             return;
-        const float albedoClear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-        const float attribClear[4] = { 0.5f, 0.5f, 1.0f, 0.0f };
+        const float albedoClear[4]   = { 0.0f, 0.0f, 0.0f, 1.0f };
+        const float attribClear[4]   = { 0.5f, 0.5f, 1.0f, 0.0f };
+        const float velocityClear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
         m_commandList->ClearRenderTargetView(m_sceneBuffers->albedoRtv(), albedoClear, 0, nullptr);
         m_commandList->ClearRenderTargetView(m_sceneBuffers->attribRtv(), attribClear, 0, nullptr);
+        m_commandList->ClearRenderTargetView(m_sceneBuffers->velocityRtv(), velocityClear, 0, nullptr);
     }
 
     void Renderer::clearHdr()
@@ -676,6 +747,21 @@ namespace Dark
         if (!m_sceneBuffers)
             return {};
         return m_sceneBuffers->hdrSrvCpu();
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE Renderer::postHdrSrvCpu() const
+    {
+        return m_sceneBuffers ? m_sceneBuffers->postSrvCpu() : D3D12_CPU_DESCRIPTOR_HANDLE{};
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE Renderer::velocitySrvCpu() const
+    {
+        return m_sceneBuffers ? m_sceneBuffers->velocitySrvCpu() : D3D12_CPU_DESCRIPTOR_HANDLE{};
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE Renderer::historySrvCpu() const
+    {
+        return m_sceneBuffers ? m_sceneBuffers->historySrvCpu() : D3D12_CPU_DESCRIPTOR_HANDLE{};
     }
 
     D3D12_CPU_DESCRIPTOR_HANDLE Renderer::albedoSrvCpu() const

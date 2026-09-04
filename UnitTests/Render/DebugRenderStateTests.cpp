@@ -11,6 +11,8 @@ TEST(DebugRenderState, DefaultsAreLitSolidWithShadows)
     EXPECT_TRUE(s.lighting);
     EXPECT_TRUE(s.shadows);
     EXPECT_FALSE(s.aces);
+    EXPECT_TRUE(s.motionBlur);
+    EXPECT_TRUE(s.taa);
 }
 
 TEST(DebugRenderState, CycleFillWraps)

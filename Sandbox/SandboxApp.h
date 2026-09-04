@@ -8,6 +8,8 @@
 #include "Render/SkyPipeline.h"
 #include "Render/TonemapPipeline.h"
 #include "Render/DeferredLightingPipeline.h"
+#include "Render/MotionBlurPipeline.h"
+#include "Render/TaaPipeline.h"
 #include "Render/ShadowSystem.h"
 #include "Render/DebugOverlay.h"
 #include "Render/Camera3D.h"
@@ -25,6 +27,8 @@
 #include "Particles/BloodSplatPool.h"
 #include "PathChase.h"
 #include "Ui/ImGuiHost.h"
+
+#include <unordered_map>
 
 class SandboxApp : public Dark::Application
 {
@@ -58,7 +62,7 @@ private:
     void placeHealthPacks();
     void updateHealthPacks(float dt);
     void drawHealthPacks(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, Dark::MeshFrameConstants& cb);
-    void drawHealthPacksGBuffer(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj);
+    void drawHealthPacksGBuffer(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, const Dark::Math::Matrix4f& prevViewProj);
     void drawHealthPacksDepth(ID3D12GraphicsCommandList* cmd, int cascade);
     void updateShoulderCamera();
     Dark::TonemapSettings playerPostFx();
@@ -83,9 +87,17 @@ private:
     Dark::SkyPipeline       m_skyPipeline;
     Dark::TonemapPipeline           m_tonemap;
     Dark::DeferredLightingPipeline  m_lighting;
+    Dark::MotionBlurPipeline        m_motionBlur;
+    Dark::TaaPipeline               m_taa;
     Dark::ShadowSystem      m_shadows;
     Dark::DebugOverlay      m_debugOverlay;
     Dark::Camera3D          m_viewCamera;
+    Dark::Math::Matrix4f    m_prevViewProj{};
+    bool                    m_havePrevViewProj = false;
+    bool                    m_taaHistoryValid  = false;
+    uint32_t                m_taaHistoryW      = 0;
+    uint32_t                m_taaHistoryH      = 0;
+    std::unordered_map<Dark::EntityID, Dark::Math::Matrix4f> m_prevWorldByEntity;
     Dark::Sky::Environment  m_env;
 
     Dark::AssetRef<Dark::Material> m_cubeMaterial;
@@ -113,6 +125,7 @@ private:
     bool          m_showShadowMaps = false;
     bool          m_showDepth      = false;
     bool          m_showGBuffer    = false;
+    bool          m_showVelocity   = false;
     bool          m_showDevTools   = false;
     ImGuiHost     m_imgui;
     char          m_joinHost[64]   = "127.0.0.1";
@@ -143,8 +156,10 @@ private:
     struct HealthPack
     {
         Dark::Math::Vector3f pos{};
-        bool                 active    = false;
-        float                respawnIn = 0.0f;
+        Dark::Math::Matrix4f prevWorld{};
+        bool                 havePrevWorld = false;
+        bool                 active        = false;
+        float                respawnIn     = 0.0f;
     };
     static constexpr int             kMaxHealthPacks = 4;
     HealthPack                       m_healthPacks[kMaxHealthPacks]{};

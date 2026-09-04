@@ -1,9 +1,10 @@
-#include "Render/TonemapPipeline.h"
+#include "Render/TaaPipeline.h"
 #include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
 
+#include <cstring>
 #include <d3dcompiler.h>
 
 namespace Dark
@@ -20,14 +21,14 @@ namespace Dark
         }
     } // namespace
 
-    bool TonemapPipeline::create(ID3D12Device* device)
+    bool TaaPipeline::create(ID3D12Device* device)
     {
         m_rootSignature.Reset();
         m_pso.Reset();
         m_srvHeap.Reset();
         if (!device)
         {
-            DE_LOG_ERROR(LogCategory::Render, "TonemapPipeline::create: null device");
+            DE_LOG_ERROR(LogCategory::Render, "TaaPipeline::create: null device");
             return false;
         }
 
@@ -65,18 +66,18 @@ namespace Dark
 
         ComPtr<ID3DBlob> rsBlob;
         ComPtr<ID3DBlob> rsErr;
-        if (FailedHr(D3D12SerializeRootSignature(&rsDesc, D3D_ROOT_SIGNATURE_VERSION_1, &rsBlob, &rsErr), "D3D12SerializeRootSignature (tonemap)"))
+        if (FailedHr(D3D12SerializeRootSignature(&rsDesc, D3D_ROOT_SIGNATURE_VERSION_1, &rsBlob, &rsErr), "D3D12SerializeRootSignature (TAA)"))
         {
             if (rsErr)
-                DE_LOG_ERROR(LogCategory::Render, "Tonemap RS: {}", static_cast<const char*>(rsErr->GetBufferPointer()));
+                DE_LOG_ERROR(LogCategory::Render, "TAA RS: {}", static_cast<const char*>(rsErr->GetBufferPointer()));
             return false;
         }
-        if (FailedHr(device->CreateRootSignature(0, rsBlob->GetBufferPointer(), rsBlob->GetBufferSize(), IID_PPV_ARGS(&m_rootSignature)), "CreateRootSignature (tonemap)"))
+        if (FailedHr(device->CreateRootSignature(0, rsBlob->GetBufferPointer(), rsBlob->GetBufferSize(), IID_PPV_ARGS(&m_rootSignature)), "CreateRootSignature (TAA)"))
             return false;
 
         ComPtr<ID3DBlob> vs;
         ComPtr<ID3DBlob> ps;
-        if (!compileShaderFromContent("shaders/Tonemap.hlsl", "VSMain", "vs_5_0", vs) || !compileShaderFromContent("shaders/Tonemap.hlsl", "PSMain", "ps_5_0", ps))
+        if (!compileShaderFromContent("shaders/Taa.hlsl", "VSMain", "vs_5_0", vs) || !compileShaderFromContent("shaders/Taa.hlsl", "PSMain", "ps_5_0", ps))
             return false;
 
         D3D12_GRAPHICS_PIPELINE_STATE_DESC pso{};
@@ -93,10 +94,10 @@ namespace Dark
         pso.InputLayout                                      = { nullptr, 0 };
         pso.PrimitiveTopologyType                            = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
         pso.NumRenderTargets                                 = 1;
-        pso.RTVFormats[0]                                    = DXGI_FORMAT_R8G8B8A8_UNORM;
+        pso.RTVFormats[0]                                    = DXGI_FORMAT_R16G16B16A16_FLOAT;
         pso.DSVFormat                                        = DXGI_FORMAT_UNKNOWN;
         pso.SampleDesc                                       = { 1, 0 };
-        if (FailedHr(device->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&m_pso)), "CreateGraphicsPipelineState (tonemap)"))
+        if (FailedHr(device->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&m_pso)), "CreateGraphicsPipelineState (TAA)"))
         {
             m_rootSignature.Reset();
             return false;
@@ -106,7 +107,7 @@ namespace Dark
         heapDesc.NumDescriptors = kBufferedFrames * kSrvPerFrame;
         heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap tonemap SRV"))
+        if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap TAA SRV"))
         {
             m_pso.Reset();
             m_rootSignature.Reset();
@@ -116,34 +117,34 @@ namespace Dark
         m_gpu     = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
         m_srvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-        DE_LOG_INFO(LogCategory::Render, "TonemapPipeline: ready (copy / ACES / DoF)");
+        DE_LOG_INFO(LogCategory::Render, "TaaPipeline: ready");
         return true;
     }
 
-    void TonemapPipeline::draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, float mode, float exposure) const
-    {
-        TonemapSettings s{};
-        s.mode     = mode;
-        s.exposure = exposure;
-        draw(cmd, renderer, s);
-    }
-
-    void TonemapPipeline::draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const TonemapSettings& settings) const
+    void TaaPipeline::draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const TaaSettings& settings) const
     {
         if (!cmd || !m_pso || !m_srvHeap)
             return;
         ID3D12Device* device = renderer.device();
-        const D3D12_CPU_DESCRIPTOR_HANDLE hdr = settings.usePostHdr ? renderer.postHdrSrvCpu() : renderer.hdrSrvCpu();
-        if (!device || hdr.ptr == 0)
+        const D3D12_CPU_DESCRIPTOR_HANDLE hdr  = renderer.hdrSrvCpu();
+        const D3D12_CPU_DESCRIPTOR_HANDLE hist = renderer.historySrvCpu();
+        const D3D12_CPU_DESCRIPTOR_HANDLE vel  = renderer.velocitySrvCpu();
+        if (!device || hdr.ptr == 0 || hist.ptr == 0 || vel.ptr == 0)
             return;
 
-        renderer.transitionDepth(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        renderer.bindTaaTarget();
 
         const UINT slot = renderer.frameIndex() % kBufferedFrames;
         D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_cpu;
         cpu.ptr += static_cast<SIZE_T>(slot * kSrvPerFrame) * m_srvIncr;
         device->CopyDescriptorsSimple(1, cpu, hdr, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        D3D12_CPU_DESCRIPTOR_HANDLE depthCpu = cpu;
+        D3D12_CPU_DESCRIPTOR_HANDLE histCpu = cpu;
+        histCpu.ptr += m_srvIncr;
+        device->CopyDescriptorsSimple(1, histCpu, hist, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        D3D12_CPU_DESCRIPTOR_HANDLE velCpu = histCpu;
+        velCpu.ptr += m_srvIncr;
+        device->CopyDescriptorsSimple(1, velCpu, vel, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        D3D12_CPU_DESCRIPTOR_HANDLE depthCpu = velCpu;
         depthCpu.ptr += m_srvIncr;
         const D3D12_CPU_DESCRIPTOR_HANDLE depthSrc = renderer.depthSrvCpu();
         if (depthSrc.ptr != 0)
@@ -154,20 +155,13 @@ namespace Dark
 
         const float w = static_cast<float>(Math::Max(renderer.width(), 1u));
         const float h = static_cast<float>(Math::Max(renderer.height(), 1u));
-        const float constants[kConstantCount] = {
-            settings.exposure,
-            settings.mode,
-            settings.blur,
-            settings.fade,
-            settings.focusZ,
-            settings.focusRange,
-            settings.nearZ,
-            settings.farZ,
-            1.0f / w,
-            1.0f / h,
-            settings.uniformBlur,
-            0.0f,
-        };
+        float constants[kConstantCount]{};
+        std::memcpy(constants, settings.invViewProj, sizeof(float) * 16);
+        std::memcpy(constants + 16, settings.prevViewProj, sizeof(float) * 16);
+        constants[32] = settings.blend;
+        constants[33] = settings.reset ? 1.0f : 0.0f;
+        constants[34] = 1.0f / w;
+        constants[35] = 1.0f / h;
 
         cmd->SetGraphicsRootSignature(m_rootSignature.Get());
         cmd->SetPipelineState(m_pso.Get());
@@ -177,6 +171,8 @@ namespace Dark
         cmd->SetGraphicsRootDescriptorTable(kRootSrv, gpu);
         cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         cmd->DrawInstanced(3, 1, 0, 0);
+
+        renderer.copyPostToHistory(cmd);
     }
 
 } // namespace Dark

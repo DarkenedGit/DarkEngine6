@@ -7,6 +7,8 @@
 #include "Render/LinePipeline.h"
 #include "Render/TonemapPipeline.h"
 #include "Render/DeferredLightingPipeline.h"
+#include "Render/MotionBlurPipeline.h"
+#include "Render/TaaPipeline.h"
 #include "Render/Camera3D.h"
 #include "Render/Camera2D.h"
 #include "Render/ShadowSystem.h"
@@ -119,6 +121,8 @@ private:
     Dark::LinePipeline    m_linePipeline3D;
     Dark::TonemapPipeline          m_tonemap;
     Dark::DeferredLightingPipeline m_lighting;
+    Dark::MotionBlurPipeline       m_motionBlur;
+    Dark::TaaPipeline              m_taa;
     Dark::DebugOverlay             m_debugOverlay;
     Dark::ShadowSystem    m_shadows;
 
@@ -131,6 +135,11 @@ private:
     Dark::AssetRef<Dark::Material> m_groundMaterial;
 
     Dark::Camera3D m_camera;
+    Dark::Math::Matrix4f m_prevViewProj{};
+    bool                 m_havePrevViewProj = false;
+    bool                 m_taaHistoryValid  = false;
+    uint32_t             m_taaHistoryW      = 0;
+    uint32_t             m_taaHistoryH      = 0;
     Dark::Camera2D m_camera2D;
     Dark::SceneMode m_sceneMode = Dark::SceneMode::Scene3D;
 
@@ -166,7 +175,8 @@ private:
 
     bool  m_showGrid    = true;
     bool  m_showSolid   = true;
-    bool  m_showGBuffer = false;
+    bool  m_showGBuffer  = false;
+    bool  m_showVelocity = false;
     float m_gridSnap  = 1.0f;
 
     float m_moveSpeed = 8.0f;

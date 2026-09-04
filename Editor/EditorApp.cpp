@@ -17,6 +17,7 @@
 #include "Math/Vector3f.h"
 #include "Math/Ray3f.h"
 #include "Geometry/LineMesh.h"
+#include "Render/TaaJitter.h"
 
 #include <imgui.h>
 
@@ -663,6 +664,10 @@ void EditorApp::onInit()
             requestQuit();
             return;
         }
+        if (renderer().scenePath() == ScenePath::HybridDeferred && !m_motionBlur.create(renderer().device()))
+            DE_LOG_WARN(LogCategory::Render, "EditorApp: MotionBlurPipeline create failed — motion blur disabled");
+        if (renderer().scenePath() == ScenePath::HybridDeferred && !m_taa.create(renderer().device()))
+            DE_LOG_WARN(LogCategory::Render, "EditorApp: TaaPipeline create failed — TAA disabled");
         if (!m_debugOverlay.create(renderer().device()))
             DE_LOG_WARN("EditorApp: DebugOverlay create failed — G-buffer tiles disabled");
     }
@@ -1617,7 +1622,12 @@ void EditorApp::drawEditorUi()
                     renderer().debugState().aces = !aces;
             }
             if (renderer().hasGBuffer())
+            {
                 ImGui::MenuItem("G-buffer Tiles", "F11", &m_showGBuffer);
+                ImGui::MenuItem("Velocity Tile", nullptr, &m_showVelocity);
+                ImGui::MenuItem("TAA", nullptr, &renderer().debugState().taa);
+                ImGui::MenuItem("Motion Blur", nullptr, &renderer().debugState().motionBlur);
+            }
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Create"))
@@ -1925,7 +1935,7 @@ void EditorApp::renderScene2D(ID3D12GraphicsCommandList* cmd)
 
 void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 {
-    const Matrix4f viewProj = m_camera.GetViewProj();
+    m_camera.ClearSubpixelJitter();
     const Vector3f lightDir(0.35f, 0.85f, -0.35f);
     Aabb3f sceneBounds(Vector3f(-22.0f, -2.0f, -22.0f), Vector3f(22.0f, 16.0f, 22.0f));
     for (const SceneObject& so : m_objects)
@@ -1964,6 +1974,15 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     }
 
     const bool deferred = renderer().scenePath() == ScenePath::HybridDeferred;
+    const bool useTaa   = deferred && renderer().debugState().taa && m_taa.isValid();
+    if (useTaa)
+    {
+        float jx = 0.0f, jy = 0.0f;
+        taaHaltonJitter(renderer().frameIndex(), jx, jy);
+        m_camera.SetSubpixelJitter(jx, jy, renderer().width(), renderer().height());
+    }
+    const Matrix4f viewProj     = m_camera.GetViewProj();
+    const Matrix4f prevViewProj = m_havePrevViewProj ? m_prevViewProj : viewProj;
     if (deferred)
     {
         renderer().bindGBuffer();
@@ -1990,6 +2009,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             MeshGBufferConstants gcb{};
             copyMatrix(gcb.worldViewProj, wvp);
             copyMatrix(gcb.world, world);
+            copyMatrix(gcb.prevWorldViewProj, world * prevViewProj);
             gcb.color[0] = cr;
             gcb.color[1] = cg;
             gcb.color[2] = cb;
@@ -2113,25 +2133,75 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         ++draws;
     }
 
+    bool usedPostHdr = false;
+    if (useTaa)
+    {
+        if (renderer().width() != m_taaHistoryW || renderer().height() != m_taaHistoryH)
+        {
+            m_taaHistoryValid = false;
+            m_taaHistoryW     = renderer().width();
+            m_taaHistoryH     = renderer().height();
+        }
+        TaaSettings taa{};
+        copyMatrix(taa.invViewProj, viewProj.Inverse());
+        copyMatrix(taa.prevViewProj, prevViewProj);
+        taa.blend = 0.1f;
+        taa.reset = !m_taaHistoryValid;
+        m_taa.draw(cmd, renderer(), taa);
+        m_taaHistoryValid = true;
+        usedPostHdr       = true;
+    }
+    const bool useMb = deferred && renderer().debugState().motionBlur && m_motionBlur.isValid();
+    if (useMb)
+    {
+        MotionBlurSettings mb{};
+        copyMatrix(mb.invViewProj, viewProj.Inverse());
+        copyMatrix(mb.prevViewProj, prevViewProj);
+        mb.strength  = 1.0f;
+        mb.maxPixels = 40.0f;
+        mb.readPost  = useTaa;
+        m_motionBlur.draw(cmd, renderer(), mb);
+        usedPostHdr = !useTaa;
+    }
+
     if (renderer().hasSceneBuffers())
     {
         renderer().bindColorTargetOnly();
         const bool aces = renderer().hasSceneBuffers() && renderer().debugState().aces && renderer().debugState().lighting;
-        m_tonemap.draw(cmd, renderer(), aces ? 1.0f : 0.0f, 1.0f);
-        if (m_showGBuffer && m_debugOverlay.isValid() && renderer().hasGBuffer())
+        TonemapSettings ts{};
+        ts.mode       = aces ? 1.0f : 0.0f;
+        ts.exposure   = 1.0f;
+        ts.usePostHdr = usedPostHdr;
+        m_tonemap.draw(cmd, renderer(), ts);
+        if ((m_showGBuffer || m_showVelocity) && m_debugOverlay.isValid() && renderer().hasGBuffer())
         {
             m_debugOverlay.beginFrame(renderer().frameIndex());
             const LONG tile = 160;
             const LONG pad  = 12;
-            const D3D12_CPU_DESCRIPTOR_HANDLE albedo = renderer().albedoSrvCpu();
-            const D3D12_CPU_DESCRIPTOR_HANDLE attrib = renderer().attribSrvCpu();
-            if (albedo.ptr != 0)
-                m_debugOverlay.drawColor(cmd, renderer().device(), albedo, pad, pad, tile, tile);
-            if (attrib.ptr != 0)
-                m_debugOverlay.drawColor(cmd, renderer().device(), attrib, pad + tile + 8, pad, tile, tile);
+            if (m_showGBuffer)
+            {
+                const D3D12_CPU_DESCRIPTOR_HANDLE albedo = renderer().albedoSrvCpu();
+                const D3D12_CPU_DESCRIPTOR_HANDLE attrib = renderer().attribSrvCpu();
+                if (albedo.ptr != 0)
+                    m_debugOverlay.drawColor(cmd, renderer().device(), albedo, pad, pad, tile, tile);
+                if (attrib.ptr != 0)
+                    m_debugOverlay.drawColor(cmd, renderer().device(), attrib, pad + tile + 8, pad, tile, tile);
+            }
+            renderer().transitionVelocity(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            const D3D12_CPU_DESCRIPTOR_HANDLE velocity = renderer().velocitySrvCpu();
+            if (velocity.ptr != 0)
+            {
+                LONG x = pad;
+                if (m_showGBuffer)
+                    x = pad + 2 * (tile + 8);
+                m_debugOverlay.drawVelocity(cmd, renderer().device(), velocity, x, pad, tile, tile, 24.0f);
+            }
         }
     }
 
+    m_prevViewProj     = viewProj;
+    m_havePrevViewProj = true;
+    m_camera.ClearSubpixelJitter();
     renderer().stats().drawCalls = draws;
 }
 

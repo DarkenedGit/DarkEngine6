@@ -6,6 +6,8 @@
 #include "Math/Matrix4f.h"
 #include "Math/Ray3f.h"
 
+#include <cstdint>
+
 namespace Dark
 {
     // Perspective / orthographic 3D camera (left-handed, row-vector, D3D-style).
@@ -86,6 +88,10 @@ namespace Dark
         // Rebuild view matrix from basis if dirty (also called by getters).
         void UpdateViewMatrix() const;
 
+        // Subpixel NDC jitter for TAA. pixelX/Y in [-0.5, 0.5]. Call after SetLens.
+        void SetSubpixelJitter(float pixelX, float pixelY, uint32_t width, uint32_t height);
+        void ClearSubpixelJitter();
+
         // ── Matrices ──────────────────────────────────────────────────────────
         const Math::Matrix4f& GetView() const;
         const Math::Matrix4f& GetProj() const
@@ -124,5 +130,6 @@ namespace Dark
 
         mutable Math::Matrix4f m_View;
         Math::Matrix4f         m_Proj;
+        Math::Matrix4f         m_ProjUnjittered;
     };
 } // namespace Dark

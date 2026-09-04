@@ -16,6 +16,7 @@
 #include "Network/NetTypes.h"
 #include "Network/Replication.h"
 #include "Render/Frustum3f.h"
+#include "Render/TaaJitter.h"
 #include "Terrain/SplatMap.h"
 #include "Water/WaterWaves.h"
 
@@ -87,6 +88,13 @@ constexpr float kSpawnFocusSeconds = 1.75f;
 void copyMatrix(float dst[16], const Math::Matrix4f& m)
 {
     std::memcpy(dst, m.m_afEntry, sizeof(float) * 16);
+}
+
+void fillMeshGBufferXforms(MeshGBufferConstants& cb, const Matrix4f& world, const Matrix4f& viewProj, const Matrix4f& prevViewProj, const Matrix4f& prevWorld)
+{
+    copyMatrix(cb.worldViewProj, world * viewProj);
+    copyMatrix(cb.world, world);
+    copyMatrix(cb.prevWorldViewProj, prevWorld * prevViewProj);
 }
 
 Math::Matrix4f makeWorldMatrix(const TransformComponent& xf)
@@ -823,6 +831,7 @@ void SandboxApp::updateHealthPacks(float dt)
         HealthPack& p = m_healthPacks[i];
         if (!p.active)
         {
+            p.havePrevWorld = false;
             p.respawnIn -= dt;
             if (p.respawnIn <= 0.0f)
                 p.active = true;
@@ -871,7 +880,7 @@ void SandboxApp::drawHealthPacks(ID3D12GraphicsCommandList* cmd, const Matrix4f&
     }
 }
 
-void SandboxApp::drawHealthPacksGBuffer(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj)
+void SandboxApp::drawHealthPacksGBuffer(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, const Matrix4f& prevViewProj)
 {
     if (!cmd || !m_crossMesh.valid() || m_healthPackCount <= 0)
         return;
@@ -889,14 +898,16 @@ void SandboxApp::drawHealthPacksGBuffer(ID3D12GraphicsCommandList* cmd, const Ma
 
     for (int i = 0; i < m_healthPackCount; ++i)
     {
-        const HealthPack& p = m_healthPacks[i];
+        HealthPack& p = m_healthPacks[i];
         if (!p.active)
             continue;
-        const Matrix4f world = healthPackWorldMatrix(p.pos, m_packSpin, m_packBob);
-        copyMatrix(cb.worldViewProj, world * viewProj);
-        copyMatrix(cb.world, world);
+        const Matrix4f world     = healthPackWorldMatrix(p.pos, m_packSpin, m_packBob);
+        const Matrix4f prevWorld = p.havePrevWorld ? p.prevWorld : world;
+        fillMeshGBufferXforms(cb, world, viewProj, prevViewProj, prevWorld);
         m_meshPipeline.setGBufferConstants(cmd, cb);
         m_crossMesh.draw(cmd, fill == DebugFill::Points);
+        p.prevWorld     = world;
+        p.havePrevWorld = true;
     }
 }
 
@@ -1171,6 +1182,10 @@ void SandboxApp::onInit()
         requestQuit();
         return;
     }
+    if (renderer().scenePath() == ScenePath::HybridDeferred && !m_motionBlur.create(renderer().device()))
+        DE_LOG_WARN(LogCategory::Render, "SandboxApp: MotionBlurPipeline create failed — motion blur disabled");
+    if (renderer().scenePath() == ScenePath::HybridDeferred && !m_taa.create(renderer().device()))
+        DE_LOG_WARN(LogCategory::Render, "SandboxApp: TaaPipeline create failed — TAA disabled");
     if (!pumpBootFrame())
         return;
 
@@ -1482,6 +1497,14 @@ void SandboxApp::onRender()
     }
 
     const bool deferred = renderer().scenePath() == ScenePath::HybridDeferred;
+    m_viewCamera.ClearSubpixelJitter();
+    const bool useTaa = deferred && renderer().debugState().taa && m_taa.isValid();
+    if (useTaa)
+    {
+        float jx = 0.0f, jy = 0.0f;
+        taaHaltonJitter(renderer().frameIndex(), jx, jy);
+        m_viewCamera.SetSubpixelJitter(jx, jy, renderer().width(), renderer().height());
+    }
     if (deferred)
     {
         renderer().bindGBuffer();
@@ -1501,6 +1524,7 @@ void SandboxApp::onRender()
     const DebugFill fill     = renderer().debugState().fill;
     const Vector3f  camPos   = m_viewCamera.GetPosition();
     const Matrix4f  viewProj = m_viewCamera.GetViewProj();
+    const Matrix4f  prevViewProj = m_havePrevViewProj ? m_prevViewProj : viewProj;
     uint32_t        meshDraws = 0;
 
     const float skyExposure = useAcesTonemap(renderer()) ? 1.0f : m_env.exposure();
@@ -1518,7 +1542,7 @@ void SandboxApp::onRender()
 
     if (deferred)
     {
-        m_terrain.drawGBuffer(cmd, m_terrainPipeline, m_terrainMaterial, m_viewCamera, &frustum, &renderer().debugState());
+        m_terrain.drawGBuffer(cmd, m_terrainPipeline, m_terrainMaterial, m_viewCamera, &frustum, &renderer().debugState(), &prevViewProj);
         m_meshPipeline.bind(cmd, fill);
         if (material && material->isValid())
             material->bind(cmd, MeshPipeline::kRootAlbedoSrv);
@@ -1537,16 +1561,17 @@ void SandboxApp::onRender()
             if (!xf)
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
-            copyMatrix(gcb.worldViewProj, worldMat * viewProj);
-            copyMatrix(gcb.world, worldMat);
+            const Matrix4f prevWorld = m_prevWorldByEntity.count(e.id()) ? m_prevWorldByEntity[e.id()] : worldMat;
+            fillMeshGBufferXforms(gcb, worldMat, viewProj, prevViewProj, prevWorld);
             unpackRgba8(nc.colorRgba8, gcb.color);
             m_meshPipeline.setGBufferConstants(cmd, gcb);
             m_cubeMesh.draw(cmd, fill == DebugFill::Points);
+            m_prevWorldByEntity[e.id()] = worldMat;
             ++meshDraws;
         });
         if (m_chaseOk)
-            m_chase.drawMeshesGBuffer(cmd, m_meshPipeline, m_viewCamera, m_cubeMesh, fill);
-        drawHealthPacksGBuffer(cmd, viewProj);
+            m_chase.drawMeshesGBuffer(cmd, m_meshPipeline, m_viewCamera, prevViewProj, m_cubeMesh, fill);
+        drawHealthPacksGBuffer(cmd, viewProj, prevViewProj);
 
         renderer().bindHdr(false);
         renderer().clearHdr();
@@ -1635,15 +1660,51 @@ void SandboxApp::onRender()
 
     m_bloodSplats.draw(cmd, m_viewCamera);
 
+    bool usedPostHdr = false;
+    if (useTaa)
+    {
+        if (renderer().width() != m_taaHistoryW || renderer().height() != m_taaHistoryH)
+        {
+            m_taaHistoryValid = false;
+            m_taaHistoryW     = renderer().width();
+            m_taaHistoryH     = renderer().height();
+        }
+        TaaSettings taa{};
+        copyMatrix(taa.invViewProj, viewProj.Inverse());
+        copyMatrix(taa.prevViewProj, prevViewProj);
+        taa.blend = 0.1f;
+        taa.reset = !m_taaHistoryValid;
+        m_taa.draw(cmd, renderer(), taa);
+        m_taaHistoryValid = true;
+        usedPostHdr       = true;
+    }
+    const bool useMb = deferred && renderer().debugState().motionBlur && m_motionBlur.isValid();
+    if (useMb)
+    {
+        MotionBlurSettings mb{};
+        copyMatrix(mb.invViewProj, viewProj.Inverse());
+        copyMatrix(mb.prevViewProj, prevViewProj);
+        mb.strength  = 1.0f;
+        mb.maxPixels = 40.0f;
+        mb.readPost  = useTaa;
+        m_motionBlur.draw(cmd, renderer(), mb);
+        usedPostHdr = !useTaa;
+    }
+
     if (renderer().hasSceneBuffers())
     {
         renderer().bindColorTargetOnly();
         const bool aces = useAcesTonemap(renderer());
         TonemapSettings post = playerPostFx();
-        post.mode     = aces ? 1.0f : 0.0f;
-        post.exposure = aces ? m_env.exposure() : 1.0f;
+        post.mode       = aces ? 1.0f : 0.0f;
+        post.exposure   = aces ? m_env.exposure() : 1.0f;
+        post.usePostHdr = usedPostHdr;
         m_tonemap.draw(cmd, renderer(), post);
     }
+
+    m_prevViewProj       = viewProj;
+    m_havePrevViewProj   = true;
+    m_viewCamera.ClearSubpixelJitter();
 
     m_healthHud.draw(cmd, renderer().width(), renderer().height(), m_playerHealth.ratio());
 
@@ -1667,7 +1728,7 @@ void SandboxApp::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
 {
     if (!cmd || !m_debugOverlay.isValid())
         return;
-    if (!m_showShadowMaps && !m_showDepth && !m_showGBuffer)
+    if (!m_showShadowMaps && !m_showDepth && !m_showGBuffer && !m_showVelocity)
         return;
 
     // Unbind the DSV so we can sample the scene depth. Do not rebind it afterwards
@@ -1693,6 +1754,18 @@ void SandboxApp::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
             m_debugOverlay.drawColor(cmd, renderer().device(), albedo, pad, y, tile, tile);
         if (attrib.ptr != 0)
             m_debugOverlay.drawColor(cmd, renderer().device(), attrib, pad + tile + 8, y, tile, tile);
+    }
+    if ((m_showGBuffer || m_showVelocity) && renderer().hasGBuffer())
+    {
+        renderer().transitionVelocity(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        const D3D12_CPU_DESCRIPTOR_HANDLE velocity = renderer().velocitySrvCpu();
+        if (velocity.ptr != 0)
+        {
+            LONG x = pad;
+            if (m_showGBuffer)
+                x = pad + 2 * (tile + 8);
+            m_debugOverlay.drawVelocity(cmd, renderer().device(), velocity, x, pad, tile, tile, 24.0f);
+        }
     }
 
     if (m_showDepth && renderer().depthResource())

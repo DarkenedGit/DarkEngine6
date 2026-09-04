@@ -25,8 +25,20 @@ float3 DecodeOct(float2 f)
 
 struct GBufferOut
 {
-    float4 albedo : SV_TARGET0;
-    float4 attrib : SV_TARGET1;
+    float4 albedo   : SV_TARGET0;
+    float4 attrib   : SV_TARGET1;
+    float2 velocity : SV_TARGET2; // UV-space motion: current UV - previous UV
 };
+
+float2 VelocityUv(float4 currClip, float4 prevClip)
+{
+    float  cw   = max(abs(currClip.w), 1e-5f);
+    float  pw   = max(abs(prevClip.w), 1e-5f);
+    float2 curr = currClip.xy / cw;
+    float2 prev = prevClip.xy / pw;
+    curr = curr * float2(0.5f, -0.5f) + 0.5f;
+    prev = prev * float2(0.5f, -0.5f) + 0.5f;
+    return curr - prev;
+}
 
 #endif

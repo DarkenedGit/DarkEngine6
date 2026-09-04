@@ -28,9 +28,10 @@ namespace Dark
         float worldViewProj[16];
         float world[16];
         float color[4];
+        float prevWorldViewProj[16];
     };
 
-    static_assert(sizeof(MeshGBufferConstants) == 36 * sizeof(float), "gbuffer mesh CB");
+    static_assert(sizeof(MeshGBufferConstants) == 52 * sizeof(float), "gbuffer mesh CB");
 
     // Root constants layout (all 32-bit slots), matches BasicMesh.hlsl cbuffer.
     struct MeshFrameConstants
