@@ -94,6 +94,20 @@ Math::Matrix4f makeWorldMatrix(const TransformComponent& xf)
     return S * R * T;
 }
 
+Math::Matrix4f healthPackWorldMatrix(const Vector3f& pos, float spin, float bob)
+{
+    const Quaternion rot = Quaternion::FromAxisAngle(Vector3f::Y_AXIS, spin);
+    const float      y   = pos.y + 0.08f * std::sinf(bob * 2.6f);
+    return Matrix4f::ScaleMatrixXYZ(0.9f, 0.9f, 0.9f) * rot.ToMatrix4() * Matrix4f::TranslationMatrix(pos.x, y, pos.z);
+}
+
+void drawShadowCaster(ID3D12GraphicsCommandList* cmd, const ShadowSystem& shadows, int cascade, const Matrix4f& world, const Mesh& mesh)
+{
+    const Matrix4f wvp = world * shadows.cascade(cascade).viewProj;
+    shadows.pipeline().setWvp(cmd, wvp.m_afEntry);
+    mesh.draw(cmd);
+}
+
 const char* netRoleName(NetRole role)
 {
     switch (role)
@@ -867,9 +881,6 @@ void SandboxApp::drawHealthPacks(ID3D12GraphicsCommandList* cmd, const Matrix4f&
     if (m_packMaterial && m_packMaterial->isValid())
         m_packMaterial->bind(cmd, MeshPipeline::kRootAlbedoSrv);
 
-    const Quaternion rot = Quaternion::FromAxisAngle(Vector3f::Y_AXIS, m_packSpin);
-    const Matrix4f   R   = rot.ToMatrix4();
-    const Matrix4f   S   = Matrix4f::ScaleMatrixXYZ(0.9f, 0.9f, 0.9f);
     cb.color[0] = 1.0f;
     cb.color[1] = 0.12f;
     cb.color[2] = 0.14f;
@@ -880,9 +891,7 @@ void SandboxApp::drawHealthPacks(ID3D12GraphicsCommandList* cmd, const Matrix4f&
         const HealthPack& p = m_healthPacks[i];
         if (!p.active)
             continue;
-        const float y = p.pos.y + 0.08f * std::sinf(m_packBob * 2.6f);
-        const Matrix4f T     = Matrix4f::TranslationMatrix(p.pos.x, y, p.pos.z);
-        const Matrix4f world = S * R * T;
+        const Matrix4f world = healthPackWorldMatrix(p.pos, m_packSpin, m_packBob);
         copyMatrix(cb.worldViewProj, world * viewProj);
         copyMatrix(cb.world, world);
         m_meshPipeline.setConstants(cmd, cb);
@@ -900,9 +909,6 @@ void SandboxApp::drawHealthPacksGBuffer(ID3D12GraphicsCommandList* cmd, const Ma
     if (m_packMaterial && m_packMaterial->isValid())
         m_packMaterial->bind(cmd, MeshPipeline::kRootAlbedoSrv);
 
-    const Quaternion rot = Quaternion::FromAxisAngle(Vector3f::Y_AXIS, m_packSpin);
-    const Matrix4f   R   = rot.ToMatrix4();
-    const Matrix4f   S   = Matrix4f::ScaleMatrixXYZ(0.9f, 0.9f, 0.9f);
     MeshGBufferConstants cb{};
     cb.color[0] = 1.0f;
     cb.color[1] = 0.12f;
@@ -914,13 +920,24 @@ void SandboxApp::drawHealthPacksGBuffer(ID3D12GraphicsCommandList* cmd, const Ma
         const HealthPack& p = m_healthPacks[i];
         if (!p.active)
             continue;
-        const float y = p.pos.y + 0.08f * std::sinf(m_packBob * 2.6f);
-        const Matrix4f T     = Matrix4f::TranslationMatrix(p.pos.x, y, p.pos.z);
-        const Matrix4f world = S * R * T;
+        const Matrix4f world = healthPackWorldMatrix(p.pos, m_packSpin, m_packBob);
         copyMatrix(cb.worldViewProj, world * viewProj);
         copyMatrix(cb.world, world);
         m_meshPipeline.setGBufferConstants(cmd, cb);
         m_crossMesh.draw(cmd, fill == DebugFill::Points);
+    }
+}
+
+void SandboxApp::drawHealthPacksDepth(ID3D12GraphicsCommandList* cmd, int cascade)
+{
+    if (!cmd || !m_crossMesh.valid() || m_healthPackCount <= 0)
+        return;
+    for (int i = 0; i < m_healthPackCount; ++i)
+    {
+        const HealthPack& p = m_healthPacks[i];
+        if (!p.active)
+            continue;
+        drawShadowCaster(cmd, m_shadows, cascade, healthPackWorldMatrix(p.pos, m_packSpin, m_packBob), m_crossMesh);
     }
 }
 
@@ -1439,6 +1456,13 @@ void SandboxApp::onRender()
         if (const TransformComponent* xf = world().get<TransformComponent>(e))
             sceneBounds.ExpandToInclude(xf->position);
     });
+    if (m_chaseOk)
+        m_chase.expandBounds(sceneBounds);
+    for (int i = 0; i < m_healthPackCount; ++i)
+    {
+        if (m_healthPacks[i].active)
+            sceneBounds.ExpandToInclude(m_healthPacks[i].pos);
+    }
     m_shadows.update(
         m_viewCamera,
         m_env.lightDir(),
@@ -1454,16 +1478,17 @@ void SandboxApp::onRender()
         {
             m_shadows.beginCascade(cmd, i);
             const Frustum3f casterFrustum(m_shadows.cascade(i).viewProj);
+            // Opaque casters only — same set as G-buffer / forward color. Water, particles, blood, lines stay out.
             m_terrain.drawDepth(cmd, &casterFrustum);
             world().each<NetworkedComponent>([&](Entity e, NetworkedComponent&) {
                 const TransformComponent* xf = world().get<TransformComponent>(e);
                 if (!xf)
                     return;
-                const Matrix4f worldMat = makeWorldMatrix(*xf);
-                const Matrix4f wvp      = worldMat * m_shadows.cascade(i).viewProj;
-                m_shadows.pipeline().setWvp(cmd, wvp.m_afEntry);
-                m_cubeMesh.draw(cmd);
+                drawShadowCaster(cmd, m_shadows, i, makeWorldMatrix(*xf), m_cubeMesh);
             });
+            if (m_chaseOk)
+                m_chase.drawDepth(cmd, m_shadows, i, m_cubeMesh);
+            drawHealthPacksDepth(cmd, i);
         }
         m_shadows.endCapture(cmd);
     }

@@ -1944,6 +1944,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                 m_groundMesh.draw(cmd);
             for (const SceneObject& so : m_objects)
             {
+                if (!isScene3DType(so.type))
+                    continue;
                 const auto* xf = world().get<TransformComponent>(so.entity);
                 const Mesh* mesh = meshForType(so.type);
                 if (!xf || !mesh || !mesh->valid())

@@ -448,6 +448,60 @@ void PathChase::drawMeshes(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPip
     }
 }
 
+void PathChase::drawDepth(ID3D12GraphicsCommandList* cmd, const ShadowSystem& shadows, int cascade, Geometry::Mesh& cubeMesh) const
+{
+    if (!cmd || !cubeMesh.valid() || cascade < 0 || cascade >= shadows.cascadeCount())
+        return;
+
+    const Matrix4f lightVP = shadows.cascade(cascade).viewProj;
+    auto drawAt = [&](const Vector3f& p, const Mesh& mesh, const Vector3f& scale) {
+        if (!mesh.valid())
+            return;
+        const Matrix4f wvp = makeWorld(p, scale) * lightVP;
+        shadows.pipeline().setWvp(cmd, wvp.m_afEntry);
+        mesh.draw(cmd);
+    };
+
+    const Vector3f trunkScale{ kTrunkR, kTrunkH, kTrunkR };
+    const Vector3f canopyScale{ kCanopyR, kCanopyH, kCanopyR };
+    const Vector3f aiScale{ 2.0f, 2.0f, 2.0f };
+    if (m_drawWalker)
+        drawAt(m_walkerPos, cubeMesh, aiScale);
+    for (const Vector3f& t : m_treePos)
+    {
+        const Vector3f trunkPos{ t.x, t.y + kTrunkH * 0.5f, t.z };
+        const Vector3f canopyPos{ t.x, t.y + kTrunkH + kCanopyH * 0.5f, t.z };
+        drawAt(trunkPos, m_trunkMesh, trunkScale);
+        drawAt(canopyPos, m_canopyMesh, canopyScale);
+    }
+    for (const Agent& a : m_agents)
+    {
+        if (!a.health.alive())
+            continue;
+        drawAt(a.pos, cubeMesh, aiScale);
+    }
+}
+
+void PathChase::expandBounds(Aabb3f& bounds) const
+{
+    auto include = [&](const Vector3f& p, const Vector3f& half) {
+        bounds.ExpandToInclude(Aabb3f::FromCenterExtents(p, half));
+    };
+    if (m_drawWalker)
+        include(m_walkerPos, Vector3f{ 1.0f, 1.0f, 1.0f });
+    for (const Vector3f& t : m_treePos)
+    {
+        include(Vector3f{ t.x, t.y + kTrunkH * 0.5f, t.z }, Vector3f{ kTrunkR, kTrunkH * 0.5f, kTrunkR });
+        include(Vector3f{ t.x, t.y + kTrunkH + kCanopyH * 0.5f, t.z }, Vector3f{ kCanopyR, kCanopyH * 0.5f, kCanopyR });
+    }
+    for (const Agent& a : m_agents)
+    {
+        if (!a.health.alive())
+            continue;
+        include(a.pos, Vector3f{ 1.0f, 1.0f, 1.0f });
+    }
+}
+
 void PathChase::drawMeshesGBuffer(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPipe, const Camera3D& camera, Geometry::Mesh& cubeMesh, DebugFill fill)
 {
     if (!cmd || !cubeMesh.valid())

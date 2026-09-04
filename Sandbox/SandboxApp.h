@@ -51,6 +51,7 @@ private:
     void updateHealthPacks(float dt);
     void drawHealthPacks(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, Dark::MeshFrameConstants& cb);
     void drawHealthPacksGBuffer(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj);
+    void drawHealthPacksDepth(ID3D12GraphicsCommandList* cmd, int cascade);
     void updateShoulderCamera();
     Dark::Entity possessedBody();
     void spawnOwnedPawn(Dark::ClientId owner, float offsetX);
