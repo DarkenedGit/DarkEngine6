@@ -61,6 +61,7 @@ private:
     void drawHealthPacksGBuffer(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj);
     void drawHealthPacksDepth(ID3D12GraphicsCommandList* cmd, int cascade);
     void updateShoulderCamera();
+    Dark::TonemapSettings playerPostFx();
     Dark::Entity possessedBody();
     void spawnOwnedPawn(Dark::ClientId owner, float offsetX);
     Dark::Entity findPawn(Dark::ClientId owner);
@@ -126,6 +127,7 @@ private:
     Dark::Math::Vector3f             m_playerSpawn{ 0.0f, 0.5f, 0.0f };
     bool                             m_havePlayerSpawn = false;
     float                            m_playerDeadTimer = 0.0f;
+    float                            m_spawnAge        = 0.0f;
     float                            m_attackCooldown  = 0.0f;
     float                            m_hurtSoundTimer  = 0.0f;
     std::shared_ptr<Dark::SoundClip> m_sfxStep;

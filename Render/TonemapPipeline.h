@@ -11,7 +11,20 @@ namespace Dark
 
     using Microsoft::WRL::ComPtr;
 
-    // Fullscreen HDR → UNORM swap chain. mode=0 saturate-copy (PR1 default); mode=1 Narkowicz ACES.
+    // HDR → UNORM swap chain. blur/fade 0 is a straight copy or ACES.
+    struct TonemapSettings
+    {
+        float exposure     = 1.0f;
+        float mode         = 0.0f; // 0 saturate, 1 Narkowicz ACES
+        float blur         = 0.0f; // 0-1, max CoC
+        float fade         = 0.0f; // 0-1, multiply toward black
+        float focusZ       = 8.0f;
+        float focusRange   = 14.0f;
+        float nearZ        = 0.18f;
+        float farZ         = 2000.0f;
+        float uniformBlur  = 0.0f; // 0 depth CoC, 1 full-frame defocus
+    };
+
     class TonemapPipeline
     {
     public:
@@ -22,11 +35,14 @@ namespace Dark
 
         bool create(ID3D12Device* device);
         void draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, float mode, float exposure) const;
+        void draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const TonemapSettings& settings) const;
 
         bool isValid() const { return m_pso != nullptr; }
 
     private:
         static constexpr UINT kBufferedFrames = 2;
+        static constexpr UINT kSrvPerFrame    = 2; // HDR + depth
+        static constexpr UINT kConstantCount  = 12;
 
         ComPtr<ID3D12RootSignature>  m_rootSignature;
         ComPtr<ID3D12PipelineState>  m_pso;

@@ -81,6 +81,9 @@ void mountContentRoots(AssetManager& assets)
     }
 }
 
+constexpr float kDeathSeconds      = 2.5f;
+constexpr float kSpawnFocusSeconds = 1.75f;
+
 void copyMatrix(float dst[16], const Math::Matrix4f& m)
 {
     std::memcpy(dst, m.m_afEntry, sizeof(float) * 16);
@@ -644,9 +647,40 @@ void SandboxApp::respawnPlayer()
     m_playerHealth.revive();
     m_playerWet        = false;
     m_playerDeadTimer  = 0.0f;
+    m_spawnAge         = 0.0f;
     m_attackCooldown   = 0.0f;
     m_hurtSoundTimer   = 0.0f;
     DE_LOG_INFO("Player: respawned");
+}
+
+TonemapSettings SandboxApp::playerPostFx()
+{
+    TonemapSettings s{};
+    s.nearZ      = m_viewCamera.GetNearZ();
+    s.farZ       = m_viewCamera.GetFarZ();
+    s.focusRange = 12.0f;
+
+    const Entity body = possessedBody();
+    if (const TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr)
+    {
+        const Vector3f focusPt{ xf->position.x, xf->position.y + 1.15f, xf->position.z };
+        s.focusZ = (focusPt - m_viewCamera.GetPosition()).Magnitude();
+    }
+
+    if (!m_playerHealth.alive())
+    {
+        const float t    = Clamp(m_playerDeadTimer / kDeathSeconds, 0.0f, 1.0f);
+        s.blur           = SmoothStep(0.0f, 0.55f, t);
+        s.uniformBlur    = SmoothStep(0.0f, 0.70f, t);
+        s.fade           = SmoothStep(0.30f, 1.00f, t);
+        return s;
+    }
+
+    const float u    = SmoothStep(0.0f, kSpawnFocusSeconds, m_spawnAge);
+    s.blur           = 1.0f - u;
+    s.uniformBlur    = 1.0f - u;
+    s.fade           = 0.0f;
+    return s;
 }
 
 void SandboxApp::updateCombat(float dt)
@@ -661,7 +695,7 @@ void SandboxApp::updateCombat(float dt)
     if (!m_playerHealth.alive())
     {
         m_playerDeadTimer += dt;
-        if (m_playerDeadTimer >= 2.5f)
+        if (m_playerDeadTimer >= kDeathSeconds)
             respawnPlayer();
         return;
     }
@@ -1357,6 +1391,7 @@ void SandboxApp::onInit()
 
 void SandboxApp::onSplashFinished()
 {
+    m_spawnAge = 0.0f;
     if (m_music)
         audio().setMusic(m_music, 0.10f);
 }
@@ -1373,6 +1408,8 @@ void SandboxApp::onUpdate(float dt)
         updateCombat(dt);
         updateHealthPacks(dt);
         m_blood.update(dt);
+        if (m_playerHealth.alive())
+            m_spawnAge += dt;
         m_stepGameplay = false;
     }
     m_water.updateLod(m_viewCamera.GetPosition());
@@ -1602,7 +1639,10 @@ void SandboxApp::onRender()
     {
         renderer().bindColorTargetOnly();
         const bool aces = useAcesTonemap(renderer());
-        m_tonemap.draw(cmd, renderer(), aces ? 1.0f : 0.0f, aces ? m_env.exposure() : 1.0f);
+        TonemapSettings post = playerPostFx();
+        post.mode     = aces ? 1.0f : 0.0f;
+        post.exposure = aces ? m_env.exposure() : 1.0f;
+        m_tonemap.draw(cmd, renderer(), post);
     }
 
     m_healthHud.draw(cmd, renderer().width(), renderer().height(), m_playerHealth.ratio());
