@@ -58,6 +58,10 @@ namespace Dark
         m_historyState   = D3D12_RESOURCE_STATE_COMMON;
         m_width       = 0;
         m_height      = 0;
+        m_hdrClear[0] = 0.0f;
+        m_hdrClear[1] = 0.0f;
+        m_hdrClear[2] = 0.0f;
+        m_hdrClear[3] = 1.0f;
     }
 
     void SceneBuffers::transition(ID3D12GraphicsCommandList* cmd, ID3D12Resource* res, D3D12_RESOURCE_STATES& state, D3D12_RESOURCE_STATES after)
@@ -105,7 +109,7 @@ namespace Dark
         return true;
     }
 
-    bool SceneBuffers::create(ID3D12Device* device, uint32_t width, uint32_t height, bool gbuffer, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu)
+    bool SceneBuffers::create(ID3D12Device* device, uint32_t width, uint32_t height, bool gbuffer, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu, const float hdrClear[4])
     {
         const D3D12_CPU_DESCRIPTOR_HANDLE savedShadow = m_shadowCpu;
         reset();
@@ -114,6 +118,13 @@ namespace Dark
         {
             DE_LOG_ERROR(LogCategory::Render, "SceneBuffers::create: invalid device or size");
             return false;
+        }
+        if (hdrClear)
+        {
+            m_hdrClear[0] = hdrClear[0];
+            m_hdrClear[1] = hdrClear[1];
+            m_hdrClear[2] = hdrClear[2];
+            m_hdrClear[3] = hdrClear[3];
         }
 
         m_rtvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
@@ -126,8 +137,7 @@ namespace Dark
         if (!checkHr(device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)), "SceneBuffers CreateDescriptorHeap RTV"))
             return false;
 
-        const float hdrClear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-        if (!createColorTarget(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, hdrClear, L"DE.HdrColor", m_hdr, m_hdrState))
+        if (!createColorTarget(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, m_hdrClear, L"DE.HdrColor", m_hdr, m_hdrState))
         {
             reset();
             return false;
@@ -154,15 +164,11 @@ namespace Dark
 
         if (gbuffer)
         {
-            const float albedoClear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-            const float attribClear[4] = { 0.5f, 0.5f, 1.0f, 0.0f };
-            const float velocityClear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-            const float postClear[4]     = { 0.0f, 0.0f, 0.0f, 1.0f };
-            if (!createColorTarget(device, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, albedoClear, L"DE.GBuffer.Albedo", m_albedo, m_albedoState)
-                || !createColorTarget(device, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, attribClear, L"DE.GBuffer.Attrib", m_attrib, m_attribState)
-                || !createColorTarget(device, width, height, DXGI_FORMAT_R16G16_FLOAT, velocityClear, L"DE.GBuffer.Velocity", m_velocity, m_velocityState)
-                || !createColorTarget(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, postClear, L"DE.HdrPost", m_post, m_postState)
-                || !createColorTarget(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, postClear, L"DE.TaaHistory", m_history, m_historyState))
+            if (!createColorTarget(device, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, kAlbedoClear, L"DE.GBuffer.Albedo", m_albedo, m_albedoState)
+                || !createColorTarget(device, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, kAttribClear, L"DE.GBuffer.Attrib", m_attrib, m_attribState)
+                || !createColorTarget(device, width, height, DXGI_FORMAT_R16G16_FLOAT, kVelocityClear, L"DE.GBuffer.Velocity", m_velocity, m_velocityState)
+                || !createColorTarget(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, kPostClear, L"DE.HdrPost", m_post, m_postState)
+                || !createColorTarget(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, kPostClear, L"DE.TaaHistory", m_history, m_historyState))
             {
                 reset();
                 return false;

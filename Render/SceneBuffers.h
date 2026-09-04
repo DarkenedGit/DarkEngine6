@@ -31,7 +31,13 @@ namespace Dark
         SceneBuffers(const SceneBuffers&)            = delete;
         SceneBuffers& operator=(const SceneBuffers&) = delete;
 
-        bool create(ID3D12Device* device, uint32_t width, uint32_t height, bool gbuffer, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu);
+        // G-buffer ClearRTV colors. Must match the D3D12_CLEAR_VALUE used at CreateCommittedResource.
+        static constexpr float kAlbedoClear[4]   = { 0.0f, 0.0f, 0.0f, 1.0f };
+        static constexpr float kAttribClear[4]   = { 0.5f, 0.5f, 1.0f, 0.0f };
+        static constexpr float kVelocityClear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+        static constexpr float kPostClear[4]     = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+        bool create(ID3D12Device* device, uint32_t width, uint32_t height, bool gbuffer, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu, const float hdrClear[4]);
         void reset();
 
         bool     valid() const { return m_hdr != nullptr; }
@@ -63,6 +69,7 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE attribSrvCpu() const;
         D3D12_GPU_DESCRIPTOR_HANDLE lightingTableGpu() const { return m_lightingGpu; }
         ID3D12DescriptorHeap*       lightingHeap() const { return m_lightingHeap.Get(); }
+        const float*                hdrClear() const { return m_hdrClear; }
         D3D12_RESOURCE_STATES       hdrState() const { return m_hdrState; }
         D3D12_RESOURCE_STATES       albedoState() const { return m_albedoState; }
         D3D12_RESOURCE_STATES       attribState() const { return m_attribState; }
@@ -119,6 +126,7 @@ namespace Dark
         UINT                         m_srvIncr     = 0;
         uint32_t                     m_width       = 0;
         uint32_t                     m_height      = 0;
+        float                        m_hdrClear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
     };
 
 } // namespace Dark

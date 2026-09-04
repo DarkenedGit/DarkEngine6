@@ -323,7 +323,7 @@ namespace Dark
         if (m_sceneBuffers)
         {
             const bool gbuffer = m_scenePath == ScenePath::HybridDeferred;
-            if (!m_sceneBuffers->create(m_device.Get(), m_width, m_height, gbuffer, m_depthSrvCpu))
+            if (!m_sceneBuffers->create(m_device.Get(), m_width, m_height, gbuffer, m_depthSrvCpu, m_clearColor))
             {
                 DE_LOG_ERROR(LogCategory::Render, "Renderer: SceneBuffers resize failed");
                 m_sceneBuffers.reset();
@@ -581,7 +581,7 @@ namespace Dark
 
         waitForGpu();
         auto buffers = std::make_unique<SceneBuffers>();
-        if (!buffers->create(m_device.Get(), m_width, m_height, gbuffer, m_depthSrvCpu))
+        if (!buffers->create(m_device.Get(), m_width, m_height, gbuffer, m_depthSrvCpu, m_clearColor))
         {
             DE_LOG_ERROR(LogCategory::Render, "enableSceneBuffers: SceneBuffers create failed");
             m_sceneBuffers.reset();
@@ -727,19 +727,17 @@ namespace Dark
     {
         if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->hasGBuffer())
             return;
-        const float albedoClear[4]   = { 0.0f, 0.0f, 0.0f, 1.0f };
-        const float attribClear[4]   = { 0.5f, 0.5f, 1.0f, 0.0f };
-        const float velocityClear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-        m_commandList->ClearRenderTargetView(m_sceneBuffers->albedoRtv(), albedoClear, 0, nullptr);
-        m_commandList->ClearRenderTargetView(m_sceneBuffers->attribRtv(), attribClear, 0, nullptr);
-        m_commandList->ClearRenderTargetView(m_sceneBuffers->velocityRtv(), velocityClear, 0, nullptr);
+        m_commandList->ClearRenderTargetView(m_sceneBuffers->albedoRtv(), SceneBuffers::kAlbedoClear, 0, nullptr);
+        m_commandList->ClearRenderTargetView(m_sceneBuffers->attribRtv(), SceneBuffers::kAttribClear, 0, nullptr);
+        m_commandList->ClearRenderTargetView(m_sceneBuffers->velocityRtv(), SceneBuffers::kVelocityClear, 0, nullptr);
     }
 
     void Renderer::clearHdr()
     {
         if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->valid())
             return;
-        m_commandList->ClearRenderTargetView(m_sceneBuffers->hdrRtv(), m_clearColor, 0, nullptr);
+        // Must match the D3D12_CLEAR_VALUE passed at HDR resource creation (warning #820).
+        m_commandList->ClearRenderTargetView(m_sceneBuffers->hdrRtv(), m_sceneBuffers->hdrClear(), 0, nullptr);
     }
 
     D3D12_CPU_DESCRIPTOR_HANDLE Renderer::hdrSrvCpu() const
