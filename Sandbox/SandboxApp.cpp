@@ -152,6 +152,7 @@ void SandboxApp::registerDefaultActions()
 
     a.bindKey("pause", Key::P);
     a.bindButton("pause", GamepadButton::Start);
+    a.bindKey("step", Key::O);
 
     a.bindKey("jump", Key::Space);
     a.bindButton("jump", GamepadButton::A);
@@ -189,8 +190,16 @@ void SandboxApp::registerDefaultActions()
     a.bindAxis("move_z", GamepadAxis::LeftY, 1.0f);
     a.bindKey("sprint", Key::LeftShift);
 
+    a.bindKeyAsAxis("fly_forward", Key::W, 1.0f);
+    a.bindKeyAsAxis("fly_forward", Key::S, -1.0f);
+    a.bindAxis("fly_forward", GamepadAxis::LeftY, 1.0f);
+    a.bindKeyAsAxis("fly_strafe", Key::A, -1.0f);
+    a.bindKeyAsAxis("fly_strafe", Key::D, 1.0f);
+    a.bindAxis("fly_strafe", GamepadAxis::LeftX, 1.0f);
     a.bindKeyAsAxis("fly_climb", Key::Q, 1.0f);
+    a.bindKeyAsAxis("fly_climb", Key::Space, 1.0f);
     a.bindKeyAsAxis("fly_climb", Key::Z, -1.0f);
+    a.bindKeyAsAxis("fly_climb", Key::LeftControl, -1.0f);
     a.bindAxis("fly_climb", GamepadAxis::RightTrigger, 1.0f);
     a.bindAxis("fly_climb", GamepadAxis::LeftTrigger, -1.0f);
 
@@ -200,38 +209,26 @@ void SandboxApp::registerDefaultActions()
     a.bindButton("sprint", GamepadButton::LeftThumb);
     a.bindButton("sprint", GamepadButton::LeftShoulder);
 
-    a.bindKey("time_back", Key::LeftBracket);
-    a.bindKey("time_fwd", Key::RightBracket);
-    a.bindKey("time_toggle", Key::Digit0);
-    a.bindKey("weather_clear", Key::Digit1);
-    a.bindKey("weather_partly", Key::Digit2);
-    a.bindKey("weather_overcast", Key::Digit3);
-    a.bindKey("weather_storm", Key::Digit4);
-    a.bindKey("debug_fill", Key::F1);
-    a.bindKey("debug_lighting", Key::F2);
-    a.bindKey("net_browse", Key::F3);
-    a.bindKey("net_disconnect", Key::F4);
-    a.bindKey("net_host", Key::F5);
-    a.bindKey("net_join", Key::F6);
-    a.bindKey("debug_shadow_enable", Key::F7);
-    a.bindKey("debug_shadows", Key::F8);
-    a.bindKey("debug_depth", Key::F9);
-    a.bindKey("debug_listen", Key::F10);
-    a.bindKey("debug_gbuffer", Key::F11);
-    a.bindKey("debug_aces", Key::F12);
+    a.bindKey("dev_tools", Key::M);
 
     DE_LOG_INFO(
-        "Input: quit(Esc/Back) pause(P/Start) reset(R/Y) speed(+/- / RB) "
+        "Input: quit(Esc/Back) pause(P/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
         "possessed WASD/LS move, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, Shift/LB sprint, swim in water, "
-        "time([/]) weather(1-4) "
-        "F3 browse LAN F4 disconnect F5 host F6 join  F1 fill F2 lighting F7 shadows F8 shadow maps F9 depth F10 visual debugger "
-        "F11 G-buffer F12 ACES  -forward for UNORM forward");
+        "M dev tools  -forward for UNORM forward");
 }
 
 void SandboxApp::handleRuntimeCommands(float dt)
 {
     handleNetHotkeys();
     applyNetRole();
+
+    const bool uiKeys = m_showDevTools && m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
+    if (!uiKeys && input().actionPressed("dev_tools"))
+    {
+        m_showDevTools = !m_showDevTools;
+        audio().play2D(m_sfxClick, 0.5f);
+        DE_LOG_INFO("Sandbox: dev tools = {}", m_showDevTools);
+    }
 
     if (input().actionPressed("quit"))
     {
@@ -240,17 +237,19 @@ void SandboxApp::handleRuntimeCommands(float dt)
         return;
     }
 
-    if (input().actionPressed("pause"))
+    if (!uiKeys && input().actionPressed("pause"))
     {
-        m_spinPaused = !m_spinPaused;
-        DE_LOG_INFO("Command: pause spin = {}", m_spinPaused);
+        m_gameplayPaused = !m_gameplayPaused;
+        m_stepGameplay   = false;
         audio().play2D(m_sfxClick, 0.5f);
+        DE_LOG_INFO("Sandbox: gameplay paused = {}", m_gameplayPaused);
     }
+    if (!uiKeys && m_gameplayPaused && input().actionPressed("step"))
+        m_stepGameplay = true;
 
-    if (input().actionPressed("reset"))
+    if (!uiKeys && input().actionPressed("reset"))
     {
         m_spinSpeed  = 0.8f;
-        m_spinPaused = false;
         Vector3f pos{};
         if (m_cube.valid())
         {
@@ -264,89 +263,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
         DE_LOG_INFO("Command: reset cube");
     }
 
-    if (input().actionPressed("time_back"))
-    {
-        m_env.timeOfDay -= 0.75f;
-        if (m_env.timeOfDay < 0.0f)
-            m_env.timeOfDay += 24.0f;
-        m_env.evaluate();
-        DE_LOG_INFO("Sky: time {:.2f}h  elev {:.1f} deg", m_env.timeOfDay, m_env.sunElevation() * 57.2958f);
-    }
-    if (input().actionPressed("time_fwd"))
-    {
-        m_env.timeOfDay += 0.75f;
-        if (m_env.timeOfDay >= 24.0f)
-            m_env.timeOfDay -= 24.0f;
-        m_env.evaluate();
-        DE_LOG_INFO("Sky: time {:.2f}h  elev {:.1f} deg", m_env.timeOfDay, m_env.sunElevation() * 57.2958f);
-    }
-    if (input().actionPressed("time_toggle"))
-    {
-        m_env.timeScale = (m_env.timeScale == 0.0f) ? 0.35f : 0.0f;
-        DE_LOG_INFO("Sky: time scale = {:.2f} h/s", m_env.timeScale);
-    }
-    if (input().actionPressed("weather_clear"))
-    {
-        m_env.weather = Sky::WeatherState::Clear();
-        m_env.evaluate();
-        DE_LOG_INFO("Sky: weather clear");
-    }
-    if (input().actionPressed("weather_partly"))
-    {
-        m_env.weather = Sky::WeatherState::PartlyCloudy();
-        m_env.evaluate();
-        DE_LOG_INFO("Sky: weather partly cloudy");
-    }
-    if (input().actionPressed("weather_overcast"))
-    {
-        m_env.weather = Sky::WeatherState::Overcast();
-        m_env.evaluate();
-        DE_LOG_INFO("Sky: weather overcast");
-    }
-    if (input().actionPressed("weather_storm"))
-    {
-        m_env.weather = Sky::WeatherState::Storm();
-        m_env.evaluate();
-        DE_LOG_INFO("Sky: weather storm");
-    }
-    if (input().actionPressed("debug_fill"))
-    {
-        renderer().debugState().cycleFill();
-        DE_LOG_INFO("Sandbox: fill = {}", toString(renderer().debugState().fill));
-    }
-    if (input().actionPressed("debug_lighting"))
-    {
-        renderer().debugState().lighting = !renderer().debugState().lighting;
-        DE_LOG_INFO("Sandbox: lighting = {}", renderer().debugState().lighting);
-    }
-    if (input().actionPressed("debug_shadow_enable"))
-    {
-        renderer().debugState().shadows = !renderer().debugState().shadows;
-        m_shadows.setDebugEnabled(renderer().debugState().shadows);
-        DE_LOG_INFO("Sandbox: shadows = {}", renderer().debugState().shadows);
-    }
-    if (input().actionPressed("debug_shadows"))
-    {
-        m_showShadowMaps = !m_showShadowMaps;
-        DE_LOG_INFO("Sandbox: shadow map overlay = {}", m_showShadowMaps);
-    }
-    if (input().actionPressed("debug_depth"))
-    {
-        m_showDepth = !m_showDepth;
-        DE_LOG_INFO("Sandbox: depth overlay = {}", m_showDepth);
-    }
-    if (input().actionPressed("debug_gbuffer"))
-    {
-        m_showGBuffer = !m_showGBuffer;
-        DE_LOG_INFO("Sandbox: G-buffer overlay = {}", m_showGBuffer);
-    }
-    if (input().actionPressed("debug_aces"))
-    {
-        renderer().debugState().aces = !renderer().debugState().aces;
-        DE_LOG_INFO("Sandbox: ACES = {} (display curve on HDR; lighting-off stays copy)", renderer().debugState().aces);
-    }
-
-    if (input().actionPressed("speed_up"))
+    if (!uiKeys && input().actionPressed("speed_up"))
     {
         m_spinSpeed += 0.2f;
         if (m_spinSpeed > 5.0f)
@@ -354,7 +271,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
         DE_LOG_INFO("Command: spin speed = {:.2f}", m_spinSpeed);
     }
 
-    if (input().actionPressed("speed_down"))
+    if (!uiKeys && input().actionPressed("speed_down"))
     {
         m_spinSpeed -= 0.2f;
         if (m_spinSpeed < 0.0f)
@@ -362,12 +279,17 @@ void SandboxApp::handleRuntimeCommands(float dt)
         DE_LOG_INFO("Command: spin speed = {:.2f}", m_spinSpeed);
     }
 
-    if (window().isFocused())
-        window().setCursorCaptured(true);
+    window().setCursorCaptured(window().isFocused() && !m_showDevTools);
+    if (m_gameplayPaused)
+        updateFlyCamera(dt);
     else
-        window().setCursorCaptured(false);
-    updatePossessed(dt);
-    updateShoulderCamera();
+    {
+        updatePossessed(dt);
+        updateShoulderCamera();
+    }
+
+    if (m_gameplayPaused && !m_stepGameplay)
+        return;
 
     if (auto* xf = m_cube.valid() ? world().get<TransformComponent>(m_cube) : nullptr)
     {
@@ -387,7 +309,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
         }
 
         // Host (and offline Idle) still spin the cube. Clients must not.
-        if ((role == NetRole::Host || role == NetRole::Idle) && !m_spinPaused)
+        if (role == NetRole::Host || role == NetRole::Idle)
         {
             const Quaternion spin = Quaternion::FromAxisAngle(Vector3f::Y_AXIS, m_spinSpeed * dt);
             xf->rotation          = spin * xf->rotation;
@@ -400,27 +322,36 @@ void SandboxApp::handleRuntimeCommands(float dt)
 
 void SandboxApp::updateFlyCamera(float dt)
 {
-    const float forward = input().actionAxis("fly_forward");
-    const float strafe  = input().actionAxis("fly_strafe");
-    const float climb   = input().actionAxis("fly_climb");
-    const bool  sprint  = input().keyDown(Key::LeftShift) || input().actionDown("sprint");
-    const float speed   = sprint ? 48.0f : 18.0f;
+    const bool uiKeys  = m_showDevTools && m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
+    const bool uiMouse = m_showDevTools && m_imgui.isReady() && m_imgui.wantCaptureMouse();
 
-    if (forward != 0.0f)
-        m_viewCamera.Walk(forward * speed * dt);
-    if (strafe != 0.0f)
-        m_viewCamera.Strafe(strafe * speed * dt);
-    if (climb != 0.0f)
-        m_viewCamera.Climb(climb * speed * dt);
-
-    if (input().mouseDown(MouseButton::Right))
+    if (!uiKeys)
     {
-        const float sens = 0.0045f;
-        m_viewCamera.RotateY(static_cast<float>(input().mouseDeltaX()) * sens);
-        m_viewCamera.Pitch(static_cast<float>(input().mouseDeltaY()) * -sens);
+        const float forward = input().actionAxis("fly_forward");
+        const float strafe  = input().actionAxis("fly_strafe");
+        const float climb   = input().actionAxis("fly_climb");
+        const bool  sprint  = input().keyDown(Key::LeftShift) || input().actionDown("sprint");
+        const float speed   = sprint ? 48.0f : 18.0f;
+
+        if (forward != 0.0f)
+            m_viewCamera.Walk(forward * speed * dt);
+        if (strafe != 0.0f)
+            m_viewCamera.Strafe(strafe * speed * dt);
+        if (climb != 0.0f)
+            m_viewCamera.Climb(climb * speed * dt);
     }
 
+    constexpr float kSens    = 0.0045f;
     constexpr float kPadLook = 2.1f;
+    if (!uiMouse)
+    {
+        if (!m_showDevTools || input().mouseDown(MouseButton::Right))
+        {
+            m_viewCamera.RotateY(static_cast<float>(input().mouseDeltaX()) * kSens);
+            m_viewCamera.Pitch(static_cast<float>(input().mouseDeltaY()) * kSens);
+        }
+    }
+
     const float lookYaw   = input().actionAxis("look_yaw");
     const float lookPitch = input().actionAxis("look_pitch");
     if (lookYaw != 0.0f)
@@ -432,59 +363,62 @@ void SandboxApp::updateFlyCamera(float dt)
         xf->position = m_viewCamera.GetPosition();
 }
 
+void SandboxApp::devNetHost()
+{
+    m_netBrowsing    = false;
+    m_browseLogCount = ~0u;
+    if (network().host(kNetDefaultPort))
+        DE_LOG_INFO(LogCategory::Networking, "Sandbox: hosting on port {}", kNetDefaultPort);
+}
+
+void SandboxApp::devNetJoin(const Address& addr)
+{
+    m_netBrowsing    = false;
+    m_browseLogCount = ~0u;
+    if (network().join(addr))
+    {
+        const uint32_t ip = addr.ipv4;
+        DE_LOG_INFO(LogCategory::Networking, "Sandbox: joining {}.{}.{}.{}:{}", (ip >> 24) & 255u, (ip >> 16) & 255u, (ip >> 8) & 255u, ip & 255u, addr.port);
+    }
+}
+
+void SandboxApp::devNetDisconnect()
+{
+    m_netBrowsing    = false;
+    m_browseLogCount = ~0u;
+    network().disconnect();
+    DE_LOG_INFO(LogCategory::Networking, "Sandbox: disconnect");
+}
+
+void SandboxApp::devNetBrowse()
+{
+    if (network().role() != NetRole::Idle)
+        DE_LOG_WARN(LogCategory::Networking, "Sandbox: browse requires Idle (disconnect first)");
+    else if (network().browse())
+    {
+        m_netBrowsing    = true;
+        m_browseLogCount = ~0u;
+        DE_LOG_INFO(LogCategory::Networking, "Sandbox: browsing LAN :{} (same-PC two binds of :{} is unreliable; join by IP)", kNetBeaconPort, kNetBeaconPort);
+    }
+    else
+        DE_LOG_WARN(LogCategory::Networking, "Sandbox: browse bind failed; typed IP / CLI still work");
+}
+
+void SandboxApp::devToggleListen()
+{
+    if (debug().isListening())
+    {
+        debug().shutdown();
+        DE_LOG_INFO(LogCategory::Debug, "Sandbox: Visual Debugger listen stopped");
+    }
+    else if (debug().listen(kDebugDefaultPort))
+        DE_LOG_INFO(LogCategory::Debug, "Sandbox: Visual Debugger listening TCP {}", debug().boundAddress().port);
+    else
+        DE_LOG_ERROR(LogCategory::Debug, "Sandbox: Visual Debugger listen failed");
+}
+
 void SandboxApp::handleNetHotkeys()
 {
-    if (input().actionPressed("net_host"))
-    {
-        m_netBrowsing    = false;
-        m_browseLogCount = ~0u;
-        if (network().host(kNetDefaultPort))
-            DE_LOG_INFO(LogCategory::Networking, "Sandbox: hosting on port {}", kNetDefaultPort);
-    }
-    if (input().actionPressed("net_join"))
-    {
-        m_netBrowsing    = false;
-        m_browseLogCount = ~0u;
-        Address addr{};
-        addr.port = kNetDefaultPort;
-        parseIPv4("127.0.0.1", addr);
-        if (network().join(addr))
-            DE_LOG_INFO(LogCategory::Networking, "Sandbox: joining 127.0.0.1:{}", kNetDefaultPort);
-    }
-    if (input().actionPressed("net_disconnect"))
-    {
-        m_netBrowsing    = false;
-        m_browseLogCount = ~0u;
-        network().disconnect();
-        DE_LOG_INFO(LogCategory::Networking, "Sandbox: disconnect");
-    }
-    if (input().actionPressed("debug_listen"))
-    {
-        if (debug().isListening())
-        {
-            debug().shutdown();
-            DE_LOG_INFO(LogCategory::Debug, "Sandbox: Visual Debugger listen stopped");
-        }
-        else if (debug().listen(kDebugDefaultPort))
-            DE_LOG_INFO(LogCategory::Debug, "Sandbox: Visual Debugger listening TCP {}", debug().boundAddress().port);
-        else
-            DE_LOG_ERROR(LogCategory::Debug, "Sandbox: Visual Debugger listen failed");
-    }
-    if (input().actionPressed("net_browse"))
-    {
-        if (network().role() != NetRole::Idle)
-            DE_LOG_WARN(LogCategory::Networking, "Sandbox: browse requires Idle (disconnect first)");
-        else if (network().browse())
-        {
-            m_netBrowsing    = true;
-            m_browseLogCount = ~0u;
-            DE_LOG_INFO(LogCategory::Networking, "Sandbox: browsing LAN :{} (same-PC two binds of :{} is unreliable; use F6 or -join)",
-                        kNetBeaconPort, kNetBeaconPort);
-        }
-        else
-            DE_LOG_WARN(LogCategory::Networking, "Sandbox: browse bind failed; typed IP / CLI still work");
-    }
-
     if (m_netBrowsing && network().role() == NetRole::Idle)
     {
         const uint32_t n = network().sessionCount();
@@ -587,9 +521,12 @@ void SandboxApp::updatePossessed(float dt)
     constexpr float kPadLook   = 2.1f;
     constexpr float kRadius    = 0.45f;
 
-    m_lookYaw += static_cast<float>(input().mouseDeltaX()) * kMouseSens;
-    // mouseDeltaY is already up-positive; add it so mouse-up looks up.
-    m_lookPitch += static_cast<float>(input().mouseDeltaY()) * kMouseSens;
+    if (!m_showDevTools)
+    {
+        m_lookYaw += static_cast<float>(input().mouseDeltaX()) * kMouseSens;
+        // mouseDeltaY is already up-positive; add it so mouse-up looks up.
+        m_lookPitch += static_cast<float>(input().mouseDeltaY()) * kMouseSens;
+    }
     m_lookYaw += input().actionAxis("look_yaw") * kPadLook * dt;
     m_lookPitch += input().actionAxis("look_pitch") * kPadLook * dt;
     m_lookYaw   = Math::WrapPi(m_lookYaw);
@@ -604,8 +541,9 @@ void SandboxApp::updatePossessed(float dt)
     if (right.MagnitudeSqrd() > 1.0e-6f)
         right.Normalize();
 
-    const float mx = input().actionAxis("move_x");
-    const float mz = input().actionAxis("move_z");
+    const bool uiKeys = m_showDevTools && m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
+    const float mx = uiKeys ? 0.0f : input().actionAxis("move_x");
+    const float mz = uiKeys ? 0.0f : input().actionAxis("move_z");
     Vector3f wish = right * mx + flat * mz;
     const float mag = wish.Magnitude();
     if (mag > 1.0f)
@@ -619,8 +557,8 @@ void SandboxApp::updatePossessed(float dt)
 
     PlayerMotorInput motorIn{};
     motorIn.wish        = m_playerHealth.alive() ? wish : Vector3f{ 0.0f, 0.0f, 0.0f };
-    motorIn.sprint      = m_playerHealth.alive() && input().actionDown("sprint");
-    motorIn.jumpPressed = m_playerHealth.alive() && input().actionPressed("jump");
+    motorIn.sprint      = m_playerHealth.alive() && !uiKeys && input().actionDown("sprint");
+    motorIn.jumpPressed = m_playerHealth.alive() && !uiKeys && input().actionPressed("jump");
 
     struct HeightCtx
     {
@@ -760,7 +698,7 @@ void SandboxApp::updateCombat(float dt)
         m_hurtSoundTimer = 0.40f;
     }
 
-    const bool attack = input().actionPressed("attack") || input().mousePressed(MouseButton::Left);
+    const bool attack = input().actionPressed("attack") || (!m_showDevTools && input().mousePressed(MouseButton::Left));
     if (!m_playerHealth.alive() || !attack || m_attackCooldown > 0.0f)
         return;
 
@@ -1183,8 +1121,10 @@ void SandboxApp::onInit()
         return;
     if (!m_debugOverlay.create(renderer().device()))
     {
-        DE_LOG_WARN("SandboxApp: DebugOverlay create failed — F8/F9 disabled");
+        DE_LOG_WARN("SandboxApp: DebugOverlay create failed — depth/shadow tiles disabled");
     }
+    if (!m_imgui.init(window(), renderer(), "sandbox_imgui.ini", false))
+        DE_LOG_WARN("SandboxApp: ImGui init failed — Dev Tools (M) disabled");
     if (renderer().hasSceneBuffers() && !m_tonemap.create(renderer().device()))
     {
         DE_LOG_FATAL("SandboxApp: TonemapPipeline create failed");
@@ -1401,7 +1341,7 @@ void SandboxApp::onInit()
         m_terrain.chunksX(),
         m_terrain.chunksZ());
     DE_LOG_INFO(LogCategory::Networking, "Sandbox net: Sandbox.exe -host   and   Sandbox.exe -join 127.0.0.1");
-    DE_LOG_INFO(LogCategory::Networking, "Sandbox net: F5 host :26160  F6 join 127.0.0.1:26160  F4 disconnect  F3 browse :26161");
+    DE_LOG_INFO(LogCategory::Networking, "Sandbox net: M opens Dev Tools (host / join / browse / debugger)");
 
     m_chaseOk = m_chase.init(renderer(), m_terrain, m_water, world(), m_cubeMesh, m_treeTrunkMaterial, m_treeMaterial, m_aiMaterial);
     if (!m_chaseOk)
@@ -1424,15 +1364,19 @@ void SandboxApp::onSplashFinished()
 void SandboxApp::onUpdate(float dt)
 {
     handleRuntimeCommands(dt);
-    m_env.tick(dt);
-    m_water.tick(dt);
+    if (!m_gameplayPaused || m_stepGameplay)
+    {
+        m_env.tick(dt);
+        m_water.tick(dt);
+        if (m_chaseOk)
+            m_chase.tick(dt, world(), input(), m_terrain, possessedBody(), m_playerWet);
+        updateCombat(dt);
+        updateHealthPacks(dt);
+        m_blood.update(dt);
+        m_stepGameplay = false;
+    }
     m_water.updateLod(m_viewCamera.GetPosition());
     syncTerrainLod();
-    if (m_chaseOk)
-        m_chase.tick(dt, world(), input(), m_terrain, possessedBody(), m_playerWet);
-    updateCombat(dt);
-    updateHealthPacks(dt);
-    m_blood.update(dt);
 
     AudioListener lis{};
     lis.position = m_viewCamera.GetPosition();
@@ -1448,6 +1392,9 @@ void SandboxApp::onRender()
         requestQuit();
         return;
     }
+
+    if (m_imgui.isReady())
+        m_imgui.beginFrame();
 
     auto* cmd = renderer().commandList();
 
@@ -1665,6 +1612,14 @@ void SandboxApp::onRender()
         m_terrain.lastTriangles() + m_water.lastTriangles() + meshDraws * (m_cubeMesh.indexCount() / 3);
 
     drawDebugOverlays(cmd);
+    if (m_imgui.isReady())
+    {
+        if (m_gameplayPaused)
+            drawPauseOverlay();
+        if (m_showDevTools)
+            drawDevTools();
+        m_imgui.render(renderer());
+    }
     renderer().endFrame();
 }
 
@@ -1748,6 +1703,7 @@ void SandboxApp::onShutdown()
 {
     network().shutdown();
     renderer().waitForGpu();
+    m_imgui.shutdown(renderer());
     if (m_cubeMaterial)
         assets().unload(m_cubeMaterial->id);
     m_cubeMaterial.reset();

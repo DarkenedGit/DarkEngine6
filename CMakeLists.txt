@@ -313,6 +313,14 @@ target_include_directories(imgui_editor PUBLIC
 target_compile_definitions(imgui_editor PUBLIC IMGUI_DEFINE_MATH_OPERATORS)
 target_link_libraries(imgui_editor PUBLIC d3d12 dxgi)
 
+# Sandbox Dev Tools uses the same ImGui + Ui bootstrap as Editor.
+target_sources(Sandbox PRIVATE ${DE_UI_SOURCES})
+target_link_libraries(Sandbox PRIVATE imgui_editor)
+target_include_directories(Sandbox PRIVATE
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
+)
+
 # --- Editor executable -------------------------------------------------------------
 add_executable(Editor WIN32 ${DE_EDITOR_SOURCES})
 
