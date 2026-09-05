@@ -48,10 +48,10 @@ namespace Dark
         GpuLocalLight  lights[kMaxLocalLights];
         Math::Matrix4f volumeWorld[kMaxLocalLights];   // row-vector S * R * T
         D3D12_RECT     insideScissor[kMaxLocalLights]; // densely packed 0..insideCount-1
-        uint32_t       count         = 0;              // GPU buffer length: [pointOut | spotOut | inside]
+        uint32_t       count         = 0;              // GPU buffer: [pointOut | spotOut | inside | failed-scissor]
         uint32_t       pointOutCount = 0;              // lights[0 .. pointOutCount)
         uint32_t       spotOutCount  = 0;              // lights[pointOutCount .. pointOutCount+spotOutCount)
-        uint32_t       insideCount   = 0;              // lights[pointOut+spotOut .. count); insideScissor[i] ↔ lights[pointOut+spotOut+i]
+        uint32_t       insideCount   = 0;              // lights[pointOut+spotOut .. pointOut+spotOut+insideCount) ↔ insideScissor[i]
         uint32_t       waterIndex[kWaterLocalLightMax];
         uint32_t       waterCount    = 0;
     };

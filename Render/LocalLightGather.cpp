@@ -8,6 +8,7 @@
 #include "Math/Vector4f.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <vector>
 
@@ -40,12 +41,15 @@ namespace Dark
 
         void warnOverflow(size_t found, uint32_t kept)
         {
-            static uint32_t s_skip = 0;
-            if (s_skip == 0)
-            {
-                DE_LOG_WARN(LogCategory::Render, "gatherLocalLights: {} in-frustum lights, keeping top {}", found, kept);
-            }
-            s_skip = (s_skip + 1u) % 60u;
+            using clock = std::chrono::steady_clock;
+            static clock::time_point s_last{};
+            static bool              s_armed = false;
+            const auto               now     = clock::now();
+            if (s_armed && now - s_last < std::chrono::seconds(1))
+                return;
+            s_armed = true;
+            s_last  = now;
+            DE_LOG_WARN(LogCategory::Render, "local lights culled {} → {}", found, kept);
         }
 
         Vector3f dirOrZ(const Vector3f& dir)
@@ -316,6 +320,14 @@ namespace Dark
             out.insideScissor[out.insideCount] = rect;
             packAt(i);
             ++out.insideCount;
+        }
+
+        // Empty / <16 px scissors skip the volume draw, but keep the GPU slot for water.
+        for (uint32_t i = 0; i < n; ++i)
+        {
+            if (!cands[i].inside || slotOf[i] >= 0)
+                continue;
+            packAt(i);
         }
 
         for (uint32_t src : waterSrc)

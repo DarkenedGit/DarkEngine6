@@ -250,6 +250,120 @@ TEST(LocalLightGather, DegenerateOuterTreatedAsPoint)
     EXPECT_NEAR(out.lights[0].dir[2], 0.0f, 1.0e-5f);
 }
 
+TEST(LocalLightGather, MaxOutKeepsHighestScores)
+{
+    World world;
+    for (int i = 1; i <= 6; ++i)
+    {
+        addLight(world, Vector3f(static_cast<float>(i) * 0.2f, 0.0f, 50.0f), LocalLightType::Point, static_cast<float>(i) * 100.0f, 8.0f);
+    }
+
+    Camera3D cam;
+    Matrix4f viewProj;
+    Frustum3f frustum;
+    makeView(cam, viewProj, frustum);
+    LocalLightCullInput in = makeInput(frustum, viewProj);
+    in.maxOut              = 4;
+
+    LocalLightDrawLists out{};
+    ASSERT_TRUE(gatherLocalLights(world, in, out));
+    ASSERT_EQ(out.count, 4u);
+
+    std::unordered_set<int> kept;
+    for (uint32_t i = 0; i < out.count; ++i)
+        kept.insert(static_cast<int>(out.lights[i].color[0] + 0.5f));
+    EXPECT_EQ(kept.size(), 4u);
+    EXPECT_TRUE(kept.contains(300));
+    EXPECT_TRUE(kept.contains(400));
+    EXPECT_TRUE(kept.contains(500));
+    EXPECT_TRUE(kept.contains(600));
+    EXPECT_FALSE(kept.contains(100));
+    EXPECT_FALSE(kept.contains(200));
+}
+
+TEST(LocalLightGather, WaterIndexRemapsAcrossInsideShuffle)
+{
+    World world;
+    for (int i = 1; i <= 6; ++i)
+        addLight(world, Vector3f(static_cast<float>(i) * 0.2f, 0.0f, 50.0f), LocalLightType::Point, static_cast<float>(i) * 100.0f, 8.0f);
+    for (int i = 0; i < 4; ++i)
+        addLight(world, Vector3f(static_cast<float>(i) * 0.15f, 0.0f, 0.0f), LocalLightType::Point, 1000.0f + static_cast<float>(i) * 100.0f, 8.0f);
+
+    Camera3D cam;
+    Matrix4f viewProj;
+    Frustum3f frustum;
+    makeView(cam, viewProj, frustum);
+
+    LocalLightDrawLists out{};
+    ASSERT_TRUE(gatherLocalLights(world, makeInput(frustum, viewProj), out));
+    ASSERT_EQ(out.count, 10u);
+    EXPECT_EQ(out.pointOutCount, 6u);
+    EXPECT_EQ(out.insideCount, 4u);
+    ASSERT_EQ(out.waterCount, kWaterLocalLightMax);
+
+    const uint32_t insideBase = out.pointOutCount + out.spotOutCount;
+    std::unordered_set<int> waterCd;
+    uint32_t insideHits = 0;
+    for (uint32_t i = 0; i < out.waterCount; ++i)
+    {
+        const uint32_t idx = out.waterIndex[i];
+        EXPECT_LT(idx, out.count);
+        const int cd = static_cast<int>(out.lights[idx].color[0] + 0.5f);
+        EXPECT_TRUE(waterCd.insert(cd).second);
+        if (cd >= 1000)
+        {
+            EXPECT_GE(idx, insideBase);
+            ++insideHits;
+        }
+    }
+    EXPECT_EQ(insideHits, 4u);
+    EXPECT_TRUE(waterCd.contains(300));
+    EXPECT_TRUE(waterCd.contains(400));
+    EXPECT_TRUE(waterCd.contains(500));
+    EXPECT_TRUE(waterCd.contains(600));
+    EXPECT_TRUE(waterCd.contains(1000));
+    EXPECT_TRUE(waterCd.contains(1100));
+    EXPECT_TRUE(waterCd.contains(1200));
+    EXPECT_TRUE(waterCd.contains(1300));
+    EXPECT_FALSE(waterCd.contains(100));
+    EXPECT_FALSE(waterCd.contains(200));
+}
+
+TEST(LocalLightGather, FailedScissorInsideStillInWaterIndex)
+{
+    World world;
+    addLight(world, Vector3f(0.0f, 0.0f, 50.0f), LocalLightType::Point, 200.0f, 8.0f);
+    addLight(world, Vector3f(0.0f, 0.0f, 0.0f), LocalLightType::Point, 900.0f, 8.0f);
+
+    Camera3D cam;
+    Matrix4f viewProj;
+    Frustum3f frustum;
+    makeView(cam, viewProj, frustum);
+    LocalLightCullInput in = makeInput(frustum, viewProj);
+    in.viewportW           = 0;
+    in.viewportH           = 0;
+
+    LocalLightDrawLists out{};
+    ASSERT_TRUE(gatherLocalLights(world, in, out));
+    EXPECT_EQ(out.pointOutCount, 1u);
+    EXPECT_EQ(out.insideCount, 0u);
+    ASSERT_EQ(out.count, 2u);
+    ASSERT_EQ(out.waterCount, 2u);
+
+    bool sawBrightInside = false;
+    for (uint32_t i = 0; i < out.waterCount; ++i)
+    {
+        const uint32_t idx = out.waterIndex[i];
+        EXPECT_LT(idx, out.count);
+        if (out.lights[idx].color[0] > 800.0f)
+        {
+            sawBrightInside = true;
+            EXPECT_GE(idx, out.pointOutCount + out.spotOutCount);
+        }
+    }
+    EXPECT_TRUE(sawBrightInside);
+}
+
 TEST(LocalLightGather, SkipsDisabledAndMissingTransform)
 {
     World world;
