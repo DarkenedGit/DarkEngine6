@@ -183,7 +183,7 @@ void TerrainWorld::rebuildDirtyCpuMeshes()
 
         c.builtLod  = c.lod;
         c.builtMask = c.edges.bits;
-        c.gpu       = Geometry::Mesh{}; // force re-upload
+        c.gpu       = Mesh{}; // force re-upload
     }
 }
 
@@ -202,7 +202,7 @@ bool TerrainWorld::uploadDirty(Renderer& renderer)
             continue;
         if (c.cpu.indices.empty())
             continue;
-        if (!Geometry::Mesh::tryCreate(renderer, c.cpu, c.gpu))
+        if (!Mesh::tryCreate(renderer, c.cpu, c.gpu))
         {
             DE_LOG_ERROR("TerrainWorld: GPU upload failed for chunk ({},{})", c.ix, c.iz);
             ok = false;

@@ -4,13 +4,13 @@
 #include "Core/ContentRoots.h"
 #include "Core/Log.h"
 #include "ECS/Components.h"
-#include "Geometry/MeshGen.h"
 #include "Input/InputCodes.h"
 #include "Math/MathHelper.h"
 #include "Math/Matrix4f.h"
 #include "Math/Quaternion.h"
 #include "Math/Vector3f.h"
 #include "Network/NetTypes.h"
+#include "Render/MeshGen.h"
 #include "Scene/SceneFile.h"
 #include "Sprite/SpriteSheet.h"
 
@@ -21,7 +21,6 @@
 
 using namespace Dark;
 using namespace Math;
-using namespace Geometry;
 using namespace Collision;
 
 namespace
@@ -1119,7 +1118,7 @@ void Sandbox2DApp::onUpdate(float dt)
         DE_LOG_INFO("Sandbox2D: collision debug {}", m_showCollision);
     }
 
-    AudioListener lis{};
+    Audio::AudioListener lis{};
     lis.position = Vector3f(m_camera.GetPosition().x, m_camera.GetPosition().y, 0.0f);
     lis.forward  = Vector3f(0.0f, 0.0f, 1.0f);
     lis.up       = Vector3f(0.0f, 1.0f, 0.0f);

@@ -11,10 +11,8 @@
 #include "Math/Box3f.h"
 #include "Render/Frustum3f.h"
 
-namespace Dark
+namespace Dark::Collision
 {
-    namespace Collision
-    {
     // =====================================================================
     // 2D swept tests
     // =====================================================================
@@ -89,5 +87,4 @@ namespace Dark
     SweptHit3D SweptIntersects(const Math::Aabb3f& box, const Math::Vector3f& delta, const Math::Frustum3f& frustum);
     SweptHit3D SweptIntersects(const Math::Box3f& box, const Math::Vector3f& delta, const Math::Frustum3f& frustum);
 
-    } // namespace Collision
-} // namespace Dark
+} // namespace Dark::Collision

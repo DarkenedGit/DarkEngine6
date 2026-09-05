@@ -4,25 +4,19 @@
 #include <cstring>
 #include <fstream>
 
-namespace Dark
+namespace Dark::Audio
 {
-
-    namespace
+    bool readExact(std::ifstream& f, void* dst, std::streamsize n)
     {
+        f.read(static_cast<char*>(dst), n);
+        return f.good() && f.gcount() == n;
+    }
 
-        bool readExact(std::ifstream& f, void* dst, std::streamsize n)
-        {
-            f.read(static_cast<char*>(dst), n);
-            return f.good() && f.gcount() == n;
-        }
-
-        int16_t sample8To16(uint8_t s)
-        {
-            const int centered = static_cast<int>(s) - 128;
-            return static_cast<int16_t>(centered * 256);
-        }
-
-    } // namespace
+    int16_t sample8To16(uint8_t s)
+    {
+        const int centered = static_cast<int>(s) - 128;
+        return static_cast<int16_t>(centered * 256);
+    }
 
     bool loadPcmWav(const std::filesystem::path& path, PcmWav& out)
     {

@@ -18,8 +18,7 @@ namespace Dark
     };
 } // namespace Dark
 
-template<>
-struct std::hash<Dark::UUID>
+template<> struct std::hash<Dark::UUID>
 {
     size_t operator()(const Dark::UUID& id) const noexcept
     {

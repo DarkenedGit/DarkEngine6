@@ -6,7 +6,7 @@
 #include <filesystem>
 #include <string>
 
-namespace Dark
+namespace Dark::Audio
 {
 
     class SoundClip
@@ -35,4 +35,4 @@ namespace Dark
         std::string m_key;
     };
 
-} // namespace Dark
+} // namespace Dark::Audio

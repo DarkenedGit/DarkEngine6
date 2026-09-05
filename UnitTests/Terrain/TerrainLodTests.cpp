@@ -11,9 +11,9 @@
 #include <utility>
 #include <vector>
 
+using namespace Dark;
 using namespace Dark::Math;
 using namespace Dark::Terrain;
-using namespace Dark::Geometry;
 
 namespace
 {

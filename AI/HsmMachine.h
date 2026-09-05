@@ -7,7 +7,6 @@
 
 namespace Dark::AI
 {
-
     // Hierarchical state machine runtime.
     //
     // Event flow (propagation):
@@ -113,5 +112,4 @@ namespace Dark::AI
         std::vector<HsmState*>                       m_activePath; // root -> leaf
         std::unordered_map<HsmState*, HistoryRecord> m_history;
     };
-
 } // namespace Dark::AI

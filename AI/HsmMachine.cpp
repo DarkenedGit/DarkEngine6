@@ -5,7 +5,6 @@
 
 namespace Dark::AI
 {
-
     void* HsmContext::owner() const
     {
         return machine.owner();
@@ -571,5 +570,4 @@ namespace Dark::AI
             }
         }
     }
-
 } // namespace Dark::AI

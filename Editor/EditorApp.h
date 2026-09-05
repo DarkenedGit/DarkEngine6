@@ -1,8 +1,8 @@
 #pragma once
 
 #include "Core/Application.h"
-#include "Geometry/Mesh.h"
-#include "Geometry/LineMesh.h"
+#include "Render/Mesh.h"
+#include "Render/LineMesh.h"
 #include "Render/MeshPipeline.h"
 #include "Render/LinePipeline.h"
 #include "Render/TonemapPipeline.h"
@@ -109,7 +109,7 @@ private:
     void fillParticleDescFromEmitter(int emitterIndex, Dark::ParticleEmitterDesc& out) const;
     void syncSelectedEmitterFromUi();
 
-    const Dark::Geometry::Mesh* meshForType(Dark::SceneObjectType type) const;
+    const Dark::Mesh* meshForType(Dark::SceneObjectType type) const;
     Dark::SceneObject* findObject(Dark::Entity e);
     const Dark::SceneObject* findObject(Dark::Entity e) const;
     Dark::ParticleEmitter* selectedEmitter();
@@ -126,10 +126,10 @@ private:
     Dark::DebugOverlay             m_debugOverlay;
     Dark::ShadowSystem    m_shadows;
 
-    Dark::Geometry::Mesh m_cubeMesh;
-    Dark::Geometry::Mesh m_sphereMesh;
-    Dark::Geometry::Mesh m_groundMesh;
-    Dark::Geometry::LineMesh m_gridMesh;
+    Dark::Mesh m_cubeMesh;
+    Dark::Mesh m_sphereMesh;
+    Dark::Mesh m_groundMesh;
+    Dark::LineMesh m_gridMesh;
 
     Dark::AssetRef<Dark::Material> m_propMaterial;
     Dark::AssetRef<Dark::Material> m_groundMaterial;
@@ -144,9 +144,9 @@ private:
     Dark::SceneMode m_sceneMode = Dark::SceneMode::Scene3D;
 
     Dark::SpritePipeline     m_spritePipe;
-    Dark::Geometry::Mesh     m_quadMesh;
-    Dark::Geometry::LineMesh m_grid2D;
-    Dark::Geometry::LineMesh m_boxOutline2D;
+    Dark::Mesh     m_quadMesh;
+    Dark::LineMesh m_grid2D;
+    Dark::LineMesh m_boxOutline2D;
     Dark::Texture2D          m_texPlatform;
     Dark::Texture2D          m_texCoin;
     Dark::Texture2D          m_texSpawn;
@@ -182,9 +182,9 @@ private:
     float m_moveSpeed = 8.0f;
     float m_lookSpeed = 0.005f;
 
-    std::shared_ptr<Dark::SoundClip> m_sfxPlace;
-    std::shared_ptr<Dark::SoundClip> m_sfxDelete;
-    std::shared_ptr<Dark::SoundClip> m_sfxSave;
+    std::shared_ptr<Dark::Audio::SoundClip> m_sfxPlace;
+    std::shared_ptr<Dark::Audio::SoundClip> m_sfxDelete;
+    std::shared_ptr<Dark::Audio::SoundClip> m_sfxSave;
 
     bool m_dragging = false;
     int  m_lmbDownX = 0;

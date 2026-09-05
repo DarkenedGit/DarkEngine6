@@ -3,7 +3,6 @@
 #include "ECS/Components.h"
 #include "Core/ContentRoots.h"
 #include "Core/Log.h"
-#include "Geometry/MeshGen.h"
 #include "Input/InputCodes.h"
 #include "Collision/Collision.h"
 #include "Math/MathHelper.h"
@@ -17,6 +16,7 @@
 #include "Network/Replication.h"
 #include "Render/Frustum3f.h"
 #include "Render/TaaJitter.h"
+#include "Render/MeshGen.h"
 #include "Terrain/SplatMap.h"
 #include "Water/WaterWaves.h"
 
@@ -29,8 +29,8 @@
 
 using namespace Dark;
 using namespace Math;
-using namespace Geometry;
 using namespace Terrain;
+using namespace Audio;
 
 MeshPass liveMeshPass(const Renderer& r)
 {

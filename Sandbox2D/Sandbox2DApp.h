@@ -1,8 +1,8 @@
 #pragma once
 
 #include "Core/Application.h"
-#include "Geometry/Mesh.h"
-#include "Geometry/LineMesh.h"
+#include "Render/Mesh.h"
+#include "Render/LineMesh.h"
 #include "Network/Replication.h"
 #include "Render/Camera2D.h"
 #include "Render/SpritePipeline.h"
@@ -125,8 +125,8 @@ private:
     Dark::Camera2D        m_camera;
     Dark::SpritePipeline  m_spritePipe;
     Dark::LinePipeline    m_linePipe;
-    Dark::Geometry::Mesh  m_quad;
-    Dark::Geometry::LineMesh m_boxOutline;
+    Dark::Mesh            m_quad;
+    Dark::LineMesh        m_boxOutline;
 
     std::vector<Dark::SpriteSheet> m_playerSheets;
     Dark::SpriteSheet              m_playerSheet;
@@ -151,9 +151,9 @@ private:
     Dark::Math::Vector2f m_worldMin{ 0.0f, 0.0f };
     Dark::Math::Vector2f m_worldMax{ 96.0f, 22.0f };
 
-    std::shared_ptr<Dark::SoundClip> m_sfxJump;
-    std::shared_ptr<Dark::SoundClip> m_sfxCoin;
-    std::shared_ptr<Dark::SoundClip> m_sfxReset;
+    std::shared_ptr<Dark::Audio::SoundClip> m_sfxJump;
+    std::shared_ptr<Dark::Audio::SoundClip> m_sfxCoin;
+    std::shared_ptr<Dark::Audio::SoundClip> m_sfxReset;
 
     b2WorldId m_physWorld      = b2_nullWorldId;
     b2BodyId  m_playerBody     = b2_nullBodyId;

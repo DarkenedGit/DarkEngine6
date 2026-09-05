@@ -7,33 +7,30 @@
 namespace Dark
 {
 
-    namespace
+    struct TrackerState
     {
-        struct TrackerState
-        {
-            std::mutex       mutex;
-            DebugMemoryPool  pools[kDebugMaxPools]{};
-            uint32_t         count = 0;
-        };
+        std::mutex       mutex;
+        DebugMemoryPool  pools[kDebugMaxPools]{};
+        uint32_t         count = 0;
+    };
 
-        TrackerState& state()
-        {
-            static TrackerState s;
-            return s;
-        }
+    TrackerState& state()
+    {
+        static TrackerState s;
+        return s;
+    }
 
-        int findIndexUnlocked(TrackerState& s, const char* name)
-        {
-            if (!name)
-                return -1;
-            for (uint32_t i = 0; i < s.count; ++i)
-            {
-                if (std::strncmp(s.pools[i].name, name, kDebugNameBytes) == 0)
-                    return static_cast<int>(i);
-            }
+    int findIndexUnlocked(TrackerState& s, const char* name)
+    {
+        if (!name)
             return -1;
+        for (uint32_t i = 0; i < s.count; ++i)
+        {
+            if (std::strncmp(s.pools[i].name, name, kDebugNameBytes) == 0)
+                return static_cast<int>(i);
         }
-    } // namespace
+        return -1;
+    }
 
     void MemoryTracker::set(const char* name, uint64_t used, uint64_t capacity, uint32_t count)
     {

@@ -1,7 +1,7 @@
 #pragma once
 #include "Core/Application.h"
-#include "Geometry/Mesh.h"
 #include "Network/Replication.h"
+#include "Render/Mesh.h"
 #include "Render/MeshPipeline.h"
 #include "Render/TerrainPipeline.h"
 #include "Render/WaterPipeline.h"
@@ -80,7 +80,7 @@ private:
     Dark::Entity m_camera;
     Dark::Entity m_cube;
 
-    Dark::Geometry::Mesh    m_cubeMesh;
+    Dark::Mesh    m_cubeMesh;
     Dark::MeshPipeline      m_meshPipeline;
     Dark::TerrainPipeline   m_terrainPipeline;
     Dark::WaterPipeline     m_waterPipeline;
@@ -111,9 +111,9 @@ private:
     Dark::TerrainMaterial       m_terrainMaterial;
     Dark::Water::WaterWorld     m_water;
 
-    std::shared_ptr<Dark::SoundClip> m_sfxReset;
-    std::shared_ptr<Dark::SoundClip> m_sfxClick;
-    std::shared_ptr<Dark::SoundClip> m_music;
+    std::shared_ptr<Dark::Audio::SoundClip> m_sfxReset;
+    std::shared_ptr<Dark::Audio::SoundClip> m_sfxClick;
+    std::shared_ptr<Dark::Audio::SoundClip> m_music;
 
     Dark::AssetID m_cubeMatId      = Dark::NULL_ASSET;
     Dark::NetRole m_netRole        = Dark::NetRole::Idle;
@@ -143,12 +143,12 @@ private:
     float                            m_spawnAge        = 0.0f;
     float                            m_attackCooldown  = 0.0f;
     float                            m_hurtSoundTimer  = 0.0f;
-    std::shared_ptr<Dark::SoundClip> m_sfxStep;
-    std::shared_ptr<Dark::SoundClip> m_sfxWater;
-    std::shared_ptr<Dark::SoundClip> m_sfxGrunt;
-    std::shared_ptr<Dark::SoundClip> m_sfxLand;
-    std::shared_ptr<Dark::SoundClip> m_sfxSplash;
-    std::shared_ptr<Dark::SoundClip> m_sfxPain;
+    std::shared_ptr<Dark::Audio::SoundClip> m_sfxStep;
+    std::shared_ptr<Dark::Audio::SoundClip> m_sfxWater;
+    std::shared_ptr<Dark::Audio::SoundClip> m_sfxGrunt;
+    std::shared_ptr<Dark::Audio::SoundClip> m_sfxLand;
+    std::shared_ptr<Dark::Audio::SoundClip> m_sfxSplash;
+    std::shared_ptr<Dark::Audio::SoundClip> m_sfxPain;
     Dark::ParticleEmitter            m_blood;
     Dark::ParticleRenderer           m_particles;
     Dark::BloodSplatPool             m_bloodSplats;
@@ -166,7 +166,7 @@ private:
     int                              m_healthPackCount = 0;
     float                            m_packSpin        = 0.0f;
     float                            m_packBob         = 0.0f;
-    Dark::Geometry::Mesh             m_crossMesh;
+    Dark::Mesh             m_crossMesh;
     Dark::AssetRef<Dark::Material>   m_packMaterial;
-    std::shared_ptr<Dark::SoundClip> m_sfxHeal;
+    std::shared_ptr<Dark::Audio::SoundClip> m_sfxHeal;
 };

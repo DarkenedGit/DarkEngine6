@@ -227,7 +227,7 @@ bool WaterWorld::buildChunkMesh(WaterChunk& c)
     const int verts  = cells + 1;
     const HeightMap& hm = *m_heightMap;
 
-    Geometry::MeshData mesh;
+    MeshData mesh;
     mesh.positions.reserve(static_cast<size_t>(verts) * verts);
     mesh.normals.reserve(static_cast<size_t>(verts) * verts);
     mesh.uvs.reserve(static_cast<size_t>(verts) * verts);
@@ -259,7 +259,7 @@ bool WaterWorld::buildChunkMesh(WaterChunk& c)
     c.cpu       = std::move(mesh);
     c.builtLod  = c.lod;
     c.builtMask = c.edges.bits;
-    c.gpu       = Geometry::Mesh{};
+    c.gpu       = Mesh{};
     return true;
 }
 
@@ -289,7 +289,7 @@ bool WaterWorld::uploadDirty(Renderer& renderer)
     {
         if (!c.wet || c.gpu.valid() || c.cpu.indices.empty())
             continue;
-        if (!Geometry::Mesh::tryCreate(renderer, c.cpu, c.gpu))
+        if (!Mesh::tryCreate(renderer, c.cpu, c.gpu))
         {
             DE_LOG_ERROR("WaterWorld: GPU upload failed for chunk ({},{})", c.ix, c.iz);
             ok = false;

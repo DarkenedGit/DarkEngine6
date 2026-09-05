@@ -1,13 +1,13 @@
 #include "PathChase.h"
 
-#include "AI/HunterSight.h"
+#include "AI/Sight.h"
 #include "Core/Log.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
-#include "Geometry/MeshGen.h"
 #include "Input/Input.h"
 #include "Math/Matrix4f.h"
 #include "Network/NetTypes.h"
+#include "Render/MeshGen.h"
 #include "Render/Camera3D.h"
 #include "Render/Renderer.h"
 #include "Render/ShadowSystem.h"
@@ -20,7 +20,6 @@
 #include <random>
 
 using namespace Dark::Math;
-using namespace Dark::Geometry;
 
 namespace Dark
 {
@@ -95,7 +94,7 @@ bool PathChase::bake(Terrain::TerrainWorld& terrain, Water::WaterWorld& water)
     return m_finder.bind(&m_walk);
 }
 
-bool PathChase::init(Renderer& renderer, Terrain::TerrainWorld& terrain, Water::WaterWorld& water, World& world, Geometry::Mesh&, AssetRef<Material> trunkMat, AssetRef<Material> canopyMat, AssetRef<Material> aiMat)
+bool PathChase::init(Renderer& renderer, Terrain::TerrainWorld& terrain, Water::WaterWorld& water, World& world, Mesh&, AssetRef<Material> trunkMat, AssetRef<Material> canopyMat, AssetRef<Material> aiMat)
 {
     m_trunkMat  = trunkMat;
     m_canopyMat = canopyMat;
@@ -343,7 +342,7 @@ void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld
         const float dz = a.pos.z - m_walkerPos.z;
         const bool  standoff = (dx * dx + dz * dz) <= kStandoff * kStandoff;
 
-        AI::HunterSightQuery q;
+        AI::SightQuery q;
         q.eye       = Vector3f{ a.pos.x, a.pos.y + 0.5f, a.pos.z };
         q.forward   = a.forward;
         q.target    = Vector3f{ m_walkerPos.x, m_walkerPos.y + 0.5f, m_walkerPos.z };
@@ -368,11 +367,11 @@ void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld
             }
         }
 
-        const AI::HunterLeaf leaf = a.brain.leaf();
-        if ((leaf == AI::HunterLeaf::Chase || leaf == AI::HunterLeaf::Memory) && standoff)
+        const AI::Leaf leaf = a.brain.leaf();
+        if ((leaf == AI::Leaf::Chase || leaf == AI::Leaf::Memory) && standoff)
             continue;
 
-        if (leaf == AI::HunterLeaf::Wander)
+        if (leaf == AI::Leaf::Wander)
         {
             const bool arrived = a.path.points.empty() || a.waypoint >= static_cast<int>(a.path.points.size());
             if (arrived)
@@ -383,7 +382,7 @@ void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld
             else if (m_time >= a.repathAt)
                 repath(a, i, m_time, a.wanderDest.x, a.wanderDest.z);
         }
-        else if (leaf == AI::HunterLeaf::Chase)
+        else if (leaf == AI::Leaf::Chase)
         {
             bool need = m_time >= a.repathAt || a.path.points.empty();
             if (need)
@@ -401,7 +400,7 @@ void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld
     }
 }
 
-void PathChase::drawMeshes(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPipe, ShadowSystem& shadows, const Camera3D& camera, const MeshFrameConstants& baseCb, Geometry::Mesh& cubeMesh, DebugFill fill)
+void PathChase::drawMeshes(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPipe, ShadowSystem& shadows, const Camera3D& camera, const MeshFrameConstants& baseCb, Mesh& cubeMesh, DebugFill fill)
 {
     if (!cmd || !cubeMesh.valid())
         return;
@@ -448,7 +447,7 @@ void PathChase::drawMeshes(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPip
     }
 }
 
-void PathChase::drawDepth(ID3D12GraphicsCommandList* cmd, const ShadowSystem& shadows, int cascade, Geometry::Mesh& cubeMesh) const
+void PathChase::drawDepth(ID3D12GraphicsCommandList* cmd, const ShadowSystem& shadows, int cascade, Mesh& cubeMesh) const
 {
     if (!cmd || !cubeMesh.valid() || cascade < 0 || cascade >= shadows.cascadeCount())
         return;
@@ -502,7 +501,7 @@ void PathChase::expandBounds(Aabb3f& bounds) const
     }
 }
 
-void PathChase::drawMeshesGBuffer(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPipe, const Camera3D& camera, const Matrix4f& prevViewProj, Geometry::Mesh& cubeMesh, DebugFill fill)
+void PathChase::drawMeshesGBuffer(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPipe, const Camera3D& camera, const Matrix4f& prevViewProj, Mesh& cubeMesh, DebugFill fill)
 {
     if (!cmd || !cubeMesh.valid())
         return;
@@ -576,7 +575,7 @@ void PathChase::drawPaths(ID3D12GraphicsCommandList* cmd, Renderer& renderer, co
     {
         if (!a.health.alive())
             continue;
-        if (a.path.points.size() >= 2 && a.brain.leaf() != AI::HunterLeaf::Wander)
+        if (a.path.points.size() >= 2 && a.brain.leaf() != AI::Leaf::Wander)
         {
             for (size_t i = 0; i + 1 < a.path.points.size(); ++i)
             {
@@ -603,7 +602,7 @@ void PathChase::drawPaths(ID3D12GraphicsCommandList* cmd, Renderer& renderer, co
         addSeg(eye, eye + leftRay * range);
         addSeg(eye, eye + rightRay * range);
         addSeg(eye + leftRay * range, eye + rightRay * range);
-        if (a.hasLastSeen && a.brain.leaf() == AI::HunterLeaf::Memory)
+        if (a.hasLastSeen && a.brain.leaf() == AI::Leaf::Memory)
         {
             Vector3f p = a.lastSeen;
             p.y += 1.2f;

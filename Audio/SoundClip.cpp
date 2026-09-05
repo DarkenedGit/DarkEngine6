@@ -6,9 +6,8 @@
 #include <cmath>
 #include <cstdint>
 
-namespace Dark
+namespace Dark::Audio
 {
-
     bool SoundClip::loadWav(const std::filesystem::path& path)
     {
         m_wav = PcmWav{};
@@ -92,5 +91,4 @@ namespace Dark
         }
         return true;
     }
-
 } // namespace Dark

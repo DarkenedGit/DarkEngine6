@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "AI/HunterSight.h"
+#include "AI/Sight.h"
 #include "Math/Vector3f.h"
 #include "Terrain/HeightMap.h"
 
@@ -32,10 +32,10 @@ namespace
     }
 } // namespace
 
-TEST(HunterSight, FlatInConeIsSeen)
+TEST(Sight, FlatInConeIsSeen)
 {
     HeightMap hm = MakeFlat(17, 1.0f, 0.0f);
-    HunterSightQuery q;
+    SightQuery q;
     q.eye       = Vector3f{ 2.0f, 1.5f, 8.0f };
     q.forward   = Vector3f{ 1.0f, 0.0f, 0.0f };
     q.target    = Vector3f{ 10.0f, 1.5f, 8.0f };
@@ -45,10 +45,10 @@ TEST(HunterSight, FlatInConeIsSeen)
     EXPECT_TRUE(sees(q));
 }
 
-TEST(HunterSight, HillBuriesTarget)
+TEST(Sight, HillBuriesTarget)
 {
     HeightMap hm = MakeRidge();
-    HunterSightQuery q;
+    SightQuery q;
     q.eye       = Vector3f{ 2.0f, 1.5f, 8.0f };
     q.forward   = Vector3f{ 1.0f, 0.0f, 0.0f };
     q.target    = Vector3f{ 14.0f, 1.5f, 8.0f };
@@ -58,10 +58,10 @@ TEST(HunterSight, HillBuriesTarget)
     EXPECT_FALSE(sees(q));
 }
 
-TEST(HunterSight, DoesNotUseCubes)
+TEST(Sight, DoesNotUseCubes)
 {
     HeightMap hm = MakeFlat(17, 1.0f, 0.0f);
-    HunterSightQuery q;
+    SightQuery q;
     q.eye       = Vector3f{ 2.0f, 1.5f, 8.0f };
     q.forward   = Vector3f{ 1.0f, 0.0f, 0.0f };
     q.target    = Vector3f{ 10.0f, 1.5f, 8.0f };
@@ -71,10 +71,10 @@ TEST(HunterSight, DoesNotUseCubes)
     EXPECT_TRUE(sees(q));
 }
 
-TEST(HunterSight, BehindForwardIsUnseen)
+TEST(Sight, BehindForwardIsUnseen)
 {
     HeightMap hm = MakeFlat(17, 1.0f, 0.0f);
-    HunterSightQuery q;
+    SightQuery q;
     q.eye       = Vector3f{ 8.0f, 1.5f, 8.0f };
     q.forward   = Vector3f{ 0.0f, 0.0f, 1.0f };
     q.target    = Vector3f{ 8.0f, 1.5f, 2.0f };
@@ -84,10 +84,10 @@ TEST(HunterSight, BehindForwardIsUnseen)
     EXPECT_FALSE(sees(q));
 }
 
-TEST(HunterSight, BeyondRangeIsUnseen)
+TEST(Sight, BeyondRangeIsUnseen)
 {
     HeightMap hm = MakeFlat(17, 1.0f, 0.0f);
-    HunterSightQuery q;
+    SightQuery q;
     q.eye       = Vector3f{ 1.0f, 1.5f, 8.0f };
     q.forward   = Vector3f{ 1.0f, 0.0f, 0.0f };
     q.target    = Vector3f{ 15.0f, 1.5f, 8.0f };
@@ -97,10 +97,10 @@ TEST(HunterSight, BeyondRangeIsUnseen)
     EXPECT_FALSE(sees(q));
 }
 
-TEST(HunterSight, SameXzDoesNotHang)
+TEST(Sight, SameXzDoesNotHang)
 {
     HeightMap hm = MakeFlat(9, 1.0f, 0.0f);
-    HunterSightQuery q;
+    SightQuery q;
     q.eye       = Vector3f{ 4.0f, 1.5f, 4.0f };
     q.forward   = Vector3f{ 0.0f, 0.0f, 1.0f };
     q.target    = Vector3f{ 4.0f, 1.6f, 4.0f };

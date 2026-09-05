@@ -1,13 +1,10 @@
 #include <gtest/gtest.h>
 
-#include "Geometry/MeshGen.h"
+#include "Render/MeshGen.h"
 #include "Math/MathHelper.h"
 
-using namespace Dark::Geometry;
+using namespace Dark;
 using namespace Dark::Math;
-
-namespace
-{
 
 int CountTrianglesWithCrossYSign(const MeshData& mesh, float ySign)
 {
@@ -23,8 +20,6 @@ int CountTrianglesWithCrossYSign(const MeshData& mesh, float ySign)
     }
     return count;
 }
-
-} // namespace
 
 TEST(MeshGen, CuboidTopIsFrontFacingFromAbove)
 {

@@ -1,10 +1,10 @@
 #include "Render/HealthHud.h"
 
 #include "Core/Log.h"
-#include "Geometry/MeshGen.h"
 #include "Math/MathHelper.h"
 #include "Math/Matrix4f.h"
 #include "Render/Renderer.h"
+#include "Render/MeshGen.h"
 
 #include <cstring>
 
@@ -27,8 +27,8 @@ namespace Dark
             DE_LOG_ERROR(LogCategory::Render, "HealthHud: sprite pipeline failed");
             return false;
         }
-        Geometry::MeshData quad;
-        if (!Geometry::CreateQuadXY(quad, 1.0f, 1.0f) || !Geometry::Mesh::tryCreate(renderer, quad, m_quad))
+        MeshData quad;
+        if (!CreateQuadXY(quad, 1.0f, 1.0f) || !Mesh::tryCreate(renderer, quad, m_quad))
         {
             DE_LOG_ERROR(LogCategory::Render, "HealthHud: quad mesh failed");
             return false;

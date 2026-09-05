@@ -4,17 +4,17 @@
 namespace Dark
 {
 
-static std::mt19937_64& rng() 
-{
-    static std::random_device rd;
-    static std::mt19937_64 gen{rd()};
-    return gen;
-}
+    static std::mt19937_64& rng() 
+    {
+        static std::random_device rd;
+        static std::mt19937_64 gen{rd()};
+        return gen;
+    }
 
-UUID::UUID() : m_id(rng()())
-{}
+    UUID::UUID() : m_id(rng()())
+    {}
 
-UUID::UUID(uint64_t id) : m_id(id)
-{}
+    UUID::UUID(uint64_t id) : m_id(id)
+    {}
 
 } // namespace DE

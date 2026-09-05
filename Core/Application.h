@@ -65,7 +65,7 @@ namespace Dark
 
         World&         world()    { return m_world; }
         AssetManager&  assets()   { return m_assets; }
-        AudioSystem&   audio()    { return m_audio; }
+        Audio::AudioSystem&   audio()    { return m_audio; }
         NetworkSystem& network()  { return m_network; }
         DebugServer&   debug()    { return m_debug; }
         Renderer&      renderer() { return m_renderer; }
@@ -92,7 +92,7 @@ namespace Dark
         World         m_world;
         AssetManager  m_assets;
         Renderer      m_renderer;
-        AudioSystem   m_audio;
+        Audio::AudioSystem m_audio;
         NetworkSystem m_network; // after audio: sockets destroyed before HWND
         DebugServer   m_debug;   // after network: debug TCP dies before game sockets / HWND
 

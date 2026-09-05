@@ -1,10 +1,10 @@
 #pragma once
 
-#include "Geometry/Mesh.h"
 #include "Math/AABox3f.h"
 #include "Math/MathDefines.h"
 #include "Math/Vector3f.h"
 #include "Render/DebugRenderState.h"
+#include "Render/Mesh.h"
 #include "Terrain/TerrainLod.h"
 #include "Water/WaterWaves.h"
 
@@ -55,8 +55,8 @@ struct WaterChunk
     Terrain::EdgeMask  edges{};
     int                builtLod = -1;
     uint8_t            builtMask = 0xFF;
-    Geometry::MeshData cpu;
-    Geometry::Mesh     gpu;
+    MeshData           cpu;
+    Mesh               gpu;
     Math::Aabb3f       bounds;
 };
 

@@ -1,9 +1,9 @@
 #pragma once
 
-#include "Geometry/Mesh.h"
 #include "Math/AABox3f.h"
 #include "Math/Matrix4f.h"
 #include "Math/Vector3f.h"
+#include "Render/Mesh.h"
 #include "Render/DebugRenderState.h"
 #include "Terrain/HeightMap.h"
 #include "Terrain/SplatMap.h"
@@ -50,9 +50,9 @@ struct TerrainChunk
     EdgeMask         edges{};
     int              builtLod = -1;
     uint8_t          builtMask = 0xFF;
-    Geometry::MeshData cpu;
-    Geometry::Mesh     gpu;
-    Math::Aabb3f       bounds;
+    MeshData         cpu;
+    Mesh             gpu;
+    Math::Aabb3f     bounds;
 };
 
 // Chunked geomipmap terrain. CPU LOD / welding is independent of D3D;

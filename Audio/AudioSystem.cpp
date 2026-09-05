@@ -16,56 +16,50 @@
 #include <cstdio>
 #include <cstring>
 
-namespace Dark
+namespace Dark::Audio
 {
-
     using namespace Math;
 
-    namespace
+    float clampf(float v, float lo, float hi)
     {
+        return Max(lo, Min(hi, v));
+    }
 
-        float clampf(float v, float lo, float hi)
+    void orthonormalize(Vector3f& forward, Vector3f& up)
+    {
+        if (forward.MagnitudeSqrd() < 1.0e-8f)
+            forward = Vector3f(0.0f, 0.0f, 1.0f);
+        else
+            forward.Normalize();
+
+        Vector3f right = up.Cross(forward);
+        if (right.MagnitudeSqrd() < 1.0e-8f)
         {
-            return Max(lo, Min(hi, v));
+            up = std::fabs(forward.y) > 0.9f ? Vector3f(0.0f, 0.0f, 1.0f) : Vector3f(0.0f, 1.0f, 0.0f);
+            right = up.Cross(forward);
         }
+        right.Normalize();
+        up = forward.Cross(right);
+        up.Normalize();
+    }
 
-        void orthonormalize(Vector3f& forward, Vector3f& up)
-        {
-            if (forward.MagnitudeSqrd() < 1.0e-8f)
-                forward = Vector3f(0.0f, 0.0f, 1.0f);
-            else
-                forward.Normalize();
+    WAVEFORMATEX makePcmFormat(const SoundClip& clip)
+    {
+        WAVEFORMATEX w{};
+        w.wFormatTag      = WAVE_FORMAT_PCM;
+        w.nChannels       = clip.channels();
+        w.nSamplesPerSec  = clip.sampleRate();
+        w.wBitsPerSample  = 16;
+        w.nBlockAlign     = static_cast<WORD>(w.nChannels * (w.wBitsPerSample / 8));
+        w.nAvgBytesPerSec = w.nSamplesPerSec * w.nBlockAlign;
+        return w;
+    }
 
-            Vector3f right = up.Cross(forward);
-            if (right.MagnitudeSqrd() < 1.0e-8f)
-            {
-                up = std::fabs(forward.y) > 0.9f ? Vector3f(0.0f, 0.0f, 1.0f) : Vector3f(0.0f, 1.0f, 0.0f);
-                right = up.Cross(forward);
-            }
-            right.Normalize();
-            up = forward.Cross(right);
-            up.Normalize();
-        }
-
-        WAVEFORMATEX makePcmFormat(const SoundClip& clip)
-        {
-            WAVEFORMATEX w{};
-            w.wFormatTag      = WAVE_FORMAT_PCM;
-            w.nChannels       = clip.channels();
-            w.nSamplesPerSec  = clip.sampleRate();
-            w.wBitsPerSample  = 16;
-            w.nBlockAlign     = static_cast<WORD>(w.nChannels * (w.wBitsPerSample / 8));
-            w.nAvgBytesPerSec = w.nSamplesPerSec * w.nBlockAlign;
-            return w;
-        }
-
-        bool sameFormat(const WAVEFORMATEX& a, const WAVEFORMATEX& b)
-        {
-            return a.nChannels == b.nChannels && a.nSamplesPerSec == b.nSamplesPerSec
-                && a.wBitsPerSample == b.wBitsPerSample && a.wFormatTag == b.wFormatTag;
-        }
-
-    } // namespace
+    bool sameFormat(const WAVEFORMATEX& a, const WAVEFORMATEX& b)
+    {
+        return a.nChannels == b.nChannels && a.nSamplesPerSec == b.nSamplesPerSec
+            && a.wBitsPerSample == b.wBitsPerSample && a.wFormatTag == b.wFormatTag;
+    }
 
     struct AudioSystem::VoiceSlot
     {
@@ -595,4 +589,4 @@ namespace Dark
         }
     }
 
-} // namespace Dark
+} // namespace Dark::Audio

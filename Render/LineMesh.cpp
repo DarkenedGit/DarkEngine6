@@ -1,4 +1,4 @@
-#include "Geometry/LineMesh.h"
+#include "LineMesh.h"
 #include "Render/Renderer.h"
 #include "Core/Log.h"
 
@@ -6,8 +6,6 @@
 
 namespace Dark
 {
-    namespace Geometry
-    {
         namespace
         {
 
@@ -135,5 +133,4 @@ namespace Dark
             cmd->IASetIndexBuffer(&m_ibv);
             cmd->DrawIndexedInstanced(m_indexCount, 1, 0, 0, 0);
         }
-    } // namespace Geometry
-} // namespace Dark
+} // namespace Dark::Render

@@ -6,10 +6,10 @@
 #include "Water/Water.h"
 #include "Water/WaterWaves.h"
 
+using namespace Dark;
 using namespace Dark::Math;
 using namespace Dark::Terrain;
 using namespace Dark::Water;
-using namespace Dark::Geometry;
 
 TEST(WaterWaves, DefaultHasFourFrequencies)
 {

@@ -4,7 +4,7 @@
 #include <filesystem>
 #include <vector>
 
-namespace Dark
+namespace Dark::Audio
 {
 
     struct PcmWav
@@ -23,4 +23,4 @@ namespace Dark
     bool loadPcmWav(const std::filesystem::path& path, PcmWav& out);
     bool writePcmWav(const std::filesystem::path& path, const PcmWav& wav);
 
-} // namespace Dark
+} // namespace Dark::Audio

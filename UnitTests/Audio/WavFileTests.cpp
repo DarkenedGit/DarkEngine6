@@ -7,6 +7,7 @@
 #include <string>
 
 using namespace Dark;
+using namespace Audio;
 
 namespace
 {

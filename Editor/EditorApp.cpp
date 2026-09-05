@@ -5,7 +5,6 @@
 #include "Network/Replication.h"
 #include "Core/ContentRoots.h"
 #include "Core/Log.h"
-#include "Geometry/MeshGen.h"
 #include "Input/InputCodes.h"
 #include "Collision/StaticCollision.h"
 #include "Math/AABox3f.h"
@@ -16,7 +15,8 @@
 #include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
 #include "Math/Ray3f.h"
-#include "Geometry/LineMesh.h"
+#include "Render/LineMesh.h"
+#include "Render/MeshGen.h"
 #include "Render/TaaJitter.h"
 
 #include <imgui.h>
@@ -30,7 +30,6 @@
 
 using namespace Dark;
 using namespace Math;
-using namespace Geometry;
 
 namespace {
 
@@ -1803,7 +1802,7 @@ void EditorApp::onUpdate(float dt)
         m_emitters[static_cast<size_t>(so.emitterIndex)]->update(dt);
     }
 
-    AudioListener lis{};
+    Audio::AudioListener lis{};
     if (m_sceneMode == SceneMode::Scene2D)
     {
         lis.position = Vector3f(m_camera2D.GetPosition().x, m_camera2D.GetPosition().y, 0.0f);

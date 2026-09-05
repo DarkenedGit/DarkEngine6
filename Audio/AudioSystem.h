@@ -12,9 +12,11 @@
 
 namespace Dark
 {
-
     class AssetManager;
+}
 
+namespace Dark::Audio
+{
     struct AudioListener
     {
         Math::Vector3f position;
@@ -106,4 +108,4 @@ namespace Dark
         VoiceId       m_musicId      = 0;
     };
 
-} // namespace Dark
+} // namespace Dark::Audio
