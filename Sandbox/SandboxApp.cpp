@@ -894,7 +894,7 @@ void SandboxApp::drawHealthPacksGBuffer(ID3D12GraphicsCommandList* cmd, const Ma
     cb.color[0] = 1.0f;
     cb.color[1] = 0.12f;
     cb.color[2] = 0.14f;
-    cb.color[3] = 1.0f;
+    cb.color[3] = 0.0f;
 
     for (int i = 0; i < m_healthPackCount; ++i)
     {
@@ -1548,13 +1548,13 @@ void SandboxApp::onRender()
             material->bind(cmd, MeshPipeline::kRootAlbedoSrv);
         MeshGBufferConstants gcb{};
         if (material)
-            material->applySurface(gcb.color);
+            material->applySurface(gcb);
         else
         {
             gcb.color[0] = 1.0f;
             gcb.color[1] = 1.0f;
             gcb.color[2] = 1.0f;
-            gcb.color[3] = 1.0f;
+            gcb.color[3] = 0.0f;
         }
         world().each<NetworkedComponent>([&](Entity e, NetworkedComponent& nc) {
             const TransformComponent* xf = world().get<TransformComponent>(e);
@@ -1564,6 +1564,9 @@ void SandboxApp::onRender()
             const Matrix4f prevWorld = m_prevWorldByEntity.count(e.id()) ? m_prevWorldByEntity[e.id()] : worldMat;
             fillMeshGBufferXforms(gcb, worldMat, viewProj, prevViewProj, prevWorld);
             unpackRgba8(nc.colorRgba8, gcb.color);
+            gcb.color[3] = 0.0f;
+            if (const MeshComponent* mc = world().get<MeshComponent>(e))
+                gcb.color[3] = mc->emissive;
             m_meshPipeline.setGBufferConstants(cmd, gcb);
             m_cubeMesh.draw(cmd, fill == DebugFill::Points);
             m_prevWorldByEntity[e.id()] = worldMat;
@@ -1588,6 +1591,7 @@ void SandboxApp::onRender()
         lc.lightColor[0]    = m_env.lightColor().x;
         lc.lightColor[1]    = m_env.lightColor().y;
         lc.lightColor[2]    = m_env.lightColor().z;
+        lc.emissiveGain     = 4.0f;
         lc.ambientColor[0]  = m_env.ambientColor().x;
         lc.ambientColor[1]  = m_env.ambientColor().y;
         lc.ambientColor[2]  = m_env.ambientColor().z;

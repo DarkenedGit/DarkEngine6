@@ -180,7 +180,7 @@ void TerrainMaterial::applySurface(TerrainGBufferConstants& constants) const
     constants.color[0] = 1.0f;
     constants.color[1] = 1.0f;
     constants.color[2] = 1.0f;
-    constants.color[3] = 1.0f;
+    constants.color[3] = 0.0f;
     for (int i = 0; i < Terrain::kMaxTerrainLayers; ++i)
         constants.layerTiling[i] = m_layers[i].tiling;
 }

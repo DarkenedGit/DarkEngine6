@@ -20,7 +20,7 @@ namespace Dark
         float lightDirWS[3];
         float lighting;
         float lightColor[3];
-        float pad0;
+        float emissiveGain; // default 4
         float ambientColor[3];
         float pad1;
         float fogColor[3];

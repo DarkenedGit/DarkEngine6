@@ -47,7 +47,7 @@ GBufferOut PSMain(PSInput input)
     GBufferOut o;
     float4 albedo = gAlbedo.Sample(gSamp, input.uv) * color;
     float3 n      = normalize(input.normalWS);
-    o.albedo      = float4(albedo.rgb, 1.0f);
+    o.albedo      = float4(albedo.rgb, color.a);
     o.attrib      = float4(EncodeOct(n), 1.0f, 0.0f);
     o.velocity    = VelocityUv(input.currClip, input.prevClip);
     return o;

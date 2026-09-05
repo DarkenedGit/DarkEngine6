@@ -1998,7 +1998,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     }
 
     const DebugFill fill = renderer().debugState().fill;
-    auto drawMesh = [&](const Mesh& mesh, const Matrix4f& world, Material* material, float cr, float cg, float cb) {
+    auto drawMesh = [&](const Mesh& mesh, const Matrix4f& world, Material* material, float cr, float cg, float cb, float emissive = 0.0f) {
         m_meshPipeline.bind(cmd, fill);
         if (material && material->isValid())
             material->bind(cmd, MeshPipeline::kRootAlbedoSrv);
@@ -2012,7 +2012,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             gcb.color[0] = cr;
             gcb.color[1] = cg;
             gcb.color[2] = cb;
-            gcb.color[3] = 1.0f;
+            gcb.color[3] = emissive;
             m_meshPipeline.setGBufferConstants(cmd, gcb);
         }
         else
@@ -2089,7 +2089,10 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             cg = cg * 0.55f + 0.85f * 0.45f;
             cb = cb * 0.55f + 0.20f * 0.45f;
         }
-        drawMesh(*mesh, makeWorldMatrix(*xf), m_propMaterial.get(), cr, cg, cb);
+        float emissive = 0.0f;
+        if (const MeshComponent* mc = world().get<MeshComponent>(so.entity))
+            emissive = mc->emissive;
+        drawMesh(*mesh, makeWorldMatrix(*xf), m_propMaterial.get(), cr, cg, cb, emissive);
         ++draws;
     }
 
@@ -2111,6 +2114,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         lc.lightColor[0]   = 1.0f;
         lc.lightColor[1]   = 0.96f;
         lc.lightColor[2]   = 0.88f;
+        lc.emissiveGain    = 4.0f;
         lc.ambientColor[0] = 0.22f;
         lc.ambientColor[1] = 0.22f;
         lc.ambientColor[2] = 0.22f;

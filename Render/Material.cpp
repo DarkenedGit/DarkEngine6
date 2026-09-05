@@ -133,6 +133,14 @@ namespace Dark
         applySurface(constants.color);
     }
 
+    void Material::applySurface(MeshGBufferConstants& constants) const
+    {
+        constants.color[0] = m_baseColor[0];
+        constants.color[1] = m_baseColor[1];
+        constants.color[2] = m_baseColor[2];
+        constants.color[3] = 0.0f;
+    }
+
     void Material::setBaseColor(float r, float g, float b, float a)
     {
         m_baseColor[0] = r;

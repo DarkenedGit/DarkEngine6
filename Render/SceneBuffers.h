@@ -32,7 +32,7 @@ namespace Dark
         SceneBuffers& operator=(const SceneBuffers&) = delete;
 
         // G-buffer ClearRTV colors. Must match the D3D12_CLEAR_VALUE used at CreateCommittedResource.
-        static constexpr float kAlbedoClear[4]   = { 0.0f, 0.0f, 0.0f, 1.0f };
+        static constexpr float kAlbedoClear[4]   = { 0.0f, 0.0f, 0.0f, 0.0f };
         static constexpr float kAttribClear[4]   = { 0.5f, 0.5f, 1.0f, 0.0f };
         static constexpr float kVelocityClear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
         static constexpr float kPostClear[4]     = { 0.0f, 0.0f, 0.0f, 1.0f };

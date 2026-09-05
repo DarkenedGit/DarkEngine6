@@ -39,6 +39,7 @@ namespace Dark
         AssetID meshAssetID = NULL_ASSET;
         AssetID matAssetID  = NULL_ASSET;
         bool    castShadow  = true;
+        float   emissive    = 0.0f; // 0..1 → G-buffer RT0.a
     };
 
     // ─── Camera ──────────────────────────────────────────────────────────────────

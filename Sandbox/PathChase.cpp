@@ -515,7 +515,7 @@ void PathChase::drawMeshesGBuffer(ID3D12GraphicsCommandList* cmd, MeshPipeline& 
         cb.color[0] = r;
         cb.color[1] = g;
         cb.color[2] = b;
-        cb.color[3] = 1.0f;
+        cb.color[3] = 0.0f;
         const Matrix4f world     = makeWorld(p, scale);
         const Matrix4f prevWorld = makeWorld(prevP, scale);
         copyMatrix(cb.worldViewProj, world * viewProj);

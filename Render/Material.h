@@ -46,6 +46,8 @@ namespace Dark
         // Write surface tint into frame constants (color slot used by BasicMesh).
         void applySurface(float color[4]) const;
         void applySurface(MeshFrameConstants& constants) const;
+        // G-buffer RT0.a is emissive — tint RGB only, write 0 into a.
+        void applySurface(MeshGBufferConstants& constants) const;
 
         void setBaseColor(float r, float g, float b, float a = 1.0f);
 

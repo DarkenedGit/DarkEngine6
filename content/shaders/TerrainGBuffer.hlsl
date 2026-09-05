@@ -62,7 +62,7 @@ GBufferOut PSMain(PSInput input)
 
     GBufferOut o;
     float3 n = normalize(input.normalWS);
-    o.albedo   = float4(albedo.rgb, 1.0f);
+    o.albedo   = float4(albedo.rgb, 0);
     o.attrib   = float4(EncodeOct(n), 1.0f, 0.0f);
     o.velocity = VelocityUv(input.currClip, input.prevClip);
     return o;

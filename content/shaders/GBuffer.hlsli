@@ -41,4 +41,11 @@ float2 VelocityUv(float4 currClip, float4 prevClip)
     return curr - prev;
 }
 
+float3 ReconstructWorldPos(float ndcX, float ndcY, float depth, float4x4 invViewProj)
+{
+    float4 clip = float4(ndcX, ndcY, depth, 1.0f);
+    float4 w    = mul(clip, invViewProj);
+    return w.xyz / max(w.w, 1e-6f);
+}
+
 #endif
