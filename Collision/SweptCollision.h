@@ -17,7 +17,7 @@ namespace Dark::Collision
     // 2D swept tests
     // =====================================================================
     SweptHit2D SweptIntersects(const Math::Vector2f& p0, const Math::Vector2f& delta, const Math::Sphere2f& circle);
-    SweptHit2D SweptIntersects(const Math::Vector2f& p0, const Math::Vector2f& delta, const Math::Aabb2f& box);
+    SweptHit2D SweptIntersects(const Math::Vector2f& p0, const Math::Vector2f& delta, const Math::AABox2f& box);
     SweptHit2D SweptIntersects(const Math::Vector2f& p0, const Math::Vector2f& delta, const Math::Box2f& box);
 
     SweptHit2D        SweptIntersects(const Math::Sphere2f& a, const Math::Vector2f& deltaA, const Math::Sphere2f& b, const Math::Vector2f& deltaB);
@@ -26,11 +26,11 @@ namespace Dark::Collision
         return SweptIntersects(a, deltaA, b, Math::Vector2f::ZERO);
     }
 
-    SweptHit2D SweptIntersects(const Math::Sphere2f& circle, const Math::Vector2f& delta, const Math::Aabb2f& box);
+    SweptHit2D SweptIntersects(const Math::Sphere2f& circle, const Math::Vector2f& delta, const Math::AABox2f& box);
     SweptHit2D SweptIntersects(const Math::Sphere2f& circle, const Math::Vector2f& delta, const Math::Box2f& box);
 
-    SweptHit2D        SweptIntersects(const Math::Aabb2f& a, const Math::Vector2f& deltaA, const Math::Aabb2f& b, const Math::Vector2f& deltaB);
-    inline SweptHit2D SweptIntersects(const Math::Aabb2f& a, const Math::Vector2f& deltaA, const Math::Aabb2f& b)
+    SweptHit2D        SweptIntersects(const Math::AABox2f& a, const Math::Vector2f& deltaA, const Math::AABox2f& b, const Math::Vector2f& deltaB);
+    inline SweptHit2D SweptIntersects(const Math::AABox2f& a, const Math::Vector2f& deltaA, const Math::AABox2f& b)
     {
         return SweptIntersects(a, deltaA, b, Math::Vector2f::ZERO);
     }
@@ -51,14 +51,14 @@ namespace Dark::Collision
     // ── Point (moving) vs static * ────────────────────────────────────────
     // Point path: p0 + delta * t
     SweptHit3D SweptIntersects(const Math::Vector3f& p0, const Math::Vector3f& delta, const Math::Sphere3f& sphere);
-    SweptHit3D SweptIntersects(const Math::Vector3f& p0, const Math::Vector3f& delta, const Math::Aabb3f& box);
+    SweptHit3D SweptIntersects(const Math::Vector3f& p0, const Math::Vector3f& delta, const Math::AABox3f& box);
     SweptHit3D SweptIntersects(const Math::Vector3f& p0, const Math::Vector3f& delta, const Math::Box3f& box);
     SweptHit3D SweptIntersects(const Math::Vector3f& p0, const Math::Vector3f& delta, const Math::Frustum3f& frustum);
 
     // ── Sphere vs Sphere / AABB / OBB / Frustum ───────────────────────────
     // Each sphere may move (deltaB = 0 for a static target).
     SweptHit3D SweptIntersects(const Math::Sphere3f& a, const Math::Vector3f& deltaA, const Math::Sphere3f& b, const Math::Vector3f& deltaB);
-    SweptHit3D SweptIntersects(const Math::Sphere3f& sphere, const Math::Vector3f& delta, const Math::Aabb3f& box);
+    SweptHit3D SweptIntersects(const Math::Sphere3f& sphere, const Math::Vector3f& delta, const Math::AABox3f& box);
     SweptHit3D SweptIntersects(const Math::Sphere3f& sphere, const Math::Vector3f& delta, const Math::Box3f& box);
     SweptHit3D SweptIntersects(const Math::Sphere3f& sphere, const Math::Vector3f& delta, const Math::Frustum3f& frustum);
 
@@ -69,8 +69,8 @@ namespace Dark::Collision
     }
 
     // ── AABB vs AABB ──────────────────────────────────────────────────────
-    SweptHit3D        SweptIntersects(const Math::Aabb3f& a, const Math::Vector3f& deltaA, const Math::Aabb3f& b, const Math::Vector3f& deltaB);
-    inline SweptHit3D SweptIntersects(const Math::Aabb3f& a, const Math::Vector3f& deltaA, const Math::Aabb3f& b)
+    SweptHit3D        SweptIntersects(const Math::AABox3f& a, const Math::Vector3f& deltaA, const Math::AABox3f& b, const Math::Vector3f& deltaB);
+    inline SweptHit3D SweptIntersects(const Math::AABox3f& a, const Math::Vector3f& deltaA, const Math::AABox3f& b)
     {
         return SweptIntersects(a, deltaA, b, Math::Vector3f::ZERO);
     }
@@ -84,7 +84,7 @@ namespace Dark::Collision
     }
 
     // AABB / OBB vs static frustum
-    SweptHit3D SweptIntersects(const Math::Aabb3f& box, const Math::Vector3f& delta, const Math::Frustum3f& frustum);
+    SweptHit3D SweptIntersects(const Math::AABox3f& box, const Math::Vector3f& delta, const Math::Frustum3f& frustum);
     SweptHit3D SweptIntersects(const Math::Box3f& box, const Math::Vector3f& delta, const Math::Frustum3f& frustum);
 
 } // namespace Dark::Collision

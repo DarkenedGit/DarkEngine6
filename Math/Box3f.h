@@ -24,14 +24,14 @@ namespace Dark
 			      float extent0, float extent1, float extent2);
 
 			// Axis-aligned box from AABB.
-			static Box3f FromAabb(const Aabb3f& aabb);
+            static Box3f FromAABox3f(const AABox3f& aabb);
 
 			// Axis-aligned box from center + half extents (world axes).
 			static Box3f FromCenterExtents(const Vector3f& center, const Vector3f& halfExtents);
 
 			bool Contains(const Vector3f& point) const;
 			void GetCorners(Vector3f outCorners[8]) const;
-			Aabb3f ToAabb() const;
+            AABox3f ToAABox3f() const;
 		};
 	}
 }

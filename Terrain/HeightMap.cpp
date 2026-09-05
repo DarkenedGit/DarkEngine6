@@ -279,10 +279,10 @@ Vector3f HeightMap::positionAtSample(int x, int z) const
     return Vector3f(worldX(x), worldY(sampleRaw(x, z)), worldZ(z));
 }
 
-Aabb3f HeightMap::bounds() const
+AABox3f HeightMap::bounds() const
 {
     if (!valid())
-        return Aabb3f::Empty();
+        return AABox3f::Empty();
     ensureAccel();
     return m_cachedBounds;
 }
@@ -336,7 +336,7 @@ void HeightMap::ensureAccel() const
 void HeightMap::buildAccel() const
 {
     m_pyramid.clear();
-    m_cachedBounds = Aabb3f::Empty();
+    m_cachedBounds = AABox3f::Empty();
     if (!valid())
     {
         m_accelDirty = false;
@@ -409,13 +409,13 @@ void HeightMap::buildAccel() const
         m_pyramid.push_back(std::move(next));
     }
 
-    m_cachedBounds = Aabb3f(
+    m_cachedBounds = AABox3f(
         Vector3f(m_origin.x, globalMin, m_origin.z),
         Vector3f(m_worldMaxX, globalMax, m_worldMaxZ));
     m_accelDirty = false;
 }
 
-Aabb3f HeightMap::nodeBounds(int level, int nx, int nz) const
+AABox3f HeightMap::nodeBounds(int level, int nx, int nz) const
 {
     const int cellsX = static_cast<int>(m_width) - 1;
     const int cellsZ = static_cast<int>(m_height) - 1;
@@ -431,7 +431,7 @@ Aabb3f HeightMap::nodeBounds(int level, int nx, int nz) const
 
     const PyramidLevel& lvl = m_pyramid[static_cast<size_t>(level)];
     const MinMaxY&      mm  = lvl.nodes[static_cast<size_t>(nz) * lvl.w + nx];
-    return Aabb3f(
+    return AABox3f(
         Vector3f(worldX(x0), mm.minY, worldZ(z0)),
         Vector3f(worldX(x1), mm.maxY, worldZ(z1)));
 }
@@ -589,7 +589,7 @@ Collision::RayHit3D HeightMap::raycast(const Ray3f& ray, float maxDistance) cons
         if (node.tEnter >= bestT)
             continue;
 
-        const Aabb3f box = nodeBounds(node.level, node.x, node.z);
+        const AABox3f box = nodeBounds(node.level, node.x, node.z);
         float t0 = 0.0f;
         float t1 = 0.0f;
         if (!ray.IntersectAabb(box, t0, t1))
@@ -624,7 +624,7 @@ Collision::RayHit3D HeightMap::raycast(const Ray3f& ray, float maxDistance) cons
                 if (cx >= cw || cz >= ch)
                     continue;
 
-                const Aabb3f cb = nodeBounds(cl, cx, cz);
+                const AABox3f cb  = nodeBounds(cl, cx, cz);
                 float ct0 = 0.0f;
                 float ct1 = 0.0f;
                 if (!ray.IntersectAabb(cb, ct0, ct1))

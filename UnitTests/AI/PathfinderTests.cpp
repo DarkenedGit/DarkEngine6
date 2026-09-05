@@ -124,7 +124,7 @@ TEST(Pathfinder, OffMapDestFails)
 TEST(Pathfinder, CubeDestSnapsBeside)
 {
     HeightMap hm = MakeFlat(9, 10.0f);
-    const Aabb3f cube = Aabb3f::FromCenterExtents(Vector3f{ 4.5f, 10.5f, 4.5f }, Vector3f{ 0.5f, 0.5f, 0.5f });
+    const AABox3f   cube = AABox3f::FromCenterExtents(Vector3f{ 4.5f, 10.5f, 4.5f }, Vector3f{ 0.5f, 0.5f, 0.5f });
     Walkability w;
     WalkabilityDesc d;
     d.heightMap   = &hm;
@@ -158,7 +158,7 @@ TEST(Pathfinder, CubeSurroundedByWaterFails)
             hm.setHeight(x, z, 0.0f);
         }
     }
-    const Aabb3f cube = Aabb3f::FromCenterExtents(Vector3f{ 4.5f, 10.5f, 4.5f }, Vector3f{ 0.5f, 0.5f, 0.5f });
+    const AABox3f   cube = AABox3f::FromCenterExtents(Vector3f{ 4.5f, 10.5f, 4.5f }, Vector3f{ 0.5f, 0.5f, 0.5f });
     Walkability w;
     WalkabilityDesc d;
     d.heightMap   = &hm;

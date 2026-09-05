@@ -52,7 +52,7 @@ struct TerrainChunk
     uint8_t          builtMask = 0xFF;
     MeshData         cpu;
     Mesh             gpu;
-    Math::Aabb3f     bounds;
+    Math::AABox3f    bounds;
 };
 
 // Chunked geomipmap terrain. CPU LOD / welding is independent of D3D;
@@ -97,7 +97,10 @@ public:
     bool containsXZ(float x, float z) const;
     Collision::RayHit3D raycast(const Math::Ray3f& ray, float maxDistance = Math::Infinity) const;
     Math::Vector3f normalAtWorld(float x, float z) const;
-    Math::Aabb3f bounds() const { return m_bounds; }
+    Math::AABox3f       bounds() const
+    {
+        return m_bounds;
+    }
 
     const HeightMap& heightMap() const { return m_heightMap; }
     HeightMap&       heightMap()       { return m_heightMap; }
@@ -122,7 +125,7 @@ private:
     int       m_maxLod     = 0;
     float     m_lodDistances[kMaxLodLevels]{};
     int       m_lodDistanceCount = 0;
-    Math::Aabb3f m_bounds;
+    Math::AABox3f m_bounds;
 
     std::vector<TerrainChunk> m_chunks;
     std::vector<int>          m_lods;

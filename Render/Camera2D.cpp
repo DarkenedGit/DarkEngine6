@@ -110,7 +110,7 @@ namespace Dark
         return GetVisibleHeight() * m_Aspect;
     }
 
-    Aabb2f Camera2D::GetVisibleBounds() const
+    AABox2f Camera2D::GetVisibleBounds() const
     {
         // Axis-aligned bounds of the view frustum (ignores camera rotation —
         // rotated cameras still report AABB of the OBB for culling broadphase).
@@ -119,7 +119,7 @@ namespace Dark
 
         if (fabsf(m_Rotation) < Epsilon)
         {
-            return Aabb2f(Vector2f(m_Position.x - hw, m_Position.y - hh), Vector2f(m_Position.x + hw, m_Position.y + hh));
+            return AABox2f(Vector2f(m_Position.x - hw, m_Position.y - hh), Vector2f(m_Position.x + hw, m_Position.y + hh));
         }
 
         // Corners of rotated view rect → AABB
@@ -132,7 +132,7 @@ namespace Dark
             m_Position + axes[0] * (-hw) + axes[1] * (hh),
             m_Position + axes[0] * (hw) + axes[1] * (hh),
         };
-        return Aabb2f::FromPoints(corners, 4);
+        return AABox2f::FromPoints(corners, 4);
     }
 
     void Camera2D::RebuildView() const

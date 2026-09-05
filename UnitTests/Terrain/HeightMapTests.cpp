@@ -69,7 +69,7 @@ TEST(HeightMap, FbmDeterministic)
             EXPECT_FLOAT_EQ(a.height(x, z), b.height(x, z));
     }
 
-    const Aabb3f box = a.bounds();
+    const AABox3f box = a.bounds();
     EXPECT_TRUE(box.IsValid());
     EXPECT_GT(box.Size().x, 0.0f);
 }

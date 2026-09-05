@@ -85,7 +85,7 @@ bool TerrainWorld::create(TerrainDesc desc)
 
             const int ox = x * m_chunkCells;
             const int oz = z * m_chunkCells;
-            Aabb3f box = Aabb3f::Empty();
+            AABox3f   box = AABox3f::Empty();
             // Corners + a mid sample so the AABB covers the chunk even before meshing.
             box.ExpandToInclude(m_heightMap.positionAtSample(ox, oz));
             box.ExpandToInclude(m_heightMap.positionAtSample(ox + m_chunkCells, oz));
@@ -179,7 +179,7 @@ void TerrainWorld::rebuildDirtyCpuMeshes()
         }
 
         if (!c.cpu.positions.empty())
-            c.bounds = Aabb3f::FromPoints(c.cpu.positions.data(), static_cast<int>(c.cpu.positions.size()));
+            c.bounds = AABox3f::FromPoints(c.cpu.positions.data(), static_cast<int>(c.cpu.positions.size()));
 
         c.builtLod  = c.lod;
         c.builtMask = c.edges.bits;

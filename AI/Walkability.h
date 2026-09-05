@@ -14,7 +14,7 @@ namespace Dark::AI
         float                     waterLevel  = -1.0e9f;
         float                     maxSlopeDeg = 45.0f;
         float                     agentRadius = 0.8f;
-        const Math::Aabb3f*       cubes       = nullptr;
+        const Math::AABox3f*      cubes       = nullptr;
         int                       cubeCount   = 0;
     };
 

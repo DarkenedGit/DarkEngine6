@@ -27,7 +27,7 @@ public:
     void update(
         const Camera3D& camera,
         const Math::Vector3f& lightDirToward,
-        const Math::Aabb3f& sceneBounds,
+        const Math::AABox3f& sceneBounds,
         float sunElevation,
         float cloudCoverage,
         uint32_t frameIndex);

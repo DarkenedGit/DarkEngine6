@@ -2,7 +2,7 @@
 
 #include <array>
 #include "Vector2f.h"
-#include "Aabb2f.h"
+#include "AABox2f.h"
 
 namespace Dark
 {
@@ -27,12 +27,12 @@ namespace Dark
 			Box2f(const Vector2f& center, float rotationRadians,
 			      float halfExtentX, float halfExtentY);
 
-			static Box2f FromAabb(const Aabb2f& aabb);
+			static Box2f FromAabb(const AABox2f& aabb);
 			static Box2f FromCenterExtents(const Vector2f& center, const Vector2f& halfExtents);
 
 			bool Contains(const Vector2f& point) const;
 			void GetCorners(Vector2f outCorners[4]) const;
-			Aabb2f ToAabb() const;
+			AABox2f ToAabb() const;
 		};
 	}
 }

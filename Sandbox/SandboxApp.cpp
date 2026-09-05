@@ -590,7 +590,7 @@ void SandboxApp::updatePossessed(float dt)
     if (delta.MagnitudeSqrd() > 1.0e-10f)
     {
         Sphere3f ball{ Vector3f{ before.x, xf->position.y, before.z }, kRadius };
-        for (const Aabb3f& cube : m_chase.cubes())
+        for (const AABox3f& cube : m_chase.cubes())
         {
             const Dark::Collision::SweptHit3D hit = Dark::Collision::SweptIntersects(ball, delta, cube);
             if (hit.hit && hit.t < 1.0f)
@@ -1248,7 +1248,7 @@ void SandboxApp::onInit()
         if (!pumpBootFrame())
             return;
 
-        const Aabb3f terrainBox = m_terrain.bounds();
+        const AABox3f    terrainBox = m_terrain.bounds();
         const float waterLevel = Lerp(terrainBox.Min.y, terrainBox.Max.y, 0.38f);
         Water::WaterDesc waterDesc;
         waterDesc.chunkCells       = 16;
@@ -1450,7 +1450,7 @@ void SandboxApp::onRender()
 
     auto* cmd = renderer().commandList();
 
-    Aabb3f sceneBounds = m_terrain.bounds();
+    AABox3f sceneBounds = m_terrain.bounds();
     world().each<NetworkedComponent>([&](Entity e, NetworkedComponent&) {
         if (const TransformComponent* xf = world().get<TransformComponent>(e))
             sceneBounds.ExpandToInclude(xf->position);

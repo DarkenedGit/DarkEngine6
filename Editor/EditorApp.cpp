@@ -8,7 +8,7 @@
 #include "Input/InputCodes.h"
 #include "Collision/StaticCollision.h"
 #include "Math/AABox3f.h"
-#include "Math/Aabb2f.h"
+#include "Math/AABox2f.h"
 #include "Math/MathHelper.h"
 #include "Math/Matrix4f.h"
 #include "Math/Quaternion.h"
@@ -412,12 +412,12 @@ bool EditorApp::worldFromMouse2D(Vector2f& out)
     return true;
 }
 
-Aabb2f EditorApp::objectBounds2D(SceneObjectType type, const Vector3f& pos, const Vector3f& scale) const
+AABox2f EditorApp::objectBounds2D(SceneObjectType type, const Vector3f& pos, const Vector3f& scale) const
 {
     Vector2f half(0.5f * std::fabs(scale.x), 0.5f * std::fabs(scale.y));
     if (type == SceneObjectType::Coin)
         half = Vector2f(0.28f, 0.28f);
-    return Aabb2f::FromCenterExtents(Vector2f(pos.x, pos.y), half);
+    return AABox2f::FromCenterExtents(Vector2f(pos.x, pos.y), half);
 }
 
 Entity EditorApp::pickObject2D(const Vector2f& worldPos)
@@ -431,7 +431,7 @@ Entity EditorApp::pickObject2D(const Vector2f& worldPos)
         const auto* xf = this->world().get<TransformComponent>(so.entity);
         if (!xf)
             continue;
-        const Aabb2f box = objectBounds2D(so.type, xf->position, xf->scale);
+        const AABox2f box = objectBounds2D(so.type, xf->position, xf->scale);
         if (!box.Contains(worldPos))
             continue;
         const float area = box.Area();
@@ -865,7 +865,7 @@ Entity EditorApp::pickObject(const Ray3f& ray)
         Vector3f half(0.5f * xf->scale.x, 0.5f * xf->scale.y, 0.5f * xf->scale.z);
         if (so.type == SceneObjectType::ParticleEmitter)
             half = Vector3f(0.25f, 0.25f, 0.25f);
-        const Aabb3f box = Aabb3f::FromCenterExtents(xf->position, half);
+        const AABox3f       box = AABox3f::FromCenterExtents(xf->position, half);
         Collision::RayHit3D hit = Collision::Intersect(ray, box);
         if (hit.hit && hit.t >= 0.0f && hit.t < bestT)
         {
@@ -1911,7 +1911,7 @@ void EditorApp::renderScene2D(ID3D12GraphicsCommandList* cmd)
         {
             if (const auto* xf = world().get<TransformComponent>(so->entity))
             {
-                const Aabb2f box = objectBounds2D(so->type, xf->position, xf->scale);
+                const AABox2f  box   = objectBounds2D(so->type, xf->position, xf->scale);
                 const Vector2f c = box.Center();
                 const Vector2f s = box.Size();
                 const Matrix4f world = Matrix4f::ScaleMatrixXYZ(s.x, s.y, 1.0f)
@@ -1936,7 +1936,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 {
     m_camera.ClearSubpixelJitter();
     const Vector3f lightDir(0.35f, 0.85f, -0.35f);
-    Aabb3f sceneBounds(Vector3f(-22.0f, -2.0f, -22.0f), Vector3f(22.0f, 16.0f, 22.0f));
+    AABox3f        sceneBounds(Vector3f(-22.0f, -2.0f, -22.0f), Vector3f(22.0f, 16.0f, 22.0f));
     for (const SceneObject& so : m_objects)
     {
         if (const auto* xf = world().get<TransformComponent>(so.entity))

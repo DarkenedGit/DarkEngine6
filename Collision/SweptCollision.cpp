@@ -85,7 +85,7 @@ namespace Dark::Collision
 
 	// Swept AABB vs AABB with relative velocity v (A moves relative to B).
 	// Slab method in time.
-	static bool SweptAabbAabb(const Aabb3f& a, const Aabb3f& b, const Vector3f& v, float& tOut)
+    static bool SweptAabbAabb(const AABox3f& a, const AABox3f& b, const Vector3f& v, float& tOut)
 	{
 		// Already overlapping?
 		if (a.Intersects(b))
@@ -251,7 +251,7 @@ namespace Dark::Collision
 		return hit;
 	}
 
-	SweptHit3D SweptIntersects(const Vector3f& p0, const Vector3f& delta, const Aabb3f& box)
+	SweptHit3D SweptIntersects(const Vector3f& p0, const Vector3f& delta, const AABox3f& box)
 	{
 		SweptHit3D hit;
 		float len = delta.Magnitude();
@@ -368,10 +368,10 @@ namespace Dark::Collision
 		return hit;
 	}
 
-	SweptHit3D SweptIntersects(const Sphere3f& sphere, const Vector3f& delta, const Aabb3f& box)
+	SweptHit3D SweptIntersects(const Sphere3f& sphere, const Vector3f& delta, const AABox3f& box)
 	{
 		// Expand AABB by radius, then raycast center
-		Aabb3f expanded(
+        AABox3f expanded(
 			box.Min - Vector3f(sphere.Radius, sphere.Radius, sphere.Radius),
 			box.Max + Vector3f(sphere.Radius, sphere.Radius, sphere.Radius));
 
@@ -466,8 +466,7 @@ namespace Dark::Collision
 	// AABB / OBB sweeps
 	// ─────────────────────────────────────────────────────────────────────
 
-	SweptHit3D SweptIntersects(const Aabb3f& a, const Vector3f& deltaA,
-		                        const Aabb3f& b, const Vector3f& deltaB)
+	SweptHit3D SweptIntersects(const AABox3f& a, const Vector3f& deltaA, const AABox3f& b, const Vector3f& deltaB)
 	{
 		SweptHit3D hit;
 		Vector3f v = deltaA - deltaB;
@@ -577,7 +576,7 @@ namespace Dark::Collision
 		return hit;
 	}
 
-	SweptHit3D SweptIntersects(const Aabb3f& box, const Vector3f& delta, const Frustum3f& frustum)
+	SweptHit3D SweptIntersects(const AABox3f& box, const Vector3f& delta, const Frustum3f& frustum)
 	{
 		// Conservative: bounding sphere of AABB
 		Sphere3f s = box.ToBoundingSphere();
@@ -627,7 +626,7 @@ namespace Dark::Collision
 		return hit;
 	}
 
-	SweptHit2D SweptIntersects(const Vector2f& p0, const Vector2f& delta, const Aabb2f& box)
+	SweptHit2D SweptIntersects(const Vector2f& p0, const Vector2f& delta, const AABox2f& box)
 	{
 		SweptHit2D hit;
 		float len = delta.Magnitude();
@@ -701,9 +700,9 @@ namespace Dark::Collision
 		return hit;
 	}
 
-	SweptHit2D SweptIntersects(const Sphere2f& circle, const Vector2f& delta, const Aabb2f& box)
+	SweptHit2D SweptIntersects(const Sphere2f& circle, const Vector2f& delta, const AABox2f& box)
 	{
-		Aabb2f expanded(
+        AABox2f expanded(
 			box.Min - Vector2f(circle.Radius, circle.Radius),
 			box.Max + Vector2f(circle.Radius, circle.Radius));
 		return SweptIntersects(circle.Center, delta, expanded);
@@ -752,8 +751,7 @@ namespace Dark::Collision
 		return hit;
 	}
 
-	SweptHit2D SweptIntersects(const Aabb2f& a, const Vector2f& deltaA,
-		                        const Aabb2f& b, const Vector2f& deltaB)
+	SweptHit2D SweptIntersects(const AABox2f& a, const Vector2f& deltaA, const AABox2f& b, const Vector2f& deltaB)
 	{
 		SweptHit2D hit;
 		float t = 0.0f;

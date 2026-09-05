@@ -28,7 +28,7 @@ TEST(CollisionStatic, SphereSphere)
 
 TEST(CollisionStatic, PointAabb)
 {
-    Aabb3f box{Vector3f{-1.0f, -1.0f, -1.0f}, Vector3f{1.0f, 1.0f, 1.0f}};
+    AABox3f box{ Vector3f{ -1.0f, -1.0f, -1.0f }, Vector3f{ 1.0f, 1.0f, 1.0f } };
     EXPECT_TRUE(Intersects(Vector3f{0.0f, 0.0f, 0.0f}, box));
     EXPECT_TRUE(Intersects(Vector3f{1.0f, 1.0f, 1.0f}, box)); // on boundary
     EXPECT_FALSE(Intersects(Vector3f{1.1f, 0.0f, 0.0f}, box));
@@ -36,9 +36,9 @@ TEST(CollisionStatic, PointAabb)
 
 TEST(CollisionStatic, AabbAabb)
 {
-    Aabb3f a{Vector3f{0.0f, 0.0f, 0.0f}, Vector3f{1.0f, 1.0f, 1.0f}};
-    Aabb3f b{Vector3f{0.5f, 0.5f, 0.5f}, Vector3f{2.0f, 2.0f, 2.0f}};
-    Aabb3f c{Vector3f{2.0f, 2.0f, 2.0f}, Vector3f{3.0f, 3.0f, 3.0f}};
+    AABox3f a{ Vector3f{ 0.0f, 0.0f, 0.0f }, Vector3f{ 1.0f, 1.0f, 1.0f } };
+    AABox3f b{ Vector3f{ 0.5f, 0.5f, 0.5f }, Vector3f{ 2.0f, 2.0f, 2.0f } };
+    AABox3f c{ Vector3f{ 2.0f, 2.0f, 2.0f }, Vector3f{ 3.0f, 3.0f, 3.0f } };
 
     EXPECT_TRUE(Intersects(a, b));
     EXPECT_FALSE(Intersects(a, c));
@@ -46,7 +46,7 @@ TEST(CollisionStatic, AabbAabb)
 
 TEST(CollisionStatic, SphereAabb)
 {
-    Aabb3f box{Vector3f{-1.0f, -1.0f, -1.0f}, Vector3f{1.0f, 1.0f, 1.0f}};
+    AABox3f  box{ Vector3f{ -1.0f, -1.0f, -1.0f }, Vector3f{ 1.0f, 1.0f, 1.0f } };
     Sphere3f inside{Vector3f{0.0f, 0.0f, 0.0f}, 0.25f};
     Sphere3f touching{Vector3f{2.0f, 0.0f, 0.0f}, 1.0f};
     Sphere3f farAway{Vector3f{5.0f, 0.0f, 0.0f}, 0.5f};
@@ -72,7 +72,7 @@ TEST(CollisionStatic, RaySphereHitAndMiss)
 
 TEST(CollisionStatic, RayAabb)
 {
-    Aabb3f box{Vector3f{-1.0f, -1.0f, -1.0f}, Vector3f{1.0f, 1.0f, 1.0f}};
+    AABox3f box{ Vector3f{ -1.0f, -1.0f, -1.0f }, Vector3f{ 1.0f, 1.0f, 1.0f } };
     Ray3f ray{Vector3f{-5.0f, 0.0f, 0.0f}, Vector3f{1.0f, 0.0f, 0.0f}};
 
     RayHit3D hit = Intersect(ray, box);

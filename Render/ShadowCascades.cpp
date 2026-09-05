@@ -67,8 +67,7 @@ void extractFrustumCorners(const Camera3D& camera, float nearZ, float farZ, Vect
 
 bool buildCascadeMatrix(
     const Vector3f corners[8],
-    const Vector3f& lightDirToward,
-    const Aabb3f& sceneBounds,
+    const Vector3f& lightDirToward, const AABox3f& sceneBounds,
     float casterMargin,
     uint32_t mapSize,
     CascadeData& out)

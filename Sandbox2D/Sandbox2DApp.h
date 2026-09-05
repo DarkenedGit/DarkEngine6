@@ -10,7 +10,7 @@
 #include "Render/Texture2D.h"
 #include "Sprite/SpriteAnimator.h"
 #include "Sprite/SpriteSheet.h"
-#include "Math/Aabb2f.h"
+#include "Math/AABox2f.h"
 #include "Math/Vector2f.h"
 #include "Audio/SoundClip.h"
 
@@ -20,7 +20,9 @@
 #include <memory>
 #include <vector>
 
-class Sandbox2DApp : public Dark::Application
+using namespace Dark;
+
+class Sandbox2DApp : public Application
 {
 public:
     using Application::Application;
@@ -33,24 +35,24 @@ public:
 private:
     struct Platform
     {
-        Dark::Math::Aabb2f box;
+        Math::AABox2f box;
         float              z    = 2.0f;
-        Dark::Entity       entity{};
+        Entity       entity{};
         b2BodyId           body = b2_nullBodyId;
     };
 
     struct Coin
     {
-        Dark::Math::Vector2f pos;
+        Math::Vector2f pos;
         bool                 collected = false;
-        Dark::Entity         entity{};
+        Entity         entity{};
     };
 
     struct Player
     {
-        Dark::Math::Vector2f pos;
-        Dark::Math::Vector2f vel;
-        Dark::Math::Vector2f half{ 0.38f, 0.68f };
+        Math::Vector2f pos;
+        Math::Vector2f vel;
+        Math::Vector2f half{ 0.38f, 0.68f };
         bool                 grounded    = false;
         float                facing      = 1.0f;
         float                coyote      = 0.0f;
@@ -60,7 +62,7 @@ private:
 
     struct RemotePawn
     {
-        Dark::Entity entity{};
+        Entity entity{};
         uint32_t     colorRgba8 = 0xFFFFFFFFu;
     };
 
@@ -86,17 +88,17 @@ private:
     void createLocalPlayerEntity();
     void unregisterIdleReplicas();
     void restoreLocalLevel();
-    void spawnOwnedPawn(Dark::ClientId owner, float offsetX);
-    Dark::Entity findPawn(Dark::ClientId owner);
+    void spawnOwnedPawn(ClientId owner, float offsetX);
+    Entity findPawn(ClientId owner);
     void syncLocalPawnTransform(float dt);
     void collectCoinsHostAuthority();
     bool ensureClientPhysics();
 
     void drawSprite(
         ID3D12GraphicsCommandList* cmd,
-        const Dark::Texture2D& texture,
-        const Dark::Math::Vector2f& pos,
-        const Dark::Math::Vector2f& size,
+        const Texture2D& texture,
+        const Math::Vector2f& pos,
+        const Math::Vector2f& size,
         float z,
         float tintR,
         float tintG,
@@ -110,7 +112,7 @@ private:
 
     void drawPawnSprite(
         ID3D12GraphicsCommandList* cmd,
-        const Dark::Math::Vector2f& pos,
+        const Math::Vector2f& pos,
         float facing,
         float tintR,
         float tintG,
@@ -118,42 +120,42 @@ private:
 
     void updatePlayerAnim(float dt);
 
-    static bool onNetSpawn(Dark::World& world, Dark::Entity e, Dark::NetPrefab prefab, const Dark::TransformComponent& xf, uint32_t colorRgba8, void* user);
-    static void onNetDespawn(Dark::World& world, Dark::Entity e, Dark::NetId id, void* user);
-    static void onNetPeer(const Dark::NetPeerInfo& info, Dark::NetPeerEvent event, void* user);
+    static bool onNetSpawn(World& world, Entity e, NetPrefab prefab, const TransformComponent& xf, uint32_t colorRgba8, void* user);
+    static void onNetDespawn(World& world, Entity e, NetId id, void* user);
+    static void onNetPeer(const NetPeerInfo& info, NetPeerEvent event, void* user);
 
-    Dark::Camera2D        m_camera;
-    Dark::SpritePipeline  m_spritePipe;
-    Dark::LinePipeline    m_linePipe;
-    Dark::Mesh            m_quad;
-    Dark::LineMesh        m_boxOutline;
+    Camera2D        m_camera;
+    SpritePipeline  m_spritePipe;
+    LinePipeline    m_linePipe;
+    Mesh            m_quad;
+    LineMesh        m_boxOutline;
 
-    std::vector<Dark::SpriteSheet> m_playerSheets;
-    Dark::SpriteSheet              m_playerSheet;
-    Dark::SpriteAnimator           m_playerAnim;
+    std::vector<SpriteSheet> m_playerSheets;
+    SpriteSheet              m_playerSheet;
+    SpriteAnimator           m_playerAnim;
 
-    Dark::Texture2D m_texPlatform;
-    Dark::Texture2D m_texCoin;
-    Dark::Texture2D m_texHillFar;
-    Dark::Texture2D m_texHillMid;
-    Dark::Texture2D m_texWhite;
+    Texture2D m_texPlatform;
+    Texture2D m_texCoin;
+    Texture2D m_texHillFar;
+    Texture2D m_texHillMid;
+    Texture2D m_texWhite;
 
     Player                m_player;
-    Dark::Entity          m_playerEntity{};
+    Entity          m_playerEntity{};
     std::vector<Platform> m_platforms;
     std::vector<Coin>     m_coins;
     std::vector<RemotePawn> m_remotePawns;
     uint32_t              m_score         = 0;
     bool                  m_showCollision = false;
-    Dark::NetRole         m_netRole       = Dark::NetRole::Idle;
+    NetRole         m_netRole       = NetRole::Idle;
 
-    Dark::Math::Vector2f m_spawn{ 3.0f, 3.5f };
-    Dark::Math::Vector2f m_worldMin{ 0.0f, 0.0f };
-    Dark::Math::Vector2f m_worldMax{ 96.0f, 22.0f };
+    Math::Vector2f m_spawn{ 3.0f, 3.5f };
+    Math::Vector2f m_worldMin{ 0.0f, 0.0f };
+    Math::Vector2f m_worldMax{ 96.0f, 22.0f };
 
-    std::shared_ptr<Dark::Audio::SoundClip> m_sfxJump;
-    std::shared_ptr<Dark::Audio::SoundClip> m_sfxCoin;
-    std::shared_ptr<Dark::Audio::SoundClip> m_sfxReset;
+    std::shared_ptr<Audio::SoundClip> m_sfxJump;
+    std::shared_ptr<Audio::SoundClip> m_sfxCoin;
+    std::shared_ptr<Audio::SoundClip> m_sfxReset;
 
     b2WorldId m_physWorld      = b2_nullWorldId;
     b2BodyId  m_playerBody     = b2_nullBodyId;

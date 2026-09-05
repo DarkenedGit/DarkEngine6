@@ -74,7 +74,7 @@ namespace Dark
             return true;
         }
 
-        bool Frustum3f::Intersects(const Aabb3f& box) const
+        bool Frustum3f::Intersects(const AABox3f& box) const
         {
             // Outside any plane ⇒ no intersection (p-vertex test).
             for (const auto& plane : Planes)

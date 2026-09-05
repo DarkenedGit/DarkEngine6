@@ -91,7 +91,7 @@ TEST(ShadowCascades, BuildCascadeRejectsZeroLight)
     for (int i = 0; i < 8; ++i)
         corners[i] = Vector3f(0.0f, 0.0f, 0.0f);
     CascadeData out;
-    Aabb3f scene(Vector3f(-1.0f, -1.0f, -1.0f), Vector3f(1.0f, 1.0f, 1.0f));
+    AABox3f     scene(Vector3f(-1.0f, -1.0f, -1.0f), Vector3f(1.0f, 1.0f, 1.0f));
     EXPECT_FALSE(buildCascadeMatrix(corners, Vector3f(0.0f, 0.0f, 0.0f), scene, 10.0f, 1024, out));
 }
 
@@ -104,7 +104,7 @@ TEST(ShadowCascades, BuildCascadePlacesSliceCenterInClip)
     Vector3f corners[8];
     extractFrustumCorners(cam, 2.0f, 30.0f, corners);
 
-    Aabb3f scene(Vector3f(-40.0f, -5.0f, -40.0f), Vector3f(40.0f, 30.0f, 40.0f));
+    AABox3f     scene(Vector3f(-40.0f, -5.0f, -40.0f), Vector3f(40.0f, 30.0f, 40.0f));
     CascadeData out;
     ASSERT_TRUE(buildCascadeMatrix(corners, Vector3f(0.35f, 0.85f, -0.35f), scene, 40.0f, 1024, out));
 
@@ -130,7 +130,7 @@ TEST(ShadowCascades, WorldPointUvMovesWhenCameraTranslates)
     cam.SetLens(1.04719755f, 1.6f, 0.5f, 2000.0f);
     cam.LookAt(Vector3f(0.0f, 20.0f, -40.0f), Vector3f(0.0f, 5.0f, 0.0f), Vector3f(0.0f, 1.0f, 0.0f));
 
-    Aabb3f scene(Vector3f(-128.0f, 0.0f, -128.0f), Vector3f(128.0f, 22.0f, 128.0f));
+    AABox3f        scene(Vector3f(-128.0f, 0.0f, -128.0f), Vector3f(128.0f, 22.0f, 128.0f));
     const Vector3f light(0.35f, 0.85f, -0.35f);
     const Vector3f worldPt(0.0f, 5.0f, 0.0f);
 
@@ -166,7 +166,7 @@ TEST(ShadowCascades, LargeTerrainBoundsPreserveMeterScaleDepth)
     Vector3f corners[8];
     extractFrustumCorners(cam, 80.0f, 280.0f, corners);
 
-    Aabb3f scene(Vector3f(-128.0f, 0.0f, -128.0f), Vector3f(128.0f, 22.0f, 128.0f));
+    AABox3f        scene(Vector3f(-128.0f, 0.0f, -128.0f), Vector3f(128.0f, 22.0f, 128.0f));
     CascadeData out;
     const Vector3f light(0.40f, 0.60f, 0.30f);
     ASSERT_TRUE(buildCascadeMatrix(corners, light, scene, 24.0f, 2048, out));

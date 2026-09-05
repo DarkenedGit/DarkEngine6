@@ -66,9 +66,9 @@ void mountContentRoots(AssetManager& assets)
     }
 }
 
-Aabb2f playerBounds(const Vector2f& pos, const Vector2f& half)
+AABox2f playerBounds(const Vector2f& pos, const Vector2f& half)
 {
-    return Aabb2f::FromCenterExtents(pos, half);
+    return AABox2f::FromCenterExtents(pos, half);
 }
 
 const char* netRoleName(NetRole role)
@@ -163,7 +163,7 @@ void Sandbox2DApp::buildLevel()
 
     auto addPlat = [&](float x0, float y0, float x1, float y1) {
         Platform p;
-        p.box = Aabb2f(Vector2f(x0, y0), Vector2f(x1, y1));
+        p.box = AABox2f(Vector2f(x0, y0), Vector2f(x1, y1));
         m_platforms.push_back(p);
     };
     auto addCoin = [&](float x, float y) {
@@ -229,7 +229,7 @@ bool Sandbox2DApp::tryLoadLevel()
         if (o.type == SceneObjectType::Platform)
         {
             Platform p;
-            p.box = Aabb2f::FromCenterExtents(
+            p.box = AABox2f::FromCenterExtents(
                 Vector2f(o.position.x, o.position.y),
                 Vector2f(0.5f * std::fabs(o.scale.x), 0.5f * std::fabs(o.scale.y)));
             m_platforms.push_back(p);
@@ -690,13 +690,13 @@ void Sandbox2DApp::collectCoinsHostAuthority()
         return;
 
     auto overlaps = [&](const Vector2f& pos) {
-        const Aabb2f hit = playerBounds(pos, m_player.half);
+        const AABox2f hit = playerBounds(pos, m_player.half);
         std::vector<Entity> eaten;
         for (Coin& c : m_coins)
         {
             if (c.collected)
                 continue;
-            const Aabb2f coinBox = Aabb2f::FromCenterExtents(c.pos, Vector2f(0.28f, 0.28f));
+            const AABox2f coinBox = AABox2f::FromCenterExtents(c.pos, Vector2f(0.28f, 0.28f));
             if (!Intersects(hit, coinBox))
                 continue;
             ++m_score;
@@ -797,7 +797,7 @@ bool Sandbox2DApp::onNetSpawn(World& world, Entity e, NetPrefab prefab, const Tr
     if (prefab == NetPrefab::Platform)
     {
         Platform p;
-        p.box = Aabb2f::FromCenterExtents(
+        p.box = AABox2f::FromCenterExtents(
             Vector2f(xf.position.x, xf.position.y),
             Vector2f(0.5f * std::fabs(xf.scale.x), 0.5f * std::fabs(xf.scale.y)));
         p.entity = e;
@@ -1248,7 +1248,7 @@ void Sandbox2DApp::onRender()
     if (m_showCollision && m_boxOutline.valid())
     {
         m_linePipe.bind(cmd);
-        auto drawBox = [&](const Aabb2f& box, float r, float g, float b) {
+        auto drawBox = [&](const AABox2f& box, float r, float g, float b) {
             const Vector2f c = box.Center();
             const Vector2f s = box.Size();
             const Matrix4f world = Matrix4f::ScaleMatrixXYZ(s.x, s.y, 1.0f)
@@ -1271,7 +1271,7 @@ void Sandbox2DApp::onRender()
         {
             if (c.collected)
                 continue;
-            drawBox(Aabb2f::FromCenterExtents(c.pos, Vector2f(0.28f, 0.28f)), 1.0f, 0.9f, 0.2f);
+            drawBox(AABox2f::FromCenterExtents(c.pos, Vector2f(0.28f, 0.28f)), 1.0f, 0.9f, 0.2f);
         }
     }
 

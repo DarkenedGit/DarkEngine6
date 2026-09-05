@@ -71,7 +71,7 @@ TEST(Walkability, OffMapWorldToCell)
 TEST(Walkability, CubeInflateBlocksCells)
 {
     HeightMap hm = MakeFlat(9, 1.0f, 10.0f);
-    const Aabb3f cube = Aabb3f::FromCenterExtents(Vector3f{ 4.0f, 10.5f, 4.0f }, Vector3f{ 0.5f, 0.5f, 0.5f });
+    const AABox3f   cube = AABox3f::FromCenterExtents(Vector3f{ 4.0f, 10.5f, 4.0f }, Vector3f{ 0.5f, 0.5f, 0.5f });
     Walkability w;
     WalkabilityDesc d;
     d.heightMap   = &hm;

@@ -17,7 +17,7 @@
 #include "Render/SpritePipeline.h"
 #include "Render/Texture2D.h"
 #include "Scene/SceneTypes.h"
-#include "Math/Aabb2f.h"
+#include "Math/AABox2f.h"
 #include "Editor/EditorImGui.h"
 #include "Editor/ParticleEditorPanel.h"
 #include "Particles/ParticleEmitter.h"
@@ -29,10 +29,12 @@
 #include <memory>
 #include <vector>
 
-class EditorApp : public Dark::Application
+using namespace Dark;
+
+class EditorApp : public Application
 {
 public:
-    explicit EditorApp(const Dark::AppConfig& cfg);
+    explicit EditorApp(const AppConfig& cfg);
 
     void onInit() override;
     void onUpdate(float dt) override;
@@ -45,20 +47,20 @@ private:
     void updateCamera2D(float dt);
     void handleEditorCommands(float dt);
     void drawEditorUi();
-    void applySceneMode(Dark::SceneMode mode);
+    void applySceneMode(SceneMode mode);
     void newScene3D();
     void newScene2D();
     bool ensure2DResources();
     void rebuildGrid2D();
     void clampCamera2D();
-    bool worldFromMouse2D(Dark::Math::Vector2f& out);
-    Dark::Math::Aabb2f objectBounds2D(Dark::SceneObjectType type, const Dark::Math::Vector3f& pos, const Dark::Math::Vector3f& scale) const;
-    Dark::Entity pickObject2D(const Dark::Math::Vector2f& world);
+    bool worldFromMouse2D(Math::Vector2f& out);
+    Math::AABox2f objectBounds2D(SceneObjectType type, const Math::Vector3f& pos, const Math::Vector3f& scale) const;
+    Entity pickObject2D(const Math::Vector2f& world);
     void drawSprite2D(
         ID3D12GraphicsCommandList* cmd,
-        const Dark::Texture2D& texture,
-        const Dark::Math::Vector2f& pos,
-        const Dark::Math::Vector2f& size,
+        const Texture2D& texture,
+        const Math::Vector2f& pos,
+        const Math::Vector2f& size,
         float z,
         float cr,
         float cg,
@@ -68,18 +70,18 @@ private:
     void renderScene3D(ID3D12GraphicsCommandList* cmd);
     void renderScene2D(ID3D12GraphicsCommandList* cmd);
 
-    bool groundHitFromMouse(Dark::Math::Vector3f& outPoint);
-    bool groundHitFromRay(const Dark::Math::Ray3f& ray, Dark::Math::Vector3f& outPoint) const;
-    Dark::Entity pickObject(const Dark::Math::Ray3f& ray);
+    bool groundHitFromMouse(Math::Vector3f& outPoint);
+    bool groundHitFromRay(const Math::Ray3f& ray, Math::Vector3f& outPoint) const;
+    Entity pickObject(const Math::Ray3f& ray);
 
-    Dark::Entity spawnObject(Dark::SceneObjectType type,
-                             const Dark::Math::Vector3f& pos,
-                             const Dark::Math::Vector3f& scale,
-                             const Dark::Math::Quaternion& rot,
+    Entity spawnObject(SceneObjectType type,
+                             const Math::Vector3f& pos,
+                             const Math::Vector3f& scale,
+                             const Math::Quaternion& rot,
                              const float color[4],
-                             const Dark::ParticleEmitterDesc* particleDesc = nullptr);
+                             const ParticleEmitterDesc* particleDesc = nullptr);
 
-    Dark::Entity placeAtCursor(Dark::SceneObjectType type);
+    Entity placeAtCursor(SceneObjectType type);
     void         deleteSelected();
     void         selectNext(int delta);
     void         cyclePlaceType(int delta);
@@ -96,78 +98,78 @@ private:
     void drawNetworkMenu();
     void drawDebugMenu();
 
-    static bool onNetSpawn(Dark::World& world, Dark::Entity e, Dark::NetPrefab prefab, const Dark::TransformComponent& xf, uint32_t colorRgba8, void* user);
-    static void onNetDespawn(Dark::World& world, Dark::Entity e, Dark::NetId id, void* user);
-    static void onNetPeer(const Dark::NetPeerInfo& info, Dark::NetPeerEvent event, void* user);
+    static bool onNetSpawn(World& world, Entity e, NetPrefab prefab, const TransformComponent& xf, uint32_t colorRgba8, void* user);
+    static void onNetDespawn(World& world, Entity e, NetId id, void* user);
+    static void onNetPeer(const NetPeerInfo& info, NetPeerEvent event, void* user);
 
     void clearScene();
     bool saveScene();
     bool loadScene();
 
-    Dark::ParticleEmitterDesc makeDefaultParticleDesc() const;
-    void applyParticleDescToEmitter(int emitterIndex, const Dark::ParticleEmitterDesc& desc);
-    void fillParticleDescFromEmitter(int emitterIndex, Dark::ParticleEmitterDesc& out) const;
+    ParticleEmitterDesc makeDefaultParticleDesc() const;
+    void applyParticleDescToEmitter(int emitterIndex, const ParticleEmitterDesc& desc);
+    void fillParticleDescFromEmitter(int emitterIndex, ParticleEmitterDesc& out) const;
     void syncSelectedEmitterFromUi();
 
-    const Dark::Mesh* meshForType(Dark::SceneObjectType type) const;
-    Dark::SceneObject* findObject(Dark::Entity e);
-    const Dark::SceneObject* findObject(Dark::Entity e) const;
-    Dark::ParticleEmitter* selectedEmitter();
+    const Mesh* meshForType(SceneObjectType type) const;
+    SceneObject* findObject(Entity e);
+    const SceneObject* findObject(Entity e) const;
+    ParticleEmitter* selectedEmitter();
 
     static float snap(float v, float grid);
 
-    Dark::MeshPipeline    m_meshPipeline;
-    Dark::LinePipeline    m_linePipeline;
-    Dark::LinePipeline    m_linePipeline3D;
-    Dark::TonemapPipeline          m_tonemap;
-    Dark::DeferredLightingPipeline m_lighting;
-    Dark::MotionBlurPipeline       m_motionBlur;
-    Dark::TaaPipeline              m_taa;
-    Dark::DebugOverlay             m_debugOverlay;
-    Dark::ShadowSystem    m_shadows;
+    MeshPipeline    m_meshPipeline;
+    LinePipeline    m_linePipeline;
+    LinePipeline    m_linePipeline3D;
+    TonemapPipeline          m_tonemap;
+    DeferredLightingPipeline m_lighting;
+    MotionBlurPipeline       m_motionBlur;
+    TaaPipeline              m_taa;
+    DebugOverlay             m_debugOverlay;
+    ShadowSystem    m_shadows;
 
-    Dark::Mesh m_cubeMesh;
-    Dark::Mesh m_sphereMesh;
-    Dark::Mesh m_groundMesh;
-    Dark::LineMesh m_gridMesh;
+    Mesh m_cubeMesh;
+    Mesh m_sphereMesh;
+    Mesh m_groundMesh;
+    LineMesh m_gridMesh;
 
-    Dark::AssetRef<Dark::Material> m_propMaterial;
-    Dark::AssetRef<Dark::Material> m_groundMaterial;
+    AssetRef<Material> m_propMaterial;
+    AssetRef<Material> m_groundMaterial;
 
-    Dark::Camera3D m_camera;
-    Dark::Math::Matrix4f m_prevViewProj{};
+    Camera3D m_camera;
+    Math::Matrix4f m_prevViewProj{};
     bool                 m_havePrevViewProj = false;
     bool                 m_taaHistoryValid  = false;
     uint32_t             m_taaHistoryW      = 0;
     uint32_t             m_taaHistoryH      = 0;
-    Dark::Camera2D m_camera2D;
-    Dark::SceneMode m_sceneMode = Dark::SceneMode::Scene3D;
+    Camera2D m_camera2D;
+    SceneMode m_sceneMode = SceneMode::Scene3D;
 
-    Dark::SpritePipeline     m_spritePipe;
-    Dark::Mesh     m_quadMesh;
-    Dark::LineMesh m_grid2D;
-    Dark::LineMesh m_boxOutline2D;
-    Dark::Texture2D          m_texPlatform;
-    Dark::Texture2D          m_texCoin;
-    Dark::Texture2D          m_texSpawn;
+    SpritePipeline     m_spritePipe;
+    Mesh     m_quadMesh;
+    LineMesh m_grid2D;
+    LineMesh m_boxOutline2D;
+    Texture2D          m_texPlatform;
+    Texture2D          m_texCoin;
+    Texture2D          m_texSpawn;
     bool                     m_2dReady = false;
 
-    Dark::Math::Vector2f m_worldMin{ 0.0f, 0.0f };
-    Dark::Math::Vector2f m_worldMax{ 96.0f, 22.0f };
+    Math::Vector2f m_worldMin{ 0.0f, 0.0f };
+    Math::Vector2f m_worldMax{ 96.0f, 22.0f };
     bool                 m_panning = false;
     int                  m_panMouseX = 0;
     int                  m_panMouseY = 0;
 
-    std::vector<Dark::SceneObject>                   m_objects;
-    std::vector<std::unique_ptr<Dark::ParticleEmitter>> m_emitters;
-    Dark::ParticleRenderer                           m_particleRenderer;
-    Dark::Entity                                     m_selected{};
+    std::vector<SceneObject>                   m_objects;
+    std::vector<std::unique_ptr<ParticleEmitter>> m_emitters;
+    ParticleRenderer                           m_particleRenderer;
+    Entity                                     m_selected{};
 
     EditorImGui          m_imgui;
     ParticleEditorPanel  m_particlePanel;
     bool                 m_showParticlePanel = true;
 
-    Dark::SceneObjectType m_placeType  = Dark::SceneObjectType::Cube;
+    SceneObjectType m_placeType  = SceneObjectType::Cube;
     int                   m_colorIndex = 0;
 
     std::filesystem::path m_scenePath;
@@ -182,9 +184,9 @@ private:
     float m_moveSpeed = 8.0f;
     float m_lookSpeed = 0.005f;
 
-    std::shared_ptr<Dark::Audio::SoundClip> m_sfxPlace;
-    std::shared_ptr<Dark::Audio::SoundClip> m_sfxDelete;
-    std::shared_ptr<Dark::Audio::SoundClip> m_sfxSave;
+    std::shared_ptr<Audio::SoundClip> m_sfxPlace;
+    std::shared_ptr<Audio::SoundClip> m_sfxDelete;
+    std::shared_ptr<Audio::SoundClip> m_sfxSave;
 
     bool m_dragging = false;
     int  m_lmbDownX = 0;
@@ -193,5 +195,5 @@ private:
     char m_joinAddress[64]{"127.0.0.1"};
 
     bool          m_cliJoin     = false;
-    Dark::NetRole m_lastNetRole = Dark::NetRole::Idle;
+    NetRole m_lastNetRole = NetRole::Idle;
 };

@@ -57,7 +57,7 @@ struct WaterChunk
     uint8_t            builtMask = 0xFF;
     MeshData           cpu;
     Mesh               gpu;
-    Math::Aabb3f       bounds;
+    Math::AABox3f      bounds;
 };
 
 // Chunked water surface at a world water level. Patches exist only where the

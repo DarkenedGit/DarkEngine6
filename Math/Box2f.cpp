@@ -35,7 +35,7 @@ namespace Dark
 			Extent[1] = halfExtentY;
 		}
 
-		Box2f Box2f::FromAabb(const Aabb2f& aabb)
+		Box2f Box2f::FromAabb(const AABox2f& aabb)
 		{
 			return FromCenterExtents(aabb.Center(), aabb.Extents());
 		}
@@ -70,11 +70,11 @@ namespace Dark
 			outCorners[3] = Center + ex + ey;
 		}
 
-		Aabb2f Box2f::ToAabb() const
+		AABox2f Box2f::ToAabb() const
 		{
 			Vector2f corners[4];
 			GetCorners(corners);
-			return Aabb2f::FromPoints(corners, 4);
+			return AABox2f::FromPoints(corners, 4);
 		}
 	}
 }

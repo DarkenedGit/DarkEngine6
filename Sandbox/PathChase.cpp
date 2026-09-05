@@ -130,7 +130,7 @@ bool PathChase::init(Renderer& renderer, Terrain::TerrainWorld& terrain, Water::
     m_treePos.clear();
     m_cubes.clear();
     const Vector3f origin = { 0.0f, terrain.heightAtWorld(0.0f, 0.0f) + 0.5f, 0.0f };
-    m_cubes.push_back(Aabb3f::FromCenterExtents(origin, Vector3f{ 0.5f, 0.5f, 0.5f }));
+    m_cubes.push_back(AABox3f::FromCenterExtents(origin, Vector3f{ 0.5f, 0.5f, 0.5f }));
     const Vector3f trunkHalf{ kTrunkR, kTrunkH * 0.5f, kTrunkR };
     for (const Vector3f& t : trees)
     {
@@ -138,7 +138,7 @@ bool PathChase::init(Renderer& renderer, Terrain::TerrainWorld& terrain, Water::
         p.y        = terrain.heightAtWorld(p.x, p.z);
         m_treePos.push_back(p);
         Vector3f trunkCenter{ p.x, p.y + kTrunkH * 0.5f, p.z };
-        m_cubes.push_back(Aabb3f::FromCenterExtents(trunkCenter, trunkHalf));
+        m_cubes.push_back(AABox3f::FromCenterExtents(trunkCenter, trunkHalf));
     }
 
     if (!bake(terrain, water))
@@ -481,11 +481,9 @@ void PathChase::drawDepth(ID3D12GraphicsCommandList* cmd, const ShadowSystem& sh
     }
 }
 
-void PathChase::expandBounds(Aabb3f& bounds) const
+void PathChase::expandBounds(AABox3f& bounds) const
 {
-    auto include = [&](const Vector3f& p, const Vector3f& half) {
-        bounds.ExpandToInclude(Aabb3f::FromCenterExtents(p, half));
-    };
+    auto include = [&](const Vector3f& p, const Vector3f& half) { bounds.ExpandToInclude(AABox3f::FromCenterExtents(p, half)); };
     if (m_drawWalker)
         include(m_walkerPos, Vector3f{ 1.0f, 1.0f, 1.0f });
     for (const Vector3f& t : m_treePos)

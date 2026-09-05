@@ -26,7 +26,7 @@ namespace Dark
 			Extent[2] = extent2;
 		}
 
-		Box3f Box3f::FromAabb(const Aabb3f& aabb)
+		Box3f Box3f::FromAABox3f(const AABox3f& aabb)
 		{
 			return FromCenterExtents(aabb.Center(), aabb.Extents());
 		}
@@ -66,11 +66,11 @@ namespace Dark
 			outCorners[7] = Center + ex + ey + ez;
 		}
 
-		Aabb3f Box3f::ToAabb() const
+		AABox3f Box3f::ToAABox3f() const
 		{
 			Vector3f corners[8];
 			GetCorners(corners);
-			return Aabb3f::FromPoints(corners, 8);
+            return AABox3f::FromPoints(corners, 8);
 		}
 	}
 }

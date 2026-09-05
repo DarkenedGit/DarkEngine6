@@ -21,7 +21,7 @@ namespace Dark
 
 			// Returns true and sets t (distance along ray) on hit. t >= 0.
 			bool IntersectSphere(const Sphere3f& sphere, float& t) const;
-			bool IntersectAabb(const Aabb3f& box, float& tMin, float& tMax) const;
+            bool IntersectAabb(const AABox3f& box, float& tMin, float& tMax) const;
 		};
 	}
 }

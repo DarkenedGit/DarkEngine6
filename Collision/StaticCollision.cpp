@@ -11,7 +11,7 @@ namespace Dark::Collision
 	// Helpers
 	// ─────────────────────────────────────────────────────────────────────
 
-	static Vector3f ClosestPointOnAabb(const Vector3f& p, const Aabb3f& box)
+	static Vector3f ClosestPointOnAabb(const Vector3f& p, const AABox3f& box)
 	{
 		return Vector3f(
 			std::max(box.Min.x, std::min(p.x, box.Max.x)),
@@ -58,7 +58,7 @@ namespace Dark::Collision
 		return sphere.Contains(point);
 	}
 
-	bool Intersects(const Vector3f& point, const Aabb3f& box)
+	bool Intersects(const Vector3f& point, const AABox3f& box)
 	{
 		return box.Contains(point);
 	}
@@ -82,7 +82,7 @@ namespace Dark::Collision
 		return a.Intersects(b);
 	}
 
-	bool Intersects(const Sphere3f& sphere, const Aabb3f& box)
+	bool Intersects(const Sphere3f& sphere, const AABox3f& box)
 	{
 		return box.Intersects(sphere);
 	}
@@ -103,18 +103,18 @@ namespace Dark::Collision
 	// AABB
 	// ─────────────────────────────────────────────────────────────────────
 
-	bool Intersects(const Aabb3f& a, const Aabb3f& b)
+	bool Intersects(const AABox3f& a, const AABox3f& b)
 	{
 		return a.Intersects(b);
 	}
 
-	bool Intersects(const Aabb3f& aabb, const Box3f& box)
+	bool Intersects(const AABox3f& aabb, const Box3f& box)
 	{
 		// Convert AABB to OBB and run OBB-OBB
-		return Intersects(Box3f::FromAabb(aabb), box);
+        return Intersects(Box3f::FromAABox3f(aabb), box);
 	}
 
-	bool Intersects(const Aabb3f& aabb, const Frustum3f& frustum)
+	bool Intersects(const AABox3f& aabb, const Frustum3f& frustum)
 	{
 		return frustum.Intersects(aabb);
 	}
@@ -272,7 +272,7 @@ namespace Dark::Collision
 		return hit;
 	}
 
-	RayHit3D Intersect(const Ray3f& ray, const Aabb3f& box)
+	RayHit3D Intersect(const Ray3f& ray, const AABox3f& box)
 	{
 		RayHit3D hit;
 		float tMin = 0.0f, tMax = 0.0f;
@@ -391,7 +391,7 @@ namespace Dark::Collision
 	// 2D
 	// ─────────────────────────────────────────────────────────────────────
 
-	static Vector2f ClosestPointOnAabb2(const Vector2f& p, const Aabb2f& box)
+	static Vector2f ClosestPointOnAabb2(const Vector2f& p, const AABox2f& box)
 	{
 		return Vector2f(
 			std::max(box.Min.x, std::min(p.x, box.Max.x)),
@@ -416,7 +416,7 @@ namespace Dark::Collision
 		return circle.Contains(point);
 	}
 
-	bool Intersects(const Vector2f& point, const Aabb2f& box)
+	bool Intersects(const Vector2f& point, const AABox2f& box)
 	{
 		return box.Contains(point);
 	}
@@ -431,7 +431,7 @@ namespace Dark::Collision
 		return a.Intersects(b);
 	}
 
-	bool Intersects(const Sphere2f& circle, const Aabb2f& box)
+	bool Intersects(const Sphere2f& circle, const AABox2f& box)
 	{
 		return box.Intersects(circle);
 	}
@@ -443,12 +443,12 @@ namespace Dark::Collision
 		return d.MagnitudeSqrd() <= circle.Radius * circle.Radius;
 	}
 
-	bool Intersects(const Aabb2f& a, const Aabb2f& b)
+	bool Intersects(const AABox2f& a, const AABox2f& b)
 	{
 		return a.Intersects(b);
 	}
 
-	bool Intersects(const Aabb2f& aabb, const Box2f& box)
+	bool Intersects(const AABox2f& aabb, const Box2f& box)
 	{
 		return Intersects(Box2f::FromAabb(aabb), box);
 	}
@@ -499,7 +499,7 @@ namespace Dark::Collision
         return results.hit;
 	}
 
-	bool Intersect(const Ray2f& ray, const Aabb2f& box, RayHit2D& results)
+	bool Intersect(const Ray2f& ray, const AABox2f& box, RayHit2D& results)
 	{
 		float tMin = 0.0f, tMax = 0.0f;
         if (!ray.IntersectAabb(box, tMin, tMax))

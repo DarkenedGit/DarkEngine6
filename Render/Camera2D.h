@@ -3,7 +3,7 @@
 #include "Math/Vector2f.h"
 #include "Math/Matrix4f.h"
 #include "Math/Ray2f.h"
-#include "Math/Aabb2f.h"
+#include "Math/AABox2f.h"
 
 namespace Dark
 {
@@ -67,7 +67,7 @@ namespace Dark
         // World-space size currently visible (accounts for zoom).
         float        GetVisibleHeight() const;
         float        GetVisibleWidth() const;
-        Math::Aabb2f GetVisibleBounds() const;
+        Math::AABox2f GetVisibleBounds() const;
 
         // ── Matrices (getters rebuild if dirty) ───────────────────────────────
         void UpdateMatrices() const;

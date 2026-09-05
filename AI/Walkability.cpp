@@ -9,7 +9,7 @@ namespace Dark::AI
 {
     constexpr float kDegToRad = 3.14159265f / 180.0f;
 
-    bool aabbOverlapsCellXZ(const Math::Aabb3f& box, float x0, float z0, float x1, float z1)
+    bool aabbOverlapsCellXZ(const Math::AABox3f& box, float x0, float z0, float x1, float z1)
     {
         return box.Max.x >= x0 && box.Min.x <= x1 && box.Max.z >= z0 && box.Min.z <= z1;
     }
@@ -213,7 +213,7 @@ namespace Dark::AI
         const float z1 = z0 + m_cellSize;
         for (int i = 0; i < m_desc.cubeCount; ++i)
         {
-            Math::Aabb3f box = m_desc.cubes[i];
+            Math::AABox3f box = m_desc.cubes[i];
             box.Expand(m_desc.agentRadius);
             if (aabbOverlapsCellXZ(box, x0, z0, x1, z1))
                 return true;

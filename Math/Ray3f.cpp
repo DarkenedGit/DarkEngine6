@@ -45,7 +45,7 @@ namespace Dark
 			return true;
 		}
 
-		bool Ray3f::IntersectAabb(const Aabb3f& box, float& tMin, float& tMax) const
+		bool Ray3f::IntersectAabb(const AABox3f& box, float& tMin, float& tMax) const
 		{
 			// Slab method
 			tMin = 0.0f;

@@ -99,7 +99,7 @@ bool WaterWorld::create(const HeightMap& heightMap, WaterDesc desc)
             const float z1 = heightMap.worldZ(oz + m_chunkCells);
             const float y0 = m_params.waterLevel - amp;
             const float y1 = m_params.waterLevel + amp;
-            c.bounds = Aabb3f(Vector3f(x0, y0, z0), Vector3f(x1, y1, z1));
+            c.bounds       = AABox3f(Vector3f(x0, y0, z0), Vector3f(x1, y1, z1));
             if (c.wet)
                 ++wet;
         }

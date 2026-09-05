@@ -80,7 +80,7 @@ public:
 
     void worldToSample(float worldX, float worldZ, float& outFx, float& outFz) const;
 
-    Math::Aabb3f bounds() const;
+    Math::AABox3f bounds() const;
 
     bool     valid() const { return m_width >= 2 && m_height >= 2 && m_samples.size() == size_t(m_width) * m_height; }
     uint32_t width() const { return m_width; }
@@ -113,7 +113,7 @@ private:
     void ensureAccel() const;
     void buildAccel() const;
 
-    Math::Aabb3f nodeBounds(int level, int nx, int nz) const;
+    Math::AABox3f nodeBounds(int level, int nx, int nz) const;
     bool intersectCell(int cx, int cz, const Math::Ray3f& ray, float tMin, float tMax, float& outT) const;
     bool intersectVertical(const Math::Ray3f& ray, float maxDistance, Collision::RayHit3D& out) const;
 
@@ -129,7 +129,7 @@ private:
 
     mutable bool                   m_accelDirty = true;
     mutable std::vector<PyramidLevel> m_pyramid;
-    mutable Math::Aabb3f           m_cachedBounds;
+    mutable Math::AABox3f             m_cachedBounds;
 };
 
 } // namespace Terrain

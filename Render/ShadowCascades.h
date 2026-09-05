@@ -61,8 +61,7 @@ void extractFrustumCorners(
 // only pulls the near plane back so casters in front of the slice still write.
 bool buildCascadeMatrix(
     const Math::Vector3f corners[8],
-    const Math::Vector3f& lightDirToward,
-    const Math::Aabb3f& sceneBounds,
+    const Math::Vector3f& lightDirToward, const Math::AABox3f& sceneBounds,
     float casterMargin,
     uint32_t mapSize,
     CascadeData& out);

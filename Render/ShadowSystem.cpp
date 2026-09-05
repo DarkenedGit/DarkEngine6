@@ -156,8 +156,7 @@ UINT ShadowSystem::sliceIndex(int cascade) const
 
 void ShadowSystem::update(
     const Camera3D& camera,
-    const Vector3f& lightDirToward,
-    const Aabb3f& sceneBounds,
+    const Vector3f& lightDirToward, const AABox3f& sceneBounds,
     float sunElevation,
     float cloudCoverage,
     uint32_t frameIndex)

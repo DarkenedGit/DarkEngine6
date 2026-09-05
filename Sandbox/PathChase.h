@@ -45,11 +45,14 @@ namespace Dark
         void drawMeshes(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPipe, ShadowSystem& shadows, const Camera3D& camera, const MeshFrameConstants& baseCb, Mesh& cubeMesh, DebugFill fill);
         void drawMeshesGBuffer(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPipe, const Camera3D& camera, const Math::Matrix4f& prevViewProj, Mesh& cubeMesh, DebugFill fill);
         void drawDepth(ID3D12GraphicsCommandList* cmd, const ShadowSystem& shadows, int cascade, Mesh& cubeMesh) const;
-        void expandBounds(Math::Aabb3f& bounds) const;
+        void expandBounds(Math::AABox3f& bounds) const;
         void drawPaths(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Math::Matrix4f& viewProj);
 
         Entity walker() const { return m_walker; }
-        const std::vector<Math::Aabb3f>& cubes() const { return m_cubes; }
+        const std::vector<Math::AABox3f>& cubes() const
+        {
+            return m_cubes;
+        }
 
         static constexpr int kHunterCount = 3;
         int  hunterCount() const { return kHunterCount; }
@@ -86,7 +89,7 @@ namespace Dark
         AI::Walkability m_walk;
         AI::Pathfinder  m_finder;
         LinePipeline    m_lines;
-        std::vector<Math::Aabb3f> m_cubes;
+        std::vector<Math::AABox3f>               m_cubes;
         std::vector<Math::Vector3f> m_treePos;
         std::array<Agent, kHunterCount> m_agents{};
         Entity          m_walker{};
