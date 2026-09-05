@@ -184,6 +184,41 @@ namespace Dark::Math
 		return q;
 	}
 
+	Quaternion Quaternion::FromLookRotation(const Vector3f& forward, const Vector3f& up)
+	{
+		Vector3f f = forward;
+		if (f.MagnitudeSqrd() <= Epsilon)
+			f = Vector3f::Z_AXIS;
+		else
+			f.Normalize();
+
+		Vector3f u = up;
+		if (u.MagnitudeSqrd() <= Epsilon)
+			u = Vector3f::Y_AXIS;
+		else
+			u.Normalize();
+
+		if (fabsf(f.Dot(u)) > 0.999f)
+			u = (fabsf(f.x) < 0.9f) ? Vector3f(Vector3f::X_AXIS) : Vector3f(Vector3f::Z_AXIS);
+
+		Vector3f r = u.Cross(f);
+		if (r.MagnitudeSqrd() <= Epsilon)
+		{
+			u = (fabsf(f.z) < 0.9f) ? Vector3f(Vector3f::Z_AXIS) : Vector3f(Vector3f::X_AXIS);
+			r = u.Cross(f);
+		}
+		r.Normalize();
+
+		Vector3f y = f.Cross(r);
+		y.Normalize();
+
+		const Matrix3f basis(
+			r.x, r.y, r.z,
+			y.x, y.y, y.z,
+			f.x, f.y, f.z);
+		return FromMatrix3(basis);
+	}
+
 	Quaternion Quaternion::Slerp(const Quaternion& a, const Quaternion& b, float t)
 	{
 		float cosTheta = a.Dot(b);

@@ -40,6 +40,7 @@ namespace Dark::Math
 		static Quaternion FromAxisAngle(const Vector3f& axis, float radians);
 		static Quaternion FromEulerXYZ(float pitchX, float yawY, float rollZ);
 		static Quaternion FromMatrix3(const Matrix3f& m);
+		static Quaternion FromLookRotation(const Vector3f& forward, const Vector3f& up);
 		static Quaternion Slerp(const Quaternion& a, const Quaternion& b, float t);
 		static Quaternion Lerp(const Quaternion& a, const Quaternion& b, float t);
 

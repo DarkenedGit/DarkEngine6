@@ -48,12 +48,15 @@ namespace Dark
         Platform,
         Coin,
         Spawn,
+        PointLight,
+        SpotLight,
         Count
     };
 
     inline bool isScene3DType(SceneObjectType t)
     {
-        return t == SceneObjectType::Cube || t == SceneObjectType::Sphere || t == SceneObjectType::ParticleEmitter;
+        return t == SceneObjectType::Cube || t == SceneObjectType::Sphere || t == SceneObjectType::ParticleEmitter
+            || t == SceneObjectType::PointLight || t == SceneObjectType::SpotLight;
     }
 
     inline bool isScene2DType(SceneObjectType t)
@@ -71,6 +74,8 @@ namespace Dark
         case SceneObjectType::Platform:        return "platform";
         case SceneObjectType::Coin:            return "coin";
         case SceneObjectType::Spawn:           return "spawn";
+        case SceneObjectType::PointLight:      return "point_light";
+        case SceneObjectType::SpotLight:       return "spot_light";
         default:                               return "unknown";
         }
     }
@@ -105,6 +110,16 @@ namespace Dark
         if (s == "spawn" || s == "player_spawn")
         {
             out = SceneObjectType::Spawn;
+            return true;
+        }
+        if (s == "point_light")
+        {
+            out = SceneObjectType::PointLight;
+            return true;
+        }
+        if (s == "spot_light")
+        {
+            out = SceneObjectType::SpotLight;
             return true;
         }
         return false;
@@ -156,11 +171,21 @@ namespace Dark
         int         renderMode    = 0; // ParticleEmitterDesc::RenderMode
         uint32_t    ribbonCount   = 1;
         float       ribbonUvScale = 1.0f;
+
+        // Optional local-light payload (PointLight / SpotLight).
+        bool  hasLight           = false;
+        float lightIntensity     = 600.0f;
+        float lightRange         = 8.0f;
+        float lightInnerDeg      = 12.0f;
+        float lightOuterDeg      = 25.0f;
+        float lightSourceRadius  = 0.05f;
+        bool  lightEnabled       = true;
+        float emissive           = 0.0f;
     };
 
     struct SceneFileData
     {
-        int         version = 1;
+        int         version = 2;
         std::string name    = "untitled";
         SceneMode   mode    = SceneMode::Scene3D;
         Math::Vector2f worldMin{ 0.0f, 0.0f };

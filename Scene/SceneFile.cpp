@@ -143,6 +143,21 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             p["ribbonUvScale"]   = o.ribbonUvScale;
             jo["particle"]       = std::move(p);
         }
+
+        if (o.hasLight || o.type == SceneObjectType::PointLight || o.type == SceneObjectType::SpotLight)
+        {
+            json light;
+            light["intensity"]    = o.lightIntensity;
+            light["range"]        = o.lightRange;
+            light["inner"]        = o.lightInnerDeg;
+            light["outer"]        = o.lightOuterDeg;
+            light["sourceRadius"] = o.lightSourceRadius;
+            light["enabled"]      = o.lightEnabled;
+            jo["light"]           = std::move(light);
+        }
+        if (o.emissive != 0.0f)
+            jo["emissive"] = o.emissive;
+
         arr.push_back(std::move(jo));
     }
     root["objects"] = std::move(arr);
@@ -324,6 +339,25 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
         {
             o.hasParticle = true;
         }
+
+        if (jo.contains("light") && jo["light"].is_object())
+        {
+            const json& light = jo["light"];
+            o.hasLight          = true;
+            o.lightIntensity    = light.value("intensity", 600.0f);
+            o.lightRange        = light.value("range", 8.0f);
+            o.lightInnerDeg     = light.value("inner", 12.0f);
+            o.lightOuterDeg     = light.value("outer", 25.0f);
+            o.lightSourceRadius = light.value("sourceRadius", 0.05f);
+            o.lightEnabled      = light.value("enabled", true);
+        }
+        else if (o.type == SceneObjectType::PointLight || o.type == SceneObjectType::SpotLight)
+        {
+            o.hasLight = true;
+        }
+
+        if (jo.contains("emissive") && jo["emissive"].is_number())
+            o.emissive = jo["emissive"].get<float>();
 
         if (o.scale.x == 0.0f)
             o.scale.x = 1.0f;
