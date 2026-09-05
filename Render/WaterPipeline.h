@@ -61,7 +61,7 @@ public:
         const float cameraPos[3],
         float time,
         const float lightDir[3],
-        const Water::WaterParams& params,
+        const WaterParams& params,
         const Sky::Environment* env = nullptr,
         bool lighting = true);
 

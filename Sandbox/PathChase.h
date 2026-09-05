@@ -26,20 +26,17 @@ namespace Dark
     class Camera3D;
     class MeshPipeline;
     class ShadowSystem;
+    class WaterWorld;
 
     namespace Terrain
     {
     class TerrainWorld;
     }
-    namespace Water
-    {
-    class WaterWorld;
-    }
 
     class PathChase
     {
     public:
-        bool init(Renderer& renderer, Terrain::TerrainWorld& terrain, Water::WaterWorld& water, World& world, Mesh& cubeMesh, AssetRef<Material> trunkMat, AssetRef<Material> canopyMat, AssetRef<Material> aiMat);
+        bool init(Renderer& renderer, Terrain::TerrainWorld& terrain, WaterWorld& water, World& world, Mesh& cubeMesh, AssetRef<Material> trunkMat, AssetRef<Material> canopyMat, AssetRef<Material> aiMat);
 
         void tick(float dt, World& world, Input& input, Terrain::TerrainWorld& terrain, Entity hostPawn, bool playerInWater);
         void drawMeshes(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPipe, ShadowSystem& shadows, const Camera3D& camera, const MeshFrameConstants& baseCb, Mesh& cubeMesh, DebugFill fill);
@@ -78,7 +75,7 @@ namespace Dark
             float              deadFor = 0.0f;
         };
 
-        bool bake(Terrain::TerrainWorld& terrain, Water::WaterWorld& water);
+        bool bake(Terrain::TerrainWorld& terrain, WaterWorld& water);
         bool spawnWalker(World& world, Terrain::TerrainWorld& terrain);
         bool spawnAgents(Terrain::TerrainWorld& terrain);
         void follow(Agent& a, float dt, Terrain::TerrainWorld& terrain);

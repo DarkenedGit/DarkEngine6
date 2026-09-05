@@ -149,7 +149,7 @@ void WaterPipeline::fillConstants(
     const float cameraPos[3],
     float time,
     const float lightDir[3],
-    const Water::WaterParams& params,
+    const WaterParams& params,
     const Sky::Environment* env,
     bool lighting)
 {
@@ -203,9 +203,9 @@ void WaterPipeline::fillConstants(
         out.specPower = 96.0f * (1.0f - 0.55f * env->weather.cloudCoverage);
     }
 
-    for (int i = 0; i < Water::kWaterWaveCount; ++i)
+    for (int i = 0; i < kWaterWaveCount; ++i)
     {
-        const Math::Vector2f d = Water::waveDirection(params, i);
+        const Math::Vector2f d = waveDirection(params, i);
         out.waves[i][0] = d.x;
         out.waves[i][1] = d.y;
         out.waves[i][2] = params.waves[i].frequency;

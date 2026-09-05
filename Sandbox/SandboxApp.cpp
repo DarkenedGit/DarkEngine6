@@ -1250,7 +1250,7 @@ void SandboxApp::onInit()
 
         const AABox3f    terrainBox = m_terrain.bounds();
         const float waterLevel = Lerp(terrainBox.Min.y, terrainBox.Max.y, 0.38f);
-        Water::WaterDesc waterDesc;
+        WaterDesc waterDesc;
         waterDesc.chunkCells       = 16;
         waterDesc.waterLevel       = waterLevel;
         waterDesc.lodDistanceCount = 5;
@@ -1259,7 +1259,7 @@ void SandboxApp::onInit()
         waterDesc.lodDistances[2]  = 160.0f;
         waterDesc.lodDistances[3]  = 320.0f;
         waterDesc.lodDistances[4]  = 640.0f;
-        waterDesc.params           = Water::defaultWaterParams(waterLevel);
+        waterDesc.params           = defaultWaterParams(waterLevel);
         waterDesc.params.flowDir   = Vector2f(1.0f, 0.35f);
         if (!m_water.create(m_terrain.heightMap(), waterDesc))
         {
@@ -1820,7 +1820,7 @@ void SandboxApp::onShutdown()
     if (m_cubeMaterial)
         assets().unload(m_cubeMaterial->id);
     m_cubeMaterial.reset();
-    m_water = Water::WaterWorld{};
+    m_water = WaterWorld{};
     m_terrainMaterial = TerrainMaterial{};
     m_terrain = Terrain::TerrainWorld{};
     m_shadows = ShadowSystem{};

@@ -8,7 +8,7 @@
 #include "Math/Box3f.h"
 #include "Math/Matrix4f.h"
 
-namespace Dark::Math
+namespace Dark
 {
     // View frustum: six planes with normals pointing *inward*.
     // Plane order: Left, Right, Top, Bottom, Near, Far.
@@ -26,24 +26,24 @@ namespace Dark::Math
             Count
         };
 
-        std::array<Plane4f, Count> Planes;
+        std::array<Math::Plane4f, Count> Planes;
 
         Frustum3f();
-        explicit Frustum3f(const Matrix4f& viewProjection, bool normalize = true);
+        explicit Frustum3f(const Math::Matrix4f& viewProjection, bool normalize = true);
 
         // Build planes from a combined view*projection matrix (row-vector, D3D LH).
-        void Update(const Matrix4f& viewProjection, bool normalize = true);
+        void Update(const Math::Matrix4f& viewProjection, bool normalize = true);
 
-        const Plane4f& GetPlane(int index) const
+        const Math::Plane4f& GetPlane(int index) const
         {
             return Planes[index];
         }
 
         // Classification
-        bool Contains(const Vector3f& point) const;
-        bool Intersects(const Sphere3f& sphere) const;
-        bool Intersects(const AABox3f& box) const;
-        bool Intersects(const Box3f& box) const;
-        bool Envelops(const Sphere3f& sphere) const; // fully inside
+        bool Contains(const Math::Vector3f& point) const;
+        bool Intersects(const Math::Sphere3f& sphere) const;
+        bool Intersects(const Math::AABox3f& box) const;
+        bool Intersects(const Math::Box3f& box) const;
+        bool Envelops(const Math::Sphere3f& sphere) const; // fully inside
     };
 } // namespace Dark

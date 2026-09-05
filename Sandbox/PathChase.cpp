@@ -81,7 +81,7 @@ bool PathChase::createLineBuffers(Renderer& renderer)
     return true;
 }
 
-bool PathChase::bake(Terrain::TerrainWorld& terrain, Water::WaterWorld& water)
+bool PathChase::bake(Terrain::TerrainWorld& terrain, WaterWorld& water)
 {
     AI::WalkabilityDesc d;
     d.heightMap   = &terrain.heightMap();
@@ -94,7 +94,7 @@ bool PathChase::bake(Terrain::TerrainWorld& terrain, Water::WaterWorld& water)
     return m_finder.bind(&m_walk);
 }
 
-bool PathChase::init(Renderer& renderer, Terrain::TerrainWorld& terrain, Water::WaterWorld& water, World& world, Mesh&, AssetRef<Material> trunkMat, AssetRef<Material> canopyMat, AssetRef<Material> aiMat)
+bool PathChase::init(Renderer& renderer, Terrain::TerrainWorld& terrain, WaterWorld& water, World& world, Mesh&, AssetRef<Material> trunkMat, AssetRef<Material> canopyMat, AssetRef<Material> aiMat)
 {
     m_trunkMat  = trunkMat;
     m_canopyMat = canopyMat;

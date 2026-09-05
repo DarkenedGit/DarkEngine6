@@ -52,43 +52,43 @@ namespace Dark::Collision
 	bool Intersects(const Math::Vector3f& point, const Math::Sphere3f& sphere);
 	bool Intersects(const Math::Vector3f& point, const Math::AABox3f& box);
 	bool Intersects(const Math::Vector3f& point, const Math::Box3f& box);
-	bool Intersects(const Math::Vector3f& point, const Math::Frustum3f& frustum);
+	bool Intersects(const Math::Vector3f& point, const Frustum3f& frustum);
 
 	// ── Sphere vs * ───────────────────────────────────────────────────────
 	bool Intersects(const Math::Sphere3f& a, const Math::Sphere3f& b);
 	bool Intersects(const Math::Sphere3f& sphere, const Math::AABox3f& box);
 	bool Intersects(const Math::Sphere3f& sphere, const Math::Box3f& box);
-	bool Intersects(const Math::Sphere3f& sphere, const Math::Frustum3f& frustum);
+	bool Intersects(const Math::Sphere3f& sphere, const Frustum3f& frustum);
 
 	// ── AABB vs * ─────────────────────────────────────────────────────────
 	bool Intersects(const Math::AABox3f& a, const Math::AABox3f& b);
 	bool Intersects(const Math::AABox3f& aabb, const Math::Box3f& box);
-	bool Intersects(const Math::AABox3f& aabb, const Math::Frustum3f& frustum);
+	bool Intersects(const Math::AABox3f& aabb, const Frustum3f& frustum);
 
 	// ── OBB vs * ──────────────────────────────────────────────────────────
 	bool Intersects(const Math::Box3f& a, const Math::Box3f& b);
-	bool Intersects(const Math::Box3f& box, const Math::Frustum3f& frustum);
+	bool Intersects(const Math::Box3f& box, const Frustum3f& frustum);
 
 	// ── Frustum vs Frustum ────────────────────────────────────────────────
 	// Convex half-space intersection (alternating projection).
-	bool Intersects(const Math::Frustum3f& a, const Math::Frustum3f& b);
+	bool Intersects(const Frustum3f& a, const Frustum3f& b);
 
 	// ── Ray queries (static geometry; t = distance if dir is unit length) ─
 	RayHit3D Intersect(const Math::Ray3f& ray, const Math::Sphere3f& sphere);
 	RayHit3D Intersect(const Math::Ray3f& ray, const Math::AABox3f& box);
 	RayHit3D Intersect(const Math::Ray3f& ray, const Math::Box3f& box);
 	// Frustum: first plane-clip entry along ray (may start inside → t=0).
-	RayHit3D Intersect(const Math::Ray3f& ray, const Math::Frustum3f& frustum);
+	RayHit3D Intersect(const Math::Ray3f& ray, const Frustum3f& frustum);
 
 	// Symmetric helpers so order doesn't matter in generic code
 	inline bool Intersects(const Math::Sphere3f& s, const Math::Vector3f& p) { return Intersects(p, s); }
 	inline bool Intersects(const Math::AABox3f& b, const Math::Vector3f& p)   { return Intersects(p, b); }
 	inline bool Intersects(const Math::Box3f& b, const Math::Vector3f& p)    { return Intersects(p, b); }
-	inline bool Intersects(const Math::Frustum3f& f, const Math::Vector3f& p){ return Intersects(p, f); }
+	inline bool Intersects(const Frustum3f& f, const Math::Vector3f& p){ return Intersects(p, f); }
 	inline bool Intersects(const Math::AABox3f& b, const Math::Sphere3f& s)   { return Intersects(s, b); }
 	inline bool Intersects(const Math::Box3f& b, const Math::Sphere3f& s)    { return Intersects(s, b); }
-	inline bool Intersects(const Math::Frustum3f& f, const Math::Sphere3f& s){ return Intersects(s, f); }
+	inline bool Intersects(const Frustum3f& f, const Math::Sphere3f& s){ return Intersects(s, f); }
 	inline bool Intersects(const Math::Box3f& b, const Math::AABox3f& a)      { return Intersects(a, b); }
-	inline bool Intersects(const Math::Frustum3f& f, const Math::AABox3f& a)  { return Intersects(a, f); }
-	inline bool Intersects(const Math::Frustum3f& f, const Math::Box3f& b)   { return Intersects(b, f); }
+	inline bool Intersects(const Frustum3f& f, const Math::AABox3f& a)  { return Intersects(a, f); }
+	inline bool Intersects(const Frustum3f& f, const Math::Box3f& b)   { return Intersects(b, f); }
 } // Dark::Collision

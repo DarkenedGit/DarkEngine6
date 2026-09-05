@@ -4,24 +4,21 @@
 #include "AABox2f.h"
 #include "Sphere2f.h"
 
-namespace Dark
+namespace Dark::Math
 {
-	namespace Math
+	class Ray2f
 	{
-		class Ray2f
-		{
-		public:
-			Vector2f Origin;
-			Vector2f Direction; // should be unit length for distance queries
+	public:
+		Vector2f Origin;
+		Vector2f Direction; // should be unit length for distance queries
 
-			Ray2f();
-			Ray2f(const Vector2f& origin, const Vector2f& direction);
+		Ray2f();
+		Ray2f(const Vector2f& origin, const Vector2f& direction);
 
-			Vector2f PointAt(float t) const;
+		Vector2f PointAt(float t) const;
 
-			// Returns true and sets t (distance along ray) on hit. t >= 0.
-			bool IntersectCircle(const Sphere2f& circle, float& t) const;
-            bool IntersectAabb(const AABox2f& box, float& tMin, float& tMax) const;
-		};
-	}
+		// Returns true and sets t (distance along ray) on hit. t >= 0.
+		bool IntersectCircle(const Sphere2f& circle, float& t) const;
+        bool IntersectAabb(const AABox2f& box, float& tMin, float& tMax) const;
+	};
 }

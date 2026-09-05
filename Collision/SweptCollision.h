@@ -53,14 +53,14 @@ namespace Dark::Collision
     SweptHit3D SweptIntersects(const Math::Vector3f& p0, const Math::Vector3f& delta, const Math::Sphere3f& sphere);
     SweptHit3D SweptIntersects(const Math::Vector3f& p0, const Math::Vector3f& delta, const Math::AABox3f& box);
     SweptHit3D SweptIntersects(const Math::Vector3f& p0, const Math::Vector3f& delta, const Math::Box3f& box);
-    SweptHit3D SweptIntersects(const Math::Vector3f& p0, const Math::Vector3f& delta, const Math::Frustum3f& frustum);
+    SweptHit3D SweptIntersects(const Math::Vector3f& p0, const Math::Vector3f& delta, const Frustum3f& frustum);
 
     // ── Sphere vs Sphere / AABB / OBB / Frustum ───────────────────────────
     // Each sphere may move (deltaB = 0 for a static target).
     SweptHit3D SweptIntersects(const Math::Sphere3f& a, const Math::Vector3f& deltaA, const Math::Sphere3f& b, const Math::Vector3f& deltaB);
     SweptHit3D SweptIntersects(const Math::Sphere3f& sphere, const Math::Vector3f& delta, const Math::AABox3f& box);
     SweptHit3D SweptIntersects(const Math::Sphere3f& sphere, const Math::Vector3f& delta, const Math::Box3f& box);
-    SweptHit3D SweptIntersects(const Math::Sphere3f& sphere, const Math::Vector3f& delta, const Math::Frustum3f& frustum);
+    SweptHit3D SweptIntersects(const Math::Sphere3f& sphere, const Math::Vector3f& delta, const Frustum3f& frustum);
 
     // Convenience: static target (deltaB = 0)
     inline SweptHit3D SweptIntersects(const Math::Sphere3f& a, const Math::Vector3f& deltaA, const Math::Sphere3f& b)
@@ -84,7 +84,7 @@ namespace Dark::Collision
     }
 
     // AABB / OBB vs static frustum
-    SweptHit3D SweptIntersects(const Math::AABox3f& box, const Math::Vector3f& delta, const Math::Frustum3f& frustum);
-    SweptHit3D SweptIntersects(const Math::Box3f& box, const Math::Vector3f& delta, const Math::Frustum3f& frustum);
+    SweptHit3D SweptIntersects(const Math::AABox3f& box, const Math::Vector3f& delta, const Frustum3f& frustum);
+    SweptHit3D SweptIntersects(const Math::Box3f& box, const Math::Vector3f& delta, const Frustum3f& frustum);
 
 } // namespace Dark::Collision

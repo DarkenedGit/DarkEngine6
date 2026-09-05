@@ -109,7 +109,7 @@ private:
 
     Dark::Terrain::TerrainWorld m_terrain;
     Dark::TerrainMaterial       m_terrainMaterial;
-    Dark::Water::WaterWorld     m_water;
+    Dark::WaterWorld            m_water;
 
     std::shared_ptr<Dark::Audio::SoundClip> m_sfxReset;
     std::shared_ptr<Dark::Audio::SoundClip> m_sfxClick;

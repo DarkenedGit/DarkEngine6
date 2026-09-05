@@ -9,7 +9,6 @@
 using namespace Dark;
 using namespace Dark::Math;
 using namespace Dark::Terrain;
-using namespace Dark::Water;
 
 TEST(WaterWaves, DefaultHasFourFrequencies)
 {
