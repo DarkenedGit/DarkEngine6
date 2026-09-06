@@ -14,9 +14,11 @@
 #include "Math/Vector3f.h"
 #include "Network/NetTypes.h"
 #include "Network/Replication.h"
+#include "Render/DebugRenderState.h"
 #include "Render/Frustum3f.h"
 #include "Render/TaaJitter.h"
 #include "Render/MeshGen.h"
+#include "Render/ScenePath.h"
 #include "Terrain/SplatMap.h"
 #include "Water/WaterWaves.h"
 
@@ -169,6 +171,8 @@ void SandboxApp::registerDefaultActions()
     a.bindButton("jump", GamepadButton::A);
     a.bindKey("attack", Key::F);
     a.bindButton("attack", GamepadButton::B);
+    a.bindKey("flashlight", Key::L);
+    a.bindKey("toggle_lighting", Key::F2);
 
     a.bindKey("reset", Key::R);
     a.bindButton("reset", GamepadButton::Y);
@@ -224,8 +228,8 @@ void SandboxApp::registerDefaultActions()
 
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(P/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
-        "possessed WASD/LS move, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, Shift/LB sprint, swim in water, "
-        "M dev tools  -forward for UNORM forward");
+        "possessed WASD/LS move, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, L flashlight, Shift/LB sprint, swim in water, "
+        "F2 lighting  M dev tools  -forward for UNORM forward");
 }
 
 void SandboxApp::handleRuntimeCommands(float dt)
@@ -239,6 +243,22 @@ void SandboxApp::handleRuntimeCommands(float dt)
         m_showDevTools = !m_showDevTools;
         audio().play2D(m_sfxClick, 0.5f);
         DE_LOG_INFO("Sandbox: dev tools = {}", m_showDevTools);
+    }
+
+    if (!uiKeys && input().actionPressed("toggle_lighting"))
+    {
+        DebugRenderState& dbg = renderer().debugState();
+        dbg.lighting          = !dbg.lighting;
+        DE_LOG_INFO("Sandbox: lighting = {}", dbg.lighting);
+    }
+
+    if (!uiKeys && input().actionPressed("flashlight"))
+    {
+        if (LocalLightComponent* light = m_flashlight.valid() ? world().get<LocalLightComponent>(m_flashlight) : nullptr)
+        {
+            light->enabled = !light->enabled;
+            DE_LOG_INFO("Sandbox: flashlight = {}", light->enabled);
+        }
     }
 
     if (input().actionPressed("quit"))
@@ -697,6 +717,17 @@ void SandboxApp::updateCombat(float dt)
         m_hurtSoundTimer -= dt;
     if (m_attackCooldown > 0.0f)
         m_attackCooldown -= dt;
+    if (m_muzzleTimer > 0.0f)
+    {
+        m_muzzleTimer -= dt;
+        if (m_muzzleTimer <= 0.0f)
+        {
+            if (LocalLightComponent* light = m_muzzle.valid() ? world().get<LocalLightComponent>(m_muzzle) : nullptr)
+                light->enabled = false;
+        }
+        else if (TransformComponent* mxf = m_muzzle.valid() ? world().get<TransformComponent>(m_muzzle) : nullptr)
+            mxf->position = m_viewCamera.GetPosition() + m_viewCamera.GetLook() * 0.8f;
+    }
 
     m_playerHealth.tick(dt);
 
@@ -708,36 +739,34 @@ void SandboxApp::updateCombat(float dt)
         return;
     }
 
-    if (!m_chaseOk)
-        return;
-
     constexpr float kStandoff = 2.25f;
     constexpr float kContactDps = 12.0f;
     const Entity body = possessedBody();
     const TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    if (!xf)
-        return;
 
-    const float before = m_playerHealth.hp();
-    for (int i = 0; i < m_chase.hunterCount(); ++i)
+    if (m_chaseOk && xf)
     {
-        if (!m_chase.hunterAlive(i))
-            continue;
-        const Vector3f& hp = m_chase.hunterPos(i);
-        const float dx = hp.x - xf->position.x;
-        const float dz = hp.z - xf->position.z;
-        if (dx * dx + dz * dz > kStandoff * kStandoff)
-            continue;
-        if (m_playerHealth.applyDamage(kContactDps * dt) )
+        const float before = m_playerHealth.hp();
+        for (int i = 0; i < m_chase.hunterCount(); ++i)
         {
-            DE_LOG_INFO("Player: down");
-            audio().play2D(m_sfxReset, 0.55f);
+            if (!m_chase.hunterAlive(i))
+                continue;
+            const Vector3f& hp = m_chase.hunterPos(i);
+            const float dx = hp.x - xf->position.x;
+            const float dz = hp.z - xf->position.z;
+            if (dx * dx + dz * dz > kStandoff * kStandoff)
+                continue;
+            if (m_playerHealth.applyDamage(kContactDps * dt) )
+            {
+                DE_LOG_INFO("Player: down");
+                audio().play2D(m_sfxReset, 0.55f);
+            }
         }
-    }
-    if (m_playerHealth.hp() < before && m_hurtSoundTimer <= 0.0f)
-    {
-        audio().play2D(m_sfxPain, 0.7f);
-        m_hurtSoundTimer = 0.40f;
+        if (m_playerHealth.hp() < before && m_hurtSoundTimer <= 0.0f)
+        {
+            audio().play2D(m_sfxPain, 0.7f);
+            m_hurtSoundTimer = 0.40f;
+        }
     }
 
     const bool attack = input().actionPressed("attack") || (!m_showDevTools && input().mousePressed(MouseButton::Left));
@@ -746,6 +775,10 @@ void SandboxApp::updateCombat(float dt)
 
     m_attackCooldown = 0.45f;
     audio().play2D(m_sfxClick, 0.4f);
+    pulseMuzzle();
+
+    if (!m_chaseOk || !xf)
+        return;
 
     Vector3f look{ std::sinf(m_lookYaw), 0.0f, std::cosf(m_lookYaw) };
     if (look.MagnitudeSqrd() > 1.0e-6f)
@@ -778,6 +811,103 @@ void SandboxApp::updateCombat(float dt)
                 m_bloodSplats.spawn(hit.x, hit.z, m_terrain.heightMap());
         }
     }
+}
+
+void SandboxApp::pulseMuzzle()
+{
+    if (!m_muzzle.valid())
+        return;
+    if (TransformComponent* xf = world().get<TransformComponent>(m_muzzle))
+        xf->position = m_viewCamera.GetPosition() + m_viewCamera.GetLook() * 0.8f;
+    if (LocalLightComponent* light = world().get<LocalLightComponent>(m_muzzle))
+    {
+        light->enabled   = true;
+        light->intensity = 12000.0f;
+        light->range     = 6.0f;
+    }
+    m_muzzleTimer = 0.05f;
+}
+
+void SandboxApp::updateFlashlight()
+{
+    if (!m_flashlight.valid())
+        return;
+    TransformComponent* xf = world().get<TransformComponent>(m_flashlight);
+    if (!xf)
+        return;
+    const Vector3f look = m_viewCamera.GetLook();
+    const Vector3f up   = m_viewCamera.GetUp();
+    xf->position        = m_viewCamera.GetPosition() + look * 0.2f + m_viewCamera.GetRight() * 0.15f + up * -0.1f;
+    xf->rotation        = Quaternion::FromLookRotation(look, up);
+}
+
+void SandboxApp::spawnHybridLocalLights()
+{
+    if (renderer().scenePath() != ScenePath::HybridDeferred)
+        return;
+
+    m_flashlight = world().createEntity();
+    world().emplace<TagComponent>(m_flashlight, "Flashlight");
+    world().emplace<TransformComponent>(m_flashlight, Vector3f{}, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
+    auto& flashlight          = world().emplace<LocalLightComponent>(m_flashlight);
+    flashlight.type           = LocalLightType::Spot;
+    flashlight.color          = Vector3f{ 1.0f, 0.97f, 0.9f };
+    flashlight.intensity      = 500.0f;
+    flashlight.range          = 22.0f;
+    flashlight.innerConeDeg   = 10.0f;
+    flashlight.outerConeDeg   = 22.0f;
+    flashlight.enabled        = true;
+    updateFlashlight();
+
+    m_muzzle = world().createEntity();
+    world().emplace<TagComponent>(m_muzzle, "Muzzle");
+    world().emplace<TransformComponent>(m_muzzle, Vector3f{}, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
+    auto& muzzle     = world().emplace<LocalLightComponent>(m_muzzle);
+    muzzle.type      = LocalLightType::Point;
+    muzzle.color     = Vector3f{ 1.0f, 0.82f, 0.45f };
+    muzzle.intensity = 12000.0f;
+    muzzle.range     = 6.0f;
+    muzzle.enabled   = false;
+    m_muzzleTimer    = 0.0f;
+
+    const Vector3f spots[] = {
+        { 5.0f, 0.0f, 5.0f },
+        { -7.0f, 0.0f, 7.0f },
+        { 8.0f, 0.0f, -8.0f },
+        { -4.0f, 0.0f, -7.0f },
+        { 12.0f, 0.0f, 8.0f },
+        { -10.0f, 0.0f, 10.0f },
+        { 14.0f, 0.0f, -6.0f },
+        { 4.0f, 0.0f, -18.0f },
+    };
+    const float waterY = m_water.params().waterLevel;
+    int         spawned = 0;
+    for (const Vector3f& s : spots)
+    {
+        const float gy = m_terrain.heightAtWorld(s.x, s.z);
+        if (gy < waterY - 0.2f)
+            continue;
+        const Vector3f pos{ s.x, gy + 1.55f, s.z };
+
+        Entity fixture = world().createEntity();
+        world().emplace<TagComponent>(fixture, "Lantern");
+        world().emplace<TransformComponent>(fixture, pos, Quaternion::IDENTITY, Vector3f{ 0.22f, 0.22f, 0.22f });
+        auto& mesh       = world().emplace<MeshComponent>(fixture);
+        mesh.castShadow  = true;
+        mesh.emissive    = 1.0f;
+
+        Entity lightE = world().createEntity();
+        world().emplace<TagComponent>(lightE, "LanternLight");
+        world().emplace<TransformComponent>(lightE, pos, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
+        auto& light        = world().emplace<LocalLightComponent>(lightE);
+        light.type         = LocalLightType::Point;
+        light.color        = Vector3f{ 1.0f, 0.72f, 0.35f };
+        light.intensity    = 400.0f;
+        light.range        = 6.0f;
+        light.emissiveMesh = fixture;
+        ++spawned;
+    }
+    DE_LOG_INFO("SandboxApp: flashlight on, muzzle ready, {} demo lanterns", spawned);
 }
 
 void SandboxApp::spawnHunterBlood(const Vector3f& pos)
@@ -922,6 +1052,91 @@ void SandboxApp::drawHealthPacksDepth(ID3D12GraphicsCommandList* cmd, int cascad
             continue;
         drawShadowCaster(cmd, m_shadows, cascade, healthPackWorldMatrix(p.pos, m_packSpin, m_packBob), m_crossMesh);
     }
+}
+
+void SandboxApp::drawLanternFixtures(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, MeshFrameConstants& cb)
+{
+    if (!cmd || !m_cubeMesh.valid())
+        return;
+
+    m_meshPipeline.bind(cmd, renderer().debugState().fill);
+    m_shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
+    if (m_lanternMaterial && m_lanternMaterial->isValid())
+        m_lanternMaterial->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+
+    if (m_lanternMaterial)
+        m_lanternMaterial->applySurface(cb);
+    else
+    {
+        cb.color[0] = 0.86f;
+        cb.color[1] = 0.59f;
+        cb.color[2] = 0.24f;
+        cb.color[3] = 1.0f;
+    }
+
+    world().each<MeshComponent>([&](Entity e, MeshComponent&) {
+        if (world().has<NetworkedComponent>(e))
+            return;
+        const TransformComponent* xf = world().get<TransformComponent>(e);
+        if (!xf)
+            return;
+        const Matrix4f worldMat = makeWorldMatrix(*xf);
+        copyMatrix(cb.worldViewProj, worldMat * viewProj);
+        copyMatrix(cb.world, worldMat);
+        m_meshPipeline.setConstants(cmd, cb);
+        m_cubeMesh.draw(cmd, renderer().debugState().fill == DebugFill::Points);
+    });
+}
+
+void SandboxApp::drawLanternFixturesGBuffer(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, const Matrix4f& prevViewProj)
+{
+    if (!cmd || !m_cubeMesh.valid())
+        return;
+
+    const DebugFill fill = renderer().debugState().fill;
+    m_meshPipeline.bind(cmd, fill);
+    if (m_lanternMaterial && m_lanternMaterial->isValid())
+        m_lanternMaterial->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+
+    MeshGBufferConstants cb{};
+    if (m_lanternMaterial)
+        m_lanternMaterial->applySurface(cb);
+    else
+    {
+        cb.color[0] = 0.86f;
+        cb.color[1] = 0.59f;
+        cb.color[2] = 0.24f;
+        cb.color[3] = 0.0f;
+    }
+
+    world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
+        if (world().has<NetworkedComponent>(e))
+            return;
+        const TransformComponent* xf = world().get<TransformComponent>(e);
+        if (!xf)
+            return;
+        const Matrix4f worldMat  = makeWorldMatrix(*xf);
+        const Matrix4f prevWorld = m_prevWorldByEntity.count(e.id()) ? m_prevWorldByEntity[e.id()] : worldMat;
+        fillMeshGBufferXforms(cb, worldMat, viewProj, prevViewProj, prevWorld);
+        cb.color[3] = mc.emissive;
+        m_meshPipeline.setGBufferConstants(cmd, cb);
+        m_cubeMesh.draw(cmd, fill == DebugFill::Points);
+        m_prevWorldByEntity[e.id()] = worldMat;
+    });
+}
+
+void SandboxApp::drawLanternFixturesDepth(ID3D12GraphicsCommandList* cmd, int cascade)
+{
+    if (!cmd || !m_cubeMesh.valid())
+        return;
+    world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
+        if (!mc.castShadow || world().has<NetworkedComponent>(e))
+            return;
+        const TransformComponent* xf = world().get<TransformComponent>(e);
+        if (!xf)
+            return;
+        drawShadowCaster(cmd, m_shadows, cascade, makeWorldMatrix(*xf), m_cubeMesh);
+    });
 }
 
 void SandboxApp::updateShoulderCamera()
@@ -1358,6 +1573,13 @@ void SandboxApp::onInit()
         requestQuit();
         return;
     }
+    m_lanternMaterial = std::make_shared<Material>();
+    if (!m_lanternMaterial->createSolid(renderer(), assets(), 220, 150, 60, 255))
+    {
+        DE_LOG_FATAL("SandboxApp: lantern material failed");
+        requestQuit();
+        return;
+    }
 
     const AssetID matId = assets().registerAsset(m_cubeMaterial);
     if (matId == NULL_ASSET)
@@ -1374,6 +1596,7 @@ void SandboxApp::onInit()
     m_treeMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
     m_aiMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
     m_packMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
+    m_lanternMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
     renderer().setShadowSrv(m_shadows.srvCpu());
 
     const float aspect = (renderer().height() > 0) ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height()) : 1.0f;
@@ -1425,22 +1648,7 @@ void SandboxApp::onInit()
     playerHp.regenDelay  = 3.5f;
     m_playerHealth       = Health{ playerHp };
     placeHealthPacks();
-
-    if (renderer().scenePath() == ScenePath::HybridDeferred)
-    {
-        auto spawnSoak = [&](const Vector3f& pos, float intensity, float range) {
-            Entity e = world().createEntity();
-            world().emplace<TransformComponent>(e, pos, Quaternion::IDENTITY, Vector3f(1.0f, 1.0f, 1.0f));
-            auto& light     = world().emplace<LocalLightComponent>(e);
-            light.type      = LocalLightType::Point;
-            light.color     = Vector3f(1.0f, 0.92f, 0.75f);
-            light.intensity = intensity;
-            light.range     = range;
-            m_soakLights.push_back(e);
-        };
-        spawnSoak(Vector3f(2.0f, groundY + 2.5f, 2.0f), 1200.0f, 14.0f);
-        spawnSoak(Vector3f(-6.0f, groundY + 2.0f, 8.0f), 800.0f, 10.0f);
-    }
+    spawnHybridLocalLights();
 }
 
 void SandboxApp::onSplashFinished()
@@ -1468,6 +1676,7 @@ void SandboxApp::onUpdate(float dt)
     }
     m_water.updateLod(m_viewCamera.GetPosition());
     syncTerrainLod();
+    updateFlashlight();
 
     AudioListener lis{};
     lis.position = m_viewCamera.GetPosition();
@@ -1501,6 +1710,12 @@ void SandboxApp::onRender()
         if (m_healthPacks[i].active)
             sceneBounds.ExpandToInclude(m_healthPacks[i].pos);
     }
+    world().each<MeshComponent>([&](Entity e, MeshComponent&) {
+        if (world().has<NetworkedComponent>(e))
+            return;
+        if (const TransformComponent* xf = world().get<TransformComponent>(e))
+            sceneBounds.ExpandToInclude(xf->position);
+    });
     m_shadows.update(
         m_viewCamera,
         m_env.lightDir(),
@@ -1527,6 +1742,7 @@ void SandboxApp::onRender()
             if (m_chaseOk)
                 m_chase.drawDepth(cmd, m_shadows, i, m_cubeMesh);
             drawHealthPacksDepth(cmd, i);
+            drawLanternFixturesDepth(cmd, i);
         }
         m_shadows.endCapture(cmd);
     }
@@ -1614,6 +1830,7 @@ void SandboxApp::onRender()
         if (m_chaseOk)
             m_chase.drawMeshesGBuffer(cmd, m_meshPipeline, m_viewCamera, prevViewProj, m_cubeMesh, fill);
         drawHealthPacksGBuffer(cmd, viewProj, prevViewProj);
+        drawLanternFixturesGBuffer(cmd, viewProj, prevViewProj);
 
         renderer().bindHdr(false);
         renderer().clearHdr();
@@ -1692,6 +1909,7 @@ void SandboxApp::onRender()
         if (m_chaseOk)
             m_chase.drawMeshes(cmd, m_meshPipeline, m_shadows, m_viewCamera, cb, m_cubeMesh, fill);
         drawHealthPacks(cmd, viewProj, cb);
+        drawLanternFixtures(cmd, viewProj, cb);
     }
 
     D3D12_GPU_VIRTUAL_ADDRESS waterLightsVa   = m_localLightGpu.isValid() ? m_localLightGpu.dummyGpuVa() : 0;

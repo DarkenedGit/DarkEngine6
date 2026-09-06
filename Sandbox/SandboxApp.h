@@ -32,7 +32,6 @@
 #include "Ui/ImGuiHost.h"
 
 #include <unordered_map>
-#include <vector>
 
 class SandboxApp : public Dark::Application
 {
@@ -61,6 +60,12 @@ private:
     void updatePawnMotion(float dt);
     void updatePossessed(float dt);
     void updateCombat(float dt);
+    void spawnHybridLocalLights();
+    void updateFlashlight();
+    void pulseMuzzle();
+    void drawLanternFixtures(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, Dark::MeshFrameConstants& cb);
+    void drawLanternFixturesGBuffer(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, const Dark::Math::Matrix4f& prevViewProj);
+    void drawLanternFixturesDepth(ID3D12GraphicsCommandList* cmd, int cascade);
     void spawnHunterBlood(const Dark::Math::Vector3f& pos);
     void respawnPlayer();
     void placeHealthPacks();
@@ -95,7 +100,9 @@ private:
     Dark::LocalLightGpuList         m_localLightGpu;
     Dark::Mesh                      m_pointVolumeMesh;
     Dark::Mesh                      m_spotVolumeMesh;
-    std::vector<Dark::Entity>       m_soakLights;
+    Dark::Entity                    m_flashlight;
+    Dark::Entity                    m_muzzle;
+    float                           m_muzzleTimer = 0.0f;
     Dark::BloomPipeline             m_bloom;
     Dark::MotionBlurPipeline        m_motionBlur;
     Dark::TaaPipeline               m_taa;
@@ -180,5 +187,6 @@ private:
     float                            m_packBob         = 0.0f;
     Dark::Mesh             m_crossMesh;
     Dark::AssetRef<Dark::Material>   m_packMaterial;
+    Dark::AssetRef<Dark::Material>   m_lanternMaterial;
     std::shared_ptr<Dark::Audio::SoundClip> m_sfxHeal;
 };

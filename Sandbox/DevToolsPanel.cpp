@@ -109,6 +109,13 @@ void SandboxApp::drawDevTools()
 
         if (ImGui::Checkbox("Lighting", &dbg.lighting))
             DE_LOG_INFO("Sandbox: lighting = {}", dbg.lighting);
+        ImGui::SameLine();
+        ImGui::TextDisabled("F2");
+        if (renderer().hasGBuffer())
+        {
+            if (ImGui::Checkbox("Local lights", &dbg.localLights))
+                DE_LOG_INFO("Sandbox: local lights = {}", dbg.localLights);
+        }
 
         bool shadows = dbg.shadows;
         if (ImGui::Checkbox("Shadows", &shadows))
