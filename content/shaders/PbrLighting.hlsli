@@ -90,4 +90,11 @@ float3 applySourceRadius(float3 L, float3 n, float3 v, float sourceRadius)
     return L - centerToRay * saturate(sourceRadius / len);
 }
 
+// toLight is surface-to-light. Source-radius uses toLight; attenuation is applied by the caller.
+float3 PbrPunctual(float3 n, float3 v, float3 albedo, float roughness, float metallic, float3 toLight, float3 lightColor, float sourceRadius)
+{
+    float3 L = applySourceRadius(toLight, n, v, sourceRadius);
+    return PbrEvaluate(n, v, L, albedo, roughness, metallic, lightColor);
+}
+
 #endif

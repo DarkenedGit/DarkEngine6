@@ -202,4 +202,15 @@ namespace Dark
         cmd->IASetIndexBuffer(&m_ibv);
         cmd->DrawIndexedInstanced(m_indexCount, 1, 0, 0, 0);
     }
+
+    void Mesh::drawInstanced(ID3D12GraphicsCommandList* cmd, uint32_t instanceCount) const
+    {
+        if (!cmd || !valid() || instanceCount == 0)
+            return;
+
+        cmd->IASetVertexBuffers(0, 1, &m_vbv);
+        cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        cmd->IASetIndexBuffer(&m_ibv);
+        cmd->DrawIndexedInstanced(m_indexCount, instanceCount, 0, 0, 0);
+    }
 } // namespace Dark

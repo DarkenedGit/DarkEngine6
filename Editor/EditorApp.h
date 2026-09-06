@@ -7,6 +7,8 @@
 #include "Render/LinePipeline.h"
 #include "Render/TonemapPipeline.h"
 #include "Render/DeferredLightingPipeline.h"
+#include "Render/LocalLightGpuList.h"
+#include "Render/LocalLightVolumePipeline.h"
 #include "Render/MotionBlurPipeline.h"
 #include "Render/TaaPipeline.h"
 #include "Render/Camera3D.h"
@@ -123,6 +125,10 @@ private:
     LinePipeline    m_linePipeline3D;
     TonemapPipeline          m_tonemap;
     DeferredLightingPipeline m_lighting;
+    LocalLightVolumePipeline m_localLightVolumes;
+    LocalLightGpuList        m_localLightGpu;
+    Mesh                     m_pointVolumeMesh;
+    Mesh                     m_spotVolumeMesh;
     MotionBlurPipeline       m_motionBlur;
     TaaPipeline              m_taa;
     DebugOverlay             m_debugOverlay;

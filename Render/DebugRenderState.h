@@ -14,9 +14,10 @@ namespace Dark
 
     struct DebugRenderState
     {
-        DebugFill fill     = DebugFill::Solid;
-        bool      lighting = true;
-        bool      shadows  = true;
+        DebugFill fill        = DebugFill::Solid;
+        bool      lighting    = true;
+        bool      localLights = true;
+        bool      shadows     = true;
         bool      aces        = false; // PR3 soak: Narkowicz display curve on HDR tonemap
         bool      motionBlur  = true;
         bool      taa         = true;

@@ -15,6 +15,7 @@
 #include "Network/NetTypes.h"
 #include "Network/Replication.h"
 #include "Render/Frustum3f.h"
+#include "Render/LocalLightGather.h"
 #include "Render/TaaJitter.h"
 #include "Render/MeshGen.h"
 #include "Terrain/SplatMap.h"
@@ -103,6 +104,53 @@ Math::Matrix4f makeWorldMatrix(const TransformComponent& xf)
     const Matrix4f R = xf.rotation.ToMatrix4();
     const Matrix4f T = Matrix4f::TranslationMatrix(xf.position.x, xf.position.y, xf.position.z);
     return S * R * T;
+}
+
+void drawDeferredLocalLights(ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, LocalLightVolumePipeline& pipeline, LocalLightGpuList& gpuList,
+                             const Mesh& sphere, const Mesh& cone, const Camera3D& camera, const Matrix4f& viewProj, float fogDensity, const Vector3f& fogColor)
+{
+    if (!renderer.debugState().localLights || !renderer.debugState().lighting)
+        return;
+    if (!pipeline.isValid() || !gpuList.isValid())
+        return;
+
+    const Frustum3f     frustum(viewProj);
+    LocalLightCullInput in{};
+    in.frustum    = &frustum;
+    in.cameraPos  = camera.GetPosition();
+    in.cameraLook = camera.GetLook();
+    in.nearZ      = camera.GetNearZ();
+    in.viewportW  = renderer.width();
+    in.viewportH  = renderer.height();
+    in.viewProj   = &viewProj;
+
+    LocalLightDrawLists lists{};
+    if (!gatherLocalLights(world, in, lists) || lists.count == 0)
+        return;
+
+    gpuList.upload(renderer.frameIndex(), lists);
+
+    LocalLightPassConstants cb{};
+    copyMatrix(cb.invViewProj, viewProj.Inverse());
+    copyMatrix(cb.viewProj, viewProj);
+    cb.cameraPos[0] = in.cameraPos.x;
+    cb.cameraPos[1] = in.cameraPos.y;
+    cb.cameraPos[2] = in.cameraPos.z;
+    cb.fogDensity   = fogDensity;
+    cb.fogColor[0]  = fogColor.x;
+    cb.fogColor[1]  = fogColor.y;
+    cb.fogColor[2]  = fogColor.z;
+    cb.lighting     = 1.0f;
+    cb.viewportW    = static_cast<float>(renderer.width());
+    cb.viewportH    = static_cast<float>(renderer.height());
+
+    pipeline.drawInstanced(cmd, renderer, gpuList, sphere, lists.pointOutCount, 0, cb);
+    pipeline.drawInstanced(cmd, renderer, gpuList, cone, lists.spotOutCount, lists.pointOutCount, cb);
+    const uint32_t insideBase = lists.pointOutCount + lists.spotOutCount;
+    for (uint32_t i = 0; i < lists.insideCount; ++i)
+        pipeline.drawFullscreenScissor(cmd, renderer, gpuList, lists.insideScissor[i], insideBase + i, cb);
+    const D3D12_RECT sc = renderer.scissor();
+    cmd->RSSetScissorRects(1, &sc);
 }
 
 Math::Matrix4f healthPackWorldMatrix(const Vector3f& pos, float spin, float bob)
@@ -1182,6 +1230,19 @@ void SandboxApp::onInit()
         requestQuit();
         return;
     }
+    if (renderer().scenePath() == ScenePath::HybridDeferred)
+    {
+        if (!m_localLightVolumes.create(renderer().device()))
+            DE_LOG_ERROR(LogCategory::Render, "SandboxApp: LocalLightVolumePipeline create failed — local lights disabled");
+        if (!m_localLightGpu.create(renderer().device()))
+            DE_LOG_ERROR(LogCategory::Render, "SandboxApp: LocalLightGpuList create failed — local lights disabled");
+        MeshData sphereData;
+        MeshData coneData;
+        if (!CreateIcosahedronBounding(sphereData, 1.0f, 1) || !Mesh::tryCreate(renderer(), sphereData, m_pointVolumeMesh))
+            DE_LOG_ERROR(LogCategory::Render, "SandboxApp: point volume mesh failed — local lights disabled");
+        if (!CreateSpotVolumeCone(coneData, 16, true) || !Mesh::tryCreate(renderer(), coneData, m_spotVolumeMesh))
+            DE_LOG_ERROR(LogCategory::Render, "SandboxApp: spot volume mesh failed — local lights disabled");
+    }
     if (renderer().scenePath() == ScenePath::HybridDeferred && !m_motionBlur.create(renderer().device()))
         DE_LOG_WARN(LogCategory::Render, "SandboxApp: MotionBlurPipeline create failed — motion blur disabled");
     if (renderer().scenePath() == ScenePath::HybridDeferred && !m_taa.create(renderer().device()))
@@ -1402,6 +1463,23 @@ void SandboxApp::onInit()
     playerHp.regenDelay  = 3.5f;
     m_playerHealth       = Health{ playerHp };
     placeHealthPacks();
+
+    // PR7 deletes these soak lights.
+    if (renderer().scenePath() == ScenePath::HybridDeferred)
+    {
+        auto spawnSoak = [&](const Vector3f& pos, float intensity, float range) {
+            Entity e = world().createEntity();
+            world().emplace<TransformComponent>(e, pos, Quaternion::IDENTITY, Vector3f(1.0f, 1.0f, 1.0f));
+            auto& light     = world().emplace<LocalLightComponent>(e);
+            light.type      = LocalLightType::Point;
+            light.color     = Vector3f(1.0f, 0.92f, 0.75f);
+            light.intensity = intensity;
+            light.range     = range;
+            m_soakLights.push_back(e);
+        };
+        spawnSoak(Vector3f(2.0f, groundY + 2.5f, 2.0f), 1200.0f, 14.0f);
+        spawnSoak(Vector3f(-6.0f, groundY + 2.0f, 8.0f), 800.0f, 10.0f);
+    }
 }
 
 void SandboxApp::onSplashFinished()
@@ -1599,6 +1677,8 @@ void SandboxApp::onRender()
         lc.fogColor[1]      = m_env.fogColor().y;
         lc.fogColor[2]      = m_env.fogColor().z;
         m_lighting.draw(cmd, renderer(), m_shadows, lc);
+        drawDeferredLocalLights(cmd, renderer(), world(), m_localLightVolumes, m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_viewCamera, viewProj,
+                                m_env.fogDensity(), m_env.fogColor());
 
         renderer().bindHdr(true);
         m_skyPipeline.draw(cmd, m_viewCamera, m_env, skyExposure);

@@ -8,6 +8,8 @@
 #include "Render/SkyPipeline.h"
 #include "Render/TonemapPipeline.h"
 #include "Render/DeferredLightingPipeline.h"
+#include "Render/LocalLightGpuList.h"
+#include "Render/LocalLightVolumePipeline.h"
 #include "Render/MotionBlurPipeline.h"
 #include "Render/TaaPipeline.h"
 #include "Render/ShadowSystem.h"
@@ -29,6 +31,7 @@
 #include "Ui/ImGuiHost.h"
 
 #include <unordered_map>
+#include <vector>
 
 class SandboxApp : public Dark::Application
 {
@@ -87,6 +90,11 @@ private:
     Dark::SkyPipeline       m_skyPipeline;
     Dark::TonemapPipeline           m_tonemap;
     Dark::DeferredLightingPipeline  m_lighting;
+    Dark::LocalLightVolumePipeline  m_localLightVolumes;
+    Dark::LocalLightGpuList         m_localLightGpu;
+    Dark::Mesh                      m_pointVolumeMesh;
+    Dark::Mesh                      m_spotVolumeMesh;
+    std::vector<Dark::Entity>       m_soakLights;
     Dark::MotionBlurPipeline        m_motionBlur;
     Dark::TaaPipeline               m_taa;
     Dark::ShadowSystem      m_shadows;

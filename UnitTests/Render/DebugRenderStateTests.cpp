@@ -9,6 +9,7 @@ TEST(DebugRenderState, DefaultsAreLitSolidWithShadows)
     const DebugRenderState s{};
     EXPECT_EQ(s.fill, DebugFill::Solid);
     EXPECT_TRUE(s.lighting);
+    EXPECT_TRUE(s.localLights);
     EXPECT_TRUE(s.shadows);
     EXPECT_FALSE(s.aces);
     EXPECT_TRUE(s.motionBlur);

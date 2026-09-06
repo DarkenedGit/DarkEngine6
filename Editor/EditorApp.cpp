@@ -15,7 +15,9 @@
 #include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
 #include "Math/Ray3f.h"
+#include "Render/Frustum3f.h"
 #include "Render/LineMesh.h"
+#include "Render/LocalLightGather.h"
 #include "Render/MeshGen.h"
 #include "Render/TaaJitter.h"
 
@@ -67,6 +69,49 @@ Matrix4f makeWorldMatrix(const TransformComponent& xf)
     const Matrix4f R = xf.rotation.ToMatrix4();
     const Matrix4f T = Matrix4f::TranslationMatrix(xf.position.x, xf.position.y, xf.position.z);
     return S * R * T;
+}
+
+void drawDeferredLocalLights(ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, LocalLightVolumePipeline& pipeline, LocalLightGpuList& gpuList,
+                             const Mesh& sphere, const Mesh& cone, const Camera3D& camera, const Matrix4f& viewProj)
+{
+    if (!renderer.debugState().localLights || !renderer.debugState().lighting)
+        return;
+    if (!pipeline.isValid() || !gpuList.isValid())
+        return;
+
+    const Frustum3f     frustum(viewProj);
+    LocalLightCullInput in{};
+    in.frustum    = &frustum;
+    in.cameraPos  = camera.GetPosition();
+    in.cameraLook = camera.GetLook();
+    in.nearZ      = camera.GetNearZ();
+    in.viewportW  = renderer.width();
+    in.viewportH  = renderer.height();
+    in.viewProj   = &viewProj;
+
+    LocalLightDrawLists lists{};
+    if (!gatherLocalLights(world, in, lists) || lists.count == 0)
+        return;
+
+    gpuList.upload(renderer.frameIndex(), lists);
+
+    LocalLightPassConstants cb{};
+    copyMatrix(cb.invViewProj, viewProj.Inverse());
+    copyMatrix(cb.viewProj, viewProj);
+    cb.cameraPos[0] = in.cameraPos.x;
+    cb.cameraPos[1] = in.cameraPos.y;
+    cb.cameraPos[2] = in.cameraPos.z;
+    cb.lighting     = 1.0f;
+    cb.viewportW    = static_cast<float>(renderer.width());
+    cb.viewportH    = static_cast<float>(renderer.height());
+
+    pipeline.drawInstanced(cmd, renderer, gpuList, sphere, lists.pointOutCount, 0, cb);
+    pipeline.drawInstanced(cmd, renderer, gpuList, cone, lists.spotOutCount, lists.pointOutCount, cb);
+    const uint32_t insideBase = lists.pointOutCount + lists.spotOutCount;
+    for (uint32_t i = 0; i < lists.insideCount; ++i)
+        pipeline.drawFullscreenScissor(cmd, renderer, gpuList, lists.insideScissor[i], insideBase + i, cb);
+    const D3D12_RECT sc = renderer.scissor();
+    cmd->RSSetScissorRects(1, &sc);
 }
 
 void copyColor(float dst[4], const float src[4])
@@ -662,6 +707,19 @@ void EditorApp::onInit()
             DE_LOG_FATAL("EditorApp: DeferredLightingPipeline create failed");
             requestQuit();
             return;
+        }
+        if (renderer().scenePath() == ScenePath::HybridDeferred)
+        {
+            if (!m_localLightVolumes.create(renderer().device()))
+                DE_LOG_ERROR(LogCategory::Render, "EditorApp: LocalLightVolumePipeline create failed — local lights disabled");
+            if (!m_localLightGpu.create(renderer().device()))
+                DE_LOG_ERROR(LogCategory::Render, "EditorApp: LocalLightGpuList create failed — local lights disabled");
+            MeshData sphereData;
+            MeshData coneData;
+            if (!CreateIcosahedronBounding(sphereData, 1.0f, 1) || !Mesh::tryCreate(renderer(), sphereData, m_pointVolumeMesh))
+                DE_LOG_ERROR(LogCategory::Render, "EditorApp: point volume mesh failed — local lights disabled");
+            if (!CreateSpotVolumeCone(coneData, 16, true) || !Mesh::tryCreate(renderer(), coneData, m_spotVolumeMesh))
+                DE_LOG_ERROR(LogCategory::Render, "EditorApp: spot volume mesh failed — local lights disabled");
         }
         if (renderer().scenePath() == ScenePath::HybridDeferred && !m_motionBlur.create(renderer().device()))
             DE_LOG_WARN(LogCategory::Render, "EditorApp: MotionBlurPipeline create failed — motion blur disabled");
@@ -2119,6 +2177,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         lc.ambientColor[1] = 0.22f;
         lc.ambientColor[2] = 0.22f;
         m_lighting.draw(cmd, renderer(), m_shadows, lc);
+        drawDeferredLocalLights(cmd, renderer(), world(), m_localLightVolumes, m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_camera, viewProj);
         renderer().bindHdr(true);
         drawGrid();
     }

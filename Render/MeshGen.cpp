@@ -1208,5 +1208,104 @@ namespace Dark
         return true;
     }
 
+    // ============================================================
+    // Bounding icosphere (inscribed radius = `radius`)
+    // ============================================================
+    bool CreateIcosahedronBounding(MeshData& m, float radius, int subdivisions)
+    {
+        if (radius <= 0.0f)
+        {
+            DE_LOG_ERROR("CreateIcosahedronBounding: radius must be > 0");
+            return false;
+        }
+        if (!CreateIcosahedron(m, 1.0f, subdivisions))
+            return false;
+
+        float minDist = 1.0e30f;
+        for (size_t i = 0; i + 2 < m.indices.size(); i += 3)
+        {
+            const Vector3f& a = m.positions[m.indices[i]];
+            const Vector3f& b = m.positions[m.indices[i + 1]];
+            const Vector3f& c = m.positions[m.indices[i + 2]];
+            const Vector3f  n = (b - a).Cross(c - a);
+            const float     nLen = n.Magnitude();
+            if (nLen < 1.0e-8f)
+                continue;
+            const float dist = fabsf(n.Dot(a)) / nLen;
+            if (dist < minDist)
+                minDist = dist;
+        }
+        if (minDist < 1.0e-6f)
+        {
+            DE_LOG_ERROR("CreateIcosahedronBounding: degenerate inscribed radius");
+            return false;
+        }
+
+        const float s = radius / minDist;
+        for (Vector3f& p : m.positions)
+            p *= s;
+        return true;
+    }
+
+    // ============================================================
+    // Spot volume cone: apex origin, +Z, inflated to bound the unit cone
+    // ============================================================
+    bool CreateSpotVolumeCone(MeshData& m, int slices, bool capBase)
+    {
+        if (slices < 3)
+        {
+            DE_LOG_ERROR("CreateSpotVolumeCone: slices must be >= 3");
+            return false;
+        }
+
+        // Unit analytic cone (height 1, base radius 1), then inflate so the
+        // inscribed circular cone sits inside the polygonal mesh.
+        const float xyInflate = 1.0f / cosf((float)M_PI / static_cast<float>(slices));
+        const float H         = xyInflate;
+        const float R         = xyInflate * xyInflate;
+        const float twoPi     = 2.f * (float)M_PI;
+
+        const uint32_t apex = (uint32_t)m.positions.size();
+        m.positions.push_back({ 0.f, 0.f, 0.f });
+        m.normals.push_back({ 0.f, 0.f, -1.f });
+        m.uvs.push_back({ 0.5f, 0.f });
+
+        const uint32_t ring = (uint32_t)m.positions.size();
+        for (int i = 0; i < slices; ++i)
+        {
+            const float theta = (float)i / (float)slices * twoPi;
+            const float c     = cosf(theta);
+            const float s     = sinf(theta);
+            m.positions.push_back({ R * c, R * s, H });
+            Vector3f n{ c, s, R / H };
+            n.Normalize();
+            m.normals.push_back(n);
+            m.uvs.push_back({ 0.5f + 0.5f * c, 0.5f + 0.5f * s });
+        }
+
+        // CCW outward (FrontCounterClockwise = TRUE): apex, next, current.
+        for (int i = 0; i < slices; ++i)
+        {
+            const uint32_t b0 = ring + (uint32_t)i;
+            const uint32_t b1 = ring + (uint32_t)((i + 1) % slices);
+            pushIdx(m, apex, b1, b0);
+        }
+
+        if (capBase)
+        {
+            const uint32_t cap = (uint32_t)m.positions.size();
+            m.positions.push_back({ 0.f, 0.f, H });
+            m.normals.push_back({ 0.f, 0.f, 1.f });
+            m.uvs.push_back({ 0.5f, 0.5f });
+            for (int i = 0; i < slices; ++i)
+            {
+                const uint32_t b0 = ring + (uint32_t)i;
+                const uint32_t b1 = ring + (uint32_t)((i + 1) % slices);
+                pushIdx(m, cap, b0, b1);
+            }
+        }
+        return true;
+    }
+
 } // namespace Dark::Geometry
 

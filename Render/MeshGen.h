@@ -185,6 +185,12 @@ namespace Dark
     // ============================================================
     bool CreateIcosahedron(MeshData& mesh, float radius = 1.0f, int subdivisions = 0);
 
+    // Icosphere scaled so the inscribed sphere has `radius` (raw CreateIcosahedron is circumscribed).
+    bool CreateIcosahedronBounding(MeshData& mesh, float radius = 1.0f, int subdivisions = 1);
+
+    // Spot volume: apex at origin, +Z, unit analytic cone then inflated so faces contain it.
+    bool CreateSpotVolumeCone(MeshData& mesh, int slices = 16, bool capBase = true);
+
     // ============================================================
     // 15. SPRING (helical tube)
     //     coilRadius  – distance from spring axis to tube centre
