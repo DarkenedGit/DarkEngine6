@@ -32,6 +32,7 @@
 #include "Ui/ImGuiHost.h"
 
 #include <unordered_map>
+#include <vector>
 
 class SandboxApp : public Dark::Application
 {
@@ -103,6 +104,7 @@ private:
     Dark::Entity                    m_flashlight;
     Dark::Entity                    m_muzzle;
     float                           m_muzzleTimer = 0.0f;
+    std::vector<Dark::Entity>       m_lanternFixtures;
     Dark::BloomPipeline             m_bloom;
     Dark::MotionBlurPipeline        m_motionBlur;
     Dark::TaaPipeline               m_taa;

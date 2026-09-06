@@ -870,16 +870,18 @@ void SandboxApp::spawnHybridLocalLights()
     muzzle.enabled   = false;
     m_muzzleTimer    = 0.0f;
 
+    // ±1.2 from pack/tree XZ so 0.22 cubes sit outside trunks (r=0.5) and health crosses.
     const Vector3f spots[] = {
-        { 5.0f, 0.0f, 5.0f },
-        { -7.0f, 0.0f, 7.0f },
-        { 8.0f, 0.0f, -8.0f },
-        { -4.0f, 0.0f, -7.0f },
-        { 12.0f, 0.0f, 8.0f },
-        { -10.0f, 0.0f, 10.0f },
-        { 14.0f, 0.0f, -6.0f },
-        { 4.0f, 0.0f, -18.0f },
+        { 6.2f, 0.0f, 5.0f },
+        { -8.2f, 0.0f, 7.0f },
+        { 8.0f, 0.0f, -9.2f },
+        { -4.0f, 0.0f, -5.8f },
+        { 13.2f, 0.0f, 8.0f },
+        { -11.2f, 0.0f, 10.0f },
+        { 14.0f, 0.0f, -7.2f },
+        { 5.2f, 0.0f, -18.0f },
     };
+    m_lanternFixtures.clear();
     const float waterY = m_water.params().waterLevel;
     int         spawned = 0;
     for (const Vector3f& s : spots)
@@ -905,6 +907,7 @@ void SandboxApp::spawnHybridLocalLights()
         light.intensity    = 400.0f;
         light.range        = 6.0f;
         light.emissiveMesh = fixture;
+        m_lanternFixtures.push_back(fixture);
         ++spawned;
     }
     DE_LOG_INFO("SandboxApp: flashlight on, muzzle ready, {} demo lanterns", spawned);
@@ -1074,18 +1077,17 @@ void SandboxApp::drawLanternFixtures(ID3D12GraphicsCommandList* cmd, const Matri
         cb.color[3] = 1.0f;
     }
 
-    world().each<MeshComponent>([&](Entity e, MeshComponent&) {
-        if (world().has<NetworkedComponent>(e))
-            return;
-        const TransformComponent* xf = world().get<TransformComponent>(e);
+    for (Entity e : m_lanternFixtures)
+    {
+        const TransformComponent* xf = e.valid() ? world().get<TransformComponent>(e) : nullptr;
         if (!xf)
-            return;
+            continue;
         const Matrix4f worldMat = makeWorldMatrix(*xf);
         copyMatrix(cb.worldViewProj, worldMat * viewProj);
         copyMatrix(cb.world, worldMat);
         m_meshPipeline.setConstants(cmd, cb);
         m_cubeMesh.draw(cmd, renderer().debugState().fill == DebugFill::Points);
-    });
+    }
 }
 
 void SandboxApp::drawLanternFixturesGBuffer(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, const Matrix4f& prevViewProj)
@@ -1109,34 +1111,36 @@ void SandboxApp::drawLanternFixturesGBuffer(ID3D12GraphicsCommandList* cmd, cons
         cb.color[3] = 0.0f;
     }
 
-    world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
-        if (world().has<NetworkedComponent>(e))
-            return;
-        const TransformComponent* xf = world().get<TransformComponent>(e);
-        if (!xf)
-            return;
+    for (Entity e : m_lanternFixtures)
+    {
+        const TransformComponent* xf = e.valid() ? world().get<TransformComponent>(e) : nullptr;
+        const MeshComponent*      mc = e.valid() ? world().get<MeshComponent>(e) : nullptr;
+        if (!xf || !mc)
+            continue;
         const Matrix4f worldMat  = makeWorldMatrix(*xf);
         const Matrix4f prevWorld = m_prevWorldByEntity.count(e.id()) ? m_prevWorldByEntity[e.id()] : worldMat;
         fillMeshGBufferXforms(cb, worldMat, viewProj, prevViewProj, prevWorld);
-        cb.color[3] = mc.emissive;
+        cb.color[3] = mc->emissive;
         m_meshPipeline.setGBufferConstants(cmd, cb);
         m_cubeMesh.draw(cmd, fill == DebugFill::Points);
         m_prevWorldByEntity[e.id()] = worldMat;
-    });
+    }
 }
 
 void SandboxApp::drawLanternFixturesDepth(ID3D12GraphicsCommandList* cmd, int cascade)
 {
     if (!cmd || !m_cubeMesh.valid())
         return;
-    world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
-        if (!mc.castShadow || world().has<NetworkedComponent>(e))
-            return;
+    for (Entity e : m_lanternFixtures)
+    {
+        const MeshComponent* mc = e.valid() ? world().get<MeshComponent>(e) : nullptr;
+        if (!mc || !mc->castShadow)
+            continue;
         const TransformComponent* xf = world().get<TransformComponent>(e);
         if (!xf)
-            return;
+            continue;
         drawShadowCaster(cmd, m_shadows, cascade, makeWorldMatrix(*xf), m_cubeMesh);
-    });
+    }
 }
 
 void SandboxApp::updateShoulderCamera()
@@ -1710,12 +1714,11 @@ void SandboxApp::onRender()
         if (m_healthPacks[i].active)
             sceneBounds.ExpandToInclude(m_healthPacks[i].pos);
     }
-    world().each<MeshComponent>([&](Entity e, MeshComponent&) {
-        if (world().has<NetworkedComponent>(e))
-            return;
-        if (const TransformComponent* xf = world().get<TransformComponent>(e))
+    for (Entity e : m_lanternFixtures)
+    {
+        if (const TransformComponent* xf = e.valid() ? world().get<TransformComponent>(e) : nullptr)
             sceneBounds.ExpandToInclude(xf->position);
-    });
+    }
     m_shadows.update(
         m_viewCamera,
         m_env.lightDir(),
