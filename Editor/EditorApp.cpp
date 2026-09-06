@@ -676,6 +676,16 @@ void EditorApp::onInit()
             if (!CreateSpotVolumeCone(coneData, 16, true) || !Mesh::tryCreate(renderer(), coneData, m_spotVolumeMesh))
                 DE_LOG_ERROR(LogCategory::Render, "EditorApp: spot volume mesh failed — local lights skipped");
         }
+        if (renderer().scenePath() == ScenePath::HybridDeferred)
+        {
+            if (!m_bloom.create(renderer().device(), renderer().width(), renderer().height()))
+                DE_LOG_WARN(LogCategory::Render, "EditorApp: BloomPipeline create failed — bloom disabled");
+            else
+            {
+                m_bloomW = renderer().width();
+                m_bloomH = renderer().height();
+            }
+        }
         if (renderer().scenePath() == ScenePath::HybridDeferred && !m_motionBlur.create(renderer().device()))
             DE_LOG_WARN(LogCategory::Render, "EditorApp: MotionBlurPipeline create failed — motion blur disabled");
         if (renderer().scenePath() == ScenePath::HybridDeferred && !m_taa.create(renderer().device()))
@@ -1637,6 +1647,7 @@ void EditorApp::drawEditorUi()
             {
                 ImGui::MenuItem("G-buffer Tiles", "F11", &m_showGBuffer);
                 ImGui::MenuItem("Velocity Tile", nullptr, &m_showVelocity);
+                ImGui::MenuItem("Bloom", nullptr, &renderer().debugState().bloom);
                 ImGui::MenuItem("TAA", nullptr, &renderer().debugState().taa);
                 ImGui::MenuItem("Motion Blur", nullptr, &renderer().debugState().motionBlur);
             }
@@ -2148,6 +2159,22 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         ParticleEmitter& em = *m_emitters[static_cast<size_t>(so.emitterIndex)];
         m_particleRenderer.draw(cmd, m_camera, em, em.desc().additiveBlend);
         ++draws;
+    }
+
+    if (deferred)
+    {
+        const uint32_t bw = renderer().width();
+        const uint32_t bh = renderer().height();
+        if (bw != m_bloomW || bh != m_bloomH)
+        {
+            renderer().waitForGpu();
+            if (!m_bloom.resize(renderer().device(), bw, bh))
+                DE_LOG_WARN(LogCategory::Render, "EditorApp: BloomPipeline resize failed — bloom disabled");
+            m_bloomW = bw;
+            m_bloomH = bh;
+        }
+        if (renderer().debugState().bloom && m_bloom.isValid())
+            m_bloom.draw(cmd, renderer(), BloomPipeline::kDefaultStrength);
     }
 
     bool usedPostHdr = false;

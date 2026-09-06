@@ -431,6 +431,13 @@ namespace Dark
         m_sceneBuffers->transitionVelocity(cmd, after);
     }
 
+    void Renderer::transitionHdr(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
+    {
+        if (!m_sceneBuffers)
+            return;
+        m_sceneBuffers->transitionHdr(cmd, after);
+    }
+
     void Renderer::transitionDepth(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
     {
         if (!cmd || !m_depthStencil || m_depthState == after)
@@ -738,6 +745,11 @@ namespace Dark
             return;
         // Must match the D3D12_CLEAR_VALUE passed at HDR resource creation (warning #820).
         m_commandList->ClearRenderTargetView(m_sceneBuffers->hdrRtv(), m_sceneBuffers->hdrClear(), 0, nullptr);
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE Renderer::hdrRtv() const
+    {
+        return m_sceneBuffers ? m_sceneBuffers->hdrRtv() : D3D12_CPU_DESCRIPTOR_HANDLE{};
     }
 
     D3D12_CPU_DESCRIPTOR_HANDLE Renderer::hdrSrvCpu() const

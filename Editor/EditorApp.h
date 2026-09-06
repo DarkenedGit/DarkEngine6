@@ -9,6 +9,7 @@
 #include "Render/DeferredLightingPipeline.h"
 #include "Render/LocalLightGpuList.h"
 #include "Render/LocalLightVolumePipeline.h"
+#include "Render/BloomPipeline.h"
 #include "Render/MotionBlurPipeline.h"
 #include "Render/TaaPipeline.h"
 #include "Render/Camera3D.h"
@@ -129,6 +130,7 @@ private:
     LocalLightGpuList        m_localLightGpu;
     Mesh                     m_pointVolumeMesh;
     Mesh                     m_spotVolumeMesh;
+    BloomPipeline            m_bloom;
     MotionBlurPipeline       m_motionBlur;
     TaaPipeline              m_taa;
     DebugOverlay             m_debugOverlay;
@@ -148,6 +150,8 @@ private:
     bool                 m_taaHistoryValid  = false;
     uint32_t             m_taaHistoryW      = 0;
     uint32_t             m_taaHistoryH      = 0;
+    uint32_t             m_bloomW           = 0;
+    uint32_t             m_bloomH           = 0;
     Camera2D m_camera2D;
     SceneMode m_sceneMode = SceneMode::Scene3D;
 

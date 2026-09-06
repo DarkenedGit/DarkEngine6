@@ -10,6 +10,7 @@
 #include "Render/DeferredLightingPipeline.h"
 #include "Render/LocalLightGpuList.h"
 #include "Render/LocalLightVolumePipeline.h"
+#include "Render/BloomPipeline.h"
 #include "Render/MotionBlurPipeline.h"
 #include "Render/TaaPipeline.h"
 #include "Render/ShadowSystem.h"
@@ -95,6 +96,7 @@ private:
     Dark::Mesh                      m_pointVolumeMesh;
     Dark::Mesh                      m_spotVolumeMesh;
     std::vector<Dark::Entity>       m_soakLights;
+    Dark::BloomPipeline             m_bloom;
     Dark::MotionBlurPipeline        m_motionBlur;
     Dark::TaaPipeline               m_taa;
     Dark::ShadowSystem      m_shadows;
@@ -105,6 +107,8 @@ private:
     bool                    m_taaHistoryValid  = false;
     uint32_t                m_taaHistoryW      = 0;
     uint32_t                m_taaHistoryH      = 0;
+    uint32_t                m_bloomW           = 0;
+    uint32_t                m_bloomH           = 0;
     std::unordered_map<Dark::EntityID, Dark::Math::Matrix4f> m_prevWorldByEntity;
     Dark::Sky::Environment  m_env;
 

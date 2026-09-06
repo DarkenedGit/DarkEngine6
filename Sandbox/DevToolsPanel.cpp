@@ -135,6 +135,8 @@ void SandboxApp::drawDevTools()
         }
         if (renderer().hasGBuffer())
         {
+            if (ImGui::Checkbox("Bloom", &dbg.bloom))
+                DE_LOG_INFO("Sandbox: bloom = {}", dbg.bloom);
             if (ImGui::Checkbox("TAA", &dbg.taa))
                 DE_LOG_INFO("Sandbox: TAA = {}", dbg.taa);
             if (ImGui::Checkbox("Motion blur", &dbg.motionBlur))

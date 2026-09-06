@@ -1195,6 +1195,16 @@ void SandboxApp::onInit()
         if (!CreateSpotVolumeCone(coneData, 16, true) || !Mesh::tryCreate(renderer(), coneData, m_spotVolumeMesh))
             DE_LOG_ERROR(LogCategory::Render, "SandboxApp: spot volume mesh failed — local lights skipped");
     }
+    if (renderer().scenePath() == ScenePath::HybridDeferred)
+    {
+        if (!m_bloom.create(renderer().device(), renderer().width(), renderer().height()))
+            DE_LOG_WARN(LogCategory::Render, "SandboxApp: BloomPipeline create failed — bloom disabled");
+        else
+        {
+            m_bloomW = renderer().width();
+            m_bloomH = renderer().height();
+        }
+    }
     if (renderer().scenePath() == ScenePath::HybridDeferred && !m_motionBlur.create(renderer().device()))
         DE_LOG_WARN(LogCategory::Render, "SandboxApp: MotionBlurPipeline create failed — motion blur disabled");
     if (renderer().scenePath() == ScenePath::HybridDeferred && !m_taa.create(renderer().device()))
@@ -1726,6 +1736,22 @@ void SandboxApp::onRender()
         m_particles.draw(cmd, m_viewCamera, m_blood, false);
 
     m_bloodSplats.draw(cmd, m_viewCamera);
+
+    if (deferred)
+    {
+        const uint32_t bw = renderer().width();
+        const uint32_t bh = renderer().height();
+        if (bw != m_bloomW || bh != m_bloomH)
+        {
+            renderer().waitForGpu();
+            if (!m_bloom.resize(renderer().device(), bw, bh))
+                DE_LOG_WARN(LogCategory::Render, "SandboxApp: BloomPipeline resize failed — bloom disabled");
+            m_bloomW = bw;
+            m_bloomH = bh;
+        }
+        if (renderer().debugState().bloom && m_bloom.isValid())
+            m_bloom.draw(cmd, renderer(), BloomPipeline::kDefaultStrength);
+    }
 
     bool usedPostHdr = false;
     if (useTaa)

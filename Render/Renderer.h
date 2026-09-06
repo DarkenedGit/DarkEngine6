@@ -95,6 +95,7 @@ namespace Dark
         const float* clearColor() const { return m_clearColor; }
         void transitionDepth(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
         void transitionVelocity(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
+        void transitionHdr(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
         D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu() const { return m_depthSrvCpu; }
         ID3D12Resource*             depthResource() const { return m_depthStencil.Get(); }
         const D3D12_VIEWPORT& viewport() const { return m_viewport; }
@@ -115,6 +116,7 @@ namespace Dark
         void clearHdr();
         void setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
 
+        D3D12_CPU_DESCRIPTOR_HANDLE hdrRtv() const;
         D3D12_CPU_DESCRIPTOR_HANDLE hdrSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE postHdrSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE velocitySrvCpu() const;
