@@ -34,6 +34,24 @@ json colorToJson(const float c[4])
     return json::array({ c[0], c[1], c[2], c[3] });
 }
 
+void applyTypeLightDefaults(SceneObjectData& o)
+{
+    if (o.type == SceneObjectType::SpotLight)
+    {
+        o.lightIntensity = 800.0f;
+        o.lightRange     = 16.0f;
+    }
+    else
+    {
+        o.lightIntensity = 600.0f;
+        o.lightRange     = 8.0f;
+    }
+    o.lightInnerDeg     = 12.0f;
+    o.lightOuterDeg     = 25.0f;
+    o.lightSourceRadius = 0.05f;
+    o.lightEnabled      = true;
+}
+
 bool readVec2(const json& j, Math::Vector2f& out, std::string* err, const char* field)
 {
     if (!j.is_array() || j.size() < 2)
@@ -157,6 +175,8 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
         }
         if (o.emissive != 0.0f)
             jo["emissive"] = o.emissive;
+        if (o.emissiveMeshIndex >= 0)
+            jo["emissiveMesh"] = o.emissiveMeshIndex;
 
         arr.push_back(std::move(jo));
     }
@@ -343,21 +363,25 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
         if (jo.contains("light") && jo["light"].is_object())
         {
             const json& light = jo["light"];
+            applyTypeLightDefaults(o);
             o.hasLight          = true;
-            o.lightIntensity    = light.value("intensity", 600.0f);
-            o.lightRange        = light.value("range", 8.0f);
-            o.lightInnerDeg     = light.value("inner", 12.0f);
-            o.lightOuterDeg     = light.value("outer", 25.0f);
-            o.lightSourceRadius = light.value("sourceRadius", 0.05f);
-            o.lightEnabled      = light.value("enabled", true);
+            o.lightIntensity    = light.value("intensity", o.lightIntensity);
+            o.lightRange        = light.value("range", o.lightRange);
+            o.lightInnerDeg     = light.value("inner", o.lightInnerDeg);
+            o.lightOuterDeg     = light.value("outer", o.lightOuterDeg);
+            o.lightSourceRadius = light.value("sourceRadius", o.lightSourceRadius);
+            o.lightEnabled      = light.value("enabled", o.lightEnabled);
         }
         else if (o.type == SceneObjectType::PointLight || o.type == SceneObjectType::SpotLight)
         {
             o.hasLight = true;
+            applyTypeLightDefaults(o);
         }
 
         if (jo.contains("emissive") && jo["emissive"].is_number())
             o.emissive = jo["emissive"].get<float>();
+        if (jo.contains("emissiveMesh") && jo["emissiveMesh"].is_number_integer())
+            o.emissiveMeshIndex = jo["emissiveMesh"].get<int>();
 
         if (o.scale.x == 0.0f)
             o.scale.x = 1.0f;

@@ -173,6 +173,46 @@ void fillDefaultLocalLight(LocalLightComponent& light, SceneObjectType type)
     }
 }
 
+Entity glowMeshOf(World& world, Entity e)
+{
+    if (const auto* light = world.get<LocalLightComponent>(e))
+        return light->emissiveMesh;
+    return {};
+}
+
+Entity lightOwningGlowMesh(World& world, Entity mesh)
+{
+    Entity found{};
+    if (!mesh.valid())
+        return found;
+    world.each<LocalLightComponent>([&](Entity e, LocalLightComponent& light) {
+        if (light.emissiveMesh.valid() && light.emissiveMesh.id() == mesh.id())
+            found = e;
+    });
+    return found;
+}
+
+bool keepsPlacedHeight(World& world, const SceneObject* so, Entity e)
+{
+    if (so && isLocalLightType(so->type))
+        return true;
+    return lightOwningGlowMesh(world, e).valid();
+}
+
+void syncGlowPairPosition(World& world, Entity e)
+{
+    const auto* xf = world.get<TransformComponent>(e);
+    if (!xf)
+        return;
+    Entity other = glowMeshOf(world, e);
+    if (!other.valid())
+        other = lightOwningGlowMesh(world, e);
+    if (!other.valid() || other.id() == e.id())
+        return;
+    if (auto* ox = world.get<TransformComponent>(other))
+        ox->position = xf->position;
+}
+
 void eulerXYZFromQuat(const Quaternion& q, float& pitch, float& yaw, float& roll)
 {
     const float sinY = Clamp(2.0f * (q.w * q.y - q.z * q.x), -1.0f, 1.0f);
@@ -1168,24 +1208,36 @@ void EditorApp::deleteSelected()
     if (netClientLocked() || !m_selected.valid())
         return;
     audio().play2D(m_sfxDelete, 0.55f);
-    if (world().has<NetworkedComponent>(m_selected))
-    {
-        // unregisterEntity destroys and runs the despawn callback (erases m_objects).
-        network().unregisterEntity(world(), m_selected);
-        DE_LOG_INFO("Editor: deleted ({} remaining)", m_objects.size());
-        return;
-    }
-    if (SceneObject* so = findObject(m_selected))
-    {
-        if (so->type == SceneObjectType::ParticleEmitter && so->emitterIndex >= 0)
+
+    Entity extra{};
+    if (auto* light = world().get<LocalLightComponent>(m_selected))
+        extra = light->emissiveMesh;
+    else
+        extra = lightOwningGlowMesh(world(), m_selected);
+
+    auto eraseOne = [&](Entity e) {
+        if (!e.valid() || !world().alive(e))
+            return;
+        if (SceneObject* so = findObject(e))
         {
-            // Null out emitter slot (keep indices stable)
-            if (so->emitterIndex < static_cast<int>(m_emitters.size()))
+            if (so->type == SceneObjectType::ParticleEmitter && so->emitterIndex >= 0
+                && so->emitterIndex < static_cast<int>(m_emitters.size()))
                 m_emitters[static_cast<size_t>(so->emitterIndex)].reset();
         }
-    }
-    world().destroyEntity(m_selected);
-    std::erase_if(m_objects, [&](const SceneObject& o) { return o.entity.id() == m_selected.id(); });
+        if (world().has<NetworkedComponent>(e))
+        {
+            // unregisterEntity destroys and runs the despawn callback (erases m_objects).
+            network().unregisterEntity(world(), e);
+            return;
+        }
+        world().destroyEntity(e);
+        std::erase_if(m_objects, [&](const SceneObject& o) { return o.entity.id() == e.id(); });
+    };
+
+    const Entity primary = m_selected;
+    eraseOne(primary);
+    if (extra.valid() && extra.id() != primary.id())
+        eraseOne(extra);
     m_selected = {};
     m_dragging = false;
     DE_LOG_INFO("Editor: deleted ({} remaining)", m_objects.size());
@@ -1530,6 +1582,8 @@ bool EditorApp::saveScene()
     data.worldMin = m_worldMin;
     data.worldMax = m_worldMax;
 
+    std::vector<Entity> saved;
+    saved.reserve(m_objects.size());
     for (const SceneObject& so : m_objects)
     {
         const auto* xf = world().get<TransformComponent>(so.entity);
@@ -1563,6 +1617,21 @@ bool EditorApp::saveScene()
         if (const auto* mc = world().get<MeshComponent>(so.entity))
             d.emissive = mc->emissive;
         data.objects.push_back(d);
+        saved.push_back(so.entity);
+    }
+    for (size_t i = 0; i < data.objects.size(); ++i)
+    {
+        const auto* light = world().get<LocalLightComponent>(saved[i]);
+        if (!light || !light->emissiveMesh.valid())
+            continue;
+        for (size_t j = 0; j < saved.size(); ++j)
+        {
+            if (saved[j].id() == light->emissiveMesh.id())
+            {
+                data.objects[i].emissiveMeshIndex = static_cast<int>(j);
+                break;
+            }
+        }
     }
 
     std::string err;
@@ -1596,13 +1665,23 @@ bool EditorApp::loadScene()
     if (data.mode == SceneMode::Scene2D)
         rebuildGrid2D();
 
+    std::vector<Entity> spawned;
+    spawned.reserve(data.objects.size());
     for (const SceneObjectData& d : data.objects)
     {
         ParticleEmitterDesc pdesc = makeDefaultParticleDesc();
         if (d.hasParticle)
             descFromSceneData(d, pdesc);
-        spawnObject(d.type, d.position, d.scale, d.rotation, d.color,
-                    d.type == SceneObjectType::ParticleEmitter ? &pdesc : nullptr, &d);
+        spawned.push_back(spawnObject(d.type, d.position, d.scale, d.rotation, d.color,
+                    d.type == SceneObjectType::ParticleEmitter ? &pdesc : nullptr, &d));
+    }
+    for (size_t i = 0; i < data.objects.size() && i < spawned.size(); ++i)
+    {
+        const int idx = data.objects[i].emissiveMeshIndex;
+        if (idx < 0 || idx >= static_cast<int>(spawned.size()) || !spawned[i].valid())
+            continue;
+        if (auto* light = world().get<LocalLightComponent>(spawned[i]))
+            light->emissiveMesh = spawned[static_cast<size_t>(idx)];
     }
     m_selected = {};
     DE_LOG_INFO("Editor: loaded {} objects", m_objects.size());
@@ -1764,8 +1843,9 @@ void EditorApp::handleEditorCommands(float dt)
                     SceneObject* so = findObject(m_selected);
                     if (so && so->type == SceneObjectType::ParticleEmitter)
                         xf->position.y = 0.5f;
-                    else if (!so || !isLocalLightType(so->type))
+                    else if (!keepsPlacedHeight(world(), so, m_selected))
                         xf->position.y = 0.5f * xf->scale.y;
+                    syncGlowPairPosition(world(), m_selected);
 
                     if (so && so->emitterIndex >= 0 && so->emitterIndex < static_cast<int>(m_emitters.size())
                         && m_emitters[static_cast<size_t>(so->emitterIndex)])
@@ -2030,12 +2110,14 @@ void EditorApp::drawInspector3D()
 
     const bool locked = netClientLocked();
     ImGui::Text("Selected: %s", toString(so->type));
+    ImGui::BeginDisabled(locked);
     float pos[3] = { xf->position.x, xf->position.y, xf->position.z };
-    if (ImGui::DragFloat3("Position", pos, 0.05f) && !locked)
+    if (ImGui::DragFloat3("Position", pos, 0.05f))
     {
         xf->position.x = pos[0];
         xf->position.y = pos[1];
         xf->position.z = pos[2];
+        syncGlowPairPosition(world(), so->entity);
     }
 
     if (auto* light = world().get<LocalLightComponent>(so->entity))
@@ -2063,14 +2145,14 @@ void EditorApp::drawInspector3D()
                 RadiansToDegrees(yaw),
                 RadiansToDegrees(roll)
             };
-            if (ImGui::DragFloat3("Euler (deg)", eulerDeg, 0.5f) && !locked)
+            if (ImGui::DragFloat3("Euler (deg)", eulerDeg, 0.5f))
             {
                 xf->rotation = Quaternion::FromEulerXYZ(
                     DegreesToRadians(eulerDeg[0]),
                     DegreesToRadians(eulerDeg[1]),
                     DegreesToRadians(eulerDeg[2]));
             }
-            if (ImGui::Button("Aim at camera") && !locked)
+            if (ImGui::Button("Aim at camera"))
             {
                 Vector3f dir = m_camera.GetPosition() - xf->position;
                 if (dir.MagnitudeSqrd() <= 1.0e-8f)
@@ -2090,8 +2172,9 @@ void EditorApp::drawInspector3D()
             ImGui::SliderFloat("Emissive", &mc->emissive, 0.0f, 1.0f);
     }
 
-    if (ImGui::Button("Delete") && !locked)
+    if (ImGui::Button("Delete"))
         deleteSelected();
+    ImGui::EndDisabled();
 
     ImGui::End();
 }

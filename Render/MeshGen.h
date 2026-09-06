@@ -240,7 +240,7 @@ namespace Dark
     // Unit AABB outline in the XY plane (line list). Scale/translate per box.
     bool CreateBoxOutlineXY(LineMeshData& data);
 
-    // Unit-sphere line outline (latitude rings + meridians) for Editor light gizmos.
+    // Unit-sphere line outline (latitude rings + meridians).
     bool CreateSphereOutline(LineMeshData& data, int rings = 3, int segments = 32);
 
     // Unit cone outline: apex at origin, +Z, height 1, base radius 1 (16-seg + base ring).

@@ -181,6 +181,7 @@ namespace Dark
         float lightSourceRadius  = 0.05f;
         bool  lightEnabled       = true;
         float emissive           = 0.0f;
+        int   emissiveMeshIndex  = -1; // objects[] index of glow-prop mesh; -1 = none
     };
 
     struct SceneFileData
