@@ -1684,7 +1684,40 @@ void SandboxApp::onRender()
         drawHealthPacks(cmd, viewProj, cb);
     }
 
-    m_water.draw(cmd, m_waterPipeline, m_viewCamera, &frustum, &m_env, &renderer().debugState());
+    D3D12_GPU_VIRTUAL_ADDRESS waterLightsVa   = m_localLightGpu.isValid() ? m_localLightGpu.dummyGpuVa() : 0;
+    uint32_t                  waterLightCount = 0;
+    uint32_t                  waterIndex[kWaterLocalLightMax]{};
+    if (renderer().debugState().localLights && renderer().debugState().lighting && m_localLightGpu.isValid())
+    {
+        LocalLightCullInput in{};
+        in.frustum    = &frustum;
+        in.cameraPos  = camPos;
+        in.cameraLook = m_viewCamera.GetLook();
+        in.nearZ      = m_viewCamera.GetNearZ();
+        in.viewportW  = renderer().width();
+        in.viewportH  = renderer().height();
+        in.viewProj   = &viewProj;
+        LocalLightDrawLists lists{};
+        if (gatherLocalLights(world(), in, lists) && lists.count > 0)
+        {
+            m_localLightGpu.upload(renderer().frameIndex(), lists);
+            waterLightCount = lists.waterCount;
+            std::memcpy(waterIndex, lists.waterIndex, sizeof(waterIndex));
+            waterLightsVa = m_localLightGpu.lightsGpuVa();
+        }
+    }
+
+    m_water.draw(
+        cmd,
+        m_waterPipeline,
+        m_viewCamera,
+        &frustum,
+        &m_env,
+        &renderer().debugState(),
+        waterLightsVa,
+        waterLightCount,
+        waterIndex,
+        renderer().frameIndex());
 
     if (m_chaseOk)
         m_chase.drawPaths(cmd, renderer(), viewProj);

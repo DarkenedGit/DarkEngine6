@@ -4,6 +4,8 @@
 // TEXCOORD0.y is terrain height at that XZ, used for shore fade.
 #pragma pack_matrix(row_major)
 
+#include "PbrLighting.hlsli"
+
 cbuffer FrameConstants : register(b0)
 {
     float4x4 worldViewProj;
@@ -24,7 +26,33 @@ cbuffer FrameConstants : register(b0)
     float    fresnelF0;
     float3   skyHorizon;
     float    steepness;
+    uint     lightCount;
+    // Consecutive scalars pack like C++ uint waterIndex[8]. A cbuffer array would be 16-byte strided.
+    uint     waterIndex0;
+    uint     waterIndex1;
+    uint     waterIndex2;
+    uint     waterIndex3;
+    uint     waterIndex4;
+    uint     waterIndex5;
+    uint     waterIndex6;
+    uint     waterIndex7;
 };
+
+struct GpuLocalLight
+{
+    float3 pos;
+    float  range;
+    float3 color;
+    float  invRange2;
+    float3 dir;
+    float  type;
+    float  innerCos;
+    float  outerCos;
+    float  sourceRadius;
+    float  pad;
+};
+
+StructuredBuffer<GpuLocalLight> gLights : register(t0);
 
 struct VSInput
 {
@@ -125,13 +153,35 @@ float4 PSMain(PSInput input) : SV_TARGET
     float3 r    = reflect(-v, n);
     float3 sky  = SkyColor(r);
 
-    float3 h     = normalize(l + v);
-    float  spec  = pow(saturate(dot(n, h)), specPower);
     float  ndotl = saturate(dot(n, l));
 
     float3 color = body * (0.18f + 0.55f * ndotl);
     color = lerp(color, sky, fres);
-    color += spec * 0.85f;
+    // Frozen 0.15 — do not derive from specPower (1 - 96/256 would dull the highlight).
+    // metallic 0 => PbrEvaluate F0 = 0.04, matching fresnelF0.
+    color += PbrDirectional(n, v, 0.0.xxx, 0.15f, 0.0f, l, 0.85.xxx);
+
+    if (lightCount > 0)
+    {
+        const uint idx[8] = { waterIndex0, waterIndex1, waterIndex2, waterIndex3, waterIndex4, waterIndex5, waterIndex6, waterIndex7 };
+        [unroll]
+        for (uint i = 0; i < 8; ++i)
+        {
+            if (i < lightCount)
+            {
+                GpuLocalLight light    = gLights[idx[i]];
+                float3        toLight  = light.pos - worldPos;
+                float         d        = length(toLight);
+                float3        li       = toLight / max(d, 1e-4f);
+                float         cosTheta = dot(-li, light.dir);
+                float3        lit      = PbrPunctual(n, v, body, 0.15f, 0.0f, toLight, light.color, light.sourceRadius);
+                lit *= windowedDistanceAttenuation(d * d, light.invRange2);
+                if (light.type >= 0.5f)
+                    lit *= spotAngleAttenuation(cosTheta, light.innerCos, light.outerCos);
+                color += lit;
+            }
+        }
+    }
 
     // Shore: fade out as the land rises through the surface.
     alpha = saturate(alpha + fres * 0.15f);

@@ -81,11 +81,15 @@ namespace Dark
 
         void draw(
             ID3D12GraphicsCommandList* cmd,
-            const WaterPipeline& pipeline,
+            WaterPipeline& pipeline,
             const Camera3D& camera,
             const Frustum3f* frustum = nullptr,
             const Sky::Environment* env = nullptr,
-            const DebugRenderState* debug = nullptr) const;
+            const DebugRenderState* debug = nullptr,
+            D3D12_GPU_VIRTUAL_ADDRESS lightsVa = 0,
+            uint32_t lightCount = 0,
+            const uint32_t* waterIndex = nullptr,
+            uint32_t frameIndex = 0) const;
 
         float heightAtWorld(float x, float z) const;
         bool  tryHeightAtWorld(float x, float z, float& outY) const;

@@ -293,11 +293,15 @@ using namespace Terrain;
 
     void WaterWorld::draw(
         ID3D12GraphicsCommandList* cmd,
-        const WaterPipeline& pipeline,
+        WaterPipeline& pipeline,
         const Camera3D& camera,
         const Frustum3f* frustum,
         const Sky::Environment* env,
-        const DebugRenderState* debug) const
+        const DebugRenderState* debug,
+        D3D12_GPU_VIRTUAL_ADDRESS lightsVa,
+        uint32_t lightCount,
+        const uint32_t* waterIndex,
+        uint32_t frameIndex) const
     {
         m_lastDrawCalls = 0;
         m_lastTriangles = 0;
@@ -316,7 +320,14 @@ using namespace Terrain;
         const float    camPos[3] = { cam.x, cam.y, cam.z };
         const float    light[3]  = { 0.35f, 0.85f, -0.35f };
         WaterPipeline::fillConstants(cb, cb.worldViewProj, camPos, m_time, light, m_params, env, lighting);
-        pipeline.setConstants(cmd, cb);
+        if (lighting && lightsVa && waterIndex && lightCount > 0)
+        {
+            cb.lightCount = lightCount > kWaterLocalLightMax ? kWaterLocalLightMax : lightCount;
+            for (uint32_t i = 0; i < cb.lightCount; ++i)
+                cb.waterIndex[i] = waterIndex[i];
+        }
+        pipeline.setConstants(cmd, cb, frameIndex);
+        pipeline.setLights(cmd, lightsVa);
 
         const bool pointList = fill == DebugFill::Points;
         for (const WaterChunk& c : m_chunks)

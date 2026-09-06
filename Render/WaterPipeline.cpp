@@ -29,22 +29,31 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
     m_psoSolid.Reset();
     m_psoWire.Reset();
     m_psoPoint.Reset();
+    m_cbUpload.Reset();
+    m_dummyLights.Reset();
+    m_cbMapped = nullptr;
+    m_cbGpu    = 0;
+    m_dummyGpu = 0;
+    m_cbSlot   = 0;
     if (!device)
     {
         DE_LOG_ERROR(LogCategory::Render, "WaterPipeline::create: null device");
         return false;
     }
 
-    D3D12_ROOT_PARAMETER rootParams[1]{};
-    rootParams[kRootConstants].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    rootParams[kRootConstants].ShaderVisibility         = D3D12_SHADER_VISIBILITY_ALL;
-    rootParams[kRootConstants].Constants.ShaderRegister = 0;
-    rootParams[kRootConstants].Constants.RegisterSpace  = 0;
-    rootParams[kRootConstants].Constants.Num32BitValues =
-        static_cast<UINT>(sizeof(WaterFrameConstants) / 4);
+    D3D12_ROOT_PARAMETER rootParams[2]{};
+    rootParams[kRootCbv].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParams[kRootCbv].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
+    rootParams[kRootCbv].Descriptor.ShaderRegister = 0;
+    rootParams[kRootCbv].Descriptor.RegisterSpace  = 0;
+
+    rootParams[kRootLightsSrv].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rootParams[kRootLightsSrv].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
+    rootParams[kRootLightsSrv].Descriptor.ShaderRegister = 0;
+    rootParams[kRootLightsSrv].Descriptor.RegisterSpace  = 0;
 
     D3D12_ROOT_SIGNATURE_DESC rsDesc{};
-    rsDesc.NumParameters     = 1;
+    rsDesc.NumParameters     = 2;
     rsDesc.pParameters       = rootParams;
     rsDesc.NumStaticSamplers = 0;
     rsDesc.pStaticSamplers   = nullptr;
@@ -122,8 +131,78 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
         return false;
     }
 
-    DE_LOG_INFO(LogCategory::Render, "WaterPipeline: ready (Gerstner + Fresnel, solid/wire/point)");
+    if (!createConstantBuffers(device))
+    {
+        m_rootSignature.Reset();
+        m_psoSolid.Reset();
+        m_psoWire.Reset();
+        m_psoPoint.Reset();
+        return false;
+    }
+
+    DE_LOG_INFO(LogCategory::Render, "WaterPipeline: ready (Gerstner + GGX, CBV + 8 local lights)");
     return true;
+}
+
+bool WaterPipeline::createConstantBuffers(ID3D12Device* device)
+{
+    D3D12_HEAP_PROPERTIES uploadHeap{};
+    uploadHeap.Type = D3D12_HEAP_TYPE_UPLOAD;
+
+    D3D12_RESOURCE_DESC cbDesc{};
+    cbDesc.Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER;
+    cbDesc.Width            = static_cast<UINT64>(cbBytes()) * kBufferedFrames;
+    cbDesc.Height           = 1;
+    cbDesc.DepthOrArraySize = 1;
+    cbDesc.MipLevels        = 1;
+    cbDesc.SampleDesc       = { 1, 0 };
+    cbDesc.Layout           = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    if (FailedHr(
+            device->CreateCommittedResource(
+                &uploadHeap, D3D12_HEAP_FLAG_NONE, &cbDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&m_cbUpload)),
+            "CreateCommittedResource water CBV"))
+    {
+        return false;
+    }
+
+    D3D12_RESOURCE_DESC dummyDesc = cbDesc;
+    dummyDesc.Width               = 64;
+    if (FailedHr(
+            device->CreateCommittedResource(
+                &uploadHeap, D3D12_HEAP_FLAG_NONE, &dummyDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&m_dummyLights)),
+            "CreateCommittedResource water dummy lights"))
+    {
+        m_cbUpload.Reset();
+        return false;
+    }
+
+    if (FailedHr(m_cbUpload->Map(0, nullptr, reinterpret_cast<void**>(&m_cbMapped)), "Map water CBV"))
+    {
+        m_cbUpload.Reset();
+        m_dummyLights.Reset();
+        m_cbMapped = nullptr;
+        return false;
+    }
+
+    UINT8* dummyMapped = nullptr;
+    if (FailedHr(m_dummyLights->Map(0, nullptr, reinterpret_cast<void**>(&dummyMapped)), "Map water dummy lights"))
+    {
+        m_cbUpload.Reset();
+        m_dummyLights.Reset();
+        m_cbMapped = nullptr;
+        return false;
+    }
+    std::memset(m_cbMapped, 0, static_cast<size_t>(cbBytes()) * kBufferedFrames);
+    std::memset(dummyMapped, 0, 64);
+
+    m_cbGpu    = m_cbUpload->GetGPUVirtualAddress();
+    m_dummyGpu = m_dummyLights->GetGPUVirtualAddress();
+    return true;
+}
+
+UINT WaterPipeline::cbBytes() const
+{
+    return (static_cast<UINT>(sizeof(WaterFrameConstants)) + 255u) & ~255u;
 }
 
 void WaterPipeline::bind(ID3D12GraphicsCommandList* cmd, DebugFill fill) const
@@ -135,12 +214,23 @@ void WaterPipeline::bind(ID3D12GraphicsCommandList* cmd, DebugFill fill) const
     cmd->SetPipelineState(pso);
 }
 
-void WaterPipeline::setConstants(ID3D12GraphicsCommandList* cmd, const WaterFrameConstants& constants) const
+void WaterPipeline::setConstants(ID3D12GraphicsCommandList* cmd, const WaterFrameConstants& constants, uint32_t frameIndex)
 {
-    if (!cmd || !m_rootSignature)
+    if (!cmd || !m_cbMapped || !m_cbGpu)
         return;
-    cmd->SetGraphicsRoot32BitConstants(
-        kRootConstants, static_cast<UINT>(sizeof(WaterFrameConstants) / 4), &constants, 0);
+    m_cbSlot = frameIndex % kBufferedFrames;
+    std::memcpy(m_cbMapped + static_cast<size_t>(m_cbSlot) * cbBytes(), &constants, sizeof(constants));
+    cmd->SetGraphicsRootConstantBufferView(kRootCbv, m_cbGpu + static_cast<UINT64>(m_cbSlot) * cbBytes());
+}
+
+void WaterPipeline::setLights(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS lightsVa) const
+{
+    if (!cmd)
+        return;
+    const D3D12_GPU_VIRTUAL_ADDRESS va = lightsVa ? lightsVa : m_dummyGpu;
+    if (!va)
+        return;
+    cmd->SetGraphicsRootShaderResourceView(kRootLightsSrv, va);
 }
 
 void WaterPipeline::fillConstants(
@@ -215,6 +305,10 @@ void WaterPipeline::fillConstants(
 
     if (!lighting)
         out.specPower = -1.0f;
+
+    out.lightCount = 0;
+    for (uint32_t i = 0; i < kWaterLocalLightMax; ++i)
+        out.waterIndex[i] = 0;
 }
 
 } // namespace Dark
