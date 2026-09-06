@@ -12,6 +12,7 @@
 #include "Math/MathHelper.h"
 #include "Math/Matrix4f.h"
 #include "Math/Quaternion.h"
+#include "Math/Sphere3f.h"
 #include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
 #include "Math/Ray3f.h"
@@ -136,6 +137,65 @@ bool isReplicatedProp(SceneObjectType type)
 {
     return type == SceneObjectType::Cube || type == SceneObjectType::Sphere
         || type == SceneObjectType::Platform || type == SceneObjectType::Coin;
+}
+
+bool isLocalLightType(SceneObjectType type)
+{
+    return type == SceneObjectType::PointLight || type == SceneObjectType::SpotLight;
+}
+
+void defaultLightColor(float out[4])
+{
+    out[0] = 1.00f;
+    out[1] = 0.92f;
+    out[2] = 0.75f;
+    out[3] = 1.00f;
+}
+
+void fillDefaultLocalLight(LocalLightComponent& light, SceneObjectType type)
+{
+    light              = LocalLightComponent{};
+    light.type         = (type == SceneObjectType::SpotLight) ? LocalLightType::Spot : LocalLightType::Point;
+    light.color        = Vector3f(1.0f, 0.92f, 0.75f);
+    light.innerConeDeg = 12.0f;
+    light.outerConeDeg = 25.0f;
+    light.sourceRadius = 0.05f;
+    light.enabled      = true;
+    if (light.type == LocalLightType::Spot)
+    {
+        light.intensity = 800.0f;
+        light.range     = 16.0f;
+    }
+    else
+    {
+        light.intensity = 600.0f;
+        light.range     = 8.0f;
+    }
+}
+
+void eulerXYZFromQuat(const Quaternion& q, float& pitch, float& yaw, float& roll)
+{
+    const float sinY = Clamp(2.0f * (q.w * q.y - q.z * q.x), -1.0f, 1.0f);
+    yaw              = asinf(sinY);
+    pitch            = atan2f(2.0f * (q.w * q.x + q.y * q.z), 1.0f - 2.0f * (q.x * q.x + q.y * q.y));
+    roll             = atan2f(2.0f * (q.w * q.z + q.x * q.y), 1.0f - 2.0f * (q.y * q.y + q.z * q.z));
+}
+
+Matrix4f makePointLightGizmoWorld(const Vector3f& pos, float range)
+{
+    return Matrix4f::ScaleMatrix(Max(range, 0.01f)) * Matrix4f::TranslationMatrix(pos.x, pos.y, pos.z);
+}
+
+Matrix4f makeSpotLightGizmoWorld(const TransformComponent& xf, float range, float outerConeDeg)
+{
+    float outerRad = DegreesToRadians(Max(outerConeDeg, 0.1f));
+    if (outerRad >= HalfPi - 0.01f)
+        outerRad = HalfPi - 0.01f;
+    const float    xy = tanf(outerRad) * Max(range, 0.01f);
+    const Matrix4f S  = Matrix4f::ScaleMatrixXYZ(xy, xy, Max(range, 0.01f));
+    const Matrix4f R  = xf.rotation.ToMatrix4();
+    const Matrix4f T  = Matrix4f::TranslationMatrix(xf.position.x, xf.position.y, xf.position.z);
+    return S * R * T;
 }
 
 NetPrefab prefabFromType(SceneObjectType type)
@@ -537,6 +597,9 @@ const Mesh* EditorApp::meshForType(SceneObjectType type) const
     case SceneObjectType::ParticleEmitter:
         // Small proxy cube marks emitter origin
         return &m_cubeMesh;
+    case SceneObjectType::PointLight:
+    case SceneObjectType::SpotLight:
+        return nullptr;
     case SceneObjectType::Platform:
     case SceneObjectType::Coin:
     case SceneObjectType::Spawn:
@@ -599,6 +662,8 @@ void EditorApp::registerActions()
     a.bindKey("type_cube", Key::Digit1);
     a.bindKey("type_sphere", Key::Digit2);
     a.bindKey("type_particle", Key::Digit3);
+    a.bindKey("type_point_light", Key::Digit4);
+    a.bindKey("type_spot_light", Key::Digit5);
     a.bindKey("cycle_type", Key::T);
     a.bindKey("cycle_color", Key::C);
     a.bindKey("toggle_particle_ui", Key::F2);
@@ -621,7 +686,7 @@ void EditorApp::registerActions()
 
     DE_LOG_INFO(
         "Editor: F3 toggle 2D/3D | F2 particle UI | F1 fill F6 lighting F7 shadows | F11 G-buffer | "
-        "1/2/3 place type | P place | MMB/RMB pan (2D) | wheel zoom | Ctrl+S/O save/load | C color | Del delete | -forward");
+        "1/2/3/4/5 place type | P place | MMB/RMB pan (2D) | wheel zoom | Ctrl+S/O save/load | C color | Del delete | -forward");
 }
 
 void EditorApp::onInit()
@@ -738,6 +803,21 @@ void EditorApp::onInit()
         LineMeshData data;
         CreateGridLines(data, 20.0f, 40, 0.01f);
         m_gridMesh = LineMesh::Create(renderer(), data);
+    }
+
+    {
+        LineMeshData data;
+        if (CreateSphereOutline(data, 3, 32))
+            m_pointLightGizmo = LineMesh::Create(renderer(), data);
+        else
+            DE_LOG_ERROR(LogCategory::Render, "EditorApp: point light gizmo outline failed");
+    }
+    {
+        LineMeshData data;
+        if (CreateConeOutline(data, 16))
+            m_spotLightGizmo = LineMesh::Create(renderer(), data);
+        else
+            DE_LOG_ERROR(LogCategory::Render, "EditorApp: spot light gizmo outline failed");
     }
 
     m_propMaterial = std::make_shared<Material>();
@@ -885,11 +965,23 @@ Entity EditorApp::pickObject(const Ray3f& ray)
         const auto* xf = world().get<TransformComponent>(so.entity);
         if (!xf)
             continue;
-        Vector3f half(0.5f * xf->scale.x, 0.5f * xf->scale.y, 0.5f * xf->scale.z);
-        if (so.type == SceneObjectType::ParticleEmitter)
-            half = Vector3f(0.25f, 0.25f, 0.25f);
-        const AABox3f       box = AABox3f::FromCenterExtents(xf->position, half);
-        Collision::RayHit3D hit = Collision::Intersect(ray, box);
+        Collision::RayHit3D hit{};
+        if (isLocalLightType(so.type))
+        {
+            float range = 8.0f;
+            if (const auto* light = world().get<LocalLightComponent>(so.entity))
+                range = light->range;
+            const float r = Max(0.35f, range * 0.05f);
+            hit           = Collision::Intersect(ray, Sphere3f(xf->position, r));
+        }
+        else
+        {
+            Vector3f half(0.5f * xf->scale.x, 0.5f * xf->scale.y, 0.5f * xf->scale.z);
+            if (so.type == SceneObjectType::ParticleEmitter)
+                half = Vector3f(0.25f, 0.25f, 0.25f);
+            const AABox3f box = AABox3f::FromCenterExtents(xf->position, half);
+            hit               = Collision::Intersect(ray, box);
+        }
         if (hit.hit && hit.t >= 0.0f && hit.t < bestT)
         {
             bestT = hit.t;
@@ -905,7 +997,9 @@ Entity EditorApp::spawnObject(
     const Vector3f& scale,
     const Quaternion& rot,
     const float color[4],
-    const ParticleEmitterDesc* particleDesc)
+    const ParticleEmitterDesc* particleDesc,
+    const SceneObjectData* authored,
+    bool registerNet)
 {
     if (netClientLocked())
         return {};
@@ -917,14 +1011,36 @@ Entity EditorApp::spawnObject(
     xf.position = pos;
     xf.scale    = scale;
     xf.rotation = rot;
-    if (m_sceneMode == SceneMode::Scene3D && isScene3DType(type) && type != SceneObjectType::ParticleEmitter
+    const bool lightType = isLocalLightType(type);
+    if (m_sceneMode == SceneMode::Scene3D && isScene3DType(type) && type != SceneObjectType::ParticleEmitter && !lightType
         && xf.position.y < 0.5f * xf.scale.y)
         xf.position.y = 0.5f * xf.scale.y;
     world().emplace<TransformComponent>(e, xf);
 
-    auto& mc = world().emplace<MeshComponent>(e);
-    mc.matAssetID  = m_propMaterial ? m_propMaterial->id : NULL_ASSET;
-    mc.meshAssetID = NULL_ASSET;
+    if (!lightType)
+    {
+        auto& mc       = world().emplace<MeshComponent>(e);
+        mc.matAssetID  = m_propMaterial ? m_propMaterial->id : NULL_ASSET;
+        mc.meshAssetID = NULL_ASSET;
+        if (authored)
+            mc.emissive = authored->emissive;
+    }
+    else
+    {
+        LocalLightComponent light{};
+        fillDefaultLocalLight(light, type);
+        light.color = Vector3f(color[0], color[1], color[2]);
+        if (authored && authored->hasLight)
+        {
+            light.intensity    = authored->lightIntensity;
+            light.range        = authored->lightRange;
+            light.innerConeDeg = authored->lightInnerDeg;
+            light.outerConeDeg = authored->lightOuterDeg;
+            light.sourceRadius = authored->lightSourceRadius;
+            light.enabled      = authored->lightEnabled;
+        }
+        world().emplace<LocalLightComponent>(e, light);
+    }
 
     SceneObject so{};
     so.entity = e;
@@ -948,7 +1064,7 @@ Entity EditorApp::spawnObject(
 
     m_objects.push_back(so);
     m_selected = e;
-    if (isReplicatedProp(type))
+    if (registerNet && isReplicatedProp(type))
         network().registerEntity(world(), e, prefabFromType(type), ClientId::Host, packRgba8(so.color));
     DE_LOG_INFO("Editor: spawn {} #{} (emitters={})", toString(type), e.id(), m_emitters.size());
     return e;
@@ -992,9 +1108,13 @@ Entity EditorApp::placeAtCursor(SceneObjectType type)
         hit.x = snap(hit.x, m_gridSnap);
         hit.z = snap(hit.z, m_gridSnap);
     }
-    const float* col = kPalette[m_colorIndex % kPaletteCount];
+    float lightCol[4]{};
+    defaultLightColor(lightCol);
+    const float* col = isLocalLightType(type) ? lightCol : kPalette[m_colorIndex % kPaletteCount];
     Vector3f scale(1, 1, 1);
-    if (type == SceneObjectType::ParticleEmitter)
+    if (isLocalLightType(type))
+        hit.y += 1.5f;
+    else if (type == SceneObjectType::ParticleEmitter)
         hit.y = 0.5f;
     else
         hit.y = 0.5f * scale.y;
@@ -1002,6 +1122,45 @@ Entity EditorApp::placeAtCursor(SceneObjectType type)
     if (e.valid())
         audio().play3D(m_sfxPlace, hit, 0.65f);
     return e;
+}
+
+Entity EditorApp::placeGlowProp()
+{
+    if (m_sceneMode == SceneMode::Scene2D)
+        return {};
+
+    Vector3f hit{};
+    bool ok = groundHitFromMouse(hit);
+    if (!ok)
+    {
+        Ray3f ray(m_camera.GetPosition(), m_camera.GetLook());
+        ok = groundHitFromRay(ray, hit);
+    }
+    if (!ok)
+    {
+        DE_LOG_WARN("Editor: glow prop place failed (no ground hit)");
+        return {};
+    }
+    if (m_gridSnap > 0.0f)
+    {
+        hit.x = snap(hit.x, m_gridSnap);
+        hit.z = snap(hit.z, m_gridSnap);
+    }
+    hit.y += 1.5f;
+
+    float col[4]{};
+    defaultLightColor(col);
+    SceneObjectData meshAuthored{};
+    meshAuthored.emissive = 1.0f;
+    const Entity meshE    = spawnObject(SceneObjectType::Sphere, hit, Vector3f(1, 1, 1), Quaternion::IDENTITY, col, nullptr, &meshAuthored, false);
+    const Entity lightE   = spawnObject(SceneObjectType::PointLight, hit, Vector3f(1, 1, 1), Quaternion::IDENTITY, col, nullptr);
+    if (lightE.valid())
+    {
+        if (auto* light = world().get<LocalLightComponent>(lightE))
+            light->emissiveMesh = meshE;
+        audio().play3D(m_sfxPlace, hit, 0.65f);
+    }
+    return lightE.valid() ? lightE : meshE;
 }
 
 void EditorApp::deleteSelected()
@@ -1058,13 +1217,16 @@ void EditorApp::selectNext(int delta)
 void EditorApp::cyclePlaceType(int delta)
 {
     const SceneObjectType types3D[] = {
-        SceneObjectType::Cube, SceneObjectType::Sphere, SceneObjectType::ParticleEmitter
+        SceneObjectType::Cube, SceneObjectType::Sphere, SceneObjectType::ParticleEmitter,
+        SceneObjectType::PointLight, SceneObjectType::SpotLight
     };
     const SceneObjectType types2D[] = {
         SceneObjectType::Platform, SceneObjectType::Coin, SceneObjectType::Spawn
     };
     const SceneObjectType* types = (m_sceneMode == SceneMode::Scene2D) ? types2D : types3D;
-    const int n = 3;
+    const int n = (m_sceneMode == SceneMode::Scene2D)
+        ? static_cast<int>(_countof(types2D))
+        : static_cast<int>(_countof(types3D));
     int idx = 0;
     for (int i = 0; i < n; ++i)
         if (types[i] == m_placeType)
@@ -1079,7 +1241,11 @@ void EditorApp::cycleSelectedColor()
     m_colorIndex = (m_colorIndex + 1) % kPaletteCount;
     const float* col = kPalette[m_colorIndex];
     if (SceneObject* so = findObject(m_selected))
+    {
         copyColor(so->color, col);
+        if (auto* light = world().get<LocalLightComponent>(m_selected))
+            light->color = Vector3f(col[0], col[1], col[2]);
+    }
 }
 
 void EditorApp::clearScene()
@@ -1358,7 +1524,7 @@ void EditorApp::onNetPeer(const NetPeerInfo& info, NetPeerEvent event, void* use
 bool EditorApp::saveScene()
 {
     SceneFileData data{};
-    data.version  = 1;
+    data.version  = 2;
     data.name     = m_sceneName;
     data.mode     = m_sceneMode;
     data.worldMin = m_worldMin;
@@ -1381,6 +1547,21 @@ bool EditorApp::saveScene()
         {
             sceneDataFromDesc(m_emitters[static_cast<size_t>(so.emitterIndex)]->desc(), d);
         }
+        if (const auto* light = world().get<LocalLightComponent>(so.entity))
+        {
+            d.hasLight          = true;
+            d.lightIntensity    = light->intensity;
+            d.lightRange        = light->range;
+            d.lightInnerDeg     = light->innerConeDeg;
+            d.lightOuterDeg     = light->outerConeDeg;
+            d.lightSourceRadius = light->sourceRadius;
+            d.lightEnabled      = light->enabled;
+            d.color[0]          = light->color.x;
+            d.color[1]          = light->color.y;
+            d.color[2]          = light->color.z;
+        }
+        if (const auto* mc = world().get<MeshComponent>(so.entity))
+            d.emissive = mc->emissive;
         data.objects.push_back(d);
     }
 
@@ -1421,7 +1602,7 @@ bool EditorApp::loadScene()
         if (d.hasParticle)
             descFromSceneData(d, pdesc);
         spawnObject(d.type, d.position, d.scale, d.rotation, d.color,
-                    d.type == SceneObjectType::ParticleEmitter ? &pdesc : nullptr);
+                    d.type == SceneObjectType::ParticleEmitter ? &pdesc : nullptr, &d);
     }
     m_selected = {};
     DE_LOG_INFO("Editor: loaded {} objects", m_objects.size());
@@ -1500,6 +1681,10 @@ void EditorApp::handleEditorCommands(float dt)
             m_placeType = (m_sceneMode == SceneMode::Scene2D) ? SceneObjectType::Coin : SceneObjectType::Sphere;
         if (input().actionPressed("type_particle"))
             m_placeType = (m_sceneMode == SceneMode::Scene2D) ? SceneObjectType::Spawn : SceneObjectType::ParticleEmitter;
+        if (m_sceneMode != SceneMode::Scene2D && input().actionPressed("type_point_light"))
+            m_placeType = SceneObjectType::PointLight;
+        if (m_sceneMode != SceneMode::Scene2D && input().actionPressed("type_spot_light"))
+            m_placeType = SceneObjectType::SpotLight;
         if (input().actionPressed("cycle_type"))
             cyclePlaceType(+1);
         if (input().actionPressed("cycle_color"))
@@ -1579,7 +1764,7 @@ void EditorApp::handleEditorCommands(float dt)
                     SceneObject* so = findObject(m_selected);
                     if (so && so->type == SceneObjectType::ParticleEmitter)
                         xf->position.y = 0.5f;
-                    else
+                    else if (!so || !isLocalLightType(so->type))
                         xf->position.y = 0.5f * xf->scale.y;
 
                     if (so && so->emitterIndex >= 0 && so->emitterIndex < static_cast<int>(m_emitters.size())
@@ -1650,6 +1835,7 @@ void EditorApp::drawEditorUi()
                 ImGui::MenuItem("Bloom", nullptr, &renderer().debugState().bloom);
                 ImGui::MenuItem("TAA", nullptr, &renderer().debugState().taa);
                 ImGui::MenuItem("Motion Blur", nullptr, &renderer().debugState().motionBlur);
+                ImGui::MenuItem("Local Lights", nullptr, &renderer().debugState().localLights);
             }
             ImGui::EndMenu();
         }
@@ -1691,6 +1877,18 @@ void EditorApp::drawEditorUi()
                     m_placeType = SceneObjectType::ParticleEmitter;
                     placeAtCursor(m_placeType);
                 }
+                if (ImGui::MenuItem("Point Light", "4+P", false, createOk))
+                {
+                    m_placeType = SceneObjectType::PointLight;
+                    placeAtCursor(m_placeType);
+                }
+                if (ImGui::MenuItem("Spot Light", "5+P", false, createOk))
+                {
+                    m_placeType = SceneObjectType::SpotLight;
+                    placeAtCursor(m_placeType);
+                }
+                if (ImGui::MenuItem("Glow Prop", nullptr, false, createOk))
+                    placeGlowProp();
             }
             if (!createOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Spectators cannot place or delete objects");
@@ -1801,6 +1999,101 @@ void EditorApp::drawEditorUi()
         }
         ImGui::End();
     }
+
+    if (m_sceneMode == SceneMode::Scene3D)
+        drawInspector3D();
+}
+
+void EditorApp::drawInspector3D()
+{
+    if (!ImGui::Begin("Inspector"))
+    {
+        ImGui::End();
+        return;
+    }
+
+    SceneObject* so = findObject(m_selected);
+    if (!so)
+    {
+        ImGui::TextUnformatted("No selection. Click an object or press 4+P / 5+P to place a light.");
+        ImGui::End();
+        return;
+    }
+
+    auto* xf = world().get<TransformComponent>(so->entity);
+    if (!xf)
+    {
+        ImGui::TextUnformatted("Selected entity has no transform.");
+        ImGui::End();
+        return;
+    }
+
+    const bool locked = netClientLocked();
+    ImGui::Text("Selected: %s", toString(so->type));
+    float pos[3] = { xf->position.x, xf->position.y, xf->position.z };
+    if (ImGui::DragFloat3("Position", pos, 0.05f) && !locked)
+    {
+        xf->position.x = pos[0];
+        xf->position.y = pos[1];
+        xf->position.z = pos[2];
+    }
+
+    if (auto* light = world().get<LocalLightComponent>(so->entity))
+    {
+        ImGui::Separator();
+        ImGui::Checkbox("Enabled", &light->enabled);
+        if (ImGui::ColorEdit3("Color", &light->color.x))
+        {
+            so->color[0] = light->color.x;
+            so->color[1] = light->color.y;
+            so->color[2] = light->color.z;
+        }
+        ImGui::DragFloat("Intensity (cd)", &light->intensity, 10.0f, 0.0f, 50000.0f);
+        ImGui::SliderFloat("Range (m)", &light->range, 0.25f, 80.0f);
+        if (light->type == LocalLightType::Spot)
+        {
+            if (ImGui::SliderFloat("Inner (deg)", &light->innerConeDeg, 0.0f, 80.0f) && light->innerConeDeg > light->outerConeDeg)
+                light->outerConeDeg = light->innerConeDeg;
+            if (ImGui::SliderFloat("Outer (deg)", &light->outerConeDeg, 0.0f, 80.0f) && light->innerConeDeg > light->outerConeDeg)
+                light->innerConeDeg = light->outerConeDeg;
+            float pitch = 0.0f, yaw = 0.0f, roll = 0.0f;
+            eulerXYZFromQuat(xf->rotation, pitch, yaw, roll);
+            float eulerDeg[3] = {
+                RadiansToDegrees(pitch),
+                RadiansToDegrees(yaw),
+                RadiansToDegrees(roll)
+            };
+            if (ImGui::DragFloat3("Euler (deg)", eulerDeg, 0.5f) && !locked)
+            {
+                xf->rotation = Quaternion::FromEulerXYZ(
+                    DegreesToRadians(eulerDeg[0]),
+                    DegreesToRadians(eulerDeg[1]),
+                    DegreesToRadians(eulerDeg[2]));
+            }
+            if (ImGui::Button("Aim at camera") && !locked)
+            {
+                Vector3f dir = m_camera.GetPosition() - xf->position;
+                if (dir.MagnitudeSqrd() <= 1.0e-8f)
+                    dir = m_camera.GetLook();
+                else
+                    dir.Normalize();
+                const Vector3f up = (fabsf(dir.y) > 0.9f) ? Vector3f(Vector3f::X_AXIS) : Vector3f(Vector3f::Y_AXIS);
+                xf->rotation      = Quaternion::FromLookRotation(dir, up);
+            }
+        }
+        ImGui::DragFloat("Source radius", &light->sourceRadius, 0.005f, 0.0f, 2.0f);
+    }
+    else
+    {
+        ImGui::ColorEdit3("Tint", so->color);
+        if (auto* mc = world().get<MeshComponent>(so->entity))
+            ImGui::SliderFloat("Emissive", &mc->emissive, 0.0f, 1.0f);
+    }
+
+    if (ImGui::Button("Delete") && !locked)
+        deleteSelected();
+
+    ImGui::End();
 }
 
 void EditorApp::onUpdate(float dt)
@@ -1981,7 +2274,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                     continue;
                 const auto* xf = world().get<TransformComponent>(so.entity);
                 const Mesh* mesh = meshForType(so.type);
-                if (!xf || !mesh || !mesh->valid())
+                if (!xf || !mesh || !mesh->valid() || world().get<LocalLightComponent>(so.entity))
                     continue;
                 const Matrix4f worldMat = makeWorldMatrix(*xf);
                 const Matrix4f wvp      = worldMat * m_shadows.cascade(i).viewProj;
@@ -2084,6 +2377,53 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         m_gridMesh.draw(cmd);
     };
 
+    auto drawLightGizmos = [&]() {
+        LinePipeline& lines = m_linePipeline3D.isValid() ? m_linePipeline3D : m_linePipeline;
+        if (!lines.isValid())
+            return;
+        lines.bind(cmd);
+        for (const SceneObject& so : m_objects)
+        {
+            if (!isLocalLightType(so.type))
+                continue;
+            const auto* xf    = world().get<TransformComponent>(so.entity);
+            const auto* light = world().get<LocalLightComponent>(so.entity);
+            if (!xf || !light)
+                continue;
+            const LineMesh* gizmo = (light->type == LocalLightType::Spot) ? &m_spotLightGizmo : &m_pointLightGizmo;
+            if (!gizmo->valid())
+                continue;
+
+            const Matrix4f worldMat = (light->type == LocalLightType::Spot)
+                ? makeSpotLightGizmoWorld(*xf, light->range, light->outerConeDeg)
+                : makePointLightGizmoWorld(xf->position, light->range);
+
+            const bool selected = m_selected.valid() && m_selected.id() == so.entity.id();
+            float      cr = light->color.x, cg = light->color.y, cb = light->color.z;
+            if (selected)
+            {
+                cr = cr * 0.35f + 1.00f * 0.65f;
+                cg = cg * 0.35f + 0.85f * 0.65f;
+                cb = cb * 0.35f + 0.20f * 0.65f;
+            }
+            if (!light->enabled)
+            {
+                cr *= 0.35f;
+                cg *= 0.35f;
+                cb *= 0.35f;
+            }
+
+            LineFrameConstants lc{};
+            copyMatrix(lc.worldViewProj, worldMat * viewProj);
+            lc.color[0] = cr;
+            lc.color[1] = cg;
+            lc.color[2] = cb;
+            lc.color[3] = 1.0f;
+            lines.setConstants(cmd, lc);
+            gizmo->draw(cmd);
+        }
+    };
+
     if (!deferred)
         drawGrid();
 
@@ -2096,7 +2436,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         if (!xf)
             continue;
         const Mesh* mesh = meshForType(so.type);
-        if (!mesh || !mesh->valid())
+        if (!mesh || !mesh->valid() || world().get<LocalLightComponent>(so.entity))
             continue;
 
         const bool selected = m_selected.valid() && m_selected.id() == so.entity.id();
@@ -2146,6 +2486,11 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         m_localLightVolumes.draw(cmd, renderer(), world(), m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_camera, viewProj, lc);
         renderer().bindHdr(true);
         drawGrid();
+        drawLightGizmos();
+    }
+    else
+    {
+        drawLightGizmos();
     }
 
     // Particles (after opaque, depth write off)

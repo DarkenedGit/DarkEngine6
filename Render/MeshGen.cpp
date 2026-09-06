@@ -1208,6 +1208,88 @@ namespace Dark
         return true;
     }
 
+    bool CreateSphereOutline(LineMeshData& m, int rings, int segments)
+    {
+        if (rings < 1)
+            rings = 1;
+        if (segments < 3)
+            segments = 3;
+
+        const float pi    = (float)M_PI;
+        const float twoPi = 2.f * pi;
+
+        const uint32_t north = (uint32_t)m.positions.size();
+        m.positions.push_back({ 0.f, 1.f, 0.f });
+        const uint32_t south = north + 1;
+        m.positions.push_back({ 0.f, -1.f, 0.f });
+
+        const uint32_t ring0 = south + 1;
+        for (int i = 1; i <= rings; ++i)
+        {
+            const float phi = pi * (float)i / (float)(rings + 1);
+            const float y   = cosf(phi);
+            const float r   = sinf(phi);
+            for (int j = 0; j < segments; ++j)
+            {
+                const float theta = twoPi * (float)j / (float)segments;
+                m.positions.push_back({ r * cosf(theta), y, r * sinf(theta) });
+            }
+        }
+
+        auto ringVert = [&](int ring, int seg) -> uint32_t {
+            return ring0 + (uint32_t)(ring * segments + (seg % segments));
+        };
+
+        for (int i = 0; i < rings; ++i)
+        {
+            for (int j = 0; j < segments; ++j)
+            {
+                m.indices.push_back(ringVert(i, j));
+                m.indices.push_back(ringVert(i, j + 1));
+            }
+        }
+        for (int j = 0; j < segments; ++j)
+        {
+            m.indices.push_back(north);
+            m.indices.push_back(ringVert(0, j));
+            for (int i = 0; i < rings - 1; ++i)
+            {
+                m.indices.push_back(ringVert(i, j));
+                m.indices.push_back(ringVert(i + 1, j));
+            }
+            m.indices.push_back(ringVert(rings - 1, j));
+            m.indices.push_back(south);
+        }
+        return true;
+    }
+
+    bool CreateConeOutline(LineMeshData& m, int segments)
+    {
+        if (segments < 3)
+            segments = 3;
+
+        const float    twoPi = 2.f * (float)M_PI;
+        const uint32_t apex  = (uint32_t)m.positions.size();
+        m.positions.push_back({ 0.f, 0.f, 0.f });
+        const uint32_t ring = apex + 1;
+        for (int i = 0; i < segments; ++i)
+        {
+            const float theta = twoPi * (float)i / (float)segments;
+            m.positions.push_back({ cosf(theta), sinf(theta), 1.f });
+        }
+        for (int i = 0; i < segments; ++i)
+        {
+            m.indices.push_back(ring + (uint32_t)i);
+            m.indices.push_back(ring + (uint32_t)((i + 1) % segments));
+        }
+        for (int i = 0; i < segments; ++i)
+        {
+            m.indices.push_back(apex);
+            m.indices.push_back(ring + (uint32_t)i);
+        }
+        return true;
+    }
+
     // ============================================================
     // Bounding icosphere (inscribed radius = `radius`)
     // ============================================================

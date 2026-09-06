@@ -82,9 +82,13 @@ private:
                              const Math::Vector3f& scale,
                              const Math::Quaternion& rot,
                              const float color[4],
-                             const ParticleEmitterDesc* particleDesc = nullptr);
+                             const ParticleEmitterDesc* particleDesc = nullptr,
+                             const SceneObjectData* authored = nullptr,
+                             bool registerNet = true);
 
     Entity placeAtCursor(SceneObjectType type);
+    Entity placeGlowProp();
+    void   drawInspector3D();
     void         deleteSelected();
     void         selectNext(int delta);
     void         cyclePlaceType(int delta);
@@ -140,6 +144,8 @@ private:
     Mesh m_sphereMesh;
     Mesh m_groundMesh;
     LineMesh m_gridMesh;
+    LineMesh m_pointLightGizmo;
+    LineMesh m_spotLightGizmo;
 
     AssetRef<Material> m_propMaterial;
     AssetRef<Material> m_groundMaterial;

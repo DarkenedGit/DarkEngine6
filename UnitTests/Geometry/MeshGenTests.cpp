@@ -117,6 +117,34 @@ TEST(MeshGen, BoxOutlineXYHasFourEdges)
     EXPECT_EQ(outline.indices.size(), 8u);
 }
 
+TEST(MeshGen, SphereOutlineLiesOnUnitSphere)
+{
+    LineMeshData data;
+    ASSERT_TRUE(CreateSphereOutline(data, 3, 32));
+    EXPECT_EQ(data.positions.size(), 2u + 3u * 32u);
+    EXPECT_FALSE(data.indices.empty());
+    EXPECT_EQ(data.indices.size() % 2u, 0u);
+    for (const Vector3f& p : data.positions)
+        EXPECT_NEAR(p.Magnitude(), 1.0f, 1.0e-4f);
+}
+
+TEST(MeshGen, ConeOutlineApexOriginPlusZ)
+{
+    LineMeshData data;
+    ASSERT_TRUE(CreateConeOutline(data, 16));
+    ASSERT_EQ(data.positions.size(), 17u);
+    EXPECT_NEAR(data.positions[0].x, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(data.positions[0].y, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(data.positions[0].z, 0.0f, 1.0e-5f);
+    for (size_t i = 1; i < data.positions.size(); ++i)
+    {
+        EXPECT_NEAR(data.positions[i].z, 1.0f, 1.0e-4f);
+        const float r = std::sqrt(data.positions[i].x * data.positions[i].x + data.positions[i].y * data.positions[i].y);
+        EXPECT_NEAR(r, 1.0f, 1.0e-4f);
+    }
+    EXPECT_EQ(data.indices.size(), 64u);
+}
+
 namespace
 {
     bool rayHitsTriangle(const Vector3f& dir, const Vector3f& a, const Vector3f& b, const Vector3f& c, float& t)
