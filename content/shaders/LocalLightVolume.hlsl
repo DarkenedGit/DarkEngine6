@@ -73,8 +73,10 @@ float4 PSMain(PSInput input) : SV_TARGET
     if (depth >= 1.0f - 1e-6f)
         discard;
 
-    float  ndcX     = (input.position.x / viewportW) * 2.0f - 1.0f;
-    float  ndcY     = 1.0f - (input.position.y / viewportH) * 2.0f;
+    uint w, h;
+    gDepth.GetDimensions(w, h);
+    float  ndcX     = (input.position.x / float(w)) * 2.0f - 1.0f;
+    float  ndcY     = 1.0f - (input.position.y / float(h)) * 2.0f;
     float3 worldPos = ReconstructWorldPos(ndcX, ndcY, depth, invViewProj);
 
     float4 albedo    = gAlbedo.Load(int3(texel, 0));

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Math/Matrix4f.h"
+
 #include <cstdint>
 #include <d3d12.h>
 #include <wrl/client.h>
@@ -10,6 +12,9 @@ namespace Dark
     class Renderer;
     class Mesh;
     class LocalLightGpuList;
+    class Camera3D;
+    class World;
+    struct LightingConstants;
 
     using Microsoft::WRL::ComPtr;
 
@@ -45,6 +50,11 @@ namespace Dark
 
         void drawFullscreenScissor(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const LocalLightGpuList& gpuList, const D3D12_RECT& scissor,
                                    uint32_t lightIndex, const LocalLightPassConstants& cb) const;
+
+        // Gather + upload + instanced sphere/cone + inside fullscreen. Fog/camera copied from `lighting`.
+        // Skips if pipeline, GPU list, or either volume mesh is invalid.
+        void draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, LocalLightGpuList& gpuList, const Mesh& sphere, const Mesh& cone,
+                  const Camera3D& camera, const Math::Matrix4f& viewProj, const LightingConstants& lighting) const;
 
         bool isValid() const { return m_psoMesh != nullptr && m_psoFullscreen != nullptr; }
 

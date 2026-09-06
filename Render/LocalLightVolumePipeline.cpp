@@ -1,10 +1,16 @@
 #include "Render/LocalLightVolumePipeline.h"
+#include "Render/Camera3D.h"
+#include "Render/DeferredLightingPipeline.h"
+#include "Render/Frustum3f.h"
+#include "Render/LocalLightGather.h"
 #include "Render/LocalLightGpuList.h"
 #include "Render/Mesh.h"
 #include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
+#include "ECS/World.h"
 
+#include <cstring>
 #include <d3dcompiler.h>
 
 namespace Dark
@@ -195,6 +201,49 @@ namespace Dark
         cmd->RSSetScissorRects(1, &scissor);
         cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         cmd->DrawInstanced(3, 1, 0, 0);
+    }
+
+    void LocalLightVolumePipeline::draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, LocalLightGpuList& gpuList, const Mesh& sphere,
+                                        const Mesh& cone, const Camera3D& camera, const Math::Matrix4f& viewProj, const LightingConstants& lighting) const
+    {
+        if (!cmd || !isValid() || !gpuList.isValid() || !sphere.valid() || !cone.valid())
+            return;
+        if (!renderer.debugState().localLights || lighting.lighting < 0.5f)
+            return;
+
+        const Frustum3f     frustum(viewProj);
+        LocalLightCullInput in{};
+        in.frustum    = &frustum;
+        in.cameraPos  = camera.GetPosition();
+        in.cameraLook = camera.GetLook();
+        in.nearZ      = camera.GetNearZ();
+        in.viewportW  = renderer.width();
+        in.viewportH  = renderer.height();
+        in.viewProj   = &viewProj;
+
+        LocalLightDrawLists lists{};
+        if (!gatherLocalLights(world, in, lists) || lists.count == 0)
+            return;
+
+        gpuList.upload(renderer.frameIndex(), lists);
+
+        LocalLightPassConstants cb{};
+        std::memcpy(cb.invViewProj, lighting.invViewProj, sizeof(cb.invViewProj));
+        std::memcpy(cb.viewProj, viewProj.m_afEntry, sizeof(cb.viewProj));
+        std::memcpy(cb.cameraPos, lighting.cameraPos, sizeof(cb.cameraPos));
+        cb.fogDensity = lighting.fogDensity;
+        std::memcpy(cb.fogColor, lighting.fogColor, sizeof(cb.fogColor));
+        cb.lighting   = lighting.lighting;
+        cb.viewportW  = static_cast<float>(renderer.width());
+        cb.viewportH  = static_cast<float>(renderer.height());
+
+        drawInstanced(cmd, renderer, gpuList, sphere, lists.pointOutCount, 0, cb);
+        drawInstanced(cmd, renderer, gpuList, cone, lists.spotOutCount, lists.pointOutCount, cb);
+        const uint32_t insideBase = lists.pointOutCount + lists.spotOutCount;
+        for (uint32_t i = 0; i < lists.insideCount; ++i)
+            drawFullscreenScissor(cmd, renderer, gpuList, lists.insideScissor[i], insideBase + i, cb);
+        const D3D12_RECT sc = renderer.scissor();
+        cmd->RSSetScissorRects(1, &sc);
     }
 
 } // namespace Dark
