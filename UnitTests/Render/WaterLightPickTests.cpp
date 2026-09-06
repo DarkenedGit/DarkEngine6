@@ -58,9 +58,9 @@ namespace
 
 TEST(WaterLightPick, FrameConstantsKeepLayoutThenGainLightIndices)
 {
-    EXPECT_EQ(sizeof(WaterFrameConstants), 64u * sizeof(float) + sizeof(uint32_t) * (1u + kWaterLocalLightMax));
     EXPECT_EQ(offsetof(WaterFrameConstants, lightCount), 64u * sizeof(float));
     EXPECT_EQ(offsetof(WaterFrameConstants, waterIndex), 64u * sizeof(float) + sizeof(uint32_t));
+    EXPECT_EQ(offsetof(WaterFrameConstants, fogColor), 64u * sizeof(float) + sizeof(uint32_t) * (1u + kWaterLocalLightMax));
     EXPECT_EQ((sizeof(WaterFrameConstants) + 255u) & ~255u, 512u);
     EXPECT_EQ(kWaterLocalLightMax, 8u);
     WaterFrameConstants cb{};

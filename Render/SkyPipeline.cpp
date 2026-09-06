@@ -1,6 +1,7 @@
 #include "Render/SkyPipeline.h"
 #include "Render/ShaderCompile.h"
 #include "Render/Camera3D.h"
+#include "Render/Fog.h"
 #include "Core/Log.h"
 #include "Math/MathDefines.h"
 #include "Math/Matrix4f.h"
@@ -119,7 +120,7 @@ void SkyPipeline::bind(ID3D12GraphicsCommandList* cmd) const
     cmd->SetPipelineState(m_pso.Get());
 }
 
-void SkyPipeline::draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, const Sky::Environment& env, float exposure) const
+void SkyPipeline::draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, const Sky::Environment& env, float exposure, float waterLevel, float fogScale) const
 {
     if (!cmd || !m_pso)
         return;
@@ -170,6 +171,27 @@ void SkyPipeline::draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, c
     cb.cameraLook[0]   = look.x;
     cb.cameraLook[1]   = look.y;
     cb.cameraLook[2]   = look.z;
+    const FogGpu fog      = makeFogGpu(&env, waterLevel, fogScale > 0.0f);
+    cb.fogDensity         = fog.fogDensity;
+    cb.fogColor[0]        = fog.fogColor[0];
+    cb.fogColor[1]        = fog.fogColor[1];
+    cb.fogColor[2]        = fog.fogColor[2];
+    cb.heightFogDensity   = fog.heightFogDensity;
+    cb.lightColor[0]      = env.lightColor().x;
+    cb.lightColor[1]      = env.lightColor().y;
+    cb.lightColor[2]      = env.lightColor().z;
+    cb.heightFogFalloff   = fog.heightFogFalloff;
+    cb.ambientColor[0]    = env.ambientColor().x;
+    cb.ambientColor[1]    = env.ambientColor().y;
+    cb.ambientColor[2]    = env.ambientColor().z;
+    cb.heightFogHeight    = fog.heightFogHeight;
+    cb.volumetricFogDensity = fog.volumetricFogDensity;
+    cb.volumetricHeight   = fog.volumetricHeight;
+    cb.waterLevel         = waterLevel;
+    cb.fogScale           = fogScale;
+    cb.fogLightDir[0]     = env.lightDir().x;
+    cb.fogLightDir[1]     = env.lightDir().y;
+    cb.fogLightDir[2]     = env.lightDir().z;
 
     cmd->SetGraphicsRoot32BitConstants(
         kRootConstants, static_cast<UINT>(sizeof(SkyFrameConstants) / 4), &cb, 0);

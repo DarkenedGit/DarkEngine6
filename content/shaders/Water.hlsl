@@ -5,6 +5,7 @@
 #pragma pack_matrix(row_major)
 
 #include "PbrLighting.hlsli"
+#include "Fog.hlsli"
 
 cbuffer FrameConstants : register(b0)
 {
@@ -36,7 +37,25 @@ cbuffer FrameConstants : register(b0)
     uint     waterIndex5;
     uint     waterIndex6;
     uint     waterIndex7;
+    float3   fogColor;
+    float    fogDensity;
+    float    heightFogDensity;
+    float    heightFogFalloff;
+    float    heightFogHeight;
+    float    volumetricFogDensity;
+    float    volumetricHeight;
+    float3   lightColor;
+    float    heightOriginX;
+    float3   ambientColor;
+    float    heightOriginZ;
+    float    heightCellSize;
+    float    heightWorldSizeX;
+    float    heightWorldSizeZ;
+    float    _fogPad;
 };
+
+Texture2D    gHeightMap  : register(t1);
+SamplerState gHeightSamp : register(s0);
 
 struct GpuLocalLight
 {
@@ -182,6 +201,25 @@ float4 PSMain(PSInput input) : SV_TARGET
             }
         }
     }
+
+    FogParams fp;
+    fp.cameraPos            = cameraPos;
+    fp.lightDir             = lightDir;
+    fp.lightColor           = lightColor;
+    fp.ambientColor         = ambientColor;
+    fp.fogColor             = fogColor;
+    fp.fogDensity           = fogDensity;
+    fp.heightFogDensity     = heightFogDensity;
+    fp.heightFogFalloff     = heightFogFalloff;
+    fp.heightFogHeight      = heightFogHeight;
+    fp.volumetricFogDensity = volumetricFogDensity;
+    fp.waterLevel           = waterLevel;
+    fp.volumetricHeight     = volumetricHeight;
+    fp.heightOrigin         = float2(heightOriginX, heightOriginZ);
+    fp.heightCellSize       = heightCellSize;
+    fp.heightWorldSize      = float2(heightWorldSizeX, heightWorldSizeZ);
+    FogResult fog = FogIntegrate(cameraPos, worldPos, fp, gHeightMap, gHeightSamp, 1.0f);
+    color = ApplyLitFog(color, fog);
 
     // Shore: fade out as the land rises through the surface.
     alpha = saturate(alpha + fres * 0.15f);

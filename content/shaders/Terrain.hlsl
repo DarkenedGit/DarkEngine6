@@ -2,6 +2,8 @@
 // each layer is tiled in the pixel shader. Splat RGBA = layer weights.
 #pragma pack_matrix(row_major)
 
+#include "Fog.hlsli"
+
 cbuffer FrameConstants : register(b0)
 {
     float4x4 worldViewProj;
@@ -17,6 +19,9 @@ cbuffer FrameConstants : register(b0)
     float3   fogColor;
     float    cameraPosZ;
     float    lighting; // 1 = lit, 0 = albedo only
+    float    heightFogDensity;
+    float    heightFogFalloff;
+    float    heightFogHeight;
 };
 
 Texture2D    gLayer0 : register(t0);
@@ -84,8 +89,24 @@ float4 PSMain(PSInput input) : SV_TARGET
     float3 ambient = ambientColor * albedo.rgb;
     float3 diffuse = ndotl * lightColor * albedo.rgb * shadow;
     float3 lit     = ambient + diffuse;
-    float dist = length(input.worldPos - cam);
-    float fog  = 1.0f - exp(-fogDensity * dist);
-    lit = lerp(lit, fogColor, saturate(fog));
+
+    FogParams fp;
+    fp.cameraPos            = cam;
+    fp.lightDir             = lightDirWS;
+    fp.lightColor           = lightColor;
+    fp.ambientColor         = ambientColor;
+    fp.fogColor             = fogColor;
+    fp.fogDensity           = fogDensity;
+    fp.heightFogDensity     = heightFogDensity;
+    fp.heightFogFalloff     = heightFogFalloff;
+    fp.heightFogHeight      = heightFogHeight;
+    fp.volumetricFogDensity = 0.0f;
+    fp.waterLevel           = heightFogHeight;
+    fp.volumetricHeight     = 14.0f;
+    fp.heightOrigin         = 0.0.xx;
+    fp.heightCellSize       = 0.0f;
+    fp.heightWorldSize      = 1.0.xx;
+    FogResult fog = FogIntegrateNoHeight(cam, input.worldPos, fp, shadow);
+    lit = ApplyLitFog(lit, fog);
     return float4(lit, albedo.a);
 }

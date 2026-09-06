@@ -3,6 +3,7 @@
 #include "Render/Camera3D.h"
 #include "Render/Frustum3f.h"
 #include "Render/Renderer.h"
+#include "Render/Fog.h"
 #include "Sky/Environment.h"
 #include "Terrain/HeightMap.h"
 #include "Core/Log.h"
@@ -301,7 +302,9 @@ using namespace Terrain;
         D3D12_GPU_VIRTUAL_ADDRESS lightsVa,
         uint32_t lightCount,
         const uint32_t* waterIndex,
-        uint32_t frameIndex) const
+        uint32_t frameIndex,
+        ID3D12DescriptorHeap* heightHeap,
+        D3D12_GPU_DESCRIPTOR_HANDLE heightGpu) const
     {
         m_lastDrawCalls = 0;
         m_lastTriangles = 0;
@@ -326,8 +329,16 @@ using namespace Terrain;
             for (uint32_t i = 0; i < cb.lightCount; ++i)
                 cb.waterIndex[i] = waterIndex[i];
         }
+        FogGpu fogMap{};
+        fillFogHeightMap(fogMap, m_heightMap);
+        cb.heightOriginX    = fogMap.heightOriginX;
+        cb.heightOriginZ    = fogMap.heightOriginZ;
+        cb.heightCellSize   = fogMap.heightCellSize;
+        cb.heightWorldSizeX = fogMap.heightWorldSizeX;
+        cb.heightWorldSizeZ = fogMap.heightWorldSizeZ;
         pipeline.setConstants(cmd, cb, frameIndex);
         pipeline.setLights(cmd, lightsVa);
+        pipeline.setHeightMap(cmd, heightHeap, heightGpu);
 
         const bool pointList = fill == DebugFill::Points;
         for (const WaterChunk& c : m_chunks)

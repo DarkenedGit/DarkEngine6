@@ -30,8 +30,20 @@ namespace Dark
         uint32_t lightIndex;
         float    viewportW;
         float    viewportH;
+        float    heightFogDensity;
+        float    heightFogFalloff;
+        float    heightFogHeight;
+        float    volumetricFogDensity;
+        float    waterLevel;
+        float    volumetricHeight;
+        float    heightOriginX;
+        float    heightOriginZ;
+        float    heightCellSize;
+        float    heightWorldSizeX;
+        float    heightWorldSizeZ;
+        float    padFog;
     };
-    static_assert(sizeof(LocalLightPassConstants) == 44 * sizeof(float), "local light root constants");
+    static_assert(sizeof(LocalLightPassConstants) == 56 * sizeof(float), "local light root constants");
 
     class LocalLightVolumePipeline
     {
@@ -40,6 +52,7 @@ namespace Dark
         static constexpr UINT kRootSrvTable  = 1;
         static constexpr UINT kRootLightsSrv = 2;
         static constexpr UINT kRootWorldSrv  = 3;
+        static constexpr UINT kRootHeightSrv = 4;
 
         LocalLightVolumePipeline() = default;
 

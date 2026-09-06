@@ -57,7 +57,13 @@ namespace Dark
         srvRange.BaseShaderRegister                = 0;
         srvRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-        D3D12_ROOT_PARAMETER params[4]{};
+        D3D12_DESCRIPTOR_RANGE heightRange{};
+        heightRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        heightRange.NumDescriptors                    = 1;
+        heightRange.BaseShaderRegister                = 6;
+        heightRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+        D3D12_ROOT_PARAMETER params[5]{};
         params[kRootConstants].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
         params[kRootConstants].ShaderVisibility         = D3D12_SHADER_VISIBILITY_ALL;
         params[kRootConstants].Constants.ShaderRegister = 0;
@@ -76,10 +82,26 @@ namespace Dark
         params[kRootWorldSrv].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
         params[kRootWorldSrv].Descriptor.ShaderRegister = 5;
 
+        params[kRootHeightSrv].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        params[kRootHeightSrv].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
+        params[kRootHeightSrv].DescriptorTable.NumDescriptorRanges = 1;
+        params[kRootHeightSrv].DescriptorTable.pDescriptorRanges   = &heightRange;
+
+        D3D12_STATIC_SAMPLER_DESC heightSamp{};
+        heightSamp.Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        heightSamp.AddressU         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        heightSamp.AddressV         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        heightSamp.AddressW         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        heightSamp.MaxLOD           = D3D12_FLOAT32_MAX;
+        heightSamp.ShaderRegister   = 0;
+        heightSamp.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
         D3D12_ROOT_SIGNATURE_DESC rsDesc{};
-        rsDesc.NumParameters = 4;
-        rsDesc.pParameters   = params;
-        rsDesc.Flags         = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+        rsDesc.NumParameters     = 5;
+        rsDesc.pParameters       = params;
+        rsDesc.NumStaticSamplers = 1;
+        rsDesc.pStaticSamplers   = &heightSamp;
+        rsDesc.Flags             = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
         ComPtr<ID3DBlob> rsBlob;
         ComPtr<ID3DBlob> rsErr;
@@ -164,6 +186,9 @@ namespace Dark
         cmd->SetGraphicsRootDescriptorTable(kRootSrvTable, table);
         cmd->SetGraphicsRootShaderResourceView(kRootLightsSrv, gpuList.lightsGpuVa());
         cmd->SetGraphicsRootShaderResourceView(kRootWorldSrv, gpuList.volumeWorldGpuVa());
+        const D3D12_GPU_DESCRIPTOR_HANDLE height = renderer.heightTableGpu();
+        if (height.ptr != 0)
+            cmd->SetGraphicsRootDescriptorTable(kRootHeightSrv, height);
         return true;
     }
 
@@ -233,9 +258,20 @@ namespace Dark
         std::memcpy(cb.cameraPos, lighting.cameraPos, sizeof(cb.cameraPos));
         cb.fogDensity = lighting.fogDensity;
         std::memcpy(cb.fogColor, lighting.fogColor, sizeof(cb.fogColor));
-        cb.lighting   = lighting.lighting;
-        cb.viewportW  = static_cast<float>(renderer.width());
-        cb.viewportH  = static_cast<float>(renderer.height());
+        cb.lighting              = lighting.lighting;
+        cb.viewportW             = static_cast<float>(renderer.width());
+        cb.viewportH             = static_cast<float>(renderer.height());
+        cb.heightFogDensity      = lighting.heightFogDensity;
+        cb.heightFogFalloff      = lighting.heightFogFalloff;
+        cb.heightFogHeight       = lighting.heightFogHeight;
+        cb.volumetricFogDensity  = lighting.volumetricFogDensity;
+        cb.waterLevel            = lighting.waterLevel;
+        cb.volumetricHeight      = lighting.volumetricHeight;
+        cb.heightOriginX         = lighting.heightOriginX;
+        cb.heightOriginZ         = lighting.heightOriginZ;
+        cb.heightCellSize        = lighting.heightCellSize;
+        cb.heightWorldSizeX      = lighting.heightWorldSizeX;
+        cb.heightWorldSizeZ      = lighting.heightWorldSizeZ;
 
         drawInstanced(cmd, renderer, gpuList, sphere, lists.pointOutCount, 0, cb);
         drawInstanced(cmd, renderer, gpuList, cone, lists.spotOutCount, lists.pointOutCount, cb);

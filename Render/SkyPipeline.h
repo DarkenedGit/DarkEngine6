@@ -39,10 +39,22 @@ struct SkyFrameConstants
     float cameraUp[3];
     float tanHalfFovY;
     float cameraLook[3];
-    float pad;
+    float fogDensity;
+    float fogColor[3];
+    float heightFogDensity;
+    float lightColor[3];
+    float heightFogFalloff;
+    float ambientColor[3];
+    float heightFogHeight;
+    float volumetricFogDensity;
+    float volumetricHeight;
+    float waterLevel;
+    float fogScale;
+    float fogLightDir[3];
+    float padFog;
 };
 
-static_assert(sizeof(SkyFrameConstants) == 36 * sizeof(float), "sky root constant size");
+static_assert(sizeof(SkyFrameConstants) == 56 * sizeof(float), "sky root constant size");
 
 class SkyPipeline
 {
@@ -55,7 +67,7 @@ public:
 
     void bind(ID3D12GraphicsCommandList* cmd) const;
     // exposure < 0 uses Environment::exposure(). Pass 1 when ACES owns exposure.
-    void draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, const Sky::Environment& env, float exposure = -1.0f) const;
+    void draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, const Sky::Environment& env, float exposure = -1.0f, float waterLevel = 0.0f, float fogScale = 1.0f) const;
 
     bool isValid() const { return m_pso != nullptr; }
 

@@ -1,5 +1,6 @@
 #include "Render/Renderer.h"
 #include "Render/SceneBuffers.h"
+#include "Render/Texture2D.h"
 #include "Core/Window.h"
 #include "Core/Log.h"
 
@@ -329,6 +330,7 @@ namespace Dark
                 m_sceneBuffers.reset();
                 return false;
             }
+            setHeightSrv(m_heightCpu.ptr != 0 ? m_heightCpu : (m_fogHeightDummy && m_fogHeightDummy->valid() ? m_fogHeightDummy->cpuHandle() : D3D12_CPU_DESCRIPTOR_HANDLE{}));
         }
 
         updateViewport();
@@ -597,6 +599,14 @@ namespace Dark
         }
         m_sceneBuffers = std::move(buffers);
         m_scenePath    = path;
+        if (!m_fogHeightDummy)
+            m_fogHeightDummy = std::make_unique<Texture2D>();
+        if (!m_fogHeightDummy->valid())
+        {
+            const float dry = 1.0e6f;
+            m_fogHeightDummy->createFromR32Float(*this, &dry, 1, 1, static_cast<uint32_t>(sizeof(float)));
+        }
+        setHeightSrv(m_heightCpu.ptr != 0 ? m_heightCpu : (m_fogHeightDummy->valid() ? m_fogHeightDummy->cpuHandle() : D3D12_CPU_DESCRIPTOR_HANDLE{}));
         DE_LOG_INFO(LogCategory::Render, "enableSceneBuffers: path={} {}x{}", static_cast<unsigned>(path), m_width, m_height);
         return true;
     }
@@ -610,6 +620,13 @@ namespace Dark
     {
         if (m_sceneBuffers)
             m_sceneBuffers->setShadowSrv(m_device.Get(), shadowCpu);
+    }
+
+    void Renderer::setHeightSrv(D3D12_CPU_DESCRIPTOR_HANDLE heightCpu)
+    {
+        m_heightCpu = heightCpu;
+        if (m_sceneBuffers)
+            m_sceneBuffers->setHeightSrv(m_device.Get(), heightCpu);
     }
 
     void Renderer::bindGBuffer()
@@ -789,6 +806,13 @@ namespace Dark
         if (!m_sceneBuffers)
             return {};
         return m_sceneBuffers->lightingTableGpu();
+    }
+
+    D3D12_GPU_DESCRIPTOR_HANDLE Renderer::heightTableGpu() const
+    {
+        if (!m_sceneBuffers)
+            return {};
+        return m_sceneBuffers->heightTableGpu();
     }
 
     ID3D12DescriptorHeap* Renderer::lightingHeap() const

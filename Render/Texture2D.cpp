@@ -183,7 +183,17 @@ namespace Dark
 
     bool Texture2D::createFromRGBA(Renderer& renderer, const uint8_t* rgba, uint32_t width, uint32_t height, uint32_t rowPitchBytes)
     {
-        if (!rgba || width == 0 || height == 0 || rowPitchBytes < width * 4u)
+        return createFromRaw(renderer, rgba, width, height, rowPitchBytes, DXGI_FORMAT_R8G8B8A8_UNORM, 4u);
+    }
+
+    bool Texture2D::createFromR32Float(Renderer& renderer, const float* samples, uint32_t width, uint32_t height, uint32_t rowPitchBytes)
+    {
+        return createFromRaw(renderer, samples, width, height, rowPitchBytes, DXGI_FORMAT_R32_FLOAT, static_cast<uint32_t>(sizeof(float)));
+    }
+
+    bool Texture2D::createFromRaw(Renderer& renderer, const void* data, uint32_t width, uint32_t height, uint32_t rowPitchBytes, DXGI_FORMAT format, uint32_t bytesPerPixel)
+    {
+        if (!data || width == 0 || height == 0 || bytesPerPixel == 0 || rowPitchBytes < width * bytesPerPixel)
         {
             DE_LOG_ERROR(LogCategory::Render, "Texture2D: invalid pixel data");
             return false;
@@ -208,7 +218,7 @@ namespace Dark
         texDesc.Height           = height;
         texDesc.DepthOrArraySize = 1;
         texDesc.MipLevels        = 1;
-        texDesc.Format           = DXGI_FORMAT_R8G8B8A8_UNORM;
+        texDesc.Format           = format;
         texDesc.SampleDesc       = { 1, 0 };
         texDesc.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
         texDesc.Flags            = D3D12_RESOURCE_FLAG_NONE;
@@ -259,8 +269,8 @@ namespace Dark
         for (UINT y = 0; y < numRows; ++y)
         {
             uint8_t*       dst = mapped + footprint.Offset + y * footprint.Footprint.RowPitch;
-            const uint8_t* src = rgba + y * rowPitchBytes;
-            memcpy(dst, src, static_cast<size_t>(width) * 4u);
+            const uint8_t* src = static_cast<const uint8_t*>(data) + y * rowPitchBytes;
+            memcpy(dst, src, static_cast<size_t>(width) * bytesPerPixel);
         }
         upload->Unmap(0, nullptr);
 
@@ -318,7 +328,7 @@ namespace Dark
         m_gpuHandle = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
 
         D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-        srvDesc.Format                  = DXGI_FORMAT_R8G8B8A8_UNORM;
+        srvDesc.Format                  = format;
         srvDesc.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
         srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         srvDesc.Texture2D.MipLevels     = 1;

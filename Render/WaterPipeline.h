@@ -38,17 +38,33 @@ struct WaterFrameConstants
     float    steepness;
     uint32_t lightCount;
     uint32_t waterIndex[kWaterLocalLightMax];
+    float    fogColor[3];
+    float    fogDensity;
+    float    heightFogDensity;
+    float    heightFogFalloff;
+    float    heightFogHeight;
+    float    volumetricFogDensity;
+    float    volumetricHeight;
+    float    lightColor[3];
+    float    heightOriginX;
+    float    ambientColor[3];
+    float    heightOriginZ;
+    float    heightCellSize;
+    float    heightWorldSizeX;
+    float    heightWorldSizeZ;
+    float    padFog;
 };
 
-static_assert(sizeof(WaterFrameConstants) == 64 * sizeof(float) + sizeof(uint32_t) * (1 + kWaterLocalLightMax), "water CBV payload");
 static_assert(offsetof(WaterFrameConstants, lightCount) == 64 * sizeof(float), "lightCount follows the old 64-float block");
 static_assert(offsetof(WaterFrameConstants, waterIndex) == 64 * sizeof(float) + sizeof(uint32_t), "waterIndex packs tightly after lightCount");
+static_assert(offsetof(WaterFrameConstants, fogColor) == 64 * sizeof(float) + sizeof(uint32_t) * (1 + kWaterLocalLightMax), "fog follows waterIndex");
 
 class WaterPipeline
 {
 public:
     static constexpr UINT kRootCbv       = 0;
     static constexpr UINT kRootLightsSrv = 1;
+    static constexpr UINT kRootHeightSrv = 2;
     static constexpr UINT kBufferedFrames = 2;
 
     WaterPipeline() = default;
@@ -58,6 +74,7 @@ public:
     void bind(ID3D12GraphicsCommandList* cmd, DebugFill fill = DebugFill::Solid) const;
     void setConstants(ID3D12GraphicsCommandList* cmd, const WaterFrameConstants& constants, uint32_t frameIndex);
     void setLights(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS lightsVa) const;
+    void setHeightMap(ID3D12GraphicsCommandList* cmd, ID3D12DescriptorHeap* heap, D3D12_GPU_DESCRIPTOR_HANDLE gpu) const;
 
     D3D12_GPU_VIRTUAL_ADDRESS dummyLightsGpuVa() const { return m_dummyGpu; }
 

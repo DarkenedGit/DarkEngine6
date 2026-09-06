@@ -36,7 +36,13 @@ namespace Dark
         srvRange.BaseShaderRegister                = 0;
         srvRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-        D3D12_ROOT_PARAMETER params[3]{};
+        D3D12_DESCRIPTOR_RANGE heightRange{};
+        heightRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        heightRange.NumDescriptors                    = 1;
+        heightRange.BaseShaderRegister                = 4;
+        heightRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+        D3D12_ROOT_PARAMETER params[4]{};
         params[kRootConstants].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
         params[kRootConstants].ShaderVisibility         = D3D12_SHADER_VISIBILITY_PIXEL;
         params[kRootConstants].Constants.ShaderRegister = 0;
@@ -51,7 +57,12 @@ namespace Dark
         params[kRootShadowCbv].ShaderVisibility          = D3D12_SHADER_VISIBILITY_PIXEL;
         params[kRootShadowCbv].Descriptor.ShaderRegister = 1;
 
-        D3D12_STATIC_SAMPLER_DESC samps[2]{};
+        params[kRootHeightSrv].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        params[kRootHeightSrv].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
+        params[kRootHeightSrv].DescriptorTable.NumDescriptorRanges = 1;
+        params[kRootHeightSrv].DescriptorTable.pDescriptorRanges   = &heightRange;
+
+        D3D12_STATIC_SAMPLER_DESC samps[3]{};
         samps[0].Filter           = D3D12_FILTER_MIN_MAG_MIP_POINT;
         samps[0].AddressU         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
         samps[0].AddressV         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
@@ -70,10 +81,18 @@ namespace Dark
         samps[1].ShaderRegister   = 1;
         samps[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
+        samps[2].Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        samps[2].AddressU         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        samps[2].AddressV         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        samps[2].AddressW         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        samps[2].MaxLOD           = D3D12_FLOAT32_MAX;
+        samps[2].ShaderRegister   = 2;
+        samps[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
         D3D12_ROOT_SIGNATURE_DESC rsDesc{};
-        rsDesc.NumParameters     = 3;
+        rsDesc.NumParameters     = 4;
         rsDesc.pParameters       = params;
-        rsDesc.NumStaticSamplers = 2;
+        rsDesc.NumStaticSamplers = 3;
         rsDesc.pStaticSamplers   = samps;
 
         ComPtr<ID3DBlob> rsBlob;
@@ -139,6 +158,9 @@ namespace Dark
         cmd->SetGraphicsRoot32BitConstants(kRootConstants, static_cast<UINT>(sizeof(LightingConstants) / 4), &constants, 0);
         cmd->SetGraphicsRootDescriptorTable(kRootSrvTable, table);
         shadows.bindReceiverCbv(cmd, kRootShadowCbv);
+        const D3D12_GPU_DESCRIPTOR_HANDLE height = renderer.heightTableGpu();
+        if (height.ptr != 0)
+            cmd->SetGraphicsRootDescriptorTable(kRootHeightSrv, height);
         cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         cmd->DrawInstanced(3, 1, 0, 0);
     }

@@ -34,6 +34,13 @@ public:
     float        timeScale  = 0.0f;   // hours advanced per real second
     WeatherState weather    = WeatherState::PartlyCloudy();
 
+    // Fog art direction. When fogAuto is true, evaluate() writes densities from
+    // weather/time then multiplies by the scales. When false, setFog* sticks.
+    bool  fogAuto             = true;
+    float fogDistanceScale    = 1.0f;
+    float heightFogScale      = 1.0f;
+    float volumetricFogScale  = 1.0f;
+
     void tick(float dt);
     void evaluate();
 
@@ -52,7 +59,19 @@ public:
 
     float sunElevation() const { return m_sunElevation; } // radians, negative = below horizon
     float fogDensity() const { return m_fogDensity; }
+    float heightFogDensity() const { return m_heightFogDensity; }
+    float heightFogFalloff() const { return m_heightFogFalloff; }
+    float volumetricFogDensity() const { return m_volumetricFogDensity; }
+    float volumetricFogHeight() const { return m_volumetricFogHeight; }
     float exposure() const { return m_exposure; }
+
+    void setFogColor(const Math::Vector3f& c) { m_fogColor = c; }
+    void setFogDensity(float v) { m_fogDensity = v; }
+    void setHeightFogDensity(float v) { m_heightFogDensity = v; }
+    void setHeightFogFalloff(float v) { m_heightFogFalloff = v; }
+    void setVolumetricFogDensity(float v) { m_volumetricFogDensity = v; }
+    void setVolumetricFogHeight(float v) { m_volumetricFogHeight = v; }
+    void resetFogTune();
 
     // Analytic sky / reflection color for a world-space view direction.
     Math::Vector3f evaluateSky(const Math::Vector3f& viewDir) const;
@@ -79,9 +98,13 @@ private:
     Math::Vector3f m_fogColor{ 0.55f, 0.62f, 0.72f };
     Math::Vector3f m_skyZenith{ 0.22f, 0.40f, 0.62f };
     Math::Vector3f m_skyHorizon{ 0.62f, 0.72f, 0.82f };
-    float          m_sunElevation = 0.8f;
-    float          m_fogDensity   = 0.004f;
-    float          m_exposure     = 1.0f;
+    float          m_sunElevation          = 0.8f;
+    float          m_fogDensity            = 0.004f;
+    float          m_heightFogDensity      = 0.0f;
+    float          m_heightFogFalloff      = 0.06f;
+    float          m_volumetricFogDensity  = 0.012f;
+    float          m_volumetricFogHeight   = 14.0f;
+    float          m_exposure              = 1.0f;
 };
 
 } // namespace Sky

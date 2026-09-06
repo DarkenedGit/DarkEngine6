@@ -147,6 +147,17 @@ float Environment::sunAngularRadius(float sunElevationRadians)
     return Lerp(high, low, h * h * (3.0f - 2.0f * h));
 }
 
+void Environment::resetFogTune()
+{
+    fogAuto            = true;
+    fogDistanceScale   = 1.0f;
+    heightFogScale     = 1.0f;
+    volumetricFogScale = 1.0f;
+    m_heightFogFalloff     = 0.06f;
+    m_volumetricFogHeight  = 14.0f;
+    evaluate();
+}
+
 void Environment::tick(float dt)
 {
     if (timeScale != 0.0f)
@@ -196,9 +207,16 @@ void Environment::evaluate()
     const float amb    = Lerp(ambNgt, ambDay, dayF);
     m_ambientColor     = (m_skyZenith * 0.55f + m_skyHorizon * 0.45f) * amb;
 
-    m_fogColor   = m_skyHorizon * (0.75f + 0.25f * cover);
-    m_fogDensity = (0.0035f + 0.012f * cover + 0.02f * rain) * (1.15f - 0.4f * dayF);
-    m_exposure   = Lerp(0.55f, 1.05f, dayF) * (1.0f - 0.15f * cover);
+    if (fogAuto)
+    {
+        m_fogColor   = m_skyHorizon * (0.75f + 0.25f * cover);
+        m_fogDensity = (0.007f + 0.016f * cover + 0.024f * rain) * (1.15f - 0.4f * dayF) * Max(fogDistanceScale, 0.0f);
+        // Height fog is a twilight valley layer: off at noon and midnight, peak at dawn/dusk.
+        const float twilight   = SmoothStep(0.34f, 0.05f, fabsf(elev));
+        m_heightFogDensity     = twilight * (0.032f + 0.018f * cover + 0.014f * rain) * Max(heightFogScale, 0.0f);
+        m_volumetricFogDensity = (0.020f + 0.018f * cover + 0.024f * rain) * (0.88f + 0.12f * (1.0f - dayF)) * Max(volumetricFogScale, 0.0f);
+    }
+    m_exposure = Lerp(0.55f, 1.05f, dayF) * (1.0f - 0.15f * cover);
 
     (void)turb;
 }

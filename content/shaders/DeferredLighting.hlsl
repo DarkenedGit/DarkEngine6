@@ -1,8 +1,10 @@
-// Fullscreen deferred GGX + CSM + fog. Reconstructs world position from depth.
+// Fullscreen deferred GGX + CSM + lit distance/height/valley fog.
+// Reconstructs world position from depth.
 #pragma pack_matrix(row_major)
 
 #include "GBuffer.hlsli"
 #include "PbrLighting.hlsli"
+#include "Fog.hlsli"
 #define SHADOW_T t3
 #include "Shadow.hlsli"
 
@@ -16,14 +18,26 @@ cbuffer LightingConstants : register(b0)
     float3   lightColor;
     float    emissiveGain;
     float3   ambientColor;
-    float    _pad1;
+    float    heightFogDensity;
     float3   fogColor;
-    float    _pad2;
+    float    heightFogFalloff;
+    float    heightFogHeight;
+    float    volumetricFogDensity;
+    float    waterLevel;
+    float    volumetricHeight;
+    float    heightOriginX;
+    float    heightOriginZ;
+    float    heightCellSize;
+    float    heightWorldSizeX;
+    float    heightWorldSizeZ;
+    float    _padFog;
 };
 
-Texture2D gAlbedo : register(t0);
-Texture2D gAttrib : register(t1);
-Texture2D gDepth  : register(t2);
+Texture2D    gAlbedo    : register(t0);
+Texture2D    gAttrib    : register(t1);
+Texture2D    gDepth     : register(t2);
+Texture2D    gHeightMap : register(t4);
+SamplerState gHeightSamp : register(s2);
 
 struct PSInput
 {
@@ -36,6 +50,27 @@ PSInput VSMain(uint id : SV_VertexID)
     PSInput o;
     o.position = float4(pos, 0.0f, 1.0f);
     return o;
+}
+
+FogParams MakeFogParams()
+{
+    FogParams p;
+    p.cameraPos            = cameraPos;
+    p.lightDir             = lightDirWS;
+    p.lightColor           = lightColor;
+    p.ambientColor         = ambientColor;
+    p.fogColor             = fogColor;
+    p.fogDensity           = fogDensity;
+    p.heightFogDensity     = heightFogDensity;
+    p.heightFogFalloff     = heightFogFalloff;
+    p.heightFogHeight      = heightFogHeight;
+    p.volumetricFogDensity = volumetricFogDensity;
+    p.waterLevel           = waterLevel;
+    p.volumetricHeight     = volumetricHeight;
+    p.heightOrigin         = float2(heightOriginX, heightOriginZ);
+    p.heightCellSize       = heightCellSize;
+    p.heightWorldSize      = float2(heightWorldSizeX, heightWorldSizeZ);
+    return p;
 }
 
 float4 PSMain(PSInput input) : SV_TARGET
@@ -69,8 +104,7 @@ float4 PSMain(PSInput input) : SV_TARGET
     float3 lit    = ambientColor * albedo.rgb
                   + PbrDirectional(n, v, albedo.rgb, roughness, metallic, lightDirWS, lightColor) * shadow
                   + albedo.rgb * emissive * emissiveGain;
-    float  dist   = length(worldPos - cameraPos);
-    float  fog    = 1.0f - exp(-fogDensity * dist);
-    lit = lerp(lit, fogColor, saturate(fog));
-    return float4(lit, 1);
+
+    FogResult fog = FogIntegrate(cameraPos, worldPos, MakeFogParams(), gHeightMap, gHeightSamp, shadow);
+    return float4(ApplyLitFog(lit, fog), 1);
 }

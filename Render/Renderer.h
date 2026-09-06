@@ -13,6 +13,7 @@ namespace Dark
 
     class Window;
     class SceneBuffers;
+    class Texture2D;
 
     using Microsoft::WRL::ComPtr;
 
@@ -115,6 +116,7 @@ namespace Dark
         void clearGBuffer();
         void clearHdr();
         void setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
+        void setHeightSrv(D3D12_CPU_DESCRIPTOR_HANDLE heightCpu);
 
         D3D12_CPU_DESCRIPTOR_HANDLE hdrRtv() const;
         D3D12_CPU_DESCRIPTOR_HANDLE hdrSrvCpu() const;
@@ -124,6 +126,7 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE albedoSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE attribSrvCpu() const;
         D3D12_GPU_DESCRIPTOR_HANDLE lightingTableGpu() const;
+        D3D12_GPU_DESCRIPTOR_HANDLE heightTableGpu() const;
         ID3D12DescriptorHeap*       lightingHeap() const;
         bool hasGBuffer() const;
 
@@ -170,6 +173,8 @@ namespace Dark
         bool             m_frameSubmitted  = false;
         ScenePath        m_scenePath       = ScenePath::SwapChainForward;
         std::unique_ptr<SceneBuffers> m_sceneBuffers;
+        std::unique_ptr<Texture2D>    m_fogHeightDummy;
+        D3D12_CPU_DESCRIPTOR_HANDLE   m_heightCpu{};
         DebugRenderState m_debugState{};
     };
 

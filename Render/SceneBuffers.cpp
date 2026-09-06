@@ -49,7 +49,10 @@ namespace Dark
         m_postSrvCpu     = {};
         m_historySrvCpu  = {};
         m_lightingGpu    = {};
+        m_heightGpu      = {};
         m_lightingCpu    = {};
+        m_shadowCpu      = {};
+        m_heightCpu      = {};
         m_hdrState       = D3D12_RESOURCE_STATE_COMMON;
         m_albedoState    = D3D12_RESOURCE_STATE_COMMON;
         m_attribState    = D3D12_RESOURCE_STATE_COMMON;
@@ -112,8 +115,10 @@ namespace Dark
     bool SceneBuffers::create(ID3D12Device* device, uint32_t width, uint32_t height, bool gbuffer, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu, const float hdrClear[4])
     {
         const D3D12_CPU_DESCRIPTOR_HANDLE savedShadow = m_shadowCpu;
+        const D3D12_CPU_DESCRIPTOR_HANDLE savedHeight = m_heightCpu;
         reset();
         m_shadowCpu = savedShadow;
+        m_heightCpu = savedHeight;
         if (!device || width == 0 || height == 0)
         {
             DE_LOG_ERROR(LogCategory::Render, "SceneBuffers::create: invalid device or size");
@@ -222,6 +227,8 @@ namespace Dark
             }
             m_lightingCpu = m_lightingHeap->GetCPUDescriptorHandleForHeapStart();
             m_lightingGpu = m_lightingHeap->GetGPUDescriptorHandleForHeapStart();
+            m_heightGpu   = m_lightingGpu;
+            m_heightGpu.ptr += static_cast<SIZE_T>(kLightingHeight) * m_srvIncr;
             packLightingHeap(device, depthSrvCpu);
         }
 
@@ -280,6 +287,8 @@ namespace Dark
             device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingDepth, m_srvIncr), depthSrvCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         if (m_shadowCpu.ptr != 0)
             device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingShadow, m_srvIncr), m_shadowCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        if (m_heightCpu.ptr != 0)
+            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingHeight, m_srvIncr), m_heightCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     }
 
     D3D12_CPU_DESCRIPTOR_HANDLE SceneBuffers::albedoSrvCpu() const
@@ -305,6 +314,17 @@ namespace Dark
             return;
         D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_lightingHeap->GetCPUDescriptorHandleForHeapStart();
         device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingShadow, m_srvIncr), shadowCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    }
+
+    void SceneBuffers::setHeightSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE heightCpu)
+    {
+        m_heightCpu = heightCpu;
+        if (!device || !m_lightingHeap || heightCpu.ptr == 0)
+            return;
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_lightingHeap->GetCPUDescriptorHandleForHeapStart();
+        device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingHeight, m_srvIncr), heightCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        m_heightGpu = m_lightingGpu;
+        m_heightGpu.ptr += static_cast<SIZE_T>(kLightingHeight) * m_srvIncr;
     }
 
 } // namespace Dark

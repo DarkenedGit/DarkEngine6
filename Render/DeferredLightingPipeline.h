@@ -22,12 +22,22 @@ namespace Dark
         float lightColor[3];
         float emissiveGain; // default 4
         float ambientColor[3];
-        float pad1;
+        float heightFogDensity;
         float fogColor[3];
-        float pad2;
+        float heightFogFalloff;
+        float heightFogHeight;
+        float volumetricFogDensity;
+        float waterLevel;
+        float volumetricHeight;
+        float heightOriginX;
+        float heightOriginZ;
+        float heightCellSize;
+        float heightWorldSizeX;
+        float heightWorldSizeZ;
+        float padFog;
     };
 
-    static_assert(sizeof(LightingConstants) == 36 * sizeof(float), "lighting root constants");
+    static_assert(sizeof(LightingConstants) == 46 * sizeof(float), "lighting root constants");
 
     class DeferredLightingPipeline
     {
@@ -35,6 +45,7 @@ namespace Dark
         static constexpr UINT kRootConstants = 0;
         static constexpr UINT kRootSrvTable  = 1;
         static constexpr UINT kRootShadowCbv = 2;
+        static constexpr UINT kRootHeightSrv = 3;
 
         DeferredLightingPipeline() = default;
 

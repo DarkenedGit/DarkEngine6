@@ -89,7 +89,9 @@ namespace Dark
             D3D12_GPU_VIRTUAL_ADDRESS lightsVa = 0,
             uint32_t lightCount = 0,
             const uint32_t* waterIndex = nullptr,
-            uint32_t frameIndex = 0) const;
+            uint32_t frameIndex = 0,
+            ID3D12DescriptorHeap* heightHeap = nullptr,
+            D3D12_GPU_DESCRIPTOR_HANDLE heightGpu = {}) const;
 
         float heightAtWorld(float x, float z) const;
         bool  tryHeightAtWorld(float x, float z, float& outY) const;

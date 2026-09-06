@@ -4,6 +4,7 @@
 #include "Math/Matrix4f.h"
 #include "Math/Vector3f.h"
 #include "Render/Mesh.h"
+#include "Render/Texture2D.h"
 #include "Render/DebugRenderState.h"
 #include "Terrain/HeightMap.h"
 #include "Terrain/SplatMap.h"
@@ -100,6 +101,7 @@ namespace Terrain
 
         const HeightMap& heightMap() const { return m_heightMap; }
         HeightMap&       heightMap()       { return m_heightMap; }
+        const Texture2D& heightTexture() const { return m_heightTexture; }
 
         int chunksX() const { return m_chunksX; }
         int chunksZ() const { return m_chunksZ; }
@@ -115,6 +117,7 @@ namespace Terrain
         TerrainChunk* chunkAt(int ix, int iz);
 
         HeightMap m_heightMap;
+        Texture2D m_heightTexture;
         int       m_chunkCells = 16;
         int       m_chunksX    = 0;
         int       m_chunksZ    = 0;

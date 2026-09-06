@@ -52,9 +52,12 @@ namespace Dark
         float fogColor[3];
         float cameraPosZ;
         float lighting = 1.0f; // 1 = Lambert+shadow+fog, 0 = albedo only
+        float heightFogDensity  = 0.0f;
+        float heightFogFalloff  = 0.06f;
+        float heightFogHeight   = 0.0f;
     };
 
-    static_assert(sizeof(TerrainFrameConstants) == 57 * sizeof(float), "terrain root constant size");
+    static_assert(sizeof(TerrainFrameConstants) == 60 * sizeof(float), "terrain root constant size");
     static_assert(offsetof(TerrainFrameConstants, lightDirWS) == 144, "lightDirWS pack");
     static_assert(offsetof(TerrainFrameConstants, lighting) == 224, "lighting pack");
 

@@ -10,6 +10,7 @@
 #include "Math/Matrix4f.h"
 
 #include <cstring>
+#include <vector>
 
 namespace Dark
 {
@@ -185,7 +186,29 @@ void TerrainWorld::rebuildDirtyCpuMeshes()
 bool TerrainWorld::createGpu(Renderer& renderer)
 {
     rebuildDirtyCpuMeshes();
-    return uploadDirty(renderer);
+    if (!uploadDirty(renderer))
+        return false;
+
+    if (!m_heightTexture.valid() && m_heightMap.valid())
+    {
+        const uint32_t w = m_heightMap.width();
+        const uint32_t h = m_heightMap.height();
+        std::vector<float> samples(static_cast<size_t>(w) * h);
+        for (uint32_t z = 0; z < h; ++z)
+        {
+            for (uint32_t x = 0; x < w; ++x)
+            {
+                samples[static_cast<size_t>(z) * w + x] =
+                    m_heightMap.heightAtWorld(m_heightMap.worldX(static_cast<int>(x)), m_heightMap.worldZ(static_cast<int>(z)));
+            }
+        }
+        if (!m_heightTexture.createFromR32Float(renderer, samples.data(), w, h, w * static_cast<uint32_t>(sizeof(float))))
+        {
+            DE_LOG_ERROR("TerrainWorld: height texture upload failed");
+            return false;
+        }
+    }
+    return true;
 }
 
 bool TerrainWorld::uploadDirty(Renderer& renderer)
@@ -251,10 +274,13 @@ void TerrainWorld::draw(
         cb.ambientColor[0]  = env->ambientColor().x;
         cb.ambientColor[1]  = env->ambientColor().y;
         cb.ambientColor[2]  = env->ambientColor().z;
-        cb.fogColor[0]      = env->fogColor().x;
-        cb.fogColor[1]      = env->fogColor().y;
-        cb.fogColor[2]      = env->fogColor().z;
-        cb.fogDensity       = env->fogDensity();
+        cb.fogColor[0]         = env->fogColor().x;
+        cb.fogColor[1]         = env->fogColor().y;
+        cb.fogColor[2]         = env->fogColor().z;
+        cb.fogDensity          = env->fogDensity();
+        cb.heightFogDensity    = env->heightFogDensity();
+        cb.heightFogFalloff    = env->heightFogFalloff();
+        cb.heightFogHeight     = m_heightMap.origin().y;
     }
     else
     {
@@ -274,7 +300,10 @@ void TerrainWorld::draw(
     }
     cb.lighting = lighting ? 1.0f : 0.0f;
     if (!lighting)
-        cb.fogDensity = 0.0f;
+    {
+        cb.fogDensity       = 0.0f;
+        cb.heightFogDensity = 0.0f;
+    }
     pipeline.setConstants(cmd, cb);
 
     const bool pointList = fill == DebugFill::Points;

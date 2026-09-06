@@ -3,6 +3,7 @@
 
 #include "GBuffer.hlsli"
 #include "PbrLighting.hlsli"
+#include "Fog.hlsli"
 
 cbuffer LocalLightPassConstants : register(b0)
 {
@@ -16,11 +17,25 @@ cbuffer LocalLightPassConstants : register(b0)
     uint     lightIndex;
     float    viewportW;
     float    viewportH;
+    float    heightFogDensity;
+    float    heightFogFalloff;
+    float    heightFogHeight;
+    float    volumetricFogDensity;
+    float    waterLevel;
+    float    volumetricHeight;
+    float    heightOriginX;
+    float    heightOriginZ;
+    float    heightCellSize;
+    float    heightWorldSizeX;
+    float    heightWorldSizeZ;
+    float    _padFog;
 };
 
-Texture2D gAlbedo : register(t0);
-Texture2D gAttrib : register(t1);
-Texture2D gDepth  : register(t2);
+Texture2D    gAlbedo     : register(t0);
+Texture2D    gAttrib     : register(t1);
+Texture2D    gDepth      : register(t2);
+Texture2D    gHeightMap  : register(t6);
+SamplerState gHeightSamp : register(s0);
 
 struct GpuLocalLight
 {
@@ -61,6 +76,64 @@ PSInput VSFullscreen(uint id : SV_VertexID)
     o.position = float4(pos, 0.0f, 1.0f);
     o.iid      = 0;
     return o;
+}
+
+FogParams MakeFogParams()
+{
+    FogParams p;
+    p.cameraPos            = cameraPos;
+    p.lightDir             = float3(0, 1, 0);
+    p.lightColor           = 0.0.xxx;
+    p.ambientColor         = 0.0.xxx;
+    p.fogColor             = fogColor;
+    p.fogDensity           = fogDensity;
+    p.heightFogDensity     = heightFogDensity;
+    p.heightFogFalloff     = heightFogFalloff;
+    p.heightFogHeight      = heightFogHeight;
+    p.volumetricFogDensity = volumetricFogDensity;
+    p.waterLevel           = waterLevel;
+    p.volumetricHeight     = volumetricHeight;
+    p.heightOrigin         = float2(heightOriginX, heightOriginZ);
+    p.heightCellSize       = heightCellSize;
+    p.heightWorldSize      = float2(heightWorldSizeX, heightWorldSizeZ);
+    return p;
+}
+
+float LightAttenuation(GpuLocalLight light, float3 p)
+{
+    float3 toLight = light.pos - p;
+    float  d       = length(toLight);
+    float3 l       = toLight / max(d, 1e-4f);
+    float  att     = windowedDistanceAttenuation(d * d, light.invRange2);
+    if (light.type >= 0.5f)
+        att *= spotAngleAttenuation(dot(-l, light.dir), light.innerCos, light.outerCos);
+    return att;
+}
+
+float3 LocalLightFogScatter(float3 cam, float3 worldPos, GpuLocalLight light, FogParams fp)
+{
+    float3 ray  = worldPos - cam;
+    float  dist = length(ray);
+    if (dist < 1e-3f)
+        return 0.0.xxx;
+    float3 dir = ray / dist;
+    const int kSteps = 8;
+    float  dt = dist / float(kSteps);
+    float  T  = 1.0f;
+    float3 s  = 0.0.xxx;
+    float3 albedo = FogAlbedo(fp);
+    [unroll]
+    for (int i = 0; i < kSteps; ++i)
+    {
+        float3 p        = cam + dir * ((float(i) + 0.5f) * dt);
+        float  terrainY = FogSampleTerrainY(gHeightMap, gHeightSamp, p.xz, fp);
+        float  d        = fp.fogDensity + FogHeightDensity(p.y, fp) + FogValleyDensity(p, terrainY, fp);
+        // Clamp 1/d^2 so a sample at the light origin cannot dump candela into a solid ball.
+        float  att      = min(LightAttenuation(light, p), 1.5f);
+        s += T * (d * dt) * albedo * light.color * att * 0.0015f;
+        T *= exp(-d * dt);
+    }
+    return saturate(s);
 }
 
 float4 PSMain(PSInput input) : SV_TARGET
@@ -110,9 +183,10 @@ float4 PSMain(PSInput input) : SV_TARGET
     if (light.type >= 0.5f)
         lit *= spotAngleAttenuation(cosTheta, light.innerCos, light.outerCos);
 
-    float dist = length(worldPos - cameraPos);
-    float fog  = saturate(1.0f - exp(-fogDensity * dist));
-    lit *= (1.0f - fog);
+    FogParams fp  = MakeFogParams();
+    FogResult fog = FogIntegrate(cameraPos, worldPos, fp, gHeightMap, gHeightSamp, 1.0f);
+    lit *= fog.transmittance;
+    lit += LocalLightFogScatter(cameraPos, worldPos, light, fp);
 
     return float4(lit, 0.0f);
 }

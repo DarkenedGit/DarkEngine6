@@ -54,7 +54,7 @@ void SandboxApp::drawPauseOverlay()
 
 void SandboxApp::drawDevTools()
 {
-    ImGui::SetNextWindowSize(ImVec2(440.0f, 620.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(460.0f, 720.0f), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImVec2(28.0f, 28.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Dev Tools", &m_showDevTools))
     {
@@ -190,8 +190,62 @@ void SandboxApp::drawDevTools()
         weatherBtn("Overcast", Sky::WeatherState::Overcast(), ImVec4(0.38f, 0.40f, 0.42f, 1.0f));
         ImGui::SameLine();
         weatherBtn("Storm", Sky::WeatherState::Storm(), ImVec4(0.28f, 0.22f, 0.40f, 1.0f));
-        ImGui::Text("Cover %.0f%%  fog %.3f  exposure %.2f", static_cast<double>(m_env.weather.cloudCoverage * 100.0f), static_cast<double>(m_env.fogDensity()),
-                    static_cast<double>(m_env.exposure()));
+        ImGui::Text("Cover %.0f%%  exposure %.2f", static_cast<double>(m_env.weather.cloudCoverage * 100.0f), static_cast<double>(m_env.exposure()));
+    }
+
+    if (ImGui::CollapsingHeader("Fog", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        const Vector3f fc = m_env.fogColor();
+        ImGui::ColorButton("##fogSwatch", ImVec4(fc.x, fc.y, fc.z, 1.0f), ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop, ImVec2(18.0f, 18.0f));
+        ImGui::SameLine();
+        ImGui::Text("dist %.3f  height %.3f  valley %.3f", static_cast<double>(m_env.fogDensity()), static_cast<double>(m_env.heightFogDensity()),
+                    static_cast<double>(m_env.volumetricFogDensity()));
+
+        bool autoFog = m_env.fogAuto;
+        if (ImGui::Checkbox("Auto from weather / time", &autoFog))
+        {
+            m_env.fogAuto = autoFog;
+            if (autoFog)
+                m_env.evaluate();
+        }
+
+        if (m_env.fogAuto)
+        {
+            if (ImGui::SliderFloat("Distance scale", &m_env.fogDistanceScale, 0.0f, 6.0f, "%.2f"))
+                m_env.evaluate();
+            if (ImGui::SliderFloat("Height scale", &m_env.heightFogScale, 0.0f, 6.0f, "%.2f"))
+                m_env.evaluate();
+            if (ImGui::SliderFloat("Valley scale", &m_env.volumetricFogScale, 0.0f, 6.0f, "%.2f"))
+                m_env.evaluate();
+        }
+        else
+        {
+            float dist = m_env.fogDensity();
+            if (ImGui::SliderFloat("Distance density", &dist, 0.0f, 0.08f, "%.4f"))
+                m_env.setFogDensity(dist);
+            float height = m_env.heightFogDensity();
+            if (ImGui::SliderFloat("Height density", &height, 0.0f, 0.12f, "%.4f"))
+                m_env.setHeightFogDensity(height);
+            float valley = m_env.volumetricFogDensity();
+            if (ImGui::SliderFloat("Valley density", &valley, 0.0f, 0.12f, "%.4f"))
+                m_env.setVolumetricFogDensity(valley);
+            float col[3] = { fc.x, fc.y, fc.z };
+            if (ImGui::ColorEdit3("Fog color", col, ImGuiColorEditFlags_Float))
+                m_env.setFogColor(Vector3f(col[0], col[1], col[2]));
+        }
+
+        float falloff = m_env.heightFogFalloff();
+        if (ImGui::SliderFloat("Height falloff", &falloff, 0.01f, 0.25f, "%.3f"))
+            m_env.setHeightFogFalloff(falloff);
+        float slab = m_env.volumetricFogHeight();
+        if (ImGui::SliderFloat("Valley height (m)", &slab, 2.0f, 40.0f, "%.1f"))
+            m_env.setVolumetricFogHeight(slab);
+
+        if (ImGui::Button("Reset fog"))
+        {
+            m_env.resetFogTune();
+            DE_LOG_INFO("Sky: fog tune reset");
+        }
     }
 
     if (ImGui::CollapsingHeader("Network", ImGuiTreeNodeFlags_DefaultOpen))

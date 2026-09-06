@@ -19,6 +19,7 @@
 #include "Render/TaaJitter.h"
 #include "Render/MeshGen.h"
 #include "Render/ScenePath.h"
+#include "Render/Fog.h"
 #include "Terrain/SplatMap.h"
 #include "Water/WaterWaves.h"
 
@@ -1487,6 +1488,8 @@ void SandboxApp::onInit()
             requestQuit();
             return;
         }
+        if (m_terrain.heightTexture().valid())
+            renderer().setHeightSrv(m_terrain.heightTexture().cpuHandle());
         if (!pumpBootFrame())
             return;
 
@@ -1786,8 +1789,9 @@ void SandboxApp::onRender()
     uint32_t        meshDraws = 0;
 
     const float skyExposure = useAcesTonemap(renderer()) ? 1.0f : m_env.exposure();
+    const float fogScale    = renderer().debugState().lighting ? 1.0f : 0.0f;
     if (!deferred)
-        m_skyPipeline.draw(cmd, m_viewCamera, m_env, skyExposure);
+        m_skyPipeline.draw(cmd, m_viewCamera, m_env, skyExposure, m_water.params().waterLevel, fogScale);
 
     AssetRef<Material> material = m_cubeMaterial;
     if (m_cube.valid())
@@ -1842,7 +1846,6 @@ void SandboxApp::onRender()
         lc.cameraPos[0]     = camPos.x;
         lc.cameraPos[1]     = camPos.y;
         lc.cameraPos[2]     = camPos.z;
-        lc.fogDensity       = m_env.fogDensity();
         lc.lightDirWS[0]    = m_env.lightDir().x;
         lc.lightDirWS[1]    = m_env.lightDir().y;
         lc.lightDirWS[2]    = m_env.lightDir().z;
@@ -1854,14 +1857,14 @@ void SandboxApp::onRender()
         lc.ambientColor[0]  = m_env.ambientColor().x;
         lc.ambientColor[1]  = m_env.ambientColor().y;
         lc.ambientColor[2]  = m_env.ambientColor().z;
-        lc.fogColor[0]      = m_env.fogColor().x;
-        lc.fogColor[1]      = m_env.fogColor().y;
-        lc.fogColor[2]      = m_env.fogColor().z;
+        FogGpu fog = makeFogGpu(&m_env, m_water.params().waterLevel, lc.lighting > 0.5f);
+        fillFogHeightMap(fog, &m_terrain.heightMap());
+        applyFogToLighting(lc, fog);
         m_lighting.draw(cmd, renderer(), m_shadows, lc);
         m_localLightVolumes.draw(cmd, renderer(), world(), m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_viewCamera, viewProj, lc);
 
         renderer().bindHdr(true);
-        m_skyPipeline.draw(cmd, m_viewCamera, m_env, skyExposure);
+        m_skyPipeline.draw(cmd, m_viewCamera, m_env, skyExposure, m_water.params().waterLevel, fogScale);
     }
     else
     {
@@ -1938,6 +1941,18 @@ void SandboxApp::onRender()
         }
     }
 
+    ID3D12DescriptorHeap*         heightHeap = nullptr;
+    D3D12_GPU_DESCRIPTOR_HANDLE   heightGpu{};
+    if (m_terrain.heightTexture().valid())
+    {
+        heightHeap = m_terrain.heightTexture().srvHeap();
+        heightGpu  = m_terrain.heightTexture().gpuHandle();
+    }
+    else if (renderer().lightingHeap())
+    {
+        heightHeap = renderer().lightingHeap();
+        heightGpu  = renderer().heightTableGpu();
+    }
     m_water.draw(
         cmd,
         m_waterPipeline,
@@ -1948,7 +1963,9 @@ void SandboxApp::onRender()
         waterLightsVa,
         waterLightCount,
         waterIndex,
-        renderer().frameIndex());
+        renderer().frameIndex(),
+        heightHeap,
+        heightGpu);
 
     if (m_chaseOk)
         m_chase.drawPaths(cmd, renderer(), viewProj);

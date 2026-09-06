@@ -3,6 +3,7 @@
 #include "Math/MathDefines.h"
 #include "Math/MathHelper.h"
 #include "Sky/Environment.h"
+#include "Render/Fog.h"
 
 using namespace Dark::Math;
 using namespace Dark::Sky;
@@ -77,6 +78,71 @@ TEST(Environment, EvaluateSkyZenithBluerThanHorizonAtNoon)
     const Vector3f zen = env.evaluateSky(Vector3f(0.0f, 1.0f, 0.0f));
     const Vector3f hor = env.evaluateSky(Vector3f(1.0f, 0.05f, 0.0f));
     EXPECT_GT(zen.z / Max(zen.x, 1.0e-3f), hor.z / Max(hor.x, 1.0e-3f));
+}
+
+TEST(Environment, HeightFogPeaksAtDawnAndDusk)
+{
+    Environment noon;
+    noon.timeOfDay = 12.0f;
+    noon.weather   = WeatherState::Clear();
+    noon.evaluate();
+
+    Environment dusk;
+    dusk.timeOfDay = 19.6f;
+    dusk.dayOfYear = 172.0f;
+    dusk.weather   = WeatherState::Clear();
+    dusk.evaluate();
+
+    Environment dawn;
+    dawn.timeOfDay = 4.4f;
+    dawn.dayOfYear = 172.0f;
+    dawn.weather   = WeatherState::Clear();
+    dawn.evaluate();
+
+    Environment midnight;
+    midnight.timeOfDay = 0.0f;
+    midnight.weather   = WeatherState::Clear();
+    midnight.evaluate();
+
+    EXPECT_GT(dusk.heightFogDensity(), noon.heightFogDensity() * 8.0f);
+    EXPECT_GT(dawn.heightFogDensity(), noon.heightFogDensity() * 8.0f);
+    EXPECT_LT(noon.heightFogDensity(), 1.0e-3f);
+    EXPECT_LT(midnight.heightFogDensity(), dusk.heightFogDensity() * 0.25f);
+    EXPECT_NEAR(dusk.heightFogDensity(), Dark::heightFogAmount(dusk.sunElevation()) * (0.032f), 0.015f);
+}
+
+TEST(Environment, ValleyFogThickensInStorms)
+{
+    Environment clear;
+    clear.timeOfDay = 13.0f;
+    clear.weather   = WeatherState::Clear();
+    clear.evaluate();
+
+    Environment storm;
+    storm.timeOfDay = 13.0f;
+    storm.weather   = WeatherState::Storm();
+    storm.evaluate();
+
+    EXPECT_GT(storm.volumetricFogDensity(), clear.volumetricFogDensity());
+    EXPECT_GT(clear.volumetricFogDensity(), 0.005f);
+}
+
+TEST(Environment, ManualFogSurvivesEvaluate)
+{
+    Environment env;
+    env.timeOfDay = 12.0f;
+    env.weather   = WeatherState::Clear();
+    env.evaluate();
+    env.fogAuto = false;
+    env.setFogDensity(0.042f);
+    env.setHeightFogDensity(0.031f);
+    env.setVolumetricFogDensity(0.027f);
+    env.setFogColor(Vector3f(0.2f, 0.3f, 0.4f));
+    env.evaluate();
+    EXPECT_FLOAT_EQ(env.fogDensity(), 0.042f);
+    EXPECT_FLOAT_EQ(env.heightFogDensity(), 0.031f);
+    EXPECT_FLOAT_EQ(env.volumetricFogDensity(), 0.027f);
+    EXPECT_FLOAT_EQ(env.fogColor().x, 0.2f);
 }
 
 TEST(Environment, TickAdvancesClock)

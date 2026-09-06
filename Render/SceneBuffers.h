@@ -24,7 +24,8 @@ namespace Dark
         static constexpr UINT kLightingAttrib = 1;
         static constexpr UINT kLightingDepth  = 2;
         static constexpr UINT kLightingShadow = 3;
-        static constexpr UINT kLightingCount  = 4;
+        static constexpr UINT kLightingHeight = 4;
+        static constexpr UINT kLightingCount  = 5;
 
         SceneBuffers() = default;
 
@@ -68,6 +69,7 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE albedoSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE attribSrvCpu() const;
         D3D12_GPU_DESCRIPTOR_HANDLE lightingTableGpu() const { return m_lightingGpu; }
+        D3D12_GPU_DESCRIPTOR_HANDLE heightTableGpu() const { return m_heightGpu; }
         ID3D12DescriptorHeap*       lightingHeap() const { return m_lightingHeap.Get(); }
         const float*                hdrClear() const { return m_hdrClear; }
         D3D12_RESOURCE_STATES       hdrState() const { return m_hdrState; }
@@ -85,6 +87,7 @@ namespace Dark
         void transitionHistory(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
 
         void setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
+        void setHeightSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE heightCpu);
         void packLightingHeap(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu);
 
     private:
@@ -114,8 +117,10 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE  m_postSrvCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_historySrvCpu{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_lightingGpu{};
+        D3D12_GPU_DESCRIPTOR_HANDLE  m_heightGpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_lightingCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_shadowCpu{};
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_heightCpu{};
         D3D12_RESOURCE_STATES        m_hdrState      = D3D12_RESOURCE_STATE_COMMON;
         D3D12_RESOURCE_STATES        m_albedoState   = D3D12_RESOURCE_STATE_COMMON;
         D3D12_RESOURCE_STATES        m_attribState   = D3D12_RESOURCE_STATE_COMMON;

@@ -1,6 +1,7 @@
 #include "Render/WaterPipeline.h"
 #include "Render/PsoUtil.h"
 #include "Render/ShaderCompile.h"
+#include "Render/Fog.h"
 #include "Core/Log.h"
 #include "Water/WaterWaves.h"
 
@@ -41,7 +42,13 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
         return false;
     }
 
-    D3D12_ROOT_PARAMETER rootParams[2]{};
+    D3D12_DESCRIPTOR_RANGE heightRange{};
+    heightRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    heightRange.NumDescriptors                    = 1;
+    heightRange.BaseShaderRegister                = 1;
+    heightRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_ROOT_PARAMETER rootParams[3]{};
     rootParams[kRootCbv].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParams[kRootCbv].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
     rootParams[kRootCbv].Descriptor.ShaderRegister = 0;
@@ -52,11 +59,25 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
     rootParams[kRootLightsSrv].Descriptor.ShaderRegister = 0;
     rootParams[kRootLightsSrv].Descriptor.RegisterSpace  = 0;
 
+    rootParams[kRootHeightSrv].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParams[kRootHeightSrv].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParams[kRootHeightSrv].DescriptorTable.NumDescriptorRanges = 1;
+    rootParams[kRootHeightSrv].DescriptorTable.pDescriptorRanges   = &heightRange;
+
+    D3D12_STATIC_SAMPLER_DESC heightSamp{};
+    heightSamp.Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+    heightSamp.AddressU         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    heightSamp.AddressV         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    heightSamp.AddressW         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    heightSamp.MaxLOD           = D3D12_FLOAT32_MAX;
+    heightSamp.ShaderRegister   = 0;
+    heightSamp.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
     D3D12_ROOT_SIGNATURE_DESC rsDesc{};
-    rsDesc.NumParameters     = 2;
+    rsDesc.NumParameters     = 3;
     rsDesc.pParameters       = rootParams;
-    rsDesc.NumStaticSamplers = 0;
-    rsDesc.pStaticSamplers   = nullptr;
+    rsDesc.NumStaticSamplers = 1;
+    rsDesc.pStaticSamplers   = &heightSamp;
     rsDesc.Flags             = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
     ComPtr<ID3DBlob> rsBlob;
@@ -233,6 +254,15 @@ void WaterPipeline::setLights(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_
     cmd->SetGraphicsRootShaderResourceView(kRootLightsSrv, va);
 }
 
+void WaterPipeline::setHeightMap(ID3D12GraphicsCommandList* cmd, ID3D12DescriptorHeap* heap, D3D12_GPU_DESCRIPTOR_HANDLE gpu) const
+{
+    if (!cmd || !heap || gpu.ptr == 0)
+        return;
+    ID3D12DescriptorHeap* heaps[] = { heap };
+    cmd->SetDescriptorHeaps(1, heaps);
+    cmd->SetGraphicsRootDescriptorTable(kRootHeightSrv, gpu);
+}
+
 void WaterPipeline::fillConstants(
     WaterFrameConstants& out,
     const float worldViewProj[16],
@@ -291,6 +321,22 @@ void WaterPipeline::fillConstants(
         out.deepColor[1] *= dim;
         out.deepColor[2] *= dim;
         out.specPower = 96.0f * (1.0f - 0.55f * env->weather.cloudCoverage);
+        const FogGpu fog      = makeFogGpu(env, params.waterLevel, lighting);
+        out.fogColor[0]       = fog.fogColor[0];
+        out.fogColor[1]       = fog.fogColor[1];
+        out.fogColor[2]       = fog.fogColor[2];
+        out.fogDensity        = fog.fogDensity;
+        out.heightFogDensity  = fog.heightFogDensity;
+        out.heightFogFalloff  = fog.heightFogFalloff;
+        out.heightFogHeight   = fog.heightFogHeight;
+        out.volumetricFogDensity = fog.volumetricFogDensity;
+        out.volumetricHeight  = fog.volumetricHeight;
+        out.lightColor[0]     = env->lightColor().x;
+        out.lightColor[1]     = env->lightColor().y;
+        out.lightColor[2]     = env->lightColor().z;
+        out.ambientColor[0]   = env->ambientColor().x;
+        out.ambientColor[1]   = env->ambientColor().y;
+        out.ambientColor[2]   = env->ambientColor().z;
     }
 
     for (int i = 0; i < kWaterWaveCount; ++i)

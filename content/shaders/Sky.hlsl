@@ -2,6 +2,8 @@
 // Must stay visually consistent with Sky::Environment::evaluateSky (CPU).
 #pragma pack_matrix(row_major)
 
+#include "Fog.hlsli"
+
 cbuffer FrameConstants : register(b0)
 {
     float3 cameraPos;
@@ -22,7 +24,19 @@ cbuffer FrameConstants : register(b0)
     float3 cameraUp;
     float  tanHalfFovY;
     float3 cameraLook;
-    float  _pad;
+    float  fogDensity;
+    float3 fogColor;
+    float  heightFogDensity;
+    float3 lightColor;
+    float  heightFogFalloff;
+    float3 ambientColor;
+    float  heightFogHeight;
+    float  volumetricFogDensity;
+    float  volumetricHeight;
+    float  waterLevel;
+    float  fogScale;
+    float3 fogLightDir;
+    float  _fogPad2;
 };
 
 struct PSInput
@@ -198,5 +212,28 @@ float4 PSMain(PSInput input) : SV_TARGET
         cameraLook
         + cameraRight * (input.clipXY.x * tanHalfFovX)
         + cameraUp * (input.clipXY.y * tanHalfFovY));
-    return float4(EvaluateSky(dir), 1.0f);
+    float3 sky = EvaluateSky(dir);
+    if (fogScale > 0.0f)
+    {
+        FogParams fp;
+        fp.cameraPos            = cameraPos;
+        fp.lightDir             = fogLightDir;
+        fp.lightColor           = lightColor;
+        fp.ambientColor         = ambientColor;
+        fp.fogColor             = fogColor;
+        fp.fogDensity           = fogDensity * fogScale;
+        fp.heightFogDensity     = heightFogDensity * fogScale;
+        fp.heightFogFalloff     = heightFogFalloff;
+        fp.heightFogHeight      = heightFogHeight;
+        fp.volumetricFogDensity = volumetricFogDensity * fogScale;
+        fp.waterLevel           = waterLevel;
+        fp.volumetricHeight     = volumetricHeight;
+        fp.heightOrigin         = 0.0.xx;
+        fp.heightCellSize       = 0.0f;
+        fp.heightWorldSize      = 1.0.xx;
+        float3 farPos = cameraPos + dir * 280.0f;
+        FogResult fog = FogIntegrateNoHeight(cameraPos, farPos, fp, 1.0f);
+        sky = ApplyLitFog(sky, fog);
+    }
+    return float4(sky, 1.0f);
 }

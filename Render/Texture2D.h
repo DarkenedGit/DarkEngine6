@@ -41,6 +41,9 @@ namespace Dark
         // Raw RGBA8 upload (rowPitchBytes usually width*4).
         bool createFromRGBA(Renderer& renderer, const uint8_t* rgba, uint32_t width, uint32_t height, uint32_t rowPitchBytes);
 
+        // Raw R32_FLOAT height field (rowPitchBytes usually width*4).
+        bool createFromR32Float(Renderer& renderer, const float* samples, uint32_t width, uint32_t height, uint32_t rowPitchBytes);
+
         // SetDescriptorHeaps + SetGraphicsRootDescriptorTable for this SRV.
         void bind(ID3D12GraphicsCommandList* cmd, UINT rootParameterIndex) const;
 
@@ -75,6 +78,8 @@ namespace Dark
         }
 
     private:
+        bool createFromRaw(Renderer& renderer, const void* data, uint32_t width, uint32_t height, uint32_t rowPitchBytes, DXGI_FORMAT format, uint32_t bytesPerPixel);
+
         ComPtr<ID3D12Resource>       m_resource;
         ComPtr<ID3D12DescriptorHeap> m_srvHeap;
         D3D12_CPU_DESCRIPTOR_HANDLE  m_cpuHandle{};
