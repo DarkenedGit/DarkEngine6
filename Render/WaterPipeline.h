@@ -65,6 +65,8 @@ public:
     static constexpr UINT kRootCbv       = 0;
     static constexpr UINT kRootLightsSrv = 1;
     static constexpr UINT kRootHeightSrv = 2;
+    static constexpr UINT kRootShadowCbv = 3;
+    static constexpr UINT kRootShadowSrv = 4;
     static constexpr UINT kBufferedFrames = 2;
 
     WaterPipeline() = default;
@@ -75,6 +77,10 @@ public:
     void setConstants(ID3D12GraphicsCommandList* cmd, const WaterFrameConstants& constants, uint32_t frameIndex);
     void setLights(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS lightsVa) const;
     void setHeightMap(ID3D12GraphicsCommandList* cmd, ID3D12DescriptorHeap* heap, D3D12_GPU_DESCRIPTOR_HANDLE gpu) const;
+    void setHeightSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE heightCpu);
+    void setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
+    void bindReceiverSrvs(ID3D12GraphicsCommandList* cmd) const;
+    bool hasReceiverSrvs() const { return m_srvHeap != nullptr && m_haveHeight && m_haveShadow; }
 
     D3D12_GPU_VIRTUAL_ADDRESS dummyLightsGpuVa() const { return m_dummyGpu; }
 
@@ -97,16 +103,22 @@ private:
     bool createConstantBuffers(ID3D12Device* device);
     UINT cbBytes() const;
 
-    ComPtr<ID3D12RootSignature> m_rootSignature;
-    ComPtr<ID3D12PipelineState> m_psoSolid;
-    ComPtr<ID3D12PipelineState> m_psoWire;
-    ComPtr<ID3D12PipelineState> m_psoPoint;
-    ComPtr<ID3D12Resource>      m_cbUpload;
-    ComPtr<ID3D12Resource>      m_dummyLights;
-    UINT8*                      m_cbMapped = nullptr;
-    D3D12_GPU_VIRTUAL_ADDRESS   m_cbGpu    = 0;
-    D3D12_GPU_VIRTUAL_ADDRESS   m_dummyGpu = 0;
-    uint32_t                    m_cbSlot   = 0;
+    ComPtr<ID3D12RootSignature>  m_rootSignature;
+    ComPtr<ID3D12PipelineState>  m_psoSolid;
+    ComPtr<ID3D12PipelineState>  m_psoWire;
+    ComPtr<ID3D12PipelineState>  m_psoPoint;
+    ComPtr<ID3D12Resource>       m_cbUpload;
+    ComPtr<ID3D12Resource>       m_dummyLights;
+    ComPtr<ID3D12DescriptorHeap> m_srvHeap;
+    UINT8*                       m_cbMapped = nullptr;
+    D3D12_GPU_VIRTUAL_ADDRESS    m_cbGpu    = 0;
+    D3D12_GPU_VIRTUAL_ADDRESS    m_dummyGpu = 0;
+    D3D12_GPU_DESCRIPTOR_HANDLE  m_heightGpu{};
+    D3D12_GPU_DESCRIPTOR_HANDLE  m_shadowGpu{};
+    UINT                         m_srvIncr    = 0;
+    uint32_t                     m_cbSlot     = 0;
+    bool                         m_haveHeight = false;
+    bool                         m_haveShadow = false;
 };
 
 } // namespace Dark

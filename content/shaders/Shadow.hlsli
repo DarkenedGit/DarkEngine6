@@ -34,17 +34,31 @@ int SelectCascade(float viewZ)
     return min(c, maxC);
 }
 
-float SampleCascadePCF(float3 worldPos, int cascade)
+bool ShadowCoord(float3 worldPos, int cascade, out float3 uvz)
 {
     float4 lp = mul(float4(worldPos, 1.0f), cascadeViewProj[cascade]);
     float  w  = max(abs(lp.w), 1e-5f);
-    float3 uvz = lp.xyz / w;
+    uvz = lp.xyz / w;
     uvz.xy = uvz.xy * float2(0.5f, -0.5f) + 0.5f;
     // World-space bias -> NDC using this cascade's ortho Z range so a 1m
     // caster still wins against the receiver on a large terrain.
     uvz.z -= shadowParams.x * cascadeInvZ[cascade];
+    return !(uvz.x < 0.0f || uvz.x > 1.0f || uvz.y < 0.0f || uvz.y > 1.0f || uvz.z < 0.0f || uvz.z > 1.0f);
+}
 
-    if (uvz.x < 0.0f || uvz.x > 1.0f || uvz.y < 0.0f || uvz.y > 1.0f || uvz.z < 0.0f || uvz.z > 1.0f)
+float SampleCascadePoint(float3 worldPos, int cascade)
+{
+    float3 uvz;
+    if (!ShadowCoord(worldPos, cascade, uvz))
+        return 1.0f;
+    float3 uv = float3(uvz.xy, (float)cascade + shadowParams.w);
+    return gShadowMap.SampleCmpLevelZero(gShadowSamp, uv, uvz.z);
+}
+
+float SampleCascadePCF(float3 worldPos, int cascade)
+{
+    float3 uvz;
+    if (!ShadowCoord(worldPos, cascade, uvz))
         return 1.0f;
 
     float  mapSize = max(cascadeSplits.w, 1.0f);
@@ -72,6 +86,20 @@ float ComputeShadow(float3 worldPos, float3 cameraPos)
     float viewZ = dot(worldPos - cameraPos, shadowLook);
     int   cas   = SelectCascade(viewZ);
     float s     = SampleCascadePCF(worldPos, cas);
+    return lerp(1.0f, s, strength);
+}
+
+// Single-tap CSM for fog ray marches (no 3x3 PCF). Air samples need no extra
+// normal offset; out-of-cascade / strength 0 stays fully lit.
+float ComputeShadowVolumetric(float3 worldPos, float3 cameraPos)
+{
+    float strength = saturate(shadowParams.y);
+    if (strength <= 0.0f)
+        return 1.0f;
+
+    float viewZ = dot(worldPos - cameraPos, shadowLook);
+    int   cas   = SelectCascade(viewZ);
+    float s     = SampleCascadePoint(worldPos, cas);
     return lerp(1.0f, s, strength);
 }
 

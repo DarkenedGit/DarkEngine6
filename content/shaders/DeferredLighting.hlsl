@@ -4,9 +4,10 @@
 
 #include "GBuffer.hlsli"
 #include "PbrLighting.hlsli"
-#include "Fog.hlsli"
 #define SHADOW_T t3
 #include "Shadow.hlsli"
+#define FOG_SAMPLE_CSM 1
+#include "Fog.hlsli"
 
 cbuffer LightingConstants : register(b0)
 {

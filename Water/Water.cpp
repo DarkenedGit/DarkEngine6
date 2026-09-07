@@ -4,6 +4,7 @@
 #include "Render/Frustum3f.h"
 #include "Render/Renderer.h"
 #include "Render/Fog.h"
+#include "Render/ShadowSystem.h"
 #include "Sky/Environment.h"
 #include "Terrain/HeightMap.h"
 #include "Core/Log.h"
@@ -304,7 +305,8 @@ using namespace Terrain;
         const uint32_t* waterIndex,
         uint32_t frameIndex,
         ID3D12DescriptorHeap* heightHeap,
-        D3D12_GPU_DESCRIPTOR_HANDLE heightGpu) const
+        D3D12_GPU_DESCRIPTOR_HANDLE heightGpu,
+        const ShadowSystem* shadows) const
     {
         m_lastDrawCalls = 0;
         m_lastTriangles = 0;
@@ -338,7 +340,12 @@ using namespace Terrain;
         cb.heightWorldSizeZ = fogMap.heightWorldSizeZ;
         pipeline.setConstants(cmd, cb, frameIndex);
         pipeline.setLights(cmd, lightsVa);
-        pipeline.setHeightMap(cmd, heightHeap, heightGpu);
+        if (pipeline.hasReceiverSrvs())
+            pipeline.bindReceiverSrvs(cmd);
+        else
+            pipeline.setHeightMap(cmd, heightHeap, heightGpu);
+        if (shadows && shadows->isValid())
+            shadows->bindReceiverCbv(cmd, WaterPipeline::kRootShadowCbv);
 
         const bool pointList = fill == DebugFill::Points;
         for (const WaterChunk& c : m_chunks)

@@ -37,6 +37,7 @@ namespace Dark
     }
 
     // Gaussian slab around waterLevel, gated by terrain vs water (1 = flooded valley).
+    // GPU FogIntegrate (FOG_SAMPLE_CSM) shadows sun in-scatter per march sample.
     inline float valleyFogDensity(float y, float terrainY, float waterLevel, float slabHeight, float density)
     {
         if (density <= 1.0e-8f)

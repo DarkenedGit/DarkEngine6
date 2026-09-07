@@ -32,10 +32,16 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
     m_psoPoint.Reset();
     m_cbUpload.Reset();
     m_dummyLights.Reset();
+    m_srvHeap.Reset();
     m_cbMapped = nullptr;
     m_cbGpu    = 0;
     m_dummyGpu = 0;
-    m_cbSlot   = 0;
+    m_heightGpu = {};
+    m_shadowGpu = {};
+    m_srvIncr     = 0;
+    m_cbSlot      = 0;
+    m_haveHeight  = false;
+    m_haveShadow  = false;
     if (!device)
     {
         DE_LOG_ERROR(LogCategory::Render, "WaterPipeline::create: null device");
@@ -48,7 +54,13 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
     heightRange.BaseShaderRegister                = 1;
     heightRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_ROOT_PARAMETER rootParams[3]{};
+    D3D12_DESCRIPTOR_RANGE shadowRange{};
+    shadowRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    shadowRange.NumDescriptors                    = 1;
+    shadowRange.BaseShaderRegister                = 2;
+    shadowRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_ROOT_PARAMETER rootParams[5]{};
     rootParams[kRootCbv].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParams[kRootCbv].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
     rootParams[kRootCbv].Descriptor.ShaderRegister = 0;
@@ -64,20 +76,39 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
     rootParams[kRootHeightSrv].DescriptorTable.NumDescriptorRanges = 1;
     rootParams[kRootHeightSrv].DescriptorTable.pDescriptorRanges   = &heightRange;
 
-    D3D12_STATIC_SAMPLER_DESC heightSamp{};
-    heightSamp.Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
-    heightSamp.AddressU         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-    heightSamp.AddressV         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-    heightSamp.AddressW         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-    heightSamp.MaxLOD           = D3D12_FLOAT32_MAX;
-    heightSamp.ShaderRegister   = 0;
-    heightSamp.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParams[kRootShadowCbv].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParams[kRootShadowCbv].ShaderVisibility          = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParams[kRootShadowCbv].Descriptor.ShaderRegister = 1;
+
+    rootParams[kRootShadowSrv].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParams[kRootShadowSrv].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParams[kRootShadowSrv].DescriptorTable.NumDescriptorRanges = 1;
+    rootParams[kRootShadowSrv].DescriptorTable.pDescriptorRanges   = &shadowRange;
+
+    D3D12_STATIC_SAMPLER_DESC samps[2]{};
+    samps[0].Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+    samps[0].AddressU         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    samps[0].AddressV         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    samps[0].AddressW         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    samps[0].MaxLOD           = D3D12_FLOAT32_MAX;
+    samps[0].ShaderRegister   = 0;
+    samps[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    samps[1].Filter           = D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
+    samps[1].AddressU         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    samps[1].AddressV         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    samps[1].AddressW         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    samps[1].ComparisonFunc   = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    samps[1].BorderColor      = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
+    samps[1].MaxLOD           = D3D12_FLOAT32_MAX;
+    samps[1].ShaderRegister   = 1;
+    samps[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
     D3D12_ROOT_SIGNATURE_DESC rsDesc{};
-    rsDesc.NumParameters     = 3;
+    rsDesc.NumParameters     = 5;
     rsDesc.pParameters       = rootParams;
-    rsDesc.NumStaticSamplers = 1;
-    rsDesc.pStaticSamplers   = &heightSamp;
+    rsDesc.NumStaticSamplers = 2;
+    rsDesc.pStaticSamplers   = samps;
     rsDesc.Flags             = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
     ComPtr<ID3DBlob> rsBlob;
@@ -160,6 +191,23 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
         m_psoPoint.Reset();
         return false;
     }
+
+    m_srvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
+    heapDesc.NumDescriptors = 2;
+    heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap (water height+shadow)"))
+    {
+        m_rootSignature.Reset();
+        m_psoSolid.Reset();
+        m_psoWire.Reset();
+        m_psoPoint.Reset();
+        return false;
+    }
+    m_heightGpu = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
+    m_shadowGpu = m_heightGpu;
+    m_shadowGpu.ptr += m_srvIncr;
 
     DE_LOG_INFO(LogCategory::Render, "WaterPipeline: ready (Gerstner + GGX, CBV + 8 local lights)");
     return true;
@@ -261,6 +309,34 @@ void WaterPipeline::setHeightMap(ID3D12GraphicsCommandList* cmd, ID3D12Descripto
     ID3D12DescriptorHeap* heaps[] = { heap };
     cmd->SetDescriptorHeaps(1, heaps);
     cmd->SetGraphicsRootDescriptorTable(kRootHeightSrv, gpu);
+}
+
+void WaterPipeline::setHeightSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE heightCpu)
+{
+    if (!device || !m_srvHeap || heightCpu.ptr == 0)
+        return;
+    device->CopyDescriptorsSimple(1, m_srvHeap->GetCPUDescriptorHandleForHeapStart(), heightCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    m_haveHeight = true;
+}
+
+void WaterPipeline::setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu)
+{
+    if (!device || !m_srvHeap || shadowCpu.ptr == 0)
+        return;
+    D3D12_CPU_DESCRIPTOR_HANDLE dst = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
+    dst.ptr += m_srvIncr;
+    device->CopyDescriptorsSimple(1, dst, shadowCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    m_haveShadow = true;
+}
+
+void WaterPipeline::bindReceiverSrvs(ID3D12GraphicsCommandList* cmd) const
+{
+    if (!cmd || !hasReceiverSrvs())
+        return;
+    ID3D12DescriptorHeap* heaps[] = { m_srvHeap.Get() };
+    cmd->SetDescriptorHeaps(1, heaps);
+    cmd->SetGraphicsRootDescriptorTable(kRootHeightSrv, m_heightGpu);
+    cmd->SetGraphicsRootDescriptorTable(kRootShadowSrv, m_shadowGpu);
 }
 
 void WaterPipeline::fillConstants(

@@ -2,6 +2,7 @@
 #include "Render/ShaderCompile.h"
 #include "Render/Camera3D.h"
 #include "Render/Fog.h"
+#include "Render/ShadowSystem.h"
 #include "Core/Log.h"
 #include "Math/MathDefines.h"
 #include "Math/Matrix4f.h"
@@ -30,6 +31,8 @@ bool SkyPipeline::create(ID3D12Device* device, SkyPass pass, DXGI_FORMAT colorFo
 {
     m_rootSignature.Reset();
     m_pso.Reset();
+    m_shadowHeap.Reset();
+    m_shadowGpu = {};
     if (!device)
     {
         DE_LOG_ERROR(LogCategory::Render, "SkyPipeline::create: null device");
@@ -37,7 +40,13 @@ bool SkyPipeline::create(ID3D12Device* device, SkyPass pass, DXGI_FORMAT colorFo
     }
     const bool deferredLast = pass == SkyPass::DeferredLast;
 
-    D3D12_ROOT_PARAMETER rootParams[1]{};
+    D3D12_DESCRIPTOR_RANGE shadowRange{};
+    shadowRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    shadowRange.NumDescriptors                    = 1;
+    shadowRange.BaseShaderRegister                = 0;
+    shadowRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_ROOT_PARAMETER rootParams[3]{};
     rootParams[kRootConstants].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
     rootParams[kRootConstants].ShaderVisibility         = D3D12_SHADER_VISIBILITY_ALL;
     rootParams[kRootConstants].Constants.ShaderRegister = 0;
@@ -45,10 +54,32 @@ bool SkyPipeline::create(ID3D12Device* device, SkyPass pass, DXGI_FORMAT colorFo
     rootParams[kRootConstants].Constants.Num32BitValues =
         static_cast<UINT>(sizeof(SkyFrameConstants) / 4);
 
+    rootParams[kRootShadowCbv].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParams[kRootShadowCbv].ShaderVisibility          = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParams[kRootShadowCbv].Descriptor.ShaderRegister = 1;
+
+    rootParams[kRootShadowSrv].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParams[kRootShadowSrv].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParams[kRootShadowSrv].DescriptorTable.NumDescriptorRanges = 1;
+    rootParams[kRootShadowSrv].DescriptorTable.pDescriptorRanges   = &shadowRange;
+
+    D3D12_STATIC_SAMPLER_DESC shadowSamp{};
+    shadowSamp.Filter           = D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
+    shadowSamp.AddressU         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    shadowSamp.AddressV         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    shadowSamp.AddressW         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    shadowSamp.ComparisonFunc   = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    shadowSamp.BorderColor      = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
+    shadowSamp.MaxLOD           = D3D12_FLOAT32_MAX;
+    shadowSamp.ShaderRegister   = 1;
+    shadowSamp.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
     D3D12_ROOT_SIGNATURE_DESC rsDesc{};
-    rsDesc.NumParameters = 1;
-    rsDesc.pParameters   = rootParams;
-    rsDesc.Flags         = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    rsDesc.NumParameters     = 3;
+    rsDesc.pParameters       = rootParams;
+    rsDesc.NumStaticSamplers = 1;
+    rsDesc.pStaticSamplers   = &shadowSamp;
+    rsDesc.Flags             = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
     ComPtr<ID3DBlob> rsBlob;
     ComPtr<ID3DBlob> rsErr;
@@ -108,8 +139,27 @@ bool SkyPipeline::create(ID3D12Device* device, SkyPass pass, DXGI_FORMAT colorFo
         return false;
     }
 
+    D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
+    heapDesc.NumDescriptors = 1;
+    heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_shadowHeap)), "CreateDescriptorHeap (sky shadow)"))
+    {
+        m_rootSignature.Reset();
+        m_pso.Reset();
+        return false;
+    }
+    m_shadowGpu = m_shadowHeap->GetGPUDescriptorHandleForHeapStart();
+
     DE_LOG_INFO(LogCategory::Render, "SkyPipeline: ready ({})", deferredLast ? "DeferredLast" : "ForwardFirst");
     return true;
+}
+
+void SkyPipeline::setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu)
+{
+    if (!device || !m_shadowHeap || shadowCpu.ptr == 0)
+        return;
+    device->CopyDescriptorsSimple(1, m_shadowHeap->GetCPUDescriptorHandleForHeapStart(), shadowCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 }
 
 void SkyPipeline::bind(ID3D12GraphicsCommandList* cmd) const
@@ -120,7 +170,7 @@ void SkyPipeline::bind(ID3D12GraphicsCommandList* cmd) const
     cmd->SetPipelineState(m_pso.Get());
 }
 
-void SkyPipeline::draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, const Sky::Environment& env, float exposure, float waterLevel, float fogScale) const
+void SkyPipeline::draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, const Sky::Environment& env, float exposure, float waterLevel, float fogScale, const ShadowSystem* shadows) const
 {
     if (!cmd || !m_pso)
         return;
@@ -195,6 +245,14 @@ void SkyPipeline::draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, c
 
     cmd->SetGraphicsRoot32BitConstants(
         kRootConstants, static_cast<UINT>(sizeof(SkyFrameConstants) / 4), &cb, 0);
+    if (m_shadowHeap && m_shadowGpu.ptr != 0)
+    {
+        ID3D12DescriptorHeap* heaps[] = { m_shadowHeap.Get() };
+        cmd->SetDescriptorHeaps(1, heaps);
+        cmd->SetGraphicsRootDescriptorTable(kRootShadowSrv, m_shadowGpu);
+    }
+    if (shadows && shadows->isValid())
+        shadows->bindReceiverCbv(cmd, kRootShadowCbv);
     cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     cmd->DrawInstanced(3, 1, 0, 0);
 }

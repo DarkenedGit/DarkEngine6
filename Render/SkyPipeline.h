@@ -10,6 +10,7 @@ namespace Dark
 {
 
 class Camera3D;
+class ShadowSystem;
 
 using Microsoft::WRL::ComPtr;
 
@@ -60,20 +61,25 @@ class SkyPipeline
 {
 public:
     static constexpr UINT kRootConstants = 0;
+    static constexpr UINT kRootShadowCbv = 1;
+    static constexpr UINT kRootShadowSrv = 2;
 
     SkyPipeline() = default;
 
     bool create(ID3D12Device* device, SkyPass pass = SkyPass::ForwardFirst, DXGI_FORMAT colorFormat = DXGI_FORMAT_R8G8B8A8_UNORM);
+    void setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
 
     void bind(ID3D12GraphicsCommandList* cmd) const;
     // exposure < 0 uses Environment::exposure(). Pass 1 when ACES owns exposure.
-    void draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, const Sky::Environment& env, float exposure = -1.0f, float waterLevel = 0.0f, float fogScale = 1.0f) const;
+    void draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, const Sky::Environment& env, float exposure = -1.0f, float waterLevel = 0.0f, float fogScale = 1.0f, const ShadowSystem* shadows = nullptr) const;
 
     bool isValid() const { return m_pso != nullptr; }
 
 private:
-    ComPtr<ID3D12RootSignature> m_rootSignature;
-    ComPtr<ID3D12PipelineState> m_pso;
+    ComPtr<ID3D12RootSignature>  m_rootSignature;
+    ComPtr<ID3D12PipelineState>  m_pso;
+    ComPtr<ID3D12DescriptorHeap> m_shadowHeap;
+    D3D12_GPU_DESCRIPTOR_HANDLE  m_shadowGpu{};
 };
 
 } // namespace Dark

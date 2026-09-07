@@ -1489,7 +1489,10 @@ void SandboxApp::onInit()
             return;
         }
         if (m_terrain.heightTexture().valid())
+        {
             renderer().setHeightSrv(m_terrain.heightTexture().cpuHandle());
+            m_waterPipeline.setHeightSrv(renderer().device(), m_terrain.heightTexture().cpuHandle());
+        }
         if (!pumpBootFrame())
             return;
 
@@ -1605,6 +1608,8 @@ void SandboxApp::onInit()
     m_packMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
     m_lanternMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
     renderer().setShadowSrv(m_shadows.srvCpu());
+    m_skyPipeline.setShadowSrv(renderer().device(), m_shadows.srvCpu());
+    m_waterPipeline.setShadowSrv(renderer().device(), m_shadows.srvCpu());
 
     const float aspect = (renderer().height() > 0) ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height()) : 1.0f;
     m_viewCamera.SetLens(/*fovY*/ 1.04719755f /*60deg*/, aspect, 0.18f, 2000.0f);
@@ -1791,7 +1796,7 @@ void SandboxApp::onRender()
     const float skyExposure = useAcesTonemap(renderer()) ? 1.0f : m_env.exposure();
     const float fogScale    = renderer().debugState().lighting ? 1.0f : 0.0f;
     if (!deferred)
-        m_skyPipeline.draw(cmd, m_viewCamera, m_env, skyExposure, m_water.params().waterLevel, fogScale);
+        m_skyPipeline.draw(cmd, m_viewCamera, m_env, skyExposure, m_water.params().waterLevel, fogScale, &m_shadows);
 
     AssetRef<Material> material = m_cubeMaterial;
     if (m_cube.valid())
@@ -1864,7 +1869,7 @@ void SandboxApp::onRender()
         m_localLightVolumes.draw(cmd, renderer(), world(), m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_viewCamera, viewProj, lc);
 
         renderer().bindHdr(true);
-        m_skyPipeline.draw(cmd, m_viewCamera, m_env, skyExposure, m_water.params().waterLevel, fogScale);
+        m_skyPipeline.draw(cmd, m_viewCamera, m_env, skyExposure, m_water.params().waterLevel, fogScale, &m_shadows);
     }
     else
     {
@@ -1965,7 +1970,8 @@ void SandboxApp::onRender()
         waterIndex,
         renderer().frameIndex(),
         heightHeap,
-        heightGpu);
+        heightGpu,
+        &m_shadows);
 
     if (m_chaseOk)
         m_chase.drawPaths(cmd, renderer(), viewProj);

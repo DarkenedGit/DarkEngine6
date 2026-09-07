@@ -2,6 +2,9 @@
 // Must stay visually consistent with Sky::Environment::evaluateSky (CPU).
 #pragma pack_matrix(row_major)
 
+#define SHADOW_T t0
+#include "Shadow.hlsli"
+#define FOG_SAMPLE_CSM 1
 #include "Fog.hlsli"
 
 cbuffer FrameConstants : register(b0)

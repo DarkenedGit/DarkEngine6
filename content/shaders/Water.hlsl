@@ -5,6 +5,9 @@
 #pragma pack_matrix(row_major)
 
 #include "PbrLighting.hlsli"
+#define SHADOW_T t2
+#include "Shadow.hlsli"
+#define FOG_SAMPLE_CSM 1
 #include "Fog.hlsli"
 
 cbuffer FrameConstants : register(b0)

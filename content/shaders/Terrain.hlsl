@@ -2,6 +2,9 @@
 // each layer is tiled in the pixel shader. Splat RGBA = layer weights.
 #pragma pack_matrix(row_major)
 
+#define SHADOW_T t5
+#include "Shadow.hlsli"
+#define FOG_SAMPLE_CSM 1
 #include "Fog.hlsli"
 
 cbuffer FrameConstants : register(b0)
@@ -30,9 +33,6 @@ Texture2D    gLayer2 : register(t2);
 Texture2D    gLayer3 : register(t3);
 Texture2D    gSplat  : register(t4);
 SamplerState gSamp   : register(s0);
-
-#define SHADOW_T t5
-#include "Shadow.hlsli"
 
 struct VSInput
 {
