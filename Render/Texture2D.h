@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 
@@ -28,6 +29,9 @@ namespace Dark
 
         // Decode image from disk, upload to GPU, create SRV. Returns false on failure.
         bool createFromFile(Renderer& renderer, const std::filesystem::path& path);
+
+        // Decode PNG/JPEG/BMP bytes via WIC, then upload. Returns false on failure.
+        bool createFromMemory(Renderer& renderer, const void* bytes, size_t byteCount);
 
         // 1x1 solid color fallback (RGBA 0-255).
         bool createSolidColor(Renderer& renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);

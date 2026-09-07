@@ -43,6 +43,15 @@ namespace Dark
         float   emissive    = 0.0f; // 0..1 → G-buffer RT0.a
     };
 
+    // Cached glTF / GLB from AssetManager::loadModel.
+    struct ModelComponent
+    {
+        static constexpr const char* kTypeName = "Model";
+
+        AssetID modelAssetID = NULL_ASSET;
+        bool    castShadow   = true;
+    };
+
     // ─── Camera ──────────────────────────────────────────────────────────────────
 
     struct CameraComponent

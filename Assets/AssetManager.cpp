@@ -1,4 +1,6 @@
 #include "Assets/AssetManager.h"
+#include "Assets/Model.h"
+#include "Assets/TextureCache.h"
 #include "Core/Log.h"
 #include "Render/Renderer.h"
 
@@ -128,4 +130,48 @@ namespace Dark
         return m_textures.loadSolid(renderer, r, g, b, a);
     }
 
+    AssetRef<Model> AssetManager::loadModel(Renderer& renderer, const std::string& virtualPath)
+    {
+        const std::filesystem::path path = resolve(virtualPath);
+        if (path.empty())
+        {
+            DE_LOG_ERROR("AssetManager: model not found '{}'", virtualPath);
+            return {};
+        }
+        const std::string key = TextureCache::normalizePath(path);
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            const auto it = m_pathToID.find(key);
+            if (it != m_pathToID.end())
+            {
+                const auto asset = m_assets.find(it->second);
+                if (asset != m_assets.end())
+                {
+                    if (auto existing = std::dynamic_pointer_cast<Model>(asset->second))
+                        return existing;
+                }
+            }
+        }
+
+        auto model = std::make_shared<Model>();
+        if (!model->createFromFile(renderer, *this, path))
+            return {};
+
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const auto it = m_pathToID.find(key);
+        if (it != m_pathToID.end())
+        {
+            auto existing = std::dynamic_pointer_cast<Model>(m_assets[it->second]);
+            if (existing)
+                return existing;
+        }
+        const AssetID id = allocID();
+        model->id        = id;
+        m_assets[id]     = model;
+        m_pathToID[key]  = id;
+        DE_LOG_INFO("AssetManager: cached model '{}' id={}", virtualPath, id);
+        return model;
+    }
+
 } // namespace Dark
+

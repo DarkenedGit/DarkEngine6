@@ -3,7 +3,9 @@
 #include "Core/Application.h"
 #include "Render/Mesh.h"
 #include "Render/LineMesh.h"
+#include "Assets/Model.h"
 #include "Render/MeshPipeline.h"
+#include "Render/ModelDraw.h"
 #include "Render/LinePipeline.h"
 #include "Render/TonemapPipeline.h"
 #include "Render/DeferredLightingPipeline.h"
@@ -126,6 +128,7 @@ private:
     static float snap(float v, float grid);
 
     MeshPipeline    m_meshPipeline;
+    MeshPipeline    m_meshTransparentPipeline;
     LinePipeline    m_linePipeline;
     LinePipeline    m_linePipeline3D;
     TonemapPipeline          m_tonemap;

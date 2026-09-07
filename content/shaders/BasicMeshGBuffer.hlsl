@@ -9,6 +9,8 @@ cbuffer FrameConstants : register(b0)
     float4x4 world;
     float4   color;
     float4x4 prevWorldViewProj;
+    float    roughness;
+    float    metallic;
 };
 
 Texture2D    gAlbedo : register(t0);
@@ -48,7 +50,11 @@ GBufferOut PSMain(PSInput input)
     float4 albedo = gAlbedo.Sample(gSamp, input.uv) * color;
     float3 n      = normalize(input.normalWS);
     o.albedo      = float4(albedo.rgb, color.a);
-    o.attrib      = float4(EncodeOct(n), 1.0f, 0.0f);
+    float r = roughness;
+    float m = metallic;
+    if (r <= 0.0f && m <= 0.0f)
+        r = 1.0f;
+    o.attrib      = float4(EncodeOct(n), r, m);
     o.velocity    = VelocityUv(input.currClip, input.prevClip);
     return o;
 }

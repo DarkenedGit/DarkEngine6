@@ -20,6 +20,8 @@
 #include "Render/MeshGen.h"
 #include "Render/ScenePath.h"
 #include "Render/Fog.h"
+#include "Render/ModelDraw.h"
+#include "Assets/Model.h"
 #include "Terrain/SplatMap.h"
 #include "Water/WaterWaves.h"
 
@@ -842,6 +844,33 @@ void SandboxApp::updateFlashlight()
     xf->rotation        = Quaternion::FromLookRotation(look, up);
 }
 
+void SandboxApp::spawnGltfDemo()
+{
+    auto spawn = [&](const char* virtualPath, const char* tag, float x, float z, float scale) {
+        AssetRef<Model> model = assets().loadModel(renderer(), virtualPath);
+        if (!model || !model->valid())
+        {
+            DE_LOG_WARN("SandboxApp: glTF '{}' not loaded", virtualPath);
+            return;
+        }
+        model->setShadowSrv(renderer().device(), m_shadows.srvCpu());
+        const float groundY = m_terrain.heightAtWorld(x, z);
+        const float y       = groundY + scale * 0.5f;
+        Entity e = world().createEntity();
+        world().emplace<TagComponent>(e, tag);
+        world().emplace<TransformComponent>(e, Vector3f{ x, y, z }, Quaternion::IDENTITY, Vector3f{ scale, scale, scale });
+        ModelComponent mc;
+        mc.modelAssetID = model->id;
+        mc.castShadow   = model->hasOpaque();
+        world().emplace<ModelComponent>(e, mc);
+        DE_LOG_INFO("SandboxApp: spawned {} at ({:.1f},{:.1f},{:.1f}) ground {:.1f}", tag, x, y, z, groundY);
+    };
+
+    // Sit on the terrain next to the player cube at the origin (default camera looks here).
+    spawn("models/unit_cube.gltf", "GltfCube", 3.0f, 3.0f, 2.0f);
+    spawn("models/unit_glass.gltf", "GltfGlass", 5.5f, 3.0f, 2.0f);
+}
+
 void SandboxApp::spawnHybridLocalLights()
 {
     if (renderer().scenePath() != ScenePath::HybridDeferred)
@@ -1316,6 +1345,12 @@ void SandboxApp::onInit()
         requestQuit();
         return;
     }
+    if (!m_meshTransparentPipeline.create(renderer().device(), MeshPass::ForwardTransparent, renderer().sceneColorFormat()))
+    {
+        DE_LOG_FATAL("SandboxApp: transparent MeshPipeline create failed");
+        requestQuit();
+        return;
+    }
     if (!m_healthHud.create(renderer()))
         DE_LOG_ERROR("SandboxApp: health HUD failed");
     if (!m_particles.create(renderer()))
@@ -1610,6 +1645,7 @@ void SandboxApp::onInit()
     renderer().setShadowSrv(m_shadows.srvCpu());
     m_skyPipeline.setShadowSrv(renderer().device(), m_shadows.srvCpu());
     m_waterPipeline.setShadowSrv(renderer().device(), m_shadows.srvCpu());
+    spawnGltfDemo();
 
     const float aspect = (renderer().height() > 0) ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height()) : 1.0f;
     m_viewCamera.SetLens(/*fovY*/ 1.04719755f /*60deg*/, aspect, 0.18f, 2000.0f);
@@ -1754,6 +1790,15 @@ void SandboxApp::onRender()
                 m_chase.drawDepth(cmd, m_shadows, i, m_cubeMesh);
             drawHealthPacksDepth(cmd, i);
             drawLanternFixturesDepth(cmd, i);
+            world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+                if (!mc.castShadow)
+                    return;
+                const TransformComponent* xf = world().get<TransformComponent>(e);
+                const auto model = assets().getAs<Model>(mc.modelAssetID);
+                if (!xf || !model || !model->valid())
+                    return;
+                drawModelDepth(cmd, m_shadows, i, *model, makeWorldMatrix(*xf));
+            });
         }
         m_shadows.endCapture(cmd);
     }
@@ -1843,6 +1888,13 @@ void SandboxApp::onRender()
             m_chase.drawMeshesGBuffer(cmd, m_meshPipeline, m_viewCamera, prevViewProj, m_cubeMesh, fill);
         drawHealthPacksGBuffer(cmd, viewProj, prevViewProj);
         drawLanternFixturesGBuffer(cmd, viewProj, prevViewProj);
+        world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+            const TransformComponent* xf = world().get<TransformComponent>(e);
+            const auto model = assets().getAs<Model>(mc.modelAssetID);
+            if (!xf || !model || !model->hasOpaque())
+                return;
+            drawModelOpaqueGBuffer(cmd, m_meshPipeline, *model, makeWorldMatrix(*xf), viewProj, prevViewProj, fill);
+        });
 
         renderer().bindHdr(false);
         renderer().clearHdr();
@@ -1921,6 +1973,13 @@ void SandboxApp::onRender()
             m_chase.drawMeshes(cmd, m_meshPipeline, m_shadows, m_viewCamera, cb, m_cubeMesh, fill);
         drawHealthPacks(cmd, viewProj, cb);
         drawLanternFixtures(cmd, viewProj, cb);
+        world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+            const TransformComponent* xf = world().get<TransformComponent>(e);
+            const auto model = assets().getAs<Model>(mc.modelAssetID);
+            if (!xf || !model || !model->hasOpaque())
+                return;
+            drawModelForward(cmd, m_meshPipeline, m_shadows, *model, false, makeWorldMatrix(*xf), viewProj, cb, fill);
+        });
     }
 
     D3D12_GPU_VIRTUAL_ADDRESS waterLightsVa   = m_localLightGpu.isValid() ? m_localLightGpu.dummyGpuVa() : 0;
@@ -1972,6 +2031,28 @@ void SandboxApp::onRender()
         heightHeap,
         heightGpu,
         &m_shadows);
+
+    {
+        MeshFrameConstants lit{};
+        lit.lightDirWS[0] = m_env.lightDir().x;
+        lit.lightDirWS[1] = m_env.lightDir().y;
+        lit.lightDirWS[2] = m_env.lightDir().z;
+        lit.ambientScale  = 0.22f;
+        lit.lightColor[0] = m_env.lightColor().x;
+        lit.lightColor[1] = m_env.lightColor().y;
+        lit.lightColor[2] = m_env.lightColor().z;
+        lit.cameraPos[0]  = camPos.x;
+        lit.cameraPos[1]  = camPos.y;
+        lit.cameraPos[2]  = camPos.z;
+        lit.lighting      = renderer().debugState().lighting ? 1.0f : 0.0f;
+        world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+            const TransformComponent* xf = world().get<TransformComponent>(e);
+            const auto model = assets().getAs<Model>(mc.modelAssetID);
+            if (!xf || !model || !model->hasTranslucent())
+                return;
+            drawModelForward(cmd, m_meshTransparentPipeline, m_shadows, *model, true, makeWorldMatrix(*xf), viewProj, lit, fill);
+        });
+    }
 
     if (m_chaseOk)
         m_chase.drawPaths(cmd, renderer(), viewProj);

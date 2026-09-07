@@ -50,6 +50,9 @@ namespace Dark
         std::shared_ptr<Texture2D> loadTexture(Renderer& renderer, const std::string& virtualPath);
         std::shared_ptr<Texture2D> loadSolidTexture(Renderer& renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
 
+        // Cached glTF / GLB. Same resolved path returns the same Model instance.
+        AssetRef<class Model> loadModel(Renderer& renderer, const std::string& virtualPath);
+
     private:
         mutable std::mutex                                      m_mutex;
         std::vector<std::filesystem::path>                      m_mounts;

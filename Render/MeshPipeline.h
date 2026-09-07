@@ -15,6 +15,7 @@ namespace Dark
     {
         ForwardUnorm = 0,
         GBuffer,
+        ForwardTransparent, // HDR or UNORM, alpha blend, depth write off
     };
 
     inline DXGI_FORMAT meshPassColorFormat(MeshPass pass)
@@ -29,9 +30,11 @@ namespace Dark
         float world[16];
         float color[4];
         float prevWorldViewProj[16];
+        float roughness;
+        float metallic;
     };
 
-    static_assert(sizeof(MeshGBufferConstants) == 52 * sizeof(float), "gbuffer mesh CB");
+    static_assert(sizeof(MeshGBufferConstants) == 54 * sizeof(float), "gbuffer mesh CB");
 
     // Root constants layout (all 32-bit slots), matches BasicMesh.hlsl cbuffer.
     struct MeshFrameConstants
@@ -62,7 +65,7 @@ namespace Dark
         MeshPipeline() = default;
 
         // Build root signature + PSO. Returns false on failure (no exceptions).
-        bool create(ID3D12Device* device, MeshPass pass = MeshPass::ForwardUnorm);
+        bool create(ID3D12Device* device, MeshPass pass = MeshPass::ForwardUnorm, DXGI_FORMAT colorFormat = DXGI_FORMAT_R8G8B8A8_UNORM);
 
         void bind(ID3D12GraphicsCommandList* cmd, DebugFill fill = DebugFill::Solid) const;
         void setConstants(ID3D12GraphicsCommandList* cmd, const MeshFrameConstants& constants) const;

@@ -1,8 +1,10 @@
 #pragma once
 #include "Core/Application.h"
 #include "Network/Replication.h"
+#include "Assets/Model.h"
 #include "Render/Mesh.h"
 #include "Render/MeshPipeline.h"
+#include "Render/ModelDraw.h"
 #include "Render/TerrainPipeline.h"
 #include "Render/WaterPipeline.h"
 #include "Render/SkyPipeline.h"
@@ -61,6 +63,7 @@ private:
     void updatePawnMotion(float dt);
     void updatePossessed(float dt);
     void updateCombat(float dt);
+    void spawnGltfDemo();
     void spawnHybridLocalLights();
     void updateFlashlight();
     void pulseMuzzle();
@@ -92,6 +95,7 @@ private:
 
     Dark::Mesh    m_cubeMesh;
     Dark::MeshPipeline      m_meshPipeline;
+    Dark::MeshPipeline      m_meshTransparentPipeline;
     Dark::TerrainPipeline   m_terrainPipeline;
     Dark::WaterPipeline     m_waterPipeline;
     Dark::SkyPipeline       m_skyPipeline;

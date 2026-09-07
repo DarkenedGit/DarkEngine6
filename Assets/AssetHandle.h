@@ -17,6 +17,7 @@ namespace Dark
         Shader,
         Audio,
         Scene,
+        Model,
     };
 
     // Forward-declare base Asset

@@ -82,6 +82,55 @@ namespace Dark
             return true;
         }
 
+        bool LoadImageRGBAFromMemory(const void* bytes, size_t byteCount, std::vector<uint8_t>& outPixels, uint32_t& outWidth, uint32_t& outHeight, uint32_t& outRowPitch)
+        {
+            if (!bytes || byteCount == 0)
+                return false;
+            EnsureCom();
+
+            ComPtr<IWICImagingFactory> factory;
+            if (FailedHr(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)), "CoCreateInstance WICImagingFactory"))
+                return false;
+
+            ComPtr<IWICStream> stream;
+            if (FailedHr(factory->CreateStream(&stream), "WIC CreateStream"))
+                return false;
+            if (FailedHr(stream->InitializeFromMemory(static_cast<BYTE*>(const_cast<void*>(bytes)), static_cast<DWORD>(byteCount)), "WIC InitializeFromMemory"))
+                return false;
+
+            ComPtr<IWICBitmapDecoder> decoder;
+            if (FailedHr(factory->CreateDecoderFromStream(stream.Get(), nullptr, WICDecodeMetadataCacheOnDemand, &decoder), "WIC CreateDecoderFromStream"))
+                return false;
+
+            ComPtr<IWICBitmapFrameDecode> frame;
+            if (FailedHr(decoder->GetFrame(0, &frame), "WIC GetFrame"))
+                return false;
+
+            ComPtr<IWICFormatConverter> converter;
+            if (FailedHr(factory->CreateFormatConverter(&converter), "WIC CreateFormatConverter"))
+                return false;
+            if (FailedHr(converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom), "WIC FormatConverter Initialize"))
+                return false;
+
+            UINT w = 0;
+            UINT h = 0;
+            if (FailedHr(converter->GetSize(&w, &h), "WIC GetSize"))
+                return false;
+            if (w == 0 || h == 0)
+                return false;
+
+            const uint32_t rowPitch = w * 4u;
+            const size_t   nbytes   = static_cast<size_t>(rowPitch) * static_cast<size_t>(h);
+            outPixels.resize(nbytes);
+            if (FailedHr(converter->CopyPixels(nullptr, rowPitch, static_cast<UINT>(nbytes), outPixels.data()), "WIC CopyPixels"))
+                return false;
+
+            outWidth    = w;
+            outHeight   = h;
+            outRowPitch = rowPitch;
+            return true;
+        }
+
     } // namespace
 
     bool Texture2D::createFromFile(Renderer& renderer, const std::filesystem::path& path)
@@ -103,6 +152,23 @@ namespace Dark
             return false;
 
         DE_LOG_INFO(LogCategory::Render, "Texture2D: loaded '{}' ({}x{})", path.string(), width, height);
+        return true;
+    }
+
+    bool Texture2D::createFromMemory(Renderer& renderer, const void* bytes, size_t byteCount)
+    {
+        std::vector<uint8_t> pixels;
+        uint32_t             width    = 0;
+        uint32_t             height   = 0;
+        uint32_t             rowPitch = 0;
+        if (!LoadImageRGBAFromMemory(bytes, byteCount, pixels, width, height, rowPitch))
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Texture2D: failed to decode {} bytes", byteCount);
+            return false;
+        }
+        if (!createFromRGBA(renderer, pixels.data(), width, height, rowPitch))
+            return false;
+        DE_LOG_INFO(LogCategory::Render, "Texture2D: loaded from memory ({}x{})", width, height);
         return true;
     }
 

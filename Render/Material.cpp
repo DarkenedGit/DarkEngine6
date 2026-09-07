@@ -114,6 +114,25 @@ namespace Dark
         return packSrvHeap(renderer.device());
     }
 
+    bool Material::createFromAlbedoTexture(Renderer& renderer, std::shared_ptr<Texture2D> albedo, float r, float g, float b, float a)
+    {
+        type = AssetType::Material;
+        if (!albedo || !albedo->valid())
+            return false;
+        m_albedo       = std::move(albedo);
+        m_baseColor[0] = r;
+        m_baseColor[1] = g;
+        m_baseColor[2] = b;
+        m_baseColor[3] = a;
+        return packSrvHeap(renderer.device());
+    }
+
+    void Material::setMetallicRoughness(float metallic, float roughness)
+    {
+        m_metallic  = metallic;
+        m_roughness = roughness;
+    }
+
     void Material::bind(ID3D12GraphicsCommandList* cmd, UINT albedoSrvRootIndex) const
     {
         if (!cmd || !m_srvHeap)
@@ -139,6 +158,8 @@ namespace Dark
         constants.color[1] = m_baseColor[1];
         constants.color[2] = m_baseColor[2];
         constants.color[3] = 0.0f;
+        constants.roughness = m_roughness;
+        constants.metallic  = m_metallic;
     }
 
     void Material::setBaseColor(float r, float g, float b, float a)

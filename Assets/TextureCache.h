@@ -39,6 +39,7 @@ namespace Dark
         std::shared_ptr<Texture2D> getOrCreate(const std::string& key, Factory&& factory);
 
         std::shared_ptr<Texture2D> loadFile(Renderer& renderer, const std::filesystem::path& path);
+        std::shared_ptr<Texture2D> loadMemory(Renderer& renderer, const std::string& key, const void* bytes, size_t byteCount);
         std::shared_ptr<Texture2D> loadSolid(Renderer& renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
         std::shared_ptr<Texture2D> loadSoftCircle(Renderer& renderer, uint32_t size = 64);
 

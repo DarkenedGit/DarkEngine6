@@ -19,6 +19,8 @@
 #include "Render/LineMesh.h"
 #include "Render/MeshGen.h"
 #include "Render/TaaJitter.h"
+#include "Render/ModelDraw.h"
+#include "Assets/Model.h"
 
 #include <imgui.h>
 
@@ -745,6 +747,12 @@ void EditorApp::onInit()
     if (!m_meshPipeline.create(renderer().device(), meshPass) || !m_linePipeline.create(renderer().device()))
     {
         DE_LOG_FATAL("EditorApp: mesh/line pipeline failed");
+        requestQuit();
+        return;
+    }
+    if (!m_meshTransparentPipeline.create(renderer().device(), MeshPass::ForwardTransparent, renderer().sceneColorFormat()))
+    {
+        DE_LOG_FATAL("EditorApp: transparent mesh pipeline failed");
         requestQuit();
         return;
     }
@@ -2364,6 +2372,15 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                 m_shadows.pipeline().setWvp(cmd, wvp.m_afEntry);
                 mesh->draw(cmd);
             }
+            world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+                if (!mc.castShadow)
+                    return;
+                const auto* xf = world().get<TransformComponent>(e);
+                const auto model = assets().getAs<Model>(mc.modelAssetID);
+                if (!xf || !model || !model->valid())
+                    return;
+                drawModelDepth(cmd, m_shadows, i, *model, makeWorldMatrix(*xf));
+            });
         }
         m_shadows.endCapture(cmd);
     }
@@ -2545,6 +2562,42 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 
     if (deferred)
     {
+        world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+            const auto* xf = world().get<TransformComponent>(e);
+            const auto model = assets().getAs<Model>(mc.modelAssetID);
+            if (!xf || !model || !model->hasOpaque())
+                return;
+            drawModelOpaqueGBuffer(cmd, m_meshPipeline, *model, makeWorldMatrix(*xf), viewProj, prevViewProj, fill);
+            ++draws;
+        });
+    }
+    else
+    {
+        MeshFrameConstants lit{};
+        lit.lightDirWS[0] = lightDir.x;
+        lit.lightDirWS[1] = lightDir.y;
+        lit.lightDirWS[2] = lightDir.z;
+        lit.ambientScale  = 0.22f;
+        lit.lightColor[0] = 1.0f;
+        lit.lightColor[1] = 0.96f;
+        lit.lightColor[2] = 0.88f;
+        const Vector3f cam = m_camera.GetPosition();
+        lit.cameraPos[0] = cam.x;
+        lit.cameraPos[1] = cam.y;
+        lit.cameraPos[2] = cam.z;
+        lit.lighting     = renderer().debugState().lighting ? 1.0f : 0.0f;
+        world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+            const auto* xf = world().get<TransformComponent>(e);
+            const auto model = assets().getAs<Model>(mc.modelAssetID);
+            if (!xf || !model || !model->hasOpaque())
+                return;
+            drawModelForward(cmd, m_meshPipeline, m_shadows, *model, false, makeWorldMatrix(*xf), viewProj, lit, fill);
+            ++draws;
+        });
+    }
+
+    if (deferred)
+    {
         renderer().bindHdr(false);
         renderer().clearHdr();
         LightingConstants lc{};
@@ -2574,6 +2627,30 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     else
     {
         drawLightGizmos();
+    }
+
+    {
+        MeshFrameConstants lit{};
+        lit.lightDirWS[0] = lightDir.x;
+        lit.lightDirWS[1] = lightDir.y;
+        lit.lightDirWS[2] = lightDir.z;
+        lit.ambientScale  = 0.22f;
+        lit.lightColor[0] = 1.0f;
+        lit.lightColor[1] = 0.96f;
+        lit.lightColor[2] = 0.88f;
+        const Vector3f cam = m_camera.GetPosition();
+        lit.cameraPos[0] = cam.x;
+        lit.cameraPos[1] = cam.y;
+        lit.cameraPos[2] = cam.z;
+        lit.lighting     = renderer().debugState().lighting ? 1.0f : 0.0f;
+        world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+            const auto* xf = world().get<TransformComponent>(e);
+            const auto model = assets().getAs<Model>(mc.modelAssetID);
+            if (!xf || !model || !model->hasTranslucent())
+                return;
+            drawModelForward(cmd, m_meshTransparentPipeline, m_shadows, *model, true, makeWorldMatrix(*xf), viewProj, lit, fill);
+            ++draws;
+        });
     }
 
     // Particles (after opaque, depth write off)

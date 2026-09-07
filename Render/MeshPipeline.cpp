@@ -20,7 +20,7 @@ namespace Dark
 
     } // namespace
 
-    bool MeshPipeline::create(ID3D12Device* device, MeshPass pass)
+    bool MeshPipeline::create(ID3D12Device* device, MeshPass pass, DXGI_FORMAT colorFormat)
     {
         m_rootSignature.Reset();
         m_psoSolid.Reset();
@@ -33,7 +33,8 @@ namespace Dark
             return false;
         }
 
-        const bool gbuffer = pass == MeshPass::GBuffer;
+        const bool gbuffer     = pass == MeshPass::GBuffer;
+        const bool transparent = pass == MeshPass::ForwardTransparent;
 
         D3D12_DESCRIPTOR_RANGE srvRange{};
         srvRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -135,9 +136,22 @@ namespace Dark
         psoDesc.RasterizerState.DepthClipEnable       = TRUE;
 
         psoDesc.DepthStencilState.DepthEnable    = TRUE;
-        psoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+        psoDesc.DepthStencilState.DepthWriteMask = transparent ? D3D12_DEPTH_WRITE_MASK_ZERO : D3D12_DEPTH_WRITE_MASK_ALL;
         psoDesc.DepthStencilState.DepthFunc      = D3D12_COMPARISON_FUNC_LESS;
         psoDesc.DepthStencilState.StencilEnable  = FALSE;
+
+        if (transparent)
+        {
+            D3D12_RENDER_TARGET_BLEND_DESC& rt = psoDesc.BlendState.RenderTarget[0];
+            rt.BlendEnable           = TRUE;
+            rt.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+            rt.SrcBlend              = D3D12_BLEND_SRC_ALPHA;
+            rt.DestBlend             = D3D12_BLEND_INV_SRC_ALPHA;
+            rt.BlendOp               = D3D12_BLEND_OP_ADD;
+            rt.SrcBlendAlpha         = D3D12_BLEND_ONE;
+            rt.DestBlendAlpha        = D3D12_BLEND_INV_SRC_ALPHA;
+            rt.BlendOpAlpha          = D3D12_BLEND_OP_ADD;
+        }
 
         psoDesc.InputLayout           = { inputLayout, _countof(inputLayout) };
         psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
@@ -152,7 +166,7 @@ namespace Dark
         else
         {
             psoDesc.NumRenderTargets = 1;
-            psoDesc.RTVFormats[0]    = meshPassColorFormat(pass);
+            psoDesc.RTVFormats[0]    = transparent ? colorFormat : meshPassColorFormat(pass);
         }
         psoDesc.DSVFormat             = DXGI_FORMAT_D32_FLOAT;
         psoDesc.SampleDesc            = { 1, 0 };
@@ -163,7 +177,7 @@ namespace Dark
             return false;
         }
 
-        const char* passName = pass == MeshPass::GBuffer ? "GBuffer" : "UNORM";
+        const char* passName = gbuffer ? "GBuffer" : (transparent ? "ForwardTransparent" : "UNORM");
         DE_LOG_INFO(LogCategory::Render, "MeshPipeline: ready (textured, solid/wire/point, {})", passName);
         return true;
     }

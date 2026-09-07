@@ -37,6 +37,13 @@ namespace Dark
         // Solid-color material (1x1 albedo).
         bool createSolid(Renderer& renderer, AssetManager& assets, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
 
+        // Already-cached albedo (glTF textures, interned solids).
+        bool createFromAlbedoTexture(Renderer& renderer, std::shared_ptr<Texture2D> albedo, float r = 1.0f, float g = 1.0f, float b = 1.0f, float a = 1.0f);
+
+        void setMetallicRoughness(float metallic, float roughness);
+        float metallic() const { return m_metallic; }
+        float roughness() const { return m_roughness; }
+
         // Bind albedo + shadow SRV table (2-slot shader-visible heap).
         void bind(ID3D12GraphicsCommandList* cmd, UINT albedoSrvRootIndex) const;
 
@@ -80,6 +87,8 @@ namespace Dark
 
         std::shared_ptr<Texture2D>   m_albedo;
         float                        m_baseColor[4]{ 1.0f, 1.0f, 1.0f, 1.0f };
+        float                        m_metallic  = 0.0f;
+        float                        m_roughness = 1.0f;
         Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_srvHeap;
         D3D12_GPU_DESCRIPTOR_HANDLE  m_gpuHandle{};
     };

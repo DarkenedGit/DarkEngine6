@@ -3,6 +3,7 @@
 #include "Render/Renderer.h"
 
 #include <cstdio>
+#include <vector>
 
 namespace Dark
 {
@@ -75,6 +76,22 @@ namespace Dark
                                auto tex = std::make_shared<Texture2D>();
                                std::lock_guard<std::mutex> upload(m_gpuMutex);
                                if (!tex->createFromFile(renderer, path))
+                                   return {};
+                               return tex;
+                           });
+    }
+
+    std::shared_ptr<Texture2D> TextureCache::loadMemory(Renderer& renderer, const std::string& key, const void* bytes, size_t byteCount)
+    {
+        if (key.empty() || !bytes || byteCount == 0)
+            return {};
+        std::vector<uint8_t> copy(static_cast<const uint8_t*>(bytes), static_cast<const uint8_t*>(bytes) + byteCount);
+        return getOrCreate(key,
+                           [this, &renderer, copy]() -> std::shared_ptr<Texture2D>
+                           {
+                               auto tex = std::make_shared<Texture2D>();
+                               std::lock_guard<std::mutex> upload(m_gpuMutex);
+                               if (!tex->createFromMemory(renderer, copy.data(), copy.size()))
                                    return {};
                                return tex;
                            });

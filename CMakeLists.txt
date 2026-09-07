@@ -167,6 +167,7 @@ target_include_directories(DarkEngine
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${DE_GENERATED_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 )
 
 target_sources(DarkEngine PRIVATE "${DE_GENERATED_DIR}/Core/Version.h")
