@@ -7,6 +7,8 @@
 #include "Render/ScenePath.h"
 #include "Sky/Environment.h"
 
+#include "Ui/Icons.h"
+
 #include <imgui.h>
 
 #include <cstdio>
@@ -70,7 +72,7 @@ void SandboxApp::drawDevTools()
     ImGui::SameLine();
     ImGui::TextDisabled("P");
     ImGui::BeginDisabled(!m_gameplayPaused);
-    if (ImGui::Button("Step"))
+    if (ImGui::Button(ICON_FA_FORWARD_STEP "  Step"))
         m_stepGameplay = true;
     ImGui::EndDisabled();
     ImGui::SameLine();

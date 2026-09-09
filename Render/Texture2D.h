@@ -14,7 +14,9 @@ namespace Dark
 
     using Microsoft::WRL::ComPtr;
 
-    // GPU texture (default-heap) + single-slot shader-visible SRV heap.
+    // GPU texture (default-heap) + SRV.
+    // cpuHandle() is on a non-shader-visible heap so it is a legal CopyDescriptors source.
+    // gpuHandle()/bind() use a shader-visible heap (those heaps are CPU write-only).
     // Loaded from common image formats via WIC (PNG, JPEG, BMP, etc.).
     class Texture2D
     {
@@ -85,7 +87,8 @@ namespace Dark
         bool createFromRaw(Renderer& renderer, const void* data, uint32_t width, uint32_t height, uint32_t rowPitchBytes, DXGI_FORMAT format, uint32_t bytesPerPixel);
 
         ComPtr<ID3D12Resource>       m_resource;
-        ComPtr<ID3D12DescriptorHeap> m_srvHeap;
+        ComPtr<ID3D12DescriptorHeap> m_cpuSrvHeap; // FLAG_NONE — CopyDescriptors source
+        ComPtr<ID3D12DescriptorHeap> m_srvHeap;    // SHADER_VISIBLE — bind / GPU handle
         D3D12_CPU_DESCRIPTOR_HANDLE  m_cpuHandle{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_gpuHandle{};
         uint32_t                     m_width  = 0;

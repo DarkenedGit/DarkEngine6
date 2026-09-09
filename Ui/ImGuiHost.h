@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Core/UiPalette.h"
+
 #include <cstdint>
 
 namespace Dark
@@ -8,11 +10,12 @@ class Renderer;
 class Window;
 }
 
-// Thin Dear ImGui bootstrap (Win32 + D3D12) shared by Editor and VisualDebugger.
+// Thin Dear ImGui bootstrap (Win32 + D3D12) shared by Editor, Sandbox, and VisualDebugger.
 class ImGuiHost
 {
 public:
-    bool init(Dark::Window& window, Dark::Renderer& renderer, const char* iniFilename = "imgui.ini", bool docking = false);
+    bool init(Dark::Window& window, Dark::Renderer& renderer, const char* iniFilename = "imgui.ini", bool docking = false,
+              Dark::UiAccent accent = Dark::UiAccent::Engine);
     void shutdown(Dark::Renderer& renderer);
 
     void beginFrame();

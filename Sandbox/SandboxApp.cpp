@@ -1423,7 +1423,7 @@ void SandboxApp::onInit()
     {
         DE_LOG_WARN("SandboxApp: DebugOverlay create failed — depth/shadow tiles disabled");
     }
-    if (!m_imgui.init(window(), renderer(), "sandbox_imgui.ini", false))
+    if (!m_imgui.init(window(), renderer(), "sandbox_imgui.ini", false, UiAccent::Sandbox))
         DE_LOG_WARN("SandboxApp: ImGui init failed — Dev Tools (M) disabled");
     if (renderer().hasSceneBuffers() && !m_tonemap.create(renderer().device()))
     {

@@ -274,7 +274,10 @@ namespace Dark
 
         // Reset previous GPU objects if reloading.
         m_resource.Reset();
+        m_cpuSrvHeap.Reset();
         m_srvHeap.Reset();
+        m_cpuHandle = {};
+        m_gpuHandle = {};
         m_width  = width;
         m_height = height;
 
@@ -379,18 +382,28 @@ namespace Dark
         renderer.queue()->ExecuteCommandLists(1, lists);
         renderer.waitForGpu();
 
-        // One-descriptor shader-visible heap for this texture.
-        D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
-        heapDesc.NumDescriptors = 1;
-        heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap SRV"))
+        // Staging heap is CPU-readable (legal CopyDescriptors source). Shader-visible heaps
+        // are CPU write-only — CreateSRV into them is fine, copying FROM them is not (#654).
+        D3D12_DESCRIPTOR_HEAP_DESC cpuHeapDesc{};
+        cpuHeapDesc.NumDescriptors = 1;
+        cpuHeapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        cpuHeapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+        if (FailedHr(device->CreateDescriptorHeap(&cpuHeapDesc, IID_PPV_ARGS(&m_cpuSrvHeap)), "CreateDescriptorHeap texture CPU SRV"))
         {
             m_resource.Reset();
             return false;
         }
 
-        m_cpuHandle = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
+        D3D12_DESCRIPTOR_HEAP_DESC gpuHeapDesc = cpuHeapDesc;
+        gpuHeapDesc.Flags                      = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        if (FailedHr(device->CreateDescriptorHeap(&gpuHeapDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap texture GPU SRV"))
+        {
+            m_cpuSrvHeap.Reset();
+            m_resource.Reset();
+            return false;
+        }
+
+        m_cpuHandle = m_cpuSrvHeap->GetCPUDescriptorHandleForHeapStart();
         m_gpuHandle = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
 
         D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
@@ -399,6 +412,7 @@ namespace Dark
         srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         srvDesc.Texture2D.MipLevels     = 1;
         device->CreateShaderResourceView(m_resource.Get(), &srvDesc, m_cpuHandle);
+        device->CreateShaderResourceView(m_resource.Get(), &srvDesc, m_srvHeap->GetCPUDescriptorHandleForHeapStart());
 
         return true;
     }

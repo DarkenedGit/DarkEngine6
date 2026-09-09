@@ -1,5 +1,6 @@
 {
   "schemaVersion": 1,
+  "spinnerColor": [0.7843, 0.4706, 0.9725, 1],
   "host": {
     "image": "textures/loading/editor_logo.png",
     "title": "Editor"

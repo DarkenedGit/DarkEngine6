@@ -1,7 +1,10 @@
 #include "DebuggerApp.h"
 
 #include "Core/Log.h"
+#include "Core/UiPalette.h"
 #include "Network/NetTypes.h"
+#include "Ui/ImGuiTheme.h"
+#include "Ui/Icons.h"
 
 #include <imgui.h>
 
@@ -45,17 +48,17 @@ namespace
         switch (level)
         {
         case LogLevel::Trace:
-            return ImVec4(0.55f, 0.55f, 0.60f, 1.0f);
+            return toImVec4(UiPalette::kTextDisabled);
         case LogLevel::Info:
-            return ImVec4(0.80f, 0.85f, 0.90f, 1.0f);
+            return toImVec4(UiPalette::kTextMuted);
         case LogLevel::Warn:
-            return ImVec4(1.00f, 0.80f, 0.30f, 1.0f);
+            return toImVec4(UiPalette::kWarn);
         case LogLevel::Error:
-            return ImVec4(1.00f, 0.40f, 0.35f, 1.0f);
+            return toImVec4(UiPalette::kDanger);
         case LogLevel::Fatal:
-            return ImVec4(1.00f, 0.20f, 0.20f, 1.0f);
+            return toImVec4(UiPalette::kFatal);
         default:
-            return ImVec4(1, 1, 1, 1);
+            return toImVec4(UiPalette::kText);
         }
     }
 
@@ -82,8 +85,8 @@ DebuggerApp::DebuggerApp(const AppConfig& cfg, Address autoJoin)
 
 void DebuggerApp::onInit()
 {
-    renderer().setClearColor(0.08f, 0.08f, 0.10f, 1.0f);
-    if (!m_imgui.init(window(), renderer(), "debugger_imgui.ini", true))
+    renderer().setClearColor(UiPalette::kVoid.r, UiPalette::kVoid.g, UiPalette::kVoid.b, 1.0f);
+    if (!m_imgui.init(window(), renderer(), "debugger_imgui.ini", true, UiAccent::Engine))
         DE_LOG_ERROR(LogCategory::Debug, "VisualDebugger: ImGui init failed");
 
     if (m_autoJoin.ipv4 != 0)
@@ -155,18 +158,18 @@ void DebuggerApp::drawMenuBar()
         return;
     if (ImGui::BeginMenu("File"))
     {
-        if (ImGui::MenuItem("Quit", "Esc"))
+        if (ImGui::MenuItem(ICON_FA_RIGHT_FROM_BRACKET "  Quit", "Esc"))
             requestQuit();
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("View"))
     {
-        ImGui::MenuItem("Connection", nullptr, &m_showConnection);
-        if (ImGui::MenuItem("Log", nullptr, &m_showLog))
+        ImGui::MenuItem(ICON_FA_PLUG "  Connection", nullptr, &m_showConnection);
+        if (ImGui::MenuItem(ICON_FA_LIST "  Log", nullptr, &m_showLog))
             applySubscribeFromPanels();
-        if (ImGui::MenuItem("Memory", nullptr, &m_showMemory))
+        if (ImGui::MenuItem(ICON_FA_MEMORY "  Memory", nullptr, &m_showMemory))
             applySubscribeFromPanels();
-        if (ImGui::MenuItem("Performance", nullptr, &m_showPerf))
+        if (ImGui::MenuItem(ICON_FA_GAUGE_HIGH "  Performance", nullptr, &m_showPerf))
             applySubscribeFromPanels();
         ImGui::EndMenu();
     }
@@ -192,17 +195,17 @@ void DebuggerApp::drawConnectionPanel()
     const bool connected = m_client.isConnected();
     if (!connected)
     {
-        if (ImGui::Button("Connect"))
+        if (ImGui::Button(ICON_FA_PLUG "  Connect"))
             tryConnect();
     }
-    else if (ImGui::Button("Disconnect"))
+    else if (ImGui::Button(ICON_FA_RIGHT_FROM_BRACKET "  Disconnect"))
         disconnect();
 
     ImGui::SameLine();
     if (connected)
-        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f), "Connected");
+        ImGui::TextColored(toImVec4(UiPalette::kOk), "Connected");
     else if (m_client.isConnecting())
-        ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.3f, 1.0f), "Connecting...");
+        ImGui::TextColored(toImVec4(UiPalette::kWarn), "Connecting...");
     else
         ImGui::TextDisabled("Disconnected");
 

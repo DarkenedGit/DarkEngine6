@@ -1,5 +1,6 @@
 {
   "schemaVersion": 1,
+  "spinnerColor": [0.9412, 0.6902, 0.2510, 1],
   "host": {
     "image": "textures/loading/sandbox2d_logo.png",
     "title": "Sandbox2D"

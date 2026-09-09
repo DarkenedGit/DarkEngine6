@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Core/Application.h"
+#include "Core/UiPalette.h"
 #include "Render/LoadingScreen.h"
 #include "Render/LoadingScreenConfig.h"
 
@@ -16,9 +17,9 @@ TEST(LoadingScreenConfig, Defaults)
     EXPECT_TRUE(cfg.enabled);
     EXPECT_TRUE(cfg.skipOnKey);
     EXPECT_FALSE(cfg.reducedMotion);
-    EXPECT_NEAR(cfg.background[0], 0.05f, 1.0e-6f);
-    EXPECT_NEAR(cfg.background[2], 0.07f, 1.0e-6f);
-    EXPECT_NEAR(cfg.spinnerColor[0], 0.25f, 1.0e-6f);
+    EXPECT_NEAR(cfg.background[0], UiPalette::kVoid.r, 1.0e-6f);
+    EXPECT_NEAR(cfg.background[2], UiPalette::kVoid.b, 1.0e-6f);
+    EXPECT_NEAR(cfg.spinnerColor[0], UiPalette::kAccentEngine.r, 1.0e-6f);
     EXPECT_EQ(cfg.animation, "ring");
     EXPECT_EQ(cfg.engine.image, "textures/loading/engine_logo.png");
     EXPECT_FLOAT_EQ(cfg.engine.minSeconds, 2.0f);
@@ -49,7 +50,7 @@ TEST(LoadingScreenConfig, ClampMinSeconds)
 TEST(LoadingScreenConfig, DiscardedJsonLeavesPrevious)
 {
     LoadingScreenConfig cfg{};
-    cfg.enabled = false;
+    cfg.enabled           = false;
     cfg.engine.minSeconds = 4.0f;
 
     EXPECT_FALSE(mergeLoadingScreenConfigJson(cfg, "{"));
@@ -65,10 +66,10 @@ TEST(LoadingScreenConfig, InvalidTypesKeepPrevious)
     LoadingScreenConfig cfg{};
     ASSERT_TRUE(mergeLoadingScreenConfigJson(cfg, R"({ "engine": { "minSeconds": "fast" }, "background": "red" })"));
     EXPECT_FLOAT_EQ(cfg.engine.minSeconds, 2.0f);
-    EXPECT_NEAR(cfg.background[0], 0.05f, 1.0e-6f);
-    EXPECT_NEAR(cfg.background[1], 0.05f, 1.0e-6f);
-    EXPECT_NEAR(cfg.background[2], 0.07f, 1.0e-6f);
-    EXPECT_NEAR(cfg.background[3], 1.0f, 1.0e-6f);
+    EXPECT_NEAR(cfg.background[0], UiPalette::kVoid.r, 1.0e-6f);
+    EXPECT_NEAR(cfg.background[1], UiPalette::kVoid.g, 1.0e-6f);
+    EXPECT_NEAR(cfg.background[2], UiPalette::kVoid.b, 1.0e-6f);
+    EXPECT_NEAR(cfg.background[3], UiPalette::kVoid.a, 1.0e-6f);
 }
 
 TEST(LoadingScreenConfig, AnimationNoneAndReducedMotion)

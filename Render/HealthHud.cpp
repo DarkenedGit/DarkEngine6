@@ -1,6 +1,7 @@
 #include "Render/HealthHud.h"
 
 #include "Core/Log.h"
+#include "Core/UiPalette.h"
 #include "Math/MathHelper.h"
 #include "Math/Matrix4f.h"
 #include "Render/Renderer.h"
@@ -75,31 +76,21 @@ namespace Dark
         const float x0     = w - pad - barW;
         const float y0     = pad;
 
-        const float fill = Math::Clamp(ratio, 0.0f, 1.0f);
-        float fr = 0.18f, fg = 0.78f, fb = 0.28f;
-        if (fill <= 0.25f)
-        {
-            fr = 0.86f;
-            fg = 0.16f;
-            fb = 0.14f;
-        }
-        else if (fill <= 0.5f)
-        {
-            fr = 0.92f;
-            fg = 0.72f;
-            fb = 0.16f;
-        }
+        const float   fill  = Math::Clamp(ratio, 0.0f, 1.0f);
+        const UiColor well  = UiPalette::kVoid;
+        const UiColor inner = UiPalette::kInset;
+        const UiColor bar   = UiPalette::healthFill(fill);
 
         m_pipe.bind(cmd);
-        drawRect(cmd, proj, x0 + barW * 0.5f, y0 + barH * 0.5f, barW, barH, 0.04f, 0.04f, 0.05f, 0.82f);
+        drawRect(cmd, proj, x0 + barW * 0.5f, y0 + barH * 0.5f, barW, barH, well.r, well.g, well.b, 0.82f);
         const float innerW = barW - border * 2.0f;
         const float innerH = barH - border * 2.0f;
-        drawRect(cmd, proj, x0 + barW * 0.5f, y0 + barH * 0.5f, innerW, innerH, 0.12f, 0.10f, 0.10f, 0.90f);
+        drawRect(cmd, proj, x0 + barW * 0.5f, y0 + barH * 0.5f, innerW, innerH, inner.r, inner.g, inner.b, 0.90f);
         if (fill > 1.0e-4f)
         {
-            const float fillW = innerW * fill;
+            const float fillW  = innerW * fill;
             const float fillCx = x0 + border + fillW * 0.5f;
-            drawRect(cmd, proj, fillCx, y0 + barH * 0.5f, fillW, innerH, fr, fg, fb, 0.95f);
+            drawRect(cmd, proj, fillCx, y0 + barH * 0.5f, fillW, innerH, bar.r, bar.g, bar.b, 0.95f);
         }
     }
 

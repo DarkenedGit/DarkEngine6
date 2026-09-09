@@ -1,4 +1,5 @@
 #include "Editor/ParticleEditorPanel.h"
+#include "Ui/Icons.h"
 
 #include <imgui.h>
 #include <cstring>
@@ -26,7 +27,7 @@ void ParticleEditorPanel::draw(Dark::ParticleEmitter& emitter, bool* open)
         d.name = nameBuf;
 
     ImGui::SeparatorText("Playback");
-    if (ImGui::Button(emitter.isPlaying() ? "Pause" : "Play"))
+    if (ImGui::Button(emitter.isPlaying() ? ICON_FA_PAUSE "  Pause" : ICON_FA_PLAY "  Play"))
     {
         if (emitter.isPlaying())
             emitter.stop(false);
@@ -34,14 +35,14 @@ void ParticleEditorPanel::draw(Dark::ParticleEmitter& emitter, bool* open)
             emitter.play();
     }
     ImGui::SameLine();
-    if (ImGui::Button("Restart"))
+    if (ImGui::Button(ICON_FA_ROTATE_RIGHT "  Restart"))
         emitter.restart();
     ImGui::SameLine();
-    if (ImGui::Button("Clear"))
+    if (ImGui::Button(ICON_FA_BROOM "  Clear"))
         emitter.stop(true);
 
     ImGui::SliderInt("Burst count", &m_burstCount, 1, 256);
-    if (ImGui::Button("Emit Burst"))
+    if (ImGui::Button(ICON_FA_BOLT "  Emit Burst"))
     {
         m_burstRequested = true;
         m_lastBurst      = static_cast<uint32_t>(m_burstCount);
@@ -84,10 +85,9 @@ void ParticleEditorPanel::draw(Dark::ParticleEmitter& emitter, bool* open)
         if (ImGui::SliderInt("Ribbon count", &ribbons, 1, static_cast<int>(Dark::kMaxRibbonCount)))
             d.ribbonCount = static_cast<uint32_t>(ribbons);
         ImGui::DragFloat("Ribbon UV scale", &d.ribbonUvScale, 0.05f, 0.1f, 16.0f);
-        ImGui::TextWrapped(
-            "Ribbon links particles in spawn order into a camera-facing strip. "
-            "Raise emission rate and lifetime for a longer trail; zero start speed "
-            "makes the strip follow the emitter.");
+        ImGui::TextWrapped("Ribbon links particles in spawn order into a camera-facing strip. "
+                           "Raise emission rate and lifetime for a longer trail; zero start speed "
+                           "makes the strip follow the emitter.");
     }
 
     ImGui::SeparatorText("Forces / direction");
@@ -97,15 +97,14 @@ void ParticleEditorPanel::draw(Dark::ParticleEmitter& emitter, bool* open)
 
     ImGui::SeparatorText("Shape");
     const char* shapes[] = { "Point", "Box", "Sphere" };
-    int shape = static_cast<int>(d.shape);
+    int         shape    = static_cast<int>(d.shape);
     if (ImGui::Combo("Spawn shape", &shape, shapes, 3))
         d.shape = static_cast<Dark::ParticleEmitterDesc::Shape>(shape);
     ImGui::DragFloat3("Shape size", &d.shapeSize.x, 0.02f, 0.0f, 20.0f);
 
     ImGui::Separator();
-    ImGui::TextWrapped(
-        "Tip: place an emitter with key 3 / type Particle, select it, and edit here. "
-        "Params apply live to the selected emitter.");
+    ImGui::TextWrapped("Tip: place an emitter with key 3 / type Particle, select it, and edit here. "
+                       "Params apply live to the selected emitter.");
 
     ImGui::End();
 }

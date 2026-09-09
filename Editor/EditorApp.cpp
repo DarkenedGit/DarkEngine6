@@ -5,6 +5,9 @@
 #include "Network/Replication.h"
 #include "Core/ContentRoots.h"
 #include "Core/Log.h"
+#include "Core/UiPalette.h"
+#include "Ui/Icons.h"
+#include "Ui/ImGuiTheme.h"
 #include "Input/InputCodes.h"
 #include "Collision/StaticCollision.h"
 #include "Math/AABox3f.h"
@@ -29,6 +32,7 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <string>
 #include <vector>
 
 using namespace Dark;
@@ -467,7 +471,7 @@ void EditorApp::applySceneMode(SceneMode mode)
     }
     else
     {
-        renderer().setClearColor(0.05f, 0.05f, 0.07f, 1.0f);
+        renderer().setClearColor(UiPalette::kVoid.r, UiPalette::kVoid.g, UiPalette::kVoid.b, 1.0f);
         m_placeType = SceneObjectType::Cube;
     }
 }
@@ -824,7 +828,7 @@ void EditorApp::onInit()
     }
     if (!pumpBootFrame())
         return;
-    if (!m_imgui.init(window(), renderer(), "editor_imgui.ini", false))
+    if (!m_imgui.init(window(), renderer(), "editor_imgui.ini", true, UiAccent::Editor))
     {
         DE_LOG_WARN("EditorApp: ImGui init failed — particle UI disabled");
     }
@@ -1439,14 +1443,14 @@ void EditorApp::drawNetworkMenu()
             ++propN;
     }
 
-    if (ImGui::MenuItem("Host Session", "26160", false, hostOk))
+    if (ImGui::MenuItem(ICON_FA_SERVER "  Host Session", "26160", false, hostOk))
         hostNetworkSession();
     if (!hostOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("Disconnect first");
 
     ImGui::SetNextItemWidth(180.0f);
     ImGui::InputText("Join IP", m_joinAddress, sizeof(m_joinAddress));
-    if (ImGui::MenuItem("Join", nullptr, false, joinOk))
+    if (ImGui::MenuItem(ICON_FA_PLUG "  Join", nullptr, false, joinOk))
         joinNetworkSession();
     if (!joinOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("Join requires an empty scene of the current mode");
@@ -1487,7 +1491,7 @@ void EditorApp::drawNetworkMenu()
         ImGui::PopID();
     }
 
-    if (ImGui::MenuItem("Disconnect", nullptr, false, role != NetRole::Idle))
+    if (ImGui::MenuItem(ICON_FA_RIGHT_FROM_BRACKET "  Disconnect", nullptr, false, role != NetRole::Idle))
         network().disconnect();
 
     ImGui::Separator();
@@ -1512,7 +1516,7 @@ void EditorApp::drawDebugMenu()
         return;
 
     const bool listening = debug().isListening();
-    if (ImGui::MenuItem(listening ? "Stop Visual Debugger Listen" : "Listen for Visual Debugger", "26162"))
+    if (ImGui::MenuItem(listening ? ICON_FA_BUG "  Stop Visual Debugger Listen" : ICON_FA_BUG "  Listen for Visual Debugger", "26162"))
     {
         if (listening)
         {
@@ -1866,6 +1870,35 @@ void EditorApp::handleEditorCommands(float dt)
     }
 }
 
+void EditorApp::drawStatusBar()
+{
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    const float          h  = ImGui::GetFrameHeight();
+    ImGui::SetNextWindowPos(ImVec2(vp->Pos.x, vp->Pos.y + vp->Size.y - h));
+    ImGui::SetNextWindowSize(ImVec2(vp->Size.x, h));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, toImVec4(UiPalette::kRaised));
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoNav
+        | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing;
+    if (ImGui::Begin("##statusbar", nullptr, flags))
+    {
+        const std::string sceneName = m_scenePath.empty() ? std::string("(unsaved)") : m_scenePath.filename().string();
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("%s  |  %s  |  %d objects  |  place: %s  |  %s", sceneName.c_str(), m_sceneMode == SceneMode::Scene2D ? "2D" : "3D",
+                    static_cast<int>(m_objects.size()), toString(m_placeType), netRoleLabel(network().role()));
+        char fps[32];
+        std::snprintf(fps, sizeof(fps), "%.0f fps", static_cast<double>(ImGui::GetIO().Framerate));
+        const float fpsW = ImGui::CalcTextSize(fps).x;
+        ImGui::SameLine(ImGui::GetWindowWidth() - fpsW - 16.0f);
+        ImGui::TextUnformatted(fps);
+    }
+    ImGui::End();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(3);
+}
+
 void EditorApp::drawEditorUi()
 {
     if (!m_imgui.isReady())
@@ -1876,21 +1909,21 @@ void EditorApp::drawEditorUi()
         if (ImGui::BeginMenu("File"))
         {
             const bool sceneOk = !netSceneLocked();
-            if (ImGui::MenuItem("New 3D Scene", nullptr, false, sceneOk))
+            if (ImGui::MenuItem(ICON_FA_CUBE "  New 3D Scene", nullptr, false, sceneOk))
                 newScene3D();
-            if (ImGui::MenuItem("New 2D Scene", nullptr, false, sceneOk))
+            if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  New 2D Scene", nullptr, false, sceneOk))
                 newScene2D();
             ImGui::Separator();
-            if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
+            if (ImGui::MenuItem(ICON_FA_FLOPPY_DISK "  Save Scene", "Ctrl+S"))
                 saveScene();
-            if (ImGui::MenuItem("Load Scene", "Ctrl+O", false, sceneOk))
+            if (ImGui::MenuItem(ICON_FA_FOLDER_OPEN "  Load Scene", "Ctrl+O", false, sceneOk))
                 loadScene();
-            if (ImGui::MenuItem("Open 3D Level", nullptr, false, sceneOk))
+            if (ImGui::MenuItem(ICON_FA_FILE "  Open 3D Level", nullptr, false, sceneOk))
             {
                 m_scenePath = defaultScenePath("level.json");
                 loadScene();
             }
-            if (ImGui::MenuItem("Open 2D Level", nullptr, false, sceneOk))
+            if (ImGui::MenuItem(ICON_FA_FILE "  Open 2D Level", nullptr, false, sceneOk))
             {
                 m_scenePath = defaultScenePath("level2d.json");
                 loadScene();
@@ -1898,18 +1931,18 @@ void EditorApp::drawEditorUi()
             if (!sceneOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Disconnect before changing the scene");
             ImGui::Separator();
-            if (ImGui::MenuItem("Quit", "Esc"))
+            if (ImGui::MenuItem(ICON_FA_RIGHT_FROM_BRACKET "  Quit", "Esc"))
                 requestQuit();
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("View"))
         {
             bool mode2d = m_sceneMode == SceneMode::Scene2D;
-            if (ImGui::MenuItem("2D Scene", "F3", mode2d))
+            if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  2D Scene", "F3", mode2d))
                 applySceneMode(mode2d ? SceneMode::Scene3D : SceneMode::Scene2D);
-            ImGui::MenuItem("Particle Panel", "F2", &m_showParticlePanel);
-            ImGui::MenuItem("Grid", nullptr, &m_showGrid);
-            ImGui::MenuItem("Solid Ground", nullptr, &m_showSolid);
+            ImGui::MenuItem(ICON_FA_BOLT "  Particle Panel", "F2", &m_showParticlePanel);
+            ImGui::MenuItem(ICON_FA_EYE "  Grid", nullptr, &m_showGrid);
+            ImGui::MenuItem(ICON_FA_CUBE "  Solid Ground", nullptr, &m_showSolid);
             if (renderer().hasSceneBuffers())
             {
                 bool aces = renderer().debugState().aces;
@@ -1932,17 +1965,17 @@ void EditorApp::drawEditorUi()
             const bool createOk = !netClientLocked();
             if (m_sceneMode == SceneMode::Scene2D)
             {
-                if (ImGui::MenuItem("Platform", "1+P", false, createOk))
+                if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  Platform", "1+P", false, createOk))
                 {
                     m_placeType = SceneObjectType::Platform;
                     placeAtCursor(m_placeType);
                 }
-                if (ImGui::MenuItem("Coin", "2+P", false, createOk))
+                if (ImGui::MenuItem(ICON_FA_CIRCLE "  Coin", "2+P", false, createOk))
                 {
                     m_placeType = SceneObjectType::Coin;
                     placeAtCursor(m_placeType);
                 }
-                if (ImGui::MenuItem("Player Spawn", "3+P", false, createOk))
+                if (ImGui::MenuItem(ICON_FA_CIRCLE_PLUS "  Player Spawn", "3+P", false, createOk))
                 {
                     m_placeType = SceneObjectType::Spawn;
                     placeAtCursor(m_placeType);
@@ -1950,32 +1983,32 @@ void EditorApp::drawEditorUi()
             }
             else
             {
-                if (ImGui::MenuItem("Cube", "1+P", false, createOk))
+                if (ImGui::MenuItem(ICON_FA_CUBE "  Cube", "1+P", false, createOk))
                 {
                     m_placeType = SceneObjectType::Cube;
                     placeAtCursor(m_placeType);
                 }
-                if (ImGui::MenuItem("Sphere", "2+P", false, createOk))
+                if (ImGui::MenuItem(ICON_FA_CIRCLE "  Sphere", "2+P", false, createOk))
                 {
                     m_placeType = SceneObjectType::Sphere;
                     placeAtCursor(m_placeType);
                 }
-                if (ImGui::MenuItem("Particle Emitter", "3+P", false, createOk))
+                if (ImGui::MenuItem(ICON_FA_BOLT "  Particle Emitter", "3+P", false, createOk))
                 {
                     m_placeType = SceneObjectType::ParticleEmitter;
                     placeAtCursor(m_placeType);
                 }
-                if (ImGui::MenuItem("Point Light", "4+P", false, createOk))
+                if (ImGui::MenuItem(ICON_FA_LIGHTBULB "  Point Light", "4+P", false, createOk))
                 {
                     m_placeType = SceneObjectType::PointLight;
                     placeAtCursor(m_placeType);
                 }
-                if (ImGui::MenuItem("Spot Light", "5+P", false, createOk))
+                if (ImGui::MenuItem(ICON_FA_LIGHTBULB "  Spot Light", "5+P", false, createOk))
                 {
                     m_placeType = SceneObjectType::SpotLight;
                     placeAtCursor(m_placeType);
                 }
-                if (ImGui::MenuItem("Glow Prop", nullptr, false, createOk))
+                if (ImGui::MenuItem(ICON_FA_BOLT "  Glow Prop", nullptr, false, createOk))
                     placeGlowProp();
             }
             if (!createOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -1984,9 +2017,10 @@ void EditorApp::drawEditorUi()
         }
         drawNetworkMenu();
         drawDebugMenu();
-        ImGui::Text("  |  %s  objects:%d  place:%s", toString(m_sceneMode), (int)m_objects.size(), toString(m_placeType));
         ImGui::EndMainMenuBar();
     }
+
+    beginPassthruDockSpace("EditorDockHost", ImGui::GetFrameHeight());
 
     if (m_showParticlePanel)
     {
@@ -2010,7 +2044,7 @@ void EditorApp::drawEditorUi()
                 ImGui::TextWrapped(
                     "Select a particle emitter in the scene (place with Create menu or key 3 then P), "
                     "or create one below.");
-                if (ImGui::Button("Create Emitter at Cursor") && !netClientLocked())
+                if (ImGui::Button(ICON_FA_BOLT "  Create Emitter at Cursor") && !netClientLocked())
                 {
                     m_placeType = SceneObjectType::ParticleEmitter;
                     placeAtCursor(m_placeType);
@@ -2077,7 +2111,7 @@ void EditorApp::drawEditorUi()
                     xf->scale.y = Max(0.05f, size[1]);
                 }
                 ImGui::ColorEdit3("Tint", so->color);
-                if (ImGui::Button("Delete") && !netClientLocked())
+                if (ImGui::Button(ICON_FA_TRASH "  Delete") && !netClientLocked())
                     deleteSelected();
             }
         }
@@ -2090,6 +2124,8 @@ void EditorApp::drawEditorUi()
 
     if (m_sceneMode == SceneMode::Scene3D)
         drawInspector3D();
+
+    drawStatusBar();
 }
 
 void EditorApp::drawInspector3D()
@@ -2180,7 +2216,7 @@ void EditorApp::drawInspector3D()
             ImGui::SliderFloat("Emissive", &mc->emissive, 0.0f, 1.0f);
     }
 
-    if (ImGui::Button("Delete"))
+    if (ImGui::Button(ICON_FA_TRASH "  Delete"))
         deleteSelected();
     ImGui::EndDisabled();
 

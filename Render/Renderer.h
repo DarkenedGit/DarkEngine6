@@ -1,6 +1,7 @@
 #pragma once
 #include "Render/DebugRenderState.h"
 #include "Render/ScenePath.h"
+#include "Core/UiPalette.h"
 
 #include <cstdint>
 #include <d3d12.h>
@@ -167,7 +168,7 @@ namespace Dark
         D3D12_RECT     m_scissor{};
 
         FrameStats       m_stats{};
-        float            m_clearColor[4]{ 0.05f, 0.05f, 0.07f, 1.0f };
+        float            m_clearColor[4]{ UiPalette::kVoid.r, UiPalette::kVoid.g, UiPalette::kVoid.b, UiPalette::kVoid.a };
         bool             m_valid           = false;
         bool             m_vsync           = true;
         bool             m_frameSubmitted  = false;

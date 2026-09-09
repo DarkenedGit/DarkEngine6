@@ -52,6 +52,7 @@ private:
     void updateCamera2D(float dt);
     void handleEditorCommands(float dt);
     void drawEditorUi();
+    void drawStatusBar();
     void applySceneMode(SceneMode mode);
     void newScene3D();
     void newScene2D();

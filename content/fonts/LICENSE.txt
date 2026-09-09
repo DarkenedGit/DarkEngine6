@@ -1,0 +1,10 @@
+Roboto-Medium.ttf
+  Copyright 2011 Google Inc.
+  Apache License 2.0
+  Bundled with Dear ImGui (misc/fonts/Roboto-Medium.ttf).
+  https://github.com/googlefonts/roboto
+
+fa-solid-900.ttf
+  Font Awesome Free 6.7.2 by @fontawesome — https://fontawesome.com
+  License: SIL OFL 1.1 (font) / CC BY 4.0 (icons)
+  https://fontawesome.com/license/free

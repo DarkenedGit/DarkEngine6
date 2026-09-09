@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Core/UiPalette.h"
+
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -36,8 +38,8 @@ namespace Dark
         bool        enabled       = true;
         bool        skipOnKey     = true;
         bool        reducedMotion = false;
-        float       background[4]{ 0.05f, 0.05f, 0.07f, 1.0f };
-        float       spinnerColor[4]{ 0.25f, 0.65f, 0.95f, 1.0f };
+        float       background[4]{ UiPalette::kVoid.r, UiPalette::kVoid.g, UiPalette::kVoid.b, UiPalette::kVoid.a };
+        float       spinnerColor[4]{ UiPalette::kAccentEngine.r, UiPalette::kAccentEngine.g, UiPalette::kAccentEngine.b, UiPalette::kAccentEngine.a };
         std::string animation{ "ring" };
         Layer       engine{ "textures/loading/engine_logo.png", 2.0f, "DarkEngine6" };
         Layer       host{ "", 1.5f, "" };
