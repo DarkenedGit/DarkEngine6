@@ -10,6 +10,11 @@ namespace Dark
     AssetManager::AssetManager()  = default;
     AssetManager::~AssetManager() = default;
 
+    void AssetManager::erasePathEntriesLocked(AssetID id)
+    {
+        std::erase_if(m_pathToID, [id](const auto& kv) { return kv.second == id; });
+    }
+
     void AssetManager::mountDirectory(const std::filesystem::path& dir)
     {
         if (dir.empty())
@@ -67,7 +72,7 @@ namespace Dark
         return {};
     }
 
-    AssetID AssetManager::registerAsset(AssetRef<Asset> asset)
+    AssetID AssetManager::registerAsset(AssetRef<Asset> asset, const std::string& cacheKey)
     {
         if (!asset)
         {
@@ -79,6 +84,8 @@ namespace Dark
         const AssetID id = allocID();
         asset->id        = id;
         m_assets[id]     = std::move(asset);
+        if (!cacheKey.empty())
+            m_pathToID[cacheKey] = id;
         DE_LOG_INFO("AssetManager: registered id={} type={}", id, static_cast<unsigned>(m_assets[id]->type));
         return id;
     }
@@ -98,20 +105,43 @@ namespace Dark
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_assets.erase(id);
+        erasePathEntriesLocked(id);
     }
 
     void AssetManager::collectGarbage()
     {
         {
             std::lock_guard<std::mutex> lock(m_mutex);
-            std::erase_if(m_assets,
-                          [](const auto& kv)
-                          {
-                              return kv.second.use_count() == 1; // only manager holds it
-                          });
+            std::vector<AssetID> removed;
+            for (auto it = m_assets.begin(); it != m_assets.end();)
+            {
+                if (it->second.use_count() == 1)
+                {
+                    removed.push_back(it->first);
+                    it = m_assets.erase(it);
+                }
+                else
+                {
+                    ++it;
+                }
+            }
+            for (const AssetID id : removed)
+                erasePathEntriesLocked(id);
             DE_LOG_TRACE("AssetManager: GC pass complete ({} assets remaining)", m_assets.size());
         }
         m_textures.collectUnused();
+    }
+
+    size_t AssetManager::assetCount() const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_assets.size();
+    }
+
+    size_t AssetManager::pathMappingCount() const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_pathToID.size();
     }
 
     std::shared_ptr<Texture2D> AssetManager::loadTexture(Renderer& renderer, const std::string& virtualPath)
@@ -150,6 +180,11 @@ namespace Dark
                     if (auto existing = std::dynamic_pointer_cast<Model>(asset->second))
                         return existing;
                 }
+                else
+                {
+                    // Stale path map entry (unload/GC missed a scrub) — drop it.
+                    m_pathToID.erase(it);
+                }
             }
         }
 
@@ -161,9 +196,16 @@ namespace Dark
         const auto it = m_pathToID.find(key);
         if (it != m_pathToID.end())
         {
-            auto existing = std::dynamic_pointer_cast<Model>(m_assets[it->second]);
-            if (existing)
-                return existing;
+            const auto asset = m_assets.find(it->second);
+            if (asset != m_assets.end())
+            {
+                if (auto existing = std::dynamic_pointer_cast<Model>(asset->second))
+                    return existing;
+            }
+            else
+            {
+                m_pathToID.erase(it);
+            }
         }
         const AssetID id = allocID();
         model->id        = id;
@@ -174,4 +216,3 @@ namespace Dark
     }
 
 } // namespace Dark
-

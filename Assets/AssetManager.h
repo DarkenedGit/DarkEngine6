@@ -24,7 +24,8 @@ namespace Dark
         void mountDirectory(const std::filesystem::path& dir);
 
         // Take ownership of a runtime-created asset; sets asset->id. Returns id or NULL_ASSET.
-        AssetID registerAsset(AssetRef<Asset> asset);
+        // Optional cacheKey (usually TextureCache::normalizePath) enables path-based reuse like loadModel.
+        AssetID registerAsset(AssetRef<Asset> asset, const std::string& cacheKey = {});
 
         // Lookup by id (shared ownership with the manager).
         AssetRef<Asset> get(AssetID id) const;
@@ -42,6 +43,9 @@ namespace Dark
 
         // Resolve virtual path → absolute path
         std::filesystem::path resolve(const std::string& virtualPath) const;
+
+        size_t assetCount() const;
+        size_t pathMappingCount() const;
 
         TextureCache&       textureCache() { return m_textures; }
         const TextureCache& textureCache() const { return m_textures; }
@@ -65,6 +69,9 @@ namespace Dark
         {
             return m_nextID++;
         }
+
+        // Caller must hold m_mutex.
+        void erasePathEntriesLocked(AssetID id);
     };
 
 } // namespace Dark
