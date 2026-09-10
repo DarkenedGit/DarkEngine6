@@ -6,6 +6,7 @@
 #include <memory>
 #include <cassert>
 #include <functional>
+#include <utility>
 
 namespace Dark
 {
@@ -14,7 +15,7 @@ namespace Dark
 
     struct IComponentPool
     {
-        virtual ~IComponentPool()           = default;
+        virtual ~IComponentPool()             = default;
         virtual void        remove(EntityID id) = 0;
         virtual const char* typeName() const    = 0;
         virtual uint32_t    count() const       = 0;
@@ -28,6 +29,14 @@ namespace Dark
     public:
         void insert(EntityID id, T comp)
         {
+            auto it = m_sparse.find(id);
+            if (it != m_sparse.end())
+            {
+                // Replace in place — never push a second sparse entry for the same id.
+                m_components[it->second] = std::move(comp);
+                return;
+            }
+
             m_sparse[id] = static_cast<uint32_t>(m_dense.size());
             m_dense.push_back(id);
             m_components.push_back(std::move(comp));
@@ -168,8 +177,8 @@ namespace Dark
         }
 
         std::unordered_map<ComponentID, std::unique_ptr<IComponentPool>> m_pools;
-        std::vector<EntityID>                                            m_free;
-        EntityID                                                         m_nextID = 1;
+        std::vector<EntityID>                                            m_free;        // free slot indices (not packed ids)
+        std::vector<uint32_t>                                            m_generations; // per-slot generation; index 0 reserved
     };
 
 } // namespace Dark
