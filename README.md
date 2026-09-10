@@ -1,6 +1,6 @@
 # DarkEngine6
 
-Home C++ game engine. Sixth version of DarkEngine. Windows-only for now: C++20, D3D12, XAudio2, XInput.
+Home C++ game engine. Sixth version of DarkEngine. Windows-only for now: **C++23**, D3D12, XAudio2, XInput.
 
 This is a working engine-in-progress, not a finished product. The README describes what is actually in the tree.
 
@@ -9,35 +9,42 @@ This is a working engine-in-progress, not a finished product. The README describ
 | Target | Kind | Role |
 |--------|------|------|
 | `DarkEngine` | static lib | Engine |
-| `Sandbox` | exe | 3D sample |
+| `Sandbox` | exe | 3D sample (ImGui Dev Tools, networked spawn/draw) |
 | `Sandbox2D` | exe | Side-scrolling 2D sample (Box2D) |
-| `Editor` | exe | ImGui editor (Win32 + DX12), including a particle panel and a Network host/join menu |
+| `Editor` | exe | ImGui editor (Win32 + DX12), particle panel, Network host/join, mirrors networked objects for draw |
 | `UnitTests` | exe | GoogleTest suite |
-| `VisualDebugger` | exe | Performance and Debugging, connect to sandbox |
+| `VisualDebugger` | exe | Performance and debugging; connect to Sandbox |
 
 Engine folders compiled into `DarkEngine`:
 
-`AI`, `Assets`, `Audio`, `Character`, `Collision`, `Core`, `ECS`, `Geometry`, `Input`, `Math`, `Network`, `Particles`, `Render`, `Scene`, `Sky`, `Sprite`, `Terrain`, `Water`.
+`AI`, `Assets`, `Audio`, `Character`, `Collision`, `Core`, `Debug`, `ECS`, `Geometry`, `Input`, `Math`, `Network`, `Particles`, `Render`, `Scene`, `Sky`, `Sprite`, `Terrain`, `Water`.
+
+Shared `Ui/` (ImGui helpers / styles) is linked into `Editor`, `VisualDebugger`, and `Sandbox`.
 
 Runtime HLSL lives in `content/shaders/` (the `Shaders/` source folder is not the runtime shader tree).
 
+Configure generates `Core/Version.h` (git describe / commit when available).
+
 ### Stack, from the code
 
-- **Core** — `Application`, Win32 `Window`, logging (`DE_LOG_*` + `LogCategory`), paths, UUID.
+- **Core** — `Application`, Win32 `Window`, logging (`DE_LOG_*` + `LogCategory`), paths, UUID, generated `Version.h`.
 - **Render** — D3D12 renderer, 2D/3D cameras, mesh/sprite/line/particle/terrain/water/sky/shadow pipelines, shader compile, debug overlay.
 - **Audio** — XAudio2 system, WAV clips.
 - **Input** — XInput (linked from CMake).
-- **ECS** — small `World` / `Entity` / component set.
-- **Network** — UDP sockets (`ws2_32`), packets, reliability, replication types, `NetworkSystem`, a fake transport for tests. Recent work: UDP beacon discovery on port 26161, Sandbox2D host/join, Editor Network menu.
+- **ECS** — `World` / generation-packed `EntityID` (slot + generation; `NULL_ENTITY` is 0), components, O(1) `alive()`, safe emplace over existing entities.
+- **Assets** — `AssetManager` / handles, texture cache, **glTF** load via cgltf (`GltfLoader`).
+- **Network** — UDP sockets (`ws2_32`), packets, reliability, replication types, `NetworkSystem`, fake transport for tests. UDP beacon discovery on port **26161**. Sandbox2D host/join; Editor Network menu.
+  - **Draw contract:** `NetworkSystem` does not draw. Sandbox attaches a `MeshComponent` (or equivalent) in `onNetSpawn` / `spawnOwnedPawn`. Editor must call `mirrorNetworkedObjects()` (or equivalent) so networked entities appear in the local draw list before render. See `Network/Replication.h`.
+- **Debug** — engine-side debug helpers compiled into `DarkEngine`.
 - **Character** — humanoid body / physiology headers (not a finished gameplay character controller).
 - **Sandbox2D** — links Box2D from `third_party/box2d`.
-- **Editor** — Dear ImGui v1.91.8 (fetched at configure time).
+- **Editor / Sandbox UI** — Dear ImGui **v1.91.8-docking** (fetched at configure time) plus shared `Ui/` styles.
 
 ## Requirements
 
 - Windows
 - CMake 3.22+
-- A C++20 MSVC toolchain (Visual Studio generator is the usual path)
+- A **C++23** MSVC toolchain (Visual Studio generator is the usual path)
 - Git (ImGui is fetched on first configure)
 
 ## Build
@@ -89,16 +96,19 @@ JSON overlay: `content/loading/engine.json` then `content/loading/<hostId>.json`
 ## Layout
 
 ```
-AI/ Assets/ Audio/ Character/ Collision/ Core/ ECS/
+AI/ Assets/ Audio/ Character/ Collision/ Core/ Debug/ ECS/
 Geometry/ Input/ Math/ Network/ Particles/ Render/
 Scene/ Sky/ Sprite/ Terrain/ Water/
+Ui/               shared ImGui helpers (Editor, VisualDebugger, Sandbox)
 Sandbox/          3D sample
 Sandbox2D/        2D sample
 Editor/           ImGui editor
 UnitTests/
+VisualDebugger/
 content/          runtime data + HLSL
 third_party/      Box2D (and other vendored deps)
-cmake/            compiler options, content copy
+cmake/            compiler options, content copy, Version.h.in
+docs/             plans / notes
 scripts/          Sourcetrail helper, etc.
 AGENTS.md         rules for humans and coding agents
 ```
@@ -108,7 +118,7 @@ AGENTS.md         rules for humans and coding agents
 Standing rules for anyone (or any agent) touching this repo are in [`AGENTS.md`](AGENTS.md). Short version:
 
 - No C++ exceptions in engine or Sandbox code. Return `bool` / status, log, `DE_ASSERT`.
-- C++20, MSVC-friendly, `.clang-format` (Allman, 4-space).
+- **C++23**, MSVC-friendly, `.clang-format` (Allman, 4-space).
 - Log with `DE_LOG_INFO` / `WARN` / `ERROR` / `FATAL` from `Core/Log.h`.
 
 ## Sourcetrail (code graph / coupling explorer)
