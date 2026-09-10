@@ -110,4 +110,14 @@
     <DisplayString>Plane  N=({x},{y},{z})  D={w}</DisplayString>
   </Type>
 
+
+  <Type Name="Dark::Math::Capsule3f">
+    <DisplayString>Capsule3f  A=({PointA.x},{PointA.y},{PointA.z})  B=({PointB.x},{PointB.y},{PointB.z})  R={Radius}</DisplayString>
+    <Expand>
+      <Item Name="PointA">PointA</Item>
+      <Item Name="PointB">PointB</Item>
+      <Item Name="Radius">Radius</Item>
+    </Expand>
+  </Type>
+
 </AutoVisualizer>
