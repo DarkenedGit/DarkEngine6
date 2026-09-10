@@ -1,10 +1,1 @@
-// synth 00000
-// synth 00001
-// synth 00002
-// synth 00003
-// synth 00004
-// synth 00005
-// synth 00006
-// synth 00007
-// synth 00008
-// synth 00009
+@file:///workspace/dual-world-fix/probe21_raw.txt
