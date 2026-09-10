@@ -108,6 +108,9 @@ private:
     void drawNetworkMenu();
     void drawDebugMenu();
 
+    // Ensure every NetworkedComponent has a SceneObject row (draw/selection).
+    void mirrorNetworkedObjects();
+
     static bool onNetSpawn(World& world, Entity e, NetPrefab prefab, const TransformComponent& xf, uint32_t colorRgba8, void* user);
     static void onNetDespawn(World& world, Entity e, NetId id, void* user);
     static void onNetPeer(const NetPeerInfo& info, NetPeerEvent event, void* user);

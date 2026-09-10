@@ -1536,29 +1536,42 @@ void EditorApp::drawDebugMenu()
     ImGui::EndMenu();
 }
 
+
+void EditorApp::mirrorNetworkedObjects()
+{
+    world().each<NetworkedComponent>([&](Entity e, NetworkedComponent& nc) {
+        if (!e.valid() || findObject(e))
+            return;
+
+        const SceneObjectType type = typeFromPrefab(nc.prefab);
+        if (!isLocalLightType(type) && !world().has<MeshComponent>(e))
+        {
+            auto& mc       = world().emplace<MeshComponent>(e);
+            mc.matAssetID  = m_propMaterial ? m_propMaterial->id : NULL_ASSET;
+            mc.meshAssetID = NULL_ASSET;
+        }
+
+        SceneObject so{};
+        so.entity       = e;
+        so.type         = type;
+        so.emitterIndex = -1;
+        unpackRgba8(nc.colorRgba8, so.color);
+        m_objects.push_back(so);
+    });
+}
+
 bool EditorApp::onNetSpawn(World& world, Entity e, NetPrefab prefab, const TransformComponent& xf, uint32_t colorRgba8, void* user)
 {
+    (void)world;
+    (void)prefab;
     (void)xf;
+    (void)colorRgba8;
     auto* self = static_cast<EditorApp*>(user);
     if (!self || !e.valid())
         return false;
-    if (self->findObject(e))
-        return true;
-
-    if (!world.has<MeshComponent>(e))
-    {
-        auto& mc       = world.emplace<MeshComponent>(e);
-        mc.matAssetID  = self->m_propMaterial ? self->m_propMaterial->id : NULL_ASSET;
-        mc.meshAssetID = NULL_ASSET;
-    }
-
-    SceneObject so{};
-    so.entity       = e;
-    so.type         = typeFromPrefab(prefab);
-    so.emitterIndex = -1;
-    unpackRgba8(colorRgba8, so.color);
-    self->m_objects.push_back(so);
-    return true;
+    // Mirror this entity (and any other networked stragglers) into m_objects.
+    self->mirrorNetworkedObjects();
+    return self->findObject(e) != nullptr;
 }
 
 void EditorApp::onNetDespawn(World& world, Entity e, NetId id, void* user)
@@ -2290,6 +2303,8 @@ void EditorApp::onRender()
 
 void EditorApp::renderScene2D(ID3D12GraphicsCommandList* cmd)
 {
+    mirrorNetworkedObjects();
+
     if (!cmd || !ensure2DResources())
         return;
 
@@ -2378,6 +2393,8 @@ void EditorApp::renderScene2D(ID3D12GraphicsCommandList* cmd)
 
 void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 {
+    // ECS is authoritative for networked replicas; keep m_objects in sync for draw.
+    mirrorNetworkedObjects();
     m_camera.ClearSubpixelJitter();
     const Vector3f lightDir(0.35f, 0.85f, -0.35f);
     AABox3f        sceneBounds(Vector3f(-22.0f, -2.0f, -22.0f), Vector3f(22.0f, 16.0f, 22.0f));

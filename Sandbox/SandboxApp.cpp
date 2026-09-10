@@ -1241,6 +1241,12 @@ void SandboxApp::spawnOwnedPawn(ClientId owner, float offsetX)
     Entity e = world().createEntity();
     world().emplace<TagComponent>(e, "PlayerPawn");
     world().emplace<TransformComponent>(e, pos, Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
+    {
+        auto& mc       = world().emplace<MeshComponent>(e);
+        mc.meshAssetID = NULL_ASSET;
+        mc.matAssetID  = m_cubeMatId;
+        mc.castShadow  = true;
+    }
     if (!network().registerEntity(world(), e, NetPrefab::PlayerPawn, owner, pawnPaletteColor(owner)))
     {
         world().destroyEntity(e);
@@ -1264,8 +1270,19 @@ void SandboxApp::ensureLocalCube()
     network().registerEntity(world(), m_cube, NetPrefab::Cube);
 }
 
-bool SandboxApp::onNetSpawn(World&, Entity, NetPrefab, const TransformComponent&, uint32_t, void*)
+bool SandboxApp::onNetSpawn(World& world, Entity e, NetPrefab, const TransformComponent&, uint32_t, void* user)
 {
+    // Draw path is each<NetworkedComponent> + m_cubeMesh; MeshComponent carries material/emissive.
+    auto* app = static_cast<SandboxApp*>(user);
+    if (!app || !e.valid())
+        return false;
+    if (!world.has<MeshComponent>(e))
+    {
+        auto& mc       = world.emplace<MeshComponent>(e);
+        mc.meshAssetID = NULL_ASSET;
+        mc.matAssetID  = app->m_cubeMatId;
+        mc.castShadow  = true;
+    }
     return true;
 }
 
@@ -1868,6 +1885,7 @@ void SandboxApp::onRender()
             gcb.color[2] = 1.0f;
             gcb.color[3] = 0.0f;
         }
+        // Networked draw path (ECS) — do not require a parallel host array.
         world().each<NetworkedComponent>([&](Entity e, NetworkedComponent& nc) {
             const TransformComponent* xf = world().get<TransformComponent>(e);
             if (!xf)
