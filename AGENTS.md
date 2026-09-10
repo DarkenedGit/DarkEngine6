@@ -87,7 +87,7 @@ If any appear under engine/Sandbox paths, remove them.
 
 ## Other standing conventions
 
-- C++20, MSVC-friendly; project uses `.clang-format` (Allman braces, 4-space indent).
+- C++23, MSVC-friendly; project uses `.clang-format` (Allman braces, 4-space indent).
 - Engine library target: `DarkEngine`. Sample app: `Sandbox`. Tests: `UnitTests`.
 - Logging: `DE_LOG_INFO` / `WARN` / `ERROR` / `FATAL` from `Core/Log.h`. Pass `LogCategory` as the first argument (`Render`, `Audio`, `Collision`, `AI`, `Input`, `Networking`) so subsystems can be filtered with `Log::setCategoryEnabled`. Omit the category to log under `Core`. Error/Fatal still emit when a category is disabled.
 - Do not reformat the whole tree unless asked; keep diffs focused.
