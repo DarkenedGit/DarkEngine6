@@ -20,24 +20,10 @@ namespace Dark::Math
 		y = Y;
 	}
 
-	Vector2f::Vector2f(const Vector2f& Vector) noexcept
-	{
-		x = Vector.x;
-		y = Vector.y;
-	}
-
 	Vector2f::Vector2f(const Vect2f& Vector)
 	{
 		x = Vector.x;
 		y = Vector.y;
-	}
-
-	Vector2f& Vector2f::operator= (const Vector2f& Vector) noexcept
-	{
-		x = Vector.x;
-		y = Vector.y;
-
-		return(*this);
 	}
 
 	Vector2f& Vector2f::operator=(const Vect2f& Vector)

@@ -16,9 +16,11 @@ namespace Dark::Math
 		Plane4f(const Vector3f& normal, const Vector3f& pointOnPlane);
 		Plane4f(const Vector3f& p0, const Vector3f& p1, const Vector3f& p2); // from triangle
 		Plane4f(const Vect4f& plane);
-		Plane4f(const Plane4f& plane);
+		Plane4f(const Plane4f& plane) noexcept = default;
+		Plane4f(Plane4f&& plane) noexcept = default;
 
-		Plane4f& operator=(const Plane4f& plane);
+		Plane4f& operator=(const Plane4f& plane) noexcept = default;
+		Plane4f& operator=(Plane4f&& plane) noexcept = default;
 		Plane4f& operator=(const Vect4f& plane);
 
 		float  operator[](int iPos) const;

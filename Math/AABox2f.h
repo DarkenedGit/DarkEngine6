@@ -14,6 +14,10 @@ namespace Dark::Math
 
         AABox2f();
         AABox2f(const Vector2f& min, const Vector2f& max);
+        AABox2f(const AABox2f&) noexcept = default;
+        AABox2f(AABox2f&&) noexcept = default;
+        AABox2f& operator=(const AABox2f&) noexcept = default;
+        AABox2f& operator=(AABox2f&&) noexcept = default;
 
         static AABox2f  FromCenterExtents(const Vector2f& center, const Vector2f& halfExtents);
         static AABox2f  FromPoints(const Vector2f* points, int count);

@@ -13,6 +13,10 @@ namespace Dark::Math
 
 		Sphere3f();
 		Sphere3f(const Vector3f& center, float radius);
+		Sphere3f(const Sphere3f&) noexcept = default;
+		Sphere3f(Sphere3f&&) noexcept = default;
+		Sphere3f& operator=(const Sphere3f&) noexcept = default;
+		Sphere3f& operator=(Sphere3f&&) noexcept = default;
 
 		void Update(const Vector3f& center, float radius);
 		void UpdateCenter(const Vector3f& center);

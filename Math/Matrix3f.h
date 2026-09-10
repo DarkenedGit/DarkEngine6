@@ -29,7 +29,8 @@ namespace Dark::Math
 	{
 	public:
 		Matrix3f();
-		Matrix3f(const Matrix3f& Matrix);
+		Matrix3f(const Matrix3f& Matrix) noexcept = default;
+		Matrix3f(Matrix3f&& Matrix) noexcept = default;
 		Matrix3f(const Mat3f& Matrix);
 		Matrix3f(float fM11, float fM12, float fM13,
 			        float fM21, float fM22, float fM23,
@@ -46,7 +47,8 @@ namespace Dark::Math
 		void Scale(float fXScale, float fYScale, float fZScale);
 
 		// Operators
-		Matrix3f& operator=(const Matrix3f& Matrix);
+		Matrix3f& operator=(const Matrix3f& Matrix) noexcept = default;
+		Matrix3f& operator=(Matrix3f&& Matrix) noexcept = default;
 		Matrix3f& operator=(const Mat3f& Matrix);
 
 		// member access

@@ -38,7 +38,8 @@ namespace Dark::Math
 	{
 	public:
 		Matrix4f();
-		Matrix4f(const Matrix4f& Matrix);
+		Matrix4f(const Matrix4f& Matrix) noexcept = default;
+		Matrix4f(Matrix4f&& Matrix) noexcept = default;
 		Matrix4f(const Mat4f& Matrix);
 		Matrix4f(float fM11, float fM12, float fM13, float fM14,
 			        float fM21, float fM22, float fM23, float fM24,
@@ -79,7 +80,8 @@ namespace Dark::Math
 		static Matrix4f OrthographicOffCenterLHMatrix(float l, float r, float b, float t, float zn, float zf);
 
 		// Operators
-		Matrix4f& operator=(const Matrix4f& Matrix);
+		Matrix4f& operator=(const Matrix4f& Matrix) noexcept = default;
+		Matrix4f& operator=(Matrix4f&& Matrix) noexcept = default;
 		Matrix4f& operator=(const Mat4f& Matrix);
 
 		// member access

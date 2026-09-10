@@ -18,9 +18,11 @@ namespace Dark::Math
 
 		Quaternion();
 		Quaternion(float w, float x, float y, float z);
-		Quaternion(const Quaternion& q);
+		Quaternion(const Quaternion& q) noexcept = default;
+		Quaternion(Quaternion&& q) noexcept = default;
 
-		Quaternion& operator=(const Quaternion& q);
+		Quaternion& operator=(const Quaternion& q) noexcept = default;
+		Quaternion& operator=(Quaternion&& q) noexcept = default;
 
 		float Length() const;
 		float LengthSquared() const;

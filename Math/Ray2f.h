@@ -14,6 +14,10 @@ namespace Dark::Math
 
 		Ray2f();
 		Ray2f(const Vector2f& origin, const Vector2f& direction);
+		Ray2f(const Ray2f&) noexcept = default;
+		Ray2f(Ray2f&&) noexcept = default;
+		Ray2f& operator=(const Ray2f&) noexcept = default;
+		Ray2f& operator=(Ray2f&&) noexcept = default;
 
 		Vector2f PointAt(float t) const;
 

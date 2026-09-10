@@ -22,6 +22,10 @@ namespace Dark
 			Box3f(const Vector3f& center,
 			      const Vector3f& axis0, const Vector3f& axis1, const Vector3f& axis2,
 			      float extent0, float extent1, float extent2);
+			Box3f(const Box3f&) noexcept = default;
+			Box3f(Box3f&&) noexcept = default;
+			Box3f& operator=(const Box3f&) noexcept = default;
+			Box3f& operator=(Box3f&&) noexcept = default;
 
 			// Axis-aligned box from AABB.
             static Box3f FromAABox3f(const AABox3f& aabb);

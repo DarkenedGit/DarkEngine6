@@ -23,11 +23,6 @@ namespace Dark::Math
 		*this = IDENTITY;
 	}
 
-	Matrix4f::Matrix4f(const Matrix4f& Matrix)
-	{
-		memcpy(m_afEntry, Matrix.m_afEntry, 16 * sizeof(float));
-	}
-
 	Matrix4f::Matrix4f(const Mat4f& Matrix)
 	{
 		memcpy(m_afEntry, Matrix.m_afEntry, 16 * sizeof(float));
@@ -57,12 +52,6 @@ namespace Dark::Math
 		m_afEntry[m42] = fM42;
 		m_afEntry[m43] = fM43;
 		m_afEntry[m44] = fM44;
-	}
-
-	Matrix4f& Matrix4f::operator=(const Matrix4f& Matrix)
-	{
-		memcpy(m_afEntry, Matrix.m_afEntry, 16 * sizeof(float));
-		return *this;
 	}
 
 	Matrix4f& Matrix4f::operator=(const Mat4f& Matrix)

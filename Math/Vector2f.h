@@ -22,7 +22,8 @@ namespace Dark::Math
 		Vector2f();
 		Vector2f(float x, float y);
 		Vector2f(const Vect2f& Vector);
-		Vector2f(const Vector2f& Vector) noexcept;
+		Vector2f(const Vector2f& Vector) noexcept = default;
+		Vector2f(Vector2f&& Vector) noexcept = default;
 
 		// vector operations
 		void  Clamp();
@@ -42,7 +43,8 @@ namespace Dark::Math
 		static Vector2f RandomPoint();   // point in unit box [-1,1]^2
 
 		// assignment
-		Vector2f& operator=(const Vector2f& Vector) noexcept;
+		Vector2f& operator=(const Vector2f& Vector) noexcept = default;
+		Vector2f& operator=(Vector2f&& Vector) noexcept = default;
 		Vector2f& operator=(const Vect2f& Vector);
 
 		// accessors

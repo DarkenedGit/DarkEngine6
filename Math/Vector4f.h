@@ -33,11 +33,13 @@ namespace Dark::Math
 		Vector4f(float x, float y, float z, float w);
 		Vector4f(const Vector3f& vector, float w);
 		Vector4f(const Vect4f& Vector);
-		Vector4f(const Vector4f& Vector) noexcept;
+		Vector4f(const Vector4f& Vector) noexcept = default;
+		Vector4f(Vector4f&& Vector) noexcept = default;
 
 		// Operators
-		Vector4f& operator= (const Vector4f& Vector) noexcept;
-		Vector4f& operator= (const Vect4f& Vector);
+		Vector4f& operator=(const Vector4f& Vector) noexcept = default;
+		Vector4f& operator=(Vector4f&& Vector) noexcept = default;
+		Vector4f& operator=(const Vect4f& Vector);
 
 		// member access
 		float operator[] (int iPos) const;

@@ -26,6 +26,10 @@ namespace Dark
 			// Rotation angle (radians) around center; axes = (cos,sin) and (-sin,cos).
 			Box2f(const Vector2f& center, float rotationRadians,
 			      float halfExtentX, float halfExtentY);
+			Box2f(const Box2f&) noexcept = default;
+			Box2f(Box2f&&) noexcept = default;
+			Box2f& operator=(const Box2f&) noexcept = default;
+			Box2f& operator=(Box2f&&) noexcept = default;
 
 			static Box2f FromAabb(const AABox2f& aabb);
 			static Box2f FromCenterExtents(const Vector2f& center, const Vector2f& halfExtents);

@@ -56,23 +56,6 @@ namespace Dark::Math
 		w = plane.w;
 	}
 
-	Plane4f::Plane4f(const Plane4f& plane)
-	{
-		x = plane.x;
-		y = plane.y;
-		z = plane.z;
-		w = plane.w;
-	}
-
-	Plane4f& Plane4f::operator=(const Plane4f& plane)
-	{
-		x = plane.x;
-		y = plane.y;
-		z = plane.z;
-		w = plane.w;
-		return *this;
-	}
-
 	Plane4f& Plane4f::operator=(const Vect4f& plane)
 	{
 		x = plane.x;

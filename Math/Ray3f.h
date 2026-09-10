@@ -14,6 +14,10 @@ namespace Dark::Math
 
 		Ray3f();
 		Ray3f(const Vector3f& origin, const Vector3f& direction);
+		Ray3f(const Ray3f&) noexcept = default;
+		Ray3f(Ray3f&&) noexcept = default;
+		Ray3f& operator=(const Ray3f&) noexcept = default;
+		Ray3f& operator=(Ray3f&&) noexcept = default;
 
 		Vector3f PointAt(float t) const;
 

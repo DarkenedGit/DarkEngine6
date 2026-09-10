@@ -14,19 +14,6 @@ namespace Dark::Math
 	{
 	}
 
-	Quaternion::Quaternion(const Quaternion& q): w(q.w), x(q.x), y(q.y), z(q.z)
-	{
-	}
-
-	Quaternion& Quaternion::operator=(const Quaternion& q)
-	{
-		w = q.w;
-		x = q.x;
-		y = q.y;
-		z = q.z;
-		return *this;
-	}
-
 	float Quaternion::Length() const
 	{
 		return sqrtf(w * w + x * x + y * y + z * z);

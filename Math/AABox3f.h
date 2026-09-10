@@ -14,6 +14,10 @@ namespace Dark::Math
 
 		AABox3f();
 		AABox3f(const Vector3f& min, const Vector3f& max);
+		AABox3f(const AABox3f&) noexcept = default;
+		AABox3f(AABox3f&&) noexcept = default;
+		AABox3f& operator=(const AABox3f&) noexcept = default;
+		AABox3f& operator=(AABox3f&&) noexcept = default;
 
 		static AABox3f FromCenterExtents(const Vector3f& center, const Vector3f& halfExtents);
 		static AABox3f FromPoints(const Vector3f* points, int count);

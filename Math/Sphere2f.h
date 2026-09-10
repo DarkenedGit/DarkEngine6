@@ -13,6 +13,10 @@ namespace Dark::Math
 
 		Sphere2f();
 		Sphere2f(const Vector2f& center, float radius);
+		Sphere2f(const Sphere2f&) noexcept = default;
+		Sphere2f(Sphere2f&&) noexcept = default;
+		Sphere2f& operator=(const Sphere2f&) noexcept = default;
+		Sphere2f& operator=(Sphere2f&&) noexcept = default;
 
 		void Update(const Vector2f& center, float radius);
 		void UpdateCenter(const Vector2f& center);

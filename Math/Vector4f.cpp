@@ -42,30 +42,12 @@ Vector4f::Vector4f( const Vector3f& Vector, float W )
     w = W;
 }
 
-Vector4f::Vector4f( const Vector4f& Vector ) noexcept
-{
-	x = Vector.x;
-	y = Vector.y;
-	z = Vector.z;
-	w = Vector.w;
-}
-
 Vector4f::Vector4f(const Vect4f& Vector)
 {
 	x = Vector.x;
 	y = Vector.y;
 	z = Vector.z;
 	w = Vector.w;
-}
-
-Vector4f& Vector4f::operator= ( const Vector4f& Vector ) noexcept
-{
-	x = Vector.x;
-	y = Vector.y;
-	z = Vector.z;
-	w = Vector.w;
-
-    return *this;
 }
 
 Vector4f& Vector4f::operator= (const Vect4f& Vector)

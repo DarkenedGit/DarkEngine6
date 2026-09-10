@@ -24,13 +24,6 @@ namespace Dark
 			z = Z;
 		}
 
-		Vector3f::Vector3f(const Vector3f& Vector) noexcept
-		{
-			x = Vector.x;
-			y = Vector.y;
-			z = Vector.z;
-		}
-
 		Vector3f::Vector3f(const Vect3f& Vector)
 		{
 			x = Vector.x;
@@ -146,15 +139,6 @@ namespace Dark
 		bool Vector3f::IsNaN()
 		{
 			return std::isnan(x) || std::isnan(y) || std::isnan(z);
-		}
-
-		Vector3f& Vector3f::operator=(const Vector3f& Vector) noexcept
-		{
-			x = Vector.x;
-			y = Vector.y;
-			z = Vector.z;
-
-			return (*this);
 		}
 
 		Vector3f& Vector3f::operator=(const Vect3f& Vector)

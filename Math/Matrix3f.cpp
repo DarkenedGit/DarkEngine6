@@ -12,11 +12,6 @@ namespace Dark::Math
 		*this = IDENTITY;
 	}
 
-	Matrix3f::Matrix3f(const Matrix3f& Matrix)
-	{
-		memcpy(m_afEntry, Matrix.m_afEntry, 9 * sizeof(float));
-	}
-
 	Matrix3f::Matrix3f(const Mat3f& Matrix)
 	{
 		memcpy(m_afEntry, Matrix.m_afEntry, 9 * sizeof(float));
@@ -37,12 +32,6 @@ namespace Dark::Math
 		m_afEntry[m31] = fM31;
 		m_afEntry[m32] = fM32;
 		m_afEntry[m33] = fM33;
-	}
-
-	Matrix3f& Matrix3f::operator=(const Matrix3f& Matrix)
-	{
-		memcpy(m_afEntry, Matrix.m_afEntry, 9 * sizeof(float));
-		return *this;
 	}
 
 	Matrix3f& Matrix3f::operator=(const Mat3f& Matrix)

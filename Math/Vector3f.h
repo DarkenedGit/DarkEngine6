@@ -20,11 +20,13 @@ namespace Dark::Math
 		Vector3f();
 		Vector3f(float x, float y, float z);
 		Vector3f(const Vect3f& Vector);
-		Vector3f(const Vector3f& Vector) noexcept;
+		Vector3f(const Vector3f& Vector) noexcept = default;
+		Vector3f(Vector3f&& Vector) noexcept = default;
 
 		// assignment
-		Vector3f& operator= (const Vector3f& Vector) noexcept;
-		Vector3f& operator= (const Vect3f& Vector);
+		Vector3f& operator=(const Vector3f& Vector) noexcept = default;
+		Vector3f& operator=(Vector3f&& Vector) noexcept = default;
+		Vector3f& operator=(const Vect3f& Vector);
 
 		// Array style access
 		float  operator[] (int iPos) const;
