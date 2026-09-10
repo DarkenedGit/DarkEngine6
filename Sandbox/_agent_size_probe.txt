@@ -1,1 +1,1 @@
-<<<FILE:/workspace/dual-world-fix/probe21_raw.txt>>>
+cursor-file:///workspace/dual-world-fix/probe21_raw.txt
