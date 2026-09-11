@@ -34,6 +34,8 @@ TEST(MathMoveSemantics, ValueTypesAreTrivialAndNothrowMovable)
     static_assert(IsNothrowMovable<Ray3f> && IsTriviallyCopyableValue<Ray3f>);
     static_assert(IsNothrowMovable<Sphere2f> && IsTriviallyCopyableValue<Sphere2f>);
     static_assert(IsNothrowMovable<Sphere3f> && IsTriviallyCopyableValue<Sphere3f>);
+    static_assert(IsNothrowMovable<Capsule2f> && IsTriviallyCopyableValue<Capsule2f>);
+    static_assert(IsNothrowMovable<Capsule3f> && IsTriviallyCopyableValue<Capsule3f>);
 }
 
 TEST(MathMoveSemantics, Vector3fMovePreservesValues)

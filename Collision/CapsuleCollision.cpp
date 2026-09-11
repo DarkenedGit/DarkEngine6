@@ -2,6 +2,7 @@
 #include "SweptCollision.h"
 #include "Math/MathDefines.h"
 #include "Math/MathHelper.h"
+#include "Math/Ray2f.h"
 #include "Math/Ray3f.h"
 #include <cmath>
 #include <algorithm>
@@ -461,6 +462,399 @@ namespace Dark::Collision
 		Vector3f onSeg = at.PointA + ab * bestT;
 		Vector3f onBox = ClosestPointOnObb(onSeg, box);
 		ContactNormalFromPoints(onBox, onSeg, hit.normal);
+		hit.point = onBox;
+		return hit;
+	}
+
+	// ---------------------------------------------------------------------
+	// 2D helpers
+	// ---------------------------------------------------------------------
+
+	static Vector2f ClosestPointOnAabb2(const Vector2f& p, const AABox2f& box)
+	{
+		return Vector2f(
+			std::max(box.Min.x, std::min(p.x, box.Max.x)),
+			std::max(box.Min.y, std::min(p.y, box.Max.y)));
+	}
+
+	static Vector2f ClosestPointOnObb2(const Vector2f& p, const Box2f& box)
+	{
+		Vector2f d = p - box.Center;
+		Vector2f result = box.Center;
+		for (int i = 0; i < 2; ++i)
+		{
+			float dist = d.Dot(box.Axis[i]);
+			dist = std::max(-box.Extent[i], std::min(dist, box.Extent[i]));
+			result += box.Axis[i] * dist;
+		}
+		return result;
+	}
+
+	static float DistanceSqPointAabb2(const Vector2f& p, const AABox2f& box)
+	{
+		Vector2f c = ClosestPointOnAabb2(p, box);
+		return (p - c).MagnitudeSqrd();
+	}
+
+	static float DistanceSqPointObb2(const Vector2f& p, const Box2f& box)
+	{
+		Vector2f c = ClosestPointOnObb2(p, box);
+		return (p - c).MagnitudeSqrd();
+	}
+
+	static float DistanceSqSegmentAabb2(const Vector2f& a0, const Vector2f& a1, const AABox2f& box)
+	{
+		Vector2f ab = a1 - a0;
+		float lo = 0.0f;
+		float hi = 1.0f;
+		for (int i = 0; i < 32; ++i)
+		{
+			float m1 = lo + (hi - lo) * (1.0f / 3.0f);
+			float m2 = lo + (hi - lo) * (2.0f / 3.0f);
+			float d1 = DistanceSqPointAabb2(a0 + ab * m1, box);
+			float d2 = DistanceSqPointAabb2(a0 + ab * m2, box);
+			if (d1 < d2)
+				hi = m2;
+			else
+				lo = m1;
+		}
+		float t = 0.5f * (lo + hi);
+		return DistanceSqPointAabb2(a0 + ab * t, box);
+	}
+
+	static float DistanceSqSegmentObb2(const Vector2f& a0, const Vector2f& a1, const Box2f& box)
+	{
+		Vector2f ab = a1 - a0;
+		float lo = 0.0f;
+		float hi = 1.0f;
+		for (int i = 0; i < 32; ++i)
+		{
+			float m1 = lo + (hi - lo) * (1.0f / 3.0f);
+			float m2 = lo + (hi - lo) * (2.0f / 3.0f);
+			float d1 = DistanceSqPointObb2(a0 + ab * m1, box);
+			float d2 = DistanceSqPointObb2(a0 + ab * m2, box);
+			if (d1 < d2)
+				hi = m2;
+			else
+				lo = m1;
+		}
+		float t = 0.5f * (lo + hi);
+		return DistanceSqPointObb2(a0 + ab * t, box);
+	}
+
+	static Capsule2f CapsuleTranslated2(const Capsule2f& c, const Vector2f& delta, float t)
+	{
+		return Capsule2f(c.PointA + delta * t, c.PointB + delta * t, c.Radius);
+	}
+
+	static void ContactNormalFromPoints2(const Vector2f& fromB, const Vector2f& toA, Vector2f& outNormal)
+	{
+		Vector2f n = toA - fromB;
+		if (n.MagnitudeSqrd() > Epsilon)
+		{
+			n.Normalize();
+			outNormal = n;
+		}
+	}
+
+	// ---------------------------------------------------------------------
+	// Static capsule2 tests
+	// ---------------------------------------------------------------------
+
+	bool Intersects(const Vector2f& point, const Capsule2f& capsule)
+	{
+		return capsule.Contains(point);
+	}
+
+	bool Intersects(const Capsule2f& a, const Capsule2f& b)
+	{
+		return a.Intersects(b);
+	}
+
+	bool Intersects(const Capsule2f& capsule, const Sphere2f& circle)
+	{
+		return capsule.Intersects(circle);
+	}
+
+	bool Intersects(const Capsule2f& capsule, const AABox2f& box)
+	{
+		float r = capsule.Radius;
+		return DistanceSqSegmentAabb2(capsule.PointA, capsule.PointB, box) <= r * r;
+	}
+
+	bool Intersects(const Capsule2f& capsule, const Box2f& box)
+	{
+		float r = capsule.Radius;
+		return DistanceSqSegmentObb2(capsule.PointA, capsule.PointB, box) <= r * r;
+	}
+
+	bool Intersect(const Ray2f& ray, const Capsule2f& capsule, RayHit2D& results)
+	{
+		results = RayHit2D{};
+
+		const Vector2f ba = capsule.PointB - capsule.PointA;
+		const Vector2f oa = ray.Origin - capsule.PointA;
+		const float baba = ba.Dot(ba);
+		const float bard = ba.Dot(ray.Direction);
+		const float baoa = ba.Dot(oa);
+		const float rdoa = ray.Direction.Dot(oa);
+		const float oaoa = oa.Dot(oa);
+		const float r2 = capsule.Radius * capsule.Radius;
+
+		if (baba <= Epsilon * Epsilon)
+		{
+			float t = 0.0f;
+			if (!ray.IntersectCircle(Sphere2f(capsule.PointA, capsule.Radius), t))
+				return false;
+			results.hit = true;
+			results.t = t;
+			results.point = ray.PointAt(t);
+			results.normal = results.point - capsule.PointA;
+			if (results.normal.MagnitudeSqrd() > Epsilon)
+				results.normal.Normalize();
+			return true;
+		}
+
+		float bestT = 1.0e30f;
+		bool found = false;
+		Vector2f bestNormal = Vector2f::ZERO;
+
+		auto considerT = [&](float t, const Vector2f& normalSrc)
+		{
+			if (t < 0.0f || t >= bestT)
+				return;
+			bestT = t;
+			found = true;
+			bestNormal = normalSrc;
+		};
+
+		const float a = baba - bard * bard;
+		const float b = baba * rdoa - baoa * bard;
+		const float c = baba * oaoa - baoa * baoa - r2 * baba;
+		const float discr = b * b - a * c;
+		if (discr >= 0.0f && fabsf(a) > Epsilon)
+		{
+			const float sqrtD = sqrtf(discr);
+			float t = (-b - sqrtD) / a;
+			float y = baoa + t * bard;
+			if (y > 0.0f && y < baba)
+			{
+				Vector2f p = ray.PointAt(t);
+				Vector2f onAxis = capsule.PointA + ba * (y / baba);
+				considerT(t, p - onAxis);
+			}
+		}
+
+		{
+			float t = 0.0f;
+			if (ray.IntersectCircle(Sphere2f(capsule.PointA, capsule.Radius), t))
+			{
+				Vector2f p = ray.PointAt(t);
+				float y = (p - capsule.PointA).Dot(ba);
+				if (y <= 0.0f)
+					considerT(t, p - capsule.PointA);
+			}
+		}
+
+		{
+			float t = 0.0f;
+			if (ray.IntersectCircle(Sphere2f(capsule.PointB, capsule.Radius), t))
+			{
+				Vector2f p = ray.PointAt(t);
+				float y = (p - capsule.PointA).Dot(ba);
+				if (y >= baba)
+					considerT(t, p - capsule.PointB);
+			}
+		}
+
+		if (!found)
+			return false;
+
+		results.hit = true;
+		results.t = bestT;
+		results.point = ray.PointAt(bestT);
+		results.normal = bestNormal;
+		if (results.normal.MagnitudeSqrd() > Epsilon)
+			results.normal.Normalize();
+		return true;
+	}
+
+	// ---------------------------------------------------------------------
+	// Swept capsule2 tests
+	// ---------------------------------------------------------------------
+
+	SweptHit2D SweptIntersects(const Vector2f& p0, const Vector2f& delta, const Capsule2f& capsule)
+	{
+		SweptHit2D hit;
+		float len = delta.Magnitude();
+		if (len < Epsilon)
+		{
+			if (Intersects(p0, capsule))
+			{
+				hit.hit = true;
+				hit.t = 0.0f;
+				hit.point = p0;
+			}
+			return hit;
+		}
+
+		Vector2f dir = delta * (1.0f / len);
+		RayHit2D rh;
+		if (!Intersect(Ray2f(p0, dir), capsule, rh))
+			return hit;
+
+		float t = rh.t / len;
+		if (t < 0.0f || t > 1.0f)
+			return hit;
+
+		hit.hit = true;
+		hit.t = t;
+		hit.point = p0 + delta * t;
+		hit.normal = rh.normal;
+		return hit;
+	}
+
+	SweptHit2D SweptIntersects(const Sphere2f& circle, const Vector2f& delta, const Capsule2f& capsule)
+	{
+		Capsule2f inflated(capsule.PointA, capsule.PointB, capsule.Radius + circle.Radius);
+		SweptHit2D hit = SweptIntersects(circle.Center, delta, inflated);
+		if (!hit.hit)
+			return hit;
+
+		Vector2f centerAt = circle.Center + delta * hit.t;
+		Vector2f onSeg = capsule.ClosestPointOnSegment(centerAt);
+		ContactNormalFromPoints2(onSeg, centerAt, hit.normal);
+		hit.point = onSeg + hit.normal * capsule.Radius;
+		return hit;
+	}
+
+	SweptHit2D SweptIntersects(const Capsule2f& capsule, const Vector2f& delta, const Sphere2f& circle)
+	{
+		SweptHit2D hit = SweptIntersects(circle, -delta, capsule);
+		if (!hit.hit)
+			return hit;
+
+		hit.normal = -hit.normal;
+		hit.point = circle.Center + hit.normal * circle.Radius;
+		return hit;
+	}
+
+	SweptHit2D SweptIntersects(const Capsule2f& a, const Vector2f& deltaA,
+		                        const Capsule2f& b, const Vector2f& deltaB)
+	{
+		SweptHit2D hit;
+
+		Sphere2f sa = a.ToBoundingCircle();
+		Sphere2f sb = b.ToBoundingCircle();
+		SweptHit2D broad = SweptIntersects(sa, deltaA, sb, deltaB);
+		if (!broad.hit)
+			return hit;
+
+		auto overlaps = [&](float t) -> bool
+		{
+			Capsule2f at = CapsuleTranslated2(a, deltaA, t);
+			Capsule2f bt = CapsuleTranslated2(b, deltaB, t);
+			return Intersects(at, bt);
+		};
+
+		float toi = 0.0f;
+		if (!BinarySearchToi(overlaps, toi))
+			return hit;
+
+		hit.hit = true;
+		hit.t = toi;
+		Capsule2f at = CapsuleTranslated2(a, deltaA, toi);
+		Capsule2f bt = CapsuleTranslated2(b, deltaB, toi);
+		Vector2f pa, pb;
+		ClosestPointsOnSegments(at.PointA, at.PointB, bt.PointA, bt.PointB, pa, pb);
+		ContactNormalFromPoints2(pb, pa, hit.normal);
+		hit.point = pb + hit.normal * bt.Radius;
+		return hit;
+	}
+
+	SweptHit2D SweptIntersects(const Capsule2f& capsule, const Vector2f& delta, const AABox2f& box)
+	{
+		SweptHit2D hit;
+
+		Sphere2f sa = capsule.ToBoundingCircle();
+		Sphere2f sb = box.ToBoundingCircle();
+		SweptHit2D broad = SweptIntersects(sa, delta, sb, Vector2f::ZERO);
+		if (!broad.hit)
+			return hit;
+
+		auto overlaps = [&](float t) -> bool
+		{
+			return Intersects(CapsuleTranslated2(capsule, delta, t), box);
+		};
+
+		float toi = 0.0f;
+		if (!BinarySearchToi(overlaps, toi))
+			return hit;
+
+		hit.hit = true;
+		hit.t = toi;
+		Capsule2f at = CapsuleTranslated2(capsule, delta, toi);
+		Vector2f ab = at.PointB - at.PointA;
+		float lo = 0.0f, hi = 1.0f;
+		for (int i = 0; i < 16; ++i)
+		{
+			float m1 = lo + (hi - lo) * (1.0f / 3.0f);
+			float m2 = lo + (hi - lo) * (2.0f / 3.0f);
+			float dm1 = DistanceSqPointAabb2(at.PointA + ab * m1, box);
+			float dm2 = DistanceSqPointAabb2(at.PointA + ab * m2, box);
+			if (dm1 < dm2)
+				hi = m2;
+			else
+				lo = m1;
+		}
+		float bestT = 0.5f * (lo + hi);
+		Vector2f onSeg = at.PointA + ab * bestT;
+		Vector2f onBox = ClosestPointOnAabb2(onSeg, box);
+		ContactNormalFromPoints2(onBox, onSeg, hit.normal);
+		hit.point = onBox;
+		return hit;
+	}
+
+	SweptHit2D SweptIntersects(const Capsule2f& capsule, const Vector2f& delta, const Box2f& box)
+	{
+		SweptHit2D hit;
+
+		Sphere2f sa = capsule.ToBoundingCircle();
+		float rb = Vector2f(box.Extent[0], box.Extent[1]).Magnitude();
+		Sphere2f sb(box.Center, rb);
+		SweptHit2D broad = SweptIntersects(sa, delta, sb, Vector2f::ZERO);
+		if (!broad.hit)
+			return hit;
+
+		auto overlaps = [&](float t) -> bool
+		{
+			return Intersects(CapsuleTranslated2(capsule, delta, t), box);
+		};
+
+		float toi = 0.0f;
+		if (!BinarySearchToi(overlaps, toi))
+			return hit;
+
+		hit.hit = true;
+		hit.t = toi;
+		Capsule2f at = CapsuleTranslated2(capsule, delta, toi);
+		Vector2f ab = at.PointB - at.PointA;
+		float lo = 0.0f, hi = 1.0f;
+		for (int i = 0; i < 16; ++i)
+		{
+			float m1 = lo + (hi - lo) * (1.0f / 3.0f);
+			float m2 = lo + (hi - lo) * (2.0f / 3.0f);
+			float dm1 = DistanceSqPointObb2(at.PointA + ab * m1, box);
+			float dm2 = DistanceSqPointObb2(at.PointA + ab * m2, box);
+			if (dm1 < dm2)
+				hi = m2;
+			else
+				lo = m1;
+		}
+		float bestT = 0.5f * (lo + hi);
+		Vector2f onSeg = at.PointA + ab * bestT;
+		Vector2f onBox = ClosestPointOnObb2(onSeg, box);
+		ContactNormalFromPoints2(onBox, onSeg, hit.normal);
 		hit.point = onBox;
 		return hit;
 	}

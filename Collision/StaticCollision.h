@@ -7,6 +7,7 @@
 #include "Math/Ray3f.h"
 #include "Math/Sphere2f.h"
 #include "Math/Sphere3f.h"
+#include "Math/Capsule2f.h"
 #include "Math/Capsule3f.h"
 #include "Math/AABox2f.h"
 #include "Math/AABox3f.h"
@@ -41,6 +42,20 @@ namespace Dark::Collision
 	inline bool Intersects(const Math::AABox2f& b, const Math::Sphere2f& c) { return Intersects(c, b); }
 	inline bool Intersects(const Math::Box2f& b, const Math::Sphere2f& c) { return Intersects(c, b); }
 	inline bool Intersects(const Math::Box2f& b, const Math::AABox2f& a) { return Intersects(a, b); }
+
+	// ── Capsule2 vs * ─────────────────────────────────────────────────────
+	bool Intersects(const Math::Vector2f& point, const Math::Capsule2f& capsule);
+	bool Intersects(const Math::Capsule2f& a, const Math::Capsule2f& b);
+	bool Intersects(const Math::Capsule2f& capsule, const Math::Sphere2f& circle);
+	bool Intersects(const Math::Capsule2f& capsule, const Math::AABox2f& box);
+	bool Intersects(const Math::Capsule2f& capsule, const Math::Box2f& box);
+
+	bool Intersect(const Math::Ray2f& ray, const Math::Capsule2f& capsule, RayHit2D& results);
+
+	inline bool Intersects(const Math::Capsule2f& c, const Math::Vector2f& p) { return Intersects(p, c); }
+	inline bool Intersects(const Math::Sphere2f& s, const Math::Capsule2f& c) { return Intersects(c, s); }
+	inline bool Intersects(const Math::AABox2f& b, const Math::Capsule2f& c) { return Intersects(c, b); }
+	inline bool Intersects(const Math::Box2f& b, const Math::Capsule2f& c) { return Intersects(c, b); }
 
 
 	// =====================================================================

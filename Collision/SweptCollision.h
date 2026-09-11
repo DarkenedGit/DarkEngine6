@@ -5,6 +5,7 @@
 #include "Math/Vector3f.h"
 #include "Math/Sphere2f.h"
 #include "Math/Sphere3f.h"
+#include "Math/Capsule2f.h"
 #include "Math/Capsule3f.h"
 #include "Math/AABox2f.h"
 #include "Math/AABox3f.h"
@@ -37,6 +38,19 @@ namespace Dark::Collision
     }
 
     SweptHit2D SweptIntersects(const Math::Box2f& a, const Math::Vector2f& deltaA, const Math::Box2f& b, const Math::Vector2f& deltaB);
+
+    // ── Capsule2 sweeps ───────────────────────────────────────────────────
+    SweptHit2D SweptIntersects(const Math::Vector2f& p0, const Math::Vector2f& delta, const Math::Capsule2f& capsule);
+    SweptHit2D SweptIntersects(const Math::Sphere2f& circle, const Math::Vector2f& delta, const Math::Capsule2f& capsule);
+    SweptHit2D SweptIntersects(const Math::Capsule2f& a, const Math::Vector2f& deltaA, const Math::Capsule2f& b, const Math::Vector2f& deltaB);
+    SweptHit2D SweptIntersects(const Math::Capsule2f& capsule, const Math::Vector2f& delta, const Math::AABox2f& box);
+    SweptHit2D SweptIntersects(const Math::Capsule2f& capsule, const Math::Vector2f& delta, const Math::Box2f& box);
+    SweptHit2D SweptIntersects(const Math::Capsule2f& capsule, const Math::Vector2f& delta, const Math::Sphere2f& circle);
+
+    inline SweptHit2D SweptIntersects(const Math::Capsule2f& a, const Math::Vector2f& deltaA, const Math::Capsule2f& b)
+    {
+        return SweptIntersects(a, deltaA, b, Math::Vector2f::ZERO);
+    }
 
     // =====================================================================
     // Continuous (linear) collision over time interval t ∈ [0, 1].

@@ -6,7 +6,7 @@
 //   1. Static  — Intersects / Intersect (no motion)
 //   2. Swept   — SweptIntersects (linear motion over t ∈ [0,1], returns TOI)
 //
-// Shapes: point, ray, sphere/circle, AABB, OBB, frustum (3D).
+// Shapes: point, ray, sphere/circle, capsule, AABB, OBB, frustum (3D).
 
 #include "HitResult.h"
 #include "StaticCollision.h"

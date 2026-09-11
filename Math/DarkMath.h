@@ -17,6 +17,7 @@
 #include "Ray3f.h"
 #include "Sphere2f.h"
 #include "Sphere3f.h"
+#include "Capsule2f.h"
 #include "Capsule3f.h"
 #include "AABox2f.h"
 #include "AABox3f.h"
