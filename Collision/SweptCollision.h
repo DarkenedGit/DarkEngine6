@@ -5,6 +5,7 @@
 #include "Math/Vector3f.h"
 #include "Math/Sphere2f.h"
 #include "Math/Sphere3f.h"
+#include "Math/Capsule3f.h"
 #include "Math/AABox2f.h"
 #include "Math/AABox3f.h"
 #include "Math/Box2f.h"
@@ -86,5 +87,19 @@ namespace Dark::Collision
     // AABB / OBB vs static frustum
     SweptHit3D SweptIntersects(const Math::AABox3f& box, const Math::Vector3f& delta, const Frustum3f& frustum);
     SweptHit3D SweptIntersects(const Math::Box3f& box, const Math::Vector3f& delta, const Frustum3f& frustum);
+
+
+    // ── Capsule sweeps ────────────────────────────────────────────────────
+    SweptHit3D SweptIntersects(const Math::Vector3f& p0, const Math::Vector3f& delta, const Math::Capsule3f& capsule);
+    SweptHit3D SweptIntersects(const Math::Sphere3f& sphere, const Math::Vector3f& delta, const Math::Capsule3f& capsule);
+    SweptHit3D SweptIntersects(const Math::Capsule3f& a, const Math::Vector3f& deltaA, const Math::Capsule3f& b, const Math::Vector3f& deltaB);
+    SweptHit3D SweptIntersects(const Math::Capsule3f& capsule, const Math::Vector3f& delta, const Math::AABox3f& box);
+    SweptHit3D SweptIntersects(const Math::Capsule3f& capsule, const Math::Vector3f& delta, const Math::Box3f& box);
+
+    inline SweptHit3D SweptIntersects(const Math::Capsule3f& a, const Math::Vector3f& deltaA, const Math::Capsule3f& b)
+    {
+        return SweptIntersects(a, deltaA, b, Math::Vector3f::ZERO);
+    }
+    SweptHit3D SweptIntersects(const Math::Capsule3f& capsule, const Math::Vector3f& delta, const Math::Sphere3f& sphere);
 
 } // namespace Dark::Collision
