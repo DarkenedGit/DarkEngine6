@@ -5,8 +5,7 @@
 
 namespace Dark::Math
 {
-	Capsule3f::Capsule3f()
-		: PointA(Vector3f::ZERO), PointB(Vector3f::ZERO), Radius(0.0f)
+	Capsule3f::Capsule3f(): PointA(Vector3f::ZERO), PointB(Vector3f::ZERO), Radius(0.0f)
 	{
 	}
 
