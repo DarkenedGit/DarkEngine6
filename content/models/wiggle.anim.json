@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "model": "models/wiggle.gltf",
+  "defaultState": "Idle",
+  "parameters": [
+    { "name": "speed", "type": "float", "default": 0.0 }
+  ],
+  "states": [
+    { "name": "Idle", "clip": "Idle", "loop": true },
+    { "name": "Walk", "clip": "Walk", "loop": true }
+  ],
+  "transitions": [
+    { "from": "Idle", "to": "Walk", "blend": 0.15, "interrupt": true,
+      "when": [{ "param": "speed", "gt": 0.1 }] },
+    { "from": "Walk", "to": "Idle", "blend": 0.20,
+      "when": [{ "param": "speed", "lt": 0.1 }] }
+  ],
+  "notifies": [
+    { "clip": "Walk", "name": "footstep", "time": 0.32 },
+    { "clip": "Walk", "name": "footstep", "time": 0.80 }
+  ]
+}

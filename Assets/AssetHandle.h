@@ -18,6 +18,8 @@ namespace Dark
         Audio,
         Scene,
         Model,
+        AnimationSet,
+        AnimGraph,
     };
 
     // Forward-declare base Asset

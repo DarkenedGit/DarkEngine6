@@ -24,6 +24,8 @@
 #include "Render/TaaJitter.h"
 #include "Render/ModelDraw.h"
 #include "Assets/Model.h"
+#include "Animation/AnimGraphTick.h"
+#include "Animation/AnimGraphComponent.h"
 
 #include <imgui.h>
 
@@ -759,6 +761,18 @@ void EditorApp::onInit()
         DE_LOG_FATAL("EditorApp: transparent mesh pipeline failed");
         requestQuit();
         return;
+    }
+    {
+        const SkinnedMeshPass skinnedPass =
+            renderer().scenePath() == ScenePath::HybridDeferred ? SkinnedMeshPass::GBuffer : SkinnedMeshPass::Forward;
+        if (!m_skinnedPipeline.create(renderer().device(), skinnedPass))
+            DE_LOG_ERROR(LogCategory::Render, "EditorApp: SkinnedMeshPipeline create failed; skinned parts skipped");
+        if (!m_skinnedTransparentPipeline.create(renderer().device(), SkinnedMeshPass::ForwardTransparent, renderer().sceneColorFormat()))
+            DE_LOG_ERROR(LogCategory::Render, "EditorApp: skinned transparent pipeline create failed");
+        if (!m_skinnedShadowPipeline.create(renderer().device(), SkinnedMeshPass::Shadow))
+            DE_LOG_ERROR(LogCategory::Render, "EditorApp: skinned shadow pipeline create failed");
+        if (!m_skinRing.create(renderer().device()))
+            DE_LOG_ERROR(LogCategory::Render, "EditorApp: SkinningUploadRing create failed");
     }
     if (renderer().hasSceneBuffers())
     {
@@ -2246,6 +2260,9 @@ void EditorApp::onUpdate(float dt)
     updateCamera(dt);
     handleEditorCommands(dt);
 
+    if (m_sceneMode != SceneMode::Scene2D)
+        tickAnimGraphs(world(), assets(), dt);
+
     // Simulate particles
     for (size_t i = 0; i < m_objects.size(); ++i)
     {
@@ -2282,6 +2299,8 @@ void EditorApp::onRender()
         requestQuit();
         return;
     }
+    if (m_skinRing.isValid())
+        m_skinRing.beginFrame(renderer().frameIndex());
     auto* cmd = renderer().commandList();
 
     if (m_imgui.isReady())
@@ -2432,7 +2451,17 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                 const auto model = assets().getAs<Model>(mc.modelAssetID);
                 if (!xf || !model || !model->valid())
                     return;
-                drawModelDepth(cmd, m_shadows, i, *model, makeWorldMatrix(*xf));
+                const Matrix4f worldMat = makeWorldMatrix(*xf);
+                if (model->skinned())
+                {
+                    const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));
+                    if (pose)
+                        drawSkinnedModelDepth(cmd, m_shadows, i, m_skinnedShadowPipeline, m_skinRing, *model, *pose, worldMat);
+                    else
+                        drawModelDepth(cmd, m_shadows, i, *model, worldMat);
+                }
+                else
+                    drawModelDepth(cmd, m_shadows, i, *model, worldMat);
             });
         }
         m_shadows.endCapture(cmd);
@@ -2620,7 +2649,25 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             const auto model = assets().getAs<Model>(mc.modelAssetID);
             if (!xf || !model || !model->hasOpaque())
                 return;
-            drawModelOpaqueGBuffer(cmd, m_meshPipeline, *model, makeWorldMatrix(*xf), viewProj, prevViewProj, fill);
+            const Matrix4f worldMat = makeWorldMatrix(*xf);
+            if (model->skinned())
+            {
+                AnimGraphComponent* ag = world().get<AnimGraphComponent>(e);
+                const AnimPose* pose = skinnedPose(*model, ag);
+                if (!pose)
+                    return;
+                Matrix4f prevW = worldMat;
+                if (ag)
+                {
+                    if (ag->prevWorldValid)
+                        prevW = ag->prevWorld;
+                    ag->prevWorld = worldMat;
+                    ag->prevWorldValid = true;
+                }
+                drawSkinnedModelOpaqueGBuffer(cmd, m_skinnedPipeline, m_meshPipeline, m_skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
+            }
+            else
+                drawModelOpaqueGBuffer(cmd, m_meshPipeline, *model, worldMat, viewProj, prevViewProj, fill);
             ++draws;
         });
     }
@@ -2644,7 +2691,22 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             const auto model = assets().getAs<Model>(mc.modelAssetID);
             if (!xf || !model || !model->hasOpaque())
                 return;
-            drawModelForward(cmd, m_meshPipeline, m_shadows, *model, false, makeWorldMatrix(*xf), viewProj, lit, fill);
+            const Matrix4f worldMat = makeWorldMatrix(*xf);
+            if (model->skinned())
+            {
+                AnimGraphComponent* ag = world().get<AnimGraphComponent>(e);
+                const AnimPose* pose = skinnedPose(*model, ag);
+                if (!pose)
+                    return;
+                if (ag)
+                {
+                    ag->prevWorld = worldMat;
+                    ag->prevWorldValid = true;
+                }
+                drawSkinnedModelForward(cmd, m_skinnedPipeline, m_meshPipeline, m_shadows, m_skinRing, *model, false, *pose, worldMat, viewProj, lit, fill);
+            }
+            else
+                drawModelForward(cmd, m_meshPipeline, m_shadows, *model, false, worldMat, viewProj, lit, fill);
             ++draws;
         });
     }
@@ -2701,7 +2763,16 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             const auto model = assets().getAs<Model>(mc.modelAssetID);
             if (!xf || !model || !model->hasTranslucent())
                 return;
-            drawModelForward(cmd, m_meshTransparentPipeline, m_shadows, *model, true, makeWorldMatrix(*xf), viewProj, lit, fill);
+            const Matrix4f worldMat = makeWorldMatrix(*xf);
+            if (model->skinned())
+            {
+                const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));
+                if (!pose)
+                    return;
+                drawSkinnedModelForward(cmd, m_skinnedTransparentPipeline, m_meshTransparentPipeline, m_shadows, m_skinRing, *model, true, *pose, worldMat, viewProj, lit, fill);
+            }
+            else
+                drawModelForward(cmd, m_meshTransparentPipeline, m_shadows, *model, true, worldMat, viewProj, lit, fill);
             ++draws;
         });
     }

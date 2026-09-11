@@ -151,6 +151,8 @@ void SandboxApp::drawDevTools()
             if (ImGui::Checkbox("Motion blur", &dbg.motionBlur))
                 DE_LOG_INFO("Sandbox: motion blur = {}", dbg.motionBlur);
         }
+        if (ImGui::Checkbox("Skeleton overlay", &m_showSkeleton))
+            DE_LOG_INFO("Sandbox: skeleton overlay = {}", m_showSkeleton);
     }
 
     if (ImGui::CollapsingHeader("Sky", ImGuiTreeNodeFlags_DefaultOpen))

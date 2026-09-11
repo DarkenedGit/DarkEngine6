@@ -103,6 +103,7 @@ endfunction()
 
 set(DE_ENGINE_FOLDERS
     AI
+    Animation
     Assets
     Audio
     Character

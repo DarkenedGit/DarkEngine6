@@ -1,9 +1,13 @@
 #pragma once
 #include "Core/Application.h"
+#include "Animation/AnimNotify.h"
 #include "Network/Replication.h"
 #include "Assets/Model.h"
 #include "Render/Mesh.h"
 #include "Render/MeshPipeline.h"
+#include "Render/LinePipeline.h"
+#include "Render/SkinnedMeshPipeline.h"
+#include "Render/SkinningUploadRing.h"
 #include "Render/ModelDraw.h"
 #include "Render/TerrainPipeline.h"
 #include "Render/WaterPipeline.h"
@@ -64,6 +68,9 @@ private:
     void updatePossessed(float dt);
     void updateCombat(float dt);
     void spawnGltfDemo();
+    void spawnAnimatedDemo();
+    void updateWiggleAnim();
+    static void onWiggleNotify(void* user, const Dark::AnimNotify& n);
     void spawnHybridLocalLights();
     void updateFlashlight();
     void pulseMuzzle();
@@ -85,6 +92,8 @@ private:
     void ensureLocalCube();
     void syncTerrainLod();
     void drawDebugOverlays(ID3D12GraphicsCommandList* cmd);
+    void drawSkeletonOverlay(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj);
+    bool createSkeletonLineBuffers();
 
     static bool onNetSpawn(Dark::World& world, Dark::Entity e, Dark::NetPrefab prefab, const Dark::TransformComponent& xf, uint32_t colorRgba8, void* user);
     static void onNetDespawn(Dark::World& world, Dark::Entity e, Dark::NetId id, void* user);
@@ -92,10 +101,20 @@ private:
 
     Dark::Entity m_camera;
     Dark::Entity m_cube;
+    Dark::Entity m_wiggle;
 
     Dark::Mesh    m_cubeMesh;
     Dark::MeshPipeline      m_meshPipeline;
     Dark::MeshPipeline      m_meshTransparentPipeline;
+    Dark::SkinnedMeshPipeline m_skinnedPipeline;
+    Dark::SkinnedMeshPipeline m_skinnedTransparentPipeline;
+    Dark::SkinnedMeshPipeline m_skinnedShadowPipeline;
+    Dark::SkinningUploadRing  m_skinRing;
+    Dark::LinePipeline        m_skelLinePipeline;
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_skelLineVb[2];
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_skelLineIb[2];
+    D3D12_VERTEX_BUFFER_VIEW  m_skelLineVbv[2]{};
+    D3D12_INDEX_BUFFER_VIEW   m_skelLineIbv[2]{};
     Dark::TerrainPipeline   m_terrainPipeline;
     Dark::WaterPipeline     m_waterPipeline;
     Dark::SkyPipeline       m_skyPipeline;
@@ -151,6 +170,7 @@ private:
     bool          m_showDepth      = false;
     bool          m_showGBuffer    = false;
     bool          m_showVelocity   = false;
+    bool          m_showSkeleton   = false;
     bool          m_showDevTools   = false;
     ImGuiHost     m_imgui;
     char          m_joinHost[64]   = "127.0.0.1";

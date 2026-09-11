@@ -22,6 +22,11 @@
 #include "Render/Fog.h"
 #include "Render/ModelDraw.h"
 #include "Assets/Model.h"
+#include "Animation/AnimGraphTick.h"
+#include "Animation/AnimGraphComponent.h"
+#include "Animation/AnimNotify.h"
+#include "Animation/SkeletonDebug.h"
+#include "Render/LinePipeline.h"
 #include "Terrain/SplatMap.h"
 #include "Water/WaterWaves.h"
 
@@ -228,11 +233,13 @@ void SandboxApp::registerDefaultActions()
     a.bindButton("sprint", GamepadButton::LeftShoulder);
 
     a.bindKey("dev_tools", Key::M);
+    a.bindKey("anim_walk", Key::T);
+    a.bindButton("anim_walk", GamepadButton::RightThumb);
 
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(P/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
         "possessed WASD/LS move, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, L flashlight, Shift/LB sprint, swim in water, "
-        "F2 lighting  M dev tools  -forward for UNORM forward");
+        "T/R3 walk the wiggle demo  F2 lighting  M dev tools  -forward for UNORM forward");
 }
 
 void SandboxApp::handleRuntimeCommands(float dt)
@@ -869,6 +876,206 @@ void SandboxApp::spawnGltfDemo()
     // Sit on the terrain next to the player cube at the origin (default camera looks here).
     spawn("models/unit_cube.gltf", "GltfCube", 3.0f, 3.0f, 2.0f);
     spawn("models/unit_glass.gltf", "GltfGlass", 5.5f, 3.0f, 2.0f);
+    spawnAnimatedDemo();
+}
+
+void SandboxApp::onWiggleNotify(void*, const AnimNotify& n)
+{
+    if (!n.name || std::strcmp(n.name, "footstep") != 0)
+        return;
+    DE_LOG_INFO("SandboxApp: wiggle footstep t={:.2f}", n.time);
+}
+
+void SandboxApp::spawnAnimatedDemo()
+{
+    constexpr const char* kGltf = "models/wiggle.gltf";
+    AssetRef<Model> model = assets().loadModel(renderer(), kGltf);
+    if (!model || !model->valid())
+    {
+        DE_LOG_WARN("SandboxApp: animated glTF '{}' not loaded", kGltf);
+        return;
+    }
+    model->setShadowSrv(renderer().device(), m_shadows.srvCpu());
+
+    AssetRef<AnimGraphDef> graph = assets().tryLoadAnimGraphForModel(kGltf);
+    if (!graph)
+        DE_LOG_WARN("SandboxApp: '{}' has no anim graph sidecar; clips still play if present", kGltf);
+
+    constexpr float x = 8.0f;
+    constexpr float z = 3.0f;
+    constexpr float scale = 2.0f;
+    const float groundY = m_terrain.heightAtWorld(x, z);
+    Entity e = world().createEntity();
+    world().emplace<TagComponent>(e, "Wiggle");
+    world().emplace<TransformComponent>(e, Vector3f{ x, groundY, z }, Quaternion::IDENTITY, Vector3f{ scale, scale, scale });
+    ModelComponent mc;
+    mc.modelAssetID = model->id;
+    mc.castShadow   = model->hasOpaque();
+    world().emplace<ModelComponent>(e, mc);
+
+    AnimGraphComponent ag;
+    ag.model   = model;
+    ag.animSet = model->animationSet();
+    ag.graphDef = graph;
+    if (graph && model->skeleton())
+        ag.graph.bind(graph.get(), model->skeleton());
+    else if (ag.animSet && model->skeleton())
+    {
+        ag.graph.player().bind(model->skeleton(), ag.animSet.get());
+        if (!ag.graph.player().play("Idle", 0.0f))
+            ag.graph.player().playIndex(0, 0.0f);
+    }
+    ag.graph.setApplyRootMotion(false);
+    ag.graph.player().addListener(&SandboxApp::onWiggleNotify, this);
+    world().emplace<AnimGraphComponent>(e, std::move(ag));
+    m_wiggle = e;
+    DE_LOG_INFO("SandboxApp: spawned Wiggle at ({:.1f},{:.1f},{:.1f}) ground {:.1f} graph={}", x, groundY, z, groundY, graph ? "yes" : "no");
+}
+
+void SandboxApp::updateWiggleAnim()
+{
+    if (!m_wiggle.valid())
+        return;
+    AnimGraphComponent* ag = world().get<AnimGraphComponent>(m_wiggle);
+    if (!ag || !ag->graphDef)
+        return;
+
+    float speed = 0.0f;
+    const bool uiKeys = m_showDevTools && m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
+    if (!uiKeys && input().actionDown("anim_walk"))
+        speed = 1.0f;
+    else
+    {
+        const Vector3f v = m_motor.velocity();
+        speed = Vector3f(v.x, 0.0f, v.z).Magnitude();
+    }
+    ag->graph.setFloat("speed", speed);
+}
+
+bool SandboxApp::createSkeletonLineBuffers()
+{
+    ID3D12Device* device = renderer().device();
+    if (!device)
+        return false;
+    constexpr uint64_t kMaxVerts = 1024;
+    const uint64_t vbBytes = sizeof(Vector3f) * kMaxVerts;
+    const uint64_t ibBytes = sizeof(uint32_t) * kMaxVerts;
+    D3D12_HEAP_PROPERTIES heap{};
+    heap.Type = D3D12_HEAP_TYPE_UPLOAD;
+    D3D12_RESOURCE_DESC desc{};
+    desc.Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER;
+    desc.Height           = 1;
+    desc.DepthOrArraySize = 1;
+    desc.MipLevels        = 1;
+    desc.SampleDesc       = { 1, 0 };
+    desc.Layout           = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    for (int i = 0; i < 2; ++i)
+    {
+        desc.Width = vbBytes;
+        if (FAILED(device->CreateCommittedResource(
+                &heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&m_skelLineVb[i]))))
+            return false;
+        desc.Width = ibBytes;
+        if (FAILED(device->CreateCommittedResource(
+                &heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&m_skelLineIb[i]))))
+            return false;
+        m_skelLineVbv[i].BufferLocation = m_skelLineVb[i]->GetGPUVirtualAddress();
+        m_skelLineVbv[i].StrideInBytes  = sizeof(Vector3f);
+        m_skelLineVbv[i].SizeInBytes    = static_cast<UINT>(vbBytes);
+        m_skelLineIbv[i].BufferLocation = m_skelLineIb[i]->GetGPUVirtualAddress();
+        m_skelLineIbv[i].Format         = DXGI_FORMAT_R32_UINT;
+        m_skelLineIbv[i].SizeInBytes    = static_cast<UINT>(ibBytes);
+    }
+    return true;
+}
+
+void SandboxApp::drawSkeletonOverlay(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj)
+{
+    if (!m_showSkeleton || !cmd || !m_skelLinePipeline.isValid() || !m_skelLineVb[0])
+        return;
+
+    SkeletonDebugLines lines;
+    world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+        const TransformComponent* xf = world().get<TransformComponent>(e);
+        const auto model = assets().getAs<Model>(mc.modelAssetID);
+        if (!xf || !model || !model->skinned() || !model->skeleton())
+            return;
+        const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));
+        if (!pose || pose->boneCount == 0)
+            return;
+        SkeletonDebugLines one;
+        collectSkeletonDebugLines(*model->skeleton(), *pose, makeWorldMatrix(*xf), 0.25f, one);
+        lines.bones.insert(lines.bones.end(), one.bones.begin(), one.bones.end());
+        lines.axisX.insert(lines.axisX.end(), one.axisX.begin(), one.axisX.end());
+        lines.axisY.insert(lines.axisY.end(), one.axisY.begin(), one.axisY.end());
+        lines.axisZ.insert(lines.axisZ.end(), one.axisZ.begin(), one.axisZ.end());
+    });
+
+    struct Batch
+    {
+        const std::vector<Vector3f>* verts;
+        float r, g, b;
+    };
+    const Batch batches[] = {
+        { &lines.bones, 1.00f, 0.45f, 0.95f },
+        { &lines.axisX, 1.00f, 0.25f, 0.20f },
+        { &lines.axisY, 0.25f, 1.00f, 0.30f },
+        { &lines.axisZ, 0.30f, 0.55f, 1.00f },
+    };
+
+    std::vector<Vector3f> verts;
+    std::vector<uint32_t> idx;
+    uint32_t rangeStart[4]{};
+    uint32_t rangeCount[4]{};
+    verts.reserve(256);
+    idx.reserve(256);
+    for (int b = 0; b < 4; ++b)
+    {
+        rangeStart[b] = static_cast<uint32_t>(idx.size());
+        const auto& src = *batches[b].verts;
+        for (size_t i = 0; i + 1 < src.size(); i += 2)
+        {
+            const uint32_t i0 = static_cast<uint32_t>(verts.size());
+            verts.push_back(src[i]);
+            verts.push_back(src[i + 1]);
+            idx.push_back(i0);
+            idx.push_back(i0 + 1);
+        }
+        rangeCount[b] = static_cast<uint32_t>(idx.size()) - rangeStart[b];
+    }
+    constexpr size_t kMaxVerts = 1024;
+    if (verts.empty() || idx.empty() || verts.size() > kMaxVerts)
+        return;
+
+    const uint32_t fi = renderer().frameIndex() % 2;
+    void* vp = nullptr;
+    void* ip = nullptr;
+    if (FAILED(m_skelLineVb[fi]->Map(0, nullptr, &vp)) || FAILED(m_skelLineIb[fi]->Map(0, nullptr, &ip)))
+        return;
+    std::memcpy(vp, verts.data(), verts.size() * sizeof(Vector3f));
+    std::memcpy(ip, idx.data(), idx.size() * sizeof(uint32_t));
+    m_skelLineVb[fi]->Unmap(0, nullptr);
+    m_skelLineIb[fi]->Unmap(0, nullptr);
+    m_skelLineVbv[fi].SizeInBytes = static_cast<UINT>(verts.size() * sizeof(Vector3f));
+    m_skelLineIbv[fi].SizeInBytes = static_cast<UINT>(idx.size() * sizeof(uint32_t));
+
+    m_skelLinePipeline.bind(cmd);
+    cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_LINELIST);
+    cmd->IASetVertexBuffers(0, 1, &m_skelLineVbv[fi]);
+    cmd->IASetIndexBuffer(&m_skelLineIbv[fi]);
+    LineFrameConstants lc{};
+    copyMatrix(lc.worldViewProj, viewProj);
+    lc.color[3] = 1.0f;
+    for (int b = 0; b < 4; ++b)
+    {
+        if (rangeCount[b] == 0)
+            continue;
+        lc.color[0] = batches[b].r;
+        lc.color[1] = batches[b].g;
+        lc.color[2] = batches[b].b;
+        m_skelLinePipeline.setConstants(cmd, lc);
+        cmd->DrawIndexedInstanced(rangeCount[b], 1, rangeStart[b], 0, 0);
+    }
 }
 
 void SandboxApp::spawnHybridLocalLights()
@@ -1368,6 +1575,22 @@ void SandboxApp::onInit()
         requestQuit();
         return;
     }
+    {
+        const SkinnedMeshPass skinnedPass =
+            renderer().scenePath() == ScenePath::HybridDeferred ? SkinnedMeshPass::GBuffer : SkinnedMeshPass::Forward;
+        if (!m_skinnedPipeline.create(renderer().device(), skinnedPass))
+            DE_LOG_ERROR(LogCategory::Render, "SandboxApp: SkinnedMeshPipeline create failed; skinned parts skipped");
+        if (!m_skinnedTransparentPipeline.create(renderer().device(), SkinnedMeshPass::ForwardTransparent, renderer().sceneColorFormat()))
+            DE_LOG_ERROR(LogCategory::Render, "SandboxApp: skinned transparent pipeline create failed");
+        if (!m_skinnedShadowPipeline.create(renderer().device(), SkinnedMeshPass::Shadow))
+            DE_LOG_ERROR(LogCategory::Render, "SandboxApp: skinned shadow pipeline create failed");
+        if (!m_skinRing.create(renderer().device()))
+            DE_LOG_ERROR(LogCategory::Render, "SandboxApp: SkinningUploadRing create failed");
+        if (!m_skelLinePipeline.create(renderer().device(), renderer().sceneColorFormat(), false))
+            DE_LOG_ERROR(LogCategory::Render, "SandboxApp: skeleton LinePipeline create failed");
+        else if (!createSkeletonLineBuffers())
+            DE_LOG_ERROR(LogCategory::Render, "SandboxApp: skeleton line buffers failed");
+    }
     if (!m_healthHud.create(renderer()))
         DE_LOG_ERROR("SandboxApp: health HUD failed");
     if (!m_particles.create(renderer()))
@@ -1737,6 +1960,8 @@ void SandboxApp::onUpdate(float dt)
         m_blood.update(dt);
         if (m_playerHealth.alive())
             m_spawnAge += dt;
+        updateWiggleAnim();
+        tickAnimGraphs(world(), assets(), dt);
         m_stepGameplay = false;
     }
     m_water.updateLod(m_viewCamera.GetPosition());
@@ -1762,6 +1987,8 @@ void SandboxApp::onRender()
         m_imgui.beginFrame();
 
     auto* cmd = renderer().commandList();
+    if (m_skinRing.isValid())
+        m_skinRing.beginFrame(renderer().frameIndex());
 
     AABox3f sceneBounds = m_terrain.bounds();
     world().each<NetworkedComponent>([&](Entity e, NetworkedComponent&) {
@@ -1814,7 +2041,17 @@ void SandboxApp::onRender()
                 const auto model = assets().getAs<Model>(mc.modelAssetID);
                 if (!xf || !model || !model->valid())
                     return;
-                drawModelDepth(cmd, m_shadows, i, *model, makeWorldMatrix(*xf));
+                const Matrix4f worldMat = makeWorldMatrix(*xf);
+                if (model->skinned())
+                {
+                    const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));
+                    if (pose)
+                        drawSkinnedModelDepth(cmd, m_shadows, i, m_skinnedShadowPipeline, m_skinRing, *model, *pose, worldMat);
+                    else
+                        drawModelDepth(cmd, m_shadows, i, *model, worldMat);
+                }
+                else
+                    drawModelDepth(cmd, m_shadows, i, *model, worldMat);
             });
         }
         m_shadows.endCapture(cmd);
@@ -1911,7 +2148,25 @@ void SandboxApp::onRender()
             const auto model = assets().getAs<Model>(mc.modelAssetID);
             if (!xf || !model || !model->hasOpaque())
                 return;
-            drawModelOpaqueGBuffer(cmd, m_meshPipeline, *model, makeWorldMatrix(*xf), viewProj, prevViewProj, fill);
+            const Matrix4f worldMat = makeWorldMatrix(*xf);
+            if (model->skinned())
+            {
+                AnimGraphComponent* ag = world().get<AnimGraphComponent>(e);
+                const AnimPose* pose = skinnedPose(*model, ag);
+                if (!pose)
+                    return;
+                Matrix4f prevW = worldMat;
+                if (ag)
+                {
+                    if (ag->prevWorldValid)
+                        prevW = ag->prevWorld;
+                    ag->prevWorld = worldMat;
+                    ag->prevWorldValid = true;
+                }
+                drawSkinnedModelOpaqueGBuffer(cmd, m_skinnedPipeline, m_meshPipeline, m_skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
+            }
+            else
+                drawModelOpaqueGBuffer(cmd, m_meshPipeline, *model, worldMat, viewProj, prevViewProj, fill);
         });
 
         renderer().bindHdr(false);
@@ -1996,7 +2251,22 @@ void SandboxApp::onRender()
             const auto model = assets().getAs<Model>(mc.modelAssetID);
             if (!xf || !model || !model->hasOpaque())
                 return;
-            drawModelForward(cmd, m_meshPipeline, m_shadows, *model, false, makeWorldMatrix(*xf), viewProj, cb, fill);
+            const Matrix4f worldMat = makeWorldMatrix(*xf);
+            if (model->skinned())
+            {
+                AnimGraphComponent* ag = world().get<AnimGraphComponent>(e);
+                const AnimPose* pose = skinnedPose(*model, ag);
+                if (!pose)
+                    return;
+                if (ag)
+                {
+                    ag->prevWorld = worldMat;
+                    ag->prevWorldValid = true;
+                }
+                drawSkinnedModelForward(cmd, m_skinnedPipeline, m_meshPipeline, m_shadows, m_skinRing, *model, false, *pose, worldMat, viewProj, cb, fill);
+            }
+            else
+                drawModelForward(cmd, m_meshPipeline, m_shadows, *model, false, worldMat, viewProj, cb, fill);
         });
     }
 
@@ -2068,12 +2338,22 @@ void SandboxApp::onRender()
             const auto model = assets().getAs<Model>(mc.modelAssetID);
             if (!xf || !model || !model->hasTranslucent())
                 return;
-            drawModelForward(cmd, m_meshTransparentPipeline, m_shadows, *model, true, makeWorldMatrix(*xf), viewProj, lit, fill);
+            const Matrix4f worldMat = makeWorldMatrix(*xf);
+            if (model->skinned())
+            {
+                const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));
+                if (!pose)
+                    return;
+                drawSkinnedModelForward(cmd, m_skinnedTransparentPipeline, m_meshTransparentPipeline, m_shadows, m_skinRing, *model, true, *pose, worldMat, viewProj, lit, fill);
+            }
+            else
+                drawModelForward(cmd, m_meshTransparentPipeline, m_shadows, *model, true, worldMat, viewProj, lit, fill);
         });
     }
 
     if (m_chaseOk)
         m_chase.drawPaths(cmd, renderer(), viewProj);
+    drawSkeletonOverlay(cmd, viewProj);
 
     if (m_blood.aliveCount() > 0)
         m_particles.draw(cmd, m_viewCamera, m_blood, false);

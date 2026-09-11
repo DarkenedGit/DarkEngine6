@@ -1,8 +1,15 @@
 #include "Assets/AssetManager.h"
+#include "Animation/AnimGraph.h"
+#include "Animation/AnimGraphJson.h"
+#include "Animation/AnimationSet.h"
+#include "Assets/GltfLoader.h"
 #include "Assets/Model.h"
 #include "Assets/TextureCache.h"
 #include "Core/Log.h"
 #include "Render/Renderer.h"
+
+#include <fstream>
+#include <sstream>
 
 namespace Dark
 {
@@ -160,6 +167,37 @@ namespace Dark
         return m_textures.loadSolid(renderer, r, g, b, a);
     }
 
+    AssetRef<AnimationSet> AssetManager::internAnimationSetLocked(const std::string& modelKey, const GltfCpuModel& cpu)
+    {
+        const std::string animKey = modelKey + "#anims";
+        const auto it = m_pathToID.find(animKey);
+        if (it != m_pathToID.end())
+        {
+            const auto asset = m_assets.find(it->second);
+            if (asset != m_assets.end())
+            {
+                if (auto existing = std::dynamic_pointer_cast<AnimationSet>(asset->second))
+                    return existing;
+            }
+            else
+            {
+                m_pathToID.erase(it);
+            }
+        }
+
+        if (cpu.skeleton.joints.empty() && cpu.clips.empty())
+            return {};
+
+        auto set = std::make_shared<AnimationSet>();
+        set->setFromParsed(cpu);
+        const AssetID id = allocID();
+        set->id          = id;
+        m_assets[id]     = set;
+        m_pathToID[animKey] = id;
+        DE_LOG_INFO("AssetManager: cached AnimationSet '{}' id={} clips={}", animKey, id, set->clipCount());
+        return set;
+    }
+
     AssetRef<Model> AssetManager::loadModel(Renderer& renderer, const std::string& virtualPath)
     {
         const std::filesystem::path path = resolve(virtualPath);
@@ -182,14 +220,17 @@ namespace Dark
                 }
                 else
                 {
-                    // Stale path map entry (unload/GC missed a scrub) — drop it.
                     m_pathToID.erase(it);
                 }
             }
         }
 
+        GltfCpuModel cpu;
+        if (!parseGltfFile(path, cpu))
+            return {};
+
         auto model = std::make_shared<Model>();
-        if (!model->createFromFile(renderer, *this, path))
+        if (!model->createFromParsed(renderer, *this, cpu, path))
             return {};
 
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -211,8 +252,153 @@ namespace Dark
         model->id        = id;
         m_assets[id]     = model;
         m_pathToID[key]  = id;
+        model->setAnimationSet(internAnimationSetLocked(key, cpu));
         DE_LOG_INFO("AssetManager: cached model '{}' id={}", virtualPath, id);
         return model;
+    }
+
+    AssetRef<AnimationSet> AssetManager::loadAnimationSet(const std::string& virtualPath)
+    {
+        const std::filesystem::path path = resolve(virtualPath);
+        if (path.empty())
+        {
+            DE_LOG_ERROR("AssetManager: animation set source not found '{}'", virtualPath);
+            return {};
+        }
+        const std::string key     = TextureCache::normalizePath(path);
+        const std::string animKey = key + "#anims";
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            const auto it = m_pathToID.find(animKey);
+            if (it != m_pathToID.end())
+            {
+                const auto asset = m_assets.find(it->second);
+                if (asset != m_assets.end())
+                {
+                    if (auto existing = std::dynamic_pointer_cast<AnimationSet>(asset->second))
+                        return existing;
+                }
+                else
+                {
+                    m_pathToID.erase(it);
+                }
+            }
+        }
+
+        GltfCpuModel cpu;
+        if (!parseGltfFile(path, cpu))
+            return {};
+        if (cpu.skeleton.joints.empty() && cpu.clips.empty())
+        {
+            DE_LOG_TRACE("AssetManager: no skeleton or clips in '{}'", virtualPath);
+            return {};
+        }
+
+        std::lock_guard<std::mutex> lock(m_mutex);
+        AssetRef<AnimationSet> set = internAnimationSetLocked(key, cpu);
+        const auto modelIt = m_pathToID.find(key);
+        if (modelIt != m_pathToID.end())
+        {
+            const auto asset = m_assets.find(modelIt->second);
+            if (asset != m_assets.end())
+            {
+                if (auto model = std::dynamic_pointer_cast<Model>(asset->second))
+                {
+                    if (!model->animationSet())
+                        model->setAnimationSet(set);
+                }
+            }
+        }
+        return set;
+    }
+
+    AssetRef<AnimGraphDef> AssetManager::loadAnimGraph(const std::string& virtualPath)
+    {
+        const std::filesystem::path path = resolve(virtualPath);
+        if (path.empty())
+        {
+            DE_LOG_ERROR("AssetManager: anim graph not found '{}'", virtualPath);
+            return {};
+        }
+        const std::string key = TextureCache::normalizePath(path);
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            const auto it = m_pathToID.find(key);
+            if (it != m_pathToID.end())
+            {
+                const auto asset = m_assets.find(it->second);
+                if (asset != m_assets.end())
+                {
+                    if (auto existing = std::dynamic_pointer_cast<AnimGraphDef>(asset->second))
+                        return existing;
+                }
+                else
+                {
+                    m_pathToID.erase(it);
+                }
+            }
+        }
+
+        std::ifstream in(path, std::ios::binary);
+        if (!in)
+        {
+            DE_LOG_ERROR("AssetManager: cannot open anim graph '{}'", path.string());
+            return {};
+        }
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        const std::string text = ss.str();
+
+        std::string modelPath;
+        if (!peekAnimGraphModelPath(text.c_str(), modelPath))
+        {
+            DE_LOG_ERROR("AssetManager: anim graph '{}' missing model path", virtualPath);
+            return {};
+        }
+
+        AssetRef<AnimationSet> set = loadAnimationSet(modelPath);
+        if (!set)
+        {
+            DE_LOG_ERROR("AssetManager: anim graph '{}' could not load model '{}'", virtualPath, modelPath);
+            return {};
+        }
+
+        auto graph = std::make_shared<AnimGraphDef>();
+        if (!parseAnimGraphJson(text.c_str(), *set, *graph))
+            return {};
+        graph->animSet = set;
+
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const auto it = m_pathToID.find(key);
+        if (it != m_pathToID.end())
+        {
+            const auto asset = m_assets.find(it->second);
+            if (asset != m_assets.end())
+            {
+                if (auto existing = std::dynamic_pointer_cast<AnimGraphDef>(asset->second))
+                    return existing;
+            }
+            else
+            {
+                m_pathToID.erase(it);
+            }
+        }
+        const AssetID id = allocID();
+        graph->id        = id;
+        m_assets[id]     = graph;
+        m_pathToID[key]  = id;
+        DE_LOG_INFO("AssetManager: cached AnimGraph '{}' id={}", virtualPath, id);
+        return graph;
+    }
+
+    AssetRef<AnimGraphDef> AssetManager::tryLoadAnimGraphForModel(const std::string& gltfVirtualPath)
+    {
+        std::filesystem::path vp(gltfVirtualPath);
+        vp.replace_extension(".anim.json");
+        const std::string jsonPath = vp.generic_string();
+        if (resolve(jsonPath).empty())
+            return {};
+        return loadAnimGraph(jsonPath);
     }
 
 } // namespace Dark

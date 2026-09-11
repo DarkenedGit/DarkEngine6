@@ -19,7 +19,7 @@ namespace Dark
 
     } // namespace
 
-    bool LinePipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
+    bool LinePipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat, bool depthTest)
     {
         m_rootSignature.Reset();
         m_pso.Reset();
@@ -72,8 +72,8 @@ namespace Dark
         psoDesc.RasterizerState.CullMode        = D3D12_CULL_MODE_NONE;
         psoDesc.RasterizerState.DepthClipEnable = TRUE;
 
-        psoDesc.DepthStencilState.DepthEnable    = TRUE;
-        psoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO; // grid doesn't occlude
+        psoDesc.DepthStencilState.DepthEnable    = depthTest ? TRUE : FALSE;
+        psoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
         psoDesc.DepthStencilState.DepthFunc      = D3D12_COMPARISON_FUNC_LESS_EQUAL;
 
         psoDesc.InputLayout           = { inputLayout, _countof(inputLayout) };
@@ -88,7 +88,7 @@ namespace Dark
             return false;
         }
 
-        DE_LOG_INFO(LogCategory::Render, "LinePipeline: ready");
+        DE_LOG_INFO(LogCategory::Render, "LinePipeline: ready (depth {})", depthTest ? "on" : "off");
         return true;
     }
 

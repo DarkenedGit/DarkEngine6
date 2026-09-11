@@ -30,6 +30,9 @@ namespace Dark
         std::vector<Math::Vector3f> normals;
         std::vector<Math::Vector2f> uvs;
         std::vector<uint32_t>       indices;
+        // Empty = static. If non-empty, size == positions.size().
+        std::vector<uint32_t>       jointPacked; // 4x uint8 in a uint32 (j0 in byte 0)
+        std::vector<Math::Vector4f> weights;
     };
 
     struct LineMeshData

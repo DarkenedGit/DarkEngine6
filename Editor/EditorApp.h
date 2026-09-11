@@ -5,6 +5,8 @@
 #include "Render/LineMesh.h"
 #include "Assets/Model.h"
 #include "Render/MeshPipeline.h"
+#include "Render/SkinnedMeshPipeline.h"
+#include "Render/SkinningUploadRing.h"
 #include "Render/ModelDraw.h"
 #include "Render/LinePipeline.h"
 #include "Render/TonemapPipeline.h"
@@ -133,6 +135,10 @@ private:
 
     MeshPipeline    m_meshPipeline;
     MeshPipeline    m_meshTransparentPipeline;
+    SkinnedMeshPipeline m_skinnedPipeline;
+    SkinnedMeshPipeline m_skinnedTransparentPipeline;
+    SkinnedMeshPipeline m_skinnedShadowPipeline;
+    SkinningUploadRing  m_skinRing;
     LinePipeline    m_linePipeline;
     LinePipeline    m_linePipeline3D;
     TonemapPipeline          m_tonemap;
