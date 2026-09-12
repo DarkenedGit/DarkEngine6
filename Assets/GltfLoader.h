@@ -3,7 +3,7 @@
 #include "Animation/AnimationClip.h"
 #include "Animation/Skeleton.h"
 #include "Math/Matrix4f.h"
-#include "Render/MeshGen.h"
+#include "Render/MeshData.h"
 
 #include <cstdint>
 #include <filesystem>

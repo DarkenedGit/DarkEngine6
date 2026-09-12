@@ -25,13 +25,11 @@ namespace Dark
     {
         if (stacks < 2)
         {
-            //throw std::invalid_argument("stacks must be >= 2");
             DE_LOG_ERROR("stacks must be >= 2");
             return false;
         }
         if (slices < 3)
         {
-//                throw std::invalid_argument("slices must be >= 3");
             DE_LOG_ERROR("slices must be >= 3");
             return false;
         }

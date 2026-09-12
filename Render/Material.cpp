@@ -8,19 +8,6 @@
 namespace Dark
 {
 
-    namespace
-    {
-
-        bool FailedHr(HRESULT hr, const char* what)
-        {
-            if (SUCCEEDED(hr))
-                return false;
-            DE_LOG_ERROR(LogCategory::Render, "{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
-            return true;
-        }
-
-    } // namespace
-
     Material::Material()
     {
         type = AssetType::Material;
@@ -28,35 +15,22 @@ namespace Dark
 
     bool Material::packSrvHeap(ID3D12Device* device)
     {
-        m_srvHeap.Reset();
-        m_gpuHandle = {};
+        m_gpu.reset();
         if (!device || !m_albedo || !m_albedo->valid())
             return false;
-
-        D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
-        heapDesc.NumDescriptors = MeshPipeline::kSrvCount;
-        heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap material SRVs"))
+        m_gpu = std::make_unique<GpuMaterial>();
+        if (!m_gpu->pack(device, *m_albedo))
+        {
+            m_gpu.reset();
             return false;
-
-        D3D12_CPU_DESCRIPTOR_HANDLE dst = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
-        device->CopyDescriptorsSimple(1, dst, m_albedo->cpuHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        // Slot 1 (shadow) is filled later by setShadowSrv.
-
-        m_gpuHandle = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
+        }
         return true;
     }
 
     void Material::setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu)
     {
-        if (!device || !m_srvHeap || shadowCpu.ptr == 0)
-            return;
-
-        const UINT incr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        D3D12_CPU_DESCRIPTOR_HANDLE dst = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
-        dst.ptr += static_cast<SIZE_T>(incr);
-        device->CopyDescriptorsSimple(1, dst, shadowCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        if (m_gpu)
+            m_gpu->setShadowSrv(device, shadowCpu);
     }
 
     bool Material::createFromAlbedoPath(Renderer& renderer, AssetManager& assets, const std::string& virtualAlbedoPath, uint8_t fallbackR, uint8_t fallbackG, uint8_t fallbackB, uint8_t fallbackA)
@@ -135,11 +109,8 @@ namespace Dark
 
     void Material::bind(ID3D12GraphicsCommandList* cmd, UINT albedoSrvRootIndex) const
     {
-        if (!cmd || !m_srvHeap)
-            return;
-        ID3D12DescriptorHeap* heaps[] = { m_srvHeap.Get() };
-        cmd->SetDescriptorHeaps(1, heaps);
-        cmd->SetGraphicsRootDescriptorTable(albedoSrvRootIndex, m_gpuHandle);
+        if (m_gpu)
+            m_gpu->bind(cmd, albedoSrvRootIndex);
     }
 
     void Material::applySurface(float color[4]) const

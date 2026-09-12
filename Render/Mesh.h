@@ -1,6 +1,6 @@
 #pragma once
 
-#include "MeshGen.h"
+#include "MeshData.h"
 
 #include <cstdint>
 #include <d3d12.h>
@@ -33,7 +33,7 @@ namespace Dark
 
     uint32_t packBlendWeightsUnorm8(float w0, float w1, float w2, float w3);
 
-    // GPU mesh built from MeshGen::MeshData (default-heap VB/IB).
+    // GPU mesh built from MeshData (default-heap VB/IB).
     class Mesh
     {
     public:

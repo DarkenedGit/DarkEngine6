@@ -3,7 +3,7 @@
 #include <cstdint>
 
 #include "Math/Vector3f.h"
-#include "Render/MeshGen.h"
+#include "Render/MeshData.h"
 
 namespace Dark::Terrain
 {

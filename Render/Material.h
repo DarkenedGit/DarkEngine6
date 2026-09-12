@@ -1,14 +1,14 @@
 #pragma once
 
 #include "Assets/AssetHandle.h"
-#include "Render/Texture2D.h"
+#include "Render/GpuMaterial.h"
 #include "Render/MeshPipeline.h"
+#include "Render/Texture2D.h"
 
 #include <cstdint>
 #include <d3d12.h>
 #include <memory>
 #include <string>
-#include <wrl/client.h>
 
 namespace Dark
 {
@@ -60,7 +60,7 @@ namespace Dark
 
         bool isValid() const
         {
-            return m_albedo && m_albedo->valid() && m_srvHeap != nullptr;
+            return m_albedo && m_albedo->valid() && m_gpu && m_gpu->isValid();
         }
         uint64_t   sortKey() const;
         Texture2D& albedo()
@@ -89,8 +89,7 @@ namespace Dark
         float                        m_baseColor[4]{ 1.0f, 1.0f, 1.0f, 1.0f };
         float                        m_metallic  = 0.0f;
         float                        m_roughness = 1.0f;
-        Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_srvHeap;
-        D3D12_GPU_DESCRIPTOR_HANDLE  m_gpuHandle{};
+        std::unique_ptr<GpuMaterial> m_gpu;
     };
 
 } // namespace Dark
