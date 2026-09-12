@@ -2,6 +2,7 @@
 
 #include "Weapons/WeaponLoadout.h"
 #include "Collision/HitResult.h"
+#include "Math/MathDefines.h"
 #include "Math/Ray3f.h"
 #include "Math/Vector3f.h"
 
@@ -257,6 +258,75 @@ TEST(ProjectileWeapon, CooldownBlocksSecondShot)
     EXPECT_FALSE(w.fire(req, q));
     w.tick(0.6f, q);
     EXPECT_TRUE(w.canFire());
+}
+
+TEST(ProjectileWeapon, ZeroRecoilProducesNoKick)
+{
+    FakeWorld world;
+    ProjectileWeaponDesc d{};
+    d.instant         = true;
+    d.cooldown        = 0.0f;
+    d.recoilPitchDeg  = 0.0f;
+    d.recoilYawDeg    = 0.0f;
+    ProjectileWeapon w{ d };
+    EXPECT_TRUE(w.fire(aim(Vector3f{ 0, 5, 0 }, Vector3f{ 0, -1, 0 }, Vector3f{ 0, 0.5f, 0 }), world.query()));
+    const RecoilKick k = w.takeRecoil();
+    EXPECT_NEAR(k.pitch, 0.0f, 1.0e-6f);
+    EXPECT_NEAR(k.yaw, 0.0f, 1.0e-6f);
+}
+
+TEST(ProjectileWeapon, RecoilPitchKicksUpAfterShot)
+{
+    FakeWorld world;
+    ProjectileWeaponDesc d{};
+    d.instant         = true;
+    d.cooldown        = 0.0f;
+    d.recoilPitchDeg  = 10.0f;
+    d.recoilYawDeg    = 0.0f;
+    ProjectileWeapon w{ d };
+    EXPECT_TRUE(w.fire(aim(Vector3f{ 0, 5, 0 }, Vector3f{ 0, -1, 0 }, Vector3f{ 0, 0.5f, 0 }), world.query()));
+    const RecoilKick k = w.takeRecoil();
+    EXPECT_NEAR(k.pitch, 10.0f * DegToRad, 1.0e-5f);
+    EXPECT_NEAR(k.yaw, 0.0f, 1.0e-6f);
+    const RecoilKick empty = w.takeRecoil();
+    EXPECT_NEAR(empty.pitch, 0.0f, 1.0e-6f);
+}
+
+TEST(ProjectileWeapon, RecoilYawStaysWithinConfiguredSpread)
+{
+    FakeWorld world;
+    ProjectileWeaponDesc d{};
+    d.instant         = true;
+    d.cooldown        = 0.0f;
+    d.recoilPitchDeg  = 0.0f;
+    d.recoilYawDeg    = 4.0f;
+    ProjectileWeapon w{ d };
+    const float limit = 4.0f * DegToRad + 1.0e-4f;
+    for (int i = 0; i < 24; ++i)
+    {
+        ASSERT_TRUE(w.fire(aim(Vector3f{ 0, 5, 0 }, Vector3f{ 0, -1, 0 }, Vector3f{ 0, 0.5f, 0 }), world.query()));
+        const RecoilKick k = w.takeRecoil();
+        EXPECT_GE(k.yaw, -limit);
+        EXPECT_LE(k.yaw, limit);
+        EXPECT_NEAR(k.pitch, 0.0f, 1.0e-6f);
+    }
+}
+
+TEST(ProjectileWeapon, FailedFireDoesNotKick)
+{
+    FakeWorld world;
+    ProjectileWeaponDesc d{};
+    d.instant         = true;
+    d.cooldown        = 1.0f;
+    d.recoilPitchDeg  = 8.0f;
+    ProjectileWeapon w{ d };
+    const auto req = aim(Vector3f{ 0, 5, 0 }, Vector3f{ 0, -1, 0 }, Vector3f{ 0, 0.5f, 0 });
+    ASSERT_TRUE(w.fire(req, world.query()));
+    (void)w.takeRecoil();
+    EXPECT_FALSE(w.fire(req, world.query()));
+    const RecoilKick k = w.takeRecoil();
+    EXPECT_NEAR(k.pitch, 0.0f, 1.0e-6f);
+    EXPECT_NEAR(k.yaw, 0.0f, 1.0e-6f);
 }
 
 TEST(WeaponLoadout, KeysOneAndTwoSelectMeleeThenProjectile)

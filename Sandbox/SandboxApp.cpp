@@ -889,6 +889,15 @@ void SandboxApp::updateCombat(float dt)
     pulseMuzzle();
     if (m_weapons.activeKind() == WeaponKind::Melee)
         audio().play2D(m_sfxClick, 0.4f);
+    else
+    {
+        const RecoilKick kick = m_weapons.projectile().takeRecoil();
+        m_lookYaw += kick.yaw;
+        m_lookPitch += kick.pitch;
+        m_lookYaw   = Math::WrapPi(m_lookYaw);
+        m_lookPitch = Math::Clamp(m_lookPitch, -0.96f, 0.96f);
+        updateShoulderCamera();
+    }
 }
 
 void SandboxApp::pulseMuzzle()

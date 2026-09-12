@@ -278,6 +278,19 @@ void SandboxApp::drawDevTools()
         }
     }
 
+    if (ImGui::CollapsingHeader("Rifle"))
+    {
+        ProjectileWeaponDesc d = m_weapons.projectile().desc();
+        float pitch = d.recoilPitchDeg;
+        float yaw   = d.recoilYawDeg;
+        bool  ch    = false;
+        ch |= ImGui::SliderFloat("Recoil pitch (deg)", &pitch, 0.0f, 15.0f, "%.2f");
+        ch |= ImGui::SliderFloat("Recoil yaw (deg)", &yaw, 0.0f, 8.0f, "%.2f");
+        if (ch)
+            m_weapons.projectile().setRecoilDegrees(pitch, yaw);
+        ImGui::TextDisabled("Kick after the shot. 0 = none.");
+    }
+
     if (m_chaseOk && ImGui::CollapsingHeader("Hunter pack"))
     {
         PathChase::PackSettings pack = m_chase.packSettings();

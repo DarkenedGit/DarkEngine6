@@ -1,6 +1,7 @@
 #include "Weapons/ProjectileWeapon.h"
 
 #include "Math/MathDefines.h"
+#include "Math/MathHelper.h"
 
 namespace Dark
 {
@@ -37,6 +38,11 @@ namespace Dark
             m_desc.radius = 0.01f;
         if (m_desc.maxRange < 1.0f)
             m_desc.maxRange = 1.0f;
+        if (m_desc.recoilPitchDeg < 0.0f)
+            m_desc.recoilPitchDeg = 0.0f;
+        if (m_desc.recoilYawDeg < 0.0f)
+            m_desc.recoilYawDeg = 0.0f;
+        m_pendingRecoil = {};
         m_shots.resize(m_desc.maxLive);
         for (LiveProjectile& s : m_shots)
             s.alive = false;
@@ -135,6 +141,7 @@ namespace Dark
         const Vector3f dir = normalizeOr(req.direction, Vector3f{ 0.0f, 0.0f, 1.0f });
         m_cooldown         = m_desc.cooldown > 0.0f ? m_desc.cooldown : 0.0f;
         playFire(req.origin);
+        punchRecoil();
 
         if (isInstant())
         {
@@ -144,6 +151,28 @@ namespace Dark
 
         spawnShot(req.origin, dir * m_desc.speed);
         return true;
+    }
+
+    void ProjectileWeapon::setRecoilDegrees(float pitchDeg, float yawDeg)
+    {
+        m_desc.recoilPitchDeg = pitchDeg < 0.0f ? 0.0f : pitchDeg;
+        m_desc.recoilYawDeg   = yawDeg < 0.0f ? 0.0f : yawDeg;
+    }
+
+    RecoilKick ProjectileWeapon::takeRecoil()
+    {
+        const RecoilKick k = m_pendingRecoil;
+        m_pendingRecoil    = {};
+        return k;
+    }
+
+    void ProjectileWeapon::punchRecoil()
+    {
+        m_pendingRecoil.pitch = m_desc.recoilPitchDeg * Math::DegToRad;
+        if (m_desc.recoilYawDeg > 0.0f)
+            m_pendingRecoil.yaw = Math::RandF(-m_desc.recoilYawDeg, m_desc.recoilYawDeg) * Math::DegToRad;
+        else
+            m_pendingRecoil.yaw = 0.0f;
     }
 
     void ProjectileWeapon::tickShot(LiveProjectile& shot, float dt, const WeaponWorldQuery& world)
@@ -185,6 +214,7 @@ namespace Dark
     void ProjectileWeapon::clear()
     {
         m_cooldown = 0.0f;
+        m_pendingRecoil = {};
         for (LiveProjectile& s : m_shots)
             s.alive = false;
         m_impact.stop(true);

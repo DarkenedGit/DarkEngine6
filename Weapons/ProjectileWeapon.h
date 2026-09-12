@@ -54,7 +54,16 @@ namespace Dark
         uint32_t impactBurst  = 16;
         float    fireVolume   = 0.70f;
         float    hitVolume    = 0.80f;
+        // Aim kick after the shot leaves. 0 = none. Pitch is up; yaw is random in ±yaw.
+        float recoilPitchDeg = 3.5f;
+        float recoilYawDeg   = 0.8f;
         ParticleEmitterDesc impactParticles = defaultProjectileImpactParticles();
+    };
+
+    struct RecoilKick
+    {
+        float yaw   = 0.0f; // radians, added to look yaw
+        float pitch = 0.0f; // radians, added to look pitch (up)
     };
 
     struct LiveProjectile
@@ -94,6 +103,9 @@ namespace Dark
         void tick(float dt, const WeaponWorldQuery& world) override;
         void clear() override;
 
+        void       setRecoilDegrees(float pitchDeg, float yawDeg);
+        RecoilKick takeRecoil(); // last shot's kick; zeros after read. Shot itself is un-kicked.
+
         const std::vector<LiveProjectile>& live() const { return m_shots; }
         ParticleEmitter&                   impactEmitter() { return m_impact; }
         const ParticleEmitter&             impactEmitter() const { return m_impact; }
@@ -106,12 +118,15 @@ namespace Dark
         void playFire(const Math::Vector3f& origin);
         void playHit(const Math::Vector3f& point);
 
+        void punchRecoil();
+
         ProjectileWeaponDesc                 m_desc{};
         std::vector<LiveProjectile>          m_shots;
         ParticleEmitter                      m_impact;
         Audio::AudioSystem*                  m_audio = nullptr;
         std::shared_ptr<Audio::SoundClip>    m_fireClip;
         std::shared_ptr<Audio::SoundClip>    m_hitClip;
+        RecoilKick                           m_pendingRecoil{};
     };
 
 } // namespace Dark
