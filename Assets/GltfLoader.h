@@ -2,6 +2,7 @@
 
 #include "Animation/AnimationClip.h"
 #include "Animation/Skeleton.h"
+#include "Assets/Material.h"
 #include "Math/Matrix4f.h"
 #include "Render/MeshData.h"
 
@@ -23,6 +24,7 @@ namespace Dark
         bool              translucent  = false;
         bool              doubleSided  = false;
         bool              skinned      = false;
+        MaterialAlphaMode alphaMode    = MaterialAlphaMode::Opaque;
         std::filesystem::path albedoFile;
         std::vector<uint8_t>  albedoBytes; // embedded png/jpeg
         int               imageIndex = -1;

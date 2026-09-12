@@ -1,11 +1,9 @@
 #include "Render/Texture2D.h"
+#include "Assets/Image.h"
 #include "Render/Renderer.h"
 #include "Core/Log.h"
 
-#include <wincodec.h>
-
-#include <cmath>
-#include <vector>
+#include <cstring>
 
 namespace Dark
 {
@@ -20,236 +18,66 @@ namespace Dark
             return true;
         }
 
-        // Ensure COM is initialized for WIC (safe to call multiple times).
-        void EnsureCom()
-        {
-            const HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-            // S_OK, S_FALSE (already init), or RPC_E_CHANGED_MODE (different model) are all fine for us.
-            (void)hr;
-        }
-
-        bool LoadImageRGBA(const std::filesystem::path& path, std::vector<uint8_t>& outPixels, uint32_t& outWidth, uint32_t& outHeight, uint32_t& outRowPitch)
-        {
-            EnsureCom();
-
-            ComPtr<IWICImagingFactory> factory;
-            if (FailedHr(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)), "CoCreateInstance WICImagingFactory"))
-            {
-                return false;
-            }
-
-            ComPtr<IWICBitmapDecoder> decoder;
-            if (FailedHr(factory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder), "WIC CreateDecoderFromFilename"))
-            {
-                return false;
-            }
-
-            ComPtr<IWICBitmapFrameDecode> frame;
-            if (FailedHr(decoder->GetFrame(0, &frame), "WIC GetFrame"))
-                return false;
-
-            ComPtr<IWICFormatConverter> converter;
-            if (FailedHr(factory->CreateFormatConverter(&converter), "WIC CreateFormatConverter"))
-                return false;
-
-            if (FailedHr(converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom), "WIC FormatConverter Initialize"))
-            {
-                return false;
-            }
-
-            UINT w = 0;
-            UINT h = 0;
-            if (FailedHr(converter->GetSize(&w, &h), "WIC GetSize"))
-                return false;
-            if (w == 0 || h == 0)
-            {
-                DE_LOG_ERROR(LogCategory::Render, "Texture2D: empty image '{}'", path.string());
-                return false;
-            }
-
-            const uint32_t rowPitch = w * 4u;
-            const size_t   bytes    = static_cast<size_t>(rowPitch) * static_cast<size_t>(h);
-            outPixels.resize(bytes);
-
-            if (FailedHr(converter->CopyPixels(nullptr, rowPitch, static_cast<UINT>(bytes), outPixels.data()), "WIC CopyPixels"))
-            {
-                return false;
-            }
-
-            outWidth    = w;
-            outHeight   = h;
-            outRowPitch = rowPitch;
-            return true;
-        }
-
-        bool LoadImageRGBAFromMemory(const void* bytes, size_t byteCount, std::vector<uint8_t>& outPixels, uint32_t& outWidth, uint32_t& outHeight, uint32_t& outRowPitch)
-        {
-            if (!bytes || byteCount == 0)
-                return false;
-            EnsureCom();
-
-            ComPtr<IWICImagingFactory> factory;
-            if (FailedHr(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)), "CoCreateInstance WICImagingFactory"))
-                return false;
-
-            ComPtr<IWICStream> stream;
-            if (FailedHr(factory->CreateStream(&stream), "WIC CreateStream"))
-                return false;
-            if (FailedHr(stream->InitializeFromMemory(static_cast<BYTE*>(const_cast<void*>(bytes)), static_cast<DWORD>(byteCount)), "WIC InitializeFromMemory"))
-                return false;
-
-            ComPtr<IWICBitmapDecoder> decoder;
-            if (FailedHr(factory->CreateDecoderFromStream(stream.Get(), nullptr, WICDecodeMetadataCacheOnDemand, &decoder), "WIC CreateDecoderFromStream"))
-                return false;
-
-            ComPtr<IWICBitmapFrameDecode> frame;
-            if (FailedHr(decoder->GetFrame(0, &frame), "WIC GetFrame"))
-                return false;
-
-            ComPtr<IWICFormatConverter> converter;
-            if (FailedHr(factory->CreateFormatConverter(&converter), "WIC CreateFormatConverter"))
-                return false;
-            if (FailedHr(converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom), "WIC FormatConverter Initialize"))
-                return false;
-
-            UINT w = 0;
-            UINT h = 0;
-            if (FailedHr(converter->GetSize(&w, &h), "WIC GetSize"))
-                return false;
-            if (w == 0 || h == 0)
-                return false;
-
-            const uint32_t rowPitch = w * 4u;
-            const size_t   nbytes   = static_cast<size_t>(rowPitch) * static_cast<size_t>(h);
-            outPixels.resize(nbytes);
-            if (FailedHr(converter->CopyPixels(nullptr, rowPitch, static_cast<UINT>(nbytes), outPixels.data()), "WIC CopyPixels"))
-                return false;
-
-            outWidth    = w;
-            outHeight   = h;
-            outRowPitch = rowPitch;
-            return true;
-        }
-
     } // namespace
+
+    bool Texture2D::createFromImage(Renderer& renderer, const Image& image)
+    {
+        if (!image.valid() || !image.pixels())
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Texture2D: invalid Image");
+            return false;
+        }
+        const DXGI_FORMAT fmt = (image.format() == ImageFormat::R32F) ? DXGI_FORMAT_R32_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
+        const uint32_t    bpp = image.bytesPerPixel();
+        return createFromRaw(renderer, image.pixels(), image.width(), image.height(), image.rowPitchBytes(), fmt, bpp);
+    }
 
     bool Texture2D::createFromFile(Renderer& renderer, const std::filesystem::path& path)
     {
-        if (path.empty() || !std::filesystem::exists(path))
-        {
-            DE_LOG_ERROR(LogCategory::Render, "Texture2D: file not found '{}'", path.string());
+        Image img;
+        if (!img.createFromFile(path))
             return false;
-        }
-
-        std::vector<uint8_t> pixels;
-        uint32_t             width    = 0;
-        uint32_t             height   = 0;
-        uint32_t             rowPitch = 0;
-        if (!LoadImageRGBA(path, pixels, width, height, rowPitch))
-            return false;
-
-        if (!createFromRGBA(renderer, pixels.data(), width, height, rowPitch))
-            return false;
-
-        DE_LOG_INFO(LogCategory::Render, "Texture2D: loaded '{}' ({}x{})", path.string(), width, height);
-        return true;
+        return createFromImage(renderer, img);
     }
 
     bool Texture2D::createFromMemory(Renderer& renderer, const void* bytes, size_t byteCount)
     {
-        std::vector<uint8_t> pixels;
-        uint32_t             width    = 0;
-        uint32_t             height   = 0;
-        uint32_t             rowPitch = 0;
-        if (!LoadImageRGBAFromMemory(bytes, byteCount, pixels, width, height, rowPitch))
-        {
-            DE_LOG_ERROR(LogCategory::Render, "Texture2D: failed to decode {} bytes", byteCount);
+        Image img;
+        if (!img.createFromMemory(bytes, byteCount))
             return false;
-        }
-        if (!createFromRGBA(renderer, pixels.data(), width, height, rowPitch))
-            return false;
-        DE_LOG_INFO(LogCategory::Render, "Texture2D: loaded from memory ({}x{})", width, height);
-        return true;
+        return createFromImage(renderer, img);
     }
 
     bool Texture2D::createSolidColor(Renderer& renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a)
     {
-        const uint8_t px[4] = { r, g, b, a };
-        if (!createFromRGBA(renderer, px, 1, 1, 4))
+        Image img;
+        if (!img.createSolidColor(r, g, b, a))
             return false;
-        DE_LOG_INFO(LogCategory::Render, "Texture2D: solid color ({},{},{},{})", r, g, b, a);
-        return true;
+        return createFromImage(renderer, img);
     }
 
     bool Texture2D::createSoftCircle(Renderer& renderer, uint32_t size)
     {
-        if (size < 4)
-            size = 4;
-
-        std::vector<uint8_t> pixels(static_cast<size_t>(size) * size * 4u);
-        const float          cx     = (static_cast<float>(size) - 1.0f) * 0.5f;
-        const float          cy     = cx;
-        const float          radius = cx;
-
-        for (uint32_t y = 0; y < size; ++y)
-        {
-            for (uint32_t x = 0; x < size; ++x)
-            {
-                const float dx = static_cast<float>(x) - cx;
-                const float dy = static_cast<float>(y) - cy;
-                const float d  = std::sqrt(dx * dx + dy * dy) / radius;
-                float       a  = 1.0f - d;
-                if (a < 0.0f)
-                    a = 0.0f;
-                // Smooth falloff
-                a                   = a * a * (3.0f - 2.0f * a);
-                const uint8_t alpha = static_cast<uint8_t>(a * 255.0f + 0.5f);
-                const size_t  i     = (static_cast<size_t>(y) * size + x) * 4u;
-                pixels[i + 0]       = 255;
-                pixels[i + 1]       = 255;
-                pixels[i + 2]       = 255;
-                pixels[i + 3]       = alpha;
-            }
-        }
-
-        if (!createFromRGBA(renderer, pixels.data(), size, size, size * 4u))
+        Image img;
+        if (!img.createSoftCircle(size))
             return false;
-        DE_LOG_INFO(LogCategory::Render, "Texture2D: soft circle {}x{}", size, size);
-        return true;
+        return createFromImage(renderer, img);
     }
 
     bool Texture2D::createSoftStreak(Renderer& renderer, uint32_t size)
     {
-        if (size < 4)
-            size = 4;
-
-        std::vector<uint8_t> pixels(static_cast<size_t>(size) * size * 4u);
-        const float          inv = 1.0f / (static_cast<float>(size) - 1.0f);
-        for (uint32_t y = 0; y < size; ++y)
-        {
-            const float v      = static_cast<float>(y) * inv;
-            float       across = 1.0f - std::fabs(v * 2.0f - 1.0f);
-            across             = across * across * (3.0f - 2.0f * across);
-            for (uint32_t x = 0; x < size; ++x)
-            {
-                const uint8_t alpha = static_cast<uint8_t>(across * 255.0f + 0.5f);
-                const size_t  i     = (static_cast<size_t>(y) * size + x) * 4u;
-                pixels[i + 0]       = 255;
-                pixels[i + 1]       = 255;
-                pixels[i + 2]       = 255;
-                pixels[i + 3]       = alpha;
-            }
-        }
-
-        if (!createFromRGBA(renderer, pixels.data(), size, size, size * 4u))
+        Image img;
+        if (!img.createSoftStreak(size))
             return false;
-        DE_LOG_INFO(LogCategory::Render, "Texture2D: soft streak {}x{}", size, size);
-        return true;
+        return createFromImage(renderer, img);
     }
 
     bool Texture2D::createFromRGBA(Renderer& renderer, const uint8_t* rgba, uint32_t width, uint32_t height, uint32_t rowPitchBytes)
     {
-        return createFromRaw(renderer, rgba, width, height, rowPitchBytes, DXGI_FORMAT_R8G8B8A8_UNORM, 4u);
+        Image img;
+        if (!img.createFromRGBA(rgba, width, height, rowPitchBytes))
+            return false;
+        return createFromImage(renderer, img);
     }
 
     bool Texture2D::createFromR32Float(Renderer& renderer, const float* samples, uint32_t width, uint32_t height, uint32_t rowPitchBytes)

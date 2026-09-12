@@ -185,7 +185,7 @@ void EditorApp::onInit()
     }
 
     m_propMaterial = std::make_shared<Material>();
-    if (!m_propMaterial->createFromAlbedoPath(renderer(), assets(), "textures/dark_engine_cube.png", 80, 160, 220))
+    if (!m_propMaterial->createFromAlbedoPath(assets(), "textures/dark_engine_cube.png", 80, 160, 220))
     {
         DE_LOG_FATAL("EditorApp: prop material failed");
         requestQuit();
@@ -202,7 +202,7 @@ void EditorApp::onInit()
     m_groundMaterial = std::make_shared<Material>();
     // White 1x1 — albedo comes from baseColor * draw tint. A dark solid * a dark tint made the
     // plane nearly black, so only the spotlight hot-spot showed on the grid.
-    if (!m_groundMaterial->createSolid(renderer(), assets(), 255, 255, 255, 255))
+    if (!m_groundMaterial->createSolid(assets(), 255, 255, 255, 255))
     {
         DE_LOG_FATAL("EditorApp: ground material failed");
         requestQuit();

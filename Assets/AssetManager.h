@@ -1,6 +1,6 @@
 #pragma once
 #include "Assets/AssetHandle.h"
-#include "Assets/TextureCache.h"
+#include "Assets/ImageCache.h"
 
 #include <filesystem>
 #include <memory>
@@ -47,12 +47,19 @@ namespace Dark
         size_t assetCount() const;
         size_t pathMappingCount() const;
 
-        TextureCache&       textureCache() { return m_textures; }
-        const TextureCache& textureCache() const { return m_textures; }
+        ImageCache&       imageCache() { return m_images; }
+        const ImageCache& imageCache() const { return m_images; }
+        ImageCache&       textureCache() { return m_images; }
+        const ImageCache& textureCache() const { return m_images; }
 
-        // Interned GPU textures. Same resolved file / solid color is loaded once.
-        std::shared_ptr<Texture2D> loadTexture(Renderer& renderer, const std::string& virtualPath);
-        std::shared_ptr<Texture2D> loadSolidTexture(Renderer& renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
+        AssetRef<class Image> loadImage(const std::string& virtualPath);
+        AssetRef<class Image> loadImageFile(const std::filesystem::path& absPath);
+        AssetRef<class Image> loadSolidImage(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
+        AssetRef<class Image> loadMemoryImage(const std::string& key, const void* bytes, size_t byteCount);
+
+        // GPU convenience (loadImage + ensureTexture). Prefer loadAndUploadTexture.
+        std::shared_ptr<class Texture2D> loadTexture(Renderer& renderer, const std::string& virtualPath);
+        std::shared_ptr<class Texture2D> loadSolidTexture(Renderer& renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
 
         // Cached glTF / GLB. Same resolved path returns the same Model instance.
         // Interns Model + AnimationSet only. Does not load *.anim.json.
@@ -77,7 +84,9 @@ namespace Dark
         std::unordered_map<std::string, AssetID>                m_pathToID;
         std::unordered_map<AssetID, std::shared_ptr<Asset>>     m_assets;
         AssetID                                                 m_nextID = 1;
-        TextureCache                                            m_textures;
+        ImageCache                                              m_images;
+
+        AssetRef<class Image> internDecodedImage(const std::string& key, AssetRef<class Image> img);
 
         AssetID allocID()
         {

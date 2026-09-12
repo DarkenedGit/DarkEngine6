@@ -29,25 +29,18 @@ namespace Dark
         Texture2D(const Texture2D&)            = delete;
         Texture2D& operator=(const Texture2D&) = delete;
 
-        // Decode image from disk, upload to GPU, create SRV. Returns false on failure.
+        // Upload CPU pixels. Decode is Image (WIC lives there).
+        bool createFromImage(Renderer& renderer, const class Image& image);
+
+        // HUD/particles: stack Image then createFromImage. Not interned in GpuResourceCache.
         bool createFromFile(Renderer& renderer, const std::filesystem::path& path);
-
-        // Decode PNG/JPEG/BMP bytes via WIC, then upload. Returns false on failure.
         bool createFromMemory(Renderer& renderer, const void* bytes, size_t byteCount);
-
-        // 1x1 solid color fallback (RGBA 0-255).
         bool createSolidColor(Renderer& renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
-
-        // Soft circular sprite (for particles); size should be power-of-two (e.g. 64).
         bool createSoftCircle(Renderer& renderer, uint32_t size = 64);
-
-        // Soft streak: fades across V (width), uniform along U. For ribbon particles.
         bool createSoftStreak(Renderer& renderer, uint32_t size = 64);
-
-        // Raw RGBA8 upload (rowPitchBytes usually width*4).
         bool createFromRGBA(Renderer& renderer, const uint8_t* rgba, uint32_t width, uint32_t height, uint32_t rowPitchBytes);
 
-        // Raw R32_FLOAT height field (rowPitchBytes usually width*4).
+        // Raw R32_FLOAT height field (rowPitchBytes usually width*4). No WIC.
         bool createFromR32Float(Renderer& renderer, const float* samples, uint32_t width, uint32_t height, uint32_t rowPitchBytes);
 
         // SetDescriptorHeaps + SetGraphicsRootDescriptorTable for this SRV.

@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "Render/Material.h"
+#include "Assets/Material.h"
 #include "Render/MaterialSurface.h"
 #include "Render/MeshConstants.h"
 

@@ -197,7 +197,6 @@ target_link_libraries(DarkRender
         dxgi
         dxguid
         d3dcompiler
-        windowscodecs
 )
 set_target_properties(DarkRender PROPERTIES FOLDER "Engine")
 
@@ -208,6 +207,8 @@ target_link_libraries(DarkAssets
     PUBLIC
         DarkFoundation
         DarkRender
+        windowscodecs
+        ole32
 )
 set_target_properties(DarkAssets PROPERTIES FOLDER "Engine")
 

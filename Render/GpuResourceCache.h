@@ -15,6 +15,8 @@ namespace Dark
 
     class Renderer;
     class Material;
+    class Image;
+    class Texture2D;
 
     // GPU artifacts for interned CPU materials. Owns GpuMaterial heaps.
     class GpuResourceCache
@@ -25,10 +27,11 @@ namespace Dark
         GpuResourceCache(const GpuResourceCache&)            = delete;
         GpuResourceCache& operator=(const GpuResourceCache&) = delete;
 
-        // False + log if null, unregistered (id == 0), or albedo missing. Never inserts key 0.
+        bool ensureTexture(const AssetRef<Image>& image);
         bool ensureMaterial(const AssetRef<Material>& material);
 
-        GpuMaterial* material(AssetID materialId) const;
+        std::shared_ptr<Texture2D> texture(AssetID imageId) const;
+        GpuMaterial*               material(AssetID materialId) const;
 
         void bindMaterial(ID3D12GraphicsCommandList* cmd, const Material& material, UINT albedoSrvRootIndex) const;
 
@@ -41,6 +44,7 @@ namespace Dark
 
         struct Stats
         {
+            uint32_t textures      = 0;
             uint32_t materials     = 0;
             uint32_t packedHeaps   = 0;
             uint32_t shadowPatches = 0;
@@ -48,10 +52,15 @@ namespace Dark
         Stats stats() const;
 
     private:
+        struct TexEntry
+        {
+            AssetWeakRef<Image>          cpu;
+            std::shared_ptr<Texture2D>   gpu;
+        };
         struct MatEntry
         {
-            AssetWeakRef<Material>        cpu;
-            std::unique_ptr<GpuMaterial>  gpu;
+            AssetWeakRef<Material>       cpu;
+            std::unique_ptr<GpuMaterial> gpu;
         };
 
         void registerPackedHeap(PackedSrvHeap* heap);
@@ -59,6 +68,7 @@ namespace Dark
 
         Renderer*                   m_renderer = nullptr;
         D3D12_CPU_DESCRIPTOR_HANDLE m_shadowCpu{};
+        std::unordered_map<AssetID, TexEntry> m_textures;
         std::unordered_map<AssetID, MatEntry> m_materials;
         std::vector<PackedSrvHeap*>           m_packedHeaps;
         uint32_t                              m_shadowPatches = 0;

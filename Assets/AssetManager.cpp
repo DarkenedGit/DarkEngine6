@@ -3,14 +3,18 @@
 #include "Animation/AnimGraphJson.h"
 #include "Animation/AnimationSet.h"
 #include "Assets/GltfLoader.h"
+#include "Assets/Image.h"
 #include "Assets/Model.h"
-#include "Assets/TextureCache.h"
-#include "Render/Material.h"
+#include "Assets/Material.h"
 #include "Core/Log.h"
+#include "Render/GpuResourceCache.h"
+#include "Render/GpuUpload.h"
 #include "Render/Renderer.h"
 
 #include <fstream>
+#include <memory>
 #include <sstream>
+#include <vector>
 
 namespace Dark
 {
@@ -178,7 +182,6 @@ namespace Dark
                 erasePathEntriesLocked(id);
             DE_LOG_TRACE("AssetManager: GC pass complete ({} assets remaining)", m_assets.size());
         }
-        m_textures.collectUnused();
     }
 
     size_t AssetManager::assetCount() const
@@ -193,20 +196,134 @@ namespace Dark
         return m_pathToID.size();
     }
 
-    std::shared_ptr<Texture2D> AssetManager::loadTexture(Renderer& renderer, const std::string& virtualPath)
+    AssetRef<Image> AssetManager::internDecodedImage(const std::string& key, AssetRef<Image> img)
+    {
+        if (!img || !img->valid())
+            return {};
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const auto pit = m_pathToID.find(key);
+        if (pit != m_pathToID.end())
+        {
+            const auto ait = m_assets.find(pit->second);
+            if (ait != m_assets.end())
+            {
+                if (AssetRef<Image> existing = std::dynamic_pointer_cast<Image>(ait->second))
+                    return existing;
+            }
+            else
+                m_pathToID.erase(pit);
+        }
+        const AssetID id = allocID();
+        img->id          = id;
+        m_assets[id]     = img;
+        m_pathToID[key]  = id;
+        return img;
+    }
+
+    AssetRef<Image> AssetManager::loadImageFile(const std::filesystem::path& absPath)
+    {
+        const std::string key = ImageCache::fileKey(absPath);
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            const auto pit = m_pathToID.find(key);
+            if (pit != m_pathToID.end())
+            {
+                const auto ait = m_assets.find(pit->second);
+                if (ait != m_assets.end())
+                {
+                    if (AssetRef<Image> existing = std::dynamic_pointer_cast<Image>(ait->second))
+                        return existing;
+                }
+            }
+        }
+        AssetRef<Image> decoded = m_images.decodeOnce(key,
+                                                      [&absPath]() -> AssetRef<Image> {
+                                                          auto img = std::make_shared<Image>();
+                                                          if (!img->createFromFile(absPath))
+                                                              return {};
+                                                          return img;
+                                                      });
+        return internDecodedImage(key, decoded);
+    }
+
+    AssetRef<Image> AssetManager::loadImage(const std::string& virtualPath)
     {
         const std::filesystem::path path = resolve(virtualPath);
         if (path.empty())
         {
-            DE_LOG_ERROR("AssetManager: texture not found '{}'", virtualPath);
+            DE_LOG_ERROR("AssetManager: image not found '{}'", virtualPath);
             return {};
         }
-        return m_textures.loadFile(renderer, path);
+        return loadImageFile(path);
+    }
+
+    AssetRef<Image> AssetManager::loadSolidImage(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
+    {
+        const std::string key = ImageCache::solidKey(r, g, b, a);
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            const auto pit = m_pathToID.find(key);
+            if (pit != m_pathToID.end())
+            {
+                const auto ait = m_assets.find(pit->second);
+                if (ait != m_assets.end())
+                {
+                    if (AssetRef<Image> existing = std::dynamic_pointer_cast<Image>(ait->second))
+                        return existing;
+                }
+            }
+        }
+        AssetRef<Image> decoded = m_images.decodeOnce(key,
+                                                      [r, g, b, a]() -> AssetRef<Image> {
+                                                          auto img = std::make_shared<Image>();
+                                                          if (!img->createSolidColor(r, g, b, a))
+                                                              return {};
+                                                          return img;
+                                                      });
+        return internDecodedImage(key, decoded);
+    }
+
+    AssetRef<Image> AssetManager::loadMemoryImage(const std::string& key, const void* bytes, size_t byteCount)
+    {
+        if (key.empty() || !bytes || byteCount == 0)
+            return {};
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            const auto pit = m_pathToID.find(key);
+            if (pit != m_pathToID.end())
+            {
+                const auto ait = m_assets.find(pit->second);
+                if (ait != m_assets.end())
+                {
+                    if (AssetRef<Image> existing = std::dynamic_pointer_cast<Image>(ait->second))
+                        return existing;
+                }
+            }
+        }
+        std::vector<uint8_t> copy(static_cast<const uint8_t*>(bytes), static_cast<const uint8_t*>(bytes) + byteCount);
+        AssetRef<Image> decoded = m_images.decodeOnce(key,
+                                                      [copy]() -> AssetRef<Image> {
+                                                          auto img = std::make_shared<Image>();
+                                                          if (!img->createFromMemory(copy.data(), copy.size()))
+                                                              return {};
+                                                          return img;
+                                                      });
+        return internDecodedImage(key, decoded);
+    }
+
+    std::shared_ptr<Texture2D> AssetManager::loadTexture(Renderer& renderer, const std::string& virtualPath)
+    {
+        return loadAndUploadTexture(renderer, *this, virtualPath);
     }
 
     std::shared_ptr<Texture2D> AssetManager::loadSolidTexture(Renderer& renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a)
     {
-        return m_textures.loadSolid(renderer, r, g, b, a);
+        AssetRef<Image> img = loadSolidImage(r, g, b, a);
+        if (!img)
+            return {};
+        if (!renderer.gpuResources().ensureTexture(img))
+            return {};
+        return renderer.gpuResources().texture(img->id);
     }
 
     AssetRef<AnimationSet> AssetManager::internAnimationSetLocked(const std::string& modelKey, const GltfCpuModel& cpu)
@@ -248,7 +365,7 @@ namespace Dark
             DE_LOG_ERROR("AssetManager: model not found '{}'", virtualPath);
             return {};
         }
-        const std::string key = TextureCache::normalizePath(path);
+        const std::string key = ImageCache::normalizePath(path);
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             const auto it = m_pathToID.find(key);
@@ -307,7 +424,7 @@ namespace Dark
             DE_LOG_ERROR("AssetManager: animation set source not found '{}'", virtualPath);
             return {};
         }
-        const std::string key     = TextureCache::normalizePath(path);
+        const std::string key     = ImageCache::normalizePath(path);
         const std::string animKey = key + "#anims";
         {
             std::lock_guard<std::mutex> lock(m_mutex);
@@ -362,7 +479,7 @@ namespace Dark
             DE_LOG_ERROR("AssetManager: anim graph not found '{}'", virtualPath);
             return {};
         }
-        const std::string key = TextureCache::normalizePath(path);
+        const std::string key = ImageCache::normalizePath(path);
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             const auto it = m_pathToID.find(key);

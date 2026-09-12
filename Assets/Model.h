@@ -5,7 +5,7 @@
 #include "Assets/AssetHandle.h"
 #include "Math/AABox3f.h"
 #include "Math/Matrix4f.h"
-#include "Render/Material.h"
+#include "Assets/Material.h"
 #include "Render/Mesh.h"
 
 #include <optional>

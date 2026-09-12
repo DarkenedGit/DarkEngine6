@@ -1,7 +1,9 @@
 #include "Render/GpuResourceCache.h"
+#include "Assets/Image.h"
+#include "Assets/Material.h"
 #include "Render/GpuMaterial.h"
-#include "Render/Material.h"
 #include "Render/Renderer.h"
+#include "Render/Texture2D.h"
 #include "Core/Log.h"
 
 namespace Dark
@@ -39,6 +41,36 @@ namespace Dark
         }
     }
 
+    bool GpuResourceCache::ensureTexture(const AssetRef<Image>& image)
+    {
+        if (!image || image->id == NULL_ASSET)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureTexture: null or unregistered image");
+            return false;
+        }
+        const auto it = m_textures.find(image->id);
+        if (it != m_textures.end() && it->second.gpu && it->second.gpu->valid())
+            return true;
+        if (!image->valid())
+        {
+            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureTexture: id={} has no pixels", image->id);
+            return false;
+        }
+        if (!m_renderer)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureTexture: no renderer");
+            return false;
+        }
+        auto gpu = std::make_shared<Texture2D>();
+        if (!gpu->createFromImage(*m_renderer, *image))
+            return false;
+        TexEntry entry{};
+        entry.cpu = image;
+        entry.gpu = std::move(gpu);
+        m_textures[image->id] = std::move(entry);
+        return true;
+    }
+
     bool GpuResourceCache::ensureMaterial(const AssetRef<Material>& material)
     {
         if (!material || material->id == NULL_ASSET)
@@ -50,19 +82,21 @@ namespace Dark
         if (it != m_materials.end() && it->second.gpu && it->second.gpu->isValid())
             return true;
 
-        if (!material->albedoPtr() || !material->albedoPtr()->valid())
+        const AssetRef<Image>& albedo = material->albedo();
+        if (!albedo || albedo->id == NULL_ASSET || !ensureTexture(albedo))
         {
-            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureMaterial: id={} has no albedo", material->id);
+            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureMaterial: id={} albedo upload failed", material->id);
             return false;
         }
-        if (!m_renderer || !m_renderer->device())
+        std::shared_ptr<Texture2D> tex = texture(albedo->id);
+        if (!tex || !tex->valid() || !m_renderer || !m_renderer->device())
         {
-            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureMaterial: no device");
+            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureMaterial: no device/texture");
             return false;
         }
 
         auto gpu = std::make_unique<GpuMaterial>();
-        if (!gpu->pack(m_renderer->device(), *material->albedoPtr()))
+        if (!gpu->pack(m_renderer->device(), *tex))
             return false;
 
         registerPackedHeap(&gpu->packedHeap());
@@ -74,6 +108,16 @@ namespace Dark
         entry.gpu = std::move(gpu);
         m_materials[material->id] = std::move(entry);
         return true;
+    }
+
+    std::shared_ptr<Texture2D> GpuResourceCache::texture(AssetID imageId) const
+    {
+        if (imageId == NULL_ASSET)
+            return {};
+        const auto it = m_textures.find(imageId);
+        if (it == m_textures.end())
+            return {};
+        return it->second.gpu;
     }
 
     GpuMaterial* GpuResourceCache::material(AssetID materialId) const
@@ -129,12 +173,22 @@ namespace Dark
             else
                 ++it;
         }
+        for (auto it = m_textures.begin(); it != m_textures.end();)
+        {
+            const bool imageGone = it->second.cpu.expired();
+            const bool onlyCache = it->second.gpu && it->second.gpu.use_count() == 1;
+            if (imageGone && onlyCache)
+                it = m_textures.erase(it);
+            else
+                ++it;
+        }
     }
 
     void GpuResourceCache::clear()
     {
         m_packedHeaps.clear();
         m_materials.clear();
+        m_textures.clear();
         m_shadowCpu     = {};
         m_shadowPatches = 0;
     }
@@ -142,6 +196,7 @@ namespace Dark
     GpuResourceCache::Stats GpuResourceCache::stats() const
     {
         Stats s{};
+        s.textures      = static_cast<uint32_t>(m_textures.size());
         s.materials     = static_cast<uint32_t>(m_materials.size());
         s.packedHeaps   = static_cast<uint32_t>(m_packedHeaps.size());
         s.shadowPatches = m_shadowPatches;

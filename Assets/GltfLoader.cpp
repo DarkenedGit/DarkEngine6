@@ -570,6 +570,9 @@ namespace Dark
             {
                 const cgltf_material* mat = gp.material;
                 out.translucent = mat->alpha_mode == cgltf_alpha_mode_blend;
+                out.alphaMode   = (mat->alpha_mode == cgltf_alpha_mode_blend)
+                    ? MaterialAlphaMode::Blend
+                    : (mat->alpha_mode == cgltf_alpha_mode_mask ? MaterialAlphaMode::Mask : MaterialAlphaMode::Opaque);
                 out.doubleSided = mat->double_sided != 0;
                 if (mat->has_pbr_metallic_roughness)
                 {

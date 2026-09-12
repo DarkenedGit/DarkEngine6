@@ -1,7 +1,8 @@
 #include "Assets/Model.h"
 #include "Assets/AssetManager.h"
 #include "Assets/GltfLoader.h"
-#include "Assets/TextureCache.h"
+#include "Assets/Image.h"
+#include "Assets/ImageCache.h"
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
 #include "Math/Vector4f.h"
@@ -37,7 +38,7 @@ namespace Dark
         if (!cpu.skeleton.joints.empty())
             m_skeleton = cpu.skeleton;
 
-        const std::string pathKey = TextureCache::normalizePath(path);
+        const std::string pathKey = ImageCache::normalizePath(path);
         for (size_t i = 0; i < cpu.primitives.size(); ++i)
         {
             const GltfCpuPrimitive& src = cpu.primitives[i];
@@ -55,14 +56,13 @@ namespace Dark
                 continue;
             }
 
-            std::shared_ptr<Texture2D> albedo;
+            AssetRef<Image> albedo;
             if (!src.albedoFile.empty())
-                albedo = assets.textureCache().loadFile(renderer, src.albedoFile);
+                albedo = assets.loadImageFile(src.albedoFile);
             else if (!src.albedoBytes.empty())
             {
-                char key[256];
-                std::snprintf(key, sizeof(key), "gltf:%s:%d", pathKey.c_str(), src.imageIndex);
-                albedo = assets.textureCache().loadMemory(renderer, key, src.albedoBytes.data(), src.albedoBytes.size());
+                const std::string key = ImageCache::gltfKey(pathKey, src.imageIndex);
+                albedo                = assets.loadMemoryImage(key, src.albedoBytes.data(), src.albedoBytes.size());
             }
             if (!albedo || !albedo->valid())
             {
@@ -70,7 +70,7 @@ namespace Dark
                 const uint8_t g = static_cast<uint8_t>(Math::Clamp(src.baseColor[1], 0.0f, 1.0f) * 255.0f + 0.5f);
                 const uint8_t b = static_cast<uint8_t>(Math::Clamp(src.baseColor[2], 0.0f, 1.0f) * 255.0f + 0.5f);
                 const uint8_t a = static_cast<uint8_t>(Math::Clamp(src.baseColor[3], 0.0f, 1.0f) * 255.0f + 0.5f);
-                albedo          = assets.loadSolidTexture(renderer, r, g, b, a);
+                albedo          = assets.loadSolidImage(r, g, b, a);
             }
 
             auto mat = std::make_shared<Material>();
@@ -79,12 +79,13 @@ namespace Dark
             const float cg = solidTint ? 1.0f : src.baseColor[1];
             const float cb = solidTint ? 1.0f : src.baseColor[2];
             const float ca = solidTint ? 1.0f : src.baseColor[3];
-            if (!mat->createFromAlbedoTexture(renderer, albedo, cr, cg, cb, ca))
+            if (!mat->createFromAlbedoImage(albedo, cr, cg, cb, ca))
             {
                 DE_LOG_ERROR("Model: material create failed for primitive {}", i);
                 continue;
             }
             mat->setMetallicRoughness(src.metallic, src.roughness);
+            mat->setAlphaMode(src.alphaMode);
             mat = assets.internMaterial(mat);
             if (!mat || mat->id == NULL_ASSET)
             {

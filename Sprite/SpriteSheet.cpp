@@ -1,5 +1,6 @@
 #include "Sprite/SpriteSheet.h"
 #include "Assets/AssetManager.h"
+#include "Render/GpuUpload.h"
 #include "Render/Renderer.h"
 #include "Core/Log.h"
 
@@ -403,7 +404,7 @@ namespace Dark
             return false;
         }
 
-        auto tex = assets.loadTexture(renderer, texPath);
+        auto tex = loadAndUploadTexture(renderer, assets, texPath);
         if (!tex || !tex->valid())
         {
             DE_LOG_ERROR("SpriteSheet: failed to load texture '{}'", texPath);
@@ -453,7 +454,7 @@ namespace Dark
                 continue;
             }
 
-            auto tex = assets.loadTexture(renderer, clip.texture);
+            auto tex = loadAndUploadTexture(renderer, assets, clip.texture);
             if (!tex || !tex->valid())
             {
                 DE_LOG_ERROR("SpriteSheet: clip '{}' failed to load '{}'", clip.name, clip.texture);

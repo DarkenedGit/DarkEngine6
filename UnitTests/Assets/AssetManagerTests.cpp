@@ -5,7 +5,8 @@
 #include "Assets/AssetManager.h"
 #include "Assets/GltfTestUtil.h"
 #include "Assets/Model.h"
-#include "Render/Material.h"
+#include "Assets/Image.h"
+#include "Assets/Material.h"
 
 using namespace Dark;
 
@@ -200,4 +201,21 @@ TEST(AssetManager, InternMaterialNullRejected)
     AssetManager mgr;
     EXPECT_FALSE(mgr.internMaterial({}));
     EXPECT_EQ(mgr.assetCount(), 0u);
+}
+
+TEST(AssetManager, LoadSolidImageInternsAndGc)
+{
+    AssetManager mgr;
+    AssetID      id = NULL_ASSET;
+    {
+        auto img = mgr.loadSolidImage(9, 8, 7, 6);
+        ASSERT_TRUE(img);
+        ASSERT_TRUE(img->valid());
+        id = img->id;
+        EXPECT_NE(id, NULL_ASSET);
+        auto again = mgr.loadSolidImage(9, 8, 7, 6);
+        EXPECT_EQ(img.get(), again.get());
+    }
+    mgr.collectGarbage();
+    EXPECT_FALSE(mgr.get(id));
 }

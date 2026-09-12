@@ -1914,14 +1914,14 @@ void SandboxApp::onInit()
     if (!CreateSphere(tracerData, 0.5f, 8, 12) || !Mesh::tryCreate(renderer(), tracerData, m_tracerMesh))
         DE_LOG_ERROR("SandboxApp: projectile tracer mesh failed");
     m_tracerMaterial = std::make_shared<Material>();
-    if (!m_tracerMaterial->createSolid(renderer(), assets(), 255, 196, 48, 255))
+    if (!m_tracerMaterial->createSolid(assets(), 255, 196, 48, 255))
     {
         DE_LOG_ERROR("SandboxApp: projectile tracer material failed");
         m_tracerMaterial.reset();
     }
 
     m_cubeMaterial = std::make_shared<Material>();
-    if (!m_cubeMaterial->createFromAlbedoPath( renderer(), assets(), "textures/dark_engine_cube.png", /*fallback*/ 64, 166, 242, 255))
+    if (!m_cubeMaterial->createFromAlbedoPath(assets(), "textures/dark_engine_cube.png", /*fallback*/ 64, 166, 242, 255))
     {
         DE_LOG_FATAL("SandboxApp: material create failed");
         requestQuit();
@@ -1932,35 +1932,35 @@ void SandboxApp::onInit()
         return;
 
     m_treeTrunkMaterial = std::make_shared<Material>();
-    if (!m_treeTrunkMaterial->createSolid(renderer(), assets(), 118, 78, 38, 255))
+    if (!m_treeTrunkMaterial->createSolid(assets(), 118, 78, 38, 255))
     {
         DE_LOG_FATAL("SandboxApp: tree trunk material failed");
         requestQuit();
         return;
     }
     m_treeMaterial = std::make_shared<Material>();
-    if (!m_treeMaterial->createSolid(renderer(), assets(), 46, 140, 62, 255))
+    if (!m_treeMaterial->createSolid(assets(), 46, 140, 62, 255))
     {
         DE_LOG_FATAL("SandboxApp: tree canopy material failed");
         requestQuit();
         return;
     }
     m_aiMaterial = std::make_shared<Material>();
-    if (!m_aiMaterial->createSolid(renderer(), assets(), 220, 90, 40, 255))
+    if (!m_aiMaterial->createSolid(assets(), 220, 90, 40, 255))
     {
         DE_LOG_FATAL("SandboxApp: ai material failed");
         requestQuit();
         return;
     }
     m_packMaterial = std::make_shared<Material>();
-    if (!m_packMaterial->createSolid(renderer(), assets(), 214, 28, 36, 255))
+    if (!m_packMaterial->createSolid(assets(), 214, 28, 36, 255))
     {
         DE_LOG_FATAL("SandboxApp: health pack material failed");
         requestQuit();
         return;
     }
     m_lanternMaterial = std::make_shared<Material>();
-    if (!m_lanternMaterial->createSolid(renderer(), assets(), 220, 150, 60, 255))
+    if (!m_lanternMaterial->createSolid(assets(), 220, 150, 60, 255))
     {
         DE_LOG_FATAL("SandboxApp: lantern material failed");
         requestQuit();
@@ -2034,8 +2034,8 @@ void SandboxApp::onInit()
         m_cubeMesh.indexCount(),
         aspect,
         m_cubeMatId,
-        m_cubeMaterial->albedo().width(),
-        m_cubeMaterial->albedo().height(),
+        m_cubeMaterial->albedo()->width(),
+        m_cubeMaterial->albedo()->height(),
         m_terrain.chunksX(),
         m_terrain.chunksZ());
     DE_LOG_INFO(LogCategory::Networking, "Sandbox net: Sandbox.exe -host   and   Sandbox.exe -join 127.0.0.1");
