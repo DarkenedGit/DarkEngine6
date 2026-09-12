@@ -123,7 +123,6 @@ void SandboxApp::drawDevTools()
         if (ImGui::Checkbox("Shadows", &shadows))
         {
             dbg.shadows = shadows;
-            m_shadows.setDebugEnabled(shadows);
             DE_LOG_INFO("Sandbox: shadows = {}", shadows);
         }
         if (ImGui::Checkbox("Shadow map tiles", &m_showShadowMaps))
