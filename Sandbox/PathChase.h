@@ -12,7 +12,7 @@
 #include "Render/GpuResourceCache.h"
 #include "Render/Mesh.h"
 #include "Render/LinePipeline.h"
-#include "Render/Material.h"
+#include "Assets/Material.h"
 #include "Render/MeshPipeline.h"
 
 #include <d3d12.h>

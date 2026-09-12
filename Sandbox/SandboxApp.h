@@ -10,7 +10,7 @@
 #include "Render/SceneRenderer.h"
 #include "Render/Camera3D.h"
 #include "Sky/Environment.h"
-#include "Render/Material.h"
+#include "Assets/Material.h"
 #include "Terrain/Terrain.h"
 #include "Terrain/TerrainMaterial.h"
 #include "Water/Water.h"

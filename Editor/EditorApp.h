@@ -9,7 +9,7 @@
 #include "Render/SceneRenderer.h"
 #include "Render/Camera3D.h"
 #include "Render/Camera2D.h"
-#include "Render/Material.h"
+#include "Assets/Material.h"
 #include "Render/SpritePipeline.h"
 #include "Render/Texture2D.h"
 #include "Scene/SceneTypes.h"
