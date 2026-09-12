@@ -102,30 +102,21 @@ void EditorApp::onInit()
     if (!renderer().enableSceneBuffers(config().scenePath))
         DE_LOG_ERROR(LogCategory::Render, "EditorApp: SceneBuffers enable failed; SwapChainForward");
 
-    const MeshPass meshPass = renderer().scenePath() == ScenePath::HybridDeferred ? MeshPass::GBuffer : MeshPass::ForwardUnorm;
-    if (!m_meshPipeline.create(renderer().device(), meshPass) || !m_linePipeline.create(renderer().device()))
     {
-        DE_LOG_FATAL("EditorApp: mesh/line pipeline failed");
+        SceneRendererDesc sceneDesc{};
+        sceneDesc.createWorldEnvironment = false;
+        sceneDesc.logTag = "EditorApp";
+        if (!m_scene.init(renderer(), sceneDesc))
+        {
+            requestQuit();
+            return;
+        }
+    }
+    if (!m_linePipeline.create(renderer().device()))
+    {
+        DE_LOG_FATAL("EditorApp: line pipeline failed");
         requestQuit();
         return;
-    }
-    if (!m_meshTransparentPipeline.create(renderer().device(), MeshPass::ForwardTransparent, renderer().sceneColorFormat()))
-    {
-        DE_LOG_FATAL("EditorApp: transparent mesh pipeline failed");
-        requestQuit();
-        return;
-    }
-    {
-        const SkinnedMeshPass skinnedPass =
-            renderer().scenePath() == ScenePath::HybridDeferred ? SkinnedMeshPass::GBuffer : SkinnedMeshPass::Forward;
-        if (!m_skinnedPipeline.create(renderer().device(), skinnedPass))
-            DE_LOG_ERROR(LogCategory::Render, "EditorApp: SkinnedMeshPipeline create failed; skinned parts skipped");
-        if (!m_skinnedTransparentPipeline.create(renderer().device(), SkinnedMeshPass::ForwardTransparent, renderer().sceneColorFormat()))
-            DE_LOG_ERROR(LogCategory::Render, "EditorApp: skinned transparent pipeline create failed");
-        if (!m_skinnedShadowPipeline.create(renderer().device(), SkinnedMeshPass::Shadow))
-            DE_LOG_ERROR(LogCategory::Render, "EditorApp: skinned shadow pipeline create failed");
-        if (!m_skinRing.create(renderer().device()))
-            DE_LOG_ERROR(LogCategory::Render, "EditorApp: SkinningUploadRing create failed");
     }
     if (renderer().hasSceneBuffers())
     {
@@ -135,56 +126,9 @@ void EditorApp::onInit()
             requestQuit();
             return;
         }
-        if (!m_tonemap.create(renderer().device()))
-        {
-            DE_LOG_FATAL("EditorApp: TonemapPipeline create failed");
-            requestQuit();
-            return;
-        }
-        if (renderer().scenePath() == ScenePath::HybridDeferred && !m_lighting.create(renderer().device()))
-        {
-            DE_LOG_FATAL("EditorApp: DeferredLightingPipeline create failed");
-            requestQuit();
-            return;
-        }
-        if (renderer().scenePath() == ScenePath::HybridDeferred)
-        {
-            if (!m_localLightVolumes.create(renderer().device()))
-                DE_LOG_ERROR(LogCategory::Render, "EditorApp: LocalLightVolumePipeline create failed — local lights disabled");
-            if (!m_localLightGpu.create(renderer().device()))
-                DE_LOG_ERROR(LogCategory::Render, "EditorApp: LocalLightGpuList create failed — local lights disabled");
-            MeshData sphereData;
-            MeshData coneData;
-            if (!CreateIcosahedronBounding(sphereData, 1.0f, 1) || !Mesh::tryCreate(renderer(), sphereData, m_pointVolumeMesh))
-                DE_LOG_ERROR(LogCategory::Render, "EditorApp: point volume mesh failed — local lights skipped");
-            if (!CreateSpotVolumeCone(coneData, 16, true) || !Mesh::tryCreate(renderer(), coneData, m_spotVolumeMesh))
-                DE_LOG_ERROR(LogCategory::Render, "EditorApp: spot volume mesh failed — local lights skipped");
-        }
-        if (renderer().scenePath() == ScenePath::HybridDeferred)
-        {
-            if (!m_bloom.create(renderer().device(), renderer().width(), renderer().height()))
-                DE_LOG_WARN(LogCategory::Render, "EditorApp: BloomPipeline create failed — bloom disabled");
-            else
-            {
-                m_bloomW = renderer().width();
-                m_bloomH = renderer().height();
-            }
-        }
-        if (renderer().scenePath() == ScenePath::HybridDeferred && !m_motionBlur.create(renderer().device()))
-            DE_LOG_WARN(LogCategory::Render, "EditorApp: MotionBlurPipeline create failed — motion blur disabled");
-        if (renderer().scenePath() == ScenePath::HybridDeferred && !m_taa.create(renderer().device()))
-            DE_LOG_WARN(LogCategory::Render, "EditorApp: TaaPipeline create failed — TAA disabled");
-        if (!m_debugOverlay.create(renderer().device()))
-            DE_LOG_WARN("EditorApp: DebugOverlay create failed — G-buffer tiles disabled");
     }
     if (!pumpBootFrame())
         return;
-    if (!m_shadows.create(renderer().device()))
-    {
-        DE_LOG_FATAL("EditorApp: ShadowSystem create failed");
-        requestQuit();
-        return;
-    }
     if (!pumpBootFrame())
         return;
     if (!m_particleRenderer.create(renderer()))
@@ -215,7 +159,7 @@ void EditorApp::onInit()
     {
         MeshData data;
         CreateGroundPlane(data, 40.0f, 0.0f, 10.0f);
-        m_groundMesh = Mesh::Create(renderer(),data);
+        m_groundMesh = Mesh::Create(renderer(), data);
     }
 
     {
@@ -337,7 +281,7 @@ void EditorApp::updateCamera(float dt)
             speed *= 2.5f;
         m_camera.Strafe(input().actionAxis("move_x") * speed * dt);
         m_camera.Walk(input().actionAxis("move_z") * speed * dt);
-        m_camera.Climb(input().actionAxis("move_y") * speed * dt);
+        m_camera.Climb(input().actionAxis("move_y") * m_moveSpeed * dt);
     }
     else
     {
@@ -381,6 +325,7 @@ void EditorApp::onShutdown()
     m_imgui.shutdown(renderer());
     m_particleRenderer.destroy(renderer());
     renderer().waitForGpu();
+    m_scene.shutdown();
     if (m_propMaterial)
         assets().unload(m_propMaterial->id);
     if (m_groundMaterial)
@@ -393,7 +338,6 @@ void EditorApp::onShutdown()
     m_quadMesh    = Mesh{};
     m_grid2D      = LineMesh{};
     m_boxOutline2D = LineMesh{};
-    m_shadows = ShadowSystem{};
     m_emitters.clear();
     audio().stopAll();
     m_sfxPlace.reset();
