@@ -101,15 +101,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     }
 
     const bool deferred = renderer().scenePath() == ScenePath::HybridDeferred;
-    const bool useTaa   = deferred && renderer().debugState().taa && m_taa.isValid();
-    if (useTaa)
-    {
-        float jx = 0.0f, jy = 0.0f;
-        taaHaltonJitter(renderer().frameIndex(), jx, jy);
-        m_camera.SetSubpixelJitter(jx, jy, renderer().width(), renderer().height());
-    }
-    const Matrix4f viewProj     = m_camera.GetViewProj();
-    const Matrix4f prevViewProj = m_havePrevViewProj ? m_prevViewProj : viewProj;
+    const Matrix4f viewProj = m_scene.beginCameraFrame(m_camera, renderer());
+    const Matrix4f prevViewProj = m_scene.havePrevViewProj() ? m_scene.prevViewProj() : viewProj;
     if (deferred)
     {
         renderer().bindGBuffer();
@@ -410,62 +403,16 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         ++draws;
     });
 
-    if (deferred)
     {
-        const uint32_t bw = renderer().width();
-        const uint32_t bh = renderer().height();
-        if (bw != m_bloomW || bh != m_bloomH)
-        {
-            renderer().waitForGpu();
-            if (!m_bloom.resize(renderer().device(), bw, bh))
-                DE_LOG_WARN(LogCategory::Render, "EditorApp: BloomPipeline resize failed — bloom disabled");
-            m_bloomW = bw;
-            m_bloomH = bh;
-        }
-        if (renderer().debugState().bloom && m_bloom.isValid())
-            m_bloom.draw(cmd, renderer(), BloomPipeline::kDefaultStrength);
-    }
-
-    bool usedPostHdr = false;
-    if (useTaa)
-    {
-        if (renderer().width() != m_taaHistoryW || renderer().height() != m_taaHistoryH)
-        {
-            m_taaHistoryValid = false;
-            m_taaHistoryW     = renderer().width();
-            m_taaHistoryH     = renderer().height();
-        }
-        TaaSettings taa{};
-        copyMatrix(taa.invViewProj, viewProj.Inverse());
-        copyMatrix(taa.prevViewProj, prevViewProj);
-        taa.blend = 0.1f;
-        taa.reset = !m_taaHistoryValid;
-        m_taa.draw(cmd, renderer(), taa);
-        m_taaHistoryValid = true;
-        usedPostHdr       = true;
-    }
-    const bool useMb = deferred && renderer().debugState().motionBlur && m_motionBlur.isValid();
-    if (useMb)
-    {
-        MotionBlurSettings mb{};
-        copyMatrix(mb.invViewProj, viewProj.Inverse());
-        copyMatrix(mb.prevViewProj, prevViewProj);
-        mb.strength  = 1.0f;
-        mb.maxPixels = 40.0f;
-        mb.readPost  = useTaa;
-        m_motionBlur.draw(cmd, renderer(), mb);
-        usedPostHdr = !useTaa;
+        const bool aces = renderer().hasSceneBuffers() && renderer().debugState().aces && renderer().debugState().lighting;
+        TonemapSettings ts{};
+        ts.mode     = aces ? 1.0f : 0.0f;
+        ts.exposure = 1.0f;
+        m_scene.applyPost(renderer(), cmd, viewProj, ts);
     }
 
     if (renderer().hasSceneBuffers())
     {
-        renderer().bindColorTargetOnly();
-        const bool aces = renderer().hasSceneBuffers() && renderer().debugState().aces && renderer().debugState().lighting;
-        TonemapSettings ts{};
-        ts.mode       = aces ? 1.0f : 0.0f;
-        ts.exposure   = 1.0f;
-        ts.usePostHdr = usedPostHdr;
-        m_tonemap.draw(cmd, renderer(), ts);
         if ((m_showGBuffer || m_showVelocity) && m_debugOverlay.isValid() && renderer().hasGBuffer())
         {
             m_debugOverlay.beginFrame(renderer().frameIndex());
@@ -492,8 +439,6 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         }
     }
 
-    m_prevViewProj     = viewProj;
-    m_havePrevViewProj = true;
-    m_camera.ClearSubpixelJitter();
+    m_scene.endCameraFrame(m_camera, viewProj);
     renderer().stats().drawCalls = draws;
 }
