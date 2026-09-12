@@ -87,7 +87,7 @@ TEST(LocalLightGather, MissingFrustumOrViewProjReturnsFalse)
     EXPECT_FALSE(gatherLocalLights(world, in, out));
 }
 
-TEST(LocalLightGather, NearPlaneClassification)
+TEST(LocalLightGather, PointsUseFullscreenScissor)
 {
     World world;
     addLight(world, Vector3f(0.0f, 0.0f, 0.0f), LocalLightType::Point, 600.0f, 8.0f);
@@ -103,14 +103,19 @@ TEST(LocalLightGather, NearPlaneClassification)
     LocalLightDrawLists out{};
     ASSERT_TRUE(gatherLocalLights(world, in, out));
     EXPECT_EQ(out.count, 3u);
-    EXPECT_EQ(out.pointOutCount, 1u);
+    EXPECT_EQ(out.pointOutCount, 0u);
     EXPECT_EQ(out.spotOutCount, 0u);
-    EXPECT_EQ(out.insideCount, 2u);
+    EXPECT_EQ(out.insideCount, 3u);
     EXPECT_EQ(out.pointOutCount + out.spotOutCount + out.insideCount, out.count);
 
-    EXPECT_NEAR(out.lights[0].pos[2], 100.0f, 1.0e-3f);
-    EXPECT_NEAR(out.lights[1].pos[2], 0.0f, 1.0e-3f);
+    EXPECT_NEAR(out.lights[0].pos[2], 0.0f, 1.0e-3f);
+    EXPECT_NEAR(out.lights[1].pos[2], 100.0f, 1.0e-3f);
     EXPECT_NEAR(out.lights[2].pos[2], 10.0f, 1.0e-3f);
+    for (uint32_t i = 0; i < out.insideCount; ++i)
+    {
+        EXPECT_LT(out.insideScissor[i].left, out.insideScissor[i].right);
+        EXPECT_LT(out.insideScissor[i].top, out.insideScissor[i].bottom);
+    }
 }
 
 TEST(LocalLightGather, InsideAndOutsideAreDisjoint)
@@ -167,8 +172,8 @@ TEST(LocalLightGather, WaterIndexUsesCompactedTopScores)
     LocalLightDrawLists out{};
     ASSERT_TRUE(gatherLocalLights(world, in, out));
     ASSERT_EQ(out.count, 10u);
-    EXPECT_EQ(out.pointOutCount, 10u);
-    EXPECT_EQ(out.insideCount, 0u);
+    EXPECT_EQ(out.pointOutCount, 0u);
+    EXPECT_EQ(out.insideCount, 10u);
     ASSERT_EQ(out.waterCount, kWaterLocalLightMax);
 
     std::unordered_set<uint32_t> waterSlots;
@@ -242,12 +247,34 @@ TEST(LocalLightGather, DegenerateOuterTreatedAsPoint)
     LocalLightDrawLists out{};
     ASSERT_TRUE(gatherLocalLights(world, makeInput(frustum, viewProj), out));
     ASSERT_EQ(out.count, 1u);
-    EXPECT_EQ(out.pointOutCount, 1u);
+    EXPECT_EQ(out.pointOutCount, 0u);
     EXPECT_EQ(out.spotOutCount, 0u);
+    EXPECT_EQ(out.insideCount, 1u);
     EXPECT_NEAR(out.lights[0].type, 0.0f, 1.0e-5f);
     EXPECT_NEAR(out.lights[0].dir[0], 0.0f, 1.0e-5f);
     EXPECT_NEAR(out.lights[0].dir[1], 0.0f, 1.0e-5f);
     EXPECT_NEAR(out.lights[0].dir[2], 0.0f, 1.0e-5f);
+}
+
+TEST(LocalLightGather, OutsidePointUsesFullscreenScissor)
+{
+    World world;
+    addLight(world, Vector3f(0.0f, 0.0f, 40.0f), LocalLightType::Point, 800.0f, 16.0f);
+
+    Camera3D cam;
+    Matrix4f viewProj;
+    Frustum3f frustum;
+    makeView(cam, viewProj, frustum);
+
+    LocalLightDrawLists out{};
+    ASSERT_TRUE(gatherLocalLights(world, makeInput(frustum, viewProj), out));
+    ASSERT_EQ(out.count, 1u);
+    EXPECT_EQ(out.pointOutCount, 0u);
+    EXPECT_EQ(out.spotOutCount, 0u);
+    EXPECT_EQ(out.insideCount, 1u);
+    EXPECT_LT(out.insideScissor[0].left, out.insideScissor[0].right);
+    EXPECT_LT(out.insideScissor[0].top, out.insideScissor[0].bottom);
+    EXPECT_NEAR(out.lights[0].type, 0.0f, 1.0e-5f);
 }
 
 TEST(LocalLightGather, OutsideSpotUsesFullscreenScissor)
@@ -318,8 +345,8 @@ TEST(LocalLightGather, WaterIndexRemapsAcrossInsideShuffle)
     LocalLightDrawLists out{};
     ASSERT_TRUE(gatherLocalLights(world, makeInput(frustum, viewProj), out));
     ASSERT_EQ(out.count, 10u);
-    EXPECT_EQ(out.pointOutCount, 6u);
-    EXPECT_EQ(out.insideCount, 4u);
+    EXPECT_EQ(out.pointOutCount, 0u);
+    EXPECT_EQ(out.insideCount, 10u);
     ASSERT_EQ(out.waterCount, kWaterLocalLightMax);
 
     const uint32_t insideBase = out.pointOutCount + out.spotOutCount;
@@ -366,7 +393,7 @@ TEST(LocalLightGather, FailedScissorInsideStillInWaterIndex)
 
     LocalLightDrawLists out{};
     ASSERT_TRUE(gatherLocalLights(world, in, out));
-    EXPECT_EQ(out.pointOutCount, 1u);
+    EXPECT_EQ(out.pointOutCount, 0u);
     EXPECT_EQ(out.insideCount, 0u);
     ASSERT_EQ(out.count, 2u);
     ASSERT_EQ(out.waterCount, 2u);

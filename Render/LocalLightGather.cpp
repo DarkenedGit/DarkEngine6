@@ -24,7 +24,6 @@ namespace Dark
             Matrix4f      world{};
             float         score    = 0.0f;
             float         tanOuter = 0.0f;
-            bool          inside   = false;
             bool          spot     = false;
         };
 
@@ -250,14 +249,12 @@ namespace Dark
 
             const Vector3f toCam = pos - in.cameraPos;
             const float    dist  = toCam.Magnitude();
-            const bool     inside = (dist - range) < in.nearZ;
 
             Candidate c{};
             packGpu(c.gpu, pos, light.color, light.intensity, range, dir, isSpot, light.innerConeDeg, light.outerConeDeg, light.sourceRadius);
             c.world    = isSpot ? makeSpotVolumeWorld(pos, dir, range, tanOuter) : makePointVolumeWorld(pos, range);
             c.score    = light.intensity / (dist * dist + 1.0f);
             c.tanOuter = tanOuter;
-            c.inside   = inside;
             c.spot     = isSpot;
             cands.push_back(c);
         });
@@ -299,33 +296,20 @@ namespace Dark
             ++out.count;
         };
 
-        // Spots always take fullscreen+scissor. Rasterizing the cone hull from the side
-        // only covers a triangular slice of the ground pool (hard half-cut).
+        // Points and spots always take fullscreen+scissor. Rasterizing the volume hull
+        // from the side (or when it clips the near plane) cuts the lit pool.
         for (uint32_t i = 0; i < n; ++i)
         {
-            if (cands[i].spot)
+            if (computeInsideScissor(cands[i], *in.viewProj, in.viewportW, in.viewportH, rects[i]))
+                hasRect[i] = 1;
+            else if (fullVp.right > fullVp.left && fullVp.bottom > fullVp.top)
             {
-                if (computeInsideScissor(cands[i], *in.viewProj, in.viewportW, in.viewportH, rects[i]))
-                    hasRect[i] = 1;
-                else if (fullVp.right > fullVp.left && fullVp.bottom > fullVp.top)
-                {
-                    rects[i]   = fullVp;
-                    hasRect[i] = 1;
-                }
-            }
-            else if (cands[i].inside)
-            {
-                if (computeInsideScissor(cands[i], *in.viewProj, in.viewportW, in.viewportH, rects[i]))
-                    hasRect[i] = 1;
+                rects[i]   = fullVp;
+                hasRect[i] = 1;
             }
         }
 
-        for (uint32_t i = 0; i < n; ++i)
-        {
-            if (!cands[i].inside && !cands[i].spot)
-                packAt(i);
-        }
-        out.pointOutCount = out.count;
+        out.pointOutCount = 0;
         out.spotOutCount  = 0;
 
         for (uint32_t i = 0; i < n; ++i)
