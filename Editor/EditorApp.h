@@ -24,6 +24,7 @@
 #include "Render/SpritePipeline.h"
 #include "Render/Texture2D.h"
 #include "Scene/SceneTypes.h"
+#include "Editor/EditorObject.h"
 #include "Math/AABox2f.h"
 #include "Editor/EditorImGui.h"
 #include "Editor/ParticleEditorPanel.h"
@@ -110,9 +111,6 @@ private:
     void drawNetworkMenu();
     void drawDebugMenu();
 
-    // Ensure every NetworkedComponent has a SceneObject row (draw/selection).
-    void mirrorNetworkedObjects();
-
     static bool onNetSpawn(World& world, Entity e, NetPrefab prefab, const TransformComponent& xf, uint32_t colorRgba8, void* user);
     static void onNetDespawn(World& world, Entity e, NetId id, void* user);
     static void onNetPeer(const NetPeerInfo& info, NetPeerEvent event, void* user);
@@ -123,12 +121,13 @@ private:
 
     ParticleEmitterDesc makeDefaultParticleDesc() const;
     void applyParticleDescToEmitter(int emitterIndex, const ParticleEmitterDesc& desc);
-    void fillParticleDescFromEmitter(int emitterIndex, ParticleEmitterDesc& out) const;
+    void fillParticleDescFromEmitter(int emitterIndex, const ParticleEmitterDesc& out) const;
     void syncSelectedEmitterFromUi();
 
     const Mesh* meshForType(SceneObjectType type) const;
-    SceneObject* findObject(Entity e);
-    const SceneObject* findObject(Entity e) const;
+    EditorObjectComponent* findObject(Entity e);
+    uint32_t editorObjectCount();
+    void collectEditorEntities(std::vector<Entity>& out);
     ParticleEmitter* selectedEmitter();
 
     static float snap(float v, float grid);
@@ -189,7 +188,6 @@ private:
     int                  m_panMouseX = 0;
     int                  m_panMouseY = 0;
 
-    std::vector<SceneObject>                   m_objects;
     std::vector<std::unique_ptr<ParticleEmitter>> m_emitters;
     ParticleRenderer                           m_particleRenderer;
     Entity                                     m_selected{};

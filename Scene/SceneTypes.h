@@ -1,6 +1,5 @@
 #pragma once
 
-#include "ECS/Entity.h"
 #include "Math/Quaternion.h"
 #include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
@@ -125,15 +124,8 @@ namespace Dark
         return false;
     }
 
-    // Runtime editor object: entity handle + authored fields that go into JSON.
-    struct SceneObject
-    {
-        Entity          entity{};
-        SceneObjectType type = SceneObjectType::Cube;
-        float           color[4]{ 1.0f, 1.0f, 1.0f, 1.0f };
-        // Index into EditorApp emitter list when type == ParticleEmitter; -1 otherwise.
-        int             emitterIndex = -1;
-    };
+    // Live editor objects are ECS entities with EditorObjectComponent (Editor/EditorObject.h).
+    // SceneObjectData is the JSON DTO only — not a parallel runtime world.
 
     // Plain data blob used for serialization (no live Entity).
     struct SceneObjectData
