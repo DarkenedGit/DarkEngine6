@@ -31,9 +31,11 @@
 #include "Character/Health.h"
 #include "Character/PlayerMotor.h"
 #include "Render/HealthHud.h"
+#include "Render/CrosshairHud.h"
 #include "Particles/ParticleEmitter.h"
 #include "Particles/ParticleRenderer.h"
 #include "Particles/BloodSplatPool.h"
+#include "Weapons/WeaponLoadout.h"
 #include "PathChase.h"
 #include "Ui/ImGuiHost.h"
 
@@ -67,6 +69,12 @@ private:
     void updatePawnMotion(float dt);
     void updatePossessed(float dt);
     void updateCombat(float dt);
+    void handleWeaponSwitch();
+    Dark::WeaponWorldQuery makeWeaponQuery();
+    static void onWeaponHitThunk(void* user, const Dark::WeaponHit& hit);
+    void onWeaponHit(const Dark::WeaponHit& hit);
+    void drawProjectiles(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, Dark::MeshFrameConstants& cb);
+    void drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, const Dark::Math::Matrix4f& prevViewProj);
     void spawnGltfDemo();
     void spawnAnimatedDemo();
     void updateWiggleAnim();
@@ -186,8 +194,11 @@ private:
     bool                             m_havePlayerSpawn = false;
     float                            m_playerDeadTimer = 0.0f;
     float                            m_spawnAge        = 0.0f;
-    float                            m_attackCooldown  = 0.0f;
     float                            m_hurtSoundTimer  = 0.0f;
+    Dark::WeaponLoadout              m_weapons;
+    Dark::CrosshairHud               m_crosshair;
+    Dark::Mesh                       m_tracerMesh;
+    Dark::AssetRef<Dark::Material>   m_tracerMaterial;
     std::shared_ptr<Dark::Audio::SoundClip> m_sfxStep;
     std::shared_ptr<Dark::Audio::SoundClip> m_sfxWater;
     std::shared_ptr<Dark::Audio::SoundClip> m_sfxGrunt;
@@ -215,4 +226,6 @@ private:
     Dark::AssetRef<Dark::Material>   m_packMaterial;
     Dark::AssetRef<Dark::Material>   m_lanternMaterial;
     std::shared_ptr<Dark::Audio::SoundClip> m_sfxHeal;
+    std::shared_ptr<Dark::Audio::SoundClip> m_sfxFire;
+    std::shared_ptr<Dark::Audio::SoundClip> m_sfxImpact;
 };

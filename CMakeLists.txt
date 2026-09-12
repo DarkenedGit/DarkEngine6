@@ -123,6 +123,7 @@ set(DE_ENGINE_FOLDERS
     Sprite
     Terrain
     Water
+    Weapons
 )
 
 set(DE_ENGINE_SOURCES "")

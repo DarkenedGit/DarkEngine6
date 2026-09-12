@@ -179,6 +179,8 @@ void SandboxApp::registerDefaultActions()
     a.bindButton("jump", GamepadButton::A);
     a.bindKey("attack", Key::F);
     a.bindButton("attack", GamepadButton::B);
+    a.bindKey("weapon_1", Key::Digit1);
+    a.bindKey("weapon_2", Key::Digit2);
     a.bindKey("flashlight", Key::L);
     a.bindKey("toggle_lighting", Key::F2);
 
@@ -238,7 +240,7 @@ void SandboxApp::registerDefaultActions()
 
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(P/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
-        "possessed WASD/LS move, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, L flashlight, Shift/LB sprint, swim in water, "
+        "possessed WASD/LS move, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, 1 melee  2 rifle, L flashlight, Shift/LB sprint, swim in water, "
         "T/R3 walk the wiggle demo  F2 lighting  M dev tools  -forward for UNORM forward");
 }
 
@@ -248,6 +250,8 @@ void SandboxApp::handleRuntimeCommands(float dt)
     applyNetRole();
 
     const bool uiKeys = m_showDevTools && m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
+    if (!uiKeys)
+        handleWeaponSwitch();
     if (!uiKeys && input().actionPressed("dev_tools"))
     {
         m_showDevTools = !m_showDevTools;
@@ -686,8 +690,8 @@ void SandboxApp::respawnPlayer()
     m_playerWet        = false;
     m_playerDeadTimer  = 0.0f;
     m_spawnAge         = 0.0f;
-    m_attackCooldown   = 0.0f;
     m_hurtSoundTimer   = 0.0f;
+    m_weapons.clear();
     DE_LOG_INFO("Player: respawned");
 }
 
@@ -721,12 +725,71 @@ TonemapSettings SandboxApp::playerPostFx()
     return s;
 }
 
+void SandboxApp::handleWeaponSwitch()
+{
+    if (input().actionPressed("weapon_1") && m_weapons.selectMelee())
+    {
+        audio().play2D(m_sfxClick, 0.45f);
+        DE_LOG_INFO("Player: weapon melee");
+    }
+    if (input().actionPressed("weapon_2") && m_weapons.selectProjectile())
+    {
+        audio().play2D(m_sfxClick, 0.45f);
+        DE_LOG_INFO("Player: weapon {}", m_weapons.projectile().name());
+    }
+}
+
+WeaponWorldQuery SandboxApp::makeWeaponQuery()
+{
+    WeaponWorldQuery q{};
+    q.terrainUser = this;
+    q.raycastTerrain = [](void* user, const Ray3f& ray, float maxDistance) -> Collision::RayHit3D {
+        return static_cast<SandboxApp*>(user)->m_terrain.raycast(ray, maxDistance);
+    };
+    q.heightAt = [](void* user, float x, float z) {
+        return static_cast<SandboxApp*>(user)->m_terrain.heightAtWorld(x, z);
+    };
+    q.targetUser = this;
+    q.targetCount = [](void* user) {
+        auto* app = static_cast<SandboxApp*>(user);
+        return app->m_chaseOk ? app->m_chase.hunterCount() : 0;
+    };
+    q.targetAlive = [](void* user, int i) {
+        auto* app = static_cast<SandboxApp*>(user);
+        return app->m_chaseOk && app->m_chase.hunterAlive(i);
+    };
+    q.targetCenter = [](void* user, int i) {
+        auto* app = static_cast<SandboxApp*>(user);
+        return app->m_chaseOk ? app->m_chase.hunterPos(i) : Vector3f{ 0.0f, 0.0f, 0.0f };
+    };
+    q.targetHalfExtents = Vector3f{ 1.0f, 1.0f, 1.0f };
+    q.maxRange          = 90.0f;
+    return q;
+}
+
+void SandboxApp::onWeaponHitThunk(void* user, const WeaponHit& hit)
+{
+    if (auto* app = static_cast<SandboxApp*>(user))
+        app->onWeaponHit(hit);
+}
+
+void SandboxApp::onWeaponHit(const WeaponHit& hit)
+{
+    if (!hit.hitTarget || !m_chaseOk)
+        return;
+    const bool wasAlive = m_chase.hunterAlive(hit.targetIndex);
+    if (!m_chase.applyHunterDamage(hit.targetIndex, hit.damage))
+        return;
+    audio().play3D(m_sfxPain, hit.point, 0.75f);
+    spawnHunterBlood(hit.point);
+    if (wasAlive && !m_chase.hunterAlive(hit.targetIndex))
+        m_bloodSplats.spawn(hit.point.x, hit.point.z, m_terrain.heightMap());
+}
+
 void SandboxApp::updateCombat(float dt)
 {
     if (m_hurtSoundTimer > 0.0f)
         m_hurtSoundTimer -= dt;
-    if (m_attackCooldown > 0.0f)
-        m_attackCooldown -= dt;
     if (m_muzzleTimer > 0.0f)
     {
         m_muzzleTimer -= dt;
@@ -740,6 +803,8 @@ void SandboxApp::updateCombat(float dt)
     }
 
     m_playerHealth.tick(dt);
+    const WeaponWorldQuery query = makeWeaponQuery();
+    m_weapons.tick(dt, query);
 
     if (!m_playerHealth.alive())
     {
@@ -780,47 +845,23 @@ void SandboxApp::updateCombat(float dt)
     }
 
     const bool attack = input().actionPressed("attack") || (!m_showDevTools && input().mousePressed(MouseButton::Left));
-    if (!m_playerHealth.alive() || !attack || m_attackCooldown > 0.0f)
+    if (!attack)
         return;
 
-    m_attackCooldown = 0.45f;
-    audio().play2D(m_sfxClick, 0.4f);
-    pulseMuzzle();
-
-    if (!m_chaseOk || !xf)
-        return;
-
-    Vector3f look{ std::sinf(m_lookYaw), 0.0f, std::cosf(m_lookYaw) };
-    if (look.MagnitudeSqrd() > 1.0e-6f)
-        look.Normalize();
+    WeaponFireRequest req{};
+    req.direction = m_viewCamera.GetLook();
+    if (req.direction.MagnitudeSqrd() > 1.0e-6f)
+        req.direction.Normalize();
     else
-        look = Vector3f{ 0.0f, 0.0f, 1.0f };
+        req.direction = Vector3f{ 0.0f, 0.0f, 1.0f };
+    req.origin   = m_viewCamera.GetPosition() + req.direction * 2.2f;
+    req.ownerPos = xf ? xf->position : m_viewCamera.GetPosition();
 
-    constexpr float kMeleeRange = 2.7f;
-    constexpr float kMeleeDot   = 0.25f;
-    constexpr float kMeleeDmg   = 16.0f;
-    for (int i = 0; i < m_chase.hunterCount(); ++i)
-    {
-        if (!m_chase.hunterAlive(i))
-            continue;
-        Vector3f to = m_chase.hunterPos(i) - xf->position;
-        to.y        = 0.0f;
-        const float dist = to.Magnitude();
-        if (dist > kMeleeRange || dist < 1.0e-4f)
-            continue;
-        to *= (1.0f / dist);
-        if (look.Dot(to) < kMeleeDot)
-            continue;
-        const bool wasAlive = m_chase.hunterAlive(i);
-        if (m_chase.applyHunterDamage(i, kMeleeDmg))
-        {
-            const Vector3f hit = m_chase.hunterPos(i);
-            audio().play3D(m_sfxPain, hit, 0.75f);
-            spawnHunterBlood(hit);
-            if (wasAlive && !m_chase.hunterAlive(i))
-                m_bloodSplats.spawn(hit.x, hit.z, m_terrain.heightMap());
-        }
-    }
+    if (!m_weapons.fire(req, query))
+        return;
+    pulseMuzzle();
+    if (m_weapons.activeKind() == WeaponKind::Melee)
+        audio().play2D(m_sfxClick, 0.4f);
 }
 
 void SandboxApp::pulseMuzzle()
@@ -1294,6 +1335,87 @@ void SandboxApp::drawHealthPacksDepth(ID3D12GraphicsCommandList* cmd, int cascad
     }
 }
 
+void SandboxApp::drawProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, MeshFrameConstants& cb)
+{
+    if (!cmd || !m_tracerMesh.valid())
+        return;
+    const float radius = m_weapons.projectile().desc().radius;
+    bool any = false;
+    for (const LiveProjectile& s : m_weapons.projectile().live())
+    {
+        if (s.alive)
+        {
+            any = true;
+            break;
+        }
+    }
+    if (!any)
+        return;
+
+    m_meshPipeline.bind(cmd, renderer().debugState().fill);
+    m_shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
+    if (m_tracerMaterial && m_tracerMaterial->isValid())
+        m_tracerMaterial->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+
+    cb.color[0] = 1.0f;
+    cb.color[1] = 0.78f;
+    cb.color[2] = 0.18f;
+    cb.color[3] = 1.0f;
+
+    const float scale = radius * 2.0f;
+    for (const LiveProjectile& s : m_weapons.projectile().live())
+    {
+        if (!s.alive)
+            continue;
+        const Matrix4f world = Matrix4f::ScaleMatrixXYZ(scale, scale, scale) * Matrix4f::TranslationMatrix(s.position.x, s.position.y, s.position.z);
+        copyMatrix(cb.worldViewProj, world * viewProj);
+        copyMatrix(cb.world, world);
+        m_meshPipeline.setConstants(cmd, cb);
+        m_tracerMesh.draw(cmd, renderer().debugState().fill == DebugFill::Points);
+    }
+}
+
+void SandboxApp::drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, const Matrix4f& prevViewProj)
+{
+    if (!cmd || !m_tracerMesh.valid())
+        return;
+    const float radius = m_weapons.projectile().desc().radius;
+    bool any = false;
+    for (const LiveProjectile& s : m_weapons.projectile().live())
+    {
+        if (s.alive)
+        {
+            any = true;
+            break;
+        }
+    }
+    if (!any)
+        return;
+
+    const DebugFill fill = renderer().debugState().fill;
+    m_meshPipeline.bind(cmd, fill);
+    if (m_tracerMaterial && m_tracerMaterial->isValid())
+        m_tracerMaterial->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+
+    MeshGBufferConstants cb{};
+    cb.color[0] = 1.0f;
+    cb.color[1] = 0.78f;
+    cb.color[2] = 0.18f;
+    cb.color[3] = 2.0f;
+
+    const float scale = radius * 2.0f;
+    for (const LiveProjectile& s : m_weapons.projectile().live())
+    {
+        if (!s.alive)
+            continue;
+        const Matrix4f world     = Matrix4f::ScaleMatrixXYZ(scale, scale, scale) * Matrix4f::TranslationMatrix(s.position.x, s.position.y, s.position.z);
+        const Matrix4f prevWorld = Matrix4f::ScaleMatrixXYZ(scale, scale, scale) * Matrix4f::TranslationMatrix(s.prevPosition.x, s.prevPosition.y, s.prevPosition.z);
+        fillMeshGBufferXforms(cb, world, viewProj, prevViewProj, prevWorld);
+        m_meshPipeline.setGBufferConstants(cmd, cb);
+        m_tracerMesh.draw(cmd, fill == DebugFill::Points);
+    }
+}
+
 void SandboxApp::drawLanternFixtures(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, MeshFrameConstants& cb)
 {
     if (!cmd || !m_cubeMesh.valid())
@@ -1414,7 +1536,8 @@ void SandboxApp::updateShoulderCamera()
         cam.y = Math::Max(cam.y, m_water.params().waterLevel + 0.45f);
 
     m_viewCamera.SetLens(1.04719755f, m_viewCamera.GetAspect(), 0.18f, 2000.0f);
-    m_viewCamera.LookAt(cam, target, Vector3f{ 0.0f, 1.0f, 0.0f });
+    const Vector3f aim = target + look * 16.0f;
+    m_viewCamera.LookAt(cam, aim, Vector3f{ 0.0f, 1.0f, 0.0f });
     if (auto* cxf = world().get<TransformComponent>(m_camera))
         cxf->position = m_viewCamera.GetPosition();
 }
@@ -1555,7 +1678,11 @@ void SandboxApp::onInit()
     m_sfxSplash = audio().loadOrBlip(assets(), "audio/splash.wav", 220.0f, 0.22f, 0.45f);
     m_sfxPain   = audio().loadOrBlip(assets(), "audio/pain.wav", 380.0f, 0.12f, 0.5f);
     m_sfxHeal   = audio().loadOrBlip(assets(), "audio/coin.wav", 880.0f, 0.16f, 0.4f);
+    m_sfxFire   = audio().loadOrBlip(assets(), "audio/whoosh.wav", 520.0f, 0.12f, 0.45f);
+    m_sfxImpact = audio().loadOrBlip(assets(), "audio/place.wav", 180.0f, 0.10f, 0.5f);
     m_music    = audio().loadWav(assets(), "audio/ambient_loop.wav");
+    m_weapons.setHitListener(&SandboxApp::onWeaponHitThunk, this);
+    m_weapons.projectile().setAudio(&audio(), m_sfxFire, m_sfxImpact);
     if (!m_music)
         m_music = audio().createTone(110.0f, 2.0f, 0.12f);
     audio().setMasterVolume(0.85f);
@@ -1593,6 +1720,8 @@ void SandboxApp::onInit()
     }
     if (!m_healthHud.create(renderer()))
         DE_LOG_ERROR("SandboxApp: health HUD failed");
+    if (!m_crosshair.create(renderer()))
+        DE_LOG_ERROR("SandboxApp: crosshair HUD failed");
     if (!m_particles.create(renderer()))
         DE_LOG_ERROR("SandboxApp: particle renderer failed");
     if (!m_bloodSplats.create(renderer()))
@@ -1817,6 +1946,15 @@ void SandboxApp::onInit()
         DE_LOG_FATAL("SandboxApp: health pack mesh failed");
         requestQuit();
         return;
+    }
+    MeshData tracerData;
+    if (!CreateSphere(tracerData, 0.5f, 8, 12) || !Mesh::tryCreate(renderer(), tracerData, m_tracerMesh))
+        DE_LOG_ERROR("SandboxApp: projectile tracer mesh failed");
+    m_tracerMaterial = std::make_shared<Material>();
+    if (!m_tracerMaterial->createSolid(renderer(), assets(), 255, 196, 48, 255))
+    {
+        DE_LOG_ERROR("SandboxApp: projectile tracer material failed");
+        m_tracerMaterial.reset();
     }
 
     m_cubeMaterial = std::make_shared<Material>();
@@ -2142,6 +2280,7 @@ void SandboxApp::onRender()
         if (m_chaseOk)
             m_chase.drawMeshesGBuffer(cmd, m_meshPipeline, m_viewCamera, prevViewProj, m_cubeMesh, fill);
         drawHealthPacksGBuffer(cmd, viewProj, prevViewProj);
+        drawProjectilesGBuffer(cmd, viewProj, prevViewProj);
         drawLanternFixturesGBuffer(cmd, viewProj, prevViewProj);
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             const TransformComponent* xf = world().get<TransformComponent>(e);
@@ -2245,6 +2384,7 @@ void SandboxApp::onRender()
         if (m_chaseOk)
             m_chase.drawMeshes(cmd, m_meshPipeline, m_shadows, m_viewCamera, cb, m_cubeMesh, fill);
         drawHealthPacks(cmd, viewProj, cb);
+        drawProjectiles(cmd, viewProj, cb);
         drawLanternFixtures(cmd, viewProj, cb);
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             const TransformComponent* xf = world().get<TransformComponent>(e);
@@ -2357,6 +2497,8 @@ void SandboxApp::onRender()
 
     if (m_blood.aliveCount() > 0)
         m_particles.draw(cmd, m_viewCamera, m_blood, false);
+    if (m_weapons.projectile().impactEmitter().aliveCount() > 0)
+        m_particles.draw(cmd, m_viewCamera, m_weapons.projectile().impactEmitter(), true);
 
     m_bloodSplats.draw(cmd, m_viewCamera);
 
@@ -2423,6 +2565,8 @@ void SandboxApp::onRender()
     m_viewCamera.ClearSubpixelJitter();
 
     m_healthHud.draw(cmd, renderer().width(), renderer().height(), m_playerHealth.ratio());
+    if (m_playerHealth.alive() && !m_gameplayPaused)
+        m_crosshair.draw(cmd, renderer().width(), renderer().height(), m_weapons.activeKind());
 
     renderer().stats().drawCalls = m_terrain.lastDrawCalls() + m_water.lastDrawCalls() + meshDraws + 1;
     renderer().stats().triangles =
@@ -2551,6 +2695,11 @@ void SandboxApp::onShutdown()
     m_sfxSplash.reset();
     m_sfxPain.reset();
     m_sfxHeal.reset();
+    m_sfxFire.reset();
+    m_sfxImpact.reset();
+    m_weapons.clear();
+    m_weapons.projectile().setAudio(nullptr, {}, {});
+    m_tracerMaterial.reset();
     m_particles.destroy(renderer());
     m_bloodSplats.destroy(renderer());
     m_music.reset();
