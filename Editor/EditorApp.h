@@ -4,22 +4,11 @@
 #include "Render/Mesh.h"
 #include "Render/LineMesh.h"
 #include "Assets/Model.h"
-#include "Render/MeshPipeline.h"
-#include "Render/SkinnedMeshPipeline.h"
-#include "Render/SkinningUploadRing.h"
 #include "Render/ModelDraw.h"
 #include "Render/LinePipeline.h"
-#include "Render/TonemapPipeline.h"
-#include "Render/DeferredLightingPipeline.h"
-#include "Render/LocalLightGpuList.h"
-#include "Render/LocalLightVolumePipeline.h"
-#include "Render/BloomPipeline.h"
-#include "Render/MotionBlurPipeline.h"
-#include "Render/TaaPipeline.h"
+#include "Render/SceneRenderer.h"
 #include "Render/Camera3D.h"
 #include "Render/Camera2D.h"
-#include "Render/ShadowSystem.h"
-#include "Render/DebugOverlay.h"
 #include "Render/Material.h"
 #include "Render/SpritePipeline.h"
 #include "Render/Texture2D.h"
@@ -133,25 +122,9 @@ private:
 
     static float snap(float v, float grid);
 
-    MeshPipeline    m_meshPipeline;
-    MeshPipeline    m_meshTransparentPipeline;
-    SkinnedMeshPipeline m_skinnedPipeline;
-    SkinnedMeshPipeline m_skinnedTransparentPipeline;
-    SkinnedMeshPipeline m_skinnedShadowPipeline;
-    SkinningUploadRing  m_skinRing;
+    SceneRenderer   m_scene;
     LinePipeline    m_linePipeline;
     LinePipeline    m_linePipeline3D;
-    TonemapPipeline          m_tonemap;
-    DeferredLightingPipeline m_lighting;
-    LocalLightVolumePipeline m_localLightVolumes;
-    LocalLightGpuList        m_localLightGpu;
-    Mesh                     m_pointVolumeMesh;
-    Mesh                     m_spotVolumeMesh;
-    BloomPipeline            m_bloom;
-    MotionBlurPipeline       m_motionBlur;
-    TaaPipeline              m_taa;
-    DebugOverlay             m_debugOverlay;
-    ShadowSystem    m_shadows;
 
     Mesh m_cubeMesh;
     Mesh m_sphereMesh;
@@ -164,13 +137,6 @@ private:
     AssetRef<Material> m_groundMaterial;
 
     Camera3D m_camera;
-    Math::Matrix4f m_prevViewProj{};
-    bool                 m_havePrevViewProj = false;
-    bool                 m_taaHistoryValid  = false;
-    uint32_t             m_taaHistoryW      = 0;
-    uint32_t             m_taaHistoryH      = 0;
-    uint32_t             m_bloomW           = 0;
-    uint32_t             m_bloomH           = 0;
     Camera2D m_camera2D;
     SceneMode m_sceneMode = SceneMode::Scene3D;
 

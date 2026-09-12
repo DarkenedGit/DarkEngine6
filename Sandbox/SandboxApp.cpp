@@ -42,24 +42,32 @@ using namespace Math;
 using namespace Terrain;
 using namespace Audio;
 
-MeshPass liveMeshPass(const Renderer& r)
-{
-    return r.scenePath() == ScenePath::HybridDeferred ? MeshPass::GBuffer : MeshPass::ForwardUnorm;
-}
+// SceneRenderer owns shared pipelines; keep existing call sites stable.
+#define m_meshPipeline m_scene.meshPipeline()
+#define m_meshTransparentPipeline m_scene.meshTransparentPipeline()
+#define m_skinnedPipeline m_scene.skinnedPipeline()
+#define m_skinnedTransparentPipeline m_scene.skinnedTransparentPipeline()
+#define m_skinnedShadowPipeline m_scene.skinnedShadowPipeline()
+#define m_skinRing m_scene.skinRing()
+#define m_tonemap m_scene.tonemap()
+#define m_lighting m_scene.lighting()
+#define m_localLightVolumes m_scene.localLightVolumes()
+#define m_localLightGpu m_scene.localLightGpu()
+#define m_pointVolumeMesh m_scene.pointVolumeMesh()
+#define m_spotVolumeMesh m_scene.spotVolumeMesh()
+#define m_bloom m_scene.bloom()
+#define m_motionBlur m_scene.motionBlur()
+#define m_taa m_scene.taa()
+#define m_shadows m_scene.shadows()
+#define m_debugOverlay m_scene.debugOverlay()
+#define m_terrainPipeline m_scene.terrainPipeline()
+#define m_waterPipeline m_scene.waterPipeline()
+#define m_skyPipeline m_scene.skyPipeline()
 
-TerrainPass liveTerrainPass(const Renderer& r)
-{
-    return r.scenePath() == ScenePath::HybridDeferred ? TerrainPass::GBuffer : TerrainPass::ForwardUnorm;
-}
 
 bool useAcesTonemap(const Renderer& r)
 {
     return r.hasSceneBuffers() && r.debugState().aces && r.debugState().lighting;
-}
-
-SkyPass liveSkyPass(const Renderer& r)
-{
-    return r.scenePath() == ScenePath::HybridDeferred ? SkyPass::DeferredLast : SkyPass::ForwardFirst;
 }
 
 void mountContentRoots(AssetManager& assets)
@@ -1726,34 +1734,21 @@ void SandboxApp::onInit()
     if (!renderer().enableSceneBuffers(config().scenePath))
         DE_LOG_ERROR(LogCategory::Render, "SandboxApp: SceneBuffers enable failed; SwapChainForward");
 
-    if (!m_meshPipeline.create(renderer().device(), liveMeshPass(renderer())))
     {
-        DE_LOG_FATAL("SandboxApp: MeshPipeline create failed");
-        requestQuit();
-        return;
-    }
-    if (!m_meshTransparentPipeline.create(renderer().device(), MeshPass::ForwardTransparent, renderer().sceneColorFormat()))
-    {
-        DE_LOG_FATAL("SandboxApp: transparent MeshPipeline create failed");
-        requestQuit();
-        return;
-    }
-    {
-        const SkinnedMeshPass skinnedPass =
-            renderer().scenePath() == ScenePath::HybridDeferred ? SkinnedMeshPass::GBuffer : SkinnedMeshPass::Forward;
-        if (!m_skinnedPipeline.create(renderer().device(), skinnedPass))
-            DE_LOG_ERROR(LogCategory::Render, "SandboxApp: SkinnedMeshPipeline create failed; skinned parts skipped");
-        if (!m_skinnedTransparentPipeline.create(renderer().device(), SkinnedMeshPass::ForwardTransparent, renderer().sceneColorFormat()))
-            DE_LOG_ERROR(LogCategory::Render, "SandboxApp: skinned transparent pipeline create failed");
-        if (!m_skinnedShadowPipeline.create(renderer().device(), SkinnedMeshPass::Shadow))
-            DE_LOG_ERROR(LogCategory::Render, "SandboxApp: skinned shadow pipeline create failed");
-        if (!m_skinRing.create(renderer().device()))
-            DE_LOG_ERROR(LogCategory::Render, "SandboxApp: SkinningUploadRing create failed");
+        SceneRendererDesc sceneDesc{};
+        sceneDesc.createWorldEnvironment = true;
+        sceneDesc.logTag = "SandboxApp";
+        if (!m_scene.init(renderer(), sceneDesc))
+        {
+            requestQuit();
+            return;
+        }
         if (!m_skelLinePipeline.create(renderer().device(), renderer().sceneColorFormat(), false))
             DE_LOG_ERROR(LogCategory::Render, "SandboxApp: skeleton LinePipeline create failed");
         else if (!createSkeletonLineBuffers())
             DE_LOG_ERROR(LogCategory::Render, "SandboxApp: skeleton line buffers failed");
     }
+
     if (!m_healthHud.create(renderer()))
         DE_LOG_ERROR("SandboxApp: health HUD failed");
     if (!m_crosshair.create(renderer()))
@@ -1792,83 +1787,16 @@ void SandboxApp::onInit()
     }
     if (!pumpBootFrame())
         return;
-    if (!m_terrainPipeline.create(renderer().device(), liveTerrainPass(renderer())))
-    {
-        DE_LOG_FATAL("SandboxApp: TerrainPipeline create failed");
-        requestQuit();
-        return;
-    }
     if (!pumpBootFrame())
         return;
-    if (!m_waterPipeline.create(renderer().device(), renderer().sceneColorFormat()))
-    {
-        DE_LOG_FATAL("SandboxApp: WaterPipeline create failed");
-        requestQuit();
-        return;
-    }
     if (!pumpBootFrame())
         return;
-    if (!m_skyPipeline.create(renderer().device(), liveSkyPass(renderer()), renderer().sceneColorFormat()))
-    {
-        DE_LOG_FATAL("SandboxApp: SkyPipeline create failed");
-        requestQuit();
-        return;
-    }
     if (!pumpBootFrame())
         return;
-    if (!m_shadows.create(renderer().device()))
-    {
-        DE_LOG_FATAL("SandboxApp: ShadowSystem create failed");
-        requestQuit();
-        return;
-    }
     if (!pumpBootFrame())
         return;
-    if (!m_debugOverlay.create(renderer().device()))
-    {
-        DE_LOG_WARN("SandboxApp: DebugOverlay create failed — depth/shadow tiles disabled");
-    }
     if (!m_imgui.init(window(), renderer(), "sandbox_imgui.ini", false, UiAccent::Sandbox))
         DE_LOG_WARN("SandboxApp: ImGui init failed — Dev Tools (M) disabled");
-    if (renderer().hasSceneBuffers() && !m_tonemap.create(renderer().device()))
-    {
-        DE_LOG_FATAL("SandboxApp: TonemapPipeline create failed");
-        requestQuit();
-        return;
-    }
-    if (renderer().scenePath() == ScenePath::HybridDeferred && !m_lighting.create(renderer().device()))
-    {
-        DE_LOG_FATAL("SandboxApp: DeferredLightingPipeline create failed");
-        requestQuit();
-        return;
-    }
-    if (renderer().scenePath() == ScenePath::HybridDeferred)
-    {
-        if (!m_localLightVolumes.create(renderer().device()))
-            DE_LOG_ERROR(LogCategory::Render, "SandboxApp: LocalLightVolumePipeline create failed — local lights disabled");
-        if (!m_localLightGpu.create(renderer().device()))
-            DE_LOG_ERROR(LogCategory::Render, "SandboxApp: LocalLightGpuList create failed — local lights disabled");
-        MeshData sphereData;
-        MeshData coneData;
-        if (!CreateIcosahedronBounding(sphereData, 1.0f, 1) || !Mesh::tryCreate(renderer(), sphereData, m_pointVolumeMesh))
-            DE_LOG_ERROR(LogCategory::Render, "SandboxApp: point volume mesh failed — local lights skipped");
-        if (!CreateSpotVolumeCone(coneData, 16, true) || !Mesh::tryCreate(renderer(), coneData, m_spotVolumeMesh))
-            DE_LOG_ERROR(LogCategory::Render, "SandboxApp: spot volume mesh failed — local lights skipped");
-    }
-    if (renderer().scenePath() == ScenePath::HybridDeferred)
-    {
-        if (!m_bloom.create(renderer().device(), renderer().width(), renderer().height()))
-            DE_LOG_WARN(LogCategory::Render, "SandboxApp: BloomPipeline create failed — bloom disabled");
-        else
-        {
-            m_bloomW = renderer().width();
-            m_bloomH = renderer().height();
-        }
-    }
-    if (renderer().scenePath() == ScenePath::HybridDeferred && !m_motionBlur.create(renderer().device()))
-        DE_LOG_WARN(LogCategory::Render, "SandboxApp: MotionBlurPipeline create failed — motion blur disabled");
-    if (renderer().scenePath() == ScenePath::HybridDeferred && !m_taa.create(renderer().device()))
-        DE_LOG_WARN(LogCategory::Render, "SandboxApp: TaaPipeline create failed — TAA disabled");
     if (!pumpBootFrame())
         return;
 
@@ -2244,14 +2172,8 @@ void SandboxApp::onRender()
     }
 
     const bool deferred = renderer().scenePath() == ScenePath::HybridDeferred;
-    m_viewCamera.ClearSubpixelJitter();
-    const bool useTaa = deferred && renderer().debugState().taa && m_taa.isValid();
-    if (useTaa)
-    {
-        float jx = 0.0f, jy = 0.0f;
-        taaHaltonJitter(renderer().frameIndex(), jx, jy);
-        m_viewCamera.SetSubpixelJitter(jx, jy, renderer().width(), renderer().height());
-    }
+    const Matrix4f viewProjEarly = m_scene.beginCameraFrame(m_viewCamera, renderer());
+    (void)viewProjEarly;
     if (deferred)
     {
         renderer().bindGBuffer();
@@ -2267,11 +2189,11 @@ void SandboxApp::onRender()
         renderer().bindSceneTargets();
     }
 
-    const Frustum3f frustum(m_viewCamera.GetViewProj());
+    const Matrix4f  viewProj = m_viewCamera.GetViewProj();
+    const Matrix4f  prevViewProj = m_scene.havePrevViewProj() ? m_scene.prevViewProj() : viewProj;
+    const Frustum3f frustum(viewProj);
     const DebugFill fill     = renderer().debugState().fill;
     const Vector3f  camPos   = m_viewCamera.GetPosition();
-    const Matrix4f  viewProj = m_viewCamera.GetViewProj();
-    const Matrix4f  prevViewProj = m_havePrevViewProj ? m_prevViewProj : viewProj;
     uint32_t        meshDraws = 0;
 
     const float skyExposure = useAcesTonemap(renderer()) ? 1.0f : m_env.exposure();
@@ -2546,67 +2468,15 @@ void SandboxApp::onRender()
 
     m_bloodSplats.draw(cmd, m_viewCamera);
 
-    if (deferred)
     {
-        const uint32_t bw = renderer().width();
-        const uint32_t bh = renderer().height();
-        if (bw != m_bloomW || bh != m_bloomH)
-        {
-            renderer().waitForGpu();
-            if (!m_bloom.resize(renderer().device(), bw, bh))
-                DE_LOG_WARN(LogCategory::Render, "SandboxApp: BloomPipeline resize failed — bloom disabled");
-            m_bloomW = bw;
-            m_bloomH = bh;
-        }
-        if (renderer().debugState().bloom && m_bloom.isValid())
-            m_bloom.draw(cmd, renderer(), BloomPipeline::kDefaultStrength);
-    }
-
-    bool usedPostHdr = false;
-    if (useTaa)
-    {
-        if (renderer().width() != m_taaHistoryW || renderer().height() != m_taaHistoryH)
-        {
-            m_taaHistoryValid = false;
-            m_taaHistoryW     = renderer().width();
-            m_taaHistoryH     = renderer().height();
-        }
-        TaaSettings taa{};
-        copyMatrix(taa.invViewProj, viewProj.Inverse());
-        copyMatrix(taa.prevViewProj, prevViewProj);
-        taa.blend = 0.1f;
-        taa.reset = !m_taaHistoryValid;
-        m_taa.draw(cmd, renderer(), taa);
-        m_taaHistoryValid = true;
-        usedPostHdr       = true;
-    }
-    const bool useMb = deferred && renderer().debugState().motionBlur && m_motionBlur.isValid();
-    if (useMb)
-    {
-        MotionBlurSettings mb{};
-        copyMatrix(mb.invViewProj, viewProj.Inverse());
-        copyMatrix(mb.prevViewProj, prevViewProj);
-        mb.strength  = 1.0f;
-        mb.maxPixels = 40.0f;
-        mb.readPost  = useTaa;
-        m_motionBlur.draw(cmd, renderer(), mb);
-        usedPostHdr = !useTaa;
-    }
-
-    if (renderer().hasSceneBuffers())
-    {
-        renderer().bindColorTargetOnly();
         const bool aces = useAcesTonemap(renderer());
         TonemapSettings post = playerPostFx();
-        post.mode       = aces ? 1.0f : 0.0f;
-        post.exposure   = aces ? m_env.exposure() : 1.0f;
-        post.usePostHdr = usedPostHdr;
-        m_tonemap.draw(cmd, renderer(), post);
+        post.mode     = aces ? 1.0f : 0.0f;
+        post.exposure = aces ? m_env.exposure() : 1.0f;
+        m_scene.applyPost(renderer(), cmd, viewProj, post);
     }
 
-    m_prevViewProj       = viewProj;
-    m_havePrevViewProj   = true;
-    m_viewCamera.ClearSubpixelJitter();
+    m_scene.endCameraFrame(m_viewCamera, viewProj);
 
     m_healthHud.draw(cmd, renderer().width(), renderer().height(), m_playerHealth.ratio());
     if (m_playerHealth.alive() && !m_gameplayPaused)
@@ -2720,6 +2590,7 @@ void SandboxApp::onShutdown()
 {
     network().shutdown();
     renderer().waitForGpu();
+    m_scene.shutdown();
     m_imgui.shutdown(renderer());
     if (m_cubeMaterial)
         assets().unload(m_cubeMaterial->id);
@@ -2727,8 +2598,6 @@ void SandboxApp::onShutdown()
     m_water = WaterWorld{};
     m_terrainMaterial = TerrainMaterial{};
     m_terrain = Terrain::TerrainWorld{};
-    m_shadows = ShadowSystem{};
-    m_debugOverlay = DebugOverlay{};
     audio().stopAll();
     m_sfxReset.reset();
     m_sfxClick.reset();

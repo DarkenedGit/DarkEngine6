@@ -1,26 +1,13 @@
 #pragma once
+#include <wrl/client.h>
 #include "Core/Application.h"
 #include "Animation/AnimNotify.h"
 #include "Network/Replication.h"
 #include "Assets/Model.h"
 #include "Render/Mesh.h"
-#include "Render/MeshPipeline.h"
 #include "Render/LinePipeline.h"
-#include "Render/SkinnedMeshPipeline.h"
-#include "Render/SkinningUploadRing.h"
 #include "Render/ModelDraw.h"
-#include "Render/TerrainPipeline.h"
-#include "Render/WaterPipeline.h"
-#include "Render/SkyPipeline.h"
-#include "Render/TonemapPipeline.h"
-#include "Render/DeferredLightingPipeline.h"
-#include "Render/LocalLightGpuList.h"
-#include "Render/LocalLightVolumePipeline.h"
-#include "Render/BloomPipeline.h"
-#include "Render/MotionBlurPipeline.h"
-#include "Render/TaaPipeline.h"
-#include "Render/ShadowSystem.h"
-#include "Render/DebugOverlay.h"
+#include "Render/SceneRenderer.h"
 #include "Render/Camera3D.h"
 #include "Sky/Environment.h"
 #include "Render/Material.h"
@@ -113,43 +100,17 @@ private:
     Dark::Entity m_wiggle;
 
     Dark::Mesh    m_cubeMesh;
-    Dark::MeshPipeline      m_meshPipeline;
-    Dark::MeshPipeline      m_meshTransparentPipeline;
-    Dark::SkinnedMeshPipeline m_skinnedPipeline;
-    Dark::SkinnedMeshPipeline m_skinnedTransparentPipeline;
-    Dark::SkinnedMeshPipeline m_skinnedShadowPipeline;
-    Dark::SkinningUploadRing  m_skinRing;
+    Dark::SceneRenderer     m_scene;
     Dark::LinePipeline        m_skelLinePipeline;
     Microsoft::WRL::ComPtr<ID3D12Resource> m_skelLineVb[2];
     Microsoft::WRL::ComPtr<ID3D12Resource> m_skelLineIb[2];
     D3D12_VERTEX_BUFFER_VIEW  m_skelLineVbv[2]{};
     D3D12_INDEX_BUFFER_VIEW   m_skelLineIbv[2]{};
-    Dark::TerrainPipeline   m_terrainPipeline;
-    Dark::WaterPipeline     m_waterPipeline;
-    Dark::SkyPipeline       m_skyPipeline;
-    Dark::TonemapPipeline           m_tonemap;
-    Dark::DeferredLightingPipeline  m_lighting;
-    Dark::LocalLightVolumePipeline  m_localLightVolumes;
-    Dark::LocalLightGpuList         m_localLightGpu;
-    Dark::Mesh                      m_pointVolumeMesh;
-    Dark::Mesh                      m_spotVolumeMesh;
     Dark::Entity                    m_flashlight;
     Dark::Entity                    m_muzzle;
     float                           m_muzzleTimer = 0.0f;
     std::vector<Dark::Entity>       m_lanternFixtures;
-    Dark::BloomPipeline             m_bloom;
-    Dark::MotionBlurPipeline        m_motionBlur;
-    Dark::TaaPipeline               m_taa;
-    Dark::ShadowSystem      m_shadows;
-    Dark::DebugOverlay      m_debugOverlay;
     Dark::Camera3D          m_viewCamera;
-    Dark::Math::Matrix4f    m_prevViewProj{};
-    bool                    m_havePrevViewProj = false;
-    bool                    m_taaHistoryValid  = false;
-    uint32_t                m_taaHistoryW      = 0;
-    uint32_t                m_taaHistoryH      = 0;
-    uint32_t                m_bloomW           = 0;
-    uint32_t                m_bloomH           = 0;
     std::unordered_map<Dark::EntityID, Dark::Math::Matrix4f> m_prevWorldByEntity;
     Dark::Sky::Environment  m_env;
 

@@ -40,6 +40,25 @@
 using namespace Dark;
 using namespace Math;
 
+// SceneRenderer owns shared pipelines; keep existing call sites stable.
+#define m_meshPipeline m_scene.meshPipeline()
+#define m_meshTransparentPipeline m_scene.meshTransparentPipeline()
+#define m_skinnedPipeline m_scene.skinnedPipeline()
+#define m_skinnedTransparentPipeline m_scene.skinnedTransparentPipeline()
+#define m_skinnedShadowPipeline m_scene.skinnedShadowPipeline()
+#define m_skinRing m_scene.skinRing()
+#define m_tonemap m_scene.tonemap()
+#define m_lighting m_scene.lighting()
+#define m_localLightVolumes m_scene.localLightVolumes()
+#define m_localLightGpu m_scene.localLightGpu()
+#define m_pointVolumeMesh m_scene.pointVolumeMesh()
+#define m_spotVolumeMesh m_scene.spotVolumeMesh()
+#define m_bloom m_scene.bloom()
+#define m_motionBlur m_scene.motionBlur()
+#define m_taa m_scene.taa()
+#define m_shadows m_scene.shadows()
+#define m_debugOverlay m_scene.debugOverlay()
+
 namespace {
 
 const float kPalette[][4] = {
@@ -749,30 +768,21 @@ void EditorApp::onInit()
     if (!renderer().enableSceneBuffers(config().scenePath))
         DE_LOG_ERROR(LogCategory::Render, "EditorApp: SceneBuffers enable failed; SwapChainForward");
 
-    const MeshPass meshPass = renderer().scenePath() == ScenePath::HybridDeferred ? MeshPass::GBuffer : MeshPass::ForwardUnorm;
-    if (!m_meshPipeline.create(renderer().device(), meshPass) || !m_linePipeline.create(renderer().device()))
     {
-        DE_LOG_FATAL("EditorApp: mesh/line pipeline failed");
+        SceneRendererDesc sceneDesc{};
+        sceneDesc.createWorldEnvironment = false;
+        sceneDesc.logTag = "EditorApp";
+        if (!m_scene.init(renderer(), sceneDesc))
+        {
+            requestQuit();
+            return;
+        }
+    }
+    if (!m_linePipeline.create(renderer().device()))
+    {
+        DE_LOG_FATAL("EditorApp: line pipeline failed");
         requestQuit();
         return;
-    }
-    if (!m_meshTransparentPipeline.create(renderer().device(), MeshPass::ForwardTransparent, renderer().sceneColorFormat()))
-    {
-        DE_LOG_FATAL("EditorApp: transparent mesh pipeline failed");
-        requestQuit();
-        return;
-    }
-    {
-        const SkinnedMeshPass skinnedPass =
-            renderer().scenePath() == ScenePath::HybridDeferred ? SkinnedMeshPass::GBuffer : SkinnedMeshPass::Forward;
-        if (!m_skinnedPipeline.create(renderer().device(), skinnedPass))
-            DE_LOG_ERROR(LogCategory::Render, "EditorApp: SkinnedMeshPipeline create failed; skinned parts skipped");
-        if (!m_skinnedTransparentPipeline.create(renderer().device(), SkinnedMeshPass::ForwardTransparent, renderer().sceneColorFormat()))
-            DE_LOG_ERROR(LogCategory::Render, "EditorApp: skinned transparent pipeline create failed");
-        if (!m_skinnedShadowPipeline.create(renderer().device(), SkinnedMeshPass::Shadow))
-            DE_LOG_ERROR(LogCategory::Render, "EditorApp: skinned shadow pipeline create failed");
-        if (!m_skinRing.create(renderer().device()))
-            DE_LOG_ERROR(LogCategory::Render, "EditorApp: SkinningUploadRing create failed");
     }
     if (renderer().hasSceneBuffers())
     {
@@ -782,56 +792,9 @@ void EditorApp::onInit()
             requestQuit();
             return;
         }
-        if (!m_tonemap.create(renderer().device()))
-        {
-            DE_LOG_FATAL("EditorApp: TonemapPipeline create failed");
-            requestQuit();
-            return;
-        }
-        if (renderer().scenePath() == ScenePath::HybridDeferred && !m_lighting.create(renderer().device()))
-        {
-            DE_LOG_FATAL("EditorApp: DeferredLightingPipeline create failed");
-            requestQuit();
-            return;
-        }
-        if (renderer().scenePath() == ScenePath::HybridDeferred)
-        {
-            if (!m_localLightVolumes.create(renderer().device()))
-                DE_LOG_ERROR(LogCategory::Render, "EditorApp: LocalLightVolumePipeline create failed — local lights disabled");
-            if (!m_localLightGpu.create(renderer().device()))
-                DE_LOG_ERROR(LogCategory::Render, "EditorApp: LocalLightGpuList create failed — local lights disabled");
-            MeshData sphereData;
-            MeshData coneData;
-            if (!CreateIcosahedronBounding(sphereData, 1.0f, 1) || !Mesh::tryCreate(renderer(), sphereData, m_pointVolumeMesh))
-                DE_LOG_ERROR(LogCategory::Render, "EditorApp: point volume mesh failed — local lights skipped");
-            if (!CreateSpotVolumeCone(coneData, 16, true) || !Mesh::tryCreate(renderer(), coneData, m_spotVolumeMesh))
-                DE_LOG_ERROR(LogCategory::Render, "EditorApp: spot volume mesh failed — local lights skipped");
-        }
-        if (renderer().scenePath() == ScenePath::HybridDeferred)
-        {
-            if (!m_bloom.create(renderer().device(), renderer().width(), renderer().height()))
-                DE_LOG_WARN(LogCategory::Render, "EditorApp: BloomPipeline create failed — bloom disabled");
-            else
-            {
-                m_bloomW = renderer().width();
-                m_bloomH = renderer().height();
-            }
-        }
-        if (renderer().scenePath() == ScenePath::HybridDeferred && !m_motionBlur.create(renderer().device()))
-            DE_LOG_WARN(LogCategory::Render, "EditorApp: MotionBlurPipeline create failed — motion blur disabled");
-        if (renderer().scenePath() == ScenePath::HybridDeferred && !m_taa.create(renderer().device()))
-            DE_LOG_WARN(LogCategory::Render, "EditorApp: TaaPipeline create failed — TAA disabled");
-        if (!m_debugOverlay.create(renderer().device()))
-            DE_LOG_WARN("EditorApp: DebugOverlay create failed — G-buffer tiles disabled");
     }
     if (!pumpBootFrame())
         return;
-    if (!m_shadows.create(renderer().device()))
-    {
-        DE_LOG_FATAL("EditorApp: ShadowSystem create failed");
-        requestQuit();
-        return;
-    }
     if (!pumpBootFrame())
         return;
     if (!m_particleRenderer.create(renderer()))
@@ -2414,7 +2377,6 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 {
     // ECS is authoritative for networked replicas; keep m_objects in sync for draw.
     mirrorNetworkedObjects();
-    m_camera.ClearSubpixelJitter();
     const Vector3f lightDir(0.35f, 0.85f, -0.35f);
     AABox3f        sceneBounds(Vector3f(-22.0f, -2.0f, -22.0f), Vector3f(22.0f, 16.0f, 22.0f));
     for (const SceneObject& so : m_objects)
@@ -2472,15 +2434,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     }
 
     const bool deferred = renderer().scenePath() == ScenePath::HybridDeferred;
-    const bool useTaa   = deferred && renderer().debugState().taa && m_taa.isValid();
-    if (useTaa)
-    {
-        float jx = 0.0f, jy = 0.0f;
-        taaHaltonJitter(renderer().frameIndex(), jx, jy);
-        m_camera.SetSubpixelJitter(jx, jy, renderer().width(), renderer().height());
-    }
-    const Matrix4f viewProj     = m_camera.GetViewProj();
-    const Matrix4f prevViewProj = m_havePrevViewProj ? m_prevViewProj : viewProj;
+    const Matrix4f viewProj = m_scene.beginCameraFrame(m_camera, renderer());
+    const Matrix4f prevViewProj = m_scene.havePrevViewProj() ? m_scene.prevViewProj() : viewProj;
     if (deferred)
     {
         renderer().bindGBuffer();
@@ -2790,62 +2745,16 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         ++draws;
     }
 
-    if (deferred)
     {
-        const uint32_t bw = renderer().width();
-        const uint32_t bh = renderer().height();
-        if (bw != m_bloomW || bh != m_bloomH)
-        {
-            renderer().waitForGpu();
-            if (!m_bloom.resize(renderer().device(), bw, bh))
-                DE_LOG_WARN(LogCategory::Render, "EditorApp: BloomPipeline resize failed — bloom disabled");
-            m_bloomW = bw;
-            m_bloomH = bh;
-        }
-        if (renderer().debugState().bloom && m_bloom.isValid())
-            m_bloom.draw(cmd, renderer(), BloomPipeline::kDefaultStrength);
-    }
-
-    bool usedPostHdr = false;
-    if (useTaa)
-    {
-        if (renderer().width() != m_taaHistoryW || renderer().height() != m_taaHistoryH)
-        {
-            m_taaHistoryValid = false;
-            m_taaHistoryW     = renderer().width();
-            m_taaHistoryH     = renderer().height();
-        }
-        TaaSettings taa{};
-        copyMatrix(taa.invViewProj, viewProj.Inverse());
-        copyMatrix(taa.prevViewProj, prevViewProj);
-        taa.blend = 0.1f;
-        taa.reset = !m_taaHistoryValid;
-        m_taa.draw(cmd, renderer(), taa);
-        m_taaHistoryValid = true;
-        usedPostHdr       = true;
-    }
-    const bool useMb = deferred && renderer().debugState().motionBlur && m_motionBlur.isValid();
-    if (useMb)
-    {
-        MotionBlurSettings mb{};
-        copyMatrix(mb.invViewProj, viewProj.Inverse());
-        copyMatrix(mb.prevViewProj, prevViewProj);
-        mb.strength  = 1.0f;
-        mb.maxPixels = 40.0f;
-        mb.readPost  = useTaa;
-        m_motionBlur.draw(cmd, renderer(), mb);
-        usedPostHdr = !useTaa;
+        const bool aces = renderer().hasSceneBuffers() && renderer().debugState().aces && renderer().debugState().lighting;
+        TonemapSettings ts{};
+        ts.mode     = aces ? 1.0f : 0.0f;
+        ts.exposure = 1.0f;
+        m_scene.applyPost(renderer(), cmd, viewProj, ts);
     }
 
     if (renderer().hasSceneBuffers())
     {
-        renderer().bindColorTargetOnly();
-        const bool aces = renderer().hasSceneBuffers() && renderer().debugState().aces && renderer().debugState().lighting;
-        TonemapSettings ts{};
-        ts.mode       = aces ? 1.0f : 0.0f;
-        ts.exposure   = 1.0f;
-        ts.usePostHdr = usedPostHdr;
-        m_tonemap.draw(cmd, renderer(), ts);
         if ((m_showGBuffer || m_showVelocity) && m_debugOverlay.isValid() && renderer().hasGBuffer())
         {
             m_debugOverlay.beginFrame(renderer().frameIndex());
@@ -2872,9 +2781,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         }
     }
 
-    m_prevViewProj     = viewProj;
-    m_havePrevViewProj = true;
-    m_camera.ClearSubpixelJitter();
+    m_scene.endCameraFrame(m_camera, viewProj);
     renderer().stats().drawCalls = draws;
 }
 
@@ -2884,6 +2791,7 @@ void EditorApp::onShutdown()
     m_imgui.shutdown(renderer());
     m_particleRenderer.destroy(renderer());
     renderer().waitForGpu();
+    m_scene.shutdown();
     if (m_propMaterial)
         assets().unload(m_propMaterial->id);
     if (m_groundMaterial)
@@ -2896,7 +2804,6 @@ void EditorApp::onShutdown()
     m_quadMesh    = Mesh{};
     m_grid2D      = LineMesh{};
     m_boxOutline2D = LineMesh{};
-    m_shadows = ShadowSystem{};
     m_emitters.clear();
     m_objects.clear();
     audio().stopAll();
