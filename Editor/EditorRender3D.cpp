@@ -46,7 +46,8 @@ using namespace Math;
 void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 {
     m_camera.ClearSubpixelJitter();
-    const Vector3f lightDir(0.35f, 0.85f, -0.35f);
+    Vector3f lightDir(0.35f, 0.85f, -0.35f);
+    lightDir.Normalize();
     AABox3f        sceneBounds(Vector3f(-22.0f, -2.0f, -22.0f), Vector3f(22.0f, 16.0f, 22.0f));
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent&) {
         if (const auto* xf = world().get<TransformComponent>(e))
@@ -130,6 +131,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             copyMatrix(gcb.worldViewProj, wvp);
             copyMatrix(gcb.world, world);
             copyMatrix(gcb.prevWorldViewProj, world * prevViewProj);
+            if (material && material->isValid())
+                material->applySurface(gcb);
             gcb.color[0] = cr;
             gcb.color[1] = cg;
             gcb.color[2] = cb;
@@ -142,6 +145,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             MeshFrameConstants cbData{};
             copyMatrix(cbData.worldViewProj, wvp);
             copyMatrix(cbData.world, world);
+            if (material && material->isValid())
+                material->applySurface(cbData);
             cbData.color[0] = cr;
             cbData.color[1] = cg;
             cbData.color[2] = cb;
@@ -415,6 +420,11 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     {
         if ((m_showGBuffer || m_showVelocity) && m_debugOverlay.isValid() && renderer().hasGBuffer())
         {
+            // Unbind DSV / HDR so we can sample G-buffer. Overlay copies from FLAG_NONE CPU SRVs.
+            renderer().bindColorTargetOnly();
+            renderer().transitionAlbedo(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            renderer().transitionAttrib(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            renderer().transitionVelocity(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             m_debugOverlay.beginFrame(renderer().frameIndex());
             const LONG tile = 160;
             const LONG pad  = 12;
@@ -427,7 +437,6 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                 if (attrib.ptr != 0)
                     m_debugOverlay.drawColor(cmd, renderer().device(), attrib, pad + tile + 8, pad, tile, tile);
             }
-            renderer().transitionVelocity(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             const D3D12_CPU_DESCRIPTOR_HANDLE velocity = renderer().velocitySrvCpu();
             if (velocity.ptr != 0)
             {
@@ -436,6 +445,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                     x = pad + 2 * (tile + 8);
                 m_debugOverlay.drawVelocity(cmd, renderer().device(), velocity, x, pad, tile, tile, 24.0f);
             }
+            cmd->RSSetViewports(1, &renderer().viewport());
+            cmd->RSSetScissorRects(1, &renderer().scissor());
         }
     }
 

@@ -286,7 +286,10 @@ namespace Dark
             }
         }
 
-        std::vector<int> slotOf(n, -1);
+        std::vector<int>        slotOf(n, -1);
+        std::vector<D3D12_RECT> rects(n);
+        std::vector<uint8_t>    hasRect(n, 0);
+        const D3D12_RECT        fullVp{ 0, 0, static_cast<LONG>(in.viewportW), static_cast<LONG>(in.viewportH) };
 
         auto packAt = [&](uint32_t src) {
             const uint32_t dst = out.count;
@@ -296,28 +299,40 @@ namespace Dark
             ++out.count;
         };
 
+        // Spots always take fullscreen+scissor. Rasterizing the cone hull from the side
+        // only covers a triangular slice of the ground pool (hard half-cut).
+        for (uint32_t i = 0; i < n; ++i)
+        {
+            if (cands[i].spot)
+            {
+                if (computeInsideScissor(cands[i], *in.viewProj, in.viewportW, in.viewportH, rects[i]))
+                    hasRect[i] = 1;
+                else if (fullVp.right > fullVp.left && fullVp.bottom > fullVp.top)
+                {
+                    rects[i]   = fullVp;
+                    hasRect[i] = 1;
+                }
+            }
+            else if (cands[i].inside)
+            {
+                if (computeInsideScissor(cands[i], *in.viewProj, in.viewportW, in.viewportH, rects[i]))
+                    hasRect[i] = 1;
+            }
+        }
+
         for (uint32_t i = 0; i < n; ++i)
         {
             if (!cands[i].inside && !cands[i].spot)
                 packAt(i);
         }
         out.pointOutCount = out.count;
+        out.spotOutCount  = 0;
 
         for (uint32_t i = 0; i < n; ++i)
         {
-            if (!cands[i].inside && cands[i].spot)
-                packAt(i);
-        }
-        out.spotOutCount = out.count - out.pointOutCount;
-
-        for (uint32_t i = 0; i < n; ++i)
-        {
-            if (!cands[i].inside)
+            if (!hasRect[i])
                 continue;
-            D3D12_RECT rect{};
-            if (!computeInsideScissor(cands[i], *in.viewProj, in.viewportW, in.viewportH, rect))
-                continue;
-            out.insideScissor[out.insideCount] = rect;
+            out.insideScissor[out.insideCount] = rects[i];
             packAt(i);
             ++out.insideCount;
         }
@@ -325,7 +340,7 @@ namespace Dark
         // Empty / <16 px scissors skip the volume draw, but keep the GPU slot for water.
         for (uint32_t i = 0; i < n; ++i)
         {
-            if (!cands[i].inside || slotOf[i] >= 0)
+            if (slotOf[i] >= 0)
                 continue;
             packAt(i);
         }

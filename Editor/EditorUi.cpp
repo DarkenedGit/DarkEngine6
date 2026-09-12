@@ -333,6 +333,9 @@ void EditorApp::drawInspector3D()
                     DegreesToRadians(eulerDeg[1]),
                     DegreesToRadians(eulerDeg[2]));
             }
+            if (ImGui::Button("Aim down"))
+                xf->rotation = defaultSpotRotation();
+            ImGui::SameLine();
             if (ImGui::Button("Aim at camera"))
             {
                 Vector3f dir = m_camera.GetPosition() - xf->position;

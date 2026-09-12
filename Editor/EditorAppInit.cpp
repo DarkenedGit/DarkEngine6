@@ -193,13 +193,15 @@ void EditorApp::onInit()
     assets().registerAsset(m_propMaterial);
 
     m_groundMaterial = std::make_shared<Material>();
-    if (!m_groundMaterial->createSolid(renderer(), assets(), 48, 52, 60, 255))
+    // White 1x1 — albedo comes from baseColor * draw tint. A dark solid * a dark tint made the
+    // plane nearly black, so only the spotlight hot-spot showed on the grid.
+    if (!m_groundMaterial->createSolid(renderer(), assets(), 255, 255, 255, 255))
     {
         DE_LOG_FATAL("EditorApp: ground material failed");
         requestQuit();
         return;
     }
-    m_groundMaterial->setBaseColor(0.35f, 0.38f, 0.42f, 1.0f);
+    m_groundMaterial->setBaseColor(0.45f, 0.48f, 0.52f, 1.0f);
     assets().registerAsset(m_groundMaterial);
     m_propMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
     m_groundMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());

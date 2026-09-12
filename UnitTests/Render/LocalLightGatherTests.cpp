@@ -250,6 +250,27 @@ TEST(LocalLightGather, DegenerateOuterTreatedAsPoint)
     EXPECT_NEAR(out.lights[0].dir[2], 0.0f, 1.0e-5f);
 }
 
+TEST(LocalLightGather, OutsideSpotUsesFullscreenScissor)
+{
+    World world;
+    addLight(world, Vector3f(0.0f, 0.0f, 40.0f), LocalLightType::Spot, 800.0f, 16.0f);
+
+    Camera3D cam;
+    Matrix4f viewProj;
+    Frustum3f frustum;
+    makeView(cam, viewProj, frustum);
+
+    LocalLightDrawLists out{};
+    ASSERT_TRUE(gatherLocalLights(world, makeInput(frustum, viewProj), out));
+    ASSERT_EQ(out.count, 1u);
+    EXPECT_EQ(out.pointOutCount, 0u);
+    EXPECT_EQ(out.spotOutCount, 0u);
+    EXPECT_EQ(out.insideCount, 1u);
+    EXPECT_LT(out.insideScissor[0].left, out.insideScissor[0].right);
+    EXPECT_LT(out.insideScissor[0].top, out.insideScissor[0].bottom);
+    EXPECT_NEAR(out.lights[0].type, 1.0f, 1.0e-5f);
+}
+
 TEST(LocalLightGather, MaxOutKeepsHighestScores)
 {
     World world;

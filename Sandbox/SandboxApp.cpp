@@ -2521,6 +2521,8 @@ void SandboxApp::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
 
     if (m_showGBuffer && renderer().hasGBuffer())
     {
+        renderer().transitionAlbedo(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        renderer().transitionAttrib(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         const LONG y = pad;
         const D3D12_CPU_DESCRIPTOR_HANDLE albedo = renderer().albedoSrvCpu();
         const D3D12_CPU_DESCRIPTOR_HANDLE attrib = renderer().attribSrvCpu();
@@ -2584,6 +2586,9 @@ void SandboxApp::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
                 true);
         }
     }
+
+    cmd->RSSetViewports(1, &renderer().viewport());
+    cmd->RSSetScissorRects(1, &renderer().scissor());
 }
 
 void SandboxApp::onShutdown()

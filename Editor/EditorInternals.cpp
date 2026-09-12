@@ -220,6 +220,11 @@ namespace Dark::EditorDetail
         return S * R * T;
     }
 
+    Quaternion defaultSpotRotation()
+    {
+        return Quaternion::FromLookRotation(Vector3f(0.0f, -1.0f, 0.0f), Vector3f(0.0f, 0.0f, 1.0f));
+    }
+
     NetPrefab prefabFromType(SceneObjectType type)
     {
         switch (type)

@@ -202,7 +202,8 @@ Entity EditorApp::placeAtCursor(SceneObjectType type)
         hit.y = 0.5f;
     else
         hit.y = 0.5f * scale.y;
-    const Entity e = spawnObject(type, hit, scale, Quaternion::IDENTITY, col, nullptr);
+    const Quaternion rot = (type == SceneObjectType::SpotLight) ? defaultSpotRotation() : Quaternion::IDENTITY;
+    const Entity e = spawnObject(type, hit, scale, rot, col, nullptr);
     if (e.valid())
         audio().play3D(m_sfxPlace, hit, 0.65f);
     return e;

@@ -146,7 +146,10 @@ namespace Dark
 
         pso.VS                                    = { vsMesh->GetBufferPointer(), vsMesh->GetBufferSize() };
         pso.InputLayout                           = { inputLayout, _countof(inputLayout) };
-        pso.RasterizerState.CullMode              = D3D12_CULL_MODE_BACK;
+        // Outside the volume we rasterize BACK faces of the convex hull (far cap/walls).
+        // Front faces are only the near walls — a downward spot viewed from above then
+        // covers nothing, so the light pops off once the camera leaves the bounding sphere.
+        pso.RasterizerState.CullMode              = D3D12_CULL_MODE_FRONT;
         pso.RasterizerState.FrontCounterClockwise = TRUE;
         if (FailedHr(device->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&m_psoMesh)), "CreateGraphicsPipelineState (local light mesh)"))
         {

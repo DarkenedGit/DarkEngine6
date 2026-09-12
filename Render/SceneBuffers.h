@@ -66,8 +66,9 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE postSrvCpu() const { return m_postSrvCpu; }
         D3D12_CPU_DESCRIPTOR_HANDLE historySrvCpu() const { return m_historySrvCpu; }
         D3D12_CPU_DESCRIPTOR_HANDLE historyRtv() const { return m_historyRtv; }
-        D3D12_CPU_DESCRIPTOR_HANDLE albedoSrvCpu() const;
-        D3D12_CPU_DESCRIPTOR_HANDLE attribSrvCpu() const;
+        // FLAG_NONE heaps — legal CopyDescriptors sources (shader-visible lighting heap is not).
+        D3D12_CPU_DESCRIPTOR_HANDLE albedoSrvCpu() const { return m_albedoSrvCpu; }
+        D3D12_CPU_DESCRIPTOR_HANDLE attribSrvCpu() const { return m_attribSrvCpu; }
         D3D12_GPU_DESCRIPTOR_HANDLE lightingTableGpu() const { return m_lightingGpu; }
         D3D12_GPU_DESCRIPTOR_HANDLE heightTableGpu() const { return m_heightGpu; }
         ID3D12DescriptorHeap*       lightingHeap() const { return m_lightingHeap.Get(); }
@@ -105,6 +106,8 @@ namespace Dark
         ComPtr<ID3D12DescriptorHeap> m_velocitySrvHeap;
         ComPtr<ID3D12DescriptorHeap> m_postSrvHeap;
         ComPtr<ID3D12DescriptorHeap> m_historySrvHeap;
+        ComPtr<ID3D12DescriptorHeap> m_albedoSrvHeap;
+        ComPtr<ID3D12DescriptorHeap> m_attribSrvHeap;
         ComPtr<ID3D12DescriptorHeap> m_lightingHeap;
         D3D12_CPU_DESCRIPTOR_HANDLE  m_hdrRtv{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_albedoRtv{};
@@ -116,9 +119,10 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE  m_velocitySrvCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_postSrvCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_historySrvCpu{};
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_albedoSrvCpu{};
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_attribSrvCpu{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_lightingGpu{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_heightGpu{};
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_lightingCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_shadowCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_heightCpu{};
         D3D12_RESOURCE_STATES        m_hdrState      = D3D12_RESOURCE_STATE_COMMON;

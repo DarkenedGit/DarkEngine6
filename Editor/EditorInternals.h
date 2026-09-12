@@ -59,6 +59,8 @@ namespace Dark::EditorDetail
     void eulerXYZFromQuat(const Math::Quaternion& q, float& pitch, float& yaw, float& roll);
     Math::Matrix4f makePointLightGizmoWorld(const Math::Vector3f& pos, float range);
     Math::Matrix4f makeSpotLightGizmoWorld(const TransformComponent& xf, float range, float outerConeDeg);
+    // Local +Z is the cone axis. Identity aims +Z (horizon); placed spots should light the floor.
+    Math::Quaternion defaultSpotRotation();
     NetPrefab prefabFromType(SceneObjectType type);
     SceneObjectType typeFromPrefab(NetPrefab prefab);
     const char* netRoleLabel(NetRole role);

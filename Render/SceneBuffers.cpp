@@ -37,6 +37,8 @@ namespace Dark
         m_velocitySrvHeap.Reset();
         m_postSrvHeap.Reset();
         m_historySrvHeap.Reset();
+        m_albedoSrvHeap.Reset();
+        m_attribSrvHeap.Reset();
         m_lightingHeap.Reset();
         m_hdrRtv         = {};
         m_albedoRtv      = {};
@@ -48,9 +50,10 @@ namespace Dark
         m_velocitySrvCpu = {};
         m_postSrvCpu     = {};
         m_historySrvCpu  = {};
+        m_albedoSrvCpu   = {};
+        m_attribSrvCpu   = {};
         m_lightingGpu    = {};
         m_heightGpu      = {};
-        m_lightingCpu    = {};
         m_shadowCpu      = {};
         m_heightCpu      = {};
         m_hdrState       = D3D12_RESOURCE_STATE_COMMON;
@@ -192,9 +195,12 @@ namespace Dark
             D3D12_DESCRIPTOR_HEAP_DESC velSrvDesc{};
             velSrvDesc.NumDescriptors = 1;
             velSrvDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+            velSrvDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
             if (!checkHr(device->CreateDescriptorHeap(&velSrvDesc, IID_PPV_ARGS(&m_velocitySrvHeap)), "SceneBuffers CreateDescriptorHeap velocity SRV")
                 || !checkHr(device->CreateDescriptorHeap(&velSrvDesc, IID_PPV_ARGS(&m_postSrvHeap)), "SceneBuffers CreateDescriptorHeap post SRV")
-                || !checkHr(device->CreateDescriptorHeap(&velSrvDesc, IID_PPV_ARGS(&m_historySrvHeap)), "SceneBuffers CreateDescriptorHeap history SRV"))
+                || !checkHr(device->CreateDescriptorHeap(&velSrvDesc, IID_PPV_ARGS(&m_historySrvHeap)), "SceneBuffers CreateDescriptorHeap history SRV")
+                || !checkHr(device->CreateDescriptorHeap(&velSrvDesc, IID_PPV_ARGS(&m_albedoSrvHeap)), "SceneBuffers CreateDescriptorHeap albedo SRV")
+                || !checkHr(device->CreateDescriptorHeap(&velSrvDesc, IID_PPV_ARGS(&m_attribSrvHeap)), "SceneBuffers CreateDescriptorHeap attrib SRV"))
             {
                 reset();
                 return false;
@@ -202,6 +208,8 @@ namespace Dark
             m_velocitySrvCpu = m_velocitySrvHeap->GetCPUDescriptorHandleForHeapStart();
             m_postSrvCpu     = m_postSrvHeap->GetCPUDescriptorHandleForHeapStart();
             m_historySrvCpu  = m_historySrvHeap->GetCPUDescriptorHandleForHeapStart();
+            m_albedoSrvCpu   = m_albedoSrvHeap->GetCPUDescriptorHandleForHeapStart();
+            m_attribSrvCpu   = m_attribSrvHeap->GetCPUDescriptorHandleForHeapStart();
             D3D12_SHADER_RESOURCE_VIEW_DESC velSrv{};
             velSrv.Format                  = DXGI_FORMAT_R16G16_FLOAT;
             velSrv.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
@@ -215,6 +223,13 @@ namespace Dark
             postSrv.Texture2D.MipLevels     = 1;
             device->CreateShaderResourceView(m_post.Get(), &postSrv, m_postSrvCpu);
             device->CreateShaderResourceView(m_history.Get(), &postSrv, m_historySrvCpu);
+            D3D12_SHADER_RESOURCE_VIEW_DESC unorm{};
+            unorm.Format                  = DXGI_FORMAT_R8G8B8A8_UNORM;
+            unorm.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
+            unorm.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            unorm.Texture2D.MipLevels     = 1;
+            device->CreateShaderResourceView(m_albedo.Get(), &unorm, m_albedoSrvCpu);
+            device->CreateShaderResourceView(m_attrib.Get(), &unorm, m_attribSrvCpu);
 
             D3D12_DESCRIPTOR_HEAP_DESC lightDesc{};
             lightDesc.NumDescriptors = kLightingCount;
@@ -225,7 +240,6 @@ namespace Dark
                 reset();
                 return false;
             }
-            m_lightingCpu = m_lightingHeap->GetCPUDescriptorHandleForHeapStart();
             m_lightingGpu = m_lightingHeap->GetGPUDescriptorHandleForHeapStart();
             m_heightGpu   = m_lightingGpu;
             m_heightGpu.ptr += static_cast<SIZE_T>(kLightingHeight) * m_srvIncr;
@@ -289,22 +303,6 @@ namespace Dark
             device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingShadow, m_srvIncr), m_shadowCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         if (m_heightCpu.ptr != 0)
             device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingHeight, m_srvIncr), m_heightCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    }
-
-    D3D12_CPU_DESCRIPTOR_HANDLE SceneBuffers::albedoSrvCpu() const
-    {
-        if (!m_lightingHeap)
-            return {};
-        return m_lightingCpu;
-    }
-
-    D3D12_CPU_DESCRIPTOR_HANDLE SceneBuffers::attribSrvCpu() const
-    {
-        if (!m_lightingHeap)
-            return {};
-        D3D12_CPU_DESCRIPTOR_HANDLE h = m_lightingCpu;
-        h.ptr += static_cast<SIZE_T>(kLightingAttrib) * m_srvIncr;
-        return h;
     }
 
     void SceneBuffers::setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu)
