@@ -5,6 +5,7 @@
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
 #include "Math/Vector4f.h"
+#include "Render/GpuResourceCache.h"
 #include "Render/Renderer.h"
 
 #include <cstdio>
@@ -84,6 +85,17 @@ namespace Dark
                 continue;
             }
             mat->setMetallicRoughness(src.metallic, src.roughness);
+            mat = assets.internMaterial(mat);
+            if (!mat || mat->id == NULL_ASSET)
+            {
+                DE_LOG_ERROR("Model: internMaterial failed for primitive {}", i);
+                continue;
+            }
+            if (!renderer.gpuResources().ensureMaterial(mat))
+            {
+                DE_LOG_ERROR("Model: ensureMaterial failed for primitive {}", i);
+                continue;
+            }
             part.material = std::move(mat);
 
             for (const Math::Vector3f& p : src.mesh.positions)
@@ -146,19 +158,6 @@ namespace Dark
     void Model::setSkeleton(Skeleton skeleton)
     {
         m_skeleton = std::move(skeleton);
-    }
-
-    void Model::setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu)
-    {
-        auto apply = [&](std::vector<Part>& parts) {
-            for (Part& p : parts)
-            {
-                if (p.material)
-                    p.material->setShadowSrv(device, shadowCpu);
-            }
-        };
-        apply(m_opaque);
-        apply(m_translucent);
     }
 
 } // namespace Dark

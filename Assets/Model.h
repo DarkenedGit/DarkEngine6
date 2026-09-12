@@ -41,8 +41,6 @@ namespace Dark
         bool createFromFile(Renderer& renderer, AssetManager& assets, const std::filesystem::path& path);
         bool createFromParsed(Renderer& renderer, AssetManager& assets, const GltfCpuModel& cpu, const std::filesystem::path& path);
 
-        void setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
-
         const std::vector<Part>& opaque() const { return m_opaque; }
         const std::vector<Part>& translucent() const { return m_translucent; }
         const Math::AABox3f&     bounds() const { return m_bounds; }

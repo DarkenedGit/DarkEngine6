@@ -46,6 +46,7 @@ using namespace Math;
 
 void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 {
+    GpuResourceCache& gpu = renderer().gpuResources();
     m_camera.ClearSubpixelJitter();
     Vector3f lightDir(0.35f, 0.85f, -0.35f);
     lightDir.Normalize();
@@ -87,12 +88,12 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                 {
                     const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));
                     if (pose)
-                        drawSkinnedModelDepth(cmd, m_shadows, i, m_skinnedShadowPipeline, m_skinRing, *model, *pose, worldMat);
+                        drawSkinnedModelDepth(cmd, gpu, m_shadows, i, m_skinnedShadowPipeline, m_skinRing, *model, *pose, worldMat);
                     else
-                        drawModelDepth(cmd, m_shadows, i, *model, worldMat);
+                        drawModelDepth(cmd, gpu, m_shadows, i, *model, worldMat);
                 }
                 else
-                    drawModelDepth(cmd, m_shadows, i, *model, worldMat);
+                    drawModelDepth(cmd, gpu, m_shadows, i, *model, worldMat);
             });
         }
         m_shadows.endCapture(cmd);
@@ -124,7 +125,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     auto drawMesh = [&](const Mesh& mesh, const Matrix4f& world, Material* material, float cr, float cg, float cb, float emissive = 0.0f) {
         m_meshPipeline.bind(cmd, fill);
         if (material && material->isValid())
-            material->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+            gpu.bindMaterial(cmd, *material, MeshPipeline::kRootAlbedoSrv);
         const Matrix4f wvp = world * viewProj;
         if (deferred)
         {
@@ -286,10 +287,10 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                     ag->prevWorld = worldMat;
                     ag->prevWorldValid = true;
                 }
-                drawSkinnedModelOpaqueGBuffer(cmd, m_skinnedPipeline, m_meshPipeline, m_skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
+                drawSkinnedModelOpaqueGBuffer(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
             }
             else
-                drawModelOpaqueGBuffer(cmd, m_meshPipeline, *model, worldMat, viewProj, prevViewProj, fill);
+                drawModelOpaqueGBuffer(cmd, gpu, m_meshPipeline, *model, worldMat, viewProj, prevViewProj, fill);
             ++draws;
         });
     }
@@ -325,10 +326,10 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                     ag->prevWorld = worldMat;
                     ag->prevWorldValid = true;
                 }
-                drawSkinnedModelForward(cmd, m_skinnedPipeline, m_meshPipeline, m_shadows, m_skinRing, *model, false, *pose, worldMat, viewProj, lit, fill);
+                drawSkinnedModelForward(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_shadows, m_skinRing, *model, false, *pose, worldMat, viewProj, lit, fill);
             }
             else
-                drawModelForward(cmd, m_meshPipeline, m_shadows, *model, false, worldMat, viewProj, lit, fill);
+                drawModelForward(cmd, gpu, m_meshPipeline, m_shadows, *model, false, worldMat, viewProj, lit, fill);
             ++draws;
         });
     }
@@ -391,10 +392,10 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                 const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));
                 if (!pose)
                     return;
-                drawSkinnedModelForward(cmd, m_skinnedTransparentPipeline, m_meshTransparentPipeline, m_shadows, m_skinRing, *model, true, *pose, worldMat, viewProj, lit, fill);
+                drawSkinnedModelForward(cmd, gpu, m_skinnedTransparentPipeline, m_meshTransparentPipeline, m_shadows, m_skinRing, *model, true, *pose, worldMat, viewProj, lit, fill);
             }
             else
-                drawModelForward(cmd, m_meshTransparentPipeline, m_shadows, *model, true, worldMat, viewProj, lit, fill);
+                drawModelForward(cmd, gpu, m_meshTransparentPipeline, m_shadows, *model, true, worldMat, viewProj, lit, fill);
             ++draws;
         });
     }

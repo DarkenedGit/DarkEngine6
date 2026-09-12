@@ -9,6 +9,7 @@
 #include "Math/AABox3f.h"
 #include "Math/Matrix4f.h"
 #include "Math/Vector3f.h"
+#include "Render/GpuResourceCache.h"
 #include "Render/Mesh.h"
 #include "Render/LinePipeline.h"
 #include "Render/Material.h"
@@ -40,8 +41,8 @@ namespace Dark
         bool init(Renderer& renderer, Terrain::TerrainWorld& terrain, WaterWorld& water, World& world, Mesh& cubeMesh, AssetRef<Material> trunkMat, AssetRef<Material> canopyMat, AssetRef<Material> aiMat);
 
         void tick(float dt, World& world, Input& input, Terrain::TerrainWorld& terrain, Entity hostPawn, bool playerInWater);
-        void drawMeshes(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPipe, ShadowSystem& shadows, const Camera3D& camera, const MeshFrameConstants& baseCb, Mesh& cubeMesh, DebugFill fill);
-        void drawMeshesGBuffer(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPipe, const Camera3D& camera, const Math::Matrix4f& prevViewProj, Mesh& cubeMesh, DebugFill fill);
+        void drawMeshes(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, MeshPipeline& meshPipe, ShadowSystem& shadows, const Camera3D& camera, const MeshFrameConstants& baseCb, Mesh& cubeMesh, DebugFill fill);
+        void drawMeshesGBuffer(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, MeshPipeline& meshPipe, const Camera3D& camera, const Math::Matrix4f& prevViewProj, Mesh& cubeMesh, DebugFill fill);
         void drawDepth(ID3D12GraphicsCommandList* cmd, const ShadowSystem& shadows, int cascade, Mesh& cubeMesh) const;
         void expandBounds(Math::AABox3f& bounds) const;
         void drawPaths(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Math::Matrix4f& viewProj);

@@ -2,6 +2,7 @@
 
 #include "Animation/Pose.h"
 #include "Math/Matrix4f.h"
+#include "Render/GpuResourceCache.h"
 #include "Render/MeshPipeline.h"
 #include "Render/SkinnedMeshPipeline.h"
 #include "Render/SkinningUploadRing.h"
@@ -21,6 +22,7 @@ namespace Dark
 
     void drawModelOpaqueGBuffer(
         ID3D12GraphicsCommandList* cmd,
+        GpuResourceCache& gpu,
         const MeshPipeline& pipeline,
         const Model& model,
         const Matrix4f& world,
@@ -30,6 +32,7 @@ namespace Dark
 
     void drawModelForward(
         ID3D12GraphicsCommandList* cmd,
+        GpuResourceCache& gpu,
         const MeshPipeline& pipeline,
         const ShadowSystem& shadows,
         const Model& model,
@@ -41,6 +44,7 @@ namespace Dark
 
     void drawModelDepth(
         ID3D12GraphicsCommandList* cmd,
+        GpuResourceCache& gpu,
         const ShadowSystem& shadows,
         int cascade,
         const Model& model,
@@ -48,6 +52,7 @@ namespace Dark
 
     void drawSkinnedModelOpaqueGBuffer(
         ID3D12GraphicsCommandList* cmd,
+        GpuResourceCache& gpu,
         const SkinnedMeshPipeline& skinned,
         const MeshPipeline& staticPipeline,
         SkinningUploadRing& ring,
@@ -61,6 +66,7 @@ namespace Dark
 
     void drawSkinnedModelForward(
         ID3D12GraphicsCommandList* cmd,
+        GpuResourceCache& gpu,
         const SkinnedMeshPipeline& skinned,
         const MeshPipeline& staticPipeline,
         const ShadowSystem& shadows,
@@ -75,6 +81,7 @@ namespace Dark
 
     void drawSkinnedModelDepth(
         ID3D12GraphicsCommandList* cmd,
+        GpuResourceCache& gpu,
         const ShadowSystem& shadows,
         int cascade,
         const SkinnedMeshPipeline& skinnedShadow,

@@ -27,6 +27,7 @@ namespace Dark
 
 	void drawModelOpaqueGBuffer(
 		ID3D12GraphicsCommandList* cmd,
+		GpuResourceCache& gpu,
 		const MeshPipeline& pipeline,
 		const Model& model,
 		const Matrix4f& world,
@@ -43,8 +44,8 @@ namespace Dark
 			if (part.skinned || !part.mesh.valid())
 				continue;
 			const Matrix4f w = part.localToRoot * world;
-			if (part.material && part.material->isValid())
-				part.material->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+			if (part.material)
+				gpu.bindMaterial(cmd, *part.material, MeshPipeline::kRootAlbedoSrv);
 			MeshGBufferConstants cb{};
 			copyMatrix(cb.worldViewProj, w * viewProj);
 			copyMatrix(cb.world, w);
@@ -66,6 +67,7 @@ namespace Dark
 
 	void drawModelForward(
 		ID3D12GraphicsCommandList* cmd,
+		GpuResourceCache& gpu,
 		const MeshPipeline& pipeline,
 		const ShadowSystem& shadows,
 		const Model& model,
@@ -88,8 +90,8 @@ namespace Dark
 			if (part.skinned || !part.mesh.valid())
 				continue;
 			const Matrix4f w = part.localToRoot * world;
-			if (part.material && part.material->isValid())
-				part.material->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+			if (part.material)
+				gpu.bindMaterial(cmd, *part.material, MeshPipeline::kRootAlbedoSrv);
 			MeshFrameConstants cb = lighting;
 			copyMatrix(cb.worldViewProj, w * viewProj);
 			copyMatrix(cb.world, w);
@@ -102,6 +104,7 @@ namespace Dark
 
 	void drawModelDepth(
 		ID3D12GraphicsCommandList* cmd,
+		GpuResourceCache& /*gpu*/,
 		const ShadowSystem& shadows,
 		int cascade,
 		const Model& model,
@@ -122,6 +125,7 @@ namespace Dark
 
 	void drawSkinnedModelOpaqueGBuffer(
 		ID3D12GraphicsCommandList* cmd,
+		GpuResourceCache& gpu,
 		const SkinnedMeshPipeline& skinned,
 		const MeshPipeline& staticPipeline,
 		SkinningUploadRing& ring,
@@ -157,8 +161,8 @@ namespace Dark
 				skinned.setShadowCbv(cmd, ring.dummyGpuVa());
 				const Matrix4f w = part.localToRoot * world;
 				const Matrix4f pw = part.localToRoot * prevWorld;
-				if (part.material && part.material->isValid())
-					part.material->bind(cmd, SkinnedMeshPipeline::kRootAlbedoSrv);
+				if (part.material)
+					gpu.bindMaterial(cmd, *part.material, SkinnedMeshPipeline::kRootAlbedoSrv);
 				MeshGBufferConstants cb{};
 				copyMatrix(cb.worldViewProj, w * viewProj);
 				copyMatrix(cb.world, w);
@@ -184,8 +188,8 @@ namespace Dark
 					bound = Bound::Static;
 				}
 				const Matrix4f w = part.localToRoot * world;
-				if (part.material && part.material->isValid())
-					part.material->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+				if (part.material)
+					gpu.bindMaterial(cmd, *part.material, MeshPipeline::kRootAlbedoSrv);
 				MeshGBufferConstants cb{};
 				copyMatrix(cb.worldViewProj, w * viewProj);
 				copyMatrix(cb.world, w);
@@ -208,6 +212,7 @@ namespace Dark
 
 	void drawSkinnedModelForward(
 		ID3D12GraphicsCommandList* cmd,
+		GpuResourceCache& gpu,
 		const SkinnedMeshPipeline& skinned,
 		const MeshPipeline& staticPipeline,
 		const ShadowSystem& shadows,
@@ -246,8 +251,8 @@ namespace Dark
 				skinned.setBoneCbv(cmd, bones);
 				shadows.bindReceiverCbv(cmd, SkinnedMeshPipeline::kRootShadowCbv);
 				const Matrix4f w = part.localToRoot * world;
-				if (part.material && part.material->isValid())
-					part.material->bind(cmd, SkinnedMeshPipeline::kRootAlbedoSrv);
+				if (part.material)
+					gpu.bindMaterial(cmd, *part.material, SkinnedMeshPipeline::kRootAlbedoSrv);
 				MeshFrameConstants cb = lighting;
 				copyMatrix(cb.worldViewProj, w * viewProj);
 				copyMatrix(cb.world, w);
@@ -265,8 +270,8 @@ namespace Dark
 					bound = Bound::Static;
 				}
 				const Matrix4f w = part.localToRoot * world;
-				if (part.material && part.material->isValid())
-					part.material->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+				if (part.material)
+					gpu.bindMaterial(cmd, *part.material, MeshPipeline::kRootAlbedoSrv);
 				MeshFrameConstants cb = lighting;
 				copyMatrix(cb.worldViewProj, w * viewProj);
 				copyMatrix(cb.world, w);
@@ -280,6 +285,7 @@ namespace Dark
 
 	void drawSkinnedModelDepth(
 		ID3D12GraphicsCommandList* cmd,
+		GpuResourceCache& /*gpu*/,
 		const ShadowSystem& shadows,
 		int cascade,
 		const SkinnedMeshPipeline& skinnedShadow,

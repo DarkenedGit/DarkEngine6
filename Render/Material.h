@@ -1,11 +1,9 @@
 #pragma once
 
 #include "Assets/AssetHandle.h"
-#include "Render/GpuMaterial.h"
 #include "Render/Texture2D.h"
 
 #include <cstdint>
-#include <d3d12.h>
 #include <memory>
 #include <string>
 
@@ -14,15 +12,12 @@ namespace Dark
 
     class Renderer;
     class AssetManager;
-    class GpuResourceCache;
 
-    // Shared surface recipe: albedo texture + tint params.
-    // Does not own world transforms or lights — those stay per-draw / per-frame.
+    // CPU PBR recipe. GPU heaps live on GpuResourceCache / GpuMaterial.
     class Material : public Asset
     {
     public:
         Material();
-        ~Material();
 
         Material(Material&&) noexcept            = default;
         Material& operator=(Material&&) noexcept = default;
@@ -45,17 +40,11 @@ namespace Dark
         float metallic() const { return m_metallic; }
         float roughness() const { return m_roughness; }
 
-        // Bind albedo + shadow SRV table (2-slot shader-visible heap).
-        void bind(ID3D12GraphicsCommandList* cmd, UINT albedoSrvRootIndex) const;
-
-        // Copy the CSM array into heap slot 1 (call after create, and after pack).
-        void setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
-
         void setBaseColor(float r, float g, float b, float a = 1.0f);
 
         bool isValid() const
         {
-            return m_albedo && m_albedo->valid() && m_gpu && m_gpu->isValid();
+            return m_albedo && m_albedo->valid();
         }
         uint64_t   sortKey() const;
         Texture2D& albedo()
@@ -77,19 +66,11 @@ namespace Dark
             return m_baseColor;
         }
 
-        GpuMaterial* gpuMaterial() { return m_gpu.get(); }
-        const GpuMaterial* gpuMaterial() const { return m_gpu.get(); }
-        void setGpuCache(GpuResourceCache* cache) { m_registeredCache = cache; }
-
     private:
-        bool packSrvHeap(ID3D12Device* device);
-
-        std::shared_ptr<Texture2D>   m_albedo;
-        float                        m_baseColor[4]{ 1.0f, 1.0f, 1.0f, 1.0f };
-        float                        m_metallic  = 0.0f;
-        float                        m_roughness = 1.0f;
-        std::unique_ptr<GpuMaterial> m_gpu;
-        GpuResourceCache*            m_registeredCache = nullptr;
+        std::shared_ptr<Texture2D> m_albedo;
+        float                      m_baseColor[4]{ 1.0f, 1.0f, 1.0f, 1.0f };
+        float                      m_metallic  = 0.0f;
+        float                      m_roughness = 1.0f;
     };
 
 } // namespace Dark

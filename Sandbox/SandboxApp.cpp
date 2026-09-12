@@ -947,7 +947,6 @@ void SandboxApp::spawnGltfDemo()
             DE_LOG_WARN("SandboxApp: glTF '{}' not loaded", virtualPath);
             return;
         }
-        model->setShadowSrv(renderer().device(), m_shadows.srvCpu());
         const float groundY = m_terrain.heightAtWorld(x, z);
         const float y       = groundY + scale * 0.5f;
         Entity e = world().createEntity();
@@ -982,8 +981,6 @@ void SandboxApp::spawnAnimatedDemo()
         DE_LOG_WARN("SandboxApp: animated glTF '{}' not loaded", kGltf);
         return;
     }
-    model->setShadowSrv(renderer().device(), m_shadows.srvCpu());
-
     AssetRef<AnimGraphDef> graph = assets().tryLoadAnimGraphForModel(kGltf);
     if (!graph)
         DE_LOG_WARN("SandboxApp: '{}' has no anim graph sidecar; clips still play if present", kGltf);
@@ -1317,7 +1314,7 @@ void SandboxApp::drawHealthPacks(ID3D12GraphicsCommandList* cmd, const Matrix4f&
     m_meshPipeline.bind(cmd, renderer().debugState().fill);
     m_shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
     if (m_packMaterial && m_packMaterial->isValid())
-        m_packMaterial->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+        renderer().gpuResources().bindMaterial(cmd, *m_packMaterial, MeshPipeline::kRootAlbedoSrv);
 
     cb.color[0] = 1.0f;
     cb.color[1] = 0.12f;
@@ -1345,7 +1342,7 @@ void SandboxApp::drawHealthPacksGBuffer(ID3D12GraphicsCommandList* cmd, const Ma
     const DebugFill fill = renderer().debugState().fill;
     m_meshPipeline.bind(cmd, fill);
     if (m_packMaterial && m_packMaterial->isValid())
-        m_packMaterial->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+        renderer().gpuResources().bindMaterial(cmd, *m_packMaterial, MeshPipeline::kRootAlbedoSrv);
 
     MeshGBufferConstants cb{};
     cb.color[0] = 1.0f;
@@ -1401,7 +1398,7 @@ void SandboxApp::drawProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix4f&
     m_meshPipeline.bind(cmd, renderer().debugState().fill);
     m_shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
     if (m_tracerMaterial && m_tracerMaterial->isValid())
-        m_tracerMaterial->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+        renderer().gpuResources().bindMaterial(cmd, *m_tracerMaterial, MeshPipeline::kRootAlbedoSrv);
 
     cb.color[0] = 1.0f;
     cb.color[1] = 0.78f;
@@ -1441,7 +1438,7 @@ void SandboxApp::drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Ma
     const DebugFill fill = renderer().debugState().fill;
     m_meshPipeline.bind(cmd, fill);
     if (m_tracerMaterial && m_tracerMaterial->isValid())
-        m_tracerMaterial->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+        renderer().gpuResources().bindMaterial(cmd, *m_tracerMaterial, MeshPipeline::kRootAlbedoSrv);
 
     MeshGBufferConstants cb{};
     cb.color[0] = 1.0f;
@@ -1470,7 +1467,7 @@ void SandboxApp::drawLanternFixtures(ID3D12GraphicsCommandList* cmd, const Matri
     m_meshPipeline.bind(cmd, renderer().debugState().fill);
     m_shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
     if (m_lanternMaterial && m_lanternMaterial->isValid())
-        m_lanternMaterial->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+        renderer().gpuResources().bindMaterial(cmd, *m_lanternMaterial, MeshPipeline::kRootAlbedoSrv);
 
     if (m_lanternMaterial)
         applyMaterialSurface(*m_lanternMaterial, cb);
@@ -1503,7 +1500,7 @@ void SandboxApp::drawLanternFixturesGBuffer(ID3D12GraphicsCommandList* cmd, cons
     const DebugFill fill = renderer().debugState().fill;
     m_meshPipeline.bind(cmd, fill);
     if (m_lanternMaterial && m_lanternMaterial->isValid())
-        m_lanternMaterial->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+        renderer().gpuResources().bindMaterial(cmd, *m_lanternMaterial, MeshPipeline::kRootAlbedoSrv);
 
     MeshGBufferConstants cb{};
     if (m_lanternMaterial)
@@ -2113,6 +2110,7 @@ void SandboxApp::onRender()
         m_imgui.beginFrame();
 
     auto* cmd = renderer().commandList();
+    GpuResourceCache& gpu = renderer().gpuResources();
     if (m_skinRing.isValid())
         m_skinRing.beginFrame(renderer().frameIndex());
 
@@ -2172,12 +2170,12 @@ void SandboxApp::onRender()
                 {
                     const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));
                     if (pose)
-                        drawSkinnedModelDepth(cmd, m_shadows, i, m_skinnedShadowPipeline, m_skinRing, *model, *pose, worldMat);
+                        drawSkinnedModelDepth(cmd, gpu, m_shadows, i, m_skinnedShadowPipeline, m_skinRing, *model, *pose, worldMat);
                     else
-                        drawModelDepth(cmd, m_shadows, i, *model, worldMat);
+                        drawModelDepth(cmd, gpu, m_shadows, i, *model, worldMat);
                 }
                 else
-                    drawModelDepth(cmd, m_shadows, i, *model, worldMat);
+                    drawModelDepth(cmd, gpu, m_shadows, i, *model, worldMat);
             });
         }
         m_shadows.endCapture(cmd);
@@ -2231,7 +2229,7 @@ void SandboxApp::onRender()
         m_terrain.drawGBuffer(cmd, m_terrainPipeline, m_terrainMaterial, m_viewCamera, &frustum, &renderer().debugState(), &prevViewProj);
         m_meshPipeline.bind(cmd, fill);
         if (material && material->isValid())
-            material->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+            renderer().gpuResources().bindMaterial(cmd, *material, MeshPipeline::kRootAlbedoSrv);
         MeshGBufferConstants gcb{};
         if (material)
             applyMaterialSurface(*material, gcb);
@@ -2260,7 +2258,7 @@ void SandboxApp::onRender()
             ++meshDraws;
         });
         if (m_chaseOk)
-            m_chase.drawMeshesGBuffer(cmd, m_meshPipeline, m_viewCamera, prevViewProj, m_cubeMesh, fill);
+            m_chase.drawMeshesGBuffer(cmd, gpu, m_meshPipeline, m_viewCamera, prevViewProj, m_cubeMesh, fill);
         drawHealthPacksGBuffer(cmd, viewProj, prevViewProj);
         drawProjectilesGBuffer(cmd, viewProj, prevViewProj);
         drawLanternFixturesGBuffer(cmd, viewProj, prevViewProj);
@@ -2284,10 +2282,10 @@ void SandboxApp::onRender()
                     ag->prevWorld = worldMat;
                     ag->prevWorldValid = true;
                 }
-                drawSkinnedModelOpaqueGBuffer(cmd, m_skinnedPipeline, m_meshPipeline, m_skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
+                drawSkinnedModelOpaqueGBuffer(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
             }
             else
-                drawModelOpaqueGBuffer(cmd, m_meshPipeline, *model, worldMat, viewProj, prevViewProj, fill);
+                drawModelOpaqueGBuffer(cmd, gpu, m_meshPipeline, *model, worldMat, viewProj, prevViewProj, fill);
         });
 
         renderer().bindHdr(false);
@@ -2325,7 +2323,7 @@ void SandboxApp::onRender()
 
         m_meshPipeline.bind(cmd, fill);
         if (material && material->isValid())
-            material->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+            renderer().gpuResources().bindMaterial(cmd, *material, MeshPipeline::kRootAlbedoSrv);
         m_shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
 
         MeshFrameConstants cb{};
@@ -2364,7 +2362,7 @@ void SandboxApp::onRender()
         });
 
         if (m_chaseOk)
-            m_chase.drawMeshes(cmd, m_meshPipeline, m_shadows, m_viewCamera, cb, m_cubeMesh, fill);
+            m_chase.drawMeshes(cmd, gpu, m_meshPipeline, m_shadows, m_viewCamera, cb, m_cubeMesh, fill);
         drawHealthPacks(cmd, viewProj, cb);
         drawProjectiles(cmd, viewProj, cb);
         drawLanternFixtures(cmd, viewProj, cb);
@@ -2385,10 +2383,10 @@ void SandboxApp::onRender()
                     ag->prevWorld = worldMat;
                     ag->prevWorldValid = true;
                 }
-                drawSkinnedModelForward(cmd, m_skinnedPipeline, m_meshPipeline, m_shadows, m_skinRing, *model, false, *pose, worldMat, viewProj, cb, fill);
+                drawSkinnedModelForward(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_shadows, m_skinRing, *model, false, *pose, worldMat, viewProj, cb, fill);
             }
             else
-                drawModelForward(cmd, m_meshPipeline, m_shadows, *model, false, worldMat, viewProj, cb, fill);
+                drawModelForward(cmd, gpu, m_meshPipeline, m_shadows, *model, false, worldMat, viewProj, cb, fill);
         });
     }
 
@@ -2466,10 +2464,10 @@ void SandboxApp::onRender()
                 const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));
                 if (!pose)
                     return;
-                drawSkinnedModelForward(cmd, m_skinnedTransparentPipeline, m_meshTransparentPipeline, m_shadows, m_skinRing, *model, true, *pose, worldMat, viewProj, lit, fill);
+                drawSkinnedModelForward(cmd, gpu, m_skinnedTransparentPipeline, m_meshTransparentPipeline, m_shadows, m_skinRing, *model, true, *pose, worldMat, viewProj, lit, fill);
             }
             else
-                drawModelForward(cmd, m_meshTransparentPipeline, m_shadows, *model, true, worldMat, viewProj, lit, fill);
+                drawModelForward(cmd, gpu, m_meshTransparentPipeline, m_shadows, *model, true, worldMat, viewProj, lit, fill);
         });
     }
 

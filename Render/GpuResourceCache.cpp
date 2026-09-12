@@ -50,22 +50,29 @@ namespace Dark
         if (it != m_materials.end() && it->second.gpu && it->second.gpu->isValid())
             return true;
 
-        GpuMaterial* gpu = material->gpuMaterial();
-        if (!gpu || !gpu->isValid())
+        if (!material->albedoPtr() || !material->albedoPtr()->valid())
         {
-            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureMaterial: id={} is not packed", material->id);
+            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureMaterial: id={} has no albedo", material->id);
+            return false;
+        }
+        if (!m_renderer || !m_renderer->device())
+        {
+            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureMaterial: no device");
             return false;
         }
 
+        auto gpu = std::make_unique<GpuMaterial>();
+        if (!gpu->pack(m_renderer->device(), *material->albedoPtr()))
+            return false;
+
         registerPackedHeap(&gpu->packedHeap());
-        if (m_shadowCpu.ptr != 0 && m_renderer && m_renderer->device())
+        if (m_shadowCpu.ptr != 0)
             copyShadow(m_renderer->device(), gpu->packedHeap(), m_shadowCpu);
 
         MatEntry entry{};
         entry.cpu = material;
-        entry.gpu = gpu;
-        m_materials[material->id] = entry;
-        material->setGpuCache(this);
+        entry.gpu = std::move(gpu);
+        m_materials[material->id] = std::move(entry);
         return true;
     }
 
@@ -76,7 +83,7 @@ namespace Dark
         const auto it = m_materials.find(materialId);
         if (it == m_materials.end())
             return nullptr;
-        return it->second.gpu;
+        return it->second.gpu.get();
     }
 
     void GpuResourceCache::bindMaterial(ID3D12GraphicsCommandList* cmd, const Material& material, UINT albedoSrvRootIndex) const
@@ -86,7 +93,12 @@ namespace Dark
             gpu->bind(cmd, albedoSrvRootIndex);
             return;
         }
-        material.bind(cmd, albedoSrvRootIndex);
+        static bool logged = false;
+        if (!logged)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::bindMaterial: no GpuMaterial for id={}", material.id);
+            logged = true;
+        }
     }
 
     void GpuResourceCache::setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu)
@@ -110,7 +122,8 @@ namespace Dark
         {
             if (it->second.cpu.expired())
             {
-                // Heap was unregistered in Material::~Material while still alive.
+                if (it->second.gpu)
+                    unregisterPackedHeap(&it->second.gpu->packedHeap());
                 it = m_materials.erase(it);
             }
             else
@@ -120,15 +133,10 @@ namespace Dark
 
     void GpuResourceCache::clear()
     {
-        for (auto& kv : m_materials)
-        {
-            if (AssetRef<Material> mat = kv.second.cpu.lock())
-                mat->setGpuCache(nullptr);
-        }
         m_packedHeaps.clear();
         m_materials.clear();
-        m_shadowCpu      = {};
-        m_shadowPatches  = 0;
+        m_shadowCpu     = {};
+        m_shadowPatches = 0;
     }
 
     GpuResourceCache::Stats GpuResourceCache::stats() const

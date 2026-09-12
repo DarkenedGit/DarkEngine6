@@ -568,7 +568,7 @@ void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld
     }
 }
 
-void PathChase::drawMeshes(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPipe, ShadowSystem& shadows, const Camera3D& camera, const MeshFrameConstants& baseCb, Mesh& cubeMesh, DebugFill fill)
+void PathChase::drawMeshes(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, MeshPipeline& meshPipe, ShadowSystem& shadows, const Camera3D& camera, const MeshFrameConstants& baseCb, Mesh& cubeMesh, DebugFill fill)
 {
     if (!cmd || !cubeMesh.valid())
         return;
@@ -581,8 +581,8 @@ void PathChase::drawMeshes(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPip
     auto drawAt = [&](const Vector3f& p, Mesh& mesh, Material* mat, const Vector3f& scale, float r, float g, float b) {
         if (!mesh.valid())
             return;
-        if (mat && mat->isValid())
-            mat->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+        if (mat)
+            gpu.bindMaterial(cmd, *mat, MeshPipeline::kRootAlbedoSrv);
         cb.color[0] = r;
         cb.color[1] = g;
         cb.color[2] = b;
@@ -667,7 +667,7 @@ void PathChase::expandBounds(AABox3f& bounds) const
     }
 }
 
-void PathChase::drawMeshesGBuffer(ID3D12GraphicsCommandList* cmd, MeshPipeline& meshPipe, const Camera3D& camera, const Matrix4f& prevViewProj, Mesh& cubeMesh, DebugFill fill)
+void PathChase::drawMeshesGBuffer(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, MeshPipeline& meshPipe, const Camera3D& camera, const Matrix4f& prevViewProj, Mesh& cubeMesh, DebugFill fill)
 {
     if (!cmd || !cubeMesh.valid())
         return;
@@ -678,8 +678,8 @@ void PathChase::drawMeshesGBuffer(ID3D12GraphicsCommandList* cmd, MeshPipeline& 
     auto drawAt = [&](const Vector3f& p, const Vector3f& prevP, Mesh& mesh, Material* mat, const Vector3f& scale, float r, float g, float b) {
         if (!mesh.valid())
             return;
-        if (mat && mat->isValid())
-            mat->bind(cmd, MeshPipeline::kRootAlbedoSrv);
+        if (mat)
+            gpu.bindMaterial(cmd, *mat, MeshPipeline::kRootAlbedoSrv);
         cb.color[0] = r;
         cb.color[1] = g;
         cb.color[2] = b;

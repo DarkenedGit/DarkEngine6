@@ -1,10 +1,12 @@
 #pragma once
 
 #include "Assets/AssetHandle.h"
+#include "Render/GpuMaterial.h"
 #include "Render/PackedSrvHeap.h"
 
 #include <cstdint>
 #include <d3d12.h>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -13,10 +15,8 @@ namespace Dark
 
     class Renderer;
     class Material;
-    class GpuMaterial;
 
-    // Upload/bind intern for GPU artifacts. M3b: mesh materials only (bridge).
-    // PackedSrvHeap* entries are non-owning — Material still owns GpuMaterial until M3c.
+    // GPU artifacts for interned CPU materials. Owns GpuMaterial heaps.
     class GpuResourceCache
     {
     public:
@@ -25,7 +25,7 @@ namespace Dark
         GpuResourceCache(const GpuResourceCache&)            = delete;
         GpuResourceCache& operator=(const GpuResourceCache&) = delete;
 
-        // False + log if null, unregistered (id == 0), or not packed. Never inserts key 0.
+        // False + log if null, unregistered (id == 0), or albedo missing. Never inserts key 0.
         bool ensureMaterial(const AssetRef<Material>& material);
 
         GpuMaterial* material(AssetID materialId) const;
@@ -39,8 +39,6 @@ namespace Dark
         void collectUnused();
         void clear();
 
-        void unregisterPackedHeap(PackedSrvHeap* heap);
-
         struct Stats
         {
             uint32_t materials     = 0;
@@ -52,11 +50,12 @@ namespace Dark
     private:
         struct MatEntry
         {
-            AssetWeakRef<Material> cpu;
-            GpuMaterial*           gpu = nullptr; // owned by Material::m_gpu (M3b)
+            AssetWeakRef<Material>        cpu;
+            std::unique_ptr<GpuMaterial>  gpu;
         };
 
         void registerPackedHeap(PackedSrvHeap* heap);
+        void unregisterPackedHeap(PackedSrvHeap* heap);
 
         Renderer*                   m_renderer = nullptr;
         D3D12_CPU_DESCRIPTOR_HANDLE m_shadowCpu{};
