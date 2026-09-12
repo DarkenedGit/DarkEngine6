@@ -1,6 +1,26 @@
 #pragma once
 
 #include "Editor/EditorApp.h"
+
+// SceneRenderer owns shared pipelines; keep existing call sites stable.
+#define m_meshPipeline m_scene.meshPipeline()
+#define m_meshTransparentPipeline m_scene.meshTransparentPipeline()
+#define m_skinnedPipeline m_scene.skinnedPipeline()
+#define m_skinnedTransparentPipeline m_scene.skinnedTransparentPipeline()
+#define m_skinnedShadowPipeline m_scene.skinnedShadowPipeline()
+#define m_skinRing m_scene.skinRing()
+#define m_tonemap m_scene.tonemap()
+#define m_lighting m_scene.lighting()
+#define m_localLightVolumes m_scene.localLightVolumes()
+#define m_localLightGpu m_scene.localLightGpu()
+#define m_pointVolumeMesh m_scene.pointVolumeMesh()
+#define m_spotVolumeMesh m_scene.spotVolumeMesh()
+#define m_bloom m_scene.bloom()
+#define m_motionBlur m_scene.motionBlur()
+#define m_taa m_scene.taa()
+#define m_shadows m_scene.shadows()
+#define m_debugOverlay m_scene.debugOverlay()
+
 #include "Editor/EditorObject.h"
 #include "ECS/Components.h"
 #include "Network/Replication.h"
