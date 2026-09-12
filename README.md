@@ -8,16 +8,30 @@ This is a working engine-in-progress, not a finished product. The README describ
 
 | Target | Kind | Role |
 |--------|------|------|
-| `DarkEngine` | static lib | Engine |
+| `DarkFoundation` | static lib | Math, Collision, ECS, foundation Core (`Log`, `Paths`, `ContentRoots`, `UUID`) |
+| `DarkRender` | static lib | `Render/*` + D3D12 / DXGI / WIC |
+| `DarkAssets` | static lib | `Assets/*` (links `DarkRender`; Model/TextureCache need `Renderer`) |
+| `DarkNet` | static lib | `Network/*` (`ws2_32`) |
+| `DarkEngine` | static lib | Umbrella: remaining folders + `Application` / `Window` / `MemoryTracker`; PUBLIC-links all layers |
 | `Sandbox` | exe | 3D sample (ImGui Dev Tools, networked spawn/draw) |
 | `Sandbox2D` | exe | Side-scrolling 2D sample (Box2D) |
 | `Editor` | exe | ImGui editor (Win32 + DX12), particle panel, Network host/join, mirrors networked objects for draw |
 | `UnitTests` | exe | GoogleTest suite |
 | `VisualDebugger` | exe | Performance and debugging; connect to Sandbox |
 
-Engine folders compiled into `DarkEngine`:
+Hosts still link only `DarkEngine` (`target_link_libraries(... DarkEngine)`). Layer map:
 
-`AI`, `Assets`, `Audio`, `Character`, `Collision`, `Core`, `Debug`, `ECS`, `Geometry`, `Input`, `Math`, `Network`, `Particles`, `Render`, `Scene`, `Sky`, `Sprite`, `Terrain`, `Water`.
+| Folder | Target |
+|--------|--------|
+| `Math`, `Collision`, `ECS` | `DarkFoundation` |
+| `Core` (`Log`, `Paths`, `ContentRoots`, `UUID`) | `DarkFoundation` |
+| `Core` (`Application`, `Window`, `MemoryTracker`, …) | `DarkEngine` |
+| `Render` | `DarkRender` |
+| `Assets` | `DarkAssets` |
+| `Network` | `DarkNet` |
+| `AI`, `Animation`, `Audio`, `Character`, `Debug`, `Input`, `Particles`, `Scene`, `Sky`, `Sprite`, `Terrain`, `Water`, `Weapons` | `DarkEngine` |
+
+`Geometry/` is omitted (empty in-tree; tests live under `UnitTests/Geometry`). Each engine `.cpp` is compiled in exactly one target.
 
 Shared `Ui/` (ImGui helpers / styles) is linked into `Editor`, `VisualDebugger`, and `Sandbox`.
 
