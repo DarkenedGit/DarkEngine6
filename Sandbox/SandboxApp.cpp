@@ -1996,7 +1996,6 @@ void SandboxApp::onInit()
         m_tracerMaterial.reset();
     m_cubeMatId = m_cubeMaterial->id;
 
-    m_terrainMaterial.setShadowSrv(renderer().device(), m_shadows.srvCpu());
     renderer().gpuResources().setShadowSrv(m_shadows.srvCpu());
     renderer().setShadowSrv(m_shadows.srvCpu());
     m_skyPipeline.setShadowSrv(renderer().device(), m_shadows.srvCpu());

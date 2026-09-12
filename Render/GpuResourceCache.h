@@ -48,6 +48,10 @@ namespace Dark
         void collectUnused();
         void clear();
 
+        // Non-asset heaps (terrain). Pointer identity; caller unregisters before the heap moves/dies.
+        void registerPackedHeap(PackedSrvHeap* heap);
+        void unregisterPackedHeap(PackedSrvHeap* heap);
+
         struct Stats
         {
             uint32_t textures      = 0;
@@ -74,9 +78,6 @@ namespace Dark
             AssetWeakRef<Model>       cpu;
             std::unique_ptr<GpuModel> gpu;
         };
-
-        void registerPackedHeap(PackedSrvHeap* heap);
-        void unregisterPackedHeap(PackedSrvHeap* heap);
 
         Renderer*                   m_renderer = nullptr;
         D3D12_CPU_DESCRIPTOR_HANDLE m_shadowCpu{};

@@ -26,6 +26,8 @@ namespace Dark
                 return;
         }
         m_packedHeaps.push_back(heap);
+        if (m_shadowCpu.ptr != 0 && m_renderer && m_renderer->device())
+            copyShadow(m_renderer->device(), *heap, m_shadowCpu);
     }
 
     void GpuResourceCache::unregisterPackedHeap(PackedSrvHeap* heap)
