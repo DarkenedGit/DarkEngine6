@@ -4,7 +4,7 @@
 #include "Animation/Skeleton.h"
 #include "Assets/Material.h"
 #include "Math/Matrix4f.h"
-#include "Render/MeshData.h"
+#include "Assets/MeshData.h"
 
 #include <cstdint>
 #include <filesystem>

@@ -4,7 +4,7 @@
 #include "Assets/GltfLoader.h"
 #include "Assets/Material.h"
 #include "Assets/Model.h"
-#include "Render/MeshData.h"
+#include "Assets/MeshData.h"
 
 using Dark::AssetManager;
 using Dark::GltfCpuModel;

@@ -6,7 +6,7 @@
 #include "Assets/Material.h"
 #include "Math/AABox3f.h"
 #include "Math/Matrix4f.h"
-#include "Render/MeshData.h"
+#include "Assets/MeshData.h"
 
 #include <filesystem>
 #include <optional>

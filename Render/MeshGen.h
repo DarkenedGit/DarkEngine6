@@ -1,12 +1,12 @@
 #pragma once
 
-#include "Render/MeshData.h"
+#include "Assets/MeshData.h"
 
 // ============================================================
 //  MeshGen.h  –  Procedural 3-D mesh generation
 // ============================================================
 //
-//  Every generator fills a MeshData (see MeshData.h):
+//  Every generator fills a MeshData (see Assets/MeshData.h):
 //    positions  – Vector3f vertices  (x, y, z)
 //    normals    – Vector3f per-vertex normals
 //    uvs        – Vector2f texture coordinates

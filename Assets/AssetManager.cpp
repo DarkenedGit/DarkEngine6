@@ -7,9 +7,6 @@
 #include "Assets/Model.h"
 #include "Assets/Material.h"
 #include "Core/Log.h"
-#include "Render/GpuResourceCache.h"
-#include "Render/GpuUpload.h"
-#include "Render/Renderer.h"
 
 #include <fstream>
 #include <memory>
@@ -309,21 +306,6 @@ namespace Dark
                                                           return img;
                                                       });
         return internDecodedImage(key, decoded);
-    }
-
-    std::shared_ptr<Texture2D> AssetManager::loadTexture(Renderer& renderer, const std::string& virtualPath)
-    {
-        return loadAndUploadTexture(renderer, *this, virtualPath);
-    }
-
-    std::shared_ptr<Texture2D> AssetManager::loadSolidTexture(Renderer& renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a)
-    {
-        AssetRef<Image> img = loadSolidImage(r, g, b, a);
-        if (!img)
-            return {};
-        if (!renderer.gpuResources().ensureTexture(img))
-            return {};
-        return renderer.gpuResources().texture(img->id);
     }
 
     AssetRef<AnimationSet> AssetManager::internAnimationSetLocked(const std::string& modelKey, const GltfCpuModel& cpu)

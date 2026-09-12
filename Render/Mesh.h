@@ -1,6 +1,6 @@
 #pragma once
 
-#include "MeshData.h"
+#include "Assets/MeshData.h"
 
 #include <cstdint>
 #include <d3d12.h>

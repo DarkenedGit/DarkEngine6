@@ -167,9 +167,9 @@ endif()
 #
 #   DarkFoundation  (Math, Collision, ECS, foundation Core)
 #        ^
-#        |-- DarkRender   (Render/* + D3D12 stack)
+#        |-- DarkAssets   (Assets/*; WIC decode via windowscodecs + ole32)
 #        |        ^
-#        |        `-- DarkAssets  (Assets/*; links Render — Model/TextureCache need Renderer)
+#        |        `-- DarkRender  (Render/* + D3D12 stack; PUBLIC-links DarkAssets)
 #        |
 #        `-- DarkNet      (Network/*; PRIVATE ws2_32)
 #
@@ -177,28 +177,13 @@ endif()
 #   (AI Animation Audio Character Debug Input Particles Scene Sky Sprite
 #    Terrain Water Weapons + Application/Window/MemoryTracker + content shaders).
 #
-# Note: Render/*.cpp also includes Assets headers (Material/ModelDraw). DarkRender
-# does NOT link DarkAssets (would cycle); unresolved refs resolve at final link
-# via the DarkEngine umbrella. Assets also includes Animation headers while
-# Animation/*.cpp stay in DarkEngine — same final-link pattern.
+#   Assets headers include Animation types; Animation/*.cpp stay in DarkEngine.
+#   Unresolved Animation symbols in DarkAssets resolve at final link.
 
 add_library(DarkFoundation STATIC ${DE_FOUNDATION_SOURCES})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${DE_FOUNDATION_SOURCES})
 de_engine_target_common(DarkFoundation)
 set_target_properties(DarkFoundation PROPERTIES FOLDER "Engine")
-
-add_library(DarkRender STATIC ${DE_RENDER_SOURCES})
-source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${DE_RENDER_SOURCES})
-de_engine_target_common(DarkRender)
-target_link_libraries(DarkRender
-    PUBLIC
-        DarkFoundation
-        d3d12
-        dxgi
-        dxguid
-        d3dcompiler
-)
-set_target_properties(DarkRender PROPERTIES FOLDER "Engine")
 
 add_library(DarkAssets STATIC ${DE_ASSETS_SOURCES})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${DE_ASSETS_SOURCES})
@@ -206,11 +191,24 @@ de_engine_target_common(DarkAssets)
 target_link_libraries(DarkAssets
     PUBLIC
         DarkFoundation
-        DarkRender
         windowscodecs
         ole32
 )
 set_target_properties(DarkAssets PROPERTIES FOLDER "Engine")
+
+add_library(DarkRender STATIC ${DE_RENDER_SOURCES})
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${DE_RENDER_SOURCES})
+de_engine_target_common(DarkRender)
+target_link_libraries(DarkRender
+    PUBLIC
+        DarkFoundation
+        DarkAssets
+        d3d12
+        dxgi
+        dxguid
+        d3dcompiler
+)
+set_target_properties(DarkRender PROPERTIES FOLDER "Engine")
 
 add_library(DarkNet STATIC ${DE_NET_SOURCES})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${DE_NET_SOURCES})

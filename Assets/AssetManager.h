@@ -12,8 +12,6 @@
 namespace Dark
 {
 
-    class Renderer;
-
     class AssetManager
     {
     public:
@@ -57,15 +55,11 @@ namespace Dark
         AssetRef<class Image> loadSolidImage(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
         AssetRef<class Image> loadMemoryImage(const std::string& key, const void* bytes, size_t byteCount);
 
-        // GPU convenience (loadImage + ensureTexture). Prefer loadAndUploadTexture.
-        std::shared_ptr<class Texture2D> loadTexture(Renderer& renderer, const std::string& virtualPath);
-        std::shared_ptr<class Texture2D> loadSolidTexture(Renderer& renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
-
         // Cached glTF / GLB. Same resolved path returns the same Model instance.
         // Interns Model + AnimationSet only. Does not load *.anim.json.
         AssetRef<class Model> loadModel(const std::string& virtualPath);
 
-        // CPU-only. Looks up path + "#anims", or parses the glTF with no Renderer.
+        // CPU-only. Looks up path + "#anims", or parses the glTF.
         // Static meshes (no skin, no clips) return an empty ref (Trace, not Error).
         AssetRef<class AnimationSet> loadAnimationSet(const std::string& virtualPath);
 
