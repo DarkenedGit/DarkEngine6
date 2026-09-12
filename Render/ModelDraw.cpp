@@ -1,6 +1,8 @@
 #include "Render/ModelDraw.h"
 #include "Animation/AnimGraphComponent.h"
+#include "Assets/Material.h"
 #include "Assets/Model.h"
+#include "Render/GpuModel.h"
 #include "Render/MaterialSurface.h"
 #include "Render/ShadowSystem.h"
 
@@ -13,6 +15,26 @@ namespace Dark
 		void copyMatrix(float dst[16], const Matrix4f& m)
 		{
 			std::memcpy(dst, m.m_afEntry, sizeof(float) * 16);
+		}
+
+		GpuModel* requireGpu(GpuResourceCache& gpu, const Model& model)
+		{
+			return gpu.model(model.id);
+		}
+
+		void applyGBufferSurface(GpuResourceCache& gpu, AssetID matId, MeshGBufferConstants& cb)
+		{
+			if (AssetRef<Material> mat = gpu.cpuMaterial(matId))
+				applyMaterialSurface(*mat, cb);
+			else
+			{
+				cb.color[0]  = 1.0f;
+				cb.color[1]  = 1.0f;
+				cb.color[2]  = 1.0f;
+				cb.color[3]  = 0.0f;
+				cb.roughness = 1.0f;
+				cb.metallic  = 0.0f;
+			}
 		}
 	} // namespace
 
@@ -35,31 +57,22 @@ namespace Dark
 		const Matrix4f& prevViewProj,
 		DebugFill fill)
 	{
-		if (!cmd || !model.hasOpaque())
+		GpuModel* gm = requireGpu(gpu, model);
+		if (!cmd || !gm || !gm->hasOpaque())
 			return;
 		pipeline.bind(cmd, fill);
 		const bool points = fill == DebugFill::Points;
-		for (const Model::Part& part : model.opaque())
+		for (const GpuModel::Part& part : gm->opaque())
 		{
 			if (part.skinned || !part.mesh.valid())
 				continue;
 			const Matrix4f w = part.localToRoot * world;
-			if (part.material)
-				gpu.bindMaterial(cmd, *part.material, MeshPipeline::kRootAlbedoSrv);
+			gpu.bindMaterial(cmd, part.materialId, MeshPipeline::kRootAlbedoSrv);
 			MeshGBufferConstants cb{};
 			copyMatrix(cb.worldViewProj, w * viewProj);
 			copyMatrix(cb.world, w);
 			copyMatrix(cb.prevWorldViewProj, w * prevViewProj);
-			if (part.material)
-				applyMaterialSurface(*part.material, cb);
-			else
-			{
-				cb.color[0] = 1.0f;
-				cb.color[1] = 1.0f;
-				cb.color[2] = 1.0f;
-				cb.roughness = part.roughness;
-				cb.metallic  = part.metallic;
-			}
+			applyGBufferSurface(gpu, part.materialId, cb);
 			pipeline.setGBufferConstants(cmd, cb);
 			part.mesh.draw(cmd, points);
 		}
@@ -77,26 +90,26 @@ namespace Dark
 		const MeshFrameConstants& lighting,
 		DebugFill fill)
 	{
-		if (!cmd)
+		GpuModel* gm = requireGpu(gpu, model);
+		if (!cmd || !gm)
 			return;
-		const std::vector<Model::Part>& parts = translucentOnly ? model.translucent() : model.opaque();
+		const std::vector<GpuModel::Part>& parts = translucentOnly ? gm->translucent() : gm->opaque();
 		if (parts.empty())
 			return;
 		pipeline.bind(cmd, fill);
 		shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
 		const bool points = fill == DebugFill::Points;
-		for (const Model::Part& part : parts)
+		for (const GpuModel::Part& part : parts)
 		{
 			if (part.skinned || !part.mesh.valid())
 				continue;
 			const Matrix4f w = part.localToRoot * world;
-			if (part.material)
-				gpu.bindMaterial(cmd, *part.material, MeshPipeline::kRootAlbedoSrv);
+			gpu.bindMaterial(cmd, part.materialId, MeshPipeline::kRootAlbedoSrv);
 			MeshFrameConstants cb = lighting;
 			copyMatrix(cb.worldViewProj, w * viewProj);
 			copyMatrix(cb.world, w);
-			if (part.material)
-				applyMaterialSurface(*part.material, cb);
+			if (AssetRef<Material> mat = gpu.cpuMaterial(part.materialId))
+				applyMaterialSurface(*mat, cb);
 			pipeline.setConstants(cmd, cb);
 			part.mesh.draw(cmd, points);
 		}
@@ -104,15 +117,16 @@ namespace Dark
 
 	void drawModelDepth(
 		ID3D12GraphicsCommandList* cmd,
-		GpuResourceCache& /*gpu*/,
+		GpuResourceCache& gpu,
 		const ShadowSystem& shadows,
 		int cascade,
 		const Model& model,
 		const Matrix4f& world)
 	{
-		if (!cmd || !model.hasOpaque())
+		GpuModel* gm = requireGpu(gpu, model);
+		if (!cmd || !gm || !gm->hasOpaque())
 			return;
-		for (const Model::Part& part : model.opaque())
+		for (const GpuModel::Part& part : gm->opaque())
 		{
 			if (part.skinned || !part.mesh.valid())
 				continue;
@@ -137,11 +151,12 @@ namespace Dark
 		const Matrix4f& prevViewProj,
 		DebugFill fill)
 	{
-		if (!cmd || !model.hasOpaque())
+		GpuModel* gm = requireGpu(gpu, model);
+		if (!cmd || !gm || !gm->hasOpaque())
 			return;
 		const bool points = fill == DebugFill::Points;
 		enum class Bound { None, Skinned, Static } bound = Bound::None;
-		for (const Model::Part& part : model.opaque())
+		for (const GpuModel::Part& part : gm->opaque())
 		{
 			if (!part.mesh.valid())
 				continue;
@@ -161,22 +176,12 @@ namespace Dark
 				skinned.setShadowCbv(cmd, ring.dummyGpuVa());
 				const Matrix4f w = part.localToRoot * world;
 				const Matrix4f pw = part.localToRoot * prevWorld;
-				if (part.material)
-					gpu.bindMaterial(cmd, *part.material, SkinnedMeshPipeline::kRootAlbedoSrv);
+				gpu.bindMaterial(cmd, part.materialId, SkinnedMeshPipeline::kRootAlbedoSrv);
 				MeshGBufferConstants cb{};
 				copyMatrix(cb.worldViewProj, w * viewProj);
 				copyMatrix(cb.world, w);
 				copyMatrix(cb.prevWorldViewProj, pw * prevViewProj);
-				if (part.material)
-					applyMaterialSurface(*part.material, cb);
-				else
-				{
-					cb.color[0] = 1.0f;
-					cb.color[1] = 1.0f;
-					cb.color[2] = 1.0f;
-					cb.roughness = part.roughness;
-					cb.metallic  = part.metallic;
-				}
+				applyGBufferSurface(gpu, part.materialId, cb);
 				skinned.setGBufferConstants(cmd, cb);
 				part.mesh.draw(cmd, points);
 			}
@@ -188,22 +193,12 @@ namespace Dark
 					bound = Bound::Static;
 				}
 				const Matrix4f w = part.localToRoot * world;
-				if (part.material)
-					gpu.bindMaterial(cmd, *part.material, MeshPipeline::kRootAlbedoSrv);
+				gpu.bindMaterial(cmd, part.materialId, MeshPipeline::kRootAlbedoSrv);
 				MeshGBufferConstants cb{};
 				copyMatrix(cb.worldViewProj, w * viewProj);
 				copyMatrix(cb.world, w);
 				copyMatrix(cb.prevWorldViewProj, w * prevViewProj);
-				if (part.material)
-					applyMaterialSurface(*part.material, cb);
-				else
-				{
-					cb.color[0] = 1.0f;
-					cb.color[1] = 1.0f;
-					cb.color[2] = 1.0f;
-					cb.roughness = part.roughness;
-					cb.metallic  = part.metallic;
-				}
+				applyGBufferSurface(gpu, part.materialId, cb);
 				staticPipeline.setGBufferConstants(cmd, cb);
 				part.mesh.draw(cmd, points);
 			}
@@ -225,14 +220,15 @@ namespace Dark
 		const MeshFrameConstants& lighting,
 		DebugFill fill)
 	{
-		if (!cmd)
+		GpuModel* gm = requireGpu(gpu, model);
+		if (!cmd || !gm)
 			return;
-		const std::vector<Model::Part>& parts = translucentOnly ? model.translucent() : model.opaque();
+		const std::vector<GpuModel::Part>& parts = translucentOnly ? gm->translucent() : gm->opaque();
 		if (parts.empty())
 			return;
 		const bool points = fill == DebugFill::Points;
 		enum class Bound { None, Skinned, Static } bound = Bound::None;
-		for (const Model::Part& part : parts)
+		for (const GpuModel::Part& part : parts)
 		{
 			if (!part.mesh.valid())
 				continue;
@@ -251,13 +247,12 @@ namespace Dark
 				skinned.setBoneCbv(cmd, bones);
 				shadows.bindReceiverCbv(cmd, SkinnedMeshPipeline::kRootShadowCbv);
 				const Matrix4f w = part.localToRoot * world;
-				if (part.material)
-					gpu.bindMaterial(cmd, *part.material, SkinnedMeshPipeline::kRootAlbedoSrv);
+				gpu.bindMaterial(cmd, part.materialId, SkinnedMeshPipeline::kRootAlbedoSrv);
 				MeshFrameConstants cb = lighting;
 				copyMatrix(cb.worldViewProj, w * viewProj);
 				copyMatrix(cb.world, w);
-				if (part.material)
-					applyMaterialSurface(*part.material, cb);
+				if (AssetRef<Material> mat = gpu.cpuMaterial(part.materialId))
+					applyMaterialSurface(*mat, cb);
 				skinned.setConstants(cmd, cb);
 				part.mesh.draw(cmd, points);
 			}
@@ -270,13 +265,12 @@ namespace Dark
 					bound = Bound::Static;
 				}
 				const Matrix4f w = part.localToRoot * world;
-				if (part.material)
-					gpu.bindMaterial(cmd, *part.material, MeshPipeline::kRootAlbedoSrv);
+				gpu.bindMaterial(cmd, part.materialId, MeshPipeline::kRootAlbedoSrv);
 				MeshFrameConstants cb = lighting;
 				copyMatrix(cb.worldViewProj, w * viewProj);
 				copyMatrix(cb.world, w);
-				if (part.material)
-					applyMaterialSurface(*part.material, cb);
+				if (AssetRef<Material> mat = gpu.cpuMaterial(part.materialId))
+					applyMaterialSurface(*mat, cb);
 				staticPipeline.setConstants(cmd, cb);
 				part.mesh.draw(cmd, points);
 			}
@@ -285,7 +279,7 @@ namespace Dark
 
 	void drawSkinnedModelDepth(
 		ID3D12GraphicsCommandList* cmd,
-		GpuResourceCache& /*gpu*/,
+		GpuResourceCache& gpu,
 		const ShadowSystem& shadows,
 		int cascade,
 		const SkinnedMeshPipeline& skinnedShadow,
@@ -294,10 +288,11 @@ namespace Dark
 		const AnimPose& pose,
 		const Matrix4f& world)
 	{
-		if (!cmd || !model.hasOpaque())
+		GpuModel* gm = requireGpu(gpu, model);
+		if (!cmd || !gm || !gm->hasOpaque())
 			return;
 		enum class Bound { None, Skinned, Static } bound = Bound::None;
-		for (const Model::Part& part : model.opaque())
+		for (const GpuModel::Part& part : gm->opaque())
 		{
 			if (!part.mesh.valid())
 				continue;

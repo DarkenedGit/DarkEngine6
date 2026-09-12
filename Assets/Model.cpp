@@ -6,10 +6,8 @@
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
 #include "Math/Vector4f.h"
-#include "Render/GpuResourceCache.h"
-#include "Render/Renderer.h"
 
-#include <cstdio>
+#include <memory>
 
 namespace Dark
 {
@@ -19,15 +17,15 @@ namespace Dark
         type = AssetType::Model;
     }
 
-    bool Model::createFromFile(Renderer& renderer, AssetManager& assets, const std::filesystem::path& path)
+    bool Model::createFromFile(AssetManager& assets, const std::filesystem::path& path)
     {
         GltfCpuModel cpu;
         if (!parseGltfFile(path, cpu))
             return false;
-        return createFromParsed(renderer, assets, cpu, path);
+        return createFromParsed(assets, cpu, path);
     }
 
-    bool Model::createFromParsed(Renderer& renderer, AssetManager& assets, const GltfCpuModel& cpu, const std::filesystem::path& path)
+    bool Model::createFromParsed(AssetManager& assets, const GltfCpuModel& cpu, const std::filesystem::path& path)
     {
         m_opaque.clear();
         m_translucent.clear();
@@ -42,19 +40,17 @@ namespace Dark
         for (size_t i = 0; i < cpu.primitives.size(); ++i)
         {
             const GltfCpuPrimitive& src = cpu.primitives[i];
+            if (src.mesh.positions.empty() || src.mesh.indices.empty())
+            {
+                DE_LOG_ERROR("Model: empty mesh for primitive {}", i);
+                continue;
+            }
+
             Part part;
+            part.mesh         = src.mesh;
             part.localToRoot  = src.localToRoot;
             part.translucent  = src.translucent;
             part.skinned      = src.skinned;
-            part.roughness    = src.roughness;
-            part.metallic     = src.metallic;
-            const bool uploaded = src.skinned ? Mesh::tryCreateSkinned(renderer, src.mesh, part.mesh)
-                                              : Mesh::tryCreate(renderer, src.mesh, part.mesh);
-            if (!uploaded)
-            {
-                DE_LOG_ERROR("Model: GPU mesh upload failed for primitive {}", i);
-                continue;
-            }
 
             AssetRef<Image> albedo;
             if (!src.albedoFile.empty())
@@ -74,11 +70,11 @@ namespace Dark
             }
 
             auto mat = std::make_shared<Material>();
-            const bool solidTint = src.albedoFile.empty() && src.albedoBytes.empty();
-            const float cr = solidTint ? 1.0f : src.baseColor[0];
-            const float cg = solidTint ? 1.0f : src.baseColor[1];
-            const float cb = solidTint ? 1.0f : src.baseColor[2];
-            const float ca = solidTint ? 1.0f : src.baseColor[3];
+            const bool  solidTint = src.albedoFile.empty() && src.albedoBytes.empty();
+            const float cr        = solidTint ? 1.0f : src.baseColor[0];
+            const float cg        = solidTint ? 1.0f : src.baseColor[1];
+            const float cb        = solidTint ? 1.0f : src.baseColor[2];
+            const float ca        = solidTint ? 1.0f : src.baseColor[3];
             if (!mat->createFromAlbedoImage(albedo, cr, cg, cb, ca))
             {
                 DE_LOG_ERROR("Model: material create failed for primitive {}", i);
@@ -86,15 +82,10 @@ namespace Dark
             }
             mat->setMetallicRoughness(src.metallic, src.roughness);
             mat->setAlphaMode(src.alphaMode);
-            mat = assets.internMaterial(mat);
+            mat = assets.internMaterial(mat, materialRecipeKey(*mat));
             if (!mat || mat->id == NULL_ASSET)
             {
                 DE_LOG_ERROR("Model: internMaterial failed for primitive {}", i);
-                continue;
-            }
-            if (!renderer.gpuResources().ensureMaterial(mat))
-            {
-                DE_LOG_ERROR("Model: ensureMaterial failed for primitive {}", i);
                 continue;
             }
             part.material = std::move(mat);
@@ -120,7 +111,7 @@ namespace Dark
         {
             const Math::Vector3f c = m_bounds.Center();
             const Math::Vector3f e = m_bounds.Extents() * 1.25f;
-            m_bounds = Math::AABox3f::FromCenterExtents(c, e);
+            m_bounds               = Math::AABox3f::FromCenterExtents(c, e);
         }
         DE_LOG_INFO("Model: '{}' opaque {} translucent {} joints {}", path.string(), m_opaque.size(), m_translucent.size(), jointCount());
         return true;

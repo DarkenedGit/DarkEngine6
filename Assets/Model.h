@@ -3,43 +3,38 @@
 #include "Animation/AnimationSet.h"
 #include "Animation/Skeleton.h"
 #include "Assets/AssetHandle.h"
+#include "Assets/Material.h"
 #include "Math/AABox3f.h"
 #include "Math/Matrix4f.h"
-#include "Assets/Material.h"
-#include "Render/Mesh.h"
+#include "Render/MeshData.h"
 
+#include <filesystem>
 #include <optional>
 #include <vector>
 
 namespace Dark
 {
 
-    class Renderer;
     class AssetManager;
-    class MeshPipeline;
-    class ShadowSystem;
     struct GltfCpuModel;
 
-    // GPU-resident glTF model. One AssetManager load per path; primitives are
-    // split into opaque (G-buffer / deferred) and translucent (forward).
+    // CPU glTF asset. GPU meshes live on GpuModel in GpuResourceCache.
     class Model : public Asset
     {
     public:
         struct Part
         {
-            Mesh                 mesh;
-            AssetRef<Material>   material;
-            Math::Matrix4f       localToRoot;
-            bool                 translucent = false;
-            bool                 skinned     = false;
-            float                roughness   = 1.0f;
-            float                metallic    = 0.0f;
+            MeshData           mesh;
+            AssetRef<Material> material;
+            Math::Matrix4f     localToRoot;
+            bool               translucent = false;
+            bool               skinned     = false;
         };
 
         Model();
 
-        bool createFromFile(Renderer& renderer, AssetManager& assets, const std::filesystem::path& path);
-        bool createFromParsed(Renderer& renderer, AssetManager& assets, const GltfCpuModel& cpu, const std::filesystem::path& path);
+        bool createFromFile(AssetManager& assets, const std::filesystem::path& path);
+        bool createFromParsed(AssetManager& assets, const GltfCpuModel& cpu, const std::filesystem::path& path);
 
         const std::vector<Part>& opaque() const { return m_opaque; }
         const std::vector<Part>& translucent() const { return m_translucent; }
@@ -57,11 +52,11 @@ namespace Dark
         void             setSkeleton(Skeleton skeleton);
 
     private:
-        std::vector<Part>      m_opaque;
-        std::vector<Part>      m_translucent;
-        Math::AABox3f          m_bounds = Math::AABox3f::Empty();
+        std::vector<Part>       m_opaque;
+        std::vector<Part>       m_translucent;
+        Math::AABox3f           m_bounds = Math::AABox3f::Empty();
         std::optional<Skeleton> m_skeleton;
-        AssetRef<AnimationSet> m_animSet;
+        AssetRef<AnimationSet>  m_animSet;
     };
 
 } // namespace Dark

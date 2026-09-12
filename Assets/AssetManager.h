@@ -63,7 +63,7 @@ namespace Dark
 
         // Cached glTF / GLB. Same resolved path returns the same Model instance.
         // Interns Model + AnimationSet only. Does not load *.anim.json.
-        AssetRef<class Model> loadModel(Renderer& renderer, const std::string& virtualPath);
+        AssetRef<class Model> loadModel(const std::string& virtualPath);
 
         // CPU-only. Looks up path + "#anims", or parses the glTF with no Renderer.
         // Static meshes (no skin, no clips) return an empty ref (Trace, not Error).

@@ -58,4 +58,7 @@ namespace Dark
         MaterialAlphaMode m_alphaMode = MaterialAlphaMode::Opaque;
     };
 
+    // "m:{albedoId}:{r}:{g}:{b}:{a}:{metallic}:{roughness}:{alphaMode}"
+    std::string materialRecipeKey(const Material& m);
+
 } // namespace Dark

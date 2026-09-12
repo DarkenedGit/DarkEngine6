@@ -357,7 +357,7 @@ namespace Dark
         return set;
     }
 
-    AssetRef<Model> AssetManager::loadModel(Renderer& renderer, const std::string& virtualPath)
+    AssetRef<Model> AssetManager::loadModel(const std::string& virtualPath)
     {
         const std::filesystem::path path = resolve(virtualPath);
         if (path.empty())
@@ -389,7 +389,7 @@ namespace Dark
             return {};
 
         auto model = std::make_shared<Model>();
-        if (!model->createFromParsed(renderer, *this, cpu, path))
+        if (!model->createFromParsed(*this, cpu, path))
             return {};
 
         std::lock_guard<std::mutex> lock(m_mutex);

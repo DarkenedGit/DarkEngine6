@@ -2,6 +2,7 @@
 
 #include "Assets/AssetHandle.h"
 #include "Render/GpuMaterial.h"
+#include "Render/GpuModel.h"
 #include "Render/PackedSrvHeap.h"
 
 #include <cstdint>
@@ -17,6 +18,7 @@ namespace Dark
     class Material;
     class Image;
     class Texture2D;
+    class Model;
 
     // GPU artifacts for interned CPU materials. Owns GpuMaterial heaps.
     class GpuResourceCache
@@ -29,11 +31,15 @@ namespace Dark
 
         bool ensureTexture(const AssetRef<Image>& image);
         bool ensureMaterial(const AssetRef<Material>& material);
+        bool ensureModel(const AssetRef<Model>& model);
 
         std::shared_ptr<Texture2D> texture(AssetID imageId) const;
         GpuMaterial*               material(AssetID materialId) const;
+        GpuModel*                  model(AssetID modelId) const;
+        AssetRef<Material>         cpuMaterial(AssetID materialId) const;
 
         void bindMaterial(ID3D12GraphicsCommandList* cmd, const Material& material, UINT albedoSrvRootIndex) const;
+        void bindMaterial(ID3D12GraphicsCommandList* cmd, AssetID materialId, UINT albedoSrvRootIndex) const;
 
         // Patches every registered packed heap's shadowSlot. Remembers handle for later ensure*.
         // Does not patch SceneBuffers, sky, or water.
@@ -46,6 +52,7 @@ namespace Dark
         {
             uint32_t textures      = 0;
             uint32_t materials     = 0;
+            uint32_t models        = 0;
             uint32_t packedHeaps   = 0;
             uint32_t shadowPatches = 0;
         };
@@ -62,6 +69,11 @@ namespace Dark
             AssetWeakRef<Material>       cpu;
             std::unique_ptr<GpuMaterial> gpu;
         };
+        struct ModEntry
+        {
+            AssetWeakRef<Model>       cpu;
+            std::unique_ptr<GpuModel> gpu;
+        };
 
         void registerPackedHeap(PackedSrvHeap* heap);
         void unregisterPackedHeap(PackedSrvHeap* heap);
@@ -70,6 +82,7 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE m_shadowCpu{};
         std::unordered_map<AssetID, TexEntry> m_textures;
         std::unordered_map<AssetID, MatEntry> m_materials;
+        std::unordered_map<AssetID, ModEntry> m_models;
         std::vector<PackedSrvHeap*>           m_packedHeaps;
         uint32_t                              m_shadowPatches = 0;
     };

@@ -1,6 +1,7 @@
 #include "Render/GpuUpload.h"
 #include "Assets/AssetManager.h"
 #include "Assets/Image.h"
+#include "Assets/Model.h"
 #include "Render/GpuResourceCache.h"
 #include "Render/Renderer.h"
 #include "Core/Log.h"
@@ -16,6 +17,16 @@ namespace Dark
         if (!renderer.gpuResources().ensureTexture(img))
             return {};
         return renderer.gpuResources().texture(img->id);
+    }
+
+    AssetRef<Model> loadAndUploadModel(Renderer& renderer, AssetManager& assets, const std::string& virtualPath)
+    {
+        AssetRef<Model> model = assets.loadModel(virtualPath);
+        if (!model || !model->valid())
+            return {};
+        if (!renderer.gpuResources().ensureModel(model))
+            return {};
+        return model;
     }
 
 } // namespace Dark

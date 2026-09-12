@@ -81,7 +81,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                     return;
                 const auto* xf = world().get<TransformComponent>(e);
                 const auto model = assets().getAs<Model>(mc.modelAssetID);
-                if (!xf || !model || !model->valid())
+                if (!xf || !model || !model->valid() || !gpu.ensureModel(model))
                     return;
                 const Matrix4f worldMat = makeWorldMatrix(*xf);
                 if (model->skinned())
@@ -270,7 +270,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             const auto* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
-            if (!xf || !model || !model->hasOpaque())
+            if (!xf || !model || !model->hasOpaque() || !gpu.ensureModel(model))
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
             if (model->skinned())
@@ -312,7 +312,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             const auto* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
-            if (!xf || !model || !model->hasOpaque())
+            if (!xf || !model || !model->hasOpaque() || !gpu.ensureModel(model))
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
             if (model->skinned())
@@ -384,7 +384,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             const auto* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
-            if (!xf || !model || !model->hasTranslucent())
+            if (!xf || !model || !model->hasTranslucent() || !gpu.ensureModel(model))
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
             if (model->skinned())

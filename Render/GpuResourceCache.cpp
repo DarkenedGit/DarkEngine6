@@ -1,7 +1,9 @@
 #include "Render/GpuResourceCache.h"
 #include "Assets/Image.h"
 #include "Assets/Material.h"
+#include "Assets/Model.h"
 #include "Render/GpuMaterial.h"
+#include "Render/Mesh.h"
 #include "Render/Renderer.h"
 #include "Render/Texture2D.h"
 #include "Core/Log.h"
@@ -110,6 +112,63 @@ namespace Dark
         return true;
     }
 
+    bool GpuResourceCache::ensureModel(const AssetRef<Model>& model)
+    {
+        if (!model || model->id == NULL_ASSET)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureModel: null or unregistered model");
+            return false;
+        }
+        const auto existing = m_models.find(model->id);
+        if (existing != m_models.end() && existing->second.gpu && existing->second.gpu->valid())
+            return true;
+        if (!m_renderer)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureModel: no renderer");
+            return false;
+        }
+
+        auto gpu = std::make_unique<GpuModel>();
+        auto upload = [&](const std::vector<Model::Part>& src, std::vector<GpuModel::Part>& dst) {
+            for (size_t i = 0; i < src.size(); ++i)
+            {
+                const Model::Part& part = src[i];
+                if (part.mesh.positions.empty() || part.mesh.indices.empty())
+                    continue;
+                if (part.material && !ensureMaterial(part.material))
+                {
+                    DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureModel: material upload failed for part {}", i);
+                    continue;
+                }
+                GpuModel::Part gp;
+                const bool ok = part.skinned ? Mesh::tryCreateSkinned(*m_renderer, part.mesh, gp.mesh)
+                                             : Mesh::tryCreate(*m_renderer, part.mesh, gp.mesh);
+                if (!ok)
+                {
+                    DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureModel: mesh upload failed for part {}", i);
+                    continue;
+                }
+                gp.materialId  = part.material ? part.material->id : NULL_ASSET;
+                gp.localToRoot = part.localToRoot;
+                gp.translucent = part.translucent;
+                gp.skinned     = part.skinned;
+                dst.push_back(std::move(gp));
+            }
+        };
+        upload(model->opaque(), gpu->m_opaque);
+        upload(model->translucent(), gpu->m_translucent);
+        if (!gpu->valid())
+        {
+            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureModel: id={} has no drawable GPU parts", model->id);
+            return false;
+        }
+        ModEntry entry{};
+        entry.cpu = model;
+        entry.gpu = std::move(gpu);
+        m_models[model->id] = std::move(entry);
+        return true;
+    }
+
     std::shared_ptr<Texture2D> GpuResourceCache::texture(AssetID imageId) const
     {
         if (imageId == NULL_ASSET)
@@ -130,6 +189,26 @@ namespace Dark
         return it->second.gpu.get();
     }
 
+    GpuModel* GpuResourceCache::model(AssetID modelId) const
+    {
+        if (modelId == NULL_ASSET)
+            return nullptr;
+        const auto it = m_models.find(modelId);
+        if (it == m_models.end())
+            return nullptr;
+        return it->second.gpu.get();
+    }
+
+    AssetRef<Material> GpuResourceCache::cpuMaterial(AssetID materialId) const
+    {
+        if (materialId == NULL_ASSET)
+            return {};
+        const auto it = m_materials.find(materialId);
+        if (it == m_materials.end())
+            return {};
+        return it->second.cpu.lock();
+    }
+
     void GpuResourceCache::bindMaterial(ID3D12GraphicsCommandList* cmd, const Material& material, UINT albedoSrvRootIndex) const
     {
         if (GpuMaterial* gpu = this->material(material.id))
@@ -141,6 +220,23 @@ namespace Dark
         if (!logged)
         {
             DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::bindMaterial: no GpuMaterial for id={}", material.id);
+            logged = true;
+        }
+    }
+
+    void GpuResourceCache::bindMaterial(ID3D12GraphicsCommandList* cmd, AssetID materialId, UINT albedoSrvRootIndex) const
+    {
+        if (GpuMaterial* gpu = material(materialId))
+        {
+            gpu->bind(cmd, albedoSrvRootIndex);
+            return;
+        }
+        if (materialId == NULL_ASSET)
+            return;
+        static bool logged = false;
+        if (!logged)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::bindMaterial: no GpuMaterial for id={}", materialId);
             logged = true;
         }
     }
@@ -162,6 +258,13 @@ namespace Dark
 
     void GpuResourceCache::collectUnused()
     {
+        for (auto it = m_models.begin(); it != m_models.end();)
+        {
+            if (it->second.cpu.expired())
+                it = m_models.erase(it);
+            else
+                ++it;
+        }
         for (auto it = m_materials.begin(); it != m_materials.end();)
         {
             if (it->second.cpu.expired())
@@ -187,6 +290,7 @@ namespace Dark
     void GpuResourceCache::clear()
     {
         m_packedHeaps.clear();
+        m_models.clear();
         m_materials.clear();
         m_textures.clear();
         m_shadowCpu     = {};
@@ -198,6 +302,7 @@ namespace Dark
         Stats s{};
         s.textures      = static_cast<uint32_t>(m_textures.size());
         s.materials     = static_cast<uint32_t>(m_materials.size());
+        s.models        = static_cast<uint32_t>(m_models.size());
         s.packedHeaps   = static_cast<uint32_t>(m_packedHeaps.size());
         s.shadowPatches = m_shadowPatches;
         return s;

@@ -23,6 +23,7 @@
 #include "Render/ModelDraw.h"
 #include "Render/MaterialSurface.h"
 #include "Render/GpuResourceCache.h"
+#include "Render/GpuUpload.h"
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
@@ -941,7 +942,7 @@ void SandboxApp::updateFlashlight()
 void SandboxApp::spawnGltfDemo()
 {
     auto spawn = [&](const char* virtualPath, const char* tag, float x, float z, float scale) {
-        AssetRef<Model> model = assets().loadModel(renderer(), virtualPath);
+        AssetRef<Model> model = loadAndUploadModel(renderer(), assets(), virtualPath);
         if (!model || !model->valid())
         {
             DE_LOG_WARN("SandboxApp: glTF '{}' not loaded", virtualPath);
@@ -975,7 +976,7 @@ void SandboxApp::onWiggleNotify(void*, const AnimNotify& n)
 void SandboxApp::spawnAnimatedDemo()
 {
     constexpr const char* kGltf = "models/wiggle.gltf";
-    AssetRef<Model> model = assets().loadModel(renderer(), kGltf);
+    AssetRef<Model> model = loadAndUploadModel(renderer(), assets(), kGltf);
     if (!model || !model->valid())
     {
         DE_LOG_WARN("SandboxApp: animated glTF '{}' not loaded", kGltf);
@@ -2163,7 +2164,7 @@ void SandboxApp::onRender()
                     return;
                 const TransformComponent* xf = world().get<TransformComponent>(e);
                 const auto model = assets().getAs<Model>(mc.modelAssetID);
-                if (!xf || !model || !model->valid())
+                if (!xf || !model || !model->valid() || !gpu.ensureModel(model))
                     return;
                 const Matrix4f worldMat = makeWorldMatrix(*xf);
                 if (model->skinned())
@@ -2265,7 +2266,7 @@ void SandboxApp::onRender()
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             const TransformComponent* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
-            if (!xf || !model || !model->hasOpaque())
+            if (!xf || !model || !model->hasOpaque() || !gpu.ensureModel(model))
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
             if (model->skinned())
@@ -2369,7 +2370,7 @@ void SandboxApp::onRender()
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             const TransformComponent* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
-            if (!xf || !model || !model->hasOpaque())
+            if (!xf || !model || !model->hasOpaque() || !gpu.ensureModel(model))
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
             if (model->skinned())
@@ -2456,7 +2457,7 @@ void SandboxApp::onRender()
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             const TransformComponent* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
-            if (!xf || !model || !model->hasTranslucent())
+            if (!xf || !model || !model->hasTranslucent() || !gpu.ensureModel(model))
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
             if (model->skinned())
