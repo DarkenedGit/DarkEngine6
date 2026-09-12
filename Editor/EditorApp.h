@@ -4,27 +4,15 @@
 #include "Render/Mesh.h"
 #include "Render/LineMesh.h"
 #include "Assets/Model.h"
-#include "Render/MeshPipeline.h"
-#include "Render/SkinnedMeshPipeline.h"
-#include "Render/SkinningUploadRing.h"
 #include "Render/ModelDraw.h"
 #include "Render/LinePipeline.h"
-#include "Render/TonemapPipeline.h"
-#include "Render/DeferredLightingPipeline.h"
-#include "Render/LocalLightGpuList.h"
-#include "Render/LocalLightVolumePipeline.h"
-#include "Render/BloomPipeline.h"
-#include "Render/MotionBlurPipeline.h"
-#include "Render/TaaPipeline.h"
+#include "Render/SceneRenderer.h"
 #include "Render/Camera3D.h"
 #include "Render/Camera2D.h"
-#include "Render/ShadowSystem.h"
-#include "Render/DebugOverlay.h"
 #include "Render/Material.h"
 #include "Render/SpritePipeline.h"
 #include "Render/Texture2D.h"
 #include "Scene/SceneTypes.h"
-#include "Editor/EditorObject.h"
 #include "Math/AABox2f.h"
 #include "Editor/EditorImGui.h"
 #include "Editor/ParticleEditorPanel.h"
@@ -111,6 +99,9 @@ private:
     void drawNetworkMenu();
     void drawDebugMenu();
 
+    // Ensure every NetworkedComponent has a SceneObject row (draw/selection).
+    void mirrorNetworkedObjects();
+
     static bool onNetSpawn(World& world, Entity e, NetPrefab prefab, const TransformComponent& xf, uint32_t colorRgba8, void* user);
     static void onNetDespawn(World& world, Entity e, NetId id, void* user);
     static void onNetPeer(const NetPeerInfo& info, NetPeerEvent event, void* user);
@@ -121,36 +112,19 @@ private:
 
     ParticleEmitterDesc makeDefaultParticleDesc() const;
     void applyParticleDescToEmitter(int emitterIndex, const ParticleEmitterDesc& desc);
-    void fillParticleDescFromEmitter(int emitterIndex, const ParticleEmitterDesc& out) const;
+    void fillParticleDescFromEmitter(int emitterIndex, ParticleEmitterDesc& out) const;
     void syncSelectedEmitterFromUi();
 
     const Mesh* meshForType(SceneObjectType type) const;
-    EditorObjectComponent* findObject(Entity e);
-    uint32_t editorObjectCount();
-    void collectEditorEntities(std::vector<Entity>& out);
+    SceneObject* findObject(Entity e);
+    const SceneObject* findObject(Entity e) const;
     ParticleEmitter* selectedEmitter();
 
     static float snap(float v, float grid);
 
-    MeshPipeline    m_meshPipeline;
-    MeshPipeline    m_meshTransparentPipeline;
-    SkinnedMeshPipeline m_skinnedPipeline;
-    SkinnedMeshPipeline m_skinnedTransparentPipeline;
-    SkinnedMeshPipeline m_skinnedShadowPipeline;
-    SkinningUploadRing  m_skinRing;
+    SceneRenderer   m_scene;
     LinePipeline    m_linePipeline;
     LinePipeline    m_linePipeline3D;
-    TonemapPipeline          m_tonemap;
-    DeferredLightingPipeline m_lighting;
-    LocalLightVolumePipeline m_localLightVolumes;
-    LocalLightGpuList        m_localLightGpu;
-    Mesh                     m_pointVolumeMesh;
-    Mesh                     m_spotVolumeMesh;
-    BloomPipeline            m_bloom;
-    MotionBlurPipeline       m_motionBlur;
-    TaaPipeline              m_taa;
-    DebugOverlay             m_debugOverlay;
-    ShadowSystem    m_shadows;
 
     Mesh m_cubeMesh;
     Mesh m_sphereMesh;
@@ -163,13 +137,6 @@ private:
     AssetRef<Material> m_groundMaterial;
 
     Camera3D m_camera;
-    Math::Matrix4f m_prevViewProj{};
-    bool                 m_havePrevViewProj = false;
-    bool                 m_taaHistoryValid  = false;
-    uint32_t             m_taaHistoryW      = 0;
-    uint32_t             m_taaHistoryH      = 0;
-    uint32_t             m_bloomW           = 0;
-    uint32_t             m_bloomH           = 0;
     Camera2D m_camera2D;
     SceneMode m_sceneMode = SceneMode::Scene3D;
 
@@ -188,6 +155,7 @@ private:
     int                  m_panMouseX = 0;
     int                  m_panMouseY = 0;
 
+    std::vector<SceneObject>                   m_objects;
     std::vector<std::unique_ptr<ParticleEmitter>> m_emitters;
     ParticleRenderer                           m_particleRenderer;
     Entity                                     m_selected{};
