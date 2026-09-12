@@ -26,10 +26,9 @@ namespace Dark
     // * Sandbox / Sandbox2D: draw path iterates ECS (`each<NetworkedComponent>` or
     //   the 2D parallel arrays filled by NetSpawnFn). NetSpawnFn must attach any
     //   components the draw path expects (e.g. MeshComponent).
-    // * Editor: `m_objects` is selection / JSON metadata. Before any mesh/sprite
-    //   draw or shadow pass, mirror every NetworkedComponent into `m_objects`
-    //   (see EditorApp::mirrorNetworkedObjects). NetSpawnFn does the same for the
-    //   inbound entity. Do not rely on World alone for Editor visibility.
+    // * Editor: World is the only live graph. NetSpawnFn must attach MeshComponent
+    //   (draw) and EditorObjectComponent (selection / outliner / type / tint).
+    //   Do not maintain a parallel m_objects vector.
     //
     // Spawning into World without satisfying the above produces an invisible replica.
 
