@@ -96,6 +96,10 @@ bool PathChase::bake(Terrain::TerrainWorld& terrain, WaterWorld& water)
 
 bool PathChase::init(Renderer& renderer, Terrain::TerrainWorld& terrain, WaterWorld& water, World& world, Mesh&, AssetRef<Material> trunkMat, AssetRef<Material> canopyMat, AssetRef<Material> aiMat)
 {
+    m_hunterHit.stunSeconds       = 0.45f;
+    m_hunterHit.knockbackDistance = 2.2f;
+    m_hunterHit.knockbackSeconds  = 0.18f;
+    m_hunterHit.horizontalOnly    = true;
     m_trunkMat  = trunkMat;
     m_canopyMat = canopyMat;
     m_aiMat     = aiMat;
@@ -199,6 +203,8 @@ bool PathChase::spawnAgents(Terrain::TerrainWorld& terrain)
             hs.regenPerSec = 5.0f;
             hs.regenDelay  = 4.0f;
             a.health       = Health{ hs };
+            a.hit.setSettings(m_hunterHit);
+            a.hit.reset();
             if (!a.brain.start())
             {
                 DE_LOG_ERROR(LogCategory::AI, "PathChase: hunter brain start failed");
@@ -301,6 +307,38 @@ void PathChase::follow(Agent& a, float dt, Terrain::TerrainWorld& terrain)
     a.pos.y = terrain.heightAtWorld(a.pos.x, a.pos.z) + 1.0f;
 }
 
+void PathChase::integrateHitReaction(Agent& a, float dt, Terrain::TerrainWorld& terrain)
+{
+    const Vector3f d = a.hit.tick(dt);
+    if (d.MagnitudeSqrd() < 1.0e-10f)
+        return;
+
+    const float nx = a.pos.x + d.x;
+    const float nz = a.pos.z + d.z;
+    if (!m_walk.valid())
+    {
+        a.pos.x = nx;
+        a.pos.z = nz;
+    }
+    else if (m_walk.walkableWorld(nx, nz))
+    {
+        a.pos.x = nx;
+        a.pos.z = nz;
+    }
+    else if (m_walk.walkableWorld(nx, a.pos.z))
+        a.pos.x = nx;
+    else if (m_walk.walkableWorld(a.pos.x, nz))
+        a.pos.z = nz;
+
+    a.pos.y = terrain.heightAtWorld(a.pos.x, a.pos.z) + 1.0f;
+    Vector3f face{ d.x, 0.0f, d.z };
+    if (face.MagnitudeSqrd() > 1.0e-8f)
+    {
+        face.Normalize();
+        a.forward = face;
+    }
+}
+
 void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld& terrain, Entity hostPawn, bool playerInWater)
 {
     m_time += dt;
@@ -338,6 +376,7 @@ void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld
         Agent& a = m_agents[static_cast<size_t>(i)];
         if (!a.health.alive())
             continue;
+        integrateHitReaction(a, dt, terrain);
         const float dx = a.pos.x - m_walkerPos.x;
         const float dz = a.pos.z - m_walkerPos.z;
         const bool  standoff = (dx * dx + dz * dz) <= kStandoff * kStandoff;
@@ -356,6 +395,8 @@ void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld
             a.hasLastSeen  = true;
         }
         a.brain.tick(dt, sees, playerWet);
+        if (a.hit.stunned())
+            continue;
 
         if (standoff)
         {
@@ -662,9 +703,34 @@ bool PathChase::applyHunterDamage(int i, float amount)
         a.deadFor = 0.0f;
         a.path.points.clear();
         a.waypoint = 0;
+        a.hit.reset();
         DE_LOG_INFO(LogCategory::AI, "Hunter {} down", i);
     }
     return a.health.hp() < before;
+}
+
+void PathChase::applyHunterHitReaction(int i, const Vector3f& hitDirection)
+{
+    if (i < 0 || i >= kHunterCount)
+        return;
+    Agent& a = m_agents[static_cast<size_t>(i)];
+    if (!a.health.alive())
+        return;
+    a.hit.apply(hitDirection);
+}
+
+void PathChase::setHunterHitReaction(const HitReactionSettings& settings)
+{
+    m_hunterHit = settings;
+    for (Agent& a : m_agents)
+        a.hit.setSettings(m_hunterHit);
+}
+
+bool PathChase::hunterStunned(int i) const
+{
+    if (i < 0 || i >= kHunterCount)
+        return false;
+    return m_agents[static_cast<size_t>(i)].hit.stunned();
 }
 
 void PathChase::tickHunterHealth(float dt)
@@ -700,6 +766,8 @@ void PathChase::tickHunterHealth(float dt)
         if (!placed)
             continue;
         a.health.revive();
+        a.hit.setSettings(m_hunterHit);
+        a.hit.reset();
         a.deadFor     = 0.0f;
         a.path.points.clear();
         a.waypoint    = 0;

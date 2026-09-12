@@ -110,6 +110,7 @@ TEST(MeleeWeapon, HitsTargetInFrontAndReportsDamage)
     EXPECT_TRUE(log.hits[0].hitTarget);
     EXPECT_EQ(log.hits[0].targetIndex, 0);
     EXPECT_FLOAT_EQ(log.hits[0].damage, 16.0f);
+    EXPECT_NEAR(log.hits[0].direction.z, 1.0f, 1.0e-4f);
     EXPECT_FALSE(w.canFire());
 }
 
@@ -144,6 +145,7 @@ TEST(ProjectileWeapon, InstantHitsTargetAlongAim)
     EXPECT_TRUE(log.hits[0].hitTarget);
     EXPECT_FLOAT_EQ(log.hits[0].damage, 24.0f);
     EXPECT_EQ(log.hits[0].weapon, WeaponKind::Projectile);
+    EXPECT_NEAR(log.hits[0].direction.z, 1.0f, 1.0e-4f);
 }
 
 TEST(ProjectileWeapon, InstantHitsGroundWhenNoTarget)

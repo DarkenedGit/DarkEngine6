@@ -77,6 +77,7 @@ namespace Dark
         WeaponHit out = hit;
         out.damage    = m_desc.damage;
         out.weapon    = WeaponKind::Projectile;
+        out.direction = normalizeOr(fallbackDir, Vector3f{ 0.0f, 0.0f, 1.0f });
         if (out.normal.MagnitudeSqrd() < 1.0e-8f)
             out.normal = normalizeOr(-fallbackDir, Vector3f{ 0.0f, 1.0f, 0.0f });
 

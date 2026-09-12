@@ -4,6 +4,7 @@
 #include "AI/Pathfinder.h"
 #include "AI/Walkability.h"
 #include "Character/Health.h"
+#include "Character/HitReaction.h"
 #include "ECS/Entity.h"
 #include "Math/AABox3f.h"
 #include "Math/Matrix4f.h"
@@ -56,6 +57,10 @@ namespace Dark
         bool hunterAlive(int i) const;
         const Math::Vector3f& hunterPos(int i) const;
         bool applyHunterDamage(int i, float amount);
+        void applyHunterHitReaction(int i, const Math::Vector3f& hitDirection);
+        void setHunterHitReaction(const HitReactionSettings& settings);
+        const HitReactionSettings& hunterHitReaction() const { return m_hunterHit; }
+        bool hunterStunned(int i) const;
         void tickHunterHealth(float dt);
 
     private:
@@ -72,6 +77,7 @@ namespace Dark
             bool               givenUp  = false;
             bool               hasLastSeen = false;
             Health             health;
+            HitReaction        hit;
             float              deadFor = 0.0f;
         };
 
@@ -79,6 +85,7 @@ namespace Dark
         bool spawnWalker(World& world, Terrain::TerrainWorld& terrain);
         bool spawnAgents(Terrain::TerrainWorld& terrain);
         void follow(Agent& a, float dt, Terrain::TerrainWorld& terrain);
+        void integrateHitReaction(Agent& a, float dt, Terrain::TerrainWorld& terrain);
         void repath(Agent& a, int self, float now, float destX, float destZ);
         bool pickWanderDest(Agent& a);
         bool createLineBuffers(Renderer& renderer);
@@ -97,6 +104,7 @@ namespace Dark
         float           m_time = 0.0f;
         float           m_agentR = 0.8f;
         bool            m_drawWalker = true;
+        HitReactionSettings m_hunterHit{};
 
         Mesh               m_trunkMesh;
         Mesh               m_canopyMesh;

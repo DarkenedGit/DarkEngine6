@@ -600,10 +600,11 @@ void SandboxApp::updatePossessed(float dt)
         m_havePlayerSpawn = true;
     }
 
+    const bool canSteer = m_playerHealth.alive() && !m_playerHit.stunned();
     PlayerMotorInput motorIn{};
-    motorIn.wish        = m_playerHealth.alive() ? wish : Vector3f{ 0.0f, 0.0f, 0.0f };
-    motorIn.sprint      = m_playerHealth.alive() && !uiKeys && input().actionDown("sprint");
-    motorIn.jumpPressed = m_playerHealth.alive() && !uiKeys && input().actionPressed("jump");
+    motorIn.wish        = canSteer ? wish : Vector3f{ 0.0f, 0.0f, 0.0f };
+    motorIn.sprint      = canSteer && !uiKeys && input().actionDown("sprint");
+    motorIn.jumpPressed = canSteer && !uiKeys && input().actionPressed("jump");
 
     struct HeightCtx
     {
@@ -619,6 +620,7 @@ void SandboxApp::updatePossessed(float dt)
 
     const Vector3f before = xf->position;
     const PlayerMotorResult motorOut = m_motor.tick(xf->position, motorIn, dt, ground);
+    xf->position += m_playerHit.tick(dt);
 
     Vector3f delta{ xf->position.x - before.x, 0.0f, xf->position.z - before.z };
     if (delta.MagnitudeSqrd() > 1.0e-10f)
@@ -638,6 +640,8 @@ void SandboxApp::updatePossessed(float dt)
         if (dt > 1.0e-4f)
             m_motor.setHorizontalVelocity(delta.x / dt, delta.z / dt);
     }
+    if (m_motor.state() == PlayerMoveState::Grounded)
+        xf->position.y = m_terrain.heightAtWorld(xf->position.x, xf->position.z) + m_motor.settings().groundOffset;
 
     m_playerWet = m_motor.state() == PlayerMoveState::Swimming;
 
@@ -687,6 +691,7 @@ void SandboxApp::respawnPlayer()
         xf->position = m_playerSpawn;
     m_motor.reset();
     m_playerHealth.revive();
+    m_playerHit.reset();
     m_playerWet        = false;
     m_playerDeadTimer  = 0.0f;
     m_spawnAge         = 0.0f;
@@ -780,6 +785,7 @@ void SandboxApp::onWeaponHit(const WeaponHit& hit)
     const bool wasAlive = m_chase.hunterAlive(hit.targetIndex);
     if (!m_chase.applyHunterDamage(hit.targetIndex, hit.damage))
         return;
+    m_chase.applyHunterHitReaction(hit.targetIndex, hit.direction);
     audio().play3D(m_sfxPain, hit.point, 0.75f);
     spawnHunterBlood(hit.point);
     if (wasAlive && !m_chase.hunterAlive(hit.targetIndex))
@@ -841,6 +847,22 @@ void SandboxApp::updateCombat(float dt)
         {
             audio().play2D(m_sfxPain, 0.7f);
             m_hurtSoundTimer = 0.40f;
+            Vector3f away{ 0.0f, 0.0f, 0.0f };
+            float    best = kStandoff * kStandoff;
+            for (int i = 0; i < m_chase.hunterCount(); ++i)
+            {
+                if (!m_chase.hunterAlive(i))
+                    continue;
+                const Vector3f& hp = m_chase.hunterPos(i);
+                const float dx = hp.x - xf->position.x;
+                const float dz = hp.z - xf->position.z;
+                const float d2 = dx * dx + dz * dz;
+                if (d2 > best)
+                    continue;
+                best = d2;
+                away = Vector3f{ -dx, 0.0f, -dz };
+            }
+            m_playerHit.apply(away);
         }
     }
 
@@ -2073,6 +2095,14 @@ void SandboxApp::onInit()
     playerHp.regenPerSec = 10.0f;
     playerHp.regenDelay  = 3.5f;
     m_playerHealth       = Health{ playerHp };
+    {
+        HitReactionSettings hit{};
+        hit.stunSeconds       = 0.28f;
+        hit.knockbackDistance = 1.1f;
+        hit.knockbackSeconds  = 0.14f;
+        hit.horizontalOnly    = true;
+        m_playerHit.setSettings(hit);
+    }
     placeHealthPacks();
     spawnHybridLocalLights();
 }

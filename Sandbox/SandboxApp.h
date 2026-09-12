@@ -29,6 +29,7 @@
 #include "Water/Water.h"
 #include "Audio/SoundClip.h"
 #include "Character/Health.h"
+#include "Character/HitReaction.h"
 #include "Character/PlayerMotor.h"
 #include "Render/HealthHud.h"
 #include "Render/CrosshairHud.h"
@@ -189,6 +190,7 @@ private:
     uint32_t      m_waterVoice     = 0;
     Dark::PlayerMotor                m_motor;
     Dark::Health                     m_playerHealth;
+    Dark::HitReaction                m_playerHit;
     Dark::HealthHud                  m_healthHud;
     Dark::Math::Vector3f             m_playerSpawn{ 0.0f, 0.5f, 0.0f };
     bool                             m_havePlayerSpawn = false;

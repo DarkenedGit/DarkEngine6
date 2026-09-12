@@ -20,6 +20,7 @@ namespace Dark
     {
         Math::Vector3f point{};
         Math::Vector3f normal{ 0.0f, 1.0f, 0.0f };
+        Math::Vector3f direction{ 0.0f, 0.0f, 1.0f }; // incoming attack, attacker -> victim
         float          damage       = 0.0f;
         int            targetIndex  = -1;
         bool           hitTarget    = false;

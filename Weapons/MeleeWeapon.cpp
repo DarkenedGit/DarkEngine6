@@ -55,6 +55,7 @@ namespace Dark
             WeaponHit hit{};
             hit.point       = center;
             hit.normal      = -look;
+            hit.direction   = look;
             hit.damage      = m_desc.damage;
             hit.targetIndex = i;
             hit.hitTarget   = true;

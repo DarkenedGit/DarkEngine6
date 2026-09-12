@@ -252,6 +252,32 @@ void SandboxApp::drawDevTools()
         }
     }
 
+    if (ImGui::CollapsingHeader("Hit reaction"))
+    {
+        HitReactionSettings player = m_playerHit.settings();
+        ImGui::TextUnformatted("Player");
+        ImGui::SliderFloat("Player stun (s)", &player.stunSeconds, 0.0f, 2.0f, "%.2f");
+        ImGui::SliderFloat("Player knockback (m)", &player.knockbackDistance, 0.0f, 6.0f, "%.2f");
+        ImGui::SliderFloat("Player knockback time (s)", &player.knockbackSeconds, 0.0f, 1.0f, "%.2f");
+        ImGui::Checkbox("Player horizontal only", &player.horizontalOnly);
+        m_playerHit.setSettings(player);
+        if (m_playerHit.stunned())
+            ImGui::TextDisabled("stunned %.2fs", static_cast<double>(m_playerHit.stunRemaining()));
+
+        if (m_chaseOk)
+        {
+            ImGui::Separator();
+            HitReactionSettings hunter = m_chase.hunterHitReaction();
+            ImGui::TextUnformatted("Hunters");
+            const bool chStun = ImGui::SliderFloat("Hunter stun (s)", &hunter.stunSeconds, 0.0f, 2.0f, "%.2f");
+            const bool chKb   = ImGui::SliderFloat("Hunter knockback (m)", &hunter.knockbackDistance, 0.0f, 8.0f, "%.2f");
+            const bool chTime = ImGui::SliderFloat("Hunter knockback time (s)", &hunter.knockbackSeconds, 0.0f, 1.0f, "%.2f");
+            const bool chFlat = ImGui::Checkbox("Hunter horizontal only", &hunter.horizontalOnly);
+            if (chStun || chKb || chTime || chFlat)
+                m_chase.setHunterHitReaction(hunter);
+        }
+    }
+
     if (ImGui::CollapsingHeader("Network", ImGuiTreeNodeFlags_DefaultOpen))
     {
         const NetRole role = network().role();
