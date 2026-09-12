@@ -15,7 +15,7 @@ This is a working engine-in-progress, not a finished product. The README describ
 | `DarkEngine` | static lib | Umbrella: remaining folders + `Application` / `Window` / `MemoryTracker`; PUBLIC-links all layers |
 | `Sandbox` | exe | 3D sample (ImGui Dev Tools, networked spawn/draw) |
 | `Sandbox2D` | exe | Side-scrolling 2D sample (Box2D) |
-| `Editor` | exe | ImGui editor (Win32 + DX12), particle panel, Network host/join, mirrors networked objects for draw |
+| `Editor` | exe | ImGui editor (Win32 + DX12), particle panel, Network host/join, ECS-only live scene |
 | `UnitTests` | exe | GoogleTest suite |
 | `VisualDebugger` | exe | Performance and debugging; connect to Sandbox |
 
@@ -48,7 +48,7 @@ Configure generates `Core/Version.h` (git describe / commit when available).
 - **ECS** — `World` / generation-packed `EntityID` (slot + generation; `NULL_ENTITY` is 0), components, O(1) `alive()`, safe emplace over existing entities.
 - **Assets** — `AssetManager` / handles, texture cache, **glTF** load via cgltf (`GltfLoader`).
 - **Network** — UDP sockets (`ws2_32`), packets, reliability, replication types, `NetworkSystem`, fake transport for tests. UDP beacon discovery on port **26161**. Sandbox2D host/join; Editor Network menu.
-  - **Draw contract:** `NetworkSystem` does not draw. Sandbox attaches a `MeshComponent` (or equivalent) in `onNetSpawn` / `spawnOwnedPawn`. Editor must call `mirrorNetworkedObjects()` (or equivalent) so networked entities appear in the local draw list before render. See `Network/Replication.h`.
+  - **Draw contract:** `NetworkSystem` does not draw. Sandbox attaches a `MeshComponent` (or equivalent) in `onNetSpawn` / `spawnOwnedPawn`. Editor attaches `MeshComponent` + `EditorObjectComponent` in `onNetSpawn` and draws from ECS (`each<EditorObjectComponent>`). See `Network/Replication.h`.
 - **Debug** — engine-side debug helpers compiled into `DarkEngine`.
 - **Character** — humanoid body / physiology headers (not a finished gameplay character controller).
 - **Sandbox2D** — links Box2D from `third_party/box2d`.
