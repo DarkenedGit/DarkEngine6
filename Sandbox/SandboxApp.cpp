@@ -787,9 +787,14 @@ void SandboxApp::onWeaponHit(const WeaponHit& hit)
         return;
     m_chase.applyHunterHitReaction(hit.targetIndex, hit.direction);
     audio().play3D(m_sfxPain, hit.point, 0.75f);
+    audio().play3D(m_sfxGrunt, hit.point, 0.95f);
+    m_chase.onHunterAttacked(hit.targetIndex);
     spawnHunterBlood(hit.point);
     if (wasAlive && !m_chase.hunterAlive(hit.targetIndex))
+    {
         m_bloodSplats.spawn(hit.point.x, hit.point.z, m_terrain.heightMap());
+        m_chase.onHunterKilled(hit.targetIndex);
+    }
 }
 
 void SandboxApp::updateCombat(float dt)

@@ -61,6 +61,20 @@ namespace Dark
         void setHunterHitReaction(const HitReactionSettings& settings);
         const HitReactionSettings& hunterHitReaction() const { return m_hunterHit; }
         bool hunterStunned(int i) const;
+        void onHunterAttacked(int victim);
+        void onHunterKilled(int victim);
+
+        struct PackSettings
+        {
+            float assistAllyRadius = 6.0f;  // see an ally this close to the player → sprint help
+            float assistSeconds    = 5.0f;  // sprint-help duration without line of sight
+            float fleeSeconds      = 4.0f;  // sprint away after witnessing a kill
+            float alertRange       = 18.0f; // attack yell: hunters this close come help
+            float sprintSpeed      = 18.0f;
+            float walkSpeed        = 10.0f;
+        };
+        void setPackSettings(const PackSettings& settings) { m_pack = settings; }
+        const PackSettings& packSettings() const { return m_pack; }
         void tickHunterHealth(float dt);
 
     private:
@@ -78,16 +92,23 @@ namespace Dark
             bool               hasLastSeen = false;
             Health             health;
             HitReaction        hit;
-            float              deadFor = 0.0f;
+            float              deadFor    = 0.0f;
+            float              assistLeft = 0.0f;
+            float              fleeLeft   = 0.0f;
+            Math::Vector3f     helpPos{};
         };
 
         bool bake(Terrain::TerrainWorld& terrain, WaterWorld& water);
         bool spawnWalker(World& world, Terrain::TerrainWorld& terrain);
         bool spawnAgents(Terrain::TerrainWorld& terrain);
-        void follow(Agent& a, float dt, Terrain::TerrainWorld& terrain);
+        void follow(Agent& a, float dt, Terrain::TerrainWorld& terrain, float speed);
         void integrateHitReaction(Agent& a, float dt, Terrain::TerrainWorld& terrain);
         void repath(Agent& a, int self, float now, float destX, float destZ);
         bool pickWanderDest(Agent& a);
+        bool pickFleeDest(Agent& a);
+        bool hunterSeesPoint(const Agent& a, const Math::Vector3f& worldPos) const;
+        void beginAssist(Agent& a, const Math::Vector3f& helpPos);
+        void beginFlee(Agent& a);
         bool createLineBuffers(Renderer& renderer);
 
         AI::Walkability m_walk;
@@ -105,6 +126,7 @@ namespace Dark
         float           m_agentR = 0.8f;
         bool            m_drawWalker = true;
         HitReactionSettings m_hunterHit{};
+        PackSettings        m_pack{};
 
         Mesh               m_trunkMesh;
         Mesh               m_canopyMesh;

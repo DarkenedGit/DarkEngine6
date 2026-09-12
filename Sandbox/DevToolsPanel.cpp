@@ -278,6 +278,20 @@ void SandboxApp::drawDevTools()
         }
     }
 
+    if (m_chaseOk && ImGui::CollapsingHeader("Hunter pack"))
+    {
+        PathChase::PackSettings pack = m_chase.packSettings();
+        bool ch = false;
+        ch |= ImGui::SliderFloat("Help if ally within (m)", &pack.assistAllyRadius, 0.0f, 20.0f, "%.1f");
+        ch |= ImGui::SliderFloat("Help sprint time (s)", &pack.assistSeconds, 0.5f, 12.0f, "%.1f");
+        ch |= ImGui::SliderFloat("Flee after witnessed kill (s)", &pack.fleeSeconds, 0.5f, 12.0f, "%.1f");
+        ch |= ImGui::SliderFloat("Attack yell range (m)", &pack.alertRange, 0.0f, 40.0f, "%.1f");
+        ch |= ImGui::SliderFloat("Sprint speed", &pack.sprintSpeed, 8.0f, 28.0f, "%.1f");
+        ch |= ImGui::SliderFloat("Walk speed", &pack.walkSpeed, 2.0f, 16.0f, "%.1f");
+        if (ch)
+            m_chase.setPackSettings(pack);
+    }
+
     if (ImGui::CollapsingHeader("Network", ImGuiTreeNodeFlags_DefaultOpen))
     {
         const NetRole role = network().role();

@@ -205,6 +205,9 @@ bool PathChase::spawnAgents(Terrain::TerrainWorld& terrain)
             a.health       = Health{ hs };
             a.hit.setSettings(m_hunterHit);
             a.hit.reset();
+            a.assistLeft = 0.0f;
+            a.fleeLeft   = 0.0f;
+            a.helpPos    = Vector3f{ 0.0f, 0.0f, 0.0f };
             if (!a.brain.start())
             {
                 DE_LOG_ERROR(LogCategory::AI, "PathChase: hunter brain start failed");
@@ -279,12 +282,13 @@ void PathChase::repath(Agent& a, int self, float now, float destX, float destZ)
     a.repathAt = now + 0.5f;
 }
 
-void PathChase::follow(Agent& a, float dt, Terrain::TerrainWorld& terrain)
+void PathChase::follow(Agent& a, float dt, Terrain::TerrainWorld& terrain, float speed)
 {
     if (a.givenUp || a.path.points.empty())
         return;
-    const float speed = 10.0f;
-    float       remain = speed * dt;
+    if (speed < 0.0f)
+        speed = 0.0f;
+    float remain = speed * dt;
     while (remain > 0.0f && a.waypoint < static_cast<int>(a.path.points.size()))
     {
         const Vector3f& wp = a.path.points[static_cast<size_t>(a.waypoint)];
@@ -305,6 +309,69 @@ void PathChase::follow(Agent& a, float dt, Terrain::TerrainWorld& terrain)
         remain -= step;
     }
     a.pos.y = terrain.heightAtWorld(a.pos.x, a.pos.z) + 1.0f;
+}
+
+bool PathChase::hunterSeesPoint(const Agent& a, const Vector3f& worldPos) const
+{
+    AI::SightQuery q;
+    q.eye       = Vector3f{ a.pos.x, a.pos.y + 0.5f, a.pos.z };
+    q.forward   = a.forward;
+    q.target    = Vector3f{ worldPos.x, worldPos.y + 0.5f, worldPos.z };
+    q.coneDeg   = 70.0f;
+    q.range     = 25.0f;
+    q.heightMap = m_walk.heightMap();
+    return q.heightMap && AI::sees(q);
+}
+
+bool PathChase::pickFleeDest(Agent& a)
+{
+    Vector3f away{ a.pos.x - m_walkerPos.x, 0.0f, a.pos.z - m_walkerPos.z };
+    if (away.MagnitudeSqrd() < 1.0e-6f)
+        away = a.forward;
+    away.y = 0.0f;
+    if (away.MagnitudeSqrd() < 1.0e-6f)
+        away = Vector3f{ 0.0f, 0.0f, 1.0f };
+    else
+        away.Normalize();
+    Vector3f side{ -away.z, 0.0f, away.x };
+    const int island = m_walk.islandWorld(a.pos.x, a.pos.z);
+    const float dists[]    = { 14.0f, 18.0f, 10.0f, 22.0f, 8.0f };
+    const float laterals[] = { 0.0f, 4.0f, -4.0f, 8.0f, -8.0f };
+    for (float dist : dists)
+    {
+        for (float lat : laterals)
+        {
+            const float x = a.pos.x + away.x * dist + side.x * lat;
+            const float z = a.pos.z + away.z * dist + side.z * lat;
+            if (!m_walk.walkableWorld(x, z))
+                continue;
+            if (m_walk.islandWorld(x, z) != island)
+                continue;
+            a.wanderDest = Vector3f{ x, 0.0f, z };
+            return true;
+        }
+    }
+    return pickWanderDest(a);
+}
+
+void PathChase::beginAssist(Agent& a, const Vector3f& helpPos)
+{
+    if (a.brain.leaf() == AI::Leaf::Flee)
+        return;
+    a.assistLeft = m_pack.assistSeconds;
+    a.helpPos    = helpPos;
+    a.repathAt   = 0.0f;
+    a.brain.onAssist();
+}
+
+void PathChase::beginFlee(Agent& a)
+{
+    a.fleeLeft   = m_pack.fleeSeconds;
+    a.assistLeft = 0.0f;
+    a.path.points.clear();
+    a.waypoint = 0;
+    a.repathAt = 0.0f;
+    a.brain.onFlee();
 }
 
 void PathChase::integrateHitReaction(Agent& a, float dt, Terrain::TerrainWorld& terrain)
@@ -394,7 +461,50 @@ void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld
             a.lastSeen     = m_walkerPos;
             a.hasLastSeen  = true;
         }
+        if (a.fleeLeft > 0.0f)
+        {
+            a.fleeLeft -= dt;
+            if (a.fleeLeft <= 0.0f)
+            {
+                a.fleeLeft = 0.0f;
+                a.brain.onFleeDone();
+            }
+        }
+        else if (a.assistLeft > 0.0f)
+        {
+            a.assistLeft -= dt;
+            if (a.assistLeft <= 0.0f)
+            {
+                a.assistLeft = 0.0f;
+                a.brain.onAssistDone();
+            }
+        }
+
+        if (a.brain.leaf() != AI::Leaf::Flee && a.brain.leaf() != AI::Leaf::Chase)
+        {
+            const float allyR2 = m_pack.assistAllyRadius * m_pack.assistAllyRadius;
+            for (int j = 0; j < kHunterCount; ++j)
+            {
+                if (j == i || !hunterAlive(j))
+                    continue;
+                const Vector3f& ally = m_agents[static_cast<size_t>(j)].pos;
+                const float adx = ally.x - m_walkerPos.x;
+                const float adz = ally.z - m_walkerPos.z;
+                if (adx * adx + adz * adz > allyR2)
+                    continue;
+                if (!hunterSeesPoint(a, ally))
+                    continue;
+                beginAssist(a, m_walkerPos);
+                break;
+            }
+        }
+
         a.brain.tick(dt, sees, playerWet);
+        if (playerWet)
+        {
+            a.assistLeft = 0.0f;
+            a.fleeLeft   = 0.0f;
+        }
         if (a.hit.stunned())
             continue;
 
@@ -409,10 +519,23 @@ void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld
         }
 
         const AI::Leaf leaf = a.brain.leaf();
-        if ((leaf == AI::Leaf::Chase || leaf == AI::Leaf::Memory) && standoff)
-            continue;
+        const bool     sprint = leaf == AI::Leaf::Assist || leaf == AI::Leaf::Flee || a.assistLeft > 0.0f;
+        const float    speed  = sprint ? m_pack.sprintSpeed : m_pack.walkSpeed;
 
-        if (leaf == AI::Leaf::Wander)
+        if (leaf == AI::Leaf::Flee)
+        {
+            const bool arrived = a.path.points.empty() || a.waypoint >= static_cast<int>(a.path.points.size());
+            if (arrived)
+            {
+                if (pickFleeDest(a))
+                    repath(a, i, m_time, a.wanderDest.x, a.wanderDest.z);
+            }
+            else if (m_time >= a.repathAt)
+                repath(a, i, m_time, a.wanderDest.x, a.wanderDest.z);
+        }
+        else if ((leaf == AI::Leaf::Chase || leaf == AI::Leaf::Memory || leaf == AI::Leaf::Assist) && standoff)
+            continue;
+        else if (leaf == AI::Leaf::Wander)
         {
             const bool arrived = a.path.points.empty() || a.waypoint >= static_cast<int>(a.path.points.size());
             if (arrived)
@@ -425,13 +548,17 @@ void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld
         }
         else if (leaf == AI::Leaf::Chase)
         {
-            bool need = m_time >= a.repathAt || a.path.points.empty();
-            if (need)
+            if (m_time >= a.repathAt || a.path.points.empty())
                 repath(a, i, m_time, m_walkerPos.x, m_walkerPos.z);
+        }
+        else if (leaf == AI::Leaf::Assist)
+        {
+            if (m_time >= a.repathAt || a.path.points.empty())
+                repath(a, i, m_time, a.helpPos.x, a.helpPos.z);
         }
 
         const Vector3f before = a.pos;
-        follow(a, dt, terrain);
+        follow(a, dt, terrain, speed);
         Vector3f move{ a.pos.x - before.x, 0.0f, a.pos.z - before.z };
         if (move.MagnitudeSqrd() > 1.0e-6f)
         {
@@ -733,6 +860,43 @@ bool PathChase::hunterStunned(int i) const
     return m_agents[static_cast<size_t>(i)].hit.stunned();
 }
 
+void PathChase::onHunterAttacked(int victim)
+{
+    if (victim < 0 || victim >= kHunterCount)
+        return;
+    const Vector3f src = m_agents[static_cast<size_t>(victim)].pos;
+    const float    r2  = m_pack.alertRange * m_pack.alertRange;
+    for (int i = 0; i < kHunterCount; ++i)
+    {
+        if (i == victim || !hunterAlive(i))
+            continue;
+        Agent& a = m_agents[static_cast<size_t>(i)];
+        const float dx = a.pos.x - src.x;
+        const float dz = a.pos.z - src.z;
+        if (dx * dx + dz * dz > r2)
+            continue;
+        beginAssist(a, m_walkerPos);
+        DE_LOG_INFO(LogCategory::AI, "Hunter {} alerted by attack on {}", i, victim);
+    }
+}
+
+void PathChase::onHunterKilled(int victim)
+{
+    if (victim < 0 || victim >= kHunterCount)
+        return;
+    const Vector3f where = m_agents[static_cast<size_t>(victim)].pos;
+    for (int i = 0; i < kHunterCount; ++i)
+    {
+        if (i == victim || !hunterAlive(i))
+            continue;
+        Agent& a = m_agents[static_cast<size_t>(i)];
+        if (!hunterSeesPoint(a, where))
+            continue;
+        beginFlee(a);
+        DE_LOG_INFO(LogCategory::AI, "Hunter {} fled after seeing {} die", i, victim);
+    }
+}
+
 void PathChase::tickHunterHealth(float dt)
 {
     for (int i = 0; i < kHunterCount; ++i)
@@ -768,6 +932,8 @@ void PathChase::tickHunterHealth(float dt)
         a.health.revive();
         a.hit.setSettings(m_hunterHit);
         a.hit.reset();
+        a.assistLeft  = 0.0f;
+        a.fleeLeft    = 0.0f;
         a.deadFor     = 0.0f;
         a.path.points.clear();
         a.waypoint    = 0;
