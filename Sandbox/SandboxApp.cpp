@@ -22,6 +22,7 @@
 #include "Render/Fog.h"
 #include "Render/ModelDraw.h"
 #include "Render/MaterialSurface.h"
+#include "Render/GpuResourceCache.h"
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
@@ -1969,22 +1970,36 @@ void SandboxApp::onInit()
         return;
     }
 
-    const AssetID matId = assets().registerAsset(m_cubeMaterial);
-    if (matId == NULL_ASSET)
+    auto internEnsure = [&](std::shared_ptr<Material>& mat, const char* name) -> bool {
+        if (!mat)
+            return false;
+        mat = assets().internMaterial(mat);
+        if (!mat || mat->id == NULL_ASSET)
+        {
+            DE_LOG_ERROR("SandboxApp: internMaterial {} failed", name);
+            return false;
+        }
+        if (!renderer().gpuResources().ensureMaterial(mat))
+        {
+            DE_LOG_ERROR("SandboxApp: ensureMaterial {} failed", name);
+            return false;
+        }
+        return true;
+    };
+    if (!internEnsure(m_cubeMaterial, "cube") || !internEnsure(m_treeTrunkMaterial, "tree trunk")
+        || !internEnsure(m_treeMaterial, "tree canopy") || !internEnsure(m_aiMaterial, "ai")
+        || !internEnsure(m_packMaterial, "health pack") || !internEnsure(m_lanternMaterial, "lantern"))
     {
-        DE_LOG_FATAL("SandboxApp: material register failed");
+        DE_LOG_FATAL("SandboxApp: material intern/ensure failed");
         requestQuit();
         return;
     }
-    m_cubeMatId = matId;
+    if (m_tracerMaterial && !internEnsure(m_tracerMaterial, "tracer"))
+        m_tracerMaterial.reset();
+    m_cubeMatId = m_cubeMaterial->id;
 
     m_terrainMaterial.setShadowSrv(renderer().device(), m_shadows.srvCpu());
-    m_cubeMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
-    m_treeTrunkMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
-    m_treeMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
-    m_aiMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
-    m_packMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
-    m_lanternMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
+    renderer().gpuResources().setShadowSrv(m_shadows.srvCpu());
     renderer().setShadowSrv(m_shadows.srvCpu());
     m_skyPipeline.setShadowSrv(renderer().device(), m_shadows.srvCpu());
     m_waterPipeline.setShadowSrv(renderer().device(), m_shadows.srvCpu());
@@ -2005,7 +2020,7 @@ void SandboxApp::onInit()
     world().emplace<TransformComponent>(m_cube, Vector3f{ 0.0f, groundY, 0.0f }, Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
     auto& meshComp       = world().emplace<MeshComponent>(m_cube);
     meshComp.meshAssetID = NULL_ASSET;
-    meshComp.matAssetID  = matId;
+    meshComp.matAssetID  = m_cubeMatId;
     meshComp.castShadow  = true;
 
     network().setWantsPawn(true);
@@ -2021,7 +2036,7 @@ void SandboxApp::onInit()
         m_cubeMesh.vertexCount(),
         m_cubeMesh.indexCount(),
         aspect,
-        matId,
+        m_cubeMatId,
         m_cubeMaterial->albedo().width(),
         m_cubeMaterial->albedo().height(),
         m_terrain.chunksX(),

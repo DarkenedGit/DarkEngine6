@@ -1,5 +1,6 @@
 #include "Render/Material.h"
 #include "Assets/AssetManager.h"
+#include "Render/GpuResourceCache.h"
 #include "Render/Renderer.h"
 #include "Core/Log.h"
 
@@ -9,6 +10,13 @@ namespace Dark
     Material::Material()
     {
         type = AssetType::Material;
+    }
+
+    Material::~Material()
+    {
+        if (m_registeredCache && m_gpu)
+            m_registeredCache->unregisterPackedHeap(&m_gpu->packedHeap());
+        m_registeredCache = nullptr;
     }
 
     bool Material::packSrvHeap(ID3D12Device* device)

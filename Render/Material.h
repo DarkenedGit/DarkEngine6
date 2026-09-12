@@ -14,6 +14,7 @@ namespace Dark
 
     class Renderer;
     class AssetManager;
+    class GpuResourceCache;
 
     // Shared surface recipe: albedo texture + tint params.
     // Does not own world transforms or lights — those stay per-draw / per-frame.
@@ -21,6 +22,7 @@ namespace Dark
     {
     public:
         Material();
+        ~Material();
 
         Material(Material&&) noexcept            = default;
         Material& operator=(Material&&) noexcept = default;
@@ -75,6 +77,10 @@ namespace Dark
             return m_baseColor;
         }
 
+        GpuMaterial* gpuMaterial() { return m_gpu.get(); }
+        const GpuMaterial* gpuMaterial() const { return m_gpu.get(); }
+        void setGpuCache(GpuResourceCache* cache) { m_registeredCache = cache; }
+
     private:
         bool packSrvHeap(ID3D12Device* device);
 
@@ -83,6 +89,7 @@ namespace Dark
         float                        m_metallic  = 0.0f;
         float                        m_roughness = 1.0f;
         std::unique_ptr<GpuMaterial> m_gpu;
+        GpuResourceCache*            m_registeredCache = nullptr;
     };
 
 } // namespace Dark

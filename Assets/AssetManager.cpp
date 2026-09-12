@@ -5,6 +5,7 @@
 #include "Assets/GltfLoader.h"
 #include "Assets/Model.h"
 #include "Assets/TextureCache.h"
+#include "Render/Material.h"
 #include "Core/Log.h"
 #include "Render/Renderer.h"
 
@@ -95,6 +96,47 @@ namespace Dark
             m_pathToID[cacheKey] = id;
         DE_LOG_INFO("AssetManager: registered id={} type={}", id, static_cast<unsigned>(m_assets[id]->type));
         return id;
+    }
+
+    AssetRef<Material> AssetManager::internMaterial(AssetRef<Material> mat, const std::string& cacheKey)
+    {
+        if (!mat)
+        {
+            DE_LOG_ERROR("AssetManager::internMaterial: null material");
+            return {};
+        }
+
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (mat->id != NULL_ASSET && cacheKey.empty())
+            return mat;
+
+        if (!cacheKey.empty())
+        {
+            const auto pit = m_pathToID.find(cacheKey);
+            if (pit != m_pathToID.end())
+            {
+                const auto ait = m_assets.find(pit->second);
+                if (ait != m_assets.end())
+                {
+                    if (AssetRef<Material> existing = std::dynamic_pointer_cast<Material>(ait->second))
+                        return existing;
+                }
+                m_pathToID.erase(pit);
+            }
+            if (mat->id != NULL_ASSET)
+            {
+                m_pathToID[cacheKey] = mat->id;
+                return mat;
+            }
+        }
+
+        const AssetID id = allocID();
+        mat->id          = id;
+        m_assets[id]     = mat;
+        if (!cacheKey.empty())
+            m_pathToID[cacheKey] = id;
+        DE_LOG_INFO("AssetManager: interned material id={}", id);
+        return mat;
     }
 
     AssetRef<Asset> AssetManager::get(AssetID id) const

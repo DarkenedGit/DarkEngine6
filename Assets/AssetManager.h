@@ -62,6 +62,9 @@ namespace Dark
         // Static meshes (no skin, no clips) return an empty ref (Trace, not Error).
         AssetRef<class AnimationSet> loadAnimationSet(const std::string& virtualPath);
 
+        // Assigns id if needed. Idempotent. Empty cacheKey = one-off; non-empty reuses m_pathToID.
+        AssetRef<class Material> internMaterial(AssetRef<class Material> mat, const std::string& cacheKey = {});
+
         // Interns *.anim.json. Resolves the JSON "model" field via loadAnimationSet.
         AssetRef<class AnimGraphDef> loadAnimGraph(const std::string& virtualPath);
 

@@ -15,6 +15,7 @@ namespace Dark
     class Window;
     class SceneBuffers;
     class Texture2D;
+    class GpuResourceCache;
 
     using Microsoft::WRL::ComPtr;
 
@@ -121,6 +122,9 @@ namespace Dark
         void setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
         void setHeightSrv(D3D12_CPU_DESCRIPTOR_HANDLE heightCpu);
 
+        GpuResourceCache&       gpuResources();
+        const GpuResourceCache& gpuResources() const;
+
         D3D12_CPU_DESCRIPTOR_HANDLE hdrRtv() const;
         D3D12_CPU_DESCRIPTOR_HANDLE hdrSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE postHdrSrvCpu() const;
@@ -175,8 +179,9 @@ namespace Dark
         bool             m_vsync           = true;
         bool             m_frameSubmitted  = false;
         ScenePath        m_scenePath       = ScenePath::SwapChainForward;
-        std::unique_ptr<SceneBuffers> m_sceneBuffers;
-        std::unique_ptr<Texture2D>    m_fogHeightDummy;
+        std::unique_ptr<SceneBuffers>     m_sceneBuffers;
+        std::unique_ptr<Texture2D>        m_fogHeightDummy;
+        std::unique_ptr<GpuResourceCache> m_gpuResources;
         D3D12_CPU_DESCRIPTOR_HANDLE   m_heightCpu{};
         DebugRenderState m_debugState{};
     };

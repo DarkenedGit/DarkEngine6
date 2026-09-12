@@ -25,6 +25,7 @@
 #include "Render/MeshGen.h"
 #include "Render/TaaJitter.h"
 #include "Render/ModelDraw.h"
+#include "Render/GpuResourceCache.h"
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
@@ -190,7 +191,13 @@ void EditorApp::onInit()
         requestQuit();
         return;
     }
-    assets().registerAsset(m_propMaterial);
+    m_propMaterial = assets().internMaterial(m_propMaterial);
+    if (!m_propMaterial || m_propMaterial->id == NULL_ASSET || !renderer().gpuResources().ensureMaterial(m_propMaterial))
+    {
+        DE_LOG_FATAL("EditorApp: intern/ensure prop material failed");
+        requestQuit();
+        return;
+    }
 
     m_groundMaterial = std::make_shared<Material>();
     // White 1x1 — albedo comes from baseColor * draw tint. A dark solid * a dark tint made the
@@ -202,9 +209,14 @@ void EditorApp::onInit()
         return;
     }
     m_groundMaterial->setBaseColor(0.45f, 0.48f, 0.52f, 1.0f);
-    assets().registerAsset(m_groundMaterial);
-    m_propMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
-    m_groundMaterial->setShadowSrv(renderer().device(), m_shadows.srvCpu());
+    m_groundMaterial = assets().internMaterial(m_groundMaterial);
+    if (!m_groundMaterial || m_groundMaterial->id == NULL_ASSET || !renderer().gpuResources().ensureMaterial(m_groundMaterial))
+    {
+        DE_LOG_FATAL("EditorApp: intern/ensure ground material failed");
+        requestQuit();
+        return;
+    }
+    renderer().gpuResources().setShadowSrv(m_shadows.srvCpu());
     renderer().setShadowSrv(m_shadows.srvCpu());
 
     const float aspect = (renderer().height() > 0)

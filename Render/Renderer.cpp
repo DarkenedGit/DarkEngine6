@@ -1,4 +1,5 @@
 #include "Render/Renderer.h"
+#include "Render/GpuResourceCache.h"
 #include "Render/SceneBuffers.h"
 #include "Render/Texture2D.h"
 #include "Core/Window.h"
@@ -46,6 +47,11 @@ namespace Dark
     Renderer::~Renderer()
     {
         waitForGpu();
+        if (m_gpuResources)
+        {
+            m_gpuResources->clear();
+            m_gpuResources.reset();
+        }
         if (m_fenceEvent)
         {
             CloseHandle(m_fenceEvent);
@@ -198,8 +204,21 @@ namespace Dark
 
         updateViewport();
 
+        m_gpuResources = std::make_unique<GpuResourceCache>(*this);
         DE_LOG_INFO(LogCategory::Render, "Renderer: D3D12 ready ({}x{}, {} buffers)", m_width, m_height, kFrameCount);
         return true;
+    }
+
+    GpuResourceCache& Renderer::gpuResources()
+    {
+        DE_ASSERT(m_gpuResources);
+        return *m_gpuResources;
+    }
+
+    const GpuResourceCache& Renderer::gpuResources() const
+    {
+        DE_ASSERT(m_gpuResources);
+        return *m_gpuResources;
     }
 
     bool Renderer::createRenderTargets()

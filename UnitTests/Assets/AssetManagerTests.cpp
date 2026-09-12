@@ -5,6 +5,7 @@
 #include "Assets/AssetManager.h"
 #include "Assets/GltfTestUtil.h"
 #include "Assets/Model.h"
+#include "Render/Material.h"
 
 using namespace Dark;
 
@@ -163,4 +164,40 @@ TEST(AssetManager, ModelHoldsAnimationSetAcrossGc)
     mgr.collectGarbage();
     EXPECT_FALSE(mgr.get(setId));
     EXPECT_FALSE(mgr.get(modelId));
+}
+
+TEST(AssetManager, InternMaterialEmptyKeyIsIdempotent)
+{
+    AssetManager mgr;
+    auto mat = std::make_shared<Material>();
+    auto a   = mgr.internMaterial(mat);
+    ASSERT_TRUE(a);
+    EXPECT_NE(a->id, NULL_ASSET);
+    EXPECT_EQ(a.get(), mat.get());
+
+    auto b = mgr.internMaterial(mat);
+    EXPECT_EQ(a->id, b->id);
+    EXPECT_EQ(a.get(), b.get());
+    EXPECT_EQ(mgr.assetCount(), 1u);
+}
+
+TEST(AssetManager, InternMaterialCacheKeySharesInstance)
+{
+    AssetManager mgr;
+    auto first  = std::make_shared<Material>();
+    auto second = std::make_shared<Material>();
+    auto a      = mgr.internMaterial(first, "m:unit-recipe");
+    auto b      = mgr.internMaterial(second, "m:unit-recipe");
+    ASSERT_TRUE(a);
+    ASSERT_TRUE(b);
+    EXPECT_EQ(a.get(), b.get());
+    EXPECT_EQ(a->id, b->id);
+    EXPECT_EQ(mgr.assetCount(), 1u);
+}
+
+TEST(AssetManager, InternMaterialNullRejected)
+{
+    AssetManager mgr;
+    EXPECT_FALSE(mgr.internMaterial({}));
+    EXPECT_EQ(mgr.assetCount(), 0u);
 }
