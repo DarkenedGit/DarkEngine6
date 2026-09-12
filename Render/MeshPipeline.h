@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Render/DebugRenderState.h"
+#include "Render/MeshConstants.h"
 
 #include <cstdint>
 #include <d3d12.h>
@@ -23,34 +24,6 @@ namespace Dark
         (void)pass;
         return DXGI_FORMAT_R8G8B8A8_UNORM;
     }
-
-    struct MeshGBufferConstants
-    {
-        float worldViewProj[16];
-        float world[16];
-        float color[4];
-        float prevWorldViewProj[16];
-        float roughness;
-        float metallic;
-    };
-
-    static_assert(sizeof(MeshGBufferConstants) == 54 * sizeof(float), "gbuffer mesh CB");
-
-    // Root constants layout (all 32-bit slots), matches BasicMesh.hlsl cbuffer.
-    struct MeshFrameConstants
-    {
-        float worldViewProj[16];
-        float world[16];
-        float color[4];
-        float lightDirWS[3];
-        float ambientScale;
-        float lightColor[3];
-        float pad1;
-        float cameraPos[3];
-        float lighting; // 1 = Lambert+shadow, 0 = albedo only
-    };
-
-    static_assert(sizeof(MeshFrameConstants) == 48 * sizeof(float), "root constant size");
 
     // PSO + root signature for MeshGen meshes (pos/normal/uv) with one albedo texture.
     class MeshPipeline

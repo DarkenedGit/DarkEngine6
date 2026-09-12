@@ -3,8 +3,6 @@
 #include "Render/Renderer.h"
 #include "Core/Log.h"
 
-#include <cstring>
-
 namespace Dark
 {
 
@@ -111,26 +109,6 @@ namespace Dark
     {
         if (m_gpu)
             m_gpu->bind(cmd, albedoSrvRootIndex);
-    }
-
-    void Material::applySurface(float color[4]) const
-    {
-        std::memcpy(color, m_baseColor, sizeof(m_baseColor));
-    }
-
-    void Material::applySurface(MeshFrameConstants& constants) const
-    {
-        applySurface(constants.color);
-    }
-
-    void Material::applySurface(MeshGBufferConstants& constants) const
-    {
-        constants.color[0] = m_baseColor[0];
-        constants.color[1] = m_baseColor[1];
-        constants.color[2] = m_baseColor[2];
-        constants.color[3] = 0.0f;
-        constants.roughness = m_roughness;
-        constants.metallic  = m_metallic;
     }
 
     void Material::setBaseColor(float r, float g, float b, float a)

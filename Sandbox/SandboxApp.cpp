@@ -21,6 +21,7 @@
 #include "Render/ScenePath.h"
 #include "Render/Fog.h"
 #include "Render/ModelDraw.h"
+#include "Render/MaterialSurface.h"
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
@@ -1471,7 +1472,7 @@ void SandboxApp::drawLanternFixtures(ID3D12GraphicsCommandList* cmd, const Matri
         m_lanternMaterial->bind(cmd, MeshPipeline::kRootAlbedoSrv);
 
     if (m_lanternMaterial)
-        m_lanternMaterial->applySurface(cb);
+        applyMaterialSurface(*m_lanternMaterial, cb);
     else
     {
         cb.color[0] = 0.86f;
@@ -1505,7 +1506,7 @@ void SandboxApp::drawLanternFixturesGBuffer(ID3D12GraphicsCommandList* cmd, cons
 
     MeshGBufferConstants cb{};
     if (m_lanternMaterial)
-        m_lanternMaterial->applySurface(cb);
+        applyMaterialSurface(*m_lanternMaterial, cb);
     else
     {
         cb.color[0] = 0.86f;
@@ -2218,7 +2219,7 @@ void SandboxApp::onRender()
             material->bind(cmd, MeshPipeline::kRootAlbedoSrv);
         MeshGBufferConstants gcb{};
         if (material)
-            material->applySurface(gcb);
+            applyMaterialSurface(*material, gcb);
         else
         {
             gcb.color[0] = 1.0f;
@@ -2314,7 +2315,7 @@ void SandboxApp::onRender()
 
         MeshFrameConstants cb{};
         if (material)
-            material->applySurface(cb);
+            applyMaterialSurface(*material, cb);
         else
         {
             cb.color[0] = 1.0f;

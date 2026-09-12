@@ -25,6 +25,7 @@
 #include "Render/MeshGen.h"
 #include "Render/TaaJitter.h"
 #include "Render/ModelDraw.h"
+#include "Render/MaterialSurface.h"
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
@@ -132,7 +133,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             copyMatrix(gcb.world, world);
             copyMatrix(gcb.prevWorldViewProj, world * prevViewProj);
             if (material && material->isValid())
-                material->applySurface(gcb);
+                applyMaterialSurface(*material, gcb);
             gcb.color[0] = cr;
             gcb.color[1] = cg;
             gcb.color[2] = cb;
@@ -146,7 +147,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             copyMatrix(cbData.worldViewProj, wvp);
             copyMatrix(cbData.world, world);
             if (material && material->isValid())
-                material->applySurface(cbData);
+                applyMaterialSurface(*material, cbData);
             cbData.color[0] = cr;
             cbData.color[1] = cg;
             cbData.color[2] = cb;

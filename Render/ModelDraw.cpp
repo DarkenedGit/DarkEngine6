@@ -1,6 +1,7 @@
 #include "Render/ModelDraw.h"
 #include "Animation/AnimGraphComponent.h"
 #include "Assets/Model.h"
+#include "Render/MaterialSurface.h"
 #include "Render/ShadowSystem.h"
 
 #include <cstring>
@@ -49,7 +50,7 @@ namespace Dark
 			copyMatrix(cb.world, w);
 			copyMatrix(cb.prevWorldViewProj, w * prevViewProj);
 			if (part.material)
-				part.material->applySurface(cb);
+				applyMaterialSurface(*part.material, cb);
 			else
 			{
 				cb.color[0] = 1.0f;
@@ -93,7 +94,7 @@ namespace Dark
 			copyMatrix(cb.worldViewProj, w * viewProj);
 			copyMatrix(cb.world, w);
 			if (part.material)
-				part.material->applySurface(cb);
+				applyMaterialSurface(*part.material, cb);
 			pipeline.setConstants(cmd, cb);
 			part.mesh.draw(cmd, points);
 		}
@@ -163,7 +164,7 @@ namespace Dark
 				copyMatrix(cb.world, w);
 				copyMatrix(cb.prevWorldViewProj, pw * prevViewProj);
 				if (part.material)
-					part.material->applySurface(cb);
+					applyMaterialSurface(*part.material, cb);
 				else
 				{
 					cb.color[0] = 1.0f;
@@ -190,7 +191,7 @@ namespace Dark
 				copyMatrix(cb.world, w);
 				copyMatrix(cb.prevWorldViewProj, w * prevViewProj);
 				if (part.material)
-					part.material->applySurface(cb);
+					applyMaterialSurface(*part.material, cb);
 				else
 				{
 					cb.color[0] = 1.0f;
@@ -251,7 +252,7 @@ namespace Dark
 				copyMatrix(cb.worldViewProj, w * viewProj);
 				copyMatrix(cb.world, w);
 				if (part.material)
-					part.material->applySurface(cb);
+					applyMaterialSurface(*part.material, cb);
 				skinned.setConstants(cmd, cb);
 				part.mesh.draw(cmd, points);
 			}
@@ -270,7 +271,7 @@ namespace Dark
 				copyMatrix(cb.worldViewProj, w * viewProj);
 				copyMatrix(cb.world, w);
 				if (part.material)
-					part.material->applySurface(cb);
+					applyMaterialSurface(*part.material, cb);
 				staticPipeline.setConstants(cmd, cb);
 				part.mesh.draw(cmd, points);
 			}

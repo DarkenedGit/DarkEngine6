@@ -2,7 +2,6 @@
 
 #include "Assets/AssetHandle.h"
 #include "Render/GpuMaterial.h"
-#include "Render/MeshPipeline.h"
 #include "Render/Texture2D.h"
 
 #include <cstdint>
@@ -49,12 +48,6 @@ namespace Dark
 
         // Copy the CSM array into heap slot 1 (call after create, and after pack).
         void setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
-
-        // Write surface tint into frame constants (color slot used by BasicMesh).
-        void applySurface(float color[4]) const;
-        void applySurface(MeshFrameConstants& constants) const;
-        // G-buffer RT0.a is emissive — tint RGB only, write 0 into a.
-        void applySurface(MeshGBufferConstants& constants) const;
 
         void setBaseColor(float r, float g, float b, float a = 1.0f);
 
