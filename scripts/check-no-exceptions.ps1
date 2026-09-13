@@ -19,9 +19,9 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 
 $defaultRoots = @(
-    "AI", "Animation", "Assets", "Audio", "Character", "Collision", "Core", "Debug", "ECS", "Editor", "Geometry",
+    "AI", "Animation", "Assets", "Audio", "Character", "Collision", "Core", "Debug", "ECS", "Editor", "Gameplay", "Geometry",
     "Math", "Network", "Particles", "Render", "Sandbox", "Sandbox2D", "Scene", "Shaders", "Sprite",
-    "Terrain", "Ui", "VisualDebugger", "Water"
+    "Terrain", "Ui", "VisualDebugger", "Water", "Weapons"
 )
 
 $roots = if ($Path -and $Path.Count -gt 0) { $Path } else { $defaultRoots }

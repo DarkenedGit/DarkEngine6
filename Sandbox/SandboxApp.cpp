@@ -126,13 +126,6 @@ Math::Matrix4f makeWorldMatrix(const TransformComponent& xf)
     return S * R * T;
 }
 
-Math::Matrix4f healthPackWorldMatrix(const Vector3f& pos, float spin, float bob)
-{
-    const Quaternion rot = Quaternion::FromAxisAngle(Vector3f::Y_AXIS, spin);
-    const float      y   = pos.y + 0.08f * std::sinf(bob * 2.6f);
-    return Matrix4f::ScaleMatrixXYZ(0.9f, 0.9f, 0.9f) * rot.ToMatrix4() * Matrix4f::TranslationMatrix(pos.x, y, pos.z);
-}
-
 void drawShadowCaster(ID3D12GraphicsCommandList* cmd, const ShadowSystem& shadows, int cascade, const Matrix4f& world, const Mesh& mesh)
 {
     const Matrix4f wvp = world * shadows.cascade(cascade).viewProj;
@@ -1243,7 +1236,7 @@ void SandboxApp::spawnHunterBlood(const Vector3f& pos)
 
 void SandboxApp::placeHealthPacks()
 {
-    m_healthPackCount = 0;
+    m_healthPacks.clear();
     const Vector3f spots[] = {
         { 5.0f, 0.0f, 5.0f },
         { -7.0f, 0.0f, 7.0f },
@@ -1253,63 +1246,31 @@ void SandboxApp::placeHealthPacks()
     const float waterY = m_water.params().waterLevel;
     for (const Vector3f& s : spots)
     {
-        if (m_healthPackCount >= kMaxHealthPacks)
-            break;
         const float gy = m_terrain.heightAtWorld(s.x, s.z);
         if (gy < waterY - 0.2f)
             continue;
-        HealthPack& p = m_healthPacks[m_healthPackCount++];
-        p.pos       = Vector3f{ s.x, gy + 0.95f, s.z };
-        p.active    = true;
-        p.respawnIn = 0.0f;
+        if (!m_healthPacks.tryAdd(Vector3f{ s.x, gy + 0.95f, s.z }))
+            break;
     }
-    DE_LOG_INFO("SandboxApp: {} health packs", m_healthPackCount);
+    DE_LOG_INFO("SandboxApp: {} health packs", m_healthPacks.count());
 }
 
 void SandboxApp::updateHealthPacks(float dt)
 {
-    m_packSpin += 1.85f * dt;
-    if (m_packSpin > Math::TwoPi)
-        m_packSpin -= Math::TwoPi;
-    m_packBob += dt;
+    m_healthPacks.tick(dt);
 
     const Entity body = possessedBody();
     TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-
-    constexpr float kPickupR  = 1.2f;
-    constexpr float kHeal     = 50.0f;
-    constexpr float kRespawn  = 16.0f;
-    const float     r2        = kPickupR * kPickupR;
-
-    for (int i = 0; i < m_healthPackCount; ++i)
-    {
-        HealthPack& p = m_healthPacks[i];
-        if (!p.active)
-        {
-            p.havePrevWorld = false;
-            p.respawnIn -= dt;
-            if (p.respawnIn <= 0.0f)
-                p.active = true;
-            continue;
-        }
-        if (!xf || !m_playerHealth.alive() || m_playerHealth.hp() >= m_playerHealth.maxHp())
-            continue;
-        const float dx = xf->position.x - p.pos.x;
-        const float dy = xf->position.y - p.pos.y;
-        const float dz = xf->position.z - p.pos.z;
-        if (dx * dx + dy * dy + dz * dz > r2)
-            continue;
-        m_playerHealth.heal(kHeal);
+    if (!xf)
+        return;
+    const int taken = m_healthPacks.tryPickup(xf->position, m_playerHealth);
+    for (int i = 0; i < taken; ++i)
         audio().play2D(m_sfxHeal, 0.7f);
-        p.active    = false;
-        p.respawnIn = kRespawn;
-        DE_LOG_INFO("Player: health pack +{:.0f} ({:.0f}/{:.0f})", kHeal, m_playerHealth.hp(), m_playerHealth.maxHp());
-    }
 }
 
 void SandboxApp::drawHealthPacks(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, MeshFrameConstants& cb)
 {
-    if (!cmd || !m_crossMesh.valid() || m_healthPackCount <= 0)
+    if (!cmd || !m_crossMesh.valid() || m_healthPacks.count() <= 0)
         return;
 
     m_meshPipeline.bind(cmd, renderer().debugState().fill);
@@ -1322,12 +1283,12 @@ void SandboxApp::drawHealthPacks(ID3D12GraphicsCommandList* cmd, const Matrix4f&
     cb.color[2] = 0.14f;
     cb.color[3] = 1.0f;
 
-    for (int i = 0; i < m_healthPackCount; ++i)
+    for (int i = 0; i < m_healthPacks.count(); ++i)
     {
         const HealthPack& p = m_healthPacks[i];
         if (!p.active)
             continue;
-        const Matrix4f world = healthPackWorldMatrix(p.pos, m_packSpin, m_packBob);
+        const Matrix4f world = healthPackWorldMatrix(p.pos, m_healthPacks.spin(), m_healthPacks.bob());
         copyMatrix(cb.worldViewProj, world * viewProj);
         copyMatrix(cb.world, world);
         m_meshPipeline.setConstants(cmd, cb);
@@ -1337,7 +1298,7 @@ void SandboxApp::drawHealthPacks(ID3D12GraphicsCommandList* cmd, const Matrix4f&
 
 void SandboxApp::drawHealthPacksGBuffer(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, const Matrix4f& prevViewProj)
 {
-    if (!cmd || !m_crossMesh.valid() || m_healthPackCount <= 0)
+    if (!cmd || !m_crossMesh.valid() || m_healthPacks.count() <= 0)
         return;
 
     const DebugFill fill = renderer().debugState().fill;
@@ -1351,12 +1312,12 @@ void SandboxApp::drawHealthPacksGBuffer(ID3D12GraphicsCommandList* cmd, const Ma
     cb.color[2] = 0.14f;
     cb.color[3] = 0.0f;
 
-    for (int i = 0; i < m_healthPackCount; ++i)
+    for (int i = 0; i < m_healthPacks.count(); ++i)
     {
         HealthPack& p = m_healthPacks[i];
         if (!p.active)
             continue;
-        const Matrix4f world     = healthPackWorldMatrix(p.pos, m_packSpin, m_packBob);
+        const Matrix4f world     = healthPackWorldMatrix(p.pos, m_healthPacks.spin(), m_healthPacks.bob());
         const Matrix4f prevWorld = p.havePrevWorld ? p.prevWorld : world;
         fillMeshGBufferXforms(cb, world, viewProj, prevViewProj, prevWorld);
         m_meshPipeline.setGBufferConstants(cmd, cb);
@@ -1368,14 +1329,14 @@ void SandboxApp::drawHealthPacksGBuffer(ID3D12GraphicsCommandList* cmd, const Ma
 
 void SandboxApp::drawHealthPacksDepth(ID3D12GraphicsCommandList* cmd, int cascade)
 {
-    if (!cmd || !m_crossMesh.valid() || m_healthPackCount <= 0)
+    if (!cmd || !m_crossMesh.valid() || m_healthPacks.count() <= 0)
         return;
-    for (int i = 0; i < m_healthPackCount; ++i)
+    for (int i = 0; i < m_healthPacks.count(); ++i)
     {
         const HealthPack& p = m_healthPacks[i];
         if (!p.active)
             continue;
-        drawShadowCaster(cmd, m_shadows, cascade, healthPackWorldMatrix(p.pos, m_packSpin, m_packBob), m_crossMesh);
+        drawShadowCaster(cmd, m_shadows, cascade, healthPackWorldMatrix(p.pos, m_healthPacks.spin(), m_healthPacks.bob()), m_crossMesh);
     }
 }
 
@@ -2121,7 +2082,7 @@ void SandboxApp::onRender()
     });
     if (m_chaseOk)
         m_chase.expandBounds(sceneBounds);
-    for (int i = 0; i < m_healthPackCount; ++i)
+    for (int i = 0; i < m_healthPacks.count(); ++i)
     {
         if (m_healthPacks[i].active)
             sceneBounds.ExpandToInclude(m_healthPacks[i].pos);

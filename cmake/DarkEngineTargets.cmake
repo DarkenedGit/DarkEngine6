@@ -102,6 +102,10 @@ set(DE_ENGINE_CORE_SOURCES
 set(DE_RENDER_FOLDERS Render)
 set(DE_ASSETS_FOLDERS Assets)
 set(DE_NET_FOLDERS Network)
+set(DE_GAMEPLAY_FOLDERS
+    Weapons
+    Gameplay
+)
 
 # Remaining engine folders compiled by the DarkEngine umbrella only.
 set(DE_ENGINE_REST_FOLDERS
@@ -117,7 +121,6 @@ set(DE_ENGINE_REST_FOLDERS
     Sprite
     Terrain
     Water
-    Weapons
 )
 
 de_glob_folders(DE_FOUNDATION_SOURCES ${DE_FOUNDATION_FOLDERS})
@@ -126,6 +129,7 @@ list(APPEND DE_FOUNDATION_SOURCES ${DE_FOUNDATION_CORE_SOURCES})
 de_glob_folders(DE_RENDER_SOURCES ${DE_RENDER_FOLDERS})
 de_glob_folders(DE_ASSETS_SOURCES ${DE_ASSETS_FOLDERS})
 de_glob_folders(DE_NET_SOURCES ${DE_NET_FOLDERS})
+de_glob_folders(DE_GAMEPLAY_SOURCES ${DE_GAMEPLAY_FOLDERS})
 de_glob_folders(DE_ENGINE_REST_SOURCES ${DE_ENGINE_REST_FOLDERS})
 list(APPEND DE_ENGINE_REST_SOURCES ${DE_ENGINE_CORE_SOURCES})
 
@@ -150,6 +154,7 @@ de_mark_ide_only(
     ${DE_RENDER_SOURCES}
     ${DE_ASSETS_SOURCES}
     ${DE_NET_SOURCES}
+    ${DE_GAMEPLAY_SOURCES}
     ${DE_ENGINE_REST_SOURCES}
     ${DE_SANDBOX_SOURCES}
     ${DE_SANDBOX2D_SOURCES}
@@ -167,18 +172,21 @@ endif()
 #
 #   DarkFoundation  (Math, Collision, ECS, foundation Core)
 #        ^
-#        |-- DarkAssets   (Assets/*; WIC decode via windowscodecs + ole32)
+#        |-- DarkAssets    (Assets/*; WIC decode via windowscodecs + ole32)
 #        |        ^
 #        |        `-- DarkRender  (Render/* + D3D12 stack; PUBLIC-links DarkAssets)
 #        |
-#        `-- DarkNet      (Network/*; PRIVATE ws2_32)
+#        |-- DarkNet       (Network/*; PRIVATE ws2_32)
+#        `-- DarkGameplay  (Weapons/* + Gameplay/*; PUBLIC Foundation)
 #
 #   DarkEngine umbrella PUBLIC-links all layers and compiles the rest
 #   (AI Animation Audio Character Debug Input Particles Scene Sky Sprite
-#    Terrain Water Weapons + Application/Window/MemoryTracker + content shaders).
+#    Terrain Water + Application/Window/MemoryTracker + content shaders).
 #
 #   Assets headers include Animation types; Animation/*.cpp stay in DarkEngine.
-#   Unresolved Animation symbols in DarkAssets resolve at final link.
+#   Gameplay/HealthPack includes Character/Health; ProjectileWeapon includes
+#   Audio/Particles. Those .cpp stay in DarkEngine — unresolved symbols in
+#   DarkAssets / DarkGameplay resolve at final link.
 
 add_library(DarkFoundation STATIC ${DE_FOUNDATION_SOURCES})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${DE_FOUNDATION_SOURCES})
@@ -223,6 +231,15 @@ target_link_libraries(DarkNet
 )
 set_target_properties(DarkNet PROPERTIES FOLDER "Engine")
 
+add_library(DarkGameplay STATIC ${DE_GAMEPLAY_SOURCES})
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${DE_GAMEPLAY_SOURCES})
+de_engine_target_common(DarkGameplay)
+target_link_libraries(DarkGameplay
+    PUBLIC
+        DarkFoundation
+)
+set_target_properties(DarkGameplay PROPERTIES FOLDER "Engine")
+
 add_library(DarkEngine STATIC ${DE_ENGINE_REST_SOURCES})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${DE_ENGINE_REST_SOURCES})
 de_engine_target_common(DarkEngine)
@@ -237,6 +254,7 @@ target_link_libraries(DarkEngine
         DarkRender
         DarkAssets
         DarkNet
+        DarkGameplay
         xinput
         xaudio2
         ole32

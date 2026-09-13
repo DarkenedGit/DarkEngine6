@@ -24,6 +24,7 @@
 #include "Particles/ParticleRenderer.h"
 #include "Particles/BloodSplatPool.h"
 #include "Weapons/WeaponLoadout.h"
+#include "Gameplay/HealthPack.h"
 #include "PathChase.h"
 #include "Ui/ImGuiHost.h"
 
@@ -172,19 +173,7 @@ private:
     Dark::ParticleRenderer           m_particles;
     Dark::BloodSplatPool             m_bloodSplats;
 
-    struct HealthPack
-    {
-        Dark::Math::Vector3f pos{};
-        Dark::Math::Matrix4f prevWorld{};
-        bool                 havePrevWorld = false;
-        bool                 active        = false;
-        float                respawnIn     = 0.0f;
-    };
-    static constexpr int             kMaxHealthPacks = 4;
-    HealthPack                       m_healthPacks[kMaxHealthPacks]{};
-    int                              m_healthPackCount = 0;
-    float                            m_packSpin        = 0.0f;
-    float                            m_packBob         = 0.0f;
+    Dark::HealthPackSet              m_healthPacks;
     Dark::Mesh             m_crossMesh;
     Dark::AssetRef<Dark::Material>   m_packMaterial;
     Dark::AssetRef<Dark::Material>   m_lanternMaterial;

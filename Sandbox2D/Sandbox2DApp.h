@@ -13,6 +13,8 @@
 #include "Math/AABox2f.h"
 #include "Math/Vector2f.h"
 #include "Audio/SoundClip.h"
+#include "Gameplay/Coin.h"
+#include "Gameplay/Platform.h"
 
 #include <box2d/box2d.h>
 
@@ -33,19 +35,9 @@ public:
     void onShutdown() override;
 
 private:
-    struct Platform
+    struct Platform : Dark::Platform
     {
-        Math::AABox2f box;
-        float              z    = 2.0f;
-        Entity       entity{};
-        b2BodyId           body = b2_nullBodyId;
-    };
-
-    struct Coin
-    {
-        Math::Vector2f pos;
-        bool                 collected = false;
-        Entity         entity{};
+        b2BodyId body = b2_nullBodyId;
     };
 
     struct Player
