@@ -168,6 +168,30 @@ void unpackRgba8(uint32_t rgba, float out[4])
     out[3] = static_cast<float>(rgba & 0xFFu) / 255.0f;
 }
 
+const Mesh* sandboxPrimitiveMesh(PrimitiveMesh p, const Mesh& cube, const Mesh& cross)
+{
+    switch (p)
+    {
+    case PrimitiveMesh::Cube:
+        return cube.valid() ? &cube : nullptr;
+    case PrimitiveMesh::Cross:
+        return cross.valid() ? &cross : nullptr;
+    case PrimitiveMesh::Sphere:
+    case PrimitiveMesh::None:
+    default:
+        return nullptr;
+    }
+}
+
+void attachSandboxCubeMesh(World& world, AssetPinTable& pins, AssetManager& assets, Entity e, AssetID matId)
+{
+    MeshComponent mc{};
+    mc.primitive  = PrimitiveMesh::Cube;
+    mc.matAssetID = matId;
+    mc.castShadow = true;
+    setMeshComponent(world, pins, assets, e, mc);
+}
+
 void SandboxApp::registerDefaultActions()
 {
     ActionMap& a = input().actions();
@@ -1577,14 +1601,10 @@ void SandboxApp::spawnOwnedPawn(ClientId owner, float offsetX)
     Entity e = world().createEntity();
     world().emplace<TagComponent>(e, "PlayerPawn");
     world().emplace<TransformComponent>(e, pos, Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
-    {
-        auto& mc       = world().emplace<MeshComponent>(e);
-        mc.meshAssetID = NULL_ASSET;
-        mc.matAssetID  = m_cubeMatId;
-        mc.castShadow  = true;
-    }
+    attachSandboxCubeMesh(world(), pins(), assets(), e, m_cubeMatId);
     if (!network().registerEntity(world(), e, NetPrefab::PlayerPawn, owner, pawnPaletteColor(owner)))
     {
+        onEntityRemoved(world(), e, &pins());
         world().destroyEntity(e);
         DE_LOG_ERROR(LogCategory::Networking, "Sandbox: failed to register pawn for client {}", static_cast<unsigned>(owner));
     }
@@ -1599,26 +1619,23 @@ void SandboxApp::ensureLocalCube()
     m_cube              = world().createEntity();
     world().emplace<TagComponent>(m_cube, "Cube");
     world().emplace<TransformComponent>(m_cube, Vector3f{ 0.0f, groundY, 0.0f }, Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
-    auto& meshComp       = world().emplace<MeshComponent>(m_cube);
-    meshComp.meshAssetID = NULL_ASSET;
-    meshComp.matAssetID  = m_cubeMatId;
-    meshComp.castShadow  = true;
-    network().registerEntity(world(), m_cube, NetPrefab::Cube);
+    attachSandboxCubeMesh(world(), pins(), assets(), m_cube, m_cubeMatId);
+    if (!network().registerEntity(world(), m_cube, NetPrefab::Cube))
+    {
+        onEntityRemoved(world(), m_cube, &pins());
+        world().destroyEntity(m_cube);
+        m_cube = {};
+        DE_LOG_ERROR(LogCategory::Networking, "Sandbox: failed to register local cube");
+    }
 }
 
 bool SandboxApp::onNetSpawn(World& world, Entity e, NetPrefab, const TransformComponent&, uint32_t, void* user)
 {
-    // Draw path is each<NetworkedComponent> + m_cubeMesh; MeshComponent carries material/emissive.
     auto* app = static_cast<SandboxApp*>(user);
     if (!app || !e.valid())
         return false;
     if (!world.has<MeshComponent>(e))
-    {
-        auto& mc       = world.emplace<MeshComponent>(e);
-        mc.meshAssetID = NULL_ASSET;
-        mc.matAssetID  = app->m_cubeMatId;
-        mc.castShadow  = true;
-    }
+        attachSandboxCubeMesh(world, app->pins(), app->assets(), e, app->m_cubeMatId);
     return true;
 }
 
@@ -1980,10 +1997,7 @@ void SandboxApp::onInit()
     m_cube = world().createEntity();
     world().emplace<TagComponent>(m_cube, "Cube");
     world().emplace<TransformComponent>(m_cube, Vector3f{ 0.0f, groundY, 0.0f }, Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
-    auto& meshComp       = world().emplace<MeshComponent>(m_cube);
-    meshComp.meshAssetID = NULL_ASSET;
-    meshComp.matAssetID  = m_cubeMatId;
-    meshComp.castShadow  = true;
+    attachSandboxCubeMesh(world(), pins(), assets(), m_cube, m_cubeMatId);
 
     network().setWantsPawn(true);
     network().setSceneMode(0);
@@ -1991,7 +2005,13 @@ void SandboxApp::onInit()
     network().setSpawnCallback(&SandboxApp::onNetSpawn, this);
     network().setDespawnCallback(&SandboxApp::onNetDespawn, this);
     network().setPeerCallback(&SandboxApp::onNetPeer, this);
-    network().registerEntity(world(), m_cube, NetPrefab::Cube);
+    if (!network().registerEntity(world(), m_cube, NetPrefab::Cube))
+    {
+        onEntityRemoved(world(), m_cube, &pins());
+        world().destroyEntity(m_cube);
+        m_cube = {};
+        DE_LOG_ERROR(LogCategory::Networking, "Sandbox: failed to register init cube");
+    }
 
     DE_LOG_INFO(
         "SandboxApp: cube mesh {} verts / {} indices, aspect {:.3f}, material id={}, albedo {}x{}, terrain {}x{} chunks",
@@ -2080,7 +2100,9 @@ void SandboxApp::onRender()
         m_skinRing.beginFrame(renderer().frameIndex());
 
     AABox3f sceneBounds = m_terrain.bounds();
-    world().each<NetworkedComponent>([&](Entity e, NetworkedComponent&) {
+    world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
+        if (mc.primitive == PrimitiveMesh::None)
+            return;
         if (const TransformComponent* xf = world().get<TransformComponent>(e))
             sceneBounds.ExpandToInclude(xf->position);
     });
@@ -2113,11 +2135,16 @@ void SandboxApp::onRender()
             const Frustum3f casterFrustum(m_shadows.cascade(i).viewProj);
             // Opaque casters only — same set as G-buffer / forward color. Water, particles, blood, lines stay out.
             m_terrain.drawDepth(cmd, &casterFrustum);
-            world().each<NetworkedComponent>([&](Entity e, NetworkedComponent&) {
+            world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
+                if (!mc.castShadow)
+                    return;
+                const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, m_cubeMesh, m_crossMesh);
+                if (!gpuMesh)
+                    return;
                 const TransformComponent* xf = world().get<TransformComponent>(e);
                 if (!xf)
                     return;
-                drawShadowCaster(cmd, m_shadows, i, makeWorldMatrix(*xf), m_cubeMesh);
+                drawShadowCaster(cmd, m_shadows, i, makeWorldMatrix(*xf), *gpuMesh);
             });
             if (m_chaseOk)
                 m_chase.drawDepth(cmd, m_shadows, i, m_cubeMesh);
@@ -2205,20 +2232,27 @@ void SandboxApp::onRender()
             gcb.color[2] = 1.0f;
             gcb.color[3] = 0.0f;
         }
-        // Networked draw path (ECS) — do not require a parallel host array.
-        world().each<NetworkedComponent>([&](Entity e, NetworkedComponent& nc) {
+        world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
+            const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, m_cubeMesh, m_crossMesh);
+            if (!gpuMesh)
+                return;
             const TransformComponent* xf = world().get<TransformComponent>(e);
             if (!xf)
                 return;
-            const Matrix4f worldMat = makeWorldMatrix(*xf);
+            if (auto mat = assets().getAs<Material>(mc.matAssetID))
+            {
+                gpu.ensureMaterial(mat);
+                gpu.bindMaterial(cmd, *mat, MeshPipeline::kRootAlbedoSrv);
+                applyMaterialSurface(*mat, gcb);
+            }
+            const Matrix4f worldMat  = makeWorldMatrix(*xf);
             const Matrix4f prevWorld = m_prevWorldByEntity.count(e.id()) ? m_prevWorldByEntity[e.id()] : worldMat;
             fillMeshGBufferXforms(gcb, worldMat, viewProj, prevViewProj, prevWorld);
-            unpackRgba8(nc.colorRgba8, gcb.color);
-            gcb.color[3] = 0.0f;
-            if (const MeshComponent* mc = world().get<MeshComponent>(e))
-                gcb.color[3] = mc->emissive;
+            if (const NetworkedComponent* nc = world().get<NetworkedComponent>(e))
+                unpackRgba8(nc->colorRgba8, gcb.color);
+            gcb.color[3] = mc.emissive;
             m_meshPipeline.setGBufferConstants(cmd, gcb);
-            m_cubeMesh.draw(cmd, fill == DebugFill::Points);
+            gpuMesh->draw(cmd, fill == DebugFill::Points);
             m_prevWorldByEntity[e.id()] = worldMat;
             ++meshDraws;
         });
@@ -2313,16 +2347,26 @@ void SandboxApp::onRender()
         cb.cameraPos[2]  = camPos.z;
         cb.lighting      = renderer().debugState().lighting ? 1.0f : 0.0f;
 
-        world().each<NetworkedComponent>([&](Entity e, NetworkedComponent& nc) {
+        world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
+            const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, m_cubeMesh, m_crossMesh);
+            if (!gpuMesh)
+                return;
             const TransformComponent* xf = world().get<TransformComponent>(e);
             if (!xf)
                 return;
+            if (auto mat = assets().getAs<Material>(mc.matAssetID))
+            {
+                gpu.ensureMaterial(mat);
+                gpu.bindMaterial(cmd, *mat, MeshPipeline::kRootAlbedoSrv);
+                applyMaterialSurface(*mat, cb);
+            }
             const Matrix4f worldMat = makeWorldMatrix(*xf);
             copyMatrix(cb.worldViewProj, worldMat * viewProj);
             copyMatrix(cb.world, worldMat);
-            unpackRgba8(nc.colorRgba8, cb.color);
+            if (const NetworkedComponent* nc = world().get<NetworkedComponent>(e))
+                unpackRgba8(nc->colorRgba8, cb.color);
             m_meshPipeline.setConstants(cmd, cb);
-            m_cubeMesh.draw(cmd, fill == DebugFill::Points);
+            gpuMesh->draw(cmd, fill == DebugFill::Points);
             ++meshDraws;
         });
 
