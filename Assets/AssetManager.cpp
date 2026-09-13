@@ -1,4 +1,5 @@
 #include "Assets/AssetManager.h"
+#include "Audio/SoundClip.h"
 #include "Animation/AnimGraph.h"
 #include "Animation/AnimGraphJson.h"
 #include "Animation/AnimationSet.h"
@@ -138,6 +139,77 @@ namespace Dark
             m_pathToID[cacheKey] = id;
         DE_LOG_INFO("AssetManager: interned material id={}", id);
         return mat;
+    }
+
+    AssetRef<Audio::SoundClip> AssetManager::internSoundClip(AssetRef<Audio::SoundClip> clip, const std::string& cacheKey)
+    {
+        if (!clip)
+        {
+            DE_LOG_ERROR("AssetManager::internSoundClip: null clip");
+            return {};
+        }
+        clip->type = AssetType::Audio;
+
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (clip->id != NULL_ASSET && cacheKey.empty())
+            return clip;
+
+        if (!cacheKey.empty())
+        {
+            const auto pit = m_pathToID.find(cacheKey);
+            if (pit != m_pathToID.end())
+            {
+                const auto ait = m_assets.find(pit->second);
+                if (ait != m_assets.end())
+                {
+                    if (AssetRef<Audio::SoundClip> existing = std::dynamic_pointer_cast<Audio::SoundClip>(ait->second))
+                        return existing;
+                }
+                m_pathToID.erase(pit);
+            }
+            if (clip->id != NULL_ASSET)
+            {
+                m_pathToID[cacheKey] = clip->id;
+                return clip;
+            }
+        }
+
+        const AssetID id = allocID();
+        clip->id         = id;
+        m_assets[id]     = clip;
+        if (!cacheKey.empty())
+            m_pathToID[cacheKey] = id;
+        DE_LOG_INFO("AssetManager: interned audio id={}", id);
+        return clip;
+    }
+
+    AssetRef<Audio::SoundClip> AssetManager::loadAudio(const std::string& virtualPath)
+    {
+        const std::filesystem::path path = resolve(virtualPath);
+        if (path.empty())
+        {
+            DE_LOG_ERROR("AssetManager: audio not found '{}'", virtualPath);
+            return {};
+        }
+        const std::string key = std::string("a:") + ImageCache::normalizePath(path);
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            const auto pit = m_pathToID.find(key);
+            if (pit != m_pathToID.end())
+            {
+                const auto ait = m_assets.find(pit->second);
+                if (ait != m_assets.end())
+                {
+                    if (AssetRef<Audio::SoundClip> existing = std::dynamic_pointer_cast<Audio::SoundClip>(ait->second))
+                        return existing;
+                }
+            }
+        }
+        auto clip = std::make_shared<Audio::SoundClip>();
+        if (!clip->loadWav(path))
+            return {};
+        clip->setKey(key);
+        return internSoundClip(std::move(clip), key);
     }
 
     AssetRef<Asset> AssetManager::get(AssetID id) const

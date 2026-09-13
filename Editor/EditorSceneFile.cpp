@@ -63,11 +63,12 @@ bool EditorApp::saveScene()
         d.rotation = xf->rotation;
         d.scale    = xf->scale;
         copyColor(d.color, so.color);
-        if (so.type == SceneObjectType::ParticleEmitter && so.emitterIndex >= 0
-            && so.emitterIndex < static_cast<int>(m_emitters.size())
-            && m_emitters[static_cast<size_t>(so.emitterIndex)])
+        if (ParticleEmitterComponent* pe = world().get<ParticleEmitterComponent>(e))
         {
-            sceneDataFromDesc(m_emitters[static_cast<size_t>(so.emitterIndex)]->desc(), d);
+            if (pe->runtime)
+                sceneDataFromDesc(pe->runtime->desc(), d);
+            else
+                sceneDataFromDesc(pe->desc, d);
         }
         if (const auto* light = world().get<LocalLightComponent>(e))
         {
@@ -315,11 +316,8 @@ void EditorApp::handleEditorCommands(float dt)
                         xf->position.y = 0.5f * xf->scale.y;
                     syncGlowPairPosition(world(), m_selected);
 
-                    if (so && so->emitterIndex >= 0 && so->emitterIndex < static_cast<int>(m_emitters.size())
-                        && m_emitters[static_cast<size_t>(so->emitterIndex)])
-                    {
-                        m_emitters[static_cast<size_t>(so->emitterIndex)]->setTransform(xf->position, xf->rotation);
-                    }
+                    if (ParticleEmitterComponent* pe = world().get<ParticleEmitterComponent>(m_selected); pe && pe->runtime)
+                        pe->runtime->setTransform(xf->position, xf->rotation);
                 }
             }
         }

@@ -400,13 +400,10 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         });
     }
 
-    world().each<EditorObjectComponent>([&](Entity, EditorObjectComponent& so) {
-        if (so.type != SceneObjectType::ParticleEmitter || so.emitterIndex < 0)
+    world().each<ParticleEmitterComponent>([&](Entity, ParticleEmitterComponent& pe) {
+        if (!pe.runtime)
             return;
-        if (so.emitterIndex >= static_cast<int>(m_emitters.size()) || !m_emitters[static_cast<size_t>(so.emitterIndex)])
-            return;
-        ParticleEmitter& em = *m_emitters[static_cast<size_t>(so.emitterIndex)];
-        m_particleRenderer.draw(cmd, m_camera, em, em.desc().additiveBlend);
+        m_particleRenderer.draw(cmd, m_camera, *pe.runtime, pe.runtime->desc().additiveBlend);
         ++draws;
     });
 

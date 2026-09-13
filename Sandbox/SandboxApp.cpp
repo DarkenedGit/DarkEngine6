@@ -29,6 +29,7 @@
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
 #include "AI/AiComponents.h"
+#include "Audio/SoundComponents.h"
 #include "Animation/AnimNotify.h"
 #include "Character/HealthComponent.h"
 #include "Character/PlayerMotorComponent.h"
@@ -633,6 +634,17 @@ void SandboxApp::attachLocalPlayer(Entity e)
         hud.kind = HudKind::HealthBar;
         world().emplace<HudTagComponent>(e, hud);
     }
+    if (m_sfxWater && m_sfxWater->id != NULL_ASSET && !world().has<SoundEmitterComponent>(e))
+    {
+        SoundEmitterComponent se{};
+        se.clipId  = m_sfxWater->id;
+        se.volume  = 0.28f;
+        se.looping = true;
+        se.spatial = false;
+        se.play    = false;
+        world().emplace<SoundEmitterComponent>(e, se);
+        pinSoundEmitter(pins(), assets(), se);
+    }
 }
 
 Health* SandboxApp::localHealth()
@@ -779,16 +791,8 @@ void SandboxApp::updatePossessed(float dt)
     else
         m_footstepAcc = 0.0f;
 
-    if (m_playerWet)
-    {
-        if (m_waterVoice == 0 || !audio().isPlaying(m_waterVoice))
-            m_waterVoice = audio().play2D(m_sfxWater, 0.28f, true);
-    }
-    else if (m_waterVoice != 0)
-    {
-        audio().stop(m_waterVoice);
-        m_waterVoice = 0;
-    }
+    if (SoundEmitterComponent* se = world().get<SoundEmitterComponent>(body))
+        se->play = m_playerWet;
 }
 
 void SandboxApp::respawnPlayer()
@@ -1809,7 +1813,7 @@ void SandboxApp::onInit()
     m_weapons.setHitListener(&SandboxApp::onWeaponHitThunk, this);
     m_weapons.projectile().setAudio(&audio(), m_sfxFire, m_sfxImpact);
     if (!m_music)
-        m_music = audio().createTone(110.0f, 2.0f, 0.12f);
+        m_music = audio().createTone(assets(), 110.0f, 2.0f, 0.12f);
     audio().setMasterVolume(0.85f);
 
     if (!renderer().enableSceneBuffers(config().scenePath))
@@ -2091,6 +2095,7 @@ void SandboxApp::onInit()
     world().emplace<TagComponent>(m_camera, "Main Camera");
     world().emplace<TransformComponent>(m_camera, m_viewCamera.GetPosition(), Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
     world().emplace<CameraComponent>(m_camera, /* fovDeg */ 60.0f, /* near */ 0.5f, /* far */ 2000.0f, /* primary */ true);
+    world().emplace<AudioListenerComponent>(m_camera);
 
     const float groundY = m_terrain.heightAtWorld(0.0f, 0.0f) + 0.5f;
     m_cube = world().createEntity();
@@ -2169,6 +2174,7 @@ void SandboxApp::onUpdate(float dt)
     lis.forward  = m_viewCamera.GetLook();
     lis.up       = m_viewCamera.GetUp();
     audio().setListener(lis);
+    tickSoundEmitters(world(), audio(), assets());
 }
 
 void SandboxApp::onRender()

@@ -17,7 +17,7 @@
 #include "Math/AABox2f.h"
 #include "Editor/EditorImGui.h"
 #include "Editor/ParticleEditorPanel.h"
-#include "Particles/ParticleEmitter.h"
+#include "Particles/ParticleComponents.h"
 #include "Particles/ParticleRenderer.h"
 
 #include "Audio/SoundClip.h"
@@ -109,9 +109,6 @@ private:
     bool loadScene();
 
     ParticleEmitterDesc makeDefaultParticleDesc() const;
-    void applyParticleDescToEmitter(int emitterIndex, const ParticleEmitterDesc& desc);
-    void fillParticleDescFromEmitter(int emitterIndex, ParticleEmitterDesc& out) const;
-    void syncSelectedEmitterFromUi();
 
     const Mesh* meshForType(SceneObjectType type) const;
     EditorObjectComponent* findObject(Entity e);
@@ -154,7 +151,6 @@ private:
     int                  m_panMouseX = 0;
     int                  m_panMouseY = 0;
 
-    std::vector<std::unique_ptr<ParticleEmitter>> m_emitters;
     ParticleRenderer                           m_particleRenderer;
     Entity                                     m_selected{};
 

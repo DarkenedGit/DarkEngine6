@@ -106,7 +106,6 @@ void EditorApp::discardLocalSceneForJoin()
             world().destroyEntity(e);
         }
     }
-    m_emitters.clear();
     m_selected = {};
     m_dragging = false;
 }
@@ -256,15 +255,15 @@ bool EditorApp::onNetSpawn(World& world, Entity e, NetPrefab prefab, const Trans
     const SceneObjectType type = typeFromPrefab(prefab);
     if (!isLocalLightType(type) && !world.has<MeshComponent>(e))
     {
-        auto& mc       = world.emplace<MeshComponent>(e);
+        MeshComponent mc{};
         mc.matAssetID  = self->m_propMaterial ? self->m_propMaterial->id : NULL_ASSET;
         mc.meshAssetID = NULL_ASSET;
+        setMeshComponent(world, self->pins(), self->assets(), e, mc);
     }
     if (!world.has<EditorObjectComponent>(e))
     {
         EditorObjectComponent so{};
-        so.type         = type;
-        so.emitterIndex = -1;
+        so.type = type;
         unpackRgba8(colorRgba8, so.color);
         world.emplace<EditorObjectComponent>(e, so);
     }

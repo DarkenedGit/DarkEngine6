@@ -12,6 +12,11 @@
 namespace Dark
 {
 
+    namespace Audio
+    {
+        class SoundClip;
+    }
+
     class AssetManager
     {
     public:
@@ -71,6 +76,9 @@ namespace Dark
 
         // stem + ".anim.json" if that file exists; empty ref if missing (not an error).
         AssetRef<class AnimGraphDef> tryLoadAnimGraphForModel(const std::string& gltfVirtualPath);
+
+        AssetRef<class Audio::SoundClip> loadAudio(const std::string& virtualPath);
+        AssetRef<class Audio::SoundClip> internSoundClip(AssetRef<class Audio::SoundClip> clip, const std::string& cacheKey = {});
 
     private:
         mutable std::mutex                                      m_mutex;

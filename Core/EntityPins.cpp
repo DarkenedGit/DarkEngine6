@@ -1,6 +1,7 @@
 #include "Core/EntityPins.h"
 
 #include "Assets/AssetManager.h"
+#include "Audio/SoundComponents.h"
 #include "Core/AssetPinTable.h"
 #include "Core/Log.h"
 #include "ECS/World.h"
@@ -58,6 +59,31 @@ namespace Dark
         pins.pin(assets, matId);
     }
 
+    void pinSoundEmitter(AssetPinTable& pins, AssetManager& assets, const SoundEmitterComponent& se)
+    {
+        pins.pin(assets, se.clipId);
+    }
+
+    void unpinSoundEmitter(AssetPinTable& pins, const SoundEmitterComponent& se)
+    {
+        pins.unpin(se.clipId);
+    }
+
+    void setSoundEmitterClip(World& world, AssetPinTable& pins, AssetManager& assets, Entity e, AssetID clipId)
+    {
+        SoundEmitterComponent* se = world.get<SoundEmitterComponent>(e);
+        if (!se)
+        {
+            DE_LOG_ERROR("setSoundEmitterClip: entity has no SoundEmitterComponent");
+            return;
+        }
+        if (se->clipId == clipId)
+            return;
+        pins.unpin(se->clipId);
+        se->clipId = clipId;
+        pins.pin(assets, clipId);
+    }
+
     void onEntityRemoved(World& world, Entity e, AssetPinTable* pins)
     {
         if (!pins || !world.alive(e))
@@ -66,6 +92,8 @@ namespace Dark
             unpinMeshComponent(*pins, *mc);
         if (const ModelComponent* mo = world.get<ModelComponent>(e))
             unpinModelComponent(*pins, *mo);
+        if (const SoundEmitterComponent* se = world.get<SoundEmitterComponent>(e))
+            unpinSoundEmitter(*pins, *se);
     }
 
 } // namespace Dark

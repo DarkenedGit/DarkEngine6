@@ -160,7 +160,6 @@ private:
     float         m_lookPitch      = 0.18f;
     bool          m_playerWet      = false;
     float         m_footstepAcc    = 0.0f;
-    uint32_t      m_waterVoice     = 0;
     Dark::HealthHud                  m_healthHud;
     Dark::Math::Vector3f             m_playerSpawn{ 0.0f, 0.5f, 0.0f };
     bool                             m_havePlayerSpawn = false;

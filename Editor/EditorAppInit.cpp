@@ -352,7 +352,6 @@ void EditorApp::onShutdown()
     m_quadMesh    = Mesh{};
     m_grid2D      = LineMesh{};
     m_boxOutline2D = LineMesh{};
-    m_emitters.clear();
     audio().stopAll();
     m_sfxPlace.reset();
     m_sfxDelete.reset();

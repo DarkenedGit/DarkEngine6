@@ -196,75 +196,46 @@ namespace Dark::Audio
             m_voices.clear();
             m_device.reset();
         }
-        m_clips.clear();
         m_musicId = 0;
         m_valid   = false;
         m_comInited = false;
     }
 
-    std::shared_ptr<SoundClip> AudioSystem::loadWav(const std::filesystem::path& path)
-    {
-        const std::string key = std::string("f:") + TextureCache::normalizePath(path);
-        const auto it = m_clips.find(key);
-        if (it != m_clips.end())
-            return it->second;
-
-        auto clip = std::make_shared<SoundClip>();
-        if (!clip->loadWav(path))
-            return {};
-        clip->setKey(key);
-        m_clips[key] = clip;
-        return clip;
-    }
-
-    std::shared_ptr<SoundClip> AudioSystem::loadWav(AssetManager& assets, const char* virtualPath)
+    ::Dark::AssetRef<SoundClip> AudioSystem::loadWav(AssetManager& assets, const char* virtualPath)
     {
         if (!virtualPath || virtualPath[0] == '\0')
             return {};
-        const std::filesystem::path resolved = assets.resolve(virtualPath);
-        if (resolved.empty())
-        {
-            DE_LOG_WARN(LogCategory::Audio, "Audio: could not resolve '{}'", virtualPath);
-            return {};
-        }
-        return loadWav(resolved);
+        ::Dark::AssetRef<SoundClip> clip = assets.loadAudio(virtualPath);
+        if (!clip)
+            DE_LOG_WARN(LogCategory::Audio, "Audio: could not load '{}'", virtualPath);
+        return clip;
     }
 
-    std::shared_ptr<SoundClip> AudioSystem::createTone(float freqHz, float durationSec, float amplitude)
+    ::Dark::AssetRef<SoundClip> AudioSystem::createTone(AssetManager& assets, float freqHz, float durationSec, float amplitude)
     {
         char buf[80];
         std::snprintf(buf, sizeof(buf), "tone:%.3f,%.3f,%.3f", freqHz, durationSec, amplitude);
         const std::string key(buf);
-        const auto it = m_clips.find(key);
-        if (it != m_clips.end())
-            return it->second;
-
         auto clip = std::make_shared<SoundClip>();
         if (!clip->createTone(freqHz, durationSec, amplitude))
             return {};
         clip->setKey(key);
-        m_clips[key] = clip;
-        return clip;
+        return assets.internSoundClip(std::move(clip), key);
     }
 
-    std::shared_ptr<SoundClip> AudioSystem::createBlip(float freqHz, float durationSec, float amplitude)
+    ::Dark::AssetRef<SoundClip> AudioSystem::createBlip(AssetManager& assets, float freqHz, float durationSec, float amplitude)
     {
         char buf[80];
         std::snprintf(buf, sizeof(buf), "blip:%.3f,%.3f,%.3f", freqHz, durationSec, amplitude);
         const std::string key(buf);
-        const auto it = m_clips.find(key);
-        if (it != m_clips.end())
-            return it->second;
-
         auto clip = std::make_shared<SoundClip>();
         if (!clip->createBlip(freqHz, durationSec, amplitude))
             return {};
         clip->setKey(key);
-        m_clips[key] = clip;
-        return clip;
+        return assets.internSoundClip(std::move(clip), key);
     }
 
-    std::shared_ptr<SoundClip> AudioSystem::loadOrBlip(
+    ::Dark::AssetRef<SoundClip> AudioSystem::loadOrBlip(
         AssetManager& assets,
         const char* virtualPath,
         float fallbackFreqHz,
@@ -274,7 +245,7 @@ namespace Dark::Audio
         if (auto clip = loadWav(assets, virtualPath))
             return clip;
         DE_LOG_WARN(LogCategory::Audio, "Audio: using tone fallback for '{}'", virtualPath ? virtualPath : "");
-        return createBlip(fallbackFreqHz, fallbackDurationSec, fallbackAmp);
+        return createBlip(assets, fallbackFreqHz, fallbackDurationSec, fallbackAmp);
     }
 
     bool AudioSystem::ensureVoice(VoiceSlot& slot, const SoundClip& clip)
@@ -416,7 +387,7 @@ namespace Dark::Audio
         slot.voice->SetFrequencyRatio(clampf(slot.desc.pitch * dsp.DopplerFactor, 0.5f, 2.0f));
     }
 
-    VoiceId AudioSystem::play(const std::shared_ptr<SoundClip>& clip, const PlayDesc& desc)
+    VoiceId AudioSystem::play(const ::Dark::AssetRef<SoundClip>& clip, const PlayDesc& desc)
     {
         if (!m_valid || !clip || !clip->valid() || !m_device)
             return 0;
@@ -476,7 +447,7 @@ namespace Dark::Audio
         return makeId(index);
     }
 
-    VoiceId AudioSystem::play2D(const std::shared_ptr<SoundClip>& clip, float volume, bool loop)
+    VoiceId AudioSystem::play2D(const ::Dark::AssetRef<SoundClip>& clip, float volume, bool loop)
     {
         PlayDesc d{};
         d.volume = volume;
@@ -484,7 +455,7 @@ namespace Dark::Audio
         return play(clip, d);
     }
 
-    VoiceId AudioSystem::play3D(const std::shared_ptr<SoundClip>& clip, const Vector3f& position, float volume)
+    VoiceId AudioSystem::play3D(const ::Dark::AssetRef<SoundClip>& clip, const Vector3f& position, float volume)
     {
         PlayDesc d{};
         d.volume   = volume;
@@ -493,7 +464,7 @@ namespace Dark::Audio
         return play(clip, d);
     }
 
-    void AudioSystem::setMusic(const std::shared_ptr<SoundClip>& clip, float volume)
+    void AudioSystem::setMusic(const ::Dark::AssetRef<SoundClip>& clip, float volume)
     {
         stopMusic();
         if (!clip)
@@ -561,6 +532,17 @@ namespace Dark::Audio
         m_masterVolume = clampf(volume, 0.0f, 1.0f);
         if (m_device && m_device->master)
             m_device->master->SetVolume(m_masterVolume);
+    }
+
+    void AudioSystem::setVoicePosition(VoiceId id, const Vector3f& position)
+    {
+        const int index = decodeIndex(id);
+        if (!matches(id, index))
+            return;
+        VoiceSlot& slot = *m_voices[static_cast<size_t>(index)];
+        slot.desc.position = position;
+        if (slot.inUse && slot.desc.spatial && slot.voice)
+            apply3D(slot);
     }
 
     void AudioSystem::tick()

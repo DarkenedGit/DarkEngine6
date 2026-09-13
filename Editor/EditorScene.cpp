@@ -88,12 +88,13 @@ void EditorApp::collectEditorEntities(std::vector<Entity>& out)
 
 ParticleEmitter* EditorApp::selectedEmitter()
 {
-    EditorObjectComponent* so = findObject(m_selected);
-    if (!so || so->type != SceneObjectType::ParticleEmitter)
+    if (!m_selected.valid() || !world().alive(m_selected))
         return nullptr;
-    if (so->emitterIndex < 0 || so->emitterIndex >= static_cast<int>(m_emitters.size()))
+    ParticleEmitterComponent* pe = world().get<ParticleEmitterComponent>(m_selected);
+    if (!pe)
         return nullptr;
-    return m_emitters[static_cast<size_t>(so->emitterIndex)].get();
+    ensureParticleRuntime(*pe);
+    return pe->runtime.get();
 }
 
 ParticleEmitterDesc EditorApp::makeDefaultParticleDesc() const

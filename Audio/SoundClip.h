@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Assets/AssetHandle.h"
 #include "Audio/WavFile.h"
 
 #include <cstdint>
@@ -9,9 +10,11 @@
 namespace Dark::Audio
 {
 
-    class SoundClip
+    class SoundClip : public Asset
     {
     public:
+        SoundClip() { type = AssetType::Audio; }
+
         bool loadWav(const std::filesystem::path& path);
         bool createFromPcm(PcmWav pcm);
         bool createTone(float freqHz, float durationSec, float amplitude = 0.35f, uint32_t sampleRate = 44100);

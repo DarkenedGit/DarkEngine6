@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Assets/AssetHandle.h"
 #include "Audio/SoundClip.h"
 #include "Math/Vector3f.h"
 
@@ -7,7 +8,6 @@
 #include <filesystem>
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace Dark
@@ -53,22 +53,22 @@ namespace Dark::Audio
         void shutdown();
         bool isValid() const { return m_valid; }
 
-        std::shared_ptr<SoundClip> loadWav(const std::filesystem::path& path);
-        std::shared_ptr<SoundClip> loadWav(AssetManager& assets, const char* virtualPath);
-        std::shared_ptr<SoundClip> createTone(float freqHz, float durationSec, float amplitude = 0.35f);
-        std::shared_ptr<SoundClip> createBlip(float freqHz, float durationSec, float amplitude = 0.45f);
-        std::shared_ptr<SoundClip> loadOrBlip(
+        ::Dark::AssetRef<SoundClip> loadWav(AssetManager& assets, const char* virtualPath);
+        ::Dark::AssetRef<SoundClip> createTone(AssetManager& assets, float freqHz, float durationSec, float amplitude = 0.35f);
+        ::Dark::AssetRef<SoundClip> createBlip(AssetManager& assets, float freqHz, float durationSec, float amplitude = 0.45f);
+        ::Dark::AssetRef<SoundClip> loadOrBlip(
             AssetManager& assets,
             const char* virtualPath,
             float fallbackFreqHz,
             float fallbackDurationSec,
             float fallbackAmp = 0.45f);
 
-        VoiceId play(const std::shared_ptr<SoundClip>& clip, const PlayDesc& desc = {});
-        VoiceId play2D(const std::shared_ptr<SoundClip>& clip, float volume = 1.0f, bool loop = false);
-        VoiceId play3D(const std::shared_ptr<SoundClip>& clip, const Math::Vector3f& position, float volume = 1.0f);
+        VoiceId play(const ::Dark::AssetRef<SoundClip>& clip, const PlayDesc& desc = {});
+        VoiceId play2D(const ::Dark::AssetRef<SoundClip>& clip, float volume = 1.0f, bool loop = false);
+        VoiceId play3D(const ::Dark::AssetRef<SoundClip>& clip, const Math::Vector3f& position, float volume = 1.0f);
 
-        void setMusic(const std::shared_ptr<SoundClip>& clip, float volume = 0.18f);
+        void setMusic(const ::Dark::AssetRef<SoundClip>& clip, float volume = 0.18f);
+        void setVoicePosition(VoiceId id, const Math::Vector3f& position);
         void stopMusic();
 
         void stop(VoiceId id);
@@ -100,7 +100,6 @@ namespace Dark::Audio
         std::unique_ptr<Device> m_device;
         std::vector<std::unique_ptr<VoiceSlot>> m_voices;
 
-        std::unordered_map<std::string, std::shared_ptr<SoundClip>> m_clips;
         AudioListener m_listener{};
         float         m_masterVolume = 1.0f;
         bool          m_valid        = false;

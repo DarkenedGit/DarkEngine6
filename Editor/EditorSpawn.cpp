@@ -106,11 +106,12 @@ Entity EditorApp::spawnObject(
 
     if (!lightType)
     {
-        auto& mc       = world().emplace<MeshComponent>(e);
+        MeshComponent mc{};
         mc.matAssetID  = m_propMaterial ? m_propMaterial->id : NULL_ASSET;
         mc.meshAssetID = NULL_ASSET;
         if (authored)
             mc.emissive = authored->emissive;
+        setMeshComponent(world(), pins(), assets(), e, mc);
     }
     else
     {
@@ -130,19 +131,17 @@ Entity EditorApp::spawnObject(
     }
 
     EditorObjectComponent so{};
-    so.type         = type;
+    so.type = type;
     copyColor(so.color, color);
-    so.emitterIndex = -1;
 
     if (type == SceneObjectType::ParticleEmitter)
     {
-        auto emitter = std::make_unique<ParticleEmitter>();
-        ParticleEmitterDesc desc = particleDesc ? *particleDesc : makeDefaultParticleDesc();
-        emitter->setDesc(desc);
-        emitter->setTransform(xf.position, xf.rotation);
-        emitter->play();
-        so.emitterIndex = static_cast<int>(m_emitters.size());
-        m_emitters.push_back(std::move(emitter));
+        ParticleEmitterComponent pe{};
+        pe.desc    = particleDesc ? *particleDesc : makeDefaultParticleDesc();
+        pe.playing = true;
+        ensureParticleRuntime(pe);
+        pe.runtime->setTransform(xf.position, xf.rotation);
+        world().emplace<ParticleEmitterComponent>(e, std::move(pe));
         if (auto* t = world().get<TransformComponent>(e))
             t->scale = Vector3f(0.35f, 0.35f, 0.35f);
     }
@@ -151,7 +150,7 @@ Entity EditorApp::spawnObject(
     m_selected = e;
     if (registerNet && isReplicatedProp(type))
         network().registerEntity(world(), e, prefabFromType(type), ClientId::Host, packRgba8(so.color));
-    DE_LOG_INFO("Editor: spawn {} #{} (emitters={})", toString(type), e.id(), m_emitters.size());
+    DE_LOG_INFO("Editor: spawn {} #{}", toString(type), e.id());
     return e;
 }
 
@@ -264,12 +263,6 @@ void EditorApp::deleteSelected()
     auto eraseOne = [&](Entity e) {
         if (!e.valid() || !world().alive(e))
             return;
-        if (EditorObjectComponent* so = findObject(e))
-        {
-            if (so->type == SceneObjectType::ParticleEmitter && so->emitterIndex >= 0
-                && so->emitterIndex < static_cast<int>(m_emitters.size()))
-                m_emitters[static_cast<size_t>(so->emitterIndex)].reset();
-        }
         if (world().has<NetworkedComponent>(e))
         {
             network().unregisterEntity(world(), e);
@@ -363,7 +356,6 @@ void EditorApp::clearScene()
             world().destroyEntity(e);
         }
     }
-    m_emitters.clear();
     m_selected = {};
     m_dragging = false;
 }

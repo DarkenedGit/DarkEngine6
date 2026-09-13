@@ -376,14 +376,11 @@ void EditorApp::onUpdate(float dt)
     if (m_sceneMode != SceneMode::Scene2D)
         tickAnimGraphs(world(), assets(), dt);
 
-    world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
-        if (so.type != SceneObjectType::ParticleEmitter || so.emitterIndex < 0)
-            return;
-        if (so.emitterIndex >= static_cast<int>(m_emitters.size()) || !m_emitters[static_cast<size_t>(so.emitterIndex)])
-            return;
+    world().each<ParticleEmitterComponent>([&](Entity e, ParticleEmitterComponent& pe) {
+        ensureParticleRuntime(pe);
         if (const auto* xf = world().get<TransformComponent>(e))
-            m_emitters[static_cast<size_t>(so.emitterIndex)]->setTransform(xf->position, xf->rotation);
-        m_emitters[static_cast<size_t>(so.emitterIndex)]->update(dt);
+            pe.runtime->setTransform(xf->position, xf->rotation);
+        pe.runtime->update(dt);
     });
 
     Audio::AudioListener lis{};
