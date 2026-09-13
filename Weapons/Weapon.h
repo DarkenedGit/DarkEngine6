@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Collision/HitResult.h"
+#include "ECS/Entity.h"
 #include "Math/AABox3f.h"
 #include "Math/Ray3f.h"
 #include "Math/Vector3f.h"
@@ -21,10 +22,11 @@ namespace Dark
         Math::Vector3f point{};
         Math::Vector3f normal{ 0.0f, 1.0f, 0.0f };
         Math::Vector3f direction{ 0.0f, 0.0f, 1.0f }; // incoming attack, attacker -> victim
-        float          damage       = 0.0f;
-        int            targetIndex  = -1;
-        bool           hitTarget    = false;
-        WeaponKind     weapon       = WeaponKind::Melee;
+        float          damage        = 0.0f;
+        int            targetIndex   = -1;
+        Entity         targetEntity{};
+        bool           hitTarget     = false;
+        WeaponKind     weapon        = WeaponKind::Melee;
     };
 
     struct WeaponWorldQuery
@@ -33,9 +35,11 @@ namespace Dark
         float (*heightAt)(void* user, float x, float z)                                              = nullptr;
         void* terrainUser                                                                            = nullptr;
 
-        int (*targetCount)(void* user)                 = nullptr;
-        bool (*targetAlive)(void* user, int index)     = nullptr;
-        Math::Vector3f (*targetCenter)(void* user, int index) = nullptr;
+        int (*targetCount)(void* user)                              = nullptr;
+        bool (*targetAlive)(void* user, int index)                  = nullptr;
+        Math::Vector3f (*targetCenter)(void* user, int index)       = nullptr;
+        Math::Vector3f (*targetHalfExtentsAt)(void* user, int index) = nullptr;
+        Entity (*targetEntityAt)(void* user, int index)             = nullptr;
         Math::Vector3f targetHalfExtents{ 1.0f, 1.0f, 1.0f };
         void*          targetUser = nullptr;
 

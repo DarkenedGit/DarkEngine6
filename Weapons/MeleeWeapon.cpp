@@ -58,6 +58,8 @@ namespace Dark
             hit.direction   = look;
             hit.damage      = m_desc.damage;
             hit.targetIndex = i;
+            if (world.targetEntityAt)
+                hit.targetEntity = world.targetEntityAt(world.targetUser, i);
             hit.hitTarget   = true;
             hit.weapon      = WeaponKind::Melee;
             emitHit(hit);

@@ -1,11 +1,17 @@
 #include "PathChase.h"
 
+#include "AI/AiComponents.h"
 #include "AI/Sight.h"
+#include "Assets/AssetManager.h"
+#include "Character/HealthComponent.h"
+#include "Core/AssetPinTable.h"
+#include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
 #include "Input/Input.h"
 #include "Math/Matrix4f.h"
+#include "Math/Quaternion.h"
 #include "Network/NetTypes.h"
 #include "Render/MeshGen.h"
 #include "Render/Camera3D.h"
@@ -89,17 +95,19 @@ bool PathChase::bake(Terrain::TerrainWorld& terrain, WaterWorld& water)
     d.agentRadius = m_agentR;
     d.cubes       = m_cubes.empty() ? nullptr : m_cubes.data();
     d.cubeCount   = static_cast<int>(m_cubes.size());
-    if (!m_walk.bake(d))
-        return false;
-    return m_finder.bind(&m_walk);
+    return m_ai.bake(d);
 }
 
-bool PathChase::init(Renderer& renderer, Terrain::TerrainWorld& terrain, WaterWorld& water, World& world, Mesh&, AssetRef<Material> trunkMat, AssetRef<Material> canopyMat, AssetRef<Material> aiMat)
+bool PathChase::init(Renderer& renderer, Terrain::TerrainWorld& terrain, WaterWorld& water, World& world, AssetPinTable& pins, AssetManager& assets, Mesh&,
+                     AssetRef<Material> trunkMat, AssetRef<Material> canopyMat, AssetRef<Material> aiMat)
 {
-    m_hunterHit.stunSeconds       = 0.45f;
-    m_hunterHit.knockbackDistance = 2.2f;
-    m_hunterHit.knockbackSeconds  = 0.18f;
-    m_hunterHit.horizontalOnly    = true;
+    HitReactionSettings hunterHit{};
+    hunterHit.stunSeconds       = 0.45f;
+    hunterHit.knockbackDistance = 2.2f;
+    hunterHit.knockbackSeconds  = 0.18f;
+    hunterHit.horizontalOnly    = true;
+    m_ai.setHunterHitReactionSettings(hunterHit);
+    m_world     = &world;
     m_trunkMat  = trunkMat;
     m_canopyMat = canopyMat;
     m_aiMat     = aiMat;
@@ -149,7 +157,7 @@ bool PathChase::init(Renderer& renderer, Terrain::TerrainWorld& terrain, WaterWo
         return false;
     if (!spawnWalker(world, terrain))
         return false;
-    if (!spawnAgents(terrain))
+    if (!spawnAgents(world, pins, assets, terrain))
         return false;
     DE_LOG_INFO(LogCategory::AI, "PathChase: ready, {} trees, 3 agents", m_treePos.size());
     return true;
@@ -166,12 +174,13 @@ bool PathChase::spawnWalker(World& world, Terrain::TerrainWorld& terrain)
     return true;
 }
 
-bool PathChase::spawnAgents(Terrain::TerrainWorld& terrain)
+bool PathChase::spawnAgents(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainWorld& terrain)
 {
     std::mt19937 rng{ 20260826u };
     std::uniform_real_distribution<float> ux(-22.0f, 22.0f);
     std::uniform_real_distribution<float> uz(-22.0f, 22.0f);
     const Vector3f seeds[3] = { { 16.0f, 0, -10.0f }, { -14.0f, 0, -12.0f }, { 8.0f, 0, 18.0f } };
+    m_hunterCount = 0;
 
     for (int i = 0; i < kHunterCount; ++i)
     {
@@ -180,39 +189,30 @@ bool PathChase::spawnAgents(Terrain::TerrainWorld& terrain)
         {
             const float x = (tries == 0) ? seeds[i].x : ux(rng);
             const float z = (tries == 0) ? seeds[i].z : uz(rng);
-            if (!m_walk.walkableWorld(x, z))
+            if (!m_ai.walkability().walkableWorld(x, z))
                 continue;
             bool hit = false;
-            for (int j = 0; j < i; ++j)
+            for (int j = 0; j < m_hunterCount; ++j)
             {
-                const float dx = x - m_agents[static_cast<size_t>(j)].pos.x;
-                const float dz = z - m_agents[static_cast<size_t>(j)].pos.z;
+                const TransformComponent* ox = world.get<TransformComponent>(m_hunters[static_cast<size_t>(j)]);
+                if (!ox)
+                    continue;
+                const float dx = x - ox->position.x;
+                const float dz = z - ox->position.z;
                 if (dx * dx + dz * dz < 4.0f)
                     hit = true;
             }
             if (hit)
                 continue;
-            Agent& a = m_agents[static_cast<size_t>(i)];
-            a.pos      = Vector3f{ x, terrain.heightAtWorld(x, z) + 1.0f, z };
-            a.forward  = Vector3f{ 0.0f, 0.0f, 1.0f };
-            a.repathAt = static_cast<float>(i) * (0.5f / 3.0f);
-            a.givenUp  = false;
-            a.deadFor  = 0.0f;
-            HealthSettings hs;
-            hs.maxHp       = 48.0f;
-            hs.regenPerSec = 5.0f;
-            hs.regenDelay  = 4.0f;
-            a.health       = Health{ hs };
-            a.hit.setSettings(m_hunterHit);
-            a.hit.reset();
-            a.assistLeft = 0.0f;
-            a.fleeLeft   = 0.0f;
-            a.helpPos    = Vector3f{ 0.0f, 0.0f, 0.0f };
-            if (!a.brain.start())
-            {
-                DE_LOG_ERROR(LogCategory::AI, "PathChase: hunter brain start failed");
+            TransformComponent xf{};
+            xf.position = Vector3f{ x, terrain.heightAtWorld(x, z) + 1.0f, z };
+            xf.scale    = Vector3f{ 2.0f, 2.0f, 2.0f };
+            Entity e    = m_ai.spawnHunter(world, pins, assets, m_aiMat, xf);
+            if (!e.valid())
                 return false;
-            }
+            if (PathAgentComponent* path = world.get<PathAgentComponent>(e))
+                path->repathAt = static_cast<float>(i) * (0.5f / 3.0f);
+            m_hunters[static_cast<size_t>(m_hunterCount++)] = e;
             ok = true;
             break;
         }
@@ -225,191 +225,8 @@ bool PathChase::spawnAgents(Terrain::TerrainWorld& terrain)
     return true;
 }
 
-bool PathChase::pickWanderDest(Agent& a)
-{
-    std::mt19937 rng{ static_cast<unsigned>(m_time * 1000.0f) + 17u };
-    std::uniform_real_distribution<float> off(-18.0f, 18.0f);
-    const int island = m_walk.islandWorld(a.pos.x, a.pos.z);
-    for (int tries = 0; tries < 48; ++tries)
-    {
-        const float x = a.pos.x + off(rng);
-        const float z = a.pos.z + off(rng);
-        if (!m_walk.walkableWorld(x, z))
-            continue;
-        if (m_walk.islandWorld(x, z) != island)
-            continue;
-        const float dx = x - a.pos.x;
-        const float dz = z - a.pos.z;
-        if (dx * dx + dz * dz < 16.0f)
-            continue;
-        a.wanderDest = Vector3f{ x, 0.0f, z };
-        return true;
-    }
-    return false;
-}
-
-void PathChase::repath(Agent& a, int self, float now, float destX, float destZ)
-{
-    AI::AgentStamp stamps[3];
-    int        n = 0;
-    for (int i = 0; i < 3; ++i)
-    {
-        if (i == self)
-            continue;
-        stamps[n].x      = m_agents[static_cast<size_t>(i)].pos.x;
-        stamps[n].z      = m_agents[static_cast<size_t>(i)].pos.z;
-        stamps[n].radius = m_agentR;
-        ++n;
-    }
-    AI::PathRequest req;
-    req.startX     = a.pos.x;
-    req.startZ     = a.pos.z;
-    req.destX      = destX;
-    req.destZ      = destZ;
-    req.others     = stamps;
-    req.otherCount = n;
-    AI::PathResult next;
-    if (!m_finder.find(req, next) || next.points.empty())
-    {
-        a.givenUp = true;
-        a.path.points.clear();
-        a.waypoint = 0;
-        return;
-    }
-    a.givenUp  = false;
-    a.path     = std::move(next);
-    a.waypoint = 0;
-    a.repathAt = now + 0.5f;
-}
-
-void PathChase::follow(Agent& a, float dt, Terrain::TerrainWorld& terrain, float speed)
-{
-    if (a.givenUp || a.path.points.empty())
-        return;
-    if (speed < 0.0f)
-        speed = 0.0f;
-    float remain = speed * dt;
-    while (remain > 0.0f && a.waypoint < static_cast<int>(a.path.points.size()))
-    {
-        const Vector3f& wp = a.path.points[static_cast<size_t>(a.waypoint)];
-        Vector3f        d{ wp.x - a.pos.x, 0.0f, wp.z - a.pos.z };
-        const float     dist = d.Magnitude();
-        if (dist < 1.0f)
-        {
-            ++a.waypoint;
-            continue;
-        }
-        const float step = remain < dist ? remain : dist;
-        d *= (1.0f / dist);
-        const Vector3f next{ a.pos.x + d.x * step, 0.0f, a.pos.z + d.z * step };
-        if (!m_walk.walkableWorld(next.x, next.z))
-            break;
-        a.pos.x = next.x;
-        a.pos.z = next.z;
-        remain -= step;
-    }
-    a.pos.y = terrain.heightAtWorld(a.pos.x, a.pos.z) + 1.0f;
-}
-
-bool PathChase::hunterSeesPoint(const Agent& a, const Vector3f& worldPos) const
-{
-    AI::SightQuery q;
-    q.eye       = Vector3f{ a.pos.x, a.pos.y + 0.5f, a.pos.z };
-    q.forward   = a.forward;
-    q.target    = Vector3f{ worldPos.x, worldPos.y + 0.5f, worldPos.z };
-    q.coneDeg   = 70.0f;
-    q.range     = 25.0f;
-    q.heightMap = m_walk.heightMap();
-    return q.heightMap && AI::sees(q);
-}
-
-bool PathChase::pickFleeDest(Agent& a)
-{
-    Vector3f away{ a.pos.x - m_walkerPos.x, 0.0f, a.pos.z - m_walkerPos.z };
-    if (away.MagnitudeSqrd() < 1.0e-6f)
-        away = a.forward;
-    away.y = 0.0f;
-    if (away.MagnitudeSqrd() < 1.0e-6f)
-        away = Vector3f{ 0.0f, 0.0f, 1.0f };
-    else
-        away.Normalize();
-    Vector3f side{ -away.z, 0.0f, away.x };
-    const int island = m_walk.islandWorld(a.pos.x, a.pos.z);
-    const float dists[]    = { 14.0f, 18.0f, 10.0f, 22.0f, 8.0f };
-    const float laterals[] = { 0.0f, 4.0f, -4.0f, 8.0f, -8.0f };
-    for (float dist : dists)
-    {
-        for (float lat : laterals)
-        {
-            const float x = a.pos.x + away.x * dist + side.x * lat;
-            const float z = a.pos.z + away.z * dist + side.z * lat;
-            if (!m_walk.walkableWorld(x, z))
-                continue;
-            if (m_walk.islandWorld(x, z) != island)
-                continue;
-            a.wanderDest = Vector3f{ x, 0.0f, z };
-            return true;
-        }
-    }
-    return pickWanderDest(a);
-}
-
-void PathChase::beginAssist(Agent& a, const Vector3f& helpPos)
-{
-    if (a.brain.leaf() == AI::Leaf::Flee)
-        return;
-    a.assistLeft = m_pack.assistSeconds;
-    a.helpPos    = helpPos;
-    a.repathAt   = 0.0f;
-    a.brain.onAssist();
-}
-
-void PathChase::beginFlee(Agent& a)
-{
-    a.fleeLeft   = m_pack.fleeSeconds;
-    a.assistLeft = 0.0f;
-    a.path.points.clear();
-    a.waypoint = 0;
-    a.repathAt = 0.0f;
-    a.brain.onFlee();
-}
-
-void PathChase::integrateHitReaction(Agent& a, float dt, Terrain::TerrainWorld& terrain)
-{
-    const Vector3f d = a.hit.tick(dt);
-    if (d.MagnitudeSqrd() < 1.0e-10f)
-        return;
-
-    const float nx = a.pos.x + d.x;
-    const float nz = a.pos.z + d.z;
-    if (!m_walk.valid())
-    {
-        a.pos.x = nx;
-        a.pos.z = nz;
-    }
-    else if (m_walk.walkableWorld(nx, nz))
-    {
-        a.pos.x = nx;
-        a.pos.z = nz;
-    }
-    else if (m_walk.walkableWorld(nx, a.pos.z))
-        a.pos.x = nx;
-    else if (m_walk.walkableWorld(a.pos.x, nz))
-        a.pos.z = nz;
-
-    a.pos.y = terrain.heightAtWorld(a.pos.x, a.pos.z) + 1.0f;
-    Vector3f face{ d.x, 0.0f, d.z };
-    if (face.MagnitudeSqrd() > 1.0e-8f)
-    {
-        face.Normalize();
-        a.forward = face;
-    }
-}
-
 void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld& terrain, Entity hostPawn, bool playerInWater)
 {
-    m_time += dt;
-    tickHunterHealth(dt);
     if (hostPawn.valid())
     {
         m_drawWalker = false;
@@ -436,137 +253,10 @@ void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld
         }
     }
 
-    const bool playerWet = playerInWater;
-    constexpr float kStandoff = 2.25f;
-    for (int i = 0; i < kHunterCount; ++i)
-    {
-        Agent& a = m_agents[static_cast<size_t>(i)];
-        if (!a.health.alive())
-            continue;
-        integrateHitReaction(a, dt, terrain);
-        const float dx = a.pos.x - m_walkerPos.x;
-        const float dz = a.pos.z - m_walkerPos.z;
-        const bool  standoff = (dx * dx + dz * dz) <= kStandoff * kStandoff;
-
-        AI::SightQuery q;
-        q.eye       = Vector3f{ a.pos.x, a.pos.y + 0.5f, a.pos.z };
-        q.forward   = a.forward;
-        q.target    = Vector3f{ m_walkerPos.x, m_walkerPos.y + 0.5f, m_walkerPos.z };
-        q.coneDeg   = 70.0f;
-        q.range     = 25.0f;
-        q.heightMap = m_walk.heightMap();
-        const bool sees = !playerWet && (standoff || (q.heightMap && AI::sees(q)));
-        if (sees)
-        {
-            a.lastSeen     = m_walkerPos;
-            a.hasLastSeen  = true;
-        }
-        if (a.fleeLeft > 0.0f)
-        {
-            a.fleeLeft -= dt;
-            if (a.fleeLeft <= 0.0f)
-            {
-                a.fleeLeft = 0.0f;
-                a.brain.onFleeDone();
-            }
-        }
-        else if (a.assistLeft > 0.0f)
-        {
-            a.assistLeft -= dt;
-            if (a.assistLeft <= 0.0f)
-            {
-                a.assistLeft = 0.0f;
-                a.brain.onAssistDone();
-            }
-        }
-
-        if (a.brain.leaf() != AI::Leaf::Flee && a.brain.leaf() != AI::Leaf::Chase)
-        {
-            const float allyR2 = m_pack.assistAllyRadius * m_pack.assistAllyRadius;
-            for (int j = 0; j < kHunterCount; ++j)
-            {
-                if (j == i || !hunterAlive(j))
-                    continue;
-                const Vector3f& ally = m_agents[static_cast<size_t>(j)].pos;
-                const float adx = ally.x - m_walkerPos.x;
-                const float adz = ally.z - m_walkerPos.z;
-                if (adx * adx + adz * adz > allyR2)
-                    continue;
-                if (!hunterSeesPoint(a, ally))
-                    continue;
-                beginAssist(a, m_walkerPos);
-                break;
-            }
-        }
-
-        a.brain.tick(dt, sees, playerWet);
-        if (playerWet)
-        {
-            a.assistLeft = 0.0f;
-            a.fleeLeft   = 0.0f;
-        }
-        if (a.hit.stunned())
-            continue;
-
-        if (standoff)
-        {
-            Vector3f to{ -dx, 0.0f, -dz };
-            if (to.MagnitudeSqrd() > 1.0e-6f)
-            {
-                to.Normalize();
-                a.forward = to;
-            }
-        }
-
-        const AI::Leaf leaf = a.brain.leaf();
-        const bool     sprint = leaf == AI::Leaf::Assist || leaf == AI::Leaf::Flee || a.assistLeft > 0.0f;
-        const float    speed  = sprint ? m_pack.sprintSpeed : m_pack.walkSpeed;
-
-        if (leaf == AI::Leaf::Flee)
-        {
-            const bool arrived = a.path.points.empty() || a.waypoint >= static_cast<int>(a.path.points.size());
-            if (arrived)
-            {
-                if (pickFleeDest(a))
-                    repath(a, i, m_time, a.wanderDest.x, a.wanderDest.z);
-            }
-            else if (m_time >= a.repathAt)
-                repath(a, i, m_time, a.wanderDest.x, a.wanderDest.z);
-        }
-        else if ((leaf == AI::Leaf::Chase || leaf == AI::Leaf::Memory || leaf == AI::Leaf::Assist) && standoff)
-            continue;
-        else if (leaf == AI::Leaf::Wander)
-        {
-            const bool arrived = a.path.points.empty() || a.waypoint >= static_cast<int>(a.path.points.size());
-            if (arrived)
-            {
-                if (pickWanderDest(a))
-                    repath(a, i, m_time, a.wanderDest.x, a.wanderDest.z);
-            }
-            else if (m_time >= a.repathAt)
-                repath(a, i, m_time, a.wanderDest.x, a.wanderDest.z);
-        }
-        else if (leaf == AI::Leaf::Chase)
-        {
-            if (m_time >= a.repathAt || a.path.points.empty())
-                repath(a, i, m_time, m_walkerPos.x, m_walkerPos.z);
-        }
-        else if (leaf == AI::Leaf::Assist)
-        {
-            if (m_time >= a.repathAt || a.path.points.empty())
-                repath(a, i, m_time, a.helpPos.x, a.helpPos.z);
-        }
-
-        const Vector3f before = a.pos;
-        follow(a, dt, terrain, speed);
-        Vector3f move{ a.pos.x - before.x, 0.0f, a.pos.z - before.z };
-        if (move.MagnitudeSqrd() > 1.0e-6f)
-        {
-            move.Normalize();
-            a.forward = move;
-        }
-    }
+    const Entity player = hostPawn.valid() ? hostPawn : m_walker;
+    m_ai.tickHunters(world, terrain, playerInWater, dt, player);
 }
+
 
 void PathChase::drawMeshes(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, MeshPipeline& meshPipe, ShadowSystem& shadows, const Camera3D& camera, const MeshFrameConstants& baseCb, Mesh& cubeMesh, DebugFill fill)
 {
@@ -606,13 +296,6 @@ void PathChase::drawMeshes(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu
         drawAt(trunkPos, m_trunkMesh, m_trunkMat.get(), trunkScale, 0.45f, 0.28f, 0.12f);
         drawAt(canopyPos, m_canopyMesh, m_canopyMat.get(), canopyScale, 0.15f, 0.75f, 0.18f);
     }
-    for (const Agent& a : m_agents)
-    {
-        if (!a.health.alive())
-            continue;
-        const float hurt = 0.35f + 0.65f * a.health.ratio();
-        drawAt(a.pos, cubeMesh, m_aiMat.get(), aiScale, 1.0f * hurt, 0.35f * hurt, 0.12f);
-    }
 }
 
 void PathChase::drawDepth(ID3D12GraphicsCommandList* cmd, const ShadowSystem& shadows, int cascade, Mesh& cubeMesh) const
@@ -641,12 +324,6 @@ void PathChase::drawDepth(ID3D12GraphicsCommandList* cmd, const ShadowSystem& sh
         drawAt(trunkPos, m_trunkMesh, trunkScale);
         drawAt(canopyPos, m_canopyMesh, canopyScale);
     }
-    for (const Agent& a : m_agents)
-    {
-        if (!a.health.alive())
-            continue;
-        drawAt(a.pos, cubeMesh, aiScale);
-    }
 }
 
 void PathChase::expandBounds(AABox3f& bounds) const
@@ -658,12 +335,6 @@ void PathChase::expandBounds(AABox3f& bounds) const
     {
         include(Vector3f{ t.x, t.y + kTrunkH * 0.5f, t.z }, Vector3f{ kTrunkR, kTrunkH * 0.5f, kTrunkR });
         include(Vector3f{ t.x, t.y + kTrunkH + kCanopyH * 0.5f, t.z }, Vector3f{ kCanopyR, kCanopyH * 0.5f, kCanopyR });
-    }
-    for (const Agent& a : m_agents)
-    {
-        if (!a.health.alive())
-            continue;
-        include(a.pos, Vector3f{ 1.0f, 1.0f, 1.0f });
     }
 }
 
@@ -706,18 +377,7 @@ void PathChase::drawMeshesGBuffer(ID3D12GraphicsCommandList* cmd, GpuResourceCac
         drawAt(trunkPos, trunkPos, m_trunkMesh, m_trunkMat.get(), trunkScale, 0.45f, 0.28f, 0.12f);
         drawAt(canopyPos, canopyPos, m_canopyMesh, m_canopyMat.get(), canopyScale, 0.15f, 0.75f, 0.18f);
     }
-    for (int i = 0; i < kHunterCount; ++i)
-    {
-        const Agent& a = m_agents[static_cast<size_t>(i)];
-        if (!a.health.alive())
-            continue;
-        const Vector3f prev = m_havePrevXforms ? m_prevAgentPos[static_cast<size_t>(i)] : a.pos;
-        const float hurt = 0.35f + 0.65f * a.health.ratio();
-        drawAt(a.pos, prev, cubeMesh, m_aiMat.get(), aiScale, 1.0f * hurt, 0.35f * hurt, 0.12f);
-    }
-    m_prevWalkerPos = m_walkerPos;
-    for (int i = 0; i < kHunterCount; ++i)
-        m_prevAgentPos[static_cast<size_t>(i)] = m_agents[static_cast<size_t>(i)].pos;
+    m_prevWalkerPos  = m_walkerPos;
     m_havePrevXforms = true;
 }
 
@@ -737,43 +397,52 @@ void PathChase::drawPaths(ID3D12GraphicsCommandList* cmd, Renderer& renderer, co
         idx.push_back(i0);
         idx.push_back(i0 + 1);
     };
-    for (const Agent& a : m_agents)
+    if (m_world)
     {
-        if (!a.health.alive())
-            continue;
-        if (a.path.points.size() >= 2 && a.brain.leaf() != AI::Leaf::Wander)
+        for (int hi = 0; hi < m_hunterCount; ++hi)
         {
-            for (size_t i = 0; i + 1 < a.path.points.size(); ++i)
+            const Entity e = m_hunters[static_cast<size_t>(hi)];
+            const HealthComponent* hp = m_world->get<HealthComponent>(e);
+            const TransformComponent* xf = m_world->get<TransformComponent>(e);
+            const AiAgentComponent* ai = m_world->get<AiAgentComponent>(e);
+            const PathAgentComponent* path = m_world->get<PathAgentComponent>(e);
+            const BrainComponent* brain = m_world->get<BrainComponent>(e);
+            if (!hp || !xf || !ai || !path || !brain || !brain->brain || !hp->health.alive())
+                continue;
+            if (path->path.points.size() >= 2 && brain->brain->leaf() != AI::Leaf::Wander)
             {
-                Vector3f p0 = a.path.points[i];
-                Vector3f p1 = a.path.points[i + 1];
-                p0.y += 0.4f;
-                p1.y += 0.4f;
-                addSeg(p0, p1);
+                for (size_t i = 0; i + 1 < path->path.points.size(); ++i)
+                {
+                    Vector3f p0 = path->path.points[i];
+                    Vector3f p1 = path->path.points[i + 1];
+                    p0.y += 0.4f;
+                    p1.y += 0.4f;
+                    addSeg(p0, p1);
+                }
             }
-        }
-        Vector3f eye{ a.pos.x, a.pos.y + 0.5f, a.pos.z };
-        Vector3f fwd = a.forward;
-        fwd.y = 0.0f;
-        if (fwd.MagnitudeSqrd() < 1.0e-6f)
-            fwd = Vector3f{ 0.0f, 0.0f, 1.0f };
-        fwd.Normalize();
-        Vector3f right{ -fwd.z, 0.0f, fwd.x };
-        const float half = 35.0f * 3.14159265f / 180.0f;
-        const float range = 12.0f;
-        Vector3f leftRay  = fwd * std::cos(half) + right * std::sin(half);
-        Vector3f rightRay = fwd * std::cos(half) - right * std::sin(half);
-        leftRay.Normalize();
-        rightRay.Normalize();
-        addSeg(eye, eye + leftRay * range);
-        addSeg(eye, eye + rightRay * range);
-        addSeg(eye + leftRay * range, eye + rightRay * range);
-        if (a.hasLastSeen && a.brain.leaf() == AI::Leaf::Memory)
-        {
-            Vector3f p = a.lastSeen;
-            p.y += 1.2f;
-            addSeg(Vector3f{ p.x - 0.6f, p.y, p.z }, Vector3f{ p.x + 0.6f, p.y, p.z });
-            addSeg(Vector3f{ p.x, p.y, p.z - 0.6f }, Vector3f{ p.x, p.y, p.z + 0.6f });
+            Vector3f eye{ xf->position.x, xf->position.y + 0.5f, xf->position.z };
+            Vector3f fwd = ai->forward;
+            fwd.y = 0.0f;
+            if (fwd.MagnitudeSqrd() < 1.0e-6f)
+                fwd = Vector3f{ 0.0f, 0.0f, 1.0f };
+            fwd.Normalize();
+            Vector3f right{ -fwd.z, 0.0f, fwd.x };
+            const float half = 35.0f * 3.14159265f / 180.0f;
+            const float range = 12.0f;
+            Vector3f leftRay  = fwd * std::cos(half) + right * std::sin(half);
+            Vector3f rightRay = fwd * std::cos(half) - right * std::sin(half);
+            leftRay.Normalize();
+            rightRay.Normalize();
+            addSeg(eye, eye + leftRay * range);
+            addSeg(eye, eye + rightRay * range);
+            addSeg(eye + leftRay * range, eye + rightRay * range);
+            if (ai->hasLastSeen && brain->brain->leaf() == AI::Leaf::Memory)
+            {
+                Vector3f p = ai->lastSeen;
+                p.y += 1.2f;
+                addSeg(Vector3f{ p.x - 0.6f, p.y, p.z }, Vector3f{ p.x + 0.6f, p.y, p.z });
+                addSeg(Vector3f{ p.x, p.y, p.z - 0.6f }, Vector3f{ p.x, p.y, p.z + 0.6f });
+            }
         }
     }
     if (verts.empty() || idx.empty() || verts.size() > kMaxLineVerts)
@@ -805,144 +474,20 @@ void PathChase::drawPaths(ID3D12GraphicsCommandList* cmd, Renderer& renderer, co
     cmd->DrawIndexedInstanced(static_cast<UINT>(idx.size()), 1, 0, 0, 0);
 }
 
-bool PathChase::hunterAlive(int i) const
-{
-    if (i < 0 || i >= kHunterCount)
-        return false;
-    return m_agents[static_cast<size_t>(i)].health.alive();
-}
 
-const Vector3f& PathChase::hunterPos(int i) const
+Entity PathChase::hunterEntity(int i) const
 {
-    const int idx = (i < 0 || i >= kHunterCount) ? 0 : i;
-    return m_agents[static_cast<size_t>(idx)].pos;
-}
-
-bool PathChase::applyHunterDamage(int i, float amount)
-{
-    if (i < 0 || i >= kHunterCount)
-        return false;
-    Agent& a = m_agents[static_cast<size_t>(i)];
-    const float before = a.health.hp();
-    const bool  killed = a.health.applyDamage(amount);
-    if (killed)
-    {
-        a.deadFor = 0.0f;
-        a.path.points.clear();
-        a.waypoint = 0;
-        a.hit.reset();
-        DE_LOG_INFO(LogCategory::AI, "Hunter {} down", i);
-    }
-    return a.health.hp() < before;
-}
-
-void PathChase::applyHunterHitReaction(int i, const Vector3f& hitDirection)
-{
-    if (i < 0 || i >= kHunterCount)
-        return;
-    Agent& a = m_agents[static_cast<size_t>(i)];
-    if (!a.health.alive())
-        return;
-    a.hit.apply(hitDirection);
+    if (i < 0 || i >= m_hunterCount)
+        return {};
+    return m_hunters[static_cast<size_t>(i)];
 }
 
 void PathChase::setHunterHitReaction(const HitReactionSettings& settings)
 {
-    m_hunterHit = settings;
-    for (Agent& a : m_agents)
-        a.hit.setSettings(m_hunterHit);
-}
-
-bool PathChase::hunterStunned(int i) const
-{
-    if (i < 0 || i >= kHunterCount)
-        return false;
-    return m_agents[static_cast<size_t>(i)].hit.stunned();
-}
-
-void PathChase::onHunterAttacked(int victim)
-{
-    if (victim < 0 || victim >= kHunterCount)
-        return;
-    const Vector3f src = m_agents[static_cast<size_t>(victim)].pos;
-    const float    r2  = m_pack.alertRange * m_pack.alertRange;
-    for (int i = 0; i < kHunterCount; ++i)
-    {
-        if (i == victim || !hunterAlive(i))
-            continue;
-        Agent& a = m_agents[static_cast<size_t>(i)];
-        const float dx = a.pos.x - src.x;
-        const float dz = a.pos.z - src.z;
-        if (dx * dx + dz * dz > r2)
-            continue;
-        beginAssist(a, m_walkerPos);
-        DE_LOG_INFO(LogCategory::AI, "Hunter {} alerted by attack on {}", i, victim);
-    }
-}
-
-void PathChase::onHunterKilled(int victim)
-{
-    if (victim < 0 || victim >= kHunterCount)
-        return;
-    const Vector3f where = m_agents[static_cast<size_t>(victim)].pos;
-    for (int i = 0; i < kHunterCount; ++i)
-    {
-        if (i == victim || !hunterAlive(i))
-            continue;
-        Agent& a = m_agents[static_cast<size_t>(i)];
-        if (!hunterSeesPoint(a, where))
-            continue;
-        beginFlee(a);
-        DE_LOG_INFO(LogCategory::AI, "Hunter {} fled after seeing {} die", i, victim);
-    }
-}
-
-void PathChase::tickHunterHealth(float dt)
-{
-    for (int i = 0; i < kHunterCount; ++i)
-    {
-        Agent& a = m_agents[static_cast<size_t>(i)];
-        if (a.health.alive())
-        {
-            a.health.tick(dt);
-            continue;
-        }
-        a.deadFor += dt;
-        if (a.deadFor < 8.0f || !m_walk.valid())
-            continue;
-
-        std::mt19937 rng{ static_cast<unsigned>((m_time + static_cast<float>(i)) * 1000.0f) + 91u };
-        std::uniform_real_distribution<float> ux(-22.0f, 22.0f);
-        std::uniform_real_distribution<float> uz(-22.0f, 22.0f);
-        bool placed = false;
-        for (int tries = 0; tries < 64; ++tries)
-        {
-            const float x = ux(rng);
-            const float z = uz(rng);
-            if (!m_walk.walkableWorld(x, z))
-                continue;
-            a.pos = Vector3f{ x, 0.0f, z };
-            if (const Terrain::HeightMap* hm = m_walk.heightMap())
-                a.pos.y = hm->heightAtWorld(x, z) + 1.0f;
-            placed = true;
-            break;
-        }
-        if (!placed)
-            continue;
-        a.health.revive();
-        a.hit.setSettings(m_hunterHit);
-        a.hit.reset();
-        a.assistLeft  = 0.0f;
-        a.fleeLeft    = 0.0f;
-        a.deadFor     = 0.0f;
-        a.path.points.clear();
-        a.waypoint    = 0;
-        a.givenUp     = false;
-        a.hasLastSeen = false;
-        a.forward     = Vector3f{ 0.0f, 0.0f, 1.0f };
-        a.brain.start();
-        DE_LOG_INFO(LogCategory::AI, "Hunter {} recovered", i);
-    }
+    if (m_world)
+        m_ai.setHunterHitReaction(*m_world, settings);
+    else
+        m_ai.setHunterHitReactionSettings(settings);
 }
 
 } // namespace Dark

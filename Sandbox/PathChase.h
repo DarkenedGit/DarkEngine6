@@ -1,10 +1,6 @@
 #pragma once
 
-#include "AI/Brain.h"
-#include "AI/Pathfinder.h"
-#include "AI/Walkability.h"
-#include "Character/Health.h"
-#include "Character/HitReaction.h"
+#include "AI/AiSystem.h"
 #include "ECS/Entity.h"
 #include "Math/AABox3f.h"
 #include "Math/Matrix4f.h"
@@ -29,105 +25,64 @@ namespace Dark
     class MeshPipeline;
     class ShadowSystem;
     class WaterWorld;
+    class AssetManager;
+    class AssetPinTable;
 
     namespace Terrain
     {
-    class TerrainWorld;
+        class TerrainWorld;
     }
 
     class PathChase
     {
     public:
-        bool init(Renderer& renderer, Terrain::TerrainWorld& terrain, WaterWorld& water, World& world, Mesh& cubeMesh, AssetRef<Material> trunkMat, AssetRef<Material> canopyMat, AssetRef<Material> aiMat);
+        using PackSettings = AI::PackSettings;
+
+        bool init(Renderer& renderer, Terrain::TerrainWorld& terrain, WaterWorld& water, World& world, AssetPinTable& pins, AssetManager& assets, Mesh& cubeMesh,
+                  AssetRef<Material> trunkMat, AssetRef<Material> canopyMat, AssetRef<Material> aiMat);
 
         void tick(float dt, World& world, Input& input, Terrain::TerrainWorld& terrain, Entity hostPawn, bool playerInWater);
-        void drawMeshes(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, MeshPipeline& meshPipe, ShadowSystem& shadows, const Camera3D& camera, const MeshFrameConstants& baseCb, Mesh& cubeMesh, DebugFill fill);
-        void drawMeshesGBuffer(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, MeshPipeline& meshPipe, const Camera3D& camera, const Math::Matrix4f& prevViewProj, Mesh& cubeMesh, DebugFill fill);
+        void drawMeshes(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, MeshPipeline& meshPipe, ShadowSystem& shadows, const Camera3D& camera,
+                        const MeshFrameConstants& baseCb, Mesh& cubeMesh, DebugFill fill);
+        void drawMeshesGBuffer(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, MeshPipeline& meshPipe, const Camera3D& camera, const Math::Matrix4f& prevViewProj,
+                               Mesh& cubeMesh, DebugFill fill);
         void drawDepth(ID3D12GraphicsCommandList* cmd, const ShadowSystem& shadows, int cascade, Mesh& cubeMesh) const;
         void expandBounds(Math::AABox3f& bounds) const;
         void drawPaths(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Math::Matrix4f& viewProj);
 
         Entity walker() const { return m_walker; }
-        const std::vector<Math::AABox3f>& cubes() const
-        {
-            return m_cubes;
-        }
+        const std::vector<Math::AABox3f>& cubes() const { return m_cubes; }
 
         static constexpr int kHunterCount = 3;
-        int  hunterCount() const { return kHunterCount; }
-        bool hunterAlive(int i) const;
-        const Math::Vector3f& hunterPos(int i) const;
-        bool applyHunterDamage(int i, float amount);
-        void applyHunterHitReaction(int i, const Math::Vector3f& hitDirection);
-        void setHunterHitReaction(const HitReactionSettings& settings);
-        const HitReactionSettings& hunterHitReaction() const { return m_hunterHit; }
-        bool hunterStunned(int i) const;
-        void onHunterAttacked(int victim);
-        void onHunterKilled(int victim);
+        int    hunterCount() const { return m_hunterCount; }
+        Entity hunterEntity(int i) const;
+        AiSystem&       ai() { return m_ai; }
+        const AiSystem& ai() const { return m_ai; }
 
-        struct PackSettings
-        {
-            float assistAllyRadius = 6.0f;  // see an ally this close to the player → sprint help
-            float assistSeconds    = 5.0f;  // sprint-help duration without line of sight
-            float fleeSeconds      = 4.0f;  // sprint away after witnessing a kill
-            float alertRange       = 18.0f; // attack yell: hunters this close come help
-            float sprintSpeed      = 18.0f;
-            float walkSpeed        = 10.0f;
-        };
-        void setPackSettings(const PackSettings& settings) { m_pack = settings; }
-        const PackSettings& packSettings() const { return m_pack; }
-        void tickHunterHealth(float dt);
+        void setPackSettings(const PackSettings& settings) { m_ai.setPackSettings(settings); }
+        const PackSettings& packSettings() const { return m_ai.packSettings(); }
+        void setHunterHitReaction(const HitReactionSettings& settings);
+        const HitReactionSettings& hunterHitReaction() const { return m_ai.hunterHitReaction(); }
 
     private:
-        struct Agent
-        {
-            Math::Vector3f     pos{};
-            Math::Vector3f     forward{ 0.0f, 0.0f, 1.0f };
-            Math::Vector3f     lastSeen{};
-            Math::Vector3f     wanderDest{};
-            AI::Brain          brain;
-            AI::PathResult     path;
-            int                waypoint = 0;
-            float              repathAt = 0.0f;
-            bool               givenUp  = false;
-            bool               hasLastSeen = false;
-            Health             health;
-            HitReaction        hit;
-            float              deadFor    = 0.0f;
-            float              assistLeft = 0.0f;
-            float              fleeLeft   = 0.0f;
-            Math::Vector3f     helpPos{};
-        };
-
         bool bake(Terrain::TerrainWorld& terrain, WaterWorld& water);
         bool spawnWalker(World& world, Terrain::TerrainWorld& terrain);
-        bool spawnAgents(Terrain::TerrainWorld& terrain);
-        void follow(Agent& a, float dt, Terrain::TerrainWorld& terrain, float speed);
-        void integrateHitReaction(Agent& a, float dt, Terrain::TerrainWorld& terrain);
-        void repath(Agent& a, int self, float now, float destX, float destZ);
-        bool pickWanderDest(Agent& a);
-        bool pickFleeDest(Agent& a);
-        bool hunterSeesPoint(const Agent& a, const Math::Vector3f& worldPos) const;
-        void beginAssist(Agent& a, const Math::Vector3f& helpPos);
-        void beginFlee(Agent& a);
+        bool spawnAgents(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainWorld& terrain);
         bool createLineBuffers(Renderer& renderer);
 
-        AI::Walkability m_walk;
-        AI::Pathfinder  m_finder;
+        AiSystem        m_ai;
+        World*          m_world = nullptr;
         LinePipeline    m_lines;
-        std::vector<Math::AABox3f>               m_cubes;
-        std::vector<Math::Vector3f> m_treePos;
-        std::array<Agent, kHunterCount> m_agents{};
+        std::vector<Math::AABox3f>   m_cubes;
+        std::vector<Math::Vector3f>  m_treePos;
+        std::array<Entity, kHunterCount> m_hunters{};
+        int             m_hunterCount = 0;
         Entity          m_walker{};
         Math::Vector3f  m_walkerPos{};
         Math::Vector3f  m_prevWalkerPos{};
-        std::array<Math::Vector3f, kHunterCount> m_prevAgentPos{};
         bool            m_havePrevXforms = false;
-        float           m_time = 0.0f;
         float           m_agentR = 0.8f;
         bool            m_drawWalker = true;
-        HitReactionSettings m_hunterHit{};
-        PackSettings        m_pack{};
 
         Mesh               m_trunkMesh;
         Mesh               m_canopyMesh;

@@ -40,7 +40,18 @@ namespace Dark
         Vector3f c{ 0.0f, 0.0f, 0.0f };
         if (!weaponTargetCenter(world, index, c))
             return AABox3f{};
-        return AABox3f::FromCenterExtents(c, world.targetHalfExtents);
+        Vector3f half = world.targetHalfExtents;
+        if (world.targetHalfExtentsAt)
+            half = world.targetHalfExtentsAt(world.targetUser, index);
+        return AABox3f::FromCenterExtents(c, half);
+    }
+
+    void fillHitTarget(WeaponHit& out, const WeaponWorldQuery& world, int index)
+    {
+        out.targetIndex  = index;
+        out.targetEntity = {};
+        if (index >= 0 && world.targetEntityAt)
+            out.targetEntity = world.targetEntityAt(world.targetUser, index);
     }
 
     Collision::RayHit3D weaponRaycastTerrain(const WeaponWorldQuery& world, const Ray3f& ray, float maxDistance)
@@ -72,10 +83,10 @@ namespace Dark
                 continue;
             bestT           = hit.t;
             any             = true;
-            out.point       = hit.point;
-            out.normal      = hit.normal;
-            out.targetIndex = i;
-            out.hitTarget   = true;
+            out.point      = hit.point;
+            out.normal     = hit.normal;
+            fillHitTarget(out, world, i);
+            out.hitTarget  = true;
         }
 
         const Collision::RayHit3D ground = weaponRaycastTerrain(world, ray, bestT);
@@ -85,7 +96,7 @@ namespace Dark
             any             = true;
             out.point       = ground.point;
             out.normal      = ground.normal;
-            out.targetIndex = -1;
+            fillHitTarget(out, world, -1);
             out.hitTarget   = false;
         }
 
@@ -116,10 +127,10 @@ namespace Dark
                 continue;
             bestT            = hit.t;
             any              = true;
-            best.point       = hit.point;
-            best.normal      = hit.normal;
-            best.targetIndex = i;
-            best.hitTarget   = true;
+            best.point  = hit.point;
+            best.normal = hit.normal;
+            fillHitTarget(best, world, i);
+            best.hitTarget = true;
         }
 
         if (dist > 1.0e-6f)
@@ -136,7 +147,7 @@ namespace Dark
                     any              = true;
                     best.point       = ground.point;
                     best.normal      = ground.normal;
-                    best.targetIndex = -1;
+                    fillHitTarget(best, world, -1);
                     best.hitTarget   = false;
                 }
             }
@@ -164,7 +175,7 @@ namespace Dark
                 best.point       = start + delta * t;
                 best.point.y     = groundY;
                 best.normal      = Vector3f{ 0.0f, 1.0f, 0.0f };
-                best.targetIndex = -1;
+                fillHitTarget(best, world, -1);
                 best.hitTarget   = false;
             }
         }

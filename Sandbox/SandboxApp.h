@@ -121,6 +121,14 @@ private:
     Dark::AssetRef<Dark::Material> m_aiMaterial;
     Dark::PathChase                m_chase;
     bool                           m_chaseOk = false;
+    struct WeaponTargetScratch
+    {
+        Dark::Entity         entity{};
+        Dark::Math::Vector3f center{};
+        Dark::Math::Vector3f halfExtents{ 1.0f, 1.0f, 1.0f };
+        bool                 alive = false;
+    };
+    std::vector<WeaponTargetScratch> m_weaponTargets;
 
     Dark::Terrain::TerrainWorld m_terrain;
     Dark::TerrainMaterial       m_terrainMaterial;

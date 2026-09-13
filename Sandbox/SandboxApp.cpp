@@ -28,7 +28,10 @@
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
+#include "AI/AiComponents.h"
 #include "Animation/AnimNotify.h"
+#include "Character/HealthComponent.h"
+#include "Weapons/HittableComponent.h"
 #include "Animation/SkeletonDebug.h"
 #include "Render/LinePipeline.h"
 #include "Terrain/SplatMap.h"
@@ -775,6 +778,22 @@ void SandboxApp::handleWeaponSwitch()
 
 WeaponWorldQuery SandboxApp::makeWeaponQuery()
 {
+    m_weaponTargets.clear();
+    world().each<HittableComponent>([&](Entity e, HittableComponent& h) {
+        if (!world().has<AiAgentComponent>(e))
+            return;
+        const TransformComponent* xf = world().get<TransformComponent>(e);
+        const HealthComponent*    hp = world().get<HealthComponent>(e);
+        if (!xf)
+            return;
+        WeaponTargetScratch t{};
+        t.entity      = e;
+        t.center      = xf->position;
+        t.halfExtents = h.halfExtents;
+        t.alive       = hp && hp->health.alive();
+        m_weaponTargets.push_back(t);
+    });
+
     WeaponWorldQuery q{};
     q.terrainUser = this;
     q.raycastTerrain = [](void* user, const Ray3f& ray, float maxDistance) -> Collision::RayHit3D {
@@ -785,16 +804,29 @@ WeaponWorldQuery SandboxApp::makeWeaponQuery()
     };
     q.targetUser = this;
     q.targetCount = [](void* user) {
-        auto* app = static_cast<SandboxApp*>(user);
-        return app->m_chaseOk ? app->m_chase.hunterCount() : 0;
+        return static_cast<int>(static_cast<SandboxApp*>(user)->m_weaponTargets.size());
     };
     q.targetAlive = [](void* user, int i) {
         auto* app = static_cast<SandboxApp*>(user);
-        return app->m_chaseOk && app->m_chase.hunterAlive(i);
+        return i >= 0 && i < static_cast<int>(app->m_weaponTargets.size()) && app->m_weaponTargets[static_cast<size_t>(i)].alive;
     };
     q.targetCenter = [](void* user, int i) {
         auto* app = static_cast<SandboxApp*>(user);
-        return app->m_chaseOk ? app->m_chase.hunterPos(i) : Vector3f{ 0.0f, 0.0f, 0.0f };
+        if (i < 0 || i >= static_cast<int>(app->m_weaponTargets.size()))
+            return Vector3f{ 0.0f, 0.0f, 0.0f };
+        return app->m_weaponTargets[static_cast<size_t>(i)].center;
+    };
+    q.targetHalfExtentsAt = [](void* user, int i) {
+        auto* app = static_cast<SandboxApp*>(user);
+        if (i < 0 || i >= static_cast<int>(app->m_weaponTargets.size()))
+            return Vector3f{ 1.0f, 1.0f, 1.0f };
+        return app->m_weaponTargets[static_cast<size_t>(i)].halfExtents;
+    };
+    q.targetEntityAt = [](void* user, int i) {
+        auto* app = static_cast<SandboxApp*>(user);
+        if (i < 0 || i >= static_cast<int>(app->m_weaponTargets.size()))
+            return Entity{};
+        return app->m_weaponTargets[static_cast<size_t>(i)].entity;
     };
     q.targetHalfExtents = Vector3f{ 1.0f, 1.0f, 1.0f };
     q.maxRange          = 90.0f;
@@ -811,18 +843,27 @@ void SandboxApp::onWeaponHit(const WeaponHit& hit)
 {
     if (!hit.hitTarget || !m_chaseOk)
         return;
-    const bool wasAlive = m_chase.hunterAlive(hit.targetIndex);
-    if (!m_chase.applyHunterDamage(hit.targetIndex, hit.damage))
+    Entity victim = hit.targetEntity;
+    if (!victim.valid() && hit.targetIndex >= 0 && hit.targetIndex < static_cast<int>(m_weaponTargets.size()))
+        victim = m_weaponTargets[static_cast<size_t>(hit.targetIndex)].entity;
+    if (!victim.valid() || !world().alive(victim))
         return;
-    m_chase.applyHunterHitReaction(hit.targetIndex, hit.direction);
+    HealthComponent* hp = world().get<HealthComponent>(victim);
+    const bool wasAlive = hp && hp->health.alive();
+    if (!m_chase.ai().applyHunterDamage(world(), victim, hit.damage))
+        return;
+    m_chase.ai().applyHunterHitReaction(world(), victim, hit.direction);
     audio().play3D(m_sfxPain, hit.point, 0.75f);
     audio().play3D(m_sfxGrunt, hit.point, 0.95f);
-    m_chase.onHunterAttacked(hit.targetIndex);
+    const TransformComponent* playerXf = possessedBody().valid() ? world().get<TransformComponent>(possessedBody()) : nullptr;
+    const Vector3f playerPos = playerXf ? playerXf->position : Vector3f{};
+    m_chase.ai().onHunterAttacked(world(), victim, playerPos);
     spawnHunterBlood(hit.point);
-    if (wasAlive && !m_chase.hunterAlive(hit.targetIndex))
+    hp = world().get<HealthComponent>(victim);
+    if (wasAlive && hp && !hp->health.alive())
     {
         m_bloodSplats.spawn(hit.point.x, hit.point.z, m_terrain.heightMap());
-        m_chase.onHunterKilled(hit.targetIndex);
+        m_chase.ai().onHunterKilled(world(), victim);
     }
 }
 
@@ -862,40 +903,40 @@ void SandboxApp::updateCombat(float dt)
     if (m_chaseOk && xf)
     {
         const float before = m_playerHealth.hp();
-        for (int i = 0; i < m_chase.hunterCount(); ++i)
-        {
-            if (!m_chase.hunterAlive(i))
-                continue;
-            const Vector3f& hp = m_chase.hunterPos(i);
-            const float dx = hp.x - xf->position.x;
-            const float dz = hp.z - xf->position.z;
+        world().each<AiAgentComponent>([&](Entity e, AiAgentComponent&) {
+            const HealthComponent* hp = world().get<HealthComponent>(e);
+            const TransformComponent* hxf = world().get<TransformComponent>(e);
+            if (!hp || !hp->health.alive() || !hxf)
+                return;
+            const float dx = hxf->position.x - xf->position.x;
+            const float dz = hxf->position.z - xf->position.z;
             if (dx * dx + dz * dz > kStandoff * kStandoff)
-                continue;
-            if (m_playerHealth.applyDamage(kContactDps * dt) )
+                return;
+            if (m_playerHealth.applyDamage(kContactDps * dt))
             {
                 DE_LOG_INFO("Player: down");
                 audio().play2D(m_sfxReset, 0.55f);
             }
-        }
+        });
         if (m_playerHealth.hp() < before && m_hurtSoundTimer <= 0.0f)
         {
             audio().play2D(m_sfxPain, 0.7f);
             m_hurtSoundTimer = 0.40f;
             Vector3f away{ 0.0f, 0.0f, 0.0f };
             float    best = kStandoff * kStandoff;
-            for (int i = 0; i < m_chase.hunterCount(); ++i)
-            {
-                if (!m_chase.hunterAlive(i))
-                    continue;
-                const Vector3f& hp = m_chase.hunterPos(i);
-                const float dx = hp.x - xf->position.x;
-                const float dz = hp.z - xf->position.z;
+            world().each<AiAgentComponent>([&](Entity e, AiAgentComponent&) {
+                const HealthComponent* hp = world().get<HealthComponent>(e);
+                const TransformComponent* hxf = world().get<TransformComponent>(e);
+                if (!hp || !hp->health.alive() || !hxf)
+                    return;
+                const float dx = hxf->position.x - xf->position.x;
+                const float dz = hxf->position.z - xf->position.z;
                 const float d2 = dx * dx + dz * dz;
                 if (d2 > best)
-                    continue;
+                    return;
                 best = d2;
                 away = Vector3f{ -dx, 0.0f, -dz };
-            }
+            });
             m_playerHit.apply(away);
         }
     }
@@ -2026,7 +2067,7 @@ void SandboxApp::onInit()
     DE_LOG_INFO(LogCategory::Networking, "Sandbox net: Sandbox.exe -host   and   Sandbox.exe -join 127.0.0.1");
     DE_LOG_INFO(LogCategory::Networking, "Sandbox net: M opens Dev Tools (host / join / browse / debugger)");
 
-    m_chaseOk = m_chase.init(renderer(), m_terrain, m_water, world(), m_cubeMesh, m_treeTrunkMaterial, m_treeMaterial, m_aiMaterial);
+    m_chaseOk = m_chase.init(renderer(), m_terrain, m_water, world(), pins(), assets(), m_cubeMesh, m_treeTrunkMaterial, m_treeMaterial, m_aiMaterial);
     if (!m_chaseOk)
         DE_LOG_ERROR(LogCategory::AI, "SandboxApp: path chase init failed");
 
@@ -2138,6 +2179,8 @@ void SandboxApp::onRender()
             world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
                 if (!mc.castShadow)
                     return;
+                if (const HealthComponent* hp = world().get<HealthComponent>(e); hp && !hp->health.alive())
+                    return;
                 const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, m_cubeMesh, m_crossMesh);
                 if (!gpuMesh)
                     return;
@@ -2233,6 +2276,8 @@ void SandboxApp::onRender()
             gcb.color[3] = 0.0f;
         }
         world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
+            if (const HealthComponent* hp = world().get<HealthComponent>(e); hp && !hp->health.alive())
+                return;
             const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, m_cubeMesh, m_crossMesh);
             if (!gpuMesh)
                 return;
@@ -2348,6 +2393,8 @@ void SandboxApp::onRender()
         cb.lighting      = renderer().debugState().lighting ? 1.0f : 0.0f;
 
         world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
+            if (const HealthComponent* hp = world().get<HealthComponent>(e); hp && !hp->health.alive())
+                return;
             const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, m_cubeMesh, m_crossMesh);
             if (!gpuMesh)
                 return;
