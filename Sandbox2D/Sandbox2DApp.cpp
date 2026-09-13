@@ -157,21 +157,56 @@ void Sandbox2DApp::registerActions()
     DE_LOG_INFO(LogCategory::Networking, "Sandbox2D net: F5 host :26160  F6 join 127.0.0.1:26160  F4 disconnect  F10 visual debugger");
 }
 
+Entity Sandbox2DApp::spawnCoin(const Vector2f& pos)
+{
+    Entity e = world().createEntity();
+    TransformComponent xf{};
+    xf.position = Vector3f(pos.x, pos.y, 0.0f);
+    xf.scale    = Vector3f(0.45f, 0.45f, 1.0f);
+    world().emplace<TagComponent>(e, "Coin");
+    world().emplace<TransformComponent>(e, xf);
+    CoinComponent c{};
+    c.pos = pos;
+    world().emplace<CoinComponent>(e, c);
+    return e;
+}
+
+void Sandbox2DApp::clearCoins()
+{
+    std::vector<Entity> coins;
+    world().each<CoinComponent>([&](Entity e, CoinComponent&) { coins.push_back(e); });
+    for (Entity e : coins)
+    {
+        if (!world().alive(e))
+            continue;
+        if (world().has<NetworkedComponent>(e))
+            network().unregisterEntity(world(), e);
+        else
+        {
+            onEntityRemoved(world(), e, &pins());
+            world().destroyEntity(e);
+        }
+    }
+}
+
+uint32_t Sandbox2DApp::coinCount()
+{
+    uint32_t n = 0;
+    world().each<CoinComponent>([&](Entity, CoinComponent&) { ++n; });
+    return n;
+}
+
 void Sandbox2DApp::buildLevel()
 {
     m_platforms.clear();
-    m_coins.clear();
+    clearCoins();
 
     auto addPlat = [&](float x0, float y0, float x1, float y1) {
         Platform p;
         p.box = AABox2f(Vector2f(x0, y0), Vector2f(x1, y1));
         m_platforms.push_back(p);
     };
-    auto addCoin = [&](float x, float y) {
-        Coin c;
-        c.pos = Vector2f(x, y);
-        m_coins.push_back(c);
-    };
+    auto addCoin = [&](float x, float y) { spawnCoin(Vector2f(x, y)); };
 
     // Ground with a pit in the middle.
     addPlat(0.0f, 0.0f, 28.0f, 1.4f);
@@ -220,7 +255,7 @@ bool Sandbox2DApp::tryLoadLevel()
     }
 
     m_platforms.clear();
-    m_coins.clear();
+    clearCoins();
     m_worldMin = data.worldMin;
     m_worldMax = data.worldMax;
 
@@ -236,11 +271,7 @@ bool Sandbox2DApp::tryLoadLevel()
             m_platforms.push_back(p);
         }
         else if (o.type == SceneObjectType::Coin)
-        {
-            Coin c;
-            c.pos = Vector2f(o.position.x, o.position.y);
-            m_coins.push_back(c);
-        }
+            spawnCoin(Vector2f(o.position.x, o.position.y));
         else if (o.type == SceneObjectType::Spawn && !haveSpawn)
         {
             m_spawn    = Vector2f(o.position.x, o.position.y);
@@ -254,7 +285,7 @@ bool Sandbox2DApp::tryLoadLevel()
     DE_LOG_INFO(
         "Sandbox2D: loaded {} platforms, {} coins from {}",
         m_platforms.size(),
-        m_coins.size(),
+        coinCount(),
         path.string());
     return true;
 }
@@ -529,17 +560,12 @@ void Sandbox2DApp::registerLevelEntities()
         p.entity = e;
     }
 
-    for (Coin& c : m_coins)
+    std::vector<Entity> coins;
+    world().each<CoinComponent>([&](Entity e, CoinComponent&) { coins.push_back(e); });
+    for (Entity e : coins)
     {
-        if (c.entity.valid() && world().alive(c.entity) && world().has<NetworkedComponent>(c.entity))
+        if (e.valid() && world().alive(e) && world().has<NetworkedComponent>(e))
             continue;
-
-        Entity e = world().createEntity();
-        TransformComponent xf{};
-        xf.position = Vector3f(c.pos.x, c.pos.y, 0.0f);
-        xf.scale    = Vector3f(0.45f, 0.45f, 1.0f);
-        world().emplace<TagComponent>(e, "Coin");
-        world().emplace<TransformComponent>(e, xf);
         if (!network().registerEntity(world(), e, NetPrefab::Coin))
         {
             onEntityRemoved(world(), e, &pins());
@@ -549,7 +575,6 @@ void Sandbox2DApp::registerLevelEntities()
         }
         if (NetworkedComponent* nc = world().get<NetworkedComponent>(e))
             nc->replicateTransform = false;
-        c.entity = e;
     }
 }
 
@@ -590,7 +615,7 @@ void Sandbox2DApp::restoreLocalLevel()
     m_remotePawns.clear();
     m_playerEntity = {};
     m_platforms.clear();
-    m_coins.clear();
+    clearCoins();
     destroyPhysics();
     if (!tryLoadLevel())
         buildLevel();
@@ -697,21 +722,20 @@ void Sandbox2DApp::collectCoinsHostAuthority()
     auto overlaps = [&](const Vector2f& pos) {
         const AABox2f hit = playerBounds(pos, m_player.half);
         std::vector<Entity> eaten;
-        for (Coin& c : m_coins)
-        {
+        world().each<CoinComponent>([&](Entity e, CoinComponent& c) {
             if (c.collected)
-                continue;
+                return;
             const AABox2f coinBox = AABox2f::FromCenterExtents(c.pos, Vector2f(0.28f, 0.28f));
             if (!Intersects(hit, coinBox))
-                continue;
+                return;
             ++m_score;
             audio().play3D(m_sfxCoin, Vector3f(c.pos.x, c.pos.y, 0.0f), 0.8f);
             DE_LOG_INFO("Sandbox2D: coin +1  score {}", m_score);
-            if (role == NetRole::Host && c.entity.valid())
-                eaten.push_back(c.entity);
+            if (role == NetRole::Host && e.valid())
+                eaten.push_back(e);
             else
                 c.collected = true;
-        }
+        });
         for (Entity e : eaten)
             network().unregisterEntity(world(), e);
     };
@@ -812,10 +836,12 @@ bool Sandbox2DApp::onNetSpawn(World& world, Entity e, NetPrefab prefab, const Tr
     }
     if (prefab == NetPrefab::Coin)
     {
-        Coin c;
-        c.pos    = Vector2f(xf.position.x, xf.position.y);
-        c.entity = e;
-        app->m_coins.push_back(c);
+        if (!world.has<CoinComponent>(e))
+        {
+            CoinComponent c{};
+            c.pos = Vector2f(xf.position.x, xf.position.y);
+            world.emplace<CoinComponent>(e, c);
+        }
         return true;
     }
     if (prefab == NetPrefab::Player2D)
@@ -862,7 +888,6 @@ void Sandbox2DApp::onNetDespawn(World& world, Entity e, NetId, void* user)
         p.body = b2_nullBodyId;
         return true;
     });
-    std::erase_if(app->m_coins, [&](const Coin& c) { return c.entity == e; });
     std::erase_if(app->m_remotePawns, [&](const RemotePawn& rp) { return rp.entity == e; });
 }
 
@@ -1004,7 +1029,7 @@ void Sandbox2DApp::onInit()
     DE_LOG_INFO(
         "Sandbox2D: {} platforms, {} coins, camera ortho height {:.1f}",
         m_platforms.size(),
-        m_coins.size(),
+        coinCount(),
         m_camera.GetOrthoHeight());
     DE_LOG_INFO(LogCategory::Networking, "Sandbox2D net: Sandbox2D.exe -host   and   Sandbox2D.exe -join 127.0.0.1");
 }
@@ -1110,8 +1135,7 @@ void Sandbox2DApp::onUpdate(float dt)
     {
         if (network().role() == NetRole::Idle)
         {
-            for (Coin& c : m_coins)
-                c.collected = false;
+            world().each<CoinComponent>([&](Entity, CoinComponent& c) { c.collected = false; });
             m_score = 0;
         }
         resetPlayer();
@@ -1222,12 +1246,11 @@ void Sandbox2DApp::onRender()
         drawSprite(cmd, m_texPlatform, c, s, p.z, 1, 1, 1, 1, s.x, s.y);
     }
 
-    for (const Coin& c : m_coins)
-    {
+    world().each<CoinComponent>([&](Entity, CoinComponent& c) {
         if (c.collected)
-            continue;
+            return;
         drawSprite(cmd, m_texCoin, c.pos, Vector2f(0.45f, 0.45f), 1.2f, 1, 1, 1, 1, 1, 1);
-    }
+    });
 
     const bool drawLocal = network().role() != NetRole::Client || network().localPawn().valid();
     if (drawLocal)
@@ -1273,15 +1296,14 @@ void Sandbox2DApp::onRender()
         drawBox(playerBounds(m_player.pos, m_player.half), 0.2f, 1.0f, 0.4f);
         for (const Platform& p : m_platforms)
             drawBox(p.box, 1.0f, 0.85f, 0.2f);
-        for (const Coin& c : m_coins)
-        {
+        world().each<CoinComponent>([&](Entity, CoinComponent& c) {
             if (c.collected)
-                continue;
+                return;
             drawBox(AABox2f::FromCenterExtents(c.pos, Vector2f(0.28f, 0.28f)), 1.0f, 0.9f, 0.2f);
-        }
+        });
     }
 
-    renderer().stats().drawCalls = static_cast<uint32_t>(m_platforms.size() + m_coins.size() + m_remotePawns.size() + 6);
+    renderer().stats().drawCalls = static_cast<uint32_t>(m_platforms.size() + coinCount() + m_remotePawns.size() + 6);
     renderer().endFrame();
 }
 

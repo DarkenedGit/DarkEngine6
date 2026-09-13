@@ -85,6 +85,9 @@ private:
     void syncLocalPawnTransform(float dt);
     void collectCoinsHostAuthority();
     bool ensureClientPhysics();
+    Dark::Entity spawnCoin(const Dark::Math::Vector2f& pos);
+    void         clearCoins();
+    uint32_t     coinCount();
 
     void drawSprite(
         ID3D12GraphicsCommandList* cmd,
@@ -135,7 +138,6 @@ private:
     Player                m_player;
     Entity          m_playerEntity{};
     std::vector<Platform> m_platforms;
-    std::vector<Coin>     m_coins;
     std::vector<RemotePawn> m_remotePawns;
     uint32_t              m_score         = 0;
     bool                  m_showCollision = false;
