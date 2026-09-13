@@ -15,9 +15,8 @@
 #include "Terrain/TerrainMaterial.h"
 #include "Water/Water.h"
 #include "Audio/SoundClip.h"
-#include "Character/Health.h"
-#include "Character/HitReaction.h"
-#include "Character/PlayerMotor.h"
+#include "Character/HealthComponent.h"
+#include "Character/PlayerMotorComponent.h"
 #include "Render/HealthHud.h"
 #include "Render/CrosshairHud.h"
 #include "Particles/ParticleEmitter.h"
@@ -26,6 +25,8 @@
 #include "Weapons/WeaponLoadout.h"
 #include "Gameplay/HealthPack.h"
 #include "PathChase.h"
+#include "Ui/HudTagComponent.h"
+#include "Weapons/HittableComponent.h"
 #include "Ui/ImGuiHost.h"
 
 #include <unordered_map>
@@ -87,6 +88,11 @@ private:
     void spawnOwnedPawn(Dark::ClientId owner, float offsetX);
     Dark::Entity findPawn(Dark::ClientId owner);
     void ensureLocalCube();
+    void attachReplicaCombat(Dark::Entity e);
+    void attachLocalPlayer(Dark::Entity e);
+    Dark::Health*       localHealth();
+    Dark::HitReaction*  localHit();
+    Dark::PlayerMotor*  localMotor();
     void syncTerrainLod();
     void drawDebugOverlays(ID3D12GraphicsCommandList* cmd);
     void drawSkeletonOverlay(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj);
@@ -158,9 +164,6 @@ private:
     bool          m_playerWet      = false;
     float         m_footstepAcc    = 0.0f;
     uint32_t      m_waterVoice     = 0;
-    Dark::PlayerMotor                m_motor;
-    Dark::Health                     m_playerHealth;
-    Dark::HitReaction                m_playerHit;
     Dark::HealthHud                  m_healthHud;
     Dark::Math::Vector3f             m_playerSpawn{ 0.0f, 0.5f, 0.0f };
     bool                             m_havePlayerSpawn = false;

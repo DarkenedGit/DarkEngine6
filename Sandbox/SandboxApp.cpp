@@ -31,6 +31,8 @@
 #include "AI/AiComponents.h"
 #include "Animation/AnimNotify.h"
 #include "Character/HealthComponent.h"
+#include "Character/PlayerMotorComponent.h"
+#include "Ui/HudTagComponent.h"
 #include "Weapons/HittableComponent.h"
 #include "Animation/SkeletonDebug.h"
 #include "Render/LinePipeline.h"
@@ -587,6 +589,73 @@ Entity SandboxApp::possessedBody()
     return m_chase.walker();
 }
 
+void SandboxApp::attachReplicaCombat(Entity e)
+{
+    if (!e.valid() || !world().alive(e))
+        return;
+    if (!world().has<HealthComponent>(e))
+    {
+        HealthSettings playerHp;
+        playerHp.maxHp       = 100.0f;
+        playerHp.regenPerSec = 10.0f;
+        playerHp.regenDelay  = 3.5f;
+        HealthComponent hc{};
+        hc.health = Health{ playerHp };
+        world().emplace<HealthComponent>(e, std::move(hc));
+    }
+    if (!world().has<HitReactionComponent>(e))
+    {
+        HitReactionSettings hit{};
+        hit.stunSeconds       = 0.28f;
+        hit.knockbackDistance = 1.1f;
+        hit.knockbackSeconds  = 0.14f;
+        hit.horizontalOnly    = true;
+        HitReactionComponent hr{};
+        hr.hit.setSettings(hit);
+        world().emplace<HitReactionComponent>(e, std::move(hr));
+    }
+    if (!world().has<HittableComponent>(e))
+    {
+        HittableComponent h{};
+        h.halfExtents = Vector3f{ 0.5f, 0.5f, 0.5f };
+        world().emplace<HittableComponent>(e, h);
+    }
+}
+
+void SandboxApp::attachLocalPlayer(Entity e)
+{
+    attachReplicaCombat(e);
+    if (!world().has<PlayerMotorComponent>(e))
+        world().emplace<PlayerMotorComponent>(e);
+    if (!world().has<HudTagComponent>(e))
+    {
+        HudTagComponent hud{};
+        hud.kind = HudKind::HealthBar;
+        world().emplace<HudTagComponent>(e, hud);
+    }
+}
+
+Health* SandboxApp::localHealth()
+{
+    const Entity body = possessedBody();
+    HealthComponent* hc = body.valid() ? world().get<HealthComponent>(body) : nullptr;
+    return hc ? &hc->health : nullptr;
+}
+
+HitReaction* SandboxApp::localHit()
+{
+    const Entity body = possessedBody();
+    HitReactionComponent* hr = body.valid() ? world().get<HitReactionComponent>(body) : nullptr;
+    return hr ? &hr->hit : nullptr;
+}
+
+PlayerMotor* SandboxApp::localMotor()
+{
+    const Entity body = possessedBody();
+    PlayerMotorComponent* pm = body.valid() ? world().get<PlayerMotorComponent>(body) : nullptr;
+    return pm ? &pm->motor : nullptr;
+}
+
 void SandboxApp::updatePossessed(float dt)
 {
     const Entity body = possessedBody();
@@ -632,7 +701,10 @@ void SandboxApp::updatePossessed(float dt)
         m_havePlayerSpawn = true;
     }
 
-    const bool canSteer = m_playerHealth.alive() && !m_playerHit.stunned();
+    Health*      hp    = localHealth();
+    HitReaction* hitRx = localHit();
+    PlayerMotor* motor = localMotor();
+    const bool   canSteer = hp && hp->alive() && (!hitRx || !hitRx->stunned());
     PlayerMotorInput motorIn{};
     motorIn.wish        = canSteer ? wish : Vector3f{ 0.0f, 0.0f, 0.0f };
     motorIn.sprint      = canSteer && !uiKeys && input().actionDown("sprint");
@@ -651,8 +723,11 @@ void SandboxApp::updatePossessed(float dt)
     };
 
     const Vector3f before = xf->position;
-    const PlayerMotorResult motorOut = m_motor.tick(xf->position, motorIn, dt, ground);
-    xf->position += m_playerHit.tick(dt);
+    PlayerMotorResult motorOut{};
+    if (motor)
+        motorOut = motor->tick(xf->position, motorIn, dt, ground);
+    if (hitRx)
+        xf->position += hitRx->tick(dt);
 
     Vector3f delta{ xf->position.x - before.x, 0.0f, xf->position.z - before.z };
     if (delta.MagnitudeSqrd() > 1.0e-10f)
@@ -669,13 +744,13 @@ void SandboxApp::updatePossessed(float dt)
         }
         xf->position.x = before.x + delta.x;
         xf->position.z = before.z + delta.z;
-        if (dt > 1.0e-4f)
-            m_motor.setHorizontalVelocity(delta.x / dt, delta.z / dt);
+        if (dt > 1.0e-4f && motor)
+            motor->setHorizontalVelocity(delta.x / dt, delta.z / dt);
     }
-    if (m_motor.state() == PlayerMoveState::Grounded)
-        xf->position.y = m_terrain.heightAtWorld(xf->position.x, xf->position.z) + m_motor.settings().groundOffset;
+    if (motor && motor->state() == PlayerMoveState::Grounded)
+        xf->position.y = m_terrain.heightAtWorld(xf->position.x, xf->position.z) + motor->settings().groundOffset;
 
-    m_playerWet = m_motor.state() == PlayerMoveState::Swimming;
+    m_playerWet = motor && motor->state() == PlayerMoveState::Swimming;
 
     if (motorOut.jumped)
         audio().play2D(m_sfxGrunt, 0.7f);
@@ -687,15 +762,15 @@ void SandboxApp::updatePossessed(float dt)
         m_footstepAcc = 0.0f;
 
     const float stepSpeed = Vector3f{ delta.x, 0.0f, delta.z }.Magnitude() / Math::Max(dt, 1.0e-4f);
-    const bool  stepping  = (m_motor.state() == PlayerMoveState::Grounded || m_motor.state() == PlayerMoveState::Swimming) && stepSpeed > 2.0f;
+    const bool  stepping  = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Swimming) && stepSpeed > 2.0f;
     if (stepping)
     {
-        const float cadence = m_motor.state() == PlayerMoveState::Swimming ? 0.55f : 0.35f;
+        const float cadence = motor->state() == PlayerMoveState::Swimming ? 0.55f : 0.35f;
         m_footstepAcc += dt * (stepSpeed * cadence);
         if (m_footstepAcc >= 1.0f)
         {
             m_footstepAcc = 0.0f;
-            if (m_motor.state() == PlayerMoveState::Swimming)
+            if (motor->state() == PlayerMoveState::Swimming)
                 audio().play2D(m_sfxSplash, 0.42f);
             else
                 audio().play2D(m_sfxStep, 0.35f);
@@ -721,9 +796,12 @@ void SandboxApp::respawnPlayer()
     const Entity body = possessedBody();
     if (TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr)
         xf->position = m_playerSpawn;
-    m_motor.reset();
-    m_playerHealth.revive();
-    m_playerHit.reset();
+    if (PlayerMotor* motor = localMotor())
+        motor->reset();
+    if (Health* hp = localHealth())
+        hp->revive();
+    if (HitReaction* hit = localHit())
+        hit->reset();
     m_playerWet        = false;
     m_playerDeadTimer  = 0.0f;
     m_spawnAge         = 0.0f;
@@ -746,7 +824,8 @@ TonemapSettings SandboxApp::playerPostFx()
         s.focusZ = (focusPt - m_viewCamera.GetPosition()).Magnitude();
     }
 
-    if (!m_playerHealth.alive())
+    Health* hpFx = localHealth();
+    if (hpFx && !hpFx->alive())
     {
         const float t    = Clamp(m_playerDeadTimer / kDeathSeconds, 0.0f, 1.0f);
         s.blur           = SmoothStep(0.0f, 0.55f, t);
@@ -779,8 +858,9 @@ void SandboxApp::handleWeaponSwitch()
 WeaponWorldQuery SandboxApp::makeWeaponQuery()
 {
     m_weaponTargets.clear();
+    const Entity self = possessedBody();
     world().each<HittableComponent>([&](Entity e, HittableComponent& h) {
-        if (!world().has<AiAgentComponent>(e))
+        if (self.valid() && e.id() == self.id())
             return;
         const TransformComponent* xf = world().get<TransformComponent>(e);
         const HealthComponent*    hp = world().get<HealthComponent>(e);
@@ -841,7 +921,7 @@ void SandboxApp::onWeaponHitThunk(void* user, const WeaponHit& hit)
 
 void SandboxApp::onWeaponHit(const WeaponHit& hit)
 {
-    if (!hit.hitTarget || !m_chaseOk)
+    if (!hit.hitTarget)
         return;
     Entity victim = hit.targetEntity;
     if (!victim.valid() && hit.targetIndex >= 0 && hit.targetIndex < static_cast<int>(m_weaponTargets.size()))
@@ -850,21 +930,36 @@ void SandboxApp::onWeaponHit(const WeaponHit& hit)
         return;
     HealthComponent* hp = world().get<HealthComponent>(victim);
     const bool wasAlive = hp && hp->health.alive();
-    if (!m_chase.ai().applyHunterDamage(world(), victim, hit.damage))
-        return;
-    m_chase.ai().applyHunterHitReaction(world(), victim, hit.direction);
-    audio().play3D(m_sfxPain, hit.point, 0.75f);
-    audio().play3D(m_sfxGrunt, hit.point, 0.95f);
-    const TransformComponent* playerXf = possessedBody().valid() ? world().get<TransformComponent>(possessedBody()) : nullptr;
-    const Vector3f playerPos = playerXf ? playerXf->position : Vector3f{};
-    m_chase.ai().onHunterAttacked(world(), victim, playerPos);
-    spawnHunterBlood(hit.point);
-    hp = world().get<HealthComponent>(victim);
-    if (wasAlive && hp && !hp->health.alive())
+    if (world().has<AiAgentComponent>(victim))
     {
-        m_bloodSplats.spawn(hit.point.x, hit.point.z, m_terrain.heightMap());
-        m_chase.ai().onHunterKilled(world(), victim);
+        if (!m_chaseOk)
+            return;
+        if (!m_chase.ai().applyHunterDamage(world(), victim, hit.damage))
+            return;
+        m_chase.ai().applyHunterHitReaction(world(), victim, hit.direction);
+        audio().play3D(m_sfxPain, hit.point, 0.75f);
+        audio().play3D(m_sfxGrunt, hit.point, 0.95f);
+        const TransformComponent* playerXf = possessedBody().valid() ? world().get<TransformComponent>(possessedBody()) : nullptr;
+        const Vector3f playerPos = playerXf ? playerXf->position : Vector3f{};
+        m_chase.ai().onHunterAttacked(world(), victim, playerPos);
+        spawnHunterBlood(hit.point);
+        hp = world().get<HealthComponent>(victim);
+        if (wasAlive && hp && !hp->health.alive())
+        {
+            m_bloodSplats.spawn(hit.point.x, hit.point.z, m_terrain.heightMap());
+            m_chase.ai().onHunterKilled(world(), victim);
+        }
+        return;
     }
+    if (!hp)
+        return;
+    const float before = hp->health.hp();
+    hp->health.applyDamage(hit.damage);
+    if (hp->health.hp() >= before)
+        return;
+    if (HitReactionComponent* hr = world().get<HitReactionComponent>(victim))
+        hr->hit.apply(hit.direction);
+    audio().play3D(m_sfxPain, hit.point, 0.75f);
 }
 
 void SandboxApp::updateCombat(float dt)
@@ -883,11 +978,13 @@ void SandboxApp::updateCombat(float dt)
             mxf->position = m_viewCamera.GetPosition() + m_viewCamera.GetLook() * 0.8f;
     }
 
-    m_playerHealth.tick(dt);
+    if (Health* hpTick = localHealth())
+        hpTick->tick(dt);
     const WeaponWorldQuery query = makeWeaponQuery();
     m_weapons.tick(dt, query);
 
-    if (!m_playerHealth.alive())
+    Health* hpCombat = localHealth();
+    if (!hpCombat || !hpCombat->alive())
     {
         m_playerDeadTimer += dt;
         if (m_playerDeadTimer >= kDeathSeconds)
@@ -902,7 +999,7 @@ void SandboxApp::updateCombat(float dt)
 
     if (m_chaseOk && xf)
     {
-        const float before = m_playerHealth.hp();
+        const float before = hpCombat->hp();
         world().each<AiAgentComponent>([&](Entity e, AiAgentComponent&) {
             const HealthComponent* hp = world().get<HealthComponent>(e);
             const TransformComponent* hxf = world().get<TransformComponent>(e);
@@ -912,13 +1009,13 @@ void SandboxApp::updateCombat(float dt)
             const float dz = hxf->position.z - xf->position.z;
             if (dx * dx + dz * dz > kStandoff * kStandoff)
                 return;
-            if (m_playerHealth.applyDamage(kContactDps * dt))
+            if (hpCombat->applyDamage(kContactDps * dt))
             {
                 DE_LOG_INFO("Player: down");
                 audio().play2D(m_sfxReset, 0.55f);
             }
         });
-        if (m_playerHealth.hp() < before && m_hurtSoundTimer <= 0.0f)
+        if (hpCombat->hp() < before && m_hurtSoundTimer <= 0.0f)
         {
             audio().play2D(m_sfxPain, 0.7f);
             m_hurtSoundTimer = 0.40f;
@@ -937,7 +1034,8 @@ void SandboxApp::updateCombat(float dt)
                 best = d2;
                 away = Vector3f{ -dx, 0.0f, -dz };
             });
-            m_playerHit.apply(away);
+            if (HitReaction* hit = localHit())
+                hit->apply(away);
         }
     }
 
@@ -1090,7 +1188,7 @@ void SandboxApp::updateWiggleAnim()
         speed = 1.0f;
     else
     {
-        const Vector3f v = m_motor.velocity();
+        const Vector3f v = localMotor() ? localMotor()->velocity() : Vector3f{};
         speed = Vector3f(v.x, 0.0f, v.z).Magnitude();
     }
     ag->graph.setFloat("speed", speed);
@@ -1329,7 +1427,10 @@ void SandboxApp::updateHealthPacks(float dt)
     TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
     if (!xf)
         return;
-    const int taken = m_healthPacks.tryPickup(xf->position, m_playerHealth);
+    Health* packHp = localHealth();
+    if (!packHp)
+        return;
+    const int taken = m_healthPacks.tryPickup(xf->position, *packHp);
     for (int i = 0; i < taken; ++i)
         audio().play2D(m_sfxHeal, 0.7f);
 }
@@ -1648,7 +1749,12 @@ void SandboxApp::spawnOwnedPawn(ClientId owner, float offsetX)
         onEntityRemoved(world(), e, &pins());
         world().destroyEntity(e);
         DE_LOG_ERROR(LogCategory::Networking, "Sandbox: failed to register pawn for client {}", static_cast<unsigned>(owner));
+        return;
     }
+    if (owner == network().localClientId())
+        attachLocalPlayer(e);
+    else
+        attachReplicaCombat(e);
 }
 
 void SandboxApp::ensureLocalCube()
@@ -1670,13 +1776,22 @@ void SandboxApp::ensureLocalCube()
     }
 }
 
-bool SandboxApp::onNetSpawn(World& world, Entity e, NetPrefab, const TransformComponent&, uint32_t, void* user)
+bool SandboxApp::onNetSpawn(World& world, Entity e, NetPrefab prefab, const TransformComponent&, uint32_t, void* user)
 {
     auto* app = static_cast<SandboxApp*>(user);
     if (!app || !e.valid())
         return false;
     if (!world.has<MeshComponent>(e))
         attachSandboxCubeMesh(world, app->pins(), app->assets(), e, app->m_cubeMatId);
+    if (prefab == NetPrefab::PlayerPawn)
+    {
+        const NetworkedComponent* nc = world.get<NetworkedComponent>(e);
+        const bool local = nc && nc->owner == app->network().localClientId();
+        if (local)
+            app->attachLocalPlayer(e);
+        else
+            app->attachReplicaCombat(e);
+    }
     return true;
 }
 
@@ -2071,19 +2186,8 @@ void SandboxApp::onInit()
     if (!m_chaseOk)
         DE_LOG_ERROR(LogCategory::AI, "SandboxApp: path chase init failed");
 
-    HealthSettings playerHp;
-    playerHp.maxHp       = 100.0f;
-    playerHp.regenPerSec = 10.0f;
-    playerHp.regenDelay  = 3.5f;
-    m_playerHealth       = Health{ playerHp };
-    {
-        HitReactionSettings hit{};
-        hit.stunSeconds       = 0.28f;
-        hit.knockbackDistance = 1.1f;
-        hit.knockbackSeconds  = 0.14f;
-        hit.horizontalOnly    = true;
-        m_playerHit.setSettings(hit);
-    }
+    if (m_chase.walker().valid())
+        attachLocalPlayer(m_chase.walker());
     placeHealthPacks();
     spawnHybridLocalLights();
 }
@@ -2107,7 +2211,7 @@ void SandboxApp::onUpdate(float dt)
         updateCombat(dt);
         updateHealthPacks(dt);
         m_blood.update(dt);
-        if (m_playerHealth.alive())
+        if (Health* hpAlive = localHealth(); hpAlive && hpAlive->alive())
             m_spawnAge += dt;
         updateWiggleAnim();
         tickAnimGraphs(world(), assets(), dt);
@@ -2548,8 +2652,12 @@ void SandboxApp::onRender()
 
     m_scene.endCameraFrame(m_viewCamera, viewProj);
 
-    m_healthHud.draw(cmd, renderer().width(), renderer().height(), m_playerHealth.ratio());
-    if (m_playerHealth.alive() && !m_gameplayPaused)
+    Health* hudHp = localHealth();
+    const Entity hudBody = possessedBody();
+    const HudTagComponent* hudTag = hudBody.valid() ? world().get<HudTagComponent>(hudBody) : nullptr;
+    if (hudHp && hudTag && hudTag->kind == HudKind::HealthBar)
+        m_healthHud.draw(cmd, renderer().width(), renderer().height(), hudHp->ratio());
+    if (hudHp && hudHp->alive() && !m_gameplayPaused)
         m_crosshair.draw(cmd, renderer().width(), renderer().height(), m_weapons.activeKind());
 
     renderer().stats().drawCalls = m_terrain.lastDrawCalls() + m_water.lastDrawCalls() + meshDraws + 1;

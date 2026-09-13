@@ -253,15 +253,18 @@ void SandboxApp::drawDevTools()
 
     if (ImGui::CollapsingHeader("Hit reaction"))
     {
-        HitReactionSettings player = m_playerHit.settings();
-        ImGui::TextUnformatted("Player");
-        ImGui::SliderFloat("Player stun (s)", &player.stunSeconds, 0.0f, 2.0f, "%.2f");
-        ImGui::SliderFloat("Player knockback (m)", &player.knockbackDistance, 0.0f, 6.0f, "%.2f");
-        ImGui::SliderFloat("Player knockback time (s)", &player.knockbackSeconds, 0.0f, 1.0f, "%.2f");
-        ImGui::Checkbox("Player horizontal only", &player.horizontalOnly);
-        m_playerHit.setSettings(player);
-        if (m_playerHit.stunned())
-            ImGui::TextDisabled("stunned %.2fs", static_cast<double>(m_playerHit.stunRemaining()));
+        if (HitReaction* playerHit = localHit())
+        {
+            HitReactionSettings player = playerHit->settings();
+            ImGui::TextUnformatted("Player");
+            ImGui::SliderFloat("Player stun (s)", &player.stunSeconds, 0.0f, 2.0f, "%.2f");
+            ImGui::SliderFloat("Player knockback (m)", &player.knockbackDistance, 0.0f, 6.0f, "%.2f");
+            ImGui::SliderFloat("Player knockback time (s)", &player.knockbackSeconds, 0.0f, 1.0f, "%.2f");
+            ImGui::Checkbox("Player horizontal only", &player.horizontalOnly);
+            playerHit->setSettings(player);
+            if (playerHit->stunned())
+                ImGui::TextDisabled("stunned %.2fs", static_cast<double>(playerHit->stunRemaining()));
+        }
 
         if (m_chaseOk)
         {
