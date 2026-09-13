@@ -22,7 +22,7 @@
 #include "Particles/ParticleEmitter.h"
 #include "Particles/ParticleRenderer.h"
 #include "Particles/BloodSplatPool.h"
-#include "Weapons/WeaponLoadout.h"
+#include "Weapons/WeaponLoadoutComponent.h"
 #include "Gameplay/HealthPack.h"
 #include "PathChase.h"
 #include "Ui/HudTagComponent.h"
@@ -87,9 +87,10 @@ private:
     void ensureLocalCube();
     void attachReplicaCombat(Dark::Entity e);
     void attachLocalPlayer(Dark::Entity e);
-    Dark::Health*       localHealth();
-    Dark::HitReaction*  localHit();
-    Dark::PlayerMotor*  localMotor();
+    Dark::Health*         localHealth();
+    Dark::HitReaction*    localHit();
+    Dark::PlayerMotor*    localMotor();
+    Dark::WeaponLoadout*  localWeapons();
     void syncTerrainLod();
     void drawDebugOverlays(ID3D12GraphicsCommandList* cmd);
     void drawSkeletonOverlay(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj);
@@ -166,7 +167,6 @@ private:
     float                            m_playerDeadTimer = 0.0f;
     float                            m_spawnAge        = 0.0f;
     float                            m_hurtSoundTimer  = 0.0f;
-    Dark::WeaponLoadout              m_weapons;
     Dark::CrosshairHud               m_crosshair;
     Dark::Mesh                       m_tracerMesh;
     Dark::AssetRef<Dark::Material>   m_tracerMaterial;

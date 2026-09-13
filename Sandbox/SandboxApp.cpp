@@ -1,6 +1,8 @@
 #include "SandboxApp.h"
 
 #include "ECS/Components.h"
+
+#include <memory>
 #include "Core/ContentRoots.h"
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
@@ -645,6 +647,14 @@ void SandboxApp::attachLocalPlayer(Entity e)
         world().emplace<SoundEmitterComponent>(e, se);
         pinSoundEmitter(pins(), assets(), se);
     }
+    if (!world().has<WeaponLoadoutComponent>(e))
+    {
+        auto& wlc   = world().emplace<WeaponLoadoutComponent>(e);
+        wlc.loadout = std::make_unique<WeaponLoadout>();
+        wlc.loadout->setHitListener(&SandboxApp::onWeaponHitThunk, this);
+        wlc.loadout->projectile().setAudio(&audio(), m_sfxFire, m_sfxImpact);
+        wlc.slot = wlc.loadout->slot();
+    }
 }
 
 Health* SandboxApp::localHealth()
@@ -666,6 +676,13 @@ PlayerMotor* SandboxApp::localMotor()
     const Entity body = possessedBody();
     PlayerMotorComponent* pm = body.valid() ? world().get<PlayerMotorComponent>(body) : nullptr;
     return pm ? &pm->motor : nullptr;
+}
+
+WeaponLoadout* SandboxApp::localWeapons()
+{
+    const Entity body = possessedBody();
+    WeaponLoadoutComponent* wlc = body.valid() ? world().get<WeaponLoadoutComponent>(body) : nullptr;
+    return (wlc && wlc->loadout) ? wlc->loadout.get() : nullptr;
 }
 
 void SandboxApp::updatePossessed(float dt)
@@ -810,7 +827,8 @@ void SandboxApp::respawnPlayer()
     m_playerDeadTimer  = 0.0f;
     m_spawnAge         = 0.0f;
     m_hurtSoundTimer   = 0.0f;
-    m_weapons.clear();
+    if (WeaponLoadout* w = localWeapons())
+        w->clear();
     DE_LOG_INFO("Player: respawned");
 }
 
@@ -847,15 +865,23 @@ TonemapSettings SandboxApp::playerPostFx()
 
 void SandboxApp::handleWeaponSwitch()
 {
-    if (input().actionPressed("weapon_1") && m_weapons.selectMelee())
+    WeaponLoadout* w = localWeapons();
+    if (!w)
+        return;
+    WeaponLoadoutComponent* wlc = world().get<WeaponLoadoutComponent>(possessedBody());
+    if (input().actionPressed("weapon_1") && w->selectMelee())
     {
+        if (wlc)
+            wlc->slot = w->slot();
         audio().play2D(m_sfxClick, 0.45f);
         DE_LOG_INFO("Player: weapon melee");
     }
-    if (input().actionPressed("weapon_2") && m_weapons.selectProjectile())
+    if (input().actionPressed("weapon_2") && w->selectProjectile())
     {
+        if (wlc)
+            wlc->slot = w->slot();
         audio().play2D(m_sfxClick, 0.45f);
-        DE_LOG_INFO("Player: weapon {}", m_weapons.projectile().name());
+        DE_LOG_INFO("Player: weapon {}", w->projectile().name());
     }
 }
 
@@ -985,7 +1011,8 @@ void SandboxApp::updateCombat(float dt)
     if (Health* hpTick = localHealth())
         hpTick->tick(dt);
     const WeaponWorldQuery query = makeWeaponQuery();
-    m_weapons.tick(dt, query);
+    if (WeaponLoadout* wTick = localWeapons())
+        wTick->tick(dt, query);
 
     Health* hpCombat = localHealth();
     if (!hpCombat || !hpCombat->alive())
@@ -1056,14 +1083,15 @@ void SandboxApp::updateCombat(float dt)
     req.origin   = m_viewCamera.GetPosition() + req.direction * 2.2f;
     req.ownerPos = xf ? xf->position : m_viewCamera.GetPosition();
 
-    if (!m_weapons.fire(req, query))
+    WeaponLoadout* wFire = localWeapons();
+    if (!wFire || !wFire->fire(req, query))
         return;
     pulseMuzzle();
-    if (m_weapons.activeKind() == WeaponKind::Melee)
+    if (wFire->activeKind() == WeaponKind::Melee)
         audio().play2D(m_sfxClick, 0.4f);
     else
     {
-        const RecoilKick kick = m_weapons.projectile().takeRecoil();
+        const RecoilKick kick = wFire->projectile().takeRecoil();
         m_lookYaw += kick.yaw;
         m_lookPitch += kick.pitch;
         m_lookYaw   = Math::WrapPi(m_lookYaw);
@@ -1456,11 +1484,12 @@ void SandboxApp::updateHealthPacks(float dt)
 
 void SandboxApp::drawProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, MeshFrameConstants& cb)
 {
-    if (!cmd || !m_tracerMesh.valid())
+    WeaponLoadout* w = localWeapons();
+    if (!cmd || !m_tracerMesh.valid() || !w)
         return;
-    const float radius = m_weapons.projectile().desc().radius;
+    const float radius = w->projectile().desc().radius;
     bool any = false;
-    for (const LiveProjectile& s : m_weapons.projectile().live())
+    for (const LiveProjectile& s : w->projectile().live())
     {
         if (s.alive)
         {
@@ -1482,7 +1511,7 @@ void SandboxApp::drawProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix4f&
     cb.color[3] = 1.0f;
 
     const float scale = radius * 2.0f;
-    for (const LiveProjectile& s : m_weapons.projectile().live())
+    for (const LiveProjectile& s : w->projectile().live())
     {
         if (!s.alive)
             continue;
@@ -1496,11 +1525,12 @@ void SandboxApp::drawProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix4f&
 
 void SandboxApp::drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, const Matrix4f& prevViewProj)
 {
-    if (!cmd || !m_tracerMesh.valid())
+    WeaponLoadout* w = localWeapons();
+    if (!cmd || !m_tracerMesh.valid() || !w)
         return;
-    const float radius = m_weapons.projectile().desc().radius;
+    const float radius = w->projectile().desc().radius;
     bool any = false;
-    for (const LiveProjectile& s : m_weapons.projectile().live())
+    for (const LiveProjectile& s : w->projectile().live())
     {
         if (s.alive)
         {
@@ -1523,7 +1553,7 @@ void SandboxApp::drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Ma
     cb.color[3] = 2.0f;
 
     const float scale = radius * 2.0f;
-    for (const LiveProjectile& s : m_weapons.projectile().live())
+    for (const LiveProjectile& s : w->projectile().live())
     {
         if (!s.alive)
             continue;
@@ -1810,8 +1840,6 @@ void SandboxApp::onInit()
     m_sfxFire   = audio().loadOrBlip(assets(), "audio/whoosh.wav", 520.0f, 0.12f, 0.45f);
     m_sfxImpact = audio().loadOrBlip(assets(), "audio/place.wav", 180.0f, 0.10f, 0.5f);
     m_music    = audio().loadWav(assets(), "audio/ambient_loop.wav");
-    m_weapons.setHitListener(&SandboxApp::onWeaponHitThunk, this);
-    m_weapons.projectile().setAudio(&audio(), m_sfxFire, m_sfxImpact);
     if (!m_music)
         m_music = audio().createTone(assets(), 110.0f, 2.0f, 0.12f);
     audio().setMasterVolume(0.85f);
@@ -2581,8 +2609,8 @@ void SandboxApp::onRender()
 
     if (m_blood.aliveCount() > 0)
         m_particles.draw(cmd, m_viewCamera, m_blood, false);
-    if (m_weapons.projectile().impactEmitter().aliveCount() > 0)
-        m_particles.draw(cmd, m_viewCamera, m_weapons.projectile().impactEmitter(), true);
+    if (WeaponLoadout* wFx = localWeapons(); wFx && wFx->projectile().impactEmitter().aliveCount() > 0)
+        m_particles.draw(cmd, m_viewCamera, wFx->projectile().impactEmitter(), true);
 
     m_bloodSplats.draw(cmd, m_viewCamera);
 
@@ -2602,7 +2630,7 @@ void SandboxApp::onRender()
     if (hudHp && hudTag && hudTag->kind == HudKind::HealthBar)
         m_healthHud.draw(cmd, renderer().width(), renderer().height(), hudHp->ratio());
     if (hudHp && hudHp->alive() && !m_gameplayPaused)
-        m_crosshair.draw(cmd, renderer().width(), renderer().height(), m_weapons.activeKind());
+        m_crosshair.draw(cmd, renderer().width(), renderer().height(), localWeapons() ? localWeapons()->activeKind() : WeaponKind::Melee);
 
     renderer().stats().drawCalls = m_terrain.lastDrawCalls() + m_water.lastDrawCalls() + meshDraws + 1;
     renderer().stats().triangles =
@@ -2737,8 +2765,11 @@ void SandboxApp::onShutdown()
     m_sfxHeal.reset();
     m_sfxFire.reset();
     m_sfxImpact.reset();
-    m_weapons.clear();
-    m_weapons.projectile().setAudio(nullptr, {}, {});
+    if (WeaponLoadout* w = localWeapons())
+    {
+        w->projectile().setAudio(nullptr, {}, {});
+        w->clear();
+    }
     m_tracerMaterial.reset();
     m_particles.destroy(renderer());
     m_bloodSplats.destroy(renderer());
