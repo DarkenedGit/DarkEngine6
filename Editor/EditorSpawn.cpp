@@ -6,6 +6,7 @@
 #include "ECS/Components.h"
 #include "Network/Replication.h"
 #include "Core/ContentRoots.h"
+#include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "Core/UiPalette.h"
 #include "Ui/Icons.h"
@@ -274,6 +275,7 @@ void EditorApp::deleteSelected()
             network().unregisterEntity(world(), e);
             return;
         }
+        onEntityRemoved(world(), e, &pins());
         world().destroyEntity(e);
     };
 
@@ -356,7 +358,10 @@ void EditorApp::clearScene()
         if (world().has<NetworkedComponent>(e))
             network().unregisterEntity(world(), e);
         else if (world().alive(e))
+        {
+            onEntityRemoved(world(), e, &pins());
             world().destroyEntity(e);
+        }
     }
     m_emitters.clear();
     m_selected = {};

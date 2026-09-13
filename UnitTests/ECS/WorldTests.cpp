@@ -112,3 +112,11 @@ TEST(World, NullEntityNeverAlive)
     EXPECT_FALSE(world.alive(Entity{}));
     EXPECT_FALSE(world.alive(Entity{ NULL_ENTITY }));
 }
+
+TEST(World, MeshComponentDefaultsPrimitiveNone)
+{
+    MeshComponent mc{};
+    EXPECT_EQ(mc.primitive, PrimitiveMesh::None);
+    EXPECT_EQ(mc.meshAssetID, NULL_ASSET);
+    EXPECT_EQ(mc.matAssetID, NULL_ASSET);
+}

@@ -5,7 +5,6 @@
 #include <vector>
 #include <memory>
 #include <cassert>
-#include <functional>
 #include <utility>
 
 namespace Dark
@@ -142,7 +141,7 @@ namespace Dark
         }
 
         // Single-component view — iterate entities that have T
-        template <typename T> void each(std::function<void(Entity, T&)> fn)
+        template <typename T, typename Fn> void each(Fn&& fn)
         {
             auto* pool = getPool<T>();
             if (!pool)

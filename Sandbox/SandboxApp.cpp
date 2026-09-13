@@ -2,6 +2,7 @@
 
 #include "ECS/Components.h"
 #include "Core/ContentRoots.h"
+#include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "Input/InputCodes.h"
 #include "Collision/Collision.h"
@@ -1621,10 +1622,13 @@ bool SandboxApp::onNetSpawn(World& world, Entity e, NetPrefab, const TransformCo
     return true;
 }
 
-void SandboxApp::onNetDespawn(World&, Entity e, NetId, void* user)
+void SandboxApp::onNetDespawn(World& world, Entity e, NetId, void* user)
 {
     auto* app = static_cast<SandboxApp*>(user);
-    if (app && app->m_cube == e)
+    if (!app)
+        return;
+    onEntityRemoved(world, e, &app->pins());
+    if (app->m_cube == e)
         app->m_cube = {};
 }
 

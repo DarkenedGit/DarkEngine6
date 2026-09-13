@@ -2,6 +2,7 @@
 
 #include "Collision/Collision.h"
 #include "Core/ContentRoots.h"
+#include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "ECS/Components.h"
 #include "Input/InputCodes.h"
@@ -518,6 +519,7 @@ void Sandbox2DApp::registerLevelEntities()
         world().emplace<TransformComponent>(e, xf);
         if (!network().registerEntity(world(), e, NetPrefab::Platform))
         {
+            onEntityRemoved(world(), e, &pins());
             world().destroyEntity(e);
             DE_LOG_WARN(LogCategory::Networking, "Sandbox2D: failed to register platform");
             continue;
@@ -540,6 +542,7 @@ void Sandbox2DApp::registerLevelEntities()
         world().emplace<TransformComponent>(e, xf);
         if (!network().registerEntity(world(), e, NetPrefab::Coin))
         {
+            onEntityRemoved(world(), e, &pins());
             world().destroyEntity(e);
             DE_LOG_WARN(LogCategory::Networking, "Sandbox2D: failed to register coin");
             continue;
@@ -563,6 +566,7 @@ void Sandbox2DApp::createLocalPlayerEntity()
     world().emplace<TransformComponent>(e, xf);
     if (!network().registerEntity(world(), e, NetPrefab::Player2D, ClientId::Host, pawnPaletteColor(ClientId::Host)))
     {
+        onEntityRemoved(world(), e, &pins());
         world().destroyEntity(e);
         DE_LOG_ERROR(LogCategory::Networking, "Sandbox2D: failed to register local Player2D");
         return;
@@ -622,6 +626,7 @@ void Sandbox2DApp::spawnOwnedPawn(ClientId owner, float offsetX)
     const uint32_t color = pawnPaletteColor(owner);
     if (!network().registerEntity(world(), e, NetPrefab::Player2D, owner, color))
     {
+        onEntityRemoved(world(), e, &pins());
         world().destroyEntity(e);
         DE_LOG_ERROR(LogCategory::Networking, "Sandbox2D: failed to register pawn for client {}", static_cast<unsigned>(owner));
         return;
@@ -839,11 +844,12 @@ bool Sandbox2DApp::onNetSpawn(World& world, Entity e, NetPrefab prefab, const Tr
     return true;
 }
 
-void Sandbox2DApp::onNetDespawn(World&, Entity e, NetId, void* user)
+void Sandbox2DApp::onNetDespawn(World& world, Entity e, NetId, void* user)
 {
     auto* app = static_cast<Sandbox2DApp*>(user);
     if (!app)
         return;
+    onEntityRemoved(world, e, &app->pins());
 
     if (app->m_playerEntity == e)
         app->m_playerEntity = {};

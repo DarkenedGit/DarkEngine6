@@ -11,8 +11,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR lpCmdLine, int)
 {
     Dark::AppConfig cfg{};
     cfg.title        = "DarkEngine6 Sandbox2D";
-    cfg.width        = 1280;
-    cfg.height       = 720;
+    cfg.width        = 2560;
+    cfg.height       = 1600;
     cfg.vsync        = true;
     cfg.netSceneMode = 1;
     cfg.hostId       = "sandbox2d";

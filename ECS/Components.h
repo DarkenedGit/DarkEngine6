@@ -30,6 +30,15 @@ namespace Dark
         std::string name = "Entity";
     };
 
+    // Host GPU mesh for v1 cubes/crosses/spheres. meshAssetID stays 0 (no ensureMesh).
+    enum class PrimitiveMesh : uint8_t
+    {
+        None = 0,
+        Cube,
+        Sphere,
+        Cross,
+    };
+
     // ─── Mesh renderer reference ─────────────────────────────────────────────────
 
     struct MeshComponent
@@ -37,10 +46,11 @@ namespace Dark
         static constexpr const char* kTypeName = "Mesh";
 
         // AssetManager ids (0 = none / use procedural or unbound resources).
-        AssetID meshAssetID = NULL_ASSET;
-        AssetID matAssetID  = NULL_ASSET;
-        bool    castShadow  = true;
-        float   emissive    = 0.0f; // 0..1 → G-buffer RT0.a
+        AssetID       meshAssetID = NULL_ASSET; // reserved; v1 always 0
+        AssetID       matAssetID  = NULL_ASSET;
+        PrimitiveMesh primitive   = PrimitiveMesh::None;
+        bool          castShadow  = true;
+        float         emissive    = 0.0f; // 0..1 → G-buffer RT0.a
     };
 
     // Cached glTF / GLB from AssetManager::loadModel.

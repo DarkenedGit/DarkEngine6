@@ -91,6 +91,10 @@ set(DE_FOUNDATION_CORE_SOURCES
 set(DE_ENGINE_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/Core/Application.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Core/Application.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Core/AssetPinTable.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Core/AssetPinTable.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Core/EntityPins.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Core/EntityPins.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Core/Window.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Core/Window.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Core/MemoryTracker.cpp"

@@ -3,6 +3,7 @@
 #include "Core/Window.h"
 #include "ECS/World.h"
 #include "Assets/AssetManager.h"
+#include "Core/AssetPinTable.h"
 #include "Audio/AudioSystem.h"
 #include "Network/NetworkSystem.h"
 #include "Debug/DebugServer.h"
@@ -65,6 +66,8 @@ namespace Dark
 
         World&         world()    { return m_world; }
         AssetManager&  assets()   { return m_assets; }
+        AssetPinTable&       pins() { return m_pins; }
+        const AssetPinTable& pins() const { return m_pins; }
         Audio::AudioSystem&   audio()    { return m_audio; }
         NetworkSystem& network()  { return m_network; }
         DebugServer&   debug()    { return m_debug; }
@@ -91,6 +94,7 @@ namespace Dark
         Input         m_input;
         World         m_world;
         AssetManager  m_assets;
+        AssetPinTable m_pins; // after assets: extra refs drop before AssetManager
         Renderer      m_renderer;
         Audio::AudioSystem m_audio;
         NetworkSystem m_network; // after audio: sockets destroyed before HWND

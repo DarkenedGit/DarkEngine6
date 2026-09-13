@@ -6,6 +6,7 @@
 #include "ECS/Components.h"
 #include "Network/Replication.h"
 #include "Core/ContentRoots.h"
+#include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "Core/UiPalette.h"
 #include "Ui/Icons.h"
@@ -100,7 +101,10 @@ void EditorApp::discardLocalSceneForJoin()
         if (world().has<NetworkedComponent>(e))
             network().unregisterEntity(world(), e);
         else if (world().alive(e))
+        {
+            onEntityRemoved(world(), e, &pins());
             world().destroyEntity(e);
+        }
     }
     m_emitters.clear();
     m_selected = {};
@@ -269,11 +273,11 @@ bool EditorApp::onNetSpawn(World& world, Entity e, NetPrefab prefab, const Trans
 
 void EditorApp::onNetDespawn(World& world, Entity e, NetId id, void* user)
 {
-    (void)world;
     (void)id;
     auto* self = static_cast<EditorApp*>(user);
     if (!self)
         return;
+    onEntityRemoved(world, e, &self->pins());
     if (self->m_selected.valid() && self->m_selected.id() == e.id())
     {
         self->m_selected = {};
