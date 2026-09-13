@@ -79,9 +79,6 @@ private:
     void respawnPlayer();
     void placeHealthPacks();
     void updateHealthPacks(float dt);
-    void drawHealthPacks(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, Dark::MeshFrameConstants& cb);
-    void drawHealthPacksGBuffer(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, const Dark::Math::Matrix4f& prevViewProj);
-    void drawHealthPacksDepth(ID3D12GraphicsCommandList* cmd, int cascade);
     void updateShoulderCamera();
     Dark::TonemapSettings playerPostFx();
     Dark::Entity possessedBody();
@@ -184,7 +181,6 @@ private:
     Dark::ParticleRenderer           m_particles;
     Dark::BloodSplatPool             m_bloodSplats;
 
-    Dark::HealthPackSet              m_healthPacks;
     Dark::Mesh             m_crossMesh;
     Dark::AssetRef<Dark::Material>   m_packMaterial;
     Dark::AssetRef<Dark::Material>   m_lanternMaterial;
