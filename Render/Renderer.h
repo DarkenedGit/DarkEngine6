@@ -50,6 +50,11 @@ namespace Dark
         // Recreate back buffers + depth for a new client size (no-op if unchanged).
         bool resize(uint32_t width, uint32_t height);
 
+        // After waitForGpu on currentIndex, every in-flight slot must share that next
+        // fence value. ResizeBuffers may change GetCurrentBackBufferIndex(); signaling
+        // a stale smaller value can hang WaitForSingleObject on the fence.
+        static void broadcastFenceValueAfterWait(uint64_t* values, uint32_t count, uint32_t currentIndex);
+
         // Drain the graphics queue (resource uploads, teardown).
         void waitForGpu();
 

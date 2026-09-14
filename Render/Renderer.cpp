@@ -315,6 +315,7 @@ namespace Dark
             return true;
 
         waitForGpu();
+        broadcastFenceValueAfterWait(m_fenceValues, kFrameCount, m_frameIndex);
 
         for (uint32_t i = 0; i < kFrameCount; ++i)
             m_renderTargets[i].Reset();
@@ -355,6 +356,15 @@ namespace Dark
         updateViewport();
         DE_LOG_INFO(LogCategory::Render, "Renderer: resized to {}x{}", m_width, m_height);
         return true;
+    }
+
+    void Renderer::broadcastFenceValueAfterWait(uint64_t* values, uint32_t count, uint32_t currentIndex)
+    {
+        if (!values || count == 0 || currentIndex >= count)
+            return;
+        const uint64_t next = values[currentIndex];
+        for (uint32_t i = 0; i < count; ++i)
+            values[i] = next;
     }
 
     bool Renderer::beginFrame()
