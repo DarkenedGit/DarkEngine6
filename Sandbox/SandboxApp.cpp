@@ -32,6 +32,7 @@
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
 #include "AI/AiComponents.h"
+#include "AI/Brain.h"
 #include "Audio/SoundComponents.h"
 #include "Animation/AnimNotify.h"
 #include "Character/HealthComponent.h"
@@ -655,9 +656,10 @@ void SandboxApp::attachReplicaCombat(Entity e)
     if (!world().has<HittableComponent>(e))
     {
         HittableComponent h{};
-        h.halfExtents = Vector3f{ 0.5f, 0.5f, 0.5f };
+        h.halfExtents = Vector3f{ 0.35f, 0.7f, 0.35f };
         world().emplace<HittableComponent>(e, h);
     }
+    attachAnimatedCharacter(e, "models/human.gltf");
 }
 
 void SandboxApp::attachLocalPlayer(Entity e)
@@ -690,6 +692,139 @@ void SandboxApp::attachLocalPlayer(Entity e)
         wlc.loadout->projectile().setAudio(&audio(), m_sfxFire, m_sfxImpact);
         wlc.slot = wlc.loadout->slot();
     }
+}
+
+bool SandboxApp::attachAnimatedCharacter(Entity e, const char* gltfPath)
+{
+    if (!e.valid() || !world().alive(e) || !gltfPath || gltfPath[0] == '\0')
+        return false;
+    if (world().has<AnimGraphComponent>(e) && world().has<ModelComponent>(e))
+        return true;
+
+    AssetRef<Model> model = loadAndUploadModel(renderer(), assets(), gltfPath);
+    if (!model || !model->valid())
+    {
+        DE_LOG_WARN("SandboxApp: animated character '{}' failed to load", gltfPath);
+        return false;
+    }
+    if (!model->skeleton())
+    {
+        DE_LOG_WARN("SandboxApp: '{}' has no skeleton", gltfPath);
+        return false;
+    }
+
+    AssetRef<AnimGraphDef> graph = assets().tryLoadAnimGraphForModel(gltfPath);
+    if (!graph)
+        DE_LOG_WARN("SandboxApp: '{}' has no anim graph sidecar", gltfPath);
+
+    if (const ModelComponent* old = world().get<ModelComponent>(e))
+        unpinModelComponent(pins(), *old);
+    ModelComponent mc{};
+    mc.modelAssetID = model->id;
+    mc.castShadow   = model->hasOpaque();
+    world().emplace<ModelComponent>(e, mc);
+    pinModelComponent(pins(), assets(), mc);
+
+    if (MeshComponent* mesh = world().get<MeshComponent>(e))
+    {
+        MeshComponent next = *mesh;
+        next.primitive     = PrimitiveMesh::None;
+        setMeshComponent(world(), pins(), assets(), e, next);
+    }
+
+    if (TransformComponent* xf = world().get<TransformComponent>(e))
+        xf->scale = Vector3f{ 1.0f, 1.0f, 1.0f };
+
+    AnimGraphComponent ag;
+    ag.model    = model;
+    ag.animSet  = model->animationSet();
+    ag.graphDef = graph;
+    if (graph)
+        ag.graph.bind(graph.get(), model->skeleton());
+    else if (ag.animSet)
+    {
+        ag.graph.player().bind(model->skeleton(), ag.animSet.get());
+        if (!ag.graph.player().play("Idle", 0.0f))
+            ag.graph.player().playIndex(0, 0.0f);
+    }
+    ag.graph.setApplyRootMotion(false);
+    world().emplace<AnimGraphComponent>(e, std::move(ag));
+    DE_LOG_INFO("SandboxApp: attached '{}' to entity graph={}", gltfPath, graph ? "yes" : "no");
+    return true;
+}
+
+void SandboxApp::updateCharacterAnims()
+{
+    const Entity body = possessedBody();
+    if (AnimGraphComponent* ag = body.valid() ? world().get<AnimGraphComponent>(body) : nullptr)
+    {
+        if (ag->graphDef)
+        {
+            float speed = 0.0f;
+            if (PlayerMotor* motor = localMotor())
+            {
+                const Vector3f v = motor->velocity();
+                speed = Vector3f(v.x, 0.0f, v.z).Magnitude();
+            }
+            ag->graph.setFloat("speed", speed);
+            if (Health* hp = localHealth(); hp && !hp->alive())
+                ag->graph.setFloat("speed", 0.0f);
+        }
+    }
+
+    world().each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
+        AnimGraphComponent* ag = world().get<AnimGraphComponent>(e);
+        if (!ag || !ag->graphDef)
+            return;
+        const HealthComponent* hp = world().get<HealthComponent>(e);
+        const bool alive = hp && hp->health.alive();
+        ag->graph.setBool("dead", !alive);
+
+        TransformComponent* xf = world().get<TransformComponent>(e);
+        float speed = 0.0f;
+        if (alive && xf)
+        {
+            Vector3f fwd = ai.forward;
+            fwd.y        = 0.0f;
+            if (fwd.MagnitudeSqrd() > 1.0e-6f)
+            {
+                fwd.Normalize();
+                xf->rotation = Quaternion::FromLookRotation(fwd, Vector3f::Y_AXIS);
+            }
+        }
+
+        const Entity player = possessedBody();
+        const TransformComponent* pxf = player.valid() ? world().get<TransformComponent>(player) : nullptr;
+        bool standoff = false;
+        if (alive && xf && pxf)
+        {
+            const float dx = xf->position.x - pxf->position.x;
+            const float dz = xf->position.z - pxf->position.z;
+            standoff = (dx * dx + dz * dz) <= (2.25f * 2.25f);
+        }
+
+        const BrainComponent* brain = world().get<BrainComponent>(e);
+        const AI::Leaf leaf = (brain && brain->brain) ? brain->brain->leaf() : AI::Leaf::Wander;
+        if (alive && xf)
+        {
+            if (standoff)
+                speed = 0.0f;
+            else if (leaf == AI::Leaf::Assist || leaf == AI::Leaf::Flee)
+                speed = 18.0f;
+            else if (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Memory)
+                speed = 10.0f;
+            else if (leaf == AI::Leaf::Wander)
+                speed = 10.0f;
+        }
+        ag->graph.setFloat("speed", speed);
+
+        if (alive && standoff && leaf == AI::Leaf::Chase)
+        {
+            const char* clip = ag->graph.player().clipName();
+            if (!clip || (std::strcmp(clip, "SwingSword") != 0 && std::strcmp(clip, "Die") != 0))
+                ag->graph.setTrigger("swing");
+        }
+    });
 }
 
 Health* SandboxApp::localHealth()
@@ -815,6 +950,9 @@ void SandboxApp::updatePossessed(float dt)
         xf->position.y = m_terrain.heightAtWorld(xf->position.x, xf->position.z) + motor->settings().groundOffset;
 
     m_playerWet = motor && motor->state() == PlayerMoveState::Swimming;
+
+    if (canSteer && flat.MagnitudeSqrd() > 1.0e-6f)
+        xf->rotation = Quaternion::FromLookRotation(flat, Vector3f::Y_AXIS);
 
     if (motorOut.jumped)
         audio().play2D(m_sfxGrunt, 0.7f);
@@ -1121,6 +1259,13 @@ void SandboxApp::updateCombat(float dt)
     WeaponLoadout* wFire = localWeapons();
     if (!wFire || !wFire->fire(req, query))
         return;
+    if (AnimGraphComponent* ag = body.valid() ? world().get<AnimGraphComponent>(body) : nullptr)
+    {
+        if (wFire->activeKind() == WeaponKind::Melee)
+            ag->graph.setTrigger("swing");
+        else
+            ag->graph.setTrigger("shoot");
+    }
     pulseMuzzle();
     if (wFire->activeKind() == WeaponKind::Melee)
         audio().play2D(m_sfxClick, 0.4f);
@@ -2205,6 +2350,22 @@ void SandboxApp::onInit()
 
     if (m_chase.walker().valid())
         attachLocalPlayer(m_chase.walker());
+    if (m_chaseOk)
+    {
+        for (int i = 0; i < m_chase.hunterCount(); ++i)
+        {
+            const Entity hunter = m_chase.hunterEntity(i);
+            if (!attachAnimatedCharacter(hunter, "models/skeleton.gltf"))
+                continue;
+            if (HittableComponent* hit = hunter.valid() ? world().get<HittableComponent>(hunter) : nullptr)
+                hit->halfExtents = Vector3f{ 0.4f, 0.7f, 0.4f };
+            if (TransformComponent* hxf = hunter.valid() ? world().get<TransformComponent>(hunter) : nullptr)
+            {
+                hxf->scale = Vector3f{ 1.0f, 1.0f, 1.0f };
+                hxf->position.y = m_terrain.heightAtWorld(hxf->position.x, hxf->position.z) + 0.5f;
+            }
+        }
+    }
     placeHealthPacks();
     spawnHybridLocalLights();
 }
@@ -2234,6 +2395,7 @@ void SandboxApp::onUpdate(float dt)
         if (Health* hpAlive = localHealth(); hpAlive && hpAlive->alive())
             m_spawnAge += dt;
         updateWiggleAnim();
+        updateCharacterAnims();
         tickAnimGraphs(world(), assets(), dt);
         m_stepGameplay = false;
     }
@@ -2297,6 +2459,8 @@ void SandboxApp::onRender()
             // Opaque casters only — same set as G-buffer / forward color. Water, particles, blood, lines stay out.
             m_terrain.drawDepth(cmd, &casterFrustum);
             world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
+                if (world().has<ModelComponent>(e))
+                    return;
                 if (!mc.castShadow)
                     return;
                 if (const HealthComponent* hp = world().get<HealthComponent>(e); hp && !hp->health.alive())
@@ -2396,6 +2560,8 @@ void SandboxApp::onRender()
             gcb.color[3] = 0.0f;
         }
         world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
+            if (world().has<ModelComponent>(e))
+                return;
             if (const HealthComponent* hp = world().get<HealthComponent>(e); hp && !hp->health.alive())
                 return;
             const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, m_cubeMesh, m_crossMesh);
@@ -2513,6 +2679,8 @@ void SandboxApp::onRender()
         cb.lighting      = renderer().debugState().lighting ? 1.0f : 0.0f;
 
         world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
+            if (world().has<ModelComponent>(e))
+                return;
             if (const HealthComponent* hp = world().get<HealthComponent>(e); hp && !hp->health.alive())
                 return;
             const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, m_cubeMesh, m_crossMesh);

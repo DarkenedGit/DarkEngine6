@@ -89,6 +89,8 @@ private:
     void ensureLocalCube();
     void attachReplicaCombat(Dark::Entity e);
     void attachLocalPlayer(Dark::Entity e);
+    bool attachAnimatedCharacter(Dark::Entity e, const char* gltfPath);
+    void updateCharacterAnims();
     Dark::Health*         localHealth();
     Dark::HitReaction*    localHit();
     Dark::PlayerMotor*    localMotor();

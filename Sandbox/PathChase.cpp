@@ -205,8 +205,8 @@ bool PathChase::spawnAgents(World& world, AssetPinTable& pins, AssetManager& ass
             if (hit)
                 continue;
             TransformComponent xf{};
-            xf.position = Vector3f{ x, terrain.heightAtWorld(x, z) + 1.0f, z };
-            xf.scale    = Vector3f{ 2.0f, 2.0f, 2.0f };
+            xf.position = Vector3f{ x, terrain.heightAtWorld(x, z) + 0.5f, z };
+            xf.scale    = Vector3f{ 1.0f, 1.0f, 1.0f };
             Entity e    = m_ai.spawnHunter(world, pins, assets, m_aiMat, xf);
             if (!e.valid())
                 return false;
