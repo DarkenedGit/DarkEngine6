@@ -20,6 +20,7 @@ namespace Dark
         Model,
         AnimationSet,
         AnimGraph,
+        HsmGraph,
     };
 
     // Forward-declare base Asset

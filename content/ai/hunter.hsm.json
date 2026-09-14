@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "name": "hunter",
+  "root": "Root",
+  "events": [
+    { "name": "See", "id": 10 },
+    { "name": "Lose", "id": 11 },
+    { "name": "Wet", "id": 12 },
+    { "name": "MemoryDone", "id": 13 },
+    { "name": "Assist", "id": 14 },
+    { "name": "Flee", "id": 15 },
+    { "name": "AssistDone", "id": 16 },
+    { "name": "FleeDone", "id": 17 }
+  ],
+  "parameters": [
+    { "name": "memorySec", "default": 1.5 }
+  ],
+  "states": [
+    { "name": "Root", "initial": "Wander" },
+    { "name": "Wander", "parent": "Root" },
+    { "name": "Chase", "parent": "Root" },
+    { "name": "Memory", "parent": "Root" },
+    { "name": "Assist", "parent": "Root" },
+    { "name": "Flee", "parent": "Root" }
+  ],
+  "transitions": [
+    { "from": "Wander", "to": "Chase", "event": "See" },
+    { "from": "Wander", "to": "Assist", "event": "Assist" },
+    { "from": "Wander", "to": "Flee", "event": "Flee" },
+    { "from": "Chase", "to": "Memory", "event": "Lose", "action": "armMemory" },
+    { "from": "Chase", "to": "Wander", "event": "Wet" },
+    { "from": "Chase", "to": "Flee", "event": "Flee" },
+    { "from": "Memory", "to": "Chase", "event": "See" },
+    { "from": "Memory", "to": "Wander", "event": "Wet" },
+    { "from": "Memory", "to": "Wander", "event": "MemoryDone" },
+    { "from": "Memory", "to": "Assist", "event": "Assist" },
+    { "from": "Memory", "to": "Flee", "event": "Flee" },
+    { "from": "Assist", "to": "Chase", "event": "See" },
+    { "from": "Assist", "to": "Wander", "event": "Wet" },
+    { "from": "Assist", "to": "Wander", "event": "AssistDone" },
+    { "from": "Assist", "to": "Flee", "event": "Flee" },
+    { "from": "Flee", "to": "Wander", "event": "Wet" },
+    { "from": "Flee", "to": "Wander", "event": "FleeDone" }
+  ]
+}

@@ -94,6 +94,7 @@ void EditorApp::drawEditorUi()
                 applySceneMode(mode2d ? SceneMode::Scene3D : SceneMode::Scene2D);
             ImGui::MenuItem(ICON_FA_BOLT "  Particle Panel", "F2", &m_showParticlePanel);
             ImGui::MenuItem(ICON_FA_PLAY "  Animation Panel", "F4", &m_showAnimPanel);
+            ImGui::MenuItem(ICON_FA_LIST "  HSM Panel", "F8", &m_showHsmPanel);
             ImGui::MenuItem(ICON_FA_CUBE "  Model Parts", nullptr, &m_showModelParts);
             ImGui::MenuItem(ICON_FA_CUBE "  Material", nullptr, &m_showMaterialEditor);
             ImGui::MenuItem(ICON_FA_EYE "  Grid", nullptr, &m_showGrid);
@@ -229,6 +230,9 @@ void EditorApp::drawEditorUi()
             ImGui::End();
         }
     }
+
+    if (m_showHsmPanel)
+        m_hsmPanel.draw(assets(), &m_showHsmPanel);
 
     if (ImGui::Begin("Scene"))
     {

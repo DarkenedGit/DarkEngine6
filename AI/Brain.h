@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AI/Hsm.h"
+#include "AI/HsmGraph.h"
 
 namespace Dark::AI
 {
@@ -28,6 +28,7 @@ namespace Dark::AI
         static constexpr float kMemorySec = 1.5f;
 
         Brain();
+        bool load(const HsmGraphDef& def);
         bool start();
         void tick(float dt, bool seesOnLand, bool playerInWater);
         void onAssist();
@@ -36,15 +37,14 @@ namespace Dark::AI
         void onFleeDone();
         Leaf leaf() const;
         float      memoryLeft() const { return m_memoryLeft; }
+        const HsmGraphInstance& graph() const { return m_graph; }
 
     private:
-        HsmState   m_root{ "Root" };
-        HsmState   m_wander{ "Wander" };
-        HsmState   m_chase{ "Chase" };
-        HsmState   m_memory{ "Memory" };
-        HsmState   m_assist{ "Assist" };
-        HsmState   m_flee{ "Flee" };
-        HsmMachine m_machine;
-        float      m_memoryLeft = 0.0f;
+        bool fire(std::string_view eventName);
+        HsmNamedActionMap hunterActions();
+
+        HsmGraphDef      m_def;
+        HsmGraphInstance m_graph;
+        float            m_memoryLeft = 0.0f;
     };
 } // namespace Dark::AI

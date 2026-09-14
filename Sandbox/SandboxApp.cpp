@@ -33,6 +33,8 @@
 #include "Animation/AnimGraphComponent.h"
 #include "AI/AiComponents.h"
 #include "AI/Brain.h"
+#include "AI/HsmGraph.h"
+#include "AI/HsmGraphComponent.h"
 #include "Audio/SoundComponents.h"
 #include "Animation/AnimNotify.h"
 #include "Character/HealthComponent.h"
@@ -667,6 +669,20 @@ void SandboxApp::attachLocalPlayer(Entity e)
     attachReplicaCombat(e);
     if (!world().has<PlayerMotorComponent>(e))
         world().emplace<PlayerMotorComponent>(e);
+    if (!world().has<HsmGraphComponent>(e))
+    {
+        HsmGraphComponent hsm{};
+        hsm.def      = assets().tryLoadHsmGraph("ai/player.hsm.json");
+        hsm.instance = std::make_unique<HsmGraphInstance>();
+        const bool built = hsm.def ? hsm.instance->build(*hsm.def) : hsm.instance->build(makePlayerHsmGraph());
+        if (!built)
+            DE_LOG_WARN(LogCategory::AI, "SandboxApp: player HSM build failed");
+        else
+        {
+            hsm.instance->start();
+            world().emplace<HsmGraphComponent>(e, std::move(hsm));
+        }
+    }
     if (!world().has<HudTagComponent>(e))
     {
         HudTagComponent hud{};
@@ -950,6 +966,15 @@ void SandboxApp::updatePossessed(float dt)
         xf->position.y = m_terrain.heightAtWorld(xf->position.x, xf->position.z) + motor->settings().groundOffset;
 
     m_playerWet = motor && motor->state() == PlayerMoveState::Swimming;
+
+    if (HsmGraphComponent* hsm = world().get<HsmGraphComponent>(body))
+    {
+        if (hsm->instance)
+        {
+            const uint8_t motorState = motor ? static_cast<uint8_t>(motor->state()) : 0;
+            syncPlayerHsm(*hsm->instance, motorState, hp && hp->alive());
+        }
+    }
 
     if (canSteer && flat.MagnitudeSqrd() > 1.0e-6f)
         xf->rotation = Quaternion::FromLookRotation(flat, Vector3f::Y_AXIS);

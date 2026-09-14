@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "name": "player",
+  "root": "Root",
+  "events": [
+    { "name": "Jump", "id": 20 },
+    { "name": "Land", "id": 21 },
+    { "name": "Fall", "id": 22 },
+    { "name": "EnterWater", "id": 23 },
+    { "name": "LeaveWater", "id": 24 },
+    { "name": "Die", "id": 25 },
+    { "name": "Respawn", "id": 26 }
+  ],
+  "states": [
+    { "name": "Root", "initial": "Alive" },
+    { "name": "Alive", "parent": "Root", "initial": "Grounded", "history": "shallow" },
+    { "name": "Grounded", "parent": "Alive" },
+    { "name": "Jumping", "parent": "Alive" },
+    { "name": "Falling", "parent": "Alive" },
+    { "name": "Swimming", "parent": "Alive" },
+    { "name": "Dead", "parent": "Root" }
+  ],
+  "transitions": [
+    { "from": "Grounded", "to": "Jumping", "event": "Jump" },
+    { "from": "Jumping", "to": "Falling", "event": "Fall" },
+    { "from": "Jumping", "to": "Grounded", "event": "Land" },
+    { "from": "Falling", "to": "Grounded", "event": "Land" },
+    { "from": "Alive", "to": "Swimming", "event": "EnterWater" },
+    { "from": "Swimming", "to": "Grounded", "event": "LeaveWater" },
+    { "from": "Alive", "to": "Dead", "event": "Die" },
+    { "from": "Dead", "to": "Alive", "event": "Respawn" }
+  ]
+}

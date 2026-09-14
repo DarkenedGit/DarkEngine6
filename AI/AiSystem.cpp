@@ -1,5 +1,6 @@
 #include "AI/AiSystem.h"
 
+#include "AI/HsmGraph.h"
 #include "AI/Sight.h"
 #include "Assets/AssetManager.h"
 #include "Assets/Material.h"
@@ -75,6 +76,11 @@ namespace Dark
 
         BrainComponent brain{};
         brain.brain = std::make_unique<AI::Brain>();
+        if (AssetRef<HsmGraphDef> graph = assets.tryLoadHsmGraph("ai/hunter.hsm.json"))
+        {
+            if (!brain.brain->load(*graph))
+                DE_LOG_WARN(LogCategory::AI, "AiSystem: hunter.hsm.json failed, using built-in graph");
+        }
         if (!brain.brain || !brain.brain->start())
         {
             DE_LOG_ERROR(LogCategory::AI, "AiSystem: hunter brain start failed");

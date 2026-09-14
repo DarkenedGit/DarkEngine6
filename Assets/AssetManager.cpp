@@ -2,6 +2,8 @@
 #include "Audio/SoundClip.h"
 #include "Animation/AnimGraph.h"
 #include "Animation/AnimGraphJson.h"
+#include "AI/HsmGraph.h"
+#include "AI/HsmGraphJson.h"
 #include "Animation/AnimationSet.h"
 #include "Assets/GltfLoader.h"
 #include "Assets/Image.h"
@@ -675,6 +677,94 @@ namespace Dark
         if (resolve(jsonPath).empty())
             return {};
         return loadAnimGraph(jsonPath);
+    }
+
+    AssetRef<HsmGraphDef> AssetManager::tryLoadHsmGraph(const std::string& virtualPath)
+    {
+        if (resolve(virtualPath).empty())
+            return {};
+        return loadHsmGraph(virtualPath);
+    }
+
+    AssetRef<HsmGraphDef> AssetManager::loadHsmGraph(const std::string& virtualPath)
+    {
+        const std::filesystem::path path = resolve(virtualPath);
+        if (path.empty())
+        {
+            DE_LOG_ERROR("AssetManager: HSM graph not found '{}'", virtualPath);
+            return {};
+        }
+        AssetRef<HsmGraphDef> graph = loadHsmGraphFile(path);
+        if (graph && graph->sourcePath.empty())
+            graph->sourcePath = virtualPath;
+        return graph;
+    }
+
+    AssetRef<HsmGraphDef> AssetManager::loadHsmGraphFile(const std::filesystem::path& absPath)
+    {
+        std::error_code ec;
+        if (absPath.empty() || !std::filesystem::is_regular_file(absPath, ec) || ec)
+        {
+            DE_LOG_ERROR("AssetManager: HSM graph file not found '{}'", absPath.string());
+            return {};
+        }
+        const std::filesystem::path canonical = std::filesystem::weakly_canonical(absPath, ec);
+        const std::filesystem::path path      = ec ? absPath : canonical;
+        const std::string           key       = ImageCache::normalizePath(path);
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            const auto it = m_pathToID.find(key);
+            if (it != m_pathToID.end())
+            {
+                const auto asset = m_assets.find(it->second);
+                if (asset != m_assets.end())
+                {
+                    if (auto existing = std::dynamic_pointer_cast<HsmGraphDef>(asset->second))
+                        return existing;
+                }
+                else
+                {
+                    m_pathToID.erase(it);
+                }
+            }
+        }
+
+        std::ifstream in(path, std::ios::binary);
+        if (!in)
+        {
+            DE_LOG_ERROR("AssetManager: cannot open HSM graph '{}'", path.string());
+            return {};
+        }
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        const std::string text = ss.str();
+
+        auto graph = std::make_shared<HsmGraphDef>();
+        if (!parseHsmGraphJson(text.c_str(), *graph))
+            return {};
+        graph->sourcePath = path.generic_string();
+
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const auto it = m_pathToID.find(key);
+        if (it != m_pathToID.end())
+        {
+            const auto asset = m_assets.find(it->second);
+            if (asset != m_assets.end())
+            {
+                if (auto existing = std::dynamic_pointer_cast<HsmGraphDef>(asset->second))
+                    return existing;
+            }
+            else
+            {
+                m_pathToID.erase(it);
+            }
+        }
+        const AssetID id = allocID();
+        graph->id        = id;
+        m_assets[id]     = graph;
+        m_pathToID[key]  = id;
+        DE_LOG_INFO("AssetManager: cached HsmGraph '{}' id={}", path.string(), id);
+        return graph;
     }
 
 } // namespace Dark

@@ -82,6 +82,11 @@ namespace Dark
         // stem + ".anim.json" if that file exists; empty ref if missing (not an error).
         AssetRef<class AnimGraphDef> tryLoadAnimGraphForModel(const std::string& gltfVirtualPath);
 
+        AssetRef<class HsmGraphDef> loadHsmGraph(const std::string& virtualPath);
+        AssetRef<class HsmGraphDef> loadHsmGraphFile(const std::filesystem::path& absPath);
+        // Empty ref if the file is missing (not an error).
+        AssetRef<class HsmGraphDef> tryLoadHsmGraph(const std::string& virtualPath);
+
         AssetRef<class Audio::SoundClip> loadAudio(const std::string& virtualPath);
         AssetRef<class Audio::SoundClip> internSoundClip(AssetRef<class Audio::SoundClip> clip, const std::string& cacheKey = {});
 
