@@ -15,10 +15,12 @@
 #include "Audio/SoundClip.h"
 #include "Gameplay/Coin.h"
 #include "Gameplay/Platform.h"
+#include "Render/MainMenu.h"
 
 #include <box2d/box2d.h>
 
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <vector>
 
@@ -59,8 +61,12 @@ private:
     };
 
     void registerActions();
+    void populateMainMenu();
     void buildLevel();
-    bool tryLoadLevel();
+    bool tryLoadLevel(const std::filesystem::path& path);
+    void clearLevel();
+    void enterScene(const Dark::MainMenuEntry& entry);
+    void startDefaultScene();
     void resetPlayer();
     void updatePlayer(float dt);
     void updateCamera(float dt);
@@ -141,7 +147,10 @@ private:
     std::vector<RemotePawn> m_remotePawns;
     uint32_t              m_score         = 0;
     bool                  m_showCollision = false;
+    bool                  m_levelReady    = false;
     NetRole         m_netRole       = NetRole::Idle;
+    Dark::MainMenu        m_menu;
+    std::filesystem::path m_loadedScenePath;
 
     Math::Vector2f m_spawn{ 3.0f, 3.5f };
     Math::Vector2f m_worldMin{ 0.0f, 0.0f };

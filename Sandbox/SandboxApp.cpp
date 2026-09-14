@@ -27,6 +27,7 @@
 #include "Render/MaterialSurface.h"
 #include "Render/GpuResourceCache.h"
 #include "Render/GpuUpload.h"
+#include "Render/MainMenu.h"
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
@@ -278,11 +279,39 @@ void SandboxApp::registerDefaultActions()
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(P/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
         "possessed WASD/LS move, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, 1 melee  2 rifle, L flashlight, Shift/LB sprint, swim in water, "
-        "T/R3 walk the wiggle demo  F2 lighting  M dev tools  -forward for UNORM forward");
+        "T/R3 walk the wiggle demo  F2 lighting  M dev tools  -forward for UNORM forward  -no-menu skip scene picker");
+}
+
+void SandboxApp::populateMainMenu()
+{
+    m_menu.clearEntries();
+    m_menu.setTitle(config().hostName ? config().hostName : "Sandbox");
+    m_menu.setAccent(UiAccent::Sandbox);
+    m_menu.addBuiltIn("sandbox", "Play", "Default sandbox");
+    m_menu.addQuit();
 }
 
 void SandboxApp::handleRuntimeCommands(float dt)
 {
+    if (m_menu.visible())
+    {
+        window().setCursorCaptured(false);
+        m_menu.update(input(), renderer().width(), renderer().height());
+        switch (m_menu.pollResult())
+        {
+        case MainMenuResult::Confirm:
+            m_menu.hide();
+            break;
+        case MainMenuResult::Quit:
+            DE_LOG_INFO("Command: quit");
+            requestQuit();
+            return;
+        default:
+            break;
+        }
+        return;
+    }
+
     handleNetHotkeys();
     applyNetRole();
 
@@ -314,6 +343,12 @@ void SandboxApp::handleRuntimeCommands(float dt)
 
     if (input().actionPressed("quit"))
     {
+        if (config().showMainMenu && m_menu.isReady() && network().role() == NetRole::Idle)
+        {
+            m_menu.show();
+            window().setCursorCaptured(false);
+            return;
+        }
         DE_LOG_INFO("Command: quit");
         requestQuit();
         return;
@@ -361,7 +396,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
         DE_LOG_INFO("Command: spin speed = {:.2f}", m_spinSpeed);
     }
 
-    window().setCursorCaptured(window().isFocused() && !m_showDevTools);
+    window().setCursorCaptured(window().isFocused() && !m_showDevTools && !m_menu.visible());
     if (m_gameplayPaused)
         updateFlyCamera(dt);
     else
@@ -1908,6 +1943,12 @@ void SandboxApp::onInit()
         return;
     if (!pumpBootFrame())
         return;
+    populateMainMenu();
+    if (!m_menu.create(renderer(), UiAccent::Sandbox))
+        DE_LOG_ERROR(LogCategory::Render, "SandboxApp: main menu GPU init failed");
+    else if (shouldShowMainMenu(config()))
+        m_menu.show();
+
     if (!m_imgui.init(window(), renderer(), "sandbox_imgui.ini", false, UiAccent::Sandbox))
         DE_LOG_WARN("SandboxApp: ImGui init failed — Dev Tools (M) disabled");
     if (!pumpBootFrame())
@@ -2177,7 +2218,10 @@ void SandboxApp::onSplashFinished()
 
 void SandboxApp::onUpdate(float dt)
 {
+    const bool menuFrame = m_menu.visible();
     handleRuntimeCommands(dt);
+    if (menuFrame || m_menu.visible())
+        return;
     if (!m_gameplayPaused || m_stepGameplay)
     {
         m_env.tick(dt);
@@ -2627,9 +2671,9 @@ void SandboxApp::onRender()
     Health* hudHp = localHealth();
     const Entity hudBody = possessedBody();
     const HudTagComponent* hudTag = hudBody.valid() ? world().get<HudTagComponent>(hudBody) : nullptr;
-    if (hudHp && hudTag && hudTag->kind == HudKind::HealthBar)
+    if (!m_menu.visible() && hudHp && hudTag && hudTag->kind == HudKind::HealthBar)
         m_healthHud.draw(cmd, renderer().width(), renderer().height(), hudHp->ratio());
-    if (hudHp && hudHp->alive() && !m_gameplayPaused)
+    if (!m_menu.visible() && hudHp && hudHp->alive() && !m_gameplayPaused)
         m_crosshair.draw(cmd, renderer().width(), renderer().height(), localWeapons() ? localWeapons()->activeKind() : WeaponKind::Melee);
 
     renderer().stats().drawCalls = m_terrain.lastDrawCalls() + m_water.lastDrawCalls() + meshDraws + 1;
@@ -2637,12 +2681,18 @@ void SandboxApp::onRender()
         m_terrain.lastTriangles() + m_water.lastTriangles() + meshDraws * (m_cubeMesh.indexCount() / 3);
 
     drawDebugOverlays(cmd);
-    if (m_imgui.isReady())
+    m_menu.draw(renderer());
+    if (m_imgui.isReady() && !m_menu.visible())
     {
         if (m_gameplayPaused)
             drawPauseOverlay();
         if (m_showDevTools)
             drawDevTools();
+        m_imgui.render(renderer());
+    }
+    else if (m_imgui.isReady() && m_menu.visible())
+    {
+        // ImGui frame was begun; submit an empty frame so the backend stays paired.
         m_imgui.render(renderer());
     }
     renderer().endFrame();
@@ -2745,6 +2795,7 @@ void SandboxApp::onShutdown()
 {
     network().shutdown();
     renderer().waitForGpu();
+    m_menu.shutdown(renderer());
     m_scene.shutdown();
     m_imgui.shutdown(renderer());
     if (m_cubeMaterial)

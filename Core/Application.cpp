@@ -234,6 +234,10 @@ namespace Dark
                 cfg.cliNoSplash = true;
             else if (tokenEq(tok, "-splash"))
                 cfg.cliSplash = true;
+            else if (tokenEq(tok, "-no-menu"))
+                cfg.cliNoMenu = true;
+            else if (tokenEq(tok, "-menu"))
+                cfg.cliMenu = true;
             else if (tokenEq(tok, "-forward"))
                 cfg.cliForward = true;
         }
@@ -265,6 +269,27 @@ namespace Dark
         if (!jsonEnabled)
             return false;
         return true;
+    }
+
+    bool shouldShowMainMenu(const AppConfig& cfg)
+    {
+        char*  env = nullptr;
+        size_t len = 0;
+        if (_dupenv_s(&env, &len, "DE_NO_MENU") == 0 && env && env[0] != '\0')
+        {
+            free(env);
+            return false;
+        }
+        free(env);
+
+        if (cfg.cliNoMenu)
+            return false;
+        if (cfg.cliMenu)
+            return true;
+        // CLI host/join should land in the session, not the picker.
+        if (cfg.netHost || cfg.netJoin.ipv4 != 0 || cfg.netJoin.port != 0)
+            return false;
+        return cfg.showMainMenu;
     }
 
     Application::Application(const AppConfig& cfg)

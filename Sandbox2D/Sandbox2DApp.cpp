@@ -12,6 +12,7 @@
 #include "Math/Vector3f.h"
 #include "Network/NetTypes.h"
 #include "Render/MeshGen.h"
+#include "Scene/SceneCatalog.h"
 #include "Scene/SceneFile.h"
 #include "Sprite/SpriteSheet.h"
 
@@ -238,9 +239,8 @@ void Sandbox2DApp::buildLevel()
     addCoin(91.0f, 8.3f);
 }
 
-bool Sandbox2DApp::tryLoadLevel()
+bool Sandbox2DApp::tryLoadLevel(const std::filesystem::path& path)
 {
-    const std::filesystem::path path = defaultScenePath("level2d.json");
     std::error_code ec;
     if (path.empty() || !std::filesystem::exists(path, ec) || ec)
         return false;
@@ -288,6 +288,126 @@ bool Sandbox2DApp::tryLoadLevel()
         coinCount(),
         path.string());
     return true;
+}
+
+void Sandbox2DApp::clearLevel()
+{
+    for (Platform& p : m_platforms)
+    {
+        if (p.entity.valid() && world().alive(p.entity))
+        {
+            if (world().has<NetworkedComponent>(p.entity))
+                network().unregisterEntity(world(), p.entity);
+            else
+            {
+                onEntityRemoved(world(), p.entity, &pins());
+                world().destroyEntity(p.entity);
+            }
+        }
+        p.entity = {};
+        p.body   = b2_nullBodyId;
+    }
+    m_platforms.clear();
+    clearCoins();
+    destroyPhysics();
+    m_levelReady = false;
+}
+
+void Sandbox2DApp::enterScene(const MainMenuEntry& entry)
+{
+    if (entry.kind == MainMenuKind::Quit)
+        return;
+
+    if (m_levelReady)
+    {
+        if (entry.kind == MainMenuKind::BuiltIn && m_loadedScenePath.empty())
+        {
+            m_menu.hide();
+            return;
+        }
+        if (entry.kind == MainMenuKind::Scene && !entry.path.empty() && entry.path == m_loadedScenePath)
+        {
+            m_menu.hide();
+            return;
+        }
+    }
+
+    clearLevel();
+    bool loaded = false;
+    if (entry.kind == MainMenuKind::Scene && !entry.path.empty())
+        loaded = tryLoadLevel(entry.path);
+    if (!loaded)
+        buildLevel();
+
+    m_loadedScenePath = loaded ? entry.path : std::filesystem::path{};
+    if (!createPhysicsWorld())
+    {
+        DE_LOG_ERROR("Sandbox2D: physics init failed");
+        requestQuit();
+        return;
+    }
+    resetPlayer();
+    m_camera.SetPosition(m_player.pos.x, m_player.pos.y + 1.0f);
+    m_score = 0;
+    registerLevelEntities();
+    createLocalPlayerEntity();
+    m_levelReady = true;
+    m_menu.hide();
+    DE_LOG_INFO("Sandbox2D: entered '{}'", entry.title);
+}
+
+void Sandbox2DApp::startDefaultScene()
+{
+    if (const MainMenuEntry* e = m_menu.selected(); e && e->kind != MainMenuKind::Quit)
+    {
+        enterScene(*e);
+        return;
+    }
+
+    const auto scenes = listSceneFiles(SceneMode::Scene2D);
+    if (const SceneFileInfo* def = findSceneByFileName(scenes, "level2d.json"))
+    {
+        MainMenuEntry e{};
+        e.kind  = MainMenuKind::Scene;
+        e.id    = def->fileName;
+        e.title = def->displayName;
+        e.path  = def->path;
+        enterScene(e);
+        return;
+    }
+    if (!scenes.empty())
+    {
+        MainMenuEntry e{};
+        e.kind  = MainMenuKind::Scene;
+        e.id    = scenes[0].fileName;
+        e.title = scenes[0].displayName;
+        e.path  = scenes[0].path;
+        enterScene(e);
+        return;
+    }
+
+    MainMenuEntry builtin{};
+    builtin.kind  = MainMenuKind::BuiltIn;
+    builtin.id    = "builtin";
+    builtin.title = "Play";
+    enterScene(builtin);
+}
+
+void Sandbox2DApp::populateMainMenu()
+{
+    m_menu.clearEntries();
+    m_menu.setTitle(config().hostName ? config().hostName : "Sandbox2D");
+    m_menu.setAccent(UiAccent::Sandbox2D);
+    const auto scenes = listSceneFiles(SceneMode::Scene2D);
+    if (scenes.empty())
+        m_menu.addBuiltIn("builtin", "Play", "Procedural level");
+    else
+    {
+        for (const SceneFileInfo& s : scenes)
+            m_menu.addScene(s.fileName, s.displayName, s.path, s.fileName);
+    }
+    m_menu.addQuit();
+    m_menu.selectById("level2d.json");
 }
 
 void Sandbox2DApp::destroyPhysics()
@@ -614,17 +734,21 @@ void Sandbox2DApp::restoreLocalLevel()
 {
     m_remotePawns.clear();
     m_playerEntity = {};
-    m_platforms.clear();
-    clearCoins();
-    destroyPhysics();
-    if (!tryLoadLevel())
-        buildLevel();
-    if (!createPhysicsWorld())
-        DE_LOG_ERROR(LogCategory::Networking, "Sandbox2D: physics restore failed");
-    resetPlayer();
-    registerLevelEntities();
-    createLocalPlayerEntity();
-    m_score = 0;
+    MainMenuEntry e{};
+    if (!m_loadedScenePath.empty())
+    {
+        e.kind  = MainMenuKind::Scene;
+        e.id    = m_loadedScenePath.filename().string();
+        e.title = e.id;
+        e.path  = m_loadedScenePath;
+    }
+    else
+    {
+        e.kind  = MainMenuKind::BuiltIn;
+        e.id    = "builtin";
+        e.title = "Play";
+    }
+    enterScene(e);
 }
 
 Entity Sandbox2DApp::findPawn(ClientId owner)
@@ -1000,17 +1124,10 @@ void Sandbox2DApp::onInit()
     m_camera.SetClipPlanes(0.0f, 80.0f);
     m_camera.SetZoom(1.0f);
 
-    if (!tryLoadLevel())
-        buildLevel();
-    if (!createPhysicsWorld())
-    {
-        DE_LOG_FATAL("Sandbox2D: physics init failed");
-        requestQuit();
-        return;
-    }
-    resetPlayer();
-    m_camera.SetPosition(m_player.pos.x, m_player.pos.y + 1.0f);
-    m_score = 0;
+    populateMainMenu();
+    const bool menuGpu = m_menu.create(renderer(), UiAccent::Sandbox2D);
+    if (!menuGpu)
+        DE_LOG_ERROR(LogCategory::Render, "Sandbox2D: main menu GPU init failed");
 
     network().setWantsPawn(true);
     network().setSceneMode(1);
@@ -1018,19 +1135,24 @@ void Sandbox2DApp::onInit()
     network().setSpawnCallback(&Sandbox2DApp::onNetSpawn, this);
     network().setDespawnCallback(&Sandbox2DApp::onNetDespawn, this);
     network().setPeerCallback(&Sandbox2DApp::onNetPeer, this);
-    registerLevelEntities();
-    createLocalPlayerEntity();
-
     m_sfxJump  = audio().loadOrBlip(assets(), "audio/jump.wav", 420.0f, 0.14f, 0.5f);
     m_sfxCoin  = audio().loadOrBlip(assets(), "audio/coin.wav", 880.0f, 0.16f, 0.45f);
     m_sfxReset = audio().loadOrBlip(assets(), "audio/whoosh.wav", 180.0f, 0.22f, 0.35f);
     audio().setMasterVolume(0.85f);
 
-    DE_LOG_INFO(
-        "Sandbox2D: {} platforms, {} coins, camera ortho height {:.1f}",
-        m_platforms.size(),
-        coinCount(),
-        m_camera.GetOrthoHeight());
+    if (menuGpu && shouldShowMainMenu(config()))
+        m_menu.show();
+    else
+        startDefaultScene();
+
+    if (m_menu.visible())
+        DE_LOG_INFO("Sandbox2D: main menu ({} entries)  -no-menu skips to default scene", m_menu.entries().size());
+    else
+        DE_LOG_INFO(
+            "Sandbox2D: {} platforms, {} coins, camera ortho height {:.1f}",
+            m_platforms.size(),
+            coinCount(),
+            m_camera.GetOrthoHeight());
     DE_LOG_INFO(LogCategory::Networking, "Sandbox2D net: Sandbox2D.exe -host   and   Sandbox2D.exe -join 127.0.0.1");
 }
 
@@ -1123,11 +1245,34 @@ void Sandbox2DApp::updateCamera(float dt)
 
 void Sandbox2DApp::onUpdate(float dt)
 {
+    if (m_menu.visible())
+    {
+        m_menu.update(input(), renderer().width(), renderer().height());
+        switch (m_menu.pollResult())
+        {
+        case MainMenuResult::Confirm:
+            if (const MainMenuEntry* e = m_menu.selected())
+                enterScene(*e);
+            break;
+        case MainMenuResult::Quit:
+            requestQuit();
+            return;
+        default:
+            break;
+        }
+        return;
+    }
+
     handleNetHotkeys();
     applyNetRole();
 
     if (input().actionPressed("quit"))
     {
+        if (config().showMainMenu && m_menu.isReady() && network().role() == NetRole::Idle)
+        {
+            m_menu.show();
+            return;
+        }
         requestQuit();
         return;
     }
@@ -1153,6 +1298,9 @@ void Sandbox2DApp::onUpdate(float dt)
     lis.forward  = Vector3f(0.0f, 0.0f, 1.0f);
     lis.up       = Vector3f(0.0f, 1.0f, 0.0f);
     audio().setListener(lis);
+
+    if (!m_levelReady)
+        return;
 
     updatePlayer(dt);
     updatePlayerAnim(dt);
@@ -1239,22 +1387,25 @@ void Sandbox2DApp::onRender()
     drawSprite(cmd, m_texHillMid, Vector2f(cam.x * 0.35f + 48.0f, 2.0f), Vector2f(40.0f, 5.2f), 24.0f,
                1, 1, 1, 1, 5.5f, 0.9f);
 
-    for (const Platform& p : m_platforms)
+    if (m_levelReady)
     {
-        const Vector2f c = p.box.Center();
-        const Vector2f s = p.box.Size();
-        drawSprite(cmd, m_texPlatform, c, s, p.z, 1, 1, 1, 1, s.x, s.y);
+        for (const Platform& p : m_platforms)
+        {
+            const Vector2f c = p.box.Center();
+            const Vector2f s = p.box.Size();
+            drawSprite(cmd, m_texPlatform, c, s, p.z, 1, 1, 1, 1, s.x, s.y);
+        }
+
+        world().each<CoinComponent>([&](Entity, CoinComponent& c) {
+            if (c.collected)
+                return;
+            drawSprite(cmd, m_texCoin, c.pos, Vector2f(0.45f, 0.45f), 1.2f, 1, 1, 1, 1, 1, 1);
+        });
+
+        const bool drawLocal = network().role() != NetRole::Client || network().localPawn().valid();
+        if (drawLocal)
+            drawPawnSprite(cmd, m_player.pos, m_player.facing, 1.0f, 1.0f, 1.0f);
     }
-
-    world().each<CoinComponent>([&](Entity, CoinComponent& c) {
-        if (c.collected)
-            return;
-        drawSprite(cmd, m_texCoin, c.pos, Vector2f(0.45f, 0.45f), 1.2f, 1, 1, 1, 1, 1, 1);
-    });
-
-    const bool drawLocal = network().role() != NetRole::Client || network().localPawn().valid();
-    if (drawLocal)
-        drawPawnSprite(cmd, m_player.pos, m_player.facing, 1.0f, 1.0f, 1.0f);
 
     for (const RemotePawn& rp : m_remotePawns)
     {
@@ -1304,6 +1455,7 @@ void Sandbox2DApp::onRender()
     }
 
     renderer().stats().drawCalls = static_cast<uint32_t>(m_platforms.size() + coinCount() + m_remotePawns.size() + 6);
+    m_menu.draw(renderer());
     renderer().endFrame();
 }
 
@@ -1311,6 +1463,7 @@ void Sandbox2DApp::onShutdown()
 {
     network().shutdown();
     renderer().waitForGpu();
+    m_menu.shutdown(renderer());
     destroyPhysics();
     m_playerAnim.setSheet(nullptr);
     m_playerAnim.clearClips();

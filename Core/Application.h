@@ -29,12 +29,15 @@ namespace Dark
         uint16_t debugListenPort = kDebugDefaultPort;
 
         bool        showSplash    = false;
+        bool        showMainMenu  = false; // host opt-in: scene picker after splash
         const char* hostId        = "app";
         const char* hostName      = nullptr;
         const char* hostVersion   = nullptr;
         const char* loadingConfig = nullptr;
         bool        cliNoSplash   = false; // -no-splash
         bool        cliSplash     = false; // -splash
+        bool        cliNoMenu     = false; // -no-menu (skip picker, load default scene)
+        bool        cliMenu       = false; // -menu (force picker)
         bool        cliForward    = false; // -forward (keep swap-chain forward 3D)
         ScenePath   scenePath     = ScenePath::SwapChainForward; // request; live path is Renderer::scenePath()
     };
@@ -42,6 +45,7 @@ namespace Dark
     bool parseNetCommandLine(const char* lpCmdLine, AppConfig& cfg);
     bool parseAppCommandLine(const char* lpCmdLine, AppConfig& cfg);
     bool shouldShowSplash(const AppConfig& cfg, bool jsonEnabled);
+    bool shouldShowMainMenu(const AppConfig& cfg);
     void applyDeferredScenePath(AppConfig& cfg, ScenePath whenEnabled);
 
     class Application

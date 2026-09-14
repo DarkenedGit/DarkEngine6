@@ -28,6 +28,7 @@
 #include "Ui/HudTagComponent.h"
 #include "Weapons/HittableComponent.h"
 #include "Ui/ImGuiHost.h"
+#include "Render/MainMenu.h"
 
 #include <unordered_map>
 #include <vector>
@@ -45,6 +46,7 @@ public:
 
 private:
     void registerDefaultActions();
+    void populateMainMenu();
     void handleRuntimeCommands(float dt);
     void handleNetHotkeys();
     void applyNetRole();
@@ -156,6 +158,7 @@ private:
     bool          m_showSkeleton   = false;
     bool          m_showDevTools   = false;
     ImGuiHost     m_imgui;
+    Dark::MainMenu m_menu;
     char          m_joinHost[64]   = "127.0.0.1";
     float         m_lookYaw        = 0.0f;
     float         m_lookPitch      = 0.18f;

@@ -19,6 +19,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR lpCmdLine, int)
     cfg.hostName     = "Sandbox2D";
     cfg.hostVersion  = Dark::kEngineVersion;
     cfg.showSplash   = true;
+    cfg.showMainMenu = true;
     Dark::parseNetCommandLine(lpCmdLine, cfg);
     Dark::parseAppCommandLine(lpCmdLine, cfg);
 
