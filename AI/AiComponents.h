@@ -53,8 +53,8 @@ namespace Dark
             float assistSeconds    = 5.0f;
             float fleeSeconds      = 4.0f;
             float alertRange       = 18.0f;
-            float sprintSpeed      = 18.0f;
-            float walkSpeed        = 10.0f;
+            float sprintSpeed      = 17.0f;
+            float walkSpeed        = 9.0f;
         };
     } // namespace AI
 

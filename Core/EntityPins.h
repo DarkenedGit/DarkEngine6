@@ -19,6 +19,7 @@ namespace Dark
 
     void setMeshComponent(World& world, AssetPinTable& pins, AssetManager& assets, Entity e, MeshComponent next);
     void setMeshMaterial(World& world, AssetPinTable& pins, AssetManager& assets, Entity e, AssetID matId);
+    void setModelComponent(World& world, AssetPinTable& pins, AssetManager& assets, Entity e, ModelComponent next);
 
     void pinSoundEmitter(AssetPinTable& pins, AssetManager& assets, const SoundEmitterComponent& se);
     void unpinSoundEmitter(AssetPinTable& pins, const SoundEmitterComponent& se);

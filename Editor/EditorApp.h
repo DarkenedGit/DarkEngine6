@@ -108,6 +108,16 @@ private:
     bool saveScene();
     bool loadScene();
 
+    bool loadGltfModel();
+    bool saveGltfModel();
+    bool saveGltfModelAs();
+    bool spawnLoadedModel(const AssetRef<Model>& model);
+    void frameCameraOnModel(const Model& model, const TransformComponent& xf);
+    void drawModelPartsPanel();
+    void drawMaterialPanel();
+    AssetRef<Model> selectedModel();
+    const Model::Part* selectedModelPart();
+
     ParticleEmitterDesc makeDefaultParticleDesc() const;
 
     const Mesh* meshForType(SceneObjectType type) const;
@@ -168,6 +178,9 @@ private:
     bool  m_showSolid   = true;
     bool  m_showGBuffer  = false;
     bool  m_showVelocity = false;
+    bool  m_showModelParts     = true;
+    bool  m_showMaterialEditor = false;
+    int   m_selectedPart       = 0;
     float m_gridSnap  = 1.0f;
 
     float m_moveSpeed = 8.0f;

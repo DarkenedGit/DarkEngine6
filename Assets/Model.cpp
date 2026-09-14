@@ -8,6 +8,7 @@
 #include "Math/Vector4f.h"
 
 #include <memory>
+#include <string>
 
 namespace Dark
 {
@@ -47,10 +48,19 @@ namespace Dark
             }
 
             Part part;
-            part.mesh         = src.mesh;
-            part.localToRoot  = src.localToRoot;
-            part.translucent  = src.translucent;
-            part.skinned      = src.skinned;
+            part.mesh           = src.mesh;
+            part.localToRoot    = src.localToRoot;
+            part.translucent    = src.translucent;
+            part.skinned        = src.skinned;
+            part.materialIndex  = src.materialIndex;
+            if (!src.meshName.empty() && !src.materialName.empty())
+                part.name = src.meshName + " / " + src.materialName;
+            else if (!src.meshName.empty())
+                part.name = src.meshName;
+            else if (!src.materialName.empty())
+                part.name = src.materialName;
+            else
+                part.name = "Part " + std::to_string(i);
 
             AssetRef<Image> albedo;
             if (!src.albedoFile.empty())
@@ -82,7 +92,10 @@ namespace Dark
             }
             mat->setMetallicRoughness(src.metallic, src.roughness);
             mat->setAlphaMode(src.alphaMode);
-            mat = assets.internMaterial(mat, materialRecipeKey(*mat));
+            const std::string matKey = (src.materialIndex >= 0)
+                ? pathKey + "#mat" + std::to_string(src.materialIndex)
+                : pathKey + "#prim" + std::to_string(i);
+            mat = assets.internMaterial(mat, matKey);
             if (!mat || mat->id == NULL_ASSET)
             {
                 DE_LOG_ERROR("Model: internMaterial failed for primitive {}", i);
@@ -113,8 +126,29 @@ namespace Dark
             const Math::Vector3f e = m_bounds.Extents() * 1.25f;
             m_bounds               = Math::AABox3f::FromCenterExtents(c, e);
         }
+        m_sourcePath = path;
         DE_LOG_INFO("Model: '{}' opaque {} translucent {} joints {}", path.string(), m_opaque.size(), m_translucent.size(), jointCount());
         return true;
+    }
+
+    uint32_t Model::partCount() const
+    {
+        return static_cast<uint32_t>(m_opaque.size() + m_translucent.size());
+    }
+
+    const Model::Part* Model::partAt(uint32_t index) const
+    {
+        if (index < m_opaque.size())
+            return &m_opaque[index];
+        index -= static_cast<uint32_t>(m_opaque.size());
+        if (index < m_translucent.size())
+            return &m_translucent[index];
+        return nullptr;
+    }
+
+    void Model::setSourcePath(std::filesystem::path path)
+    {
+        m_sourcePath = std::move(path);
     }
 
     bool Model::skinned() const

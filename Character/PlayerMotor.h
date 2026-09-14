@@ -22,8 +22,8 @@ namespace Dark
         float airSpeed            = 2.4f;  // extra speed you can add along wish while airborne
         float airAccel            = 12.0f; // units/s^2 of air steering
         float gravity             = 24.0f;
-        float jumpSpeed           = 8.0f;
-        float doubleJumpSpeed     = 12.0f; // higher than jumpSpeed
+        float jumpSpeed           = 12.0f;
+        float doubleJumpSpeed     = 16.0f; // higher than jumpSpeed
         float doubleJumpWindow    = 0.28f; // second keystroke must arrive within this of first jump
         float doubleJumpMinDelay  = 0.05f; // must be a distinct second press
         float coyoteTime          = 0.10f;

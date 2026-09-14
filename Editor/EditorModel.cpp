@@ -1,0 +1,307 @@
+#include "EditorApp.h"
+
+#include "Assets/GltfMaterialSave.h"
+#include "Assets/Material.h"
+#include "Assets/Model.h"
+#include "Core/EntityPins.h"
+#include "Core/Log.h"
+#include "Editor/EditorInternals.h"
+#include "ECS/Components.h"
+#include "Math/AABox3f.h"
+#include "Math/Quaternion.h"
+#include "Math/Vector3f.h"
+#include "Render/GpuUpload.h"
+#include "Ui/Icons.h"
+
+#include <imgui.h>
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <Windows.h>
+#include <commdlg.h>
+
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <string>
+
+using namespace Dark;
+using namespace Math;
+
+namespace
+{
+
+bool pickGltfPath(HWND owner, bool save, const std::filesystem::path& suggested, std::filesystem::path& out)
+{
+    wchar_t file[MAX_PATH];
+    file[0] = 0;
+    if (save && !suggested.empty())
+    {
+        const std::wstring w = suggested.wstring();
+        wcsncpy_s(file, w.c_str(), _TRUNCATE);
+    }
+
+    OPENFILENAMEW ofn{};
+    ofn.lStructSize  = sizeof(ofn);
+    ofn.hwndOwner    = owner;
+    ofn.lpstrFilter  = L"glTF (*.gltf;*.glb)\0*.gltf;*.glb\0All files (*.*)\0*.*\0";
+    ofn.lpstrFile    = file;
+    ofn.nMaxFile     = MAX_PATH;
+    ofn.lpstrDefExt  = L"gltf";
+    ofn.Flags        = OFN_EXPLORER | OFN_NOCHANGEDIR | OFN_HIDEREADONLY
+        | (save ? OFN_OVERWRITEPROMPT : (OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST));
+    ofn.lpstrTitle   = save ? L"Save glTF Model" : L"Load glTF Model";
+
+    const BOOL ok = save ? GetSaveFileNameW(&ofn) : GetOpenFileNameW(&ofn);
+    if (!ok)
+        return false;
+    out = std::filesystem::path(file);
+    return true;
+}
+
+const char* alphaModeLabel(MaterialAlphaMode mode)
+{
+    switch (mode)
+    {
+    case MaterialAlphaMode::Mask:
+        return "Mask";
+    case MaterialAlphaMode::Blend:
+        return "Blend";
+    case MaterialAlphaMode::Opaque:
+    default:
+        return "Opaque";
+    }
+}
+
+} // namespace
+
+AssetRef<Model> EditorApp::selectedModel()
+{
+    if (m_selected.valid() && world().alive(m_selected))
+    {
+        if (const ModelComponent* mc = world().get<ModelComponent>(m_selected))
+            return assets().getAs<Model>(mc->modelAssetID);
+    }
+    AssetRef<Model> found;
+    world().each<ModelComponent>([&](Entity, ModelComponent& mc) {
+        if (!found)
+            found = assets().getAs<Model>(mc.modelAssetID);
+    });
+    return found;
+}
+
+const Model::Part* EditorApp::selectedModelPart()
+{
+    AssetRef<Model> model = selectedModel();
+    if (!model)
+        return nullptr;
+    if (m_selectedPart < 0)
+        return nullptr;
+    return model->partAt(static_cast<uint32_t>(m_selectedPart));
+}
+
+void EditorApp::frameCameraOnModel(const Model& model, const TransformComponent& xf)
+{
+    AABox3f b = model.bounds();
+    if (!b.IsValid())
+        return;
+    const Vector3f localC = b.Center();
+    const Vector3f localE = b.Extents();
+    const Vector3f worldC = xf.position + Vector3f(localC.x * xf.scale.x, localC.y * xf.scale.y, localC.z * xf.scale.z);
+    float r = localE.Magnitude();
+    if (r < 0.5f)
+        r = 0.5f;
+    r *= xf.scale.x > xf.scale.y ? xf.scale.x : xf.scale.y;
+    const Vector3f eye = worldC + Vector3f(r * 1.7f, r * 1.15f, -r * 1.9f);
+    m_camera.LookAt(eye, worldC, Vector3f::Y_AXIS);
+}
+
+bool EditorApp::spawnLoadedModel(const AssetRef<Model>& model)
+{
+    if (!model || !model->valid())
+        return false;
+
+    applySceneMode(SceneMode::Scene3D);
+    Entity e = world().createEntity();
+    world().emplace<TagComponent>(e, "glTF");
+    TransformComponent xf{};
+    xf.position = Vector3f{ 0.0f, 0.0f, 0.0f };
+    xf.scale    = Vector3f{ 1.0f, 1.0f, 1.0f };
+    world().emplace<TransformComponent>(e, xf);
+
+    ModelComponent mc{};
+    mc.modelAssetID = model->id;
+    mc.castShadow   = model->hasOpaque();
+    setModelComponent(world(), pins(), assets(), e, mc);
+
+    m_selected          = e;
+    m_selectedPart      = 0;
+    m_showModelParts    = true;
+    m_showMaterialEditor = true;
+    frameCameraOnModel(*model, xf);
+    DE_LOG_INFO("Editor: loaded model '{}' ({} parts)", model->sourcePath().string(), model->partCount());
+    return true;
+}
+
+bool EditorApp::loadGltfModel()
+{
+    std::filesystem::path path;
+    if (!pickGltfPath(static_cast<HWND>(window().nativeHandle()), false, {}, path))
+        return false;
+
+    AssetRef<Model> model = loadAndUploadModelFile(renderer(), assets(), path);
+    if (!model || !model->valid())
+    {
+        DE_LOG_ERROR("Editor: failed to load '{}'", path.string());
+        return false;
+    }
+    return spawnLoadedModel(model);
+}
+
+bool EditorApp::saveGltfModel()
+{
+    AssetRef<Model> model = selectedModel();
+    if (!model)
+    {
+        DE_LOG_WARN("Editor: no model selected to save");
+        return false;
+    }
+    std::filesystem::path path = model->sourcePath();
+    if (path.empty())
+        return saveGltfModelAs();
+    std::string err;
+    if (!saveGltfMaterials(path, *model, &err))
+    {
+        DE_LOG_ERROR("Editor: save model failed — {}", err);
+        return false;
+    }
+    if (m_sfxSave)
+        audio().play2D(m_sfxSave, 0.45f);
+    return true;
+}
+
+bool EditorApp::saveGltfModelAs()
+{
+    AssetRef<Model> model = selectedModel();
+    if (!model)
+    {
+        DE_LOG_WARN("Editor: no model selected to save");
+        return false;
+    }
+    std::filesystem::path dest;
+    if (!pickGltfPath(static_cast<HWND>(window().nativeHandle()), true, model->sourcePath(), dest))
+        return false;
+
+    const std::filesystem::path src = model->sourcePath();
+    if (!src.empty() && src != dest)
+    {
+        std::error_code ec;
+        std::filesystem::copy_file(src, dest, std::filesystem::copy_options::overwrite_existing, ec);
+        if (ec)
+        {
+            DE_LOG_ERROR("Editor: copy to '{}' failed — {}", dest.string(), ec.message());
+            return false;
+        }
+    }
+
+    std::string err;
+    if (!saveGltfMaterials(dest, *model, &err))
+    {
+        DE_LOG_ERROR("Editor: save model as failed — {}", err);
+        return false;
+    }
+    model->setSourcePath(dest);
+    if (m_sfxSave)
+        audio().play2D(m_sfxSave, 0.45f);
+    return true;
+}
+
+void EditorApp::drawModelPartsPanel()
+{
+    if (!m_showModelParts)
+        return;
+    if (!ImGui::Begin("Model Parts", &m_showModelParts))
+    {
+        ImGui::End();
+        return;
+    }
+
+    AssetRef<Model> model = selectedModel();
+    if (!model)
+    {
+        ImGui::TextWrapped("Load a glTF from File → Load Model to inspect parts.");
+        ImGui::End();
+        return;
+    }
+
+    ImGui::TextUnformatted(model->sourcePath().filename().string().c_str());
+    ImGui::Text("%u parts  (%zu opaque, %zu translucent)", model->partCount(), model->opaque().size(), model->translucent().size());
+    ImGui::Separator();
+
+    const uint32_t n = model->partCount();
+    for (uint32_t i = 0; i < n; ++i)
+    {
+        const Model::Part* part = model->partAt(i);
+        if (!part)
+            continue;
+        ImGui::PushID(static_cast<int>(i));
+        const bool selected = m_selectedPart == static_cast<int>(i);
+        char label[160];
+        const char* kind = part->skinned ? "skinned" : (part->translucent ? "blend" : "opaque");
+        if (part->materialIndex >= 0)
+            std::snprintf(label, sizeof(label), "%s  [%s]  mat %d", part->name.c_str(), kind, part->materialIndex);
+        else
+            std::snprintf(label, sizeof(label), "%s  [%s]", part->name.c_str(), kind);
+        if (ImGui::Selectable(label, selected))
+        {
+            m_selectedPart       = static_cast<int>(i);
+            m_showMaterialEditor = true;
+        }
+        ImGui::PopID();
+    }
+    ImGui::End();
+}
+
+void EditorApp::drawMaterialPanel()
+{
+    if (!m_showMaterialEditor)
+        return;
+    if (!ImGui::Begin("Material", &m_showMaterialEditor))
+    {
+        ImGui::End();
+        return;
+    }
+
+    const Model::Part* part = selectedModelPart();
+    if (!part || !part->material)
+    {
+        ImGui::TextWrapped("Select a part to edit its material.");
+        ImGui::End();
+        return;
+    }
+
+    Material& mat = *part->material;
+    ImGui::Text("Material %d", part->materialIndex);
+    if (!part->name.empty())
+        ImGui::TextUnformatted(part->name.c_str());
+    ImGui::Separator();
+
+    float color[4] = { mat.baseColor()[0], mat.baseColor()[1], mat.baseColor()[2], mat.baseColor()[3] };
+    if (ImGui::ColorEdit4("Base Color", color))
+        mat.setBaseColor(color[0], color[1], color[2], color[3]);
+
+    float metallic  = mat.metallic();
+    float roughness = mat.roughness();
+    if (ImGui::SliderFloat("Metallic", &metallic, 0.0f, 1.0f))
+        mat.setMetallicRoughness(metallic, roughness);
+    if (ImGui::SliderFloat("Roughness", &roughness, 0.0f, 1.0f))
+        mat.setMetallicRoughness(metallic, roughness);
+
+    int mode = static_cast<int>(mat.alphaMode());
+    const char* modes[] = { "Opaque", "Mask", "Blend" };
+    if (ImGui::Combo("Alpha Mode", &mode, modes, 3))
+        mat.setAlphaMode(static_cast<MaterialAlphaMode>(mode));
+    ImGui::TextDisabled("Color / metal / rough update live. Alpha mode is stored on Save.");
+    ImGui::End();
+}

@@ -34,7 +34,7 @@
     { "from": "*", "to": "Swing", "blend": 0.08, "interrupt": true,
       "when": [{ "param": "swing", "eq": true }] },
     { "from": "Shoot", "to": "Run", "blend": 0.10, "onClipEnd": true,
-      "when": [{ "param": "speed", "gt": 11.0 }] },
+      "when": [{ "param": "speed", "gt": 5.0 }] },
     { "from": "Shoot", "to": "Walk", "blend": 0.10, "onClipEnd": true,
       "when": [{ "param": "speed", "gt": 1.2 }] },
     { "from": "Shoot", "to": "Idle", "blend": 0.12, "onClipEnd": true },

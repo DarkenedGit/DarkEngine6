@@ -26,6 +26,7 @@
 #include "Render/TaaJitter.h"
 #include "Render/ModelDraw.h"
 #include "Assets/Model.h"
+#include "Assets/Material.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
 
@@ -62,6 +63,13 @@ void EditorApp::drawEditorUi()
                 saveScene();
             if (ImGui::MenuItem(ICON_FA_FOLDER_OPEN "  Load Scene", "Ctrl+O", false, sceneOk))
                 loadScene();
+            ImGui::Separator();
+            if (ImGui::MenuItem(ICON_FA_CUBE "  Load Model...", nullptr, false, sceneOk))
+                loadGltfModel();
+            if (ImGui::MenuItem(ICON_FA_FLOPPY_DISK "  Save Model", nullptr, selectedModel() != nullptr))
+                saveGltfModel();
+            if (ImGui::MenuItem(ICON_FA_FLOPPY_DISK "  Save Model As...", nullptr, selectedModel() != nullptr))
+                saveGltfModelAs();
             if (ImGui::MenuItem(ICON_FA_FILE "  Open 3D Level", nullptr, false, sceneOk))
             {
                 m_scenePath = defaultScenePath("level.json");
@@ -85,6 +93,8 @@ void EditorApp::drawEditorUi()
             if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  2D Scene", "F3", mode2d))
                 applySceneMode(mode2d ? SceneMode::Scene3D : SceneMode::Scene2D);
             ImGui::MenuItem(ICON_FA_BOLT "  Particle Panel", "F2", &m_showParticlePanel);
+            ImGui::MenuItem(ICON_FA_CUBE "  Model Parts", nullptr, &m_showModelParts);
+            ImGui::MenuItem(ICON_FA_CUBE "  Material", nullptr, &m_showMaterialEditor);
             ImGui::MenuItem(ICON_FA_EYE "  Grid", nullptr, &m_showGrid);
             ImGui::MenuItem(ICON_FA_CUBE "  Solid Ground", nullptr, &m_showSolid);
             if (renderer().hasSceneBuffers())
@@ -210,8 +220,30 @@ void EditorApp::drawEditorUi()
                 m_selected = e;
             ImGui::PopID();
         });
+        world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+            if (world().has<EditorObjectComponent>(e))
+                return;
+            const bool selected = m_selected.valid() && m_selected.id() == e.id();
+            ImGui::PushID(static_cast<int>(e.id()) + 100000);
+            const auto model = assets().getAs<Model>(mc.modelAssetID);
+            const std::string name = (model && !model->sourcePath().empty())
+                ? model->sourcePath().filename().string()
+                : std::string("glTF");
+            char label[160];
+            std::snprintf(label, sizeof(label), "Model  %s##%u", name.c_str(), e.id());
+            if (ImGui::Selectable(label, selected))
+            {
+                m_selected           = e;
+                m_showModelParts     = true;
+                m_showMaterialEditor = true;
+            }
+            ImGui::PopID();
+        });
     }
     ImGui::End();
+
+    drawModelPartsPanel();
+    drawMaterialPanel();
 
     if (m_sceneMode == SceneMode::Scene2D && ImGui::Begin("2D Level"))
     {
@@ -269,6 +301,39 @@ void EditorApp::drawInspector3D()
 {
     if (!ImGui::Begin("Inspector"))
     {
+        ImGui::End();
+        return;
+    }
+
+    if (const ModelComponent* mc = m_selected.valid() ? world().get<ModelComponent>(m_selected) : nullptr)
+    {
+        auto* xf = world().get<TransformComponent>(m_selected);
+        const auto model = assets().getAs<Model>(mc->modelAssetID);
+        ImGui::TextUnformatted("Selected: glTF Model");
+        if (model)
+            ImGui::TextWrapped("%s", model->sourcePath().string().c_str());
+        if (xf)
+        {
+            float pos[3] = { xf->position.x, xf->position.y, xf->position.z };
+            if (ImGui::DragFloat3("Position", pos, 0.05f))
+            {
+                xf->position.x = pos[0];
+                xf->position.y = pos[1];
+                xf->position.z = pos[2];
+            }
+            float scale[3] = { xf->scale.x, xf->scale.y, xf->scale.z };
+            if (ImGui::DragFloat3("Scale", scale, 0.01f, 0.01f, 100.0f))
+            {
+                xf->scale.x = Max(0.01f, scale[0]);
+                xf->scale.y = Max(0.01f, scale[1]);
+                xf->scale.z = Max(0.01f, scale[2]);
+            }
+        }
+        if (ImGui::Button("Open Parts / Material"))
+        {
+            m_showModelParts     = true;
+            m_showMaterialEditor = true;
+        }
         ImGui::End();
         return;
     }

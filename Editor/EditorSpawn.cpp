@@ -27,6 +27,7 @@
 #include "Render/TaaJitter.h"
 #include "Render/ModelDraw.h"
 #include "Assets/Model.h"
+#include "Collision/Collision.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
 
@@ -69,6 +70,28 @@ Entity EditorApp::pickObject(const Ray3f& ray)
             const AABox3f box = AABox3f::FromCenterExtents(xf->position, half);
             hit               = Collision::Intersect(ray, box);
         }
+        if (hit.hit && hit.t >= 0.0f && hit.t < bestT)
+        {
+            bestT = hit.t;
+            best  = e;
+        }
+    });
+    world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+        if (world().has<EditorObjectComponent>(e))
+            return;
+        const auto* xf = world().get<TransformComponent>(e);
+        const auto  model = assets().getAs<Model>(mc.modelAssetID);
+        if (!xf || !model || !model->bounds().IsValid())
+            return;
+        const Vector3f c = model->bounds().Center();
+        const Vector3f ext = model->bounds().Extents();
+        const Vector3f worldC{
+            xf->position.x + c.x * xf->scale.x,
+            xf->position.y + c.y * xf->scale.y,
+            xf->position.z + c.z * xf->scale.z
+        };
+        const Vector3f worldE{ ext.x * xf->scale.x, ext.y * xf->scale.y, ext.z * xf->scale.z };
+        const Collision::RayHit3D hit = Collision::Intersect(ray, AABox3f::FromCenterExtents(worldC, worldE));
         if (hit.hit && hit.t >= 0.0f && hit.t < bestT)
         {
             bestT = hit.t;

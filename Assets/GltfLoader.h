@@ -27,7 +27,10 @@ namespace Dark
         MaterialAlphaMode alphaMode    = MaterialAlphaMode::Opaque;
         std::filesystem::path albedoFile;
         std::vector<uint8_t>  albedoBytes; // embedded png/jpeg
-        int               imageIndex = -1;
+        int               imageIndex    = -1;
+        int               materialIndex = -1;
+        std::string       materialName;
+        std::string       meshName;
     };
 
     struct GltfCpuModel

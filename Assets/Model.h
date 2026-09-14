@@ -27,8 +27,10 @@ namespace Dark
             MeshData           mesh;
             AssetRef<Material> material;
             Math::Matrix4f     localToRoot;
-            bool               translucent = false;
-            bool               skinned     = false;
+            bool               translucent   = false;
+            bool               skinned       = false;
+            int                materialIndex = -1;
+            std::string        name;
         };
 
         Model();
@@ -39,6 +41,11 @@ namespace Dark
         const std::vector<Part>& opaque() const { return m_opaque; }
         const std::vector<Part>& translucent() const { return m_translucent; }
         const Math::AABox3f&     bounds() const { return m_bounds; }
+
+        uint32_t     partCount() const;
+        const Part*  partAt(uint32_t index) const;
+        const std::filesystem::path& sourcePath() const { return m_sourcePath; }
+        void                         setSourcePath(std::filesystem::path path);
 
         bool valid() const { return !m_opaque.empty() || !m_translucent.empty(); }
         bool hasOpaque() const { return !m_opaque.empty(); }
@@ -57,6 +64,7 @@ namespace Dark
         Math::AABox3f           m_bounds = Math::AABox3f::Empty();
         std::optional<Skeleton> m_skeleton;
         AssetRef<AnimationSet>  m_animSet;
+        std::filesystem::path   m_sourcePath;
     };
 
 } // namespace Dark

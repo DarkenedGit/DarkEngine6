@@ -29,4 +29,14 @@ namespace Dark
         return model;
     }
 
+    AssetRef<Model> loadAndUploadModelFile(Renderer& renderer, AssetManager& assets, const std::filesystem::path& absPath)
+    {
+        AssetRef<Model> model = assets.loadModelFile(absPath);
+        if (!model || !model->valid())
+            return {};
+        if (!renderer.gpuResources().ensureModel(model))
+            return {};
+        return model;
+    }
+
 } // namespace Dark

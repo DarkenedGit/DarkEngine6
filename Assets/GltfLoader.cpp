@@ -559,16 +559,21 @@ namespace Dark
                 out.skinned = true;
             }
 
-            out.localToRoot = localToRoot;
-            out.baseColor[0] = 1.0f;
-            out.baseColor[1] = 1.0f;
-            out.baseColor[2] = 1.0f;
-            out.baseColor[3] = 1.0f;
-            out.metallic     = 0.0f;
-            out.roughness    = 1.0f;
+            out.localToRoot    = localToRoot;
+            out.baseColor[0]   = 1.0f;
+            out.baseColor[1]   = 1.0f;
+            out.baseColor[2]   = 1.0f;
+            out.baseColor[3]   = 1.0f;
+            out.metallic       = 0.0f;
+            out.roughness      = 1.0f;
+            out.materialIndex  = -1;
+            out.materialName.clear();
             if (gp.material)
             {
                 const cgltf_material* mat = gp.material;
+                out.materialIndex = static_cast<int>(cgltf_material_index(data, mat));
+                if (mat->name && mat->name[0])
+                    out.materialName = mat->name;
                 out.translucent = mat->alpha_mode == cgltf_alpha_mode_blend;
                 out.alphaMode   = (mat->alpha_mode == cgltf_alpha_mode_blend)
                     ? MaterialAlphaMode::Blend
@@ -630,7 +635,13 @@ namespace Dark
                     {
                         GltfCpuPrimitive prim;
                         if (extractPrimitive(node->mesh->primitives[i], localToRoot, gltfPath, data, skinned, jointCount, warnedJoints1, prim))
+                        {
+                            if (node->mesh->name && node->mesh->name[0])
+                                prim.meshName = node->mesh->name;
+                            else if (node->name && node->name[0])
+                                prim.meshName = node->name;
                             out.primitives.push_back(std::move(prim));
+                        }
                     }
                 }
             }

@@ -205,7 +205,7 @@ add_executable(Editor WIN32 ${DE_EDITOR_SOURCES})
 
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${DE_EDITOR_SOURCES})
 
-target_link_libraries(Editor PRIVATE DarkEngine imgui_editor)
+target_link_libraries(Editor PRIVATE DarkEngine imgui_editor comdlg32)
 
 target_include_directories(Editor PRIVATE
     "${CMAKE_SOURCE_DIR}/third_party"

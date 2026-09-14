@@ -44,6 +44,19 @@ namespace Dark
         pinMeshComponent(pins, assets, next);
     }
 
+    void setModelComponent(World& world, AssetPinTable& pins, AssetManager& assets, Entity e, ModelComponent next)
+    {
+        if (!world.alive(e))
+        {
+            DE_LOG_ERROR("setModelComponent: dead entity");
+            return;
+        }
+        if (const ModelComponent* old = world.get<ModelComponent>(e))
+            unpinModelComponent(pins, *old);
+        world.emplace<ModelComponent>(e, next);
+        pinModelComponent(pins, assets, next);
+    }
+
     void setMeshMaterial(World& world, AssetPinTable& pins, AssetManager& assets, Entity e, AssetID matId)
     {
         MeshComponent* mc = world.get<MeshComponent>(e);

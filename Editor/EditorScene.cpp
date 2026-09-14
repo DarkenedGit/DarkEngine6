@@ -84,6 +84,10 @@ void EditorApp::collectEditorEntities(std::vector<Entity>& out)
 {
     out.clear();
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent&) { out.push_back(e); });
+    world().each<ModelComponent>([&](Entity e, ModelComponent&) {
+        if (!world().has<EditorObjectComponent>(e))
+            out.push_back(e);
+    });
 }
 
 ParticleEmitter* EditorApp::selectedEmitter()

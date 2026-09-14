@@ -5,10 +5,12 @@
 #include "Animation/AnimationSet.h"
 #include "Assets/GltfLoader.h"
 #include "Assets/Image.h"
+#include "Assets/ImageCache.h"
 #include "Assets/Model.h"
 #include "Assets/Material.h"
 #include "Core/Log.h"
 
+#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <sstream>
@@ -419,7 +421,20 @@ namespace Dark
             DE_LOG_ERROR("AssetManager: model not found '{}'", virtualPath);
             return {};
         }
-        const std::string key = ImageCache::normalizePath(path);
+        return loadModelFile(path);
+    }
+
+    AssetRef<Model> AssetManager::loadModelFile(const std::filesystem::path& absPath)
+    {
+        std::error_code ec;
+        if (absPath.empty() || !std::filesystem::is_regular_file(absPath, ec) || ec)
+        {
+            DE_LOG_ERROR("AssetManager: model file not found '{}'", absPath.string());
+            return {};
+        }
+        const std::filesystem::path canonical = std::filesystem::weakly_canonical(absPath, ec);
+        const std::filesystem::path path      = ec ? absPath : canonical;
+        const std::string           key       = ImageCache::normalizePath(path);
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             const auto it = m_pathToID.find(key);
@@ -466,7 +481,7 @@ namespace Dark
         m_assets[id]     = model;
         m_pathToID[key]  = id;
         model->setAnimationSet(internAnimationSetLocked(key, cpu));
-        DE_LOG_INFO("AssetManager: cached model '{}' id={}", virtualPath, id);
+        DE_LOG_INFO("AssetManager: cached model '{}' id={}", path.string(), id);
         return model;
     }
 
