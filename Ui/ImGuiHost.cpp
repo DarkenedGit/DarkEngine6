@@ -129,12 +129,21 @@ bool ImGuiHost::init(Dark::Window& window, Dark::Renderer& renderer, const char*
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     if (docking)
+    {
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+        io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+        m_viewports = true;
+    }
     io.ConfigWindowsMoveFromTitleBarOnly = true;
     io.IniFilename                       = iniFilename ? iniFilename : "imgui.ini";
 
     ImGuiStyle& style = ImGui::GetStyle();
     Dark::applyImGuiTheme(accent, &style);
+    if (m_viewports)
+    {
+        style.WindowRounding              = 0.0f;
+        style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+    }
 
     const float dpiScale = window.dpiScale();
     if (dpiScale > 1.01f)
@@ -175,7 +184,7 @@ bool ImGuiHost::init(Dark::Window& window, Dark::Renderer& renderer, const char*
 
     window.setMessageHook(&MessageHook, this);
     m_ready = true;
-    DE_LOG_INFO("ImGuiHost: ready");
+    DE_LOG_INFO("ImGuiHost: ready (docking={} viewports={})", docking, m_viewports);
     return true;
 }
 
@@ -195,7 +204,8 @@ void ImGuiHost::shutdown(Dark::Renderer& renderer)
         delete m_impl;
         m_impl = nullptr;
     }
-    m_ready = false;
+    m_viewports = false;
+    m_ready     = false;
 }
 
 void ImGuiHost::beginFrame()
@@ -221,6 +231,12 @@ void ImGuiHost::render(Dark::Renderer& renderer)
     ID3D12DescriptorHeap* heaps[] = { m_impl->srvHeap.Get() };
     cmd->SetDescriptorHeaps(1, heaps);
     ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), cmd);
+
+    if (m_viewports)
+    {
+        ImGui::UpdatePlatformWindows();
+        ImGui::RenderPlatformWindowsDefault();
+    }
 }
 
 void ImGuiHost::endFrame() {}

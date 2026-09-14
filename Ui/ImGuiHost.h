@@ -30,8 +30,9 @@ public:
 private:
     bool createSrvHeap(Dark::Renderer& renderer);
 
-    bool  m_ready = false;
-    void* m_hwnd  = nullptr;
+    bool  m_ready     = false;
+    bool  m_viewports = false;
+    void* m_hwnd      = nullptr;
 
     struct Impl;
     Impl* m_impl = nullptr;
