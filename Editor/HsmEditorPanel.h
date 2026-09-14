@@ -3,6 +3,7 @@
 #include "AI/HsmGraph.h"
 #include "Assets/AssetManager.h"
 
+#include <imgui.h>
 #include <string>
 #include <vector>
 
@@ -21,6 +22,7 @@ private:
     void drawStates();
     void drawTransitions();
     void drawPreview();
+    void drawChart();
     void drawParams();
 
     Dark::HsmGraphDef      m_def;
@@ -31,4 +33,8 @@ private:
     int                    m_selectedEvent      = 0;
     char                   m_status[256]        = {};
     bool                   m_previewDirty       = true;
+    ImVec2                 m_chartPan           = ImVec2(12.0f, 12.0f);
+    float                  m_chartZoom          = 1.0f;
+    bool                   m_chartFitNext       = true;
+    float                  m_splitFrac          = 0.58f;
 };

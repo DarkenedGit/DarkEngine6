@@ -1,5 +1,6 @@
 #include "Editor/HsmEditorPanel.h"
 #include "AI/HsmGraphJson.h"
+#include "Editor/HsmStatechart.h"
 #include "Assets/ImageCache.h"
 #include "Core/Log.h"
 #include "Ui/Icons.h"
@@ -95,6 +96,7 @@ void HsmEditorPanel::loadTemplate(const HsmGraphDef& templ, const char* virtualP
     m_selectedTransition = -1;
     m_selectedEvent      = 0;
     m_previewDirty       = true;
+    m_chartFitNext       = true;
     rebuildPreview();
     std::snprintf(m_status, sizeof(m_status), "Loaded template %s", m_def.name.c_str());
 }
@@ -114,6 +116,7 @@ void HsmEditorPanel::loadVirtual(AssetManager& assets, const std::string& virtua
     m_selectedTransition = -1;
     m_selectedEvent      = 0;
     m_previewDirty       = true;
+    m_chartFitNext       = true;
     rebuildPreview();
     std::snprintf(m_status, sizeof(m_status), "Loaded %s", virtualPath.c_str());
 }
@@ -203,16 +206,62 @@ void HsmEditorPanel::draw(AssetManager& assets, bool* open)
     if (m_previewDirty)
         rebuildPreview();
 
-    if (ImGui::CollapsingHeader("Preview", ImGuiTreeNodeFlags_DefaultOpen))
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const bool   wide  = avail.x >= 720.0f;
+    if (m_splitFrac < 0.28f)
+        m_splitFrac = 0.28f;
+    if (m_splitFrac > 0.78f)
+        m_splitFrac = 0.78f;
+
+    if (wide)
+    {
+        const float splitPx = 6.0f;
+        const float leftW   = (avail.x - splitPx) * m_splitFrac;
+        ImGui::BeginChild("hsm_chart_pane", ImVec2(leftW, 0.0f), ImGuiChildFlags_Borders);
+        ImGui::SeparatorText("Statechart");
         drawPreview();
-    if (ImGui::CollapsingHeader("Events", ImGuiTreeNodeFlags_DefaultOpen))
-        drawEvents();
-    if (ImGui::CollapsingHeader("States", ImGuiTreeNodeFlags_DefaultOpen))
+        ImGui::Separator();
+        drawChart();
+        ImGui::EndChild();
+
+        ImGui::SameLine(0.0f, 0.0f);
+        ImGui::InvisibleButton("hsm_split", ImVec2(splitPx, avail.y > 8.0f ? avail.y : 8.0f));
+        if (ImGui::IsItemActive())
+            m_splitFrac += ImGui::GetIO().MouseDelta.x / avail.x;
+        if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+            ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+
+        ImGui::SameLine(0.0f, 0.0f);
+        ImGui::BeginChild("hsm_edit_pane", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders);
+        ImGui::SeparatorText("Edit lists");
         drawStates();
-    if (ImGui::CollapsingHeader("Transitions", ImGuiTreeNodeFlags_DefaultOpen))
+        ImGui::Separator();
         drawTransitions();
-    if (ImGui::CollapsingHeader("Parameters"))
+        ImGui::Separator();
+        drawEvents();
+        ImGui::Separator();
         drawParams();
+        ImGui::EndChild();
+    }
+    else
+    {
+        const float topH = avail.y * 0.48f;
+        ImGui::BeginChild("hsm_chart_pane", ImVec2(0.0f, topH > 180.0f ? topH : 180.0f), ImGuiChildFlags_Borders);
+        ImGui::SeparatorText("Statechart");
+        drawPreview();
+        drawChart();
+        ImGui::EndChild();
+        ImGui::BeginChild("hsm_edit_pane", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders);
+        ImGui::SeparatorText("Edit lists");
+        drawStates();
+        ImGui::Separator();
+        drawTransitions();
+        ImGui::Separator();
+        drawEvents();
+        ImGui::Separator();
+        drawParams();
+        ImGui::EndChild();
+    }
 
     if (m_status[0])
     {
@@ -220,6 +269,20 @@ void HsmEditorPanel::draw(AssetManager& assets, bool* open)
         ImGui::TextWrapped("%s", m_status);
     }
     ImGui::End();
+}
+
+void HsmEditorPanel::drawChart()
+{
+    if (ImGui::Button("Fit view"))
+        m_chartFitNext = true;
+    ImGui::SameLine();
+    ImGui::TextDisabled("zoom %.2f", m_chartZoom);
+    const bool fit = m_chartFitNext;
+    m_chartFitNext = false;
+    if (drawHsmStatechart(m_def, &m_preview, m_selectedState, m_chartPan, m_chartZoom, fit))
+    {
+        m_selectedTransition = -1;
+    }
 }
 
 void HsmEditorPanel::drawPreview()
