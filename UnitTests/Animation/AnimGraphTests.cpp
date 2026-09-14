@@ -250,6 +250,97 @@ TEST(AnimGraph, CanInterruptOnCandidate)
 	EXPECT_STREQ(g.player().clipName(), "Attack");
 }
 
+TEST(AnimGraph, FindPathIdleWalkRun)
+{
+	AnimGraphDef def;
+	AnimationSet set;
+	set.setClips({ namedClip("Idle", 1.0f, true), namedClip("Walk", 1.0f, true), namedClip("Run", 1.0f, true) });
+	ASSERT_TRUE(parseAnimGraphJson(R"({
+  "version": 1,
+  "defaultState": "Idle",
+  "states": [
+    { "name": "Idle", "clip": "Idle", "loop": true },
+    { "name": "Walk", "clip": "Walk", "loop": true },
+    { "name": "Run", "clip": "Run", "loop": true }
+  ],
+  "transitions": [
+    { "from": "Idle", "to": "Walk", "blend": 0.15, "interrupt": true },
+    { "from": "Walk", "to": "Run", "blend": 0.12, "interrupt": true },
+    { "from": "Run", "to": "Walk", "blend": 0.14, "interrupt": true },
+    { "from": "Walk", "to": "Idle", "blend": 0.18, "interrupt": true }
+  ]
+})", set, def));
+	def.animSet = std::make_shared<AnimationSet>(set);
+	std::vector<uint32_t> path;
+	ASSERT_TRUE(findAnimStatePath(def, 0, 2, path));
+	ASSERT_EQ(path.size(), 2u);
+	EXPECT_EQ(def.transitions[path[0]].to, 1u);
+	EXPECT_EQ(def.transitions[path[1]].to, 2u);
+	path.clear();
+	EXPECT_TRUE(findAnimStatePath(def, 0, 0, path));
+	EXPECT_TRUE(path.empty());
+}
+
+TEST(AnimGraph, FindPathUsesAnyState)
+{
+	AnimGraphDef def;
+	AnimationSet set;
+	ASSERT_TRUE(loadHeroGraph(def, set));
+	std::vector<uint32_t> path;
+	ASSERT_TRUE(findAnimStatePath(def, 0, 2, path));
+	ASSERT_EQ(path.size(), 1u);
+	EXPECT_EQ(def.transitions[path[0]].from, kAnyState);
+	EXPECT_EQ(def.transitions[path[0]].to, 2u);
+}
+
+TEST(AnimGraph, RequestStateWalksBlends)
+{
+	AnimGraphDef def;
+	AnimationSet set;
+	set.setClips({ namedClip("Idle", 1.0f, true), namedClip("Walk", 1.0f, true), namedClip("Run", 1.0f, true) });
+	ASSERT_TRUE(parseAnimGraphJson(R"({
+  "version": 1,
+  "defaultState": "Idle",
+  "parameters": [{ "name": "speed", "type": "float", "default": 0.0 }],
+  "states": [
+    { "name": "Idle", "clip": "Idle", "loop": true },
+    { "name": "Walk", "clip": "Walk", "loop": true },
+    { "name": "Run", "clip": "Run", "loop": true }
+  ],
+  "transitions": [
+    { "from": "Idle", "to": "Walk", "blend": 0.15, "interrupt": true,
+      "when": [{ "param": "speed", "gt": 1.2 }] },
+    { "from": "Walk", "to": "Run", "blend": 0.12, "interrupt": true,
+      "when": [{ "param": "speed", "gt": 11.0 }] }
+  ]
+})", set, def));
+	def.animSet = std::make_shared<AnimationSet>(set);
+	Skeleton sk = oneBone();
+	AnimGraphInstance g;
+	ASSERT_TRUE(g.bind(&def, &sk));
+	g.evaluate();
+	EXPECT_STREQ(g.player().clipName(), "Idle");
+	ASSERT_TRUE(g.requestStateByName("Run"));
+	EXPECT_STREQ(g.player().clipName(), "Walk");
+	EXPECT_NE(g.player().outgoingClip(), AnimPlayer::kInvalidClip);
+	EXPECT_TRUE(g.stateLocked());
+	g.evaluate();
+	EXPECT_STREQ(g.player().clipName(), "Walk");
+	AnimNotifyQueue q;
+	g.player().update(0.2f, q);
+	EXPECT_EQ(g.player().outgoingClip(), AnimPlayer::kInvalidClip);
+	g.evaluate();
+	EXPECT_STREQ(g.player().clipName(), "Run");
+	EXPECT_TRUE(g.stateLocked());
+	EXPECT_FALSE(g.pathPending());
+	g.setFloat("speed", 0.0f);
+	g.evaluate();
+	EXPECT_STREQ(g.player().clipName(), "Run");
+	g.setStateLocked(false);
+	g.evaluate();
+	EXPECT_STREQ(g.player().clipName(), "Run");
+}
+
 TEST(AnimGraph, LoadInternsSamePath)
 {
 	const auto gltf = GltfTest::writeSkinnedGltf("graph_model.gltf");

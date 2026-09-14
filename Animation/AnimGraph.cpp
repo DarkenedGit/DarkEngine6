@@ -58,6 +58,10 @@ namespace Dark
 		}
 		m_player.bind(skel, def->animSet.get());
 		m_state = def->defaultState;
+		m_requestedState = def->defaultState;
+		m_path.clear();
+		m_pathIndex = 0;
+		m_lockState = false;
 		return true;
 	}
 
@@ -104,6 +108,102 @@ namespace Dark
 		if (m_def->params[static_cast<uint32_t>(i)].type == AnimParamType::Float)
 			return m_floats[static_cast<uint32_t>(i)];
 		return m_bools[static_cast<uint32_t>(i)] ? 1.0f : 0.0f;
+	}
+
+	bool AnimGraphInstance::getBool(std::string_view name, bool fallback) const
+	{
+		const int32_t i = findParam(name);
+		if (i < 0)
+			return fallback;
+		if (m_def->params[static_cast<uint32_t>(i)].type == AnimParamType::Float)
+			return m_floats[static_cast<uint32_t>(i)] != 0.0f;
+		return m_bools[static_cast<uint32_t>(i)] != 0;
+	}
+
+	const char* AnimGraphInstance::currentStateName() const
+	{
+		if (!m_def || m_state >= m_def->states.size())
+			return "";
+		return m_def->states[m_state].name.c_str();
+	}
+
+	void AnimGraphInstance::setPreviewPaused(bool paused)
+	{
+		m_previewPaused = paused;
+		applyPreviewSpeed();
+	}
+
+	void AnimGraphInstance::setPreviewSpeedScale(float scale)
+	{
+		m_previewSpeedScale = (scale < 0.0f) ? 0.0f : scale;
+		applyPreviewSpeed();
+	}
+
+	void AnimGraphInstance::applyPreviewSpeed()
+	{
+		float spd = 1.0f;
+		if (m_def && m_state < m_def->states.size())
+			spd = m_def->states[m_state].speed;
+		if (m_previewPaused)
+			spd = 0.0f;
+		else
+			spd *= m_previewSpeedScale;
+		m_player.setSpeed(spd);
+	}
+
+	void AnimGraphInstance::setStateLocked(bool locked)
+	{
+		m_lockState = locked;
+		if (!locked)
+			clearPath();
+	}
+
+	void AnimGraphInstance::clearPath()
+	{
+		m_path.clear();
+		m_pathIndex = 0;
+	}
+
+	uint32_t AnimGraphInstance::pendingPathTransition(uint32_t i) const
+	{
+		if (i >= m_path.size())
+			return ~0u;
+		return m_path[i];
+	}
+
+	void AnimGraphInstance::refreshParams()
+	{
+		if (!m_def)
+			return;
+		const uint32_t n = static_cast<uint32_t>(m_def->params.size());
+		const uint32_t oldN = static_cast<uint32_t>(m_floats.size());
+		m_floats.resize(n, 0.0f);
+		m_bools.resize(n, 0);
+		for (uint32_t i = oldN; i < n; ++i)
+		{
+			m_floats[i] = m_def->params[i].defaultFloat;
+			m_bools[i] = m_def->params[i].defaultBool ? 1 : 0;
+		}
+	}
+
+	bool AnimGraphInstance::rebindKeepingState()
+	{
+		const uint32_t old = m_state;
+		const bool locked = m_lockState;
+		const bool paused = m_previewPaused;
+		const float scale = m_previewSpeedScale;
+		const AnimGraphDef* def = m_def;
+		const Skeleton* skel = m_skel;
+		if (!bind(def, skel))
+			return false;
+		m_previewPaused = paused;
+		m_previewSpeedScale = scale;
+		m_lockState = locked;
+		evaluate();
+		if (old < def->states.size() && old != m_state)
+			enterState(old, 0.0f);
+		m_requestedState = (old < def->states.size()) ? old : m_state;
+		return true;
 	}
 
 	bool AnimGraphInstance::conditionPasses(const AnimCondition& c) const
@@ -162,9 +262,9 @@ namespace Dark
 			return;
 		const AnimStateDef& st = m_def->states[stateIndex];
 		m_player.setLoopOverride(st.loop ? 1 : 0);
-		m_player.setSpeed(st.speed);
 		m_player.playIndex(st.clipIndex, blendSec, false);
 		m_state = stateIndex;
+		applyPreviewSpeed();
 	}
 
 	void AnimGraphInstance::consumeTriggers(const AnimTransitionDef& t)
@@ -178,6 +278,74 @@ namespace Dark
 		}
 	}
 
+	void AnimGraphInstance::advancePath(bool interruptBlend)
+	{
+		if (!m_def || m_pathIndex >= m_path.size())
+		{
+			m_path.clear();
+			m_pathIndex = 0;
+			return;
+		}
+		const uint32_t ti = m_path[m_pathIndex];
+		if (ti >= m_def->transitions.size())
+		{
+			clearPath();
+			return;
+		}
+		const AnimTransitionDef& t = m_def->transitions[ti];
+		if (!interruptBlend && m_player.outgoingClip() != AnimPlayer::kInvalidClip)
+			return;
+		if (t.onClipEnd && !m_player.finished())
+			return;
+		enterState(t.to, t.blendSec);
+		++m_pathIndex;
+		if (m_pathIndex >= m_path.size())
+			clearPath();
+	}
+
+	bool AnimGraphInstance::requestState(uint32_t stateIndex)
+	{
+		if (!m_def || !m_skel || stateIndex >= m_def->states.size())
+			return false;
+		m_requestedState = stateIndex;
+		m_lockState = true;
+		clearPath();
+		if (!m_started)
+		{
+			enterState(m_def->defaultState, 0.0f);
+			m_started = true;
+		}
+		if (stateIndex == m_state && m_player.outgoingClip() == AnimPlayer::kInvalidClip)
+		{
+			const AnimStateDef& st = m_def->states[stateIndex];
+			m_player.setLoopOverride(st.loop ? 1 : 0);
+			m_player.playIndex(st.clipIndex, 0.0f, true);
+			applyPreviewSpeed();
+			return true;
+		}
+		if (findAnimStatePath(*m_def, m_state, stateIndex, m_path) && !m_path.empty())
+		{
+			m_pathIndex = 0;
+			advancePath(true);
+			return true;
+		}
+		if (stateIndex != m_state)
+			enterState(stateIndex, 0.15f);
+		return true;
+	}
+
+	bool AnimGraphInstance::requestStateByName(std::string_view name)
+	{
+		if (!m_def)
+			return false;
+		for (uint32_t i = 0; i < m_def->states.size(); ++i)
+		{
+			if (m_def->states[i].name == name)
+				return requestState(i);
+		}
+		return false;
+	}
+
 	void AnimGraphInstance::evaluate()
 	{
 		if (!m_def || !m_skel || m_def->states.empty())
@@ -186,6 +354,18 @@ namespace Dark
 		{
 			enterState(m_def->defaultState, 0.0f);
 			m_started = true;
+			applyPreviewSpeed();
+			return;
+		}
+		if (pathPending())
+		{
+			advancePath(false);
+			applyPreviewSpeed();
+			return;
+		}
+		if (m_lockState)
+		{
+			applyPreviewSpeed();
 			return;
 		}
 		for (const AnimTransitionDef& t : m_def->transitions)
@@ -196,5 +376,58 @@ namespace Dark
 			consumeTriggers(t);
 			break;
 		}
+		applyPreviewSpeed();
+	}
+
+	bool findAnimStatePath(const AnimGraphDef& def, uint32_t from, uint32_t to, std::vector<uint32_t>& outTransitions)
+	{
+		outTransitions.clear();
+		const uint32_t n = static_cast<uint32_t>(def.states.size());
+		if (from >= n || to >= n)
+			return false;
+		if (from == to)
+			return true;
+
+		std::vector<int32_t> prevTrans(n, -1);
+		std::vector<int32_t> prevState(n, -1);
+		std::vector<uint8_t> seen(n, 0);
+		std::vector<uint32_t> queue;
+		queue.push_back(from);
+		seen[from] = 1;
+
+		uint32_t qh = 0;
+		while (qh < queue.size())
+		{
+			const uint32_t s = queue[qh++];
+			for (uint32_t ti = 0; ti < def.transitions.size(); ++ti)
+			{
+				const AnimTransitionDef& t = def.transitions[ti];
+				if (t.to >= n || t.to == s)
+					continue;
+				if (t.from != s && t.from != kAnyState)
+					continue;
+				if (seen[t.to])
+					continue;
+				seen[t.to] = 1;
+				prevTrans[t.to] = static_cast<int32_t>(ti);
+				prevState[t.to] = static_cast<int32_t>(s);
+				if (t.to == to)
+				{
+					std::vector<uint32_t> rev;
+					uint32_t cur = to;
+					while (cur != from)
+					{
+						rev.push_back(static_cast<uint32_t>(prevTrans[cur]));
+						cur = static_cast<uint32_t>(prevState[cur]);
+					}
+					outTransitions.resize(rev.size());
+					for (uint32_t i = 0; i < rev.size(); ++i)
+						outTransitions[i] = rev[rev.size() - 1 - i];
+					return true;
+				}
+				queue.push_back(t.to);
+			}
+		}
+		return false;
 	}
 }

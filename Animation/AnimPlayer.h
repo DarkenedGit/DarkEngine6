@@ -22,6 +22,7 @@ namespace Dark
 		bool playIndex(uint32_t clipIndex, float blendSec, bool restart = false);
 		void setSpeed(float s);
 		void setLoopOverride(int loop);
+		void setTime(float t);
 		void setApplyRootMotion(bool apply);
 		bool applyRootMotion() const { return m_applyRootMotion; }
 		void stop();

@@ -93,6 +93,7 @@ void EditorApp::drawEditorUi()
             if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  2D Scene", "F3", mode2d))
                 applySceneMode(mode2d ? SceneMode::Scene3D : SceneMode::Scene2D);
             ImGui::MenuItem(ICON_FA_BOLT "  Particle Panel", "F2", &m_showParticlePanel);
+            ImGui::MenuItem(ICON_FA_PLAY "  Animation Panel", "F4", &m_showAnimPanel);
             ImGui::MenuItem(ICON_FA_CUBE "  Model Parts", nullptr, &m_showModelParts);
             ImGui::MenuItem(ICON_FA_CUBE "  Material", nullptr, &m_showMaterialEditor);
             ImGui::MenuItem(ICON_FA_EYE "  Grid", nullptr, &m_showGrid);
@@ -201,6 +202,29 @@ void EditorApp::drawEditorUi()
                 }
                 ImGui::Separator();
                 ImGui::Text("Place type: %s", toString(m_placeType));
+            }
+            ImGui::End();
+        }
+    }
+
+    if (m_showAnimPanel)
+    {
+        if (AnimGraphComponent* ag = selectedAnimGraph())
+            m_animPanel.draw(*ag, assets(), &m_showAnimPanel);
+        else
+        {
+            if (ImGui::Begin("Animation", &m_showAnimPanel))
+            {
+                ImGui::TextWrapped("Select a skinned glTF (File → Load Model) to preview clips and edit *.anim.json.");
+                const ModelComponent* mc = m_selected.valid() ? world().get<ModelComponent>(m_selected) : nullptr;
+                const AssetRef<Model> model = mc ? assets().getAs<Model>(mc->modelAssetID) : AssetRef<Model>{};
+                if (model && model->skeleton())
+                {
+                    if (ImGui::Button(ICON_FA_PLAY "  Attach animation graph"))
+                        ensureAnimGraphOnSelected();
+                }
+                else if (model)
+                    ImGui::TextDisabled("Selected model has no skeleton.");
             }
             ImGui::End();
         }
@@ -439,7 +463,19 @@ void EditorApp::onUpdate(float dt)
     handleEditorCommands(dt);
 
     if (m_sceneMode != SceneMode::Scene2D)
+    {
+        const Entity selected = m_selected;
+        world().each<AnimGraphComponent>([&](Entity e, AnimGraphComponent& ag) {
+            if (selected.valid() && e.id() == selected.id())
+                m_animPanel.applyPlayback(ag.graph);
+            else
+            {
+                ag.graph.setPreviewPaused(false);
+                ag.graph.setPreviewSpeedScale(1.0f);
+            }
+        });
         tickAnimGraphs(world(), assets(), dt);
+    }
 
     world().each<ParticleEmitterComponent>([&](Entity e, ParticleEmitterComponent& pe) {
         ensureParticleRuntime(pe);

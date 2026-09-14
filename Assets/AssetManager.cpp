@@ -84,6 +84,26 @@ namespace Dark
         return {};
     }
 
+    std::string AssetManager::virtualPathFromAbsolute(const std::filesystem::path& absPath) const
+    {
+        const std::string norm = ImageCache::normalizePath(absPath);
+        if (norm.empty())
+            return {};
+
+        std::lock_guard<std::mutex> lock(m_mutex);
+        for (const auto& mount : m_mounts)
+        {
+            std::string prefix = ImageCache::normalizePath(mount);
+            if (prefix.empty())
+                continue;
+            if (prefix.back() != '/')
+                prefix.push_back('/');
+            if (norm.size() > prefix.size() && norm.compare(0, prefix.size(), prefix) == 0)
+                return norm.substr(prefix.size());
+        }
+        return {};
+    }
+
     AssetID AssetManager::registerAsset(AssetRef<Asset> asset, const std::string& cacheKey)
     {
         if (!asset)
@@ -548,7 +568,20 @@ namespace Dark
             DE_LOG_ERROR("AssetManager: anim graph not found '{}'", virtualPath);
             return {};
         }
-        const std::string key = ImageCache::normalizePath(path);
+        return loadAnimGraphFile(path);
+    }
+
+    AssetRef<AnimGraphDef> AssetManager::loadAnimGraphFile(const std::filesystem::path& absPath)
+    {
+        std::error_code ec;
+        if (absPath.empty() || !std::filesystem::is_regular_file(absPath, ec) || ec)
+        {
+            DE_LOG_ERROR("AssetManager: anim graph file not found '{}'", absPath.string());
+            return {};
+        }
+        const std::filesystem::path canonical = std::filesystem::weakly_canonical(absPath, ec);
+        const std::filesystem::path path      = ec ? absPath : canonical;
+        const std::string           key       = ImageCache::normalizePath(path);
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             const auto it = m_pathToID.find(key);
@@ -580,14 +613,29 @@ namespace Dark
         std::string modelPath;
         if (!peekAnimGraphModelPath(text.c_str(), modelPath))
         {
-            DE_LOG_ERROR("AssetManager: anim graph '{}' missing model path", virtualPath);
+            DE_LOG_ERROR("AssetManager: anim graph '{}' missing model path", path.string());
             return {};
         }
 
         AssetRef<AnimationSet> set = loadAnimationSet(modelPath);
         if (!set)
         {
-            DE_LOG_ERROR("AssetManager: anim graph '{}' could not load model '{}'", virtualPath, modelPath);
+            const std::string localVirt = virtualPathFromAbsolute(path);
+            if (!localVirt.empty())
+            {
+                std::filesystem::path gltfVirt(localVirt);
+                gltfVirt.replace_extension(".gltf");
+                set = loadAnimationSet(gltfVirt.generic_string());
+                if (!set)
+                {
+                    gltfVirt.replace_extension(".glb");
+                    set = loadAnimationSet(gltfVirt.generic_string());
+                }
+            }
+        }
+        if (!set)
+        {
+            DE_LOG_ERROR("AssetManager: anim graph '{}' could not load model '{}'", path.string(), modelPath);
             return {};
         }
 
@@ -615,7 +663,7 @@ namespace Dark
         graph->id        = id;
         m_assets[id]     = graph;
         m_pathToID[key]  = id;
-        DE_LOG_INFO("AssetManager: cached AnimGraph '{}' id={}", virtualPath, id);
+        DE_LOG_INFO("AssetManager: cached AnimGraph '{}' id={}", path.string(), id);
         return graph;
     }
 

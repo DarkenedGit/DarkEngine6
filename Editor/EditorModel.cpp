@@ -3,6 +3,7 @@
 #include "Assets/GltfMaterialSave.h"
 #include "Assets/Material.h"
 #include "Assets/Model.h"
+#include "Animation/AnimGraphComponent.h"
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "Editor/EditorInternals.h"
@@ -76,6 +77,67 @@ const char* alphaModeLabel(MaterialAlphaMode mode)
 
 } // namespace
 
+AnimGraphComponent* EditorApp::selectedAnimGraph()
+{
+    if (!m_selected.valid() || !world().alive(m_selected))
+        return nullptr;
+    return world().get<AnimGraphComponent>(m_selected);
+}
+
+bool EditorApp::attachAnimGraph(Entity e, const AssetRef<Model>& model)
+{
+    if (!e.valid() || !world().alive(e) || !model || !model->skeleton())
+        return false;
+
+    AssetRef<AnimGraphDef> graph;
+    const std::string virt = assets().virtualPathFromAbsolute(model->sourcePath());
+    if (!virt.empty())
+        graph = assets().tryLoadAnimGraphForModel(virt);
+    if (!graph)
+    {
+        std::filesystem::path sidecar = model->sourcePath();
+        if (!sidecar.empty())
+        {
+            sidecar.replace_extension(".anim.json");
+            std::error_code ec;
+            if (std::filesystem::is_regular_file(sidecar, ec) && !ec)
+                graph = assets().loadAnimGraphFile(sidecar);
+        }
+    }
+
+    AnimGraphComponent ag;
+    ag.model    = model;
+    ag.animSet  = model->animationSet();
+    ag.graphDef = graph;
+    if (graph)
+        ag.graph.bind(graph.get(), model->skeleton());
+    else if (ag.animSet)
+    {
+        ag.graph.player().bind(model->skeleton(), ag.animSet.get());
+        if (!ag.graph.player().play("Idle", 0.0f))
+            ag.graph.player().playIndex(0, 0.0f);
+    }
+    ag.graph.setApplyRootMotion(false);
+    world().emplace<AnimGraphComponent>(e, std::move(ag));
+    DE_LOG_INFO("Editor: animation graph {} for '{}'", graph ? "attached" : "missing (clips only)", model->sourcePath().string());
+    return true;
+}
+
+bool EditorApp::ensureAnimGraphOnSelected()
+{
+    if (selectedAnimGraph())
+        return true;
+    if (!m_selected.valid() || !world().alive(m_selected))
+        return false;
+    const ModelComponent* mc = world().get<ModelComponent>(m_selected);
+    if (!mc)
+        return false;
+    const AssetRef<Model> model = assets().getAs<Model>(mc->modelAssetID);
+    if (!model)
+        return false;
+    return attachAnimGraph(m_selected, model);
+}
+
 AssetRef<Model> EditorApp::selectedModel()
 {
     if (m_selected.valid() && world().alive(m_selected))
@@ -134,6 +196,7 @@ bool EditorApp::spawnLoadedModel(const AssetRef<Model>& model)
     mc.modelAssetID = model->id;
     mc.castShadow   = model->hasOpaque();
     setModelComponent(world(), pins(), assets(), e, mc);
+    attachAnimGraph(e, model);
 
     m_selected          = e;
     m_selectedPart      = 0;

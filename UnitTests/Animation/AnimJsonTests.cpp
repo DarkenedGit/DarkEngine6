@@ -135,3 +135,37 @@ TEST(AnimJson, PeekModelPath)
 	EXPECT_EQ(model, "models/hero.gltf");
 	EXPECT_FALSE(peekAnimGraphModelPath("{ }", model));
 }
+
+TEST(AnimJson, WriteRoundTrip)
+{
+	AnimationSet set = makeSet();
+	AnimGraphDef def;
+	ASSERT_TRUE(parseAnimGraphJson(kGraphJson, set, def));
+	def.animSet = std::make_shared<AnimationSet>(set);
+	std::string text;
+	ASSERT_TRUE(writeAnimGraphJson(def, text));
+	AnimGraphDef again;
+	ASSERT_TRUE(parseAnimGraphJson(text.c_str(), set, again));
+	EXPECT_EQ(again.modelPath, def.modelPath);
+	EXPECT_EQ(again.defaultState, def.defaultState);
+	ASSERT_EQ(again.states.size(), def.states.size());
+	ASSERT_EQ(again.transitions.size(), def.transitions.size());
+	ASSERT_EQ(again.params.size(), def.params.size());
+	EXPECT_EQ(again.transitions[0].blendSec, def.transitions[0].blendSec);
+	EXPECT_EQ(again.transitions[2].from, kAnyState);
+	EXPECT_TRUE(again.transitions[3].onClipEnd);
+	ASSERT_EQ(again.overlayMarkers.size(), def.overlayMarkers.size());
+	EXPECT_NEAR(again.overlayMarkers[0].time, 0.32f, 1.0e-4f);
+}
+
+TEST(AnimJson, InitFromSet)
+{
+	AnimationSet set = makeSet();
+	AnimGraphDef def;
+	ASSERT_TRUE(initAnimGraphFromSet(def, set, "models/hero.gltf"));
+	EXPECT_EQ(def.modelPath, "models/hero.gltf");
+	EXPECT_EQ(def.states.size(), 3u);
+	EXPECT_EQ(def.states[0].name, "Idle");
+	EXPECT_EQ(def.defaultState, 0u);
+	EXPECT_TRUE(def.transitions.empty());
+}

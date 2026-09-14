@@ -47,6 +47,9 @@ namespace Dark
         // Resolve virtual path → absolute path
         std::filesystem::path resolve(const std::string& virtualPath) const;
 
+        // Mount-relative virtual path for an absolute file, or empty if it is not under a mount.
+        std::string virtualPathFromAbsolute(const std::filesystem::path& absPath) const;
+
         size_t assetCount() const;
         size_t pathMappingCount() const;
 
@@ -74,6 +77,7 @@ namespace Dark
 
         // Interns *.anim.json. Resolves the JSON "model" field via loadAnimationSet.
         AssetRef<class AnimGraphDef> loadAnimGraph(const std::string& virtualPath);
+        AssetRef<class AnimGraphDef> loadAnimGraphFile(const std::filesystem::path& absPath);
 
         // stem + ".anim.json" if that file exists; empty ref if missing (not an error).
         AssetRef<class AnimGraphDef> tryLoadAnimGraphForModel(const std::string& gltfVirtualPath);

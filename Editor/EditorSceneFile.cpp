@@ -184,6 +184,8 @@ void EditorApp::handleEditorCommands(float dt)
             loadScene();
         if (input().actionPressed("toggle_particle_ui"))
             m_showParticlePanel = !m_showParticlePanel;
+        if (input().actionPressed("toggle_anim_ui"))
+            m_showAnimPanel = !m_showAnimPanel;
         if (input().actionPressed("debug_fill"))
         {
             renderer().debugState().cycleFill();

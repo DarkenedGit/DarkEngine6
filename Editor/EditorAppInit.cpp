@@ -69,6 +69,7 @@ void EditorApp::registerActions()
     a.bindKey("cycle_type", Key::T);
     a.bindKey("cycle_color", Key::C);
     a.bindKey("toggle_particle_ui", Key::F2);
+    a.bindKey("toggle_anim_ui", Key::F4);
     a.bindKey("debug_fill", Key::F1);
     a.bindKey("debug_lighting", Key::F6);
     a.bindKey("debug_shadow_enable", Key::F7);
@@ -87,7 +88,7 @@ void EditorApp::registerActions()
     a.bindAxis("look_y", GamepadAxis::RightY, 1.0f);
 
     DE_LOG_INFO(
-        "Editor: F3 toggle 2D/3D | F2 particle UI | F1 fill F6 lighting F7 shadows | F11 G-buffer | "
+        "Editor: F3 toggle 2D/3D | F2 particle UI | F4 animation UI | F1 fill F6 lighting F7 shadows | F11 G-buffer | "
         "1/2/3/4/5 place type | P place | MMB/RMB pan (2D) | wheel zoom | Ctrl+S/O save/load | C color | Del delete | -forward");
 }
 

@@ -165,6 +165,21 @@ namespace Dark
 		m_speed = (s < 0.0f) ? 0.0f : s;
 	}
 
+	void AnimPlayer::setTime(float t)
+	{
+		if (t < 0.0f)
+			t = 0.0f;
+		if (m_set && m_incoming != kInvalidClip)
+		{
+			const AnimationClip* clip = m_set->clipAt(m_incoming);
+			if (clip && clip->duration > 0.0f && t > clip->duration)
+				t = clip->duration;
+		}
+		m_time = t;
+		m_prevTime = t;
+		m_finished = false;
+	}
+
 	void AnimPlayer::setLoopOverride(int loop)
 	{
 		m_loopOverride = loop;

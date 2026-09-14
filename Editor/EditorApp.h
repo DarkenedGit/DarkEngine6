@@ -17,6 +17,8 @@
 #include "Math/AABox2f.h"
 #include "Editor/EditorImGui.h"
 #include "Editor/ParticleEditorPanel.h"
+#include "Editor/AnimEditorPanel.h"
+#include "Animation/AnimGraphComponent.h"
 #include "Particles/ParticleComponents.h"
 #include "Particles/ParticleRenderer.h"
 
@@ -125,6 +127,9 @@ private:
     uint32_t editorObjectCount();
     void collectEditorEntities(std::vector<Entity>& out);
     ParticleEmitter* selectedEmitter();
+    AnimGraphComponent* selectedAnimGraph();
+    bool attachAnimGraph(Entity e, const AssetRef<Model>& model);
+    bool ensureAnimGraphOnSelected();
 
     static float snap(float v, float grid);
 
@@ -166,7 +171,9 @@ private:
 
     EditorImGui          m_imgui;
     ParticleEditorPanel  m_particlePanel;
+    AnimEditorPanel      m_animPanel;
     bool                 m_showParticlePanel = true;
+    bool                 m_showAnimPanel     = true;
 
     SceneObjectType m_placeType  = SceneObjectType::Cube;
     int                   m_colorIndex = 0;

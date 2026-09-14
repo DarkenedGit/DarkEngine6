@@ -4,6 +4,8 @@
 #include "third_party/nlohmann/json.hpp"
 
 #include <cstdint>
+#include <fstream>
+#include <string>
 #include <string_view>
 
 namespace Dark
@@ -316,5 +318,212 @@ namespace Dark
 			return false;
 		outModelPath = root["model"].get<std::string>();
 		return !outModelPath.empty();
+	}
+
+	bool initAnimGraphFromSet(AnimGraphDef& out, const AnimationSet& animSet, std::string_view modelPath)
+	{
+		out.defaultState = 0;
+		out.modelPath = std::string(modelPath);
+		out.params.clear();
+		out.states.clear();
+		out.transitions.clear();
+		out.overlayMarkers.clear();
+		out.overlayClipIndex.clear();
+		if (animSet.clipCount() == 0)
+		{
+			DE_LOG_ERROR("AnimGraph: cannot init from empty AnimationSet");
+			return false;
+		}
+		for (uint32_t i = 0; i < animSet.clipCount(); ++i)
+		{
+			const AnimationClip* clip = animSet.clipAt(i);
+			if (!clip)
+				return false;
+			AnimStateDef st;
+			st.name = clip->name.empty() ? ("Clip" + std::to_string(i)) : clip->name;
+			st.clipIndex = i;
+			st.loop = clip->loopDefault;
+			out.states.push_back(std::move(st));
+		}
+		return true;
+	}
+
+	bool writeAnimGraphJson(const AnimGraphDef& def, std::string& outText)
+	{
+		outText.clear();
+		if (!def.animSet || def.states.empty())
+		{
+			DE_LOG_ERROR("AnimGraph: cannot write graph with no states");
+			return false;
+		}
+		if (def.defaultState >= def.states.size())
+		{
+			DE_LOG_ERROR("AnimGraph: defaultState out of range");
+			return false;
+		}
+
+		using ojson = nlohmann::ordered_json;
+		ojson root = ojson::object();
+		root["version"] = 1;
+		if (!def.modelPath.empty())
+			root["model"] = def.modelPath;
+		root["defaultState"] = def.states[def.defaultState].name;
+
+		if (!def.params.empty())
+		{
+			ojson params = ojson::array();
+			for (const AnimParamDef& p : def.params)
+			{
+				ojson jp = ojson::object();
+				jp["name"] = p.name;
+				if (p.type == AnimParamType::Bool)
+				{
+					jp["type"] = "bool";
+					jp["default"] = p.defaultBool;
+				}
+				else if (p.type == AnimParamType::Trigger)
+				{
+					jp["type"] = "trigger";
+				}
+				else
+				{
+					jp["type"] = "float";
+					jp["default"] = p.defaultFloat;
+				}
+				params.push_back(std::move(jp));
+			}
+			root["parameters"] = std::move(params);
+		}
+
+		ojson states = ojson::array();
+		for (const AnimStateDef& st : def.states)
+		{
+			const AnimationClip* clip = def.animSet->clipAt(st.clipIndex);
+			if (!clip)
+			{
+				DE_LOG_ERROR("AnimGraph: state '{}' has invalid clip index", st.name);
+				return false;
+			}
+			ojson js = ojson::object();
+			js["name"] = st.name;
+			js["clip"] = clip->name;
+			js["loop"] = st.loop;
+			if (st.speed != 1.0f)
+				js["speed"] = st.speed;
+			states.push_back(std::move(js));
+		}
+		root["states"] = std::move(states);
+
+		if (!def.transitions.empty())
+		{
+			ojson transitions = ojson::array();
+			for (const AnimTransitionDef& t : def.transitions)
+			{
+				if (t.to >= def.states.size())
+				{
+					DE_LOG_ERROR("AnimGraph: transition to index out of range");
+					return false;
+				}
+				if (t.from != kAnyState && t.from >= def.states.size())
+				{
+					DE_LOG_ERROR("AnimGraph: transition from index out of range");
+					return false;
+				}
+				ojson jt = ojson::object();
+				jt["from"] = (t.from == kAnyState) ? "*" : def.states[t.from].name;
+				jt["to"] = def.states[t.to].name;
+				jt["blend"] = t.blendSec;
+				if (t.canInterrupt)
+					jt["interrupt"] = true;
+				else
+					jt["interrupt"] = false;
+				if (t.onClipEnd)
+					jt["onClipEnd"] = true;
+				if (!t.when.empty())
+				{
+					ojson when = ojson::array();
+					for (const AnimCondition& c : t.when)
+					{
+						if (c.paramIndex >= def.params.size())
+						{
+							DE_LOG_ERROR("AnimGraph: condition param index out of range");
+							return false;
+						}
+						ojson jc = ojson::object();
+						jc["param"] = def.params[c.paramIndex].name;
+						const char* opKey = "gt";
+						switch (c.op)
+						{
+						case AnimCondition::Op::Lt: opKey = "lt"; break;
+						case AnimCondition::Op::Ge: opKey = "ge"; break;
+						case AnimCondition::Op::Le: opKey = "le"; break;
+						case AnimCondition::Op::Eq: opKey = "eq"; break;
+						case AnimCondition::Op::Ne: opKey = "ne"; break;
+						case AnimCondition::Op::Gt:
+						default: opKey = "gt"; break;
+						}
+						if (def.params[c.paramIndex].type == AnimParamType::Float)
+							jc[opKey] = c.floatValue;
+						else
+							jc[opKey] = c.boolValue;
+						when.push_back(std::move(jc));
+					}
+					jt["when"] = std::move(when);
+				}
+				transitions.push_back(std::move(jt));
+			}
+			root["transitions"] = std::move(transitions);
+		}
+
+		if (!def.overlayMarkers.empty())
+		{
+			ojson notifies = ojson::array();
+			const uint32_t count = static_cast<uint32_t>(
+				def.overlayMarkers.size() < def.overlayClipIndex.size() ? def.overlayMarkers.size() : def.overlayClipIndex.size());
+			for (uint32_t i = 0; i < count; ++i)
+			{
+				const AnimationClip* clip = def.animSet->clipAt(def.overlayClipIndex[i]);
+				if (!clip)
+				{
+					DE_LOG_ERROR("AnimGraph: notify clip index out of range");
+					return false;
+				}
+				ojson jn = ojson::object();
+				jn["clip"] = clip->name;
+				jn["name"] = def.overlayMarkers[i].name;
+				jn["time"] = def.overlayMarkers[i].time;
+				if (def.overlayMarkers[i].intPayload != 0)
+					jn["int"] = def.overlayMarkers[i].intPayload;
+				if (def.overlayMarkers[i].floatPayload != 0.0f)
+					jn["float"] = def.overlayMarkers[i].floatPayload;
+				notifies.push_back(std::move(jn));
+			}
+			root["notifies"] = std::move(notifies);
+		}
+
+		outText = root.dump(2);
+		outText += '\n';
+		return true;
+	}
+
+	bool saveAnimGraphJsonFile(const AnimGraphDef& def, const std::filesystem::path& path)
+	{
+		std::string text;
+		if (!writeAnimGraphJson(def, text))
+			return false;
+		std::ofstream out(path, std::ios::binary | std::ios::trunc);
+		if (!out)
+		{
+			DE_LOG_ERROR("AnimGraph: cannot write '{}'", path.string());
+			return false;
+		}
+		out << text;
+		if (!out)
+		{
+			DE_LOG_ERROR("AnimGraph: write failed '{}'", path.string());
+			return false;
+		}
+		DE_LOG_INFO("AnimGraph: saved '{}'", path.string());
+		return true;
 	}
 }
