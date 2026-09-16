@@ -33,7 +33,7 @@ Hosts still link only `DarkEngine` (`target_link_libraries(... DarkEngine)`). La
 
 `Geometry/` is omitted (empty in-tree; tests live under `UnitTests/Geometry`). Each engine `.cpp` is compiled in exactly one target.
 
-Shared `Ui/` (ImGui helpers / styles) is linked into `Editor`, `VisualDebugger`, and `Sandbox`.
+Shared `Ui/` ImGui helpers / styles are linked into `Editor`, `VisualDebugger`, and `Sandbox`. `Ui/MainMenu` (scene picker) compiles into `DarkEngine` so Sandbox / Sandbox2D / UnitTests share it without living in `DarkRender`.
 
 Runtime HLSL lives in `content/shaders/` (the `Shaders/` source folder is not the runtime shader tree).
 
@@ -113,7 +113,7 @@ JSON overlay: `content/loading/engine.json` then `content/loading/<hostId>.json`
 AI/ Assets/ Audio/ Character/ Collision/ Core/ Debug/ ECS/
 Geometry/ Input/ Math/ Network/ Particles/ Render/
 Scene/ Sky/ Sprite/ Terrain/ Water/
-Ui/               shared ImGui helpers (Editor, VisualDebugger, Sandbox)
+Ui/               ImGui helpers (Editor/VD/Sandbox) + MainMenu (in DarkEngine)
 Sandbox/          3D sample
 Sandbox2D/        2D sample
 Editor/           ImGui editor
