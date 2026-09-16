@@ -195,7 +195,7 @@ void EditorApp::drawEditorUi()
             {
                 ImGui::TextWrapped(
                     "Select a particle emitter in the scene (place with Create menu or key 3 then P), "
-                    "or create one below.");
+                    "drag the RGB arrows to move it, or create one below.");
                 if (ImGui::Button(ICON_FA_BOLT "  Create Emitter at Cursor") && !netClientLocked())
                 {
                     m_placeType = SceneObjectType::ParticleEmitter;
@@ -320,7 +320,10 @@ void EditorApp::drawEditorUi()
     }
 
     if (m_sceneMode == SceneMode::Scene3D)
+    {
         drawInspector3D();
+        drawTranslateGizmos();
+    }
 
     drawStatusBar();
 }

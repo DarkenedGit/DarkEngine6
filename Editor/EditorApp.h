@@ -16,6 +16,7 @@
 #include "Editor/EditorObject.h"
 #include "Math/AABox2f.h"
 #include "Editor/EditorImGui.h"
+#include "Editor/TranslateGizmo.h"
 #include "Editor/ParticleEditorPanel.h"
 #include "Editor/AnimEditorPanel.h"
 #include "Editor/HsmEditorPanel.h"
@@ -74,6 +75,9 @@ private:
     bool groundHitFromMouse(Math::Vector3f& outPoint);
     bool groundHitFromRay(const Math::Ray3f& ray, Math::Vector3f& outPoint) const;
     Entity pickObject(const Math::Ray3f& ray);
+    Entity pickSelectedGizmo(const Math::Vector2f& mouse, Dark::EditorDetail::TranslateGizmoAxis& outAxis);
+    void   drawTranslateGizmos();
+    void   applyGizmoDrag(const Math::Ray3f& ray);
 
     Entity spawnObject(SceneObjectType type,
                              const Math::Vector3f& pos,
@@ -203,6 +207,11 @@ private:
     bool m_dragging = false;
     int  m_lmbDownX = 0;
     int  m_lmbDownY = 0;
+    Entity                                 m_gizmoHoverEntity{};
+    Dark::EditorDetail::TranslateGizmoAxis m_gizmoHover    = Dark::EditorDetail::TranslateGizmoAxis::None;
+    Dark::EditorDetail::TranslateGizmoAxis m_gizmoDragAxis = Dark::EditorDetail::TranslateGizmoAxis::None;
+    Math::Vector3f                         m_gizmoDragStart{ 0.0f, 0.0f, 0.0f };
+    Math::Vector3f                         m_gizmoGrabPoint{ 0.0f, 0.0f, 0.0f };
 
     char m_joinAddress[64]{"127.0.0.1"};
 

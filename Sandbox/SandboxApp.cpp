@@ -2844,6 +2844,7 @@ void SandboxApp::onRender()
         m_chase.drawPaths(cmd, renderer(), viewProj);
     drawSkeletonOverlay(cmd, viewProj);
 
+    m_particles.beginFrame(renderer().frameIndex());
     if (m_blood.aliveCount() > 0)
         m_particles.draw(cmd, m_viewCamera, m_blood, false);
     if (WeaponLoadout* wFx = localWeapons(); wFx && wFx->projectile().impactEmitter().aliveCount() > 0)

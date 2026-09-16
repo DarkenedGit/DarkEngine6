@@ -196,6 +196,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
             if (!isLocalLightType(so.type))
                 return;
+            if (!m_selected.valid() || m_selected.id() != e.id())
+                return;
             const auto* xf    = world().get<TransformComponent>(e);
             const auto* light = world().get<LocalLightComponent>(e);
             if (!xf || !light)
@@ -246,12 +248,6 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             return;
         const bool selected = m_selected.valid() && m_selected.id() == e.id();
         float cr = so.color[0], cg = so.color[1], cb = so.color[2];
-        if (so.type == SceneObjectType::ParticleEmitter)
-        {
-            cr = 0.2f;
-            cg = 0.9f;
-            cb = 1.0f;
-        }
         if (selected)
         {
             cr = cr * 0.55f + 1.0f * 0.45f;
@@ -400,6 +396,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         });
     }
 
+    m_particleRenderer.beginFrame(renderer().frameIndex());
     world().each<ParticleEmitterComponent>([&](Entity, ParticleEmitterComponent& pe) {
         if (!pe.runtime)
             return;

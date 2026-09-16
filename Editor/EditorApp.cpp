@@ -289,8 +289,7 @@ const Mesh* EditorApp::meshForType(SceneObjectType type) const
     case SceneObjectType::Sphere:
         return m_sphereMesh.valid() ? &m_sphereMesh : &m_cubeMesh;
     case SceneObjectType::ParticleEmitter:
-        // Small proxy cube marks emitter origin
-        return &m_cubeMesh;
+        return nullptr;
     case SceneObjectType::PointLight:
     case SceneObjectType::SpotLight:
         return nullptr;

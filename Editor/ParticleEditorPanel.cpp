@@ -103,7 +103,7 @@ void ParticleEditorPanel::draw(Dark::ParticleEmitter& emitter, bool* open)
     ImGui::DragFloat3("Shape size", &d.shapeSize.x, 0.02f, 0.0f, 20.0f);
 
     ImGui::Separator();
-    ImGui::TextWrapped("Tip: place an emitter with key 3 / type Particle, select it, and edit here. "
+    ImGui::TextWrapped("Tip: place an emitter with key 3 / type Particle, then drag the RGB arrows to move it. "
                        "Params apply live to the selected emitter.");
 
     ImGui::End();

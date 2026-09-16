@@ -62,11 +62,13 @@ Entity EditorApp::pickObject(const Ray3f& ray)
             const float r = Max(0.35f, range * 0.05f);
             hit           = Collision::Intersect(ray, Sphere3f(xf->position, r));
         }
+        else if (so.type == SceneObjectType::ParticleEmitter)
+        {
+            hit = Collision::Intersect(ray, Sphere3f(xf->position, 0.22f));
+        }
         else
         {
             Vector3f half(0.5f * xf->scale.x, 0.5f * xf->scale.y, 0.5f * xf->scale.z);
-            if (so.type == SceneObjectType::ParticleEmitter)
-                half = Vector3f(0.25f, 0.25f, 0.25f);
             const AABox3f box = AABox3f::FromCenterExtents(xf->position, half);
             hit               = Collision::Intersect(ray, box);
         }
@@ -101,6 +103,61 @@ Entity EditorApp::pickObject(const Ray3f& ray)
     return best;
 }
 
+Entity EditorApp::pickSelectedGizmo(const Vector2f& mouse, TranslateGizmoAxis& outAxis)
+{
+    outAxis = TranslateGizmoAxis::None;
+    if (m_sceneMode != SceneMode::Scene3D || !m_selected.valid())
+        return {};
+
+    const auto* xf = world().get<TransformComponent>(m_selected);
+    if (!xf)
+        return {};
+
+    const float vw = static_cast<float>(renderer().width());
+    const float vh = static_cast<float>(renderer().height());
+    if (vw < 1.0f || vh < 1.0f)
+        return {};
+
+    TranslateGizmoStyle style{};
+    style.selected = true;
+    outAxis = EditorDetail::pickTranslateGizmo(m_camera, xf->position, mouse, vw, vh, style);
+    return outAxis != TranslateGizmoAxis::None ? m_selected : Entity{};
+}
+
+void EditorApp::drawTranslateGizmos()
+{
+    if (m_sceneMode != SceneMode::Scene3D || !m_imgui.isReady() || !m_selected.valid())
+        return;
+    const auto* xf = world().get<TransformComponent>(m_selected);
+    if (!xf)
+        return;
+    const float vw = static_cast<float>(renderer().width());
+    const float vh = static_cast<float>(renderer().height());
+    if (vw < 1.0f || vh < 1.0f)
+        return;
+
+    TranslateGizmoStyle style{};
+    style.selected  = true;
+    style.highlight = (m_gizmoDragAxis != TranslateGizmoAxis::None) ? m_gizmoDragAxis : m_gizmoHover;
+    drawTranslateGizmo(m_camera, xf->position, vw, vh, style);
+}
+
+void EditorApp::applyGizmoDrag(const Ray3f& ray)
+{
+    if (m_gizmoDragAxis == TranslateGizmoAxis::None || !m_selected.valid() || netClientLocked())
+        return;
+    auto* xf = world().get<TransformComponent>(m_selected);
+    if (!xf)
+        return;
+    Vector3f now{};
+    if (!translateDragPoint(m_gizmoDragAxis, ray, m_gizmoDragStart, m_camera.GetLook(), now))
+        return;
+    xf->position = applyTranslateDrag(m_gizmoDragAxis, m_gizmoDragStart, m_gizmoGrabPoint, now, m_gridSnap);
+    syncGlowPairPosition(world(), m_selected);
+    if (ParticleEmitterComponent* pe = world().get<ParticleEmitterComponent>(m_selected); pe && pe->runtime)
+        pe->runtime->setTransform(xf->position, xf->rotation);
+}
+
 Entity EditorApp::spawnObject(
     SceneObjectType type,
     const Vector3f& pos,
@@ -121,13 +178,14 @@ Entity EditorApp::spawnObject(
     xf.position = pos;
     xf.scale    = scale;
     xf.rotation = rot;
-    const bool lightType = isLocalLightType(type);
-    if (m_sceneMode == SceneMode::Scene3D && isScene3DType(type) && type != SceneObjectType::ParticleEmitter && !lightType
+    const bool lightType   = isLocalLightType(type);
+    const bool emitterType = type == SceneObjectType::ParticleEmitter;
+    if (m_sceneMode == SceneMode::Scene3D && isScene3DType(type) && !emitterType && !lightType
         && xf.position.y < 0.5f * xf.scale.y)
         xf.position.y = 0.5f * xf.scale.y;
     world().emplace<TransformComponent>(e, xf);
 
-    if (!lightType)
+    if (!lightType && !emitterType)
     {
         MeshComponent mc{};
         mc.matAssetID  = m_propMaterial ? m_propMaterial->id : NULL_ASSET;
@@ -165,8 +223,6 @@ Entity EditorApp::spawnObject(
         ensureParticleRuntime(pe);
         pe.runtime->setTransform(xf.position, xf.rotation);
         world().emplace<ParticleEmitterComponent>(e, std::move(pe));
-        if (auto* t = world().get<TransformComponent>(e))
-            t->scale = Vector3f(0.35f, 0.35f, 0.35f);
     }
 
     world().emplace<EditorObjectComponent>(e, so);
@@ -301,6 +357,9 @@ void EditorApp::deleteSelected()
         eraseOne(extra);
     m_selected = {};
     m_dragging = false;
+    m_gizmoDragAxis    = TranslateGizmoAxis::None;
+    m_gizmoHover       = TranslateGizmoAxis::None;
+    m_gizmoHoverEntity = {};
     DE_LOG_INFO("Editor: deleted ({} remaining)", editorObjectCount());
 }
 

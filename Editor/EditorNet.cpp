@@ -108,6 +108,9 @@ void EditorApp::discardLocalSceneForJoin()
     }
     m_selected = {};
     m_dragging = false;
+    m_gizmoDragAxis    = TranslateGizmoAxis::None;
+    m_gizmoHover       = TranslateGizmoAxis::None;
+    m_gizmoHoverEntity = {};
 }
 
 void EditorApp::joinNetworkSession()
@@ -281,6 +284,9 @@ void EditorApp::onNetDespawn(World& world, Entity e, NetId id, void* user)
     {
         self->m_selected = {};
         self->m_dragging = false;
+        self->m_gizmoDragAxis    = TranslateGizmoAxis::None;
+        self->m_gizmoHover       = TranslateGizmoAxis::None;
+        self->m_gizmoHoverEntity = {};
     }
 }
 

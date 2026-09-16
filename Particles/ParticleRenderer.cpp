@@ -1,6 +1,7 @@
 #include "Particles/ParticleRenderer.h"
 #include "Particles/ParticleRibbon.h"
 #include "Render/Renderer.h"
+#include "Math/MathHelper.h"
 #include "Core/Log.h"
 
 #include <cstring>
@@ -49,29 +50,42 @@ namespace Dark
             DE_LOG_ERROR("ParticleRenderer: soft streak failed");
             return false;
         }
-        if (!ensureUploadCapacity(renderer, 256))
+        if (!recreateUpload(renderer, 1024))
             return false;
         DE_LOG_INFO("ParticleRenderer: ready");
         return true;
     }
 
+    void ParticleRenderer::unmapUpload()
+    {
+        if (m_uploadVB && m_mapped)
+            m_uploadVB->Unmap(0, nullptr);
+        m_mapped = nullptr;
+        m_gpu    = 0;
+    }
+
     void ParticleRenderer::destroy(Renderer& renderer)
     {
         renderer.waitForGpu();
+        unmapUpload();
         m_uploadVB.Reset();
-        m_uploadCapacityQuads = 0;
-        m_renderer            = nullptr;
+        m_capacityQuads = 0;
+        m_pendingQuads  = 0;
+        m_usedQuads     = 0;
+        m_boundFrame    = ~0u;
+        m_renderer      = nullptr;
     }
 
-    bool ParticleRenderer::ensureUploadCapacity(Renderer& renderer, uint32_t quadCount)
+    bool ParticleRenderer::recreateUpload(Renderer& renderer, uint32_t quadsPerFrame)
     {
-        if (quadCount <= m_uploadCapacityQuads && m_uploadVB)
-            return true;
+        if (quadsPerFrame < 256)
+            quadsPerFrame = 256;
 
         renderer.waitForGpu();
+        unmapUpload();
         m_uploadVB.Reset();
 
-        const uint32_t verts = quadCount * 6u; // two triangles
+        const uint32_t verts = quadsPerFrame * 6u * kFrameCount;
         const uint64_t bytes = static_cast<uint64_t>(verts) * sizeof(ParticleVertex);
 
         D3D12_HEAP_PROPERTIES heap{};
@@ -87,19 +101,45 @@ namespace Dark
 
         if (FailedHr(renderer.device()->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&m_uploadVB)), "Particle upload VB"))
         {
+            m_capacityQuads = 0;
             return false;
         }
 
-        m_uploadCapacityQuads = quadCount;
+        D3D12_RANGE readRange{ 0, 0 };
+        void* mapped = nullptr;
+        if (FailedHr(m_uploadVB->Map(0, &readRange, &mapped), "Map particle VB"))
+        {
+            m_uploadVB.Reset();
+            m_capacityQuads = 0;
+            return false;
+        }
+
+        m_mapped        = static_cast<uint8_t*>(mapped);
+        m_gpu           = m_uploadVB->GetGPUVirtualAddress();
+        m_capacityQuads = quadsPerFrame;
+        m_pendingQuads  = quadsPerFrame;
+        m_usedQuads     = 0;
         return true;
+    }
+
+    void ParticleRenderer::beginFrame(uint32_t frameIndex)
+    {
+        if (m_boundFrame == frameIndex && m_uploadVB)
+            return;
+        if (m_renderer && m_pendingQuads > m_capacityQuads)
+            recreateUpload(*m_renderer, m_pendingQuads);
+        m_boundFrame = frameIndex;
+        m_frameSlot  = frameIndex % kFrameCount;
+        m_usedQuads  = 0;
     }
 
     void ParticleRenderer::draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, const ParticleEmitter& emitter, bool additive)
     {
-        if (!cmd || !m_uploadVB || emitter.aliveCount() == 0)
+        if (!cmd || emitter.aliveCount() == 0)
             return;
-
-        if (!m_renderer || !ensureUploadCapacity(*m_renderer, emitter.aliveCount()))
+        if (m_renderer)
+            beginFrame(m_renderer->frameIndex());
+        if (!m_uploadVB || !m_mapped)
             return;
 
         const Vector3f camRight = camera.GetRight();
@@ -175,11 +215,25 @@ namespace Dark
         if (m_cpuVerts.empty())
             return;
 
-        void* mapped = nullptr;
-        if (FailedHr(m_uploadVB->Map(0, nullptr, &mapped), "Map particle VB"))
+        const uint32_t quads = static_cast<uint32_t>(m_cpuVerts.size() / 6u);
+        if (quads == 0)
             return;
-        std::memcpy(mapped, m_cpuVerts.data(), m_cpuVerts.size() * sizeof(ParticleVertex));
-        m_uploadVB->Unmap(0, nullptr);
+        if (m_usedQuads + quads > m_capacityQuads)
+        {
+            m_pendingQuads = Math::Max(m_pendingQuads, m_usedQuads + quads);
+            if (m_usedQuads == 0 && m_renderer && recreateUpload(*m_renderer, m_pendingQuads))
+            {
+                m_frameSlot = m_boundFrame % kFrameCount;
+            }
+            else
+            {
+                DE_LOG_WARN("ParticleRenderer: upload ring full ({}+{} > {}), skipping emitter", m_usedQuads, quads, m_capacityQuads);
+                return;
+            }
+        }
+
+        const uint32_t vertOffset = particleUploadVertOffset(m_frameSlot, m_capacityQuads, m_usedQuads);
+        std::memcpy(m_mapped + static_cast<size_t>(vertOffset) * sizeof(ParticleVertex), m_cpuVerts.data(), m_cpuVerts.size() * sizeof(ParticleVertex));
 
         ParticlePipeline& pipe = additive ? m_pipeAdditive : m_pipeAlpha;
         pipe.bind(cmd);
@@ -193,13 +247,14 @@ namespace Dark
         sprite.bind(cmd, ParticlePipeline::kRootSrv);
 
         D3D12_VERTEX_BUFFER_VIEW vbv{};
-        vbv.BufferLocation = m_uploadVB->GetGPUVirtualAddress();
+        vbv.BufferLocation = m_gpu + static_cast<UINT64>(vertOffset) * sizeof(ParticleVertex);
         vbv.StrideInBytes  = sizeof(ParticleVertex);
         vbv.SizeInBytes    = static_cast<UINT>(m_cpuVerts.size() * sizeof(ParticleVertex));
 
         cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         cmd->IASetVertexBuffers(0, 1, &vbv);
         cmd->DrawInstanced(static_cast<UINT>(m_cpuVerts.size()), 1, 0, 0);
+        m_usedQuads += quads;
     }
 
 } // namespace Dark

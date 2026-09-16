@@ -170,6 +170,9 @@ void EditorApp::handleEditorCommands(float dt)
         {
             m_selected = {};
             m_dragging = false;
+            m_gizmoDragAxis    = TranslateGizmoAxis::None;
+            m_gizmoHover       = TranslateGizmoAxis::None;
+            m_gizmoHoverEntity = {};
         }
         else
             requestQuit();
@@ -247,11 +250,29 @@ void EditorApp::handleEditorCommands(float dt)
             placeAtCursor(m_placeType);
     }
 
+    if (m_sceneMode == SceneMode::Scene3D && !m_dragging)
+    {
+        if (uiMouse)
+        {
+            m_gizmoHoverEntity = {};
+            m_gizmoHover       = TranslateGizmoAxis::None;
+        }
+        else
+        {
+            const Vector2f mouse(static_cast<float>(input().mouseX()), static_cast<float>(input().mouseY()));
+            TranslateGizmoAxis hover = TranslateGizmoAxis::None;
+            Entity hoverEnt = pickSelectedGizmo(mouse, hover);
+            m_gizmoHoverEntity = hoverEnt;
+            m_gizmoHover       = hover;
+        }
+    }
+
     if (!uiMouse && input().mousePressed(MouseButton::Left))
     {
         m_lmbDownX = input().mouseX();
         m_lmbDownY = input().mouseY();
         Entity hit{};
+        TranslateGizmoAxis gizmoAxis = TranslateGizmoAxis::None;
         if (m_sceneMode == SceneMode::Scene2D)
         {
             Vector2f p{};
@@ -260,26 +281,66 @@ void EditorApp::handleEditorCommands(float dt)
         }
         else
         {
-            const Ray3f ray = m_camera.ScreenPointToRay(
-                static_cast<float>(input().mouseX()),
-                static_cast<float>(input().mouseY()),
-                static_cast<float>(renderer().width()),
-                static_cast<float>(renderer().height()));
-            hit = pickObject(ray);
+            const Vector2f mouse(static_cast<float>(input().mouseX()), static_cast<float>(input().mouseY()));
+            hit = pickSelectedGizmo(mouse, gizmoAxis);
+            if (!hit.valid())
+            {
+                const Ray3f ray = m_camera.ScreenPointToRay(
+                    static_cast<float>(input().mouseX()),
+                    static_cast<float>(input().mouseY()),
+                    static_cast<float>(renderer().width()),
+                    static_cast<float>(renderer().height()));
+                hit = pickObject(ray);
+            }
         }
         if (hit.valid())
         {
             m_selected = hit;
-            m_dragging = true;
+            m_gizmoDragAxis = TranslateGizmoAxis::None;
+            if (m_sceneMode == SceneMode::Scene2D)
+            {
+                m_dragging = true;
+            }
+            else if (gizmoAxis != TranslateGizmoAxis::None && !netClientLocked())
+            {
+                if (const auto* xf = world().get<TransformComponent>(hit))
+                {
+                    const Ray3f ray = m_camera.ScreenPointToRay(
+                        static_cast<float>(input().mouseX()),
+                        static_cast<float>(input().mouseY()),
+                        static_cast<float>(renderer().width()),
+                        static_cast<float>(renderer().height()));
+                    Vector3f grab{};
+                    if (translateDragPoint(gizmoAxis, ray, xf->position, m_camera.GetLook(), grab))
+                    {
+                        m_dragging         = true;
+                        m_gizmoDragAxis    = gizmoAxis;
+                        m_gizmoHover       = gizmoAxis;
+                        m_gizmoHoverEntity = hit;
+                        m_gizmoDragStart   = xf->position;
+                        m_gizmoGrabPoint   = grab;
+                    }
+                }
+            }
+            else
+            {
+                m_dragging = false;
+            }
         }
         else
         {
             m_selected = {};
             m_dragging = false;
+            m_gizmoDragAxis    = TranslateGizmoAxis::None;
+            m_gizmoHover       = TranslateGizmoAxis::None;
+            m_gizmoHoverEntity = {};
         }
     }
     if (input().mouseReleased(MouseButton::Left))
-        m_dragging = false;
+    {
+        m_dragging      = false;
+        m_gizmoDragAxis = TranslateGizmoAxis::None;
+    }
 
     if (!uiMouse && m_dragging && m_selected.valid() && input().mouseDown(MouseButton::Left)
         && !netClientLocked())
@@ -299,6 +360,15 @@ void EditorApp::handleEditorCommands(float dt)
                 xf->position.y = p.y;
             }
         }
+        else if (m_gizmoDragAxis != TranslateGizmoAxis::None)
+        {
+            const Ray3f ray = m_camera.ScreenPointToRay(
+                static_cast<float>(input().mouseX()),
+                static_cast<float>(input().mouseY()),
+                static_cast<float>(renderer().width()),
+                static_cast<float>(renderer().height()));
+            applyGizmoDrag(ray);
+        }
         else
         {
             Vector3f hit{};
@@ -314,14 +384,9 @@ void EditorApp::handleEditorCommands(float dt)
                     xf->position.x = hit.x;
                     xf->position.z = hit.z;
                     EditorObjectComponent* so = findObject(m_selected);
-                    if (so && so->type == SceneObjectType::ParticleEmitter)
-                        xf->position.y = 0.5f;
-                    else if (!keepsPlacedHeight(world(), so, m_selected))
+                    if (!keepsPlacedHeight(world(), so, m_selected))
                         xf->position.y = 0.5f * xf->scale.y;
                     syncGlowPairPosition(world(), m_selected);
-
-                    if (ParticleEmitterComponent* pe = world().get<ParticleEmitterComponent>(m_selected); pe && pe->runtime)
-                        pe->runtime->setTransform(xf->position, xf->rotation);
                 }
             }
         }

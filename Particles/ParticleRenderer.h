@@ -16,14 +16,27 @@ namespace Dark
 
     class Renderer;
 
+    // Vertex offset into a 2-frame upload ring. Each draw must use a unique range
+    // so later Map/memcpy cannot clobber an in-flight DrawInstanced.
+    inline uint32_t particleUploadVertOffset(uint32_t frameSlot, uint32_t quadsPerFrame, uint32_t usedQuads)
+    {
+        return (frameSlot * quadsPerFrame + usedQuads) * 6u;
+    }
+
     // Builds camera-facing quads from CPU particles and draws with ParticlePipeline.
     class ParticleRenderer
     {
     public:
+        static constexpr uint32_t kFrameCount = 2;
+
         ParticleRenderer() = default;
 
         bool create(Renderer& renderer);
         void destroy(Renderer& renderer);
+
+        // Pin the bump allocator to this Renderer::frameIndex() slot. Safe to call
+        // every draw; only the first call of a frame resets the write cursor.
+        void beginFrame(uint32_t frameIndex);
 
         // Upload + draw all alive particles in emitter.
         void draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, const ParticleEmitter& emitter, bool additive);
@@ -34,7 +47,8 @@ namespace Dark
         }
 
     private:
-        bool ensureUploadCapacity(Renderer& renderer, uint32_t quadCount);
+        bool recreateUpload(Renderer& renderer, uint32_t quadsPerFrame);
+        void unmapUpload();
 
         ParticlePipeline m_pipeAdditive;
         ParticlePipeline m_pipeAlpha;
@@ -42,7 +56,13 @@ namespace Dark
         Texture2D        m_streak;
 
         Microsoft::WRL::ComPtr<ID3D12Resource> m_uploadVB;
-        uint32_t                               m_uploadCapacityQuads = 0;
+        uint8_t*                               m_mapped              = nullptr;
+        D3D12_GPU_VIRTUAL_ADDRESS              m_gpu                 = 0;
+        uint32_t                               m_capacityQuads       = 0;
+        uint32_t                               m_pendingQuads        = 0;
+        uint32_t                               m_usedQuads           = 0;
+        uint32_t                               m_frameSlot           = 0;
+        uint32_t                               m_boundFrame          = ~0u;
 
         std::vector<ParticleVertex> m_cpuVerts;
         Renderer*                   m_renderer = nullptr;
