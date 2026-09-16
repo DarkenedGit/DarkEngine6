@@ -1586,7 +1586,7 @@ void SandboxApp::spawnHybridLocalLights()
     muzzle.enabled   = false;
     m_muzzleTimer    = 0.0f;
 
-    // Â±1.2 from pack/tree XZ so 0.22 cubes sit outside trunks (r=0.5) and health crosses.
+    // ±1.2 from pack/tree XZ so 0.22 cubes sit outside trunks (r=0.5) and health crosses.
     const Vector3f spots[] = {
         { 6.2f, 0.0f, 5.0f },
         { -8.2f, 0.0f, 7.0f },
@@ -2120,7 +2120,7 @@ void SandboxApp::onInit()
         m_menu.show();
 
     if (!m_imgui.init(window(), renderer(), "sandbox_imgui.ini", false, UiAccent::Sandbox))
-        DE_LOG_WARN("SandboxApp: ImGui init failed â€” Dev Tools (M) disabled");
+        DE_LOG_WARN("SandboxApp: ImGui init failed — Dev Tools (M) disabled");
     if (!pumpBootFrame())
         return;
 
@@ -2481,7 +2481,7 @@ void SandboxApp::onRender()
         {
             m_shadows.beginCascade(cmd, i);
             const Frustum3f casterFrustum(m_shadows.cascade(i).viewProj);
-            // Opaque casters only â€” same set as G-buffer / forward color. Water, particles, blood, lines stay out.
+            // Opaque casters only — same set as G-buffer / forward color. Water, particles, blood, lines stay out.
             m_terrain.drawDepth(cmd, &casterFrustum);
             world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
                 if (world().has<ModelComponent>(e))
