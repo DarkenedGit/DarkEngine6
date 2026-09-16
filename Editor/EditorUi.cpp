@@ -27,6 +27,8 @@
 #include "Render/ModelDraw.h"
 #include "Assets/Model.h"
 #include "Assets/Material.h"
+#include "Particles/ParticleMaterials.h"
+#include "Core/EntityPins.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
 
@@ -192,6 +194,14 @@ void EditorApp::drawEditorUi()
                 em->emitBurst(burst);
             if (const auto* xf = world().get<TransformComponent>(m_selected))
                 em->setTransform(xf->position, xf->rotation);
+            if (ParticleEmitterComponent* pe = world().get<ParticleEmitterComponent>(m_selected))
+            {
+                const bool ribbon = em->desc().renderMode == ParticleEmitterDesc::RenderMode::Ribbon;
+                AssetRef<Material> want  = internParticleSpriteMaterial(assets(), ribbon);
+                AssetRef<Material> other = internParticleSpriteMaterial(assets(), !ribbon);
+                if (want && (pe->matAssetID == NULL_ASSET || (other && pe->matAssetID == other->id)))
+                    setParticleMaterial(world(), pins(), assets(), m_selected, want->id);
+            }
         }
         else
         {
@@ -516,6 +526,13 @@ void EditorApp::drawInspector3D()
             }
         }
         ImGui::DragFloat("Source radius", &light->sourceRadius, 0.005f, 0.0f, 2.0f);
+    }
+    else if (world().get<ParticleEmitterComponent>(m_selected))
+    {
+        if (ImGui::Button("Open Material"))
+            m_showMaterialEditor = true;
+        ImGui::TextDisabled("Sprite albedo is on the Material panel. Emitter colors stay here:");
+        // Start/end color live on the Particle System panel.
     }
     else
     {

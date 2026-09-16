@@ -270,6 +270,16 @@ namespace Dark
         return internLoadedLocked<Image>(key, img);
     }
 
+    AssetRef<Image> AssetManager::internImage(AssetRef<Image> image, const std::string& cacheKey)
+    {
+        if (cacheKey.empty())
+        {
+            DE_LOG_ERROR("AssetManager::internImage: empty cache key");
+            return {};
+        }
+        return internDecodedImage(cacheKey, std::move(image));
+    }
+
     AssetRef<Image> AssetManager::loadImageFile(const std::filesystem::path& absPath)
     {
         const std::string key = ImageCache::fileKey(absPath);

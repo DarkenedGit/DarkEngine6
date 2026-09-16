@@ -11,6 +11,7 @@ namespace Dark
     class AssetPinTable;
     class World;
     struct SoundEmitterComponent;
+    struct ParticleEmitterComponent;
 
     void pinMeshComponent(AssetPinTable& pins, AssetManager& assets, const MeshComponent& mc);
     void unpinMeshComponent(AssetPinTable& pins, const MeshComponent& mc);
@@ -24,6 +25,10 @@ namespace Dark
     void pinSoundEmitter(AssetPinTable& pins, AssetManager& assets, const SoundEmitterComponent& se);
     void unpinSoundEmitter(AssetPinTable& pins, const SoundEmitterComponent& se);
     void setSoundEmitterClip(World& world, AssetPinTable& pins, AssetManager& assets, Entity e, AssetID clipId);
+
+    void pinParticleEmitter(AssetPinTable& pins, AssetManager& assets, const ParticleEmitterComponent& pe);
+    void unpinParticleEmitter(AssetPinTable& pins, const ParticleEmitterComponent& pe);
+    void setParticleMaterial(World& world, AssetPinTable& pins, AssetManager& assets, Entity e, AssetID matId);
 
     // Unpin Mesh/Model/Sound. Never calls world.destroyEntity.
     void onEntityRemoved(World& world, Entity e, AssetPinTable* pins);

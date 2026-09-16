@@ -129,6 +129,7 @@ private:
     AssetRef<Material> meshMaterialOf(Entity e);
     bool               meshMaterialShared(AssetID id);
     AssetRef<Material> ensureUniqueMeshMaterial(Entity e);
+    AssetRef<Material> ensureUniqueParticleMaterial(Entity e);
 
     ParticleEmitterDesc makeDefaultParticleDesc() const;
 

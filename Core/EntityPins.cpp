@@ -2,6 +2,7 @@
 
 #include "Assets/AssetManager.h"
 #include "Audio/SoundComponents.h"
+#include "Particles/ParticleComponents.h"
 #include "Core/AssetPinTable.h"
 #include "Core/Log.h"
 #include "ECS/World.h"
@@ -97,6 +98,31 @@ namespace Dark
         pins.pin(assets, clipId);
     }
 
+    void pinParticleEmitter(AssetPinTable& pins, AssetManager& assets, const ParticleEmitterComponent& pe)
+    {
+        pins.pin(assets, pe.matAssetID);
+    }
+
+    void unpinParticleEmitter(AssetPinTable& pins, const ParticleEmitterComponent& pe)
+    {
+        pins.unpin(pe.matAssetID);
+    }
+
+    void setParticleMaterial(World& world, AssetPinTable& pins, AssetManager& assets, Entity e, AssetID matId)
+    {
+        ParticleEmitterComponent* pe = world.get<ParticleEmitterComponent>(e);
+        if (!pe)
+        {
+            DE_LOG_ERROR("setParticleMaterial: entity has no ParticleEmitterComponent");
+            return;
+        }
+        if (pe->matAssetID == matId)
+            return;
+        pins.unpin(pe->matAssetID);
+        pe->matAssetID = matId;
+        pins.pin(assets, matId);
+    }
+
     void onEntityRemoved(World& world, Entity e, AssetPinTable* pins)
     {
         if (!pins || !world.alive(e))
@@ -107,6 +133,8 @@ namespace Dark
             unpinModelComponent(*pins, *mo);
         if (const SoundEmitterComponent* se = world.get<SoundEmitterComponent>(e))
             unpinSoundEmitter(*pins, *se);
+        if (const ParticleEmitterComponent* pe = world.get<ParticleEmitterComponent>(e))
+            unpinParticleEmitter(*pins, *pe);
     }
 
 } // namespace Dark

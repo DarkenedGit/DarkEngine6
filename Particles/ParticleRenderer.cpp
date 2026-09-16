@@ -1,6 +1,10 @@
 #include "Particles/ParticleRenderer.h"
+#include "Particles/ParticleMaterials.h"
 #include "Particles/ParticleRibbon.h"
+#include "Assets/AssetManager.h"
 #include "Render/Renderer.h"
+#include "Render/GpuResourceCache.h"
+#include "Render/Texture2D.h"
 #include "Math/MathHelper.h"
 #include "Core/Log.h"
 
@@ -29,9 +33,11 @@ namespace Dark
             out[3] = a[3] + (b[3] - a[3]) * t;
         }
 
+        constexpr float kParticleEmissiveGain = 4.0f;
+
     } // namespace
 
-    bool ParticleRenderer::create(Renderer& renderer)
+    bool ParticleRenderer::create(Renderer& renderer, AssetManager& assets)
     {
         m_renderer = &renderer;
         const DXGI_FORMAT colorFormat = renderer.sceneColorFormat();
@@ -40,14 +46,17 @@ namespace Dark
             DE_LOG_ERROR("ParticleRenderer: pipeline create failed");
             return false;
         }
-        if (!m_sprite.createSoftCircle(renderer, 64))
+        m_billboardMat = internParticleSpriteMaterial(assets, false);
+        m_ribbonMat    = internParticleSpriteMaterial(assets, true);
+        if (!m_billboardMat || !m_ribbonMat)
         {
-            DE_LOG_ERROR("ParticleRenderer: soft sprite failed");
+            DE_LOG_ERROR("ParticleRenderer: default sprite materials failed");
             return false;
         }
-        if (!m_streak.createSoftStreak(renderer, 64))
+        GpuResourceCache& gpu = renderer.gpuResources();
+        if (!gpu.ensureMaterial(m_billboardMat) || !gpu.ensureMaterial(m_ribbonMat))
         {
-            DE_LOG_ERROR("ParticleRenderer: soft streak failed");
+            DE_LOG_ERROR("ParticleRenderer: default sprite GPU materials failed");
             return false;
         }
         if (!recreateUpload(renderer, 1024))
@@ -73,6 +82,8 @@ namespace Dark
         m_pendingQuads  = 0;
         m_usedQuads     = 0;
         m_boundFrame    = ~0u;
+        m_billboardMat.reset();
+        m_ribbonMat.reset();
         m_renderer      = nullptr;
     }
 
@@ -133,7 +144,8 @@ namespace Dark
         m_usedQuads  = 0;
     }
 
-    void ParticleRenderer::draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, const ParticleEmitter& emitter, bool additive)
+    void ParticleRenderer::draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, const ParticleEmitter& emitter, bool additive,
+                                const Material* material)
     {
         if (!cmd || emitter.aliveCount() == 0)
             return;
@@ -215,6 +227,22 @@ namespace Dark
         if (m_cpuVerts.empty())
             return;
 
+        const Material* surf = material;
+        if (!surf || !surf->isValid())
+            surf = ribbon ? m_ribbonMat.get() : m_billboardMat.get();
+        if (surf)
+        {
+            const float* bc = surf->baseColor();
+            const float  e  = 1.0f + surf->emissive() * kParticleEmissiveGain;
+            for (ParticleVertex& v : m_cpuVerts)
+            {
+                v.r *= bc[0] * e;
+                v.g *= bc[1] * e;
+                v.b *= bc[2] * e;
+                v.a *= bc[3];
+            }
+        }
+
         const uint32_t quads = static_cast<uint32_t>(m_cpuVerts.size() / 6u);
         if (quads == 0)
             return;
@@ -243,8 +271,22 @@ namespace Dark
         std::memcpy(fc.viewProj, vp.m_afEntry, sizeof(float) * 16);
         pipe.setConstants(cmd, fc);
 
-        Texture2D& sprite = ribbon ? m_streak : m_sprite;
-        sprite.bind(cmd, ParticlePipeline::kRootSrv);
+        GpuResourceCache& gpu = m_renderer->gpuResources();
+        const Material*   bindMat = (material && material->isValid() && material->id != NULL_ASSET)
+            ? material
+            : (ribbon ? m_ribbonMat.get() : m_billboardMat.get());
+        if (!bindMat || !bindMat->albedo() || bindMat->albedo()->id == NULL_ASSET)
+            return;
+        if (AssetRef<Material> held = gpu.cpuMaterial(bindMat->id))
+            gpu.ensureMaterial(held);
+        else if (m_billboardMat && bindMat->id == m_billboardMat->id)
+            gpu.ensureMaterial(m_billboardMat);
+        else if (m_ribbonMat && bindMat->id == m_ribbonMat->id)
+            gpu.ensureMaterial(m_ribbonMat);
+        std::shared_ptr<Texture2D> tex = gpu.texture(bindMat->albedo()->id);
+        if (!tex || !tex->valid())
+            return;
+        tex->bind(cmd, ParticlePipeline::kRootSrv);
 
         D3D12_VERTEX_BUFFER_VIEW vbv{};
         vbv.BufferLocation = m_gpu + static_cast<UINT64>(vertOffset) * sizeof(ParticleVertex);

@@ -3,6 +3,8 @@
 #include "Assets/GltfMaterialSave.h"
 #include "Assets/Material.h"
 #include "Assets/Model.h"
+#include "Particles/ParticleComponents.h"
+#include "Particles/ParticleMaterials.h"
 #include "Animation/AnimGraphComponent.h"
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
@@ -168,9 +170,17 @@ bool EditorApp::meshMaterialShared(AssetID id)
         return true;
     if (m_groundMaterial && id == m_groundMaterial->id)
         return true;
+    if (AssetRef<Material> billboard = internParticleSpriteMaterial(assets(), false); billboard && id == billboard->id)
+        return true;
+    if (AssetRef<Material> ribbon = internParticleSpriteMaterial(assets(), true); ribbon && id == ribbon->id)
+        return true;
     int users = 0;
     world().each<MeshComponent>([&](Entity, MeshComponent& mc) {
         if (mc.matAssetID == id)
+            ++users;
+    });
+    world().each<ParticleEmitterComponent>([&](Entity, ParticleEmitterComponent& pe) {
+        if (pe.matAssetID == id)
             ++users;
     });
     return users > 1;
@@ -200,6 +210,35 @@ AssetRef<Material> EditorApp::ensureUniqueMeshMaterial(Entity e)
     if (!cloned || cloned->id == NULL_ASSET || !renderer().gpuResources().ensureMaterial(cloned))
         return src;
     setMeshMaterial(world(), pins(), assets(), e, cloned->id);
+    return cloned;
+}
+
+AssetRef<Material> EditorApp::ensureUniqueParticleMaterial(Entity e)
+{
+    ParticleEmitterComponent* pe = (e.valid() && world().alive(e)) ? world().get<ParticleEmitterComponent>(e) : nullptr;
+    if (!pe)
+        return {};
+
+    AssetRef<Material> src = assets().getAs<Material>(pe->matAssetID);
+    if (!src)
+    {
+        const bool ribbon = pe->runtime ? pe->runtime->desc().renderMode == ParticleEmitterDesc::RenderMode::Ribbon
+                                        : pe->desc.renderMode == ParticleEmitterDesc::RenderMode::Ribbon;
+        src = internParticleSpriteMaterial(assets(), ribbon);
+    }
+    if (!src)
+        return {};
+
+    if (pe->matAssetID != NULL_ASSET && !meshMaterialShared(pe->matAssetID))
+        return src;
+
+    auto cloned = std::make_shared<Material>();
+    if (!cloned->copyFrom(*src))
+        return src;
+    cloned = assets().internMaterial(cloned);
+    if (!cloned || cloned->id == NULL_ASSET || !renderer().gpuResources().ensureMaterial(cloned))
+        return src;
+    setParticleMaterial(world(), pins(), assets(), e, cloned->id);
     return cloned;
 }
 
@@ -393,8 +432,9 @@ void EditorApp::drawMaterialPanel()
         return;
     }
 
-    Material* mat          = nullptr;
-    bool      meshInstance = false;
+    Material* mat             = nullptr;
+    bool      meshInstance    = false;
+    bool      particleInstance = false;
     if (world().get<ModelComponent>(m_selected))
     {
         const Model::Part* part = selectedModelPart();
@@ -429,6 +469,28 @@ void EditorApp::drawMaterialPanel()
         if (meshMaterialShared(meshMat->id))
             ImGui::TextDisabled("Shared until edited — first change makes a unique copy.");
     }
+    else if (ParticleEmitterComponent* pe = world().get<ParticleEmitterComponent>(m_selected))
+    {
+        AssetRef<Material> sprite = assets().getAs<Material>(pe->matAssetID);
+        if (!sprite)
+        {
+            const bool ribbon = pe->runtime ? pe->runtime->desc().renderMode == ParticleEmitterDesc::RenderMode::Ribbon
+                                            : pe->desc.renderMode == ParticleEmitterDesc::RenderMode::Ribbon;
+            sprite = internParticleSpriteMaterial(assets(), ribbon);
+        }
+        if (!sprite)
+        {
+            ImGui::TextWrapped("This emitter has no material.");
+            ImGui::End();
+            return;
+        }
+        mat               = sprite.get();
+        particleInstance  = true;
+        ImGui::TextUnformatted("Selected: Particle Emitter");
+        ImGui::TextDisabled("Albedo is the particle sprite. Vertex color still comes from the emitter.");
+        if (meshMaterialShared(sprite->id))
+            ImGui::TextDisabled("Shared until edited — first change makes a unique copy.");
+    }
     else
     {
         ImGui::TextWrapped("This object has no material.");
@@ -448,13 +510,25 @@ void EditorApp::drawMaterialPanel()
             color[2] = so->color[2];
         }
     }
-    if (ImGui::ColorEdit4("Base Color", color))
-    {
-        Material* edit = mat;
+    auto uniqueForEdit = [&]() -> Material* {
         if (meshInstance)
         {
             if (AssetRef<Material> unique = ensureUniqueMeshMaterial(m_selected))
-                edit = unique.get();
+                return unique.get();
+        }
+        else if (particleInstance)
+        {
+            if (AssetRef<Material> unique = ensureUniqueParticleMaterial(m_selected))
+                return unique.get();
+        }
+        return mat;
+    };
+
+    if (ImGui::ColorEdit4("Base Color", color))
+    {
+        Material* edit = uniqueForEdit();
+        if (meshInstance)
+        {
             if (EditorObjectComponent* so = findObject(m_selected))
             {
                 so->color[0] = color[0];
@@ -470,40 +544,32 @@ void EditorApp::drawMaterialPanel()
     float roughness = mat->roughness();
     if (ImGui::SliderFloat("Metallic", &metallic, 0.0f, 1.0f))
     {
-        Material* edit = mat;
-        if (meshInstance)
-        {
-            if (AssetRef<Material> unique = ensureUniqueMeshMaterial(m_selected))
-                edit = unique.get();
-        }
-        if (edit)
+        if (Material* edit = uniqueForEdit())
             edit->setMetallicRoughness(metallic, roughness);
     }
     if (ImGui::SliderFloat("Roughness", &roughness, 0.0f, 1.0f))
     {
-        Material* edit = mat;
-        if (meshInstance)
-        {
-            if (AssetRef<Material> unique = ensureUniqueMeshMaterial(m_selected))
-                edit = unique.get();
-        }
-        if (edit)
+        if (Material* edit = uniqueForEdit())
             edit->setMetallicRoughness(metallic, roughness);
     }
+
+    float emissive = mat->emissive();
+    if (ImGui::SliderFloat("Emissive", &emissive, 0.0f, 4.0f))
+    {
+        if (Material* edit = uniqueForEdit())
+            edit->setEmissive(emissive);
+    }
+    if (particleInstance)
+        ImGui::TextDisabled("Emissive scales HDR brightness (bloom). Additive emitters already self-light.");
 
     int         mode      = static_cast<int>(mat->alphaMode());
     const char* modes[]   = { "Opaque", "Mask", "Blend" };
     if (ImGui::Combo("Alpha Mode", &mode, modes, 3))
     {
-        Material* edit = mat;
-        if (meshInstance)
-        {
-            if (AssetRef<Material> unique = ensureUniqueMeshMaterial(m_selected))
-                edit = unique.get();
-        }
-        if (edit)
+        if (Material* edit = uniqueForEdit())
             edit->setAlphaMode(static_cast<MaterialAlphaMode>(mode));
     }
-    ImGui::TextDisabled(meshInstance ? "Edits apply live to this object." : "Color / metal / rough update live. Alpha mode is stored on Save.");
+    ImGui::TextDisabled(meshInstance || particleInstance ? "Edits apply live to this object."
+                                                         : "Color / metal / rough update live. Alpha mode is stored on Save.");
     ImGui::End();
 }

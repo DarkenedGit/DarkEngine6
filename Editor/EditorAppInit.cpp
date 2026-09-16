@@ -134,7 +134,7 @@ void EditorApp::onInit()
         return;
     if (!pumpBootFrame())
         return;
-    if (!m_particleRenderer.create(renderer()))
+    if (!m_particleRenderer.create(renderer(), assets()))
     {
         DE_LOG_FATAL("EditorApp: particle renderer failed");
         requestQuit();

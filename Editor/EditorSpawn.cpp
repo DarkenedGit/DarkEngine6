@@ -27,6 +27,9 @@
 #include "Render/TaaJitter.h"
 #include "Render/ModelDraw.h"
 #include "Assets/Model.h"
+#include "Assets/Material.h"
+#include "Particles/ParticleMaterials.h"
+#include "Render/GpuResourceCache.h"
 #include "Collision/Collision.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
@@ -237,9 +240,17 @@ Entity EditorApp::spawnObject(
         ParticleEmitterComponent pe{};
         pe.desc    = particleDesc ? *particleDesc : makeDefaultParticleDesc();
         pe.playing = true;
+        const bool ribbon = pe.desc.renderMode == ParticleEmitterDesc::RenderMode::Ribbon;
+        if (AssetRef<Material> sprite = internParticleSpriteMaterial(assets(), ribbon))
+        {
+            renderer().gpuResources().ensureMaterial(sprite);
+            pe.matAssetID = sprite->id;
+        }
         ensureParticleRuntime(pe);
         pe.runtime->setTransform(xf.position, xf.rotation);
         world().emplace<ParticleEmitterComponent>(e, std::move(pe));
+        if (const auto* spawned = world().get<ParticleEmitterComponent>(e))
+            pinParticleEmitter(pins(), assets(), *spawned);
     }
 
     world().emplace<EditorObjectComponent>(e, so);

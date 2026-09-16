@@ -62,6 +62,7 @@ namespace Dark
         AssetRef<class Image> loadImageFile(const std::filesystem::path& absPath);
         AssetRef<class Image> loadSolidImage(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
         AssetRef<class Image> loadMemoryImage(const std::string& key, const void* bytes, size_t byteCount);
+        AssetRef<class Image> internImage(AssetRef<class Image> image, const std::string& cacheKey);
 
         // Cached glTF / GLB. Same resolved path returns the same Model instance.
         // Interns Model + AnimationSet only. Does not load *.anim.json.

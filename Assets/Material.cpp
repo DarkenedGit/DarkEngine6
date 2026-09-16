@@ -62,6 +62,7 @@ namespace Dark
         m_baseColor[3] = src.m_baseColor[3];
         m_metallic     = src.m_metallic;
         m_roughness    = src.m_roughness;
+        m_emissive     = src.m_emissive;
         m_alphaMode    = src.m_alphaMode;
         return true;
     }
@@ -80,6 +81,11 @@ namespace Dark
         m_baseColor[3] = a;
     }
 
+    void Material::setEmissive(float emissive)
+    {
+        m_emissive = emissive < 0.0f ? 0.0f : emissive;
+    }
+
     uint64_t Material::sortKey() const
     {
         return id;
@@ -90,7 +96,7 @@ namespace Dark
         char buf[256];
         const float* c   = m.baseColor();
         const AssetID aid = (m.albedo() && m.albedo()->id != NULL_ASSET) ? m.albedo()->id : NULL_ASSET;
-        std::snprintf(buf, sizeof(buf), "m:%llu:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%u",
+        std::snprintf(buf, sizeof(buf), "m:%llu:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%u",
                       static_cast<unsigned long long>(aid),
                       static_cast<double>(c[0]),
                       static_cast<double>(c[1]),
@@ -98,6 +104,7 @@ namespace Dark
                       static_cast<double>(c[3]),
                       static_cast<double>(m.metallic()),
                       static_cast<double>(m.roughness()),
+                      static_cast<double>(m.emissive()),
                       static_cast<unsigned>(m.alphaMode()));
         return buf;
     }

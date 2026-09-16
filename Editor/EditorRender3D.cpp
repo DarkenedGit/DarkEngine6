@@ -142,7 +142,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             gcb.color[0] = cr;
             gcb.color[1] = cg;
             gcb.color[2] = cb;
-            gcb.color[3] = emissive;
+            gcb.color[3] = Max(emissive, material && material->isValid() ? material->emissive() : 0.0f);
             m_meshPipeline.setGBufferConstants(cmd, gcb);
         }
         else
@@ -443,7 +443,13 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     world().each<ParticleEmitterComponent>([&](Entity, ParticleEmitterComponent& pe) {
         if (!pe.runtime)
             return;
-        m_particleRenderer.draw(cmd, m_camera, *pe.runtime, pe.runtime->desc().additiveBlend);
+        const Material* sprite = nullptr;
+        if (AssetRef<Material> mat = assets().getAs<Material>(pe.matAssetID))
+        {
+            gpu.ensureMaterial(mat);
+            sprite = mat.get();
+        }
+        m_particleRenderer.draw(cmd, m_camera, *pe.runtime, pe.runtime->desc().additiveBlend, sprite);
         ++draws;
     });
 

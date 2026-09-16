@@ -2071,7 +2071,7 @@ void SandboxApp::onInit()
         DE_LOG_ERROR("SandboxApp: health HUD failed");
     if (!m_crosshair.create(renderer()))
         DE_LOG_ERROR("SandboxApp: crosshair HUD failed");
-    if (!m_particles.create(renderer()))
+    if (!m_particles.create(renderer(), assets()))
         DE_LOG_ERROR("SandboxApp: particle renderer failed");
     if (!m_bloodSplats.create(renderer()))
         DE_LOG_ERROR("SandboxApp: blood splat pool failed");

@@ -46,6 +46,10 @@ namespace Dark
         void              setAlphaMode(MaterialAlphaMode mode) { m_alphaMode = mode; }
         MaterialAlphaMode alphaMode() const { return m_alphaMode; }
 
+        // Self-illumination. Meshes write this into G-buffer RT0.a; particles scale HDR rgb.
+        void  setEmissive(float emissive);
+        float emissive() const { return m_emissive; }
+
         bool isValid() const { return m_albedo && m_albedo->valid(); }
         uint64_t sortKey() const;
 
@@ -56,10 +60,11 @@ namespace Dark
         float             m_baseColor[4]{ 1.0f, 1.0f, 1.0f, 1.0f };
         float             m_metallic  = 0.0f;
         float             m_roughness = 1.0f;
+        float             m_emissive  = 0.0f;
         MaterialAlphaMode m_alphaMode = MaterialAlphaMode::Opaque;
     };
 
-    // "m:{albedoId}:{r}:{g}:{b}:{a}:{metallic}:{roughness}:{alphaMode}"
+    // "m:{albedoId}:{r}:{g}:{b}:{a}:{metallic}:{roughness}:{emissive}:{alphaMode}"
     std::string materialRecipeKey(const Material& m);
 
 } // namespace Dark

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Particles/ParticleEmitter.h"
+#include "Assets/AssetHandle.h"
 
 #include <memory>
 
@@ -13,6 +14,7 @@ namespace Dark
 
         ParticleEmitterDesc              desc{};
         bool                             playing = true;
+        AssetID                          matAssetID = NULL_ASSET;
         std::unique_ptr<ParticleEmitter> runtime;
 
         ParticleEmitterComponent() = default;
