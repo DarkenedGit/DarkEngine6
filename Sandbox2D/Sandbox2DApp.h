@@ -15,7 +15,7 @@
 #include "Audio/SoundClip.h"
 #include "Gameplay/Coin.h"
 #include "Gameplay/Platform.h"
-#include "Render/MainMenu.h"
+#include "Ui/MainMenu.h"
 
 #include <box2d/box2d.h>
 
