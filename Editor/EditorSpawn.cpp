@@ -248,9 +248,23 @@ Entity EditorApp::spawnObject(
         }
         ensureParticleRuntime(pe);
         pe.runtime->setTransform(xf.position, xf.rotation);
+
+        LocalLightComponent light{};
+        fillDefaultLocalLight(light, SceneObjectType::PointLight);
+        light.color = Vector3f(pe.desc.startColor[0], pe.desc.startColor[1], pe.desc.startColor[2]);
+        if (authored && authored->hasLight)
+        {
+            light.intensity    = authored->lightIntensity;
+            light.range        = authored->lightRange;
+            light.sourceRadius = authored->lightSourceRadius;
+            light.enabled      = authored->lightEnabled;
+            light.color        = Vector3f(color[0], color[1], color[2]);
+        }
+
         world().emplace<ParticleEmitterComponent>(e, std::move(pe));
         if (const auto* spawned = world().get<ParticleEmitterComponent>(e))
             pinParticleEmitter(pins(), assets(), *spawned);
+        world().emplace<LocalLightComponent>(e, light);
     }
 
     world().emplace<EditorObjectComponent>(e, so);

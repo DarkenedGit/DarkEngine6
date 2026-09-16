@@ -479,6 +479,27 @@ void EditorApp::drawInspector3D()
         }
         ImGui::TextDisabled("Direction is +Z of this rotation. Shadows follow it.");
     }
+    else if (world().get<ParticleEmitterComponent>(m_selected))
+    {
+        if (ImGui::Button("Open Material"))
+            m_showMaterialEditor = true;
+        ImGui::TextDisabled("Sprite albedo is on the Material panel. Emitter colors stay in Particle System.");
+        if (auto* light = world().get<LocalLightComponent>(m_selected))
+        {
+            ImGui::Separator();
+            ImGui::TextUnformatted("Nearby illumination");
+            ImGui::Checkbox("Enabled", &light->enabled);
+            if (ImGui::ColorEdit3("Light color", &light->color.x))
+            {
+                so->color[0] = light->color.x;
+                so->color[1] = light->color.y;
+                so->color[2] = light->color.z;
+            }
+            ImGui::DragFloat("Intensity (cd)", &light->intensity, 10.0f, 0.0f, 50000.0f);
+            ImGui::SliderFloat("Range (m)", &light->range, 0.25f, 80.0f);
+            ImGui::TextDisabled("Point light on this emitter. Lights the ground and nearby meshes.");
+        }
+    }
     else if (auto* light = world().get<LocalLightComponent>(m_selected))
     {
         ImGui::Separator();
@@ -526,13 +547,6 @@ void EditorApp::drawInspector3D()
             }
         }
         ImGui::DragFloat("Source radius", &light->sourceRadius, 0.005f, 0.0f, 2.0f);
-    }
-    else if (world().get<ParticleEmitterComponent>(m_selected))
-    {
-        if (ImGui::Button("Open Material"))
-            m_showMaterialEditor = true;
-        ImGui::TextDisabled("Sprite albedo is on the Material panel. Emitter colors stay here:");
-        // Start/end color live on the Particle System panel.
     }
     else
     {

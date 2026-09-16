@@ -207,7 +207,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             const LineMesh* gizmo = nullptr;
             Matrix4f        worldMat{};
             float           cr = so.color[0], cg = so.color[1], cb = so.color[2];
-            if (isLocalLightType(so.type))
+            if (isLocalLightType(so.type) || (so.type == SceneObjectType::ParticleEmitter && world().get<LocalLightComponent>(e)))
             {
                 const auto* light = world().get<LocalLightComponent>(e);
                 if (!light)
