@@ -156,6 +156,7 @@ void EditorApp::newScene3D()
     m_scenePath = defaultScenePath("level.json");
     m_sceneName = "level";
     clearScene();
+    ensureGlobalLights();
     DE_LOG_INFO("Editor: new 3D scene");
 }
 
@@ -292,6 +293,8 @@ const Mesh* EditorApp::meshForType(SceneObjectType type) const
         return nullptr;
     case SceneObjectType::PointLight:
     case SceneObjectType::SpotLight:
+    case SceneObjectType::AmbientLight:
+    case SceneObjectType::DirectionalLight:
         return nullptr;
     case SceneObjectType::Platform:
     case SceneObjectType::Coin:

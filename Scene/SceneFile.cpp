@@ -162,7 +162,8 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             jo["particle"]       = std::move(p);
         }
 
-        if (o.hasLight || o.type == SceneObjectType::PointLight || o.type == SceneObjectType::SpotLight)
+        if (o.hasLight || o.type == SceneObjectType::PointLight || o.type == SceneObjectType::SpotLight
+            || isGlobalLightType(o.type))
         {
             json light;
             light["intensity"]    = o.lightIntensity;
@@ -376,6 +377,12 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
         {
             o.hasLight = true;
             applyTypeLightDefaults(o);
+        }
+        else if (isGlobalLightType(o.type))
+        {
+            o.hasLight       = true;
+            o.lightIntensity = 1.0f;
+            o.lightEnabled   = true;
         }
 
         if (jo.contains("emissive") && jo["emissive"].is_number())

@@ -50,6 +50,22 @@ namespace Dark
         return createFromAlbedoImage(assets.loadSolidImage(r, g, b, a), 1.0f, 1.0f, 1.0f, 1.0f);
     }
 
+    bool Material::copyFrom(const Material& src)
+    {
+        if (!src.albedo() || !src.albedo()->valid())
+            return false;
+        type           = AssetType::Material;
+        m_albedo       = src.albedo();
+        m_baseColor[0] = src.m_baseColor[0];
+        m_baseColor[1] = src.m_baseColor[1];
+        m_baseColor[2] = src.m_baseColor[2];
+        m_baseColor[3] = src.m_baseColor[3];
+        m_metallic     = src.m_metallic;
+        m_roughness    = src.m_roughness;
+        m_alphaMode    = src.m_alphaMode;
+        return true;
+    }
+
     void Material::setMetallicRoughness(float metallic, float roughness)
     {
         m_metallic  = metallic;

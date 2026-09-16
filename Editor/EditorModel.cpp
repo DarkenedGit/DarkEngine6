@@ -11,6 +11,7 @@
 #include "Math/AABox3f.h"
 #include "Math/Quaternion.h"
 #include "Math/Vector3f.h"
+#include "Render/GpuResourceCache.h"
 #include "Render/GpuUpload.h"
 #include "Ui/Icons.h"
 
@@ -25,6 +26,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <memory>
 #include <string>
 
 using namespace Dark;
@@ -140,17 +142,65 @@ bool EditorApp::ensureAnimGraphOnSelected()
 
 AssetRef<Model> EditorApp::selectedModel()
 {
-    if (m_selected.valid() && world().alive(m_selected))
-    {
-        if (const ModelComponent* mc = world().get<ModelComponent>(m_selected))
-            return assets().getAs<Model>(mc->modelAssetID);
-    }
-    AssetRef<Model> found;
-    world().each<ModelComponent>([&](Entity, ModelComponent& mc) {
-        if (!found)
-            found = assets().getAs<Model>(mc.modelAssetID);
+    if (!m_selected.valid() || !world().alive(m_selected))
+        return {};
+    const ModelComponent* mc = world().get<ModelComponent>(m_selected);
+    if (!mc)
+        return {};
+    return assets().getAs<Model>(mc->modelAssetID);
+}
+
+AssetRef<Material> EditorApp::meshMaterialOf(Entity e)
+{
+    if (!e.valid() || !world().alive(e))
+        return {};
+    const MeshComponent* mc = world().get<MeshComponent>(e);
+    if (!mc || mc->matAssetID == NULL_ASSET)
+        return {};
+    return assets().getAs<Material>(mc->matAssetID);
+}
+
+bool EditorApp::meshMaterialShared(AssetID id)
+{
+    if (id == NULL_ASSET)
+        return true;
+    if (m_propMaterial && id == m_propMaterial->id)
+        return true;
+    if (m_groundMaterial && id == m_groundMaterial->id)
+        return true;
+    int users = 0;
+    world().each<MeshComponent>([&](Entity, MeshComponent& mc) {
+        if (mc.matAssetID == id)
+            ++users;
     });
-    return found;
+    return users > 1;
+}
+
+AssetRef<Material> EditorApp::ensureUniqueMeshMaterial(Entity e)
+{
+    MeshComponent* mc = (e.valid() && world().alive(e)) ? world().get<MeshComponent>(e) : nullptr;
+    if (!mc)
+        return {};
+
+    AssetRef<Material> src = assets().getAs<Material>(mc->matAssetID);
+    if (!src)
+        src = m_propMaterial;
+    if (!src)
+        return {};
+
+    if (mc->matAssetID != NULL_ASSET && !meshMaterialShared(mc->matAssetID))
+        return src;
+
+    auto cloned = std::make_shared<Material>();
+    if (!cloned->copyFrom(*src))
+        return src;
+    if (const EditorObjectComponent* so = findObject(e))
+        cloned->setBaseColor(so->color[0], so->color[1], so->color[2], cloned->baseColor()[3]);
+    cloned = assets().internMaterial(cloned);
+    if (!cloned || cloned->id == NULL_ASSET || !renderer().gpuResources().ensureMaterial(cloned))
+        return src;
+    setMeshMaterial(world(), pins(), assets(), e, cloned->id);
+    return cloned;
 }
 
 const Model::Part* EditorApp::selectedModelPart()
@@ -293,7 +343,7 @@ void EditorApp::drawModelPartsPanel()
     AssetRef<Model> model = selectedModel();
     if (!model)
     {
-        ImGui::TextWrapped("Load a glTF from File → Load Model to inspect parts.");
+        ImGui::TextWrapped("Select a glTF model (or File → Load Model) to inspect parts.");
         ImGui::End();
         return;
     }
@@ -336,35 +386,124 @@ void EditorApp::drawMaterialPanel()
         return;
     }
 
-    const Model::Part* part = selectedModelPart();
-    if (!part || !part->material)
+    if (!m_selected.valid() || !world().alive(m_selected))
     {
-        ImGui::TextWrapped("Select a part to edit its material.");
+        ImGui::TextWrapped("Select an object to edit its material.");
         ImGui::End();
         return;
     }
 
-    Material& mat = *part->material;
-    ImGui::Text("Material %d", part->materialIndex);
-    if (!part->name.empty())
-        ImGui::TextUnformatted(part->name.c_str());
+    Material* mat          = nullptr;
+    bool      meshInstance = false;
+    if (world().get<ModelComponent>(m_selected))
+    {
+        const Model::Part* part = selectedModelPart();
+        if (!part || !part->material)
+        {
+            ImGui::TextWrapped("Select a part in Model Parts to edit its material.");
+            ImGui::End();
+            return;
+        }
+        mat = part->material.get();
+        ImGui::Text("Material %d", part->materialIndex);
+        if (!part->name.empty())
+            ImGui::TextUnformatted(part->name.c_str());
+    }
+    else if (world().get<MeshComponent>(m_selected))
+    {
+        AssetRef<Material> meshMat = meshMaterialOf(m_selected);
+        if (!meshMat)
+            meshMat = m_propMaterial;
+        if (!meshMat)
+        {
+            ImGui::TextWrapped("This object has no material.");
+            ImGui::End();
+            return;
+        }
+        mat          = meshMat.get();
+        meshInstance = true;
+        if (const EditorObjectComponent* so = findObject(m_selected))
+            ImGui::Text("Selected: %s", toString(so->type));
+        else
+            ImGui::TextUnformatted("Selected: Mesh");
+        if (meshMaterialShared(meshMat->id))
+            ImGui::TextDisabled("Shared until edited — first change makes a unique copy.");
+    }
+    else
+    {
+        ImGui::TextWrapped("This object has no material.");
+        ImGui::End();
+        return;
+    }
+
     ImGui::Separator();
 
-    float color[4] = { mat.baseColor()[0], mat.baseColor()[1], mat.baseColor()[2], mat.baseColor()[3] };
+    float color[4] = { mat->baseColor()[0], mat->baseColor()[1], mat->baseColor()[2], mat->baseColor()[3] };
+    if (meshInstance)
+    {
+        if (const EditorObjectComponent* so = findObject(m_selected))
+        {
+            color[0] = so->color[0];
+            color[1] = so->color[1];
+            color[2] = so->color[2];
+        }
+    }
     if (ImGui::ColorEdit4("Base Color", color))
-        mat.setBaseColor(color[0], color[1], color[2], color[3]);
+    {
+        Material* edit = mat;
+        if (meshInstance)
+        {
+            if (AssetRef<Material> unique = ensureUniqueMeshMaterial(m_selected))
+                edit = unique.get();
+            if (EditorObjectComponent* so = findObject(m_selected))
+            {
+                so->color[0] = color[0];
+                so->color[1] = color[1];
+                so->color[2] = color[2];
+            }
+        }
+        if (edit)
+            edit->setBaseColor(color[0], color[1], color[2], color[3]);
+    }
 
-    float metallic  = mat.metallic();
-    float roughness = mat.roughness();
+    float metallic  = mat->metallic();
+    float roughness = mat->roughness();
     if (ImGui::SliderFloat("Metallic", &metallic, 0.0f, 1.0f))
-        mat.setMetallicRoughness(metallic, roughness);
+    {
+        Material* edit = mat;
+        if (meshInstance)
+        {
+            if (AssetRef<Material> unique = ensureUniqueMeshMaterial(m_selected))
+                edit = unique.get();
+        }
+        if (edit)
+            edit->setMetallicRoughness(metallic, roughness);
+    }
     if (ImGui::SliderFloat("Roughness", &roughness, 0.0f, 1.0f))
-        mat.setMetallicRoughness(metallic, roughness);
+    {
+        Material* edit = mat;
+        if (meshInstance)
+        {
+            if (AssetRef<Material> unique = ensureUniqueMeshMaterial(m_selected))
+                edit = unique.get();
+        }
+        if (edit)
+            edit->setMetallicRoughness(metallic, roughness);
+    }
 
-    int mode = static_cast<int>(mat.alphaMode());
-    const char* modes[] = { "Opaque", "Mask", "Blend" };
+    int         mode      = static_cast<int>(mat->alphaMode());
+    const char* modes[]   = { "Opaque", "Mask", "Blend" };
     if (ImGui::Combo("Alpha Mode", &mode, modes, 3))
-        mat.setAlphaMode(static_cast<MaterialAlphaMode>(mode));
-    ImGui::TextDisabled("Color / metal / rough update live. Alpha mode is stored on Save.");
+    {
+        Material* edit = mat;
+        if (meshInstance)
+        {
+            if (AssetRef<Material> unique = ensureUniqueMeshMaterial(m_selected))
+                edit = unique.get();
+        }
+        if (edit)
+            edit->setAlphaMode(static_cast<MaterialAlphaMode>(mode));
+    }
+    ImGui::TextDisabled(meshInstance ? "Edits apply live to this object." : "Color / metal / rough update live. Alpha mode is stored on Save.");
     ImGui::End();
 }

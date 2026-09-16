@@ -49,13 +49,21 @@ namespace Dark
         Spawn,
         PointLight,
         SpotLight,
+        AmbientLight,
+        DirectionalLight,
         Count
     };
 
     inline bool isScene3DType(SceneObjectType t)
     {
         return t == SceneObjectType::Cube || t == SceneObjectType::Sphere || t == SceneObjectType::ParticleEmitter
-            || t == SceneObjectType::PointLight || t == SceneObjectType::SpotLight;
+            || t == SceneObjectType::PointLight || t == SceneObjectType::SpotLight
+            || t == SceneObjectType::AmbientLight || t == SceneObjectType::DirectionalLight;
+    }
+
+    inline bool isGlobalLightType(SceneObjectType t)
+    {
+        return t == SceneObjectType::AmbientLight || t == SceneObjectType::DirectionalLight;
     }
 
     inline bool isScene2DType(SceneObjectType t)
@@ -75,6 +83,8 @@ namespace Dark
         case SceneObjectType::Spawn:           return "spawn";
         case SceneObjectType::PointLight:      return "point_light";
         case SceneObjectType::SpotLight:       return "spot_light";
+        case SceneObjectType::AmbientLight:    return "ambient_light";
+        case SceneObjectType::DirectionalLight: return "directional_light";
         default:                               return "unknown";
         }
     }
@@ -119,6 +129,16 @@ namespace Dark
         if (s == "spot_light")
         {
             out = SceneObjectType::SpotLight;
+            return true;
+        }
+        if (s == "ambient_light" || s == "ambient")
+        {
+            out = SceneObjectType::AmbientLight;
+            return true;
+        }
+        if (s == "directional_light" || s == "directional" || s == "sun")
+        {
+            out = SceneObjectType::DirectionalLight;
             return true;
         }
         return false;

@@ -32,10 +32,21 @@ TEST(SceneTypes, Parse2DAnd3D)
     EXPECT_EQ(t, SceneObjectType::PointLight);
     EXPECT_TRUE(tryParseSceneObjectType("spot_light", t));
     EXPECT_EQ(t, SceneObjectType::SpotLight);
+    EXPECT_TRUE(tryParseSceneObjectType("ambient_light", t));
+    EXPECT_EQ(t, SceneObjectType::AmbientLight);
+    EXPECT_TRUE(tryParseSceneObjectType("directional_light", t));
+    EXPECT_EQ(t, SceneObjectType::DirectionalLight);
     EXPECT_TRUE(isScene3DType(SceneObjectType::PointLight));
     EXPECT_TRUE(isScene3DType(SceneObjectType::SpotLight));
+    EXPECT_TRUE(isScene3DType(SceneObjectType::AmbientLight));
+    EXPECT_TRUE(isScene3DType(SceneObjectType::DirectionalLight));
+    EXPECT_TRUE(isGlobalLightType(SceneObjectType::AmbientLight));
+    EXPECT_TRUE(isGlobalLightType(SceneObjectType::DirectionalLight));
+    EXPECT_FALSE(isGlobalLightType(SceneObjectType::PointLight));
     EXPECT_STREQ(toString(SceneObjectType::PointLight), "point_light");
     EXPECT_STREQ(toString(SceneObjectType::SpotLight), "spot_light");
+    EXPECT_STREQ(toString(SceneObjectType::AmbientLight), "ambient_light");
+    EXPECT_STREQ(toString(SceneObjectType::DirectionalLight), "directional_light");
 
     SceneMode mode{};
     EXPECT_TRUE(tryParseSceneMode("2d", mode));

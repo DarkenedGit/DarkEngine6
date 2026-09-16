@@ -26,6 +26,7 @@
 #include "Render/TaaJitter.h"
 #include "Render/ModelDraw.h"
 #include "Render/MaterialSurface.h"
+#include "Assets/Material.h"
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
@@ -48,8 +49,11 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 {
     GpuResourceCache& gpu = renderer().gpuResources();
     m_camera.ClearSubpixelJitter();
-    Vector3f lightDir(0.35f, 0.85f, -0.35f);
-    lightDir.Normalize();
+    Vector3f lightDir{};
+    Vector3f sunColor{};
+    Vector3f ambientColor{};
+    gatherEditorLighting(lightDir, sunColor, ambientColor);
+    const float ambientScale = (ambientColor.x + ambientColor.y + ambientColor.z) * (1.0f / 3.0f);
     AABox3f        sceneBounds(Vector3f(-22.0f, -2.0f, -22.0f), Vector3f(22.0f, 16.0f, 22.0f));
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent&) {
         if (const auto* xf = world().get<TransformComponent>(e))
@@ -156,10 +160,10 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             cbData.lightDirWS[0] = lightDir.x;
             cbData.lightDirWS[1] = lightDir.y;
             cbData.lightDirWS[2] = lightDir.z;
-            cbData.ambientScale  = 0.22f;
-            cbData.lightColor[0] = 1.0f;
-            cbData.lightColor[1] = 0.96f;
-            cbData.lightColor[2] = 0.88f;
+            cbData.ambientScale  = ambientScale;
+            cbData.lightColor[0] = sunColor.x;
+            cbData.lightColor[1] = sunColor.y;
+            cbData.lightColor[2] = sunColor.z;
             const Vector3f cam = m_camera.GetPosition();
             cbData.cameraPos[0] = cam.x;
             cbData.cameraPos[1] = cam.y;
@@ -194,33 +198,64 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             return;
         lines.bind(cmd);
         world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
-            if (!isLocalLightType(so.type))
-                return;
             if (!m_selected.valid() || m_selected.id() != e.id())
                 return;
-            const auto* xf    = world().get<TransformComponent>(e);
-            const auto* light = world().get<LocalLightComponent>(e);
-            if (!xf || !light)
+            const auto* xf = world().get<TransformComponent>(e);
+            if (!xf)
                 return;
-            const LineMesh* gizmo = (light->type == LocalLightType::Spot) ? &m_spotLightGizmo : &m_pointLightGizmo;
-            if (!gizmo->valid())
+
+            const LineMesh* gizmo = nullptr;
+            Matrix4f        worldMat{};
+            float           cr = so.color[0], cg = so.color[1], cb = so.color[2];
+            if (isLocalLightType(so.type))
+            {
+                const auto* light = world().get<LocalLightComponent>(e);
+                if (!light)
+                    return;
+                gizmo = (light->type == LocalLightType::Spot) ? &m_spotLightGizmo : &m_pointLightGizmo;
+                worldMat = (light->type == LocalLightType::Spot)
+                    ? makeSpotLightGizmoWorld(*xf, light->range, light->outerConeDeg)
+                    : makePointLightGizmoWorld(xf->position, light->range);
+                cr = light->color.x;
+                cg = light->color.y;
+                cb = light->color.z;
+                if (!light->enabled)
+                {
+                    cr *= 0.35f;
+                    cg *= 0.35f;
+                    cb *= 0.35f;
+                }
+            }
+            else if (so.type == SceneObjectType::DirectionalLight)
+            {
+                if (!m_dirLightGizmo.valid())
+                    return;
+                gizmo    = &m_dirLightGizmo;
+                worldMat = Matrix4f::ScaleMatrixXYZ(1.0f, 1.0f, 6.0f) * xf->rotation.ToMatrix4()
+                    * Matrix4f::TranslationMatrix(xf->position.x, xf->position.y, xf->position.z);
+                if (const auto* dir = world().get<DirectionalLightComponent>(e))
+                {
+                    cr = dir->color.x;
+                    cg = dir->color.y;
+                    cb = dir->color.z;
+                    if (!dir->enabled)
+                    {
+                        cr *= 0.35f;
+                        cg *= 0.35f;
+                        cb *= 0.35f;
+                    }
+                }
+            }
+            else
                 return;
-            const Matrix4f worldMat = (light->type == LocalLightType::Spot)
-                ? makeSpotLightGizmoWorld(*xf, light->range, light->outerConeDeg)
-                : makePointLightGizmoWorld(xf->position, light->range);
-            const bool selected = m_selected.valid() && m_selected.id() == e.id();
-            float      cr = light->color.x, cg = light->color.y, cb = light->color.z;
+            if (!gizmo || !gizmo->valid())
+                return;
+            const bool selected = true;
             if (selected)
             {
                 cr = cr * 0.35f + 1.00f * 0.65f;
                 cg = cg * 0.35f + 0.85f * 0.65f;
                 cb = cb * 0.35f + 0.20f * 0.65f;
-            }
-            if (!light->enabled)
-            {
-                cr *= 0.35f;
-                cg *= 0.35f;
-                cb *= 0.35f;
             }
             LineFrameConstants lc{};
             copyMatrix(lc.worldViewProj, worldMat * viewProj);
@@ -254,10 +289,18 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             cg = cg * 0.55f + 0.85f * 0.45f;
             cb = cb * 0.55f + 0.20f * 0.45f;
         }
-        float emissive = 0.0f;
+        float     emissive = 0.0f;
+        Material* material = m_propMaterial.get();
         if (const MeshComponent* mc = world().get<MeshComponent>(e))
+        {
             emissive = mc->emissive;
-        drawMesh(*mesh, makeWorldMatrix(*xf), m_propMaterial.get(), cr, cg, cb, emissive);
+            if (auto mat = assets().getAs<Material>(mc->matAssetID))
+            {
+                gpu.ensureMaterial(mat);
+                material = mat.get();
+            }
+        }
+        drawMesh(*mesh, makeWorldMatrix(*xf), material, cr, cg, cb, emissive);
         ++draws;
     });
 
@@ -296,10 +339,10 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         lit.lightDirWS[0] = lightDir.x;
         lit.lightDirWS[1] = lightDir.y;
         lit.lightDirWS[2] = lightDir.z;
-        lit.ambientScale  = 0.22f;
-        lit.lightColor[0] = 1.0f;
-        lit.lightColor[1] = 0.96f;
-        lit.lightColor[2] = 0.88f;
+        lit.ambientScale  = ambientScale;
+        lit.lightColor[0] = sunColor.x;
+        lit.lightColor[1] = sunColor.y;
+        lit.lightColor[2] = sunColor.z;
         const Vector3f cam = m_camera.GetPosition();
         lit.cameraPos[0] = cam.x;
         lit.cameraPos[1] = cam.y;
@@ -345,13 +388,13 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         lc.lightDirWS[1]   = lightDir.y;
         lc.lightDirWS[2]   = lightDir.z;
         lc.lighting        = renderer().debugState().lighting ? 1.0f : 0.0f;
-        lc.lightColor[0]   = 1.0f;
-        lc.lightColor[1]   = 0.96f;
-        lc.lightColor[2]   = 0.88f;
+        lc.lightColor[0]   = sunColor.x;
+        lc.lightColor[1]   = sunColor.y;
+        lc.lightColor[2]   = sunColor.z;
         lc.emissiveGain    = 4.0f;
-        lc.ambientColor[0] = 0.22f;
-        lc.ambientColor[1] = 0.22f;
-        lc.ambientColor[2] = 0.22f;
+        lc.ambientColor[0] = ambientColor.x;
+        lc.ambientColor[1] = ambientColor.y;
+        lc.ambientColor[2] = ambientColor.z;
         m_lighting.draw(cmd, renderer(), m_shadows, lc);
         m_localLightVolumes.draw(cmd, renderer(), world(), m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_camera, viewProj, lc);
         renderer().bindHdr(true);
@@ -368,10 +411,10 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         lit.lightDirWS[0] = lightDir.x;
         lit.lightDirWS[1] = lightDir.y;
         lit.lightDirWS[2] = lightDir.z;
-        lit.ambientScale  = 0.22f;
-        lit.lightColor[0] = 1.0f;
-        lit.lightColor[1] = 0.96f;
-        lit.lightColor[2] = 0.88f;
+        lit.ambientScale  = ambientScale;
+        lit.lightColor[0] = sunColor.x;
+        lit.lightColor[1] = sunColor.y;
+        lit.lightColor[2] = sunColor.z;
         const Vector3f cam = m_camera.GetPosition();
         lit.cameraPos[0] = cam.x;
         lit.cameraPos[1] = cam.y;

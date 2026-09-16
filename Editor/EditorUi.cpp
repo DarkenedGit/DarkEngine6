@@ -91,7 +91,11 @@ void EditorApp::drawEditorUi()
         {
             bool mode2d = m_sceneMode == SceneMode::Scene2D;
             if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  2D Scene", "F3", mode2d))
+            {
                 applySceneMode(mode2d ? SceneMode::Scene3D : SceneMode::Scene2D);
+                if (m_sceneMode == SceneMode::Scene3D)
+                    ensureGlobalLights();
+            }
             ImGui::MenuItem(ICON_FA_BOLT "  Particle Panel", "F2", &m_showParticlePanel);
             ImGui::MenuItem(ICON_FA_PLAY "  Animation Panel", "F4", &m_showAnimPanel);
             ImGui::MenuItem(ICON_FA_LIST "  HSM Panel", "F8", &m_showHsmPanel);
@@ -243,7 +247,16 @@ void EditorApp::drawEditorUi()
             const bool selected = m_selected.valid() && m_selected.id() == e.id();
             ImGui::PushID(static_cast<int>(e.id()));
             char label[128];
-            std::snprintf(label, sizeof(label), "%s##%u", toString(so.type), e.id());
+            const char* name = toString(so.type);
+            if (so.type == SceneObjectType::AmbientLight)
+                name = "Ambient Light";
+            else if (so.type == SceneObjectType::DirectionalLight)
+                name = "Directional Light";
+            else if (so.type == SceneObjectType::PointLight)
+                name = "Point Light";
+            else if (so.type == SceneObjectType::SpotLight)
+                name = "Spot Light";
+            std::snprintf(label, sizeof(label), "%s##%u", name, e.id());
             if (ImGui::Selectable(label, selected))
                 m_selected = e;
             ImGui::PopID();
@@ -385,7 +398,8 @@ void EditorApp::drawInspector3D()
         return;
     }
 
-    const bool locked = netClientLocked();
+    const bool locked   = netClientLocked();
+    const bool envLight = isGlobalLightType(so->type);
     ImGui::Text("Selected: %s", toString(so->type));
     ImGui::BeginDisabled(locked);
     float pos[3] = { xf->position.x, xf->position.y, xf->position.z };
@@ -397,7 +411,65 @@ void EditorApp::drawInspector3D()
         syncGlowPairPosition(world(), m_selected);
     }
 
-    if (auto* light = world().get<LocalLightComponent>(m_selected))
+    if (auto* amb = world().get<AmbientLightComponent>(m_selected))
+    {
+        ImGui::Separator();
+        ImGui::TextUnformatted("Ambient Light");
+        ImGui::Checkbox("Enabled", &amb->enabled);
+        if (ImGui::ColorEdit3("Color", &amb->color.x))
+        {
+            so->color[0] = amb->color.x;
+            so->color[1] = amb->color.y;
+            so->color[2] = amb->color.z;
+        }
+        ImGui::DragFloat("Intensity", &amb->intensity, 0.01f, 0.0f, 8.0f);
+        ImGui::TextDisabled("Fills the whole scene. Position is only a handle.");
+    }
+    else if (auto* sun = world().get<DirectionalLightComponent>(m_selected))
+    {
+        ImGui::Separator();
+        ImGui::TextUnformatted("Directional Light");
+        ImGui::Checkbox("Enabled", &sun->enabled);
+        if (ImGui::ColorEdit3("Color", &sun->color.x))
+        {
+            so->color[0] = sun->color.x;
+            so->color[1] = sun->color.y;
+            so->color[2] = sun->color.z;
+        }
+        ImGui::DragFloat("Intensity", &sun->intensity, 0.01f, 0.0f, 8.0f);
+        float pitch = 0.0f, yaw = 0.0f, roll = 0.0f;
+        eulerXYZFromQuat(xf->rotation, pitch, yaw, roll);
+        float eulerDeg[3] = {
+            RadiansToDegrees(pitch),
+            RadiansToDegrees(yaw),
+            RadiansToDegrees(roll)
+        };
+        if (ImGui::DragFloat3("Euler (deg)", eulerDeg, 0.5f))
+        {
+            xf->rotation = Quaternion::FromEulerXYZ(
+                DegreesToRadians(eulerDeg[0]),
+                DegreesToRadians(eulerDeg[1]),
+                DegreesToRadians(eulerDeg[2]));
+        }
+        if (ImGui::Button("Aim down"))
+            xf->rotation = Quaternion::FromLookRotation(Vector3f(0.0f, -1.0f, 0.0f), Vector3f(0.0f, 0.0f, 1.0f));
+        ImGui::SameLine();
+        if (ImGui::Button("Reset sun"))
+            xf->rotation = defaultDirectionalRotation();
+        ImGui::SameLine();
+        if (ImGui::Button("Aim at camera"))
+        {
+            Vector3f dirVec = m_camera.GetPosition() - xf->position;
+            if (dirVec.MagnitudeSqrd() <= 1.0e-8f)
+                dirVec = m_camera.GetLook();
+            else
+                dirVec.Normalize();
+            const Vector3f up = (fabsf(dirVec.y) > 0.9f) ? Vector3f(Vector3f::X_AXIS) : Vector3f(Vector3f::Y_AXIS);
+            xf->rotation      = Quaternion::FromLookRotation(dirVec, up);
+        }
+        ImGui::TextDisabled("Direction is +Z of this rotation. Shadows follow it.");
+    }
+    else if (auto* light = world().get<LocalLightComponent>(m_selected))
     {
         ImGui::Separator();
         ImGui::Checkbox("Enabled", &light->enabled);
@@ -447,12 +519,26 @@ void EditorApp::drawInspector3D()
     }
     else
     {
-        ImGui::ColorEdit3("Tint", so->color);
+        if (ImGui::ColorEdit3("Tint", so->color))
+        {
+            if (AssetRef<Material> mat = ensureUniqueMeshMaterial(m_selected))
+                mat->setBaseColor(so->color[0], so->color[1], so->color[2], mat->baseColor()[3]);
+        }
         if (auto* mc = world().get<MeshComponent>(m_selected))
             ImGui::SliderFloat("Emissive", &mc->emissive, 0.0f, 1.0f);
+        if (world().get<MeshComponent>(m_selected) && ImGui::Button("Open Material"))
+            m_showMaterialEditor = true;
     }
 
-    if (ImGui::Button(ICON_FA_TRASH "  Delete"))
+    if (envLight)
+    {
+        ImGui::BeginDisabled();
+        ImGui::Button(ICON_FA_TRASH "  Delete");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Ambient and directional lights are part of the scene");
+        ImGui::EndDisabled();
+    }
+    else if (ImGui::Button(ICON_FA_TRASH "  Delete"))
         deleteSelected();
     ImGui::EndDisabled();
 

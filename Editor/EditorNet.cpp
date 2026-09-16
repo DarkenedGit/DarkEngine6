@@ -256,7 +256,7 @@ bool EditorApp::onNetSpawn(World& world, Entity e, NetPrefab prefab, const Trans
 
     // Same contract as Sandbox: inbound replicas are drawable from ECS.
     const SceneObjectType type = typeFromPrefab(prefab);
-    if (!isLocalLightType(type) && !world.has<MeshComponent>(e))
+    if (!isLocalLightType(type) && !isGlobalLightType(type) && !world.has<MeshComponent>(e))
     {
         MeshComponent mc{};
         mc.matAssetID  = self->m_propMaterial ? self->m_propMaterial->id : NULL_ASSET;

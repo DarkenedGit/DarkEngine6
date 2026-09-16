@@ -35,6 +35,26 @@ TEST(Material, CreateSolidWithoutRenderer)
     EXPECT_EQ(mat.albedo()->width(), 1u);
 }
 
+TEST(Material, CopyFromDuplicatesSurface)
+{
+    AssetManager assets;
+    Material     src;
+    ASSERT_TRUE(src.createSolid(assets, 10, 20, 30, 40));
+    src.setBaseColor(0.2f, 0.4f, 0.6f, 0.8f);
+    src.setMetallicRoughness(0.3f, 0.7f);
+    src.setAlphaMode(MaterialAlphaMode::Mask);
+
+    Material dst;
+    ASSERT_TRUE(dst.copyFrom(src));
+    EXPECT_TRUE(dst.isValid());
+    EXPECT_EQ(dst.albedo().get(), src.albedo().get());
+    EXPECT_FLOAT_EQ(dst.baseColor()[0], 0.2f);
+    EXPECT_FLOAT_EQ(dst.baseColor()[3], 0.8f);
+    EXPECT_FLOAT_EQ(dst.metallic(), 0.3f);
+    EXPECT_FLOAT_EQ(dst.roughness(), 0.7f);
+    EXPECT_EQ(dst.alphaMode(), MaterialAlphaMode::Mask);
+}
+
 TEST(Material, InternAssignsId)
 {
     AssetManager assets;

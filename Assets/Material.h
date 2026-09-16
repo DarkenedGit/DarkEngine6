@@ -34,6 +34,7 @@ namespace Dark
         bool createFromAlbedoPath(AssetManager& assets, const std::string& virtualAlbedoPath, uint8_t fallbackR = 64, uint8_t fallbackG = 166, uint8_t fallbackB = 242,
                                   uint8_t fallbackA = 255);
         bool createSolid(AssetManager& assets, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
+        bool copyFrom(const Material& src);
 
         void  setMetallicRoughness(float metallic, float roughness);
         float metallic() const { return m_metallic; }

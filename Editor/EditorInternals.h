@@ -52,6 +52,8 @@ namespace Dark::EditorDetail
     bool isLocalLightType(SceneObjectType type);
     void defaultLightColor(float out[4]);
     void fillDefaultLocalLight(LocalLightComponent& light, SceneObjectType type);
+    Math::Quaternion defaultDirectionalRotation();
+    Math::Vector3f directionalLightDir(const TransformComponent& xf);
     Entity glowMeshOf(World& world, Entity e);
     Entity lightOwningGlowMesh(World& world, Entity mesh);
     bool keepsPlacedHeight(World& world, const EditorObjectComponent* so, Entity e);

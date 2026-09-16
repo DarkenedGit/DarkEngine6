@@ -176,7 +176,7 @@ namespace Dark::EditorDetail
 
     bool keepsPlacedHeight(World& world, const EditorObjectComponent* so, Entity e)
     {
-        if (so && isLocalLightType(so->type))
+        if (so && (isLocalLightType(so->type) || isGlobalLightType(so->type)))
             return true;
         return lightOwningGlowMesh(world, e).valid();
     }
@@ -223,6 +223,22 @@ namespace Dark::EditorDetail
     Quaternion defaultSpotRotation()
     {
         return Quaternion::FromLookRotation(Vector3f(0.0f, -1.0f, 0.0f), Vector3f(0.0f, 0.0f, 1.0f));
+    }
+
+    Quaternion defaultDirectionalRotation()
+    {
+        Vector3f dir(0.35f, 0.85f, -0.35f);
+        dir.Normalize();
+        return Quaternion::FromLookRotation(dir, Vector3f(0.0f, 1.0f, 0.0f));
+    }
+
+    Vector3f directionalLightDir(const TransformComponent& xf)
+    {
+        Vector3f dir = xf.rotation.Rotate(Vector3f(0.0f, 0.0f, 1.0f));
+        if (dir.MagnitudeSqrd() <= 1.0e-8f)
+            dir = Vector3f(0.35f, 0.85f, -0.35f);
+        dir.Normalize();
+        return dir;
     }
 
     NetPrefab prefabFromType(SceneObjectType type)

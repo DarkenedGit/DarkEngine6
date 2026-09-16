@@ -83,6 +83,24 @@ bool EditorApp::saveScene()
             d.color[1]          = light->color.y;
             d.color[2]          = light->color.z;
         }
+        else if (const auto* dir = world().get<DirectionalLightComponent>(e))
+        {
+            d.hasLight       = true;
+            d.lightIntensity = dir->intensity;
+            d.lightEnabled   = dir->enabled;
+            d.color[0]       = dir->color.x;
+            d.color[1]       = dir->color.y;
+            d.color[2]       = dir->color.z;
+        }
+        else if (const auto* amb = world().get<AmbientLightComponent>(e))
+        {
+            d.hasLight       = true;
+            d.lightIntensity = amb->intensity;
+            d.lightEnabled   = amb->enabled;
+            d.color[0]       = amb->color.x;
+            d.color[1]       = amb->color.y;
+            d.color[2]       = amb->color.z;
+        }
         if (const auto* mc = world().get<MeshComponent>(e))
             d.emissive = mc->emissive;
         data.objects.push_back(d);
@@ -152,6 +170,8 @@ bool EditorApp::loadScene()
         if (auto* light = world().get<LocalLightComponent>(spawned[i]))
             light->emissiveMesh = spawned[static_cast<size_t>(idx)];
     }
+    if (m_sceneMode == SceneMode::Scene3D)
+        ensureGlobalLights();
     m_selected = {};
     DE_LOG_INFO("Editor: loaded {} objects", editorObjectCount());
     return true;
@@ -228,6 +248,8 @@ void EditorApp::handleEditorCommands(float dt)
                 applySceneMode(SceneMode::Scene3D);
             else
                 applySceneMode(SceneMode::Scene2D);
+            if (m_sceneMode == SceneMode::Scene3D)
+                ensureGlobalLights();
             DE_LOG_INFO("Editor: mode {}", toString(m_sceneMode));
         }
         if (input().actionPressed("type_cube"))

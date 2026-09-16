@@ -185,6 +185,14 @@ void EditorApp::onInit()
         else
             DE_LOG_ERROR(LogCategory::Render, "EditorApp: spot light gizmo outline failed");
     }
+    {
+        LineMeshData data;
+        data.positions.push_back(Vector3f(0.0f, 0.0f, 0.0f));
+        data.positions.push_back(Vector3f(0.0f, 0.0f, 1.0f));
+        data.indices.push_back(0);
+        data.indices.push_back(1);
+        m_dirLightGizmo = LineMesh::Create(renderer(), data);
+    }
 
     m_propMaterial = std::make_shared<Material>();
     if (!m_propMaterial->createFromAlbedoPath(assets(), "textures/dark_engine_cube.png", 80, 160, 220))
@@ -239,6 +247,8 @@ void EditorApp::onInit()
         loadScene();
     else
         DE_LOG_INFO("EditorApp: no default scene at {}", m_scenePath.string());
+    if (m_sceneMode == SceneMode::Scene3D)
+        ensureGlobalLights();
 
     m_sfxPlace  = audio().loadOrBlip(assets(), "audio/place.wav", 620.0f, 0.09f, 0.4f);
     m_sfxDelete = audio().loadOrBlip(assets(), "audio/delete.wav", 300.0f, 0.12f, 0.4f);

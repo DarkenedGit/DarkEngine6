@@ -52,6 +52,8 @@ private:
     void applySceneMode(SceneMode mode);
     void newScene3D();
     void newScene2D();
+    void ensureGlobalLights();
+    void gatherEditorLighting(Math::Vector3f& lightDir, Math::Vector3f& lightColor, Math::Vector3f& ambientColor);
     bool ensure2DResources();
     void rebuildGrid2D();
     void clampCamera2D();
@@ -124,6 +126,9 @@ private:
     void drawMaterialPanel();
     AssetRef<Model> selectedModel();
     const Model::Part* selectedModelPart();
+    AssetRef<Material> meshMaterialOf(Entity e);
+    bool               meshMaterialShared(AssetID id);
+    AssetRef<Material> ensureUniqueMeshMaterial(Entity e);
 
     ParticleEmitterDesc makeDefaultParticleDesc() const;
 
@@ -148,6 +153,7 @@ private:
     LineMesh m_gridMesh;
     LineMesh m_pointLightGizmo;
     LineMesh m_spotLightGizmo;
+    LineMesh m_dirLightGizmo;
 
     AssetRef<Material> m_propMaterial;
     AssetRef<Material> m_groundMaterial;

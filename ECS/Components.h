@@ -80,8 +80,18 @@ namespace Dark
     {
         static constexpr const char* kTypeName = "DirectionalLight";
 
-        Math::Vector3f color     = { 1, 1, 1 };
+        Math::Vector3f color     = { 1.0f, 0.96f, 0.88f };
         float          intensity = 1.0f;
+        bool           enabled   = true;
+    };
+
+    struct AmbientLightComponent
+    {
+        static constexpr const char* kTypeName = "AmbientLight";
+
+        Math::Vector3f color     = { 0.22f, 0.22f, 0.22f };
+        float          intensity = 1.0f;
+        bool           enabled   = true;
     };
 
     // ─── Local light (point / spot) ──────────────────────────────────────────────

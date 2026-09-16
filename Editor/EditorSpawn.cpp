@@ -54,12 +54,12 @@ Entity EditorApp::pickObject(const Ray3f& ray)
         if (!xf)
             return;
         Collision::RayHit3D hit{};
-        if (isLocalLightType(so.type))
+        if (isLocalLightType(so.type) || isGlobalLightType(so.type))
         {
             float range = 8.0f;
             if (const auto* light = world().get<LocalLightComponent>(e))
                 range = light->range;
-            const float r = Max(0.35f, range * 0.05f);
+            const float r = isGlobalLightType(so.type) ? 0.45f : Max(0.35f, range * 0.05f);
             hit           = Collision::Intersect(ray, Sphere3f(xf->position, r));
         }
         else if (so.type == SceneObjectType::ParticleEmitter)
@@ -179,22 +179,14 @@ Entity EditorApp::spawnObject(
     xf.scale    = scale;
     xf.rotation = rot;
     const bool lightType   = isLocalLightType(type);
+    const bool globalLight = isGlobalLightType(type);
     const bool emitterType = type == SceneObjectType::ParticleEmitter;
-    if (m_sceneMode == SceneMode::Scene3D && isScene3DType(type) && !emitterType && !lightType
+    if (m_sceneMode == SceneMode::Scene3D && isScene3DType(type) && !emitterType && !lightType && !globalLight
         && xf.position.y < 0.5f * xf.scale.y)
         xf.position.y = 0.5f * xf.scale.y;
     world().emplace<TransformComponent>(e, xf);
 
-    if (!lightType && !emitterType)
-    {
-        MeshComponent mc{};
-        mc.matAssetID  = m_propMaterial ? m_propMaterial->id : NULL_ASSET;
-        mc.meshAssetID = NULL_ASSET;
-        if (authored)
-            mc.emissive = authored->emissive;
-        setMeshComponent(world(), pins(), assets(), e, mc);
-    }
-    else
+    if (lightType)
     {
         LocalLightComponent light{};
         fillDefaultLocalLight(light, type);
@@ -209,6 +201,31 @@ Entity EditorApp::spawnObject(
             light.enabled      = authored->lightEnabled;
         }
         world().emplace<LocalLightComponent>(e, light);
+    }
+    else if (type == SceneObjectType::DirectionalLight)
+    {
+        DirectionalLightComponent dir{};
+        dir.color     = Vector3f(color[0], color[1], color[2]);
+        dir.intensity = (authored && authored->hasLight) ? authored->lightIntensity : 1.0f;
+        dir.enabled   = (authored && authored->hasLight) ? authored->lightEnabled : true;
+        world().emplace<DirectionalLightComponent>(e, dir);
+    }
+    else if (type == SceneObjectType::AmbientLight)
+    {
+        AmbientLightComponent amb{};
+        amb.color     = Vector3f(color[0], color[1], color[2]);
+        amb.intensity = (authored && authored->hasLight) ? authored->lightIntensity : 1.0f;
+        amb.enabled   = (authored && authored->hasLight) ? authored->lightEnabled : true;
+        world().emplace<AmbientLightComponent>(e, amb);
+    }
+    else if (!emitterType)
+    {
+        MeshComponent mc{};
+        mc.matAssetID  = m_propMaterial ? m_propMaterial->id : NULL_ASSET;
+        mc.meshAssetID = NULL_ASSET;
+        if (authored)
+            mc.emissive = authored->emissive;
+        setMeshComponent(world(), pins(), assets(), e, mc);
     }
 
     EditorObjectComponent so{};
@@ -327,10 +344,64 @@ Entity EditorApp::placeGlowProp()
     return lightE.valid() ? lightE : meshE;
 }
 
+void EditorApp::ensureGlobalLights()
+{
+    if (m_sceneMode != SceneMode::Scene3D)
+        return;
+
+    bool haveAmbient     = false;
+    bool haveDirectional = false;
+    world().each<EditorObjectComponent>([&](Entity, EditorObjectComponent& so) {
+        if (so.type == SceneObjectType::AmbientLight)
+            haveAmbient = true;
+        if (so.type == SceneObjectType::DirectionalLight)
+            haveDirectional = true;
+    });
+
+    const Entity prev = m_selected;
+    if (!haveAmbient)
+    {
+        float col[4] = { 0.22f, 0.22f, 0.22f, 1.0f };
+        spawnObject(SceneObjectType::AmbientLight, Vector3f(-4.0f, 6.0f, 4.0f), Vector3f(1, 1, 1), Quaternion::IDENTITY, col, nullptr);
+    }
+    if (!haveDirectional)
+    {
+        float col[4] = { 1.0f, 0.96f, 0.88f, 1.0f };
+        spawnObject(SceneObjectType::DirectionalLight, Vector3f(4.0f, 8.0f, -4.0f), Vector3f(1, 1, 1), defaultDirectionalRotation(), col, nullptr);
+    }
+    m_selected = prev;
+}
+
+void EditorApp::gatherEditorLighting(Vector3f& lightDir, Vector3f& lightColor, Vector3f& ambientColor)
+{
+    lightDir     = Vector3f(0.35f, 0.85f, -0.35f);
+    lightDir.Normalize();
+    lightColor   = Vector3f(1.0f, 0.96f, 0.88f);
+    ambientColor = Vector3f(0.22f, 0.22f, 0.22f);
+
+    world().each<DirectionalLightComponent>([&](Entity e, DirectionalLightComponent& d) {
+        if (!d.enabled)
+            return;
+        if (const auto* xf = world().get<TransformComponent>(e))
+            lightDir = directionalLightDir(*xf);
+        lightColor = Vector3f(d.color.x * d.intensity, d.color.y * d.intensity, d.color.z * d.intensity);
+    });
+    world().each<AmbientLightComponent>([&](Entity, AmbientLightComponent& a) {
+        if (!a.enabled)
+            return;
+        ambientColor = Vector3f(a.color.x * a.intensity, a.color.y * a.intensity, a.color.z * a.intensity);
+    });
+}
+
 void EditorApp::deleteSelected()
 {
     if (netClientLocked() || !m_selected.valid())
         return;
+    if (const EditorObjectComponent* so = findObject(m_selected); so && isGlobalLightType(so->type))
+    {
+        DE_LOG_WARN("Editor: ambient / directional lights cannot be deleted");
+        return;
+    }
     audio().play2D(m_sfxDelete, 0.55f);
 
     Entity extra{};
@@ -419,6 +490,10 @@ void EditorApp::cycleSelectedColor()
         copyColor(so->color, col);
         if (auto* light = world().get<LocalLightComponent>(m_selected))
             light->color = Vector3f(col[0], col[1], col[2]);
+        if (auto* dir = world().get<DirectionalLightComponent>(m_selected))
+            dir->color = Vector3f(col[0], col[1], col[2]);
+        if (auto* amb = world().get<AmbientLightComponent>(m_selected))
+            amb->color = Vector3f(col[0], col[1], col[2]);
     }
 }
 
