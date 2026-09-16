@@ -108,6 +108,56 @@ namespace Dark
         // Caller must hold m_mutex.
         void erasePathEntriesLocked(AssetID id);
 
+        // How findInternedLocked treats a path entry that does not yield T.
+        enum class InternLookup : uint8_t
+        {
+            KeepStale,               // leave mapping (image pre-check)
+            EraseMissing,            // erase only if id absent from m_assets
+            EraseMissingOrWrongType  // erase if missing or wrong dynamic type
+        };
+
+        // Caller must hold m_mutex. m_pathToID → m_assets → dynamic_pointer_cast<T>.
+        template <typename T>
+        AssetRef<T> findInternedLocked(const std::string& key, InternLookup mode = InternLookup::EraseMissing)
+        {
+            const auto it = m_pathToID.find(key);
+            if (it == m_pathToID.end())
+                return {};
+            const auto asset = m_assets.find(it->second);
+            if (asset != m_assets.end())
+            {
+                if (AssetRef<T> existing = std::dynamic_pointer_cast<T>(asset->second))
+                    return existing;
+                if (mode == InternLookup::EraseMissingOrWrongType)
+                    m_pathToID.erase(it);
+                return {};
+            }
+            if (mode != InternLookup::KeepStale)
+                m_pathToID.erase(it);
+            return {};
+        }
+
+        // Locked try-get used by loaders before doing work outside the mutex.
+        template <typename T>
+        AssetRef<T> tryGetInterned(const std::string& key, InternLookup mode = InternLookup::EraseMissing)
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            return findInternedLocked<T>(key, mode);
+        }
+
+        // Caller must hold m_mutex. Double-check then assign id + path mapping.
+        template <typename T>
+        AssetRef<T> internLoadedLocked(const std::string& key, AssetRef<T> asset)
+        {
+            if (AssetRef<T> existing = findInternedLocked<T>(key, InternLookup::EraseMissing))
+                return existing;
+            const AssetID id = allocID();
+            asset->id        = id;
+            m_assets[id]     = asset;
+            m_pathToID[key]  = id;
+            return asset;
+        }
+
         // Caller must hold m_mutex. Interns clips/skeleton names at modelKey + "#anims".
         AssetRef<class AnimationSet> internAnimationSetLocked(const std::string& modelKey, const struct GltfCpuModel& cpu);
     };
