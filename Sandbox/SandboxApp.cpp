@@ -27,7 +27,7 @@
 #include "Render/MaterialSurface.h"
 #include "Render/GpuResourceCache.h"
 #include "Render/GpuUpload.h"
-#include "Render/MainMenu.h"
+#include "Ui/MainMenu.h"
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
