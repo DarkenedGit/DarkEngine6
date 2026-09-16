@@ -28,7 +28,7 @@
 #include "Ui/HudTagComponent.h"
 #include "Weapons/HittableComponent.h"
 #include "Ui/ImGuiHost.h"
-#include "Render/MainMenu.h"
+#include "Ui/MainMenu.h"
 
 #include <unordered_map>
 #include <vector>
