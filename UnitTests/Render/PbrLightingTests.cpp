@@ -90,6 +90,20 @@ TEST(PbrLighting, RoughDielectricMatchesLambertWithin15Percent)
     expectClose(up, normalized(-0.3f, 1.0f, 0.5f), normalized(0.6f, 0.8f, 0.0f));
 }
 
+TEST(PbrLighting, DiffuseHasNoInvPi)
+{
+    // Engine units: Fd = albedo*(1-metallic)*NdotL, no 1/π (this RFC).
+    const Vector3f n(0.0f, 1.0f, 0.0f);
+    const Vector3f v(0.0f, 1.0f, 0.0f);
+    const Vector3f l(0.0f, 1.0f, 0.0f);
+    const Vector3f albedo(1.0f, 1.0f, 1.0f);
+    const Vector3f light(1.0f, 1.0f, 1.0f);
+    const Vector3f pbr = pbrDirectional(n, v, albedo, 1.0f, 0.0f, l, light);
+    EXPECT_GT(pbr.x, 0.7f);
+    EXPECT_LT(pbr.x, 1.15f);
+    EXPECT_GT(pbr.x, 1.0f / static_cast<float>(Dark::Math::Pi) + 0.2f);
+}
+
 TEST(PbrLighting, SourceRadiusZeroIsIdentity)
 {
     const Vector3f L(1.0f, 2.0f, 3.0f);

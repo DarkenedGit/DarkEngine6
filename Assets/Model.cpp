@@ -4,7 +4,6 @@
 #include "Assets/Image.h"
 #include "Assets/ImageCache.h"
 #include "Core/Log.h"
-#include "Math/MathHelper.h"
 #include "Math/Vector4f.h"
 
 #include <memory>
@@ -71,21 +70,10 @@ namespace Dark
                 albedo                = assets.loadMemoryImage(key, src.albedoBytes.data(), src.albedoBytes.size());
             }
             if (!albedo || !albedo->valid())
-            {
-                const uint8_t r = static_cast<uint8_t>(Math::Clamp(src.baseColor[0], 0.0f, 1.0f) * 255.0f + 0.5f);
-                const uint8_t g = static_cast<uint8_t>(Math::Clamp(src.baseColor[1], 0.0f, 1.0f) * 255.0f + 0.5f);
-                const uint8_t b = static_cast<uint8_t>(Math::Clamp(src.baseColor[2], 0.0f, 1.0f) * 255.0f + 0.5f);
-                const uint8_t a = static_cast<uint8_t>(Math::Clamp(src.baseColor[3], 0.0f, 1.0f) * 255.0f + 0.5f);
-                albedo          = assets.loadSolidImage(r, g, b, a);
-            }
+                albedo = assets.loadSolidImage(255, 255, 255, 255);
 
             auto mat = std::make_shared<Material>();
-            const bool  solidTint = src.albedoFile.empty() && src.albedoBytes.empty();
-            const float cr        = solidTint ? 1.0f : src.baseColor[0];
-            const float cg        = solidTint ? 1.0f : src.baseColor[1];
-            const float cb        = solidTint ? 1.0f : src.baseColor[2];
-            const float ca        = solidTint ? 1.0f : src.baseColor[3];
-            if (!mat->createFromAlbedoImage(albedo, cr, cg, cb, ca))
+            if (!mat->createFromAlbedoImage(albedo, src.baseColor[0], src.baseColor[1], src.baseColor[2], src.baseColor[3]))
             {
                 DE_LOG_ERROR("Model: material create failed for primitive {}", i);
                 continue;

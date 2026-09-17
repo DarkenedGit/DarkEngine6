@@ -2164,6 +2164,7 @@ void SandboxApp::onInit()
             requestQuit();
             return;
         }
+        m_terrainMaterial.setLayerSamplingRaw(renderer().device(), renderer().debugState().legacyUnormAlbedo);
         if (!pumpBootFrame())
             return;
         m_terrain.updateLod(Vector3f{ 0.0f, 50.0f, -80.0f });
@@ -2360,6 +2361,8 @@ void SandboxApp::onRender()
         requestQuit();
         return;
     }
+    if (m_terrainMaterial.isValid())
+        m_terrainMaterial.setLayerSamplingRaw(renderer().device(), renderer().debugState().legacyUnormAlbedo);
 
     if (m_imgui.isReady())
         m_imgui.beginFrame();

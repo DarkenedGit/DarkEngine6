@@ -1,6 +1,8 @@
 // Fullscreen HDR → swap-chain. Optional CoC DoF + fade-to-black, then copy or ACES.
 #pragma pack_matrix(row_major)
 
+#include "Color.hlsli"
+
 cbuffer TonemapConstants : register(b0)
 {
     float exposure;
@@ -50,7 +52,7 @@ float linearViewZ(float depth)
 float3 tonemapColor(float3 hdr)
 {
     if (mode < 0.5f)
-        return saturate(hdr);
+        return linearToSrgb(saturate(hdr * exposure));
     return aces(hdr * exposure);
 }
 

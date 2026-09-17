@@ -60,6 +60,10 @@ namespace Dark
         // Does not patch SceneBuffers, sky, or water.
         void setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
 
+        // Pack GpuMaterial albedo from cpuHandleRaw (true) vs cpuHandle (false, _SRGB).
+        // Iterates interned materials only — not terrain splat / other packed heaps.
+        void setAlbedoSamplingRaw(bool raw);
+
         void collectUnused();
         void clear();
 
@@ -97,6 +101,7 @@ namespace Dark
 
         Renderer*                   m_renderer = nullptr;
         D3D12_CPU_DESCRIPTOR_HANDLE m_shadowCpu{};
+        bool                        m_albedoSamplingRaw = false;
         std::unordered_map<AssetID, TexEntry> m_textures;
         std::unordered_map<AssetID, MatEntry> m_materials;
         std::unordered_map<AssetID, ModEntry> m_models;

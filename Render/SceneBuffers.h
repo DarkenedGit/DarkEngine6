@@ -67,6 +67,7 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE historySrvCpu() const { return m_historySrvCpu; }
         D3D12_CPU_DESCRIPTOR_HANDLE historyRtv() const { return m_historyRtv; }
         // FLAG_NONE heaps — legal CopyDescriptors sources (shader-visible lighting heap is not).
+        // Overlay albedo is raw UNORM (byte dump). Lighting heap slot 0 is UNORM_SRGB.
         D3D12_CPU_DESCRIPTOR_HANDLE albedoSrvCpu() const { return m_albedoSrvCpu; }
         D3D12_CPU_DESCRIPTOR_HANDLE attribSrvCpu() const { return m_attribSrvCpu; }
         D3D12_GPU_DESCRIPTOR_HANDLE lightingTableGpu() const { return m_lightingGpu; }
@@ -92,7 +93,8 @@ namespace Dark
         void packLightingHeap(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu);
 
     private:
-        bool createColorTarget(ID3D12Device* device, uint32_t width, uint32_t height, DXGI_FORMAT format, const float clear[4], const wchar_t* name, ComPtr<ID3D12Resource>& out, D3D12_RESOURCE_STATES& state);
+        bool createColorTarget(ID3D12Device* device, uint32_t width, uint32_t height, DXGI_FORMAT resourceFormat, DXGI_FORMAT viewFormat, const float clear[4], const wchar_t* name,
+                               ComPtr<ID3D12Resource>& out, D3D12_RESOURCE_STATES& state);
         static void transition(ID3D12GraphicsCommandList* cmd, ID3D12Resource* res, D3D12_RESOURCE_STATES& state, D3D12_RESOURCE_STATES after);
 
         ComPtr<ID3D12Resource>       m_hdr;

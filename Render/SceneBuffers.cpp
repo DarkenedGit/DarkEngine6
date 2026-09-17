@@ -22,6 +22,35 @@ namespace Dark
             h.ptr += static_cast<SIZE_T>(index) * incr;
             return h;
         }
+
+        bool isTypeless(DXGI_FORMAT format)
+        {
+            return format == DXGI_FORMAT_R8G8B8A8_TYPELESS;
+        }
+
+        void createColorRtv(ID3D12Device* device, ID3D12Resource* resource, DXGI_FORMAT resourceFormat, DXGI_FORMAT viewFormat, D3D12_CPU_DESCRIPTOR_HANDLE dest)
+        {
+            // nullptr RTV desc is only legal when resourceFormat == viewFormat and neither is TYPELESS.
+            if (resourceFormat == viewFormat && !isTypeless(resourceFormat) && !isTypeless(viewFormat))
+            {
+                device->CreateRenderTargetView(resource, nullptr, dest);
+                return;
+            }
+            D3D12_RENDER_TARGET_VIEW_DESC desc{};
+            desc.Format        = viewFormat;
+            desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+            device->CreateRenderTargetView(resource, &desc, dest);
+        }
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC tex2dSrv(DXGI_FORMAT format)
+        {
+            D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+            srv.Format                  = format;
+            srv.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
+            srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            srv.Texture2D.MipLevels     = 1;
+            return srv;
+        }
     } // namespace
 
     void SceneBuffers::reset()
@@ -84,8 +113,20 @@ namespace Dark
         state = after;
     }
 
-    bool SceneBuffers::createColorTarget(ID3D12Device* device, uint32_t width, uint32_t height, DXGI_FORMAT format, const float clearColor[4], const wchar_t* name, ComPtr<ID3D12Resource>& out, D3D12_RESOURCE_STATES& state)
+    bool SceneBuffers::createColorTarget(ID3D12Device* device, uint32_t width, uint32_t height, DXGI_FORMAT resourceFormat, DXGI_FORMAT viewFormat, const float clearColor[4],
+                                         const wchar_t* name, ComPtr<ID3D12Resource>& out, D3D12_RESOURCE_STATES& state)
     {
+        if (!device || width == 0 || height == 0 || !clearColor)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "SceneBuffers::createColorTarget: invalid args");
+            return false;
+        }
+        if (resourceFormat == DXGI_FORMAT_UNKNOWN || viewFormat == DXGI_FORMAT_UNKNOWN || isTypeless(viewFormat))
+        {
+            DE_LOG_ERROR(LogCategory::Render, "SceneBuffers::createColorTarget: view format cannot be TYPELESS/UNKNOWN");
+            return false;
+        }
+
         D3D12_HEAP_PROPERTIES heapProps{};
         heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
 
@@ -95,13 +136,13 @@ namespace Dark
         rd.Height           = height;
         rd.DepthOrArraySize = 1;
         rd.MipLevels        = 1;
-        rd.Format           = format;
+        rd.Format           = resourceFormat;
         rd.SampleDesc       = { 1, 0 };
         rd.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
         rd.Flags            = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
 
         D3D12_CLEAR_VALUE clear{};
-        clear.Format = format;
+        clear.Format   = viewFormat;
         clear.Color[0] = clearColor[0];
         clear.Color[1] = clearColor[1];
         clear.Color[2] = clearColor[2];
@@ -145,13 +186,13 @@ namespace Dark
         if (!checkHr(device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)), "SceneBuffers CreateDescriptorHeap RTV"))
             return false;
 
-        if (!createColorTarget(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, m_hdrClear, L"DE.HdrColor", m_hdr, m_hdrState))
+        if (!createColorTarget(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R16G16B16A16_FLOAT, m_hdrClear, L"DE.HdrColor", m_hdr, m_hdrState))
         {
             reset();
             return false;
         }
         m_hdrRtv = offsetHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), kRtvHdr, m_rtvIncr);
-        device->CreateRenderTargetView(m_hdr.Get(), nullptr, m_hdrRtv);
+        createColorRtv(device, m_hdr.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R16G16B16A16_FLOAT, m_hdrRtv);
 
         D3D12_DESCRIPTOR_HEAP_DESC hdrSrvDesc{};
         hdrSrvDesc.NumDescriptors = 1;
@@ -172,11 +213,11 @@ namespace Dark
 
         if (gbuffer)
         {
-            if (!createColorTarget(device, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, kAlbedoClear, L"DE.GBuffer.Albedo", m_albedo, m_albedoState)
-                || !createColorTarget(device, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, kAttribClear, L"DE.GBuffer.Attrib", m_attrib, m_attribState)
-                || !createColorTarget(device, width, height, DXGI_FORMAT_R16G16_FLOAT, kVelocityClear, L"DE.GBuffer.Velocity", m_velocity, m_velocityState)
-                || !createColorTarget(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, kPostClear, L"DE.HdrPost", m_post, m_postState)
-                || !createColorTarget(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, kPostClear, L"DE.TaaHistory", m_history, m_historyState))
+            if (!createColorTarget(device, width, height, DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, kAlbedoClear, L"DE.GBuffer.Albedo", m_albedo, m_albedoState)
+                || !createColorTarget(device, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM, kAttribClear, L"DE.GBuffer.Attrib", m_attrib, m_attribState)
+                || !createColorTarget(device, width, height, DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R16G16_FLOAT, kVelocityClear, L"DE.GBuffer.Velocity", m_velocity, m_velocityState)
+                || !createColorTarget(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R16G16B16A16_FLOAT, kPostClear, L"DE.HdrPost", m_post, m_postState)
+                || !createColorTarget(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R16G16B16A16_FLOAT, kPostClear, L"DE.TaaHistory", m_history, m_historyState))
             {
                 reset();
                 return false;
@@ -186,11 +227,11 @@ namespace Dark
             m_velocityRtv = offsetHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), kRtvVelocity, m_rtvIncr);
             m_postRtv     = offsetHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), kRtvPost, m_rtvIncr);
             m_historyRtv  = offsetHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), kRtvHistory, m_rtvIncr);
-            device->CreateRenderTargetView(m_albedo.Get(), nullptr, m_albedoRtv);
-            device->CreateRenderTargetView(m_attrib.Get(), nullptr, m_attribRtv);
-            device->CreateRenderTargetView(m_velocity.Get(), nullptr, m_velocityRtv);
-            device->CreateRenderTargetView(m_post.Get(), nullptr, m_postRtv);
-            device->CreateRenderTargetView(m_history.Get(), nullptr, m_historyRtv);
+            createColorRtv(device, m_albedo.Get(), DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, m_albedoRtv);
+            createColorRtv(device, m_attrib.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM, m_attribRtv);
+            createColorRtv(device, m_velocity.Get(), DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R16G16_FLOAT, m_velocityRtv);
+            createColorRtv(device, m_post.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R16G16B16A16_FLOAT, m_postRtv);
+            createColorRtv(device, m_history.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R16G16B16A16_FLOAT, m_historyRtv);
 
             D3D12_DESCRIPTOR_HEAP_DESC velSrvDesc{};
             velSrvDesc.NumDescriptors = 1;
@@ -223,11 +264,7 @@ namespace Dark
             postSrv.Texture2D.MipLevels     = 1;
             device->CreateShaderResourceView(m_post.Get(), &postSrv, m_postSrvCpu);
             device->CreateShaderResourceView(m_history.Get(), &postSrv, m_historySrvCpu);
-            D3D12_SHADER_RESOURCE_VIEW_DESC unorm{};
-            unorm.Format                  = DXGI_FORMAT_R8G8B8A8_UNORM;
-            unorm.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
-            unorm.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-            unorm.Texture2D.MipLevels     = 1;
+            D3D12_SHADER_RESOURCE_VIEW_DESC unorm = tex2dSrv(DXGI_FORMAT_R8G8B8A8_UNORM);
             device->CreateShaderResourceView(m_albedo.Get(), &unorm, m_albedoSrvCpu);
             device->CreateShaderResourceView(m_attrib.Get(), &unorm, m_attribSrvCpu);
 
@@ -289,13 +326,10 @@ namespace Dark
 
         D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_lightingHeap->GetCPUDescriptorHandleForHeapStart();
 
-        D3D12_SHADER_RESOURCE_VIEW_DESC unorm{};
-        unorm.Format                  = DXGI_FORMAT_R8G8B8A8_UNORM;
-        unorm.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
-        unorm.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        unorm.Texture2D.MipLevels     = 1;
-        device->CreateShaderResourceView(m_albedo.Get(), &unorm, offsetHandle(cpu, kLightingAlbedo, m_srvIncr));
-        device->CreateShaderResourceView(m_attrib.Get(), &unorm, offsetHandle(cpu, kLightingAttrib, m_srvIncr));
+        const D3D12_SHADER_RESOURCE_VIEW_DESC albedoSrgb = tex2dSrv(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB);
+        const D3D12_SHADER_RESOURCE_VIEW_DESC attribUnorm = tex2dSrv(DXGI_FORMAT_R8G8B8A8_UNORM);
+        device->CreateShaderResourceView(m_albedo.Get(), &albedoSrgb, offsetHandle(cpu, kLightingAlbedo, m_srvIncr));
+        device->CreateShaderResourceView(m_attrib.Get(), &attribUnorm, offsetHandle(cpu, kLightingAttrib, m_srvIncr));
 
         if (depthSrvCpu.ptr != 0)
             device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingDepth, m_srvIncr), depthSrvCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);

@@ -104,9 +104,7 @@ namespace Dark
         if (!resolveTextureFormats(gpuSpace, image.format(), resourceFmt, srvFmt, footprintFmt))
             return false;
 
-        // This PR keeps the sampling SRV UNORM so look does not change. TYPELESS still gets an extra _SRGB view.
-        const DXGI_FORMAT samplingFmt = IsTypeless(resourceFmt) ? DXGI_FORMAT_R8G8B8A8_UNORM : srvFmt;
-        return createFromRaw(renderer, image.pixels(), image.width(), image.height(), image.rowPitchBytes(), resourceFmt, samplingFmt, footprintFmt, image.bytesPerPixel());
+        return createFromRaw(renderer, image.pixels(), image.width(), image.height(), image.rowPitchBytes(), resourceFmt, srvFmt, footprintFmt, image.bytesPerPixel());
     }
 
     bool Texture2D::createFromFile(Renderer& renderer, const std::filesystem::path& path, Color::TextureUsage usage)
@@ -338,13 +336,13 @@ namespace Dark
 
         if (typelessColor)
         {
-            // Stable layout for PR3: slot 0 UNORM (raw), slot 1 UNORM_SRGB. Sampling this PR is slot 0.
+            // Slot 0 UNORM (raw), slot 1 UNORM_SRGB. Sampling is slot 1; debug flag copies slot 0.
             const UINT incr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
             m_cpuHandleSrgb = m_cpuHandleRaw;
             m_cpuHandleSrgb.ptr += incr;
             CreateTexSrv(device, m_resource.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, m_cpuHandleRaw);
             CreateTexSrv(device, m_resource.Get(), DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, m_cpuHandleSrgb);
-            m_cpuHandle = m_cpuHandleRaw;
+            m_cpuHandle = m_cpuHandleSrgb;
         }
         else
         {

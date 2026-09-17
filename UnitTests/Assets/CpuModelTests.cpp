@@ -3,6 +3,7 @@
 
 #include "Assets/AssetManager.h"
 #include "Assets/GltfLoader.h"
+#include "Assets/Image.h"
 #include "Assets/Material.h"
 #include "Assets/Model.h"
 #include "Assets/MeshData.h"
@@ -51,7 +52,74 @@ TEST(CpuModel, CreateFromParsedNoRenderer)
     EXPECT_NE(model.opaque()[0].material->id, NULL_ASSET);
     EXPECT_FLOAT_EQ(model.opaque()[0].material->metallic(), 0.1f);
     EXPECT_FLOAT_EQ(model.opaque()[0].material->roughness(), 0.5f);
+    EXPECT_FLOAT_EQ(model.opaque()[0].material->baseColor()[0], 0.2f);
+    EXPECT_FLOAT_EQ(model.opaque()[0].material->baseColor()[1], 0.4f);
+    EXPECT_FLOAT_EQ(model.opaque()[0].material->baseColor()[2], 0.6f);
     EXPECT_EQ(model.opaque()[0].mesh.indices.size(), 3u);
+}
+
+TEST(CpuModel, GltfSolid_WhiteImageLinearTint)
+{
+    AssetManager assets;
+    GltfCpuModel cpu;
+    GltfCpuPrimitive p;
+    p.mesh         = makeTri();
+    p.baseColor[0] = 0.5f;
+    p.baseColor[1] = 0.25f;
+    p.baseColor[2] = 0.125f;
+    p.baseColor[3] = 1.0f;
+    cpu.primitives.push_back(p);
+
+    Model model;
+    ASSERT_TRUE(model.createFromParsed(assets, cpu, "unit:/solid-tint"));
+    ASSERT_EQ(model.opaque().size(), 1u);
+    ASSERT_TRUE(model.opaque()[0].material);
+    ASSERT_TRUE(model.opaque()[0].material->albedo());
+    EXPECT_EQ(model.opaque()[0].material->albedo()->width(), 1u);
+    EXPECT_EQ(model.opaque()[0].material->albedo()->height(), 1u);
+    const uint8_t* px = model.opaque()[0].material->albedo()->pixels();
+    ASSERT_NE(px, nullptr);
+    EXPECT_EQ(px[0], 255);
+    EXPECT_EQ(px[1], 255);
+    EXPECT_EQ(px[2], 255);
+    EXPECT_EQ(px[3], 255);
+    EXPECT_NE(px[0], 127);
+    EXPECT_NE(px[1], 63);
+    EXPECT_NE(px[2], 31);
+    EXPECT_FLOAT_EQ(model.opaque()[0].material->baseColor()[0], 0.5f);
+    EXPECT_FLOAT_EQ(model.opaque()[0].material->baseColor()[1], 0.25f);
+    EXPECT_FLOAT_EQ(model.opaque()[0].material->baseColor()[2], 0.125f);
+    EXPECT_FLOAT_EQ(model.opaque()[0].material->baseColor()[3], 1.0f);
+}
+
+TEST(CpuModel, GltfBadAlbedoBytesFallsBackToWhiteLinearTint)
+{
+    AssetManager assets;
+    GltfCpuModel cpu;
+    GltfCpuPrimitive p;
+    p.mesh         = makeTri();
+    p.albedoBytes  = { 0, 1, 2, 3 };
+    p.imageIndex   = 0;
+    p.baseColor[0] = 0.5f;
+    p.baseColor[1] = 0.25f;
+    p.baseColor[2] = 0.125f;
+    p.baseColor[3] = 1.0f;
+    cpu.primitives.push_back(p);
+
+    Model model;
+    ASSERT_TRUE(model.createFromParsed(assets, cpu, "unit:/bad-bytes"));
+    ASSERT_EQ(model.opaque().size(), 1u);
+    ASSERT_TRUE(model.opaque()[0].material);
+    ASSERT_TRUE(model.opaque()[0].material->albedo());
+    const uint8_t* px = model.opaque()[0].material->albedo()->pixels();
+    ASSERT_NE(px, nullptr);
+    EXPECT_EQ(px[0], 255);
+    EXPECT_EQ(px[1], 255);
+    EXPECT_EQ(px[2], 255);
+    EXPECT_EQ(px[3], 255);
+    EXPECT_FLOAT_EQ(model.opaque()[0].material->baseColor()[0], 0.5f);
+    EXPECT_FLOAT_EQ(model.opaque()[0].material->baseColor()[1], 0.25f);
+    EXPECT_FLOAT_EQ(model.opaque()[0].material->baseColor()[2], 0.125f);
 }
 
 TEST(CpuModel, SameAlbedoDifferentMetallicInternsTwoMaterials)

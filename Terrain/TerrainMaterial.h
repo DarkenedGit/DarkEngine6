@@ -42,6 +42,10 @@ namespace Dark
         void applySurface(TerrainFrameConstants& constants) const;
         void applySurface(TerrainGBufferConstants& constants) const;
 
+        // Layers 0–3 from cpuHandleRaw vs cpuHandle. Splat stays UNORM.
+        // Host must re-call after createDefault if the flag is on.
+        void setLayerSamplingRaw(ID3D12Device* device, bool raw);
+
         bool isValid() const { return m_heap.heap != nullptr && m_splat.valid(); }
 
         Terrain::TerrainLayerDesc&       layer(int i) { return m_layers[i]; }
@@ -56,6 +60,7 @@ namespace Dark
         Terrain::TerrainLayerDesc m_layers[Terrain::kMaxTerrainLayers];
         PackedSrvHeap             m_heap;
         GpuResourceCache*         m_cache = nullptr;
+        bool                      m_layerSamplingRaw = false;
     };
 
 } // namespace Dark

@@ -22,6 +22,7 @@ namespace Dark
         bool      aces        = false; // PR3 soak: Narkowicz display curve on HDR tonemap
         bool      motionBlur  = true;
         bool      taa         = true;
+        bool      legacyUnormAlbedo = false; // pack albedo as raw UNORM (skip sRGB decode)
 
         void cycleFill();
     };

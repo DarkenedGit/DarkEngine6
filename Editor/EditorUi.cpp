@@ -111,6 +111,9 @@ void EditorApp::drawEditorUi()
                 if (ImGui::MenuItem("ACES Tonemap", nullptr, aces))
                     renderer().debugState().aces = !aces;
             }
+            bool legacyAlbedo = renderer().debugState().legacyUnormAlbedo;
+            if (ImGui::MenuItem("Legacy UNORM albedo", nullptr, legacyAlbedo))
+                renderer().debugState().legacyUnormAlbedo = !legacyAlbedo;
             if (renderer().hasGBuffer())
             {
                 ImGui::MenuItem("G-buffer Tiles", "F11", &m_showGBuffer);

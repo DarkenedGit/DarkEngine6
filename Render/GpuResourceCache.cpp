@@ -11,6 +11,23 @@
 namespace Dark
 {
 
+    namespace
+    {
+        void copyAlbedoSlot(ID3D12Device* device, GpuMaterial& gpu, const Texture2D& tex, bool raw)
+        {
+            if (!device || !gpu.isValid())
+                return;
+            const D3D12_CPU_DESCRIPTOR_HANDLE src = raw ? tex.cpuHandleRaw() : tex.cpuHandle();
+            if (src.ptr == 0)
+                return;
+            PackedSrvHeap& heap = gpu.packedHeap();
+            const UINT     incr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+            D3D12_CPU_DESCRIPTOR_HANDLE dst = heap.heap->GetCPUDescriptorHandleForHeapStart();
+            dst.ptr += static_cast<SIZE_T>(GpuMaterial::kAlbedoSlot) * incr;
+            device->CopyDescriptorsSimple(1, dst, src, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        }
+    } // namespace
+
     GpuResourceCache::GpuResourceCache(Renderer& renderer)
         : m_renderer(&renderer)
     {
@@ -116,6 +133,8 @@ namespace Dark
         registerPackedHeap(&gpu->packedHeap());
         if (m_shadowCpu.ptr != 0)
             copyShadow(m_renderer->device(), gpu->packedHeap(), m_shadowCpu);
+        if (m_albedoSamplingRaw)
+            copyAlbedoSlot(m_renderer->device(), *gpu, *tex, true);
 
         MatEntry entry{};
         entry.cpu = material;
@@ -265,6 +284,28 @@ namespace Dark
                 continue;
             copyShadow(device, *heap, shadowCpu);
             ++m_shadowPatches;
+        }
+    }
+
+    void GpuResourceCache::setAlbedoSamplingRaw(bool raw)
+    {
+        const bool changed      = m_albedoSamplingRaw != raw;
+        m_albedoSamplingRaw     = raw;
+        if (!changed || !m_renderer || !m_renderer->device())
+            return;
+        ID3D12Device* device = m_renderer->device();
+        for (auto& kv : m_materials)
+        {
+            MatEntry& entry = kv.second;
+            if (!entry.gpu || !entry.gpu->isValid())
+                continue;
+            const AssetRef<Material> cpu = entry.cpu.lock();
+            if (!cpu || !cpu->albedo() || cpu->albedo()->id == NULL_ASSET)
+                continue;
+            std::shared_ptr<Texture2D> tex = texture(cpu->albedo()->id);
+            if (!tex || !tex->valid())
+                continue;
+            copyAlbedoSlot(device, *entry.gpu, *tex, raw);
         }
     }
 

@@ -24,7 +24,8 @@ namespace Dark
     // cpuHandle() is on a non-shader-visible heap so it is a legal CopyDescriptors source.
     // gpuHandle()/bind() use a shader-visible heap (those heaps are CPU write-only).
     // TYPELESS color FLAG_NONE layout: slot 0 UNORM (cpuHandleRaw), slot 1 UNORM_SRGB (m_cpuHandleSrgb, private).
-    // This PR: cpuHandle() is slot 0 (UNORM). Shader-visible heap stays 1 and matches cpuHandle().
+    // cpuHandle() is the sampling view: slot 1 _SRGB when present, else slot 0 UNORM.
+    // Shader-visible heap is 1 slot matching cpuHandle(). Hud/Data have no sRGB view.
     // Loaded from common image formats via WIC (PNG, JPEG, BMP, etc.).
     class Texture2D
     {

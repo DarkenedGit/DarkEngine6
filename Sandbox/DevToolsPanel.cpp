@@ -141,6 +141,8 @@ void SandboxApp::drawDevTools()
             if (ImGui::Checkbox("ACES tonemap", &dbg.aces))
                 DE_LOG_INFO("Sandbox: ACES = {}", dbg.aces);
         }
+        if (ImGui::Checkbox("Legacy UNORM albedo", &dbg.legacyUnormAlbedo))
+            DE_LOG_INFO("Sandbox: legacy UNORM albedo = {}", dbg.legacyUnormAlbedo);
         if (renderer().hasGBuffer())
         {
             if (ImGui::Checkbox("Bloom", &dbg.bloom))
