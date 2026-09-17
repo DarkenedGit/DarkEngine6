@@ -109,6 +109,7 @@ set(DE_NET_FOLDERS Network)
 set(DE_GAMEPLAY_FOLDERS
     Weapons
     Gameplay
+    Combat
 )
 
 # Remaining engine folders compiled by the DarkEngine umbrella only.
@@ -192,7 +193,7 @@ endif()
 #        |        `-- DarkRender  (Render/* + D3D12 stack; PUBLIC-links DarkAssets)
 #        |
 #        |-- DarkNet       (Network/*; PRIVATE ws2_32)
-#        `-- DarkGameplay  (Weapons/* + Gameplay/*; PUBLIC Foundation)
+#        `-- DarkGameplay  (Weapons/* + Gameplay/* + Combat/*; PUBLIC Foundation)
 #
 #   DarkEngine umbrella PUBLIC-links all layers and compiles the rest
 #   (AI Animation Audio Character Debug Input Particles Scene Sky Sprite
