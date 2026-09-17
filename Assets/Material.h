@@ -51,6 +51,22 @@ namespace Dark
         void  setEmissive(float emissive);
         float emissive() const { return m_emissive; }
 
+        void setNormalImage(AssetRef<Image> image);
+        void setOrmImage(AssetRef<Image> image);
+        void setEmissiveImage(AssetRef<Image> image);
+        const AssetRef<Image>& normalImage() const { return m_normal; }
+        const AssetRef<Image>& ormImage() const { return m_orm; }
+        const AssetRef<Image>& emissiveImage() const { return m_emissiveImage; }
+
+        void  setAo(float ao);
+        float ao() const { return m_ao; }
+        void  setNormalScale(float s);
+        float normalScale() const { return m_normalScale; }
+        void  setAlphaCutoff(float c);
+        float alphaCutoff() const { return m_alphaCutoff; }
+        void         setEmissiveColor(float r, float g, float b);
+        const float* emissiveColor() const { return m_emissiveColor; }
+
         bool isValid() const { return m_albedo && m_albedo->valid(); }
         uint64_t sortKey() const;
 
@@ -58,15 +74,25 @@ namespace Dark
 
     private:
         AssetRef<Image>   m_albedo;
+        AssetRef<Image>   m_normal;
+        AssetRef<Image>   m_orm;
+        AssetRef<Image>   m_emissiveImage;
         float             m_baseColor[4]{ 1.0f, 1.0f, 1.0f, 1.0f };
-        float             m_metallic  = 0.0f;
-        float             m_roughness = 1.0f;
-        float             m_emissive  = 0.0f;
-        MaterialAlphaMode m_alphaMode = MaterialAlphaMode::Opaque;
+        float             m_emissiveColor[3]{ 1.0f, 1.0f, 1.0f };
+        float             m_metallic     = 0.0f;
+        float             m_roughness    = 1.0f;
+        float             m_emissive     = 0.0f;
+        float             m_ao           = 1.0f;
+        float             m_normalScale  = 1.0f;
+        float             m_alphaCutoff  = 0.5f;
+        MaterialAlphaMode m_alphaMode    = MaterialAlphaMode::Opaque;
     };
 
-    // "m:{albedoId}:{r}:{g}:{b}:{a}:{metallic}:{roughness}:{emissive}:{alphaMode}"
+    // "m:{albedo}:{normal}:{orm}:{emis}:{r}:{g}:{b}:{a}:{metal}:{rough}:{emisS}:{ao}:{nScale}:{cut}:{mode}:{er}:{eg}:{eb}"
     std::string materialRecipeKey(const Material& m);
+
+    // Packed ORM: R=AO, G=roughness, B=metallic, A=255. Linear, not defaulted. Both null → false.
+    bool packOrmImage(const Image* occlusion, const Image* metallicRoughness, Image& out);
 
     AssetRef<Material> internSolidMaterial(AssetManager& assets, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255, const std::string& cacheKey = {});
 
