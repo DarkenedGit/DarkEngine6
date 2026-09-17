@@ -350,6 +350,7 @@ namespace Dark
                 m_sceneBuffers.reset();
                 return false;
             }
+            m_sceneBuffers->setLightingAlbedoRaw(m_device.Get(), m_debugState.showAlbedoRaw);
             setHeightSrv(m_heightCpu.ptr != 0 ? m_heightCpu : (m_fogHeightDummy && m_fogHeightDummy->valid() ? m_fogHeightDummy->cpuHandle() : D3D12_CPU_DESCRIPTOR_HANDLE{}));
         }
 
