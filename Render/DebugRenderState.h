@@ -19,7 +19,7 @@ namespace Dark
         bool      localLights = true;
         bool      bloom       = true;
         bool      shadows     = true;
-        bool      aces        = false; // PR3 soak: Narkowicz display curve on HDR tonemap
+        bool      aces        = false; // Narkowicz display curve on HDR tonemap
         bool      motionBlur  = true;
         bool      taa         = true;
         bool      legacyUnormAlbedo = false; // pack albedo as raw UNORM (skip sRGB decode)

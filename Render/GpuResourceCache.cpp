@@ -289,9 +289,8 @@ namespace Dark
 
     void GpuResourceCache::setAlbedoSamplingRaw(bool raw)
     {
-        const bool changed      = m_albedoSamplingRaw != raw;
-        m_albedoSamplingRaw     = raw;
-        if (!changed || !m_renderer || !m_renderer->device())
+        m_albedoSamplingRaw = raw;
+        if (!m_renderer || !m_renderer->device())
             return;
         ID3D12Device* device = m_renderer->device();
         for (auto& kv : m_materials)

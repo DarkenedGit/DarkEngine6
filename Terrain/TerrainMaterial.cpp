@@ -109,11 +109,12 @@ namespace Dark
         // Slot 5 (shadow) filled by GpuResourceCache::setShadowSrv.
         if (!packFromCpuHandles(device, m_heap, src, TerrainPipeline::kSrvCount))
             return false;
-        m_heap.shadowSlot    = kShadowSlot;
-        m_heap.srvCount      = TerrainPipeline::kSrvCount;
-        m_layerSamplingRaw   = false; // packed from cpuHandle()
-        m_cache              = &renderer.gpuResources();
+        m_heap.shadowSlot = kShadowSlot;
+        m_heap.srvCount   = TerrainPipeline::kSrvCount;
+        m_cache           = &renderer.gpuResources();
         m_cache->registerPackedHeap(&m_heap);
+        if (m_layerSamplingRaw)
+            copyLayerSampling(device);
         return true;
     }
 
@@ -169,21 +170,25 @@ namespace Dark
         return packSrvHeap(renderer);
     }
 
-    void TerrainMaterial::setLayerSamplingRaw(ID3D12Device* device, bool raw)
+    void TerrainMaterial::copyLayerSampling(ID3D12Device* device)
     {
-        const bool changed = m_layerSamplingRaw != raw;
-        m_layerSamplingRaw = raw;
-        if (!changed || !device || !m_heap.heap)
+        if (!device || !m_heap.heap)
             return;
         const UINT incr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         D3D12_CPU_DESCRIPTOR_HANDLE dst = m_heap.heap->GetCPUDescriptorHandleForHeapStart();
         for (int i = 0; i < Terrain::kMaxTerrainLayers; ++i)
         {
-            const D3D12_CPU_DESCRIPTOR_HANDLE src = raw ? m_layerTex[i].cpuHandleRaw() : m_layerTex[i].cpuHandle();
+            const D3D12_CPU_DESCRIPTOR_HANDLE src = m_layerSamplingRaw ? m_layerTex[i].cpuHandleRaw() : m_layerTex[i].cpuHandle();
             if (src.ptr != 0)
                 device->CopyDescriptorsSimple(1, dst, src, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
             dst.ptr += static_cast<SIZE_T>(incr);
         }
+    }
+
+    void TerrainMaterial::setLayerSamplingRaw(ID3D12Device* device, bool raw)
+    {
+        m_layerSamplingRaw = raw;
+        copyLayerSampling(device);
     }
 
     void TerrainMaterial::bind(ID3D12GraphicsCommandList* cmd, UINT srvTableRootIndex) const

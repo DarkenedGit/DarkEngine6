@@ -2361,8 +2361,6 @@ void SandboxApp::onRender()
         requestQuit();
         return;
     }
-    if (m_terrainMaterial.isValid())
-        m_terrainMaterial.setLayerSamplingRaw(renderer().device(), renderer().debugState().legacyUnormAlbedo);
 
     if (m_imgui.isReady())
         m_imgui.beginFrame();

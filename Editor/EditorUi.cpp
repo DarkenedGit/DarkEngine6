@@ -113,7 +113,10 @@ void EditorApp::drawEditorUi()
             }
             bool legacyAlbedo = renderer().debugState().legacyUnormAlbedo;
             if (ImGui::MenuItem("Legacy UNORM albedo", nullptr, legacyAlbedo))
+            {
                 renderer().debugState().legacyUnormAlbedo = !legacyAlbedo;
+                renderer().gpuResources().setAlbedoSamplingRaw(renderer().debugState().legacyUnormAlbedo);
+            }
             if (renderer().hasGBuffer())
             {
                 ImGui::MenuItem("G-buffer Tiles", "F11", &m_showGBuffer);

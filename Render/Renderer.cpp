@@ -378,9 +378,6 @@ namespace Dark
             return false;
         }
 
-        if (m_gpuResources)
-            m_gpuResources->setAlbedoSamplingRaw(m_debugState.legacyUnormAlbedo);
-
         // m_frameIndex was advanced in moveToNextFrame(), which already waited until
         // this slot's prior GPU work finished. Safe to reset its allocator now.
         if (!checkHr(m_commandAllocators[m_frameIndex]->Reset(), "CommandAllocator Reset"))

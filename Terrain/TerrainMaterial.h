@@ -43,7 +43,7 @@ namespace Dark
         void applySurface(TerrainGBufferConstants& constants) const;
 
         // Layers 0–3 from cpuHandleRaw vs cpuHandle. Splat stays UNORM.
-        // Host must re-call after createDefault if the flag is on.
+        // Stores the flag; packSrvHeap re-applies it after a rebuild (like GpuMaterial pack).
         void setLayerSamplingRaw(ID3D12Device* device, bool raw);
 
         bool isValid() const { return m_heap.heap != nullptr && m_splat.valid(); }
@@ -53,6 +53,7 @@ namespace Dark
 
     private:
         bool packSrvHeap(Renderer& renderer);
+        void copyLayerSampling(ID3D12Device* device);
         void unbindCache();
 
         Texture2D                 m_layerTex[Terrain::kMaxTerrainLayers];

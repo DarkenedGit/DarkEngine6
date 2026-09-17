@@ -142,7 +142,12 @@ void SandboxApp::drawDevTools()
                 DE_LOG_INFO("Sandbox: ACES = {}", dbg.aces);
         }
         if (ImGui::Checkbox("Legacy UNORM albedo", &dbg.legacyUnormAlbedo))
+        {
+            renderer().gpuResources().setAlbedoSamplingRaw(dbg.legacyUnormAlbedo);
+            if (m_terrainMaterial.isValid())
+                m_terrainMaterial.setLayerSamplingRaw(renderer().device(), dbg.legacyUnormAlbedo);
             DE_LOG_INFO("Sandbox: legacy UNORM albedo = {}", dbg.legacyUnormAlbedo);
+        }
         if (renderer().hasGBuffer())
         {
             if (ImGui::Checkbox("Bloom", &dbg.bloom))
