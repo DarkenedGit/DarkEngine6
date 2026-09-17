@@ -1,4 +1,5 @@
 #include "Render/SceneBuffers.h"
+#include "Math/Color.h"
 #include "Core/Log.h"
 
 namespace Dark
@@ -171,9 +172,10 @@ namespace Dark
         }
         if (hdrClear)
         {
-            m_hdrClear[0] = hdrClear[0];
-            m_hdrClear[1] = hdrClear[1];
-            m_hdrClear[2] = hdrClear[2];
+            // UI / swapchain clears are sRGB; tonemap applies IEC OETF. Store linear so kVoid stays #081018 on screen.
+            m_hdrClear[0] = Color::srgbToLinear(hdrClear[0]);
+            m_hdrClear[1] = Color::srgbToLinear(hdrClear[1]);
+            m_hdrClear[2] = Color::srgbToLinear(hdrClear[2]);
             m_hdrClear[3] = hdrClear[3];
         }
 

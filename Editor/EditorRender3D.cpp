@@ -174,8 +174,11 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         mesh.draw(cmd, fill == DebugFill::Points);
     };
 
-    if (m_showSolid && m_groundMesh.valid())
-        drawMesh(m_groundMesh, Matrix4f{}, m_groundMaterial.get(), 0.45f, 0.48f, 0.52f);
+    if (m_showSolid && m_groundMesh.valid() && m_groundMaterial)
+    {
+        const float* c = m_groundMaterial->baseColor();
+        drawMesh(m_groundMesh, Matrix4f{}, m_groundMaterial.get(), c[0], c[1], c[2]);
+    }
 
     auto drawGrid = [&]() {
         if (!m_showGrid || !m_gridMesh.valid())

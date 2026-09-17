@@ -210,15 +210,14 @@ void EditorApp::onInit()
     }
 
     m_groundMaterial = std::make_shared<Material>();
-    // White 1x1 — albedo comes from baseColor * draw tint. A dark solid * a dark tint made the
-    // plane nearly black, so only the spotlight hot-spot showed on the grid.
+    // White 1x1 — albedo is baseColor. sRGB 115/122/133 matches the old 0.45/0.48/0.52 UNORM look after IEC OETF.
     if (!m_groundMaterial->createSolid(assets(), 255, 255, 255, 255))
     {
         DE_LOG_FATAL("EditorApp: ground material failed");
         requestQuit();
         return;
     }
-    m_groundMaterial->setBaseColor(0.45f, 0.48f, 0.52f, 1.0f);
+    m_groundMaterial->setBaseColorFromSrgb8(115, 122, 133);
     m_groundMaterial = assets().internMaterial(m_groundMaterial);
     if (!m_groundMaterial || m_groundMaterial->id == NULL_ASSET || !renderer().gpuResources().ensureMaterial(m_groundMaterial))
     {

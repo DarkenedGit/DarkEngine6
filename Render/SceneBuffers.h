@@ -38,6 +38,7 @@ namespace Dark
         static constexpr float kVelocityClear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
         static constexpr float kPostClear[4]     = { 0.0f, 0.0f, 0.0f, 1.0f };
 
+        // hdrClear is display-referred (same space as Renderer::setClearColor / swapchain). RGB is converted to linear for the HDR target.
         bool create(ID3D12Device* device, uint32_t width, uint32_t height, bool gbuffer, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu, const float hdrClear[4]);
         void reset();
 
