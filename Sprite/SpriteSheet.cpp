@@ -246,7 +246,7 @@ namespace Dark
         }
 
         auto tex = std::make_shared<Texture2D>();
-        if (!tex->createFromRGBA(renderer, px.data(), texW, texH, texW * 4u))
+        if (!tex->createFromRGBA(renderer, px.data(), texW, texH, texW * 4u, Color::TextureUsage::Hud))
         {
             DE_LOG_ERROR("SpriteSheet: procedural hero upload failed");
             return false;

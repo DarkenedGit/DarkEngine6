@@ -83,8 +83,8 @@ bool EditorApp::ensure2DResources()
         return false;
     }
     if (!createChecker(renderer(), m_texPlatform, 118, 86, 52, 92, 66, 40)
-        || !m_texCoin.createSolidColor(renderer(), 236, 196, 64)
-        || !m_texSpawn.createSolidColor(renderer(), 48, 196, 168))
+        || !m_texCoin.createSolidColor(renderer(), 236, 196, 64, 255, Dark::Color::TextureUsage::Hud)
+        || !m_texSpawn.createSolidColor(renderer(), 48, 196, 168, 255, Dark::Color::TextureUsage::Hud))
     {
         DE_LOG_ERROR("Editor: 2D textures failed");
         return false;

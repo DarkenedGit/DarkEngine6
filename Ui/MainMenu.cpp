@@ -315,7 +315,7 @@ namespace Dark
             DE_LOG_ERROR(LogCategory::Render, "MainMenu: quad mesh failed");
             return false;
         }
-        if (!m_white.createSolidColor(renderer, 255, 255, 255, 255))
+        if (!m_white.createSolidColor(renderer, 255, 255, 255, 255, Color::TextureUsage::Hud))
         {
             DE_LOG_ERROR(LogCategory::Render, "MainMenu: white texture failed");
             return false;
@@ -345,7 +345,7 @@ namespace Dark
                 return;
             LabelGpu lab;
             lab.text = text;
-            if (!lab.texture.createFromRGBA(renderer, rgba.data(), w, h, w * 4u))
+            if (!lab.texture.createFromRGBA(renderer, rgba.data(), w, h, w * 4u, Color::TextureUsage::Hud))
             {
                 DE_LOG_ERROR(LogCategory::Render, "MainMenu: text texture failed for '{}'", text);
                 return;

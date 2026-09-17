@@ -45,7 +45,7 @@ namespace Dark
         }
     }
 
-    bool GpuResourceCache::ensureTexture(const AssetRef<Image>& image)
+    bool GpuResourceCache::ensureTexture(const AssetRef<Image>& image, Color::TextureUsage usage)
     {
         if (!image || image->id == NULL_ASSET)
         {
@@ -54,7 +54,14 @@ namespace Dark
         }
         const auto it = m_textures.find(image->id);
         if (it != m_textures.end() && it->second.gpu && it->second.gpu->valid())
+        {
+            if (it->second.usage != usage)
+            {
+                DE_LOG_WARN(LogCategory::Render, "GpuResourceCache::ensureTexture: id={} keeping first usage {} (ignored {})", image->id,
+                            static_cast<unsigned>(it->second.usage), static_cast<unsigned>(usage));
+            }
             return true;
+        }
         if (!image->valid())
         {
             DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureTexture: id={} has no pixels", image->id);
@@ -66,11 +73,12 @@ namespace Dark
             return false;
         }
         auto gpu = std::make_shared<Texture2D>();
-        if (!gpu->createFromImage(*m_renderer, *image))
+        if (!gpu->createFromImage(*m_renderer, *image, usage))
             return false;
         TexEntry entry{};
-        entry.cpu = image;
-        entry.gpu = std::move(gpu);
+        entry.cpu             = image;
+        entry.gpu             = std::move(gpu);
+        entry.usage           = usage;
         m_textures[image->id] = std::move(entry);
         return true;
     }
@@ -87,7 +95,7 @@ namespace Dark
             return true;
 
         const AssetRef<Image>& albedo = material->albedo();
-        if (!albedo || albedo->id == NULL_ASSET || !ensureTexture(albedo))
+        if (!albedo || albedo->id == NULL_ASSET || !ensureTexture(albedo, Color::TextureUsage::Albedo))
         {
             DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureMaterial: id={} albedo upload failed", material->id);
             return false;

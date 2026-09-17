@@ -81,4 +81,15 @@ namespace Dark::Color
             return ColorSpace::Linear;
         }
     }
+
+    // GPU create: Linear usage always wins. Albedo/Emissive keep an explicit Linear Image tag (particle masks);
+    // Unknown albedo defaults to sRGB.
+    inline ColorSpace resolveGpuColorSpace(TextureUsage usage, ColorSpace imageSpace)
+    {
+        if (inferColorSpaceForUsage(usage) == ColorSpace::Linear)
+            return ColorSpace::Linear;
+        if (imageSpace == ColorSpace::Linear)
+            return ColorSpace::Linear;
+        return ColorSpace::sRGB;
+    }
 } // namespace Dark::Color

@@ -1,8 +1,11 @@
 #include <gtest/gtest.h>
 
 #include "Assets/Image.h"
+#include "Math/Color.h"
 
 using Dark::Image;
+using Dark::ImageFormat;
+using Dark::Color::ColorSpace;
 
 TEST(Image, SolidColorIs1x1Rgba)
 {
@@ -16,6 +19,8 @@ TEST(Image, SolidColorIs1x1Rgba)
     EXPECT_EQ(img.pixels()[1], 20);
     EXPECT_EQ(img.pixels()[2], 30);
     EXPECT_EQ(img.pixels()[3], 40);
+    EXPECT_EQ(img.colorSpace(), ColorSpace::Unknown);
+    EXPECT_TRUE(img.colorSpaceWasDefaulted());
 }
 
 TEST(Image, FromRgbaPitch)
@@ -26,6 +31,8 @@ TEST(Image, FromRgbaPitch)
     EXPECT_EQ(img.width(), 2u);
     EXPECT_EQ(img.height(), 1u);
     EXPECT_EQ(img.rowPitchBytes(), 8u);
+    EXPECT_EQ(img.colorSpace(), ColorSpace::Unknown);
+    EXPECT_TRUE(img.colorSpaceWasDefaulted());
 }
 
 TEST(Image, SoftCircleCenterAlphaGreaterThanEdge)
@@ -38,6 +45,36 @@ TEST(Image, SoftCircleCenterAlphaGreaterThanEdge)
     const uint8_t  centerA = px[(mid * 16 + mid) * 4 + 3];
     const uint8_t  edgeA   = px[3];
     EXPECT_GT(centerA, edgeA);
+    EXPECT_EQ(img.colorSpace(), ColorSpace::Linear);
+    EXPECT_FALSE(img.colorSpaceWasDefaulted());
+}
+
+TEST(Image, SoftStreakIsLinear)
+{
+    Image img;
+    ASSERT_TRUE(img.createSoftStreak(16));
+    EXPECT_EQ(img.colorSpace(), ColorSpace::Linear);
+    EXPECT_FALSE(img.colorSpaceWasDefaulted());
+}
+
+TEST(Image, R32FloatIsLinear)
+{
+    const float samples[] = { 1.5f, -0.25f };
+    Image       img;
+    ASSERT_TRUE(img.createFromR32Float(samples, 2, 1, 8));
+    EXPECT_EQ(img.format(), ImageFormat::R32F);
+    EXPECT_EQ(img.colorSpace(), ColorSpace::Linear);
+    EXPECT_FALSE(img.colorSpaceWasDefaulted());
+}
+
+TEST(Image, SetColorSpaceClearsDefaulted)
+{
+    Image img;
+    ASSERT_TRUE(img.createSolidColor(1, 2, 3, 4));
+    EXPECT_TRUE(img.colorSpaceWasDefaulted());
+    img.setColorSpace(ColorSpace::sRGB);
+    EXPECT_EQ(img.colorSpace(), ColorSpace::sRGB);
+    EXPECT_FALSE(img.colorSpaceWasDefaulted());
 }
 
 TEST(Image, EmptyRgbaFails)
@@ -45,4 +82,16 @@ TEST(Image, EmptyRgbaFails)
     Image img;
     EXPECT_FALSE(img.createFromRGBA(nullptr, 0, 0, 0));
     EXPECT_FALSE(img.valid());
+}
+
+TEST(Image, FailedCreateLeavesColorSpace)
+{
+    Image img;
+    ASSERT_TRUE(img.createSoftCircle(8));
+    EXPECT_EQ(img.colorSpace(), ColorSpace::Linear);
+    EXPECT_FALSE(img.colorSpaceWasDefaulted());
+    EXPECT_FALSE(img.createFromRGBA(nullptr, 0, 0, 0));
+    EXPECT_FALSE(img.createFromR32Float(nullptr, 0, 0, 0));
+    EXPECT_EQ(img.colorSpace(), ColorSpace::Linear);
+    EXPECT_FALSE(img.colorSpaceWasDefaulted());
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Assets/AssetHandle.h"
+#include "Math/Color.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -38,6 +39,10 @@ namespace Dark
         const uint8_t* pixels() const { return m_pixels.empty() ? nullptr : m_pixels.data(); }
         uint32_t bytesPerPixel() const { return m_format == ImageFormat::R32F ? 4u : 4u; }
 
+        Color::ColorSpace colorSpace() const { return m_colorSpace; }
+        bool              colorSpaceWasDefaulted() const { return m_colorSpaceDefaulted; }
+        void              setColorSpace(Color::ColorSpace space);
+
     private:
         bool setPixels(const void* data, uint32_t width, uint32_t height, uint32_t rowPitchBytes, ImageFormat format, uint32_t bytesPerPixel);
 
@@ -46,6 +51,8 @@ namespace Dark
         uint32_t             m_height   = 0;
         uint32_t             m_rowPitch = 0;
         ImageFormat          m_format   = ImageFormat::RGBA8;
+        Color::ColorSpace    m_colorSpace          = Color::ColorSpace::Unknown;
+        bool                 m_colorSpaceDefaulted = true;
     };
 
 } // namespace Dark

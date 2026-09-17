@@ -54,7 +54,7 @@ bool createChecker(
             px[i + 3] = 255;
         }
     }
-    return out.createFromRGBA(renderer, px.data(), size, size, size * 4u);
+    return out.createFromRGBA(renderer, px.data(), size, size, size * 4u, Dark::Color::TextureUsage::Hud);
 }
 
 void mountContentRoots(AssetManager& assets)
@@ -1105,10 +1105,10 @@ void Sandbox2DApp::onInit()
     m_playerAnim.play("idle", true);
 
     if (!createChecker(renderer(), m_texPlatform, 118, 86, 52, 92, 66, 40)
-        || !m_texCoin.createSolidColor(renderer(), 236, 196, 64)
+        || !m_texCoin.createSolidColor(renderer(), 236, 196, 64, 255, Dark::Color::TextureUsage::Hud)
         || !createChecker(renderer(), m_texHillFar, 62, 92, 128, 54, 80, 116, 32, 16)
         || !createChecker(renderer(), m_texHillMid, 72, 122, 78, 58, 102, 64, 32, 16)
-        || !m_texWhite.createSolidColor(renderer(), 255, 255, 255))
+        || !m_texWhite.createSolidColor(renderer(), 255, 255, 255, 255, Dark::Color::TextureUsage::Hud))
     {
         DE_LOG_FATAL("Sandbox2D: textures failed");
         requestQuit();

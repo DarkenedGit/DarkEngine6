@@ -14,7 +14,7 @@ namespace Dark
         AssetRef<Image> img = assets.loadImage(virtualPath);
         if (!img || !img->valid())
             return {};
-        if (!renderer.gpuResources().ensureTexture(img))
+        if (!renderer.gpuResources().ensureTexture(img, Color::TextureUsage::Hud))
             return {};
         return renderer.gpuResources().texture(img->id);
     }

@@ -109,6 +109,8 @@ namespace Dark
             return false;
         if (!setPixels(pixels.data(), w, h, pitch, ImageFormat::RGBA8, 4u))
             return false;
+        m_colorSpace          = Color::ColorSpace::Unknown;
+        m_colorSpaceDefaulted = true;
         DE_LOG_INFO("Image: loaded '{}' ({}x{})", path.string(), w, h);
         return true;
     }
@@ -139,13 +141,21 @@ namespace Dark
             DE_LOG_ERROR("Image: failed to decode {} bytes", byteCount);
             return false;
         }
-        return setPixels(pixels.data(), w, h, pitch, ImageFormat::RGBA8, 4u);
+        if (!setPixels(pixels.data(), w, h, pitch, ImageFormat::RGBA8, 4u))
+            return false;
+        m_colorSpace          = Color::ColorSpace::Unknown;
+        m_colorSpaceDefaulted = true;
+        return true;
     }
 
     bool Image::createSolidColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
     {
         const uint8_t px[4] = { r, g, b, a };
-        return setPixels(px, 1, 1, 4, ImageFormat::RGBA8, 4u);
+        if (!setPixels(px, 1, 1, 4, ImageFormat::RGBA8, 4u))
+            return false;
+        m_colorSpace          = Color::ColorSpace::Unknown;
+        m_colorSpaceDefaulted = true;
+        return true;
     }
 
     bool Image::createSoftCircle(uint32_t size)
@@ -174,7 +184,11 @@ namespace Dark
                 pixels[i + 3]       = alpha;
             }
         }
-        return setPixels(pixels.data(), size, size, size * 4u, ImageFormat::RGBA8, 4u);
+        if (!setPixels(pixels.data(), size, size, size * 4u, ImageFormat::RGBA8, 4u))
+            return false;
+        m_colorSpace          = Color::ColorSpace::Linear;
+        m_colorSpaceDefaulted = false;
+        return true;
     }
 
     bool Image::createSoftStreak(uint32_t size)
@@ -198,17 +212,35 @@ namespace Dark
                 pixels[i + 3]       = alpha;
             }
         }
-        return setPixels(pixels.data(), size, size, size * 4u, ImageFormat::RGBA8, 4u);
+        if (!setPixels(pixels.data(), size, size, size * 4u, ImageFormat::RGBA8, 4u))
+            return false;
+        m_colorSpace          = Color::ColorSpace::Linear;
+        m_colorSpaceDefaulted = false;
+        return true;
     }
 
     bool Image::createFromRGBA(const uint8_t* rgba, uint32_t width, uint32_t height, uint32_t rowPitchBytes)
     {
-        return setPixels(rgba, width, height, rowPitchBytes, ImageFormat::RGBA8, 4u);
+        if (!setPixels(rgba, width, height, rowPitchBytes, ImageFormat::RGBA8, 4u))
+            return false;
+        m_colorSpace          = Color::ColorSpace::Unknown;
+        m_colorSpaceDefaulted = true;
+        return true;
     }
 
     bool Image::createFromR32Float(const float* samples, uint32_t width, uint32_t height, uint32_t rowPitchBytes)
     {
-        return setPixels(samples, width, height, rowPitchBytes, ImageFormat::R32F, static_cast<uint32_t>(sizeof(float)));
+        if (!setPixels(samples, width, height, rowPitchBytes, ImageFormat::R32F, static_cast<uint32_t>(sizeof(float))))
+            return false;
+        m_colorSpace          = Color::ColorSpace::Linear;
+        m_colorSpaceDefaulted = false;
+        return true;
+    }
+
+    void Image::setColorSpace(Color::ColorSpace space)
+    {
+        m_colorSpace          = space;
+        m_colorSpaceDefaulted = false;
     }
 
 } // namespace Dark

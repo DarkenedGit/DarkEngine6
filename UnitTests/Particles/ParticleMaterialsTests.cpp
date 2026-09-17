@@ -30,3 +30,16 @@ TEST(ParticleMaterials, BillboardAndRibbonAreDistinct)
     ASSERT_TRUE(ribbon);
     EXPECT_NE(billboard->id, ribbon->id);
 }
+
+TEST(ParticleMaterials, SoftMaskImageIsLinear)
+{
+    AssetManager assets;
+    auto         billboard = internParticleSpriteMaterial(assets, false);
+    auto         ribbon    = internParticleSpriteMaterial(assets, true);
+    ASSERT_TRUE(billboard && billboard->albedo());
+    ASSERT_TRUE(ribbon && ribbon->albedo());
+    EXPECT_EQ(billboard->albedo()->colorSpace(), Dark::Color::ColorSpace::Linear);
+    EXPECT_FALSE(billboard->albedo()->colorSpaceWasDefaulted());
+    EXPECT_EQ(ribbon->albedo()->colorSpace(), Dark::Color::ColorSpace::Linear);
+    EXPECT_FALSE(ribbon->albedo()->colorSpaceWasDefaulted());
+}

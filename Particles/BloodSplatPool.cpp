@@ -67,7 +67,7 @@ namespace Dark
                     px[i + 3]        = static_cast<uint8_t>(a * 255.0f + 0.5f);
                 }
             }
-            return out.createFromRGBA(renderer, px.data(), kSize, kSize, kSize * 4u);
+            return out.createFromRGBA(renderer, px.data(), kSize, kSize, kSize * 4u, Color::TextureUsage::Albedo);
         }
     } // namespace
 

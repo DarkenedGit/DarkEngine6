@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Assets/AssetHandle.h"
+#include "Math/Color.h"
 #include "Render/GpuMaterial.h"
 #include "Render/GpuModel.h"
 #include "Render/PackedSrvHeap.h"
@@ -29,7 +30,7 @@ namespace Dark
         GpuResourceCache(const GpuResourceCache&)            = delete;
         GpuResourceCache& operator=(const GpuResourceCache&) = delete;
 
-        bool ensureTexture(const AssetRef<Image>& image);
+        bool ensureTexture(const AssetRef<Image>& image, Color::TextureUsage usage);
         bool ensureMaterial(const AssetRef<Material>& material);
         bool ensureModel(const AssetRef<Model>& model);
 
@@ -65,8 +66,9 @@ namespace Dark
     private:
         struct TexEntry
         {
-            AssetWeakRef<Image>          cpu;
-            std::shared_ptr<Texture2D>   gpu;
+            AssetWeakRef<Image>        cpu;
+            std::shared_ptr<Texture2D> gpu;
+            Color::TextureUsage        usage = Color::TextureUsage::Albedo;
         };
         struct MatEntry
         {

@@ -1,5 +1,8 @@
 #pragma once
 
+#include "Assets/Image.h"
+#include "Math/Color.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -14,9 +17,13 @@ namespace Dark
 
     using Microsoft::WRL::ComPtr;
 
+    // srvFmt is the eventual sampling format (UNORM_SRGB for sRGB 8-bit). Footprint is never TYPELESS.
+    bool resolveTextureFormats(Color::ColorSpace space, ImageFormat imgFmt, DXGI_FORMAT& resourceFmt, DXGI_FORMAT& srvFmt, DXGI_FORMAT& footprintFmt);
+
     // GPU texture (default-heap) + SRV.
     // cpuHandle() is on a non-shader-visible heap so it is a legal CopyDescriptors source.
     // gpuHandle()/bind() use a shader-visible heap (those heaps are CPU write-only).
+    // This PR: cpuHandle() is UNORM even for TYPELESS color; cpuHandleRaw() is the UNORM view.
     // Loaded from common image formats via WIC (PNG, JPEG, BMP, etc.).
     class Texture2D
     {
@@ -30,17 +37,17 @@ namespace Dark
         Texture2D& operator=(const Texture2D&) = delete;
 
         // Upload CPU pixels. Decode is Image (WIC lives there).
-        bool createFromImage(Renderer& renderer, const class Image& image);
+        bool createFromImage(Renderer& renderer, const Image& image, Color::TextureUsage usage);
 
         // HUD/particles: stack Image then createFromImage. Not interned in GpuResourceCache.
-        bool createFromFile(Renderer& renderer, const std::filesystem::path& path);
-        bool createFromMemory(Renderer& renderer, const void* bytes, size_t byteCount);
-        bool createSolidColor(Renderer& renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
-        bool createSoftCircle(Renderer& renderer, uint32_t size = 64);
-        bool createSoftStreak(Renderer& renderer, uint32_t size = 64);
-        bool createFromRGBA(Renderer& renderer, const uint8_t* rgba, uint32_t width, uint32_t height, uint32_t rowPitchBytes);
+        bool createFromFile(Renderer& renderer, const std::filesystem::path& path, Color::TextureUsage usage);
+        bool createFromMemory(Renderer& renderer, const void* bytes, size_t byteCount, Color::TextureUsage usage);
+        bool createSolidColor(Renderer& renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255, Color::TextureUsage usage = Color::TextureUsage::Albedo);
+        bool createSoftCircle(Renderer& renderer, uint32_t size = 64, Color::TextureUsage usage = Color::TextureUsage::Data);
+        bool createSoftStreak(Renderer& renderer, uint32_t size = 64, Color::TextureUsage usage = Color::TextureUsage::Data);
+        bool createFromRGBA(Renderer& renderer, const uint8_t* rgba, uint32_t width, uint32_t height, uint32_t rowPitchBytes, Color::TextureUsage usage);
 
-        // Raw R32_FLOAT height field (rowPitchBytes usually width*4). No WIC.
+        // Raw R32_FLOAT height field (rowPitchBytes usually width*4). No WIC. Always Linear.
         bool createFromR32Float(Renderer& renderer, const float* samples, uint32_t width, uint32_t height, uint32_t rowPitchBytes);
 
         // SetDescriptorHeaps + SetGraphicsRootDescriptorTable for this SRV.
@@ -71,18 +78,24 @@ namespace Dark
         {
             return m_cpuHandle;
         }
+        D3D12_CPU_DESCRIPTOR_HANDLE cpuHandleRaw() const
+        {
+            return m_cpuHandleRaw;
+        }
         D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle() const
         {
             return m_gpuHandle;
         }
 
     private:
-        bool createFromRaw(Renderer& renderer, const void* data, uint32_t width, uint32_t height, uint32_t rowPitchBytes, DXGI_FORMAT format, uint32_t bytesPerPixel);
+        bool createFromRaw(Renderer& renderer, const void* data, uint32_t width, uint32_t height, uint32_t rowPitchBytes, DXGI_FORMAT resourceFormat, DXGI_FORMAT srvFormat,
+                           DXGI_FORMAT footprintFormat, uint32_t bytesPerPixel);
 
         ComPtr<ID3D12Resource>       m_resource;
-        ComPtr<ID3D12DescriptorHeap> m_cpuSrvHeap; // FLAG_NONE — CopyDescriptors source
-        ComPtr<ID3D12DescriptorHeap> m_srvHeap;    // SHADER_VISIBLE — bind / GPU handle
+        ComPtr<ID3D12DescriptorHeap> m_cpuSrvHeap; // FLAG_NONE — CopyDescriptors source (2 slots when TYPELESS color)
+        ComPtr<ID3D12DescriptorHeap> m_srvHeap;    // SHADER_VISIBLE — bind / GPU handle (1 slot = cpuHandle)
         D3D12_CPU_DESCRIPTOR_HANDLE  m_cpuHandle{};
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_cpuHandleRaw{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_gpuHandle{};
         uint32_t                     m_width  = 0;
         uint32_t                     m_height = 0;

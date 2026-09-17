@@ -32,7 +32,7 @@ namespace Dark
             DE_LOG_ERROR(LogCategory::Render, "CrosshairHud: quad mesh failed");
             return false;
         }
-        if (!m_white.createSolidColor(renderer, 255, 255, 255, 255))
+        if (!m_white.createSolidColor(renderer, 255, 255, 255, 255, Color::TextureUsage::Hud))
         {
             DE_LOG_ERROR(LogCategory::Render, "CrosshairHud: white texture failed");
             return false;

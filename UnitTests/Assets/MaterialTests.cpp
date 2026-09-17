@@ -71,3 +71,41 @@ TEST(Material, InternAssignsId)
     EXPECT_NE(mat->id, NULL_ASSET);
     EXPECT_EQ(mat->sortKey(), mat->id);
 }
+
+TEST(Material, CreateSolidKeepsSrgbBytesAndTagsSrgb)
+{
+    AssetManager assets;
+    Material     mat;
+    ASSERT_TRUE(mat.createSolid(assets, 188, 188, 188));
+    ASSERT_TRUE(mat.isValid());
+    const uint8_t* px = mat.albedo()->pixels();
+    ASSERT_NE(px, nullptr);
+    EXPECT_EQ(px[0], 188);
+    EXPECT_EQ(px[1], 188);
+    EXPECT_EQ(px[2], 188);
+    EXPECT_EQ(px[3], 255);
+    EXPECT_EQ(mat.albedo()->colorSpace(), Dark::Color::ColorSpace::sRGB);
+    EXPECT_FALSE(mat.albedo()->colorSpaceWasDefaulted());
+    EXPECT_FLOAT_EQ(mat.baseColor()[0], 1.0f);
+    EXPECT_FLOAT_EQ(mat.baseColor()[1], 1.0f);
+    EXPECT_FLOAT_EQ(mat.baseColor()[2], 1.0f);
+    EXPECT_FLOAT_EQ(mat.baseColor()[3], 1.0f);
+}
+
+TEST(Material, SetBaseColorFromSrgb8DecodesRgbIdentityAlpha)
+{
+    Material mat;
+    mat.setBaseColorFromSrgb8(188, 188, 188, 255);
+    EXPECT_NEAR(mat.baseColor()[0], 0.5028864580325687, 1.0e-6);
+    EXPECT_NEAR(mat.baseColor()[1], 0.5028864580325687, 1.0e-6);
+    EXPECT_NEAR(mat.baseColor()[2], 0.5028864580325687, 1.0e-6);
+    EXPECT_FLOAT_EQ(mat.baseColor()[3], 1.0f);
+}
+
+TEST(Material, SetBaseColorFromSrgb8AlphaIsIdentity)
+{
+    Material mat;
+    mat.setBaseColorFromSrgb8(0, 0, 0, 188);
+    EXPECT_FLOAT_EQ(mat.baseColor()[0], 0.0f);
+    EXPECT_NEAR(mat.baseColor()[3], 188.0f / 255.0f, 1.0e-7);
+}

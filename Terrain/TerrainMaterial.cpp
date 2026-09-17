@@ -36,7 +36,7 @@ namespace Dark
             Image img;
             if (!img.createFromRGBA(px.data(), size, size, size * 4u))
                 return false;
-            return out.createFromImage(renderer, img);
+            return out.createFromImage(renderer, img, Color::TextureUsage::Albedo);
         }
     } // namespace
 
@@ -133,7 +133,7 @@ namespace Dark
 
         Image splatImg;
         if (!splatImg.createFromRGBA(splat.rgba(), splat.width(), splat.height(), splat.width() * 4u)
-            || !m_splat.createFromImage(renderer, splatImg))
+            || !m_splat.createFromImage(renderer, splatImg, Color::TextureUsage::Data))
         {
             DE_LOG_ERROR("TerrainMaterial: failed to upload splat");
             return false;

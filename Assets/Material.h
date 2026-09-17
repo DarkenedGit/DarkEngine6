@@ -41,6 +41,7 @@ namespace Dark
         float roughness() const { return m_roughness; }
 
         void         setBaseColor(float r, float g, float b, float a = 1.0f);
+        void         setBaseColorFromSrgb8(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
         const float* baseColor() const { return m_baseColor; }
 
         void              setAlphaMode(MaterialAlphaMode mode) { m_alphaMode = mode; }

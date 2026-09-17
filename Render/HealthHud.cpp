@@ -34,7 +34,7 @@ namespace Dark
             DE_LOG_ERROR(LogCategory::Render, "HealthHud: quad mesh failed");
             return false;
         }
-        if (!m_white.createSolidColor(renderer, 255, 255, 255, 255))
+        if (!m_white.createSolidColor(renderer, 255, 255, 255, 255, Color::TextureUsage::Hud))
         {
             DE_LOG_ERROR(LogCategory::Render, "HealthHud: white texture failed");
             return false;

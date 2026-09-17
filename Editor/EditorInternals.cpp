@@ -81,7 +81,7 @@ namespace Dark::EditorDetail
                 px[i + 3]        = 255;
             }
         }
-        return out.createFromRGBA(renderer, px.data(), size, size, size * 4u);
+        return out.createFromRGBA(renderer, px.data(), size, size, size * 4u, Dark::Color::TextureUsage::Hud);
     }
 
     Vector3f defaultScale2D(SceneObjectType type)

@@ -299,7 +299,7 @@ float4 PSMain(PSInput input) : SV_TARGET
             }
 
             Texture2D tex;
-            if (!tex.createFromFile(renderer, path))
+            if (!tex.createFromFile(renderer, path, Color::TextureUsage::Hud))
                 return false;
 
             if (tex.width() > 1024 || tex.height() > 1024)
@@ -409,8 +409,8 @@ float4 PSMain(PSInput input) : SV_TARGET
 
         const uint8_t logoPx[4] = { 255, 255, 255, 0 }; // transparent: fallback is bg + spinner
         const uint8_t fontPx[4] = { 0, 0, 0, 0 };       // .r = 0 until version atlas is blitted
-        if (!m_engineLogo.createFromRGBA(renderer, logoPx, 1, 1, 4) || !m_hostLogo.createFromRGBA(renderer, logoPx, 1, 1, 4)
-            || !m_font.createFromRGBA(renderer, fontPx, 1, 1, 4))
+        if (!m_engineLogo.createFromRGBA(renderer, logoPx, 1, 1, 4, Color::TextureUsage::Hud) || !m_hostLogo.createFromRGBA(renderer, logoPx, 1, 1, 4, Color::TextureUsage::Hud)
+            || !m_font.createFromRGBA(renderer, fontPx, 1, 1, 4, Color::TextureUsage::Hud))
         {
             DE_LOG_ERROR(LogCategory::Render, "LoadingScreen::create: 1x1 fallback textures failed");
             shutdown(renderer);
@@ -623,7 +623,7 @@ float4 PSMain(PSInput input) : SV_TARGET
             if (rasterizeVersionLine(m_versionLine, rgba, fw, fh))
             {
                 Texture2D font;
-                if (font.createFromRGBA(renderer, rgba.data(), fw, fh, fw * 4u))
+                if (font.createFromRGBA(renderer, rgba.data(), fw, fh, fw * 4u, Color::TextureUsage::Hud))
                 {
                     m_font = std::move(font);
                     if (m_font.resource())

@@ -1,6 +1,7 @@
 #include "Assets/Material.h"
 #include "Assets/AssetManager.h"
 #include "Core/Log.h"
+#include "Math/Color.h"
 
 #include <cstdio>
 #include <memory>
@@ -48,7 +49,11 @@ namespace Dark
 
     bool Material::createSolid(AssetManager& assets, uint8_t r, uint8_t g, uint8_t b, uint8_t a)
     {
-        return createFromAlbedoImage(assets.loadSolidImage(r, g, b, a), 1.0f, 1.0f, 1.0f, 1.0f);
+        AssetRef<Image> img = assets.loadSolidImage(r, g, b, a);
+        if (!img || !img->valid())
+            return false;
+        img->setColorSpace(Color::ColorSpace::sRGB);
+        return createFromAlbedoImage(std::move(img), 1.0f, 1.0f, 1.0f, 1.0f);
     }
 
     bool Material::copyFrom(const Material& src)
@@ -80,6 +85,13 @@ namespace Dark
         m_baseColor[1] = g;
         m_baseColor[2] = b;
         m_baseColor[3] = a;
+    }
+
+    void Material::setBaseColorFromSrgb8(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
+    {
+        float rgb[3]{};
+        Color::srgb8ToLinear3(r, g, b, rgb);
+        setBaseColor(rgb[0], rgb[1], rgb[2], static_cast<float>(a) / 255.0f);
     }
 
     void Material::setEmissive(float emissive)

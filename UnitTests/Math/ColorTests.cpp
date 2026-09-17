@@ -89,6 +89,14 @@ TEST(Color, InferUsage)
     EXPECT_EQ(inferColorSpaceForUsage(static_cast<TextureUsage>(255)), ColorSpace::Linear);
 }
 
+TEST(Color, ResolveGpuColorSpaceLinearWins)
+{
+    EXPECT_EQ(resolveGpuColorSpace(TextureUsage::Hud, ColorSpace::sRGB), ColorSpace::Linear);
+    EXPECT_EQ(resolveGpuColorSpace(TextureUsage::Albedo, ColorSpace::Linear), ColorSpace::Linear);
+    EXPECT_EQ(resolveGpuColorSpace(TextureUsage::Albedo, ColorSpace::Unknown), ColorSpace::sRGB);
+    EXPECT_EQ(resolveGpuColorSpace(TextureUsage::Albedo, ColorSpace::sRGB), ColorSpace::sRGB);
+}
+
 TEST(Color, Srgb8ToLinear3)
 {
     float linear[3] = { 0.0f, 0.0f, 0.0f };
