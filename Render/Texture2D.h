@@ -23,7 +23,8 @@ namespace Dark
     // GPU texture (default-heap) + SRV.
     // cpuHandle() is on a non-shader-visible heap so it is a legal CopyDescriptors source.
     // gpuHandle()/bind() use a shader-visible heap (those heaps are CPU write-only).
-    // This PR: cpuHandle() is UNORM even for TYPELESS color; cpuHandleRaw() is the UNORM view.
+    // TYPELESS color FLAG_NONE layout: slot 0 UNORM (cpuHandleRaw), slot 1 UNORM_SRGB (cpuHandleSrgb).
+    // This PR: cpuHandle() is slot 0 (UNORM). Shader-visible heap stays 1 and matches cpuHandle().
     // Loaded from common image formats via WIC (PNG, JPEG, BMP, etc.).
     class Texture2D
     {
@@ -42,7 +43,7 @@ namespace Dark
         // HUD/particles: stack Image then createFromImage. Not interned in GpuResourceCache.
         bool createFromFile(Renderer& renderer, const std::filesystem::path& path, Color::TextureUsage usage);
         bool createFromMemory(Renderer& renderer, const void* bytes, size_t byteCount, Color::TextureUsage usage);
-        bool createSolidColor(Renderer& renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255, Color::TextureUsage usage = Color::TextureUsage::Albedo);
+        bool createSolidColor(Renderer& renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a, Color::TextureUsage usage);
         bool createSoftCircle(Renderer& renderer, uint32_t size = 64, Color::TextureUsage usage = Color::TextureUsage::Data);
         bool createSoftStreak(Renderer& renderer, uint32_t size = 64, Color::TextureUsage usage = Color::TextureUsage::Data);
         bool createFromRGBA(Renderer& renderer, const uint8_t* rgba, uint32_t width, uint32_t height, uint32_t rowPitchBytes, Color::TextureUsage usage);
@@ -82,6 +83,10 @@ namespace Dark
         {
             return m_cpuHandleRaw;
         }
+        D3D12_CPU_DESCRIPTOR_HANDLE cpuHandleSrgb() const
+        {
+            return m_cpuHandleSrgb;
+        }
         D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle() const
         {
             return m_gpuHandle;
@@ -96,6 +101,7 @@ namespace Dark
         ComPtr<ID3D12DescriptorHeap> m_srvHeap;    // SHADER_VISIBLE — bind / GPU handle (1 slot = cpuHandle)
         D3D12_CPU_DESCRIPTOR_HANDLE  m_cpuHandle{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_cpuHandleRaw{};
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_cpuHandleSrgb{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_gpuHandle{};
         uint32_t                     m_width  = 0;
         uint32_t                     m_height = 0;

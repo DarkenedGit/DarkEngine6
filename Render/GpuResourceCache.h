@@ -21,6 +21,20 @@ namespace Dark
     class Texture2D;
     class Model;
 
+    enum class CachedTextureReuse : uint8_t
+    {
+        Create = 0, // missing / invalid GPU — upload
+        Reuse,      // valid GPU, same usage
+        Conflict,   // valid GPU, different usage — keep first
+    };
+
+    inline CachedTextureReuse classifyCachedTextureReuse(bool gpuValid, Color::TextureUsage cachedUsage, Color::TextureUsage requestedUsage)
+    {
+        if (!gpuValid)
+            return CachedTextureReuse::Create;
+        return (cachedUsage == requestedUsage) ? CachedTextureReuse::Reuse : CachedTextureReuse::Conflict;
+    }
+
     // GPU artifacts for interned CPU materials. Owns GpuMaterial heaps.
     class GpuResourceCache
     {

@@ -52,14 +52,16 @@ namespace Dark
             DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureTexture: null or unregistered image");
             return false;
         }
-        const auto it = m_textures.find(image->id);
-        if (it != m_textures.end() && it->second.gpu && it->second.gpu->valid())
+        const auto                it          = m_textures.find(image->id);
+        const bool                gpuValid    = it != m_textures.end() && it->second.gpu && it->second.gpu->valid();
+        const Color::TextureUsage cachedUsage = gpuValid ? it->second.usage : usage;
+        const CachedTextureReuse  reuse       = classifyCachedTextureReuse(gpuValid, cachedUsage, usage);
+        if (reuse == CachedTextureReuse::Reuse)
+            return true;
+        if (reuse == CachedTextureReuse::Conflict)
         {
-            if (it->second.usage != usage)
-            {
-                DE_LOG_WARN(LogCategory::Render, "GpuResourceCache::ensureTexture: id={} keeping first usage {} (ignored {})", image->id,
-                            static_cast<unsigned>(it->second.usage), static_cast<unsigned>(usage));
-            }
+            DE_LOG_WARN(LogCategory::Render, "GpuResourceCache::ensureTexture: id={} keeping first usage {} (ignored {})", image->id,
+                        static_cast<unsigned>(cachedUsage), static_cast<unsigned>(usage));
             return true;
         }
         if (!image->valid())

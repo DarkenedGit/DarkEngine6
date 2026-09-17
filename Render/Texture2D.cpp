@@ -198,11 +198,12 @@ namespace Dark
         m_resource.Reset();
         m_cpuSrvHeap.Reset();
         m_srvHeap.Reset();
-        m_cpuHandle    = {};
-        m_cpuHandleRaw = {};
-        m_gpuHandle    = {};
-        m_width        = width;
-        m_height       = height;
+        m_cpuHandle     = {};
+        m_cpuHandleRaw  = {};
+        m_cpuHandleSrgb = {};
+        m_gpuHandle     = {};
+        m_width         = width;
+        m_height        = height;
 
         D3D12_RESOURCE_DESC texDesc{};
         texDesc.Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -332,20 +333,26 @@ namespace Dark
             return false;
         }
 
-        m_cpuHandle    = m_cpuSrvHeap->GetCPUDescriptorHandleForHeapStart();
-        m_cpuHandleRaw = m_cpuHandle;
+        m_cpuHandleRaw = m_cpuSrvHeap->GetCPUDescriptorHandleForHeapStart();
         m_gpuHandle    = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
-
-        CreateTexSrv(device, m_resource.Get(), srvFormat, m_cpuHandle);
-        CreateTexSrv(device, m_resource.Get(), srvFormat, m_srvHeap->GetCPUDescriptorHandleForHeapStart());
 
         if (typelessColor)
         {
+            // Stable layout for PR3: slot 0 UNORM (raw), slot 1 UNORM_SRGB. Sampling this PR is slot 0.
             const UINT incr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-            D3D12_CPU_DESCRIPTOR_HANDLE srgbCpu = m_cpuHandle;
-            srgbCpu.ptr += incr;
-            CreateTexSrv(device, m_resource.Get(), DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, srgbCpu);
+            m_cpuHandleSrgb = m_cpuHandleRaw;
+            m_cpuHandleSrgb.ptr += incr;
+            CreateTexSrv(device, m_resource.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, m_cpuHandleRaw);
+            CreateTexSrv(device, m_resource.Get(), DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, m_cpuHandleSrgb);
+            m_cpuHandle = m_cpuHandleRaw;
         }
+        else
+        {
+            m_cpuHandle     = m_cpuHandleRaw;
+            m_cpuHandleSrgb = {};
+            CreateTexSrv(device, m_resource.Get(), srvFormat, m_cpuHandle);
+        }
+        CreateTexSrv(device, m_resource.Get(), srvFormat, m_srvHeap->GetCPUDescriptorHandleForHeapStart());
 
         return true;
     }
