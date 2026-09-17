@@ -10,11 +10,9 @@
 #include "Render/SceneRenderer.h"
 #include "Render/Camera3D.h"
 #include "Sky/Environment.h"
-#include "Assets/Material.h"
 #include "Terrain/Terrain.h"
 #include "Terrain/TerrainMaterial.h"
 #include "Water/Water.h"
-#include "Audio/SoundClip.h"
 #include "Character/HealthComponent.h"
 #include "Character/PlayerMotorComponent.h"
 #include "Render/HealthHud.h"
@@ -67,6 +65,7 @@ private:
     void onWeaponHit(const Dark::WeaponHit& hit);
     void drawProjectiles(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, Dark::MeshFrameConstants& cb);
     void drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, const Dark::Math::Matrix4f& prevViewProj);
+    bool createSandboxModels();
     void spawnGltfDemo();
     void spawnAnimatedDemo();
     void updateWiggleAnim();
@@ -74,9 +73,6 @@ private:
     void spawnHybridLocalLights();
     void updateFlashlight();
     void pulseMuzzle();
-    void drawLanternFixtures(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, Dark::MeshFrameConstants& cb);
-    void drawLanternFixturesGBuffer(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, const Dark::Math::Matrix4f& prevViewProj);
-    void drawLanternFixturesDepth(ID3D12GraphicsCommandList* cmd, int cascade);
     void spawnHunterBlood(const Dark::Math::Vector3f& pos);
     void respawnPlayer();
     void placeHealthPacks();
@@ -118,15 +114,10 @@ private:
     Dark::Entity                    m_flashlight;
     Dark::Entity                    m_muzzle;
     float                           m_muzzleTimer = 0.0f;
-    std::vector<Dark::Entity>       m_lanternFixtures;
     Dark::Camera3D          m_viewCamera;
     std::unordered_map<Dark::EntityID, Dark::Math::Matrix4f> m_prevWorldByEntity;
     Dark::Sky::Environment  m_env;
 
-    Dark::AssetRef<Dark::Material> m_cubeMaterial;
-    Dark::AssetRef<Dark::Material> m_treeTrunkMaterial;
-    Dark::AssetRef<Dark::Material> m_treeMaterial;
-    Dark::AssetRef<Dark::Material> m_aiMaterial;
     Dark::PathChase                m_chase;
     bool                           m_chaseOk = false;
     struct WeaponTargetScratch
@@ -142,11 +133,10 @@ private:
     Dark::TerrainMaterial       m_terrainMaterial;
     Dark::WaterWorld            m_water;
 
-    std::shared_ptr<Dark::Audio::SoundClip> m_sfxReset;
-    std::shared_ptr<Dark::Audio::SoundClip> m_sfxClick;
-    std::shared_ptr<Dark::Audio::SoundClip> m_music;
-
-    Dark::AssetID m_cubeMatId      = Dark::NULL_ASSET;
+    Dark::AssetID m_cubeModelId    = Dark::NULL_ASSET;
+    Dark::AssetID m_packModelId    = Dark::NULL_ASSET;
+    Dark::AssetID m_lanternModelId = Dark::NULL_ASSET;
+    Dark::AssetID m_tracerModelId  = Dark::NULL_ASSET;
     Dark::NetRole m_netRole        = Dark::NetRole::Idle;
     uint32_t      m_browseLogCount = ~0u;
     bool          m_netBrowsing    = false;
@@ -173,22 +163,9 @@ private:
     float                            m_spawnAge        = 0.0f;
     float                            m_hurtSoundTimer  = 0.0f;
     Dark::CrosshairHud               m_crosshair;
-    Dark::Mesh                       m_tracerMesh;
-    Dark::AssetRef<Dark::Material>   m_tracerMaterial;
-    std::shared_ptr<Dark::Audio::SoundClip> m_sfxStep;
-    std::shared_ptr<Dark::Audio::SoundClip> m_sfxWater;
-    std::shared_ptr<Dark::Audio::SoundClip> m_sfxGrunt;
-    std::shared_ptr<Dark::Audio::SoundClip> m_sfxLand;
-    std::shared_ptr<Dark::Audio::SoundClip> m_sfxSplash;
-    std::shared_ptr<Dark::Audio::SoundClip> m_sfxPain;
     Dark::ParticleEmitter            m_blood;
     Dark::ParticleRenderer           m_particles;
     Dark::BloodSplatPool             m_bloodSplats;
 
     Dark::Mesh             m_crossMesh;
-    Dark::AssetRef<Dark::Material>   m_packMaterial;
-    Dark::AssetRef<Dark::Material>   m_lanternMaterial;
-    std::shared_ptr<Dark::Audio::SoundClip> m_sfxHeal;
-    std::shared_ptr<Dark::Audio::SoundClip> m_sfxFire;
-    std::shared_ptr<Dark::Audio::SoundClip> m_sfxImpact;
 };

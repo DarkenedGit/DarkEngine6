@@ -1,10 +1,13 @@
 #include <gtest/gtest.h>
+#include <memory>
 
 #include "Assets/AssetManager.h"
 #include "Assets/GltfLoader.h"
 #include "Assets/Material.h"
 #include "Assets/Model.h"
 #include "Assets/MeshData.h"
+#include "Math/Matrix4f.h"
+#include "Math/Vector3f.h"
 
 using Dark::AssetManager;
 using Dark::GltfCpuModel;
@@ -74,4 +77,43 @@ TEST(CpuModel, SameAlbedoDifferentMetallicInternsTwoMaterials)
     ASSERT_TRUE(model.opaque()[1].material->albedo());
     EXPECT_EQ(model.opaque()[0].material->albedo()->id, model.opaque()[1].material->albedo()->id);
     EXPECT_NE(materialRecipeKey(*model.opaque()[0].material), materialRecipeKey(*model.opaque()[1].material));
+}
+
+TEST(CpuModel, CreateFromParts)
+{
+    auto mat = std::make_shared<Dark::Material>();
+    Model::Part part;
+    part.mesh        = makeTri();
+    part.material    = mat;
+    part.name        = "Tri";
+    part.localToRoot = Dark::Math::Matrix4f::TranslationMatrix(10.0f, 0.0f, 0.0f);
+
+    Model model;
+    ASSERT_TRUE(model.createFromParts({ part }));
+    ASSERT_EQ(model.opaque().size(), 1u);
+    EXPECT_EQ(model.opaque()[0].name, "Tri");
+    EXPECT_TRUE(model.bounds().Contains(Dark::Math::Vector3f{ 10.0f, 0.0f, 0.0f }));
+    EXPECT_TRUE(model.bounds().Contains(Dark::Math::Vector3f{ 11.0f, 0.0f, 0.0f }));
+    EXPECT_TRUE(model.bounds().Contains(Dark::Math::Vector3f{ 10.0f, 1.0f, 0.0f }));
+}
+
+TEST(CpuModel, CreateFromPartsRejectsEmpty)
+{
+    Model model;
+    Model::Part empty;
+    EXPECT_FALSE(model.createFromParts({ empty }));
+    EXPECT_FALSE(model.valid());
+}
+
+TEST(CpuModel, InternProceduralModel)
+{
+    AssetManager assets;
+    auto mat = std::make_shared<Dark::Material>();
+    ASSERT_TRUE(mat->createSolid(assets, 10, 20, 30));
+    Dark::AssetRef<Model> model = Dark::internProceduralModel(assets, makeTri(), mat, "runtime:/unit/tri");
+    ASSERT_TRUE(model);
+    EXPECT_NE(model->id, NULL_ASSET);
+    ASSERT_EQ(model->opaque().size(), 1u);
+    ASSERT_TRUE(model->opaque()[0].material);
+    EXPECT_NE(model->opaque()[0].material->id, NULL_ASSET);
 }

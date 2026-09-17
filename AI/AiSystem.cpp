@@ -3,7 +3,6 @@
 #include "AI/HsmGraph.h"
 #include "AI/Sight.h"
 #include "Assets/AssetManager.h"
-#include "Assets/Material.h"
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "ECS/World.h"
@@ -36,17 +35,11 @@ namespace Dark
         });
     }
 
-    Entity AiSystem::spawnHunter(World& world, AssetPinTable& pins, AssetManager& assets, AssetRef<Material> aiMat, const TransformComponent& xf)
+    Entity AiSystem::spawnHunter(World& world, AssetPinTable& pins, AssetManager& assets, const TransformComponent& xf)
     {
         Entity e = world.createEntity();
         world.emplace<TagComponent>(e, "Hunter");
         world.emplace<TransformComponent>(e, xf);
-
-        MeshComponent mc{};
-        mc.primitive  = PrimitiveMesh::Cube;
-        mc.matAssetID = (aiMat && aiMat->id != NULL_ASSET) ? aiMat->id : NULL_ASSET;
-        mc.castShadow = true;
-        setMeshComponent(world, pins, assets, e, mc);
 
         HealthSettings hs;
         hs.maxHp       = 48.0f;

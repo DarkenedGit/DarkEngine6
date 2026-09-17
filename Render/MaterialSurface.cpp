@@ -22,7 +22,7 @@ namespace Dark
         cb.color[0]    = c[0];
         cb.color[1]    = c[1];
         cb.color[2]    = c[2];
-        cb.color[3]    = 0.0f;
+        cb.color[3]    = mat.emissive();
         cb.roughness   = mat.roughness();
         cb.metallic    = mat.metallic();
     }

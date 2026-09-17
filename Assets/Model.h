@@ -37,6 +37,8 @@ namespace Dark
 
         bool createFromFile(AssetManager& assets, const std::filesystem::path& path);
         bool createFromParsed(AssetManager& assets, const GltfCpuModel& cpu, const std::filesystem::path& path);
+        // Runtime-authored parts (procedural meshes). Computes bounds from mesh * localToRoot.
+        bool createFromParts(std::vector<Part> parts);
 
         const std::vector<Part>& opaque() const { return m_opaque; }
         const std::vector<Part>& translucent() const { return m_translucent; }
@@ -59,6 +61,8 @@ namespace Dark
         void             setSkeleton(Skeleton skeleton);
 
     private:
+        void expandBoundsFromPart(const Part& part);
+
         std::vector<Part>       m_opaque;
         std::vector<Part>       m_translucent;
         Math::AABox3f           m_bounds = Math::AABox3f::Empty();
@@ -66,5 +70,8 @@ namespace Dark
         AssetRef<AnimationSet>  m_animSet;
         std::filesystem::path   m_sourcePath;
     };
+
+    // Interns material if needed, then registers a one-part opaque model.
+    AssetRef<Model> internProceduralModel(AssetManager& assets, MeshData mesh, AssetRef<Material> material, const std::string& cacheKey = {});
 
 } // namespace Dark

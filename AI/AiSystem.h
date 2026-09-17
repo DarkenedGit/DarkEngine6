@@ -16,7 +16,6 @@ namespace Dark
 
     class AssetManager;
     class AssetPinTable;
-    class Material;
     class World;
 
     namespace Terrain
@@ -41,7 +40,7 @@ namespace Dark
         const HitReactionSettings& hunterHitReaction() const { return m_hunterHit; }
         void                       setHunterHitReactionSettings(const HitReactionSettings& settings) { m_hunterHit = settings; }
 
-        Entity spawnHunter(World& world, AssetPinTable& pins, AssetManager& assets, AssetRef<Material> aiMat, const TransformComponent& xf);
+        Entity spawnHunter(World& world, AssetPinTable& pins, AssetManager& assets, const TransformComponent& xf);
 
         void tickHunters(World& world, Terrain::TerrainWorld& terrain, bool playerInWater, float dt, Entity player);
 

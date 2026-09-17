@@ -98,6 +98,32 @@ namespace Dark
         pins.pin(assets, clipId);
     }
 
+    void pinSoundBank(AssetPinTable& pins, AssetManager& assets, const SoundBankComponent& bank)
+    {
+        for (const SoundCueDesc& cue : bank.cues)
+            pins.pin(assets, cue.clipId);
+    }
+
+    void unpinSoundBank(AssetPinTable& pins, const SoundBankComponent& bank)
+    {
+        for (const SoundCueDesc& cue : bank.cues)
+            pins.unpin(cue.clipId);
+    }
+
+    void setSoundBank(World& world, AssetPinTable& pins, AssetManager& assets, Entity e, SoundBankComponent next)
+    {
+        if (!world.alive(e))
+        {
+            DE_LOG_ERROR("setSoundBank: dead entity");
+            return;
+        }
+        if (const SoundBankComponent* old = world.get<SoundBankComponent>(e))
+            unpinSoundBank(pins, *old);
+        world.emplace<SoundBankComponent>(e, std::move(next));
+        if (const SoundBankComponent* bank = world.get<SoundBankComponent>(e))
+            pinSoundBank(pins, assets, *bank);
+    }
+
     void pinParticleEmitter(AssetPinTable& pins, AssetManager& assets, const ParticleEmitterComponent& pe)
     {
         pins.pin(assets, pe.matAssetID);
@@ -133,6 +159,8 @@ namespace Dark
             unpinModelComponent(*pins, *mo);
         if (const SoundEmitterComponent* se = world.get<SoundEmitterComponent>(e))
             unpinSoundEmitter(*pins, *se);
+        if (const SoundBankComponent* bank = world.get<SoundBankComponent>(e))
+            unpinSoundBank(*pins, *bank);
         if (const ParticleEmitterComponent* pe = world.get<ParticleEmitterComponent>(e))
             unpinParticleEmitter(*pins, *pe);
     }

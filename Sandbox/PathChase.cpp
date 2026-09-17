@@ -3,6 +3,8 @@
 #include "AI/AiComponents.h"
 #include "AI/Sight.h"
 #include "Assets/AssetManager.h"
+#include "Assets/Material.h"
+#include "Assets/Model.h"
 #include "Character/HealthComponent.h"
 #include "Core/AssetPinTable.h"
 #include "Core/EntityPins.h"
@@ -13,16 +15,17 @@
 #include "Math/Matrix4f.h"
 #include "Math/Quaternion.h"
 #include "Network/NetTypes.h"
+#include "Render/GpuUpload.h"
 #include "Render/MeshGen.h"
-#include "Render/Camera3D.h"
 #include "Render/Renderer.h"
-#include "Render/ShadowSystem.h"
 #include "Terrain/HeightMap.h"
 #include "Terrain/Terrain.h"
 #include "Water/Water.h"
 
 #include <cmath>
 #include <cstring>
+#include <iterator>
+#include <memory>
 #include <random>
 
 using namespace Dark::Math;
@@ -37,14 +40,46 @@ namespace
     constexpr float kTrunkR     = 0.5f;
     constexpr float kCanopyR    = 2.0f;
 
+    const Vector3f kTreeSeeds[] = {
+        { 12.0f, 0, 8.0f },  { -10.0f, 0, 10.0f }, { 14.0f, 0, -6.0f }, { -8.0f, 0, -12.0f }, { 6.0f, 0, 16.0f },
+        { -16.0f, 0, 4.0f }, { 18.0f, 0, 2.0f },   { 4.0f, 0, -18.0f }, { -14.0f, 0, -8.0f }, { 10.0f, 0, -14.0f },
+    };
+
+    AssetRef<Model> makeTreeModel(AssetManager& assets)
+    {
+        AssetRef<Material> trunkMat  = internSolidMaterial(assets, 118, 78, 38, 255, "runtime:/pathchase/trunk-mat");
+        AssetRef<Material> canopyMat = internSolidMaterial(assets, 46, 140, 62, 255, "runtime:/pathchase/canopy-mat");
+        if (!trunkMat || !canopyMat)
+            return {};
+
+        MeshData trunkData;
+        MeshData canopyData;
+        if (!CreateCylinder(trunkData, 1.0f, 1.0f, 1.0f, 16, true, true))
+            return {};
+        if (!CreateCone(canopyData, 1.0f, 1.0f, 16, true))
+            return {};
+
+        Model::Part trunk;
+        trunk.mesh        = std::move(trunkData);
+        trunk.material    = std::move(trunkMat);
+        trunk.localToRoot = Matrix4f::ScaleMatrixXYZ(kTrunkR, kTrunkH, kTrunkR) * Matrix4f::TranslationMatrix(0.0f, kTrunkH * 0.5f, 0.0f);
+        trunk.name        = "Trunk";
+
+        Model::Part canopy;
+        canopy.mesh        = std::move(canopyData);
+        canopy.material    = std::move(canopyMat);
+        canopy.localToRoot = Matrix4f::ScaleMatrixXYZ(kCanopyR, kCanopyH, kCanopyR) * Matrix4f::TranslationMatrix(0.0f, kTrunkH + kCanopyH * 0.5f, 0.0f);
+        canopy.name        = "Canopy";
+
+        auto model = std::make_shared<Model>();
+        if (!model->createFromParts({ std::move(trunk), std::move(canopy) }))
+            return {};
+        return model;
+    }
+
     void copyMatrix(float dst[16], const Matrix4f& m)
     {
         std::memcpy(dst, &m, sizeof(float) * 16);
-    }
-
-    Matrix4f makeWorld(const Vector3f& p, const Vector3f& scale)
-    {
-        return Matrix4f::ScaleMatrixXYZ(scale.x, scale.y, scale.z) * Matrix4f::TranslationMatrix(p.x, p.y, p.z);
     }
 
     ComPtr<ID3D12Resource> createUpload(ID3D12Device* device, uint64_t bytes)
@@ -98,8 +133,7 @@ bool PathChase::bake(Terrain::TerrainWorld& terrain, WaterWorld& water)
     return m_ai.bake(d);
 }
 
-bool PathChase::init(Renderer& renderer, Terrain::TerrainWorld& terrain, WaterWorld& water, World& world, AssetPinTable& pins, AssetManager& assets, Mesh&,
-                     AssetRef<Material> trunkMat, AssetRef<Material> canopyMat, AssetRef<Material> aiMat)
+bool PathChase::init(Renderer& renderer, Terrain::TerrainWorld& terrain, WaterWorld& water, World& world, AssetPinTable& pins, AssetManager& assets)
 {
     HitReactionSettings hunterHit{};
     hunterHit.stunSeconds       = 0.45f;
@@ -107,10 +141,7 @@ bool PathChase::init(Renderer& renderer, Terrain::TerrainWorld& terrain, WaterWo
     hunterHit.knockbackSeconds  = 0.18f;
     hunterHit.horizontalOnly    = true;
     m_ai.setHunterHitReactionSettings(hunterHit);
-    m_world     = &world;
-    m_trunkMat  = trunkMat;
-    m_canopyMat = canopyMat;
-    m_aiMat     = aiMat;
+    m_world = &world;
     if (!m_lines.create(renderer.device(), renderer.sceneColorFormat()))
     {
         DE_LOG_ERROR(LogCategory::AI, "PathChase: LinePipeline create failed");
@@ -122,55 +153,81 @@ bool PathChase::init(Renderer& renderer, Terrain::TerrainWorld& terrain, WaterWo
         return false;
     }
 
-    MeshData trunkData;
-    MeshData canopyData;
-    if (!CreateCylinder(trunkData, 1.0f, 1.0f, 1.0f, 16, true, true) || !Mesh::tryCreate(renderer, trunkData, m_trunkMesh))
-    {
-        DE_LOG_ERROR(LogCategory::AI, "PathChase: trunk mesh failed");
-        return false;
-    }
-    if (!CreateCone(canopyData, 1.0f, 1.0f, 16, true) || !Mesh::tryCreate(renderer, canopyData, m_canopyMesh))
-    {
-        DE_LOG_ERROR(LogCategory::AI, "PathChase: canopy mesh failed");
-        return false;
-    }
-
-    const Vector3f trees[] = {
-        { 12.0f, 0, 8.0f },  { -10.0f, 0, 10.0f }, { 14.0f, 0, -6.0f }, { -8.0f, 0, -12.0f }, { 6.0f, 0, 16.0f },
-        { -16.0f, 0, 4.0f }, { 18.0f, 0, 2.0f },   { 4.0f, 0, -18.0f }, { -14.0f, 0, -8.0f }, { 10.0f, 0, -14.0f },
-    };
-    m_treePos.clear();
     m_cubes.clear();
     const Vector3f origin = { 0.0f, terrain.heightAtWorld(0.0f, 0.0f) + 0.5f, 0.0f };
     m_cubes.push_back(AABox3f::FromCenterExtents(origin, Vector3f{ 0.5f, 0.5f, 0.5f }));
-    const Vector3f trunkHalf{ kTrunkR, kTrunkH * 0.5f, kTrunkR };
-    for (const Vector3f& t : trees)
-    {
-        Vector3f p = t;
-        p.y        = terrain.heightAtWorld(p.x, p.z);
-        m_treePos.push_back(p);
-        Vector3f trunkCenter{ p.x, p.y + kTrunkH * 0.5f, p.z };
-        m_cubes.push_back(AABox3f::FromCenterExtents(trunkCenter, trunkHalf));
-    }
 
+    AssetRef<Model> treeModel = makeTreeModel(assets);
+    if (!registerAndUploadModel(renderer, assets, treeModel, "runtime:/pathchase/tree"))
+    {
+        DE_LOG_ERROR(LogCategory::AI, "PathChase: tree model failed");
+        return false;
+    }
+    if (!spawnTrees(world, pins, assets, terrain, treeModel))
+        return false;
     if (!bake(terrain, water))
         return false;
-    if (!spawnWalker(world, terrain))
+
+    MeshData walkerMesh;
+    if (!CreateCube(walkerMesh, 1.0f))
+    {
+        DE_LOG_ERROR(LogCategory::AI, "PathChase: walker mesh failed");
+        return false;
+    }
+    AssetRef<Material> walkerMat = internSolidMaterial(assets, 220, 90, 40, 255, "runtime:/pathchase/walker-mat");
+    AssetRef<Model> walkerModel  = internAndUploadProceduralModel(renderer, assets, std::move(walkerMesh), walkerMat, "runtime:/pathchase/walker");
+    if (!walkerModel)
+    {
+        DE_LOG_ERROR(LogCategory::AI, "PathChase: walker model failed");
+        return false;
+    }
+    if (!spawnWalker(world, pins, assets, terrain, walkerModel))
         return false;
     if (!spawnAgents(world, pins, assets, terrain))
         return false;
-    DE_LOG_INFO(LogCategory::AI, "PathChase: ready, {} trees, 3 agents", m_treePos.size());
+    DE_LOG_INFO(LogCategory::AI, "PathChase: ready, {} trees, 3 agents", std::size(kTreeSeeds));
     return true;
 }
 
-bool PathChase::spawnWalker(World& world, Terrain::TerrainWorld& terrain)
+bool PathChase::spawnTrees(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainWorld& terrain, const AssetRef<Model>& treeModel)
+{
+    if (!treeModel || treeModel->id == NULL_ASSET)
+    {
+        DE_LOG_ERROR(LogCategory::AI, "PathChase: tree model is not registered");
+        return false;
+    }
+
+    const Vector3f trunkHalf{ kTrunkR, kTrunkH * 0.5f, kTrunkR };
+    for (const Vector3f& seed : kTreeSeeds)
+    {
+        Vector3f p = seed;
+        p.y        = terrain.heightAtWorld(p.x, p.z);
+        Entity e   = world.createEntity();
+        world.emplace<TagComponent>(e, "Tree");
+        world.emplace<TransformComponent>(e, p, Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
+        ModelComponent mc{};
+        mc.modelAssetID = treeModel->id;
+        mc.castShadow   = treeModel->hasOpaque();
+        setModelComponent(world, pins, assets, e, mc);
+        m_cubes.push_back(AABox3f::FromCenterExtents(Vector3f{ p.x, p.y + kTrunkH * 0.5f, p.z }, trunkHalf));
+    }
+    return true;
+}
+
+bool PathChase::spawnWalker(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainWorld& terrain, const AssetRef<Model>& walkerModel)
 {
     Vector3f pos{ -6.0f, 0.0f, 0.0f };
-    pos.y     = terrain.heightAtWorld(pos.x, pos.z) + 0.5f;
-    m_walker  = world.createEntity();
+    pos.y    = terrain.heightAtWorld(pos.x, pos.z) + 0.5f;
+    m_walker = world.createEntity();
     world.emplace<TagComponent>(m_walker, "ChasePawn");
-    world.emplace<TransformComponent>(m_walker, pos, Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
-    m_walkerPos = pos;
+    world.emplace<TransformComponent>(m_walker, pos, Quaternion::IDENTITY, Vector3f{ 2, 2, 2 });
+    if (walkerModel && walkerModel->id != NULL_ASSET)
+    {
+        ModelComponent mc{};
+        mc.modelAssetID = walkerModel->id;
+        mc.castShadow   = walkerModel->hasOpaque();
+        setModelComponent(world, pins, assets, m_walker, mc);
+    }
     return true;
 }
 
@@ -207,7 +264,7 @@ bool PathChase::spawnAgents(World& world, AssetPinTable& pins, AssetManager& ass
             TransformComponent xf{};
             xf.position = Vector3f{ x, terrain.heightAtWorld(x, z) + 0.5f, z };
             xf.scale    = Vector3f{ 1.0f, 1.0f, 1.0f };
-            Entity e    = m_ai.spawnHunter(world, pins, assets, m_aiMat, xf);
+            Entity e    = m_ai.spawnHunter(world, pins, assets, xf);
             if (!e.valid())
                 return false;
             if (PathAgentComponent* path = world.get<PathAgentComponent>(e))
@@ -227,15 +284,8 @@ bool PathChase::spawnAgents(World& world, AssetPinTable& pins, AssetManager& ass
 
 void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld& terrain, Entity hostPawn, bool playerInWater)
 {
-    if (hostPawn.valid())
+    if (!hostPawn.valid() && m_walker.valid())
     {
-        m_drawWalker = false;
-        if (const TransformComponent* xf = world.get<TransformComponent>(hostPawn))
-            m_walkerPos = xf->position;
-    }
-    else if (m_walker.valid())
-    {
-        m_drawWalker = true;
         if (TransformComponent* xf = world.get<TransformComponent>(m_walker))
         {
             const float ax = input.actionAxis("pawn_x");
@@ -249,7 +299,6 @@ void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld
                 xf->position += delta * (kNetPawnMaxSpeed * dt);
             }
             xf->position.y = terrain.heightAtWorld(xf->position.x, xf->position.z) + 0.5f;
-            m_walkerPos    = xf->position;
         }
     }
 
@@ -258,127 +307,12 @@ void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld
 }
 
 
-void PathChase::drawMeshes(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, MeshPipeline& meshPipe, ShadowSystem& shadows, const Camera3D& camera, const MeshFrameConstants& baseCb, Mesh& cubeMesh, DebugFill fill)
-{
-    if (!cmd || !cubeMesh.valid())
-        return;
-    meshPipe.bind(cmd, fill);
-    shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
-
-    MeshFrameConstants cb = baseCb;
-    cb.lighting           = 0.0f;
-    const Matrix4f viewProj = camera.GetViewProj();
-    auto drawAt = [&](const Vector3f& p, Mesh& mesh, Material* mat, const Vector3f& scale, float r, float g, float b) {
-        if (!mesh.valid())
-            return;
-        if (mat)
-            gpu.bindMaterial(cmd, *mat, MeshPipeline::kRootAlbedoSrv);
-        cb.color[0] = r;
-        cb.color[1] = g;
-        cb.color[2] = b;
-        cb.color[3] = 1.0f;
-        const Matrix4f world = makeWorld(p, scale);
-        copyMatrix(cb.worldViewProj, world * viewProj);
-        copyMatrix(cb.world, world);
-        meshPipe.setConstants(cmd, cb);
-        mesh.draw(cmd, fill == DebugFill::Points);
-    };
-
-    const Vector3f trunkScale{ kTrunkR, kTrunkH, kTrunkR };
-    const Vector3f canopyScale{ kCanopyR, kCanopyH, kCanopyR };
-    const Vector3f aiScale{ 2.0f, 2.0f, 2.0f };
-    if (m_drawWalker)
-        drawAt(m_walkerPos, cubeMesh, m_aiMat.get(), aiScale, 1.0f, 0.35f, 0.12f);
-    for (const Vector3f& t : m_treePos)
-    {
-        const Vector3f trunkPos{ t.x, t.y + kTrunkH * 0.5f, t.z };
-        const Vector3f canopyPos{ t.x, t.y + kTrunkH + kCanopyH * 0.5f, t.z };
-        drawAt(trunkPos, m_trunkMesh, m_trunkMat.get(), trunkScale, 0.45f, 0.28f, 0.12f);
-        drawAt(canopyPos, m_canopyMesh, m_canopyMat.get(), canopyScale, 0.15f, 0.75f, 0.18f);
-    }
-}
-
-void PathChase::drawDepth(ID3D12GraphicsCommandList* cmd, const ShadowSystem& shadows, int cascade, Mesh& cubeMesh) const
-{
-    if (!cmd || !cubeMesh.valid() || cascade < 0 || cascade >= shadows.cascadeCount())
-        return;
-
-    const Matrix4f lightVP = shadows.cascade(cascade).viewProj;
-    auto drawAt = [&](const Vector3f& p, const Mesh& mesh, const Vector3f& scale) {
-        if (!mesh.valid())
-            return;
-        const Matrix4f wvp = makeWorld(p, scale) * lightVP;
-        shadows.pipeline().setWvp(cmd, wvp.m_afEntry);
-        mesh.draw(cmd);
-    };
-
-    const Vector3f trunkScale{ kTrunkR, kTrunkH, kTrunkR };
-    const Vector3f canopyScale{ kCanopyR, kCanopyH, kCanopyR };
-    const Vector3f aiScale{ 2.0f, 2.0f, 2.0f };
-    if (m_drawWalker)
-        drawAt(m_walkerPos, cubeMesh, aiScale);
-    for (const Vector3f& t : m_treePos)
-    {
-        const Vector3f trunkPos{ t.x, t.y + kTrunkH * 0.5f, t.z };
-        const Vector3f canopyPos{ t.x, t.y + kTrunkH + kCanopyH * 0.5f, t.z };
-        drawAt(trunkPos, m_trunkMesh, trunkScale);
-        drawAt(canopyPos, m_canopyMesh, canopyScale);
-    }
-}
-
 void PathChase::expandBounds(AABox3f& bounds) const
 {
-    auto include = [&](const Vector3f& p, const Vector3f& half) { bounds.ExpandToInclude(AABox3f::FromCenterExtents(p, half)); };
-    if (m_drawWalker)
-        include(m_walkerPos, Vector3f{ 1.0f, 1.0f, 1.0f });
-    for (const Vector3f& t : m_treePos)
-    {
-        include(Vector3f{ t.x, t.y + kTrunkH * 0.5f, t.z }, Vector3f{ kTrunkR, kTrunkH * 0.5f, kTrunkR });
-        include(Vector3f{ t.x, t.y + kTrunkH + kCanopyH * 0.5f, t.z }, Vector3f{ kCanopyR, kCanopyH * 0.5f, kCanopyR });
-    }
-}
-
-void PathChase::drawMeshesGBuffer(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, MeshPipeline& meshPipe, const Camera3D& camera, const Matrix4f& prevViewProj, Mesh& cubeMesh, DebugFill fill)
-{
-    if (!cmd || !cubeMesh.valid())
+    if (!m_world || !m_walker.valid())
         return;
-    meshPipe.bind(cmd, fill);
-
-    MeshGBufferConstants cb{};
-    const Matrix4f viewProj = camera.GetViewProj();
-    auto drawAt = [&](const Vector3f& p, const Vector3f& prevP, Mesh& mesh, Material* mat, const Vector3f& scale, float r, float g, float b) {
-        if (!mesh.valid())
-            return;
-        if (mat)
-            gpu.bindMaterial(cmd, *mat, MeshPipeline::kRootAlbedoSrv);
-        cb.color[0] = r;
-        cb.color[1] = g;
-        cb.color[2] = b;
-        cb.color[3] = 0.0f;
-        const Matrix4f world     = makeWorld(p, scale);
-        const Matrix4f prevWorld = makeWorld(prevP, scale);
-        copyMatrix(cb.worldViewProj, world * viewProj);
-        copyMatrix(cb.world, world);
-        copyMatrix(cb.prevWorldViewProj, prevWorld * prevViewProj);
-        meshPipe.setGBufferConstants(cmd, cb);
-        mesh.draw(cmd, fill == DebugFill::Points);
-    };
-
-    const Vector3f trunkScale{ kTrunkR, kTrunkH, kTrunkR };
-    const Vector3f canopyScale{ kCanopyR, kCanopyH, kCanopyR };
-    const Vector3f aiScale{ 2.0f, 2.0f, 2.0f };
-    const Vector3f walkerPrev = m_havePrevXforms ? m_prevWalkerPos : m_walkerPos;
-    if (m_drawWalker)
-        drawAt(m_walkerPos, walkerPrev, cubeMesh, m_aiMat.get(), aiScale, 1.0f, 0.35f, 0.12f);
-    for (const Vector3f& t : m_treePos)
-    {
-        const Vector3f trunkPos{ t.x, t.y + kTrunkH * 0.5f, t.z };
-        const Vector3f canopyPos{ t.x, t.y + kTrunkH + kCanopyH * 0.5f, t.z };
-        drawAt(trunkPos, trunkPos, m_trunkMesh, m_trunkMat.get(), trunkScale, 0.45f, 0.28f, 0.12f);
-        drawAt(canopyPos, canopyPos, m_canopyMesh, m_canopyMat.get(), canopyScale, 0.15f, 0.75f, 0.18f);
-    }
-    m_prevWalkerPos  = m_walkerPos;
-    m_havePrevXforms = true;
+    if (const TransformComponent* xf = m_world->get<TransformComponent>(m_walker))
+        bounds.ExpandToInclude(AABox3f::FromCenterExtents(xf->position, Vector3f{ 1.0f, 1.0f, 1.0f }));
 }
 
 void PathChase::drawPaths(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Matrix4f& viewProj)

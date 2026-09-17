@@ -3,6 +3,7 @@
 #include "Core/Log.h"
 
 #include <cstdio>
+#include <memory>
 
 namespace Dark
 {
@@ -107,6 +108,14 @@ namespace Dark
                       static_cast<double>(m.emissive()),
                       static_cast<unsigned>(m.alphaMode()));
         return buf;
+    }
+
+    AssetRef<Material> internSolidMaterial(AssetManager& assets, uint8_t r, uint8_t g, uint8_t b, uint8_t a, const std::string& cacheKey)
+    {
+        auto mat = std::make_shared<Material>();
+        if (!mat->createSolid(assets, r, g, b, a))
+            return {};
+        return assets.internMaterial(mat, cacheKey);
     }
 
 } // namespace Dark

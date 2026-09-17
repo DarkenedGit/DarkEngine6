@@ -126,6 +126,7 @@ namespace Dark
 		GpuModel* gm = requireGpu(gpu, model);
 		if (!cmd || !gm || !gm->hasOpaque())
 			return;
+		shadows.pipeline().bind(cmd);
 		for (const GpuModel::Part& part : gm->opaque())
 		{
 			if (part.skinned || !part.mesh.valid())

@@ -68,10 +68,12 @@ namespace Dark
                 const Matrix4f m = healthPackWorldMatrix(p.restPos, p.spin, p.bob);
                 xf->position     = m.GetTranslation();
                 xf->rotation     = Quaternion::FromAxisAngle(Vector3f::Y_AXIS, p.spin);
-                xf->scale        = Vector3f{ 0.9f, 0.9f, 0.9f };
+                xf->scale        = p.active ? Vector3f{ 0.9f, 0.9f, 0.9f } : Vector3f{ 0.0f, 0.0f, 0.0f };
             }
             if (MeshComponent* mc = world.get<MeshComponent>(e))
                 mc->primitive = p.active ? PrimitiveMesh::Cross : PrimitiveMesh::None;
+            if (ModelComponent* mo = world.get<ModelComponent>(e))
+                mo->castShadow = p.active;
         });
 
         return taken;

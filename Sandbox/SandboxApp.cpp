@@ -28,6 +28,7 @@
 #include "Render/GpuResourceCache.h"
 #include "Render/GpuUpload.h"
 #include "Ui/MainMenu.h"
+#include "Assets/Material.h"
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
@@ -139,6 +140,76 @@ Math::Matrix4f makeWorldMatrix(const TransformComponent& xf)
     return S * R * T;
 }
 
+AssetID loadSandboxClip(Audio::AudioSystem& audio, AssetManager& assets, const char* path, float freq, float dur, float amp)
+{
+    const auto clip = audio.loadOrBlip(assets, path, freq, dur, amp);
+    return (clip && clip->id != NULL_ASSET) ? clip->id : NULL_ASSET;
+}
+
+void attachCameraSounds(World& world, AssetPinTable& pins, AssetManager& assets, Audio::AudioSystem& audio, Entity camera)
+{
+    SoundBankComponent bank;
+    addSoundCue(bank, "click", loadSandboxClip(audio, assets, "audio/ui_click.wav", 1400.0f, 0.06f, 0.35f), 0.5f, false);
+    addSoundCue(bank, "reset", loadSandboxClip(audio, assets, "audio/whoosh.wav", 180.0f, 0.22f, 0.35f), 0.7f, false);
+    auto music = audio.loadWav(assets, "audio/ambient_loop.wav");
+    if (!music)
+        music = audio.createTone(assets, 110.0f, 2.0f, 0.12f);
+    if (music && music->id != NULL_ASSET)
+        addSoundCue(bank, "music", music->id, 0.10f, false);
+    setSoundBank(world, pins, assets, camera, std::move(bank));
+}
+
+void attachPlayerSounds(World& world, AssetPinTable& pins, AssetManager& assets, Audio::AudioSystem& audio, Entity e)
+{
+    SoundBankComponent bank;
+    addSoundCue(bank, "step", loadSandboxClip(audio, assets, "audio/place.wav", 90.0f, 0.05f, 0.4f), 0.35f, false);
+    addSoundCue(bank, "jump", loadSandboxClip(audio, assets, "audio/grunt.wav", 140.0f, 0.18f, 0.5f), 0.7f, false);
+    addSoundCue(bank, "land", loadSandboxClip(audio, assets, "audio/land.wav", 70.0f, 0.12f, 0.55f), 0.75f, false);
+    addSoundCue(bank, "splash", loadSandboxClip(audio, assets, "audio/splash.wav", 220.0f, 0.22f, 0.45f), 0.8f, false);
+    addSoundCue(bank, "swim_step", loadSandboxClip(audio, assets, "audio/splash.wav", 220.0f, 0.22f, 0.45f), 0.42f, false);
+    addSoundCue(bank, "pain", loadSandboxClip(audio, assets, "audio/pain.wav", 380.0f, 0.12f, 0.5f), 0.75f, true);
+    addSoundCue(bank, "heal", loadSandboxClip(audio, assets, "audio/coin.wav", 880.0f, 0.16f, 0.4f), 0.7f, false);
+    addSoundCue(bank, "fire", loadSandboxClip(audio, assets, "audio/whoosh.wav", 520.0f, 0.12f, 0.45f), 0.45f, true);
+    addSoundCue(bank, "impact", loadSandboxClip(audio, assets, "audio/place.wav", 180.0f, 0.10f, 0.5f), 0.5f, true);
+    addSoundCue(bank, "death", loadSandboxClip(audio, assets, "audio/whoosh.wav", 180.0f, 0.22f, 0.35f), 0.55f, false);
+    setSoundBank(world, pins, assets, e, std::move(bank));
+
+    const AssetID waterId = loadSandboxClip(audio, assets, "audio/whoosh.wav", 70.0f, 0.8f, 0.25f);
+    if (waterId != NULL_ASSET && !world.has<SoundEmitterComponent>(e))
+    {
+        SoundEmitterComponent se{};
+        se.clipId  = waterId;
+        se.volume  = 0.28f;
+        se.looping = true;
+        se.spatial = false;
+        se.play    = false;
+        world.emplace<SoundEmitterComponent>(e, se);
+        pinSoundEmitter(pins, assets, se);
+    }
+
+    if (WeaponLoadoutComponent* wlc = world.get<WeaponLoadoutComponent>(e); wlc && wlc->loadout)
+    {
+        AssetID fireId   = NULL_ASSET;
+        AssetID impactId = NULL_ASSET;
+        if (const SoundBankComponent* cues = world.get<SoundBankComponent>(e))
+        {
+            if (const SoundCueDesc* c = findSoundCue(*cues, "fire"))
+                fireId = c->clipId;
+            if (const SoundCueDesc* c = findSoundCue(*cues, "impact"))
+                impactId = c->clipId;
+        }
+        wlc->loadout->projectile().setAudio(&audio, &assets, fireId, impactId);
+    }
+}
+
+void attachHunterSounds(World& world, AssetPinTable& pins, AssetManager& assets, Audio::AudioSystem& audio, Entity e)
+{
+    SoundBankComponent bank;
+    addSoundCue(bank, "pain", loadSandboxClip(audio, assets, "audio/pain.wav", 380.0f, 0.12f, 0.5f), 0.75f, true);
+    addSoundCue(bank, "grunt", loadSandboxClip(audio, assets, "audio/grunt.wav", 140.0f, 0.18f, 0.5f), 0.95f, true);
+    setSoundBank(world, pins, assets, e, std::move(bank));
+}
+
 void drawShadowCaster(ID3D12GraphicsCommandList* cmd, const ShadowSystem& shadows, int cascade, const Matrix4f& world, const Mesh& mesh)
 {
     const Matrix4f wvp = world * shadows.cascade(cascade).viewProj;
@@ -195,13 +266,12 @@ const Mesh* sandboxPrimitiveMesh(PrimitiveMesh p, const Mesh& cube, const Mesh& 
     }
 }
 
-void attachSandboxCubeMesh(World& world, AssetPinTable& pins, AssetManager& assets, Entity e, AssetID matId)
+void attachSandboxCubeModel(World& world, AssetPinTable& pins, AssetManager& assets, Entity e, AssetID modelId)
 {
-    MeshComponent mc{};
-    mc.primitive  = PrimitiveMesh::Cube;
-    mc.matAssetID = matId;
-    mc.castShadow = true;
-    setMeshComponent(world, pins, assets, e, mc);
+    ModelComponent mc{};
+    mc.modelAssetID = modelId;
+    mc.castShadow   = true;
+    setModelComponent(world, pins, assets, e, mc);
 }
 
 void SandboxApp::registerDefaultActions()
@@ -324,7 +394,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
     if (!uiKeys && input().actionPressed("dev_tools"))
     {
         m_showDevTools = !m_showDevTools;
-        audio().play2D(m_sfxClick, 0.5f);
+        playSoundCue(world(), audio(), assets(), m_camera, "click");
         DE_LOG_INFO("Sandbox: dev tools = {}", m_showDevTools);
     }
 
@@ -361,7 +431,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
     {
         m_gameplayPaused = !m_gameplayPaused;
         m_stepGameplay   = false;
-        audio().play2D(m_sfxClick, 0.5f);
+        playSoundCue(world(), audio(), assets(), m_camera, "click");
         DE_LOG_INFO("Sandbox: gameplay paused = {}", m_gameplayPaused);
     }
     if (!uiKeys && m_gameplayPaused && input().actionPressed("step"))
@@ -379,7 +449,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
                 pos          = xf->position;
             }
         }
-        audio().play3D(m_sfxReset, pos, 0.7f);
+        playSoundCueAt(world(), audio(), assets(), m_camera, "reset", pos);
         DE_LOG_INFO("Command: reset cube");
     }
 
@@ -689,25 +759,14 @@ void SandboxApp::attachLocalPlayer(Entity e)
         hud.kind = HudKind::HealthBar;
         world().emplace<HudTagComponent>(e, hud);
     }
-    if (m_sfxWater && m_sfxWater->id != NULL_ASSET && !world().has<SoundEmitterComponent>(e))
-    {
-        SoundEmitterComponent se{};
-        se.clipId  = m_sfxWater->id;
-        se.volume  = 0.28f;
-        se.looping = true;
-        se.spatial = false;
-        se.play    = false;
-        world().emplace<SoundEmitterComponent>(e, se);
-        pinSoundEmitter(pins(), assets(), se);
-    }
     if (!world().has<WeaponLoadoutComponent>(e))
     {
         auto& wlc   = world().emplace<WeaponLoadoutComponent>(e);
         wlc.loadout = std::make_unique<WeaponLoadout>();
         wlc.loadout->setHitListener(&SandboxApp::onWeaponHitThunk, this);
-        wlc.loadout->projectile().setAudio(&audio(), m_sfxFire, m_sfxImpact);
         wlc.slot = wlc.loadout->slot();
     }
+    attachPlayerSounds(world(), pins(), assets(), audio(), e);
 }
 
 bool SandboxApp::attachAnimatedCharacter(Entity e, const char* gltfPath)
@@ -980,11 +1039,11 @@ void SandboxApp::updatePossessed(float dt)
         xf->rotation = Quaternion::FromLookRotation(flat, Vector3f::Y_AXIS);
 
     if (motorOut.jumped)
-        audio().play2D(m_sfxGrunt, 0.7f);
+        playSoundCue(world(), audio(), assets(), body, "jump");
     if (motorOut.landed)
-        audio().play2D(m_sfxLand, 0.75f);
+        playSoundCue(world(), audio(), assets(), body, "land");
     if (motorOut.splashed)
-        audio().play2D(m_sfxSplash, 0.8f);
+        playSoundCue(world(), audio(), assets(), body, "splash");
     if (motorOut.landed || motorOut.splashed)
         m_footstepAcc = 0.0f;
 
@@ -998,9 +1057,9 @@ void SandboxApp::updatePossessed(float dt)
         {
             m_footstepAcc = 0.0f;
             if (motor->state() == PlayerMoveState::Swimming)
-                audio().play2D(m_sfxSplash, 0.42f);
+                playSoundCue(world(), audio(), assets(), body, "swim_step");
             else
-                audio().play2D(m_sfxStep, 0.35f);
+                playSoundCue(world(), audio(), assets(), body, "step");
         }
     }
     else
@@ -1071,14 +1130,14 @@ void SandboxApp::handleWeaponSwitch()
     {
         if (wlc)
             wlc->slot = w->slot();
-        audio().play2D(m_sfxClick, 0.45f);
+        playSoundCue(world(), audio(), assets(), m_camera, "click");
         DE_LOG_INFO("Player: weapon melee");
     }
     if (input().actionPressed("weapon_2") && w->selectProjectile())
     {
         if (wlc)
             wlc->slot = w->slot();
-        audio().play2D(m_sfxClick, 0.45f);
+        playSoundCue(world(), audio(), assets(), m_camera, "click");
         DE_LOG_INFO("Player: weapon {}", w->projectile().name());
     }
 }
@@ -1165,8 +1224,8 @@ void SandboxApp::onWeaponHit(const WeaponHit& hit)
         if (!m_chase.ai().applyHunterDamage(world(), victim, hit.damage))
             return;
         m_chase.ai().applyHunterHitReaction(world(), victim, hit.direction);
-        audio().play3D(m_sfxPain, hit.point, 0.75f);
-        audio().play3D(m_sfxGrunt, hit.point, 0.95f);
+        playSoundCueAt(world(), audio(), assets(), victim, "pain", hit.point);
+        playSoundCueAt(world(), audio(), assets(), victim, "grunt", hit.point);
         const TransformComponent* playerXf = possessedBody().valid() ? world().get<TransformComponent>(possessedBody()) : nullptr;
         const Vector3f playerPos = playerXf ? playerXf->position : Vector3f{};
         m_chase.ai().onHunterAttacked(world(), victim, playerPos);
@@ -1187,7 +1246,7 @@ void SandboxApp::onWeaponHit(const WeaponHit& hit)
         return;
     if (HitReactionComponent* hr = world().get<HitReactionComponent>(victim))
         hr->hit.apply(hit.direction);
-    audio().play3D(m_sfxPain, hit.point, 0.75f);
+    playSoundCueAt(world(), audio(), assets(), victim, "pain", hit.point);
 }
 
 void SandboxApp::updateCombat(float dt)
@@ -1241,12 +1300,12 @@ void SandboxApp::updateCombat(float dt)
             if (hpCombat->applyDamage(kContactDps * dt))
             {
                 DE_LOG_INFO("Player: down");
-                audio().play2D(m_sfxReset, 0.55f);
+                playSoundCue(world(), audio(), assets(), possessedBody(), "death");
             }
         });
         if (hpCombat->hp() < before && m_hurtSoundTimer <= 0.0f)
         {
-            audio().play2D(m_sfxPain, 0.7f);
+            playSoundCue(world(), audio(), assets(), possessedBody(), "pain");
             m_hurtSoundTimer = 0.40f;
             Vector3f away{ 0.0f, 0.0f, 0.0f };
             float    best = kStandoff * kStandoff;
@@ -1293,7 +1352,7 @@ void SandboxApp::updateCombat(float dt)
     }
     pulseMuzzle();
     if (wFire->activeKind() == WeaponKind::Melee)
-        audio().play2D(m_sfxClick, 0.4f);
+        playSoundCue(world(), audio(), assets(), m_camera, "click");
     else
     {
         const RecoilKick kick = wFire->projectile().takeRecoil();
@@ -1331,6 +1390,59 @@ void SandboxApp::updateFlashlight()
     const Vector3f up   = m_viewCamera.GetUp();
     xf->position        = m_viewCamera.GetPosition() + look * 0.2f + m_viewCamera.GetRight() * 0.15f + up * -0.1f;
     xf->rotation        = Quaternion::FromLookRotation(look, up);
+}
+
+bool SandboxApp::createSandboxModels()
+{
+    MeshData cubeData;
+    if (!CreateCube(cubeData, 1.0f))
+        return false;
+    auto cubeMat = std::make_shared<Material>();
+    if (!cubeMat->createFromAlbedoPath(assets(), "textures/dark_engine_cube.png", /*fallback*/ 64, 166, 242, 255))
+        return false;
+    cubeMat = assets().internMaterial(cubeMat, "runtime:/sandbox/cube-mat");
+    AssetRef<Model> cubeModel = internAndUploadProceduralModel(renderer(), assets(), std::move(cubeData), cubeMat, "runtime:/sandbox/cube");
+    if (!cubeModel)
+        return false;
+    m_cubeModelId = cubeModel->id;
+
+    MeshData packData;
+    if (!CreateCross(packData, 1.0f, 0.30f, 0.22f))
+        return false;
+    AssetRef<Material> packMat = internSolidMaterial(assets(), 214, 28, 36, 255, "runtime:/sandbox/pack-mat");
+    AssetRef<Model> packModel  = internAndUploadProceduralModel(renderer(), assets(), std::move(packData), packMat, "runtime:/sandbox/pack");
+    if (!packModel)
+        return false;
+    m_packModelId = packModel->id;
+
+    MeshData lanternData;
+    if (!CreateCube(lanternData, 1.0f))
+        return false;
+    auto lanternMat = std::make_shared<Material>();
+    if (!lanternMat->createSolid(assets(), 220, 150, 60, 255))
+        return false;
+    lanternMat->setEmissive(1.0f);
+    lanternMat = assets().internMaterial(lanternMat, "runtime:/sandbox/lantern-mat");
+    if (!lanternMat || lanternMat->id == NULL_ASSET)
+        return false;
+    AssetRef<Model> lanternModel = internAndUploadProceduralModel(renderer(), assets(), std::move(lanternData), lanternMat, "runtime:/sandbox/lantern");
+    if (!lanternModel)
+        return false;
+    m_lanternModelId = lanternModel->id;
+
+    MeshData tracerData;
+    if (!CreateSphere(tracerData, 0.5f, 8, 12))
+    {
+        DE_LOG_ERROR("SandboxApp: projectile tracer mesh failed");
+        return true;
+    }
+    AssetRef<Material> tracerMat = internSolidMaterial(assets(), 255, 196, 48, 255, "runtime:/sandbox/tracer-mat");
+    AssetRef<Model> tracerModel  = internAndUploadProceduralModel(renderer(), assets(), std::move(tracerData), tracerMat, "runtime:/sandbox/tracer");
+    if (tracerModel)
+        m_tracerModelId = tracerModel->id;
+    else
+        DE_LOG_ERROR("SandboxApp: projectile tracer model failed");
+    return true;
 }
 
 void SandboxApp::spawnGltfDemo()
@@ -1597,7 +1709,6 @@ void SandboxApp::spawnHybridLocalLights()
         { 14.0f, 0.0f, -7.2f },
         { 5.2f, 0.0f, -18.0f },
     };
-    m_lanternFixtures.clear();
     const float waterY = m_water.params().waterLevel;
     int         spawned = 0;
     for (const Vector3f& s : spots)
@@ -1610,9 +1721,13 @@ void SandboxApp::spawnHybridLocalLights()
         Entity fixture = world().createEntity();
         world().emplace<TagComponent>(fixture, "Lantern");
         world().emplace<TransformComponent>(fixture, pos, Quaternion::IDENTITY, Vector3f{ 0.22f, 0.22f, 0.22f });
-        auto& mesh       = world().emplace<MeshComponent>(fixture);
-        mesh.castShadow  = true;
-        mesh.emissive    = 1.0f;
+        if (m_lanternModelId != NULL_ASSET)
+        {
+            ModelComponent mc{};
+            mc.modelAssetID = m_lanternModelId;
+            mc.castShadow   = true;
+            setModelComponent(world(), pins(), assets(), fixture, mc);
+        }
 
         Entity lightE = world().createEntity();
         world().emplace<TagComponent>(lightE, "LanternLight");
@@ -1623,7 +1738,6 @@ void SandboxApp::spawnHybridLocalLights()
         light.intensity    = 400.0f;
         light.range        = 6.0f;
         light.emissiveMesh = fixture;
-        m_lanternFixtures.push_back(fixture);
         ++spawned;
     }
     DE_LOG_INFO("SandboxApp: flashlight on, muzzle ready, {} demo lanterns", spawned);
@@ -1652,8 +1766,7 @@ void SandboxApp::placeHealthPacks()
         { -4.0f, 0.0f, -7.0f },
     };
     const float   waterY = m_water.params().waterLevel;
-    const AssetID matId  = m_packMaterial ? m_packMaterial->id : NULL_ASSET;
-    int           count  = 0;
+    int count = 0;
     for (const Vector3f& s : spots)
     {
         const float gy = m_terrain.heightAtWorld(s.x, s.z);
@@ -1666,11 +1779,13 @@ void SandboxApp::placeHealthPacks()
         xf.position = pos;
         xf.scale    = Vector3f{ 0.9f, 0.9f, 0.9f };
         world().emplace<TransformComponent>(e, xf);
-        MeshComponent mc{};
-        mc.primitive  = PrimitiveMesh::Cross;
-        mc.matAssetID = matId;
-        mc.castShadow = true;
-        setMeshComponent(world(), pins(), assets(), e, mc);
+        if (m_packModelId != NULL_ASSET)
+        {
+            ModelComponent mc{};
+            mc.modelAssetID = m_packModelId;
+            mc.castShadow   = true;
+            setModelComponent(world(), pins(), assets(), e, mc);
+        }
         HealthPackComponent pack{};
         pack.restPos = pos;
         pack.active  = true;
@@ -1684,15 +1799,15 @@ void SandboxApp::updateHealthPacks(float dt)
 {
     const int taken = tickHealthPacks(world(), possessedBody(), dt);
     for (int i = 0; i < taken; ++i)
-        audio().play2D(m_sfxHeal, 0.7f);
+        playSoundCue(world(), audio(), assets(), possessedBody(), "heal");
 }
 
 void SandboxApp::drawProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, MeshFrameConstants& cb)
 {
     WeaponLoadout* w = localWeapons();
-    if (!cmd || !m_tracerMesh.valid() || !w)
+    const auto model = assets().getAs<Model>(m_tracerModelId);
+    if (!cmd || !w || !model || !model->hasOpaque() || !renderer().gpuResources().ensureModel(model))
         return;
-    const float radius = w->projectile().desc().radius;
     bool any = false;
     for (const LiveProjectile& s : w->projectile().live())
     {
@@ -1705,35 +1820,25 @@ void SandboxApp::drawProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix4f&
     if (!any)
         return;
 
-    m_meshPipeline.bind(cmd, renderer().debugState().fill);
-    m_shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
-    if (m_tracerMaterial && m_tracerMaterial->isValid())
-        renderer().gpuResources().bindMaterial(cmd, *m_tracerMaterial, MeshPipeline::kRootAlbedoSrv);
-
-    cb.color[0] = 1.0f;
-    cb.color[1] = 0.78f;
-    cb.color[2] = 0.18f;
-    cb.color[3] = 1.0f;
-
-    const float scale = radius * 2.0f;
+    const float     radius = w->projectile().desc().radius;
+    const float     scale  = radius * 2.0f;
+    const DebugFill fill   = renderer().debugState().fill;
+    GpuResourceCache& gpu  = renderer().gpuResources();
     for (const LiveProjectile& s : w->projectile().live())
     {
         if (!s.alive)
             continue;
         const Matrix4f world = Matrix4f::ScaleMatrixXYZ(scale, scale, scale) * Matrix4f::TranslationMatrix(s.position.x, s.position.y, s.position.z);
-        copyMatrix(cb.worldViewProj, world * viewProj);
-        copyMatrix(cb.world, world);
-        m_meshPipeline.setConstants(cmd, cb);
-        m_tracerMesh.draw(cmd, renderer().debugState().fill == DebugFill::Points);
+        drawModelForward(cmd, gpu, m_meshPipeline, m_shadows, *model, false, world, viewProj, cb, fill);
     }
 }
 
 void SandboxApp::drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, const Matrix4f& prevViewProj)
 {
     WeaponLoadout* w = localWeapons();
-    if (!cmd || !m_tracerMesh.valid() || !w)
+    const auto model = assets().getAs<Model>(m_tracerModelId);
+    if (!cmd || !w || !model || !model->hasOpaque() || !renderer().gpuResources().ensureModel(model))
         return;
-    const float radius = w->projectile().desc().radius;
     bool any = false;
     for (const LiveProjectile& s : w->projectile().live())
     {
@@ -1746,113 +1851,16 @@ void SandboxApp::drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Ma
     if (!any)
         return;
 
-    const DebugFill fill = renderer().debugState().fill;
-    m_meshPipeline.bind(cmd, fill);
-    if (m_tracerMaterial && m_tracerMaterial->isValid())
-        renderer().gpuResources().bindMaterial(cmd, *m_tracerMaterial, MeshPipeline::kRootAlbedoSrv);
-
-    MeshGBufferConstants cb{};
-    cb.color[0] = 1.0f;
-    cb.color[1] = 0.78f;
-    cb.color[2] = 0.18f;
-    cb.color[3] = 2.0f;
-
-    const float scale = radius * 2.0f;
+    const float     radius = w->projectile().desc().radius;
+    const float     scale  = radius * 2.0f;
+    const DebugFill fill   = renderer().debugState().fill;
+    GpuResourceCache& gpu  = renderer().gpuResources();
     for (const LiveProjectile& s : w->projectile().live())
     {
         if (!s.alive)
             continue;
-        const Matrix4f world     = Matrix4f::ScaleMatrixXYZ(scale, scale, scale) * Matrix4f::TranslationMatrix(s.position.x, s.position.y, s.position.z);
-        const Matrix4f prevWorld = Matrix4f::ScaleMatrixXYZ(scale, scale, scale) * Matrix4f::TranslationMatrix(s.prevPosition.x, s.prevPosition.y, s.prevPosition.z);
-        fillMeshGBufferXforms(cb, world, viewProj, prevViewProj, prevWorld);
-        m_meshPipeline.setGBufferConstants(cmd, cb);
-        m_tracerMesh.draw(cmd, fill == DebugFill::Points);
-    }
-}
-
-void SandboxApp::drawLanternFixtures(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, MeshFrameConstants& cb)
-{
-    if (!cmd || !m_cubeMesh.valid())
-        return;
-
-    m_meshPipeline.bind(cmd, renderer().debugState().fill);
-    m_shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
-    if (m_lanternMaterial && m_lanternMaterial->isValid())
-        renderer().gpuResources().bindMaterial(cmd, *m_lanternMaterial, MeshPipeline::kRootAlbedoSrv);
-
-    if (m_lanternMaterial)
-        applyMaterialSurface(*m_lanternMaterial, cb);
-    else
-    {
-        cb.color[0] = 0.86f;
-        cb.color[1] = 0.59f;
-        cb.color[2] = 0.24f;
-        cb.color[3] = 1.0f;
-    }
-
-    for (Entity e : m_lanternFixtures)
-    {
-        const TransformComponent* xf = e.valid() ? world().get<TransformComponent>(e) : nullptr;
-        if (!xf)
-            continue;
-        const Matrix4f worldMat = makeWorldMatrix(*xf);
-        copyMatrix(cb.worldViewProj, worldMat * viewProj);
-        copyMatrix(cb.world, worldMat);
-        m_meshPipeline.setConstants(cmd, cb);
-        m_cubeMesh.draw(cmd, renderer().debugState().fill == DebugFill::Points);
-    }
-}
-
-void SandboxApp::drawLanternFixturesGBuffer(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, const Matrix4f& prevViewProj)
-{
-    if (!cmd || !m_cubeMesh.valid())
-        return;
-
-    const DebugFill fill = renderer().debugState().fill;
-    m_meshPipeline.bind(cmd, fill);
-    if (m_lanternMaterial && m_lanternMaterial->isValid())
-        renderer().gpuResources().bindMaterial(cmd, *m_lanternMaterial, MeshPipeline::kRootAlbedoSrv);
-
-    MeshGBufferConstants cb{};
-    if (m_lanternMaterial)
-        applyMaterialSurface(*m_lanternMaterial, cb);
-    else
-    {
-        cb.color[0] = 0.86f;
-        cb.color[1] = 0.59f;
-        cb.color[2] = 0.24f;
-        cb.color[3] = 0.0f;
-    }
-
-    for (Entity e : m_lanternFixtures)
-    {
-        const TransformComponent* xf = e.valid() ? world().get<TransformComponent>(e) : nullptr;
-        const MeshComponent*      mc = e.valid() ? world().get<MeshComponent>(e) : nullptr;
-        if (!xf || !mc)
-            continue;
-        const Matrix4f worldMat  = makeWorldMatrix(*xf);
-        const Matrix4f prevWorld = m_prevWorldByEntity.count(e.id()) ? m_prevWorldByEntity[e.id()] : worldMat;
-        fillMeshGBufferXforms(cb, worldMat, viewProj, prevViewProj, prevWorld);
-        cb.color[3] = mc->emissive;
-        m_meshPipeline.setGBufferConstants(cmd, cb);
-        m_cubeMesh.draw(cmd, fill == DebugFill::Points);
-        m_prevWorldByEntity[e.id()] = worldMat;
-    }
-}
-
-void SandboxApp::drawLanternFixturesDepth(ID3D12GraphicsCommandList* cmd, int cascade)
-{
-    if (!cmd || !m_cubeMesh.valid())
-        return;
-    for (Entity e : m_lanternFixtures)
-    {
-        const MeshComponent* mc = e.valid() ? world().get<MeshComponent>(e) : nullptr;
-        if (!mc || !mc->castShadow)
-            continue;
-        const TransformComponent* xf = world().get<TransformComponent>(e);
-        if (!xf)
-            continue;
-        drawShadowCaster(cmd, m_shadows, cascade, makeWorldMatrix(*xf), m_cubeMesh);
+        const Matrix4f world = Matrix4f::ScaleMatrixXYZ(scale, scale, scale) * Matrix4f::TranslationMatrix(s.position.x, s.position.y, s.position.z);
+        drawModelOpaqueGBuffer(cmd, gpu, m_meshPipeline, *model, world, viewProj, prevViewProj, fill);
     }
 }
 
@@ -1925,7 +1933,7 @@ void SandboxApp::spawnOwnedPawn(ClientId owner, float offsetX)
     Entity e = world().createEntity();
     world().emplace<TagComponent>(e, "PlayerPawn");
     world().emplace<TransformComponent>(e, pos, Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
-    attachSandboxCubeMesh(world(), pins(), assets(), e, m_cubeMatId);
+    attachSandboxCubeModel(world(), pins(), assets(), e, m_cubeModelId);
     if (!network().registerEntity(world(), e, NetPrefab::PlayerPawn, owner, pawnPaletteColor(owner)))
     {
         onEntityRemoved(world(), e, &pins());
@@ -1948,7 +1956,7 @@ void SandboxApp::ensureLocalCube()
     m_cube              = world().createEntity();
     world().emplace<TagComponent>(m_cube, "Cube");
     world().emplace<TransformComponent>(m_cube, Vector3f{ 0.0f, groundY, 0.0f }, Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
-    attachSandboxCubeMesh(world(), pins(), assets(), m_cube, m_cubeMatId);
+    attachSandboxCubeModel(world(), pins(), assets(), m_cube, m_cubeModelId);
     if (!network().registerEntity(world(), m_cube, NetPrefab::Cube))
     {
         onEntityRemoved(world(), m_cube, &pins());
@@ -1963,8 +1971,8 @@ bool SandboxApp::onNetSpawn(World& world, Entity e, NetPrefab prefab, const Tran
     auto* app = static_cast<SandboxApp*>(user);
     if (!app || !e.valid())
         return false;
-    if (!world.has<MeshComponent>(e))
-        attachSandboxCubeMesh(world, app->pins(), app->assets(), e, app->m_cubeMatId);
+    if (!world.has<ModelComponent>(e))
+        attachSandboxCubeModel(world, app->pins(), app->assets(), e, app->m_cubeModelId);
     if (prefab == NetPrefab::PlayerPawn)
     {
         const NetworkedComponent* nc = world.get<NetworkedComponent>(e);
@@ -2032,21 +2040,6 @@ void SandboxApp::onInit()
 
     mountContentRoots(assets());
     registerDefaultActions();
-
-    m_sfxReset = audio().loadOrBlip(assets(), "audio/whoosh.wav", 180.0f, 0.22f, 0.35f);
-    m_sfxClick = audio().loadOrBlip(assets(), "audio/ui_click.wav", 1400.0f, 0.06f, 0.35f);
-    m_sfxStep  = audio().loadOrBlip(assets(), "audio/place.wav", 90.0f, 0.05f, 0.4f);
-    m_sfxWater  = audio().loadOrBlip(assets(), "audio/whoosh.wav", 70.0f, 0.8f, 0.25f);
-    m_sfxGrunt  = audio().loadOrBlip(assets(), "audio/grunt.wav", 140.0f, 0.18f, 0.5f);
-    m_sfxLand   = audio().loadOrBlip(assets(), "audio/land.wav", 70.0f, 0.12f, 0.55f);
-    m_sfxSplash = audio().loadOrBlip(assets(), "audio/splash.wav", 220.0f, 0.22f, 0.45f);
-    m_sfxPain   = audio().loadOrBlip(assets(), "audio/pain.wav", 380.0f, 0.12f, 0.5f);
-    m_sfxHeal   = audio().loadOrBlip(assets(), "audio/coin.wav", 880.0f, 0.16f, 0.4f);
-    m_sfxFire   = audio().loadOrBlip(assets(), "audio/whoosh.wav", 520.0f, 0.12f, 0.45f);
-    m_sfxImpact = audio().loadOrBlip(assets(), "audio/place.wav", 180.0f, 0.10f, 0.5f);
-    m_music    = audio().loadWav(assets(), "audio/ambient_loop.wav");
-    if (!m_music)
-        m_music = audio().createTone(assets(), 110.0f, 2.0f, 0.12f);
     audio().setMasterVolume(0.85f);
 
     if (!renderer().enableSceneBuffers(config().scenePath))
@@ -2235,90 +2228,16 @@ void SandboxApp::onInit()
         requestQuit();
         return;
     }
-    MeshData tracerData;
-    if (!CreateSphere(tracerData, 0.5f, 8, 12) || !Mesh::tryCreate(renderer(), tracerData, m_tracerMesh))
-        DE_LOG_ERROR("SandboxApp: projectile tracer mesh failed");
-    m_tracerMaterial = std::make_shared<Material>();
-    if (!m_tracerMaterial->createSolid(assets(), 255, 196, 48, 255))
-    {
-        DE_LOG_ERROR("SandboxApp: projectile tracer material failed");
-        m_tracerMaterial.reset();
-    }
 
-    m_cubeMaterial = std::make_shared<Material>();
-    if (!m_cubeMaterial->createFromAlbedoPath(assets(), "textures/dark_engine_cube.png", /*fallback*/ 64, 166, 242, 255))
+    if (!createSandboxModels())
     {
-        DE_LOG_FATAL("SandboxApp: material create failed");
+        DE_LOG_FATAL("SandboxApp: procedural models failed");
         requestQuit();
         return;
     }
 
     if (!pumpBootFrame())
         return;
-
-    m_treeTrunkMaterial = std::make_shared<Material>();
-    if (!m_treeTrunkMaterial->createSolid(assets(), 118, 78, 38, 255))
-    {
-        DE_LOG_FATAL("SandboxApp: tree trunk material failed");
-        requestQuit();
-        return;
-    }
-    m_treeMaterial = std::make_shared<Material>();
-    if (!m_treeMaterial->createSolid(assets(), 46, 140, 62, 255))
-    {
-        DE_LOG_FATAL("SandboxApp: tree canopy material failed");
-        requestQuit();
-        return;
-    }
-    m_aiMaterial = std::make_shared<Material>();
-    if (!m_aiMaterial->createSolid(assets(), 220, 90, 40, 255))
-    {
-        DE_LOG_FATAL("SandboxApp: ai material failed");
-        requestQuit();
-        return;
-    }
-    m_packMaterial = std::make_shared<Material>();
-    if (!m_packMaterial->createSolid(assets(), 214, 28, 36, 255))
-    {
-        DE_LOG_FATAL("SandboxApp: health pack material failed");
-        requestQuit();
-        return;
-    }
-    m_lanternMaterial = std::make_shared<Material>();
-    if (!m_lanternMaterial->createSolid(assets(), 220, 150, 60, 255))
-    {
-        DE_LOG_FATAL("SandboxApp: lantern material failed");
-        requestQuit();
-        return;
-    }
-
-    auto internEnsure = [&](std::shared_ptr<Material>& mat, const char* name) -> bool {
-        if (!mat)
-            return false;
-        mat = assets().internMaterial(mat);
-        if (!mat || mat->id == NULL_ASSET)
-        {
-            DE_LOG_ERROR("SandboxApp: internMaterial {} failed", name);
-            return false;
-        }
-        if (!renderer().gpuResources().ensureMaterial(mat))
-        {
-            DE_LOG_ERROR("SandboxApp: ensureMaterial {} failed", name);
-            return false;
-        }
-        return true;
-    };
-    if (!internEnsure(m_cubeMaterial, "cube") || !internEnsure(m_treeTrunkMaterial, "tree trunk")
-        || !internEnsure(m_treeMaterial, "tree canopy") || !internEnsure(m_aiMaterial, "ai")
-        || !internEnsure(m_packMaterial, "health pack") || !internEnsure(m_lanternMaterial, "lantern"))
-    {
-        DE_LOG_FATAL("SandboxApp: material intern/ensure failed");
-        requestQuit();
-        return;
-    }
-    if (m_tracerMaterial && !internEnsure(m_tracerMaterial, "tracer"))
-        m_tracerMaterial.reset();
-    m_cubeMatId = m_cubeMaterial->id;
 
     renderer().gpuResources().setShadowSrv(m_shadows.srvCpu());
     renderer().setShadowSrv(m_shadows.srvCpu());
@@ -2335,12 +2254,13 @@ void SandboxApp::onInit()
     world().emplace<TransformComponent>(m_camera, m_viewCamera.GetPosition(), Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
     world().emplace<CameraComponent>(m_camera, /* fovDeg */ 60.0f, /* near */ 0.5f, /* far */ 2000.0f, /* primary */ true);
     world().emplace<AudioListenerComponent>(m_camera);
+    attachCameraSounds(world(), pins(), assets(), audio(), m_camera);
 
     const float groundY = m_terrain.heightAtWorld(0.0f, 0.0f) + 0.5f;
     m_cube = world().createEntity();
     world().emplace<TagComponent>(m_cube, "Cube");
     world().emplace<TransformComponent>(m_cube, Vector3f{ 0.0f, groundY, 0.0f }, Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
-    attachSandboxCubeMesh(world(), pins(), assets(), m_cube, m_cubeMatId);
+    attachSandboxCubeModel(world(), pins(), assets(), m_cube, m_cubeModelId);
 
     network().setWantsPawn(true);
     network().setSceneMode(0);
@@ -2357,19 +2277,17 @@ void SandboxApp::onInit()
     }
 
     DE_LOG_INFO(
-        "SandboxApp: cube mesh {} verts / {} indices, aspect {:.3f}, material id={}, albedo {}x{}, terrain {}x{} chunks",
+        "SandboxApp: cube mesh {} verts / {} indices, aspect {:.3f}, cube model id={}, terrain {}x{} chunks",
         m_cubeMesh.vertexCount(),
         m_cubeMesh.indexCount(),
         aspect,
-        m_cubeMatId,
-        m_cubeMaterial->albedo()->width(),
-        m_cubeMaterial->albedo()->height(),
+        m_cubeModelId,
         m_terrain.chunksX(),
         m_terrain.chunksZ());
     DE_LOG_INFO(LogCategory::Networking, "Sandbox net: Sandbox.exe -host   and   Sandbox.exe -join 127.0.0.1");
     DE_LOG_INFO(LogCategory::Networking, "Sandbox net: M opens Dev Tools (host / join / browse / debugger)");
 
-    m_chaseOk = m_chase.init(renderer(), m_terrain, m_water, world(), pins(), assets(), m_cubeMesh, m_treeTrunkMaterial, m_treeMaterial, m_aiMaterial);
+    m_chaseOk = m_chase.init(renderer(), m_terrain, m_water, world(), pins(), assets());
     if (!m_chaseOk)
         DE_LOG_ERROR(LogCategory::AI, "SandboxApp: path chase init failed");
 
@@ -2380,8 +2298,8 @@ void SandboxApp::onInit()
         for (int i = 0; i < m_chase.hunterCount(); ++i)
         {
             const Entity hunter = m_chase.hunterEntity(i);
-            if (!attachAnimatedCharacter(hunter, "models/skeleton.gltf"))
-                continue;
+            attachAnimatedCharacter(hunter, "models/skeleton.gltf");
+            attachHunterSounds(world(), pins(), assets(), audio(), hunter);
             if (HittableComponent* hit = hunter.valid() ? world().get<HittableComponent>(hunter) : nullptr)
                 hit->halfExtents = Vector3f{ 0.4f, 0.7f, 0.4f };
             if (TransformComponent* hxf = hunter.valid() ? world().get<TransformComponent>(hunter) : nullptr)
@@ -2398,8 +2316,7 @@ void SandboxApp::onInit()
 void SandboxApp::onSplashFinished()
 {
     m_spawnAge = 0.0f;
-    if (m_music)
-        audio().setMusic(m_music, 0.10f);
+    playMusicCue(world(), audio(), assets(), m_camera, "music");
 }
 
 void SandboxApp::onUpdate(float dt)
@@ -2459,13 +2376,17 @@ void SandboxApp::onRender()
         if (const TransformComponent* xf = world().get<TransformComponent>(e))
             sceneBounds.ExpandToInclude(xf->position);
     });
+    world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+        const TransformComponent* xf = world().get<TransformComponent>(e);
+        if (!xf)
+            return;
+        const auto model = assets().getAs<Model>(mc.modelAssetID);
+        if (!model || !model->bounds().IsValid())
+            return;
+        sceneBounds.ExpandToInclude(model->bounds().Transformed(makeWorldMatrix(*xf)));
+    });
     if (m_chaseOk)
         m_chase.expandBounds(sceneBounds);
-    for (Entity e : m_lanternFixtures)
-    {
-        if (const TransformComponent* xf = e.valid() ? world().get<TransformComponent>(e) : nullptr)
-            sceneBounds.ExpandToInclude(xf->position);
-    }
     m_shadows.update(
         m_viewCamera,
         m_env.lightDir(),
@@ -2498,16 +2419,12 @@ void SandboxApp::onRender()
                     return;
                 drawShadowCaster(cmd, m_shadows, i, makeWorldMatrix(*xf), *gpuMesh);
             });
-            if (m_chaseOk)
-                m_chase.drawDepth(cmd, m_shadows, i, m_cubeMesh);
-
-            drawLanternFixturesDepth(cmd, i);
             world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
                 if (!mc.castShadow)
                     return;
                 const TransformComponent* xf = world().get<TransformComponent>(e);
                 const auto model = assets().getAs<Model>(mc.modelAssetID);
-                if (!xf || !model || !model->valid() || !gpu.ensureModel(model))
+                if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->valid() || !gpu.ensureModel(model))
                     return;
                 const Matrix4f worldMat = makeWorldMatrix(*xf);
                 if (model->skinned())
@@ -2559,14 +2476,20 @@ void SandboxApp::onRender()
     if (!deferred)
         m_skyPipeline.draw(cmd, m_viewCamera, m_env, skyExposure, m_water.params().waterLevel, fogScale, &m_shadows);
 
-    AssetRef<Material> material = m_cubeMaterial;
+    AssetRef<Material> material;
     if (m_cube.valid())
     {
         if (auto* meshComp = world().get<MeshComponent>(m_cube))
             material = assets().getAs<Material>(meshComp->matAssetID);
+        else if (const ModelComponent* mo = world().get<ModelComponent>(m_cube))
+        {
+            if (const auto model = assets().getAs<Model>(mo->modelAssetID))
+            {
+                if (const Model::Part* part = model->partAt(0))
+                    material = part->material;
+            }
+        }
     }
-    if (!material)
-        material = m_cubeMaterial;
 
     if (deferred)
     {
@@ -2612,15 +2535,11 @@ void SandboxApp::onRender()
             m_prevWorldByEntity[e.id()] = worldMat;
             ++meshDraws;
         });
-        if (m_chaseOk)
-            m_chase.drawMeshesGBuffer(cmd, gpu, m_meshPipeline, m_viewCamera, prevViewProj, m_cubeMesh, fill);
-
         drawProjectilesGBuffer(cmd, viewProj, prevViewProj);
-        drawLanternFixturesGBuffer(cmd, viewProj, prevViewProj);
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             const TransformComponent* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
-            if (!xf || !model || !model->hasOpaque() || !gpu.ensureModel(model))
+            if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->hasOpaque() || !gpu.ensureModel(model))
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
             if (model->skinned())
@@ -2730,15 +2649,11 @@ void SandboxApp::onRender()
             ++meshDraws;
         });
 
-        if (m_chaseOk)
-            m_chase.drawMeshes(cmd, gpu, m_meshPipeline, m_shadows, m_viewCamera, cb, m_cubeMesh, fill);
-
         drawProjectiles(cmd, viewProj, cb);
-        drawLanternFixtures(cmd, viewProj, cb);
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             const TransformComponent* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
-            if (!xf || !model || !model->hasOpaque() || !gpu.ensureModel(model))
+            if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->hasOpaque() || !gpu.ensureModel(model))
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
             if (model->skinned())
@@ -2825,7 +2740,7 @@ void SandboxApp::onRender()
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             const TransformComponent* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
-            if (!xf || !model || !model->hasTranslucent() || !gpu.ensureModel(model))
+            if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->hasTranslucent() || !gpu.ensureModel(model))
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
             if (model->skinned())
@@ -2992,32 +2907,16 @@ void SandboxApp::onShutdown()
     m_menu.shutdown(renderer());
     m_scene.shutdown();
     m_imgui.shutdown(renderer());
-    if (m_cubeMaterial)
-        assets().unload(m_cubeMaterial->id);
-    m_cubeMaterial.reset();
     m_water = WaterWorld{};
     m_terrainMaterial = TerrainMaterial{};
     m_terrain = Terrain::TerrainWorld{};
     audio().stopAll();
-    m_sfxReset.reset();
-    m_sfxClick.reset();
-    m_sfxStep.reset();
-    m_sfxWater.reset();
-    m_sfxGrunt.reset();
-    m_sfxLand.reset();
-    m_sfxSplash.reset();
-    m_sfxPain.reset();
-    m_sfxHeal.reset();
-    m_sfxFire.reset();
-    m_sfxImpact.reset();
     if (WeaponLoadout* w = localWeapons())
     {
-        w->projectile().setAudio(nullptr, {}, {});
+        w->projectile().setAudio(nullptr, nullptr);
         w->clear();
     }
-    m_tracerMaterial.reset();
     m_particles.destroy(renderer());
     m_bloodSplats.destroy(renderer());
-    m_music.reset();
     DE_LOG_INFO("SandboxApp: shutdown");
 }

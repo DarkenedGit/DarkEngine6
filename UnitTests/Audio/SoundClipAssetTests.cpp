@@ -57,3 +57,31 @@ TEST(SoundClipAsset, PinHoldsThroughCollectGarbage)
     assets.collectGarbage();
     EXPECT_TRUE(assets.get(id) == nullptr);
 }
+
+TEST(SoundClipAsset, SoundBankPinAndFind)
+{
+    AssetManager assets;
+    AssetPinTable pins;
+    AudioSystem   audio;
+    auto          clip = audio.createBlip(assets, 660.0f, 0.04f, 0.2f);
+    ASSERT_TRUE(clip);
+
+    World world;
+    Entity e = world.createEntity();
+    Dark::SoundBankComponent bank;
+    Dark::addSoundCue(bank, "pain", clip->id, 0.5f, true);
+    Dark::setSoundBank(world, pins, assets, e, std::move(bank));
+    clip.reset();
+    assets.collectGarbage();
+    EXPECT_TRUE(assets.get(world.get<Dark::SoundBankComponent>(e)->cues[0].clipId) != nullptr);
+    const Dark::SoundCueDesc* cue = Dark::findSoundCue(*world.get<Dark::SoundBankComponent>(e), "pain");
+    ASSERT_NE(cue, nullptr);
+    EXPECT_FLOAT_EQ(cue->volume, 0.5f);
+    EXPECT_TRUE(cue->spatial);
+
+    const Dark::AssetID id = cue->clipId;
+    onEntityRemoved(world, e, &pins);
+    world.destroyEntity(e);
+    assets.collectGarbage();
+    EXPECT_TRUE(assets.get(id) == nullptr);
+}

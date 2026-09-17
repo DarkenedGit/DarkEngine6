@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Weapons/Weapon.h"
+#include "Assets/AssetHandle.h"
 #include "Audio/AudioSystem.h"
 #include "Particles/ParticleEmitter.h"
 
@@ -9,6 +10,8 @@
 
 namespace Dark
 {
+
+    class AssetManager;
 
     inline ParticleEmitterDesc defaultProjectileImpactParticles()
     {
@@ -89,7 +92,7 @@ namespace Dark
         const ProjectileWeaponDesc&  desc() const { return m_desc; }
         void                         setImpactDesc(const ParticleEmitterDesc& desc);
 
-        void setAudio(Audio::AudioSystem* audio, std::shared_ptr<Audio::SoundClip> fireClip, std::shared_ptr<Audio::SoundClip> hitClip);
+        void setAudio(Audio::AudioSystem* audio, AssetManager* assets, AssetID fireClip = NULL_ASSET, AssetID hitClip = NULL_ASSET);
 
         WeaponKind  kind() const override { return WeaponKind::Projectile; }
         const char* name() const override { return m_desc.name ? m_desc.name : "Rifle"; }
@@ -123,9 +126,10 @@ namespace Dark
         ProjectileWeaponDesc                 m_desc{};
         std::vector<LiveProjectile>          m_shots;
         ParticleEmitter                      m_impact;
-        Audio::AudioSystem*                  m_audio = nullptr;
-        std::shared_ptr<Audio::SoundClip>    m_fireClip;
-        std::shared_ptr<Audio::SoundClip>    m_hitClip;
+        Audio::AudioSystem* m_audio      = nullptr;
+        AssetManager*       m_assets     = nullptr;
+        AssetID             m_fireClipId = NULL_ASSET;
+        AssetID             m_hitClipId  = NULL_ASSET;
         RecoilKick                           m_pendingRecoil{};
     };
 

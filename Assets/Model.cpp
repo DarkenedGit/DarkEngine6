@@ -103,11 +103,7 @@ namespace Dark
             }
             part.material = std::move(mat);
 
-            for (const Math::Vector3f& p : src.mesh.positions)
-            {
-                const Math::Vector4f wp = part.localToRoot * Math::Vector4f(p.x, p.y, p.z, 1.0f);
-                m_bounds.ExpandToInclude(Math::Vector3f(wp.x, wp.y, wp.z));
-            }
+            expandBoundsFromPart(part);
 
             if (part.translucent)
                 m_translucent.push_back(std::move(part));
@@ -129,6 +125,48 @@ namespace Dark
         m_sourcePath = path;
         DE_LOG_INFO("Model: '{}' opaque {} translucent {} joints {}", path.string(), m_opaque.size(), m_translucent.size(), jointCount());
         return true;
+    }
+
+    bool Model::createFromParts(std::vector<Part> parts)
+    {
+        m_opaque.clear();
+        m_translucent.clear();
+        m_bounds = Math::AABox3f::Empty();
+        m_skeleton.reset();
+        m_animSet.reset();
+        type = AssetType::Model;
+
+        for (size_t i = 0; i < parts.size(); ++i)
+        {
+            Part& part = parts[i];
+            if (part.mesh.positions.empty() || part.mesh.indices.empty())
+            {
+                DE_LOG_ERROR("Model: empty mesh for part {}", i);
+                continue;
+            }
+            expandBoundsFromPart(part);
+            if (part.translucent)
+                m_translucent.push_back(std::move(part));
+            else
+                m_opaque.push_back(std::move(part));
+        }
+
+        if (!valid())
+        {
+            DE_LOG_ERROR("Model: no drawable parts");
+            return false;
+        }
+        DE_LOG_INFO("Model: procedural opaque {} translucent {}", m_opaque.size(), m_translucent.size());
+        return true;
+    }
+
+    void Model::expandBoundsFromPart(const Part& part)
+    {
+        for (const Math::Vector3f& p : part.mesh.positions)
+        {
+            const Math::Vector4f wp = part.localToRoot * Math::Vector4f(p.x, p.y, p.z, 1.0f);
+            m_bounds.ExpandToInclude(Math::Vector3f(wp.x, wp.y, wp.z));
+        }
     }
 
     uint32_t Model::partCount() const
@@ -184,6 +222,36 @@ namespace Dark
     void Model::setSkeleton(Skeleton skeleton)
     {
         m_skeleton = std::move(skeleton);
+    }
+
+    AssetRef<Model> internProceduralModel(AssetManager& assets, MeshData mesh, AssetRef<Material> material, const std::string& cacheKey)
+    {
+        if (material && material->id == NULL_ASSET)
+            material = assets.internMaterial(material);
+        if (!material || material->id == NULL_ASSET)
+        {
+            DE_LOG_ERROR("internProceduralModel: material is not interned");
+            return {};
+        }
+        if (mesh.positions.empty() || mesh.indices.empty())
+        {
+            DE_LOG_ERROR("internProceduralModel: empty mesh");
+            return {};
+        }
+
+        Model::Part part;
+        part.mesh     = std::move(mesh);
+        part.material = std::move(material);
+
+        auto model = std::make_shared<Model>();
+        if (!model->createFromParts({ std::move(part) }))
+            return {};
+        if (assets.registerAsset(model, cacheKey) == NULL_ASSET)
+        {
+            DE_LOG_ERROR("internProceduralModel: registerAsset failed");
+            return {};
+        }
+        return model;
     }
 
 } // namespace Dark

@@ -25,7 +25,7 @@ namespace Dark
 
     Math::Matrix4f healthPackWorldMatrix(const Math::Vector3f& pos, float spin, float bob);
 
-    // Bob/spin Transform, hide Mesh primitive while inactive, heal player HealthComponent.
+    // Bob/spin Transform, hide Mesh primitive / Model shadow while inactive, heal player HealthComponent.
     // Returns number of packs collected this tick.
     int tickHealthPacks(World& world, Entity player, float dt);
 

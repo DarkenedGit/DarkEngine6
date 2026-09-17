@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Assets/AssetHandle.h"
+#include "Audio/SoundComponents.h"
 #include "ECS/Components.h"
 #include "ECS/Entity.h"
 
@@ -10,7 +11,6 @@ namespace Dark
     class AssetManager;
     class AssetPinTable;
     class World;
-    struct SoundEmitterComponent;
     struct ParticleEmitterComponent;
 
     void pinMeshComponent(AssetPinTable& pins, AssetManager& assets, const MeshComponent& mc);
@@ -25,6 +25,10 @@ namespace Dark
     void pinSoundEmitter(AssetPinTable& pins, AssetManager& assets, const SoundEmitterComponent& se);
     void unpinSoundEmitter(AssetPinTable& pins, const SoundEmitterComponent& se);
     void setSoundEmitterClip(World& world, AssetPinTable& pins, AssetManager& assets, Entity e, AssetID clipId);
+
+    void pinSoundBank(AssetPinTable& pins, AssetManager& assets, const SoundBankComponent& bank);
+    void unpinSoundBank(AssetPinTable& pins, const SoundBankComponent& bank);
+    void setSoundBank(World& world, AssetPinTable& pins, AssetManager& assets, Entity e, SoundBankComponent next);
 
     void pinParticleEmitter(AssetPinTable& pins, AssetManager& assets, const ParticleEmitterComponent& pe);
     void unpinParticleEmitter(AssetPinTable& pins, const ParticleEmitterComponent& pe);

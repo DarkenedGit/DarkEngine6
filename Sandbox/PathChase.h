@@ -5,11 +5,7 @@
 #include "Math/AABox3f.h"
 #include "Math/Matrix4f.h"
 #include "Math/Vector3f.h"
-#include "Render/GpuResourceCache.h"
-#include "Render/Mesh.h"
 #include "Render/LinePipeline.h"
-#include "Assets/Material.h"
-#include "Render/MeshPipeline.h"
 
 #include <d3d12.h>
 #include <wrl/client.h>
@@ -21,12 +17,10 @@ namespace Dark
     class Renderer;
     class World;
     class Input;
-    class Camera3D;
-    class MeshPipeline;
-    class ShadowSystem;
     class WaterWorld;
     class AssetManager;
     class AssetPinTable;
+    class Model;
 
     namespace Terrain
     {
@@ -38,15 +32,9 @@ namespace Dark
     public:
         using PackSettings = AI::PackSettings;
 
-        bool init(Renderer& renderer, Terrain::TerrainWorld& terrain, WaterWorld& water, World& world, AssetPinTable& pins, AssetManager& assets, Mesh& cubeMesh,
-                  AssetRef<Material> trunkMat, AssetRef<Material> canopyMat, AssetRef<Material> aiMat);
+        bool init(Renderer& renderer, Terrain::TerrainWorld& terrain, WaterWorld& water, World& world, AssetPinTable& pins, AssetManager& assets);
 
         void tick(float dt, World& world, Input& input, Terrain::TerrainWorld& terrain, Entity hostPawn, bool playerInWater);
-        void drawMeshes(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, MeshPipeline& meshPipe, ShadowSystem& shadows, const Camera3D& camera,
-                        const MeshFrameConstants& baseCb, Mesh& cubeMesh, DebugFill fill);
-        void drawMeshesGBuffer(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, MeshPipeline& meshPipe, const Camera3D& camera, const Math::Matrix4f& prevViewProj,
-                               Mesh& cubeMesh, DebugFill fill);
-        void drawDepth(ID3D12GraphicsCommandList* cmd, const ShadowSystem& shadows, int cascade, Mesh& cubeMesh) const;
         void expandBounds(Math::AABox3f& bounds) const;
         void drawPaths(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Math::Matrix4f& viewProj);
 
@@ -66,29 +54,19 @@ namespace Dark
 
     private:
         bool bake(Terrain::TerrainWorld& terrain, WaterWorld& water);
-        bool spawnWalker(World& world, Terrain::TerrainWorld& terrain);
+        bool spawnWalker(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainWorld& terrain, const AssetRef<Model>& walkerModel);
         bool spawnAgents(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainWorld& terrain);
+        bool spawnTrees(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainWorld& terrain, const AssetRef<Model>& treeModel);
         bool createLineBuffers(Renderer& renderer);
 
         AiSystem        m_ai;
         World*          m_world = nullptr;
         LinePipeline    m_lines;
         std::vector<Math::AABox3f>   m_cubes;
-        std::vector<Math::Vector3f>  m_treePos;
         std::array<Entity, kHunterCount> m_hunters{};
         int             m_hunterCount = 0;
         Entity          m_walker{};
-        Math::Vector3f  m_walkerPos{};
-        Math::Vector3f  m_prevWalkerPos{};
-        bool            m_havePrevXforms = false;
         float           m_agentR = 0.8f;
-        bool            m_drawWalker = true;
-
-        Mesh               m_trunkMesh;
-        Mesh               m_canopyMesh;
-        AssetRef<Material> m_trunkMat;
-        AssetRef<Material> m_canopyMat;
-        AssetRef<Material> m_aiMat;
 
         static constexpr uint32_t kMaxLineVerts = 2048;
         Microsoft::WRL::ComPtr<ID3D12Resource> m_lineVb[2];

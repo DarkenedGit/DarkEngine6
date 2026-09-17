@@ -1,5 +1,7 @@
 #include "Weapons/ProjectileWeapon.h"
 
+#include "Assets/AssetManager.h"
+#include "Audio/SoundClip.h"
 #include "Math/MathDefines.h"
 #include "Math/MathHelper.h"
 
@@ -57,25 +59,28 @@ namespace Dark
         m_impact.stop(false);
     }
 
-    void ProjectileWeapon::setAudio(Audio::AudioSystem* audio, std::shared_ptr<Audio::SoundClip> fireClip, std::shared_ptr<Audio::SoundClip> hitClip)
+    void ProjectileWeapon::setAudio(Audio::AudioSystem* audio, AssetManager* assets, AssetID fireClip, AssetID hitClip)
     {
-        m_audio    = audio;
-        m_fireClip = std::move(fireClip);
-        m_hitClip  = std::move(hitClip);
+        m_audio      = audio;
+        m_assets     = assets;
+        m_fireClipId = fireClip;
+        m_hitClipId  = hitClip;
     }
 
     void ProjectileWeapon::playFire(const Vector3f& origin)
     {
-        if (!m_audio || !m_fireClip)
+        if (!m_audio || !m_assets || m_fireClipId == NULL_ASSET)
             return;
-        m_audio->play3D(m_fireClip, origin, m_desc.fireVolume);
+        if (const auto clip = m_assets->getAs<Audio::SoundClip>(m_fireClipId))
+            m_audio->play3D(clip, origin, m_desc.fireVolume);
     }
 
     void ProjectileWeapon::playHit(const Vector3f& point)
     {
-        if (!m_audio || !m_hitClip)
+        if (!m_audio || !m_assets || m_hitClipId == NULL_ASSET)
             return;
-        m_audio->play3D(m_hitClip, point, m_desc.hitVolume);
+        if (const auto clip = m_assets->getAs<Audio::SoundClip>(m_hitClipId))
+            m_audio->play3D(clip, point, m_desc.hitVolume);
     }
 
     void ProjectileWeapon::applyHit(const WeaponHit& hit, const Vector3f& fallbackDir)

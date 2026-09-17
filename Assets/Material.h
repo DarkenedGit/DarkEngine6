@@ -67,4 +67,6 @@ namespace Dark
     // "m:{albedoId}:{r}:{g}:{b}:{a}:{metallic}:{roughness}:{emissive}:{alphaMode}"
     std::string materialRecipeKey(const Material& m);
 
+    AssetRef<Material> internSolidMaterial(AssetManager& assets, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255, const std::string& cacheKey = {});
+
 } // namespace Dark
