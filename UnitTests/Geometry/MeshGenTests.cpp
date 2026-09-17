@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 using namespace Dark;
 using namespace Dark::Math;
@@ -256,4 +257,111 @@ TEST(MeshGen, SpotVolumeConeCoversUnitCone)
         ++inside;
     }
     EXPECT_GE(inside, kWant);
+}
+
+TEST(MeshGen, ComputeTangentsSphere)
+{
+    MeshData mesh;
+    ASSERT_TRUE(CreateSphere(mesh, 1.0f, 8, 12));
+    ASSERT_TRUE(detail::computeTangents(mesh));
+    ASSERT_EQ(mesh.tangents.size(), mesh.positions.size());
+    ASSERT_EQ(mesh.normals.size(), mesh.positions.size());
+    for (size_t i = 0; i < mesh.tangents.size(); ++i)
+    {
+        const Vector4f& t = mesh.tangents[i];
+        EXPECT_FLOAT_EQ(std::fabs(t.w), 1.0f) << i;
+        const Vector3f T(t.x, t.y, t.z);
+        EXPECT_NEAR(T.Dot(mesh.normals[i]), 0.0f, 1.0e-3f) << i;
+    }
+}
+
+TEST(MeshGen, ComputeTangentsZeroUvs)
+{
+    MeshData mesh;
+    mesh.positions = { { 0.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f } };
+    mesh.normals   = { { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, 1.0f } };
+    mesh.uvs       = { { 0.0f, 0.0f }, { 0.0f, 0.0f }, { 0.0f, 0.0f } };
+    mesh.indices   = { 0, 1, 2 };
+    ASSERT_TRUE(detail::computeTangents(mesh));
+    ASSERT_EQ(mesh.tangents.size(), mesh.positions.size());
+    for (const Vector4f& t : mesh.tangents)
+    {
+        EXPECT_FLOAT_EQ(t.x, 1.0f);
+        EXPECT_FLOAT_EQ(t.y, 0.0f);
+        EXPECT_FLOAT_EQ(t.z, 0.0f);
+        EXPECT_FLOAT_EQ(t.w, 1.0f);
+    }
+}
+
+TEST(MeshGen, ComputeTangentsEmptyUvs)
+{
+    MeshData mesh;
+    mesh.positions = { { 0.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f } };
+    mesh.normals   = { { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, 1.0f } };
+    mesh.indices   = { 0, 1, 2 };
+    ASSERT_TRUE(detail::computeTangents(mesh));
+    ASSERT_EQ(mesh.tangents.size(), 3u);
+    for (const Vector4f& t : mesh.tangents)
+    {
+        EXPECT_FLOAT_EQ(t.x, 1.0f);
+        EXPECT_FLOAT_EQ(t.y, 0.0f);
+        EXPECT_FLOAT_EQ(t.z, 0.0f);
+        EXPECT_FLOAT_EQ(t.w, 1.0f);
+    }
+}
+
+TEST(MeshGen, ComputeTangentsEmptyMesh)
+{
+    MeshData mesh;
+    EXPECT_FALSE(detail::computeTangents(mesh));
+    EXPECT_TRUE(mesh.tangents.empty());
+}
+
+TEST(MeshGen, ComputeTangentsPositionsOnly)
+{
+    MeshData mesh;
+    mesh.positions.push_back({ 0.0f, 0.0f, 0.0f });
+    EXPECT_FALSE(detail::computeTangents(mesh));
+    EXPECT_TRUE(mesh.tangents.empty());
+}
+
+TEST(MeshGen, ComputeTangentsIndicesOnly)
+{
+    MeshData mesh;
+    mesh.indices = { 0, 1, 2 };
+    EXPECT_FALSE(detail::computeTangents(mesh));
+    EXPECT_TRUE(mesh.tangents.empty());
+}
+
+TEST(MeshGen, ComputeTangentsOutOfRangeIndices)
+{
+    MeshData mesh;
+    mesh.positions = { { 0.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f } };
+    mesh.indices   = { 5, 6, 7 };
+    ASSERT_TRUE(detail::computeTangents(mesh));
+    ASSERT_EQ(mesh.tangents.size(), 3u);
+    for (const Vector4f& t : mesh.tangents)
+    {
+        EXPECT_FLOAT_EQ(t.x, 1.0f);
+        EXPECT_FLOAT_EQ(t.y, 0.0f);
+        EXPECT_FLOAT_EQ(t.z, 0.0f);
+        EXPECT_FLOAT_EQ(t.w, 1.0f);
+    }
+}
+
+TEST(MeshGen, ComputeTangentsConstDoesNotMutate)
+{
+    MeshData mesh;
+    ASSERT_TRUE(CreateSphere(mesh, 1.0f, 8, 12));
+    mesh.tangents.assign(4, Vector4f(9.0f, 8.0f, 7.0f, 6.0f));
+    std::vector<Vector4f> out;
+    ASSERT_TRUE(detail::computeTangents(static_cast<const MeshData&>(mesh), out));
+    ASSERT_EQ(mesh.tangents.size(), 4u);
+    EXPECT_FLOAT_EQ(mesh.tangents[0].x, 9.0f);
+    EXPECT_FLOAT_EQ(mesh.tangents[0].y, 8.0f);
+    EXPECT_FLOAT_EQ(mesh.tangents[0].z, 7.0f);
+    EXPECT_FLOAT_EQ(mesh.tangents[0].w, 6.0f);
+    EXPECT_EQ(out.size(), mesh.positions.size());
+    ASSERT_FALSE(out.empty());
+    EXPECT_FLOAT_EQ(std::fabs(out[0].w), 1.0f);
 }
