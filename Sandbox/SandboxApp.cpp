@@ -84,7 +84,7 @@ using namespace Audio;
 
 bool useAcesTonemap(const Renderer& r)
 {
-    return r.hasSceneBuffers() && r.debugState().aces && r.debugState().lighting;
+    return r.hasSceneBuffers() && r.debugState().aces && r.debugState().lightingActive();
 }
 
 void mountContentRoots(AssetManager& assets)
@@ -352,7 +352,7 @@ void SandboxApp::registerDefaultActions()
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(P/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
         "possessed WASD/LS move, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, 1 melee  2 rifle, L flashlight, Shift/LB sprint, swim in water, "
-        "T/R3 walk the wiggle demo  F2 lighting  M dev tools  -forward for UNORM forward  -no-menu skip scene picker");
+        "T/R3 walk the wiggle demo  F2 lighting  M dev tools  -forward linear albedo + sRGB encode (legacyUnormAlbedo restores old sampling)  -no-menu skip scene picker");
 }
 
 void SandboxApp::populateMainMenu()
@@ -2472,8 +2472,8 @@ void SandboxApp::onRender()
     const Vector3f  camPos   = m_viewCamera.GetPosition();
     uint32_t        meshDraws = 0;
 
-    const float skyExposure = useAcesTonemap(renderer()) ? 1.0f : m_env.exposure();
-    const float fogScale    = renderer().debugState().lighting ? 1.0f : 0.0f;
+    const float skyExposure = deferred ? 1.0f : m_env.exposure();
+    const float fogScale    = renderer().debugState().lightingActive() ? 1.0f : 0.0f;
     if (!deferred)
         m_skyPipeline.draw(cmd, m_viewCamera, m_env, skyExposure, m_water.params().waterLevel, fogScale, &m_shadows);
 
@@ -2573,7 +2573,7 @@ void SandboxApp::onRender()
         lc.lightDirWS[0]    = m_env.lightDir().x;
         lc.lightDirWS[1]    = m_env.lightDir().y;
         lc.lightDirWS[2]    = m_env.lightDir().z;
-        lc.lighting         = renderer().debugState().lighting ? 1.0f : 0.0f;
+        lc.lighting         = renderer().debugState().lightingActive() ? 1.0f : 0.0f;
         lc.lightColor[0]    = m_env.lightColor().x;
         lc.lightColor[1]    = m_env.lightColor().y;
         lc.lightColor[2]    = m_env.lightColor().z;
@@ -2621,7 +2621,7 @@ void SandboxApp::onRender()
         cb.cameraPos[0]  = camPos.x;
         cb.cameraPos[1]  = camPos.y;
         cb.cameraPos[2]  = camPos.z;
-        cb.lighting      = renderer().debugState().lighting ? 1.0f : 0.0f;
+        cb.lighting      = renderer().debugState().lightingActive() ? 1.0f : 0.0f;
 
         world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
             if (world().has<ModelComponent>(e))
@@ -2678,7 +2678,7 @@ void SandboxApp::onRender()
     D3D12_GPU_VIRTUAL_ADDRESS waterLightsVa   = m_localLightGpu.isValid() ? m_localLightGpu.dummyGpuVa() : 0;
     uint32_t                  waterLightCount = 0;
     uint32_t                  waterIndex[kWaterLocalLightMax]{};
-    if (renderer().debugState().localLights && renderer().debugState().lighting && m_localLightGpu.isValid())
+    if (renderer().debugState().localLights && renderer().debugState().lightingActive() && m_localLightGpu.isValid())
     {
         LocalLightCullInput in{};
         in.frustum    = &frustum;
@@ -2737,7 +2737,7 @@ void SandboxApp::onRender()
         lit.cameraPos[0]  = camPos.x;
         lit.cameraPos[1]  = camPos.y;
         lit.cameraPos[2]  = camPos.z;
-        lit.lighting      = renderer().debugState().lighting ? 1.0f : 0.0f;
+        lit.lighting      = renderer().debugState().lightingActive() ? 1.0f : 0.0f;
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             const TransformComponent* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
@@ -2772,7 +2772,7 @@ void SandboxApp::onRender()
         const bool aces = useAcesTonemap(renderer());
         TonemapSettings post = playerPostFx();
         post.mode     = aces ? 1.0f : 0.0f;
-        post.exposure = aces ? m_env.exposure() : 1.0f;
+        post.exposure = m_env.exposure();
         m_scene.applyPost(renderer(), cmd, viewProj, post);
     }
 

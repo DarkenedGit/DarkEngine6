@@ -108,9 +108,13 @@ namespace Dark
         }
 
         const char* shader = gbuffer ? "shaders/BasicMeshGBuffer.hlsl" : "shaders/BasicMesh.hlsl";
+        const DXGI_FORMAT rtv0 = transparent ? colorFormat : meshPassColorFormat(pass);
+        D3D_SHADER_MACRO encodeMacros[2];
+        makeEncodeSrgbMacros(!gbuffer && encodeSrgbForColorFormat(rtv0), encodeMacros);
+        const D3D_SHADER_MACRO* defines = gbuffer ? nullptr : encodeMacros;
         ComPtr<ID3DBlob> vs;
         ComPtr<ID3DBlob> ps;
-        if (!compileShaderFromContent(shader, "VSMain", "vs_5_0", vs) || !compileShaderFromContent(shader, "PSMain", "ps_5_0", ps))
+        if (!compileShaderFromContent(shader, "VSMain", "vs_5_0", vs, defines) || !compileShaderFromContent(shader, "PSMain", "ps_5_0", ps, defines))
         {
             return false;
         }

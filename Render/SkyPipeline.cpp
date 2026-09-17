@@ -103,8 +103,10 @@ bool SkyPipeline::create(ID3D12Device* device, SkyPass pass, DXGI_FORMAT colorFo
     ComPtr<ID3DBlob> vs;
     ComPtr<ID3DBlob> ps;
     const char* vsEntry = deferredLast ? "VSMainDeferred" : "VSMain";
-    if (!compileShaderFromContent("shaders/Sky.hlsl", vsEntry, "vs_5_0", vs)
-        || !compileShaderFromContent("shaders/Sky.hlsl", "PSMain", "ps_5_0", ps))
+    D3D_SHADER_MACRO encodeMacros[2];
+    makeEncodeSrgbMacros(encodeSrgbForColorFormat(colorFormat), encodeMacros);
+    if (!compileShaderFromContent("shaders/Sky.hlsl", vsEntry, "vs_5_0", vs, encodeMacros)
+        || !compileShaderFromContent("shaders/Sky.hlsl", "PSMain", "ps_5_0", ps, encodeMacros))
     {
         return false;
     }

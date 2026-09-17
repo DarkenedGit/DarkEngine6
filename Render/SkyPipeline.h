@@ -70,7 +70,7 @@ public:
     void setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
 
     void bind(ID3D12GraphicsCommandList* cmd) const;
-    // exposure < 0 uses Environment::exposure(). Pass 1 when ACES owns exposure.
+    // exposure < 0 uses Environment::exposure(). Pass 1 on HybridDeferred (tonemap owns exposure).
     void draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, const Sky::Environment& env, float exposure = -1.0f, float waterLevel = 0.0f, float fogScale = 1.0f, const ShadowSystem* shadows = nullptr) const;
 
     bool isValid() const { return m_pso != nullptr; }

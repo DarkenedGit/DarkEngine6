@@ -85,6 +85,7 @@ namespace Dark
         m_heightGpu      = {};
         m_shadowCpu      = {};
         m_heightCpu      = {};
+        m_lightingAlbedoRaw = false;
         m_hdrState       = D3D12_RESOURCE_STATE_COMMON;
         m_albedoState    = D3D12_RESOURCE_STATE_COMMON;
         m_attribState    = D3D12_RESOURCE_STATE_COMMON;
@@ -326,9 +327,8 @@ namespace Dark
 
         D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_lightingHeap->GetCPUDescriptorHandleForHeapStart();
 
-        const D3D12_SHADER_RESOURCE_VIEW_DESC albedoSrgb = tex2dSrv(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB);
         const D3D12_SHADER_RESOURCE_VIEW_DESC attribUnorm = tex2dSrv(DXGI_FORMAT_R8G8B8A8_UNORM);
-        device->CreateShaderResourceView(m_albedo.Get(), &albedoSrgb, offsetHandle(cpu, kLightingAlbedo, m_srvIncr));
+        applyLightingAlbedoView(device);
         device->CreateShaderResourceView(m_attrib.Get(), &attribUnorm, offsetHandle(cpu, kLightingAttrib, m_srvIncr));
 
         if (depthSrvCpu.ptr != 0)
@@ -346,6 +346,27 @@ namespace Dark
             return;
         D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_lightingHeap->GetCPUDescriptorHandleForHeapStart();
         device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingShadow, m_srvIncr), shadowCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    }
+
+    void SceneBuffers::applyLightingAlbedoView(ID3D12Device* device)
+    {
+        if (!device || !m_lightingHeap || !m_albedo)
+            return;
+        D3D12_CPU_DESCRIPTOR_HANDLE dest = offsetHandle(m_lightingHeap->GetCPUDescriptorHandleForHeapStart(), kLightingAlbedo, m_srvIncr);
+        if (m_lightingAlbedoRaw)
+        {
+            if (m_albedoSrvCpu.ptr != 0)
+                device->CopyDescriptorsSimple(1, dest, m_albedoSrvCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+            return;
+        }
+        const D3D12_SHADER_RESOURCE_VIEW_DESC albedoSrgb = tex2dSrv(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB);
+        device->CreateShaderResourceView(m_albedo.Get(), &albedoSrgb, dest);
+    }
+
+    void SceneBuffers::setLightingAlbedoRaw(ID3D12Device* device, bool raw)
+    {
+        m_lightingAlbedoRaw = raw;
+        applyLightingAlbedoView(device);
     }
 
     void SceneBuffers::setHeightSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE heightCpu)

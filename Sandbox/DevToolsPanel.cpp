@@ -150,6 +150,16 @@ void SandboxApp::drawDevTools()
         }
         if (renderer().hasGBuffer())
         {
+            if (ImGui::Checkbox("Show albedo (linear)", &dbg.showAlbedoLinear))
+                DE_LOG_INFO("Sandbox: show albedo linear = {}", dbg.showAlbedoLinear);
+            if (ImGui::Checkbox("Show albedo (raw UNORM)", &dbg.showAlbedoRaw))
+            {
+                renderer().setLightingAlbedoRaw(dbg.showAlbedoRaw);
+                DE_LOG_INFO("Sandbox: show albedo raw = {}", dbg.showAlbedoRaw);
+            }
+        }
+        if (renderer().hasGBuffer())
+        {
             if (ImGui::Checkbox("Bloom", &dbg.bloom))
                 DE_LOG_INFO("Sandbox: bloom = {}", dbg.bloom);
             if (ImGui::Checkbox("TAA", &dbg.taa))

@@ -2,6 +2,11 @@
 // each layer is tiled in the pixel shader. Splat RGBA = layer weights.
 #pragma pack_matrix(row_major)
 
+#include "Color.hlsli"
+#ifndef ENCODE_SRGB
+#define ENCODE_SRGB 0
+#endif
+
 #define SHADOW_T t5
 #include "Shadow.hlsli"
 #define FOG_SAMPLE_CSM 1
@@ -74,7 +79,7 @@ float4 PSMain(PSInput input) : SV_TARGET
 
     albedo *= color;
     if (lighting < 0.5f)
-        return albedo;
+        return float4(encodeSceneRgb(albedo.rgb), albedo.a);
 
     float3 n     = normalize(input.normalWS);
     float3 l     = normalize(lightDirWS);
@@ -108,5 +113,5 @@ float4 PSMain(PSInput input) : SV_TARGET
     fp.heightWorldSize      = 1.0.xx;
     FogResult fog = FogIntegrateNoHeight(cam, input.worldPos, fp, shadow);
     lit = ApplyLitFog(lit, fog);
-    return float4(lit, albedo.a);
+    return float4(encodeSceneRgb(lit), albedo.a);
 }

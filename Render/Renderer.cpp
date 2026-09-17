@@ -642,6 +642,7 @@ namespace Dark
         }
         m_sceneBuffers = std::move(buffers);
         m_scenePath    = path;
+        m_sceneBuffers->setLightingAlbedoRaw(m_device.Get(), m_debugState.showAlbedoRaw);
         if (!m_fogHeightDummy)
             m_fogHeightDummy = std::make_unique<Texture2D>();
         if (!m_fogHeightDummy->valid())
@@ -663,6 +664,12 @@ namespace Dark
     {
         if (m_sceneBuffers)
             m_sceneBuffers->setShadowSrv(m_device.Get(), shadowCpu);
+    }
+
+    void Renderer::setLightingAlbedoRaw(bool raw)
+    {
+        if (m_sceneBuffers)
+            m_sceneBuffers->setLightingAlbedoRaw(m_device.Get(), raw);
     }
 
     void Renderer::setHeightSrv(D3D12_CPU_DESCRIPTOR_HANDLE heightCpu)

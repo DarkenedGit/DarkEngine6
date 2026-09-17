@@ -1,6 +1,11 @@
 // Basic lit textured mesh shader — row-major matrices (matches Dark::Math::Matrix4f).
 #pragma pack_matrix(row_major)
 
+#include "Color.hlsli"
+#ifndef ENCODE_SRGB
+#define ENCODE_SRGB 0
+#endif
+
 cbuffer FrameConstants : register(b0)
 {
     float4x4 worldViewProj;
@@ -50,12 +55,12 @@ float4 PSMain(PSInput input) : SV_TARGET
 {
     float4 albedo = gAlbedo.Sample(gSamp, input.uv) * color;
     if (lighting < 0.5f)
-        return albedo;
+        return float4(encodeSceneRgb(albedo.rgb), albedo.a);
     float3 n = normalize(input.normalWS);
     float3 l = normalize(lightDirWS);
     float  ndotl = saturate(dot(n, l));
     float  shadow = ComputeShadow(input.worldPos, cameraPos);
     float3 ambient = ambientScale * albedo.rgb;
     float3 diffuse = ndotl * lightColor * albedo.rgb * shadow;
-    return float4(ambient + diffuse, albedo.a);
+    return float4(encodeSceneRgb(ambient + diffuse), albedo.a);
 }

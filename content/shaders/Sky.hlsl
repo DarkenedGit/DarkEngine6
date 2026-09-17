@@ -2,6 +2,11 @@
 // Must stay visually consistent with Sky::Environment::evaluateSky (CPU).
 #pragma pack_matrix(row_major)
 
+#include "Color.hlsli"
+#ifndef ENCODE_SRGB
+#define ENCODE_SRGB 0
+#endif
+
 #define SHADOW_T t0
 #include "Shadow.hlsli"
 #define FOG_SAMPLE_CSM 1
@@ -238,5 +243,5 @@ float4 PSMain(PSInput input) : SV_TARGET
         FogResult fog = FogIntegrateNoHeight(cameraPos, farPos, fp, 1.0f);
         sky = ApplyLitFog(sky, fog);
     }
-    return float4(sky, 1.0f);
+    return float4(encodeSceneRgb(sky), 1.0f);
 }

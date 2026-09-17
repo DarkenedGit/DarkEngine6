@@ -1,6 +1,7 @@
 #pragma once
 
 #include <d3d12.h>
+#include <d3dcommon.h>
 #include <wrl/client.h>
 
 #include <filesystem>
@@ -21,9 +22,26 @@ namespace Dark
 
     // Load HLSL from disk and compile entry/target (e.g. "VSMain", "vs_5_0").
     // sourceName is used in compiler diagnostics (typically the filename).
-    bool compileShaderFromFile(const std::filesystem::path& path, const char* entry, const char* target, ComPtr<ID3DBlob>& outBytecode);
+    bool compileShaderFromFile(const std::filesystem::path& path, const char* entry, const char* target, ComPtr<ID3DBlob>& outBytecode,
+                               const D3D_SHADER_MACRO* defines = nullptr);
 
     // Resolve relativeUnderContent (e.g. "shaders/Line.hlsl"), then compile.
-    bool compileShaderFromContent(const char* relativeUnderContent, const char* entry, const char* target, ComPtr<ID3DBlob>& outBytecode);
+    bool compileShaderFromContent(const char* relativeUnderContent, const char* entry, const char* target, ComPtr<ID3DBlob>& outBytecode,
+                                  const D3D_SHADER_MACRO* defines = nullptr);
+
+    // Scene-referred forward writing display-referred UNORM. HDR and _SRGB RTVs stay 0.
+    inline bool encodeSrgbForColorFormat(DXGI_FORMAT colorFormat)
+    {
+        return colorFormat == DXGI_FORMAT_R8G8B8A8_UNORM;
+    }
+
+    // outMacros must have room for 2 entries (define + terminator).
+    inline void makeEncodeSrgbMacros(bool encode, D3D_SHADER_MACRO outMacros[2])
+    {
+        outMacros[0].Name       = "ENCODE_SRGB";
+        outMacros[0].Definition = encode ? "1" : "0";
+        outMacros[1].Name       = nullptr;
+        outMacros[1].Definition = nullptr;
+    }
 
 } // namespace Dark

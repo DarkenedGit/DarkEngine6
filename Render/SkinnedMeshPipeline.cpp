@@ -101,11 +101,15 @@ namespace Dark
 
 		const char* shader = m_shadow ? "shaders/SkinnedShadowDepth.hlsl"
 									  : (m_gbuffer ? "shaders/SkinnedMeshGBuffer.hlsl" : "shaders/SkinnedMesh.hlsl");
+		const DXGI_FORMAT rtv0 = transparent ? colorFormat : DXGI_FORMAT_R8G8B8A8_UNORM;
+		D3D_SHADER_MACRO encodeMacros[2];
+		makeEncodeSrgbMacros(!m_gbuffer && !m_shadow && encodeSrgbForColorFormat(rtv0), encodeMacros);
+		const D3D_SHADER_MACRO* defines = (!m_gbuffer && !m_shadow) ? encodeMacros : nullptr;
 		ComPtr<ID3DBlob> vs;
 		ComPtr<ID3DBlob> ps;
-		if (!compileShaderFromContent(shader, "VSMain", "vs_5_0", vs))
+		if (!compileShaderFromContent(shader, "VSMain", "vs_5_0", vs, defines))
 			return false;
-		if (!m_shadow && !compileShaderFromContent(shader, "PSMain", "ps_5_0", ps))
+		if (!m_shadow && !compileShaderFromContent(shader, "PSMain", "ps_5_0", ps, defines))
 			return false;
 
 		D3D12_INPUT_ELEMENT_DESC colorLayout[] = {

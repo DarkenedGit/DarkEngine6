@@ -168,7 +168,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             cbData.cameraPos[0] = cam.x;
             cbData.cameraPos[1] = cam.y;
             cbData.cameraPos[2] = cam.z;
-            cbData.lighting     = renderer().debugState().lighting ? 1.0f : 0.0f;
+            cbData.lighting     = renderer().debugState().lightingActive() ? 1.0f : 0.0f;
             m_meshPipeline.setConstants(cmd, cbData);
         }
         mesh.draw(cmd, fill == DebugFill::Points);
@@ -347,7 +347,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         lit.cameraPos[0] = cam.x;
         lit.cameraPos[1] = cam.y;
         lit.cameraPos[2] = cam.z;
-        lit.lighting     = renderer().debugState().lighting ? 1.0f : 0.0f;
+        lit.lighting     = renderer().debugState().lightingActive() ? 1.0f : 0.0f;
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             const auto* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
@@ -387,7 +387,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         lc.lightDirWS[0]   = lightDir.x;
         lc.lightDirWS[1]   = lightDir.y;
         lc.lightDirWS[2]   = lightDir.z;
-        lc.lighting        = renderer().debugState().lighting ? 1.0f : 0.0f;
+        lc.lighting        = renderer().debugState().lightingActive() ? 1.0f : 0.0f;
         lc.lightColor[0]   = sunColor.x;
         lc.lightColor[1]   = sunColor.y;
         lc.lightColor[2]   = sunColor.z;
@@ -419,7 +419,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         lit.cameraPos[0] = cam.x;
         lit.cameraPos[1] = cam.y;
         lit.cameraPos[2] = cam.z;
-        lit.lighting     = renderer().debugState().lighting ? 1.0f : 0.0f;
+        lit.lighting     = renderer().debugState().lightingActive() ? 1.0f : 0.0f;
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             const auto* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
@@ -454,7 +454,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     });
 
     {
-        const bool aces = renderer().hasSceneBuffers() && renderer().debugState().aces && renderer().debugState().lighting;
+        const bool aces = renderer().hasSceneBuffers() && renderer().debugState().aces && renderer().debugState().lightingActive();
         TonemapSettings ts{};
         ts.mode     = aces ? 1.0f : 0.0f;
         ts.exposure = 1.0f;

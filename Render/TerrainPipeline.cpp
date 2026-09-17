@@ -108,9 +108,12 @@ namespace Dark
         }
 
         const char* shader = gbuffer ? "shaders/TerrainGBuffer.hlsl" : "shaders/Terrain.hlsl";
+        D3D_SHADER_MACRO encodeMacros[2];
+        makeEncodeSrgbMacros(!gbuffer && encodeSrgbForColorFormat(terrainPassColorFormat(pass)), encodeMacros);
+        const D3D_SHADER_MACRO* defines = gbuffer ? nullptr : encodeMacros;
         ComPtr<ID3DBlob> vs;
         ComPtr<ID3DBlob> ps;
-        if (!compileShaderFromContent(shader, "VSMain", "vs_5_0", vs) || !compileShaderFromContent(shader, "PSMain", "ps_5_0", ps))
+        if (!compileShaderFromContent(shader, "VSMain", "vs_5_0", vs, defines) || !compileShaderFromContent(shader, "PSMain", "ps_5_0", ps, defines))
         {
             return false;
         }

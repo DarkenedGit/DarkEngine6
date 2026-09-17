@@ -16,6 +16,21 @@ TEST(DebugRenderState, DefaultsAreLitSolidWithShadows)
     EXPECT_TRUE(s.motionBlur);
     EXPECT_TRUE(s.taa);
     EXPECT_FALSE(s.legacyUnormAlbedo);
+    EXPECT_FALSE(s.showAlbedoLinear);
+    EXPECT_FALSE(s.showAlbedoRaw);
+    EXPECT_TRUE(s.lightingActive());
+}
+
+TEST(DebugRenderState, LightingActiveRespectsAlbedoLinear)
+{
+    DebugRenderState s{};
+    s.showAlbedoLinear = true;
+    EXPECT_FALSE(s.lightingActive());
+    s.lighting         = false;
+    s.showAlbedoLinear = false;
+    EXPECT_FALSE(s.lightingActive());
+    s.lighting = true;
+    EXPECT_TRUE(s.lightingActive());
 }
 
 TEST(DebugRenderState, CycleFillWraps)

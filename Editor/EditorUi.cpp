@@ -119,6 +119,15 @@ void EditorApp::drawEditorUi()
             }
             if (renderer().hasGBuffer())
             {
+                bool albedoLinear = renderer().debugState().showAlbedoLinear;
+                if (ImGui::MenuItem("Show albedo (linear)", nullptr, albedoLinear))
+                    renderer().debugState().showAlbedoLinear = !albedoLinear;
+                bool albedoRaw = renderer().debugState().showAlbedoRaw;
+                if (ImGui::MenuItem("Show albedo (raw UNORM)", nullptr, albedoRaw))
+                {
+                    renderer().debugState().showAlbedoRaw = !albedoRaw;
+                    renderer().setLightingAlbedoRaw(renderer().debugState().showAlbedoRaw);
+                }
                 ImGui::MenuItem("G-buffer Tiles", "F11", &m_showGBuffer);
                 ImGui::MenuItem("Velocity Tile", nullptr, &m_showVelocity);
                 ImGui::MenuItem("Bloom", nullptr, &renderer().debugState().bloom);

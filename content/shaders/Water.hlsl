@@ -4,6 +4,10 @@
 // TEXCOORD0.y is terrain height at that XZ, used for shore fade.
 #pragma pack_matrix(row_major)
 
+#include "Color.hlsli"
+#ifndef ENCODE_SRGB
+#define ENCODE_SRGB 0
+#endif
 #include "PbrLighting.hlsli"
 #define SHADOW_T t2
 #include "Shadow.hlsli"
@@ -158,7 +162,7 @@ float4 PSMain(PSInput input) : SV_TARGET
     if (specPower < 0.0f)
     {
         alpha = saturate(alpha);
-        return float4(body, alpha);
+        return float4(encodeSceneRgb(body), alpha);
     }
 
     float3 offset;
@@ -226,5 +230,5 @@ float4 PSMain(PSInput input) : SV_TARGET
 
     // Shore: fade out as the land rises through the surface.
     alpha = saturate(alpha + fres * 0.15f);
-    return float4(color, alpha);
+    return float4(encodeSceneRgb(color), alpha);
 }

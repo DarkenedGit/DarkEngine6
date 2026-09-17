@@ -90,9 +90,11 @@ namespace Dark
 
         void setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
         void setHeightSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE heightCpu);
+        void setLightingAlbedoRaw(ID3D12Device* device, bool raw);
         void packLightingHeap(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu);
 
     private:
+        void applyLightingAlbedoView(ID3D12Device* device);
         bool createColorTarget(ID3D12Device* device, uint32_t width, uint32_t height, DXGI_FORMAT resourceFormat, DXGI_FORMAT viewFormat, const float clear[4], const wchar_t* name,
                                ComPtr<ID3D12Resource>& out, D3D12_RESOURCE_STATES& state);
         static void transition(ID3D12GraphicsCommandList* cmd, ID3D12Resource* res, D3D12_RESOURCE_STATES& state, D3D12_RESOURCE_STATES after);
@@ -127,6 +129,7 @@ namespace Dark
         D3D12_GPU_DESCRIPTOR_HANDLE  m_heightGpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_shadowCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_heightCpu{};
+        bool                         m_lightingAlbedoRaw = false;
         D3D12_RESOURCE_STATES        m_hdrState      = D3D12_RESOURCE_STATE_COMMON;
         D3D12_RESOURCE_STATES        m_albedoState   = D3D12_RESOURCE_STATE_COMMON;
         D3D12_RESOURCE_STATES        m_attribState   = D3D12_RESOURCE_STATE_COMMON;

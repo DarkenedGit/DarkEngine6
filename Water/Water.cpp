@@ -314,7 +314,7 @@ using namespace Terrain;
             return;
 
         const DebugFill fill = debug ? debug->fill : DebugFill::Solid;
-        const bool lighting  = !debug || debug->lighting;
+        const bool lighting  = !debug || debug->lightingActive();
         pipeline.bind(cmd, fill);
 
         const Matrix4f viewProj = camera.GetViewProj();

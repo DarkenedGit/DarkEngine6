@@ -74,7 +74,8 @@ namespace Dark
         return true;
     }
 
-    bool compileShaderFromFile(const std::filesystem::path& path, const char* entry, const char* target, ComPtr<ID3DBlob>& outBytecode)
+    bool compileShaderFromFile(const std::filesystem::path& path, const char* entry, const char* target, ComPtr<ID3DBlob>& outBytecode,
+                               const D3D_SHADER_MACRO* defines)
     {
         outBytecode.Reset();
 
@@ -101,7 +102,7 @@ namespace Dark
             source.data(),
             source.size(),
             sourceName.c_str(),
-            nullptr,
+            defines,
             D3D_COMPILE_STANDARD_FILE_INCLUDE,
             entry,
             target,
@@ -121,7 +122,8 @@ namespace Dark
         return true;
     }
 
-    bool compileShaderFromContent(const char* relativeUnderContent, const char* entry, const char* target, ComPtr<ID3DBlob>& outBytecode)
+    bool compileShaderFromContent(const char* relativeUnderContent, const char* entry, const char* target, ComPtr<ID3DBlob>& outBytecode,
+                                  const D3D_SHADER_MACRO* defines)
     {
         if (!relativeUnderContent || relativeUnderContent[0] == '\0')
         {
@@ -139,7 +141,7 @@ namespace Dark
         }
 
         DE_LOG_INFO(LogCategory::Render, "compileShaderFromContent: loading '{}'", resolved.string());
-        return compileShaderFromFile(resolved, entry, target, outBytecode);
+        return compileShaderFromFile(resolved, entry, target, outBytecode, defines);
     }
 
 } // namespace Dark

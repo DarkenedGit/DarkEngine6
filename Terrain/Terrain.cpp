@@ -245,7 +245,7 @@ void TerrainWorld::draw(
         return;
 
     const DebugFill fill = debug ? debug->fill : DebugFill::Solid;
-    const bool lighting  = !debug || debug->lighting;
+    const bool lighting  = !debug || debug->lightingActive();
     pipeline.bind(cmd, fill);
     material.bind(cmd, TerrainPipeline::kRootSrvTable);
     if (shadows)

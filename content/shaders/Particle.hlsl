@@ -1,6 +1,11 @@
 // Camera-facing particle quads — row-major matrices (matches Dark::Math::Matrix4f).
 #pragma pack_matrix(row_major)
 
+#include "Color.hlsli"
+#ifndef ENCODE_SRGB
+#define ENCODE_SRGB 0
+#endif
+
 cbuffer FrameConstants : register(b0)
 {
     float4x4 viewProj;
@@ -35,5 +40,7 @@ PSInput VSMain(VSInput input)
 float4 PSMain(PSInput input) : SV_TARGET
 {
     float4 tex = gSprite.Sample(gSamp, input.uv);
-    return tex * input.color;
+    float4 c = tex * input.color;
+    c.rgb = encodeSceneRgb(c.rgb);
+    return c;
 }

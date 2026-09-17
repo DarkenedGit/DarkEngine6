@@ -23,6 +23,10 @@ namespace Dark
         bool      motionBlur  = true;
         bool      taa         = true;
         bool      legacyUnormAlbedo = false; // pack albedo as raw UNORM (skip sRGB decode)
+        bool      showAlbedoLinear  = false; // lighting-off: linear albedo in HDR, then saturate IEC
+        bool      showAlbedoRaw     = false; // lighting heap slot 0 = UNORM (no sRGB decode)
+
+        bool lightingActive() const { return lighting && !showAlbedoLinear; }
 
         void cycleFill();
     };

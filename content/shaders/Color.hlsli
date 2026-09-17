@@ -23,4 +23,17 @@ float3 linearToSrgb(float3 c)
     return float3(linearToSrgb(c.r), linearToSrgb(c.g), linearToSrgb(c.b));
 }
 
+#ifndef ENCODE_SRGB
+#define ENCODE_SRGB 0
+#endif
+
+float3 encodeSceneRgb(float3 linearRgb)
+{
+#if ENCODE_SRGB
+    return linearToSrgb(linearRgb);
+#else
+    return linearRgb;
+#endif
+}
+
 #endif

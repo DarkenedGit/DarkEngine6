@@ -126,6 +126,7 @@ namespace Dark
         void clearHdr();
         void setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
         void setHeightSrv(D3D12_CPU_DESCRIPTOR_HANDLE heightCpu);
+        void setLightingAlbedoRaw(bool raw);
 
         GpuResourceCache&       gpuResources();
         const GpuResourceCache& gpuResources() const;
