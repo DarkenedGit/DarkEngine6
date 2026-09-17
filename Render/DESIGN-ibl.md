@@ -35,6 +35,7 @@ Replace flat `ambientColor` with **split-sum IBL**: diffuse irradiance cubemap +
 4. **HDR formats:** irradiance/prefiltered `R16G16B16A16_FLOAT` (or `R11G11B10_FLOAT` if soak proves OK — start RGBA16F).
 5. **Coordinate system:** same as engine world (+Y up); equirect −Z forward matching Filament unless tip sky says otherwise — document conversion once in bake.
 6. **Ambient fallback:** if IBL off/failed, use existing `ambientColor * ambientIntensity`.
+7. **On linear working space (now landed), multiply Lambert/GGX diffuse by `1/π` and retune `Environment` / candela in the same IBL PR.** Flip/remove `PbrLighting_DiffuseHasNoInvPi`. Do not ship IBL with the old engine-unit diffuse. Color-management **C14** deferred π here on purpose.
 
 ## Current tip hooks
 
@@ -168,8 +169,9 @@ Bind in deferred lighting after sun+CSM; **before** fog or **inside** fog as app
 3. Irradiance + prefilter bake
 4. Wire DeferredLighting
 5. Content: one Poly Haven outdoor HDRI under `content/env/`
+6. Multiply Lambert/GGX diffuse by `1/π`; retune `Environment` / candela; flip `PbrLighting_DiffuseHasNoInvPi`. Same PR — do not land IBL with engine-unit diffuse.
 
 ## Risks
 
 - Bake time hitch on load — show loading screen progress hook
-- Energy mismatch vs sun candela after IBL — retune sun / exposure (auto-exposure RFC)
+- Energy mismatch vs sun candela after IBL — key decision 7 retunes sun/ambient/candela in this PR (`1/π`); auto-exposure RFC is a later soak

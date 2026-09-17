@@ -15,7 +15,7 @@ Track the next seven deferred-PBR features in **build order**. Each child RFC is
 
 | # | RFC | Why this order |
 |---|-----|----------------|
-| 1 | [DESIGN-color-management.md](./DESIGN-color-management.md) | Wrong color space poisons every later BRDF/IBL constant |
+| 1 | [DESIGN-color-management.md](./DESIGN-color-management.md) | **Implemented** (execute-plan 5124c804 PRs 1–4). Wrong color space poisons every later BRDF/IBL constant |
 | 2 | [DESIGN-ibl.md](./DESIGN-ibl.md) | Replaces flat ambient; needs linear HDR sampling |
 | 3 | [DESIGN-pbr-material-maps.md](./DESIGN-pbr-material-maps.md) | Authored normal/ORM/AO/emissive into G-buffer |
 | 4 | [DESIGN-ssao.md](./DESIGN-ssao.md) | Multiplies ambient/IBL only; needs good normals |
@@ -26,7 +26,7 @@ Track the next seven deferred-PBR features in **build order**. Each child RFC is
 ## Dependency graph
 
 ```
-color-management
+color-management (done)
        │
        ├──────────► ibl ──────► ssao (apply to IBL)
        │              │
