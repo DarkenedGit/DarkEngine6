@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <d3d12.h>
 #include <wrl/client.h>
@@ -35,9 +36,13 @@ namespace Dark
         float heightWorldSizeX;
         float heightWorldSizeZ;
         float padFog;
+        float padPbr0;          // occupy register 11.z so float3 does not straddle
+        float padPbr1;          // occupy register 11.w
+        float pbrLightColor[3]; // π-scaled; PbrDirectional only. Starts at float 48 = register 12.xyz
     };
 
-    static_assert(sizeof(LightingConstants) == 46 * sizeof(float), "lighting root constants");
+    static_assert(sizeof(LightingConstants) == 51 * sizeof(float), "lighting root constants");
+    static_assert(offsetof(LightingConstants, pbrLightColor) == 48 * sizeof(float), "float3 must start on a 16-byte boundary");
 
     class DeferredLightingPipeline
     {

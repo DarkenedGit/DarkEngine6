@@ -209,7 +209,7 @@ Entity EditorApp::spawnObject(
     {
         DirectionalLightComponent dir{};
         dir.color     = Vector3f(color[0], color[1], color[2]);
-        dir.intensity = (authored && authored->hasLight) ? authored->lightIntensity : 1.0f;
+        dir.intensity = (authored && authored->hasLight) ? authored->lightIntensity : Pi;
         dir.enabled   = (authored && authored->hasLight) ? authored->lightEnabled : true;
         world().emplace<DirectionalLightComponent>(e, dir);
     }

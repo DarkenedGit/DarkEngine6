@@ -38,12 +38,12 @@ void applyTypeLightDefaults(SceneObjectData& o)
 {
     if (o.type == SceneObjectType::SpotLight)
     {
-        o.lightIntensity = 800.0f;
+        o.lightIntensity = 2513.0f; // 800*π; JSON 800 stays
         o.lightRange     = 16.0f;
     }
     else
     {
-        o.lightIntensity = 600.0f;
+        o.lightIntensity = 1885.0f; // 600*π; JSON 600 stays
         o.lightRange     = 8.0f;
     }
     o.lightInnerDeg     = 12.0f;

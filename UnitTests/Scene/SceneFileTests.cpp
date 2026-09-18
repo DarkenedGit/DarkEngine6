@@ -272,7 +272,7 @@ TEST(SceneFile, V1FileStillLoadsAndSkipsUnknownKeepsKnownLights)
     EXPECT_EQ(data.objects[0].type, SceneObjectType::Cube);
     EXPECT_EQ(data.objects[1].type, SceneObjectType::PointLight);
     EXPECT_TRUE(data.objects[1].hasLight);
-    EXPECT_NEAR(data.objects[1].lightIntensity, 600.0f, 1.0e-4f);
+    EXPECT_NEAR(data.objects[1].lightIntensity, 1885.0f, 1.0e-4f);
     EXPECT_NEAR(data.objects[1].position.x, 4.0f, 1.0e-4f);
 
     std::error_code ec;
@@ -300,7 +300,7 @@ TEST(SceneFile, MinimalSpotLightGetsSpotDefaults)
     ASSERT_EQ(data.objects.size(), 1u);
     EXPECT_EQ(data.objects[0].type, SceneObjectType::SpotLight);
     EXPECT_TRUE(data.objects[0].hasLight);
-    EXPECT_NEAR(data.objects[0].lightIntensity, 800.0f, 1.0e-4f);
+    EXPECT_NEAR(data.objects[0].lightIntensity, 2513.0f, 1.0e-4f);
     EXPECT_NEAR(data.objects[0].lightRange, 16.0f, 1.0e-4f);
     EXPECT_NEAR(data.objects[0].lightInnerDeg, 12.0f, 1.0e-4f);
     EXPECT_NEAR(data.objects[0].lightOuterDeg, 25.0f, 1.0e-4f);

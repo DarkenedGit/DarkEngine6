@@ -10,7 +10,13 @@ namespace Dark
 {
 
     // Filament / Frostbite V form. V_SmithGGXCorrelated ALREADY includes 1/(4 NdotV NdotL). Do NOT divide again.
-    // Diffuse is albedo*(1-metallic)*NdotL with no 1/π (engine units).
+    // Diffuse is albedo*(1-metallic)*NdotL / π. Hosts retune lightColor (one π multiply) so look is preserved.
+
+    // Sandbox PBR/Lambert fills only. Never Environment storage, never Editor, never fog/water/sky.
+    inline Math::Vector3f pbrSunLightColor(const Math::Vector3f& linearRgb)
+    {
+        return linearRgb * Math::Pi;
+    }
 
     inline float pbrSaturate(float x)
     {
@@ -62,7 +68,7 @@ namespace Dark
         const float            Vvis       = vSmithGgxCorrelated(NdotV, NdotL, a);
         const Math::Vector3f   F          = fSchlick(F0, VdotH);
         const Math::Vector3f   Fr         = F * (D * Vvis);
-        const Math::Vector3f   Fd         = diffuseCol;
+        const Math::Vector3f   Fd         = diffuseCol * Math::InvPi;
         const Math::Vector3f   one(1.0f, 1.0f, 1.0f);
         return ((Fd * (one - F) + Fr) * NdotL) * lightColor;
     }

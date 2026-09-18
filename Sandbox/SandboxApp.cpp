@@ -23,6 +23,7 @@
 #include "Render/MeshGen.h"
 #include "Render/ScenePath.h"
 #include "Render/Fog.h"
+#include "Render/PbrLighting.h"
 #include "Render/ModelDraw.h"
 #include "Render/MaterialSurface.h"
 #include "Render/GpuResourceCache.h"
@@ -2577,6 +2578,12 @@ void SandboxApp::onRender()
         lc.lightColor[0]    = m_env.lightColor().x;
         lc.lightColor[1]    = m_env.lightColor().y;
         lc.lightColor[2]    = m_env.lightColor().z;
+        {
+            const Vector3f pbrSun = pbrSunLightColor(m_env.lightColor());
+            lc.pbrLightColor[0]   = pbrSun.x;
+            lc.pbrLightColor[1]   = pbrSun.y;
+            lc.pbrLightColor[2]   = pbrSun.z;
+        }
         lc.emissiveGain     = 4.0f;
         lc.ambientColor[0]  = m_env.ambientColor().x;
         lc.ambientColor[1]  = m_env.ambientColor().y;
@@ -2615,9 +2622,12 @@ void SandboxApp::onRender()
         cb.lightDirWS[1] = m_env.lightDir().y;
         cb.lightDirWS[2] = m_env.lightDir().z;
         cb.ambientScale  = 0.22f;
-        cb.lightColor[0] = m_env.lightColor().x;
-        cb.lightColor[1] = m_env.lightColor().y;
-        cb.lightColor[2] = m_env.lightColor().z;
+        {
+            const Vector3f pbrSun = pbrSunLightColor(m_env.lightColor());
+            cb.lightColor[0]      = pbrSun.x;
+            cb.lightColor[1]      = pbrSun.y;
+            cb.lightColor[2]      = pbrSun.z;
+        }
         cb.cameraPos[0]  = camPos.x;
         cb.cameraPos[1]  = camPos.y;
         cb.cameraPos[2]  = camPos.z;
@@ -2731,9 +2741,12 @@ void SandboxApp::onRender()
         lit.lightDirWS[1] = m_env.lightDir().y;
         lit.lightDirWS[2] = m_env.lightDir().z;
         lit.ambientScale  = 0.22f;
-        lit.lightColor[0] = m_env.lightColor().x;
-        lit.lightColor[1] = m_env.lightColor().y;
-        lit.lightColor[2] = m_env.lightColor().z;
+        {
+            const Vector3f pbrSun = pbrSunLightColor(m_env.lightColor());
+            lit.lightColor[0]     = pbrSun.x;
+            lit.lightColor[1]     = pbrSun.y;
+            lit.lightColor[2]     = pbrSun.z;
+        }
         lit.cameraPos[0]  = camPos.x;
         lit.cameraPos[1]  = camPos.y;
         lit.cameraPos[2]  = camPos.z;

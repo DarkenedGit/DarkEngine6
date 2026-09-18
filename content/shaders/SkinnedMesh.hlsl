@@ -2,6 +2,7 @@
 #pragma pack_matrix(row_major)
 
 #include "Color.hlsli"
+#include "PbrLighting.hlsli"
 #ifndef ENCODE_SRGB
 #define ENCODE_SRGB 0
 #endif
@@ -105,7 +106,7 @@ float4 PSMain(PSInput input) : SV_TARGET
     float  shadow = ComputeShadow(input.worldPos, cameraPos);
     float  aoTerm = saturate(gOrm.Sample(gSamp, input.uv).r * ao);
     float3 ambient = ambientScale * albedo.rgb * aoTerm;
-    float3 diffuse = ndotl * lightColor * albedo.rgb * shadow;
+    float3 diffuse = ndotl * lightColor * albedo.rgb * shadow * (1.0f / DE_PBR_PI);
     float  emis = dot(gEmissive.Sample(gSamp, input.uv).rgb, float3(0.2126f, 0.7152f, 0.0722f)) * emissive;
     return float4(encodeSceneRgb(ambient + diffuse + emis), albedo.a);
 }

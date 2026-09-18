@@ -2,7 +2,7 @@
 #define DE_PBR_LIGHTING_HLSLI
 
 // Filament / Frostbite V form. V_SmithGGXCorrelated ALREADY includes 1/(4 NdotV NdotL). Do NOT divide again.
-// Diffuse is albedo*(1-metallic)*NdotL with no 1/π (engine units).
+// Diffuse is albedo*(1-metallic)*NdotL / π. Hosts retune lightColor (one π multiply) so look is preserved.
 
 #ifndef DE_PBR_PI
 #define DE_PBR_PI 3.14159265f
@@ -49,7 +49,7 @@ float3 PbrEvaluate(float3 n, float3 v, float3 l, float3 albedo, float roughness,
     float  Vvis       = V_SmithGGXCorrelated(NdotV, NdotL, a);
     float3 F          = F_Schlick(F0, VdotH);
     float3 Fr         = D * Vvis * F;
-    float3 Fd         = diffuseCol;
+    float3 Fd         = diffuseCol * (1.0f / DE_PBR_PI);
     return (Fd * (1.0f - F) + Fr) * NdotL * lightColor;
 }
 

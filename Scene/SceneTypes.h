@@ -186,7 +186,7 @@ namespace Dark
 
         // Optional local-light payload (PointLight / SpotLight).
         bool  hasLight           = false;
-        float lightIntensity     = 600.0f;
+        float lightIntensity     = 1885.0f; // point default candela (600*π); spot overwritten by applyTypeLightDefaults
         float lightRange         = 8.0f;
         float lightInnerDeg      = 12.0f;
         float lightOuterDeg      = 25.0f;

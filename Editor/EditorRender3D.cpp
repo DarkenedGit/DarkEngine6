@@ -394,6 +394,9 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         lc.lightColor[0]   = sunColor.x;
         lc.lightColor[1]   = sunColor.y;
         lc.lightColor[2]   = sunColor.z;
+        lc.pbrLightColor[0] = sunColor.x;
+        lc.pbrLightColor[1] = sunColor.y;
+        lc.pbrLightColor[2] = sunColor.z;
         lc.emissiveGain    = 4.0f;
         lc.ambientColor[0] = ambientColor.x;
         lc.ambientColor[1] = ambientColor.y;

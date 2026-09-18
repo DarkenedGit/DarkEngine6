@@ -145,12 +145,12 @@ namespace Dark::EditorDetail
         light.enabled      = true;
         if (light.type == LocalLightType::Spot)
         {
-            light.intensity = 800.0f;
+            light.intensity = 2513.0f; // 800*π; JSON 800 stays
             light.range     = 16.0f;
         }
         else
         {
-            light.intensity = 600.0f;
+            light.intensity = 1885.0f; // 600*π; JSON 600 stays
             light.range     = 8.0f;
         }
     }

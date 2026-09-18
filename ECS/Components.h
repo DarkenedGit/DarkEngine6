@@ -6,6 +6,7 @@
 
 #include "Assets/AssetHandle.h"
 #include "ECS/Entity.h"
+#include "Math/MathDefines.h"
 #include "Math/Quaternion.h"
 
 namespace Dark
@@ -81,7 +82,7 @@ namespace Dark
         static constexpr const char* kTypeName = "DirectionalLight";
 
         Math::Vector3f color     = { 1.0f, 0.96f, 0.88f };
-        float          intensity = 1.0f;
+        float          intensity = Math::Pi; // Fd/π look-preserving; gather is color*intensity
         bool           enabled   = true;
     };
 
@@ -108,7 +109,7 @@ namespace Dark
 
         LocalLightType type         = LocalLightType::Point;
         Math::Vector3f color        = { 1.0f, 1.0f, 1.0f };
-        float          intensity    = 600.0f; // candela
+        float          intensity    = 1885.0f; // candela; 600*π after Fd/π. JSON 600 stays.
         float          range        = 8.0f;
         float          innerConeDeg = 12.0f;
         float          outerConeDeg = 25.0f;

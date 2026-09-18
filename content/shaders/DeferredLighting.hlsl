@@ -32,6 +32,9 @@ cbuffer LightingConstants : register(b0)
     float    heightWorldSizeX;
     float    heightWorldSizeZ;
     float    _padFog;
+    float    _padPbr0;      // 11.z
+    float    _padPbr1;      // 11.w
+    float3   pbrLightColor; // 12.xyz — π-scaled; PbrDirectional only
 };
 
 Texture2D    gAlbedo    : register(t0);
@@ -105,7 +108,7 @@ float4 PSMain(PSInput input) : SV_TARGET
     float  recvOffset = 0.06f + 0.28f * (1.0f - ndotl) * (1.0f - ndotl);
     float  shadow = ComputeShadow(worldPos + n * recvOffset, cameraPos);
     float3 lit    = ambientColor * albedo.rgb * ao
-                  + PbrDirectional(n, v, albedo.rgb, roughness, metallic, lightDirWS, lightColor) * shadow
+                  + PbrDirectional(n, v, albedo.rgb, roughness, metallic, lightDirWS, pbrLightColor) * shadow
                   + albedo.rgb * emissive * emissiveGain;
 
     FogResult fog = FogIntegrate(cameraPos, worldPos, MakeFogParams(), gHeightMap, gHeightSamp, shadow);

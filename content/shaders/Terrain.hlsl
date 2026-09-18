@@ -3,6 +3,7 @@
 #pragma pack_matrix(row_major)
 
 #include "Color.hlsli"
+#include "PbrLighting.hlsli"
 #ifndef ENCODE_SRGB
 #define ENCODE_SRGB 0
 #endif
@@ -92,7 +93,8 @@ float4 PSMain(PSInput input) : SV_TARGET
     float  recvOffset = 0.06f + 0.28f * (1.0f - ndotl) * (1.0f - ndotl);
     float  shadow = ComputeShadow(input.worldPos + n * recvOffset, cam);
     float3 ambient = ambientColor * albedo.rgb;
-    float3 diffuse = ndotl * lightColor * albedo.rgb * shadow;
+    // CB cannot grow (RS 63/64). *π on Lambert only; FogParams.lightColor stays native.
+    float3 diffuse = ndotl * (lightColor * DE_PBR_PI) * albedo.rgb * shadow * (1.0f / DE_PBR_PI);
     float3 lit     = ambient + diffuse;
 
     FogParams fp;

@@ -1,14 +1,18 @@
 #include <gtest/gtest.h>
 
+#include "ECS/Components.h"
 #include "Math/MathDefines.h"
 #include "Math/MathHelper.h"
 #include "Math/Vector3f.h"
+#include "Render/DeferredLightingPipeline.h"
 #include "Render/PbrLighting.h"
 
 #include <cmath>
+#include <cstddef>
 
 using Dark::applySourceRadius;
 using Dark::pbrDirectional;
+using Dark::pbrSunLightColor;
 using Dark::spotAngleAttenuation;
 using Dark::spotCosTheta;
 using Dark::windowedDistanceAttenuation;
@@ -75,7 +79,7 @@ TEST(PbrLighting, RoughDielectricMatchesLambertWithin15Percent)
 
     auto expectClose = [&](const Vector3f& n, const Vector3f& v, const Vector3f& l) {
         const float    ndotl   = Dark::pbrSaturate(n.Dot(l));
-        const Vector3f lambert = (albedo * lightColor) * ndotl;
+        const Vector3f lambert = (albedo * lightColor) * (ndotl * Dark::Math::InvPi);
         const Vector3f pbr     = pbrDirectional(n, v, albedo, roughness, metallic, l, lightColor);
         const float    denom   = std::fmax(lambert.Magnitude(), 1.0e-4f);
         EXPECT_LT((pbr - lambert).Magnitude() / denom, 0.15f);
@@ -90,18 +94,44 @@ TEST(PbrLighting, RoughDielectricMatchesLambertWithin15Percent)
     expectClose(up, normalized(-0.3f, 1.0f, 0.5f), normalized(0.6f, 0.8f, 0.0f));
 }
 
-TEST(PbrLighting, DiffuseHasNoInvPi)
+TEST(PbrLighting, DiffuseHasInvPi)
 {
-    // Engine units: Fd = albedo*(1-metallic)*NdotL, no 1/π (this RFC).
     const Vector3f n(0.0f, 1.0f, 0.0f);
     const Vector3f v(0.0f, 1.0f, 0.0f);
     const Vector3f l(0.0f, 1.0f, 0.0f);
     const Vector3f albedo(1.0f, 1.0f, 1.0f);
     const Vector3f light(1.0f, 1.0f, 1.0f);
     const Vector3f pbr = pbrDirectional(n, v, albedo, 1.0f, 0.0f, l, light);
-    EXPECT_GT(pbr.x, 0.7f);
-    EXPECT_LT(pbr.x, 1.15f);
-    EXPECT_GT(pbr.x, 1.0f / static_cast<float>(Dark::Math::Pi) + 0.2f);
+    EXPECT_NEAR(pbr.x, Dark::Math::InvPi, 0.08f);
+    EXPECT_LT(pbr.x, 0.7f);
+}
+
+TEST(PbrLighting, EditorSunMatchesSandboxPi)
+{
+    // Editor fill is color * intensity(π); never also pbrSunLightColor on the same fill.
+    const Vector3f rgb(0.42f, 0.51f, 0.63f);
+    const Vector3f fromHelper = pbrSunLightColor(rgb);
+    const Vector3f fromEditor = rgb * Dark::Math::Pi;
+    EXPECT_NEAR(fromHelper.x, fromEditor.x, 1.0e-5f);
+    EXPECT_NEAR(fromHelper.y, fromEditor.y, 1.0e-5f);
+    EXPECT_NEAR(fromHelper.z, fromEditor.z, 1.0e-5f);
+    EXPECT_NEAR(fromHelper.x, rgb.x * Dark::Math::Pi, 1.0e-5f);
+}
+
+TEST(PbrLighting, LightingConstants_Size)
+{
+    EXPECT_EQ(sizeof(Dark::LightingConstants), 51u * sizeof(float));
+    EXPECT_EQ(offsetof(Dark::LightingConstants, pbrLightColor), 48u * sizeof(float));
+}
+
+TEST(PbrLighting, IntensityDefaultsRetunedForInvPi)
+{
+    Dark::DirectionalLightComponent dir{};
+    EXPECT_FLOAT_EQ(dir.intensity, Dark::Math::Pi);
+    Dark::LocalLightComponent point{};
+    EXPECT_NEAR(point.intensity, 1885.0f, 1.0e-3f);
+    Dark::AmbientLightComponent amb{};
+    EXPECT_FLOAT_EQ(amb.intensity, 1.0f);
 }
 
 TEST(PbrLighting, SourceRadiusZeroIsIdentity)
