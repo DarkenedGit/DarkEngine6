@@ -116,6 +116,7 @@ private:
     void clearScene();
     bool saveScene();
     bool loadScene();
+    void applyIbl();
 
     bool loadGltfModel();
     bool saveGltfModel();
@@ -163,6 +164,7 @@ private:
     Camera2D m_camera2D;
     SceneMode m_sceneMode = SceneMode::Scene3D;
     IblSettings m_ibl;
+    AssetID     m_iblImageId = NULL_ASSET;
 
     SpritePipeline     m_spritePipe;
     Mesh     m_quadMesh;

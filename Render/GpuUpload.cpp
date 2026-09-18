@@ -2,9 +2,13 @@
 #include "Assets/AssetManager.h"
 #include "Assets/Image.h"
 #include "Assets/Model.h"
+#include "Render/GpuIbl.h"
 #include "Render/GpuResourceCache.h"
+#include "Render/IblBake.h"
 #include "Render/Renderer.h"
 #include "Core/Log.h"
+
+#include <memory>
 
 namespace Dark
 {
@@ -61,6 +65,83 @@ namespace Dark
         if (!renderer.gpuResources().ensureModel(model))
             return {};
         return model;
+    }
+
+    namespace
+    {
+        void bindDummyIbl(Renderer& renderer)
+        {
+            renderer.setIblSrvs(renderer.iblDummyCubeCpu(), renderer.iblDummyCubeCpu(), renderer.iblDummyLutCpu());
+        }
+    } // namespace
+
+    bool loadAndBakeIbl(Renderer& renderer, AssetManager& assets, IblSettings& ibl, AssetID& imageId)
+    {
+        imageId     = NULL_ASSET;
+        ibl.enabled = false;
+
+        if (ibl.virtualPath.empty())
+        {
+            bindDummyIbl(renderer);
+            return false;
+        }
+        if (!renderer.hasGBuffer())
+            return false;
+
+        AssetRef<Image> img = assets.loadImage(ibl.virtualPath);
+        if (!img || !img->valid() || img->format() != ImageFormat::RGBA32F)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Ibl: failed to load '{}' — using ambient", ibl.virtualPath);
+            if (ibl.virtualPath != kDefaultIblVirtualPath)
+            {
+                bindDummyIbl(renderer);
+                return false;
+            }
+
+            static bool loggedFallback = false;
+            if (!loggedFallback)
+            {
+                DE_LOG_INFO(LogCategory::Render, "Ibl: using in-memory studio gradient fallback");
+                loggedFallback = true;
+            }
+            auto generated = std::make_shared<Image>();
+            if (!IblBake::fillStudioGradient(*generated, 128, 64))
+            {
+                bindDummyIbl(renderer);
+                return false;
+            }
+            img = assets.internImage(generated, std::string(kDefaultIblVirtualPath) + "#generated");
+            if (!img || !img->valid())
+            {
+                bindDummyIbl(renderer);
+                return false;
+            }
+        }
+
+        if (!renderer.gpuResources().ensureIbl(img))
+        {
+            bindDummyIbl(renderer);
+            return false;
+        }
+
+        GpuIbl* gpuIbl = renderer.gpuResources().ibl(img->id);
+        if (!gpuIbl || !gpuIbl->isReady())
+        {
+            bindDummyIbl(renderer);
+            return false;
+        }
+
+        renderer.ensureIblBrdfLut();
+        renderer.setIblSrvs(gpuIbl->irradianceCpu(), gpuIbl->prefilterCpu(), renderer.iblBrdfLutCpu());
+        imageId     = img->id;
+        ibl.enabled = true;
+        return true;
+    }
+
+    bool iblGpuReady(const GpuResourceCache& gpu, AssetID imageId)
+    {
+        const GpuIbl* ibl = gpu.ibl(imageId);
+        return ibl && ibl->isReady();
     }
 
 } // namespace Dark

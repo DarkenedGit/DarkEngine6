@@ -26,6 +26,7 @@
 #include "Render/TaaJitter.h"
 #include "Render/ModelDraw.h"
 #include "Render/GpuResourceCache.h"
+#include "Render/GpuUpload.h"
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
@@ -247,7 +248,10 @@ void EditorApp::onInit()
     else
         DE_LOG_INFO("EditorApp: no default scene at {}", m_scenePath.string());
     if (m_sceneMode == SceneMode::Scene3D)
+    {
         ensureGlobalLights();
+        applyIbl();
+    }
 
     m_sfxPlace  = audio().loadOrBlip(assets(), "audio/place.wav", 620.0f, 0.09f, 0.4f);
     m_sfxDelete = audio().loadOrBlip(assets(), "audio/delete.wav", 300.0f, 0.12f, 0.4f);
@@ -263,6 +267,18 @@ void EditorApp::onInit()
     network().setPeerCallback(&EditorApp::onNetPeer, this);
 
     DE_LOG_INFO("EditorApp: ready ({} objects)", editorObjectCount());
+}
+
+void EditorApp::applyIbl()
+{
+    if (m_sceneMode != SceneMode::Scene3D)
+    {
+        m_ibl.enabled = false;
+        m_iblImageId  = NULL_ASSET;
+        return;
+    }
+    if (!loadAndBakeIbl(renderer(), assets(), m_ibl, m_iblImageId))
+        DE_LOG_INFO(LogCategory::Render, "Editor: IBL off — using ambient");
 }
 
 void EditorApp::updateCamera(float dt)

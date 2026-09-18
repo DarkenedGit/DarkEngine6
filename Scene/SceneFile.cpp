@@ -118,6 +118,12 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
     root["version"] = scene.version > 0 ? scene.version : 1;
     root["name"]    = scene.name.empty() ? "untitled" : scene.name;
     root["mode"]    = toString(scene.mode);
+    if (scene.mode != SceneMode::Scene2D)
+    {
+        root["environment"]     = scene.environment;
+        root["iblIntensity"]    = scene.iblIntensity;
+        root["iblRotationRadY"] = scene.iblRotationRadY;
+    }
     if (scene.mode == SceneMode::Scene2D)
     {
         json world;
@@ -245,6 +251,12 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
     const std::string modeStr = root.value("mode", std::string("3d"));
     if (!tryParseSceneMode(modeStr, outScene.mode))
         outScene.mode = SceneMode::Scene3D;
+    if (outScene.mode != SceneMode::Scene2D)
+    {
+        outScene.environment     = root.value("environment", std::string("env/studio_gradient.hdr"));
+        outScene.iblIntensity    = root.value("iblIntensity", 1.0f);
+        outScene.iblRotationRadY = root.value("iblRotationRadY", 0.0f);
+    }
 
     if (root.contains("world") && root["world"].is_object())
     {

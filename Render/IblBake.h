@@ -39,6 +39,9 @@ namespace Dark
         Math::Vector3f convolveIrradianceUniformWhite(const Math::Vector3f& n, uint32_t sampleCount);
 
         Math::Vector3f sampleEquirect(const Image& image, const Math::Vector3f& dir);
+
+        // Studio ambient equirect: zenith (0.12,0.16,0.22), horizon (0.35,0.38,0.42), no sun disc.
+        bool fillStudioGradient(Image& out, uint32_t width = 128, uint32_t height = 64);
     }
 
 } // namespace Dark

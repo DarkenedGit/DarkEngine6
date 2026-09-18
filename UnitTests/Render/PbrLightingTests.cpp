@@ -129,6 +129,7 @@ TEST(PbrLighting, IblLightingConstantsDefaultOff)
     Dark::LightingConstants lc{};
     Dark::IblSettings       ibl{};
     EXPECT_FALSE(ibl.enabled);
+    EXPECT_EQ(ibl.virtualPath, Dark::kDefaultIblVirtualPath);
     Dark::fillIblLightingConstants(lc, ibl, false, 0, false);
     EXPECT_FLOAT_EQ(lc.iblEnabled, 0.0f);
     EXPECT_FLOAT_EQ(lc.iblIntensity, 1.0f);

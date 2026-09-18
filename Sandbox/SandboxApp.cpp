@@ -2122,6 +2122,9 @@ void SandboxApp::onInit()
     m_env.weather   = Sky::WeatherState::PartlyCloudy();
     m_env.evaluate();
 
+    if (!loadAndBakeIbl(renderer(), assets(), m_ibl, m_iblImageId))
+        DE_LOG_INFO(LogCategory::Render, "SandboxApp: IBL off — using ambient");
+
     {
         Terrain::TerrainDesc terrainDesc;
         terrainDesc.chunkCells       = 16;
@@ -2591,7 +2594,7 @@ void SandboxApp::onRender()
         FogGpu fog = makeFogGpu(&m_env, m_water.params().waterLevel, lc.lighting > 0.5f);
         fillFogHeightMap(fog, &m_terrain.heightMap());
         applyFogToLighting(lc, fog);
-        fillIblLightingConstants(lc, m_ibl, renderer().debugState().iblEnabled, renderer().debugState().iblDebug, false);
+        fillIblLightingConstants(lc, m_ibl, renderer().debugState().iblEnabled, renderer().debugState().iblDebug, iblGpuReady(renderer().gpuResources(), m_iblImageId));
         m_lighting.draw(cmd, renderer(), m_shadows, lc);
         m_localLightVolumes.draw(cmd, renderer(), world(), m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_viewCamera, viewProj, lc);
 

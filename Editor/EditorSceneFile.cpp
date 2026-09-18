@@ -46,11 +46,14 @@ using namespace Math;
 bool EditorApp::saveScene()
 {
     SceneFileData data{};
-    data.version  = 2;
-    data.name     = m_sceneName;
-    data.mode     = m_sceneMode;
-    data.worldMin = m_worldMin;
-    data.worldMax = m_worldMax;
+    data.version         = 2;
+    data.name            = m_sceneName;
+    data.mode            = m_sceneMode;
+    data.worldMin        = m_worldMin;
+    data.worldMax        = m_worldMax;
+    data.environment     = m_ibl.virtualPath;
+    data.iblIntensity    = m_ibl.intensity;
+    data.iblRotationRadY = m_ibl.rotationRadY;
 
     std::vector<Entity> saved;
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
@@ -147,6 +150,12 @@ bool EditorApp::loadScene()
     clearScene();
     m_worldMin  = data.worldMin;
     m_worldMax  = data.worldMax;
+    if (data.mode == SceneMode::Scene3D)
+    {
+        m_ibl.virtualPath  = data.environment;
+        m_ibl.intensity    = data.iblIntensity;
+        m_ibl.rotationRadY = data.iblRotationRadY;
+    }
     applySceneMode(data.mode);
     m_sceneName = data.name.empty() ? (data.mode == SceneMode::Scene2D ? "level2d" : "level") : data.name;
     if (data.mode == SceneMode::Scene2D)

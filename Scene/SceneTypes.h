@@ -203,6 +203,9 @@ namespace Dark
         SceneMode   mode    = SceneMode::Scene3D;
         Math::Vector2f worldMin{ 0.0f, 0.0f };
         Math::Vector2f worldMax{ 96.0f, 22.0f };
+        std::string environment      = "env/studio_gradient.hdr";
+        float       iblIntensity     = 1.0f;
+        float       iblRotationRadY  = 0.0f; // radians; ImGui shows degrees
         std::vector<SceneObjectData> objects;
     };
 

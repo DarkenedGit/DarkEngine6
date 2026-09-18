@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <d3d12.h>
+#include <string>
 #include <wrl/client.h>
 
 namespace Dark
@@ -51,12 +52,15 @@ namespace Dark
     static_assert(offsetof(LightingConstants, iblIntensity) == 51 * sizeof(float), "iblIntensity shares register 12.w");
     static_assert(56 + 1 + 2 + 1 + 1 + 1 <= 64, "deferred lighting RS DWORD budget");
 
-    // Host knobs. Not on Sky::Environment. PR4 default off; PR5 flips enabled when bake OK.
+    inline constexpr char kDefaultIblVirtualPath[] = "env/studio_gradient.hdr";
+
+    // Host knobs. Not on Sky::Environment. enabled is false until bake OK.
     struct IblSettings
     {
-        float intensity    = 1.0f;
-        float rotationRadY = 0.0f;
-        bool  enabled      = false;
+        std::string virtualPath  = kDefaultIblVirtualPath;
+        float       intensity    = 1.0f;
+        float       rotationRadY = 0.0f;
+        bool        enabled      = false;
     };
 
     inline void fillIblLightingConstants(LightingConstants& lc, const IblSettings& ibl, bool debugEnabled, int debugView, bool iblReady)

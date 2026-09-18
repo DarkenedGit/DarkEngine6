@@ -26,6 +26,7 @@
 #include "Render/TaaJitter.h"
 #include "Render/ModelDraw.h"
 #include "Render/MaterialSurface.h"
+#include "Render/GpuUpload.h"
 #include "Assets/Material.h"
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"
@@ -401,7 +402,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         lc.ambientColor[0] = ambientColor.x;
         lc.ambientColor[1] = ambientColor.y;
         lc.ambientColor[2] = ambientColor.z;
-        fillIblLightingConstants(lc, m_ibl, renderer().debugState().iblEnabled, renderer().debugState().iblDebug, false);
+        fillIblLightingConstants(lc, m_ibl, renderer().debugState().iblEnabled, renderer().debugState().iblDebug, iblGpuReady(renderer().gpuResources(), m_iblImageId));
         m_lighting.draw(cmd, renderer(), m_shadows, lc);
         m_localLightVolumes.draw(cmd, renderer(), world(), m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_camera, viewProj, lc);
         renderer().bindHdr(true);

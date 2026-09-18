@@ -25,6 +25,8 @@
 #include "Render/MeshGen.h"
 #include "Render/TaaJitter.h"
 #include "Render/ModelDraw.h"
+#include "Render/DebugRenderState.h"
+#include "Math/MathDefines.h"
 #include "Assets/Model.h"
 #include "Assets/Material.h"
 #include "Particles/ParticleMaterials.h"
@@ -198,6 +200,33 @@ void EditorApp::drawEditorUi()
     }
 
     beginPassthruDockSpace("EditorDockHost", ImGui::GetFrameHeight());
+
+    if (m_sceneMode == SceneMode::Scene3D && renderer().hasGBuffer())
+    {
+        ImGui::SetNextWindowSize(ImVec2(320.0f, 200.0f), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("IBL"))
+        {
+            DebugRenderState& iblDbg = renderer().debugState();
+            if (ImGui::Checkbox("Enabled", &iblDbg.iblEnabled))
+                DE_LOG_INFO(LogCategory::Render, "Ibl: enabled={} debug={}", iblDbg.iblEnabled, iblDbg.iblDebug);
+            ImGui::SliderFloat("Intensity", &m_ibl.intensity, 0.0f, 4.0f, "%.2f");
+            float rotDeg = m_ibl.rotationRadY * Math::RadToDeg;
+            if (ImGui::SliderFloat("Rotation", &rotDeg, -180.0f, 180.0f, "%.1f deg"))
+                m_ibl.rotationRadY = rotDeg * Math::DegToRad;
+            const char* debugViews[] = { "Off", "Irradiance", "Prefilter lod0", "LUT" };
+            if (ImGui::Combo("Debug view", &iblDbg.iblDebug, debugViews, 4))
+            {
+                if (iblDbg.iblDebug < 0)
+                    iblDbg.iblDebug = 0;
+                if (iblDbg.iblDebug > 3)
+                    iblDbg.iblDebug = 3;
+                DE_LOG_INFO(LogCategory::Render, "Ibl: enabled={} debug={}", iblDbg.iblEnabled, iblDbg.iblDebug);
+            }
+            ImGui::TextUnformatted(m_ibl.virtualPath.empty() ? "(off)" : m_ibl.virtualPath.c_str());
+            ImGui::TextDisabled("Bake %s", m_ibl.enabled ? "ready" : "off / failed");
+        }
+        ImGui::End();
+    }
 
     if (m_showParticlePanel)
     {

@@ -145,6 +145,7 @@ void EditorApp::applySceneMode(SceneMode mode)
     {
         renderer().setClearColor(UiPalette::kVoid.r, UiPalette::kVoid.g, UiPalette::kVoid.b, 1.0f);
         m_placeType = SceneObjectType::Cube;
+        applyIbl();
     }
 }
 
@@ -152,6 +153,7 @@ void EditorApp::newScene3D()
 {
     if (netSceneLocked())
         return;
+    m_ibl = IblSettings{};
     applySceneMode(SceneMode::Scene3D);
     m_scenePath = defaultScenePath("level.json");
     m_sceneName = "level";

@@ -3,8 +3,10 @@
 #include "Math/MathDefines.h"
 #include "Scene/SceneFile.h"
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 
 using namespace Dark;
 using namespace Dark::Math;
@@ -336,6 +338,118 @@ TEST(SceneFile, UnauthoredGlobalLightsSplitIntensity)
     EXPECT_EQ(data.objects[1].type, SceneObjectType::AmbientLight);
     EXPECT_TRUE(data.objects[1].hasLight);
     EXPECT_NEAR(data.objects[1].lightIntensity, 1.0f, 1.0e-5f);
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+TEST(SceneFile, IblRoundTripRadians)
+{
+    SceneFileData in{};
+    in.version           = 2;
+    in.name              = "ut_ibl";
+    in.mode              = SceneMode::Scene3D;
+    in.environment       = "env/studio_gradient.hdr";
+    in.iblIntensity      = 1.25f;
+    in.iblRotationRadY   = HalfPi; // 90 degrees stored as radians, not 90
+
+    const auto path = tempScenePath("darkengine6_scene_ibl_ut.json");
+    std::string err;
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+
+    SceneFileData out{};
+    ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
+    EXPECT_EQ(out.version, 2);
+    EXPECT_EQ(out.environment, "env/studio_gradient.hdr");
+    EXPECT_NEAR(out.iblIntensity, 1.25f, 1.0e-5f);
+    EXPECT_NEAR(out.iblRotationRadY, HalfPi, 1.0e-5f);
+    EXPECT_GT(std::fabs(out.iblRotationRadY - 90.0f), 80.0f); // must not store degrees
+
+    std::ifstream inFile(path);
+    ASSERT_TRUE(static_cast<bool>(inFile));
+    const std::string text((std::istreambuf_iterator<char>(inFile)), std::istreambuf_iterator<char>());
+    EXPECT_NE(text.find("iblRotationRadY"), std::string::npos);
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+TEST(SceneFile, IblEmptyEnvironmentMeansOff)
+{
+    SceneFileData in{};
+    in.version     = 2;
+    in.mode        = SceneMode::Scene3D;
+    in.environment = "";
+
+    const auto path = tempScenePath("darkengine6_scene_ibl_off_ut.json");
+    std::string err;
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+
+    SceneFileData out{};
+    ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
+    EXPECT_TRUE(out.environment.empty());
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+TEST(SceneFile, IblMissingKeysDefaultPath)
+{
+    const auto path = tempScenePath("darkengine6_scene_ibl_missing_ut.json");
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({"version":2,"name":"no_ibl","mode":"3d","objects":[]})";
+    }
+
+    SceneFileData data{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
+    EXPECT_EQ(data.environment, "env/studio_gradient.hdr");
+    EXPECT_NEAR(data.iblIntensity, 1.0f, 1.0e-5f);
+    EXPECT_NEAR(data.iblRotationRadY, 0.0f, 1.0e-5f);
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+TEST(SceneFile, Ibl2DIgnoresKeys)
+{
+    SceneFileData in{};
+    in.version           = 2;
+    in.name              = "ut_2d_ibl";
+    in.mode              = SceneMode::Scene2D;
+    in.environment       = "env/should_not_save.hdr";
+    in.iblIntensity      = 3.0f;
+    in.iblRotationRadY   = HalfPi;
+
+    const auto path = tempScenePath("darkengine6_scene_ibl_2d_ut.json");
+    std::string err;
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+
+    std::ifstream inFile(path);
+    ASSERT_TRUE(static_cast<bool>(inFile));
+    const std::string text((std::istreambuf_iterator<char>(inFile)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(text.find("environment"), std::string::npos);
+    EXPECT_EQ(text.find("iblIntensity"), std::string::npos);
+    EXPECT_EQ(text.find("iblRotationRadY"), std::string::npos);
+
+    SceneFileData out{};
+    ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
+    EXPECT_EQ(out.mode, SceneMode::Scene2D);
+    EXPECT_EQ(out.environment, "env/studio_gradient.hdr");
+
+    {
+        std::ofstream injected(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(injected));
+        injected << R"({"version":2,"name":"ut_2d_ibl","mode":"2d","environment":"env/ignored.hdr","iblIntensity":4.0,"iblRotationRadY":1.5,"world":{"min":[0,0],"max":[8,8]},"objects":[]})";
+    }
+    SceneFileData ignored{};
+    ASSERT_TRUE(loadSceneFromJson(path, ignored, &err)) << err;
+    EXPECT_EQ(ignored.mode, SceneMode::Scene2D);
+    EXPECT_EQ(ignored.environment, "env/studio_gradient.hdr");
+    EXPECT_NEAR(ignored.iblIntensity, 1.0f, 1.0e-5f);
+    EXPECT_NEAR(ignored.iblRotationRadY, 0.0f, 1.0e-5f);
 
     std::error_code ec;
     std::filesystem::remove(path, ec);

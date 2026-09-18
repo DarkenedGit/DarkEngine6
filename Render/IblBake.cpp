@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <vector>
 
 namespace Dark
 {
@@ -153,6 +154,34 @@ namespace Dark
             const Math::Vector3f c0  = c00 * (1.0f - fx) + c10 * fx;
             const Math::Vector3f c1  = c01 * (1.0f - fx) + c11 * fx;
             return c0 * (1.0f - fy) + c1 * fy;
+        }
+
+        bool fillStudioGradient(Image& out, uint32_t width, uint32_t height)
+        {
+            if (width == 0 || height == 0)
+                return false;
+
+            // Image top = +Y zenith; equator at v=0.5. Lower hemisphere stays horizon — no sun disc.
+            const Math::Vector3f zenith(0.12f, 0.16f, 0.22f);
+            const Math::Vector3f horizon(0.35f, 0.38f, 0.42f);
+            std::vector<float>   rgba(static_cast<size_t>(width) * static_cast<size_t>(height) * 4u);
+            const float          invH = 1.0f / static_cast<float>(height);
+            for (uint32_t y = 0; y < height; ++y)
+            {
+                float t = ((static_cast<float>(y) + 0.5f) * invH) * 2.0f;
+                if (t > 1.0f)
+                    t = 1.0f;
+                const Math::Vector3f c = zenith * (1.0f - t) + horizon * t;
+                for (uint32_t x = 0; x < width; ++x)
+                {
+                    const size_t i = (static_cast<size_t>(y) * width + x) * 4u;
+                    rgba[i + 0]    = c.x;
+                    rgba[i + 1]    = c.y;
+                    rgba[i + 2]    = c.z;
+                    rgba[i + 3]    = 1.0f;
+                }
+            }
+            return out.createFromRgba32f(rgba.data(), width, height, width * 16u);
         }
 
     } // namespace IblBake

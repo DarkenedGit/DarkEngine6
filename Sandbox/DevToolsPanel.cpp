@@ -3,6 +3,7 @@
 #include "Core/Log.h"
 #include "Debug/DebugTypes.h"
 #include "Network/NetTypes.h"
+#include "Math/MathDefines.h"
 #include "Render/DebugRenderState.h"
 #include "Render/ScenePath.h"
 #include "Sky/Environment.h"
@@ -169,6 +170,28 @@ void SandboxApp::drawDevTools()
         }
         if (ImGui::Checkbox("Skeleton overlay", &m_showSkeleton))
             DE_LOG_INFO("Sandbox: skeleton overlay = {}", m_showSkeleton);
+    }
+
+    if (renderer().hasGBuffer() && ImGui::CollapsingHeader("IBL", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        DebugRenderState& iblDbg = renderer().debugState();
+        if (ImGui::Checkbox("Enabled", &iblDbg.iblEnabled))
+            DE_LOG_INFO(LogCategory::Render, "Ibl: enabled={} debug={}", iblDbg.iblEnabled, iblDbg.iblDebug);
+        ImGui::SliderFloat("Intensity", &m_ibl.intensity, 0.0f, 4.0f, "%.2f");
+        float rotDeg = m_ibl.rotationRadY * RadToDeg;
+        if (ImGui::SliderFloat("Rotation", &rotDeg, -180.0f, 180.0f, "%.1f deg"))
+            m_ibl.rotationRadY = rotDeg * DegToRad;
+        const char* debugViews[] = { "Off", "Irradiance", "Prefilter lod0", "LUT" };
+        if (ImGui::Combo("Debug view", &iblDbg.iblDebug, debugViews, 4))
+        {
+            if (iblDbg.iblDebug < 0)
+                iblDbg.iblDebug = 0;
+            if (iblDbg.iblDebug > 3)
+                iblDbg.iblDebug = 3;
+            DE_LOG_INFO(LogCategory::Render, "Ibl: enabled={} debug={}", iblDbg.iblEnabled, iblDbg.iblDebug);
+        }
+        ImGui::TextUnformatted(m_ibl.virtualPath.empty() ? "(off)" : m_ibl.virtualPath.c_str());
+        ImGui::TextDisabled("Bake %s", m_ibl.enabled ? "ready" : "off / failed");
     }
 
     if (ImGui::CollapsingHeader("Sky", ImGuiTreeNodeFlags_DefaultOpen))

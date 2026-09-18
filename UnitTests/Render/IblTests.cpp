@@ -151,6 +151,41 @@ TEST(Ibl, DiffuseEnergy_WhiteLambert)
     EXPECT_NEAR(fd.z * e.z, albedo.z, 0.10f);
 }
 
+TEST(Ibl, StudioGradient_InMemory_NoSun)
+{
+    Image img;
+    ASSERT_TRUE(Dark::IblBake::fillStudioGradient(img, 16, 8));
+    ASSERT_TRUE(img.valid());
+    EXPECT_EQ(img.format(), ImageFormat::RGBA32F);
+    EXPECT_EQ(img.width(), 16u);
+    EXPECT_EQ(img.height(), 8u);
+
+    const Vector3f zenith = sampleEquirect(img, Vector3f(0.0f, 1.0f, 0.0f));
+    EXPECT_NEAR(zenith.x, 0.12f, 0.05f);
+    EXPECT_NEAR(zenith.y, 0.16f, 0.05f);
+    EXPECT_NEAR(zenith.z, 0.22f, 0.05f);
+
+    const Vector3f horizon = sampleEquirect(img, Vector3f(0.0f, 0.0f, 1.0f));
+    EXPECT_NEAR(horizon.x, 0.35f, 0.05f);
+    EXPECT_NEAR(horizon.y, 0.38f, 0.05f);
+    EXPECT_NEAR(horizon.z, 0.42f, 0.05f);
+
+    const auto* px = reinterpret_cast<const float*>(img.pixels());
+    ASSERT_NE(px, nullptr);
+    float peak = 0.0f;
+    for (uint32_t i = 0; i < img.width() * img.height(); ++i)
+    {
+        if (px[i * 4u + 0] > peak)
+            peak = px[i * 4u + 0];
+        if (px[i * 4u + 1] > peak)
+            peak = px[i * 4u + 1];
+        if (px[i * 4u + 2] > peak)
+            peak = px[i * 4u + 2];
+    }
+    EXPECT_LT(peak, 2.0f);
+    EXPECT_GT(peak, 0.30f);
+}
+
 TEST(Ibl, LoadMissing_ReturnsFalse)
 {
     Image missing;
