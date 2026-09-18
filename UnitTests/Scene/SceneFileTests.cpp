@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "Math/MathDefines.h"
 #include "Scene/SceneFile.h"
 
 #include <filesystem>
@@ -304,6 +305,37 @@ TEST(SceneFile, MinimalSpotLightGetsSpotDefaults)
     EXPECT_NEAR(data.objects[0].lightRange, 16.0f, 1.0e-4f);
     EXPECT_NEAR(data.objects[0].lightInnerDeg, 12.0f, 1.0e-4f);
     EXPECT_NEAR(data.objects[0].lightOuterDeg, 25.0f, 1.0e-4f);
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+TEST(SceneFile, UnauthoredGlobalLightsSplitIntensity)
+{
+    const auto path = tempScenePath("darkengine6_scene_global_min_ut.json");
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "global_min",
+  "objects": [
+    {"type": "directional_light", "position": [4, 8, -4]},
+    {"type": "ambient_light", "position": [0, 0, 0]}
+  ]
+})";
+    }
+
+    SceneFileData data{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
+    ASSERT_EQ(data.objects.size(), 2u);
+    EXPECT_EQ(data.objects[0].type, SceneObjectType::DirectionalLight);
+    EXPECT_TRUE(data.objects[0].hasLight);
+    EXPECT_NEAR(data.objects[0].lightIntensity, Pi, 1.0e-5f);
+    EXPECT_EQ(data.objects[1].type, SceneObjectType::AmbientLight);
+    EXPECT_TRUE(data.objects[1].hasLight);
+    EXPECT_NEAR(data.objects[1].lightIntensity, 1.0f, 1.0e-5f);
 
     std::error_code ec;
     std::filesystem::remove(path, ec);

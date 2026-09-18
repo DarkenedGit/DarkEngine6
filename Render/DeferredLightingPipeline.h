@@ -43,6 +43,7 @@ namespace Dark
 
     static_assert(sizeof(LightingConstants) == 51 * sizeof(float), "lighting root constants");
     static_assert(offsetof(LightingConstants, pbrLightColor) == 48 * sizeof(float), "float3 must start on a 16-byte boundary");
+    static_assert(51 + 1 + 2 + 1 + 1 <= 64, "deferred lighting RS DWORD budget");
 
     class DeferredLightingPipeline
     {

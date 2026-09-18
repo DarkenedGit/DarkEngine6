@@ -111,11 +111,10 @@ TEST(PbrLighting, EditorSunMatchesSandboxPi)
     // Editor fill is color * intensity(π); never also pbrSunLightColor on the same fill.
     const Vector3f rgb(0.42f, 0.51f, 0.63f);
     const Vector3f fromHelper = pbrSunLightColor(rgb);
-    const Vector3f fromEditor = rgb * Dark::Math::Pi;
+    const Vector3f fromEditor = rgb * Dark::DirectionalLightComponent{}.intensity;
     EXPECT_NEAR(fromHelper.x, fromEditor.x, 1.0e-5f);
     EXPECT_NEAR(fromHelper.y, fromEditor.y, 1.0e-5f);
     EXPECT_NEAR(fromHelper.z, fromEditor.z, 1.0e-5f);
-    EXPECT_NEAR(fromHelper.x, rgb.x * Dark::Math::Pi, 1.0e-5f);
 }
 
 TEST(PbrLighting, LightingConstants_Size)

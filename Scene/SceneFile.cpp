@@ -1,6 +1,7 @@
 #include "Scene/SceneFile.h"
 #include "Core/ContentRoots.h"
 #include "Core/Log.h"
+#include "Math/MathDefines.h"
 
 #include "third_party/nlohmann/json.hpp"
 
@@ -381,7 +382,7 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
         else if (isGlobalLightType(o.type))
         {
             o.hasLight       = true;
-            o.lightIntensity = 1.0f;
+            o.lightIntensity = (o.type == SceneObjectType::DirectionalLight) ? Math::Pi : 1.0f;
             o.lightEnabled   = true;
         }
 

@@ -1374,7 +1374,7 @@ void SandboxApp::pulseMuzzle()
     if (LocalLightComponent* light = world().get<LocalLightComponent>(m_muzzle))
     {
         light->enabled   = true;
-        light->intensity = 12000.0f;
+        light->intensity = 37699.0f; // 12000*π after Fd/π
         light->range     = 6.0f;
     }
     m_muzzleTimer = 0.05f;
@@ -1681,7 +1681,7 @@ void SandboxApp::spawnHybridLocalLights()
     auto& flashlight          = world().emplace<LocalLightComponent>(m_flashlight);
     flashlight.type           = LocalLightType::Spot;
     flashlight.color          = Vector3f{ 1.0f, 0.97f, 0.9f };
-    flashlight.intensity      = 500.0f;
+    flashlight.intensity      = 1571.0f; // 500*π after Fd/π
     flashlight.range          = 22.0f;
     flashlight.innerConeDeg   = 10.0f;
     flashlight.outerConeDeg   = 22.0f;
@@ -1694,7 +1694,7 @@ void SandboxApp::spawnHybridLocalLights()
     auto& muzzle     = world().emplace<LocalLightComponent>(m_muzzle);
     muzzle.type      = LocalLightType::Point;
     muzzle.color     = Vector3f{ 1.0f, 0.82f, 0.45f };
-    muzzle.intensity = 12000.0f;
+    muzzle.intensity = 37699.0f; // 12000*π after Fd/π
     muzzle.range     = 6.0f;
     muzzle.enabled   = false;
     m_muzzleTimer    = 0.0f;
@@ -1736,7 +1736,7 @@ void SandboxApp::spawnHybridLocalLights()
         auto& light        = world().emplace<LocalLightComponent>(lightE);
         light.type         = LocalLightType::Point;
         light.color        = Vector3f{ 1.0f, 0.72f, 0.35f };
-        light.intensity    = 400.0f;
+        light.intensity    = 1257.0f; // 400*π after Fd/π
         light.range        = 6.0f;
         light.emissiveMesh = fixture;
         ++spawned;
