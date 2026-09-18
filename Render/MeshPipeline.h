@@ -25,7 +25,7 @@ namespace Dark
         return DXGI_FORMAT_R8G8B8A8_UNORM;
     }
 
-    // PSO + root signature for MeshGen meshes (pos/normal/uv) with one albedo texture.
+    // PSO + root signature for MeshGen meshes (pos/normal/uv/tangent) with a 5-slot material heap.
     class MeshPipeline
     {
     public:

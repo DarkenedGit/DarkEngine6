@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 
 #include "Character/Health.h"
-#include "Character/HealthComponent.h"
 #include "Character/HitReaction.h"
 #include "Combat/ArmorComponent.h"
 #include "Combat/AttackDef.h"

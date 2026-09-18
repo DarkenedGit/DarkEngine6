@@ -2,6 +2,7 @@
 
 #include "Render/Mesh.h"
 
+#include <cstddef>
 #include <cstdint>
 
 using namespace Dark;
@@ -17,11 +18,21 @@ uint32_t weightSum(uint32_t packed)
 TEST(MeshVertex, StrideIs48)
 {
     EXPECT_EQ(sizeof(MeshVertex), 48u);
+    EXPECT_EQ(offsetof(MeshVertex, point), 0u);
+    EXPECT_EQ(offsetof(MeshVertex, normal), 12u);
+    EXPECT_EQ(offsetof(MeshVertex, uv), 24u);
+    EXPECT_EQ(offsetof(MeshVertex, tangent), 32u);
 }
 
 TEST(SkinnedMeshVertex, StrideIs64)
 {
     EXPECT_EQ(sizeof(SkinnedMeshVertex), 64u);
+    EXPECT_EQ(offsetof(SkinnedMeshVertex, point), 0u);
+    EXPECT_EQ(offsetof(SkinnedMeshVertex, normal), 12u);
+    EXPECT_EQ(offsetof(SkinnedMeshVertex, uv), 24u);
+    EXPECT_EQ(offsetof(SkinnedMeshVertex, tangent), 32u);
+    EXPECT_EQ(offsetof(SkinnedMeshVertex, joints), 48u);
+    EXPECT_EQ(offsetof(SkinnedMeshVertex, packedWeights), 52u);
 }
 
 TEST(SkinnedMeshVertex, PackWeightsSumTo255)
