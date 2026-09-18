@@ -202,6 +202,7 @@ namespace Dark
 
     D3D12_CPU_DESCRIPTOR_HANDLE IblBakePipeline::rtvCpu(uint32_t index) const
     {
+        DE_ASSERT(index < kRtvCount);
         D3D12_CPU_DESCRIPTOR_HANDLE h = m_rtvStart;
         h.ptr += static_cast<SIZE_T>(index) * m_rtvIncr;
         return h;

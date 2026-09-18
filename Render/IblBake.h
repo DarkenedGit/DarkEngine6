@@ -29,6 +29,9 @@ namespace Dark
 
     namespace IblBake
     {
+        // False if sizes/samples are 0, prefilterMips*6 exceeds the 30-slot RTV heap, or mips exceed log2(prefilterSize)+1.
+        bool validateSettings(const IblBakeSettings& settings);
+
         bool generateBrdfLut(float* rgOut, uint32_t size, uint32_t sampleCount);
         Math::Vector2f integrateBrdf(float ndotV, float roughness, uint32_t sampleCount);
 

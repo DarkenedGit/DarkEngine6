@@ -27,6 +27,7 @@ using Dark::IblBake::convolveIrradianceUniformWhite;
 using Dark::IblBake::generateBrdfLut;
 using Dark::IblBake::integrateBrdf;
 using Dark::IblBake::sampleEquirect;
+using Dark::IblBake::validateSettings;
 using Dark::Math::Pi;
 using Dark::Math::Vector2f;
 using Dark::Math::Vector3f;
@@ -169,6 +170,21 @@ TEST(Ibl, Bake_NullRenderer_ReturnsFalse)
     GpuIbl ibl;
     EXPECT_FALSE(ibl.bake(nullptr, img));
     EXPECT_FALSE(ibl.isReady());
+}
+
+TEST(Ibl, BakeSettings_RejectsRtvOverflow)
+{
+    IblBakeSettings s{};
+    EXPECT_TRUE(validateSettings(s));
+    s.prefilterMips = 6;
+    EXPECT_FALSE(validateSettings(s));
+    s.prefilterMips = 5;
+    s.prefilterSize = 8; // log2(8)+1 = 4 mips (8,4,2,1)
+    EXPECT_FALSE(validateSettings(s));
+    s.prefilterMips = 4;
+    EXPECT_TRUE(validateSettings(s));
+    s.prefilterMips = 0;
+    EXPECT_FALSE(validateSettings(s));
 }
 
 TEST(IblSampling, Hammersley_First)

@@ -1,6 +1,7 @@
 #include "Render/IblBake.h"
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
+#include "Render/IblBakePipeline.h"
 
 #include <cmath>
 #include <cstring>
@@ -19,6 +20,22 @@ namespace Dark
 
     namespace IblBake
     {
+
+        bool validateSettings(const IblBakeSettings& settings)
+        {
+            if (settings.equirectToCubeSize == 0 || settings.irradianceSize == 0 || settings.prefilterSize == 0 || settings.prefilterMips == 0
+                || settings.sampleCountIrr == 0 || settings.sampleCountPref == 0)
+                return false;
+            // Divide: prefilterMips * 6 can overflow uint32 for huge mips.
+            if (settings.prefilterMips > IblBakePipeline::kRtvCount / 6u)
+                return false;
+            uint32_t maxMips = 0;
+            for (uint32_t s = settings.prefilterSize; s > 0; s >>= 1)
+                ++maxMips;
+            if (settings.prefilterMips > maxMips)
+                return false;
+            return true;
+        }
 
         Math::Vector2f integrateBrdf(float ndotV, float roughness, uint32_t sampleCount)
         {

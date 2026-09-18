@@ -152,8 +152,7 @@ namespace Dark
             DE_LOG_ERROR(LogCategory::Render, "Ibl: failed to load '{}' — using ambient", "equirect");
             return false;
         }
-        if (settings.equirectToCubeSize == 0 || settings.irradianceSize == 0 || settings.prefilterSize == 0 || settings.prefilterMips == 0
-            || settings.sampleCountIrr == 0 || settings.sampleCountPref == 0)
+        if (!IblBake::validateSettings(settings))
         {
             DE_LOG_ERROR(LogCategory::Render, "Ibl: bake failed (null renderer / PSO)");
             return false;
