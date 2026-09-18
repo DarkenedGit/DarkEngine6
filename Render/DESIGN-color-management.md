@@ -91,7 +91,7 @@ Related RFC conflicts this document **supersedes** (C0):
 - `DESIGN-deferred-renderer.md` **K4** froze RT0 as `R8G8B8A8_UNORM` (not `_SRGB`) so an sRGB RT0 would not double-encode today’s UNORM textures. **C2 replaces K4:** once source SRVs decode, RT0 *must* be `_SRGB` views on a TYPELESS resource. An engineer with both RFCs open follows **this document**, not K4.
 - **K9** (“do not fix color space in the deferred migration”) and the K10 reading of Narkowicz as a display curve on gamma-ish HDR are closed. Working space is linear Rec.709; ACES is RRT+ODT on linear HDR (C1/C3).
 - `DESIGN-local-lights.md` **L21** kept GGX in the UNORM-ish space and said “when the sRGB/linear follow-up lands, add `1/π` and retune Environment / candela.” This RFC **is** that follow-up for color space only. **Do not add `1/π` here** (C14). Strike L21’s “when linear lands” sentence in a one-line sibling edit: it now points at this RFC, then IBL.
-- `DESIGN-ibl.md` currently depends on color-management but never mentions `1/π`. **Required amendment** (same PR5 docs pass): IBL gains an explicit decision to multiply Lambert/GGX diffuse by `1/π` and retune sun/ambient/candela **in the same IBL PR**, and to flip `PbrLighting_DiffuseHasNoInvPi`.
+- `DESIGN-ibl.md` currently depends on color-management but never mentions `1/π`. **Required amendment** (same PR5 docs pass): IBL gains an explicit decision to multiply Lambert/GGX diffuse by `1/π` and retune sun/ambient/candela in IBL-stack **PR3** (before bind), and to flip `PbrLighting_DiffuseHasNoInvPi`.
 - `DESIGN-pbr-roadmap.md` item 1: this RFC is P0 because wrong color space poisons every later BRDF/IBL constant.
 - In-tree `Render/DESIGN-color-management.md` rev 1 still says IEC **60966** and is replaced by this text in PR5.
 
@@ -347,7 +347,7 @@ Rationale: this cut is a pure color-space A/B. Adding π here would darken the f
 
 **Ownership (L21 currently has none):** `DESIGN-ibl.md` depends on this RFC and never mentions `1/π`, Environment, or candela. Required sibling edits (PR5 docs, not this color-space code):
 
-1. **IBL RFC** gains an explicit decision: *on a linear working space, multiply Lambert/GGX diffuse by `1/π` and retune sun / ambient / candela in the same IBL PR; flip `PbrLighting_DiffuseHasNoInvPi`.*
+1. **IBL RFC** gains an explicit decision: *on a linear working space, multiply Lambert/GGX diffuse by `1/π` and retune sun / ambient / candela in IBL-stack **PR3** (before bind); flip `PbrLighting_DiffuseHasNoInvPi`.*
 2. **Local-lights L21** strikes “when the sRGB/linear follow-up lands, add `1/π`…” and points here (color space) then IBL (π + retune).
 
 A unit test `PbrLighting_DiffuseHasNoInvPi` documents current energy: with `n=l=v`, roughness 1, metallic 0, `F0=0.04`, `lightColor=1`, `pbrEvaluate ≈ albedo*0.96 + small spec`, **not** `albedo/π`. IBL RFC flips that test.
@@ -643,7 +643,7 @@ No serialization format version bump for scene JSON. Lights already store float 
 | HUD white 1×1 (HealthHud, CrosshairHud, MainMenu) | 255,255,255,255 | `UNORM` | `UNORM` | no | 1 | `createSolidColor(..., TextureUsage::Hud)`. Tint from `UiPalette` is display-referred (`uiRgb8` = `c/255`). |
 | Loading logo / font | display-referred uint8 | `UNORM` | `UNORM` | no | font in `.r` | `LoadingScreen.cpp`. `DESIGN-loading-screen.md`: do **not** create `_SRGB`. Font is mono coverage. |
 | ImGui fonts / atlas | display-referred | ImGui DX12 backend UNORM | UNORM | no | coverage | `ImGuiHost.cpp` `RTVFormat = UNORM`. |
-| IBL cubemaps / HDRI (IBL RFC) | float linear | `R16G16B16A16_FLOAT` | FLOAT | never `_SRGB` | n/a | Equirect `.hdr/.exr`. |
+| IBL cubemaps / HDRI (IBL RFC) | float linear | `R16G16B16A16_FLOAT` | FLOAT | never `_SRGB` | n/a | Equirect Radiance `.hdr` only. |
 
 ### Render targets
 
@@ -954,7 +954,7 @@ Other visual:
 | **C11** | Look darkening is **intentional**. `legacyUnormAlbedo` for A/B via **`GpuResourceCache::setAlbedoSamplingRaw`**, which **stores `m_albedoSamplingRaw`** (same lifetime as `m_shadowCpu`) and re-applies after later `ensureMaterial` pack. Terrain: `setLayerSamplingRaw(ID3D12Device*, bool)`; host re-calls after `createDefault`. Not per-draw. No Environment retune in this RFC. | Isolates color-space A/B. Without persist, new lanterns/spawns would lie about the A/B flag. |
 | **C12** | **`-forward`**: same linear lighting, **`ENCODE_SRGB=1`** via `D3D_SHADER_MACRO` when PSO target is UNORM. Encode **every** RGB return including lighting-off. HDR PSOs encode 0. Sprite/HUD/splash never encode. Opaque forward color format is already UNORM, so the define is unconditional there. **OETF is per-draw; UNORM alpha blend stays gamma** (rollback only). | `ShaderCompile` today passes `pDefines = nullptr`. Rollback path must not dump linear. |
 | **C13** | UI / ImGui / debug overlay / loading screen / crosshair / HealthHud / MainMenu / Sandbox2D **and Editor 2D checkers** = **display-referred**, `TextureUsage::Hud`, no `_SRGB`. Overlay G-buffer albedo = raw UNORM. 3D terrain `CreateChecker` stays Albedo. | Post-tonemap UNORM. Same procedural-checker bytes, opposite usage. Loading-screen RFC already forbade `_SRGB`. |
-| **C14** | **Do not add `1/π`.** Defer to IBL RFC, which **must gain an explicit π + candela-retune decision**; strike L21’s “when linear lands” sentence. Lock with `PbrLighting_DiffuseHasNoInvPi`. | Two look changes in one PR would make soak unreadable. π currently has no owner in `DESIGN-ibl.md`. |
+| **C14** | **Do not add `1/π`.** π + candela retune is IBL-stack **PR3** ([DESIGN-ibl.md](./DESIGN-ibl.md) rev 2), *before* bind (PR4) — not the bind PR. Strike L21’s “when linear lands” sentence. Lock with `PbrLighting_DiffuseHasNoInvPi`. | Two look changes in one PR would make soak unreadable. π is IBL-stack PR3, not the IBL bind PR. |
 | **C15** | IEC number is **61966-2-1** (draft rev 1 said 60966). Piecewise, not γ2.2. | Spec-correct; mid-grey 0.5 → 0.21404114048223255. |
 | **C16** | Lights, fog, sky, water body, Environment floats are **already linear**. Do not sRGB-decode them. | Analytic / candela; luma already Rec.709. |
 | **C17** | Particle vertex colors **linear**. Particle sprites are interned **Materials** (`ensureTexture(Albedo)`); Image Linear tag keeps UNORM. Blood color textures Albedo. | No `TextureUsage::Data` call site in `ParticleMaterials.cpp`. |

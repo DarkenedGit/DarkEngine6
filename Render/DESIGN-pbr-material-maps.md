@@ -1003,7 +1003,7 @@ Independently **reviewable** slices. **PR4 is mergable alone** (5-slot heap, `SH
 - In-tree (replaced): `Render/DESIGN-pbr-material-maps.md` rev 1
 - [DESIGN-pbr-roadmap.md](./DESIGN-pbr-roadmap.md) item 3
 - [DESIGN-color-management.md](./DESIGN-color-management.md) TextureUsage + linear Rec.709
-- [DESIGN-ibl.md](./DESIGN-ibl.md) — parallel; consume AO/rough; owns `1/π`
+- [DESIGN-ibl.md](./DESIGN-ibl.md) (**rev 2**) — parallel; consume AO/rough; owns `1/π` (IBL-stack PR3, not maps)
 - [DESIGN-ssao.md](./DESIGN-ssao.md) — later; multiplies the same ambient path, does not replace MRT3
 - glTF 2.0 metallic-roughness, occlusion, normal, emissive
 - Filament materials (`occlusion` is SSAO+spec AO on IBL; we apply authored AO to `ambientColor` until IBL)

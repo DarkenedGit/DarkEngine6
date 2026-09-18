@@ -16,7 +16,7 @@ Track the next seven deferred-PBR features in **build order**. Each child RFC is
 | # | RFC | Why this order |
 |---|-----|----------------|
 | 1 | [DESIGN-color-management.md](./DESIGN-color-management.md) | **Implemented** (execute-plan 5124c804 PRs 1–4). Wrong color space poisons every later BRDF/IBL constant |
-| 2 | [DESIGN-ibl.md](./DESIGN-ibl.md) | Replaces flat ambient; needs linear HDR sampling |
+| 2 | [DESIGN-ibl.md](./DESIGN-ibl.md) (**rev 2**) | Replaces flat ambient; needs linear HDR sampling |
 | 3 | [DESIGN-pbr-material-maps.md](./DESIGN-pbr-material-maps.md) | **rev 4**, parallel with IBL. Authored normal/ORM/AO/emissive into G-buffer |
 | 4 | [DESIGN-ssao.md](./DESIGN-ssao.md) | Multiplies ambient/IBL only; needs good normals |
 | 5 | [DESIGN-auto-exposure.md](./DESIGN-auto-exposure.md) | Makes bloom + ACES usable across lighting ranges |
