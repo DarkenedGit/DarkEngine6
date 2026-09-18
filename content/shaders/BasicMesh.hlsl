@@ -17,12 +17,20 @@ cbuffer FrameConstants : register(b0)
     float    _pad1;
     float3   cameraPos;
     float    lighting; // 1 = lit, 0 = albedo only
+    float    normalScale;
+    float    ao;
+    float    alphaCutoff;
+    float    alphaModeMask;
+    float    emissive;
 };
 
-Texture2D    gAlbedo : register(t0);
-SamplerState gSamp   : register(s0);
+Texture2D    gAlbedo   : register(t0);
+Texture2D    gNormal   : register(t1);
+Texture2D    gOrm      : register(t2);
+Texture2D    gEmissive : register(t3);
+SamplerState gSamp     : register(s0);
 
-#define SHADOW_T t1
+#define SHADOW_T t4
 #include "Shadow.hlsli"
 
 struct VSInput

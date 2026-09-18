@@ -5,6 +5,7 @@
 #include "Render/GpuMaterial.h"
 #include "Render/GpuModel.h"
 #include "Render/PackedSrvHeap.h"
+#include "Render/Texture2D.h"
 
 #include <cstdint>
 #include <d3d12.h>
@@ -18,7 +19,6 @@ namespace Dark
     class Renderer;
     class Material;
     class Image;
-    class Texture2D;
     class Model;
 
     enum class CachedTextureReuse : uint8_t
@@ -52,6 +52,10 @@ namespace Dark
         GpuMaterial*               material(AssetID materialId) const;
         GpuModel*                  model(AssetID modelId) const;
         AssetRef<Material>         cpuMaterial(AssetID materialId) const;
+
+        const Texture2D* defaultNormal() const { return m_defaultNormal.get(); }
+        const Texture2D* defaultOrm() const { return m_defaultOrm.get(); }
+        const Texture2D* defaultEmissive() const { return m_defaultEmissive.get(); }
 
         void bindMaterial(ID3D12GraphicsCommandList* cmd, const Material& material, UINT albedoSrvRootIndex) const;
         void bindMaterial(ID3D12GraphicsCommandList* cmd, AssetID materialId, UINT albedoSrvRootIndex) const;
@@ -99,9 +103,15 @@ namespace Dark
             std::unique_ptr<GpuModel> gpu;
         };
 
+        bool ensureDefaultMaps();
+        const Texture2D* resolveMapOrDefault(const AssetRef<Image>& image, Color::TextureUsage usage, const Texture2D* fallback);
+
         Renderer*                   m_renderer = nullptr;
         D3D12_CPU_DESCRIPTOR_HANDLE m_shadowCpu{};
         bool                        m_albedoSamplingRaw = false;
+        std::unique_ptr<Texture2D>  m_defaultNormal;
+        std::unique_ptr<Texture2D>  m_defaultOrm;
+        std::unique_ptr<Texture2D>  m_defaultEmissive;
         std::unordered_map<AssetID, TexEntry> m_textures;
         std::unordered_map<AssetID, MatEntry> m_materials;
         std::unordered_map<AssetID, ModEntry> m_models;

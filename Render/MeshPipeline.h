@@ -33,7 +33,7 @@ namespace Dark
         static constexpr UINT kRootConstants = 0;
         static constexpr UINT kRootAlbedoSrv = 1;
         static constexpr UINT kRootShadowCbv = 2;
-        static constexpr UINT kSrvCount      = 2; // albedo + shadow
+        static constexpr UINT kSrvCount      = 5; // albedo + normal + orm + emissive + shadow
 
         MeshPipeline() = default;
 

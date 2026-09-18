@@ -11,6 +11,10 @@ cbuffer FrameConstants : register(b0)
     float4x4 prevWorldViewProj;
     float    roughness;
     float    metallic;
+    float    ao;
+    float    normalScale;
+    float    alphaCutoff;
+    float    alphaModeMask;
 };
 
 cbuffer BonePalette : register(b2)
@@ -19,8 +23,11 @@ cbuffer BonePalette : register(b2)
     float4x4 bonePrev[64];
 };
 
-Texture2D    gAlbedo : register(t0);
-SamplerState gSamp   : register(s0);
+Texture2D    gAlbedo   : register(t0);
+Texture2D    gNormal   : register(t1);
+Texture2D    gOrm      : register(t2);
+Texture2D    gEmissive : register(t3);
+SamplerState gSamp     : register(s0);
 
 struct VSInput
 {

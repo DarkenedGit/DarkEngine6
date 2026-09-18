@@ -15,21 +15,24 @@ namespace Dark
     // Interleaved vertex matching the BasicMesh shader input layout.
     struct MeshVertex
     {
-        Math::Vector3f point;
-        Math::Vector3f normal;
-        Math::Vector2f uv;
+        Math::Vector3f point;   // 0
+        Math::Vector3f normal;  // 12
+        Math::Vector2f uv;      // 24
+        Math::Vector4f tangent; // 32 xyz + w bitangent sign
     };
+    static_assert(sizeof(MeshVertex) == 48, "static VB stride");
 
     struct SkinnedMeshVertex
     {
-        Math::Vector3f point;
-        Math::Vector3f normal;
-        Math::Vector2f uv;
-        uint32_t       joints;
-        uint32_t       packedWeights;
-        uint32_t       pad[2];
+        Math::Vector3f point;         // 0
+        Math::Vector3f normal;        // 12
+        Math::Vector2f uv;            // 24
+        Math::Vector4f tangent;       // 32
+        uint32_t       joints;        // 48
+        uint32_t       packedWeights; // 52
+        uint32_t       pad[2];        // 56; 8 bytes → 64
     };
-    static_assert(sizeof(SkinnedMeshVertex) == 48, "skinned VB stride");
+    static_assert(sizeof(SkinnedMeshVertex) == 64, "skinned VB stride");
 
     uint32_t packBlendWeightsUnorm8(float w0, float w1, float w2, float w3);
 

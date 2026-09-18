@@ -1,4 +1,4 @@
-// Shared CSM receiver. Define SHADOW_T before including (t1 mesh, t5 terrain).
+// Shared CSM receiver. Define SHADOW_T before including (t4 mesh, t5 terrain).
 #ifndef DE_SHADOW_HLSLI
 #define DE_SHADOW_HLSLI
 

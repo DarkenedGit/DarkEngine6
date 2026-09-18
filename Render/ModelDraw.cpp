@@ -28,12 +28,16 @@ namespace Dark
 				applyMaterialSurface(*mat, cb);
 			else
 			{
-				cb.color[0]  = 1.0f;
-				cb.color[1]  = 1.0f;
-				cb.color[2]  = 1.0f;
-				cb.color[3]  = 0.0f;
-				cb.roughness = 1.0f;
-				cb.metallic  = 0.0f;
+				cb.color[0]      = 1.0f;
+				cb.color[1]      = 1.0f;
+				cb.color[2]      = 1.0f;
+				cb.color[3]      = 0.0f;
+				cb.roughness     = 1.0f;
+				cb.metallic      = 0.0f;
+				cb.ao            = 1.0f;
+				cb.normalScale   = 1.0f;
+				cb.alphaCutoff   = 0.5f;
+				cb.alphaModeMask = 0.0f;
 			}
 		}
 	} // namespace

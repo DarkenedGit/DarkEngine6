@@ -15,8 +15,8 @@ namespace Dark
     {
         ComPtr<ID3D12DescriptorHeap> heap;
         D3D12_GPU_DESCRIPTOR_HANDLE  gpu{};
-        UINT                         shadowSlot = 1;
-        UINT                         srvCount   = 2;
+        UINT                         shadowSlot = 4; // GpuMaterial last slot; terrain sets 5
+        UINT                         srvCount   = 5;
     };
 
     bool packFromCpuHandles(ID3D12Device* device, PackedSrvHeap& out, const D3D12_CPU_DESCRIPTOR_HANDLE* src, UINT count);

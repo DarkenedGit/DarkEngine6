@@ -10,13 +10,19 @@ namespace Dark
     {
         float worldViewProj[16];
         float world[16];
-        float color[4];
+        float color[4]; // rgb linear tint; a = emissiveScalar * Rec.709 luma(emissiveColor)
         float prevWorldViewProj[16];
         float roughness;
         float metallic;
+        float ao;
+        float normalScale;
+        float alphaCutoff;
+        float alphaModeMask;
     };
 
-    static_assert(sizeof(MeshGBufferConstants) == 54 * sizeof(float), "gbuffer mesh CB");
+    static_assert(sizeof(MeshGBufferConstants) == 58 * sizeof(float), "gbuffer mesh CB");
+    // Skinned G-buffer RS: 58 constants + 1 table + 2 shadow CBV + 2 bone CBV = 63 (<= 64).
+    static_assert(58 + 1 + 2 + 2 <= 64, "skinned G-buffer root signature DWORD budget");
 
     struct MeshFrameConstants
     {
@@ -29,8 +35,14 @@ namespace Dark
         float pad1;
         float cameraPos[3];
         float lighting; // 1 = Lambert+shadow, 0 = albedo only
+        // Append-only after the frozen 48 floats (must match BasicMesh.hlsl bit-for-bit).
+        float normalScale;
+        float ao;
+        float alphaCutoff;
+        float alphaModeMask;
+        float emissive; // same premultiplied scalar as G-buffer color.a
     };
 
-    static_assert(sizeof(MeshFrameConstants) == 48 * sizeof(float), "root constant size");
+    static_assert(sizeof(MeshFrameConstants) == 53 * sizeof(float), "forward mesh CB");
 
 } // namespace Dark

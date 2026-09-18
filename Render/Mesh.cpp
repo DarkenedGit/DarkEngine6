@@ -174,12 +174,18 @@ namespace Dark
 			return false;
 		}
 		const size_t nVerts = data.positions.size();
+		std::vector<Vector4f> tangents;
+		if (data.tangents.size() == nVerts)
+			tangents = data.tangents;
+		else if (!detail::computeTangents(data, tangents))
+			tangents.assign(nVerts, Vector4f(1.0f, 0.0f, 0.0f, 1.0f));
 		std::vector<MeshVertex> verts(nVerts);
 		for (size_t i = 0; i < nVerts; ++i)
 		{
 			verts[i].point = data.positions[i];
 			verts[i].normal = data.normals[i];
 			verts[i].uv = (i < data.uvs.size()) ? data.uvs[i] : Vect2f::ZERO;
+			verts[i].tangent = tangents[i];
 		}
 		return uploadBuffers(renderer, verts.data(), verts.size() * sizeof(MeshVertex), sizeof(MeshVertex), data.indices.data(), static_cast<uint32_t>(data.indices.size()), out);
 	}
@@ -199,12 +205,18 @@ namespace Dark
 			return false;
 		}
 		const size_t nVerts = data.positions.size();
+		std::vector<Vector4f> tangents;
+		if (data.tangents.size() == nVerts)
+			tangents = data.tangents;
+		else if (!detail::computeTangents(data, tangents))
+			tangents.assign(nVerts, Vector4f(1.0f, 0.0f, 0.0f, 1.0f));
 		std::vector<SkinnedMeshVertex> verts(nVerts);
 		for (size_t i = 0; i < nVerts; ++i)
 		{
 			verts[i].point = data.positions[i];
 			verts[i].normal = data.normals[i];
 			verts[i].uv = (i < data.uvs.size()) ? data.uvs[i] : Vect2f::ZERO;
+			verts[i].tangent = tangents[i];
 			verts[i].joints = data.jointPacked[i];
 			const auto& w = data.weights[i];
 			verts[i].packedWeights = packBlendWeightsUnorm8(w.x, w.y, w.z, w.w);

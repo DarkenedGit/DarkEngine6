@@ -26,6 +26,11 @@ namespace Dark
             dst.ptr += static_cast<SIZE_T>(GpuMaterial::kAlbedoSlot) * incr;
             device->CopyDescriptorsSimple(1, dst, src, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         }
+
+        AssetID mapAssetId(const AssetRef<Image>& image)
+        {
+            return (image && image->id != NULL_ASSET) ? image->id : NULL_ASSET;
+        }
     } // namespace
 
     GpuResourceCache::GpuResourceCache(Renderer& renderer)
@@ -102,6 +107,60 @@ namespace Dark
         return true;
     }
 
+    bool GpuResourceCache::ensureDefaultMaps()
+    {
+        if (m_defaultNormal && m_defaultNormal->valid() && m_defaultOrm && m_defaultOrm->valid() && m_defaultEmissive && m_defaultEmissive->valid())
+            return true;
+        if (!m_renderer)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureDefaultMaps: no renderer");
+            return false;
+        }
+        if (!m_defaultNormal)
+            m_defaultNormal = std::make_unique<Texture2D>();
+        if (!m_defaultNormal->valid() && !m_defaultNormal->createSolidColor(*m_renderer, 128, 128, 255, 255, Color::TextureUsage::Normal))
+        {
+            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureDefaultMaps: default normal failed");
+            return false;
+        }
+        if (!m_defaultOrm)
+            m_defaultOrm = std::make_unique<Texture2D>();
+        if (!m_defaultOrm->valid() && !m_defaultOrm->createSolidColor(*m_renderer, 255, 255, 255, 255, Color::TextureUsage::Orm))
+        {
+            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureDefaultMaps: default ORM failed");
+            return false;
+        }
+        if (!m_defaultEmissive)
+            m_defaultEmissive = std::make_unique<Texture2D>();
+        if (!m_defaultEmissive->valid() && !m_defaultEmissive->createSolidColor(*m_renderer, 255, 255, 255, 255, Color::TextureUsage::Emissive))
+        {
+            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureDefaultMaps: default emissive failed");
+            return false;
+        }
+        return true;
+    }
+
+    const Texture2D* GpuResourceCache::resolveMapOrDefault(const AssetRef<Image>& image, Color::TextureUsage usage, const Texture2D* fallback)
+    {
+        if (!image || image->id == NULL_ASSET)
+            return fallback;
+        if (!ensureTexture(image, usage))
+        {
+            DE_LOG_WARN(LogCategory::Render, "GpuResourceCache: map id={} usage={} upload failed, using default", image->id, static_cast<unsigned>(usage));
+            return fallback;
+        }
+        const auto it = m_textures.find(image->id);
+        if (it == m_textures.end() || !it->second.gpu || !it->second.gpu->valid())
+            return fallback;
+        if (it->second.usage != usage)
+        {
+            DE_LOG_WARN(LogCategory::Render, "GpuResourceCache: map id={} keeping first usage {}, packing default for {}", image->id,
+                        static_cast<unsigned>(it->second.usage), static_cast<unsigned>(usage));
+            return fallback;
+        }
+        return it->second.gpu.get();
+    }
+
     bool GpuResourceCache::ensureMaterial(const AssetRef<Material>& material)
     {
         if (!material || material->id == NULL_ASSET)
@@ -109,37 +168,82 @@ namespace Dark
             DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureMaterial: null or unregistered material");
             return false;
         }
-        const auto it = m_materials.find(material->id);
+
+        const AssetID albedoId = mapAssetId(material->albedo());
+        const AssetID normalId = mapAssetId(material->normalImage());
+        const AssetID ormId    = mapAssetId(material->ormImage());
+        const AssetID emisId   = mapAssetId(material->emissiveImage());
+
+        auto it = m_materials.find(material->id);
         if (it != m_materials.end() && it->second.gpu && it->second.gpu->isValid())
-            return true;
+        {
+            const AssetID* ids = it->second.gpu->packedMapIds();
+            if (ids[GpuMaterial::kAlbedoSlot] == albedoId && ids[GpuMaterial::kNormalSlot] == normalId && ids[GpuMaterial::kOrmSlot] == ormId
+                && ids[GpuMaterial::kEmissiveSlot] == emisId)
+                return true;
+            unregisterPackedHeap(&it->second.gpu->packedHeap());
+        }
+
+        if (!ensureDefaultMaps())
+            return false;
 
         const AssetRef<Image>& albedo = material->albedo();
-        if (!albedo || albedo->id == NULL_ASSET || !ensureTexture(albedo, Color::TextureUsage::Albedo))
+        if (!albedo || albedoId == NULL_ASSET || !ensureTexture(albedo, Color::TextureUsage::Albedo))
         {
             DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureMaterial: id={} albedo upload failed", material->id);
             return false;
         }
-        std::shared_ptr<Texture2D> tex = texture(albedo->id);
-        if (!tex || !tex->valid() || !m_renderer || !m_renderer->device())
+        std::shared_ptr<Texture2D> albedoTex = texture(albedoId);
+        if (!albedoTex || !albedoTex->valid() || !m_renderer || !m_renderer->device())
         {
             DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureMaterial: no device/texture");
             return false;
         }
-
-        auto gpu = std::make_unique<GpuMaterial>();
-        if (!gpu->pack(m_renderer->device(), *tex))
+        const auto albedoIt = m_textures.find(albedoId);
+        if (albedoIt != m_textures.end() && albedoIt->second.usage != Color::TextureUsage::Albedo)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureMaterial: id={} albedo lost to first-usage-wins", material->id);
             return false;
+        }
 
-        registerPackedHeap(&gpu->packedHeap());
+        const Texture2D* normalTex = resolveMapOrDefault(material->normalImage(), Color::TextureUsage::Normal, m_defaultNormal.get());
+        const Texture2D* ormTex    = resolveMapOrDefault(material->ormImage(), Color::TextureUsage::Orm, m_defaultOrm.get());
+        const Texture2D* emisTex   = resolveMapOrDefault(material->emissiveImage(), Color::TextureUsage::Emissive, m_defaultEmissive.get());
+        if (!normalTex || !ormTex || !emisTex)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureMaterial: id={} missing default map SRV", material->id);
+            return false;
+        }
+
+        GpuMaterial* packed = nullptr;
+        std::unique_ptr<GpuMaterial> created;
+        if (it != m_materials.end() && it->second.gpu)
+            packed = it->second.gpu.get();
+        else
+        {
+            created = std::make_unique<GpuMaterial>();
+            packed  = created.get();
+        }
+
+        if (!packed->pack(m_renderer->device(), *albedoTex, *normalTex, *ormTex, *emisTex))
+            return false;
+        packed->setPackedMapIds(albedoId, normalId, ormId, emisId);
+
+        registerPackedHeap(&packed->packedHeap());
         if (m_shadowCpu.ptr != 0)
-            copyShadow(m_renderer->device(), gpu->packedHeap(), m_shadowCpu);
+            copyShadow(m_renderer->device(), packed->packedHeap(), m_shadowCpu);
         if (m_albedoSamplingRaw)
-            copyAlbedoSlot(m_renderer->device(), *gpu, *tex, true);
+            copyAlbedoSlot(m_renderer->device(), *packed, *albedoTex, true);
 
-        MatEntry entry{};
-        entry.cpu = material;
-        entry.gpu = std::move(gpu);
-        m_materials[material->id] = std::move(entry);
+        if (created)
+        {
+            MatEntry entry{};
+            entry.cpu                 = material;
+            entry.gpu                 = std::move(created);
+            m_materials[material->id] = std::move(entry);
+        }
+        else
+            it->second.cpu = material;
         return true;
     }
 
@@ -345,6 +449,9 @@ namespace Dark
         m_models.clear();
         m_materials.clear();
         m_textures.clear();
+        m_defaultNormal.reset();
+        m_defaultOrm.reset();
+        m_defaultEmissive.reset();
         m_shadowCpu     = {};
         m_shadowPatches = 0;
     }

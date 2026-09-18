@@ -14,9 +14,14 @@ uint32_t weightSum(uint32_t packed)
 }
 } // namespace
 
-TEST(SkinnedMeshVertex, StrideIs48)
+TEST(MeshVertex, StrideIs48)
 {
-    EXPECT_EQ(sizeof(SkinnedMeshVertex), 48u);
+    EXPECT_EQ(sizeof(MeshVertex), 48u);
+}
+
+TEST(SkinnedMeshVertex, StrideIs64)
+{
+    EXPECT_EQ(sizeof(SkinnedMeshVertex), 64u);
 }
 
 TEST(SkinnedMeshVertex, PackWeightsSumTo255)
