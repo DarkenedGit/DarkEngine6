@@ -1,4 +1,5 @@
 #include "Assets/GltfMaterialSave.h"
+#include "Assets/Image.h"
 #include "Assets/Material.h"
 #include "Assets/Model.h"
 #include "Core/Log.h"
@@ -72,6 +73,33 @@ bool collectMaterials(const Model& model, std::unordered_map<int, const Material
     return true;
 }
 
+bool hasTextureIndex(const json& obj, const char* key)
+{
+    if (!obj.contains(key) || !obj[key].is_object())
+        return false;
+    return obj[key].contains("index");
+}
+
+bool albedoLooksAuthored(const Material& mat)
+{
+    const AssetRef<Image>& albedo = mat.albedo();
+    if (!albedo || !albedo->valid() || !albedo->pixels())
+        return false;
+    if (albedo->width() != 1u || albedo->height() != 1u)
+        return true;
+    const uint8_t* px = albedo->pixels();
+    return px[0] != 255 || px[1] != 255 || px[2] != 255 || px[3] != 255;
+}
+
+void warnLiveMapNotInJson()
+{
+    static bool s_warned = false;
+    if (s_warned)
+        return;
+    s_warned = true;
+    DE_LOG_WARN("GltfMaterialSave: live Image assigned but JSON has no texture index; writing factors only");
+}
+
 bool patchMaterialsObject(json& root, const Model& model, std::string* errorOut)
 {
     if (!root.is_object())
@@ -114,6 +142,36 @@ bool patchMaterialsObject(json& root, const Model& model, std::string* errorOut)
         pbr["metallicFactor"]  = mat->metallic();
         pbr["roughnessFactor"] = mat->roughness();
         jm["alphaMode"]        = alphaModeName(mat->alphaMode());
+        jm["alphaCutoff"]      = mat->alphaCutoff();
+        const float  es = mat->emissive();
+        const float* e  = mat->emissiveColor();
+        jm["emissiveFactor"] = json::array({ e[0] * es, e[1] * es, e[2] * es });
+
+        if (jm.contains("normalTexture") && jm["normalTexture"].is_object())
+            jm["normalTexture"]["scale"] = mat->normalScale();
+        else if (mat->normalScale() != 1.0f)
+        {
+            jm["normalTexture"]          = json::object();
+            jm["normalTexture"]["scale"] = mat->normalScale();
+        }
+
+        if (jm.contains("occlusionTexture") && jm["occlusionTexture"].is_object())
+            jm["occlusionTexture"]["strength"] = mat->ao();
+        else if (mat->ao() != 1.0f)
+        {
+            jm["occlusionTexture"]             = json::object();
+            jm["occlusionTexture"]["strength"] = mat->ao();
+        }
+
+        if (!hasTextureIndex(pbr, "baseColorTexture") && albedoLooksAuthored(*mat))
+            warnLiveMapNotInJson();
+        if (!hasTextureIndex(jm, "normalTexture") && mat->normalImage() && mat->normalImage()->valid())
+            warnLiveMapNotInJson();
+        if (!hasTextureIndex(jm, "emissiveTexture") && mat->emissiveImage() && mat->emissiveImage()->valid())
+            warnLiveMapNotInJson();
+        const bool jsonHasOrm = hasTextureIndex(pbr, "metallicRoughnessTexture") || hasTextureIndex(jm, "occlusionTexture");
+        if (!jsonHasOrm && mat->ormImage() && mat->ormImage()->valid())
+            warnLiveMapNotInJson();
     }
     return true;
 }

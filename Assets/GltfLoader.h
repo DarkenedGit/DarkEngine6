@@ -14,6 +14,13 @@
 namespace Dark
 {
 
+    struct GltfImageBlob
+    {
+        std::filesystem::path file;
+        std::vector<uint8_t>  bytes;
+        int                   imageIndex = -1;
+    };
+
     struct GltfCpuPrimitive
     {
         MeshData          mesh;
@@ -25,10 +32,22 @@ namespace Dark
         bool              doubleSided  = false;
         bool              skinned      = false;
         MaterialAlphaMode alphaMode    = MaterialAlphaMode::Opaque;
-        std::filesystem::path albedoFile;
-        std::vector<uint8_t>  albedoBytes; // embedded png/jpeg
-        int               imageIndex    = -1;
-        int               materialIndex = -1;
+        GltfImageBlob     albedo;
+        GltfImageBlob     normal;
+        GltfImageBlob     metallicRoughness;
+        GltfImageBlob     occlusion;
+        GltfImageBlob     emissive;
+        float             normalScale  = 1.0f;
+        float             ao           = 1.0f; // occlusionTexture.strength
+        float             alphaCutoff    = 0.5f;
+        float             emissiveColor[3]{ 1.0f, 1.0f, 1.0f };
+        float             emissiveScalar = 0.0f; // 1 if any emissiveFactor > 0 or emissive tex present
+        int               albedoImageIndex = -1;
+        int               mrImageIndex     = -1;
+        int               occImageIndex    = -1;
+        int               normalImageIndex = -1;
+        int               emisImageIndex   = -1;
+        int               materialIndex    = -1;
         std::string       materialName;
         std::string       meshName;
     };

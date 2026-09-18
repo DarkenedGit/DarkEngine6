@@ -4,6 +4,7 @@
 #include "Assets/Image.h"
 #include "Assets/ImageCache.h"
 #include "Core/Log.h"
+#include "Math/Color.h"
 #include "Math/Vector4f.h"
 
 #include <memory>
@@ -11,6 +12,27 @@
 
 namespace Dark
 {
+    namespace
+    {
+        AssetRef<Image> internGltfBlob(AssetManager& assets, const GltfImageBlob& blob, const std::string& pathKey, Color::ColorSpace space)
+        {
+            AssetRef<Image> img;
+            if (!blob.file.empty())
+                img = assets.loadImageFile(blob.file);
+            else if (!blob.bytes.empty())
+                img = assets.loadMemoryImage(ImageCache::gltfKey(pathKey, blob.imageIndex), blob.bytes.data(), blob.bytes.size());
+            if (!img || !img->valid())
+                return {};
+            img->setColorSpace(space);
+            return img;
+        }
+
+        bool blobPresent(const GltfImageBlob& blob)
+        {
+            return !blob.file.empty() || !blob.bytes.empty();
+        }
+    } // namespace
+
 
     Model::Model()
     {
@@ -61,16 +83,13 @@ namespace Dark
             else
                 part.name = "Part " + std::to_string(i);
 
-            AssetRef<Image> albedo;
-            if (!src.albedoFile.empty())
-                albedo = assets.loadImageFile(src.albedoFile);
-            else if (!src.albedoBytes.empty())
-            {
-                const std::string key = ImageCache::gltfKey(pathKey, src.imageIndex);
-                albedo                = assets.loadMemoryImage(key, src.albedoBytes.data(), src.albedoBytes.size());
-            }
+            AssetRef<Image> albedo = internGltfBlob(assets, src.albedo, pathKey, Color::ColorSpace::sRGB);
             if (!albedo || !albedo->valid())
+            {
                 albedo = assets.loadSolidImage(255, 255, 255, 255);
+                if (albedo && albedo->valid())
+                    albedo->setColorSpace(Color::ColorSpace::sRGB);
+            }
 
             auto mat = std::make_shared<Material>();
             if (!mat->createFromAlbedoImage(albedo, src.baseColor[0], src.baseColor[1], src.baseColor[2], src.baseColor[3]))
@@ -80,6 +99,35 @@ namespace Dark
             }
             mat->setMetallicRoughness(src.metallic, src.roughness);
             mat->setAlphaMode(src.alphaMode);
+            mat->setNormalScale(src.normalScale);
+            mat->setAo(src.ao);
+            mat->setAlphaCutoff(src.alphaCutoff);
+            mat->setEmissiveColor(src.emissiveColor[0], src.emissiveColor[1], src.emissiveColor[2]);
+            const bool hasEmisTex    = blobPresent(src.emissive);
+            const bool anyFactor     = src.emissiveColor[0] > 0.0f || src.emissiveColor[1] > 0.0f || src.emissiveColor[2] > 0.0f;
+            const bool defaultWhite  = src.emissiveColor[0] == 1.0f && src.emissiveColor[1] == 1.0f && src.emissiveColor[2] == 1.0f;
+            const bool emissiveOn    = src.emissiveScalar > 0.0f || hasEmisTex || (anyFactor && !defaultWhite);
+            mat->setEmissive(emissiveOn ? 1.0f : 0.0f);
+
+            if (AssetRef<Image> nrm = internGltfBlob(assets, src.normal, pathKey, Color::ColorSpace::Linear))
+                mat->setNormalImage(std::move(nrm));
+            if (AssetRef<Image> emis = internGltfBlob(assets, src.emissive, pathKey, Color::ColorSpace::sRGB))
+                mat->setEmissiveImage(std::move(emis));
+
+            AssetRef<Image> mr  = internGltfBlob(assets, src.metallicRoughness, pathKey, Color::ColorSpace::Linear);
+            AssetRef<Image> occ = internGltfBlob(assets, src.occlusion, pathKey, Color::ColorSpace::Linear);
+            if (mr || occ)
+            {
+                auto packed = std::make_shared<Image>();
+                if (packOrmImage(occ.get(), mr.get(), *packed))
+                {
+                    const int         ormIdx = src.materialIndex >= 0 ? src.materialIndex : static_cast<int>(i);
+                    const std::string ormKey = pathKey + "#orm" + std::to_string(ormIdx);
+                    packed                   = assets.internImage(std::move(packed), ormKey);
+                    if (packed)
+                        mat->setOrmImage(std::move(packed));
+                }
+            }
             const std::string matKey = (src.materialIndex >= 0)
                 ? pathKey + "#mat" + std::to_string(src.materialIndex)
                 : pathKey + "#prim" + std::to_string(i);

@@ -66,6 +66,19 @@ namespace Dark
             return true;
         }
 
+        bool unpackVec4(const cgltf_accessor* acc, std::vector<Math::Vector4f>& out)
+        {
+            if (!acc || acc->count == 0 || acc->type != cgltf_type_vec4)
+                return false;
+            std::vector<float> tmp(static_cast<size_t>(acc->count) * 4u);
+            if (cgltf_accessor_unpack_floats(acc, tmp.data(), tmp.size()) != tmp.size())
+                return false;
+            out.resize(acc->count);
+            for (cgltf_size i = 0; i < acc->count; ++i)
+                out[i] = Math::Vector4f(tmp[i * 4], tmp[i * 4 + 1], tmp[i * 4 + 2], tmp[i * 4 + 3]);
+            return true;
+        }
+
         bool unpackIndices(const cgltf_accessor* acc, uint32_t vertexCount, std::vector<uint32_t>& out)
         {
             if (!acc)
@@ -89,7 +102,7 @@ namespace Dark
             return out.size() >= 3;
         }
 
-        bool loadImageBytes(const cgltf_image* image, const std::filesystem::path& gltfPath, GltfCpuPrimitive& prim)
+        bool loadImageBytes(const cgltf_image* image, const std::filesystem::path& gltfPath, GltfImageBlob& blob)
         {
             if (!image)
                 return true;
@@ -110,14 +123,14 @@ namespace Dark
                     void*            decoded = nullptr;
                     if (outLen == 0 || cgltf_load_buffer_base64(&opt, outLen, b64, &decoded) != cgltf_result_success || !decoded)
                         return false;
-                    prim.albedoBytes.assign(static_cast<uint8_t*>(decoded), static_cast<uint8_t*>(decoded) + outLen);
+                    blob.bytes.assign(static_cast<uint8_t*>(decoded), static_cast<uint8_t*>(decoded) + outLen);
                     std::free(decoded);
                     return true;
                 }
                 std::vector<char> decodedUri(uri.begin(), uri.end());
                 decodedUri.push_back(0);
                 cgltf_decode_uri(decodedUri.data());
-                prim.albedoFile = gltfPath.parent_path() / decodedUri.data();
+                blob.file = gltfPath.parent_path() / decodedUri.data();
                 return true;
             }
             if (image->buffer_view)
@@ -125,10 +138,21 @@ namespace Dark
                 const uint8_t* data = cgltf_buffer_view_data(image->buffer_view);
                 if (!data)
                     return false;
-                prim.albedoBytes.assign(data, data + image->buffer_view->size);
+                blob.bytes.assign(data, data + image->buffer_view->size);
                 return true;
             }
             return true;
+        }
+
+        void tryLoadTexture(const cgltf_texture_view& view, const std::filesystem::path& gltfPath, const cgltf_data* data, GltfImageBlob& blob, int& imageIndex, const char* label)
+        {
+            imageIndex = -1;
+            if (!view.texture || !view.texture->image)
+                return;
+            imageIndex      = static_cast<int>(cgltf_image_index(data, view.texture->image));
+            blob.imageIndex = imageIndex;
+            if (!loadImageBytes(view.texture->image, gltfPath, blob))
+                DE_LOG_WARN("GltfLoader: failed to read {} texture", label);
         }
 
         void decomposeLocal(const Math::Matrix4f& m, Math::Vector3f& T, Math::Quaternion& R, Math::Vector3f& S)
@@ -551,6 +575,9 @@ namespace Dark
             const cgltf_accessor* uvAcc = findAttr(gp, cgltf_attribute_type_texcoord, 0);
             if (!unpackVec2(uvAcc, out.mesh.uvs) || out.mesh.uvs.size() != out.mesh.positions.size())
                 out.mesh.uvs.assign(out.mesh.positions.size(), Math::Vector2f(0.0f, 0.0f));
+            const cgltf_accessor* tanAcc = findAttr(gp, cgltf_attribute_type_tangent);
+            if (!unpackVec4(tanAcc, out.mesh.tangents) || out.mesh.tangents.size() != out.mesh.positions.size())
+                detail::computeTangents(out.mesh);
 
             if (skinned)
             {
@@ -566,7 +593,19 @@ namespace Dark
             out.baseColor[3]   = 1.0f;
             out.metallic       = 0.0f;
             out.roughness      = 1.0f;
-            out.materialIndex  = -1;
+            out.normalScale    = 1.0f;
+            out.ao             = 1.0f;
+            out.alphaCutoff    = 0.5f;
+            out.emissiveColor[0] = 1.0f;
+            out.emissiveColor[1] = 1.0f;
+            out.emissiveColor[2] = 1.0f;
+            out.emissiveScalar   = 0.0f;
+            out.albedoImageIndex  = -1;
+            out.mrImageIndex      = -1;
+            out.occImageIndex     = -1;
+            out.normalImageIndex  = -1;
+            out.emisImageIndex    = -1;
+            out.materialIndex     = -1;
             out.materialName.clear();
             if (gp.material)
             {
@@ -579,6 +618,10 @@ namespace Dark
                     ? MaterialAlphaMode::Blend
                     : (mat->alpha_mode == cgltf_alpha_mode_mask ? MaterialAlphaMode::Mask : MaterialAlphaMode::Opaque);
                 out.doubleSided = mat->double_sided != 0;
+                out.alphaCutoff = mat->alpha_cutoff;
+                out.emissiveColor[0] = mat->emissive_factor[0];
+                out.emissiveColor[1] = mat->emissive_factor[1];
+                out.emissiveColor[2] = mat->emissive_factor[2];
                 if (mat->has_pbr_metallic_roughness)
                 {
                     const auto& pbr = mat->pbr_metallic_roughness;
@@ -588,13 +631,19 @@ namespace Dark
                     out.baseColor[3] = pbr.base_color_factor[3];
                     out.metallic     = pbr.metallic_factor;
                     out.roughness    = pbr.roughness_factor;
-                    if (pbr.base_color_texture.texture && pbr.base_color_texture.texture->image)
-                    {
-                        out.imageIndex = static_cast<int>(cgltf_image_index(data, pbr.base_color_texture.texture->image));
-                        if (!loadImageBytes(pbr.base_color_texture.texture->image, gltfPath, out))
-                            DE_LOG_WARN("GltfLoader: failed to read baseColor texture");
-                    }
+                    tryLoadTexture(pbr.base_color_texture, gltfPath, data, out.albedo, out.albedoImageIndex, "baseColor");
+                    tryLoadTexture(pbr.metallic_roughness_texture, gltfPath, data, out.metallicRoughness, out.mrImageIndex, "metallicRoughness");
                 }
+                if (mat->normal_texture.texture)
+                    out.normalScale = mat->normal_texture.scale;
+                tryLoadTexture(mat->normal_texture, gltfPath, data, out.normal, out.normalImageIndex, "normal");
+                if (mat->occlusion_texture.texture)
+                    out.ao = mat->occlusion_texture.scale;
+                tryLoadTexture(mat->occlusion_texture, gltfPath, data, out.occlusion, out.occImageIndex, "occlusion");
+                tryLoadTexture(mat->emissive_texture, gltfPath, data, out.emissive, out.emisImageIndex, "emissive");
+                const bool hasEmisTex = !out.emissive.file.empty() || !out.emissive.bytes.empty();
+                const bool anyFactor  = out.emissiveColor[0] > 0.0f || out.emissiveColor[1] > 0.0f || out.emissiveColor[2] > 0.0f;
+                out.emissiveScalar    = (hasEmisTex || anyFactor) ? 1.0f : 0.0f;
             }
             return true;
         }

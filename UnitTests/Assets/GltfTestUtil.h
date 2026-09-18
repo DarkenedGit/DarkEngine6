@@ -147,4 +147,41 @@ namespace Dark::GltfTest
 	{
 		return writeTempGltf(name, makeSkinnedGltfJson(makeSkinnedBuffer(), childFirstJoints));
 	}
+
+	inline std::vector<uint8_t> makeBgraBmp(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255)
+	{
+		std::vector<uint8_t> bmp(58, 0);
+		bmp[0] = 'B';
+		bmp[1] = 'M';
+		const uint32_t size = 58;
+		std::memcpy(&bmp[2], &size, 4);
+		const uint32_t off = 54;
+		std::memcpy(&bmp[10], &off, 4);
+		const uint32_t dib = 40;
+		std::memcpy(&bmp[14], &dib, 4);
+		const int32_t w = 1, h = 1;
+		std::memcpy(&bmp[18], &w, 4);
+		std::memcpy(&bmp[22], &h, 4);
+		const uint16_t planes = 1, bpp = 32;
+		std::memcpy(&bmp[26], &planes, 2);
+		std::memcpy(&bmp[28], &bpp, 2);
+		bmp[54] = b;
+		bmp[55] = g;
+		bmp[56] = r;
+		bmp[57] = a;
+		return bmp;
+	}
+
+	inline std::filesystem::path writeTempBmp(const std::string& name, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255)
+	{
+		const auto dir = std::filesystem::temp_directory_path() / "de_gltf_tests";
+		std::error_code ec;
+		std::filesystem::create_directories(dir, ec);
+		const auto path = dir / name;
+		const std::vector<uint8_t> bmp = makeBgraBmp(r, g, b, a);
+		std::ofstream out(path, std::ios::binary | std::ios::trunc);
+		out.write(reinterpret_cast<const char*>(bmp.data()), static_cast<std::streamsize>(bmp.size()));
+		out.close();
+		return path;
+	}
 }

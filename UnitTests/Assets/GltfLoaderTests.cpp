@@ -190,6 +190,200 @@ namespace
   ],
   "buffers": [{ "byteLength": 168, "uri": "data:application/octet-stream;base64,AAAAvwAAAL8AAAC/AAAAPwAAAL8AAAC/AAAAPwAAAD8AAAC/AAAAvwAAAD8AAAC/AAAAvwAAAL8AAAA/AAAAPwAAAL8AAAA/AAAAPwAAAD8AAAA/AAAAvwAAAD8AAAA/AAABAAIAAAACAAMAAQAFAAYAAQAGAAIABQAEAAcABQAHAAYABAAAAAMABAADAAcAAwACAAYAAwAGAAcABAAFAAEABAABAAAA" }]
 })";
+
+    constexpr const char* kMapsJson = R"({
+  "asset": { "version": "2.0" },
+  "scene": 0,
+  "scenes": [{ "nodes": [0] }],
+  "nodes": [{ "mesh": 0 }],
+  "meshes": [{ "primitives": [{ "attributes": { "POSITION": 0 }, "indices": 1, "material": 0 }] }],
+  "materials": [{
+    "alphaMode": "MASK",
+    "alphaCutoff": 0.3,
+    "normalTexture": { "index": 2, "scale": 1.5 },
+    "occlusionTexture": { "index": 3, "strength": 0.7 },
+    "emissiveTexture": { "index": 4 },
+    "emissiveFactor": [0.2, 0.4, 0.6],
+    "pbrMetallicRoughness": {
+      "baseColorFactor": [1, 0, 0, 1],
+      "metallicFactor": 0.1,
+      "roughnessFactor": 0.4,
+      "baseColorTexture": { "index": 0 },
+      "metallicRoughnessTexture": { "index": 1 }
+    }
+  }],
+  "textures": [
+    { "source": 0 }, { "source": 1 }, { "source": 2 }, { "source": 3 }, { "source": 4 }
+  ],
+  "images": [
+    { "uri": "albedo.png" },
+    { "uri": "mr.png" },
+    { "uri": "normal.png" },
+    { "uri": "occ.png" },
+    { "uri": "emis.png" }
+  ],
+  "accessors": [
+    { "bufferView": 0, "componentType": 5126, "count": 8, "type": "VEC3", "min": [-0.5,-0.5,-0.5], "max": [0.5,0.5,0.5] },
+    { "bufferView": 1, "componentType": 5123, "count": 36, "type": "SCALAR" }
+  ],
+  "bufferViews": [
+    { "buffer": 0, "byteOffset": 0, "byteLength": 96 },
+    { "buffer": 0, "byteOffset": 96, "byteLength": 72 }
+  ],
+  "buffers": [{ "byteLength": 168, "uri": "data:application/octet-stream;base64,AAAAvwAAAL8AAAC/AAAAPwAAAL8AAAC/AAAAPwAAAD8AAAC/AAAAvwAAAD8AAAC/AAAAvwAAAL8AAAA/AAAAPwAAAL8AAAA/AAAAPwAAAD8AAAA/AAAAvwAAAD8AAAA/AAABAAIAAAACAAMAAQAFAAYAAQAGAAIABQAEAAcABQAHAAYABAAAAAMABAADAAcAAwACAAYAAwAGAAcABAAFAAEABAABAAAA" }]
+})";
+
+    constexpr const char* kCutoffJson = R"({
+  "asset": { "version": "2.0" },
+  "scene": 0,
+  "scenes": [{ "nodes": [0] }],
+  "nodes": [{ "mesh": 0 }],
+  "meshes": [{ "primitives": [{ "attributes": { "POSITION": 0 }, "indices": 1, "material": 0 }] }],
+  "materials": [{ "alphaMode": "MASK", "alphaCutoff": 0.25, "pbrMetallicRoughness": { "baseColorFactor": [1, 1, 1, 1] } }],
+  "accessors": [
+    { "bufferView": 0, "componentType": 5126, "count": 8, "type": "VEC3", "min": [-0.5,-0.5,-0.5], "max": [0.5,0.5,0.5] },
+    { "bufferView": 1, "componentType": 5123, "count": 36, "type": "SCALAR" }
+  ],
+  "bufferViews": [
+    { "buffer": 0, "byteOffset": 0, "byteLength": 96 },
+    { "buffer": 0, "byteOffset": 96, "byteLength": 72 }
+  ],
+  "buffers": [{ "byteLength": 168, "uri": "data:application/octet-stream;base64,AAAAvwAAAL8AAAC/AAAAPwAAAL8AAAC/AAAAPwAAAD8AAAC/AAAAvwAAAD8AAAC/AAAAvwAAAL8AAAA/AAAAPwAAAL8AAAA/AAAAPwAAAD8AAAA/AAAAvwAAAD8AAAA/AAABAAIAAAACAAMAAQAFAAYAAQAGAAIABQAEAAcABQAHAAYABAAAAAMABAADAAcAAwACAAYAAwAGAAcABAAFAAEABAABAAAA" }]
+})";
+
+    constexpr const char* kMaskDefaultCutoffJson = R"({
+  "asset": { "version": "2.0" },
+  "scene": 0,
+  "scenes": [{ "nodes": [0] }],
+  "nodes": [{ "mesh": 0 }],
+  "meshes": [{ "primitives": [{ "attributes": { "POSITION": 0 }, "indices": 1, "material": 0 }] }],
+  "materials": [{ "alphaMode": "MASK", "pbrMetallicRoughness": { "baseColorFactor": [1, 1, 1, 1] } }],
+  "accessors": [
+    { "bufferView": 0, "componentType": 5126, "count": 8, "type": "VEC3", "min": [-0.5,-0.5,-0.5], "max": [0.5,0.5,0.5] },
+    { "bufferView": 1, "componentType": 5123, "count": 36, "type": "SCALAR" }
+  ],
+  "bufferViews": [
+    { "buffer": 0, "byteOffset": 0, "byteLength": 96 },
+    { "buffer": 0, "byteOffset": 96, "byteLength": 72 }
+  ],
+  "buffers": [{ "byteLength": 168, "uri": "data:application/octet-stream;base64,AAAAvwAAAL8AAAC/AAAAPwAAAL8AAAC/AAAAPwAAAD8AAAC/AAAAvwAAAD8AAAC/AAAAvwAAAL8AAAA/AAAAPwAAAL8AAAA/AAAAPwAAAD8AAAA/AAAAvwAAAD8AAAA/AAABAAIAAAACAAMAAQAFAAYAAQAGAAIABQAEAAcABQAHAAYABAAAAAMABAADAAcAAwACAAYAAwAGAAcABAAFAAEABAABAAAA" }]
+})";
+
+    enum class TangentMode
+    {
+        None,
+        Vec4,
+        Vec4CountMismatch,
+        Vec3
+    };
+
+    std::string makeTriGltfJson(TangentMode mode, const char* extraMaterialJson = nullptr)
+    {
+        std::vector<uint8_t> buf;
+        appendF32(buf, 0); appendF32(buf, 0); appendF32(buf, 0);
+        appendF32(buf, 1); appendF32(buf, 0); appendF32(buf, 0);
+        appendF32(buf, 0); appendF32(buf, 1); appendF32(buf, 0);
+        for (int i = 0; i < 3; ++i)
+        {
+            appendF32(buf, 0); appendF32(buf, 0); appendF32(buf, 1);
+        }
+        appendF32(buf, 0); appendF32(buf, 0);
+        appendF32(buf, 1); appendF32(buf, 0);
+        appendF32(buf, 0); appendF32(buf, 1);
+        const uint32_t tanOffset = static_cast<uint32_t>(buf.size());
+        uint32_t tanBytes = 0;
+        uint32_t tanCount = 0;
+        const char* tanType = "VEC4";
+        if (mode == TangentMode::Vec4)
+        {
+            tanCount = 3;
+            for (int i = 0; i < 3; ++i)
+            {
+                appendF32(buf, 1); appendF32(buf, 0); appendF32(buf, 0); appendF32(buf, -1);
+            }
+            tanBytes = 48;
+        }
+        else if (mode == TangentMode::Vec4CountMismatch)
+        {
+            tanCount = 1;
+            appendF32(buf, 1); appendF32(buf, 0); appendF32(buf, 0); appendF32(buf, -1);
+            tanBytes = 16;
+        }
+        else if (mode == TangentMode::Vec3)
+        {
+            tanCount = 3;
+            tanType  = "VEC3";
+            for (int i = 0; i < 3; ++i)
+            {
+                appendF32(buf, 1); appendF32(buf, 0); appendF32(buf, 0);
+            }
+            tanBytes = 36;
+        }
+        const uint32_t idxOffset = static_cast<uint32_t>(buf.size());
+        appendU16(buf, 0); appendU16(buf, 1); appendU16(buf, 2);
+        const uint32_t total = static_cast<uint32_t>(buf.size());
+        const std::string uri = "data:application/octet-stream;base64," + base64Encode(buf);
+
+        std::string json;
+        json += "{\n  \"asset\": { \"version\": \"2.0\" },\n  \"scene\": 0,\n";
+        json += "  \"scenes\": [{ \"nodes\": [0] }],\n  \"nodes\": [{ \"mesh\": 0 }],\n";
+        json += "  \"meshes\": [{ \"primitives\": [{ \"attributes\": { \"POSITION\": 0, \"NORMAL\": 1, \"TEXCOORD_0\": 2";
+        if (mode != TangentMode::None)
+            json += ", \"TANGENT\": 3";
+        json += " }, \"indices\": ";
+        json += (mode != TangentMode::None) ? "4" : "3";
+        if (extraMaterialJson)
+            json += ", \"material\": 0";
+        json += " }] }],\n";
+        if (extraMaterialJson)
+        {
+            json += "  \"materials\": [";
+            json += extraMaterialJson;
+            json += "],\n";
+        }
+        json += "  \"accessors\": [\n";
+        json += "    { \"bufferView\": 0, \"componentType\": 5126, \"count\": 3, \"type\": \"VEC3\" },\n";
+        json += "    { \"bufferView\": 1, \"componentType\": 5126, \"count\": 3, \"type\": \"VEC3\" },\n";
+        json += "    { \"bufferView\": 2, \"componentType\": 5126, \"count\": 3, \"type\": \"VEC2\" },\n";
+        if (mode != TangentMode::None)
+        {
+            json += "    { \"bufferView\": 3, \"componentType\": 5126, \"count\": ";
+            json += std::to_string(tanCount);
+            json += ", \"type\": \"";
+            json += tanType;
+            json += "\" },\n";
+            json += "    { \"bufferView\": 4, \"componentType\": 5123, \"count\": 3, \"type\": \"SCALAR\" }\n  ],\n";
+        }
+        else
+        {
+            json += "    { \"bufferView\": 3, \"componentType\": 5123, \"count\": 3, \"type\": \"SCALAR\" }\n  ],\n";
+        }
+        json += "  \"bufferViews\": [\n";
+        json += "    { \"buffer\": 0, \"byteOffset\": 0, \"byteLength\": 36 },\n";
+        json += "    { \"buffer\": 0, \"byteOffset\": 36, \"byteLength\": 36 },\n";
+        json += "    { \"buffer\": 0, \"byteOffset\": 72, \"byteLength\": 24 },\n";
+        if (mode != TangentMode::None)
+        {
+            json += "    { \"buffer\": 0, \"byteOffset\": ";
+            json += std::to_string(tanOffset);
+            json += ", \"byteLength\": ";
+            json += std::to_string(tanBytes);
+            json += " },\n";
+            json += "    { \"buffer\": 0, \"byteOffset\": ";
+            json += std::to_string(idxOffset);
+            json += ", \"byteLength\": 6 }\n  ],\n";
+        }
+        else
+        {
+            json += "    { \"buffer\": 0, \"byteOffset\": 96, \"byteLength\": 6 }\n  ],\n";
+        }
+        json += "  \"buffers\": [{ \"byteLength\": ";
+        json += std::to_string(total);
+        json += ", \"uri\": \"";
+        json += uri;
+        json += "\" }]\n}\n";
+        return json;
+    }
 } // namespace
 
 TEST(GltfLoader, ParsesOpaqueCube)
@@ -361,4 +555,165 @@ TEST(GltfLoader, StaticCubeStillUnskinned)
     EXPECT_TRUE(model.skeleton.joints.empty());
     EXPECT_TRUE(model.clips.empty());
     EXPECT_FALSE(model.primitives[0].skinned);
+}
+
+TEST(GltfLoader, ReadsTangent)
+{
+    const auto path = writeTempGltf("tangent.gltf", makeTriGltfJson(TangentMode::Vec4));
+    GltfCpuModel model;
+    ASSERT_TRUE(parseGltfFile(path, model));
+    ASSERT_EQ(model.primitives.size(), 1u);
+    ASSERT_EQ(model.primitives[0].mesh.tangents.size(), 3u);
+    for (const auto& t : model.primitives[0].mesh.tangents)
+    {
+        EXPECT_NEAR(t.x, 1.0f, 1.0e-5f);
+        EXPECT_NEAR(t.y, 0.0f, 1.0e-5f);
+        EXPECT_NEAR(t.z, 0.0f, 1.0e-5f);
+        EXPECT_NEAR(t.w, -1.0f, 1.0e-5f);
+    }
+}
+
+TEST(GltfLoader, ComputesTangentsWhenMissing)
+{
+    const auto path = writeTempGltf("notangent.gltf", makeTriGltfJson(TangentMode::None));
+    GltfCpuModel model;
+    ASSERT_TRUE(parseGltfFile(path, model));
+    ASSERT_EQ(model.primitives.size(), 1u);
+    ASSERT_EQ(model.primitives[0].mesh.tangents.size(), model.primitives[0].mesh.positions.size());
+    EXPECT_FALSE(model.primitives[0].mesh.tangents.empty());
+}
+
+TEST(GltfLoader, TangentCountMismatchComputes)
+{
+    const auto path = writeTempGltf("tanmismatch.gltf", makeTriGltfJson(TangentMode::Vec4CountMismatch));
+    GltfCpuModel model;
+    ASSERT_TRUE(parseGltfFile(path, model));
+    ASSERT_EQ(model.primitives.size(), 1u);
+    ASSERT_EQ(model.primitives[0].mesh.tangents.size(), 3u);
+    EXPECT_NEAR(model.primitives[0].mesh.tangents[0].w, 1.0f, 1.0e-5f);
+}
+
+TEST(GltfLoader, TangentNotVec4Computes)
+{
+    const auto path = writeTempGltf("tanvec3.gltf", makeTriGltfJson(TangentMode::Vec3));
+    GltfCpuModel model;
+    ASSERT_TRUE(parseGltfFile(path, model));
+    ASSERT_EQ(model.primitives.size(), 1u);
+    ASSERT_EQ(model.primitives[0].mesh.tangents.size(), 3u);
+}
+
+TEST(GltfLoader, LoadsMrNormalEmissiveOcclusion)
+{
+    const auto path = writeTempGltf("maps.gltf", kMapsJson);
+    GltfCpuModel model;
+    ASSERT_TRUE(parseGltfFile(path, model));
+    ASSERT_EQ(model.primitives.size(), 1u);
+    const auto& p = model.primitives[0];
+    EXPECT_EQ(p.albedoImageIndex, 0);
+    EXPECT_EQ(p.mrImageIndex, 1);
+    EXPECT_EQ(p.normalImageIndex, 2);
+    EXPECT_EQ(p.occImageIndex, 3);
+    EXPECT_EQ(p.emisImageIndex, 4);
+    EXPECT_EQ(p.albedo.imageIndex, 0);
+    EXPECT_EQ(p.metallicRoughness.imageIndex, 1);
+    EXPECT_EQ(p.normal.imageIndex, 2);
+    EXPECT_EQ(p.occlusion.imageIndex, 3);
+    EXPECT_EQ(p.emissive.imageIndex, 4);
+    EXPECT_EQ(p.albedo.file.filename(), "albedo.png");
+    EXPECT_EQ(p.metallicRoughness.file.filename(), "mr.png");
+    EXPECT_EQ(p.normal.file.filename(), "normal.png");
+    EXPECT_EQ(p.occlusion.file.filename(), "occ.png");
+    EXPECT_EQ(p.emissive.file.filename(), "emis.png");
+    EXPECT_TRUE(p.albedo.bytes.empty());
+    EXPECT_NEAR(p.normalScale, 1.5f, 1.0e-5f);
+    EXPECT_NEAR(p.ao, 0.7f, 1.0e-5f);
+    EXPECT_NEAR(p.alphaCutoff, 0.3f, 1.0e-5f);
+    EXPECT_NEAR(p.emissiveColor[0], 0.2f, 1.0e-5f);
+    EXPECT_NEAR(p.emissiveColor[1], 0.4f, 1.0e-5f);
+    EXPECT_NEAR(p.emissiveColor[2], 0.6f, 1.0e-5f);
+    EXPECT_EQ(p.alphaMode, Dark::MaterialAlphaMode::Mask);
+    EXPECT_FALSE(p.translucent);
+}
+
+TEST(GltfLoader, AlphaCutoff)
+{
+    {
+        const auto path = writeTempGltf("cutoff.gltf", kCutoffJson);
+        GltfCpuModel model;
+        ASSERT_TRUE(parseGltfFile(path, model));
+        ASSERT_EQ(model.primitives.size(), 1u);
+        EXPECT_NEAR(model.primitives[0].alphaCutoff, 0.25f, 1.0e-5f);
+        EXPECT_EQ(model.primitives[0].alphaMode, Dark::MaterialAlphaMode::Mask);
+    }
+    {
+        const auto path = writeTempGltf("cutoff-default.gltf", kMaskDefaultCutoffJson);
+        GltfCpuModel model;
+        ASSERT_TRUE(parseGltfFile(path, model));
+        ASSERT_EQ(model.primitives.size(), 1u);
+        EXPECT_NEAR(model.primitives[0].alphaCutoff, 0.5f, 1.0e-5f);
+    }
+    {
+        const auto path = writeTempGltf("cutoff-opaque.gltf", kCubeJson);
+        GltfCpuModel model;
+        ASSERT_TRUE(parseGltfFile(path, model));
+        ASSERT_EQ(model.primitives.size(), 1u);
+        EXPECT_NEAR(model.primitives[0].alphaCutoff, 0.5f, 1.0e-5f);
+    }
+}
+
+TEST(GltfLoader, BadDataUriTextureStillLoadsMesh)
+{
+    const std::string json = makeTriGltfJson(TangentMode::None, R"({ "pbrMetallicRoughness": { "baseColorTexture": { "index": 0 } } })");
+    // inject images/textures after materials
+    const auto materialsPos = json.find("\"materials\"");
+    ASSERT_NE(materialsPos, std::string::npos);
+    const auto afterMats = json.find("],", materialsPos);
+    ASSERT_NE(afterMats, std::string::npos);
+    std::string patched = json;
+    patched.insert(afterMats + 2, "\n  \"textures\": [{ \"source\": 0 }],\n  \"images\": [{ \"uri\": \"data:image/png,not-base64\" }],");
+    const auto path = writeTempGltf("baduri.gltf", patched);
+    GltfCpuModel model;
+    ASSERT_TRUE(parseGltfFile(path, model));
+    ASSERT_EQ(model.primitives.size(), 1u);
+    EXPECT_EQ(model.primitives[0].albedoImageIndex, 0);
+    EXPECT_TRUE(model.primitives[0].albedo.bytes.empty());
+    EXPECT_TRUE(model.primitives[0].albedo.file.empty());
+    EXPECT_EQ(model.primitives[0].mesh.positions.size(), 3u);
+}
+
+TEST(GltfLoader, EmissiveFactorTurnsScalarOn)
+{
+    const auto path = writeTempGltf("emis-factor.gltf", makeTriGltfJson(TangentMode::None, R"({ "emissiveFactor": [1, 1, 1] })"));
+    GltfCpuModel model;
+    ASSERT_TRUE(parseGltfFile(path, model));
+    ASSERT_EQ(model.primitives.size(), 1u);
+    EXPECT_NEAR(model.primitives[0].emissiveColor[0], 1.0f, 1.0e-5f);
+    EXPECT_NEAR(model.primitives[0].emissiveColor[1], 1.0f, 1.0e-5f);
+    EXPECT_NEAR(model.primitives[0].emissiveColor[2], 1.0f, 1.0e-5f);
+    EXPECT_FLOAT_EQ(model.primitives[0].emissiveScalar, 1.0f);
+}
+
+TEST(GltfLoader, CubeWithoutMapsLeavesBlobsEmpty)
+{
+    const auto path = writeTempGltf("cube-nomaps.gltf", kCubeJson);
+    GltfCpuModel model;
+    ASSERT_TRUE(parseGltfFile(path, model));
+    ASSERT_EQ(model.primitives.size(), 1u);
+    const auto& p = model.primitives[0];
+    EXPECT_TRUE(p.albedo.file.empty());
+    EXPECT_TRUE(p.albedo.bytes.empty());
+    EXPECT_TRUE(p.normal.file.empty());
+    EXPECT_TRUE(p.metallicRoughness.file.empty());
+    EXPECT_TRUE(p.occlusion.file.empty());
+    EXPECT_TRUE(p.emissive.file.empty());
+    EXPECT_EQ(p.albedoImageIndex, -1);
+    EXPECT_EQ(p.mrImageIndex, -1);
+    EXPECT_EQ(p.occImageIndex, -1);
+    EXPECT_EQ(p.normalImageIndex, -1);
+    EXPECT_EQ(p.emisImageIndex, -1);
+    EXPECT_NEAR(p.normalScale, 1.0f, 1.0e-5f);
+    EXPECT_NEAR(p.ao, 1.0f, 1.0e-5f);
+    EXPECT_NEAR(p.emissiveColor[0], 0.0f, 1.0e-5f);
+    EXPECT_NEAR(p.emissiveColor[1], 0.0f, 1.0e-5f);
+    EXPECT_NEAR(p.emissiveColor[2], 0.0f, 1.0e-5f);
 }
