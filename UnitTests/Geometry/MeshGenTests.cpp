@@ -365,3 +365,59 @@ TEST(MeshGen, ComputeTangentsConstDoesNotMutate)
     ASSERT_FALSE(out.empty());
     EXPECT_FLOAT_EQ(std::fabs(out[0].w), 1.0f);
 }
+
+namespace
+{
+    MeshData makeUnitQuadXY(bool mirrorU)
+    {
+        MeshData mesh;
+        mesh.positions = {
+            { 0.0f, 0.0f, 0.0f },
+            { 1.0f, 0.0f, 0.0f },
+            { 1.0f, 1.0f, 0.0f },
+            { 0.0f, 1.0f, 0.0f },
+        };
+        mesh.normals = {
+            { 0.0f, 0.0f, 1.0f },
+            { 0.0f, 0.0f, 1.0f },
+            { 0.0f, 0.0f, 1.0f },
+            { 0.0f, 0.0f, 1.0f },
+        };
+        if (mirrorU)
+            mesh.uvs = { { 1.0f, 0.0f }, { 0.0f, 0.0f }, { 0.0f, 1.0f }, { 1.0f, 1.0f } };
+        else
+            mesh.uvs = { { 0.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f } };
+        mesh.indices = { 0, 1, 2, 0, 2, 3 };
+        return mesh;
+    }
+} // namespace
+
+TEST(MeshGen, ComputeTangentsPlanarQuadAlignsWithU)
+{
+    MeshData mesh = makeUnitQuadXY(false);
+    ASSERT_TRUE(detail::computeTangents(mesh));
+    ASSERT_EQ(mesh.tangents.size(), 4u);
+    for (size_t i = 0; i < mesh.tangents.size(); ++i)
+    {
+        const Vector4f& t = mesh.tangents[i];
+        EXPECT_NEAR(t.x, 1.0f, 1.0e-3f) << i;
+        EXPECT_NEAR(t.y, 0.0f, 1.0e-3f) << i;
+        EXPECT_NEAR(t.z, 0.0f, 1.0e-3f) << i;
+        EXPECT_FLOAT_EQ(t.w, 1.0f) << i;
+    }
+}
+
+TEST(MeshGen, ComputeTangentsMirroredUvNegativeHandedness)
+{
+    MeshData mesh = makeUnitQuadXY(true);
+    ASSERT_TRUE(detail::computeTangents(mesh));
+    ASSERT_EQ(mesh.tangents.size(), 4u);
+    for (size_t i = 0; i < mesh.tangents.size(); ++i)
+    {
+        const Vector4f& t = mesh.tangents[i];
+        EXPECT_NEAR(t.x, -1.0f, 1.0e-3f) << i;
+        EXPECT_NEAR(t.y, 0.0f, 1.0e-3f) << i;
+        EXPECT_NEAR(t.z, 0.0f, 1.0e-3f) << i;
+        EXPECT_FLOAT_EQ(t.w, -1.0f) << i;
+    }
+}
