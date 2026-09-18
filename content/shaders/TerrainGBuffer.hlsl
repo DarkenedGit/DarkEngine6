@@ -65,5 +65,6 @@ GBufferOut PSMain(PSInput input)
     o.albedo   = float4(albedo.rgb, 0);
     o.attrib   = float4(EncodeOct(n), 1.0f, 0.0f);
     o.velocity = VelocityUv(input.currClip, input.prevClip);
+    o.ao       = 1.0f;
     return o;
 }

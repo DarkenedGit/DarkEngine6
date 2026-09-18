@@ -46,6 +46,7 @@ namespace Dark
         static constexpr UINT kRootSrvTable  = 1;
         static constexpr UINT kRootShadowCbv = 2;
         static constexpr UINT kRootHeightSrv = 3;
+        static constexpr UINT kRootAoSrv     = 4;
 
         DeferredLightingPipeline() = default;
 

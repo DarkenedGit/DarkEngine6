@@ -38,6 +38,7 @@ Texture2D    gAlbedo    : register(t0);
 Texture2D    gAttrib    : register(t1);
 Texture2D    gDepth     : register(t2);
 Texture2D    gHeightMap : register(t4);
+Texture2D    gAo        : register(t5);
 SamplerState gHeightSamp : register(s2);
 
 struct PSInput
@@ -97,12 +98,13 @@ float4 PSMain(PSInput input) : SV_TARGET
     float  roughness = attrib.b;
     float  metallic  = attrib.a;
     float  emissive  = albedo.a;
+    float  ao        = gAo.Load(int3(texel, 0)).r;
     float3 v         = normalize(cameraPos - worldPos);
     float3 l         = normalize(lightDirWS);
     float  ndotl     = saturate(dot(n, l));
     float  recvOffset = 0.06f + 0.28f * (1.0f - ndotl) * (1.0f - ndotl);
     float  shadow = ComputeShadow(worldPos + n * recvOffset, cameraPos);
-    float3 lit    = ambientColor * albedo.rgb
+    float3 lit    = ambientColor * albedo.rgb * ao
                   + PbrDirectional(n, v, albedo.rgb, roughness, metallic, lightDirWS, lightColor) * shadow
                   + albedo.rgb * emissive * emissiveGain;
 

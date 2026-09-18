@@ -691,15 +691,16 @@ namespace Dark
         m_sceneBuffers->transitionAlbedo(m_commandList.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
         m_sceneBuffers->transitionAttrib(m_commandList.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
         m_sceneBuffers->transitionVelocity(m_commandList.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+        m_sceneBuffers->transitionAo(m_commandList.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
         transitionDepth(m_commandList.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
         m_commandList->RSSetViewports(1, &m_viewport);
         m_commandList->RSSetScissorRects(1, &m_scissor);
 
-        D3D12_CPU_DESCRIPTOR_HANDLE rtvs[3] = {
-            m_sceneBuffers->albedoRtv(), m_sceneBuffers->attribRtv(), m_sceneBuffers->velocityRtv()
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvs[4] = {
+            m_sceneBuffers->albedoRtv(), m_sceneBuffers->attribRtv(), m_sceneBuffers->velocityRtv(), m_sceneBuffers->aoRtv()
         };
         D3D12_CPU_DESCRIPTOR_HANDLE dsv = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
-        m_commandList->OMSetRenderTargets(3, rtvs, FALSE, &dsv);
+        m_commandList->OMSetRenderTargets(4, rtvs, FALSE, &dsv);
     }
 
     void Renderer::bindHdr(bool bindDepth)
@@ -715,6 +716,7 @@ namespace Dark
             m_sceneBuffers->transitionAlbedo(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             m_sceneBuffers->transitionAttrib(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             m_sceneBuffers->transitionVelocity(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            m_sceneBuffers->transitionAo(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         }
 
         m_sceneBuffers->transitionHdr(m_commandList.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -739,6 +741,7 @@ namespace Dark
                 DE_ASSERT(m_sceneBuffers->albedoState() == D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
                 DE_ASSERT(m_sceneBuffers->attribState() == D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
                 DE_ASSERT(m_sceneBuffers->velocityState() == D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                DE_ASSERT(m_sceneBuffers->aoState() == D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             }
 #endif
         }
@@ -805,6 +808,7 @@ namespace Dark
         m_commandList->ClearRenderTargetView(m_sceneBuffers->albedoRtv(), SceneBuffers::kAlbedoClear, 0, nullptr);
         m_commandList->ClearRenderTargetView(m_sceneBuffers->attribRtv(), SceneBuffers::kAttribClear, 0, nullptr);
         m_commandList->ClearRenderTargetView(m_sceneBuffers->velocityRtv(), SceneBuffers::kVelocityClear, 0, nullptr);
+        m_commandList->ClearRenderTargetView(m_sceneBuffers->aoRtv(), SceneBuffers::kAoClear, 0, nullptr);
     }
 
     void Renderer::clearHdr()
@@ -864,6 +868,13 @@ namespace Dark
         if (!m_sceneBuffers)
             return {};
         return m_sceneBuffers->heightTableGpu();
+    }
+
+    D3D12_GPU_DESCRIPTOR_HANDLE Renderer::aoTableGpu() const
+    {
+        if (!m_sceneBuffers)
+            return {};
+        return m_sceneBuffers->aoTableGpu();
     }
 
     ID3D12DescriptorHeap* Renderer::lightingHeap() const

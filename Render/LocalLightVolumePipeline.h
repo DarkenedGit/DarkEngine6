@@ -44,6 +44,8 @@ namespace Dark
         float    padFog;
     };
     static_assert(sizeof(LocalLightPassConstants) == 56 * sizeof(float), "local light root constants");
+    // 56 constants + 1 srv table + 2 lights SRV + 2 world SRV + 1 height table + 1 AO table = 63.
+    static_assert(56 + 1 + 2 + 2 + 1 + 1 <= 64, "local light root signature DWORD budget");
 
     class LocalLightVolumePipeline
     {
@@ -53,6 +55,7 @@ namespace Dark
         static constexpr UINT kRootLightsSrv = 2;
         static constexpr UINT kRootWorldSrv  = 3;
         static constexpr UINT kRootHeightSrv = 4;
+        static constexpr UINT kRootAoSrv     = 5;
 
         LocalLightVolumePipeline() = default;
 

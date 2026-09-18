@@ -28,6 +28,7 @@ struct GBufferOut
     float4 albedo   : SV_TARGET0;
     float4 attrib   : SV_TARGET1;
     float2 velocity : SV_TARGET2; // UV-space motion: current UV - previous UV
+    float  ao       : SV_TARGET3; // authored AO 0..1 (R8)
 };
 
 float2 VelocityUv(float4 currClip, float4 prevClip)

@@ -44,16 +44,18 @@ struct VSInput
     float3 position : POSITION;
     float3 normal   : NORMAL;
     float2 uv       : TEXCOORD0;
+    float4 tangent  : TANGENT;
     uint4  joints   : BLENDINDICES;
     float4 weights  : BLENDWEIGHT;
 };
 
 struct PSInput
 {
-    float4 position : SV_POSITION;
-    float3 normalWS : NORMAL;
-    float2 uv       : TEXCOORD0;
-    float3 worldPos : TEXCOORD1;
+    float4 position  : SV_POSITION;
+    float3 normalWS  : NORMAL;
+    float2 uv        : TEXCOORD0;
+    float3 worldPos  : TEXCOORD1;
+    float4 tangentWS : TANGENT;
 };
 
 float4 skinPos(float3 p, uint4 j, float4 w)
@@ -77,24 +79,45 @@ PSInput VSMain(VSInput input)
     PSInput o;
     float4 posM = skinPos(input.position, input.joints, input.weights);
     float3 nM   = skinNrm(input.normal, input.joints, input.weights);
+    float3 tM   = skinNrm(input.tangent.xyz, input.joints, input.weights);
     float4 wp   = mul(posM, world);
     o.position  = mul(posM, worldViewProj);
     o.normalWS  = mul(float4(nM, 0.0f), world).xyz;
+    o.tangentWS = float4(mul(float4(tM, 0.0f), world).xyz, input.tangent.w);
     o.uv        = input.uv;
     o.worldPos  = wp.xyz;
     return o;
 }
 
+float3 ApplyNormalMap(float3 nW, float4 tangentWS, float2 uv)
+{
+    nW = normalize(nW);
+    if (length(tangentWS.xyz) < 1e-6f)
+        return nW;
+    float3 tW = normalize(tangentWS.xyz);
+    tW = normalize(tW - nW * dot(nW, tW));
+    float3 bW = cross(nW, tW) * tangentWS.w;
+    float3 nt = gNormal.Sample(gSamp, uv).xyz * 2.0f - 1.0f;
+    nt.xy *= normalScale;
+    nt = normalize(nt);
+    return normalize(nt.x * tW + nt.y * bW + nt.z * nW);
+}
+
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    float4 albedo = gAlbedo.Sample(gSamp, input.uv) * color;
+    float4 albedoS = gAlbedo.Sample(gSamp, input.uv);
+    if (alphaModeMask > 0.5f)
+        clip(albedoS.a - alphaCutoff);
+    float4 albedo = float4(albedoS.rgb * color.rgb, albedoS.a * color.a);
     if (lighting < 0.5f)
         return float4(encodeSceneRgb(albedo.rgb), albedo.a);
-    float3 n = normalize(input.normalWS);
+    float3 n = ApplyNormalMap(input.normalWS, input.tangentWS, input.uv);
     float3 l = normalize(lightDirWS);
     float  ndotl = saturate(dot(n, l));
     float  shadow = ComputeShadow(input.worldPos, cameraPos);
-    float3 ambient = ambientScale * albedo.rgb;
+    float  aoTerm = saturate(gOrm.Sample(gSamp, input.uv).r * ao);
+    float3 ambient = ambientScale * albedo.rgb * aoTerm;
     float3 diffuse = ndotl * lightColor * albedo.rgb * shadow;
-    return float4(encodeSceneRgb(ambient + diffuse), albedo.a);
+    float  emis = dot(gEmissive.Sample(gSamp, input.uv).rgb, float3(0.2126f, 0.7152f, 0.0722f)) * emissive;
+    return float4(encodeSceneRgb(ambient + diffuse + emis), albedo.a);
 }

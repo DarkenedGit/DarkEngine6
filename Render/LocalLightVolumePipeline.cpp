@@ -63,7 +63,13 @@ namespace Dark
         heightRange.BaseShaderRegister                = 6;
         heightRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-        D3D12_ROOT_PARAMETER params[5]{};
+        D3D12_DESCRIPTOR_RANGE aoRange{};
+        aoRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        aoRange.NumDescriptors                    = 1;
+        aoRange.BaseShaderRegister                = 3;
+        aoRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+        D3D12_ROOT_PARAMETER params[6]{};
         params[kRootConstants].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
         params[kRootConstants].ShaderVisibility         = D3D12_SHADER_VISIBILITY_ALL;
         params[kRootConstants].Constants.ShaderRegister = 0;
@@ -87,6 +93,11 @@ namespace Dark
         params[kRootHeightSrv].DescriptorTable.NumDescriptorRanges = 1;
         params[kRootHeightSrv].DescriptorTable.pDescriptorRanges   = &heightRange;
 
+        params[kRootAoSrv].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        params[kRootAoSrv].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
+        params[kRootAoSrv].DescriptorTable.NumDescriptorRanges = 1;
+        params[kRootAoSrv].DescriptorTable.pDescriptorRanges   = &aoRange;
+
         D3D12_STATIC_SAMPLER_DESC heightSamp{};
         heightSamp.Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
         heightSamp.AddressU         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
@@ -97,7 +108,7 @@ namespace Dark
         heightSamp.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
         D3D12_ROOT_SIGNATURE_DESC rsDesc{};
-        rsDesc.NumParameters     = 5;
+        rsDesc.NumParameters     = 6;
         rsDesc.pParameters       = params;
         rsDesc.NumStaticSamplers = 1;
         rsDesc.pStaticSamplers   = &heightSamp;
@@ -192,6 +203,9 @@ namespace Dark
         const D3D12_GPU_DESCRIPTOR_HANDLE height = renderer.heightTableGpu();
         if (height.ptr != 0)
             cmd->SetGraphicsRootDescriptorTable(kRootHeightSrv, height);
+        const D3D12_GPU_DESCRIPTOR_HANDLE ao = renderer.aoTableGpu();
+        if (ao.ptr != 0)
+            cmd->SetGraphicsRootDescriptorTable(kRootAoSrv, ao);
         return true;
     }
 
