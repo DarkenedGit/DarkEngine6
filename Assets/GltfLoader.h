@@ -41,7 +41,7 @@ namespace Dark
         float             ao           = 1.0f; // occlusionTexture.strength
         float             alphaCutoff    = 0.5f;
         float             emissiveColor[3]{ 1.0f, 1.0f, 1.0f };
-        float             emissiveScalar = 0.0f; // 1 if any emissiveFactor > 0 or emissive tex present
+        float             emissiveScalar = 0.0f; // 1 if any emissiveFactor > 0 (intern success is decided at createFromParsed)
         int               albedoImageIndex = -1;
         int               mrImageIndex     = -1;
         int               occImageIndex    = -1;

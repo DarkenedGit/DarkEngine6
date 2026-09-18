@@ -91,15 +91,6 @@ bool albedoLooksAuthored(const Material& mat)
     return px[0] != 255 || px[1] != 255 || px[2] != 255 || px[3] != 255;
 }
 
-void warnLiveMapNotInJson()
-{
-    static bool s_warned = false;
-    if (s_warned)
-        return;
-    s_warned = true;
-    DE_LOG_WARN("GltfMaterialSave: live Image assigned but JSON has no texture index; writing factors only");
-}
-
 bool patchMaterialsObject(json& root, const Model& model, std::string* errorOut)
 {
     if (!root.is_object())
@@ -125,6 +116,14 @@ bool patchMaterialsObject(json& root, const Model& model, std::string* errorOut)
     }
     while (static_cast<int>(arr.size()) <= maxIndex)
         arr.push_back(json::object());
+
+    bool warnedLiveMap = false;
+    auto warnLiveMapOnce = [&]() {
+        if (warnedLiveMap)
+            return;
+        warnedLiveMap = true;
+        DE_LOG_WARN("GltfMaterialSave: live Image assigned but JSON has no texture index; writing factors only");
+    };
 
     for (const auto& kv : mats)
     {
@@ -164,14 +163,14 @@ bool patchMaterialsObject(json& root, const Model& model, std::string* errorOut)
         }
 
         if (!hasTextureIndex(pbr, "baseColorTexture") && albedoLooksAuthored(*mat))
-            warnLiveMapNotInJson();
+            warnLiveMapOnce();
         if (!hasTextureIndex(jm, "normalTexture") && mat->normalImage() && mat->normalImage()->valid())
-            warnLiveMapNotInJson();
+            warnLiveMapOnce();
         if (!hasTextureIndex(jm, "emissiveTexture") && mat->emissiveImage() && mat->emissiveImage()->valid())
-            warnLiveMapNotInJson();
+            warnLiveMapOnce();
         const bool jsonHasOrm = hasTextureIndex(pbr, "metallicRoughnessTexture") || hasTextureIndex(jm, "occlusionTexture");
         if (!jsonHasOrm && mat->ormImage() && mat->ormImage()->valid())
-            warnLiveMapNotInJson();
+            warnLiveMapOnce();
     }
     return true;
 }

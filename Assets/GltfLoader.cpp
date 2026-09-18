@@ -641,9 +641,8 @@ namespace Dark
                     out.ao = mat->occlusion_texture.scale;
                 tryLoadTexture(mat->occlusion_texture, gltfPath, data, out.occlusion, out.occImageIndex, "occlusion");
                 tryLoadTexture(mat->emissive_texture, gltfPath, data, out.emissive, out.emisImageIndex, "emissive");
-                const bool hasEmisTex = !out.emissive.file.empty() || !out.emissive.bytes.empty();
-                const bool anyFactor  = out.emissiveColor[0] > 0.0f || out.emissiveColor[1] > 0.0f || out.emissiveColor[2] > 0.0f;
-                out.emissiveScalar    = (hasEmisTex || anyFactor) ? 1.0f : 0.0f;
+                const bool anyFactor = out.emissiveColor[0] > 0.0f || out.emissiveColor[1] > 0.0f || out.emissiveColor[2] > 0.0f;
+                out.emissiveScalar   = anyFactor ? 1.0f : 0.0f;
             }
             return true;
         }

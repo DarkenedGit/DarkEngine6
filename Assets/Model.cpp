@@ -14,22 +14,66 @@ namespace Dark
 {
     namespace
     {
-        AssetRef<Image> internGltfBlob(AssetManager& assets, const GltfImageBlob& blob, const std::string& pathKey, Color::ColorSpace space)
+        const char* colorSpaceKeySuffix(Color::ColorSpace space)
         {
-            AssetRef<Image> img;
-            if (!blob.file.empty())
-                img = assets.loadImageFile(blob.file);
-            else if (!blob.bytes.empty())
-                img = assets.loadMemoryImage(ImageCache::gltfKey(pathKey, blob.imageIndex), blob.bytes.data(), blob.bytes.size());
+            switch (space)
+            {
+            case Color::ColorSpace::Linear:
+                return "#cs-linear";
+            case Color::ColorSpace::sRGB:
+                return "#cs-srgb";
+            default:
+                return "#cs-unknown";
+            }
+        }
+
+        AssetRef<Image> cloneWithColorSpace(AssetManager& assets, const AssetRef<Image>& src, Color::ColorSpace space, const std::string& baseKey)
+        {
+            if (baseKey.empty() || !src || !src->valid() || !src->pixels())
+                return {};
+            auto copy = std::make_shared<Image>();
+            bool ok   = false;
+            if (src->format() == ImageFormat::R32F)
+                ok = copy->createFromR32Float(reinterpret_cast<const float*>(src->pixels()), src->width(), src->height(), src->rowPitchBytes());
+            else
+                ok = copy->createFromRGBA(src->pixels(), src->width(), src->height(), src->rowPitchBytes());
+            if (!ok)
+                return {};
+            copy->setColorSpace(space);
+            return assets.internImage(std::move(copy), baseKey + colorSpaceKeySuffix(space));
+        }
+
+        AssetRef<Image> applyColorSpace(AssetManager& assets, AssetRef<Image> img, Color::ColorSpace space, const std::string& baseKey)
+        {
             if (!img || !img->valid())
                 return {};
+            if (!img->colorSpaceWasDefaulted())
+            {
+                if (img->colorSpace() == space)
+                    return img;
+                return cloneWithColorSpace(assets, img, space, baseKey);
+            }
             img->setColorSpace(space);
             return img;
         }
 
-        bool blobPresent(const GltfImageBlob& blob)
+        AssetRef<Image> internGltfBlob(AssetManager& assets, const GltfImageBlob& blob, const std::string& pathKey, Color::ColorSpace space)
         {
-            return !blob.file.empty() || !blob.bytes.empty();
+            AssetRef<Image> img;
+            std::string     key;
+            if (!blob.file.empty())
+            {
+                key = ImageCache::fileKey(blob.file);
+                img = assets.loadImageFile(blob.file);
+            }
+            else if (!blob.bytes.empty())
+            {
+                key = ImageCache::gltfKey(pathKey, blob.imageIndex);
+                img = assets.loadMemoryImage(key, blob.bytes.data(), blob.bytes.size());
+            }
+            if (!img || !img->valid())
+                return {};
+            return applyColorSpace(assets, std::move(img), space, key);
         }
     } // namespace
 
@@ -86,9 +130,8 @@ namespace Dark
             AssetRef<Image> albedo = internGltfBlob(assets, src.albedo, pathKey, Color::ColorSpace::sRGB);
             if (!albedo || !albedo->valid())
             {
-                albedo = assets.loadSolidImage(255, 255, 255, 255);
-                if (albedo && albedo->valid())
-                    albedo->setColorSpace(Color::ColorSpace::sRGB);
+                const std::string solidKey = ImageCache::solidKey(255, 255, 255, 255);
+                albedo                     = applyColorSpace(assets, assets.loadSolidImage(255, 255, 255, 255), Color::ColorSpace::sRGB, solidKey);
             }
 
             auto mat = std::make_shared<Material>();
@@ -103,16 +146,17 @@ namespace Dark
             mat->setAo(src.ao);
             mat->setAlphaCutoff(src.alphaCutoff);
             mat->setEmissiveColor(src.emissiveColor[0], src.emissiveColor[1], src.emissiveColor[2]);
-            const bool hasEmisTex    = blobPresent(src.emissive);
-            const bool anyFactor     = src.emissiveColor[0] > 0.0f || src.emissiveColor[1] > 0.0f || src.emissiveColor[2] > 0.0f;
-            const bool defaultWhite  = src.emissiveColor[0] == 1.0f && src.emissiveColor[1] == 1.0f && src.emissiveColor[2] == 1.0f;
-            const bool emissiveOn    = src.emissiveScalar > 0.0f || hasEmisTex || (anyFactor && !defaultWhite);
-            mat->setEmissive(emissiveOn ? 1.0f : 0.0f);
 
             if (AssetRef<Image> nrm = internGltfBlob(assets, src.normal, pathKey, Color::ColorSpace::Linear))
                 mat->setNormalImage(std::move(nrm));
-            if (AssetRef<Image> emis = internGltfBlob(assets, src.emissive, pathKey, Color::ColorSpace::sRGB))
-                mat->setEmissiveImage(std::move(emis));
+            AssetRef<Image> emis = internGltfBlob(assets, src.emissive, pathKey, Color::ColorSpace::sRGB);
+            if (emis)
+                mat->setEmissiveImage(emis);
+            const bool internedEmis = emis && emis->valid();
+            const bool anyFactor    = src.emissiveColor[0] > 0.0f || src.emissiveColor[1] > 0.0f || src.emissiveColor[2] > 0.0f;
+            const bool defaultWhite = src.emissiveColor[0] == 1.0f && src.emissiveColor[1] == 1.0f && src.emissiveColor[2] == 1.0f;
+            const bool emissiveOn   = internedEmis || src.emissiveScalar > 0.0f || (anyFactor && !defaultWhite);
+            mat->setEmissive(emissiveOn ? 1.0f : 0.0f);
 
             AssetRef<Image> mr  = internGltfBlob(assets, src.metallicRoughness, pathKey, Color::ColorSpace::Linear);
             AssetRef<Image> occ = internGltfBlob(assets, src.occlusion, pathKey, Color::ColorSpace::Linear);

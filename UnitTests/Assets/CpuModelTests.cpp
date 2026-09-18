@@ -358,4 +358,37 @@ TEST(CpuModel, MissingOptionalMapFilesSkipThoseSlots)
     EXPECT_FALSE(model.opaque()[0].material->normalImage());
     EXPECT_FALSE(model.opaque()[0].material->ormImage());
     EXPECT_FALSE(model.opaque()[0].material->emissiveImage());
+    EXPECT_FLOAT_EQ(model.opaque()[0].material->emissive(), 0.0f);
+}
+
+TEST(CpuModel, SameImageAlbedoAndMrKeepsAlbedoSrgb)
+{
+    const auto shared = Dark::GltfTest::writeTempBmp("cpu_shared_albedo_mr.bmp", 9, 8, 7, 255);
+
+    AssetManager assets;
+    GltfCpuModel cpu;
+    GltfCpuPrimitive p;
+    p.mesh                         = makeTri();
+    p.materialIndex                = 0;
+    p.albedo.file                  = shared;
+    p.albedo.imageIndex            = 0;
+    p.metallicRoughness.file       = shared;
+    p.metallicRoughness.imageIndex = 0;
+    cpu.primitives.push_back(p);
+
+    Model model;
+    ASSERT_TRUE(model.createFromParsed(assets, cpu, "unit:/shared-cs"));
+    ASSERT_EQ(model.opaque().size(), 1u);
+    const auto& mat = model.opaque()[0].material;
+    ASSERT_TRUE(mat);
+    ASSERT_TRUE(mat->albedo());
+    ASSERT_TRUE(mat->ormImage());
+    EXPECT_EQ(mat->albedo()->colorSpace(), Dark::Color::ColorSpace::sRGB);
+    EXPECT_FALSE(mat->albedo()->colorSpaceWasDefaulted());
+    EXPECT_EQ(mat->ormImage()->colorSpace(), Dark::Color::ColorSpace::Linear);
+    EXPECT_NE(mat->albedo()->id, mat->ormImage()->id);
+    const auto fileImg = assets.loadImageFile(shared);
+    ASSERT_TRUE(fileImg);
+    EXPECT_EQ(fileImg->id, mat->albedo()->id);
+    EXPECT_EQ(fileImg->colorSpace(), Dark::Color::ColorSpace::sRGB);
 }

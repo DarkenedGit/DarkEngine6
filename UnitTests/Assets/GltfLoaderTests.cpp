@@ -681,6 +681,25 @@ TEST(GltfLoader, BadDataUriTextureStillLoadsMesh)
     EXPECT_EQ(model.primitives[0].mesh.positions.size(), 3u);
 }
 
+TEST(GltfLoader, EmissiveTextureUriDoesNotSetScalarWithoutFactor)
+{
+    const std::string json = makeTriGltfJson(TangentMode::None, R"({ "emissiveTexture": { "index": 0 } })");
+    const auto materialsPos = json.find("\"materials\"");
+    ASSERT_NE(materialsPos, std::string::npos);
+    const auto afterMats = json.find("],", materialsPos);
+    ASSERT_NE(afterMats, std::string::npos);
+    std::string patched = json;
+    patched.insert(afterMats + 2, "\n  \"textures\": [{ \"source\": 0 }],\n  \"images\": [{ \"uri\": \"emis.png\" }],");
+    const auto path = writeTempGltf("emis-uri-only.gltf", patched);
+    GltfCpuModel model;
+    ASSERT_TRUE(parseGltfFile(path, model));
+    ASSERT_EQ(model.primitives.size(), 1u);
+    EXPECT_EQ(model.primitives[0].emisImageIndex, 0);
+    EXPECT_EQ(model.primitives[0].emissive.file.filename(), "emis.png");
+    EXPECT_FLOAT_EQ(model.primitives[0].emissiveScalar, 0.0f);
+    EXPECT_NEAR(model.primitives[0].emissiveColor[0], 0.0f, 1.0e-5f);
+}
+
 TEST(GltfLoader, EmissiveFactorTurnsScalarOn)
 {
     const auto path = writeTempGltf("emis-factor.gltf", makeTriGltfJson(TangentMode::None, R"({ "emissiveFactor": [1, 1, 1] })"));

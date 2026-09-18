@@ -8,6 +8,7 @@
 #include "Assets/MeshData.h"
 #include "Assets/Model.h"
 #include "Core/ContentRoots.h"
+#include "Core/Log.h"
 
 #include "third_party/nlohmann/json.hpp"
 
@@ -15,6 +16,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 using json = nlohmann::json;
 using namespace Dark;
@@ -250,6 +252,51 @@ TEST(GltfMaterialSave, LiveMapWithoutJsonIndexWritesFactorsOnly)
         EXPECT_FALSE(mat["emissiveTexture"].contains("index"));
     EXPECT_TRUE(mat.contains("emissiveFactor"));
     EXPECT_TRUE(mat.contains("alphaCutoff"));
+}
+
+TEST(GltfMaterialSave, LiveMapWarnOncePerSave)
+{
+    struct Capture
+    {
+        static std::vector<std::string>& warns()
+        {
+            static std::vector<std::string> s;
+            return s;
+        }
+        static void fn(LogLevel level, LogCategory, const char* message)
+        {
+            if (level == LogLevel::Warn && message)
+                warns().push_back(message);
+        }
+    };
+
+    AssetManager assets;
+    Model        model;
+    ASSERT_TRUE(makeIndexedModel(assets, model));
+    ASSERT_TRUE(model.partAt(0) && model.partAt(0)->material);
+    auto nrm = assets.loadSolidImage(10, 20, 30, 255);
+    ASSERT_TRUE(nrm);
+    model.partAt(0)->material->setNormalImage(nrm);
+
+    Capture::warns().clear();
+    Log::setCapture(&Capture::fn);
+    auto countLiveMapWarns = []() {
+        int n = 0;
+        for (const std::string& m : Capture::warns())
+        {
+            if (m.find("live Image assigned") != std::string::npos)
+                ++n;
+        }
+        return n;
+    };
+
+    std::string patched;
+    ASSERT_TRUE(patchGltfMaterialsJson(R"({"asset":{"version":"2.0"},"materials":[{}]})", model, patched, nullptr));
+    EXPECT_EQ(countLiveMapWarns(), 1);
+    Capture::warns().clear();
+    ASSERT_TRUE(patchGltfMaterialsJson(R"({"asset":{"version":"2.0"},"materials":[{}]})", model, patched, nullptr));
+    EXPECT_EQ(countLiveMapWarns(), 1);
+    Log::setCapture(nullptr);
 }
 
 TEST(GltfMaterialSave, EmptyJsonFails)
