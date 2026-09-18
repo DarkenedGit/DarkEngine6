@@ -217,6 +217,7 @@ namespace Dark
             }
 
             bool sawXyze  = false;
+            bool sawRgbe  = false;
             bool sawBlank = false;
             for (int i = 0; i < kMaxHdrHeaderLines; ++i)
             {
@@ -236,7 +237,9 @@ namespace Dark
                     const std::string val = TrimCopy(trimmed.substr(7));
                     if (IeEquals(val, "32-bit_rle_xyze"))
                         sawXyze = true;
-                    else if (!IeEquals(val, "32-bit_rle_rgbe"))
+                    else if (IeEquals(val, "32-bit_rle_rgbe"))
+                        sawRgbe = true;
+                    else
                     {
                         DE_LOG_ERROR("Image: unsupported Radiance FORMAT '{}'", val);
                         return false;
@@ -251,6 +254,11 @@ namespace Dark
             if (sawXyze)
             {
                 DE_LOG_ERROR("Image: Radiance XYZE is not supported");
+                return false;
+            }
+            if (!sawRgbe)
+            {
+                DE_LOG_ERROR("Image: Radiance header missing FORMAT=32-bit_rle_rgbe");
                 return false;
             }
 

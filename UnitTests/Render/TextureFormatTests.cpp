@@ -61,6 +61,7 @@ TEST(TextureFormat, UnknownColorSpaceFails)
     DXGI_FORMAT foot     = DXGI_FORMAT_UNKNOWN;
     EXPECT_FALSE(resolveTextureFormats(ColorSpace::Unknown, ImageFormat::RGBA8, resource, srv, foot));
     EXPECT_FALSE(resolveTextureFormats(ColorSpace::Unknown, ImageFormat::R32F, resource, srv, foot));
+    EXPECT_FALSE(resolveTextureFormats(ColorSpace::Unknown, ImageFormat::RGBA32F, resource, srv, foot));
 }
 
 TEST(TextureFormat, InvalidImageFormatFails)
@@ -87,6 +88,7 @@ TEST(TextureFormat, LinearUsageAlwaysWins)
     EXPECT_EQ(resolveGpuColorSpace(TextureUsage::Font, ColorSpace::sRGB), ColorSpace::Linear);
     EXPECT_EQ(resolveGpuColorSpace(TextureUsage::Normal, ColorSpace::sRGB), ColorSpace::Linear);
     EXPECT_EQ(resolveGpuColorSpace(TextureUsage::Height, ColorSpace::sRGB), ColorSpace::Linear);
+    EXPECT_EQ(resolveGpuColorSpace(TextureUsage::Ibl, ColorSpace::sRGB), ColorSpace::Linear);
 }
 
 TEST(TextureFormat, AlbedoKeepsExplicitLinear)

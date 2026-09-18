@@ -192,3 +192,70 @@ TEST(Image_Hdr, RgbE_RleScanline)
         EXPECT_NEAR(rgba[3], 1.0f, 1.0e-3f) << "x=" << x;
     }
 }
+
+TEST(Image_Hdr, RgbE_RleDumpAndRun)
+{
+    std::string s = "#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 8\n";
+    const uint8_t rle[] = {
+        0x02, 0x02, 0x00, 0x08,
+        3, 128, 128, 128, 133, 128,
+        3, 64, 64, 64, 133, 64,
+        3, 32, 32, 32, 133, 32,
+        3, 128, 128, 128, 133, 128,
+    };
+    s.append(reinterpret_cast<const char*>(rle), sizeof(rle));
+
+    Image img;
+    ASSERT_TRUE(img.createFromHdrMemory(s.data(), s.size()));
+    EXPECT_EQ(img.width(), 8u);
+    EXPECT_EQ(img.height(), 1u);
+    const float scale = std::ldexp(1.0f, 128 - (128 + 8));
+    for (uint32_t x = 0; x < 8; ++x)
+    {
+        float rgba[4] = {};
+        std::memcpy(rgba, img.pixels() + static_cast<size_t>(x) * 16u, sizeof(rgba));
+        EXPECT_NEAR(rgba[0], 128.0f * scale, 1.0e-3f) << "x=" << x;
+        EXPECT_NEAR(rgba[1], 64.0f * scale, 1.0e-3f) << "x=" << x;
+        EXPECT_NEAR(rgba[2], 32.0f * scale, 1.0e-3f) << "x=" << x;
+        EXPECT_NEAR(rgba[3], 1.0f, 1.0e-3f) << "x=" << x;
+    }
+}
+
+TEST(Image_Hdr, RejectsTruncatedPayload)
+{
+    const char header[] = "#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 1\n";
+    Image      img;
+    EXPECT_FALSE(img.createFromHdrMemory(header, sizeof(header) - 1));
+    EXPECT_FALSE(img.valid());
+}
+
+TEST(Image_Hdr, RejectsRleWidthMismatch)
+{
+    std::string s = "#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 8\n";
+    const uint8_t rle[] = { 0x02, 0x02, 0x00, 0x04 };
+    s.append(reinterpret_cast<const char*>(rle), sizeof(rle));
+    Image img;
+    EXPECT_FALSE(img.createFromHdrMemory(s.data(), s.size()));
+}
+
+TEST(Image_Hdr, RejectsRleRunPastWidth)
+{
+    std::string run = "#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 4\n";
+    const uint8_t runBytes[] = { 0x02, 0x02, 0x00, 0x04, 133, 128 };
+    run.append(reinterpret_cast<const char*>(runBytes), sizeof(runBytes));
+    Image runImg;
+    EXPECT_FALSE(runImg.createFromHdrMemory(run.data(), run.size()));
+
+    std::string dump = "#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 4\n";
+    const uint8_t dumpBytes[] = { 0x02, 0x02, 0x00, 0x04, 5, 1, 1, 1, 1, 1 };
+    dump.append(reinterpret_cast<const char*>(dumpBytes), sizeof(dumpBytes));
+    Image dumpImg;
+    EXPECT_FALSE(dumpImg.createFromHdrMemory(dump.data(), dump.size()));
+}
+
+TEST(Image_Hdr, RejectsMissingFormat)
+{
+    const char missing[] = "#?RADIANCE\n\n-Y 1 +X 1\n\x80\x80\x80\x80";
+    Image      img;
+    EXPECT_FALSE(img.createFromHdrMemory(missing, sizeof(missing) - 1));
+}

@@ -35,6 +35,8 @@ namespace Dark
             bool ok   = false;
             if (src->format() == ImageFormat::R32F)
                 ok = copy->createFromR32Float(reinterpret_cast<const float*>(src->pixels()), src->width(), src->height(), src->rowPitchBytes());
+            else if (src->format() == ImageFormat::RGBA32F)
+                ok = copy->createFromRgba32f(reinterpret_cast<const float*>(src->pixels()), src->width(), src->height(), src->rowPitchBytes());
             else
                 ok = copy->createFromRGBA(src->pixels(), src->width(), src->height(), src->rowPitchBytes());
             if (!ok)
