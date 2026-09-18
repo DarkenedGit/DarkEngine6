@@ -46,7 +46,7 @@ float4 PSEquirect(PSInput input) : SV_TARGET
 float4 PSIrradiance(PSInput input) : SV_TARGET
 {
     float3 n = CubeFaceDir(input.clipXY, faceIndex);
-    float3 e = 0.xxx;
+    float3 e = 0.0.xxx;
     uint   nSamples = max(sampleCount, 1u);
     for (uint i = 0u; i < nSamples; ++i)
     {
@@ -63,7 +63,7 @@ float4 PSPrefilter(PSInput input) : SV_TARGET
 {
     float3 n = CubeFaceDir(input.clipXY, faceIndex);
     float3 v = n;
-    float3 pre = 0.xxx;
+    float3 pre = 0.0.xxx;
     float  weight = 0.0f;
     uint   nSamples = max(sampleCount, 1u);
     for (uint i = 0u; i < nSamples; ++i)
@@ -78,7 +78,7 @@ float4 PSPrefilter(PSInput input) : SV_TARGET
             weight += ndotL;
         }
     }
-    pre = weight > 0.0f ? pre / weight : 0.xxx;
+    pre = weight > 0.0f ? pre / weight : 0.0.xxx;
     return float4(pre, 1.0f);
 }
 #endif

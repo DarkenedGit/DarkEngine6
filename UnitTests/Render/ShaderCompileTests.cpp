@@ -106,3 +106,22 @@ TEST(ShaderCompile, DeferredLightingIblCompiles)
     EXPECT_TRUE(compileShaderFromFile(hlsl, "VSMain", "vs_5_0", vs));
     EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps));
 }
+
+TEST(ShaderCompile, IblBakeCompiles)
+{
+    const std::filesystem::path hlsl = Dark::resolveContentPath("shaders/IblBake.hlsl");
+    if (hlsl.empty())
+        GTEST_SKIP() << "shaders/IblBake.hlsl not on content roots";
+
+    D3D_SHADER_MACRO equirectMacros[] = { { "IBL_SRC_EQUIRECT", "1" }, { nullptr, nullptr } };
+    D3D_SHADER_MACRO cubeMacros[]     = { { "IBL_SRC_CUBE", "1" }, { nullptr, nullptr } };
+
+    ComPtr<ID3DBlob> vs;
+    ComPtr<ID3DBlob> psEquirect;
+    ComPtr<ID3DBlob> psIrr;
+    ComPtr<ID3DBlob> psPref;
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "VSMain", "vs_5_0", vs, cubeMacros));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSEquirect", "ps_5_0", psEquirect, equirectMacros));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSIrradiance", "ps_5_0", psIrr, cubeMacros));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSPrefilter", "ps_5_0", psPref, cubeMacros));
+}
