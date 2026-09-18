@@ -226,7 +226,7 @@ namespace Dark
         const uint32_t h       = sizeSrc->height();
         if (occlusion && metallicRoughness && (occlusion->width() != w || occlusion->height() != h))
         {
-            static bool s_sizeMismatchWarned = false;
+            static bool s_sizeMismatchWarned = false; // RFC WARN once; process-global so intern loops do not spam
             if (!s_sizeMismatchWarned)
             {
                 DE_LOG_WARN("packOrmImage: occlusion {}x{} resampled nearest to metallicRoughness {}x{}", occlusion->width(), occlusion->height(), w, h);

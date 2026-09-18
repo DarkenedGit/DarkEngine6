@@ -281,3 +281,26 @@ TEST(Material, RecipeKeyIncludesMapIdsAndEmissiveColor)
     const std::string missingKey = materialRecipeKey(missing);
     EXPECT_NE(missingKey.find(":0:0:0:"), std::string::npos);
 }
+
+TEST(Material, RecipeKeyDiffersForAoScaleAndCutoff)
+{
+    AssetManager assets;
+    Material     base;
+    Material     aoOnly;
+    Material     scaleOnly;
+    Material     cutoffOnly;
+    ASSERT_TRUE(base.createSolid(assets, 1, 2, 3, 255));
+    ASSERT_TRUE(aoOnly.copyFrom(base));
+    ASSERT_TRUE(scaleOnly.copyFrom(base));
+    ASSERT_TRUE(cutoffOnly.copyFrom(base));
+    const std::string kBase = materialRecipeKey(base);
+    aoOnly.setAo(0.25f);
+    scaleOnly.setNormalScale(2.0f);
+    cutoffOnly.setAlphaCutoff(0.1f);
+    EXPECT_NE(materialRecipeKey(aoOnly), kBase);
+    EXPECT_NE(materialRecipeKey(scaleOnly), kBase);
+    EXPECT_NE(materialRecipeKey(cutoffOnly), kBase);
+    EXPECT_NE(materialRecipeKey(aoOnly), materialRecipeKey(scaleOnly));
+    EXPECT_NE(materialRecipeKey(aoOnly), materialRecipeKey(cutoffOnly));
+    EXPECT_NE(materialRecipeKey(scaleOnly), materialRecipeKey(cutoffOnly));
+}
