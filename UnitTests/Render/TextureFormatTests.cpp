@@ -101,3 +101,27 @@ TEST(TextureFormat, AlbedoUnknownDefaultsSrgb)
     EXPECT_EQ(resolveGpuColorSpace(TextureUsage::Albedo, ColorSpace::sRGB), ColorSpace::sRGB);
     EXPECT_EQ(resolveGpuColorSpace(TextureUsage::Emissive, ColorSpace::Unknown), ColorSpace::sRGB);
 }
+
+TEST(TextureFormats, LinearRgba32f)
+{
+    DXGI_FORMAT resource = DXGI_FORMAT_UNKNOWN;
+    DXGI_FORMAT srv      = DXGI_FORMAT_UNKNOWN;
+    DXGI_FORMAT foot     = DXGI_FORMAT_UNKNOWN;
+    ASSERT_TRUE(resolveTextureFormats(ColorSpace::Linear, ImageFormat::RGBA32F, resource, srv, foot));
+    EXPECT_EQ(resource, DXGI_FORMAT_R16G16B16A16_FLOAT);
+    EXPECT_EQ(srv, DXGI_FORMAT_R16G16B16A16_FLOAT);
+    EXPECT_EQ(foot, DXGI_FORMAT_R16G16B16A16_FLOAT);
+}
+
+TEST(TextureFormats, SrgbRgba32f_Fails)
+{
+    DXGI_FORMAT resource = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    DXGI_FORMAT srv      = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    DXGI_FORMAT foot     = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    EXPECT_FALSE(resolveTextureFormats(ColorSpace::sRGB, ImageFormat::RGBA32F, resource, srv, foot));
+}
+
+TEST(Color, InferUsage_Ibl)
+{
+    EXPECT_EQ(inferColorSpaceForUsage(TextureUsage::Ibl), ColorSpace::Linear);
+}

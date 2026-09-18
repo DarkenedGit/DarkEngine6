@@ -86,6 +86,7 @@ TEST(Color, InferUsage)
     EXPECT_EQ(inferColorSpaceForUsage(TextureUsage::Height), ColorSpace::Linear);
     EXPECT_EQ(inferColorSpaceForUsage(TextureUsage::Hud), ColorSpace::Linear);
     EXPECT_EQ(inferColorSpaceForUsage(TextureUsage::Font), ColorSpace::Linear);
+    EXPECT_EQ(inferColorSpaceForUsage(TextureUsage::Ibl), ColorSpace::Linear);
     EXPECT_EQ(inferColorSpaceForUsage(static_cast<TextureUsage>(255)), ColorSpace::Linear);
 }
 

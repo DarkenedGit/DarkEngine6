@@ -4,6 +4,7 @@
 #include "Core/Log.h"
 
 #include <cstring>
+#include <vector>
 
 namespace Dark
 {
@@ -21,6 +22,46 @@ namespace Dark
         bool IsTypeless(DXGI_FORMAT format)
         {
             return format == DXGI_FORMAT_R8G8B8A8_TYPELESS;
+        }
+
+        // IEEE-754 binary32 → binary16, round-to-nearest (half up). Overflow → Inf.
+        uint16_t FloatToHalf(float value)
+        {
+            uint32_t f = 0;
+            std::memcpy(&f, &value, sizeof(f));
+            const uint32_t sign     = (f >> 16) & 0x8000u;
+            const int32_t  exponent = static_cast<int32_t>((f >> 23) & 0xffu) - 127 + 15;
+            uint32_t       mantissa = f & 0x7fffffu;
+
+            if (exponent <= 0)
+            {
+                if (exponent < -10)
+                    return static_cast<uint16_t>(sign);
+                mantissa = (mantissa | 0x800000u) >> (1 - exponent);
+                if (mantissa & 0x1000u)
+                    mantissa += 0x2000u;
+                return static_cast<uint16_t>(sign | (mantissa >> 13));
+            }
+            if (((f >> 23) & 0xffu) == 0xffu)
+            {
+                if (mantissa == 0)
+                    return static_cast<uint16_t>(sign | 0x7c00u);
+                return static_cast<uint16_t>(sign | 0x7e00u);
+            }
+            if (exponent > 30)
+                return static_cast<uint16_t>(sign | 0x7c00u);
+            if (mantissa & 0x1000u)
+            {
+                mantissa += 0x2000u;
+                if (mantissa & 0x800000u)
+                {
+                    mantissa = 0;
+                    if (exponent + 1 > 30)
+                        return static_cast<uint16_t>(sign | 0x7c00u);
+                    return static_cast<uint16_t>(sign | (static_cast<uint32_t>(exponent + 1) << 10));
+                }
+            }
+            return static_cast<uint16_t>(sign | (static_cast<uint32_t>(exponent) << 10) | (mantissa >> 13));
         }
 
         void CreateTexSrv(ID3D12Device* device, ID3D12Resource* resource, DXGI_FORMAT format, D3D12_CPU_DESCRIPTOR_HANDLE dest)
@@ -75,6 +116,24 @@ namespace Dark
             return false;
         }
 
+        if (imgFmt == ImageFormat::RGBA32F)
+        {
+            if (space == Color::ColorSpace::sRGB)
+            {
+                DE_LOG_ERROR(LogCategory::Render, "resolveTextureFormats: sRGB is invalid for RGBA32F");
+                return false;
+            }
+            if (space == Color::ColorSpace::Linear)
+            {
+                resourceFmt  = DXGI_FORMAT_R16G16B16A16_FLOAT;
+                srvFmt       = DXGI_FORMAT_R16G16B16A16_FLOAT;
+                footprintFmt = DXGI_FORMAT_R16G16B16A16_FLOAT;
+                return true;
+            }
+            DE_LOG_ERROR(LogCategory::Render, "resolveTextureFormats: ColorSpace::Unknown is not a GPU format");
+            return false;
+        }
+
         DE_LOG_ERROR(LogCategory::Render, "resolveTextureFormats: unsupported ImageFormat");
         return false;
     }
@@ -103,6 +162,30 @@ namespace Dark
         DXGI_FORMAT footprintFmt{};
         if (!resolveTextureFormats(gpuSpace, image.format(), resourceFmt, srvFmt, footprintFmt))
             return false;
+
+        if (image.format() == ImageFormat::RGBA32F)
+        {
+            const uint32_t w        = image.width();
+            const uint32_t h        = image.height();
+            const uint32_t srcPitch = image.rowPitchBytes();
+            const uint32_t dstPitch = w * 8u;
+            std::vector<uint16_t> half(static_cast<size_t>(w) * static_cast<size_t>(h) * 4u);
+            for (uint32_t y = 0; y < h; ++y)
+            {
+                const uint8_t* srcRow = image.pixels() + static_cast<size_t>(y) * srcPitch;
+                uint16_t*      dstRow = half.data() + static_cast<size_t>(y) * w * 4u;
+                for (uint32_t x = 0; x < w; ++x)
+                {
+                    float rgba[4];
+                    std::memcpy(rgba, srcRow + static_cast<size_t>(x) * 16u, sizeof(rgba));
+                    dstRow[x * 4u + 0] = FloatToHalf(rgba[0]);
+                    dstRow[x * 4u + 1] = FloatToHalf(rgba[1]);
+                    dstRow[x * 4u + 2] = FloatToHalf(rgba[2]);
+                    dstRow[x * 4u + 3] = FloatToHalf(rgba[3]);
+                }
+            }
+            return createFromRaw(renderer, half.data(), w, h, dstPitch, resourceFmt, srvFmt, footprintFmt, 8u);
+        }
 
         return createFromRaw(renderer, image.pixels(), image.width(), image.height(), image.rowPitchBytes(), resourceFmt, srvFmt, footprintFmt, image.bytesPerPixel());
     }

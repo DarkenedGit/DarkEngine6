@@ -23,6 +23,7 @@ namespace Dark::Color
         Height, // R32F
         Hud,    // display-referred UI / splash / 2D
         Font,
+        Ibl,    // authored HDRI / IBL source — always Linear
     };
 
     // IEC 61966-2-1. c is a single channel; clamp to [0,1].

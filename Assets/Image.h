@@ -13,8 +13,9 @@ namespace Dark
 
     enum class ImageFormat : uint8_t
     {
-        RGBA8 = 0,
-        R32F  = 1,
+        RGBA8   = 0,
+        R32F    = 1,
+        RGBA32F = 2,
     };
 
     // CPU pixels. No D3D12. type = AssetType::Texture2D (v1 enum).
@@ -30,6 +31,9 @@ namespace Dark
         bool createSoftStreak(uint32_t size = 64);
         bool createFromRGBA(const uint8_t* rgba, uint32_t width, uint32_t height, uint32_t rowPitchBytes);
         bool createFromR32Float(const float* samples, uint32_t width, uint32_t height, uint32_t rowPitchBytes);
+        bool createFromHdrFile(const std::filesystem::path& path);
+        bool createFromHdrMemory(const void* bytes, size_t byteCount);
+        bool createFromRgba32f(const float* rgba, uint32_t width, uint32_t height, uint32_t rowPitchBytes);
 
         bool valid() const;
         uint32_t width() const { return m_width; }
@@ -37,7 +41,7 @@ namespace Dark
         uint32_t rowPitchBytes() const { return m_rowPitch; }
         ImageFormat format() const { return m_format; }
         const uint8_t* pixels() const { return m_pixels.empty() ? nullptr : m_pixels.data(); }
-        uint32_t bytesPerPixel() const { return m_format == ImageFormat::R32F ? 4u : 4u; }
+        uint32_t bytesPerPixel() const { return m_format == ImageFormat::RGBA32F ? 16u : 4u; }
 
         Color::ColorSpace colorSpace() const { return m_colorSpace; }
         bool              colorSpaceWasDefaulted() const { return m_colorSpaceDefaulted; }
