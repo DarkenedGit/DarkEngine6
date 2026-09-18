@@ -162,6 +162,7 @@ private:
     Camera3D m_camera;
     Camera2D m_camera2D;
     SceneMode m_sceneMode = SceneMode::Scene3D;
+    IblSettings m_ibl;
 
     SpritePipeline     m_spritePipe;
     Mesh     m_quadMesh;

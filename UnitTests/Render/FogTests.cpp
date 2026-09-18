@@ -68,6 +68,7 @@ TEST(Fog, ApplyFogToLightingCopiesFields)
     EXPECT_FLOAT_EQ(lc.fogDensity, 0.01f);
     EXPECT_FLOAT_EQ(lc.fogColor[0], 0.2f);
     EXPECT_FLOAT_EQ(lc.waterLevel, 4.0f);
-    EXPECT_EQ(sizeof(LightingConstants), 51u * sizeof(float));
+    EXPECT_EQ(sizeof(LightingConstants), 56u * sizeof(float));
     EXPECT_EQ(offsetof(LightingConstants, pbrLightColor), 48u * sizeof(float));
+    EXPECT_EQ(offsetof(LightingConstants, iblIntensity), 51u * sizeof(float));
 }

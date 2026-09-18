@@ -39,11 +39,35 @@ namespace Dark
         float padPbr0;          // occupy register 11.z so float3 does not straddle
         float padPbr1;          // occupy register 11.w
         float pbrLightColor[3]; // π-scaled; PbrDirectional only. Starts at float 48 = register 12.xyz
+        float iblIntensity;     // register 12.w
+        float iblRotationRadY;
+        float iblMaxRoughnessMip;
+        float iblEnabled;
+        float iblDebug;
     };
 
-    static_assert(sizeof(LightingConstants) == 51 * sizeof(float), "lighting root constants");
+    static_assert(sizeof(LightingConstants) == 56 * sizeof(float), "lighting root constants");
     static_assert(offsetof(LightingConstants, pbrLightColor) == 48 * sizeof(float), "float3 must start on a 16-byte boundary");
-    static_assert(51 + 1 + 2 + 1 + 1 <= 64, "deferred lighting RS DWORD budget");
+    static_assert(offsetof(LightingConstants, iblIntensity) == 51 * sizeof(float), "iblIntensity shares register 12.w");
+    static_assert(56 + 1 + 2 + 1 + 1 + 1 <= 64, "deferred lighting RS DWORD budget");
+
+    // Host knobs. Not on Sky::Environment. PR4 default off; PR5 flips enabled when bake OK.
+    struct IblSettings
+    {
+        float intensity    = 1.0f;
+        float rotationRadY = 0.0f;
+        bool  enabled      = false;
+    };
+
+    inline void fillIblLightingConstants(LightingConstants& lc, const IblSettings& ibl, bool debugEnabled, int debugView, bool iblReady)
+    {
+        lc.iblIntensity       = ibl.intensity;
+        lc.iblRotationRadY    = ibl.rotationRadY;
+        lc.iblMaxRoughnessMip = 4.0f;
+        lc.iblEnabled         = (ibl.enabled && debugEnabled && iblReady) ? 1.0f : 0.0f;
+        const int d           = debugView < 0 ? 0 : (debugView > 3 ? 3 : debugView);
+        lc.iblDebug           = static_cast<float>(d);
+    }
 
     class DeferredLightingPipeline
     {
@@ -53,6 +77,7 @@ namespace Dark
         static constexpr UINT kRootShadowCbv = 2;
         static constexpr UINT kRootHeightSrv = 3;
         static constexpr UINT kRootAoSrv     = 4;
+        static constexpr UINT kRootIblSrv    = 5;
 
         DeferredLightingPipeline() = default;
 

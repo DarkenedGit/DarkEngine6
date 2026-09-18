@@ -89,8 +89,12 @@ namespace Dark
         m_lightingGpu    = {};
         m_heightGpu      = {};
         m_aoGpu          = {};
+        m_iblGpu         = {};
         m_shadowCpu      = {};
         m_heightCpu      = {};
+        m_iblIrrCpu      = {};
+        m_iblPrefCpu     = {};
+        m_iblLutCpu      = {};
         m_lightingAlbedoRaw = false;
         m_hdrState       = D3D12_RESOURCE_STATE_COMMON;
         m_albedoState    = D3D12_RESOURCE_STATE_COMMON;
@@ -168,9 +172,15 @@ namespace Dark
     {
         const D3D12_CPU_DESCRIPTOR_HANDLE savedShadow = m_shadowCpu;
         const D3D12_CPU_DESCRIPTOR_HANDLE savedHeight = m_heightCpu;
+        const D3D12_CPU_DESCRIPTOR_HANDLE savedIblIrr = m_iblIrrCpu;
+        const D3D12_CPU_DESCRIPTOR_HANDLE savedIblPref = m_iblPrefCpu;
+        const D3D12_CPU_DESCRIPTOR_HANDLE savedIblLut = m_iblLutCpu;
         reset();
-        m_shadowCpu = savedShadow;
-        m_heightCpu = savedHeight;
+        m_shadowCpu  = savedShadow;
+        m_heightCpu  = savedHeight;
+        m_iblIrrCpu  = savedIblIrr;
+        m_iblPrefCpu = savedIblPref;
+        m_iblLutCpu  = savedIblLut;
         if (!device || width == 0 || height == 0)
         {
             DE_LOG_ERROR(LogCategory::Render, "SceneBuffers::create: invalid device or size");
@@ -298,6 +308,8 @@ namespace Dark
             m_heightGpu.ptr += static_cast<SIZE_T>(kLightingHeight) * m_srvIncr;
             m_aoGpu = m_lightingGpu;
             m_aoGpu.ptr += static_cast<SIZE_T>(kLightingAo) * m_srvIncr;
+            m_iblGpu = m_lightingGpu;
+            m_iblGpu.ptr += static_cast<SIZE_T>(kLightingIblIrradiance) * m_srvIncr;
             packLightingHeap(device, depthSrvCpu);
         }
 
@@ -361,6 +373,12 @@ namespace Dark
             device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingHeight, m_srvIncr), m_heightCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         if (m_aoSrvCpu.ptr != 0)
             device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingAo, m_srvIncr), m_aoSrvCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        if (m_iblIrrCpu.ptr != 0)
+            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingIblIrradiance, m_srvIncr), m_iblIrrCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        if (m_iblPrefCpu.ptr != 0)
+            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingIblPrefilter, m_srvIncr), m_iblPrefCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        if (m_iblLutCpu.ptr != 0)
+            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingIblBrdfLut, m_srvIncr), m_iblLutCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     }
 
     void SceneBuffers::setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu)
@@ -402,6 +420,25 @@ namespace Dark
         device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingHeight, m_srvIncr), heightCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         m_heightGpu = m_lightingGpu;
         m_heightGpu.ptr += static_cast<SIZE_T>(kLightingHeight) * m_srvIncr;
+    }
+
+    void SceneBuffers::setIblSrvs(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE irradianceCpu, D3D12_CPU_DESCRIPTOR_HANDLE prefilterCpu,
+                                  D3D12_CPU_DESCRIPTOR_HANDLE brdfLutCpu)
+    {
+        m_iblIrrCpu  = irradianceCpu;
+        m_iblPrefCpu = prefilterCpu;
+        m_iblLutCpu  = brdfLutCpu;
+        if (!device || !m_lightingHeap)
+            return;
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_lightingHeap->GetCPUDescriptorHandleForHeapStart();
+        if (irradianceCpu.ptr != 0)
+            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingIblIrradiance, m_srvIncr), irradianceCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        if (prefilterCpu.ptr != 0)
+            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingIblPrefilter, m_srvIncr), prefilterCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        if (brdfLutCpu.ptr != 0)
+            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingIblBrdfLut, m_srvIncr), brdfLutCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        m_iblGpu = m_lightingGpu;
+        m_iblGpu.ptr += static_cast<SIZE_T>(kLightingIblIrradiance) * m_srvIncr;
     }
 
 } // namespace Dark

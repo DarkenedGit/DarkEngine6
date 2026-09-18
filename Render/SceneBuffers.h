@@ -26,8 +26,11 @@ namespace Dark
         static constexpr UINT kLightingDepth  = 2;
         static constexpr UINT kLightingShadow = 3;
         static constexpr UINT kLightingHeight = 4;
-        static constexpr UINT kLightingAo     = 5;
-        static constexpr UINT kLightingCount  = 6;
+        static constexpr UINT kLightingAo            = 5;
+        static constexpr UINT kLightingIblIrradiance = 6;
+        static constexpr UINT kLightingIblPrefilter  = 7;
+        static constexpr UINT kLightingIblBrdfLut    = 8;
+        static constexpr UINT kLightingCount         = 9;
 
         SceneBuffers() = default;
 
@@ -80,6 +83,7 @@ namespace Dark
         D3D12_GPU_DESCRIPTOR_HANDLE lightingTableGpu() const { return m_lightingGpu; }
         D3D12_GPU_DESCRIPTOR_HANDLE heightTableGpu() const { return m_heightGpu; }
         D3D12_GPU_DESCRIPTOR_HANDLE aoTableGpu() const { return m_aoGpu; }
+        D3D12_GPU_DESCRIPTOR_HANDLE iblTableGpu() const { return m_iblGpu; }
         ID3D12DescriptorHeap*       lightingHeap() const { return m_lightingHeap.Get(); }
         const float*                hdrClear() const { return m_hdrClear; }
         D3D12_RESOURCE_STATES       hdrState() const { return m_hdrState; }
@@ -100,6 +104,8 @@ namespace Dark
 
         void setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
         void setHeightSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE heightCpu);
+        void setIblSrvs(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE irradianceCpu, D3D12_CPU_DESCRIPTOR_HANDLE prefilterCpu,
+                        D3D12_CPU_DESCRIPTOR_HANDLE brdfLutCpu);
         void setLightingAlbedoRaw(ID3D12Device* device, bool raw);
         void packLightingHeap(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu);
 
@@ -142,8 +148,12 @@ namespace Dark
         D3D12_GPU_DESCRIPTOR_HANDLE  m_lightingGpu{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_heightGpu{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_aoGpu{};
+        D3D12_GPU_DESCRIPTOR_HANDLE  m_iblGpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_shadowCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_heightCpu{};
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_iblIrrCpu{};
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_iblPrefCpu{};
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_iblLutCpu{};
         bool                         m_lightingAlbedoRaw = false;
         D3D12_RESOURCE_STATES        m_hdrState      = D3D12_RESOURCE_STATE_COMMON;
         D3D12_RESOURCE_STATES        m_albedoState   = D3D12_RESOURCE_STATE_COMMON;

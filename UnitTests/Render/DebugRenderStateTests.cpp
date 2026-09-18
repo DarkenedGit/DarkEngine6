@@ -18,6 +18,8 @@ TEST(DebugRenderState, DefaultsAreLitSolidWithShadows)
     EXPECT_FALSE(s.legacyUnormAlbedo);
     EXPECT_FALSE(s.showAlbedoLinear);
     EXPECT_FALSE(s.showAlbedoRaw);
+    EXPECT_FALSE(s.iblEnabled);
+    EXPECT_EQ(s.iblDebug, 0);
     EXPECT_TRUE(s.lightingActive());
 }
 

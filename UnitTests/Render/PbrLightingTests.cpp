@@ -119,8 +119,29 @@ TEST(PbrLighting, EditorSunMatchesSandboxPi)
 
 TEST(PbrLighting, LightingConstants_Size)
 {
-    EXPECT_EQ(sizeof(Dark::LightingConstants), 51u * sizeof(float));
+    EXPECT_EQ(sizeof(Dark::LightingConstants), 56u * sizeof(float));
     EXPECT_EQ(offsetof(Dark::LightingConstants, pbrLightColor), 48u * sizeof(float));
+    EXPECT_EQ(offsetof(Dark::LightingConstants, iblIntensity), 51u * sizeof(float));
+}
+
+TEST(PbrLighting, IblLightingConstantsDefaultOff)
+{
+    Dark::LightingConstants lc{};
+    Dark::IblSettings       ibl{};
+    EXPECT_FALSE(ibl.enabled);
+    Dark::fillIblLightingConstants(lc, ibl, false, 0, false);
+    EXPECT_FLOAT_EQ(lc.iblEnabled, 0.0f);
+    EXPECT_FLOAT_EQ(lc.iblIntensity, 1.0f);
+    EXPECT_FLOAT_EQ(lc.iblMaxRoughnessMip, 4.0f);
+    EXPECT_FLOAT_EQ(lc.iblDebug, 0.0f);
+
+    ibl.enabled = true;
+    Dark::fillIblLightingConstants(lc, ibl, true, 2, false);
+    EXPECT_FLOAT_EQ(lc.iblEnabled, 0.0f); // fail closed without GpuIbl
+    EXPECT_FLOAT_EQ(lc.iblDebug, 2.0f);
+
+    Dark::fillIblLightingConstants(lc, ibl, true, 2, true);
+    EXPECT_FLOAT_EQ(lc.iblEnabled, 1.0f);
 }
 
 TEST(PbrLighting, IntensityDefaultsRetunedForInvPi)

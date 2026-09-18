@@ -356,6 +356,7 @@ namespace Dark
             }
             m_sceneBuffers->setLightingAlbedoRaw(m_device.Get(), m_debugState.showAlbedoRaw);
             setHeightSrv(m_heightCpu.ptr != 0 ? m_heightCpu : (m_fogHeightDummy && m_fogHeightDummy->valid() ? m_fogHeightDummy->cpuHandle() : D3D12_CPU_DESCRIPTOR_HANDLE{}));
+            applyIblSrvs();
         }
 
         updateViewport();
@@ -656,17 +657,7 @@ namespace Dark
             m_fogHeightDummy->createFromR32Float(*this, &dry, 1, 1, static_cast<uint32_t>(sizeof(float)));
         }
         setHeightSrv(m_heightCpu.ptr != 0 ? m_heightCpu : (m_fogHeightDummy->valid() ? m_fogHeightDummy->cpuHandle() : D3D12_CPU_DESCRIPTOR_HANDLE{}));
-        if (!m_iblDummyCube || m_iblDummyCubeCpu.ptr == 0)
-            createBlackIblCube(*this, 2, m_iblDummyCube, m_iblDummyCubeCpuHeap, m_iblDummyCubeCpu);
-        if (!m_iblDummyLut)
-            m_iblDummyLut = std::make_unique<Texture2D>();
-        if (!m_iblDummyLut->valid())
-        {
-            const float blackRg[2] = { 0.0f, 0.0f };
-            m_iblDummyLut->createFromRgFloat(*this, blackRg, 1, 1, 8u);
-            if (m_iblDummyLut->valid() && m_iblDummyLut->resource())
-                m_iblDummyLut->resource()->SetName(L"DE.Ibl.DummyLut");
-        }
+        applyIblSrvs();
         if (path == ScenePath::HybridDeferred)
             ensureIblBrdfLut();
         DE_LOG_INFO(LogCategory::Render, "enableSceneBuffers: path={} {}x{}", static_cast<unsigned>(path), m_width, m_height);
@@ -707,6 +698,41 @@ namespace Dark
     D3D12_CPU_DESCRIPTOR_HANDLE Renderer::iblDummyLutCpu() const
     {
         return (m_iblDummyLut && m_iblDummyLut->valid()) ? m_iblDummyLut->cpuHandle() : D3D12_CPU_DESCRIPTOR_HANDLE{};
+    }
+
+    void Renderer::ensureIblDummyResources()
+    {
+        if (!m_iblDummyCube || m_iblDummyCubeCpu.ptr == 0)
+            createBlackIblCube(*this, 2, m_iblDummyCube, m_iblDummyCubeCpuHeap, m_iblDummyCubeCpu);
+        if (!m_iblDummyLut)
+            m_iblDummyLut = std::make_unique<Texture2D>();
+        if (!m_iblDummyLut->valid())
+        {
+            const float blackRg[2] = { 0.0f, 0.0f };
+            m_iblDummyLut->createFromRgFloat(*this, blackRg, 1, 1, 8u);
+            if (m_iblDummyLut->valid() && m_iblDummyLut->resource())
+                m_iblDummyLut->resource()->SetName(L"DE.Ibl.DummyLut");
+        }
+    }
+
+    void Renderer::applyIblSrvs()
+    {
+        ensureIblDummyResources();
+        if (!m_sceneBuffers)
+            return;
+        const bool haveLast = m_iblIrrCpu.ptr != 0 && m_iblPrefCpu.ptr != 0 && m_iblLutCpu.ptr != 0;
+        if (haveLast)
+            m_sceneBuffers->setIblSrvs(m_device.Get(), m_iblIrrCpu, m_iblPrefCpu, m_iblLutCpu);
+        else
+            m_sceneBuffers->setIblSrvs(m_device.Get(), iblDummyCubeCpu(), iblDummyCubeCpu(), iblDummyLutCpu());
+    }
+
+    void Renderer::setIblSrvs(D3D12_CPU_DESCRIPTOR_HANDLE irradianceCpu, D3D12_CPU_DESCRIPTOR_HANDLE prefilterCpu, D3D12_CPU_DESCRIPTOR_HANDLE brdfLutCpu)
+    {
+        m_iblIrrCpu  = irradianceCpu;
+        m_iblPrefCpu = prefilterCpu;
+        m_iblLutCpu  = brdfLutCpu;
+        applyIblSrvs();
     }
 
     bool Renderer::hasGBuffer() const
@@ -928,6 +954,13 @@ namespace Dark
         if (!m_sceneBuffers)
             return {};
         return m_sceneBuffers->aoTableGpu();
+    }
+
+    D3D12_GPU_DESCRIPTOR_HANDLE Renderer::iblTableGpu() const
+    {
+        if (!m_sceneBuffers)
+            return {};
+        return m_sceneBuffers->iblTableGpu();
     }
 
     ID3D12DescriptorHeap* Renderer::lightingHeap() const

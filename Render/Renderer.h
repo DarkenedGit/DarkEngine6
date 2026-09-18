@@ -126,6 +126,7 @@ namespace Dark
         void clearHdr();
         void setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
         void setHeightSrv(D3D12_CPU_DESCRIPTOR_HANDLE heightCpu);
+        void setIblSrvs(D3D12_CPU_DESCRIPTOR_HANDLE irradianceCpu, D3D12_CPU_DESCRIPTOR_HANDLE prefilterCpu, D3D12_CPU_DESCRIPTOR_HANDLE brdfLutCpu);
         void setLightingAlbedoRaw(bool raw);
 
         bool ensureIblBrdfLut();
@@ -146,6 +147,7 @@ namespace Dark
         D3D12_GPU_DESCRIPTOR_HANDLE lightingTableGpu() const;
         D3D12_GPU_DESCRIPTOR_HANDLE heightTableGpu() const;
         D3D12_GPU_DESCRIPTOR_HANDLE aoTableGpu() const;
+        D3D12_GPU_DESCRIPTOR_HANDLE iblTableGpu() const;
         ID3D12DescriptorHeap*       lightingHeap() const;
         bool hasGBuffer() const;
 
@@ -158,6 +160,8 @@ namespace Dark
         bool createDepthResources();
         void updateViewport();
         bool moveToNextFrame();
+        void ensureIblDummyResources();
+        void applyIblSrvs();
 
         ComPtr<ID3D12Device>              m_device;
         ComPtr<ID3D12CommandQueue>        m_commandQueue;
@@ -200,6 +204,9 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE       m_iblDummyCubeCpu{};
         std::unique_ptr<GpuResourceCache> m_gpuResources;
         D3D12_CPU_DESCRIPTOR_HANDLE   m_heightCpu{};
+        D3D12_CPU_DESCRIPTOR_HANDLE   m_iblIrrCpu{};
+        D3D12_CPU_DESCRIPTOR_HANDLE   m_iblPrefCpu{};
+        D3D12_CPU_DESCRIPTOR_HANDLE   m_iblLutCpu{};
         DebugRenderState m_debugState{};
     };
 

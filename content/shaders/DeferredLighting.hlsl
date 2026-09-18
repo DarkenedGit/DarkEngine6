@@ -4,6 +4,7 @@
 
 #include "GBuffer.hlsli"
 #include "PbrLighting.hlsli"
+#include "IblSampling.hlsli"
 #define SHADOW_T t3
 #include "Shadow.hlsli"
 #define FOG_SAMPLE_CSM 1
@@ -35,6 +36,11 @@ cbuffer LightingConstants : register(b0)
     float    _padPbr0;      // 11.z
     float    _padPbr1;      // 11.w
     float3   pbrLightColor; // 12.xyz — π-scaled; PbrDirectional only
+    float    iblIntensity;  // 12.w
+    float    iblRotationRadY;
+    float    iblMaxRoughnessMip;
+    float    iblEnabled;
+    float    iblDebug;
 };
 
 Texture2D    gAlbedo    : register(t0);
@@ -42,6 +48,9 @@ Texture2D    gAttrib    : register(t1);
 Texture2D    gDepth     : register(t2);
 Texture2D    gHeightMap : register(t4);
 Texture2D    gAo        : register(t5);
+TextureCube  gIblIrradiance : register(t6);
+TextureCube  gIblPrefilter  : register(t7);
+Texture2D    gIblBrdfLut    : register(t8);
 SamplerState gHeightSamp : register(s2);
 
 struct PSInput
@@ -103,13 +112,56 @@ float4 PSMain(PSInput input) : SV_TARGET
     float  emissive  = albedo.a;
     float  ao        = gAo.Load(int3(texel, 0)).r;
     float3 v         = normalize(cameraPos - worldPos);
-    float3 l         = normalize(lightDirWS);
-    float  ndotl     = saturate(dot(n, l));
+    float3 F0        = lerp(float3(0.04, 0.04, 0.04), albedo.rgb, metallic);
+
+    float3 nRot = IblRotateY(n, iblRotationRadY);
+    float3 r    = reflect(-v, n);
+    float3 rRot = IblRotateY(r, iblRotationRadY);
+
+    // Function scope — debug views must compile when iblEnabled is 0 (dummy SRVs are bound).
+    float3 irr = 0;
+    float3 pre = 0;
+    float2 dfg = 0;
+    float3 ibl = 0;
+
+    if (iblEnabled >= 0.5f || iblDebug >= 0.5f)
+    {
+        irr = gIblIrradiance.Sample(gHeightSamp, nRot).rgb;
+        pre = gIblPrefilter.SampleLevel(gHeightSamp, rRot, saturate(roughness) * iblMaxRoughnessMip).rgb;
+        float NdotV = max(saturate(dot(n, v)), 1e-4f);
+        dfg = gIblBrdfLut.Sample(gHeightSamp, float2(NdotV, saturate(roughness))).rg;
+    }
+
+    if (iblEnabled >= 0.5f)
+    {
+        float3 Fd   = albedo.rgb * (1.0f - metallic) * (1.0f / DE_PBR_PI);
+        float3 spec = pre * (F0 * dfg.x + dfg.y);
+        ibl = (Fd * irr + spec) * ao * iblIntensity; // AO on both lobes
+    }
+
+    float3 l          = normalize(lightDirWS);
+    float  ndotl      = saturate(dot(n, l));
     float  recvOffset = 0.06f + 0.28f * (1.0f - ndotl) * (1.0f - ndotl);
-    float  shadow = ComputeShadow(worldPos + n * recvOffset, cameraPos);
-    float3 lit    = ambientColor * albedo.rgb * ao
-                  + PbrDirectional(n, v, albedo.rgb, roughness, metallic, lightDirWS, pbrLightColor) * shadow
-                  + albedo.rgb * emissive * emissiveGain;
+    float  shadow     = ComputeShadow(worldPos + n * recvOffset, cameraPos);
+
+    float3 lit;
+    if (iblEnabled >= 0.5f)
+        lit = ibl
+            + PbrDirectional(n, v, albedo.rgb, roughness, metallic, lightDirWS, pbrLightColor) * shadow
+            + albedo.rgb * emissive * emissiveGain;
+    else
+        lit = ambientColor * albedo.rgb * ao
+            + PbrDirectional(n, v, albedo.rgb, roughness, metallic, lightDirWS, pbrLightColor) * shadow
+            + albedo.rgb * emissive * emissiveGain;
+
+    // Debug is gated on iblDebug only, not iblEnabled. Dummy cubes → black. Skip fog.
+    if (iblDebug >= 0.5f && iblDebug < 1.5f)
+        return float4(irr, 1); // irradiance along nRot
+    if (iblDebug >= 1.5f && iblDebug < 2.5f)
+        return float4(gIblPrefilter.SampleLevel(gHeightSamp, nRot, 0).rgb, 1);
+        // lod0 along **nRot** (the cube itself), not rRot — not a reflection preview
+    if (iblDebug >= 2.5f)
+        return float4(dfg.x, dfg.y, 0, 1);
 
     FogResult fog = FogIntegrate(cameraPos, worldPos, MakeFogParams(), gHeightMap, gHeightSamp, shadow);
     return float4(ApplyLitFog(lit, fog), 1);

@@ -401,6 +401,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         lc.ambientColor[0] = ambientColor.x;
         lc.ambientColor[1] = ambientColor.y;
         lc.ambientColor[2] = ambientColor.z;
+        fillIblLightingConstants(lc, m_ibl, renderer().debugState().iblEnabled, renderer().debugState().iblDebug, false);
         m_lighting.draw(cmd, renderer(), m_shadows, lc);
         m_localLightVolumes.draw(cmd, renderer(), world(), m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_camera, viewProj, lc);
         renderer().bindHdr(true);
