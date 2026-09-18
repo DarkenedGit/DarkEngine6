@@ -34,7 +34,6 @@ cbuffer LocalLightPassConstants : register(b0)
 Texture2D    gAlbedo     : register(t0);
 Texture2D    gAttrib     : register(t1);
 Texture2D    gDepth      : register(t2);
-Texture2D    gAo         : register(t3);
 Texture2D    gHeightMap  : register(t6);
 SamplerState gHeightSamp : register(s0);
 
@@ -155,7 +154,6 @@ float4 PSMain(PSInput input) : SV_TARGET
 
     float4 albedo    = gAlbedo.Load(int3(texel, 0));
     float4 attrib    = gAttrib.Load(int3(texel, 0));
-    float  ao        = gAo.Load(int3(texel, 0)).r;
     float3 n         = DecodeOct(attrib.rg);
     float  roughness = attrib.b;
     float  metallic  = attrib.a;
@@ -181,8 +179,6 @@ float4 PSMain(PSInput input) : SV_TARGET
 
     float3 v   = normalize(cameraPos - worldPos);
     float3 lit = PbrPunctual(n, v, albedo.rgb, roughness, metallic, toLight, light.color, light.sourceRadius);
-    // M18: punctual lights do not multiply AO. max(ao,1) is identity for authored 0..1.
-    lit *= max(ao, 1.0f);
     lit *= windowedDistanceAttenuation(d * d, light.invRange2);
     if (light.type >= 0.5f)
         lit *= spotAngleAttenuation(cosTheta, light.innerCos, light.outerCos);

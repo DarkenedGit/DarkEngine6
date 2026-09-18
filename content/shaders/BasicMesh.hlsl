@@ -30,6 +30,8 @@ Texture2D    gOrm      : register(t2);
 Texture2D    gEmissive : register(t3);
 SamplerState gSamp     : register(s0);
 
+#include "NormalMap.hlsli"
+
 #define SHADOW_T t4
 #include "Shadow.hlsli"
 
@@ -60,20 +62,6 @@ PSInput VSMain(VSInput input)
     o.uv        = input.uv;
     o.worldPos  = wp.xyz;
     return o;
-}
-
-float3 ApplyNormalMap(float3 nW, float4 tangentWS, float2 uv)
-{
-    nW = normalize(nW);
-    if (length(tangentWS.xyz) < 1e-6f)
-        return nW;
-    float3 tW = normalize(tangentWS.xyz);
-    tW = normalize(tW - nW * dot(nW, tW));
-    float3 bW = cross(nW, tW) * tangentWS.w;
-    float3 nt = gNormal.Sample(gSamp, uv).xyz * 2.0f - 1.0f;
-    nt.xy *= normalScale;
-    nt = normalize(nt);
-    return normalize(nt.x * tW + nt.y * bW + nt.z * nW);
 }
 
 float4 PSMain(PSInput input) : SV_TARGET

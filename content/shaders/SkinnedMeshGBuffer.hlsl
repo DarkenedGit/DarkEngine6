@@ -29,6 +29,8 @@ Texture2D    gOrm      : register(t2);
 Texture2D    gEmissive : register(t3);
 SamplerState gSamp     : register(s0);
 
+#include "NormalMap.hlsli"
+
 struct VSInput
 {
     float3 position : POSITION;
@@ -88,20 +90,6 @@ PSInput VSMain(VSInput input)
     return o;
 }
 
-float3 ApplyNormalMap(float3 nW, float4 tangentWS, float2 uv)
-{
-    nW = normalize(nW);
-    if (length(tangentWS.xyz) < 1e-6f)
-        return nW;
-    float3 tW = normalize(tangentWS.xyz);
-    tW = normalize(tW - nW * dot(nW, tW));
-    float3 bW = cross(nW, tW) * tangentWS.w;
-    float3 nt = gNormal.Sample(gSamp, uv).xyz * 2.0f - 1.0f;
-    nt.xy *= normalScale;
-    nt = normalize(nt);
-    return normalize(nt.x * tW + nt.y * bW + nt.z * nW);
-}
-
 GBufferOut PSMain(PSInput input)
 {
     float4 albedoS = gAlbedo.Sample(gSamp, input.uv);
@@ -115,8 +103,6 @@ GBufferOut PSMain(PSInput input)
     float  rough = saturate(orm.g * roughness);
     float  metal = saturate(orm.b * metallic);
     float  aoOut = saturate(orm.r * ao);
-    if (rough <= 0.0f && metal <= 0.0f)
-        rough = 1.0f;
 
     float emis = dot(gEmissive.Sample(gSamp, input.uv).rgb, float3(0.2126f, 0.7152f, 0.0722f)) * color.a;
 
