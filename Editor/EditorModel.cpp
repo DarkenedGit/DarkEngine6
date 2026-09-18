@@ -1,6 +1,7 @@
 #include "EditorApp.h"
 
 #include "Assets/GltfMaterialSave.h"
+#include "Assets/Image.h"
 #include "Assets/Material.h"
 #include "Assets/Model.h"
 #include "Particles/ParticleComponents.h"
@@ -77,6 +78,36 @@ const char* alphaModeLabel(MaterialAlphaMode mode)
     default:
         return "Opaque";
     }
+}
+
+bool pickImagePath(HWND owner, std::filesystem::path& out)
+{
+    wchar_t file[MAX_PATH];
+    file[0] = 0;
+
+    OPENFILENAMEW ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner   = owner;
+    ofn.lpstrFilter = L"Images (*.png;*.jpg;*.jpeg;*.bmp)\0*.png;*.jpg;*.jpeg;*.bmp\0PNG (*.png)\0*.png\0JPEG (*.jpg;*.jpeg)\0*.jpg;*.jpeg\0All files (*.*)\0*.*\0";
+    ofn.lpstrFile   = file;
+    ofn.nMaxFile    = MAX_PATH;
+    ofn.lpstrDefExt = L"png";
+    ofn.Flags       = OFN_EXPLORER | OFN_NOCHANGEDIR | OFN_HIDEREADONLY | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    ofn.lpstrTitle  = L"Load Material Map";
+
+    if (!GetOpenFileNameW(&ofn))
+        return false;
+    out = std::filesystem::path(file);
+    return true;
+}
+
+AssetRef<Image> loadMaterialMapImage(AssetManager& assets, const std::filesystem::path& path)
+{
+    const std::string virt = assets.virtualPathFromAbsolute(path);
+    AssetRef<Image>   img  = virt.empty() ? assets.loadImageFile(path) : assets.loadImage(virt);
+    if (!img || !img->valid())
+        return {};
+    return img;
 }
 
 } // namespace
@@ -432,9 +463,10 @@ void EditorApp::drawMaterialPanel()
         return;
     }
 
-    Material* mat             = nullptr;
-    bool      meshInstance    = false;
-    bool      particleInstance = false;
+    Material*          mat              = nullptr;
+    AssetRef<Material> currentMat;
+    bool               meshInstance     = false;
+    bool               particleInstance = false;
     if (world().get<ModelComponent>(m_selected))
     {
         const Model::Part* part = selectedModelPart();
@@ -444,7 +476,8 @@ void EditorApp::drawMaterialPanel()
             ImGui::End();
             return;
         }
-        mat = part->material.get();
+        currentMat = part->material;
+        mat        = currentMat.get();
         ImGui::Text("Material %d", part->materialIndex);
         if (!part->name.empty())
             ImGui::TextUnformatted(part->name.c_str());
@@ -460,7 +493,8 @@ void EditorApp::drawMaterialPanel()
             ImGui::End();
             return;
         }
-        mat          = meshMat.get();
+        currentMat   = meshMat;
+        mat          = currentMat.get();
         meshInstance = true;
         if (const EditorObjectComponent* so = findObject(m_selected))
             ImGui::Text("Selected: %s", toString(so->type));
@@ -484,8 +518,9 @@ void EditorApp::drawMaterialPanel()
             ImGui::End();
             return;
         }
-        mat               = sprite.get();
-        particleInstance  = true;
+        currentMat       = sprite;
+        mat              = currentMat.get();
+        particleInstance = true;
         ImGui::TextUnformatted("Selected: Particle Emitter");
         ImGui::TextDisabled("Albedo is the particle sprite. Vertex color still comes from the emitter.");
         if (meshMaterialShared(sprite->id))
@@ -510,23 +545,24 @@ void EditorApp::drawMaterialPanel()
             color[2] = so->color[2];
         }
     }
-    auto uniqueForEdit = [&]() -> Material* {
+    auto uniqueForEdit = [&]() -> AssetRef<Material> {
         if (meshInstance)
-        {
-            if (AssetRef<Material> unique = ensureUniqueMeshMaterial(m_selected))
-                return unique.get();
-        }
-        else if (particleInstance)
-        {
-            if (AssetRef<Material> unique = ensureUniqueParticleMaterial(m_selected))
-                return unique.get();
-        }
-        return mat;
+            return ensureUniqueMeshMaterial(m_selected);
+        if (particleInstance)
+            return ensureUniqueParticleMaterial(m_selected);
+        return currentMat;
+    };
+    auto internAndEnsure = [&](const AssetRef<Material>& edit) {
+        if (!edit)
+            return;
+        AssetRef<Material> interned = assets().internMaterial(edit);
+        if (interned && interned->id != NULL_ASSET)
+            renderer().gpuResources().ensureMaterial(interned);
     };
 
     if (ImGui::ColorEdit4("Base Color", color))
     {
-        Material* edit = uniqueForEdit();
+        AssetRef<Material> edit = uniqueForEdit();
         if (meshInstance)
         {
             if (EditorObjectComponent* so = findObject(m_selected))
@@ -544,32 +580,115 @@ void EditorApp::drawMaterialPanel()
     float roughness = mat->roughness();
     if (ImGui::SliderFloat("Metallic", &metallic, 0.0f, 1.0f))
     {
-        if (Material* edit = uniqueForEdit())
+        if (AssetRef<Material> edit = uniqueForEdit())
             edit->setMetallicRoughness(metallic, roughness);
     }
     if (ImGui::SliderFloat("Roughness", &roughness, 0.0f, 1.0f))
     {
-        if (Material* edit = uniqueForEdit())
+        if (AssetRef<Material> edit = uniqueForEdit())
             edit->setMetallicRoughness(metallic, roughness);
     }
 
     float emissive = mat->emissive();
     if (ImGui::SliderFloat("Emissive", &emissive, 0.0f, 4.0f))
     {
-        if (Material* edit = uniqueForEdit())
+        if (AssetRef<Material> edit = uniqueForEdit())
             edit->setEmissive(emissive);
     }
     if (particleInstance)
         ImGui::TextDisabled("Emissive scales HDR brightness (bloom). Additive emitters already self-light.");
 
-    int         mode      = static_cast<int>(mat->alphaMode());
-    const char* modes[]   = { "Opaque", "Mask", "Blend" };
+    if (particleInstance)
+        ImGui::TextDisabled("Normal / ORM / emissive maps, AO, and normal scale are mesh-only.");
+    else
+    {
+        ImGui::SeparatorText("Maps");
+        auto drawMapSlot = [&](const char* id, const char* label, const AssetRef<Image>& img, void (Material::*setter)(AssetRef<Image>), const char* tooltip) {
+            ImGui::PushID(id);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(label);
+            if (tooltip && ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s", tooltip);
+            ImGui::SameLine();
+            if (img && img->valid())
+                ImGui::Text("%ux%u", img->width(), img->height());
+            else
+                ImGui::TextDisabled("none");
+            ImGui::SameLine();
+            if (ImGui::Button(ICON_FA_FOLDER_OPEN "  Load"))
+            {
+                std::filesystem::path path;
+                if (pickImagePath(static_cast<HWND>(window().nativeHandle()), path))
+                {
+                    AssetRef<Image> loaded = loadMaterialMapImage(assets(), path);
+                    if (loaded && loaded->valid())
+                    {
+                        if (AssetRef<Material> edit = uniqueForEdit())
+                        {
+                            (edit.get()->*setter)(std::move(loaded));
+                            internAndEnsure(edit);
+                        }
+                    }
+                    else
+                        DE_LOG_ERROR("Editor: failed to load material map '{}'", path.string());
+                }
+            }
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!(img && img->valid()));
+            if (ImGui::Button("Clear"))
+            {
+                if (AssetRef<Material> edit = uniqueForEdit())
+                {
+                    (edit.get()->*setter)({});
+                    internAndEnsure(edit);
+                }
+            }
+            ImGui::EndDisabled();
+            ImGui::PopID();
+        };
+
+        drawMapSlot("normal", "Normal", mat->normalImage(), &Material::setNormalImage, "Tangent-space RGB normal map");
+        float normalScale = mat->normalScale();
+        if (ImGui::SliderFloat("Normal Scale", &normalScale, 0.0f, 4.0f))
+        {
+            if (AssetRef<Material> edit = uniqueForEdit())
+            {
+                edit->setNormalScale(normalScale);
+                internAndEnsure(edit);
+            }
+        }
+
+        drawMapSlot("orm", "ORM", mat->ormImage(), &Material::setOrmImage, "Packed AO (R), Roughness (G), Metallic (B)");
+        float ao = mat->ao();
+        if (ImGui::SliderFloat("AO", &ao, 0.0f, 1.0f))
+        {
+            if (AssetRef<Material> edit = uniqueForEdit())
+            {
+                edit->setAo(ao);
+                internAndEnsure(edit);
+            }
+        }
+
+        drawMapSlot("emissive", "Emissive Map", mat->emissiveImage(), &Material::setEmissiveImage, nullptr);
+    }
+
+    int         mode    = static_cast<int>(mat->alphaMode());
+    const char* modes[] = { "Opaque", "Mask", "Blend" };
     if (ImGui::Combo("Alpha Mode", &mode, modes, 3))
     {
-        if (Material* edit = uniqueForEdit())
+        if (AssetRef<Material> edit = uniqueForEdit())
             edit->setAlphaMode(static_cast<MaterialAlphaMode>(mode));
     }
+    float cutoff = mat->alphaCutoff();
+    if (ImGui::SliderFloat("Alpha Cutoff", &cutoff, 0.0f, 1.0f))
+    {
+        if (AssetRef<Material> edit = uniqueForEdit())
+        {
+            edit->setAlphaCutoff(cutoff);
+            internAndEnsure(edit);
+        }
+    }
     ImGui::TextDisabled(meshInstance || particleInstance ? "Edits apply live to this object."
-                                                         : "Color / metal / rough update live. Alpha mode is stored on Save.");
+                                                         : "Color / metal / rough / maps update live. Alpha mode is stored on Save.");
     ImGui::End();
 }
