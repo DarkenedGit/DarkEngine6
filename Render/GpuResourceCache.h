@@ -2,6 +2,7 @@
 
 #include "Assets/AssetHandle.h"
 #include "Math/Color.h"
+#include "Render/GpuIbl.h"
 #include "Render/GpuMaterial.h"
 #include "Render/GpuModel.h"
 #include "Render/PackedSrvHeap.h"
@@ -40,6 +41,7 @@ namespace Dark
     {
     public:
         explicit GpuResourceCache(Renderer& renderer);
+        explicit GpuResourceCache(Renderer* renderer);
 
         GpuResourceCache(const GpuResourceCache&)            = delete;
         GpuResourceCache& operator=(const GpuResourceCache&) = delete;
@@ -47,10 +49,12 @@ namespace Dark
         bool ensureTexture(const AssetRef<Image>& image, Color::TextureUsage usage);
         bool ensureMaterial(const AssetRef<Material>& material);
         bool ensureModel(const AssetRef<Model>& model);
+        bool ensureIbl(const AssetRef<Image>& hdrEquirect);
 
         std::shared_ptr<Texture2D> texture(AssetID imageId) const;
         GpuMaterial*               material(AssetID materialId) const;
         GpuModel*                  model(AssetID modelId) const;
+        GpuIbl*                    ibl(AssetID imageId) const;
         AssetRef<Material>         cpuMaterial(AssetID materialId) const;
 
         const Texture2D* defaultNormal() const { return m_defaultNormal.get(); }
@@ -102,6 +106,11 @@ namespace Dark
             AssetWeakRef<Model>       cpu;
             std::unique_ptr<GpuModel> gpu;
         };
+        struct IblEntry
+        {
+            AssetWeakRef<Image>     cpu;
+            std::unique_ptr<GpuIbl> gpu;
+        };
 
         bool ensureDefaultMaps();
         const Texture2D* resolveMapOrDefault(const AssetRef<Image>& image, Color::TextureUsage usage, const Texture2D* fallback);
@@ -115,6 +124,7 @@ namespace Dark
         std::unordered_map<AssetID, TexEntry> m_textures;
         std::unordered_map<AssetID, MatEntry> m_materials;
         std::unordered_map<AssetID, ModEntry> m_models;
+        std::unordered_map<AssetID, IblEntry> m_ibl;
         std::vector<PackedSrvHeap*>           m_packedHeaps;
         uint32_t                              m_shadowPatches = 0;
     };

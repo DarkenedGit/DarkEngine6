@@ -2,6 +2,7 @@
 #include "Assets/Image.h"
 #include "Assets/Material.h"
 #include "Assets/Model.h"
+#include "Render/GpuIbl.h"
 #include "Render/GpuMaterial.h"
 #include "Render/Mesh.h"
 #include "Render/Renderer.h"
@@ -34,7 +35,12 @@ namespace Dark
     } // namespace
 
     GpuResourceCache::GpuResourceCache(Renderer& renderer)
-        : m_renderer(&renderer)
+        : GpuResourceCache(&renderer)
+    {
+    }
+
+    GpuResourceCache::GpuResourceCache(Renderer* renderer)
+        : m_renderer(renderer)
     {
     }
 
@@ -304,6 +310,36 @@ namespace Dark
         return true;
     }
 
+    bool GpuResourceCache::ensureIbl(const AssetRef<Image>& hdrEquirect)
+    {
+        if (!hdrEquirect || hdrEquirect->id == NULL_ASSET)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Ibl: failed to load '{}' — using ambient", "<null>");
+            return false;
+        }
+        const auto it = m_ibl.find(hdrEquirect->id);
+        if (it != m_ibl.end() && it->second.gpu && it->second.gpu->isReady())
+            return true;
+        if (!hdrEquirect->valid() || hdrEquirect->format() != ImageFormat::RGBA32F)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Ibl: failed to load '{}' — using ambient", hdrEquirect->id);
+            return false;
+        }
+        if (!m_renderer || !m_renderer->device())
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Ibl: bake failed (null renderer / PSO)");
+            return false;
+        }
+        auto gpu = std::make_unique<GpuIbl>();
+        if (!gpu->bake(m_renderer, *hdrEquirect))
+            return false;
+        IblEntry entry{};
+        entry.cpu           = hdrEquirect;
+        entry.gpu           = std::move(gpu);
+        m_ibl[hdrEquirect->id] = std::move(entry);
+        return true;
+    }
+
     std::shared_ptr<Texture2D> GpuResourceCache::texture(AssetID imageId) const
     {
         if (imageId == NULL_ASSET)
@@ -330,6 +366,16 @@ namespace Dark
             return nullptr;
         const auto it = m_models.find(modelId);
         if (it == m_models.end())
+            return nullptr;
+        return it->second.gpu.get();
+    }
+
+    GpuIbl* GpuResourceCache::ibl(AssetID imageId) const
+    {
+        if (imageId == NULL_ASSET)
+            return nullptr;
+        const auto it = m_ibl.find(imageId);
+        if (it == m_ibl.end())
             return nullptr;
         return it->second.gpu.get();
     }
@@ -441,6 +487,13 @@ namespace Dark
             else
                 ++it;
         }
+        for (auto it = m_ibl.begin(); it != m_ibl.end();)
+        {
+            if (it->second.cpu.expired())
+                it = m_ibl.erase(it);
+            else
+                ++it;
+        }
     }
 
     void GpuResourceCache::clear()
@@ -449,6 +502,7 @@ namespace Dark
         m_models.clear();
         m_materials.clear();
         m_textures.clear();
+        m_ibl.clear();
         m_defaultNormal.reset();
         m_defaultOrm.reset();
         m_defaultEmissive.reset();

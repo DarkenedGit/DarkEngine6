@@ -249,6 +249,30 @@ namespace Dark
         return createFromRaw(renderer, samples, width, height, rowPitchBytes, resourceFmt, srvFmt, footprintFmt, static_cast<uint32_t>(sizeof(float)));
     }
 
+    bool Texture2D::createFromRgFloat(Renderer& renderer, const float* rg, uint32_t width, uint32_t height, uint32_t rowPitchBytes)
+    {
+        if (!rg || width == 0 || height == 0 || rowPitchBytes < width * 8u)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Texture2D: invalid RG float data");
+            return false;
+        }
+        const uint32_t        dstPitch = width * 4u;
+        std::vector<uint16_t> half(static_cast<size_t>(width) * static_cast<size_t>(height) * 2u);
+        for (uint32_t y = 0; y < height; ++y)
+        {
+            const uint8_t* srcRow = reinterpret_cast<const uint8_t*>(rg) + static_cast<size_t>(y) * rowPitchBytes;
+            uint16_t*      dstRow = half.data() + static_cast<size_t>(y) * width * 2u;
+            for (uint32_t x = 0; x < width; ++x)
+            {
+                float pair[2];
+                std::memcpy(pair, srcRow + static_cast<size_t>(x) * 8u, sizeof(pair));
+                dstRow[x * 2u + 0] = FloatToHalf(pair[0]);
+                dstRow[x * 2u + 1] = FloatToHalf(pair[1]);
+            }
+        }
+        return createFromRaw(renderer, half.data(), width, height, dstPitch, DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R16G16_FLOAT, 4u);
+    }
+
     bool Texture2D::createFromRaw(Renderer& renderer, const void* data, uint32_t width, uint32_t height, uint32_t rowPitchBytes, DXGI_FORMAT resourceFormat, DXGI_FORMAT srvFormat,
                                   DXGI_FORMAT footprintFormat, uint32_t bytesPerPixel)
     {

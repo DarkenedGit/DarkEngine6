@@ -128,6 +128,11 @@ namespace Dark
         void setHeightSrv(D3D12_CPU_DESCRIPTOR_HANDLE heightCpu);
         void setLightingAlbedoRaw(bool raw);
 
+        bool ensureIblBrdfLut();
+        D3D12_CPU_DESCRIPTOR_HANDLE iblBrdfLutCpu() const;
+        D3D12_CPU_DESCRIPTOR_HANDLE iblDummyCubeCpu() const { return m_iblDummyCubeCpu; }
+        D3D12_CPU_DESCRIPTOR_HANDLE iblDummyLutCpu() const;
+
         GpuResourceCache&       gpuResources();
         const GpuResourceCache& gpuResources() const;
 
@@ -188,6 +193,11 @@ namespace Dark
         ScenePath        m_scenePath       = ScenePath::SwapChainForward;
         std::unique_ptr<SceneBuffers>     m_sceneBuffers;
         std::unique_ptr<Texture2D>        m_fogHeightDummy;
+        std::unique_ptr<Texture2D>        m_iblBrdfLut;
+        std::unique_ptr<Texture2D>        m_iblDummyLut;
+        ComPtr<ID3D12Resource>            m_iblDummyCube;
+        ComPtr<ID3D12DescriptorHeap>      m_iblDummyCubeCpuHeap;
+        D3D12_CPU_DESCRIPTOR_HANDLE       m_iblDummyCubeCpu{};
         std::unique_ptr<GpuResourceCache> m_gpuResources;
         D3D12_CPU_DESCRIPTOR_HANDLE   m_heightCpu{};
         DebugRenderState m_debugState{};

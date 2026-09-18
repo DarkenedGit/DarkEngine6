@@ -1,9 +1,13 @@
 #include "Render/Renderer.h"
+#include "Render/GpuIbl.h"
 #include "Render/GpuResourceCache.h"
+#include "Render/IblBake.h"
 #include "Render/SceneBuffers.h"
 #include "Render/Texture2D.h"
 #include "Core/Window.h"
 #include "Core/Log.h"
+
+#include <vector>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -652,8 +656,57 @@ namespace Dark
             m_fogHeightDummy->createFromR32Float(*this, &dry, 1, 1, static_cast<uint32_t>(sizeof(float)));
         }
         setHeightSrv(m_heightCpu.ptr != 0 ? m_heightCpu : (m_fogHeightDummy->valid() ? m_fogHeightDummy->cpuHandle() : D3D12_CPU_DESCRIPTOR_HANDLE{}));
+        if (!m_iblDummyCube || m_iblDummyCubeCpu.ptr == 0)
+            createBlackIblCube(*this, 2, m_iblDummyCube, m_iblDummyCubeCpuHeap, m_iblDummyCubeCpu);
+        if (!m_iblDummyLut)
+            m_iblDummyLut = std::make_unique<Texture2D>();
+        if (!m_iblDummyLut->valid())
+        {
+            const float blackRg[2] = { 0.0f, 0.0f };
+            m_iblDummyLut->createFromRgFloat(*this, blackRg, 1, 1, 8u);
+            if (m_iblDummyLut->valid() && m_iblDummyLut->resource())
+                m_iblDummyLut->resource()->SetName(L"DE.Ibl.DummyLut");
+        }
+        if (path == ScenePath::HybridDeferred)
+            ensureIblBrdfLut();
         DE_LOG_INFO(LogCategory::Render, "enableSceneBuffers: path={} {}x{}", static_cast<unsigned>(path), m_width, m_height);
         return true;
+    }
+
+    bool Renderer::ensureIblBrdfLut()
+    {
+        if (m_iblBrdfLut && m_iblBrdfLut->valid())
+            return true;
+        if (!m_device)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "ensureIblBrdfLut: null device");
+            return false;
+        }
+        const IblBakeSettings settings{};
+        std::vector<float>    rg(static_cast<size_t>(settings.brdfLutSize) * settings.brdfLutSize * 2u);
+        if (!IblBake::generateBrdfLut(rg.data(), settings.brdfLutSize, settings.sampleCountLut))
+            return false;
+        if (!m_iblBrdfLut)
+            m_iblBrdfLut = std::make_unique<Texture2D>();
+        const uint32_t pitch = settings.brdfLutSize * 8u;
+        if (!m_iblBrdfLut->createFromRgFloat(*this, rg.data(), settings.brdfLutSize, settings.brdfLutSize, pitch))
+        {
+            DE_LOG_ERROR(LogCategory::Render, "ensureIblBrdfLut: RG16F upload failed");
+            return false;
+        }
+        if (m_iblBrdfLut->resource())
+            m_iblBrdfLut->resource()->SetName(L"DE.Ibl.BrdfLut");
+        return true;
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE Renderer::iblBrdfLutCpu() const
+    {
+        return (m_iblBrdfLut && m_iblBrdfLut->valid()) ? m_iblBrdfLut->cpuHandle() : D3D12_CPU_DESCRIPTOR_HANDLE{};
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE Renderer::iblDummyLutCpu() const
+    {
+        return (m_iblDummyLut && m_iblDummyLut->valid()) ? m_iblDummyLut->cpuHandle() : D3D12_CPU_DESCRIPTOR_HANDLE{};
     }
 
     bool Renderer::hasGBuffer() const

@@ -52,6 +52,9 @@ namespace Dark
         // Raw R32_FLOAT height field (rowPitchBytes usually width*4). No WIC. Always Linear.
         bool createFromR32Float(Renderer& renderer, const float* samples, uint32_t width, uint32_t height, uint32_t rowPitchBytes);
 
+        // RG float pairs uploaded as R16G16_FLOAT (BRDF LUT / IBL dummy). Always Linear.
+        bool createFromRgFloat(Renderer& renderer, const float* rg, uint32_t width, uint32_t height, uint32_t rowPitchBytes);
+
         // SetDescriptorHeaps + SetGraphicsRootDescriptorTable for this SRV.
         void bind(ID3D12GraphicsCommandList* cmd, UINT rootParameterIndex) const;
 
