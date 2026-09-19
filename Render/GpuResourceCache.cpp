@@ -146,6 +146,35 @@ namespace Dark
         return true;
     }
 
+    bool GpuResourceCache::ensureTerrainDefaults()
+    {
+        if (!ensureDefaultMaps())
+            return false;
+        if (m_defaultTerrainAlbedo && m_defaultTerrainAlbedo->valid() && m_defaultTerrainOrm && m_defaultTerrainOrm->valid())
+            return true;
+        if (!m_renderer)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureTerrainDefaults: no renderer");
+            return false;
+        }
+        if (!m_defaultTerrainAlbedo)
+            m_defaultTerrainAlbedo = std::make_unique<Texture2D>();
+        if (!m_defaultTerrainAlbedo->valid() && !m_defaultTerrainAlbedo->createSolidColor(*m_renderer, 255, 255, 255, 255, Color::TextureUsage::Albedo))
+        {
+            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureTerrainDefaults: default terrain albedo failed");
+            return false;
+        }
+        if (!m_defaultTerrainOrm)
+            m_defaultTerrainOrm = std::make_unique<Texture2D>();
+        // AO=1, rough=1, metal=0, height=0.5. Do not reuse mesh defaultOrm (white metal=1).
+        if (!m_defaultTerrainOrm->valid() && !m_defaultTerrainOrm->createSolidColor(*m_renderer, 255, 255, 0, 128, Color::TextureUsage::Orm))
+        {
+            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureTerrainDefaults: default terrain ORM failed");
+            return false;
+        }
+        return true;
+    }
+
     const Texture2D* GpuResourceCache::resolveMapOrDefault(const AssetRef<Image>& image, Color::TextureUsage usage, const Texture2D* fallback)
     {
         if (!image || image->id == NULL_ASSET)
@@ -506,6 +535,8 @@ namespace Dark
         m_defaultNormal.reset();
         m_defaultOrm.reset();
         m_defaultEmissive.reset();
+        m_defaultTerrainAlbedo.reset();
+        m_defaultTerrainOrm.reset();
         m_shadowCpu     = {};
         m_shadowPatches = 0;
     }

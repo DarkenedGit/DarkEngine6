@@ -10,12 +10,12 @@ namespace Dark
     using Microsoft::WRL::ComPtr;
 
     // Shader-visible CBV_SRV_UAV heap packed from FLAG_NONE CPU sources.
-    // Slot indices are explicit so terrain (6 slots, shadow at 5) can share this type.
+    // Slot indices are explicit so terrain (14 slots, shadow at 13) can share this type.
     struct PackedSrvHeap
     {
         ComPtr<ID3D12DescriptorHeap> heap;
         D3D12_GPU_DESCRIPTOR_HANDLE  gpu{};
-        UINT                         shadowSlot = 4; // GpuMaterial last slot; terrain sets 5
+        UINT                         shadowSlot = 4; // GpuMaterial last slot; terrain sets 13
         UINT                         srvCount   = 5;
     };
 

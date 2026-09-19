@@ -8,7 +8,7 @@
 #define ENCODE_SRGB 0
 #endif
 
-#define SHADOW_T t5
+#define SHADOW_T t13
 #include "Shadow.hlsli"
 #define FOG_SAMPLE_CSM 1
 #include "Fog.hlsli"
@@ -34,10 +34,10 @@ cbuffer FrameConstants : register(b0)
 };
 
 Texture2D    gLayer0 : register(t0);
-Texture2D    gLayer1 : register(t1);
-Texture2D    gLayer2 : register(t2);
-Texture2D    gLayer3 : register(t3);
-Texture2D    gSplat  : register(t4);
+Texture2D    gLayer1 : register(t3);
+Texture2D    gLayer2 : register(t6);
+Texture2D    gLayer3 : register(t9);
+Texture2D    gSplat  : register(t12);
 SamplerState gSamp   : register(s0);
 
 struct VSInput

@@ -37,7 +37,7 @@ namespace Dark
 
         D3D12_DESCRIPTOR_RANGE srvRange{};
         srvRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-        srvRange.NumDescriptors                    = kSrvCount;
+        srvRange.NumDescriptors                    = gbuffer ? kMapSrvCount : kSrvCount;
         srvRange.BaseShaderRegister                = 0;
         srvRange.RegisterSpace                     = 0;
         srvRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
@@ -169,7 +169,7 @@ namespace Dark
         }
 
         const char* passName = pass == TerrainPass::GBuffer ? "GBuffer" : "UNORM";
-        DE_LOG_INFO(LogCategory::Render, "TerrainPipeline: ready (4 layers + splat, solid/wire/point, {})", passName);
+        DE_LOG_INFO(LogCategory::Render, "TerrainPipeline: ready (14-slot metal-rough, solid/wire/point, {})", passName);
         return true;
     }
 

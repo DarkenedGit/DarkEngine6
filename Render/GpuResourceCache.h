@@ -60,6 +60,11 @@ namespace Dark
         const Texture2D* defaultNormal() const { return m_defaultNormal.get(); }
         const Texture2D* defaultOrm() const { return m_defaultOrm.get(); }
         const Texture2D* defaultEmissive() const { return m_defaultEmissive.get(); }
+        const Texture2D* defaultTerrainAlbedo() const { return m_defaultTerrainAlbedo.get(); }
+        const Texture2D* defaultTerrainOrm() const { return m_defaultTerrainOrm.get(); }
+
+        bool ensureTerrainDefaults();
+        const Texture2D* resolveMapOrDefault(const AssetRef<Image>& image, Color::TextureUsage usage, const Texture2D* fallback);
 
         void bindMaterial(ID3D12GraphicsCommandList* cmd, const Material& material, UINT albedoSrvRootIndex) const;
         void bindMaterial(ID3D12GraphicsCommandList* cmd, AssetID materialId, UINT albedoSrvRootIndex) const;
@@ -113,7 +118,6 @@ namespace Dark
         };
 
         bool ensureDefaultMaps();
-        const Texture2D* resolveMapOrDefault(const AssetRef<Image>& image, Color::TextureUsage usage, const Texture2D* fallback);
 
         Renderer*                   m_renderer = nullptr;
         D3D12_CPU_DESCRIPTOR_HANDLE m_shadowCpu{};
@@ -121,6 +125,8 @@ namespace Dark
         std::unique_ptr<Texture2D>  m_defaultNormal;
         std::unique_ptr<Texture2D>  m_defaultOrm;
         std::unique_ptr<Texture2D>  m_defaultEmissive;
+        std::unique_ptr<Texture2D>  m_defaultTerrainAlbedo;
+        std::unique_ptr<Texture2D>  m_defaultTerrainOrm;
         std::unordered_map<AssetID, TexEntry> m_textures;
         std::unordered_map<AssetID, MatEntry> m_materials;
         std::unordered_map<AssetID, ModEntry> m_models;

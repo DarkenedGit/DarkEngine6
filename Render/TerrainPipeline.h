@@ -28,12 +28,23 @@ namespace Dark
     {
         float worldViewProj[16];
         float world[16];
-        float color[4];
+        float color[4];             // rgb unused (1); a = 0 emissive — do not steal .a
         float layerTiling[4];
         float prevWorldViewProj[16];
+        float    heightBlendK;      // 56
+        float    heightBlendT;      // 57
+        float    triplanarSlope;    // 58
+        uint32_t layerTint0;        // 59  RGBA8; RGB = round(sat(linearTint)*255), A unused
+        uint32_t layerTint1;        // 60
+        uint32_t layerTint2;        // 61
+        uint32_t layerTint3;        // 62
     };
 
-    static_assert(sizeof(TerrainGBufferConstants) == 56 * sizeof(float), "gbuffer terrain CB");
+    static_assert(sizeof(TerrainGBufferConstants) == 63 * sizeof(float), "gbuffer terrain CB");
+    static_assert(offsetof(TerrainGBufferConstants, heightBlendK) == 56 * sizeof(float), "blend params append");
+    static_assert(offsetof(TerrainGBufferConstants, layerTint0) == 59 * sizeof(float), "scalar uints pack tightly");
+    static_assert(offsetof(TerrainGBufferConstants, layerTint3) == 62 * sizeof(float), "layerTint3 last float");
+    static_assert(63 + 1 <= 64, "terrain G-buffer root signature DWORD budget");
 
     // Root constants for Terrain.hlsl. Must match the HLSL cbuffer packing
     // (float3+float share a float4). 57 dwords, lighting at byte 224 = cb0[14].x.
@@ -60,15 +71,17 @@ namespace Dark
     static_assert(sizeof(TerrainFrameConstants) == 60 * sizeof(float), "terrain root constant size");
     static_assert(offsetof(TerrainFrameConstants, lightDirWS) == 144, "lightDirWS pack");
     static_assert(offsetof(TerrainFrameConstants, lighting) == 224, "lighting pack");
+    static_assert(60 + 1 + 2 <= 64, "terrain forward root signature DWORD budget");
 
-    // PSO for height-map terrain: pos/normal/uv, 4 albedo layers + 1 splat map.
+    // PSO for height-map terrain: pos/normal/uv, 14-slot metal-rough heap (shadow last).
     class TerrainPipeline
     {
     public:
         static constexpr UINT kRootConstants = 0;
         static constexpr UINT kRootSrvTable  = 1;
         static constexpr UINT kRootShadowCbv = 2;
-        static constexpr UINT kSrvCount      = 6; // layers 0-3 + splat + shadow
+        static constexpr UINT kMapSrvCount   = 13; // G-buffer table (prefix, no shadow)
+        static constexpr UINT kSrvCount      = 14; // forward table (shadow last)
 
         TerrainPipeline() = default;
 

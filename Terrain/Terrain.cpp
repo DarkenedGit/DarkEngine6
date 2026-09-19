@@ -411,7 +411,9 @@ void TerrainWorld::drawGBuffer(
     CopyMatrix(cb.worldViewProj, world * viewProj);
     CopyMatrix(cb.world, world);
     CopyMatrix(cb.prevWorldViewProj, world * prevVP);
-    material.applySurface(cb);
+    const float worldSizeX = (m_heightMap.width() > 1u) ? static_cast<float>(m_heightMap.width() - 1u) * m_heightMap.cellSize() : 0.0f;
+    const float worldSizeZ = (m_heightMap.height() > 1u) ? static_cast<float>(m_heightMap.height() - 1u) * m_heightMap.cellSize() : 0.0f;
+    material.applySurface(cb, worldSizeX, worldSizeZ);
     pipeline.setGBufferConstants(cmd, cb);
 
     const bool pointList = fill == DebugFill::Points;

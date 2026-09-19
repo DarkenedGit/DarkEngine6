@@ -5,6 +5,7 @@
 #include "Terrain/HeightBlend.h"
 
 #include <cmath>
+#include <cstdint>
 
 using namespace Dark;
 using namespace Dark::Math;
@@ -149,6 +150,24 @@ TEST(HeightBlend, TerrainTiling_WorldScale)
     EXPECT_EQ(layerTilingWorldScale(24.0f, 0.0f, 0.0f), 0.0f);
     EXPECT_EQ(layerTilingWorldScale(24.0f, -10.0f, -20.0f), 0.0f);
     EXPECT_EQ(layerTilingWorldScale(8.0f, 1.0e-4f, 1.0e-4f), 0.0f);
+}
+
+TEST(HeightBlend, PackLayerTintLinear)
+{
+    const float white[4]{ 1.0f, 1.0f, 1.0f, 1.0f };
+    EXPECT_EQ(packLayerTintLinear(white), 0xFFFFFFFFu);
+
+    const float red[4]{ 1.0f, 0.0f, 0.0f, 1.0f };
+    EXPECT_EQ(packLayerTintLinear(red), 255u | (255u << 24));
+
+    const float clampHi[4]{ 2.0f, -1.0f, 0.5f, 0.0f };
+    const uint32_t packed = packLayerTintLinear(clampHi);
+    EXPECT_EQ(packed & 255u, 255u);
+    EXPECT_EQ((packed >> 8) & 255u, 0u);
+    EXPECT_EQ((packed >> 16) & 255u, 128u);
+    EXPECT_EQ(packed >> 24, 255u);
+
+    EXPECT_EQ(packLayerTintLinear(nullptr), 255u << 24);
 }
 
 TEST(HeightBlend, TerrainAttrib_Pack_OctRoughMetal)

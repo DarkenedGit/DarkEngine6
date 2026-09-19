@@ -107,6 +107,34 @@ TEST(ShaderCompile, DeferredLightingIblCompiles)
     EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps));
 }
 
+TEST(ShaderCompile, TerrainGBufferCompiles)
+{
+    const std::filesystem::path hlsl = Dark::resolveContentPath("shaders/TerrainGBuffer.hlsl");
+    if (hlsl.empty())
+        GTEST_SKIP() << "shaders/TerrainGBuffer.hlsl not on content roots";
+
+    ComPtr<ID3DBlob> vs;
+    ComPtr<ID3DBlob> ps;
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "VSMain", "vs_5_0", vs));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps));
+}
+
+TEST(ShaderCompile, TerrainForwardCompiles)
+{
+    const std::filesystem::path hlsl = Dark::resolveContentPath("shaders/Terrain.hlsl");
+    if (hlsl.empty())
+        GTEST_SKIP() << "shaders/Terrain.hlsl not on content roots";
+
+    ComPtr<ID3DBlob> vs;
+    ComPtr<ID3DBlob> ps;
+    D3D_SHADER_MACRO macros[2];
+    makeEncodeSrgbMacros(true, macros);
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "VSMain", "vs_5_0", vs, macros));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps, macros));
+    makeEncodeSrgbMacros(false, macros);
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps, macros));
+}
+
 TEST(ShaderCompile, IblBakeCompiles)
 {
     const std::filesystem::path hlsl = Dark::resolveContentPath("shaders/IblBake.hlsl");

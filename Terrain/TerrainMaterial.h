@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <d3d12.h>
+#include <memory>
 
 namespace Dark
 {
@@ -37,13 +38,23 @@ namespace Dark
 
     } // namespace Terrain
 
-    // Four albedo layers + splat + shadow in one PackedSrvHeap (kSrvCount = 6, shadowSlot = 5).
+    // 14-slot metal-rough heap: 4×(albedo, normal, ORM) + splat + shadow last.
     class TerrainMaterial
     {
     public:
         static constexpr UINT kLayerCount = Terrain::kMaxTerrainLayers;
-        static constexpr UINT kSplatSlot  = 4;
-        static constexpr UINT kShadowSlot = 5;
+        static constexpr UINT kAlbedo0    = 0;
+        static constexpr UINT kNormal0    = 1;
+        static constexpr UINT kOrm0       = 2;
+        static constexpr UINT kSplatSlot  = 12;
+        static constexpr UINT kShadowSlot = 13;
+        static constexpr UINT kMapSrvCount = 13;
+        static constexpr UINT kSrvCount    = 14;
+        static constexpr uint32_t kMaxLayerImageSize = 2048;
+
+        static constexpr UINT layerAlbedoSlot(UINT i) { return kAlbedo0 + 3u * i; }
+        static constexpr UINT layerNormalSlot(UINT i) { return kNormal0 + 3u * i; }
+        static constexpr UINT layerOrmSlot(UINT i) { return kOrm0 + 3u * i; }
 
         TerrainMaterial() = default;
         ~TerrainMaterial();
@@ -61,11 +72,13 @@ namespace Dark
             Texture2D&& splat,
             const Terrain::TerrainLayerDesc layerDescs[Terrain::kMaxTerrainLayers]);
 
+        bool create(Renderer& renderer, const Terrain::TerrainSurfaceDesc& desc, Texture2D&& splat);
+
         void bind(ID3D12GraphicsCommandList* cmd, UINT srvTableRootIndex) const;
         void applySurface(TerrainFrameConstants& constants) const;
-        void applySurface(TerrainGBufferConstants& constants) const;
+        void applySurface(TerrainGBufferConstants& constants, float worldSizeX, float worldSizeZ) const;
 
-        // Layers 0–3 from cpuHandleRaw vs cpuHandle. Splat stays UNORM.
+        // Albedo slots 0,3,6,9 from cpuHandleRaw vs cpuHandle. Data maps stay UNORM.
         // Stores the flag; packSrvHeap re-applies it after a rebuild (like GpuMaterial pack).
         void setLayerSamplingRaw(ID3D12Device* device, bool raw);
 
@@ -74,17 +87,34 @@ namespace Dark
         Terrain::TerrainLayerDesc&       layer(int i) { return m_layers[i]; }
         const Terrain::TerrainLayerDesc& layer(int i) const { return m_layers[i]; }
 
+        Terrain::TerrainMaterialParams&       params() { return m_params; }
+        const Terrain::TerrainMaterialParams& params() const { return m_params; }
+
     private:
         bool packSrvHeap(Renderer& renderer);
         void copyLayerSampling(ID3D12Device* device);
         void unbindCache();
+        const Texture2D* albedoTex(int i) const;
 
-        Texture2D                 m_layerTex[Terrain::kMaxTerrainLayers];
-        Texture2D                 m_splat;
-        Terrain::TerrainLayerDesc m_layers[Terrain::kMaxTerrainLayers];
-        PackedSrvHeap             m_heap;
-        GpuResourceCache*         m_cache = nullptr;
-        bool                      m_layerSamplingRaw = false;
+        Texture2D                      m_albedoOwned[Terrain::kMaxTerrainLayers];
+        std::shared_ptr<Texture2D>     m_albedoGpu[Terrain::kMaxTerrainLayers];
+        std::shared_ptr<Texture2D>     m_normalGpu[Terrain::kMaxTerrainLayers];
+        std::shared_ptr<Texture2D>     m_ormGpu[Terrain::kMaxTerrainLayers];
+        const Texture2D*               m_albedoSrv[Terrain::kMaxTerrainLayers]{};
+        Texture2D                      m_splat;
+        Terrain::TerrainLayerDesc      m_layers[Terrain::kMaxTerrainLayers];
+        Terrain::TerrainMaterialParams m_params;
+        PackedSrvHeap                  m_heap;
+        GpuResourceCache*              m_cache = nullptr;
+        bool                           m_layerSamplingRaw = false;
     };
+
+    static_assert(TerrainMaterial::kAlbedo0 + 3u * 3u == 9u, "albedo slots 0,3,6,9");
+    static_assert(TerrainMaterial::kSplatSlot == 12u, "splat t12");
+    static_assert(TerrainMaterial::kShadowSlot == 13u, "shadow last");
+    static_assert(TerrainMaterial::kSrvCount == 14u, "forward table");
+    static_assert(TerrainMaterial::kMapSrvCount == 13u, "gbuffer table");
+    static_assert(TerrainMaterial::kSrvCount == TerrainPipeline::kSrvCount, "terrain heap vs pipeline");
+    static_assert(TerrainMaterial::kMapSrvCount == TerrainPipeline::kMapSrvCount, "terrain gbuffer table");
 
 } // namespace Dark
