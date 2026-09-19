@@ -23,6 +23,8 @@ Track the next seven deferred-PBR features in **build order**. Each child RFC is
 | 6 | [DESIGN-local-light-shadows.md](./DESIGN-local-light-shadows.md) | Independent of IBL; needs stable local-light volumes |
 | 7 | [DESIGN-reflections.md](./DESIGN-reflections.md) | SSR v1 composed with IBL; wants normal maps |
 
+Terrain splat look-track is [`Terrain/DESIGN-terrain-system.md`](../Terrain/DESIGN-terrain-system.md) rev 2; sibling of this track, not item 3. Still not `Dark::Material`.
+
 ## Dependency graph
 
 ```

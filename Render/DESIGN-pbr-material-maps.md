@@ -932,7 +932,7 @@ None that block implementation. Defaults below are frozen; change them with a on
 | **M10** | `ensureMaterial` **re-packs on map AssetID mismatch**. | Editor live slots. |
 | **M11** | glTF save is still JSON patch: write new factors; **preserve existing texture indices**; WARN if a live Image is not in the file. | No GLB image writer in tree. |
 | **M12** | Particles: extra maps **no-op**. Renderer binds albedo `Texture2D`. `ensureMaterial` may pack defaults. | Soft masks are Linear albedo. |
-| **M13** | Terrain splat is **out of scope**. G-buffer PSO still grows to 4 RTs so AO=1 is written. Heap stays 6-slot splat. | Different material type. |
+| **M13** | Terrain splat is **out of scope**. Look-track is [`Terrain/DESIGN-terrain-system.md`](../Terrain/DESIGN-terrain-system.md) rev 2; still not `Dark::Material`. G-buffer PSO still grows to 4 RTs so AO=1 is written. Heap stays 6-slot splat. | Different material type. |
 | **M14** | Network sends AssetIDs only. | GPU heaps are local. |
 | **M15** | No bindless, no texture arrays, no exceptions, no `1/π`, no HDR format change. | Standing rules + IBL ownership of π. |
 | **M16** | ColorUsage: Albedo/Emissive sRGB; Normal/Orm Linear. Linear always wins. Packed ORM **always** interned under `#orm{N}` (memcpy even when occ==MR). Never `ensureTexture(Orm)` on an Albedo id. | First-usage-wins (`classifyCachedTextureReuse`). |
