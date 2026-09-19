@@ -3,14 +3,21 @@
 #include "AI/HsmGraph.h"
 #include "AI/Sight.h"
 #include "Assets/AssetManager.h"
+#include "Collision/SweptCollision.h"
+#include "Combat/CombatSystem.h"
+#include "Combat/JumpAttackComponent.h"
+#include "Combat/JumpAttackResolve.h"
 #include "Combat/PoiseComponent.h"
 #include "Combat/StatusEffectComponent.h"
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "ECS/World.h"
+#include "Math/MathHelper.h"
+#include "Math/Sphere3f.h"
 #include "Terrain/HeightMap.h"
 #include "Terrain/Terrain.h"
 #include "Weapons/HittableComponent.h"
+#include "Weapons/Weapon.h"
 
 #include <cmath>
 #include <random>
@@ -19,9 +26,72 @@ namespace Dark
 {
     using Math::Vector3f;
 
+    namespace
+    {
+        constexpr float kHunterJumpMin     = 4.0f;
+        constexpr float kHunterJumpMax     = 9.0f;
+        constexpr float kSweepRadius       = 0.45f;
+        constexpr float kBackStepMeters    = 0.5f;
+        constexpr int   kBackStepTries     = 8;
+        constexpr float kLookEps           = 1.0e-6f;
+
+        Combat::JumpAttackDef hunterJumpDef()
+        {
+            Combat::JumpAttackDef def{};
+            def.telegraphSeconds    = 0.40f;
+            def.cooldown            = 3.5f;
+            def.groundOffset        = 1.0f;
+            def.connectDamage       = 22.0f;
+            def.poundDamage         = 14.0f;
+            def.leapVerticalSpeed   = 10.0f;
+            def.leapForwardSpeedMax = 12.0f;
+            def.gravity             = 24.0f;
+            return def;
+        }
+
+        Vector3f flattenDir(const Vector3f& v, const Vector3f& fallback)
+        {
+            Vector3f d{ v.x, 0.0f, v.z };
+            if (d.MagnitudeSqrd() > kLookEps)
+            {
+                d.Normalize();
+                return d;
+            }
+            Vector3f f{ fallback.x, 0.0f, fallback.z };
+            if (f.MagnitudeSqrd() > kLookEps)
+            {
+                f.Normalize();
+                return f;
+            }
+            return Vector3f{ 0.0f, 0.0f, 1.0f };
+        }
+
+        void sweepCubes(Vector3f& position, const Vector3f& before, const Math::AABox3f* cubes, int cubeCount)
+        {
+            if (!cubes || cubeCount <= 0)
+                return;
+            Vector3f delta{ position.x - before.x, 0.0f, position.z - before.z };
+            if (delta.MagnitudeSqrd() <= 1.0e-10f)
+                return;
+            Math::Sphere3f ball{ Vector3f{ before.x, position.y, before.z }, kSweepRadius };
+            for (int i = 0; i < cubeCount; ++i)
+            {
+                const Collision::SweptHit3D hit = Collision::SweptIntersects(ball, delta, cubes[i]);
+                if (hit.hit && hit.t < 1.0f)
+                {
+                    delta *= Math::Max(0.0f, hit.t - 0.02f);
+                    break;
+                }
+            }
+            position.x = before.x + delta.x;
+            position.z = before.z + delta.z;
+        }
+    } // namespace
+
     bool AiSystem::bake(const AI::WalkabilityDesc& desc)
     {
         m_agentR = desc.agentRadius > 0.0f ? desc.agentRadius : 0.8f;
+        m_waterY = desc.waterLevel;
         if (!m_walk.bake(desc))
             return false;
         return m_finder.bind(&m_walk);
@@ -86,7 +156,22 @@ namespace Dark
         world.emplace<BrainComponent>(e, std::move(brain));
         world.emplace<Combat::StatusEffectComponent>(e);
         world.emplace<Combat::PoiseComponent>(e);
+        JumpAttackComponent jac{};
+        jac.jump.setDef(hunterJumpDef());
+        world.emplace<JumpAttackComponent>(e, std::move(jac));
         return e;
+    }
+
+    void AiSystem::setJumpAttackHits(void (*fn)(void* user, const Combat::DamageEvent* events, int count), void* user)
+    {
+        m_jumpHitsFn   = fn;
+        m_jumpHitsUser = user;
+    }
+
+    void AiSystem::setHunterCue(void (*fn)(void* user, Entity hunter, const char* cue), void* user)
+    {
+        m_hunterCueFn   = fn;
+        m_hunterCueUser = user;
     }
 
     bool AiSystem::bind(World& world, Entity e, View& v)
@@ -123,6 +208,12 @@ namespace Dark
                 v.health->health.tick(dt);
                 continue;
             }
+            if (JumpAttackComponent* jac = world.get<JumpAttackComponent>(e))
+            {
+                if (jac->jump.busy())
+                    DE_LOG_INFO(LogCategory::AI, "Hunter: jump death-cancel");
+            }
+            cancelJumpAndToken(world, e, false);
             v.ai->deadFor += dt;
             if (v.ai->deadFor < 8.0f || !m_walk.valid())
                 continue;
@@ -148,6 +239,7 @@ namespace Dark
             v.health->health.revive();
             v.hit->hit.setSettings(m_hunterHit);
             v.hit->hit.reset();
+            cancelJumpAndToken(world, e, true);
             if (Combat::StatusEffectComponent* st = world.get<Combat::StatusEffectComponent>(e))
                 st->reset();
             v.ai->assistLeft  = 0.0f;
@@ -338,8 +430,9 @@ namespace Dark
         v.brain->brain->onAssist();
     }
 
-    void AiSystem::beginFlee(View& v)
+    void AiSystem::beginFlee(World& world, View& v)
     {
+        cancelJumpAndToken(world, v.e, false);
         v.ai->fleeLeft   = m_pack.fleeSeconds;
         v.ai->assistLeft = 0.0f;
         v.path->path.points.clear();
@@ -348,7 +441,78 @@ namespace Dark
         v.brain->brain->onFlee();
     }
 
-    void AiSystem::tickHunters(World& world, Terrain::TerrainWorld& terrain, bool playerInWater, float dt, Entity player)
+    void AiSystem::cancelJumpAndToken(World& world, Entity e, bool forceIdle)
+    {
+        if (JumpAttackComponent* jac = world.get<JumpAttackComponent>(e))
+            jac->jump.cancel(forceIdle ? Combat::JumpAttackCancel::ForceIdle : Combat::JumpAttackCancel::NoPound);
+        if (m_jumpAttackToken.valid() && m_jumpAttackToken.id() == e.id())
+        {
+            m_jumpAttackToken = {};
+            DE_LOG_INFO(LogCategory::AI, "Hunter: jump token clear");
+        }
+    }
+
+    void AiSystem::collectJumpTargets(World& world)
+    {
+        m_jumpTargets.clear();
+        world.each<HittableComponent>([&](Entity e, HittableComponent& h) {
+            const TransformComponent* xf = world.get<TransformComponent>(e);
+            if (!xf)
+                return;
+            const HealthComponent* hp = world.get<HealthComponent>(e);
+            JumpTargetScratch t{};
+            t.e           = e;
+            t.center      = xf->position;
+            t.halfExtents = h.halfExtents;
+            t.alive       = hp && hp->health.alive();
+            m_jumpTargets.push_back(t);
+        });
+    }
+
+    void AiSystem::resolveJumpHits(World& world, const Combat::DamageEvent* events, int count)
+    {
+        if (count <= 0 || !events)
+            return;
+        if (m_jumpHitsFn)
+        {
+            m_jumpHitsFn(m_jumpHitsUser, events, count);
+            return;
+        }
+        Combat::CombatSystem combat;
+        Combat::resolveJumpAttackEvents(world, combat, events, count);
+    }
+
+    void AiSystem::walkableBackStep(Vector3f& position, const Vector3f& incomingXZ) const
+    {
+        if (!m_walk.valid() || m_walk.walkableWorld(position.x, position.z))
+            return;
+        Vector3f dir{ incomingXZ.x, 0.0f, incomingXZ.z };
+        if (dir.MagnitudeSqrd() < 1.0e-8f)
+            return;
+        dir.Normalize();
+        dir = Vector3f{ -dir.x, 0.0f, -dir.z };
+        for (int i = 1; i <= kBackStepTries; ++i)
+        {
+            const float x = position.x + dir.x * kBackStepMeters * static_cast<float>(i);
+            const float z = position.z + dir.z * kBackStepMeters * static_cast<float>(i);
+            if (m_walk.walkableWorld(x, z))
+            {
+                position.x = x;
+                position.z = z;
+                return;
+            }
+        }
+    }
+
+    bool AiSystem::packTokenBusy(World& world, Entity self) const
+    {
+        if (!m_jumpAttackToken.valid() || m_jumpAttackToken.id() == self.id())
+            return false;
+        const JumpAttackComponent* other = world.get<JumpAttackComponent>(m_jumpAttackToken);
+        return other && other->jump.busy();
+    }
+
+    void AiSystem::tickHunters(World& world, Terrain::TerrainWorld& terrain, bool playerInWater, float dt, Entity player, const Math::AABox3f* cubes, int cubeCount)
     {
         m_time += dt;
         collectHunters(world);
@@ -360,8 +524,44 @@ namespace Dark
         tickHealthAndRespawn(world, dt);
 
         Vector3f playerPos{};
+        bool     playerAlive = false;
         if (const TransformComponent* px = player.valid() ? world.get<TransformComponent>(player) : nullptr)
-            playerPos = px->position;
+        {
+            playerPos   = px->position;
+            const HealthComponent* php = world.get<HealthComponent>(player);
+            playerAlive = php && php->health.alive();
+        }
+
+        struct HeightCtx
+        {
+            Terrain::TerrainWorld* terrain = nullptr;
+        };
+        HeightCtx heightCtx{ &terrain };
+        auto      heightAt = [](void* user, float x, float z) -> float {
+            return static_cast<HeightCtx*>(user)->terrain->heightAtWorld(x, z);
+        };
+
+        WeaponWorldQuery jumpQuery{};
+        jumpQuery.targetUser = this;
+        jumpQuery.targetCount = [](void* user) -> int {
+            return static_cast<int>(static_cast<AiSystem*>(user)->m_jumpTargets.size());
+        };
+        jumpQuery.targetAlive = [](void* user, int i) -> bool {
+            auto* self = static_cast<AiSystem*>(user);
+            return i >= 0 && i < static_cast<int>(self->m_jumpTargets.size()) && self->m_jumpTargets[static_cast<size_t>(i)].alive;
+        };
+        jumpQuery.targetCenter = [](void* user, int i) -> Vector3f {
+            auto* self = static_cast<AiSystem*>(user);
+            if (i < 0 || i >= static_cast<int>(self->m_jumpTargets.size()))
+                return {};
+            return self->m_jumpTargets[static_cast<size_t>(i)].center;
+        };
+        jumpQuery.targetEntityAt = [](void* user, int i) -> Entity {
+            auto* self = static_cast<AiSystem*>(user);
+            if (i < 0 || i >= static_cast<int>(self->m_jumpTargets.size()))
+                return {};
+            return self->m_jumpTargets[static_cast<size_t>(i)].e;
+        };
 
         constexpr float kStandoff = 2.25f;
         for (Entity e : m_scratch)
@@ -369,10 +569,74 @@ namespace Dark
             View v{};
             if (!bind(world, e, v) || !v.health->health.alive())
                 continue;
-            integrateHitReaction(v, dt, terrain);
+
+            JumpAttackComponent*           jac  = world.get<JumpAttackComponent>(e);
+            Combat::JumpAttack*            jump = jac ? &jac->jump : nullptr;
+            Combat::PoiseComponent*        poise = world.get<Combat::PoiseComponent>(e);
+            Combat::StatusEffectComponent* stCc  = world.get<Combat::StatusEffectComponent>(e);
+
+            if (jump)
+            {
+                jump->tick(dt);
+                if (jump->phase() == Combat::JumpAttackPhase::Idle && m_jumpAttackToken.valid() && m_jumpAttackToken.id() == e.id())
+                {
+                    m_jumpAttackToken = {};
+                    DE_LOG_INFO(LogCategory::AI, "Hunter: jump token clear");
+                }
+
+                const Vector3f before = v.xf->position;
+                bool           landed   = false;
+                bool           splashed = false;
+                const bool     hasTarget = player.valid() && playerAlive;
+                jump->tickAutonomous(v.xf->position, dt, heightAt, &heightCtx, m_waterY, hasTarget ? &playerPos : nullptr, hasTarget, landed, splashed);
+                if (jump->phase() == Combat::JumpAttackPhase::Connected && !landed && !splashed && hasTarget)
+                    jump->applyConnectSnap(v.xf->position, playerPos, dt);
+                sweepCubes(v.xf->position, before, cubes, cubeCount);
+
+                if (splashed)
+                {
+                    walkableBackStep(v.xf->position, jump->velocity());
+                    v.xf->position.y = terrain.heightAtWorld(v.xf->position.x, v.xf->position.z) + jump->def().groundOffset;
+                    cancelJumpAndToken(world, e, false);
+                }
+                else if (landed)
+                {
+                    walkableBackStep(v.xf->position, jump->velocity());
+                    v.xf->position.y = terrain.heightAtWorld(v.xf->position.x, v.xf->position.z) + jump->def().groundOffset;
+                    jump->onLanded(v.xf->position);
+                    if (jump->phase() == Combat::JumpAttackPhase::Pound)
+                    {
+                        collectJumpTargets(world);
+                        Combat::DamageEvent poundEvents[8]{};
+                        const int n = jump->tryPound(jumpQuery, v.xf->position, poundEvents, 8);
+                        DE_LOG_INFO(LogCategory::AI, "Hunter: ground pound");
+                        resolveJumpHits(world, poundEvents, n);
+                    }
+                }
+                else if (jump->phase() == Combat::JumpAttackPhase::Leap)
+                {
+                    collectJumpTargets(world);
+                    Combat::DamageEvent connectEv{};
+                    if (jump->tryConnect(jumpQuery, v.xf->position, v.ai->forward, connectEv))
+                    {
+                        DE_LOG_INFO(LogCategory::AI, "Hunter: pounce connect");
+                        resolveJumpHits(world, &connectEv, 1);
+                    }
+                }
+
+                if (jump->phase() == Combat::JumpAttackPhase::Telegraph)
+                    v.ai->forward = flattenDir(Vector3f{ playerPos.x - v.xf->position.x, 0.0f, playerPos.z - v.xf->position.z }, v.ai->forward);
+            }
+            if (poise)
+                poise->hyperArmor = jump && jump->inAirCommit();
+
+            if (!(jump && jump->inAirCommit()))
+                integrateHitReaction(v, dt, terrain);
+
             const float dx       = v.xf->position.x - playerPos.x;
             const float dz       = v.xf->position.z - playerPos.z;
-            const bool  standoff = (dx * dx + dz * dz) <= kStandoff * kStandoff;
+            const float distSq   = dx * dx + dz * dz;
+            const bool  standoff = distSq <= kStandoff * kStandoff;
 
             AI::SightQuery q;
             q.eye       = Vector3f{ v.xf->position.x, v.xf->position.y + 0.5f, v.xf->position.z };
@@ -432,8 +696,8 @@ namespace Dark
             {
                 v.ai->assistLeft = 0.0f;
                 v.ai->fleeLeft   = 0.0f;
+                cancelJumpAndToken(world, e, false);
             }
-            const Combat::StatusEffectComponent* stCc = world.get<Combat::StatusEffectComponent>(e);
             if (v.hit->hit.stunned() || (stCc && stCc->hasHardCc()))
                 continue;
 
@@ -447,9 +711,40 @@ namespace Dark
                 }
             }
 
-            const AI::Leaf leaf   = v.brain->brain->leaf();
-            const bool     sprint = leaf == AI::Leaf::Assist || leaf == AI::Leaf::Flee || v.ai->assistLeft > 0.0f;
-            const float    speed  = sprint ? m_pack.sprintSpeed : m_pack.walkSpeed;
+            const AI::Leaf leaf = v.brain->brain->leaf();
+            const float    horiz = sqrtf(distSq);
+            const bool     wantJump = (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist) && sees && horiz >= kHunterJumpMin && horiz <= kHunterJumpMax;
+            if (wantJump)
+            {
+                if (!jump)
+                    DE_LOG_WARN(LogCategory::AI, "Hunter: jump attack wanted but JumpAttackComponent missing");
+                else if (jump->phase() == Combat::JumpAttackPhase::Idle && jump->cooldownLeft() <= 0.0f && !packTokenBusy(world, e))
+                {
+                    Combat::JumpAttackBegin req{};
+                    req.attacker          = e;
+                    req.position          = v.xf->position;
+                    req.lookFlat          = flattenDir(Vector3f{ playerPos.x - v.xf->position.x, 0.0f, playerPos.z - v.xf->position.z }, v.ai->forward);
+                    req.intendedTarget    = player;
+                    req.intendedTargetPos = playerPos;
+                    if (jump->begin(req))
+                    {
+                        v.ai->forward = req.lookFlat;
+                        v.path->path.points.clear();
+                        v.path->waypoint = 0;
+                        m_jumpAttackToken = e;
+                        DE_LOG_INFO(LogCategory::AI, "Hunter: jump telegraph");
+                        DE_LOG_INFO(LogCategory::AI, "Hunter: jump token grant");
+                        if (m_hunterCueFn)
+                            m_hunterCueFn(m_hunterCueUser, e, "grunt");
+                    }
+                }
+            }
+
+            if (jump && jump->busy())
+                continue;
+
+            const bool  sprint = leaf == AI::Leaf::Assist || leaf == AI::Leaf::Flee || v.ai->assistLeft > 0.0f;
+            const float speed  = sprint ? m_pack.sprintSpeed : m_pack.walkSpeed;
 
             if (leaf == AI::Leaf::Flee)
             {
@@ -515,6 +810,12 @@ namespace Dark
             }
             if (HitReactionComponent* hit = world.get<HitReactionComponent>(e))
                 hit->hit.reset();
+            if (JumpAttackComponent* jac = world.get<JumpAttackComponent>(e))
+            {
+                if (jac->jump.busy())
+                    DE_LOG_INFO(LogCategory::AI, "Hunter: jump death-cancel");
+            }
+            cancelJumpAndToken(world, e, false);
             DE_LOG_INFO(LogCategory::AI, "Hunter down");
         }
         return hp->health.hp() < before;
@@ -525,6 +826,11 @@ namespace Dark
         HealthComponent* hp = world.get<HealthComponent>(e);
         if (!hp || !hp->health.alive())
             return;
+        if (const JumpAttackComponent* jac = world.get<JumpAttackComponent>(e))
+        {
+            if (jac->jump.inAirCommit())
+                return;
+        }
         if (HitReactionComponent* hit = world.get<HitReactionComponent>(e))
         {
             hit->hit.setSettings(m_hunterHit);
@@ -572,7 +878,7 @@ namespace Dark
                 continue;
             if (!hunterSeesPoint(v, where))
                 continue;
-            beginFlee(v);
+            beginFlee(world, v);
             DE_LOG_INFO(LogCategory::AI, "Hunter fled after seeing a kill");
         }
     }

@@ -303,7 +303,7 @@ void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld
     }
 
     const Entity player = hostPawn.valid() ? hostPawn : m_walker;
-    m_ai.tickHunters(world, terrain, playerInWater, dt, player);
+    m_ai.tickHunters(world, terrain, playerInWater, dt, player, m_cubes.empty() ? nullptr : m_cubes.data(), static_cast<int>(m_cubes.size()));
 }
 
 

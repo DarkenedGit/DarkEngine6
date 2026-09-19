@@ -1581,7 +1581,7 @@ void SandboxApp::resolveJumpAttackAndFx(const Combat::DamageEvent* events, int c
     const Vector3f playerPos = playerXf ? playerXf->position : Vector3f{};
     for (int i = 0; i < n; ++i)
     {
-        if (!snaps[i].hunter || !snaps[i].e.valid())
+        if (!snaps[i].e.valid())
             continue;
         HealthComponent* hp = world().get<HealthComponent>(snaps[i].e);
         if (!hp)
@@ -1590,6 +1590,12 @@ void SandboxApp::resolveJumpAttackAndFx(const Combat::DamageEvent* events, int c
         const bool killed  = snaps[i].wasAlive && !hp->health.alive();
         if (!damaged && !killed)
             continue;
+        if (!snaps[i].hunter)
+        {
+            if (snaps[i].e.id() == player.id())
+                playSoundCue(world(), audio(), assets(), snaps[i].e, "pain");
+            continue;
+        }
         playSoundCueAt(world(), audio(), assets(), snaps[i].e, "pain", events[i].hitPoint);
         playSoundCueAt(world(), audio(), assets(), snaps[i].e, "grunt", events[i].hitPoint);
         m_chase.ai().onHunterAttacked(world(), snaps[i].e, playerPos);
@@ -2577,6 +2583,20 @@ void SandboxApp::onInit()
     m_chaseOk = m_chase.init(renderer(), m_terrain, m_water, world(), pins(), assets());
     if (!m_chaseOk)
         DE_LOG_ERROR(LogCategory::AI, "SandboxApp: path chase init failed");
+    else
+    {
+        m_chase.ai().setJumpAttackHits(
+            [](void* user, const Combat::DamageEvent* events, int count) {
+                static_cast<SandboxApp*>(user)->resolveJumpAttackAndFx(events, count);
+            },
+            this);
+        m_chase.ai().setHunterCue(
+            [](void* user, Entity hunter, const char* cue) {
+                auto* app = static_cast<SandboxApp*>(user);
+                playSoundCue(app->world(), app->audio(), app->assets(), hunter, cue);
+            },
+            this);
+    }
 
     if (m_chase.walker().valid())
         attachLocalPlayer(m_chase.walker());

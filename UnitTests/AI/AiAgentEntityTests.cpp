@@ -6,6 +6,7 @@
 #include "Combat/CombatSystem.h"
 #include "Combat/DamageEvent.h"
 #include "Combat/JumpAttackComponent.h"
+#include "Combat/JumpAttackDef.h"
 #include "Combat/JumpAttackResolve.h"
 #include "Combat/PoiseComponent.h"
 #include "Combat/StatusEffectComponent.h"
@@ -45,7 +46,16 @@ TEST(AiAgentEntity, SpawnHasBrainHealthHittable)
     ASSERT_TRUE(world.has<Dark::Combat::StatusEffectComponent>(e));
     ASSERT_TRUE(world.has<Dark::Combat::PoiseComponent>(e));
     EXPECT_FALSE(world.get<Dark::Combat::PoiseComponent>(e)->hyperArmor);
-    EXPECT_FALSE(world.has<Dark::JumpAttackComponent>(e));
+    ASSERT_TRUE(world.has<Dark::JumpAttackComponent>(e));
+    const Dark::Combat::JumpAttackDef& def = world.get<Dark::JumpAttackComponent>(e)->jump.def();
+    EXPECT_NEAR(def.telegraphSeconds, 0.40f, 1.0e-4f);
+    EXPECT_NEAR(def.cooldown, 3.5f, 1.0e-4f);
+    EXPECT_NEAR(def.groundOffset, 1.0f, 1.0e-4f);
+    EXPECT_NEAR(def.connectDamage, 22.0f, 1.0e-4f);
+    EXPECT_NEAR(def.poundDamage, 14.0f, 1.0e-4f);
+    EXPECT_NEAR(def.leapVerticalSpeed, 10.0f, 1.0e-4f);
+    EXPECT_NEAR(def.leapForwardSpeedMax, 12.0f, 1.0e-4f);
+    EXPECT_NEAR(def.gravity, 24.0f, 1.0e-4f);
 }
 
 TEST(AiAgentEntity, DamageThenDestroyFreesBrain)
