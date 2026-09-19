@@ -177,3 +177,32 @@ TEST(HeightMapQuery, TwistedCellQuadratic)
     ASSERT_TRUE(hit.hit);
     EXPECT_NEAR(hit.point.y, mid, 1.0e-3f);
 }
+
+TEST(HeightMap, QueryUnchanged_AfterSculpt)
+{
+    HeightMap live;
+    HeightMap oracle;
+    ASSERT_TRUE(live.create(9, 9, 1.0f, 1.0f));
+    ASSERT_TRUE(oracle.create(9, 9, 1.0f, 1.0f));
+    live.addDisk(4.0f, 4.0f, 2.5f, 3.0f);
+    EXPECT_GT(live.height(4, 4), 0.0f);
+
+    for (int z = 0; z < 9; ++z)
+    {
+        for (int x = 0; x < 9; ++x)
+            oracle.setHeight(x, z, live.height(x, z));
+    }
+
+    EXPECT_NEAR(live.heightAtWorld(4.0f, 4.0f), oracle.heightAtWorld(4.0f, 4.0f), 1.0e-5f);
+    EXPECT_NEAR(live.heightAtWorld(3.25f, 4.5f), oracle.heightAtWorld(3.25f, 4.5f), 1.0e-5f);
+
+    float liveY = -1.0f;
+    float oracleY = -1.0f;
+    EXPECT_TRUE(live.tryHeightAtWorld(4.0f, 4.0f, liveY));
+    EXPECT_TRUE(oracle.tryHeightAtWorld(4.0f, 4.0f, oracleY));
+    EXPECT_NEAR(liveY, oracleY, 1.0e-5f);
+    EXPECT_FALSE(live.tryHeightAtWorld(-1.0f, 4.0f, liveY));
+
+    live.smoothDisk(4.0f, 4.0f, 2.0f, 0.5f);
+    EXPECT_NEAR(live.heightAtWorld(4.0f, 4.0f), live.worldY(live.height(4, 4)), 1.0e-5f);
+}

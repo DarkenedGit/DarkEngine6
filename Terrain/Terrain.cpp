@@ -153,6 +153,73 @@ bool TerrainWorld::needsRebuild() const
     return false;
 }
 
+void TerrainWorld::markHeightDirty()
+{
+    for (TerrainChunk& c : m_chunks)
+        c.builtLod = -1;
+}
+
+void TerrainWorld::markHeightDirtyRect(int x0, int z0, int x1, int z1)
+{
+    if (m_chunks.empty() || m_chunkCells <= 0)
+        return;
+    if (x0 > x1)
+    {
+        const int tmp = x0;
+        x0 = x1;
+        x1 = tmp;
+    }
+    if (z0 > z1)
+    {
+        const int tmp = z0;
+        z0 = z1;
+        z1 = tmp;
+    }
+
+    const int maxX = static_cast<int>(m_heightMap.width()) - 1;
+    const int maxZ = static_cast<int>(m_heightMap.height()) - 1;
+    if (maxX < 0 || maxZ < 0)
+        return;
+    if (x1 < 0 || z1 < 0 || x0 > maxX || z0 > maxZ)
+        return;
+    if (x0 < 0)
+        x0 = 0;
+    if (z0 < 0)
+        z0 = 0;
+    if (x1 > maxX)
+        x1 = maxX;
+    if (z1 > maxZ)
+        z1 = maxZ;
+
+    int ix0 = x0 / m_chunkCells;
+    int ix1 = x1 / m_chunkCells;
+    int iz0 = z0 / m_chunkCells;
+    int iz1 = z1 / m_chunkCells;
+    // Samples on a shared chunk edge belong to both adjacent chunks.
+    if (ix0 > 0 && (x0 % m_chunkCells) == 0)
+        --ix0;
+    if (iz0 > 0 && (z0 % m_chunkCells) == 0)
+        --iz0;
+    if (ix1 >= m_chunksX)
+        ix1 = m_chunksX - 1;
+    if (iz1 >= m_chunksZ)
+        iz1 = m_chunksZ - 1;
+    if (ix0 < 0)
+        ix0 = 0;
+    if (iz0 < 0)
+        iz0 = 0;
+
+    for (int iz = iz0; iz <= iz1; ++iz)
+    {
+        for (int ix = ix0; ix <= ix1; ++ix)
+        {
+            TerrainChunk* c = chunkAt(ix, iz);
+            if (c)
+                c->builtLod = -1;
+        }
+    }
+}
+
 void TerrainWorld::rebuildDirtyCpuMeshes()
 {
     for (TerrainChunk& c : m_chunks)

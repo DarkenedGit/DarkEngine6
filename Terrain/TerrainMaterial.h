@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Assets/AssetHandle.h"
+#include "Assets/Image.h"
 #include "Render/PackedSrvHeap.h"
 #include "Render/TerrainPipeline.h"
 #include "Render/Texture2D.h"
@@ -13,6 +15,27 @@ namespace Dark
 
     class Renderer;
     class GpuResourceCache;
+
+    namespace Terrain
+    {
+
+        struct TerrainMaterialParams
+        {
+            float heightBlendK   = 0.5f;
+            float heightBlendT   = 0.1f;
+            float triplanarSlope = 0.45f;
+        };
+
+        struct TerrainSurfaceDesc
+        {
+            TerrainLayerDesc  layers[kMaxTerrainLayers];
+            AssetRef<Image>   albedo[kMaxTerrainLayers];
+            AssetRef<Image>   normal[kMaxTerrainLayers];
+            AssetRef<Image>   orm[kMaxTerrainLayers];
+            TerrainMaterialParams params;
+        };
+
+    } // namespace Terrain
 
     // Four albedo layers + splat + shadow in one PackedSrvHeap (kSrvCount = 6, shadowSlot = 5).
     class TerrainMaterial

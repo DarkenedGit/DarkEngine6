@@ -2,6 +2,7 @@
 
 #include "Math/MathHelper.h"
 #include "Terrain/HeightMap.h"
+#include "Terrain/Terrain.h"
 
 using namespace Dark::Math;
 using namespace Dark::Terrain;
@@ -88,4 +89,65 @@ TEST(HeightMap, SlopeNormal)
     EXPECT_LT(n.x, 0.0f); // slope rises in +X, normal tilts -X
     EXPECT_GT(n.y, 0.0f);
     EXPECT_NEAR(n.Magnitude(), 1.0f, 1.0e-4f);
+}
+
+TEST(HeightMap, Create_RejectsOversize)
+{
+    HeightMap hm;
+    EXPECT_FALSE(hm.create(2048, 2048, 1.0f, 1.0f));
+    EXPECT_FALSE(hm.valid());
+    EXPECT_EQ(hm.width(), 0u);
+    EXPECT_FALSE(hm.create(1026, 2, 1.0f, 1.0f));
+    EXPECT_FALSE(hm.create(2, 2048, 1.0f, 1.0f));
+}
+
+TEST(HeightMap, Create_StillAccepts129)
+{
+    HeightMap hm;
+    ASSERT_TRUE(hm.create(129, 129, 2.0f, 1.0f));
+    EXPECT_TRUE(hm.valid());
+    EXPECT_EQ(hm.width(), 129u);
+    EXPECT_EQ(hm.height(), 129u);
+}
+
+TEST(HeightMap, AddDisk_ZeroRadiusNoOp)
+{
+    HeightMap hm;
+    ASSERT_TRUE(hm.create(5, 5, 1.0f, 1.0f));
+    hm.addDisk(2.0f, 2.0f, 0.0f, 4.0f);
+    hm.addDisk(2.0f, 2.0f, -1.0f, 4.0f);
+    EXPECT_NEAR(hm.height(2, 2), 0.0f, 1.0e-5f);
+    hm.smoothDisk(2.0f, 2.0f, 2.0f, 0.0f);
+    EXPECT_NEAR(hm.height(2, 2), 0.0f, 1.0e-5f);
+}
+
+TEST(HeightMap, MarkHeightDirty_NeedsRebuild)
+{
+    HeightMap hm;
+    ASSERT_TRUE(hm.create(17, 17, 1.0f, 1.0f));
+    TerrainDesc desc;
+    desc.heightMap  = std::move(hm);
+    desc.chunkCells = 16;
+    TerrainWorld world;
+    ASSERT_TRUE(world.create(std::move(desc)));
+    world.rebuildDirtyCpuMeshes();
+    EXPECT_FALSE(world.needsRebuild());
+
+    world.markHeightDirty();
+    EXPECT_TRUE(world.needsRebuild());
+    world.rebuildDirtyCpuMeshes();
+    EXPECT_FALSE(world.needsRebuild());
+
+    world.markHeightDirtyRect(0, 0, 1, 1);
+    EXPECT_TRUE(world.needsRebuild());
+    world.rebuildDirtyCpuMeshes();
+    EXPECT_FALSE(world.needsRebuild());
+
+    world.markHeightDirtyRect(16, 16, 16, 16);
+    EXPECT_TRUE(world.needsRebuild());
+    world.rebuildDirtyCpuMeshes();
+    world.markHeightDirtyRect(40, 40, 50, 50);
+    EXPECT_FALSE(world.needsRebuild());
+    world.markHeightDirtyRect(4, 4, -1, -2);
+    EXPECT_TRUE(world.needsRebuild());
 }

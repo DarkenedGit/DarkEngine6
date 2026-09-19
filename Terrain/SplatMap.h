@@ -7,7 +7,8 @@ namespace Dark::Terrain
 {
     class HeightMap;
 
-    constexpr int kMaxTerrainLayers = 4;
+    constexpr int      kMaxTerrainLayers = 4;
+    constexpr uint32_t kMaxSplatMapSize  = 1025;
 
     struct TerrainLayerDesc
     {
@@ -43,6 +44,10 @@ namespace Dark::Terrain
 
         void setTexel(int x, int z, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
         void getTexel(int x, int z, uint8_t outRgba[4]) const;
+
+        void paintTexel(int x, int z, int layer, float amount);
+        void paintDisk(float sampleX, float sampleZ, float radiusSamples, int layer, float amount);
+        bool renormalizeTexel(int x, int z);
 
         // Bilinear normalized weights in [0,1], 4 channels.
         void sampleWeights(float fx, float fz, float outW[kMaxTerrainLayers]) const;

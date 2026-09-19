@@ -28,6 +28,11 @@ namespace Dark::Terrain
             DE_LOG_ERROR("SplatMap: size must be > 0");
             return false;
         }
+        if (width > kMaxSplatMapSize || height > kMaxSplatMapSize)
+        {
+            DE_LOG_ERROR("SplatMap: {}x{} exceeds 1025", width, height);
+            return false;
+        }
         m_width  = width;
         m_height = height;
         m_rgba.assign(static_cast<size_t>(width) * height * 4u, 0);
@@ -124,6 +129,107 @@ namespace Dark::Terrain
         p[1] = g;
         p[2] = b;
         p[3] = a;
+    }
+
+    bool SplatMap::renormalizeTexel(int x, int z)
+    {
+        if (!valid())
+            return false;
+        x = clampX(x);
+        z = clampZ(z);
+        uint8_t* p = &m_rgba[(static_cast<size_t>(z) * m_width + static_cast<size_t>(x)) * 4u];
+        const int sum = static_cast<int>(p[0]) + static_cast<int>(p[1]) + static_cast<int>(p[2]) + static_cast<int>(p[3]);
+        if (sum <= 0)
+        {
+            p[0] = 0;
+            p[1] = 255; // empty weights: grass, matching generateFromHeight
+            p[2] = 0;
+            p[3] = 0;
+            return true;
+        }
+        if (sum == 255)
+            return true;
+
+        int out[kMaxTerrainLayers];
+        int outSum = 0;
+        int maxI   = 0;
+        for (int i = 0; i < kMaxTerrainLayers; ++i)
+        {
+            out[i] = (static_cast<int>(p[i]) * 255 + sum / 2) / sum;
+            if (out[i] < 0)
+                out[i] = 0;
+            if (out[i] > 255)
+                out[i] = 255;
+            outSum += out[i];
+            if (p[i] > p[maxI])
+                maxI = i;
+        }
+        int adj = out[maxI] + (255 - outSum);
+        if (adj < 0)
+            adj = 0;
+        if (adj > 255)
+            adj = 255;
+        outSum += adj - out[maxI];
+        out[maxI] = adj;
+        for (int i = 0; i < kMaxTerrainLayers && outSum != 255; ++i)
+        {
+            int v = out[i] + (255 - outSum);
+            if (v < 0)
+                v = 0;
+            if (v > 255)
+                v = 255;
+            outSum += v - out[i];
+            out[i] = v;
+        }
+        for (int i = 0; i < kMaxTerrainLayers; ++i)
+            p[i] = static_cast<uint8_t>(out[i]);
+        return true;
+    }
+
+    void SplatMap::paintTexel(int x, int z, int layer, float amount)
+    {
+        if (!valid())
+            return;
+        if (layer < 0 || layer >= kMaxTerrainLayers)
+            return;
+        x = clampX(x);
+        z = clampZ(z);
+        uint8_t c[4];
+        getTexel(x, z, c);
+        const float v = static_cast<float>(c[layer]) + amount * 255.0f;
+        c[layer] = static_cast<uint8_t>(Clamp(v, 0.0f, 255.0f));
+        setTexel(x, z, c[0], c[1], c[2], c[3]);
+        renormalizeTexel(x, z);
+    }
+
+    void SplatMap::paintDisk(float sampleX, float sampleZ, float radiusSamples, int layer, float amount)
+    {
+        if (!valid())
+            return;
+        if (layer < 0 || layer >= kMaxTerrainLayers)
+            return;
+        if (radiusSamples <= 0.0f)
+        {
+            paintTexel(static_cast<int>(floorf(sampleX + 0.5f)), static_cast<int>(floorf(sampleZ + 0.5f)), layer, amount);
+            return;
+        }
+
+        const int x0 = clampX(static_cast<int>(floorf(sampleX - radiusSamples)));
+        const int x1 = clampX(static_cast<int>(ceilf(sampleX + radiusSamples)));
+        const int z0 = clampZ(static_cast<int>(floorf(sampleZ - radiusSamples)));
+        const int z1 = clampZ(static_cast<int>(ceilf(sampleZ + radiusSamples)));
+        for (int z = z0; z <= z1; ++z)
+        {
+            for (int x = x0; x <= x1; ++x)
+            {
+                const float dx = static_cast<float>(x) - sampleX;
+                const float dz = static_cast<float>(z) - sampleZ;
+                const float dist = sqrtf(dx * dx + dz * dz);
+                if (dist > radiusSamples)
+                    continue;
+                paintTexel(x, z, layer, amount * (1.0f - dist / radiusSamples));
+            }
+        }
     }
 
     void SplatMap::getTexel(int x, int z, uint8_t outRgba[4]) const

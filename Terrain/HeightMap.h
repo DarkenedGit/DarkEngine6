@@ -14,6 +14,8 @@ namespace Dark
 namespace Terrain
 {
 
+constexpr uint32_t kMaxHeightMapSize = 1025;
+
 // Regular-grid height field. Sample (0,0) sits at `origin` in world XZ;
 // +X / +Z walk the grid by `cellSize`. Stored heights are multiplied by
 // `heightScale` when converted to world Y (origin.y is added).
@@ -60,6 +62,9 @@ public:
     void setHeight(int x, int z, float height);
     float height(int x, int z) const;          // raw sample, clamped
     float sampleBilinear(float fx, float fz) const; // raw, sample-space
+
+    void addDisk(float worldX, float worldZ, float radiusM, float deltaRaw);
+    void smoothDisk(float worldX, float worldZ, float radiusM, float alpha);
 
     float worldY(float rawHeight) const { return m_origin.y + rawHeight * m_heightScale; }
 

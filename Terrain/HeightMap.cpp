@@ -53,6 +53,11 @@ bool HeightMap::create(uint32_t width, uint32_t height, float cellSize, float he
         DE_LOG_ERROR("HeightMap: size must be at least 2x2");
         return false;
     }
+    if (width > kMaxHeightMapSize || height > kMaxHeightMapSize)
+    {
+        DE_LOG_ERROR("HeightMap: {}x{} exceeds 1025", width, height);
+        return false;
+    }
     if (cellSize <= 0.0f)
     {
         DE_LOG_ERROR("HeightMap: cellSize must be > 0");
@@ -192,6 +197,85 @@ void HeightMap::setHeight(int x, int z, float height)
     x = clampX(x);
     z = clampZ(z);
     m_samples[static_cast<size_t>(z) * m_width + static_cast<size_t>(x)] = height;
+    markAccelDirty();
+}
+
+void HeightMap::addDisk(float worldX, float worldZ, float radiusM, float deltaRaw)
+{
+    if (!valid() || radiusM <= 0.0f)
+        return;
+
+    float fx = 0.0f;
+    float fz = 0.0f;
+    worldToSample(worldX, worldZ, fx, fz);
+    const float radiusSamples = radiusM * m_invCellSize;
+    const int   x0 = clampX(static_cast<int>(floorf(fx - radiusSamples)));
+    const int   x1 = clampX(static_cast<int>(ceilf(fx + radiusSamples)));
+    const int   z0 = clampZ(static_cast<int>(floorf(fz - radiusSamples)));
+    const int   z1 = clampZ(static_cast<int>(ceilf(fz + radiusSamples)));
+
+    for (int z = z0; z <= z1; ++z)
+    {
+        for (int x = x0; x <= x1; ++x)
+        {
+            const float dx = this->worldX(x) - worldX;
+            const float dz = this->worldZ(z) - worldZ;
+            const float dist = sqrtf(dx * dx + dz * dz);
+            if (dist > radiusM)
+                continue;
+            const float falloff = 1.0f - dist / radiusM;
+            m_samples[static_cast<size_t>(z) * m_width + static_cast<size_t>(x)] += deltaRaw * falloff;
+        }
+    }
+    markAccelDirty();
+}
+
+void HeightMap::smoothDisk(float worldX, float worldZ, float radiusM, float alpha)
+{
+    if (!valid() || radiusM <= 0.0f)
+        return;
+    alpha = Clamp(alpha, 0.0f, 1.0f);
+    if (alpha <= 0.0f)
+        return;
+
+    float fx = 0.0f;
+    float fz = 0.0f;
+    worldToSample(worldX, worldZ, fx, fz);
+    const float radiusSamples = radiusM * m_invCellSize;
+    const int   x0 = clampX(static_cast<int>(floorf(fx - radiusSamples)));
+    const int   x1 = clampX(static_cast<int>(ceilf(fx + radiusSamples)));
+    const int   z0 = clampZ(static_cast<int>(floorf(fz - radiusSamples)));
+    const int   z1 = clampZ(static_cast<int>(ceilf(fz + radiusSamples)));
+
+    const std::vector<float> original = m_samples;
+    for (int z = z0; z <= z1; ++z)
+    {
+        for (int x = x0; x <= x1; ++x)
+        {
+            const float dx = this->worldX(x) - worldX;
+            const float dz = this->worldZ(z) - worldZ;
+            const float dist = sqrtf(dx * dx + dz * dz);
+            if (dist > radiusM)
+                continue;
+            const float falloff = 1.0f - dist / radiusM;
+
+            float sum = 0.0f;
+            int   count = 0;
+            for (int nz = z - 1; nz <= z + 1; ++nz)
+            {
+                for (int nx = x - 1; nx <= x + 1; ++nx)
+                {
+                    const int cx = clampX(nx);
+                    const int cz = clampZ(nz);
+                    sum += original[static_cast<size_t>(cz) * m_width + static_cast<size_t>(cx)];
+                    ++count;
+                }
+            }
+            const float avg = (count > 0) ? (sum / static_cast<float>(count)) : original[static_cast<size_t>(z) * m_width + static_cast<size_t>(x)];
+            const float old = original[static_cast<size_t>(z) * m_width + static_cast<size_t>(x)];
+            m_samples[static_cast<size_t>(z) * m_width + static_cast<size_t>(x)] = Lerp(old, avg, alpha * falloff);
+        }
+    }
     markAccelDirty();
 }
 

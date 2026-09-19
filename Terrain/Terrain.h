@@ -62,6 +62,8 @@ namespace Terrain
         void updateLod(const Math::Vector3f& cameraPos);
         void rebuildDirtyCpuMeshes();
         bool needsRebuild() const;
+        void markHeightDirty();
+        void markHeightDirtyRect(int x0, int z0, int x1, int z1);
         bool createGpu(Renderer& renderer);
         bool uploadDirty(Renderer& renderer);
 
