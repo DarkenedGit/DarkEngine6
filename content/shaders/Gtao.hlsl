@@ -205,7 +205,14 @@ DualOut PSUpsampleTemporal(PSInput input)
             visMax = max(visMax, ao);
         }
     }
-    vis /= max(wsum, 1e-6f);
+    if (wsum < 1e-5f)
+    {
+        vis    = 1.0f;
+        visMin = 1.0f;
+        visMax = 1.0f;
+    }
+    else
+        vis /= wsum;
 
     float filtered = vis;
     if (reset <= 0.5f)

@@ -7,6 +7,11 @@ namespace Dark
 
     inline constexpr float kDepthClear = 0.0f;
 
+    inline float depthClearValue()
+    {
+        return kDepthClear;
+    }
+
     inline D3D12_COMPARISON_FUNC sceneDepthFunc()
     {
         return D3D12_COMPARISON_FUNC_GREATER;

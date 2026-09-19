@@ -169,3 +169,22 @@ TEST(ShaderCompile, Gtao)
     EXPECT_TRUE(compileShaderFromFile(hlsl, "PSUpsampleTemporal", "ps_5_0", psUp));
     EXPECT_TRUE(compileShaderFromFile(hlsl, "PSCompose", "ps_5_0", psComp));
 }
+
+TEST(ShaderCompile, ReverseZSceneShaders)
+{
+    const char* cases[][3] = {
+        { "shaders/Sky.hlsl", "VSMainDeferred", "vs_5_0" },
+        { "shaders/Taa.hlsl", "PSMain", "ps_5_0" },
+        { "shaders/MotionBlur.hlsl", "PSMain", "ps_5_0" },
+        { "shaders/Tonemap.hlsl", "PSMain", "ps_5_0" },
+        { "shaders/LocalLightVolume.hlsl", "PSMain", "ps_5_0" },
+    };
+    for (const auto& c : cases)
+    {
+        const std::filesystem::path hlsl = Dark::resolveContentPath(c[0]);
+        if (hlsl.empty())
+            GTEST_SKIP() << c[0] << " not on content roots";
+        ComPtr<ID3DBlob> blob;
+        EXPECT_TRUE(compileShaderFromFile(hlsl, c[1], c[2], blob)) << c[0] << " " << c[1];
+    }
+}

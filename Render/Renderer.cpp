@@ -334,7 +334,7 @@ namespace Dark
 
         D3D12_CLEAR_VALUE clear{};
         clear.Format               = DXGI_FORMAT_D32_FLOAT;
-        clear.DepthStencil.Depth   = kDepthClear;
+        clear.DepthStencil.Depth   = depthClearValue();
         clear.DepthStencil.Stencil = 0;
 
         if (FAILED(m_device->CreateCommittedResource(
@@ -485,7 +485,7 @@ namespace Dark
         m_commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
 
         m_commandList->ClearRenderTargetView(rtv, m_clearColor, 0, nullptr);
-        m_commandList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, kDepthClear, 0, 0, nullptr);
+        m_commandList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, depthClearValue(), 0, 0, nullptr);
         return true;
     }
 
