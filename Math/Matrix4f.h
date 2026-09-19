@@ -76,8 +76,12 @@ namespace Dark::Math
 		static Matrix4f TranslationMatrix(float fX, float fY, float fZ);
 		static Matrix4f LookAtLHMatrix(const Vector3f& eye, const Vector3f& at, const Vector3f& up);
 		static Matrix4f PerspectiveFovLHMatrix(float fovy, float aspect, float zn, float zf);
+		static Matrix4f PerspectiveFovLHReverseInfMatrix(float fovy, float aspect, float zn);
+		static Matrix4f PerspectiveFovLHReverseMatrix(float fovy, float aspect, float zn, float zf);
 		static Matrix4f OrthographicLHMatrix(float zn, float zf, float width, float height);
+		static Matrix4f OrthographicLHReverseMatrix(float zn, float zf, float width, float height);
 		static Matrix4f OrthographicOffCenterLHMatrix(float l, float r, float b, float t, float zn, float zf);
+		static Matrix4f OrthographicOffCenterLHReverseMatrix(float l, float r, float b, float t, float zn, float zf);
 
 		// Operators
 		Matrix4f& operator=(const Matrix4f& Matrix) noexcept = default;

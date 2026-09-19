@@ -25,7 +25,8 @@ namespace Dark
         m_ViewDirty(true),
         m_View(Mat4f::IDENTITY),
         m_Proj(Mat4f::IDENTITY),
-        m_ProjUnjittered(Mat4f::IDENTITY)
+        m_ProjUnjittered(Mat4f::IDENTITY),
+        m_CullProj(Mat4f::IDENTITY)
     {
         SetLens(m_FovY, m_Aspect, m_NearZ, m_FarZ);
     }
@@ -89,14 +90,16 @@ namespace Dark
 
     void Camera3D::RebuildProjPerspective()
     {
-        m_Proj           = Matrix4f::PerspectiveFovLHMatrix(m_FovY, m_Aspect, m_NearZ, m_FarZ);
-        m_ProjUnjittered = m_Proj;
+        m_ProjUnjittered = Matrix4f::PerspectiveFovLHReverseInfMatrix(m_FovY, m_Aspect, m_NearZ);
+        m_Proj           = m_ProjUnjittered;
+        m_CullProj       = Matrix4f::PerspectiveFovLHReverseMatrix(m_FovY, m_Aspect, m_NearZ, m_FarZ);
     }
 
     void Camera3D::RebuildProjOrthographic()
     {
-        m_Proj           = Matrix4f::OrthographicLHMatrix(m_NearZ, m_FarZ, m_OrthoWidth, m_OrthoHeight);
-        m_ProjUnjittered = m_Proj;
+        m_ProjUnjittered = Matrix4f::OrthographicLHReverseMatrix(m_NearZ, m_FarZ, m_OrthoWidth, m_OrthoHeight);
+        m_CullProj       = m_ProjUnjittered;
+        m_Proj           = m_ProjUnjittered;
     }
 
     void Camera3D::SetSubpixelJitter(float pixelX, float pixelY, uint32_t width, uint32_t height)
@@ -206,6 +209,12 @@ namespace Dark
         return m_View * m_Proj;
     }
 
+    Matrix4f Camera3D::GetCullViewProj() const
+    {
+        UpdateViewMatrix();
+        return m_View * m_CullProj;
+    }
+
     Vector3f Camera3D::WorldToScreen(const Vector3f& world, float viewportW, float viewportH) const
     {
         Vector4f clip = GetViewProj() * Vector4f(world, 1.0f);
@@ -225,20 +234,16 @@ namespace Dark
 
     Ray3f Camera3D::ScreenPointToRay(float screenX, float screenY, float viewportW, float viewportH) const
     {
-        // Screen → NDC
+        UpdateViewMatrix();
+
         float ndcX = (screenX / viewportW) * 2.0f - 1.0f;
         float ndcY = 1.0f - (screenY / viewportH) * 2.0f;
 
-        Matrix4f invVP = GetViewProj().Inverse();
+        const float tanY = tanf(0.5f * m_FovY);
+        const float tanX = tanY * m_Aspect;
 
-        Vector4f nearH = invVP * Vector4f(ndcX, ndcY, 0.0f, 1.0f);
-        Vector4f farH  = invVP * Vector4f(ndcX, ndcY, 1.0f, 1.0f);
-
-        Vector3f nearP = nearH.xyz() * (1.0f / nearH.w);
-        Vector3f farP  = farH.xyz() * (1.0f / farH.w);
-
-        Vector3f dir = farP - nearP;
+        Vector3f dir = m_Look + m_Right * (ndcX * tanX) + m_Up * (ndcY * tanY);
         dir.Normalize();
-        return Ray3f(nearP, dir);
+        return Ray3f(m_Position, dir);
     }
 } // namespace Dark

@@ -19,6 +19,7 @@ namespace Dark
     void Frustum3f::Update(const Matrix4f& vp, bool normalize)
     {
         // Gribb/Hartmann extraction for row-major, row-vector matrices.
+        // D3D reverse-Z (near = w-z, far = z).
         // Left
         Planes[Left] = Plane4f(vp(0, 3) + vp(0, 0), vp(1, 3) + vp(1, 0), vp(2, 3) + vp(2, 0), vp(3, 3) + vp(3, 0));
 
@@ -31,11 +32,11 @@ namespace Dark
         // Bottom
         Planes[Bottom] = Plane4f(vp(0, 3) + vp(0, 1), vp(1, 3) + vp(1, 1), vp(2, 3) + vp(2, 1), vp(3, 3) + vp(3, 1));
 
-        // Near
-        Planes[Near] = Plane4f(vp(0, 2), vp(1, 2), vp(2, 2), vp(3, 2));
+        // Near (z = w)
+        Planes[Near] = Plane4f(vp(0, 3) - vp(0, 2), vp(1, 3) - vp(1, 2), vp(2, 3) - vp(2, 2), vp(3, 3) - vp(3, 2));
 
-        // Far
-        Planes[Far] = Plane4f(vp(0, 3) - vp(0, 2), vp(1, 3) - vp(1, 2), vp(2, 3) - vp(2, 2), vp(3, 3) - vp(3, 2));
+        // Far (z = 0)
+        Planes[Far] = Plane4f(vp(0, 2), vp(1, 2), vp(2, 2), vp(3, 2));
 
         if (normalize)
         {

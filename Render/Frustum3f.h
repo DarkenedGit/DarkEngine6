@@ -12,6 +12,7 @@ namespace Dark
 {
     // View frustum: six planes with normals pointing *inward*.
     // Plane order: Left, Right, Top, Bottom, Near, Far.
+    // D3D reverse-Z (near = w-z, far = z).
     class Frustum3f
     {
     public:

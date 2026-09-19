@@ -34,7 +34,7 @@ namespace
         cam.LookAt(Vector3f(0.0f, 0.0f, 0.0f), Vector3f(0.0f, 0.0f, 1.0f), Vector3f(0.0f, 1.0f, 0.0f));
         cam.SetLens(DegreesToRadians(60.0f), 2560.0f / 1600.0f, 0.18f, 2000.0f);
         viewProj = cam.GetViewProj();
-        frustum  = Frustum3f(viewProj);
+        frustum  = Frustum3f(cam.GetCullViewProj());
     }
 
     LocalLightCullInput makeInput(const Frustum3f& frustum, const Matrix4f& viewProj)

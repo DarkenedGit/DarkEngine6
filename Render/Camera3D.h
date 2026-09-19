@@ -102,7 +102,12 @@ namespace Dark
         {
             return m_ProjUnjittered;
         }
+        const Math::Matrix4f& GetCullProj() const
+        {
+            return m_CullProj;
+        }
         Math::Matrix4f GetViewProj() const;
+        Math::Matrix4f GetCullViewProj() const;
 
         // ── Screen / world helpers (viewport size in pixels) ──────────────────
         // screen origin top-left, Y down (typical UI); NDC Y up.
@@ -135,5 +140,6 @@ namespace Dark
         mutable Math::Matrix4f m_View;
         Math::Matrix4f         m_Proj;
         Math::Matrix4f         m_ProjUnjittered;
+        Math::Matrix4f         m_CullProj;
     };
 } // namespace Dark

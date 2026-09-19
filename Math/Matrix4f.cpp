@@ -426,6 +426,81 @@ namespace Dark::Math
 		return ret;
 	}
 
+	Matrix4f Matrix4f::PerspectiveFovLHReverseInfMatrix(float fovy, float aspect, float zn)
+	{
+		Matrix4f ret;
+
+		float tanY = tanf(fovy / 2.0f);
+		if (tanY == 0.0f)
+			tanY = 0.001f;
+		float yScale = 1.0f / tanY;
+
+		if (aspect == 0.0f)
+			aspect = 0.001f;
+		float xScale = yScale / aspect;
+
+		ret.m_afEntry[m11] = xScale;
+		ret.m_afEntry[m12] = 0.0f;
+		ret.m_afEntry[m13] = 0.0f;
+		ret.m_afEntry[m14] = 0.0f;
+
+		ret.m_afEntry[m21] = 0.0f;
+		ret.m_afEntry[m22] = yScale;
+		ret.m_afEntry[m23] = 0.0f;
+		ret.m_afEntry[m24] = 0.0f;
+
+		ret.m_afEntry[m31] = 0.0f;
+		ret.m_afEntry[m32] = 0.0f;
+		ret.m_afEntry[m33] = 0.0f;
+		ret.m_afEntry[m34] = 1.0f;
+
+		ret.m_afEntry[m41] = 0.0f;
+		ret.m_afEntry[m42] = 0.0f;
+		ret.m_afEntry[m43] = zn;
+		ret.m_afEntry[m44] = 0.0f;
+
+		return ret;
+	}
+
+	Matrix4f Matrix4f::PerspectiveFovLHReverseMatrix(float fovy, float aspect, float zn, float zf)
+	{
+		Matrix4f ret;
+
+		if (zn == zf)
+			zf = zn + 0.1f;
+
+		float tanY = tanf(fovy / 2.0f);
+		if (tanY == 0.0f)
+			tanY = 0.001f;
+		float yScale = 1.0f / tanY;
+
+		if (aspect == 0.0f)
+			aspect = 0.001f;
+		float xScale = yScale / aspect;
+
+		ret.m_afEntry[m11] = xScale;
+		ret.m_afEntry[m12] = 0.0f;
+		ret.m_afEntry[m13] = 0.0f;
+		ret.m_afEntry[m14] = 0.0f;
+
+		ret.m_afEntry[m21] = 0.0f;
+		ret.m_afEntry[m22] = yScale;
+		ret.m_afEntry[m23] = 0.0f;
+		ret.m_afEntry[m24] = 0.0f;
+
+		ret.m_afEntry[m31] = 0.0f;
+		ret.m_afEntry[m32] = 0.0f;
+		ret.m_afEntry[m33] = zn / (zn - zf);
+		ret.m_afEntry[m34] = 1.0f;
+
+		ret.m_afEntry[m41] = 0.0f;
+		ret.m_afEntry[m42] = 0.0f;
+		ret.m_afEntry[m43] = zn * zf / (zf - zn);
+		ret.m_afEntry[m44] = 0.0f;
+
+		return ret;
+	}
+
 	Matrix4f Matrix4f::OrthographicLHMatrix(float zn, float zf, float width, float height)
 	{
 		// D3DX-style left-handed orthographic
@@ -461,6 +536,40 @@ namespace Dark::Math
 		return ret;
 	}
 
+	Matrix4f Matrix4f::OrthographicLHReverseMatrix(float zn, float zf, float width, float height)
+	{
+		Matrix4f ret;
+
+		if (zn == zf)
+			zf = zn + 0.1f;
+		if (width <= 0.0f)
+			width = 1.0f;
+		if (height <= 0.0f)
+			height = 1.0f;
+
+		ret.m_afEntry[m11] = 2.0f / width;
+		ret.m_afEntry[m12] = 0.0f;
+		ret.m_afEntry[m13] = 0.0f;
+		ret.m_afEntry[m14] = 0.0f;
+
+		ret.m_afEntry[m21] = 0.0f;
+		ret.m_afEntry[m22] = 2.0f / height;
+		ret.m_afEntry[m23] = 0.0f;
+		ret.m_afEntry[m24] = 0.0f;
+
+		ret.m_afEntry[m31] = 0.0f;
+		ret.m_afEntry[m32] = 0.0f;
+		ret.m_afEntry[m33] = 1.0f / (zn - zf);
+		ret.m_afEntry[m34] = 0.0f;
+
+		ret.m_afEntry[m41] = 0.0f;
+		ret.m_afEntry[m42] = 0.0f;
+		ret.m_afEntry[m43] = zf / (zf - zn);
+		ret.m_afEntry[m44] = 1.0f;
+
+		return ret;
+	}
+
 	Matrix4f Matrix4f::OrthographicOffCenterLHMatrix(float l, float r, float b, float t, float zn, float zf)
 	{
 		Matrix4f ret;
@@ -489,6 +598,38 @@ namespace Dark::Math
 		ret.m_afEntry[m41] = (l + r) / (l - r);
 		ret.m_afEntry[m42] = (t + b) / (b - t);
 		ret.m_afEntry[m43] = zn / (zn - zf);
+		ret.m_afEntry[m44] = 1.0f;
+		return ret;
+	}
+
+	Matrix4f Matrix4f::OrthographicOffCenterLHReverseMatrix(float l, float r, float b, float t, float zn, float zf)
+	{
+		Matrix4f ret;
+		if (r == l)
+			r = l + 1.0f;
+		if (t == b)
+			t = b + 1.0f;
+		if (zn == zf)
+			zf = zn + 0.1f;
+
+		ret.m_afEntry[m11] = 2.0f / (r - l);
+		ret.m_afEntry[m12] = 0.0f;
+		ret.m_afEntry[m13] = 0.0f;
+		ret.m_afEntry[m14] = 0.0f;
+
+		ret.m_afEntry[m21] = 0.0f;
+		ret.m_afEntry[m22] = 2.0f / (t - b);
+		ret.m_afEntry[m23] = 0.0f;
+		ret.m_afEntry[m24] = 0.0f;
+
+		ret.m_afEntry[m31] = 0.0f;
+		ret.m_afEntry[m32] = 0.0f;
+		ret.m_afEntry[m33] = 1.0f / (zn - zf);
+		ret.m_afEntry[m34] = 0.0f;
+
+		ret.m_afEntry[m41] = (l + r) / (l - r);
+		ret.m_afEntry[m42] = (t + b) / (b - t);
+		ret.m_afEntry[m43] = zf / (zf - zn);
 		ret.m_afEntry[m44] = 1.0f;
 		return ret;
 	}

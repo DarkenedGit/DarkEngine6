@@ -27,10 +27,18 @@ TEST(TaaJitter, PixelJitterIsSubpixel)
 
 TEST(TaaJitter, NdcJitterOffsetsProjection)
 {
-    Matrix4f p = Matrix4f::PerspectiveFovLHMatrix(1.0f, 1.0f, 0.1f, 100.0f);
+    Matrix4f    p   = Matrix4f::PerspectiveFovLHMatrix(1.0f, 1.0f, 0.1f, 100.0f);
     const float m31 = p.m_afEntry[Mat4f::m31];
     const float m32 = p.m_afEntry[Mat4f::m32];
     applyNdcJitter(p, 0.5f, -0.5f, 200, 100);
     EXPECT_NEAR(p.m_afEntry[Mat4f::m31], m31 + 2.0f * 0.5f / 200.0f, 1e-6f);
     EXPECT_NEAR(p.m_afEntry[Mat4f::m32], m32 + 2.0f * -0.5f / 100.0f, 1e-6f);
+
+    Matrix4f    reverseInf = Matrix4f::PerspectiveFovLHReverseInfMatrix(1.0f, 1.0f, 0.1f);
+    const float r31        = reverseInf.m_afEntry[Mat4f::m31];
+    const float r32        = reverseInf.m_afEntry[Mat4f::m32];
+    applyNdcJitter(reverseInf, 0.5f, -0.5f, 200, 100);
+    EXPECT_NEAR(reverseInf.m_afEntry[Mat4f::m31], r31 + 2.0f * 0.5f / 200.0f, 1e-6f);
+    EXPECT_NEAR(reverseInf.m_afEntry[Mat4f::m32], r32 + 2.0f * -0.5f / 100.0f, 1e-6f);
+    EXPECT_FLOAT_EQ(reverseInf.m_afEntry[Mat4f::m33], 0.0f);
 }

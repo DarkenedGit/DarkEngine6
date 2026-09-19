@@ -168,7 +168,7 @@ namespace Dark
     {
         float height = GetVisibleHeight();
         float width  = height * m_Aspect;
-        m_Proj       = Matrix4f::OrthographicLHMatrix(m_NearZ, m_FarZ, width, height);
+        m_Proj       = Matrix4f::OrthographicLHReverseMatrix(m_NearZ, m_FarZ, width, height);
         m_ProjDirty  = false;
     }
 

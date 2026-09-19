@@ -253,7 +253,7 @@ namespace Dark
         if (!renderer.debugState().localLights || lighting.lighting < 0.5f)
             return;
 
-        const Frustum3f     frustum(viewProj);
+        const Frustum3f     frustum(camera.GetCullViewProj());
         LocalLightCullInput in{};
         in.frustum    = &frustum;
         in.cameraPos  = camera.GetPosition();
