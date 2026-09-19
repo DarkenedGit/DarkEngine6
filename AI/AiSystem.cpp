@@ -455,16 +455,15 @@ namespace Dark
     void AiSystem::collectJumpTargets(World& world)
     {
         m_jumpTargets.clear();
-        world.each<HittableComponent>([&](Entity e, HittableComponent& h) {
+        world.each<HittableComponent>([&](Entity e, HittableComponent&) {
             const TransformComponent* xf = world.get<TransformComponent>(e);
             if (!xf)
                 return;
             const HealthComponent* hp = world.get<HealthComponent>(e);
             JumpTargetScratch t{};
-            t.e           = e;
-            t.center      = xf->position;
-            t.halfExtents = h.halfExtents;
-            t.alive       = hp && hp->health.alive();
+            t.e      = e;
+            t.center = xf->position;
+            t.alive  = hp && hp->health.alive();
             m_jumpTargets.push_back(t);
         });
     }
@@ -583,6 +582,9 @@ namespace Dark
                     m_jumpAttackToken = {};
                     DE_LOG_INFO(LogCategory::AI, "Hunter: jump token clear");
                 }
+                // Player in water: cancel before takeoff / connect / land / pound (hunted-loop escape).
+                if (playerInWater && jump->busy())
+                    cancelJumpAndToken(world, e, false);
 
                 const Vector3f before = v.xf->position;
                 bool           landed   = false;
@@ -696,7 +698,6 @@ namespace Dark
             {
                 v.ai->assistLeft = 0.0f;
                 v.ai->fleeLeft   = 0.0f;
-                cancelJumpAndToken(world, e, false);
             }
             if (v.hit->hit.stunned() || (stCc && stCc->hasHardCc()))
                 continue;

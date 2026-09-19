@@ -90,7 +90,6 @@ namespace Dark
         {
             Entity         e{};
             Math::Vector3f center{};
-            Math::Vector3f halfExtents{ 1.0f, 1.0f, 1.0f };
             bool           alive = false;
         };
 

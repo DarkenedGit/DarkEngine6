@@ -396,6 +396,22 @@ TEST(HunterJumpAttack, WetCancelsAndClearsToken)
     EXPECT_FALSE(h.ai.jumpAttackToken().valid());
 }
 
+TEST(HunterJumpAttack, WetCancelsLeapNoConnectOrPound)
+{
+    Harness h;
+    ASSERT_TRUE(h.setup());
+    Entity e = h.spawnHunterAt(8.0f, 8.0f);
+    ASSERT_TRUE(e.valid());
+    h.tick();
+    ASSERT_TRUE(h.tickUntilAir(e));
+    ASSERT_TRUE(h.jump(e)->inAirCommit());
+    const float playerHp = h.world.get<HealthComponent>(h.player)->health.hp();
+    h.tick(kDt, true);
+    EXPECT_EQ(h.jump(e)->phase(), JumpAttackPhase::Idle);
+    EXPECT_FALSE(h.ai.jumpAttackToken().valid());
+    EXPECT_NEAR(h.world.get<HealthComponent>(h.player)->health.hp(), playerHp, 1.0e-3f);
+}
+
 TEST(HunterJumpAttack, FleeCancelsAndClearsToken)
 {
     Harness h;
