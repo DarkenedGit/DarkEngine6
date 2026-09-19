@@ -4,14 +4,20 @@
 #include "Render/GtaoPipeline.h"
 #include "Render/SceneBuffers.h"
 
+#include <d3d12.h>
+#include <dxgi1_6.h>
 #include <type_traits>
 #include <utility>
+#include <wrl/client.h>
 
 using Dark::Camera3D;
+using Dark::GtaoGpuParams;
+using Dark::GtaoPipeline;
 using Dark::GtaoSettings;
 using Dark::SceneBuffers;
 using Dark::Math::Mat4f;
 using Dark::Math::Matrix4f;
+using Microsoft::WRL::ComPtr;
 
 namespace
 {
@@ -54,6 +60,24 @@ namespace
     struct HasDirections<T, std::void_t<decltype(std::declval<T&>().directions)>> : std::true_type
     {
     };
+
+    ComPtr<ID3D12Device> TryCreateDevice()
+    {
+        ComPtr<ID3D12Device>  device;
+        ComPtr<IDXGIFactory4> factory;
+        if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
+            return {};
+        ComPtr<IDXGIAdapter> warp;
+        if (SUCCEEDED(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp))))
+        {
+            if (SUCCEEDED(D3D12CreateDevice(warp.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))))
+                return device;
+        }
+        device.Reset();
+        if (SUCCEEDED(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))))
+            return device;
+        return {};
+    }
 } // namespace
 
 TEST(Gtao, Settings_Defaults)
@@ -150,4 +174,99 @@ TEST(Gtao, Camera3D_GetProjUnjittered)
     cam.ClearSubpixelJitter();
     for (int i = 0; i < 16; ++i)
         EXPECT_FLOAT_EQ(cam.GetProj().m_afEntry[i], cam.GetProjUnjittered().m_afEntry[i]);
+}
+
+TEST(Gtao, GpuParams_Size)
+{
+    EXPECT_EQ(sizeof(GtaoGpuParams), 64u * sizeof(float));
+    EXPECT_EQ(sizeof(GtaoGpuParams), 256u);
+}
+
+TEST(Gtao, Create_NoDevice_False)
+{
+    GtaoPipeline gtao;
+    EXPECT_FALSE(gtao.create(nullptr, 1280, 720));
+    EXPECT_FALSE(gtao.isValid());
+    EXPECT_EQ(gtao.composeSrvCpu().ptr, 0u);
+    EXPECT_EQ(gtao.aoFullSrvCpu().ptr, 0u);
+
+    SceneBuffers buffers;
+    EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
+    EXPECT_EQ(SceneBuffers::kLightingAo, 5u);
+    EXPECT_EQ(SceneBuffers::kLightingCount, 9u);
+}
+
+TEST(Gtao, Create_ZeroSize_False)
+{
+    GtaoPipeline gtao;
+    EXPECT_FALSE(gtao.create(nullptr, 0, 720));
+    EXPECT_FALSE(gtao.create(nullptr, 1280, 0));
+    EXPECT_FALSE(gtao.create(nullptr, 0, 0));
+    EXPECT_FALSE(gtao.isValid());
+    EXPECT_EQ(gtao.composeSrvCpu().ptr, 0u);
+}
+
+TEST(Gtao, Resize_NoDevice_False)
+{
+    GtaoPipeline gtao;
+    EXPECT_FALSE(gtao.resize(nullptr, 1920, 1080));
+    EXPECT_FALSE(gtao.isValid());
+    EXPECT_EQ(gtao.composeSrvCpu().ptr, 0u);
+    EXPECT_EQ(gtao.aoFullSrvCpu().ptr, 0u);
+}
+
+TEST(Gtao, Invalid_HandlesAreZero)
+{
+    const GtaoPipeline gtao;
+    EXPECT_FALSE(gtao.isValid());
+    EXPECT_EQ(gtao.composeSrvCpu().ptr, 0u);
+    EXPECT_EQ(gtao.aoFullSrvCpu().ptr, 0u);
+}
+
+TEST(Gtao, Resize_RecreatesTargets)
+{
+    ComPtr<ID3D12Device> device = TryCreateDevice();
+    if (!device)
+        GTEST_SKIP() << "no D3D12 device (WARP or hardware)";
+
+    GtaoPipeline gtao;
+    ASSERT_TRUE(gtao.create(device.Get(), 1280, 720));
+    EXPECT_TRUE(gtao.isValid());
+    const SIZE_T compose1280 = gtao.composeSrvCpu().ptr;
+    const SIZE_T full1280    = gtao.aoFullSrvCpu().ptr;
+    EXPECT_NE(compose1280, 0u);
+    EXPECT_NE(full1280, 0u);
+
+    ASSERT_TRUE(gtao.resize(device.Get(), 1920, 1080));
+    EXPECT_TRUE(gtao.isValid());
+    EXPECT_NE(gtao.composeSrvCpu().ptr, 0u);
+    EXPECT_NE(gtao.aoFullSrvCpu().ptr, 0u);
+
+    EXPECT_TRUE(gtao.resize(device.Get(), 1920, 1080));
+    EXPECT_TRUE(gtao.isValid());
+
+    EXPECT_FALSE(gtao.create(device.Get(), 0, 1080));
+    EXPECT_FALSE(gtao.isValid());
+    EXPECT_EQ(gtao.composeSrvCpu().ptr, 0u);
+    EXPECT_EQ(gtao.aoFullSrvCpu().ptr, 0u);
+
+    SceneBuffers buffers;
+    EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
+    EXPECT_EQ(SceneBuffers::kLightingAo, 5u);
+}
+
+TEST(Gtao, Create_ZeroSize_WithDevice_False)
+{
+    ComPtr<ID3D12Device> device = TryCreateDevice();
+    if (!device)
+        GTEST_SKIP() << "no D3D12 device (WARP or hardware)";
+
+    GtaoPipeline gtao;
+    EXPECT_FALSE(gtao.create(device.Get(), 0, 64));
+    EXPECT_FALSE(gtao.create(device.Get(), 64, 0));
+    EXPECT_FALSE(gtao.isValid());
+    EXPECT_EQ(gtao.composeSrvCpu().ptr, 0u);
+
+    SceneBuffers buffers;
+    EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
 }

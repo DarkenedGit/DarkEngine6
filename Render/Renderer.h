@@ -144,6 +144,7 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE historySrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE albedoSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE attribSrvCpu() const;
+        D3D12_CPU_DESCRIPTOR_HANDLE aoSrvCpu() const;
         D3D12_GPU_DESCRIPTOR_HANDLE lightingTableGpu() const;
         D3D12_GPU_DESCRIPTOR_HANDLE heightTableGpu() const;
         D3D12_GPU_DESCRIPTOR_HANDLE aoTableGpu() const;

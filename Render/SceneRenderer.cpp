@@ -106,6 +106,13 @@ bool SceneRenderer::createPostPipelines(Renderer& renderer, const char* tag)
         m_bloomW = renderer.width();
         m_bloomH = renderer.height();
     }
+    if (!m_gtao.create(renderer.device(), renderer.width(), renderer.height()))
+        DE_LOG_WARN(LogCategory::Render, "{}: GtaoPipeline create failed — SSAO disabled", tag);
+    else
+    {
+        m_gtaoW = renderer.width();
+        m_gtaoH = renderer.height();
+    }
     if (!m_motionBlur.create(renderer.device()))
         DE_LOG_WARN(LogCategory::Render, "{}: MotionBlurPipeline create failed — motion blur disabled", tag);
     if (!m_taa.create(renderer.device()))
@@ -178,6 +185,7 @@ void SceneRenderer::shutdown()
     m_pointVolumeMesh          = Mesh{};
     m_spotVolumeMesh           = Mesh{};
     m_bloom                    = BloomPipeline{};
+    m_gtao                     = GtaoPipeline{};
     m_motionBlur               = MotionBlurPipeline{};
     m_taa                      = TaaPipeline{};
     m_shadows                  = ShadowSystem{};
@@ -193,6 +201,8 @@ void SceneRenderer::shutdown()
     m_taaHistoryH              = 0;
     m_bloomW                   = 0;
     m_bloomH                   = 0;
+    m_gtaoW                    = 0;
+    m_gtaoH                    = 0;
     m_initialized              = false;
 }
 
@@ -245,13 +255,23 @@ void SceneRenderer::applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd
     {
         const uint32_t bw = renderer.width();
         const uint32_t bh = renderer.height();
-        if (bw != m_bloomW || bh != m_bloomH)
+        if (bw != m_bloomW || bh != m_bloomH || bw != m_gtaoW || bh != m_gtaoH)
         {
             renderer.waitForGpu();
-            if (!m_bloom.resize(renderer.device(), bw, bh))
-                DE_LOG_WARN(LogCategory::Render, "SceneRenderer: BloomPipeline resize failed — bloom disabled");
-            m_bloomW = bw;
-            m_bloomH = bh;
+            if (bw != m_bloomW || bh != m_bloomH)
+            {
+                if (!m_bloom.resize(renderer.device(), bw, bh))
+                    DE_LOG_WARN(LogCategory::Render, "SceneRenderer: BloomPipeline resize failed — bloom disabled");
+                m_bloomW = bw;
+                m_bloomH = bh;
+            }
+            if (bw != m_gtaoW || bh != m_gtaoH)
+            {
+                if (!m_gtao.resize(renderer.device(), bw, bh))
+                    DE_LOG_WARN(LogCategory::Render, "SceneRenderer: GtaoPipeline resize failed — SSAO disabled");
+                m_gtaoW = bw;
+                m_gtaoH = bh;
+            }
         }
         if (renderer.debugState().bloom && m_bloom.isValid())
             m_bloom.draw(cmd, renderer, BloomPipeline::kDefaultStrength);

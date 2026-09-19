@@ -1007,6 +1007,11 @@ namespace Dark
         return m_sceneBuffers ? m_sceneBuffers->attribSrvCpu() : D3D12_CPU_DESCRIPTOR_HANDLE{};
     }
 
+    D3D12_CPU_DESCRIPTOR_HANDLE Renderer::aoSrvCpu() const
+    {
+        return m_sceneBuffers ? m_sceneBuffers->aoSrvCpu() : D3D12_CPU_DESCRIPTOR_HANDLE{};
+    }
+
     D3D12_GPU_DESCRIPTOR_HANDLE Renderer::lightingTableGpu() const
     {
         if (!m_sceneBuffers)

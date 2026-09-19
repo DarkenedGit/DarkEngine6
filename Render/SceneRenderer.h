@@ -4,6 +4,7 @@
 #include "Render/Camera3D.h"
 #include "Render/DebugOverlay.h"
 #include "Render/DeferredLightingPipeline.h"
+#include "Render/GtaoPipeline.h"
 #include "Render/LocalLightGpuList.h"
 #include "Render/LocalLightVolumePipeline.h"
 #include "Render/Mesh.h"
@@ -81,6 +82,7 @@ public:
     Mesh&                     pointVolumeMesh() { return m_pointVolumeMesh; }
     Mesh&                     spotVolumeMesh() { return m_spotVolumeMesh; }
     BloomPipeline&            bloom() { return m_bloom; }
+    GtaoPipeline&             gtao() { return m_gtao; }
     MotionBlurPipeline&       motionBlur() { return m_motionBlur; }
     TaaPipeline&              taa() { return m_taa; }
     ShadowSystem&             shadows() { return m_shadows; }
@@ -103,6 +105,7 @@ public:
     const Mesh&                     pointVolumeMesh() const { return m_pointVolumeMesh; }
     const Mesh&                     spotVolumeMesh() const { return m_spotVolumeMesh; }
     const BloomPipeline&            bloom() const { return m_bloom; }
+    const GtaoPipeline&             gtao() const { return m_gtao; }
     const MotionBlurPipeline&       motionBlur() const { return m_motionBlur; }
     const TaaPipeline&              taa() const { return m_taa; }
     const ShadowSystem&             shadows() const { return m_shadows; }
@@ -136,6 +139,7 @@ private:
     Mesh                     m_pointVolumeMesh;
     Mesh                     m_spotVolumeMesh;
     BloomPipeline            m_bloom;
+    GtaoPipeline             m_gtao;
     MotionBlurPipeline       m_motionBlur;
     TaaPipeline              m_taa;
     ShadowSystem             m_shadows;
@@ -153,6 +157,8 @@ private:
     uint32_t       m_taaHistoryH      = 0;
     uint32_t       m_bloomW           = 0;
     uint32_t       m_bloomH           = 0;
+    uint32_t       m_gtaoW            = 0;
+    uint32_t       m_gtaoH            = 0;
     bool           m_initialized      = false;
 };
 

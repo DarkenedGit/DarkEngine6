@@ -153,3 +153,19 @@ TEST(ShaderCompile, IblBakeCompiles)
     EXPECT_TRUE(compileShaderFromFile(hlsl, "PSIrradiance", "ps_5_0", psIrr, cubeMacros));
     EXPECT_TRUE(compileShaderFromFile(hlsl, "PSPrefilter", "ps_5_0", psPref, cubeMacros));
 }
+
+TEST(ShaderCompile, Gtao)
+{
+    const std::filesystem::path hlsl = Dark::resolveContentPath("shaders/Gtao.hlsl");
+    if (hlsl.empty())
+        GTEST_SKIP() << "shaders/Gtao.hlsl not on content roots";
+
+    ComPtr<ID3DBlob> vs;
+    ComPtr<ID3DBlob> psGtao;
+    ComPtr<ID3DBlob> psUp;
+    ComPtr<ID3DBlob> psComp;
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "VSMain", "vs_5_0", vs));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSGtao", "ps_5_0", psGtao));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSUpsampleTemporal", "ps_5_0", psUp));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSCompose", "ps_5_0", psComp));
+}
