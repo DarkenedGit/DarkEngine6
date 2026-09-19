@@ -29,6 +29,7 @@
 #include "Render/GpuResourceCache.h"
 #include "Render/GpuUpload.h"
 #include "Ui/MainMenu.h"
+#include "Assets/Image.h"
 #include "Assets/Material.h"
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"
@@ -116,6 +117,43 @@ void mountContentRoots(AssetManager& assets)
         }
         DE_LOG_ERROR("SandboxApp: no content directory found. Tried: {}", listed.empty() ? std::string("<none>") : listed);
     }
+}
+
+AssetRef<Image> loadTerrainLayerMap(AssetManager& assets, const std::string& virtualPath, Dark::Color::ColorSpace space)
+{
+    AssetRef<Image> img = assets.loadImage(virtualPath);
+    if (!img || !img->valid())
+        return {};
+    img->setColorSpace(space);
+    return img;
+}
+
+bool tryCreateTerrainFromContent(Renderer& renderer, AssetManager& assets, const Terrain::SplatMap& splat, TerrainMaterial& material)
+{
+    static constexpr const char* kLayerNames[Terrain::kMaxTerrainLayers] = { "dirt", "grass", "rock", "snow" };
+    static constexpr float       kTiling[Terrain::kMaxTerrainLayers]     = { 24.0f, 20.0f, 16.0f, 12.0f };
+
+    Terrain::TerrainSurfaceDesc desc{};
+    for (int i = 0; i < Terrain::kMaxTerrainLayers; ++i)
+    {
+        desc.layers[i].tiling      = kTiling[i];
+        const std::string prefix   = std::string("terrain/") + kLayerNames[i] + "/";
+        desc.albedo[i]             = loadTerrainLayerMap(assets, prefix + "albedo.png", Dark::Color::ColorSpace::sRGB);
+        desc.normal[i]             = loadTerrainLayerMap(assets, prefix + "normal.png", Dark::Color::ColorSpace::Linear);
+        desc.orm[i]                = loadTerrainLayerMap(assets, prefix + "orm.png", Dark::Color::ColorSpace::Linear);
+        if (!desc.albedo[i] || !desc.albedo[i]->valid())
+            return false;
+    }
+
+    Image     splatImg;
+    Texture2D splatTex;
+    if (!splatImg.createFromRGBA(splat.rgba(), splat.width(), splat.height(), splat.width() * 4u)
+        || !splatTex.createFromImage(renderer, splatImg, Dark::Color::TextureUsage::Data))
+    {
+        DE_LOG_ERROR(LogCategory::Render, "SandboxApp: splat upload failed");
+        return false;
+    }
+    return material.create(renderer, desc, std::move(splatTex));
 }
 
 constexpr float kDeathSeconds      = 2.5f;
@@ -2162,11 +2200,17 @@ void SandboxApp::onInit()
             requestQuit();
             return;
         }
-        if (!m_terrainMaterial.createDefault(renderer(), splat))
+        if (tryCreateTerrainFromContent(renderer(), assets(), splat, m_terrainMaterial))
+            DE_LOG_INFO(LogCategory::Render, "Terrain: using content layer set");
+        else
         {
-            DE_LOG_FATAL("SandboxApp: terrain material create failed");
-            requestQuit();
-            return;
+            DE_LOG_INFO(LogCategory::Render, "Terrain: checkers fallback");
+            if (!m_terrainMaterial.createDefault(renderer(), splat))
+            {
+                DE_LOG_FATAL("SandboxApp: terrain material create failed");
+                requestQuit();
+                return;
+            }
         }
         m_terrainMaterial.setLayerSamplingRaw(renderer().device(), renderer().debugState().legacyUnormAlbedo);
         if (!pumpBootFrame())
