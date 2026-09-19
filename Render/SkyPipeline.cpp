@@ -1,4 +1,5 @@
 #include "Render/SkyPipeline.h"
+#include "Render/DepthState.h"
 #include "Render/ShaderCompile.h"
 #include "Render/Camera3D.h"
 #include "Render/Fog.h"
@@ -124,7 +125,7 @@ bool SkyPipeline::create(ID3D12Device* device, SkyPass pass, DXGI_FORMAT colorFo
 
     psoDesc.DepthStencilState.DepthEnable    = deferredLast ? TRUE : FALSE;
     psoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-    psoDesc.DepthStencilState.DepthFunc      = deferredLast ? D3D12_COMPARISON_FUNC_EQUAL : D3D12_COMPARISON_FUNC_ALWAYS;
+    psoDesc.DepthStencilState.DepthFunc      = deferredLast ? skyDepthFunc() : D3D12_COMPARISON_FUNC_ALWAYS;
 
     psoDesc.InputLayout           = { nullptr, 0 };
     psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;

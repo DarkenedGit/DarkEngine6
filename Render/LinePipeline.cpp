@@ -1,4 +1,5 @@
 #include "Render/LinePipeline.h"
+#include "Render/DepthState.h"
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
 
@@ -74,7 +75,7 @@ namespace Dark
 
         psoDesc.DepthStencilState.DepthEnable    = depthTest ? TRUE : FALSE;
         psoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-        psoDesc.DepthStencilState.DepthFunc      = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+        psoDesc.DepthStencilState.DepthFunc      = sceneDepthFuncGreaterEqual();
 
         psoDesc.InputLayout           = { inputLayout, _countof(inputLayout) };
         psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;

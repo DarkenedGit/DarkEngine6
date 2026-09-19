@@ -1,6 +1,8 @@
 // Temporal AA: reproject history with the G-buffer velocity, neighborhood-clamp, blend.
 #pragma pack_matrix(row_major)
 
+#include "Depth.hlsli"
+
 cbuffer TaaConstants : register(b0)
 {
     float4x4 invViewProj;
@@ -34,7 +36,7 @@ float2 ReconstructCameraVelocity(float2 pixel, float depth)
 {
     float2 uvCurr = pixel * float2(invWidth, invHeight);
     float2 ndc    = float2(uvCurr.x * 2.0f - 1.0f, 1.0f - uvCurr.y * 2.0f);
-    float4 world  = mul(float4(ndc, depth, 1.0f), invViewProj);
+    float4 world  = mul(float4(ndc, ClampDepthForReconstruct(depth), 1.0f), invViewProj);
     world /= max(world.w, 1e-6f);
     float4 prevClip = mul(world, prevViewProj);
     float2 prevNdc  = prevClip.xy / max(abs(prevClip.w), 1e-5f);
@@ -51,7 +53,7 @@ float4 PSMain(PSInput input) : SV_TARGET
 
     float  depth = gDepth.Load(int3(texel, 0)).r;
     float2 vel   = gVelocity.Load(int3(texel, 0)).rg;
-    if (depth >= 1.0f - 1e-5f)
+    if (IsSkyDepth(depth))
         vel = ReconstructCameraVelocity(input.position.xy, depth);
 
     float2 uv     = input.position.xy * float2(invWidth, invHeight);

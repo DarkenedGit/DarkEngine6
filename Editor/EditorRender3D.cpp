@@ -186,7 +186,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 
     if (drawTerrain)
     {
-        const Frustum3f frustum(viewProj);
+        const Frustum3f frustum(m_camera.GetCullViewProj());
         if (deferred)
             m_terrain.drawGBuffer(cmd, m_scene.terrainPipeline(), m_terrainMaterial, m_camera, &frustum, &renderer().debugState(), &prevViewProj);
         else

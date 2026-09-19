@@ -1,4 +1,5 @@
 #include "Render/TerrainPipeline.h"
+#include "Render/DepthState.h"
 #include "Render/PsoUtil.h"
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
@@ -139,7 +140,7 @@ namespace Dark
 
         psoDesc.DepthStencilState.DepthEnable    = TRUE;
         psoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-        psoDesc.DepthStencilState.DepthFunc      = D3D12_COMPARISON_FUNC_LESS;
+        psoDesc.DepthStencilState.DepthFunc      = sceneDepthFunc();
         psoDesc.DepthStencilState.StencilEnable  = FALSE;
 
         psoDesc.InputLayout           = { inputLayout, _countof(inputLayout) };

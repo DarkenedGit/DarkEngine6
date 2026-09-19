@@ -71,7 +71,7 @@ PSInput VSMain(uint id : SV_VertexID)
 
 PSInput VSMainDeferred(uint id : SV_VertexID)
 {
-    return VSCommon(id, 1.0f);
+    return VSCommon(id, 0.0f);
 }
 
 float Hash21(float2 p)

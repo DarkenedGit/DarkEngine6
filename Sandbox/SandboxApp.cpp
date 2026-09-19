@@ -2515,7 +2515,7 @@ void SandboxApp::onRender()
 
     const Matrix4f  viewProj = m_viewCamera.GetViewProj();
     const Matrix4f  prevViewProj = m_scene.havePrevViewProj() ? m_scene.prevViewProj() : viewProj;
-    const Frustum3f frustum(viewProj);
+    const Frustum3f frustum(m_viewCamera.GetCullViewProj());
     const DebugFill fill     = renderer().debugState().fill;
     const Vector3f  camPos   = m_viewCamera.GetPosition();
     uint32_t        meshDraws = 0;
@@ -2937,7 +2937,7 @@ void SandboxApp::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
         const LONG x = pad;
         const LONG y = sh - pad - tile;
         m_debugOverlay.draw2D(
-            cmd, renderer().device(), renderer().depthSrvCpu(), x, y, tile, tile, 24.0f, false);
+            cmd, renderer().device(), renderer().depthSrvCpu(), x, y, tile, tile, 1.0f, true);
     }
 
     if (m_showShadowMaps && m_shadows.isValid())

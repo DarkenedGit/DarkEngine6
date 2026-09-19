@@ -1,4 +1,5 @@
 #include "Render/SkinnedMeshPipeline.h"
+#include "Render/DepthState.h"
 #include "Render/GpuMaterial.h"
 #include "Render/PsoUtil.h"
 #include "Render/ShaderCompile.h"
@@ -159,6 +160,7 @@ namespace Dark
 			return true;
 		}
 
+		psoDesc.DepthStencilState.DepthFunc = transparent ? sceneDepthFuncGreaterEqual() : sceneDepthFunc();
 		psoDesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
 		psoDesc.BlendState.RenderTarget[1].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
 		psoDesc.InputLayout = { colorLayout, _countof(colorLayout) };

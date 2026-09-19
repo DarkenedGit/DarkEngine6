@@ -143,7 +143,7 @@ float4 PSMain(PSInput input) : SV_TARGET
 
     int2  texel = int2(input.position.xy);
     float depth = gDepth.Load(int3(texel, 0)).r;
-    if (depth >= 1.0f - 1e-6f)
+    if (IsSkyDepth(depth))
         discard;
 
     uint w, h;

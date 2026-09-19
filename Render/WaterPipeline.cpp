@@ -1,4 +1,5 @@
 #include "Render/WaterPipeline.h"
+#include "Render/DepthState.h"
 #include "Render/PsoUtil.h"
 #include "Render/ShaderCompile.h"
 #include "Render/Fog.h"
@@ -169,7 +170,7 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
 
     psoDesc.DepthStencilState.DepthEnable    = TRUE;
     psoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-    psoDesc.DepthStencilState.DepthFunc      = D3D12_COMPARISON_FUNC_LESS;
+    psoDesc.DepthStencilState.DepthFunc      = sceneDepthFuncGreaterEqual();
     psoDesc.DepthStencilState.StencilEnable  = FALSE;
 
     psoDesc.InputLayout           = { inputLayout, _countof(inputLayout) };

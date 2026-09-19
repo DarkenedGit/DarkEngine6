@@ -2,6 +2,7 @@
 #pragma pack_matrix(row_major)
 
 #include "Color.hlsli"
+#include "Depth.hlsli"
 
 cbuffer TonemapConstants : register(b0)
 {
@@ -44,9 +45,7 @@ float3 aces(float3 x)
 
 float linearViewZ(float depth)
 {
-    float z = max(depth, 1e-7f);
-    float denom = farZ - z * (farZ - nearZ);
-    return (nearZ * farZ) / max(denom, 1e-5f);
+    return LinearizeViewZ(depth, nearZ);
 }
 
 float3 tonemapColor(float3 hdr)

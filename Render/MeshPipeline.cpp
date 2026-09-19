@@ -1,4 +1,5 @@
 #include "Render/MeshPipeline.h"
+#include "Render/DepthState.h"
 #include "Render/GpuMaterial.h"
 #include "Render/PsoUtil.h"
 #include "Render/ShaderCompile.h"
@@ -145,7 +146,7 @@ namespace Dark
 
         psoDesc.DepthStencilState.DepthEnable    = TRUE;
         psoDesc.DepthStencilState.DepthWriteMask = transparent ? D3D12_DEPTH_WRITE_MASK_ZERO : D3D12_DEPTH_WRITE_MASK_ALL;
-        psoDesc.DepthStencilState.DepthFunc      = D3D12_COMPARISON_FUNC_LESS;
+        psoDesc.DepthStencilState.DepthFunc      = transparent ? sceneDepthFuncGreaterEqual() : sceneDepthFunc();
         psoDesc.DepthStencilState.StencilEnable  = FALSE;
 
         if (transparent)

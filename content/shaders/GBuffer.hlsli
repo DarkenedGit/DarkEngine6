@@ -1,6 +1,8 @@
 #ifndef DE_GBUFFER_HLSLI
 #define DE_GBUFFER_HLSLI
 
+#include "Depth.hlsli"
+
 float2 OctWrap(float2 v)
 {
     return (1.0f - abs(v.yx)) * float2(v.x >= 0.0f ? 1.0f : -1.0f, v.y >= 0.0f ? 1.0f : -1.0f);
@@ -44,7 +46,7 @@ float2 VelocityUv(float4 currClip, float4 prevClip)
 
 float3 ReconstructWorldPos(float ndcX, float ndcY, float depth, float4x4 invViewProj)
 {
-    float4 clip = float4(ndcX, ndcY, depth, 1.0f);
+    float4 clip = float4(ndcX, ndcY, ClampDepthForReconstruct(depth), 1.0f);
     float4 w    = mul(clip, invViewProj);
     return w.xyz / max(w.w, 1e-6f);
 }

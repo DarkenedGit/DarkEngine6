@@ -65,7 +65,7 @@ float interleavedGradientNoise(float2 pos)
 float3 ReconstructViewPos(float2 uv, float depth)
 {
     float2 ndc  = float2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);
-    float4 clip = float4(ndc, depth, 1.0f);
+    float4 clip = float4(ndc, ClampDepthForReconstruct(depth), 1.0f);
     float4 vs   = mul(clip, invProj);
     return vs.xyz / max(vs.w, 1e-6f);
 }
@@ -86,7 +86,7 @@ float PSGtao(PSInput input) : SV_TARGET
 {
     float2 uv    = input.uv;
     float  depth = gTex0.SampleLevel(gPoint, uv, 0).r;
-    if (depth >= 1.0f - 1e-5f)
+    if (IsSkyDepth(depth))
         return 1.0f;
 
     float3 vPos = ReconstructViewPos(uv, depth);
@@ -123,16 +123,26 @@ float PSGtao(PSInput input) : SV_TARGET
             float2 uv0   = uv + uvOff;
             float2 uv1   = uv - uvOff;
 
-            float3 ds = ReconstructViewPos(uv0, gTex0.SampleLevel(gPoint, uv0, 0).r) - vPos;
-            float3 dt = ReconstructViewPos(uv1, gTex0.SampleLevel(gPoint, uv1, 0).r) - vPos;
-
-            float2 dsdt    = float2(dot(ds, ds), dot(dt, dt));
-            float2 invLen  = rsqrt(max(dsdt, 1e-8f));
-            float2 falloff = saturate(dsdt * twoOverR2);
-            float2 H       = float2(dot(ds, viewDir), dot(dt, viewDir)) * invLen;
-
-            h.x = (H.x > h.x) ? lerp(H.x, h.x, falloff.x) : lerp(H.x, h.x, thickness);
-            h.y = (H.y > h.y) ? lerp(H.y, h.y, falloff.y) : lerp(H.y, h.y, thickness);
+            float d0 = gTex0.SampleLevel(gPoint, uv0, 0).r;
+            float d1 = gTex0.SampleLevel(gPoint, uv1, 0).r;
+            if (!IsSkyDepth(d0))
+            {
+                float3 ds      = ReconstructViewPos(uv0, d0) - vPos;
+                float  dsdt    = dot(ds, ds);
+                float  invLen  = rsqrt(max(dsdt, 1e-8f));
+                float  falloff = saturate(dsdt * twoOverR2);
+                float  H       = dot(ds, viewDir) * invLen;
+                h.x = (H > h.x) ? lerp(H, h.x, falloff) : lerp(H, h.x, thickness);
+            }
+            if (!IsSkyDepth(d1))
+            {
+                float3 dt      = ReconstructViewPos(uv1, d1) - vPos;
+                float  dsdt    = dot(dt, dt);
+                float  invLen  = rsqrt(max(dsdt, 1e-8f));
+                float  falloff = saturate(dsdt * twoOverR2);
+                float  H       = dot(dt, viewDir) * invLen;
+                h.y = (H > h.y) ? lerp(H, h.y, falloff) : lerp(H, h.y, thickness);
+            }
         }
 
         float3 planeN   = normalize(cross(sliceDir, viewDir));
@@ -159,7 +169,7 @@ DualOut PSUpsampleTemporal(PSInput input)
     float  depthC = gTex1.Load(int3(texel, 0)).r;
 
     DualOut o;
-    if (depthC >= 1.0f - 1e-5f)
+    if (IsSkyDepth(depthC))
     {
         o.ao   = 1.0f;
         o.hist = 1.0f;
@@ -182,6 +192,8 @@ DualOut PSUpsampleTemporal(PSInput input)
             float2 tapUv = uv + (float2((float)x, (float)y) - 0.5f) * invSizeHalf;
             float  ao    = gTex0.SampleLevel(gLin, tapUv, 0).r;
             float  d     = gTex1.SampleLevel(gPoint, tapUv, 0).r;
+            if (IsSkyDepth(d))
+                continue;
             float3 n     = DecodeOct(gTex2.SampleLevel(gPoint, tapUv, 0).rg);
             float  z     = ReconstructViewPos(tapUv, d).z;
             float  wZ    = exp(-abs(z - zC) / max(radius, 0.05f));

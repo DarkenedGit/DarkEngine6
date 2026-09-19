@@ -22,3 +22,10 @@ TEST(RendererFence, BroadcastIgnoresOutOfRangeIndex)
     EXPECT_EQ(values[0], 4u);
     EXPECT_EQ(values[1], 2u);
 }
+
+TEST(RendererFence, DepthClearValueIsZero)
+{
+    float (Renderer::*fn)() const = &Renderer::depthClearValue;
+    (void)fn;
+    EXPECT_FLOAT_EQ(kDepthClear, 0.0f);
+}

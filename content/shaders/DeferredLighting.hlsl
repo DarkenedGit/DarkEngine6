@@ -94,7 +94,7 @@ float4 PSMain(PSInput input) : SV_TARGET
     float4 albedo = gAlbedo.Load(int3(texel, 0));
     float4 attrib = gAttrib.Load(int3(texel, 0));
 
-    if (depth >= 1.0f - 1e-6f)
+    if (IsSkyDepth(depth))
         discard;
 
     if (lighting < 0.5f)

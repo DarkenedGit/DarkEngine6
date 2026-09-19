@@ -1,4 +1,5 @@
 #include "Render/SpritePipeline.h"
+#include "Render/DepthState.h"
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
 
@@ -113,7 +114,7 @@ namespace Dark
 
         pso.DepthStencilState.DepthEnable    = enableDepth ? TRUE : FALSE;
         pso.DepthStencilState.DepthWriteMask = enableDepth ? D3D12_DEPTH_WRITE_MASK_ALL : D3D12_DEPTH_WRITE_MASK_ZERO;
-        pso.DepthStencilState.DepthFunc      = D3D12_COMPARISON_FUNC_LESS;
+        pso.DepthStencilState.DepthFunc      = sceneDepthFunc();
         pso.DepthStencilState.StencilEnable  = FALSE;
 
         pso.InputLayout           = { layout, _countof(layout) };

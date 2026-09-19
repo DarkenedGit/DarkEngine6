@@ -1,4 +1,5 @@
 #include "Render/ParticlePipeline.h"
+#include "Render/DepthState.h"
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
 
@@ -116,7 +117,7 @@ namespace Dark
 
         pso.DepthStencilState.DepthEnable    = TRUE;
         pso.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-        pso.DepthStencilState.DepthFunc      = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+        pso.DepthStencilState.DepthFunc      = sceneDepthFuncGreaterEqual();
 
         pso.InputLayout           = { layout, _countof(layout) };
         pso.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
