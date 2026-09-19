@@ -90,3 +90,84 @@ TEST(AiAgentEntity, SpawnStatusAcceptsKnockdownFromResolve)
     EXPECT_TRUE(st->hasHardCc());
     EXPECT_FALSE(world.get<HealthComponent>(e)->health.dead());
 }
+
+TEST(AiAgentEntity, ApplyHunterHitReactionRestoresDefaultsAfterKnockdown)
+{
+    World         world;
+    AssetManager  assets;
+    AssetPinTable pins;
+    AiSystem      ai;
+
+    Dark::HitReactionSettings hunterHit{};
+    hunterHit.stunSeconds       = 0.45f;
+    hunterHit.knockbackDistance = 2.2f;
+    hunterHit.knockbackSeconds  = 0.18f;
+    hunterHit.horizontalOnly    = true;
+    ai.setHunterHitReactionSettings(hunterHit);
+
+    TransformComponent xf{};
+    Entity e = ai.spawnHunter(world, pins, assets, xf);
+    ASSERT_TRUE(e.valid());
+
+    Dark::Combat::CombatSystem sys;
+    Dark::Combat::DamageEvent  ev{};
+    ev.target           = e;
+    ev.amount           = 32.0f;
+    ev.flags            = Dark::Combat::DamageFlags::CanBlock | Dark::Combat::DamageFlags::HardCc | Dark::Combat::DamageFlags::Knockdown;
+    ev.statusDuration   = 1.4f;
+    ev.statusMagnitude  = 2.4f;
+    ev.hitDir           = Dark::Math::Vector3f{ 0.0f, 0.0f, 1.0f };
+    EXPECT_EQ(Dark::Combat::resolveJumpAttackEvents(world, sys, &ev, 1), 1);
+
+    Dark::HitReactionComponent* hr = world.get<Dark::HitReactionComponent>(e);
+    ASSERT_NE(hr, nullptr);
+    EXPECT_NEAR(hr->hit.settings().stunSeconds, 1.4f, 1.0e-4f);
+    EXPECT_NEAR(hr->hit.stunRemaining(), 1.4f, 1.0e-4f);
+    ASSERT_TRUE(world.get<Dark::Combat::StatusEffectComponent>(e)->knockedDown());
+
+    ai.applyHunterHitReaction(world, e, Dark::Math::Vector3f{ 1.0f, 0.0f, 0.0f });
+    EXPECT_NEAR(hr->hit.settings().stunSeconds, hunterHit.stunSeconds, 1.0e-4f);
+    EXPECT_NEAR(hr->hit.settings().knockbackDistance, hunterHit.knockbackDistance, 1.0e-4f);
+    EXPECT_NEAR(hr->hit.settings().knockbackSeconds, hunterHit.knockbackSeconds, 1.0e-4f);
+    EXPECT_NEAR(hr->hit.stunRemaining(), hunterHit.stunSeconds, 1.0e-4f);
+    EXPECT_TRUE(world.get<Dark::Combat::StatusEffectComponent>(e)->knockedDown());
+    EXPECT_TRUE(world.get<Dark::Combat::StatusEffectComponent>(e)->hasHardCc());
+}
+
+TEST(AiAgentEntity, StatusResetAfterKnockdownAllowsFullDurationAgain)
+{
+    World         world;
+    AssetManager  assets;
+    AssetPinTable pins;
+    AiSystem      ai;
+
+    TransformComponent xf{};
+    Entity e = ai.spawnHunter(world, pins, assets, xf);
+    ASSERT_TRUE(e.valid());
+    Dark::Combat::StatusEffectComponent* st = world.get<Dark::Combat::StatusEffectComponent>(e);
+    ASSERT_NE(st, nullptr);
+
+    Dark::Combat::CombatSystem sys;
+    Dark::Combat::DamageEvent  ev{};
+    ev.target         = e;
+    ev.amount         = 8.0f;
+    ev.flags          = Dark::Combat::DamageFlags::CanBlock | Dark::Combat::DamageFlags::HardCc | Dark::Combat::DamageFlags::Knockdown;
+    ev.statusDuration = 1.4f;
+    EXPECT_EQ(Dark::Combat::resolveJumpAttackEvents(world, sys, &ev, 1), 1);
+    EXPECT_TRUE(st->knockedDown());
+    st->tick(0.25f);
+    EXPECT_TRUE(st->knockedDown());
+    EXPECT_NEAR(st->slots[0].remaining, 1.15f, 1.0e-3f);
+
+    st->reset();
+    EXPECT_FALSE(st->knockedDown());
+    EXPECT_FALSE(st->hasHardCc());
+    EXPECT_EQ(st->count, 0);
+    EXPECT_NEAR(st->now, 0.0f, 1.0e-6f);
+    EXPECT_EQ(st->dr[static_cast<int>(Dark::Combat::CcCategory::Knockdown)].applications, 0);
+
+    EXPECT_EQ(Dark::Combat::resolveJumpAttackEvents(world, sys, &ev, 1), 1);
+    EXPECT_TRUE(st->knockedDown());
+    ASSERT_GT(st->count, 0);
+    EXPECT_NEAR(st->slots[0].remaining, 1.4f, 1.0e-3f);
+}

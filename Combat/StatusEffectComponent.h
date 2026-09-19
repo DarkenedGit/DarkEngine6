@@ -45,6 +45,16 @@ namespace Dark::Combat
         CcDrState      dr[kCcCategoryCount]{};
         float          now   = 0.f;
 
+        void reset()
+        {
+            count = 0;
+            now   = 0.f;
+            for (int i = 0; i < kMaxStatus; ++i)
+                slots[i] = StatusInstance{};
+            for (int i = 0; i < kCcCategoryCount; ++i)
+                dr[i] = CcDrState{};
+        }
+
         void tick(float dt)
         {
             if (dt < 0.0f)

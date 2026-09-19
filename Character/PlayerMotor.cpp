@@ -24,6 +24,11 @@ namespace Dark
         m_pendingDouble = false;
     }
 
+    void PlayerMotor::clearJumpBuffer()
+    {
+        m_jumpBuffer = 0.0f;
+    }
+
     void PlayerMotor::setHorizontalVelocity(float x, float z)
     {
         m_velocity.x = x;
@@ -180,7 +185,7 @@ namespace Dark
 
         if (m_jumpBuffer > 0.0f)
             m_jumpBuffer = Math::Max(0.0f, m_jumpBuffer - dt);
-        if (in.jumpPressed)
+        if (in.jumpPressed && in.allowJumpBuffer)
             m_jumpBuffer = m_settings.jumpBuffer;
 
         const float waterY  = ground.waterY;
@@ -235,7 +240,7 @@ namespace Dark
                 position.y   = feetY;
                 m_velocity.y = 0.0f;
                 m_coyote     = m_settings.coyoteTime;
-                if (m_jumpBuffer > 0.0f)
+                if (m_jumpBuffer > 0.0f && in.allowJumpBuffer)
                 {
                     m_jumpBuffer = 0.0f;
                     beginJump(result);
@@ -256,7 +261,7 @@ namespace Dark
         if (m_coyote > 0.0f)
             m_coyote = Math::Max(0.0f, m_coyote - dt);
 
-        if (!m_didFirstJump && m_jumpBuffer > 0.0f && m_coyote > 0.0f)
+        if (!m_didFirstJump && m_jumpBuffer > 0.0f && m_coyote > 0.0f && in.allowJumpBuffer)
         {
             m_jumpBuffer = 0.0f;
             beginJump(result);
@@ -281,7 +286,7 @@ namespace Dark
         {
             result.landed = true;
             enterGrounded(position, groundY);
-            if (m_jumpBuffer > 0.0f && !terrainWet(groundY, waterY))
+            if (m_jumpBuffer > 0.0f && in.allowJumpBuffer && !terrainWet(groundY, waterY))
             {
                 m_jumpBuffer = 0.0f;
                 beginJump(result);

@@ -1052,6 +1052,7 @@ void SandboxApp::updatePossessed(float dt)
     motorIn.sprint          = canSteer && !jumpBusy && !uiKeys && input().actionDown("sprint");
     motorIn.jumpPressed     = canSteer && !jumpBusy && !uiKeys && input().actionPressed("jump");
     motorIn.allowDoubleJump = !inAirCommit;
+    motorIn.allowJumpBuffer = !jumpBusy;
     motorIn.airControlScale = inAirCommit ? jump->def().airControlScale : 1.0f;
 
     struct HeightCtx
@@ -1084,36 +1085,6 @@ void SandboxApp::updatePossessed(float dt)
                 targetPtr = &targetPos;
                 hasTarget = true;
             }
-        }
-        else
-        {
-            float bestD2 = 1.0e30f;
-            world().each<AiAgentComponent>([&](Entity e, AiAgentComponent&) {
-                const HealthComponent*    hpH = world().get<HealthComponent>(e);
-                const TransformComponent* hxf = world().get<TransformComponent>(e);
-                if (!hpH || !hpH->health.alive() || !hxf)
-                    return;
-                const float dx = hxf->position.x - xf->position.x;
-                const float dz = hxf->position.z - xf->position.z;
-                const float d2 = dx * dx + dz * dz;
-                if (d2 >= bestD2)
-                    return;
-                if (flat.MagnitudeSqrd() > 1.0e-6f)
-                {
-                    const float dist = sqrtf(d2);
-                    if (dist > 1.0e-4f)
-                    {
-                        const float dot = (flat.x * dx + flat.z * dz) / dist;
-                        if (dot < jump->def().connectMinDot)
-                            return;
-                    }
-                }
-                bestD2    = d2;
-                targetPos = hxf->position;
-                hasTarget = true;
-            });
-            if (hasTarget)
-                targetPtr = &targetPos;
         }
         jump->applyAirSteering(vel, xf->position, flat, targetPtr, hasTarget, dt);
         motor->setHorizontalVelocity(vel.x, vel.z);
@@ -1241,10 +1212,7 @@ void SandboxApp::respawnPlayer()
     if (JumpAttackComponent* jac = body.valid() ? world().get<JumpAttackComponent>(body) : nullptr)
         jac->jump.cancel(Combat::JumpAttackCancel::ForceIdle);
     if (Combat::StatusEffectComponent* st = body.valid() ? world().get<Combat::StatusEffectComponent>(body) : nullptr)
-    {
-        st->count = 0;
-        st->now   = 0.0f;
-    }
+        st->reset();
     if (Combat::PoiseComponent* poise = body.valid() ? world().get<Combat::PoiseComponent>(body) : nullptr)
     {
         poise->reset();
@@ -1553,6 +1521,7 @@ void SandboxApp::updateCombat(float dt)
         req.airTime           = motor->airTime();
         if (!jump->begin(req))
             return false;
+        motor->clearJumpBuffer();
         DE_LOG_INFO("Player: jump attack");
         return true;
     };

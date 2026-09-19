@@ -148,6 +148,8 @@ namespace Dark
             v.health->health.revive();
             v.hit->hit.setSettings(m_hunterHit);
             v.hit->hit.reset();
+            if (Combat::StatusEffectComponent* st = world.get<Combat::StatusEffectComponent>(e))
+                st->reset();
             v.ai->assistLeft  = 0.0f;
             v.ai->fleeLeft    = 0.0f;
             v.ai->deadFor     = 0.0f;
@@ -431,7 +433,8 @@ namespace Dark
                 v.ai->assistLeft = 0.0f;
                 v.ai->fleeLeft   = 0.0f;
             }
-            if (v.hit->hit.stunned())
+            const Combat::StatusEffectComponent* stCc = world.get<Combat::StatusEffectComponent>(e);
+            if (v.hit->hit.stunned() || (stCc && stCc->hasHardCc()))
                 continue;
 
             if (standoff)
@@ -523,7 +526,10 @@ namespace Dark
         if (!hp || !hp->health.alive())
             return;
         if (HitReactionComponent* hit = world.get<HitReactionComponent>(e))
+        {
+            hit->hit.setSettings(m_hunterHit);
             hit->hit.apply(hitDirection);
+        }
     }
 
     void AiSystem::onHunterAttacked(World& world, Entity victim, const Vector3f& playerPos)

@@ -41,6 +41,7 @@ namespace Dark
         bool           sprint           = false;
         bool           jumpPressed      = false; // edge this tick
         bool           allowDoubleJump  = true;
+        bool           allowJumpBuffer  = true; // land/coyote/grounded consume of m_jumpBuffer
         float          airControlScale  = 1.0f; // multiplies airSpeed/airAccel in applyAirControl
     };
 
@@ -73,6 +74,7 @@ namespace Dark
         float                      airTime() const { return m_airTime; }
 
         void reset();
+        void clearJumpBuffer();
         void setHorizontalVelocity(float x, float z);
 
         PlayerMotorResult tick(Math::Vector3f& position, const PlayerMotorInput& in, float dt, const PlayerGroundQuery& ground);

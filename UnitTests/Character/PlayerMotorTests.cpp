@@ -35,6 +35,17 @@ namespace
             left -= stepDt;
         }
     }
+
+    void fallUntilNearGround(PlayerMotor& motor, Vector3f& pos, const PlayerGroundQuery& ground)
+    {
+        PlayerMotorInput hold{};
+        for (int i = 0; i < 180; ++i)
+        {
+            if (motor.state() == PlayerMoveState::Falling && pos.y < 0.90f)
+                return;
+            motor.tick(pos, hold, 1.0f / 60.0f, ground);
+        }
+    }
 } // namespace
 
 TEST(PlayerMotor, JumpLeavesGroundAndReportsEvent)
@@ -379,4 +390,105 @@ TEST(PlayerMotor, AllowDoubleJumpDefaultStillDoubleJumps)
     const PlayerMotorResult r = motor.tick(pos, press, 1.0f / 60.0f, flatQuery());
     EXPECT_TRUE(r.doubleJumped);
     EXPECT_TRUE(motor.didDoubleJump());
+}
+
+TEST(PlayerMotor, LandJumpBufferReJumpsWhenAllowed)
+{
+    PlayerMotor motor;
+    Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+    const PlayerGroundQuery q = flatQuery();
+    PlayerMotorInput press{};
+    press.jumpPressed = true;
+    motor.tick(pos, press, 1.0f / 60.0f, q);
+
+    fallUntilNearGround(motor, pos, q);
+    ASSERT_EQ(motor.state(), PlayerMoveState::Falling);
+    ASSERT_GT(motor.airTime(), motor.settings().doubleJumpWindow);
+    ASSERT_FALSE(motor.didDoubleJump());
+
+    PlayerMotorInput late{};
+    late.jumpPressed = true;
+    motor.tick(pos, late, 1.0f / 60.0f, q);
+    EXPECT_FALSE(motor.didDoubleJump());
+
+    PlayerMotorInput hold{};
+    bool landedRejump = false;
+    for (int i = 0; i < 30; ++i)
+    {
+        const PlayerMotorResult r = motor.tick(pos, hold, 1.0f / 60.0f, q);
+        if (r.landed)
+        {
+            landedRejump = r.jumped;
+            break;
+        }
+    }
+    EXPECT_TRUE(landedRejump);
+    EXPECT_EQ(motor.state(), PlayerMoveState::Jumping);
+}
+
+TEST(PlayerMotor, AllowJumpBufferFalseSkipsLandReJump)
+{
+    PlayerMotor motor;
+    Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+    const PlayerGroundQuery q = flatQuery();
+    PlayerMotorInput press{};
+    press.jumpPressed = true;
+    motor.tick(pos, press, 1.0f / 60.0f, q);
+
+    fallUntilNearGround(motor, pos, q);
+    ASSERT_GT(motor.airTime(), motor.settings().doubleJumpWindow);
+
+    PlayerMotorInput late{};
+    late.jumpPressed = true;
+    motor.tick(pos, late, 1.0f / 60.0f, q);
+
+    PlayerMotorInput blocked{};
+    blocked.allowJumpBuffer = false;
+    bool landed = false;
+    for (int i = 0; i < 30; ++i)
+    {
+        const PlayerMotorResult r = motor.tick(pos, blocked, 1.0f / 60.0f, q);
+        if (r.landed)
+        {
+            landed = true;
+            EXPECT_FALSE(r.jumped);
+            break;
+        }
+        EXPECT_FALSE(r.jumped);
+    }
+    EXPECT_TRUE(landed);
+    EXPECT_EQ(motor.state(), PlayerMoveState::Grounded);
+}
+
+TEST(PlayerMotor, ClearJumpBufferSkipsLandReJump)
+{
+    PlayerMotor motor;
+    Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+    const PlayerGroundQuery q = flatQuery();
+    PlayerMotorInput press{};
+    press.jumpPressed = true;
+    motor.tick(pos, press, 1.0f / 60.0f, q);
+
+    fallUntilNearGround(motor, pos, q);
+    ASSERT_GT(motor.airTime(), motor.settings().doubleJumpWindow);
+
+    PlayerMotorInput late{};
+    late.jumpPressed = true;
+    motor.tick(pos, late, 1.0f / 60.0f, q);
+    motor.clearJumpBuffer();
+
+    PlayerMotorInput hold{};
+    bool landed = false;
+    for (int i = 0; i < 30; ++i)
+    {
+        const PlayerMotorResult r = motor.tick(pos, hold, 1.0f / 60.0f, q);
+        if (r.landed)
+        {
+            landed = true;
+            EXPECT_FALSE(r.jumped);
+            break;
+        }
+    }
+    EXPECT_TRUE(landed);
+    EXPECT_EQ(motor.state(), PlayerMoveState::Grounded);
 }
