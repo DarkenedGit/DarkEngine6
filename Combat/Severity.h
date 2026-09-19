@@ -77,15 +77,4 @@ namespace Dark::Combat
         return s;
     }
 
-    // Knockdown lock: stun matches effective CC duration. force <= 0 uses the 2.4 m default.
-    inline HitReactionSettings hitReactionForKnockdown(float duration, float force)
-    {
-        HitReactionSettings s{};
-        s.stunSeconds       = duration > 0.0f ? duration : 0.0f;
-        s.knockbackDistance = force > 0.0f ? force : 2.4f;
-        s.knockbackSeconds  = 0.22f;
-        s.horizontalOnly    = true;
-        return s;
-    }
-
 } // namespace Dark::Combat

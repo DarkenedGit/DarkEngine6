@@ -191,7 +191,12 @@ namespace Dark::Combat
             {
                 if (!hyper)
                 {
-                    hitReaction->setSettings(hitReactionForKnockdown(r.ccDuration, ev.statusMagnitude));
+                    HitReactionSettings kd{};
+                    kd.stunSeconds       = r.ccDuration;
+                    kd.knockbackDistance = ev.statusMagnitude > 0.0f ? ev.statusMagnitude : 2.4f;
+                    kd.knockbackSeconds  = 0.22f;
+                    kd.horizontalOnly    = true;
+                    hitReaction->setSettings(kd);
                     hitReaction->apply(ev.hitDir);
                 }
             }
