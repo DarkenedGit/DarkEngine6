@@ -80,6 +80,7 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE albedoSrvCpu() const { return m_albedoSrvCpu; }
         D3D12_CPU_DESCRIPTOR_HANDLE attribSrvCpu() const { return m_attribSrvCpu; }
         D3D12_CPU_DESCRIPTOR_HANDLE aoSrvCpu() const { return m_aoSrvCpu; }
+        D3D12_CPU_DESCRIPTOR_HANDLE lightingAoCpu() const { return m_lightingAoCpu; }
         D3D12_GPU_DESCRIPTOR_HANDLE lightingTableGpu() const { return m_lightingGpu; }
         D3D12_GPU_DESCRIPTOR_HANDLE heightTableGpu() const { return m_heightGpu; }
         D3D12_GPU_DESCRIPTOR_HANDLE aoTableGpu() const { return m_aoGpu; }

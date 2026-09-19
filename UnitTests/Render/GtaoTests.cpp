@@ -34,6 +34,26 @@ namespace
     struct HasThickness<T, std::void_t<decltype(std::declval<T&>().thickness)>> : std::true_type
     {
     };
+
+    template <class T, class = void>
+    struct HasSteps : std::false_type
+    {
+    };
+
+    template <class T>
+    struct HasSteps<T, std::void_t<decltype(std::declval<T&>().steps)>> : std::true_type
+    {
+    };
+
+    template <class T, class = void>
+    struct HasDirections : std::false_type
+    {
+    };
+
+    template <class T>
+    struct HasDirections<T, std::void_t<decltype(std::declval<T&>().directions)>> : std::true_type
+    {
+    };
 } // namespace
 
 TEST(Gtao, Settings_Defaults)
@@ -45,6 +65,8 @@ TEST(Gtao, Settings_Defaults)
     EXPECT_FLOAT_EQ(s.intensity, 1.0f);
     EXPECT_FALSE(HasHalfRes<GtaoSettings>::value);
     EXPECT_FALSE(HasThickness<GtaoSettings>::value);
+    EXPECT_FALSE(HasSteps<GtaoSettings>::value);
+    EXPECT_FALSE(HasDirections<GtaoSettings>::value);
 }
 
 TEST(Gtao, LightingCount_Unchanged)
@@ -59,6 +81,7 @@ TEST(Gtao, SetLightingAoSrv_NullDevice)
     D3D12_CPU_DESCRIPTOR_HANDLE ao{};
     ao.ptr = 0x1234;
     buffers.setLightingAoSrv(nullptr, ao);
+    EXPECT_EQ(buffers.lightingAoCpu().ptr, ao.ptr);
 }
 
 TEST(Gtao, SetLightingAoSrv_ZeroHandle)
@@ -66,7 +89,9 @@ TEST(Gtao, SetLightingAoSrv_ZeroHandle)
     SceneBuffers buffers;
     D3D12_CPU_DESCRIPTOR_HANDLE ao{};
     buffers.setLightingAoSrv(nullptr, ao);
+    EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
     buffers.packLightingHeap(nullptr, {});
+    EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
 }
 
 TEST(Gtao, Reset_ClearsLightingAoOverride)
@@ -75,9 +100,11 @@ TEST(Gtao, Reset_ClearsLightingAoOverride)
     D3D12_CPU_DESCRIPTOR_HANDLE ao{};
     ao.ptr = 0x1234;
     buffers.setLightingAoSrv(nullptr, ao);
+    EXPECT_EQ(buffers.lightingAoCpu().ptr, ao.ptr);
     buffers.reset();
+    EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
     buffers.packLightingHeap(nullptr, {});
-    buffers.setLightingAoSrv(nullptr, {});
+    EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
 }
 
 TEST(Gtao, Create_NullDevice_DropsAoOverride)
@@ -86,11 +113,12 @@ TEST(Gtao, Create_NullDevice_DropsAoOverride)
     D3D12_CPU_DESCRIPTOR_HANDLE ao{};
     ao.ptr = 0x1234;
     buffers.setLightingAoSrv(nullptr, ao);
+    EXPECT_EQ(buffers.lightingAoCpu().ptr, ao.ptr);
 
     const float hdrClear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
     EXPECT_FALSE(buffers.create(nullptr, 64, 64, true, {}, hdrClear));
     EXPECT_FALSE(buffers.valid());
-    buffers.packLightingHeap(nullptr, {});
+    EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
 }
 
 TEST(Gtao, Create_ZeroSize_DropsAoOverride)
@@ -99,8 +127,9 @@ TEST(Gtao, Create_ZeroSize_DropsAoOverride)
     D3D12_CPU_DESCRIPTOR_HANDLE ao{};
     ao.ptr = 0x1234;
     buffers.setLightingAoSrv(nullptr, ao);
+    EXPECT_EQ(buffers.lightingAoCpu().ptr, ao.ptr);
     EXPECT_FALSE(buffers.create(nullptr, 0, 0, true, {}, nullptr));
-    buffers.packLightingHeap(nullptr, {});
+    EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
 }
 
 TEST(Gtao, Camera3D_GetProjUnjittered)
