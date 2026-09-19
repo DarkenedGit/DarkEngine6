@@ -16,10 +16,11 @@ namespace Dark
         uint32_t irradianceSize     = 32;
         uint32_t prefilterSize      = 128;
         uint32_t prefilterMips      = 5;
-        uint32_t brdfLutSize        = 256;
-        uint32_t sampleCountIrr     = 1024;
-        uint32_t sampleCountPref    = 128;
-        uint32_t sampleCountLut     = 1024;
+        // Runtime defaults are cheaper than the RFC's 1024/128/1024. Tests pass explicit counts.
+        uint32_t sampleCountIrr     = 64;
+        uint32_t sampleCountPref    = 32;
+        uint32_t brdfLutSize        = 128;
+        uint32_t sampleCountLut     = 32;
 
         float maxRoughnessMip() const
         {

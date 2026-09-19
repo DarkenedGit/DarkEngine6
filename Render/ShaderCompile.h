@@ -23,11 +23,11 @@ namespace Dark
     // Load HLSL from disk and compile entry/target (e.g. "VSMain", "vs_5_0").
     // sourceName is used in compiler diagnostics (typically the filename).
     bool compileShaderFromFile(const std::filesystem::path& path, const char* entry, const char* target, ComPtr<ID3DBlob>& outBytecode,
-                               const D3D_SHADER_MACRO* defines = nullptr);
+                               const D3D_SHADER_MACRO* defines = nullptr, bool forceOptimize = false);
 
     // Resolve relativeUnderContent (e.g. "shaders/Line.hlsl"), then compile.
     bool compileShaderFromContent(const char* relativeUnderContent, const char* entry, const char* target, ComPtr<ID3DBlob>& outBytecode,
-                                  const D3D_SHADER_MACRO* defines = nullptr);
+                                  const D3D_SHADER_MACRO* defines = nullptr, bool forceOptimize = false);
 
     // Scene-referred forward writing display-referred UNORM. HDR and _SRGB RTVs stay 0.
     inline bool encodeSrgbForColorFormat(DXGI_FORMAT colorFormat)

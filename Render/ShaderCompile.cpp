@@ -75,7 +75,7 @@ namespace Dark
     }
 
     bool compileShaderFromFile(const std::filesystem::path& path, const char* entry, const char* target, ComPtr<ID3DBlob>& outBytecode,
-                               const D3D_SHADER_MACRO* defines)
+                               const D3D_SHADER_MACRO* defines, bool forceOptimize)
     {
         outBytecode.Reset();
 
@@ -95,7 +95,11 @@ namespace Dark
         ComPtr<ID3DBlob> errors;
         UINT             flags = D3DCOMPILE_ENABLE_STRICTNESS;
 #if defined(_DEBUG)
-        flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+        flags |= D3DCOMPILE_DEBUG;
+        if (!forceOptimize)
+            flags |= D3DCOMPILE_SKIP_OPTIMIZATION;
+#else
+        (void)forceOptimize;
 #endif
 
         const HRESULT hr = D3DCompile(
@@ -123,7 +127,7 @@ namespace Dark
     }
 
     bool compileShaderFromContent(const char* relativeUnderContent, const char* entry, const char* target, ComPtr<ID3DBlob>& outBytecode,
-                                  const D3D_SHADER_MACRO* defines)
+                                  const D3D_SHADER_MACRO* defines, bool forceOptimize)
     {
         if (!relativeUnderContent || relativeUnderContent[0] == '\0')
         {
@@ -141,7 +145,7 @@ namespace Dark
         }
 
         DE_LOG_INFO(LogCategory::Render, "compileShaderFromContent: loading '{}'", resolved.string());
-        return compileShaderFromFile(resolved, entry, target, outBytecode, defines);
+        return compileShaderFromFile(resolved, entry, target, outBytecode, defines, forceOptimize);
     }
 
 } // namespace Dark

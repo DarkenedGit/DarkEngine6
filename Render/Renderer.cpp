@@ -4,9 +4,13 @@
 #include "Render/IblBake.h"
 #include "Render/SceneBuffers.h"
 #include "Render/Texture2D.h"
+#include "Core/ContentRoots.h"
 #include "Core/Window.h"
 #include "Core/Log.h"
 
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <vector>
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -27,6 +31,65 @@ namespace Dark
                 return false;
             }
             return true;
+        }
+
+        constexpr uint32_t kBrdfLutMagic = 0x554c4544u; // 'DELU'
+
+        std::filesystem::path brdfLutCachePath(uint32_t size, uint32_t samples)
+        {
+            char name[64];
+            std::snprintf(name, sizeof(name), "brdf_lut_%u_%u.bin", size, samples);
+            for (const std::filesystem::path& root : contentRootCandidates())
+            {
+                std::error_code ec;
+                const std::filesystem::path dir = root / "env";
+                if (std::filesystem::is_directory(dir, ec) && !ec)
+                    return dir / name;
+            }
+            const std::vector<std::filesystem::path> roots = contentRootCandidates();
+            if (!roots.empty())
+                return roots.front() / "env" / name;
+            return {};
+        }
+
+        bool loadBrdfLutCache(const std::filesystem::path& path, float* rg, uint32_t size, uint32_t samples)
+        {
+            if (path.empty() || !rg)
+                return false;
+            std::error_code ec;
+            if (!std::filesystem::is_regular_file(path, ec) || ec)
+                return false;
+            std::ifstream in(path, std::ios::binary);
+            if (!in)
+                return false;
+            uint32_t magic = 0, fileSize = 0, fileSamples = 0;
+            in.read(reinterpret_cast<char*>(&magic), sizeof(magic));
+            in.read(reinterpret_cast<char*>(&fileSize), sizeof(fileSize));
+            in.read(reinterpret_cast<char*>(&fileSamples), sizeof(fileSamples));
+            if (!in || magic != kBrdfLutMagic || fileSize != size || fileSamples != samples)
+                return false;
+            const std::streamsize bytes = static_cast<std::streamsize>(size) * size * 2 * static_cast<std::streamsize>(sizeof(float));
+            in.read(reinterpret_cast<char*>(rg), bytes);
+            return static_cast<bool>(in);
+        }
+
+        void saveBrdfLutCache(const std::filesystem::path& path, const float* rg, uint32_t size, uint32_t samples)
+        {
+            if (path.empty() || !rg)
+                return;
+            std::error_code ec;
+            std::filesystem::create_directories(path.parent_path(), ec);
+            if (ec)
+                return;
+            std::ofstream out(path, std::ios::binary | std::ios::trunc);
+            if (!out)
+                return;
+            const uint32_t magic = kBrdfLutMagic;
+            out.write(reinterpret_cast<const char*>(&magic), sizeof(magic));
+            out.write(reinterpret_cast<const char*>(&size), sizeof(size));
+            out.write(reinterpret_cast<const char*>(&samples), sizeof(samples));
+            const std::streamsize bytes = static_cast<std::streamsize>(size) * size * 2 * static_cast<std::streamsize>(sizeof(float));
+            out.write(reinterpret_cast<const char*>(rg), bytes);
         }
     } // namespace
 
@@ -675,8 +738,17 @@ namespace Dark
         }
         const IblBakeSettings settings{};
         std::vector<float>    rg(static_cast<size_t>(settings.brdfLutSize) * settings.brdfLutSize * 2u);
-        if (!IblBake::generateBrdfLut(rg.data(), settings.brdfLutSize, settings.sampleCountLut))
-            return false;
+        const std::filesystem::path cache = brdfLutCachePath(settings.brdfLutSize, settings.sampleCountLut);
+        if (!loadBrdfLutCache(cache, rg.data(), settings.brdfLutSize, settings.sampleCountLut))
+        {
+            if (!IblBake::generateBrdfLut(rg.data(), settings.brdfLutSize, settings.sampleCountLut))
+                return false;
+            saveBrdfLutCache(cache, rg.data(), settings.brdfLutSize, settings.sampleCountLut);
+            DE_LOG_INFO(LogCategory::Render, "Ibl: generated BRDF LUT {}x{} ({} samples)", settings.brdfLutSize, settings.brdfLutSize,
+                        settings.sampleCountLut);
+        }
+        else
+            DE_LOG_INFO(LogCategory::Render, "Ibl: loaded BRDF LUT cache '{}'", cache.string());
         if (!m_iblBrdfLut)
             m_iblBrdfLut = std::make_unique<Texture2D>();
         const uint32_t pitch = settings.brdfLutSize * 8u;

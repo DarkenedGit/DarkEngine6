@@ -155,10 +155,11 @@ namespace Dark
         ComPtr<ID3DBlob> psEquirect;
         ComPtr<ID3DBlob> psIrr;
         ComPtr<ID3DBlob> psPref;
-        if (!compileShaderFromContent("shaders/IblBake.hlsl", "VSMain", "vs_5_0", vs, cubeMacros)
-            || !compileShaderFromContent("shaders/IblBake.hlsl", "PSEquirect", "ps_5_0", psEquirect, equirectMacros)
-            || !compileShaderFromContent("shaders/IblBake.hlsl", "PSIrradiance", "ps_5_0", psIrr, cubeMacros)
-            || !compileShaderFromContent("shaders/IblBake.hlsl", "PSPrefilter", "ps_5_0", psPref, cubeMacros))
+        // Load-time convolution loops: never SKIP_OPTIMIZATION (Debug hitch).
+        if (!compileShaderFromContent("shaders/IblBake.hlsl", "VSMain", "vs_5_0", vs, cubeMacros, true)
+            || !compileShaderFromContent("shaders/IblBake.hlsl", "PSEquirect", "ps_5_0", psEquirect, equirectMacros, true)
+            || !compileShaderFromContent("shaders/IblBake.hlsl", "PSIrradiance", "ps_5_0", psIrr, cubeMacros, true)
+            || !compileShaderFromContent("shaders/IblBake.hlsl", "PSPrefilter", "ps_5_0", psPref, cubeMacros, true))
             return false;
 
         D3D12_GRAPHICS_PIPELINE_STATE_DESC pso{};

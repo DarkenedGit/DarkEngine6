@@ -84,6 +84,15 @@ TEST(Ibl, PrefilterMipCount)
     EXPECT_FLOAT_EQ(settings.maxRoughnessMip(), 4.0f);
 }
 
+TEST(Ibl, RuntimeBakeSettingsStayCheap)
+{
+    const IblBakeSettings settings{};
+    EXPECT_LE(settings.sampleCountIrr, 128u);
+    EXPECT_LE(settings.sampleCountPref, 64u);
+    EXPECT_LE(settings.brdfLutSize, 128u);
+    EXPECT_LE(settings.sampleCountLut, 64u);
+}
+
 TEST(Ibl, RotationMatrix_Y90)
 {
     // Matches Matrix4f::RotationY (row-vector). +90° takes +X → −Z, not +Z.
