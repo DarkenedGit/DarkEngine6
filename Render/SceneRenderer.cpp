@@ -211,8 +211,24 @@ bool SceneRenderer::wantsTaa(const Renderer& renderer) const
     return renderer.scenePath() == ScenePath::HybridDeferred && renderer.debugState().taa && m_taa.isValid();
 }
 
+void SceneRenderer::ensureGtaoSize(Renderer& renderer)
+{
+    if (renderer.scenePath() != ScenePath::HybridDeferred)
+        return;
+    const uint32_t w = renderer.width();
+    const uint32_t h = renderer.height();
+    if (w == m_gtaoW && h == m_gtaoH)
+        return;
+    renderer.waitForGpu();
+    if (!m_gtao.resize(renderer.device(), w, h))
+        DE_LOG_WARN(LogCategory::Render, "SceneRenderer: GtaoPipeline resize failed — SSAO disabled");
+    m_gtaoW = w;
+    m_gtaoH = h;
+}
+
 Math::Matrix4f SceneRenderer::beginCameraFrame(Camera3D& camera, Renderer& renderer)
 {
+    ensureGtaoSize(renderer);
     camera.ClearSubpixelJitter();
     if (wantsTaa(renderer))
     {
@@ -253,25 +269,16 @@ void SceneRenderer::applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd
 
     if (deferred)
     {
+        ensureGtaoSize(renderer);
         const uint32_t bw = renderer.width();
         const uint32_t bh = renderer.height();
-        if (bw != m_bloomW || bh != m_bloomH || bw != m_gtaoW || bh != m_gtaoH)
+        if (bw != m_bloomW || bh != m_bloomH)
         {
             renderer.waitForGpu();
-            if (bw != m_bloomW || bh != m_bloomH)
-            {
-                if (!m_bloom.resize(renderer.device(), bw, bh))
-                    DE_LOG_WARN(LogCategory::Render, "SceneRenderer: BloomPipeline resize failed — bloom disabled");
-                m_bloomW = bw;
-                m_bloomH = bh;
-            }
-            if (bw != m_gtaoW || bh != m_gtaoH)
-            {
-                if (!m_gtao.resize(renderer.device(), bw, bh))
-                    DE_LOG_WARN(LogCategory::Render, "SceneRenderer: GtaoPipeline resize failed — SSAO disabled");
-                m_gtaoW = bw;
-                m_gtaoH = bh;
-            }
+            if (!m_bloom.resize(renderer.device(), bw, bh))
+                DE_LOG_WARN(LogCategory::Render, "SceneRenderer: BloomPipeline resize failed — bloom disabled");
+            m_bloomW = bw;
+            m_bloomH = bh;
         }
         if (renderer.debugState().bloom && m_bloom.isValid())
             m_bloom.draw(cmd, renderer, BloomPipeline::kDefaultStrength);

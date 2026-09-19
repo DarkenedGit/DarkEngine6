@@ -125,6 +125,7 @@ private:
     bool createPostPipelines(Renderer& renderer, const char* tag);
     bool createTerrainPipelineOnly(Renderer& renderer, const char* tag);
     bool createWorldEnvPipelines(Renderer& renderer, const char* tag);
+    void ensureGtaoSize(Renderer& renderer);
 
     MeshPipeline             m_meshPipeline;
     MeshPipeline             m_meshTransparentPipeline;

@@ -44,8 +44,8 @@ struct PSInput
 
 struct DualOut
 {
-    float ao   : SV_TARGET0;
-    float hist : SV_TARGET1;
+    float ao   : SV_TARGET0; // curved ssao (AoFull)
+    float hist : SV_TARGET1; // raw vis (AoHistory)
 };
 
 PSInput VSMain(uint id : SV_VertexID)
@@ -113,12 +113,13 @@ float PSGtao(PSInput input) : SV_TARGET
     {
         float  angle    = ((float)dir + noiseDirection) * (3.14159265f / (float)GTAO_DIRECTIONS);
         float3 sliceDir = float3(cos(angle), sin(angle), 0.0f);
+        float2 uvDir    = float2(sliceDir.x, -sliceDir.y); // view Y up, UV Y down
         float2 h        = float2(-1.0f, -1.0f);
 
         [unroll]
         for (int step = 0; step < GTAO_STEPS; ++step)
         {
-            float2 uvOff = sliceDir.xy * invSizeHalf * max(stepRadius * ((float)step + rayStart), 1.0f + (float)step);
+            float2 uvOff = uvDir * invSizeHalf * max(stepRadius * ((float)step + rayStart), 1.0f + (float)step);
             float2 uv0   = uv + uvOff;
             float2 uv1   = uv - uvOff;
 
@@ -194,7 +195,7 @@ DualOut PSUpsampleTemporal(PSInput input)
     }
     vis /= max(wsum, 1e-6f);
 
-    float ssao = vis;
+    float filtered = vis;
     if (reset <= 0.5f)
     {
         float2 vel    = gTex4.Load(int3(texel, 0)).rg;
@@ -202,13 +203,13 @@ DualOut PSUpsampleTemporal(PSInput input)
         float  hist   = vis;
         if (histUv.x > 0.0f && histUv.x < 1.0f && histUv.y > 0.0f && histUv.y < 1.0f)
             hist = gTex3.SampleLevel(gLin, histUv, 0).r;
-        hist = clamp(hist, visMin, visMax);
-        ssao = lerp(hist, vis, 0.1f);
+        hist     = clamp(hist, visMin, visMax);
+        filtered = lerp(hist, vis, 0.1f);
     }
 
-    ssao   = lerp(1.0f, pow(saturate(ssao), power), intensity);
-    o.ao   = ssao;
-    o.hist = ssao;
+    // History is raw vis; curve only AoFull so intensity/power do not double-apply.
+    o.hist = saturate(filtered);
+    o.ao   = lerp(1.0f, pow(saturate(filtered), power), intensity);
     return o;
 }
 
