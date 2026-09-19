@@ -65,7 +65,7 @@ namespace Dark
         position.z += m_velocity.z * dt;
     }
 
-    void PlayerMotor::applyAirControl(const Vector3f& wish, float dt)
+    void PlayerMotor::applyAirControl(const Vector3f& wish, float dt, float airControlScale)
     {
         Vector3f dir = wish;
         dir.y        = 0.0f;
@@ -80,13 +80,14 @@ namespace Dark
         else
             dir *= (1.0f / mag);
 
-        const float maxAir  = m_settings.airSpeed * mag;
+        const float scale   = airControlScale < 0.0f ? 0.0f : airControlScale;
+        const float maxAir  = m_settings.airSpeed * scale * mag;
         const float current = m_velocity.x * dir.x + m_velocity.z * dir.z;
         const float add     = maxAir - current;
         if (add <= 0.0f)
             return;
 
-        float accel = m_settings.airAccel * dt;
+        float accel = m_settings.airAccel * scale * dt;
         if (accel > add)
             accel = add;
         m_velocity.x += dir.x * accel;
@@ -140,8 +141,10 @@ namespace Dark
         m_pendingDouble = false;
     }
 
-    bool PlayerMotor::tryDoubleJump(bool jumpPressed, PlayerMotorResult& result)
+    bool PlayerMotor::tryDoubleJump(bool jumpPressed, bool allowDoubleJump, PlayerMotorResult& result)
     {
+        if (!allowDoubleJump)
+            return false;
         if (m_didDoubleJump || !m_didFirstJump)
             return false;
 
@@ -244,7 +247,7 @@ namespace Dark
             }
         }
 
-        applyAirControl(in.wish, dt);
+        applyAirControl(in.wish, dt, in.airControlScale);
         position.x += m_velocity.x * dt;
         position.z += m_velocity.z * dt;
         m_velocity.y -= m_settings.gravity * dt;
@@ -259,7 +262,7 @@ namespace Dark
             beginJump(result);
         }
         else
-            tryDoubleJump(in.jumpPressed, result);
+            tryDoubleJump(in.jumpPressed, in.allowDoubleJump, result);
 
         if (m_state == PlayerMoveState::Jumping && m_velocity.y <= 0.0f)
             m_state = PlayerMoveState::Falling;

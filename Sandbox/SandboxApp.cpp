@@ -42,6 +42,13 @@
 #include "Animation/AnimNotify.h"
 #include "Character/HealthComponent.h"
 #include "Character/PlayerMotorComponent.h"
+#include "Combat/CombatSystem.h"
+#include "Combat/DamageEvent.h"
+#include "Combat/JumpAttackComponent.h"
+#include "Combat/JumpAttackDef.h"
+#include "Combat/JumpAttackResolve.h"
+#include "Combat/PoiseComponent.h"
+#include "Combat/StatusEffectComponent.h"
 #include "Ui/HudTagComponent.h"
 #include "Weapons/HittableComponent.h"
 #include "Animation/SkeletonDebug.h"
@@ -805,6 +812,19 @@ void SandboxApp::attachLocalPlayer(Entity e)
         wlc.loadout->setHitListener(&SandboxApp::onWeaponHitThunk, this);
         wlc.slot = wlc.loadout->slot();
     }
+    if (!world().has<JumpAttackComponent>(e))
+    {
+        auto& jac = world().emplace<JumpAttackComponent>(e);
+        Combat::JumpAttackDef def = jac.jump.def();
+        def.telegraphSeconds = 0.0f;
+        def.cooldown         = 1.25f;
+        def.connectFlags     = Combat::DamageFlags::CanBlock | Combat::DamageFlags::HardCc | Combat::DamageFlags::Knockdown;
+        jac.jump.setDef(def);
+    }
+    if (!world().has<Combat::StatusEffectComponent>(e))
+        world().emplace<Combat::StatusEffectComponent>(e);
+    if (!world().has<Combat::PoiseComponent>(e))
+        world().emplace<Combat::PoiseComponent>(e);
     attachPlayerSounds(world(), pins(), assets(), audio(), e);
 }
 
@@ -1017,11 +1037,22 @@ void SandboxApp::updatePossessed(float dt)
     Health*      hp    = localHealth();
     HitReaction* hitRx = localHit();
     PlayerMotor* motor = localMotor();
-    const bool   canSteer = hp && hp->alive() && (!hitRx || !hitRx->stunned());
+    JumpAttackComponent* jac = body.valid() ? world().get<JumpAttackComponent>(body) : nullptr;
+    Combat::JumpAttack*  jump = jac ? &jac->jump : nullptr;
+    Combat::StatusEffectComponent* status = body.valid() ? world().get<Combat::StatusEffectComponent>(body) : nullptr;
+    Combat::PoiseComponent*        poise  = body.valid() ? world().get<Combat::PoiseComponent>(body) : nullptr;
+    if (jump && (!hp || !hp->alive()))
+        jump->cancel(Combat::JumpAttackCancel::NoPound);
+    const bool ccLocked   = (hitRx && hitRx->stunned()) || (status && status->hasHardCc());
+    const bool jumpBusy   = jump && jump->busy();
+    const bool inAirCommit = jump && jump->inAirCommit();
+    const bool canSteer   = hp && hp->alive() && !ccLocked && !(jump && jump->phase() == Combat::JumpAttackPhase::Pound);
     PlayerMotorInput motorIn{};
-    motorIn.wish        = canSteer ? wish : Vector3f{ 0.0f, 0.0f, 0.0f };
-    motorIn.sprint      = canSteer && !uiKeys && input().actionDown("sprint");
-    motorIn.jumpPressed = canSteer && !uiKeys && input().actionPressed("jump");
+    motorIn.wish            = canSteer ? wish : Vector3f{ 0.0f, 0.0f, 0.0f };
+    motorIn.sprint          = canSteer && !jumpBusy && !uiKeys && input().actionDown("sprint");
+    motorIn.jumpPressed     = canSteer && !jumpBusy && !uiKeys && input().actionPressed("jump");
+    motorIn.allowDoubleJump = !inAirCommit;
+    motorIn.airControlScale = inAirCommit ? jump->def().airControlScale : 1.0f;
 
     struct HeightCtx
     {
@@ -1039,6 +1070,61 @@ void SandboxApp::updatePossessed(float dt)
     PlayerMotorResult motorOut{};
     if (motor)
         motorOut = motor->tick(xf->position, motorIn, dt, ground);
+    if (jump && jump->inAirCommit() && motor && !motorOut.landed && !motorOut.splashed)
+    {
+        Vector3f vel = motor->velocity();
+        Vector3f targetPos{};
+        const Vector3f* targetPtr = nullptr;
+        bool            hasTarget = false;
+        if (jump->phase() == Combat::JumpAttackPhase::Connected && jump->connectedTarget().valid())
+        {
+            if (const TransformComponent* txf = world().get<TransformComponent>(jump->connectedTarget()))
+            {
+                targetPos = txf->position;
+                targetPtr = &targetPos;
+                hasTarget = true;
+            }
+        }
+        else
+        {
+            float bestD2 = 1.0e30f;
+            world().each<AiAgentComponent>([&](Entity e, AiAgentComponent&) {
+                const HealthComponent*    hpH = world().get<HealthComponent>(e);
+                const TransformComponent* hxf = world().get<TransformComponent>(e);
+                if (!hpH || !hpH->health.alive() || !hxf)
+                    return;
+                const float dx = hxf->position.x - xf->position.x;
+                const float dz = hxf->position.z - xf->position.z;
+                const float d2 = dx * dx + dz * dz;
+                if (d2 >= bestD2)
+                    return;
+                if (flat.MagnitudeSqrd() > 1.0e-6f)
+                {
+                    const float dist = sqrtf(d2);
+                    if (dist > 1.0e-4f)
+                    {
+                        const float dot = (flat.x * dx + flat.z * dz) / dist;
+                        if (dot < jump->def().connectMinDot)
+                            return;
+                    }
+                }
+                bestD2    = d2;
+                targetPos = hxf->position;
+                hasTarget = true;
+            });
+            if (hasTarget)
+                targetPtr = &targetPos;
+        }
+        jump->applyAirSteering(vel, xf->position, flat, targetPtr, hasTarget, dt);
+        motor->setHorizontalVelocity(vel.x, vel.z);
+        xf->position.x = before.x + vel.x * dt;
+        xf->position.z = before.z + vel.z * dt;
+    }
+    if (jump && jump->phase() == Combat::JumpAttackPhase::Connected && !motorOut.landed && !motorOut.splashed)
+    {
+        if (const TransformComponent* txf = jump->connectedTarget().valid() ? world().get<TransformComponent>(jump->connectedTarget()) : nullptr)
+            jump->applyConnectSnap(xf->position, txf->position, dt);
+    }
     if (hitRx)
         xf->position += hitRx->tick(dt);
 
@@ -1064,6 +1150,39 @@ void SandboxApp::updatePossessed(float dt)
         xf->position.y = m_terrain.heightAtWorld(xf->position.x, xf->position.z) + motor->settings().groundOffset;
 
     m_playerWet = motor && motor->state() == PlayerMoveState::Swimming;
+
+    if (jump)
+    {
+        jump->tick(dt);
+        if (hp && hp->alive())
+        {
+            if (motorOut.splashed)
+                jump->onSplashed();
+            else if (motorOut.landed)
+            {
+                jump->onLanded(xf->position);
+                if (jump->phase() == Combat::JumpAttackPhase::Pound)
+                {
+                    Combat::DamageEvent poundEvents[8]{};
+                    const int n = jump->tryPound(makeWeaponQuery(), xf->position, poundEvents, 8);
+                    DE_LOG_INFO("Player: ground pound");
+                    resolveJumpAttackAndFx(poundEvents, n);
+                }
+            }
+            else if (jump->phase() == Combat::JumpAttackPhase::Leap)
+            {
+                Combat::DamageEvent connectEv{};
+                if (jump->tryConnect(makeWeaponQuery(), xf->position, flat, connectEv))
+                {
+                    DE_LOG_INFO("Player: pounce connect");
+                    playSoundCue(world(), audio(), assets(), body, "impact");
+                    resolveJumpAttackAndFx(&connectEv, 1);
+                }
+            }
+        }
+        if (poise)
+            poise->hyperArmor = jump->inAirCommit();
+    }
 
     if (HsmGraphComponent* hsm = world().get<HsmGraphComponent>(body))
     {
@@ -1119,10 +1238,23 @@ void SandboxApp::respawnPlayer()
         hp->revive();
     if (HitReaction* hit = localHit())
         hit->reset();
-    m_playerWet        = false;
-    m_playerDeadTimer  = 0.0f;
-    m_spawnAge         = 0.0f;
-    m_hurtSoundTimer   = 0.0f;
+    if (JumpAttackComponent* jac = body.valid() ? world().get<JumpAttackComponent>(body) : nullptr)
+        jac->jump.cancel(Combat::JumpAttackCancel::ForceIdle);
+    if (Combat::StatusEffectComponent* st = body.valid() ? world().get<Combat::StatusEffectComponent>(body) : nullptr)
+    {
+        st->count = 0;
+        st->now   = 0.0f;
+    }
+    if (Combat::PoiseComponent* poise = body.valid() ? world().get<Combat::PoiseComponent>(body) : nullptr)
+    {
+        poise->reset();
+        poise->hyperArmor = false;
+    }
+    m_playerWet         = false;
+    m_playerDeadTimer   = 0.0f;
+    m_spawnAge          = 0.0f;
+    m_hurtSoundTimer    = 0.0f;
+    m_jumpAttackBuffer  = 0.0f;
     if (WeaponLoadout* w = localWeapons())
         w->clear();
     DE_LOG_INFO("Player: respawned");
@@ -1304,8 +1436,11 @@ void SandboxApp::updateCombat(float dt)
             mxf->position = m_viewCamera.GetPosition() + m_viewCamera.GetLook() * 0.8f;
     }
 
+    const Entity body = possessedBody();
     if (Health* hpTick = localHealth())
         hpTick->tick(dt);
+    if (Combat::StatusEffectComponent* st = body.valid() ? world().get<Combat::StatusEffectComponent>(body) : nullptr)
+        st->tick(dt);
     const WeaponWorldQuery query = makeWeaponQuery();
     if (WeaponLoadout* wTick = localWeapons())
         wTick->tick(dt, query);
@@ -1321,10 +1456,18 @@ void SandboxApp::updateCombat(float dt)
 
     constexpr float kStandoff = 2.25f;
     constexpr float kContactDps = 12.0f;
-    const Entity body = possessedBody();
+    constexpr float kJumpAttackBuffer = 0.12f;
     const TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    JumpAttackComponent* jac = body.valid() ? world().get<JumpAttackComponent>(body) : nullptr;
+    Combat::JumpAttack*  jump = jac ? &jac->jump : nullptr;
+    Combat::StatusEffectComponent* status = body.valid() ? world().get<Combat::StatusEffectComponent>(body) : nullptr;
+    HitReaction* hitRx = localHit();
+    PlayerMotor* motor = localMotor();
+    const bool inAirCommit = jump && jump->inAirCommit();
+    const bool ccLocked    = (hitRx && hitRx->stunned()) || (status && status->hasHardCc());
+    const bool jumpBusy    = jump && jump->busy();
 
-    if (m_chaseOk && xf)
+    if (m_chaseOk && xf && !inAirCommit)
     {
         const float before = hpCombat->hp();
         world().each<AiAgentComponent>([&](Entity e, AiAgentComponent&) {
@@ -1366,10 +1509,134 @@ void SandboxApp::updateCombat(float dt)
         }
     }
 
+    if (m_jumpAttackBuffer > 0.0f)
+        m_jumpAttackBuffer = Math::Max(0.0f, m_jumpAttackBuffer - dt);
+
     const bool attack = input().actionPressed("attack") || (!m_showDevTools && input().mousePressed(MouseButton::Left));
-    if (!attack)
+    const bool swimming = motor && motor->state() == PlayerMoveState::Swimming;
+    const bool airborne = motor && (motor->state() == PlayerMoveState::Jumping || motor->state() == PlayerMoveState::Falling);
+
+    if (ccLocked || jumpBusy)
+    {
+        if (ccLocked)
+            m_jumpAttackBuffer = 0.0f;
+        return;
+    }
+
+    if (swimming)
+    {
+        m_jumpAttackBuffer = 0.0f;
+        if (attack)
+            firePossessedLoadout();
+        return;
+    }
+
+    auto tryBeginJumpAttack = [&]() -> bool {
+        if (!jump || !xf || !motor)
+            return false;
+        const float groundY = m_terrain.heightAtWorld(xf->position.x, xf->position.z);
+        const float heightAbove = xf->position.y - groundY - motor->settings().groundOffset;
+        const bool  airOk = heightAbove >= jump->def().minHeight || motor->airTime() >= jump->def().minAirTime;
+        if (!airOk)
+            return false;
+        Vector3f lookFlat{ m_viewCamera.GetLook().x, 0.0f, m_viewCamera.GetLook().z };
+        if (lookFlat.MagnitudeSqrd() > 1.0e-6f)
+            lookFlat.Normalize();
+        else
+            lookFlat = Vector3f{ 0.0f, 0.0f, 1.0f };
+        Combat::JumpAttackBegin req{};
+        req.attacker          = body;
+        req.position          = xf->position;
+        req.lookFlat          = lookFlat;
+        req.velocity          = motor->velocity();
+        req.heightAboveGround = heightAbove;
+        req.airTime           = motor->airTime();
+        if (!jump->begin(req))
+            return false;
+        DE_LOG_INFO("Player: jump attack");
+        return true;
+    };
+
+    if (airborne)
+    {
+        if (attack || m_jumpAttackBuffer > 0.0f)
+        {
+            if (tryBeginJumpAttack())
+                m_jumpAttackBuffer = 0.0f;
+            else if (attack)
+                m_jumpAttackBuffer = kJumpAttackBuffer;
+        }
+        return;
+    }
+
+    if (attack || m_jumpAttackBuffer > 0.0f)
+    {
+        m_jumpAttackBuffer = 0.0f;
+        firePossessedLoadout();
+    }
+}
+
+void SandboxApp::resolveJumpAttackAndFx(const Combat::DamageEvent* events, int count)
+{
+    if (count <= 0 || !events)
         return;
 
+    struct Snap
+    {
+        Entity e{};
+        float  hp      = 0.0f;
+        bool   wasAlive = false;
+        bool   hunter  = false;
+    };
+    Snap snaps[8]{};
+    const int n = count < 8 ? count : 8;
+    for (int i = 0; i < n; ++i)
+    {
+        const Entity t = events[i].target;
+        snaps[i].e     = t;
+        if (!t.valid() || !world().alive(t))
+            continue;
+        snaps[i].hunter = world().has<AiAgentComponent>(t);
+        if (const HealthComponent* hp = world().get<HealthComponent>(t))
+        {
+            snaps[i].hp       = hp->health.hp();
+            snaps[i].wasAlive = hp->health.alive();
+        }
+    }
+
+    Combat::CombatSystem combat;
+    Combat::resolveJumpAttackEvents(world(), combat, events, count);
+
+    const Entity player = possessedBody();
+    const TransformComponent* playerXf = player.valid() ? world().get<TransformComponent>(player) : nullptr;
+    const Vector3f playerPos = playerXf ? playerXf->position : Vector3f{};
+    for (int i = 0; i < n; ++i)
+    {
+        if (!snaps[i].hunter || !snaps[i].e.valid())
+            continue;
+        HealthComponent* hp = world().get<HealthComponent>(snaps[i].e);
+        if (!hp)
+            continue;
+        const bool damaged = hp->health.hp() < snaps[i].hp;
+        const bool killed  = snaps[i].wasAlive && !hp->health.alive();
+        if (!damaged && !killed)
+            continue;
+        playSoundCueAt(world(), audio(), assets(), snaps[i].e, "pain", events[i].hitPoint);
+        playSoundCueAt(world(), audio(), assets(), snaps[i].e, "grunt", events[i].hitPoint);
+        m_chase.ai().onHunterAttacked(world(), snaps[i].e, playerPos);
+        spawnHunterBlood(events[i].hitPoint);
+        if (killed)
+        {
+            m_bloodSplats.spawn(events[i].hitPoint.x, events[i].hitPoint.z, m_terrain.heightMap());
+            m_chase.ai().onHunterKilled(world(), snaps[i].e);
+        }
+    }
+}
+
+bool SandboxApp::firePossessedLoadout()
+{
+    const Entity body = possessedBody();
+    const TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
     WeaponFireRequest req{};
     req.direction = m_viewCamera.GetLook();
     if (req.direction.MagnitudeSqrd() > 1.0e-6f)
@@ -1380,8 +1647,9 @@ void SandboxApp::updateCombat(float dt)
     req.ownerPos = xf ? xf->position : m_viewCamera.GetPosition();
 
     WeaponLoadout* wFire = localWeapons();
+    const WeaponWorldQuery query = makeWeaponQuery();
     if (!wFire || !wFire->fire(req, query))
-        return;
+        return false;
     if (AnimGraphComponent* ag = body.valid() ? world().get<AnimGraphComponent>(body) : nullptr)
     {
         if (wFire->activeKind() == WeaponKind::Melee)
@@ -1401,6 +1669,7 @@ void SandboxApp::updateCombat(float dt)
         m_lookPitch = Math::Clamp(m_lookPitch, -0.96f, 0.96f);
         updateShoulderCamera();
     }
+    return true;
 }
 
 void SandboxApp::pulseMuzzle()

@@ -3,6 +3,8 @@
 #include "AI/HsmGraph.h"
 #include "AI/Sight.h"
 #include "Assets/AssetManager.h"
+#include "Combat/PoiseComponent.h"
+#include "Combat/StatusEffectComponent.h"
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "ECS/World.h"
@@ -82,6 +84,8 @@ namespace Dark
             return {};
         }
         world.emplace<BrainComponent>(e, std::move(brain));
+        world.emplace<Combat::StatusEffectComponent>(e);
+        world.emplace<Combat::PoiseComponent>(e);
         return e;
     }
 
@@ -346,6 +350,11 @@ namespace Dark
     {
         m_time += dt;
         collectHunters(world);
+        for (Entity e : m_scratch)
+        {
+            if (Combat::StatusEffectComponent* st = world.get<Combat::StatusEffectComponent>(e))
+                st->tick(dt);
+        }
         tickHealthAndRespawn(world, dt);
 
         Vector3f playerPos{};

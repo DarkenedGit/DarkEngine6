@@ -38,8 +38,10 @@ namespace Dark
     struct PlayerMotorInput
     {
         Math::Vector3f wish{ 0.0f, 0.0f, 0.0f };
-        bool           sprint      = false;
-        bool           jumpPressed = false; // edge this tick
+        bool           sprint           = false;
+        bool           jumpPressed      = false; // edge this tick
+        bool           allowDoubleJump  = true;
+        float          airControlScale  = 1.0f; // multiplies airSpeed/airAccel in applyAirControl
     };
 
     struct PlayerMotorResult
@@ -80,12 +82,12 @@ namespace Dark
         bool  terrainWet(float groundY, float waterY) const;
         bool  terrainDry(float groundY, float waterY) const;
         void  moveHorizontal(Math::Vector3f& position, Math::Vector3f wish, float speed, float dt);
-        void  applyAirControl(const Math::Vector3f& wish, float dt);
+        void  applyAirControl(const Math::Vector3f& wish, float dt, float airControlScale);
         void  enterGrounded(Math::Vector3f& position, float groundY);
         void  enterSwim(Math::Vector3f& position, float waterY);
         void  beginJump(PlayerMotorResult& result);
         void  beginFalling();
-        bool  tryDoubleJump(bool jumpPressed, PlayerMotorResult& result);
+        bool  tryDoubleJump(bool jumpPressed, bool allowDoubleJump, PlayerMotorResult& result);
 
         PlayerMotorSettings m_settings;
         PlayerMoveState     m_state          = PlayerMoveState::Grounded;

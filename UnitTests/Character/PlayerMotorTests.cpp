@@ -280,3 +280,103 @@ TEST(PlayerMotor, FallingUsesAirSpeedNotWalkSpeed)
     EXPECT_LT(pos.z, motor.settings().walkSpeed * 0.25f * 0.5f);
     EXPECT_GT(pos.x, x0);
 }
+
+TEST(PlayerMotor, AirControlScaleZeroDoesNotSteer)
+{
+    PlayerMotor motor;
+    Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+    PlayerMotorInput jump{};
+    jump.jumpPressed = true;
+    motor.tick(pos, jump, 1.0f / 60.0f, flatQuery());
+    ASSERT_EQ(motor.state(), PlayerMoveState::Jumping);
+
+    const float x0 = pos.x;
+    const float vx0 = motor.velocity().x;
+    PlayerMotorInput steer{};
+    steer.wish            = Vector3f{ 1.0f, 0.0f, 0.0f };
+    steer.airControlScale = 0.0f;
+    motor.tick(pos, steer, 0.25f, flatQuery());
+    EXPECT_NEAR(pos.x, x0, 1.0e-4f);
+    EXPECT_NEAR(motor.velocity().x, vx0, 1.0e-4f);
+}
+
+TEST(PlayerMotor, AirControlScaleNegativeClampsToZero)
+{
+    PlayerMotor motor;
+    Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+    PlayerMotorInput jump{};
+    jump.jumpPressed = true;
+    motor.tick(pos, jump, 1.0f / 60.0f, flatQuery());
+
+    const float x0 = pos.x;
+    PlayerMotorInput steer{};
+    steer.wish            = Vector3f{ 1.0f, 0.0f, 0.0f };
+    steer.airControlScale = -4.0f;
+    motor.tick(pos, steer, 0.25f, flatQuery());
+    EXPECT_NEAR(pos.x, x0, 1.0e-4f);
+    EXPECT_NEAR(motor.velocity().x, 0.0f, 1.0e-4f);
+}
+
+TEST(PlayerMotor, AllowDoubleJumpFalseBlocksSecondPress)
+{
+    PlayerMotor motor;
+    Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+    PlayerMotorInput press{};
+    press.jumpPressed = true;
+    motor.tick(pos, press, 1.0f / 60.0f, flatQuery());
+
+    PlayerMotorInput hold{};
+    hold.allowDoubleJump = false;
+    advance(motor, pos, hold, 0.12f, flatQuery());
+    ASSERT_EQ(motor.state(), PlayerMoveState::Jumping);
+    ASSERT_FALSE(motor.didDoubleJump());
+
+    PlayerMotorInput second{};
+    second.jumpPressed     = true;
+    second.allowDoubleJump = false;
+    const PlayerMotorResult r = motor.tick(pos, second, 1.0f / 60.0f, flatQuery());
+    EXPECT_FALSE(r.jumped);
+    EXPECT_FALSE(r.doubleJumped);
+    EXPECT_FALSE(motor.didDoubleJump());
+}
+
+TEST(PlayerMotor, AllowDoubleJumpFalseIgnoresEarlyPendingPress)
+{
+    PlayerMotor motor;
+    Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+    PlayerMotorInput press{};
+    press.jumpPressed = true;
+    motor.tick(pos, press, 1.0f / 60.0f, flatQuery());
+
+    PlayerMotorInput blocked{};
+    blocked.jumpPressed     = true;
+    blocked.allowDoubleJump = false;
+    PlayerMotorResult r     = motor.tick(pos, blocked, 1.0f / 60.0f, flatQuery());
+    EXPECT_FALSE(r.doubleJumped);
+    EXPECT_LT(motor.airTime(), motor.settings().doubleJumpMinDelay);
+
+    PlayerMotorInput hold{};
+    hold.allowDoubleJump = false;
+    const float need = motor.settings().doubleJumpMinDelay + 0.02f;
+    while (motor.airTime() < need && !motor.didDoubleJump())
+        r = motor.tick(pos, hold, 1.0f / 60.0f, flatQuery());
+    EXPECT_FALSE(motor.didDoubleJump());
+    EXPECT_FALSE(r.doubleJumped);
+}
+
+TEST(PlayerMotor, AllowDoubleJumpDefaultStillDoubleJumps)
+{
+    PlayerMotor motor;
+    Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+    PlayerMotorInput press{};
+    press.jumpPressed = true;
+    EXPECT_TRUE(press.allowDoubleJump);
+    EXPECT_NEAR(press.airControlScale, 1.0f, 1.0e-6f);
+    motor.tick(pos, press, 1.0f / 60.0f, flatQuery());
+
+    PlayerMotorInput hold{};
+    advance(motor, pos, hold, 0.12f, flatQuery());
+    const PlayerMotorResult r = motor.tick(pos, press, 1.0f / 60.0f, flatQuery());
+    EXPECT_TRUE(r.doubleJumped);
+    EXPECT_TRUE(motor.didDoubleJump());
+}

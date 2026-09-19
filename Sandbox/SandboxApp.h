@@ -31,6 +31,11 @@
 #include <unordered_map>
 #include <vector>
 
+namespace Dark::Combat
+{
+    struct DamageEvent;
+}
+
 class SandboxApp : public Dark::Application
 {
 public:
@@ -75,6 +80,8 @@ private:
     void pulseMuzzle();
     void spawnHunterBlood(const Dark::Math::Vector3f& pos);
     void respawnPlayer();
+    void resolveJumpAttackAndFx(const Dark::Combat::DamageEvent* events, int count);
+    bool firePossessedLoadout();
     void placeHealthPacks();
     void updateHealthPacks(float dt);
     void updateShoulderCamera();
@@ -164,7 +171,8 @@ private:
     bool                             m_havePlayerSpawn = false;
     float                            m_playerDeadTimer = 0.0f;
     float                            m_spawnAge        = 0.0f;
-    float                            m_hurtSoundTimer  = 0.0f;
+    float                            m_hurtSoundTimer    = 0.0f;
+    float                            m_jumpAttackBuffer  = 0.0f;
     Dark::CrosshairHud               m_crosshair;
     Dark::ParticleEmitter            m_blood;
     Dark::ParticleRenderer           m_particles;
