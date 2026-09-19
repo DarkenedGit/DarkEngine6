@@ -7,6 +7,7 @@
 #include "Math/Vector3f.h"
 
 #include <cstdint>
+#include <filesystem>
 #include <vector>
 
 namespace Dark
@@ -94,6 +95,10 @@ public:
     float    heightScale() const { return m_heightScale; }
     const Math::Vector3f& origin() const { return m_origin; }
     const float* samples() const { return m_samples.data(); }
+
+    // Little-endian DEHF sidecar. Missing / oversize / bad magic → false + log, no throw.
+    bool saveBinary(const std::filesystem::path& path) const;
+    bool loadBinary(const std::filesystem::path& path);
 
 private:
     struct MinMaxY

@@ -66,6 +66,7 @@ namespace Terrain
         void markHeightDirtyRect(int x0, int z0, int x1, int z1);
         bool createGpu(Renderer& renderer);
         bool uploadDirty(Renderer& renderer);
+        bool uploadHeightTexture(Renderer& renderer);
 
         void draw(
             ID3D12GraphicsCommandList* cmd,

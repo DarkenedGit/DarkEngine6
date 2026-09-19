@@ -109,6 +109,17 @@ bool EditorApp::saveScene()
         data.objects.push_back(d);
         saved.push_back(e);
     });
+    fillTerrainSceneDesc(data);
+    if (data.hasTerrain)
+    {
+        if (!saveTerrainSidecars(m_scenePath))
+        {
+            DE_LOG_ERROR("Editor: terrain sidecar save failed");
+            return false;
+        }
+        m_terrainHeightFile = data.terrain.heightFile;
+        m_terrainSplatFile  = data.terrain.splatFile;
+    }
     for (size_t i = 0; i < data.objects.size(); ++i)
     {
         const auto* light = world().get<LocalLightComponent>(saved[i]);
@@ -148,6 +159,7 @@ bool EditorApp::loadScene()
     }
 
     clearScene();
+    removeEditorTerrain();
     m_worldMin  = data.worldMin;
     m_worldMax  = data.worldMax;
     if (data.mode == SceneMode::Scene3D)
@@ -181,6 +193,11 @@ bool EditorApp::loadScene()
     }
     if (m_sceneMode == SceneMode::Scene3D)
         ensureGlobalLights();
+    if (data.mode == SceneMode::Scene3D && data.hasTerrain)
+    {
+        if (!loadTerrainFromScene(data, m_scenePath))
+            DE_LOG_ERROR("Editor: terrain load failed — using ground plane");
+    }
     m_selected = {};
     DE_LOG_INFO("Editor: loaded {} objects", editorObjectCount());
     return true;
@@ -188,7 +205,6 @@ bool EditorApp::loadScene()
 
 void EditorApp::handleEditorCommands(float dt)
 {
-    (void)dt;
     const bool ctrl = input().keyDown(Key::LeftControl) || input().keyDown(Key::RightControl);
     const bool uiKey = m_imgui.wantCaptureKeyboard();
     const bool uiMouse = m_imgui.wantCaptureMouse();
@@ -281,6 +297,11 @@ void EditorApp::handleEditorCommands(float dt)
             placeAtCursor(m_placeType);
     }
 
+    const bool terrainBrushing = m_sceneMode == SceneMode::Scene3D && m_haveTerrain
+        && m_terrainBrush != TerrainBrushMode::None && !netClientLocked();
+    if (terrainBrushing && !uiMouse && input().mouseDown(MouseButton::Left))
+        applyTerrainBrush(dt);
+
     if (m_sceneMode == SceneMode::Scene3D && !m_dragging)
     {
         if (uiMouse)
@@ -298,7 +319,7 @@ void EditorApp::handleEditorCommands(float dt)
         }
     }
 
-    if (!uiMouse && input().mousePressed(MouseButton::Left))
+    if (!uiMouse && input().mousePressed(MouseButton::Left) && !terrainBrushing)
     {
         m_lmbDownX = input().mouseX();
         m_lmbDownY = input().mouseY();

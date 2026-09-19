@@ -105,6 +105,7 @@ void EditorApp::drawEditorUi()
             ImGui::MenuItem(ICON_FA_LIST "  HSM Panel", "F8", &m_showHsmPanel);
             ImGui::MenuItem(ICON_FA_CUBE "  Model Parts", nullptr, &m_showModelParts);
             ImGui::MenuItem(ICON_FA_CUBE "  Material", nullptr, &m_showMaterialEditor);
+            ImGui::MenuItem(ICON_FA_LAYER_GROUP "  Terrain", nullptr, &m_showTerrainPanel);
             ImGui::MenuItem(ICON_FA_EYE "  Grid", nullptr, &m_showGrid);
             ImGui::MenuItem(ICON_FA_CUBE "  Solid Ground", nullptr, &m_showSolid);
             if (renderer().hasSceneBuffers())
@@ -118,6 +119,8 @@ void EditorApp::drawEditorUi()
             {
                 renderer().debugState().legacyUnormAlbedo = !legacyAlbedo;
                 renderer().gpuResources().setAlbedoSamplingRaw(renderer().debugState().legacyUnormAlbedo);
+                if (m_haveTerrain && m_terrainMaterial.isValid())
+                    m_terrainMaterial.setLayerSamplingRaw(renderer().device(), renderer().debugState().legacyUnormAlbedo);
             }
             if (renderer().hasGBuffer())
             {
@@ -339,6 +342,7 @@ void EditorApp::drawEditorUi()
 
     drawModelPartsPanel();
     drawMaterialPanel();
+    drawTerrainPanel();
 
     if (m_sceneMode == SceneMode::Scene2D && ImGui::Begin("2D Level"))
     {
@@ -629,6 +633,8 @@ void EditorApp::onUpdate(float dt)
 
     updateCamera(dt);
     handleEditorCommands(dt);
+    if (m_sceneMode != SceneMode::Scene2D)
+        syncTerrainLod();
 
     if (m_sceneMode != SceneMode::Scene2D)
     {

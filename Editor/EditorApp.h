@@ -25,6 +25,8 @@
 #include "Particles/ParticleRenderer.h"
 
 #include "Audio/SoundClip.h"
+#include "Terrain/Terrain.h"
+#include "Terrain/TerrainMaterial.h"
 
 #include <filesystem>
 #include <memory>
@@ -125,6 +127,25 @@ private:
     void frameCameraOnModel(const Model& model, const TransformComponent& xf);
     void drawModelPartsPanel();
     void drawMaterialPanel();
+    void drawTerrainPanel();
+    void syncTerrainLod();
+    bool createEditorTerrain();
+    void removeEditorTerrain();
+    bool rebuildTerrainGpuFromSurface();
+    bool uploadTerrainSplatGpu();
+    void applyTerrainBrush(float dt);
+    bool loadTerrainFromScene(const SceneFileData& data, const std::filesystem::path& scenePath);
+    void fillTerrainSceneDesc(SceneFileData& data) const;
+    bool saveTerrainSidecars(const std::filesystem::path& scenePath) const;
+
+    enum class TerrainBrushMode : uint8_t
+    {
+        None = 0,
+        Paint,
+        SculptRaise,
+        SculptLower,
+        SculptSmooth,
+    };
     AssetRef<Model> selectedModel();
     const Model::Part* selectedModelPart();
     AssetRef<Material> meshMaterialOf(Entity e);
@@ -204,6 +225,26 @@ private:
     bool  m_showVelocity = false;
     bool  m_showModelParts     = true;
     bool  m_showMaterialEditor = false;
+    bool  m_showTerrainPanel   = true;
+
+    Terrain::TerrainWorld         m_terrain;
+    TerrainMaterial               m_terrainMaterial;
+    Terrain::SplatMap             m_splat;
+    Terrain::SplatRules           m_splatRules;
+    Terrain::TerrainSurfaceDesc   m_terrainSurface;
+    bool                          m_haveTerrain         = false;
+    bool                          m_terrainHeightDirty  = false;
+    bool                          m_terrainSplatDirty   = false;
+    TerrainBrushMode              m_terrainBrush        = TerrainBrushMode::None;
+    int                           m_terrainPaintLayer   = 1;
+    bool                          m_terrainPaintLower   = false;
+    float                         m_terrainBrushRadius  = 8.0f;
+    float                         m_terrainBrushStrength = 0.5f;
+    std::string                   m_terrainHeightFile;
+    std::string                   m_terrainSplatFile;
+    std::string                   m_terrainAlbedoPath[Terrain::kMaxTerrainLayers];
+    std::string                   m_terrainNormalPath[Terrain::kMaxTerrainLayers];
+    std::string                   m_terrainOrmPath[Terrain::kMaxTerrainLayers];
     int   m_selectedPart       = 0;
     float m_gridSnap  = 1.0f;
 

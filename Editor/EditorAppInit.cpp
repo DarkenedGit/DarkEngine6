@@ -11,6 +11,7 @@
 #include "Ui/Icons.h"
 #include "Ui/ImGuiTheme.h"
 #include "Input/InputCodes.h"
+#include "Collision/HitResult.h"
 #include "Collision/StaticCollision.h"
 #include "Math/AABox3f.h"
 #include "Math/AABox2f.h"
@@ -109,6 +110,7 @@ void EditorApp::onInit()
     {
         SceneRendererDesc sceneDesc{};
         sceneDesc.createWorldEnvironment = false;
+        sceneDesc.createTerrainPipeline  = true;
         sceneDesc.logTag = "EditorApp";
         if (!m_scene.init(renderer(), sceneDesc))
         {
@@ -341,6 +343,14 @@ void EditorApp::updateCamera(float dt)
 
 bool EditorApp::groundHitFromRay(const Ray3f& ray, Vector3f& outPoint) const
 {
+    if (m_haveTerrain && m_terrain.heightMap().valid())
+    {
+        const Collision::RayHit3D hit = m_terrain.raycast(ray);
+        if (!hit.hit)
+            return false;
+        outPoint = hit.point;
+        return true;
+    }
     if (std::fabs(ray.Direction.y) < 1e-6f)
         return false;
     const float t = (0.0f - ray.Origin.y) / ray.Direction.y;
@@ -366,6 +376,10 @@ void EditorApp::onShutdown()
     m_imgui.shutdown(renderer());
     m_particleRenderer.destroy(renderer());
     renderer().waitForGpu();
+    m_terrain            = {};
+    m_terrainMaterial    = {};
+    m_splat              = {};
+    m_haveTerrain        = false;
     m_scene.shutdown();
     if (m_propMaterial)
         assets().unload(m_propMaterial->id);

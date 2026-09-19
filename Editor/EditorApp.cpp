@@ -158,6 +158,7 @@ void EditorApp::newScene3D()
     m_scenePath = defaultScenePath("level.json");
     m_sceneName = "level";
     clearScene();
+    removeEditorTerrain();
     ensureGlobalLights();
     DE_LOG_INFO("Editor: new 3D scene");
 }
@@ -170,6 +171,7 @@ void EditorApp::newScene2D()
     m_scenePath = defaultScenePath("level2d.json");
     m_sceneName = "level2d";
     clearScene();
+    removeEditorTerrain();
     m_worldMin = Vector2f(0.0f, 0.0f);
     m_worldMax = Vector2f(96.0f, 22.0f);
     rebuildGrid2D();

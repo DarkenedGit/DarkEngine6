@@ -157,6 +157,8 @@ void TerrainWorld::markHeightDirty()
 {
     for (TerrainChunk& c : m_chunks)
         c.builtLod = -1;
+    if (m_heightMap.valid())
+        m_bounds = m_heightMap.bounds();
 }
 
 void TerrainWorld::markHeightDirtyRect(int x0, int z0, int x1, int z1)
@@ -218,6 +220,8 @@ void TerrainWorld::markHeightDirtyRect(int x0, int z0, int x1, int z1)
                 c->builtLod = -1;
         }
     }
+    if (m_heightMap.valid())
+        m_bounds = m_heightMap.bounds();
 }
 
 void TerrainWorld::rebuildDirtyCpuMeshes()
@@ -250,31 +254,39 @@ void TerrainWorld::rebuildDirtyCpuMeshes()
     }
 }
 
+bool TerrainWorld::uploadHeightTexture(Renderer& renderer)
+{
+    if (!m_heightMap.valid())
+        return false;
+
+    const uint32_t w = m_heightMap.width();
+    const uint32_t h = m_heightMap.height();
+    std::vector<float> samples(static_cast<size_t>(w) * h);
+    for (uint32_t z = 0; z < h; ++z)
+    {
+        for (uint32_t x = 0; x < w; ++x)
+        {
+            samples[static_cast<size_t>(z) * w + x] =
+                m_heightMap.heightAtWorld(m_heightMap.worldX(static_cast<int>(x)), m_heightMap.worldZ(static_cast<int>(z)));
+        }
+    }
+    if (!m_heightTexture.createFromR32Float(renderer, samples.data(), w, h, w * static_cast<uint32_t>(sizeof(float))))
+    {
+        DE_LOG_ERROR("TerrainWorld: height texture upload failed");
+        return false;
+    }
+    m_bounds = m_heightMap.bounds();
+    return true;
+}
+
 bool TerrainWorld::createGpu(Renderer& renderer)
 {
     rebuildDirtyCpuMeshes();
     if (!uploadDirty(renderer))
         return false;
 
-    if (!m_heightTexture.valid() && m_heightMap.valid())
-    {
-        const uint32_t w = m_heightMap.width();
-        const uint32_t h = m_heightMap.height();
-        std::vector<float> samples(static_cast<size_t>(w) * h);
-        for (uint32_t z = 0; z < h; ++z)
-        {
-            for (uint32_t x = 0; x < w; ++x)
-            {
-                samples[static_cast<size_t>(z) * w + x] =
-                    m_heightMap.heightAtWorld(m_heightMap.worldX(static_cast<int>(x)), m_heightMap.worldZ(static_cast<int>(z)));
-            }
-        }
-        if (!m_heightTexture.createFromR32Float(renderer, samples.data(), w, h, w * static_cast<uint32_t>(sizeof(float))))
-        {
-            DE_LOG_ERROR("TerrainWorld: height texture upload failed");
-            return false;
-        }
-    }
+    if (!m_heightTexture.valid())
+        return uploadHeightTexture(renderer);
     return true;
 }
 

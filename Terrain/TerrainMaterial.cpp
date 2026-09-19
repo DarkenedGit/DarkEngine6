@@ -293,6 +293,42 @@ namespace Dark
         return packSrvHeap(renderer);
     }
 
+    bool TerrainMaterial::uploadSplat(Renderer& renderer, const Terrain::SplatMap& splat)
+    {
+        if (!splat.valid())
+        {
+            DE_LOG_ERROR(LogCategory::Render, "TerrainMaterial::uploadSplat: invalid splat");
+            return false;
+        }
+        Image splatImg;
+        if (!splatImg.createFromRGBA(splat.rgba(), splat.width(), splat.height(), splat.width() * 4u)
+            || !m_splat.createFromImage(renderer, splatImg, Color::TextureUsage::Data))
+        {
+            DE_LOG_ERROR(LogCategory::Render, "TerrainMaterial: failed to upload splat");
+            return false;
+        }
+        return packSrvHeap(renderer);
+    }
+
+    bool TerrainMaterial::applySurfaceDesc(Renderer& renderer, const Terrain::TerrainSurfaceDesc& desc)
+    {
+        GpuResourceCache& cache = renderer.gpuResources();
+        if (!cache.ensureTerrainDefaults())
+            return false;
+
+        m_params = desc.params;
+        for (int i = 0; i < Terrain::kMaxTerrainLayers; ++i)
+        {
+            m_layers[i] = desc.layers[i];
+            BindInternedMap(cache, desc.albedo[i], Color::TextureUsage::Albedo, i, "albedo", layerAlbedoSlot(static_cast<UINT>(i)), m_albedoGpu[i]);
+            if (m_albedoGpu[i] && m_albedoGpu[i]->valid())
+                m_albedoOwned[i] = Texture2D{};
+            BindInternedMap(cache, desc.normal[i], Color::TextureUsage::Normal, i, "normal", layerNormalSlot(static_cast<UINT>(i)), m_normalGpu[i]);
+            BindInternedMap(cache, desc.orm[i], Color::TextureUsage::Orm, i, "orm", layerOrmSlot(static_cast<UINT>(i)), m_ormGpu[i]);
+        }
+        return packSrvHeap(renderer);
+    }
+
     void TerrainMaterial::copyLayerSampling(ID3D12Device* device)
     {
         if (!device || !m_heap.heap)

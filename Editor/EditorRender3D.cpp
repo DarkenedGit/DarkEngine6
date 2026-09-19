@@ -27,6 +27,7 @@
 #include "Render/ModelDraw.h"
 #include "Render/MaterialSurface.h"
 #include "Render/GpuUpload.h"
+#include "Render/Frustum3f.h"
 #include "Assets/Material.h"
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"
@@ -55,7 +56,10 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     Vector3f ambientColor{};
     gatherEditorLighting(lightDir, sunColor, ambientColor);
     const float ambientScale = (ambientColor.x + ambientColor.y + ambientColor.z) * (1.0f / 3.0f);
-    AABox3f        sceneBounds(Vector3f(-22.0f, -2.0f, -22.0f), Vector3f(22.0f, 16.0f, 22.0f));
+    const bool drawTerrain = m_haveTerrain && m_terrainMaterial.isValid() && m_scene.terrainPipeline().isValid();
+    AABox3f sceneBounds(Vector3f(-22.0f, -2.0f, -22.0f), Vector3f(22.0f, 16.0f, 22.0f));
+    if (drawTerrain)
+        sceneBounds.ExpandToInclude(m_terrain.bounds());
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent&) {
         if (const auto* xf = world().get<TransformComponent>(e))
             sceneBounds.ExpandToInclude(xf->position);
@@ -67,7 +71,12 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         for (int i = 0; i < m_shadows.cascadeCount(); ++i)
         {
             m_shadows.beginCascade(cmd, i);
-            if (m_showSolid && m_groundMesh.valid())
+            if (drawTerrain)
+            {
+                const Frustum3f casterFrustum(m_shadows.cascade(i).viewProj);
+                m_terrain.drawDepth(cmd, &casterFrustum);
+            }
+            else if (m_showSolid && m_groundMesh.valid())
                 m_groundMesh.draw(cmd);
             world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
                 if (!isScene3DType(so.type))
@@ -175,7 +184,15 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         mesh.draw(cmd, fill == DebugFill::Points);
     };
 
-    if (m_showSolid && m_groundMesh.valid() && m_groundMaterial)
+    if (drawTerrain)
+    {
+        const Frustum3f frustum(viewProj);
+        if (deferred)
+            m_terrain.drawGBuffer(cmd, m_scene.terrainPipeline(), m_terrainMaterial, m_camera, &frustum, &renderer().debugState(), &prevViewProj);
+        else
+            m_terrain.draw(cmd, m_scene.terrainPipeline(), m_terrainMaterial, m_camera, &frustum, nullptr, &m_shadows, &renderer().debugState());
+    }
+    else if (m_showSolid && m_groundMesh.valid() && m_groundMaterial)
     {
         const float* c = m_groundMaterial->baseColor();
         drawMesh(m_groundMesh, Matrix4f{}, m_groundMaterial.get(), c[0], c[1], c[2]);

@@ -114,13 +114,20 @@ bool SceneRenderer::createPostPipelines(Renderer& renderer, const char* tag)
     return true;
 }
 
-bool SceneRenderer::createWorldEnvPipelines(Renderer& renderer, const char* tag)
+bool SceneRenderer::createTerrainPipelineOnly(Renderer& renderer, const char* tag)
 {
     if (!m_terrainPipeline.create(renderer.device(), liveTerrainPass(renderer)))
     {
         DE_LOG_FATAL("{}: TerrainPipeline create failed", tag);
         return false;
     }
+    return true;
+}
+
+bool SceneRenderer::createWorldEnvPipelines(Renderer& renderer, const char* tag)
+{
+    if (!createTerrainPipelineOnly(renderer, tag))
+        return false;
     if (!m_waterPipeline.create(renderer.device(), renderer.sceneColorFormat()))
     {
         DE_LOG_FATAL("{}: WaterPipeline create failed", tag);
@@ -142,8 +149,16 @@ bool SceneRenderer::init(Renderer& renderer, const SceneRendererDesc& desc)
         return false;
     if (!createPostPipelines(renderer, tag))
         return false;
-    if (desc.createWorldEnvironment && !createWorldEnvPipelines(renderer, tag))
-        return false;
+    if (desc.createWorldEnvironment)
+    {
+        if (!createWorldEnvPipelines(renderer, tag))
+            return false;
+    }
+    else if (desc.createTerrainPipeline)
+    {
+        if (!createTerrainPipelineOnly(renderer, tag))
+            return false;
+    }
     m_initialized = true;
     return true;
 }

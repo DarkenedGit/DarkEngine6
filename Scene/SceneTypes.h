@@ -196,6 +196,31 @@ namespace Dark
         int   emissiveMeshIndex  = -1; // objects[] index of glow-prop mesh; -1 = none
     };
 
+    // World-level terrain JSON DTO. Not a SceneObjectType. Paths are virtual or sidecar filenames.
+    struct TerrainLayerSceneDesc
+    {
+        std::string albedo;
+        std::string normal;
+        std::string orm;
+        float       tiling = 8.0f;
+        float       tint[4]{ 1.0f, 1.0f, 1.0f, 1.0f };
+    };
+
+    struct TerrainSceneDesc
+    {
+        static constexpr int kBindLayoutV1 = 1;
+
+        int                   bindLayout     = kBindLayoutV1;
+        int                   chunkCells     = 16;
+        float                 heightBlendK   = 0.5f;
+        float                 heightBlendT   = 0.1f;
+        float                 triplanarSlope = 0.45f;
+        std::string           heightFile;
+        std::string           splatFile;
+        TerrainLayerSceneDesc layers[4];
+        int                   layerCount = 0;
+    };
+
     struct SceneFileData
     {
         int         version = 2;
@@ -206,6 +231,8 @@ namespace Dark
         std::string environment      = "env/studio_gradient.hdr";
         float       iblIntensity     = 1.0f;
         float       iblRotationRadY  = 0.0f; // radians; ImGui shows degrees
+        bool              hasTerrain = false;
+        TerrainSceneDesc  terrain;
         std::vector<SceneObjectData> objects;
     };
 

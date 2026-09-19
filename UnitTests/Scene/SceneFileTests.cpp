@@ -454,3 +454,123 @@ TEST(SceneFile, Ibl2DIgnoresKeys)
     std::error_code ec;
     std::filesystem::remove(path, ec);
 }
+
+TEST(SceneFile, TerrainRoundTrip)
+{
+    SceneFileData in{};
+    in.version           = 2;
+    in.name              = "ut_terrain";
+    in.mode              = SceneMode::Scene3D;
+    in.hasTerrain        = true;
+    in.terrain.bindLayout     = TerrainSceneDesc::kBindLayoutV1;
+    in.terrain.chunkCells     = 16;
+    in.terrain.heightBlendK   = 0.5f;
+    in.terrain.heightBlendT   = 0.1f;
+    in.terrain.triplanarSlope = 0.45f;
+    in.terrain.heightFile     = "ut_terrain.height.bin";
+    in.terrain.splatFile      = "ut_terrain.splat.png";
+    in.terrain.layerCount     = 4;
+    in.terrain.layers[0].albedo = "terrain/dirt/albedo.png";
+    in.terrain.layers[0].normal = "terrain/dirt/normal.png";
+    in.terrain.layers[0].orm    = "terrain/dirt/orm.png";
+    in.terrain.layers[0].tiling = 24.0f;
+    in.terrain.layers[0].tint[0] = 1.0f;
+    in.terrain.layers[0].tint[1] = 0.9f;
+    in.terrain.layers[0].tint[2] = 0.8f;
+    in.terrain.layers[0].tint[3] = 1.0f;
+    in.terrain.layers[1].albedo = "terrain/grass/albedo.png";
+    in.terrain.layers[1].tiling = 20.0f;
+
+    const auto path = tempScenePath("darkengine6_scene_terrain_ut.json");
+    std::string err;
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+
+    std::ifstream inFile(path);
+    ASSERT_TRUE(static_cast<bool>(inFile));
+    const std::string text((std::istreambuf_iterator<char>(inFile)), std::istreambuf_iterator<char>());
+    EXPECT_NE(text.find("\"terrain\""), std::string::npos);
+    EXPECT_NE(text.find("bindLayout"), std::string::npos);
+    EXPECT_EQ(text.find("\"version\": 3"), std::string::npos);
+
+    SceneFileData out{};
+    ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
+    EXPECT_EQ(out.version, 2);
+    EXPECT_TRUE(out.hasTerrain);
+    EXPECT_EQ(out.terrain.bindLayout, TerrainSceneDesc::kBindLayoutV1);
+    EXPECT_EQ(out.terrain.chunkCells, 16);
+    EXPECT_NEAR(out.terrain.heightBlendK, 0.5f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.heightBlendT, 0.1f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.triplanarSlope, 0.45f, 1.0e-5f);
+    EXPECT_EQ(out.terrain.heightFile, "ut_terrain.height.bin");
+    EXPECT_EQ(out.terrain.splatFile, "ut_terrain.splat.png");
+    EXPECT_EQ(out.terrain.layers[0].albedo, "terrain/dirt/albedo.png");
+    EXPECT_EQ(out.terrain.layers[0].normal, "terrain/dirt/normal.png");
+    EXPECT_EQ(out.terrain.layers[0].orm, "terrain/dirt/orm.png");
+    EXPECT_NEAR(out.terrain.layers[0].tiling, 24.0f, 1.0e-4f);
+    EXPECT_NEAR(out.terrain.layers[0].tint[1], 0.9f, 1.0e-4f);
+    EXPECT_EQ(out.terrain.layers[1].albedo, "terrain/grass/albedo.png");
+
+    std::error_code removeEc;
+    std::filesystem::remove(path, removeEc);
+}
+
+TEST(SceneFile, TerrainUnknownBindLayoutSkipped)
+{
+    const auto path = tempScenePath("darkengine6_scene_terrain_layout_ut.json");
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({"version":2,"name":"bad_layout","mode":"3d","terrain":{"bindLayout":99,"heightFile":"x.height.bin","layers":[]},"objects":[]})";
+    }
+
+    SceneFileData data{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
+    EXPECT_EQ(data.version, 2);
+    EXPECT_FALSE(data.hasTerrain);
+    EXPECT_TRUE(data.objects.empty());
+
+    std::error_code removeEc;
+    std::filesystem::remove(path, removeEc);
+}
+
+TEST(SceneFile, Terrain2DIgnores)
+{
+    SceneFileData in{};
+    in.version    = 2;
+    in.name       = "ut_2d_terrain";
+    in.mode       = SceneMode::Scene2D;
+    in.hasTerrain = true;
+    in.terrain.bindLayout = TerrainSceneDesc::kBindLayoutV1;
+    in.terrain.heightFile = "should_not_save.height.bin";
+    in.terrain.heightBlendK = 0.75f;
+
+    const auto path = tempScenePath("darkengine6_scene_terrain_2d_ut.json");
+    std::string err;
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+
+    std::ifstream inFile(path);
+    ASSERT_TRUE(static_cast<bool>(inFile));
+    const std::string text((std::istreambuf_iterator<char>(inFile)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(text.find("\"terrain\""), std::string::npos);
+    EXPECT_EQ(text.find("heightBlendK"), std::string::npos);
+
+    SceneFileData out{};
+    ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
+    EXPECT_EQ(out.mode, SceneMode::Scene2D);
+    EXPECT_FALSE(out.hasTerrain);
+
+    {
+        std::ofstream injected(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(injected));
+        injected << R"({"version":2,"name":"ut_2d_terrain","mode":"2d","terrain":{"bindLayout":1,"heightBlendK":0.9,"heightFile":"ignored.height.bin"},"world":{"min":[0,0],"max":[8,8]},"objects":[]})";
+    }
+    SceneFileData ignored{};
+    ASSERT_TRUE(loadSceneFromJson(path, ignored, &err)) << err;
+    EXPECT_EQ(ignored.mode, SceneMode::Scene2D);
+    EXPECT_FALSE(ignored.hasTerrain);
+    EXPECT_NEAR(ignored.terrain.heightBlendK, 0.5f, 1.0e-5f);
+
+    std::error_code removeEc;
+    std::filesystem::remove(path, removeEc);
+}

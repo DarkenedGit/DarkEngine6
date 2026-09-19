@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <fstream>
 #include <utility>
 
 namespace Dark
@@ -752,6 +753,142 @@ Collision::RayHit3D HeightMap::raycast(const Ray3f& ray, float maxDistance) cons
     if (hit.normal.Dot(ray.Direction) > 0.0f)
         hit.normal = -hit.normal;
     return hit;
+}
+
+namespace
+{
+constexpr uint32_t kHeightMagic             = 0x46484544u; // 'DEHF'
+constexpr uint32_t kHeightVersion           = 1;
+constexpr uint64_t kMaxHeightSidecarBytes   = 32ull * 1024ull * 1024ull;
+constexpr uint64_t kHeightHeaderBytes       = 36ull;
+} // namespace
+
+bool HeightMap::saveBinary(const std::filesystem::path& path) const
+{
+    if (!valid())
+    {
+        DE_LOG_ERROR("HeightMap: save failed — invalid map");
+        return false;
+    }
+    const uint64_t sampleBytes = static_cast<uint64_t>(m_width) * static_cast<uint64_t>(m_height) * sizeof(float);
+    if (kHeightHeaderBytes + sampleBytes > kMaxHeightSidecarBytes)
+    {
+        DE_LOG_ERROR("HeightMap: sidecar exceeds 32 MB");
+        return false;
+    }
+
+    std::error_code ec;
+    if (path.has_parent_path())
+    {
+        std::filesystem::create_directories(path.parent_path(), ec);
+        if (ec)
+        {
+            DE_LOG_ERROR("HeightMap: failed to create directory for '{}' ({})", path.string(), ec.message());
+            return false;
+        }
+    }
+
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out)
+    {
+        DE_LOG_ERROR("HeightMap: failed to open '{}' for write", path.string());
+        return false;
+    }
+
+    const uint32_t magic   = kHeightMagic;
+    const uint32_t version = kHeightVersion;
+    const float    origin[3]{ m_origin.x, m_origin.y, m_origin.z };
+    out.write(reinterpret_cast<const char*>(&magic), sizeof(magic));
+    out.write(reinterpret_cast<const char*>(&version), sizeof(version));
+    out.write(reinterpret_cast<const char*>(&m_width), sizeof(m_width));
+    out.write(reinterpret_cast<const char*>(&m_height), sizeof(m_height));
+    out.write(reinterpret_cast<const char*>(&m_cellSize), sizeof(m_cellSize));
+    out.write(reinterpret_cast<const char*>(&m_heightScale), sizeof(m_heightScale));
+    out.write(reinterpret_cast<const char*>(origin), sizeof(origin));
+    out.write(reinterpret_cast<const char*>(m_samples.data()), static_cast<std::streamsize>(sampleBytes));
+    if (!out)
+    {
+        DE_LOG_ERROR("HeightMap: failed while writing '{}'", path.string());
+        return false;
+    }
+    return true;
+}
+
+bool HeightMap::loadBinary(const std::filesystem::path& path)
+{
+    std::error_code ec;
+    if (!std::filesystem::exists(path, ec) || ec)
+    {
+        DE_LOG_ERROR("HeightMap: missing '{}'", path.string());
+        return false;
+    }
+    const uintmax_t fileBytes = std::filesystem::file_size(path, ec);
+    if (ec || fileBytes > kMaxHeightSidecarBytes)
+    {
+        DE_LOG_ERROR("HeightMap: '{}' oversize or unreadable", path.string());
+        return false;
+    }
+    if (fileBytes < kHeightHeaderBytes)
+    {
+        DE_LOG_ERROR("HeightMap: '{}' truncated", path.string());
+        return false;
+    }
+
+    std::ifstream in(path, std::ios::binary);
+    if (!in)
+    {
+        DE_LOG_ERROR("HeightMap: failed to open '{}' for read", path.string());
+        return false;
+    }
+
+    uint32_t magic = 0;
+    uint32_t version = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    float    cellSize = 0.0f;
+    float    heightScale = 0.0f;
+    float    origin[3]{};
+    in.read(reinterpret_cast<char*>(&magic), sizeof(magic));
+    in.read(reinterpret_cast<char*>(&version), sizeof(version));
+    in.read(reinterpret_cast<char*>(&width), sizeof(width));
+    in.read(reinterpret_cast<char*>(&height), sizeof(height));
+    in.read(reinterpret_cast<char*>(&cellSize), sizeof(cellSize));
+    in.read(reinterpret_cast<char*>(&heightScale), sizeof(heightScale));
+    in.read(reinterpret_cast<char*>(origin), sizeof(origin));
+    if (!in)
+    {
+        DE_LOG_ERROR("HeightMap: '{}' header read failed", path.string());
+        return false;
+    }
+    if (magic != kHeightMagic || version != kHeightVersion)
+    {
+        DE_LOG_ERROR("HeightMap: '{}' magic/version mismatch", path.string());
+        return false;
+    }
+    if (width < 2 || height < 2 || width > kMaxHeightMapSize || height > kMaxHeightMapSize)
+    {
+        DE_LOG_ERROR("HeightMap: '{}' size {}x{} out of range", path.string(), width, height);
+        return false;
+    }
+
+    const uint64_t sampleBytes = static_cast<uint64_t>(width) * static_cast<uint64_t>(height) * sizeof(float);
+    if (kHeightHeaderBytes + sampleBytes > kMaxHeightSidecarBytes || fileBytes < kHeightHeaderBytes + sampleBytes)
+    {
+        DE_LOG_ERROR("HeightMap: '{}' sample payload invalid", path.string());
+        return false;
+    }
+
+    std::vector<float> samples(static_cast<size_t>(width) * height);
+    in.read(reinterpret_cast<char*>(samples.data()), static_cast<std::streamsize>(sampleBytes));
+    if (!in)
+    {
+        DE_LOG_ERROR("HeightMap: '{}' sample read failed", path.string());
+        return false;
+    }
+    if (!createFrom(width, height, samples.data(), cellSize, heightScale))
+        return false;
+    setOrigin(Vector3f(origin[0], origin[1], origin[2]));
+    return true;
 }
 
 } // namespace Terrain

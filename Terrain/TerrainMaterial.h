@@ -74,6 +74,11 @@ namespace Dark
 
         bool create(Renderer& renderer, const Terrain::TerrainSurfaceDesc& desc, Texture2D&& splat);
 
+        // Re-upload splat GPU and pack. Layer maps / checkers stay.
+        bool uploadSplat(Renderer& renderer, const Terrain::SplatMap& splat);
+        // Intern layer maps from desc. Empty albedo keeps createDefault checkers when present.
+        bool applySurfaceDesc(Renderer& renderer, const Terrain::TerrainSurfaceDesc& desc);
+
         void bind(ID3D12GraphicsCommandList* cmd, UINT srvTableRootIndex) const;
         void applySurface(TerrainFrameConstants& constants) const;
         void applySurface(TerrainGBufferConstants& constants, float worldSizeX, float worldSizeZ) const;

@@ -123,6 +123,32 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
         root["environment"]     = scene.environment;
         root["iblIntensity"]    = scene.iblIntensity;
         root["iblRotationRadY"] = scene.iblRotationRadY;
+        if (scene.hasTerrain)
+        {
+            json t;
+            t["bindLayout"]     = scene.terrain.bindLayout;
+            t["chunkCells"]     = scene.terrain.chunkCells;
+            t["heightBlendK"]   = scene.terrain.heightBlendK;
+            t["heightBlendT"]   = scene.terrain.heightBlendT;
+            t["triplanarSlope"] = scene.terrain.triplanarSlope;
+            t["heightFile"]     = scene.terrain.heightFile;
+            t["splatFile"]      = scene.terrain.splatFile;
+            json layers = json::array();
+            const int n = scene.terrain.layerCount > 0 ? scene.terrain.layerCount : 4;
+            const int count = n > 4 ? 4 : n;
+            for (int i = 0; i < count; ++i)
+            {
+                json layer;
+                layer["albedo"] = scene.terrain.layers[i].albedo;
+                layer["normal"] = scene.terrain.layers[i].normal;
+                layer["orm"]    = scene.terrain.layers[i].orm;
+                layer["tiling"] = scene.terrain.layers[i].tiling;
+                layer["tint"]   = colorToJson(scene.terrain.layers[i].tint);
+                layers.push_back(std::move(layer));
+            }
+            t["layers"] = std::move(layers);
+            root["terrain"] = std::move(t);
+        }
     }
     if (scene.mode == SceneMode::Scene2D)
     {
@@ -256,6 +282,50 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
         outScene.environment     = root.value("environment", std::string("env/studio_gradient.hdr"));
         outScene.iblIntensity    = root.value("iblIntensity", 1.0f);
         outScene.iblRotationRadY = root.value("iblRotationRadY", 0.0f);
+        if (root.contains("terrain") && root["terrain"].is_object())
+        {
+            const json& t = root["terrain"];
+            int bindLayout = TerrainSceneDesc::kBindLayoutV1;
+            if (t.contains("bindLayout") && t["bindLayout"].is_number())
+                bindLayout = t["bindLayout"].get<int>();
+            if (bindLayout != TerrainSceneDesc::kBindLayoutV1)
+            {
+                DE_LOG_ERROR("SceneFile: terrain bindLayout {} unknown", bindLayout);
+            }
+            else
+            {
+                TerrainSceneDesc desc{};
+                desc.bindLayout     = bindLayout;
+                desc.chunkCells     = t.value("chunkCells", 16);
+                desc.heightBlendK   = t.value("heightBlendK", 0.5f);
+                desc.heightBlendT   = t.value("heightBlendT", 0.1f);
+                desc.triplanarSlope = t.value("triplanarSlope", 0.45f);
+                desc.heightFile     = t.value("heightFile", std::string());
+                desc.splatFile      = t.value("splatFile", std::string());
+                if (t.contains("layers") && t["layers"].is_array())
+                {
+                    const json& layers = t["layers"];
+                    if (layers.size() > 4)
+                        DE_LOG_WARN("SceneFile: terrain layers {} > 4 — using first 4", layers.size());
+                    const int n = layers.size() > 4 ? 4 : static_cast<int>(layers.size());
+                    desc.layerCount = n;
+                    for (int i = 0; i < n; ++i)
+                    {
+                        if (!layers[i].is_object())
+                            continue;
+                        const json& layer = layers[i];
+                        desc.layers[i].albedo = layer.value("albedo", std::string());
+                        desc.layers[i].normal = layer.value("normal", std::string());
+                        desc.layers[i].orm    = layer.value("orm", std::string());
+                        desc.layers[i].tiling = layer.value("tiling", 8.0f);
+                        if (layer.contains("tint"))
+                            readColor(layer["tint"], desc.layers[i].tint, nullptr, "terrain.layers.tint");
+                    }
+                }
+                outScene.hasTerrain = true;
+                outScene.terrain    = std::move(desc);
+            }
+        }
     }
 
     if (root.contains("world") && root["world"].is_object())

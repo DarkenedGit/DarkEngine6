@@ -33,6 +33,8 @@ struct SceneRendererDesc
 {
     // When true, also create TerrainPipeline / WaterPipeline / SkyPipeline (Sandbox).
     bool createWorldEnvironment = false;
+    // TerrainPipeline only (Editor). Ignored when createWorldEnvironment is true.
+    bool createTerrainPipeline = false;
     // Log prefix for create failures (e.g. "SandboxApp", "EditorApp").
     const char* logTag = "SceneRenderer";
 };
@@ -118,6 +120,7 @@ public:
 private:
     bool createCorePipelines(Renderer& renderer, const char* tag);
     bool createPostPipelines(Renderer& renderer, const char* tag);
+    bool createTerrainPipelineOnly(Renderer& renderer, const char* tag);
     bool createWorldEnvPipelines(Renderer& renderer, const char* tag);
 
     MeshPipeline             m_meshPipeline;
