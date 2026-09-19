@@ -30,6 +30,7 @@
 2. **Trace against post-lighting HDR** of previous frame **or** current pre-transparent — **frozen: previous frame HDR + current depth** to avoid include self light feedback complexity; document ghosting.
 3. Max steps 32; thickness threshold; fade at screen edges.
 4. Roughness→blur: sample HDR color at mip `roughness * k`.
+5. Reverse-Z: sky miss via `IsSkyDepth` (`d <= 0`); never unproject raw 0 — `ClampDepthForReconstruct` ([DESIGN-reverse-z.md](./DESIGN-reverse-z.md) **Z8/Z9**). Marching along 1/z is nicer under reverse-Z.
 
 ## API
 

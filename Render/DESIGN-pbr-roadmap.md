@@ -23,7 +23,7 @@ Track the next seven deferred-PBR features in **build order**. Each child RFC is
 | 6 | [DESIGN-local-light-shadows.md](./DESIGN-local-light-shadows.md) | Independent of IBL; needs stable local-light volumes |
 | 7 | [DESIGN-reflections.md](./DESIGN-reflections.md) | SSR v1 composed with IBL; wants normal maps |
 
-Terrain splat look-track is [`Terrain/DESIGN-terrain-system.md`](../Terrain/DESIGN-terrain-system.md) rev 2; sibling of this track, not item 3. Still not `Dark::Material`.
+Terrain splat look-track is [`Terrain/DESIGN-terrain-system.md`](../Terrain/DESIGN-terrain-system.md) rev 2; sibling of this track, not item 3. Still not `Dark::Material`. Reverse-Z is [`DESIGN-reverse-z.md`](./DESIGN-reverse-z.md) **Accepted**; sibling of this track (world-scale prerequisite), not a seventh item.
 
 ## Dependency graph
 
@@ -51,6 +51,7 @@ tonemap/bloom (done) ──► auto-exposure
 
 ## Out of track (explicitly later)
 
+- Reverse-Z ([DESIGN-reverse-z.md](./DESIGN-reverse-z.md) **Accepted**) — world-scale prerequisite; sibling of this seven-item track (like terrain), not a seventh item
 - DDGI / path-traced GI / Lumen-like
 - Area lights / LTC
 - Clustered light lists

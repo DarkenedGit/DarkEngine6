@@ -26,7 +26,7 @@ Shadow maps for **spot** local lights via a shared **atlas**, PCF filtered in `L
 
 ## Key decisions
 
-1. **Format:** `D16_UNORM` atlas (or D32 if bias fights — start D16).
+1. **Format:** `D16_UNORM` atlas (or D32 if bias fights — start D16). **Revisit** vs D32 reverse-Z + `GREATER_EQUAL` ([DESIGN-reverse-z.md](./DESIGN-reverse-z.md) **Z7**); that stack does **not** re-freeze spots.
 2. **Bias:** constant + slope; tunable.
 3. **Only spots** with `castShadow && enabled && intensity>0`.
 4. **Caster pass:** reuse mesh/skinned shadow PSO variants from CSM where possible (different VP).
