@@ -818,6 +818,12 @@ namespace Dark
             m_sceneBuffers->setShadowSrv(m_device.Get(), shadowCpu);
     }
 
+    void Renderer::setLightingAoSrv(D3D12_CPU_DESCRIPTOR_HANDLE aoCpu)
+    {
+        if (m_sceneBuffers)
+            m_sceneBuffers->setLightingAoSrv(m_device.Get(), aoCpu);
+    }
+
     void Renderer::setLightingAlbedoRaw(bool raw)
     {
         if (m_sceneBuffers)
@@ -1010,6 +1016,11 @@ namespace Dark
     D3D12_CPU_DESCRIPTOR_HANDLE Renderer::aoSrvCpu() const
     {
         return m_sceneBuffers ? m_sceneBuffers->aoSrvCpu() : D3D12_CPU_DESCRIPTOR_HANDLE{};
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE Renderer::lightingAoCpu() const
+    {
+        return m_sceneBuffers ? m_sceneBuffers->lightingAoCpu() : D3D12_CPU_DESCRIPTOR_HANDLE{};
     }
 
     D3D12_GPU_DESCRIPTOR_HANDLE Renderer::lightingTableGpu() const

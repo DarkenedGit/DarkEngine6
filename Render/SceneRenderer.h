@@ -59,6 +59,11 @@ public:
     // Caller must have finished HDR scene draws. tonemap.usePostHdr is set by this helper.
     void applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, TonemapSettings tonemap);
 
+    // After bindHdr(false), before lighting.draw. Compose authored*ssao into slot 5 when enabled;
+    // restore MRT3 on skip so a disable cannot stick a stale compose handle.
+    void applyGtao(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj,
+                   const GtaoSettings& settings);
+
     void drawDeferredLighting(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const LightingConstants& lc) const;
     void drawLocalLights(
         ID3D12GraphicsCommandList* cmd,
@@ -160,6 +165,8 @@ private:
     uint32_t       m_bloomH           = 0;
     uint32_t       m_gtaoW            = 0;
     uint32_t       m_gtaoH            = 0;
+    bool           m_gtaoWasEnabled   = false;
+    bool           m_gtaoNeedReset    = true;
     bool           m_initialized      = false;
 };
 

@@ -184,8 +184,9 @@ private:
     Camera3D m_camera;
     Camera2D m_camera2D;
     SceneMode m_sceneMode = SceneMode::Scene3D;
-    IblSettings m_ibl;
-    AssetID     m_iblImageId = NULL_ASSET;
+    IblSettings  m_ibl;
+    GtaoSettings m_ssao;
+    AssetID      m_iblImageId = NULL_ASSET;
 
     SpritePipeline     m_spritePipe;
     Mesh     m_quadMesh;

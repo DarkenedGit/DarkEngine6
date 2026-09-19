@@ -1,9 +1,12 @@
 #include <gtest/gtest.h>
 
 #include "Render/Camera3D.h"
+#include "Render/DebugRenderState.h"
 #include "Render/GtaoPipeline.h"
 #include "Render/SceneBuffers.h"
 
+#include <algorithm>
+#include <cmath>
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <type_traits>
@@ -11,6 +14,7 @@
 #include <wrl/client.h>
 
 using Dark::Camera3D;
+using Dark::DebugRenderState;
 using Dark::GtaoGpuParams;
 using Dark::GtaoPipeline;
 using Dark::GtaoSettings;
@@ -77,6 +81,23 @@ namespace
         if (SUCCEEDED(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))))
             return device;
         return {};
+    }
+
+    // Produce-path curve from Gtao.hlsl PSUpsampleTemporal: lerp(1, pow(sat(vis), power), intensity).
+    float ssaoCurve(float vis, float power, float intensity)
+    {
+        const float curved = std::pow(std::clamp(vis, 0.0f, 1.0f), power);
+        return 1.0f + (curved - 1.0f) * intensity;
+    }
+
+    float composeAo(float authored, float ssao)
+    {
+        return authored * ssao;
+    }
+
+    bool gtaoShouldSkip(bool settingsEnabled, bool ssaoEnabled, bool hybridDeferred, bool hasGBuffer, bool gtaoValid, bool cmdOk)
+    {
+        return !cmdOk || !hybridDeferred || !hasGBuffer || !(settingsEnabled && ssaoEnabled) || !gtaoValid;
     }
 } // namespace
 
@@ -269,4 +290,85 @@ TEST(Gtao, Create_ZeroSize_WithDevice_False)
 
     SceneBuffers buffers;
     EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
+}
+
+TEST(Gtao, Disabled_SkipsPass)
+{
+    const GtaoSettings s{};
+    const DebugRenderState dbg{};
+    EXPECT_FALSE(s.enabled);
+    EXPECT_FALSE(dbg.ssaoEnabled);
+    EXPECT_TRUE(gtaoShouldSkip(s.enabled, dbg.ssaoEnabled, true, true, true, true));
+
+    SceneBuffers buffers;
+    EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
+
+    ComPtr<ID3D12Device> device = TryCreateDevice();
+    if (!device)
+        GTEST_SKIP() << "no D3D12 device (WARP or hardware) — CPU skip contract already checked";
+
+    const float hdrClear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    ASSERT_TRUE(buffers.create(device.Get(), 64, 64, true, {}, hdrClear));
+    ASSERT_NE(buffers.aoSrvCpu().ptr, 0u);
+    EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
+
+    GtaoPipeline gtao;
+    ASSERT_TRUE(gtao.create(device.Get(), 64, 64));
+    ASSERT_NE(gtao.composeSrvCpu().ptr, 0u);
+
+    // A previous enabled frame left compose in slot 5; disable must restore MRT3, not a white tex.
+    buffers.setLightingAoSrv(device.Get(), gtao.composeSrvCpu());
+    EXPECT_EQ(buffers.lightingAoCpu().ptr, gtao.composeSrvCpu().ptr);
+    buffers.setLightingAoSrv(device.Get(), buffers.aoSrvCpu());
+    EXPECT_EQ(buffers.lightingAoCpu().ptr, buffers.aoSrvCpu().ptr);
+    EXPECT_NE(buffers.lightingAoCpu().ptr, gtao.composeSrvCpu().ptr);
+}
+
+TEST(Gtao, EnabledWithoutDebugFlag_Skips)
+{
+    GtaoSettings s{};
+    s.enabled = true;
+    const DebugRenderState dbg{};
+    EXPECT_TRUE(s.enabled);
+    EXPECT_FALSE(dbg.ssaoEnabled);
+    EXPECT_TRUE(gtaoShouldSkip(s.enabled, dbg.ssaoEnabled, true, true, true, true));
+    EXPECT_FALSE(gtaoShouldSkip(true, true, true, true, true, true));
+}
+
+TEST(Gtao, NullCmd_TreatedAsSkip)
+{
+    EXPECT_TRUE(gtaoShouldSkip(true, true, true, true, true, false));
+    EXPECT_TRUE(gtaoShouldSkip(true, true, false, true, true, true));
+    EXPECT_TRUE(gtaoShouldSkip(true, true, true, false, true, true));
+    EXPECT_TRUE(gtaoShouldSkip(true, true, true, true, false, true));
+}
+
+TEST(Gtao, IntensityZero_Identity)
+{
+    EXPECT_FLOAT_EQ(ssaoCurve(0.0f, 1.5f, 0.0f), 1.0f);
+    EXPECT_FLOAT_EQ(ssaoCurve(0.2f, 1.5f, 0.0f), 1.0f);
+    EXPECT_FLOAT_EQ(ssaoCurve(0.5f, 4.0f, 0.0f), 1.0f);
+    EXPECT_FLOAT_EQ(ssaoCurve(1.0f, 1.5f, 0.0f), 1.0f);
+    EXPECT_FLOAT_EQ(ssaoCurve(1.0f, 1.5f, 1.0f), 1.0f);
+    EXPECT_LT(ssaoCurve(0.25f, 1.5f, 1.0f), 1.0f);
+
+    GtaoSettings s{};
+    s.enabled   = true;
+    s.intensity = 0.0f;
+    EXPECT_FLOAT_EQ(ssaoCurve(0.1f, s.power, s.intensity), 1.0f);
+
+    // GPU AoFull readback after draw(intensity=0) needs a Renderer + G-buffer (Window). Not in this fixture.
+}
+
+TEST(Gtao, AuthoredAo_StillDarkens)
+{
+    // Compose is authored * ssao (PSCompose). Flat GTAO ~1 must keep authored cavities.
+    EXPECT_NEAR(composeAo(0.2f, 1.0f), 0.2f, 1.0e-6f);
+    EXPECT_NEAR(composeAo(0.2f, 0.0f), 0.0f, 1.0e-6f);
+    EXPECT_LT(composeAo(0.2f, 0.5f), 0.2f);
+    EXPECT_NEAR(composeAo(0.2f, 0.9f), 0.18f, 1.0e-6f);
+    EXPECT_NE(composeAo(0.2f, 0.9f), std::min(0.2f, 0.9f));
+    EXPECT_FLOAT_EQ(composeAo(1.0f, 1.0f), 1.0f);
+
+    // Full GPU fixture (authored MRT3 = 0.2, GTAO ~1 → AoCompose ~0.2) needs Renderer + G-buffer. Not in this fixture.
 }

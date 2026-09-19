@@ -125,6 +125,7 @@ namespace Dark
         void clearGBuffer();
         void clearHdr();
         void setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
+        void setLightingAoSrv(D3D12_CPU_DESCRIPTOR_HANDLE aoCpu);
         void setHeightSrv(D3D12_CPU_DESCRIPTOR_HANDLE heightCpu);
         void setIblSrvs(D3D12_CPU_DESCRIPTOR_HANDLE irradianceCpu, D3D12_CPU_DESCRIPTOR_HANDLE prefilterCpu, D3D12_CPU_DESCRIPTOR_HANDLE brdfLutCpu);
         void setLightingAlbedoRaw(bool raw);
@@ -145,6 +146,7 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE albedoSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE attribSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE aoSrvCpu() const;
+        D3D12_CPU_DESCRIPTOR_HANDLE lightingAoCpu() const;
         D3D12_GPU_DESCRIPTOR_HANDLE lightingTableGpu() const;
         D3D12_GPU_DESCRIPTOR_HANDLE heightTableGpu() const;
         D3D12_GPU_DESCRIPTOR_HANDLE aoTableGpu() const;

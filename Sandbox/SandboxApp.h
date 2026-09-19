@@ -118,6 +118,7 @@ private:
     std::unordered_map<Dark::EntityID, Dark::Math::Matrix4f> m_prevWorldByEntity;
     Dark::Sky::Environment  m_env;
     Dark::IblSettings       m_ibl;
+    Dark::GtaoSettings      m_ssao;
     Dark::AssetID           m_iblImageId = Dark::NULL_ASSET;
 
     Dark::PathChase                m_chase;

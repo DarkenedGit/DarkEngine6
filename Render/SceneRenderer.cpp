@@ -203,6 +203,8 @@ void SceneRenderer::shutdown()
     m_bloomH                   = 0;
     m_gtaoW                    = 0;
     m_gtaoH                    = 0;
+    m_gtaoWasEnabled           = false;
+    m_gtaoNeedReset            = true;
     m_initialized              = false;
 }
 
@@ -222,8 +224,9 @@ void SceneRenderer::ensureGtaoSize(Renderer& renderer)
     renderer.waitForGpu();
     if (!m_gtao.resize(renderer.device(), w, h))
         DE_LOG_WARN(LogCategory::Render, "SceneRenderer: GtaoPipeline resize failed — SSAO disabled");
-    m_gtaoW = w;
-    m_gtaoH = h;
+    m_gtaoW         = w;
+    m_gtaoH         = h;
+    m_gtaoNeedReset = true;
 }
 
 Math::Matrix4f SceneRenderer::beginCameraFrame(Camera3D& camera, Renderer& renderer)
@@ -244,6 +247,42 @@ void SceneRenderer::endCameraFrame(Camera3D& camera, const Math::Matrix4f& viewP
     m_prevViewProj     = viewProj;
     m_havePrevViewProj = true;
     camera.ClearSubpixelJitter();
+}
+
+void SceneRenderer::applyGtao(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj,
+                             const GtaoSettings& settings)
+{
+    ensureGtaoSize(renderer);
+
+    GtaoSettings drawSettings = settings;
+    drawSettings.enabled      = settings.enabled && renderer.debugState().ssaoEnabled;
+
+    const bool skip = !cmd || renderer.scenePath() != ScenePath::HybridDeferred || !renderer.hasGBuffer() || !drawSettings.enabled || !m_gtao.isValid()
+        || renderer.device() == nullptr || renderer.depthSrvCpu().ptr == 0 || renderer.attribSrvCpu().ptr == 0 || renderer.velocitySrvCpu().ptr == 0
+        || renderer.aoSrvCpu().ptr == 0;
+    if (skip)
+    {
+        // Restore authored MRT3. Do not bind a white SSAO tex (compose cleared to 1 would wipe ORM cavities).
+        renderer.setLightingAoSrv(renderer.aoSrvCpu());
+        m_gtaoWasEnabled = false;
+        return;
+    }
+
+    const bool resetHistory = !m_gtaoWasEnabled || m_gtaoNeedReset || !m_havePrevViewProj || (wantsTaa(renderer) && !m_taaHistoryValid);
+    m_gtaoWasEnabled        = true;
+    m_gtaoNeedReset         = false;
+
+    cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
+    m_gtao.draw(cmd, renderer, camera, prevViewProj, drawSettings, resetHistory);
+
+    const D3D12_CPU_DESCRIPTOR_HANDLE compose = m_gtao.composeSrvCpu();
+    if (compose.ptr == 0)
+    {
+        renderer.setLightingAoSrv(renderer.aoSrvCpu());
+        return;
+    }
+    renderer.setLightingAoSrv(compose);
+    renderer.bindHdr(false);
 }
 
 void SceneRenderer::drawDeferredLighting(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const LightingConstants& lc) const

@@ -398,6 +398,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     {
         renderer().bindHdr(false);
         renderer().clearHdr();
+        m_scene.applyGtao(cmd, renderer(), m_camera, prevViewProj, m_ssao);
         LightingConstants lc{};
         copyMatrix(lc.invViewProj, viewProj.Inverse());
         const Vector3f cam = m_camera.GetPosition();

@@ -2613,6 +2613,7 @@ void SandboxApp::onRender()
 
         renderer().bindHdr(false);
         renderer().clearHdr();
+        m_scene.applyGtao(cmd, renderer(), m_viewCamera, prevViewProj, m_ssao);
         LightingConstants lc{};
         copyMatrix(lc.invViewProj, viewProj.Inverse());
         lc.cameraPos[0]     = camPos.x;
