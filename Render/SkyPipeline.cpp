@@ -69,7 +69,7 @@ bool SkyPipeline::create(ID3D12Device* device, SkyPass pass, DXGI_FORMAT colorFo
     shadowSamp.AddressU         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
     shadowSamp.AddressV         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
     shadowSamp.AddressW         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
-    shadowSamp.ComparisonFunc   = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    shadowSamp.ComparisonFunc   = shadowCmpFunc();
     shadowSamp.BorderColor      = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
     shadowSamp.MaxLOD           = D3D12_FLOAT32_MAX;
     shadowSamp.ShaderRegister   = 1;

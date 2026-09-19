@@ -76,7 +76,7 @@ namespace Dark
 		samps[1].AddressU         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
 		samps[1].AddressV         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
 		samps[1].AddressW         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
-		samps[1].ComparisonFunc   = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+		samps[1].ComparisonFunc   = shadowCmpFunc();
 		samps[1].BorderColor      = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
 		samps[1].MaxLOD           = D3D12_FLOAT32_MAX;
 		samps[1].ShaderRegister   = 1;
@@ -140,15 +140,15 @@ namespace Dark
 		psoDesc.RasterizerState.DepthClipEnable       = TRUE;
 		psoDesc.DepthStencilState.DepthEnable    = TRUE;
 		psoDesc.DepthStencilState.DepthWriteMask = (transparent && !m_shadow) ? D3D12_DEPTH_WRITE_MASK_ZERO : D3D12_DEPTH_WRITE_MASK_ALL;
-		psoDesc.DepthStencilState.DepthFunc      = D3D12_COMPARISON_FUNC_LESS;
+		psoDesc.DepthStencilState.DepthFunc      = m_shadow ? shadowDepthFunc() : (transparent ? sceneDepthFuncGreaterEqual() : sceneDepthFunc());
 		psoDesc.PrimitiveTopologyType            = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 		psoDesc.DSVFormat                        = DXGI_FORMAT_D32_FLOAT;
 		psoDesc.SampleDesc                       = { 1, 0 };
 
 		if (m_shadow)
 		{
-			psoDesc.RasterizerState.DepthBias            = 4000;
-			psoDesc.RasterizerState.SlopeScaledDepthBias = 2.5f;
+			psoDesc.RasterizerState.DepthBias            = -4000;
+			psoDesc.RasterizerState.SlopeScaledDepthBias = -2.5f;
 			psoDesc.InputLayout                          = { shadowLayout, _countof(shadowLayout) };
 			psoDesc.NumRenderTargets                     = 0;
 			if (FailedHr(device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_psoSolid)), "CreateGraphicsPipelineState (skinned shadow)"))
@@ -159,8 +159,6 @@ namespace Dark
 			DE_LOG_INFO(LogCategory::Render, "SkinnedMeshPipeline: ready (shadow)");
 			return true;
 		}
-
-		psoDesc.DepthStencilState.DepthFunc = transparent ? sceneDepthFuncGreaterEqual() : sceneDepthFunc();
 		psoDesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
 		psoDesc.BlendState.RenderTarget[1].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
 		psoDesc.InputLayout = { colorLayout, _countof(colorLayout) };

@@ -69,7 +69,7 @@ namespace Dark
         samps[1].AddressU         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
         samps[1].AddressV         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
         samps[1].AddressW         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
-        samps[1].ComparisonFunc   = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+        samps[1].ComparisonFunc   = shadowCmpFunc();
         samps[1].BorderColor      = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
         samps[1].MaxLOD           = D3D12_FLOAT32_MAX;
         samps[1].ShaderRegister   = 1;

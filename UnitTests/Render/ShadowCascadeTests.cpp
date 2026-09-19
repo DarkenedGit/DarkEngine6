@@ -7,6 +7,7 @@
 #include "Math/Vector3f.h"
 #include "Math/Vector4f.h"
 #include "Render/Camera3D.h"
+#include "Render/Frustum3f.h"
 #include "Render/ShadowCascades.h"
 
 using namespace Dark;
@@ -180,9 +181,59 @@ TEST(ShadowCascades, LargeTerrainBoundsPreserveMeterScaleDepth)
     const Vector4f cClip = out.viewProj * Vector4f(towardLight.x, towardLight.y, towardLight.z, 1.0f);
     const float gZ = gClip.z / Max(fabsf(gClip.w), 1.0e-5f);
     const float cZ = cClip.z / Max(fabsf(cClip.w), 1.0e-5f);
-    EXPECT_LT(cZ, gZ);
+    EXPECT_GT(cZ, gZ);
     // 1m along the light must remain larger than the old 0.0015 NDC bias and
-    // the new world-space 0.05m bias after conversion.
+    // the new world-space 0.05m bias after conversion. Reverse ortho maps
+    // closer-to-light onto larger clip Z.
     const float ndcBias = 0.05f / Max(out.zRange, 1.0f);
-    EXPECT_GT(gZ - cZ, ndcBias * 4.0f);
+    EXPECT_GT(cZ - gZ, ndcBias * 4.0f);
+}
+
+TEST(ShadowCascades, ReceiverBiasPastClipOneIsRejected)
+{
+    Camera3D cam;
+    cam.SetLens(1.04719755f, 1.6f, 0.5f, 2000.0f);
+    cam.LookAt(Vector3f(0.0f, 48.0f, -86.0f), Vector3f(0.0f, 8.0f, 0.0f), Vector3f(0.0f, 1.0f, 0.0f));
+
+    Vector3f corners[8];
+    extractFrustumCorners(cam, 80.0f, 280.0f, corners);
+
+    AABox3f        scene(Vector3f(-128.0f, 0.0f, -128.0f), Vector3f(128.0f, 22.0f, 128.0f));
+    CascadeData    out;
+    const Vector3f light(0.40f, 0.60f, 0.30f);
+    ASSERT_TRUE(buildCascadeMatrix(corners, light, scene, 24.0f, 2048, out));
+
+    Vector3f lightN = light;
+    lightN.Normalize();
+    Vector3f center(0.0f, 0.0f, 0.0f);
+    for (int i = 0; i < 8; ++i)
+        center += corners[i];
+    center *= (1.0f / 8.0f);
+
+    // Walk toward the light: reverse ortho raises clip Z. Stay in clip XY so
+    // the reject below is the Z test, not an XY miss.
+    float ndcZ = -1.0f;
+    for (int i = 0; i < 200; ++i)
+    {
+        const Vector3f p    = center + lightN * (2.0f * static_cast<float>(i));
+        const Vector4f clip = out.viewProj * Vector4f(p.x, p.y, p.z, 1.0f);
+        const float    w    = Max(fabsf(clip.w), 1.0e-5f);
+        const float    z    = clip.z / w;
+        const float    x    = clip.x / w;
+        const float    y    = clip.y / w;
+        if (z > ndcZ && fabsf(x) <= 1.0f && fabsf(y) <= 1.0f)
+            ndcZ = z;
+    }
+    EXPECT_GT(ndcZ, 0.9f);
+
+    const float ndcBias = 0.05f / Max(out.zRange, 1.0f);
+    const float biased  = ndcZ + ndcBias;
+    EXPECT_GT(biased, 1.0f);
+    // Shadow.hlsli keeps the [0,1] reject (no saturate). Out of Z = fully lit.
+    EXPECT_TRUE(biased < 0.0f || biased > 1.0f);
+
+    const Frustum3f cascadeFrustum(out.viewProj);
+    EXPECT_TRUE(cascadeFrustum.Contains(center));
+    EXPECT_FALSE(cascadeFrustum.Contains(center + lightN * 10000.0f));
+    EXPECT_FALSE(cascadeFrustum.Contains(center - lightN * 10000.0f));
 }

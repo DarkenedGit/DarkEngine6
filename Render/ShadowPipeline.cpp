@@ -1,4 +1,5 @@
 #include "Render/ShadowPipeline.h"
+#include "Render/DepthState.h"
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
 
@@ -76,13 +77,13 @@ bool ShadowPipeline::create(ID3D12Device* device)
     pso.RasterizerState.CullMode              = D3D12_CULL_MODE_BACK;
     pso.RasterizerState.FrontCounterClockwise = TRUE;
     pso.RasterizerState.DepthClipEnable       = TRUE;
-    pso.RasterizerState.DepthBias             = 4000;
-    pso.RasterizerState.SlopeScaledDepthBias  = 2.5f;
+    pso.RasterizerState.DepthBias             = -4000;
+    pso.RasterizerState.SlopeScaledDepthBias  = -2.5f;
     pso.RasterizerState.DepthBiasClamp        = 0.0f;
 
     pso.DepthStencilState.DepthEnable    = TRUE;
     pso.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-    pso.DepthStencilState.DepthFunc      = D3D12_COMPARISON_FUNC_LESS;
+    pso.DepthStencilState.DepthFunc      = shadowDepthFunc();
     pso.DepthStencilState.StencilEnable  = FALSE;
 
     pso.InputLayout           = { layout, _countof(layout) };

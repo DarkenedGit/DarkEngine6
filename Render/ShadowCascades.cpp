@@ -157,7 +157,7 @@ bool buildCascadeMatrix(
     if (maxZ <= minZ)
         maxZ = minZ + 1.0f;
 
-    const Matrix4f proj = Matrix4f::OrthographicOffCenterLHMatrix(
+    const Matrix4f proj = Matrix4f::OrthographicOffCenterLHReverseMatrix(
         cx - radius, cx + radius, cy - radius, cy + radius, minZ, maxZ);
     out.viewProj = view * proj;
     out.zRange   = maxZ - minZ;

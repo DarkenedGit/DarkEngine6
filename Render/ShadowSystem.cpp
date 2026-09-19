@@ -1,5 +1,6 @@
 #include "Render/ShadowSystem.h"
 #include "Render/Camera3D.h"
+#include "Render/DepthState.h"
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
 
@@ -66,7 +67,7 @@ bool ShadowSystem::createResources(ID3D12Device* device)
 
     D3D12_CLEAR_VALUE clear{};
     clear.Format             = DXGI_FORMAT_D32_FLOAT;
-    clear.DepthStencil.Depth = 1.0f;
+    clear.DepthStencil.Depth = kDepthClear;
 
     if (FailedHr(
             device->CreateCommittedResource(
@@ -140,7 +141,7 @@ bool ShadowSystem::createResources(ID3D12Device* device)
         return false;
     m_cbGpu = m_cbUpload->GetGPUVirtualAddress();
 
-    DE_LOG_INFO(LogCategory::Render, "ShadowSystem: {} cascades @ {}px ({} buffered frames)", m_cascadeCount, m_settings.mapSize, kBufferedFrames);
+    DE_LOG_INFO(LogCategory::Render, "ShadowSystem: {} cascades @ {}px ({} buffered frames, clear=0)", m_cascadeCount, m_settings.mapSize, kBufferedFrames);
     return true;
 }
 
@@ -234,7 +235,7 @@ void ShadowSystem::beginCascade(ID3D12GraphicsCommandList* cmd, int cascade)
     cmd->RSSetViewports(1, &vp);
     cmd->RSSetScissorRects(1, &sc);
     cmd->OMSetRenderTargets(0, nullptr, FALSE, &m_dsvCpu[m_frame][cascade]);
-    cmd->ClearDepthStencilView(m_dsvCpu[m_frame][cascade], D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+    cmd->ClearDepthStencilView(m_dsvCpu[m_frame][cascade], D3D12_CLEAR_FLAG_DEPTH, kDepthClear, 0, 0, nullptr);
     m_pipeline.bind(cmd);
     m_pipeline.setWvp(cmd, m_cascades[cascade].viewProj.m_afEntry);
 }

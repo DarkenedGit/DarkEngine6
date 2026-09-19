@@ -40,9 +40,9 @@ bool ShadowCoord(float3 worldPos, int cascade, out float3 uvz)
     float  w  = max(abs(lp.w), 1e-5f);
     uvz = lp.xyz / w;
     uvz.xy = uvz.xy * float2(0.5f, -0.5f) + 0.5f;
-    // World-space bias -> NDC using this cascade's ortho Z range so a 1m
-    // caster still wins against the receiver on a large terrain.
-    uvz.z -= shadowParams.x * cascadeInvZ[cascade];
+    // World-space bias -> NDC. Reverse-Z SampleCmp GREATER_EQUAL is lit when
+    // receiverZ >= storedZ, so adding bias (more lit) matches the old subtract.
+    uvz.z += shadowParams.x * cascadeInvZ[cascade];
     return !(uvz.x < 0.0f || uvz.x > 1.0f || uvz.y < 0.0f || uvz.y > 1.0f || uvz.z < 0.0f || uvz.z > 1.0f);
 }
 
