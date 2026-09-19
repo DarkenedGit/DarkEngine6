@@ -1936,7 +1936,7 @@ void SandboxApp::updateShoulderCamera()
     if (m_playerWet)
         cam.y = Math::Max(cam.y, m_water.params().waterLevel + 0.45f);
 
-    m_viewCamera.SetLens(1.04719755f, m_viewCamera.GetAspect(), 0.18f, 2000.0f);
+    m_viewCamera.SetLens(1.04719755f, m_viewCamera.GetAspect(), m_viewCamera.GetNearZ(), m_viewCamera.GetFarZ());
     const Vector3f aim = target + look * 16.0f;
     m_viewCamera.LookAt(cam, aim, Vector3f{ 0.0f, 1.0f, 0.0f });
     if (auto* cxf = world().get<TransformComponent>(m_camera))
@@ -2295,13 +2295,13 @@ void SandboxApp::onInit()
     spawnGltfDemo();
 
     const float aspect = (renderer().height() > 0) ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height()) : 1.0f;
-    m_viewCamera.SetLens(/*fovY*/ 1.04719755f /*60deg*/, aspect, 0.18f, 2000.0f);
+    m_viewCamera.SetLens(/*fovY*/ 1.04719755f /*60deg*/, aspect, 0.05f, 1.0e5f);
     m_viewCamera.LookAt(Vector3f(0.0f, 48.0f, -86.0f), Vector3f(0.0f, 8.0f, 0.0f), Vector3f(0.0f, 1.0f, 0.0f));
 
     m_camera = world().createEntity();
     world().emplace<TagComponent>(m_camera, "Main Camera");
     world().emplace<TransformComponent>(m_camera, m_viewCamera.GetPosition(), Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
-    world().emplace<CameraComponent>(m_camera, /* fovDeg */ 60.0f, /* near */ 0.5f, /* far */ 2000.0f, /* primary */ true);
+    world().emplace<CameraComponent>(m_camera, /* fovDeg */ 60.0f, /* near */ 0.5f, /* far */ 1.0e5f, /* primary */ true);
     world().emplace<AudioListenerComponent>(m_camera);
     attachCameraSounds(world(), pins(), assets(), audio(), m_camera);
 

@@ -234,7 +234,7 @@ void EditorApp::onInit()
     const float aspect = (renderer().height() > 0)
         ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height())
         : 1.0f;
-    m_camera.SetLens(1.04719755f, aspect, 0.05f, 500.0f);
+    m_camera.SetLens(1.04719755f, aspect, 0.05f, 1.0e4f);
     m_camera.LookAt(Vector3f(8.0f, 6.0f, -10.0f), Vector3f(0.0f, 0.0f, 0.0f), Vector3f(0.0f, 1.0f, 0.0f));
     m_camera2D.SetViewportSize(static_cast<float>(renderer().width()), static_cast<float>(renderer().height()));
     m_camera2D.SetOrthoHeight(16.0f);

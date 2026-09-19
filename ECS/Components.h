@@ -71,7 +71,7 @@ namespace Dark
 
         float fovDeg  = 60.0f;
         float nearZ   = 0.01f;
-        float farZ    = 1000.0f;
+        float farZ    = 1.0e5f;
         bool  primary = false;
     };
 

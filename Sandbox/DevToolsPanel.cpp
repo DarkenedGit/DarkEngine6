@@ -172,6 +172,17 @@ void SandboxApp::drawDevTools()
             DE_LOG_INFO("Sandbox: skeleton overlay = {}", m_showSkeleton);
     }
 
+    if (ImGui::CollapsingHeader("Camera"))
+    {
+        float nearZ = m_viewCamera.GetNearZ();
+        float farZ  = m_viewCamera.GetFarZ();
+        bool  ch    = false;
+        ch |= ImGui::SliderFloat("Near", &nearZ, 0.01f, 1.0f, "%.3f");
+        ch |= ImGui::SliderFloat("Far", &farZ, 100.0f, 1.0e6f, "%.0f", ImGuiSliderFlags_Logarithmic);
+        if (ch)
+            m_viewCamera.SetLens(m_viewCamera.GetFovY(), m_viewCamera.GetAspect(), nearZ, farZ);
+    }
+
     if (renderer().hasGBuffer() && ImGui::CollapsingHeader("IBL", ImGuiTreeNodeFlags_DefaultOpen))
     {
         DebugRenderState& iblDbg = renderer().debugState();
