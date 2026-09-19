@@ -91,6 +91,7 @@ namespace Dark
         m_aoGpu          = {};
         m_iblGpu         = {};
         m_shadowCpu      = {};
+        m_lightingAoCpu  = {};
         m_heightCpu      = {};
         m_iblIrrCpu      = {};
         m_iblPrefCpu     = {};
@@ -371,8 +372,9 @@ namespace Dark
             device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingShadow, m_srvIncr), m_shadowCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         if (m_heightCpu.ptr != 0)
             device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingHeight, m_srvIncr), m_heightCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        if (m_aoSrvCpu.ptr != 0)
-            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingAo, m_srvIncr), m_aoSrvCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        const D3D12_CPU_DESCRIPTOR_HANDLE aoSrc = m_lightingAoCpu.ptr != 0 ? m_lightingAoCpu : m_aoSrvCpu;
+        if (aoSrc.ptr != 0)
+            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingAo, m_srvIncr), aoSrc, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         if (m_iblIrrCpu.ptr != 0)
             device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingIblIrradiance, m_srvIncr), m_iblIrrCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         if (m_iblPrefCpu.ptr != 0)
@@ -388,6 +390,15 @@ namespace Dark
             return;
         D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_lightingHeap->GetCPUDescriptorHandleForHeapStart();
         device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingShadow, m_srvIncr), shadowCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    }
+
+    void SceneBuffers::setLightingAoSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE aoCpu)
+    {
+        m_lightingAoCpu = aoCpu;
+        if (!device || !m_lightingHeap || aoCpu.ptr == 0)
+            return;
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_lightingHeap->GetCPUDescriptorHandleForHeapStart();
+        device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingAo, m_srvIncr), aoCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     }
 
     void SceneBuffers::applyLightingAlbedoView(ID3D12Device* device)

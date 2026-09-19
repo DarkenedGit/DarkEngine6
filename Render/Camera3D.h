@@ -98,6 +98,10 @@ namespace Dark
         {
             return m_Proj;
         }
+        const Math::Matrix4f& GetProjUnjittered() const
+        {
+            return m_ProjUnjittered;
+        }
         Math::Matrix4f GetViewProj() const;
 
         // ── Screen / world helpers (viewport size in pixels) ──────────────────

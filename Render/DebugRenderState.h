@@ -27,6 +27,8 @@ namespace Dark
         bool      showAlbedoRaw     = false; // lighting heap slot 0 = UNORM (no sRGB decode)
         bool      iblEnabled        = true; // AND with IblSettings.enabled and GpuIbl::isReady()
         int       iblDebug          = 0;    // 0 off, 1 irradiance, 2 prefiltered lod0, 3 LUT
+        bool      ssaoEnabled       = false; // AND with GtaoSettings.enabled
+        int       ssaoDebug         = 0;    // 0 off, 1 AoFull overlay tile
 
         bool lightingActive() const { return lighting && !showAlbedoLinear; }
 

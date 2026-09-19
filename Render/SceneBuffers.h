@@ -103,6 +103,7 @@ namespace Dark
         void transitionAo(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
 
         void setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
+        void setLightingAoSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE aoCpu);
         void setHeightSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE heightCpu);
         void setIblSrvs(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE irradianceCpu, D3D12_CPU_DESCRIPTOR_HANDLE prefilterCpu,
                         D3D12_CPU_DESCRIPTOR_HANDLE brdfLutCpu);
@@ -150,6 +151,7 @@ namespace Dark
         D3D12_GPU_DESCRIPTOR_HANDLE  m_aoGpu{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_iblGpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_shadowCpu{};
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_lightingAoCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_heightCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_iblIrrCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_iblPrefCpu{};
