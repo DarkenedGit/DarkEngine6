@@ -107,10 +107,11 @@ namespace Dark::Combat
         if (targetFacingFlat)
             facing = *targetFacingFlat;
 
+        const bool downed   = status && status->knockedDown();
         const bool canParry = (ev.flags & DamageFlags::CanParry) != 0;
         const bool canBlock = (ev.flags & DamageFlags::CanBlock) != 0;
 
-        if (canParry && defense && defense->inParryWindow()
+        if (canParry && !downed && defense && defense->inParryWindow()
             && isInsideBlockArc(ev.hitDir, facing, defense->blockArcDeg))
         {
             r.parried  = true;
@@ -123,7 +124,7 @@ namespace Dark::Combat
 
         float dmg = ev.amount;
 
-        if (canBlock && defense && defense->blocking
+        if (canBlock && !downed && defense && defense->blocking
             && isInsideBlockArc(ev.hitDir, facing, defense->blockArcDeg))
         {
             if (defense->stamina >= defense->blockStaminaCost)
@@ -156,21 +157,45 @@ namespace Dark::Combat
         r.finalDamage = dmg;
         r.applied     = true;
 
-        if (status && (ev.flags & (DamageFlags::SoftCc | DamageFlags::HardCc)) != 0)
+        const bool mappedKnockdown = (ev.flags & DamageFlags::Knockdown) != 0;
+        if (status && !r.blocked
+            && (ev.flags & (DamageFlags::SoftCc | DamageFlags::HardCc | DamageFlags::Knockdown)) != 0)
         {
-            const bool       hard = (ev.flags & DamageFlags::HardCc) != 0;
-            const CcCategory cat  = hard ? CcCategory::Stun : CcCategory::Root;
-            const float      dur  = ev.statusDuration > 0.0f ? ev.statusDuration : (hard ? 1.2f : 0.8f);
-            r.ccDuration          = status->applyCc(cat, dur, hard, ev.statusId, ev.statusMagnitude);
+            CcCategory cat    = CcCategory::Root;
+            bool       hard   = false;
+            float      defDur = 0.8f;
+            if (mappedKnockdown)
+            {
+                cat    = CcCategory::Knockdown;
+                hard   = true;
+                defDur = 1.4f;
+            }
+            else if ((ev.flags & DamageFlags::HardCc) != 0)
+            {
+                cat    = CcCategory::Stun;
+                hard   = true;
+                defDur = 1.2f;
+            }
+            const float dur = ev.statusDuration > 0.0f ? ev.statusDuration : defDur;
+            r.ccDuration    = status->applyCc(cat, dur, hard, ev.statusId, ev.statusMagnitude);
         }
 
         const float maxHp = maxHpForSeverity > 1.0e-6f ? maxHpForSeverity : 100.0f;
         const float norm  = dmg / maxHp;
         r.severity        = severityFromNormalized(norm, poiseBroke, killed);
 
-        if (hitReaction && r.severity != Severity::Tick)
+        if (hitReaction && !r.blocked)
         {
-            if (!(poise && poise->hyperArmor))
+            const bool hyper = poise && poise->hyperArmor;
+            if (mappedKnockdown && r.ccDuration > 0.0f)
+            {
+                if (!hyper)
+                {
+                    hitReaction->setSettings(hitReactionForKnockdown(r.ccDuration, ev.statusMagnitude));
+                    hitReaction->apply(ev.hitDir);
+                }
+            }
+            else if (r.severity != Severity::Tick && !hyper)
             {
                 hitReaction->setSettings(hitReactionForSeverity(r.severity));
                 hitReaction->apply(ev.hitDir);

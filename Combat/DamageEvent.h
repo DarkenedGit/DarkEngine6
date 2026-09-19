@@ -20,6 +20,7 @@ namespace Dark::Combat
         constexpr uint32_t SoftCc        = 1u << 4;
         constexpr uint32_t HardCc        = 1u << 5;
         constexpr uint32_t SameTeamOk    = 1u << 6;
+        constexpr uint32_t Knockdown     = 1u << 7;
     }
 
     struct DamageEvent

@@ -129,6 +129,18 @@ namespace Dark::Combat
             }
             return false;
         }
+
+        bool hasCategory(CcCategory cat) const
+        {
+            for (int i = 0; i < count; ++i)
+            {
+                if (slots[i].category == cat && slots[i].remaining > 0.0f)
+                    return true;
+            }
+            return false;
+        }
+
+        bool knockedDown() const { return hasCategory(CcCategory::Knockdown); }
     };
 
 } // namespace Dark::Combat

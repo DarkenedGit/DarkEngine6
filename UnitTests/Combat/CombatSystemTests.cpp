@@ -8,6 +8,7 @@
 #include "Combat/CombatSystem.h"
 #include "Combat/DefenseComponent.h"
 #include "Combat/HitSet.h"
+#include "Combat/JumpAttackResolve.h"
 #include "Combat/PoiseComponent.h"
 #include "Combat/SpellCaster.h"
 #include "Combat/StatusEffectComponent.h"
@@ -315,4 +316,289 @@ TEST(AttackDef_Defaults, MeleePayloadFieldsPresent)
     a.armorPen    = 0.1f;
     EXPECT_EQ(a.type, DamageType::Blunt);
     EXPECT_GT(a.poiseDamage, 0.0f);
+}
+
+TEST(Combat_HardCc_StunsWithoutKnockdown, MapsToStunNotKnockdown)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    StatusEffectComponent st{};
+    DamageEvent ev = makeHit(1.0f);
+    ev.flags           = DamageFlags::HardCc;
+    ev.statusDuration  = 2.0f;
+    const ResolveResult r = sys.resolveDirect(ev, &hp, nullptr, nullptr, nullptr, nullptr, &st, nullptr, 100.0f);
+    EXPECT_NEAR(r.ccDuration, 2.0f, 1.0e-4f);
+    EXPECT_TRUE(st.hasCategory(CcCategory::Stun));
+    EXPECT_TRUE(st.hasHardCc());
+    EXPECT_FALSE(st.knockedDown());
+}
+
+TEST(Combat_KnockdownOnly_AppliesKnockdown, NoHardCcBit)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    StatusEffectComponent st{};
+    HitReaction  hit{};
+    DamageEvent ev = makeHit(1.0f);
+    ev.flags = DamageFlags::Knockdown;
+    const ResolveResult r = sys.resolveDirect(ev, &hp, &hit, nullptr, nullptr, nullptr, &st, nullptr, 100.0f);
+    EXPECT_NEAR(r.ccDuration, 1.4f, 1.0e-4f);
+    EXPECT_TRUE(st.knockedDown());
+    EXPECT_TRUE(st.hasHardCc());
+    EXPECT_FALSE(st.hasCategory(CcCategory::Stun));
+    EXPECT_TRUE(hit.stunned());
+    EXPECT_NEAR(hit.stunRemaining(), 1.4f, 1.0e-4f);
+}
+
+TEST(Combat_KnockdownAndHardCc_AppliesKnockdown, LongHitReactionStun)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    StatusEffectComponent st{};
+    HitReaction  hit{};
+    DamageEvent ev = makeHit(32.0f);
+    ev.flags            = DamageFlags::HardCc | DamageFlags::Knockdown;
+    ev.statusDuration   = 1.4f;
+    ev.statusMagnitude  = 3.5f;
+    const ResolveResult r = sys.resolveDirect(ev, &hp, &hit, nullptr, nullptr, nullptr, &st, nullptr, 100.0f);
+    EXPECT_NEAR(r.ccDuration, 1.4f, 1.0e-4f);
+    EXPECT_TRUE(st.knockedDown());
+    EXPECT_TRUE(st.hasHardCc());
+    EXPECT_FALSE(st.hasCategory(CcCategory::Stun));
+    EXPECT_TRUE(hit.stunned());
+    EXPECT_NEAR(hit.stunRemaining(), 1.4f, 1.0e-4f);
+    EXPECT_NEAR(hit.settings().knockbackDistance, 3.5f, 1.0e-4f);
+    EXPECT_NEAR(hit.settings().knockbackSeconds, 0.22f, 1.0e-4f);
+    EXPECT_TRUE(hit.settings().horizontalOnly);
+
+    StatusEffectComponent stSoft{};
+    HitReaction           hitSoft{};
+    Health                hpSoft{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    DamageEvent mixed = makeHit(1.0f);
+    mixed.flags = DamageFlags::SoftCc | DamageFlags::Knockdown;
+    const ResolveResult rm = sys.resolveDirect(mixed, &hpSoft, &hitSoft, nullptr, nullptr, nullptr, &stSoft, nullptr, 100.0f);
+    EXPECT_TRUE(stSoft.knockedDown());
+    EXPECT_FALSE(stSoft.hasCategory(CcCategory::Root));
+    EXPECT_NEAR(rm.ccDuration, 1.4f, 1.0e-4f);
+    EXPECT_NEAR(hitSoft.settings().knockbackDistance, 2.4f, 1.0e-4f);
+}
+
+TEST(Combat_KnockdownDr_IndependentOfStun, ThirdImmuneInWindow)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    StatusEffectComponent st{};
+    DamageEvent stun = makeHit(1.0f);
+    stun.flags          = DamageFlags::HardCc;
+    stun.statusDuration = 2.0f;
+    EXPECT_NEAR(sys.resolveDirect(stun, &hp, nullptr, nullptr, nullptr, nullptr, &st, nullptr, 100.0f).ccDuration, 2.0f, 1.0e-4f);
+    EXPECT_NEAR(sys.resolveDirect(stun, &hp, nullptr, nullptr, nullptr, nullptr, &st, nullptr, 100.0f).ccDuration, 1.0f, 1.0e-4f);
+    EXPECT_NEAR(sys.resolveDirect(stun, &hp, nullptr, nullptr, nullptr, nullptr, &st, nullptr, 100.0f).ccDuration, 0.0f, 1.0e-4f);
+
+    HitReaction hit{};
+    DamageEvent kd = makeHit(32.0f);
+    kd.flags          = DamageFlags::Knockdown;
+    kd.statusDuration = 1.4f;
+    const ResolveResult k1 = sys.resolveDirect(kd, &hp, &hit, nullptr, nullptr, nullptr, &st, nullptr, 100.0f);
+    EXPECT_NEAR(k1.ccDuration, 1.4f, 1.0e-4f);
+    EXPECT_TRUE(st.knockedDown());
+    EXPECT_NEAR(hit.stunRemaining(), 1.4f, 1.0e-4f);
+
+    const ResolveResult k2 = sys.resolveDirect(kd, &hp, &hit, nullptr, nullptr, nullptr, &st, nullptr, 100.0f);
+    EXPECT_NEAR(k2.ccDuration, 0.7f, 1.0e-4f);
+    EXPECT_NEAR(hit.stunRemaining(), 0.7f, 1.0e-4f);
+
+    const ResolveResult k3 = sys.resolveDirect(kd, &hp, &hit, nullptr, nullptr, nullptr, &st, nullptr, 100.0f);
+    EXPECT_NEAR(k3.ccDuration, 0.0f, 1.0e-4f);
+    // Fully DR'd knockdown still flinches from the damage (32/100 → Heavy, not a 1.4 s knockdown).
+    EXPECT_EQ(k3.severity, Severity::Heavy);
+    EXPECT_TRUE(hit.stunned());
+    EXPECT_NEAR(hit.stunRemaining(), hitReactionForSeverity(Severity::Heavy).stunSeconds, 1.0e-4f);
+    EXPECT_EQ(st.dr[static_cast<int>(CcCategory::Knockdown)].applications, 3);
+    EXPECT_EQ(st.dr[static_cast<int>(CcCategory::Stun)].applications, 3);
+}
+
+TEST(Combat_BlockedPounce_ChipNoCcNoStun, DrUnchanged)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    DefenseComponent def{};
+    def.blocking    = true;
+    def.stamina     = 100.0f;
+    ArmorComponent armor{};
+    HitReaction hit{};
+    StatusEffectComponent st{};
+    Vector3f facing{ 0.0f, 0.0f, 1.0f };
+
+    DamageEvent ev = makeHit(32.0f);
+    ev.flags           = DamageFlags::CanBlock | DamageFlags::HardCc | DamageFlags::Knockdown;
+    ev.hitDir          = Vector3f{ 0.0f, 0.0f, -1.0f };
+    ev.statusDuration  = 1.4f;
+    ev.statusMagnitude = 2.4f;
+
+    const ResolveResult r = sys.resolveDirect(ev, &hp, &hit, &def, &armor, nullptr, &st, &facing, 100.0f);
+    EXPECT_TRUE(r.blocked);
+    EXPECT_NEAR(r.finalDamage, 32.0f * 0.7f, 1.0e-3f);
+    EXPECT_NEAR(r.ccDuration, 0.0f, 1.0e-4f);
+    EXPECT_FALSE(hit.stunned());
+    EXPECT_FALSE(st.knockedDown());
+    EXPECT_FALSE(st.hasCategory(CcCategory::Stun));
+    EXPECT_EQ(st.dr[static_cast<int>(CcCategory::Knockdown)].applications, 0);
+    EXPECT_EQ(st.dr[static_cast<int>(CcCategory::Stun)].applications, 0);
+
+    def.blocking = false;
+    HitReaction hit2{};
+    const ResolveResult r2 = sys.resolveDirect(ev, &hp, &hit2, &def, &armor, nullptr, &st, &facing, 100.0f);
+    EXPECT_FALSE(r2.blocked);
+    EXPECT_NEAR(r2.ccDuration, 1.4f, 1.0e-4f);
+    EXPECT_TRUE(st.knockedDown());
+    EXPECT_TRUE(hit2.stunned());
+    EXPECT_EQ(st.dr[static_cast<int>(CcCategory::Knockdown)].applications, 1);
+}
+
+TEST(Combat_Parry_StillFullNegate, KnockdownFlagsDropped)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    DefenseComponent def{};
+    def.beginParryWindow(0.2f);
+    def.blockArcDeg = 140.0f;
+    HitReaction hit{};
+    StatusEffectComponent st{};
+    Vector3f facing{ 0.0f, 0.0f, 1.0f };
+    DamageEvent ev = makeHit(50.0f);
+    ev.flags          = DamageFlags::CanParry | DamageFlags::HardCc | DamageFlags::Knockdown;
+    ev.hitDir         = Vector3f{ 0.0f, 0.0f, -1.0f };
+    ev.statusDuration = 1.4f;
+    const ResolveResult r = sys.resolveDirect(ev, &hp, &hit, &def, nullptr, nullptr, &st, &facing, 100.0f);
+    EXPECT_TRUE(r.parried);
+    EXPECT_TRUE(r.applied);
+    EXPECT_FLOAT_EQ(r.finalDamage, 0.0f);
+    EXPECT_FLOAT_EQ(r.ccDuration, 0.0f);
+    EXPECT_FLOAT_EQ(hp.hp(), 100.0f);
+    EXPECT_FALSE(hit.stunned());
+    EXPECT_FALSE(st.knockedDown());
+    EXPECT_EQ(st.dr[static_cast<int>(CcCategory::Knockdown)].applications, 0);
+}
+
+TEST(Combat_IFrame_DropsKnockdown, EventDropped)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    DefenseComponent def{};
+    def.beginIFrame(0.5f);
+    HitReaction hit{};
+    StatusEffectComponent st{};
+    DamageEvent ev = makeHit(32.0f);
+    ev.flags = DamageFlags::CanBlock | DamageFlags::HardCc | DamageFlags::Knockdown;
+    const ResolveResult r = sys.resolveDirect(ev, &hp, &hit, &def, nullptr, nullptr, &st, nullptr, 100.0f);
+    EXPECT_TRUE(r.iframe);
+    EXPECT_FALSE(r.applied);
+    EXPECT_FLOAT_EQ(hp.hp(), 100.0f);
+    EXPECT_FLOAT_EQ(r.ccDuration, 0.0f);
+    EXPECT_FALSE(hit.stunned());
+    EXPECT_FALSE(st.knockedDown());
+}
+
+TEST(Combat_HyperArmor_SkipsHitReactionKeepsCc, KnockdownApplied)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    PoiseComponent poise{};
+    poise.hyperArmor = true;
+    HitReaction hit{};
+    StatusEffectComponent st{};
+    DamageEvent ev = makeHit(32.0f);
+    ev.flags          = DamageFlags::Knockdown;
+    ev.statusDuration = 1.4f;
+    const ResolveResult r = sys.resolveDirect(ev, &hp, &hit, nullptr, nullptr, &poise, &st, nullptr, 100.0f);
+    EXPECT_TRUE(r.applied);
+    EXPECT_NEAR(r.ccDuration, 1.4f, 1.0e-4f);
+    EXPECT_TRUE(st.knockedDown());
+    EXPECT_TRUE(st.hasHardCc());
+    EXPECT_FALSE(hit.stunned());
+}
+
+TEST(Combat_KnockedDown_SkipsBlockAndParry, FullDamageNoChip)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    DefenseComponent def{};
+    def.blocking         = true;
+    def.stamina          = 100.0f;
+    def.blockStaminaCost = 12.0f;
+    ArmorComponent armor{};
+    HitReaction hit{};
+    StatusEffectComponent st{};
+    Vector3f facing{ 0.0f, 0.0f, 1.0f };
+
+    DamageEvent kd = makeHit(1.0f);
+    kd.flags  = DamageFlags::Knockdown;
+    kd.hitDir = Vector3f{ 0.0f, 0.0f, -1.0f };
+    ASSERT_TRUE(sys.resolveDirect(kd, &hp, &hit, &def, &armor, nullptr, &st, &facing, 100.0f).ccDuration > 0.0f);
+    ASSERT_TRUE(st.knockedDown());
+    EXPECT_NEAR(def.stamina, 100.0f, 1.0e-3f);
+
+    DamageEvent blockedLooking = makeHit(40.0f);
+    blockedLooking.flags  = DamageFlags::CanBlock;
+    blockedLooking.hitDir = Vector3f{ 0.0f, 0.0f, -1.0f };
+    const ResolveResult rb = sys.resolveDirect(blockedLooking, &hp, &hit, &def, &armor, nullptr, &st, &facing, 100.0f);
+    EXPECT_FALSE(rb.blocked);
+    EXPECT_NEAR(rb.finalDamage, 40.0f, 1.0e-3f);
+    EXPECT_NEAR(def.stamina, 100.0f, 1.0e-3f);
+
+    def.beginParryWindow(0.2f);
+    DamageEvent parryLooking = makeHit(10.0f);
+    parryLooking.flags  = DamageFlags::CanParry;
+    parryLooking.hitDir = Vector3f{ 0.0f, 0.0f, -1.0f };
+    const float hpBefore = hp.hp();
+    const ResolveResult rp = sys.resolveDirect(parryLooking, &hp, &hit, &def, &armor, nullptr, &st, &facing, 100.0f);
+    EXPECT_FALSE(rp.parried);
+    EXPECT_NEAR(rp.finalDamage, 10.0f, 1.0e-3f);
+    EXPECT_NEAR(hp.hp(), hpBefore - 10.0f, 1.0e-3f);
+    EXPECT_TRUE(def.inParryWindow());
+
+    def.beginIFrame(0.5f);
+    DamageEvent iframeHit = makeHit(8.0f);
+    iframeHit.flags  = DamageFlags::CanBlock | DamageFlags::CanParry;
+    iframeHit.hitDir = Vector3f{ 0.0f, 0.0f, -1.0f };
+    const float hpIframe = hp.hp();
+    const ResolveResult ri = sys.resolveDirect(iframeHit, &hp, &hit, &def, &armor, nullptr, &st, &facing, 100.0f);
+    EXPECT_TRUE(ri.iframe);
+    EXPECT_FALSE(ri.applied);
+    EXPECT_FLOAT_EQ(hp.hp(), hpIframe);
+}
+
+TEST(Combat_ResolveJumpAttackEvents_AppliesViaWorld, CountsApplied)
+{
+    World world;
+    Entity target = world.createEntity();
+    HealthComponent hc{};
+    hc.health = Health{ HealthSettings{ 80.0f, 0.0f, 99.0f } };
+    world.emplace<HealthComponent>(target, std::move(hc));
+    world.emplace<StatusEffectComponent>(target);
+    world.emplace<HitReactionComponent>(target);
+
+    CombatSystem sys;
+    DamageEvent events[2]{};
+    events[0]                = makeHit(5.0f, DamageType::True);
+    events[0].target         = target;
+    events[0].flags          = DamageFlags::HardCc;
+    events[0].statusDuration = 1.2f;
+    events[1]                = makeHit(10.0f, DamageType::True);
+    events[1].target         = target;
+    events[1].flags          = DamageFlags::Knockdown;
+    events[1].statusDuration = 1.4f;
+
+    EXPECT_EQ(resolveJumpAttackEvents(world, sys, events, 2), 2);
+    EXPECT_NEAR(world.get<HealthComponent>(target)->health.hp(), 65.0f, 1.0e-3f);
+    EXPECT_TRUE(world.get<StatusEffectComponent>(target)->knockedDown());
+    EXPECT_TRUE(world.get<StatusEffectComponent>(target)->hasCategory(CcCategory::Stun));
+    EXPECT_NEAR(world.get<HitReactionComponent>(target)->hit.stunRemaining(), 1.4f, 1.0e-4f);
+
+    EXPECT_EQ(resolveJumpAttackEvents(world, sys, events, 0), 0);
+    EXPECT_EQ(resolveJumpAttackEvents(world, sys, nullptr, 0), 0);
+
+    DamageEvent bad{};
+    EXPECT_EQ(resolveJumpAttackEvents(world, sys, &bad, 1), 0);
 }
