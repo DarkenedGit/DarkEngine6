@@ -213,7 +213,7 @@ bool SceneRenderer::wantsTaa(const Renderer& renderer) const
     return renderer.scenePath() == ScenePath::HybridDeferred && renderer.debugState().taa && m_taa.isValid();
 }
 
-void SceneRenderer::ensureGtaoSize(Renderer& renderer)
+void SceneRenderer::ensureGtaoSize(Renderer& renderer, ID3D12GraphicsCommandList* cmd)
 {
     if (renderer.scenePath() != ScenePath::HybridDeferred)
         return;
@@ -227,6 +227,8 @@ void SceneRenderer::ensureGtaoSize(Renderer& renderer)
     m_gtaoW         = w;
     m_gtaoH         = h;
     m_gtaoNeedReset = true;
+    if (cmd)
+        m_gtao.clearAoFullIdentity(cmd);
 }
 
 Math::Matrix4f SceneRenderer::beginCameraFrame(Camera3D& camera, Renderer& renderer)
@@ -252,7 +254,7 @@ void SceneRenderer::endCameraFrame(Camera3D& camera, const Math::Matrix4f& viewP
 void SceneRenderer::applyGtao(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj,
                              const GtaoSettings& settings)
 {
-    ensureGtaoSize(renderer);
+    ensureGtaoSize(renderer, cmd);
 
     GtaoSettings drawSettings = settings;
     drawSettings.enabled      = settings.enabled && renderer.debugState().ssaoEnabled;
@@ -265,6 +267,8 @@ void SceneRenderer::applyGtao(ID3D12GraphicsCommandList* cmd, Renderer& renderer
         // Restore authored MRT3. Do not bind a white SSAO tex (compose cleared to 1 would wipe ORM cavities).
         renderer.setLightingAoSrv(renderer.aoSrvCpu());
         m_gtaoWasEnabled = false;
+        if (cmd)
+            m_gtao.clearAoFullIdentity(cmd); // overlay-when-off samples identity, not stale/garbage
         return;
     }
 
@@ -308,7 +312,7 @@ void SceneRenderer::applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd
 
     if (deferred)
     {
-        ensureGtaoSize(renderer);
+        ensureGtaoSize(renderer, cmd);
         const uint32_t bw = renderer.width();
         const uint32_t bh = renderer.height();
         if (bw != m_bloomW || bh != m_bloomH)

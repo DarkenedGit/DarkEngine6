@@ -528,7 +528,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                         x += 2 * (tile + 8);
                     if (m_showGBuffer || m_showVelocity)
                         x += tile + 8;
-                    m_debugOverlay.drawColor(cmd, renderer().device(), aoFull, x, pad, tile, tile);
+                    m_debugOverlay.draw2D(cmd, renderer().device(), aoFull, x, pad, tile, tile, 1.0f, false);
                 }
             }
             cmd->RSSetViewports(1, &renderer().viewport());

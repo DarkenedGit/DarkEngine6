@@ -60,6 +60,7 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE composeSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE aoFullSrvCpu() const; // FLAG_NONE, overlay tile
         void transitionAoFull(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
+        void clearAoFullIdentity(ID3D12GraphicsCommandList* cmd);
 
     private:
         static constexpr UINT kRtvCount      = 5;

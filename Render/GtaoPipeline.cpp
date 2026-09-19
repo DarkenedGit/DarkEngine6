@@ -69,6 +69,15 @@ namespace Dark
         transition(cmd, m_aoFull, after);
     }
 
+    void GtaoPipeline::clearAoFullIdentity(ID3D12GraphicsCommandList* cmd)
+    {
+        if (!cmd || !m_aoFull.res)
+            return;
+        transition(cmd, m_aoFull, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        const float white[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
+        cmd->ClearRenderTargetView(rtvCpu(kRtvFull), white, 0, nullptr);
+    }
+
     D3D12_CPU_DESCRIPTOR_HANDLE GtaoPipeline::rtvCpu(UINT slot) const
     {
         D3D12_CPU_DESCRIPTOR_HANDLE h = m_rtvStart;
