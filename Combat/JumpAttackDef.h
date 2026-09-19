@@ -34,7 +34,7 @@ namespace Dark::Combat
         float      knockdownDuration = 1.4f;
         float      knockdownForce    = 2.4f;
         DamageType connectType       = DamageType::Blunt;
-        uint32_t   connectFlags      = DamageFlags::CanBlock | DamageFlags::HardCc | (1u << 7);
+        uint32_t   connectFlags      = DamageFlags::CanBlock | DamageFlags::HardCc | (1u << 7); // Knockdown bit; named DamageFlags::Knockdown in PR2
 
         float      poundRadius       = 3.5f;
         float      poundVerticalSlop = 2.0f;

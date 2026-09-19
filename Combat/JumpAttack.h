@@ -7,7 +7,6 @@
 #include "Math/Vector3f.h"
 #include "Weapons/Weapon.h"
 
-#include <cstddef>
 #include <cstdint>
 
 namespace Dark::Combat
@@ -56,7 +55,6 @@ namespace Dark::Combat
         float                connectWindowLeft() const;
         float                cooldownLeft() const;
         const Math::Vector3f& velocity() const;
-        size_t               hitCount() const;
 
         bool begin(const JumpAttackBegin& req);
         void onLanded(const Math::Vector3f& landPos);
@@ -91,7 +89,6 @@ namespace Dark::Combat
         float          m_recoverLeft        = 0.0f;
         Math::Vector3f m_lookFlat{ 0.0f, 0.0f, 1.0f };
         Math::Vector3f m_velocity{};
-        Math::Vector3f m_landPos{};
         Entity         m_attacker{};
         Entity         m_intendedTarget{};
         Entity         m_connectedTarget{};

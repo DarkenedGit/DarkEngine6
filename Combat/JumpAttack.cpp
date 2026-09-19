@@ -105,11 +105,6 @@ namespace Dark::Combat
         return m_velocity;
     }
 
-    size_t JumpAttack::hitCount() const
-    {
-        return m_hits.count();
-    }
-
     void JumpAttack::enterLeap()
     {
         m_phase              = JumpAttackPhase::Leap;
@@ -196,11 +191,10 @@ namespace Dark::Combat
         return true;
     }
 
-    void JumpAttack::onLanded(const Vector3f& landPos)
+    void JumpAttack::onLanded(const Vector3f&)
     {
         if (m_phase != JumpAttackPhase::Leap && m_phase != JumpAttackPhase::Connected)
             return;
-        m_landPos     = landPos;
         m_phase       = JumpAttackPhase::Pound;
         m_needTakeoff = false;
         m_snapLeft    = 0.0f;
@@ -259,13 +253,13 @@ namespace Dark::Combat
         if (m_phase != JumpAttackPhase::Leap || m_connectWindowLeft <= 0.0f)
             return false;
 
-        const Vector3f lookDir = flattenDirOrZero(lookFlat);
-        const bool     useCone = lookDir.MagnitudeSqrd() > 1.0e-8f;
+        const bool     exclusive = m_intendedTarget.valid();
+        const Vector3f lookDir   = flattenDirOrZero(lookFlat);
+        const bool     useCone   = !exclusive && lookDir.MagnitudeSqrd() > 1.0e-8f;
 
         Entity   best{};
         Vector3f bestPos{};
         float    bestDist = 1.0e30f;
-        bool     haveIntended = false;
 
         const int n = weaponTargetCount(world);
         for (int i = 0; i < n; ++i)
@@ -282,14 +276,16 @@ namespace Dark::Combat
                 continue;
             if (m_hits.contains(e))
                 continue;
+            if (exclusive && e.id() != m_intendedTarget.id())
+                continue;
 
             const Vector3f to   = flatten(center - attackerPos);
             const float    dist = to.Magnitude();
-            if (dist > m_def.connectRange || dist < kEps)
+            if (dist > m_def.connectRange)
                 continue;
             if (fabsf(center.y - attackerPos.y) > m_def.connectVerticalSlop)
                 continue;
-            if (useCone)
+            if (useCone && dist > kEps)
             {
                 Vector3f dir = to;
                 dir *= (1.0f / dist);
@@ -297,14 +293,13 @@ namespace Dark::Combat
                     continue;
             }
 
-            if (m_intendedTarget.valid() && e.id() == m_intendedTarget.id())
+            if (exclusive)
             {
-                haveIntended = true;
-                best         = e;
-                bestPos      = center;
+                best    = e;
+                bestPos = center;
                 break;
             }
-            if (!haveIntended && dist < bestDist)
+            if (dist < bestDist)
             {
                 bestDist = dist;
                 best     = e;

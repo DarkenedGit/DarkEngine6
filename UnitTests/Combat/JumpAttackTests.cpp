@@ -204,7 +204,6 @@ TEST(JumpAttack_ConnectWindow, InRangeOneEventHitSetSize1)
     DamageEvent ev{};
     ASSERT_TRUE(ja.tryConnect(world.query(), Vector3f{ 0.0f, 2.0f, 0.0f }, Vector3f{ 0.0f, 0.0f, 1.0f }, ev));
     EXPECT_EQ(ja.phase(), JumpAttackPhase::Connected);
-    EXPECT_EQ(ja.hitCount(), 1u);
     EXPECT_EQ(ja.connectedTarget().id(), ent(2).id());
     EXPECT_EQ(ev.target.id(), ent(2).id());
     EXPECT_EQ(ev.source.id(), ent(1).id());
@@ -232,7 +231,7 @@ TEST(JumpAttack_ConnectTwice, SecondFalse)
     DamageEvent b{};
     ASSERT_TRUE(ja.tryConnect(world.query(), Vector3f{ 0.0f, 2.0f, 0.0f }, Vector3f{ 0.0f, 0.0f, 1.0f }, a));
     EXPECT_FALSE(ja.tryConnect(world.query(), Vector3f{ 0.0f, 2.0f, 0.0f }, Vector3f{ 0.0f, 0.0f, 1.0f }, b));
-    EXPECT_EQ(ja.hitCount(), 1u);
+    EXPECT_EQ(ja.connectedTarget().id(), a.target.id());
     EXPECT_EQ(ja.phase(), JumpAttackPhase::Connected);
 }
 
@@ -263,7 +262,6 @@ TEST(JumpAttack_ConnectWindow, MissThenPoundNoConnect)
     EXPECT_EQ(events[0].flags, ja.def().poundFlags);
     EXPECT_NE(events[0].flags & DamageFlags::CanParry, 0u);
     EXPECT_EQ(ja.phase(), JumpAttackPhase::Recover);
-    EXPECT_EQ(ja.hitCount(), 1u);
 }
 
 TEST(JumpAttack_ConnectThenPound, PouncedExcludedOthersIncluded)
@@ -284,7 +282,7 @@ TEST(JumpAttack_ConnectThenPound, PouncedExcludedOthersIncluded)
     DamageEvent events[8]{};
     const int   n = ja.tryPound(world.query(), land, events, 8);
     EXPECT_EQ(n, 2);
-    EXPECT_EQ(ja.hitCount(), 3u);
+    EXPECT_EQ(ja.connectedTarget().id(), ent(2).id());
     bool saw3 = false;
     bool saw4 = false;
     for (int i = 0; i < n; ++i)
@@ -320,7 +318,7 @@ TEST(JumpAttack_ForgotTryPound, TickEntersRecoverNoEvents)
     EXPECT_EQ(ja.phase(), JumpAttackPhase::Pound);
     ja.tick(1.0f / 60.0f);
     EXPECT_EQ(ja.phase(), JumpAttackPhase::Recover);
-    EXPECT_EQ(ja.hitCount(), 0u);
+    EXPECT_FALSE(ja.connectedTarget().valid());
 
     FakeWorld world;
     world.targets.push_back(FakeWorld::Target{ Vector3f{ 0.0f, 0.5f, 1.0f }, ent(2), true });
@@ -339,7 +337,7 @@ TEST(JumpAttack_SplashCancel, ProducesNoPound)
     EXPECT_FALSE(ja.busy());
     DamageEvent events[4]{};
     EXPECT_EQ(ja.tryPound(world.query(), Vector3f{ 0.0f, 0.5f, 0.0f }, events, 4), 0);
-    EXPECT_EQ(ja.hitCount(), 0u);
+    EXPECT_FALSE(ja.connectedTarget().valid());
 }
 
 TEST(JumpAttack_Filters, RadiusVerticalSlopLookCone)
@@ -408,6 +406,62 @@ TEST(JumpAttack_IntendedTarget, WinsOverNearest)
     DamageEvent ev{};
     ASSERT_TRUE(ja.tryConnect(world.query(), Vector3f{ 0.0f, 2.0f, 0.0f }, Vector3f{ 0.0f, 0.0f, 1.0f }, ev));
     EXPECT_EQ(ev.target.id(), ent(9).id());
+    EXPECT_EQ(ja.connectedTarget().id(), ent(9).id());
+}
+
+TEST(JumpAttack_IntendedTarget, OutOfRangeDoesNotFallBackToNearest)
+{
+    JumpAttack ja{};
+    JumpAttackBegin req = airReq();
+    req.intendedTarget  = ent(9);
+    ASSERT_TRUE(ja.begin(req));
+    FakeWorld world;
+    world.targets.push_back(FakeWorld::Target{ Vector3f{ 0.0f, 2.0f, 1.0f }, ent(2), true });
+    world.targets.push_back(FakeWorld::Target{ Vector3f{ 0.0f, 2.0f, 4.0f }, ent(9), true });
+    DamageEvent ev{};
+    EXPECT_FALSE(ja.tryConnect(world.query(), Vector3f{ 0.0f, 2.0f, 0.0f }, Vector3f{ 0.0f, 0.0f, 1.0f }, ev));
+    EXPECT_EQ(ja.phase(), JumpAttackPhase::Leap);
+    EXPECT_FALSE(ja.connectedTarget().valid());
+}
+
+TEST(JumpAttack_IntendedTarget, DeadDoesNotFallBackToNearest)
+{
+    JumpAttack ja{};
+    JumpAttackBegin req = airReq();
+    req.intendedTarget  = ent(9);
+    ASSERT_TRUE(ja.begin(req));
+    FakeWorld world;
+    world.targets.push_back(FakeWorld::Target{ Vector3f{ 0.0f, 2.0f, 1.0f }, ent(2), true });
+    world.targets.push_back(FakeWorld::Target{ Vector3f{ 0.0f, 2.0f, 1.2f }, ent(9), false });
+    DamageEvent ev{};
+    EXPECT_FALSE(ja.tryConnect(world.query(), Vector3f{ 0.0f, 2.0f, 0.0f }, Vector3f{ 0.0f, 0.0f, 1.0f }, ev));
+    EXPECT_EQ(ja.phase(), JumpAttackPhase::Leap);
+    EXPECT_FALSE(ja.connectedTarget().valid());
+}
+
+TEST(JumpAttack_IntendedTarget, IgnoresLookCone)
+{
+    JumpAttack ja{};
+    JumpAttackBegin req = airReq();
+    req.intendedTarget  = ent(9);
+    ASSERT_TRUE(ja.begin(req));
+    FakeWorld world;
+    world.targets.push_back(FakeWorld::Target{ Vector3f{ 2.0f, 2.0f, 0.1f }, ent(9), true });
+    DamageEvent ev{};
+    ASSERT_TRUE(ja.tryConnect(world.query(), Vector3f{ 0.0f, 2.0f, 0.0f }, Vector3f{ 0.0f, 0.0f, 1.0f }, ev));
+    EXPECT_EQ(ev.target.id(), ent(9).id());
+}
+
+TEST(JumpAttack_Connect, OverlappingHorizontalConnects)
+{
+    JumpAttack ja{};
+    ASSERT_TRUE(ja.begin(airReq()));
+    FakeWorld world;
+    world.targets.push_back(FakeWorld::Target{ Vector3f{ 0.0f, 2.0f, 0.0f }, ent(2), true });
+    DamageEvent ev{};
+    ASSERT_TRUE(ja.tryConnect(world.query(), Vector3f{ 0.0f, 2.0f, 0.0f }, Vector3f{ 0.0f, 0.0f, 1.0f }, ev));
+    EXPECT_EQ(ev.target.id(), ent(2).id());
+    EXPECT_EQ(ja.phase(), JumpAttackPhase::Connected);
 }
 
 TEST(JumpAttack_Query, InvalidCallbacksNoHits)
