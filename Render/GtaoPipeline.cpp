@@ -64,6 +64,11 @@ namespace Dark
         return isValid() ? cpuSrv(kCpuSrvFull) : D3D12_CPU_DESCRIPTOR_HANDLE{};
     }
 
+    void GtaoPipeline::transitionAoFull(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
+    {
+        transition(cmd, m_aoFull, after);
+    }
+
     D3D12_CPU_DESCRIPTOR_HANDLE GtaoPipeline::rtvCpu(UINT slot) const
     {
         D3D12_CPU_DESCRIPTOR_HANDLE h = m_rtvStart;

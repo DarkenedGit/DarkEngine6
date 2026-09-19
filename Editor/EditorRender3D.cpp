@@ -489,7 +489,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 
     if (renderer().hasSceneBuffers())
     {
-        if ((m_showGBuffer || m_showVelocity) && m_debugOverlay.isValid() && renderer().hasGBuffer())
+        const bool ssaoTile = renderer().debugState().ssaoDebug == 1;
+        if ((m_showGBuffer || m_showVelocity || ssaoTile) && m_debugOverlay.isValid() && renderer().hasGBuffer())
         {
             // Unbind DSV / HDR so we can sample G-buffer. Overlay copies from FLAG_NONE CPU SRVs.
             renderer().bindColorTargetOnly();
@@ -509,12 +510,26 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                     m_debugOverlay.drawColor(cmd, renderer().device(), attrib, pad + tile + 8, pad, tile, tile);
             }
             const D3D12_CPU_DESCRIPTOR_HANDLE velocity = renderer().velocitySrvCpu();
-            if (velocity.ptr != 0)
+            if ((m_showGBuffer || m_showVelocity) && velocity.ptr != 0)
             {
                 LONG x = pad;
                 if (m_showGBuffer)
                     x = pad + 2 * (tile + 8);
                 m_debugOverlay.drawVelocity(cmd, renderer().device(), velocity, x, pad, tile, tile, 24.0f);
+            }
+            if (ssaoTile)
+            {
+                m_scene.gtao().transitionAoFull(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                const D3D12_CPU_DESCRIPTOR_HANDLE aoFull = m_scene.gtao().aoFullSrvCpu();
+                if (aoFull.ptr != 0)
+                {
+                    LONG x = pad;
+                    if (m_showGBuffer)
+                        x += 2 * (tile + 8);
+                    if (m_showGBuffer || m_showVelocity)
+                        x += tile + 8;
+                    m_debugOverlay.drawColor(cmd, renderer().device(), aoFull, x, pad, tile, tile);
+                }
             }
             cmd->RSSetViewports(1, &renderer().viewport());
             cmd->RSSetScissorRects(1, &renderer().scissor());

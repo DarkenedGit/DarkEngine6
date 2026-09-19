@@ -194,6 +194,30 @@ void SandboxApp::drawDevTools()
         ImGui::TextDisabled("Bake %s", m_ibl.enabled ? "ready" : "off / failed");
     }
 
+    if (renderer().hasGBuffer() && ImGui::CollapsingHeader("SSAO", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::PushID("SSAO");
+        DebugRenderState& ssaoDbg = renderer().debugState();
+        if (ImGui::Checkbox("Enabled", &ssaoDbg.ssaoEnabled))
+        {
+            m_ssao.enabled = ssaoDbg.ssaoEnabled;
+            DE_LOG_INFO(LogCategory::Render, "Ssao: enabled={} debug={}", ssaoDbg.ssaoEnabled, ssaoDbg.ssaoDebug);
+        }
+        ImGui::SliderFloat("Intensity", &m_ssao.intensity, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("Radius", &m_ssao.radius, 0.05f, 2.0f, "%.2f");
+        ImGui::SliderFloat("Power", &m_ssao.power, 0.5f, 4.0f, "%.2f");
+        const char* ssaoDebugViews[] = { "Off", "SSAO factor" };
+        if (ImGui::Combo("Debug view", &ssaoDbg.ssaoDebug, ssaoDebugViews, 2))
+        {
+            if (ssaoDbg.ssaoDebug < 0)
+                ssaoDbg.ssaoDebug = 0;
+            if (ssaoDbg.ssaoDebug > 1)
+                ssaoDbg.ssaoDebug = 1;
+            DE_LOG_INFO(LogCategory::Render, "Ssao: enabled={} debug={}", ssaoDbg.ssaoEnabled, ssaoDbg.ssaoDebug);
+        }
+        ImGui::PopID();
+    }
+
     if (ImGui::CollapsingHeader("Sky", ImGuiTreeNodeFlags_DefaultOpen))
     {
         const Vector3f lc = m_env.lightColor();

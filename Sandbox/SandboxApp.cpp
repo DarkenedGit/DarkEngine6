@@ -2874,7 +2874,8 @@ void SandboxApp::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
 {
     if (!cmd || !m_debugOverlay.isValid())
         return;
-    if (!m_showShadowMaps && !m_showDepth && !m_showGBuffer && !m_showVelocity)
+    const bool ssaoTile = renderer().hasGBuffer() && renderer().debugState().ssaoDebug == 1;
+    if (!m_showShadowMaps && !m_showDepth && !m_showGBuffer && !m_showVelocity && !ssaoTile)
         return;
 
     // Unbind the DSV so we can sample the scene depth. Do not rebind it afterwards
@@ -2913,6 +2914,20 @@ void SandboxApp::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
             if (m_showGBuffer)
                 x = pad + 2 * (tile + 8);
             m_debugOverlay.drawVelocity(cmd, renderer().device(), velocity, x, pad, tile, tile, 24.0f);
+        }
+    }
+    if (ssaoTile)
+    {
+        m_scene.gtao().transitionAoFull(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        const D3D12_CPU_DESCRIPTOR_HANDLE aoFull = m_scene.gtao().aoFullSrvCpu();
+        if (aoFull.ptr != 0)
+        {
+            LONG x = pad;
+            if (m_showGBuffer)
+                x += 2 * (tile + 8);
+            if (m_showGBuffer || m_showVelocity)
+                x += tile + 8;
+            m_debugOverlay.drawColor(cmd, renderer().device(), aoFull, x, pad, tile, tile);
         }
     }
 
