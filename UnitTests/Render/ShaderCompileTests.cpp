@@ -217,6 +217,20 @@ TEST(ShaderCompile, Water)
     EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps, macros));
 }
 
+TEST(ShaderCompile, TerrainErosion)
+{
+    const std::filesystem::path hlsl = Dark::resolveContentPath("shaders/TerrainErosion.hlsl");
+    if (hlsl.empty())
+        GTEST_SKIP() << "shaders/TerrainErosion.hlsl not on content roots";
+
+    ComPtr<ID3DBlob> thermal;
+    ComPtr<ID3DBlob> pipe;
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "CSThermal", "cs_5_0", thermal));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "CSPipe", "cs_5_0", pipe));
+    EXPECT_NE(thermal.Get(), nullptr);
+    EXPECT_NE(pipe.Get(), nullptr);
+}
+
 TEST(ShaderCompile, ReverseZSceneShaders)
 {
     const char* cases[][3] = {

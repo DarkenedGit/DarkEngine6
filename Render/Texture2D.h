@@ -52,6 +52,10 @@ namespace Dark
         // Raw R32_FLOAT height field (rowPitchBytes usually width*4). No WIC. Always Linear.
         bool createFromR32Float(Renderer& renderer, const float* samples, uint32_t width, uint32_t height, uint32_t rowPitchBytes);
 
+        // Bake-only R32F UAV+SRV. ALLOW_UNORDERED_ACCESS on this resource only — not a flag on createFromRaw.
+        // Empty (no CPU upload). Initial state UNORDERED_ACCESS. Null device / zero size → false.
+        bool createUavR32Float(ID3D12Device* device, uint32_t width, uint32_t height);
+
         // RG float pairs uploaded as R16G16_FLOAT (BRDF LUT / IBL dummy). Always Linear.
         bool createFromRgFloat(Renderer& renderer, const float* rg, uint32_t width, uint32_t height, uint32_t rowPitchBytes);
 
@@ -87,6 +91,10 @@ namespace Dark
         {
             return m_cpuHandleRaw;
         }
+        D3D12_CPU_DESCRIPTOR_HANDLE cpuHandleUav() const
+        {
+            return m_cpuHandleUav;
+        }
         D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle() const
         {
             return m_gpuHandle;
@@ -102,6 +110,7 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE  m_cpuHandle{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_cpuHandleRaw{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_cpuHandleSrgb{};
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_cpuHandleUav{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_gpuHandle{};
         uint32_t                     m_width  = 0;
         uint32_t                     m_height = 0;
