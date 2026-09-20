@@ -253,7 +253,23 @@ void attachHunterSounds(World& world, AssetPinTable& pins, AssetManager& assets,
     SoundBankComponent bank;
     addSoundCue(bank, "pain", loadSandboxClip(audio, assets, "audio/pain.wav", 380.0f, 0.12f, 0.5f), 0.75f, true);
     addSoundCue(bank, "grunt", loadSandboxClip(audio, assets, "audio/grunt.wav", 140.0f, 0.18f, 0.5f), 0.95f, true);
+    addSoundCue(bank, "impact", loadSandboxClip(audio, assets, "audio/place.wav", 180.0f, 0.10f, 0.5f), 0.5f, true);
+    addSoundCue(bank, "land", loadSandboxClip(audio, assets, "audio/land.wav", 70.0f, 0.12f, 0.55f), 0.75f, true);
     setSoundBank(world, pins, assets, e, std::move(bank));
+}
+
+bool playSoundCueFallback(World& world, Audio::AudioSystem& audio, AssetManager& assets, Entity e, const char* primary, const char* fallback)
+{
+    if (playSoundCue(world, audio, assets, e, primary))
+        return true;
+    return fallback && playSoundCue(world, audio, assets, e, fallback);
+}
+
+void tryJumpAttackAnim(World& world, Entity e)
+{
+    AnimGraphComponent* ag = e.valid() ? world.get<AnimGraphComponent>(e) : nullptr;
+    if (ag)
+        ag->graph.setTrigger("jump_attack");
 }
 
 void drawShadowCaster(ID3D12GraphicsCommandList* cmd, const ShadowSystem& shadows, int cascade, const Matrix4f& world, const Mesh& mesh)
@@ -1122,6 +1138,7 @@ void SandboxApp::updatePossessed(float dt)
 
     m_playerWet = motor && motor->state() == PlayerMoveState::Swimming;
 
+    bool skipLandCue = false;
     if (jump)
     {
         jump->tick(dt);
@@ -1137,6 +1154,9 @@ void SandboxApp::updatePossessed(float dt)
                     Combat::DamageEvent poundEvents[8]{};
                     const int n = jump->tryPound(makeWeaponQuery(), xf->position, poundEvents, 8);
                     DE_LOG_INFO("Player: ground pound");
+                    // Optional pound cue; otherwise the motor land cue below is the fallback.
+                    if (playSoundCue(world(), audio(), assets(), body, "pound"))
+                        skipLandCue = true;
                     resolveJumpAttackAndFx(poundEvents, n);
                 }
             }
@@ -1146,7 +1166,7 @@ void SandboxApp::updatePossessed(float dt)
                 if (jump->tryConnect(makeWeaponQuery(), xf->position, flat, connectEv))
                 {
                     DE_LOG_INFO("Player: pounce connect");
-                    playSoundCue(world(), audio(), assets(), body, "impact");
+                    playSoundCueFallback(world(), audio(), assets(), body, "pounce", "impact");
                     resolveJumpAttackAndFx(&connectEv, 1);
                 }
             }
@@ -1169,7 +1189,7 @@ void SandboxApp::updatePossessed(float dt)
 
     if (motorOut.jumped)
         playSoundCue(world(), audio(), assets(), body, "jump");
-    if (motorOut.landed)
+    if (motorOut.landed && !skipLandCue)
         playSoundCue(world(), audio(), assets(), body, "land");
     if (motorOut.splashed)
         playSoundCue(world(), audio(), assets(), body, "splash");
@@ -1522,6 +1542,7 @@ void SandboxApp::updateCombat(float dt)
         if (!jump->begin(req))
             return false;
         motor->clearJumpBuffer();
+        tryJumpAttackAnim(world(), body);
         DE_LOG_INFO("Player: jump attack");
         return true;
     };
@@ -2593,7 +2614,16 @@ void SandboxApp::onInit()
         m_chase.ai().setHunterCue(
             [](void* user, Entity hunter, const char* cue) {
                 auto* app = static_cast<SandboxApp*>(user);
-                playSoundCue(app->world(), app->audio(), app->assets(), hunter, cue);
+                if (!cue || cue[0] == '\0')
+                    return;
+                if (std::strcmp(cue, "grunt") == 0)
+                    tryJumpAttackAnim(app->world(), hunter);
+                if (playSoundCue(app->world(), app->audio(), app->assets(), hunter, cue))
+                    return;
+                if (std::strcmp(cue, "pounce") == 0)
+                    playSoundCue(app->world(), app->audio(), app->assets(), hunter, "impact");
+                else if (std::strcmp(cue, "pound") == 0)
+                    playSoundCueFallback(app->world(), app->audio(), app->assets(), hunter, "land", "impact");
             },
             this);
     }

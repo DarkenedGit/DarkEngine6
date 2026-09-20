@@ -1,5 +1,6 @@
 #include "SandboxApp.h"
 
+#include "Combat/JumpAttackComponent.h"
 #include "Core/Log.h"
 #include "Debug/DebugTypes.h"
 #include "Network/NetTypes.h"
@@ -32,6 +33,27 @@ const char* roleLabel(NetRole role)
         return "Host";
     case NetRole::Client:
         return "Client";
+    default:
+        return "?";
+    }
+}
+
+const char* jumpAttackPhaseName(Combat::JumpAttackPhase phase)
+{
+    switch (phase)
+    {
+    case Combat::JumpAttackPhase::Idle:
+        return "Idle";
+    case Combat::JumpAttackPhase::Telegraph:
+        return "Telegraph";
+    case Combat::JumpAttackPhase::Leap:
+        return "Leap";
+    case Combat::JumpAttackPhase::Connected:
+        return "Connected";
+    case Combat::JumpAttackPhase::Pound:
+        return "Pound";
+    case Combat::JumpAttackPhase::Recover:
+        return "Recover";
     default:
         return "?";
     }
@@ -323,6 +345,29 @@ void SandboxApp::drawDevTools()
         {
             m_env.resetFogTune();
             DE_LOG_INFO("Sky: fog tune reset");
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Jump attack"))
+    {
+        const Entity body = possessedBody();
+        const JumpAttackComponent* jac = body.valid() ? world().get<JumpAttackComponent>(body) : nullptr;
+        if (!jac)
+            ImGui::TextUnformatted("no JumpAttack");
+        else
+        {
+            const Combat::JumpAttack& jump = jac->jump;
+            ImGui::Text("phase %s%s", jumpAttackPhaseName(jump.phase()), jump.busy() ? "  (busy)" : "");
+            ImGui::Text("connect window %.2fs", static_cast<double>(jump.connectWindowLeft()));
+            ImGui::Text("pound radius %.1f m", static_cast<double>(jump.def().poundRadius));
+        }
+        if (m_chaseOk)
+        {
+            const Entity token = m_chase.ai().jumpAttackToken();
+            if (token.valid())
+                ImGui::Text("pack token %u", token.id());
+            else
+                ImGui::TextUnformatted("pack token none");
         }
     }
 

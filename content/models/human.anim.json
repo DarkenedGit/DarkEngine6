@@ -5,7 +5,8 @@
   "parameters": [
     { "name": "speed", "type": "float", "default": 0.0 },
     { "name": "shoot", "type": "trigger" },
-    { "name": "swing", "type": "trigger" }
+    { "name": "swing", "type": "trigger" },
+    { "name": "jump_attack", "type": "trigger" }
   ],
   "states": [
     { "name": "Idle", "clip": "Idle", "loop": true },

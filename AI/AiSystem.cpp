@@ -612,6 +612,8 @@ namespace Dark
                         Combat::DamageEvent poundEvents[8]{};
                         const int n = jump->tryPound(jumpQuery, v.xf->position, poundEvents, 8);
                         DE_LOG_INFO(LogCategory::AI, "Hunter: ground pound");
+                        if (m_hunterCueFn)
+                            m_hunterCueFn(m_hunterCueUser, e, "pound");
                         resolveJumpHits(world, poundEvents, n);
                     }
                 }
@@ -622,6 +624,8 @@ namespace Dark
                     if (jump->tryConnect(jumpQuery, v.xf->position, v.ai->forward, connectEv))
                     {
                         DE_LOG_INFO(LogCategory::AI, "Hunter: pounce connect");
+                        if (m_hunterCueFn)
+                            m_hunterCueFn(m_hunterCueUser, e, "pounce");
                         resolveJumpHits(world, &connectEv, 1);
                     }
                 }
