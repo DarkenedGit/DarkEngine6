@@ -422,7 +422,7 @@ namespace Dark
         uploadHeap.Type = D3D12_HEAP_TYPE_UPLOAD;
         D3D12_RESOURCE_DESC cbDesc{};
         cbDesc.Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER;
-        cbDesc.Width            = static_cast<UINT64>(kCbBytes) * kFrameCount;
+        cbDesc.Width            = static_cast<UINT64>(kCbBytes) * kFrameCount * kCbSlotsPerFrame;
         cbDesc.Height           = 1;
         cbDesc.DepthOrArraySize = 1;
         cbDesc.MipLevels        = 1;
@@ -439,7 +439,7 @@ namespace Dark
             return false;
         }
         m_cbGpu = m_cbUpload->GetGPUVirtualAddress();
-        std::memset(m_cbMapped, 0, static_cast<size_t>(kCbBytes) * kFrameCount);
+        std::memset(m_cbMapped, 0, static_cast<size_t>(kCbBytes) * kFrameCount * kCbSlotsPerFrame);
         return true;
     }
 
@@ -643,8 +643,9 @@ namespace Dark
         const UINT  frame = renderer.frameIndex() % kFrameCount;
         SsrGpuParams params{};
         fillParams(params, camera, prevViewProj, settings, resetHistory, renderer.frameIndex());
-        std::memcpy(m_cbMapped + static_cast<size_t>(frame) * kCbBytes, &params, sizeof(params));
-        const D3D12_GPU_VIRTUAL_ADDRESS cbVa = m_cbGpu + static_cast<UINT64>(frame) * kCbBytes;
+        const UINT cbOff = cbvByteOffset(renderer.frameIndex(), false);
+        std::memcpy(m_cbMapped + cbOff, &params, sizeof(params));
+        const D3D12_GPU_VIRTUAL_ADDRESS cbVa = m_cbGpu + cbOff;
 
         cmd->SetGraphicsRootSignature(m_rootSignature.Get());
         ID3D12DescriptorHeap* heaps[] = { m_srvHeap.Get() };
@@ -748,8 +749,9 @@ namespace Dark
         params.invSizeHalf[1] = 1.0f / static_cast<float>(Math::Max(m_halfH, 1u));
         params.invSizeFull[0] = 1.0f / static_cast<float>(Math::Max(m_width, 1u));
         params.invSizeFull[1] = 1.0f / static_cast<float>(Math::Max(m_height, 1u));
-        std::memcpy(m_cbMapped + static_cast<size_t>(frame) * kCbBytes, &params, sizeof(params));
-        const D3D12_GPU_VIRTUAL_ADDRESS cbVa = m_cbGpu + static_cast<UINT64>(frame) * kCbBytes;
+        const UINT cbOff = cbvByteOffset(renderer.frameIndex(), true);
+        std::memcpy(m_cbMapped + cbOff, &params, sizeof(params));
+        const D3D12_GPU_VIRTUAL_ADDRESS cbVa = m_cbGpu + cbOff;
 
         cmd->SetGraphicsRootSignature(m_rootSignature.Get());
         ID3D12DescriptorHeap* heaps[] = { m_srvHeap.Get() };

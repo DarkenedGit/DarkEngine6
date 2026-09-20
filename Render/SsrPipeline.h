@@ -118,8 +118,17 @@ namespace Dark
     class SsrPipeline
     {
     public:
-        static constexpr UINT kRootCbv = 0;
-        static constexpr UINT kRootSrv = 1;
+        static constexpr UINT kRootCbv         = 0;
+        static constexpr UINT kRootSrv         = 1;
+        static constexpr UINT kFrameCount      = 2;
+        static constexpr UINT kCbBytes         = 256;
+        static constexpr UINT kCbSlotsPerFrame = 2; // draw + capture; upload CBVs are not snapshotted at bind
+
+        static UINT cbvByteOffset(uint32_t frameIndex, bool capture)
+        {
+            const UINT frame = frameIndex % kFrameCount;
+            return (frame * kCbSlotsPerFrame + (capture ? 1u : 0u)) * kCbBytes;
+        }
 
         SsrPipeline() = default;
 
@@ -142,8 +151,6 @@ namespace Dark
         static constexpr UINT kCpuSrvCount = 7;
         static constexpr UINT kSrvPerPass  = 5;
         static constexpr UINT kPassCount   = 4;
-        static constexpr UINT kFrameCount  = 2;
-        static constexpr UINT kCbBytes     = 256;
         static constexpr UINT kRtvHalf     = 0;
         static constexpr UINT kRtvFull     = 1;
         static constexpr UINT kRtvHistory0 = 2;

@@ -228,6 +228,22 @@ TEST(Ssr, GpuParams_Size)
 {
     EXPECT_EQ(sizeof(Dark::SsrGpuParams), 64u * sizeof(float));
     EXPECT_EQ(sizeof(Dark::SsrGpuParams), 256u);
+    EXPECT_EQ(sizeof(Dark::SsrGpuParams), SsrPipeline::kCbBytes);
+}
+
+TEST(Ssr, Cbv_CaptureSlotDistinctFromTrace)
+{
+    EXPECT_EQ(SsrPipeline::cbvByteOffset(0, false), 0u);
+    EXPECT_EQ(SsrPipeline::cbvByteOffset(0, true), SsrPipeline::kCbBytes);
+    EXPECT_EQ(SsrPipeline::cbvByteOffset(1, false), 2u * SsrPipeline::kCbBytes);
+    EXPECT_EQ(SsrPipeline::cbvByteOffset(1, true), 3u * SsrPipeline::kCbBytes);
+    EXPECT_EQ(SsrPipeline::cbvByteOffset(2, false), SsrPipeline::cbvByteOffset(0, false));
+    EXPECT_EQ(SsrPipeline::cbvByteOffset(2, true), SsrPipeline::cbvByteOffset(0, true));
+    EXPECT_NE(SsrPipeline::cbvByteOffset(0, false), SsrPipeline::cbvByteOffset(0, true));
+    EXPECT_NE(SsrPipeline::cbvByteOffset(1, false), SsrPipeline::cbvByteOffset(1, true));
+    EXPECT_EQ(SsrPipeline::kFrameCount * SsrPipeline::kCbSlotsPerFrame * SsrPipeline::kCbBytes, 1024u);
+    EXPECT_LE(SsrPipeline::cbvByteOffset(1, true) + SsrPipeline::kCbBytes,
+              SsrPipeline::kFrameCount * SsrPipeline::kCbSlotsPerFrame * SsrPipeline::kCbBytes);
 }
 
 TEST(Ssr, Project_RoundTrip_ReverseZ)
