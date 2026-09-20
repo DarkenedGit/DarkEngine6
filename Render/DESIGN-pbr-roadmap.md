@@ -21,7 +21,7 @@ Track the next seven deferred-PBR features in **build order**. Each child RFC is
 | 4 | [DESIGN-ssao.md](./DESIGN-ssao.md) (**rev 2**) | **Accepted** (execute-plan 8be641e1 PRs 1–4). Multiplies ambient/IBL only; needs good normals |
 | 5 | [DESIGN-auto-exposure.md](./DESIGN-auto-exposure.md) | Makes bloom + ACES usable across lighting ranges |
 | 6 | [DESIGN-local-light-shadows.md](./DESIGN-local-light-shadows.md) | Independent of IBL; needs stable local-light volumes |
-| 7 | [DESIGN-reflections.md](./DESIGN-reflections.md) | SSR v1 composed with IBL; wants normal maps |
+| 7 | [DESIGN-reflections.md](./DESIGN-reflections.md) (**rev 2**) | **Accepted** (execute-plan db67d670 PRs 1–5). SSR v1 dual-path + water; planar extra view remains v2 |
 
 Terrain splat look-track is [`Terrain/DESIGN-terrain-system.md`](../Terrain/DESIGN-terrain-system.md) rev 2; sibling of this track, not item 3. Still not `Dark::Material`. Reverse-Z is [`DESIGN-reverse-z.md`](./DESIGN-reverse-z.md) **Accepted**; sibling of this track (world-scale prerequisite), not a seventh item.
 
