@@ -1057,7 +1057,7 @@ void EditorApp::drawTerrainPanel()
     ImGui::Combo("Size (tiles)", &m_genTilesIndex, "1 (512 m)\0 2 (1 km)\0 4 (2 km)\0 8 (4 km)\0");
     ImGui::InputScalar("Seed", ImGuiDataType_U32, &m_terrainSeed);
     ImGui::SliderFloat("Cell size (m)", &m_genCellSize, 0.5f, 4.0f, "%.2f");
-    ImGui::SliderFloat("Height scale", &m_genHeightScale, 8.0f, 200.0f, "%.0f");
+    ImGui::SliderFloat("Height scale (m)", &m_genHeightScale, 40.0f, 800.0f, "%.0f");
     ImGui::SliderFloat("Sea level (m)", &m_terrainSeaLevel, -20.0f, 80.0f, "%.1f");
     ImGui::SliderInt("Thermal iterations", &m_genThermal, 1, 80);
     ImGui::SliderInt("Hydraulic iterations (GPU)", &m_genHydroIters, 1, 96);

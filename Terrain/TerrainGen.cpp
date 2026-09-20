@@ -122,19 +122,19 @@ namespace Dark::Terrain
 
         float SampleEroded(float u, float v, uint32_t seed)
         {
-            const float heightTiles = 3.0f;
-            const int   heightOct   = 3;
-            const float heightAmp   = 0.25f;
-            const float heightGain  = 0.1f;
+            const float heightTiles = 2.5f;
+            const int   heightOct   = 5;
+            const float heightAmp   = 0.55f;
+            const float heightGain  = 0.45f;
             const float heightLac   = 2.0f;
-            const float waterH      = 0.45f;
+            const float waterH      = 0.38f;
             const int   eroOct      = 5;
             const float eroTiles    = 4.0f;
             const float eroGain     = 0.5f;
             const float eroLac      = 2.0f;
             const float slopeK      = 3.0f;
             const float branchK     = 3.0f;
-            const float eroStr      = 0.04f;
+            const float eroStr      = 0.12f;
 
             const float px = u * heightTiles;
             const float pz = v * heightTiles;
@@ -198,6 +198,27 @@ namespace Dark::Terrain
                 if (samples[i] < sea)
                     samples[i] = sea;
             }
+        }
+
+        void NormalizeRaw01(float* samples, size_t count)
+        {
+            if (count == 0)
+                return;
+            float mn = samples[0];
+            float mx = samples[0];
+            for (size_t i = 1; i < count; ++i)
+            {
+                if (samples[i] < mn)
+                    mn = samples[i];
+                if (samples[i] > mx)
+                    mx = samples[i];
+            }
+            const float span = mx - mn;
+            if (span < 1.0e-5f)
+                return;
+            const float inv = 1.0f / span;
+            for (size_t i = 0; i < count; ++i)
+                samples[i] = (samples[i] - mn) * inv;
         }
 
         float SampleBilinear(const float* s, int w, int h, float fx, float fz)
@@ -751,7 +772,9 @@ namespace Dark::Terrain
         FillErodedRect(working.mutableSamples(), static_cast<int>(w), static_cast<int>(h), 0, 0, static_cast<int>(w), static_cast<int>(h), desc);
         (void)gpu;
         // Samples stay raw 0-1; HeightMap::worldY multiplies by heightScale.
-        FlattenSea(working.mutableSamples(), static_cast<size_t>(w) * h, desc.erosion.seaLevelRaw);
+        const size_t n = static_cast<size_t>(w) * h;
+        NormalizeRaw01(working.mutableSamples(), n);
+        FlattenSea(working.mutableSamples(), n, desc.erosion.seaLevelRaw);
 
         if (!Report(progress, user, 0.7f, "gullies"))
             return false;
@@ -822,7 +845,9 @@ namespace Dark::Terrain
             return false;
         FillErodedRect(tile.mutableSamples(), tw, th, ex0, ez0, w, h, desc);
         (void)gpuOk;
-        FlattenSea(tile.mutableSamples(), static_cast<size_t>(tw) * static_cast<size_t>(th), desc.erosion.seaLevelRaw);
+        const size_t tn = static_cast<size_t>(tw) * static_cast<size_t>(th);
+        NormalizeRaw01(tile.mutableSamples(), tn);
+        FlattenSea(tile.mutableSamples(), tn, desc.erosion.seaLevelRaw);
 
         float*       dst = map.mutableSamples();
         const float* src = tile.samples();

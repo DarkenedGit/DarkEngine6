@@ -95,6 +95,20 @@ TEST(TerrainGen, World_HeightScale_IsNotBakedIntoSamples)
     EXPECT_LE(mx, 2.0f);
     const float y = hm.heightAtWorld(hm.origin().x, hm.origin().z);
     EXPECT_LT(y, 200.0f);
+    float yMin = 1.0e9f;
+    float yMax = -1.0e9f;
+    for (int z = 0; z < static_cast<int>(hm.height()); z += 4)
+    {
+        for (int x = 0; x < static_cast<int>(hm.width()); x += 4)
+        {
+            const float yw = hm.worldY(hm.height(x, z));
+            if (yw < yMin)
+                yMin = yw;
+            if (yw > yMax)
+                yMax = yw;
+        }
+    }
+    EXPECT_GT(yMax - yMin, 20.0f);
 }
 
 TEST(TerrainGen, Thermal_PaddedTile_MatchesFull)

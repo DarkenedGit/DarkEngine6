@@ -294,7 +294,7 @@ private:
     float                         m_terrainSeaLevel = 32.0f;
     int                           m_genTilesIndex   = 2; // 1,2,4,8
     float                         m_genCellSize     = 1.0f;
-    float                         m_genHeightScale  = 80.0f;
+    float                         m_genHeightScale  = 280.0f;
     int                           m_genThermal      = 40;
     int                           m_genHydroIters   = 48;
     int                           m_genHydroSteps   = 64;
