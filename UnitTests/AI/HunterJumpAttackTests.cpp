@@ -15,7 +15,7 @@
 #include "Math/AABox3f.h"
 #include "Math/MathHelper.h"
 #include "Terrain/HeightMap.h"
-#include "Terrain/Terrain.h"
+#include "Terrain/TerrainGrid.h"
 #include "Weapons/HittableComponent.h"
 #include "Weapons/Weapon.h"
 
@@ -60,18 +60,15 @@ namespace
         AssetManager                assets;
         AssetPinTable               pins;
         AiSystem                    ai;
-        Dark::Terrain::TerrainWorld terrain;
+        Dark::Terrain::TerrainGrid terrain;
         Entity                      player{};
 
         bool setup(float waterY = -100.0f, const AABox3f* cubes = nullptr, int cubeCount = 0)
         {
-            Dark::Terrain::TerrainDesc desc;
-            desc.heightMap  = makeFlat(17, 0.0f);
-            desc.chunkCells = 16;
-            if (!terrain.create(std::move(desc)))
+            if (!terrain.createFromHeightMap(makeFlat(17, 0.0f), 16))
                 return false;
             Dark::AI::WalkabilityDesc walk;
-            walk.heightMap   = &terrain.heightMap();
+            walk.heightMap   = &terrain.coarse();
             walk.waterLevel  = waterY;
             walk.agentRadius = 0.8f;
             walk.cubes       = cubes;

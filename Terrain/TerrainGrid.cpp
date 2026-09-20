@@ -93,9 +93,20 @@ void TerrainGrid::reset()
     m_loggedStreamingIn  = false;
     m_coarse             = HeightMap{};
     m_heightTexture      = Texture2D{};
+    m_working            = HeightMap{};
+    m_workingSplat       = SplatMap{};
+    m_pinActive          = false;
+    m_pinTx              = 0;
+    m_pinTz              = 0;
+    m_pinRing            = 3;
 }
 
-bool TerrainGrid::create(const TerrainGridDesc& desc)
+void TerrainGrid::clear()
+{
+    reset();
+}
+
+bool TerrainGrid::configure(const TerrainGridDesc& desc, HeightMap&& coarse)
 {
     reset();
 
@@ -120,14 +131,7 @@ bool TerrainGrid::create(const TerrainGridDesc& desc)
         DE_LOG_ERROR(LogCategory::Render, "TerrainGrid: tileDir '{}' rejected", desc.tileDir.string());
         return false;
     }
-    if (desc.coarseFile.empty() || pathHasDotDot(desc.coarseFile))
-    {
-        DE_LOG_ERROR(LogCategory::Render, "TerrainGrid: missing coarse '{}' — create failed", desc.coarseFile.string());
-        return false;
-    }
-
-    HeightMap coarse;
-    if (!coarse.loadBinary(desc.coarseFile))
+    if (!coarse.valid())
     {
         DE_LOG_ERROR(LogCategory::Render, "TerrainGrid: missing coarse '{}' — create failed", desc.coarseFile.string());
         return false;
@@ -149,6 +153,59 @@ bool TerrainGrid::create(const TerrainGridDesc& desc)
     return true;
 }
 
+bool TerrainGrid::create(const TerrainGridDesc& desc)
+{
+    if (desc.coarseFile.empty() || pathHasDotDot(desc.coarseFile))
+    {
+        DE_LOG_ERROR(LogCategory::Render, "TerrainGrid: missing coarse '{}' — create failed", desc.coarseFile.string());
+        return false;
+    }
+
+    HeightMap coarse;
+    if (!coarse.loadBinary(desc.coarseFile))
+    {
+        DE_LOG_ERROR(LogCategory::Render, "TerrainGrid: missing coarse '{}' — create failed", desc.coarseFile.string());
+        return false;
+    }
+    return configure(desc, std::move(coarse));
+}
+
+bool TerrainGrid::createFromCoarse(const TerrainGridDesc& desc, HeightMap&& coarse)
+{
+    return configure(desc, std::move(coarse));
+}
+
+bool TerrainGrid::createFromHeightMap(HeightMap&& map, int chunkCells)
+{
+    if (!map.valid() || map.width() != map.height() || map.width() < 2u)
+    {
+        DE_LOG_ERROR(LogCategory::Render, "TerrainGrid: createFromHeightMap needs a square HF");
+        return false;
+    }
+    const int tileCells = static_cast<int>(map.width()) - 1;
+    if (tileCells <= 0 || (tileCells & (tileCells - 1)) != 0 || tileCells + 1 > static_cast<int>(kMaxHeightMapSize))
+    {
+        DE_LOG_ERROR(LogCategory::Render, "TerrainGrid: createFromHeightMap size {} invalid", map.width());
+        return false;
+    }
+
+    TerrainGridDesc desc{};
+    desc.tilesX       = 1;
+    desc.tilesZ       = 1;
+    desc.tileCells    = static_cast<uint32_t>(tileCells);
+    desc.chunkCells   = chunkCells;
+    desc.cellSize     = map.cellSize();
+    desc.heightScale  = map.heightScale();
+    desc.origin       = map.origin();
+    desc.residentRing = kResidentRingDefault;
+
+    HeightMap coarse = map;
+    if (!configure(desc, std::move(coarse)))
+        return false;
+    m_working = std::move(map);
+    return true;
+}
+
 void TerrainGrid::setLodDistances(const float* distances, int count)
 {
     if (!distances || count < 1)
@@ -157,6 +214,73 @@ void TerrainGrid::setLodDistances(const float* distances, int count)
     if (m_lodDistanceCount > kMaxLodLevels)
         m_lodDistanceCount = kMaxLodLevels;
     std::memcpy(m_lodDistances, distances, sizeof(float) * static_cast<size_t>(m_lodDistanceCount));
+}
+
+HeightMap* TerrainGrid::editableWorking()
+{
+    return m_working.valid() ? &m_working : nullptr;
+}
+
+const HeightMap* TerrainGrid::editableWorking() const
+{
+    return m_working.valid() ? &m_working : nullptr;
+}
+
+SplatMap* TerrainGrid::editableWorkingSplat()
+{
+    return m_workingSplat.valid() ? &m_workingSplat : nullptr;
+}
+
+const SplatMap* TerrainGrid::editableWorkingSplat() const
+{
+    return m_workingSplat.valid() ? &m_workingSplat : nullptr;
+}
+
+bool TerrainGrid::setWorking(HeightMap&& height, SplatMap&& splat)
+{
+    if (!m_valid || !height.valid())
+        return false;
+    m_working      = std::move(height);
+    m_workingSplat = std::move(splat);
+    return true;
+}
+
+bool TerrainGrid::setWorkingSplat(SplatMap&& splat)
+{
+    if (!m_valid || !splat.valid())
+        return false;
+    m_workingSplat = std::move(splat);
+    return true;
+}
+
+void TerrainGrid::pinWorldXZ(float x, float z, int ring)
+{
+    int tx = 0;
+    int tz = 0;
+    if (!worldToTile(x, z, tx, tz))
+    {
+        m_pinActive = false;
+        return;
+    }
+    m_pinActive = true;
+    m_pinTx     = tx;
+    m_pinTz     = tz;
+    m_pinRing   = clampRing(ring);
+}
+
+void TerrainGrid::clearPin()
+{
+    m_pinActive = false;
+}
+
+bool TerrainGrid::inPinRing(int tx, int tz) const
+{
+    if (!m_pinActive)
+        return false;
+    const int radius = m_pinRing / 2;
+    const int dx     = tx > m_pinTx ? tx - m_pinTx : m_pinTx - tx;
+    const int dz     = tz > m_pinTz ? tz - m_pinTz : m_pinTz - tz;
+    return (dx > dz ? dx : dz) <= radius;
 }
 
 bool TerrainGrid::worldToTile(float x, float z, int& tx, int& tz) const
@@ -186,11 +310,311 @@ bool TerrainGrid::inRing(int tx, int tz, int cx, int cz) const
     return (dx > dz ? dx : dz) <= radius;
 }
 
+bool TerrainGrid::copyWorkingTileHeight(int tx, int tz, HeightMap& out) const
+{
+    if (!m_working.valid())
+        return false;
+    const int samples = m_tileCells + 1;
+    const int srcX    = tx * m_tileCells;
+    const int srcZ    = tz * m_tileCells;
+    if (srcX < 0 || srcZ < 0)
+        return false;
+    if (srcX + m_tileCells >= static_cast<int>(m_working.width()) || srcZ + m_tileCells >= static_cast<int>(m_working.height()))
+        return false;
+    if (!out.create(static_cast<uint32_t>(samples), static_cast<uint32_t>(samples), m_working.cellSize(), m_working.heightScale()))
+        return false;
+    out.setOrigin(Vector3f(
+        m_working.origin().x + static_cast<float>(srcX) * m_working.cellSize(),
+        m_working.origin().y,
+        m_working.origin().z + static_cast<float>(srcZ) * m_working.cellSize()));
+    for (int z = 0; z < samples; ++z)
+    {
+        for (int x = 0; x < samples; ++x)
+            out.setHeight(x, z, m_working.height(srcX + x, srcZ + z));
+    }
+    return true;
+}
+
+bool TerrainGrid::copyWorkingTileSplat(int tx, int tz, SplatMap& out) const
+{
+    if (!m_workingSplat.valid())
+        return false;
+    const int samples = m_tileCells + 1;
+    const int srcX    = tx * m_tileCells;
+    const int srcZ    = tz * m_tileCells;
+    if (srcX + m_tileCells >= static_cast<int>(m_workingSplat.width()) || srcZ + m_tileCells >= static_cast<int>(m_workingSplat.height()))
+        return false;
+    if (!out.create(static_cast<uint32_t>(samples), static_cast<uint32_t>(samples)))
+        return false;
+    for (int z = 0; z < samples; ++z)
+    {
+        for (int x = 0; x < samples; ++x)
+        {
+            uint8_t c[4]{};
+            m_workingSplat.getTexel(srcX + x, srcZ + z, c);
+            out.setTexel(x, z, c[0], c[1], c[2], c[3]);
+        }
+    }
+    return true;
+}
+
+bool TerrainGrid::sliceWorkingTile(int tx, int tz)
+{
+    HeightMap hm;
+    if (!copyWorkingTileHeight(tx, tz, hm))
+        return false;
+
+    TerrainDesc desc;
+    desc.heightMap        = std::move(hm);
+    desc.chunkCells       = m_chunkCells;
+    desc.lodDistanceCount = m_lodDistanceCount;
+    std::memcpy(desc.lodDistances, m_lodDistances, sizeof(float) * kMaxLodLevels);
+    TileSlot& slot = m_slots[tz][tx];
+    unregisterTileHeap(slot);
+    if (!slot.world.create(std::move(desc)))
+        return false;
+    slot.world.setUploadHeightTexture(false);
+    if (!copyWorkingTileSplat(tx, tz, slot.splat))
+        slot.splat.generateFromHeight(slot.world.heightMap());
+    slot.resident          = true;
+    slot.firstGpuApplyDone = false;
+    slot.heapPacked        = false;
+    slot.missingLogged     = false;
+    return true;
+}
+
+void TerrainGrid::boxFilterCoarseFrom(const HeightMap& src)
+{
+    if (!src.valid())
+        return;
+    const uint32_t fineW = src.width();
+    const uint32_t fineH = src.height();
+    uint32_t coarseW = fineW;
+    uint32_t coarseH = fineH;
+    if (coarseW > kMaxHeightMapSize)
+        coarseW = kMaxHeightMapSize;
+    if (coarseH > kMaxHeightMapSize)
+        coarseH = kMaxHeightMapSize;
+
+    const float worldX = src.cellSize() * static_cast<float>(fineW - 1u);
+    const float worldZ = src.cellSize() * static_cast<float>(fineH - 1u);
+    const float coarseCellX = (coarseW > 1u) ? (worldX / static_cast<float>(coarseW - 1u)) : src.cellSize();
+    const float coarseCellZ = (coarseH > 1u) ? (worldZ / static_cast<float>(coarseH - 1u)) : src.cellSize();
+    const float coarseCell  = coarseCellX > 0.0f ? coarseCellX : src.cellSize();
+    (void)coarseCellZ;
+
+    HeightMap coarse;
+    if (!coarse.create(coarseW, coarseH, coarseCell, src.heightScale()))
+        return;
+    coarse.setOrigin(src.origin());
+
+    if (coarseW == fineW && coarseH == fineH)
+    {
+        for (uint32_t z = 0; z < coarseH; ++z)
+        {
+            for (uint32_t x = 0; x < coarseW; ++x)
+                coarse.setHeight(static_cast<int>(x), static_cast<int>(z), src.height(static_cast<int>(x), static_cast<int>(z)));
+        }
+        m_coarse = std::move(coarse);
+        return;
+    }
+
+    for (uint32_t cz = 0; cz < coarseH; ++cz)
+    {
+        const int z0 = static_cast<int>((static_cast<uint64_t>(cz) * (fineH - 1u)) / (coarseH - 1u));
+        int       z1 = static_cast<int>((static_cast<uint64_t>(cz + 1u) * (fineH - 1u)) / (coarseH - 1u));
+        if (z1 <= z0)
+            z1 = z0 + 1;
+        if (z1 > static_cast<int>(fineH))
+            z1 = static_cast<int>(fineH);
+        for (uint32_t cx = 0; cx < coarseW; ++cx)
+        {
+            const int x0 = static_cast<int>((static_cast<uint64_t>(cx) * (fineW - 1u)) / (coarseW - 1u));
+            int       x1 = static_cast<int>((static_cast<uint64_t>(cx + 1u) * (fineW - 1u)) / (coarseW - 1u));
+            if (x1 <= x0)
+                x1 = x0 + 1;
+            if (x1 > static_cast<int>(fineW))
+                x1 = static_cast<int>(fineW);
+            double sum = 0.0;
+            int    n   = 0;
+            for (int z = z0; z < z1; ++z)
+            {
+                for (int x = x0; x < x1; ++x)
+                {
+                    sum += static_cast<double>(src.height(x, z));
+                    ++n;
+                }
+            }
+            coarse.setHeight(static_cast<int>(cx), static_cast<int>(cz), n > 0 ? static_cast<float>(sum / static_cast<double>(n)) : 0.0f);
+        }
+    }
+    m_coarse = std::move(coarse);
+}
+
+bool TerrainGrid::boxFilterCoarseFromWorking()
+{
+    if (!m_working.valid())
+        return false;
+    boxFilterCoarseFrom(m_working);
+    return m_coarse.valid();
+}
+
+void TerrainGrid::applyWorkingRect(int x0, int z0, int x1, int z1, bool heights, bool splat)
+{
+    if (!m_valid || !m_working.valid())
+        return;
+    if (x0 > x1)
+    {
+        const int t = x0;
+        x0          = x1;
+        x1          = t;
+    }
+    if (z0 > z1)
+    {
+        const int t = z0;
+        z0          = z1;
+        z1          = t;
+    }
+    if (x0 < 0)
+        x0 = 0;
+    if (z0 < 0)
+        z0 = 0;
+    const int maxS = m_tileCells * static_cast<int>(m_tilesX);
+    const int maxT = m_tileCells * static_cast<int>(m_tilesZ);
+    if (x1 > maxS)
+        x1 = maxS;
+    if (z1 > maxT)
+        z1 = maxT;
+    if (x1 < x0 || z1 < z0)
+        return;
+
+    int tx0 = x0 / m_tileCells;
+    int tz0 = z0 / m_tileCells;
+    int tx1 = x1 / m_tileCells;
+    int tz1 = z1 / m_tileCells;
+    if (x0 % m_tileCells == 0 && tx0 > 0)
+        --tx0;
+    if (z0 % m_tileCells == 0 && tz0 > 0)
+        --tz0;
+    if (tx0 < 0)
+        tx0 = 0;
+    if (tz0 < 0)
+        tz0 = 0;
+    if (tx1 >= static_cast<int>(m_tilesX))
+        tx1 = static_cast<int>(m_tilesX) - 1;
+    if (tz1 >= static_cast<int>(m_tilesZ))
+        tz1 = static_cast<int>(m_tilesZ) - 1;
+
+    for (int tz = tz0; tz <= tz1; ++tz)
+    {
+        for (int tx = tx0; tx <= tx1; ++tx)
+        {
+            TileSlot& slot = m_slots[tz][tx];
+            if (!slot.resident)
+                continue;
+            if (heights)
+            {
+                HeightMap hm;
+                if (copyWorkingTileHeight(tx, tz, hm))
+                {
+                    const int samples = m_tileCells + 1;
+                    HeightMap& dst = slot.world.heightMap();
+                    if (dst.valid() && static_cast<int>(dst.width()) == samples)
+                    {
+                        for (int z = 0; z < samples; ++z)
+                        {
+                            for (int x = 0; x < samples; ++x)
+                                dst.setHeight(x, z, hm.height(x, z));
+                        }
+                        const int lx0 = x0 - tx * m_tileCells;
+                        const int lx1 = x1 - tx * m_tileCells;
+                        const int lz0 = z0 - tz * m_tileCells;
+                        const int lz1 = z1 - tz * m_tileCells;
+                        slot.world.markHeightDirtyRect(lx0, lz0, lx1, lz1);
+                    }
+                }
+            }
+            if (splat)
+            {
+                if (!copyWorkingTileSplat(tx, tz, slot.splat))
+                    slot.splat.generateFromHeight(slot.world.heightMap());
+                slot.heapPacked = false;
+            }
+        }
+    }
+    if (heights)
+        boxFilterCoarseFrom(m_working);
+}
+
+bool TerrainGrid::assembleWorking()
+{
+    if (!m_valid)
+        return false;
+    const uint32_t samples = static_cast<uint32_t>(m_tilesX) * static_cast<uint32_t>(m_tileCells) + 1u;
+    if (!m_working.createWorking(samples, samples, m_cellSize, heightScale()))
+        return false;
+    m_working.setOrigin(m_origin);
+    if (!m_workingSplat.createWorking(samples, samples))
+        return false;
+
+    const int tileSamples = m_tileCells + 1;
+    for (int tz = 0; tz < static_cast<int>(m_tilesZ); ++tz)
+    {
+        for (int tx = 0; tx < static_cast<int>(m_tilesX); ++tx)
+        {
+            HeightMap tileHm;
+            SplatMap  tileSplat;
+            bool      gotHeight = false;
+            if (m_slots[tz][tx].resident && m_slots[tz][tx].world.heightMap().valid())
+            {
+                tileHm    = m_slots[tz][tx].world.heightMap();
+                tileSplat = m_slots[tz][tx].splat;
+                gotHeight = tileHm.valid();
+            }
+            if (!gotHeight)
+            {
+                if (m_tileDir.empty())
+                    return false;
+                if (!tileHm.loadBinary(tileHeightPath(m_tileDir, tx, tz)))
+                    return false;
+                Image splatImg;
+                const std::filesystem::path splatPath = tileSplatPath(m_tileDir, tx, tz);
+                std::error_code ec;
+                if (std::filesystem::exists(splatPath, ec) && !ec && splatImg.createFromFile(splatPath) && splatImg.valid()
+                    && splatImg.width() == tileHm.width() && splatImg.height() == tileHm.height())
+                    tileSplat.createFromRGBA(splatImg.width(), splatImg.height(), splatImg.pixels());
+                else
+                    tileSplat.generateFromHeight(tileHm);
+            }
+            if (static_cast<int>(tileHm.width()) != tileSamples || static_cast<int>(tileHm.height()) != tileSamples)
+                return false;
+            const int dstX = tx * m_tileCells;
+            const int dstZ = tz * m_tileCells;
+            for (int z = 0; z < tileSamples; ++z)
+            {
+                for (int x = 0; x < tileSamples; ++x)
+                {
+                    m_working.setHeight(dstX + x, dstZ + z, tileHm.height(x, z));
+                    if (tileSplat.valid())
+                    {
+                        uint8_t c[4]{};
+                        tileSplat.getTexel(x, z, c);
+                        m_workingSplat.setTexel(dstX + x, dstZ + z, c[0], c[1], c[2], c[3]);
+                    }
+                }
+            }
+        }
+    }
+    return true;
+}
+
 bool TerrainGrid::loadFineTile(int tx, int tz)
 {
     TileSlot& slot = m_slots[tz][tx];
     if (slot.resident)
         return true;
+    if (m_working.valid())
+        return sliceWorkingTile(tx, tz);
     if (m_tileDir.empty())
     {
         if (!slot.missingLogged)
@@ -250,7 +674,18 @@ bool TerrainGrid::loadFineTile(int tx, int tz)
         return false;
     }
     slot.world.setUploadHeightTexture(false);
-    slot.splat.generateFromHeight(slot.world.heightMap());
+    {
+        Image splatImg;
+        const std::filesystem::path splatPath = tileSplatPath(m_tileDir, tx, tz);
+        ec.clear();
+        if (std::filesystem::exists(splatPath, ec) && !ec && splatImg.createFromFile(splatPath) && splatImg.valid()
+            && splatImg.width() == slot.world.heightMap().width() && splatImg.height() == slot.world.heightMap().height()
+            && slot.splat.createFromRGBA(splatImg.width(), splatImg.height(), splatImg.pixels()))
+        {
+        }
+        else
+            slot.splat.generateFromHeight(slot.world.heightMap());
+    }
     slot.resident          = true;
     slot.firstGpuApplyDone = false;
     slot.heapPacked        = false;
@@ -550,7 +985,7 @@ void TerrainGrid::updateStreaming(const Vector3f& cameraPos, Renderer* renderer,
     {
         for (int tx = 0; tx < static_cast<int>(m_tilesX); ++tx)
         {
-            const bool want = inRing(tx, tz, cx, cz);
+            const bool want = inRing(tx, tz, cx, cz) || inPinRing(tx, tz);
             TileSlot&  slot = m_slots[tz][tx];
             if (want)
             {
@@ -827,6 +1262,54 @@ const PackedSrvHeap* TerrainGrid::residentPackedHeap(int tileX, int tileZ) const
     if (!isResident(tileX, tileZ))
         return nullptr;
     return &m_slots[tileZ][tileX].heap;
+}
+
+uint32_t TerrainGrid::lastDrawCalls() const
+{
+    uint32_t n = 0;
+    if (!m_valid)
+        return 0;
+    for (int tz = 0; tz < static_cast<int>(m_tilesZ); ++tz)
+    {
+        for (int tx = 0; tx < static_cast<int>(m_tilesX); ++tx)
+        {
+            if (m_slots[tz][tx].resident)
+                n += m_slots[tz][tx].world.lastDrawCalls();
+        }
+    }
+    return n;
+}
+
+uint32_t TerrainGrid::lastTriangles() const
+{
+    uint32_t n = 0;
+    if (!m_valid)
+        return 0;
+    for (int tz = 0; tz < static_cast<int>(m_tilesZ); ++tz)
+    {
+        for (int tx = 0; tx < static_cast<int>(m_tilesX); ++tx)
+        {
+            if (m_slots[tz][tx].resident)
+                n += m_slots[tz][tx].world.lastTriangles();
+        }
+    }
+    return n;
+}
+
+void TerrainGrid::rebindResidentHeaps(Renderer& renderer, const TerrainMaterial& material)
+{
+    if (!m_valid || !material.isValid())
+        return;
+    for (int tz = 0; tz < static_cast<int>(m_tilesZ); ++tz)
+    {
+        for (int tx = 0; tx < static_cast<int>(m_tilesX); ++tx)
+        {
+            TileSlot& slot = m_slots[tz][tx];
+            if (!slot.resident)
+                continue;
+            packTileHeapGpu(renderer, slot, material);
+        }
+    }
 }
 
 } // namespace Terrain

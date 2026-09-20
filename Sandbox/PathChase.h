@@ -24,7 +24,7 @@ namespace Dark
 
     namespace Terrain
     {
-        class TerrainWorld;
+        class TerrainGrid;
     }
 
     class PathChase
@@ -32,9 +32,9 @@ namespace Dark
     public:
         using PackSettings = AI::PackSettings;
 
-        bool init(Renderer& renderer, Terrain::TerrainWorld& terrain, WaterWorld& water, World& world, AssetPinTable& pins, AssetManager& assets);
+        bool init(Renderer& renderer, Terrain::TerrainGrid& terrain, WaterWorld& water, World& world, AssetPinTable& pins, AssetManager& assets);
 
-        void tick(float dt, World& world, Input& input, Terrain::TerrainWorld& terrain, Entity hostPawn, bool playerInWater);
+        void tick(float dt, World& world, Input& input, Terrain::TerrainGrid& terrain, Entity hostPawn, bool playerInWater);
         void expandBounds(Math::AABox3f& bounds) const;
         void drawPaths(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Math::Matrix4f& viewProj);
 
@@ -53,10 +53,10 @@ namespace Dark
         const HitReactionSettings& hunterHitReaction() const { return m_ai.hunterHitReaction(); }
 
     private:
-        bool bake(Terrain::TerrainWorld& terrain, WaterWorld& water);
-        bool spawnWalker(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainWorld& terrain, const AssetRef<Model>& walkerModel);
-        bool spawnAgents(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainWorld& terrain);
-        bool spawnTrees(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainWorld& terrain, const AssetRef<Model>& treeModel);
+        bool bake(Terrain::TerrainGrid& terrain, WaterWorld& water);
+        bool spawnWalker(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainGrid& terrain, const AssetRef<Model>& walkerModel);
+        bool spawnAgents(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainGrid& terrain);
+        bool spawnTrees(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainGrid& terrain, const AssetRef<Model>& treeModel);
         bool createLineBuffers(Renderer& renderer);
 
         AiSystem        m_ai;

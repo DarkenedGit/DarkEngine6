@@ -15,7 +15,7 @@
 #include "Math/MathHelper.h"
 #include "Math/Sphere3f.h"
 #include "Terrain/HeightMap.h"
-#include "Terrain/Terrain.h"
+#include "Terrain/TerrainGrid.h"
 #include "Weapons/HittableComponent.h"
 #include "Weapons/Weapon.h"
 
@@ -285,7 +285,7 @@ namespace Dark
         }
     }
 
-    void AiSystem::integrateHitReaction(View& v, float dt, Terrain::TerrainWorld& terrain)
+    void AiSystem::integrateHitReaction(View& v, float dt, Terrain::TerrainGrid& terrain)
     {
         const Vector3f d = v.hit->hit.tick(dt);
         if (d.MagnitudeSqrd() < 1.0e-10f)
@@ -317,7 +317,7 @@ namespace Dark
         }
     }
 
-    void AiSystem::follow(View& v, float dt, Terrain::TerrainWorld& terrain, float speed)
+    void AiSystem::follow(View& v, float dt, Terrain::TerrainGrid& terrain, float speed)
     {
         if (v.ai->givenUp || v.path->path.points.empty())
             return;
@@ -346,7 +346,7 @@ namespace Dark
         v.xf->position.y = terrain.heightAtWorld(v.xf->position.x, v.xf->position.z) + 1.0f;
     }
 
-    void AiSystem::seekToward(View& v, float dt, Terrain::TerrainWorld& terrain, float speed, float destX, float destZ)
+    void AiSystem::seekToward(View& v, float dt, Terrain::TerrainGrid& terrain, float speed, float destX, float destZ)
     {
         Vector3f d{ destX - v.xf->position.x, 0.0f, destZ - v.xf->position.z };
         const float dist = d.Magnitude();
@@ -560,7 +560,7 @@ namespace Dark
         return other && other->jump.busy();
     }
 
-    void AiSystem::tickHunters(World& world, Terrain::TerrainWorld& terrain, bool playerInWater, float dt, Entity player, const Math::AABox3f* cubes, int cubeCount)
+    void AiSystem::tickHunters(World& world, Terrain::TerrainGrid& terrain, bool playerInWater, float dt, Entity player, const Math::AABox3f* cubes, int cubeCount)
     {
         m_time += dt;
         if (m_jumpAttackToken.valid() && !world.alive(m_jumpAttackToken))
@@ -584,7 +584,7 @@ namespace Dark
 
         struct HeightCtx
         {
-            Terrain::TerrainWorld* terrain = nullptr;
+            Terrain::TerrainGrid* terrain = nullptr;
         };
         HeightCtx heightCtx{ &terrain };
         auto      heightAt = [](void* user, float x, float z) -> float {
@@ -702,8 +702,8 @@ namespace Dark
             q.coneDeg   = v.sight ? v.sight->coneDeg : 70.0f;
             q.range     = v.sight ? v.sight->range : 25.0f;
             q.heightMap = m_walk.heightMap();
-            if ((!q.heightMap || !q.heightMap->valid()) && terrain.heightMap().valid())
-                q.heightMap = &terrain.heightMap();
+            if ((!q.heightMap || !q.heightMap->valid()) && terrain.coarse().valid())
+                q.heightMap = &terrain.coarse();
             bool sees = !playerInWater && (standoff || (q.heightMap && q.heightMap->valid() && AI::sees(q)));
             if (!sees && !playerInWater && playerAlive)
             {

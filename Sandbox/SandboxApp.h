@@ -10,7 +10,7 @@
 #include "Render/SceneRenderer.h"
 #include "Render/Camera3D.h"
 #include "Sky/Environment.h"
-#include "Terrain/Terrain.h"
+#include "Terrain/TerrainGrid.h"
 #include "Terrain/TerrainMaterial.h"
 #include "Water/Water.h"
 #include "Character/HealthComponent.h"
@@ -140,7 +140,9 @@ private:
     };
     std::vector<WeaponTargetScratch> m_weaponTargets;
 
-    Dark::Terrain::TerrainWorld m_terrain;
+    Dark::Terrain::TerrainGrid m_terrain;
+    float                     m_terrainSeaLevel = 0.0f;
+    bool                      m_haveTerrainSea  = false;
     Dark::TerrainMaterial       m_terrainMaterial;
     Dark::WaterWorld            m_water;
 

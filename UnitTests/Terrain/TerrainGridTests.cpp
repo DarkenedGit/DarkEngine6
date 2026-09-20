@@ -411,3 +411,77 @@ TEST(TerrainGrid, TileHeap_SplatSlot12)
     EXPECT_NE(h0After->splatCpu.ptr, h1After->splatCpu.ptr);
     RemoveTempDir(dir);
 }
+
+TEST(TerrainGrid, CreateFromHeightMap_Queries)
+{
+    HeightMap hm;
+    ASSERT_TRUE(hm.create(17, 17, 1.0f, 1.0f));
+    hm.setOrigin(Vector3f{ 0.0f, 0.0f, 0.0f });
+    for (int z = 0; z < 17; ++z)
+    {
+        for (int x = 0; x < 17; ++x)
+            hm.setHeight(x, z, 4.0f);
+    }
+    TerrainGrid grid;
+    ASSERT_TRUE(grid.createFromHeightMap(std::move(hm), 16));
+    EXPECT_TRUE(grid.valid());
+    EXPECT_EQ(grid.tilesX(), 1u);
+    EXPECT_EQ(grid.tileCells(), 16);
+    float y = 0.0f;
+    ASSERT_TRUE(grid.tryHeightAtWorld(3.0f, 5.0f, y));
+    EXPECT_NEAR(y, 4.0f, 1.0e-4f);
+    EXPECT_FALSE(grid.tryHeightAtWorld(-0.1f, 1.0f, y));
+}
+
+TEST(TerrainGrid, WorkingSlice_SharedEdge)
+{
+    HeightMap working;
+    ASSERT_TRUE(working.create(17, 17, 1.0f, 1.0f));
+    working.setOrigin(Vector3f{ 0.0f, 0.0f, 0.0f });
+    for (int z = 0; z <= 16; ++z)
+    {
+        for (int x = 0; x <= 16; ++x)
+            working.setHeight(x, z, FineRaw(x, z));
+    }
+    HeightMap coarse = working;
+    TerrainGridDesc desc{};
+    desc.tilesX       = 2;
+    desc.tilesZ       = 2;
+    desc.tileCells    = 8;
+    desc.cellSize     = 1.0f;
+    desc.origin       = Vector3f{ 0.0f, 0.0f, 0.0f };
+    desc.residentRing = 5;
+    TerrainGrid grid;
+    ASSERT_TRUE(grid.createFromCoarse(desc, std::move(coarse)));
+    ASSERT_TRUE(grid.setWorking(std::move(working), SplatMap{}));
+    grid.updateStreaming(TileCenter(Vector3f{ 0.0f, 0.0f, 0.0f }, 0, 0), nullptr);
+
+    const HeightMap* a = grid.residentHeight(0, 0);
+    const HeightMap* b = grid.residentHeight(1, 0);
+    ASSERT_NE(a, nullptr);
+    ASSERT_NE(b, nullptr);
+    for (int z = 0; z <= 8; ++z)
+        EXPECT_NEAR(a->height(8, z), b->height(0, z), 1.0e-5f);
+}
+
+TEST(TerrainGrid, PinKeepsTileOutsideCameraRing)
+{
+    HeightMap working;
+    ASSERT_TRUE(working.create(25, 25, 1.0f, 1.0f));
+    working.setOrigin(Vector3f{ 0.0f, 0.0f, 0.0f });
+    HeightMap coarse = working;
+    TerrainGridDesc desc{};
+    desc.tilesX       = 3;
+    desc.tilesZ       = 3;
+    desc.tileCells    = 8;
+    desc.cellSize     = 1.0f;
+    desc.origin       = Vector3f{ 0.0f, 0.0f, 0.0f };
+    desc.residentRing = 1;
+    TerrainGrid grid;
+    ASSERT_TRUE(grid.createFromCoarse(desc, std::move(coarse)));
+    ASSERT_TRUE(grid.setWorking(std::move(working), SplatMap{}));
+    grid.pinWorldXZ(4.0f, 4.0f, 3);
+    grid.updateStreaming(TileCenter(Vector3f{ 0.0f, 0.0f, 0.0f }, 2, 2), nullptr);
+    EXPECT_TRUE(grid.isResident(0, 0));
+    EXPECT_TRUE(grid.isResident(2, 2));
+}

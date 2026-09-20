@@ -29,12 +29,15 @@
 #include "Combat/CombatSystem.h"
 #include "Combat/DamageEvent.h"
 #include "Math/AABox3f.h"
-#include "Terrain/Terrain.h"
+#include "Render/TerrainErosionPipeline.h"
+#include "Terrain/TerrainGrid.h"
 #include "Terrain/TerrainMaterial.h"
 #include "Weapons/Weapon.h"
 
+#include <atomic>
 #include <filesystem>
 #include <memory>
+#include <thread>
 #include <vector>
 
 using namespace Dark;
@@ -43,6 +46,7 @@ class EditorApp : public Application
 {
 public:
     explicit EditorApp(const AppConfig& cfg);
+    ~EditorApp() override;
 
     void onInit() override;
     void onUpdate(float dt) override;
@@ -164,6 +168,17 @@ private:
     bool loadTerrainFromScene(const SceneFileData& data, const std::filesystem::path& scenePath);
     void fillTerrainSceneDesc(SceneFileData& data) const;
     bool saveTerrainSidecars(const std::filesystem::path& scenePath) const;
+    bool applyEditorGridGpu();
+    void bindTerrainHeightSrv();
+    void startGenerateWorld();
+    void cancelGenerateWorld();
+    void pollTerrainGenerate();
+    bool applyGeneratedWorld();
+    static bool onGenProgress(float t, const char* phase, void* user);
+    void clearTerrainUndo();
+    void pushTerrainUndo(int x0, int z0, int x1, int z1, bool heights, bool splat);
+    void undoTerrainBrush();
+    bool terrainBrushesLocked() const;
 
     enum class TerrainBrushMode : uint8_t
     {
@@ -258,7 +273,7 @@ private:
     bool  m_showMaterialEditor = false;
     bool  m_showTerrainPanel   = true;
 
-    Terrain::TerrainWorld         m_terrain;
+    Terrain::TerrainGrid          m_terrain;
     TerrainMaterial               m_terrainMaterial;
     Terrain::SplatMap             m_splat;
     Terrain::SplatRules           m_splatRules;
@@ -273,6 +288,45 @@ private:
     float                         m_terrainBrushStrength = 0.5f;
     std::string                   m_terrainHeightFile;
     std::string                   m_terrainSplatFile;
+    std::string                   m_terrainCoarseFile;
+    std::string                   m_terrainTileDir;
+    uint32_t                      m_terrainSeed     = 1337u;
+    float                         m_terrainSeaLevel = 0.0f;
+    int                           m_genTilesIndex   = 2; // 1,2,4,8
+    float                         m_genCellSize     = 1.0f;
+    float                         m_genHeightScale  = 80.0f;
+    int                           m_genThermal      = 40;
+    int                           m_genHydroIters   = 48;
+    int                           m_genHydroSteps   = 64;
+    TerrainErosionPipeline        m_erosionPipe;
+    bool                          m_erosionAttempted = false;
+    std::atomic<bool>             m_genRunning{ false };
+    std::atomic<bool>             m_genCancel{ false };
+    std::atomic<bool>             m_genDone{ false };
+    std::atomic<float>            m_genProgress{ 0.0f };
+    char                          m_genPhase[64]{};
+    bool                          m_genOk = false;
+    uint32_t                      m_genRunTilesX     = 4;
+    uint32_t                      m_genRunTilesZ     = 4;
+    uint32_t                      m_genRunTileCells  = 512;
+    float                         m_genRunCellSize   = 1.0f;
+    float                         m_genRunHeightScale = 80.0f;
+    Math::Vector3f                m_genRunOrigin{ -1024.0f, 0.0f, -1024.0f };
+    Terrain::HeightMap            m_genOut;
+    Terrain::SplatMap             m_genSplat;
+    std::thread                   m_genThread;
+    struct TerrainBrushUndo
+    {
+        int  x0 = 0, z0 = 0, x1 = 0, z1 = 0;
+        bool heights = false;
+        bool splat   = false;
+        std::vector<float>   height;
+        std::vector<uint8_t> splatRgba;
+    };
+    static constexpr int kTerrainUndoDepth = 8;
+    TerrainBrushUndo m_terrainUndo[kTerrainUndoDepth];
+    int              m_terrainUndoCount   = 0;
+    bool             m_terrainStrokeActive = false;
     std::string                   m_terrainAlbedoPath[Terrain::kMaxTerrainLayers];
     std::string                   m_terrainNormalPath[Terrain::kMaxTerrainLayers];
     std::string                   m_terrainOrmPath[Terrain::kMaxTerrainLayers];

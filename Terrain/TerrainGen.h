@@ -2,6 +2,7 @@
 
 #include "Terrain/HeightMap.h"
 #include "Terrain/SplatMap.h"
+#include "Terrain/TerrainTileFile.h"
 
 #include <cstdint>
 
@@ -16,11 +17,7 @@ namespace Dark
 namespace Dark::Terrain
 {
 
-    constexpr int kTileCells       = 512;
-    constexpr int kTileSamples     = kTileCells + 1; // 513
-    constexpr int kMaxWorldTiles   = 8;              // 8×8 × 512 cells + 1 = 4097 working
-    constexpr int kMaxWorkingSize  = 4097;
-    constexpr int kResidentRingMax = 7;
+    constexpr int kMaxWorkingSize = 4097;
 
     // Duplicate of TU-private Hash21 in HeightMap.cpp. NOT rand().
     // Returns [0,1): (h & 0x00FFFFFF) / 16777216.0f — same as createFbm.

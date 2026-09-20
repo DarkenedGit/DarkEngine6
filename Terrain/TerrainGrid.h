@@ -59,6 +59,29 @@ public:
     TerrainGrid& operator=(const TerrainGrid&) = delete;
 
     bool create(const TerrainGridDesc& desc);
+    // In-memory coarse (Editor generate / 129 FBM). coarseFile may be empty.
+    bool createFromCoarse(const TerrainGridDesc& desc, HeightMap&& coarse);
+    // Legacy / tests / 129 FBM: one tile, tileCells = width-1 (power of two).
+    bool createFromHeightMap(HeightMap&& map, int chunkCells = 16);
+
+    void clear();
+
+    // Editor CPU source of truth. Runtime leaves these null.
+    bool setWorking(HeightMap&& height, SplatMap&& splat);
+    bool setWorkingSplat(SplatMap&& splat);
+    HeightMap*       editableWorking();
+    const HeightMap* editableWorking() const;
+    SplatMap*        editableWorkingSplat();
+    const SplatMap*  editableWorkingSplat() const;
+    bool boxFilterCoarseFromWorking();
+    // Copy working samples/splat into overlapping resident tiles; box-filter coarse.
+    void applyWorkingRect(int x0, int z0, int x1, int z1, bool heights, bool splat);
+    // Load every fine tile into working (Editor hitch OK). Runtime must not call this.
+    bool assembleWorking();
+
+    // Player 3×3 pin (odd ring). Combined with the camera stream ring.
+    void pinWorldXZ(float x, float z, int ring = 3);
+    void clearPin();
 
     // CPU residency + optional GPU apply. renderer may be null (tests).
     // material is the 14-slot template (layers 0–11); each resident tile packs its own heap.
@@ -79,7 +102,6 @@ public:
     Math::AABox3f shadowBounds(const Camera3D& camera) const;
 
     const HeightMap& coarse() const { return m_coarse; }
-    HeightMap*       editableWorking() { return nullptr; }
 
     // Coarse R32F for fog/water setHeightSrv. Never a per-tile height SRV.
     const Texture2D& heightTexture() const { return m_heightTexture; }
@@ -126,6 +148,14 @@ public:
     int      tileCells() const { return m_tileCells; }
     int      chunkCells() const { return m_chunkCells; }
     int      residentRing() const { return m_residentRing; }
+    float    cellSize() const { return m_cellSize; }
+    float    heightScale() const { return m_coarse.valid() ? m_coarse.heightScale() : 1.0f; }
+    const Math::Vector3f& origin() const { return m_origin; }
+    uint32_t lastDrawCalls() const;
+    uint32_t lastTriangles() const;
+
+    // Recopy layers 0–11 from the template onto every resident tile heap (Editor layer edits).
+    void rebindResidentHeaps(Renderer& renderer, const TerrainMaterial& material);
 
 private:
     struct TileSlot
@@ -142,14 +172,20 @@ private:
     };
 
     void reset();
+    bool configure(const TerrainGridDesc& desc, HeightMap&& coarse);
     bool worldToTile(float x, float z, int& tx, int& tz) const;
     bool inRing(int tx, int tz, int cx, int cz) const;
+    bool inPinRing(int tx, int tz) const;
     bool loadFineTile(int tx, int tz);
+    bool sliceWorkingTile(int tx, int tz);
+    bool copyWorkingTileHeight(int tx, int tz, HeightMap& out) const;
+    bool copyWorkingTileSplat(int tx, int tz, SplatMap& out) const;
     void evictFineTile(int tx, int tz);
     void unregisterTileHeap(TileSlot& slot);
     const HeightMap* heightSourceAt(float x, float z) const;
     bool packTileHeapGpu(Renderer& renderer, TileSlot& slot, const TerrainMaterial& material);
     void applyGpu(Renderer& renderer, const TerrainMaterial* material);
+    void boxFilterCoarseFrom(const HeightMap& src);
 
     bool           m_valid = false;
     uint32_t       m_tilesX = 0;
@@ -169,6 +205,12 @@ private:
 
     HeightMap m_coarse;
     Texture2D m_heightTexture;
+    HeightMap m_working;
+    SplatMap  m_workingSplat;
+    bool      m_pinActive = false;
+    int       m_pinTx     = 0;
+    int       m_pinTz     = 0;
+    int       m_pinRing   = 3;
     TileSlot  m_slots[kMaxWorldTiles][kMaxWorldTiles];
 };
 

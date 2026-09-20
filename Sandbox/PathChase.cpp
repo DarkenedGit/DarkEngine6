@@ -19,7 +19,7 @@
 #include "Render/MeshGen.h"
 #include "Render/Renderer.h"
 #include "Terrain/HeightMap.h"
-#include "Terrain/Terrain.h"
+#include "Terrain/TerrainGrid.h"
 #include "Water/Water.h"
 
 #include <cmath>
@@ -122,10 +122,10 @@ bool PathChase::createLineBuffers(Renderer& renderer)
     return true;
 }
 
-bool PathChase::bake(Terrain::TerrainWorld& terrain, WaterWorld& water)
+bool PathChase::bake(Terrain::TerrainGrid& terrain, WaterWorld& water)
 {
     AI::WalkabilityDesc d;
-    d.heightMap   = &terrain.heightMap();
+    d.heightMap   = &terrain.coarse();
     d.waterLevel  = water.params().waterLevel;
     d.agentRadius = m_agentR;
     d.cubes       = m_cubes.empty() ? nullptr : m_cubes.data();
@@ -133,7 +133,7 @@ bool PathChase::bake(Terrain::TerrainWorld& terrain, WaterWorld& water)
     return m_ai.bake(d);
 }
 
-bool PathChase::init(Renderer& renderer, Terrain::TerrainWorld& terrain, WaterWorld& water, World& world, AssetPinTable& pins, AssetManager& assets)
+bool PathChase::init(Renderer& renderer, Terrain::TerrainGrid& terrain, WaterWorld& water, World& world, AssetPinTable& pins, AssetManager& assets)
 {
     HitReactionSettings hunterHit{};
     hunterHit.stunSeconds       = 0.45f;
@@ -189,7 +189,7 @@ bool PathChase::init(Renderer& renderer, Terrain::TerrainWorld& terrain, WaterWo
     return true;
 }
 
-bool PathChase::spawnTrees(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainWorld& terrain, const AssetRef<Model>& treeModel)
+bool PathChase::spawnTrees(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainGrid& terrain, const AssetRef<Model>& treeModel)
 {
     if (!treeModel || treeModel->id == NULL_ASSET)
     {
@@ -214,7 +214,7 @@ bool PathChase::spawnTrees(World& world, AssetPinTable& pins, AssetManager& asse
     return true;
 }
 
-bool PathChase::spawnWalker(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainWorld& terrain, const AssetRef<Model>& walkerModel)
+bool PathChase::spawnWalker(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainGrid& terrain, const AssetRef<Model>& walkerModel)
 {
     Vector3f pos{ -6.0f, 0.0f, 0.0f };
     pos.y    = terrain.heightAtWorld(pos.x, pos.z) + 0.5f;
@@ -231,7 +231,7 @@ bool PathChase::spawnWalker(World& world, AssetPinTable& pins, AssetManager& ass
     return true;
 }
 
-bool PathChase::spawnAgents(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainWorld& terrain)
+bool PathChase::spawnAgents(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainGrid& terrain)
 {
     std::mt19937 rng{ 20260826u };
     std::uniform_real_distribution<float> ux(-22.0f, 22.0f);
@@ -282,7 +282,7 @@ bool PathChase::spawnAgents(World& world, AssetPinTable& pins, AssetManager& ass
     return true;
 }
 
-void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainWorld& terrain, Entity hostPawn, bool playerInWater)
+void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainGrid& terrain, Entity hostPawn, bool playerInWater)
 {
     if (!hostPawn.valid() && m_walker.valid())
     {

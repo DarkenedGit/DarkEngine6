@@ -332,13 +332,13 @@ void EditorApp::bakePlayWalkability()
         const Vector3f half{ 0.5f * xf->scale.x, 0.5f * xf->scale.y, 0.5f * xf->scale.z };
         m_playCubes.push_back(AABox3f::FromCenterExtents(xf->position, half));
     });
-    if (!m_haveTerrain || !m_terrain.heightMap().valid())
+    if (!m_haveTerrain || !m_terrain.valid() || !m_terrain.coarse().valid())
     {
         DE_LOG_WARN(LogCategory::AI, "Editor: play without terrain — hunters will not path");
         return;
     }
     AI::WalkabilityDesc d;
-    d.heightMap   = &m_terrain.heightMap();
+    d.heightMap   = &m_terrain.coarse();
     d.waterLevel  = -1.0e9f;
     d.agentRadius = 0.8f;
     d.cubes       = m_playCubes.empty() ? nullptr : m_playCubes.data();
