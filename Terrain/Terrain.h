@@ -22,6 +22,7 @@ class TerrainMaterial;
 class Camera3D;
 class ShadowSystem;
 class Frustum3f;
+struct PackedSrvHeap;
 
 namespace Sky
 {
@@ -60,12 +61,19 @@ namespace Terrain
         bool create(TerrainDesc desc);
 
         void updateLod(const Math::Vector3f& cameraPos);
+        // Grid writes this tile's chunk lods/edges. Does not look at neighbors itself.
+        void applyExternalLods(const int* lods, const EdgeMask* edges);
+        // Streamed tiles skip the R32F height SRV (coarse lives on TerrainGrid). Default true for legacy one-world.
+        void setUploadHeightTexture(bool enable);
+        bool uploadsHeightTexture() const { return m_uploadHeightTexture; }
         void rebuildDirtyCpuMeshes();
         bool needsRebuild() const;
+        int  pendingGpuUploads() const;
         void markHeightDirty();
         void markHeightDirtyRect(int x0, int z0, int x1, int z1);
         bool createGpu(Renderer& renderer);
-        bool uploadDirty(Renderer& renderer);
+        // maxMeshes < 0 uploads every pending chunk (legacy). Spread path passes a cap.
+        bool uploadDirty(Renderer& renderer, int maxMeshes = -1);
         bool uploadHeightTexture(Renderer& renderer);
 
         void draw(
@@ -76,7 +84,8 @@ namespace Terrain
             const Frustum3f* frustum = nullptr,
             const Sky::Environment* env = nullptr,
             const ShadowSystem* shadows = nullptr,
-            const DebugRenderState* debug = nullptr) const;
+            const DebugRenderState* debug = nullptr,
+            const PackedSrvHeap* srvHeap = nullptr) const;
 
         void drawGBuffer(
             ID3D12GraphicsCommandList* cmd,
@@ -85,7 +94,8 @@ namespace Terrain
             const Camera3D& camera,
             const Frustum3f* frustum = nullptr,
             const DebugRenderState* debug = nullptr,
-            const Math::Matrix4f* prevViewProj = nullptr) const;
+            const Math::Matrix4f* prevViewProj = nullptr,
+            const PackedSrvHeap* srvHeap = nullptr) const;
 
         // Depth-only casters. Caller binds ShadowPipeline and sets light WVP.
         // Pass the cascade clip frustum so chunks outside this slice are skipped
@@ -121,6 +131,7 @@ namespace Terrain
 
         HeightMap m_heightMap;
         Texture2D m_heightTexture;
+        bool      m_uploadHeightTexture = true;
         int       m_chunkCells = 16;
         int       m_chunksX    = 0;
         int       m_chunksZ    = 0;

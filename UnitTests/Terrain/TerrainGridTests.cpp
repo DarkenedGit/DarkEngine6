@@ -1,11 +1,16 @@
 #include <gtest/gtest.h>
 
 #include "Render/Camera3D.h"
+#include "Render/PackedSrvHeap.h"
 #include "Render/ShadowCascades.h"
 #include "Terrain/HeightMap.h"
+#include "Terrain/Terrain.h"
 #include "Terrain/TerrainGrid.h"
+#include "Terrain/TerrainMaterial.h"
 #include "Terrain/TerrainTileFile.h"
 
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 
 using namespace Dark;
@@ -292,5 +297,117 @@ TEST(TerrainGrid, MissingFine_UsesCoarse)
     ASSERT_TRUE(grid.tryHeightAtWorld(p.x, p.z, y));
     EXPECT_NEAR(y, kCoarseY, 1.0e-4f);
     EXPECT_NE(y, 0.0f);
+    RemoveTempDir(dir);
+}
+
+TEST(TerrainGrid, DeltaLod_AtMostOne)
+{
+    const auto     dir    = MakeTempDir("darkengine6_grid_delta_lod_ut");
+    const Vector3f origin{ 0.0f, 0.0f, 0.0f };
+    ASSERT_TRUE(WriteTestWorld(dir, 2, 2, origin, true));
+    TerrainGrid grid;
+    ASSERT_TRUE(grid.create(MakeDesc(dir, 2, 2, origin, 5)));
+
+    const float dist[] = { 2.0f, 4.0f, 8.0f, 16.0f };
+    grid.setLodDistances(dist, 4);
+    grid.updateStreaming(TileCenter(origin, 0, 0), nullptr);
+
+    EXPECT_EQ(grid.residentCount(), 4);
+    const TerrainWorld* w00 = grid.residentWorld(0, 0);
+    ASSERT_NE(w00, nullptr);
+    EXPECT_FALSE(w00->uploadsHeightTexture());
+    EXPECT_FALSE(w00->heightTexture().valid());
+
+    int maxDelta = 0;
+    for (int tz = 0; tz < 2; ++tz)
+    {
+        for (int tx = 0; tx < 2; ++tx)
+        {
+            const TerrainWorld* a = grid.residentWorld(tx, tz);
+            ASSERT_NE(a, nullptr);
+            ASSERT_NE(a->chunk(0, 0), nullptr);
+            const int lod = a->chunk(0, 0)->lod;
+            if (tx + 1 < 2)
+            {
+                const TerrainWorld* b = grid.residentWorld(tx + 1, tz);
+                ASSERT_NE(b, nullptr);
+                maxDelta = std::max(maxDelta, std::abs(lod - b->chunk(0, 0)->lod));
+            }
+            if (tz + 1 < 2)
+            {
+                const TerrainWorld* b = grid.residentWorld(tx, tz + 1);
+                ASSERT_NE(b, nullptr);
+                maxDelta = std::max(maxDelta, std::abs(lod - b->chunk(0, 0)->lod));
+            }
+        }
+    }
+    EXPECT_LE(maxDelta, 1);
+    RemoveTempDir(dir);
+}
+
+TEST(TerrainGrid, UnloadedEdge_NoWeld)
+{
+    const auto     dir    = MakeTempDir("darkengine6_grid_unloaded_weld_ut");
+    const Vector3f origin{ 0.0f, 0.0f, 0.0f };
+    ASSERT_TRUE(WriteTestWorld(dir, 2, 2, origin, true));
+    TerrainGrid grid;
+    ASSERT_TRUE(grid.create(MakeDesc(dir, 2, 2, origin, 1)));
+    grid.updateStreaming(TileCenter(origin, 0, 0), nullptr);
+
+    EXPECT_TRUE(grid.isResident(0, 0));
+    EXPECT_FALSE(grid.isResident(1, 0));
+    EXPECT_FALSE(grid.isResident(0, 1));
+    const TerrainWorld* w = grid.residentWorld(0, 0);
+    ASSERT_NE(w, nullptr);
+    ASSERT_NE(w->chunk(0, 0), nullptr);
+    EXPECT_FALSE(w->chunk(0, 0)->edges.east());
+    EXPECT_FALSE(w->chunk(0, 0)->edges.north());
+    RemoveTempDir(dir);
+}
+
+TEST(TerrainGrid, TileHeap_SplatSlot12)
+{
+    const auto     dir    = MakeTempDir("darkengine6_grid_tile_heap_ut");
+    const Vector3f origin{ 0.0f, 0.0f, 0.0f };
+    ASSERT_TRUE(WriteTestWorld(dir, 2, 2, origin, true));
+    TerrainGrid grid;
+    ASSERT_TRUE(grid.create(MakeDesc(dir, 2, 2, origin, 5)));
+    grid.updateStreaming(TileCenter(origin, 0, 0), nullptr);
+    ASSERT_TRUE(grid.isResident(0, 0));
+    ASSERT_TRUE(grid.isResident(1, 0));
+
+    D3D12_CPU_DESCRIPTOR_HANDLE splat0{};
+    D3D12_CPU_DESCRIPTOR_HANDLE splat1{};
+    D3D12_CPU_DESCRIPTOR_HANDLE splat1b{};
+    splat0.ptr  = 0x1000;
+    splat1.ptr  = 0x2000;
+    splat1b.ptr = 0x3000;
+
+    ASSERT_TRUE(grid.packTileSplat(0, 0, splat0));
+    ASSERT_TRUE(grid.packTileSplat(1, 0, splat1));
+
+    const PackedSrvHeap* h0 = grid.residentPackedHeap(0, 0);
+    const PackedSrvHeap* h1 = grid.residentPackedHeap(1, 0);
+    ASSERT_NE(h0, nullptr);
+    ASSERT_NE(h1, nullptr);
+    ASSERT_NE(h0, h1);
+
+    EXPECT_EQ(h0->splatSlot, TerrainMaterial::kSplatSlot);
+    EXPECT_EQ(h0->shadowSlot, TerrainMaterial::kShadowSlot);
+    EXPECT_EQ(h0->srvCount, TerrainMaterial::kSrvCount);
+    EXPECT_EQ(h1->splatSlot, 12u);
+    EXPECT_EQ(h1->shadowSlot, 13u);
+    EXPECT_EQ(h1->srvCount, 14u);
+    EXPECT_EQ(h0->splatCpu.ptr, splat0.ptr);
+    EXPECT_EQ(h1->splatCpu.ptr, splat1.ptr);
+
+    ASSERT_TRUE(grid.packTileSplat(1, 0, splat1b));
+    const PackedSrvHeap* h0After = grid.residentPackedHeap(0, 0);
+    const PackedSrvHeap* h1After = grid.residentPackedHeap(1, 0);
+    ASSERT_NE(h0After, nullptr);
+    ASSERT_NE(h1After, nullptr);
+    EXPECT_EQ(h0After->splatCpu.ptr, splat0.ptr);
+    EXPECT_EQ(h1After->splatCpu.ptr, splat1b.ptr);
+    EXPECT_NE(h0After->splatCpu.ptr, h1After->splatCpu.ptr);
     RemoveTempDir(dir);
 }

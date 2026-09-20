@@ -59,11 +59,15 @@ namespace Dark::Terrain
                 {
                     const int i = z * chunksX + x;
                     int       lod = lods[i];
+                    if (lod < 0)
+                        continue; // unloaded / OOB — not a sentinel
                     auto consider = [&](int nx, int nz)
                     {
                         if (nx < 0 || nz < 0 || nx >= chunksX || nz >= chunksZ)
                             return;
                         const int nLod = lods[nz * chunksX + nx];
+                        if (nLod < 0)
+                            return;
                         if (lod > nLod + 1)
                         {
                             lod = nLod + 1;
@@ -90,11 +94,16 @@ namespace Dark::Terrain
             return mask;
 
         const int lod = lods[cz * chunksX + cx];
+        if (lod < 0)
+            return mask;
         auto flag = [&](int nx, int nz, uint8_t bit)
         {
             if (nx < 0 || nz < 0 || nx >= chunksX || nz >= chunksZ)
                 return;
-            if (lods[nz * chunksX + nx] > lod)
+            const int nLod = lods[nz * chunksX + nx];
+            if (nLod < 0)
+                return;
+            if (nLod > lod)
                 mask.bits = static_cast<uint8_t>(mask.bits | bit);
         };
         flag(cx, cz + 1, 1u); // north +Z

@@ -1,10 +1,20 @@
 #include "Terrain/TerrainGrid.h"
+#include "Assets/Image.h"
 #include "Core/Log.h"
 #include "Render/Camera3D.h"
+#include "Render/Frustum3f.h"
+#include "Render/GpuResourceCache.h"
+#include "Render/Renderer.h"
 #include "Render/ShadowCascades.h"
+#include "Render/TerrainPipeline.h"
+#include "Sky/Environment.h"
+#include "Terrain/TerrainMaterial.h"
 
+#include <chrono>
 #include <cmath>
+#include <cstring>
 #include <utility>
+#include <vector>
 
 namespace Dark
 {
@@ -15,6 +25,8 @@ using namespace Math;
 
 namespace
 {
+
+constexpr float kSteadyStateGpuMs = 4.0f;
 
 bool pathHasDotDot(const std::filesystem::path& path)
 {
@@ -39,27 +51,48 @@ int clampRing(int ring)
     return ring;
 }
 
+int pickChunkCells(int requested, int tileCells)
+{
+    int c = requested > 0 ? requested : 64;
+    if (c > tileCells)
+        c = tileCells;
+    while (c > 1 && ((tileCells % c) != 0 || !isPowerOfTwo(c)))
+        --c;
+    if (!isPowerOfTwo(c))
+        c = 1;
+    return c;
+}
+
 } // namespace
+
+TerrainGrid::~TerrainGrid()
+{
+    reset();
+}
 
 void TerrainGrid::reset()
 {
-    m_valid         = false;
-    m_tilesX        = 0;
-    m_tilesZ        = 0;
-    m_tileCells     = kTileCells;
-    m_residentRing  = kResidentRingDefault;
-    m_cellSize      = 1.0f;
-    m_tileWorld     = 0.0f;
-    m_worldMaxX     = 0.0f;
-    m_worldMaxZ     = 0.0f;
-    m_origin        = Vector3f(0.0f, 0.0f, 0.0f);
-    m_tileDir.clear();
-    m_coarse        = HeightMap{};
     for (uint32_t z = 0; z < kMaxWorldTiles; ++z)
     {
         for (uint32_t x = 0; x < kMaxWorldTiles; ++x)
-            m_slots[z][x] = TileSlot{};
+            evictFineTile(static_cast<int>(x), static_cast<int>(z));
     }
+    m_valid              = false;
+    m_tilesX             = 0;
+    m_tilesZ             = 0;
+    m_tileCells          = kTileCells;
+    m_chunkCells         = 64;
+    m_residentRing       = kResidentRingDefault;
+    m_cellSize           = 1.0f;
+    m_tileWorld          = 0.0f;
+    m_worldMaxX          = 0.0f;
+    m_worldMaxZ          = 0.0f;
+    m_origin             = Vector3f(0.0f, 0.0f, 0.0f);
+    m_tileDir.clear();
+    m_lodDistanceCount   = 5;
+    m_loggedStreamingIn  = false;
+    m_coarse             = HeightMap{};
+    m_heightTexture      = Texture2D{};
 }
 
 bool TerrainGrid::create(const TerrainGridDesc& desc)
@@ -103,6 +136,7 @@ bool TerrainGrid::create(const TerrainGridDesc& desc)
     m_tilesX       = desc.tilesX;
     m_tilesZ       = desc.tilesZ;
     m_tileCells    = tileCells;
+    m_chunkCells   = pickChunkCells(desc.chunkCells, tileCells);
     m_residentRing = clampRing(desc.residentRing);
     m_cellSize     = desc.cellSize;
     m_tileWorld    = static_cast<float>(m_tileCells) * m_cellSize;
@@ -113,6 +147,16 @@ bool TerrainGrid::create(const TerrainGridDesc& desc)
     m_coarse       = std::move(coarse);
     m_valid        = true;
     return true;
+}
+
+void TerrainGrid::setLodDistances(const float* distances, int count)
+{
+    if (!distances || count < 1)
+        return;
+    m_lodDistanceCount = count;
+    if (m_lodDistanceCount > kMaxLodLevels)
+        m_lodDistanceCount = kMaxLodLevels;
+    std::memcpy(m_lodDistances, distances, sizeof(float) * static_cast<size_t>(m_lodDistanceCount));
 }
 
 bool TerrainGrid::worldToTile(float x, float z, int& tx, int& tz) const
@@ -191,23 +235,308 @@ bool TerrainGrid::loadFineTile(int tx, int tz)
         return false;
     }
 
-    slot.height   = std::move(hm);
-    slot.resident = true;
+    TerrainDesc desc;
+    desc.heightMap        = std::move(hm);
+    desc.chunkCells       = m_chunkCells;
+    desc.lodDistanceCount = m_lodDistanceCount;
+    std::memcpy(desc.lodDistances, m_lodDistances, sizeof(float) * kMaxLodLevels);
+    if (!slot.world.create(std::move(desc)))
+    {
+        if (!slot.missingLogged)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "TerrainGrid: missing tile ({},{}) — coarse fallback", tx, tz);
+            slot.missingLogged = true;
+        }
+        return false;
+    }
+    slot.world.setUploadHeightTexture(false);
+    slot.splat.generateFromHeight(slot.world.heightMap());
+    slot.resident          = true;
+    slot.firstGpuApplyDone = false;
+    slot.heapPacked        = false;
     return true;
+}
+
+void TerrainGrid::unregisterTileHeap(TileSlot& slot)
+{
+    if (slot.cache)
+    {
+        slot.cache->unregisterPackedHeap(&slot.heap);
+        slot.cache = nullptr;
+    }
+    slot.heap      = PackedSrvHeap{};
+    slot.heapPacked = false;
 }
 
 void TerrainGrid::evictFineTile(int tx, int tz)
 {
-    TileSlot& slot = m_slots[tz][tx];
-    if (!slot.resident)
+    if (tx < 0 || tz < 0 || tx >= static_cast<int>(kMaxWorldTiles) || tz >= static_cast<int>(kMaxWorldTiles))
         return;
-    slot.height   = HeightMap{};
-    slot.resident = false;
+    TileSlot& slot = m_slots[tz][tx];
+    unregisterTileHeap(slot);
+    slot.world             = TerrainWorld{};
+    slot.splatTexture      = Texture2D{};
+    slot.splat             = SplatMap{};
+    slot.resident          = false;
+    slot.firstGpuApplyDone = false;
+}
+
+void TerrainGrid::updateLod(const Vector3f& cameraPos)
+{
+    if (!m_valid)
+        return;
+
+    int minTx = static_cast<int>(m_tilesX);
+    int maxTx = -1;
+    int minTz = static_cast<int>(m_tilesZ);
+    int maxTz = -1;
+    for (int tz = 0; tz < static_cast<int>(m_tilesZ); ++tz)
+    {
+        for (int tx = 0; tx < static_cast<int>(m_tilesX); ++tx)
+        {
+            if (!m_slots[tz][tx].resident)
+                continue;
+            if (tx < minTx)
+                minTx = tx;
+            if (tx > maxTx)
+                maxTx = tx;
+            if (tz < minTz)
+                minTz = tz;
+            if (tz > maxTz)
+                maxTz = tz;
+        }
+    }
+    if (maxTx < minTx || maxTz < minTz)
+        return;
+
+    const int chunksPerTileX = m_tileCells / m_chunkCells;
+    const int chunksPerTileZ = chunksPerTileX;
+    const int vx             = (maxTx - minTx + 1) * chunksPerTileX;
+    const int vz             = (maxTz - minTz + 1) * chunksPerTileZ;
+    if (vx <= 0 || vz <= 0)
+        return;
+
+    std::vector<int> virtualLods(static_cast<size_t>(vx) * static_cast<size_t>(vz), -1);
+    for (int tz = minTz; tz <= maxTz; ++tz)
+    {
+        for (int tx = minTx; tx <= maxTx; ++tx)
+        {
+            TileSlot& slot = m_slots[tz][tx];
+            if (!slot.resident)
+                continue;
+            const TerrainWorld& world = slot.world;
+            const int ox = (tx - minTx) * chunksPerTileX;
+            const int oz = (tz - minTz) * chunksPerTileZ;
+            for (int cz = 0; cz < world.chunksZ(); ++cz)
+            {
+                for (int cx = 0; cx < world.chunksX(); ++cx)
+                {
+                    const TerrainChunk* c = world.chunk(cx, cz);
+                    if (!c)
+                        continue;
+                    const Vector3f center = c->bounds.Center();
+                    const float dx = center.x - cameraPos.x;
+                    const float dy = center.y - cameraPos.y;
+                    const float dz = center.z - cameraPos.z;
+                    const float dist = sqrtf(dx * dx + dy * dy + dz * dz);
+                    virtualLods[static_cast<size_t>((oz + cz) * vx + (ox + cx))] =
+                        lodFromDistance(dist, m_lodDistances, m_lodDistanceCount, world.maxLod());
+                }
+            }
+        }
+    }
+
+    int maxIter = vx + vz;
+    if (maxIter < 32)
+        maxIter = 32;
+    restrictNeighborLods(virtualLods.data(), vx, vz, maxIter);
+
+    std::vector<int>      tileLods;
+    std::vector<EdgeMask> tileEdges;
+    for (int tz = minTz; tz <= maxTz; ++tz)
+    {
+        for (int tx = minTx; tx <= maxTx; ++tx)
+        {
+            TileSlot& slot = m_slots[tz][tx];
+            if (!slot.resident)
+                continue;
+            TerrainWorld& world = slot.world;
+            const int     n     = world.chunksX() * world.chunksZ();
+            tileLods.assign(static_cast<size_t>(n), 0);
+            tileEdges.assign(static_cast<size_t>(n), EdgeMask{});
+            const int ox = (tx - minTx) * chunksPerTileX;
+            const int oz = (tz - minTz) * chunksPerTileZ;
+            for (int cz = 0; cz < world.chunksZ(); ++cz)
+            {
+                for (int cx = 0; cx < world.chunksX(); ++cx)
+                {
+                    const int gx = ox + cx;
+                    const int gz = oz + cz;
+                    const int li = cz * world.chunksX() + cx;
+                    tileLods[static_cast<size_t>(li)]  = virtualLods[static_cast<size_t>(gz * vx + gx)];
+                    tileEdges[static_cast<size_t>(li)] = neighborCoarserMask(virtualLods.data(), vx, vz, gx, gz);
+                }
+            }
+            world.applyExternalLods(tileLods.data(), tileEdges.data());
+            if (world.needsRebuild())
+                world.rebuildDirtyCpuMeshes();
+        }
+    }
+}
+
+bool TerrainGrid::packTileSplat(
+    int tileX,
+    int tileZ,
+    D3D12_CPU_DESCRIPTOR_HANDLE splatCpu,
+    Renderer* renderer,
+    const TerrainMaterial* material)
+{
+    if (!isResident(tileX, tileZ))
+        return false;
+    TileSlot& slot = m_slots[tileZ][tileX];
+    unregisterTileHeap(slot);
+
+    ID3D12Device*     device = renderer ? renderer->device() : nullptr;
+    GpuResourceCache* cache  = renderer ? &renderer->gpuResources() : nullptr;
+
+    slot.heap.shadowSlot = TerrainMaterial::kShadowSlot;
+    slot.heap.splatSlot  = TerrainMaterial::kSplatSlot;
+    slot.heap.srvCount   = TerrainMaterial::kSrvCount;
+
+    if (material && material->isValid())
+    {
+        if (!material->packTileHeap(device, slot.heap, splatCpu))
+            return false;
+    }
+    else
+        copySplat(device, slot.heap, splatCpu);
+
+    if (cache)
+    {
+        cache->registerPackedHeap(&slot.heap);
+        slot.cache = cache;
+    }
+    slot.heapPacked = true;
+    return true;
+}
+
+bool TerrainGrid::packTileHeapGpu(Renderer& renderer, TileSlot& slot, const TerrainMaterial& material)
+{
+    if (!slot.splat.valid())
+        slot.splat.generateFromHeight(slot.world.heightMap());
+
+    Image splatImg;
+    if (!splatImg.createFromRGBA(slot.splat.rgba(), slot.splat.width(), slot.splat.height(), slot.splat.width() * 4u)
+        || !slot.splatTexture.createFromImage(renderer, splatImg, Dark::Color::TextureUsage::Data))
+    {
+        DE_LOG_ERROR(LogCategory::Render, "TerrainGrid: tile splat upload failed");
+        return false;
+    }
+
+    unregisterTileHeap(slot);
+    if (!material.packTileHeap(renderer.device(), slot.heap, slot.splatTexture.cpuHandle()))
+        return false;
+    renderer.gpuResources().registerPackedHeap(&slot.heap);
+    slot.cache      = &renderer.gpuResources();
+    slot.heapPacked = true;
+    return true;
+}
+
+bool TerrainGrid::uploadCoarseHeightTexture(Renderer& renderer)
+{
+    if (!m_coarse.valid())
+        return false;
+
+    const uint32_t w = m_coarse.width();
+    const uint32_t h = m_coarse.height();
+    std::vector<float> samples(static_cast<size_t>(w) * h);
+    for (uint32_t z = 0; z < h; ++z)
+    {
+        for (uint32_t x = 0; x < w; ++x)
+        {
+            samples[static_cast<size_t>(z) * w + x] =
+                m_coarse.heightAtWorld(m_coarse.worldX(static_cast<int>(x)), m_coarse.worldZ(static_cast<int>(z)));
+        }
+    }
+    if (!m_heightTexture.createFromR32Float(renderer, samples.data(), w, h, w * static_cast<uint32_t>(sizeof(float))))
+    {
+        DE_LOG_ERROR(LogCategory::Render, "TerrainGrid: coarse height texture upload failed");
+        return false;
+    }
+    return true;
+}
+
+void TerrainGrid::applyGpu(Renderer& renderer, const TerrainMaterial* material)
+{
+    if (!m_heightTexture.valid())
+        uploadCoarseHeightTexture(renderer);
+
+    if (material && material->isValid())
+    {
+        for (int tz = 0; tz < static_cast<int>(m_tilesZ); ++tz)
+        {
+            for (int tx = 0; tx < static_cast<int>(m_tilesX); ++tx)
+            {
+                TileSlot& slot = m_slots[tz][tx];
+                if (!slot.resident || slot.heapPacked)
+                    continue;
+                packTileHeapGpu(renderer, slot, *material);
+            }
+        }
+    }
+
+    TileSlot* target     = nullptr;
+    bool      firstApply = false;
+    for (int tz = 0; tz < static_cast<int>(m_tilesZ); ++tz)
+    {
+        for (int tx = 0; tx < static_cast<int>(m_tilesX); ++tx)
+        {
+            TileSlot& slot = m_slots[tz][tx];
+            if (!slot.resident || slot.world.pendingGpuUploads() <= 0)
+                continue;
+            if (!slot.firstGpuApplyDone)
+            {
+                target     = &slot;
+                firstApply = true;
+                break;
+            }
+            if (!target)
+                target = &slot;
+        }
+        if (firstApply)
+            break;
+    }
+    if (!target)
+        return;
+
+    renderer.waitForGpu();
+    const auto t0 = std::chrono::steady_clock::now();
+    if (firstApply)
+    {
+        target->world.uploadDirty(renderer, -1);
+        target->firstGpuApplyDone = true;
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        if (ms > kSteadyStateGpuMs)
+            DE_LOG_INFO(LogCategory::Render, "TerrainGrid: first tile GPU {:.1f} ms", ms);
+        return;
+    }
+
+    while (target->world.pendingGpuUploads() > 0)
+    {
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        if (ms >= kSteadyStateGpuMs)
+            break;
+        target->world.uploadDirty(renderer, 1);
+    }
 }
 
 void TerrainGrid::updateStreaming(const Vector3f& cameraPos, Renderer* renderer)
 {
-    (void)renderer; // GPU apply is PR5; null renderer is the CPU/test path
+    updateStreaming(cameraPos, renderer, nullptr);
+}
+
+void TerrainGrid::updateStreaming(const Vector3f& cameraPos, Renderer* renderer, const TerrainMaterial* material)
+{
     if (!m_valid)
         return;
 
@@ -244,6 +573,18 @@ void TerrainGrid::updateStreaming(const Vector3f& cameraPos, Renderer* renderer)
             residentCount(),
             0);
     }
+
+    if (!m_loggedStreamingIn && residentCount() > 0)
+    {
+        DE_LOG_INFO(LogCategory::Render, "TerrainGrid: streaming in");
+        m_loggedStreamingIn = true;
+    }
+
+    // Lod on the resident virtual grid before any GPU create. Tiles do not call updateLod.
+    updateLod(cameraPos);
+
+    if (renderer)
+        applyGpu(*renderer, material);
 }
 
 bool TerrainGrid::containsXZ(float x, float z) const
@@ -260,8 +601,8 @@ const HeightMap* TerrainGrid::heightSourceAt(float x, float z) const
     if (!worldToTile(x, z, tx, tz))
         return &m_coarse;
     const TileSlot& slot = m_slots[tz][tx];
-    if (slot.resident && slot.height.valid())
-        return &slot.height;
+    if (slot.resident && slot.world.heightMap().valid())
+        return &slot.world.heightMap();
     return &m_coarse;
 }
 
@@ -304,9 +645,9 @@ Collision::RayHit3D TerrainGrid::raycast(const Ray3f& ray, float maxDistance) co
         for (int tx = 0; tx < static_cast<int>(m_tilesX); ++tx)
         {
             const TileSlot& slot = m_slots[tz][tx];
-            if (!slot.resident || !slot.height.valid())
+            if (!slot.resident || !slot.world.heightMap().valid())
                 continue;
-            const Collision::RayHit3D hit = slot.height.raycast(ray, maxDistance);
+            const Collision::RayHit3D hit = slot.world.heightMap().raycast(ray, maxDistance);
             if (hit.hit && (!best.hit || hit.t < best.t))
                 best = hit;
         }
@@ -350,9 +691,9 @@ AABox3f TerrainGrid::residentBounds() const
         for (int tx = 0; tx < static_cast<int>(m_tilesX); ++tx)
         {
             const TileSlot& slot = m_slots[tz][tx];
-            if (!slot.resident || !slot.height.valid())
+            if (!slot.resident || !slot.world.heightMap().valid())
                 continue;
-            box.ExpandToInclude(slot.height.bounds());
+            box.ExpandToInclude(slot.world.heightMap().bounds());
         }
     }
     return box;
@@ -376,6 +717,69 @@ AABox3f TerrainGrid::shadowBounds(const Camera3D& camera) const
     return AABox3f(
         Vector3f(p.x - half, yMin, p.z - half),
         Vector3f(p.x + half, yMax, p.z + half));
+}
+
+void TerrainGrid::draw(
+    ID3D12GraphicsCommandList* cmd,
+    const TerrainPipeline& pipeline,
+    const TerrainMaterial& material,
+    const Camera3D& camera,
+    const Frustum3f* frustum,
+    const Sky::Environment* env,
+    const ShadowSystem* shadows,
+    const DebugRenderState* debug) const
+{
+    if (!m_valid || !cmd)
+        return;
+    for (int tz = 0; tz < static_cast<int>(m_tilesZ); ++tz)
+    {
+        for (int tx = 0; tx < static_cast<int>(m_tilesX); ++tx)
+        {
+            const TileSlot& slot = m_slots[tz][tx];
+            if (!slot.resident || !slot.heapPacked)
+                continue;
+            slot.world.draw(cmd, pipeline, material, camera, frustum, env, shadows, debug, &slot.heap);
+        }
+    }
+}
+
+void TerrainGrid::drawGBuffer(
+    ID3D12GraphicsCommandList* cmd,
+    const TerrainPipeline& pipeline,
+    const TerrainMaterial& material,
+    const Camera3D& camera,
+    const Frustum3f* frustum,
+    const DebugRenderState* debug,
+    const Matrix4f* prevViewProj) const
+{
+    if (!m_valid || !cmd)
+        return;
+    for (int tz = 0; tz < static_cast<int>(m_tilesZ); ++tz)
+    {
+        for (int tx = 0; tx < static_cast<int>(m_tilesX); ++tx)
+        {
+            const TileSlot& slot = m_slots[tz][tx];
+            if (!slot.resident || !slot.heapPacked)
+                continue;
+            slot.world.drawGBuffer(cmd, pipeline, material, camera, frustum, debug, prevViewProj, &slot.heap);
+        }
+    }
+}
+
+void TerrainGrid::drawDepth(ID3D12GraphicsCommandList* cmd, const Frustum3f* casterFrustum) const
+{
+    if (!m_valid || !cmd)
+        return;
+    for (int tz = 0; tz < static_cast<int>(m_tilesZ); ++tz)
+    {
+        for (int tx = 0; tx < static_cast<int>(m_tilesX); ++tx)
+        {
+            const TileSlot& slot = m_slots[tz][tx];
+            if (!slot.resident)
+                continue;
+            slot.world.drawDepth(cmd, casterFrustum);
+        }
+    }
 }
 
 int TerrainGrid::residentCount() const
@@ -405,10 +809,24 @@ bool TerrainGrid::isResident(int tileX, int tileZ) const
 
 const HeightMap* TerrainGrid::residentHeight(int tileX, int tileZ) const
 {
+    const TerrainWorld* world = residentWorld(tileX, tileZ);
+    if (!world)
+        return nullptr;
+    return world->heightMap().valid() ? &world->heightMap() : nullptr;
+}
+
+const TerrainWorld* TerrainGrid::residentWorld(int tileX, int tileZ) const
+{
     if (!isResident(tileX, tileZ))
         return nullptr;
-    const HeightMap& hm = m_slots[tileZ][tileX].height;
-    return hm.valid() ? &hm : nullptr;
+    return &m_slots[tileZ][tileX].world;
+}
+
+const PackedSrvHeap* TerrainGrid::residentPackedHeap(int tileX, int tileZ) const
+{
+    if (!isResident(tileX, tileZ))
+        return nullptr;
+    return &m_slots[tileZ][tileX].heap;
 }
 
 } // namespace Terrain
