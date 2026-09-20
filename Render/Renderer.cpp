@@ -4,6 +4,7 @@
 #include "Render/IblBake.h"
 #include "Render/SceneBuffers.h"
 #include "Render/Texture2D.h"
+#include "Assets/Image.h"
 #include "Core/ContentRoots.h"
 #include "Core/Window.h"
 #include "Core/Log.h"
@@ -421,6 +422,8 @@ namespace Dark
             m_sceneBuffers->setLightingAlbedoRaw(m_device.Get(), m_debugState.showAlbedoRaw);
             setHeightSrv(m_heightCpu.ptr != 0 ? m_heightCpu : (m_fogHeightDummy && m_fogHeightDummy->valid() ? m_fogHeightDummy->cpuHandle() : D3D12_CPU_DESCRIPTOR_HANDLE{}));
             applyIblSrvs();
+            ensureSsrDummyResources();
+            setLightingSsrSrv(ssrDummyCpu());
         }
 
         updateViewport();
@@ -722,6 +725,8 @@ namespace Dark
         }
         setHeightSrv(m_heightCpu.ptr != 0 ? m_heightCpu : (m_fogHeightDummy->valid() ? m_fogHeightDummy->cpuHandle() : D3D12_CPU_DESCRIPTOR_HANDLE{}));
         applyIblSrvs();
+        ensureSsrDummyResources();
+        setLightingSsrSrv(ssrDummyCpu());
         if (path == ScenePath::HybridDeferred)
             ensureIblBrdfLut();
         DE_LOG_INFO(LogCategory::Render, "enableSceneBuffers: path={} {}x{}", static_cast<unsigned>(path), m_width, m_height);
@@ -773,6 +778,11 @@ namespace Dark
         return (m_iblDummyLut && m_iblDummyLut->valid()) ? m_iblDummyLut->cpuHandle() : D3D12_CPU_DESCRIPTOR_HANDLE{};
     }
 
+    D3D12_CPU_DESCRIPTOR_HANDLE Renderer::ssrDummyCpu() const
+    {
+        return (m_ssrDummy && m_ssrDummy->valid()) ? m_ssrDummy->cpuHandle() : D3D12_CPU_DESCRIPTOR_HANDLE{};
+    }
+
     void Renderer::ensureIblDummyResources()
     {
         if (!m_iblDummyCube || m_iblDummyCubeCpu.ptr == 0)
@@ -800,6 +810,22 @@ namespace Dark
             m_sceneBuffers->setIblSrvs(m_device.Get(), iblDummyCubeCpu(), iblDummyCubeCpu(), iblDummyLutCpu());
     }
 
+    void Renderer::ensureSsrDummyResources()
+    {
+        if (!m_ssrDummy)
+            m_ssrDummy = std::make_unique<Texture2D>();
+        if (!m_ssrDummy->valid())
+        {
+            Image img;
+            const float black[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+            if (!img.createFromRgba32f(black, 1, 1, 16u))
+                return;
+            m_ssrDummy->createFromImage(*this, img, Color::TextureUsage::Ibl);
+            if (m_ssrDummy->valid() && m_ssrDummy->resource())
+                m_ssrDummy->resource()->SetName(L"DE.Ssr.Dummy");
+        }
+    }
+
     void Renderer::setIblSrvs(D3D12_CPU_DESCRIPTOR_HANDLE irradianceCpu, D3D12_CPU_DESCRIPTOR_HANDLE prefilterCpu, D3D12_CPU_DESCRIPTOR_HANDLE brdfLutCpu)
     {
         m_iblIrrCpu  = irradianceCpu;
@@ -823,6 +849,12 @@ namespace Dark
     {
         if (m_sceneBuffers)
             m_sceneBuffers->setLightingAoSrv(m_device.Get(), aoCpu);
+    }
+
+    void Renderer::setLightingSsrSrv(D3D12_CPU_DESCRIPTOR_HANDLE ssrCpu)
+    {
+        if (m_sceneBuffers)
+            m_sceneBuffers->setLightingSsrSrv(m_device.Get(), ssrCpu);
     }
 
     void Renderer::setLightingAlbedoRaw(bool raw)
@@ -1050,6 +1082,13 @@ namespace Dark
         if (!m_sceneBuffers)
             return {};
         return m_sceneBuffers->iblTableGpu();
+    }
+
+    D3D12_GPU_DESCRIPTOR_HANDLE Renderer::ssrTableGpu() const
+    {
+        if (!m_sceneBuffers)
+            return {};
+        return m_sceneBuffers->ssrTableGpu();
     }
 
     ID3D12DescriptorHeap* Renderer::lightingHeap() const
