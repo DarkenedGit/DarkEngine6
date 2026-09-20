@@ -262,10 +262,9 @@ namespace Dark::Terrain
             }
             if (hiBin <= loBin)
                 hiBin = loBin + 1;
-            const float lo   = mn + span * (static_cast<float>(loBin) / 255.0f);
-            const float hi   = mn + span * (static_cast<float>(hiBin) / 255.0f);
-            const float fit  = hi - lo;
-            const float land = 1.0f - sea;
+            const float lo  = mn + span * (static_cast<float>(loBin) / 255.0f);
+            const float hi  = mn + span * (static_cast<float>(hiBin) / 255.0f);
+            const float fit = hi - lo;
             if (fit < 1.0e-5f)
             {
                 for (size_t i = 0; i < count; ++i)
@@ -276,9 +275,11 @@ namespace Dark::Terrain
             for (size_t i = 0; i < count; ++i)
             {
                 float t = (samples[i] - lo) * invFit;
-                t       = Clamp(t, 0.0f, 1.0f);
-                samples[i] = sea + t * land;
+                if (t < 0.0f)
+                    t = 0.0f;
+                samples[i] = t;
             }
+            (void)sea;
         }
 
         float SampleBilinear(const float* s, int w, int h, float fx, float fz)

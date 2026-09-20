@@ -427,6 +427,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         m_localLightVolumes.draw(cmd, renderer(), world(), m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_camera, viewProj, lc);
         renderer().bindHdr(true);
         m_scene.captureSsrSceneColor(cmd, renderer());
+        renderer().bindHdrDepthRead();
         if (m_haveTerrain && m_scene.waterPipeline().isValid())
         {
             const Frustum3f waterFrustum(m_camera.GetCullViewProj());
