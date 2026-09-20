@@ -20,6 +20,7 @@
 #include "Combat/JumpAttackComponent.h"
 #include "Combat/JumpAttackResolve.h"
 #include "Combat/PoiseComponent.h"
+#include "Combat/StatusDef.h"
 #include "Combat/StatusEffectComponent.h"
 #include "Combat/WeaponHitAdapter.h"
 #include "Particles/StatusFxDriver.h"
@@ -66,7 +67,10 @@ namespace
         SoundBankComponent bank;
         addSoundCue(bank, "pain", loadEditorClip(audio, assets, "audio/pain.wav", 380.0f, 0.12f, 0.5f), 0.75f, true);
         addSoundCue(bank, "grunt", loadEditorClip(audio, assets, "audio/grunt.wav", 140.0f, 0.18f, 0.5f), 0.95f, true);
-        addSoundCue(bank, "impact", loadEditorClip(audio, assets, "audio/place.wav", 180.0f, 0.10f, 0.5f), 0.5f, true);
+        const AssetID impactClip = loadEditorClip(audio, assets, "audio/place.wav", 180.0f, 0.10f, 0.5f);
+        addSoundCue(bank, "impact", impactClip, 0.5f, true);
+        // Catalog Poison/Ignite applyCue is "fire"; hunters have no weapon fire row — alias impact so one-shots aren't silent.
+        addSoundCue(bank, "fire", impactClip, 0.5f, true);
         addSoundCue(bank, "land", loadEditorClip(audio, assets, "audio/land.wav", 70.0f, 0.12f, 0.55f), 0.75f, true);
         setSoundBank(world, pins, assets, e, std::move(bank));
     }
@@ -892,6 +896,19 @@ void EditorApp::drawPlayHud()
         ImGui::Text("Player HP  %.0f / %.0f", static_cast<double>(hp->health.hp()), static_cast<double>(hp->health.maxHp()));
     if (JumpAttackComponent* jac = m_playPlayer.valid() ? world().get<JumpAttackComponent>(m_playPlayer) : nullptr)
         ImGui::Text("Jump CD  %.2fs", static_cast<double>(jac->jump.cooldownLeft()));
+    if (const Combat::StatusEffectComponent* st = m_playPlayer.valid() ? world().get<Combat::StatusEffectComponent>(m_playPlayer) : nullptr)
+    {
+        for (int i = 1; i < Combat::kStatusIdCount; ++i)
+        {
+            const auto id = static_cast<Combat::StatusId>(i);
+            if (!st->has(id))
+                continue;
+            const Combat::StatusDef* def = Combat::statusDef(id);
+            if (!def || !def->name || !def->name[0])
+                continue;
+            ImGui::Text("%s  %.2fs", def->name, static_cast<double>(st->remaining(id)));
+        }
+    }
     int hunters = 0;
     int alive   = 0;
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {

@@ -1,6 +1,9 @@
 #include "SandboxApp.h"
 
+#include "Combat/CombatSystem.h"
 #include "Combat/JumpAttackComponent.h"
+#include "Combat/StatusDef.h"
+#include "Combat/StatusEffectComponent.h"
 #include "Core/Log.h"
 #include "Debug/DebugTypes.h"
 #include "Network/NetTypes.h"
@@ -63,6 +66,29 @@ void formatIPv4(char* out, size_t cap, const Address& addr)
 {
     const uint32_t ip = addr.ipv4;
     std::snprintf(out, cap, "%u.%u.%u.%u:%u", (ip >> 24) & 255u, (ip >> 16) & 255u, (ip >> 8) & 255u, ip & 255u, addr.port);
+}
+
+void applyDebugStatus(World& world, Entity body, Combat::StatusId id)
+{
+    if (!body.valid())
+        return;
+    Combat::StatusEffectComponent* st = world.get<Combat::StatusEffectComponent>(body);
+    if (!st)
+        return;
+    // Shock hitch lives in CombatSystem::resolve (Applied snapshot). Empty source so the slot is not self.
+    if (id == Combat::StatusId::Shock)
+    {
+        Combat::DamageEvent ev{};
+        ev.target   = body;
+        ev.amount   = 0.0f;
+        ev.flags    = Combat::DamageFlags::None;
+        ev.statusId = static_cast<uint8_t>(id);
+        ev.hitDir   = Vector3f{ 0.0f, 0.0f, 1.0f };
+        Combat::CombatSystem combat;
+        combat.resolve(world, ev);
+        return;
+    }
+    st->applyStatus(id, 0.0f, 0.0f, Entity{});
 }
 
 } // namespace
@@ -400,6 +426,48 @@ void SandboxApp::drawDevTools()
                 ImGui::Text("pack token %u", token.id());
             else
                 ImGui::TextUnformatted("pack token none");
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Status"))
+    {
+        const Entity body = possessedBody();
+        Combat::StatusEffectComponent* st = body.valid() ? world().get<Combat::StatusEffectComponent>(body) : nullptr;
+        if (!st)
+            ImGui::TextUnformatted("no StatusEffect");
+        else
+        {
+            bool any = false;
+            for (int i = 1; i < Combat::kStatusIdCount; ++i)
+            {
+                const auto id = static_cast<Combat::StatusId>(i);
+                if (!st->has(id))
+                    continue;
+                const Combat::StatusDef* def = Combat::statusDef(id);
+                if (!def || !def->name || !def->name[0])
+                    continue;
+                ImGui::Text("%s  %.2fs", def->name, static_cast<double>(st->remaining(id)));
+                any = true;
+            }
+            if (!any)
+                ImGui::TextDisabled("none");
+
+            if (ImGui::Button("Apply Poison"))
+                applyDebugStatus(world(), body, Combat::StatusId::Poison);
+            ImGui::SameLine();
+            if (ImGui::Button("Apply Bleed"))
+                applyDebugStatus(world(), body, Combat::StatusId::Bleed);
+            ImGui::SameLine();
+            if (ImGui::Button("Apply Ignite"))
+                applyDebugStatus(world(), body, Combat::StatusId::Ignite);
+            if (ImGui::Button("Apply Chill"))
+                applyDebugStatus(world(), body, Combat::StatusId::Chill);
+            ImGui::SameLine();
+            if (ImGui::Button("Apply Shock"))
+                applyDebugStatus(world(), body, Combat::StatusId::Shock);
+            ImGui::SameLine();
+            if (ImGui::Button("Apply Stun"))
+                applyDebugStatus(world(), body, Combat::StatusId::Stun);
         }
     }
 

@@ -257,7 +257,10 @@ void attachHunterSounds(World& world, AssetPinTable& pins, AssetManager& assets,
     SoundBankComponent bank;
     addSoundCue(bank, "pain", loadSandboxClip(audio, assets, "audio/pain.wav", 380.0f, 0.12f, 0.5f), 0.75f, true);
     addSoundCue(bank, "grunt", loadSandboxClip(audio, assets, "audio/grunt.wav", 140.0f, 0.18f, 0.5f), 0.95f, true);
-    addSoundCue(bank, "impact", loadSandboxClip(audio, assets, "audio/place.wav", 180.0f, 0.10f, 0.5f), 0.5f, true);
+    const AssetID impactClip = loadSandboxClip(audio, assets, "audio/place.wav", 180.0f, 0.10f, 0.5f);
+    addSoundCue(bank, "impact", impactClip, 0.5f, true);
+    // Catalog Poison/Ignite applyCue is "fire"; hunters have no weapon fire row — alias impact so one-shots aren't silent.
+    addSoundCue(bank, "fire", impactClip, 0.5f, true);
     addSoundCue(bank, "land", loadSandboxClip(audio, assets, "audio/land.wav", 70.0f, 0.12f, 0.55f), 0.75f, true);
     setSoundBank(world, pins, assets, e, std::move(bank));
 }
