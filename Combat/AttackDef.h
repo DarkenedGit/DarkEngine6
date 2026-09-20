@@ -22,6 +22,9 @@ namespace Dark::Combat
         uint8_t     armorLevelWhileAttacking = 0;
         uint32_t    flags        = 0; // DamageFlags::*
         uint8_t     teamFilter   = 0;
+        uint8_t     statusId        = 0;
+        float       statusDuration  = 0.f;
+        float       statusMagnitude = 0.f;
     };
 
 } // namespace Dark::Combat

@@ -26,7 +26,10 @@ namespace Dark::Combat
                 ev.amount = attack->damage;
             if (attack->flags != 0)
                 ev.flags = attack->flags;
-            ev.teamSource = attack->teamFilter;
+            ev.teamSource      = attack->teamFilter;
+            ev.statusId        = attack->statusId;
+            ev.statusDuration  = attack->statusDuration;
+            ev.statusMagnitude = attack->statusMagnitude;
         }
         else
         {

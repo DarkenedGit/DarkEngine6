@@ -8,6 +8,7 @@
 #include "Combat/DefenseComponent.h"
 #include "Combat/PoiseComponent.h"
 #include "Combat/StatusEffectComponent.h"
+#include "Combat/StatusId.h"
 #include "ECS/World.h"
 #include "Math/MathHelper.h"
 
@@ -46,7 +47,8 @@ namespace Dark::Combat
             r.filtered = true;
             return r;
         }
-        if (ev.source.valid() && ev.source.id() == ev.target.id())
+        const bool dot = (ev.flags & DamageFlags::DotTick) != 0;
+        if (ev.source.valid() && ev.source.id() == ev.target.id() && !dot)
         {
             r.filtered = true;
             return r;
@@ -94,6 +96,28 @@ namespace Dark::Combat
         if (health && !health->alive())
         {
             r.filtered = true;
+            return r;
+        }
+
+        const bool dot = (ev.flags & DamageFlags::DotTick) != 0;
+        if (dot)
+        {
+            float dmg = ev.amount;
+            const bool ignoreArmor = (ev.flags & DamageFlags::IgnoresArmor) != 0 || isTrue(ev.type);
+            ArmorStats stats{};
+            if (armor)
+                stats = armor->stats;
+            dmg = mitigateTyped(dmg, ev.type, stats, ev.armorPen, ignoreArmor);
+            if (dmg < 0.0f)
+                dmg = 0.0f;
+
+            bool killed = false;
+            if (health && dmg > 0.0f)
+                killed = health->applyDamage(dmg);
+            r.killed      = killed;
+            r.finalDamage = dmg;
+            r.applied     = true;
+            r.severity    = killed ? Severity::Fatal : Severity::Tick;
             return r;
         }
 
@@ -158,26 +182,33 @@ namespace Dark::Combat
         r.applied     = true;
 
         const bool mappedKnockdown = (ev.flags & DamageFlags::Knockdown) != 0;
-        if (status && !r.blocked
-            && (ev.flags & (DamageFlags::SoftCc | DamageFlags::HardCc | DamageFlags::Knockdown)) != 0)
+        const bool hadShock        = status && status->has(StatusId::Shock);
+        if (status && !r.blocked)
         {
-            CcCategory cat    = CcCategory::Root;
-            bool       hard   = false;
-            float      defDur = 0.8f;
-            if (mappedKnockdown)
+            if (ev.statusId != 0)
             {
-                cat    = CcCategory::Knockdown;
-                hard   = true;
-                defDur = 1.4f;
+                r.ccDuration = status->applyStatus(static_cast<StatusId>(ev.statusId), ev.statusDuration, ev.statusMagnitude, ev.source);
             }
-            else if ((ev.flags & DamageFlags::HardCc) != 0)
+            else if ((ev.flags & (DamageFlags::SoftCc | DamageFlags::HardCc | DamageFlags::Knockdown)) != 0)
             {
-                cat    = CcCategory::Stun;
-                hard   = true;
-                defDur = 1.2f;
+                CcCategory cat    = CcCategory::Root;
+                bool       hard   = false;
+                float      defDur = 0.8f;
+                if (mappedKnockdown)
+                {
+                    cat    = CcCategory::Knockdown;
+                    hard   = true;
+                    defDur = 1.4f;
+                }
+                else if ((ev.flags & DamageFlags::HardCc) != 0)
+                {
+                    cat    = CcCategory::Stun;
+                    hard   = true;
+                    defDur = 1.2f;
+                }
+                const float dur = ev.statusDuration > 0.0f ? ev.statusDuration : defDur;
+                r.ccDuration    = status->applyCc(cat, dur, hard, ev.statusId, ev.statusMagnitude, ev.source);
             }
-            const float dur = ev.statusDuration > 0.0f ? ev.statusDuration : defDur;
-            r.ccDuration    = status->applyCc(cat, dur, hard, ev.statusId, ev.statusMagnitude);
         }
 
         const float maxHp = maxHpForSeverity > 1.0e-6f ? maxHpForSeverity : 100.0f;
@@ -186,8 +217,10 @@ namespace Dark::Combat
 
         if (hitReaction && !r.blocked)
         {
-            const bool hyper = poise && poise->hyperArmor;
-            if (mappedKnockdown && r.ccDuration > 0.0f)
+            const bool hyper         = poise && poise->hyperArmor;
+            const bool knockdownHit  = mappedKnockdown || static_cast<StatusId>(ev.statusId) == StatusId::Knockdown;
+            const bool shockApplied  = static_cast<StatusId>(ev.statusId) == StatusId::Shock && r.ccDuration > 0.0f && !hadShock;
+            if (knockdownHit && r.ccDuration > 0.0f)
             {
                 if (!hyper)
                 {
@@ -199,6 +232,16 @@ namespace Dark::Combat
                     hitReaction->setSettings(kd);
                     hitReaction->apply(ev.hitDir);
                 }
+            }
+            else if (shockApplied)
+            {
+                HitReactionSettings hitch{};
+                hitch.stunSeconds       = 0.25f;
+                hitch.knockbackDistance = 0.0f;
+                hitch.knockbackSeconds  = 0.0f;
+                hitch.horizontalOnly    = true;
+                hitReaction->setSettings(hitch);
+                hitReaction->apply(ev.hitDir);
             }
             else if (r.severity != Severity::Tick && !hyper)
             {

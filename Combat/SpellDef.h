@@ -52,6 +52,9 @@ namespace Dark::Combat
         float                poiseDamage      = 8.0f;
         float                armorPen         = 0.0f;
         uint32_t             damageFlags      = 0;
+        uint8_t              statusId         = 0;
+        float                statusDuration   = 0.f;
+        float                statusMagnitude  = 0.f;
         SpellInterruptPolicy interruptPolicy = SpellInterruptPolicy::HardCc;
         float                damageInterruptThreshold = 0.0f; // used if DamageOver
         bool                 commitCostOnRelease      = true;

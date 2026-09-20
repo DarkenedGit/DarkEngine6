@@ -150,9 +150,12 @@ namespace Dark::Combat
                 m_proj.type           = m_def.damageType;
                 m_proj.poiseDamage    = m_def.poiseDamage;
                 m_proj.armorPen       = m_def.armorPen;
-                m_proj.flags          = m_def.damageFlags;
-                m_proj.source         = m_req.caster;
-                m_proj.intendedTarget = m_req.target;
+                m_proj.flags           = m_def.damageFlags;
+                m_proj.statusId        = m_def.statusId;
+                m_proj.statusDuration  = m_def.statusDuration;
+                m_proj.statusMagnitude = m_def.statusMagnitude;
+                m_proj.source          = m_req.caster;
+                m_proj.intendedTarget  = m_req.target;
             }
             m_cooldown = m_def.cooldown;
             enter(SpellPhase::Recovery);
@@ -186,8 +189,11 @@ namespace Dark::Combat
         outEvent.hitDir       = m_proj.vel.MagnitudeSqrd() > 1.0e-8f ? m_proj.vel : Vector3f{ 0.0f, 0.0f, 1.0f };
         if (outEvent.hitDir.MagnitudeSqrd() > 1.0e-8f)
             outEvent.hitDir.Normalize();
-        outEvent.flags        = m_proj.flags != 0 ? m_proj.flags : (DamageFlags::CanBlock | DamageFlags::CanParry);
-        m_proj.alive          = false;
+        outEvent.flags           = m_proj.flags != 0 ? m_proj.flags : (DamageFlags::CanBlock | DamageFlags::CanParry);
+        outEvent.statusId        = m_proj.statusId;
+        outEvent.statusDuration  = m_proj.statusDuration;
+        outEvent.statusMagnitude = m_proj.statusMagnitude;
+        m_proj.alive             = false;
         return true;
     }
 

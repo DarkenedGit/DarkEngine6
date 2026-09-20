@@ -32,6 +32,9 @@ namespace Dark::Combat
         float          poiseDamage = 0.f;
         float          armorPen = 0.f;
         uint32_t       flags    = 0;
+        uint8_t        statusId = 0;
+        float          statusDuration  = 0.f;
+        float          statusMagnitude = 0.f;
         Entity         source{};
         Entity         intendedTarget{};
     };

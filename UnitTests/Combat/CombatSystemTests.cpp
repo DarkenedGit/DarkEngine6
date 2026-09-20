@@ -11,7 +11,10 @@
 #include "Combat/JumpAttackResolve.h"
 #include "Combat/PoiseComponent.h"
 #include "Combat/SpellCaster.h"
+#include "Combat/StatusDot.h"
 #include "Combat/StatusEffectComponent.h"
+#include "Combat/WeaponHitAdapter.h"
+#include "ECS/Components.h"
 #include "ECS/World.h"
 #include "Math/MathHelper.h"
 
@@ -316,6 +319,9 @@ TEST(AttackDef_Defaults, MeleePayloadFieldsPresent)
     a.armorPen    = 0.1f;
     EXPECT_EQ(a.type, DamageType::Blunt);
     EXPECT_GT(a.poiseDamage, 0.0f);
+    EXPECT_EQ(a.statusId, 0);
+    EXPECT_FLOAT_EQ(a.statusDuration, 0.0f);
+    EXPECT_FLOAT_EQ(a.statusMagnitude, 0.0f);
 }
 
 TEST(Combat_HardCc_StunsWithoutKnockdown, MapsToStunNotKnockdown)
@@ -601,4 +607,319 @@ TEST(Combat_ResolveJumpAttackEvents_AppliesViaWorld, CountsApplied)
 
     DamageEvent bad{};
     EXPECT_EQ(resolveJumpAttackEvents(world, sys, &bad, 1), 0);
+}
+
+TEST(CombatSystem_DotTick_DamagesNoFlinchNoCc, SeverityForcedTick)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    HitReaction  hit{};
+    StatusEffectComponent st{};
+    DamageEvent ev = makeHit(10.0f, DamageType::True);
+    ev.flags          = DamageFlags::DotTick | DamageFlags::HardCc;
+    ev.statusDuration = 2.0f;
+    const ResolveResult r = sys.resolveDirect(ev, &hp, &hit, nullptr, nullptr, nullptr, &st, nullptr, 100.0f);
+    EXPECT_TRUE(r.applied);
+    EXPECT_FALSE(r.blocked);
+    EXPECT_FALSE(r.iframe);
+    EXPECT_FLOAT_EQ(hp.hp(), 90.0f);
+    EXPECT_EQ(r.severity, Severity::Tick);
+    EXPECT_FALSE(hit.stunned());
+    EXPECT_FALSE(st.hasHardCc());
+    EXPECT_FALSE(st.hasCategory(CcCategory::Stun));
+    EXPECT_EQ(st.dr[static_cast<int>(CcCategory::Stun)].applications, 0);
+}
+
+TEST(CombatSystem_DotTick_IgnoresBlockAndIFrame, FullMitigatedNoCc)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    DefenseComponent def{};
+    def.blocking    = true;
+    def.stamina     = 100.0f;
+    def.beginIFrame(0.5f);
+    ArmorComponent armor{};
+    HitReaction hit{};
+    StatusEffectComponent st{};
+    Vector3f facing{ 0.0f, 0.0f, 1.0f };
+
+    DamageEvent ev = makeHit(10.0f, DamageType::True);
+    ev.flags  = DamageFlags::DotTick | DamageFlags::CanBlock | DamageFlags::HardCc;
+    ev.hitDir = Vector3f{ 0.0f, 0.0f, -1.0f };
+    ev.statusDuration = 2.0f;
+
+    const ResolveResult r = sys.resolveDirect(ev, &hp, &hit, &def, &armor, nullptr, &st, &facing, 100.0f);
+    EXPECT_TRUE(r.applied);
+    EXPECT_FALSE(r.iframe);
+    EXPECT_FALSE(r.blocked);
+    EXPECT_FALSE(r.parried);
+    EXPECT_NEAR(r.finalDamage, 10.0f, 1.0e-3f);
+    EXPECT_FLOAT_EQ(hp.hp(), 90.0f);
+    EXPECT_NEAR(def.stamina, 100.0f, 1.0e-3f);
+    EXPECT_FALSE(hit.stunned());
+    EXPECT_FALSE(st.hasHardCc());
+    EXPECT_EQ(r.severity, Severity::Tick);
+}
+
+TEST(CombatSystem_WorldResolve_DotTickSelfSourceDamages, SelfFilterSkipped)
+{
+    World world;
+    Entity target = world.createEntity();
+    HealthComponent hc{};
+    hc.health = Health{ HealthSettings{ 80.0f, 0.0f, 99.0f } };
+    world.emplace<HealthComponent>(target, std::move(hc));
+
+    CombatSystem sys;
+    DamageEvent selfHit = makeHit(10.0f, DamageType::True);
+    selfHit.source      = target;
+    selfHit.target      = target;
+    const ResolveResult filtered = sys.resolve(world, selfHit);
+    EXPECT_TRUE(filtered.filtered);
+    EXPECT_FALSE(filtered.applied);
+    EXPECT_NEAR(world.get<HealthComponent>(target)->health.hp(), 80.0f, 1.0e-3f);
+
+    DamageEvent dot = selfHit;
+    dot.flags       = DamageFlags::DotTick;
+    const ResolveResult r = sys.resolve(world, dot);
+    EXPECT_TRUE(r.applied);
+    EXPECT_FALSE(r.filtered);
+    EXPECT_EQ(r.severity, Severity::Tick);
+    EXPECT_NEAR(world.get<HealthComponent>(target)->health.hp(), 70.0f, 1.0e-3f);
+}
+
+TEST(CombatSystem_StatusIdPoison_OnHit, AppliesNamedStatusNoCcFlags)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    StatusEffectComponent st{};
+    DamageEvent ev = makeHit(1.0f, DamageType::True);
+    ev.flags          = DamageFlags::None;
+    ev.statusId       = static_cast<uint8_t>(StatusId::Poison);
+    ev.statusDuration = 8.0f;
+    ev.statusMagnitude = 1.0f;
+    const ResolveResult r = sys.resolveDirect(ev, &hp, nullptr, nullptr, nullptr, nullptr, &st, nullptr, 100.0f);
+    EXPECT_TRUE(r.applied);
+    EXPECT_TRUE(st.has(StatusId::Poison));
+    EXPECT_NEAR(st.remaining(StatusId::Poison), 8.0f, 1.0e-4f);
+    EXPECT_FALSE(st.hasHardCc());
+    EXPECT_EQ(st.dr[static_cast<int>(CcCategory::Stun)].applications, 0);
+}
+
+TEST(CombatSystem_StatusIdPoison_ZeroDurationUsesCatalogDefault, RemainingEight)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    StatusEffectComponent st{};
+    DamageEvent ev = makeHit(1.0f, DamageType::True);
+    ev.flags           = DamageFlags::None;
+    ev.statusId        = static_cast<uint8_t>(StatusId::Poison);
+    ev.statusDuration  = 0.0f;
+    ev.statusMagnitude = 0.0f;
+    const ResolveResult r = sys.resolveDirect(ev, &hp, nullptr, nullptr, nullptr, nullptr, &st, nullptr, 100.0f);
+    EXPECT_TRUE(r.applied);
+    EXPECT_TRUE(st.has(StatusId::Poison));
+    EXPECT_NEAR(st.remaining(StatusId::Poison), 8.0f, 1.0e-4f);
+    EXPECT_NEAR(r.ccDuration, 8.0f, 1.0e-4f);
+}
+
+TEST(CombatSystem_StatusIdKnockdown_PlaysHitReactionSlide, CatalogIdNoFlag)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    StatusEffectComponent st{};
+    HitReaction  hit{};
+    DamageEvent ev = makeHit(1.0f, DamageType::True);
+    ev.flags    = DamageFlags::None;
+    ev.statusId = static_cast<uint8_t>(StatusId::Knockdown);
+    const ResolveResult r = sys.resolveDirect(ev, &hp, &hit, nullptr, nullptr, nullptr, &st, nullptr, 100.0f);
+    EXPECT_GT(r.ccDuration, 0.0f);
+    EXPECT_TRUE(st.knockedDown());
+    EXPECT_TRUE(st.hasHardCc());
+    EXPECT_TRUE(hit.stunned());
+    EXPECT_NEAR(hit.settings().knockbackDistance, 2.4f, 1.0e-4f);
+    EXPECT_NEAR(hit.settings().knockbackSeconds, 0.22f, 1.0e-4f);
+    EXPECT_TRUE(hit.settings().horizontalOnly);
+}
+
+TEST(CombatSystem_StatusIdZero_StillMapsHardCc, JumpAttackShapedEvent)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    StatusEffectComponent st{};
+    HitReaction  hit{};
+    DamageEvent ev = makeHit(32.0f);
+    ev.statusId        = 0;
+    ev.flags           = DamageFlags::CanBlock | DamageFlags::HardCc | DamageFlags::Knockdown;
+    ev.statusDuration  = 1.4f;
+    ev.statusMagnitude = 2.4f;
+    const ResolveResult r = sys.resolveDirect(ev, &hp, &hit, nullptr, nullptr, nullptr, &st, nullptr, 100.0f);
+    EXPECT_NEAR(r.ccDuration, 1.4f, 1.0e-4f);
+    EXPECT_TRUE(st.knockedDown());
+    EXPECT_TRUE(hit.stunned());
+    EXPECT_NEAR(hit.stunRemaining(), 1.4f, 1.0e-4f);
+    EXPECT_NEAR(hit.settings().knockbackDistance, 2.4f, 1.0e-4f);
+    EXPECT_FALSE(st.has(StatusId::Poison));
+}
+
+TEST(Combat_BlockedHit_NoPoison, BlockedSkipsApplyStatus)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    DefenseComponent def{};
+    def.blocking = true;
+    def.stamina  = 100.0f;
+    ArmorComponent armor{};
+    HitReaction hit{};
+    StatusEffectComponent st{};
+    Vector3f facing{ 0.0f, 0.0f, 1.0f };
+
+    DamageEvent ev = makeHit(32.0f);
+    ev.flags           = DamageFlags::CanBlock;
+    ev.hitDir          = Vector3f{ 0.0f, 0.0f, -1.0f };
+    ev.statusId        = static_cast<uint8_t>(StatusId::Poison);
+    ev.statusDuration  = 8.0f;
+    ev.statusMagnitude = 1.0f;
+
+    const ResolveResult r = sys.resolveDirect(ev, &hp, &hit, &def, &armor, nullptr, &st, &facing, 100.0f);
+    EXPECT_TRUE(r.blocked);
+    EXPECT_NEAR(r.finalDamage, 32.0f * 0.7f, 1.0e-3f);
+    EXPECT_FALSE(st.has(StatusId::Poison));
+    EXPECT_FLOAT_EQ(st.remaining(StatusId::Poison), 0.0f);
+    EXPECT_FALSE(hit.stunned());
+}
+
+TEST(CombatSystem_IgniteDotTick_UsesFireResist, HarvestAndResolve)
+{
+    World world;
+    Entity target = world.createEntity();
+    HealthComponent hc{};
+    hc.health = Health{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    world.emplace<HealthComponent>(target, std::move(hc));
+    ArmorComponent armor{};
+    armor.stats.resist[static_cast<size_t>(DamageType::Fire)] = 0.5f;
+    world.emplace<ArmorComponent>(target, armor);
+    world.emplace<StatusEffectComponent>(target);
+    ASSERT_GT(world.get<StatusEffectComponent>(target)->applyStatus(StatusId::Ignite, 0.0f, 0.0f), 0.0f);
+    TransformComponent xf{};
+    xf.position = Vector3f{ 3.0f, 1.0f, 4.0f };
+    world.emplace<TransformComponent>(target, xf);
+
+    world.get<StatusEffectComponent>(target)->tick(1.0f);
+    CombatSystem sys;
+    EXPECT_EQ(harvestAndResolveDots(world, sys), 1);
+    EXPECT_NEAR(world.get<HealthComponent>(target)->health.hp(), 99.0f, 1.0e-3f);
+    EXPECT_TRUE(world.get<StatusEffectComponent>(target)->has(StatusId::Ignite));
+    EXPECT_FALSE(world.get<StatusEffectComponent>(target)->hasHardCc());
+}
+
+TEST(CombatSystem_ShockApplied_HitReactionHitch, NoStunDr)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    StatusEffectComponent st{};
+    HitReaction  hit{};
+    DamageEvent ev = makeHit(1.0f, DamageType::True);
+    ev.flags    = DamageFlags::None;
+    ev.statusId = static_cast<uint8_t>(StatusId::Shock);
+    const ResolveResult r = sys.resolveDirect(ev, &hp, &hit, nullptr, nullptr, nullptr, &st, nullptr, 100.0f);
+    EXPECT_GT(r.ccDuration, 0.0f);
+    EXPECT_TRUE(st.has(StatusId::Shock));
+    EXPECT_FALSE(st.hasHardCc());
+    EXPECT_FALSE(st.hasCategory(CcCategory::Stun));
+    EXPECT_EQ(st.dr[static_cast<int>(CcCategory::Stun)].applications, 0);
+    EXPECT_TRUE(hit.stunned());
+    EXPECT_NEAR(hit.stunRemaining(), 0.25f, 1.0e-4f);
+    EXPECT_NEAR(hit.settings().knockbackDistance, 0.0f, 1.0e-4f);
+    EXPECT_NEAR(hit.settings().knockbackSeconds, 0.0f, 1.0e-4f);
+    EXPECT_NEAR(hit.knockbackRemaining(), 0.0f, 1.0e-4f);
+}
+
+TEST(CombatSystem_ShockRefresh_NoSecondHitch, SnapshotHadShock)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    StatusEffectComponent st{};
+    HitReaction  hit{};
+    DamageEvent ev = makeHit(1.0f, DamageType::True);
+    ev.flags    = DamageFlags::None;
+    ev.statusId = static_cast<uint8_t>(StatusId::Shock);
+
+    ASSERT_GT(sys.resolveDirect(ev, &hp, &hit, nullptr, nullptr, nullptr, &st, nullptr, 100.0f).ccDuration, 0.0f);
+    EXPECT_NEAR(hit.stunRemaining(), 0.25f, 1.0e-4f);
+    hit.tick(0.10f);
+    EXPECT_NEAR(hit.stunRemaining(), 0.15f, 1.0e-3f);
+
+    const ResolveResult r2 = sys.resolveDirect(ev, &hp, &hit, nullptr, nullptr, nullptr, &st, nullptr, 100.0f);
+    EXPECT_GT(r2.ccDuration, 0.0f);
+    EXPECT_TRUE(st.has(StatusId::Shock));
+    EXPECT_NEAR(st.remaining(StatusId::Shock), 3.0f, 1.0e-4f);
+    EXPECT_NEAR(hit.stunRemaining(), 0.15f, 1.0e-3f);
+    EXPECT_EQ(st.dr[static_cast<int>(CcCategory::Stun)].applications, 0);
+    EXPECT_FALSE(st.hasHardCc());
+}
+
+TEST(Spell_ProjectileCopiesStatusId, DamageEventGetsDefPayload)
+{
+    SpellDef def{};
+    EXPECT_EQ(def.statusId, 0);
+    def.windupSeconds       = 0.0f;
+    def.channelSeconds      = 0.0f;
+    def.releaseSeconds      = 0.0f;
+    def.recoverySeconds     = 0.0f;
+    def.manaCost            = 5.0f;
+    def.commitCostOnRelease = true;
+    def.targeting           = SpellTargeting::Projectile;
+    def.damage              = 22.0f;
+    def.damageType          = DamageType::Fire;
+    def.projectileSpeed     = 50.0f;
+    def.range               = 10.0f;
+    def.statusId            = static_cast<uint8_t>(StatusId::Poison);
+    def.statusDuration      = 8.0f;
+    def.statusMagnitude     = 1.0f;
+    SpellCaster caster{ def };
+    caster.setMana(50.0f, 50.0f);
+    SpellCastRequest req{};
+    req.caster    = Entity{ makeEntityID(1, 1) };
+    req.origin    = Vector3f{ 0, 0, 0 };
+    req.direction = Vector3f{ 0, 0, 1 };
+    ASSERT_TRUE(caster.beginCast(req));
+    caster.tick(0.001f);
+    caster.tick(0.001f);
+    EXPECT_TRUE(caster.projectile().alive);
+    EXPECT_EQ(caster.projectile().statusId, static_cast<uint8_t>(StatusId::Poison));
+    EXPECT_FLOAT_EQ(caster.projectile().statusDuration, 8.0f);
+    EXPECT_FLOAT_EQ(caster.projectile().statusMagnitude, 1.0f);
+    Entity target{ makeEntityID(2, 1) };
+    DamageEvent out{};
+    ASSERT_TRUE(caster.tryResolveProjectileHit(target, caster.projectile().pos, 1.0f, out));
+    EXPECT_EQ(out.statusId, static_cast<uint8_t>(StatusId::Poison));
+    EXPECT_FLOAT_EQ(out.statusDuration, 8.0f);
+    EXPECT_FLOAT_EQ(out.statusMagnitude, 1.0f);
+    EXPECT_EQ(out.target.id(), target.id());
+}
+
+TEST(AttackDef_WeaponHitAdapterCopiesStatus, CopiesIdDurationMagnitude)
+{
+    AttackDef def{};
+    def.statusId        = static_cast<uint8_t>(StatusId::Poison);
+    def.statusDuration  = 8.0f;
+    def.statusMagnitude = 1.0f;
+    WeaponHit hit{};
+    hit.damage       = 10.0f;
+    hit.targetEntity = Entity{ makeEntityID(2, 1) };
+    hit.point        = Vector3f{ 1.0f, 2.0f, 3.0f };
+    hit.direction    = Vector3f{ 0.0f, 0.0f, 1.0f };
+    const Entity src{ makeEntityID(1, 1) };
+    const DamageEvent ev = damageEventFromWeaponHit(hit, src, &def);
+    EXPECT_EQ(ev.statusId, static_cast<uint8_t>(StatusId::Poison));
+    EXPECT_FLOAT_EQ(ev.statusDuration, 8.0f);
+    EXPECT_FLOAT_EQ(ev.statusMagnitude, 1.0f);
+    EXPECT_EQ(ev.source.id(), src.id());
+    EXPECT_EQ(ev.target.id(), hit.targetEntity.id());
+
+    AttackDef zero{};
+    const DamageEvent evZero = damageEventFromWeaponHit(hit, src, &zero);
+    EXPECT_EQ(evZero.statusId, 0);
+    EXPECT_FLOAT_EQ(evZero.statusDuration, 0.0f);
+    EXPECT_FLOAT_EQ(evZero.statusMagnitude, 0.0f);
 }
