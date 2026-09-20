@@ -628,3 +628,183 @@ TEST(SceneFile, PlayerAndHunterRoundTrip)
     std::error_code ec;
     std::filesystem::remove(path, ec);
 }
+
+TEST(SceneFile, TerrainGrid_RoundTrip)
+{
+    SceneFileData in{};
+    in.version    = 2;
+    in.name       = "ut_terrain_grid";
+    in.mode       = SceneMode::Scene3D;
+    in.hasTerrain = true;
+    in.terrain.bindLayout     = TerrainSceneDesc::kBindLayoutV1;
+    in.terrain.chunkCells     = 64;
+    in.terrain.heightBlendK   = 0.5f;
+    in.terrain.heightBlendT   = 0.1f;
+    in.terrain.triplanarSlope = 0.45f;
+    in.terrain.heightFile     = "should_omit.height.bin";
+    in.terrain.splatFile      = "should_omit.splat.png";
+    in.terrain.hasGrid        = true;
+    in.terrain.grid.tilesX       = 4;
+    in.terrain.grid.tilesZ       = 4;
+    in.terrain.grid.tileCells    = 512;
+    in.terrain.grid.cellSize     = 1.0f;
+    in.terrain.grid.origin       = Vector3f(-1024.0f, 0.0f, -1024.0f);
+    in.terrain.grid.heightScale  = 80.0f;
+    in.terrain.grid.seed         = 1337u;
+    in.terrain.grid.coarseFile   = "ut.coarse.height.bin";
+    in.terrain.grid.tileDir      = "ut.tiles";
+    in.terrain.grid.seaLevel     = 12.0f;
+    in.terrain.grid.residentRing = 5;
+    in.terrain.layerCount        = 1;
+    in.terrain.layers[0].albedo  = "terrain/dirt/albedo.png";
+
+    const auto path = tempScenePath("darkengine6_scene_terrain_grid_ut.json");
+    std::string err;
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+
+    std::string text;
+    {
+        std::ifstream inFile(path);
+        ASSERT_TRUE(static_cast<bool>(inFile));
+        text.assign((std::istreambuf_iterator<char>(inFile)), std::istreambuf_iterator<char>());
+    }
+    EXPECT_NE(text.find("\"grid\""), std::string::npos);
+    EXPECT_NE(text.find("\"tilesX\""), std::string::npos);
+    EXPECT_NE(text.find("\"coarseFile\""), std::string::npos);
+    EXPECT_NE(text.find("\"tileDir\""), std::string::npos);
+    EXPECT_EQ(text.find("\"heightFile\""), std::string::npos);
+    EXPECT_EQ(text.find("\"splatFile\""), std::string::npos);
+    EXPECT_EQ(text.find("\"version\": 3"), std::string::npos);
+
+    SceneFileData out{};
+    ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
+    EXPECT_EQ(out.version, 2);
+    EXPECT_TRUE(out.hasTerrain);
+    EXPECT_TRUE(out.terrain.hasGrid);
+    EXPECT_EQ(out.terrain.grid.tilesX, 4u);
+    EXPECT_EQ(out.terrain.grid.tilesZ, 4u);
+    EXPECT_EQ(out.terrain.grid.tileCells, 512u);
+    EXPECT_NEAR(out.terrain.grid.cellSize, 1.0f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.grid.origin.x, -1024.0f, 1.0e-4f);
+    EXPECT_NEAR(out.terrain.grid.origin.y, 0.0f, 1.0e-4f);
+    EXPECT_NEAR(out.terrain.grid.origin.z, -1024.0f, 1.0e-4f);
+    EXPECT_NEAR(out.terrain.grid.heightScale, 80.0f, 1.0e-4f);
+    EXPECT_EQ(out.terrain.grid.seed, 1337u);
+    EXPECT_EQ(out.terrain.grid.coarseFile, "ut.coarse.height.bin");
+    EXPECT_EQ(out.terrain.grid.tileDir, "ut.tiles");
+    EXPECT_NEAR(out.terrain.grid.seaLevel, 12.0f, 1.0e-4f);
+    EXPECT_EQ(out.terrain.grid.residentRing, 5);
+    EXPECT_TRUE(out.terrain.heightFile.empty());
+    EXPECT_TRUE(out.terrain.splatFile.empty());
+    EXPECT_EQ(out.terrain.layers[0].albedo, "terrain/dirt/albedo.png");
+
+    SceneFileData twoD = in;
+    twoD.mode = SceneMode::Scene2D;
+    const auto path2d = tempScenePath("darkengine6_scene_terrain_grid_2d_ut.json");
+    ASSERT_TRUE(saveSceneToJson(path2d, twoD, &err)) << err;
+    std::string text2d;
+    {
+        std::ifstream in2d(path2d);
+        ASSERT_TRUE(static_cast<bool>(in2d));
+        text2d.assign((std::istreambuf_iterator<char>(in2d)), std::istreambuf_iterator<char>());
+    }
+    EXPECT_EQ(text2d.find("\"terrain\""), std::string::npos);
+    EXPECT_EQ(text2d.find("\"grid\""), std::string::npos);
+
+    SceneFileData eight{};
+    eight.version    = 2;
+    eight.mode       = SceneMode::Scene3D;
+    eight.hasTerrain = true;
+    eight.terrain.bindLayout = TerrainSceneDesc::kBindLayoutV1;
+    eight.terrain.hasGrid    = true;
+    eight.terrain.grid.tilesX = 8;
+    eight.terrain.grid.tilesZ = 8;
+    eight.terrain.grid.coarseFile = "eight.coarse.height.bin";
+    const auto path8 = tempScenePath("darkengine6_scene_terrain_grid_8_ut.json");
+    ASSERT_TRUE(saveSceneToJson(path8, eight, &err)) << err;
+    SceneFileData out8{};
+    ASSERT_TRUE(loadSceneFromJson(path8, out8, &err)) << err;
+    EXPECT_TRUE(out8.terrain.hasGrid);
+    EXPECT_EQ(out8.terrain.grid.tilesX, 8u);
+    EXPECT_EQ(out8.terrain.grid.tilesZ, 8u);
+    EXPECT_TRUE(out8.terrain.heightFile.empty());
+    EXPECT_TRUE(out8.terrain.splatFile.empty());
+
+    std::error_code removeEc;
+    std::filesystem::remove(path, removeEc);
+    std::filesystem::remove(path2d, removeEc);
+    std::filesystem::remove(path8, removeEc);
+}
+
+TEST(SceneFile, Terrain_LegacyHeightFile_StillLoads)
+{
+    const auto path = tempScenePath("darkengine6_scene_terrain_legacy_hf_ut.json");
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "legacy_hf",
+  "mode": "3d",
+  "terrain": {
+    "bindLayout": 1,
+    "chunkCells": 16,
+    "heightBlendK": 0.5,
+    "heightFile": "legacy.height.bin",
+    "splatFile": "legacy.splat.png",
+    "layers": []
+  },
+  "objects": []
+})";
+    }
+
+    SceneFileData data{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
+    EXPECT_EQ(data.version, 2);
+    EXPECT_TRUE(data.hasTerrain);
+    EXPECT_FALSE(data.terrain.hasGrid);
+    EXPECT_EQ(data.terrain.heightFile, "legacy.height.bin");
+    EXPECT_EQ(data.terrain.splatFile, "legacy.splat.png");
+    EXPECT_EQ(data.terrain.bindLayout, TerrainSceneDesc::kBindLayoutV1);
+    EXPECT_EQ(data.terrain.chunkCells, 16);
+
+    std::error_code removeEc;
+    std::filesystem::remove(path, removeEc);
+}
+
+TEST(SceneFile, TerrainGrid_TilesX9Rejected)
+{
+    const auto path = tempScenePath("darkengine6_scene_terrain_grid_9_ut.json");
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "tiles9",
+  "mode": "3d",
+  "terrain": {
+    "bindLayout": 1,
+    "grid": {
+      "tilesX": 9,
+      "tilesZ": 4,
+      "tileCells": 512,
+      "coarseFile": "too_wide.coarse.height.bin",
+      "tileDir": "too_wide.tiles"
+    },
+    "layers": []
+  },
+  "objects": []
+})";
+    }
+
+    SceneFileData data{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
+    EXPECT_TRUE(data.hasTerrain);
+    EXPECT_FALSE(data.terrain.hasGrid);
+    EXPECT_EQ(data.terrain.grid.tilesX, 4u);
+
+    std::error_code removeEc;
+    std::filesystem::remove(path, removeEc);
+}

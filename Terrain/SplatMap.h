@@ -7,8 +7,9 @@ namespace Dark::Terrain
 {
     class HeightMap;
 
-    constexpr int      kMaxTerrainLayers = 4;
-    constexpr uint32_t kMaxSplatMapSize  = 1025;
+    constexpr int      kMaxTerrainLayers       = 4;
+    constexpr uint32_t kMaxSplatMapSize        = 1025;
+    constexpr uint32_t kMaxWorkingSplatMapSize = 4097; // matches HeightMap working cap; runtime create() stays kMaxSplatMapSize
 
     struct TerrainLayerDesc
     {
@@ -37,6 +38,7 @@ namespace Dark::Terrain
     {
     public:
         bool create(uint32_t width, uint32_t height);
+        bool createWorking(uint32_t width, uint32_t height);
         bool createFromRGBA(uint32_t width, uint32_t height, const uint8_t* rgba);
 
         // Paint weights from a height map (uses min/max height to normalize).
@@ -58,6 +60,8 @@ namespace Dark::Terrain
         const uint8_t* rgba() const { return m_rgba.data(); }
 
     private:
+        bool createWithMax(uint32_t width, uint32_t height, uint32_t maxSize);
+
         int clampX(int x) const;
         int clampZ(int z) const;
 

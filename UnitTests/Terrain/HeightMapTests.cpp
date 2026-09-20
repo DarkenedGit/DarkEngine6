@@ -3,6 +3,9 @@
 #include "Math/MathHelper.h"
 #include "Terrain/HeightMap.h"
 #include "Terrain/Terrain.h"
+#include "Terrain/TerrainTileFile.h"
+
+#include <filesystem>
 
 using namespace Dark::Math;
 using namespace Dark::Terrain;
@@ -150,4 +153,101 @@ TEST(HeightMap, MarkHeightDirty_NeedsRebuild)
     EXPECT_FALSE(world.needsRebuild());
     world.markHeightDirtyRect(4, 4, -1, -2);
     EXPECT_TRUE(world.needsRebuild());
+}
+
+TEST(HeightMap, CreateWorking_Accepts4097)
+{
+    HeightMap hm;
+    ASSERT_TRUE(hm.createWorking(kMaxWorkingHeightMapSize, kMaxWorkingHeightMapSize, 1.0f, 1.0f));
+    EXPECT_TRUE(hm.valid());
+    EXPECT_EQ(hm.width(), 4097u);
+    EXPECT_EQ(hm.height(), 4097u);
+    hm.setHeight(4096, 0, 9.0f);
+    EXPECT_FLOAT_EQ(hm.height(4096, 0), 9.0f);
+
+    HeightMap over;
+    EXPECT_FALSE(over.createWorking(4098, 4098, 1.0f, 1.0f));
+    EXPECT_FALSE(over.valid());
+    EXPECT_EQ(over.width(), 0u);
+    EXPECT_FALSE(over.createWorking(4098, 2, 1.0f, 1.0f));
+    EXPECT_FALSE(over.valid());
+
+    HeightMap runtime;
+    EXPECT_FALSE(runtime.create(2048, 2048, 1.0f, 1.0f));
+    EXPECT_FALSE(runtime.valid());
+    EXPECT_FALSE(runtime.create(kMaxWorkingHeightMapSize, kMaxWorkingHeightMapSize, 1.0f, 1.0f));
+}
+
+TEST(HeightMap, Create_StillAccepts129And1025)
+{
+    HeightMap boot;
+    ASSERT_TRUE(boot.create(129, 129, 2.0f, 1.0f));
+    EXPECT_TRUE(boot.valid());
+    EXPECT_EQ(boot.width(), 129u);
+    EXPECT_EQ(boot.height(), 129u);
+
+    HeightMap maxRuntime;
+    ASSERT_TRUE(maxRuntime.create(1025, 1025, 1.0f, 1.0f));
+    EXPECT_TRUE(maxRuntime.valid());
+    EXPECT_EQ(maxRuntime.width(), 1025u);
+    EXPECT_EQ(maxRuntime.height(), 1025u);
+    maxRuntime.setHeight(1024, 1024, 4.0f);
+    EXPECT_FLOAT_EQ(maxRuntime.height(1024, 1024), 4.0f);
+}
+
+TEST(HeightMap, Working_SaveBinary_Rejected)
+{
+    HeightMap working;
+    ASSERT_TRUE(working.createWorking(4097, 4097, 1.0f, 1.0f));
+
+    const auto bigPath = std::filesystem::temp_directory_path() / "darkengine6_working_4097.height.bin";
+    std::error_code ec;
+    std::filesystem::remove(bigPath, ec);
+    EXPECT_FALSE(working.saveBinary(bigPath));
+    EXPECT_FALSE(std::filesystem::exists(bigPath, ec));
+
+    HeightMap tile;
+    ASSERT_TRUE(tile.create(513, 513, 1.0f, 1.0f));
+    tile.setHeight(1, 1, 0.5f);
+    const auto tilePath = std::filesystem::temp_directory_path() / "darkengine6_tile_513.height.bin";
+    ASSERT_TRUE(tile.saveBinary(tilePath));
+    HeightMap loaded;
+    ASSERT_TRUE(loaded.loadBinary(tilePath));
+    EXPECT_EQ(loaded.width(), 513u);
+    EXPECT_EQ(loaded.height(), 513u);
+    EXPECT_NEAR(loaded.height(1, 1), 0.5f, 1.0e-5f);
+    std::filesystem::remove(tilePath, ec);
+}
+
+TEST(HeightMap, Tile_Sidecar_Under32MB)
+{
+    EXPECT_EQ(tileHeightFileName(0, 0), "t_00_00.height.bin");
+    EXPECT_EQ(tileHeightFileName(3, 7), "t_03_07.height.bin");
+    EXPECT_EQ(tileSplatFileName(0, 1), "t_00_01.splat.png");
+    EXPECT_EQ(kMaxWorldTiles, 8u);
+    EXPECT_EQ(kTileSamples, 513);
+
+    HeightMap hm;
+    ASSERT_TRUE(hm.create(static_cast<uint32_t>(kTileSamples), static_cast<uint32_t>(kTileSamples), 1.0f, 1.0f));
+    hm.setHeight(0, 0, 1.5f);
+    hm.setHeight(512, 512, 2.25f);
+
+    const auto dir  = std::filesystem::temp_directory_path() / "darkengine6_tile_sidecar_ut";
+    const auto path = tileHeightPath(dir, 0, 0);
+    ASSERT_TRUE(hm.saveBinary(path));
+
+    std::error_code ec;
+    const uintmax_t bytes = std::filesystem::file_size(path, ec);
+    EXPECT_FALSE(ec);
+    EXPECT_LT(bytes, 32ull * 1024ull * 1024ull);
+    EXPECT_GT(bytes, 0u);
+
+    HeightMap loaded;
+    ASSERT_TRUE(loaded.loadBinary(path));
+    EXPECT_EQ(loaded.width(), static_cast<uint32_t>(kTileSamples));
+    EXPECT_EQ(loaded.height(), static_cast<uint32_t>(kTileSamples));
+    EXPECT_NEAR(loaded.height(0, 0), 1.5f, 1.0e-5f);
+    EXPECT_NEAR(loaded.height(512, 512), 2.25f, 1.0e-5f);
+
+    std::filesystem::remove_all(dir, ec);
 }

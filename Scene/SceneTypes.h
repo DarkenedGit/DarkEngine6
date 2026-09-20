@@ -226,6 +226,21 @@ namespace Dark
         float       tint[4]{ 1.0f, 1.0f, 1.0f, 1.0f };
     };
 
+    struct TerrainGridSceneDesc
+    {
+        uint32_t       tilesX       = 4;
+        uint32_t       tilesZ       = 4;
+        uint32_t       tileCells    = 512;
+        float          cellSize     = 1.0f;
+        Math::Vector3f origin{ -1024.0f, 0.0f, -1024.0f };
+        float          heightScale  = 80.0f;
+        uint32_t       seed         = 1337u;
+        std::string    coarseFile;
+        std::string    tileDir;
+        float          seaLevel     = 0.0f;
+        int            residentRing = 5;
+    };
+
     struct TerrainSceneDesc
     {
         static constexpr int kBindLayoutV1 = 1;
@@ -239,6 +254,8 @@ namespace Dark
         std::string           splatFile;
         TerrainLayerSceneDesc layers[4];
         int                   layerCount = 0;
+        bool                  hasGrid    = false;
+        TerrainGridSceneDesc  grid;
     };
 
     struct SceneFileData

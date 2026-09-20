@@ -15,7 +15,8 @@ namespace Dark
 namespace Terrain
 {
 
-constexpr uint32_t kMaxHeightMapSize = 1025;
+constexpr uint32_t kMaxHeightMapSize        = 1025;
+constexpr uint32_t kMaxWorkingHeightMapSize = 4097; // Editor/gen working set; runtime create() stays kMaxHeightMapSize
 
 // Regular-grid height field. Sample (0,0) sits at `origin` in world XZ;
 // +X / +Z walk the grid by `cellSize`. Stored heights are multiplied by
@@ -30,6 +31,7 @@ public:
     HeightMap() = default;
 
     bool create(uint32_t width, uint32_t height, float cellSize = 1.0f, float heightScale = 1.0f);
+    bool createWorking(uint32_t width, uint32_t height, float cellSize = 1.0f, float heightScale = 1.0f);
     bool createFrom(uint32_t width, uint32_t height, const float* samples, float cellSize = 1.0f, float heightScale = 1.0f);
     bool createFromU16(
         uint32_t width,
@@ -113,6 +115,8 @@ private:
         int                  h = 0;
         std::vector<MinMaxY> nodes;
     };
+
+    bool createWithMax(uint32_t width, uint32_t height, float cellSize, float heightScale, uint32_t maxSize);
 
     int clampX(int x) const;
     int clampZ(int z) const;
