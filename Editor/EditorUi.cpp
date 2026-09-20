@@ -36,6 +36,8 @@
 #include "Character/HealthComponent.h"
 #include "Combat/JumpAttackComponent.h"
 #include "Combat/StatusDot.h"
+#include "Particles/ParticleTick.h"
+#include "Particles/StatusFxDriver.h"
 
 #include <imgui.h>
 
@@ -721,6 +723,7 @@ void EditorApp::onUpdate(float dt)
         updatePlay(dt);
         tickEditorHunters(dt);
         Combat::harvestAndResolveDots(world(), m_combat);
+        tickStatusFx(world(), &audio(), &assets());
         updatePawnAnims();
     }
     else
@@ -750,12 +753,7 @@ void EditorApp::onUpdate(float dt)
         tickAnimGraphs(world(), assets(), dt);
     }
 
-    world().each<ParticleEmitterComponent>([&](Entity e, ParticleEmitterComponent& pe) {
-        ensureParticleRuntime(pe);
-        if (const auto* xf = world().get<TransformComponent>(e))
-            pe.runtime->setTransform(xf->position, xf->rotation);
-        pe.runtime->update(dt);
-    });
+    tickParticleEmitters(world(), dt);
 
     Audio::AudioListener lis{};
     if (m_sceneMode == SceneMode::Scene2D)

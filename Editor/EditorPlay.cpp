@@ -22,6 +22,7 @@
 #include "Combat/PoiseComponent.h"
 #include "Combat/StatusEffectComponent.h"
 #include "Combat/WeaponHitAdapter.h"
+#include "Particles/StatusFxDriver.h"
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "ECS/Components.h"
@@ -376,6 +377,7 @@ void EditorApp::setPlayMode(bool play)
             m_playLookYaw   = std::atan2f(-toCam.x, -toCam.z);
             m_playLookPitch = -0.25f;
         }
+        clearAllStatusFx(world(), &audio());
         resetPlayCombat();
         m_jumpAttackBuffer = 0.0f;
         m_gizmoDragAxis    = EditorDetail::TranslateGizmoAxis::None;
@@ -389,6 +391,7 @@ void EditorApp::setPlayMode(bool play)
             jac->jump.cancel(Combat::JumpAttackCancel::ForceIdle);
         restoreAuthoredPoses();
         resetPlayCombat();
+        clearAllStatusFx(world(), &audio());
         m_playMode   = false;
         m_playPlayer = {};
         DE_LOG_INFO("Editor: play stopped — restored spawn poses");

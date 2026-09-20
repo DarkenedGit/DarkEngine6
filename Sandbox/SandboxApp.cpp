@@ -50,6 +50,9 @@
 #include "Combat/PoiseComponent.h"
 #include "Combat/StatusDot.h"
 #include "Combat/StatusEffectComponent.h"
+#include "Particles/ParticleComponents.h"
+#include "Particles/ParticleTick.h"
+#include "Particles/StatusFxDriver.h"
 #include "Ui/HudTagComponent.h"
 #include "Weapons/HittableComponent.h"
 #include "Animation/SkeletonDebug.h"
@@ -1238,6 +1241,8 @@ void SandboxApp::respawnPlayer()
         jac->jump.cancel(Combat::JumpAttackCancel::ForceIdle);
     if (Combat::StatusEffectComponent* st = body.valid() ? world().get<Combat::StatusEffectComponent>(body) : nullptr)
         st->reset();
+    if (body.valid())
+        clearStatusFx(world(), &audio(), body);
     if (Combat::PoiseComponent* poise = body.valid() ? world().get<Combat::PoiseComponent>(body) : nullptr)
     {
         poise->reset();
@@ -2676,8 +2681,10 @@ void SandboxApp::onUpdate(float dt)
         updateCombat(dt);
         Combat::CombatSystem combat;
         Combat::harvestAndResolveDots(world(), combat);
+        tickStatusFx(world(), &audio(), &assets());
         updateHealthPacks(dt);
         m_blood.update(dt);
+        tickParticleEmitters(world(), dt);
         if (Health* hpAlive = localHealth(); hpAlive && hpAlive->alive())
             m_spawnAge += dt;
         updateWiggleAnim();
@@ -3136,6 +3143,17 @@ void SandboxApp::onRender()
     m_particles.beginFrame(renderer().frameIndex());
     if (m_blood.aliveCount() > 0)
         m_particles.draw(cmd, m_viewCamera, m_blood, false);
+    world().each<ParticleEmitterComponent>([&](Entity, ParticleEmitterComponent& pe) {
+        if (!pe.runtime)
+            return;
+        const Material* sprite = nullptr;
+        if (AssetRef<Material> mat = assets().getAs<Material>(pe.matAssetID))
+        {
+            gpu.ensureMaterial(mat);
+            sprite = mat.get();
+        }
+        m_particles.draw(cmd, m_viewCamera, *pe.runtime, pe.runtime->desc().additiveBlend, sprite);
+    });
     if (WeaponLoadout* wFx = localWeapons(); wFx && wFx->projectile().impactEmitter().aliveCount() > 0)
         m_particles.draw(cmd, m_viewCamera, wFx->projectile().impactEmitter(), true);
 
