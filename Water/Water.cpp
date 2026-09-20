@@ -45,6 +45,13 @@ using namespace Terrain;
             return false;
         }
 
+        // Coarse 1025 source: 16-cell chunks would be 64x64 slots. Honor 64 (same as streamed tiles).
+        if ((heightMap.width() == kMaxHeightMapSize || heightMap.height() == kMaxHeightMapSize)
+            && desc.chunkCells < kWaterChunkCellsCoarse)
+        {
+            desc.chunkCells = kWaterChunkCellsCoarse;
+        }
+
         const int cellsX = static_cast<int>(heightMap.width()) - 1;
         const int cellsZ = static_cast<int>(heightMap.height()) - 1;
         if (cellsX < desc.chunkCells || cellsZ < desc.chunkCells)

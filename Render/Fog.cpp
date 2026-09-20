@@ -39,6 +39,7 @@ namespace Dark
     {
         if (!heightMap || !heightMap->valid())
         {
+            // Dummy 1x1 height SRV stays bound; FogSampleTerrainY skips when cellSize is 0.
             fog.heightCellSize = 0.0f;
             return;
         }

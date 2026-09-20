@@ -1,19 +1,24 @@
 #include <gtest/gtest.h>
 
+#include "Math/Vector3f.h"
 #include "Render/DeferredLightingPipeline.h"
 #include "Render/Fog.h"
 #include "Sky/Environment.h"
+#include "Terrain/HeightMap.h"
 
 #include <cstddef>
 
 using Dark::FogGpu;
 using Dark::applyFogToLighting;
 using Dark::exponentialHeightOpticalDepth;
+using Dark::fillFogHeightMap;
 using Dark::heightFogAmount;
 using Dark::makeFogGpu;
 using Dark::valleyFogDensity;
 using Dark::LightingConstants;
 using Dark::Sky::Environment;
+using Dark::Terrain::HeightMap;
+using Dark::Terrain::kMaxHeightMapSize;
 
 TEST(Fog, HeightFogAmountPeaksOnTheHorizon)
 {
@@ -71,4 +76,38 @@ TEST(Fog, ApplyFogToLightingCopiesFields)
     EXPECT_EQ(sizeof(LightingConstants), 56u * sizeof(float));
     EXPECT_EQ(offsetof(LightingConstants, pbrLightColor), 48u * sizeof(float));
     EXPECT_EQ(offsetof(LightingConstants, iblIntensity), 51u * sizeof(float));
+}
+
+TEST(Fog, FillFogHeightMap_CoarseAndDummy)
+{
+    FogGpu dummy{};
+    dummy.heightOriginX    = 9.0f;
+    dummy.heightCellSize   = 9.0f;
+    dummy.heightWorldSizeX = 9.0f;
+    fillFogHeightMap(dummy, nullptr);
+    EXPECT_FLOAT_EQ(dummy.heightCellSize, 0.0f);
+
+    HeightMap invalid;
+    dummy.heightCellSize = 9.0f;
+    fillFogHeightMap(dummy, &invalid);
+    EXPECT_FLOAT_EQ(dummy.heightCellSize, 0.0f);
+
+    HeightMap coarse;
+    ASSERT_TRUE(coarse.create(kMaxHeightMapSize, kMaxHeightMapSize, 2.0f, 1.0f));
+    coarse.setOrigin(Dark::Math::Vector3f{ -1024.0f, 0.0f, -1024.0f });
+
+    FogGpu fog{};
+    fillFogHeightMap(fog, &coarse);
+    EXPECT_FLOAT_EQ(fog.heightOriginX, -1024.0f);
+    EXPECT_FLOAT_EQ(fog.heightOriginZ, -1024.0f);
+    EXPECT_FLOAT_EQ(fog.heightCellSize, 2.0f);
+    EXPECT_FLOAT_EQ(fog.heightWorldSizeX, 2048.0f);
+    EXPECT_FLOAT_EQ(fog.heightWorldSizeZ, 2048.0f);
+
+    LightingConstants lc{};
+    applyFogToLighting(lc, fog);
+    EXPECT_EQ(sizeof(LightingConstants), 56u * sizeof(float));
+    EXPECT_FLOAT_EQ(lc.heightOriginX, -1024.0f);
+    EXPECT_FLOAT_EQ(lc.heightCellSize, 2.0f);
+    EXPECT_FLOAT_EQ(lc.heightWorldSizeX, 2048.0f);
 }

@@ -67,6 +67,7 @@ namespace Dark
     };
 
     FogGpu makeFogGpu(const Sky::Environment* env, float waterLevel, bool lighting);
+    // Packs one origin/cellSize/worldSize. Hosts pass the coarse (or legacy) HF. Null/invalid -> dummy 1x1 (heightCellSize=0).
     void   fillFogHeightMap(FogGpu& fog, const Terrain::HeightMap* heightMap);
     void   applyFogToLighting(LightingConstants& lc, const FogGpu& fog);
 
