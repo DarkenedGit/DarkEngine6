@@ -1,5 +1,6 @@
 #include "EditorApp.h"
 
+#include "Character/HitReaction.h"
 #include "Editor/EditorInternals.h"
 #include "Editor/EditorObject.h"
 #include "Scene/SceneFile.h"
@@ -68,6 +69,18 @@ void EditorApp::registerActions()
     a.bindKey("type_particle", Key::Digit3);
     a.bindKey("type_point_light", Key::Digit4);
     a.bindKey("type_spot_light", Key::Digit5);
+    a.bindKey("type_player", Key::Digit6);
+    a.bindKey("type_hunter", Key::Digit7);
+    a.bindKey("play", Key::F12);
+    a.bindKey("jump", Key::Space);
+    a.bindButton("jump", GamepadButton::A);
+    a.bindKey("attack", Key::F);
+    a.bindButton("attack", GamepadButton::B);
+    a.bindKey("sprint", Key::LeftShift);
+    a.bindKey("sprint", Key::RightShift);
+    a.bindButton("sprint", GamepadButton::LeftShoulder);
+    a.bindKey("weapon_1", Key::Digit1);
+    a.bindKey("weapon_2", Key::Digit2);
     a.bindKey("cycle_type", Key::T);
     a.bindKey("cycle_color", Key::C);
     a.bindKey("toggle_particle_ui", Key::F2);
@@ -92,7 +105,7 @@ void EditorApp::registerActions()
 
     DE_LOG_INFO(
         "Editor: F3 toggle 2D/3D | F2 particle UI | F4 animation UI | F8 HSM UI | F1 fill F6 lighting F7 shadows | F11 G-buffer | "
-        "1/2/3/4/5 place type | P place | MMB/RMB pan (2D) | wheel zoom | Ctrl+S/O save/load | C color | Del delete | -forward");
+        "1-7 place type | P place | 6 Player 7 Hunter | F12 play | MMB/RMB pan (2D) | wheel zoom | Ctrl+S/O save/load | C color | Del delete | -forward");
 }
 
 void EditorApp::onInit()
@@ -100,6 +113,15 @@ void EditorApp::onInit()
     DE_LOG_INFO("EditorApp: init");
     mountContentRoots(assets());
     registerActions();
+
+    {
+        HitReactionSettings hunterHit{};
+        hunterHit.stunSeconds       = 0.45f;
+        hunterHit.knockbackDistance = 2.2f;
+        hunterHit.knockbackSeconds  = 0.18f;
+        hunterHit.horizontalOnly    = true;
+        m_ai.setHunterHitReactionSettings(hunterHit);
+    }
 
     m_scenePath = defaultScenePath("level.json");
     m_sceneName = "level";

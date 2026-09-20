@@ -44,6 +44,7 @@ namespace Dark
         void                       setHunterHitReactionSettings(const HitReactionSettings& settings) { m_hunterHit = settings; }
 
         Entity spawnHunter(World& world, AssetPinTable& pins, AssetManager& assets, const TransformComponent& xf);
+        bool   attachHunter(World& world, Entity e, AssetPinTable& pins, AssetManager& assets);
 
         void tickHunters(World& world, Terrain::TerrainWorld& terrain, bool playerInWater, float dt, Entity player, const Math::AABox3f* cubes = nullptr, int cubeCount = 0);
 
@@ -80,6 +81,7 @@ namespace Dark
         bool hunterSeesPoint(const View& v, const Math::Vector3f& worldPos) const;
         void beginAssist(View& v, const Math::Vector3f& helpPos);
         void beginFlee(World& world, View& v);
+        void seekToward(View& v, float dt, Terrain::TerrainWorld& terrain, float speed, float destX, float destZ);
         void cancelJumpAndToken(World& world, Entity e, bool forceIdle);
         void collectJumpTargets(World& world);
         void resolveJumpHits(World& world, const Combat::DamageEvent* events, int count);

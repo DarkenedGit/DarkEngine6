@@ -129,6 +129,8 @@ void EditorApp::clampCamera2D()
 void EditorApp::applySceneMode(SceneMode mode)
 {
     m_sceneMode = mode;
+    if (mode == SceneMode::Scene2D && m_playMode)
+        setPlayMode(false);
     if (mode == SceneMode::Scene2D)
     {
         ensure2DResources();
@@ -299,6 +301,8 @@ const Mesh* EditorApp::meshForType(SceneObjectType type) const
     case SceneObjectType::SpotLight:
     case SceneObjectType::AmbientLight:
     case SceneObjectType::DirectionalLight:
+    case SceneObjectType::Player:
+    case SceneObjectType::Hunter:
         return nullptr;
     case SceneObjectType::Platform:
     case SceneObjectType::Coin:

@@ -50,6 +50,19 @@ TEST(SceneTypes, Parse2DAnd3D)
     EXPECT_STREQ(toString(SceneObjectType::SpotLight), "spot_light");
     EXPECT_STREQ(toString(SceneObjectType::AmbientLight), "ambient_light");
     EXPECT_STREQ(toString(SceneObjectType::DirectionalLight), "directional_light");
+    EXPECT_TRUE(tryParseSceneObjectType("player", t));
+    EXPECT_EQ(t, SceneObjectType::Player);
+    EXPECT_TRUE(tryParseSceneObjectType("hunter", t));
+    EXPECT_EQ(t, SceneObjectType::Hunter);
+    EXPECT_TRUE(tryParseSceneObjectType("enemy", t));
+    EXPECT_EQ(t, SceneObjectType::Hunter);
+    EXPECT_TRUE(isScene3DType(SceneObjectType::Player));
+    EXPECT_TRUE(isScene3DType(SceneObjectType::Hunter));
+    EXPECT_TRUE(isPawnType(SceneObjectType::Player));
+    EXPECT_TRUE(isPawnType(SceneObjectType::Hunter));
+    EXPECT_FALSE(isPawnType(SceneObjectType::Cube));
+    EXPECT_STREQ(toString(SceneObjectType::Player), "player");
+    EXPECT_STREQ(toString(SceneObjectType::Hunter), "hunter");
 
     SceneMode mode{};
     EXPECT_TRUE(tryParseSceneMode("2d", mode));
@@ -573,4 +586,45 @@ TEST(SceneFile, Terrain2DIgnores)
 
     std::error_code removeEc;
     std::filesystem::remove(path, removeEc);
+}
+
+TEST(SceneFile, PlayerAndHunterRoundTrip)
+{
+    SceneFileData in{};
+    in.version = 2;
+    in.name    = "ut_pawns";
+    in.mode    = SceneMode::Scene3D;
+
+    SceneObjectData player{};
+    player.type     = SceneObjectType::Player;
+    player.position = Vector3f(2.0f, 0.5f, -4.0f);
+    player.color[0] = 0.35f;
+    player.color[1] = 0.85f;
+    player.color[2] = 0.72f;
+    player.color[3] = 1.0f;
+    in.objects.push_back(player);
+
+    SceneObjectData hunter{};
+    hunter.type     = SceneObjectType::Hunter;
+    hunter.position = Vector3f(8.0f, 1.0f, 3.0f);
+    hunter.color[0] = 0.85f;
+    hunter.color[1] = 0.28f;
+    hunter.color[2] = 0.22f;
+    hunter.color[3] = 1.0f;
+    in.objects.push_back(hunter);
+
+    const auto path = tempScenePath("darkengine6_scene_pawns_ut.json");
+    std::string err;
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+
+    SceneFileData out{};
+    ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
+    ASSERT_EQ(out.objects.size(), 2u);
+    EXPECT_EQ(out.objects[0].type, SceneObjectType::Player);
+    EXPECT_NEAR(out.objects[0].position.x, 2.0f, 1.0e-4f);
+    EXPECT_EQ(out.objects[1].type, SceneObjectType::Hunter);
+    EXPECT_NEAR(out.objects[1].position.z, 3.0f, 1.0e-4f);
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
 }

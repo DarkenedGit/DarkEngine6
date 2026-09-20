@@ -24,9 +24,14 @@
 #include "Particles/ParticleComponents.h"
 #include "Particles/ParticleRenderer.h"
 
+#include "AI/AiSystem.h"
 #include "Audio/SoundClip.h"
+#include "Combat/CombatSystem.h"
+#include "Combat/DamageEvent.h"
+#include "Math/AABox3f.h"
 #include "Terrain/Terrain.h"
 #include "Terrain/TerrainMaterial.h"
+#include "Weapons/Weapon.h"
 
 #include <filesystem>
 #include <memory>
@@ -94,6 +99,26 @@ private:
 
     Entity placeAtCursor(SceneObjectType type);
     Entity placeGlowProp();
+    bool   attachEditorModel(Dark::Entity e, const char* gltfPath);
+    bool   attachEditorPlayer(Dark::Entity e);
+    bool   attachEditorHunter(Dark::Entity e);
+    Dark::Entity findPlayPlayer();
+    void   setPlayMode(bool play);
+    void   togglePlayMode();
+    void   bakePlayWalkability();
+    void   resetPlayCombat();
+    void   tickEditorHunters(float dt);
+    void   updatePawnAnims();
+    void   updatePlay(float dt);
+    void   updatePlayCamera();
+    void   drawPlayHud();
+    Dark::WeaponWorldQuery makePlayWeaponQuery();
+    void   resolvePlayHits(const Dark::Combat::DamageEvent* events, int count);
+    static void onPlayWeaponHitThunk(void* user, const Dark::WeaponHit& hit);
+    void   onPlayWeaponHit(const Dark::WeaponHit& hit);
+    static void onPlayJumpHitsThunk(void* user, const Dark::Combat::DamageEvent* events, int count);
+    static void onPlayHunterCueThunk(void* user, Dark::Entity hunter, const char* cue);
+    bool   firePlayLoadout();
     void   drawInspector3D();
     void         deleteSelected();
     void         selectNext(int delta);
@@ -215,6 +240,8 @@ private:
     bool                 m_showHsmPanel      = true;
 
     SceneObjectType m_placeType  = SceneObjectType::Cube;
+    bool                  m_queuePlaceAtCursor = false;
+    bool                  m_queueGlowProp      = false;
     int                   m_colorIndex = 0;
 
     std::filesystem::path m_scenePath;
@@ -269,4 +296,21 @@ private:
 
     bool          m_cliJoin     = false;
     NetRole m_lastNetRole = NetRole::Idle;
+
+    Dark::AiSystem            m_ai;
+    Dark::Combat::CombatSystem m_combat;
+    bool                      m_playMode = false;
+    Dark::Entity              m_playPlayer{};
+    float                     m_playLookYaw   = 0.0f;
+    float                     m_playLookPitch = 0.0f;
+    float                     m_jumpAttackBuffer = 0.0f;
+    std::vector<Dark::Math::AABox3f> m_playCubes;
+    struct PlayWeaponTarget
+    {
+        Dark::Entity         entity{};
+        Dark::Math::Vector3f center{};
+        Dark::Math::Vector3f halfExtents{ 1.0f, 1.0f, 1.0f };
+        bool                 alive = false;
+    };
+    std::vector<PlayWeaponTarget> m_playWeaponTargets;
 };

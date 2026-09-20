@@ -11,6 +11,7 @@
 #include "Combat/PoiseComponent.h"
 #include "Combat/StatusEffectComponent.h"
 #include "Core/AssetPinTable.h"
+#include "ECS/Components.h"
 #include "ECS/World.h"
 #include "Weapons/HittableComponent.h"
 
@@ -56,6 +57,24 @@ TEST(AiAgentEntity, SpawnHasBrainHealthHittable)
     EXPECT_NEAR(def.leapVerticalSpeed, 10.0f, 1.0e-4f);
     EXPECT_NEAR(def.leapForwardSpeedMax, 12.0f, 1.0e-4f);
     EXPECT_NEAR(def.gravity, 24.0f, 1.0e-4f);
+}
+
+TEST(AiAgentEntity, AttachHunterOnExistingEntity)
+{
+    World         world;
+    AssetManager  assets;
+    AssetPinTable pins;
+    AiSystem      ai;
+
+    Entity e = world.createEntity();
+    world.emplace<Dark::TagComponent>(e, "hunter");
+    TransformComponent xf{};
+    xf.position = Dark::Math::Vector3f{ 4.0f, 1.0f, -2.0f };
+    world.emplace<TransformComponent>(e, xf);
+    ASSERT_TRUE(ai.attachHunter(world, e, pins, assets));
+    EXPECT_TRUE(world.has<AiAgentComponent>(e));
+    EXPECT_TRUE(world.has<Dark::JumpAttackComponent>(e));
+    EXPECT_TRUE(ai.attachHunter(world, e, pins, assets));
 }
 
 TEST(AiAgentEntity, DamageThenDestroyFreesBrain)

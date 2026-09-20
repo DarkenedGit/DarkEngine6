@@ -33,6 +33,7 @@
 #include "Collision/Collision.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
+#include "Weapons/HittableComponent.h"
 
 #include <imgui.h>
 
@@ -68,6 +69,32 @@ Entity EditorApp::pickObject(const Ray3f& ray)
         else if (so.type == SceneObjectType::ParticleEmitter)
         {
             hit = Collision::Intersect(ray, Sphere3f(xf->position, 0.22f));
+        }
+        else if (isPawnType(so.type))
+        {
+            if (const ModelComponent* mc = world().get<ModelComponent>(e))
+            {
+                const auto model = assets().getAs<Model>(mc->modelAssetID);
+                if (model && model->bounds().IsValid())
+                {
+                    const Vector3f c   = model->bounds().Center();
+                    const Vector3f ext = model->bounds().Extents();
+                    const Vector3f worldC{
+                        xf->position.x + c.x * xf->scale.x,
+                        xf->position.y + c.y * xf->scale.y,
+                        xf->position.z + c.z * xf->scale.z
+                    };
+                    const Vector3f worldE{ ext.x * xf->scale.x, ext.y * xf->scale.y, ext.z * xf->scale.z };
+                    hit = Collision::Intersect(ray, AABox3f::FromCenterExtents(worldC, worldE));
+                }
+            }
+            if (!hit.hit)
+            {
+                Vector3f half{ 0.4f, 0.9f, 0.4f };
+                if (const HittableComponent* h = world().get<HittableComponent>(e))
+                    half = h->halfExtents;
+                hit = Collision::Intersect(ray, AABox3f::FromCenterExtents(xf->position + Vector3f{ 0.0f, half.y, 0.0f }, half));
+            }
         }
         else
         {
@@ -184,7 +211,8 @@ Entity EditorApp::spawnObject(
     const bool lightType   = isLocalLightType(type);
     const bool globalLight = isGlobalLightType(type);
     const bool emitterType = type == SceneObjectType::ParticleEmitter;
-    if (m_sceneMode == SceneMode::Scene3D && isScene3DType(type) && !emitterType && !lightType && !globalLight
+    const bool pawnType    = isPawnType(type);
+    if (m_sceneMode == SceneMode::Scene3D && isScene3DType(type) && !emitterType && !lightType && !globalLight && !pawnType
         && xf.position.y < 0.5f * xf.scale.y)
         xf.position.y = 0.5f * xf.scale.y;
     world().emplace<TransformComponent>(e, xf);
@@ -221,7 +249,7 @@ Entity EditorApp::spawnObject(
         amb.enabled   = (authored && authored->hasLight) ? authored->lightEnabled : true;
         world().emplace<AmbientLightComponent>(e, amb);
     }
-    else if (!emitterType)
+    else if (!emitterType && !pawnType)
     {
         MeshComponent mc{};
         mc.matAssetID  = m_propMaterial ? m_propMaterial->id : NULL_ASSET;
@@ -268,6 +296,18 @@ Entity EditorApp::spawnObject(
     }
 
     world().emplace<EditorObjectComponent>(e, so);
+    if (type == SceneObjectType::Player && !attachEditorPlayer(e))
+    {
+        onEntityRemoved(world(), e, &pins());
+        world().destroyEntity(e);
+        return {};
+    }
+    if (type == SceneObjectType::Hunter && !attachEditorHunter(e))
+    {
+        onEntityRemoved(world(), e, &pins());
+        world().destroyEntity(e);
+        return {};
+    }
     m_selected = e;
     if (registerNet && isReplicatedProp(type))
         network().registerEntity(world(), e, prefabFromType(type), ClientId::Host, packRgba8(so.color));
@@ -297,7 +337,10 @@ Entity EditorApp::placeAtCursor(SceneObjectType type)
     }
 
     Vector3f hit{};
-    bool ok = groundHitFromMouse(hit);
+    const bool uiMouse = m_imgui.isReady() && m_imgui.wantCaptureMouse();
+    bool ok = false;
+    if (!uiMouse)
+        ok = groundHitFromMouse(hit);
     if (!ok)
     {
         Ray3f ray(m_camera.GetPosition(), m_camera.GetLook());
@@ -315,12 +358,21 @@ Entity EditorApp::placeAtCursor(SceneObjectType type)
     }
     float lightCol[4]{};
     defaultLightColor(lightCol);
-    const float* col = isLocalLightType(type) ? lightCol : kPalette[m_colorIndex % kPaletteCount];
+    float pawnCol[4]{ 0.35f, 0.85f, 0.72f, 1.0f };
+    if (type == SceneObjectType::Hunter)
+    {
+        pawnCol[0] = 0.85f;
+        pawnCol[1] = 0.28f;
+        pawnCol[2] = 0.22f;
+    }
+    const float* col = isLocalLightType(type) ? lightCol : (isPawnType(type) ? pawnCol : kPalette[m_colorIndex % kPaletteCount]);
     Vector3f scale(1, 1, 1);
     if (isLocalLightType(type))
         hit.y += 1.5f;
     else if (type == SceneObjectType::ParticleEmitter)
         hit.y = 0.5f;
+    else if (isPawnType(type))
+        hit.y += 0.5f;
     else
         hit.y = 0.5f * scale.y;
     const Quaternion rot = (type == SceneObjectType::SpotLight) ? defaultSpotRotation() : Quaternion::IDENTITY;
@@ -488,7 +540,8 @@ void EditorApp::cyclePlaceType(int delta)
 {
     const SceneObjectType types3D[] = {
         SceneObjectType::Cube, SceneObjectType::Sphere, SceneObjectType::ParticleEmitter,
-        SceneObjectType::PointLight, SceneObjectType::SpotLight
+        SceneObjectType::PointLight, SceneObjectType::SpotLight,
+        SceneObjectType::Player, SceneObjectType::Hunter
     };
     const SceneObjectType types2D[] = {
         SceneObjectType::Platform, SceneObjectType::Coin, SceneObjectType::Spawn
@@ -540,4 +593,6 @@ void EditorApp::clearScene()
     }
     m_selected = {};
     m_dragging = false;
+    if (m_playMode)
+        setPlayMode(false);
 }

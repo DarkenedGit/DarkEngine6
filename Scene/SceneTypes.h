@@ -51,6 +51,8 @@ namespace Dark
         SpotLight,
         AmbientLight,
         DirectionalLight,
+        Player,
+        Hunter,
         Count
     };
 
@@ -58,7 +60,13 @@ namespace Dark
     {
         return t == SceneObjectType::Cube || t == SceneObjectType::Sphere || t == SceneObjectType::ParticleEmitter
             || t == SceneObjectType::PointLight || t == SceneObjectType::SpotLight
-            || t == SceneObjectType::AmbientLight || t == SceneObjectType::DirectionalLight;
+            || t == SceneObjectType::AmbientLight || t == SceneObjectType::DirectionalLight
+            || t == SceneObjectType::Player || t == SceneObjectType::Hunter;
+    }
+
+    inline bool isPawnType(SceneObjectType t)
+    {
+        return t == SceneObjectType::Player || t == SceneObjectType::Hunter;
     }
 
     inline bool isGlobalLightType(SceneObjectType t)
@@ -85,6 +93,8 @@ namespace Dark
         case SceneObjectType::SpotLight:       return "spot_light";
         case SceneObjectType::AmbientLight:    return "ambient_light";
         case SceneObjectType::DirectionalLight: return "directional_light";
+        case SceneObjectType::Player:          return "player";
+        case SceneObjectType::Hunter:          return "hunter";
         default:                               return "unknown";
         }
     }
@@ -139,6 +149,16 @@ namespace Dark
         if (s == "directional_light" || s == "directional" || s == "sun")
         {
             out = SceneObjectType::DirectionalLight;
+            return true;
+        }
+        if (s == "player")
+        {
+            out = SceneObjectType::Player;
+            return true;
+        }
+        if (s == "hunter" || s == "enemy")
+        {
+            out = SceneObjectType::Hunter;
             return true;
         }
         return false;

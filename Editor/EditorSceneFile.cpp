@@ -205,12 +205,30 @@ bool EditorApp::loadScene()
 
 void EditorApp::handleEditorCommands(float dt)
 {
+    if (m_queuePlaceAtCursor)
+    {
+        m_queuePlaceAtCursor = false;
+        if (!netClientLocked())
+            placeAtCursor(m_placeType);
+    }
+    if (m_queueGlowProp)
+    {
+        m_queueGlowProp = false;
+        if (!netClientLocked())
+            placeGlowProp();
+    }
+
     const bool ctrl = input().keyDown(Key::LeftControl) || input().keyDown(Key::RightControl);
     const bool uiKey = m_imgui.wantCaptureKeyboard();
     const bool uiMouse = m_imgui.wantCaptureMouse();
 
     if (!uiKey && input().actionPressed("quit"))
     {
+        if (m_playMode)
+        {
+            setPlayMode(false);
+            return;
+        }
         if (m_selected.valid())
         {
             m_selected = {};
@@ -226,6 +244,8 @@ void EditorApp::handleEditorCommands(float dt)
 
     if (!uiKey)
     {
+        if (input().actionPressed("play") && m_sceneMode == SceneMode::Scene3D)
+            togglePlayMode();
         if (input().keyPressed(Key::F5) || (ctrl && input().keyPressed(Key::S)))
             saveScene();
         if ((input().keyPressed(Key::F9) || (ctrl && input().keyPressed(Key::O))) && !netSceneLocked())
@@ -259,7 +279,7 @@ void EditorApp::handleEditorCommands(float dt)
         }
         if (input().actionPressed("toggle_grid"))
             m_showGrid = !m_showGrid;
-        if (input().actionPressed("toggle_solid"))
+        if (!m_playMode && input().actionPressed("toggle_solid"))
             m_showSolid = !m_showSolid;
         if (input().actionPressed("toggle_snap"))
             m_gridSnap = (m_gridSnap > 0.0f) ? 0.0f : 1.0f;
@@ -277,27 +297,34 @@ void EditorApp::handleEditorCommands(float dt)
                 ensureGlobalLights();
             DE_LOG_INFO("Editor: mode {}", toString(m_sceneMode));
         }
-        if (input().actionPressed("type_cube"))
-            m_placeType = (m_sceneMode == SceneMode::Scene2D) ? SceneObjectType::Platform : SceneObjectType::Cube;
-        if (input().actionPressed("type_sphere"))
-            m_placeType = (m_sceneMode == SceneMode::Scene2D) ? SceneObjectType::Coin : SceneObjectType::Sphere;
-        if (input().actionPressed("type_particle"))
-            m_placeType = (m_sceneMode == SceneMode::Scene2D) ? SceneObjectType::Spawn : SceneObjectType::ParticleEmitter;
-        if (m_sceneMode != SceneMode::Scene2D && input().actionPressed("type_point_light"))
-            m_placeType = SceneObjectType::PointLight;
-        if (m_sceneMode != SceneMode::Scene2D && input().actionPressed("type_spot_light"))
-            m_placeType = SceneObjectType::SpotLight;
-        if (input().actionPressed("cycle_type"))
-            cyclePlaceType(+1);
-        if (input().actionPressed("cycle_color"))
-            cycleSelectedColor();
-        if (input().actionPressed("delete") && !netClientLocked())
-            deleteSelected();
-        if (input().actionPressed("place") && !netClientLocked())
-            placeAtCursor(m_placeType);
+        if (!m_playMode)
+        {
+            if (input().actionPressed("type_cube"))
+                m_placeType = (m_sceneMode == SceneMode::Scene2D) ? SceneObjectType::Platform : SceneObjectType::Cube;
+            if (input().actionPressed("type_sphere"))
+                m_placeType = (m_sceneMode == SceneMode::Scene2D) ? SceneObjectType::Coin : SceneObjectType::Sphere;
+            if (input().actionPressed("type_particle"))
+                m_placeType = (m_sceneMode == SceneMode::Scene2D) ? SceneObjectType::Spawn : SceneObjectType::ParticleEmitter;
+            if (m_sceneMode != SceneMode::Scene2D && input().actionPressed("type_point_light"))
+                m_placeType = SceneObjectType::PointLight;
+            if (m_sceneMode != SceneMode::Scene2D && input().actionPressed("type_spot_light"))
+                m_placeType = SceneObjectType::SpotLight;
+            if (m_sceneMode != SceneMode::Scene2D && input().actionPressed("type_player"))
+                m_placeType = SceneObjectType::Player;
+            if (m_sceneMode != SceneMode::Scene2D && input().actionPressed("type_hunter"))
+                m_placeType = SceneObjectType::Hunter;
+            if (input().actionPressed("cycle_type"))
+                cyclePlaceType(+1);
+            if (input().actionPressed("cycle_color"))
+                cycleSelectedColor();
+            if (input().actionPressed("delete") && !netClientLocked())
+                deleteSelected();
+            if (input().actionPressed("place") && !netClientLocked())
+                placeAtCursor(m_placeType);
+        }
     }
 
-    const bool terrainBrushing = m_sceneMode == SceneMode::Scene3D && m_haveTerrain
+    const bool terrainBrushing = !m_playMode && m_sceneMode == SceneMode::Scene3D && m_haveTerrain
         && m_terrainBrush != TerrainBrushMode::None && !netClientLocked();
     if (terrainBrushing && !uiMouse && input().mouseDown(MouseButton::Left))
         applyTerrainBrush(dt);
@@ -319,7 +346,7 @@ void EditorApp::handleEditorCommands(float dt)
         }
     }
 
-    if (!uiMouse && input().mousePressed(MouseButton::Left) && !terrainBrushing)
+    if (!m_playMode && !uiMouse && input().mousePressed(MouseButton::Left) && !terrainBrushing)
     {
         m_lmbDownX = input().mouseX();
         m_lmbDownY = input().mouseY();
@@ -461,8 +488,9 @@ void EditorApp::drawStatusBar()
     {
         const std::string sceneName = m_scenePath.empty() ? std::string("(unsaved)") : m_scenePath.filename().string();
         ImGui::AlignTextToFramePadding();
-        ImGui::Text("%s  |  %s  |  %d objects  |  place: %s  |  %s", sceneName.c_str(), m_sceneMode == SceneMode::Scene2D ? "2D" : "3D",
-                    static_cast<int>(editorObjectCount()), toString(m_placeType), netRoleLabel(network().role()));
+        ImGui::Text("%s  |  %s  |  %d objects  |  place: %s  |  %s%s", sceneName.c_str(), m_sceneMode == SceneMode::Scene2D ? "2D" : "3D",
+                    static_cast<int>(editorObjectCount()), toString(m_placeType), netRoleLabel(network().role()),
+                    m_playMode ? "  |  PLAY" : "");
         char fps[32];
         std::snprintf(fps, sizeof(fps), "%.0f fps", static_cast<double>(ImGui::GetIO().Framerate));
         const float fpsW = ImGui::CalcTextSize(fps).x;

@@ -107,37 +107,49 @@ namespace Dark
         });
     }
 
-    Entity AiSystem::spawnHunter(World& world, AssetPinTable& pins, AssetManager& assets, const TransformComponent& xf)
+    bool AiSystem::attachHunter(World& world, Entity e, AssetPinTable& pins, AssetManager& assets)
     {
-        Entity e = world.createEntity();
-        world.emplace<TagComponent>(e, "Hunter");
-        world.emplace<TransformComponent>(e, xf);
+        if (!e.valid() || !world.alive(e) || !world.get<TransformComponent>(e))
+            return false;
+        if (world.has<AiAgentComponent>(e))
+            return true;
 
-        HealthSettings hs;
-        hs.maxHp       = 48.0f;
-        hs.regenPerSec = 5.0f;
-        hs.regenDelay  = 4.0f;
-        HealthComponent hc{};
-        hc.health = Health{ hs };
-        world.emplace<HealthComponent>(e, std::move(hc));
-
-        HitReactionComponent hr{};
-        hr.hit.setSettings(m_hunterHit);
-        hr.hit.reset();
-        world.emplace<HitReactionComponent>(e, std::move(hr));
-
-        HittableComponent hit{};
-        hit.halfExtents = Vector3f{ 1.0f, 1.0f, 1.0f };
-        world.emplace<HittableComponent>(e, hit);
+        if (!world.has<HealthComponent>(e))
+        {
+            HealthSettings hs;
+            hs.maxHp       = 48.0f;
+            hs.regenPerSec = 5.0f;
+            hs.regenDelay  = 4.0f;
+            HealthComponent hc{};
+            hc.health = Health{ hs };
+            world.emplace<HealthComponent>(e, std::move(hc));
+        }
+        if (!world.has<HitReactionComponent>(e))
+        {
+            HitReactionComponent hr{};
+            hr.hit.setSettings(m_hunterHit);
+            hr.hit.reset();
+            world.emplace<HitReactionComponent>(e, std::move(hr));
+        }
+        if (!world.has<HittableComponent>(e))
+        {
+            HittableComponent hit{};
+            hit.halfExtents = Vector3f{ 1.0f, 1.0f, 1.0f };
+            world.emplace<HittableComponent>(e, hit);
+        }
 
         AiAgentComponent ai{};
         ai.forward = Vector3f{ 0.0f, 0.0f, 1.0f };
         world.emplace<AiAgentComponent>(e, ai);
 
-        PathAgentComponent path{};
-        path.radius = m_agentR;
-        world.emplace<PathAgentComponent>(e, path);
-        world.emplace<SightComponent>(e);
+        if (!world.has<PathAgentComponent>(e))
+        {
+            PathAgentComponent path{};
+            path.radius = m_agentR;
+            world.emplace<PathAgentComponent>(e, path);
+        }
+        if (!world.has<SightComponent>(e))
+            world.emplace<SightComponent>(e);
 
         BrainComponent brain{};
         brain.brain = std::make_unique<AI::Brain>();
@@ -149,16 +161,34 @@ namespace Dark
         if (!brain.brain || !brain.brain->start())
         {
             DE_LOG_ERROR(LogCategory::AI, "AiSystem: hunter brain start failed");
+            return false;
+        }
+        world.emplace<BrainComponent>(e, std::move(brain));
+        if (!world.has<Combat::StatusEffectComponent>(e))
+            world.emplace<Combat::StatusEffectComponent>(e);
+        if (!world.has<Combat::PoiseComponent>(e))
+            world.emplace<Combat::PoiseComponent>(e);
+        if (!world.has<JumpAttackComponent>(e))
+        {
+            JumpAttackComponent jac{};
+            jac.jump.setDef(hunterJumpDef());
+            world.emplace<JumpAttackComponent>(e, std::move(jac));
+        }
+        (void)pins;
+        return true;
+    }
+
+    Entity AiSystem::spawnHunter(World& world, AssetPinTable& pins, AssetManager& assets, const TransformComponent& xf)
+    {
+        Entity e = world.createEntity();
+        world.emplace<TagComponent>(e, "Hunter");
+        world.emplace<TransformComponent>(e, xf);
+        if (!attachHunter(world, e, pins, assets))
+        {
             onEntityRemoved(world, e, &pins);
             world.destroyEntity(e);
             return {};
         }
-        world.emplace<BrainComponent>(e, std::move(brain));
-        world.emplace<Combat::StatusEffectComponent>(e);
-        world.emplace<Combat::PoiseComponent>(e);
-        JumpAttackComponent jac{};
-        jac.jump.setDef(hunterJumpDef());
-        world.emplace<JumpAttackComponent>(e, std::move(jac));
         return e;
     }
 
@@ -314,6 +344,25 @@ namespace Dark
             remain -= step;
         }
         v.xf->position.y = terrain.heightAtWorld(v.xf->position.x, v.xf->position.z) + 1.0f;
+    }
+
+    void AiSystem::seekToward(View& v, float dt, Terrain::TerrainWorld& terrain, float speed, float destX, float destZ)
+    {
+        Vector3f d{ destX - v.xf->position.x, 0.0f, destZ - v.xf->position.z };
+        const float dist = d.Magnitude();
+        if (dist < 0.45f)
+            return;
+        if (speed < 0.0f)
+            speed = 0.0f;
+        d *= (1.0f / dist);
+        float step = speed * dt;
+        if (step > dist)
+            step = dist;
+        v.xf->position.x += d.x * step;
+        v.xf->position.z += d.z * step;
+        v.xf->position.y = terrain.heightAtWorld(v.xf->position.x, v.xf->position.z) + 1.0f;
+        v.ai->forward    = d;
+        v.ai->givenUp    = false;
     }
 
     void AiSystem::repath(World& world, View& v, float destX, float destZ)
@@ -514,6 +563,8 @@ namespace Dark
     void AiSystem::tickHunters(World& world, Terrain::TerrainWorld& terrain, bool playerInWater, float dt, Entity player, const Math::AABox3f* cubes, int cubeCount)
     {
         m_time += dt;
+        if (m_jumpAttackToken.valid() && !world.alive(m_jumpAttackToken))
+            m_jumpAttackToken = {};
         collectHunters(world);
         for (Entity e : m_scratch)
         {
@@ -651,7 +702,24 @@ namespace Dark
             q.coneDeg   = v.sight ? v.sight->coneDeg : 70.0f;
             q.range     = v.sight ? v.sight->range : 25.0f;
             q.heightMap = m_walk.heightMap();
-            const bool sees = !playerInWater && (standoff || (q.heightMap && AI::sees(q)));
+            if ((!q.heightMap || !q.heightMap->valid()) && terrain.heightMap().valid())
+                q.heightMap = &terrain.heightMap();
+            bool sees = !playerInWater && (standoff || (q.heightMap && q.heightMap->valid() && AI::sees(q)));
+            if (!sees && !playerInWater && playerAlive)
+            {
+                Vector3f to{ playerPos.x - v.xf->position.x, 0.0f, playerPos.z - v.xf->position.z };
+                Vector3f fwd = v.ai->forward;
+                fwd.y        = 0.0f;
+                const float dist = to.Magnitude();
+                if (dist > 1.0e-3f && dist <= q.range && fwd.MagnitudeSqrd() > 1.0e-8f)
+                {
+                    to *= (1.0f / dist);
+                    fwd.Normalize();
+                    const float halfRad = q.coneDeg * 0.5f * (3.14159265f / 180.0f);
+                    if (fwd.Dot(to) >= std::cos(halfRad))
+                        sees = true;
+                }
+            }
             if (sees)
             {
                 v.ai->lastSeen    = playerPos;
@@ -789,6 +857,26 @@ namespace Dark
             const Vector3f before = v.xf->position;
             follow(v, dt, terrain, speed);
             Vector3f move{ v.xf->position.x - before.x, 0.0f, v.xf->position.z - before.z };
+            if (move.MagnitudeSqrd() < 1.0e-8f)
+            {
+                if (leaf == AI::Leaf::Chase && playerAlive)
+                    seekToward(v, dt, terrain, speed, playerPos.x, playerPos.z);
+                else if (leaf == AI::Leaf::Assist)
+                    seekToward(v, dt, terrain, speed, v.ai->helpPos.x, v.ai->helpPos.z);
+                else if (leaf == AI::Leaf::Memory && v.ai->hasLastSeen)
+                    seekToward(v, dt, terrain, speed, v.ai->lastSeen.x, v.ai->lastSeen.z);
+                else if (leaf == AI::Leaf::Wander && !m_walk.valid())
+                {
+                    Vector3f toW{ v.ai->wanderDest.x - v.xf->position.x, 0.0f, v.ai->wanderDest.z - v.xf->position.z };
+                    if (toW.MagnitudeSqrd() < 1.0f)
+                    {
+                        v.ai->wanderDest.x = v.xf->position.x + ((static_cast<int>(m_time * 17.0f) & 1) ? 8.0f : -8.0f);
+                        v.ai->wanderDest.z = v.xf->position.z + ((static_cast<int>(m_time * 13.0f) & 1) ? 6.0f : -6.0f);
+                    }
+                    seekToward(v, dt, terrain, speed, v.ai->wanderDest.x, v.ai->wanderDest.z);
+                }
+                move = Vector3f{ v.xf->position.x - before.x, 0.0f, v.xf->position.z - before.z };
+            }
             if (move.MagnitudeSqrd() > 1.0e-6f)
             {
                 move.Normalize();

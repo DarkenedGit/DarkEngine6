@@ -33,6 +33,8 @@
 #include "Core/EntityPins.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
+#include "Character/HealthComponent.h"
+#include "Combat/JumpAttackComponent.h"
 
 #include <imgui.h>
 
@@ -149,52 +151,71 @@ void EditorApp::drawEditorUi()
             {
                 if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  Platform", "1+P", false, createOk))
                 {
-                    m_placeType = SceneObjectType::Platform;
-                    placeAtCursor(m_placeType);
+                    m_placeType          = SceneObjectType::Platform;
+                    m_queuePlaceAtCursor = true;
                 }
                 if (ImGui::MenuItem(ICON_FA_CIRCLE "  Coin", "2+P", false, createOk))
                 {
-                    m_placeType = SceneObjectType::Coin;
-                    placeAtCursor(m_placeType);
+                    m_placeType          = SceneObjectType::Coin;
+                    m_queuePlaceAtCursor = true;
                 }
                 if (ImGui::MenuItem(ICON_FA_CIRCLE_PLUS "  Player Spawn", "3+P", false, createOk))
                 {
-                    m_placeType = SceneObjectType::Spawn;
-                    placeAtCursor(m_placeType);
+                    m_placeType          = SceneObjectType::Spawn;
+                    m_queuePlaceAtCursor = true;
                 }
             }
             else
             {
                 if (ImGui::MenuItem(ICON_FA_CUBE "  Cube", "1+P", false, createOk))
                 {
-                    m_placeType = SceneObjectType::Cube;
-                    placeAtCursor(m_placeType);
+                    m_placeType            = SceneObjectType::Cube;
+                    m_queuePlaceAtCursor   = true;
                 }
                 if (ImGui::MenuItem(ICON_FA_CIRCLE "  Sphere", "2+P", false, createOk))
                 {
-                    m_placeType = SceneObjectType::Sphere;
-                    placeAtCursor(m_placeType);
+                    m_placeType            = SceneObjectType::Sphere;
+                    m_queuePlaceAtCursor   = true;
                 }
                 if (ImGui::MenuItem(ICON_FA_BOLT "  Particle Emitter", "3+P", false, createOk))
                 {
-                    m_placeType = SceneObjectType::ParticleEmitter;
-                    placeAtCursor(m_placeType);
+                    m_placeType            = SceneObjectType::ParticleEmitter;
+                    m_queuePlaceAtCursor   = true;
                 }
                 if (ImGui::MenuItem(ICON_FA_LIGHTBULB "  Point Light", "4+P", false, createOk))
                 {
-                    m_placeType = SceneObjectType::PointLight;
-                    placeAtCursor(m_placeType);
+                    m_placeType            = SceneObjectType::PointLight;
+                    m_queuePlaceAtCursor   = true;
                 }
                 if (ImGui::MenuItem(ICON_FA_LIGHTBULB "  Spot Light", "5+P", false, createOk))
                 {
-                    m_placeType = SceneObjectType::SpotLight;
-                    placeAtCursor(m_placeType);
+                    m_placeType            = SceneObjectType::SpotLight;
+                    m_queuePlaceAtCursor   = true;
+                }
+                if (ImGui::MenuItem(ICON_FA_CIRCLE_PLUS "  Player", "6+P", false, createOk))
+                {
+                    m_placeType            = SceneObjectType::Player;
+                    m_queuePlaceAtCursor   = true;
+                }
+                if (ImGui::MenuItem(ICON_FA_BUG "  Hunter", "7+P", false, createOk))
+                {
+                    m_placeType            = SceneObjectType::Hunter;
+                    m_queuePlaceAtCursor   = true;
                 }
                 if (ImGui::MenuItem(ICON_FA_BOLT "  Glow Prop", nullptr, false, createOk))
-                    placeGlowProp();
+                    m_queueGlowProp = true;
             }
             if (!createOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Spectators cannot place or delete objects");
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Play"))
+        {
+            const bool playOk = m_sceneMode == SceneMode::Scene3D && !netClientLocked();
+            if (ImGui::MenuItem(m_playMode ? ICON_FA_PAUSE "  Stop Play" : ICON_FA_PLAY "  Play Scene", "F12", m_playMode, playOk))
+                togglePlayMode();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Possess the Player. WASD move, mouse look, Space jump, LMB attack.");
             ImGui::EndMenu();
         }
         drawNetworkMenu();
@@ -283,8 +304,8 @@ void EditorApp::drawEditorUi()
                     "drag the RGB arrows to move it, or create one below.");
                 if (ImGui::Button(ICON_FA_BOLT "  Create Emitter at Cursor") && !netClientLocked())
                 {
-                    m_placeType = SceneObjectType::ParticleEmitter;
-                    placeAtCursor(m_placeType);
+                    m_placeType          = SceneObjectType::ParticleEmitter;
+                    m_queuePlaceAtCursor = true;
                 }
                 ImGui::Separator();
                 ImGui::Text("Place type: %s", toString(m_placeType));
@@ -417,7 +438,10 @@ void EditorApp::drawEditorUi()
     if (m_sceneMode == SceneMode::Scene3D)
     {
         drawInspector3D();
-        drawTranslateGizmos();
+        if (!m_playMode)
+            drawTranslateGizmos();
+        if (m_playMode)
+            drawPlayHud();
     }
 
     drawStatusBar();
@@ -483,6 +507,16 @@ void EditorApp::drawInspector3D()
     const bool locked   = netClientLocked();
     const bool envLight = isGlobalLightType(so->type);
     ImGui::Text("Selected: %s", toString(so->type));
+    if (so->type == SceneObjectType::Player || so->type == SceneObjectType::Hunter)
+    {
+        if (HealthComponent* hp = world().get<HealthComponent>(m_selected))
+            ImGui::Text("HP  %.0f / %.0f", static_cast<double>(hp->health.hp()), static_cast<double>(hp->health.maxHp()));
+        if (JumpAttackComponent* jac = world().get<JumpAttackComponent>(m_selected))
+            ImGui::Text("Jump cooldown  %.2fs", static_cast<double>(jac->jump.cooldownLeft()));
+        if (so->type == SceneObjectType::Player && ImGui::Button(ICON_FA_PLAY "  Play from here") && !m_playMode)
+            togglePlayMode();
+        ImGui::TextDisabled("F12 plays the scene. Place hunters, then Play to fight.");
+    }
     ImGui::BeginDisabled(locked);
     float pos[3] = { xf->position.x, xf->position.y, xf->position.z };
     if (ImGui::DragFloat3("Position", pos, 0.05f))
@@ -620,7 +654,7 @@ void EditorApp::drawInspector3D()
         }
         ImGui::DragFloat("Source radius", &light->sourceRadius, 0.005f, 0.0f, 2.0f);
     }
-    else
+    else if (!isPawnType(so->type))
     {
         if (ImGui::ColorEdit3("Tint", so->color))
         {
@@ -655,8 +689,13 @@ void EditorApp::onUpdate(float dt)
         discardLocalSceneForJoin();
     m_lastNetRole = role;
 
-    updateCamera(dt);
     handleEditorCommands(dt);
+    if (m_playMode)
+        updatePlay(dt);
+    else
+        updateCamera(dt);
+    tickEditorHunters(dt);
+    updatePawnAnims();
     if (m_sceneMode != SceneMode::Scene2D)
         syncTerrainLod();
 
@@ -664,7 +703,9 @@ void EditorApp::onUpdate(float dt)
     {
         const Entity selected = m_selected;
         world().each<AnimGraphComponent>([&](Entity e, AnimGraphComponent& ag) {
-            if (selected.valid() && e.id() == selected.id())
+            const EditorObjectComponent* so = world().get<EditorObjectComponent>(e);
+            const bool pawn = so && isPawnType(so->type);
+            if (!pawn && selected.valid() && e.id() == selected.id())
                 m_animPanel.applyPlayback(ag.graph);
             else
             {
