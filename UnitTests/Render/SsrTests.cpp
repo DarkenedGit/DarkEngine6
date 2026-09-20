@@ -2,7 +2,6 @@
 
 #include "Render/DebugRenderState.h"
 #include "Render/DeferredLightingPipeline.h"
-#include "Render/Renderer.h"
 #include "Render/SceneBuffers.h"
 #include "Render/SsrSettings.h"
 
@@ -16,7 +15,6 @@
 using Dark::DebugRenderState;
 using Dark::DeferredLightingPipeline;
 using Dark::LightingConstants;
-using Dark::Renderer;
 using Dark::SceneBuffers;
 using Dark::SsrSettings;
 using Microsoft::WRL::ComPtr;
@@ -171,11 +169,6 @@ TEST(Ssr, Create_ZeroSize_DropsSsrOverride)
 
 TEST(Ssr, Dummy_ConfZero)
 {
-    // Renderer needs a Window; enableSceneBuffers packs via setLightingSsrSrv(ssrDummyCpu()).
-    (void)&Renderer::ssrDummyCpu;
-    (void)&Renderer::setLightingSsrSrv;
-    (void)&Renderer::ssrTableGpu;
-
     ComPtr<ID3D12Device> device = TryCreateDevice();
     if (!device)
         GTEST_SKIP() << "no D3D12 device (WARP or hardware)";
