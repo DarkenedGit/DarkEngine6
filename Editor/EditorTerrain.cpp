@@ -820,7 +820,10 @@ void EditorApp::pollTerrainGenerate()
     m_genRunning.store(false);
     m_genDone.store(false);
     if (m_genOk)
-        applyGeneratedWorld();
+    {
+        if (!applyGeneratedWorld())
+            DE_LOG_ERROR(LogCategory::Render, "Editor: generate apply failed — terrain cleared");
+    }
     else
         DE_LOG_INFO(LogCategory::Render, "Editor: generate cancelled or failed — keeping previous terrain");
     m_genOut   = HeightMap{};
@@ -849,14 +852,26 @@ bool EditorApp::applyGeneratedWorld()
 
     HeightMap stub;
     if (!stub.create(2, 2, desc.cellSize, desc.heightScale))
+    {
+        DE_LOG_ERROR(LogCategory::Render, "Editor: generate stub height failed");
         return false;
+    }
     stub.setOrigin(desc.origin);
     if (!m_terrain.createFromCoarse(desc, std::move(stub)))
+    {
+        DE_LOG_ERROR(LogCategory::Render, "Editor: generate grid create failed");
         return false;
+    }
     if (!m_terrain.setWorking(std::move(m_genOut), std::move(m_genSplat)))
+    {
+        DE_LOG_ERROR(LogCategory::Render, "Editor: generate setWorking failed");
         return false;
+    }
     if (!m_terrain.boxFilterCoarseFromWorking())
+    {
+        DE_LOG_ERROR(LogCategory::Render, "Editor: generate coarse downsample failed");
         return false;
+    }
 
     SplatMap matSplat;
     const SplatMap* ws = m_terrain.editableWorkingSplat();

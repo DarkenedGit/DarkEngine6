@@ -750,13 +750,8 @@ namespace Dark::Terrain
         working.setOrigin(desc.origin);
         FillErodedRect(working.mutableSamples(), static_cast<int>(w), static_cast<int>(h), 0, 0, static_cast<int>(w), static_cast<int>(h), desc);
         (void)gpu;
-        float* samples = working.mutableSamples();
-        const float scale = desc.heightScale > 0.0f ? desc.heightScale : 1.0f;
-        const size_t n    = static_cast<size_t>(w) * h;
-        for (size_t i = 0; i < n; ++i)
-            samples[i] *= scale;
-        const float seaM = desc.erosion.seaLevelRaw * scale;
-        FlattenSea(samples, n, seaM);
+        // Samples stay raw 0-1; HeightMap::worldY multiplies by heightScale.
+        FlattenSea(working.mutableSamples(), static_cast<size_t>(w) * h, desc.erosion.seaLevelRaw);
 
         if (!Report(progress, user, 0.7f, "gullies"))
             return false;
@@ -827,12 +822,7 @@ namespace Dark::Terrain
             return false;
         FillErodedRect(tile.mutableSamples(), tw, th, ex0, ez0, w, h, desc);
         (void)gpuOk;
-        float* ts = tile.mutableSamples();
-        const float scale = map.heightScale() > 0.0f ? map.heightScale() : 1.0f;
-        const size_t tn   = static_cast<size_t>(tw) * static_cast<size_t>(th);
-        for (size_t i = 0; i < tn; ++i)
-            ts[i] *= scale;
-        FlattenSea(ts, tn, desc.erosion.seaLevelRaw * scale);
+        FlattenSea(tile.mutableSamples(), static_cast<size_t>(tw) * static_cast<size_t>(th), desc.erosion.seaLevelRaw);
 
         float*       dst = map.mutableSamples();
         const float* src = tile.samples();

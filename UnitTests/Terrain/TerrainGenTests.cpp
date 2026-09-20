@@ -74,6 +74,29 @@ TEST(TerrainGen, World_Deterministic)
     EXPECT_GT(mx - mn, 0.05f);
 }
 
+TEST(TerrainGen, World_HeightScale_IsNotBakedIntoSamples)
+{
+    WorldGenDesc desc     = MakeSmallDesc();
+    desc.heightScale      = 80.0f;
+    desc.erosion.seaLevelRaw = 0.0f;
+    HeightMap hm;
+    SplatMap  sp;
+    ASSERT_TRUE(generateWorld(desc, hm, sp, nullptr, nullptr, nullptr));
+    float mx = hm.height(0, 0);
+    for (int z = 0; z < static_cast<int>(hm.height()); ++z)
+    {
+        for (int x = 0; x < static_cast<int>(hm.width()); ++x)
+        {
+            const float h = hm.height(x, z);
+            if (h > mx)
+                mx = h;
+        }
+    }
+    EXPECT_LE(mx, 2.0f);
+    const float y = hm.heightAtWorld(hm.origin().x, hm.origin().z);
+    EXPECT_LT(y, 200.0f);
+}
+
 TEST(TerrainGen, Thermal_PaddedTile_MatchesFull)
 {
     WorldGenDesc desc = MakeSmallDesc();
