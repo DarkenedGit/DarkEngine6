@@ -8,7 +8,9 @@
 #include "Render/Camera3D.h"
 #include "Render/Frustum3f.h"
 #include "Render/LocalLightGather.h"
+#include "Render/SsrSettings.h"
 #include "Render/WaterPipeline.h"
+#include "Sky/Environment.h"
 
 #include <cstddef>
 #include <unordered_set>
@@ -61,7 +63,11 @@ TEST(WaterLightPick, FrameConstantsKeepLayoutThenGainLightIndices)
     EXPECT_EQ(offsetof(WaterFrameConstants, lightCount), 64u * sizeof(float));
     EXPECT_EQ(offsetof(WaterFrameConstants, waterIndex), 64u * sizeof(float) + sizeof(uint32_t));
     EXPECT_EQ(offsetof(WaterFrameConstants, fogColor), 64u * sizeof(float) + sizeof(uint32_t) * (1u + kWaterLocalLightMax));
-    EXPECT_EQ((sizeof(WaterFrameConstants) + 255u) & ~255u, 512u);
+    EXPECT_EQ(offsetof(WaterFrameConstants, invViewProj), 96u * sizeof(float));
+    EXPECT_EQ(offsetof(WaterFrameConstants, ssrEnabled), 129u * sizeof(float));
+    EXPECT_EQ(offsetof(WaterFrameConstants, skyEval), 136u * sizeof(float));
+    EXPECT_EQ((sizeof(WaterFrameConstants) + 255u) & ~255u, 768u);
+    EXPECT_EQ(WaterPipeline::kRootSsrSrv, 5u);
     EXPECT_EQ(kWaterLocalLightMax, 8u);
     WaterFrameConstants cb{};
     EXPECT_EQ(cb.lightCount, 0u);
@@ -86,6 +92,45 @@ TEST(WaterLightPick, FillConstantsZerosLightPickAndHonorsLightingFlag)
     WaterPipeline::fillConstants(cb, wvp, cam, 0.0f, light, params, nullptr, false);
     EXPECT_LT(cb.specPower, 0.0f);
     EXPECT_EQ(cb.lightCount, 0u);
+}
+
+TEST(WaterLightPick, FillSsrWritesEnabledAndSkyEval)
+{
+    WaterFrameConstants cb{};
+    Camera3D            cam;
+    cam.SetPosition(Vector3f(0.0f, 2.0f, 0.0f));
+    cam.LookAt(Vector3f(0.0f, 2.0f, 0.0f), Vector3f(0.0f, 2.0f, 1.0f), Vector3f(0.0f, 1.0f, 0.0f));
+    cam.SetLens(DegreesToRadians(60.0f), 16.0f / 9.0f, 0.18f, 2000.0f);
+
+    SsrSettings settings{};
+    settings.enabled = true;
+    Sky::Environment env{};
+    env.evaluate();
+
+    WaterPipeline::fillSsr(cb, cam, &settings, true, true, &env);
+    EXPECT_FLOAT_EQ(cb.ssrEnabled, 1.0f);
+    EXPECT_FLOAT_EQ(cb.nearZ, 0.18f);
+    EXPECT_FLOAT_EQ(cb.thickness, 0.2f);
+    EXPECT_FLOAT_EQ(cb.stride, 2.0f);
+    EXPECT_FLOAT_EQ(cb.edgeFade, 0.1f);
+    EXPECT_FLOAT_EQ(cb.maxRoughness, 0.4f);
+    EXPECT_FLOAT_EQ(cb.skyEval.coverage, env.weather.cloudCoverage);
+    EXPECT_FLOAT_EQ(cb.skyEval.exposure, 1.0f);
+    EXPECT_GT(cb.skyEval.sunDir[0] * cb.skyEval.sunDir[0] + cb.skyEval.sunDir[1] * cb.skyEval.sunDir[1] + cb.skyEval.sunDir[2] * cb.skyEval.sunDir[2], 0.5f);
+
+    WaterPipeline::fillSsr(cb, cam, &settings, false, true, &env);
+    EXPECT_FLOAT_EQ(cb.ssrEnabled, 0.0f);
+
+    settings.enabled = false;
+    WaterPipeline::fillSsr(cb, cam, &settings, true, true, &env);
+    EXPECT_FLOAT_EQ(cb.ssrEnabled, 0.0f);
+
+    settings.enabled = true;
+    WaterPipeline::fillSsr(cb, cam, &settings, true, false, &env);
+    EXPECT_FLOAT_EQ(cb.ssrEnabled, 0.0f);
+
+    WaterPipeline::fillSsr(cb, cam, nullptr, true, true, &env);
+    EXPECT_FLOAT_EQ(cb.ssrEnabled, 0.0f);
 }
 
 TEST(WaterLightPick, EmptyWorldHasZeroWaterCount)

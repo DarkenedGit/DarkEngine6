@@ -200,6 +200,23 @@ TEST(ShaderCompile, SkyEval_Included)
     EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps));
 }
 
+TEST(ShaderCompile, Water)
+{
+    const std::filesystem::path hlsl = Dark::resolveContentPath("shaders/Water.hlsl");
+    if (hlsl.empty())
+        GTEST_SKIP() << "shaders/Water.hlsl not on content roots";
+
+    ComPtr<ID3DBlob> vs;
+    ComPtr<ID3DBlob> ps;
+    D3D_SHADER_MACRO macros[2];
+    makeEncodeSrgbMacros(false, macros);
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "VSMain", "vs_5_0", vs, macros));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps, macros));
+    makeEncodeSrgbMacros(true, macros);
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "VSMain", "vs_5_0", vs, macros));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps, macros));
+}
+
 TEST(ShaderCompile, ReverseZSceneShaders)
 {
     const char* cases[][3] = {

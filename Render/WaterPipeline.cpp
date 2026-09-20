@@ -1,9 +1,11 @@
 #include "Render/WaterPipeline.h"
+#include "Render/Camera3D.h"
 #include "Render/DepthState.h"
 #include "Render/PsoUtil.h"
 #include "Render/ShaderCompile.h"
 #include "Render/Fog.h"
 #include "Core/Log.h"
+#include "Math/Matrix4f.h"
 #include "Water/WaterWaves.h"
 
 #include <cstring>
@@ -23,6 +25,49 @@ bool FailedHr(HRESULT hr, const char* what)
     return true;
 }
 
+void copyMatrix(float dst[16], const Math::Matrix4f& m)
+{
+    std::memcpy(dst, m.m_afEntry, sizeof(float) * 16);
+}
+
+void fillSkyEval(SkyEvalParams& out, const Sky::Environment* env)
+{
+    out = {};
+    if (!env)
+        return;
+    out.sunDir[0]     = env->sunDir().x;
+    out.sunDir[1]     = env->sunDir().y;
+    out.sunDir[2]     = env->sunDir().z;
+    out.coverage      = env->weather.cloudCoverage;
+    out.sunColor[0]   = env->sunColor().x;
+    out.sunColor[1]   = env->sunColor().y;
+    out.sunColor[2]   = env->sunColor().z;
+    out.turbidity     = env->weather.turbidity;
+    out.moonDir[0]    = env->moonDir().x;
+    out.moonDir[1]    = env->moonDir().y;
+    out.moonDir[2]    = env->moonDir().z;
+    out.rain          = env->weather.rain;
+    out.moonColor[0]  = env->moonColor().x;
+    out.moonColor[1]  = env->moonColor().y;
+    out.moonColor[2]  = env->moonColor().z;
+    out.windSpeed     = env->weather.windSpeed;
+    out.windDir[0]    = env->weather.windDir.x;
+    out.windDir[1]    = env->weather.windDir.y;
+    out.sunElevation  = env->sunElevation();
+    out.exposure      = 1.0f; // HybridDeferred sky pass: tonemap owns exposure
+    out.cloudTime     = env->timeOfDay;
+}
+
+void writeTex2dSrv(ID3D12Device* device, ID3D12Resource* res, DXGI_FORMAT format, D3D12_CPU_DESCRIPTOR_HANDLE dest)
+{
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+    srv.Format                     = format;
+    srv.ViewDimension              = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv.Shader4ComponentMapping    = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv.Texture2D.MipLevels        = 1;
+    device->CreateShaderResourceView(res, &srv, dest);
+}
+
 } // namespace
 
 bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
@@ -34,11 +79,15 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
     m_cbUpload.Reset();
     m_dummyLights.Reset();
     m_srvHeap.Reset();
-    m_cbMapped = nullptr;
-    m_cbGpu    = 0;
-    m_dummyGpu = 0;
-    m_heightGpu = {};
-    m_shadowGpu = {};
+    m_dummySsrColor.Reset();
+    m_dummySsrDepth.Reset();
+    m_device      = nullptr;
+    m_cbMapped    = nullptr;
+    m_cbGpu       = 0;
+    m_dummyGpu    = 0;
+    m_heightGpu   = {};
+    m_shadowGpu   = {};
+    m_ssrGpu      = {};
     m_srvIncr     = 0;
     m_cbSlot      = 0;
     m_haveHeight  = false;
@@ -61,7 +110,13 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
     shadowRange.BaseShaderRegister                = 2;
     shadowRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_ROOT_PARAMETER rootParams[5]{};
+    D3D12_DESCRIPTOR_RANGE ssrRange{};
+    ssrRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    ssrRange.NumDescriptors                    = 2;
+    ssrRange.BaseShaderRegister                = 3;
+    ssrRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_ROOT_PARAMETER rootParams[6]{};
     rootParams[kRootCbv].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParams[kRootCbv].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
     rootParams[kRootCbv].Descriptor.ShaderRegister = 0;
@@ -86,7 +141,12 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
     rootParams[kRootShadowSrv].DescriptorTable.NumDescriptorRanges = 1;
     rootParams[kRootShadowSrv].DescriptorTable.pDescriptorRanges   = &shadowRange;
 
-    D3D12_STATIC_SAMPLER_DESC samps[2]{};
+    rootParams[kRootSsrSrv].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParams[kRootSsrSrv].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParams[kRootSsrSrv].DescriptorTable.NumDescriptorRanges = 1;
+    rootParams[kRootSsrSrv].DescriptorTable.pDescriptorRanges   = &ssrRange;
+
+    D3D12_STATIC_SAMPLER_DESC samps[3]{};
     samps[0].Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
     samps[0].AddressU         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
     samps[0].AddressV         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
@@ -105,10 +165,18 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
     samps[1].ShaderRegister   = 1;
     samps[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
+    samps[2].Filter           = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    samps[2].AddressU         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    samps[2].AddressV         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    samps[2].AddressW         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    samps[2].MaxLOD           = D3D12_FLOAT32_MAX;
+    samps[2].ShaderRegister   = 2;
+    samps[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
     D3D12_ROOT_SIGNATURE_DESC rsDesc{};
-    rsDesc.NumParameters     = 5;
+    rsDesc.NumParameters     = 6;
     rsDesc.pParameters       = rootParams;
-    rsDesc.NumStaticSamplers = 2;
+    rsDesc.NumStaticSamplers = 3;
     rsDesc.pStaticSamplers   = samps;
     rsDesc.Flags             = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
@@ -197,10 +265,10 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
 
     m_srvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
-    heapDesc.NumDescriptors = 2;
+    heapDesc.NumDescriptors = 4;
     heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap (water height+shadow)"))
+    if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap (water height+shadow+ssr)"))
     {
         m_rootSignature.Reset();
         m_psoSolid.Reset();
@@ -211,7 +279,24 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
     m_heightGpu = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
     m_shadowGpu = m_heightGpu;
     m_shadowGpu.ptr += m_srvIncr;
+    m_ssrGpu = m_shadowGpu;
+    m_ssrGpu.ptr += m_srvIncr;
+    if (!createSsrDummies(device))
+    {
+        m_rootSignature.Reset();
+        m_psoSolid.Reset();
+        m_psoWire.Reset();
+        m_psoPoint.Reset();
+        m_cbUpload.Reset();
+        m_dummyLights.Reset();
+        m_cbMapped = nullptr;
+        m_srvHeap.Reset();
+        m_dummySsrColor.Reset();
+        m_dummySsrDepth.Reset();
+        return false;
+    }
 
+    m_device = device;
     DE_LOG_INFO(LogCategory::Render, "WaterPipeline: ready (Gerstner + GGX, CBV + 8 local lights)");
     return true;
 }
@@ -277,6 +362,60 @@ UINT WaterPipeline::cbBytes() const
     return (static_cast<UINT>(sizeof(WaterFrameConstants)) + 255u) & ~255u;
 }
 
+bool WaterPipeline::createSsrDummies(ID3D12Device* device)
+{
+    m_dummySsrColor.Reset();
+    m_dummySsrDepth.Reset();
+    if (!device)
+        return false;
+
+    D3D12_HEAP_PROPERTIES heap{};
+    heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    D3D12_RESOURCE_DESC rd{};
+    rd.Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    rd.Width            = 1;
+    rd.Height           = 1;
+    rd.DepthOrArraySize = 1;
+    rd.MipLevels        = 1;
+    rd.SampleDesc       = { 1, 0 };
+    rd.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    rd.Flags            = D3D12_RESOURCE_FLAG_NONE;
+
+    rd.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    if (FailedHr(
+            device->CreateCommittedResource(
+                &heap, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(&m_dummySsrColor)),
+            "CreateCommittedResource water SSR color dummy"))
+    {
+        return false;
+    }
+    rd.Format = DXGI_FORMAT_R32_FLOAT;
+    if (FailedHr(
+            device->CreateCommittedResource(
+                &heap, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(&m_dummySsrDepth)),
+            "CreateCommittedResource water SSR depth dummy"))
+    {
+        m_dummySsrColor.Reset();
+        return false;
+    }
+    m_dummySsrColor->SetName(L"DE.Water.SsrDummyColor");
+    m_dummySsrDepth->SetName(L"DE.Water.SsrDummyDepth");
+    packSsrDummySrvs(device);
+    return true;
+}
+
+void WaterPipeline::packSsrDummySrvs(ID3D12Device* device)
+{
+    if (!device || !m_srvHeap || !m_dummySsrColor || !m_dummySsrDepth)
+        return;
+    D3D12_CPU_DESCRIPTOR_HANDLE dst = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
+    dst.ptr += static_cast<SIZE_T>(m_srvIncr) * 2u;
+    writeTex2dSrv(device, m_dummySsrColor.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT, dst);
+    dst.ptr += m_srvIncr;
+    writeTex2dSrv(device, m_dummySsrDepth.Get(), DXGI_FORMAT_R32_FLOAT, dst);
+}
+
 void WaterPipeline::bind(ID3D12GraphicsCommandList* cmd, DebugFill fill) const
 {
     ID3D12PipelineState* pso = selectFillPso(fill, m_psoSolid.Get(), m_psoWire.Get(), m_psoPoint.Get());
@@ -332,6 +471,22 @@ void WaterPipeline::setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HAND
     m_haveShadow = true;
 }
 
+void WaterPipeline::setSsrSrvs(D3D12_CPU_DESCRIPTOR_HANDLE sceneColorCpu, D3D12_CPU_DESCRIPTOR_HANDLE depthCpu)
+{
+    if (!m_device || !m_srvHeap)
+        return;
+    if (sceneColorCpu.ptr == 0 || depthCpu.ptr == 0)
+    {
+        packSsrDummySrvs(m_device);
+        return;
+    }
+    D3D12_CPU_DESCRIPTOR_HANDLE dst = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
+    dst.ptr += static_cast<SIZE_T>(m_srvIncr) * 2u;
+    m_device->CopyDescriptorsSimple(1, dst, sceneColorCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    dst.ptr += m_srvIncr;
+    m_device->CopyDescriptorsSimple(1, dst, depthCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+}
+
 void WaterPipeline::bindReceiverSrvs(ID3D12GraphicsCommandList* cmd) const
 {
     if (!cmd || !hasReceiverSrvs())
@@ -340,6 +495,7 @@ void WaterPipeline::bindReceiverSrvs(ID3D12GraphicsCommandList* cmd) const
     cmd->SetDescriptorHeaps(1, heaps);
     cmd->SetGraphicsRootDescriptorTable(kRootHeightSrv, m_heightGpu);
     cmd->SetGraphicsRootDescriptorTable(kRootShadowSrv, m_shadowGpu);
+    cmd->SetGraphicsRootDescriptorTable(kRootSsrSrv, m_ssrGpu);
 }
 
 void WaterPipeline::fillConstants(
@@ -434,6 +590,31 @@ void WaterPipeline::fillConstants(
     out.lightCount = 0;
     for (uint32_t i = 0; i < kWaterLocalLightMax; ++i)
         out.waterIndex[i] = 0;
+}
+
+void WaterPipeline::fillSsr(
+    WaterFrameConstants& out,
+    const Camera3D& camera,
+    const SsrSettings* settings,
+    bool debugEnabled,
+    bool hasSceneColor,
+    const Sky::Environment* env)
+{
+    const Math::Matrix4f viewProj = camera.GetViewProj();
+    copyMatrix(out.invViewProj, viewProj.Inverse());
+    copyMatrix(out.viewProj, viewProj);
+    out.nearZ        = camera.GetNearZ();
+    const bool on    = settings && settings->enabled && debugEnabled && hasSceneColor;
+    out.ssrEnabled   = on ? 1.0f : 0.0f;
+    const SsrSettings defaults{};
+    const SsrSettings& s = settings ? *settings : defaults;
+    out.thickness    = s.thickness;
+    out.stride       = s.stride;
+    out.edgeFade     = s.edgeFade;
+    out.maxRoughness = s.maxRoughness;
+    out.ssrPad0      = 0.0f;
+    out.ssrPad1      = 0.0f;
+    fillSkyEval(out.skyEval, env);
 }
 
 } // namespace Dark

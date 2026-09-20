@@ -3061,6 +3061,15 @@ void SandboxApp::onRender()
     }
     if (renderer().hasSceneBuffers())
         m_scene.captureSsrSceneColor(cmd, renderer());
+    D3D12_CPU_DESCRIPTOR_HANDLE waterSceneColor{};
+    D3D12_CPU_DESCRIPTOR_HANDLE waterDepth{};
+    const SsrSettings*          waterSsr = nullptr;
+    if (m_scene.ssr().hasSceneColor())
+    {
+        waterSceneColor = m_scene.ssr().sceneColorSrvCpu();
+        waterDepth      = renderer().depthSrvCpu();
+        waterSsr        = &m_ssr;
+    }
     m_water.draw(
         cmd,
         m_waterPipeline,
@@ -3074,7 +3083,10 @@ void SandboxApp::onRender()
         renderer().frameIndex(),
         heightHeap,
         heightGpu,
-        &m_shadows);
+        &m_shadows,
+        waterSceneColor,
+        waterDepth,
+        waterSsr);
 
     {
         MeshFrameConstants lit{};

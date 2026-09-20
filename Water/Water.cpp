@@ -306,7 +306,10 @@ using namespace Terrain;
         uint32_t frameIndex,
         ID3D12DescriptorHeap* heightHeap,
         D3D12_GPU_DESCRIPTOR_HANDLE heightGpu,
-        const ShadowSystem* shadows) const
+        const ShadowSystem* shadows,
+        D3D12_CPU_DESCRIPTOR_HANDLE sceneColorCpu,
+        D3D12_CPU_DESCRIPTOR_HANDLE depthCpu,
+        const SsrSettings* ssrSettings) const
     {
         m_lastDrawCalls = 0;
         m_lastTriangles = 0;
@@ -338,8 +341,11 @@ using namespace Terrain;
         cb.heightCellSize   = fogMap.heightCellSize;
         cb.heightWorldSizeX = fogMap.heightWorldSizeX;
         cb.heightWorldSizeZ = fogMap.heightWorldSizeZ;
+        const bool hasSsr = sceneColorCpu.ptr != 0 && depthCpu.ptr != 0;
+        WaterPipeline::fillSsr(cb, camera, ssrSettings, !debug || debug->ssrEnabled, hasSsr, env);
         pipeline.setConstants(cmd, cb, frameIndex);
         pipeline.setLights(cmd, lightsVa);
+        pipeline.setSsrSrvs(sceneColorCpu, depthCpu);
         if (pipeline.hasReceiverSrvs())
             pipeline.bindReceiverSrvs(cmd);
         else

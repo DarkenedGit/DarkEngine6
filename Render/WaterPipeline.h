@@ -2,6 +2,7 @@
 
 #include "Render/DebugRenderState.h"
 #include "Render/LocalLightGather.h"
+#include "Render/SsrPipeline.h"
 #include "Sky/Environment.h"
 #include "Water/WaterWaves.h"
 
@@ -13,9 +14,11 @@
 namespace Dark
 {
 
+class Camera3D;
+
 using Microsoft::WRL::ComPtr;
 
-// CPU/HLSL layout: 64 floats plus lightCount + waterIndex[8]. Lives in a CBV — root constants are the 64-DWORD cap.
+// CPU/HLSL layout: 64 floats plus lightCount + waterIndex[8] plus SSR/SkyEval. Lives in a CBV — root constants are the 64-DWORD cap.
 struct WaterFrameConstants
 {
     float    worldViewProj[16];
@@ -53,11 +56,27 @@ struct WaterFrameConstants
     float    heightWorldSizeX;
     float    heightWorldSizeZ;
     float    padFog;
+    float    ssrAlign[2]; // HLSL float4x4 aligns to 384; padFog is at 372
+    float    invViewProj[16];
+    float    viewProj[16];
+    float    nearZ;
+    float    ssrEnabled;
+    float    thickness;
+    float    stride;
+    float    edgeFade;
+    float    maxRoughness;
+    float    ssrPad0;
+    float    ssrPad1;
+    SkyEvalParams skyEval;
 };
 
 static_assert(offsetof(WaterFrameConstants, lightCount) == 64 * sizeof(float), "lightCount follows the old 64-float block");
 static_assert(offsetof(WaterFrameConstants, waterIndex) == 64 * sizeof(float) + sizeof(uint32_t), "waterIndex packs tightly after lightCount");
 static_assert(offsetof(WaterFrameConstants, fogColor) == 64 * sizeof(float) + sizeof(uint32_t) * (1 + kWaterLocalLightMax), "fog follows waterIndex");
+static_assert(offsetof(WaterFrameConstants, invViewProj) == 96 * sizeof(float), "invViewProj is 16-byte aligned after padFog");
+static_assert(offsetof(WaterFrameConstants, ssrEnabled) == 129 * sizeof(float), "ssrEnabled follows nearZ");
+static_assert(offsetof(WaterFrameConstants, skyEval) == 136 * sizeof(float), "SkyEvalParams follows the SSR camera block");
+static_assert(((sizeof(WaterFrameConstants) + 255u) & ~255u) == 768u, "water CBV aligned size is 768");
 
 class WaterPipeline
 {
@@ -67,7 +86,9 @@ public:
     static constexpr UINT kRootHeightSrv = 2;
     static constexpr UINT kRootShadowCbv = 3;
     static constexpr UINT kRootShadowSrv = 4;
+    static constexpr UINT kRootSsrSrv    = 5;
     static constexpr UINT kBufferedFrames = 2;
+    static_assert(2u + 2u + 1u + 2u + 1u + 1u <= 64u, "water RS DWORD budget");
 
     WaterPipeline() = default;
 
@@ -79,6 +100,7 @@ public:
     void setHeightMap(ID3D12GraphicsCommandList* cmd, ID3D12DescriptorHeap* heap, D3D12_GPU_DESCRIPTOR_HANDLE gpu) const;
     void setHeightSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE heightCpu);
     void setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
+    void setSsrSrvs(D3D12_CPU_DESCRIPTOR_HANDLE sceneColorCpu, D3D12_CPU_DESCRIPTOR_HANDLE depthCpu);
     void bindReceiverSrvs(ID3D12GraphicsCommandList* cmd) const;
     bool hasReceiverSrvs() const { return m_srvHeap != nullptr && m_haveHeight && m_haveShadow; }
 
@@ -98,9 +120,18 @@ public:
         const WaterParams& params,
         const Sky::Environment* env = nullptr,
         bool lighting = true);
+    static void fillSsr(
+        WaterFrameConstants& out,
+        const Camera3D& camera,
+        const SsrSettings* settings,
+        bool debugEnabled,
+        bool hasSceneColor,
+        const Sky::Environment* env);
 
 private:
     bool createConstantBuffers(ID3D12Device* device);
+    bool createSsrDummies(ID3D12Device* device);
+    void packSsrDummySrvs(ID3D12Device* device);
     UINT cbBytes() const;
 
     ComPtr<ID3D12RootSignature>  m_rootSignature;
@@ -110,11 +141,15 @@ private:
     ComPtr<ID3D12Resource>       m_cbUpload;
     ComPtr<ID3D12Resource>       m_dummyLights;
     ComPtr<ID3D12DescriptorHeap> m_srvHeap;
+    ComPtr<ID3D12Resource>       m_dummySsrColor;
+    ComPtr<ID3D12Resource>       m_dummySsrDepth;
+    ID3D12Device*                m_device   = nullptr;
     UINT8*                       m_cbMapped = nullptr;
     D3D12_GPU_VIRTUAL_ADDRESS    m_cbGpu    = 0;
     D3D12_GPU_VIRTUAL_ADDRESS    m_dummyGpu = 0;
     D3D12_GPU_DESCRIPTOR_HANDLE  m_heightGpu{};
     D3D12_GPU_DESCRIPTOR_HANDLE  m_shadowGpu{};
+    D3D12_GPU_DESCRIPTOR_HANDLE  m_ssrGpu{};
     UINT                         m_srvIncr    = 0;
     uint32_t                     m_cbSlot     = 0;
     bool                         m_haveHeight = false;
