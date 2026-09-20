@@ -2,6 +2,7 @@
 
 #include "Render/DebugRenderState.h"
 #include "Render/DeferredLightingPipeline.h"
+#include "Render/Renderer.h"
 #include "Render/SceneBuffers.h"
 #include "Render/SsrSettings.h"
 
@@ -15,6 +16,7 @@
 using Dark::DebugRenderState;
 using Dark::DeferredLightingPipeline;
 using Dark::LightingConstants;
+using Dark::Renderer;
 using Dark::SceneBuffers;
 using Dark::SsrSettings;
 using Microsoft::WRL::ComPtr;
@@ -167,24 +169,38 @@ TEST(Ssr, Create_ZeroSize_DropsSsrOverride)
     EXPECT_EQ(buffers.ssrTableGpu().ptr, 0u);
 }
 
-TEST(Ssr, Create_PacksSsrTable)
+TEST(Ssr, Dummy_ConfZero)
 {
+    // Renderer needs a Window; enableSceneBuffers packs via setLightingSsrSrv(ssrDummyCpu()).
+    (void)&Renderer::ssrDummyCpu;
+    (void)&Renderer::setLightingSsrSrv;
+    (void)&Renderer::ssrTableGpu;
+
     ComPtr<ID3D12Device> device = TryCreateDevice();
     if (!device)
         GTEST_SKIP() << "no D3D12 device (WARP or hardware)";
 
-    SceneBuffers  buffers;
-    const float   hdrClear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    SceneBuffers buffers;
+    const float  hdrClear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
     ASSERT_TRUE(buffers.create(device.Get(), 64, 64, true, {}, hdrClear));
     ASSERT_TRUE(buffers.hasGBuffer());
-    EXPECT_NE(buffers.ssrTableGpu().ptr, 0u);
-    EXPECT_NE(buffers.ssrTableGpu().ptr, buffers.lightingTableGpu().ptr);
+    ASSERT_NE(buffers.hdrSrvCpu().ptr, 0u);
+    ASSERT_NE(buffers.lightingHeap(), nullptr);
+    EXPECT_EQ(buffers.lightingHeap()->GetDesc().NumDescriptors, SceneBuffers::kLightingCount);
     EXPECT_EQ(buffers.lightingSsrCpu().ptr, 0u);
 
-    buffers.setLightingSsrSrv(device.Get(), buffers.aoSrvCpu());
-    EXPECT_EQ(buffers.lightingSsrCpu().ptr, buffers.aoSrvCpu().ptr);
+    const D3D12_CPU_DESCRIPTOR_HANDLE dummy = buffers.hdrSrvCpu();
+    buffers.setLightingSsrSrv(device.Get(), dummy);
+    EXPECT_EQ(buffers.lightingSsrCpu().ptr, dummy.ptr);
+    EXPECT_NE(buffers.lightingSsrCpu().ptr, 0u);
+
     buffers.packLightingHeap(device.Get(), {});
-    EXPECT_EQ(buffers.lightingSsrCpu().ptr, buffers.aoSrvCpu().ptr);
+    EXPECT_EQ(buffers.lightingSsrCpu().ptr, dummy.ptr);
+
+    const UINT incr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    D3D12_GPU_DESCRIPTOR_HANDLE slot9 = buffers.lightingTableGpu();
+    slot9.ptr += static_cast<SIZE_T>(SceneBuffers::kLightingSsr) * incr;
+    EXPECT_EQ(buffers.ssrTableGpu().ptr, slot9.ptr);
 
     buffers.reset();
     EXPECT_EQ(buffers.lightingSsrCpu().ptr, 0u);
