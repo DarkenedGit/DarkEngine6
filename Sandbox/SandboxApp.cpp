@@ -48,6 +48,7 @@
 #include "Combat/JumpAttackDef.h"
 #include "Combat/JumpAttackResolve.h"
 #include "Combat/PoiseComponent.h"
+#include "Combat/StatusDot.h"
 #include "Combat/StatusEffectComponent.h"
 #include "Ui/HudTagComponent.h"
 #include "Weapons/HittableComponent.h"
@@ -955,16 +956,19 @@ void SandboxApp::updateCharacterAnims()
 
         const BrainComponent* brain = world().get<BrainComponent>(e);
         const AI::Leaf leaf = (brain && brain->brain) ? brain->brain->leaf() : AI::Leaf::Wander;
+        float statusScale = 1.0f;
+        if (const Combat::StatusEffectComponent* st = world().get<Combat::StatusEffectComponent>(e))
+            statusScale = st->moveSpeedScale();
         if (alive && xf)
         {
             if (standoff)
                 speed = 0.0f;
             else if (leaf == AI::Leaf::Assist || leaf == AI::Leaf::Flee)
-                speed = 18.0f;
+                speed = 18.0f * statusScale;
             else if (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Memory)
-                speed = 10.0f;
+                speed = 10.0f * statusScale;
             else if (leaf == AI::Leaf::Wander)
-                speed = 10.0f;
+                speed = 10.0f * statusScale;
         }
         ag->graph.setFloat("speed", speed);
 
@@ -1070,6 +1074,7 @@ void SandboxApp::updatePossessed(float dt)
     motorIn.allowDoubleJump = !inAirCommit;
     motorIn.allowJumpBuffer = !jumpBusy;
     motorIn.airControlScale = inAirCommit ? jump->def().airControlScale : 1.0f;
+    motorIn.speedScale      = status ? status->moveSpeedScale() : 1.0f;
 
     struct HeightCtx
     {
@@ -2669,6 +2674,8 @@ void SandboxApp::onUpdate(float dt)
         if (m_chaseOk)
             m_chase.tick(dt, world(), input(), m_terrain, possessedBody(), m_playerWet);
         updateCombat(dt);
+        Combat::CombatSystem combat;
+        Combat::harvestAndResolveDots(world(), combat);
         updateHealthPacks(dt);
         m_blood.update(dt);
         if (Health* hpAlive = localHealth(); hpAlive && hpAlive->alive())

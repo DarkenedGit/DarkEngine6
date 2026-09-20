@@ -182,6 +182,7 @@ namespace Dark
         PlayerMotorResult result{};
         if (dt < 0.0f)
             dt = 0.0f;
+        const float speedScale = Math::Clamp(in.speedScale, 0.0f, 1.0f);
 
         if (m_jumpBuffer > 0.0f)
             m_jumpBuffer = Math::Max(0.0f, m_jumpBuffer - dt);
@@ -197,7 +198,7 @@ namespace Dark
                 enterGrounded(position, groundY);
             else
             {
-                moveHorizontal(position, in.wish, m_settings.swimSpeed, dt);
+                moveHorizontal(position, in.wish, m_settings.swimSpeed * speedScale, dt);
                 position.y   = waterY + m_settings.swimOffset;
                 m_velocity.y = 0.0f;
                 m_jumpBuffer = 0.0f;
@@ -211,11 +212,11 @@ namespace Dark
             {
                 enterSwim(position, waterY);
                 result.splashed = true;
-                moveHorizontal(position, in.wish, m_settings.swimSpeed, dt);
+                moveHorizontal(position, in.wish, m_settings.swimSpeed * speedScale, dt);
                 return result;
             }
 
-            const float speed = in.sprint ? m_settings.sprintSpeed : m_settings.walkSpeed;
+            const float speed = (in.sprint ? m_settings.sprintSpeed : m_settings.walkSpeed) * speedScale;
             moveHorizontal(position, in.wish, speed, dt);
             groundY               = sampleGround(ground, position.x, position.z);
             const float feetY     = groundY + m_settings.groundOffset;
@@ -252,7 +253,7 @@ namespace Dark
             }
         }
 
-        applyAirControl(in.wish, dt, in.airControlScale);
+        applyAirControl(in.wish, dt, in.airControlScale * speedScale);
         position.x += m_velocity.x * dt;
         position.z += m_velocity.z * dt;
         m_velocity.y -= m_settings.gravity * dt;

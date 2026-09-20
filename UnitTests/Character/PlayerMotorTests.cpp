@@ -173,6 +173,57 @@ TEST(PlayerMotor, NoJumpWhileSwimming)
     EXPECT_NEAR(motor.velocity().y, 0.0f, 1.0e-4f);
 }
 
+TEST(PlayerMotor, SpeedScaleHalfWalksAtHalfWalkSpeed)
+{
+    PlayerMotor motor;
+    Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+    PlayerMotorInput in{};
+    in.wish       = Vector3f{ 0.0f, 0.0f, 1.0f };
+    in.speedScale = 0.5f;
+    constexpr float kDt = 0.25f;
+    motor.tick(pos, in, kDt, flatQuery());
+    EXPECT_NEAR(pos.z, motor.settings().walkSpeed * 0.5f * kDt, 1.0e-4f);
+    EXPECT_NEAR(motor.velocity().z, motor.settings().walkSpeed * 0.5f, 1.0e-4f);
+    EXPECT_NEAR(motor.settings().walkSpeed * 0.5f, 4.0f, 1.0e-4f);
+}
+
+TEST(PlayerMotor, SpeedScaleClampsToZeroOne)
+{
+    PlayerMotor motor;
+    Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+    PlayerMotorInput in{};
+    in.wish       = Vector3f{ 0.0f, 0.0f, 1.0f };
+    in.speedScale = 2.0f;
+    constexpr float kDt = 0.25f;
+    motor.tick(pos, in, kDt, flatQuery());
+    EXPECT_NEAR(pos.z, motor.settings().walkSpeed * kDt, 1.0e-4f);
+
+    motor.reset();
+    pos           = Vector3f{ 0.0f, 0.5f, 0.0f };
+    in.speedScale = -1.0f;
+    motor.tick(pos, in, kDt, flatQuery());
+    EXPECT_NEAR(pos.z, 0.0f, 1.0e-4f);
+    EXPECT_NEAR(motor.velocity().z, 0.0f, 1.0e-4f);
+}
+
+TEST(PlayerMotor, SpeedScaleHalfSwimsAtHalfSwimSpeed)
+{
+    PlayerMotor motor;
+    Vector3f    pos{ 0.0f, 0.35f, 0.0f };
+    const PlayerGroundQuery water = flatQuery(2.0f);
+    PlayerMotorInput hold{};
+    motor.tick(pos, hold, 1.0f / 60.0f, water);
+    ASSERT_EQ(motor.state(), PlayerMoveState::Swimming);
+
+    PlayerMotorInput in{};
+    in.wish       = Vector3f{ 0.0f, 0.0f, 1.0f };
+    in.speedScale = 0.5f;
+    constexpr float kDt = 0.25f;
+    const float     z0  = pos.z;
+    motor.tick(pos, in, kDt, water);
+    EXPECT_NEAR(pos.z - z0, motor.settings().swimSpeed * 0.5f * kDt, 1.0e-4f);
+}
+
 TEST(PlayerMotor, AirControlIsWeakerThanGround)
 {
     PlayerMotor motor;

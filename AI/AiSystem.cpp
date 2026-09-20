@@ -817,7 +817,7 @@ namespace Dark
                 continue;
 
             const bool  sprint = leaf == AI::Leaf::Assist || leaf == AI::Leaf::Flee || v.ai->assistLeft > 0.0f;
-            const float speed  = sprint ? m_pack.sprintSpeed : m_pack.walkSpeed;
+            const float speed  = (sprint ? m_pack.sprintSpeed : m_pack.walkSpeed) * (stCc ? stCc->moveSpeedScale() : 1.0f);
 
             if (leaf == AI::Leaf::Flee)
             {

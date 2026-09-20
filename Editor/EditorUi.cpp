@@ -35,6 +35,7 @@
 #include "Animation/AnimGraphComponent.h"
 #include "Character/HealthComponent.h"
 #include "Combat/JumpAttackComponent.h"
+#include "Combat/StatusDot.h"
 
 #include <imgui.h>
 
@@ -719,6 +720,7 @@ void EditorApp::onUpdate(float dt)
     {
         updatePlay(dt);
         tickEditorHunters(dt);
+        Combat::harvestAndResolveDots(world(), m_combat);
         updatePawnAnims();
     }
     else

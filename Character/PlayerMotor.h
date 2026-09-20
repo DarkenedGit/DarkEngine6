@@ -43,6 +43,7 @@ namespace Dark
         bool           allowDoubleJump  = true;
         bool           allowJumpBuffer  = true; // land/coyote/grounded consume of m_jumpBuffer
         float          airControlScale  = 1.0f; // multiplies airSpeed/airAccel in applyAirControl
+        float          speedScale       = 1.0f; // multiplies walk/sprint/swim/airSpeed/airAccel; clamped [0, 1]
     };
 
     struct PlayerMotorResult

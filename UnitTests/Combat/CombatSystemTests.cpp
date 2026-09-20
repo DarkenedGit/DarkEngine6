@@ -878,6 +878,65 @@ TEST(CombatSystem_IgniteDotTick_UsesFireResist, HarvestAndResolve)
     EXPECT_FALSE(world.get<StatusEffectComponent>(target)->hasHardCc());
 }
 
+TEST(Status_HarvestAndResolve_StunDoesNotPausePoison, TwoPawnsOneHarvest)
+{
+    World world;
+    Entity poisoned = world.createEntity();
+    Entity stunned  = world.createEntity();
+
+    HealthComponent hpA{};
+    hpA.health = Health{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    world.emplace<HealthComponent>(poisoned, std::move(hpA));
+    world.emplace<StatusEffectComponent>(poisoned);
+    world.emplace<TransformComponent>(poisoned);
+
+    HealthComponent hpB{};
+    hpB.health = Health{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    world.emplace<HealthComponent>(stunned, std::move(hpB));
+    world.emplace<StatusEffectComponent>(stunned);
+    world.emplace<TransformComponent>(stunned);
+
+    ASSERT_GT(world.get<StatusEffectComponent>(poisoned)->applyStatus(StatusId::Poison, 8.0f, 1.0f), 0.0f);
+    ASSERT_GT(world.get<StatusEffectComponent>(stunned)->applyCc(CcCategory::Stun, 1.2f, true, 0, 0.0f), 0.0f);
+    EXPECT_TRUE(world.get<StatusEffectComponent>(stunned)->hasHardCc());
+    EXPECT_FALSE(world.get<StatusEffectComponent>(poisoned)->hasHardCc());
+
+    world.get<StatusEffectComponent>(poisoned)->tick(1.0f);
+    world.get<StatusEffectComponent>(stunned)->tick(1.0f);
+
+    CombatSystem sys;
+    EXPECT_EQ(harvestAndResolveDots(world, sys), 1);
+    EXPECT_NEAR(world.get<HealthComponent>(poisoned)->health.hp(), 96.0f, 1.0e-3f);
+    EXPECT_NEAR(world.get<HealthComponent>(stunned)->health.hp(), 100.0f, 1.0e-3f);
+    EXPECT_TRUE(world.get<StatusEffectComponent>(poisoned)->has(StatusId::Poison));
+    EXPECT_TRUE(world.get<StatusEffectComponent>(stunned)->hasHardCc());
+    EXPECT_FALSE(world.get<StatusEffectComponent>(stunned)->has(StatusId::Poison));
+}
+
+TEST(Status_HarvestAndResolve_StunOnSamePawnDoesNotPausePoison, OneHarvestFourHp)
+{
+    World world;
+    Entity pawn = world.createEntity();
+    HealthComponent hp{};
+    hp.health = Health{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    world.emplace<HealthComponent>(pawn, std::move(hp));
+    world.emplace<StatusEffectComponent>(pawn);
+    world.emplace<TransformComponent>(pawn);
+
+    StatusEffectComponent* st = world.get<StatusEffectComponent>(pawn);
+    ASSERT_GT(st->applyStatus(StatusId::Poison, 8.0f, 1.0f), 0.0f);
+    ASSERT_GT(st->applyCc(CcCategory::Stun, 1.2f, true, 0, 0.0f), 0.0f);
+    EXPECT_TRUE(st->hasHardCc());
+    EXPECT_TRUE(st->has(StatusId::Poison));
+
+    st->tick(1.0f);
+    CombatSystem sys;
+    EXPECT_EQ(harvestAndResolveDots(world, sys), 1);
+    EXPECT_NEAR(world.get<HealthComponent>(pawn)->health.hp(), 96.0f, 1.0e-3f);
+    EXPECT_TRUE(st->has(StatusId::Poison));
+    EXPECT_TRUE(st->hasHardCc());
+}
+
 TEST(CombatSystem_HarvestAndResolveDots_CompactsChillWithoutHealth, ExpiryTurnsOff)
 {
     World world;

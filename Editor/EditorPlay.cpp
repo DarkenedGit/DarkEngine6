@@ -632,6 +632,7 @@ void EditorApp::updatePlay(float dt)
     motorIn.allowDoubleJump = !inAirCommit;
     motorIn.allowJumpBuffer = !jumpBusy;
     motorIn.airControlScale = inAirCommit && jump ? jump->def().airControlScale : 1.0f;
+    motorIn.speedScale      = status ? status->moveSpeedScale() : 1.0f;
 
     PlayerGroundQuery ground{};
     ground.user    = this;
@@ -853,14 +854,17 @@ void EditorApp::updatePawnAnims()
         const BrainComponent* brain = world().get<BrainComponent>(e);
         const AI::Leaf        leaf  = (brain && brain->brain) ? brain->brain->leaf() : AI::Leaf::Wander;
         float                 speed = 0.0f;
+        float                 statusScale = 1.0f;
+        if (const Combat::StatusEffectComponent* st = world().get<Combat::StatusEffectComponent>(e))
+            statusScale = st->moveSpeedScale();
         if (alive && !standoff)
         {
             if (leaf == AI::Leaf::Assist || leaf == AI::Leaf::Flee)
-                speed = 18.0f;
+                speed = 18.0f * statusScale;
             else if (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Memory)
-                speed = 12.0f;
+                speed = 12.0f * statusScale;
             else
-                speed = 9.0f;
+                speed = 9.0f * statusScale;
         }
         ag->graph.setFloat("speed", speed);
     });
