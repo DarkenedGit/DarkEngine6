@@ -107,6 +107,8 @@ private:
     void   togglePlayMode();
     void   bakePlayWalkability();
     void   resetPlayCombat();
+    void   captureAuthoredPoses();
+    void   restoreAuthoredPoses();
     void   tickEditorHunters(float dt);
     void   updatePawnAnims();
     void   updatePlay(float dt);

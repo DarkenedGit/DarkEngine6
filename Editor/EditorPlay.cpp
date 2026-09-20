@@ -274,6 +274,49 @@ void EditorApp::resetPlayCombat()
             st->reset();
         if (Combat::PoiseComponent* po = world().get<Combat::PoiseComponent>(e))
             po->reset();
+        if (BrainComponent* brain = world().get<BrainComponent>(e); brain && brain->brain)
+            brain->brain->start();
+        if (PathAgentComponent* path = world().get<PathAgentComponent>(e))
+        {
+            path->path.points.clear();
+            path->waypoint = 0;
+        }
+        if (AiAgentComponent* ai = world().get<AiAgentComponent>(e))
+        {
+            ai->givenUp     = false;
+            ai->hasLastSeen = false;
+            ai->assistLeft  = 0.0f;
+            ai->fleeLeft    = 0.0f;
+            ai->deadFor     = 0.0f;
+        }
+    });
+}
+
+void EditorApp::captureAuthoredPoses()
+{
+    world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
+        if (!isPawnType(so.type))
+            return;
+        TransformComponent* xf = world().get<TransformComponent>(e);
+        if (!xf)
+            return;
+        EditorAuthoredPoseComponent pose{};
+        pose.position = xf->position;
+        pose.rotation = xf->rotation;
+        pose.scale    = xf->scale;
+        world().emplace<EditorAuthoredPoseComponent>(e, pose);
+    });
+}
+
+void EditorApp::restoreAuthoredPoses()
+{
+    world().each<EditorAuthoredPoseComponent>([&](Entity e, EditorAuthoredPoseComponent& pose) {
+        if (TransformComponent* xf = world().get<TransformComponent>(e))
+        {
+            xf->position = pose.position;
+            xf->rotation = pose.rotation;
+            xf->scale    = pose.scale;
+        }
     });
 }
 
@@ -318,6 +361,7 @@ void EditorApp::setPlayMode(bool play)
             DE_LOG_WARN("Editor: place a Player before Play (Create → Player, then F12)");
             return;
         }
+        captureAuthoredPoses();
         bakePlayWalkability();
         m_ai.setJumpAttackHits(&EditorApp::onPlayJumpHitsThunk, this);
         m_ai.setHunterCue(&EditorApp::onPlayHunterCueThunk, this);
@@ -343,9 +387,11 @@ void EditorApp::setPlayMode(bool play)
     {
         if (JumpAttackComponent* jac = m_playPlayer.valid() ? world().get<JumpAttackComponent>(m_playPlayer) : nullptr)
             jac->jump.cancel(Combat::JumpAttackCancel::ForceIdle);
+        restoreAuthoredPoses();
+        resetPlayCombat();
         m_playMode   = false;
         m_playPlayer = {};
-        DE_LOG_INFO("Editor: play stopped");
+        DE_LOG_INFO("Editor: play stopped — restored spawn poses");
     }
 }
 

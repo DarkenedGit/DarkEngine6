@@ -691,11 +691,13 @@ void EditorApp::onUpdate(float dt)
 
     handleEditorCommands(dt);
     if (m_playMode)
+    {
         updatePlay(dt);
+        tickEditorHunters(dt);
+        updatePawnAnims();
+    }
     else
         updateCamera(dt);
-    tickEditorHunters(dt);
-    updatePawnAnims();
     if (m_sceneMode != SceneMode::Scene2D)
         syncTerrainLod();
 
@@ -705,6 +707,11 @@ void EditorApp::onUpdate(float dt)
         world().each<AnimGraphComponent>([&](Entity e, AnimGraphComponent& ag) {
             const EditorObjectComponent* so = world().get<EditorObjectComponent>(e);
             const bool pawn = so && isPawnType(so->type);
+            if (pawn && !m_playMode)
+            {
+                ag.graph.setPreviewPaused(true);
+                return;
+            }
             if (!pawn && selected.valid() && e.id() == selected.id())
                 m_animPanel.applyPlayback(ag.graph);
             else
