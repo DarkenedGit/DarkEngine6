@@ -6,6 +6,7 @@
 #include "Math/MathHelper.h"
 #include "Terrain/TerrainGen.h"
 #include "Terrain/TerrainTileFile.h"
+#include "Water/WaterWaves.h"
 #include "Ui/Icons.h"
 #include "ECS/Components.h"
 
@@ -200,6 +201,7 @@ void EditorApp::removeEditorTerrain()
     }
 
     renderer().waitForGpu();
+    m_water = WaterWorld{};
     m_terrain.clear();
     m_terrainMaterial    = {};
     m_splat              = {};
@@ -227,7 +229,43 @@ bool EditorApp::terrainBrushesLocked() const
 void EditorApp::bindTerrainHeightSrv()
 {
     if (m_terrain.heightTexture().valid())
+    {
         renderer().setHeightSrv(m_terrain.heightTexture().cpuHandle());
+        m_scene.waterPipeline().setHeightSrv(renderer().device(), m_terrain.heightTexture().cpuHandle());
+    }
+}
+
+bool EditorApp::rebuildEditorWater()
+{
+    m_water = WaterWorld{};
+    if (!m_haveTerrain || !m_terrain.valid() || !m_terrain.coarse().valid())
+        return true;
+    renderer().waitForGpu();
+    WaterDesc desc;
+    desc.chunkCells       = kWaterChunkCellsCoarse;
+    desc.waterLevel       = m_terrainSeaLevel;
+    desc.lodDistanceCount = 5;
+    desc.lodDistances[0]  = 40.0f;
+    desc.lodDistances[1]  = 80.0f;
+    desc.lodDistances[2]  = 160.0f;
+    desc.lodDistances[3]  = 320.0f;
+    desc.lodDistances[4]  = 640.0f;
+    desc.params           = defaultWaterParams(m_terrainSeaLevel);
+    if (!m_water.create(m_terrain.coarse(), desc))
+    {
+        DE_LOG_ERROR(LogCategory::Render, "Editor: water create failed");
+        return false;
+    }
+    m_water.updateLod(m_camera.GetPosition());
+    if (!m_water.createGpu(renderer()))
+    {
+        DE_LOG_ERROR(LogCategory::Render, "Editor: water GPU upload failed");
+        m_water = WaterWorld{};
+        return false;
+    }
+    bindTerrainHeightSrv();
+    DE_LOG_INFO(LogCategory::Render, "Editor: water level {:.1f} m, {} wet chunks", m_terrainSeaLevel, m_water.wetChunkCount());
+    return true;
 }
 
 bool EditorApp::applyEditorGridGpu()
@@ -323,6 +361,7 @@ bool EditorApp::createEditorTerrain()
         removeEditorTerrain();
         return false;
     }
+    rebuildEditorWater();
     DE_LOG_INFO(LogCategory::Render, "Editor: created 129x129 terrain (1-tile Grid)");
     return true;
 }
@@ -342,6 +381,14 @@ void EditorApp::syncTerrainLod()
         m_terrain.clearPin();
 
     m_terrain.updateStreaming(m_camera.GetPosition(), &renderer(), &m_terrainMaterial);
+    m_water.updateLod(m_camera.GetPosition());
+    if (m_water.needsRebuild())
+    {
+        renderer().waitForGpu();
+        m_water.rebuildDirtyCpuMeshes();
+        if (!m_water.uploadDirty(renderer()))
+            DE_LOG_ERROR(LogCategory::Render, "Editor: water upload failed");
+    }
     if (m_terrainHeightDirty)
     {
         if (!m_terrain.uploadCoarseHeightTexture(renderer()))
@@ -733,6 +780,7 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
         removeEditorTerrain();
         return false;
     }
+    rebuildEditorWater();
     return true;
 }
 
@@ -900,6 +948,7 @@ bool EditorApp::applyGeneratedWorld()
         removeEditorTerrain();
         return false;
     }
+    rebuildEditorWater();
     DE_LOG_INFO(LogCategory::Render, "Editor: generated {}x{} tiles", desc.tilesX, desc.tilesZ);
     return true;
 }

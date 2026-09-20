@@ -32,6 +32,7 @@
 #include "Render/TerrainErosionPipeline.h"
 #include "Terrain/TerrainGrid.h"
 #include "Terrain/TerrainMaterial.h"
+#include "Water/Water.h"
 #include "Weapons/Weapon.h"
 
 #include <atomic>
@@ -169,6 +170,7 @@ private:
     void fillTerrainSceneDesc(SceneFileData& data) const;
     bool saveTerrainSidecars(const std::filesystem::path& scenePath) const;
     bool applyEditorGridGpu();
+    bool rebuildEditorWater();
     void bindTerrainHeightSrv();
     void startGenerateWorld();
     void cancelGenerateWorld();
@@ -274,6 +276,7 @@ private:
     bool  m_showTerrainPanel   = true;
 
     Terrain::TerrainGrid          m_terrain;
+    WaterWorld                    m_water;
     TerrainMaterial               m_terrainMaterial;
     Terrain::SplatMap             m_splat;
     Terrain::SplatRules           m_splatRules;

@@ -122,24 +122,24 @@ namespace Dark::Terrain
 
         float SampleEroded(float u, float v, uint32_t seed)
         {
-            // Fewes/Clay John: few large octaves, stretch one axis into ranges, suppress
-            // high-frequency on steep slopes so peaks connect. Gullies are flank detail.
-            const int   heightOct = 4;
-            const float waterH    = 0.34f;
+            // Fewes: ~3 noise tiles across the map, 3 large FBM octaves. Do not use
+            // 1-|n| at map scale — that is a single bowl. Gullies follow slope.
+            const int   heightOct = 3;
+            const float waterH    = 0.42f;
             const int   eroOct    = 5;
-            const float eroTiles  = 3.5f;
+            const float eroTiles  = 4.0f;
             const float eroGain   = 0.5f;
             const float eroLac    = 2.0f;
-            const float slopeK    = 2.5f;
-            const float branchK   = 2.0f;
-            const float eroStr    = 0.08f;
+            const float slopeK    = 3.0f;
+            const float branchK   = 3.0f;
+            const float eroStr    = 0.05f;
 
-            float px = u * 1.6f;
-            float pz = v * 0.85f;
-            float n  = 0.0f;
-            float nx = 0.0f;
-            float nz = 0.0f;
-            float amp = 0.5f;
+            float px  = u * 3.0f;
+            float pz  = v * 2.6f;
+            float n   = 0.0f;
+            float nx  = 0.0f;
+            float nz  = 0.0f;
+            float amp = 0.25f;
             float d2  = 0.0f;
             for (int i = 0; i < heightOct; ++i)
             {
@@ -150,30 +150,24 @@ namespace Dark::Terrain
                 nx += gdx * w;
                 nz += gdz * w;
                 d2 += gdx * gdx + gdz * gdz;
-                amp *= 0.45f;
+                amp *= 0.12f;
                 const float rx = px;
-                px = 0.80f * rx - 0.60f * pz;
-                pz = 0.60f * rx + 0.80f * pz;
+                px             = 0.80f * rx - 0.60f * pz;
+                pz             = 0.60f * rx + 0.80f * pz;
                 px *= 2.0f;
                 pz *= 2.0f;
             }
-            float ridge, rdx, rdz;
-            GradientNoise(u * 1.15f, v * 0.55f, seed + 91u, ridge, rdx, rdz);
-            ridge = 1.0f - fabsf(ridge);
-            n     = n * 0.35f + ridge * 0.65f;
-            nx    = nx * 0.35f - (ridge > 0.0f ? rdx : -rdx) * 0.65f;
-            nz    = nz * 0.35f - (ridge > 0.0f ? rdz : -rdz) * 0.65f;
-            n     = Clamp(n, 0.0f, 1.0f);
+            n = Clamp(n * 0.5f + 0.5f, 0.0f, 1.0f);
 
             float dirX = nz * slopeK;
             float dirZ = -nx * slopeK;
-            float a    = 0.45f * SmoothStep(waterH - 0.05f, waterH + 0.25f, n);
+            float a    = 0.5f * SmoothStep(waterH - 0.1f, waterH + 0.2f, n);
             float f    = 1.0f;
             float hSum = 0.0f;
             float hx   = 0.0f;
             float hz   = 0.0f;
-            const float ox = u * 1.6f;
-            const float oz = v * 0.85f;
+            const float ox = u * 3.0f;
+            const float oz = v * 2.6f;
             for (int i = 0; i < eroOct; ++i)
             {
                 float rh, rdx2, rdz2;

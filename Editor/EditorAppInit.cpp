@@ -400,6 +400,7 @@ void EditorApp::onShutdown()
     m_particleRenderer.destroy(renderer());
     cancelGenerateWorld();
     renderer().waitForGpu();
+    m_water = WaterWorld{};
     m_terrain.clear();
     m_terrainMaterial    = {};
     m_splat              = {};
