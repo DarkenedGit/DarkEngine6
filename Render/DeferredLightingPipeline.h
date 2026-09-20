@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Render/SsrSettings.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <d3d12.h>
@@ -72,6 +74,11 @@ namespace Dark
         lc.iblEnabled         = (ibl.enabled && debugEnabled && iblReady) ? 1.0f : 0.0f;
         const int d           = debugView < 0 ? 0 : (debugView > 3 ? 3 : debugView);
         lc.iblDebug           = static_cast<float>(d);
+    }
+
+    inline void fillSsrLightingConstants(LightingConstants& lc, const SsrSettings& settings, bool debugEnabled, bool pipelineValid)
+    {
+        lc.ssrEnabled = (settings.enabled && debugEnabled && pipelineValid) ? 1.0f : 0.0f;
     }
 
     class DeferredLightingPipeline

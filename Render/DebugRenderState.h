@@ -29,7 +29,7 @@ namespace Dark
         int       iblDebug          = 0;    // 0 off, 1 irradiance, 2 prefiltered lod0, 3 LUT
         bool      ssaoEnabled       = false; // AND with GtaoSettings.enabled
         int       ssaoDebug         = 0;    // 0 off, 1 AoFull overlay tile
-        bool      ssrEnabled        = false; // AND with SsrSettings.enabled
+        bool      ssrEnabled        = true; // AND with SsrSettings.enabled
         int       ssrDebug          = 0;    // 0 off, 1 radiance, 2 confidence
 
         bool lightingActive() const { return lighting && !showAlbedoLinear; }

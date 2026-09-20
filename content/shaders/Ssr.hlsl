@@ -19,10 +19,22 @@ cbuffer SsrGpuParams : register(b0)
     float    edgeFade;
     float    reset;
     float    frameOffset;
-    float    _pad;
+    float    hasSkyEval;
     float3   cameraPos;
     float    _padCam;
 };
+
+cbuffer SkyEvalParams : register(b1)
+{
+    float3 sunDir;    float coverage;
+    float3 sunColor;  float turbidity;
+    float3 moonDir;   float rain;
+    float3 moonColor; float windSpeed;
+    float2 windDir;   float sunElevation; float exposure;
+    float  cloudTime; float3 _skyPad;
+};
+
+#include "SkyEval.hlsli"
 
 // PSTrace: t0 depth, t1 attrib, t2 sceneColor
 // PSUpsampleTemporal: t0 SsrHalf, t1 depth, t2 attrib, t3 history, t4 velocity
@@ -91,6 +103,8 @@ float4 PSTrace(PSInput input) : SV_TARGET
 
     SsrHit h = SsrMarch(worldPos, R, NdotV, roughness, metallic, resolution, gTex0, gTex2, gPoint, viewProj, nearZ, thickness,
                         stride, edgeFade, maxRoughness, kSsrMaxSteps);
+    if (h.kind == SSR_MISS_SKY && hasSkyEval >= 0.5f)
+        return float4(EvaluateSky(R), SsrEdgeFade(uv, edgeFade));
     return float4(h.radiance, h.conf);
 }
 

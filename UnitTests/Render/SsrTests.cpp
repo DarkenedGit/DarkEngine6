@@ -24,9 +24,11 @@ using Dark::DebugRenderState;
 using Dark::DeferredLightingPipeline;
 using Dark::LightingConstants;
 using Dark::SceneBuffers;
+using Dark::SkyEvalParams;
 using Dark::SsrMissKind;
 using Dark::SsrPipeline;
 using Dark::SsrSettings;
+using Dark::fillSsrLightingConstants;
 using Dark::ssrClampDepthForReconstruct;
 using Dark::ssrEdgeFadeAt;
 using Dark::ssrHitViewZ;
@@ -87,7 +89,7 @@ namespace
 TEST(Ssr, Settings_Defaults)
 {
     const SsrSettings s{};
-    EXPECT_FALSE(s.enabled);
+    EXPECT_TRUE(s.enabled);
     EXPECT_FLOAT_EQ(s.maxRoughness, 0.4f);
     EXPECT_FLOAT_EQ(s.thickness, 0.2f);
     EXPECT_FLOAT_EQ(s.stride, 2.0f);
@@ -126,7 +128,7 @@ TEST(Ssr, LightingConstants_Still56)
 TEST(Ssr, DebugRenderState_Defaults)
 {
     const DebugRenderState s{};
-    EXPECT_FALSE(s.ssrEnabled);
+    EXPECT_TRUE(s.ssrEnabled);
     EXPECT_EQ(s.ssrDebug, 0);
 }
 
@@ -229,6 +231,52 @@ TEST(Ssr, GpuParams_Size)
     EXPECT_EQ(sizeof(Dark::SsrGpuParams), 64u * sizeof(float));
     EXPECT_EQ(sizeof(Dark::SsrGpuParams), 256u);
     EXPECT_EQ(sizeof(Dark::SsrGpuParams), SsrPipeline::kCbBytes);
+    EXPECT_EQ(sizeof(SkyEvalParams), 24u * sizeof(float));
+    EXPECT_EQ(SsrPipeline::kRootSkyCbv, 2u);
+    EXPECT_EQ(SsrPipeline::kSkyEvalCbBytes, 256u);
+    EXPECT_EQ(SsrPipeline::cbUploadBytes(), 1536u);
+}
+
+TEST(Ssr, FallbackIbl)
+{
+    // Dummy t9 / conf=0 is identity IBL spec. SSR rgb is not scaled by AO or iblIntensity.
+    const Vector3f specIblTerm(0.12f, 0.08f, 0.04f);
+    const Vector3f ssrRgb(1.4f, 1.1f, 0.6f);
+    const float    ao           = 0.25f;
+    const float    iblIntensity = 0.5f;
+
+    auto compose = [](const Vector3f& specIbl, const Vector3f& ssr, float conf) {
+        const float c = conf < 0.0f ? 0.0f : (conf > 1.0f ? 1.0f : conf);
+        return Vector3f(specIbl.x + (ssr.x - specIbl.x) * c, specIbl.y + (ssr.y - specIbl.y) * c, specIbl.z + (ssr.z - specIbl.z) * c);
+    };
+
+    const Vector3f spec0 = compose(specIblTerm, ssrRgb, 0.0f);
+    EXPECT_FLOAT_EQ(spec0.x, specIblTerm.x);
+    EXPECT_FLOAT_EQ(spec0.y, specIblTerm.y);
+    EXPECT_FLOAT_EQ(spec0.z, specIblTerm.z);
+
+    const Vector3f spec1 = compose(specIblTerm, ssrRgb, 1.0f);
+    EXPECT_FLOAT_EQ(spec1.x, ssrRgb.x);
+    EXPECT_FLOAT_EQ(spec1.y, ssrRgb.y);
+    EXPECT_FLOAT_EQ(spec1.z, ssrRgb.z);
+    EXPECT_NE(spec1.x, ssrRgb.x * ao * iblIntensity);
+    EXPECT_NE(spec1.y, ssrRgb.y * ao * iblIntensity);
+}
+
+TEST(Ssr, FillLightingConstants_Ands)
+{
+    LightingConstants lc{};
+    SsrSettings       s{};
+    EXPECT_TRUE(s.enabled);
+    fillSsrLightingConstants(lc, s, true, true);
+    EXPECT_FLOAT_EQ(lc.ssrEnabled, 1.0f);
+    fillSsrLightingConstants(lc, s, false, true);
+    EXPECT_FLOAT_EQ(lc.ssrEnabled, 0.0f);
+    fillSsrLightingConstants(lc, s, true, false);
+    EXPECT_FLOAT_EQ(lc.ssrEnabled, 0.0f);
+    s.enabled = false;
+    fillSsrLightingConstants(lc, s, true, true);
+    EXPECT_FLOAT_EQ(lc.ssrEnabled, 0.0f);
 }
 
 TEST(Ssr, Cbv_CaptureSlotDistinctFromTrace)
@@ -244,6 +292,12 @@ TEST(Ssr, Cbv_CaptureSlotDistinctFromTrace)
     EXPECT_EQ(SsrPipeline::kFrameCount * SsrPipeline::kCbSlotsPerFrame * SsrPipeline::kCbBytes, 1024u);
     EXPECT_LE(SsrPipeline::cbvByteOffset(1, true) + SsrPipeline::kCbBytes,
               SsrPipeline::kFrameCount * SsrPipeline::kCbSlotsPerFrame * SsrPipeline::kCbBytes);
+    EXPECT_EQ(SsrPipeline::skyEvalCbvByteOffset(0), 4u * SsrPipeline::kCbBytes);
+    EXPECT_EQ(SsrPipeline::skyEvalCbvByteOffset(1), 5u * SsrPipeline::kCbBytes);
+    EXPECT_EQ(SsrPipeline::skyEvalCbvByteOffset(2), SsrPipeline::skyEvalCbvByteOffset(0));
+    EXPECT_NE(SsrPipeline::skyEvalCbvByteOffset(0), SsrPipeline::cbvByteOffset(0, false));
+    EXPECT_NE(SsrPipeline::skyEvalCbvByteOffset(0), SsrPipeline::cbvByteOffset(0, true));
+    EXPECT_LE(SsrPipeline::skyEvalCbvByteOffset(1) + SsrPipeline::kSkyEvalCbBytes, SsrPipeline::cbUploadBytes());
 }
 
 TEST(Ssr, Project_RoundTrip_ReverseZ)

@@ -2902,7 +2902,7 @@ void SandboxApp::onRender()
         renderer().bindHdr(false);
         renderer().clearHdr();
         m_scene.applyGtao(cmd, renderer(), m_viewCamera, prevViewProj, m_ssao);
-        m_scene.applySsr(cmd, renderer(), m_viewCamera, prevViewProj, m_ssr);
+        m_scene.applySsr(cmd, renderer(), m_viewCamera, prevViewProj, m_ssr, &m_env);
         LightingConstants lc{};
         copyMatrix(lc.invViewProj, viewProj.Inverse());
         lc.cameraPos[0]     = camPos.x;
@@ -2929,6 +2929,7 @@ void SandboxApp::onRender()
         fillFogHeightMap(fog, &m_terrain.heightMap());
         applyFogToLighting(lc, fog);
         fillIblLightingConstants(lc, m_ibl, renderer().debugState().iblEnabled, renderer().debugState().iblDebug, iblGpuReady(renderer().gpuResources(), m_iblImageId));
+        fillSsrLightingConstants(lc, m_ssr, renderer().debugState().ssrEnabled, m_scene.ssr().isValid() && renderer().hasGBuffer());
         m_lighting.draw(cmd, renderer(), m_shadows, lc);
         m_localLightVolumes.draw(cmd, renderer(), world(), m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_viewCamera, viewProj, lc);
 

@@ -33,7 +33,7 @@ cbuffer LightingConstants : register(b0)
     float    heightWorldSizeX;
     float    heightWorldSizeZ;
     float    _padFog;
-    float    _padPbr0;      // 11.z
+    float    ssrEnabled;    // 11.z
     float    _padPbr1;      // 11.w
     float3   pbrLightColor; // 12.xyz — π-scaled; PbrDirectional only
     float    iblIntensity;  // 12.w
@@ -51,6 +51,7 @@ Texture2D    gAo        : register(t5);
 TextureCube  gIblIrradiance : register(t6);
 TextureCube  gIblPrefilter  : register(t7);
 Texture2D    gIblBrdfLut    : register(t8);
+Texture2D    gSsr           : register(t9);
 SamplerState gHeightSamp : register(s2);
 
 struct PSInput
@@ -122,7 +123,6 @@ float4 PSMain(PSInput input) : SV_TARGET
     float3 irr = 0;
     float3 pre = 0;
     float2 dfg = 0;
-    float3 ibl = 0;
 
     if (iblEnabled >= 0.5f || iblDebug >= 0.5f)
     {
@@ -132,27 +132,28 @@ float4 PSMain(PSInput input) : SV_TARGET
         dfg = gIblBrdfLut.Sample(gHeightSamp, float2(NdotV, saturate(roughness))).rg;
     }
 
+    float4 ssr  = gSsr.Load(int3(texel, 0));
+    float  conf = (ssrEnabled >= 0.5f && iblDebug < 0.5f) ? saturate(ssr.a) : 0.0f;
+
+    float3 specIblTerm = 0.0.xxx;
+    float3 diffTerm    = ambientColor * albedo.rgb * ao;
     if (iblEnabled >= 0.5f)
     {
-        float3 Fd   = albedo.rgb * (1.0f - metallic) * (1.0f / DE_PBR_PI);
-        float3 spec = pre * (F0 * dfg.x + dfg.y);
-        ibl = (Fd * irr + spec) * ao * iblIntensity; // AO on both lobes
+        float3 Fd      = albedo.rgb * (1.0f - metallic) * (1.0f / DE_PBR_PI);
+        float3 specIbl = pre * (F0 * dfg.x + dfg.y);
+        specIblTerm    = specIbl * ao * iblIntensity;
+        diffTerm       = Fd * irr * ao * iblIntensity;
     }
+    float3 spec = lerp(specIblTerm, ssr.rgb, conf); // SSR: no AO, no iblIntensity
 
     float3 l          = normalize(lightDirWS);
     float  ndotl      = saturate(dot(n, l));
     float  recvOffset = 0.06f + 0.28f * (1.0f - ndotl) * (1.0f - ndotl);
     float  shadow     = ComputeShadow(worldPos + n * recvOffset, cameraPos);
 
-    float3 lit;
-    if (iblEnabled >= 0.5f)
-        lit = ibl
-            + PbrDirectional(n, v, albedo.rgb, roughness, metallic, lightDirWS, pbrLightColor) * shadow
-            + albedo.rgb * emissive * emissiveGain;
-    else
-        lit = ambientColor * albedo.rgb * ao
-            + PbrDirectional(n, v, albedo.rgb, roughness, metallic, lightDirWS, pbrLightColor) * shadow
-            + albedo.rgb * emissive * emissiveGain;
+    float3 lit = diffTerm + spec
+        + PbrDirectional(n, v, albedo.rgb, roughness, metallic, lightDirWS, pbrLightColor) * shadow
+        + albedo.rgb * emissive * emissiveGain;
 
     // Debug is gated on iblDebug only, not iblEnabled. Dummy cubes → black. Skip fog.
     if (iblDebug >= 0.5f && iblDebug < 1.5f)

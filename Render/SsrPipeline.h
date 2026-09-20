@@ -15,6 +15,11 @@ namespace Dark
     class Renderer;
     class Camera3D;
 
+    namespace Sky
+    {
+        class Environment;
+    }
+
     using Microsoft::WRL::ComPtr;
 
     struct SsrGpuParams
@@ -31,11 +36,29 @@ namespace Dark
         float edgeFade;
         float reset;
         float frameOffset;
-        float _pad;
+        float hasSkyEval;
         float cameraPos[3];
         float _padCam;
     };
     static_assert(sizeof(SsrGpuParams) == 64 * sizeof(float), "SsrGpuParams is 64 floats (256-byte CBV)");
+
+    struct SkyEvalParams
+    {
+        float sunDir[3];
+        float coverage;
+        float sunColor[3];
+        float turbidity;
+        float moonDir[3];
+        float rain;
+        float moonColor[3];
+        float windSpeed;
+        float windDir[2];
+        float sunElevation;
+        float exposure;
+        float cloudTime;
+        float _pad[3];
+    };
+    static_assert(sizeof(SkyEvalParams) == 24 * sizeof(float), "SkyEvalParams is 24 floats");
 
     enum class SsrMissKind : uint32_t
     {
@@ -120,8 +143,10 @@ namespace Dark
     public:
         static constexpr UINT kRootCbv         = 0;
         static constexpr UINT kRootSrv         = 1;
+        static constexpr UINT kRootSkyCbv      = 2;
         static constexpr UINT kFrameCount      = 2;
         static constexpr UINT kCbBytes         = 256;
+        static constexpr UINT kSkyEvalCbBytes  = 256;
         static constexpr UINT kCbSlotsPerFrame = 2; // draw + capture; upload CBVs are not snapshotted at bind
 
         static UINT cbvByteOffset(uint32_t frameIndex, bool capture)
@@ -130,12 +155,23 @@ namespace Dark
             return (frame * kCbSlotsPerFrame + (capture ? 1u : 0u)) * kCbBytes;
         }
 
+        static UINT skyEvalCbvByteOffset(uint32_t frameIndex)
+        {
+            const UINT frame = frameIndex % kFrameCount;
+            return kFrameCount * kCbSlotsPerFrame * kCbBytes + frame * kSkyEvalCbBytes;
+        }
+
+        static UINT cbUploadBytes()
+        {
+            return kFrameCount * kCbSlotsPerFrame * kCbBytes + kFrameCount * kSkyEvalCbBytes;
+        }
+
         SsrPipeline() = default;
 
         bool create(ID3D12Device* device, uint32_t width, uint32_t height);
         bool resize(ID3D12Device* device, uint32_t width, uint32_t height);
-        void draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj, const SsrSettings& settings,
-                  bool resetHistory);
+        void draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj, const Sky::Environment* env,
+                  const SsrSettings& settings, bool resetHistory);
         void captureSceneColor(ID3D12GraphicsCommandList* cmd, Renderer& renderer);
 
         bool isValid() const;

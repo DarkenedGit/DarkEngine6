@@ -66,7 +66,8 @@ public:
                    const GtaoSettings& settings);
 
     // After applyGtao, before lighting.draw. Skip binds dummy slot 9 and restores bindHdr(false).
-    void applySsr(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj, const SsrSettings& settings);
+    void applySsr(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj, const SsrSettings& settings,
+                  const Sky::Environment* env = nullptr);
     void captureSsrSceneColor(ID3D12GraphicsCommandList* cmd, Renderer& renderer);
 
     void drawDeferredLighting(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const LightingConstants& lc) const;

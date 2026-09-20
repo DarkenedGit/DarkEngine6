@@ -399,7 +399,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         renderer().bindHdr(false);
         renderer().clearHdr();
         m_scene.applyGtao(cmd, renderer(), m_camera, prevViewProj, m_ssao);
-        m_scene.applySsr(cmd, renderer(), m_camera, prevViewProj, m_ssr);
+        m_scene.applySsr(cmd, renderer(), m_camera, prevViewProj, m_ssr, nullptr);
         LightingConstants lc{};
         copyMatrix(lc.invViewProj, viewProj.Inverse());
         const Vector3f cam = m_camera.GetPosition();
@@ -422,6 +422,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         lc.ambientColor[1] = ambientColor.y;
         lc.ambientColor[2] = ambientColor.z;
         fillIblLightingConstants(lc, m_ibl, renderer().debugState().iblEnabled, renderer().debugState().iblDebug, iblGpuReady(renderer().gpuResources(), m_iblImageId));
+        fillSsrLightingConstants(lc, m_ssr, renderer().debugState().ssrEnabled, m_scene.ssr().isValid() && renderer().hasGBuffer());
         m_lighting.draw(cmd, renderer(), m_shadows, lc);
         m_localLightVolumes.draw(cmd, renderer(), world(), m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_camera, viewProj, lc);
         renderer().bindHdr(true);

@@ -188,6 +188,18 @@ TEST(ShaderCompile, Ssr)
     EXPECT_TRUE(compileShaderFromFile(hlsl, "PSDebugConf", "ps_5_0", psDebug));
 }
 
+TEST(ShaderCompile, SkyEval_Included)
+{
+    const std::filesystem::path hlsl = Dark::resolveContentPath("shaders/Sky.hlsl");
+    if (hlsl.empty())
+        GTEST_SKIP() << "shaders/Sky.hlsl not on content roots";
+
+    ComPtr<ID3DBlob> vs;
+    ComPtr<ID3DBlob> ps;
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "VSMainDeferred", "vs_5_0", vs));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps));
+}
+
 TEST(ShaderCompile, ReverseZSceneShaders)
 {
     const char* cases[][3] = {

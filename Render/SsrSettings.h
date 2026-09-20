@@ -5,7 +5,7 @@ namespace Dark
 
     struct SsrSettings
     {
-        bool  enabled      = false;
+        bool  enabled      = true;
         float maxRoughness = 0.4f;
         float thickness    = 0.2f;
         float stride       = 2.0f;

@@ -320,7 +320,7 @@ void SceneRenderer::applyGtao(ID3D12GraphicsCommandList* cmd, Renderer& renderer
 }
 
 void SceneRenderer::applySsr(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj,
-                             const SsrSettings& settings)
+                             const SsrSettings& settings, const Sky::Environment* env)
 {
     ensureSsrSize(renderer, cmd);
 
@@ -343,7 +343,7 @@ void SceneRenderer::applySsr(ID3D12GraphicsCommandList* cmd, Renderer& renderer,
     m_ssrNeedReset          = false;
 
     cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
-    m_ssr.draw(cmd, renderer, camera, prevViewProj, drawSettings, resetHistory);
+    m_ssr.draw(cmd, renderer, camera, prevViewProj, env, drawSettings, resetHistory);
 
     const D3D12_CPU_DESCRIPTOR_HANDLE full = m_ssr.fullSrvCpu();
     renderer.setLightingSsrSrv(full.ptr != 0 ? full : renderer.ssrDummyCpu());

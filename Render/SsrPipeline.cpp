@@ -5,6 +5,7 @@
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
 #include "Math/Vector2f.h"
+#include "Sky/Environment.h"
 
 #include <cmath>
 #include <cstring>
@@ -58,6 +59,34 @@ namespace Dark
         {
             const float iw = 1.0f / clip.w;
             return Math::Vector2f(clip.x * iw * 0.5f + 0.5f, clip.y * iw * -0.5f + 0.5f);
+        }
+
+        void fillSkyEvalParams(SkyEvalParams& out, const Sky::Environment* env)
+        {
+            out = {};
+            if (!env)
+                return;
+            out.sunDir[0]     = env->sunDir().x;
+            out.sunDir[1]     = env->sunDir().y;
+            out.sunDir[2]     = env->sunDir().z;
+            out.coverage      = env->weather.cloudCoverage;
+            out.sunColor[0]   = env->sunColor().x;
+            out.sunColor[1]   = env->sunColor().y;
+            out.sunColor[2]   = env->sunColor().z;
+            out.turbidity     = env->weather.turbidity;
+            out.moonDir[0]    = env->moonDir().x;
+            out.moonDir[1]    = env->moonDir().y;
+            out.moonDir[2]    = env->moonDir().z;
+            out.rain          = env->weather.rain;
+            out.moonColor[0]  = env->moonColor().x;
+            out.moonColor[1]  = env->moonColor().y;
+            out.moonColor[2]  = env->moonColor().z;
+            out.windSpeed     = env->weather.windSpeed;
+            out.windDir[0]    = env->weather.windDir.x;
+            out.windDir[1]    = env->weather.windDir.y;
+            out.sunElevation  = env->sunElevation();
+            out.exposure      = 1.0f; // HybridDeferred sky pass: tonemap owns exposure
+            out.cloudTime     = env->timeOfDay;
         }
     } // namespace
 
@@ -313,7 +342,7 @@ namespace Dark
         srvRange.BaseShaderRegister                = 0;
         srvRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-        D3D12_ROOT_PARAMETER params[2]{};
+        D3D12_ROOT_PARAMETER params[3]{};
         params[kRootCbv].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
         params[kRootCbv].ShaderVisibility          = D3D12_SHADER_VISIBILITY_PIXEL;
         params[kRootCbv].Descriptor.ShaderRegister = 0;
@@ -322,6 +351,10 @@ namespace Dark
         params[kRootSrv].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
         params[kRootSrv].DescriptorTable.NumDescriptorRanges = 1;
         params[kRootSrv].DescriptorTable.pDescriptorRanges   = &srvRange;
+
+        params[kRootSkyCbv].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        params[kRootSkyCbv].ShaderVisibility          = D3D12_SHADER_VISIBILITY_PIXEL;
+        params[kRootSkyCbv].Descriptor.ShaderRegister = 1;
 
         D3D12_STATIC_SAMPLER_DESC samps[2]{};
         samps[0].Filter           = D3D12_FILTER_MIN_MAG_MIP_POINT;
@@ -341,7 +374,7 @@ namespace Dark
         samps[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
         D3D12_ROOT_SIGNATURE_DESC rsDesc{};
-        rsDesc.NumParameters     = 2;
+        rsDesc.NumParameters     = 3;
         rsDesc.pParameters       = params;
         rsDesc.NumStaticSamplers = 2;
         rsDesc.pStaticSamplers   = samps;
@@ -422,7 +455,7 @@ namespace Dark
         uploadHeap.Type = D3D12_HEAP_TYPE_UPLOAD;
         D3D12_RESOURCE_DESC cbDesc{};
         cbDesc.Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER;
-        cbDesc.Width            = static_cast<UINT64>(kCbBytes) * kFrameCount * kCbSlotsPerFrame;
+        cbDesc.Width            = cbUploadBytes();
         cbDesc.Height           = 1;
         cbDesc.DepthOrArraySize = 1;
         cbDesc.MipLevels        = 1;
@@ -439,7 +472,7 @@ namespace Dark
             return false;
         }
         m_cbGpu = m_cbUpload->GetGPUVirtualAddress();
-        std::memset(m_cbMapped, 0, static_cast<size_t>(kCbBytes) * kFrameCount * kCbSlotsPerFrame);
+        std::memset(m_cbMapped, 0, cbUploadBytes());
         return true;
     }
 
@@ -616,7 +649,7 @@ namespace Dark
     }
 
     void SsrPipeline::draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj,
-                           const SsrSettings& settings, bool resetHistory)
+                           const Sky::Environment* env, const SsrSettings& settings, bool resetHistory)
     {
         if (!settings.enabled)
             return;
@@ -643,14 +676,22 @@ namespace Dark
         const UINT  frame = renderer.frameIndex() % kFrameCount;
         SsrGpuParams params{};
         fillParams(params, camera, prevViewProj, settings, resetHistory, renderer.frameIndex());
+        params.hasSkyEval = env ? 1.0f : 0.0f;
         const UINT cbOff = cbvByteOffset(renderer.frameIndex(), false);
         std::memcpy(m_cbMapped + cbOff, &params, sizeof(params));
         const D3D12_GPU_VIRTUAL_ADDRESS cbVa = m_cbGpu + cbOff;
+
+        SkyEvalParams sky{};
+        fillSkyEvalParams(sky, env);
+        const UINT skyOff = skyEvalCbvByteOffset(renderer.frameIndex());
+        std::memcpy(m_cbMapped + skyOff, &sky, sizeof(sky));
+        const D3D12_GPU_VIRTUAL_ADDRESS skyVa = m_cbGpu + skyOff;
 
         cmd->SetGraphicsRootSignature(m_rootSignature.Get());
         ID3D12DescriptorHeap* heaps[] = { m_srvHeap.Get() };
         cmd->SetDescriptorHeaps(1, heaps);
         cmd->SetGraphicsRootConstantBufferView(kRootCbv, cbVa);
+        cmd->SetGraphicsRootConstantBufferView(kRootSkyCbv, skyVa);
         cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
         const UINT histRead  = m_historyIndex;
@@ -757,6 +798,7 @@ namespace Dark
         ID3D12DescriptorHeap* heaps[] = { m_srvHeap.Get() };
         cmd->SetDescriptorHeaps(1, heaps);
         cmd->SetGraphicsRootConstantBufferView(kRootCbv, cbVa);
+        cmd->SetGraphicsRootConstantBufferView(kRootSkyCbv, m_cbGpu + skyEvalCbvByteOffset(renderer.frameIndex()));
         cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
         D3D12_CPU_DESCRIPTOR_HANDLE table = passSrvCpu(frame, kPassDownsample);
