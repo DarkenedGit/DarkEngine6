@@ -211,6 +211,12 @@ void HeightMap::setHeight(int x, int z, float height)
     markAccelDirty();
 }
 
+float* HeightMap::mutableSamples()
+{
+    markAccelDirty();
+    return m_samples.data();
+}
+
 void HeightMap::addDisk(float worldX, float worldZ, float radiusM, float deltaRaw)
 {
     if (!valid() || radiusM <= 0.0f)

@@ -261,6 +261,16 @@ namespace Dark
 
     bool Texture2D::createUavR32Float(ID3D12Device* device, uint32_t width, uint32_t height)
     {
+        return createUavTyped(device, width, height, DXGI_FORMAT_R32_FLOAT);
+    }
+
+    bool Texture2D::createUavRgba32Float(ID3D12Device* device, uint32_t width, uint32_t height)
+    {
+        return createUavTyped(device, width, height, DXGI_FORMAT_R32G32B32A32_FLOAT);
+    }
+
+    bool Texture2D::createUavTyped(ID3D12Device* device, uint32_t width, uint32_t height, DXGI_FORMAT format)
+    {
         m_resource.Reset();
         m_cpuSrvHeap.Reset();
         m_srvHeap.Reset();
@@ -274,12 +284,12 @@ namespace Dark
 
         if (!device)
         {
-            DE_LOG_ERROR(LogCategory::Render, "Texture2D::createUavR32Float: null device");
+            DE_LOG_ERROR(LogCategory::Render, "Texture2D::createUavTyped: null device");
             return false;
         }
         if (width == 0 || height == 0)
         {
-            DE_LOG_ERROR(LogCategory::Render, "Texture2D::createUavR32Float: invalid size {}x{}", width, height);
+            DE_LOG_ERROR(LogCategory::Render, "Texture2D::createUavTyped: invalid size {}x{}", width, height);
             return false;
         }
 
@@ -289,7 +299,7 @@ namespace Dark
         texDesc.Height           = height;
         texDesc.DepthOrArraySize = 1;
         texDesc.MipLevels        = 1;
-        texDesc.Format           = DXGI_FORMAT_R32_FLOAT;
+        texDesc.Format           = format;
         texDesc.SampleDesc       = { 1, 0 };
         texDesc.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
         texDesc.Flags            = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
@@ -298,7 +308,7 @@ namespace Dark
         defaultHeap.Type = D3D12_HEAP_TYPE_DEFAULT;
 
         if (FailedHr(device->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &texDesc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&m_resource)),
-                     "CreateCommittedResource UAV R32F"))
+                     "CreateCommittedResource UAV bake"))
             return false;
 
         // Slot 0 SRV, slot 1 UAV — FLAG_NONE so CopyDescriptors into the bake heap is legal.
@@ -306,7 +316,7 @@ namespace Dark
         cpuHeapDesc.NumDescriptors = 2;
         cpuHeapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         cpuHeapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-        if (FailedHr(device->CreateDescriptorHeap(&cpuHeapDesc, IID_PPV_ARGS(&m_cpuSrvHeap)), "CreateDescriptorHeap UAV R32F CPU"))
+        if (FailedHr(device->CreateDescriptorHeap(&cpuHeapDesc, IID_PPV_ARGS(&m_cpuSrvHeap)), "CreateDescriptorHeap UAV bake CPU"))
         {
             m_resource.Reset();
             return false;
@@ -315,7 +325,7 @@ namespace Dark
         D3D12_DESCRIPTOR_HEAP_DESC gpuHeapDesc = cpuHeapDesc;
         gpuHeapDesc.NumDescriptors             = 1;
         gpuHeapDesc.Flags                      = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        if (FailedHr(device->CreateDescriptorHeap(&gpuHeapDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap UAV R32F GPU SRV"))
+        if (FailedHr(device->CreateDescriptorHeap(&gpuHeapDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap UAV bake GPU SRV"))
         {
             m_cpuSrvHeap.Reset();
             m_resource.Reset();
@@ -329,9 +339,9 @@ namespace Dark
         m_cpuHandleUav.ptr += incr;
         m_gpuHandle = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
 
-        CreateTexSrv(device, m_resource.Get(), DXGI_FORMAT_R32_FLOAT, m_cpuHandle);
-        CreateTexUav(device, m_resource.Get(), DXGI_FORMAT_R32_FLOAT, m_cpuHandleUav);
-        CreateTexSrv(device, m_resource.Get(), DXGI_FORMAT_R32_FLOAT, m_srvHeap->GetCPUDescriptorHandleForHeapStart());
+        CreateTexSrv(device, m_resource.Get(), format, m_cpuHandle);
+        CreateTexUav(device, m_resource.Get(), format, m_cpuHandleUav);
+        CreateTexSrv(device, m_resource.Get(), format, m_srvHeap->GetCPUDescriptorHandleForHeapStart());
 
         m_width  = width;
         m_height = height;

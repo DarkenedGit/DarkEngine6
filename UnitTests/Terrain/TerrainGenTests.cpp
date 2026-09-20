@@ -1,0 +1,225 @@
+#include <gtest/gtest.h>
+
+#include "Terrain/HeightMap.h"
+#include "Terrain/SplatMap.h"
+#include "Terrain/TerrainGen.h"
+
+#include <cmath>
+#include <cstdlib>
+
+using namespace Dark::Terrain;
+
+namespace
+{
+    WorldGenDesc MakeSmallDesc()
+    {
+        WorldGenDesc d;
+        d.tilesX                      = 1;
+        d.tilesZ                      = 1;
+        d.tileCells                   = 64; // 65²
+        d.cellSize                    = 1.0f;
+        d.heightScale                 = 1.0f;
+        d.origin                      = Dark::Math::Vector3f{ 0.0f, 0.0f, 0.0f };
+        d.erosion.seed                = 1337u;
+        d.erosion.thermalIterations   = 4;
+        d.erosion.hydraulicMaxSteps   = 8;
+        d.erosion.hydraulicIterations = 0;
+        d.erosion.fbmOctaves          = 3;
+        return d;
+    }
+} // namespace
+
+TEST(TerrainGen, Hash21_UnitInterval)
+{
+    for (int z = -3; z < 8; ++z)
+    {
+        for (int x = -3; x < 8; ++x)
+        {
+            const float h = hash21(x, z, 1337u);
+            EXPECT_GE(h, 0.0f);
+            EXPECT_LT(h, 1.0f);
+        }
+    }
+    EXPECT_FLOAT_EQ(hash21(0, 0, 42u), hash21(0, 0, 42u));
+    EXPECT_NE(hash21(0, 0, 42u), hash21(1, 0, 42u));
+}
+
+TEST(TerrainGen, World_Deterministic)
+{
+    const WorldGenDesc desc = MakeSmallDesc();
+    HeightMap          a;
+    HeightMap          b;
+    SplatMap           sa;
+    SplatMap           sb;
+    ASSERT_TRUE(generateWorld(desc, a, sa, nullptr, nullptr, nullptr));
+    ASSERT_TRUE(generateWorld(desc, b, sb, nullptr, nullptr, nullptr));
+    ASSERT_TRUE(a.valid());
+    ASSERT_TRUE(b.valid());
+    EXPECT_EQ(a.width(), 65u);
+    EXPECT_EQ(a.height(), 65u);
+    for (int z = 0; z < 65; ++z)
+    {
+        for (int x = 0; x < 65; ++x)
+            EXPECT_FLOAT_EQ(a.height(x, z), b.height(x, z)) << x << "," << z;
+    }
+}
+
+TEST(TerrainGen, Thermal_PaddedTile_MatchesFull)
+{
+    WorldGenDesc desc                = MakeSmallDesc();
+    desc.erosion.hydraulicMaxSteps   = 0;
+    desc.erosion.hydraulicIterations = 0;
+    desc.erosion.hydraulicDroplets   = 0;
+    desc.erosion.thermalIterations   = 4;
+
+    WorldGenDesc l0Desc              = desc;
+    l0Desc.erosion.thermalIterations = 0;
+
+    HeightMap full;
+    HeightMap l0;
+    SplatMap  sf;
+    SplatMap  s0;
+    ASSERT_TRUE(generateWorld(l0Desc, l0, s0, nullptr, nullptr, nullptr));
+    ASSERT_TRUE(generateWorld(desc, full, sf, nullptr, nullptr, nullptr));
+    ASSERT_EQ(full.width(), 65u);
+
+    const int pad   = 4;
+    const int inner = 17;
+    const int x0    = 16;
+    const int z0    = 16;
+    const int tw    = inner + 2 * pad;
+    HeightMap tile;
+    ASSERT_TRUE(tile.createWorking(static_cast<uint32_t>(tw), static_cast<uint32_t>(tw), 1.0f, 1.0f));
+    for (int z = 0; z < tw; ++z)
+    {
+        for (int x = 0; x < tw; ++x)
+            tile.setHeight(x, z, l0.height(x0 - pad + x, z0 - pad + z));
+    }
+
+    ErosionParams tp     = desc.erosion;
+    tp.thermalIterations = 4;
+    tp.hydraulicMaxSteps = 0;
+    ASSERT_TRUE(applyThermalJacobi(tile, tp));
+
+    for (int z = 0; z < inner; ++z)
+    {
+        for (int x = 0; x < inner; ++x)
+        {
+            EXPECT_FLOAT_EQ(tile.height(pad + x, pad + z), full.height(x0 + x, z0 + z)) << x << "," << z;
+        }
+    }
+}
+
+TEST(TerrainGen, Thermal_ReducesTalus)
+{
+    HeightMap hm;
+    ASSERT_TRUE(hm.create(17, 17, 1.0f, 1.0f));
+    hm.setHeight(8, 8, 10.0f);
+
+    ErosionParams p;
+    p.thermalIterations = 40;
+    p.talusTan          = 0.7f;
+    p.thermalRate       = 0.5f;
+    ASSERT_TRUE(applyThermalJacobi(hm, p));
+
+    const int ox[8] = { -1, 0, 1, -1, 1, -1, 0, 1 };
+    const int oz[8] = { -1, -1, -1, 0, 0, 1, 1, 1 };
+    for (int z = 1; z < 16; ++z)
+    {
+        for (int x = 1; x < 16; ++x)
+        {
+            const float h = hm.height(x, z);
+            for (int n = 0; n < 8; ++n)
+            {
+                const float nh    = hm.height(x + ox[n], z + oz[n]);
+                const float dist  = std::sqrt(static_cast<float>(ox[n] * ox[n] + oz[n] * oz[n]));
+                const float dh    = h - nh;
+                const float talus = p.talusTan * dist;
+                EXPECT_LE(dh, talus + 0.05f) << x << "," << z;
+            }
+        }
+    }
+}
+
+TEST(TerrainGen, Hydraulic_StopsAtMaxSteps)
+{
+    HeightMap base;
+    ASSERT_TRUE(base.create(32, 32, 1.0f, 1.0f));
+    for (int z = 0; z < 32; ++z)
+    {
+        for (int x = 0; x < 32; ++x)
+            base.setHeight(x, z, static_cast<float>(31 - x) * 0.4f);
+    }
+
+    ErosionParams p;
+    p.seed              = 7u;
+    p.hydraulicDroplets = 1;
+    p.hydraulicMaxSteps = 0;
+    p.evaporate         = 0.0f;
+    p.erode             = 0.8f;
+    p.deposit           = 0.8f;
+    p.capacity          = 1.0f;
+    p.gravity           = 4.0f;
+
+    HeightMap zeroSteps;
+    ASSERT_TRUE(zeroSteps.createFrom(base.width(), base.height(), base.samples(), base.cellSize(), base.heightScale()));
+    ASSERT_TRUE(applyHydraulicDroplets(zeroSteps, p));
+    for (int z = 0; z < 32; ++z)
+    {
+        for (int x = 0; x < 32; ++x)
+            EXPECT_FLOAT_EQ(zeroSteps.height(x, z), base.height(x, z));
+    }
+
+    p.hydraulicMaxSteps = 8;
+    HeightMap stepped;
+    ASSERT_TRUE(stepped.createFrom(base.width(), base.height(), base.samples(), base.cellSize(), base.heightScale()));
+    ASSERT_TRUE(applyHydraulicDroplets(stepped, p));
+
+    const float spawnX = hash21(0, 0, p.seed) * 31.0f;
+    const float spawnZ = hash21(0, 1, p.seed) * 31.0f;
+    bool        any    = false;
+    for (int z = 0; z < 32; ++z)
+    {
+        for (int x = 0; x < 32; ++x)
+        {
+            const float dx   = std::fabs(static_cast<float>(x) - spawnX);
+            const float dz   = std::fabs(static_cast<float>(z) - spawnZ);
+            const float cheb = dx > dz ? dx : dz;
+            if (cheb > static_cast<float>(p.hydraulicMaxSteps) + 1.5f)
+                EXPECT_FLOAT_EQ(stepped.height(x, z), base.height(x, z)) << x << "," << z;
+            if (stepped.height(x, z) != base.height(x, z))
+                any = true;
+        }
+    }
+    EXPECT_TRUE(any);
+}
+
+TEST(TerrainGen, Rejects_OversizeWorld)
+{
+    WorldGenDesc d = MakeSmallDesc();
+    d.tilesX       = 9;
+    d.tilesZ       = 1;
+    d.tileCells    = kTileCells;
+    HeightMap hm;
+    SplatMap  splat;
+    EXPECT_FALSE(generateWorld(d, hm, splat, nullptr, nullptr, nullptr));
+    EXPECT_FALSE(hm.valid());
+
+    d.tilesX    = 8;
+    d.tilesZ    = 1;
+    d.tileCells = 513; // 8*513+1 = 4105 > 4097
+    EXPECT_FALSE(generateWorld(d, hm, splat, nullptr, nullptr, nullptr));
+    EXPECT_FALSE(hm.valid());
+
+    EXPECT_EQ(static_cast<uint32_t>(kMaxWorldTiles) * static_cast<uint32_t>(kTileCells) + 1u, static_cast<uint32_t>(kMaxWorkingSize));
+}
+
+TEST(TerrainGen, Progress_Cancel_NoThrow)
+{
+    const WorldGenDesc desc = MakeSmallDesc();
+    HeightMap          hm;
+    SplatMap           splat;
+    auto               prog = [](float t, const char*, void*) -> bool { return t < 0.1f; };
+    EXPECT_FALSE(generateWorld(desc, hm, splat, prog, nullptr, nullptr));
+    EXPECT_FALSE(hm.valid());
+}

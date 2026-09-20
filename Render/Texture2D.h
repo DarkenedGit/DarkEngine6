@@ -52,9 +52,10 @@ namespace Dark
         // Raw R32_FLOAT height field (rowPitchBytes usually width*4). No WIC. Always Linear.
         bool createFromR32Float(Renderer& renderer, const float* samples, uint32_t width, uint32_t height, uint32_t rowPitchBytes);
 
-        // Bake-only R32F UAV+SRV. ALLOW_UNORDERED_ACCESS on this resource only — not a flag on createFromRaw.
+        // Bake-only UAV+SRV. ALLOW_UNORDERED_ACCESS on this resource only — not a flag on createFromRaw.
         // Empty (no CPU upload). Initial state UNORDERED_ACCESS. Null device / zero size → false.
         bool createUavR32Float(ID3D12Device* device, uint32_t width, uint32_t height);
+        bool createUavRgba32Float(ID3D12Device* device, uint32_t width, uint32_t height);
 
         // RG float pairs uploaded as R16G16_FLOAT (BRDF LUT / IBL dummy). Always Linear.
         bool createFromRgFloat(Renderer& renderer, const float* rg, uint32_t width, uint32_t height, uint32_t rowPitchBytes);
@@ -103,6 +104,7 @@ namespace Dark
     private:
         bool createFromRaw(Renderer& renderer, const void* data, uint32_t width, uint32_t height, uint32_t rowPitchBytes, DXGI_FORMAT resourceFormat, DXGI_FORMAT srvFormat,
                            DXGI_FORMAT footprintFormat, uint32_t bytesPerPixel);
+        bool createUavTyped(ID3D12Device* device, uint32_t width, uint32_t height, DXGI_FORMAT format);
 
         ComPtr<ID3D12Resource>       m_resource;
         ComPtr<ID3D12DescriptorHeap> m_cpuSrvHeap; // FLAG_NONE — CopyDescriptors source (2 slots when TYPELESS color)

@@ -114,3 +114,28 @@ TEST(TerrainErosion, CreateUavR32Float_WithDevice)
     EXPECT_NE(desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, 0u);
     EXPECT_EQ(desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, 0u);
 }
+
+TEST(TerrainErosion, CreateUavRgba32Float_WithDevice)
+{
+    ComPtr<ID3D12Device> device = TryCreateDevice();
+    if (!device)
+        GTEST_SKIP() << "no D3D12 device (WARP or hardware)";
+
+    Texture2D tex;
+    ASSERT_TRUE(tex.createUavRgba32Float(device.Get(), 8, 8));
+    const D3D12_RESOURCE_DESC desc = tex.resource()->GetDesc();
+    EXPECT_EQ(desc.Format, DXGI_FORMAT_R32G32B32A32_FLOAT);
+    EXPECT_NE(desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, 0u);
+}
+
+TEST(TerrainErosion, Dispatch_NoCmd_False)
+{
+    TerrainErosionPipeline    pipe;
+    Dark::ErosionGpuConstants constants{};
+    constants.width  = 8;
+    constants.height = 8;
+    Texture2D a;
+    Texture2D b;
+    EXPECT_FALSE(pipe.dispatchThermal(nullptr, nullptr, a, b, constants, 0));
+    EXPECT_FALSE(pipe.dispatchPipe(nullptr, nullptr, a, b, a, b, constants, 0));
+}
