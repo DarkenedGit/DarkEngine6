@@ -264,6 +264,8 @@ bool EditorApp::rebuildEditorWater()
         return false;
     }
     bindTerrainHeightSrv();
+    if (!m_scene.waterPipeline().isValid())
+        DE_LOG_ERROR(LogCategory::Render, "Editor: WaterPipeline invalid — water will not draw");
     DE_LOG_INFO(LogCategory::Render, "Editor: water level {:.1f} m, {} wet chunks", m_terrainSeaLevel, m_water.wetChunkCount());
     return true;
 }
