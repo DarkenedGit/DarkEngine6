@@ -251,23 +251,34 @@ void SandboxApp::drawDevTools()
         ImGui::PopID();
     }
 
-    if (renderer().hasGBuffer() && ImGui::CollapsingHeader("SSR", ImGuiTreeNodeFlags_DefaultOpen))
+    if (ImGui::CollapsingHeader("SSR", renderer().hasGBuffer() ? ImGuiTreeNodeFlags_DefaultOpen : 0))
     {
         ImGui::PushID("SSR");
-        DebugRenderState& ssrDbg = renderer().debugState();
-        if (ImGui::Checkbox("Enabled", &ssrDbg.ssrEnabled))
+        if (!renderer().hasGBuffer())
         {
-            m_ssr.enabled = ssrDbg.ssrEnabled;
-            DE_LOG_INFO(LogCategory::Render, "Ssr: enabled={} debug={}", ssrDbg.ssrEnabled, ssrDbg.ssrDebug);
+            ImGui::TextDisabled("HybridDeferred only");
         }
-        const char* ssrDebugViews[] = { "Off", "Radiance", "Confidence" };
-        if (ImGui::Combo("Debug view", &ssrDbg.ssrDebug, ssrDebugViews, 3))
+        else
         {
-            if (ssrDbg.ssrDebug < 0)
-                ssrDbg.ssrDebug = 0;
-            if (ssrDbg.ssrDebug > 2)
-                ssrDbg.ssrDebug = 2;
-            DE_LOG_INFO(LogCategory::Render, "Ssr: enabled={} debug={}", ssrDbg.ssrEnabled, ssrDbg.ssrDebug);
+            DebugRenderState& ssrDbg = renderer().debugState();
+            if (ImGui::Checkbox("Enabled", &ssrDbg.ssrEnabled))
+            {
+                m_ssr.enabled = ssrDbg.ssrEnabled;
+                DE_LOG_INFO(LogCategory::Render, "Ssr: enabled={} debug={}", ssrDbg.ssrEnabled, ssrDbg.ssrDebug);
+            }
+            ImGui::SliderFloat("Max roughness", &m_ssr.maxRoughness, 0.05f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Thickness", &m_ssr.thickness, 0.02f, 2.0f, "%.2f m");
+            ImGui::SliderFloat("Stride", &m_ssr.stride, 1.0f, 8.0f, "%.1f px");
+            ImGui::SliderFloat("Edge fade", &m_ssr.edgeFade, 0.0f, 0.25f, "%.2f");
+            const char* ssrDebugViews[] = { "Off", "Radiance", "Confidence" };
+            if (ImGui::Combo("Debug view", &ssrDbg.ssrDebug, ssrDebugViews, 3))
+            {
+                if (ssrDbg.ssrDebug < 0)
+                    ssrDbg.ssrDebug = 0;
+                if (ssrDbg.ssrDebug > 2)
+                    ssrDbg.ssrDebug = 2;
+                DE_LOG_INFO(LogCategory::Render, "Ssr: enabled={} debug={}", ssrDbg.ssrEnabled, ssrDbg.ssrDebug);
+            }
         }
         ImGui::PopID();
     }
