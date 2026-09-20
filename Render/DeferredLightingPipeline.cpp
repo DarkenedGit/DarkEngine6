@@ -1,6 +1,7 @@
 #include "Render/DeferredLightingPipeline.h"
 #include "Render/DepthState.h"
 #include "Render/Renderer.h"
+#include "Render/SceneBuffers.h"
 #include "Render/ShadowSystem.h"
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
@@ -55,7 +56,13 @@ namespace Dark
         iblRange.BaseShaderRegister                = 6;
         iblRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-        D3D12_ROOT_PARAMETER params[6]{};
+        D3D12_DESCRIPTOR_RANGE ssrRange{};
+        ssrRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        ssrRange.NumDescriptors                    = 1;
+        ssrRange.BaseShaderRegister                = SceneBuffers::kLightingSsr;
+        ssrRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+        D3D12_ROOT_PARAMETER params[kRootSsrSrv + 1]{};
         params[kRootConstants].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
         params[kRootConstants].ShaderVisibility         = D3D12_SHADER_VISIBILITY_PIXEL;
         params[kRootConstants].Constants.ShaderRegister = 0;
@@ -85,6 +92,11 @@ namespace Dark
         params[kRootIblSrv].DescriptorTable.NumDescriptorRanges = 1;
         params[kRootIblSrv].DescriptorTable.pDescriptorRanges   = &iblRange;
 
+        params[kRootSsrSrv].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        params[kRootSsrSrv].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
+        params[kRootSsrSrv].DescriptorTable.NumDescriptorRanges = 1;
+        params[kRootSsrSrv].DescriptorTable.pDescriptorRanges   = &ssrRange;
+
         D3D12_STATIC_SAMPLER_DESC samps[3]{};
         samps[0].Filter           = D3D12_FILTER_MIN_MAG_MIP_POINT;
         samps[0].AddressU         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
@@ -113,7 +125,7 @@ namespace Dark
         samps[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
         D3D12_ROOT_SIGNATURE_DESC rsDesc{};
-        rsDesc.NumParameters     = 6;
+        rsDesc.NumParameters     = kRootSsrSrv + 1;
         rsDesc.pParameters       = params;
         rsDesc.NumStaticSamplers = 3;
         rsDesc.pStaticSamplers   = samps;
@@ -190,6 +202,7 @@ namespace Dark
         const D3D12_GPU_DESCRIPTOR_HANDLE ibl = renderer.iblTableGpu();
         if (ibl.ptr != 0)
             cmd->SetGraphicsRootDescriptorTable(kRootIblSrv, ibl);
+        cmd->SetGraphicsRootDescriptorTable(kRootSsrSrv, renderer.ssrTableGpu());
         cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         cmd->DrawInstanced(3, 1, 0, 0);
     }

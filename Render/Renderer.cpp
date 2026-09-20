@@ -4,6 +4,7 @@
 #include "Render/IblBake.h"
 #include "Render/SceneBuffers.h"
 #include "Render/Texture2D.h"
+#include "Assets/Image.h"
 #include "Core/ContentRoots.h"
 #include "Core/Window.h"
 #include "Core/Log.h"
@@ -236,13 +237,14 @@ namespace Dark
                 return false;
         }
 
-        // DSV heap + depth buffer
+        // DSV heap + depth buffer (slot 0 write, slot 1 READ_ONLY_DEPTH for depth-as-SRV)
         D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc{};
-        dsvHeapDesc.NumDescriptors = 1;
+        dsvHeapDesc.NumDescriptors = 2;
         dsvHeapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
         dsvHeapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
         if (!checkHr(m_device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_dsvHeap)), "CreateDescriptorHeap DSV"))
             return false;
+        m_dsvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
         if (!createDepthResources())
             return false;
 
@@ -345,11 +347,17 @@ namespace Dark
             return false;
         }
 
+        D3D12_CPU_DESCRIPTOR_HANDLE dsvWrite = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
+        D3D12_CPU_DESCRIPTOR_HANDLE dsvRead  = dsvWrite;
+        dsvRead.ptr += m_dsvDescriptorSize;
+
         D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
         dsvDesc.Format        = DXGI_FORMAT_D32_FLOAT;
         dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
         dsvDesc.Flags         = D3D12_DSV_FLAG_NONE;
-        m_device->CreateDepthStencilView(m_depthStencil.Get(), &dsvDesc, m_dsvHeap->GetCPUDescriptorHandleForHeapStart());
+        m_device->CreateDepthStencilView(m_depthStencil.Get(), &dsvDesc, dsvWrite);
+        dsvDesc.Flags = D3D12_DSV_FLAG_READ_ONLY_DEPTH;
+        m_device->CreateDepthStencilView(m_depthStencil.Get(), &dsvDesc, dsvRead);
 
         m_depthSrvHeap.Reset();
         D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc{};
@@ -421,6 +429,8 @@ namespace Dark
             m_sceneBuffers->setLightingAlbedoRaw(m_device.Get(), m_debugState.showAlbedoRaw);
             setHeightSrv(m_heightCpu.ptr != 0 ? m_heightCpu : (m_fogHeightDummy && m_fogHeightDummy->valid() ? m_fogHeightDummy->cpuHandle() : D3D12_CPU_DESCRIPTOR_HANDLE{}));
             applyIblSrvs();
+            ensureSsrDummyResources();
+            setLightingSsrSrv(ssrDummyCpu());
         }
 
         updateViewport();
@@ -722,6 +732,8 @@ namespace Dark
         }
         setHeightSrv(m_heightCpu.ptr != 0 ? m_heightCpu : (m_fogHeightDummy->valid() ? m_fogHeightDummy->cpuHandle() : D3D12_CPU_DESCRIPTOR_HANDLE{}));
         applyIblSrvs();
+        ensureSsrDummyResources();
+        setLightingSsrSrv(ssrDummyCpu());
         if (path == ScenePath::HybridDeferred)
             ensureIblBrdfLut();
         DE_LOG_INFO(LogCategory::Render, "enableSceneBuffers: path={} {}x{}", static_cast<unsigned>(path), m_width, m_height);
@@ -773,6 +785,11 @@ namespace Dark
         return (m_iblDummyLut && m_iblDummyLut->valid()) ? m_iblDummyLut->cpuHandle() : D3D12_CPU_DESCRIPTOR_HANDLE{};
     }
 
+    D3D12_CPU_DESCRIPTOR_HANDLE Renderer::ssrDummyCpu() const
+    {
+        return (m_ssrDummy && m_ssrDummy->valid()) ? m_ssrDummy->cpuHandle() : D3D12_CPU_DESCRIPTOR_HANDLE{};
+    }
+
     void Renderer::ensureIblDummyResources()
     {
         if (!m_iblDummyCube || m_iblDummyCubeCpu.ptr == 0)
@@ -800,6 +817,22 @@ namespace Dark
             m_sceneBuffers->setIblSrvs(m_device.Get(), iblDummyCubeCpu(), iblDummyCubeCpu(), iblDummyLutCpu());
     }
 
+    void Renderer::ensureSsrDummyResources()
+    {
+        if (!m_ssrDummy)
+            m_ssrDummy = std::make_unique<Texture2D>();
+        if (!m_ssrDummy->valid())
+        {
+            Image img;
+            const float black[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+            if (!img.createFromRgba32f(black, 1, 1, 16u))
+                return;
+            m_ssrDummy->createFromImage(*this, img, Color::TextureUsage::Ibl);
+            if (m_ssrDummy->valid() && m_ssrDummy->resource())
+                m_ssrDummy->resource()->SetName(L"DE.Ssr.Dummy");
+        }
+    }
+
     void Renderer::setIblSrvs(D3D12_CPU_DESCRIPTOR_HANDLE irradianceCpu, D3D12_CPU_DESCRIPTOR_HANDLE prefilterCpu, D3D12_CPU_DESCRIPTOR_HANDLE brdfLutCpu)
     {
         m_iblIrrCpu  = irradianceCpu;
@@ -823,6 +856,12 @@ namespace Dark
     {
         if (m_sceneBuffers)
             m_sceneBuffers->setLightingAoSrv(m_device.Get(), aoCpu);
+    }
+
+    void Renderer::setLightingSsrSrv(D3D12_CPU_DESCRIPTOR_HANDLE ssrCpu)
+    {
+        if (m_sceneBuffers)
+            m_sceneBuffers->setLightingSsrSrv(m_device.Get(), ssrCpu);
     }
 
     void Renderer::setLightingAlbedoRaw(bool raw)
@@ -903,6 +942,25 @@ namespace Dark
             }
 #endif
         }
+    }
+
+    void Renderer::bindHdrDepthRead()
+    {
+        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->valid())
+        {
+            DE_LOG_ERROR(LogCategory::Render, "bindHdrDepthRead: no SceneBuffers");
+            return;
+        }
+
+        m_sceneBuffers->transitionHdr(m_commandList.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+        transitionDepth(m_commandList.Get(), D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        m_commandList->RSSetViewports(1, &m_viewport);
+        m_commandList->RSSetScissorRects(1, &m_scissor);
+
+        const D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_sceneBuffers->hdrRtv();
+        D3D12_CPU_DESCRIPTOR_HANDLE       dsv = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
+        dsv.ptr += m_dsvDescriptorSize;
+        m_commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
     }
 
     void Renderer::bindPostHdr()
@@ -1050,6 +1108,13 @@ namespace Dark
         if (!m_sceneBuffers)
             return {};
         return m_sceneBuffers->iblTableGpu();
+    }
+
+    D3D12_GPU_DESCRIPTOR_HANDLE Renderer::ssrTableGpu() const
+    {
+        if (!m_sceneBuffers)
+            return {};
+        return m_sceneBuffers->ssrTableGpu();
     }
 
     ID3D12DescriptorHeap* Renderer::lightingHeap() const

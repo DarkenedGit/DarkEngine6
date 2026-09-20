@@ -30,7 +30,8 @@ namespace Dark
         static constexpr UINT kLightingIblIrradiance = 6;
         static constexpr UINT kLightingIblPrefilter  = 7;
         static constexpr UINT kLightingIblBrdfLut    = 8;
-        static constexpr UINT kLightingCount         = 9;
+        static constexpr UINT kLightingSsr           = 9;
+        static constexpr UINT kLightingCount         = 10;
 
         SceneBuffers() = default;
 
@@ -81,10 +82,12 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE attribSrvCpu() const { return m_attribSrvCpu; }
         D3D12_CPU_DESCRIPTOR_HANDLE aoSrvCpu() const { return m_aoSrvCpu; }
         D3D12_CPU_DESCRIPTOR_HANDLE lightingAoCpu() const { return m_lightingAoCpu; }
+        D3D12_CPU_DESCRIPTOR_HANDLE lightingSsrCpu() const { return m_lightingSsrCpu; }
         D3D12_GPU_DESCRIPTOR_HANDLE lightingTableGpu() const { return m_lightingGpu; }
         D3D12_GPU_DESCRIPTOR_HANDLE heightTableGpu() const { return m_heightGpu; }
         D3D12_GPU_DESCRIPTOR_HANDLE aoTableGpu() const { return m_aoGpu; }
         D3D12_GPU_DESCRIPTOR_HANDLE iblTableGpu() const { return m_iblGpu; }
+        D3D12_GPU_DESCRIPTOR_HANDLE ssrTableGpu() const { return m_ssrGpu; }
         ID3D12DescriptorHeap*       lightingHeap() const { return m_lightingHeap.Get(); }
         const float*                hdrClear() const { return m_hdrClear; }
         D3D12_RESOURCE_STATES       hdrState() const { return m_hdrState; }
@@ -105,6 +108,7 @@ namespace Dark
 
         void setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
         void setLightingAoSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE aoCpu);
+        void setLightingSsrSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE ssrCpu);
         void setHeightSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE heightCpu);
         void setIblSrvs(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE irradianceCpu, D3D12_CPU_DESCRIPTOR_HANDLE prefilterCpu,
                         D3D12_CPU_DESCRIPTOR_HANDLE brdfLutCpu);
@@ -151,8 +155,10 @@ namespace Dark
         D3D12_GPU_DESCRIPTOR_HANDLE  m_heightGpu{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_aoGpu{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_iblGpu{};
+        D3D12_GPU_DESCRIPTOR_HANDLE  m_ssrGpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_shadowCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_lightingAoCpu{};
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_lightingSsrCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_heightCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_iblIrrCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_iblPrefCpu{};

@@ -13,6 +13,9 @@
 #include "Shadow.hlsli"
 #define FOG_SAMPLE_CSM 1
 #include "Fog.hlsli"
+#include "SsrMarch.hlsli"
+
+#define kWaterRoughness 0.15f
 
 cbuffer FrameConstants : register(b0)
 {
@@ -59,10 +62,31 @@ cbuffer FrameConstants : register(b0)
     float    heightWorldSizeX;
     float    heightWorldSizeZ;
     float    _fogPad;
+    float4x4 invViewProj;
+    float4x4 viewProj;
+    float    nearZ;
+    float    ssrEnabled;
+    float    thickness;
+    float    stride;
+    float    edgeFade;
+    float    maxRoughness;
+    float    _ssrPad0;
+    float    _ssrPad1;
+    float3   sunDir;    float coverage;
+    float3   sunColor;  float turbidity;
+    float3   moonDir;   float rain;
+    float3   moonColor; float windSpeed;
+    float2   windDir;   float sunElevation; float exposure;
+    float    cloudTime; float3 _skyPad;
 };
+
+#include "SkyEval.hlsli"
 
 Texture2D    gHeightMap  : register(t1);
 SamplerState gHeightSamp : register(s0);
+Texture2D    gSsrColor   : register(t3);
+Texture2D    gDepth      : register(t4);
+SamplerState gSsrPoint   : register(s2);
 
 struct GpuLocalLight
 {
@@ -176,16 +200,27 @@ float4 PSMain(PSInput input) : SV_TARGET
     float ndotv = saturate(dot(n, v));
     float fres  = fresnelF0 + (1.0f - fresnelF0) * pow(1.0f - ndotv, 5.0f);
 
-    float3 r    = reflect(-v, n);
-    float3 sky  = SkyColor(r);
+    float3 r          = reflect(-v, n);
+    float3 reflection = SkyColor(r);
+    if (ssrEnabled >= 0.5f && dot(n, v) > 0.0f && kWaterRoughness <= maxRoughness)
+    {
+        reflection = EvaluateSky(r);
+        uint w;
+        uint hTex;
+        gDepth.GetDimensions(w, hTex);
+        SsrHit h = SsrMarch(worldPos, r, ndotv, kWaterRoughness, 0.0f, float2(w, hTex), gDepth, gSsrColor, gSsrPoint, viewProj, nearZ, thickness, stride,
+                            edgeFade, maxRoughness, kSsrWaterMaxSteps);
+        if (h.kind == SSR_HIT)
+            reflection = lerp(reflection, h.radiance, saturate(h.conf));
+    }
 
     float  ndotl = saturate(dot(n, l));
 
     float3 color = body * (0.18f + 0.55f * ndotl);
-    color = lerp(color, sky, fres);
+    color = lerp(color, reflection, fres);
     // Frozen 0.15 — do not derive from specPower (1 - 96/256 would dull the highlight).
     // metallic 0 => PbrEvaluate F0 = 0.04, matching fresnelF0.
-    color += PbrDirectional(n, v, 0.0.xxx, 0.15f, 0.0f, l, 0.85.xxx);
+    color += PbrDirectional(n, v, 0.0.xxx, kWaterRoughness, 0.0f, l, 0.85.xxx);
 
     if (lightCount > 0)
     {

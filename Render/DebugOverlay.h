@@ -92,7 +92,7 @@ namespace Dark
             LONG h,
             const DebugOverlayConstants& constants);
 
-        static constexpr UINT kDrawsPerFrame  = 8;
+        static constexpr UINT kDrawsPerFrame  = 12;
         static constexpr UINT kBufferedFrames = 2;
         static constexpr UINT kHeapSize       = kDrawsPerFrame * kBufferedFrames;
 

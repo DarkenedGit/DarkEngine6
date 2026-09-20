@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Render/SsrSettings.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <d3d12.h>
@@ -37,7 +39,7 @@ namespace Dark
         float heightWorldSizeX;
         float heightWorldSizeZ;
         float padFog;
-        float padPbr0;          // occupy register 11.z so float3 does not straddle
+        float ssrEnabled;       // register 11.z so float3 does not straddle
         float padPbr1;          // occupy register 11.w
         float pbrLightColor[3]; // π-scaled; PbrDirectional only. Starts at float 48 = register 12.xyz
         float iblIntensity;     // register 12.w
@@ -48,9 +50,10 @@ namespace Dark
     };
 
     static_assert(sizeof(LightingConstants) == 56 * sizeof(float), "lighting root constants");
+    static_assert(offsetof(LightingConstants, ssrEnabled) == 46 * sizeof(float), "ssrEnabled occupies register 11.z");
     static_assert(offsetof(LightingConstants, pbrLightColor) == 48 * sizeof(float), "float3 must start on a 16-byte boundary");
     static_assert(offsetof(LightingConstants, iblIntensity) == 51 * sizeof(float), "iblIntensity shares register 12.w");
-    static_assert(56 + 1 + 2 + 1 + 1 + 1 <= 64, "deferred lighting RS DWORD budget");
+    static_assert(56 + 1 + 2 + 1 + 1 + 1 + 1 <= 64, "deferred lighting RS DWORD budget");
 
     inline constexpr char kDefaultIblVirtualPath[] = "env/studio_gradient.hdr";
 
@@ -73,6 +76,11 @@ namespace Dark
         lc.iblDebug           = static_cast<float>(d);
     }
 
+    inline void fillSsrLightingConstants(LightingConstants& lc, const SsrSettings& settings, bool debugEnabled, bool pipelineValid)
+    {
+        lc.ssrEnabled = (settings.enabled && debugEnabled && pipelineValid) ? 1.0f : 0.0f;
+    }
+
     class DeferredLightingPipeline
     {
     public:
@@ -82,6 +90,7 @@ namespace Dark
         static constexpr UINT kRootHeightSrv = 3;
         static constexpr UINT kRootAoSrv     = 4;
         static constexpr UINT kRootIblSrv    = 5;
+        static constexpr UINT kRootSsrSrv    = 6;
 
         DeferredLightingPipeline() = default;
 

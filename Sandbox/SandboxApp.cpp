@@ -2902,6 +2902,7 @@ void SandboxApp::onRender()
         renderer().bindHdr(false);
         renderer().clearHdr();
         m_scene.applyGtao(cmd, renderer(), m_viewCamera, prevViewProj, m_ssao);
+        m_scene.applySsr(cmd, renderer(), m_viewCamera, prevViewProj, m_ssr, &m_env);
         LightingConstants lc{};
         copyMatrix(lc.invViewProj, viewProj.Inverse());
         lc.cameraPos[0]     = camPos.x;
@@ -2928,6 +2929,7 @@ void SandboxApp::onRender()
         fillFogHeightMap(fog, &m_terrain.heightMap());
         applyFogToLighting(lc, fog);
         fillIblLightingConstants(lc, m_ibl, renderer().debugState().iblEnabled, renderer().debugState().iblDebug, iblGpuReady(renderer().gpuResources(), m_iblImageId));
+        fillSsrLightingConstants(lc, m_ssr, renderer().debugState().ssrEnabled, m_scene.ssr().isValid() && renderer().hasGBuffer());
         m_lighting.draw(cmd, renderer(), m_shadows, lc);
         m_localLightVolumes.draw(cmd, renderer(), world(), m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_viewCamera, viewProj, lc);
 
@@ -3057,6 +3059,17 @@ void SandboxApp::onRender()
         heightHeap = renderer().lightingHeap();
         heightGpu  = renderer().heightTableGpu();
     }
+    if (renderer().hasSceneBuffers())
+        m_scene.captureSsrSceneColor(cmd, renderer());
+    D3D12_CPU_DESCRIPTOR_HANDLE waterSceneColor{};
+    D3D12_CPU_DESCRIPTOR_HANDLE waterDepth{};
+    const SsrSettings*          waterSsr = nullptr;
+    if (m_scene.ssr().hasSceneColor())
+    {
+        waterSceneColor = m_scene.ssr().sceneColorSrvCpu();
+        waterDepth      = renderer().depthSrvCpu();
+        waterSsr        = &m_ssr;
+    }
     m_water.draw(
         cmd,
         m_waterPipeline,
@@ -3070,7 +3083,10 @@ void SandboxApp::onRender()
         renderer().frameIndex(),
         heightHeap,
         heightGpu,
-        &m_shadows);
+        &m_shadows,
+        waterSceneColor,
+        waterDepth,
+        waterSsr);
 
     {
         MeshFrameConstants lit{};
@@ -3163,7 +3179,8 @@ void SandboxApp::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
     if (!cmd || !m_debugOverlay.isValid())
         return;
     const bool ssaoTile = renderer().hasGBuffer() && renderer().debugState().ssaoDebug == 1;
-    if (!m_showShadowMaps && !m_showDepth && !m_showGBuffer && !m_showVelocity && !ssaoTile)
+    const bool ssrTile  = renderer().hasGBuffer() && renderer().debugState().ssrDebug != 0;
+    if (!m_showShadowMaps && !m_showDepth && !m_showGBuffer && !m_showVelocity && !ssaoTile && !ssrTile)
         return;
 
     // Unbind the DSV so we can sample the scene depth. Do not rebind it afterwards
@@ -3216,6 +3233,30 @@ void SandboxApp::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
             if (m_showGBuffer || m_showVelocity)
                 x += tile + 8;
             m_debugOverlay.draw2D(cmd, renderer().device(), aoFull, x, pad, tile, tile, 1.0f, false);
+        }
+    }
+    if (ssrTile)
+    {
+        LONG x = pad;
+        if (m_showGBuffer)
+            x += 2 * (tile + 8);
+        if (m_showGBuffer || m_showVelocity)
+            x += tile + 8;
+        if (ssaoTile)
+            x += tile + 8;
+        if (renderer().debugState().ssrDebug == 1)
+        {
+            m_scene.ssr().transitionFull(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            const D3D12_CPU_DESCRIPTOR_HANDLE full = m_scene.ssr().fullSrvCpu();
+            if (full.ptr != 0)
+                m_debugOverlay.drawColor(cmd, renderer().device(), full, x, pad, tile, tile);
+        }
+        else
+        {
+            m_scene.ssr().transitionDebug(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            const D3D12_CPU_DESCRIPTOR_HANDLE conf = m_scene.ssr().debugConfSrvCpu();
+            if (conf.ptr != 0)
+                m_debugOverlay.draw2D(cmd, renderer().device(), conf, x, pad, tile, tile, 1.0f, false);
         }
     }
 

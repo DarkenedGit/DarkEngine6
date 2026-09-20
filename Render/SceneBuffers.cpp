@@ -90,8 +90,10 @@ namespace Dark
         m_heightGpu      = {};
         m_aoGpu          = {};
         m_iblGpu         = {};
+        m_ssrGpu         = {};
         m_shadowCpu      = {};
         m_lightingAoCpu  = {};
+        m_lightingSsrCpu = {};
         m_heightCpu      = {};
         m_iblIrrCpu      = {};
         m_iblPrefCpu     = {};
@@ -311,6 +313,8 @@ namespace Dark
             m_aoGpu.ptr += static_cast<SIZE_T>(kLightingAo) * m_srvIncr;
             m_iblGpu = m_lightingGpu;
             m_iblGpu.ptr += static_cast<SIZE_T>(kLightingIblIrradiance) * m_srvIncr;
+            m_ssrGpu = m_lightingGpu;
+            m_ssrGpu.ptr += static_cast<SIZE_T>(kLightingSsr) * m_srvIncr;
             packLightingHeap(device, depthSrvCpu);
         }
 
@@ -381,6 +385,8 @@ namespace Dark
             device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingIblPrefilter, m_srvIncr), m_iblPrefCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         if (m_iblLutCpu.ptr != 0)
             device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingIblBrdfLut, m_srvIncr), m_iblLutCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        if (m_lightingSsrCpu.ptr != 0)
+            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingSsr, m_srvIncr), m_lightingSsrCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     }
 
     void SceneBuffers::setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu)
@@ -399,6 +405,15 @@ namespace Dark
             return;
         D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_lightingHeap->GetCPUDescriptorHandleForHeapStart();
         device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingAo, m_srvIncr), aoCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    }
+
+    void SceneBuffers::setLightingSsrSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE ssrCpu)
+    {
+        m_lightingSsrCpu = ssrCpu;
+        if (!device || !m_lightingHeap || ssrCpu.ptr == 0)
+            return;
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_lightingHeap->GetCPUDescriptorHandleForHeapStart();
+        device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingSsr, m_srvIncr), ssrCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     }
 
     void SceneBuffers::applyLightingAlbedoView(ID3D12Device* device)

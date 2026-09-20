@@ -126,6 +126,7 @@ private:
     Dark::Sky::Environment  m_env;
     Dark::IblSettings       m_ibl;
     Dark::GtaoSettings      m_ssao;
+    Dark::SsrSettings       m_ssr;
     Dark::AssetID           m_iblImageId = Dark::NULL_ASSET;
 
     Dark::PathChase                m_chase;
