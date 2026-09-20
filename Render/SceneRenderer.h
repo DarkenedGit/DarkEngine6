@@ -5,6 +5,7 @@
 #include "Render/DebugOverlay.h"
 #include "Render/DeferredLightingPipeline.h"
 #include "Render/GtaoPipeline.h"
+#include "Render/SsrPipeline.h"
 #include "Render/LocalLightGpuList.h"
 #include "Render/LocalLightVolumePipeline.h"
 #include "Render/Mesh.h"
@@ -64,6 +65,10 @@ public:
     void applyGtao(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj,
                    const GtaoSettings& settings);
 
+    // After applyGtao, before lighting.draw. Skip binds dummy slot 9 and restores bindHdr(false).
+    void applySsr(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj, const SsrSettings& settings);
+    void captureSsrSceneColor(ID3D12GraphicsCommandList* cmd, Renderer& renderer);
+
     void drawDeferredLighting(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const LightingConstants& lc) const;
     void drawLocalLights(
         ID3D12GraphicsCommandList* cmd,
@@ -88,6 +93,7 @@ public:
     Mesh&                     spotVolumeMesh() { return m_spotVolumeMesh; }
     BloomPipeline&            bloom() { return m_bloom; }
     GtaoPipeline&             gtao() { return m_gtao; }
+    SsrPipeline&              ssr() { return m_ssr; }
     MotionBlurPipeline&       motionBlur() { return m_motionBlur; }
     TaaPipeline&              taa() { return m_taa; }
     ShadowSystem&             shadows() { return m_shadows; }
@@ -111,6 +117,7 @@ public:
     const Mesh&                     spotVolumeMesh() const { return m_spotVolumeMesh; }
     const BloomPipeline&            bloom() const { return m_bloom; }
     const GtaoPipeline&             gtao() const { return m_gtao; }
+    const SsrPipeline&              ssr() const { return m_ssr; }
     const MotionBlurPipeline&       motionBlur() const { return m_motionBlur; }
     const TaaPipeline&              taa() const { return m_taa; }
     const ShadowSystem&             shadows() const { return m_shadows; }
@@ -131,6 +138,7 @@ private:
     bool createTerrainPipelineOnly(Renderer& renderer, const char* tag);
     bool createWorldEnvPipelines(Renderer& renderer, const char* tag);
     void ensureGtaoSize(Renderer& renderer, ID3D12GraphicsCommandList* cmd = nullptr);
+    void ensureSsrSize(Renderer& renderer, ID3D12GraphicsCommandList* cmd = nullptr);
 
     MeshPipeline             m_meshPipeline;
     MeshPipeline             m_meshTransparentPipeline;
@@ -146,6 +154,7 @@ private:
     Mesh                     m_spotVolumeMesh;
     BloomPipeline            m_bloom;
     GtaoPipeline             m_gtao;
+    SsrPipeline              m_ssr;
     MotionBlurPipeline       m_motionBlur;
     TaaPipeline              m_taa;
     ShadowSystem             m_shadows;
@@ -167,6 +176,10 @@ private:
     uint32_t       m_gtaoH            = 0;
     bool           m_gtaoWasEnabled   = false;
     bool           m_gtaoNeedReset    = true;
+    uint32_t       m_ssrW             = 0;
+    uint32_t       m_ssrH             = 0;
+    bool           m_ssrWasEnabled    = false;
+    bool           m_ssrNeedReset     = true;
     bool           m_initialized      = false;
 };
 

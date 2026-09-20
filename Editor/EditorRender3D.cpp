@@ -399,6 +399,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         renderer().bindHdr(false);
         renderer().clearHdr();
         m_scene.applyGtao(cmd, renderer(), m_camera, prevViewProj, m_ssao);
+        m_scene.applySsr(cmd, renderer(), m_camera, prevViewProj, m_ssr);
         LightingConstants lc{};
         copyMatrix(lc.invViewProj, viewProj.Inverse());
         const Vector3f cam = m_camera.GetPosition();
@@ -424,6 +425,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         m_lighting.draw(cmd, renderer(), m_shadows, lc);
         m_localLightVolumes.draw(cmd, renderer(), world(), m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_camera, viewProj, lc);
         renderer().bindHdr(true);
+        m_scene.captureSsrSceneColor(cmd, renderer());
         drawGrid();
         drawLightGizmos();
     }
@@ -490,7 +492,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     if (renderer().hasSceneBuffers())
     {
         const bool ssaoTile = renderer().debugState().ssaoDebug == 1;
-        if ((m_showGBuffer || m_showVelocity || ssaoTile) && m_debugOverlay.isValid() && renderer().hasGBuffer())
+        const bool ssrTile  = renderer().debugState().ssrDebug != 0;
+        if ((m_showGBuffer || m_showVelocity || ssaoTile || ssrTile) && m_debugOverlay.isValid() && renderer().hasGBuffer())
         {
             // Unbind DSV / HDR so we can sample G-buffer. Overlay copies from FLAG_NONE CPU SRVs.
             renderer().bindColorTargetOnly();
@@ -529,6 +532,30 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                     if (m_showGBuffer || m_showVelocity)
                         x += tile + 8;
                     m_debugOverlay.draw2D(cmd, renderer().device(), aoFull, x, pad, tile, tile, 1.0f, false);
+                }
+            }
+            if (ssrTile)
+            {
+                LONG x = pad;
+                if (m_showGBuffer)
+                    x += 2 * (tile + 8);
+                if (m_showGBuffer || m_showVelocity)
+                    x += tile + 8;
+                if (ssaoTile)
+                    x += tile + 8;
+                if (renderer().debugState().ssrDebug == 1)
+                {
+                    m_scene.ssr().transitionFull(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                    const D3D12_CPU_DESCRIPTOR_HANDLE full = m_scene.ssr().fullSrvCpu();
+                    if (full.ptr != 0)
+                        m_debugOverlay.drawColor(cmd, renderer().device(), full, x, pad, tile, tile);
+                }
+                else
+                {
+                    m_scene.ssr().transitionDebug(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                    const D3D12_CPU_DESCRIPTOR_HANDLE conf = m_scene.ssr().debugConfSrvCpu();
+                    if (conf.ptr != 0)
+                        m_debugOverlay.draw2D(cmd, renderer().device(), conf, x, pad, tile, tile, 1.0f, false);
                 }
             }
             cmd->RSSetViewports(1, &renderer().viewport());

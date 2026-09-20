@@ -237,13 +237,14 @@ namespace Dark
                 return false;
         }
 
-        // DSV heap + depth buffer
+        // DSV heap + depth buffer (slot 0 write, slot 1 READ_ONLY_DEPTH for depth-as-SRV)
         D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc{};
-        dsvHeapDesc.NumDescriptors = 1;
+        dsvHeapDesc.NumDescriptors = 2;
         dsvHeapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
         dsvHeapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
         if (!checkHr(m_device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_dsvHeap)), "CreateDescriptorHeap DSV"))
             return false;
+        m_dsvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
         if (!createDepthResources())
             return false;
 
@@ -346,11 +347,17 @@ namespace Dark
             return false;
         }
 
+        D3D12_CPU_DESCRIPTOR_HANDLE dsvWrite = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
+        D3D12_CPU_DESCRIPTOR_HANDLE dsvRead  = dsvWrite;
+        dsvRead.ptr += m_dsvDescriptorSize;
+
         D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
         dsvDesc.Format        = DXGI_FORMAT_D32_FLOAT;
         dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
         dsvDesc.Flags         = D3D12_DSV_FLAG_NONE;
-        m_device->CreateDepthStencilView(m_depthStencil.Get(), &dsvDesc, m_dsvHeap->GetCPUDescriptorHandleForHeapStart());
+        m_device->CreateDepthStencilView(m_depthStencil.Get(), &dsvDesc, dsvWrite);
+        dsvDesc.Flags = D3D12_DSV_FLAG_READ_ONLY_DEPTH;
+        m_device->CreateDepthStencilView(m_depthStencil.Get(), &dsvDesc, dsvRead);
 
         m_depthSrvHeap.Reset();
         D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc{};
@@ -935,6 +942,25 @@ namespace Dark
             }
 #endif
         }
+    }
+
+    void Renderer::bindHdrDepthRead()
+    {
+        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->valid())
+        {
+            DE_LOG_ERROR(LogCategory::Render, "bindHdrDepthRead: no SceneBuffers");
+            return;
+        }
+
+        m_sceneBuffers->transitionHdr(m_commandList.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+        transitionDepth(m_commandList.Get(), D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        m_commandList->RSSetViewports(1, &m_viewport);
+        m_commandList->RSSetScissorRects(1, &m_scissor);
+
+        const D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_sceneBuffers->hdrRtv();
+        D3D12_CPU_DESCRIPTOR_HANDLE       dsv = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
+        dsv.ptr += m_dsvDescriptorSize;
+        m_commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
     }
 
     void Renderer::bindPostHdr()

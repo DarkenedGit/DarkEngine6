@@ -170,6 +170,24 @@ TEST(ShaderCompile, Gtao)
     EXPECT_TRUE(compileShaderFromFile(hlsl, "PSCompose", "ps_5_0", psComp));
 }
 
+TEST(ShaderCompile, Ssr)
+{
+    const std::filesystem::path hlsl = Dark::resolveContentPath("shaders/Ssr.hlsl");
+    if (hlsl.empty())
+        GTEST_SKIP() << "shaders/Ssr.hlsl not on content roots";
+
+    ComPtr<ID3DBlob> vs;
+    ComPtr<ID3DBlob> psTrace;
+    ComPtr<ID3DBlob> psUp;
+    ComPtr<ID3DBlob> psDown;
+    ComPtr<ID3DBlob> psDebug;
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "VSMain", "vs_5_0", vs));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSTrace", "ps_5_0", psTrace));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSUpsampleTemporal", "ps_5_0", psUp));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSDownsample", "ps_5_0", psDown));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSDebugConf", "ps_5_0", psDebug));
+}
+
 TEST(ShaderCompile, ReverseZSceneShaders)
 {
     const char* cases[][3] = {

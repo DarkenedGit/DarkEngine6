@@ -79,6 +79,13 @@ bool SceneRenderer::createPostPipelines(Renderer& renderer, const char* tag)
         DE_LOG_FATAL("{}: TonemapPipeline create failed", tag);
         return false;
     }
+    if (!m_ssr.create(renderer.device(), renderer.width(), renderer.height()))
+        DE_LOG_WARN(LogCategory::Render, "{}: SsrPipeline create failed — SSR disabled", tag);
+    else
+    {
+        m_ssrW = renderer.width();
+        m_ssrH = renderer.height();
+    }
     if (renderer.scenePath() != ScenePath::HybridDeferred)
         return true;
 
@@ -186,6 +193,7 @@ void SceneRenderer::shutdown()
     m_spotVolumeMesh           = Mesh{};
     m_bloom                    = BloomPipeline{};
     m_gtao                     = GtaoPipeline{};
+    m_ssr                      = SsrPipeline{};
     m_motionBlur               = MotionBlurPipeline{};
     m_taa                      = TaaPipeline{};
     m_shadows                  = ShadowSystem{};
@@ -205,6 +213,10 @@ void SceneRenderer::shutdown()
     m_gtaoH                    = 0;
     m_gtaoWasEnabled           = false;
     m_gtaoNeedReset            = true;
+    m_ssrW                     = 0;
+    m_ssrH                     = 0;
+    m_ssrWasEnabled            = false;
+    m_ssrNeedReset             = true;
     m_initialized              = false;
 }
 
@@ -231,9 +243,27 @@ void SceneRenderer::ensureGtaoSize(Renderer& renderer, ID3D12GraphicsCommandList
         m_gtao.clearAoFullIdentity(cmd);
 }
 
+void SceneRenderer::ensureSsrSize(Renderer& renderer, ID3D12GraphicsCommandList* cmd)
+{
+    (void)cmd;
+    if (!renderer.hasSceneBuffers())
+        return;
+    const uint32_t w = renderer.width();
+    const uint32_t h = renderer.height();
+    if (w == m_ssrW && h == m_ssrH)
+        return;
+    renderer.waitForGpu();
+    if (!m_ssr.resize(renderer.device(), w, h))
+        DE_LOG_WARN(LogCategory::Render, "SceneRenderer: SsrPipeline resize failed — SSR disabled");
+    m_ssrW          = w;
+    m_ssrH          = h;
+    m_ssrNeedReset  = true;
+}
+
 Math::Matrix4f SceneRenderer::beginCameraFrame(Camera3D& camera, Renderer& renderer)
 {
     ensureGtaoSize(renderer);
+    ensureSsrSize(renderer);
     camera.ClearSubpixelJitter();
     if (wantsTaa(renderer))
     {
@@ -287,6 +317,45 @@ void SceneRenderer::applyGtao(ID3D12GraphicsCommandList* cmd, Renderer& renderer
     }
     renderer.setLightingAoSrv(compose);
     renderer.bindHdr(false);
+}
+
+void SceneRenderer::applySsr(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj,
+                             const SsrSettings& settings)
+{
+    ensureSsrSize(renderer, cmd);
+
+    SsrSettings drawSettings = settings;
+    drawSettings.enabled     = settings.enabled && renderer.debugState().ssrEnabled;
+
+    const bool skip = !cmd || renderer.scenePath() != ScenePath::HybridDeferred || !renderer.hasGBuffer() || !drawSettings.enabled || !m_ssr.isValid()
+        || renderer.device() == nullptr || renderer.depthSrvCpu().ptr == 0 || renderer.attribSrvCpu().ptr == 0 || renderer.velocitySrvCpu().ptr == 0;
+    if (skip)
+    {
+        renderer.setLightingSsrSrv(renderer.ssrDummyCpu());
+        m_ssrWasEnabled = false;
+        if (cmd)
+            renderer.bindHdr(false);
+        return;
+    }
+
+    const bool resetHistory = !m_ssrWasEnabled || m_ssrNeedReset || !m_havePrevViewProj || (wantsTaa(renderer) && !m_taaHistoryValid);
+    m_ssrWasEnabled         = true;
+    m_ssrNeedReset          = false;
+
+    cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
+    m_ssr.draw(cmd, renderer, camera, prevViewProj, drawSettings, resetHistory);
+
+    const D3D12_CPU_DESCRIPTOR_HANDLE full = m_ssr.fullSrvCpu();
+    renderer.setLightingSsrSrv(full.ptr != 0 ? full : renderer.ssrDummyCpu());
+    renderer.bindHdr(false);
+}
+
+void SceneRenderer::captureSsrSceneColor(ID3D12GraphicsCommandList* cmd, Renderer& renderer)
+{
+    ensureSsrSize(renderer, cmd);
+    if (!cmd || !m_ssr.isValid() || !renderer.hasSceneBuffers())
+        return;
+    m_ssr.captureSceneColor(cmd, renderer);
 }
 
 void SceneRenderer::drawDeferredLighting(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const LightingConstants& lc) const

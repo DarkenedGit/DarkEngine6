@@ -211,6 +211,7 @@ private:
     SceneMode m_sceneMode = SceneMode::Scene3D;
     IblSettings  m_ibl;
     GtaoSettings m_ssao;
+    SsrSettings  m_ssr;
     AssetID      m_iblImageId = NULL_ASSET;
 
     SpritePipeline     m_spritePipe;

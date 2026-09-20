@@ -120,6 +120,7 @@ namespace Dark
 
         void bindGBuffer();
         void bindHdr(bool bindDepth);
+        void bindHdrDepthRead();
         void bindPostHdr();
         void bindHdrColorTarget();
         void bindTaaTarget();
@@ -191,6 +192,7 @@ namespace Dark
 
         UINT     m_frameIndex        = 0;
         UINT     m_rtvDescriptorSize = 0;
+        UINT     m_dsvDescriptorSize = 0;
         UINT     m_swapChainFlags    = 0;
         uint32_t m_width             = 0;
         uint32_t m_height            = 0;
