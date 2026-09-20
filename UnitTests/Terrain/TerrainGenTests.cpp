@@ -92,7 +92,18 @@ TEST(TerrainGen, World_HeightScale_IsNotBakedIntoSamples)
                 mx = h;
         }
     }
-    EXPECT_LE(mx, 2.0f);
+    EXPECT_LE(mx, 1.01f);
+    float mnRaw = mx;
+    for (int z = 0; z < static_cast<int>(hm.height()); ++z)
+    {
+        for (int x = 0; x < static_cast<int>(hm.width()); ++x)
+        {
+            const float h = hm.height(x, z);
+            if (h < mnRaw)
+                mnRaw = h;
+        }
+    }
+    EXPECT_LT(mnRaw, 0.2f);
     const float y = hm.heightAtWorld(hm.origin().x, hm.origin().z);
     EXPECT_LT(y, 200.0f);
     float yMin = 1.0e9f;

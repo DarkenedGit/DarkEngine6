@@ -163,7 +163,7 @@ namespace Dark::Terrain
             n     = n * 0.35f + ridge * 0.65f;
             nx    = nx * 0.35f - (ridge > 0.0f ? rdx : -rdx) * 0.65f;
             nz    = nz * 0.35f - (ridge > 0.0f ? rdz : -rdz) * 0.65f;
-            n     = Clamp(n * 0.5f + 0.5f, 0.0f, 1.0f);
+            n     = Clamp(n, 0.0f, 1.0f);
 
             float dirX = nz * slopeK;
             float dirZ = -nx * slopeK;
@@ -211,12 +211,13 @@ namespace Dark::Terrain
             }
         }
 
-        void NormalizeRaw01(float* samples, size_t count)
+        void FitRawToSeaAndPeak(float* samples, size_t count, float sea)
         {
             if (count == 0)
                 return;
-            float mn = samples[0];
-            float mx = samples[0];
+            uint32_t bins[256]{};
+            float    mn = samples[0];
+            float    mx = samples[0];
             for (size_t i = 1; i < count; ++i)
             {
                 if (samples[i] < mn)
@@ -226,10 +227,64 @@ namespace Dark::Terrain
             }
             const float span = mx - mn;
             if (span < 1.0e-5f)
+            {
+                for (size_t i = 0; i < count; ++i)
+                    samples[i] = sea;
                 return;
-            const float inv = 1.0f / span;
+            }
+            const float invSpan = 1.0f / span;
             for (size_t i = 0; i < count; ++i)
-                samples[i] = (samples[i] - mn) * inv;
+            {
+                int b = static_cast<int>((samples[i] - mn) * invSpan * 255.0f);
+                if (b < 0)
+                    b = 0;
+                if (b > 255)
+                    b = 255;
+                bins[b]++;
+            }
+            const uint32_t loNeed = static_cast<uint32_t>(static_cast<float>(count) * 0.12f);
+            const uint32_t hiNeed = static_cast<uint32_t>(static_cast<float>(count) * 0.98f);
+            uint32_t       acc    = 0;
+            int            loBin  = 0;
+            int            hiBin  = 255;
+            for (int b = 0; b < 256; ++b)
+            {
+                acc += bins[b];
+                if (acc >= loNeed)
+                {
+                    loBin = b;
+                    break;
+                }
+            }
+            acc = 0;
+            for (int b = 0; b < 256; ++b)
+            {
+                acc += bins[b];
+                if (acc >= hiNeed)
+                {
+                    hiBin = b;
+                    break;
+                }
+            }
+            if (hiBin <= loBin)
+                hiBin = loBin + 1;
+            const float lo   = mn + span * (static_cast<float>(loBin) / 255.0f);
+            const float hi   = mn + span * (static_cast<float>(hiBin) / 255.0f);
+            const float fit  = hi - lo;
+            const float land = 1.0f - sea;
+            if (fit < 1.0e-5f)
+            {
+                for (size_t i = 0; i < count; ++i)
+                    samples[i] = sea;
+                return;
+            }
+            const float invFit = 1.0f / fit;
+            for (size_t i = 0; i < count; ++i)
+            {
+                float t = (samples[i] - lo) * invFit;
+                t       = Clamp(t, 0.0f, 1.0f);
+                samples[i] = sea + t * land;
+            }
         }
 
         float SampleBilinear(const float* s, int w, int h, float fx, float fz)
@@ -784,8 +839,7 @@ namespace Dark::Terrain
         (void)gpu;
         // Samples stay raw 0-1; HeightMap::worldY multiplies by heightScale.
         const size_t n = static_cast<size_t>(w) * h;
-        NormalizeRaw01(working.mutableSamples(), n);
-        FlattenSea(working.mutableSamples(), n, desc.erosion.seaLevelRaw);
+        FitRawToSeaAndPeak(working.mutableSamples(), n, Clamp(desc.erosion.seaLevelRaw, 0.0f, 0.9f));
 
         if (!Report(progress, user, 0.7f, "gullies"))
             return false;
@@ -857,8 +911,7 @@ namespace Dark::Terrain
         FillErodedRect(tile.mutableSamples(), tw, th, ex0, ez0, w, h, desc);
         (void)gpuOk;
         const size_t tn = static_cast<size_t>(tw) * static_cast<size_t>(th);
-        NormalizeRaw01(tile.mutableSamples(), tn);
-        FlattenSea(tile.mutableSamples(), tn, desc.erosion.seaLevelRaw);
+        FitRawToSeaAndPeak(tile.mutableSamples(), tn, Clamp(desc.erosion.seaLevelRaw, 0.0f, 0.9f));
 
         float*       dst = map.mutableSamples();
         const float* src = tile.samples();
