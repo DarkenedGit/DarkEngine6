@@ -23,7 +23,7 @@ namespace Dark
 
     namespace Terrain
     {
-        class TerrainWorld;
+        class TerrainGrid;
     }
 
     class AiSystem
@@ -46,7 +46,7 @@ namespace Dark
         Entity spawnHunter(World& world, AssetPinTable& pins, AssetManager& assets, const TransformComponent& xf);
         bool   attachHunter(World& world, Entity e, AssetPinTable& pins, AssetManager& assets);
 
-        void tickHunters(World& world, Terrain::TerrainWorld& terrain, bool playerInWater, float dt, Entity player, const Math::AABox3f* cubes = nullptr, int cubeCount = 0);
+        void tickHunters(World& world, Terrain::TerrainGrid& terrain, bool playerInWater, float dt, Entity player, const Math::AABox3f* cubes = nullptr, int cubeCount = 0);
 
         Entity jumpAttackToken() const { return m_jumpAttackToken; }
         void   setJumpAttackHits(void (*fn)(void* user, const Combat::DamageEvent* events, int count), void* user);
@@ -73,15 +73,15 @@ namespace Dark
         bool bind(World& world, Entity e, View& v);
         void collectHunters(World& world);
         void tickHealthAndRespawn(World& world, float dt);
-        void integrateHitReaction(View& v, float dt, Terrain::TerrainWorld& terrain);
-        void follow(View& v, float dt, Terrain::TerrainWorld& terrain, float speed);
+        void integrateHitReaction(View& v, float dt, Terrain::TerrainGrid& terrain);
+        void follow(View& v, float dt, Terrain::TerrainGrid& terrain, float speed);
         void repath(World& world, View& v, float destX, float destZ);
         bool pickWanderDest(View& v);
         bool pickFleeDest(View& v, const Math::Vector3f& playerPos);
         bool hunterSeesPoint(const View& v, const Math::Vector3f& worldPos) const;
         void beginAssist(View& v, const Math::Vector3f& helpPos);
         void beginFlee(World& world, View& v);
-        void seekToward(View& v, float dt, Terrain::TerrainWorld& terrain, float speed, float destX, float destZ);
+        void seekToward(View& v, float dt, Terrain::TerrainGrid& terrain, float speed, float destX, float destZ);
         void cancelJumpAndToken(World& world, Entity e, bool forceIdle);
         void collectJumpTargets(World& world);
         void resolveJumpHits(World& world, const Combat::DamageEvent* events, int count);

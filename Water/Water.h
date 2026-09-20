@@ -37,6 +37,9 @@ namespace Dark
     class HeightMap;
     }
 
+    // Coarse 1025 HF (1024 cells): chunkCells=16 is 64x64 CPU slots. Streamed tiles use 64.
+    constexpr int kWaterChunkCellsCoarse = 64;
+
     struct WaterDesc
     {
         float waterLevel = 0.0f;

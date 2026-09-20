@@ -49,14 +49,24 @@ float ValueNoise(float x, float z, uint32_t seed)
 
 bool HeightMap::create(uint32_t width, uint32_t height, float cellSize, float heightScale)
 {
+    return createWithMax(width, height, cellSize, heightScale, kMaxHeightMapSize);
+}
+
+bool HeightMap::createWorking(uint32_t width, uint32_t height, float cellSize, float heightScale)
+{
+    return createWithMax(width, height, cellSize, heightScale, kMaxWorkingHeightMapSize);
+}
+
+bool HeightMap::createWithMax(uint32_t width, uint32_t height, float cellSize, float heightScale, uint32_t maxSize)
+{
     if (width < 2 || height < 2)
     {
         DE_LOG_ERROR("HeightMap: size must be at least 2x2");
         return false;
     }
-    if (width > kMaxHeightMapSize || height > kMaxHeightMapSize)
+    if (width > maxSize || height > maxSize)
     {
-        DE_LOG_ERROR("HeightMap: {}x{} exceeds 1025", width, height);
+        DE_LOG_ERROR("HeightMap: {}x{} exceeds {}", width, height, maxSize);
         return false;
     }
     if (cellSize <= 0.0f)
@@ -199,6 +209,12 @@ void HeightMap::setHeight(int x, int z, float height)
     z = clampZ(z);
     m_samples[static_cast<size_t>(z) * m_width + static_cast<size_t>(x)] = height;
     markAccelDirty();
+}
+
+float* HeightMap::mutableSamples()
+{
+    markAccelDirty();
+    return m_samples.data();
 }
 
 void HeightMap::addDisk(float worldX, float worldZ, float radiusM, float deltaRaw)

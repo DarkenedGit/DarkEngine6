@@ -10,6 +10,7 @@ namespace Dark::AI
 {
     struct WalkabilityDesc
     {
+        // v1: always-resident coarse HF (<= kMaxHeightMapSize). One bake cell per HF cell; not a 4097 working map.
         const Terrain::HeightMap* heightMap   = nullptr;
         float                     waterLevel  = -1.0e9f;
         float                     maxSlopeDeg = 45.0f;

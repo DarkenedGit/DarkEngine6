@@ -83,6 +83,11 @@ namespace Dark
         void applySurface(TerrainFrameConstants& constants) const;
         void applySurface(TerrainGBufferConstants& constants, float worldSizeX, float worldSizeZ) const;
 
+        // Layers 0–11 + dummy splat from this template. Slot 13 is empty (copyShadow).
+        bool fillPackedCpuHandles(D3D12_CPU_DESCRIPTOR_HANDLE out[kSrvCount]) const;
+        // Pack a resident-tile 14-slot table from this template, then copySplat into slot 12.
+        bool packTileHeap(ID3D12Device* device, PackedSrvHeap& out, D3D12_CPU_DESCRIPTOR_HANDLE splatCpu) const;
+
         // Albedo slots 0,3,6,9 from cpuHandleRaw vs cpuHandle. Data maps stay UNORM.
         // Stores the flag; packSrvHeap re-applies it after a rebuild (like GpuMaterial pack).
         void setLayerSamplingRaw(ID3D12Device* device, bool raw);
@@ -110,6 +115,7 @@ namespace Dark
         Terrain::TerrainLayerDesc      m_layers[Terrain::kMaxTerrainLayers];
         Terrain::TerrainMaterialParams m_params;
         PackedSrvHeap                  m_heap;
+        D3D12_CPU_DESCRIPTOR_HANDLE    m_packedSrc[kSrvCount]{};
         GpuResourceCache*              m_cache = nullptr;
         bool                           m_layerSamplingRaw = false;
     };

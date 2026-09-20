@@ -60,4 +60,20 @@ namespace Dark
         device->CopyDescriptorsSimple(1, dst, shadowCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     }
 
+    void copySplat(ID3D12Device* device, PackedSrvHeap& heap, D3D12_CPU_DESCRIPTOR_HANDLE splatCpu)
+    {
+        heap.splatCpu = splatCpu;
+        if (!device || !heap.heap || splatCpu.ptr == 0)
+            return;
+        if (heap.splatSlot >= heap.srvCount)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "PackedSrvHeap: splatSlot {} >= srvCount {}", heap.splatSlot, heap.srvCount);
+            return;
+        }
+        const UINT incr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        D3D12_CPU_DESCRIPTOR_HANDLE dst = heap.heap->GetCPUDescriptorHandleForHeapStart();
+        dst.ptr += static_cast<SIZE_T>(heap.splatSlot) * incr;
+        device->CopyDescriptorsSimple(1, dst, splatCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    }
+
 } // namespace Dark

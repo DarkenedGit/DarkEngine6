@@ -57,9 +57,9 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     gatherEditorLighting(lightDir, sunColor, ambientColor);
     const float ambientScale = (ambientColor.x + ambientColor.y + ambientColor.z) * (1.0f / 3.0f);
     const bool drawTerrain = m_haveTerrain && m_terrainMaterial.isValid() && m_scene.terrainPipeline().isValid();
-    AABox3f sceneBounds(Vector3f(-22.0f, -2.0f, -22.0f), Vector3f(22.0f, 16.0f, 22.0f));
-    if (drawTerrain)
-        sceneBounds.ExpandToInclude(m_terrain.bounds());
+    AABox3f sceneBounds = drawTerrain
+        ? m_terrain.shadowBounds(m_camera)
+        : AABox3f(Vector3f(-22.0f, -2.0f, -22.0f), Vector3f(22.0f, 16.0f, 22.0f));
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent&) {
         if (const auto* xf = world().get<TransformComponent>(e))
             sceneBounds.ExpandToInclude(xf->position);

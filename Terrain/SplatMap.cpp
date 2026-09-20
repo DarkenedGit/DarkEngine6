@@ -23,14 +23,24 @@ namespace Dark::Terrain
 
     bool SplatMap::create(uint32_t width, uint32_t height)
     {
+        return createWithMax(width, height, kMaxSplatMapSize);
+    }
+
+    bool SplatMap::createWorking(uint32_t width, uint32_t height)
+    {
+        return createWithMax(width, height, kMaxWorkingSplatMapSize);
+    }
+
+    bool SplatMap::createWithMax(uint32_t width, uint32_t height, uint32_t maxSize)
+    {
         if (width == 0 || height == 0)
         {
             DE_LOG_ERROR("SplatMap: size must be > 0");
             return false;
         }
-        if (width > kMaxSplatMapSize || height > kMaxSplatMapSize)
+        if (width > maxSize || height > maxSize)
         {
-            DE_LOG_ERROR("SplatMap: {}x{} exceeds 1025", width, height);
+            DE_LOG_ERROR("SplatMap: {}x{} exceeds {}", width, height, maxSize);
             return false;
         }
         m_width  = width;
@@ -59,7 +69,7 @@ namespace Dark::Terrain
             DE_LOG_ERROR("SplatMap::generateFromHeight: invalid height map");
             return false;
         }
-        if (!create(heightMap.width(), heightMap.height()))
+        if (!createWorking(heightMap.width(), heightMap.height()))
             return false;
 
         float minH = heightMap.height(0, 0);

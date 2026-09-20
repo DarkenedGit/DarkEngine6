@@ -453,3 +453,49 @@ TEST(TerrainWorld, NeighborSeamsWelded)
     EXPECT_TRUE(seamOk(0, 0, 1, 0, 1, 3)); // east-west
     EXPECT_TRUE(seamOk(0, 0, 0, 1, 0, 2)); // north-south
 }
+
+TEST(TerrainLod, UnloadedNeighborIsOob)
+{
+    int lods[3] = { 0, -1, 4 };
+    restrictNeighborLods(lods, 3, 1);
+    EXPECT_EQ(lods[0], 0);
+    EXPECT_EQ(lods[1], -1);
+    EXPECT_EQ(lods[2], 4); // hole is OOB — not pulled toward lod 0
+
+    const EdgeMask west = neighborCoarserMask(lods, 3, 1, 0, 0);
+    const EdgeMask east = neighborCoarserMask(lods, 3, 1, 2, 0);
+    EXPECT_FALSE(west.east());
+    EXPECT_FALSE(east.west());
+    EXPECT_EQ(west.bits, 0u);
+    EXPECT_EQ(east.bits, 0u);
+}
+
+TEST(TerrainWorld, ApplyExternalLods)
+{
+    TerrainDesc desc;
+    desc.chunkCells = 8;
+    ASSERT_TRUE(desc.heightMap.createFbm(17, 17, 7u, 4, 3.0f, 1.0f, 2.0f, 0.5f, 2.0f, 8.0f));
+
+    TerrainWorld world;
+    ASSERT_TRUE(world.create(std::move(desc)));
+    world.setUploadHeightTexture(false);
+    EXPECT_FALSE(world.uploadsHeightTexture());
+
+    int      lods[4]  = { 0, 1, 1, 2 };
+    EdgeMask edges[4] = {};
+    edges[0]          = EdgeMask::fromBits(2u); // east coarser
+    world.applyExternalLods(lods, edges);
+
+    EXPECT_EQ(world.chunk(0, 0)->lod, 0);
+    EXPECT_EQ(world.chunk(1, 0)->lod, 1);
+    EXPECT_EQ(world.chunk(0, 1)->lod, 1);
+    EXPECT_EQ(world.chunk(1, 1)->lod, 2);
+    EXPECT_TRUE(world.chunk(0, 0)->edges.east());
+    EXPECT_FALSE(world.chunk(1, 0)->edges.west());
+
+    world.rebuildDirtyCpuMeshes();
+    EXPECT_FALSE(world.chunk(0, 0)->cpu.indices.empty());
+    EXPECT_EQ(world.chunk(0, 0)->lod, 0);
+    EXPECT_EQ(world.chunk(1, 1)->lod, 2);
+    EXPECT_FALSE(world.heightTexture().valid());
+}

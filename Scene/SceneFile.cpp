@@ -2,6 +2,7 @@
 #include "Core/ContentRoots.h"
 #include "Core/Log.h"
 #include "Math/MathDefines.h"
+#include "Terrain/TerrainTileFile.h"
 
 #include "third_party/nlohmann/json.hpp"
 
@@ -131,8 +132,31 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             t["heightBlendK"]   = scene.terrain.heightBlendK;
             t["heightBlendT"]   = scene.terrain.heightBlendT;
             t["triplanarSlope"] = scene.terrain.triplanarSlope;
-            t["heightFile"]     = scene.terrain.heightFile;
-            t["splatFile"]      = scene.terrain.splatFile;
+            const uint64_t tileCount = scene.terrain.hasGrid
+                ? static_cast<uint64_t>(scene.terrain.grid.tilesX) * scene.terrain.grid.tilesZ
+                : 0ull;
+            // Working 4097 sidecars exceed the 32 MB DEHF cap; tiles>1 store coarse + per-tile files only.
+            if (!scene.terrain.hasGrid || tileCount <= 1ull)
+            {
+                t["heightFile"] = scene.terrain.heightFile;
+                t["splatFile"]  = scene.terrain.splatFile;
+            }
+            if (scene.terrain.hasGrid)
+            {
+                json g;
+                g["tilesX"]       = scene.terrain.grid.tilesX;
+                g["tilesZ"]       = scene.terrain.grid.tilesZ;
+                g["tileCells"]    = scene.terrain.grid.tileCells;
+                g["cellSize"]     = scene.terrain.grid.cellSize;
+                g["origin"]       = vec3ToJson(scene.terrain.grid.origin);
+                g["heightScale"]  = scene.terrain.grid.heightScale;
+                g["seed"]         = scene.terrain.grid.seed;
+                g["coarseFile"]   = scene.terrain.grid.coarseFile;
+                g["tileDir"]      = scene.terrain.grid.tileDir;
+                g["seaLevel"]     = scene.terrain.grid.seaLevel;
+                g["residentRing"] = scene.terrain.grid.residentRing;
+                t["grid"]         = std::move(g);
+            }
             json layers = json::array();
             const int n = scene.terrain.layerCount > 0 ? scene.terrain.layerCount : 4;
             const int count = n > 4 ? 4 : n;
@@ -302,6 +326,33 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                 desc.triplanarSlope = t.value("triplanarSlope", 0.45f);
                 desc.heightFile     = t.value("heightFile", std::string());
                 desc.splatFile      = t.value("splatFile", std::string());
+                if (t.contains("grid") && t["grid"].is_object())
+                {
+                    const json& g = t["grid"];
+                    TerrainGridSceneDesc grid{};
+                    grid.tilesX       = g.value("tilesX", 4u);
+                    grid.tilesZ       = g.value("tilesZ", 4u);
+                    grid.tileCells    = g.value("tileCells", 512u);
+                    grid.cellSize     = g.value("cellSize", 1.0f);
+                    grid.heightScale  = g.value("heightScale", 80.0f);
+                    grid.seed         = g.value("seed", 1337u);
+                    grid.coarseFile   = g.value("coarseFile", std::string());
+                    grid.tileDir      = g.value("tileDir", std::string());
+                    grid.seaLevel     = g.value("seaLevel", 0.0f);
+                    grid.residentRing = g.value("residentRing", 5);
+                    if (g.contains("origin"))
+                        readVec3(g["origin"], grid.origin, nullptr, "terrain.grid.origin");
+                    if (grid.tilesX < 1u || grid.tilesX > Terrain::kMaxWorldTiles
+                        || grid.tilesZ < 1u || grid.tilesZ > Terrain::kMaxWorldTiles)
+                    {
+                        DE_LOG_ERROR("SceneFile: terrain.grid tiles {}x{} not in [1, {}]", grid.tilesX, grid.tilesZ, Terrain::kMaxWorldTiles);
+                    }
+                    else
+                    {
+                        desc.hasGrid = true;
+                        desc.grid    = std::move(grid);
+                    }
+                }
                 if (t.contains("layers") && t["layers"].is_array())
                 {
                     const json& layers = t["layers"];

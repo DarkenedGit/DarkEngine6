@@ -49,6 +49,11 @@ EditorApp::EditorApp(const AppConfig& cfg)
 {
 }
 
+EditorApp::~EditorApp()
+{
+    cancelGenerateWorld();
+}
+
 float EditorApp::snap(float v, float grid)
 {
     if (grid <= 0.0f)

@@ -154,6 +154,54 @@ TEST(WaterWorld, WeldedLodSharesEdgeXZ)
     }
 }
 
+TEST(WaterWorld, Coarse1025_UsesChunkCells64)
+{
+    HeightMap coarse;
+    ASSERT_TRUE(coarse.create(kMaxHeightMapSize, kMaxHeightMapSize, 2.0f, 1.0f));
+    coarse.setOrigin(Vector3f{ -1024.0f, 0.0f, -1024.0f });
+    coarse.setHeight(1024, 1024, 40.0f);
+
+    WaterDesc desc;
+    desc.chunkCells = 16;
+    desc.waterLevel = 1.0f;
+    desc.params     = defaultWaterParams(1.0f);
+    for (int i = 0; i < kWaterWaveCount; ++i)
+        desc.params.waves[i].amplitude = 0.0f;
+
+    WaterWorld water;
+    ASSERT_TRUE(water.create(coarse, desc));
+    EXPECT_EQ(water.chunkCells(), kWaterChunkCellsCoarse);
+    EXPECT_EQ(water.chunksX(), 16);
+    EXPECT_EQ(water.chunksZ(), 16);
+    EXPECT_EQ(water.wetChunkCount(), 16 * 16);
+
+    float y = 0.0f;
+    EXPECT_TRUE(water.tryHeightAtWorld(0.0f, 0.0f, y));
+    EXPECT_NEAR(y, 1.0f, 1.0e-4f);
+
+    WaterDesc explicit64 = desc;
+    explicit64.chunkCells = kWaterChunkCellsCoarse;
+    WaterWorld water64;
+    ASSERT_TRUE(water64.create(coarse, explicit64));
+    EXPECT_EQ(water64.chunkCells(), kWaterChunkCellsCoarse);
+    EXPECT_EQ(water64.chunksX(), 16);
+}
+
+TEST(WaterWorld, SmallMapKeepsRequestedChunkCells)
+{
+    HeightMap hm;
+    ASSERT_TRUE(hm.create(129, 129, 2.0f, 1.0f));
+
+    WaterDesc desc;
+    desc.chunkCells = 16;
+    desc.waterLevel = 1.0f;
+    WaterWorld water;
+    ASSERT_TRUE(water.create(hm, desc));
+    EXPECT_EQ(water.chunkCells(), 16);
+    EXPECT_EQ(water.chunksX(), 8);
+    EXPECT_EQ(water.chunksZ(), 8);
+}
+
 TEST(WaterWorld, HeightQueryOnlyInValleys)
 {
     HeightMap hm;

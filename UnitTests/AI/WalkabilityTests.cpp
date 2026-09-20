@@ -86,6 +86,30 @@ TEST(Walkability, CubeInflateBlocksCells)
     EXPECT_FALSE(w.walkable(cx, cz));
 }
 
+TEST(Walkability, Coarse1025_Bakes)
+{
+    HeightMap coarse;
+    ASSERT_TRUE(coarse.create(kMaxHeightMapSize, kMaxHeightMapSize, 2.0f, 1.0f));
+    coarse.setOrigin(Vector3f{ -1024.0f, 0.0f, -1024.0f });
+    coarse.setHeight(512, 512, 20.0f);
+    coarse.setHeight(513, 512, 20.0f);
+    coarse.setHeight(512, 513, 20.0f);
+    coarse.setHeight(513, 513, 20.0f);
+
+    Walkability w;
+    WalkabilityDesc d;
+    d.heightMap  = &coarse;
+    d.waterLevel = 5.0f;
+    ASSERT_TRUE(w.bake(d));
+    EXPECT_EQ(w.cellsX(), 1024);
+    EXPECT_EQ(w.cellsZ(), 1024);
+    EXPECT_FLOAT_EQ(w.cellSize(), 2.0f);
+    EXPECT_FALSE(w.walkable(0, 0));
+    EXPECT_TRUE(w.walkable(512, 512));
+    EXPECT_TRUE(w.walkableWorld(1.0f, 1.0f));
+    EXPECT_TRUE(w.destWet(-1023.0f, -1023.0f));
+}
+
 TEST(Walkability, SteepRampUnwalkable)
 {
     HeightMap hm;

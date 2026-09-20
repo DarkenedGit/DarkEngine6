@@ -74,6 +74,16 @@ namespace Dark
             device->CreateShaderResourceView(resource, &srvDesc, dest);
         }
 
+        void CreateTexUav(ID3D12Device* device, ID3D12Resource* resource, DXGI_FORMAT format, D3D12_CPU_DESCRIPTOR_HANDLE dest)
+        {
+            D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc{};
+            uavDesc.Format               = format;
+            uavDesc.ViewDimension        = D3D12_UAV_DIMENSION_TEXTURE2D;
+            uavDesc.Texture2D.MipSlice   = 0;
+            uavDesc.Texture2D.PlaneSlice = 0;
+            device->CreateUnorderedAccessView(resource, nullptr, &uavDesc, dest);
+        }
+
     } // namespace
 
     bool resolveTextureFormats(Color::ColorSpace space, ImageFormat imgFmt, DXGI_FORMAT& resourceFmt, DXGI_FORMAT& srvFmt, DXGI_FORMAT& footprintFmt)
@@ -165,10 +175,10 @@ namespace Dark
 
         if (image.format() == ImageFormat::RGBA32F)
         {
-            const uint32_t w        = image.width();
-            const uint32_t h        = image.height();
-            const uint32_t srcPitch = image.rowPitchBytes();
-            const uint32_t dstPitch = w * 8u;
+            const uint32_t        w        = image.width();
+            const uint32_t        h        = image.height();
+            const uint32_t        srcPitch = image.rowPitchBytes();
+            const uint32_t        dstPitch = w * 8u;
             std::vector<uint16_t> half(static_cast<size_t>(w) * static_cast<size_t>(h) * 4u);
             for (uint32_t y = 0; y < h; ++y)
             {
@@ -249,6 +259,95 @@ namespace Dark
         return createFromRaw(renderer, samples, width, height, rowPitchBytes, resourceFmt, srvFmt, footprintFmt, static_cast<uint32_t>(sizeof(float)));
     }
 
+    bool Texture2D::createUavR32Float(ID3D12Device* device, uint32_t width, uint32_t height)
+    {
+        return createUavTyped(device, width, height, DXGI_FORMAT_R32_FLOAT);
+    }
+
+    bool Texture2D::createUavRgba32Float(ID3D12Device* device, uint32_t width, uint32_t height)
+    {
+        return createUavTyped(device, width, height, DXGI_FORMAT_R32G32B32A32_FLOAT);
+    }
+
+    bool Texture2D::createUavTyped(ID3D12Device* device, uint32_t width, uint32_t height, DXGI_FORMAT format)
+    {
+        m_resource.Reset();
+        m_cpuSrvHeap.Reset();
+        m_srvHeap.Reset();
+        m_cpuHandle     = {};
+        m_cpuHandleRaw  = {};
+        m_cpuHandleSrgb = {};
+        m_cpuHandleUav  = {};
+        m_gpuHandle     = {};
+        m_width         = 0;
+        m_height        = 0;
+
+        if (!device)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Texture2D::createUavTyped: null device");
+            return false;
+        }
+        if (width == 0 || height == 0)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Texture2D::createUavTyped: invalid size {}x{}", width, height);
+            return false;
+        }
+
+        D3D12_RESOURCE_DESC texDesc{};
+        texDesc.Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        texDesc.Width            = width;
+        texDesc.Height           = height;
+        texDesc.DepthOrArraySize = 1;
+        texDesc.MipLevels        = 1;
+        texDesc.Format           = format;
+        texDesc.SampleDesc       = { 1, 0 };
+        texDesc.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        texDesc.Flags            = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+        D3D12_HEAP_PROPERTIES defaultHeap{};
+        defaultHeap.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+        if (FailedHr(device->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &texDesc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&m_resource)),
+                     "CreateCommittedResource UAV bake"))
+            return false;
+
+        // Slot 0 SRV, slot 1 UAV — FLAG_NONE so CopyDescriptors into the bake heap is legal.
+        D3D12_DESCRIPTOR_HEAP_DESC cpuHeapDesc{};
+        cpuHeapDesc.NumDescriptors = 2;
+        cpuHeapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        cpuHeapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+        if (FailedHr(device->CreateDescriptorHeap(&cpuHeapDesc, IID_PPV_ARGS(&m_cpuSrvHeap)), "CreateDescriptorHeap UAV bake CPU"))
+        {
+            m_resource.Reset();
+            return false;
+        }
+
+        D3D12_DESCRIPTOR_HEAP_DESC gpuHeapDesc = cpuHeapDesc;
+        gpuHeapDesc.NumDescriptors             = 1;
+        gpuHeapDesc.Flags                      = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        if (FailedHr(device->CreateDescriptorHeap(&gpuHeapDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap UAV bake GPU SRV"))
+        {
+            m_cpuSrvHeap.Reset();
+            m_resource.Reset();
+            return false;
+        }
+
+        const UINT incr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        m_cpuHandleRaw  = m_cpuSrvHeap->GetCPUDescriptorHandleForHeapStart();
+        m_cpuHandle     = m_cpuHandleRaw;
+        m_cpuHandleUav  = m_cpuHandleRaw;
+        m_cpuHandleUav.ptr += incr;
+        m_gpuHandle = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
+
+        CreateTexSrv(device, m_resource.Get(), format, m_cpuHandle);
+        CreateTexUav(device, m_resource.Get(), format, m_cpuHandleUav);
+        CreateTexSrv(device, m_resource.Get(), format, m_srvHeap->GetCPUDescriptorHandleForHeapStart());
+
+        m_width  = width;
+        m_height = height;
+        return true;
+    }
+
     bool Texture2D::createFromRgFloat(Renderer& renderer, const float* rg, uint32_t width, uint32_t height, uint32_t rowPitchBytes)
     {
         if (!rg || width == 0 || height == 0 || rowPitchBytes < width * 8u)
@@ -306,6 +405,7 @@ namespace Dark
         m_cpuHandle     = {};
         m_cpuHandleRaw  = {};
         m_cpuHandleSrgb = {};
+        m_cpuHandleUav  = {};
         m_gpuHandle     = {};
         m_width         = width;
         m_height        = height;
@@ -417,7 +517,7 @@ namespace Dark
 
         // Staging heap is CPU-readable (legal CopyDescriptors source). Shader-visible heaps
         // are CPU write-only — CreateSRV into them is fine, copying FROM them is not (#654).
-        const bool typelessColor           = IsTypeless(resourceFormat);
+        const bool                 typelessColor = IsTypeless(resourceFormat);
         D3D12_DESCRIPTOR_HEAP_DESC cpuHeapDesc{};
         cpuHeapDesc.NumDescriptors = typelessColor ? 2u : 1u;
         cpuHeapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;

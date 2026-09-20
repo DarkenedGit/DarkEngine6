@@ -92,6 +92,29 @@ TEST(SplatMap, Create_RejectsOversize)
     EXPECT_EQ(splat.width(), kMaxSplatMapSize);
 }
 
+TEST(SplatMap, CreateWorking_Accepts4097)
+{
+    SplatMap splat;
+    ASSERT_TRUE(splat.createWorking(kMaxWorkingSplatMapSize, 2));
+    EXPECT_TRUE(splat.valid());
+    EXPECT_EQ(splat.width(), 4097u);
+    EXPECT_EQ(splat.height(), 2u);
+    splat.setTexel(4096, 0, 8, 16, 24, 32);
+    uint8_t c[4]{};
+    splat.getTexel(4096, 0, c);
+    EXPECT_EQ(c[0], 8);
+    EXPECT_EQ(c[3], 32);
+
+    SplatMap over;
+    EXPECT_FALSE(over.createWorking(4098, 2));
+    EXPECT_FALSE(over.valid());
+    EXPECT_EQ(over.width(), 0u);
+
+    SplatMap runtime;
+    EXPECT_FALSE(runtime.create(kMaxWorkingSplatMapSize, 2));
+    EXPECT_FALSE(runtime.valid());
+}
+
 TEST(SplatMap, Paint_Renormalize)
 {
     SplatMap splat;

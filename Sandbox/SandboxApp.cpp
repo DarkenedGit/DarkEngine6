@@ -57,7 +57,10 @@
 #include "Weapons/HittableComponent.h"
 #include "Animation/SkeletonDebug.h"
 #include "Render/LinePipeline.h"
+#include "Scene/SceneFile.h"
 #include "Terrain/SplatMap.h"
+#include "Terrain/TerrainGrid.h"
+#include "Terrain/TerrainTileFile.h"
 #include "Water/WaterWaves.h"
 
 #include <cmath>
@@ -1084,7 +1087,7 @@ void SandboxApp::updatePossessed(float dt)
 
     struct HeightCtx
     {
-        Terrain::TerrainWorld* terrain;
+        Terrain::TerrainGrid* terrain;
     };
     HeightCtx ctx{ &m_terrain };
     PlayerGroundQuery ground{};
@@ -1405,7 +1408,7 @@ void SandboxApp::onWeaponHit(const WeaponHit& hit)
         hp = world().get<HealthComponent>(victim);
         if (wasAlive && hp && !hp->health.alive())
         {
-            m_bloodSplats.spawn(hit.point.x, hit.point.z, m_terrain.heightMap());
+            m_bloodSplats.spawn(hit.point.x, hit.point.z, m_terrain.coarse());
             m_chase.ai().onHunterKilled(world(), victim);
         }
         return;
@@ -1636,7 +1639,7 @@ void SandboxApp::resolveJumpAttackAndFx(const Combat::DamageEvent* events, int c
         spawnHunterBlood(events[i].hitPoint);
         if (killed)
         {
-            m_bloodSplats.spawn(events[i].hitPoint.x, events[i].hitPoint.z, m_terrain.heightMap());
+            m_bloodSplats.spawn(events[i].hitPoint.x, events[i].hitPoint.z, m_terrain.coarse());
             m_chase.ai().onHunterKilled(world(), snaps[i].e);
         }
     }
@@ -2330,25 +2333,28 @@ void SandboxApp::onNetPeer(const NetPeerInfo& info, NetPeerEvent event, void* us
 
 void SandboxApp::syncTerrainLod()
 {
-    m_terrain.updateLod(m_viewCamera.GetPosition());
-    const bool terrainDirty = m_terrain.needsRebuild();
-    const bool waterDirty   = m_water.needsRebuild();
-    if (!terrainDirty && !waterDirty)
-        return;
+    if (const Entity body = possessedBody(); body.valid())
+    {
+        if (const TransformComponent* xf = world().get<TransformComponent>(body))
+            m_terrain.pinWorldXZ(xf->position.x, xf->position.z, 3);
+    }
+    else
+        m_terrain.clearPin();
 
+    m_terrain.updateStreaming(m_viewCamera.GetPosition(), &renderer(), &m_terrainMaterial);
+    if (m_terrain.heightTexture().valid())
+    {
+        renderer().setHeightSrv(m_terrain.heightTexture().cpuHandle());
+        m_waterPipeline.setHeightSrv(renderer().device(), m_terrain.heightTexture().cpuHandle());
+    }
+
+    const bool waterDirty = m_water.needsRebuild();
+    if (!waterDirty)
+        return;
     renderer().waitForGpu();
-    if (terrainDirty)
-    {
-        m_terrain.rebuildDirtyCpuMeshes();
-        if (!m_terrain.uploadDirty(renderer()))
-            DE_LOG_ERROR("SandboxApp: terrain upload failed");
-    }
-    if (waterDirty)
-    {
-        m_water.rebuildDirtyCpuMeshes();
-        if (!m_water.uploadDirty(renderer()))
-            DE_LOG_ERROR("SandboxApp: water upload failed");
-    }
+    m_water.rebuildDirtyCpuMeshes();
+    if (!m_water.uploadDirty(renderer()))
+        DE_LOG_ERROR("SandboxApp: water upload failed");
 }
 
 void SandboxApp::onInit()
@@ -2442,48 +2448,101 @@ void SandboxApp::onInit()
         DE_LOG_INFO(LogCategory::Render, "SandboxApp: IBL off — using ambient");
 
     {
-        Terrain::TerrainDesc terrainDesc;
-        terrainDesc.chunkCells       = 16;
-        terrainDesc.lodDistanceCount = 5;
-        terrainDesc.lodDistances[0]  = 40.0f;
-        terrainDesc.lodDistances[1]  = 80.0f;
-        terrainDesc.lodDistances[2]  = 160.0f;
-        terrainDesc.lodDistances[3]  = 320.0f;
-        terrainDesc.lodDistances[4]  = 640.0f;
+        auto sidecar = [](const std::filesystem::path& scenePath, const std::string& file) {
+            if (file.empty())
+                return std::filesystem::path{};
+            const std::filesystem::path p(file);
+            if (p.is_absolute())
+                return p;
+            const std::filesystem::path parent = scenePath.has_parent_path() ? scenePath.parent_path() : std::filesystem::path{};
+            return parent / p;
+        };
 
-        HeightMap base;
-        HeightMap detail;
-        if (!base.createFbm(129, 129, 1337u, 6, 3.5f, 1.0f, 2.1f, 0.48f, 2.0f, 22.0f)
-            || !detail.createFbm(129, 129, 9001u, 3, 18.0f, 0.12f, 2.0f, 0.5f, 2.0f, 22.0f)
-            || !base.addLayer(detail, 1.0f))
+        bool loadedScene = false;
+        Terrain::SplatMap matSplat;
         {
-            DE_LOG_FATAL("SandboxApp: height map create failed");
-            requestQuit();
-            return;
+            SceneFileData data{};
+            std::string   err;
+            const std::filesystem::path scenePath = defaultScenePath("level.json");
+            if (loadSceneFromJson(scenePath, data, &err) && data.hasTerrain && data.mode != SceneMode::Scene2D)
+            {
+                if (data.terrain.hasGrid)
+                {
+                    TerrainGridDesc gridDesc{};
+                    gridDesc.tilesX       = data.terrain.grid.tilesX;
+                    gridDesc.tilesZ       = data.terrain.grid.tilesZ;
+                    gridDesc.tileCells    = data.terrain.grid.tileCells;
+                    gridDesc.chunkCells   = data.terrain.chunkCells > 0 ? data.terrain.chunkCells : 64;
+                    gridDesc.cellSize     = data.terrain.grid.cellSize;
+                    gridDesc.heightScale  = data.terrain.grid.heightScale;
+                    gridDesc.origin       = data.terrain.grid.origin;
+                    gridDesc.coarseFile   = sidecar(scenePath, data.terrain.grid.coarseFile);
+                    gridDesc.tileDir      = sidecar(scenePath, data.terrain.grid.tileDir);
+                    gridDesc.residentRing = data.terrain.grid.residentRing;
+                    if (m_terrain.create(gridDesc))
+                    {
+                        loadedScene        = true;
+                        m_haveTerrainSea   = true;
+                        m_terrainSeaLevel  = data.terrain.grid.seaLevel;
+                        DE_LOG_INFO(LogCategory::Render, "SandboxApp: streaming scene terrain {}x{} tiles", gridDesc.tilesX, gridDesc.tilesZ);
+                    }
+                    else
+                        DE_LOG_ERROR(LogCategory::Render, "SandboxApp: scene terrain.grid failed — FBM fallback");
+                }
+                else if (!data.terrain.heightFile.empty())
+                {
+                    HeightMap height;
+                    if (height.loadBinary(sidecar(scenePath, data.terrain.heightFile))
+                        && m_terrain.createFromHeightMap(std::move(height), data.terrain.chunkCells > 0 ? data.terrain.chunkCells : 16))
+                    {
+                        loadedScene = true;
+                        DE_LOG_INFO(LogCategory::Render, "SandboxApp: loaded legacy heightFile as 1-tile Grid");
+                    }
+                }
+            }
         }
-        const float extent = 128.0f * 2.0f;
-        base.setOrigin(Vector3f{ -0.5f * extent, 0.0f, -0.5f * extent });
-        terrainDesc.heightMap = std::move(base);
 
-        Terrain::SplatMap splat;
-        if (!splat.generateFromHeight(terrainDesc.heightMap))
+        if (!loadedScene)
         {
-            DE_LOG_FATAL("SandboxApp: splat generate failed");
+            HeightMap base;
+            HeightMap detail;
+            if (!base.createFbm(129, 129, 1337u, 6, 3.5f, 1.0f, 2.1f, 0.48f, 2.0f, 22.0f)
+                || !detail.createFbm(129, 129, 9001u, 3, 18.0f, 0.12f, 2.0f, 0.5f, 2.0f, 22.0f)
+                || !base.addLayer(detail, 1.0f))
+            {
+                DE_LOG_FATAL("SandboxApp: height map create failed");
+                requestQuit();
+                return;
+            }
+            const float extent = 128.0f * 2.0f;
+            base.setOrigin(Vector3f{ -0.5f * extent, 0.0f, -0.5f * extent });
+            if (!matSplat.generateFromHeight(base))
+            {
+                DE_LOG_FATAL("SandboxApp: splat generate failed");
+                requestQuit();
+                return;
+            }
+            if (!m_terrain.createFromHeightMap(std::move(base), 16))
+            {
+                DE_LOG_FATAL("SandboxApp: terrain create failed");
+                requestQuit();
+                return;
+            }
+            m_terrain.setWorkingSplat(SplatMap(matSplat));
+        }
+
+        if (!matSplat.valid() && !matSplat.create(2, 2))
+        {
+            DE_LOG_FATAL("SandboxApp: dummy splat failed");
             requestQuit();
             return;
         }
-        if (!m_terrain.create(std::move(terrainDesc)))
-        {
-            DE_LOG_FATAL("SandboxApp: terrain create failed");
-            requestQuit();
-            return;
-        }
-        if (tryCreateTerrainFromContent(renderer(), assets(), splat, m_terrainMaterial))
+        if (tryCreateTerrainFromContent(renderer(), assets(), matSplat, m_terrainMaterial))
             DE_LOG_INFO(LogCategory::Render, "Terrain: using content layer set");
         else
         {
             DE_LOG_INFO(LogCategory::Render, "Terrain: checkers fallback");
-            if (!m_terrainMaterial.createDefault(renderer(), splat))
+            if (!m_terrainMaterial.createDefault(renderer(), matSplat))
             {
                 DE_LOG_FATAL("SandboxApp: terrain material create failed");
                 requestQuit();
@@ -2493,10 +2552,10 @@ void SandboxApp::onInit()
         m_terrainMaterial.setLayerSamplingRaw(renderer().device(), renderer().debugState().legacyUnormAlbedo);
         if (!pumpBootFrame())
             return;
-        m_terrain.updateLod(Vector3f{ 0.0f, 50.0f, -80.0f });
-        if (!m_terrain.createGpu(renderer()))
+        m_terrain.updateStreaming(Vector3f{ 0.0f, 50.0f, -80.0f }, &renderer(), &m_terrainMaterial);
+        if (!m_terrain.uploadCoarseHeightTexture(renderer()))
         {
-            DE_LOG_FATAL("SandboxApp: terrain GPU upload failed");
+            DE_LOG_FATAL("SandboxApp: coarse height texture upload failed");
             requestQuit();
             return;
         }
@@ -2508,8 +2567,8 @@ void SandboxApp::onInit()
         if (!pumpBootFrame())
             return;
 
-        const AABox3f    terrainBox = m_terrain.bounds();
-        const float waterLevel = Lerp(terrainBox.Min.y, terrainBox.Max.y, 0.38f);
+        const AABox3f terrainBox = m_terrain.bounds();
+        const float   waterLevel = m_haveTerrainSea ? m_terrainSeaLevel : Lerp(terrainBox.Min.y, terrainBox.Max.y, 0.38f);
         WaterDesc waterDesc;
         waterDesc.chunkCells       = 16;
         waterDesc.waterLevel       = waterLevel;
@@ -2521,7 +2580,7 @@ void SandboxApp::onInit()
         waterDesc.lodDistances[4]  = 640.0f;
         waterDesc.params           = defaultWaterParams(waterLevel);
         waterDesc.params.flowDir   = Vector2f(1.0f, 0.35f);
-        if (!m_water.create(m_terrain.heightMap(), waterDesc))
+        if (!m_water.create(m_terrain.coarse(), waterDesc))
         {
             DE_LOG_FATAL("SandboxApp: water create failed");
             requestQuit();
@@ -2604,13 +2663,13 @@ void SandboxApp::onInit()
     }
 
     DE_LOG_INFO(
-        "SandboxApp: cube mesh {} verts / {} indices, aspect {:.3f}, cube model id={}, terrain {}x{} chunks",
+        "SandboxApp: cube mesh {} verts / {} indices, aspect {:.3f}, cube model id={}, terrain {}x{} tiles",
         m_cubeMesh.vertexCount(),
         m_cubeMesh.indexCount(),
         aspect,
         m_cubeModelId,
-        m_terrain.chunksX(),
-        m_terrain.chunksZ());
+        m_terrain.tilesX(),
+        m_terrain.tilesZ());
     DE_LOG_INFO(LogCategory::Networking, "Sandbox net: Sandbox.exe -host   and   Sandbox.exe -join 127.0.0.1");
     DE_LOG_INFO(LogCategory::Networking, "Sandbox net: M opens Dev Tools (host / join / browse / debugger)");
 
@@ -2723,7 +2782,7 @@ void SandboxApp::onRender()
     if (m_skinRing.isValid())
         m_skinRing.beginFrame(renderer().frameIndex());
 
-    AABox3f sceneBounds = m_terrain.bounds();
+    AABox3f sceneBounds = m_terrain.shadowBounds(m_viewCamera);
     world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
         if (mc.primitive == PrimitiveMesh::None)
             return;
@@ -2943,7 +3002,7 @@ void SandboxApp::onRender()
         lc.ambientColor[1]  = m_env.ambientColor().y;
         lc.ambientColor[2]  = m_env.ambientColor().z;
         FogGpu fog = makeFogGpu(&m_env, m_water.params().waterLevel, lc.lighting > 0.5f);
-        fillFogHeightMap(fog, &m_terrain.heightMap());
+        fillFogHeightMap(fog, &m_terrain.coarse());
         applyFogToLighting(lc, fog);
         fillIblLightingConstants(lc, m_ibl, renderer().debugState().iblEnabled, renderer().debugState().iblDebug, iblGpuReady(renderer().gpuResources(), m_iblImageId));
         fillSsrLightingConstants(lc, m_ssr, renderer().debugState().ssrEnabled, m_scene.ssr().isValid() && renderer().hasGBuffer());
@@ -3344,7 +3403,7 @@ void SandboxApp::onShutdown()
     m_imgui.shutdown(renderer());
     m_water = WaterWorld{};
     m_terrainMaterial = TerrainMaterial{};
-    m_terrain = Terrain::TerrainWorld{};
+    m_terrain.clear();
     audio().stopAll();
     if (WeaponLoadout* w = localWeapons())
     {

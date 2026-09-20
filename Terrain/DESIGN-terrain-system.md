@@ -15,7 +15,7 @@
 | **Supersedes** | In-tree `DESIGN-terrain-system.md` rev 1 and `DESIGN-terrain-cheatsheet.md` Plan A one-pager. Maps RFC **M13** “terrain splat out of scope / later RFC” — this is that RFC; still not `Dark::Material`. |
 | **Does not** | CDLOD, tile streaming, VS height fetch, coarse physics HF, POM, RVT, bindless, texture arrays, BC7/BC5, 8 layers, world tessellation, VT/Nanite/Cesium, a terrain-only BRDF. |
 
-Companion one-pager (look-track only): [Cheatsheet](#cheatsheet) at the end of this file. PR5 overwrites both `Terrain/DESIGN-terrain-system.md` and `Terrain/DESIGN-terrain-cheatsheet.md` from this document.
+Companion one-pager (look-track only): [Cheatsheet](#cheatsheet) at the end of this file. PR5 overwrites both `Terrain/DESIGN-terrain-system.md` and `Terrain/DESIGN-terrain-cheatsheet.md` from this document. Streaming follow-up is [`DESIGN-terrain-streaming.md`](./DESIGN-terrain-streaming.md).
 
 ---
 
@@ -973,7 +973,7 @@ Independently reviewable slices, look-first. Do not mix CDLOD, bindless, or `Dar
 
 ## Cheatsheet
 
-Companion to this RFC (look track). Replaces the Plan A CDLOD one-pager.
+Companion to this RFC (look track). Replaces the Plan A CDLOD one-pager. Streaming follow-up is [`DESIGN-terrain-streaming.md`](./DESIGN-terrain-streaming.md).
 
 **Rule:** ENU meters. Same metal-rough BRDF as props (`PbrLighting.hlsli` + deferred IBL). Geomipmap weld, ΔLOD≤1 — **no CDLOD in this track**. Physics queries = the same `HeightMap`. **No VT / Nanite / Cesium / tessellation / bindless / BC7.**
 

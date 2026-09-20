@@ -1,5 +1,6 @@
 #include "Terrain/Terrain.h"
 #include "Terrain/TerrainMaterial.h"
+#include "Render/PackedSrvHeap.h"
 #include "Render/TerrainPipeline.h"
 #include "Render/ShadowSystem.h"
 #include "Render/Camera3D.h"
@@ -22,6 +23,18 @@ using namespace Math;
 void CopyMatrix(float dst[16], const Matrix4f& m)
 {
     std::memcpy(dst, m.m_afEntry, sizeof(float) * 16);
+}
+
+void BindTerrainSrvTable(ID3D12GraphicsCommandList* cmd, const TerrainMaterial& material, const PackedSrvHeap* srvHeap)
+{
+    if (srvHeap && srvHeap->heap)
+    {
+        ID3D12DescriptorHeap* heaps[] = { srvHeap->heap.Get() };
+        cmd->SetDescriptorHeaps(1, heaps);
+        cmd->SetGraphicsRootDescriptorTable(TerrainPipeline::kRootSrvTable, srvHeap->gpu);
+        return;
+    }
+    material.bind(cmd, TerrainPipeline::kRootSrvTable);
 }
 
 bool TerrainWorld::create(TerrainDesc desc)
@@ -143,6 +156,30 @@ void TerrainWorld::updateLod(const Vector3f& cameraPos)
     }
 }
 
+void TerrainWorld::applyExternalLods(const int* lods, const EdgeMask* edges)
+{
+    if (!lods || !edges || m_chunks.empty())
+        return;
+
+    for (TerrainChunk& c : m_chunks)
+    {
+        const size_t i = static_cast<size_t>(c.iz * m_chunksX + c.ix);
+        int          lod = lods[i];
+        if (lod < 0)
+            lod = 0;
+        if (lod > m_maxLod)
+            lod = m_maxLod;
+        c.lod     = lod;
+        c.edges   = edges[i];
+        m_lods[i] = lod;
+    }
+}
+
+void TerrainWorld::setUploadHeightTexture(bool enable)
+{
+    m_uploadHeightTexture = enable;
+}
+
 bool TerrainWorld::needsRebuild() const
 {
     for (const TerrainChunk& c : m_chunks)
@@ -151,6 +188,17 @@ bool TerrainWorld::needsRebuild() const
             return true;
     }
     return false;
+}
+
+int TerrainWorld::pendingGpuUploads() const
+{
+    int n = 0;
+    for (const TerrainChunk& c : m_chunks)
+    {
+        if (!c.gpu.valid() && !c.cpu.indices.empty())
+            ++n;
+    }
+    return n;
 }
 
 void TerrainWorld::markHeightDirty()
@@ -285,25 +333,31 @@ bool TerrainWorld::createGpu(Renderer& renderer)
     if (!uploadDirty(renderer))
         return false;
 
+    if (!m_uploadHeightTexture)
+        return true;
     if (!m_heightTexture.valid())
         return uploadHeightTexture(renderer);
     return true;
 }
 
-bool TerrainWorld::uploadDirty(Renderer& renderer)
+bool TerrainWorld::uploadDirty(Renderer& renderer, int maxMeshes)
 {
     bool ok = true;
+    int  n  = 0;
     for (TerrainChunk& c : m_chunks)
     {
         if (c.gpu.valid())
             continue;
         if (c.cpu.indices.empty())
             continue;
+        if (maxMeshes >= 0 && n >= maxMeshes)
+            break;
         if (!Mesh::tryCreate(renderer, c.cpu, c.gpu))
         {
             DE_LOG_ERROR("TerrainWorld: GPU upload failed for chunk ({},{})", c.ix, c.iz);
             ok = false;
         }
+        ++n;
     }
     return ok;
 }
@@ -316,7 +370,8 @@ void TerrainWorld::draw(
     const Frustum3f* frustum,
     const Sky::Environment* env,
     const ShadowSystem* shadows,
-    const DebugRenderState* debug) const
+    const DebugRenderState* debug,
+    const PackedSrvHeap* srvHeap) const
 {
     m_lastDrawCalls = 0;
     m_lastTriangles = 0;
@@ -326,7 +381,7 @@ void TerrainWorld::draw(
     const DebugFill fill = debug ? debug->fill : DebugFill::Solid;
     const bool lighting  = !debug || debug->lightingActive();
     pipeline.bind(cmd, fill);
-    material.bind(cmd, TerrainPipeline::kRootSrvTable);
+    BindTerrainSrvTable(cmd, material, srvHeap);
     if (shadows)
         shadows->bindReceiverCbv(cmd, TerrainPipeline::kRootShadowCbv);
 
@@ -405,7 +460,8 @@ void TerrainWorld::drawGBuffer(
     const Camera3D& camera,
     const Frustum3f* frustum,
     const DebugRenderState* debug,
-    const Matrix4f* prevViewProj) const
+    const Matrix4f* prevViewProj,
+    const PackedSrvHeap* srvHeap) const
 {
     m_lastDrawCalls = 0;
     m_lastTriangles = 0;
@@ -414,7 +470,7 @@ void TerrainWorld::drawGBuffer(
 
     const DebugFill fill = debug ? debug->fill : DebugFill::Solid;
     pipeline.bind(cmd, fill);
-    material.bind(cmd, TerrainPipeline::kRootSrvTable);
+    BindTerrainSrvTable(cmd, material, srvHeap);
 
     const Matrix4f world    = Matrix4f::IDENTITY;
     const Matrix4f viewProj = camera.GetViewProj();

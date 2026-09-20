@@ -365,9 +365,10 @@ void EditorApp::updateCamera(float dt)
 
 bool EditorApp::groundHitFromRay(const Ray3f& ray, Vector3f& outPoint) const
 {
-    if (m_haveTerrain && m_terrain.heightMap().valid())
+    if (m_haveTerrain && m_terrain.valid())
     {
-        const Collision::RayHit3D hit = m_terrain.raycast(ray);
+        const Terrain::HeightMap* working = m_terrain.editableWorking();
+        const Collision::RayHit3D hit = (working && working->valid()) ? working->raycast(ray) : m_terrain.raycast(ray);
         if (!hit.hit)
             return false;
         outPoint = hit.point;
@@ -397,8 +398,9 @@ void EditorApp::onShutdown()
     network().shutdown();
     m_imgui.shutdown(renderer());
     m_particleRenderer.destroy(renderer());
+    cancelGenerateWorld();
     renderer().waitForGpu();
-    m_terrain            = {};
+    m_terrain.clear();
     m_terrainMaterial    = {};
     m_splat              = {};
     m_haveTerrain        = false;

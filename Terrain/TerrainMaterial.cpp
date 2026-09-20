@@ -5,6 +5,7 @@
 #include "Render/Renderer.h"
 #include "Terrain/HeightBlend.h"
 
+#include <cstring>
 #include <utility>
 #include <vector>
 
@@ -112,6 +113,8 @@ namespace Dark
         m_splat              = std::move(other.m_splat);
         m_params             = other.m_params;
         m_heap               = std::move(other.m_heap);
+        std::memcpy(m_packedSrc, other.m_packedSrc, sizeof(m_packedSrc));
+        std::memset(other.m_packedSrc, 0, sizeof(other.m_packedSrc));
         m_layerSamplingRaw   = other.m_layerSamplingRaw;
         m_cache              = other.m_cache;
         other.m_cache            = nullptr;
@@ -192,15 +195,51 @@ namespace Dark
         }
         src[kSplatSlot] = m_splat.cpuHandle();
         // Slot 13 (shadow) filled by GpuResourceCache::setShadowSrv.
+        std::memcpy(m_packedSrc, src, sizeof(m_packedSrc));
         if (!packFromCpuHandles(device, m_heap, src, TerrainPipeline::kSrvCount))
             return false;
         m_heap.shadowSlot = kShadowSlot;
+        m_heap.splatSlot  = kSplatSlot;
         m_heap.srvCount   = TerrainPipeline::kSrvCount;
         m_cache           = &cache;
         m_cache->registerPackedHeap(&m_heap);
         if (m_layerSamplingRaw)
             copyLayerSampling(device);
         DE_LOG_INFO(LogCategory::Render, "TerrainMaterial: 14-slot heap ready (bindLayout=1)");
+        return true;
+    }
+
+    bool TerrainMaterial::fillPackedCpuHandles(D3D12_CPU_DESCRIPTOR_HANDLE out[kSrvCount]) const
+    {
+        if (!out)
+            return false;
+        if (!isValid())
+            return false;
+        std::memcpy(out, m_packedSrc, sizeof(m_packedSrc));
+        return true;
+    }
+
+    bool TerrainMaterial::packTileHeap(ID3D12Device* device, PackedSrvHeap& out, D3D12_CPU_DESCRIPTOR_HANDLE splatCpu) const
+    {
+        out.shadowSlot = kShadowSlot;
+        out.splatSlot  = kSplatSlot;
+        out.srvCount   = kSrvCount;
+
+        D3D12_CPU_DESCRIPTOR_HANDLE src[kSrvCount]{};
+        const bool haveTemplate = fillPackedCpuHandles(src);
+        if (haveTemplate)
+            src[kSplatSlot] = splatCpu.ptr != 0 ? splatCpu : src[kSplatSlot];
+
+        if (device && haveTemplate)
+        {
+            if (!packFromCpuHandles(device, out, src, kSrvCount))
+                return false;
+            out.shadowSlot = kShadowSlot;
+            out.splatSlot  = kSplatSlot;
+            out.srvCount   = kSrvCount;
+        }
+
+        copySplat(device, out, splatCpu.ptr != 0 ? splatCpu : src[kSplatSlot]);
         return true;
     }
 

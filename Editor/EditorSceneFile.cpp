@@ -119,6 +119,13 @@ bool EditorApp::saveScene()
         }
         m_terrainHeightFile = data.terrain.heightFile;
         m_terrainSplatFile  = data.terrain.splatFile;
+        if (data.terrain.hasGrid)
+        {
+            m_terrainCoarseFile = data.terrain.grid.coarseFile;
+            m_terrainTileDir    = data.terrain.grid.tileDir;
+            m_terrainSeed       = data.terrain.grid.seed;
+            m_terrainSeaLevel   = data.terrain.grid.seaLevel;
+        }
     }
     for (size_t i = 0; i < data.objects.size(); ++i)
     {
@@ -248,6 +255,8 @@ void EditorApp::handleEditorCommands(float dt)
             togglePlayMode();
         if (input().keyPressed(Key::F5) || (ctrl && input().keyPressed(Key::S)))
             saveScene();
+        if (ctrl && input().keyPressed(Key::Z))
+            undoTerrainBrush();
         if ((input().keyPressed(Key::F9) || (ctrl && input().keyPressed(Key::O))) && !netSceneLocked())
             loadScene();
         if (input().actionPressed("toggle_particle_ui"))
@@ -325,9 +334,11 @@ void EditorApp::handleEditorCommands(float dt)
     }
 
     const bool terrainBrushing = !m_playMode && m_sceneMode == SceneMode::Scene3D && m_haveTerrain
-        && m_terrainBrush != TerrainBrushMode::None && !netClientLocked();
+        && m_terrainBrush != TerrainBrushMode::None && !netClientLocked() && !terrainBrushesLocked();
     if (terrainBrushing && !uiMouse && input().mouseDown(MouseButton::Left))
         applyTerrainBrush(dt);
+    else
+        m_terrainStrokeActive = false;
 
     if (m_sceneMode == SceneMode::Scene3D && !m_dragging)
     {
