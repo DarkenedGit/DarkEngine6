@@ -58,6 +58,7 @@ private:
     void registerActions();
     void updateCamera(float dt);
     void updateCamera2D(float dt);
+    void frameCameraOnTerrain();
     void handleEditorCommands(float dt);
     void drawEditorUi();
     void drawStatusBar();

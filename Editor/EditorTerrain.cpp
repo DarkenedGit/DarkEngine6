@@ -1120,6 +1120,14 @@ void EditorApp::drawTerrainPanel()
         ImGui::SameLine();
         if (ImGui::Button("Create small FBM"))
             createEditorTerrain();
+        if (m_haveTerrain && m_terrain.valid())
+        {
+            ImGui::SameLine();
+            if (ImGui::Button("Frame terrain"))
+                frameCameraOnTerrain();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Move the 3D camera to see the whole heightfield and sea.");
+        }
     }
     else
     {

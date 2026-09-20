@@ -360,7 +360,23 @@ void EditorApp::updateCamera(float dt)
     }
 
     if (!m_imgui.wantCaptureMouse() && input().mouseWheel() != 0.0f)
-        m_camera.Walk(input().mouseWheel() * 1.5f);
+        m_camera.Walk(input().mouseWheel() * (0.2f * m_moveSpeed));
+}
+
+void EditorApp::frameCameraOnTerrain()
+{
+    if (!m_haveTerrain || !m_terrain.valid())
+        return;
+    const AABox3f b = m_terrain.bounds();
+    const Vector3f c = b.Center();
+    const Vector3f e = b.Extents();
+    float span = e.x > e.z ? e.x : e.z;
+    if (span < 8.0f)
+        span = 8.0f;
+    const float lookY = m_terrainSeaLevel > c.y ? m_terrainSeaLevel : c.y;
+    const Vector3f target(c.x, lookY, c.z);
+    const Vector3f pos(c.x, lookY + span * 0.35f, c.z - span * 1.2f);
+    m_camera.LookAt(pos, target, Vector3f(0.0f, 1.0f, 0.0f));
 }
 
 bool EditorApp::groundHitFromRay(const Ray3f& ray, Vector3f& outPoint) const
