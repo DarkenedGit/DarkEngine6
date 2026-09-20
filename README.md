@@ -10,12 +10,13 @@ This is a working engine-in-progress, not a finished product. The README describ
 |--------|------|------|
 | `DarkFoundation` | static lib | Math, Collision, ECS, foundation Core (`Log`, `Paths`, `ContentRoots`, `UUID`) |
 | `DarkRender` | static lib | `Render/*` + D3D12 / DXGI / WIC |
-| `DarkAssets` | static lib | `Assets/*` (links `DarkRender`; Model/TextureCache need `Renderer`) |
+| `DarkAssets` | static lib | `Assets/*` (links `DarkFoundation`; Model/TextureCache need `Renderer` at final link) |
 | `DarkNet` | static lib | `Network/*` (`ws2_32`) |
+| `DarkGameplay` | static lib | `Weapons/*`, `Gameplay/*`, `Combat/*` |
 | `DarkEngine` | static lib | Umbrella: remaining folders + `Application` / `Window` / `MemoryTracker`; PUBLIC-links all layers |
-| `Sandbox` | exe | 3D sample (ImGui Dev Tools, networked spawn/draw) |
+| `Sandbox` | exe | 3D sample (ImGui Dev Tools, hunters, jump-attack, status FX, networked spawn/draw) |
 | `Sandbox2D` | exe | Side-scrolling 2D sample (Box2D) |
-| `Editor` | exe | ImGui editor (Win32 + DX12), particle panel, Network host/join, ECS-only live scene |
+| `Editor` | exe | ImGui editor (Win32 + DX12), Play-in-editor, terrain Generate / water, Network host/join, ECS live scene |
 | `UnitTests` | exe | GoogleTest suite |
 | `VisualDebugger` | exe | Performance and debugging; connect to Sandbox |
 
@@ -29,7 +30,8 @@ Hosts still link only `DarkEngine` (`target_link_libraries(... DarkEngine)`). La
 | `Render` | `DarkRender` |
 | `Assets` | `DarkAssets` |
 | `Network` | `DarkNet` |
-| `AI`, `Animation`, `Audio`, `Character`, `Debug`, `Input`, `Particles`, `Scene`, `Sky`, `Sprite`, `Terrain`, `Water`, `Weapons` | `DarkEngine` |
+| `Weapons`, `Gameplay`, `Combat` | `DarkGameplay` |
+| `AI`, `Animation`, `Audio`, `Character`, `Debug`, `Input`, `Particles`, `Scene`, `Sky`, `Sprite`, `Terrain`, `Water` | `DarkEngine` |
 
 `Geometry/` is omitted (empty in-tree; tests live under `UnitTests/Geometry`). Each engine `.cpp` is compiled in exactly one target.
 
@@ -42,17 +44,21 @@ Configure generates `Core/Version.h` (git describe / commit when available).
 ### Stack, from the code
 
 - **Core** — `Application`, Win32 `Window`, logging (`DE_LOG_*` + `LogCategory`), paths, UUID, generated `Version.h`.
-- **Render** — D3D12 renderer, 2D/3D cameras, mesh/sprite/line/particle/terrain/water/sky/shadow pipelines, shader compile, debug overlay.
+- **Render** — D3D12 deferred renderer, 2D/3D cameras, mesh/skinned/sprite/line/particle/terrain/water/sky/shadow pipelines, GTAO, TAA, bloom, tonemap, shader compile, debug overlay.
+  - **SSR** — `SsrPipeline` half-res DDA against a scene-color snapshot; compose in deferred lighting (opaque glossy) and forward water (`Water.hlsl`); sky-depth miss via `SkyEval`; Editor thickness / stride / maxRoughness / edgeFade sliders. See `Render/DESIGN-reflections.md` (Accepted).
+  - **Terrain erosion GPU** — `TerrainErosionPipeline` (cs_5_0, UAV R32F bake targets) used by Generate when valid; CPU thermal Jacobi + droplet fallback otherwise.
 - **Audio** — XAudio2 system, WAV clips.
 - **Input** — XInput (linked from CMake).
 - **ECS** — `World` / generation-packed `EntityID` (slot + generation; `NULL_ENTITY` is 0), components, O(1) `alive()`, safe emplace over existing entities.
 - **Assets** — `AssetManager` / handles, texture cache, **glTF** load via cgltf (`GltfLoader`).
+- **Combat / Gameplay** — `CombatSystem` (damage resolve, status apply, DoT ticks, Shock hitch), `StatusId` catalog (`Poison` / `Bleed` / `Ignite` / `Chill` / `Shock` / `Stun`), `StatusEffectComponent`, StatusFx particles, jump-attack (player + hunter telegraph / pack token), knockdown CC (block negates CC). Design: `Combat/DESIGN-status-effects.md` (Accepted).
+- **Terrain** — height/splat maps, LOD, **`TerrainGrid` stream ring** (coarse DEHF + camera-centered fine tiles), Generate (large-scale ridges / downhill gullies; valleys at sea), Editor Generate + water draw (`WaterPipeline`), fly-speed / Frame terrain. Design: `Terrain/DESIGN-terrain-streaming.md` and related cheatsheets.
 - **Network** — UDP sockets (`ws2_32`), packets, reliability, replication types, `NetworkSystem`, fake transport for tests. UDP beacon discovery on port **26161**. Sandbox2D host/join; Editor Network menu.
   - **Draw contract:** `NetworkSystem` does not draw. Sandbox attaches a `MeshComponent` (or equivalent) in `onNetSpawn` / `spawnOwnedPawn`. Editor attaches `MeshComponent` + `EditorObjectComponent` in `onNetSpawn` and draws from ECS (`each<EditorObjectComponent>`). See `Network/Replication.h`.
 - **Debug** — engine-side debug helpers compiled into `DarkEngine`.
 - **Character** — humanoid body / physiology headers (not a finished gameplay character controller).
 - **Sandbox2D** — links Box2D from `third_party/box2d`.
-- **Editor / Sandbox UI** — Dear ImGui **v1.91.8-docking** (fetched at configure time) plus shared `Ui/` styles.
+- **Editor / Sandbox UI** — Dear ImGui **v1.91.8-docking** (fetched at configure time) plus shared `Ui/` styles. Editor has separate tick stages for edit vs Play-in-editor.
 
 ## Requirements
 
@@ -110,22 +116,24 @@ JSON overlay: `content/loading/engine.json` then `content/loading/<hostId>.json`
 ## Layout
 
 ```
-AI/ Assets/ Audio/ Character/ Collision/ Core/ Debug/ ECS/
-Geometry/ Input/ Math/ Network/ Particles/ Render/
-Scene/ Sky/ Sprite/ Terrain/ Water/
+AI/ Animation/ Assets/ Audio/ Character/ Collision/ Combat/
+Core/ Debug/ ECS/ Gameplay/ Input/ Math/ Network/ Particles/
+Render/ Scene/ Sky/ Sprite/ Terrain/ Water/ Weapons/
 Ui/               ImGui helpers (Editor/VD/Sandbox) + MainMenu (in DarkEngine)
 Sandbox/          3D sample
 Sandbox2D/        2D sample
-Editor/           ImGui editor
+Editor/           ImGui editor (Play-in-editor)
 UnitTests/
 VisualDebugger/
 content/          runtime data + HLSL
 third_party/      Box2D (and other vendored deps)
-cmake/            compiler options, content copy, Version.h.in
-docs/             plans / notes
+cmake/            compiler options, content copy, Version.h.in, DarkEngineTargets.cmake
+docs/plans/       feature plans / notes
 scripts/          Sourcetrail helper, etc.
 AGENTS.md         rules for humans and coding agents
 ```
+
+In-folder design RFCs also live next to code (e.g. `Combat/DESIGN-status-effects.md`, `Terrain/DESIGN-terrain-streaming.md`, `Render/DESIGN-reflections.md`).
 
 ## Conventions
 
