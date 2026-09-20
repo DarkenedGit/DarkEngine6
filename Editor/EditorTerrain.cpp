@@ -6,6 +6,7 @@
 #include "Math/MathHelper.h"
 #include "Terrain/TerrainGen.h"
 #include "Terrain/TerrainTileFile.h"
+#include "Water/WaterWaves.h"
 #include "Ui/Icons.h"
 #include "ECS/Components.h"
 
@@ -200,6 +201,7 @@ void EditorApp::removeEditorTerrain()
     }
 
     renderer().waitForGpu();
+    m_water = WaterWorld{};
     m_terrain.clear();
     m_terrainMaterial    = {};
     m_splat              = {};
@@ -227,7 +229,45 @@ bool EditorApp::terrainBrushesLocked() const
 void EditorApp::bindTerrainHeightSrv()
 {
     if (m_terrain.heightTexture().valid())
+    {
         renderer().setHeightSrv(m_terrain.heightTexture().cpuHandle());
+        m_scene.waterPipeline().setHeightSrv(renderer().device(), m_terrain.heightTexture().cpuHandle());
+    }
+}
+
+bool EditorApp::rebuildEditorWater()
+{
+    m_water = WaterWorld{};
+    if (!m_haveTerrain || !m_terrain.valid() || !m_terrain.coarse().valid())
+        return true;
+    renderer().waitForGpu();
+    WaterDesc desc;
+    desc.chunkCells       = kWaterChunkCellsCoarse;
+    desc.waterLevel       = m_terrainSeaLevel;
+    desc.lodDistanceCount = 5;
+    desc.lodDistances[0]  = 40.0f;
+    desc.lodDistances[1]  = 80.0f;
+    desc.lodDistances[2]  = 160.0f;
+    desc.lodDistances[3]  = 320.0f;
+    desc.lodDistances[4]  = 640.0f;
+    desc.params           = defaultWaterParams(m_terrainSeaLevel);
+    if (!m_water.create(m_terrain.coarse(), desc))
+    {
+        DE_LOG_ERROR(LogCategory::Render, "Editor: water create failed");
+        return false;
+    }
+    m_water.updateLod(m_camera.GetPosition());
+    if (!m_water.createGpu(renderer()))
+    {
+        DE_LOG_ERROR(LogCategory::Render, "Editor: water GPU upload failed");
+        m_water = WaterWorld{};
+        return false;
+    }
+    bindTerrainHeightSrv();
+    if (!m_scene.waterPipeline().isValid())
+        DE_LOG_ERROR(LogCategory::Render, "Editor: WaterPipeline invalid — water will not draw");
+    DE_LOG_INFO(LogCategory::Render, "Editor: water level {:.1f} m, {} wet chunks", m_terrainSeaLevel, m_water.wetChunkCount());
+    return true;
 }
 
 bool EditorApp::applyEditorGridGpu()
@@ -316,13 +356,14 @@ bool EditorApp::createEditorTerrain()
         m_terrainSurface.layers[i] = m_terrainMaterial.layer(i);
     defaultGridSidecarNames(m_sceneName, m_terrainCoarseFile, m_terrainTileDir, m_terrainHeightFile, m_terrainSplatFile);
     m_terrainSeed     = 1337u;
-    m_terrainSeaLevel = 0.0f;
+    m_terrainSeaLevel = 32.0f;
     m_haveTerrain     = true;
     if (!applyEditorGridGpu())
     {
         removeEditorTerrain();
         return false;
     }
+    rebuildEditorWater();
     DE_LOG_INFO(LogCategory::Render, "Editor: created 129x129 terrain (1-tile Grid)");
     return true;
 }
@@ -342,6 +383,14 @@ void EditorApp::syncTerrainLod()
         m_terrain.clearPin();
 
     m_terrain.updateStreaming(m_camera.GetPosition(), &renderer(), &m_terrainMaterial);
+    m_water.updateLod(m_camera.GetPosition());
+    if (m_water.needsRebuild())
+    {
+        renderer().waitForGpu();
+        m_water.rebuildDirtyCpuMeshes();
+        if (!m_water.uploadDirty(renderer()))
+            DE_LOG_ERROR(LogCategory::Render, "Editor: water upload failed");
+    }
     if (m_terrainHeightDirty)
     {
         if (!m_terrain.uploadCoarseHeightTexture(renderer()))
@@ -733,6 +782,7 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
         removeEditorTerrain();
         return false;
     }
+    rebuildEditorWater();
     return true;
 }
 
@@ -820,7 +870,10 @@ void EditorApp::pollTerrainGenerate()
     m_genRunning.store(false);
     m_genDone.store(false);
     if (m_genOk)
-        applyGeneratedWorld();
+    {
+        if (!applyGeneratedWorld())
+            DE_LOG_ERROR(LogCategory::Render, "Editor: generate apply failed — terrain cleared");
+    }
     else
         DE_LOG_INFO(LogCategory::Render, "Editor: generate cancelled or failed — keeping previous terrain");
     m_genOut   = HeightMap{};
@@ -849,14 +902,26 @@ bool EditorApp::applyGeneratedWorld()
 
     HeightMap stub;
     if (!stub.create(2, 2, desc.cellSize, desc.heightScale))
+    {
+        DE_LOG_ERROR(LogCategory::Render, "Editor: generate stub height failed");
         return false;
+    }
     stub.setOrigin(desc.origin);
     if (!m_terrain.createFromCoarse(desc, std::move(stub)))
+    {
+        DE_LOG_ERROR(LogCategory::Render, "Editor: generate grid create failed");
         return false;
+    }
     if (!m_terrain.setWorking(std::move(m_genOut), std::move(m_genSplat)))
+    {
+        DE_LOG_ERROR(LogCategory::Render, "Editor: generate setWorking failed");
         return false;
+    }
     if (!m_terrain.boxFilterCoarseFromWorking())
+    {
+        DE_LOG_ERROR(LogCategory::Render, "Editor: generate coarse downsample failed");
         return false;
+    }
 
     SplatMap matSplat;
     const SplatMap* ws = m_terrain.editableWorkingSplat();
@@ -885,6 +950,7 @@ bool EditorApp::applyGeneratedWorld()
         removeEditorTerrain();
         return false;
     }
+    rebuildEditorWater();
     DE_LOG_INFO(LogCategory::Render, "Editor: generated {}x{} tiles", desc.tilesX, desc.tilesZ);
     return true;
 }
@@ -1042,7 +1108,7 @@ void EditorApp::drawTerrainPanel()
     ImGui::Combo("Size (tiles)", &m_genTilesIndex, "1 (512 m)\0 2 (1 km)\0 4 (2 km)\0 8 (4 km)\0");
     ImGui::InputScalar("Seed", ImGuiDataType_U32, &m_terrainSeed);
     ImGui::SliderFloat("Cell size (m)", &m_genCellSize, 0.5f, 4.0f, "%.2f");
-    ImGui::SliderFloat("Height scale", &m_genHeightScale, 8.0f, 200.0f, "%.0f");
+    ImGui::SliderFloat("Height scale (m)", &m_genHeightScale, 40.0f, 800.0f, "%.0f");
     ImGui::SliderFloat("Sea level (m)", &m_terrainSeaLevel, -20.0f, 80.0f, "%.1f");
     ImGui::SliderInt("Thermal iterations", &m_genThermal, 1, 80);
     ImGui::SliderInt("Hydraulic iterations (GPU)", &m_genHydroIters, 1, 96);
@@ -1056,6 +1122,14 @@ void EditorApp::drawTerrainPanel()
         ImGui::SameLine();
         if (ImGui::Button("Create small FBM"))
             createEditorTerrain();
+        if (m_haveTerrain && m_terrain.valid())
+        {
+            ImGui::SameLine();
+            if (ImGui::Button("Frame terrain"))
+                frameCameraOnTerrain();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Move the 3D camera to see the whole heightfield and sea.");
+        }
     }
     else
     {

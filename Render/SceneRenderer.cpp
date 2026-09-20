@@ -135,6 +135,10 @@ bool SceneRenderer::createTerrainPipelineOnly(Renderer& renderer, const char* ta
         DE_LOG_FATAL("{}: TerrainPipeline create failed", tag);
         return false;
     }
+    if (!m_waterPipeline.create(renderer.device(), renderer.sceneColorFormat()))
+    {
+        DE_LOG_ERROR(LogCategory::Render, "{}: WaterPipeline create failed — no water in this host", tag);
+    }
     return true;
 }
 
@@ -142,7 +146,7 @@ bool SceneRenderer::createWorldEnvPipelines(Renderer& renderer, const char* tag)
 {
     if (!createTerrainPipelineOnly(renderer, tag))
         return false;
-    if (!m_waterPipeline.create(renderer.device(), renderer.sceneColorFormat()))
+    if (!m_waterPipeline.isValid())
     {
         DE_LOG_FATAL("{}: WaterPipeline create failed", tag);
         return false;

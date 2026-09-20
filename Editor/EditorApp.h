@@ -32,6 +32,7 @@
 #include "Render/TerrainErosionPipeline.h"
 #include "Terrain/TerrainGrid.h"
 #include "Terrain/TerrainMaterial.h"
+#include "Water/Water.h"
 #include "Weapons/Weapon.h"
 
 #include <atomic>
@@ -57,6 +58,7 @@ private:
     void registerActions();
     void updateCamera(float dt);
     void updateCamera2D(float dt);
+    void frameCameraOnTerrain();
     void handleEditorCommands(float dt);
     void drawEditorUi();
     void drawStatusBar();
@@ -169,6 +171,7 @@ private:
     void fillTerrainSceneDesc(SceneFileData& data) const;
     bool saveTerrainSidecars(const std::filesystem::path& scenePath) const;
     bool applyEditorGridGpu();
+    bool rebuildEditorWater();
     void bindTerrainHeightSrv();
     void startGenerateWorld();
     void cancelGenerateWorld();
@@ -274,6 +277,7 @@ private:
     bool  m_showTerrainPanel   = true;
 
     Terrain::TerrainGrid          m_terrain;
+    WaterWorld                    m_water;
     TerrainMaterial               m_terrainMaterial;
     Terrain::SplatMap             m_splat;
     Terrain::SplatRules           m_splatRules;
@@ -291,10 +295,10 @@ private:
     std::string                   m_terrainCoarseFile;
     std::string                   m_terrainTileDir;
     uint32_t                      m_terrainSeed     = 1337u;
-    float                         m_terrainSeaLevel = 0.0f;
+    float                         m_terrainSeaLevel = 32.0f;
     int                           m_genTilesIndex   = 2; // 1,2,4,8
     float                         m_genCellSize     = 1.0f;
-    float                         m_genHeightScale  = 80.0f;
+    float                         m_genHeightScale  = 280.0f;
     int                           m_genThermal      = 40;
     int                           m_genHydroIters   = 48;
     int                           m_genHydroSteps   = 64;

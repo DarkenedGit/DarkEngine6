@@ -584,6 +584,8 @@ namespace Dark
             // Edges cleared first, then OS messages fill keyboard pressed/released.
             m_input.beginFrame();
             m_window.pollEvents();
+            if (m_window.shouldClose())
+                break;
             if (m_window.takeSizeChanged())
             {
                 if (!m_renderer.resize(m_window.width(), m_window.height()))

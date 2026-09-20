@@ -26,10 +26,10 @@ namespace Dark::Terrain
     struct ErosionParams
     {
         uint32_t seed                = 1337u;
-        int      fbmOctaves          = 7;
-        float    fbmFrequency        = 3.5f;
-        float    fbmAmplitude        = 1.0f;
-        float    warpAmp             = 0.35f;
+        int      fbmOctaves          = 3;
+        float    fbmFrequency        = 3.0f;
+        float    fbmAmplitude        = 0.25f;
+        float    warpAmp             = 0.0f;
         int      thermalIterations   = 40;
         float    talusTan            = 0.7f;
         float    thermalRate         = 0.5f;

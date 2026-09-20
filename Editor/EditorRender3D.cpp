@@ -427,6 +427,28 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         m_localLightVolumes.draw(cmd, renderer(), world(), m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_camera, viewProj, lc);
         renderer().bindHdr(true);
         m_scene.captureSsrSceneColor(cmd, renderer());
+        renderer().bindHdrDepthRead();
+        if (m_haveTerrain && m_scene.waterPipeline().isValid())
+        {
+            const Frustum3f waterFrustum(m_camera.GetCullViewProj());
+            ID3D12DescriptorHeap*       heightHeap = nullptr;
+            D3D12_GPU_DESCRIPTOR_HANDLE heightGpu{};
+            if (m_terrain.heightTexture().valid())
+            {
+                heightHeap = m_terrain.heightTexture().srvHeap();
+                heightGpu  = m_terrain.heightTexture().gpuHandle();
+            }
+            D3D12_CPU_DESCRIPTOR_HANDLE waterSceneColor{};
+            D3D12_CPU_DESCRIPTOR_HANDLE waterDepth{};
+            const SsrSettings*          waterSsr = nullptr;
+            if (m_scene.ssr().hasSceneColor())
+            {
+                waterSceneColor = m_scene.ssr().sceneColorSrvCpu();
+                waterDepth      = renderer().depthSrvCpu();
+                waterSsr        = &m_ssr;
+            }
+            m_water.draw(cmd, m_scene.waterPipeline(), m_camera, &waterFrustum, nullptr, &renderer().debugState(), 0, 0, nullptr, renderer().frameIndex(), heightHeap, heightGpu, &m_shadows, waterSceneColor, waterDepth, waterSsr);
+        }
         drawGrid();
         drawLightGizmos();
     }
