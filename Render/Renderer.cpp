@@ -298,7 +298,7 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
         for (uint32_t i = 0; i < kFrameCount; ++i)
         {
-            if (FAILED(m_swapChain->GetBuffer(i, IID_PPV_ARGS(&m_renderTargets[i]))))
+            if (FAILED(m_swapChain->GetBuffer(i, IID_PPV_ARGS(&m_renderTargets[i]))) || !m_renderTargets[i])
             {
                 DE_LOG_ERROR(LogCategory::Render, "Renderer: SwapChain GetBuffer failed");
                 return false;
@@ -389,6 +389,8 @@ namespace Dark
             return true;
         if (width == m_width && height == m_height)
             return true;
+        if (FAILED(m_device->GetDeviceRemovedReason()))
+            return false;
 
         waitForGpu();
         broadcastFenceValueAfterWait(m_fenceValues, kFrameCount, m_frameIndex);
@@ -455,6 +457,11 @@ namespace Dark
         if (!m_valid || !m_device || !m_commandList || !m_fence)
         {
             DE_LOG_ERROR(LogCategory::Render, "Renderer::beginFrame: device not initialized");
+            return false;
+        }
+        if (!m_renderTargets[m_frameIndex])
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Renderer::beginFrame: missing back buffer");
             return false;
         }
 

@@ -194,6 +194,13 @@ void ImGuiHost::shutdown(Dark::Renderer& renderer)
         return;
 
     renderer.waitForGpu();
+    if (m_viewports)
+    {
+        ImGuiIO& io = ImGui::GetIO();
+        io.ConfigFlags &= ~ImGuiConfigFlags_ViewportsEnable;
+        ImGui::UpdatePlatformWindows();
+        m_viewports = false;
+    }
     ImGui_ImplDX12_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
