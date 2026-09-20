@@ -316,7 +316,7 @@ bool EditorApp::createEditorTerrain()
         m_terrainSurface.layers[i] = m_terrainMaterial.layer(i);
     defaultGridSidecarNames(m_sceneName, m_terrainCoarseFile, m_terrainTileDir, m_terrainHeightFile, m_terrainSplatFile);
     m_terrainSeed     = 1337u;
-    m_terrainSeaLevel = 0.0f;
+    m_terrainSeaLevel = 32.0f;
     m_haveTerrain     = true;
     if (!applyEditorGridGpu())
     {

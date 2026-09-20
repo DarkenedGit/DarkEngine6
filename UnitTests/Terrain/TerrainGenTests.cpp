@@ -57,31 +57,42 @@ TEST(TerrainGen, World_Deterministic)
     ASSERT_TRUE(b.valid());
     EXPECT_EQ(a.width(), 65u);
     EXPECT_EQ(a.height(), 65u);
+    float mn = a.height(0, 0);
+    float mx = mn;
     for (int z = 0; z < 65; ++z)
     {
         for (int x = 0; x < 65; ++x)
+        {
             EXPECT_FLOAT_EQ(a.height(x, z), b.height(x, z)) << x << "," << z;
+            const float h = a.height(x, z);
+            if (h < mn)
+                mn = h;
+            if (h > mx)
+                mx = h;
+        }
     }
+    EXPECT_GT(mx - mn, 0.05f);
 }
 
 TEST(TerrainGen, Thermal_PaddedTile_MatchesFull)
 {
-    WorldGenDesc desc                = MakeSmallDesc();
-    desc.erosion.hydraulicMaxSteps   = 0;
-    desc.erosion.hydraulicIterations = 0;
-    desc.erosion.hydraulicDroplets   = 0;
-    desc.erosion.thermalIterations   = 4;
-
-    WorldGenDesc l0Desc              = desc;
-    l0Desc.erosion.thermalIterations = 0;
+    WorldGenDesc desc = MakeSmallDesc();
+    HeightMap    l0;
+    SplatMap     s0;
+    ASSERT_TRUE(generateWorld(desc, l0, s0, nullptr, nullptr, nullptr));
+    ASSERT_EQ(l0.width(), 65u);
 
     HeightMap full;
-    HeightMap l0;
-    SplatMap  sf;
-    SplatMap  s0;
-    ASSERT_TRUE(generateWorld(l0Desc, l0, s0, nullptr, nullptr, nullptr));
-    ASSERT_TRUE(generateWorld(desc, full, sf, nullptr, nullptr, nullptr));
-    ASSERT_EQ(full.width(), 65u);
+    ASSERT_TRUE(full.createWorking(65, 65, 1.0f, 1.0f));
+    for (int z = 0; z < 65; ++z)
+    {
+        for (int x = 0; x < 65; ++x)
+            full.setHeight(x, z, l0.height(x, z));
+    }
+    ErosionParams tp     = desc.erosion;
+    tp.thermalIterations = 4;
+    tp.hydraulicMaxSteps = 0;
+    ASSERT_TRUE(applyThermalJacobi(full, tp));
 
     const int pad   = 4;
     const int inner = 17;
@@ -95,10 +106,6 @@ TEST(TerrainGen, Thermal_PaddedTile_MatchesFull)
         for (int x = 0; x < tw; ++x)
             tile.setHeight(x, z, l0.height(x0 - pad + x, z0 - pad + z));
     }
-
-    ErosionParams tp     = desc.erosion;
-    tp.thermalIterations = 4;
-    tp.hydraulicMaxSteps = 0;
     ASSERT_TRUE(applyThermalJacobi(tile, tp));
 
     for (int z = 0; z < inner; ++z)

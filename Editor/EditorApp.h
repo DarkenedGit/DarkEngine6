@@ -291,7 +291,7 @@ private:
     std::string                   m_terrainCoarseFile;
     std::string                   m_terrainTileDir;
     uint32_t                      m_terrainSeed     = 1337u;
-    float                         m_terrainSeaLevel = 0.0f;
+    float                         m_terrainSeaLevel = 32.0f;
     int                           m_genTilesIndex   = 2; // 1,2,4,8
     float                         m_genCellSize     = 1.0f;
     float                         m_genHeightScale  = 80.0f;

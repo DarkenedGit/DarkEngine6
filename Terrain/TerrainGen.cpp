@@ -32,58 +32,161 @@ namespace Dark::Terrain
             map = HeightMap{};
         }
 
-        float ValueNoise(float x, float z, uint32_t seed)
+        // IQ gradient noise (MIT, Shadertoy XdXBRH): value in x, analytic d/dx d/dz.
+        void HashGrad(int ix, int iz, uint32_t seed, float& gx, float& gz)
         {
-            const int   x0  = static_cast<int>(floorf(x));
-            const int   z0  = static_cast<int>(floorf(z));
-            const float tx  = x - static_cast<float>(x0);
-            const float tz  = z - static_cast<float>(z0);
-            const float sx  = tx * tx * (3.0f - 2.0f * tx);
-            const float sz  = tz * tz * (3.0f - 2.0f * tz);
-            const float n00 = hash21(x0, z0, seed);
-            const float n10 = hash21(x0 + 1, z0, seed);
-            const float n01 = hash21(x0, z0 + 1, seed);
-            const float n11 = hash21(x0 + 1, z0 + 1, seed);
-            return Lerp(Lerp(n00, n10, sx), Lerp(n01, n11, sx), sz);
+            const float kx = 0.3183099f;
+            const float kz = 0.3678794f;
+            float       x  = static_cast<float>(ix) + 0.0133f * static_cast<float>(seed & 255u);
+            float       z  = static_cast<float>(iz) + 0.0171f * static_cast<float>((seed >> 8) & 255u);
+            x              = x * kx + kz;
+            z              = z * kz + kx;
+            const float t  = x * z * (x + z);
+            const float fx = t - floorf(t);
+            gx             = -1.0f + 2.0f * (16.0f * kx * fx - floorf(16.0f * kx * fx));
+            const float t2 = t * 1.3247179572f;
+            const float fz = t2 - floorf(t2);
+            gz             = -1.0f + 2.0f * (16.0f * kz * fz - floorf(16.0f * kz * fz));
         }
 
-        float RidgedFbm(float x, float z, uint32_t seed, int octaves, float frequency, float amplitude)
+        void GradientNoise(float px, float pz, uint32_t seed, float& v, float& dx, float& dz)
         {
-            float sum  = 0.0f;
-            float amp  = amplitude;
-            float freq = frequency;
-            float prev = 1.0f;
-            for (int o = 0; o < octaves; ++o)
+            const int   ix = static_cast<int>(floorf(px));
+            const int   iz = static_cast<int>(floorf(pz));
+            const float fx = px - static_cast<float>(ix);
+            const float fz = pz - static_cast<float>(iz);
+            const float u  = fx * fx * fx * (fx * (fx * 6.0f - 15.0f) + 10.0f);
+            const float vv = fz * fz * fz * (fz * (fz * 6.0f - 15.0f) + 10.0f);
+            const float du = 30.0f * fx * fx * (fx * (fx - 2.0f) + 1.0f);
+            const float dv = 30.0f * fz * fz * (fz * (fz - 2.0f) + 1.0f);
+
+            float gax, gaz, gbx, gbz, gcx, gcz, gdx, gdz;
+            HashGrad(ix, iz, seed, gax, gaz);
+            HashGrad(ix + 1, iz, seed, gbx, gbz);
+            HashGrad(ix, iz + 1, seed, gcx, gcz);
+            HashGrad(ix + 1, iz + 1, seed, gdx, gdz);
+
+            const float va = gax * fx + gaz * fz;
+            const float vb = gbx * (fx - 1.0f) + gbz * fz;
+            const float vc = gcx * fx + gcz * (fz - 1.0f);
+            const float vd = gdx * (fx - 1.0f) + gdz * (fz - 1.0f);
+
+            v  = va + u * (vb - va) + vv * (vc - va) + u * vv * (va - vb - vc + vd);
+            dx = gax + u * (gbx - gax) + vv * (gcx - gax) + u * vv * (gax - gbx - gcx + gdx) + du * (vv * (va - vb - vc + vd) + (vb - va));
+            dz = gaz + u * (gbz - gaz) + vv * (gcz - gaz) + u * vv * (gaz - gbz - gcz + gdz) + dv * (u * (va - vb - vc + vd) + (vc - va));
+        }
+
+        // Downhill cosine ridges (Clay John / Fewes idea: directional noise along slope).
+        void DownhillRidges(float px, float pz, float dirX, float dirZ, uint32_t seed, float& h, float& ddx, float& ddz)
+        {
+            const int   ix = static_cast<int>(floorf(px));
+            const int   iz = static_cast<int>(floorf(pz));
+            const float fx = px - static_cast<float>(ix);
+            const float fz = pz - static_cast<float>(iz);
+            const float f  = 6.28318530718f;
+            float       hx = 0.0f;
+            float       hy = 0.0f;
+            float       hz = 0.0f;
+            float       wt = 0.0f;
+            for (int j = -1; j <= 1; ++j)
             {
-                float n = ValueNoise(x * freq, z * freq, seed + static_cast<uint32_t>(o) * 1013u);
-                n       = 1.0f - fabsf(n * 2.0f - 1.0f);
-                n       = n * n * prev;
-                prev    = n;
-                sum += n * amp;
-                freq *= 2.0f;
-                amp *= 0.5f;
+                for (int i = -1; i <= 1; ++i)
+                {
+                    const float ox = static_cast<float>(i);
+                    const float oz = static_cast<float>(j);
+                    const float hx0 = hash21(ix + i, iz + j, seed);
+                    const float hz0 = hash21(ix + i, iz + j, seed ^ 0x9e3779b9u);
+                    const float qx  = fx - ox - (hx0 - 0.5f) * 0.5f;
+                    const float qz  = fz - oz - (hz0 - 0.5f) * 0.5f;
+                    const float d2  = qx * qx + qz * qz;
+                    const float w   = expf(-d2 * 2.0f);
+                    const float mag = qx * dirX + qz * dirZ;
+                    wt += w;
+                    hx += cosf(mag * f) * w;
+                    const float s = -sinf(mag * f) * w;
+                    hy += s * dirX;
+                    hz += s * dirZ;
+                }
             }
-            return sum;
+            if (wt < 1.0e-8f)
+            {
+                h   = 0.0f;
+                ddx = 0.0f;
+                ddz = 0.0f;
+                return;
+            }
+            h   = hx / wt;
+            ddx = hy / wt;
+            ddz = hz / wt;
         }
 
-        void FillNoiseRect(float* dst, int dstW, int dstH, int originX, int originZ, int fullW, int fullH, const WorldGenDesc& desc)
+        float SampleEroded(float u, float v, uint32_t seed)
         {
-            const ErosionParams& e    = desc.erosion;
-            const int            oct  = e.fbmOctaves < 1 ? 1 : e.fbmOctaves;
-            const float          freq = e.fbmFrequency <= 0.0f ? 1.0f : e.fbmFrequency;
-            const float          invW = 1.0f / static_cast<float>(fullW - 1);
-            const float          invH = 1.0f / static_cast<float>(fullH - 1);
+            const float heightTiles = 3.0f;
+            const int   heightOct   = 3;
+            const float heightAmp   = 0.25f;
+            const float heightGain  = 0.1f;
+            const float heightLac   = 2.0f;
+            const float waterH      = 0.45f;
+            const int   eroOct      = 5;
+            const float eroTiles    = 4.0f;
+            const float eroGain     = 0.5f;
+            const float eroLac      = 2.0f;
+            const float slopeK      = 3.0f;
+            const float branchK     = 3.0f;
+            const float eroStr      = 0.04f;
+
+            const float px = u * heightTiles;
+            const float pz = v * heightTiles;
+            float       n  = 0.0f;
+            float       nx = 0.0f;
+            float       nz = 0.0f;
+            float       nf = 1.0f;
+            float       na = heightAmp;
+            for (int i = 0; i < heightOct; ++i)
+            {
+                float gv, gdx, gdz;
+                GradientNoise(px * nf, pz * nf, seed, gv, gdx, gdz);
+                n += gv * na;
+                nx += gdx * na * nf;
+                nz += gdz * na * nf;
+                na *= heightGain;
+                nf *= heightLac;
+            }
+            n = n * 0.5f + 0.5f;
+
+            float dirX = nz * slopeK;
+            float dirZ = -nx * slopeK;
+
+            float a    = 0.5f * SmoothStep(waterH - 0.1f, waterH + 0.2f, n);
+            float f    = 1.0f;
+            float hSum = 0.0f;
+            float hx   = 0.0f;
+            float hz   = 0.0f;
+            for (int i = 0; i < eroOct; ++i)
+            {
+                float rh, rdx, rdz;
+                DownhillRidges(px * eroTiles * f, pz * eroTiles * f, dirX + hz * branchK, dirZ - hx * branchK, seed + 17u, rh, rdx, rdz);
+                hSum += rh * a;
+                hx += rdx * a * f;
+                hz += rdz * a * f;
+                a *= eroGain;
+                f *= eroLac;
+            }
+            return Clamp(n + (hSum - 0.5f) * eroStr, 0.0f, 1.0f);
+        }
+
+        void FillErodedRect(float* dst, int dstW, int dstH, int originX, int originZ, int fullW, int fullH, const WorldGenDesc& desc)
+        {
+            const float invW = 1.0f / static_cast<float>(fullW > 1 ? fullW - 1 : 1);
+            const float invH = 1.0f / static_cast<float>(fullH > 1 ? fullH - 1 : 1);
             for (int z = 0; z < dstH; ++z)
             {
                 for (int x = 0; x < dstW; ++x)
                 {
-                    const float u0                         = static_cast<float>(originX + x) * invW;
-                    const float v0                         = static_cast<float>(originZ + z) * invH;
-                    const float wx                         = ValueNoise(u0 * freq, v0 * freq, e.seed + 19u) * 2.0f - 1.0f;
-                    const float wz                         = ValueNoise(u0 * freq + 17.0f, v0 * freq, e.seed + 47u) * 2.0f - 1.0f;
-                    const float u                          = u0 + wx * e.warpAmp;
-                    const float v                          = v0 + wz * e.warpAmp;
-                    dst[static_cast<size_t>(z) * dstW + x] = RidgedFbm(u, v, e.seed, oct, freq, e.fbmAmplitude);
+                    const float u                          = static_cast<float>(originX + x) * invW;
+                    const float v                          = static_cast<float>(originZ + z) * invH;
+                    dst[static_cast<size_t>(z) * dstW + x] = SampleEroded(u, v, desc.erosion.seed);
                 }
             }
         }
@@ -639,42 +742,24 @@ namespace Dark::Terrain
             return false;
 
         const auto t0 = std::chrono::steady_clock::now();
-        DE_LOG_INFO(LogCategory::Render, "TerrainGen: {}x{} samples, thermal {}, hydro steps {}", w, h, desc.erosion.thermalIterations, desc.erosion.hydraulicMaxSteps);
+        DE_LOG_INFO(LogCategory::Render, "TerrainGen: {}x{} samples, downhill-gully filter seed {}", w, h, desc.erosion.seed);
 
         HeightMap working;
         if (!working.createWorking(w, h, desc.cellSize, desc.heightScale))
             return false;
         working.setOrigin(desc.origin);
-        FillNoiseRect(working.mutableSamples(), static_cast<int>(w), static_cast<int>(h), 0, 0, static_cast<int>(w), static_cast<int>(h), desc);
+        FillErodedRect(working.mutableSamples(), static_cast<int>(w), static_cast<int>(h), 0, 0, static_cast<int>(w), static_cast<int>(h), desc);
+        (void)gpu;
+        float* samples = working.mutableSamples();
+        const float scale = desc.heightScale > 0.0f ? desc.heightScale : 1.0f;
+        const size_t n    = static_cast<size_t>(w) * h;
+        for (size_t i = 0; i < n; ++i)
+            samples[i] *= scale;
+        const float seaM = desc.erosion.seaLevelRaw * scale;
+        FlattenSea(samples, n, seaM);
 
-        if (!Report(progress, user, 0.1f, "thermal"))
+        if (!Report(progress, user, 0.7f, "gullies"))
             return false;
-
-        bool usedGpu   = false;
-        bool cancelled = false;
-        if (gpu && gpu->pipeline && gpu->pipeline->isValid() && gpu->device && gpu->queue)
-        {
-            usedGpu = GpuErode(working, desc.erosion, *gpu->pipeline, gpu->device, gpu->queue, progress, user, &cancelled);
-            if (cancelled)
-                return false;
-            if (!usedGpu)
-                DE_LOG_INFO(LogCategory::Render, "TerrainGen: CPU fallback");
-        }
-        else
-        {
-            DE_LOG_INFO(LogCategory::Render, "TerrainGen: CPU fallback");
-        }
-
-        if (!usedGpu)
-        {
-            if (!applyThermalJacobi(working, desc.erosion))
-                return false;
-            if (!Report(progress, user, 0.55f, "hydraulic"))
-                return false;
-            if (!applyHydraulicDroplets(working, desc.erosion))
-                return false;
-            FlattenSea(working.mutableSamples(), static_cast<size_t>(w) * h, desc.erosion.seaLevelRaw);
-        }
 
         if (!Report(progress, user, 0.9f, "splat"))
             return false;
@@ -740,19 +825,14 @@ namespace Dark::Terrain
         HeightMap tile;
         if (!tile.createWorking(static_cast<uint32_t>(tw), static_cast<uint32_t>(th), map.cellSize(), map.heightScale()))
             return false;
-        FillNoiseRect(tile.mutableSamples(), tw, th, ex0, ez0, w, h, desc);
-
-        bool usedGpu = false;
-        if (gpuOk)
-            usedGpu = GpuErode(tile, desc.erosion, *gpu->pipeline, gpu->device, gpu->queue, nullptr, nullptr, nullptr);
-        if (!usedGpu)
-        {
-            if (!applyThermalJacobi(tile, desc.erosion))
-                return false;
-            if (!applyHydraulicDroplets(tile, desc.erosion))
-                return false;
-            FlattenSea(tile.mutableSamples(), static_cast<size_t>(tw) * th, desc.erosion.seaLevelRaw);
-        }
+        FillErodedRect(tile.mutableSamples(), tw, th, ex0, ez0, w, h, desc);
+        (void)gpuOk;
+        float* ts = tile.mutableSamples();
+        const float scale = map.heightScale() > 0.0f ? map.heightScale() : 1.0f;
+        const size_t tn   = static_cast<size_t>(tw) * static_cast<size_t>(th);
+        for (size_t i = 0; i < tn; ++i)
+            ts[i] *= scale;
+        FlattenSea(ts, tn, desc.erosion.seaLevelRaw * scale);
 
         float*       dst = map.mutableSamples();
         const float* src = tile.samples();
