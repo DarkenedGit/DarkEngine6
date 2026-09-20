@@ -476,6 +476,7 @@ TEST(Combat_Parry_StillFullNegate, KnockdownFlagsDropped)
     ev.flags          = DamageFlags::CanParry | DamageFlags::HardCc | DamageFlags::Knockdown;
     ev.hitDir         = Vector3f{ 0.0f, 0.0f, -1.0f };
     ev.statusDuration = 1.4f;
+    ev.statusId       = static_cast<uint8_t>(StatusId::Poison);
     const ResolveResult r = sys.resolveDirect(ev, &hp, &hit, &def, nullptr, nullptr, &st, &facing, 100.0f);
     EXPECT_TRUE(r.parried);
     EXPECT_TRUE(r.applied);
@@ -484,6 +485,7 @@ TEST(Combat_Parry_StillFullNegate, KnockdownFlagsDropped)
     EXPECT_FLOAT_EQ(hp.hp(), 100.0f);
     EXPECT_FALSE(hit.stunned());
     EXPECT_FALSE(st.knockedDown());
+    EXPECT_FALSE(st.has(StatusId::Poison));
     EXPECT_EQ(st.dr[static_cast<int>(CcCategory::Knockdown)].applications, 0);
 }
 
@@ -496,7 +498,8 @@ TEST(Combat_IFrame_DropsKnockdown, EventDropped)
     HitReaction hit{};
     StatusEffectComponent st{};
     DamageEvent ev = makeHit(32.0f);
-    ev.flags = DamageFlags::CanBlock | DamageFlags::HardCc | DamageFlags::Knockdown;
+    ev.flags    = DamageFlags::CanBlock | DamageFlags::HardCc | DamageFlags::Knockdown;
+    ev.statusId = static_cast<uint8_t>(StatusId::Poison);
     const ResolveResult r = sys.resolveDirect(ev, &hp, &hit, &def, nullptr, nullptr, &st, nullptr, 100.0f);
     EXPECT_TRUE(r.iframe);
     EXPECT_FALSE(r.applied);
@@ -504,6 +507,7 @@ TEST(Combat_IFrame_DropsKnockdown, EventDropped)
     EXPECT_FLOAT_EQ(r.ccDuration, 0.0f);
     EXPECT_FALSE(hit.stunned());
     EXPECT_FALSE(st.knockedDown());
+    EXPECT_FALSE(st.has(StatusId::Poison));
 }
 
 TEST(Combat_HyperArmor_SkipsHitReactionKeepsCc, KnockdownApplied)
@@ -630,6 +634,25 @@ TEST(CombatSystem_DotTick_DamagesNoFlinchNoCc, SeverityForcedTick)
     EXPECT_EQ(st.dr[static_cast<int>(CcCategory::Stun)].applications, 0);
 }
 
+TEST(CombatSystem_DotTick_KillForcesFatal, NoFlinchNoCc)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 5.0f, 0.0f, 99.0f } };
+    HitReaction  hit{};
+    StatusEffectComponent st{};
+    DamageEvent ev = makeHit(10.0f, DamageType::True);
+    ev.flags          = DamageFlags::DotTick | DamageFlags::HardCc;
+    ev.statusDuration = 2.0f;
+    const ResolveResult r = sys.resolveDirect(ev, &hp, &hit, nullptr, nullptr, nullptr, &st, nullptr, hp.maxHp());
+    EXPECT_TRUE(r.applied);
+    EXPECT_TRUE(r.killed);
+    EXPECT_EQ(r.severity, Severity::Fatal);
+    EXPECT_FALSE(hp.alive());
+    EXPECT_FALSE(hit.stunned());
+    EXPECT_FALSE(st.hasHardCc());
+    EXPECT_EQ(st.dr[static_cast<int>(CcCategory::Stun)].applications, 0);
+}
+
 TEST(CombatSystem_DotTick_IgnoresBlockAndIFrame, FullMitigatedNoCc)
 {
     CombatSystem sys;
@@ -638,13 +661,15 @@ TEST(CombatSystem_DotTick_IgnoresBlockAndIFrame, FullMitigatedNoCc)
     def.blocking    = true;
     def.stamina     = 100.0f;
     def.beginIFrame(0.5f);
+    def.beginParryWindow(0.2f);
+    def.blockArcDeg = 140.0f;
     ArmorComponent armor{};
     HitReaction hit{};
     StatusEffectComponent st{};
     Vector3f facing{ 0.0f, 0.0f, 1.0f };
 
     DamageEvent ev = makeHit(10.0f, DamageType::True);
-    ev.flags  = DamageFlags::DotTick | DamageFlags::CanBlock | DamageFlags::HardCc;
+    ev.flags  = DamageFlags::DotTick | DamageFlags::CanBlock | DamageFlags::CanParry | DamageFlags::HardCc;
     ev.hitDir = Vector3f{ 0.0f, 0.0f, -1.0f };
     ev.statusDuration = 2.0f;
 
@@ -659,6 +684,7 @@ TEST(CombatSystem_DotTick_IgnoresBlockAndIFrame, FullMitigatedNoCc)
     EXPECT_FALSE(hit.stunned());
     EXPECT_FALSE(st.hasHardCc());
     EXPECT_EQ(r.severity, Severity::Tick);
+    EXPECT_TRUE(def.inParryWindow());
 }
 
 TEST(CombatSystem_WorldResolve_DotTickSelfSourceDamages, SelfFilterSkipped)
@@ -720,6 +746,45 @@ TEST(CombatSystem_StatusIdPoison_ZeroDurationUsesCatalogDefault, RemainingEight)
     EXPECT_TRUE(st.has(StatusId::Poison));
     EXPECT_NEAR(st.remaining(StatusId::Poison), 8.0f, 1.0e-4f);
     EXPECT_NEAR(r.ccDuration, 8.0f, 1.0e-4f);
+}
+
+TEST(CombatSystem_StatusIdPoison_FlagsHardCc_DoesNotApplyStun, NamedStatusWins)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    StatusEffectComponent st{};
+    HitReaction  hit{};
+    DamageEvent ev = makeHit(1.0f, DamageType::True);
+    ev.flags          = DamageFlags::HardCc;
+    ev.statusId       = static_cast<uint8_t>(StatusId::Poison);
+    ev.statusDuration = 8.0f;
+    const ResolveResult r = sys.resolveDirect(ev, &hp, &hit, nullptr, nullptr, nullptr, &st, nullptr, 100.0f);
+    EXPECT_TRUE(r.applied);
+    EXPECT_TRUE(st.has(StatusId::Poison));
+    EXPECT_FALSE(st.hasCategory(CcCategory::Stun));
+    EXPECT_FALSE(st.hasHardCc());
+    EXPECT_EQ(st.dr[static_cast<int>(CcCategory::Stun)].applications, 0);
+    EXPECT_FALSE(hit.stunned());
+}
+
+TEST(CombatSystem_StatusIdPoison_FlagsKnockdown_NoSlide, NamedStatusWins)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    StatusEffectComponent st{};
+    HitReaction  hit{};
+    DamageEvent ev = makeHit(1.0f, DamageType::True);
+    ev.flags          = DamageFlags::Knockdown;
+    ev.statusId       = static_cast<uint8_t>(StatusId::Poison);
+    ev.statusDuration = 8.0f;
+    const ResolveResult r = sys.resolveDirect(ev, &hp, &hit, nullptr, nullptr, nullptr, &st, nullptr, 100.0f);
+    EXPECT_TRUE(r.applied);
+    EXPECT_TRUE(st.has(StatusId::Poison));
+    EXPECT_FALSE(st.knockedDown());
+    EXPECT_FALSE(st.hasHardCc());
+    EXPECT_EQ(st.dr[static_cast<int>(CcCategory::Knockdown)].applications, 0);
+    EXPECT_FALSE(hit.stunned());
+    EXPECT_EQ(r.severity, Severity::Tick);
 }
 
 TEST(CombatSystem_StatusIdKnockdown_PlaysHitReactionSlide, CatalogIdNoFlag)
@@ -809,7 +874,25 @@ TEST(CombatSystem_IgniteDotTick_UsesFireResist, HarvestAndResolve)
     EXPECT_EQ(harvestAndResolveDots(world, sys), 1);
     EXPECT_NEAR(world.get<HealthComponent>(target)->health.hp(), 99.0f, 1.0e-3f);
     EXPECT_TRUE(world.get<StatusEffectComponent>(target)->has(StatusId::Ignite));
+    EXPECT_NEAR(world.get<StatusEffectComponent>(target)->remaining(StatusId::Ignite), 5.0f, 1.0e-4f);
     EXPECT_FALSE(world.get<StatusEffectComponent>(target)->hasHardCc());
+}
+
+TEST(CombatSystem_HarvestAndResolveDots_CompactsChillWithoutHealth, ExpiryTurnsOff)
+{
+    World world;
+    Entity target = world.createEntity();
+    world.emplace<StatusEffectComponent>(target);
+    ASSERT_GT(world.get<StatusEffectComponent>(target)->applyStatus(StatusId::Chill, 0.0f, 0.0f), 0.0f);
+    world.get<StatusEffectComponent>(target)->tick(6.1f);
+    EXPECT_FALSE(world.get<StatusEffectComponent>(target)->has(StatusId::Chill));
+    EXPECT_EQ(world.get<StatusEffectComponent>(target)->count, 1);
+
+    CombatSystem sys;
+    EXPECT_EQ(harvestAndResolveDots(world, sys), 0);
+    EXPECT_EQ(world.get<StatusEffectComponent>(target)->count, 0);
+    EXPECT_FALSE(world.get<StatusEffectComponent>(target)->has(StatusId::Chill));
+    EXPECT_FLOAT_EQ(world.get<StatusEffectComponent>(target)->moveSpeedScale(), 1.0f);
 }
 
 TEST(CombatSystem_ShockApplied_HitReactionHitch, NoStunDr)
@@ -832,6 +915,25 @@ TEST(CombatSystem_ShockApplied_HitReactionHitch, NoStunDr)
     EXPECT_NEAR(hit.settings().knockbackDistance, 0.0f, 1.0e-4f);
     EXPECT_NEAR(hit.settings().knockbackSeconds, 0.0f, 1.0e-4f);
     EXPECT_NEAR(hit.knockbackRemaining(), 0.0f, 1.0e-4f);
+}
+
+TEST(CombatSystem_ShockApplied_HyperArmorNoHitch, StatusKept)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    PoiseComponent poise{};
+    poise.hyperArmor = true;
+    StatusEffectComponent st{};
+    HitReaction  hit{};
+    DamageEvent ev = makeHit(1.0f, DamageType::True);
+    ev.flags    = DamageFlags::None;
+    ev.statusId = static_cast<uint8_t>(StatusId::Shock);
+    const ResolveResult r = sys.resolveDirect(ev, &hp, &hit, nullptr, nullptr, &poise, &st, nullptr, 100.0f);
+    EXPECT_GT(r.ccDuration, 0.0f);
+    EXPECT_TRUE(st.has(StatusId::Shock));
+    EXPECT_FALSE(st.hasHardCc());
+    EXPECT_EQ(st.dr[static_cast<int>(CcCategory::Stun)].applications, 0);
+    EXPECT_FALSE(hit.stunned());
 }
 
 TEST(CombatSystem_ShockRefresh_NoSecondHitch, SnapshotHadShock)

@@ -217,9 +217,10 @@ namespace Dark::Combat
 
         if (hitReaction && !r.blocked)
         {
-            const bool hyper         = poise && poise->hyperArmor;
-            const bool knockdownHit  = mappedKnockdown || static_cast<StatusId>(ev.statusId) == StatusId::Knockdown;
-            const bool shockApplied  = static_cast<StatusId>(ev.statusId) == StatusId::Shock && r.ccDuration > 0.0f && !hadShock;
+            const bool hyper        = poise && poise->hyperArmor;
+            const bool knockdownHit = (ev.statusId == 0 && mappedKnockdown)
+                || static_cast<StatusId>(ev.statusId) == StatusId::Knockdown;
+            const bool shockApplied = static_cast<StatusId>(ev.statusId) == StatusId::Shock && r.ccDuration > 0.0f && !hadShock;
             if (knockdownHit && r.ccDuration > 0.0f)
             {
                 if (!hyper)
@@ -233,7 +234,7 @@ namespace Dark::Combat
                     hitReaction->apply(ev.hitDir);
                 }
             }
-            else if (shockApplied)
+            else if (shockApplied && !hyper)
             {
                 HitReactionSettings hitch{};
                 hitch.stunSeconds       = 0.25f;
