@@ -813,8 +813,6 @@ void TerrainGrid::updateLod(const Vector3f& cameraPos)
                 }
             }
             world.applyExternalLods(tileLods.data(), tileEdges.data());
-            if (world.needsRebuild())
-                world.rebuildDirtyCpuMeshes();
         }
     }
 }
@@ -979,8 +977,10 @@ void TerrainGrid::updateStreaming(const Vector3f& cameraPos, Renderer* renderer,
     int cz = 0;
     worldToTile(cameraPos.x, cameraPos.z, cx, cz);
 
-    int loaded  = 0;
-    int evicted = 0;
+    int  loaded    = 0;
+    int  evictN    = 0;
+    int  evictTx[kMaxWorldTiles * kMaxWorldTiles];
+    int  evictTz[kMaxWorldTiles * kMaxWorldTiles];
     for (int tz = 0; tz < static_cast<int>(m_tilesZ); ++tz)
     {
         for (int tx = 0; tx < static_cast<int>(m_tilesX); ++tx)
@@ -994,13 +994,20 @@ void TerrainGrid::updateStreaming(const Vector3f& cameraPos, Renderer* renderer,
             }
             else if (slot.resident)
             {
-                evictFineTile(tx, tz);
-                ++evicted;
+                evictTx[evictN] = tx;
+                evictTz[evictN] = tz;
+                ++evictN;
             }
         }
     }
 
-    if (loaded > 0 || evicted > 0)
+    // Last frame's Execute may still be drawing these VB/IB / heaps.
+    if (evictN > 0 && renderer)
+        renderer->waitForGpu();
+    for (int i = 0; i < evictN; ++i)
+        evictFineTile(evictTx[i], evictTz[i]);
+
+    if (loaded > 0 || evictN > 0)
     {
         DE_LOG_INFO(
             LogCategory::Render,
@@ -1017,6 +1024,35 @@ void TerrainGrid::updateStreaming(const Vector3f& cameraPos, Renderer* renderer,
 
     // Lod on the resident virtual grid before any GPU create. Tiles do not call updateLod.
     updateLod(cameraPos);
+
+    bool rebuild = false;
+    for (int tz = 0; tz < static_cast<int>(m_tilesZ); ++tz)
+    {
+        for (int tx = 0; tx < static_cast<int>(m_tilesX); ++tx)
+        {
+            if (m_slots[tz][tx].resident && m_slots[tz][tx].world.needsRebuild())
+            {
+                rebuild = true;
+                break;
+            }
+        }
+        if (rebuild)
+            break;
+    }
+    if (rebuild)
+    {
+        if (renderer && evictN == 0)
+            renderer->waitForGpu(); // lod rebuild assigns Mesh{} without this wait
+        for (int tz = 0; tz < static_cast<int>(m_tilesZ); ++tz)
+        {
+            for (int tx = 0; tx < static_cast<int>(m_tilesX); ++tx)
+            {
+                TileSlot& slot = m_slots[tz][tx];
+                if (slot.resident && slot.world.needsRebuild())
+                    slot.world.rebuildDirtyCpuMeshes();
+            }
+        }
+    }
 
     if (renderer)
         applyGpu(*renderer, material);
