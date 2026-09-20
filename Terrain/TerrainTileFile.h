@@ -8,9 +8,11 @@
 namespace Dark::Terrain
 {
 
-constexpr int      kTileCells     = 512;
-constexpr int      kTileSamples   = kTileCells + 1; // 513
-constexpr uint32_t kMaxWorldTiles = 8;
+constexpr int      kTileCells           = 512;
+constexpr int      kTileSamples         = kTileCells + 1; // 513
+constexpr uint32_t kMaxWorldTiles       = 8;
+constexpr int      kResidentRingDefault = 5;
+constexpr int      kResidentRingMax     = 7;
 
 inline std::string tileHeightFileName(int tileX, int tileZ)
 {
