@@ -23,7 +23,7 @@ Track the next seven deferred-PBR features in **build order**. Each child RFC is
 | 6 | [DESIGN-local-light-shadows.md](./DESIGN-local-light-shadows.md) | Independent of IBL; needs stable local-light volumes |
 | 7 | [DESIGN-reflections.md](./DESIGN-reflections.md) (**rev 2**) | **Accepted** (execute-plan db67d670 PRs 1–5). SSR v1 dual-path + water; planar extra view remains v2 |
 
-Terrain splat look-track is [`Terrain/DESIGN-terrain-system.md`](../Terrain/DESIGN-terrain-system.md) rev 2; sibling of this track, not item 3. Still not `Dark::Material`. Reverse-Z is [`DESIGN-reverse-z.md`](./DESIGN-reverse-z.md) **Accepted**; sibling of this track (world-scale prerequisite), not a seventh item.
+Terrain splat look-track is [`Terrain/DESIGN-terrain-system.md`](../Terrain/DESIGN-terrain-system.md) rev 2; sibling of this track, not item 3. Still not `Dark::Material`. Reverse-Z is [`DESIGN-reverse-z.md`](./DESIGN-reverse-z.md) **Accepted**; sibling of this track (world-scale prerequisite), not a seventh item. Terrain streaming + erosion is [`Terrain/DESIGN-terrain-streaming.md`](../Terrain/DESIGN-terrain-streaming.md) **Accepted**; sibling of look-track, not a seventh item.
 
 ## Dependency graph
 
@@ -52,6 +52,7 @@ tonemap/bloom (done) ──► auto-exposure
 ## Out of track (explicitly later)
 
 - Reverse-Z ([DESIGN-reverse-z.md](./DESIGN-reverse-z.md) **Accepted**) — world-scale prerequisite; sibling of this seven-item track (like terrain), not a seventh item
+- Terrain streaming + erosion ([DESIGN-terrain-streaming.md](../Terrain/DESIGN-terrain-streaming.md) **Accepted**) — sibling of look-track; not a seventh item
 - DDGI / path-traced GI / Lumen-like
 - Area lights / LTC
 - Clustered light lists

@@ -1,6 +1,6 @@
 # Terrain look-track cheatsheet
 
-Companion to this RFC (look track). Replaces the Plan A CDLOD one-pager.
+Companion to this RFC (look track). Replaces the Plan A CDLOD one-pager. Streaming follow-up is [`DESIGN-terrain-streaming.md`](./DESIGN-terrain-streaming.md).
 
 **Rule:** ENU meters. Same metal-rough BRDF as props (`PbrLighting.hlsli` + deferred IBL). Geomipmap weld, ΔLOD≤1 — **no CDLOD in this track**. Physics queries = the same `HeightMap`. **No VT / Nanite / Cesium / tessellation / bindless / BC7.**
 
