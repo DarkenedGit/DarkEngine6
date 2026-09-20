@@ -38,7 +38,7 @@ namespace Dark::Combat
         CcCategory      ccCategory           = CcCategory::Count; // Count = not CC
         float           defaultDuration      = 0.f;
         float           defaultMagnitude     = 1.f;
-        float           tickDamage           = 0.f; // 0 = no DoT
+        float           tickDamage           = 0.f;
         float           tickInterval         = 1.f;
         bool            tickScalesWithStacks = false;
 

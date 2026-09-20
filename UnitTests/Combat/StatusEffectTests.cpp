@@ -95,6 +95,25 @@ TEST(Status_Chill_MoveSpeedScale, DefaultHalfClampBounds)
     EXPECT_NEAR(st.moveSpeedScale(), 1.0f, 1.0e-4f);
 }
 
+TEST(Status_Chill_ExpiryTurnsOffScale, TickPastDurationWithoutHarvest)
+{
+    StatusEffectComponent st{};
+    ASSERT_NEAR(st.applyStatus(StatusId::Chill, 0.0f, 0.0f), 6.0f, 1.0e-4f);
+    EXPECT_NEAR(st.moveSpeedScale(), 0.5f, 1.0e-4f);
+    drainStatusFx(st, nullptr, 0);
+
+    st.tick(6.1f);
+    EXPECT_FALSE(st.has(StatusId::Chill));
+    EXPECT_FLOAT_EQ(st.remaining(StatusId::Chill), 0.0f);
+    EXPECT_FLOAT_EQ(st.moveSpeedScale(), 1.0f);
+    EXPECT_EQ(st.count, 1);
+
+    DamageEvent evs[1]{};
+    EXPECT_EQ(st.harvestDot(evs, 1, Entity{}), 0);
+    EXPECT_EQ(st.count, 0);
+    EXPECT_TRUE(drainHasOp(st, StatusFxOp::Expired, static_cast<uint8_t>(StatusId::Chill)));
+}
+
 TEST(Status_Shock_DoesNotConsumeStunDr, ThreeStunsStill2_1_0)
 {
     StatusEffectComponent st{};
