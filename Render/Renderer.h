@@ -8,6 +8,8 @@
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <memory>
+#include <unknwn.h>
+#include <vector>
 #include <wrl/client.h>
 
 namespace Dark
@@ -56,8 +58,17 @@ namespace Dark
         // a stale smaller value can hang WaitForSingleObject on the fence.
         static void broadcastFenceValueAfterWait(uint64_t* values, uint32_t count, uint32_t currentIndex);
 
-        // Drain the graphics queue (resource uploads, teardown).
+        // Drain the graphics queue (teardown / resize). Uploads should not call this.
         void waitForGpu();
+
+        // GPU copy of upload→default buffers. Prefers the COPY queue, then
+        // graphics-queue Wait — CPU does not stall. srcA/srcB must stay alive
+        // until pumpDeferredReleases (caller should deferRelease them).
+        bool submitBufferCopies(ID3D12Resource* dstA, ID3D12Resource* srcA, uint64_t bytesA, ID3D12Resource* dstB, ID3D12Resource* srcB, uint64_t bytesB);
+
+        // Keep a resource/allocator/list until in-flight GPU work that used it is done.
+        void deferRelease(IUnknown* obj);
+        void pumpDeferredReleases();
 
         ID3D12Device* device()
         {
@@ -175,6 +186,15 @@ namespace Dark
 
         ComPtr<ID3D12Device>              m_device;
         ComPtr<ID3D12CommandQueue>        m_commandQueue;
+        ComPtr<ID3D12CommandQueue>        m_copyQueue;
+        ComPtr<ID3D12Fence>               m_copyFence;
+        UINT64                            m_copyFenceValue = 1;
+        struct DeferredGpu
+        {
+            Microsoft::WRL::ComPtr<IUnknown> obj;
+            int                              framesLeft = 0;
+        };
+        std::vector<DeferredGpu>          m_deferredGpu;
         ComPtr<IDXGISwapChain3>           m_swapChain;
         ComPtr<ID3D12DescriptorHeap>      m_rtvHeap;
         ComPtr<ID3D12DescriptorHeap>      m_dsvHeap;

@@ -196,6 +196,11 @@ TEST(TerrainLod, Helpers)
     EXPECT_EQ(lodFromDistance(10.0f, dist, 3, 4), 1);
     EXPECT_EQ(lodFromDistance(25.0f, dist, 3, 4), 2);
     EXPECT_EQ(lodFromDistance(100.0f, dist, 3, 4), 3);
+
+    EXPECT_EQ(lodFromDistance(10.0f, dist, 3, 4, 0), 0);
+    EXPECT_EQ(lodFromDistance(12.0f, dist, 3, 4, 0), 1);
+    EXPECT_EQ(lodFromDistance(9.0f, dist, 3, 4, 1), 1);
+    EXPECT_EQ(lodFromDistance(8.0f, dist, 3, 4, 1), 0);
 }
 
 TEST(TerrainLod, RestrictCreatesGradient)

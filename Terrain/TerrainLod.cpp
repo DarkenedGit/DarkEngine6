@@ -24,7 +24,7 @@ namespace Dark::Terrain
         return lod;
     }
 
-    int lodFromDistance(float distance, const float* distances, int distanceCount, int maxLod)
+    int lodFromDistance(float distance, const float* distances, int distanceCount, int maxLod, int currentLod)
     {
         if (maxLod < 0)
             maxLod = 0;
@@ -39,7 +39,24 @@ namespace Dark::Terrain
             else
                 break;
         }
-        return lod > maxLod ? maxLod : lod;
+        if (lod > maxLod)
+            lod = maxLod;
+        if (currentLod < 0 || currentLod == lod)
+            return lod;
+        if (currentLod > maxLod)
+            currentLod = maxLod;
+        if (lod > currentLod)
+        {
+            if (currentLod < distanceCount && distance >= distances[currentLod] * 1.15f)
+            {
+                const int next = currentLod + 1;
+                return next > maxLod ? maxLod : next;
+            }
+            return currentLod;
+        }
+        if (currentLod > 0 && (currentLod - 1) < distanceCount && distance < distances[currentLod - 1] * 0.85f)
+            return currentLod - 1;
+        return currentLod;
     }
 
     void restrictNeighborLods(int* lods, int chunksX, int chunksZ, int maxIterations)

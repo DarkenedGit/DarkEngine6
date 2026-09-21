@@ -386,7 +386,6 @@ void EditorApp::syncTerrainLod()
     m_water.updateLod(m_camera.GetPosition());
     if (m_water.needsRebuild())
     {
-        renderer().waitForGpu();
         m_water.rebuildDirtyCpuMeshes();
         if (!m_water.uploadDirty(renderer()))
             DE_LOG_ERROR(LogCategory::Render, "Editor: water upload failed");

@@ -212,6 +212,7 @@ private:
     int       m_pinTz     = 0;
     int       m_pinRing   = 3;
     TileSlot  m_slots[kMaxWorldTiles][kMaxWorldTiles];
+    GpuMeshRetire m_gpuRetire;
 };
 
 } // namespace Terrain

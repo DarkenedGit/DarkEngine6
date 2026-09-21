@@ -272,6 +272,13 @@ void TerrainWorld::markHeightDirtyRect(int x0, int z0, int x1, int z1)
         m_bounds = m_heightMap.bounds();
 }
 
+void TerrainWorld::giveGpuMeshes(GpuMeshRetire& dst)
+{
+    dst.takeFrom(m_gpuRetire);
+    for (TerrainChunk& c : m_chunks)
+        dst.push(std::move(c.gpu));
+}
+
 void TerrainWorld::rebuildDirtyCpuMeshes()
 {
     for (TerrainChunk& c : m_chunks)
@@ -299,7 +306,7 @@ void TerrainWorld::rebuildDirtyCpuMeshes()
 
         c.builtLod  = c.lod;
         c.builtMask = c.edges.bits;
-        c.gpu       = Mesh{}; // force re-upload
+        m_gpuRetire.push(std::move(c.gpu));
     }
 }
 

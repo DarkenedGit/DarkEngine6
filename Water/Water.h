@@ -130,6 +130,7 @@ namespace Dark
 
         std::vector<WaterChunk> m_chunks;
         std::vector<int>        m_lods;
+        GpuMeshRetire           m_gpuRetire;
 
         mutable uint32_t m_lastDrawCalls = 0;
         mutable uint32_t m_lastTriangles = 0;

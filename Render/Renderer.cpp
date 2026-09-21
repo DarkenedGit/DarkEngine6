@@ -115,6 +115,17 @@ namespace Dark
     Renderer::~Renderer()
     {
         waitForGpu();
+        if (m_copyQueue && m_copyFence)
+        {
+            const UINT64 v = m_copyFenceValue;
+            m_copyQueue->Signal(m_copyFence.Get(), v);
+            if (m_copyFence->GetCompletedValue() < v && m_fenceEvent)
+            {
+                m_copyFence->SetEventOnCompletion(v, m_fenceEvent);
+                WaitForSingleObjectEx(m_fenceEvent, INFINITE, FALSE);
+            }
+        }
+        m_deferredGpu.clear();
         if (m_gpuResources)
         {
             m_gpuResources->clear();
@@ -195,6 +206,12 @@ namespace Dark
         if (!checkHr(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_commandQueue)), "CreateCommandQueue"))
             return false;
 
+        D3D12_COMMAND_QUEUE_DESC copyDesc{};
+        copyDesc.Type  = D3D12_COMMAND_LIST_TYPE_COPY;
+        copyDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+        if (!checkHr(m_device->CreateCommandQueue(&copyDesc, IID_PPV_ARGS(&m_copyQueue)), "CreateCommandQueue (copy)"))
+            return false;
+
         m_swapChainFlags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
 
         DXGI_SWAP_CHAIN_DESC1 scDesc{};
@@ -255,6 +272,8 @@ namespace Dark
             return false;
 
         if (!checkHr(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)), "CreateFence"))
+            return false;
+        if (!checkHr(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_copyFence)), "CreateFence (copy)"))
             return false;
         // Match D3D12HelloFrameBuffering: fence starts at 0; the value we will
         // Signal after the first use of this back-buffer slot is 1.
@@ -464,6 +483,8 @@ namespace Dark
             DE_LOG_ERROR(LogCategory::Render, "Renderer::beginFrame: missing back buffer");
             return false;
         }
+
+        pumpDeferredReleases();
 
         // m_frameIndex was advanced in moveToNextFrame(), which already waited until
         // this slot's prior GPU work finished. Safe to reset its allocator now.
@@ -683,6 +704,90 @@ namespace Dark
         }
 
         m_fenceValues[m_frameIndex] = fenceValue + 1;
+    }
+
+    void Renderer::deferRelease(IUnknown* obj)
+    {
+        if (!obj)
+            return;
+        DeferredGpu d;
+        d.obj        = obj;
+        d.framesLeft = static_cast<int>(kFrameCount) + 1;
+        m_deferredGpu.push_back(std::move(d));
+    }
+
+    void Renderer::pumpDeferredReleases()
+    {
+        for (size_t i = 0; i < m_deferredGpu.size();)
+        {
+            if (--m_deferredGpu[i].framesLeft <= 0)
+            {
+                m_deferredGpu[i] = std::move(m_deferredGpu.back());
+                m_deferredGpu.pop_back();
+            }
+            else
+                ++i;
+        }
+    }
+
+    bool Renderer::submitBufferCopies(ID3D12Resource* dstA, ID3D12Resource* srcA, uint64_t bytesA, ID3D12Resource* dstB, ID3D12Resource* srcB, uint64_t bytesB)
+    {
+        if (!m_device || !dstA || !srcA || bytesA == 0)
+            return false;
+        ID3D12CommandQueue* q      = m_copyQueue.Get() ? m_copyQueue.Get() : m_commandQueue.Get();
+        const D3D12_COMMAND_LIST_TYPE listType = m_copyQueue ? D3D12_COMMAND_LIST_TYPE_COPY : D3D12_COMMAND_LIST_TYPE_DIRECT;
+        if (!q)
+            return false;
+
+        ComPtr<ID3D12CommandAllocator>    alloc;
+        ComPtr<ID3D12GraphicsCommandList> list;
+        if (!checkHr(m_device->CreateCommandAllocator(listType, IID_PPV_ARGS(&alloc)), "CreateCommandAllocator (buffer copy)")
+            || !checkHr(m_device->CreateCommandList(0, listType, alloc.Get(), nullptr, IID_PPV_ARGS(&list)), "CreateCommandList (buffer copy)"))
+            return false;
+
+        list->CopyBufferRegion(dstA, 0, srcA, 0, bytesA);
+        if (dstB && srcB && bytesB > 0)
+            list->CopyBufferRegion(dstB, 0, srcB, 0, bytesB);
+
+        if (listType == D3D12_COMMAND_LIST_TYPE_DIRECT)
+        {
+            D3D12_RESOURCE_BARRIER barriers[2]{};
+            UINT                   n = 0;
+            barriers[n].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barriers[n].Transition.pResource   = dstA;
+            barriers[n].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+            barriers[n].Transition.StateAfter  = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
+            barriers[n].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            ++n;
+            if (dstB)
+            {
+                barriers[n].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                barriers[n].Transition.pResource   = dstB;
+                barriers[n].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+                barriers[n].Transition.StateAfter  = D3D12_RESOURCE_STATE_INDEX_BUFFER;
+                barriers[n].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                ++n;
+            }
+            list->ResourceBarrier(n, barriers);
+        }
+
+        if (!checkHr(list->Close(), "Close buffer copy list"))
+            return false;
+        ID3D12CommandList* lists[] = { list.Get() };
+        q->ExecuteCommandLists(1, lists);
+
+        if (m_copyQueue && m_copyFence && m_commandQueue)
+        {
+            const UINT64 v = m_copyFenceValue++;
+            if (FAILED(m_copyQueue->Signal(m_copyFence.Get(), v)))
+                return false;
+            if (FAILED(m_commandQueue->Wait(m_copyFence.Get(), v)))
+                return false;
+        }
+
+        deferRelease(alloc.Get());
+        deferRelease(list.Get());
+        return true;
     }
 
     bool Renderer::hasSceneBuffers() const

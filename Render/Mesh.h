@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <d3d12.h>
+#include <vector>
 #include <wrl/client.h>
 
 namespace Dark
@@ -42,8 +43,8 @@ namespace Dark
     public:
         Mesh() = default;
 
-        // Uploads mesh data to the GPU. Blocks until the copy completes.
-        // Returns an invalid mesh on failure (does not throw).
+        // Uploads mesh data to the GPU. The copy is queued (COPY queue when
+        // available); the CPU does not wait. Returns an invalid mesh on failure.
         [[nodiscard]] static Mesh Create(Renderer& renderer, const MeshData& data);
 
         // Non-throwing upload. On failure `out` is left empty and false is returned.
@@ -77,5 +78,26 @@ namespace Dark
         D3D12_INDEX_BUFFER_VIEW  m_ibv{};
         uint32_t                 m_indexCount  = 0;
         uint32_t                 m_vertexCount = 0;
+    };
+
+    // Keep a Mesh's GPU buffers alive for a few frames after swap-out so the
+    // in-flight draw that still references them cannot hit OBJECT_DELETED.
+    class GpuMeshRetire
+    {
+    public:
+        static constexpr int kFrames = 3;
+
+        void push(Mesh&& mesh);
+        void takeFrom(GpuMeshRetire& other);
+        void tick();
+        void clear() { m_items.clear(); }
+
+    private:
+        struct Item
+        {
+            Mesh mesh;
+            int  frames = kFrames;
+        };
+        std::vector<Item> m_items;
     };
 } // namespace Dark

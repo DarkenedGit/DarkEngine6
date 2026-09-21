@@ -2353,7 +2353,6 @@ void SandboxApp::syncTerrainLod()
     const bool waterDirty = m_water.needsRebuild();
     if (!waterDirty)
         return;
-    renderer().waitForGpu();
     m_water.rebuildDirtyCpuMeshes();
     if (!m_water.uploadDirty(renderer()))
         DE_LOG_ERROR("SandboxApp: water upload failed");

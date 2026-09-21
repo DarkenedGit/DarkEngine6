@@ -68,6 +68,8 @@ namespace Terrain
         bool uploadsHeightTexture() const { return m_uploadHeightTexture; }
         void setNormalHeightMap(const HeightMap* map) { m_normalMap = map; }
         void rebuildDirtyCpuMeshes();
+        void tickGpuRetire() { m_gpuRetire.tick(); }
+        void giveGpuMeshes(GpuMeshRetire& dst);
         bool needsRebuild() const;
         int  pendingGpuUploads() const;
         void markHeightDirty();
@@ -144,6 +146,7 @@ namespace Terrain
 
         std::vector<TerrainChunk> m_chunks;
         std::vector<int>          m_lods;
+        GpuMeshRetire             m_gpuRetire;
 
         mutable uint32_t m_lastDrawCalls = 0;
         mutable uint32_t m_lastTriangles = 0;

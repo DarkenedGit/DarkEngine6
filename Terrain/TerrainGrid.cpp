@@ -740,6 +740,7 @@ void TerrainGrid::evictFineTile(int tx, int tz)
         return;
     TileSlot& slot = m_slots[tz][tx];
     unregisterTileHeap(slot);
+    slot.world.giveGpuMeshes(m_gpuRetire);
     slot.world             = TerrainWorld{};
     slot.splatTexture      = Texture2D{};
     slot.splat             = SplatMap{};
@@ -805,8 +806,9 @@ void TerrainGrid::updateLod(const Vector3f& cameraPos)
                     const float dy = center.y - cameraPos.y;
                     const float dz = center.z - cameraPos.z;
                     const float dist = sqrtf(dx * dx + dy * dy + dz * dz);
+                    const int current = (c->builtLod < 0) ? -1 : c->lod;
                     virtualLods[static_cast<size_t>((oz + cz) * vx + (ox + cx))] =
-                        lodFromDistance(dist, m_lodDistances, m_lodDistanceCount, world.maxLod());
+                        lodFromDistance(dist, m_lodDistances, m_lodDistanceCount, world.maxLod(), current);
                 }
             }
         }
@@ -973,7 +975,6 @@ void TerrainGrid::applyGpu(Renderer& renderer, const TerrainMaterial* material)
     if (!target)
         return;
 
-    renderer.waitForGpu();
     const auto t0 = std::chrono::steady_clock::now();
     if (firstApply)
     {
@@ -1004,6 +1005,16 @@ void TerrainGrid::updateStreaming(const Vector3f& cameraPos, Renderer* renderer,
     if (!m_valid)
         return;
 
+    m_gpuRetire.tick();
+    for (int tz = 0; tz < static_cast<int>(m_tilesZ); ++tz)
+    {
+        for (int tx = 0; tx < static_cast<int>(m_tilesX); ++tx)
+        {
+            if (m_slots[tz][tx].resident)
+                m_slots[tz][tx].world.tickGpuRetire();
+        }
+    }
+
     int cx = 0;
     int cz = 0;
     worldToTile(cameraPos.x, cameraPos.z, cx, cz);
@@ -1012,6 +1023,10 @@ void TerrainGrid::updateStreaming(const Vector3f& cameraPos, Renderer* renderer,
     int  evictN    = 0;
     int  evictTx[kMaxWorldTiles * kMaxWorldTiles];
     int  evictTz[kMaxWorldTiles * kMaxWorldTiles];
+    int  bestLoadTx = -1;
+    int  bestLoadTz = -1;
+    float bestLoadD = 1.0e30f;
+    const int maxLoad = renderer ? 1 : (kMaxWorldTiles * kMaxWorldTiles);
     for (int tz = 0; tz < static_cast<int>(m_tilesZ); ++tz)
     {
         for (int tx = 0; tx < static_cast<int>(m_tilesX); ++tx)
@@ -1020,8 +1035,28 @@ void TerrainGrid::updateStreaming(const Vector3f& cameraPos, Renderer* renderer,
             TileSlot&  slot = m_slots[tz][tx];
             if (want)
             {
-                if (!slot.resident && loadFineTile(tx, tz))
-                    ++loaded;
+                if (!slot.resident)
+                {
+                    if (!renderer)
+                    {
+                        if (loadFineTile(tx, tz))
+                            ++loaded;
+                    }
+                    else
+                    {
+                        const float tcx = m_origin.x + (static_cast<float>(tx) + 0.5f) * m_tileWorld;
+                        const float tcz = m_origin.z + (static_cast<float>(tz) + 0.5f) * m_tileWorld;
+                        const float dx  = tcx - cameraPos.x;
+                        const float dz  = tcz - cameraPos.z;
+                        const float d2  = dx * dx + dz * dz;
+                        if (d2 < bestLoadD)
+                        {
+                            bestLoadD  = d2;
+                            bestLoadTx = tx;
+                            bestLoadTz = tz;
+                        }
+                    }
+                }
             }
             else if (slot.resident)
             {
@@ -1031,10 +1066,9 @@ void TerrainGrid::updateStreaming(const Vector3f& cameraPos, Renderer* renderer,
             }
         }
     }
+    if (bestLoadTx >= 0 && loaded < maxLoad && loadFineTile(bestLoadTx, bestLoadTz))
+        ++loaded;
 
-    // Last frame's Execute may still be drawing these VB/IB / heaps.
-    if (evictN > 0 && renderer)
-        renderer->waitForGpu();
     for (int i = 0; i < evictN; ++i)
         evictFineTile(evictTx[i], evictTz[i]);
 
@@ -1072,16 +1106,23 @@ void TerrainGrid::updateStreaming(const Vector3f& cameraPos, Renderer* renderer,
     }
     if (rebuild)
     {
-        if (renderer && evictN == 0)
-            renderer->waitForGpu(); // lod rebuild assigns Mesh{} without this wait
+        int rebuilt = 0;
+        const int maxRebuild = renderer ? 1 : (kMaxWorldTiles * kMaxWorldTiles);
         for (int tz = 0; tz < static_cast<int>(m_tilesZ); ++tz)
         {
             for (int tx = 0; tx < static_cast<int>(m_tilesX); ++tx)
             {
                 TileSlot& slot = m_slots[tz][tx];
                 if (slot.resident && slot.world.needsRebuild())
+                {
                     slot.world.rebuildDirtyCpuMeshes();
+                    ++rebuilt;
+                    if (rebuilt >= maxRebuild)
+                        break;
+                }
             }
+            if (rebuilt >= maxRebuild)
+                break;
         }
     }
 

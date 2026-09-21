@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <iterator>
 #include <vector>
 
 namespace Dark
@@ -86,36 +87,13 @@ namespace Dark
 				memcpy(mapped, indices, static_cast<size_t>(ibBytes));
 				uploadIb->Unmap(0, nullptr);
 			}
-			ComPtr<ID3D12CommandAllocator>    alloc;
-			ComPtr<ID3D12GraphicsCommandList> list;
-			if (FailedHr(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc)), "CreateCommandAllocator (mesh upload)") ||
-				FailedHr(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc.Get(), nullptr, IID_PPV_ARGS(&list)), "CreateCommandList (mesh upload)"))
+			if (!renderer.submitBufferCopies(out.m_vb.Get(), uploadVb.Get(), vbBytes, out.m_ib.Get(), uploadIb.Get(), ibBytes))
 			{
 				out = Mesh{};
 				return false;
 			}
-			list->CopyBufferRegion(out.m_vb.Get(), 0, uploadVb.Get(), 0, vbBytes);
-			list->CopyBufferRegion(out.m_ib.Get(), 0, uploadIb.Get(), 0, ibBytes);
-			D3D12_RESOURCE_BARRIER barriers[2]{};
-			barriers[0].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-			barriers[0].Transition.pResource   = out.m_vb.Get();
-			barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-			barriers[0].Transition.StateAfter  = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
-			barriers[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-			barriers[1].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-			barriers[1].Transition.pResource   = out.m_ib.Get();
-			barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-			barriers[1].Transition.StateAfter  = D3D12_RESOURCE_STATE_INDEX_BUFFER;
-			barriers[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-			list->ResourceBarrier(2, barriers);
-			if (FailedHr(list->Close(), "Close mesh upload list"))
-			{
-				out = Mesh{};
-				return false;
-			}
-			ID3D12CommandList* lists[] = { list.Get() };
-			renderer.queue()->ExecuteCommandLists(1, lists);
-			renderer.waitForGpu();
+			renderer.deferRelease(uploadVb.Get());
+			renderer.deferRelease(uploadIb.Get());
 			out.m_vbv.BufferLocation = out.m_vb->GetGPUVirtualAddress();
 			out.m_vbv.StrideInBytes  = stride;
 			out.m_vbv.SizeInBytes    = static_cast<UINT>(vbBytes);
@@ -232,6 +210,38 @@ namespace Dark
 		if (!tryCreate(renderer, data, mesh))
 			return Mesh{};
 		return mesh;
+	}
+
+	void GpuMeshRetire::push(Mesh&& mesh)
+	{
+		if (!mesh.valid())
+			return;
+		Item item;
+		item.mesh   = std::move(mesh);
+		item.frames = kFrames;
+		m_items.push_back(std::move(item));
+	}
+
+	void GpuMeshRetire::takeFrom(GpuMeshRetire& other)
+	{
+		if (other.m_items.empty())
+			return;
+		m_items.insert(m_items.end(), std::make_move_iterator(other.m_items.begin()), std::make_move_iterator(other.m_items.end()));
+		other.m_items.clear();
+	}
+
+	void GpuMeshRetire::tick()
+	{
+		for (size_t i = 0; i < m_items.size();)
+		{
+			if (--m_items[i].frames <= 0)
+			{
+				m_items[i] = std::move(m_items.back());
+				m_items.pop_back();
+			}
+			else
+				++i;
+		}
 	}
 
 	void Mesh::draw(ID3D12GraphicsCommandList* cmd, bool pointList) const

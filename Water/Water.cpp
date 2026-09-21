@@ -166,6 +166,7 @@ using namespace Terrain;
     {
         if (m_chunks.empty())
             return;
+        m_gpuRetire.tick();
 
         for (WaterChunk& c : m_chunks)
         {
@@ -180,7 +181,8 @@ using namespace Terrain;
             const float dy = center.y - cameraPos.y;
             const float dz = center.z - cameraPos.z;
             const float dist = sqrtf(dx * dx + dy * dy + dz * dz);
-            c.lod = lodFromDistance(dist, m_lodDistances, m_lodDistanceCount, m_maxLod);
+            const int current = (c.builtLod < 0) ? -1 : c.lod;
+            c.lod = lodFromDistance(dist, m_lodDistances, m_lodDistanceCount, m_maxLod, current);
             m_lods[static_cast<size_t>(c.iz * m_chunksX + c.ix)] = c.lod;
         }
 
@@ -261,7 +263,7 @@ using namespace Terrain;
         c.cpu       = std::move(mesh);
         c.builtLod  = c.lod;
         c.builtMask = c.edges.bits;
-        c.gpu       = Mesh{};
+        m_gpuRetire.push(std::move(c.gpu));
         return true;
     }
 

@@ -46,7 +46,8 @@ namespace Dark::Terrain
     int maxLodForChunkCells(int chunkCells);
 
     // Distance-based LOD: distances[i] is the range at which we step from lod i to i+1.
-    int lodFromDistance(float distance, const float* distances, int distanceCount, int maxLod);
+    // currentLod < 0 snaps; otherwise hysteresis (×1.15 coarsen / ×0.85 refine) and at most one step.
+    int lodFromDistance(float distance, const float* distances, int distanceCount, int maxLod, int currentLod = -1);
 
     // Pull coarse patches toward their finer neighbors so adjacent LODs differ by at most 1.
     void restrictNeighborLods(int* lods, int chunksX, int chunksZ, int maxIterations = 32);
