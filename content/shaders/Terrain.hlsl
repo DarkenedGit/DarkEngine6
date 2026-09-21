@@ -38,7 +38,8 @@ Texture2D    gLayer1 : register(t3);
 Texture2D    gLayer2 : register(t6);
 Texture2D    gLayer3 : register(t9);
 Texture2D    gSplat  : register(t12);
-SamplerState gSamp   : register(s0);
+SamplerState gSamp      : register(s0);
+SamplerState gSplatSamp : register(s2);
 
 struct VSInput
 {
@@ -68,7 +69,7 @@ PSInput VSMain(VSInput input)
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    float4 splat = gSplat.Sample(gSamp, input.uv);
+    float4 splat = gSplat.Sample(gSplatSamp, input.uv);
     float  wsum  = splat.r + splat.g + splat.b + splat.a + 1e-5f;
     splat /= wsum;
 

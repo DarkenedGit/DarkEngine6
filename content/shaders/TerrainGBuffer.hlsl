@@ -32,7 +32,8 @@ Texture2D gAlbedo3 : register(t9);
 Texture2D gNormal3 : register(t10);
 Texture2D gOrm3    : register(t11);
 Texture2D gSplat   : register(t12);
-SamplerState gSamp : register(s0);
+SamplerState gSamp      : register(s0);
+SamplerState gSplatSamp : register(s2);
 
 struct VSInput
 {
@@ -96,7 +97,7 @@ float4 SampleOrm(Texture2D tex, float2 uvXZ, float2 uvYZ, float2 uvXY, float3 tw
 
 GBufferOut PSMain(PSInput input)
 {
-    float4 splat = gSplat.Sample(gSamp, input.uv);
+    float4 splat = gSplat.Sample(gSplatSamp, input.uv);
     float  wsum  = splat.r + splat.g + splat.b + splat.a + 1e-5f;
     splat /= wsum;
 

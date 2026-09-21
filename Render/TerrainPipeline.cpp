@@ -56,7 +56,7 @@ namespace Dark
         rootParams[kRootSrvTable].DescriptorTable.NumDescriptorRanges = 1;
         rootParams[kRootSrvTable].DescriptorTable.pDescriptorRanges   = &srvRange;
 
-        D3D12_STATIC_SAMPLER_DESC samps[2]{};
+        D3D12_STATIC_SAMPLER_DESC samps[3]{};
         samps[0].Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
         samps[0].AddressU         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
         samps[0].AddressV         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
@@ -75,8 +75,16 @@ namespace Dark
         samps[1].ShaderRegister   = 1;
         samps[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
+        samps[2].Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        samps[2].AddressU         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        samps[2].AddressV         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        samps[2].AddressW         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        samps[2].MaxLOD           = D3D12_FLOAT32_MAX;
+        samps[2].ShaderRegister   = 2;
+        samps[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
         UINT paramCount = 2;
-        UINT sampCount  = 1;
+        UINT sampCount  = 2; // wrap + clamp splat
         if (!gbuffer)
         {
             rootParams[kRootShadowCbv].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -84,7 +92,7 @@ namespace Dark
             rootParams[kRootShadowCbv].Descriptor.ShaderRegister = 1;
             rootParams[kRootShadowCbv].Descriptor.RegisterSpace  = 0;
             paramCount = 3;
-            sampCount  = 2;
+            sampCount  = 3; // wrap, shadow, clamp splat
         }
 
         D3D12_ROOT_SIGNATURE_DESC rsDesc{};
