@@ -191,6 +191,8 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
         jo["rotation"] = quatToJson(o.rotation);
         jo["scale"]    = vec3ToJson(o.scale);
         jo["color"]    = colorToJson(o.color);
+        if (!o.modelPath.empty())
+            jo["model"] = o.modelPath;
 
         if (o.hasParticle || o.type == SceneObjectType::ParticleEmitter)
         {
@@ -523,6 +525,8 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             o.emissive = jo["emissive"].get<float>();
         if (jo.contains("emissiveMesh") && jo["emissiveMesh"].is_number_integer())
             o.emissiveMeshIndex = jo["emissiveMesh"].get<int>();
+        if (jo.contains("model") && jo["model"].is_string())
+            o.modelPath = jo["model"].get<std::string>();
 
         if (o.scale.x == 0.0f)
             o.scale.x = 1.0f;

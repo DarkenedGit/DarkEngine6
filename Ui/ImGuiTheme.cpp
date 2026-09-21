@@ -200,6 +200,7 @@ namespace Dark
             ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Left, 0.20f, &dockLeft, &dockMain);
             ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Right, 0.26f, &dockRight, &dockMain);
             ImGui::DockBuilderDockWindow("Scene", dockLeft);
+            ImGui::DockBuilderDockWindow("Assets", dockLeft);
             ImGui::DockBuilderDockWindow("Inspector", dockRight);
             ImGui::DockBuilderDockWindow("Particle System", dockRight);
             ImGui::DockBuilderDockWindow("2D Level", dockRight);

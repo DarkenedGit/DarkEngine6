@@ -106,6 +106,17 @@ bool EditorApp::saveScene()
         }
         if (const auto* mc = world().get<MeshComponent>(e))
             d.emissive = mc->emissive;
+        if (so.type == SceneObjectType::Model)
+        {
+            if (const ModelComponent* modelComp = world().get<ModelComponent>(e))
+            {
+                if (const auto model = assets().getAs<Model>(modelComp->modelAssetID))
+                {
+                    const std::string virt = assets().virtualPathFromAbsolute(model->sourcePath());
+                    d.modelPath = virt.empty() ? model->sourcePath().generic_string() : virt;
+                }
+            }
+        }
         data.objects.push_back(d);
         saved.push_back(e);
     });
@@ -224,6 +235,12 @@ void EditorApp::handleEditorCommands(float dt)
         if (!netClientLocked())
             placeGlowProp();
     }
+    if (m_queueAssetPlace)
+    {
+        m_queueAssetPlace = false;
+        if (!netClientLocked() && !m_playMode)
+            flushQueuedAssetPlace();
+    }
 
     const bool ctrl = input().keyDown(Key::LeftControl) || input().keyDown(Key::RightControl);
     const bool uiKey = m_imgui.wantCaptureKeyboard();
@@ -265,6 +282,8 @@ void EditorApp::handleEditorCommands(float dt)
             m_showAnimPanel = !m_showAnimPanel;
         if (input().actionPressed("toggle_hsm_ui"))
             m_showHsmPanel = !m_showHsmPanel;
+        if (input().actionPressed("toggle_assets_ui"))
+            m_showAssetBrowser = !m_showAssetBrowser;
         if (input().actionPressed("debug_fill"))
         {
             renderer().debugState().cycleFill();

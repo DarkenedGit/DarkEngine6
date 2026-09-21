@@ -70,7 +70,7 @@ Entity EditorApp::pickObject(const Ray3f& ray)
         {
             hit = Collision::Intersect(ray, Sphere3f(xf->position, 0.22f));
         }
-        else if (isPawnType(so.type))
+        else if (usesModelBounds(so.type))
         {
             if (const ModelComponent* mc = world().get<ModelComponent>(e))
             {
@@ -212,8 +212,9 @@ Entity EditorApp::spawnObject(
     const bool globalLight = isGlobalLightType(type);
     const bool emitterType = type == SceneObjectType::ParticleEmitter;
     const bool pawnType    = isPawnType(type);
+    const bool modelType   = type == SceneObjectType::Model;
     if (m_sceneMode == SceneMode::Scene3D && isScene3DType(type) && !emitterType && !lightType && !globalLight && !pawnType
-        && xf.position.y < 0.5f * xf.scale.y)
+        && !modelType && xf.position.y < 0.5f * xf.scale.y)
         xf.position.y = 0.5f * xf.scale.y;
     world().emplace<TransformComponent>(e, xf);
 
@@ -249,7 +250,7 @@ Entity EditorApp::spawnObject(
         amb.enabled   = (authored && authored->hasLight) ? authored->lightEnabled : true;
         world().emplace<AmbientLightComponent>(e, amb);
     }
-    else if (!emitterType && !pawnType)
+    else if (!emitterType && !pawnType && !modelType)
     {
         MeshComponent mc{};
         mc.matAssetID  = m_propMaterial ? m_propMaterial->id : NULL_ASSET;
@@ -314,6 +315,18 @@ Entity EditorApp::spawnObject(
         world().destroyEntity(e);
         return {};
     }
+    if (type == SceneObjectType::Model)
+    {
+        const char* modelPath = (authored && !authored->modelPath.empty()) ? authored->modelPath.c_str() : nullptr;
+        if (!modelPath || !attachEditorModel(e, modelPath))
+        {
+            MeshComponent mc{};
+            mc.matAssetID  = m_propMaterial ? m_propMaterial->id : NULL_ASSET;
+            mc.meshAssetID = NULL_ASSET;
+            setMeshComponent(world(), pins(), assets(), e, mc);
+            DE_LOG_WARN("Editor: model '{}' using cube proxy", modelPath ? modelPath : "(none)");
+        }
+    }
     m_selected = e;
     if (registerNet && isReplicatedProp(type))
         network().registerEntity(world(), e, prefabFromType(type), ClientId::Host, packRgba8(so.color));
@@ -357,11 +370,17 @@ Entity EditorApp::placeAtCursor(SceneObjectType type)
         DE_LOG_WARN("Editor: place failed (no ground hit)");
         return {};
     }
+    return placeAtWorld(type, hit, nullptr);
+}
+
+Entity EditorApp::placeAtWorld(SceneObjectType type, Vector3f hit, const SceneObjectData* authored)
+{
     if (m_gridSnap > 0.0f)
     {
         hit.x = snap(hit.x, m_gridSnap);
         hit.z = snap(hit.z, m_gridSnap);
     }
+    const float groundY = hit.y;
     float lightCol[4]{};
     defaultLightColor(lightCol);
     float pawnCol[4]{ 0.35f, 0.85f, 0.72f, 1.0f };
@@ -385,11 +404,31 @@ Entity EditorApp::placeAtCursor(SceneObjectType type)
         hit.y = 0.5f;
     else if (isPawnType(type))
         hit.y += 0.5f;
+    else if (type == SceneObjectType::Model)
+        hit.y = groundY;
     else
         hit.y = 0.5f * scale.y;
     const Quaternion rot = (type == SceneObjectType::SpotLight) ? defaultSpotRotation() : Quaternion::IDENTITY;
-    const Entity e = spawnObject(type, hit, scale, rot, col, nullptr);
-    if (e.valid())
+    const Entity e = spawnObject(type, hit, scale, rot, col, nullptr, authored);
+    if (!e.valid())
+        return {};
+    if (type == SceneObjectType::Model)
+    {
+        if (TransformComponent* xf = world().get<TransformComponent>(e))
+        {
+            if (const ModelComponent* mc = world().get<ModelComponent>(e))
+            {
+                const auto model = assets().getAs<Model>(mc->modelAssetID);
+                if (model && model->bounds().IsValid())
+                    xf->position.y = groundY - model->bounds().Min.y * xf->scale.y;
+                else
+                    xf->position.y = groundY + 0.5f * xf->scale.y;
+            }
+        }
+    }
+    if (const TransformComponent* xf = world().get<TransformComponent>(e))
+        audio().play3D(m_sfxPlace, xf->position, 0.65f);
+    else
         audio().play3D(m_sfxPlace, hit, 0.65f);
     return e;
 }

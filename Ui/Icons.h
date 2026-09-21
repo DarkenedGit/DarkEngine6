@@ -9,6 +9,7 @@
 #define ICON_FA_FORWARD_STEP "\xef\x81\x91"       // U+f051
 #define ICON_FA_CIRCLE_PLUS "\xef\x81\x95"        // U+f055
 #define ICON_FA_EYE "\xef\x81\xae"                // U+f06e
+#define ICON_FA_FOLDER "\xef\x81\xbb"             // U+f07b
 #define ICON_FA_FOLDER_OPEN "\xef\x81\xbc"        // U+f07c
 #define ICON_FA_FLOPPY_DISK "\xef\x83\x87"        // U+f0c7
 #define ICON_FA_BOLT "\xef\x83\xa7"               // U+f0e7

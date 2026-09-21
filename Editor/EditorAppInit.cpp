@@ -87,6 +87,7 @@ void EditorApp::registerActions()
     a.bindKey("toggle_particle_ui", Key::F2);
     a.bindKey("toggle_anim_ui", Key::F4);
     a.bindKey("toggle_hsm_ui", Key::F8);
+    a.bindKey("toggle_assets_ui", Key::F10);
     a.bindKey("debug_fill", Key::F1);
     a.bindKey("debug_lighting", Key::F6);
     a.bindKey("debug_shadow_enable", Key::F7);

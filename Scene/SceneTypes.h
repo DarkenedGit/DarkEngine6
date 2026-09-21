@@ -54,6 +54,7 @@ namespace Dark
         Player,
         Hunter,
         Wolf,
+        Model,
         Count
     };
 
@@ -62,12 +63,18 @@ namespace Dark
         return t == SceneObjectType::Cube || t == SceneObjectType::Sphere || t == SceneObjectType::ParticleEmitter
             || t == SceneObjectType::PointLight || t == SceneObjectType::SpotLight
             || t == SceneObjectType::AmbientLight || t == SceneObjectType::DirectionalLight
-            || t == SceneObjectType::Player || t == SceneObjectType::Hunter || t == SceneObjectType::Wolf;
+            || t == SceneObjectType::Player || t == SceneObjectType::Hunter || t == SceneObjectType::Wolf
+            || t == SceneObjectType::Model;
     }
 
     inline bool isPawnType(SceneObjectType t)
     {
         return t == SceneObjectType::Player || t == SceneObjectType::Hunter || t == SceneObjectType::Wolf;
+    }
+
+    inline bool usesModelBounds(SceneObjectType t)
+    {
+        return isPawnType(t) || t == SceneObjectType::Model;
     }
 
     inline bool isGlobalLightType(SceneObjectType t)
@@ -97,6 +104,7 @@ namespace Dark
         case SceneObjectType::Player:          return "player";
         case SceneObjectType::Hunter:          return "hunter";
         case SceneObjectType::Wolf:            return "wolf";
+        case SceneObjectType::Model:           return "model";
         default:                               return "unknown";
         }
     }
@@ -168,6 +176,11 @@ namespace Dark
             out = SceneObjectType::Wolf;
             return true;
         }
+        if (s == "model" || s == "gltf")
+        {
+            out = SceneObjectType::Model;
+            return true;
+        }
         return false;
     }
 
@@ -182,6 +195,7 @@ namespace Dark
         Math::Quaternion rotation{ 1, 0, 0, 0 };
         Math::Vector3f   scale{ 1, 1, 1 };
         float            color[4]{ 1.0f, 1.0f, 1.0f, 1.0f };
+        std::string      modelPath;
 
         // Optional particle payload (only when type == ParticleEmitter).
         bool        hasParticle = false;

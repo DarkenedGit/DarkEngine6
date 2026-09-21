@@ -10,6 +10,7 @@
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "Editor/EditorInternals.h"
+#include "Editor/EditorObject.h"
 #include "ECS/Components.h"
 #include "Math/AABox3f.h"
 #include "Math/Quaternion.h"
@@ -306,7 +307,7 @@ bool EditorApp::spawnLoadedModel(const AssetRef<Model>& model)
 
     applySceneMode(SceneMode::Scene3D);
     Entity e = world().createEntity();
-    world().emplace<TagComponent>(e, "glTF");
+    world().emplace<TagComponent>(e, "model");
     TransformComponent xf{};
     xf.position = Vector3f{ 0.0f, 0.0f, 0.0f };
     xf.scale    = Vector3f{ 1.0f, 1.0f, 1.0f };
@@ -317,6 +318,10 @@ bool EditorApp::spawnLoadedModel(const AssetRef<Model>& model)
     mc.castShadow   = model->hasOpaque();
     setModelComponent(world(), pins(), assets(), e, mc);
     attachAnimGraph(e, model);
+
+    EditorObjectComponent so{};
+    so.type = SceneObjectType::Model;
+    world().emplace<EditorObjectComponent>(e, so);
 
     m_selected          = e;
     m_selectedPart      = 0;

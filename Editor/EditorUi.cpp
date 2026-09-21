@@ -108,6 +108,7 @@ void EditorApp::drawEditorUi()
             ImGui::MenuItem(ICON_FA_BOLT "  Particle Panel", "F2", &m_showParticlePanel);
             ImGui::MenuItem(ICON_FA_PLAY "  Animation Panel", "F4", &m_showAnimPanel);
             ImGui::MenuItem(ICON_FA_LIST "  HSM Panel", "F8", &m_showHsmPanel);
+            ImGui::MenuItem(ICON_FA_FOLDER_OPEN "  Assets", "F10", &m_showAssetBrowser);
             ImGui::MenuItem(ICON_FA_CUBE "  Model Parts", nullptr, &m_showModelParts);
             ImGui::MenuItem(ICON_FA_CUBE "  Material", nullptr, &m_showMaterialEditor);
             ImGui::MenuItem(ICON_FA_LAYER_GROUP "  Terrain", nullptr, &m_showTerrainPanel);
@@ -233,6 +234,8 @@ void EditorApp::drawEditorUi()
         drawDebugMenu();
         ImGui::EndMainMenuBar();
     }
+
+    drawAssetBrowser();
 
     beginPassthruDockSpace("EditorDockHost", ImGui::GetFrameHeight());
 
@@ -384,17 +387,34 @@ void EditorApp::drawEditorUi()
         world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
             const bool selected = m_selected.valid() && m_selected.id() == e.id();
             ImGui::PushID(static_cast<int>(e.id()));
-            char label[128];
-            const char* name = toString(so.type);
-            if (so.type == SceneObjectType::AmbientLight)
-                name = "Ambient Light";
-            else if (so.type == SceneObjectType::DirectionalLight)
-                name = "Directional Light";
-            else if (so.type == SceneObjectType::PointLight)
-                name = "Point Light";
-            else if (so.type == SceneObjectType::SpotLight)
-                name = "Spot Light";
-            std::snprintf(label, sizeof(label), "%s##%u", name, e.id());
+            char label[160];
+            if (so.type == SceneObjectType::Model)
+            {
+                const char* modelName = "model";
+                std::string  fileName;
+                if (const ModelComponent* mc = world().get<ModelComponent>(e))
+                {
+                    if (const auto model = assets().getAs<Model>(mc->modelAssetID); model && !model->sourcePath().empty())
+                    {
+                        fileName  = model->sourcePath().filename().string();
+                        modelName = fileName.c_str();
+                    }
+                }
+                std::snprintf(label, sizeof(label), "%s##%u", modelName, e.id());
+            }
+            else
+            {
+                const char* name = toString(so.type);
+                if (so.type == SceneObjectType::AmbientLight)
+                    name = "Ambient Light";
+                else if (so.type == SceneObjectType::DirectionalLight)
+                    name = "Directional Light";
+                else if (so.type == SceneObjectType::PointLight)
+                    name = "Point Light";
+                else if (so.type == SceneObjectType::SpotLight)
+                    name = "Spot Light";
+                std::snprintf(label, sizeof(label), "%s##%u", name, e.id());
+            }
             if (ImGui::Selectable(label, selected))
                 m_selected = e;
             ImGui::PopID();
@@ -481,6 +501,7 @@ void EditorApp::drawEditorUi()
     }
 
     drawStatusBar();
+    drawAssetDropTarget();
 }
 
 void EditorApp::drawInspector3D()
@@ -552,6 +573,19 @@ void EditorApp::drawInspector3D()
         if (so->type == SceneObjectType::Player && ImGui::Button(ICON_FA_PLAY "  Play from here") && !m_playMode)
             togglePlayMode();
         ImGui::TextDisabled("F12 plays the scene. Place hunters or wolves, then Play to fight.");
+    }
+    else if (so->type == SceneObjectType::Model)
+    {
+        if (const ModelComponent* mc = world().get<ModelComponent>(m_selected))
+        {
+            if (const auto model = assets().getAs<Model>(mc->modelAssetID))
+                ImGui::TextWrapped("%s", model->sourcePath().string().c_str());
+        }
+        if (ImGui::Button("Open Model Parts"))
+        {
+            m_showModelParts     = true;
+            m_showMaterialEditor = true;
+        }
     }
     ImGui::BeginDisabled(locked);
     float pos[3] = { xf->position.x, xf->position.y, xf->position.z };
@@ -690,7 +724,7 @@ void EditorApp::drawInspector3D()
         }
         ImGui::DragFloat("Source radius", &light->sourceRadius, 0.005f, 0.0f, 2.0f);
     }
-    else if (!isPawnType(so->type))
+    else if (!isPawnType(so->type) && so->type != SceneObjectType::Model)
     {
         if (ImGui::ColorEdit3("Tint", so->color))
         {

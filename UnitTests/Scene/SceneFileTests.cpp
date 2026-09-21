@@ -68,6 +68,15 @@ TEST(SceneTypes, Parse2DAnd3D)
     EXPECT_STREQ(toString(SceneObjectType::Player), "player");
     EXPECT_STREQ(toString(SceneObjectType::Hunter), "hunter");
     EXPECT_STREQ(toString(SceneObjectType::Wolf), "wolf");
+    EXPECT_TRUE(tryParseSceneObjectType("model", t));
+    EXPECT_EQ(t, SceneObjectType::Model);
+    EXPECT_TRUE(tryParseSceneObjectType("gltf", t));
+    EXPECT_EQ(t, SceneObjectType::Model);
+    EXPECT_TRUE(isScene3DType(SceneObjectType::Model));
+    EXPECT_FALSE(isPawnType(SceneObjectType::Model));
+    EXPECT_TRUE(usesModelBounds(SceneObjectType::Model));
+    EXPECT_TRUE(usesModelBounds(SceneObjectType::Wolf));
+    EXPECT_STREQ(toString(SceneObjectType::Model), "model");
 
     SceneMode mode{};
     EXPECT_TRUE(tryParseSceneMode("2d", mode));
@@ -660,6 +669,34 @@ TEST(SceneFile, WolfRoundTrip)
     EXPECT_EQ(out.objects[0].type, SceneObjectType::Wolf);
     EXPECT_NEAR(out.objects[0].position.x, -6.0f, 1.0e-4f);
     EXPECT_NEAR(out.objects[0].position.z, 12.0f, 1.0e-4f);
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+TEST(SceneFile, ModelPathRoundTrip)
+{
+    SceneFileData in{};
+    in.version = 2;
+    in.name    = "ut_model";
+    in.mode    = SceneMode::Scene3D;
+
+    SceneObjectData model{};
+    model.type      = SceneObjectType::Model;
+    model.position  = Vector3f(4.0f, 0.5f, -2.0f);
+    model.modelPath = "models/wolf.gltf";
+    in.objects.push_back(model);
+
+    const auto path = tempScenePath("darkengine6_scene_model_ut.json");
+    std::string err;
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+
+    SceneFileData out{};
+    ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
+    ASSERT_EQ(out.objects.size(), 1u);
+    EXPECT_EQ(out.objects[0].type, SceneObjectType::Model);
+    EXPECT_EQ(out.objects[0].modelPath, "models/wolf.gltf");
+    EXPECT_NEAR(out.objects[0].position.x, 4.0f, 1.0e-4f);
 
     std::error_code ec;
     std::filesystem::remove(path, ec);

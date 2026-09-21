@@ -106,19 +106,15 @@ bool EditorApp::attachEditorModel(Entity e, const char* gltfPath)
 {
     if (!e.valid() || !world().alive(e) || !gltfPath || gltfPath[0] == '\0')
         return false;
-    if (world().has<AnimGraphComponent>(e) && world().has<ModelComponent>(e))
+    if (world().has<ModelComponent>(e) && world().get<ModelComponent>(e)->modelAssetID != NULL_ASSET)
         return true;
 
     AssetRef<Model> model = loadAndUploadModel(renderer(), assets(), gltfPath);
     if (!model || !model->valid())
     {
-        DE_LOG_WARN("Editor: animated character '{}' failed to load", gltfPath);
+        DE_LOG_WARN("Editor: model '{}' failed to load", gltfPath);
         return false;
     }
-
-    AssetRef<AnimGraphDef> graph = assets().tryLoadAnimGraphForModel(gltfPath);
-    if (!graph)
-        DE_LOG_WARN("Editor: '{}' has no anim graph sidecar", gltfPath);
 
     ModelComponent mc{};
     mc.modelAssetID = model->id;
@@ -132,16 +128,23 @@ bool EditorApp::attachEditorModel(Entity e, const char* gltfPath)
         setMeshComponent(world(), pins(), assets(), e, next);
     }
 
-    if (TransformComponent* xf = world().get<TransformComponent>(e))
-        xf->scale = Vector3f{ 1.0f, 1.0f, 1.0f };
+    if (!model->skeleton())
+    {
+        DE_LOG_INFO("Editor: attached '{}' (static)", gltfPath);
+        return true;
+    }
+
+    AssetRef<AnimGraphDef> graph = assets().tryLoadAnimGraphForModel(gltfPath);
+    if (!graph)
+        DE_LOG_WARN("Editor: '{}' has no anim graph sidecar", gltfPath);
 
     AnimGraphComponent ag;
     ag.model    = model;
     ag.animSet  = model->animationSet();
     ag.graphDef = graph;
-    if (graph && model->skeleton())
+    if (graph)
         ag.graph.bind(graph.get(), model->skeleton());
-    else if (ag.animSet && model->skeleton())
+    else if (ag.animSet)
     {
         ag.graph.player().bind(model->skeleton(), ag.animSet.get());
         if (!ag.graph.player().play("Idle", 0.0f))

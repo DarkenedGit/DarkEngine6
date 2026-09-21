@@ -38,6 +38,8 @@
 #include <atomic>
 #include <filesystem>
 #include <memory>
+#include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -104,7 +106,14 @@ private:
                              bool registerNet = true);
 
     Entity placeAtCursor(SceneObjectType type);
+    Entity placeAtWorld(SceneObjectType type, Math::Vector3f hit, const SceneObjectData* authored = nullptr);
     Entity placeGlowProp();
+    void   drawAssetBrowser();
+    void   drawAssetDropTarget();
+    void   refreshAssetListing();
+    void   queueAssetPlace(SceneObjectType type, const char* modelPath, bool useMouse);
+    void   flushQueuedAssetPlace();
+    static bool tryPawnTypeForModelPath(std::string_view virt, SceneObjectType& out);
     bool   attachEditorModel(Dark::Entity e, const char* gltfPath);
     bool   attachEditorPlayer(Dark::Entity e);
     bool   attachEditorHunter(Dark::Entity e);
@@ -260,10 +269,30 @@ private:
     bool                 m_showParticlePanel = true;
     bool                 m_showAnimPanel     = true;
     bool                 m_showHsmPanel      = true;
+    bool                 m_showAssetBrowser  = true;
 
     SceneObjectType m_placeType  = SceneObjectType::Cube;
     bool                  m_queuePlaceAtCursor = false;
     bool                  m_queueGlowProp      = false;
+    bool                  m_queueAssetPlace    = false;
+    SceneObjectType       m_queueAssetType     = SceneObjectType::Cube;
+    char                  m_queueAssetModel[192]{};
+    bool                  m_queueAssetUseMouse = false;
+    int                   m_queueAssetMouseX   = 0;
+    int                   m_queueAssetMouseY   = 0;
+
+    std::filesystem::path m_assetRoot;
+    std::string           m_assetRelPath;
+    char                  m_assetFilter[64]{};
+    struct AssetEntry
+    {
+        bool        folder    = false;
+        bool        placeable = false;
+        std::string name;
+        std::string virt;
+    };
+    std::vector<AssetEntry> m_assetEntries;
+    bool                    m_assetListDirty = true;
     int                   m_colorIndex = 0;
 
     std::filesystem::path m_scenePath;
