@@ -208,6 +208,11 @@ void EditorApp::drawEditorUi()
                     m_placeType            = SceneObjectType::Hunter;
                     m_queuePlaceAtCursor   = true;
                 }
+                if (ImGui::MenuItem(ICON_FA_BUG "  Wolf", "8+P", false, createOk))
+                {
+                    m_placeType            = SceneObjectType::Wolf;
+                    m_queuePlaceAtCursor   = true;
+                }
                 if (ImGui::MenuItem(ICON_FA_BOLT "  Glow Prop", nullptr, false, createOk))
                     m_queueGlowProp = true;
             }
@@ -538,7 +543,7 @@ void EditorApp::drawInspector3D()
     const bool locked   = netClientLocked();
     const bool envLight = isGlobalLightType(so->type);
     ImGui::Text("Selected: %s", toString(so->type));
-    if (so->type == SceneObjectType::Player || so->type == SceneObjectType::Hunter)
+    if (so->type == SceneObjectType::Player || so->type == SceneObjectType::Hunter || so->type == SceneObjectType::Wolf)
     {
         if (HealthComponent* hp = world().get<HealthComponent>(m_selected))
             ImGui::Text("HP  %.0f / %.0f", static_cast<double>(hp->health.hp()), static_cast<double>(hp->health.maxHp()));
@@ -546,7 +551,7 @@ void EditorApp::drawInspector3D()
             ImGui::Text("Jump cooldown  %.2fs", static_cast<double>(jac->jump.cooldownLeft()));
         if (so->type == SceneObjectType::Player && ImGui::Button(ICON_FA_PLAY "  Play from here") && !m_playMode)
             togglePlayMode();
-        ImGui::TextDisabled("F12 plays the scene. Place hunters, then Play to fight.");
+        ImGui::TextDisabled("F12 plays the scene. Place hunters or wolves, then Play to fight.");
     }
     ImGui::BeginDisabled(locked);
     float pos[3] = { xf->position.x, xf->position.y, xf->position.z };

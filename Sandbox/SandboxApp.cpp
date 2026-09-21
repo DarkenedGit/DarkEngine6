@@ -984,7 +984,9 @@ void SandboxApp::updateCharacterAnims()
         if (alive && standoff && leaf == AI::Leaf::Chase)
         {
             const char* clip = ag->graph.player().clipName();
-            if (!clip || (std::strcmp(clip, "SwingSword") != 0 && std::strcmp(clip, "Die") != 0))
+            if (!clip
+                || (std::strcmp(clip, "SwingSword") != 0 && std::strcmp(clip, "Bite") != 0 && std::strcmp(clip, "Die") != 0
+                    && std::strcmp(clip, "Jump") != 0))
                 ag->graph.setTrigger("swing");
         }
     });
@@ -2707,10 +2709,16 @@ void SandboxApp::onInit()
         for (int i = 0; i < m_chase.hunterCount(); ++i)
         {
             const Entity hunter = m_chase.hunterEntity(i);
-            attachAnimatedCharacter(hunter, "models/skeleton.gltf");
+            const bool wolf = (i != 0);
+            attachAnimatedCharacter(hunter, wolf ? "models/wolf.gltf" : "models/skeleton.gltf");
             attachHunterSounds(world(), pins(), assets(), audio(), hunter);
             if (HittableComponent* hit = hunter.valid() ? world().get<HittableComponent>(hunter) : nullptr)
-                hit->halfExtents = Vector3f{ 0.4f, 0.7f, 0.4f };
+                hit->halfExtents = wolf ? Vector3f{ 0.45f, 0.45f, 0.70f } : Vector3f{ 0.4f, 0.7f, 0.4f };
+            if (wolf)
+            {
+                if (TagComponent* tag = hunter.valid() ? world().get<TagComponent>(hunter) : nullptr)
+                    tag->name = "Wolf";
+            }
             if (TransformComponent* hxf = hunter.valid() ? world().get<TransformComponent>(hunter) : nullptr)
             {
                 hxf->scale = Vector3f{ 1.0f, 1.0f, 1.0f };

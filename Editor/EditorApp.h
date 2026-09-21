@@ -108,6 +108,7 @@ private:
     bool   attachEditorModel(Dark::Entity e, const char* gltfPath);
     bool   attachEditorPlayer(Dark::Entity e);
     bool   attachEditorHunter(Dark::Entity e);
+    bool   attachEditorWolf(Dark::Entity e);
     Dark::Entity findPlayPlayer();
     void   setPlayMode(bool play);
     void   togglePlayMode();

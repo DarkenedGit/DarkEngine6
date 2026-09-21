@@ -412,53 +412,6 @@ namespace Dark::Terrain
         }
 
         BuildIndices(out, cells, desc.edges);
-
-        // Downward skirts hide T-junction cracks at chunk / tile borders.
-        const int baseCount = verts * verts;
-        if (baseCount > 0 && !out.positions.empty())
-        {
-            const float drop = hm.cellSize() * static_cast<float>(step) * 4.0f;
-            auto addSkirtVert = [&](int vi)
-            {
-                Vector3f p = out.positions[static_cast<size_t>(vi)];
-                p.y -= drop;
-                out.positions.push_back(p);
-                out.normals.push_back(out.normals[static_cast<size_t>(vi)]);
-                out.uvs.push_back(out.uvs[static_cast<size_t>(vi)]);
-            };
-            const int south0 = static_cast<int>(out.positions.size());
-            for (int x = 0; x <= cells; ++x)
-                addSkirtVert(x);
-            const int east0 = static_cast<int>(out.positions.size());
-            for (int z = 0; z <= cells; ++z)
-                addSkirtVert(z * verts + cells);
-            const int north0 = static_cast<int>(out.positions.size());
-            for (int x = 0; x <= cells; ++x)
-                addSkirtVert(cells * verts + x);
-            const int west0 = static_cast<int>(out.positions.size());
-            for (int z = 0; z <= cells; ++z)
-                addSkirtVert(z * verts);
-            auto emitSkirt = [&](int a, int b, int sa, int sb)
-            {
-                out.indices.push_back(static_cast<uint32_t>(a));
-                out.indices.push_back(static_cast<uint32_t>(sa));
-                out.indices.push_back(static_cast<uint32_t>(sb));
-                out.indices.push_back(static_cast<uint32_t>(a));
-                out.indices.push_back(static_cast<uint32_t>(sb));
-                out.indices.push_back(static_cast<uint32_t>(b));
-            };
-            for (int i = 0; i < cells; ++i)
-            {
-                if (!isSkippedEdgeVertex(i, 0, cells, desc.edges) && !isSkippedEdgeVertex(i + 1, 0, cells, desc.edges))
-                    emitSkirt(i, i + 1, south0 + i, south0 + i + 1);
-                if (!isSkippedEdgeVertex(cells, i, cells, desc.edges) && !isSkippedEdgeVertex(cells, i + 1, cells, desc.edges))
-                    emitSkirt(i * verts + cells, (i + 1) * verts + cells, east0 + i, east0 + i + 1);
-                if (!isSkippedEdgeVertex(i, cells, cells, desc.edges) && !isSkippedEdgeVertex(i + 1, cells, cells, desc.edges))
-                    emitSkirt(cells * verts + i, cells * verts + i + 1, north0 + i, north0 + i + 1);
-                if (!isSkippedEdgeVertex(0, i, cells, desc.edges) && !isSkippedEdgeVertex(0, i + 1, cells, desc.edges))
-                    emitSkirt(i * verts, (i + 1) * verts, west0 + i, west0 + i + 1);
-            }
-        }
         return !out.indices.empty();
     }
 

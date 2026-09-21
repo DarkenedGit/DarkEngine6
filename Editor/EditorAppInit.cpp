@@ -71,6 +71,7 @@ void EditorApp::registerActions()
     a.bindKey("type_spot_light", Key::Digit5);
     a.bindKey("type_player", Key::Digit6);
     a.bindKey("type_hunter", Key::Digit7);
+    a.bindKey("type_wolf", Key::Digit8);
     a.bindKey("play", Key::F12);
     a.bindKey("jump", Key::Space);
     a.bindButton("jump", GamepadButton::A);

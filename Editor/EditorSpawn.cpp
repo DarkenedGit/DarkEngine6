@@ -308,6 +308,12 @@ Entity EditorApp::spawnObject(
         world().destroyEntity(e);
         return {};
     }
+    if (type == SceneObjectType::Wolf && !attachEditorWolf(e))
+    {
+        onEntityRemoved(world(), e, &pins());
+        world().destroyEntity(e);
+        return {};
+    }
     m_selected = e;
     if (registerNet && isReplicatedProp(type))
         network().registerEntity(world(), e, prefabFromType(type), ClientId::Host, packRgba8(so.color));
@@ -364,6 +370,12 @@ Entity EditorApp::placeAtCursor(SceneObjectType type)
         pawnCol[0] = 0.85f;
         pawnCol[1] = 0.28f;
         pawnCol[2] = 0.22f;
+    }
+    else if (type == SceneObjectType::Wolf)
+    {
+        pawnCol[0] = 0.52f;
+        pawnCol[1] = 0.46f;
+        pawnCol[2] = 0.40f;
     }
     const float* col = isLocalLightType(type) ? lightCol : (isPawnType(type) ? pawnCol : kPalette[m_colorIndex % kPaletteCount]);
     Vector3f scale(1, 1, 1);
@@ -541,7 +553,7 @@ void EditorApp::cyclePlaceType(int delta)
     const SceneObjectType types3D[] = {
         SceneObjectType::Cube, SceneObjectType::Sphere, SceneObjectType::ParticleEmitter,
         SceneObjectType::PointLight, SceneObjectType::SpotLight,
-        SceneObjectType::Player, SceneObjectType::Hunter
+        SceneObjectType::Player, SceneObjectType::Hunter, SceneObjectType::Wolf
     };
     const SceneObjectType types2D[] = {
         SceneObjectType::Platform, SceneObjectType::Coin, SceneObjectType::Spawn

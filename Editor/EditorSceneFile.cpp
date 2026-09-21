@@ -322,6 +322,8 @@ void EditorApp::handleEditorCommands(float dt)
                 m_placeType = SceneObjectType::Player;
             if (m_sceneMode != SceneMode::Scene2D && input().actionPressed("type_hunter"))
                 m_placeType = SceneObjectType::Hunter;
+            if (m_sceneMode != SceneMode::Scene2D && input().actionPressed("type_wolf"))
+                m_placeType = SceneObjectType::Wolf;
             if (input().actionPressed("cycle_type"))
                 cyclePlaceType(+1);
             if (input().actionPressed("cycle_color"))

@@ -308,6 +308,7 @@ const Mesh* EditorApp::meshForType(SceneObjectType type) const
     case SceneObjectType::DirectionalLight:
     case SceneObjectType::Player:
     case SceneObjectType::Hunter:
+    case SceneObjectType::Wolf:
         return nullptr;
     case SceneObjectType::Platform:
     case SceneObjectType::Coin:

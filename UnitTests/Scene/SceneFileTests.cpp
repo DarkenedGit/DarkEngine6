@@ -56,13 +56,18 @@ TEST(SceneTypes, Parse2DAnd3D)
     EXPECT_EQ(t, SceneObjectType::Hunter);
     EXPECT_TRUE(tryParseSceneObjectType("enemy", t));
     EXPECT_EQ(t, SceneObjectType::Hunter);
+    EXPECT_TRUE(tryParseSceneObjectType("wolf", t));
+    EXPECT_EQ(t, SceneObjectType::Wolf);
     EXPECT_TRUE(isScene3DType(SceneObjectType::Player));
     EXPECT_TRUE(isScene3DType(SceneObjectType::Hunter));
+    EXPECT_TRUE(isScene3DType(SceneObjectType::Wolf));
     EXPECT_TRUE(isPawnType(SceneObjectType::Player));
     EXPECT_TRUE(isPawnType(SceneObjectType::Hunter));
+    EXPECT_TRUE(isPawnType(SceneObjectType::Wolf));
     EXPECT_FALSE(isPawnType(SceneObjectType::Cube));
     EXPECT_STREQ(toString(SceneObjectType::Player), "player");
     EXPECT_STREQ(toString(SceneObjectType::Hunter), "hunter");
+    EXPECT_STREQ(toString(SceneObjectType::Wolf), "wolf");
 
     SceneMode mode{};
     EXPECT_TRUE(tryParseSceneMode("2d", mode));
@@ -624,6 +629,37 @@ TEST(SceneFile, PlayerAndHunterRoundTrip)
     EXPECT_NEAR(out.objects[0].position.x, 2.0f, 1.0e-4f);
     EXPECT_EQ(out.objects[1].type, SceneObjectType::Hunter);
     EXPECT_NEAR(out.objects[1].position.z, 3.0f, 1.0e-4f);
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+TEST(SceneFile, WolfRoundTrip)
+{
+    SceneFileData in{};
+    in.version = 2;
+    in.name    = "ut_wolf";
+    in.mode    = SceneMode::Scene3D;
+
+    SceneObjectData wolf{};
+    wolf.type     = SceneObjectType::Wolf;
+    wolf.position = Vector3f(-6.0f, 0.5f, 12.0f);
+    wolf.color[0] = 0.52f;
+    wolf.color[1] = 0.46f;
+    wolf.color[2] = 0.40f;
+    wolf.color[3] = 1.0f;
+    in.objects.push_back(wolf);
+
+    const auto path = tempScenePath("darkengine6_scene_wolf_ut.json");
+    std::string err;
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+
+    SceneFileData out{};
+    ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
+    ASSERT_EQ(out.objects.size(), 1u);
+    EXPECT_EQ(out.objects[0].type, SceneObjectType::Wolf);
+    EXPECT_NEAR(out.objects[0].position.x, -6.0f, 1.0e-4f);
+    EXPECT_NEAR(out.objects[0].position.z, 12.0f, 1.0e-4f);
 
     std::error_code ec;
     std::filesystem::remove(path, ec);

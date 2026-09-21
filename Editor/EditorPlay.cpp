@@ -42,6 +42,7 @@
 #include <imgui.h>
 
 #include <cmath>
+#include <cstring>
 #include <memory>
 
 using namespace Dark;
@@ -243,6 +244,26 @@ bool EditorApp::attachEditorHunter(Entity e)
     }
     if (HittableComponent* hit = world().get<HittableComponent>(e))
         hit->halfExtents = Vector3f{ 0.4f, 0.7f, 0.4f };
+    attachEditorHunterSounds(world(), pins(), assets(), audio(), e);
+    return true;
+}
+
+bool EditorApp::attachEditorWolf(Entity e)
+{
+    if (!m_ai.attachHunter(world(), e, pins(), assets()))
+        return false;
+    if (!attachEditorModel(e, "models/wolf.gltf"))
+    {
+        MeshComponent mc{};
+        mc.matAssetID  = m_propMaterial ? m_propMaterial->id : NULL_ASSET;
+        mc.meshAssetID = NULL_ASSET;
+        setMeshComponent(world(), pins(), assets(), e, mc);
+        DE_LOG_WARN("Editor: wolf using cube proxy (wolf model missing)");
+    }
+    if (HittableComponent* hit = world().get<HittableComponent>(e))
+        hit->halfExtents = Vector3f{ 0.45f, 0.45f, 0.70f };
+    if (TagComponent* tag = world().get<TagComponent>(e))
+        tag->name = "Wolf";
     attachEditorHunterSounds(world(), pins(), assets(), audio(), e);
     return true;
 }
@@ -874,6 +895,15 @@ void EditorApp::updatePawnAnims()
                 speed = 9.0f * statusScale;
         }
         ag->graph.setFloat("speed", speed);
+
+        if (alive && standoff && leaf == AI::Leaf::Chase)
+        {
+            const char* clip = ag->graph.player().clipName();
+            if (!clip
+                || (std::strcmp(clip, "SwingSword") != 0 && std::strcmp(clip, "Bite") != 0 && std::strcmp(clip, "Die") != 0
+                    && std::strcmp(clip, "Jump") != 0))
+                ag->graph.setTrigger("swing");
+        }
     });
 }
 
@@ -910,16 +940,28 @@ void EditorApp::drawPlayHud()
         }
     }
     int hunters = 0;
-    int alive   = 0;
+    int huntersAlive = 0;
+    int wolves = 0;
+    int wolvesAlive = 0;
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
-        if (so.type != SceneObjectType::Hunter)
-            return;
-        ++hunters;
         const HealthComponent* h = world().get<HealthComponent>(e);
-        if (h && h->health.alive())
-            ++alive;
+        const bool living = h && h->health.alive();
+        if (so.type == SceneObjectType::Hunter)
+        {
+            ++hunters;
+            if (living)
+                ++huntersAlive;
+        }
+        else if (so.type == SceneObjectType::Wolf)
+        {
+            ++wolves;
+            if (living)
+                ++wolvesAlive;
+        }
     });
-    ImGui::Text("Hunters  %d / %d", alive, hunters);
+    ImGui::Text("Hunters  %d / %d", huntersAlive, hunters);
+    if (wolves > 0)
+        ImGui::Text("Wolves  %d / %d", wolvesAlive, wolves);
     ImGui::TextDisabled("F12 / Esc  stop");
     ImGui::End();
 }

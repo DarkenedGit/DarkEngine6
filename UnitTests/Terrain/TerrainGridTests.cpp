@@ -427,6 +427,7 @@ TEST(TerrainGrid, CreateFromHeightMap_Queries)
     EXPECT_TRUE(grid.valid());
     EXPECT_EQ(grid.tilesX(), 1u);
     EXPECT_EQ(grid.tileCells(), 16);
+    EXPECT_EQ(grid.chunkCells(), 16);
     float y = 0.0f;
     ASSERT_TRUE(grid.tryHeightAtWorld(3.0f, 5.0f, y));
     EXPECT_NEAR(y, 4.0f, 1.0e-4f);
@@ -455,6 +456,11 @@ TEST(TerrainGrid, WorkingSlice_SharedEdge)
     ASSERT_TRUE(grid.createFromCoarse(desc, std::move(coarse)));
     ASSERT_TRUE(grid.setWorking(std::move(working), SplatMap{}));
     grid.updateStreaming(TileCenter(Vector3f{ 0.0f, 0.0f, 0.0f }, 0, 0), nullptr);
+    EXPECT_EQ(grid.chunkCells(), kTestTileCells);
+    const TerrainWorld* w00 = grid.residentWorld(0, 0);
+    ASSERT_NE(w00, nullptr);
+    EXPECT_EQ(w00->chunksX(), 1);
+    EXPECT_EQ(w00->chunksZ(), 1);
 
     const HeightMap* a = grid.residentHeight(0, 0);
     const HeightMap* b = grid.residentHeight(1, 0);

@@ -122,6 +122,47 @@ TEST(TerrainGen, World_HeightScale_IsNotBakedIntoSamples)
     EXPECT_GT(yMax - yMin, 20.0f);
 }
 
+TEST(TerrainGen, World_TileBoundaryNotRockRim)
+{
+    WorldGenDesc desc = MakeSmallDesc();
+    desc.tilesX     = 2;
+    desc.tilesZ     = 2;
+    desc.tileCells  = 32;
+    HeightMap hm;
+    SplatMap  sp;
+    ASSERT_TRUE(generateWorld(desc, hm, sp, nullptr, nullptr, nullptr));
+    ASSERT_EQ(hm.width(), 65u);
+    ASSERT_TRUE(sp.valid());
+
+    auto slopeAt = [&](int x, int z) {
+        const Dark::Math::Vector3f n = hm.normalAtWorld(hm.worldX(x), hm.worldZ(z));
+        return 1.0f - n.y;
+    };
+
+    double border = 0.0;
+    double inner  = 0.0;
+    int    nb     = 0;
+    int    ni     = 0;
+    const int seam = 32;
+    for (int z = 1; z < 64; ++z)
+    {
+        border += slopeAt(seam, z);
+        ++nb;
+        inner += slopeAt(seam - 3, z) + slopeAt(seam + 3, z);
+        ni += 2;
+    }
+    for (int x = 1; x < 64; ++x)
+    {
+        border += slopeAt(x, seam);
+        ++nb;
+        inner += slopeAt(x, seam - 3) + slopeAt(x, seam + 3);
+        ni += 2;
+    }
+    ASSERT_GT(nb, 0);
+    ASSERT_GT(ni, 0);
+    EXPECT_LT(border / static_cast<double>(nb), inner / static_cast<double>(ni) + 0.08);
+}
+
 TEST(TerrainGen, Thermal_PaddedTile_MatchesFull)
 {
     WorldGenDesc desc = MakeSmallDesc();

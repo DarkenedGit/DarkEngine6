@@ -32,23 +32,24 @@ namespace Dark::Terrain
             map = HeightMap{};
         }
 
-        // IQ gradient noise (MIT, Shadertoy XdXBRH): value in x, analytic d/dx d/dz.
-        void HashGrad(int ix, int iz, uint32_t seed, float& gx, float& gz)
+        // IQ hash used by Phacelle / Advanced Terrain Erosion (MPL 2.0, Runevision).
+        void Hash2(int ix, int iz, uint32_t seed, float& hx, float& hz)
         {
-            const float kx = 0.3183099f;
-            const float kz = 0.3678794f;
-            float       x  = static_cast<float>(ix) + 0.0133f * static_cast<float>(seed & 255u);
-            float       z  = static_cast<float>(iz) + 0.0171f * static_cast<float>((seed >> 8) & 255u);
+            const float kx = 0.318309886f;
+            const float kz = 0.367879441f;
+            float       x  = static_cast<float>(ix) + static_cast<float>(seed) * 0.06711056f;
+            float       z  = static_cast<float>(iz) + static_cast<float>(seed) * 0.00583715f;
             x              = x * kx + kz;
             z              = z * kz + kx;
             const float t  = x * z * (x + z);
-            const float fx = t - floorf(t);
-            gx             = -1.0f + 2.0f * (16.0f * kx * fx - floorf(16.0f * kx * fx));
-            const float t2 = t * 1.3247179572f;
-            const float fz = t2 - floorf(t2);
-            gz             = -1.0f + 2.0f * (16.0f * kz * fz - floorf(16.0f * kz * fz));
+            const float ft = t - floorf(t);
+            const float ax = 16.0f * kx * ft;
+            const float az = 16.0f * kz * ft;
+            hx             = -1.0f + 2.0f * (ax - floorf(ax));
+            hz             = -1.0f + 2.0f * (az - floorf(az));
         }
 
+        // IQ gradient noise (MIT, Shadertoy XdXBRH): value in x, analytic d/dx d/dz.
         void GradientNoise(float px, float pz, uint32_t seed, float& v, float& dx, float& dz)
         {
             const int   ix = static_cast<int>(floorf(px));
@@ -61,10 +62,10 @@ namespace Dark::Terrain
             const float dv = 30.0f * fz * fz * (fz * (fz - 2.0f) + 1.0f);
 
             float gax, gaz, gbx, gbz, gcx, gcz, gdx, gdz;
-            HashGrad(ix, iz, seed, gax, gaz);
-            HashGrad(ix + 1, iz, seed, gbx, gbz);
-            HashGrad(ix, iz + 1, seed, gcx, gcz);
-            HashGrad(ix + 1, iz + 1, seed, gdx, gdz);
+            Hash2(ix, iz, seed, gax, gaz);
+            Hash2(ix + 1, iz, seed, gbx, gbz);
+            Hash2(ix, iz + 1, seed, gcx, gcz);
+            Hash2(ix + 1, iz + 1, seed, gdx, gdz);
 
             const float va = gax * fx + gaz * fz;
             const float vb = gbx * (fx - 1.0f) + gbz * fz;
@@ -76,109 +77,183 @@ namespace Dark::Terrain
             dz = gaz + u * (gbz - gaz) + vv * (gcz - gaz) + u * vv * (gaz - gbz - gcz + gdz) + dv * (u * (va - vb - vc + vd) + (vc - va));
         }
 
-        // Downhill cosine ridges (Clay John / Fewes idea: directional noise along slope).
-        void DownhillRidges(float px, float pz, float dirX, float dirZ, uint32_t seed, float& h, float& ddx, float& ddz)
+        float Clamp01(float t) { return Clamp(t, 0.0f, 1.0f); }
+        float EaseOut(float t)
         {
+            const float v = 1.0f - Clamp01(t);
+            return 1.0f - v * v;
+        }
+        float SmoothStart(float t, float smoothing)
+        {
+            if (smoothing <= 1.0e-8f)
+                return t;
+            if (t >= smoothing)
+                return t - 0.5f * smoothing;
+            return 0.5f * t * t / smoothing;
+        }
+        float PowInv(float t, float power) { return 1.0f - powf(1.0f - Clamp01(t), power); }
+        float Signf(float t) { return (t > 0.0f) ? 1.0f : ((t < 0.0f) ? -1.0f : 0.0f); }
+
+        // Phacelle directional stripe noise (MPL 2.0, Runevision / Luke Mitchell C# port).
+        void PhacelleNoise(float px, float pz, float dirX, float dirZ, float freq, float offset, float normalization, uint32_t seed, float& outCos, float& outSin, float& outSideX, float& outSideZ)
+        {
+            const float tau   = 6.28318530718f;
+            const float sideX = -dirZ * freq * tau;
+            const float sideZ = dirX * freq * tau;
+            offset *= tau;
+
             const int   ix = static_cast<int>(floorf(px));
             const int   iz = static_cast<int>(floorf(pz));
             const float fx = px - static_cast<float>(ix);
             const float fz = pz - static_cast<float>(iz);
-            const float f  = 6.28318530718f;
-            float       hx = 0.0f;
-            float       hy = 0.0f;
-            float       hz = 0.0f;
-            float       wt = 0.0f;
-            for (int j = -1; j <= 1; ++j)
+            float       phaseC = 0.0f;
+            float       phaseS = 0.0f;
+            float       wt     = 0.0f;
+            for (int i = -1; i <= 2; ++i)
             {
-                for (int i = -1; i <= 1; ++i)
+                for (int j = -1; j <= 2; ++j)
                 {
-                    const float ox = static_cast<float>(i);
-                    const float oz = static_cast<float>(j);
-                    const float hx0 = hash21(ix + i, iz + j, seed);
-                    const float hz0 = hash21(ix + i, iz + j, seed ^ 0x9e3779b9u);
-                    const float qx  = fx - ox - (hx0 - 0.5f) * 0.5f;
-                    const float qz  = fz - oz - (hz0 - 0.5f) * 0.5f;
-                    const float d2  = qx * qx + qz * qz;
-                    const float w   = expf(-d2 * 2.0f);
-                    const float mag = qx * dirX + qz * dirZ;
+                    float hx, hz;
+                    Hash2(ix + i, iz + j, seed, hx, hz);
+                    const float vx = fx - static_cast<float>(i) - hx * 0.5f;
+                    const float vz = fz - static_cast<float>(j) - hz * 0.5f;
+                    const float d2 = vx * vx + vz * vz;
+                    float       w  = expf(-d2 * 2.0f);
+                    w              = Max(0.0f, w - 0.01111f);
                     wt += w;
-                    hx += cosf(mag * f) * w;
-                    const float s = -sinf(mag * f) * w;
-                    hy += s * dirX;
-                    hz += s * dirZ;
+                    const float wave = vx * sideX + vz * sideZ + offset;
+                    phaseC += cosf(wave) * w;
+                    phaseS += sinf(wave) * w;
                 }
             }
-            if (wt < 1.0e-8f)
+            const float invWt = 1.0f / Max(wt, 1.0e-10f);
+            const float ic    = phaseC * invWt;
+            const float isv   = phaseS * invWt;
+            float       mag   = sqrtf(ic * ic + isv * isv);
+            mag               = Max(1.0f - normalization, mag);
+            outCos            = ic / mag;
+            outSin            = isv / mag;
+            outSideX          = sideX;
+            outSideZ          = sideZ;
+        }
+
+        void ErosionFilter(float u, float v, float height, float slopeX, float slopeZ, float fadeTarget, uint32_t seed, float& outH, float& outMag)
+        {
+            const float strength0     = 0.22f * 0.15f;
+            const float gullyWeight   = 0.5f;
+            const float detail        = 1.5f;
+            const float roundX        = 0.1f;
+            const float roundY        = 0.0f;
+            const float roundZ        = 0.1f;
+            const float roundW        = 2.0f;
+            const float onsetX        = 1.25f;
+            const float onsetY        = 1.25f;
+            const float cellScale     = 0.7f;
+            const float normalization = 0.5f;
+            const int   octaves       = 5;
+            const float gain          = 0.5f;
+            const float lacunarity    = 2.0f;
+            const float assumedSlope  = 0.7f;
+            const float assumedMix    = 1.0f;
+            const float kEps          = 1.0e-10f;
+
+            fadeTarget          = Clamp(fadeTarget, -1.0f, 1.0f);
+            float strength      = strength0;
+            float freq          = 1.0f / (0.15f * cellScale);
+            float slopeLen      = sqrtf(slopeX * slopeX + slopeZ * slopeZ);
+            slopeLen            = Max(slopeLen, kEps);
+            float magnitude     = 0.0f;
+            float roundingMult  = 1.0f;
+            const float roundIn = Lerp(roundY, roundX, Clamp01(fadeTarget + 0.5f)) * roundZ;
+            float       combiMask = EaseOut(SmoothStart(slopeLen * onsetX, roundIn * onsetX));
+            float       gullyX    = Lerp(slopeX, (slopeX / slopeLen) * assumedSlope, assumedMix);
+            float       gullyZ    = Lerp(slopeZ, (slopeZ / slopeLen) * assumedSlope, assumedMix);
+
+            float h = height;
+            float sx = slopeX;
+            float sz = slopeZ;
+            for (int i = 0; i < octaves; ++i)
             {
-                h   = 0.0f;
-                ddx = 0.0f;
-                ddz = 0.0f;
-                return;
+                float glen = sqrtf(gullyX * gullyX + gullyZ * gullyZ);
+                float ndx = 0.0f;
+                float ndz = 0.0f;
+                if (glen > kEps)
+                {
+                    ndx = gullyX / glen;
+                    ndz = gullyZ / glen;
+                }
+                float pc, ps, sideX, sideZ;
+                PhacelleNoise(u * freq, v * freq, ndx, ndz, cellScale, 0.25f, normalization, seed, pc, ps, sideX, sideZ);
+                sideX *= -freq;
+                sideZ *= -freq;
+                const float sloping = fabsf(ps);
+                gullyX += Signf(ps) * sideX * strength * gullyWeight;
+                gullyZ += Signf(ps) * sideZ * strength * gullyWeight;
+
+                const float gH  = pc;
+                const float gSx = ps * sideX;
+                const float gSz = ps * sideZ;
+                const float fH  = Lerp(fadeTarget, gH * gullyWeight, combiMask);
+                const float fSx = Lerp(0.0f, gSx * gullyWeight, combiMask);
+                const float fSz = Lerp(0.0f, gSz * gullyWeight, combiMask);
+                h += fH * strength;
+                sx += fSx * strength;
+                sz += fSz * strength;
+                magnitude += strength;
+                fadeTarget = fH;
+
+                const float roundOct = Lerp(roundY, roundX, Clamp01(pc + 0.5f)) * roundingMult;
+                const float newMask  = EaseOut(SmoothStart(sloping * onsetY, roundOct * onsetY));
+                combiMask            = PowInv(combiMask, detail) * newMask;
+                strength *= gain;
+                freq *= lacunarity;
+                roundingMult *= roundW;
             }
-            h   = hx / wt;
-            ddx = hy / wt;
-            ddz = hz / wt;
+            outH   = h - height;
+            outMag = magnitude;
+            (void)sx;
+            (void)sz;
         }
 
         float SampleEroded(float u, float v, uint32_t seed)
         {
-            // Fewes: ~3 noise tiles across the map, 3 large FBM octaves. Do not use
-            // 1-|n| at map scale — that is a single bowl. Gullies follow slope.
-            const int   heightOct = 3;
-            const float waterH    = 0.42f;
-            const int   eroOct    = 5;
-            const float eroTiles  = 4.0f;
-            const float eroGain   = 0.5f;
-            const float eroLac    = 2.0f;
-            const float slopeK    = 3.0f;
-            const float branchK   = 3.0f;
-            const float eroStr    = 0.05f;
+            // Advanced Terrain Erosion Filter (MPL 2.0) — Runevision, C# port Luke Mitchell.
+            // LayerProcGen is the chunk framework; this is the height filter from the 2026 paper.
+            const int   heightOct  = 3;
+            const float heightFreq = 3.0f;
+            const float heightAmp  = 0.125f;
+            const float heightGain = 0.1f;
+            const float heightLac  = 2.0f;
 
-            float px  = u * 3.0f;
-            float pz  = v * 2.6f;
-            float n   = 0.0f;
-            float nx  = 0.0f;
-            float nz  = 0.0f;
-            float amp = 0.25f;
-            float d2  = 0.0f;
+            float nx = 0.0f;
+            float nsx = 0.0f;
+            float nsz = 0.0f;
+            float nf  = heightFreq;
+            float na  = 1.0f;
             for (int i = 0; i < heightOct; ++i)
             {
                 float gv, gdx, gdz;
-                GradientNoise(px, pz, seed + static_cast<uint32_t>(i) * 19u, gv, gdx, gdz);
-                const float w = amp / (1.0f + d2);
-                n += gv * w;
-                nx += gdx * w;
-                nz += gdz * w;
-                d2 += gdx * gdx + gdz * gdz;
-                amp *= 0.12f;
-                const float rx = px;
-                px             = 0.80f * rx - 0.60f * pz;
-                pz             = 0.60f * rx + 0.80f * pz;
-                px *= 2.0f;
-                pz *= 2.0f;
+                GradientNoise(u * nf, v * nf, seed, gv, gdx, gdz);
+                nx += gv * na;
+                nsx += gdx * (na * nf);
+                nsz += gdz * (na * nf);
+                na *= heightGain;
+                nf *= heightLac;
             }
-            n = Clamp(n * 0.5f + 0.5f, 0.0f, 1.0f);
+            nx *= heightAmp;
+            nsx *= heightAmp;
+            nsz *= heightAmp;
 
-            float dirX = nz * slopeK;
-            float dirZ = -nx * slopeK;
-            float a    = 0.5f * SmoothStep(waterH - 0.1f, waterH + 0.2f, n);
-            float f    = 1.0f;
-            float hSum = 0.0f;
-            float hx   = 0.0f;
-            float hz   = 0.0f;
-            const float ox = u * 3.0f;
-            const float oz = v * 2.6f;
-            for (int i = 0; i < eroOct; ++i)
-            {
-                float rh, rdx2, rdz2;
-                DownhillRidges(ox * eroTiles * f, oz * eroTiles * f, dirX + hz * branchK, dirZ - hx * branchK, seed + 17u, rh, rdx2, rdz2);
-                hSum += rh * a;
-                hx += rdx2 * a * f;
-                hz += rdz2 * a * f;
-                a *= eroGain;
-                f *= eroLac;
-            }
-            return Clamp(n + (hSum - 0.5f) * eroStr, 0.0f, 1.0f);
+            float fadeTarget = Clamp(nx / (heightAmp * 0.6f), -1.0f, 1.0f);
+            nx  = nx * 0.5f + 0.5f;
+            nsx *= 0.5f;
+            nsz *= 0.5f;
+
+            float dh = 0.0f;
+            float mag = 0.0f;
+            ErosionFilter(u, v, nx, nsx, nsz, fadeTarget, seed, dh, mag);
+            const float offset = -0.65f * mag;
+            return Clamp(nx + dh + offset, 0.0f, 1.0f);
         }
 
         void FillErodedRect(float* dst, int dstW, int dstH, int originX, int originZ, int fullW, int fullH, const WorldGenDesc& desc)

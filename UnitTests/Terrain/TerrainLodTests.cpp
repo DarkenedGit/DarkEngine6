@@ -223,9 +223,11 @@ TEST(TerrainLod, SameLodPatchIsRegularGrid)
 
     MeshData mesh;
     ASSERT_TRUE(buildPatchMesh(d, mesh));
-    EXPECT_EQ(mesh.positions.size(), 17u * 17u + 4u * 17u);
-    EXPECT_EQ(mesh.indices.size(), 16u * 16u * 6u + 4u * 16u * 6u);
+    EXPECT_EQ(mesh.positions.size(), 17u * 17u);
+    EXPECT_EQ(mesh.indices.size(), 16u * 16u * 6u);
     EXPECT_TRUE(PatchManifold(mesh));
+    for (const Vector3f& p : mesh.positions)
+        EXPECT_GE(p.y, -1.0e-4f);
 }
 
 TEST(TerrainLod, WindingIsFrontFacingFromAbove)

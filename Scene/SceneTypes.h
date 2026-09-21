@@ -53,6 +53,7 @@ namespace Dark
         DirectionalLight,
         Player,
         Hunter,
+        Wolf,
         Count
     };
 
@@ -61,12 +62,12 @@ namespace Dark
         return t == SceneObjectType::Cube || t == SceneObjectType::Sphere || t == SceneObjectType::ParticleEmitter
             || t == SceneObjectType::PointLight || t == SceneObjectType::SpotLight
             || t == SceneObjectType::AmbientLight || t == SceneObjectType::DirectionalLight
-            || t == SceneObjectType::Player || t == SceneObjectType::Hunter;
+            || t == SceneObjectType::Player || t == SceneObjectType::Hunter || t == SceneObjectType::Wolf;
     }
 
     inline bool isPawnType(SceneObjectType t)
     {
-        return t == SceneObjectType::Player || t == SceneObjectType::Hunter;
+        return t == SceneObjectType::Player || t == SceneObjectType::Hunter || t == SceneObjectType::Wolf;
     }
 
     inline bool isGlobalLightType(SceneObjectType t)
@@ -95,6 +96,7 @@ namespace Dark
         case SceneObjectType::DirectionalLight: return "directional_light";
         case SceneObjectType::Player:          return "player";
         case SceneObjectType::Hunter:          return "hunter";
+        case SceneObjectType::Wolf:            return "wolf";
         default:                               return "unknown";
         }
     }
@@ -159,6 +161,11 @@ namespace Dark
         if (s == "hunter" || s == "enemy")
         {
             out = SceneObjectType::Hunter;
+            return true;
+        }
+        if (s == "wolf")
+        {
+            out = SceneObjectType::Wolf;
             return true;
         }
         return false;

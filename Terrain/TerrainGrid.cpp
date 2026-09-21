@@ -53,13 +53,17 @@ int clampRing(int ring)
 
 int pickChunkCells(int requested, int tileCells)
 {
-    int c = requested > 0 ? requested : 64;
-    if (c > tileCells)
-        c = tileCells;
-    while (c > 1 && ((tileCells % c) != 0 || !isPowerOfTwo(c)))
-        --c;
-    if (!isPowerOfTwo(c))
+    // One patch per tile. Interior 64-cell chunks drew a shared edge twice
+    // (z-fight) and welded LOD grooves on a 64 m grid.
+    (void)requested;
+    int c = tileCells;
+    if (c < 1)
         c = 1;
+    if (!isPowerOfTwo(c))
+    {
+        while (c > 1 && !isPowerOfTwo(c))
+            --c;
+    }
     return c;
 }
 
@@ -390,7 +394,14 @@ bool TerrainGrid::sliceWorkingTile(int tx, int tz)
     slot.world.setUploadHeightTexture(false);
     slot.world.setNormalHeightMap(m_working.valid() ? &m_working : nullptr);
     if (!copyWorkingTileSplat(tx, tz, slot.splat))
-        slot.splat.generateFromHeight(slot.world.heightMap());
+    {
+        // Tile-local generateFromHeight uses clamped edge normals and paints a
+        // rock rim on every 512 m border. Prefer the full working map.
+        if (m_working.valid() && !m_workingSplat.valid())
+            m_workingSplat.generateFromHeight(m_working);
+        if (!copyWorkingTileSplat(tx, tz, slot.splat))
+            slot.splat.generateFromHeight(slot.world.heightMap());
+    }
     slot.resident          = true;
     slot.firstGpuApplyDone = false;
     slot.heapPacked        = false;
@@ -698,8 +709,13 @@ bool TerrainGrid::loadFineTile(int tx, int tz)
             && slot.splat.createFromRGBA(splatImg.width(), splatImg.height(), splatImg.pixels()))
         {
         }
-        else
-            slot.splat.generateFromHeight(slot.world.heightMap());
+        else if (!copyWorkingTileSplat(tx, tz, slot.splat))
+        {
+            if (m_working.valid() && !m_workingSplat.valid())
+                m_workingSplat.generateFromHeight(m_working);
+            if (!copyWorkingTileSplat(tx, tz, slot.splat))
+                slot.splat.generateFromHeight(slot.world.heightMap());
+        }
     }
     slot.resident          = true;
     slot.firstGpuApplyDone = false;
