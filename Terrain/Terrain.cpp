@@ -281,6 +281,7 @@ void TerrainWorld::rebuildDirtyCpuMeshes()
 
         PatchBuildDesc desc;
         desc.heightMap     = &m_heightMap;
+        desc.normalMap     = m_normalMap;
         desc.originSampleX = c.ix * m_chunkCells;
         desc.originSampleZ = c.iz * m_chunkCells;
         desc.chunkCells    = m_chunkCells;

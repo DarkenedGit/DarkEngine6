@@ -66,6 +66,7 @@ namespace Terrain
         // Streamed tiles skip the R32F height SRV (coarse lives on TerrainGrid). Default true for legacy one-world.
         void setUploadHeightTexture(bool enable);
         bool uploadsHeightTexture() const { return m_uploadHeightTexture; }
+        void setNormalHeightMap(const HeightMap* map) { m_normalMap = map; }
         void rebuildDirtyCpuMeshes();
         bool needsRebuild() const;
         int  pendingGpuUploads() const;
@@ -130,6 +131,7 @@ namespace Terrain
         TerrainChunk* chunkAt(int ix, int iz);
 
         HeightMap m_heightMap;
+        const HeightMap* m_normalMap = nullptr;
         Texture2D m_heightTexture;
         bool      m_uploadHeightTexture = true;
         int       m_chunkCells = 16;

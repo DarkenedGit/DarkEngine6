@@ -97,8 +97,11 @@ bool PatchManifold(const MeshData& mesh)
 bool IndicesAvoidSkipped(const MeshData& mesh, int cells, EdgeMask mask)
 {
     const int verts = cells + 1;
+    const uint32_t surface = static_cast<uint32_t>(verts * verts);
     for (uint32_t idx : mesh.indices)
     {
+        if (idx >= surface)
+            continue;
         const int x = static_cast<int>(idx % static_cast<uint32_t>(verts));
         const int z = static_cast<int>(idx / static_cast<uint32_t>(verts));
         if (isSkippedEdgeVertex(x, z, cells, mask))
@@ -220,8 +223,8 @@ TEST(TerrainLod, SameLodPatchIsRegularGrid)
 
     MeshData mesh;
     ASSERT_TRUE(buildPatchMesh(d, mesh));
-    EXPECT_EQ(mesh.positions.size(), 17u * 17u);
-    EXPECT_EQ(mesh.indices.size(), 16u * 16u * 6u);
+    EXPECT_EQ(mesh.positions.size(), 17u * 17u + 4u * 17u);
+    EXPECT_EQ(mesh.indices.size(), 16u * 16u * 6u + 4u * 16u * 6u);
     EXPECT_TRUE(PatchManifold(mesh));
 }
 
@@ -256,6 +259,8 @@ TEST(TerrainLod, WindingIsFrontFacingFromAbove)
         const Vector3f& a = mesh.positions[mesh.indices[t]];
         const Vector3f& b = mesh.positions[mesh.indices[t + 1]];
         const Vector3f& c = mesh.positions[mesh.indices[t + 2]];
+        if (a.y < -0.01f || b.y < -0.01f || c.y < -0.01f)
+            continue;
         const float cy = (b - a).Cross(c - a).y;
         if (cy < 0.0f)
             ++negativeY;

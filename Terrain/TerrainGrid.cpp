@@ -150,6 +150,12 @@ bool TerrainGrid::configure(const TerrainGridDesc& desc, HeightMap&& coarse)
     m_tileDir      = desc.tileDir;
     m_coarse       = std::move(coarse);
     m_valid        = true;
+    {
+        const float unit = m_cellSize * static_cast<float>(m_chunkCells);
+        m_lodDistanceCount = 5;
+        for (int i = 0; i < 5; ++i)
+            m_lodDistances[i] = unit * static_cast<float>(2 << i);
+    }
     return true;
 }
 
@@ -242,6 +248,14 @@ bool TerrainGrid::setWorking(HeightMap&& height, SplatMap&& splat)
         return false;
     m_working      = std::move(height);
     m_workingSplat = std::move(splat);
+    for (uint32_t z = 0; z < m_tilesZ; ++z)
+    {
+        for (uint32_t x = 0; x < m_tilesX; ++x)
+        {
+            if (m_slots[z][x].resident)
+                m_slots[z][x].world.setNormalHeightMap(&m_working);
+        }
+    }
     return true;
 }
 
@@ -374,6 +388,7 @@ bool TerrainGrid::sliceWorkingTile(int tx, int tz)
     if (!slot.world.create(std::move(desc)))
         return false;
     slot.world.setUploadHeightTexture(false);
+    slot.world.setNormalHeightMap(m_working.valid() ? &m_working : nullptr);
     if (!copyWorkingTileSplat(tx, tz, slot.splat))
         slot.splat.generateFromHeight(slot.world.heightMap());
     slot.resident          = true;

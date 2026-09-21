@@ -60,6 +60,7 @@ namespace Dark::Terrain
     struct PatchBuildDesc
     {
         const HeightMap* heightMap = nullptr;
+        const HeightMap* normalMap = nullptr; // full working HF when tiled; else heightMap
         int originSampleX = 0;
         int originSampleZ = 0;
         int chunkCells    = 16; // power of two
