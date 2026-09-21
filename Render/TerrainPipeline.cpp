@@ -84,7 +84,7 @@ namespace Dark
         samps[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
         UINT paramCount = 2;
-        UINT sampCount  = 2; // wrap + clamp splat
+        UINT sampCount  = 3; // s0 wrap albedo, s1 shadow cmp, s2 clamp splat
         if (!gbuffer)
         {
             rootParams[kRootShadowCbv].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -92,7 +92,6 @@ namespace Dark
             rootParams[kRootShadowCbv].Descriptor.ShaderRegister = 1;
             rootParams[kRootShadowCbv].Descriptor.RegisterSpace  = 0;
             paramCount = 3;
-            sampCount  = 3; // wrap, shadow, clamp splat
         }
 
         D3D12_ROOT_SIGNATURE_DESC rsDesc{};
