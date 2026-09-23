@@ -254,6 +254,7 @@ void EditorApp::onInit()
     }
     renderer().gpuResources().setShadowSrv(m_shadows.srvCpu());
     renderer().setShadowSrv(m_shadows.srvCpu());
+    m_scene.waterPipeline().setShadowSrv(renderer().device(), m_shadows.srvCpu());
 
     const float aspect = (renderer().height() > 0)
         ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height())
