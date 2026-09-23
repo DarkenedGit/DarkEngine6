@@ -65,6 +65,7 @@ public:
     bool createFromHeightMap(HeightMap&& map, int chunkCells = 16);
 
     void clear();
+    void transferRetireToRenderer(Renderer* renderer);
 
     // Editor CPU source of truth. Runtime leaves these null.
     bool setWorking(HeightMap&& height, SplatMap&& splat);
@@ -212,7 +213,9 @@ private:
     int       m_pinTz     = 0;
     int       m_pinRing   = 3;
     TileSlot  m_slots[kMaxWorldTiles][kMaxWorldTiles];
-    GpuMeshRetire m_gpuRetire;
+    GpuMeshRetire    m_gpuRetire;
+    GpuHeapRetire    m_heapRetire;
+    GpuTextureRetire m_textureRetire;
 };
 
 } // namespace Terrain

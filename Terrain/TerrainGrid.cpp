@@ -74,6 +74,44 @@ TerrainGrid::~TerrainGrid()
     reset();
 }
 
+void TerrainGrid::transferRetireToRenderer(Renderer* renderer)
+{
+    if (!renderer)
+        return;
+    for (auto& item : m_gpuRetire.m_items)
+    {
+        Mesh& mesh = item.mesh;
+        if (mesh.valid())
+        {
+            if (mesh.m_vb)
+                renderer->deferRelease(mesh.m_vb.Get());
+            if (mesh.m_ib)
+                renderer->deferRelease(mesh.m_ib.Get());
+        }
+    }
+    m_gpuRetire.clear();
+    for (auto& item : m_heapRetire.m_items)
+    {
+        if (item.heap)
+            renderer->deferRelease(item.heap.Get());
+    }
+    m_heapRetire.clear();
+    for (auto& item : m_textureRetire.m_items)
+    {
+        Texture2D& tex = item.texture;
+        if (tex.valid())
+        {
+            if (tex.m_resource)
+                renderer->deferRelease(tex.m_resource.Get());
+            if (tex.m_cpuSrvHeap)
+                renderer->deferRelease(tex.m_cpuSrvHeap.Get());
+            if (tex.m_srvHeap)
+                renderer->deferRelease(tex.m_srvHeap.Get());
+        }
+    }
+    m_textureRetire.clear();
+}
+
 void TerrainGrid::reset()
 {
     for (uint32_t z = 0; z < kMaxWorldTiles; ++z)
@@ -730,6 +768,8 @@ void TerrainGrid::unregisterTileHeap(TileSlot& slot)
         slot.cache->unregisterPackedHeap(&slot.heap);
         slot.cache = nullptr;
     }
+    if (slot.heap.heap)
+        m_heapRetire.push(std::move(slot.heap.heap));
     slot.heap      = PackedSrvHeap{};
     slot.heapPacked = false;
 }
@@ -741,6 +781,8 @@ void TerrainGrid::evictFineTile(int tx, int tz)
     TileSlot& slot = m_slots[tz][tx];
     unregisterTileHeap(slot);
     slot.world.giveGpuMeshes(m_gpuRetire);
+    if (slot.splatTexture.valid())
+        m_textureRetire.push(std::move(slot.splatTexture));
     slot.world             = TerrainWorld{};
     slot.splatTexture      = Texture2D{};
     slot.splat             = SplatMap{};
@@ -891,6 +933,9 @@ bool TerrainGrid::packTileHeapGpu(Renderer& renderer, TileSlot& slot, const Terr
     if (!slot.splat.valid())
         slot.splat.generateFromHeight(slot.world.heightMap());
 
+    if (slot.splatTexture.valid())
+        m_textureRetire.push(std::move(slot.splatTexture));
+
     Image splatImg;
     if (!splatImg.createFromRGBA(slot.splat.rgba(), slot.splat.width(), slot.splat.height(), slot.splat.width() * 4u)
         || !slot.splatTexture.createFromImage(renderer, splatImg, Dark::Color::TextureUsage::Data))
@@ -1006,6 +1051,8 @@ void TerrainGrid::updateStreaming(const Vector3f& cameraPos, Renderer* renderer,
         return;
 
     m_gpuRetire.tick();
+    m_heapRetire.tick();
+    m_textureRetire.tick();
     for (int tz = 0; tz < static_cast<int>(m_tilesZ); ++tz)
     {
         for (int tx = 0; tx < static_cast<int>(m_tilesX); ++tx)

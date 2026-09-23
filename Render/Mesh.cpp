@@ -1,5 +1,6 @@
 #include "Render/Mesh.h"
 #include "Render/Renderer.h"
+#include "Render/Texture2D.h"
 #include "Core/Log.h"
 
 #include <cmath>
@@ -231,6 +232,70 @@ namespace Dark
 	}
 
 	void GpuMeshRetire::tick()
+	{
+		for (size_t i = 0; i < m_items.size();)
+		{
+			if (--m_items[i].frames <= 0)
+			{
+				m_items[i] = std::move(m_items.back());
+				m_items.pop_back();
+			}
+			else
+				++i;
+		}
+	}
+
+	void GpuHeapRetire::push(ComPtr<ID3D12DescriptorHeap>&& heap)
+	{
+		if (!heap)
+			return;
+		Item item;
+		item.heap   = std::move(heap);
+		item.frames = kFrames;
+		m_items.push_back(std::move(item));
+	}
+
+	void GpuHeapRetire::takeFrom(GpuHeapRetire& other)
+	{
+		if (other.m_items.empty())
+			return;
+		m_items.insert(m_items.end(), std::make_move_iterator(other.m_items.begin()), std::make_move_iterator(other.m_items.end()));
+		other.m_items.clear();
+	}
+
+	void GpuHeapRetire::tick()
+	{
+		for (size_t i = 0; i < m_items.size();)
+		{
+			if (--m_items[i].frames <= 0)
+			{
+				m_items[i] = std::move(m_items.back());
+				m_items.pop_back();
+			}
+			else
+				++i;
+		}
+	}
+
+	void GpuTextureRetire::push(Texture2D&& texture)
+	{
+		if (!texture.valid())
+			return;
+		Item item;
+		item.texture = std::move(texture);
+		item.frames  = kFrames;
+		m_items.push_back(std::move(item));
+	}
+
+	void GpuTextureRetire::takeFrom(GpuTextureRetire& other)
+	{
+		if (other.m_items.empty())
+			return;
+		m_items.insert(m_items.end(), std::make_move_iterator(other.m_items.begin()), std::make_move_iterator(other.m_items.end()));
+		other.m_items.clear();
+	}
+
+	void GpuTextureRetire::tick()
 	{
 		for (size_t i = 0; i < m_items.size();)
 		{

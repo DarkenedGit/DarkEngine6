@@ -37,10 +37,14 @@ namespace Dark
 
     uint32_t packBlendWeightsUnorm8(float w0, float w1, float w2, float w3);
 
+    namespace Terrain { class TerrainGrid; }
+
     // GPU mesh built from MeshData (default-heap VB/IB).
     class Mesh
     {
     public:
+        friend class GpuMeshRetire;
+        friend class Terrain::TerrainGrid;
         Mesh() = default;
 
         // Uploads mesh data to the GPU. The copy is queued (COPY queue when
@@ -97,6 +101,50 @@ namespace Dark
         {
             Mesh mesh;
             int  frames = kFrames;
+        };
+        std::vector<Item> m_items;
+    };
+
+    // Keep descriptor heaps alive for a few frames after a tile eviction/rebind.
+    class GpuHeapRetire
+    {
+    public:
+        friend class Terrain::TerrainGrid;
+        static constexpr int kFrames = 3;
+
+        void push(ComPtr<ID3D12DescriptorHeap>&& heap);
+        void takeFrom(GpuHeapRetire& other);
+        void tick();
+        void clear() { m_items.clear(); }
+
+    private:
+        struct Item
+        {
+            ComPtr<ID3D12DescriptorHeap> heap;
+            int frames = kFrames;
+        };
+        std::vector<Item> m_items;
+    };
+
+    class Texture2D;
+
+    // Keep Texture2D GPU resources alive for a few frames after a tile eviction/rebind.
+    class GpuTextureRetire
+    {
+    public:
+        friend class Terrain::TerrainGrid;
+        static constexpr int kFrames = 3;
+
+        void push(Texture2D&& texture);
+        void takeFrom(GpuTextureRetire& other);
+        void tick();
+        void clear() { m_items.clear(); }
+
+    private:
+        struct Item
+        {
+            Texture2D texture;
+            int frames = kFrames;
         };
         std::vector<Item> m_items;
     };

@@ -26,10 +26,14 @@ namespace Dark
     // TYPELESS color FLAG_NONE layout: slot 0 UNORM (cpuHandleRaw), slot 1 UNORM_SRGB (m_cpuHandleSrgb, private).
     // cpuHandle() is the sampling view: slot 1 _SRGB when present, else slot 0 UNORM.
     // Shader-visible heap is 1 slot matching cpuHandle(). Hud/Data have no sRGB view.
+    namespace Terrain { class TerrainGrid; }
+
     // Loaded from common image formats via WIC (PNG, JPEG, BMP, etc.).
     class Texture2D
     {
     public:
+        friend class GpuTextureRetire;
+        friend class Terrain::TerrainGrid;
         Texture2D() = default;
 
         Texture2D(Texture2D&&) noexcept            = default;
