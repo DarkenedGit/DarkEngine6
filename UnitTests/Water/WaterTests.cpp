@@ -4,6 +4,7 @@
 #include "Terrain/HeightMap.h"
 #include "Terrain/TerrainLod.h"
 #include "Water/Water.h"
+#include "Water/WaterBody.h"
 #include "Water/WaterWaves.h"
 
 using namespace Dark;
@@ -78,6 +79,51 @@ TEST(WaterWaves, FlowRotatesDirection)
 
     EXPECT_NEAR(alongX.x, 1.0f, 1.0e-4f);
     EXPECT_NEAR(alongZ.y, 1.0f, 1.0e-4f);
+}
+
+TEST(WaterBody, FiniteFootprintAndEdgeFade)
+{
+    WaterBody body;
+    WaterBodyDesc desc;
+    desc.center  = Vector3f(10.0f, 3.0f, -4.0f);
+    desc.extentX = 48.0f;
+    desc.extentZ = 48.0f;
+    ASSERT_TRUE(body.build(nullptr, desc, defaultWaterParams(3.0f)));
+
+    Vector3f pos;
+    Vector2f uv;
+    ASSERT_TRUE(body.vertex(0, pos, uv));
+    EXPECT_NEAR(pos.x, 10.0f - 24.0f, 1.0e-3f);
+    EXPECT_NEAR(pos.y, 3.0f, 1.0e-3f);
+    EXPECT_NEAR(pos.z, -4.0f - 24.0f, 1.0e-3f);
+    EXPECT_NEAR(uv.x, 0.0f, 1.0e-3f);
+
+    const int cells = 24;
+    const int center = 12 * (cells + 1) + 12;
+    ASSERT_TRUE(body.vertex(center, pos, uv));
+    EXPECT_NEAR(pos.x, 10.0f, 1.0e-3f);
+    EXPECT_NEAR(pos.z, -4.0f, 1.0e-3f);
+    EXPECT_NEAR(uv.x, 1.0f, 1.0e-3f);
+
+    EXPECT_TRUE(body.containsXZ(10.0f, -4.0f));
+    EXPECT_TRUE(body.containsXZ(34.0f, 20.0f));
+    EXPECT_FALSE(body.containsXZ(34.1f, -4.0f));
+    EXPECT_NEAR(body.bounds().Min.y, 3.0f - maxWaveAmplitude(body.params()), 1.0e-3f);
+
+    WaterBodyDesc moved = desc;
+    moved.center.y = 8.0f;
+    EXPECT_FALSE(body.matches(moved));
+    EXPECT_TRUE(body.matches(desc));
+
+    WaterBody other;
+    WaterBodyDesc pond = desc;
+    pond.center = Vector3f(-30.0f, 12.0f, 6.0f);
+    pond.extentX = 16.0f;
+    pond.extentZ = 20.0f;
+    ASSERT_TRUE(other.build(nullptr, pond, defaultWaterParams(12.0f)));
+    EXPECT_NEAR(other.params().waterLevel, 12.0f, 1.0e-4f);
+    EXPECT_FALSE(other.containsXZ(10.0f, -4.0f));
+    EXPECT_TRUE(other.containsXZ(-30.0f, 6.0f));
 }
 
 TEST(WaterWorld, OnlyValleysAreWet)

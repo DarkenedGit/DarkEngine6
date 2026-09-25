@@ -55,6 +55,7 @@ namespace Dark
         Hunter,
         Wolf,
         Model,
+        Water,
         Count
     };
 
@@ -64,7 +65,7 @@ namespace Dark
             || t == SceneObjectType::PointLight || t == SceneObjectType::SpotLight
             || t == SceneObjectType::AmbientLight || t == SceneObjectType::DirectionalLight
             || t == SceneObjectType::Player || t == SceneObjectType::Hunter || t == SceneObjectType::Wolf
-            || t == SceneObjectType::Model;
+            || t == SceneObjectType::Model || t == SceneObjectType::Water;
     }
 
     inline bool isPawnType(SceneObjectType t)
@@ -105,6 +106,7 @@ namespace Dark
         case SceneObjectType::Hunter:          return "hunter";
         case SceneObjectType::Wolf:            return "wolf";
         case SceneObjectType::Model:           return "model";
+        case SceneObjectType::Water:           return "water";
         default:                               return "unknown";
         }
     }
@@ -179,6 +181,11 @@ namespace Dark
         if (s == "model" || s == "gltf")
         {
             out = SceneObjectType::Model;
+            return true;
+        }
+        if (s == "water")
+        {
+            out = SceneObjectType::Water;
             return true;
         }
         return false;

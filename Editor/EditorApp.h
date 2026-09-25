@@ -34,6 +34,7 @@
 #include "Terrain/TerrainGrid.h"
 #include "Terrain/TerrainMaterial.h"
 #include "Water/Water.h"
+#include "Water/WaterBody.h"
 #include "Weapons/Weapon.h"
 
 #include <atomic>
@@ -184,6 +185,15 @@ private:
     bool saveTerrainSidecars(const std::filesystem::path& scenePath) const;
     bool applyEditorGridGpu();
     bool rebuildEditorWater();
+    void syncPlacedWater(bool terrainChanged);
+    void drawPlacedWater(
+        ID3D12GraphicsCommandList* cmd,
+        const Frustum3f& frustum,
+        ID3D12DescriptorHeap* heightHeap,
+        D3D12_GPU_DESCRIPTOR_HANDLE heightGpu,
+        D3D12_CPU_DESCRIPTOR_HANDLE sceneColorCpu,
+        D3D12_CPU_DESCRIPTOR_HANDLE depthCpu,
+        const SsrSettings* ssr);
     void bindTerrainHeightSrv();
     void startGenerateWorld();
     void cancelGenerateWorld();
@@ -311,6 +321,14 @@ private:
 
     Terrain::TerrainGrid          m_terrain;
     WaterWorld                    m_water;
+    struct EditorWaterSlot
+    {
+        EntityID entityId = 0;
+        WaterBody body;
+    };
+    std::vector<EditorWaterSlot>  m_placedWater;
+    GpuMeshRetire                 m_placedWaterRetire;
+    bool                          m_placedWaterForce = false;
     TerrainMaterial               m_terrainMaterial;
     Terrain::SplatMap             m_splat;
     Terrain::SplatRules           m_splatRules;

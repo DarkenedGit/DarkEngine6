@@ -108,7 +108,7 @@ struct VSInput
 {
     float3 position : POSITION;
     float3 normal   : NORMAL;
-    float2 uv       : TEXCOORD0; // y = terrain height
+    float2 uv       : TEXCOORD0; // x = rectangle edge fade, y = terrain height
 };
 
 struct PSInput
@@ -116,6 +116,7 @@ struct PSInput
     float4 position : SV_POSITION;
     float2 restXZ   : TEXCOORD0;
     float  terrainY : TEXCOORD1;
+    float  edgeFade : TEXCOORD2;
 };
 
 void Gerstner(float2 xz, out float3 offset, out float3 normal)
@@ -166,6 +167,7 @@ PSInput VSMain(VSInput input)
     float3 world = input.position + GerstnerDisplace(input.position.xz);
     o.restXZ     = input.position.xz;
     o.terrainY   = input.uv.y;
+    o.edgeFade   = saturate(input.uv.x);
     o.position   = mul(float4(world, 1.0f), worldViewProj);
     return o;
 }
@@ -181,11 +183,12 @@ float4 PSMain(PSInput input) : SV_TARGET
     float depth = waterLevel - input.terrainY;
     float shallow = saturate(1.0f - depth / max(shoreDepth, 1e-3f));
     float3 body = lerp(deepColor, shallowColor, shallow);
+    float edge = saturate(input.edgeFade);
     float alpha = opacity * saturate(depth / max(shoreDepth * 0.35f, 1e-3f));
 
     if (specPower < 0.0f)
     {
-        alpha = saturate(alpha);
+        alpha = saturate(alpha) * edge;
         return float4(encodeSceneRgb(body), alpha);
     }
 
@@ -263,7 +266,7 @@ float4 PSMain(PSInput input) : SV_TARGET
     FogResult fog = FogIntegrate(cameraPos, worldPos, fp, gHeightMap, gHeightSamp, 1.0f);
     color = ApplyLitFog(color, fog);
 
-    // Shore: fade out as the land rises through the surface.
-    alpha = saturate(alpha + fres * 0.15f);
+    // Shore: fade out as the land rises through the surface. edgeFade hides the rectangle rim.
+    alpha = saturate(alpha + fres * 0.15f) * edge;
     return float4(encodeSceneRgb(color), alpha);
 }

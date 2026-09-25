@@ -90,6 +90,7 @@ const char* iconForType(SceneObjectType type)
     case SceneObjectType::Wolf:
         return ICON_FA_BUG;
     case SceneObjectType::Platform:
+    case SceneObjectType::Water:
         return ICON_FA_LAYER_GROUP;
     default:
         return ICON_FA_CUBE;
@@ -362,6 +363,7 @@ void EditorApp::drawAssetBrowser()
             drawPrimitive(SceneObjectType::Player, "Player");
             drawPrimitive(SceneObjectType::Hunter, "Hunter");
             drawPrimitive(SceneObjectType::Wolf, "Wolf");
+            drawPrimitive(SceneObjectType::Water, "Water");
         }
     }
 

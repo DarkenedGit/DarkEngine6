@@ -77,6 +77,11 @@ TEST(SceneTypes, Parse2DAnd3D)
     EXPECT_TRUE(usesModelBounds(SceneObjectType::Model));
     EXPECT_TRUE(usesModelBounds(SceneObjectType::Wolf));
     EXPECT_STREQ(toString(SceneObjectType::Model), "model");
+    EXPECT_TRUE(tryParseSceneObjectType("water", t));
+    EXPECT_EQ(t, SceneObjectType::Water);
+    EXPECT_TRUE(isScene3DType(SceneObjectType::Water));
+    EXPECT_FALSE(isScene2DType(SceneObjectType::Water));
+    EXPECT_STREQ(toString(SceneObjectType::Water), "water");
 
     SceneMode mode{};
     EXPECT_TRUE(tryParseSceneMode("2d", mode));

@@ -266,7 +266,7 @@ using namespace Terrain;
                 mesh.positions.push_back(Vector3f(wx, waterY, wz));
                 mesh.normals.push_back(Vector3f(0.0f, 1.0f, 0.0f));
                 // uv.x unused by lighting; uv.y carries terrain height for shore fade.
-                mesh.uvs.push_back(Vector2f(0.0f, terrainY));
+                mesh.uvs.push_back(Vector2f(1.0f, terrainY));
             }
         }
 

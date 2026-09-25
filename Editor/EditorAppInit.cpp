@@ -112,6 +112,7 @@ void EditorApp::registerActions()
 
 void EditorApp::onInit()
 {
+    m_water.params() = defaultWaterParams(0.0f);
     DE_LOG_INFO("EditorApp: init");
     mountContentRoots(assets());
     registerActions();
@@ -418,6 +419,8 @@ void EditorApp::onShutdown()
     m_particleRenderer.destroy(renderer());
     cancelGenerateWorld();
     renderer().waitForGpu();
+    m_placedWater.clear();
+    m_placedWaterRetire.clear();
     m_water = WaterWorld{};
     m_terrain.clear();
     m_terrainMaterial    = {};

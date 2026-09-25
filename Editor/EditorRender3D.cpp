@@ -447,7 +447,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                 waterDepth      = renderer().depthSrvCpu();
                 waterSsr        = &m_ssr;
             }
-            m_water.draw(cmd, m_scene.waterPipeline(), m_camera, &waterFrustum, nullptr, &renderer().debugState(), 0, 0, nullptr, renderer().frameIndex(), heightHeap, heightGpu, &m_shadows, waterSceneColor, waterDepth, waterSsr);
+            drawPlacedWater(cmd, waterFrustum, heightHeap, heightGpu, waterSceneColor, waterDepth, waterSsr);
         }
         drawGrid();
         drawLightGizmos();

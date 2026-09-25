@@ -88,6 +88,8 @@ public:
     static constexpr UINT kRootShadowSrv = 4;
     static constexpr UINT kRootSsrSrv    = 5;
     static constexpr UINT kBufferedFrames = 2;
+    // Each draw in a frame needs its own upload slot. The GPU reads the heap after recording finishes.
+    static constexpr UINT kMaxWaterDrawsPerFrame = 32;
     static_assert(2u + 2u + 1u + 2u + 1u + 1u <= 64u, "water RS DWORD budget");
 
     WaterPipeline() = default;
@@ -95,7 +97,7 @@ public:
     bool create(ID3D12Device* device, DXGI_FORMAT colorFormat = DXGI_FORMAT_R8G8B8A8_UNORM);
 
     void bind(ID3D12GraphicsCommandList* cmd, DebugFill fill = DebugFill::Solid) const;
-    void setConstants(ID3D12GraphicsCommandList* cmd, const WaterFrameConstants& constants, uint32_t frameIndex);
+    void setConstants(ID3D12GraphicsCommandList* cmd, const WaterFrameConstants& constants, uint32_t frameIndex, uint32_t drawIndex = 0);
     void setLights(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS lightsVa) const;
     void setHeightMap(ID3D12GraphicsCommandList* cmd, ID3D12DescriptorHeap* heap, D3D12_GPU_DESCRIPTOR_HANDLE gpu) const;
     void setHeightSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE heightCpu);

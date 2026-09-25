@@ -7,6 +7,8 @@
 #include "Terrain/TerrainGen.h"
 #include "Terrain/TerrainTileFile.h"
 #include "Water/WaterWaves.h"
+#include "Render/WaterPipeline.h"
+#include "Terrain/HeightMap.h"
 #include "Ui/Icons.h"
 #include "ECS/Components.h"
 
@@ -201,7 +203,15 @@ void EditorApp::removeEditorTerrain()
     }
 
     renderer().waitForGpu();
-    m_water = WaterWorld{};
+    {
+        const float amplitudeScale = m_water.params().amplitudeScale;
+        const float speedScale     = m_water.params().speedScale;
+        m_water = WaterWorld{};
+        m_water.params() = defaultWaterParams(0.0f);
+        m_water.params().amplitudeScale = amplitudeScale;
+        m_water.params().speedScale     = speedScale;
+    }
+    m_placedWaterForce = true;
     m_terrain.clear();
     m_terrainMaterial    = {};
     m_splat              = {};
@@ -240,42 +250,129 @@ bool EditorApp::rebuildEditorWater()
     const float amplitudeScale = m_water.params().amplitudeScale;
     const float speedScale     = m_water.params().speedScale;
     m_water = WaterWorld{};
-    if (!m_haveTerrain || !m_terrain.valid() || !m_terrain.coarse().valid())
-        return true;
-    renderer().waitForGpu();
-    WaterDesc desc;
-    desc.chunkCells       = kWaterChunkCellsCoarse;
-    desc.waterLevel       = m_terrainSeaLevel;
-    desc.lodDistanceCount = 5;
-    desc.lodDistances[0]  = 40.0f;
-    desc.lodDistances[1]  = 80.0f;
-    desc.lodDistances[2]  = 160.0f;
-    desc.lodDistances[3]  = 320.0f;
-    desc.lodDistances[4]  = 640.0f;
-    desc.params                = defaultWaterParams(m_terrainSeaLevel);
-    desc.params.amplitudeScale = amplitudeScale;
-    desc.params.speedScale     = speedScale;
-    if (!m_water.create(m_terrain.coarse(), desc))
-    {
-        DE_LOG_ERROR(LogCategory::Render, "Editor: water create failed");
-        m_water.params().amplitudeScale = amplitudeScale;
-        m_water.params().speedScale     = speedScale;
-        return false;
-    }
-    m_water.updateLod(m_camera.GetPosition());
-    if (!m_water.createGpu(renderer()))
-    {
-        DE_LOG_ERROR(LogCategory::Render, "Editor: water GPU upload failed");
-        m_water = WaterWorld{};
-        m_water.params().amplitudeScale = amplitudeScale;
-        m_water.params().speedScale     = speedScale;
-        return false;
-    }
-    bindTerrainHeightSrv();
-    if (!m_scene.waterPipeline().isValid())
-        DE_LOG_ERROR(LogCategory::Render, "Editor: WaterPipeline invalid — water will not draw");
-    DE_LOG_INFO(LogCategory::Render, "Editor: water level {:.1f} m, {} wet chunks", m_terrainSeaLevel, m_water.wetChunkCount());
+    m_water.params() = defaultWaterParams(m_terrainSeaLevel);
+    m_water.params().amplitudeScale = amplitudeScale;
+    m_water.params().speedScale     = speedScale;
+    m_placedWaterForce = true;
     return true;
+}
+
+void EditorApp::syncPlacedWater(bool terrainChanged)
+{
+    m_placedWaterRetire.tick();
+    const bool haveTerrain = m_haveTerrain && m_terrain.valid() && m_terrain.coarse().valid();
+    const Terrain::HeightMap* heightMap = haveTerrain ? &m_terrain.coarse() : nullptr;
+    const float amplitudeScale = m_water.params().amplitudeScale;
+    const float speedScale     = m_water.params().speedScale;
+    const bool force = terrainChanged || m_placedWaterForce;
+    m_placedWaterForce = false;
+
+    std::vector<EntityID> live;
+    world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
+        if (so.type != SceneObjectType::Water)
+            return;
+        const TransformComponent* xf = world().get<TransformComponent>(e);
+        if (!xf)
+            return;
+        live.push_back(e.id());
+
+        EditorWaterSlot* slot = nullptr;
+        for (EditorWaterSlot& candidate : m_placedWater)
+        {
+            if (candidate.entityId == e.id())
+            {
+                slot = &candidate;
+                break;
+            }
+        }
+        if (!slot)
+        {
+            m_placedWater.push_back(EditorWaterSlot{});
+            slot = &m_placedWater.back();
+            slot->entityId = e.id();
+        }
+
+        WaterBodyDesc desc;
+        desc.center  = xf->position;
+        desc.extentX = xf->scale.x;
+        desc.extentZ = xf->scale.z;
+        const bool rebuild = force || !slot->body.matches(desc) || slot->body.bakedTerrain() != haveTerrain;
+        if (rebuild)
+        {
+            if (slot->body.gpuValid())
+                m_placedWaterRetire.push(slot->body.takeGpu());
+            WaterParams params = defaultWaterParams(desc.center.y);
+            params.amplitudeScale = amplitudeScale;
+            params.speedScale     = speedScale;
+            if (!slot->body.build(heightMap, desc, params) || !slot->body.upload(renderer()))
+                DE_LOG_ERROR(LogCategory::Render, "Editor: water body upload failed");
+        }
+        else
+            slot->body.setWaveScales(amplitudeScale, speedScale);
+    });
+
+    for (size_t i = 0; i < m_placedWater.size();)
+    {
+        bool found = false;
+        for (EntityID id : live)
+        {
+            if (id == m_placedWater[i].entityId)
+            {
+                found = true;
+                break;
+            }
+        }
+        if (found)
+        {
+            ++i;
+            continue;
+        }
+        if (m_placedWater[i].body.gpuValid())
+            m_placedWaterRetire.push(m_placedWater[i].body.takeGpu());
+        if (i + 1 != m_placedWater.size())
+            m_placedWater[i] = std::move(m_placedWater.back());
+        m_placedWater.pop_back();
+    }
+}
+
+void EditorApp::drawPlacedWater(
+    ID3D12GraphicsCommandList* cmd,
+    const Frustum3f& frustum,
+    ID3D12DescriptorHeap* heightHeap,
+    D3D12_GPU_DESCRIPTOR_HANDLE heightGpu,
+    D3D12_CPU_DESCRIPTOR_HANDLE sceneColorCpu,
+    D3D12_CPU_DESCRIPTOR_HANDLE depthCpu,
+    const SsrSettings* ssr)
+{
+    if (!cmd || m_placedWater.empty() || !m_scene.waterPipeline().isValid())
+        return;
+    const Terrain::HeightMap* heightMap = (m_haveTerrain && m_terrain.valid() && m_terrain.coarse().valid()) ? &m_terrain.coarse() : nullptr;
+    uint32_t drawIndex = 0;
+    for (const EditorWaterSlot& slot : m_placedWater)
+    {
+        if (drawIndex >= WaterPipeline::kMaxWaterDrawsPerFrame)
+        {
+            DE_LOG_WARN(LogCategory::Render, "Editor: water draw cap {} reached", WaterPipeline::kMaxWaterDrawsPerFrame);
+            break;
+        }
+        if (slot.body.draw(
+                cmd,
+                m_scene.waterPipeline(),
+                m_camera,
+                &frustum,
+                &renderer().debugState(),
+                m_water.time(),
+                renderer().frameIndex(),
+                drawIndex,
+                heightHeap,
+                heightGpu,
+                &m_shadows,
+                sceneColorCpu,
+                depthCpu,
+                ssr,
+                heightMap))
+            ++drawIndex;
+    }
 }
 
 bool EditorApp::applyEditorGridGpu()
@@ -391,13 +488,6 @@ void EditorApp::syncTerrainLod()
         m_terrain.clearPin();
 
     m_terrain.updateStreaming(m_camera.GetPosition(), &renderer(), &m_terrainMaterial);
-    m_water.updateLod(m_camera.GetPosition());
-    if (m_water.needsRebuild())
-    {
-        m_water.rebuildDirtyCpuMeshes();
-        if (!m_water.uploadDirty(renderer()))
-            DE_LOG_ERROR(LogCategory::Render, "Editor: water upload failed");
-    }
     if (m_terrainHeightDirty)
     {
         if (!m_terrain.uploadCoarseHeightTexture(renderer()))
@@ -1108,16 +1198,13 @@ void EditorApp::drawWaterTools()
         return;
     }
 
-    const bool haveWater = m_water.chunksX() > 0;
-    if (!haveWater)
-        ImGui::TextDisabled("Generate or load terrain to shape the water.");
+    ImGui::TextDisabled("Wave height and speed apply to every placed water body.");
 
     WaterParams& wp      = m_water.params();
     float        baseAmp = 0.0f;
     for (int i = 0; i < kWaterWaveCount; ++i)
         baseAmp += wp.waves[i].amplitude;
 
-    ImGui::BeginDisabled(!haveWater);
     float heightM = baseAmp * (wp.amplitudeScale > 0.0f ? wp.amplitudeScale : 0.0f);
     if (ImGui::SliderFloat("Wave height", &heightM, 0.0f, 6.0f, "%.2f m"))
         wp.amplitudeScale = baseAmp > 1.0e-5f ? heightM / baseAmp : 0.0f;
@@ -1131,7 +1218,6 @@ void EditorApp::drawWaterTools()
         wp.amplitudeScale = 1.0f;
         wp.speedScale     = 1.0f;
     }
-    ImGui::EndDisabled();
     ImGui::End();
 }
 

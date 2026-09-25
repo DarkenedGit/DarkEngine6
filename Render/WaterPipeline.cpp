@@ -308,7 +308,7 @@ bool WaterPipeline::createConstantBuffers(ID3D12Device* device)
 
     D3D12_RESOURCE_DESC cbDesc{};
     cbDesc.Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER;
-    cbDesc.Width            = static_cast<UINT64>(cbBytes()) * kBufferedFrames;
+    cbDesc.Width            = static_cast<UINT64>(cbBytes()) * kBufferedFrames * kMaxWaterDrawsPerFrame;
     cbDesc.Height           = 1;
     cbDesc.DepthOrArraySize = 1;
     cbDesc.MipLevels        = 1;
@@ -349,7 +349,7 @@ bool WaterPipeline::createConstantBuffers(ID3D12Device* device)
         m_cbMapped = nullptr;
         return false;
     }
-    std::memset(m_cbMapped, 0, static_cast<size_t>(cbBytes()) * kBufferedFrames);
+    std::memset(m_cbMapped, 0, static_cast<size_t>(cbBytes()) * kBufferedFrames * kMaxWaterDrawsPerFrame);
     std::memset(dummyMapped, 0, 64);
 
     m_cbGpu    = m_cbUpload->GetGPUVirtualAddress();
@@ -425,11 +425,13 @@ void WaterPipeline::bind(ID3D12GraphicsCommandList* cmd, DebugFill fill) const
     cmd->SetPipelineState(pso);
 }
 
-void WaterPipeline::setConstants(ID3D12GraphicsCommandList* cmd, const WaterFrameConstants& constants, uint32_t frameIndex)
+void WaterPipeline::setConstants(ID3D12GraphicsCommandList* cmd, const WaterFrameConstants& constants, uint32_t frameIndex, uint32_t drawIndex)
 {
     if (!cmd || !m_cbMapped || !m_cbGpu)
         return;
-    m_cbSlot = frameIndex % kBufferedFrames;
+    if (drawIndex >= kMaxWaterDrawsPerFrame)
+        drawIndex = kMaxWaterDrawsPerFrame - 1u;
+    m_cbSlot = (frameIndex % kBufferedFrames) * kMaxWaterDrawsPerFrame + drawIndex;
     std::memcpy(m_cbMapped + static_cast<size_t>(m_cbSlot) * cbBytes(), &constants, sizeof(constants));
     cmd->SetGraphicsRootConstantBufferView(kRootCbv, m_cbGpu + static_cast<UINT64>(m_cbSlot) * cbBytes());
 }

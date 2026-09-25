@@ -213,8 +213,9 @@ Entity EditorApp::spawnObject(
     const bool emitterType = type == SceneObjectType::ParticleEmitter;
     const bool pawnType    = isPawnType(type);
     const bool modelType   = type == SceneObjectType::Model;
+    const bool waterType   = type == SceneObjectType::Water;
     if (m_sceneMode == SceneMode::Scene3D && isScene3DType(type) && !emitterType && !lightType && !globalLight && !pawnType
-        && !modelType && xf.position.y < 0.5f * xf.scale.y)
+        && !modelType && !waterType && xf.position.y < 0.5f * xf.scale.y)
         xf.position.y = 0.5f * xf.scale.y;
     world().emplace<TransformComponent>(e, xf);
 
@@ -250,7 +251,7 @@ Entity EditorApp::spawnObject(
         amb.enabled   = (authored && authored->hasLight) ? authored->lightEnabled : true;
         world().emplace<AmbientLightComponent>(e, amb);
     }
-    else if (!emitterType && !pawnType && !modelType)
+    else if (!emitterType && !pawnType && !modelType && !waterType)
     {
         MeshComponent mc{};
         mc.matAssetID  = m_propMaterial ? m_propMaterial->id : NULL_ASSET;
@@ -406,6 +407,11 @@ Entity EditorApp::placeAtWorld(SceneObjectType type, Vector3f hit, const SceneOb
         hit.y += 0.5f;
     else if (type == SceneObjectType::Model)
         hit.y = groundY;
+    else if (type == SceneObjectType::Water)
+    {
+        scale = Vector3f(48.0f, 2.0f, 48.0f);
+        hit.y = groundY;
+    }
     else
         hit.y = 0.5f * scale.y;
     const Quaternion rot = (type == SceneObjectType::SpotLight) ? defaultSpotRotation() : Quaternion::IDENTITY;
@@ -592,7 +598,7 @@ void EditorApp::cyclePlaceType(int delta)
     const SceneObjectType types3D[] = {
         SceneObjectType::Cube, SceneObjectType::Sphere, SceneObjectType::ParticleEmitter,
         SceneObjectType::PointLight, SceneObjectType::SpotLight,
-        SceneObjectType::Player, SceneObjectType::Hunter, SceneObjectType::Wolf
+        SceneObjectType::Player, SceneObjectType::Hunter, SceneObjectType::Wolf, SceneObjectType::Water
     };
     const SceneObjectType types2D[] = {
         SceneObjectType::Platform, SceneObjectType::Coin, SceneObjectType::Spawn

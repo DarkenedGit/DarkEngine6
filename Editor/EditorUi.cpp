@@ -216,6 +216,13 @@ void EditorApp::drawEditorUi()
                 }
                 if (ImGui::MenuItem(ICON_FA_BOLT "  Glow Prop", nullptr, false, createOk))
                     m_queueGlowProp = true;
+                if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  Water", nullptr, false, createOk))
+                {
+                    m_placeType          = SceneObjectType::Water;
+                    m_queuePlaceAtCursor = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Places a lake. Position Y is the surface. Width and depth are the footprint. Add several at different heights.");
             }
             if (!createOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Spectators cannot place or delete objects");
@@ -725,6 +732,18 @@ void EditorApp::drawInspector3D()
         }
         ImGui::DragFloat("Source radius", &light->sourceRadius, 0.005f, 0.0f, 2.0f);
     }
+    else if (so->type == SceneObjectType::Water)
+    {
+        ImGui::Separator();
+        ImGui::TextUnformatted("Water body");
+        float width = xf->scale.x;
+        float depth = xf->scale.z;
+        if (ImGui::DragFloat("Width (m)", &width, 0.5f, 4.0f, 512.0f, "%.1f"))
+            xf->scale.x = Max(4.0f, width);
+        if (ImGui::DragFloat("Depth (m)", &depth, 0.5f, 4.0f, 512.0f, "%.1f"))
+            xf->scale.z = Max(4.0f, depth);
+        ImGui::TextDisabled("Y is this lake's surface. Each water object is its own body.");
+    }
     else if (!isPawnType(so->type) && so->type != SceneObjectType::Model)
     {
         if (ImGui::ColorEdit3("Tint", so->color))
@@ -774,7 +793,9 @@ void EditorApp::onUpdate(float dt)
     if (m_sceneMode != SceneMode::Scene2D)
     {
         m_water.tick(dt);
+        const bool terrainChanged = m_terrainHeightDirty;
         syncTerrainLod();
+        syncPlacedWater(terrainChanged);
     }
 
     if (m_sceneMode != SceneMode::Scene2D)
