@@ -30,6 +30,7 @@
 #include "Combat/DamageEvent.h"
 #include "Math/AABox3f.h"
 #include "Render/TerrainErosionPipeline.h"
+#include "Terrain/TerrainGen.h"
 #include "Terrain/TerrainGrid.h"
 #include "Terrain/TerrainMaterial.h"
 #include "Water/Water.h"
@@ -171,6 +172,7 @@ private:
     void drawModelPartsPanel();
     void drawMaterialPanel();
     void drawTerrainPanel();
+    void drawWaterTools();
     void syncTerrainLod();
     bool createEditorTerrain();
     void removeEditorTerrain();
@@ -305,6 +307,7 @@ private:
     bool  m_showModelParts     = true;
     bool  m_showMaterialEditor = false;
     bool  m_showTerrainPanel   = true;
+    bool  m_showWaterTools     = false;
 
     Terrain::TerrainGrid          m_terrain;
     WaterWorld                    m_water;
@@ -332,6 +335,7 @@ private:
     int                           m_genThermal      = 40;
     int                           m_genHydroIters   = 48;
     int                           m_genHydroSteps   = 64;
+    Terrain::ErosionParams        m_genFilter{};
     TerrainErosionPipeline        m_erosionPipe;
     bool                          m_erosionAttempted = false;
     std::atomic<bool>             m_genRunning{ false };

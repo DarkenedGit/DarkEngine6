@@ -19,10 +19,12 @@ namespace Dark
 
     struct WaterParams
     {
-        float           waterLevel    = 0.0f;
-        Math::Vector2f  flowDir       = Math::Vector2f(1.0f, 0.0f);
-        float           flowStrength  = 0.85f; // how hard waves align to flow
-        float           steepness     = 0.55f; // Gerstner Q, 0 = sine, ~1 = sharp crests
+        float           waterLevel     = 0.0f;
+        Math::Vector2f  flowDir        = Math::Vector2f(1.0f, 0.0f);
+        float           flowStrength   = 0.85f; // how hard waves align to flow
+        float           steepness      = 0.55f; // Gerstner Q, 0 = sine, ~1 = sharp crests
+        float           amplitudeScale = 1.0f;  // multiplies every wave amplitude; 1 keeps the authored height
+        float           speedScale     = 1.0f;  // multiplies every wave speed; 1 keeps the authored travel speed
         WaterWave       waves[kWaterWaveCount];
     };
 
@@ -39,8 +41,11 @@ namespace Dark
 
     float waveHeight(const WaterParams& params, float worldX, float worldZ, float time);
 
-    // Sum of amplitudes — used to expand chunk AABBs and valley-cull margin.
+    // Sum of scaled amplitudes — used to expand chunk AABBs and valley-cull margin.
     float maxWaveAmplitude(const WaterParams& params);
+
+    float scaledWaveAmplitude(const WaterParams& params, int waveIndex);
+    float scaledWaveSpeed(const WaterParams& params, int waveIndex);
 
     Math::Vector2f waveDirection(const WaterParams& params, int waveIndex);
 

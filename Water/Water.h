@@ -117,6 +117,7 @@ namespace Dark
     private:
         bool chunkIsWet(const Terrain::HeightMap& hm, int ix, int iz) const;
         bool buildChunkMesh(WaterChunk& c);
+        void syncWaveBounds();
 
         const Terrain::HeightMap* m_heightMap = nullptr;
         WaterParams m_params;

@@ -244,6 +244,8 @@ void EditorApp::drawDebugMenu()
     else
         ImGui::TextUnformatted("Not listening");
     ImGui::TextUnformatted("LAN only — no authentication");
+    ImGui::Separator();
+    ImGui::MenuItem("Water Waves", nullptr, &m_showWaterTools);
     ImGui::EndMenu();
 }
 

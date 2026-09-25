@@ -444,6 +444,7 @@ void EditorApp::drawEditorUi()
     drawModelPartsPanel();
     drawMaterialPanel();
     drawTerrainPanel();
+    drawWaterTools();
 
     if (m_sceneMode == SceneMode::Scene2D && ImGui::Begin("2D Level"))
     {
@@ -771,7 +772,10 @@ void EditorApp::onUpdate(float dt)
     else
         updateCamera(dt);
     if (m_sceneMode != SceneMode::Scene2D)
+    {
+        m_water.tick(dt);
         syncTerrainLod();
+    }
 
     if (m_sceneMode != SceneMode::Scene2D)
     {

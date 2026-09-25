@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <vector>
 
 namespace Dark
 {
@@ -182,6 +183,10 @@ private:
     bool copyWorkingTileSplat(int tx, int tz, SplatMap& out) const;
     void evictFineTile(int tx, int tz);
     void unregisterTileHeap(TileSlot& slot);
+    // SetDescriptorHeaps does not keep the heap alive. Evict/repack used to
+    // release it before the in-flight command list finished (#921).
+    void deferDestroyGpu(PackedSrvHeap heap, Texture2D splat);
+    void tickRetiredGpu();
     const HeightMap* heightSourceAt(float x, float z) const;
     bool packTileHeapGpu(Renderer& renderer, TileSlot& slot, const TerrainMaterial& material);
     void applyGpu(Renderer& renderer, const TerrainMaterial* material);
@@ -211,8 +216,16 @@ private:
     int       m_pinTx     = 0;
     int       m_pinTz     = 0;
     int       m_pinRing   = 3;
+    struct RetiredTileGpu
+    {
+        PackedSrvHeap heap;
+        Texture2D     splat;
+        int           frames = GpuMeshRetire::kFrames;
+    };
+
     TileSlot  m_slots[kMaxWorldTiles][kMaxWorldTiles];
     GpuMeshRetire m_gpuRetire;
+    std::vector<RetiredTileGpu> m_retiredGpu;
 };
 
 } // namespace Terrain

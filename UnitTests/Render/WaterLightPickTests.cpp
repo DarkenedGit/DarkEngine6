@@ -94,6 +94,23 @@ TEST(WaterLightPick, FillConstantsZerosLightPickAndHonorsLightingFlag)
     EXPECT_EQ(cb.lightCount, 0u);
 }
 
+TEST(WaterLightPick, FillConstantsScalesWaveHeightAndSpeed)
+{
+    WaterFrameConstants cb{};
+    float wvp[16]{};
+    float cam[3]{};
+    float light[3]{ 0.0f, 1.0f, 0.0f };
+    WaterParams params = defaultWaterParams(1.0f);
+    params.amplitudeScale = 2.0f;
+    params.speedScale     = 0.5f;
+    WaterPipeline::fillConstants(cb, wvp, cam, 0.0f, light, params, nullptr, true);
+    for (int i = 0; i < kWaterWaveCount; ++i)
+    {
+        EXPECT_FLOAT_EQ(cb.waves[i][3], params.waves[i].amplitude * 2.0f);
+        EXPECT_FLOAT_EQ(cb.waveSpeed[i], params.waves[i].speed * 0.5f);
+    }
+}
+
 TEST(WaterLightPick, FillSsrWritesEnabledAndSkyEval)
 {
     WaterFrameConstants cb{};

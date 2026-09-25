@@ -43,6 +43,28 @@ namespace Dark::Terrain
         float    deposit             = 0.3f;
         float    gravity             = 4.0f;
         float    seaLevelRaw         = 0.0f;
+
+        // Broad hills the gully layers sit on. fadeTarget -1 is the basin, +1 the peaks.
+        int   shapeOctaves     = 3;
+        float shapeFrequency   = 3.0f;
+        float shapeAmplitude   = 0.125f;
+        float shapeGain        = 0.1f;
+        float shapeLacunarity  = 2.0f;
+
+        // Each gully octave is a finer stripe layer. Strength * scale is how far it moves the ground.
+        int   gullyOctaves        = 5;
+        float gullyStrength       = 0.22f;
+        float gullyScale          = 0.15f;
+        float gullyWeight         = 0.5f;
+        float gullyGain           = 0.5f;
+        float gullyLacunarity     = 2.0f;
+        float gullyCellScale      = 0.7f;
+        float gullyNormalization  = 0.5f;
+        float gullyDetail         = 1.5f;
+        float gullyDepthBias      = 0.65f;
+        // Altitude (fadeTarget) where stripes begin, and where they reach full strength.
+        float gullyAltitudeStart  = -0.05f;
+        float gullyAltitudeFull   = 0.50f;
     };
 
     struct WorldGenDesc

@@ -298,8 +298,14 @@ namespace Dark
             return false;
         }
 
-        auto gpu = std::make_unique<GpuModel>();
-        auto upload = [&](const std::vector<Model::Part>& src, std::vector<GpuModel::Part>& dst) {
+        std::vector<GpuModel::Part> opaque;
+        std::vector<GpuModel::Part> translucent;
+        auto abandon = [&](std::vector<GpuModel::Part>& parts) {
+            for (GpuModel::Part& part : parts)
+                part.mesh.deferRelease(*m_renderer);
+            parts.clear();
+        };
+        auto upload = [&](const std::vector<Model::Part>& src, std::vector<GpuModel::Part>& dst, const char* bucket) -> bool {
             for (size_t i = 0; i < src.size(); ++i)
             {
                 const Model::Part& part = src[i];
@@ -307,16 +313,16 @@ namespace Dark
                     continue;
                 if (part.material && !ensureMaterial(part.material))
                 {
-                    DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureModel: material upload failed for part {}", i);
-                    continue;
+                    DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureModel: material upload failed for {} part {}", bucket, i);
+                    return false;
                 }
                 GpuModel::Part gp;
                 const bool ok = part.skinned ? Mesh::tryCreateSkinned(*m_renderer, part.mesh, gp.mesh)
                                              : Mesh::tryCreate(*m_renderer, part.mesh, gp.mesh);
                 if (!ok)
                 {
-                    DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureModel: mesh upload failed for part {}", i);
-                    continue;
+                    DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureModel: mesh upload failed for {} part {}", bucket, i);
+                    return false;
                 }
                 gp.materialId  = part.material ? part.material->id : NULL_ASSET;
                 gp.localToRoot = part.localToRoot;
@@ -324,14 +330,20 @@ namespace Dark
                 gp.skinned     = part.skinned;
                 dst.push_back(std::move(gp));
             }
+            return true;
         };
-        upload(model->opaque(), gpu->m_opaque);
-        upload(model->translucent(), gpu->m_translucent);
-        if (!gpu->valid())
+        if (!upload(model->opaque(), opaque, "opaque") || !upload(model->translucent(), translucent, "translucent"))
+        {
+            abandon(opaque);
+            abandon(translucent);
+            return false;
+        }
+        if (opaque.empty() && translucent.empty())
         {
             DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureModel: id={} has no drawable GPU parts", model->id);
             return false;
         }
+        auto gpu = std::make_unique<GpuModel>(std::move(opaque), std::move(translucent));
         ModEntry entry{};
         entry.cpu = model;
         entry.gpu = std::move(gpu);

@@ -580,8 +580,8 @@ void WaterPipeline::fillConstants(
         out.waves[i][0] = d.x;
         out.waves[i][1] = d.y;
         out.waves[i][2] = params.waves[i].frequency;
-        out.waves[i][3] = params.waves[i].amplitude;
-        out.waveSpeed[i] = params.waves[i].speed;
+        out.waves[i][3] = scaledWaveAmplitude(params, i);
+        out.waveSpeed[i] = scaledWaveSpeed(params, i);
     }
 
     if (!lighting)

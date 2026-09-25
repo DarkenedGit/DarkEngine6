@@ -9,8 +9,6 @@
 namespace Dark
 {
 
-    class GpuResourceCache;
-
     class GpuModel
     {
     public:
@@ -23,6 +21,8 @@ namespace Dark
             bool           skinned     = false;
         };
 
+        GpuModel(std::vector<Part> opaque, std::vector<Part> translucent);
+
         const std::vector<Part>& opaque() const { return m_opaque; }
         const std::vector<Part>& translucent() const { return m_translucent; }
         bool valid() const { return !m_opaque.empty() || !m_translucent.empty(); }
@@ -30,7 +30,6 @@ namespace Dark
         bool hasTranslucent() const { return !m_translucent.empty(); }
 
     private:
-        friend class GpuResourceCache;
         std::vector<Part> m_opaque;
         std::vector<Part> m_translucent;
     };

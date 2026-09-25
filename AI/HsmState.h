@@ -109,8 +109,6 @@ namespace Dark::AI
         }
 
     private:
-        friend class HsmMachine;
-
         std::string                m_name;
         HsmState*                  m_parent           = nullptr;
         HsmState*                  m_initial          = nullptr;

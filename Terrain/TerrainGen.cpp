@@ -78,6 +78,11 @@ namespace Dark::Terrain
         }
 
         float Clamp01(float t) { return Clamp(t, 0.0f, 1.0f); }
+        float Smoothstep01(float t)
+        {
+            t = Clamp01(t);
+            return t * t * (3.0f - 2.0f * t);
+        }
         float EaseOut(float t)
         {
             const float v = 1.0f - Clamp01(t);
@@ -137,29 +142,72 @@ namespace Dark::Terrain
             outSideZ          = sideZ;
         }
 
-        void ErosionFilter(float u, float v, float height, float slopeX, float slopeZ, float fadeTarget, uint32_t seed, float& outH, float& outMag)
+        int ClampOctaves(int n)
         {
-            const float strength0     = 0.22f * 0.15f;
-            const float gullyWeight   = 0.5f;
-            const float detail        = 1.5f;
+            if (n < 1)
+                return 1;
+            if (n > 8)
+                return 8;
+            return n;
+        }
+
+        float DomainScale(float samplesAcross, int octaves, float lacunarity, float cellScale, float featureScale)
+        {
+            // Finest octave must keep several samples per wave or it turns into spikes.
+            const float feature = featureScale > 1.0e-4f ? featureScale : 0.15f;
+            const float cell    = cellScale > 1.0e-4f ? cellScale : 0.7f;
+            const float freq0   = 1.0f / (feature * cell);
+            float       lac     = lacunarity < 1.01f ? 1.01f : lacunarity;
+            const int   oct     = ClampOctaves(octaves);
+            float       finest  = freq0;
+            for (int i = 1; i < oct; ++i)
+                finest *= lac;
+            finest *= cell;
+            const float minPerWave = 8.0f;
+            if (samplesAcross < 1.0f || finest < 1.0e-4f)
+                return 1.0f;
+            float scale = samplesAcross / (finest * minPerWave);
+            if (scale < 1.0f)
+                scale = 1.0f;
+            if (scale > 3.0f)
+                scale = 3.0f;
+            return scale;
+        }
+
+        void ErosionFilter(float u, float v, float height, float slopeX, float slopeZ, float fadeTarget, const ErosionParams& params, float samplesAcross, float& outH, float& outMag)
+        {
+            const float gullyWeight   = params.gullyWeight;
+            const float detail        = params.gullyDetail > 0.05f ? params.gullyDetail : 0.05f;
             const float roundX        = 0.1f;
             const float roundY        = 0.0f;
             const float roundZ        = 0.1f;
             const float roundW        = 2.0f;
             const float onsetX        = 1.25f;
             const float onsetY        = 1.25f;
-            const float cellScale     = 0.7f;
-            const float normalization = 0.5f;
-            const int   octaves       = 5;
-            const float gain          = 0.5f;
-            const float lacunarity    = 2.0f;
+            const float cellScale     = params.gullyCellScale > 1.0e-3f ? params.gullyCellScale : 1.0e-3f;
+            const float featureScale  = params.gullyScale > 1.0e-4f ? params.gullyScale : 1.0e-4f;
+            float       normalization = params.gullyNormalization;
+            if (normalization < 0.0f)
+                normalization = 0.0f;
+            if (normalization > 0.95f)
+                normalization = 0.95f;
+            const int   octaves       = ClampOctaves(params.gullyOctaves);
+            const float gain          = params.gullyGain > 0.0f ? params.gullyGain : 0.0f;
+            const float lacunarity    = params.gullyLacunarity < 1.01f ? 1.01f : params.gullyLacunarity;
             const float assumedSlope  = 0.7f;
             const float assumedMix    = 1.0f;
             const float kEps          = 1.0e-10f;
 
             fadeTarget          = Clamp(fadeTarget, -1.0f, 1.0f);
-            float strength      = strength0;
-            float freq          = 1.0f / (0.15f * cellScale);
+            float strength      = params.gullyStrength * featureScale;
+            if (strength < 0.0f)
+                strength = 0.0f;
+            float freq          = 1.0f / (featureScale * cellScale);
+            const float kDomainScale = DomainScale(samplesAcross, octaves, lacunarity, cellScale, featureScale);
+            float fadeSpan = params.gullyAltitudeFull - params.gullyAltitudeStart;
+            if (fadeSpan < 0.05f)
+                fadeSpan = 0.05f;
+            const float altitudeFade = Smoothstep01((fadeTarget - params.gullyAltitudeStart) / fadeSpan);
             float slopeLen      = sqrtf(slopeX * slopeX + slopeZ * slopeZ);
             slopeLen            = Max(slopeLen, kEps);
             float magnitude     = 0.0f;
@@ -183,19 +231,22 @@ namespace Dark::Terrain
                     ndz = gullyZ / glen;
                 }
                 float pc, ps, sideX, sideZ;
-                PhacelleNoise(u * freq, v * freq, ndx, ndz, cellScale, 0.25f, normalization, seed, pc, ps, sideX, sideZ);
+                PhacelleNoise(u * freq * kDomainScale, v * freq * kDomainScale, ndx, ndz, cellScale, 0.25f, normalization, params.seed, pc, ps, sideX, sideZ);
+                // Derivative stays in height-gradient units. Position scale must not
+                // multiply it, or the next octave's direction flips every cell.
                 sideX *= -freq;
                 sideZ *= -freq;
                 const float sloping = fabsf(ps);
                 gullyX += Signf(ps) * sideX * strength * gullyWeight;
                 gullyZ += Signf(ps) * sideZ * strength * gullyWeight;
 
-                const float gH  = pc;
-                const float gSx = ps * sideX;
-                const float gSz = ps * sideZ;
-                const float fH  = Lerp(fadeTarget, gH * gullyWeight, combiMask);
-                const float fSx = Lerp(0.0f, gSx * gullyWeight, combiMask);
-                const float fSz = Lerp(0.0f, gSz * gullyWeight, combiMask);
+                const float gH   = pc;
+                const float gSx  = ps * sideX;
+                const float gSz  = ps * sideZ;
+                const float mask = combiMask * altitudeFade;
+                const float fH   = Lerp(fadeTarget, gH * gullyWeight, mask);
+                const float fSx  = Lerp(0.0f, gSx * gullyWeight, mask);
+                const float fSz  = Lerp(0.0f, gSz * gullyWeight, mask);
                 h += fH * strength;
                 sx += fSx * strength;
                 sz += fSz * strength;
@@ -215,15 +266,15 @@ namespace Dark::Terrain
             (void)sz;
         }
 
-        float SampleEroded(float u, float v, uint32_t seed)
+        float SampleEroded(float u, float v, const ErosionParams& params, float samplesAcross)
         {
             // Advanced Terrain Erosion Filter (MPL 2.0) — Runevision, C# port Luke Mitchell.
             // LayerProcGen is the chunk framework; this is the height filter from the 2026 paper.
-            const int   heightOct  = 3;
-            const float heightFreq = 3.0f;
-            const float heightAmp  = 0.125f;
-            const float heightGain = 0.1f;
-            const float heightLac  = 2.0f;
+            const int   heightOct  = ClampOctaves(params.shapeOctaves);
+            const float heightFreq = params.shapeFrequency > 1.0e-3f ? params.shapeFrequency : 1.0e-3f;
+            const float heightAmp  = params.shapeAmplitude > 1.0e-4f ? params.shapeAmplitude : 1.0e-4f;
+            const float heightGain = params.shapeGain > 0.0f ? params.shapeGain : 0.0f;
+            const float heightLac  = params.shapeLacunarity < 1.01f ? 1.01f : params.shapeLacunarity;
 
             float nx = 0.0f;
             float nsx = 0.0f;
@@ -233,7 +284,7 @@ namespace Dark::Terrain
             for (int i = 0; i < heightOct; ++i)
             {
                 float gv, gdx, gdz;
-                GradientNoise(u * nf, v * nf, seed, gv, gdx, gdz);
+                GradientNoise(u * nf, v * nf, params.seed, gv, gdx, gdz);
                 nx += gv * na;
                 nsx += gdx * (na * nf);
                 nsz += gdz * (na * nf);
@@ -251,22 +302,23 @@ namespace Dark::Terrain
 
             float dh = 0.0f;
             float mag = 0.0f;
-            ErosionFilter(u, v, nx, nsx, nsz, fadeTarget, seed, dh, mag);
-            const float offset = -0.65f * mag;
-            return Clamp(nx + dh + offset, 0.0f, 1.0f);
+            ErosionFilter(u, v, nx, nsx, nsz, fadeTarget, params, samplesAcross, dh, mag);
+            const float offset = -params.gullyDepthBias * mag;
+            return nx + dh + offset;
         }
 
         void FillErodedRect(float* dst, int dstW, int dstH, int originX, int originZ, int fullW, int fullH, const WorldGenDesc& desc)
         {
             const float invW = 1.0f / static_cast<float>(fullW > 1 ? fullW - 1 : 1);
             const float invH = 1.0f / static_cast<float>(fullH > 1 ? fullH - 1 : 1);
+            const float samplesAcross = static_cast<float>(fullW < fullH ? fullW : fullH) - 1.0f;
             for (int z = 0; z < dstH; ++z)
             {
                 for (int x = 0; x < dstW; ++x)
                 {
-                    const float u                          = static_cast<float>(originX + x) * invW;
-                    const float v                          = static_cast<float>(originZ + z) * invH;
-                    dst[static_cast<size_t>(z) * dstW + x] = SampleEroded(u, v, desc.erosion.seed);
+                    const float u = static_cast<float>(originX + x) * invW;
+                    const float v = static_cast<float>(originZ + z) * invH;
+                    dst[static_cast<size_t>(z) * dstW + x] = SampleEroded(u, v, desc.erosion, samplesAcross);
                 }
             }
         }
@@ -346,14 +398,12 @@ namespace Dark::Terrain
                     samples[i] = sea;
                 return;
             }
+            // Affine only. Flooring t at 0 planed the valley bottoms and left the
+            // positive lobes of the gully wave standing as ridges, including
+            // stretches that restart after a flat gap on a steep face.
             const float invFit = 1.0f / fit;
             for (size_t i = 0; i < count; ++i)
-            {
-                float t = (samples[i] - lo) * invFit;
-                if (t < 0.0f)
-                    t = 0.0f;
-                samples[i] = t;
-            }
+                samples[i] = (samples[i] - lo) * invFit;
             (void)sea;
         }
 

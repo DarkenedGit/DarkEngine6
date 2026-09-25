@@ -723,6 +723,30 @@ bool TerrainGrid::loadFineTile(int tx, int tz)
     return true;
 }
 
+void TerrainGrid::deferDestroyGpu(PackedSrvHeap heap, Texture2D splat)
+{
+    if (!heap.heap && !splat.valid())
+        return;
+    RetiredTileGpu retired;
+    retired.heap  = std::move(heap);
+    retired.splat = std::move(splat);
+    m_retiredGpu.push_back(std::move(retired));
+}
+
+void TerrainGrid::tickRetiredGpu()
+{
+    for (size_t i = 0; i < m_retiredGpu.size();)
+    {
+        if (--m_retiredGpu[i].frames <= 0)
+        {
+            m_retiredGpu[i] = std::move(m_retiredGpu.back());
+            m_retiredGpu.pop_back();
+        }
+        else
+            ++i;
+    }
+}
+
 void TerrainGrid::unregisterTileHeap(TileSlot& slot)
 {
     if (slot.cache)
@@ -730,7 +754,8 @@ void TerrainGrid::unregisterTileHeap(TileSlot& slot)
         slot.cache->unregisterPackedHeap(&slot.heap);
         slot.cache = nullptr;
     }
-    slot.heap      = PackedSrvHeap{};
+    deferDestroyGpu(std::move(slot.heap), {});
+    slot.heap       = PackedSrvHeap{};
     slot.heapPacked = false;
 }
 
@@ -741,9 +766,9 @@ void TerrainGrid::evictFineTile(int tx, int tz)
     TileSlot& slot = m_slots[tz][tx];
     unregisterTileHeap(slot);
     slot.world.giveGpuMeshes(m_gpuRetire);
-    slot.world             = TerrainWorld{};
-    slot.splatTexture      = Texture2D{};
-    slot.splat             = SplatMap{};
+    slot.world = TerrainWorld{};
+    deferDestroyGpu({}, std::move(slot.splatTexture));
+    slot.splat = SplatMap{};
     slot.resident          = false;
     slot.firstGpuApplyDone = false;
 }
@@ -892,12 +917,15 @@ bool TerrainGrid::packTileHeapGpu(Renderer& renderer, TileSlot& slot, const Terr
         slot.splat.generateFromHeight(slot.world.heightMap());
 
     Image splatImg;
+    Texture2D uploaded;
     if (!splatImg.createFromRGBA(slot.splat.rgba(), slot.splat.width(), slot.splat.height(), slot.splat.width() * 4u)
-        || !slot.splatTexture.createFromImage(renderer, splatImg, Dark::Color::TextureUsage::Data))
+        || !uploaded.createFromImage(renderer, splatImg, Dark::Color::TextureUsage::Data))
     {
         DE_LOG_ERROR(LogCategory::Render, "TerrainGrid: tile splat upload failed");
         return false;
     }
+    deferDestroyGpu({}, std::move(slot.splatTexture));
+    slot.splatTexture = std::move(uploaded);
 
     unregisterTileHeap(slot);
     if (!material.packTileHeap(renderer.device(), slot.heap, slot.splatTexture.cpuHandle()))
@@ -1006,6 +1034,7 @@ void TerrainGrid::updateStreaming(const Vector3f& cameraPos, Renderer* renderer,
         return;
 
     m_gpuRetire.tick();
+    tickRetiredGpu();
     for (int tz = 0; tz < static_cast<int>(m_tilesZ); ++tz)
     {
         for (int tx = 0; tx < static_cast<int>(m_tilesX); ++tx)

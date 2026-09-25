@@ -122,6 +122,25 @@ TEST(TerrainGen, World_HeightScale_IsNotBakedIntoSamples)
     EXPECT_GT(yMax - yMin, 20.0f);
 }
 
+TEST(TerrainGen, World_ValleyIsNotPlanedFlat)
+{
+    const WorldGenDesc desc = MakeSmallDesc();
+    HeightMap          hm;
+    SplatMap           sp;
+    ASSERT_TRUE(generateWorld(desc, hm, sp, nullptr, nullptr, nullptr));
+    int zeros = 0;
+    const int n = static_cast<int>(hm.width() * hm.height());
+    for (int z = 0; z < static_cast<int>(hm.height()); ++z)
+    {
+        for (int x = 0; x < static_cast<int>(hm.width()); ++x)
+        {
+            if (hm.height(x, z) == 0.0f)
+                ++zeros;
+        }
+    }
+    EXPECT_LT(zeros, n / 20);
+}
+
 TEST(TerrainGen, World_TileBoundaryNotRockRim)
 {
     WorldGenDesc desc = MakeSmallDesc();

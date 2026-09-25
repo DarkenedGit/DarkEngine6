@@ -39,6 +39,32 @@ TEST(WaterWaves, HeightIsWaterLevelPlusDisplacement)
     EXPECT_NEAR(y, 5.0f, 1.0e-4f); // sin(0) == 0
 }
 
+TEST(WaterWaves, ScaleChangesHeightAndTravelSpeed)
+{
+    WaterParams p = defaultWaterParams(4.0f);
+    p.speedScale  = 0.0f;
+    const float y1 = waveHeight(p, 2.0f, 3.0f, 1.5f);
+    p.amplitudeScale = 2.5f;
+    const float y2 = waveHeight(p, 2.0f, 3.0f, 1.5f);
+    EXPECT_NEAR(y2 - p.waterLevel, 2.5f * (y1 - p.waterLevel), 1.0e-4f);
+
+    p.amplitudeScale = 0.0f;
+    EXPECT_NEAR(waveHeight(p, 2.0f, 3.0f, 1.5f), p.waterLevel, 1.0e-5f);
+    EXPECT_NEAR(maxWaveAmplitude(p), 0.0f, 1.0e-5f);
+
+    p.amplitudeScale = 1.0f;
+    p.speedScale     = 1.0f;
+    const float traveled = waveHeight(p, 1.25f, -0.5f, 0.37f);
+    p.speedScale = 2.0f;
+    const float doubled = waveHeight(p, 1.25f, -0.5f, 0.37f * 0.5f);
+    EXPECT_NEAR(traveled, doubled, 1.0e-4f);
+
+    p.speedScale = 0.0f;
+    const float held = waveHeight(p, 1.25f, -0.5f, 9.0f);
+    const float rest = waveHeight(p, 1.25f, -0.5f, 0.0f);
+    EXPECT_NEAR(held, rest, 1.0e-4f);
+}
+
 TEST(WaterWaves, FlowRotatesDirection)
 {
     WaterParams p = defaultWaterParams(0.0f);
@@ -200,6 +226,37 @@ TEST(WaterWorld, SmallMapKeepsRequestedChunkCells)
     EXPECT_EQ(water.chunkCells(), 16);
     EXPECT_EQ(water.chunksX(), 8);
     EXPECT_EQ(water.chunksZ(), 8);
+}
+
+TEST(WaterWorld, BoundsTrackWaveHeight)
+{
+    HeightMap hm;
+    ASSERT_TRUE(hm.create(9, 9, 1.0f, 1.0f));
+    for (int z = 0; z < 9; ++z)
+    {
+        for (int x = 0; x < 9; ++x)
+            hm.setHeight(x, z, 0.0f);
+    }
+
+    WaterDesc desc;
+    desc.chunkCells = 4;
+    desc.waterLevel = 2.0f;
+    desc.params     = defaultWaterParams(2.0f);
+
+    WaterWorld water;
+    ASSERT_TRUE(water.create(hm, desc));
+    const WaterChunk* chunk = water.chunk(0, 0);
+    ASSERT_NE(chunk, nullptr);
+    const float amp = maxWaveAmplitude(water.params());
+    EXPECT_NEAR(chunk->bounds.Max.y, 2.0f + amp, 1.0e-4f);
+    EXPECT_NEAR(chunk->bounds.Min.y, 2.0f - amp, 1.0e-4f);
+
+    water.params().amplitudeScale = 2.0f;
+    water.updateLod(Vector3f(0.0f, 0.0f, 0.0f));
+    chunk = water.chunk(0, 0);
+    ASSERT_NE(chunk, nullptr);
+    EXPECT_NEAR(chunk->bounds.Max.y, 2.0f + amp * 2.0f, 1.0e-4f);
+    EXPECT_NEAR(chunk->bounds.Min.y, 2.0f - amp * 2.0f, 1.0e-4f);
 }
 
 TEST(WaterWorld, HeightQueryOnlyInValleys)

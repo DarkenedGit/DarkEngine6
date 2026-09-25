@@ -162,10 +162,23 @@ using namespace Terrain;
         m_time += dt;
     }
 
+    void WaterWorld::syncWaveBounds()
+    {
+        const float amp = maxWaveAmplitude(m_params);
+        const float y0  = m_params.waterLevel - amp;
+        const float y1  = m_params.waterLevel + amp;
+        for (WaterChunk& c : m_chunks)
+        {
+            c.bounds.Min.y = y0;
+            c.bounds.Max.y = y1;
+        }
+    }
+
     void WaterWorld::updateLod(const Vector3f& cameraPos)
     {
         if (m_chunks.empty())
             return;
+        syncWaveBounds();
         m_gpuRetire.tick();
 
         for (WaterChunk& c : m_chunks)

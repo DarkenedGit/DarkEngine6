@@ -64,11 +64,27 @@ namespace Dark
         return d;
     }
 
+    float scaledWaveAmplitude(const WaterParams& params, int waveIndex)
+    {
+        if (waveIndex < 0 || waveIndex >= kWaterWaveCount)
+            return 0.0f;
+        const float scale = params.amplitudeScale > 0.0f ? params.amplitudeScale : 0.0f;
+        return params.waves[waveIndex].amplitude * scale;
+    }
+
+    float scaledWaveSpeed(const WaterParams& params, int waveIndex)
+    {
+        if (waveIndex < 0 || waveIndex >= kWaterWaveCount)
+            return 0.0f;
+        const float scale = params.speedScale > 0.0f ? params.speedScale : 0.0f;
+        return params.waves[waveIndex].speed * scale;
+    }
+
     float maxWaveAmplitude(const WaterParams& params)
     {
         float s = 0.0f;
         for (int i = 0; i < kWaterWaveCount; ++i)
-            s += params.waves[i].amplitude;
+            s += scaledWaveAmplitude(params, i);
         return s;
     }
 
@@ -91,13 +107,13 @@ namespace Dark
         for (int i = 0; i < kWaterWaveCount; ++i)
         {
             const WaterWave& w = params.waves[i];
-            if (w.amplitude <= 0.0f || w.frequency <= 0.0f)
+            const float      A = scaledWaveAmplitude(params, i);
+            if (A <= 0.0f || w.frequency <= 0.0f)
                 continue;
 
             const Vector2f D  = waveDirection(params, i);
             const float    k  = w.frequency;
-            const float    A  = w.amplitude;
-            const float    dp = (D.x * worldX + D.y * worldZ) * k + time * w.speed;
+            const float    dp = (D.x * worldX + D.y * worldZ) * k + time * scaledWaveSpeed(params, i);
             const float    s  = sinf(dp);
             const float    c  = cosf(dp);
             const float    wa = k * A;

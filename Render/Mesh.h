@@ -69,6 +69,10 @@ namespace Dark
             return m_vb != nullptr && m_indexCount > 0;
         }
 
+        // Hands default-heap buffers to the renderer. tryCreate returns before the
+        // copy queue finishes, so dropping a Mesh immediately deletes them early.
+        void deferRelease(Renderer& renderer);
+
     private:
         static bool uploadBuffers(Renderer& renderer, const void* verts, uint64_t vbBytes, uint32_t stride, const uint32_t* indices, uint32_t indexCount, Mesh& out);
 

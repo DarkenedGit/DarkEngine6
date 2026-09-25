@@ -237,6 +237,8 @@ void EditorApp::bindTerrainHeightSrv()
 
 bool EditorApp::rebuildEditorWater()
 {
+    const float amplitudeScale = m_water.params().amplitudeScale;
+    const float speedScale     = m_water.params().speedScale;
     m_water = WaterWorld{};
     if (!m_haveTerrain || !m_terrain.valid() || !m_terrain.coarse().valid())
         return true;
@@ -250,10 +252,14 @@ bool EditorApp::rebuildEditorWater()
     desc.lodDistances[2]  = 160.0f;
     desc.lodDistances[3]  = 320.0f;
     desc.lodDistances[4]  = 640.0f;
-    desc.params           = defaultWaterParams(m_terrainSeaLevel);
+    desc.params                = defaultWaterParams(m_terrainSeaLevel);
+    desc.params.amplitudeScale = amplitudeScale;
+    desc.params.speedScale     = speedScale;
     if (!m_water.create(m_terrain.coarse(), desc))
     {
         DE_LOG_ERROR(LogCategory::Render, "Editor: water create failed");
+        m_water.params().amplitudeScale = amplitudeScale;
+        m_water.params().speedScale     = speedScale;
         return false;
     }
     m_water.updateLod(m_camera.GetPosition());
@@ -261,6 +267,8 @@ bool EditorApp::rebuildEditorWater()
     {
         DE_LOG_ERROR(LogCategory::Render, "Editor: water GPU upload failed");
         m_water = WaterWorld{};
+        m_water.params().amplitudeScale = amplitudeScale;
+        m_water.params().speedScale     = speedScale;
         return false;
     }
     bindTerrainHeightSrv();
@@ -827,6 +835,7 @@ void EditorApp::startGenerateWorld()
     desc.heightScale = m_genHeightScale > 0.0f ? m_genHeightScale : 80.0f;
     const float half = 0.5f * static_cast<float>(tiles * kTileCells) * desc.cellSize;
     desc.origin      = Vector3f{ -half, 0.0f, -half };
+    desc.erosion                          = m_genFilter;
     desc.erosion.seed                 = m_terrainSeed;
     desc.erosion.thermalIterations    = m_genThermal;
     desc.erosion.hydraulicIterations  = m_genHydroIters;
@@ -1081,6 +1090,51 @@ void EditorApp::undoTerrainBrush()
     snap = TerrainBrushUndo{};
 }
 
+void EditorApp::drawWaterTools()
+{
+    if (!m_showWaterTools)
+        return;
+    ImGui::SetNextWindowSize(ImVec2(340.0f, 160.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Water Waves", &m_showWaterTools))
+    {
+        ImGui::End();
+        return;
+    }
+
+    if (m_sceneMode != SceneMode::Scene3D)
+    {
+        ImGui::TextDisabled("Water waves are part of the 3D terrain.");
+        ImGui::End();
+        return;
+    }
+
+    const bool haveWater = m_water.chunksX() > 0;
+    if (!haveWater)
+        ImGui::TextDisabled("Generate or load terrain to shape the water.");
+
+    WaterParams& wp      = m_water.params();
+    float        baseAmp = 0.0f;
+    for (int i = 0; i < kWaterWaveCount; ++i)
+        baseAmp += wp.waves[i].amplitude;
+
+    ImGui::BeginDisabled(!haveWater);
+    float heightM = baseAmp * (wp.amplitudeScale > 0.0f ? wp.amplitudeScale : 0.0f);
+    if (ImGui::SliderFloat("Wave height", &heightM, 0.0f, 6.0f, "%.2f m"))
+        wp.amplitudeScale = baseAmp > 1.0e-5f ? heightM / baseAmp : 0.0f;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("How high the crests rise if every wave peaks together. The authored height is about %.2f m.", static_cast<double>(baseAmp));
+    ImGui::SliderFloat("Wave speed", &wp.speedScale, 0.0f, 4.0f, "%.2fx");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("How fast the waves travel. 1 is the authored speed. 0 holds them still.");
+    if (ImGui::Button("Reset waves"))
+    {
+        wp.amplitudeScale = 1.0f;
+        wp.speedScale     = 1.0f;
+    }
+    ImGui::EndDisabled();
+    ImGui::End();
+}
+
 void EditorApp::drawTerrainPanel()
 {
     if (m_sceneMode != SceneMode::Scene3D || !m_showTerrainPanel)
@@ -1109,6 +1163,39 @@ void EditorApp::drawTerrainPanel()
     ImGui::SliderFloat("Cell size (m)", &m_genCellSize, 0.5f, 4.0f, "%.2f");
     ImGui::SliderFloat("Height scale (m)", &m_genHeightScale, 40.0f, 800.0f, "%.0f");
     ImGui::SliderFloat("Sea level (m)", &m_terrainSeaLevel, -20.0f, 80.0f, "%.1f");
+    if (ImGui::CollapsingHeader("Shape layers", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::SliderInt("Shape octaves", &m_genFilter.shapeOctaves, 1, 8);
+        ImGui::SliderFloat("Shape frequency", &m_genFilter.shapeFrequency, 0.5f, 12.0f, "%.2f");
+        ImGui::SliderFloat("Shape amplitude", &m_genFilter.shapeAmplitude, 0.02f, 0.5f, "%.3f");
+        ImGui::SliderFloat("Shape gain", &m_genFilter.shapeGain, 0.0f, 0.8f, "%.2f");
+        ImGui::SliderFloat("Shape lacunarity", &m_genFilter.shapeLacunarity, 1.2f, 3.5f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How much finer each shape layer is than the one under it.");
+    }
+    if (ImGui::CollapsingHeader("Gully layers", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::SliderInt("Gully octaves", &m_genFilter.gullyOctaves, 1, 8);
+        ImGui::SliderFloat("Gully strength", &m_genFilter.gullyStrength, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("Gully scale", &m_genFilter.gullyScale, 0.02f, 0.6f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Deformation is strength times scale. Scale also sets how wide a gully is.");
+        ImGui::SliderFloat("Gully weight", &m_genFilter.gullyWeight, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("Gully gain", &m_genFilter.gullyGain, 0.0f, 0.9f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How much deformation each finer layer keeps.");
+        ImGui::SliderFloat("Gully lacunarity", &m_genFilter.gullyLacunarity, 1.2f, 3.0f, "%.2f");
+        ImGui::SliderFloat("Cell scale", &m_genFilter.gullyCellScale, 0.2f, 2.0f, "%.2f");
+        ImGui::SliderFloat("Normalization", &m_genFilter.gullyNormalization, 0.0f, 0.95f, "%.2f");
+        ImGui::SliderFloat("Detail", &m_genFilter.gullyDetail, 0.5f, 3.0f, "%.2f");
+        ImGui::SliderFloat("Depth bias", &m_genFilter.gullyDepthBias, 0.0f, 1.5f, "%.2f");
+        ImGui::SliderFloat("Altitude start", &m_genFilter.gullyAltitudeStart, -1.0f, 1.0f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Where gullies begin. -1 is the basin, +1 is the peaks. Lower this to cut the foothills.");
+        ImGui::SliderFloat("Altitude full", &m_genFilter.gullyAltitudeFull, -1.0f, 1.0f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Where gullies reach full strength. Keep this above Altitude start.");
+    }
     ImGui::SliderInt("Thermal iterations", &m_genThermal, 1, 80);
     ImGui::SliderInt("Hydraulic iterations (GPU)", &m_genHydroIters, 1, 96);
     if (!m_erosionPipe.isValid())

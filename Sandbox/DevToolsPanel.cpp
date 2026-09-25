@@ -406,6 +406,27 @@ void SandboxApp::drawDevTools()
         }
     }
 
+    if (ImGui::CollapsingHeader("Water", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        WaterParams& wp = m_water.params();
+        float baseAmp = 0.0f;
+        for (int i = 0; i < kWaterWaveCount; ++i)
+            baseAmp += wp.waves[i].amplitude;
+        float heightM = baseAmp * (wp.amplitudeScale > 0.0f ? wp.amplitudeScale : 0.0f);
+        if (ImGui::SliderFloat("Wave height", &heightM, 0.0f, 6.0f, "%.2f m"))
+            wp.amplitudeScale = baseAmp > 1.0e-5f ? heightM / baseAmp : 0.0f;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How high the crests rise if every wave peaks together. The authored height is about %.2f m.", static_cast<double>(baseAmp));
+        ImGui::SliderFloat("Wave speed", &wp.speedScale, 0.0f, 4.0f, "%.2fx");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How fast the waves travel. 1 is the authored speed. 0 holds them still.");
+        if (ImGui::Button("Reset waves"))
+        {
+            wp.amplitudeScale = 1.0f;
+            wp.speedScale     = 1.0f;
+        }
+    }
+
     if (ImGui::CollapsingHeader("Jump attack"))
     {
         const Entity body = possessedBody();

@@ -212,6 +212,13 @@ namespace Dark
 		return mesh;
 	}
 
+	void Mesh::deferRelease(Renderer& renderer)
+	{
+		renderer.deferRelease(m_vb.Get());
+		renderer.deferRelease(m_ib.Get());
+		*this = Mesh{};
+	}
+
 	void GpuMeshRetire::push(Mesh&& mesh)
 	{
 		if (!mesh.valid())
