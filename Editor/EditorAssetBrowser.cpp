@@ -58,7 +58,7 @@ bool containsInsensitive(std::string_view hay, std::string_view needle)
     return false;
 }
 
-void beginAssetDrag(SceneObjectType type, const char* path, const char* preview)
+void beginAssetDrag(SceneObjectType type, const char* path, const char* preview, uint64_t iconId)
 {
     if (!ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
         return;
@@ -67,6 +67,13 @@ void beginAssetDrag(SceneObjectType type, const char* path, const char* preview)
     if (path && path[0])
         strncpy_s(payload.path, path, _TRUNCATE);
     ImGui::SetDragDropPayload(kAssetDragType, &payload, sizeof(payload));
+
+    if (iconId != 0)
+    {
+        ImGui::Image(static_cast<ImTextureID>(iconId), ImVec2(48.0f, 48.0f));
+        ImGui::SameLine();
+    }
+
     ImGui::TextUnformatted(preview ? preview : toString(type));
     ImGui::EndDragDropSource();
 }
@@ -338,7 +345,7 @@ void EditorApp::drawAssetBrowser()
         ImGui::BeginDisabled(!createOk);
         ImGui::Selectable(row);
         if (createOk)
-            beginAssetDrag(type, nullptr, label);
+            beginAssetDrag(type, nullptr, label, typeIconId(type));
         if (createOk && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
             queueAssetPlace(type, nullptr, false);
         ImGui::EndDisabled();
@@ -397,7 +404,7 @@ void EditorApp::drawAssetBrowser()
                 ImGui::BeginDisabled(!createOk);
                 ImGui::Selectable(row);
                 if (createOk)
-                    beginAssetDrag(SceneObjectType::Model, entry.virt.c_str(), entry.name.c_str());
+                    beginAssetDrag(SceneObjectType::Model, entry.virt.c_str(), entry.name.c_str(), typeIconId(SceneObjectType::Model));
                 if (createOk && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
                     queueAssetPlace(SceneObjectType::Model, entry.virt.c_str(), false);
                 ImGui::EndDisabled();

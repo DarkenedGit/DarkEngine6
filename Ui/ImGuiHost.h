@@ -7,6 +7,7 @@
 namespace Dark
 {
 class Renderer;
+class Texture2D;
 class Window;
 }
 
@@ -26,6 +27,10 @@ public:
     bool wantCaptureKeyboard() const;
 
     bool isReady() const { return m_ready; }
+
+    // Copies the texture's SRV into ImGui's heap. Returns an ImTextureID for ImGui::Image / ImDrawList::AddImage,
+    // or 0 on failure. The texture must outlive ImGui use; slots are not recycled until shutdown.
+    uint64_t addTexture(Dark::Renderer& renderer, const Dark::Texture2D& texture);
 
 private:
     bool createSrvHeap(Dark::Renderer& renderer);

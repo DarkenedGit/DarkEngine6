@@ -108,6 +108,8 @@ private:
     Entity placeAtCursor(SceneObjectType type);
     Entity placeAtWorld(SceneObjectType type, Math::Vector3f hit, const SceneObjectData* authored = nullptr);
     Entity placeGlowProp();
+    void   loadTypeIcons();
+    uint64_t typeIconId(SceneObjectType type) const;
     void   drawAssetBrowser();
     void   drawAssetDropTarget();
     void   refreshAssetListing();
@@ -305,6 +307,11 @@ private:
     bool  m_showModelParts     = true;
     bool  m_showMaterialEditor = false;
     bool  m_showTerrainPanel   = true;
+
+    // Editor UI icons, one per SceneObjectType (content/ui/icons/<toString(type)>.png).
+    // ImTextureID 0 = not loaded; callers fall back to text.
+    Dark::Texture2D m_typeIcons[static_cast<size_t>(SceneObjectType::Count)];
+    uint64_t        m_typeIconIds[static_cast<size_t>(SceneObjectType::Count)] = {};
 
     Terrain::TerrainGrid          m_terrain;
     WaterWorld                    m_water;

@@ -173,6 +173,7 @@ void EditorApp::onInit()
     {
         DE_LOG_WARN("EditorApp: ImGui init failed — particle UI disabled");
     }
+    loadTypeIcons();
 
     {
         MeshData data;

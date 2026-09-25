@@ -61,6 +61,36 @@ float EditorApp::snap(float v, float grid)
     return std::floor(v / grid + 0.5f) * grid;
 }
 
+void EditorApp::loadTypeIcons()
+{
+    if (!m_imgui.isReady())
+        return;
+
+    int loaded = 0;
+    for (size_t i = 0; i < static_cast<size_t>(SceneObjectType::Count); ++i)
+    {
+        const SceneObjectType       type = static_cast<SceneObjectType>(i);
+        const std::string           virt = std::string("ui/icons/") + toString(type) + ".png"; // e.g. "ui/icons/cube.png"
+        const std::filesystem::path path = assets().resolve(virt);                             // real path on disk
+
+        if (path.empty() || !m_typeIcons[i].createFromFile(renderer(), path, Dark::Color::TextureUsage::Hud))
+        {
+            DE_LOG_WARN("EditorApp: missing UI icon '{}'", virt);
+            continue; // no icon for this type; the drag preview falls back to text
+        }
+        m_typeIconIds[i] = m_imgui.addTexture(renderer(), m_typeIcons[i]);
+        if (m_typeIconIds[i] != 0)
+            ++loaded;
+    }
+    DE_LOG_INFO("EditorApp: {} UI icons loaded", loaded);
+}
+
+uint64_t EditorApp::typeIconId(SceneObjectType type) const
+{
+    const size_t i = static_cast<size_t>(type);
+    return i < static_cast<size_t>(SceneObjectType::Count) ? m_typeIconIds[i] : 0;
+}
+
 bool EditorApp::ensure2DResources()
 {
     if (m_2dReady)
