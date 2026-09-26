@@ -35,15 +35,31 @@ bool iequals(std::string_view a, std::string_view b)
 std::filesystem::path findScenesDirectory()
 {
     namespace fs = std::filesystem;
+
+    auto existingDir = [](const fs::path& dir) -> fs::path {
+        std::error_code ec;
+        if (dir.empty() || !fs::is_directory(dir, ec) || ec)
+            return {};
+        const fs::path canonical = fs::weakly_canonical(dir, ec);
+        return ec ? dir : canonical;
+    };
+
+    const fs::path authoring = authoringContentRoot();
+    if (!authoring.empty())
+    {
+        const fs::path dir = existingDir(authoring / "scenes");
+        if (!dir.empty())
+            return dir;
+        std::error_code ec;
+        if (fs::is_directory(authoring, ec) && !ec)
+            return authoring / "scenes";
+    }
+
     for (const fs::path& root : contentRootCandidates())
     {
-        const fs::path  dir = root / "scenes";
-        std::error_code ec;
-        if (!dir.empty() && fs::is_directory(dir, ec) && !ec)
-        {
-            const fs::path canonical = fs::weakly_canonical(dir, ec);
-            return ec ? dir : canonical;
-        }
+        const fs::path dir = existingDir(root / "scenes");
+        if (!dir.empty())
+            return dir;
     }
     return {};
 }

@@ -93,7 +93,7 @@ private:
     void attachReplicaCombat(Dark::Entity e);
     void attachLocalPlayer(Dark::Entity e);
     bool attachAnimatedCharacter(Dark::Entity e, const char* gltfPath);
-    void updateCharacterAnims();
+    void updateCharacterAnims(float dt);
     Dark::Health*         localHealth();
     Dark::HitReaction*    localHit();
     Dark::PlayerMotor*    localMotor();
@@ -167,6 +167,7 @@ private:
     char          m_joinHost[64]   = "127.0.0.1";
     float         m_lookYaw        = 0.0f;
     float         m_lookPitch      = 0.18f;
+    float         m_lowerBodyYaw   = 0.0f;
     bool          m_playerWet      = false;
     float         m_footstepAcc    = 0.0f;
     Dark::HealthHud                  m_healthHud;

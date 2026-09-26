@@ -29,6 +29,7 @@ namespace Dark
     {
         static constexpr const char* kTypeName = "AiAgent";
         Math::Vector3f               forward{ 0.0f, 0.0f, 1.0f };
+        Math::Vector3f               planarVelocity{};
         Math::Vector3f               lastSeen{};
         Math::Vector3f               wanderDest{};
         Math::Vector3f               helpPos{};

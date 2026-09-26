@@ -189,6 +189,54 @@ def make_clips(include_die: bool):
     }
     clips.append(clip_channels("Run", rt, run))
 
+    # Side-step. Model +X is gameplay right (FromLookRotation maps local +X to the character's right)
+    # even though the joints named L_* sit on +X. Positive Z on a downward leg swings the foot toward +X.
+    # StrafeRight steps toward +X; StrafeLeft is that pose mirrored across the YZ plane.
+    def z_keys(scale, a, b, c, d):
+        return [q_axis(0, 0, 1, scale * v) for v in (a, b, c, d, a)]
+
+    def x_keys(scale, a, b, c, d):
+        return [q_axis(1, 0, 0, scale * v) for v in (a, b, c, d, a)]
+
+    def strafe_right(step, knee, arm, lean, chest_pitch):
+        pose = {
+            0: z_keys(lean, 0.35, -0.25, -0.55, -0.15),
+            1: z_keys(lean, -1.0, -1.15, -1.0, -0.85),
+            11: z_keys(step, 0.08, 1.0, 0.28, -0.42),
+            12: x_keys(knee, 0.18, 1.0, 0.32, 0.16),
+            13: x_keys(knee, 0.12, 0.48, 0.16, 0.34),
+            14: z_keys(step, -0.85, -0.18, 0.58, 0.12),
+            15: x_keys(knee, 0.95, 0.22, 0.88, 0.28),
+            16: x_keys(knee, 0.55, 0.14, 0.50, 0.18),
+            5: z_keys(arm, -0.25, 0.85, 0.12, -0.55),
+            8: z_keys(arm, 0.75, -0.08, -0.95, -0.12),
+            6: z_keys(1.0, 0.28, 0.42, 0.24, 0.18),
+            9: z_keys(1.0, -0.32, -0.18, -0.48, -0.22),
+        }
+        if chest_pitch != 0.0:
+            pose[2] = [q_axis(1, 0, 0, chest_pitch)] * 5
+        return pose
+
+    pairs = ((5, 8), (6, 9), (7, 10), (11, 14), (12, 15), (13, 16))
+
+    def mirror_strafe(pose):
+        swap = {}
+        for a, b in pairs:
+            swap[a] = b
+            swap[b] = a
+        out = {}
+        for joint, rots in pose.items():
+            dest = swap.get(joint, joint)
+            out[dest] = [(q[0], -q[1], -q[2], q[3]) for q in rots]
+        return out
+
+    walk_right = strafe_right(0.62, 0.55, 0.42, 0.20, 0.0)
+    run_right = strafe_right(0.90, 0.78, 0.58, 0.30, 0.10)
+    clips.append(clip_channels("StrafeLeft", wt, mirror_strafe(walk_right)))
+    clips.append(clip_channels("StrafeRight", wt, walk_right))
+    clips.append(clip_channels("StrafeRunLeft", rt, mirror_strafe(run_right)))
+    clips.append(clip_channels("StrafeRunRight", rt, run_right))
+
     # Shoot: raise both arms, hold, slight recoil. 0.55s
     st = [0.0, 0.12, 0.28, 0.55]
     aim_l = q_axis(0, 0, 1, 1.15)

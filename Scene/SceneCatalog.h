@@ -20,7 +20,8 @@ namespace Dark
         int                   version = 1;
     };
 
-    // First existing <content-root>/scenes among contentRootCandidates(); empty if none.
+    // <authoring-content>/scenes when that content root exists, otherwise the first existing
+    // scenes folder among contentRootCandidates(). Empty if none.
     std::filesystem::path findScenesDirectory();
 
     // Read name/mode/version only. Returns false + errorOut on missing file or invalid JSON.

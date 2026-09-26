@@ -547,6 +547,21 @@ std::filesystem::path defaultScenePath(const std::filesystem::path& preferredNam
     namespace fs = std::filesystem;
     const fs::path name = preferredName.empty() ? fs::path("level.json") : preferredName;
 
+    const fs::path authoring = authoringContentRoot();
+    if (!authoring.empty())
+    {
+        const fs::path  scene = authoring / "scenes" / name;
+        std::error_code ec;
+        if (fs::exists(scene, ec) && !ec)
+        {
+            const fs::path canonical = fs::weakly_canonical(scene, ec);
+            return ec ? scene : canonical;
+        }
+        ec.clear();
+        if (fs::is_directory(authoring, ec) && !ec)
+            return scene;
+    }
+
     fs::path fallback;
     for (const fs::path& root : contentRootCandidates())
     {

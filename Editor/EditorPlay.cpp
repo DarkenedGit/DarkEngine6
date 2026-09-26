@@ -7,6 +7,7 @@
 #include "Animation/AnimGraph.h"
 #include "Animation/AnimGraphComponent.h"
 #include "Animation/AnimGraphTick.h"
+#include "Animation/Locomotion.h"
 #include "Assets/AssetManager.h"
 #include "Assets/Model.h"
 #include "Audio/SoundComponents.h"
@@ -410,8 +411,9 @@ void EditorApp::setPlayMode(bool play)
         m_jumpAttackBuffer = 0.0f;
         m_gizmoDragAxis    = EditorDetail::TranslateGizmoAxis::None;
         m_dragging         = false;
-        m_playMode         = true;
-        DE_LOG_INFO("Editor: PLAY — WASD move, mouse look, Space jump, LMB/F attack, 1/2 weapons, F12 stop");
+        m_playMode = true;
+        window().setCursorCaptured(window().isFocused());
+        DE_LOG_INFO("Editor: PLAY — WASD move, mouse look, Space jump, LMB/F attack, 1/2 weapons, Escape or F12 stop");
     }
     else
     {
@@ -420,8 +422,12 @@ void EditorApp::setPlayMode(bool play)
         restoreAuthoredPoses();
         resetPlayCombat();
         clearAllStatusFx(world(), &audio());
+        if (AnimGraphComponent* ag = m_playPlayer.valid() ? world().get<AnimGraphComponent>(m_playPlayer) : nullptr)
+            ag->graph.player().setLowerBodyYaw(0.0f);
+        m_playLowerBodyYaw = 0.0f;
         m_playMode   = false;
         m_playPlayer = {};
+        window().setCursorCaptured(false);
         DE_LOG_INFO("Editor: play stopped — restored spawn poses");
     }
 }
@@ -600,7 +606,8 @@ void EditorApp::updatePlay(float dt)
 
     const bool uiKeys  = m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
     const bool uiMouse = m_imgui.isReady() && m_imgui.wantCaptureMouse();
-    if (!uiMouse)
+    // Captured play matches the game: the cursor is hidden and clipped, so it is not an ImGui pointer.
+    if (window().cursorCaptured() || !uiMouse)
     {
         m_playLookYaw += static_cast<float>(input().mouseDeltaX()) * kPlayMouseSens;
         m_playLookPitch += static_cast<float>(input().mouseDeltaY()) * kPlayMouseSens;
@@ -742,15 +749,18 @@ void EditorApp::updatePlay(float dt)
 
     if (AnimGraphComponent* ag = world().get<AnimGraphComponent>(body))
     {
-        float speed = 0.0f;
-        if (motor)
+        LocomotionSample loco{};
+        float            targetYaw = 0.0f;
+        if (motor && !(hp && !hp->alive()))
         {
-            const Vector3f v = motor->velocity();
-            speed            = Vector3f{ v.x, 0.0f, v.z }.Magnitude();
+            loco = locomotionSample(motor->velocity(), xf->rotation);
+            targetYaw = locomotionYawOffset(motor->velocity(), xf->rotation);
         }
-        if (hp && !hp->alive())
-            speed = 0.0f;
-        ag->graph.setFloat("speed", speed);
+        loco.strafe = 0.0f;
+        ag->graph.setFloat("speed", loco.speed);
+        ag->graph.setFloat("strafe", loco.strafe);
+        m_playLowerBodyYaw = approachAngle(m_playLowerBodyYaw, targetYaw, 10.0f, dt);
+        ag->graph.player().setLowerBodyYaw(m_playLowerBodyYaw);
     }
 
     updatePlayCamera();
@@ -884,20 +894,11 @@ void EditorApp::updatePawnAnims()
         }
         const BrainComponent* brain = world().get<BrainComponent>(e);
         const AI::Leaf        leaf  = (brain && brain->brain) ? brain->brain->leaf() : AI::Leaf::Wander;
-        float                 speed = 0.0f;
-        float                 statusScale = 1.0f;
-        if (const Combat::StatusEffectComponent* st = world().get<Combat::StatusEffectComponent>(e))
-            statusScale = st->moveSpeedScale();
-        if (alive && !standoff)
-        {
-            if (leaf == AI::Leaf::Assist || leaf == AI::Leaf::Flee)
-                speed = 18.0f * statusScale;
-            else if (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Memory)
-                speed = 12.0f * statusScale;
-            else
-                speed = 9.0f * statusScale;
-        }
-        ag->graph.setFloat("speed", speed);
+        LocomotionSample      loco{};
+        if (alive && xf)
+            loco = locomotionSample(ai.planarVelocity, xf->rotation);
+        ag->graph.setFloat("speed", loco.speed);
+        ag->graph.setFloat("strafe", loco.strafe);
 
         if (alive && standoff && leaf == AI::Leaf::Chase)
         {

@@ -13,7 +13,8 @@ namespace Dark
 
     bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScene, std::string* errorOut = nullptr);
 
-    // Resolve a default path: <content-root>/scenes/<name> via contentRootCandidates().
+    // Resolve a default path: <authoring-content>/scenes/<name>.
+    // Skips the content copy next to the executable when a source content/ directory exists.
     std::filesystem::path defaultScenePath(const std::filesystem::path& preferredName = "level.json");
 
 } // namespace Dark

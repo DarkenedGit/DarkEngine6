@@ -34,6 +34,7 @@
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
+#include "Animation/Locomotion.h"
 #include "AI/AiComponents.h"
 #include "AI/Brain.h"
 #include "AI/HsmGraph.h"
@@ -913,22 +914,32 @@ bool SandboxApp::attachAnimatedCharacter(Entity e, const char* gltfPath)
     return true;
 }
 
-void SandboxApp::updateCharacterAnims()
+void SandboxApp::updateCharacterAnims(float dt)
 {
     const Entity body = possessedBody();
     if (AnimGraphComponent* ag = body.valid() ? world().get<AnimGraphComponent>(body) : nullptr)
     {
         if (ag->graphDef)
         {
-            float speed = 0.0f;
-            if (PlayerMotor* motor = localMotor())
+            LocomotionSample loco{};
+            float            targetYaw = 0.0f;
+            const Health* hp = localHealth();
+            const TransformComponent* xf = world().get<TransformComponent>(body);
+            const bool alive = !(hp && !hp->alive());
+            if (xf && alive)
             {
-                const Vector3f v = motor->velocity();
-                speed = Vector3f(v.x, 0.0f, v.z).Magnitude();
+                if (const PlayerMotor* motor = localMotor())
+                {
+                    loco = locomotionSample(motor->velocity(), xf->rotation);
+                    targetYaw = locomotionYawOffset(motor->velocity(), xf->rotation);
+                }
             }
-            ag->graph.setFloat("speed", speed);
-            if (Health* hp = localHealth(); hp && !hp->alive())
-                ag->graph.setFloat("speed", 0.0f);
+            // Legs yaw onto the travel direction, so the forward cycle plays in that frame.
+            loco.strafe = 0.0f;
+            ag->graph.setFloat("speed", loco.speed);
+            ag->graph.setFloat("strafe", loco.strafe);
+            m_lowerBodyYaw = approachAngle(m_lowerBodyYaw, targetYaw, 10.0f, dt);
+            ag->graph.player().setLowerBodyYaw(m_lowerBodyYaw);
         }
     }
 
@@ -941,7 +952,6 @@ void SandboxApp::updateCharacterAnims()
         ag->graph.setBool("dead", !alive);
 
         TransformComponent* xf = world().get<TransformComponent>(e);
-        float speed = 0.0f;
         if (alive && xf)
         {
             Vector3f fwd = ai.forward;
@@ -965,21 +975,11 @@ void SandboxApp::updateCharacterAnims()
 
         const BrainComponent* brain = world().get<BrainComponent>(e);
         const AI::Leaf leaf = (brain && brain->brain) ? brain->brain->leaf() : AI::Leaf::Wander;
-        float statusScale = 1.0f;
-        if (const Combat::StatusEffectComponent* st = world().get<Combat::StatusEffectComponent>(e))
-            statusScale = st->moveSpeedScale();
+        LocomotionSample loco{};
         if (alive && xf)
-        {
-            if (standoff)
-                speed = 0.0f;
-            else if (leaf == AI::Leaf::Assist || leaf == AI::Leaf::Flee)
-                speed = 18.0f * statusScale;
-            else if (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Memory)
-                speed = 10.0f * statusScale;
-            else if (leaf == AI::Leaf::Wander)
-                speed = 10.0f * statusScale;
-        }
-        ag->graph.setFloat("speed", speed);
+            loco = locomotionSample(ai.planarVelocity, xf->rotation);
+        ag->graph.setFloat("speed", loco.speed);
+        ag->graph.setFloat("strafe", loco.strafe);
 
         if (alive && standoff && leaf == AI::Leaf::Chase)
         {
@@ -1241,6 +1241,9 @@ void SandboxApp::respawnPlayer()
         xf->position = m_playerSpawn;
     if (PlayerMotor* motor = localMotor())
         motor->reset();
+    m_lowerBodyYaw = 0.0f;
+    if (AnimGraphComponent* ag = body.valid() ? world().get<AnimGraphComponent>(body) : nullptr)
+        ag->graph.player().setLowerBodyYaw(0.0f);
     if (Health* hp = localHealth())
         hp->revive();
     if (HitReaction* hit = localHit())
@@ -2757,7 +2760,7 @@ void SandboxApp::onUpdate(float dt)
         if (Health* hpAlive = localHealth(); hpAlive && hpAlive->alive())
             m_spawnAge += dt;
         updateWiggleAnim();
-        updateCharacterAnims();
+        updateCharacterAnims(dt);
         tickAnimGraphs(world(), assets(), dt);
         m_stepGameplay = false;
     }

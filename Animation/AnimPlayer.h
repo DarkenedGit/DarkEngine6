@@ -25,6 +25,9 @@ namespace Dark
 		void setTime(float t);
 		void setApplyRootMotion(bool apply);
 		bool applyRootMotion() const { return m_applyRootMotion; }
+		// Radians added to Hips and removed from Spine. 0 leaves the clip unchanged.
+		void setLowerBodyYaw(float radians) { m_lowerBodyYaw = radians; }
+		float lowerBodyYaw() const { return m_lowerBodyYaw; }
 		void stop();
 		void update(float dt, AnimNotifyQueue& outNotifies, const AnimMarker* overlay = nullptr, uint32_t overlayCount = 0);
 
@@ -67,6 +70,7 @@ namespace Dark
 		bool                m_finished = false;
 		bool                m_applyRootMotion = false;
 		bool                m_rootPrimed = false;
+		float               m_lowerBodyYaw = 0.0f;
 		Math::Vector3f      m_rootMotionDelta{ 0.0f, 0.0f, 0.0f };
 		Math::Vector3f      m_prevRootPos{ 0.0f, 0.0f, 0.0f };
 		Math::Vector3f      m_clipStartRoot{ 0.0f, 0.0f, 0.0f };

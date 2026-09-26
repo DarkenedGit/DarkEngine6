@@ -780,6 +780,7 @@ void EditorApp::onUpdate(float dt)
     m_lastNetRole = role;
 
     handleEditorCommands(dt);
+    window().setCursorCaptured(m_playMode && window().isFocused());
     if (m_playMode)
     {
         updatePlay(dt);

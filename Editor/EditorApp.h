@@ -416,6 +416,7 @@ private:
     Dark::Entity              m_playPlayer{};
     float                     m_playLookYaw   = 0.0f;
     float                     m_playLookPitch = 0.0f;
+    float                     m_playLowerBodyYaw = 0.0f;
     float                     m_jumpAttackBuffer = 0.0f;
     std::vector<Dark::Math::AABox3f> m_playCubes;
     struct PlayWeaponTarget

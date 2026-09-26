@@ -112,6 +112,47 @@ TEST(ContentRoots, DuplicateExeAndCwdAreUnique)
     EXPECT_EQ(got[2], weaklyNorm(exeDir / ".." / ".." / "content"));
 }
 
+TEST(ContentRoots, AuthoringRootSkipsExeContentCopy)
+{
+    namespace fs = std::filesystem;
+
+    std::error_code ec;
+    const auto      stamp   = std::chrono::steady_clock::now().time_since_epoch().count();
+    const fs::path  tmpBase = fs::temp_directory_path(ec);
+    ASSERT_FALSE(ec);
+    ScopedTempDir tmp(tmpBase / ("darkengine6_authoring_root_ut_" + std::to_string(stamp)));
+
+    const fs::path exeDir = tmp.path / "build" / "bin" / "Debug";
+    const fs::path source = tmp.path / "content";
+    const fs::path copied = exeDir / "content";
+    fs::create_directories(source, ec);
+    ASSERT_FALSE(ec);
+    fs::create_directories(copied, ec);
+    ASSERT_FALSE(ec);
+
+    const fs::path got = authoringContentRoot(exeDir, exeDir);
+    EXPECT_EQ(got, weaklyNorm(source));
+}
+
+TEST(ContentRoots, AuthoringRootFallsBackToExeContent)
+{
+    namespace fs = std::filesystem;
+
+    std::error_code ec;
+    const auto      stamp   = std::chrono::steady_clock::now().time_since_epoch().count();
+    const fs::path  tmpBase = fs::temp_directory_path(ec);
+    ASSERT_FALSE(ec);
+    ScopedTempDir tmp(tmpBase / ("darkengine6_authoring_fallback_ut_" + std::to_string(stamp)));
+
+    const fs::path exeDir = tmp.path / "build" / "bin" / "Debug";
+    const fs::path copied = exeDir / "content";
+    fs::create_directories(copied, ec);
+    ASSERT_FALSE(ec);
+
+    const fs::path got = authoringContentRoot(exeDir, exeDir);
+    EXPECT_EQ(got, weaklyNorm(copied));
+}
+
 TEST(ContentRoots, DefaultCandidatesUseContentSuffix)
 {
     const std::vector<std::filesystem::path> got = contentRootCandidates();

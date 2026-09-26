@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include "Core/ContentRoots.h"
+#include "Core/Paths.h"
 #include "Math/MathDefines.h"
 #include "Scene/SceneFile.h"
 
@@ -17,6 +19,13 @@ namespace
 std::filesystem::path tempScenePath(const char* name)
 {
     return std::filesystem::temp_directory_path() / name;
+}
+
+std::filesystem::path weaklyCanonical(const std::filesystem::path& path)
+{
+    std::error_code       ec;
+    std::filesystem::path n = std::filesystem::weakly_canonical(path, ec);
+    return ec ? path.lexically_normal() : n;
 }
 
 } // namespace
@@ -160,6 +169,51 @@ TEST(SceneFile, DefaultScenePathUsesScenesFolder)
     const auto p = defaultScenePath("level2d.json");
     EXPECT_EQ(p.filename(), "level2d.json");
     EXPECT_EQ(p.parent_path().filename(), "scenes");
+}
+
+TEST(SceneFile, DefaultScenePathAvoidsExeContentCopy)
+{
+    namespace fs = std::filesystem;
+    const fs::path authoring = authoringContentRoot();
+    const fs::path exe       = executableDirectory();
+    if (authoring.empty() || exe.empty())
+        GTEST_SKIP() << "no content root or executable directory";
+
+    bool sourceOutsideExe = false;
+    for (const fs::path& root : contentRootCandidates())
+    {
+        std::error_code ec;
+        if (!fs::is_directory(root, ec) || ec)
+            continue;
+        const fs::path rel = weaklyCanonical(root).lexically_relative(weaklyCanonical(exe));
+        bool           inside = !rel.empty();
+        for (const fs::path& part : rel)
+        {
+            if (part == "..")
+            {
+                inside = false;
+                break;
+            }
+        }
+        if (!inside)
+            sourceOutsideExe = true;
+    }
+    if (!sourceOutsideExe)
+        GTEST_SKIP() << "no source content directory outside the executable";
+
+    const fs::path scene = defaultScenePath("level.json");
+    const fs::path rel   = weaklyCanonical(scene).lexically_relative(weaklyCanonical(exe));
+    bool           underExe = !rel.empty();
+    for (const fs::path& part : rel)
+    {
+        if (part == "..")
+        {
+            underExe = false;
+            break;
+        }
+    }
+    EXPECT_FALSE(underExe);
+    EXPECT_EQ(weaklyCanonical(scene).parent_path().parent_path(), weaklyCanonical(authoring));
 }
 
 TEST(SceneFile, V1RoundTripStillLoads)

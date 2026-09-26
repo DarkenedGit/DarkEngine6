@@ -1,5 +1,6 @@
 #include "Animation/AnimPlayer.h"
 #include "Animation/AnimSampler.h"
+#include "Animation/Locomotion.h"
 #include "Core/Log.h"
 #include "Math/MathDefines.h"
 #include "Math/MathHelper.h"
@@ -299,6 +300,7 @@ namespace Dark
 		if (!m_playing || m_incoming == kInvalidClip || !m_set)
 		{
 			sampleClipOrRest(nullptr, 0.0f, inT, inR, inS);
+			applyLocomotionYawSplit(*m_skel, inR, n, m_lowerBodyYaw);
 			evalPose(inT, inR, inS);
 			if (m_applyRootMotion && !m_rootPrimed)
 			{
@@ -393,6 +395,7 @@ namespace Dark
 			}
 		}
 
+		applyLocomotionYawSplit(*m_skel, R, n, m_lowerBodyYaw);
 		evalPose(T, R, S);
 
 		const Vector3f newRoot = rootTranslation(T, R, S);

@@ -618,7 +618,22 @@ namespace Dark
         {
             View v{};
             if (!bind(world, e, v) || !v.health->health.alive())
+            {
+                if (AiAgentComponent* deadAi = world.get<AiAgentComponent>(e))
+                    deadAi->planarVelocity = Vector3f{ 0.0f, 0.0f, 0.0f };
                 continue;
+            }
+
+            const Vector3f planarOrigin = v.xf->position;
+            auto           stampPlanarVelocity = [&]() {
+                Vector3f vel{ 0.0f, 0.0f, 0.0f };
+                if (dt > 1.0e-4f)
+                {
+                    vel.x = (v.xf->position.x - planarOrigin.x) / dt;
+                    vel.z = (v.xf->position.z - planarOrigin.z) / dt;
+                }
+                v.ai->planarVelocity = vel;
+            };
 
             JumpAttackComponent*           jac  = world.get<JumpAttackComponent>(e);
             Combat::JumpAttack*            jump = jac ? &jac->jump : nullptr;
@@ -772,7 +787,10 @@ namespace Dark
                 v.ai->fleeLeft   = 0.0f;
             }
             if (v.hit->hit.stunned() || (stCc && stCc->hasHardCc()))
+            {
+                stampPlanarVelocity();
                 continue;
+            }
 
             if (standoff)
             {
@@ -814,7 +832,10 @@ namespace Dark
             }
 
             if (jump && jump->busy())
+            {
+                stampPlanarVelocity();
                 continue;
+            }
 
             const bool  sprint = leaf == AI::Leaf::Assist || leaf == AI::Leaf::Flee || v.ai->assistLeft > 0.0f;
             const float speed  = (sprint ? m_pack.sprintSpeed : m_pack.walkSpeed) * (stCc ? stCc->moveSpeedScale() : 1.0f);
@@ -831,7 +852,10 @@ namespace Dark
                     repath(world, v, v.ai->wanderDest.x, v.ai->wanderDest.z);
             }
             else if ((leaf == AI::Leaf::Chase || leaf == AI::Leaf::Memory || leaf == AI::Leaf::Assist) && standoff)
+            {
+                stampPlanarVelocity();
                 continue;
+            }
             else if (leaf == AI::Leaf::Wander)
             {
                 const bool arrived = v.path->path.points.empty() || v.path->waypoint >= static_cast<int>(v.path->path.points.size());
@@ -880,8 +904,21 @@ namespace Dark
             if (move.MagnitudeSqrd() > 1.0e-6f)
             {
                 move.Normalize();
-                v.ai->forward = move;
+                Vector3f face = move;
+                if (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist || leaf == AI::Leaf::Memory)
+                {
+                    Vector3f to = move;
+                    if (leaf == AI::Leaf::Assist)
+                        to = Vector3f{ v.ai->helpPos.x - v.xf->position.x, 0.0f, v.ai->helpPos.z - v.xf->position.z };
+                    else if (leaf == AI::Leaf::Chase && playerAlive)
+                        to = Vector3f{ playerPos.x - v.xf->position.x, 0.0f, playerPos.z - v.xf->position.z };
+                    else if (leaf == AI::Leaf::Memory && v.ai->hasLastSeen)
+                        to = Vector3f{ v.ai->lastSeen.x - v.xf->position.x, 0.0f, v.ai->lastSeen.z - v.xf->position.z };
+                    face = flattenDir(to, move);
+                }
+                v.ai->forward = face;
             }
+            stampPlanarVelocity();
         }
     }
 
