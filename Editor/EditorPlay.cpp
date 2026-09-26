@@ -749,17 +749,13 @@ void EditorApp::updatePlay(float dt)
 
     if (AnimGraphComponent* ag = world().get<AnimGraphComponent>(body))
     {
-        LocomotionSample loco{};
-        float            targetYaw = 0.0f;
+        AimLocomotion aim{};
         if (motor && !(hp && !hp->alive()))
-        {
-            loco = locomotionSample(motor->velocity(), xf->rotation);
-            targetYaw = locomotionYawOffset(motor->velocity(), xf->rotation);
-        }
-        loco.strafe = 0.0f;
-        ag->graph.setFloat("speed", loco.speed);
-        ag->graph.setFloat("strafe", loco.strafe);
-        m_playLowerBodyYaw = approachAngle(m_playLowerBodyYaw, targetYaw, 10.0f, dt);
+            aim = aimLocomotion(motor->velocity(), xf->rotation);
+        ag->graph.setFloat("speed", aim.speed);
+        ag->graph.setFloat("strafe", aim.strafe);
+        ag->graph.setBool("backward", aim.backward);
+        m_playLowerBodyYaw = approachAngle(m_playLowerBodyYaw, aim.lowerYaw, 10.0f, dt);
         ag->graph.player().setLowerBodyYaw(m_playLowerBodyYaw);
     }
 

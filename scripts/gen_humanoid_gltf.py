@@ -173,7 +173,12 @@ def make_clips(include_die: bool):
         8: swing(0.40),
         1: [q_ident(), q_axis(0, 1, 0, 0.08), q_ident(), q_axis(0, 1, 0, -0.08), q_ident()],
     }
+    def negate_pitch(pose):
+        # Reverse the forward/back swings so the cycle steps along -Z.
+        return {joint: [(-q[0], q[1], q[2], q[3]) for q in rots] for joint, rots in pose.items()}
+
     clips.append(clip_channels("Walk", wt, walk))
+    clips.append(clip_channels("WalkBack", wt, negate_pitch(walk)))
 
     # Run: faster, bigger
     rt = [0.0, 0.125, 0.25, 0.375, 0.5]
@@ -188,6 +193,7 @@ def make_clips(include_die: bool):
         2: [q_axis(1, 0, 0, 0.08)] * 5,
     }
     clips.append(clip_channels("Run", rt, run))
+    clips.append(clip_channels("RunBack", rt, negate_pitch(run)))
 
     # Side-step. Model +X is gameplay right (FromLookRotation maps local +X to the character's right)
     # even though the joints named L_* sit on +X. Positive Z on a downward leg swings the foot toward +X.

@@ -51,7 +51,7 @@ namespace Dark
 
     struct FogGpu
     {
-        float fogColor[3]{ 0.55f, 0.62f, 0.72f };
+        float fogColor[3]            { 0.55f, 0.62f, 0.72f };
         float fogDensity             = 0.0f;
         float heightFogDensity       = 0.0f;
         float heightFogFalloff       = 0.06f;

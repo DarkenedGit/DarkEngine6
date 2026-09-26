@@ -7,6 +7,7 @@
 #include "Assets/GltfLoader.h"
 #include "Core/ContentRoots.h"
 
+#include <cmath>
 #include <fstream>
 #include <memory>
 #include <sstream>
@@ -114,6 +115,14 @@ TEST(LocomotionGraph, HumanStrafeSelectsSideStep)
 	EXPECT_STREQ(graph.currentStateName(), "Walk");
 	graph.evaluate();
 	EXPECT_STREQ(graph.currentStateName(), "Idle");
+
+	graph.setFloat("speed", 4.0f);
+	graph.setBool("backward", true);
+	graph.evaluate();
+	EXPECT_STREQ(graph.currentStateName(), "WalkBack");
+	graph.setFloat("speed", 14.0f);
+	graph.evaluate();
+	EXPECT_STREQ(graph.currentStateName(), "RunBack");
 }
 
 TEST(LocomotionGraph, SkeletonDiesFromSideStep)
@@ -144,6 +153,37 @@ TEST(LocomotionYaw, OffsetMatchesTravelRelativeToFacing)
 	EXPECT_NEAR(locomotionYawOffset(Vector3f{ -4.0f, 0.0f, 0.0f }, facing), -HalfPi, 1.0e-4f);
 	EXPECT_NEAR(locomotionYawOffset(Vector3f{ 0.2f, 0.0f, 0.0f }, facing), 0.0f, 1.0e-4f);
 	EXPECT_NEAR(approachAngle(0.0f, HalfPi, 10.0f, 0.1f), 1.0f, 1.0e-4f);
+}
+
+TEST(AimLocomotion, ZonesClampLegsThenStrafeThenBack)
+{
+	const Quaternion facing = Quaternion::IDENTITY;
+	auto at = [](float degrees, float speed) {
+		const float r = degrees * DegToRad;
+		return Vector3f{ std::sinf(r) * speed, 0.0f, std::cosf(r) * speed };
+	};
+	constexpr float kLeg = 75.0f * DegToRad;
+
+	const AimLocomotion ahead = aimLocomotion(at(40.0f, 4.0f), facing);
+	EXPECT_FALSE(ahead.backward);
+	EXPECT_NEAR(ahead.strafe, 0.0f, 1.0e-3f);
+	EXPECT_NEAR(ahead.lowerYaw, 40.0f * DegToRad, 1.0e-3f);
+
+	const AimLocomotion side = aimLocomotion(at(90.0f, 6.0f), facing);
+	EXPECT_FALSE(side.backward);
+	EXPECT_NEAR(side.strafe, 6.0f, 1.0e-3f);
+	EXPECT_NEAR(side.lowerYaw, kLeg, 1.0e-3f);
+
+	const AimLocomotion sideLeft = aimLocomotion(at(-100.0f, 6.0f), facing);
+	EXPECT_FALSE(sideLeft.backward);
+	EXPECT_NEAR(sideLeft.strafe, -6.0f, 1.0e-3f);
+	EXPECT_NEAR(sideLeft.lowerYaw, -kLeg, 1.0e-3f);
+
+	const AimLocomotion back = aimLocomotion(at(180.0f, 8.0f), facing);
+	EXPECT_TRUE(back.backward);
+	EXPECT_NEAR(back.strafe, 0.0f, 1.0e-3f);
+	EXPECT_NEAR(back.lowerYaw, 0.0f, 1.0e-3f);
+	EXPECT_NEAR(back.speed, 8.0f, 1.0e-3f);
 }
 
 TEST(LocomotionYaw, LowerBodyTurnsUpperBodyStays)

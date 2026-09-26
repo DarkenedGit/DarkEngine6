@@ -921,24 +921,19 @@ void SandboxApp::updateCharacterAnims(float dt)
     {
         if (ag->graphDef)
         {
-            LocomotionSample loco{};
-            float            targetYaw = 0.0f;
+            AimLocomotion aim{};
             const Health* hp = localHealth();
             const TransformComponent* xf = world().get<TransformComponent>(body);
             const bool alive = !(hp && !hp->alive());
             if (xf && alive)
             {
                 if (const PlayerMotor* motor = localMotor())
-                {
-                    loco = locomotionSample(motor->velocity(), xf->rotation);
-                    targetYaw = locomotionYawOffset(motor->velocity(), xf->rotation);
-                }
+                    aim = aimLocomotion(motor->velocity(), xf->rotation);
             }
-            // Legs yaw onto the travel direction, so the forward cycle plays in that frame.
-            loco.strafe = 0.0f;
-            ag->graph.setFloat("speed", loco.speed);
-            ag->graph.setFloat("strafe", loco.strafe);
-            m_lowerBodyYaw = approachAngle(m_lowerBodyYaw, targetYaw, 10.0f, dt);
+            ag->graph.setFloat("speed", aim.speed);
+            ag->graph.setFloat("strafe", aim.strafe);
+            ag->graph.setBool("backward", aim.backward);
+            m_lowerBodyYaw = approachAngle(m_lowerBodyYaw, aim.lowerYaw, 10.0f, dt);
             ag->graph.player().setLowerBodyYaw(m_lowerBodyYaw);
         }
     }

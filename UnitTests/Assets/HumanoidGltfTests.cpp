@@ -63,6 +63,8 @@ TEST(HumanoidGltf, HumanHasLocomotionAndCombatClips)
     EXPECT_TRUE(hasClip(cpu.clips, "Idle"));
     EXPECT_TRUE(hasClip(cpu.clips, "Walk"));
     EXPECT_TRUE(hasClip(cpu.clips, "Run"));
+    EXPECT_TRUE(hasClip(cpu.clips, "WalkBack"));
+    EXPECT_TRUE(hasClip(cpu.clips, "RunBack"));
     EXPECT_TRUE(hasClip(cpu.clips, "StrafeLeft"));
     EXPECT_TRUE(hasClip(cpu.clips, "StrafeRight"));
     EXPECT_TRUE(hasClip(cpu.clips, "StrafeRunLeft"));
@@ -83,6 +85,8 @@ TEST(HumanoidGltf, SkeletonHasDieClip)
     EXPECT_TRUE(hasClip(cpu.clips, "Idle"));
     EXPECT_TRUE(hasClip(cpu.clips, "Walk"));
     EXPECT_TRUE(hasClip(cpu.clips, "Run"));
+    EXPECT_TRUE(hasClip(cpu.clips, "WalkBack"));
+    EXPECT_TRUE(hasClip(cpu.clips, "RunBack"));
     EXPECT_TRUE(hasClip(cpu.clips, "StrafeLeft"));
     EXPECT_TRUE(hasClip(cpu.clips, "StrafeRight"));
     EXPECT_TRUE(hasClip(cpu.clips, "StrafeRunLeft"));
@@ -108,7 +112,7 @@ TEST(HumanoidGltf, HumanGraphBindsClips)
     ASSERT_FALSE(text.empty());
     AnimGraphDef def;
     ASSERT_TRUE(parseAnimGraphJson(text.c_str(), set, def));
-    EXPECT_EQ(def.states.size(), 9u);
+    EXPECT_EQ(def.states.size(), 11u);
     EXPECT_EQ(def.states[def.defaultState].name, "Idle");
     EXPECT_GE(set.findClipIndex("StrafeLeft"), 0);
     EXPECT_GE(set.findClipIndex("StrafeRight"), 0);

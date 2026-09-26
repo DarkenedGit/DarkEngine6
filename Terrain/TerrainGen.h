@@ -74,8 +74,8 @@ namespace Dark::Terrain
         uint32_t       tileCells   = kTileCells;
         float          cellSize    = 1.0f;
         float          heightScale = 80.0f;
-        Math::Vector3f origin{ -1024.0f, 0.0f, -1024.0f };
-        ErosionParams  erosion{};
+        Math::Vector3f origin      { -1024.0f, 0.0f, -1024.0f };
+        ErosionParams  erosion     {};
     };
 
     // Optional GPU bake. All three must be set and pipeline.isValid() to take the Mei path.

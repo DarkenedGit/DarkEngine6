@@ -74,4 +74,41 @@ namespace Dark
 	// Yaw Hips (and the legs under them) by `yawRadians` and counter-yaw Spine so the
 	// chest, head, and arms stay in the entity's facing frame.
 	void applyLocomotionYawSplit(const Skeleton& skeleton, Math::Quaternion* localR, uint32_t count, float yawRadians);
+
+	// Aim-relative player locomotion. Hips track travel but only within ±75° of look.
+	// Past that the side-step clips carry the motion, and past ±110° the backward cycle does.
+	struct AimLocomotion
+	{
+		float speed     = 0.0f;
+		float strafe    = 0.0f;
+		bool  backward  = false;
+		float lowerYaw  = 0.0f;
+	};
+
+	inline AimLocomotion aimLocomotion(const Math::Vector3f& worldVelocity, const Math::Quaternion& facing)
+	{
+		AimLocomotion out;
+		const Math::Vector3f vel{ worldVelocity.x, 0.0f, worldVelocity.z };
+		out.speed = vel.Magnitude();
+		if (out.speed < 0.05f)
+			return out;
+
+		const float yaw = locomotionYawOffset(worldVelocity, facing);
+		constexpr float kLegYaw  = 75.0f * Math::DegToRad;
+		constexpr float kBackYaw = 110.0f * Math::DegToRad;
+		const float absYaw = fabsf(yaw);
+		if (absYaw > kBackYaw)
+		{
+			out.backward = true;
+			out.lowerYaw = 0.0f;
+		}
+		else if (absYaw > kLegYaw)
+		{
+			out.strafe   = std::copysign(out.speed, yaw);
+			out.lowerYaw = std::copysign(kLegYaw, yaw);
+		}
+		else
+			out.lowerYaw = yaw;
+		return out;
+	}
 }
