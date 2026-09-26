@@ -413,7 +413,7 @@ void EditorApp::setPlayMode(bool play)
         m_dragging         = false;
         m_playMode = true;
         window().setCursorCaptured(window().isFocused());
-        DE_LOG_INFO("Editor: PLAY — WASD move, mouse look, Space jump, LMB/F attack, 1/2 weapons, Escape or F12 stop");
+        DE_LOG_INFO("Editor: PLAY — WASD/arrows move, double-tap a direction to dodge, mouse look, Space jump, LMB/F attack, 1/2 weapons, Escape or F12 stop");
     }
     else
     {
@@ -671,6 +671,16 @@ void EditorApp::updatePlay(float dt)
     motorIn.allowJumpBuffer = !jumpBusy;
     motorIn.airControlScale = inAirCommit && jump ? jump->def().airControlScale : 1.0f;
     motorIn.speedScale      = status ? status->moveSpeedScale() : 1.0f;
+    motorIn.allowDodge      = canSteer && !jumpBusy && !uiKeys;
+    if (motorIn.allowDodge)
+    {
+        motorIn.dodgeTap = moveCardinalFromEdges(
+            input().keyPressed(Key::W) || input().keyPressed(Key::Up),
+            input().keyPressed(Key::S) || input().keyPressed(Key::Down),
+            input().keyPressed(Key::A) || input().keyPressed(Key::Left),
+            input().keyPressed(Key::D) || input().keyPressed(Key::Right));
+        motorIn.dodgeTapWish = moveCardinalWish(motorIn.dodgeTap, flat, right);
+    }
 
     PlayerGroundQuery ground{};
     ground.user    = this;
@@ -757,6 +767,8 @@ void EditorApp::updatePlay(float dt)
         ag->graph.setBool("backward", aim.backward);
         m_playLowerBodyYaw = approachAngle(m_playLowerBodyYaw, aim.lowerYaw, 10.0f, dt);
         ag->graph.player().setLowerBodyYaw(m_playLowerBodyYaw);
+        const float playScale = (motor && motor->state() == PlayerMoveState::Dodge) ? motor->settings().dodgeAnimSpeed : 1.0f;
+        ag->graph.setPlaybackScale(playScale);
     }
 
     updatePlayCamera();

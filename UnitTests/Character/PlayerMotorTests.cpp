@@ -543,3 +543,76 @@ TEST(PlayerMotor, ClearJumpBufferSkipsLandReJump)
     EXPECT_TRUE(landed);
     EXPECT_EQ(motor.state(), PlayerMoveState::Grounded);
 }
+
+PlayerMotorInput dodgeTap(MoveCardinal dir)
+{
+    PlayerMotorInput in{};
+    in.dodgeTap = dir;
+    in.dodgeTapWish = moveCardinalWish(dir, Vector3f{ 0.0f, 0.0f, 1.0f }, Vector3f{ 1.0f, 0.0f, 0.0f });
+    in.allowDodge = true;
+    return in;
+}
+
+TEST(PlayerMotor, DoubleTapDodgeBurstsThenEnds)
+{
+    PlayerMotor motor;
+    Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+    const PlayerGroundQuery q = flatQuery();
+
+    const PlayerMotorResult first = motor.tick(pos, dodgeTap(MoveCardinal::Forward), 1.0f / 60.0f, q);
+    EXPECT_FALSE(first.dodged);
+    EXPECT_EQ(motor.state(), PlayerMoveState::Grounded);
+
+    PlayerMotorInput gap{};
+    advance(motor, pos, gap, 0.10f, q);
+    const PlayerMotorResult second = motor.tick(pos, dodgeTap(MoveCardinal::Forward), 1.0f / 60.0f, q);
+    EXPECT_TRUE(second.dodged);
+    EXPECT_EQ(motor.state(), PlayerMoveState::Dodge);
+    EXPECT_NEAR(motor.velocity().z, motor.settings().dodgeSpeed, 1.0e-3f);
+
+    const float zAtStart = pos.z;
+    advance(motor, pos, gap, 0.20f, q);
+    EXPECT_EQ(motor.state(), PlayerMoveState::Dodge);
+    EXPECT_GT(pos.z, zAtStart + motor.settings().walkSpeed * 0.15f);
+
+    advance(motor, pos, gap, 0.40f, q);
+    EXPECT_EQ(motor.state(), PlayerMoveState::Grounded);
+    EXPECT_NEAR(motor.velocity().z, 0.0f, 1.0e-3f);
+}
+
+TEST(PlayerMotor, DodgeIgnoresLateOrDifferentTap)
+{
+    PlayerMotor motor;
+    Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+    const PlayerGroundQuery q = flatQuery();
+    motor.tick(pos, dodgeTap(MoveCardinal::Left), 1.0f / 60.0f, q);
+    PlayerMotorInput gap{};
+    advance(motor, pos, gap, 0.20f, q);
+    const PlayerMotorResult late = motor.tick(pos, dodgeTap(MoveCardinal::Left), 1.0f / 60.0f, q);
+    EXPECT_FALSE(late.dodged);
+    EXPECT_EQ(motor.state(), PlayerMoveState::Grounded);
+
+    motor.tick(pos, dodgeTap(MoveCardinal::Forward), 1.0f / 60.0f, q);
+    advance(motor, pos, gap, 0.08f, q);
+    const PlayerMotorResult other = motor.tick(pos, dodgeTap(MoveCardinal::Right), 1.0f / 60.0f, q);
+    EXPECT_FALSE(other.dodged);
+    EXPECT_EQ(motor.state(), PlayerMoveState::Grounded);
+}
+
+TEST(PlayerMotor, DodgeBlockedWhileAirborne)
+{
+    PlayerMotor motor;
+    Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+    const PlayerGroundQuery q = flatQuery();
+    PlayerMotorInput jump{};
+    jump.jumpPressed = true;
+    motor.tick(pos, jump, 1.0f / 60.0f, q);
+    ASSERT_EQ(motor.state(), PlayerMoveState::Jumping);
+
+    motor.tick(pos, dodgeTap(MoveCardinal::Forward), 1.0f / 60.0f, q);
+    PlayerMotorInput gap{};
+    advance(motor, pos, gap, 0.05f, q);
+    const PlayerMotorResult second = motor.tick(pos, dodgeTap(MoveCardinal::Forward), 1.0f / 60.0f, q);
+    EXPECT_FALSE(second.dodged);
+    EXPECT_NE(motor.state(), PlayerMoveState::Dodge);
+}

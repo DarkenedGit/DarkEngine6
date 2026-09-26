@@ -139,6 +139,12 @@ namespace Dark
 		applyPreviewSpeed();
 	}
 
+	void AnimGraphInstance::setPlaybackScale(float scale)
+	{
+		m_playbackScale = (scale < 0.0f) ? 0.0f : scale;
+		applyPreviewSpeed();
+	}
+
 	void AnimGraphInstance::applyPreviewSpeed()
 	{
 		float spd = 1.0f;
@@ -147,7 +153,7 @@ namespace Dark
 		if (m_previewPaused)
 			spd = 0.0f;
 		else
-			spd *= m_previewSpeedScale;
+			spd *= m_previewSpeedScale * m_playbackScale;
 		m_player.setSpeed(spd);
 	}
 
@@ -192,12 +198,14 @@ namespace Dark
 		const bool locked = m_lockState;
 		const bool paused = m_previewPaused;
 		const float scale = m_previewSpeedScale;
+		const float playback = m_playbackScale;
 		const AnimGraphDef* def = m_def;
 		const Skeleton* skel = m_skel;
 		if (!bind(def, skel))
 			return false;
 		m_previewPaused = paused;
 		m_previewSpeedScale = scale;
+		m_playbackScale = playback;
 		m_lockState = locked;
 		evaluate();
 		if (old < def->states.size() && old != m_state)

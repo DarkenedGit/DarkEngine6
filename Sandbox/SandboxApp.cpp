@@ -424,7 +424,7 @@ void SandboxApp::registerDefaultActions()
 
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(P/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
-        "possessed WASD/LS move, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, 1 melee  2 rifle, L flashlight, Shift/LB sprint, swim in water, "
+        "possessed WASD/arrows/LS move, double-tap a direction to dodge, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, 1 melee  2 rifle, L flashlight, Shift/LB sprint, swim in water, "
         "T/R3 walk the wiggle demo  F2 lighting  M dev tools  -forward linear albedo + sRGB encode (legacyUnormAlbedo restores old sampling)  -no-menu skip scene picker");
 }
 
@@ -935,6 +935,9 @@ void SandboxApp::updateCharacterAnims(float dt)
             ag->graph.setBool("backward", aim.backward);
             m_lowerBodyYaw = approachAngle(m_lowerBodyYaw, aim.lowerYaw, 10.0f, dt);
             ag->graph.player().setLowerBodyYaw(m_lowerBodyYaw);
+            const PlayerMotor* motor = localMotor();
+            const float playScale = (motor && motor->state() == PlayerMoveState::Dodge) ? motor->settings().dodgeAnimSpeed : 1.0f;
+            ag->graph.setPlaybackScale(playScale);
         }
     }
 
@@ -1081,6 +1084,16 @@ void SandboxApp::updatePossessed(float dt)
     motorIn.allowJumpBuffer = !jumpBusy;
     motorIn.airControlScale = inAirCommit ? jump->def().airControlScale : 1.0f;
     motorIn.speedScale      = status ? status->moveSpeedScale() : 1.0f;
+    motorIn.allowDodge      = canSteer && !jumpBusy && !uiKeys;
+    if (motorIn.allowDodge)
+    {
+        motorIn.dodgeTap = moveCardinalFromEdges(
+            input().keyPressed(Key::W) || input().keyPressed(Key::Up),
+            input().keyPressed(Key::S) || input().keyPressed(Key::Down),
+            input().keyPressed(Key::A) || input().keyPressed(Key::Left),
+            input().keyPressed(Key::D) || input().keyPressed(Key::Right));
+        motorIn.dodgeTapWish = moveCardinalWish(motorIn.dodgeTap, flat, right);
+    }
 
     struct HeightCtx
     {

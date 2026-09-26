@@ -22,6 +22,10 @@ namespace Dark
         m_didFirstJump  = false;
         m_didDoubleJump = false;
         m_pendingDouble = false;
+        m_lastTap       = MoveCardinal::None;
+        m_tapAge        = 1.0f;
+        m_dodgeLeft     = 0.0f;
+        m_dodgeWish     = Vector3f{ 0.0f, 0.0f, 0.0f };
     }
 
     void PlayerMotor::clearJumpBuffer()
@@ -146,6 +150,28 @@ namespace Dark
         m_pendingDouble = false;
     }
 
+    void PlayerMotor::noteDodgeTap(const PlayerMotorInput& in, PlayerMotorResult& result)
+    {
+        if (in.dodgeTap == MoveCardinal::None)
+            return;
+        const bool second = m_lastTap == in.dodgeTap && m_tapAge <= m_settings.dodgeTapWindow;
+        m_lastTap          = in.dodgeTap;
+        m_tapAge           = 0.0f;
+        if (!second || !in.allowDodge || m_state != PlayerMoveState::Grounded || m_settings.dodgeDuration <= 0.0f)
+            return;
+
+        Vector3f wish = in.dodgeTapWish;
+        wish.y        = 0.0f;
+        const float mag = wish.Magnitude();
+        if (mag < 1.0e-4f)
+            return;
+        wish *= (1.0f / mag);
+        m_dodgeWish = wish;
+        m_dodgeLeft = m_settings.dodgeDuration;
+        m_state     = PlayerMoveState::Dodge;
+        result.dodged = true;
+    }
+
     bool PlayerMotor::tryDoubleJump(bool jumpPressed, bool allowDoubleJump, PlayerMotorResult& result)
     {
         if (!allowDoubleJump)
@@ -189,6 +215,9 @@ namespace Dark
         if (in.jumpPressed && in.allowJumpBuffer)
             m_jumpBuffer = m_settings.jumpBuffer;
 
+        m_tapAge += dt;
+        noteDodgeTap(in, result);
+
         const float waterY  = ground.waterY;
         float       groundY = sampleGround(ground, position.x, position.z);
 
@@ -206,7 +235,10 @@ namespace Dark
             }
         }
 
-        if (m_state == PlayerMoveState::Grounded)
+        if (m_state == PlayerMoveState::Dodge && (m_dodgeLeft <= 0.0f || !in.allowDodge))
+            m_state = PlayerMoveState::Grounded;
+
+        if (m_state == PlayerMoveState::Grounded || m_state == PlayerMoveState::Dodge)
         {
             if (terrainWet(groundY, waterY))
             {
@@ -216,8 +248,20 @@ namespace Dark
                 return result;
             }
 
-            const float speed = (in.sprint ? m_settings.sprintSpeed : m_settings.walkSpeed) * speedScale;
-            moveHorizontal(position, in.wish, speed, dt);
+            Vector3f moveWish = in.wish;
+            float    speed    = (in.sprint ? m_settings.sprintSpeed : m_settings.walkSpeed) * speedScale;
+            if (m_state == PlayerMoveState::Dodge)
+            {
+                m_dodgeLeft -= dt;
+                if (m_dodgeLeft <= 0.0f || !in.allowDodge)
+                    m_state = PlayerMoveState::Grounded;
+                else
+                {
+                    moveWish = m_dodgeWish;
+                    speed    = m_settings.dodgeSpeed * speedScale;
+                }
+            }
+            moveHorizontal(position, moveWish, speed, dt);
             groundY               = sampleGround(ground, position.x, position.z);
             const float feetY     = groundY + m_settings.groundOffset;
 

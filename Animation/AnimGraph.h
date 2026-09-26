@@ -118,6 +118,8 @@ namespace Dark
 
 		void setPreviewPaused(bool paused);
 		void setPreviewSpeedScale(float scale);
+		void setPlaybackScale(float scale);
+		float playbackScale() const { return m_playbackScale; }
 		bool previewPaused() const { return m_previewPaused; }
 		bool rebindKeepingState();
 		void refreshParams();
@@ -141,6 +143,7 @@ namespace Dark
 		bool                m_lockState = false;
 		bool                m_previewPaused = false;
 		float               m_previewSpeedScale = 1.0f;
+		float               m_playbackScale = 1.0f;
 		std::vector<float>  m_floats;
 		std::vector<uint8_t> m_bools;
 		std::vector<uint32_t> m_path;
