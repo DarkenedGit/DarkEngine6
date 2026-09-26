@@ -34,6 +34,7 @@
 #include "Terrain/TerrainGen.h"
 #include "Terrain/TerrainGrid.h"
 #include "Terrain/TerrainMaterial.h"
+#include "Sky/Environment.h"
 #include "Water/Water.h"
 #include "Water/WaterBody.h"
 #include "Weapons/Weapon.h"
@@ -71,7 +72,9 @@ private:
     void newScene3D();
     void newScene2D();
     void ensureGlobalLights();
+    void applySkyToLights();
     void gatherEditorLighting(Math::Vector3f& lightDir, Math::Vector3f& lightColor, Math::Vector3f& ambientColor);
+    void drawSkyPanel();
     bool ensure2DResources();
     void rebuildGrid2D();
     void clampCamera2D();
@@ -255,6 +258,7 @@ private:
     Camera3D m_camera;
     Camera2D m_camera2D;
     SceneMode m_sceneMode = SceneMode::Scene3D;
+    Sky::Environment m_env;
     IblSettings  m_ibl;
     GtaoSettings m_ssao;
     SsrSettings  m_ssr;

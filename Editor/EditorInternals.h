@@ -22,6 +22,7 @@
 #define m_taa m_scene.taa()
 #define m_shadows m_scene.shadows()
 #define m_debugOverlay m_scene.debugOverlay()
+#define m_skyPipeline m_scene.skyPipeline()
 
 #include "Editor/EditorObject.h"
 #include "ECS/Components.h"

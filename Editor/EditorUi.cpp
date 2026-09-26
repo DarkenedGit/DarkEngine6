@@ -39,6 +39,7 @@
 #include "Particles/ParticleTick.h"
 #include "Particles/StatusFxDriver.h"
 #include "Sky/CloudVolume.h"
+#include "Sky/Environment.h"
 
 #include <imgui.h>
 
@@ -280,6 +281,8 @@ void EditorApp::drawEditorUi()
             ImGui::TextDisabled("Bake %s", m_ibl.enabled ? "ready" : "off / failed");
         }
         ImGui::End();
+
+        drawSkyPanel();
 
         ImGui::SetNextWindowSize(ImVec2(320.0f, 220.0f), ImGuiCond_FirstUseEver);
         if (ImGui::Begin("SSAO"))
@@ -526,6 +529,57 @@ void EditorApp::drawEditorUi()
     drawAssetDropTarget();
 }
 
+void EditorApp::drawSkyPanel()
+{
+    ImGui::SetNextWindowSize(ImVec2(340.0f, 260.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Sky"))
+    {
+        ImGui::End();
+        return;
+    }
+
+    const Vector3f lc = m_env.lightColor();
+    ImGui::ColorButton("##light", ImVec4(lc.x, lc.y, lc.z, 1.0f), ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop, ImVec2(18.0f, 18.0f));
+    ImGui::SameLine();
+    ImGui::Text("Sun  elev %.0f deg", static_cast<double>(RadiansToDegrees(m_env.sunElevation())));
+
+    float tod = m_env.timeOfDay;
+    if (ImGui::SliderFloat("Time of day", &tod, 0.0f, 23.99f, "%.2f h"))
+    {
+        m_env.timeOfDay = tod;
+        m_env.evaluate();
+        applySkyToLights();
+    }
+    bool animate = m_env.timeScale > 0.0f;
+    if (ImGui::Checkbox("Animate time", &animate))
+    {
+        m_env.timeScale = animate ? 0.35f : 0.0f;
+        DE_LOG_INFO("Sky: time scale = {:.2f} h/s", m_env.timeScale);
+    }
+
+    auto weatherBtn = [&](const char* label, const Sky::WeatherState& w, const ImVec4& col) {
+        ImGui::PushStyleColor(ImGuiCol_Button, col);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(col.x + 0.12f, col.y + 0.12f, col.z + 0.12f, 1.0f));
+        if (ImGui::Button(label, ImVec2(72.0f, 28.0f)))
+        {
+            m_env.weather = w;
+            m_env.evaluate();
+            applySkyToLights();
+            DE_LOG_INFO("Sky: weather {}", label);
+        }
+        ImGui::PopStyleColor(2);
+    };
+    weatherBtn("Clear", Sky::WeatherState::Clear(), ImVec4(0.20f, 0.45f, 0.72f, 1.0f));
+    ImGui::SameLine();
+    weatherBtn("Partly", Sky::WeatherState::PartlyCloudy(), ImVec4(0.32f, 0.42f, 0.55f, 1.0f));
+    ImGui::SameLine();
+    weatherBtn("Overcast", Sky::WeatherState::Overcast(), ImVec4(0.38f, 0.40f, 0.42f, 1.0f));
+    ImGui::SameLine();
+    weatherBtn("Storm", Sky::WeatherState::Storm(), ImVec4(0.28f, 0.22f, 0.40f, 1.0f));
+    ImGui::TextDisabled("Time drives the directional light and cloud lighting.");
+    ImGui::End();
+}
+
 void EditorApp::drawInspector3D()
 {
     if (!ImGui::Begin("Inspector"))
@@ -638,12 +692,9 @@ void EditorApp::drawInspector3D()
         ImGui::Separator();
         ImGui::TextUnformatted("Directional Light");
         ImGui::Checkbox("Enabled", &sun->enabled);
-        if (ImGui::ColorEdit3("Color", &sun->color.x))
-        {
-            so->color[0] = sun->color.x;
-            so->color[1] = sun->color.y;
-            so->color[2] = sun->color.z;
-        }
+        ImGui::BeginDisabled();
+        ImGui::ColorEdit3("Color", &sun->color.x);
+        ImGui::EndDisabled();
         ImGui::DragFloat("Intensity", &sun->intensity, 0.01f, 0.0f, 8.0f);
         float pitch = 0.0f, yaw = 0.0f, roll = 0.0f;
         eulerXYZFromQuat(xf->rotation, pitch, yaw, roll);
@@ -652,30 +703,10 @@ void EditorApp::drawInspector3D()
             RadiansToDegrees(yaw),
             RadiansToDegrees(roll)
         };
-        if (ImGui::DragFloat3("Euler (deg)", eulerDeg, 0.5f))
-        {
-            xf->rotation = Quaternion::FromEulerXYZ(
-                DegreesToRadians(eulerDeg[0]),
-                DegreesToRadians(eulerDeg[1]),
-                DegreesToRadians(eulerDeg[2]));
-        }
-        if (ImGui::Button("Aim down"))
-            xf->rotation = Quaternion::FromLookRotation(Vector3f(0.0f, -1.0f, 0.0f), Vector3f(0.0f, 0.0f, 1.0f));
-        ImGui::SameLine();
-        if (ImGui::Button("Reset sun"))
-            xf->rotation = defaultDirectionalRotation();
-        ImGui::SameLine();
-        if (ImGui::Button("Aim at camera"))
-        {
-            Vector3f dirVec = m_camera.GetPosition() - xf->position;
-            if (dirVec.MagnitudeSqrd() <= 1.0e-8f)
-                dirVec = m_camera.GetLook();
-            else
-                dirVec.Normalize();
-            const Vector3f up = (fabsf(dirVec.y) > 0.9f) ? Vector3f(Vector3f::X_AXIS) : Vector3f(Vector3f::Y_AXIS);
-            xf->rotation      = Quaternion::FromLookRotation(dirVec, up);
-        }
-        ImGui::TextDisabled("Direction is +Z of this rotation. Shadows follow it.");
+        ImGui::BeginDisabled();
+        ImGui::DragFloat3("Euler (deg)", eulerDeg, 0.5f);
+        ImGui::EndDisabled();
+        ImGui::TextDisabled("Direction and color follow Sky / time of day.");
     }
     else if (world().get<ParticleEmitterComponent>(m_selected))
     {
@@ -829,6 +860,11 @@ void EditorApp::onUpdate(float dt)
     m_lastNetRole = role;
 
     m_cloudTime += dt;
+    if (m_sceneMode == SceneMode::Scene3D)
+    {
+        m_env.tick(dt);
+        applySkyToLights();
+    }
     handleEditorCommands(dt);
     window().setCursorCaptured(m_playMode && window().isFocused());
     if (m_playMode)

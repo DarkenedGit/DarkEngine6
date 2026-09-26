@@ -96,6 +96,54 @@ TEST(HumanoidGltf, SkeletonHasDieClip)
     EXPECT_TRUE(hasClip(cpu.clips, "Die"));
 }
 
+void expectArmsHang(const char* relativePath)
+{
+    const auto gltf = findContentFile(relativePath);
+    ASSERT_FALSE(gltf.empty()) << relativePath;
+
+    GltfCpuModel cpu;
+    ASSERT_TRUE(parseGltfFile(gltf, cpu)) << relativePath;
+
+    auto joint = [&](const char* name) -> const Joint* {
+        for (const Joint& j : cpu.skeleton.joints)
+        {
+            if (j.name == name)
+                return &j;
+        }
+        return nullptr;
+    };
+
+    const Joint* lElbow = joint("L_LowerArm");
+    const Joint* rElbow = joint("R_LowerArm");
+    const Joint* lHand  = joint("L_Hand");
+    const Joint* rHand  = joint("R_Hand");
+    ASSERT_NE(lElbow, nullptr);
+    ASSERT_NE(rElbow, nullptr);
+    ASSERT_NE(lHand, nullptr);
+    ASSERT_NE(rHand, nullptr);
+
+    // Upper-arm bones: down, a little out, slightly forward. Not a T-pose along X.
+    EXPECT_LT(lElbow->restT.y, -0.15f);
+    EXPECT_GT(lElbow->restT.z, 0.03f);
+    EXPECT_GT(lElbow->restT.x, 0.02f);
+    EXPECT_GT(-lElbow->restT.y, lElbow->restT.x);
+    EXPECT_LT(rElbow->restT.y, -0.15f);
+    EXPECT_GT(rElbow->restT.z, 0.03f);
+    EXPECT_LT(rElbow->restT.x, -0.02f);
+
+    // Forearms keep hanging and bend a little farther forward.
+    EXPECT_GT(lHand->restT.z, lElbow->restT.z);
+    EXPECT_GT(rHand->restT.z, rElbow->restT.z);
+    EXPECT_LT(lHand->restT.y, -0.1f);
+    EXPECT_LT(rHand->restT.y, -0.1f);
+}
+
+TEST(HumanoidGltf, RestArmsHangAtTheSides)
+{
+    expectArmsHang("models/human.gltf");
+    expectArmsHang("models/skeleton.gltf");
+}
+
 TEST(HumanoidGltf, HumanGraphBindsClips)
 {
     const auto gltf     = findContentFile("models/human.gltf");

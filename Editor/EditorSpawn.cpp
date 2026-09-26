@@ -1,6 +1,7 @@
 #include "EditorApp.h"
 
 #include "Editor/EditorInternals.h"
+#include "Sky/Environment.h"
 #include "Editor/EditorObject.h"
 #include "Scene/SceneFile.h"
 #include "ECS/Components.h"
@@ -539,6 +540,42 @@ void EditorApp::ensureGlobalLights()
         spawnObject(SceneObjectType::DirectionalLight, Vector3f(4.0f, 8.0f, -4.0f), Vector3f(1, 1, 1), defaultDirectionalRotation(), col, nullptr);
     }
     m_selected = prev;
+}
+
+void EditorApp::applySkyToLights()
+{
+    if (m_sceneMode != SceneMode::Scene3D)
+        return;
+
+    Vector3f dir = m_env.lightDir();
+    if (dir.MagnitudeSqrd() <= 1.0e-8f)
+        dir = Vector3f(0.35f, 0.85f, -0.35f);
+    dir.Normalize();
+    const Vector3f up = (fabsf(dir.y) > 0.92f) ? Vector3f(0.0f, 0.0f, 1.0f) : Vector3f(0.0f, 1.0f, 0.0f);
+    const Quaternion rot = Quaternion::FromLookRotation(dir, up);
+    const Vector3f sunCol = m_env.lightColor();
+    const Vector3f ambCol = m_env.ambientColor();
+
+    world().each<DirectionalLightComponent>([&](Entity e, DirectionalLightComponent& d) {
+        d.color = sunCol;
+        if (TransformComponent* xf = world().get<TransformComponent>(e))
+            xf->rotation = rot;
+        if (EditorObjectComponent* so = world().get<EditorObjectComponent>(e))
+        {
+            so->color[0] = sunCol.x;
+            so->color[1] = sunCol.y;
+            so->color[2] = sunCol.z;
+        }
+    });
+    world().each<AmbientLightComponent>([&](Entity e, AmbientLightComponent& a) {
+        a.color = ambCol;
+        if (EditorObjectComponent* so = world().get<EditorObjectComponent>(e))
+        {
+            so->color[0] = ambCol.x;
+            so->color[1] = ambCol.y;
+            so->color[2] = ambCol.z;
+        }
+    });
 }
 
 void EditorApp::gatherEditorLighting(Vector3f& lightDir, Vector3f& lightColor, Vector3f& ambientColor)

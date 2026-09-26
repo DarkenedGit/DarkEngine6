@@ -29,6 +29,8 @@
 #include "Render/ModelDraw.h"
 #include "Render/GpuResourceCache.h"
 #include "Render/GpuUpload.h"
+#include "Render/SkyPipeline.h"
+#include "Render/ScenePath.h"
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
@@ -143,6 +145,11 @@ void EditorApp::onInit()
         {
             requestQuit();
             return;
+        }
+        if (renderer().scenePath() == ScenePath::HybridDeferred)
+        {
+            if (!m_skyPipeline.create(renderer().device(), SkyPass::DeferredLast, renderer().sceneColorFormat()))
+                DE_LOG_ERROR(LogCategory::Render, "EditorApp: SkyPipeline create failed — no sun disc");
         }
     }
     if (!m_linePipeline.create(renderer().device()))
@@ -264,6 +271,8 @@ void EditorApp::onInit()
     }
     renderer().gpuResources().setShadowSrv(m_shadows.srvCpu());
     renderer().setShadowSrv(m_shadows.srvCpu());
+    if (m_skyPipeline.isValid())
+        m_skyPipeline.setShadowSrv(renderer().device(), m_shadows.srvCpu());
 
     const float aspect = (renderer().height() > 0)
         ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height())
@@ -286,6 +295,8 @@ void EditorApp::onInit()
     if (m_sceneMode == SceneMode::Scene3D)
     {
         ensureGlobalLights();
+        m_env.evaluate();
+        applySkyToLights();
         applyIbl();
     }
 

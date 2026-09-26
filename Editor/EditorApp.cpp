@@ -167,6 +167,8 @@ void EditorApp::newScene3D()
     clearScene();
     removeEditorTerrain();
     ensureGlobalLights();
+    m_env.evaluate();
+    applySkyToLights();
     DE_LOG_INFO("Editor: new 3D scene");
 }
 

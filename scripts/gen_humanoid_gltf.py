@@ -11,6 +11,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "content" / "models"
 
+def hang_offset(length: float, side_sign: float, out_deg: float, fwd_deg: float) -> tuple[float, float, float]:
+    """Bone vector from straight down, tilted out to the side and slightly forward (+Z)."""
+    out = math.radians(out_deg)
+    fwd = math.radians(fwd_deg)
+    x = side_sign * math.sin(out)
+    y = -math.cos(out)
+    c, s = math.cos(-fwd), math.sin(-fwd)
+    y, z = y * c, y * s
+    return (x * length, y * length, z * length)
+
+
+# Identity rotation is this pose. Arm clips swing a downward limb (X = forward/back), not a T-pose.
 JOINTS = [
     ("Hips", -1, (0.0, 0.0, 0.0)),
     ("Spine", 0, (0.0, 0.18, 0.0)),
@@ -18,11 +30,11 @@ JOINTS = [
     ("Neck", 2, (0.0, 0.16, 0.0)),
     ("Head", 3, (0.0, 0.14, 0.0)),
     ("L_UpperArm", 2, (0.16, 0.14, 0.0)),
-    ("L_LowerArm", 5, (0.26, 0.0, 0.0)),
-    ("L_Hand", 6, (0.22, 0.0, 0.0)),
+    ("L_LowerArm", 5, hang_offset(0.26, 1.0, 14.0, 16.0)),
+    ("L_Hand", 6, hang_offset(0.22, 1.0, 8.0, 28.0)),
     ("R_UpperArm", 2, (-0.16, 0.14, 0.0)),
-    ("R_LowerArm", 8, (-0.26, 0.0, 0.0)),
-    ("R_Hand", 9, (-0.22, 0.0, 0.0)),
+    ("R_LowerArm", 8, hang_offset(0.26, -1.0, 14.0, 16.0)),
+    ("R_Hand", 9, hang_offset(0.22, -1.0, 8.0, 28.0)),
     ("L_UpperLeg", 0, (0.09, -0.02, 0.0)),
     ("L_LowerLeg", 11, (0.0, -0.24, 0.0)),
     ("L_Foot", 12, (0.0, -0.22, 0.04)),
@@ -38,12 +50,6 @@ PARTS = [
     (0.0, 0.16, 0.02, 0.16, 0.12, 0.09, 2),  # chest
     (0.0, 0.08, 0.0, 0.05, 0.08, 0.05, 3),  # neck
     (0.0, 0.12, 0.02, 0.10, 0.11, 0.10, 4),  # head
-    (0.14, 0.0, 0.0, 0.14, 0.05, 0.05, 5),
-    (0.14, 0.0, 0.0, 0.13, 0.04, 0.04, 6),
-    (0.08, 0.0, 0.02, 0.08, 0.03, 0.05, 7),
-    (-0.14, 0.0, 0.0, 0.14, 0.05, 0.05, 8),
-    (-0.14, 0.0, 0.0, 0.13, 0.04, 0.04, 9),
-    (-0.08, 0.0, 0.02, 0.08, 0.03, 0.05, 10),
     (0.0, -0.13, 0.0, 0.06, 0.13, 0.06, 11),
     (0.0, -0.13, 0.0, 0.05, 0.13, 0.05, 12),
     (0.0, -0.04, 0.07, 0.05, 0.04, 0.10, 13),
@@ -63,6 +69,47 @@ def q_ident() -> tuple[float, float, float, float]:
     return (0.0, 0.0, 0.0, 1.0)
 
 
+def q_mul(a, b):
+    ax, ay, az, aw = a
+    bx, by, bz, bw = b
+    return (
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+        aw * bw - ax * bx - ay * by - az * bz,
+    )
+
+
+def q_rotate(q, v):
+    x, y, z, _w = q
+    t = q_mul(q, (v[0], v[1], v[2], 0.0))
+    r = q_mul(t, (-x, -y, -z, q[3]))
+    return (r[0], r[1], r[2])
+
+
+def q_from_to(src, dst):
+    dot = src[0] * dst[0] + src[1] * dst[1] + src[2] * dst[2]
+    if dot > 0.9999:
+        return q_ident()
+    if dot < -0.9999:
+        return q_axis(0.0, 1.0, 0.0, math.pi)
+    cx = src[1] * dst[2] - src[2] * dst[1]
+    cy = src[2] * dst[0] - src[0] * dst[2]
+    cz = src[0] * dst[1] - src[1] * dst[0]
+    w = 1.0 + dot
+    n = math.sqrt(cx * cx + cy * cy + cz * cz + w * w) or 1.0
+    return (cx / n, cy / n, cz / n, w / n)
+
+
+def v_len(v):
+    return math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) or 1.0
+
+
+def v_norm(v):
+    n = v_len(v)
+    return (v[0] / n, v[1] / n, v[2] / n)
+
+
 def joint_world() -> list[tuple[float, float, float]]:
     worlds = [(0.0, 0.0, 0.0)] * len(JOINTS)
     for i, (_n, parent, t) in enumerate(JOINTS):
@@ -74,7 +121,7 @@ def joint_world() -> list[tuple[float, float, float]]:
     return worlds
 
 
-def add_box(cx, cy, cz, hx, hy, hz, joint, pos, nrm, jnt, wgt, idx):
+def add_box(cx, cy, cz, hx, hy, hz, joint, pos, nrm, jnt, wgt, idx, quat=None, origin=(0.0, 0.0, 0.0)):
     faces = [
         ((1, 0, 0), [(hx, -hy, -hz), (hx, -hy, hz), (hx, hy, hz), (hx, hy, -hz)]),
         ((-1, 0, 0), [(-hx, -hy, hz), (-hx, -hy, -hz), (-hx, hy, -hz), (-hx, hy, hz)]),
@@ -85,12 +132,24 @@ def add_box(cx, cy, cz, hx, hy, hz, joint, pos, nrm, jnt, wgt, idx):
     ]
     for n, corners in faces:
         base = len(pos) // 3
+        rn = q_rotate(quat, n) if quat is not None else n
         for ox, oy, oz in corners:
-            pos.extend((cx + ox, cy + oy, cz + oz))
-            nrm.extend(n)
+            p = (cx + ox, cy + oy, cz + oz)
+            if quat is not None:
+                p = q_rotate(quat, p)
+            pos.extend((origin[0] + p[0], origin[1] + p[1], origin[2] + p[2]))
+            nrm.extend(rn)
             jnt.extend((joint, 0, 0, 0))
             wgt.extend((1.0, 0.0, 0.0, 0.0))
         idx.extend((base, base + 1, base + 2, base, base + 2, base + 3))
+
+
+def add_limb(joint, along, thickness, pos, nrm, jnt, wgt, idx, length=None, forward=0.0):
+    """Box along `along` (joint-local, parent rotation identity), skinned to `joint`."""
+    bone = along if length is None else tuple(c * (length / v_len(along)) for c in along)
+    half = v_len(bone) * 0.5
+    quat = q_from_to((1.0, 0.0, 0.0), v_norm(bone))
+    add_box(half, 0.0, forward, half, thickness, thickness, joint, pos, nrm, jnt, wgt, idx, quat, (0.0, 0.0, 0.0))
 
 
 def pad4(buf: bytearray) -> None:
@@ -303,6 +362,25 @@ def build_gltf(color, include_die: bool, generator: str) -> dict:
         wx, wy, wz = worlds[joint]
         add_box(wx + cx, wy + cy, wz + cz, hx, hy, hz, joint, pos, nrm, jnt, wgt, idx)
 
+    # Limbs are authored in the joint that owns them. The box is shifted to that joint's origin
+    # after it is aligned to the bone, so a downward bone does not stay a sideways T-pose slab.
+    limb_specs = (
+        (5, JOINTS[6][2], 0.05, None, 0.0),
+        (6, JOINTS[7][2], 0.04, None, 0.0),
+        (7, JOINTS[7][2], 0.035, 0.16, 0.02),
+        (8, JOINTS[9][2], 0.05, None, 0.0),
+        (9, JOINTS[10][2], 0.04, None, 0.0),
+        (10, JOINTS[10][2], 0.035, 0.16, 0.02),
+    )
+    for joint, along, thick, length, forward in limb_specs:
+        before = len(pos)
+        add_limb(joint, along, thick, pos, nrm, jnt, wgt, idx, length, forward)
+        ox, oy, oz = worlds[joint]
+        for i in range(before, len(pos), 3):
+            pos[i] += ox
+            pos[i + 1] += oy
+            pos[i + 2] += oz
+
     buf = bytearray()
     views = []
     accessors = []
@@ -419,6 +497,12 @@ def build_gltf(color, include_die: bool, generator: str) -> dict:
 
 
 def main() -> None:
+    worlds = joint_world()
+    for name, idx in (("L_Hand", 7), ("R_Hand", 10)):
+        x, y, z = worlds[idx]
+        side = 1.0 if x > 0.0 else -1.0
+        if not (y < 0.2 and z > 0.08 and x * side > 0.18 and abs(y) < 0.35):
+            raise SystemExit(f"{name} rest pose is not a side hang: {(x, y, z)}")
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     human = build_gltf((0.72, 0.52, 0.38), False, "DarkEngine6 human")
     skel = build_gltf((0.92, 0.90, 0.82), True, "DarkEngine6 skeleton")

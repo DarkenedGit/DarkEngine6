@@ -33,6 +33,8 @@
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
 #include "Sky/CloudVolume.h"
+#include "Sky/Environment.h"
+#include "Render/SkyPipeline.h"
 
 #include <imgui.h>
 
@@ -452,6 +454,11 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         m_lighting.draw(cmd, renderer(), m_shadows, lc);
         m_localLightVolumes.draw(cmd, renderer(), world(), m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_camera, viewProj, lc);
         renderer().bindHdr(true);
+        if (m_skyPipeline.isValid())
+        {
+            const float waterLevel = m_water.params().waterLevel;
+            m_skyPipeline.draw(cmd, m_camera, m_env, 1.0f, waterLevel, 0.0f, &m_shadows);
+        }
         m_scene.captureSsrSceneColor(cmd, renderer());
         renderer().bindHdrDepthRead();
         if (m_haveTerrain && m_scene.waterPipeline().isValid())
