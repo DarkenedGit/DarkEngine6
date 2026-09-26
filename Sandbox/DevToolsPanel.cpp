@@ -1,5 +1,11 @@
 #include "SandboxApp.h"
 
+#include "AI/AiComponents.h"
+#include "Character/HealthComponent.h"
+#include "ECS/Components.h"
+#include "Math/Vector4f.h"
+#include "Ui/NpcInfoOverlay.h"
+#include "Weapons/HittableComponent.h"
 #include "Combat/CombatSystem.h"
 #include "Combat/JumpAttackComponent.h"
 #include "Combat/StatusDef.h"
@@ -92,6 +98,76 @@ void applyDebugStatus(World& world, Entity body, Combat::StatusId id)
 }
 
 } // namespace
+
+void SandboxApp::drawNpcInfoOverlay()
+{
+    if (!m_npcInfo.enabled || !m_imgui.isReady())
+        return;
+    if (!m_npcInfo.showState && !m_npcInfo.showHealth && !m_npcInfo.showTarget)
+        return;
+
+    ImDrawList* dl = ImGui::GetBackgroundDrawList(ImGui::GetMainViewport());
+    if (!dl)
+        return;
+
+    const float vw = static_cast<float>(renderer().width());
+    const float vh = static_cast<float>(renderer().height());
+    if (vw < 1.0f || vh < 1.0f)
+        return;
+    const ImGuiViewport* vp    = ImGui::GetMainViewport();
+    const ImVec2         vpPos = vp ? vp->Pos : ImVec2(0.0f, 0.0f);
+
+    world().each<BrainComponent>([&](Entity e, BrainComponent& bc) {
+        if (!bc.brain)
+            return;
+        const TransformComponent* xf = world().get<TransformComponent>(e);
+        if (!xf)
+            return;
+
+        NpcInfoSample sample{};
+        sample.state = bc.brain->graph().leafName();
+        if (const HealthComponent* hp = world().get<HealthComponent>(e))
+        {
+            sample.hasHealth = true;
+            sample.hp        = hp->health.hp();
+            sample.maxHp     = hp->health.maxHp();
+        }
+        const bool chasing = bc.brain->leaf() == AI::Leaf::Chase;
+        if (const AiAgentComponent* ai = world().get<AiAgentComponent>(e))
+            sample.hasTarget = chasing || ai->hasLastSeen;
+        else
+            sample.hasTarget = chasing;
+
+        char text[192];
+        if (formatNpcInfoBox(m_npcInfo, sample, text, static_cast<int>(sizeof(text))) <= 0)
+            return;
+
+        float head = 1.85f;
+        if (const HittableComponent* ht = world().get<HittableComponent>(e))
+            head = ht->halfExtents.y * 2.0f * xf->scale.y + 0.45f;
+        const Vector3f worldPos(xf->position.x, xf->position.y + head, xf->position.z);
+        const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(worldPos, 1.0f);
+        if (clip.w <= 1.0e-4f)
+            return;
+        const float invW = 1.0f / clip.w;
+        const float ndcZ = clip.z * invW;
+        if (ndcZ < 0.0f || ndcZ > 1.0f)
+            return;
+        const float sx = (clip.x * invW * 0.5f + 0.5f) * vw;
+        const float sy = (1.0f - (clip.y * invW * 0.5f + 0.5f)) * vh;
+        if (sx < -120.0f || sy < -80.0f || sx > vw + 120.0f || sy > vh + 80.0f)
+            return;
+
+        const ImVec2 ts  = ImGui::CalcTextSize(text);
+        const float  pad = 6.0f;
+        const ImVec2 p(vpPos.x + sx - ts.x * 0.5f, vpPos.y + sy - ts.y - 6.0f);
+        const ImVec2 a(p.x - pad, p.y - pad);
+        const ImVec2 b(p.x + ts.x + pad, p.y + ts.y + pad);
+        dl->AddRectFilled(a, b, IM_COL32(12, 14, 18, 210), 5.0f);
+        dl->AddRect(a, b, IM_COL32(220, 196, 72, 200), 5.0f, 0, 1.2f);
+        dl->AddText(p, IM_COL32(245, 245, 245, 255), text);
+    });
+}
 
 void SandboxApp::drawPauseOverlay()
 {
@@ -220,6 +296,21 @@ void SandboxApp::drawDevTools()
         }
         if (ImGui::Checkbox("Skeleton overlay", &m_showSkeleton))
             DE_LOG_INFO("Sandbox: skeleton overlay = {}", m_showSkeleton);
+    }
+
+    if (ImGui::CollapsingHeader("NPC info", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        if (ImGui::Checkbox("Show overlay", &m_npcInfo.enabled))
+            DE_LOG_INFO("Sandbox: NPC info overlay = {}", m_npcInfo.enabled);
+        ImGui::BeginDisabled(!m_npcInfo.enabled);
+        if (ImGui::Checkbox("AI state", &m_npcInfo.showState))
+            DE_LOG_INFO("Sandbox: NPC info state = {}", m_npcInfo.showState);
+        if (ImGui::Checkbox("Health", &m_npcInfo.showHealth))
+            DE_LOG_INFO("Sandbox: NPC info health = {}", m_npcInfo.showHealth);
+        if (ImGui::Checkbox("Has target", &m_npcInfo.showTarget))
+            DE_LOG_INFO("Sandbox: NPC info target = {}", m_npcInfo.showTarget);
+        ImGui::EndDisabled();
+        ImGui::TextDisabled("World-space box above hunters and wolves.");
     }
 
     if (ImGui::CollapsingHeader("Camera"))
@@ -529,7 +620,16 @@ void SandboxApp::drawDevTools()
         ImGui::SliderFloat("Raise time (s)", &shield.raiseSeconds, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Move speed while up", &shield.moveSpeedScale, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Block arc (deg)", &shield.blockArcDeg, 0.0f, 360.0f, "%.0f");
-        ImGui::TextDisabled("%s   %s", m_offhand.shield.blocking() ? "shield up" : "shield down", m_offhand.lightOn ? "flashlight on" : "flashlight off");
+        ImGui::SliderFloat("Attack charge window (s)", &m_chargeSettings.attackWindowSeconds, 0.0f, 1.5f, "%.2f");
+        ImGui::SliderFloat("Charged attack damage", &m_chargeSettings.attackDamageScale, 1.0f, 4.0f, "%.2f");
+        ImGui::SliderFloat("Block charge window (s)", &m_chargeSettings.blockWindowSeconds, 0.0f, 1.5f, "%.2f");
+        ImGui::SliderFloat("Parry stun (s)", &m_chargeSettings.parryStunSeconds, 0.1f, 3.0f, "%.2f");
+        ImGui::SliderFloat("Charged parry slam (s)", &m_chargeSettings.chargedParryStunSeconds, 0.2f, 3.0f, "%.2f");
+        ImGui::TextDisabled("%s   %s   %s",
+            m_offhand.shield.blocking() ? "shield up" : "shield down",
+            m_blockCharge.isCharged() ? "block charged" : "block tap",
+            m_attackCharge.isCharged() ? "attack charged" : "attack tap");
+        ImGui::TextDisabled("%s", m_offhand.lightOn ? "flashlight on" : "flashlight off");
         ImGui::TextDisabled("Hold RMB, V, or left trigger. The flashlight turns off while the shield is in use.");
     }
 

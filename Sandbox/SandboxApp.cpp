@@ -430,7 +430,7 @@ void SandboxApp::registerDefaultActions()
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(P/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
         "possessed WASD/arrows/LS move, double-tap a direction to dodge, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, 1 melee  2 rifle, "
-        "hold RMB/V/LT shield (slower, blocks a frontal arc; turns the flashlight off), L flashlight, Shift/LB sprint, swim in water, "
+        "hold attack to charge, release to swing (tap = normal). Hold RMB/V/LT shield; hold longer then release to parry-slam. L flashlight, Shift/LB sprint, swim in water, "
         "T/R3 walk the wiggle demo  F2 lighting  M dev tools  -forward linear albedo + sRGB encode (legacyUnormAlbedo restores old sampling)  -no-menu skip scene picker");
 }
 
@@ -1079,9 +1079,33 @@ void SandboxApp::updatePossessed(float dt)
         && ((input().mouseDown(MouseButton::Right) && !uiMouse) || (!uiKeys && input().actionDown("shield"))
             || input().axis(GamepadAxis::LeftTrigger) > 0.45f);
     const bool toggleLight = canSteer && !uiKeys && input().actionPressed("flashlight");
-    m_offhand.tick(dt, holdShield, toggleLight);
-    if (Combat::DefenseComponent* defense = world().get<Combat::DefenseComponent>(body))
+    const bool attackDown = canSteer && !uiKeys
+        && (input().actionDown("attack") || (!m_showDevTools && input().mouseDown(MouseButton::Left)));
+    const bool airborneNow = motor && (motor->state() == PlayerMoveState::Jumping || motor->state() == PlayerMoveState::Falling);
+    Combat::DefenseComponent* defense = world().get<Combat::DefenseComponent>(body);
+    if (defense)
+        defense->tick(dt);
+    Combat::PlayerChargeInput chargeIn{};
+    chargeIn.dt              = dt;
+    chargeIn.attackDown      = attackDown;
+    chargeIn.canChargeAttack = canSteer && !airborneNow && !jumpBusy;
+    chargeIn.holdShield      = holdShield;
+    chargeIn.canHoldShield   = canSteer;
+    chargeIn.chargedParryUp  = defense && defense->chargedParry && defense->inParryWindow();
+    Combat::PlayerChargeStep charge{};
+    Combat::stepPlayerCharge(m_attackCharge, m_blockCharge, m_chargeSettings, chargeIn, charge);
+    m_fireQuick   = charge.fireQuick;
+    m_fireCharged = charge.fireCharged;
+    const bool wasBlocking = m_offhand.shield.blocking();
+    m_offhand.tick(dt, charge.wantShield, toggleLight);
+    if (defense)
+    {
+        if (charge.openChargedParry)
+            Combat::openShieldParry(*defense, true, m_chargeSettings);
+        else if (!wasBlocking && m_offhand.shield.blocking() && !m_blockCharge.isCharged())
+            Combat::openShieldParry(*defense, false, m_chargeSettings);
         Combat::syncShieldDefense(*defense, m_offhand.shield, m_lookYaw);
+    }
 
     PlayerMotorInput motorIn{};
     motorIn.wish            = canSteer ? wish : Vector3f{ 0.0f, 0.0f, 0.0f };
@@ -1218,7 +1242,7 @@ void SandboxApp::updatePossessed(float dt)
     if (canSteer && flat.MagnitudeSqrd() > 1.0e-6f)
         xf->rotation = Quaternion::FromLookRotation(flat, Vector3f::Y_AXIS);
     if (TransformComponent* shieldXf = m_shield.valid() ? world().get<TransformComponent>(m_shield) : nullptr)
-        placePlayerShield(*shieldXf, *xf, m_offhand.shield.alpha());
+        placePlayerShield(*shieldXf, *xf, m_offhand.shield.alpha(), m_blockCharge.isCharged() ? 1.0f : 0.0f);
 
     if (motorOut.jumped)
         playSoundCue(world(), audio(), assets(), body, "jump");
@@ -1282,6 +1306,10 @@ void SandboxApp::respawnPlayer()
     m_hurtSoundTimer    = 0.0f;
     m_jumpAttackBuffer  = 0.0f;
     m_offhand.reset();
+    m_attackCharge.reset();
+    m_blockCharge.reset();
+    m_fireQuick   = false;
+    m_fireCharged = false;
     if (WeaponLoadout* w = localWeapons())
         w->clear();
     DE_LOG_INFO("Player: respawned");
@@ -1475,6 +1503,8 @@ void SandboxApp::updateCombat(float dt)
     Health* hpCombat = localHealth();
     if (!hpCombat || !hpCombat->alive())
     {
+        m_fireQuick   = false;
+        m_fireCharged = false;
         m_playerDeadTimer += dt;
         if (m_playerDeadTimer >= kDeathSeconds)
             respawnPlayer();
@@ -1521,7 +1551,7 @@ void SandboxApp::updateCombat(float dt)
             ev.type     = Combat::DamageType::Slash;
             ev.hitDir   = hitDir;
             ev.hitPoint = xf->position;
-            ev.flags    = Combat::DamageFlags::CanBlock;
+            ev.flags    = Combat::DamageFlags::CanBlock | Combat::DamageFlags::CanParry;
             if (combat.resolve(world(), ev).killed)
             {
                 DE_LOG_INFO("Player: down");
@@ -1555,9 +1585,13 @@ void SandboxApp::updateCombat(float dt)
     if (m_jumpAttackBuffer > 0.0f)
         m_jumpAttackBuffer = Math::Max(0.0f, m_jumpAttackBuffer - dt);
 
-    const bool attack = input().actionPressed("attack") || (!m_showDevTools && input().mousePressed(MouseButton::Left));
+    const bool attackPressed = input().actionPressed("attack") || (!m_showDevTools && input().mousePressed(MouseButton::Left));
     const bool swimming = motor && motor->state() == PlayerMoveState::Swimming;
     const bool airborne = motor && (motor->state() == PlayerMoveState::Jumping || motor->state() == PlayerMoveState::Falling);
+    const bool fireQuick = m_fireQuick;
+    const bool fireCharged = m_fireCharged;
+    m_fireQuick   = false;
+    m_fireCharged = false;
 
     if (ccLocked || jumpBusy)
     {
@@ -1569,8 +1603,10 @@ void SandboxApp::updateCombat(float dt)
     if (swimming)
     {
         m_jumpAttackBuffer = 0.0f;
-        if (attack)
-            firePossessedLoadout();
+        if (fireCharged)
+            firePossessedLoadout(true);
+        else if (fireQuick)
+            firePossessedLoadout(false);
         return;
     }
 
@@ -1604,20 +1640,25 @@ void SandboxApp::updateCombat(float dt)
 
     if (airborne)
     {
-        if (attack || m_jumpAttackBuffer > 0.0f)
+        if (attackPressed || m_jumpAttackBuffer > 0.0f)
         {
             if (tryBeginJumpAttack())
                 m_jumpAttackBuffer = 0.0f;
-            else if (attack)
+            else if (attackPressed)
                 m_jumpAttackBuffer = kJumpAttackBuffer;
         }
         return;
     }
 
-    if (attack || m_jumpAttackBuffer > 0.0f)
+    if (fireCharged)
     {
         m_jumpAttackBuffer = 0.0f;
-        firePossessedLoadout();
+        firePossessedLoadout(true);
+    }
+    else if (fireQuick || m_jumpAttackBuffer > 0.0f)
+    {
+        m_jumpAttackBuffer = 0.0f;
+        firePossessedLoadout(false);
     }
 }
 
@@ -1684,7 +1725,7 @@ void SandboxApp::resolveJumpAttackAndFx(const Combat::DamageEvent* events, int c
     }
 }
 
-bool SandboxApp::firePossessedLoadout()
+bool SandboxApp::firePossessedLoadout(bool charged)
 {
     const Entity body = possessedBody();
     const TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
@@ -1694,8 +1735,9 @@ bool SandboxApp::firePossessedLoadout()
         req.direction.Normalize();
     else
         req.direction = Vector3f{ 0.0f, 0.0f, 1.0f };
-    req.origin   = m_viewCamera.GetPosition() + req.direction * 2.2f;
-    req.ownerPos = xf ? xf->position : m_viewCamera.GetPosition();
+    req.origin      = m_viewCamera.GetPosition() + req.direction * 2.2f;
+    req.ownerPos    = xf ? xf->position : m_viewCamera.GetPosition();
+    req.damageScale = charged ? m_chargeSettings.attackDamageScale : 1.0f;
 
     WeaponLoadout* wFire = localWeapons();
     const WeaponWorldQuery query = makeWeaponQuery();
@@ -3333,6 +3375,7 @@ void SandboxApp::onRender()
     m_menu.draw(renderer());
     if (m_imgui.isReady() && !m_menu.visible())
     {
+        drawNpcInfoOverlay();
         if (m_gameplayPaused)
             drawPauseOverlay();
         if (m_showDevTools)

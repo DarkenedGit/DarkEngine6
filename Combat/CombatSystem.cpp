@@ -17,6 +17,8 @@ namespace Dark::Combat
 {
     using Math::Vector3f;
 
+    void punishParry(World& world, const DamageEvent& ev, DefenseComponent* defense, bool charged);
+
     Vector3f facingFromYaw(float yawRad)
     {
         return Vector3f{ sinf(yawRad), 0.0f, cosf(yawRad) };
@@ -73,7 +75,53 @@ namespace Dark::Combat
         Vector3f     facing = facingFromYaw(defense ? defense->facingYawRad : 0.0f);
         const float  maxHp  = health ? health->maxHp() : 100.0f;
 
-        return resolveDirect(ev, health, hitRx, defense, armor, poise, status, &facing, maxHp);
+        const bool chargedParry = defense && defense->chargedParry;
+        r = resolveDirect(ev, health, hitRx, defense, armor, poise, status, &facing, maxHp);
+        if (r.parried)
+            punishParry(world, ev, defense, chargedParry);
+        return r;
+    }
+
+    void punishParry(World& world, const DamageEvent& ev, DefenseComponent* defense, bool charged)
+    {
+        if (!ev.source.valid() || !world.alive(ev.source) || ev.source.id() == ev.target.id())
+            return;
+
+        const float parryStun = (defense && defense->parryStunSeconds > 0.0f) ? defense->parryStunSeconds : 0.90f;
+        float       slamStun  = (defense && defense->chargedParryStunSeconds > 0.0f) ? defense->chargedParryStunSeconds : 1.80f;
+        if (slamStun <= parryStun)
+            slamStun = parryStun + 0.50f;
+
+        const float dur = charged ? slamStun : parryStun;
+        Vector3f    push{ -ev.hitDir.x, 0.0f, -ev.hitDir.z };
+        if (push.MagnitudeSqrd() < 1.0e-8f)
+            push = Vector3f{ 0.0f, 0.0f, -1.0f };
+        else
+            push.Normalize();
+
+        if (StatusEffectComponent* st = world.get<StatusEffectComponent>(ev.source))
+        {
+            if (charged)
+                st->applyCc(CcCategory::Knockdown, dur, true, static_cast<uint8_t>(StatusId::Knockdown), 2.4f, ev.target);
+            else
+                st->applyCc(CcCategory::Stun, dur, true, static_cast<uint8_t>(StatusId::Stun), 1.0f, ev.target);
+        }
+
+        if (HitReactionComponent* hr = world.get<HitReactionComponent>(ev.source))
+        {
+            HitReactionSettings saved = hr->hit.settings();
+            HitReactionSettings slam = saved;
+            slam.stunSeconds       = dur;
+            slam.knockbackDistance = charged ? 2.4f : 0.80f;
+            slam.knockbackSeconds  = charged ? 0.22f : 0.12f;
+            slam.horizontalOnly    = true;
+            hr->hit.setSettings(slam);
+            hr->hit.apply(push);
+            hr->hit.setSettings(saved);
+        }
+
+        if (defense)
+            defense->chargedParry = false;
     }
 
     ResolveResult CombatSystem::resolveDirect(const DamageEvent& ev,

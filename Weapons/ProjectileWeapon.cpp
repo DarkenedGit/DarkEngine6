@@ -83,10 +83,11 @@ namespace Dark
             m_audio->play3D(clip, point, m_desc.hitVolume);
     }
 
-    void ProjectileWeapon::applyHit(const WeaponHit& hit, const Vector3f& fallbackDir)
+    void ProjectileWeapon::applyHit(const WeaponHit& hit, const Vector3f& fallbackDir, float damageScale)
     {
+        const float scale = damageScale > 0.0f ? damageScale : 1.0f;
         WeaponHit out = hit;
-        out.damage    = m_desc.damage;
+        out.damage    = m_desc.damage * scale;
         out.weapon    = WeaponKind::Projectile;
         out.direction = normalizeOr(fallbackDir, Vector3f{ 0.0f, 0.0f, 1.0f });
         if (out.normal.MagnitudeSqrd() < 1.0e-8f)
@@ -99,17 +100,17 @@ namespace Dark
         emitHit(out);
     }
 
-    bool ProjectileWeapon::resolveHitscan(const Vector3f& origin, const Vector3f& dir, const WeaponWorldQuery& world)
+    bool ProjectileWeapon::resolveHitscan(const Vector3f& origin, const Vector3f& dir, const WeaponWorldQuery& world, float damageScale)
     {
         const float range = m_desc.maxRange > 0.0f ? m_desc.maxRange : world.maxRange;
         WeaponHit   hit{};
         if (!weaponRaycastClosest(world, Math::Ray3f{ origin, dir }, range, hit))
             return false;
-        applyHit(hit, dir);
+        applyHit(hit, dir, damageScale);
         return true;
     }
 
-    bool ProjectileWeapon::spawnShot(const Vector3f& origin, const Vector3f& velocity)
+    bool ProjectileWeapon::spawnShot(const Vector3f& origin, const Vector3f& velocity, float damageScale)
     {
         int free = -1;
         int oldest = 0;
@@ -135,6 +136,7 @@ namespace Dark
         s.velocity     = velocity;
         s.age          = 0.0f;
         s.traveled     = 0.0f;
+        s.damageScale  = damageScale > 0.0f ? damageScale : 1.0f;
         s.alive        = true;
         return true;
     }
@@ -147,14 +149,15 @@ namespace Dark
         m_cooldown         = m_desc.cooldown > 0.0f ? m_desc.cooldown : 0.0f;
         playFire(req.origin);
         punchRecoil();
+        const float scale = req.damageScale > 0.0f ? req.damageScale : 1.0f;
 
         if (isInstant())
         {
-            resolveHitscan(req.origin, dir, world);
+            resolveHitscan(req.origin, dir, world, scale);
             return true;
         }
 
-        spawnShot(req.origin, dir * m_desc.speed);
+        spawnShot(req.origin, dir * m_desc.speed, scale);
         return true;
     }
 
@@ -193,7 +196,7 @@ namespace Dark
         if (weaponSweepClosest(world, shot.position, delta, m_desc.radius, hit))
         {
             shot.alive = false;
-            applyHit(hit, shot.velocity);
+            applyHit(hit, shot.velocity, shot.damageScale);
             return;
         }
 

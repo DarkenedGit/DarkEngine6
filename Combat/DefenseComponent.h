@@ -11,6 +11,7 @@ namespace Dark::Combat
 
         bool  blocking          = false;
         bool  parrying          = false;
+        bool  chargedParry      = false; // the open parry window is a charged-block release
         float blockArcDeg       = 140.0f; // total frontal arc
         float blockStaminaCost  = 12.0f;
         float stamina           = 100.0f;
@@ -18,6 +19,8 @@ namespace Dark::Combat
         float staminaRegenPerSec = 18.0f;
         float iframeSecondsLeft = 0.0f;
         float parryWindowLeft   = 0.0f; // seconds remaining of perfect-parry window
+        float parryStunSeconds  = 0.90f;
+        float chargedParryStunSeconds = 1.80f; // knockdown; kept longer than parryStunSeconds
         float facingYawRad      = 0.0f; // optional; Transform used when present
         uint8_t team            = 0;
         bool  invulnerable      = false;
@@ -30,6 +33,11 @@ namespace Dark::Combat
                 iframeSecondsLeft = Math::Max(0.0f, iframeSecondsLeft - dt);
             if (parryWindowLeft > 0.0f)
                 parryWindowLeft = Math::Max(0.0f, parryWindowLeft - dt);
+            if (parryWindowLeft <= 0.0f)
+            {
+                parrying     = false;
+                chargedParry = false;
+            }
             if (!blocking && stamina < staminaMax)
             {
                 stamina += staminaRegenPerSec * dt;

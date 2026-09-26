@@ -27,6 +27,7 @@
 #include "AI/AiSystem.h"
 #include "Audio/SoundClip.h"
 #include "Combat/CombatSystem.h"
+#include "Combat/HoldCharge.h"
 #include "Combat/Shield.h"
 #include "Combat/DamageEvent.h"
 #include "Math/AABox3f.h"
@@ -142,7 +143,7 @@ private:
     void   onPlayWeaponHit(const Dark::WeaponHit& hit);
     static void onPlayJumpHitsThunk(void* user, const Dark::Combat::DamageEvent* events, int count);
     static void onPlayHunterCueThunk(void* user, Dark::Entity hunter, const char* cue);
-    bool   firePlayLoadout();
+    bool   firePlayLoadout(bool charged);
     void   ensurePlayGear();
     void   destroyPlayGear();
     void   drawInspector3D();
@@ -429,7 +430,12 @@ private:
     float                     m_jumpAttackBuffer = 0.0f;
     Dark::Entity              m_playFlashlight{};
     Dark::Entity              m_playShield{};
-    Dark::Combat::OffhandState m_offhand{};
+    Dark::Combat::OffhandState         m_offhand{};
+    Dark::Combat::PlayerChargeSettings m_chargeSettings{};
+    Dark::Combat::HoldCharge           m_attackCharge{};
+    Dark::Combat::HoldCharge           m_blockCharge{};
+    bool                               m_fireQuick   = false;
+    bool                               m_fireCharged = false;
     std::vector<Dark::Math::AABox3f> m_playCubes;
     struct PlayWeaponTarget
     {

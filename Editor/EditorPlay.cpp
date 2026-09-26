@@ -413,13 +413,17 @@ void EditorApp::setPlayMode(bool play)
         clearAllStatusFx(world(), &audio());
         resetPlayCombat();
         m_offhand.reset();
+        m_attackCharge.reset();
+        m_blockCharge.reset();
+        m_fireQuick   = false;
+        m_fireCharged = false;
         ensurePlayGear();
         m_jumpAttackBuffer = 0.0f;
         m_gizmoDragAxis    = EditorDetail::TranslateGizmoAxis::None;
         m_dragging         = false;
         m_playMode = true;
         window().setCursorCaptured(window().isFocused());
-        DE_LOG_INFO("Editor: PLAY — WASD/arrows move, double-tap a direction to dodge, mouse look, Space jump, LMB/F attack, 1/2 weapons, hold RMB/V/LT shield, L flashlight, Escape or F12 stop");
+        DE_LOG_INFO("Editor: PLAY — WASD move, mouse look, Space jump, hold LMB/F to charge an attack and release to swing, hold RMB/V to block (hold longer, release to parry-slam), L flashlight, Escape or F12 stop");
     }
     else
     {
@@ -433,6 +437,10 @@ void EditorApp::setPlayMode(bool play)
         m_playLowerBodyYaw = 0.0f;
         destroyPlayGear();
         m_offhand.reset();
+        m_attackCharge.reset();
+        m_blockCharge.reset();
+        m_fireQuick   = false;
+        m_fireCharged = false;
         m_playMode   = false;
         m_playPlayer = {};
         window().setCursorCaptured(false);
@@ -590,7 +598,7 @@ void EditorApp::resolvePlayHits(const Combat::DamageEvent* events, int count)
     }
 }
 
-bool EditorApp::firePlayLoadout()
+bool EditorApp::firePlayLoadout(bool charged)
 {
     const Entity body = m_playPlayer;
     const TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
@@ -603,8 +611,9 @@ bool EditorApp::firePlayLoadout()
         req.direction.Normalize();
     else
         req.direction = Vector3f{ 0.0f, 0.0f, 1.0f };
-    req.origin   = m_camera.GetPosition() + req.direction * 2.2f;
-    req.ownerPos = xf ? xf->position : m_camera.GetPosition();
+    req.origin      = m_camera.GetPosition() + req.direction * 2.2f;
+    req.ownerPos    = xf ? xf->position : m_camera.GetPosition();
+    req.damageScale = charged ? m_chargeSettings.attackDamageScale : 1.0f;
     if (!wlc->loadout->fire(req, makePlayWeaponQuery()))
         return false;
     if (AnimGraphComponent* ag = body.valid() ? world().get<AnimGraphComponent>(body) : nullptr)
@@ -689,9 +698,32 @@ void EditorApp::updatePlay(float dt)
         && ((input().mouseDown(MouseButton::Right) && pointerFree) || (!uiKeys && input().actionDown("shield"))
             || input().axis(GamepadAxis::LeftTrigger) > 0.45f);
     const bool toggleLight = canSteer && !uiKeys && input().actionPressed("flashlight");
-    m_offhand.tick(dt, holdShield, toggleLight);
-    if (Combat::DefenseComponent* defense = world().get<Combat::DefenseComponent>(body))
+    const bool attackDown = canSteer && !uiKeys && (input().actionDown("attack") || (pointerFree && input().mouseDown(MouseButton::Left)));
+    const bool airborneNow = motor && (motor->state() == PlayerMoveState::Jumping || motor->state() == PlayerMoveState::Falling);
+    Combat::DefenseComponent* defense = world().get<Combat::DefenseComponent>(body);
+    if (defense)
+        defense->tick(dt);
+    Combat::PlayerChargeInput chargeIn{};
+    chargeIn.dt              = dt;
+    chargeIn.attackDown      = attackDown;
+    chargeIn.canChargeAttack = canSteer && !airborneNow && !jumpBusy;
+    chargeIn.holdShield      = holdShield;
+    chargeIn.canHoldShield   = canSteer;
+    chargeIn.chargedParryUp  = defense && defense->chargedParry && defense->inParryWindow();
+    Combat::PlayerChargeStep charge{};
+    Combat::stepPlayerCharge(m_attackCharge, m_blockCharge, m_chargeSettings, chargeIn, charge);
+    m_fireQuick   = charge.fireQuick;
+    m_fireCharged = charge.fireCharged;
+    const bool wasBlocking = m_offhand.shield.blocking();
+    m_offhand.tick(dt, charge.wantShield, toggleLight);
+    if (defense)
+    {
+        if (charge.openChargedParry)
+            Combat::openShieldParry(*defense, true, m_chargeSettings);
+        else if (!wasBlocking && m_offhand.shield.blocking() && !m_blockCharge.isCharged())
+            Combat::openShieldParry(*defense, false, m_chargeSettings);
         Combat::syncShieldDefense(*defense, m_offhand.shield, m_playLookYaw);
+    }
 
     PlayerMotorInput motorIn{};
     motorIn.wish            = canSteer ? wish : Vector3f{};
@@ -782,7 +814,7 @@ void EditorApp::updatePlay(float dt)
     if (canSteer && flat.MagnitudeSqrd() > 1.0e-6f)
         xf->rotation = Quaternion::FromLookRotation(flat, Vector3f::Y_AXIS);
     if (TransformComponent* shieldXf = m_playShield.valid() ? world().get<TransformComponent>(m_playShield) : nullptr)
-        placePlayerShield(*shieldXf, *xf, m_offhand.shield.alpha());
+        placePlayerShield(*shieldXf, *xf, m_offhand.shield.alpha(), m_blockCharge.isCharged() ? 1.0f : 0.0f);
 
     if (motorOut.jumped)
         playSoundCue(world(), audio(), assets(), body, "jump");
@@ -840,7 +872,7 @@ void EditorApp::updatePlay(float dt)
             ev.type     = Combat::DamageType::Slash;
             ev.hitDir   = hitDir;
             ev.hitPoint = xf->position;
-            ev.flags    = Combat::DamageFlags::CanBlock;
+            ev.flags    = Combat::DamageFlags::CanBlock | Combat::DamageFlags::CanParry;
             m_combat.resolve(world(), ev);
         });
     }
@@ -857,7 +889,11 @@ void EditorApp::updatePlay(float dt)
     if (m_jumpAttackBuffer > 0.0f)
         m_jumpAttackBuffer = Math::Max(0.0f, m_jumpAttackBuffer - dt);
 
-    const bool attack   = input().actionPressed("attack") || (!uiMouse && input().mousePressed(MouseButton::Left));
+    const bool attackPressed = input().actionPressed("attack") || (pointerFree && input().mousePressed(MouseButton::Left));
+    const bool fireQuick     = m_fireQuick;
+    const bool fireCharged   = m_fireCharged;
+    m_fireQuick   = false;
+    m_fireCharged = false;
     const bool airborne = motor && (motor->state() == PlayerMoveState::Jumping || motor->state() == PlayerMoveState::Falling);
     if (ccLocked || jumpBusy)
     {
@@ -888,19 +924,24 @@ void EditorApp::updatePlay(float dt)
     };
     if (airborne)
     {
-        if (attack || m_jumpAttackBuffer > 0.0f)
+        if (attackPressed || m_jumpAttackBuffer > 0.0f)
         {
             if (tryBegin())
                 m_jumpAttackBuffer = 0.0f;
-            else if (attack)
+            else if (attackPressed)
                 m_jumpAttackBuffer = kJumpBuf;
         }
         return;
     }
-    if (attack || m_jumpAttackBuffer > 0.0f)
+    if (fireCharged)
     {
         m_jumpAttackBuffer = 0.0f;
-        firePlayLoadout();
+        firePlayLoadout(true);
+    }
+    else if (fireQuick || m_jumpAttackBuffer > 0.0f)
+    {
+        m_jumpAttackBuffer = 0.0f;
+        firePlayLoadout(false);
     }
 }
 
@@ -1022,7 +1063,14 @@ void EditorApp::drawPlayHud()
                 ++wolvesAlive;
         }
     });
-    ImGui::TextUnformatted(m_offhand.shield.blocking() ? "Shield up" : (m_offhand.lightOn ? "Flashlight" : "Off hand stowed"));
+    const char* offhand = m_offhand.lightOn ? "Flashlight" : "Off hand stowed";
+    if (m_blockCharge.isCharged())
+        offhand = "Shield charged";
+    else if (m_offhand.shield.blocking())
+        offhand = "Shield up";
+    ImGui::TextUnformatted(offhand);
+    if (m_attackCharge.isCharged())
+        ImGui::TextUnformatted("Attack charged");
     ImGui::Text("Hunters  %d / %d", huntersAlive, hunters);
     if (wolves > 0)
         ImGui::Text("Wolves  %d / %d", wolvesAlive, wolves);

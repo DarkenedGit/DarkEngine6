@@ -15,7 +15,7 @@ namespace Dark
     Entity spawnPlayerShield(World& world, AssetPinTable& pins, AssetManager& assets, Renderer& renderer);
     void   destroyPlayerShield(World& world, AssetPinTable& pins, Entity& shield);
 
-    void placePlayerShield(TransformComponent& shield, const TransformComponent& player, float raiseAlpha);
+    void placePlayerShield(TransformComponent& shield, const TransformComponent& player, float raiseAlpha, float chargeAlpha = 0.0f);
 
     // Same spot the sandbox flashlight already uses, just left of the camera.
     void placePlayerFlashlight(TransformComponent& light,

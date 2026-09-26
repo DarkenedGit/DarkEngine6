@@ -74,9 +74,10 @@ namespace Dark
         Math::Vector3f position{};
         Math::Vector3f prevPosition{};
         Math::Vector3f velocity{};
-        float          age      = 0.0f;
-        float          traveled = 0.0f;
-        bool           alive    = false;
+        float          age         = 0.0f;
+        float          traveled    = 0.0f;
+        float          damageScale = 1.0f;
+        bool           alive       = false;
     };
 
     class ProjectileWeapon : public Weapon
@@ -114,10 +115,10 @@ namespace Dark
         const ParticleEmitter&             impactEmitter() const { return m_impact; }
 
     private:
-        bool resolveHitscan(const Math::Vector3f& origin, const Math::Vector3f& dir, const WeaponWorldQuery& world);
-        bool spawnShot(const Math::Vector3f& origin, const Math::Vector3f& velocity);
+        bool resolveHitscan(const Math::Vector3f& origin, const Math::Vector3f& dir, const WeaponWorldQuery& world, float damageScale);
+        bool spawnShot(const Math::Vector3f& origin, const Math::Vector3f& velocity, float damageScale);
         void tickShot(LiveProjectile& shot, float dt, const WeaponWorldQuery& world);
-        void applyHit(const WeaponHit& hit, const Math::Vector3f& fallbackDir);
+        void applyHit(const WeaponHit& hit, const Math::Vector3f& fallbackDir, float damageScale);
         void playFire(const Math::Vector3f& origin);
         void playHit(const Math::Vector3f& point);
 

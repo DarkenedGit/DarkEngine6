@@ -13,6 +13,7 @@ namespace Dark::Combat
 {
 
     struct DefenseComponent;
+    struct PlayerChargeSettings;
 
     // Held guard on the off hand. The weapon stays equipped.
     // The flashlight and the shield share that hand: only one is active.
@@ -78,6 +79,9 @@ namespace Dark::Combat
 
     // Raised shield negates hits in the arc. Stamina is not spent; the guard holds while it is up.
     void syncShieldDefense(DefenseComponent& defense, const Shield& shield, float facingYawRad);
+
+    // Opens a frontal parry window. Charged is the release of a held block and slams on a successful parry.
+    void openShieldParry(DefenseComponent& defense, bool charged, const PlayerChargeSettings& settings);
 
     // Gives the player a defense and a full block (no chip) for the raised shield.
     void equipPlayerShield(World& world, Entity player);

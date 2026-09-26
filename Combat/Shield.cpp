@@ -2,6 +2,7 @@
 
 #include "Combat/ArmorComponent.h"
 #include "Combat/DefenseComponent.h"
+#include "Combat/HoldCharge.h"
 #include "ECS/World.h"
 #include "Math/MathHelper.h"
 
@@ -117,6 +118,15 @@ namespace Dark::Combat
         defense.blockArcDeg      = shield.settings().blockArcDeg;
         defense.blockStaminaCost = 0.0f;
         defense.facingYawRad     = facingYawRad;
+    }
+
+    void openShieldParry(DefenseComponent& defense, bool charged, const PlayerChargeSettings& settings)
+    {
+        const float window = charged ? settings.chargedParryWindowSeconds : settings.parryWindowSeconds;
+        defense.beginParryWindow(window);
+        defense.chargedParry            = charged;
+        defense.parryStunSeconds        = settings.parryStunSeconds;
+        defense.chargedParryStunSeconds = settings.chargedParryStunSeconds;
     }
 
     void equipPlayerShield(World& world, Entity player)

@@ -52,11 +52,12 @@ namespace Dark
             if (look.Dot(to) < m_desc.minDot)
                 continue;
 
+            const float scale = req.damageScale > 0.0f ? req.damageScale : 1.0f;
             WeaponHit hit{};
             hit.point       = center;
             hit.normal      = -look;
             hit.direction   = look;
-            hit.damage      = m_desc.damage;
+            hit.damage      = m_desc.damage * scale;
             hit.targetIndex = i;
             if (world.targetEntityAt)
                 hit.targetEntity = world.targetEntityAt(world.targetUser, i);

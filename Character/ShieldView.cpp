@@ -70,10 +70,14 @@ namespace Dark
         shield = {};
     }
 
-    void placePlayerShield(TransformComponent& shield, const TransformComponent& player, float raiseAlpha)
+    void placePlayerShield(TransformComponent& shield, const TransformComponent& player, float raiseAlpha, float chargeAlpha)
     {
         const float t = Math::SmoothStep(0.0f, 1.0f, Math::Clamp(raiseAlpha, 0.0f, 1.0f));
-        const Combat::ShieldLocalPose pose = Combat::shieldLocalPose(t);
+        Combat::ShieldLocalPose pose = Combat::shieldLocalPose(t);
+        const float charge = Math::Clamp(chargeAlpha, 0.0f, 1.0f);
+        // Charged guard sits a little farther forward so the hold reads as set, without covering the aim.
+        pose.position.z += 0.10f * charge;
+        pose.position.y += 0.04f * charge;
         shield.position = player.position + player.rotation.Rotate(pose.position);
         shield.rotation = player.rotation * pose.rotation;
         shield.rotation.Normalize();

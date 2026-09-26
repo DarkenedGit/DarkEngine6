@@ -20,11 +20,13 @@
 #include "Particles/ParticleEmitter.h"
 #include "Particles/ParticleRenderer.h"
 #include "Particles/BloodSplatPool.h"
+#include "Combat/HoldCharge.h"
 #include "Combat/Shield.h"
 #include "Weapons/WeaponLoadoutComponent.h"
 #include "Gameplay/HealthPack.h"
 #include "PathChase.h"
 #include "Ui/HudTagComponent.h"
+#include "Ui/NpcInfoOverlay.h"
 #include "Weapons/HittableComponent.h"
 #include "Ui/ImGuiHost.h"
 #include "Ui/MainMenu.h"
@@ -56,6 +58,7 @@ private:
     void applyNetRole();
     void drawDevTools();
     void drawPauseOverlay();
+    void drawNpcInfoOverlay();
     void devNetHost();
     void devNetJoin(const Dark::Address& addr);
     void devNetDisconnect();
@@ -82,7 +85,7 @@ private:
     void spawnHunterBlood(const Dark::Math::Vector3f& pos);
     void respawnPlayer();
     void resolveJumpAttackAndFx(const Dark::Combat::DamageEvent* events, int count);
-    bool firePossessedLoadout();
+    bool firePossessedLoadout(bool charged);
     void placeHealthPacks();
     void updateHealthPacks(float dt);
     void updateShoulderCamera();
@@ -121,7 +124,12 @@ private:
     D3D12_INDEX_BUFFER_VIEW   m_skelLineIbv[2]{};
     Dark::Entity                    m_flashlight;
     Dark::Entity                    m_shield;
-    Dark::Combat::OffhandState      m_offhand{};
+    Dark::Combat::OffhandState         m_offhand{};
+    Dark::Combat::PlayerChargeSettings m_chargeSettings{};
+    Dark::Combat::HoldCharge           m_attackCharge{};
+    Dark::Combat::HoldCharge           m_blockCharge{};
+    bool                               m_fireQuick    = false;
+    bool                               m_fireCharged  = false;
     Dark::Entity                    m_muzzle;
     float                           m_muzzleTimer = 0.0f;
     Dark::Camera3D          m_viewCamera;
@@ -166,6 +174,7 @@ private:
     bool          m_showVelocity   = false;
     bool          m_showSkeleton   = false;
     bool          m_showDevTools   = false;
+    Dark::NpcInfoOverlaySettings m_npcInfo{};
     ImGuiHost     m_imgui;
     Dark::MainMenu m_menu;
     char          m_joinHost[64]   = "127.0.0.1";
