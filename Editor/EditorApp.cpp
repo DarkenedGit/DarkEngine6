@@ -311,6 +311,7 @@ const Mesh* EditorApp::meshForType(SceneObjectType type) const
     case SceneObjectType::Wolf:
     case SceneObjectType::Model:
     case SceneObjectType::Water:
+    case SceneObjectType::CloudVolume:
         return nullptr;
     case SceneObjectType::Platform:
     case SceneObjectType::Coin:

@@ -28,6 +28,7 @@
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
+#include "Sky/CloudVolume.h"
 
 #include <imgui.h>
 
@@ -106,6 +107,8 @@ bool EditorApp::saveScene()
         }
         if (const auto* mc = world().get<MeshComponent>(e))
             d.emissive = mc->emissive;
+        if (const CloudVolumeComponent* cloud = world().get<CloudVolumeComponent>(e))
+            sceneDataFromCloudDesc(cloud->desc, d);
         if (so.type == SceneObjectType::Model)
         {
             if (const ModelComponent* modelComp = world().get<ModelComponent>(e))

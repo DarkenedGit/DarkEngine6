@@ -91,6 +91,12 @@ TEST(SceneTypes, Parse2DAnd3D)
     EXPECT_TRUE(isScene3DType(SceneObjectType::Water));
     EXPECT_FALSE(isScene2DType(SceneObjectType::Water));
     EXPECT_STREQ(toString(SceneObjectType::Water), "water");
+    EXPECT_TRUE(tryParseSceneObjectType("cloud_volume", t));
+    EXPECT_EQ(t, SceneObjectType::CloudVolume);
+    EXPECT_TRUE(tryParseSceneObjectType("cloud", t));
+    EXPECT_TRUE(isScene3DType(SceneObjectType::CloudVolume));
+    EXPECT_FALSE(isScene2DType(SceneObjectType::CloudVolume));
+    EXPECT_STREQ(toString(SceneObjectType::CloudVolume), "cloud_volume");
 
     SceneMode mode{};
     EXPECT_TRUE(tryParseSceneMode("2d", mode));

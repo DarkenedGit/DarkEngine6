@@ -27,6 +27,7 @@
 #include "AI/AiSystem.h"
 #include "Audio/SoundClip.h"
 #include "Combat/CombatSystem.h"
+#include "Combat/Shield.h"
 #include "Combat/DamageEvent.h"
 #include "Math/AABox3f.h"
 #include "Render/TerrainErosionPipeline.h"
@@ -139,6 +140,8 @@ private:
     static void onPlayJumpHitsThunk(void* user, const Dark::Combat::DamageEvent* events, int count);
     static void onPlayHunterCueThunk(void* user, Dark::Entity hunter, const char* cue);
     bool   firePlayLoadout();
+    void   ensurePlayGear();
+    void   destroyPlayGear();
     void   drawInspector3D();
     void         deleteSelected();
     void         selectNext(int delta);
@@ -244,6 +247,7 @@ private:
     LineMesh m_pointLightGizmo;
     LineMesh m_spotLightGizmo;
     LineMesh m_dirLightGizmo;
+    LineMesh m_cloudBoxGizmo;
 
     AssetRef<Material> m_propMaterial;
     AssetRef<Material> m_groundMaterial;
@@ -284,6 +288,7 @@ private:
     bool                 m_showAssetBrowser  = true;
 
     SceneObjectType m_placeType  = SceneObjectType::Cube;
+    float           m_cloudTime  = 0.0f;
     bool                  m_queuePlaceAtCursor = false;
     bool                  m_queueGlowProp      = false;
     bool                  m_queueAssetPlace    = false;
@@ -418,6 +423,9 @@ private:
     float                     m_playLookPitch = 0.0f;
     float                     m_playLowerBodyYaw = 0.0f;
     float                     m_jumpAttackBuffer = 0.0f;
+    Dark::Entity              m_playFlashlight{};
+    Dark::Entity              m_playShield{};
+    Dark::Combat::OffhandState m_offhand{};
     std::vector<Dark::Math::AABox3f> m_playCubes;
     struct PlayWeaponTarget
     {

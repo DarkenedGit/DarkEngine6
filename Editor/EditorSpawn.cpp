@@ -34,6 +34,7 @@
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
 #include "Weapons/HittableComponent.h"
+#include "Sky/CloudVolume.h"
 
 #include <imgui.h>
 
@@ -69,6 +70,21 @@ Entity EditorApp::pickObject(const Ray3f& ray)
         else if (so.type == SceneObjectType::ParticleEmitter)
         {
             hit = Collision::Intersect(ray, Sphere3f(xf->position, 0.22f));
+        }
+        else if (so.type == SceneObjectType::CloudVolume)
+        {
+            CloudShape shape = CloudShape::Ellipsoid;
+            if (const CloudVolumeComponent* cloud = world().get<CloudVolumeComponent>(e))
+                shape = cloud->desc.shape;
+            float t0 = 0.0f;
+            float t1 = 0.0f;
+            if (intersectCloudVolume(ray, *xf, shape, t0, t1))
+            {
+                hit.hit   = true;
+                hit.t     = t0;
+                hit.tExit = t1;
+                hit.point = ray.PointAt(t0);
+            }
         }
         else if (usesModelBounds(so.type))
         {
@@ -111,6 +127,11 @@ Entity EditorApp::pickObject(const Ray3f& ray)
     world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
         if (world().has<EditorObjectComponent>(e))
             return;
+        if (const TagComponent* tag = world().get<TagComponent>(e))
+        {
+            if (tag->name == "Shield")
+                return;
+        }
         const auto* xf = world().get<TransformComponent>(e);
         const auto  model = assets().getAs<Model>(mc.modelAssetID);
         if (!xf || !model || !model->bounds().IsValid())
@@ -214,8 +235,9 @@ Entity EditorApp::spawnObject(
     const bool pawnType    = isPawnType(type);
     const bool modelType   = type == SceneObjectType::Model;
     const bool waterType   = type == SceneObjectType::Water;
+    const bool cloudType   = type == SceneObjectType::CloudVolume;
     if (m_sceneMode == SceneMode::Scene3D && isScene3DType(type) && !emitterType && !lightType && !globalLight && !pawnType
-        && !modelType && !waterType && xf.position.y < 0.5f * xf.scale.y)
+        && !modelType && !waterType && !cloudType && xf.position.y < 0.5f * xf.scale.y)
         xf.position.y = 0.5f * xf.scale.y;
     world().emplace<TransformComponent>(e, xf);
 
@@ -251,7 +273,7 @@ Entity EditorApp::spawnObject(
         amb.enabled   = (authored && authored->hasLight) ? authored->lightEnabled : true;
         world().emplace<AmbientLightComponent>(e, amb);
     }
-    else if (!emitterType && !pawnType && !modelType && !waterType)
+    else if (!emitterType && !pawnType && !modelType && !waterType && !cloudType)
     {
         MeshComponent mc{};
         mc.matAssetID  = m_propMaterial ? m_propMaterial->id : NULL_ASSET;
@@ -295,6 +317,14 @@ Entity EditorApp::spawnObject(
         if (const auto* spawned = world().get<ParticleEmitterComponent>(e))
             pinParticleEmitter(pins(), assets(), *spawned);
         world().emplace<LocalLightComponent>(e, light);
+    }
+
+    if (cloudType)
+    {
+        CloudVolumeComponent cloud{};
+        if (authored && authored->hasCloud)
+            cloudDescFromSceneData(*authored, cloud.desc);
+        world().emplace<CloudVolumeComponent>(e, cloud);
     }
 
     world().emplace<EditorObjectComponent>(e, so);
@@ -411,6 +441,11 @@ Entity EditorApp::placeAtWorld(SceneObjectType type, Vector3f hit, const SceneOb
     {
         scale = Vector3f(48.0f, 2.0f, 48.0f);
         hit.y = groundY;
+    }
+    else if (type == SceneObjectType::CloudVolume)
+    {
+        scale = Vector3f(96.0f, 28.0f, 96.0f);
+        hit.y = groundY + 32.0f;
     }
     else
         hit.y = 0.5f * scale.y;
@@ -598,7 +633,8 @@ void EditorApp::cyclePlaceType(int delta)
     const SceneObjectType types3D[] = {
         SceneObjectType::Cube, SceneObjectType::Sphere, SceneObjectType::ParticleEmitter,
         SceneObjectType::PointLight, SceneObjectType::SpotLight,
-        SceneObjectType::Player, SceneObjectType::Hunter, SceneObjectType::Wolf, SceneObjectType::Water
+        SceneObjectType::Player, SceneObjectType::Hunter, SceneObjectType::Wolf, SceneObjectType::Water,
+        SceneObjectType::CloudVolume
     };
     const SceneObjectType types2D[] = {
         SceneObjectType::Platform, SceneObjectType::Coin, SceneObjectType::Spawn

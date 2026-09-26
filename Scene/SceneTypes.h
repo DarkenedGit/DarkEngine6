@@ -56,6 +56,7 @@ namespace Dark
         Wolf,
         Model,
         Water,
+        CloudVolume,
         Count
     };
 
@@ -65,7 +66,7 @@ namespace Dark
             || t == SceneObjectType::PointLight || t == SceneObjectType::SpotLight
             || t == SceneObjectType::AmbientLight || t == SceneObjectType::DirectionalLight
             || t == SceneObjectType::Player || t == SceneObjectType::Hunter || t == SceneObjectType::Wolf
-            || t == SceneObjectType::Model || t == SceneObjectType::Water;
+            || t == SceneObjectType::Model || t == SceneObjectType::Water || t == SceneObjectType::CloudVolume;
     }
 
     inline bool isPawnType(SceneObjectType t)
@@ -107,6 +108,7 @@ namespace Dark
         case SceneObjectType::Wolf:            return "wolf";
         case SceneObjectType::Model:           return "model";
         case SceneObjectType::Water:           return "water";
+        case SceneObjectType::CloudVolume:     return "cloud_volume";
         default:                               return "unknown";
         }
     }
@@ -188,6 +190,11 @@ namespace Dark
             out = SceneObjectType::Water;
             return true;
         }
+        if (s == "cloud_volume" || s == "cloud" || s == "clouds")
+        {
+            out = SceneObjectType::CloudVolume;
+            return true;
+        }
         return false;
     }
 
@@ -242,6 +249,25 @@ namespace Dark
         bool  lightEnabled       = true;
         float emissive           = 0.0f;
         int   emissiveMeshIndex  = -1; // objects[] index of glow-prop mesh; -1 = none
+
+        // Optional cloud volume payload (type == CloudVolume).
+        bool  hasCloud              = false;
+        int   cloudShape            = 1; // CloudShape::Ellipsoid
+        float cloudDensity          = 0.90f;
+        float cloudCoverage         = 0.58f;
+        float cloudSoftness         = 0.42f;
+        float cloudAbsorption       = 1.15f;
+        float cloudScattering       = 1.00f;
+        float cloudAnisotropy       = 0.45f;
+        float cloudNoiseScale       = 0.055f;
+        float cloudDetailScale      = 3.40f;
+        float cloudDetailStrength   = 0.38f;
+        float cloudHeightFalloff    = 0.55f;
+        float cloudSilverLining     = 0.75f;
+        float cloudWindSpeed        = 1.20f;
+        float cloudAlbedo[3]{ 0.90f, 0.93f, 1.00f };
+        float cloudWindDir[3]{ 1.00f, 0.02f, 0.25f };
+        bool  cloudEnabled          = true;
     };
 
     // World-level terrain JSON DTO. Not a SceneObjectType. Paths are virtual or sidecar filenames.

@@ -233,6 +233,28 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             light["enabled"]      = o.lightEnabled;
             jo["light"]           = std::move(light);
         }
+        if (o.hasCloud || o.type == SceneObjectType::CloudVolume)
+        {
+            json cloud;
+            cloud["shape"]           = (o.cloudShape == 0) ? "box" : "ellipsoid";
+            cloud["density"]         = o.cloudDensity;
+            cloud["coverage"]        = o.cloudCoverage;
+            cloud["softness"]        = o.cloudSoftness;
+            cloud["absorption"]      = o.cloudAbsorption;
+            cloud["scattering"]      = o.cloudScattering;
+            cloud["anisotropy"]      = o.cloudAnisotropy;
+            cloud["noiseScale"]      = o.cloudNoiseScale;
+            cloud["detailScale"]     = o.cloudDetailScale;
+            cloud["detailStrength"]  = o.cloudDetailStrength;
+            cloud["heightFalloff"]   = o.cloudHeightFalloff;
+            cloud["silverLining"]    = o.cloudSilverLining;
+            cloud["windSpeed"]       = o.cloudWindSpeed;
+            cloud["albedo"]          = json::array({ o.cloudAlbedo[0], o.cloudAlbedo[1], o.cloudAlbedo[2] });
+            cloud["windDir"]         = json::array({ o.cloudWindDir[0], o.cloudWindDir[1], o.cloudWindDir[2] });
+            cloud["enabled"]         = o.cloudEnabled;
+            jo["cloud"]              = std::move(cloud);
+        }
+
         if (o.emissive != 0.0f)
             jo["emissive"] = o.emissive;
         if (o.emissiveMeshIndex >= 0)
@@ -527,6 +549,54 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             o.emissiveMeshIndex = jo["emissiveMesh"].get<int>();
         if (jo.contains("model") && jo["model"].is_string())
             o.modelPath = jo["model"].get<std::string>();
+
+        if (jo.contains("cloud") && jo["cloud"].is_object())
+        {
+            const json& cloud = jo["cloud"];
+            o.hasCloud = true;
+            if (cloud.contains("shape"))
+            {
+                if (cloud["shape"].is_string())
+                {
+                    const std::string s = cloud["shape"].get<std::string>();
+                    if (s == "box" || s == "aabb")
+                        o.cloudShape = 0;
+                    else
+                        o.cloudShape = 1;
+                }
+                else if (cloud["shape"].is_number_integer())
+                    o.cloudShape = cloud["shape"].get<int>() == 0 ? 0 : 1;
+            }
+            o.cloudDensity         = cloud.value("density", o.cloudDensity);
+            o.cloudCoverage        = cloud.value("coverage", o.cloudCoverage);
+            o.cloudSoftness        = cloud.value("softness", o.cloudSoftness);
+            o.cloudAbsorption      = cloud.value("absorption", o.cloudAbsorption);
+            o.cloudScattering      = cloud.value("scattering", o.cloudScattering);
+            o.cloudAnisotropy      = cloud.value("anisotropy", o.cloudAnisotropy);
+            o.cloudNoiseScale      = cloud.value("noiseScale", o.cloudNoiseScale);
+            o.cloudDetailScale     = cloud.value("detailScale", o.cloudDetailScale);
+            o.cloudDetailStrength  = cloud.value("detailStrength", o.cloudDetailStrength);
+            o.cloudHeightFalloff   = cloud.value("heightFalloff", o.cloudHeightFalloff);
+            o.cloudSilverLining    = cloud.value("silverLining", o.cloudSilverLining);
+            o.cloudWindSpeed       = cloud.value("windSpeed", o.cloudWindSpeed);
+            o.cloudEnabled         = cloud.value("enabled", o.cloudEnabled);
+            if (cloud.contains("albedo") && cloud["albedo"].is_array() && cloud["albedo"].size() >= 3)
+            {
+                o.cloudAlbedo[0] = cloud["albedo"][0].get<float>();
+                o.cloudAlbedo[1] = cloud["albedo"][1].get<float>();
+                o.cloudAlbedo[2] = cloud["albedo"][2].get<float>();
+            }
+            if (cloud.contains("windDir") && cloud["windDir"].is_array() && cloud["windDir"].size() >= 3)
+            {
+                o.cloudWindDir[0] = cloud["windDir"][0].get<float>();
+                o.cloudWindDir[1] = cloud["windDir"][1].get<float>();
+                o.cloudWindDir[2] = cloud["windDir"][2].get<float>();
+            }
+        }
+        else if (o.type == SceneObjectType::CloudVolume)
+        {
+            o.hasCloud = true;
+        }
 
         if (o.scale.x == 0.0f)
             o.scale.x = 1.0f;

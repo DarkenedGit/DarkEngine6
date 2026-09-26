@@ -1,5 +1,226 @@
 {
-  "version": 1,
+  "environment": "env/studio_gradient.hdr",
+  "iblIntensity": 1.0,
+  "iblRotationRadY": 0.0,
+  "mode": "3d",
   "name": "level",
-  "objects": []
+  "objects": [
+    {
+      "color": [
+        0.2199999988079071,
+        0.2199999988079071,
+        0.2199999988079071,
+        1.0
+      ],
+      "light": {
+        "enabled": true,
+        "inner": 12.0,
+        "intensity": 1.0,
+        "outer": 25.0,
+        "range": 8.0,
+        "sourceRadius": 0.05000000074505806
+      },
+      "position": [
+        -4.0,
+        6.0,
+        4.0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "type": "ambient_light"
+    },
+    {
+      "color": [
+        0.8902438879013062,
+        0.7080935835838318,
+        0.3437933623790741,
+        1.0
+      ],
+      "light": {
+        "enabled": true,
+        "inner": 12.0,
+        "intensity": 3.252000093460083,
+        "outer": 25.0,
+        "range": 8.0,
+        "sourceRadius": 0.05000000074505806
+      },
+      "position": [
+        4.0,
+        8.0,
+        -4.0
+      ],
+      "rotation": [
+        0.33176907896995544,
+        -0.1907247006893158,
+        0.8009614944458008,
+        0.460450142621994
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "type": "directional_light"
+    },
+    {
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "position": [
+        -9.0,
+        0.5,
+        0.0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "type": "cube"
+    },
+    {
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "position": [
+        -4.0,
+        0.5,
+        6.0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "type": "sphere"
+    },
+    {
+      "color": [
+        0.3499999940395355,
+        0.8500000238418579,
+        0.7200000286102295,
+        1.0
+      ],
+      "position": [
+        0.0,
+        0.5,
+        -7.0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "type": "player"
+    },
+    {
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "position": [
+        7.0,
+        0.5,
+        -1.0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "type": "sphere"
+    },
+    {
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "position": [
+        4.0,
+        0.5,
+        8.0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "type": "cube"
+    },
+    {
+      "cloud": {
+        "absorption": 1.15,
+        "albedo": [0.90, 0.93, 1.0],
+        "anisotropy": 0.45,
+        "coverage": 0.58,
+        "density": 0.90,
+        "detailScale": 3.4,
+        "detailStrength": 0.38,
+        "enabled": true,
+        "heightFalloff": 0.55,
+        "noiseScale": 0.055,
+        "scattering": 1.0,
+        "shape": "ellipsoid",
+        "silverLining": 0.75,
+        "softness": 0.42,
+        "windDir": [1.0, 0.02, 0.25],
+        "windSpeed": 1.2
+      },
+      "color": [0.90, 0.93, 1.0, 1.0],
+      "position": [0.0, 36.0, 0.0],
+      "rotation": [1.0, 0.0, 0.0, 0.0],
+      "scale": [140.0, 32.0, 140.0],
+      "type": "cloud_volume"
+    }
+  ],
+  "version": 2
 }

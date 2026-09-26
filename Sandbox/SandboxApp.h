@@ -20,6 +20,7 @@
 #include "Particles/ParticleEmitter.h"
 #include "Particles/ParticleRenderer.h"
 #include "Particles/BloodSplatPool.h"
+#include "Combat/Shield.h"
 #include "Weapons/WeaponLoadoutComponent.h"
 #include "Gameplay/HealthPack.h"
 #include "PathChase.h"
@@ -119,6 +120,8 @@ private:
     D3D12_VERTEX_BUFFER_VIEW  m_skelLineVbv[2]{};
     D3D12_INDEX_BUFFER_VIEW   m_skelLineIbv[2]{};
     Dark::Entity                    m_flashlight;
+    Dark::Entity                    m_shield;
+    Dark::Combat::OffhandState      m_offhand{};
     Dark::Entity                    m_muzzle;
     float                           m_muzzleTimer = 0.0f;
     Dark::Camera3D          m_viewCamera;
@@ -156,6 +159,7 @@ private:
     bool          m_gameplayPaused = false;
     bool          m_stepGameplay   = false;
     float         m_spinSpeed      = 0.8f;
+    float         m_cloudTime      = 0.0f;
     bool          m_showShadowMaps = false;
     bool          m_showDepth      = false;
     bool          m_showGBuffer    = false;

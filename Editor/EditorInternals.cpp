@@ -176,7 +176,7 @@ namespace Dark::EditorDetail
 
     bool keepsPlacedHeight(World& world, const EditorObjectComponent* so, Entity e)
     {
-        if (so && (isLocalLightType(so->type) || isGlobalLightType(so->type)))
+        if (so && (isLocalLightType(so->type) || isGlobalLightType(so->type) || so->type == SceneObjectType::CloudVolume))
             return true;
         return lightOwningGlowMesh(world, e).valid();
     }

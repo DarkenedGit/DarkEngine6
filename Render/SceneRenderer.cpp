@@ -98,6 +98,10 @@ bool SceneRenderer::createPostPipelines(Renderer& renderer, const char* tag)
         DE_LOG_ERROR(LogCategory::Render, "{}: LocalLightVolumePipeline create failed — local lights disabled", tag);
     if (!m_localLightGpu.create(renderer.device()))
         DE_LOG_ERROR(LogCategory::Render, "{}: LocalLightGpuList create failed — local lights disabled", tag);
+    if (!m_cloudVolumes.create(renderer.device(), renderer.sceneColorFormat()))
+        DE_LOG_ERROR(LogCategory::Render, "{}: CloudVolumePipeline create failed — cloud volumes disabled", tag);
+    if (!m_cloudVolumeGpu.create(renderer.device()))
+        DE_LOG_ERROR(LogCategory::Render, "{}: CloudVolumeGpuList create failed — cloud volumes disabled", tag);
 
     MeshData sphereData;
     MeshData coneData;
@@ -193,6 +197,8 @@ void SceneRenderer::shutdown()
     m_lighting                 = DeferredLightingPipeline{};
     m_localLightVolumes        = LocalLightVolumePipeline{};
     m_localLightGpu            = LocalLightGpuList{};
+    m_cloudVolumes             = CloudVolumePipeline{};
+    m_cloudVolumeGpu           = CloudVolumeGpuList{};
     m_pointVolumeMesh          = Mesh{};
     m_spotVolumeMesh           = Mesh{};
     m_bloom                    = BloomPipeline{};
@@ -376,6 +382,12 @@ void SceneRenderer::drawLocalLights(
     const LightingConstants&  lc)
 {
     m_localLightVolumes.draw(cmd, renderer, world, m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, camera, viewProj, lc);
+}
+
+void SceneRenderer::drawCloudVolumes(ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, const Camera3D& camera,
+                                     const Math::Matrix4f& viewProj, const CloudVolumeFrame& frame)
+{
+    m_cloudVolumes.draw(cmd, renderer, world, m_cloudVolumeGpu, camera, viewProj, frame);
 }
 
 void SceneRenderer::applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, TonemapSettings tonemap)

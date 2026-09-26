@@ -166,6 +166,8 @@ void SandboxApp::drawDevTools()
         {
             if (ImGui::Checkbox("Local lights", &dbg.localLights))
                 DE_LOG_INFO("Sandbox: local lights = {}", dbg.localLights);
+            if (ImGui::Checkbox("Cloud volumes", &dbg.clouds))
+                DE_LOG_INFO("Sandbox: cloud volumes = {}", dbg.clouds);
         }
 
         bool shadows = dbg.shadows;
@@ -519,6 +521,16 @@ void SandboxApp::drawDevTools()
             if (chStun || chKb || chTime || chFlat)
                 m_chase.setHunterHitReaction(hunter);
         }
+    }
+
+    if (ImGui::CollapsingHeader("Shield"))
+    {
+        Combat::ShieldSettings& shield = m_offhand.shield.settings();
+        ImGui::SliderFloat("Raise time (s)", &shield.raiseSeconds, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("Move speed while up", &shield.moveSpeedScale, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("Block arc (deg)", &shield.blockArcDeg, 0.0f, 360.0f, "%.0f");
+        ImGui::TextDisabled("%s   %s", m_offhand.shield.blocking() ? "shield up" : "shield down", m_offhand.lightOn ? "flashlight on" : "flashlight off");
+        ImGui::TextDisabled("Hold RMB, V, or left trigger. The flashlight turns off while the shield is in use.");
     }
 
     if (ImGui::CollapsingHeader("Rifle"))

@@ -82,6 +82,8 @@ void EditorApp::registerActions()
     a.bindButton("sprint", GamepadButton::LeftShoulder);
     a.bindKey("weapon_1", Key::Digit1);
     a.bindKey("weapon_2", Key::Digit2);
+    a.bindKey("flashlight", Key::L);
+    a.bindKey("shield", Key::V);
     a.bindKey("cycle_type", Key::T);
     a.bindKey("cycle_color", Key::C);
     a.bindKey("toggle_particle_ui", Key::F2);
@@ -220,6 +222,13 @@ void EditorApp::onInit()
         data.indices.push_back(0);
         data.indices.push_back(1);
         m_dirLightGizmo = LineMesh::Create(renderer(), data);
+    }
+    {
+        LineMeshData data;
+        if (CreateBoxOutline(data))
+            m_cloudBoxGizmo = LineMesh::Create(renderer(), data);
+        else
+            DE_LOG_ERROR(LogCategory::Render, "EditorApp: cloud box gizmo outline failed");
     }
 
     m_propMaterial = std::make_shared<Material>();

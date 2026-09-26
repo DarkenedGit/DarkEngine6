@@ -118,6 +118,14 @@ TEST(MeshGen, BoxOutlineXYHasFourEdges)
     EXPECT_EQ(outline.indices.size(), 8u);
 }
 
+TEST(MeshGen, BoxOutlineHasTwelveEdges)
+{
+    LineMeshData outline;
+    ASSERT_TRUE(CreateBoxOutline(outline));
+    EXPECT_EQ(outline.positions.size(), 8u);
+    EXPECT_EQ(outline.indices.size(), 24u);
+}
+
 TEST(MeshGen, SphereOutlineLiesOnUnitSphere)
 {
     LineMeshData data;

@@ -43,7 +43,10 @@
 #include "Animation/AnimNotify.h"
 #include "Character/HealthComponent.h"
 #include "Character/PlayerMotorComponent.h"
+#include "Character/ShieldView.h"
 #include "Combat/CombatSystem.h"
+#include "Combat/DefenseComponent.h"
+#include "Combat/Shield.h"
 #include "Combat/DamageEvent.h"
 #include "Combat/JumpAttackComponent.h"
 #include "Combat/JumpAttackDef.h"
@@ -59,6 +62,7 @@
 #include "Animation/SkeletonDebug.h"
 #include "Render/LinePipeline.h"
 #include "Scene/SceneFile.h"
+#include "Sky/CloudVolume.h"
 #include "Terrain/SplatMap.h"
 #include "Terrain/TerrainGrid.h"
 #include "Terrain/TerrainTileFile.h"
@@ -366,6 +370,7 @@ void SandboxApp::registerDefaultActions()
     a.bindKey("weapon_1", Key::Digit1);
     a.bindKey("weapon_2", Key::Digit2);
     a.bindKey("flashlight", Key::L);
+    a.bindKey("shield", Key::V);
     a.bindKey("toggle_lighting", Key::F2);
 
     a.bindKey("reset", Key::R);
@@ -424,7 +429,8 @@ void SandboxApp::registerDefaultActions()
 
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(P/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
-        "possessed WASD/arrows/LS move, double-tap a direction to dodge, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, 1 melee  2 rifle, L flashlight, Shift/LB sprint, swim in water, "
+        "possessed WASD/arrows/LS move, double-tap a direction to dodge, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, 1 melee  2 rifle, "
+        "hold RMB/V/LT shield (slower, blocks a frontal arc; turns the flashlight off), L flashlight, Shift/LB sprint, swim in water, "
         "T/R3 walk the wiggle demo  F2 lighting  M dev tools  -forward linear albedo + sRGB encode (legacyUnormAlbedo restores old sampling)  -no-menu skip scene picker");
 }
 
@@ -476,15 +482,6 @@ void SandboxApp::handleRuntimeCommands(float dt)
         DebugRenderState& dbg = renderer().debugState();
         dbg.lighting          = !dbg.lighting;
         DE_LOG_INFO("Sandbox: lighting = {}", dbg.lighting);
-    }
-
-    if (!uiKeys && input().actionPressed("flashlight"))
-    {
-        if (LocalLightComponent* light = m_flashlight.valid() ? world().get<LocalLightComponent>(m_flashlight) : nullptr)
-        {
-            light->enabled = !light->enabled;
-            DE_LOG_INFO("Sandbox: flashlight = {}", light->enabled);
-        }
     }
 
     if (input().actionPressed("quit"))
@@ -852,6 +849,7 @@ void SandboxApp::attachLocalPlayer(Entity e)
         world().emplace<Combat::StatusEffectComponent>(e);
     if (!world().has<Combat::PoiseComponent>(e))
         world().emplace<Combat::PoiseComponent>(e);
+    Combat::equipPlayerShield(world(), e);
     attachPlayerSounds(world(), pins(), assets(), audio(), e);
 }
 
@@ -1076,6 +1074,15 @@ void SandboxApp::updatePossessed(float dt)
     const bool jumpBusy   = jump && jump->busy();
     const bool inAirCommit = jump && jump->inAirCommit();
     const bool canSteer   = hp && hp->alive() && !ccLocked && !(jump && jump->phase() == Combat::JumpAttackPhase::Pound);
+    const bool uiMouse = m_showDevTools && m_imgui.isReady() && m_imgui.wantCaptureMouse();
+    const bool holdShield = canSteer
+        && ((input().mouseDown(MouseButton::Right) && !uiMouse) || (!uiKeys && input().actionDown("shield"))
+            || input().axis(GamepadAxis::LeftTrigger) > 0.45f);
+    const bool toggleLight = canSteer && !uiKeys && input().actionPressed("flashlight");
+    m_offhand.tick(dt, holdShield, toggleLight);
+    if (Combat::DefenseComponent* defense = world().get<Combat::DefenseComponent>(body))
+        Combat::syncShieldDefense(*defense, m_offhand.shield, m_lookYaw);
+
     PlayerMotorInput motorIn{};
     motorIn.wish            = canSteer ? wish : Vector3f{ 0.0f, 0.0f, 0.0f };
     motorIn.sprint          = canSteer && !jumpBusy && !uiKeys && input().actionDown("sprint");
@@ -1083,7 +1090,7 @@ void SandboxApp::updatePossessed(float dt)
     motorIn.allowDoubleJump = !inAirCommit;
     motorIn.allowJumpBuffer = !jumpBusy;
     motorIn.airControlScale = inAirCommit ? jump->def().airControlScale : 1.0f;
-    motorIn.speedScale      = status ? status->moveSpeedScale() : 1.0f;
+    motorIn.speedScale      = (status ? status->moveSpeedScale() : 1.0f) * m_offhand.shield.speedScale();
     motorIn.allowDodge      = canSteer && !jumpBusy && !uiKeys;
     if (motorIn.allowDodge)
     {
@@ -1210,6 +1217,8 @@ void SandboxApp::updatePossessed(float dt)
 
     if (canSteer && flat.MagnitudeSqrd() > 1.0e-6f)
         xf->rotation = Quaternion::FromLookRotation(flat, Vector3f::Y_AXIS);
+    if (TransformComponent* shieldXf = m_shield.valid() ? world().get<TransformComponent>(m_shield) : nullptr)
+        placePlayerShield(*shieldXf, *xf, m_offhand.shield.alpha());
 
     if (motorOut.jumped)
         playSoundCue(world(), audio(), assets(), body, "jump");
@@ -1272,6 +1281,7 @@ void SandboxApp::respawnPlayer()
     m_spawnAge          = 0.0f;
     m_hurtSoundTimer    = 0.0f;
     m_jumpAttackBuffer  = 0.0f;
+    m_offhand.reset();
     if (WeaponLoadout* w = localWeapons())
         w->clear();
     DE_LOG_INFO("Player: respawned");
@@ -1487,6 +1497,9 @@ void SandboxApp::updateCombat(float dt)
     if (m_chaseOk && xf && !inAirCommit)
     {
         const float before = hpCombat->hp();
+        Combat::CombatSystem combat;
+        if (Combat::DefenseComponent* defense = world().get<Combat::DefenseComponent>(body))
+            Combat::syncShieldDefense(*defense, m_offhand.shield, m_lookYaw);
         world().each<AiAgentComponent>([&](Entity e, AiAgentComponent&) {
             const HealthComponent* hp = world().get<HealthComponent>(e);
             const TransformComponent* hxf = world().get<TransformComponent>(e);
@@ -1496,7 +1509,20 @@ void SandboxApp::updateCombat(float dt)
             const float dz = hxf->position.z - xf->position.z;
             if (dx * dx + dz * dz > kStandoff * kStandoff)
                 return;
-            if (hpCombat->applyDamage(kContactDps * dt))
+            Vector3f hitDir{ xf->position.x - hxf->position.x, 0.0f, xf->position.z - hxf->position.z };
+            if (hitDir.MagnitudeSqrd() > 1.0e-8f)
+                hitDir.Normalize();
+            else
+                hitDir = Vector3f{ 0.0f, 0.0f, 1.0f };
+            Combat::DamageEvent ev{};
+            ev.source   = e;
+            ev.target   = body;
+            ev.amount   = kContactDps * dt;
+            ev.type     = Combat::DamageType::Slash;
+            ev.hitDir   = hitDir;
+            ev.hitPoint = xf->position;
+            ev.flags    = Combat::DamageFlags::CanBlock;
+            if (combat.resolve(world(), ev).killed)
             {
                 DE_LOG_INFO("Player: down");
                 playSoundCue(world(), audio(), assets(), possessedBody(), "death");
@@ -1719,10 +1745,9 @@ void SandboxApp::updateFlashlight()
     TransformComponent* xf = world().get<TransformComponent>(m_flashlight);
     if (!xf)
         return;
-    const Vector3f look = m_viewCamera.GetLook();
-    const Vector3f up   = m_viewCamera.GetUp();
-    xf->position        = m_viewCamera.GetPosition() + look * 0.2f + m_viewCamera.GetRight() * 0.15f + up * -0.1f;
-    xf->rotation        = Quaternion::FromLookRotation(look, up);
+    placePlayerFlashlight(*xf, m_viewCamera.GetPosition(), m_viewCamera.GetLook(), m_viewCamera.GetRight(), m_viewCamera.GetUp());
+    if (LocalLightComponent* light = world().get<LocalLightComponent>(m_flashlight))
+        light->enabled = m_offhand.lightOn;
 }
 
 bool SandboxApp::createSandboxModels()
@@ -2472,40 +2497,41 @@ void SandboxApp::onInit()
 
         bool loadedScene = false;
         Terrain::SplatMap matSplat;
+        SceneFileData sceneData{};
         {
-            SceneFileData data{};
             std::string   err;
             const std::filesystem::path scenePath = defaultScenePath("level.json");
-            if (loadSceneFromJson(scenePath, data, &err) && data.hasTerrain && data.mode != SceneMode::Scene2D)
+            loadSceneFromJson(scenePath, sceneData, &err);
+            if (sceneData.mode != SceneMode::Scene2D && sceneData.hasTerrain)
             {
-                if (data.terrain.hasGrid)
+                if (sceneData.terrain.hasGrid)
                 {
                     TerrainGridDesc gridDesc{};
-                    gridDesc.tilesX       = data.terrain.grid.tilesX;
-                    gridDesc.tilesZ       = data.terrain.grid.tilesZ;
-                    gridDesc.tileCells    = data.terrain.grid.tileCells;
-                    gridDesc.chunkCells   = data.terrain.chunkCells > 0 ? data.terrain.chunkCells : 64;
-                    gridDesc.cellSize     = data.terrain.grid.cellSize;
-                    gridDesc.heightScale  = data.terrain.grid.heightScale;
-                    gridDesc.origin       = data.terrain.grid.origin;
-                    gridDesc.coarseFile   = sidecar(scenePath, data.terrain.grid.coarseFile);
-                    gridDesc.tileDir      = sidecar(scenePath, data.terrain.grid.tileDir);
-                    gridDesc.residentRing = data.terrain.grid.residentRing;
+                    gridDesc.tilesX       = sceneData.terrain.grid.tilesX;
+                    gridDesc.tilesZ       = sceneData.terrain.grid.tilesZ;
+                    gridDesc.tileCells    = sceneData.terrain.grid.tileCells;
+                    gridDesc.chunkCells   = sceneData.terrain.chunkCells > 0 ? sceneData.terrain.chunkCells : 64;
+                    gridDesc.cellSize     = sceneData.terrain.grid.cellSize;
+                    gridDesc.heightScale  = sceneData.terrain.grid.heightScale;
+                    gridDesc.origin       = sceneData.terrain.grid.origin;
+                    gridDesc.coarseFile   = sidecar(scenePath, sceneData.terrain.grid.coarseFile);
+                    gridDesc.tileDir      = sidecar(scenePath, sceneData.terrain.grid.tileDir);
+                    gridDesc.residentRing = sceneData.terrain.grid.residentRing;
                     if (m_terrain.create(gridDesc))
                     {
                         loadedScene        = true;
                         m_haveTerrainSea   = true;
-                        m_terrainSeaLevel  = data.terrain.grid.seaLevel;
+                        m_terrainSeaLevel  = sceneData.terrain.grid.seaLevel;
                         DE_LOG_INFO(LogCategory::Render, "SandboxApp: streaming scene terrain {}x{} tiles", gridDesc.tilesX, gridDesc.tilesZ);
                     }
                     else
                         DE_LOG_ERROR(LogCategory::Render, "SandboxApp: scene terrain.grid failed — FBM fallback");
                 }
-                else if (!data.terrain.heightFile.empty())
+                else if (!sceneData.terrain.heightFile.empty())
                 {
                     HeightMap height;
-                    if (height.loadBinary(sidecar(scenePath, data.terrain.heightFile))
-                        && m_terrain.createFromHeightMap(std::move(height), data.terrain.chunkCells > 0 ? data.terrain.chunkCells : 16))
+                    if (height.loadBinary(sidecar(scenePath, sceneData.terrain.heightFile))
+                        && m_terrain.createFromHeightMap(std::move(height), sceneData.terrain.chunkCells > 0 ? sceneData.terrain.chunkCells : 16))
                     {
                         loadedScene = true;
                         DE_LOG_INFO(LogCategory::Render, "SandboxApp: loaded legacy heightFile as 1-tile Grid");
@@ -2578,6 +2604,35 @@ void SandboxApp::onInit()
         }
         if (!pumpBootFrame())
             return;
+
+        auto spawnCloudEntity = [&](const Vector3f& pos, const Vector3f& scale, const CloudVolumeDesc& desc) {
+            Entity e = world().createEntity();
+            TransformComponent xf{};
+            xf.position = pos;
+            xf.scale    = scale;
+            world().emplace<TransformComponent>(e, xf);
+            CloudVolumeComponent cloud{};
+            cloud.desc = desc;
+            world().emplace<CloudVolumeComponent>(e, cloud);
+        };
+        uint32_t spawnedClouds = 0;
+        for (const SceneObjectData& o : sceneData.objects)
+        {
+            if (o.type != SceneObjectType::CloudVolume)
+                continue;
+            CloudVolumeDesc desc{};
+            if (o.hasCloud)
+                cloudDescFromSceneData(o, desc);
+            spawnCloudEntity(o.position, o.scale, desc);
+            ++spawnedClouds;
+        }
+        if (spawnedClouds == 0)
+        {
+            CloudVolumeDesc desc{};
+            spawnCloudEntity(Vector3f(0.0f, 36.0f, 0.0f), Vector3f(140.0f, 32.0f, 140.0f), desc);
+            ++spawnedClouds;
+        }
+        DE_LOG_INFO(LogCategory::Render, "SandboxApp: {} cloud volume(s)", spawnedClouds);
 
         const AABox3f terrainBox = m_terrain.bounds();
         const float   waterLevel = m_haveTerrainSea ? m_terrainSeaLevel : Lerp(terrainBox.Min.y, terrainBox.Max.y, 0.38f);
@@ -2714,6 +2769,7 @@ void SandboxApp::onInit()
 
     if (m_chase.walker().valid())
         attachLocalPlayer(m_chase.walker());
+    m_shield = spawnPlayerShield(world(), pins(), assets(), renderer());
     if (m_chaseOk)
     {
         for (int i = 0; i < m_chase.hunterCount(); ++i)
@@ -2754,6 +2810,7 @@ void SandboxApp::onUpdate(float dt)
         return;
     if (!m_gameplayPaused || m_stepGameplay)
     {
+        m_cloudTime += dt;
         m_env.tick(dt);
         m_water.tick(dt);
         if (m_chaseOk)
@@ -3181,6 +3238,17 @@ void SandboxApp::onRender()
         waterSceneColor,
         waterDepth,
         waterSsr);
+
+    if (renderer().hasGBuffer())
+    {
+        renderer().bindHdrDepthRead();
+        CloudVolumeFrame cf{};
+        cf.sunDir       = m_env.lightDir();
+        cf.sunColor     = m_env.lightColor();
+        cf.ambientColor = m_env.ambientColor();
+        cf.time         = m_cloudTime;
+        m_scene.drawCloudVolumes(cmd, renderer(), world(), m_viewCamera, viewProj, cf);
+    }
 
     {
         MeshFrameConstants lit{};

@@ -11,6 +11,7 @@
 #define ICON_FA_EYE "\xef\x81\xae"                // U+f06e
 #define ICON_FA_FOLDER "\xef\x81\xbb"             // U+f07b
 #define ICON_FA_FOLDER_OPEN "\xef\x81\xbc"        // U+f07c
+#define ICON_FA_CLOUD "\xef\x83\x82"              // U+f0c2
 #define ICON_FA_FLOPPY_DISK "\xef\x83\x87"        // U+f0c7
 #define ICON_FA_BOLT "\xef\x83\xa7"               // U+f0e7
 #define ICON_FA_LIGHTBULB "\xef\x83\xab"          // U+f0eb

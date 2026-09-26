@@ -32,6 +32,7 @@
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
+#include "Sky/CloudVolume.h"
 
 #include <imgui.h>
 
@@ -267,6 +268,31 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                     }
                 }
             }
+            else if (so.type == SceneObjectType::CloudVolume)
+            {
+                CloudShape shape = CloudShape::Ellipsoid;
+                if (const CloudVolumeComponent* cloud = world().get<CloudVolumeComponent>(e))
+                    shape = cloud->desc.shape;
+                if (shape == CloudShape::Box)
+                {
+                    if (!m_cloudBoxGizmo.valid())
+                        return;
+                    gizmo    = &m_cloudBoxGizmo;
+                    worldMat = makeWorldMatrix(*xf);
+                }
+                else
+                {
+                    if (!m_pointLightGizmo.valid())
+                        return;
+                    gizmo    = &m_pointLightGizmo;
+                    const Vector3f half = cloudHalfExtents(*xf);
+                    worldMat = Matrix4f::ScaleMatrixXYZ(half.x, half.y, half.z) * xf->rotation.ToMatrix4()
+                        * Matrix4f::TranslationMatrix(xf->position.x, xf->position.y, xf->position.z);
+                }
+                cr = 0.78f;
+                cg = 0.86f;
+                cb = 1.00f;
+            }
             else
                 return;
             if (!gizmo || !gizmo->valid())
@@ -448,6 +474,14 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                 waterSsr        = &m_ssr;
             }
             drawPlacedWater(cmd, waterFrustum, heightHeap, heightGpu, waterSceneColor, waterDepth, waterSsr);
+        }
+        {
+            CloudVolumeFrame cf{};
+            cf.sunDir       = lightDir;
+            cf.sunColor     = sunColor;
+            cf.ambientColor = ambientColor;
+            cf.time         = m_cloudTime;
+            m_scene.drawCloudVolumes(cmd, renderer(), world(), m_camera, viewProj, cf);
         }
         drawGrid();
         drawLightGizmos();

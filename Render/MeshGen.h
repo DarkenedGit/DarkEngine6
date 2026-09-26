@@ -69,6 +69,10 @@ namespace Dark
     // ============================================================
     bool CreateCross(MeshData& mesh, float armLength = 1.0f, float armWidth = 0.28f, float depth = 0.22f);
 
+    // Small round buckler. Disc lies in XZ; the face normal is +Y (boss on +Y, grip on -Y).
+    // About 40 cm across so it reads beside the body without filling the view.
+    bool CreateBuckler(MeshData& mesh);
+
     // ============================================================
     //  7. OCTAHEDRON  (regular, all 8 equilateral triangular faces)
     //     radius – circumscribed sphere radius
@@ -183,6 +187,9 @@ namespace Dark
 
     // Unit AABB outline in the XY plane (line list). Scale/translate per box.
     bool CreateBoxOutlineXY(LineMeshData& data);
+
+    // Unit AABB outline in 3D ([-0.5,0.5]^3, 12 edges). Scale/rotate/translate per volume.
+    bool CreateBoxOutline(LineMeshData& data);
 
     // Unit-sphere line outline (latitude rings + meridians).
     bool CreateSphereOutline(LineMeshData& data, int rings = 3, int segments = 32);

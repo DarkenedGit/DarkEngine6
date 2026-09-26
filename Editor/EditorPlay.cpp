@@ -14,10 +14,13 @@
 #include "Character/HealthComponent.h"
 #include "Character/HitReaction.h"
 #include "Character/PlayerMotorComponent.h"
+#include "Character/ShieldView.h"
 #include "Collision/Collision.h"
 #include "Collision/HitResult.h"
 #include "Collision/SweptCollision.h"
+#include "Combat/DefenseComponent.h"
 #include "Combat/JumpAttack.h"
+#include "Combat/Shield.h"
 #include "Combat/JumpAttackComponent.h"
 #include "Combat/JumpAttackResolve.h"
 #include "Combat/PoiseComponent.h"
@@ -228,6 +231,7 @@ bool EditorApp::attachEditorPlayer(Entity e)
         world().emplace<Combat::StatusEffectComponent>(e);
     if (!world().has<Combat::PoiseComponent>(e))
         world().emplace<Combat::PoiseComponent>(e);
+    Combat::equipPlayerShield(world(), e);
 
     attachEditorModel(e, "models/human.gltf");
     attachEditorPlayerSounds(world(), pins(), assets(), audio(), e);
@@ -408,12 +412,14 @@ void EditorApp::setPlayMode(bool play)
         }
         clearAllStatusFx(world(), &audio());
         resetPlayCombat();
+        m_offhand.reset();
+        ensurePlayGear();
         m_jumpAttackBuffer = 0.0f;
         m_gizmoDragAxis    = EditorDetail::TranslateGizmoAxis::None;
         m_dragging         = false;
         m_playMode = true;
         window().setCursorCaptured(window().isFocused());
-        DE_LOG_INFO("Editor: PLAY — WASD/arrows move, double-tap a direction to dodge, mouse look, Space jump, LMB/F attack, 1/2 weapons, Escape or F12 stop");
+        DE_LOG_INFO("Editor: PLAY — WASD/arrows move, double-tap a direction to dodge, mouse look, Space jump, LMB/F attack, 1/2 weapons, hold RMB/V/LT shield, L flashlight, Escape or F12 stop");
     }
     else
     {
@@ -425,6 +431,8 @@ void EditorApp::setPlayMode(bool play)
         if (AnimGraphComponent* ag = m_playPlayer.valid() ? world().get<AnimGraphComponent>(m_playPlayer) : nullptr)
             ag->graph.player().setLowerBodyYaw(0.0f);
         m_playLowerBodyYaw = 0.0f;
+        destroyPlayGear();
+        m_offhand.reset();
         m_playMode   = false;
         m_playPlayer = {};
         window().setCursorCaptured(false);
@@ -435,6 +443,20 @@ void EditorApp::setPlayMode(bool play)
 void EditorApp::togglePlayMode()
 {
     setPlayMode(!m_playMode);
+}
+
+void EditorApp::ensurePlayGear()
+{
+    if (!m_playFlashlight.valid() || !world().alive(m_playFlashlight))
+        m_playFlashlight = spawnPlayerFlashlight(world());
+    if (!m_playShield.valid() || !world().alive(m_playShield))
+        m_playShield = spawnPlayerShield(world(), pins(), assets(), renderer());
+}
+
+void EditorApp::destroyPlayGear()
+{
+    destroyPlayerShield(world(), pins(), m_playShield);
+    destroyPlayerFlashlight(world(), m_playFlashlight);
 }
 
 void EditorApp::updatePlayCamera()
@@ -662,6 +684,14 @@ void EditorApp::updatePlay(float dt)
     const bool jumpBusy    = jump && jump->busy();
     const bool inAirCommit = jump && jump->inAirCommit();
     const bool canSteer    = hp && hp->alive() && !ccLocked && !(jump && jump->phase() == Combat::JumpAttackPhase::Pound);
+    const bool pointerFree = window().cursorCaptured() || !uiMouse;
+    const bool holdShield = canSteer
+        && ((input().mouseDown(MouseButton::Right) && pointerFree) || (!uiKeys && input().actionDown("shield"))
+            || input().axis(GamepadAxis::LeftTrigger) > 0.45f);
+    const bool toggleLight = canSteer && !uiKeys && input().actionPressed("flashlight");
+    m_offhand.tick(dt, holdShield, toggleLight);
+    if (Combat::DefenseComponent* defense = world().get<Combat::DefenseComponent>(body))
+        Combat::syncShieldDefense(*defense, m_offhand.shield, m_playLookYaw);
 
     PlayerMotorInput motorIn{};
     motorIn.wish            = canSteer ? wish : Vector3f{};
@@ -670,7 +700,7 @@ void EditorApp::updatePlay(float dt)
     motorIn.allowDoubleJump = !inAirCommit;
     motorIn.allowJumpBuffer = !jumpBusy;
     motorIn.airControlScale = inAirCommit && jump ? jump->def().airControlScale : 1.0f;
-    motorIn.speedScale      = status ? status->moveSpeedScale() : 1.0f;
+    motorIn.speedScale      = (status ? status->moveSpeedScale() : 1.0f) * m_offhand.shield.speedScale();
     motorIn.allowDodge      = canSteer && !jumpBusy && !uiKeys;
     if (motorIn.allowDodge)
     {
@@ -751,6 +781,8 @@ void EditorApp::updatePlay(float dt)
 
     if (canSteer && flat.MagnitudeSqrd() > 1.0e-6f)
         xf->rotation = Quaternion::FromLookRotation(flat, Vector3f::Y_AXIS);
+    if (TransformComponent* shieldXf = m_playShield.valid() ? world().get<TransformComponent>(m_playShield) : nullptr)
+        placePlayerShield(*shieldXf, *xf, m_offhand.shield.alpha());
 
     if (motorOut.jumped)
         playSoundCue(world(), audio(), assets(), body, "jump");
@@ -772,6 +804,12 @@ void EditorApp::updatePlay(float dt)
     }
 
     updatePlayCamera();
+    if (TransformComponent* lightXf = m_playFlashlight.valid() ? world().get<TransformComponent>(m_playFlashlight) : nullptr)
+    {
+        placePlayerFlashlight(*lightXf, m_camera.GetPosition(), m_camera.GetLook(), m_camera.GetRight(), m_camera.GetUp());
+        if (LocalLightComponent* light = world().get<LocalLightComponent>(m_playFlashlight))
+            light->enabled = m_offhand.lightOn;
+    }
 
     world().each<Combat::PoiseComponent>([&](Entity e, Combat::PoiseComponent& p) {
         if (body.valid() && e.id() == body.id())
@@ -790,7 +828,20 @@ void EditorApp::updatePlay(float dt)
             const float dz = hxf->position.z - xf->position.z;
             if (dx * dx + dz * dz > kStandoff * kStandoff)
                 return;
-            hp->applyDamage(kContactDps * dt);
+            Vector3f hitDir{ xf->position.x - hxf->position.x, 0.0f, xf->position.z - hxf->position.z };
+            if (hitDir.MagnitudeSqrd() > 1.0e-8f)
+                hitDir.Normalize();
+            else
+                hitDir = Vector3f{ 0.0f, 0.0f, 1.0f };
+            Combat::DamageEvent ev{};
+            ev.source   = e;
+            ev.target   = body;
+            ev.amount   = kContactDps * dt;
+            ev.type     = Combat::DamageType::Slash;
+            ev.hitDir   = hitDir;
+            ev.hitPoint = xf->position;
+            ev.flags    = Combat::DamageFlags::CanBlock;
+            m_combat.resolve(world(), ev);
         });
     }
 
@@ -971,9 +1022,10 @@ void EditorApp::drawPlayHud()
                 ++wolvesAlive;
         }
     });
+    ImGui::TextUnformatted(m_offhand.shield.blocking() ? "Shield up" : (m_offhand.lightOn ? "Flashlight" : "Off hand stowed"));
     ImGui::Text("Hunters  %d / %d", huntersAlive, hunters);
     if (wolves > 0)
         ImGui::Text("Wolves  %d / %d", wolvesAlive, wolves);
-    ImGui::TextDisabled("F12 / Esc  stop");
+    ImGui::TextDisabled("RMB / V / LT shield    L light    F12 / Esc stop");
     ImGui::End();
 }

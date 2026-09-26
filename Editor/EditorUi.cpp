@@ -38,6 +38,7 @@
 #include "Combat/StatusDot.h"
 #include "Particles/ParticleTick.h"
 #include "Particles/StatusFxDriver.h"
+#include "Sky/CloudVolume.h"
 
 #include <imgui.h>
 
@@ -148,6 +149,7 @@ void EditorApp::drawEditorUi()
                 ImGui::MenuItem("TAA", nullptr, &renderer().debugState().taa);
                 ImGui::MenuItem("Motion Blur", nullptr, &renderer().debugState().motionBlur);
                 ImGui::MenuItem("Local Lights", nullptr, &renderer().debugState().localLights);
+                ImGui::MenuItem("Cloud Volumes", nullptr, &renderer().debugState().clouds);
             }
             ImGui::EndMenu();
         }
@@ -223,6 +225,13 @@ void EditorApp::drawEditorUi()
                 }
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Places a lake. Position Y is the surface. Width and depth are the footprint. Add several at different heights.");
+                if (ImGui::MenuItem(ICON_FA_CLOUD "  Cloud Volume", nullptr, false, createOk))
+                {
+                    m_placeType          = SceneObjectType::CloudVolume;
+                    m_queuePlaceAtCursor = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Places a volumetric cloud. Scale is the volume size. Looks correct from inside the volume.");
             }
             if (!createOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Spectators cannot place or delete objects");
@@ -429,6 +438,11 @@ void EditorApp::drawEditorUi()
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             if (world().has<EditorObjectComponent>(e))
                 return;
+            if (const TagComponent* tag = world().get<TagComponent>(e))
+            {
+                if (tag->name == "Shield")
+                    return;
+            }
             const bool selected = m_selected.valid() && m_selected.id() == e.id();
             ImGui::PushID(static_cast<int>(e.id()) + 100000);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
@@ -744,6 +758,41 @@ void EditorApp::drawInspector3D()
             xf->scale.z = Max(4.0f, depth);
         ImGui::TextDisabled("Y is this lake's surface. Each water object is its own body.");
     }
+    else if (so->type == SceneObjectType::CloudVolume)
+    {
+        ImGui::Separator();
+        ImGui::TextUnformatted("Cloud volume");
+        if (CloudVolumeComponent* cloud = world().get<CloudVolumeComponent>(m_selected))
+        {
+            CloudVolumeDesc& d = cloud->desc;
+            ImGui::Checkbox("Enabled", &d.enabled);
+            int shape = (d.shape == CloudShape::Box) ? 0 : 1;
+            if (ImGui::Combo("Shape", &shape, "Box\0Ellipsoid\0"))
+                d.shape = (shape == 0) ? CloudShape::Box : CloudShape::Ellipsoid;
+            float size[3] = { xf->scale.x, xf->scale.y, xf->scale.z };
+            if (ImGui::DragFloat3("Size (m)", size, 0.5f, 4.0f, 2048.0f, "%.1f"))
+            {
+                xf->scale.x = Max(4.0f, size[0]);
+                xf->scale.y = Max(4.0f, size[1]);
+                xf->scale.z = Max(4.0f, size[2]);
+            }
+            ImGui::TextDisabled("Width, height, depth of the volume. Position is the center.");
+            ImGui::SliderFloat("Density", &d.density, 0.0f, 4.0f, "%.2f");
+            ImGui::SliderFloat("Coverage", &d.coverage, 0.0f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Softness", &d.softness, 0.02f, 1.0f, "%.2f");
+            ImGui::ColorEdit3("Albedo", &d.albedo.x);
+            ImGui::SliderFloat("Absorption", &d.absorption, 0.0f, 4.0f, "%.2f");
+            ImGui::SliderFloat("Scattering", &d.scattering, 0.0f, 4.0f, "%.2f");
+            ImGui::SliderFloat("Anisotropy", &d.anisotropy, -0.85f, 0.85f, "%.2f");
+            ImGui::SliderFloat("Silver lining", &d.silverLining, 0.0f, 3.0f, "%.2f");
+            ImGui::SliderFloat("Noise scale", &d.noiseScale, 0.01f, 0.25f, "%.3f");
+            ImGui::SliderFloat("Detail scale", &d.detailScale, 1.0f, 8.0f, "%.2f");
+            ImGui::SliderFloat("Detail strength", &d.detailStrength, 0.0f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Height falloff", &d.heightFalloff, 0.0f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Wind speed", &d.windSpeed, 0.0f, 8.0f, "%.2f");
+            ImGui::DragFloat3("Wind dir", &d.windDir.x, 0.01f);
+        }
+    }
     else if (!isPawnType(so->type) && so->type != SceneObjectType::Model)
     {
         if (ImGui::ColorEdit3("Tint", so->color))
@@ -779,6 +828,7 @@ void EditorApp::onUpdate(float dt)
         discardLocalSceneForJoin();
     m_lastNetRole = role;
 
+    m_cloudTime += dt;
     handleEditorCommands(dt);
     window().setCursorCaptured(m_playMode && window().isFocused());
     if (m_playMode)

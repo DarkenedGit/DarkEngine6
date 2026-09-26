@@ -13,6 +13,8 @@
 #define m_lighting m_scene.lighting()
 #define m_localLightVolumes m_scene.localLightVolumes()
 #define m_localLightGpu m_scene.localLightGpu()
+#define m_cloudVolumes m_scene.cloudVolumes()
+#define m_cloudVolumeGpu m_scene.cloudVolumeGpu()
 #define m_pointVolumeMesh m_scene.pointVolumeMesh()
 #define m_spotVolumeMesh m_scene.spotVolumeMesh()
 #define m_bloom m_scene.bloom()

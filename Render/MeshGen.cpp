@@ -259,6 +259,42 @@ namespace Dark
         return CreateCuboid(m, armLength, armWidth, depth);
     }
 
+    static void appendMesh(MeshData& dst, const MeshData& src, const Vector3f& offset)
+    {
+        const uint32_t base = static_cast<uint32_t>(dst.positions.size());
+        for (Vector3f p : src.positions)
+        {
+            p.x += offset.x;
+            p.y += offset.y;
+            p.z += offset.z;
+            dst.positions.push_back(p);
+        }
+        for (const Vector3f& n : src.normals)
+            dst.normals.push_back(n);
+        for (const Vector2f& uv : src.uvs)
+            dst.uvs.push_back(uv);
+        for (uint32_t index : src.indices)
+            dst.indices.push_back(base + index);
+    }
+
+    bool CreateBuckler(MeshData& mesh)
+    {
+        mesh = MeshData{};
+        if (!CreateCylinder(mesh, 0.20f, 0.20f, 0.028f, 24, true, true))
+            return false;
+
+        MeshData boss;
+        if (!CreateCylinder(boss, 0.055f, 0.055f, 0.036f, 12, true, true))
+            return false;
+        appendMesh(mesh, boss, Vector3f{ 0.0f, 0.026f, 0.0f });
+
+        MeshData grip;
+        if (!CreateCuboid(grip, 0.034f, 0.11f, 0.04f))
+            return false;
+        appendMesh(mesh, grip, Vector3f{ 0.0f, -0.062f, 0.0f });
+        return !mesh.positions.empty() && !mesh.indices.empty();
+    }
+
     // ============================================================
     //  5. PYRAMID
     // ============================================================
@@ -1203,6 +1239,26 @@ namespace Dark
             
         const uint32_t edges[] = { 0, 1, 1, 2, 2, 3, 3, 0 };
         m.indices.assign(edges, edges + 8);
+        return true;
+    }
+
+    bool CreateBoxOutline(LineMeshData& m)
+    {
+        const float h = 0.5f;
+        m.positions.push_back({ -h, -h, -h });
+        m.positions.push_back({  h, -h, -h });
+        m.positions.push_back({  h,  h, -h });
+        m.positions.push_back({ -h,  h, -h });
+        m.positions.push_back({ -h, -h,  h });
+        m.positions.push_back({  h, -h,  h });
+        m.positions.push_back({  h,  h,  h });
+        m.positions.push_back({ -h,  h,  h });
+        const uint32_t edges[] = {
+            0, 1, 1, 2, 2, 3, 3, 0,
+            4, 5, 5, 6, 6, 7, 7, 4,
+            0, 4, 1, 5, 2, 6, 3, 7
+        };
+        m.indices.assign(edges, edges + 24);
         return true;
     }
 
