@@ -624,6 +624,7 @@ void EditorApp::deleteSelected()
             network().unregisterEntity(world(), e);
             return;
         }
+        releasePhysicsBody(e);
         onEntityRemoved(world(), e, &pins());
         world().destroyEntity(e);
     };
@@ -717,6 +718,7 @@ void EditorApp::clearScene()
             network().unregisterEntity(world(), e);
         else if (world().alive(e))
         {
+            releasePhysicsBody(e);
             onEntityRemoved(world(), e, &pins());
             world().destroyEntity(e);
         }

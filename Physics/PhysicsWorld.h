@@ -49,8 +49,13 @@ namespace Dark::Physics
         AssetID               shapeAsset = NULL_ASSET;
         uint32_t              surfaceId  = 0;
         bool                  sensor     = false;
-        float                 density    = 1.0f;
-        float                 friction   = 0.6f;
+        bool                  fixedRotation = false;
+        float                 density        = 1.0f;
+        float                 friction       = 0.6f;
+        float                 restitution    = 0.0f;
+        float                 linearDamping  = 0.0f;
+        float                 angularDamping = 0.0f;
+        float                 gravityScale   = 1.0f;
     };
 
     class PhysicsWorld
@@ -85,6 +90,30 @@ namespace Dark::Physics
         PhysicsBodyId bodyOf(Entity e) const;
         uint32_t      boundCount() const { return static_cast<uint32_t>(m_bound.size()); }
         bool          getBodyPose(PhysicsBodyId id, Math::Vector3f& position, Math::Quaternion& rotation) const;
+        bool          setBodyPose(PhysicsBodyId id, const Math::Vector3f& position, const Math::Quaternion& rotation);
+        void          clearBodyVelocity(PhysicsBodyId id);
+        // Kinematic bodies only. Sets the velocity that reaches `position` over `dt` so the
+        // next step sweeps into dynamic bodies and pushes them. A teleport does not.
+        bool          moveKinematicTo(PhysicsBodyId id, const Math::Vector3f& position, const Math::Quaternion& rotation, float dt);
+
+        // Capsule is relative to `origin`. `bottom` and `top` are local Y of the outer ends.
+        // Returns the fraction of `translation` before a static or kinematic shape. Dynamic
+        // bodies, sensors, and `ignore` are skipped so the kinematic sweep can push them.
+        struct MoverCast
+        {
+            Math::Vector3f origin{0.0f, 0.0f, 0.0f};
+            float          radius      = 0.45f;
+            float          bottom      = 0.0f;
+            float          top         = 1.8f;
+            Math::Vector3f translation{0.0f, 0.0f, 0.0f};
+            PhysicsBodyId  ignore      = kNullPhysicsBody;
+        };
+        float clipMover(const MoverCast& cast) const;
+
+        // Edit mode keeps every bound body on its Transform. Play pushes static and kinematic
+        // bodies, steps, then copies dynamic poses back so the mesh follows the solver.
+        void pushPoses(World& world, bool includeDynamic, Entity skip = {});
+        void writeDynamicPoses(World& world) const;
 
         Math::Vector3f gravity() const;
 

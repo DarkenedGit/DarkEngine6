@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Assets/AssetHandle.h"
+#include "Math/Vector3f.h"
 #include "Physics/PhysicsIds.h"
 
 #include <cstdint>
@@ -26,5 +27,6 @@ namespace Dark
         uint32_t               surfaceId  = 0;
         bool                   sensor     = false;
         bool                   valid      = false;
+        Math::Vector3f         bakedScale{1.0f, 1.0f, 1.0f};
     };
 } // namespace Dark

@@ -617,6 +617,7 @@ void EditorApp::drawInspector3D()
             m_showModelParts     = true;
             m_showMaterialEditor = true;
         }
+        drawPhysicsInspector(m_selected);
         ImGui::End();
         return;
     }
@@ -837,6 +838,8 @@ void EditorApp::drawInspector3D()
             m_showMaterialEditor = true;
     }
 
+    drawPhysicsInspector(m_selected);
+
     if (envLight)
     {
         ImGui::BeginDisabled();
@@ -874,9 +877,14 @@ void EditorApp::onUpdate(float dt)
         Combat::harvestAndResolveDots(world(), m_combat);
         tickStatusFx(world(), &audio(), &assets());
         updatePawnAnims();
+        if (m_playMode)
+            simulatePhysics(dt);
     }
     else
+    {
         updateCamera(dt);
+        syncEditPhysics();
+    }
     if (m_sceneMode != SceneMode::Scene2D)
     {
         m_water.tick(dt);

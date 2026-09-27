@@ -102,6 +102,7 @@ namespace Dark::Physics
             shapeDef.isSensor = sensor;
             shapeDef.density  = (dynamic && !sensor) ? desc.density : 0.0f;
             shapeDef.baseMaterial.friction       = desc.friction;
+            shapeDef.baseMaterial.restitution    = desc.restitution;
             shapeDef.baseMaterial.userMaterialId = part.surfaceId != 0 ? part.surfaceId : desc.surfaceId;
             if (part.categoryBits != 0)
                 shapeDef.filter.categoryBits = part.categoryBits;
@@ -417,10 +418,19 @@ namespace Dark::Physics
         rot.Normalize();
 
         b3BodyDef bodyDef = b3DefaultBodyDef();
-        bodyDef.type      = bodyTypeFromMode(mode);
-        bodyDef.position  = toB3Pos(xf->position);
-        bodyDef.rotation  = toB3(rot);
-        bodyDef.userData  = reinterpret_cast<void*>(static_cast<uintptr_t>(e.id()));
+        bodyDef.type           = bodyTypeFromMode(mode);
+        bodyDef.position       = toB3Pos(xf->position);
+        bodyDef.rotation       = toB3(rot);
+        bodyDef.linearDamping  = desc.linearDamping;
+        bodyDef.angularDamping = desc.angularDamping;
+        bodyDef.gravityScale   = desc.gravityScale;
+        bodyDef.userData       = reinterpret_cast<void*>(static_cast<uintptr_t>(e.id()));
+        if (desc.fixedRotation)
+        {
+            bodyDef.motionLocks.angularX = true;
+            bodyDef.motionLocks.angularY = true;
+            bodyDef.motionLocks.angularZ = true;
+        }
 
         const b3BodyId bodyId = b3CreateBody(loadWorld(m_id), &bodyDef);
         if (!b3Body_IsValid(bodyId))
@@ -524,6 +534,161 @@ namespace Dark::Physics
         position              = fromB3Pos(b3Body_GetPosition(bodyId));
         rotation              = fromB3(b3Body_GetRotation(bodyId));
         return true;
+    }
+
+    bool PhysicsWorld::setBodyPose(PhysicsBodyId id, const Math::Vector3f& position, const Math::Quaternion& rotation)
+    {
+        if (!bodyValid(id))
+            return false;
+        Math::Quaternion rot = rotation;
+        const float      mag = rot.x * rot.x + rot.y * rot.y + rot.z * rot.z + rot.w * rot.w;
+        if (mag < 1.0e-8f)
+            rot = Math::Quaternion(1.0f, 0.0f, 0.0f, 0.0f);
+        else
+            rot.Normalize();
+        b3Body_SetTransform(loadBody(id), toB3Pos(position), toB3(rot));
+        return true;
+    }
+
+    void PhysicsWorld::clearBodyVelocity(PhysicsBodyId id)
+    {
+        if (!bodyValid(id))
+            return;
+        const b3BodyId body = loadBody(id);
+        b3Body_SetLinearVelocity(body, b3Vec3{0.0f, 0.0f, 0.0f});
+        b3Body_SetAngularVelocity(body, b3Vec3{0.0f, 0.0f, 0.0f});
+    }
+
+    bool PhysicsWorld::moveKinematicTo(PhysicsBodyId id, const Math::Vector3f& position, const Math::Quaternion& rotation, float dt)
+    {
+        if (!bodyValid(id) || dt <= 1.0e-6f)
+            return false;
+        const b3BodyId body = loadBody(id);
+        if (b3Body_GetType(body) != b3_kinematicBody)
+            return false;
+
+        Math::Quaternion rot = rotation;
+        const float      mag = rot.x * rot.x + rot.y * rot.y + rot.z * rot.z + rot.w * rot.w;
+        if (mag < 1.0e-8f)
+            rot = Math::Quaternion(1.0f, 0.0f, 0.0f, 0.0f);
+        else
+            rot.Normalize();
+
+        b3WorldTransform target;
+        target.p = toB3Pos(position);
+        target.q = toB3(rot);
+        b3Body_SetTargetTransform(body, target, dt, true);
+        return true;
+    }
+
+    namespace
+    {
+        struct MoverIgnore
+        {
+            PhysicsBodyId id = kNullPhysicsBody;
+        };
+
+        bool acceptMoverShape(b3ShapeId shape, void* context)
+        {
+            if (!b3Shape_IsValid(shape) || b3Shape_IsSensor(shape))
+                return false;
+            // Dynamics are pushed by the kinematic player sweep. Stopping on them
+            // keeps the player from ever touching the body.
+            if (b3Body_GetType(b3Shape_GetBody(shape)) == b3_dynamicBody)
+                return false;
+            const auto* ignore = static_cast<const MoverIgnore*>(context);
+            if (!ignore || ignore->id == kNullPhysicsBody)
+                return true;
+            return b3StoreBodyId(b3Shape_GetBody(shape)) != ignore->id;
+        }
+    }
+
+    float PhysicsWorld::clipMover(const MoverCast& cast) const
+    {
+        if (!valid())
+            return 1.0f;
+        if (cast.radius <= 1.0e-4f)
+            return 1.0f;
+        const float lenSq = cast.translation.x * cast.translation.x + cast.translation.y * cast.translation.y + cast.translation.z * cast.translation.z;
+        if (lenSq < 1.0e-10f)
+            return 1.0f;
+
+        float bottom = cast.bottom;
+        float top    = cast.top;
+        if (top < bottom)
+        {
+            const float swap = bottom;
+            bottom           = top;
+            top              = swap;
+        }
+        const float minSpan = bottom + 2.0f * cast.radius;
+        if (top < minSpan)
+            top = minSpan;
+
+        b3Capsule capsule;
+        capsule.center1 = b3Vec3{0.0f, bottom + cast.radius, 0.0f};
+        capsule.center2 = b3Vec3{0.0f, top - cast.radius, 0.0f};
+        capsule.radius  = cast.radius;
+
+        MoverIgnore ignore;
+        ignore.id = cast.ignore;
+        const float fraction = b3World_CastMover(loadWorld(m_id), toB3Pos(cast.origin), &capsule, toB3(cast.translation), b3DefaultQueryFilter(),
+                                                 &acceptMoverShape, &ignore);
+        if (fraction < 0.0f)
+            return 0.0f;
+        if (fraction > 1.0f)
+            return 1.0f;
+        return fraction;
+    }
+
+    void PhysicsWorld::pushPoses(World& world, bool includeDynamic, Entity skip)
+    {
+        if (!valid())
+            return;
+        for (const BoundBody& bound : m_bound)
+        {
+            if (!world.alive(bound.entity))
+                continue;
+            if (skip.valid() && bound.entity.id() == skip.id())
+                continue;
+            const PhysicsBodyComponent* body = world.get<PhysicsBodyComponent>(bound.entity);
+            const TransformComponent*   xf   = world.get<TransformComponent>(bound.entity);
+            if (!body || !body->valid || !xf)
+                continue;
+            const bool dynamic = body->mode == PhysicsBodyMode::Dynamic;
+            if (dynamic && !includeDynamic)
+                continue;
+            if (!setBodyPose(bound.body, xf->position, xf->rotation))
+                continue;
+            const b3BodyId id = loadBody(bound.body);
+            b3Body_SetLinearVelocity(id, b3Vec3{0.0f, 0.0f, 0.0f});
+            b3Body_SetAngularVelocity(id, b3Vec3{0.0f, 0.0f, 0.0f});
+            if (dynamic)
+                b3Body_SetAwake(id, true);
+        }
+    }
+
+    void PhysicsWorld::writeDynamicPoses(World& world) const
+    {
+        if (!valid())
+            return;
+        for (const BoundBody& bound : m_bound)
+        {
+            if (!world.alive(bound.entity))
+                continue;
+            const PhysicsBodyComponent* body = world.get<PhysicsBodyComponent>(bound.entity);
+            if (!body || !body->valid || body->mode != PhysicsBodyMode::Dynamic)
+                continue;
+            TransformComponent* xf = world.get<TransformComponent>(bound.entity);
+            if (!xf)
+                continue;
+            Math::Vector3f   pos;
+            Math::Quaternion rot;
+            if (!getBodyPose(bound.body, pos, rot))
+                continue;
+            xf->position = pos;
+            xf->rotation = rot;
+        }
     }
 
     Math::Vector3f PhysicsWorld::gravity() const

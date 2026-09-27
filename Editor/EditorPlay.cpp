@@ -134,6 +134,7 @@ bool EditorApp::attachEditorModel(Entity e, const char* gltfPath)
 
     if (!model->skeleton())
     {
+        tryLoadModelPhysics(e);
         DE_LOG_INFO("Editor: attached '{}' (static)", gltfPath);
         return true;
     }
@@ -157,6 +158,7 @@ bool EditorApp::attachEditorModel(Entity e, const char* gltfPath)
     ag.graph.setApplyRootMotion(false);
     world().emplace<AnimGraphComponent>(e, std::move(ag));
     tickAnimGraphs(world(), assets(), 1.0f / 60.0f);
+    tryLoadModelPhysics(e);
     DE_LOG_INFO("Editor: attached '{}' graph={}", gltfPath, graph ? "yes" : "no");
     return true;
 }
@@ -358,6 +360,8 @@ void EditorApp::bakePlayWalkability()
 {
     m_playCubes.clear();
     m_playSpheres.clear();
+    m_playCubeEntities.clear();
+    m_playSphereEntities.clear();
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
         const TransformComponent* xf = world().get<TransformComponent>(e);
         if (!xf)
@@ -366,13 +370,17 @@ void EditorApp::bakePlayWalkability()
         {
             const Vector3f half{ 0.5f * std::fabs(xf->scale.x), 0.5f * std::fabs(xf->scale.y), 0.5f * std::fabs(xf->scale.z) };
             m_playCubes.push_back(AABox3f::FromCenterExtents(xf->position, half));
+            m_playCubeEntities.push_back(e);
         }
         else if (so.type == SceneObjectType::Sphere)
         {
             // Unit sphere mesh is radius 0.5, then scaled. Use the largest axis so a stretched sphere still blocks.
             const float radius = 0.5f * Math::Max(std::fabs(xf->scale.x), Math::Max(std::fabs(xf->scale.y), std::fabs(xf->scale.z)));
             if (radius > 1.0e-4f)
+            {
                 m_playSpheres.push_back(Sphere3f(xf->position, radius));
+                m_playSphereEntities.push_back(e);
+            }
         }
     });
     const Terrain::HeightMap* height = nullptr;
@@ -447,6 +455,9 @@ void EditorApp::setPlayMode(bool play)
         m_gizmoDragAxis    = EditorDetail::TranslateGizmoAxis::None;
         m_dragging         = false;
         m_playMode = true;
+        ensurePhysicsWorld();
+        if (m_physics.valid())
+            m_physics.pushPoses(world(), true);
         window().setCursorCaptured(window().isFocused());
         DE_LOG_INFO("Editor: PLAY — WASD move, mouse look, Space jump, hold LMB/F to charge an attack and release to swing, hold RMB/V to block, Ctrl/C crouch, L flashlight, Escape or F12 stop");
     }
@@ -469,6 +480,8 @@ void EditorApp::setPlayMode(bool play)
         m_fireCharged = false;
         m_playMode   = false;
         m_playPlayer = {};
+        if (m_physics.valid())
+            m_physics.pushPoses(world(), true);
         window().setCursorCaptured(false);
         DE_LOG_INFO("Editor: play stopped — restored spawn poses");
     }
@@ -802,22 +815,46 @@ void EditorApp::updatePlay(float dt)
         }
     }
 
+    ensurePlayPhysicsVolumes();
+
     Vector3f delta{ xf->position.x - before.x, 0.0f, xf->position.z - before.z };
     if (delta.MagnitudeSqrd() > 1.0e-10f)
     {
+        auto livePhysics = [&](Entity solid) {
+            const PhysicsBodyComponent* body = world().get<PhysicsBodyComponent>(solid);
+            return body && body->valid && body->mode != PhysicsBodyMode::Static && m_physics.bodyValid(body->body);
+        };
         Sphere3f ball{ Vector3f{ before.x, xf->position.y, before.z }, kPlayRadius };
         float bestT = 1.0f;
-        for (const AABox3f& cube : m_playCubes)
+        for (size_t i = 0; i < m_playCubes.size(); ++i)
         {
-            const Dark::Collision::SweptHit3D hit = Dark::Collision::SweptIntersects(ball, delta, cube);
+            if (i < m_playCubeEntities.size() && livePhysics(m_playCubeEntities[i]))
+                continue;
+            const Dark::Collision::SweptHit3D hit = Dark::Collision::SweptIntersects(ball, delta, m_playCubes[i]);
             if (hit.hit && hit.t < bestT)
                 bestT = hit.t;
         }
-        for (const Sphere3f& sphere : m_playSpheres)
+        for (size_t i = 0; i < m_playSpheres.size(); ++i)
         {
-            const Dark::Collision::SweptHit3D hit = Dark::Collision::SweptIntersects(ball, delta, sphere);
+            if (i < m_playSphereEntities.size() && livePhysics(m_playSphereEntities[i]))
+                continue;
+            const Dark::Collision::SweptHit3D hit = Dark::Collision::SweptIntersects(ball, delta, m_playSpheres[i]);
             if (hit.hit && hit.t < bestT)
                 bestT = hit.t;
+        }
+        if (m_physics.valid())
+        {
+            // Origin sits groundOffset (0.5 m) above the feet. This capsule's bottom is just above the floor.
+            Physics::PhysicsWorld::MoverCast cast;
+            cast.origin      = Vector3f{ before.x, xf->position.y, before.z };
+            cast.radius      = kPlayRadius;
+            cast.bottom      = -kPlayRadius;
+            cast.top         = 1.35f;
+            cast.translation = delta;
+            cast.ignore      = m_physics.bodyOf(body);
+            const float physicsT = m_physics.clipMover(cast);
+            if (physicsT < bestT)
+                bestT = physicsT;
         }
         if (bestT < 1.0f)
             delta *= Math::Max(0.0f, bestT - 0.02f);

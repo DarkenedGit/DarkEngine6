@@ -323,6 +323,7 @@ bool EditorApp::spawnLoadedModel(const AssetRef<Model>& model)
     so.type = SceneObjectType::Model;
     world().emplace<EditorObjectComponent>(e, so);
 
+    tryLoadModelPhysics(e);
     m_selected          = e;
     m_selectedPart      = 0;
     m_showModelParts    = true;

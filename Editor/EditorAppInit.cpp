@@ -122,6 +122,7 @@ void EditorApp::onInit()
     m_water.params() = defaultWaterParams(0.0f);
     DE_LOG_INFO("EditorApp: init");
     mountContentRoots(assets());
+    ensurePhysicsWorld();
     registerActions();
 
     {
@@ -437,6 +438,8 @@ bool EditorApp::groundHitFromMouse(Vector3f& outPoint)
 
 void EditorApp::onShutdown()
 {
+    m_physics.destroy();
+    m_physicsGround = Physics::kNullPhysicsBody;
     network().shutdown();
     m_imgui.shutdown(renderer());
     m_particleRenderer.destroy(renderer());

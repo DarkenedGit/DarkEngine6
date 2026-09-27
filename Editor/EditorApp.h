@@ -41,6 +41,9 @@
 #include "Water/Water.h"
 #include "Water/WaterBody.h"
 #include "Weapons/Weapon.h"
+#include "Physics/PhysicsComponent.h"
+#include "Physics/PhysicsSurface.h"
+#include "Physics/PhysicsWorld.h"
 
 #include <atomic>
 #include <filesystem>
@@ -149,6 +152,17 @@ private:
     void   ensurePlayGear();
     void   destroyPlayGear();
     void   drawInspector3D();
+    void   drawPhysicsInspector(Entity e);
+    void   ensurePhysicsWorld();
+    void   ensurePlayPhysicsVolumes();
+    void   releasePhysicsBody(Entity e);
+    const Model* modelForPhysics(Entity e, AssetRef<Model>& held);
+    void   rebuildPhysicsBody(Entity e);
+    void   tryLoadModelPhysics(Entity e);
+    bool   savePhysicsForEntity(Entity e);
+    PhysicsComponent defaultPhysicsFor(Entity e);
+    void   syncEditPhysics();
+    void   simulatePhysics(float dt);
     void         deleteSelected();
     void         selectNext(int delta);
     void         cyclePlaceType(int delta);
@@ -424,6 +438,9 @@ private:
 
     Dark::AiSystem            m_ai;
     Dark::Combat::CombatSystem m_combat;
+    Physics::PhysicsWorld          m_physics;
+    Physics::PhysicsSurfaceCatalog m_surfaces;
+    Physics::PhysicsBodyId         m_physicsGround = Physics::kNullPhysicsBody;
     bool                      m_playMode = false;
     Dark::Entity              m_playPlayer{};
     float                     m_playLookYaw   = 0.0f;
@@ -443,6 +460,8 @@ private:
     bool                               m_fireCharged = false;
     std::vector<Dark::Math::AABox3f> m_playCubes;
     std::vector<Dark::Math::Sphere3f> m_playSpheres;
+    std::vector<Dark::Entity>        m_playCubeEntities;
+    std::vector<Dark::Entity>        m_playSphereEntities;
     struct PlayWeaponTarget
     {
         Dark::Entity         entity{};
