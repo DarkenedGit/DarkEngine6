@@ -375,13 +375,26 @@ void EditorApp::bakePlayWalkability()
                 m_playSpheres.push_back(Sphere3f(xf->position, radius));
         }
     });
-    if (!m_haveTerrain || !m_terrain.valid() || !m_terrain.coarse().valid())
+    const Terrain::HeightMap* height = nullptr;
+    if (m_haveTerrain && m_terrain.valid() && m_terrain.coarse().valid())
+        height = &m_terrain.coarse();
+    else
     {
-        DE_LOG_WARN(LogCategory::AI, "Editor: play without terrain — hunters will not path");
-        return;
+        // The default editor ground is the Y=0 grid from -20 to 20. Bake that as a flat walk map.
+        if (!m_playGrid.valid())
+        {
+            if (!m_playGrid.create(41, 41, 1.0f, 1.0f))
+            {
+                DE_LOG_WARN(LogCategory::AI, "Editor: play without terrain — hunters will not path");
+                return;
+            }
+            m_playGrid.setOrigin(Vector3f{ -20.0f, 0.0f, -20.0f });
+        }
+        height = &m_playGrid;
+        DE_LOG_INFO(LogCategory::AI, "Editor: no terrain — hunters path the ground grid");
     }
     AI::WalkabilityDesc d;
-    d.heightMap   = &m_terrain.coarse();
+    d.heightMap   = height;
     d.waterLevel  = -1.0e9f;
     d.agentRadius = 0.8f;
     d.cubes       = m_playCubes.empty() ? nullptr : m_playCubes.data();
@@ -426,6 +439,7 @@ void EditorApp::setPlayMode(bool play)
         m_offhand.reset();
         m_attackCharge.reset();
         m_blockCharge.reset();
+        m_chargeWindup = {};
         m_fireQuick   = false;
         m_fireCharged = false;
         ensurePlayGear();
@@ -450,6 +464,7 @@ void EditorApp::setPlayMode(bool play)
         m_offhand.reset();
         m_attackCharge.reset();
         m_blockCharge.reset();
+        m_chargeWindup = {};
         m_fireQuick   = false;
         m_fireCharged = false;
         m_playMode   = false;
@@ -835,8 +850,13 @@ void EditorApp::updatePlay(float dt)
 
     if (canSteer && flat.MagnitudeSqrd() > 1.0e-6f)
         xf->rotation = Quaternion::FromLookRotation(flat, Vector3f::Y_AXIS);
+    const bool blockStriking = defense && defense->chargedParry && defense->inParryWindow();
+    stepChargeWindup(m_chargeWindup, dt,
+        m_attackCharge.phase() != Combat::HoldChargePhase::Idle, m_attackCharge.heldSeconds(), m_chargeSettings.attackWindowSeconds,
+        m_blockCharge.phase() != Combat::HoldChargePhase::Idle, m_blockCharge.heldSeconds(), m_chargeSettings.blockWindowSeconds,
+        blockStriking);
     if (TransformComponent* shieldXf = m_playShield.valid() ? world().get<TransformComponent>(m_playShield) : nullptr)
-        placePlayerShield(*shieldXf, *xf, m_offhand.shield.alpha(), m_blockCharge.isCharged() ? 1.0f : 0.0f);
+        placePlayerShield(*shieldXf, *xf, m_offhand.shield.alpha(), m_chargeWindup.block, m_chargeWindup.blockStrike);
 
     if (motorOut.jumped)
         playSoundCue(world(), audio(), assets(), body, "jump");
@@ -860,6 +880,7 @@ void EditorApp::updatePlay(float dt)
         ag->graph.setBool("crouch", crouched);
         m_playLowerBodyYaw = approachAngle(m_playLowerBodyYaw, aim.lowerYaw, 10.0f, dt);
         ag->graph.player().setLowerBodyYaw(m_playLowerBodyYaw);
+        ag->graph.player().setChargeWindup(m_chargeWindup.attack, m_chargeWindup.block, m_chargeWindup.blockStrike);
         const float playScale = (motor && motor->state() == PlayerMoveState::Dodge) ? motor->settings().dodgeAnimSpeed : 1.0f;
         ag->graph.setPlaybackScale(playScale);
     }

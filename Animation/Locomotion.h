@@ -75,6 +75,43 @@ namespace Dark
 	// chest, head, and arms stay in the entity's facing frame.
 	void applyLocomotionYawSplit(const Skeleton& skeleton, Math::Quaternion* localR, uint32_t count, float yawRadians);
 
+	// Additive wind-up on the weapon/shield arm (R_UpperArm) and chest.
+	// attack/block pull that arm and shoulder back. blockStrike drives them forward.
+	struct ChargeWindup
+	{
+		float attack      = 0.0f;
+		float block       = 0.0f;
+		float blockStrike = 0.0f;
+	};
+
+	void applyChargeWindup(const Skeleton& skeleton, Math::Quaternion* localR, uint32_t count, const ChargeWindup& wind);
+
+	// Smooth the pose toward the live hold. Release eases the arm forward into the swing.
+	inline void stepChargeWindup(ChargeWindup& pose, float dt, bool attackHeld, float attackHeldSec, float attackWindow,
+		bool blockHeld, float blockHeldSec, float blockWindow, bool blockStriking)
+	{
+		if (dt < 0.0f)
+			dt = 0.0f;
+		auto frac = [](float held, float window) {
+			if (window <= 1.0e-4f)
+				return held > 0.0f ? 1.0f : 0.0f;
+			return Math::Clamp(held / window, 0.0f, 1.0f);
+		};
+		const float attackTarget = attackHeld ? frac(attackHeldSec, attackWindow) : 0.0f;
+		const float blockTarget  = (blockHeld && !blockStriking) ? frac(blockHeldSec, blockWindow) : 0.0f;
+		const float strikeTarget = blockStriking ? 1.0f : 0.0f;
+		auto approach = [&](float current, float target, float rate) {
+			const float delta = target - current;
+			const float step  = rate * dt;
+			if (fabsf(delta) <= step)
+				return target;
+			return current + std::copysign(step, delta);
+		};
+		pose.attack      = approach(pose.attack, attackTarget, 6.0f);
+		pose.block       = approach(pose.block, blockTarget, 6.0f);
+		pose.blockStrike = approach(pose.blockStrike, strikeTarget, 10.0f);
+	}
+
 	// Aim-relative player locomotion. Hips track travel but only within ±75° of look.
 	// Past that the side-step clips carry the motion, and past ±110° the backward cycle does.
 	struct AimLocomotion

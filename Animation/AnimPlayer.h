@@ -28,6 +28,13 @@ namespace Dark
 		// Radians added to Hips and removed from Spine. 0 leaves the clip unchanged.
 		void setLowerBodyYaw(float radians) { m_lowerBodyYaw = radians; }
 		float lowerBodyYaw() const { return m_lowerBodyYaw; }
+		// 0..1. Attack and block cock the weapon arm back; blockStrike drives it forward.
+		void setChargeWindup(float attack, float block, float blockStrike)
+		{
+			m_chargeAttack = attack;
+			m_chargeBlock = block;
+			m_chargeStrike = blockStrike;
+		}
 		void stop();
 		void update(float dt, AnimNotifyQueue& outNotifies, const AnimMarker* overlay = nullptr, uint32_t overlayCount = 0);
 
@@ -71,6 +78,9 @@ namespace Dark
 		bool                m_applyRootMotion = false;
 		bool                m_rootPrimed = false;
 		float               m_lowerBodyYaw = 0.0f;
+		float               m_chargeAttack = 0.0f;
+		float               m_chargeBlock = 0.0f;
+		float               m_chargeStrike = 0.0f;
 		Math::Vector3f      m_rootMotionDelta{ 0.0f, 0.0f, 0.0f };
 		Math::Vector3f      m_prevRootPos{ 0.0f, 0.0f, 0.0f };
 		Math::Vector3f      m_clipStartRoot{ 0.0f, 0.0f, 0.0f };

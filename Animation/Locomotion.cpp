@@ -35,4 +35,37 @@ namespace Dark
 		localR[hip] = yaw * localR[hip];
 		localR[spine] = undo * localR[spine];
 	}
+
+	void applyChargeWindup(const Skeleton& skeleton, Math::Quaternion* localR, uint32_t count, const ChargeWindup& wind)
+	{
+		if (!localR || count == 0)
+			return;
+		const float attack = Math::Clamp(wind.attack, 0.0f, 1.0f);
+		const float block  = Math::Clamp(wind.block, 0.0f, 1.0f);
+		const float strike = Math::Clamp(wind.blockStrike, 0.0f, 1.0f);
+		if (attack < 1.0e-4f && block < 1.0e-4f && strike < 1.0e-4f)
+			return;
+
+		const int32_t chest = findJoint(skeleton, "Chest");
+		const int32_t upper = findJoint(skeleton, "R_UpperArm");
+		const int32_t lower = findJoint(skeleton, "R_LowerArm");
+		auto add = [&](int32_t joint, const Math::Vector3f& axis, float radians) {
+			if (joint < 0 || static_cast<uint32_t>(joint) >= count || fabsf(radians) < 1.0e-4f)
+				return;
+			const Math::Quaternion q = Math::Quaternion::FromAxisAngle(axis, radians);
+			localR[joint] = q * localR[joint];
+		};
+
+		// Positive X on a hanging arm swings it toward -Z, which is behind the character.
+		// SwingSword uses the opposite pitch, so dropping this pose is the swing forward.
+		const float cock = Math::Clamp(attack + 0.85f * block, 0.0f, 1.0f) * (1.0f - 0.75f * strike);
+		add(upper, Math::Vector3f::X_AXIS, 0.95f * cock);
+		add(upper, Math::Vector3f::Z_AXIS, -0.50f * cock);
+		add(lower, Math::Vector3f::X_AXIS, 0.40f * cock);
+		add(chest, Math::Vector3f::Y_AXIS, -0.22f * cock);
+
+		add(upper, Math::Vector3f::X_AXIS, -0.85f * strike);
+		add(upper, Math::Vector3f::Z_AXIS, -0.35f * strike);
+		add(chest, Math::Vector3f::Y_AXIS, 0.28f * strike);
+	}
 }

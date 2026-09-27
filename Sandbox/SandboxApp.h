@@ -15,6 +15,7 @@
 #include "Water/Water.h"
 #include "Character/HealthComponent.h"
 #include "Character/PlayerMotorComponent.h"
+#include "Animation/Locomotion.h"
 #include "Character/PlayerStealth.h"
 #include "Render/HealthHud.h"
 #include "Render/CrosshairHud.h"
@@ -131,6 +132,7 @@ private:
     Dark::PlayerStealthSettings        m_stealth{};
     Dark::Combat::HoldCharge           m_attackCharge{};
     Dark::Combat::HoldCharge           m_blockCharge{};
+    Dark::ChargeWindup                 m_chargeWindup{};
     bool                               m_fireQuick    = false;
     bool                               m_fireCharged  = false;
     Dark::Entity                    m_muzzle;

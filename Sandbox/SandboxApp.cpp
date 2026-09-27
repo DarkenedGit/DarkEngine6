@@ -954,6 +954,7 @@ void SandboxApp::updateCharacterAnims(float dt)
             ag->graph.setBool("crouch", crouched);
             m_lowerBodyYaw = approachAngle(m_lowerBodyYaw, aim.lowerYaw, 10.0f, dt);
             ag->graph.player().setLowerBodyYaw(m_lowerBodyYaw);
+            ag->graph.player().setChargeWindup(m_chargeWindup.attack, m_chargeWindup.block, m_chargeWindup.blockStrike);
             const float playScale = (motor && motor->state() == PlayerMoveState::Dodge) ? motor->settings().dodgeAnimSpeed : 1.0f;
             ag->graph.setPlaybackScale(playScale);
         }
@@ -1262,8 +1263,13 @@ void SandboxApp::updatePossessed(float dt)
 
     if (canSteer && flat.MagnitudeSqrd() > 1.0e-6f)
         xf->rotation = Quaternion::FromLookRotation(flat, Vector3f::Y_AXIS);
+    const bool blockStriking = defense && defense->chargedParry && defense->inParryWindow();
+    stepChargeWindup(m_chargeWindup, dt,
+        m_attackCharge.phase() != Combat::HoldChargePhase::Idle, m_attackCharge.heldSeconds(), m_chargeSettings.attackWindowSeconds,
+        m_blockCharge.phase() != Combat::HoldChargePhase::Idle, m_blockCharge.heldSeconds(), m_chargeSettings.blockWindowSeconds,
+        blockStriking);
     if (TransformComponent* shieldXf = m_shield.valid() ? world().get<TransformComponent>(m_shield) : nullptr)
-        placePlayerShield(*shieldXf, *xf, m_offhand.shield.alpha(), m_blockCharge.isCharged() ? 1.0f : 0.0f);
+        placePlayerShield(*shieldXf, *xf, m_offhand.shield.alpha(), m_chargeWindup.block, m_chargeWindup.blockStrike);
 
     if (motorOut.jumped)
         playSoundCue(world(), audio(), assets(), body, "jump");
@@ -1329,6 +1335,7 @@ void SandboxApp::respawnPlayer()
     m_offhand.reset();
     m_attackCharge.reset();
     m_blockCharge.reset();
+    m_chargeWindup = {};
     m_fireQuick   = false;
     m_fireCharged = false;
     if (WeaponLoadout* w = localWeapons())

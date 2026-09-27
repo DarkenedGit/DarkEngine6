@@ -70,14 +70,19 @@ namespace Dark
         shield = {};
     }
 
-    void placePlayerShield(TransformComponent& shield, const TransformComponent& player, float raiseAlpha, float chargeAlpha)
+    void placePlayerShield(TransformComponent& shield, const TransformComponent& player, float raiseAlpha, float chargeWindup, float chargeStrike)
     {
         const float t = Math::SmoothStep(0.0f, 1.0f, Math::Clamp(raiseAlpha, 0.0f, 1.0f));
         Combat::ShieldLocalPose pose = Combat::shieldLocalPose(t);
-        const float charge = Math::Clamp(chargeAlpha, 0.0f, 1.0f);
-        // Charged guard sits a little farther forward so the hold reads as set, without covering the aim.
-        pose.position.z += 0.10f * charge;
-        pose.position.y += 0.04f * charge;
+        const float wind   = Math::Clamp(chargeWindup, 0.0f, 1.0f);
+        const float strike = Math::Clamp(chargeStrike, 0.0f, 1.0f);
+        // Load the buckler back with the arm, then drive it forward on the charged parry.
+        pose.position.z += (-0.18f * wind + 0.24f * strike) * t;
+        pose.position.y += 0.05f * wind * t;
+        const Math::Quaternion tiltBack = Math::Quaternion::FromAxisAngle(Math::Vector3f::X_AXIS, -0.35f * wind * t);
+        const Math::Quaternion tiltFwd  = Math::Quaternion::FromAxisAngle(Math::Vector3f::X_AXIS, 0.45f * strike * t);
+        pose.rotation = tiltFwd * tiltBack * pose.rotation;
+        pose.rotation.Normalize();
         shield.position = player.position + player.rotation.Rotate(pose.position);
         shield.rotation = player.rotation * pose.rotation;
         shield.rotation.Normalize();

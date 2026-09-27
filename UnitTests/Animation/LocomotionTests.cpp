@@ -241,3 +241,56 @@ TEST(LocomotionYaw, LowerBodyTurnsUpperBodyStays)
 	EXPECT_NEAR(chest.y, 1.0f, 1.0e-3f);
 	EXPECT_NEAR(chest.z, 1.0f, 1.0e-3f);
 }
+
+TEST(ChargeWindup, AttackPullsTheArmBackAndTheBlockDrivesItForward)
+{
+	Skeleton sk;
+	sk.meshWorld = Matrix4f();
+	auto add = [&](const char* name, int parent, Vector3f t) {
+		Joint j;
+		j.name = name;
+		j.parent = parent;
+		j.restT = t;
+		j.restR = Quaternion::IDENTITY;
+		j.restS = Vector3f(1.0f, 1.0f, 1.0f);
+		j.inverseBind = Matrix4f();
+		sk.joints.push_back(j);
+	};
+	add("Chest", -1, Vector3f(0.0f, 1.0f, 0.0f));
+	add("R_UpperArm", 0, Vector3f(-0.16f, 0.14f, 0.0f));
+	add("R_LowerArm", 1, Vector3f(0.0f, -0.26f, 0.06f));
+	sk.fkOrder = { 0, 1, 2 };
+
+	auto handZ = [&](ChargeWindup wind) {
+		Vector3f T[3];
+		Quaternion R[3];
+		Vector3f S[3];
+		for (int i = 0; i < 3; ++i)
+		{
+			T[i] = sk.joints[static_cast<size_t>(i)].restT;
+			R[i] = Quaternion::IDENTITY;
+			S[i] = Vector3f(1.0f, 1.0f, 1.0f);
+		}
+		applyChargeWindup(sk, R, 3, wind);
+		AnimPose pose{};
+		localToPalette(sk, T, R, S, pose);
+		return pose.jointWorld[2].GetTranslation().z;
+	};
+
+	const float rest = handZ({});
+	ChargeWindup cock;
+	cock.attack = 1.0f;
+	EXPECT_LT(handZ(cock), rest - 0.05f);
+	ChargeWindup strike;
+	strike.blockStrike = 1.0f;
+	EXPECT_GT(handZ(strike), rest);
+
+	ChargeWindup pose;
+	stepChargeWindup(pose, 0.40f, true, 0.40f, 0.40f, true, 0.45f, 0.45f, false);
+	EXPECT_GT(pose.attack, 0.8f);
+	EXPECT_GT(pose.block, 0.8f);
+	EXPECT_NEAR(pose.blockStrike, 0.0f, 1.0e-3f);
+	stepChargeWindup(pose, 0.05f, false, 0.0f, 0.40f, false, 0.0f, 0.45f, true);
+	EXPECT_GT(pose.blockStrike, 0.4f);
+	EXPECT_LT(pose.attack, 0.8f);
+}
