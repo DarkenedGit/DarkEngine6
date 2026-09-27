@@ -5,6 +5,10 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# /MD for all MSVC targets (Box3D's CMake would otherwise force /MT on its target).
+# Must be set before engine and third-party targets are created.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+
 # Emit compile_commands.json for clang-based tools (Sourcetrail, clangd, etc.).
 # Note: Visual Studio generators do not write this file; use the Ninja configure
 # in scripts/setup-sourcetrail.ps1 (build-sourcetrail/) for a working database.
@@ -111,6 +115,77 @@ unset(_de_save_verbose)
 if (TARGET box2d)
     set_target_properties(box2d PROPERTIES FOLDER "ThirdParty")
 endif()
+
+# --- Box3D (third_party, used by DarkEngine Physics/) --------------------------------
+# Box3D 0.1.0 is a C library (C17). Samples/tests/docs are skipped unless it is the
+# top-level project. Force the options off so a standalone cache cannot leak in.
+set(BOX3D_SAMPLES OFF CACHE BOOL "Build the Box3D samples" FORCE)
+set(BOX3D_UNIT_TESTS OFF CACHE BOOL "Build the Box3D unit tests" FORCE)
+set(BOX3D_BENCHMARKS OFF CACHE BOOL "Build the Box3D benchmarks" FORCE)
+set(BOX3D_DOCS OFF CACHE BOOL "Build the Box3D documentation" FORCE)
+set(BOX3D_PROFILE OFF CACHE BOOL "Enable profiling with Tracy" FORCE)
+set(BOX3D_VALIDATE OFF CACHE BOOL "Enable heavy Box3D validation" FORCE)
+set(BOX3D_DOUBLE_PRECISION OFF CACHE BOOL "Double precision world positions" FORCE)
+
+set(_de_save_runtime_outdir "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+set(_de_save_library_outdir "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
+set(_de_save_verbose "${CMAKE_VERBOSE_MAKEFILE}")
+set(_de_save_msvc_crt "${CMAKE_MSVC_RUNTIME_LIBRARY}")
+set(_de_save_fetchcontent_base "${FETCHCONTENT_BASE_DIR}")
+
+add_subdirectory(third_party/box3d EXCLUDE_FROM_ALL)
+
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${_de_save_runtime_outdir}")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${_de_save_library_outdir}")
+set(CMAKE_VERBOSE_MAKEFILE "${_de_save_verbose}")
+if (_de_save_msvc_crt)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "${_de_save_msvc_crt}")
+else()
+    unset(CMAKE_MSVC_RUNTIME_LIBRARY)
+endif()
+if (_de_save_fetchcontent_base)
+    set(FETCHCONTENT_BASE_DIR "${_de_save_fetchcontent_base}")
+endif()
+unset(_de_save_runtime_outdir)
+unset(_de_save_library_outdir)
+unset(_de_save_verbose)
+unset(_de_save_msvc_crt)
+unset(_de_save_fetchcontent_base)
+
+# Restoring the global does not change the box3d target. Force /MD to match DarkEngine.
+if (TARGET box3d)
+    set_property(TARGET box3d PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    set_target_properties(box3d PROPERTIES FOLDER "ThirdParty")
+endif()
+if (NOT TARGET box3d::box3d AND TARGET box3d)
+    add_library(box3d::box3d ALIAS box3d)
+endif()
+
+# PRIVATE: Box3D headers stay off Sandbox/Editor/UnitTests include paths.
+target_link_libraries(DarkEngine PRIVATE box3d::box3d)
+
+function(de_resolved_msvc_crt tgt out_var)
+    set(_crt "")
+    if (TARGET "${tgt}")
+        get_property(_crt TARGET "${tgt}" PROPERTY MSVC_RUNTIME_LIBRARY)
+    endif()
+    if (NOT _crt)
+        set(_crt "${CMAKE_MSVC_RUNTIME_LIBRARY}")
+    endif()
+    if (NOT _crt)
+        set(_crt "MultiThreadedDLL")
+    endif()
+    set(${out_var} "${_crt}" PARENT_SCOPE)
+endfunction()
+
+de_resolved_msvc_crt(box3d _de_box3d_crt)
+de_resolved_msvc_crt(DarkEngine _de_engine_crt)
+if (NOT _de_box3d_crt STREQUAL _de_engine_crt)
+    message(FATAL_ERROR "Box3D MSVC_RUNTIME_LIBRARY '${_de_box3d_crt}' does not match DarkEngine '${_de_engine_crt}'")
+endif()
+message(STATUS "Box3D/DarkEngine MSVC_RUNTIME_LIBRARY: ${_de_engine_crt}")
+unset(_de_box3d_crt)
+unset(_de_engine_crt)
 
 # --- Sandbox executable ------------------------------------------------------------
 add_executable(Sandbox WIN32 ${DE_SANDBOX_SOURCES})

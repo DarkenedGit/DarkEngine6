@@ -7,8 +7,10 @@
 #include "Math/Color.h"
 #include "Math/Vector4f.h"
 
+#include <cctype>
 #include <memory>
 #include <string>
+#include <string_view>
 
 namespace Dark
 {
@@ -77,7 +79,84 @@ namespace Dark
                 return {};
             return applyColorSpace(assets, std::move(img), space, key);
         }
+
+        char asciiLower(char c)
+        {
+            return static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+
+        bool startsWithIgnoreCase(std::string_view s, std::string_view prefix)
+        {
+            if (s.size() < prefix.size())
+                return false;
+            for (size_t i = 0; i < prefix.size(); ++i)
+            {
+                if (asciiLower(s[i]) != asciiLower(prefix[i]))
+                    return false;
+            }
+            return true;
+        }
+
+        bool endsWithIgnoreCase(std::string_view s, std::string_view suffix)
+        {
+            if (s.size() < suffix.size())
+                return false;
+            const size_t off = s.size() - suffix.size();
+            for (size_t i = 0; i < suffix.size(); ++i)
+            {
+                if (asciiLower(s[off + i]) != asciiLower(suffix[i]))
+                    return false;
+            }
+            return true;
+        }
+
+        bool containsIgnoreCase(std::string_view s, std::string_view needle)
+        {
+            if (needle.empty() || s.size() < needle.size())
+                return false;
+            for (size_t i = 0; i + needle.size() <= s.size(); ++i)
+            {
+                bool ok = true;
+                for (size_t j = 0; j < needle.size(); ++j)
+                {
+                    if (asciiLower(s[i + j]) != asciiLower(needle[j]))
+                    {
+                        ok = false;
+                        break;
+                    }
+                }
+                if (ok)
+                    return true;
+            }
+            return false;
+        }
+
+        std::string_view collisionNameStem(std::string_view name)
+        {
+            const size_t slash = name.find(" / ");
+            if (slash != std::string_view::npos)
+                return name.substr(0, slash);
+            return name;
+        }
     } // namespace
+
+    bool isCollisionPartName(std::string_view name)
+    {
+        const std::string_view stem = collisionNameStem(name);
+        if (stem.empty())
+            return false;
+        if (startsWithIgnoreCase(stem, "col_") || startsWithIgnoreCase(stem, "phys_"))
+            return true;
+        if (endsWithIgnoreCase(stem, "_col") || endsWithIgnoreCase(stem, "_phys"))
+            return true;
+        if (containsIgnoreCase(stem, "_colconv") || endsWithIgnoreCase(stem, "_hull"))
+            return true;
+        if (containsIgnoreCase(stem, "_colmesh") || containsIgnoreCase(stem, "_trimesh"))
+            return true;
+        if (containsIgnoreCase(stem, "_colbox") || containsIgnoreCase(stem, "_colsphere") || containsIgnoreCase(stem, "_colcapsule"))
+            return true;
+        return false;
+    }
 
 
     Model::Model()
@@ -97,6 +176,7 @@ namespace Dark
     {
         m_opaque.clear();
         m_translucent.clear();
+        m_collision.clear();
         m_bounds = Math::AABox3f::Empty();
         m_skeleton.reset();
         type     = AssetType::Model;
@@ -185,17 +265,12 @@ namespace Dark
             }
             part.material = std::move(mat);
 
-            expandBoundsFromPart(part);
-
-            if (part.translucent)
-                m_translucent.push_back(std::move(part));
-            else
-                m_opaque.push_back(std::move(part));
+            addPart(std::move(part));
         }
 
         if (!valid())
         {
-            DE_LOG_ERROR("Model: no drawable primitives in '{}'", path.string());
+            DE_LOG_ERROR("Model: no visual or collision primitives in '{}'", path.string());
             return false;
         }
         if (skinned() && m_bounds.IsValid())
@@ -205,7 +280,7 @@ namespace Dark
             m_bounds               = Math::AABox3f::FromCenterExtents(c, e);
         }
         m_sourcePath = path;
-        DE_LOG_INFO("Model: '{}' opaque {} translucent {} joints {}", path.string(), m_opaque.size(), m_translucent.size(), jointCount());
+        DE_LOG_INFO("Model: '{}' opaque {} translucent {} collision {} joints {}", path.string(), m_opaque.size(), m_translucent.size(), m_collision.size(), jointCount());
         return true;
     }
 
@@ -213,6 +288,7 @@ namespace Dark
     {
         m_opaque.clear();
         m_translucent.clear();
+        m_collision.clear();
         m_bounds = Math::AABox3f::Empty();
         m_skeleton.reset();
         m_animSet.reset();
@@ -226,20 +302,32 @@ namespace Dark
                 DE_LOG_ERROR("Model: empty mesh for part {}", i);
                 continue;
             }
-            expandBoundsFromPart(part);
-            if (part.translucent)
-                m_translucent.push_back(std::move(part));
-            else
-                m_opaque.push_back(std::move(part));
+            addPart(std::move(part));
         }
 
         if (!valid())
         {
-            DE_LOG_ERROR("Model: no drawable parts");
+            DE_LOG_ERROR("Model: no visual or collision parts");
             return false;
         }
-        DE_LOG_INFO("Model: procedural opaque {} translucent {}", m_opaque.size(), m_translucent.size());
+        DE_LOG_INFO("Model: procedural opaque {} translucent {} collision {}", m_opaque.size(), m_translucent.size(), m_collision.size());
         return true;
+    }
+
+    void Model::addPart(Part part)
+    {
+        const bool col     = isCollisionPartName(part.name);
+        part.collisionOnly = col;
+        if (col)
+        {
+            m_collision.push_back(std::move(part));
+            return;
+        }
+        expandBoundsFromPart(part);
+        if (part.translucent)
+            m_translucent.push_back(std::move(part));
+        else
+            m_opaque.push_back(std::move(part));
     }
 
     void Model::expandBoundsFromPart(const Part& part)

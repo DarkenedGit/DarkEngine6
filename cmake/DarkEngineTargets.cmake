@@ -121,6 +121,7 @@ set(DE_ENGINE_REST_FOLDERS
     Debug
     Input
     Particles
+    Physics
     Scene
     Sky
     Sprite
@@ -277,4 +278,7 @@ target_link_libraries(DarkEngine
     PRIVATE
         psapi
 )
+
+# Box3D is added in the root CMakeLists after this file. Root appends
+# target_link_libraries(DarkEngine PRIVATE box3d::box3d).
 set_target_properties(DarkEngine PROPERTIES FOLDER "Engine")

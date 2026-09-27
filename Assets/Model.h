@@ -10,6 +10,7 @@
 
 #include <filesystem>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 namespace Dark
@@ -28,8 +29,9 @@ namespace Dark
             AssetRef<Material> material;
             Math::Matrix4f     localToRoot;
             bool               translucent   = false;
-            bool               skinned       = false;
-            int                materialIndex = -1;
+            bool               skinned        = false;
+            bool               collisionOnly  = false;
+            int                materialIndex  = -1;
             std::string        name;
         };
 
@@ -42,6 +44,7 @@ namespace Dark
 
         const std::vector<Part>& opaque() const { return m_opaque; }
         const std::vector<Part>& translucent() const { return m_translucent; }
+        const std::vector<Part>& collisionParts() const { return m_collision; }
         const Math::AABox3f&     bounds() const { return m_bounds; }
 
         uint32_t     partCount() const;
@@ -49,7 +52,9 @@ namespace Dark
         const std::filesystem::path& sourcePath() const { return m_sourcePath; }
         void                         setSourcePath(std::filesystem::path path);
 
-        bool valid() const { return !m_opaque.empty() || !m_translucent.empty(); }
+        bool hasVisual() const { return !m_opaque.empty() || !m_translucent.empty(); }
+        bool hasCollision() const { return !m_collision.empty(); }
+        bool valid() const { return hasVisual() || hasCollision(); }
         bool hasOpaque() const { return !m_opaque.empty(); }
         bool hasTranslucent() const { return !m_translucent.empty(); }
 
@@ -62,9 +67,11 @@ namespace Dark
 
     private:
         void expandBoundsFromPart(const Part& part);
+        void addPart(Part part);
 
         std::vector<Part>       m_opaque;
         std::vector<Part>       m_translucent;
+        std::vector<Part>       m_collision;
         Math::AABox3f           m_bounds = Math::AABox3f::Empty();
         std::optional<Skeleton> m_skeleton;
         AssetRef<AnimationSet>  m_animSet;
@@ -73,5 +80,8 @@ namespace Dark
 
     // Interns material if needed, then registers a one-part opaque model.
     AssetRef<Model> internProceduralModel(AssetManager& assets, MeshData mesh, AssetRef<Material> material, const std::string& cacheKey = {});
+
+    // Name filter for `_col` / `_phys` / `col_` and geom suffixes. Not a Physics dependency.
+    bool isCollisionPartName(std::string_view name);
 
 } // namespace Dark

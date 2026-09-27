@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "surfaces": [
+    { "id": "default", "friction": 0.6, "restitution": 0.0, "density": 1.0, "rolling": 0.0,
+      "tags": ["generic"], "footstep": "audio/foot_dirt.wav" },
+    { "id": "wood",    "friction": 0.5, "restitution": 0.05, "density": 0.7, "tags": ["wood"],
+      "footstep": "audio/foot_wood.wav" },
+    { "id": "metal",   "friction": 0.4, "restitution": 0.2, "density": 3.0, "tags": ["metal"] },
+    { "id": "water",   "friction": 0.0, "restitution": 0.0, "density": 0.0, "sensor": true,
+      "tags": ["water"] },
+    { "id": "hurt",    "friction": 0.6, "restitution": 0.0, "density": 0.0, "sensor": true,
+      "tags": ["damage"], "damagePerSecond": 10 }
+  ]
+}
