@@ -81,6 +81,9 @@ void EditorApp::registerActions()
     a.bindButton("attack", GamepadButton::B);
     a.bindKey("sprint", Key::LeftShift);
     a.bindKey("sprint", Key::RightShift);
+    a.bindKey("crouch", Key::LeftControl);
+    a.bindKey("crouch", Key::RightControl);
+    a.bindKey("crouch", Key::C);
     a.bindButton("sprint", GamepadButton::LeftShoulder);
     a.bindKey("weapon_1", Key::Digit1);
     a.bindKey("weapon_2", Key::Digit2);

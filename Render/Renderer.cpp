@@ -1147,6 +1147,11 @@ namespace Dark
         m_commandList->ClearRenderTargetView(m_sceneBuffers->hdrRtv(), m_sceneBuffers->hdrClear(), 0, nullptr);
     }
 
+    ID3D12Resource* Renderer::hdr() const
+    {
+        return m_sceneBuffers ? m_sceneBuffers->hdr() : nullptr;
+    }
+
     D3D12_CPU_DESCRIPTOR_HANDLE Renderer::hdrRtv() const
     {
         return m_sceneBuffers ? m_sceneBuffers->hdrRtv() : D3D12_CPU_DESCRIPTOR_HANDLE{};

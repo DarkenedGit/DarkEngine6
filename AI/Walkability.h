@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Math/AABox3f.h"
+#include "Math/Sphere3f.h"
 #include "Terrain/HeightMap.h"
 
 #include <cstdint>
@@ -17,6 +18,8 @@ namespace Dark::AI
         float                     agentRadius = 0.8f;
         const Math::AABox3f*      cubes       = nullptr;
         int                       cubeCount   = 0;
+        const Math::Sphere3f*     spheres     = nullptr;
+        int                       sphereCount = 0;
     };
 
     class Walkability

@@ -5,11 +5,13 @@
 #include "AI/Walkability.h"
 #include "Assets/AssetHandle.h"
 #include "Character/HealthComponent.h"
+#include "Character/PlayerStealth.h"
 #include "Character/HitReaction.h"
 #include "Combat/DamageEvent.h"
 #include "ECS/Components.h"
 #include "ECS/Entity.h"
 #include "Math/AABox3f.h"
+#include "Math/Sphere3f.h"
 #include "Math/Vector3f.h"
 
 #include <vector>
@@ -46,7 +48,10 @@ namespace Dark
         Entity spawnHunter(World& world, AssetPinTable& pins, AssetManager& assets, const TransformComponent& xf);
         bool   attachHunter(World& world, Entity e, AssetPinTable& pins, AssetManager& assets);
 
-        void tickHunters(World& world, Terrain::TerrainGrid& terrain, bool playerInWater, float dt, Entity player, const Math::AABox3f* cubes = nullptr, int cubeCount = 0);
+        void setPreySense(const PreySense& sense) { m_prey = sense; }
+        const PreySense& preySense() const { return m_prey; }
+
+        void tickHunters(World& world, Terrain::TerrainGrid& terrain, bool playerInWater, float dt, Entity player, const Math::AABox3f* cubes = nullptr, int cubeCount = 0, const Math::Sphere3f* spheres = nullptr, int sphereCount = 0);
 
         Entity jumpAttackToken() const { return m_jumpAttackToken; }
         void   setJumpAttackHits(void (*fn)(void* user, const Combat::DamageEvent* events, int count), void* user);
@@ -98,6 +103,7 @@ namespace Dark
         AI::Walkability     m_walk;
         AI::Pathfinder      m_finder;
         AI::PackSettings    m_pack{};
+        PreySense           m_prey{};
         HitReactionSettings m_hunterHit{};
         float               m_time   = 0.0f;
         float               m_agentR = 0.8f;

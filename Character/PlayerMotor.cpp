@@ -157,7 +157,7 @@ namespace Dark
         const bool second = m_lastTap == in.dodgeTap && m_tapAge <= m_settings.dodgeTapWindow;
         m_lastTap          = in.dodgeTap;
         m_tapAge           = 0.0f;
-        if (!second || !in.allowDodge || m_state != PlayerMoveState::Grounded || m_settings.dodgeDuration <= 0.0f)
+        if (!second || !in.allowDodge || (m_state != PlayerMoveState::Grounded && m_state != PlayerMoveState::Crouch) || m_settings.dodgeDuration <= 0.0f)
             return;
 
         Vector3f wish = in.dodgeTapWish;
@@ -238,7 +238,7 @@ namespace Dark
         if (m_state == PlayerMoveState::Dodge && (m_dodgeLeft <= 0.0f || !in.allowDodge))
             m_state = PlayerMoveState::Grounded;
 
-        if (m_state == PlayerMoveState::Grounded || m_state == PlayerMoveState::Dodge)
+        if (m_state == PlayerMoveState::Grounded || m_state == PlayerMoveState::Dodge || m_state == PlayerMoveState::Crouch)
         {
             if (terrainWet(groundY, waterY))
             {
@@ -250,17 +250,26 @@ namespace Dark
 
             Vector3f moveWish = in.wish;
             float    speed    = (in.sprint ? m_settings.sprintSpeed : m_settings.walkSpeed) * speedScale;
+            bool     dodging  = false;
             if (m_state == PlayerMoveState::Dodge)
             {
                 m_dodgeLeft -= dt;
                 if (m_dodgeLeft <= 0.0f || !in.allowDodge)
-                    m_state = PlayerMoveState::Grounded;
+                    m_state = in.crouch ? PlayerMoveState::Crouch : PlayerMoveState::Grounded;
                 else
                 {
+                    dodging  = true;
                     moveWish = m_dodgeWish;
                     speed    = m_settings.dodgeSpeed * speedScale;
                 }
             }
+            if (!dodging && in.crouch)
+            {
+                m_state = PlayerMoveState::Crouch;
+                speed   = m_settings.crouchSpeed * speedScale;
+            }
+            else if (!dodging && m_state == PlayerMoveState::Crouch)
+                m_state = PlayerMoveState::Grounded;
             moveHorizontal(position, moveWish, speed, dt);
             groundY               = sampleGround(ground, position.x, position.z);
             const float feetY     = groundY + m_settings.groundOffset;

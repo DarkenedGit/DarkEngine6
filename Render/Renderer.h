@@ -154,6 +154,7 @@ namespace Dark
         GpuResourceCache&       gpuResources();
         const GpuResourceCache& gpuResources() const;
 
+        ID3D12Resource*             hdr() const;
         D3D12_CPU_DESCRIPTOR_HANDLE hdrRtv() const;
         D3D12_CPU_DESCRIPTOR_HANDLE hdrSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE postHdrSrvCpu() const;

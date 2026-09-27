@@ -102,6 +102,8 @@ bool SceneRenderer::createPostPipelines(Renderer& renderer, const char* tag)
         DE_LOG_ERROR(LogCategory::Render, "{}: CloudVolumePipeline create failed — cloud volumes disabled", tag);
     if (!m_cloudVolumeGpu.create(renderer.device()))
         DE_LOG_ERROR(LogCategory::Render, "{}: CloudVolumeGpuList create failed — cloud volumes disabled", tag);
+    if (!m_camouflage.create(renderer.device(), renderer.sceneColorFormat()))
+        DE_LOG_ERROR(LogCategory::Render, "{}: CamouflagePipeline create failed — camouflage disabled", tag);
 
     MeshData sphereData;
     MeshData coneData;
@@ -199,6 +201,7 @@ void SceneRenderer::shutdown()
     m_localLightGpu            = LocalLightGpuList{};
     m_cloudVolumes             = CloudVolumePipeline{};
     m_cloudVolumeGpu           = CloudVolumeGpuList{};
+    m_camouflage               = CamouflagePipeline{};
     m_pointVolumeMesh          = Mesh{};
     m_spotVolumeMesh           = Mesh{};
     m_bloom                    = BloomPipeline{};

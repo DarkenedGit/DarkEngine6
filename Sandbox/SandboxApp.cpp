@@ -385,7 +385,8 @@ void SandboxApp::registerDefaultActions()
     a.bindKeyAsAxis("yaw", Key::Q, -1.0f);
     a.bindKeyAsAxis("yaw", Key::E, 1.0f);
     a.bindKeyAsAxis("pitch", Key::Z, 1.0f);
-    a.bindKeyAsAxis("pitch", Key::C, -1.0f);
+    a.bindKeyAsAxis("pitch", Key::X, -1.0f);
+    a.bindKey("camouflage", Key::C);
 
     a.bindKeyAsAxis("pawn_x", Key::Left, -1.0f);
     a.bindKeyAsAxis("pawn_x", Key::Right, 1.0f);
@@ -403,6 +404,8 @@ void SandboxApp::registerDefaultActions()
     a.bindKeyAsAxis("move_z", Key::S, -1.0f);
     a.bindAxis("move_z", GamepadAxis::LeftY, 1.0f);
     a.bindKey("sprint", Key::LeftShift);
+    a.bindKey("crouch", Key::LeftControl);
+    a.bindKey("crouch", Key::RightControl);
 
     a.bindKeyAsAxis("fly_forward", Key::W, 1.0f);
     a.bindKeyAsAxis("fly_forward", Key::S, -1.0f);
@@ -430,7 +433,7 @@ void SandboxApp::registerDefaultActions()
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(P/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
         "possessed WASD/arrows/LS move, double-tap a direction to dodge, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, 1 melee  2 rifle, "
-        "hold attack to charge, release to swing (tap = normal). Hold RMB/V/LT shield; hold longer then release to parry-slam. L flashlight, Shift/LB sprint, swim in water, "
+        "hold attack to charge, release to swing (tap = normal). Hold RMB/V/LT shield; hold longer then release to parry-slam. Ctrl crouch, C camouflage, L flashlight, Shift/LB sprint, swim in water, "
         "T/R3 walk the wiggle demo  F2 lighting  M dev tools  -forward linear albedo + sRGB encode (legacyUnormAlbedo restores old sampling)  -no-menu skip scene picker");
 }
 
@@ -477,6 +480,11 @@ void SandboxApp::handleRuntimeCommands(float dt)
         DE_LOG_INFO("Sandbox: dev tools = {}", m_showDevTools);
     }
 
+    if (!uiKeys && input().actionPressed("camouflage"))
+    {
+        m_camouflage = !m_camouflage;
+        DE_LOG_INFO("Sandbox: camouflage = {}", m_camouflage);
+    }
     if (!uiKeys && input().actionPressed("toggle_lighting"))
     {
         DebugRenderState& dbg = renderer().debugState();
@@ -770,6 +778,14 @@ Entity SandboxApp::possessedBody()
     return m_chase.walker();
 }
 
+bool SandboxApp::camouflageHides(Entity e)
+{
+    if (!m_camouflage || !e.valid())
+        return false;
+    const Entity body = possessedBody();
+    return body.valid() && e.id() == body.id();
+}
+
 void SandboxApp::attachReplicaCombat(Entity e)
 {
     if (!e.valid() || !world().alive(e))
@@ -923,17 +939,21 @@ void SandboxApp::updateCharacterAnims(float dt)
             const Health* hp = localHealth();
             const TransformComponent* xf = world().get<TransformComponent>(body);
             const bool alive = !(hp && !hp->alive());
-            if (xf && alive)
+            const PlayerMotor* motor = localMotor();
+            if (xf && alive && motor)
+                aim = aimLocomotion(motor->velocity(), xf->rotation);
+            const bool crouched = motor && motor->state() == PlayerMoveState::Crouch;
+            if (crouched)
             {
-                if (const PlayerMotor* motor = localMotor())
-                    aim = aimLocomotion(motor->velocity(), xf->rotation);
+                aim.strafe   = 0.0f;
+                aim.backward = false;
             }
             ag->graph.setFloat("speed", aim.speed);
             ag->graph.setFloat("strafe", aim.strafe);
             ag->graph.setBool("backward", aim.backward);
+            ag->graph.setBool("crouch", crouched);
             m_lowerBodyYaw = approachAngle(m_lowerBodyYaw, aim.lowerYaw, 10.0f, dt);
             ag->graph.player().setLowerBodyYaw(m_lowerBodyYaw);
-            const PlayerMotor* motor = localMotor();
             const float playScale = (motor && motor->state() == PlayerMoveState::Dodge) ? motor->settings().dodgeAnimSpeed : 1.0f;
             ag->graph.setPlaybackScale(playScale);
         }
@@ -1110,6 +1130,7 @@ void SandboxApp::updatePossessed(float dt)
     PlayerMotorInput motorIn{};
     motorIn.wish            = canSteer ? wish : Vector3f{ 0.0f, 0.0f, 0.0f };
     motorIn.sprint          = canSteer && !jumpBusy && !uiKeys && input().actionDown("sprint");
+    motorIn.crouch          = canSteer && !jumpBusy && !uiKeys && input().actionDown("crouch");
     motorIn.jumpPressed     = canSteer && !jumpBusy && !uiKeys && input().actionPressed("jump");
     motorIn.allowDoubleJump = !inAirCommit;
     motorIn.allowJumpBuffer = !jumpBusy;
@@ -2271,7 +2292,8 @@ void SandboxApp::updateShoulderCamera()
     if (!xf)
         return;
 
-    const Vector3f target{ xf->position.x, xf->position.y + 1.15f, xf->position.z };
+    const bool crouched = localMotor() && localMotor()->state() == PlayerMoveState::Crouch;
+    const Vector3f target{ xf->position.x, xf->position.y + (crouched ? 0.78f : 1.15f), xf->position.z };
     Vector3f look{ std::sinf(m_lookYaw) * std::cosf(m_lookPitch), std::sinf(m_lookPitch), std::cosf(m_lookYaw) * std::cosf(m_lookPitch) };
     look.Normalize();
     Vector3f right = look.Cross(Vector3f{ 0.0f, 1.0f, 0.0f });
@@ -2856,7 +2878,15 @@ void SandboxApp::onUpdate(float dt)
         m_env.tick(dt);
         m_water.tick(dt);
         if (m_chaseOk)
+        {
+            const PlayerMotor* motor = localMotor();
+            const float speed = motor ? Vector3f{ motor->velocity().x, 0.0f, motor->velocity().z }.Magnitude() : 0.0f;
+            const bool crouched = motor && motor->state() == PlayerMoveState::Crouch;
+            const bool moving = speed >= m_stealth.stillSpeed;
+            const bool sprinting = moving && !crouched && input().actionDown("sprint");
+            m_chase.ai().setPreySense(preySenseFor(m_stealth, crouched, moving, sprinting));
             m_chase.tick(dt, world(), input(), m_terrain, possessedBody(), m_playerWet);
+        }
         updateCombat(dt);
         Combat::CombatSystem combat;
         Combat::harvestAndResolveDots(world(), combat);
@@ -2950,6 +2980,8 @@ void SandboxApp::onRender()
                 drawShadowCaster(cmd, m_shadows, i, makeWorldMatrix(*xf), *gpuMesh);
             });
             world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+                if (camouflageHides(e))
+                    return;
                 if (!mc.castShadow)
                     return;
                 const TransformComponent* xf = world().get<TransformComponent>(e);
@@ -3067,6 +3099,8 @@ void SandboxApp::onRender()
         });
         drawProjectilesGBuffer(cmd, viewProj, prevViewProj);
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+            if (camouflageHides(e))
+                return;
             const TransformComponent* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
             if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->hasOpaque() || !gpu.ensureModel(model))
@@ -3194,6 +3228,8 @@ void SandboxApp::onRender()
 
         drawProjectiles(cmd, viewProj, cb);
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+            if (camouflageHides(e))
+                return;
             const TransformComponent* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
             if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->hasOpaque() || !gpu.ensureModel(model))
@@ -3292,6 +3328,26 @@ void SandboxApp::onRender()
         m_scene.drawCloudVolumes(cmd, renderer(), world(), m_viewCamera, viewProj, cf);
     }
 
+    if (m_camouflage && renderer().hasSceneBuffers() && m_scene.camouflage().isValid())
+    {
+        const Entity body = possessedBody();
+        const TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+        const ModelComponent* mc = body.valid() ? world().get<ModelComponent>(body) : nullptr;
+        const auto model = (mc && xf) ? assets().getAs<Model>(mc->modelAssetID) : AssetRef<Model>{};
+        if (xf && model && gpu.ensureModel(model))
+        {
+            const Matrix4f worldMat = makeWorldMatrix(*xf);
+            AnimGraphComponent* ag = world().get<AnimGraphComponent>(body);
+            const AnimPose* pose = model->skinned() ? skinnedPose(*model, ag) : nullptr;
+            if (ag)
+            {
+                ag->prevWorld      = worldMat;
+                ag->prevWorldValid = true;
+            }
+            m_scene.camouflage().drawModel(cmd, renderer(), gpu, m_skinRing, *model, pose, worldMat, viewProj, camPos, m_cloudTime, fill);
+        }
+    }
+
     {
         MeshFrameConstants lit{};
         lit.lightDirWS[0] = m_env.lightDir().x;
@@ -3309,6 +3365,8 @@ void SandboxApp::onRender()
         lit.cameraPos[2]  = camPos.z;
         lit.lighting      = renderer().debugState().lightingActive() ? 1.0f : 0.0f;
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+            if (camouflageHides(e))
+                return;
             const TransformComponent* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
             if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->hasTranslucent() || !gpu.ensureModel(model))

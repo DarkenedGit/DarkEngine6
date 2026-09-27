@@ -15,6 +15,7 @@
 #include "Water/Water.h"
 #include "Character/HealthComponent.h"
 #include "Character/PlayerMotorComponent.h"
+#include "Character/PlayerStealth.h"
 #include "Render/HealthHud.h"
 #include "Render/CrosshairHud.h"
 #include "Particles/ParticleEmitter.h"
@@ -59,6 +60,7 @@ private:
     void drawDevTools();
     void drawPauseOverlay();
     void drawNpcInfoOverlay();
+    bool camouflageHides(Dark::Entity e);
     void devNetHost();
     void devNetJoin(const Dark::Address& addr);
     void devNetDisconnect();
@@ -126,6 +128,7 @@ private:
     Dark::Entity                    m_shield;
     Dark::Combat::OffhandState         m_offhand{};
     Dark::Combat::PlayerChargeSettings m_chargeSettings{};
+    Dark::PlayerStealthSettings        m_stealth{};
     Dark::Combat::HoldCharge           m_attackCharge{};
     Dark::Combat::HoldCharge           m_blockCharge{};
     bool                               m_fireQuick    = false;
@@ -175,6 +178,7 @@ private:
     bool          m_showSkeleton   = false;
     bool          m_showDevTools   = false;
     Dark::NpcInfoOverlaySettings m_npcInfo{};
+    bool          m_camouflage     = false;
     ImGuiHost     m_imgui;
     Dark::MainMenu m_menu;
     char          m_joinHost[64]   = "127.0.0.1";

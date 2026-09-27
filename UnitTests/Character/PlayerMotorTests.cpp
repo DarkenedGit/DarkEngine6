@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Character/PlayerMotor.h"
+#include "Character/PlayerStealth.h"
 
 using namespace Dark;
 using namespace Dark::Math;
@@ -47,6 +48,46 @@ namespace
         }
     }
 } // namespace
+
+TEST(PlayerMotor, CrouchWalkIsSlowerThanWalk)
+{
+    PlayerMotor motor;
+    Vector3f    walking{ 0.0f, 0.5f, 0.0f };
+    Vector3f    crouching = walking;
+    PlayerMotorInput walk{};
+    walk.wish = Vector3f{ 0.0f, 0.0f, 1.0f };
+    PlayerMotorInput low = walk;
+    low.crouch = true;
+    advance(motor, walking, walk, 0.5f, flatQuery());
+    PlayerMotor crouched;
+    advance(crouched, crouching, low, 0.5f, flatQuery());
+    EXPECT_EQ(crouched.state(), PlayerMoveState::Crouch);
+    EXPECT_LT(crouching.z, walking.z);
+    EXPECT_NEAR(crouched.velocity().z, motor.settings().crouchSpeed, 0.15f);
+    EXPECT_LT(motor.settings().crouchSpeed, motor.settings().walkSpeed);
+
+    low.crouch = false;
+    crouched.tick(crouching, low, 1.0f / 60.0f, flatQuery());
+    EXPECT_EQ(crouched.state(), PlayerMoveState::Grounded);
+}
+
+TEST(PlayerStealth, StillCrouchIsQuieterThanCrouchWalk)
+{
+    PlayerStealthSettings s{};
+    const PreySense standing = preySenseFor(s, false, true, false);
+    const PreySense sprinting = preySenseFor(s, false, true, true);
+    const PreySense sneaking = preySenseFor(s, true, true, false);
+    const PreySense hiding = preySenseFor(s, true, false, false);
+
+    EXPECT_GT(standing.hearRange, sneaking.hearRange);
+    EXPECT_GT(sneaking.hearRange, hiding.hearRange);
+    EXPECT_GT(sprinting.hearRange, standing.hearRange);
+    EXPECT_LT(sneaking.sightRangeScale, 1.0f);
+    EXPECT_LT(hiding.sightRangeScale, sneaking.sightRangeScale);
+    EXPECT_LT(hiding.standoff, sneaking.standoff);
+    EXPECT_LT(sneaking.standoff, standing.standoff);
+    EXPECT_LT(hiding.targetHeight, standing.targetHeight);
+}
 
 TEST(PlayerMotor, JumpLeavesGroundAndReportsEvent)
 {

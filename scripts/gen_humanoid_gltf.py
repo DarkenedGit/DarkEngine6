@@ -348,6 +348,53 @@ def make_clips(include_die: bool):
         }
         clips.append(clip_channels("Die", dtm, die))
 
+    # Crouch keeps the feet near the standing plant while the hips drop and the knees bend.
+    # CrouchWalk is that pose with a short opposite-leg cycle.
+    thigh = 1.05
+    knee = -1.55
+    foot = 0.55
+    hip_pitch = q_axis(1, 0, 0, 0.35)
+    crouch_rot = {
+        0: hip_pitch,
+        1: q_axis(1, 0, 0, 0.22),
+        2: q_axis(1, 0, 0, 0.12),
+        11: q_axis(1, 0, 0, thigh),
+        12: q_axis(1, 0, 0, knee),
+        13: q_axis(1, 0, 0, foot),
+        14: q_axis(1, 0, 0, thigh),
+        15: q_axis(1, 0, 0, knee),
+        16: q_axis(1, 0, 0, foot),
+    }
+    hip_drop = (0.0, -0.20, 0.06)
+    ct = [0.0, 1.2]
+    crouch = {j: [q, q] for j, q in crouch_rot.items()}
+    clips.append(( "Crouch", ct, crouch, {0: [hip_drop, hip_drop]} ))
+
+    wt = [0.0, 0.28, 0.56, 0.84, 1.12]
+    def crouch_swing(sign):
+        amp = 0.32
+        keys = [-amp, 0.0, amp, 0.0, -amp]
+        return [q_axis(1, 0, 0, thigh + sign * a) for a in keys]
+
+    def crouch_knee(sign):
+        amp = 0.28
+        keys = [amp, 0.0, -amp, 0.0, amp]
+        return [q_axis(1, 0, 0, knee + sign * a) for a in keys]
+
+    walk_c = {
+        0: [hip_pitch] * 5,
+        1: [q_axis(1, 0, 0, 0.22)] * 5,
+        2: [q_axis(1, 0, 0, 0.12)] * 5,
+        11: crouch_swing(1.0),
+        12: crouch_knee(1.0),
+        13: [q_axis(1, 0, 0, foot)] * 5,
+        14: crouch_swing(-1.0),
+        15: crouch_knee(-1.0),
+        16: [q_axis(1, 0, 0, foot)] * 5,
+    }
+    bob = [(0.0, -0.20 + y, 0.06) for y in (0.0, 0.025, 0.0, 0.025, 0.0)]
+    clips.append(( "CrouchWalk", wt, walk_c, {0: bob} ))
+
     return clips
 
 
@@ -440,7 +487,9 @@ def build_gltf(color, include_die: bool, generator: str) -> dict:
     nodes.append({"name": "Mesh", "mesh": 0, "skin": 0})
 
     animations = []
-    for name, times, joint_rots in make_clips(include_die):
+    for clip in make_clips(include_die):
+        name, times, joint_rots = clip[0], clip[1], clip[2]
+        joint_trans = clip[3] if len(clip) > 3 else {}
         samplers = []
         channels = []
         raw_t = bytearray()
@@ -448,6 +497,18 @@ def build_gltf(color, include_die: bool, generator: str) -> dict:
         i_t = push_view(raw_t)
         a_t = len(accessors)
         accessors.append(acc(i_t, 5126, len(times), "SCALAR", {"min": [times[0]], "max": [times[-1]]}))
+        for joint, positions in joint_trans.items():
+            flat = []
+            for p in positions:
+                flat.extend(p)
+            raw_p = bytearray()
+            pack_f32(raw_p, flat)
+            i_p = push_view(raw_p)
+            a_p = len(accessors)
+            accessors.append(acc(i_p, 5126, len(positions), "VEC3"))
+            si = len(samplers)
+            samplers.append({"input": a_t, "output": a_p, "interpolation": "LINEAR"})
+            channels.append({"sampler": si, "target": {"node": joint, "path": "translation"}})
         for joint, rots in joint_rots.items():
             flat = []
             for q in rots:

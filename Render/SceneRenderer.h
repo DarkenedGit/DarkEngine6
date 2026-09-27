@@ -20,6 +20,7 @@
 #include "Render/TonemapPipeline.h"
 #include "Render/WaterPipeline.h"
 #include "Render/CloudVolumePipeline.h"
+#include "Render/CamouflagePipeline.h"
 
 #include <cstdint>
 
@@ -97,6 +98,7 @@ public:
     LocalLightGpuList&        localLightGpu() { return m_localLightGpu; }
     CloudVolumePipeline&      cloudVolumes() { return m_cloudVolumes; }
     CloudVolumeGpuList&       cloudVolumeGpu() { return m_cloudVolumeGpu; }
+    CamouflagePipeline&       camouflage() { return m_camouflage; }
     Mesh&                     pointVolumeMesh() { return m_pointVolumeMesh; }
     Mesh&                     spotVolumeMesh() { return m_spotVolumeMesh; }
     BloomPipeline&            bloom() { return m_bloom; }
@@ -123,6 +125,7 @@ public:
     const LocalLightGpuList&        localLightGpu() const { return m_localLightGpu; }
     const CloudVolumePipeline&      cloudVolumes() const { return m_cloudVolumes; }
     const CloudVolumeGpuList&       cloudVolumeGpu() const { return m_cloudVolumeGpu; }
+    const CamouflagePipeline&       camouflage() const { return m_camouflage; }
     const Mesh&                     pointVolumeMesh() const { return m_pointVolumeMesh; }
     const Mesh&                     spotVolumeMesh() const { return m_spotVolumeMesh; }
     const BloomPipeline&            bloom() const { return m_bloom; }
@@ -162,6 +165,7 @@ private:
     LocalLightGpuList        m_localLightGpu;
     CloudVolumePipeline      m_cloudVolumes;
     CloudVolumeGpuList       m_cloudVolumeGpu;
+    CamouflagePipeline       m_camouflage;
     Mesh                     m_pointVolumeMesh;
     Mesh                     m_spotVolumeMesh;
     BloomPipeline            m_bloom;

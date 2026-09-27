@@ -66,23 +66,35 @@ namespace Dark
             return Vector3f{ 0.0f, 0.0f, 1.0f };
         }
 
-        void sweepCubes(Vector3f& position, const Vector3f& before, const Math::AABox3f* cubes, int cubeCount)
+        void sweepSolids(Vector3f& position, const Vector3f& before, const Math::AABox3f* cubes, int cubeCount, const Math::Sphere3f* spheres, int sphereCount)
         {
-            if (!cubes || cubeCount <= 0)
+            if ((!cubes || cubeCount <= 0) && (!spheres || sphereCount <= 0))
                 return;
             Vector3f delta{ position.x - before.x, 0.0f, position.z - before.z };
             if (delta.MagnitudeSqrd() <= 1.0e-10f)
                 return;
             Math::Sphere3f ball{ Vector3f{ before.x, position.y, before.z }, kSweepRadius };
-            for (int i = 0; i < cubeCount; ++i)
+            float bestT = 1.0f;
+            if (cubes)
             {
-                const Collision::SweptHit3D hit = Collision::SweptIntersects(ball, delta, cubes[i]);
-                if (hit.hit && hit.t < 1.0f)
+                for (int i = 0; i < cubeCount; ++i)
                 {
-                    delta *= Math::Max(0.0f, hit.t - 0.02f);
-                    break;
+                    const Collision::SweptHit3D hit = Collision::SweptIntersects(ball, delta, cubes[i]);
+                    if (hit.hit && hit.t < bestT)
+                        bestT = hit.t;
                 }
             }
+            if (spheres)
+            {
+                for (int i = 0; i < sphereCount; ++i)
+                {
+                    const Collision::SweptHit3D hit = Collision::SweptIntersects(ball, delta, spheres[i]);
+                    if (hit.hit && hit.t < bestT)
+                        bestT = hit.t;
+                }
+            }
+            if (bestT < 1.0f)
+                delta *= Math::Max(0.0f, bestT - 0.02f);
             position.x = before.x + delta.x;
             position.z = before.z + delta.z;
         }
@@ -560,7 +572,7 @@ namespace Dark
         return other && other->jump.busy();
     }
 
-    void AiSystem::tickHunters(World& world, Terrain::TerrainGrid& terrain, bool playerInWater, float dt, Entity player, const Math::AABox3f* cubes, int cubeCount)
+    void AiSystem::tickHunters(World& world, Terrain::TerrainGrid& terrain, bool playerInWater, float dt, Entity player, const Math::AABox3f* cubes, int cubeCount, const Math::Sphere3f* spheres, int sphereCount)
     {
         m_time += dt;
         if (m_jumpAttackToken.valid() && !world.alive(m_jumpAttackToken))
@@ -659,7 +671,7 @@ namespace Dark
                 jump->tickAutonomous(v.xf->position, dt, heightAt, &heightCtx, m_waterY, hasTarget ? &playerPos : nullptr, hasTarget, landed, splashed);
                 if (jump->phase() == Combat::JumpAttackPhase::Connected && !landed && !splashed && hasTarget)
                     jump->applyConnectSnap(v.xf->position, playerPos, dt);
-                sweepCubes(v.xf->position, before, cubes, cubeCount);
+                sweepSolids(v.xf->position, before, cubes, cubeCount, spheres, sphereCount);
 
                 if (splashed)
                 {
@@ -708,14 +720,16 @@ namespace Dark
             const float dx       = v.xf->position.x - playerPos.x;
             const float dz       = v.xf->position.z - playerPos.z;
             const float distSq   = dx * dx + dz * dz;
-            const bool  standoff = distSq <= kStandoff * kStandoff;
+            const float standoffR = m_prey.standoff > 0.0f ? m_prey.standoff : kStandoff;
+            const bool  standoff = distSq <= standoffR * standoffR;
+            const float sightScale = m_prey.sightRangeScale > 0.0f ? m_prey.sightRangeScale : 1.0f;
 
             AI::SightQuery q;
             q.eye       = Vector3f{ v.xf->position.x, v.xf->position.y + 0.5f, v.xf->position.z };
             q.forward   = v.ai->forward;
-            q.target    = Vector3f{ playerPos.x, playerPos.y + 0.5f, playerPos.z };
+            q.target    = Vector3f{ playerPos.x, playerPos.y + m_prey.targetHeight, playerPos.z };
             q.coneDeg   = v.sight ? v.sight->coneDeg : 70.0f;
-            q.range     = v.sight ? v.sight->range : 25.0f;
+            q.range     = (v.sight ? v.sight->range : 25.0f) * sightScale;
             q.heightMap = m_walk.heightMap();
             if ((!q.heightMap || !q.heightMap->valid()) && terrain.coarse().valid())
                 q.heightMap = &terrain.coarse();
@@ -735,6 +749,9 @@ namespace Dark
                         sees = true;
                 }
             }
+            const bool hears = !playerInWater && playerAlive && m_prey.hearRange > 0.0f && distSq <= m_prey.hearRange * m_prey.hearRange;
+            if (hears)
+                sees = true;
             if (sees)
             {
                 v.ai->lastSeen    = playerPos;

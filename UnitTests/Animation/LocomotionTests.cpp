@@ -123,6 +123,19 @@ TEST(LocomotionGraph, HumanStrafeSelectsSideStep)
 	graph.setFloat("speed", 14.0f);
 	graph.evaluate();
 	EXPECT_STREQ(graph.currentStateName(), "RunBack");
+
+	graph.setBool("backward", false);
+	graph.setBool("crouch", true);
+	graph.setFloat("speed", 0.0f);
+	graph.evaluate();
+	EXPECT_STREQ(graph.currentStateName(), "Crouch");
+	graph.setFloat("speed", 3.0f);
+	graph.evaluate();
+	EXPECT_STREQ(graph.currentStateName(), "CrouchWalk");
+	graph.setBool("crouch", false);
+	graph.setFloat("speed", 0.0f);
+	graph.evaluate();
+	EXPECT_STREQ(graph.currentStateName(), "Idle");
 }
 
 TEST(LocomotionGraph, SkeletonDiesFromSideStep)

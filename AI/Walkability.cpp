@@ -14,6 +14,18 @@ namespace Dark::AI
         return box.Max.x >= x0 && box.Min.x <= x1 && box.Max.z >= z0 && box.Min.z <= z1;
     }
 
+    bool sphereOverlapsCellXZ(const Math::Sphere3f& sphere, float agentRadius, float x0, float z0, float x1, float z1)
+    {
+        const float r = sphere.Radius + agentRadius;
+        if (r <= 0.0f)
+            return false;
+        const float cx = Math::Clamp(sphere.Center.x, x0, x1);
+        const float cz = Math::Clamp(sphere.Center.z, z0, z1);
+        const float dx = sphere.Center.x - cx;
+        const float dz = sphere.Center.z - cz;
+        return dx * dx + dz * dz <= r * r;
+    }
+
     bool Walkability::bake(const WalkabilityDesc& desc)
     {
         m_walk.clear();
@@ -205,17 +217,26 @@ namespace Dark::AI
 
     bool Walkability::cellHitsCube(int cx, int cz) const
     {
-        if (!m_desc.cubes || m_desc.cubeCount <= 0)
+        const bool anyCube   = m_desc.cubes && m_desc.cubeCount > 0;
+        const bool anySphere = m_desc.spheres && m_desc.sphereCount > 0;
+        if (!anyCube && !anySphere)
             return false;
         const float x0 = m_heightMap->worldX(cx);
         const float z0 = m_heightMap->worldZ(cz);
         const float x1 = x0 + m_cellSize;
         const float z1 = z0 + m_cellSize;
-        for (int i = 0; i < m_desc.cubeCount; ++i)
+        for (int i = 0; i < m_desc.cubeCount && anyCube; ++i)
         {
             Math::AABox3f box = m_desc.cubes[i];
             box.Expand(m_desc.agentRadius);
             if (aabbOverlapsCellXZ(box, x0, z0, x1, z1))
+                return true;
+        }
+        if (!m_desc.spheres || m_desc.sphereCount <= 0)
+            return false;
+        for (int i = 0; i < m_desc.sphereCount; ++i)
+        {
+            if (sphereOverlapsCellXZ(m_desc.spheres[i], m_desc.agentRadius, x0, z0, x1, z1))
                 return true;
         }
         return false;

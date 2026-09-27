@@ -86,6 +86,26 @@ TEST(Walkability, CubeInflateBlocksCells)
     EXPECT_FALSE(w.walkable(cx, cz));
 }
 
+TEST(Walkability, SphereBlocksCells)
+{
+    HeightMap hm = MakeFlat(9, 1.0f, 10.0f);
+    const Sphere3f sphere(Vector3f{ 4.0f, 10.5f, 4.0f }, 0.5f);
+    Walkability w;
+    WalkabilityDesc d;
+    d.heightMap   = &hm;
+    d.waterLevel  = -10.0f;
+    d.agentRadius = 0.0f;
+    d.spheres     = &sphere;
+    d.sphereCount = 1;
+    ASSERT_TRUE(w.bake(d));
+    int cx = 0;
+    int cz = 0;
+    ASSERT_TRUE(w.worldToCell(4.0f, 4.0f, cx, cz));
+    EXPECT_FALSE(w.walkable(cx, cz));
+    ASSERT_TRUE(w.worldToCell(7.0f, 4.0f, cx, cz));
+    EXPECT_TRUE(w.walkable(cx, cz));
+}
+
 TEST(Walkability, Coarse1025_Bakes)
 {
     HeightMap coarse;

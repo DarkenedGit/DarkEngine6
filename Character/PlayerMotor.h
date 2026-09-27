@@ -13,6 +13,7 @@ namespace Dark
         Falling,
         Swimming,
         Dodge,
+        Crouch,
     };
 
     enum class MoveCardinal : uint8_t
@@ -27,6 +28,7 @@ namespace Dark
     struct PlayerMotorSettings
     {
         float walkSpeed           = 8.0f;
+        float crouchSpeed         = 3.4f; // slower than walkSpeed
         float sprintSpeed         = 16.0f;
         float swimSpeed           = 5.0f;
         float airSpeed            = 2.4f;  // extra speed you can add along wish while airborne
@@ -53,6 +55,7 @@ namespace Dark
     {
         Math::Vector3f wish{ 0.0f, 0.0f, 0.0f };
         bool           sprint           = false;
+        bool           crouch           = false; // held; grounded only, and it wins over sprint
         bool           jumpPressed      = false; // edge this tick
         bool           allowDoubleJump  = true;
         bool           allowJumpBuffer  = true; // land/coyote/grounded consume of m_jumpBuffer
@@ -86,6 +89,7 @@ namespace Dark
         explicit PlayerMotor(PlayerMotorSettings settings = {});
 
         const PlayerMotorSettings& settings() const { return m_settings; }
+        PlayerMotorSettings&       settings() { return m_settings; }
         PlayerMoveState            state() const { return m_state; }
         const Math::Vector3f&      velocity() const { return m_velocity; }
         bool                       didFirstJump() const { return m_didFirstJump; }

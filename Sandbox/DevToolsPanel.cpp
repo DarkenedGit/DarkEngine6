@@ -296,6 +296,10 @@ void SandboxApp::drawDevTools()
         }
         if (ImGui::Checkbox("Skeleton overlay", &m_showSkeleton))
             DE_LOG_INFO("Sandbox: skeleton overlay = {}", m_showSkeleton);
+        if (ImGui::Checkbox("Octopus camouflage", &m_camouflage))
+            DE_LOG_INFO("Sandbox: camouflage = {}", m_camouflage);
+        ImGui::SameLine();
+        ImGui::TextDisabled("C");
     }
 
     if (ImGui::CollapsingHeader("NPC info", ImGuiTreeNodeFlags_DefaultOpen))
@@ -612,6 +616,29 @@ void SandboxApp::drawDevTools()
             if (chStun || chKb || chTime || chFlat)
                 m_chase.setHunterHitReaction(hunter);
         }
+    }
+
+    if (ImGui::CollapsingHeader("Crouch"))
+    {
+        if (PlayerMotor* motor = localMotor())
+        {
+            ImGui::SliderFloat("Crouch speed", &motor->settings().crouchSpeed, 0.5f, motor->settings().walkSpeed, "%.1f");
+        }
+        ImGui::SliderFloat("Still speed", &m_stealth.stillSpeed, 0.05f, 2.0f, "%.2f");
+        ImGui::SliderFloat("Sight crouch walk", &m_stealth.sightCrouchWalk, 0.05f, 1.0f, "%.2f");
+        ImGui::SliderFloat("Sight crouch still", &m_stealth.sightCrouchStill, 0.05f, 1.0f, "%.2f");
+        ImGui::SliderFloat("Hear stand", &m_stealth.hearStand, 0.0f, 20.0f, "%.1f");
+        ImGui::SliderFloat("Hear walk", &m_stealth.hearWalk, 0.0f, 40.0f, "%.1f");
+        ImGui::SliderFloat("Hear sprint", &m_stealth.hearSprint, 0.0f, 50.0f, "%.1f");
+        ImGui::SliderFloat("Hear crouch walk", &m_stealth.hearCrouchWalk, 0.0f, 30.0f, "%.1f");
+        ImGui::SliderFloat("Hear crouch still", &m_stealth.hearCrouchStill, 0.0f, 20.0f, "%.1f");
+        ImGui::SliderFloat("Notice distance", &m_stealth.standoff, 0.2f, 6.0f, "%.2f");
+        ImGui::SliderFloat("Notice crouch walk", &m_stealth.standoffCrouchWalk, 0.1f, 6.0f, "%.2f");
+        ImGui::SliderFloat("Notice crouch still", &m_stealth.standoffCrouchStill, 0.1f, 6.0f, "%.2f");
+        ImGui::SliderFloat("Seen height stand", &m_stealth.standTargetHeight, 0.05f, 1.5f, "%.2f");
+        ImGui::SliderFloat("Seen height crouch", &m_stealth.crouchTargetHeight, 0.05f, 1.5f, "%.2f");
+        const PlayerMotor* shown = localMotor();
+        ImGui::TextDisabled("%s", (shown && shown->state() == PlayerMoveState::Crouch) ? "crouching" : "standing");
     }
 
     if (ImGui::CollapsingHeader("Shield"))

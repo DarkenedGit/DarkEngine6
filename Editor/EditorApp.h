@@ -27,6 +27,7 @@
 #include "AI/AiSystem.h"
 #include "Audio/SoundClip.h"
 #include "Combat/CombatSystem.h"
+#include "Character/PlayerStealth.h"
 #include "Combat/HoldCharge.h"
 #include "Combat/Shield.h"
 #include "Combat/DamageEvent.h"
@@ -432,11 +433,13 @@ private:
     Dark::Entity              m_playShield{};
     Dark::Combat::OffhandState         m_offhand{};
     Dark::Combat::PlayerChargeSettings m_chargeSettings{};
+    Dark::PlayerStealthSettings        m_stealth{};
     Dark::Combat::HoldCharge           m_attackCharge{};
     Dark::Combat::HoldCharge           m_blockCharge{};
     bool                               m_fireQuick   = false;
     bool                               m_fireCharged = false;
     std::vector<Dark::Math::AABox3f> m_playCubes;
+    std::vector<Dark::Math::Sphere3f> m_playSpheres;
     struct PlayWeaponTarget
     {
         Dark::Entity         entity{};

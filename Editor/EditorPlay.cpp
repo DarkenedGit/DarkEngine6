@@ -357,14 +357,23 @@ void EditorApp::restoreAuthoredPoses()
 void EditorApp::bakePlayWalkability()
 {
     m_playCubes.clear();
+    m_playSpheres.clear();
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
-        if (so.type != SceneObjectType::Cube)
-            return;
         const TransformComponent* xf = world().get<TransformComponent>(e);
         if (!xf)
             return;
-        const Vector3f half{ 0.5f * xf->scale.x, 0.5f * xf->scale.y, 0.5f * xf->scale.z };
-        m_playCubes.push_back(AABox3f::FromCenterExtents(xf->position, half));
+        if (so.type == SceneObjectType::Cube)
+        {
+            const Vector3f half{ 0.5f * std::fabs(xf->scale.x), 0.5f * std::fabs(xf->scale.y), 0.5f * std::fabs(xf->scale.z) };
+            m_playCubes.push_back(AABox3f::FromCenterExtents(xf->position, half));
+        }
+        else if (so.type == SceneObjectType::Sphere)
+        {
+            // Unit sphere mesh is radius 0.5, then scaled. Use the largest axis so a stretched sphere still blocks.
+            const float radius = 0.5f * Math::Max(std::fabs(xf->scale.x), Math::Max(std::fabs(xf->scale.y), std::fabs(xf->scale.z)));
+            if (radius > 1.0e-4f)
+                m_playSpheres.push_back(Sphere3f(xf->position, radius));
+        }
     });
     if (!m_haveTerrain || !m_terrain.valid() || !m_terrain.coarse().valid())
     {
@@ -377,6 +386,8 @@ void EditorApp::bakePlayWalkability()
     d.agentRadius = 0.8f;
     d.cubes       = m_playCubes.empty() ? nullptr : m_playCubes.data();
     d.cubeCount   = static_cast<int>(m_playCubes.size());
+    d.spheres     = m_playSpheres.empty() ? nullptr : m_playSpheres.data();
+    d.sphereCount = static_cast<int>(m_playSpheres.size());
     if (!m_ai.bake(d))
         DE_LOG_WARN(LogCategory::AI, "Editor: walkability bake failed");
 }
@@ -423,7 +434,7 @@ void EditorApp::setPlayMode(bool play)
         m_dragging         = false;
         m_playMode = true;
         window().setCursorCaptured(window().isFocused());
-        DE_LOG_INFO("Editor: PLAY — WASD move, mouse look, Space jump, hold LMB/F to charge an attack and release to swing, hold RMB/V to block (hold longer, release to parry-slam), L flashlight, Escape or F12 stop");
+        DE_LOG_INFO("Editor: PLAY — WASD move, mouse look, Space jump, hold LMB/F to charge an attack and release to swing, hold RMB/V to block, Ctrl/C crouch, L flashlight, Escape or F12 stop");
     }
     else
     {
@@ -477,7 +488,11 @@ void EditorApp::updatePlayCamera()
         std::sinf(m_playLookPitch),
         std::cosf(m_playLookYaw) * std::cosf(m_playLookPitch)
     };
-    const Vector3f focus = xf->position + Vector3f{ 0.0f, 1.15f, 0.0f };
+    const PlayerMotor* motor = nullptr;
+    if (const PlayerMotorComponent* pmc = world().get<PlayerMotorComponent>(m_playPlayer))
+        motor = &pmc->motor;
+    const float focusY = (motor && motor->state() == PlayerMoveState::Crouch) ? 0.78f : 1.15f;
+    const Vector3f focus = xf->position + Vector3f{ 0.0f, focusY, 0.0f };
     const Vector3f eye   = focus - look * 5.5f + Vector3f{ 0.0f, 0.35f, 0.0f };
     m_camera.LookAt(eye, focus, Vector3f::Y_AXIS);
 }
@@ -728,6 +743,7 @@ void EditorApp::updatePlay(float dt)
     PlayerMotorInput motorIn{};
     motorIn.wish            = canSteer ? wish : Vector3f{};
     motorIn.sprint          = canSteer && !jumpBusy && !uiKeys && input().actionDown("sprint");
+    motorIn.crouch          = canSteer && !jumpBusy && !uiKeys && input().actionDown("crouch");
     motorIn.jumpPressed     = canSteer && !jumpBusy && !uiKeys && input().actionPressed("jump");
     motorIn.allowDoubleJump = !inAirCommit;
     motorIn.allowJumpBuffer = !jumpBusy;
@@ -775,15 +791,21 @@ void EditorApp::updatePlay(float dt)
     if (delta.MagnitudeSqrd() > 1.0e-10f)
     {
         Sphere3f ball{ Vector3f{ before.x, xf->position.y, before.z }, kPlayRadius };
+        float bestT = 1.0f;
         for (const AABox3f& cube : m_playCubes)
         {
             const Dark::Collision::SweptHit3D hit = Dark::Collision::SweptIntersects(ball, delta, cube);
-            if (hit.hit && hit.t < 1.0f)
-            {
-                delta *= Math::Max(0.0f, hit.t - 0.02f);
-                break;
-            }
+            if (hit.hit && hit.t < bestT)
+                bestT = hit.t;
         }
+        for (const Sphere3f& sphere : m_playSpheres)
+        {
+            const Dark::Collision::SweptHit3D hit = Dark::Collision::SweptIntersects(ball, delta, sphere);
+            if (hit.hit && hit.t < bestT)
+                bestT = hit.t;
+        }
+        if (bestT < 1.0f)
+            delta *= Math::Max(0.0f, bestT - 0.02f);
         xf->position.x = before.x + delta.x;
         xf->position.z = before.z + delta.z;
         if (dt > 1.0e-4f && motor)
@@ -826,9 +848,16 @@ void EditorApp::updatePlay(float dt)
         AimLocomotion aim{};
         if (motor && !(hp && !hp->alive()))
             aim = aimLocomotion(motor->velocity(), xf->rotation);
+        const bool crouched = motor && motor->state() == PlayerMoveState::Crouch;
+        if (crouched)
+        {
+            aim.strafe   = 0.0f;
+            aim.backward = false;
+        }
         ag->graph.setFloat("speed", aim.speed);
         ag->graph.setFloat("strafe", aim.strafe);
         ag->graph.setBool("backward", aim.backward);
+        ag->graph.setBool("crouch", crouched);
         m_playLowerBodyYaw = approachAngle(m_playLowerBodyYaw, aim.lowerYaw, 10.0f, dt);
         ag->graph.player().setLowerBodyYaw(m_playLowerBodyYaw);
         const float playScale = (motor && motor->state() == PlayerMoveState::Dodge) ? motor->settings().dodgeAnimSpeed : 1.0f;
@@ -952,12 +981,22 @@ void EditorApp::tickEditorHunters(float dt)
     Entity player = (m_playPlayer.valid() && world().alive(m_playPlayer)) ? m_playPlayer : findPlayPlayer();
     if (!player.valid())
         return;
+    if (const PlayerMotorComponent* pmc = world().get<PlayerMotorComponent>(player))
+    {
+        const PlayerMotor& motor = pmc->motor;
+        const float speed = Vector3f{ motor.velocity().x, 0.0f, motor.velocity().z }.Magnitude();
+        const bool crouched = motor.state() == PlayerMoveState::Crouch;
+        const bool moving = speed >= m_stealth.stillSpeed;
+        const bool sprinting = moving && !crouched && input().actionDown("sprint");
+        m_ai.setPreySense(preySenseFor(m_stealth, crouched, moving, sprinting));
+    }
     if (!m_ai.walkability().valid())
         bakePlayWalkability();
     m_ai.setJumpAttackHits(&EditorApp::onPlayJumpHitsThunk, this);
     m_ai.setHunterCue(&EditorApp::onPlayHunterCueThunk, this);
     m_ai.tickHunters(world(), m_terrain, false, dt, player, m_playCubes.empty() ? nullptr : m_playCubes.data(),
-                     static_cast<int>(m_playCubes.size()));
+                     static_cast<int>(m_playCubes.size()), m_playSpheres.empty() ? nullptr : m_playSpheres.data(),
+                     static_cast<int>(m_playSpheres.size()));
 }
 
 void EditorApp::updatePawnAnims()
@@ -1071,6 +1110,11 @@ void EditorApp::drawPlayHud()
     ImGui::TextUnformatted(offhand);
     if (m_attackCharge.isCharged())
         ImGui::TextUnformatted("Attack charged");
+    if (const PlayerMotorComponent* pmc = m_playPlayer.valid() ? world().get<PlayerMotorComponent>(m_playPlayer) : nullptr)
+    {
+        if (pmc->motor.state() == PlayerMoveState::Crouch)
+            ImGui::TextUnformatted("Crouching");
+    }
     ImGui::Text("Hunters  %d / %d", huntersAlive, hunters);
     if (wolves > 0)
         ImGui::Text("Wolves  %d / %d", wolvesAlive, wolves);

@@ -71,6 +71,8 @@ TEST(HumanoidGltf, HumanHasLocomotionAndCombatClips)
     EXPECT_TRUE(hasClip(cpu.clips, "StrafeRunRight"));
     EXPECT_TRUE(hasClip(cpu.clips, "Shoot"));
     EXPECT_TRUE(hasClip(cpu.clips, "SwingSword"));
+    EXPECT_TRUE(hasClip(cpu.clips, "Crouch"));
+    EXPECT_TRUE(hasClip(cpu.clips, "CrouchWalk"));
     EXPECT_FALSE(hasClip(cpu.clips, "Die"));
 }
 
@@ -160,7 +162,7 @@ TEST(HumanoidGltf, HumanGraphBindsClips)
     ASSERT_FALSE(text.empty());
     AnimGraphDef def;
     ASSERT_TRUE(parseAnimGraphJson(text.c_str(), set, def));
-    EXPECT_EQ(def.states.size(), 11u);
+    EXPECT_EQ(def.states.size(), 13u);
     EXPECT_EQ(def.states[def.defaultState].name, "Idle");
     EXPECT_GE(set.findClipIndex("StrafeLeft"), 0);
     EXPECT_GE(set.findClipIndex("StrafeRight"), 0);
