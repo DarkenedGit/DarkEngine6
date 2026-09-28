@@ -36,7 +36,17 @@ namespace Dark
         float                        deadFor     = 0.0f;
         float                        assistLeft  = 0.0f;
         float                        fleeLeft    = 0.0f;
+        float                        footstepAcc = 0.0f;
+        float                        attackGap   = 0.0f;
+        float                        attackPause = 0.0f;
+        float                        repositionLeft = 0.0f;
+        float                        meleeWindup = 0.0f;
+        int                          attackChain = 0;
+        int                          lastAttack  = -1;
+        int                          meleeAttack = -1;
+        bool                         preferOtherAttack = false;
         bool                         givenUp     = false;
+        Math::Vector3f               repositionDest{};
         bool                         hasLastSeen = false;
     };
 

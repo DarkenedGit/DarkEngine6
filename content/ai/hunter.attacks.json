@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "id": "hunter",
+  "gapSeconds": 1.25,
+  "chainCount": 2,
+  "afterChain": "pause",
+  "pauseSeconds": 2.8,
+  "repositionSeconds": 1.6,
+  "repositionDistance": 5.0,
+  "packGapSeconds": 1.4,
+  "attacks": [
+    {
+      "id": "swipe",
+      "kind": "melee",
+      "minRange": 0.0,
+      "maxRange": 2.4,
+      "windup": 0.45,
+      "damage": 12,
+      "stunSeconds": 0.28,
+      "poise": 10
+    },
+    {
+      "id": "pounce",
+      "kind": "jump",
+      "minRange": 4.0,
+      "maxRange": 9.0,
+      "windup": 0.40,
+      "damage": 22,
+      "stunSeconds": 0.85,
+      "poise": 16
+    }
+  ]
+}

@@ -27,6 +27,7 @@
 #include "Weapons/WeaponLoadoutComponent.h"
 #include "Gameplay/HealthPack.h"
 #include "PathChase.h"
+#include "Terrain/TerrainGround.h"
 #include "Ui/HudTagComponent.h"
 #include "Ui/NpcInfoOverlay.h"
 #include "Weapons/HittableComponent.h"
@@ -157,6 +158,8 @@ private:
     std::vector<WeaponTargetScratch> m_weaponTargets;
 
     Dark::Terrain::TerrainGrid m_terrain;
+    Dark::Terrain::TerrainGround m_ground;
+    Dark::Terrain::GroundContact groundContactAt(float x, float z) const;
     float                     m_terrainSeaLevel = 0.0f;
     bool                      m_haveTerrainSea  = false;
     Dark::TerrainMaterial       m_terrainMaterial;

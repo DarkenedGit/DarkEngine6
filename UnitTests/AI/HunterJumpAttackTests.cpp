@@ -287,9 +287,22 @@ TEST(HunterJumpAttack, CooldownBlocksSecondBegin)
     EXPECT_GT(h.jump(e)->cooldownLeft(), 3.0f);
     EXPECT_FALSE(h.ai.jumpAttackToken().valid());
 
+    // Hold the pattern so the chase cannot open a swipe while the pounce cooldown drains.
+    if (AiAgentComponent* ai = h.world.get<AiAgentComponent>(e))
+        ai->attackPause = 30.0f;
+
     h.tickFor(3.6f);
     EXPECT_LE(h.jump(e)->cooldownLeft(), 0.0f);
     h.resetHunterPose(e, 8.0f, 8.0f);
+    if (AiAgentComponent* ai = h.world.get<AiAgentComponent>(e))
+    {
+        ai->meleeWindup       = 0.0f;
+        ai->meleeAttack       = -1;
+        ai->attackGap         = 0.0f;
+        ai->attackPause       = 0.0f;
+        ai->repositionLeft    = 0.0f;
+        ai->preferOtherAttack = false;
+    }
     h.tick();
     EXPECT_EQ(h.jump(e)->phase(), JumpAttackPhase::Telegraph);
     EXPECT_EQ(h.ai.jumpAttackToken().id(), e.id());

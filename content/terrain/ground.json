@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "layers": [
+    { "id": "dirt",  "moveSpeed": 1.0,  "footstep": "audio/foot_dirt.wav",  "blipHz": 90 },
+    { "id": "grass", "moveSpeed": 1.0,  "footstep": "audio/foot_grass.wav", "blipHz": 160 },
+    { "id": "rock",  "moveSpeed": 0.75, "footstep": "audio/foot_rock.wav",  "blipHz": 280 },
+    { "id": "snow",  "moveSpeed": 0.75, "footstep": "audio/foot_snow.wav",  "blipHz": 50 }
+  ]
+}

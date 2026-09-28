@@ -122,6 +122,7 @@ void EditorApp::onInit()
     m_water.params() = defaultWaterParams(0.0f);
     DE_LOG_INFO("EditorApp: init");
     mountContentRoots(assets());
+    m_ground.loadFromContent();
     ensurePhysicsWorld();
     registerActions();
 

@@ -216,6 +216,92 @@ namespace Dark
         m_hunterCueUser = user;
     }
 
+    void AiSystem::setGroundSurface(const Terrain::TerrainGround* ground, const Terrain::HeightMap* height, const Terrain::SplatMap* splat)
+    {
+        m_ground       = ground;
+        m_groundHeight = height;
+        m_groundSplat  = splat;
+    }
+
+    void AiSystem::ensureAttackPatterns()
+    {
+        if (m_attacksLoaded)
+            return;
+        m_attacksLoaded = true;
+        m_hunterAttacks = AI::loadAttackPattern("ai/hunter.attacks.json");
+        m_wolfAttacks   = AI::loadAttackPattern("ai/wolf.attacks.json");
+    }
+
+    const AI::AttackPattern* AiSystem::attackPatternFor(World& world, Entity e) const
+    {
+        if (const TagComponent* tag = world.get<TagComponent>(e))
+        {
+            if (tag->name == "Wolf" && m_wolfAttacks.loaded)
+                return &m_wolfAttacks;
+        }
+        if (m_hunterAttacks.loaded)
+            return &m_hunterAttacks;
+        return nullptr;
+    }
+
+    void AiSystem::commitAttack(AiAgentComponent& ai, const AI::AttackPattern& pattern, int attackIndex, const Vector3f& selfPos, const Vector3f& playerPos)
+    {
+        ai.lastAttack        = attackIndex;
+        ai.preferOtherAttack = false;
+        AI::AttackClock clock;
+        clock.gap         = ai.attackGap;
+        clock.pause       = ai.attackPause;
+        clock.reposition  = ai.repositionLeft;
+        clock.chain       = ai.attackChain;
+        clock.lastAttack  = ai.lastAttack;
+        clock.preferOther = ai.preferOtherAttack;
+        AI::noteAttackStarted(pattern, clock, m_packAttackGap);
+        ai.attackGap      = clock.gap;
+        ai.attackPause    = clock.pause;
+        ai.repositionLeft = clock.reposition;
+        ai.attackChain    = clock.chain;
+        ai.preferOtherAttack = clock.preferOther;
+        if (ai.repositionLeft > 0.0f)
+        {
+            Vector3f away{ selfPos.x - playerPos.x, 0.0f, selfPos.z - playerPos.z };
+            if (away.MagnitudeSqrd() < 1.0e-4f)
+                away = Vector3f{ ai.forward.z, 0.0f, -ai.forward.x };
+            if (away.MagnitudeSqrd() < 1.0e-4f)
+                away = Vector3f{ 1.0f, 0.0f, 0.0f };
+            away.Normalize();
+            ai.repositionDest = selfPos + away * pattern.repositionDistance;
+        }
+    }
+
+    void AiSystem::releaseMelee(World& world, View& v, const AI::AttackPattern& pattern, Entity player, const Vector3f& playerPos)
+    {
+        v.ai->meleeWindup = 0.0f;
+        const int index = v.ai->meleeAttack;
+        v.ai->meleeAttack = -1;
+        if (index < 0 || index >= static_cast<int>(pattern.attacks.size()) || !player.valid())
+            return;
+        const AI::AttackMove& move = pattern.attacks[static_cast<size_t>(index)];
+        const float dx = playerPos.x - v.xf->position.x;
+        const float dz = playerPos.z - v.xf->position.z;
+        const float dist = std::sqrt(dx * dx + dz * dz);
+        if (dist > move.maxRange + 0.35f)
+            return;
+        Combat::DamageEvent ev{};
+        ev.source          = v.e;
+        ev.target          = player;
+        ev.type            = Combat::DamageType::Slash;
+        ev.amount          = move.damage;
+        ev.poiseDamage     = move.poise;
+        ev.hitPoint        = playerPos;
+        ev.hitDir          = Vector3f{ dx, 0.0f, dz };
+        if (ev.hitDir.MagnitudeSqrd() > 1.0e-6f)
+            ev.hitDir.Normalize();
+        ev.flags           = Combat::DamageFlags::CanBlock | Combat::DamageFlags::HardCc;
+        ev.statusDuration  = move.stunSeconds;
+        resolveJumpHits(world, &ev, 1);
+        DE_LOG_INFO(LogCategory::AI, "Hunter: melee {}", move.id);
+    }
+
     bool AiSystem::bind(World& world, Entity e, View& v)
     {
         v.e      = e;
@@ -626,6 +712,9 @@ namespace Dark
         };
 
         constexpr float kStandoff = 2.25f;
+        ensureAttackPatterns();
+        if (m_packAttackGap > 0.0f)
+            m_packAttackGap = m_packAttackGap > dt ? m_packAttackGap - dt : 0.0f;
         for (Entity e : m_scratch)
         {
             View v{};
@@ -821,8 +910,76 @@ namespace Dark
 
             const AI::Leaf leaf = v.brain->brain->leaf();
             const float    horiz = sqrtf(distSq);
-            const bool     wantJump = (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist) && sees && horiz >= kHunterJumpMin && horiz <= kHunterJumpMax;
-            if (wantJump)
+            const AI::AttackPattern* pattern = attackPatternFor(world, v.e);
+            if (v.ai->meleeWindup > 0.0f)
+            {
+                v.ai->meleeWindup -= dt;
+                Vector3f face{ playerPos.x - v.xf->position.x, 0.0f, playerPos.z - v.xf->position.z };
+                if (face.MagnitudeSqrd() > kLookEps)
+                {
+                    face.Normalize();
+                    v.ai->forward = face;
+                }
+                if (v.ai->meleeWindup <= 0.0f && pattern)
+                    releaseMelee(world, v, *pattern, player, playerPos);
+                stampPlanarVelocity();
+                continue;
+            }
+            if (pattern)
+            {
+                v.ai->attackGap = v.ai->attackGap > dt ? v.ai->attackGap - dt : 0.0f;
+                v.ai->attackPause = v.ai->attackPause > dt ? v.ai->attackPause - dt : 0.0f;
+                v.ai->repositionLeft = v.ai->repositionLeft > dt ? v.ai->repositionLeft - dt : 0.0f;
+            }
+            const bool pacing = pattern && !AI::attackClockReady(AI::AttackClock{ v.ai->attackGap, v.ai->attackPause, v.ai->repositionLeft, v.ai->attackChain, v.ai->lastAttack, v.ai->preferOtherAttack }, m_packAttackGap);
+            const bool jumpBusy = jump && jump->busy();
+            const bool wantJump = !pattern && (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist) && sees && horiz >= kHunterJumpMin && horiz <= kHunterJumpMax;
+            if (pattern && (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist) && sees && !pacing && !jumpBusy)
+            {
+                const int attackIndex = AI::pickAttack(*pattern, horiz, v.ai->preferOtherAttack, v.ai->lastAttack);
+                if (attackIndex >= 0)
+                {
+                    const AI::AttackMove& move = pattern->attacks[static_cast<size_t>(attackIndex)];
+                    bool started = false;
+                    if (move.kind == AI::AttackKind::Jump)
+                    {
+                        if (jump && jump->phase() == Combat::JumpAttackPhase::Idle && jump->cooldownLeft() <= 0.0f && !packTokenBusy(world, e))
+                        {
+                            Combat::JumpAttackBegin req{};
+                            req.attacker          = e;
+                            req.position          = v.xf->position;
+                            req.lookFlat          = flattenDir(Vector3f{ playerPos.x - v.xf->position.x, 0.0f, playerPos.z - v.xf->position.z }, v.ai->forward);
+                            req.intendedTarget    = player;
+                            req.intendedTargetPos = playerPos;
+                            if (jump->begin(req))
+                            {
+                                v.ai->forward = req.lookFlat;
+                                v.path->path.points.clear();
+                                v.path->waypoint = 0;
+                                m_jumpAttackToken = e;
+                                started = true;
+                                DE_LOG_INFO(LogCategory::AI, "Hunter: jump telegraph");
+                                DE_LOG_INFO(LogCategory::AI, "Hunter: jump token grant");
+                                if (m_hunterCueFn)
+                                    m_hunterCueFn(m_hunterCueUser, e, "grunt");
+                            }
+                        }
+                    }
+                    else if (!packTokenBusy(world, e) || m_jumpAttackToken.id() == e.id())
+                    {
+                        v.ai->meleeWindup = move.windup > 0.0f ? move.windup : 0.05f;
+                        v.ai->meleeAttack = attackIndex;
+                        v.path->path.points.clear();
+                        v.path->waypoint = 0;
+                        started = true;
+                        if (m_hunterCueFn)
+                            m_hunterCueFn(m_hunterCueUser, e, "grunt");
+                    }
+                    if (started)
+                        commitAttack(*v.ai, *pattern, attackIndex, v.xf->position, playerPos);
+                }
+            }
+            else if (wantJump)
             {
                 if (!jump)
                     DE_LOG_WARN(LogCategory::AI, "Hunter: jump attack wanted but JumpAttackComponent missing");
@@ -855,7 +1012,8 @@ namespace Dark
             }
 
             const bool  sprint = leaf == AI::Leaf::Assist || leaf == AI::Leaf::Flee || v.ai->assistLeft > 0.0f;
-            const float speed  = (sprint ? m_pack.sprintSpeed : m_pack.walkSpeed) * (stCc ? stCc->moveSpeedScale() : 1.0f);
+            const Terrain::GroundContact ground = m_ground ? m_ground->at(m_groundHeight, m_groundSplat, v.xf->position.x, v.xf->position.z) : Terrain::GroundContact{};
+            const float speed  = (sprint ? m_pack.sprintSpeed : m_pack.walkSpeed) * (stCc ? stCc->moveSpeedScale() : 1.0f) * ground.moveSpeed;
 
             if (leaf == AI::Leaf::Flee)
             {
@@ -896,9 +1054,19 @@ namespace Dark
             }
 
             const Vector3f before = v.xf->position;
-            follow(v, dt, terrain, speed);
+            const bool     holding = v.ai->attackPause > 0.0f;
+            if (v.ai->repositionLeft > 0.0f)
+            {
+                seekToward(v, dt, terrain, speed, v.ai->repositionDest.x, v.ai->repositionDest.z);
+                const float rdx = v.ai->repositionDest.x - v.xf->position.x;
+                const float rdz = v.ai->repositionDest.z - v.xf->position.z;
+                if (rdx * rdx + rdz * rdz < 0.36f)
+                    v.ai->repositionLeft = 0.0f;
+            }
+            else if (!holding)
+                follow(v, dt, terrain, speed);
             Vector3f move{ v.xf->position.x - before.x, 0.0f, v.xf->position.z - before.z };
-            if (move.MagnitudeSqrd() < 1.0e-8f)
+            if (move.MagnitudeSqrd() < 1.0e-8f && !holding && v.ai->repositionLeft <= 0.0f)
             {
                 if (leaf == AI::Leaf::Chase && playerAlive)
                     seekToward(v, dt, terrain, speed, playerPos.x, playerPos.z);
@@ -918,6 +1086,7 @@ namespace Dark
                 }
                 move = Vector3f{ v.xf->position.x - before.x, 0.0f, v.xf->position.z - before.z };
             }
+            const float traveled = move.Magnitude();
             if (move.MagnitudeSqrd() > 1.0e-6f)
             {
                 move.Normalize();
@@ -935,6 +1104,19 @@ namespace Dark
                 }
                 v.ai->forward = face;
             }
+            const float stepSpeed = traveled / Math::Max(dt, 1.0e-4f);
+            if (stepSpeed > 2.0f && m_hunterCueFn)
+            {
+                v.ai->footstepAcc += dt * stepSpeed * 0.35f;
+                if (v.ai->footstepAcc >= 1.0f)
+                {
+                    v.ai->footstepAcc = 0.0f;
+                    const char* cue = (ground.cue && ground.cue[0]) ? ground.cue : "step";
+                    m_hunterCueFn(m_hunterCueUser, e, cue);
+                }
+            }
+            else
+                v.ai->footstepAcc = 0.0f;
             stampPlanarVelocity();
         }
     }

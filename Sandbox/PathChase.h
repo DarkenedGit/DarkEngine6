@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AI/AiSystem.h"
+#include "Terrain/TerrainGround.h"
 #include "ECS/Entity.h"
 #include "Math/AABox3f.h"
 #include "Math/Matrix4f.h"
@@ -35,6 +36,7 @@ namespace Dark
         bool init(Renderer& renderer, Terrain::TerrainGrid& terrain, WaterWorld& water, World& world, AssetPinTable& pins, AssetManager& assets);
 
         void tick(float dt, World& world, Input& input, Terrain::TerrainGrid& terrain, Entity hostPawn, bool playerInWater);
+        void setGround(const Terrain::TerrainGround* ground) { m_ground = ground; }
         void expandBounds(Math::AABox3f& bounds) const;
         void drawPaths(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Math::Matrix4f& viewProj);
 
@@ -60,6 +62,7 @@ namespace Dark
         bool createLineBuffers(Renderer& renderer);
 
         AiSystem        m_ai;
+        const Terrain::TerrainGround* m_ground = nullptr;
         World*          m_world = nullptr;
         LinePipeline    m_lines;
         std::vector<Math::AABox3f>   m_cubes;

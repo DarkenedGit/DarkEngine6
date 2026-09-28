@@ -69,9 +69,21 @@ namespace
         return (clip && clip->id != NULL_ASSET) ? clip->id : NULL_ASSET;
     }
 
-    void attachEditorHunterSounds(World& world, AssetPinTable& pins, AssetManager& assets, Audio::AudioSystem& audio, Entity e)
+    void addGroundFootsteps(SoundBankComponent& bank, Audio::AudioSystem& audio, AssetManager& assets, const Terrain::TerrainGround& ground)
+    {
+        for (int i = 0; i < ground.layerCount(); ++i)
+        {
+            const Terrain::GroundContact& layer = ground.layer(i);
+            if (!layer.cue || !layer.cue[0])
+                continue;
+            addSoundCue(bank, layer.cue, loadEditorClip(audio, assets, layer.footstep ? layer.footstep : "audio/foot_dirt.wav", layer.blipHz, 0.05f, 0.4f), 0.4f, true);
+        }
+    }
+
+    void attachEditorHunterSounds(World& world, AssetPinTable& pins, AssetManager& assets, Audio::AudioSystem& audio, Entity e, const Terrain::TerrainGround& ground)
     {
         SoundBankComponent bank;
+        addGroundFootsteps(bank, audio, assets, ground);
         addSoundCue(bank, "pain", loadEditorClip(audio, assets, "audio/pain.wav", 380.0f, 0.12f, 0.5f), 0.75f, true);
         addSoundCue(bank, "grunt", loadEditorClip(audio, assets, "audio/grunt.wav", 140.0f, 0.18f, 0.5f), 0.95f, true);
         const AssetID impactClip = loadEditorClip(audio, assets, "audio/place.wav", 180.0f, 0.10f, 0.5f);
@@ -82,9 +94,11 @@ namespace
         setSoundBank(world, pins, assets, e, std::move(bank));
     }
 
-    void attachEditorPlayerSounds(World& world, AssetPinTable& pins, AssetManager& assets, Audio::AudioSystem& audio, Entity e)
+    void attachEditorPlayerSounds(World& world, AssetPinTable& pins, AssetManager& assets, Audio::AudioSystem& audio, Entity e, const Terrain::TerrainGround& ground)
     {
         SoundBankComponent bank;
+        addGroundFootsteps(bank, audio, assets, ground);
+        addSoundCue(bank, "step", loadEditorClip(audio, assets, "audio/foot_grass.wav", 160.0f, 0.05f, 0.4f), 0.35f, true);
         addSoundCue(bank, "jump", loadEditorClip(audio, assets, "audio/grunt.wav", 140.0f, 0.18f, 0.5f), 0.7f, false);
         addSoundCue(bank, "land", loadEditorClip(audio, assets, "audio/land.wav", 70.0f, 0.12f, 0.55f), 0.75f, false);
         addSoundCue(bank, "pain", loadEditorClip(audio, assets, "audio/pain.wav", 380.0f, 0.12f, 0.5f), 0.75f, true);
@@ -248,7 +262,7 @@ bool EditorApp::attachEditorPlayer(Entity e)
     const EntityMaster playerMaster = loadEntityMasterType("player");
     const std::string  playerGltf = playerMaster.gltf.empty() ? std::string("models/human.gltf") : playerMaster.gltf;
     attachEditorModel(e, playerGltf.c_str());
-    attachEditorPlayerSounds(world(), pins(), assets(), audio(), e);
+    attachEditorPlayerSounds(world(), pins(), assets(), audio(), e, m_ground);
     return true;
 }
 
@@ -266,7 +280,7 @@ bool EditorApp::attachEditorHunter(Entity e)
     }
     if (HittableComponent* hit = world().get<HittableComponent>(e))
         hit->halfExtents = Vector3f{ 0.4f, 0.7f, 0.4f };
-    attachEditorHunterSounds(world(), pins(), assets(), audio(), e);
+    attachEditorHunterSounds(world(), pins(), assets(), audio(), e, m_ground);
     return true;
 }
 
@@ -288,7 +302,7 @@ bool EditorApp::attachEditorWolf(Entity e)
         hit->halfExtents = Vector3f{ 0.45f, 0.45f, 0.70f };
     if (TagComponent* tag = world().get<TagComponent>(e))
         tag->name = "Wolf";
-    attachEditorHunterSounds(world(), pins(), assets(), audio(), e);
+    attachEditorHunterSounds(world(), pins(), assets(), audio(), e, m_ground);
     return true;
 }
 
@@ -790,7 +804,9 @@ void EditorApp::updatePlay(float dt)
     motorIn.allowDoubleJump = !inAirCommit;
     motorIn.allowJumpBuffer = !jumpBusy;
     motorIn.airControlScale = inAirCommit && jump ? jump->def().airControlScale : 1.0f;
-    motorIn.speedScale      = (status ? status->moveSpeedScale() : 1.0f) * m_offhand.shield.speedScale();
+    const bool onGround = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch || motor->state() == PlayerMoveState::Dodge);
+    const Terrain::GroundContact groundSurf = (onGround && xf) ? groundContactAt(xf->position.x, xf->position.z) : Terrain::GroundContact{};
+    motorIn.speedScale      = (status ? status->moveSpeedScale() : 1.0f) * m_offhand.shield.speedScale() * (onGround ? groundSurf.moveSpeed : 1.0f);
     motorIn.allowDodge      = canSteer && !jumpBusy && !uiKeys;
     if (motorIn.allowDodge)
     {
@@ -913,6 +929,24 @@ void EditorApp::updatePlay(float dt)
         playSoundCue(world(), audio(), assets(), body, "jump");
     if (motorOut.landed)
         playSoundCue(world(), audio(), assets(), body, "land");
+    if (motorOut.landed)
+        m_playFootstepAcc = 0.0f;
+    const float stepSpeed = Vector3f{ xf->position.x - before.x, 0.0f, xf->position.z - before.z }.Magnitude() / Math::Max(dt, 1.0e-4f);
+    const bool  stepping  = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch) && stepSpeed > 2.0f;
+    if (stepping)
+    {
+        const Terrain::GroundContact stepGround = groundContactAt(xf->position.x, xf->position.z);
+        m_playFootstepAcc += dt * stepSpeed * 0.35f;
+        if (m_playFootstepAcc >= 1.0f)
+        {
+            m_playFootstepAcc = 0.0f;
+            const char* cue = (stepGround.cue && stepGround.cue[0]) ? stepGround.cue : "step";
+            if (!playSoundCue(world(), audio(), assets(), body, cue))
+                playSoundCue(world(), audio(), assets(), body, "step");
+        }
+    }
+    else
+        m_playFootstepAcc = 0.0f;
 
     if (AnimGraphComponent* ag = world().get<AnimGraphComponent>(body))
     {
@@ -1046,6 +1080,19 @@ void EditorApp::updatePlay(float dt)
     }
 }
 
+Terrain::GroundContact EditorApp::groundContactAt(float x, float z) const
+{
+    const Terrain::HeightMap* height = nullptr;
+    const Terrain::SplatMap*  splat  = nullptr;
+    if (m_haveTerrain && m_splat.valid())
+    {
+        const Terrain::HeightMap* working = m_terrain.editableWorking();
+        height = (working && working->valid()) ? working : &m_terrain.coarse();
+        splat  = &m_splat;
+    }
+    return m_ground.at(height, splat, x, z);
+}
+
 void EditorApp::tickEditorHunters(float dt)
 {
     if (m_sceneMode != SceneMode::Scene3D || dt <= 0.0f)
@@ -1066,6 +1113,17 @@ void EditorApp::tickEditorHunters(float dt)
         bakePlayWalkability();
     m_ai.setJumpAttackHits(&EditorApp::onPlayJumpHitsThunk, this);
     m_ai.setHunterCue(&EditorApp::onPlayHunterCueThunk, this);
+    {
+        const Terrain::HeightMap* height = nullptr;
+        const Terrain::SplatMap*  splat  = nullptr;
+        if (m_haveTerrain && m_splat.valid())
+        {
+            const Terrain::HeightMap* working = m_terrain.editableWorking();
+            height = (working && working->valid()) ? working : &m_terrain.coarse();
+            splat  = &m_splat;
+        }
+        m_ai.setGroundSurface(&m_ground, height, splat);
+    }
     m_ai.tickHunters(world(), m_terrain, false, dt, player, m_playCubes.empty() ? nullptr : m_playCubes.data(),
                      static_cast<int>(m_playCubes.size()), m_playSpheres.empty() ? nullptr : m_playSpheres.data(),
                      static_cast<int>(m_playSpheres.size()));

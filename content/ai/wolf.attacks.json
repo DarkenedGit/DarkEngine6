@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "id": "wolf",
+  "gapSeconds": 1.4,
+  "chainCount": 2,
+  "afterChain": "reposition",
+  "pauseSeconds": 2.0,
+  "repositionSeconds": 1.3,
+  "repositionDistance": 4.5,
+  "packGapSeconds": 1.2,
+  "attacks": [
+    {
+      "id": "bite",
+      "kind": "melee",
+      "minRange": 0.0,
+      "maxRange": 2.1,
+      "windup": 0.32,
+      "damage": 10,
+      "stunSeconds": 0.22,
+      "poise": 8
+    },
+    {
+      "id": "pounce",
+      "kind": "jump",
+      "minRange": 3.2,
+      "maxRange": 7.5,
+      "windup": 0.28,
+      "damage": 16,
+      "stunSeconds": 0.45,
+      "poise": 12
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AI/AiComponents.h"
+#include "AI/AttackPattern.h"
 #include "AI/Pathfinder.h"
 #include "AI/Walkability.h"
 #include "Assets/AssetHandle.h"
@@ -13,6 +14,7 @@
 #include "Math/AABox3f.h"
 #include "Math/Sphere3f.h"
 #include "Math/Vector3f.h"
+#include "Terrain/TerrainGround.h"
 
 #include <vector>
 
@@ -53,6 +55,9 @@ namespace Dark
 
         void tickHunters(World& world, Terrain::TerrainGrid& terrain, bool playerInWater, float dt, Entity player, const Math::AABox3f* cubes = nullptr, int cubeCount = 0, const Math::Sphere3f* spheres = nullptr, int sphereCount = 0);
 
+        // Non-owning. Used for the next tickHunters calls. Null splat leaves NPCs at full speed.
+        void setGroundSurface(const Terrain::TerrainGround* ground, const Terrain::HeightMap* height, const Terrain::SplatMap* splat);
+
         Entity jumpAttackToken() const { return m_jumpAttackToken; }
         void   setJumpAttackHits(void (*fn)(void* user, const Combat::DamageEvent* events, int count), void* user);
         void   setHunterCue(void (*fn)(void* user, Entity hunter, const char* cue), void* user);
@@ -88,6 +93,10 @@ namespace Dark
         void beginFlee(World& world, View& v);
         void seekToward(View& v, float dt, Terrain::TerrainGrid& terrain, float speed, float destX, float destZ);
         void cancelJumpAndToken(World& world, Entity e, bool forceIdle);
+        void ensureAttackPatterns();
+        const AI::AttackPattern* attackPatternFor(World& world, Entity e) const;
+        void releaseMelee(World& world, View& v, const AI::AttackPattern& pattern, Entity player, const Math::Vector3f& playerPos);
+        void commitAttack(AiAgentComponent& ai, const AI::AttackPattern& pattern, int attackIndex, const Math::Vector3f& selfPos, const Math::Vector3f& playerPos);
         void collectJumpTargets(World& world);
         void resolveJumpHits(World& world, const Combat::DamageEvent* events, int count);
         void walkableBackStep(Math::Vector3f& position, const Math::Vector3f& incomingXZ) const;
@@ -112,6 +121,13 @@ namespace Dark
         void (*m_jumpHitsFn)(void* user, const Combat::DamageEvent* events, int count) = nullptr;
         void* m_jumpHitsUser                                                           = nullptr;
         void (*m_hunterCueFn)(void* user, Entity hunter, const char* cue)              = nullptr;
+        const Terrain::TerrainGround* m_ground       = nullptr;
+        const Terrain::HeightMap*     m_groundHeight = nullptr;
+        const Terrain::SplatMap*      m_groundSplat  = nullptr;
+        AI::AttackPattern              m_hunterAttacks{};
+        AI::AttackPattern              m_wolfAttacks{};
+        bool                           m_attacksLoaded = false;
+        float                          m_packAttackGap = 0.0f;
         void*               m_hunterCueUser                                            = nullptr;
         std::vector<Entity> m_scratch;
         std::vector<JumpTargetScratch> m_jumpTargets;

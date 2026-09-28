@@ -35,6 +35,7 @@
 #include "Math/AABox3f.h"
 #include "Render/TerrainErosionPipeline.h"
 #include "Terrain/TerrainGen.h"
+#include "Terrain/TerrainGround.h"
 #include "Terrain/TerrainGrid.h"
 #include "Terrain/TerrainMaterial.h"
 #include "Sky/Environment.h"
@@ -138,6 +139,7 @@ private:
     void   captureAuthoredPoses();
     void   restoreAuthoredPoses();
     void   tickEditorHunters(float dt);
+    Dark::Terrain::GroundContact groundContactAt(float x, float z) const;
     void   updatePawnAnims();
     void   updatePlay(float dt);
     void   updatePlayCamera();
@@ -461,6 +463,8 @@ private:
     Dark::Combat::HoldCharge           m_blockCharge{};
     Dark::ChargeWindup                 m_chargeWindup{};
     Dark::Terrain::HeightMap           m_playGrid{};
+    Dark::Terrain::TerrainGround       m_ground{};
+    float                              m_playFootstepAcc = 0.0f;
     bool                               m_fireQuick   = false;
     bool                               m_fireCharged = false;
     std::vector<Dark::Math::AABox3f> m_playCubes;

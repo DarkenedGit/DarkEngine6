@@ -218,10 +218,22 @@ void attachCameraSounds(World& world, AssetPinTable& pins, AssetManager& assets,
     setSoundBank(world, pins, assets, camera, std::move(bank));
 }
 
-void attachPlayerSounds(World& world, AssetPinTable& pins, AssetManager& assets, Audio::AudioSystem& audio, Entity e)
+void addGroundFootsteps(SoundBankComponent& bank, Audio::AudioSystem& audio, AssetManager& assets, const Terrain::TerrainGround& ground)
+{
+    for (int i = 0; i < ground.layerCount(); ++i)
+    {
+        const Terrain::GroundContact& layer = ground.layer(i);
+        if (!layer.cue || !layer.cue[0])
+            continue;
+        addSoundCue(bank, layer.cue, loadSandboxClip(audio, assets, layer.footstep ? layer.footstep : "audio/foot_dirt.wav", layer.blipHz, 0.05f, 0.4f), 0.4f, true);
+    }
+}
+
+void attachPlayerSounds(World& world, AssetPinTable& pins, AssetManager& assets, Audio::AudioSystem& audio, Entity e, const Terrain::TerrainGround& ground)
 {
     SoundBankComponent bank;
-    addSoundCue(bank, "step", loadSandboxClip(audio, assets, "audio/place.wav", 90.0f, 0.05f, 0.4f), 0.35f, false);
+    addGroundFootsteps(bank, audio, assets, ground);
+    addSoundCue(bank, "step", loadSandboxClip(audio, assets, "audio/foot_grass.wav", 160.0f, 0.05f, 0.4f), 0.35f, true);
     addSoundCue(bank, "jump", loadSandboxClip(audio, assets, "audio/grunt.wav", 140.0f, 0.18f, 0.5f), 0.7f, false);
     addSoundCue(bank, "land", loadSandboxClip(audio, assets, "audio/land.wav", 70.0f, 0.12f, 0.55f), 0.75f, false);
     addSoundCue(bank, "splash", loadSandboxClip(audio, assets, "audio/splash.wav", 220.0f, 0.22f, 0.45f), 0.8f, false);
@@ -261,9 +273,10 @@ void attachPlayerSounds(World& world, AssetPinTable& pins, AssetManager& assets,
     }
 }
 
-void attachHunterSounds(World& world, AssetPinTable& pins, AssetManager& assets, Audio::AudioSystem& audio, Entity e)
+void attachHunterSounds(World& world, AssetPinTable& pins, AssetManager& assets, Audio::AudioSystem& audio, Entity e, const Terrain::TerrainGround& ground)
 {
     SoundBankComponent bank;
+    addGroundFootsteps(bank, audio, assets, ground);
     addSoundCue(bank, "pain", loadSandboxClip(audio, assets, "audio/pain.wav", 380.0f, 0.12f, 0.5f), 0.75f, true);
     addSoundCue(bank, "grunt", loadSandboxClip(audio, assets, "audio/grunt.wav", 140.0f, 0.18f, 0.5f), 0.95f, true);
     const AssetID impactClip = loadSandboxClip(audio, assets, "audio/place.wav", 180.0f, 0.10f, 0.5f);
@@ -871,7 +884,7 @@ void SandboxApp::attachLocalPlayer(Entity e)
     if (!world().has<Combat::PoiseComponent>(e))
         world().emplace<Combat::PoiseComponent>(e);
     Combat::equipPlayerShield(world(), e);
-    attachPlayerSounds(world(), pins(), assets(), audio(), e);
+    attachPlayerSounds(world(), pins(), assets(), audio(), e, m_ground);
 }
 
 bool SandboxApp::attachAnimatedCharacter(Entity e, const char* gltfPath)
@@ -1141,7 +1154,9 @@ void SandboxApp::updatePossessed(float dt)
     motorIn.allowDoubleJump = !inAirCommit;
     motorIn.allowJumpBuffer = !jumpBusy;
     motorIn.airControlScale = inAirCommit ? jump->def().airControlScale : 1.0f;
-    motorIn.speedScale      = (status ? status->moveSpeedScale() : 1.0f) * m_offhand.shield.speedScale();
+    const bool onGround = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch || motor->state() == PlayerMoveState::Dodge);
+    const Terrain::GroundContact groundSurf = (onGround && xf) ? groundContactAt(xf->position.x, xf->position.z) : Terrain::GroundContact{};
+    motorIn.speedScale      = (status ? status->moveSpeedScale() : 1.0f) * m_offhand.shield.speedScale() * (onGround ? groundSurf.moveSpeed : 1.0f);
     motorIn.allowDodge      = canSteer && !jumpBusy && !uiKeys;
     if (motorIn.allowDodge)
     {
@@ -1297,7 +1312,12 @@ void SandboxApp::updatePossessed(float dt)
             if (motor->state() == PlayerMoveState::Swimming)
                 playSoundCue(world(), audio(), assets(), body, "swim_step");
             else
-                playSoundCue(world(), audio(), assets(), body, "step");
+            {
+                const Terrain::GroundContact stepGround = groundContactAt(xf->position.x, xf->position.z);
+                const char* cue = (stepGround.cue && stepGround.cue[0]) ? stepGround.cue : "step";
+                if (!playSoundCue(world(), audio(), assets(), body, cue))
+                    playSoundCue(world(), audio(), assets(), body, "step");
+            }
         }
     }
     else
@@ -2480,11 +2500,22 @@ void SandboxApp::syncTerrainLod()
         DE_LOG_ERROR("SandboxApp: water upload failed");
 }
 
+Terrain::GroundContact SandboxApp::groundContactAt(float x, float z) const
+{
+    const Terrain::HeightMap* height = m_terrain.editableWorking();
+    if (!height || !height->valid())
+        height = &m_terrain.coarse();
+    const Terrain::SplatMap* splat = m_terrain.editableWorkingSplat();
+    return m_ground.at(height, splat && splat->valid() ? splat : nullptr, x, z);
+}
+
 void SandboxApp::onInit()
 {
     DE_LOG_INFO("SandboxApp: init");
 
     mountContentRoots(assets());
+    m_ground.loadFromContent();
+    m_chase.setGround(&m_ground);
     registerDefaultActions();
     audio().setMasterVolume(0.85f);
 
@@ -2865,7 +2896,7 @@ void SandboxApp::onInit()
             const EntityMaster wolfMaster = loadEntityMasterType("wolf");
             const std::string  wolfGltf = wolfMaster.gltf.empty() ? std::string("models/wolf.gltf") : wolfMaster.gltf;
             attachAnimatedCharacter(hunter, wolf ? wolfGltf.c_str() : "models/skeleton.gltf");
-            attachHunterSounds(world(), pins(), assets(), audio(), hunter);
+            attachHunterSounds(world(), pins(), assets(), audio(), hunter, m_ground);
             if (HittableComponent* hit = hunter.valid() ? world().get<HittableComponent>(hunter) : nullptr)
                 hit->halfExtents = wolf ? Vector3f{ 0.45f, 0.45f, 0.70f } : Vector3f{ 0.4f, 0.7f, 0.4f };
             if (wolf)

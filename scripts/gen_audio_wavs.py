@@ -160,6 +160,84 @@ def splash(dur: float = 0.32, amp: float = 0.58) -> list[float]:
     return out
 
 
+def foot_dirt() -> list[float]:
+    # Dry grainy thud: low body plus a short crunch.
+    dur = 0.09
+    n = int(SR * dur)
+    rng = random.Random(41)
+    phase = 0.0
+    out = []
+    for i in range(n):
+        t = i / SR
+        u = t / dur
+        f = 78.0 - 30.0 * u
+        phase += 2.0 * math.pi * f / SR
+        env = math.exp(-16.0 * u)
+        if u < 0.015:
+            env *= u / 0.015
+        grain = (rng.random() * 2.0 - 1.0) * 0.55 * math.exp(-22.0 * u)
+        out.append((math.sin(phase) * 0.55 + grain) * 0.7 * env)
+    return out
+
+
+def foot_grass() -> list[float]:
+    # Soft rustle, little thump.
+    dur = 0.11
+    n = int(SR * dur)
+    rng = random.Random(52)
+    out = []
+    hold = 0.0
+    for i in range(n):
+        t = i / SR
+        u = t / dur
+        env = math.exp(-8.0 * u) * (u / 0.02 if u < 0.02 else 1.0)
+        raw = rng.random() * 2.0 - 1.0
+        hold = hold * 0.82 + raw * 0.18
+        swish = math.sin(2.0 * math.pi * 1400.0 * t) * (rng.random() * 2.0 - 1.0)
+        out.append((hold * 0.65 + swish * 0.22) * 0.45 * env)
+    return out
+
+
+def foot_rock() -> list[float]:
+    # Hard tick and a short bright ring.
+    dur = 0.07
+    n = int(SR * dur)
+    rng = random.Random(63)
+    phase = 0.0
+    out = []
+    for i in range(n):
+        t = i / SR
+        u = t / dur
+        f = 420.0 - 180.0 * u
+        phase += 2.0 * math.pi * f / SR
+        env = math.exp(-22.0 * u)
+        click = (rng.random() * 2.0 - 1.0) * math.exp(-40.0 * u)
+        out.append((click * 0.85 + math.sin(phase) * 0.35) * 0.72 * env)
+    return out
+
+
+def foot_snow() -> list[float]:
+    # Muffled crunch, slower and duller than dirt.
+    dur = 0.16
+    n = int(SR * dur)
+    rng = random.Random(74)
+    phase = 0.0
+    out = []
+    hold = 0.0
+    for i in range(n):
+        t = i / SR
+        u = t / dur
+        f = 55.0 - 18.0 * u
+        phase += 2.0 * math.pi * f / SR
+        env = math.exp(-6.5 * u)
+        if u < 0.03:
+            env *= u / 0.03
+        raw = rng.random() * 2.0 - 1.0
+        hold = hold * 0.9 + raw * 0.1
+        out.append((math.sin(phase) * 0.35 + hold * 0.8) * 0.5 * env)
+    return out
+
+
 def ambient(dur: float = 2.0, amp: float = 0.12) -> list[float]:
     n = int(SR * dur)
     out = []
@@ -184,6 +262,10 @@ def main() -> None:
     write_mono(ROOT / "land.wav", land())
     write_mono(ROOT / "splash.wav", splash())
     write_mono(ROOT / "ambient_loop.wav", ambient())
+    write_mono(ROOT / "foot_dirt.wav", foot_dirt())
+    write_mono(ROOT / "foot_grass.wav", foot_grass())
+    write_mono(ROOT / "foot_rock.wav", foot_rock())
+    write_mono(ROOT / "foot_snow.wav", foot_snow())
     print(f"wrote wavs to {ROOT}")
 
 
