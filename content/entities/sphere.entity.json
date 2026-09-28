@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "sphere",
+  "gltf": "",
+  "anim": "",
+  "physics": "entities/sphere.physics.json",
+  "hsm": ""
+}

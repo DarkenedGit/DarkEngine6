@@ -1,4 +1,5 @@
 #include "Editor/AnimEditorPanel.h"
+#include "Editor/EditorFileDialog.h"
 #include "Editor/EditorImGui.h"
 #include "Animation/AnimGraphJson.h"
 #include "Assets/ImageCache.h"
@@ -182,10 +183,10 @@ void AnimEditorPanel::draw(AnimGraphComponent& ag, AssetManager& assets, bool* o
 
     const std::filesystem::path sidecar = sidecarPathForModel(*ag.model);
     ImGui::TextUnformatted(sidecar.empty() ? "(in-memory graph)" : sidecar.filename().string().c_str());
-    if (ImGui::Button(ICON_FA_FLOPPY_DISK "  Save"))
+    if (ImGui::Button(ICON_FA_FLOPPY_DISK "  Save..."))
         saveGraph(ag, assets);
     ImGui::SameLine();
-    if (ImGui::Button(ICON_FA_FOLDER_OPEN "  Reload") && !sidecar.empty())
+    if (ImGui::Button(ICON_FA_FOLDER_OPEN "  Load..."))
         reloadGraph(ag, assets);
     ImGui::SameLine();
     bool locked = ag.graph.stateLocked();

@@ -3,6 +3,7 @@
 #include "Editor/EditorInternals.h"
 #include "Editor/EditorObject.h"
 #include "Scene/SceneFile.h"
+#include "Editor/EditorFileDialog.h"
 #include "ECS/Components.h"
 #include "Network/Replication.h"
 #include "Core/ContentRoots.h"
@@ -43,6 +44,30 @@
 using namespace Dark;
 using namespace Dark::EditorDetail;
 using namespace Math;
+
+bool EditorApp::saveSceneWithDialog()
+{
+    const std::filesystem::path suggested = m_scenePath.empty() ? defaultScenePath(m_sceneMode == SceneMode::Scene2D ? "level2d.json" : "level.json") : m_scenePath;
+    std::filesystem::path       chosen;
+    if (!pickEditorFile(window().nativeHandle(), true, L"Save Scene", L"Scene (*.json)\0*.json\0All files (*.*)\0*.*\0", L"json", suggested, chosen))
+        return false;
+    m_scenePath = chosen;
+    m_sceneName = chosen.stem().string();
+    return saveScene();
+}
+
+bool EditorApp::loadSceneWithDialog(const std::filesystem::path& suggested)
+{
+    if (netSceneLocked())
+        return false;
+    const std::filesystem::path start = suggested.empty() ? m_scenePath : suggested;
+    std::filesystem::path       chosen;
+    if (!pickEditorFile(window().nativeHandle(), false, L"Load Scene", L"Scene (*.json)\0*.json\0All files (*.*)\0*.*\0", L"json", start, chosen))
+        return false;
+    m_scenePath = chosen;
+    m_sceneName = chosen.stem().string();
+    return loadScene();
+}
 
 bool EditorApp::saveScene()
 {
@@ -274,11 +299,11 @@ void EditorApp::handleEditorCommands(float dt)
         if (input().actionPressed("play") && m_sceneMode == SceneMode::Scene3D)
             togglePlayMode();
         if (input().keyPressed(Key::F5) || (ctrl && input().keyPressed(Key::S)))
-            saveScene();
+            saveSceneWithDialog();
         if (ctrl && input().keyPressed(Key::Z))
             undoTerrainBrush();
         if ((input().keyPressed(Key::F9) || (ctrl && input().keyPressed(Key::O))) && !netSceneLocked())
-            loadScene();
+            loadSceneWithDialog(m_scenePath);
         if (input().actionPressed("toggle_particle_ui"))
             m_showParticlePanel = !m_showParticlePanel;
         if (input().actionPressed("toggle_anim_ui"))

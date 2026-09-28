@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "wiggle",
+  "gltf": "models/wiggle.gltf",
+  "anim": "models/wiggle.anim.json",
+  "physics": "models/wiggle.physics.json",
+  "hsm": ""
+}

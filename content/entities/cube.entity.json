@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "cube",
+  "gltf": "",
+  "anim": "",
+  "physics": "entities/cube.physics.json",
+  "hsm": ""
+}

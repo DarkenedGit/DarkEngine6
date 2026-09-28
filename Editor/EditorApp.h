@@ -160,6 +160,7 @@ private:
     void   rebuildPhysicsBody(Entity e);
     void   tryLoadModelPhysics(Entity e);
     bool   savePhysicsForEntity(Entity e);
+    std::filesystem::path physicsFileSuggestion(Entity e);
     PhysicsComponent defaultPhysicsFor(Entity e);
     void   syncEditPhysics();
     void   simulatePhysics(float dt);
@@ -186,6 +187,10 @@ private:
     void clearScene();
     bool saveScene();
     bool loadScene();
+    bool saveSceneWithDialog();
+    bool loadSceneWithDialog(const std::filesystem::path& suggested);
+    bool savePhysicsWithDialog(Entity e);
+    bool loadPhysicsWithDialog(Entity e);
     void applyIbl();
 
     bool loadGltfModel();

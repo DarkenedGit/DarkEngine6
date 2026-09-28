@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "human",
+  "gltf": "models/human.gltf",
+  "anim": "models/human.anim.json",
+  "physics": "models/human.physics.json",
+  "hsm": ""
+}

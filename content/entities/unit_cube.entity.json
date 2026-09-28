@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "unit_cube",
+  "gltf": "models/unit_cube.gltf",
+  "anim": "",
+  "physics": "models/unit_cube.physics.json",
+  "hsm": ""
+}

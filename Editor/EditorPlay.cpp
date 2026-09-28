@@ -29,6 +29,7 @@
 #include "Combat/WeaponHitAdapter.h"
 #include "Particles/StatusFxDriver.h"
 #include "Core/EntityPins.h"
+#include "Scene/EntityMaster.h"
 #include "Core/Log.h"
 #include "ECS/Components.h"
 #include "Input/Input.h"
@@ -46,6 +47,7 @@
 #include <imgui.h>
 
 #include <cmath>
+#include <filesystem>
 #include <cstring>
 #include <memory>
 
@@ -139,8 +141,14 @@ bool EditorApp::attachEditorModel(Entity e, const char* gltfPath)
         return true;
     }
 
-    AssetRef<AnimGraphDef> graph = assets().tryLoadAnimGraphForModel(gltfPath);
+    const std::string modelStem = std::filesystem::path(gltfPath).stem().string();
+    const EntityMaster modelMaster = loadEntityMasterType(modelStem);
+    AssetRef<AnimGraphDef> graph;
+    if (!modelMaster.anim.empty())
+        graph = assets().loadAnimGraph(modelMaster.anim);
     if (!graph)
+        graph = assets().tryLoadAnimGraphForModel(gltfPath);
+    if (!graph && model->skeleton())
         DE_LOG_WARN("Editor: '{}' has no anim graph sidecar", gltfPath);
 
     AnimGraphComponent ag;
@@ -200,7 +208,9 @@ bool EditorApp::attachEditorPlayer(Entity e)
     if (!world().has<HsmGraphComponent>(e))
     {
         HsmGraphComponent hsm{};
-        hsm.def      = assets().tryLoadHsmGraph("ai/player.hsm.json");
+        const EntityMaster playerMaster = loadEntityMasterType("player");
+        const std::string  hsmPath = playerMaster.hsm.empty() ? std::string("ai/player.hsm.json") : playerMaster.hsm;
+        hsm.def      = assets().tryLoadHsmGraph(hsmPath);
         hsm.instance = std::make_unique<HsmGraphInstance>();
         const bool built = hsm.def ? hsm.instance->build(*hsm.def) : hsm.instance->build(makePlayerHsmGraph());
         if (built)
@@ -235,7 +245,9 @@ bool EditorApp::attachEditorPlayer(Entity e)
         world().emplace<Combat::PoiseComponent>(e);
     Combat::equipPlayerShield(world(), e);
 
-    attachEditorModel(e, "models/human.gltf");
+    const EntityMaster playerMaster = loadEntityMasterType("player");
+    const std::string  playerGltf = playerMaster.gltf.empty() ? std::string("models/human.gltf") : playerMaster.gltf;
+    attachEditorModel(e, playerGltf.c_str());
     attachEditorPlayerSounds(world(), pins(), assets(), audio(), e);
     return true;
 }
@@ -262,7 +274,9 @@ bool EditorApp::attachEditorWolf(Entity e)
 {
     if (!m_ai.attachHunter(world(), e, pins(), assets()))
         return false;
-    if (!attachEditorModel(e, "models/wolf.gltf"))
+    const EntityMaster wolfMaster = loadEntityMasterType("wolf");
+    const std::string  wolfGltf = wolfMaster.gltf.empty() ? std::string("models/wolf.gltf") : wolfMaster.gltf;
+    if (!attachEditorModel(e, wolfGltf.c_str()))
     {
         MeshComponent mc{};
         mc.matAssetID  = m_propMaterial ? m_propMaterial->id : NULL_ASSET;

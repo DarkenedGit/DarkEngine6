@@ -70,10 +70,10 @@ void EditorApp::drawEditorUi()
             if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  New 2D Scene", nullptr, false, sceneOk))
                 newScene2D();
             ImGui::Separator();
-            if (ImGui::MenuItem(ICON_FA_FLOPPY_DISK "  Save Scene", "Ctrl+S"))
-                saveScene();
-            if (ImGui::MenuItem(ICON_FA_FOLDER_OPEN "  Load Scene", "Ctrl+O", false, sceneOk))
-                loadScene();
+            if (ImGui::MenuItem(ICON_FA_FLOPPY_DISK "  Save Scene...", "Ctrl+S"))
+                saveSceneWithDialog();
+            if (ImGui::MenuItem(ICON_FA_FOLDER_OPEN "  Load Scene...", "Ctrl+O", false, sceneOk))
+                loadSceneWithDialog(m_scenePath);
             ImGui::Separator();
             if (ImGui::MenuItem(ICON_FA_CUBE "  Load Model...", nullptr, false, sceneOk))
                 loadGltfModel();
@@ -81,16 +81,10 @@ void EditorApp::drawEditorUi()
                 saveGltfModel();
             if (ImGui::MenuItem(ICON_FA_FLOPPY_DISK "  Save Model As...", nullptr, selectedModel() != nullptr))
                 saveGltfModelAs();
-            if (ImGui::MenuItem(ICON_FA_FILE "  Open 3D Level", nullptr, false, sceneOk))
-            {
-                m_scenePath = defaultScenePath("level.json");
-                loadScene();
-            }
-            if (ImGui::MenuItem(ICON_FA_FILE "  Open 2D Level", nullptr, false, sceneOk))
-            {
-                m_scenePath = defaultScenePath("level2d.json");
-                loadScene();
-            }
+            if (ImGui::MenuItem(ICON_FA_FILE "  Open 3D Level...", nullptr, false, sceneOk))
+                loadSceneWithDialog(defaultScenePath("level.json"));
+            if (ImGui::MenuItem(ICON_FA_FILE "  Open 2D Level...", nullptr, false, sceneOk))
+                loadSceneWithDialog(defaultScenePath("level2d.json"));
             if (!sceneOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Disconnect before changing the scene");
             ImGui::Separator();

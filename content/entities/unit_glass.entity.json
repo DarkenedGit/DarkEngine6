@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "unit_glass",
+  "gltf": "models/unit_glass.gltf",
+  "anim": "",
+  "physics": "models/unit_glass.physics.json",
+  "hsm": ""
+}

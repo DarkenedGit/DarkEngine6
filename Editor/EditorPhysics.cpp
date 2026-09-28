@@ -7,7 +7,10 @@
 #include "Physics/PhysicsBind.h"
 #include "Physics/PhysicsComponent.h"
 #include "Physics/PhysicsFile.h"
+#include "Scene/EntityMaster.h"
 #include "Scene/SceneTypes.h"
+#include "Core/ContentRoots.h"
+#include "Editor/EditorFileDialog.h"
 
 #include <imgui.h>
 
@@ -136,41 +139,112 @@ void EditorApp::rebuildPhysicsBody(Entity e)
         DE_LOG_WARN(LogCategory::Collision, "Editor: physics bind failed for #{}", e.id());
 }
 
+namespace
+{
+    std::string entityTypeKey(const EditorObjectComponent* so, const Model* model)
+    {
+        if (so)
+        {
+            switch (so->type)
+            {
+            case SceneObjectType::Cube:   return "cube";
+            case SceneObjectType::Sphere: return "sphere";
+            case SceneObjectType::Player: return "player";
+            case SceneObjectType::Wolf:   return "wolf";
+            default: break;
+            }
+        }
+        if (model && !model->sourcePath().empty())
+            return model->sourcePath().stem().string();
+        return {};
+    }
+}
+
 void EditorApp::tryLoadModelPhysics(Entity e)
 {
-    if (!world().alive(e))
+    if (!world().alive(e) || world().has<PhysicsComponent>(e))
         return;
     AssetRef<Model> held;
     const Model*    model = modelForPhysics(e, held);
-    if (!model || model->sourcePath().empty())
-        return;
+    const EditorObjectComponent* so = findObject(e);
+    const std::string typeKey = entityTypeKey(so, model);
+    const EntityMaster master = typeKey.empty() ? EntityMaster{} : loadEntityMasterType(typeKey);
     PhysicsComponent loaded;
-    if (!Physics::loadPhysicsSettingsForModel(model->sourcePath(), loaded))
+    bool             loadedFile = false;
+    if (!master.physics.empty())
+    {
+        const std::filesystem::path file = resolveContentFile(master.physics);
+        loadedFile = !file.empty() && Physics::loadPhysicsSettingsFile(file, loaded);
+    }
+    if (!loadedFile && model && !model->sourcePath().empty())
+        loadedFile = Physics::loadPhysicsSettingsForModel(model->sourcePath(), loaded);
+    if (!loadedFile)
         return;
     world().emplace<PhysicsComponent>(e, std::move(loaded));
     rebuildPhysicsBody(e);
-    DE_LOG_INFO(LogCategory::Collision, "Editor: loaded physics for '{}'", model->sourcePath().filename().string());
+    DE_LOG_INFO(LogCategory::Collision, "Editor: loaded physics for '{}'", typeKey.empty() ? model->sourcePath().filename().string() : typeKey);
 }
 
-bool EditorApp::savePhysicsForEntity(Entity e)
+std::filesystem::path EditorApp::physicsFileSuggestion(Entity e)
+{
+    AssetRef<Model> held;
+    const Model*    model = modelForPhysics(e, held);
+    const EditorObjectComponent* so = findObject(e);
+    const std::string typeKey = entityTypeKey(so, model);
+    if (!typeKey.empty())
+    {
+        const EntityMaster master = loadEntityMasterType(typeKey);
+        if (!master.physics.empty())
+            return authoringContentFile(master.physics);
+    }
+    if (model && !model->sourcePath().empty())
+        return Physics::physicsSidecarAuthoringPath(model->sourcePath());
+    const std::filesystem::path root = authoringContentRoot();
+    if (root.empty())
+        return std::filesystem::path("object.physics.json");
+    return root / "physics" / "object.physics.json";
+}
+
+bool EditorApp::savePhysicsWithDialog(Entity e)
 {
     const PhysicsComponent* phys = world().get<PhysicsComponent>(e);
     if (!phys)
         return false;
-    AssetRef<Model> held;
-    const Model*    model = modelForPhysics(e, held);
-    if (!model || model->sourcePath().empty())
-    {
-        DE_LOG_WARN(LogCategory::Collision, "Editor: physics save needs a model file");
+    std::filesystem::path chosen;
+    if (!pickEditorFile(window().nativeHandle(), true, L"Save Physics", L"Physics (*.physics.json;*.json)\0*.physics.json;*.json\0All files (*.*)\0*.*\0",
+                        L"json", physicsFileSuggestion(e), chosen))
         return false;
-    }
-    const std::filesystem::path path = Physics::physicsSidecarAuthoringPath(model->sourcePath());
-    if (!Physics::savePhysicsSettingsFile(path, *phys))
+    if (!Physics::savePhysicsSettingsFile(chosen, *phys))
         return false;
     if (m_sfxSave)
         audio().play2D(m_sfxSave, 0.45f);
-    DE_LOG_INFO(LogCategory::Collision, "Editor: saved physics '{}'", path.string());
+    DE_LOG_INFO(LogCategory::Collision, "Editor: saved physics '{}'", chosen.string());
     return true;
+}
+
+bool EditorApp::loadPhysicsWithDialog(Entity e)
+{
+    if (!world().alive(e) || !world().get<PhysicsComponent>(e))
+        return false;
+    std::filesystem::path chosen;
+    if (!pickEditorFile(window().nativeHandle(), false, L"Load Physics", L"Physics (*.physics.json;*.json)\0*.physics.json;*.json\0All files (*.*)\0*.*\0",
+                        L"json", physicsFileSuggestion(e), chosen))
+        return false;
+    PhysicsComponent loaded;
+    if (!Physics::loadPhysicsSettingsFile(chosen, loaded))
+    {
+        DE_LOG_WARN(LogCategory::Collision, "Editor: could not load physics '{}'", chosen.string());
+        return false;
+    }
+    world().emplace<PhysicsComponent>(e, std::move(loaded));
+    rebuildPhysicsBody(e);
+    DE_LOG_INFO(LogCategory::Collision, "Editor: loaded physics '{}'", chosen.string());
+    return true;
+}
+
+bool EditorApp::savePhysicsForEntity(Entity e)
+{
+    return savePhysicsWithDialog(e);
 }
 
 PhysicsComponent EditorApp::defaultPhysicsFor(Entity e)
@@ -399,25 +473,14 @@ void EditorApp::drawPhysicsInspector(Entity e)
     else
         ImGui::TextDisabled("Not in the physics world.");
 
-    if (ImGui::Button("Save .physics.json"))
-    {
-        if (!savePhysicsForEntity(e))
-            DE_LOG_WARN(LogCategory::Collision, "Editor: could not save physics json");
-    }
+    if (ImGui::Button("Save..."))
+        savePhysicsWithDialog(e);
     ImGui::SameLine();
-    std::error_code ec;
-    const bool      canReload = !sidecar.empty() && std::filesystem::is_regular_file(sidecar, ec) && !ec;
-    ImGui::BeginDisabled(!canReload);
-    if (ImGui::Button("Reload"))
+    if (ImGui::Button("Load..."))
     {
-        PhysicsComponent loaded;
-        if (Physics::loadPhysicsSettingsFile(sidecar, loaded))
-        {
-            *phys   = std::move(loaded);
+        if (loadPhysicsWithDialog(e))
             changed = true;
-        }
     }
-    ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::Button("Remove"))
     {

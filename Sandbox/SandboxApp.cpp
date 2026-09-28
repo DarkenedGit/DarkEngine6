@@ -38,6 +38,7 @@
 #include "AI/AiComponents.h"
 #include "AI/Brain.h"
 #include "AI/HsmGraph.h"
+#include "Scene/EntityMaster.h"
 #include "AI/HsmGraphComponent.h"
 #include "Audio/SoundComponents.h"
 #include "Animation/AnimNotify.h"
@@ -817,7 +818,9 @@ void SandboxApp::attachReplicaCombat(Entity e)
         h.halfExtents = Vector3f{ 0.35f, 0.7f, 0.35f };
         world().emplace<HittableComponent>(e, h);
     }
-    attachAnimatedCharacter(e, "models/human.gltf");
+    const EntityMaster playerMaster = loadEntityMasterType("player");
+    const std::string  playerGltf = playerMaster.gltf.empty() ? std::string("models/human.gltf") : playerMaster.gltf;
+    attachAnimatedCharacter(e, playerGltf.c_str());
 }
 
 void SandboxApp::attachLocalPlayer(Entity e)
@@ -828,7 +831,9 @@ void SandboxApp::attachLocalPlayer(Entity e)
     if (!world().has<HsmGraphComponent>(e))
     {
         HsmGraphComponent hsm{};
-        hsm.def      = assets().tryLoadHsmGraph("ai/player.hsm.json");
+        const EntityMaster playerMaster = loadEntityMasterType("player");
+        const std::string  hsmPath = playerMaster.hsm.empty() ? std::string("ai/player.hsm.json") : playerMaster.hsm;
+        hsm.def      = assets().tryLoadHsmGraph(hsmPath);
         hsm.instance = std::make_unique<HsmGraphInstance>();
         const bool built = hsm.def ? hsm.instance->build(*hsm.def) : hsm.instance->build(makePlayerHsmGraph());
         if (!built)
@@ -1895,8 +1900,12 @@ void SandboxApp::spawnGltfDemo()
     };
 
     // Sit on the terrain next to the player cube at the origin (default camera looks here).
-    spawn("models/unit_cube.gltf", "GltfCube", 3.0f, 3.0f, 2.0f);
-    spawn("models/unit_glass.gltf", "GltfGlass", 5.5f, 3.0f, 2.0f);
+    const EntityMaster cubeMaster = loadEntityMasterType("unit_cube");
+    const EntityMaster glassMaster = loadEntityMasterType("unit_glass");
+    const std::string  cubeGltf = cubeMaster.gltf.empty() ? std::string("models/unit_cube.gltf") : cubeMaster.gltf;
+    const std::string  glassGltf = glassMaster.gltf.empty() ? std::string("models/unit_glass.gltf") : glassMaster.gltf;
+    spawn(cubeGltf.c_str(), "GltfCube", 3.0f, 3.0f, 2.0f);
+    spawn(glassGltf.c_str(), "GltfGlass", 5.5f, 3.0f, 2.0f);
     spawnAnimatedDemo();
 }
 
@@ -1909,14 +1918,20 @@ void SandboxApp::onWiggleNotify(void*, const AnimNotify& n)
 
 void SandboxApp::spawnAnimatedDemo()
 {
-    constexpr const char* kGltf = "models/wiggle.gltf";
+    const EntityMaster wiggleMaster = loadEntityMasterType("wiggle");
+    const std::string  wiggleGltf = wiggleMaster.gltf.empty() ? std::string("models/wiggle.gltf") : wiggleMaster.gltf;
+    const char*        kGltf = wiggleGltf.c_str();
     AssetRef<Model> model = loadAndUploadModel(renderer(), assets(), kGltf);
     if (!model || !model->valid())
     {
         DE_LOG_WARN("SandboxApp: animated glTF '{}' not loaded", kGltf);
         return;
     }
-    AssetRef<AnimGraphDef> graph = assets().tryLoadAnimGraphForModel(kGltf);
+    AssetRef<AnimGraphDef> graph;
+    if (!wiggleMaster.anim.empty())
+        graph = assets().loadAnimGraph(wiggleMaster.anim);
+    if (!graph)
+        graph = assets().tryLoadAnimGraphForModel(kGltf);
     if (!graph)
         DE_LOG_WARN("SandboxApp: '{}' has no anim graph sidecar; clips still play if present", kGltf);
 
@@ -2847,7 +2862,9 @@ void SandboxApp::onInit()
         {
             const Entity hunter = m_chase.hunterEntity(i);
             const bool wolf = (i != 0);
-            attachAnimatedCharacter(hunter, wolf ? "models/wolf.gltf" : "models/skeleton.gltf");
+            const EntityMaster wolfMaster = loadEntityMasterType("wolf");
+            const std::string  wolfGltf = wolfMaster.gltf.empty() ? std::string("models/wolf.gltf") : wolfMaster.gltf;
+            attachAnimatedCharacter(hunter, wolf ? wolfGltf.c_str() : "models/skeleton.gltf");
             attachHunterSounds(world(), pins(), assets(), audio(), hunter);
             if (HittableComponent* hit = hunter.valid() ? world().get<HittableComponent>(hunter) : nullptr)
                 hit->halfExtents = wolf ? Vector3f{ 0.45f, 0.45f, 0.70f } : Vector3f{ 0.4f, 0.7f, 0.4f };

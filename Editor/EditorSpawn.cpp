@@ -359,6 +359,8 @@ Entity EditorApp::spawnObject(
             DE_LOG_WARN("Editor: model '{}' using cube proxy", modelPath ? modelPath : "(none)");
         }
     }
+    if (type == SceneObjectType::Cube || type == SceneObjectType::Sphere)
+        tryLoadModelPhysics(e);
     m_selected = e;
     if (registerNet && isReplicatedProp(type))
         network().registerEntity(world(), e, prefabFromType(type), ClientId::Host, packRgba8(so.color));

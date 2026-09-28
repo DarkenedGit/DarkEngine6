@@ -1,4 +1,5 @@
 #include "Editor/HsmEditorPanel.h"
+#include "Editor/EditorFileDialog.h"
 #include "Editor/EditorImGui.h"
 #include "AI/HsmGraphJson.h"
 #include "Editor/HsmStatechart.h"
@@ -94,34 +95,29 @@ void HsmEditorPanel::loadVirtual(AssetManager& assets, const std::string& virtua
 
 bool HsmEditorPanel::save(AssetManager& assets)
 {
-    std::filesystem::path path;
+    std::filesystem::path suggested;
     if (!m_virtualPath.empty())
-        path = assets.resolve(m_virtualPath);
-    if (path.empty() && !m_def.sourcePath.empty())
-        path = std::filesystem::path(m_def.sourcePath);
-    if (path.empty() && !m_virtualPath.empty())
-    {
-        const std::filesystem::path existing = assets.resolve("ai/hunter.hsm.json");
-        if (!existing.empty())
-            path = existing.parent_path() / std::filesystem::path(m_virtualPath).filename();
-        else
-            path = std::filesystem::path(m_virtualPath);
-    }
-    if (path.empty())
-    {
-        std::snprintf(m_status, sizeof(m_status), "No path to save — load hunter or player first");
+        suggested = assets.resolve(m_virtualPath);
+    if (suggested.empty() && !m_def.sourcePath.empty())
+        suggested = std::filesystem::path(m_def.sourcePath);
+    if (suggested.empty())
+        suggested = std::filesystem::path("graph.hsm.json");
+    std::filesystem::path path;
+    if (!pickEditorFile(nullptr, true, L"Save State Machine", L"State machine (*.hsm.json;*.json)\0*.hsm.json;*.json\0All files (*.*)\0*.*\0", L"json",
+                        suggested, path))
         return false;
-    }
     std::error_code ec;
     std::filesystem::create_directories(path.parent_path(), ec);
-    m_def.sourcePath = m_virtualPath.empty() ? path.generic_string() : m_virtualPath;
+    m_def.sourcePath = path.generic_string();
     if (!saveHsmGraphJsonFile(m_def, path))
     {
         std::snprintf(m_status, sizeof(m_status), "Save failed: %s", path.string().c_str());
         return false;
     }
+    m_virtualPath        = path.generic_string();
+    m_def.sourcePath     = m_virtualPath;
     assets.registerAsset(std::make_shared<HsmGraphDef>(m_def), ImageCache::normalizePath(path));
-    std::snprintf(m_status, sizeof(m_status), "Saved %s", path.filename().string().c_str());
+    std::snprintf(m_status, sizeof(m_status), "Saved %s", path.string().c_str());
     return true;
 }
 
@@ -155,11 +151,36 @@ void HsmEditorPanel::draw(AssetManager& assets, bool* open)
         loadTemplate(makePlayerHsmGraph(), "ai/player.hsm.json");
 
     ImGui::TextUnformatted(m_virtualPath.empty() ? "(unsaved)" : m_virtualPath.c_str());
-    if (ImGui::Button(ICON_FA_FLOPPY_DISK "  Save"))
+    if (ImGui::Button(ICON_FA_FLOPPY_DISK "  Save..."))
         save(assets);
     ImGui::SameLine();
-    if (ImGui::Button(ICON_FA_FOLDER_OPEN "  Reload") && !m_virtualPath.empty())
-        loadVirtual(assets, m_virtualPath);
+    if (ImGui::Button(ICON_FA_FOLDER_OPEN "  Load..."))
+    {
+        std::filesystem::path suggested;
+        if (!m_virtualPath.empty())
+            suggested = assets.resolve(m_virtualPath);
+        std::filesystem::path chosen;
+        if (pickEditorFile(nullptr, false, L"Load State Machine", L"State machine (*.hsm.json;*.json)\0*.hsm.json;*.json\0All files (*.*)\0*.*\0", L"json",
+                           suggested, chosen))
+        {
+            AssetRef<HsmGraphDef> graph = assets.loadHsmGraphFile(chosen);
+            if (!graph)
+                std::snprintf(m_status, sizeof(m_status), "Failed to load %s", chosen.string().c_str());
+            else
+            {
+                m_def                = *graph;
+                m_virtualPath        = chosen.generic_string();
+                m_def.sourcePath     = m_virtualPath;
+                m_selectedState      = 0;
+                m_selectedTransition = -1;
+                m_selectedEvent      = 0;
+                m_previewDirty       = true;
+                m_chartFitNext       = true;
+                rebuildPreview();
+                std::snprintf(m_status, sizeof(m_status), "Loaded %s", chosen.string().c_str());
+            }
+        }
+    }
 
     char nameBuf[64]{};
 #if defined(_MSC_VER)

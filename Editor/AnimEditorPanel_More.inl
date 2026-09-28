@@ -249,20 +249,21 @@ bool AnimEditorPanel::saveGraph(AnimGraphComponent& ag, AssetManager& assets)
 {
     if (!ag.graphDef)
         return false;
-    std::filesystem::path path = ag.model ? sidecarPathForModel(*ag.model) : std::filesystem::path{};
-    if (path.empty() && !ag.graphDef->modelPath.empty())
+    std::filesystem::path suggested = ag.model ? sidecarPathForModel(*ag.model) : std::filesystem::path{};
+    if (suggested.empty() && !ag.graphDef->modelPath.empty())
     {
         std::filesystem::path modelVirt(ag.graphDef->modelPath);
         modelVirt.replace_extension(".anim.json");
-        path = assets.resolve(modelVirt.generic_string());
-        if (path.empty())
-            path = modelVirt;
+        suggested = assets.resolve(modelVirt.generic_string());
+        if (suggested.empty())
+            suggested = modelVirt;
     }
-    if (path.empty())
-    {
-        std::snprintf(m_status, sizeof(m_status), "No sidecar path — load a glTF from content/ first.");
+    if (suggested.empty())
+        suggested = std::filesystem::path("graph.anim.json");
+    std::filesystem::path path;
+    if (!Dark::pickEditorFile(nullptr, true, L"Save Animation", L"Animation (*.anim.json;*.json)\0*.anim.json;*.json\0All files (*.*)\0*.*\0", L"json",
+                              suggested, path))
         return false;
-    }
     if (ag.graphDef->modelPath.empty() && ag.model)
     {
         std::string virt = assets.virtualPathFromAbsolute(ag.model->sourcePath());
@@ -284,10 +285,12 @@ bool AnimEditorPanel::saveGraph(AnimGraphComponent& ag, AssetManager& assets)
 bool AnimEditorPanel::reloadGraph(AnimGraphComponent& ag, AssetManager& assets)
 {
     (void)assets;
-    if (!ag.graphDef || !ag.graphDef->animSet || !ag.model)
+    if (!ag.graphDef || !ag.graphDef->animSet)
         return false;
-    const std::filesystem::path path = sidecarPathForModel(*ag.model);
-    if (path.empty())
+    std::filesystem::path suggested = ag.model ? sidecarPathForModel(*ag.model) : std::filesystem::path{};
+    std::filesystem::path path;
+    if (!Dark::pickEditorFile(nullptr, false, L"Load Animation", L"Animation (*.anim.json;*.json)\0*.anim.json;*.json\0All files (*.*)\0*.*\0", L"json",
+                              suggested, path))
         return false;
     std::ifstream in(path, std::ios::binary);
     if (!in)
