@@ -54,8 +54,43 @@ void EditorApp::ensurePhysicsWorld()
         return;
     }
     m_surfaces.loadFromContent();
+    rebuildPhysicsGround();
+}
 
-    // Flat stand-in for the editor grid. Terrain height fields are not cooked yet.
+// Physics ground = the terrain's coarse height map as a Box3D height field.
+// No terrain (or height field failed) → flat stand-in box with its top at Y = 0.
+// Called when the world is created and again on Play, so Generate / sculpt edits are picked up.
+void EditorApp::rebuildPhysicsGround()
+{
+    if (!m_physics.valid())
+        return;
+
+    if (m_physicsGround != Physics::kNullPhysicsBody)
+    {
+        m_physics.destroyBody(m_physicsGround);
+        m_physicsGround = Physics::kNullPhysicsBody;
+    }
+
+    const Terrain::HeightMap& coarse = m_terrain.coarse();
+    if (m_haveTerrain && coarse.valid())
+    {
+        Physics::PhysicsHeightFieldDesc hf;
+        hf.heights     = coarse.samples();
+        hf.countX      = coarse.width();
+        hf.countZ      = coarse.height();
+        hf.cellSize    = coarse.cellSize();
+        hf.heightScale = coarse.heightScale();
+        hf.origin      = coarse.origin();
+        hf.friction    = 0.8f;
+        m_physicsGround = m_physics.createHeightField(hf);
+        if (m_physicsGround != Physics::kNullPhysicsBody)
+        {
+            DE_LOG_INFO(LogCategory::Collision, "Editor: physics ground = terrain height field {}x{} (cell {:.2f} m)", hf.countX, hf.countZ, hf.cellSize);
+            return;
+        }
+        DE_LOG_WARN(LogCategory::Collision, "Editor: terrain height field failed; using flat ground");
+    }
+
     Physics::PhysicsBoxDesc ground;
     ground.position    = Vector3f(0.0f, -1.0f, 0.0f);
     ground.halfExtents = Vector3f(2000.0f, 1.0f, 2000.0f);

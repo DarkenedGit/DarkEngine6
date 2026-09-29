@@ -9,6 +9,7 @@
 #include <box3d/box3d.h>
 
 #include <cstdint>
+#include <algorithm>
 #include <utility>
 #include <vector>
 
@@ -227,6 +228,7 @@ namespace Dark::Physics
         , m_desc(other.m_desc)
         , m_accum(other.m_accum)
         , m_bound(std::move(other.m_bound))
+        , m_heightFields(std::move(other.m_heightFields))
     {
         other.resetState();
     }
@@ -240,6 +242,7 @@ namespace Dark::Physics
         m_desc  = other.m_desc;
         m_accum = other.m_accum;
         m_bound = std::move(other.m_bound);
+        m_heightFields = std::move(other.m_heightFields);
         other.resetState();
         return *this;
     }
@@ -250,6 +253,7 @@ namespace Dark::Physics
         m_desc  = {};
         m_accum = 0.0f;
         m_bound.clear();
+        m_heightFields.clear();
     }
 
     bool PhysicsWorld::create(const PhysicsWorldDesc& desc)
@@ -291,6 +295,8 @@ namespace Dark::Physics
         const b3WorldId worldId = loadWorld(m_id);
         if (b3World_IsValid(worldId))
             b3DestroyWorld(worldId);
+        for (HeightFieldSlot& slot : m_heightFields)
+            b3DestroyHeightField(static_cast<b3HeightFieldData*>(slot.data));
         resetState();
     }
 
@@ -381,6 +387,81 @@ namespace Dark::Physics
         }
 
         return b3StoreBodyId(bodyId);
+    }
+
+    PhysicsBodyId PhysicsWorld::createHeightField(const PhysicsHeightFieldDesc& desc)
+    {
+        if (!valid())
+        {
+            DE_LOG_ERROR(LogCategory::Collision, "PhysicsWorld: createHeightField on invalid world");
+            return kNullPhysicsBody;
+        }
+        if (!desc.heights || desc.countX < 2 || desc.countZ < 2)
+        {
+            DE_LOG_ERROR(LogCategory::Collision, "PhysicsWorld: createHeightField needs at least 2x2 heights");
+            return kNullPhysicsBody;
+        }
+        if (desc.cellSize <= 0.0f || desc.heightScale <= 0.0f)
+        {
+            DE_LOG_ERROR(LogCategory::Collision, "PhysicsWorld: createHeightField cellSize/heightScale must be positive");
+            return kNullPhysicsBody;
+        }
+
+        const size_t       count = static_cast<size_t>(desc.countX) * desc.countZ;
+        std::vector<float> heights(desc.heights, desc.heights + count);
+        float              minH = heights[0];
+        float              maxH = heights[0];
+        for (float h : heights)
+        {
+            minH = std::min(minH, h);
+            maxH = std::max(maxH, h);
+        }
+
+        b3HeightFieldDef hfDef{};
+        hfDef.heights             = heights.data();
+        hfDef.materialIndices     = nullptr; // one surface for the whole terrain (v1)
+        hfDef.scale               = { desc.cellSize, desc.heightScale, desc.cellSize };
+        hfDef.countX              = static_cast<int>(desc.countX);
+        hfDef.countZ              = static_cast<int>(desc.countZ);
+        hfDef.globalMinimumHeight = minH;
+        hfDef.globalMaximumHeight = maxH;
+        hfDef.clockwiseWinding    = false;
+
+        b3HeightFieldData* hfData = b3CreateHeightField(&hfDef);
+        if (!hfData)
+        {
+            DE_LOG_ERROR(LogCategory::Collision, "PhysicsWorld: b3CreateHeightField failed");
+            return kNullPhysicsBody;
+        }
+
+        b3BodyDef bodyDef = b3DefaultBodyDef();
+        bodyDef.type      = b3_staticBody;
+        bodyDef.position  = toB3Pos(desc.origin);
+
+        const b3BodyId bodyId = b3CreateBody(loadWorld(m_id), &bodyDef);
+        if (!b3Body_IsValid(bodyId))
+        {
+            DE_LOG_ERROR(LogCategory::Collision, "PhysicsWorld: b3CreateBody failed (height field)");
+            b3DestroyHeightField(hfData);
+            return kNullPhysicsBody;
+        }
+
+        b3ShapeDef shapeDef            = b3DefaultShapeDef();
+        shapeDef.density               = 0.0f; // static: no mass
+        shapeDef.baseMaterial.friction = desc.friction;
+
+        const b3ShapeId shapeId = b3CreateHeightFieldShape(bodyId, &shapeDef, hfData);
+        if (!b3Shape_IsValid(shapeId))
+        {
+            DE_LOG_ERROR(LogCategory::Collision, "PhysicsWorld: b3CreateHeightFieldShape failed");
+            b3DestroyBody(bodyId);
+            b3DestroyHeightField(hfData);
+            return kNullPhysicsBody;
+        }
+
+        const PhysicsBodyId id = b3StoreBodyId(bodyId);
+        m_heightFields.push_back({ id, hfData });
+        return id;
     }
 
     bool PhysicsWorld::createBody(World& world, Entity e, const PhysicsBodyDesc& desc)
@@ -475,6 +556,16 @@ namespace Dark::Physics
         if (!bodyValid(id))
             return;
         b3DestroyBody(loadBody(id));
+        for (size_t i = 0; i < m_heightFields.size(); ++i)
+        {
+            if (m_heightFields[i].body == id)
+            {
+                b3DestroyHeightField(static_cast<b3HeightFieldData*>(m_heightFields[i].data));
+                m_heightFields[i] = m_heightFields.back();
+                m_heightFields.pop_back();
+                break;
+            }
+        }
         for (size_t i = 0; i < m_bound.size(); ++i)
         {
             if (m_bound[i].body == id)

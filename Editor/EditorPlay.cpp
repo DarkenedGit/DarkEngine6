@@ -484,6 +484,7 @@ void EditorApp::setPlayMode(bool play)
         m_dragging         = false;
         m_playMode = true;
         ensurePhysicsWorld();
+        rebuildPhysicsGround(); // pick up terrain Generate / sculpt since the last Play
         if (m_physics.valid())
             m_physics.pushPoses(world(), true);
         window().setCursorCaptured(window().isFocused());
