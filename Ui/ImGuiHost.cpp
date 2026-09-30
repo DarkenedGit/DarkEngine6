@@ -4,6 +4,7 @@
 #include "Core/Log.h"
 #include "Core/ContentRoots.h"
 #include "Render/Renderer.h"
+#include "Render/Texture2D.h"
 
 #include <imgui.h>
 #include <imgui_impl_win32.h>
@@ -22,10 +23,12 @@ struct ImGuiHost::Impl
 {
     ComPtr<ID3D12DescriptorHeap> srvHeap;
     UINT                         srvDescriptorSize = 0;
+    UINT                         nextSrvSlot       = 1; // slot 0 = font atlas
 };
 
 namespace
 {
+    constexpr UINT kSrvHeapSize = 64; // slot 0 = font atlas; 1.. = addTexture()
 
     bool MessageHook(void* hwnd, unsigned msg, unsigned long long wParam, long long lParam, void*)
     {
@@ -96,11 +99,43 @@ namespace
 
 } // namespace
 
+uint64_t ImGuiHost::addTexture(Dark::Renderer& renderer, const Dark::Texture2D& texture)
+{
+    if (!m_ready || !m_impl || !m_impl->srvHeap || !renderer.device())
+    {
+        DE_LOG_WARN("ImGuiHost: addTexture before init");
+        return 0;
+    }
+    if (!texture.valid())
+    {
+        DE_LOG_WARN("ImGuiHost: addTexture with invalid texture");
+        return 0;
+    }
+    if (m_impl->nextSrvSlot >= kSrvHeapSize)
+    {
+        DE_LOG_WARN("ImGuiHost: SRV heap full ({} slots)", kSrvHeapSize);
+        return 0;
+    }
+
+    const UINT slot   = m_impl->nextSrvSlot;
+    const UINT offset = slot * m_impl->srvDescriptorSize; // each slot is srvDescriptorSize bytes
+
+    D3D12_CPU_DESCRIPTOR_HANDLE dstCpu = m_impl->srvHeap->GetCPUDescriptorHandleForHeapStart();
+    dstCpu.ptr += offset;
+    D3D12_GPU_DESCRIPTOR_HANDLE dstGpu = m_impl->srvHeap->GetGPUDescriptorHandleForHeapStart();
+    dstGpu.ptr += offset;
+
+    renderer.device()->CopyDescriptorsSimple(1, dstCpu, texture.cpuHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    ++m_impl->nextSrvSlot;
+    return static_cast<uint64_t>(dstGpu.ptr);
+}
+
 bool ImGuiHost::createSrvHeap(Dark::Renderer& renderer)
 {
     D3D12_DESCRIPTOR_HEAP_DESC desc{};
     desc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    desc.NumDescriptors = 64;
+    desc.NumDescriptors = kSrvHeapSize;
     desc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     if (FAILED(renderer.device()->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&m_impl->srvHeap))))
     {

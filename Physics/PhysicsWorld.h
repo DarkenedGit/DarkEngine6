@@ -58,6 +58,17 @@ namespace Dark::Physics
         float                 gravityScale   = 1.0f;
     };
 
+    struct PhysicsHeightFieldDesc
+    {
+        const float*   heights     = nullptr;      // the grid of heights
+        uint32_t       countX      = 0;            // grid points along X
+        uint32_t       countZ      = 0;            // grid points along Z
+        float          cellSize    = 1.0f;         // metres between grid points
+        float          heightScale = 1.0f;         // multiply each height by this
+        Math::Vector3f origin{ 0.0f, 0.0f, 0.0f }; // world position of grid point (0,0)
+        float          friction = 0.8f;            // how grippy the ground is
+    };
+
     class PhysicsWorld
     {
     public:
@@ -80,6 +91,7 @@ namespace Dark::Physics
         bool step(float dt, World& world);
 
         PhysicsBodyId createBox(const PhysicsBoxDesc& desc);
+        PhysicsBodyId createHeightField(const PhysicsHeightFieldDesc& desc);
         bool          createBody(World& world, Entity e, const PhysicsBodyDesc& desc);
         void          destroyBody(PhysicsBodyId id);
         void          destroyBody(Entity e);
@@ -129,6 +141,12 @@ namespace Dark::Physics
             PhysicsBodyId body = kNullPhysicsBody;
         };
 
+        struct HeightFieldSlot
+        {
+            PhysicsBodyId body = kNullPhysicsBody;
+            void*         data = nullptr;
+        };
+
         void resetState();
         void unbindDead(World& world);
         void unbindIndex(size_t index);
@@ -138,5 +156,6 @@ namespace Dark::Physics
         PhysicsWorldDesc m_desc{};
         float            m_accum = 0.0f;
         std::vector<BoundBody> m_bound;
+        std::vector<HeightFieldSlot> m_heightFields;
     };
 } // namespace Dark::Physics
