@@ -159,6 +159,7 @@ private:
     void   drawPhysicsInspector(Entity e);
     void   ensurePhysicsWorld();
     void   rebuildPhysicsGround();
+    float  playGroundHeight(float x, float z) const;
     void   ensurePlayPhysicsVolumes();
     void   releasePhysicsBody(Entity e);
     const Model* modelForPhysics(Entity e, AssetRef<Model>& held);
@@ -477,6 +478,8 @@ private:
     bool                               m_fireCharged = false;
     std::vector<Dark::Math::AABox3f> m_playCubes;
     std::vector<Dark::Math::Sphere3f> m_playSpheres;
+    float                  m_playGroundProbeY = 0.0f;
+    Physics::PhysicsBodyId m_playGroundIgnore = Physics::kNullPhysicsBody;
     std::vector<Dark::Entity>        m_playCubeEntities;
     std::vector<Dark::Entity>        m_playSphereEntities;
     struct PlayWeaponTarget

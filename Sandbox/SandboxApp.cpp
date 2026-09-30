@@ -39,6 +39,9 @@
 #include "AI/Brain.h"
 #include "AI/HsmGraph.h"
 #include "Scene/EntityMaster.h"
+#include "Physics/PhysicsBind.h"
+#include "Physics/PhysicsComponent.h"
+#include "Physics/PhysicsFile.h"
 #include "AI/HsmGraphComponent.h"
 #include "Audio/SoundComponents.h"
 #include "Animation/AnimNotify.h"
@@ -1168,16 +1171,14 @@ void SandboxApp::updatePossessed(float dt)
         motorIn.dodgeTapWish = moveCardinalWish(motorIn.dodgeTap, flat, right);
     }
 
-    struct HeightCtx
-    {
-        Terrain::TerrainGrid* terrain;
-    };
-    HeightCtx ctx{ &m_terrain };
+    m_groundProbeY = xf->position.y;
+    m_groundIgnore = m_physics.valid() ? m_physics.bodyOf(body) : Physics::kNullPhysicsBody;
+
     PlayerGroundQuery ground{};
-    ground.user = &ctx;
+    ground.user = this;
     ground.waterY = m_water.params().waterLevel;
     ground.heightAt = [](void* user, float x, float z) -> float {
-        return static_cast<HeightCtx*>(user)->terrain->heightAtWorld(x, z);
+        return static_cast<const SandboxApp*>(user)->playerGroundHeight(x, z);
     };
 
     const Vector3f before = xf->position;
@@ -1216,22 +1217,39 @@ void SandboxApp::updatePossessed(float dt)
     if (delta.MagnitudeSqrd() > 1.0e-10f)
     {
         Sphere3f ball{ Vector3f{ before.x, xf->position.y, before.z }, kRadius };
+        float    bestT = 1.0f;
         for (const AABox3f& cube : m_chase.cubes())
         {
+            if (Dark::Collision::Intersects(ball, cube))
+                continue;
             const Dark::Collision::SweptHit3D hit = Dark::Collision::SweptIntersects(ball, delta, cube);
-            if (hit.hit && hit.t < 1.0f)
-            {
-                delta *= Math::Max(0.0f, hit.t - 0.02f);
-                break;
-            }
+            if (hit.hit && hit.t < bestT)
+                bestT = hit.t;
         }
+        if (m_physics.valid())
+        {
+            Physics::PhysicsWorld::MoverCast cast;
+            cast.origin      = Vector3f{ before.x, xf->position.y, before.z };
+            cast.radius      = kRadius;
+            cast.bottom      = -kRadius;
+            cast.top         = 1.35f;
+            cast.translation = delta;
+            cast.ignore      = m_groundIgnore;
+            cast.ignore2     = m_physicsGround;
+            cast.staticOnly  = true;
+            const float physicsT = m_physics.clipMover(cast);
+            if (physicsT < bestT)
+                bestT = physicsT;
+        }
+        if (bestT < 1.0f)
+            delta *= Math::Max(0.0f, bestT - 0.02f);
         xf->position.x = before.x + delta.x;
         xf->position.z = before.z + delta.z;
         if (dt > 1.0e-4f && motor)
             motor->setHorizontalVelocity(delta.x / dt, delta.z / dt);
     }
     if (motor && motor->state() == PlayerMoveState::Grounded)
-        xf->position.y = m_terrain.heightAtWorld(xf->position.x, xf->position.z) + motor->settings().groundOffset;
+        xf->position.y = playerGroundHeight(xf->position.x, xf->position.z) + motor->settings().groundOffset;
 
     m_playerWet = motor && motor->state() == PlayerMoveState::Swimming;
 
@@ -2500,6 +2518,109 @@ void SandboxApp::syncTerrainLod()
         DE_LOG_ERROR("SandboxApp: water upload failed");
 }
 
+void SandboxApp::createPhysicsWorld()
+{
+    Physics::PhysicsWorldDesc desc;
+    desc.enabled = true;
+    desc.gravity = 24.0f;
+    if (!m_physics.create(desc))
+    {
+        DE_LOG_ERROR(LogCategory::Collision, "SandboxApp: physics world create failed");
+        return;
+    }
+
+    const HeightMap& coarse = m_terrain.coarse();
+    if (!coarse.valid())
+    {
+        DE_LOG_WARN(LogCategory::Collision, "SandboxApp: no terrain height map; physics has no ground");
+        return;
+    }
+
+    Physics::PhysicsHeightFieldDesc hf;
+    hf.heights     = coarse.samples();
+    hf.countX      = coarse.width();
+    hf.countZ      = coarse.height();
+    hf.cellSize    = coarse.cellSize();
+    hf.heightScale = coarse.heightScale();
+    hf.origin      = coarse.origin();
+    hf.friction    = 0.8f;
+    m_physicsGround = m_physics.createHeightField(hf);
+    if (m_physicsGround == Physics::kNullPhysicsBody)
+        DE_LOG_WARN(LogCategory::Collision, "SandboxApp: terrain height field failed");
+}
+
+void SandboxApp::addChaseObstaclesToPhysics()
+{
+    if (!m_physics.valid())
+        return;
+
+    for (const AABox3f& box : m_chase.cubes())
+    {
+        Physics::PhysicsBoxDesc desc;
+        desc.position    = box.Center();
+        desc.halfExtents = box.Extents();
+        desc.dynamic     = false;
+        desc.friction    = 0.6f;
+        if (m_physics.createBox(desc) == Physics::kNullPhysicsBody)
+            DE_LOG_WARN(LogCategory::Collision, "SandboxApp: chase obstacle body failed");
+    }
+}
+
+void SandboxApp::bindEntityPhysics(Entity e, const char* entityType)
+{
+    if (!m_physics.valid() || !e.valid() || !world().alive(e))
+        return;
+
+    const EntityMaster master = loadEntityMasterType(entityType);
+    if (master.physics.empty())
+    {
+        DE_LOG_WARN(LogCategory::Collision, "SandboxApp: '{}' has no physics card", entityType);
+        return;
+    }
+
+    const std::filesystem::path file = resolveContentFile(master.physics);
+    PhysicsComponent settings;
+    if (file.empty() || !Physics::loadPhysicsSettingsFile(file, settings))
+    {
+        DE_LOG_WARN(LogCategory::Collision, "SandboxApp: physics card '{}' for '{}' missing or invalid", master.physics, entityType);
+        return;
+    }
+    world().emplace<PhysicsComponent>(e, std::move(settings));
+
+    AssetRef<Model> model;
+    if (const ModelComponent* mc = world().get<ModelComponent>(e))
+        model = assets().getAs<Model>(mc->modelAssetID);
+    if (!Physics::bindPhysicsEntity(m_physics, world(), e, model.get()))
+        DE_LOG_WARN(LogCategory::Collision, "SandboxApp: physics bind failed for '{}' #{}", entityType, e.id());
+}
+
+void SandboxApp::bindCharacterPhysics()
+{
+    bindEntityPhysics(m_chase.walker(), "player");
+    for (int i = 0; i < m_chase.hunterCount(); ++i)
+        bindEntityPhysics(m_chase.hunterEntity(i), i == 0 ? "human" : "wolf");
+}
+
+float SandboxApp::playerGroundHeight(float x, float z) const
+{
+    float groundY = m_terrain.heightAtWorld(x, z);
+    if (!m_physics.valid())
+        return groundY;
+
+    Physics::PhysicsWorld::GroundProbe probe;
+    probe.from       = Vector3f(x, m_groundProbeY, z);
+    probe.radius     = 0.3f;
+    probe.maxDrop    = (m_groundProbeY - groundY) + 1.0f;
+    probe.ignore     = m_groundIgnore;
+    probe.ignore2    = m_physicsGround;
+    probe.staticOnly = true;
+
+    float surfaceY = 0.0f;
+    if (probe.maxDrop > 0.0f && m_physics.probeGround(probe, surfaceY) && surfaceY > groundY)
+        groundY = surfaceY;
+    return groundY;
+}
+
 Terrain::GroundContact SandboxApp::groundContactAt(float x, float z) const
 {
     const Terrain::HeightMap* height = m_terrain.editableWorking();
@@ -2857,11 +2978,14 @@ void SandboxApp::onInit()
     DE_LOG_INFO(LogCategory::Networking, "Sandbox net: Sandbox.exe -host   and   Sandbox.exe -join 127.0.0.1");
     DE_LOG_INFO(LogCategory::Networking, "Sandbox net: M opens Dev Tools (host / join / browse / debugger)");
 
+    createPhysicsWorld();
+
     m_chaseOk = m_chase.init(renderer(), m_terrain, m_water, world(), pins(), assets());
     if (!m_chaseOk)
         DE_LOG_ERROR(LogCategory::AI, "SandboxApp: path chase init failed");
     else
     {
+        addChaseObstaclesToPhysics();
         m_chase.ai().setJumpAttackHits(
             [](void* user, const Combat::DamageEvent* events, int count) {
                 static_cast<SandboxApp*>(user)->resolveJumpAttackAndFx(events, count);
@@ -2911,6 +3035,9 @@ void SandboxApp::onInit()
             }
         }
     }
+    if (m_chaseOk)
+        bindCharacterPhysics();
+
     placeHealthPacks();
     spawnHybridLocalLights();
 }
@@ -2943,6 +3070,11 @@ void SandboxApp::onUpdate(float dt)
             m_chase.tick(dt, world(), input(), m_terrain, possessedBody(), m_playerWet);
         }
         updateCombat(dt);
+        if (m_physics.valid())
+        {
+            m_physics.pushPoses(world(), false);
+            m_physics.step(dt, world());
+        }
         Combat::CombatSystem combat;
         Combat::harvestAndResolveDots(world(), combat);
         tickStatusFx(world(), &audio(), &assets());
@@ -3646,6 +3778,8 @@ void SandboxApp::onShutdown()
     m_imgui.shutdown(renderer());
     m_water = WaterWorld{};
     m_terrainMaterial = TerrainMaterial{};
+    m_physics.destroy();
+    m_physicsGround = Physics::kNullPhysicsBody;
     m_terrain.clear();
     audio().stopAll();
     if (WeaponLoadout* w = localWeapons())

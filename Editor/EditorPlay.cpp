@@ -819,11 +819,14 @@ void EditorApp::updatePlay(float dt)
         motorIn.dodgeTapWish = moveCardinalWish(motorIn.dodgeTap, flat, right);
     }
 
+    m_playGroundProbeY = xf->position.y;
+    m_playGroundIgnore = m_physics.valid() ? m_physics.bodyOf(body) : Physics::kNullPhysicsBody;
+
     PlayerGroundQuery ground{};
     ground.user    = this;
     ground.waterY  = -1.0e9f;
     ground.heightAt = [](void* user, float x, float z) {
-        return static_cast<EditorApp*>(user)->m_terrain.heightAtWorld(x, z);
+        return static_cast<const EditorApp*>(user)->playGroundHeight(x, z);
     };
 
     const Vector3f before = xf->position;
@@ -861,6 +864,8 @@ void EditorApp::updatePlay(float dt)
         {
             if (i < m_playCubeEntities.size() && livePhysics(m_playCubeEntities[i]))
                 continue;
+            if (Dark::Collision::Intersects(ball, m_playCubes[i]))
+                continue;
             const Dark::Collision::SweptHit3D hit = Dark::Collision::SweptIntersects(ball, delta, m_playCubes[i]);
             if (hit.hit && hit.t < bestT)
                 bestT = hit.t;
@@ -868,6 +873,8 @@ void EditorApp::updatePlay(float dt)
         for (size_t i = 0; i < m_playSpheres.size(); ++i)
         {
             if (i < m_playSphereEntities.size() && livePhysics(m_playSphereEntities[i]))
+                continue;
+            if (Dark::Collision::Intersects(ball, m_playSpheres[i]))
                 continue;
             const Dark::Collision::SweptHit3D hit = Dark::Collision::SweptIntersects(ball, delta, m_playSpheres[i]);
             if (hit.hit && hit.t < bestT)
@@ -883,6 +890,8 @@ void EditorApp::updatePlay(float dt)
             cast.top         = 1.35f;
             cast.translation = delta;
             cast.ignore      = m_physics.bodyOf(body);
+            cast.ignore2     = m_physicsGround;
+            cast.staticOnly  = true;
             const float physicsT = m_physics.clipMover(cast);
             if (physicsT < bestT)
                 bestT = physicsT;

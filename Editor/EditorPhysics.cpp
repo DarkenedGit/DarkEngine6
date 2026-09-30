@@ -101,6 +101,26 @@ void EditorApp::rebuildPhysicsGround()
         DE_LOG_WARN(LogCategory::Collision, "Editor: physics ground plane failed");
 }
 
+float EditorApp::playGroundHeight(float x, float z) const
+{
+    float groundY = m_terrain.heightAtWorld(x, z);
+    if (!m_physics.valid())
+        return groundY;
+
+    Physics::PhysicsWorld::GroundProbe probe;
+    probe.from       = Vector3f(x, m_playGroundProbeY, z);
+    probe.radius     = 0.3f;
+    probe.maxDrop    = (m_playGroundProbeY - groundY) + 1.0f;
+    probe.ignore     = m_playGroundIgnore;
+    probe.ignore2    = m_physicsGround;
+    probe.staticOnly = true;
+
+    float surfaceY = 0.0f;
+    if (probe.maxDrop > 0.0f && m_physics.probeGround(probe, surfaceY) && surfaceY > groundY)
+        groundY = surfaceY;
+    return groundY;
+}
+
 void EditorApp::ensurePlayPhysicsVolumes()
 {
     if (!m_playMode || !m_playPlayer.valid())

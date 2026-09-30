@@ -119,8 +119,21 @@ namespace Dark::Physics
             float          top         = 1.8f;
             Math::Vector3f translation{0.0f, 0.0f, 0.0f};
             PhysicsBodyId  ignore      = kNullPhysicsBody;
+            PhysicsBodyId  ignore2     = kNullPhysicsBody;
+            bool           staticOnly  = false;
         };
         float clipMover(const MoverCast& cast) const;
+
+        struct GroundProbe
+        {
+            Math::Vector3f from{0.0f, 0.0f, 0.0f};
+            float          radius     = 0.3f;
+            float          maxDrop    = 50.0f;
+            PhysicsBodyId  ignore     = kNullPhysicsBody;
+            PhysicsBodyId  ignore2    = kNullPhysicsBody;
+            bool           staticOnly = false;
+        };
+        bool probeGround(const GroundProbe& probe, float& outSurfaceY) const;
 
         // Edit mode keeps every bound body on its Transform. Play pushes static and kinematic
         // bodies, steps, then copies dynamic poses back so the mesh follows the solver.
