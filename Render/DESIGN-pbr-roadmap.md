@@ -19,7 +19,7 @@ Track the next seven deferred-PBR features in **build order**. Each child RFC is
 | 2 | [DESIGN-ibl.md](./DESIGN-ibl.md) (**rev 2**) | Replaces flat ambient; needs linear HDR sampling |
 | 3 | [DESIGN-pbr-material-maps.md](./DESIGN-pbr-material-maps.md) | **rev 4**, parallel with IBL. Authored normal/ORM/AO/emissive into G-buffer |
 | 4 | [DESIGN-ssao.md](./DESIGN-ssao.md) (**rev 2**) | **Accepted** (execute-plan 8be641e1 PRs 1–4). Multiplies ambient/IBL only; needs good normals |
-| 5 | [DESIGN-auto-exposure.md](./DESIGN-auto-exposure.md) | Makes bloom + ACES usable across lighting ranges |
+| 5 | [DESIGN-auto-exposure.md](./DESIGN-auto-exposure.md) (**rev 2**) | Log-average correction on `Environment::exposure()`. Makes bloom + ACES usable across lighting ranges |
 | 6 | [DESIGN-local-light-shadows.md](./DESIGN-local-light-shadows.md) | Independent of IBL; needs stable local-light volumes |
 | 7 | [DESIGN-reflections.md](./DESIGN-reflections.md) (**rev 2**) | **Accepted** (execute-plan db67d670 PRs 1–5). SSR v1 dual-path + water; planar extra view remains v2 |
 
