@@ -3,6 +3,7 @@
 #include "ECS/World.h"
 #include "Math/Ray3f.h"
 #include "Math/Vector3f.h"
+#include "Render/CloudVolumePipeline.h"
 #include "Render/ShaderCompile.h"
 #include "Scene/SceneFile.h"
 #include "Sky/CloudVolume.h"
@@ -184,6 +185,39 @@ TEST(CloudVolume, SceneFileJsonRoundTrip)
     EXPECT_NEAR(out.objects[0].position.y, 12.0f, 1.0e-4f);
     std::error_code ec;
     std::filesystem::remove(path, ec);
+}
+
+TEST(CloudVolume, LodDefaultsAndSanitize)
+{
+    CloudLodSettings lod{};
+    EXPECT_TRUE(lod.enabled);
+    EXPECT_FLOAT_EQ(lod.detailDistance, 200.0f);
+    EXPECT_FLOAT_EQ(lod.fadeDistance, 48.0f);
+    EXPECT_FLOAT_EQ(lod.nearStep, 4.0f);
+    EXPECT_FLOAT_EQ(lod.farStep, 18.0f);
+    EXPECT_EQ(lod.maxNearSteps, 32);
+    EXPECT_EQ(lod.maxFarSteps, 16);
+    EXPECT_EQ(lod.nearLightSteps, 5);
+    EXPECT_EQ(lod.farLightSteps, 2);
+    EXPECT_EQ(sizeof(CloudVolumePassConstants), 40u * sizeof(float));
+
+    lod.detailDistance = 0.0f;
+    lod.fadeDistance   = -4.0f;
+    lod.nearStep       = 100.0f;
+    lod.farStep        = 1.0f;
+    lod.maxNearSteps   = 0;
+    lod.maxFarSteps    = 1000;
+    lod.nearLightSteps = 0;
+    lod.farLightSteps  = 40;
+    sanitizeCloudLod(lod);
+    EXPECT_FLOAT_EQ(lod.detailDistance, 1.0f);
+    EXPECT_FLOAT_EQ(lod.fadeDistance, 0.0f);
+    EXPECT_FLOAT_EQ(lod.nearStep, 64.0f);
+    EXPECT_FLOAT_EQ(lod.farStep, 64.0f);
+    EXPECT_EQ(lod.maxNearSteps, 1);
+    EXPECT_EQ(lod.maxFarSteps, 64);
+    EXPECT_EQ(lod.nearLightSteps, 1);
+    EXPECT_EQ(lod.farLightSteps, 8);
 }
 
 TEST(CloudVolume, ShaderCompiles)

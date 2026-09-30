@@ -144,6 +144,7 @@ private:
     Dark::IblSettings       m_ibl;
     Dark::GtaoSettings      m_ssao;
     Dark::SsrSettings       m_ssr;
+    Dark::CloudLodSettings  m_cloudLod{};
     Dark::AssetID           m_iblImageId = Dark::NULL_ASSET;
 
     Dark::PathChase                m_chase;

@@ -3380,6 +3380,7 @@ void SandboxApp::onRender()
         cf.sunColor     = m_env.lightColor();
         cf.ambientColor = m_env.ambientColor();
         cf.time         = m_cloudTime;
+        cf.lod          = m_cloudLod;
         m_scene.drawCloudVolumes(cmd, renderer(), world(), m_viewCamera, viewProj, cf);
     }
 

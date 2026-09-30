@@ -448,6 +448,29 @@ void SandboxApp::drawDevTools()
         ImGui::Text("Cover %.0f%%  exposure %.2f", static_cast<double>(m_env.weather.cloudCoverage * 100.0f), static_cast<double>(m_env.exposure()));
     }
 
+    if (renderer().hasGBuffer() && ImGui::CollapsingHeader("Cloud LOD", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::PushID("CloudLOD");
+        CloudLodSettings& lod = m_cloudLod;
+        if (ImGui::Checkbox("Enabled", &lod.enabled))
+            DE_LOG_INFO(LogCategory::Render, "Cloud LOD: enabled={}", lod.enabled);
+        ImGui::BeginDisabled(!lod.enabled);
+        ImGui::SliderFloat("Detail distance", &lod.detailDistance, 1.0f, 4000.0f, "%.0f m");
+        ImGui::SliderFloat("Fade distance", &lod.fadeDistance, 0.0f, 500.0f, "%.0f m");
+        ImGui::SliderFloat("Near step", &lod.nearStep, 0.5f, 64.0f, "%.1f m");
+        ImGui::SliderFloat("Far step", &lod.farStep, 0.5f, 256.0f, "%.1f m");
+        ImGui::SliderInt("Max near steps", &lod.maxNearSteps, 1, 64);
+        ImGui::SliderInt("Max far steps", &lod.maxFarSteps, 1, 64);
+        ImGui::SliderInt("Near light steps", &lod.nearLightSteps, 1, 8);
+        ImGui::SliderInt("Far light steps", &lod.farLightSteps, 1, 8);
+        sanitizeCloudLod(lod);
+        ImGui::EndDisabled();
+        ImGui::TextDisabled("Rays that exit before the detail distance keep the fixed march: 40 steps, or 56 when the ray starts inside, always 5 sun taps.");
+        ImGui::TextDisabled("Longer rays use the near shell, the fade, then the coarse tail. Near and far light steps apply only on that path.");
+        ImGui::TextDisabled("The tail step grows past Far step when max far steps cannot cover the remaining distance.");
+        ImGui::PopID();
+    }
+
     if (ImGui::CollapsingHeader("Fog", ImGuiTreeNodeFlags_DefaultOpen))
     {
         const Vector3f fc = m_env.fogColor();

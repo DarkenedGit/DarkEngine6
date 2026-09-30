@@ -185,6 +185,17 @@ namespace Dark
         cb.ambientColor[0]  = frame.ambientColor.x;
         cb.ambientColor[1]  = frame.ambientColor.y;
         cb.ambientColor[2]  = frame.ambientColor.z;
+        CloudLodSettings lod = frame.lod;
+        sanitizeCloudLod(lod);
+        cb.lodEnabled    = lod.enabled ? 1.0f : 0.0f;
+        cb.lodDetailDist = lod.detailDistance;
+        cb.lodFadeDist   = lod.fadeDistance;
+        cb.lodNearStep   = lod.nearStep;
+        cb.lodFarStep    = lod.farStep;
+        cb.lodMaxNear    = static_cast<float>(lod.maxNearSteps);
+        cb.lodMaxFar     = static_cast<float>(lod.maxFarSteps);
+        cb.lodNearLight  = static_cast<float>(lod.nearLightSteps);
+        cb.lodFarLight   = static_cast<float>(lod.farLightSteps);
 
         ID3D12DescriptorHeap* heaps[] = { m_depthHeap.Get() };
         cmd->SetDescriptorHeaps(1, heaps);
