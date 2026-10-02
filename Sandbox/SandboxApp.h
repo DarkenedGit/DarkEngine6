@@ -10,6 +10,7 @@
 #include "Render/SceneRenderer.h"
 #include "Render/Camera3D.h"
 #include "Sky/Environment.h"
+#include "Physics/PhysicsWorld.h"
 #include "Terrain/TerrainGrid.h"
 #include "Terrain/TerrainMaterial.h"
 #include "Water/Water.h"
@@ -107,6 +108,11 @@ private:
     Dark::PlayerMotor*    localMotor();
     Dark::WeaponLoadout*  localWeapons();
     void syncTerrainLod();
+    void createPhysicsWorld();
+    void addChaseObstaclesToPhysics();
+    void bindEntityPhysics(Dark::Entity e, const char* entityType);
+    void bindCharacterPhysics();
+    float playerGroundHeight(float x, float z) const;
     void drawDebugOverlays(ID3D12GraphicsCommandList* cmd);
     void drawSkeletonOverlay(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj);
     bool createSkeletonLineBuffers();
@@ -163,6 +169,12 @@ private:
     std::vector<WeaponTargetScratch> m_weaponTargets;
 
     Dark::Terrain::TerrainGrid m_terrain;
+
+    Dark::Physics::PhysicsWorld  m_physics;
+    Dark::Physics::PhysicsBodyId m_physicsGround = Dark::Physics::kNullPhysicsBody;
+    float                        m_groundProbeY  = 0.0f;
+    Dark::Physics::PhysicsBodyId m_groundIgnore  = Dark::Physics::kNullPhysicsBody;
+
     Dark::Terrain::TerrainGround m_ground;
     Dark::Terrain::GroundContact groundContactAt(float x, float z) const;
     float                     m_terrainSeaLevel = 0.0f;

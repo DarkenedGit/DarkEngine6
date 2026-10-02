@@ -676,7 +676,9 @@ namespace Dark::Physics
     {
         struct MoverIgnore
         {
-            PhysicsBodyId id = kNullPhysicsBody;
+            PhysicsBodyId id         = kNullPhysicsBody;
+            PhysicsBodyId id2        = kNullPhysicsBody;
+            bool          staticOnly = false;
         };
 
         bool acceptMoverShape(b3ShapeId shape, void* context)
@@ -685,12 +687,16 @@ namespace Dark::Physics
                 return false;
             // Dynamics are pushed by the kinematic player sweep. Stopping on them
             // keeps the player from ever touching the body.
-            if (b3Body_GetType(b3Shape_GetBody(shape)) == b3_dynamicBody)
+            const b3BodyType type = b3Body_GetType(b3Shape_GetBody(shape));
+            if (type == b3_dynamicBody)
                 return false;
             const auto* ignore = static_cast<const MoverIgnore*>(context);
-            if (!ignore || ignore->id == kNullPhysicsBody)
+            if (!ignore)
                 return true;
-            return b3StoreBodyId(b3Shape_GetBody(shape)) != ignore->id;
+            if (ignore->staticOnly && type != b3_staticBody)
+                return false;
+            const PhysicsBodyId bodyId = b3StoreBodyId(b3Shape_GetBody(shape));
+            return bodyId != ignore->id && bodyId != ignore->id2;
         }
     }
 
@@ -722,7 +728,9 @@ namespace Dark::Physics
         capsule.radius  = cast.radius;
 
         MoverIgnore ignore;
-        ignore.id = cast.ignore;
+        ignore.id         = cast.ignore;
+        ignore.id2        = cast.ignore2;
+        ignore.staticOnly = cast.staticOnly;
         const float fraction = b3World_CastMover(loadWorld(m_id), toB3Pos(cast.origin), &capsule, toB3(cast.translation), b3DefaultQueryFilter(),
                                                  &acceptMoverShape, &ignore);
         if (fraction < 0.0f)
@@ -730,6 +738,31 @@ namespace Dark::Physics
         if (fraction > 1.0f)
             return 1.0f;
         return fraction;
+    }
+
+    bool PhysicsWorld::probeGround(const GroundProbe& probe, float& outSurfaceY) const
+    {
+        if (!valid() || probe.radius <= 1.0e-4f || probe.maxDrop <= 0.0f)
+            return false;
+
+        b3Capsule ball;
+        ball.center1 = b3Vec3{0.0f, 0.0f, 0.0f};
+        ball.center2 = b3Vec3{0.0f, 0.01f, 0.0f};
+        ball.radius  = probe.radius;
+
+        MoverIgnore ignore;
+        ignore.id         = probe.ignore;
+        ignore.id2        = probe.ignore2;
+        ignore.staticOnly = probe.staticOnly;
+
+        const Math::Vector3f down{0.0f, -probe.maxDrop, 0.0f};
+        const float fraction = b3World_CastMover(loadWorld(m_id), toB3Pos(probe.from), &ball, toB3(down), b3DefaultQueryFilter(),
+                                                 &acceptMoverShape, &ignore);
+        if (fraction >= 1.0f)
+            return false;
+
+        outSurfaceY = probe.from.y - std::max(fraction, 0.0f) * probe.maxDrop - probe.radius;
+        return true;
     }
 
     void PhysicsWorld::pushPoses(World& world, bool includeDynamic, Entity skip)
