@@ -377,6 +377,8 @@ namespace Dark
             v.path->waypoint  = 0;
             v.ai->givenUp     = false;
             v.ai->hasLastSeen = false;
+            v.ai->stalk       = AI::WolfStalk::Inactive;
+            v.ai->stalkLeft   = 0.0f;
             v.ai->forward     = Vector3f{ 0.0f, 0.0f, 1.0f };
             v.brain->brain->start();
             DE_LOG_INFO(LogCategory::AI, "Hunter recovered");
@@ -658,6 +660,192 @@ namespace Dark
         return other && other->jump.busy();
     }
 
+    bool AiSystem::entityIsWolf(World& world, Entity e) const
+    {
+        const TagComponent* tag = world.get<TagComponent>(e);
+        return tag && tag->name == "Wolf";
+    }
+
+    int AiSystem::wolfPackNear(World& world, Entity self) const
+    {
+        const TransformComponent* selfXf = world.get<TransformComponent>(self);
+        if (!selfXf)
+            return 1;
+        const float r2 = AI::kWolfPackRadius * AI::kWolfPackRadius;
+        int         count = 1;
+        for (Entity other : m_scratch)
+        {
+            if (other.id() == self.id() || !entityIsWolf(world, other))
+                continue;
+            const HealthComponent* hp = world.get<HealthComponent>(other);
+            if (!hp || !hp->health.alive())
+                continue;
+            const TransformComponent* ox = world.get<TransformComponent>(other);
+            if (!ox)
+                continue;
+            const float dx = ox->position.x - selfXf->position.x;
+            const float dz = ox->position.z - selfXf->position.z;
+            if (dx * dx + dz * dz <= r2)
+                ++count;
+        }
+        return count;
+    }
+
+    Vector3f AiSystem::nudgeWolfPoint(const Vector3f& islandAt, const Vector3f& origin, const Vector3f& ideal) const
+    {
+        Vector3f best{ ideal.x, 0.0f, ideal.z };
+        if (!m_walk.valid())
+            return best;
+        const int island = m_walk.islandWorld(islandAt.x, islandAt.z);
+        auto      fits   = [&](float x, float z) {
+            return m_walk.walkableWorld(x, z) && m_walk.islandWorld(x, z) == island;
+        };
+        if (fits(best.x, best.z))
+            return best;
+
+        Vector3f dir{ best.x - origin.x, 0.0f, best.z - origin.z };
+        const float full = dir.Magnitude();
+        if (full < 1.0e-3f)
+            return best;
+        dir *= (1.0f / full);
+        const Vector3f side{ -dir.z, 0.0f, dir.x };
+        const float    scales[]   = { 0.8f, 0.55f, 0.35f, 1.1f };
+        const float    laterals[] = { 0.0f, 1.6f, -1.6f, 3.2f, -3.2f };
+        for (float scale : scales)
+        {
+            for (float lat : laterals)
+            {
+                const float x = origin.x + dir.x * full * scale + side.x * lat;
+                const float z = origin.z + dir.z * full * scale + side.z * lat;
+                if (!fits(x, z))
+                    continue;
+                return Vector3f{ x, 0.0f, z };
+            }
+        }
+        return best;
+    }
+
+    void AiSystem::updateWolfApproach(World& world, View& v, AI::Leaf leaf, bool sees, bool playerAlive, bool standoff, const Vector3f& playerPos, const Vector3f& playerForward, float horiz, float dt)
+    {
+        if (!entityIsWolf(world, v.e))
+            return;
+
+        auto dropPath = [&]() {
+            v.path->path.points.clear();
+            v.path->waypoint = 0;
+            v.path->repathAt = 0.0f;
+        };
+        auto clearStalk = [&]() {
+            v.ai->stalk     = AI::WolfStalk::Inactive;
+            v.ai->stalkLeft = 0.0f;
+            v.ai->stalkSide = AI::WolfApproachSide::Behind;
+        };
+        auto commitFront = [&]() {
+            v.ai->stalk     = AI::WolfStalk::Commit;
+            v.ai->stalkLeft = 0.0f;
+            dropPath();
+        };
+
+        if (leaf == AI::Leaf::Wander || leaf == AI::Leaf::Flee)
+        {
+            if (v.ai->stalk != AI::WolfStalk::Inactive)
+            {
+                clearStalk();
+                dropPath();
+            }
+            return;
+        }
+
+        const bool circling = v.ai->stalk == AI::WolfStalk::BackOff || v.ai->stalk == AI::WolfStalk::Flank;
+        // Assist is already a rush at the player, so a half-finished circle should not resume afterwards.
+        if (leaf == AI::Leaf::Assist && circling)
+        {
+            commitFront();
+            return;
+        }
+
+        const bool close = horiz <= AI::kWolfCloseNotice || standoff;
+        if (circling && (close || wolfPackNear(world, v.e) >= 2))
+        {
+            commitFront();
+            DE_LOG_INFO(LogCategory::AI, "Wolf: closing from the front");
+            return;
+        }
+
+        if (leaf == AI::Leaf::Chase && sees && playerAlive && v.ai->stalk == AI::WolfStalk::Inactive)
+        {
+            AI::WolfNotice notice;
+            notice.wolf          = v.xf->position;
+            notice.player        = playerPos;
+            notice.playerForward = playerForward;
+            notice.horizDistance = horiz;
+            notice.packCount     = wolfPackNear(world, v.e);
+            notice.salt          = static_cast<uint32_t>(v.e.id()) * 0x9E3779B9u ^ static_cast<uint32_t>(m_time * 1000.0f);
+            const AI::WolfApproachPlan plan = AI::planWolfApproach(notice);
+            v.ai->stalkSide                  = plan.side;
+            if (plan.direct || standoff)
+            {
+                commitFront();
+                DE_LOG_INFO(LogCategory::AI, "Wolf: closing from the front");
+            }
+            else
+            {
+                v.ai->stalk     = AI::WolfStalk::BackOff;
+                v.ai->stalkDest = nudgeWolfPoint(v.xf->position, v.xf->position, plan.backOff);
+                v.ai->stalkLeft = AI::kWolfBackOffSeconds;
+                dropPath();
+                DE_LOG_INFO(LogCategory::AI, "Wolf: backing off to circle");
+            }
+            // "grunt" also starts the jump clip. A notice uses its own cue.
+            if (m_hunterCueFn)
+                m_hunterCueFn(m_hunterCueUser, v.e, "growl");
+            return;
+        }
+
+        if (v.ai->stalk == AI::WolfStalk::BackOff)
+        {
+            v.ai->stalkLeft -= dt;
+            const float dx = v.ai->stalkDest.x - v.xf->position.x;
+            const float dz = v.ai->stalkDest.z - v.xf->position.z;
+            if (v.ai->stalkLeft <= 0.0f || dx * dx + dz * dz <= AI::kWolfBackOffArrive * AI::kWolfBackOffArrive)
+            {
+                v.ai->stalk     = AI::WolfStalk::Flank;
+                v.ai->stalkLeft = AI::kWolfFlankSeconds;
+                dropPath();
+            }
+        }
+        else if (v.ai->stalk == AI::WolfStalk::Flank)
+        {
+            v.ai->stalkLeft -= dt;
+            float stageX = 0.0f;
+            float stageZ = 0.0f;
+            wolfApproachDest(v, playerPos, playerForward, stageX, stageZ);
+            const float dx = stageX - v.xf->position.x;
+            const float dz = stageZ - v.xf->position.z;
+            // A player who keeps moving can drag the stage point forever. After the cap, close from wherever the circle reached.
+            if (v.ai->stalkLeft <= 0.0f || dx * dx + dz * dz <= AI::kWolfStageArrive * AI::kWolfStageArrive)
+                commitFront();
+        }
+    }
+
+    bool AiSystem::wolfApproachDest(const View& v, const Vector3f& playerPos, const Vector3f& playerForward, float& destX, float& destZ) const
+    {
+        if (v.ai->stalk == AI::WolfStalk::BackOff)
+        {
+            destX = v.ai->stalkDest.x;
+            destZ = v.ai->stalkDest.z;
+            return true;
+        }
+        if (v.ai->stalk == AI::WolfStalk::Flank)
+        {
+            const Vector3f stage = nudgeWolfPoint(v.xf->position, playerPos, AI::wolfStagePoint(playerPos, playerForward, v.ai->stalkSide));
+            destX = stage.x;
+            destZ = stage.z;
+            return true;
+        }
+        return false;
+    }
+
     void AiSystem::tickHunters(World& world, Terrain::TerrainGrid& terrain, bool playerInWater, float dt, Entity player, const Math::AABox3f* cubes, int cubeCount, const Math::Sphere3f* spheres, int sphereCount)
     {
         m_time += dt;
@@ -672,10 +860,12 @@ namespace Dark
         tickHealthAndRespawn(world, dt);
 
         Vector3f playerPos{};
+        Vector3f playerForward{ 0.0f, 0.0f, 1.0f };
         bool     playerAlive = false;
         if (const TransformComponent* px = player.valid() ? world.get<TransformComponent>(player) : nullptr)
         {
-            playerPos   = px->position;
+            playerPos     = px->position;
+            playerForward = AI::wolfPlanarForward(px->rotation.Rotate(Vector3f::Z_AXIS));
             const HealthComponent* php = world.get<HealthComponent>(player);
             playerAlive = php && php->health.alive();
         }
@@ -933,8 +1123,11 @@ namespace Dark
             }
             const bool pacing = pattern && !AI::attackClockReady(AI::AttackClock{ v.ai->attackGap, v.ai->attackPause, v.ai->repositionLeft, v.ai->attackChain, v.ai->lastAttack, v.ai->preferOtherAttack }, m_packAttackGap);
             const bool jumpBusy = jump && jump->busy();
-            const bool wantJump = !pattern && (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist) && sees && horiz >= kHunterJumpMin && horiz <= kHunterJumpMax;
-            if (pattern && (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist) && sees && !pacing && !jumpBusy)
+            updateWolfApproach(world, v, leaf, sees, playerAlive, standoff, playerPos, playerForward, horiz, dt);
+            // BackOff and Flank hold the bite until the wolf has reached its side. A notice inside pounce range must not leap straight in.
+            const bool wolfCircling = v.ai->stalk == AI::WolfStalk::BackOff || v.ai->stalk == AI::WolfStalk::Flank;
+            const bool wantJump = !pattern && !wolfCircling && (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist) && sees && horiz >= kHunterJumpMin && horiz <= kHunterJumpMax;
+            if (pattern && !wolfCircling && (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist) && sees && !pacing && !jumpBusy)
             {
                 const int attackIndex = AI::pickAttack(*pattern, horiz, v.ai->preferOtherAttack, v.ai->lastAttack);
                 if (attackIndex >= 0)
@@ -1014,6 +1207,10 @@ namespace Dark
             const bool  sprint = leaf == AI::Leaf::Assist || leaf == AI::Leaf::Flee || v.ai->assistLeft > 0.0f;
             const Terrain::GroundContact ground = m_ground ? m_ground->at(m_groundHeight, m_groundSplat, v.xf->position.x, v.xf->position.z) : Terrain::GroundContact{};
             const float speed  = (sprint ? m_pack.sprintSpeed : m_pack.walkSpeed) * (stCc ? stCc->moveSpeedScale() : 1.0f) * ground.moveSpeed;
+            float       aimX   = playerPos.x;
+            float       aimZ   = playerPos.z;
+            if (wolfCircling)
+                wolfApproachDest(v, playerPos, playerForward, aimX, aimZ);
 
             if (leaf == AI::Leaf::Flee)
             {
@@ -1045,7 +1242,7 @@ namespace Dark
             else if (leaf == AI::Leaf::Chase)
             {
                 if (m_time >= v.path->repathAt || v.path->path.points.empty())
-                    repath(world, v, playerPos.x, playerPos.z);
+                    repath(world, v, aimX, aimZ);
             }
             else if (leaf == AI::Leaf::Assist)
             {
@@ -1069,11 +1266,11 @@ namespace Dark
             if (move.MagnitudeSqrd() < 1.0e-8f && !holding && v.ai->repositionLeft <= 0.0f)
             {
                 if (leaf == AI::Leaf::Chase && playerAlive)
-                    seekToward(v, dt, terrain, speed, playerPos.x, playerPos.z);
+                    seekToward(v, dt, terrain, speed, aimX, aimZ);
                 else if (leaf == AI::Leaf::Assist)
                     seekToward(v, dt, terrain, speed, v.ai->helpPos.x, v.ai->helpPos.z);
                 else if (leaf == AI::Leaf::Memory && v.ai->hasLastSeen)
-                    seekToward(v, dt, terrain, speed, v.ai->lastSeen.x, v.ai->lastSeen.z);
+                    seekToward(v, dt, terrain, speed, wolfCircling ? aimX : v.ai->lastSeen.x, wolfCircling ? aimZ : v.ai->lastSeen.z);
                 else if (leaf == AI::Leaf::Wander && !m_walk.valid())
                 {
                     Vector3f toW{ v.ai->wanderDest.x - v.xf->position.x, 0.0f, v.ai->wanderDest.z - v.xf->position.z };

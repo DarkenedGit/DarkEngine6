@@ -98,6 +98,30 @@ def grunt(dur: float = 0.22, amp: float = 0.55) -> list[float]:
     return out
 
 
+def growl(dur: float = 0.7, amp: float = 0.5) -> list[float]:
+    # Low rumble with a slow throb. Longer than grunt() so a notice does not sound like a bite.
+    n = int(SR * dur)
+    out = []
+    rng = random.Random(41)
+    phase1 = 0.0
+    phase2 = 0.0
+    for i in range(n):
+        t = i / SR
+        throb = 0.55 + 0.45 * math.sin(2.0 * math.pi * 9.0 * t)
+        f1 = 78.0 + 12.0 * math.sin(2.0 * math.pi * 3.0 * t)
+        f2 = 46.0
+        phase1 += 2.0 * math.pi * f1 / SR
+        phase2 += 2.0 * math.pi * f2 / SR
+        env = 1.0
+        if t < 0.06:
+            env = t / 0.06
+        elif t > dur - 0.12:
+            env = max(0.0, (dur - t) / 0.12)
+        noise = (rng.random() * 2.0 - 1.0) * 0.22
+        out.append((math.sin(phase1) * 0.55 + math.sin(phase2) * 0.35 + noise) * amp * env * throb)
+    return out
+
+
 def pain(dur: float = 0.14, amp: float = 0.58) -> list[float]:
     n = int(SR * dur)
     out = []
@@ -258,6 +282,7 @@ def main() -> None:
     write_mono(ROOT / "delete.wav", chirp(480.0, 180.0, 0.12, 0.4))
     write_mono(ROOT / "whoosh.wav", chirp(180.0, 90.0, 0.22, 0.35))
     write_mono(ROOT / "grunt.wav", grunt())
+    write_mono(ROOT / "growl.wav", growl())
     write_mono(ROOT / "pain.wav", pain())
     write_mono(ROOT / "land.wav", land())
     write_mono(ROOT / "splash.wav", splash())

@@ -101,6 +101,11 @@ namespace Dark
         void resolveJumpHits(World& world, const Combat::DamageEvent* events, int count);
         void walkableBackStep(Math::Vector3f& position, const Math::Vector3f& incomingXZ) const;
         bool packTokenBusy(World& world, Entity self) const;
+        bool entityIsWolf(World& world, Entity e) const;
+        int  wolfPackNear(World& world, Entity self) const;
+        Math::Vector3f nudgeWolfPoint(const Math::Vector3f& islandAt, const Math::Vector3f& origin, const Math::Vector3f& ideal) const;
+        void updateWolfApproach(World& world, View& v, AI::Leaf leaf, bool sees, bool playerAlive, bool standoff, const Math::Vector3f& playerPos, const Math::Vector3f& playerForward, float horiz, float dt);
+        bool wolfApproachDest(const View& v, const Math::Vector3f& playerPos, const Math::Vector3f& playerForward, float& destX, float& destZ) const;
 
         struct JumpTargetScratch
         {

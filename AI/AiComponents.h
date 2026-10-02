@@ -2,6 +2,7 @@
 
 #include "AI/Brain.h"
 #include "AI/Pathfinder.h"
+#include "AI/WolfApproach.h"
 #include "Math/Vector3f.h"
 
 #include <memory>
@@ -48,6 +49,11 @@ namespace Dark
         bool                         givenUp     = false;
         Math::Vector3f               repositionDest{};
         bool                         hasLastSeen = false;
+        // Set on a wolf's notice and kept through Memory so a brief lose does not re-roll the side.
+        AI::WolfStalk                stalk       = AI::WolfStalk::Inactive;
+        AI::WolfApproachSide         stalkSide   = AI::WolfApproachSide::Behind;
+        Math::Vector3f               stalkDest{};
+        float                        stalkLeft   = 0.0f;
     };
 
     struct BrainComponent
