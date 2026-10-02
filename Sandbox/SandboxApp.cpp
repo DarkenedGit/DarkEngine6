@@ -2525,6 +2525,7 @@ void SandboxApp::onInit()
     {
         SceneRendererDesc sceneDesc{};
         sceneDesc.createWorldEnvironment = true;
+        sceneDesc.createAutoExposure     = renderer().scenePath() == ScenePath::HybridDeferred;
         sceneDesc.logTag = "SandboxApp";
         if (!m_scene.init(renderer(), sceneDesc))
         {
@@ -2923,6 +2924,7 @@ void SandboxApp::onSplashFinished()
 
 void SandboxApp::onUpdate(float dt)
 {
+    m_frameDt = dt;
     const bool menuFrame = m_menu.visible();
     handleRuntimeCommands(dt);
     if (menuFrame || m_menu.visible())
@@ -3466,9 +3468,22 @@ void SandboxApp::onRender()
     {
         const bool aces = useAcesTonemap(renderer());
         TonemapSettings post = playerPostFx();
-        post.mode     = aces ? 1.0f : 0.0f;
-        post.exposure = m_env.exposure();
-        m_scene.applyPost(renderer(), cmd, viewProj, post);
+        post.mode            = aces ? 1.0f : 0.0f;
+        float exposure       = m_env.exposure();
+        m_autoExposureResult = {};
+        m_autoExposureResult.finalExposure = exposure;
+        const bool deferredMeter = renderer().scenePath() == ScenePath::HybridDeferred && m_scene.autoExposure().isValid();
+        if (deferredMeter)
+        {
+            // Resize drops the 1×1. Zero the correction before this frame can apply a stale sample.
+            if (m_scene.syncAutoExposureSize(renderer()))
+                resetAutoExposure(m_autoExposureState);
+            const float measured = m_autoExposure.mode == ExposureMode::Auto ? m_scene.autoExposure().readMeasuredLuma(renderer().frameIndex()) : 0.0f;
+            m_autoExposureResult = adaptExposure(m_autoExposureState, measured, exposure, m_frameDt, m_autoExposure);
+            exposure             = m_autoExposureResult.finalExposure;
+        }
+        post.exposure = exposure;
+        m_scene.applyPost(renderer(), cmd, viewProj, post, deferredMeter && m_autoExposure.mode == ExposureMode::Auto);
     }
 
     m_scene.endCameraFrame(m_viewCamera, viewProj);

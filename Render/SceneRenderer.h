@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Render/AutoExposure.h"
 #include "Render/BloomPipeline.h"
 #include "Render/Camera3D.h"
 #include "Render/DebugOverlay.h"
@@ -32,7 +33,7 @@ class World;
 
 // Shared mesh / lighting / post / (optional) terrain-water-sky pipelines used by
 // Sandbox and Editor. Hosts still own world draw order; this owns pipeline
-// lifetime and the deferred present/post path (bloom → TAA → motion blur → tonemap).
+// lifetime and the deferred present/post path (auto exposure → bloom → TAA → motion blur → tonemap).
 struct SceneRendererDesc
 {
     // When true, also create TerrainPipeline / WaterPipeline / SkyPipeline (Sandbox).
@@ -41,6 +42,8 @@ struct SceneRendererDesc
     bool createTerrainPipeline = false;
     // Log prefix for create failures (e.g. "SandboxApp", "EditorApp").
     const char* logTag = "SceneRenderer";
+    // Sandbox HybridDeferred only. Editor leaves this false and does not build the meter.
+    bool createAutoExposure = false;
 };
 
 class SceneRenderer
@@ -58,9 +61,15 @@ public:
 
     bool wantsTaa(const Renderer& renderer) const;
 
-    // Bloom (resize as needed) → TAA → motion blur → tonemap to the swap chain color target.
+    // Meter (when requested) → bloom (resize as needed) → TAA → motion blur → tonemap.
     // Caller must have finished HDR scene draws. tonemap.usePostHdr is set by this helper.
-    void applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, TonemapSettings tonemap);
+    // meterAutoExposure records this frame's 1×1. The host reads the previous sample and
+    // writes tonemap.exposure before the call, so bloom and tonemap share that exposure.
+    void applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, TonemapSettings tonemap, bool meterAutoExposure = false);
+
+    // Resize the meter with the swap chain. True when the size changed: the readback was
+    // dropped, and the host should zero its stored EV before adapting.
+    bool syncAutoExposureSize(Renderer& renderer);
 
     // After bindHdr(false), before lighting.draw. Compose authored*ssao into slot 5 when enabled;
     // restore MRT3 on skip so a disable cannot stick a stale compose handle.
@@ -102,6 +111,7 @@ public:
     Mesh&                     pointVolumeMesh() { return m_pointVolumeMesh; }
     Mesh&                     spotVolumeMesh() { return m_spotVolumeMesh; }
     BloomPipeline&            bloom() { return m_bloom; }
+    AutoExposurePipeline&     autoExposure() { return m_autoExposure; }
     GtaoPipeline&             gtao() { return m_gtao; }
     SsrPipeline&              ssr() { return m_ssr; }
     MotionBlurPipeline&       motionBlur() { return m_motionBlur; }
@@ -129,6 +139,7 @@ public:
     const Mesh&                     pointVolumeMesh() const { return m_pointVolumeMesh; }
     const Mesh&                     spotVolumeMesh() const { return m_spotVolumeMesh; }
     const BloomPipeline&            bloom() const { return m_bloom; }
+    const AutoExposurePipeline&     autoExposure() const { return m_autoExposure; }
     const GtaoPipeline&             gtao() const { return m_gtao; }
     const SsrPipeline&              ssr() const { return m_ssr; }
     const MotionBlurPipeline&       motionBlur() const { return m_motionBlur; }
@@ -169,6 +180,7 @@ private:
     Mesh                     m_pointVolumeMesh;
     Mesh                     m_spotVolumeMesh;
     BloomPipeline            m_bloom;
+    AutoExposurePipeline     m_autoExposure;
     GtaoPipeline             m_gtao;
     SsrPipeline              m_ssr;
     MotionBlurPipeline       m_motionBlur;
@@ -186,8 +198,11 @@ private:
     bool           m_taaHistoryValid  = false;
     uint32_t       m_taaHistoryW      = 0;
     uint32_t       m_taaHistoryH      = 0;
-    uint32_t       m_bloomW           = 0;
-    uint32_t       m_bloomH           = 0;
+    uint32_t       m_bloomW              = 0;
+    uint32_t       m_bloomH              = 0;
+    uint32_t       m_autoExposureW       = 0;
+    uint32_t       m_autoExposureH       = 0;
+    bool           m_autoExposureEnabled = false;
     uint32_t       m_gtaoW            = 0;
     uint32_t       m_gtaoH            = 0;
     bool           m_gtaoWasEnabled   = false;

@@ -448,6 +448,33 @@ void SandboxApp::drawDevTools()
         ImGui::Text("Cover %.0f%%  exposure %.2f", static_cast<double>(m_env.weather.cloudCoverage * 100.0f), static_cast<double>(m_env.exposure()));
     }
 
+    if (renderer().hasGBuffer() && ImGui::CollapsingHeader("Exposure", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::PushID("Exposure");
+        bool autoOn = m_autoExposure.mode == ExposureMode::Auto;
+        if (ImGui::Checkbox("Auto", &autoOn))
+        {
+            const ExposureMode next = autoOn ? ExposureMode::Auto : ExposureMode::Manual;
+            if (next == ExposureMode::Auto && m_autoExposure.mode != ExposureMode::Auto)
+            {
+                resetAutoExposure(m_autoExposureState);
+                m_scene.autoExposure().invalidateReadback();
+            }
+            m_autoExposure.mode = next;
+            DE_LOG_INFO(LogCategory::Render, "Exposure: auto={}", autoOn);
+        }
+        ImGui::BeginDisabled(!autoOn);
+        ImGui::SliderFloat("EV bias", &m_autoExposure.evBias, -2.0f, 2.0f, "%.2f");
+        ImGui::SliderFloat("Max EV", &m_autoExposure.maxEv, 0.0f, 3.0f, "%.2f");
+        ImGui::SliderFloat("Bright speed", &m_autoExposure.adaptBright, 0.0f, 20.0f, "%.2f /s");
+        ImGui::SliderFloat("Dark speed", &m_autoExposure.adaptDark, 0.0f, 20.0f, "%.2f /s");
+        ImGui::EndDisabled();
+        ImGui::Text("measured %.3f   EV %+.2f", static_cast<double>(m_autoExposureResult.measuredLuma), static_cast<double>(m_autoExposureResult.evCorrection));
+        ImGui::Text("artistic %.2f   final %.2f", static_cast<double>(m_env.exposure()), static_cast<double>(m_autoExposureResult.finalExposure));
+        ImGui::TextDisabled("Auto adds a small correction on the artistic exposure. Bright views fall faster than dark views rise.");
+        ImGui::PopID();
+    }
+
     if (renderer().hasGBuffer() && ImGui::CollapsingHeader("Cloud LOD", ImGuiTreeNodeFlags_DefaultOpen))
     {
         ImGui::PushID("CloudLOD");

@@ -2,8 +2,8 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Draft rev 2 |
-| **Date** | 2026-09-29 |
+| **Status** | Implemented |
+| **Date** | 2026-10-01 |
 | **Supersedes** | Draft rev 1 (2026-09-17), the 64-bin compute histogram |
 | **Depends on** | Landed color management (linear Rec.709 HDR, exposure at tonemap). `TonemapPipeline`, `BloomPipeline`, `SceneRenderer::applyPost`. |
 | **Area** | `Render/AutoExposure.*` (new), `content/shaders/AutoExposure.hlsl` (new), `BloomPipeline` threshold, `SceneRenderer::applyPost`, Sandbox dev tools |
@@ -91,7 +91,7 @@ Store `float2(log2(max(luma, 1e-4)) * w, w)` in **R32G32_FLOAT**. A product-and-
 
 ### Pyramid
 
-Repeat a 2×2 average of that pair down to 1×1, the same halving bloom uses. At 1×1:
+Repeat a 2×2 average of that pair down to 1×1, the same halving bloom uses. The average is four point loads: `R32G32_FLOAT` is not linearly filterable on every device. At 1×1:
 
 ```text
 measured = (weight > 1e-6) ? exp2(logSum / weight) : 0
@@ -109,7 +109,7 @@ ev       = clamp(ev, -maxEv, maxEv)
 final    = envExposure * exp2(ev)
 ```
 
-Defaults: `targetGrey = 0.18`, `evBias = 0`, `adaptBright = 6`, `adaptDark = 1`, `maxEv = 1.5`. Manual, or a zero measurement, forces the applied correction to 0 for the frame. A zero measurement does not wipe the stored `ev`, so the next good frame continues the adaptation.
+Defaults: `targetGrey = 0.18`, `evBias = 0`, `adaptBright = 6`, `adaptDark = 1`, `maxEv = 1.5`. Manual forces the applied correction to 0 for the frame and does not change the stored `ev`. A zero measurement keeps the stored `ev` and still applies it. The host zeros `ev` when Auto is turned on and when the view resizes.
 
 `final` is `TonemapSettings::exposure` and the value passed into bloom.
 
@@ -117,22 +117,26 @@ Defaults: `targetGrey = 0.18`, `evBias = 0`, `adaptBright = 6`, `adaptDark = 1`,
 
 ## Passes and order
 
-New `AutoExposurePipeline`, created and resized with the bloom targets in `SceneRenderer`. Runs only when the path is HybridDeferred, the pass was created, and the mode is Auto. Failure to create logs and leaves the correction at 0. The frame still tonemaps with `Environment::exposure()`.
+New `AutoExposurePipeline`, created and resized with the bloom targets in `SceneRenderer`. Sandbox sets `SceneRendererDesc::createAutoExposure` on HybridDeferred. Editor leaves it false. The meter runs only when that pass exists and the mode is Auto. Failure to create logs and leaves the correction at 0. The frame still tonemaps with `Environment::exposure()`.
+
+The 1×1 copied this frame is not mapped this frame. The host reads the slot for the current frame index before `applyPost`. That slot was filled the last time this frame index ran, and `moveToNextFrame` has already waited for it.
 
 ```text
-scene HDR + depth
-    → quarter-res log/weight
+host, before applyPost:
+    resize resets stored EV and treats the sample as missing
+    read the frame-index slot (0 if it has not completed, or the weight was 0)
+    CPU adapts → TonemapSettings.exposure and the bloom scale
+applyPost, HybridDeferred, mode Auto:
+    quarter-res log/weight
     → downsample to 1×1
-    → copy 1×1 into the readback slot for this frame
-    → map the previous frame’s slot (0 on the first frame)
-    → CPU adapts
+    → copy 1×1 into this frame’s readback slot
 bloom extract (threshold and knee scaled)
     → bloom composite onto HDR
     → TAA → motion blur
     → tonemap(final)
 ```
 
-Insert the meter at the start of `applyPost`, before `BloomPipeline::draw`. Depth is still the scene depth. HDR is still the unexposed scene color, because bloom has not added itself yet.
+The meter is the first thing `applyPost` does on the deferred path, before `BloomPipeline::draw`. Depth is still the scene depth. HDR is still the unexposed scene color, because bloom has not added itself yet.
 
 `BloomPipeline::draw` gains the exposure multiplier (or the scaled threshold and knee). `kThreshold` and `kKnee` stay the scene-space defaults at exposure 1. Strength is unchanged.
 

@@ -26,7 +26,8 @@ namespace Dark
 
         bool create(ID3D12Device* device, uint32_t width, uint32_t height);
         bool resize(ID3D12Device* device, uint32_t width, uint32_t height);
-        void draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, float strength) const;
+        // exposure scales kThreshold and kKnee by 1/exposure. Exposure 1 keeps those scene-luminance defaults.
+        void draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, float strength, float exposure) const;
 
         bool isValid() const { return m_psoExtract != nullptr && m_mips[0].res != nullptr; }
 
@@ -50,7 +51,7 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE rtvCpu(UINT mip) const;
         D3D12_GPU_DESCRIPTOR_HANDLE srvGpu(UINT slot) const;
         void drawFullscreen(ID3D12GraphicsCommandList* cmd, ID3D12PipelineState* pso, D3D12_GPU_DESCRIPTOR_HANDLE srcGpu,
-                            D3D12_CPU_DESCRIPTOR_HANDLE rtv, uint32_t dstW, uint32_t dstH, uint32_t srcW, uint32_t srcH, float strength) const;
+                            D3D12_CPU_DESCRIPTOR_HANDLE rtv, uint32_t dstW, uint32_t dstH, uint32_t srcW, uint32_t srcH, float strength, float exposure) const;
 
         ComPtr<ID3D12RootSignature>  m_rootSignature;
         ComPtr<ID3D12PipelineState>  m_psoExtract;
@@ -69,5 +70,18 @@ namespace Dark
         Mip                          m_mips[kMipCount]{};
         mutable bool                 m_loggedSkip = false;
     };
+
+// A pixel that is bright after exposure is the pixel that blooms. Exposure 1 keeps 1.0 and 0.5.
+inline float bloomThresholdForExposure(float exposure)
+{
+    const float safe = exposure > 1.0e-4f ? exposure : 1.0e-4f;
+    return BloomPipeline::kThreshold / safe;
+}
+
+inline float bloomKneeForExposure(float exposure)
+{
+    const float safe = exposure > 1.0e-4f ? exposure : 1.0e-4f;
+    return BloomPipeline::kKnee / safe;
+}
 
 } // namespace Dark

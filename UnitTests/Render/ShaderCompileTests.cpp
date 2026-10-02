@@ -217,6 +217,24 @@ TEST(ShaderCompile, Water)
     EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps, macros));
 }
 
+TEST(ShaderCompile, AutoExposure)
+{
+    const std::filesystem::path hlsl = Dark::resolveContentPath("shaders/AutoExposure.hlsl");
+    if (hlsl.empty())
+        GTEST_SKIP() << "shaders/AutoExposure.hlsl not on content roots";
+
+    const D3D_SHADER_MACRO reduceMacros[] = {
+        { "AE_REDUCE", "1" },
+        { nullptr, nullptr },
+    };
+    ComPtr<ID3DBlob> vs;
+    ComPtr<ID3DBlob> reduce;
+    ComPtr<ID3DBlob> down;
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "VSMain", "vs_5_0", vs));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSReduce", "ps_5_0", reduce, reduceMacros));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSDownsample", "ps_5_0", down));
+}
+
 TEST(ShaderCompile, TerrainErosion)
 {
     const std::filesystem::path hlsl = Dark::resolveContentPath("shaders/TerrainErosion.hlsl");

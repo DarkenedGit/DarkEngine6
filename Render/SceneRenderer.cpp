@@ -119,6 +119,13 @@ bool SceneRenderer::createPostPipelines(Renderer& renderer, const char* tag)
         m_bloomW = renderer.width();
         m_bloomH = renderer.height();
     }
+    if (m_autoExposureEnabled)
+    {
+        if (!m_autoExposure.create(renderer.device(), renderer.width(), renderer.height()))
+            DE_LOG_WARN(LogCategory::Render, "{}: AutoExposurePipeline create failed — exposure correction stays 0", tag);
+        m_autoExposureW = renderer.width();
+        m_autoExposureH = renderer.height();
+    }
     if (!m_gtao.create(renderer.device(), renderer.width(), renderer.height()))
         DE_LOG_WARN(LogCategory::Render, "{}: GtaoPipeline create failed — SSAO disabled", tag);
     else
@@ -169,6 +176,7 @@ bool SceneRenderer::createWorldEnvPipelines(Renderer& renderer, const char* tag)
 bool SceneRenderer::init(Renderer& renderer, const SceneRendererDesc& desc)
 {
     const char* tag = desc.logTag ? desc.logTag : "SceneRenderer";
+    m_autoExposureEnabled = desc.createAutoExposure;
     if (!createCorePipelines(renderer, tag))
         return false;
     if (!createPostPipelines(renderer, tag))
@@ -205,6 +213,7 @@ void SceneRenderer::shutdown()
     m_pointVolumeMesh          = Mesh{};
     m_spotVolumeMesh           = Mesh{};
     m_bloom                    = BloomPipeline{};
+    m_autoExposure.release();
     m_gtao                     = GtaoPipeline{};
     m_ssr                      = SsrPipeline{};
     m_motionBlur               = MotionBlurPipeline{};
@@ -222,6 +231,9 @@ void SceneRenderer::shutdown()
     m_taaHistoryH              = 0;
     m_bloomW                   = 0;
     m_bloomH                   = 0;
+    m_autoExposureW            = 0;
+    m_autoExposureH            = 0;
+    m_autoExposureEnabled      = false;
     m_gtaoW                    = 0;
     m_gtaoH                    = 0;
     m_gtaoWasEnabled           = false;
@@ -393,7 +405,35 @@ void SceneRenderer::drawCloudVolumes(ID3D12GraphicsCommandList* cmd, Renderer& r
     m_cloudVolumes.draw(cmd, renderer, world, m_cloudVolumeGpu, camera, viewProj, frame);
 }
 
-void SceneRenderer::applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, TonemapSettings tonemap)
+bool SceneRenderer::syncAutoExposureSize(Renderer& renderer)
+{
+    if (!m_autoExposureEnabled)
+        return false;
+    const uint32_t w = renderer.width();
+    const uint32_t h = renderer.height();
+    if (w == 0 || h == 0)
+        return false;
+    if (m_autoExposure.isValid() && w == m_autoExposureW && h == m_autoExposureH)
+        return false;
+    // A failed create already recorded this size. Wait for a real resize before trying again.
+    if (!m_autoExposure.isValid() && w == m_autoExposureW && h == m_autoExposureH && m_autoExposureW != 0)
+        return false;
+
+    renderer.waitForGpu();
+    const bool sizeChanged = m_autoExposureW != w || m_autoExposureH != h;
+    if (!m_autoExposure.resize(renderer.device(), w, h))
+    {
+        DE_LOG_WARN(LogCategory::Render, "SceneRenderer: AutoExposurePipeline resize failed — correction stays 0");
+        m_autoExposureW = w;
+        m_autoExposureH = h;
+        return true;
+    }
+    m_autoExposureW = w;
+    m_autoExposureH = h;
+    return sizeChanged;
+}
+
+void SceneRenderer::applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, TonemapSettings tonemap, bool meterAutoExposure)
 {
     const bool deferred = renderer.scenePath() == ScenePath::HybridDeferred;
     const Math::Matrix4f prevViewProj = m_havePrevViewProj ? m_prevViewProj : viewProj;
@@ -411,8 +451,12 @@ void SceneRenderer::applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd
             m_bloomW = bw;
             m_bloomH = bh;
         }
+        if (m_autoExposureEnabled)
+            syncAutoExposureSize(renderer);
+        if (meterAutoExposure && m_autoExposure.isValid())
+            m_autoExposure.meter(cmd, renderer);
         if (renderer.debugState().bloom && m_bloom.isValid())
-            m_bloom.draw(cmd, renderer, BloomPipeline::kDefaultStrength);
+            m_bloom.draw(cmd, renderer, BloomPipeline::kDefaultStrength, tonemap.exposure);
     }
 
     bool usedPostHdr = false;

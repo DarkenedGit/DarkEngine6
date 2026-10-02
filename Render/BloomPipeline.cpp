@@ -324,7 +324,8 @@ namespace Dark
     }
 
     void BloomPipeline::drawFullscreen(ID3D12GraphicsCommandList* cmd, ID3D12PipelineState* pso, D3D12_GPU_DESCRIPTOR_HANDLE srcGpu,
-                                       D3D12_CPU_DESCRIPTOR_HANDLE rtv, uint32_t dstW, uint32_t dstH, uint32_t srcW, uint32_t srcH, float strength) const
+                                       D3D12_CPU_DESCRIPTOR_HANDLE rtv, uint32_t dstW, uint32_t dstH, uint32_t srcW, uint32_t srcH, float strength,
+                                       float exposure) const
     {
         D3D12_VIEWPORT vp{};
         vp.Width    = static_cast<float>(dstW);
@@ -341,8 +342,8 @@ namespace Dark
             1.0f / static_cast<float>(Math::Max(srcH, 1u)),
             1.0f / static_cast<float>(Math::Max(dstW, 1u)),
             1.0f / static_cast<float>(Math::Max(dstH, 1u)),
-            kThreshold,
-            kKnee,
+            bloomThresholdForExposure(exposure),
+            bloomKneeForExposure(exposure),
             strength,
             0.0f,
         };
@@ -350,7 +351,7 @@ namespace Dark
         cmd->DrawInstanced(3, 1, 0, 0);
     }
 
-    void BloomPipeline::draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, float strength) const
+    void BloomPipeline::draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, float strength, float exposure) const
     {
         if (!cmd || !isValid())
         {
@@ -383,25 +384,25 @@ namespace Dark
         cmd->OMSetRenderTargets(1, &extractRtv, FALSE, nullptr);
         renderer.transitionHdr(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
-        drawFullscreen(cmd, m_psoExtract.Get(), srvGpu(hdrSlot), extractRtv, m_mips[0].w, m_mips[0].h, renderer.width(), renderer.height(), strength);
+        drawFullscreen(cmd, m_psoExtract.Get(), srvGpu(hdrSlot), extractRtv, m_mips[0].w, m_mips[0].h, renderer.width(), renderer.height(), strength, exposure);
 
         for (UINT i = 0; i < kDownCount; ++i)
         {
             transitionMip(cmd, i, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             transitionMip(cmd, i + 1, D3D12_RESOURCE_STATE_RENDER_TARGET);
-            drawFullscreen(cmd, m_psoDownsample.Get(), srvGpu(kHdrSlots + i), rtvCpu(i + 1), m_mips[i + 1].w, m_mips[i + 1].h, m_mips[i].w, m_mips[i].h, strength);
+            drawFullscreen(cmd, m_psoDownsample.Get(), srvGpu(kHdrSlots + i), rtvCpu(i + 1), m_mips[i + 1].w, m_mips[i + 1].h, m_mips[i].w, m_mips[i].h, strength, exposure);
         }
 
         for (UINT i = kMipCount - 1; i > 0; --i)
         {
             transitionMip(cmd, i, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             transitionMip(cmd, i - 1, D3D12_RESOURCE_STATE_RENDER_TARGET);
-            drawFullscreen(cmd, m_psoUpsample.Get(), srvGpu(kHdrSlots + i), rtvCpu(i - 1), m_mips[i - 1].w, m_mips[i - 1].h, m_mips[i].w, m_mips[i].h, strength);
+            drawFullscreen(cmd, m_psoUpsample.Get(), srvGpu(kHdrSlots + i), rtvCpu(i - 1), m_mips[i - 1].w, m_mips[i - 1].h, m_mips[i].w, m_mips[i].h, strength, exposure);
         }
 
         transitionMip(cmd, 0, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         renderer.transitionHdr(cmd, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        drawFullscreen(cmd, m_psoComposite.Get(), srvGpu(kHdrSlots + 0), hdrRtv, renderer.width(), renderer.height(), m_mips[0].w, m_mips[0].h, strength);
+        drawFullscreen(cmd, m_psoComposite.Get(), srvGpu(kHdrSlots + 0), hdrRtv, renderer.width(), renderer.height(), m_mips[0].w, m_mips[0].h, strength, exposure);
         // HDR remains RENDER_TARGET for TaaPipeline::draw → bindPostHdr.
     }
 

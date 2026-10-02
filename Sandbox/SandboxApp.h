@@ -144,7 +144,11 @@ private:
     Dark::IblSettings       m_ibl;
     Dark::GtaoSettings      m_ssao;
     Dark::SsrSettings       m_ssr;
-    Dark::CloudLodSettings  m_cloudLod{};
+    Dark::CloudLodSettings     m_cloudLod{};
+    Dark::AutoExposureSettings m_autoExposure{};
+    Dark::AutoExposureState    m_autoExposureState{};
+    Dark::AutoExposureResult   m_autoExposureResult{};
+    float                      m_frameDt = 0.0f;
     Dark::AssetID           m_iblImageId = Dark::NULL_ASSET;
 
     Dark::PathChase                m_chase;
