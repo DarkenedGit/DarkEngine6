@@ -120,6 +120,8 @@ namespace Dark
         void transitionHdr(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
         D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu() const { return m_depthSrvCpu; }
         ID3D12Resource*             depthResource() const { return m_depthStencil.Get(); }
+        ID3D12Resource*             albedoResource() const;
+        ID3D12Resource*             attribResource() const;
         float                       depthClearValue() const { return kDepthClear; }
         const D3D12_VIEWPORT& viewport() const { return m_viewport; }
         const D3D12_RECT&     scissor() const { return m_scissor; }
@@ -132,6 +134,7 @@ namespace Dark
         void bindGBuffer();
         void bindHdr(bool bindDepth);
         void bindHdrDepthRead();
+        void bindDecalTargets();
         void bindPostHdr();
         void bindHdrColorTarget();
         void bindTaaTarget();

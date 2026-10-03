@@ -118,7 +118,7 @@ namespace Dark
     private:
         void applyLightingAlbedoView(ID3D12Device* device);
         bool createColorTarget(ID3D12Device* device, uint32_t width, uint32_t height, DXGI_FORMAT resourceFormat, DXGI_FORMAT viewFormat, const float clear[4], const wchar_t* name,
-                               ComPtr<ID3D12Resource>& out, D3D12_RESOURCE_STATES& state);
+                               ComPtr<ID3D12Resource>& out, D3D12_RESOURCE_STATES& state, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
         static void transition(ID3D12GraphicsCommandList* cmd, ID3D12Resource* res, D3D12_RESOURCE_STATES& state, D3D12_RESOURCE_STATES after);
 
         ComPtr<ID3D12Resource>       m_hdr;

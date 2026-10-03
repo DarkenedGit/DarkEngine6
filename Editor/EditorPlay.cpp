@@ -42,6 +42,7 @@
 #include "Math/Ray3f.h"
 #include "Math/Sphere3f.h"
 #include "Math/Vector3f.h"
+#include "Render/DecalBasis.h"
 #include "Render/GpuUpload.h"
 #include "Weapons/HittableComponent.h"
 #include "Weapons/WeaponLoadout.h"
@@ -635,6 +636,8 @@ void EditorApp::onPlayWeaponHitThunk(void* user, const WeaponHit& hit)
 
 void EditorApp::onPlayWeaponHit(const WeaponHit& hit)
 {
+    // Terrain hits are !hitTarget. The mark still lands; damage stays behind that gate.
+    spawnWeaponImpact(hit);
     if (!hit.hitTarget || !hit.targetEntity.valid())
         return;
     Combat::DamageEvent ev = Combat::damageEventFromWeaponHit(hit, m_playPlayer);
@@ -646,8 +649,12 @@ void EditorApp::onPlayWeaponHit(const WeaponHit& hit)
     {
         const TransformComponent* px = m_playPlayer.valid() ? world().get<TransformComponent>(m_playPlayer) : nullptr;
         m_ai.onHunterAttacked(world(), hit.targetEntity, px ? px->position : Vector3f{});
+        spawnLivingBloodDecal(hit.targetEntity, hit.point, hit.normal);
         if (r.killed)
+        {
+            spawnDeathBloodDecal(hit.point, hit.normal);
             m_ai.onHunterKilled(world(), hit.targetEntity);
+        }
     }
 }
 
@@ -662,6 +669,9 @@ void EditorApp::onPlayHunterCueThunk(void* user, Entity hunter, const char* cue)
     auto* app = static_cast<EditorApp*>(user);
     if (!app || !cue)
         return;
+    // playSoundCue returns when the bank has the cue, so the mark has to be first.
+    if (app->isStepCue(hunter, cue))
+        app->spawnHunterFootmark(hunter);
     playSoundCue(app->world(), app->audio(), app->assets(), hunter, cue);
 }
 
@@ -680,10 +690,164 @@ void EditorApp::resolvePlayHits(const Combat::DamageEvent* events, int count)
         {
             const TransformComponent* px = m_playPlayer.valid() ? world().get<TransformComponent>(m_playPlayer) : nullptr;
             m_ai.onHunterAttacked(world(), t, px ? px->position : Vector3f{});
+            spawnLivingBloodDecal(t, events[i].hitPoint, -events[i].hitDir);
             if (HealthComponent* hp = world().get<HealthComponent>(t); hp && !hp->health.alive())
+            {
+                // Jump events have no surface normal. A flat hint keeps the stain on the height field.
+                spawnDeathBloodDecal(events[i].hitPoint, Vector3f(0.0f, 0.0f, 1.0f));
                 m_ai.onHunterKilled(world(), t);
+            }
         }
     }
+}
+
+namespace
+{
+
+    bool decalPointFinite(const Vector3f& p)
+    {
+        return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z);
+    }
+
+    Vector3f decalSafeNormal(const Vector3f& n)
+    {
+        if (n.MagnitudeSqrd() <= 1.0e-8f)
+            return Vector3f(0.0f, 1.0f, 0.0f);
+        Vector3f out = n;
+        out.Normalize();
+        return out;
+    }
+
+    Vector3f decalFlatFacing(const Vector3f& facing)
+    {
+        Vector3f f(facing.x, 0.0f, facing.z);
+        if (f.MagnitudeSqrd() <= 1.0e-8f)
+            return Vector3f(0.0f, 0.0f, 1.0f);
+        f.Normalize();
+        return f;
+    }
+
+    Vector3f decalYawFacing(float x, float z)
+    {
+        const uint32_t hx  = static_cast<uint32_t>(std::fabs(x) * 1000.0f);
+        const uint32_t hz  = static_cast<uint32_t>(std::fabs(z) * 1000.0f);
+        const uint32_t h   = hx * 1664525u + hz + 1013904223u;
+        const float    yaw = static_cast<float>(h & 0xFFFFu) * (6.2831853f / 65535.0f);
+        return Vector3f(std::cos(yaw), 0.0f, std::sin(yaw));
+    }
+
+}
+
+bool EditorApp::deferredDecals()
+{
+    return renderer().scenePath() == ScenePath::HybridDeferred
+        && renderer().debugState().decalsEnabled
+        && m_scene.decalsReady();
+}
+
+bool EditorApp::isStepCue(Entity e, const char* cue)
+{
+    const TransformComponent* xf = e.valid() ? world().get<TransformComponent>(e) : nullptr;
+    const char* groundCue = nullptr;
+    if (xf)
+        groundCue = groundContactAt(xf->position.x, xf->position.z).cue;
+    return decalCueIsGroundStep(cue, groundCue);
+}
+
+void EditorApp::spawnFootmark(const Vector3f& bodyPos, const Vector3f& facing)
+{
+    if (!deferredDecals())
+        return;
+    DecalSpawnDesc desc;
+    desc.kind     = DecalKind::Footmark;
+    desc.space    = DecalSpace::World;
+    desc.position = Vector3f(bodyPos.x, m_terrain.heightAtWorld(bodyPos.x, bodyPos.z), bodyPos.z);
+    desc.axisY    = Vector3f(0.0f, 1.0f, 0.0f);
+    desc.axisX    = decalFlatFacing(facing);
+    m_scene.spawnDecal(desc);
+}
+
+void EditorApp::spawnHunterFootmark(Entity hunter)
+{
+    if (!deferredDecals())
+        return;
+    const TransformComponent* xf = hunter.valid() ? world().get<TransformComponent>(hunter) : nullptr;
+    if (!xf)
+        return;
+    Vector3f facing(0.0f, 0.0f, 1.0f);
+    if (const AiAgentComponent* ai = world().get<AiAgentComponent>(hunter))
+        facing = ai->forward;
+    spawnFootmark(xf->position, facing);
+}
+
+void EditorApp::spawnWeaponImpact(const WeaponHit& hit)
+{
+    if (!deferredDecals() || !decalPointFinite(hit.point))
+        return;
+    const Vector3f normal = decalSafeNormal(hit.normal);
+    DecalSpawnDesc desc;
+    desc.kind   = DecalKind::Impact;
+    desc.weapon = hit.weapon;
+    desc.axisY  = normal;
+    desc.axisX  = decalImpactAxisX(normal, hit.direction);
+    Entity victim = hit.targetEntity;
+    if (!victim.valid() && hit.targetIndex >= 0 && hit.targetIndex < static_cast<int>(m_playWeaponTargets.size()))
+        victim = m_playWeaponTargets[static_cast<size_t>(hit.targetIndex)].entity;
+    const bool attach = hit.hitTarget && victim.valid() && world().alive(victim) && world().get<TransformComponent>(victim);
+    if (attach)
+    {
+        desc.entity   = victim;
+        desc.position = decalShellBiasedPosition(hit.point, normal);
+        if (world().has<AnimGraphComponent>(victim))
+        {
+            desc.space = DecalSpace::Bone;
+            desc.bone  = -1;
+        }
+        else
+            desc.space = DecalSpace::Entity;
+    }
+    else
+    {
+        desc.space    = DecalSpace::World;
+        desc.position = hit.point;
+    }
+    m_scene.spawnDecal(desc);
+}
+
+void EditorApp::spawnLivingBloodDecal(Entity victim, const Vector3f& point, const Vector3f& hitNormal)
+{
+    if (!deferredDecals() || !decalPointFinite(point))
+        return;
+    if (!victim.valid() || !world().alive(victim) || !world().get<TransformComponent>(victim))
+        return;
+    const Vector3f normal = decalSafeNormal(hitNormal);
+    DecalSpawnDesc desc;
+    desc.kind     = DecalKind::Blood;
+    desc.entity   = victim;
+    desc.position = decalShellBiasedPosition(point, normal);
+    desc.axisY    = normal;
+    desc.axisX    = decalImpactAxisX(normal, Vector3f(1.0f, 0.0f, 0.0f));
+    if (world().has<AnimGraphComponent>(victim))
+    {
+        desc.space = DecalSpace::Bone;
+        desc.bone  = -1;
+    }
+    else
+        desc.space = DecalSpace::Entity;
+    m_scene.spawnDecal(desc);
+}
+
+void EditorApp::spawnDeathBloodDecal(const Vector3f& point, const Vector3f& hitNormal)
+{
+    if (!deferredDecals() || !decalPointFinite(point))
+        return;
+    DecalSpawnDesc desc;
+    desc.kind     = DecalKind::Blood;
+    desc.space    = DecalSpace::World;
+    desc.position = Vector3f(point.x, m_terrain.heightAtWorld(point.x, point.z), point.z);
+    desc.axisY    = decalDeathAxisY(hitNormal, m_terrain.normalAtWorld(point.x, point.z));
+    desc.axisX    = decalYawFacing(point.x, point.z);
+    m_scene.spawnDecal(desc);
 }
 
 bool EditorApp::firePlayLoadout(bool charged)
@@ -1011,6 +1175,10 @@ void EditorApp::updatePlay(float dt)
         {
             m_playFootstepAcc = 0.0f;
             const char* cue = (stepGround.cue && stepGround.cue[0]) ? stepGround.cue : "step";
+            Vector3f facing = flat;
+            if (facing.MagnitudeSqrd() <= 1.0e-6f)
+                facing = xf->rotation.Rotate(Vector3f::Z_AXIS);
+            spawnFootmark(xf->position, facing);
             if (!playSoundCue(world(), audio(), assets(), body, cue))
                 playSoundCue(world(), audio(), assets(), body, "step");
         }

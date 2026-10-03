@@ -142,6 +142,8 @@ void EditorApp::onInit()
 
     if (!renderer().enableSceneBuffers(config().scenePath))
         DE_LOG_ERROR(LogCategory::Render, "EditorApp: SceneBuffers enable failed; SwapChainForward");
+    if (renderer().scenePath() == ScenePath::HybridDeferred)
+        renderer().debugState().decalsEnabled = true;
 
     {
         SceneRendererDesc sceneDesc{};

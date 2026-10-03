@@ -7,6 +7,12 @@
 #include "Render/DeferredLightingPipeline.h"
 #include "Render/GtaoPipeline.h"
 #include "Render/SsrPipeline.h"
+#include "Render/DecalGpuList.h"
+#include "Render/DecalLibrary.h"
+#include "Render/DecalPipeline.h"
+#include "Render/DecalPool.h"
+#include "Render/LineMesh.h"
+#include "Render/LinePipeline.h"
 #include "Render/LocalLightGpuList.h"
 #include "Render/LocalLightVolumePipeline.h"
 #include "Render/Mesh.h"
@@ -90,6 +96,14 @@ public:
         const Math::Matrix4f&     viewProj,
         const LightingConstants&  lc);
 
+    void tickDecals(World& world, float dt);
+    bool spawnDecal(const DecalSpawnDesc& desc, DecalId* outId = nullptr);
+    bool decalsReady() const;
+    DecalFrameStats decalStats() const;
+    void drawDecals(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& viewProj);
+    // HDR + D32 already bound. Not the decal UAV pass.
+    void drawDecalVolumes(ID3D12GraphicsCommandList* cmd, Renderer& renderer, LinePipeline& lines, const Math::Matrix4f& viewProj);
+
     // HDR color target + depth SRV (bindHdrDepthRead). Composites beer-lambert in-scatter.
     void drawCloudVolumes(ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, const Camera3D& camera, const Math::Matrix4f& viewProj,
                           const CloudVolumeFrame& frame);
@@ -163,6 +177,9 @@ private:
     bool createWorldEnvPipelines(Renderer& renderer, const char* tag);
     void ensureGtaoSize(Renderer& renderer, ID3D12GraphicsCommandList* cmd = nullptr);
     void ensureSsrSize(Renderer& renderer, ID3D12GraphicsCommandList* cmd = nullptr);
+    void createDecalPass(Renderer& renderer, const char* tag);
+    void drawDecalsPass(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& viewProj);
+    void storeDecalStats(uint32_t drawn, uint32_t culled, uint32_t inside, uint32_t triangles);
 
     MeshPipeline             m_meshPipeline;
     MeshPipeline             m_meshTransparentPipeline;
@@ -174,6 +191,13 @@ private:
     DeferredLightingPipeline m_lighting;
     LocalLightVolumePipeline m_localLightVolumes;
     LocalLightGpuList        m_localLightGpu;
+    DecalPipeline            m_decalPipeline;
+    DecalGpuList             m_decalGpu;
+    DecalLibrary             m_decalLibrary;
+    DecalPool                m_decalPool;
+    Mesh                     m_decalCube;
+    LineMesh                 m_decalVolumeMesh;
+    DecalFrameStats          m_decalStats{};
     CloudVolumePipeline      m_cloudVolumes;
     CloudVolumeGpuList       m_cloudVolumeGpu;
     CamouflagePipeline       m_camouflage;

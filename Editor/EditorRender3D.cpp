@@ -433,6 +433,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 
     if (deferred)
     {
+        m_scene.drawDecals(cmd, renderer(), m_camera, viewProj);
         renderer().bindHdr(false);
         renderer().clearHdr();
         m_scene.applyGtao(cmd, renderer(), m_camera, prevViewProj, m_ssao);
@@ -505,6 +506,10 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     else
     {
         drawLightGizmos();
+    }
+    {
+        LinePipeline& volumeLines = m_linePipeline3D.isValid() ? m_linePipeline3D : m_linePipeline;
+        m_scene.drawDecalVolumes(cmd, renderer(), volumeLines, viewProj);
     }
 
     {

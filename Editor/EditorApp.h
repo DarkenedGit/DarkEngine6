@@ -152,6 +152,13 @@ private:
     void   onPlayWeaponHit(const Dark::WeaponHit& hit);
     static void onPlayJumpHitsThunk(void* user, const Dark::Combat::DamageEvent* events, int count);
     static void onPlayHunterCueThunk(void* user, Dark::Entity hunter, const char* cue);
+    bool   deferredDecals();
+    bool   isStepCue(Entity e, const char* cue);
+    void   spawnFootmark(const Math::Vector3f& bodyPos, const Math::Vector3f& facing);
+    void   spawnHunterFootmark(Entity hunter);
+    void   spawnWeaponImpact(const WeaponHit& hit);
+    void   spawnLivingBloodDecal(Entity victim, const Math::Vector3f& point, const Math::Vector3f& normal);
+    void   spawnDeathBloodDecal(const Math::Vector3f& point, const Math::Vector3f& normal);
     bool   firePlayLoadout(bool charged);
     void   ensurePlayGear();
     void   destroyPlayGear();

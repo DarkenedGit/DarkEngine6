@@ -39,6 +39,7 @@ namespace Dark
         void setGround(const Terrain::TerrainGround* ground) { m_ground = ground; }
         void expandBounds(Math::AABox3f& bounds) const;
         void drawPaths(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Math::Matrix4f& viewProj);
+        LinePipeline& linePipeline() { return m_lines; }
 
         Entity walker() const { return m_walker; }
         const std::vector<Math::AABox3f>& cubes() const { return m_cubes; }

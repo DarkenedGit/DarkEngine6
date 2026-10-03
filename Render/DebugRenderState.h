@@ -32,6 +32,8 @@ namespace Dark
         int       ssaoDebug         = 0;    // 0 off, 1 AoFull overlay tile
         bool      ssrEnabled        = true; // AND with SsrSettings.enabled
         int       ssrDebug          = 0;    // 0 off, 1 radiance, 2 confidence
+        bool      decalsEnabled     = false; // AND with HybridDeferred before any UAV. Struct stays false; hosts set the checkbox.
+        int       decalsDebug       = 0;     // 0 off, 1 wire volumes
 
         bool lightingActive() const { return lighting && !showAlbedoLinear; }
 

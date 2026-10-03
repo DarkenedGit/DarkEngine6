@@ -25,6 +25,8 @@ TEST(DebugRenderState, DefaultsAreLitSolidWithShadows)
     EXPECT_EQ(s.ssaoDebug, 0);
     EXPECT_TRUE(s.ssrEnabled);
     EXPECT_EQ(s.ssrDebug, 0);
+    EXPECT_FALSE(s.decalsEnabled);
+    EXPECT_EQ(s.decalsDebug, 0);
     EXPECT_TRUE(s.lightingActive());
 }
 

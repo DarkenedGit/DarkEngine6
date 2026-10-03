@@ -48,6 +48,9 @@ namespace Dark
     // ============================================================
     bool CreateCube(MeshData& mesh, float size = 1.0f);
 
+    // Unit cube in [-1, 1]. 8 vertices, 36 indices, CCW from the outside.
+    bool CreateUnitCube(MeshData& mesh);
+
     // ============================================================
     //  5. PYRAMID  (square base)
     //     baseSize  – side length of square base

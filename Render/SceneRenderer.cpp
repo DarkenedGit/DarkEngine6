@@ -33,6 +33,53 @@ void copyMatrix(float dst[16], const Math::Matrix4f& m)
 {
     std::memcpy(dst, m.m_afEntry, sizeof(float) * 16);
 }
+
+struct DecalEventBlob
+{
+    uint64_t color;
+    char     name[16];
+};
+static_assert(sizeof(DecalEventBlob) == 24, "DE.Decals blob");
+
+void beginDecalEvent(ID3D12GraphicsCommandList* cmd)
+{
+    DecalEventBlob blob{};
+    blob.color = 0xFFC62828ull;
+    std::memcpy(blob.name, "DE.Decals", sizeof("DE.Decals"));
+    cmd->BeginEvent(1, &blob, static_cast<UINT>(sizeof(blob)));
+}
+
+void decalVolumeColor(DecalKind kind, float color[3])
+{
+    color[0] = 1.0f;
+    color[1] = 1.0f;
+    color[2] = 1.0f;
+    switch (kind)
+    {
+    case DecalKind::Footmark:
+        color[0] = 0.45f;
+        color[1] = 0.32f;
+        color[2] = 0.18f;
+        break;
+    case DecalKind::Blood:
+        color[0] = 0.7f;
+        color[1] = 0.05f;
+        color[2] = 0.05f;
+        break;
+    case DecalKind::Impact:
+        color[0] = 0.75f;
+        color[1] = 0.75f;
+        color[2] = 0.8f;
+        break;
+    case DecalKind::Burn:
+        color[0] = 1.0f;
+        color[1] = 0.35f;
+        color[2] = 0.05f;
+        break;
+    case DecalKind::Count:
+        break;
+    }
+}
 } // namespace
 
 bool SceneRenderer::createCorePipelines(Renderer& renderer, const char* tag)
@@ -192,8 +239,36 @@ bool SceneRenderer::init(Renderer& renderer, const SceneRendererDesc& desc)
         if (!createTerrainPipelineOnly(renderer, tag))
             return false;
     }
+    createDecalPass(renderer, tag);
     m_initialized = true;
     return true;
+}
+
+void SceneRenderer::createDecalPass(Renderer& renderer, const char* tag)
+{
+    if (!m_decalPipeline.create(renderer.device()))
+        DE_LOG_WARN(LogCategory::Render, "{}: DecalPipeline create failed — decals disabled", tag);
+    if (!m_decalGpu.create(renderer.device()))
+        DE_LOG_WARN(LogCategory::Render, "{}: DecalGpuList create failed — decals disabled", tag);
+    if (!m_decalLibrary.create(renderer))
+        DE_LOG_WARN(LogCategory::Render, "{}: DecalLibrary create failed — decals disabled", tag);
+
+    MeshData cube;
+    if (!CreateUnitCube(cube) || !Mesh::tryCreate(renderer, cube, m_decalCube))
+        DE_LOG_WARN(LogCategory::Render, "{}: decal cube mesh failed — decals disabled", tag);
+
+    LineMeshData boxLines;
+    if (!CreateBoxOutline(boxLines))
+        DE_LOG_WARN(LogCategory::Render, "{}: decal volume line mesh failed", tag);
+    else
+    {
+        // CreateBoxOutline is ±0.5. The decal matrix scales the ±1 cube.
+        for (Math::Vector3f& p : boxLines.positions)
+            p *= 2.0f;
+        m_decalVolumeMesh = LineMesh::Create(renderer, boxLines);
+        if (!m_decalVolumeMesh.valid())
+            DE_LOG_WARN(LogCategory::Render, "{}: decal volume line mesh failed", tag);
+    }
 }
 
 void SceneRenderer::shutdown()
@@ -208,6 +283,13 @@ void SceneRenderer::shutdown()
     m_lighting                 = DeferredLightingPipeline{};
     m_localLightVolumes        = LocalLightVolumePipeline{};
     m_localLightGpu            = LocalLightGpuList{};
+    m_decalPipeline            = DecalPipeline{};
+    m_decalGpu                 = DecalGpuList{};
+    m_decalLibrary             = DecalLibrary{};
+    m_decalPool                = DecalPool{};
+    m_decalCube                = Mesh{};
+    m_decalVolumeMesh          = LineMesh{};
+    m_decalStats               = {};
     m_cloudVolumes             = CloudVolumePipeline{};
     m_cloudVolumeGpu           = CloudVolumeGpuList{};
     m_camouflage               = CamouflagePipeline{};
@@ -398,6 +480,154 @@ void SceneRenderer::drawLocalLights(
     const LightingConstants&  lc)
 {
     m_localLightVolumes.draw(cmd, renderer, world, m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, camera, viewProj, lc);
+}
+
+void SceneRenderer::tickDecals(World& world, float dt)
+{
+    m_decalPool.tick(world, dt);
+}
+
+bool SceneRenderer::spawnDecal(const DecalSpawnDesc& desc, DecalId* outId)
+{
+    return m_decalPool.spawn(desc, outId);
+}
+
+bool SceneRenderer::decalsReady() const
+{
+    return m_decalPipeline.isValid() && m_decalLibrary.isValid() && m_decalGpu.isValid() && m_decalCube.valid();
+}
+
+DecalFrameStats SceneRenderer::decalStats() const
+{
+    DecalFrameStats stats = m_decalStats;
+    stats.alive           = m_decalPool.aliveCount();
+    stats.recycleCount    = m_decalPool.recycleCount();
+    return stats;
+}
+
+void SceneRenderer::storeDecalStats(uint32_t drawn, uint32_t culled, uint32_t inside, uint32_t triangles)
+{
+    m_decalStats.alive        = m_decalPool.aliveCount();
+    m_decalStats.drawn        = drawn;
+    m_decalStats.culled       = culled;
+    m_decalStats.inside       = inside;
+    m_decalStats.triangles    = triangles;
+    m_decalStats.recycleCount = m_decalPool.recycleCount();
+}
+
+void SceneRenderer::drawDecals(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& viewProj)
+{
+    // Off or forward: no marker and no UAV.
+    const bool deferred = renderer.scenePath() == ScenePath::HybridDeferred && renderer.hasGBuffer();
+    if (!cmd || !renderer.debugState().decalsEnabled || !deferred)
+    {
+        storeDecalStats(0, 0, 0, 0);
+        return;
+    }
+    drawDecalsPass(cmd, renderer, camera, viewProj);
+}
+
+void SceneRenderer::drawDecalVolumes(ID3D12GraphicsCommandList* cmd, Renderer& renderer, LinePipeline& lines, const Math::Matrix4f& viewProj)
+{
+    if (!cmd || renderer.debugState().decalsDebug != 1 || !lines.isValid() || !m_decalVolumeMesh.valid())
+        return;
+
+    DecalDebugVolume volumes[DecalPool::kCapacity];
+    const uint32_t count = m_decalPool.copyAliveVolumes(volumes, DecalPool::kCapacity);
+    if (count == 0)
+        return;
+
+    const GpuScope scope(cmd, "Decal Volumes", ProfileColor::Gizmos);
+    lines.bind(cmd);
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        LineFrameConstants lc{};
+        copyMatrix(lc.worldViewProj, volumes[i].world * viewProj);
+        decalVolumeColor(volumes[i].kind, lc.color);
+        lc.color[3] = 1.0f;
+        lines.setConstants(cmd, lc);
+        m_decalVolumeMesh.draw(cmd);
+    }
+}
+
+void SceneRenderer::drawDecalsPass(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& viewProj)
+{
+    if (!m_decalPipeline.isValid() || !m_decalLibrary.isValid() || !m_decalGpu.isValid() || !m_decalCube.valid())
+    {
+        storeDecalStats(0, 0, 0, 0);
+        return;
+    }
+
+    DecalGpuInstance outside[DecalPool::kCapacity];
+    DecalGpuInstance inside[DecalPool::kCapacity];
+    uint32_t outsideCount = 0;
+    uint32_t insideCount  = 0;
+    const Frustum3f frustum(camera.GetCullViewProj());
+    m_decalPool.buildVisible(frustum, camera.GetPosition(), outside, DecalPool::kCapacity, &outsideCount, inside, DecalPool::kCapacity, &insideCount);
+    const uint32_t alive = m_decalPool.aliveCount();
+    const uint32_t drawn = outsideCount + insideCount;
+    const uint32_t culled = alive > drawn ? alive - drawn : 0;
+    // Outside boxes are 12 tris. The inside path is one fullscreen triangle.
+    storeDecalStats(drawn, culled, insideCount, outsideCount * 12u + insideCount);
+    if (outsideCount == 0 && insideCount == 0)
+        return;
+
+    ID3D12Device* device = renderer.device();
+    if (!m_decalPipeline.syncTargets(device, renderer.albedoResource(), renderer.attribResource()))
+        return;
+
+    DecalPassConstants cb{};
+    copyMatrix(cb.viewProj, viewProj);
+    copyMatrix(cb.invViewProj, viewProj.Inverse());
+    const uint32_t frame = renderer.frameIndex();
+    m_decalPipeline.uploadPass(frame, cb);
+    m_decalGpu.upload(frame, outside, outsideCount, inside, insideCount);
+    if (!m_decalPipeline.bindFrameDescriptors(frame, device, renderer.depthSrvCpu(), m_decalLibrary))
+        return;
+
+    beginDecalEvent(cmd);
+    renderer.bindDecalTargets();
+
+    const auto drawRange = [&](const DecalGpuInstance* list, uint32_t count, D3D12_GPU_VIRTUAL_ADDRESS base, bool fullscreen) -> bool
+    {
+        bool drew = false;
+        uint32_t start = 0;
+        while (start < count)
+        {
+            const DecalDefId id = decalDefForGpuInstance(list[start]);
+            if (id == DecalDefId::Count)
+            {
+                ++start;
+                continue;
+            }
+            uint32_t end = start + 1;
+            while (end < count && decalDefForGpuInstance(list[end]) == id)
+                ++end;
+            if (drew)
+                m_decalPipeline.uavBarrier(cmd);
+            const D3D12_GPU_VIRTUAL_ADDRESS va = base + static_cast<UINT64>(start) * sizeof(DecalGpuInstance);
+            if (fullscreen)
+                m_decalPipeline.drawInside(cmd, va, end - start, id);
+            else
+                m_decalPipeline.drawOutside(cmd, m_decalCube, va, end - start, id);
+            drew  = true;
+            start = end;
+        }
+        return drew;
+    };
+
+    const bool drewOutside = drawRange(outside, outsideCount, m_decalGpu.outsideGpuVa(), false);
+    bool drewInside = false;
+    if (insideCount > 0)
+    {
+        if (drewOutside)
+            m_decalPipeline.uavBarrier(cmd);
+        cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
+        drewInside = drawRange(inside, insideCount, m_decalGpu.insideGpuVa(), true);
+    }
+    if (drewOutside || drewInside)
+        m_decalPipeline.uavBarrier(cmd);
+    cmd->EndEvent();
 }
 
 void SceneRenderer::drawCloudVolumes(ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, const Camera3D& camera,
