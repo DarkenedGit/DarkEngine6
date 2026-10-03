@@ -98,6 +98,7 @@ public:
 
     void tickDecals(World& world, float dt);
     bool spawnDecal(const DecalSpawnDesc& desc, DecalId* outId = nullptr);
+    bool decalsReady() const;
     DecalFrameStats decalStats() const;
     void drawDecals(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& viewProj);
     // HDR + D32 already bound. Not the decal UAV pass.

@@ -99,4 +99,8 @@ namespace Dark
 
     Math::Vector3f decalShellBiasedPosition(const Math::Vector3f& hitPoint, const Math::Vector3f& hitNormal);
 
+    bool decalCueIsGroundStep(const char* cue, const char* groundCue);
+    Math::Vector3f decalDeathAxisY(const Math::Vector3f& hitNormal, const Math::Vector3f& terrainNormal);
+    Math::Vector3f decalImpactAxisX(const Math::Vector3f& hitNormal, const Math::Vector3f& hitDirection);
+
 } // namespace Dark

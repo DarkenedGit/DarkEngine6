@@ -28,6 +28,9 @@ using Dark::DecalChannel_Albedo;
 using Dark::DecalChannel_Emissive;
 using Dark::DecalChannel_Normal;
 using Dark::DecalChannel_Roughness;
+using Dark::decalCueIsGroundStep;
+using Dark::decalDeathAxisY;
+using Dark::decalImpactAxisX;
 using Dark::decalClipLocal;
 using Dark::decalClipWorld;
 using Dark::DecalDef;
@@ -684,6 +687,61 @@ TEST(Decal_Normal_SlashCenter, GrooveAndOutside)
 TEST(Decal_LightingCount_Unchanged, StaysTen)
 {
     EXPECT_EQ(SceneBuffers::kLightingCount, 10u);
+}
+
+TEST(Decal_Cue_GroundStep, StepOrExactGroundCue)
+{
+    EXPECT_TRUE(decalCueIsGroundStep("step", "step_grass"));
+    EXPECT_TRUE(decalCueIsGroundStep("step", nullptr));
+    EXPECT_TRUE(decalCueIsGroundStep("step_grass", "step_grass"));
+    EXPECT_FALSE(decalCueIsGroundStep("step_rock", "step_grass"));
+    EXPECT_FALSE(decalCueIsGroundStep("grunt", "step_grass"));
+    EXPECT_FALSE(decalCueIsGroundStep("pounce", "step"));
+    EXPECT_FALSE(decalCueIsGroundStep("pound", "step"));
+    EXPECT_FALSE(decalCueIsGroundStep("growl", nullptr));
+    EXPECT_FALSE(decalCueIsGroundStep("land", "step"));
+    EXPECT_FALSE(decalCueIsGroundStep("impact", "step"));
+    EXPECT_FALSE(decalCueIsGroundStep("", "step"));
+    EXPECT_FALSE(decalCueIsGroundStep(nullptr, "step"));
+    EXPECT_FALSE(decalCueIsGroundStep("step_grass", nullptr));
+    EXPECT_FALSE(decalCueIsGroundStep("step_grass", ""));
+}
+
+TEST(Decal_DeathAxis_Surface, UsesHitWhenUpEnough)
+{
+    const Vector3f terrain(0.0f, 0.2f, 0.8f);
+    const Vector3f steep(0.1f, 0.41f, 0.2f);
+    const Vector3f side(1.0f, 0.4f, 0.0f);
+    const Vector3f picked = decalDeathAxisY(steep, terrain);
+    EXPECT_NEAR(picked.x, steep.x, 1.0e-6f);
+    EXPECT_NEAR(picked.y, steep.y, 1.0e-6f);
+    const Vector3f sided = decalDeathAxisY(side, terrain);
+    EXPECT_NEAR(sided.x, terrain.x, 1.0e-6f);
+    EXPECT_NEAR(sided.y, terrain.y, 1.0e-6f);
+    EXPECT_NEAR(sided.z, terrain.z, 1.0e-6f);
+    const Vector3f none = decalDeathAxisY(Vector3f(0.0f, 0.0f, 0.0f), Vector3f(0.0f, 0.0f, 0.0f));
+    EXPECT_NEAR(none.x, 0.0f, 1.0e-6f);
+    EXPECT_NEAR(none.y, 1.0f, 1.0e-6f);
+    EXPECT_NEAR(none.z, 0.0f, 1.0e-6f);
+}
+
+TEST(Decal_ImpactAxis_Tangent, NotParallelToNormal)
+{
+    const Vector3f up(0.0f, 1.0f, 0.0f);
+    const Vector3f slope(0.0f, 0.6f, 0.8f);
+    const Vector3f dir(0.0f, 0.0f, 1.0f);
+    const Vector3f across = decalImpactAxisX(slope, dir);
+    EXPECT_NEAR(across.Dot(slope), 0.0f, 1.0e-4f);
+    EXPECT_GT(across.MagnitudeSqrd(), 0.5f);
+
+    const Vector3f vertical = decalImpactAxisX(up, dir);
+    EXPECT_NEAR(vertical.Dot(up), 0.0f, 1.0e-4f);
+    EXPECT_NEAR(vertical.x, 1.0f, 1.0e-4f);
+
+    const Vector3f fallback = decalImpactAxisX(up, up);
+    EXPECT_NEAR(fallback.x, 1.0f, 1.0e-5f);
+    EXPECT_NEAR(fallback.y, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(fallback.z, 0.0f, 1.0e-5f);
 }
 
 TEST(Decal_Spawn_Rejects, BadKindAndAxis)

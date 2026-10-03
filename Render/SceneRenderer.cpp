@@ -492,6 +492,11 @@ bool SceneRenderer::spawnDecal(const DecalSpawnDesc& desc, DecalId* outId)
     return m_decalPool.spawn(desc, outId);
 }
 
+bool SceneRenderer::decalsReady() const
+{
+    return m_decalPipeline.isValid() && m_decalLibrary.isValid() && m_decalGpu.isValid() && m_decalCube.valid();
+}
+
 DecalFrameStats SceneRenderer::decalStats() const
 {
     DecalFrameStats stats = m_decalStats;

@@ -8,6 +8,7 @@
 #include "Render/Octahedral.h"
 
 #include <cmath>
+#include <cstring>
 
 namespace Dark
 {
@@ -549,6 +550,37 @@ namespace Dark
             return hitPoint;
         n.Normalize();
         return hitPoint - n * kDecalShellBiasMeters;
+    }
+
+    bool decalCueIsGroundStep(const char* cue, const char* groundCue)
+    {
+        if (!cue || cue[0] == '\0')
+            return false;
+        if (std::strcmp(cue, "step") == 0)
+            return true;
+        if (!groundCue || groundCue[0] == '\0')
+            return false;
+        return std::strcmp(cue, groundCue) == 0;
+    }
+
+    Vector3f decalDeathAxisY(const Vector3f& hitNormal, const Vector3f& terrainNormal)
+    {
+        if (hitNormal.y > 0.4f && hitNormal.MagnitudeSqrd() > 1.0e-8f)
+            return hitNormal;
+        if (terrainNormal.MagnitudeSqrd() > 1.0e-8f)
+            return terrainNormal;
+        return Vector3f(0.0f, 1.0f, 0.0f);
+    }
+
+    Vector3f decalImpactAxisX(const Vector3f& hitNormal, const Vector3f& hitDirection)
+    {
+        Vector3f axis = hitNormal.Cross(Vector3f(0.0f, 1.0f, 0.0f));
+        if (axis.MagnitudeSqrd() <= 1.0e-8f)
+            axis = hitNormal.Cross(hitDirection);
+        if (axis.MagnitudeSqrd() <= 1.0e-8f)
+            return Vector3f(1.0f, 0.0f, 0.0f);
+        axis.Normalize();
+        return axis;
     }
 
 } // namespace Dark

@@ -88,6 +88,13 @@ private:
     void updateFlashlight();
     void pulseMuzzle();
     void spawnHunterBlood(const Dark::Math::Vector3f& pos);
+    bool deferredDecals();
+    bool isStepCue(Dark::Entity e, const char* cue);
+    void spawnFootmark(const Dark::Math::Vector3f& bodyPos, const Dark::Math::Vector3f& facing);
+    void spawnHunterFootmark(Dark::Entity hunter);
+    void spawnWeaponImpact(const Dark::WeaponHit& hit);
+    void spawnLivingBloodDecal(Dark::Entity victim, const Dark::Math::Vector3f& point, const Dark::Math::Vector3f& normal);
+    void spawnDeathBloodDecal(const Dark::Math::Vector3f& point, const Dark::Math::Vector3f& normal);
     void respawnPlayer();
     void resolveJumpAttackAndFx(const Dark::Combat::DamageEvent* events, int count);
     bool firePossessedLoadout(bool charged);
