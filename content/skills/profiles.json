@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "profiles": [
+    {
+      "id": "player",
+      "skills": {
+        "shoot": { "level": 1, "xp": 0 },
+        "swim": { "level": 1, "xp": 0 },
+        "run": { "level": 1, "xp": 0 },
+        "jump": { "level": 1, "xp": 0 },
+        "hear": { "level": 1, "xp": 0 },
+        "see": { "level": 1, "xp": 0 }
+      }
+    },
+    {
+      "id": "hunter",
+      "grant": ["run", "hear", "see"],
+      "skills": {
+        "run": { "level": 1, "xp": 0 },
+        "hear": { "level": 1, "xp": 0 },
+        "see": { "level": 1, "xp": 0 }
+      }
+    },
+    {
+      "id": "wolf",
+      "grant": ["run", "hear", "see"],
+      "skills": {
+        "run": { "level": 1, "xp": 0 },
+        "hear": { "level": 1, "xp": 0 },
+        "see": { "level": 1, "xp": 0 }
+      }
+    }
+  ]
+}
