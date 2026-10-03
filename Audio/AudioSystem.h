@@ -38,11 +38,6 @@ namespace Dark::Audio
         uint32_t       sourceId    = 0; // 0 is unattributed and does not train Hear.
     };
 
-    inline bool hearVoiceIsForeign(uint32_t sourceId, uint32_t selfId)
-    {
-        return sourceId != 0u && sourceId != selfId;
-    }
-
     using VoiceId = uint32_t; // 0 = invalid
 
     class AudioSystem

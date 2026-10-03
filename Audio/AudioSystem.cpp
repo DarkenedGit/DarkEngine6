@@ -578,9 +578,9 @@ namespace Dark::Audio
         {
             if (!slot || !slot->inUse || slot->music || !slot->desc.spatial)
                 continue;
-            if (!hearVoiceIsForeign(slot->desc.sourceId, selfId))
-                continue;
-            ++count;
+            const uint32_t sourceId = slot->desc.sourceId;
+            if (sourceId != 0u && sourceId != selfId)
+                ++count;
         }
         return count;
     }

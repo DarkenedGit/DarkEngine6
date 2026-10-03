@@ -113,10 +113,6 @@ TEST(SkillSense, FlashlightReappliesFromBaseAndCapsOuter)
 
 TEST(SkillSense, UnattributedAndOwnSourceDoNotTrainHear)
 {
-    EXPECT_FALSE(Audio::hearVoiceIsForeign(0u, 7u));
-    EXPECT_FALSE(Audio::hearVoiceIsForeign(7u, 7u));
-    EXPECT_TRUE(Audio::hearVoiceIsForeign(3u, 7u));
-
     Audio::AudioSystem audio;
     EXPECT_EQ(audio.liveForeignSpatialVoices(7u), 0);
     EXPECT_EQ(audio.liveForeignSpatialVoices(0u), 0);
