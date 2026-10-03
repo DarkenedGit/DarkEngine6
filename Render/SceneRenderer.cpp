@@ -49,25 +49,6 @@ void beginDecalEvent(ID3D12GraphicsCommandList* cmd)
     cmd->BeginEvent(1, &blob, static_cast<UINT>(sizeof(blob)));
 }
 
-void fillUnitBoxLines(LineMeshData& m)
-{
-    const float h = 1.0f;
-    m.positions.push_back({ -h, -h, -h });
-    m.positions.push_back({ h, -h, -h });
-    m.positions.push_back({ h, h, -h });
-    m.positions.push_back({ -h, h, -h });
-    m.positions.push_back({ -h, -h, h });
-    m.positions.push_back({ h, -h, h });
-    m.positions.push_back({ h, h, h });
-    m.positions.push_back({ -h, h, h });
-    const uint32_t edges[] = {
-        0, 1, 1, 2, 2, 3, 3, 0,
-        4, 5, 5, 6, 6, 7, 7, 4,
-        0, 4, 1, 5, 2, 6, 3, 7
-    };
-    m.indices.assign(edges, edges + 24);
-}
-
 void decalVolumeColor(DecalKind kind, float color[3])
 {
     color[0] = 1.0f;
@@ -277,10 +258,17 @@ void SceneRenderer::createDecalPass(Renderer& renderer, const char* tag)
         DE_LOG_WARN(LogCategory::Render, "{}: decal cube mesh failed — decals disabled", tag);
 
     LineMeshData boxLines;
-    fillUnitBoxLines(boxLines);
-    m_decalVolumeMesh = LineMesh::Create(renderer, boxLines);
-    if (!m_decalVolumeMesh.valid())
+    if (!CreateBoxOutline(boxLines))
         DE_LOG_WARN(LogCategory::Render, "{}: decal volume line mesh failed", tag);
+    else
+    {
+        // CreateBoxOutline is ±0.5. The decal matrix scales the ±1 cube.
+        for (Math::Vector3f& p : boxLines.positions)
+            p *= 2.0f;
+        m_decalVolumeMesh = LineMesh::Create(renderer, boxLines);
+        if (!m_decalVolumeMesh.valid())
+            DE_LOG_WARN(LogCategory::Render, "{}: decal volume line mesh failed", tag);
+    }
 }
 
 void SceneRenderer::shutdown()

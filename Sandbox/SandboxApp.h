@@ -128,7 +128,6 @@ private:
     Dark::Mesh    m_cubeMesh;
     Dark::SceneRenderer     m_scene;
     Dark::LinePipeline        m_skelLinePipeline;
-    Dark::LinePipeline        m_decalVolumePipeline;
     Microsoft::WRL::ComPtr<ID3D12Resource> m_skelLineVb[2];
     Microsoft::WRL::ComPtr<ID3D12Resource> m_skelLineIb[2];
     D3D12_VERTEX_BUFFER_VIEW  m_skelLineVbv[2]{};
