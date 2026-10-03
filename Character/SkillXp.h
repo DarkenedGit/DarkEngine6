@@ -33,7 +33,7 @@ namespace Dark
         return metres > 0.0f ? metres : 0.0f;
     }
 
-    // False when masked, disabled, non-positive, non-finite, or already max level.
+    // False when masked, disabled, non-positive, non-finite, level < 1, or already max level.
     bool grantSkillXp(SkillComponent& comp, SkillId id, float amount);
 
     void tickSkill(SkillComponent& comp, float dt);

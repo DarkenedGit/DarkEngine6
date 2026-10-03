@@ -91,7 +91,7 @@ namespace Dark
         const int  maxLevel = skillCatalog().maxLevel();
         if (rank.level >= maxLevel)
             return false;
-        // xpToNext is 0 below level 1, so the loop would not terminate.
+        // A level below 1 is not a rank and must not absorb XP.
         if (rank.level < 1)
             return false;
 
