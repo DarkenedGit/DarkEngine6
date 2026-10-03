@@ -25,6 +25,7 @@
 #include "Render/MeshGen.h"
 #include "Render/TaaJitter.h"
 #include "Render/ModelDraw.h"
+#include "Render/Profile.h"
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
@@ -76,6 +77,8 @@ void EditorApp::renderScene2D(ID3D12GraphicsCommandList* cmd)
     if (!cmd || !ensure2DResources())
         return;
 
+    {
+    const GpuScope sprites(cmd, "Sprites", ProfileColor::Sprites);
     m_spritePipe.bind(cmd);
 
     auto drawObj = [&](Entity e, const EditorObjectComponent& so, const TransformComponent& xf) {
@@ -117,9 +120,11 @@ void EditorApp::renderScene2D(ID3D12GraphicsCommandList* cmd)
         if (xf)
             drawObj(e, so, *xf);
     });
+    }
 
     if (m_showGrid && m_grid2D.valid())
     {
+        const GpuScope grid(cmd, "Editor Grid", ProfileColor::Grid);
         m_linePipeline.bind(cmd);
         LineFrameConstants lc{};
         copyMatrix(lc.worldViewProj, m_camera2D.GetViewProj());
@@ -137,6 +142,7 @@ void EditorApp::renderScene2D(ID3D12GraphicsCommandList* cmd)
         {
             if (const auto* xf = world().get<TransformComponent>(m_selected))
             {
+                const GpuScope gizmos(cmd, "Gizmos", ProfileColor::Gizmos);
                 const AABox2f  box   = objectBounds2D(so->type, xf->position, xf->scale);
                 const Vector2f c = box.Center();
                 const Vector2f s = box.Size();

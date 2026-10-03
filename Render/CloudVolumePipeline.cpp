@@ -1,4 +1,5 @@
 #include "Render/CloudVolumePipeline.h"
+#include "Render/Profile.h"
 
 #include "Core/Log.h"
 #include "ECS/World.h"
@@ -157,6 +158,7 @@ namespace Dark
         if (lists.count == 0)
             return;
 
+        const GpuScope clouds(cmd, "Cloud Volumes", ProfileColor::Clouds);
         gpuList.upload(renderer.frameIndex(), lists);
 
         ID3D12Device* device = renderer.device();

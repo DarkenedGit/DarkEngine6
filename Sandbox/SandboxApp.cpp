@@ -25,6 +25,7 @@
 #include "Render/Fog.h"
 #include "Render/PbrLighting.h"
 #include "Render/ModelDraw.h"
+#include "Render/Profile.h"
 #include "Render/MaterialSurface.h"
 #include "Render/GpuResourceCache.h"
 #include "Render/GpuUpload.h"
@@ -2067,6 +2068,7 @@ void SandboxApp::drawSkeletonOverlay(ID3D12GraphicsCommandList* cmd, const Matri
     if (!m_showSkeleton || !cmd || !m_skelLinePipeline.isValid() || !m_skelLineVb[0])
         return;
 
+    const GpuScope skeleton(cmd, "Skeleton", ProfileColor::Skeleton);
     SkeletonDebugLines lines;
     world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
         const TransformComponent* xf = world().get<TransformComponent>(e);
@@ -2302,6 +2304,7 @@ void SandboxApp::drawProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix4f&
     if (!any)
         return;
 
+    const GpuScope projectiles(cmd, "Projectiles", ProfileColor::Projectiles);
     const float     radius = w->projectile().desc().radius;
     const float     scale  = radius * 2.0f;
     const DebugFill fill   = renderer().debugState().fill;
@@ -2333,6 +2336,7 @@ void SandboxApp::drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Ma
     if (!any)
         return;
 
+    const GpuScope projectiles(cmd, "Projectiles", ProfileColor::Projectiles);
     const float     radius = w->projectile().desc().radius;
     const float     scale  = radius * 2.0f;
     const DebugFill fill   = renderer().debugState().fill;
@@ -3245,8 +3249,12 @@ void SandboxApp::onRender()
 
     if (deferred)
     {
-        m_terrain.drawGBuffer(cmd, m_terrainPipeline, m_terrainMaterial, m_viewCamera, &frustum, &renderer().debugState(), &prevViewProj);
-        m_meshPipeline.bind(cmd, fill);
+        {
+            const GpuScope gbuffer(cmd, "GBuffer", ProfileColor::GBuffer);
+            m_terrain.drawGBuffer(cmd, m_terrainPipeline, m_terrainMaterial, m_viewCamera, &frustum, &renderer().debugState(), &prevViewProj);
+            {
+                const GpuScope meshes(cmd, "Opaque Meshes", ProfileColor::OpaqueMeshes);
+                m_meshPipeline.bind(cmd, fill);
         if (material && material->isValid())
             renderer().gpuResources().bindMaterial(cmd, *material, MeshPipeline::kRootAlbedoSrv);
         MeshGBufferConstants gcb{};
@@ -3287,8 +3295,11 @@ void SandboxApp::onRender()
             m_prevWorldByEntity[e.id()] = worldMat;
             ++meshDraws;
         });
-        drawProjectilesGBuffer(cmd, viewProj, prevViewProj);
-        world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+            }
+            drawProjectilesGBuffer(cmd, viewProj, prevViewProj);
+            {
+                const GpuScope models(cmd, "Opaque Models", ProfileColor::OpaqueModels);
+                world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             if (camouflageHides(e))
                 return;
             const TransformComponent* xf = world().get<TransformComponent>(e);
@@ -3315,6 +3326,8 @@ void SandboxApp::onRender()
             else
                 drawModelOpaqueGBuffer(cmd, gpu, m_meshPipeline, *model, worldMat, viewProj, prevViewProj, fill);
         });
+            }
+        }
 
         renderer().bindHdr(false);
         renderer().clearHdr();
@@ -3355,6 +3368,7 @@ void SandboxApp::onRender()
     }
     else
     {
+        const GpuScope forward(cmd, "Forward Opaque", ProfileColor::ForwardOpaque);
         m_terrain.draw(
             cmd, m_terrainPipeline, m_terrainMaterial, m_viewCamera, &frustum, &m_env, &m_shadows,
             &renderer().debugState());
@@ -3389,7 +3403,9 @@ void SandboxApp::onRender()
         cb.cameraPos[2]  = camPos.z;
         cb.lighting      = renderer().debugState().lightingActive() ? 1.0f : 0.0f;
 
-        world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
+        {
+            const GpuScope meshes(cmd, "Opaque Meshes", ProfileColor::OpaqueMeshes);
+            world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
             if (world().has<ModelComponent>(e))
                 return;
             if (const HealthComponent* hp = world().get<HealthComponent>(e); hp && !hp->health.alive())
@@ -3415,9 +3431,12 @@ void SandboxApp::onRender()
             gpuMesh->draw(cmd, fill == DebugFill::Points);
             ++meshDraws;
         });
+        }
 
         drawProjectiles(cmd, viewProj, cb);
-        world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+        {
+            const GpuScope models(cmd, "Opaque Models", ProfileColor::OpaqueModels);
+            world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             if (camouflageHides(e))
                 return;
             const TransformComponent* xf = world().get<TransformComponent>(e);
@@ -3441,6 +3460,7 @@ void SandboxApp::onRender()
             else
                 drawModelForward(cmd, gpu, m_meshPipeline, m_shadows, *model, false, worldMat, viewProj, cb, fill);
         });
+        }
     }
 
     D3D12_GPU_VIRTUAL_ADDRESS waterLightsVa   = m_localLightGpu.isValid() ? m_localLightGpu.dummyGpuVa() : 0;
@@ -3540,6 +3560,7 @@ void SandboxApp::onRender()
     }
 
     {
+        const GpuScope translucent(cmd, "Translucent", ProfileColor::Translucent);
         MeshFrameConstants lit{};
         lit.lightDirWS[0] = m_env.lightDir().x;
         lit.lightDirWS[1] = m_env.lightDir().y;
@@ -3576,10 +3597,15 @@ void SandboxApp::onRender()
     }
 
     if (m_chaseOk)
+    {
+        const GpuScope paths(cmd, "Path Debug", ProfileColor::DebugOverlay);
         m_chase.drawPaths(cmd, renderer(), viewProj);
+    }
     drawSkeletonOverlay(cmd, viewProj);
 
-    m_particles.beginFrame(renderer().frameIndex());
+    {
+        const GpuScope particles(cmd, "Particles", ProfileColor::Particles);
+        m_particles.beginFrame(renderer().frameIndex());
     if (m_blood.aliveCount() > 0)
         m_particles.draw(cmd, m_viewCamera, m_blood, false);
     world().each<ParticleEmitterComponent>([&](Entity, ParticleEmitterComponent& pe) {
@@ -3595,6 +3621,7 @@ void SandboxApp::onRender()
     });
     if (WeaponLoadout* wFx = localWeapons(); wFx && wFx->projectile().impactEmitter().aliveCount() > 0)
         m_particles.draw(cmd, m_viewCamera, wFx->projectile().impactEmitter(), true);
+    }
 
     m_bloodSplats.draw(cmd, m_viewCamera);
 
@@ -3624,10 +3651,16 @@ void SandboxApp::onRender()
     Health* hudHp = localHealth();
     const Entity hudBody = possessedBody();
     const HudTagComponent* hudTag = hudBody.valid() ? world().get<HudTagComponent>(hudBody) : nullptr;
-    if (!m_menu.visible() && hudHp && hudTag && hudTag->kind == HudKind::HealthBar)
-        m_healthHud.draw(cmd, renderer().width(), renderer().height(), hudHp->ratio());
-    if (!m_menu.visible() && hudHp && hudHp->alive() && !m_gameplayPaused)
-        m_crosshair.draw(cmd, renderer().width(), renderer().height(), localWeapons() ? localWeapons()->activeKind() : WeaponKind::Melee);
+    const bool drawHealth = !m_menu.visible() && hudHp && hudTag && hudTag->kind == HudKind::HealthBar;
+    const bool drawCrosshair = !m_menu.visible() && hudHp && hudHp->alive() && !m_gameplayPaused;
+    if (drawHealth || drawCrosshair)
+    {
+        const GpuScope hud(cmd, "HUD", ProfileColor::Hud);
+        if (drawHealth)
+            m_healthHud.draw(cmd, renderer().width(), renderer().height(), hudHp->ratio());
+        if (drawCrosshair)
+            m_crosshair.draw(cmd, renderer().width(), renderer().height(), localWeapons() ? localWeapons()->activeKind() : WeaponKind::Melee);
+    }
 
     renderer().stats().drawCalls = m_terrain.lastDrawCalls() + m_water.lastDrawCalls() + meshDraws + 1;
     renderer().stats().triangles =
@@ -3661,6 +3694,7 @@ void SandboxApp::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
     if (!m_showShadowMaps && !m_showDepth && !m_showGBuffer && !m_showVelocity && !ssaoTile && !ssrTile)
         return;
 
+    const GpuScope overlay(cmd, "Debug Overlay", ProfileColor::DebugOverlay);
     // Unbind the DSV so we can sample the scene depth. Do not rebind it afterwards
     // while it remains PIXEL_SHADER_RESOURCE (endFrame does not write depth).
     renderer().bindColorTargetOnly();

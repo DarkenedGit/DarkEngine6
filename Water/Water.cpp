@@ -2,6 +2,7 @@
 #include "Render/WaterPipeline.h"
 #include "Render/Camera3D.h"
 #include "Render/Frustum3f.h"
+#include "Render/Profile.h"
 #include "Render/Renderer.h"
 #include "Render/Fog.h"
 #include "Render/ShadowSystem.h"
@@ -338,6 +339,7 @@ using namespace Terrain;
         if (!cmd || !pipeline.isValid())
             return;
 
+        const GpuScope water(cmd, "Water", ProfileColor::Water);
         const DebugFill fill = debug ? debug->fill : DebugFill::Solid;
         const bool lighting  = !debug || debug->lightingActive();
         pipeline.bind(cmd, fill);

@@ -25,6 +25,7 @@
 #include "Render/MeshGen.h"
 #include "Render/TaaJitter.h"
 #include "Render/ModelDraw.h"
+#include "Render/Profile.h"
 #include "Render/MaterialSurface.h"
 #include "Render/GpuUpload.h"
 #include "Render/Frustum3f.h"
@@ -197,6 +198,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     }
     else if (m_showSolid && m_groundMesh.valid() && m_groundMaterial)
     {
+        const GpuScope meshes(cmd, "Opaque Meshes", ProfileColor::OpaqueMeshes);
         const float* c = m_groundMaterial->baseColor();
         drawMesh(m_groundMesh, Matrix4f{}, m_groundMaterial.get(), c[0], c[1], c[2]);
     }
@@ -204,6 +206,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     auto drawGrid = [&]() {
         if (!m_showGrid || !m_gridMesh.valid())
             return;
+        const GpuScope grid(cmd, "Editor Grid", ProfileColor::Grid);
         LinePipeline& lines = m_linePipeline3D.isValid() ? m_linePipeline3D : m_linePipeline;
         lines.bind(cmd);
         LineFrameConstants lc{};
@@ -220,6 +223,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         LinePipeline& lines = m_linePipeline3D.isValid() ? m_linePipeline3D : m_linePipeline;
         if (!lines.isValid())
             return;
+        const GpuScope gizmos(cmd, "Light Gizmos", ProfileColor::Gizmos);
         lines.bind(cmd);
         world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
             if (!m_selected.valid() || m_selected.id() != e.id())
@@ -321,7 +325,9 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         drawGrid();
 
     uint32_t draws = 0;
-    world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
+    {
+        const GpuScope meshes(cmd, "Opaque Meshes", ProfileColor::OpaqueMeshes);
+        world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
         if (!isScene3DType(so.type))
             return;
         const auto* xf = world().get<TransformComponent>(e);
@@ -352,9 +358,11 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         drawMesh(*mesh, makeWorldMatrix(*xf), material, cr, cg, cb, emissive);
         ++draws;
     });
+    }
 
     if (deferred)
     {
+        const GpuScope models(cmd, "Opaque Models", ProfileColor::OpaqueModels);
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             const auto* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
@@ -384,6 +392,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     }
     else
     {
+        const GpuScope models(cmd, "Opaque Models", ProfileColor::OpaqueModels);
         MeshFrameConstants lit{};
         lit.lightDirWS[0] = lightDir.x;
         lit.lightDirWS[1] = lightDir.y;
@@ -499,6 +508,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     }
 
     {
+        const GpuScope translucent(cmd, "Translucent", ProfileColor::Translucent);
         MeshFrameConstants lit{};
         lit.lightDirWS[0] = lightDir.x;
         lit.lightDirWS[1] = lightDir.y;
@@ -531,8 +541,10 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         });
     }
 
-    m_particleRenderer.beginFrame(renderer().frameIndex());
-    world().each<ParticleEmitterComponent>([&](Entity, ParticleEmitterComponent& pe) {
+    {
+        const GpuScope particles(cmd, "Particles", ProfileColor::Particles);
+        m_particleRenderer.beginFrame(renderer().frameIndex());
+        world().each<ParticleEmitterComponent>([&](Entity, ParticleEmitterComponent& pe) {
         if (!pe.runtime)
             return;
         const Material* sprite = nullptr;
@@ -544,6 +556,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         m_particleRenderer.draw(cmd, m_camera, *pe.runtime, pe.runtime->desc().additiveBlend, sprite);
         ++draws;
     });
+    }
 
     {
         const bool aces = renderer().hasSceneBuffers() && renderer().debugState().aces && renderer().debugState().lightingActive();
@@ -559,6 +572,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         const bool ssrTile  = renderer().debugState().ssrDebug != 0;
         if ((m_showGBuffer || m_showVelocity || ssaoTile || ssrTile) && m_debugOverlay.isValid() && renderer().hasGBuffer())
         {
+            const GpuScope overlay(cmd, "Debug Overlay", ProfileColor::DebugOverlay);
             // Unbind DSV / HDR so we can sample G-buffer. Overlay copies from FLAG_NONE CPU SRVs.
             renderer().bindColorTargetOnly();
             renderer().transitionAlbedo(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);

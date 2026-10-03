@@ -68,6 +68,7 @@ add_custom_command(TARGET UnitTests POST_BUILD
             -P ${CMAKE_SOURCE_DIR}/cmake/CopyContent.cmake
     COMMENT "Copying content/ next to UnitTests.exe"
 )
+de_copy_pix_dll(UnitTests)
 
 include(GoogleTest)
 # PRE_TEST works reliably with multi-config generators (Visual Studio).

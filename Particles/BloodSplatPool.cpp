@@ -3,6 +3,7 @@
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
 #include "Math/Matrix4f.h"
+#include "Render/Profile.h"
 #include "Render/Renderer.h"
 #include "Terrain/HeightMap.h"
 
@@ -245,6 +246,7 @@ namespace Dark
         if (!cmd || !m_uploadVB || m_active <= 0 || !m_pipe.isValid())
             return;
 
+        const GpuScope blood(cmd, "Blood Splats", ProfileColor::Blood);
         m_pipe.bind(cmd);
         ParticleFrameConstants fc{};
         const Math::Matrix4f vp = camera.GetViewProj();

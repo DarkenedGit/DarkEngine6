@@ -1,4 +1,5 @@
 #include "Render/AutoExposure.h"
+#include "Render/Profile.h"
 
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
@@ -486,6 +487,7 @@ bool AutoExposurePipeline::meter(ID3D12GraphicsCommandList* cmd, Renderer& rende
     if (!device || hdrSrv.ptr == 0 || depthSrv.ptr == 0)
         return false;
 
+    const GpuScope meterScope(cmd, "Auto Exposure", ProfileColor::AutoExposure);
     const UINT frame = renderer.frameIndex() % kFrameCount;
     device->CopyDescriptorsSimple(1, srvCpu(frame * 2u), hdrSrv, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     device->CopyDescriptorsSimple(1, srvCpu(frame * 2u + 1u), depthSrv, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);

@@ -1,4 +1,5 @@
 #include "Render/SsrPipeline.h"
+#include "Render/Profile.h"
 #include "Render/Camera3D.h"
 #include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
@@ -673,6 +674,7 @@ namespace Dark
         if (!device || depth.ptr == 0 || attrib.ptr == 0 || vel.ptr == 0 || scene.ptr == 0)
             return;
 
+        const GpuScope ssr(cmd, "SSR", ProfileColor::Ssr);
         const UINT  frame = renderer.frameIndex() % kFrameCount;
         SsrGpuParams params{};
         fillParams(params, camera, prevViewProj, settings, resetHistory, renderer.frameIndex());
@@ -781,6 +783,7 @@ namespace Dark
         if (!device || hdr.ptr == 0)
             return;
 
+        const GpuScope capture(cmd, "SSR Capture", ProfileColor::Ssr);
         cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
         renderer.transitionHdr(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 

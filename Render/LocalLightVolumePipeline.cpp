@@ -1,4 +1,5 @@
 #include "Render/LocalLightVolumePipeline.h"
+#include "Render/Profile.h"
 #include "Render/Camera3D.h"
 #include "Render/DeferredLightingPipeline.h"
 #include "Render/Frustum3f.h"
@@ -267,6 +268,7 @@ namespace Dark
         if (!gatherLocalLights(world, in, lists) || lists.count == 0)
             return;
 
+        const GpuScope lights(cmd, "Local Lights", ProfileColor::LocalLights);
         gpuList.upload(renderer.frameIndex(), lists);
 
         LocalLightPassConstants cb{};

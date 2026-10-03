@@ -1,4 +1,5 @@
 #include "Render/TaaPipeline.h"
+#include "Render/Profile.h"
 #include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
@@ -132,6 +133,7 @@ namespace Dark
         if (!device || hdr.ptr == 0 || hist.ptr == 0 || vel.ptr == 0)
             return;
 
+        const GpuScope taa(cmd, "TAA", ProfileColor::Taa);
         renderer.bindTaaTarget();
 
         const UINT slot = renderer.frameIndex() % kBufferedFrames;

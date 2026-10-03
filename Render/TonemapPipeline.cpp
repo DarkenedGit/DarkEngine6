@@ -1,4 +1,5 @@
 #include "Render/TonemapPipeline.h"
+#include "Render/Profile.h"
 #include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
@@ -137,6 +138,7 @@ namespace Dark
         if (!device || hdr.ptr == 0)
             return;
 
+        const GpuScope tonemap(cmd, "Tonemap", ProfileColor::Tonemap);
         renderer.transitionDepth(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
         const UINT slot = renderer.frameIndex() % kBufferedFrames;

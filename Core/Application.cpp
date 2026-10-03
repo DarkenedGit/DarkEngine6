@@ -3,6 +3,7 @@
 #include "Core/Log.h"
 #include "Core/Version.h"
 #include "Input/InputCodes.h"
+#include "Render/Profile.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -614,7 +615,10 @@ namespace Dark
             m_debug.perf().add(PerfSlot::DebugFlush, m_window.getTime() - t0);
 
             t0 = m_window.getTime();
-            onUpdate(dt);
+            {
+                CpuScope ecs("ECS Update", ProfileColor::EcsUpdate);
+                onUpdate(dt);
+            }
             m_debug.perf().add(PerfSlot::Update, m_window.getTime() - t0);
 
             t0 = m_window.getTime();

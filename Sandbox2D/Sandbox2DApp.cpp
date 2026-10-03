@@ -12,6 +12,7 @@
 #include "Math/Vector3f.h"
 #include "Network/NetTypes.h"
 #include "Render/MeshGen.h"
+#include "Render/Profile.h"
 #include "Scene/SceneCatalog.h"
 #include "Scene/SceneFile.h"
 #include "Sprite/SpriteSheet.h"
@@ -1377,17 +1378,22 @@ void Sandbox2DApp::onRender()
 
     const Vector2f cam = m_camera.GetPosition();
 
-    // Far / mid parallax hills (scroll slower than the camera).
-    drawSprite(cmd, m_texHillFar, Vector2f(cam.x * 0.12f + 20.0f, 4.0f), Vector2f(70.0f, 10.0f), 40.0f,
-               1, 1, 1, 1, 8.0f, 1.4f);
-    drawSprite(cmd, m_texHillFar, Vector2f(cam.x * 0.12f + 70.0f, 3.2f), Vector2f(50.0f, 8.0f), 39.0f,
-               1, 1, 1, 1, 6.0f, 1.2f);
-    drawSprite(cmd, m_texHillMid, Vector2f(cam.x * 0.35f + 12.0f, 2.4f), Vector2f(36.0f, 6.0f), 25.0f,
-               1, 1, 1, 1, 5.0f, 1.0f);
-    drawSprite(cmd, m_texHillMid, Vector2f(cam.x * 0.35f + 48.0f, 2.0f), Vector2f(40.0f, 5.2f), 24.0f,
-               1, 1, 1, 1, 5.5f, 0.9f);
+    {
+        const GpuScope background(cmd, "Background", ProfileColor::Background);
+        // Far / mid parallax hills (scroll slower than the camera).
+        drawSprite(cmd, m_texHillFar, Vector2f(cam.x * 0.12f + 20.0f, 4.0f), Vector2f(70.0f, 10.0f), 40.0f,
+                   1, 1, 1, 1, 8.0f, 1.4f);
+        drawSprite(cmd, m_texHillFar, Vector2f(cam.x * 0.12f + 70.0f, 3.2f), Vector2f(50.0f, 8.0f), 39.0f,
+                   1, 1, 1, 1, 6.0f, 1.2f);
+        drawSprite(cmd, m_texHillMid, Vector2f(cam.x * 0.35f + 12.0f, 2.4f), Vector2f(36.0f, 6.0f), 25.0f,
+                   1, 1, 1, 1, 5.0f, 1.0f);
+        drawSprite(cmd, m_texHillMid, Vector2f(cam.x * 0.35f + 48.0f, 2.0f), Vector2f(40.0f, 5.2f), 24.0f,
+                   1, 1, 1, 1, 5.5f, 0.9f);
+    }
 
-    if (m_levelReady)
+    {
+        const GpuScope sprites(cmd, "Sprites", ProfileColor::Sprites);
+        if (m_levelReady)
     {
         for (const Platform& p : m_platforms)
         {
@@ -1424,9 +1430,11 @@ void Sandbox2DApp::onRender()
             tint[1],
             tint[2]);
     }
+    }
 
     if (m_showCollision && m_boxOutline.valid())
     {
+        const GpuScope collision(cmd, "Collision Debug", ProfileColor::Collision);
         m_linePipe.bind(cmd);
         auto drawBox = [&](const AABox2f& box, float r, float g, float b) {
             const Vector2f c = box.Center();

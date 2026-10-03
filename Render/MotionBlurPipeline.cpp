@@ -1,4 +1,5 @@
 #include "Render/MotionBlurPipeline.h"
+#include "Render/Profile.h"
 #include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
@@ -131,6 +132,7 @@ namespace Dark
         if (!device || src.ptr == 0 || vel.ptr == 0)
             return;
 
+        const GpuScope blur(cmd, "Motion Blur", ProfileColor::MotionBlur);
         if (settings.readPost)
             renderer.bindHdrColorTarget();
         else

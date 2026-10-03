@@ -5,6 +5,7 @@
 #include "Render/ShadowSystem.h"
 #include "Render/Camera3D.h"
 #include "Render/Frustum3f.h"
+#include "Render/Profile.h"
 #include "Render/Renderer.h"
 #include "Sky/Environment.h"
 #include "Core/Log.h"
@@ -386,6 +387,7 @@ void TerrainWorld::draw(
     if (!cmd || !pipeline.isValid() || !material.isValid())
         return;
 
+    const GpuScope terrain(cmd, "Terrain", ProfileColor::Terrain);
     const DebugFill fill = debug ? debug->fill : DebugFill::Solid;
     const bool lighting  = !debug || debug->lightingActive();
     pipeline.bind(cmd, fill);
@@ -476,6 +478,7 @@ void TerrainWorld::drawGBuffer(
     if (!cmd || !pipeline.isValid() || !material.isValid())
         return;
 
+    const GpuScope terrain(cmd, "Terrain", ProfileColor::Terrain);
     const DebugFill fill = debug ? debug->fill : DebugFill::Solid;
     pipeline.bind(cmd, fill);
     BindTerrainSrvTable(cmd, material, srvHeap);
@@ -509,6 +512,7 @@ void TerrainWorld::drawDepth(ID3D12GraphicsCommandList* cmd, const Frustum3f* ca
 {
     if (!cmd)
         return;
+    const GpuScope depth(cmd, "Terrain Depth", ProfileColor::TerrainDepth);
     for (const TerrainChunk& c : m_chunks)
     {
         if (!c.gpu.valid())

@@ -1,9 +1,11 @@
 #include "Render/ShadowSystem.h"
 #include "Render/Camera3D.h"
 #include "Render/DepthState.h"
+#include "Render/Profile.h"
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
 
+#include <cstdio>
 #include <cstring>
 
 namespace Dark
@@ -201,10 +203,27 @@ void ShadowSystem::update(
         std::memcpy(m_cbMapped + static_cast<size_t>(m_frame) * cbBytes(), &m_cpuConstants, sizeof(m_cpuConstants));
 }
 
+void ShadowSystem::closeProfileCascade(ID3D12GraphicsCommandList* cmd)
+{
+    if (!cmd || !m_profileCascade)
+        return;
+    profileGpuEnd(cmd);
+    profileCpuEnd();
+    m_profileCascade = false;
+}
+
 void ShadowSystem::beginCapture(ID3D12GraphicsCommandList* cmd)
 {
     if (!cmd || !m_resource)
         return;
+    // The atlas is created in DEPTH_WRITE, so the first capture (and any capture
+    // already in that state) skips the barrier but still records the cascades.
+    if (!m_profileShadows)
+    {
+        profileCpuBegin("Shadows", ProfileColor::Shadows);
+        profileGpuBegin(cmd, "Shadows", ProfileColor::Shadows);
+        m_profileShadows = true;
+    }
     if (m_state[m_frame] == D3D12_RESOURCE_STATE_DEPTH_WRITE)
         return;
 
@@ -226,6 +245,13 @@ void ShadowSystem::beginCascade(ID3D12GraphicsCommandList* cmd, int cascade)
     if (!cmd || cascade < 0 || cascade >= m_cascadeCount)
         return;
 
+    closeProfileCascade(cmd);
+    char name[32];
+    std::snprintf(name, sizeof(name), "Shadow Cascade %d", cascade);
+    profileCpuBegin(name, ProfileColor::ShadowCascade);
+    profileGpuBegin(cmd, name, ProfileColor::ShadowCascade);
+    m_profileCascade = true;
+
     D3D12_VIEWPORT vp{};
     vp.Width    = static_cast<float>(m_settings.mapSize);
     vp.Height   = static_cast<float>(m_settings.mapSize);
@@ -242,22 +268,40 @@ void ShadowSystem::beginCascade(ID3D12GraphicsCommandList* cmd, int cascade)
 
 void ShadowSystem::endCapture(ID3D12GraphicsCommandList* cmd)
 {
+    // Close an open cascade even when the SRV barrier is skipped. A disabled-shadow
+    // frame calls endCapture without beginCapture; the flags stay false, so this is a no-op.
+    if (cmd)
+        closeProfileCascade(cmd);
     if (!cmd || !m_resource)
-        return;
-    if (m_state[m_frame] == D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
-        return;
-
-    D3D12_RESOURCE_BARRIER barriers[kMaxShadowCascades]{};
-    for (int i = 0; i < m_cascadeCount; ++i)
     {
-        barriers[i].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        barriers[i].Transition.pResource   = m_resource.Get();
-        barriers[i].Transition.StateBefore = m_state[m_frame];
-        barriers[i].Transition.StateAfter  = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-        barriers[i].Transition.Subresource = sliceIndex(i);
+        if (cmd && m_profileShadows)
+        {
+            profileGpuEnd(cmd);
+            profileCpuEnd();
+            m_profileShadows = false;
+        }
+        return;
     }
-    cmd->ResourceBarrier(static_cast<UINT>(m_cascadeCount), barriers);
-    m_state[m_frame] = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    if (m_state[m_frame] != D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
+    {
+        D3D12_RESOURCE_BARRIER barriers[kMaxShadowCascades]{};
+        for (int i = 0; i < m_cascadeCount; ++i)
+        {
+            barriers[i].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barriers[i].Transition.pResource   = m_resource.Get();
+            barriers[i].Transition.StateBefore = m_state[m_frame];
+            barriers[i].Transition.StateAfter  = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+            barriers[i].Transition.Subresource = sliceIndex(i);
+        }
+        cmd->ResourceBarrier(static_cast<UINT>(m_cascadeCount), barriers);
+        m_state[m_frame] = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    }
+    if (m_profileShadows)
+    {
+        profileGpuEnd(cmd);
+        profileCpuEnd();
+        m_profileShadows = false;
+    }
 }
 
 void ShadowSystem::bindReceiverCbv(ID3D12GraphicsCommandList* cmd, UINT rootCbv) const

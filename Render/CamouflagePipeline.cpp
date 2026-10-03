@@ -1,4 +1,5 @@
 #include "Render/CamouflagePipeline.h"
+#include "Render/Profile.h"
 
 #include "Assets/Model.h"
 #include "Core/Log.h"
@@ -282,6 +283,7 @@ namespace Dark
             renderer.waitForGpu();
         if (!ensureCopy(renderer.device(), renderer.width(), renderer.height()))
             return;
+        const GpuScope camouflage(cmd, "Camouflage", ProfileColor::Camouflage);
         captureScene(cmd, renderer);
 
         CamouflageConstants cb{};

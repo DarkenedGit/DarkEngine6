@@ -1,4 +1,5 @@
 #include "Render/SkyPipeline.h"
+#include "Render/Profile.h"
 #include "Render/DepthState.h"
 #include "Render/ShaderCompile.h"
 #include "Render/Camera3D.h"
@@ -178,6 +179,7 @@ void SkyPipeline::draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, c
     if (!cmd || !m_pso)
         return;
 
+    const GpuScope sky(cmd, "Sky", ProfileColor::Sky);
     bind(cmd);
 
     const Math::Vector3f cam   = camera.GetPosition();

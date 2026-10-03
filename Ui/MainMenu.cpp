@@ -4,6 +4,7 @@
 #include "Input/Input.h"
 #include "Math/Matrix4f.h"
 #include "Render/MeshGen.h"
+#include "Render/Profile.h"
 #include "Render/Renderer.h"
 
 #include <cstring>
@@ -455,6 +456,7 @@ namespace Dark
         if (!cmd || viewW < 8 || viewH < 8)
             return;
 
+        const GpuScope menu(cmd, "Main Menu", ProfileColor::Menu);
         const Layout layout = computeLayout(viewW, viewH);
         const float  w      = static_cast<float>(viewW);
         const float  h      = static_cast<float>(viewH);

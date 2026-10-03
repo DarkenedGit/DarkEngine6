@@ -3,6 +3,7 @@
 #include "Core/Window.h"
 #include "Core/Log.h"
 #include "Core/ContentRoots.h"
+#include "Render/Profile.h"
 #include "Render/Renderer.h"
 #include "Render/Texture2D.h"
 
@@ -265,6 +266,7 @@ void ImGuiHost::render(Dark::Renderer& renderer)
     if (!cmd || !m_impl || !m_impl->srvHeap)
         return;
 
+    const Dark::GpuScope imgui(cmd, "ImGui", Dark::ProfileColor::ImGui);
     ID3D12DescriptorHeap* heaps[] = { m_impl->srvHeap.Get() };
     cmd->SetDescriptorHeaps(1, heaps);
     ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), cmd);

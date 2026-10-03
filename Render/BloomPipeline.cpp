@@ -1,4 +1,5 @@
 #include "Render/BloomPipeline.h"
+#include "Render/Profile.h"
 #include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
@@ -368,6 +369,7 @@ namespace Dark
         if (!device || hdrSrv.ptr == 0 || hdrRtv.ptr == 0)
             return;
 
+        const GpuScope bloom(cmd, "Bloom", ProfileColor::Bloom);
         const UINT hdrSlot = renderer.frameIndex() % kHdrSlots;
         D3D12_CPU_DESCRIPTOR_HANDLE hdrDst = m_srvCpu;
         hdrDst.ptr += static_cast<SIZE_T>(hdrSlot) * m_srvIncr;

@@ -181,6 +181,7 @@ namespace Dark
         bool createDepthResources();
         void updateViewport();
         bool moveToNextFrame();
+        void closeProfileFrame();
         void ensureIblDummyResources();
         void ensureSsrDummyResources();
         void applyIblSrvs();
@@ -226,6 +227,7 @@ namespace Dark
         bool             m_valid           = false;
         bool             m_vsync           = true;
         bool             m_frameSubmitted  = false;
+        bool             m_profileFrame    = false;
         ScenePath        m_scenePath       = ScenePath::SwapChainForward;
         std::unique_ptr<SceneBuffers>     m_sceneBuffers;
         std::unique_ptr<Texture2D>        m_fogHeightDummy;

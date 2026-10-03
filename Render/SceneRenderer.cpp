@@ -3,6 +3,7 @@
 #include "Core/Log.h"
 #include "ECS/World.h"
 #include "Render/MeshGen.h"
+#include "Render/Profile.h"
 #include "Render/Renderer.h"
 #include "Render/TaaJitter.h"
 #include "Math/MathHelper.h"
@@ -453,6 +454,12 @@ void SceneRenderer::applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd
         }
         if (m_autoExposureEnabled)
             syncAutoExposureSize(renderer);
+    }
+
+    // Resize waits stay outside so a CPU stall is not recorded as post GPU work.
+    const GpuScope post(cmd, "Post", ProfileColor::Post);
+    if (deferred)
+    {
         if (meterAutoExposure && m_autoExposure.isValid())
             m_autoExposure.meter(cmd, renderer);
         if (renderer.debugState().bloom && m_bloom.isValid())

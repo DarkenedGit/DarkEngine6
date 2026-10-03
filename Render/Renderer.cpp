@@ -2,6 +2,7 @@
 #include "Render/GpuIbl.h"
 #include "Render/GpuResourceCache.h"
 #include "Render/IblBake.h"
+#include "Render/Profile.h"
 #include "Render/SceneBuffers.h"
 #include "Render/Texture2D.h"
 #include "Assets/Image.h"
@@ -13,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <vector>
+#include <wchar.h>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -32,6 +34,38 @@ namespace Dark
                 return false;
             }
             return true;
+        }
+
+        void nameObject(ID3D12Object* obj, const wchar_t* name)
+        {
+            if (obj && name)
+                obj->SetName(name);
+        }
+
+        bool moduleLoaded(const wchar_t* name)
+        {
+            return name && GetModuleHandleW(name) != nullptr;
+        }
+
+        // PIX and Nsight Graphics intercept CreateDevice. The debug layer crashes
+        // those captures and perturbs Nsight Systems timings. They inject before main.
+        bool captureToolAttached()
+        {
+            return moduleLoaded(L"WinPixGpuCapturer.dll")
+                || moduleLoaded(L"Nvda.Graphics.Interception.dll")
+                || moduleLoaded(L"nvtx64_1.dll");
+        }
+
+        bool wantDebugLayer()
+        {
+#if !defined(_DEBUG)
+            return false;
+#else
+            wchar_t flag[8]{};
+            if (GetEnvironmentVariableW(L"DE_D3D12_DEBUG", flag, 8) > 0 && flag[0] == L'0')
+                return false;
+            return !captureToolAttached();
+#endif
         }
 
         constexpr uint32_t kBrdfLutMagic = 0x554c4544u; // 'DELU'
@@ -151,12 +185,16 @@ namespace Dark
         }
 
 #if defined(_DEBUG)
-        EnableDebugLayer();
+        if (wantDebugLayer())
+            EnableDebugLayer();
+        else
+            DE_LOG_INFO(LogCategory::Render, "D3D12 debug layer skipped (PIX/Nsight attached, or DE_D3D12_DEBUG=0)");
 #endif
 
         UINT dxgiFactoryFlags = 0;
 #if defined(_DEBUG)
-        dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
+        if (wantDebugLayer())
+            dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
 #endif
 
         ComPtr<IDXGIFactory6> factory;
@@ -191,6 +229,19 @@ namespace Dark
 
         if (!checkHr(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&m_device)), "D3D12CreateDevice"))
             return false;
+        nameObject(m_device.Get(), L"DE.Device");
+
+        {
+            wchar_t power[8]{};
+            if (GetEnvironmentVariableW(L"DE_STABLE_GPU_POWER", power, 8) > 0 && power[0] == L'1')
+            {
+                const HRESULT stable = m_device->SetStablePowerState(TRUE);
+                if (FAILED(stable))
+                    DE_LOG_WARN(LogCategory::Render, "SetStablePowerState failed (HRESULT 0x{:08X}). Windows Developer Mode is required.", static_cast<unsigned>(stable));
+                else
+                    DE_LOG_INFO(LogCategory::Render, "GPU clocks locked (DE_STABLE_GPU_POWER)");
+            }
+        }
 
         {
             DXGI_ADAPTER_DESC1 desc{};
@@ -205,12 +256,14 @@ namespace Dark
         queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
         if (!checkHr(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_commandQueue)), "CreateCommandQueue"))
             return false;
+        nameObject(m_commandQueue.Get(), L"DE.GraphicsQueue");
 
         D3D12_COMMAND_QUEUE_DESC copyDesc{};
         copyDesc.Type  = D3D12_COMMAND_LIST_TYPE_COPY;
         copyDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
         if (!checkHr(m_device->CreateCommandQueue(&copyDesc, IID_PPV_ARGS(&m_copyQueue)), "CreateCommandQueue (copy)"))
             return false;
+        nameObject(m_copyQueue.Get(), L"DE.CopyQueue");
 
         m_swapChainFlags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
 
@@ -243,6 +296,7 @@ namespace Dark
         rtvHeapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
         if (!checkHr(m_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)), "CreateDescriptorHeap RTV"))
             return false;
+        nameObject(m_rtvHeap.Get(), L"DE.RtvHeap");
         m_rtvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
         if (!createRenderTargets())
@@ -252,6 +306,9 @@ namespace Dark
         {
             if (!checkHr(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_commandAllocators[i])), "CreateCommandAllocator"))
                 return false;
+            wchar_t allocName[40];
+            swprintf_s(allocName, L"DE.GraphicsAllocator%u", i);
+            nameObject(m_commandAllocators[i].Get(), allocName);
         }
 
         // DSV heap + depth buffer (slot 0 write, slot 1 READ_ONLY_DEPTH for depth-as-SRV)
@@ -261,20 +318,24 @@ namespace Dark
         dsvHeapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
         if (!checkHr(m_device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_dsvHeap)), "CreateDescriptorHeap DSV"))
             return false;
+        nameObject(m_dsvHeap.Get(), L"DE.DsvHeap");
         m_dsvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
         if (!createDepthResources())
             return false;
 
         if (!checkHr(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocators[m_frameIndex].Get(), nullptr, IID_PPV_ARGS(&m_commandList)), "CreateCommandList"))
             return false;
+        nameObject(m_commandList.Get(), L"DE.GraphicsCmd");
         // Start closed; beginFrame resets and opens it each frame.
         if (!checkHr(m_commandList->Close(), "CommandList Close (init)"))
             return false;
 
         if (!checkHr(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)), "CreateFence"))
             return false;
+        nameObject(m_fence.Get(), L"DE.FrameFence");
         if (!checkHr(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_copyFence)), "CreateFence (copy)"))
             return false;
+        nameObject(m_copyFence.Get(), L"DE.CopyFence");
         // Match D3D12HelloFrameBuffering: fence starts at 0; the value we will
         // Signal after the first use of this back-buffer slot is 1.
         for (uint32_t i = 0; i < kFrameCount; ++i)
@@ -293,6 +354,7 @@ namespace Dark
         updateViewport();
 
         m_gpuResources = std::make_unique<GpuResourceCache>(*this);
+        profileStartup();
         DE_LOG_INFO(LogCategory::Render, "Renderer: D3D12 ready ({}x{}, {} buffers)", m_width, m_height, kFrameCount);
         return true;
     }
@@ -322,6 +384,9 @@ namespace Dark
                 DE_LOG_ERROR(LogCategory::Render, "Renderer: SwapChain GetBuffer failed");
                 return false;
             }
+            wchar_t bbName[32];
+            swprintf_s(bbName, L"DE.BackBuffer%u", i);
+            nameObject(m_renderTargets[i].Get(), bbName);
             m_device->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, rtvHandle);
             rtvHandle.ptr += m_rtvDescriptorSize;
         }
@@ -395,6 +460,8 @@ namespace Dark
         srvDesc.Shader4ComponentMapping   = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         srvDesc.Texture2D.MipLevels       = 1;
         m_device->CreateShaderResourceView(m_depthStencil.Get(), &srvDesc, m_depthSrvCpu);
+        nameObject(m_depthStencil.Get(), L"DE.Depth");
+        nameObject(m_depthSrvHeap.Get(), L"DE.DepthSrvHeap");
         m_depthState = D3D12_RESOURCE_STATE_DEPTH_WRITE;
         DE_LOG_INFO(LogCategory::Render, "Renderer: depth D32_FLOAT clear=0 reverse-Z");
         return true;
@@ -524,7 +591,22 @@ namespace Dark
 
         m_commandList->ClearRenderTargetView(rtv, m_clearColor, 0, nullptr);
         m_commandList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, depthClearValue(), 0, 0, nullptr);
+
+        profileCpuBegin("Frame", ProfileColor::Frame);
+        profileGpuBegin(m_commandList.Get(), "Frame", ProfileColor::Frame);
+        m_profileFrame = true;
         return true;
+    }
+
+    void Renderer::closeProfileFrame()
+    {
+        if (!m_profileFrame)
+            return;
+        m_profileFrame = false;
+        if (!m_commandList)
+            return;
+        profileGpuEnd(m_commandList.Get());
+        profileCpuEnd();
     }
 
     void Renderer::setClearColor(float r, float g, float b, float a)
@@ -609,6 +691,7 @@ namespace Dark
     {
         if (!m_valid || !m_commandList || !m_commandQueue)
         {
+            closeProfileFrame();
             DE_LOG_ERROR(LogCategory::Render, "Renderer::endFrame: device not initialized");
             return false;
         }
@@ -622,6 +705,7 @@ namespace Dark
         barrier.Transition.StateAfter  = D3D12_RESOURCE_STATE_PRESENT;
         barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
         m_commandList->ResourceBarrier(1, &barrier);
+        closeProfileFrame();
 
         if (!checkHr(m_commandList->Close(), "CommandList Close"))
             return false;

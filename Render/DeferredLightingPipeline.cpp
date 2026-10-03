@@ -1,5 +1,6 @@
 #include "Render/DeferredLightingPipeline.h"
 #include "Render/DepthState.h"
+#include "Render/Profile.h"
 #include "Render/Renderer.h"
 #include "Render/SceneBuffers.h"
 #include "Render/ShadowSystem.h"
@@ -186,6 +187,7 @@ namespace Dark
             return;
         }
 
+        const GpuScope lighting(cmd, "Deferred Lighting", ProfileColor::DeferredLighting);
         cmd->SetGraphicsRootSignature(m_rootSignature.Get());
         cmd->SetPipelineState(m_pso.Get());
         ID3D12DescriptorHeap* heaps[] = { heap };

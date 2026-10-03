@@ -60,6 +60,7 @@ private:
     bool createResources(ID3D12Device* device);
     UINT sliceIndex(int cascade) const;
     UINT cbBytes() const;
+    void closeProfileCascade(ID3D12GraphicsCommandList* cmd);
 
     ShadowSettings m_settings;
     ShadowPipeline m_pipeline;
@@ -67,8 +68,10 @@ private:
     ShadowConstants m_cpuConstants{};
     int            m_cascadeCount = kMaxShadowCascades;
     int            m_frame        = 0;
-    bool           m_enabled      = false;
-    bool           m_debugEnabled = true;
+    bool           m_enabled         = false;
+    bool           m_debugEnabled    = true;
+    bool           m_profileShadows  = false;
+    bool           m_profileCascade  = false;
 
     ComPtr<ID3D12Resource>       m_resource;
     ComPtr<ID3D12DescriptorHeap> m_dsvHeap;

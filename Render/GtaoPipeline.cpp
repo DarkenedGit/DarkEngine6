@@ -1,4 +1,5 @@
 #include "Render/GtaoPipeline.h"
+#include "Render/Profile.h"
 #include "Render/Camera3D.h"
 #include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
@@ -538,6 +539,7 @@ namespace Dark
         if (!device || depth.ptr == 0 || attrib.ptr == 0 || vel.ptr == 0 || ao.ptr == 0)
             return;
 
+        const GpuScope gtao(cmd, "GTAO", ProfileColor::Gtao);
         const UINT frame = renderer.frameIndex() % kFrameCount;
         GtaoGpuParams params{};
         fillParams(params, camera, prevViewProj, settings, resetHistory, renderer.frameIndex());

@@ -7,6 +7,7 @@
 #include "Terrain/TerrainGen.h"
 #include "Terrain/TerrainTileFile.h"
 #include "Water/WaterWaves.h"
+#include "Render/Profile.h"
 #include "Render/WaterPipeline.h"
 #include "Terrain/HeightMap.h"
 #include "Ui/Icons.h"
@@ -346,6 +347,7 @@ void EditorApp::drawPlacedWater(
 {
     if (!cmd || m_placedWater.empty() || !m_scene.waterPipeline().isValid())
         return;
+    const GpuScope water(cmd, "Water", ProfileColor::Water);
     const Terrain::HeightMap* heightMap = (m_haveTerrain && m_terrain.valid() && m_terrain.coarse().valid()) ? &m_terrain.coarse() : nullptr;
     uint32_t drawIndex = 0;
     for (const EditorWaterSlot& slot : m_placedWater)

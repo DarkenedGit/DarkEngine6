@@ -184,6 +184,8 @@ if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CompilerOptions.cmake")
     include(cmake/CompilerOptions.cmake)
 endif()
 
+include(cmake/WinPixEventRuntime.cmake)
+
 # --- Layered engine libraries ------------------------------------------------------
 # Target graph (STATIC; each .cpp compiled exactly once):
 #
@@ -233,6 +235,18 @@ target_link_libraries(DarkRender
         dxguid
         d3dcompiler
 )
+if(DE_ENABLE_GPU_MARKERS)
+    target_compile_definitions(DarkRender PRIVATE DE_GPU_MARKERS=1)
+    target_include_directories(DarkRender PRIVATE
+        "${DE_WINPIX_INCLUDE}"
+        "${CMAKE_SOURCE_DIR}/third_party/nvtx/include"
+    )
+    # PUBLIC so the import library reaches Sandbox / Editor / UnitTests.
+    # A STATIC library does not absorb a DLL import lib on its own.
+    target_link_libraries(DarkRender PUBLIC "${DE_WINPIX_LIB}")
+else()
+    target_compile_definitions(DarkRender PRIVATE DE_GPU_MARKERS=0)
+endif()
 set_target_properties(DarkRender PROPERTIES FOLDER "Engine")
 
 add_library(DarkNet STATIC ${DE_NET_SOURCES})

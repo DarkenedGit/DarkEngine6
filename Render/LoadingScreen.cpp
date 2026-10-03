@@ -1,4 +1,5 @@
 #include "Render/LoadingScreen.h"
+#include "Render/Profile.h"
 #include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
 #include "Core/Application.h"
@@ -442,6 +443,7 @@ float4 PSMain(PSInput input) : SV_TARGET
         if (w == 0 || h == 0)
             return;
 
+        const GpuScope loading(cmd, "Loading Screen", ProfileColor::Loading);
         const UINT heapSize = kSrvPerFrame * Renderer::kFrameCount;
         const UINT frame    = renderer.frameIndex() % Renderer::kFrameCount;
         const UINT base     = frame * kSrvPerFrame;

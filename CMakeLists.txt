@@ -16,6 +16,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(DE_ENABLE_ASSERTS "Enable DE_ASSERT" ON)
 option(DE_BUILD_TESTS "Build UnitTests executable and CTest targets" ON)
+option(DE_ENABLE_GPU_MARKERS "PIX + NVTX markers for PIX, Nsight Graphics, and Nsight Systems" ON)
 
 # --- Generated Core/Version.h ------------------------------------------------------
 # Git hash is filled by cmake/GenerateVersion.cmake (configure + whenever HEAD moves).
@@ -211,6 +212,7 @@ add_custom_command(TARGET Sandbox POST_BUILD
             -P ${CMAKE_SOURCE_DIR}/cmake/CopyContent.cmake
     COMMENT "Copying content/ next to Sandbox.exe"
 )
+de_copy_pix_dll(Sandbox)
 
 # --- Sandbox2D executable (side-scrolling 2D template) -----------------------------
 add_executable(Sandbox2D WIN32 ${DE_SANDBOX2D_SOURCES})
@@ -235,6 +237,7 @@ add_custom_command(TARGET Sandbox2D POST_BUILD
             -P ${CMAKE_SOURCE_DIR}/cmake/CopyContent.cmake
     COMMENT "Copying content/ next to Sandbox2D.exe"
 )
+de_copy_pix_dll(Sandbox2D)
 
 # --- Dear ImGui (Editor UI) --------------------------------------------------------
 include(FetchContent)
@@ -303,6 +306,7 @@ add_custom_command(TARGET Editor POST_BUILD
             -P ${CMAKE_SOURCE_DIR}/cmake/CopyContent.cmake
     COMMENT "Copying content/ next to Editor.exe"
 )
+de_copy_pix_dll(Editor)
 
 # --- Visual Debugger executable ----------------------------------------------------
 add_executable(VisualDebugger WIN32 ${DE_VISUALDEBUGGER_SOURCES})
@@ -324,6 +328,7 @@ endif()
 set_target_properties(VisualDebugger PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
+de_copy_pix_dll(VisualDebugger)
 
 # --- Unit tests --------------------------------------------------------------------
 if (DE_BUILD_TESTS)
