@@ -700,8 +700,19 @@ bool EditorApp::firePlayLoadout(bool charged)
     req.origin      = m_camera.GetPosition() + req.direction * 2.2f;
     req.ownerPos    = xf ? xf->position : m_camera.GetPosition();
     req.damageScale = charged ? m_chargeSettings.attackDamageScale : 1.0f;
+    SkillComponent* skill = nullptr;
+    if (wlc->loadout->activeKind() == WeaponKind::Projectile)
+        skill = world().get<SkillComponent>(body);
+    if (skill)
+    {
+        const int shootLevel = skill->level(SkillId::Shoot);
+        req.recoilScale      = skillScalar(SkillId::Shoot, SkillScalar::RecoilScale, shootLevel);
+        req.cooldownScale    = skillScalar(SkillId::Shoot, SkillScalar::CooldownScale, shootLevel);
+    }
     if (!wlc->loadout->fire(req, makePlayWeaponQuery()))
         return false;
+    if (skill)
+        noteShotXp(*skill, true);
     if (AnimGraphComponent* ag = body.valid() ? world().get<AnimGraphComponent>(body) : nullptr)
         ag->graph.setTrigger(wlc->loadout->activeKind() == WeaponKind::Melee ? "swing" : "shoot");
     return true;

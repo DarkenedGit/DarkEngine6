@@ -2,6 +2,7 @@
 
 #include "Assets/AssetManager.h"
 #include "Audio/SoundClip.h"
+#include "Character/SkillLimits.h"
 #include "Math/MathDefines.h"
 #include "Math/MathHelper.h"
 
@@ -145,10 +146,11 @@ namespace Dark
     {
         if (m_cooldown > 0.0f)
             return false;
-        const Vector3f dir = normalizeOr(req.direction, Vector3f{ 0.0f, 0.0f, 1.0f });
-        m_cooldown         = m_desc.cooldown > 0.0f ? m_desc.cooldown : 0.0f;
+        const Vector3f dir  = normalizeOr(req.direction, Vector3f{ 0.0f, 0.0f, 1.0f });
+        const float    cool = clampSkill(req.cooldownScale, kCooldownScaleMin, kCooldownScaleMax);
+        m_cooldown          = (m_desc.cooldown > 0.0f ? m_desc.cooldown : 0.0f) * cool;
         playFire(req.origin);
-        punchRecoil();
+        punchRecoil(req.recoilScale);
         const float scale = req.damageScale > 0.0f ? req.damageScale : 1.0f;
 
         if (isInstant())
@@ -174,11 +176,15 @@ namespace Dark
         return k;
     }
 
-    void ProjectileWeapon::punchRecoil()
+    void ProjectileWeapon::punchRecoil(float recoilScale)
     {
-        m_pendingRecoil.pitch = m_desc.recoilPitchDeg * Math::DegToRad;
-        if (m_desc.recoilYawDeg > 0.0f)
-            m_pendingRecoil.yaw = Math::RandF(-m_desc.recoilYawDeg, m_desc.recoilYawDeg) * Math::DegToRad;
+        // Per shot. m_desc stays authored so the next scale-1 shot is not permanently reduced.
+        const float kick     = clampSkill(recoilScale, kRecoilScaleMin, kRecoilScaleMax);
+        const float pitchDeg = m_desc.recoilPitchDeg * kick;
+        const float yawDeg   = m_desc.recoilYawDeg * kick;
+        m_pendingRecoil.pitch = pitchDeg * Math::DegToRad;
+        if (yawDeg > 0.0f)
+            m_pendingRecoil.yaw = Math::RandF(-yawDeg, yawDeg) * Math::DegToRad;
         else
             m_pendingRecoil.yaw = 0.0f;
     }

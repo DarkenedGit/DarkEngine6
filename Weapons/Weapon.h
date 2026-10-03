@@ -51,7 +51,9 @@ namespace Dark
         Math::Vector3f origin{};
         Math::Vector3f direction{};
         Math::Vector3f ownerPos{};
-        float          damageScale = 1.0f; // charged attacks pass a value above 1
+        float          damageScale   = 1.0f; // charged attacks pass a value above 1
+        float          cooldownScale = 1.0f; // projectile only
+        float          recoilScale   = 1.0f; // projectile only
     };
 
     using WeaponHitFn = void (*)(void* user, const WeaponHit& hit);

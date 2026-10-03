@@ -1842,10 +1842,22 @@ bool SandboxApp::firePossessedLoadout(bool charged)
     req.ownerPos    = xf ? xf->position : m_viewCamera.GetPosition();
     req.damageScale = charged ? m_chargeSettings.attackDamageScale : 1.0f;
 
-    WeaponLoadout* wFire = localWeapons();
+    WeaponLoadout*  wFire = localWeapons();
+    SkillComponent* skill = nullptr;
+    if (wFire && wFire->activeKind() == WeaponKind::Projectile && body.valid())
+        skill = world().get<SkillComponent>(body);
+    if (skill)
+    {
+        const int shootLevel = skill->level(SkillId::Shoot);
+        req.recoilScale      = skillScalar(SkillId::Shoot, SkillScalar::RecoilScale, shootLevel);
+        req.cooldownScale    = skillScalar(SkillId::Shoot, SkillScalar::CooldownScale, shootLevel);
+    }
+
     const WeaponWorldQuery query = makeWeaponQuery();
     if (!wFire || !wFire->fire(req, query))
         return false;
+    if (skill)
+        noteShotXp(*skill, true);
     if (AnimGraphComponent* ag = body.valid() ? world().get<AnimGraphComponent>(body) : nullptr)
     {
         if (wFire->activeKind() == WeaponKind::Melee)

@@ -1,11 +1,14 @@
 #include <gtest/gtest.h>
 
 #include "Weapons/WeaponLoadout.h"
+#include "Character/SkillLimits.h"
+#include "Character/SkillXp.h"
 #include "Collision/HitResult.h"
 #include "Math/MathDefines.h"
 #include "Math/Ray3f.h"
 #include "Math/Vector3f.h"
 
+#include <limits>
 #include <vector>
 
 using namespace Dark;
@@ -327,6 +330,234 @@ TEST(ProjectileWeapon, FailedFireDoesNotKick)
     const RecoilKick k = w.takeRecoil();
     EXPECT_NEAR(k.pitch, 0.0f, 1.0e-6f);
     EXPECT_NEAR(k.yaw, 0.0f, 1.0e-6f);
+}
+
+TEST(ProjectileWeapon, RecoilScaleShortensPitchKick)
+{
+    FakeWorld world;
+    ProjectileWeaponDesc d{};
+    d.instant        = true;
+    d.cooldown       = 0.0f;
+    d.recoilPitchDeg = 10.0f;
+    d.recoilYawDeg   = 0.0f;
+    ProjectileWeapon w{ d };
+    const WeaponWorldQuery q = world.query();
+    WeaponFireRequest req = aim(Vector3f{ 0, 5, 0 }, Vector3f{ 0, -1, 0 }, Vector3f{ 0, 0.5f, 0 });
+    req.recoilScale = kRecoilScaleMin;
+    ASSERT_TRUE(w.fire(req, q));
+    const RecoilKick scaled = w.takeRecoil();
+    EXPECT_NEAR(scaled.pitch, 10.0f * kRecoilScaleMin * DegToRad, 1.0e-5f);
+    EXPECT_NEAR(scaled.yaw, 0.0f, 1.0e-6f);
+    EXPECT_FLOAT_EQ(w.desc().recoilPitchDeg, 10.0f);
+    EXPECT_FLOAT_EQ(w.desc().recoilYawDeg, 0.0f);
+
+    req.recoilScale = kSkillIdentity;
+    ASSERT_TRUE(w.fire(req, q));
+    const RecoilKick full = w.takeRecoil();
+    EXPECT_NEAR(full.pitch, 10.0f * DegToRad, 1.0e-5f);
+    EXPECT_FLOAT_EQ(w.desc().recoilPitchDeg, 10.0f);
+}
+
+TEST(ProjectileWeapon, RecoilScaleShrinksYawSpread)
+{
+    FakeWorld world;
+    ProjectileWeaponDesc d{};
+    d.instant        = true;
+    d.cooldown       = 0.0f;
+    d.recoilPitchDeg = 0.0f;
+    d.recoilYawDeg   = 4.0f;
+    ProjectileWeapon w{ d };
+    const WeaponWorldQuery q = world.query();
+    WeaponFireRequest req = aim(Vector3f{ 0, 5, 0 }, Vector3f{ 0, -1, 0 }, Vector3f{ 0, 0.5f, 0 });
+    req.recoilScale = kRecoilScaleMin;
+    const float limit = 4.0f * kRecoilScaleMin * DegToRad + 1.0e-4f;
+    for (int i = 0; i < 24; ++i)
+    {
+        ASSERT_TRUE(w.fire(req, q));
+        const RecoilKick k = w.takeRecoil();
+        EXPECT_GE(k.yaw, -limit);
+        EXPECT_LE(k.yaw, limit);
+        EXPECT_NEAR(k.pitch, 0.0f, 1.0e-6f);
+    }
+    EXPECT_FLOAT_EQ(w.desc().recoilYawDeg, 4.0f);
+}
+
+TEST(ProjectileWeapon, CooldownScaleShortensWait)
+{
+    FakeWorld world;
+    ProjectileWeaponDesc d{};
+    d.instant  = true;
+    d.cooldown = 1.0f;
+    ProjectileWeapon fullW{ d };
+    ProjectileWeapon fastW{ d };
+    const WeaponWorldQuery q = world.query();
+    WeaponFireRequest req = aim(Vector3f{ 0, 5, 0 }, Vector3f{ 0, -1, 0 }, Vector3f{ 0, 0.5f, 0 });
+    ASSERT_TRUE(fullW.fire(req, q));
+    req.cooldownScale = kCooldownScaleMin;
+    ASSERT_TRUE(fastW.fire(req, q));
+    EXPECT_FLOAT_EQ(fullW.desc().cooldown, 1.0f);
+    EXPECT_FLOAT_EQ(fastW.desc().cooldown, 1.0f);
+    fullW.tick(0.90f, q);
+    fastW.tick(0.90f, q);
+    EXPECT_FALSE(fullW.canFire());
+    EXPECT_TRUE(fastW.canFire());
+}
+
+TEST(ProjectileWeapon, ScaleAboveOneClampsIntoRange)
+{
+    FakeWorld world;
+    ProjectileWeaponDesc d{};
+    d.instant        = true;
+    d.cooldown       = 1.0f;
+    d.recoilPitchDeg = 10.0f;
+    d.recoilYawDeg   = 0.0f;
+    ProjectileWeapon w{ d };
+    const WeaponWorldQuery q = world.query();
+    WeaponFireRequest req = aim(Vector3f{ 0, 5, 0 }, Vector3f{ 0, -1, 0 }, Vector3f{ 0, 0.5f, 0 });
+    req.recoilScale   = 2.0f;
+    req.cooldownScale = 2.0f;
+    ASSERT_TRUE(w.fire(req, q));
+    const RecoilKick k = w.takeRecoil();
+    EXPECT_NEAR(k.pitch, 10.0f * DegToRad, 1.0e-5f);
+    EXPECT_GT(k.pitch, 10.0f * kRecoilScaleMin * DegToRad + 1.0e-3f);
+    EXPECT_FLOAT_EQ(w.desc().recoilPitchDeg, 10.0f);
+    EXPECT_FLOAT_EQ(w.desc().cooldown, 1.0f);
+    w.tick(0.90f, q);
+    EXPECT_FALSE(w.canFire());
+    w.tick(0.20f, q);
+    EXPECT_TRUE(w.canFire());
+}
+
+TEST(ProjectileWeapon, ScaleBelowMinClampsUp)
+{
+    FakeWorld world;
+    ProjectileWeaponDesc d{};
+    d.instant        = true;
+    d.cooldown       = 1.0f;
+    d.recoilPitchDeg = 10.0f;
+    d.recoilYawDeg   = 0.0f;
+    ProjectileWeapon w{ d };
+    const WeaponWorldQuery q = world.query();
+    WeaponFireRequest req = aim(Vector3f{ 0, 5, 0 }, Vector3f{ 0, -1, 0 }, Vector3f{ 0, 0.5f, 0 });
+    req.recoilScale   = 0.50f;
+    req.cooldownScale = 0.50f;
+    ASSERT_TRUE(w.fire(req, q));
+    const RecoilKick k = w.takeRecoil();
+    EXPECT_NEAR(k.pitch, 10.0f * kRecoilScaleMin * DegToRad, 1.0e-5f);
+    EXPECT_GT(k.pitch, 10.0f * 0.50f * DegToRad + 1.0e-3f);
+    w.tick(0.60f, q);
+    EXPECT_FALSE(w.canFire());
+    w.tick(0.30f, q);
+    EXPECT_TRUE(w.canFire());
+    EXPECT_FLOAT_EQ(w.desc().cooldown, 1.0f);
+}
+
+TEST(ProjectileWeapon, NonFiniteScaleIsIdentityNotLowCap)
+{
+    FakeWorld world;
+    ProjectileWeaponDesc d{};
+    d.instant        = true;
+    d.cooldown       = 1.0f;
+    d.recoilPitchDeg = 10.0f;
+    d.recoilYawDeg   = 0.0f;
+    ProjectileWeapon w{ d };
+    const WeaponWorldQuery q = world.query();
+    WeaponFireRequest req = aim(Vector3f{ 0, 5, 0 }, Vector3f{ 0, -1, 0 }, Vector3f{ 0, 0.5f, 0 });
+    const float badScales[] = {
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::infinity(),
+        -std::numeric_limits<float>::infinity(),
+    };
+    for (float scale : badScales)
+    {
+        w.clear();
+        req.recoilScale   = scale;
+        req.cooldownScale = scale;
+        ASSERT_TRUE(w.fire(req, q));
+        const RecoilKick k = w.takeRecoil();
+        EXPECT_NEAR(k.pitch, 10.0f * DegToRad, 1.0e-5f);
+        EXPECT_GT(k.pitch, 10.0f * kRecoilScaleMin * DegToRad + 1.0e-3f);
+        w.tick(0.90f, q);
+        EXPECT_FALSE(w.canFire());
+    }
+    EXPECT_FLOAT_EQ(w.desc().recoilPitchDeg, 10.0f);
+    EXPECT_FLOAT_EQ(w.desc().cooldown, 1.0f);
+}
+
+TEST(ProjectileWeapon, SkillScalesDoNotChangeDamage)
+{
+    FakeWorld world;
+    world.targets.push_back(Vector3f{ 0.0f, 1.0f, 10.0f });
+    world.alive.push_back(1);
+    HitLog log;
+    ProjectileWeaponDesc d{};
+    d.instant        = true;
+    d.damage         = 24.0f;
+    d.cooldown       = 0.0f;
+    d.recoilPitchDeg = 10.0f;
+    ProjectileWeapon w{ d };
+    w.setHitListener(&HitLog::onHit, &log);
+    WeaponFireRequest req = aim(Vector3f{ 0, 1, 0 }, Vector3f{ 0, 0, 1 }, Vector3f{ 0, 0.5f, 0 });
+    req.damageScale   = 1.85f;
+    req.recoilScale   = kRecoilScaleMin;
+    req.cooldownScale = kCooldownScaleMin;
+    ASSERT_TRUE(w.fire(req, world.query()));
+    ASSERT_EQ(log.hits.size(), 1u);
+    EXPECT_FLOAT_EQ(log.hits[0].damage, 24.0f * 1.85f);
+    const RecoilKick k = w.takeRecoil();
+    EXPECT_NEAR(k.pitch, 10.0f * kRecoilScaleMin * DegToRad, 1.0e-5f);
+}
+
+TEST(MeleeWeapon, IgnoresRecoilAndCooldownScales)
+{
+    FakeWorld world;
+    world.targets.push_back(Vector3f{ 0.0f, 1.0f, 2.0f });
+    world.alive.push_back(1);
+    HitLog log;
+    MeleeWeaponDesc d{};
+    d.damage   = 16.0f;
+    d.cooldown = 1.0f;
+    MeleeWeapon w{ d };
+    w.setHitListener(&HitLog::onHit, &log);
+    WeaponFireRequest req = aim(Vector3f{ 0, 1, 0 }, Vector3f{ 0, 0, 1 }, Vector3f{ 0, 0.5f, 0 });
+    req.damageScale   = 1.85f;
+    req.recoilScale   = kRecoilScaleMin;
+    req.cooldownScale = kCooldownScaleMin;
+    ASSERT_TRUE(w.fire(req, world.query()));
+    ASSERT_EQ(log.hits.size(), 1u);
+    EXPECT_FLOAT_EQ(log.hits[0].damage, 16.0f * 1.85f);
+    EXPECT_FLOAT_EQ(w.desc().cooldown, 1.0f);
+    w.tick(0.90f, world.query());
+    EXPECT_FALSE(w.canFire());
+}
+
+TEST(ProjectileWeapon, ShootLockBlocksGrantAfterSuccessfulFire)
+{
+    FakeWorld world;
+    ProjectileWeaponDesc d{};
+    d.instant  = true;
+    d.cooldown = 0.0f;
+    ProjectileWeapon w{ d };
+    const WeaponWorldQuery q = world.query();
+    const WeaponFireRequest req = aim(Vector3f{ 0, 5, 0 }, Vector3f{ 0, -1, 0 }, Vector3f{ 0, 0.5f, 0 });
+    const SkillDef* shoot = skillCatalog().find(SkillId::Shoot);
+    ASSERT_NE(shoot, nullptr);
+
+    SkillComponent locked;
+    locked.shootLock = 0.05f;
+    ASSERT_TRUE(w.fire(req, q));
+    EXPECT_FLOAT_EQ(locked.xp(SkillId::Shoot), 0.0f);
+    noteShotXp(locked, true);
+    EXPECT_FLOAT_EQ(locked.xp(SkillId::Shoot), 0.0f);
+    EXPECT_FLOAT_EQ(locked.shootLock, 0.05f);
+
+    SkillComponent open;
+    ASSERT_TRUE(w.fire(req, q));
+    noteShotXp(open, false);
+    EXPECT_FLOAT_EQ(open.xp(SkillId::Shoot), 0.0f);
+    noteShotXp(open, true);
+    EXPECT_FLOAT_EQ(open.xp(SkillId::Shoot), shoot->xpPerEvent);
+    EXPECT_FLOAT_EQ(open.shootLock, kShootGrantInterval);
 }
 
 TEST(WeaponLoadout, KeysOneAndTwoSelectMeleeThenProjectile)

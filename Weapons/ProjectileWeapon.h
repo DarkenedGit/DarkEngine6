@@ -122,7 +122,7 @@ namespace Dark
         void playFire(const Math::Vector3f& origin);
         void playHit(const Math::Vector3f& point);
 
-        void punchRecoil();
+        void punchRecoil(float recoilScale);
 
         ProjectileWeaponDesc                 m_desc{};
         std::vector<LiveProjectile>          m_shots;
