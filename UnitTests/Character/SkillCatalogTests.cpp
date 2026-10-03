@@ -534,6 +534,10 @@ TEST(SkillCatalog, ParseRejectsBadDocumentsWithoutTouchingCatalog)
     ASSERT_TRUE(replaceOne(cap, "\"xpDtCap\": 0.1", "\"xpDtCap\": -1"));
     EXPECT_FALSE(cat.parseSkills(cap));
     cap = shipped.skills;
+    ASSERT_TRUE(replaceOne(cap, "\"xpDtCap\": 0.1", "\"xpDtCap\": 1e-300"));
+    EXPECT_FALSE(cat.parseSkills(cap));
+    EXPECT_FLOAT_EQ(cat.xpToNext(1), 200.0f);
+    cap = shipped.skills;
     ASSERT_TRUE(replaceOne(cap, "\"xpDtCap\": 0.1", "\"xpDtCap\": 0.26"));
     EXPECT_FALSE(cat.parseSkills(cap));
     cap = shipped.skills;

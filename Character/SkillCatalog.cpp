@@ -348,11 +348,6 @@ namespace Dark
                     return false;
                 }
             }
-            if (def.scalarCount != requiredCount)
-            {
-                DE_LOG_ERROR(LogCategory::Core, "SkillCatalog: skill '{}' scalar set does not match", name);
-                return false;
-            }
             return true;
         }
 
@@ -470,6 +465,32 @@ namespace Dark
             }
             return &root;
         }
+
+        bool readFileVersion(const json& doc)
+        {
+            const auto verIt  = doc.find("version");
+            double     ver    = 0.0;
+            int        verInt = 0;
+            if (verIt == doc.end() || !jsonToDouble(*verIt, ver) || !isExactInt(ver, verInt) || verInt != kSkillFileVersion)
+            {
+                DE_LOG_ERROR(LogCategory::Core, "SkillCatalog: unsupported version");
+                return false;
+            }
+            return true;
+        }
+
+        // True the first time. False, after logging, when idText repeats.
+        bool noteUnknownId(std::vector<std::string>& seen, const char* kind, const std::string& idText)
+        {
+            if (std::find(seen.begin(), seen.end(), idText) != seen.end())
+            {
+                DE_LOG_ERROR(LogCategory::Core, "SkillCatalog: duplicate {} id '{}'", kind, idText);
+                return false;
+            }
+            seen.push_back(idText);
+            DE_LOG_WARN(LogCategory::Core, "SkillCatalog: skipping unknown {} id '{}'", kind, idText);
+            return true;
+        }
     } // namespace
 
     SkillCatalog::SkillCatalog()
@@ -520,14 +541,8 @@ namespace Dark
         if (!doc)
             return false;
 
-        const auto verIt  = doc->find("version");
-        double     ver    = 0.0;
-        int        verInt = 0;
-        if (verIt == doc->end() || !jsonToDouble(*verIt, ver) || !isExactInt(ver, verInt) || verInt != kSkillFileVersion)
-        {
-            DE_LOG_ERROR(LogCategory::Core, "SkillCatalog: unsupported version");
+        if (!readFileVersion(*doc))
             return false;
-        }
 
         bool       enabled   = true;
         const auto enabledIt = doc->find("enabled");
@@ -559,11 +574,6 @@ namespace Dark
             return false;
         }
         const float xpBase = static_cast<float>(baseD);
-        if (!std::isfinite(xpBase))
-        {
-            DE_LOG_ERROR(LogCategory::Core, "SkillCatalog: xpBase out of range");
-            return false;
-        }
 
         const auto capIt = doc->find("xpDtCap");
         double     capD  = 0.0;
@@ -573,7 +583,8 @@ namespace Dark
             return false;
         }
         const float xpDtCap = static_cast<float>(capD);
-        if (!std::isfinite(xpDtCap) || xpDtCap <= 0.0f)
+        // A positive double below the smallest float becomes 0.
+        if (xpDtCap <= 0.0f)
         {
             DE_LOG_ERROR(LogCategory::Core, "SkillCatalog: xpDtCap out of range");
             return false;
@@ -605,13 +616,8 @@ namespace Dark
             SkillId id = SkillId::Count;
             if (!skillFromName(idText, id))
             {
-                if (std::find(unknown.begin(), unknown.end(), idText) != unknown.end())
-                {
-                    DE_LOG_ERROR(LogCategory::Core, "SkillCatalog: duplicate skill id '{}'", idText);
+                if (!noteUnknownId(unknown, "skill", idText))
                     return false;
-                }
-                unknown.push_back(idText);
-                DE_LOG_WARN(LogCategory::Core, "SkillCatalog: skipping unknown skill id '{}'", idText);
                 continue;
             }
             const int idx = static_cast<int>(id);
@@ -653,14 +659,8 @@ namespace Dark
         if (!doc)
             return false;
 
-        const auto verIt  = doc->find("version");
-        double     ver    = 0.0;
-        int        verInt = 0;
-        if (verIt == doc->end() || !jsonToDouble(*verIt, ver) || !isExactInt(ver, verInt) || verInt != kSkillFileVersion)
-        {
-            DE_LOG_ERROR(LogCategory::Core, "SkillCatalog: unsupported version");
+        if (!readFileVersion(*doc))
             return false;
-        }
 
         const auto profilesIt = doc->find("profiles");
         if (profilesIt == doc->end() || !profilesIt->is_array())
@@ -696,13 +696,8 @@ namespace Dark
             }
             if (slot < 0)
             {
-                if (std::find(unknownProfiles.begin(), unknownProfiles.end(), idText) != unknownProfiles.end())
-                {
-                    DE_LOG_ERROR(LogCategory::Core, "SkillCatalog: duplicate profile id '{}'", idText);
+                if (!noteUnknownId(unknownProfiles, "profile", idText))
                     return false;
-                }
-                unknownProfiles.push_back(idText);
-                DE_LOG_WARN(LogCategory::Core, "SkillCatalog: skipping unknown profile id '{}'", idText);
                 continue;
             }
             if (filled[slot])
@@ -888,9 +883,7 @@ namespace Dark
         if (!found)
             return kSkillIdentity;
 
-        int maxLevel = cat.maxLevel();
-        if (maxLevel < 2)
-            return kSkillIdentity;
+        const int maxLevel = cat.maxLevel();
         if (level < 1)
             level = 1;
         if (level > maxLevel)
