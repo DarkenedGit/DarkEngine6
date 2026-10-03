@@ -54,13 +54,12 @@ namespace Dark
             Math::Matrix4f world{};
             Math::Vector3f halfExtents{ 1.0f, 1.0f, 1.0f };
             Math::Vector3f spawnPos{ 0.0f, 0.0f, 0.0f };
-            float          age               = 0.0f;
-            float          lifetime          = 1.0f;
-            uint32_t       serial            = 0;
-            bool           alive             = false;
-            bool           attachmentSampled = false;
-            bool           healthWasAlive    = true;
-            bool           hasLastPos        = false;
+            float          age            = 0.0f;
+            float          lifetime       = 1.0f;
+            uint32_t       serial         = 0;
+            bool           alive          = false;
+            bool           healthWasAlive = true;
+            bool           hasLastPos     = false;
             Math::Vector3f lastEntityPos{ 0.0f, 0.0f, 0.0f };
         };
 

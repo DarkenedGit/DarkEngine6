@@ -345,16 +345,15 @@ namespace Dark
                 parent                 = ag->graph.player().pose().jointWorld[slot.bone] * entityWorld;
             }
 
-            if (!slot.attachmentSampled)
+            if (!slot.hasLastPos)
             {
                 // Spawn has no prior position, so this sample is not a revive or a teleport.
-                slot.localOffset       = slot.world * parent.Inverse();
-                slot.attachmentSampled = true;
-                HealthComponent* hp    = world.get<HealthComponent>(slot.entity);
-                slot.healthWasAlive    = hp ? hp->health.alive() : true;
-                slot.lastEntityPos     = xf->position;
-                slot.hasLastPos        = true;
-                slot.world             = slot.localOffset * parent;
+                slot.localOffset    = slot.world * parent.Inverse();
+                HealthComponent* hp = world.get<HealthComponent>(slot.entity);
+                slot.healthWasAlive = hp ? hp->health.alive() : true;
+                slot.lastEntityPos  = xf->position;
+                slot.hasLastPos     = true;
+                slot.world          = slot.localOffset * parent;
                 continue;
             }
 
@@ -366,20 +365,16 @@ namespace Dark
                 continue;
             }
 
-            if (slot.hasLastPos)
+            const Vector3f delta = xf->position - slot.lastEntityPos;
+            const float    limit = Max(slot.halfExtents.x, Max(slot.halfExtents.y, slot.halfExtents.z));
+            if (delta.MagnitudeSqrd() > limit * limit)
             {
-                const Vector3f delta = xf->position - slot.lastEntityPos;
-                const float    limit = Max(slot.halfExtents.x, Max(slot.halfExtents.y, slot.halfExtents.z));
-                if (delta.MagnitudeSqrd() > limit * limit)
-                {
-                    freeSlot(i);
-                    continue;
-                }
+                freeSlot(i);
+                continue;
             }
 
             slot.healthWasAlive = nowAlive;
             slot.lastEntityPos  = xf->position;
-            slot.hasLastPos     = true;
             slot.world          = slot.localOffset * parent;
         }
     }

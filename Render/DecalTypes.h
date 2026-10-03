@@ -42,7 +42,6 @@ namespace Dark
         DecalChannel_Emissive  = 1u << 4,
     };
 
-    // Six definition rows. Impact and blood split inside one DecalKind.
     enum class DecalDefId : uint8_t
     {
         Footmark = 0,

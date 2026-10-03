@@ -3,6 +3,7 @@
 #include "Core/Log.h"
 #include "Math/Color.h"
 #include "Math/MathHelper.h"
+#include "Math/Vector2f.h"
 #include "Math/Vector4f.h"
 #include "Render/Octahedral.h"
 
@@ -24,11 +25,6 @@ namespace Dark
         constexpr float kSlashRadiusY      = 0.22f;
         constexpr float kFootRadiusX       = 0.85f;
         constexpr float kFootRadiusY       = 0.45f;
-
-        float length2(float u, float v)
-        {
-            return std::sqrt(u * u + v * v);
-        }
 
         DecalDef makeFoot()
         {
@@ -183,7 +179,7 @@ namespace Dark
                 return 0.0f;
             case DecalNormalRecipe::BloodBump:
             {
-                const float r = length2(u, v);
+                const float r = Vector2f(u, v).Magnitude();
                 if (r >= 1.0f)
                     return 0.0f;
                 const float e = 1.0f - r;
@@ -193,7 +189,7 @@ namespace Dark
             {
                 const float rx = u / kFootRadiusX;
                 const float ry = v / kFootRadiusY;
-                const float r  = length2(rx, ry);
+                const float r  = Vector2f(rx, ry).Magnitude();
                 if (r >= 1.0f)
                     return 0.0f;
                 const float e = 1.0f - r * r;
@@ -201,7 +197,7 @@ namespace Dark
             }
             case DecalNormalRecipe::ImpactBullet:
             {
-                const float r = length2(u, v);
+                const float r = Vector2f(u, v).Magnitude();
                 if (r < kBulletPitRadius)
                 {
                     const float e = 1.0f - r / kBulletPitRadius;
@@ -215,7 +211,7 @@ namespace Dark
             {
                 const float rx = u / kSlashRadiusX;
                 const float ry = v / kSlashRadiusY;
-                const float r  = length2(rx, ry);
+                const float r  = Vector2f(rx, ry).Magnitude();
                 if (r >= 1.0f)
                     return 0.0f;
                 const float e = 1.0f - r * r;
@@ -342,10 +338,7 @@ namespace Dark
         switch (fade)
         {
         case DecalFade::Smoothstep:
-        {
-            const float s = u * u * (3.0f - 2.0f * u);
-            return 1.0f - s;
-        }
+            return 1.0f - SmoothStep(0.0f, 1.0f, u);
         case DecalFade::HoldThenLinear:
             return decalFadeHoldThenLinear(u, hold);
         case DecalFade::Linear:
@@ -389,13 +382,6 @@ namespace Dark
         Vector3f n = T * (tangentSpace.x * normalScale) + B * (tangentSpace.y * normalScale) + N * tangentSpace.z;
         n.Normalize();
         return n;
-    }
-
-    Vector2f decalProjectUv(float localX, float localZ, float scaleU, float scaleV, float biasU, float biasV)
-    {
-        const float u = (localX * 0.5f + 0.5f) * scaleU + biasU;
-        const float v = (localZ * -0.5f + 0.5f) * scaleV + biasV;
-        return Vector2f(u, v);
     }
 
     uint32_t decalPackBytes(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
@@ -547,10 +533,10 @@ namespace Dark
     uint8_t decalImpactAlpha(DecalDefId id, float u, float v)
     {
         if (id == DecalDefId::ImpactBullet)
-            return length2(u, v) < kBulletAlphaRadius ? static_cast<uint8_t>(255) : static_cast<uint8_t>(0);
+            return Vector2f(u, v).Magnitude() < kBulletAlphaRadius ? static_cast<uint8_t>(255) : static_cast<uint8_t>(0);
         if (id == DecalDefId::ImpactSlash)
         {
-            const float r = length2(u / kSlashRadiusX, v / kSlashRadiusY);
+            const float r = Vector2f(u / kSlashRadiusX, v / kSlashRadiusY).Magnitude();
             return r < 1.0f ? static_cast<uint8_t>(255) : static_cast<uint8_t>(0);
         }
         return 255;

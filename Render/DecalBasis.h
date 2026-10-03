@@ -3,7 +3,6 @@
 #include "Render/DecalTypes.h"
 
 #include "Math/Matrix4f.h"
-#include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
 
 #include <cstdint>
@@ -79,9 +78,6 @@ namespace Dark
     void           decalTangentBasis(const Math::Vector3f& geomN, const Math::Vector3f& axisX, const Math::Vector3f& axisZ, Math::Vector3f& outT, Math::Vector3f& outB, Math::Vector3f& outN);
     Math::Vector3f decalMapNormal(const Math::Vector3f& geomN, const Math::Vector3f& axisX, const Math::Vector3f& axisZ, const Math::Vector3f& tangentSpace, float normalScale);
 
-    // local.xz * (0.5, -0.5) + 0.5, then scale and bias. +V matches local -Z.
-    Math::Vector2f decalProjectUv(float localX, float localZ, float scaleU, float scaleV, float biasU, float biasV);
-
     uint32_t decalPackBytes(uint8_t r, uint8_t g, uint8_t b, uint8_t a);
     void     decalUnpackBytes(uint32_t raw, uint8_t& r, uint8_t& g, uint8_t& b, uint8_t& a);
     uint8_t  decalUnorm8(float c);
@@ -94,7 +90,6 @@ namespace Dark
 
     DecalBurnBake decalBakeBurn(float u);
 
-    // 1x1 stand-in used when the definition normal weight is 0. Does not run the 64^2 baker.
     void decalWeightZeroNormalBytes(uint8_t& r, uint8_t& g, uint8_t& b);
 
     DecalBakedNormal decalBakeNormalUv(DecalNormalRecipe recipe, float u, float v);
@@ -102,7 +97,6 @@ namespace Dark
 
     uint8_t decalImpactAlpha(DecalDefId id, float u, float v);
 
-    // Combat shell: hit point moved 8 cm along -normal. World spawns do not use this.
     Math::Vector3f decalShellBiasedPosition(const Math::Vector3f& hitPoint, const Math::Vector3f& hitNormal);
 
 } // namespace Dark
