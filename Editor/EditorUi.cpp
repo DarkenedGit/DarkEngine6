@@ -146,6 +146,21 @@ void EditorApp::drawEditorUi()
                 ImGui::MenuItem("Local Lights", nullptr, &renderer().debugState().localLights);
                 ImGui::MenuItem("Cloud Volumes", nullptr, &renderer().debugState().clouds);
             }
+            if (m_sceneMode == SceneMode::Scene3D)
+            {
+                DebugRenderState& decalDbg = renderer().debugState();
+                if (ImGui::MenuItem("Decals", nullptr, &decalDbg.decalsEnabled))
+                    DE_LOG_INFO("Editor: decals = {}", decalDbg.decalsEnabled);
+                bool decalVolumes = decalDbg.decalsDebug != 0;
+                if (ImGui::MenuItem("Decal volumes", nullptr, &decalVolumes))
+                {
+                    decalDbg.decalsDebug = decalVolumes ? 1 : 0;
+                    DE_LOG_INFO("Editor: decal volumes = {}", decalDbg.decalsDebug);
+                }
+                const DecalFrameStats decalStats = m_scene.decalStats();
+                ImGui::Text("Decals  alive %u  drawn %u  culled %u  inside %u  tris %u  recycle %u",
+                    decalStats.alive, decalStats.drawn, decalStats.culled, decalStats.inside, decalStats.triangles, decalStats.recycleCount);
+            }
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Create"))
@@ -925,4 +940,5 @@ void EditorApp::onUpdate(float dt)
         lis.up       = m_camera.GetUp();
     }
     audio().setListener(lis);
+    m_scene.tickDecals(world(), dt);
 }

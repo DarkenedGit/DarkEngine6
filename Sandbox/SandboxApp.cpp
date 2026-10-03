@@ -2662,6 +2662,9 @@ void SandboxApp::onInit()
             DE_LOG_ERROR(LogCategory::Render, "SandboxApp: skeleton LinePipeline create failed");
         else if (!createSkeletonLineBuffers())
             DE_LOG_ERROR(LogCategory::Render, "SandboxApp: skeleton line buffers failed");
+        // Skeleton lines are depth-off so bones show through. Volume wires use the depth test.
+        if (!m_decalVolumePipeline.create(renderer().device(), renderer().sceneColorFormat(), true))
+            DE_LOG_ERROR(LogCategory::Render, "SandboxApp: decal volume LinePipeline create failed");
     }
 
     if (!m_healthHud.create(renderer()))
@@ -3105,6 +3108,7 @@ void SandboxApp::onUpdate(float dt)
     lis.up       = m_viewCamera.GetUp();
     audio().setListener(lis);
     tickSoundEmitters(world(), audio(), assets());
+    m_scene.tickDecals(world(), dt);
 }
 
 void SandboxApp::onRender()
@@ -3603,6 +3607,7 @@ void SandboxApp::onRender()
         m_chase.drawPaths(cmd, renderer(), viewProj);
     }
     drawSkeletonOverlay(cmd, viewProj);
+    m_scene.drawDecalVolumes(cmd, renderer(), m_decalVolumePipeline, viewProj);
 
     {
         const GpuScope particles(cmd, "Particles", ProfileColor::Particles);

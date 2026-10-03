@@ -10,6 +10,13 @@
 namespace Dark
 {
 
+    // CPU wire box. `world` maps the unit cube (±1) onto the decal OBB.
+    struct DecalDebugVolume
+    {
+        Math::Matrix4f world{};
+        DecalKind      kind = DecalKind::Footmark;
+    };
+
     class DecalPool
     {
     public:
@@ -37,6 +44,8 @@ namespace Dark
             return m_recycleCount;
         }
         bool alive(DecalId id) const;
+
+        uint32_t copyAliveVolumes(DecalDebugVolume* out, uint32_t cap) const;
 
         // Drives the wrap-compact path. 0 is stored as 1 because serial 0 is invalid.
         void setNextSerialForTest(uint32_t serial);

@@ -33,6 +33,7 @@ namespace Dark
         bool      ssrEnabled        = true; // AND with SsrSettings.enabled
         int       ssrDebug          = 0;    // 0 off, 1 radiance, 2 confidence
         bool      decalsEnabled     = false; // AND with HybridDeferred; false returns before any UAV
+        int       decalsDebug       = 0;     // 0 off, 1 wire volumes
 
         bool lightingActive() const { return lighting && !showAlbedoLinear; }
 

@@ -296,6 +296,41 @@ void SandboxApp::drawDevTools()
         }
         if (ImGui::Checkbox("Skeleton overlay", &m_showSkeleton))
             DE_LOG_INFO("Sandbox: skeleton overlay = {}", m_showSkeleton);
+        if (ImGui::Checkbox("Decals", &dbg.decalsEnabled))
+            DE_LOG_INFO("Sandbox: decals = {}", dbg.decalsEnabled);
+        bool decalVolumes = dbg.decalsDebug != 0;
+        if (ImGui::Checkbox("Decal volumes", &decalVolumes))
+        {
+            dbg.decalsDebug = decalVolumes ? 1 : 0;
+            DE_LOG_INFO("Sandbox: decal volumes = {}", dbg.decalsDebug);
+        }
+        {
+            const DecalFrameStats decalStats = m_scene.decalStats();
+            ImGui::Text("Decals  alive %u  drawn %u  culled %u  inside %u  tris %u  recycle %u",
+                decalStats.alive, decalStats.drawn, decalStats.culled, decalStats.inside, decalStats.triangles, decalStats.recycleCount);
+        }
+        if (ImGui::Button("Drop burn"))
+        {
+            const Vector3f cam = m_viewCamera.GetPosition();
+            Vector3f look = m_viewCamera.GetLook();
+            look.y = 0.0f;
+            if (look.MagnitudeSqrd() < 1.0e-8f)
+                look = Vector3f(0.0f, 0.0f, 1.0f);
+            else
+                look.Normalize();
+            const float x = cam.x + look.x * 1.5f;
+            const float z = cam.z + look.z * 1.5f;
+            DecalSpawnDesc burn;
+            burn.kind     = DecalKind::Burn;
+            burn.space    = DecalSpace::World;
+            burn.position = Vector3f(x, playerGroundHeight(x, z), z);
+            burn.axisY    = Vector3f(0.0f, 1.0f, 0.0f);
+            burn.axisX    = look;
+            if (!m_scene.spawnDecal(burn))
+                DE_LOG_ERROR(LogCategory::Render, "Sandbox: drop burn failed");
+            else
+                DE_LOG_INFO("Sandbox: drop burn");
+        }
         if (ImGui::Checkbox("Octopus camouflage", &m_camouflage))
             DE_LOG_INFO("Sandbox: camouflage = {}", m_camouflage);
         ImGui::SameLine();

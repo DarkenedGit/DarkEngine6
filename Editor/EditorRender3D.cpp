@@ -507,6 +507,10 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     {
         drawLightGizmos();
     }
+    {
+        LinePipeline& volumeLines = m_linePipeline3D.isValid() ? m_linePipeline3D : m_linePipeline;
+        m_scene.drawDecalVolumes(cmd, renderer(), volumeLines, viewProj);
+    }
 
     {
         const GpuScope translucent(cmd, "Translucent", ProfileColor::Translucent);

@@ -152,6 +152,23 @@ namespace Dark
         return slot.alive && slot.serial == id.serial;
     }
 
+    uint32_t DecalPool::copyAliveVolumes(DecalDebugVolume* out, uint32_t cap) const
+    {
+        if (!out || cap == 0)
+            return 0;
+        uint32_t n = 0;
+        for (uint32_t i = 0; i < kCapacity && n < cap; ++i)
+        {
+            const Slot& slot = m_slots[i];
+            if (!slot.alive)
+                continue;
+            DecalDebugVolume& vol = out[n++];
+            vol.world             = slot.world;
+            vol.kind              = decalDef(slot.defId).kind;
+        }
+        return n;
+    }
+
     void DecalPool::freeSlot(uint32_t index)
     {
         Slot& slot = m_slots[index];
