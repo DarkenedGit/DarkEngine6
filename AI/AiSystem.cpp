@@ -3,6 +3,7 @@
 #include "AI/HsmGraph.h"
 #include "AI/Sight.h"
 #include "Assets/AssetManager.h"
+#include "Character/SkillXp.h"
 #include "Collision/SweptCollision.h"
 #include "Combat/CombatSystem.h"
 #include "Combat/JumpAttackComponent.h"
@@ -187,6 +188,7 @@ namespace Dark
             world.emplace<JumpAttackComponent>(e, std::move(jac));
         }
         (void)pins;
+        applySkillProfile(world, e, "hunter");
         return true;
     }
 
@@ -1206,7 +1208,10 @@ namespace Dark
 
             const bool  sprint = leaf == AI::Leaf::Assist || leaf == AI::Leaf::Flee || v.ai->assistLeft > 0.0f;
             const Terrain::GroundContact ground = m_ground ? m_ground->at(m_groundHeight, m_groundSplat, v.xf->position.x, v.xf->position.z) : Terrain::GroundContact{};
-            const float speed  = (sprint ? m_pack.sprintSpeed : m_pack.walkSpeed) * (stCc ? stCc->moveSpeedScale() : 1.0f) * ground.moveSpeed;
+            float runS = 1.0f;
+            if (const SkillComponent* sk = world.get<SkillComponent>(e))
+                runS = skillScalar(SkillId::Run, SkillScalar::RunScale, sk->level(SkillId::Run));
+            const float speed  = (sprint ? m_pack.sprintSpeed : m_pack.walkSpeed) * (stCc ? stCc->moveSpeedScale() : 1.0f) * ground.moveSpeed * runS;
             float       aimX   = playerPos.x;
             float       aimZ   = playerPos.z;
             if (wolfCircling)
@@ -1284,6 +1289,11 @@ namespace Dark
                 move = Vector3f{ v.xf->position.x - before.x, 0.0f, v.xf->position.z - before.z };
             }
             const float traveled = move.Magnitude();
+            if (SkillComponent* sk = world.get<SkillComponent>(e))
+            {
+                const bool qualifyingMove = (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist || leaf == AI::Leaf::Flee) && !(jump && jump->busy());
+                noteNpcRunXp(*sk, qualifyingMove, traveled);
+            }
             if (move.MagnitudeSqrd() > 1.0e-6f)
             {
                 move.Normalize();

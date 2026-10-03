@@ -1,6 +1,7 @@
 #include "EditorApp.h"
 
 #include "Character/HitReaction.h"
+#include "Character/SkillCatalog.h"
 #include "Editor/EditorInternals.h"
 #include "Editor/EditorObject.h"
 #include "Scene/SceneFile.h"
@@ -123,6 +124,7 @@ void EditorApp::onInit()
     DE_LOG_INFO("EditorApp: init");
     mountContentRoots(assets());
     m_ground.loadFromContent();
+    skillCatalog().loadFromContent();
     ensurePhysicsWorld();
     registerActions();
 

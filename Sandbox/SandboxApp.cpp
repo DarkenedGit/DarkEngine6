@@ -49,6 +49,7 @@
 #include "Character/HealthComponent.h"
 #include "Character/PlayerMotorComponent.h"
 #include "Character/ShieldView.h"
+#include "Character/SkillXp.h"
 #include "Combat/CombatSystem.h"
 #include "Combat/DefenseComponent.h"
 #include "Combat/Shield.h"
@@ -890,6 +891,7 @@ void SandboxApp::attachLocalPlayer(Entity e)
         world().emplace<Combat::PoiseComponent>(e);
     Combat::equipPlayerShield(world(), e);
     attachPlayerSounds(world(), pins(), assets(), audio(), e, m_ground);
+    applySkillProfile(world(), e, "player");
 }
 
 bool SandboxApp::attachAnimatedCharacter(Entity e, const char* gltfPath)
@@ -1063,6 +1065,9 @@ WeaponLoadout* SandboxApp::localWeapons()
 void SandboxApp::updatePossessed(float dt)
 {
     const Entity body = possessedBody();
+    SkillComponent* skills = body.valid() ? world().get<SkillComponent>(body) : nullptr;
+    if (skills)
+        tickSkill(*skills, dt);
     TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
     if (!xf)
         return;
@@ -1162,6 +1167,12 @@ void SandboxApp::updatePossessed(float dt)
     const bool onGround = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch || motor->state() == PlayerMoveState::Dodge);
     const Terrain::GroundContact groundSurf = (onGround && xf) ? groundContactAt(xf->position.x, xf->position.z) : Terrain::GroundContact{};
     motorIn.speedScale      = (status ? status->moveSpeedScale() : 1.0f) * m_offhand.shield.speedScale() * (onGround ? groundSurf.moveSpeed : 1.0f);
+    if (skills)
+    {
+        motorIn.runScale  = skillScalar(SkillId::Run, SkillScalar::RunScale, skills->level(SkillId::Run));
+        motorIn.swimScale = skillScalar(SkillId::Swim, SkillScalar::SwimScale, skills->level(SkillId::Swim));
+        motorIn.jumpScale = skillScalar(SkillId::Jump, SkillScalar::JumpScale, skills->level(SkillId::Jump));
+    }
     motorIn.allowDodge      = canSteer && !jumpBusy && !uiKeys;
     if (motorIn.allowDodge)
     {
@@ -1212,8 +1223,12 @@ void SandboxApp::updatePossessed(float dt)
         if (const TransformComponent* txf = jump->connectedTarget().valid() ? world().get<TransformComponent>(jump->connectedTarget()) : nullptr)
             jump->applyConnectSnap(xf->position, txf->position, dt);
     }
+    Vector3f hitSlide{};
     if (hitRx)
-        xf->position += hitRx->tick(dt);
+    {
+        hitSlide = hitRx->tick(dt);
+        xf->position += hitSlide;
+    }
 
     Vector3f delta{ xf->position.x - before.x, 0.0f, xf->position.z - before.z };
     if (delta.MagnitudeSqrd() > 1.0e-10f)
@@ -1249,6 +1264,19 @@ void SandboxApp::updatePossessed(float dt)
         xf->position.z = before.z + delta.z;
         if (dt > 1.0e-4f && motor)
             motor->setHorizontalVelocity(delta.x / dt, delta.z / dt);
+    }
+    if (motor && skills)
+    {
+        MotorXpSample sample{};
+        sample.state        = motor->state();
+        sample.sprint       = motorIn.sprint;
+        sample.crouch       = motorIn.crouch;
+        sample.dodged       = motorOut.dodged;
+        sample.jumped       = motorOut.jumped;
+        sample.doubleJump   = motorOut.doubleJumped;
+        sample.jumpBusy     = jump && jump->busy();
+        sample.planarMetres = locomotionMetres(xf->position - before, hitSlide);
+        noteMotorXp(*skills, sample);
     }
     if (motor && motor->state() == PlayerMoveState::Grounded)
         xf->position.y = playerGroundHeight(xf->position.x, xf->position.z) + motor->settings().groundOffset;
@@ -1378,6 +1406,8 @@ void SandboxApp::respawnPlayer()
     m_hurtSoundTimer    = 0.0f;
     m_jumpAttackBuffer  = 0.0f;
     m_offhand.reset();
+    if (SkillComponent* sk = body.valid() ? world().get<SkillComponent>(body) : nullptr)
+        sk->seeArmed = false;
     m_attackCharge.reset();
     m_blockCharge.reset();
     m_chargeWindup = {};
@@ -2641,6 +2671,7 @@ void SandboxApp::onInit()
 
     mountContentRoots(assets());
     m_ground.loadFromContent();
+    skillCatalog().loadFromContent();
     m_chase.setGround(&m_ground);
     registerDefaultActions();
     audio().setMasterVolume(0.85f);
@@ -3033,6 +3064,7 @@ void SandboxApp::onInit()
             {
                 if (TagComponent* tag = hunter.valid() ? world().get<TagComponent>(hunter) : nullptr)
                     tag->name = "Wolf";
+                applySkillProfile(world(), hunter, "wolf");
             }
             if (TransformComponent* hxf = hunter.valid() ? world().get<TransformComponent>(hunter) : nullptr)
             {

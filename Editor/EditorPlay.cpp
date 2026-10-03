@@ -15,6 +15,7 @@
 #include "Character/HitReaction.h"
 #include "Character/PlayerMotorComponent.h"
 #include "Character/ShieldView.h"
+#include "Character/SkillXp.h"
 #include "Collision/Collision.h"
 #include "Collision/HitResult.h"
 #include "Collision/SweptCollision.h"
@@ -264,6 +265,7 @@ bool EditorApp::attachEditorPlayer(Entity e)
     const std::string  playerGltf = playerMaster.gltf.empty() ? std::string("models/human.gltf") : playerMaster.gltf;
     attachEditorModel(e, playerGltf.c_str());
     attachEditorPlayerSounds(world(), pins(), assets(), audio(), e, m_ground);
+    applySkillProfile(world(), e, "player");
     return true;
 }
 
@@ -303,6 +305,7 @@ bool EditorApp::attachEditorWolf(Entity e)
         hit->halfExtents = Vector3f{ 0.45f, 0.45f, 0.70f };
     if (TagComponent* tag = world().get<TagComponent>(e))
         tag->name = "Wolf";
+    applySkillProfile(world(), e, "wolf");
     attachEditorHunterSounds(world(), pins(), assets(), audio(), e, m_ground);
     return true;
 }
@@ -353,6 +356,16 @@ void EditorApp::resetPlayCombat()
             ai->assistLeft  = 0.0f;
             ai->fleeLeft    = 0.0f;
             ai->deadFor     = 0.0f;
+        }
+        const char* profileId = "hunter";
+        if (so.type == SceneObjectType::Player)
+            profileId = "player";
+        else if (so.type == SceneObjectType::Wolf)
+            profileId = "wolf";
+        if (SkillComponent* sk = world().get<SkillComponent>(e))
+        {
+            if (const SkillProfile* profile = skillCatalog().profile(profileId))
+                sk->resetToProfile(*profile);
         }
     });
 }
@@ -754,6 +767,9 @@ void EditorApp::updatePlay(float dt)
 
     if (status)
         status->tick(dt);
+    SkillComponent* skills = world().get<SkillComponent>(body);
+    if (skills)
+        tickSkill(*skills, dt);
     if (poise)
         poise->tick(dt);
     if (hp)
@@ -809,6 +825,12 @@ void EditorApp::updatePlay(float dt)
     const bool onGround = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch || motor->state() == PlayerMoveState::Dodge);
     const Terrain::GroundContact groundSurf = (onGround && xf) ? groundContactAt(xf->position.x, xf->position.z) : Terrain::GroundContact{};
     motorIn.speedScale      = (status ? status->moveSpeedScale() : 1.0f) * m_offhand.shield.speedScale() * (onGround ? groundSurf.moveSpeed : 1.0f);
+    if (skills)
+    {
+        motorIn.runScale  = skillScalar(SkillId::Run, SkillScalar::RunScale, skills->level(SkillId::Run));
+        motorIn.swimScale = skillScalar(SkillId::Swim, SkillScalar::SwimScale, skills->level(SkillId::Swim));
+        motorIn.jumpScale = skillScalar(SkillId::Jump, SkillScalar::JumpScale, skills->level(SkillId::Jump));
+    }
     motorIn.allowDodge      = canSteer && !jumpBusy && !uiKeys;
     if (motorIn.allowDodge)
     {
@@ -834,8 +856,12 @@ void EditorApp::updatePlay(float dt)
     PlayerMotorResult motorOut{};
     if (motor)
         motorOut = motor->tick(xf->position, motorIn, dt, ground);
+    Vector3f hitSlide{};
     if (hitRx)
-        xf->position += hitRx->tick(dt);
+    {
+        hitSlide = hitRx->tick(dt);
+        xf->position += hitSlide;
+    }
 
     if (inAirCommit && jump && motor)
     {
@@ -903,6 +929,19 @@ void EditorApp::updatePlay(float dt)
         xf->position.z = before.z + delta.z;
         if (dt > 1.0e-4f && motor)
             motor->setHorizontalVelocity(delta.x / dt, delta.z / dt);
+    }
+    if (motor && skills)
+    {
+        MotorXpSample sample{};
+        sample.state        = motor->state();
+        sample.sprint       = motorIn.sprint;
+        sample.crouch       = motorIn.crouch;
+        sample.dodged       = motorOut.dodged;
+        sample.jumped       = motorOut.jumped;
+        sample.doubleJump   = motorOut.doubleJumped;
+        sample.jumpBusy     = jump && jump->busy();
+        sample.planarMetres = locomotionMetres(xf->position - before, hitSlide);
+        noteMotorXp(*skills, sample);
     }
 
     if (jump)
