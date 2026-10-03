@@ -433,6 +433,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 
     if (deferred)
     {
+        m_scene.drawDecals(cmd, renderer(), m_camera, viewProj);
         renderer().bindHdr(false);
         renderer().clearHdr();
         m_scene.applyGtao(cmd, renderer(), m_camera, prevViewProj, m_ssao);

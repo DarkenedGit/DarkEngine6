@@ -435,19 +435,13 @@ void SceneRenderer::drawLocalLights(
     m_localLightVolumes.draw(cmd, renderer, world, m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, camera, viewProj, lc);
 }
 
-#if defined(_MSC_VER)
-#pragma warning(push)
-#pragma warning(disable : 4702)
-#endif
 void SceneRenderer::drawDecals(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& viewProj)
 {
-    // Not in the frame yet. Returning here skips the marker and any UAV bind.
-    return;
+    // Default off. Skip the marker and bindDecalTargets so barriers stay the pre-decal frame.
+    if (!renderer.debugState().decalsEnabled)
+        return;
     drawDecalsPass(cmd, renderer, camera, viewProj);
 }
-#if defined(_MSC_VER)
-#pragma warning(pop)
-#endif
 
 void SceneRenderer::drawDecalsPass(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& viewProj)
 {

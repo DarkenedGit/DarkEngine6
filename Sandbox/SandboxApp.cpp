@@ -3329,6 +3329,7 @@ void SandboxApp::onRender()
             }
         }
 
+        m_scene.drawDecals(cmd, renderer(), m_viewCamera, viewProj);
         renderer().bindHdr(false);
         renderer().clearHdr();
         m_scene.applyGtao(cmd, renderer(), m_viewCamera, prevViewProj, m_ssao);
