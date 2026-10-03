@@ -33,6 +33,21 @@ void copyMatrix(float dst[16], const Math::Matrix4f& m)
 {
     std::memcpy(dst, m.m_afEntry, sizeof(float) * 16);
 }
+
+struct DecalEventBlob
+{
+    uint64_t color;
+    char     name[16];
+};
+static_assert(sizeof(DecalEventBlob) == 24, "DE.Decals blob");
+
+void beginDecalEvent(ID3D12GraphicsCommandList* cmd)
+{
+    DecalEventBlob blob{};
+    blob.color = 0xFFC62828ull;
+    std::memcpy(blob.name, "DE.Decals", sizeof("DE.Decals"));
+    cmd->BeginEvent(1, &blob, static_cast<UINT>(sizeof(blob)));
+}
 } // namespace
 
 bool SceneRenderer::createCorePipelines(Renderer& renderer, const char* tag)
@@ -192,8 +207,23 @@ bool SceneRenderer::init(Renderer& renderer, const SceneRendererDesc& desc)
         if (!createTerrainPipelineOnly(renderer, tag))
             return false;
     }
+    createDecalPass(renderer, tag);
     m_initialized = true;
     return true;
+}
+
+void SceneRenderer::createDecalPass(Renderer& renderer, const char* tag)
+{
+    if (!m_decalPipeline.create(renderer.device()))
+        DE_LOG_WARN(LogCategory::Render, "{}: DecalPipeline create failed — decals disabled", tag);
+    if (!m_decalGpu.create(renderer.device()))
+        DE_LOG_WARN(LogCategory::Render, "{}: DecalGpuList create failed — decals disabled", tag);
+    if (!m_decalLibrary.create(renderer))
+        DE_LOG_WARN(LogCategory::Render, "{}: DecalLibrary create failed — decals disabled", tag);
+
+    MeshData cube;
+    if (!CreateUnitCube(cube) || !Mesh::tryCreate(renderer, cube, m_decalCube))
+        DE_LOG_WARN(LogCategory::Render, "{}: decal cube mesh failed — decals disabled", tag);
 }
 
 void SceneRenderer::shutdown()
@@ -208,6 +238,11 @@ void SceneRenderer::shutdown()
     m_lighting                 = DeferredLightingPipeline{};
     m_localLightVolumes        = LocalLightVolumePipeline{};
     m_localLightGpu            = LocalLightGpuList{};
+    m_decalPipeline            = DecalPipeline{};
+    m_decalGpu                 = DecalGpuList{};
+    m_decalLibrary             = DecalLibrary{};
+    m_decalPool                = DecalPool{};
+    m_decalCube                = Mesh{};
     m_cloudVolumes             = CloudVolumePipeline{};
     m_cloudVolumeGpu           = CloudVolumeGpuList{};
     m_camouflage               = CamouflagePipeline{};
@@ -398,6 +433,96 @@ void SceneRenderer::drawLocalLights(
     const LightingConstants&  lc)
 {
     m_localLightVolumes.draw(cmd, renderer, world, m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, camera, viewProj, lc);
+}
+
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4702)
+#endif
+void SceneRenderer::drawDecals(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& viewProj)
+{
+    // Not in the frame yet. Returning here skips the marker and any UAV bind.
+    return;
+    drawDecalsPass(cmd, renderer, camera, viewProj);
+}
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
+
+void SceneRenderer::drawDecalsPass(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& viewProj)
+{
+    if (!cmd)
+        return;
+    if (renderer.scenePath() != ScenePath::HybridDeferred || !renderer.hasGBuffer())
+        return;
+    if (!m_decalPipeline.isValid() || !m_decalLibrary.isValid() || !m_decalGpu.isValid() || !m_decalCube.valid())
+        return;
+
+    DecalGpuInstance outside[DecalPool::kCapacity];
+    DecalGpuInstance inside[DecalPool::kCapacity];
+    uint32_t outsideCount = 0;
+    uint32_t insideCount  = 0;
+    const Frustum3f frustum(camera.GetCullViewProj());
+    m_decalPool.buildVisible(frustum, camera.GetPosition(), outside, DecalPool::kCapacity, &outsideCount, inside, DecalPool::kCapacity, &insideCount);
+    if (outsideCount == 0 && insideCount == 0)
+        return;
+
+    ID3D12Device* device = renderer.device();
+    if (!m_decalPipeline.syncTargets(device, renderer.albedoResource(), renderer.attribResource()))
+        return;
+
+    DecalPassConstants cb{};
+    copyMatrix(cb.viewProj, viewProj);
+    copyMatrix(cb.invViewProj, viewProj.Inverse());
+    const uint32_t frame = renderer.frameIndex();
+    m_decalPipeline.uploadPass(frame, cb);
+    m_decalGpu.upload(frame, outside, outsideCount, inside, insideCount);
+    if (!m_decalPipeline.bindFrameDescriptors(frame, device, renderer.depthSrvCpu(), m_decalLibrary))
+        return;
+
+    beginDecalEvent(cmd);
+    renderer.bindDecalTargets();
+
+    const auto drawRange = [&](const DecalGpuInstance* list, uint32_t count, D3D12_GPU_VIRTUAL_ADDRESS base, bool fullscreen) -> bool
+    {
+        bool drew = false;
+        uint32_t start = 0;
+        while (start < count)
+        {
+            const DecalDefId id = decalDefForGpuInstance(list[start]);
+            if (id == DecalDefId::Count)
+            {
+                ++start;
+                continue;
+            }
+            uint32_t end = start + 1;
+            while (end < count && decalDefForGpuInstance(list[end]) == id)
+                ++end;
+            if (drew)
+                m_decalPipeline.uavBarrier(cmd);
+            const D3D12_GPU_VIRTUAL_ADDRESS va = base + static_cast<UINT64>(start) * sizeof(DecalGpuInstance);
+            if (fullscreen)
+                m_decalPipeline.drawInside(cmd, va, end - start, id);
+            else
+                m_decalPipeline.drawOutside(cmd, m_decalCube, va, end - start, id);
+            drew  = true;
+            start = end;
+        }
+        return drew;
+    };
+
+    const bool drewOutside = drawRange(outside, outsideCount, m_decalGpu.outsideGpuVa(), false);
+    bool drewInside = false;
+    if (insideCount > 0)
+    {
+        if (drewOutside)
+            m_decalPipeline.uavBarrier(cmd);
+        cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
+        drewInside = drawRange(inside, insideCount, m_decalGpu.insideGpuVa(), true);
+    }
+    if (drewOutside || drewInside)
+        m_decalPipeline.uavBarrier(cmd);
+    cmd->EndEvent();
 }
 
 void SceneRenderer::drawCloudVolumes(ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, const Camera3D& camera,

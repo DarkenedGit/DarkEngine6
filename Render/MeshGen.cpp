@@ -211,6 +211,36 @@ namespace Dark
         return CreateCuboid(m, size, size, size);
     }
 
+    // The decal VS reads POSITION only. tryCreate still requires one normal per vertex.
+    bool CreateUnitCube(MeshData& m)
+    {
+        const Vector3f p[8] = {
+            { -1.f, -1.f, -1.f }, { 1.f, -1.f, -1.f }, { 1.f, 1.f, -1.f }, { -1.f, 1.f, -1.f },
+            { -1.f, -1.f, 1.f },  { 1.f, -1.f, 1.f },  { 1.f, 1.f, 1.f },  { -1.f, 1.f, 1.f },
+        };
+        for (const Vector3f& v : p)
+        {
+            Vector3f n = v;
+            n.Normalize();
+            m.positions.push_back(v);
+            m.normals.push_back(n);
+        }
+
+        pushIdx(m, 0, 1, 5);
+        pushIdx(m, 0, 5, 4);
+        pushIdx(m, 3, 7, 6);
+        pushIdx(m, 3, 6, 2);
+        pushIdx(m, 1, 2, 6);
+        pushIdx(m, 1, 6, 5);
+        pushIdx(m, 4, 7, 3);
+        pushIdx(m, 4, 3, 0);
+        pushIdx(m, 4, 5, 6);
+        pushIdx(m, 4, 6, 7);
+        pushIdx(m, 1, 0, 3);
+        pushIdx(m, 1, 3, 2);
+        return true;
+    }
+
     // ============================================================
     //  6. CUBOID
     // ============================================================

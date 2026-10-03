@@ -7,6 +7,10 @@
 #include "Render/DeferredLightingPipeline.h"
 #include "Render/GtaoPipeline.h"
 #include "Render/SsrPipeline.h"
+#include "Render/DecalGpuList.h"
+#include "Render/DecalLibrary.h"
+#include "Render/DecalPipeline.h"
+#include "Render/DecalPool.h"
 #include "Render/LocalLightGpuList.h"
 #include "Render/LocalLightVolumePipeline.h"
 #include "Render/Mesh.h"
@@ -90,6 +94,8 @@ public:
         const Math::Matrix4f&     viewProj,
         const LightingConstants&  lc);
 
+    void drawDecals(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& viewProj);
+
     // HDR color target + depth SRV (bindHdrDepthRead). Composites beer-lambert in-scatter.
     void drawCloudVolumes(ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, const Camera3D& camera, const Math::Matrix4f& viewProj,
                           const CloudVolumeFrame& frame);
@@ -163,6 +169,8 @@ private:
     bool createWorldEnvPipelines(Renderer& renderer, const char* tag);
     void ensureGtaoSize(Renderer& renderer, ID3D12GraphicsCommandList* cmd = nullptr);
     void ensureSsrSize(Renderer& renderer, ID3D12GraphicsCommandList* cmd = nullptr);
+    void createDecalPass(Renderer& renderer, const char* tag);
+    void drawDecalsPass(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& viewProj);
 
     MeshPipeline             m_meshPipeline;
     MeshPipeline             m_meshTransparentPipeline;
@@ -174,6 +182,11 @@ private:
     DeferredLightingPipeline m_lighting;
     LocalLightVolumePipeline m_localLightVolumes;
     LocalLightGpuList        m_localLightGpu;
+    DecalPipeline            m_decalPipeline;
+    DecalGpuList             m_decalGpu;
+    DecalLibrary             m_decalLibrary;
+    DecalPool                m_decalPool;
+    Mesh                     m_decalCube;
     CloudVolumePipeline      m_cloudVolumes;
     CloudVolumeGpuList       m_cloudVolumeGpu;
     CamouflagePipeline       m_camouflage;

@@ -170,6 +170,20 @@ TEST(ShaderCompile, Gtao)
     EXPECT_TRUE(compileShaderFromFile(hlsl, "PSCompose", "ps_5_0", psComp));
 }
 
+TEST(ShaderCompile, Decal)
+{
+    const std::filesystem::path hlsl = Dark::resolveContentPath("shaders/Decal.hlsl");
+    if (hlsl.empty())
+        GTEST_SKIP() << "shaders/Decal.hlsl not on content roots";
+
+    ComPtr<ID3DBlob> vs;
+    ComPtr<ID3DBlob> vsFs;
+    ComPtr<ID3DBlob> ps;
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "VSMain", "vs_5_0", vs));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "VSFullscreen", "vs_5_0", vsFs));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps));
+}
+
 TEST(ShaderCompile, Ssr)
 {
     const std::filesystem::path hlsl = Dark::resolveContentPath("shaders/Ssr.hlsl");

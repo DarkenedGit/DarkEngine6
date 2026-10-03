@@ -1159,6 +1159,37 @@ namespace Dark
         m_commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
     }
 
+    ID3D12Resource* Renderer::albedoResource() const
+    {
+        return (m_sceneBuffers && m_sceneBuffers->hasGBuffer()) ? m_sceneBuffers->albedo() : nullptr;
+    }
+
+    ID3D12Resource* Renderer::attribResource() const
+    {
+        return (m_sceneBuffers && m_sceneBuffers->hasGBuffer()) ? m_sceneBuffers->attrib() : nullptr;
+    }
+
+    void Renderer::bindDecalTargets()
+    {
+        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->hasGBuffer() || !m_dsvHeap)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "bindDecalTargets: no G-buffer");
+            return;
+        }
+
+        m_sceneBuffers->transitionAlbedo(m_commandList.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        m_sceneBuffers->transitionAttrib(m_commandList.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        m_sceneBuffers->transitionVelocity(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        m_sceneBuffers->transitionAo(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        transitionDepth(m_commandList.Get(), D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        m_commandList->RSSetViewports(1, &m_viewport);
+        m_commandList->RSSetScissorRects(1, &m_scissor);
+
+        D3D12_CPU_DESCRIPTOR_HANDLE dsv = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
+        dsv.ptr += m_dsvDescriptorSize;
+        m_commandList->OMSetRenderTargets(0, nullptr, FALSE, &dsv);
+    }
+
     void Renderer::bindPostHdr()
     {
         if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->post())
