@@ -61,7 +61,12 @@ namespace Dark
             Math::Vector3f pos{};
             if (const TransformComponent* xf = world.get<TransformComponent>(e))
                 pos = xf->position;
-            audio.play3D(clip, pos, cue->volume);
+            Audio::PlayDesc desc{};
+            desc.volume   = cue->volume;
+            desc.spatial  = true;
+            desc.position = pos;
+            desc.sourceId = e.id();
+            audio.play(clip, desc);
         }
         else
             audio.play2D(clip, cue->volume);
@@ -75,7 +80,12 @@ namespace Dark
         const auto                clip = cue ? cueClip(assets, *cue) : AssetRef<Audio::SoundClip>{};
         if (!clip || !clip->valid())
             return false;
-        audio.play3D(clip, position, cue->volume);
+        Audio::PlayDesc desc{};
+        desc.volume   = cue->volume;
+        desc.spatial  = true;
+        desc.position = position;
+        desc.sourceId = e.id();
+        audio.play(clip, desc);
         return true;
     }
 

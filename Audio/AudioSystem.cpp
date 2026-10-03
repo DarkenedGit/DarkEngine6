@@ -1,5 +1,6 @@
 #include "Audio/AudioSystem.h"
 #include "Assets/AssetManager.h"
+#include "Character/SkillSense.h"
 #include "Assets/TextureCache.h"
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
@@ -352,11 +353,10 @@ namespace Dark::Audio
         listener.Velocity    = { m_listener.velocity.x, m_listener.velocity.y, m_listener.velocity.z };
 
         X3DAUDIO_EMITTER emitter{};
-        emitter.ChannelCount       = 1;
-        emitter.CurveDistanceScaler = 1.0f;
-        emitter.DopplerScaler      = 1.0f;
-        emitter.InnerRadius        = slot.desc.minDistance;
-        emitter.InnerRadiusAngle   = X3DAUDIO_PI / 4.0f;
+        emitter.ChannelCount      = 1;
+        emitter.DopplerScaler     = 1.0f;
+        emitter.InnerRadius       = slot.desc.minDistance;
+        emitter.InnerRadiusAngle  = X3DAUDIO_PI / 4.0f;
         emitter.Position = { slot.desc.position.x, slot.desc.position.y, slot.desc.position.z };
 
         X3DAUDIO_DISTANCE_CURVE_POINT pts[2]{};
@@ -368,7 +368,7 @@ namespace Dark::Audio
         curve.PointCount = 2;
         curve.pPoints    = pts;
         emitter.pVolumeCurve = &curve;
-        emitter.CurveDistanceScaler = Max(slot.desc.maxDistance, 1.0f);
+        emitter.CurveDistanceScaler = spatialDistanceScaler(slot.desc.maxDistance, m_listener.distanceScale);
 
         float matrix[8]{};
         X3DAUDIO_DSP_SETTINGS dsp{};
@@ -569,6 +569,20 @@ namespace Dark::Audio
             if (slot.desc.spatial)
                 apply3D(slot);
         }
+    }
+
+    int AudioSystem::liveForeignSpatialVoices(uint32_t selfId) const
+    {
+        int count = 0;
+        for (const std::unique_ptr<VoiceSlot>& slot : m_voices)
+        {
+            if (!slot || !slot->inUse || slot->music || !slot->desc.spatial)
+                continue;
+            if (!hearVoiceIsForeign(slot->desc.sourceId, selfId))
+                continue;
+            ++count;
+        }
+        return count;
     }
 
 } // namespace Dark::Audio

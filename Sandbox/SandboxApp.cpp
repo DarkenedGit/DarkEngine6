@@ -49,6 +49,7 @@
 #include "Character/HealthComponent.h"
 #include "Character/PlayerMotorComponent.h"
 #include "Character/ShieldView.h"
+#include "Character/SkillSense.h"
 #include "Character/SkillXp.h"
 #include "Combat/CombatSystem.h"
 #include "Combat/DefenseComponent.h"
@@ -1128,6 +1129,11 @@ void SandboxApp::updatePossessed(float dt)
         && ((input().mouseDown(MouseButton::Right) && !uiMouse) || (!uiKeys && input().actionDown("shield"))
             || input().axis(GamepadAxis::LeftTrigger) > 0.45f);
     const bool toggleLight = canSteer && !uiKeys && input().actionPressed("flashlight");
+    if (toggleLight)
+    {
+        if (SkillComponent* sk = world().get<SkillComponent>(body))
+            sk->seeArmed = true;
+    }
     const bool attackDown = canSteer && !uiKeys
         && (input().actionDown("attack") || (!m_showDevTools && input().mouseDown(MouseButton::Left)));
     const bool airborneNow = motor && (motor->state() == PlayerMoveState::Jumping || motor->state() == PlayerMoveState::Falling);
@@ -1696,10 +1702,19 @@ void SandboxApp::updateCombat(float dt)
     m_fireQuick   = false;
     m_fireCharged = false;
 
+    auto noteSenses = [&]() {
+        if (SkillComponent* sk = body.valid() ? world().get<SkillComponent>(body) : nullptr)
+        {
+            const bool foreign = audio().liveForeignSpatialVoices(body.id()) > 0;
+            notePlayerSenseXp(*sk, sk->seeArmed, m_offhand.lightOn, foreign, dt);
+        }
+    };
+
     if (ccLocked || jumpBusy)
     {
         if (ccLocked)
             m_jumpAttackBuffer = 0.0f;
+        noteSenses();
         return;
     }
 
@@ -1710,6 +1725,7 @@ void SandboxApp::updateCombat(float dt)
             firePossessedLoadout(true);
         else if (fireQuick)
             firePossessedLoadout(false);
+        noteSenses();
         return;
     }
 
@@ -1750,6 +1766,7 @@ void SandboxApp::updateCombat(float dt)
             else if (attackPressed)
                 m_jumpAttackBuffer = kJumpAttackBuffer;
         }
+        noteSenses();
         return;
     }
 
@@ -1763,6 +1780,7 @@ void SandboxApp::updateCombat(float dt)
         m_jumpAttackBuffer = 0.0f;
         firePossessedLoadout(false);
     }
+    noteSenses();
 }
 
 void SandboxApp::resolveJumpAttackAndFx(const Combat::DamageEvent* events, int count)
@@ -1903,8 +1921,26 @@ void SandboxApp::updateFlashlight()
     if (!xf)
         return;
     placePlayerFlashlight(*xf, m_viewCamera.GetPosition(), m_viewCamera.GetLook(), m_viewCamera.GetRight(), m_viewCamera.GetUp());
-    if (LocalLightComponent* light = world().get<LocalLightComponent>(m_flashlight))
-        light->enabled = m_offhand.lightOn;
+    LocalLightComponent* light = world().get<LocalLightComponent>(m_flashlight);
+    if (!light)
+        return;
+    light->enabled = m_offhand.lightOn;
+    if (m_flashlightBaseId != m_flashlight.id())
+    {
+        m_flashlightBaseRange = light->range;
+        m_flashlightBaseOuter = light->outerConeDeg;
+        m_flashlightBaseId    = m_flashlight.id();
+    }
+    float seeRange = kSkillIdentity;
+    float seeCone  = kSkillIdentity;
+    const Entity body = possessedBody();
+    if (const SkillComponent* sk = body.valid() ? world().get<SkillComponent>(body) : nullptr)
+    {
+        const int seeLevel = sk->level(SkillId::See);
+        seeRange = skillScalar(SkillId::See, SkillScalar::SeeRangeScale, seeLevel);
+        seeCone  = skillScalar(SkillId::See, SkillScalar::SeeConeScale, seeLevel);
+    }
+    scaleFlashlight(m_flashlightBaseRange, m_flashlightBaseOuter, seeRange, seeCone, light->range, light->outerConeDeg);
 }
 
 bool SandboxApp::createSandboxModels()
@@ -3147,6 +3183,13 @@ void SandboxApp::onUpdate(float dt)
     lis.position = m_viewCamera.GetPosition();
     lis.forward  = m_viewCamera.GetLook();
     lis.up       = m_viewCamera.GetUp();
+    lis.distanceScale = 1.0f;
+    if (skillCatalog().enabled())
+    {
+        const Entity body = possessedBody();
+        if (const SkillComponent* sk = body.valid() ? world().get<SkillComponent>(body) : nullptr)
+            lis.distanceScale = skillScalar(SkillId::Hear, SkillScalar::HearScale, sk->level(SkillId::Hear));
+    }
     audio().setListener(lis);
     tickSoundEmitters(world(), audio(), assets());
 }

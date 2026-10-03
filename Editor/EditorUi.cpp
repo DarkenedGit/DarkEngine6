@@ -34,6 +34,7 @@
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
 #include "Character/HealthComponent.h"
+#include "Character/SkillXp.h"
 #include "Combat/JumpAttackComponent.h"
 #include "Combat/StatusDot.h"
 #include "Particles/ParticleTick.h"
@@ -912,6 +913,7 @@ void EditorApp::onUpdate(float dt)
     tickParticleEmitters(world(), dt);
 
     Audio::AudioListener lis{};
+    lis.distanceScale = 1.0f;
     if (m_sceneMode == SceneMode::Scene2D)
     {
         lis.position = Vector3f(m_camera2D.GetPosition().x, m_camera2D.GetPosition().y, 0.0f);
@@ -923,6 +925,11 @@ void EditorApp::onUpdate(float dt)
         lis.position = m_camera.GetPosition();
         lis.forward  = m_camera.GetLook();
         lis.up       = m_camera.GetUp();
+        if (m_playMode && skillCatalog().enabled())
+        {
+            if (const SkillComponent* sk = (m_playPlayer.valid() && world().alive(m_playPlayer)) ? world().get<SkillComponent>(m_playPlayer) : nullptr)
+                lis.distanceScale = skillScalar(SkillId::Hear, SkillScalar::HearScale, sk->level(SkillId::Hear));
+        }
     }
     audio().setListener(lis);
 }

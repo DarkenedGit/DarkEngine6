@@ -23,6 +23,7 @@ namespace Dark::Audio
         Math::Vector3f forward{ 0.0f, 0.0f, 1.0f };
         Math::Vector3f up{ 0.0f, 1.0f, 0.0f };
         Math::Vector3f velocity;
+        float          distanceScale = 1.0f; // Hear skill scalar, not the X3DAudio curve.
     };
 
     struct PlayDesc
@@ -34,7 +35,13 @@ namespace Dark::Audio
         Math::Vector3f position;
         float          minDistance = 2.0f;
         float          maxDistance = 64.0f;
+        uint32_t       sourceId    = 0; // 0 is unattributed and does not train Hear.
     };
+
+    inline bool hearVoiceIsForeign(uint32_t sourceId, uint32_t selfId)
+    {
+        return sourceId != 0u && sourceId != selfId;
+    }
 
     using VoiceId = uint32_t; // 0 = invalid
 
@@ -80,6 +87,9 @@ namespace Dark::Audio
 
         void setListener(const AudioListener& listener) { m_listener = listener; }
         const AudioListener& listener() const { return m_listener; }
+
+        // In-use spatial voices whose source is neither 0 nor selfId. Music is not counted.
+        int liveForeignSpatialVoices(uint32_t selfId) const;
 
         // Apply 3D and reclaim finished one-shots. Call once per frame after gameplay.
         void tick();

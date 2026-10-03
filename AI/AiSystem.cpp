@@ -2,6 +2,8 @@
 
 #include "AI/HsmGraph.h"
 #include "AI/Sight.h"
+#include "Character/SkillSense.h"
+#include "Character/SkillXp.h"
 #include "Assets/AssetManager.h"
 #include "Character/SkillXp.h"
 #include "Collision/SweptCollision.h"
@@ -35,6 +37,36 @@ namespace Dark
         constexpr float kBackStepMeters    = 0.5f;
         constexpr int   kBackStepTries     = 8;
         constexpr float kLookEps           = 1.0e-6f;
+
+        SenseQuery authoredSight(const SightComponent* sight)
+        {
+            SenseQuery base;
+            if (!sight)
+                return base;
+            base.range   = sight->range;
+            base.coneDeg = sight->coneDeg;
+            return base;
+        }
+
+        struct NpcSenseScales
+        {
+            float seeRange = kSkillIdentity;
+            float seeCone  = kSkillIdentity;
+            float hear     = kSkillIdentity;
+        };
+
+        NpcSenseScales npcSenseScales(const SkillComponent* skill)
+        {
+            NpcSenseScales scales;
+            if (!skill)
+                return scales;
+            const int seeLevel  = skill->level(SkillId::See);
+            const int hearLevel = skill->level(SkillId::Hear);
+            scales.seeRange = skillScalar(SkillId::See, SkillScalar::SeeRangeScale, seeLevel);
+            scales.seeCone  = skillScalar(SkillId::See, SkillScalar::SeeConeScale, seeLevel);
+            scales.hear     = skillScalar(SkillId::Hear, SkillScalar::HearScale, hearLevel);
+            return scales;
+        }
 
         Combat::JumpAttackDef hunterJumpDef()
         {
@@ -314,6 +346,7 @@ namespace Dark
         v.hit    = world.get<HitReactionComponent>(e);
         v.brain  = world.get<BrainComponent>(e);
         v.sight  = world.get<SightComponent>(e);
+        v.skill  = world.get<SkillComponent>(e);
         return v.xf && v.ai && v.path && v.health && v.hit && v.brain && v.brain->brain;
     }
 
@@ -561,12 +594,15 @@ namespace Dark
 
     bool AiSystem::hunterSeesPoint(const View& v, const Vector3f& worldPos) const
     {
+        const NpcSenseScales scales = npcSenseScales(v.skill);
+        // Crouch is prey stealth. Packmate LOS keeps the prey scale at 1.
+        const SenseQuery sight = scaleNpcSight(authoredSight(v.sight), 1.0f, scales.seeRange, scales.seeCone);
         AI::SightQuery q;
         q.eye       = Vector3f{ v.xf->position.x, v.xf->position.y + 0.5f, v.xf->position.z };
         q.forward   = v.ai->forward;
         q.target    = Vector3f{ worldPos.x, worldPos.y + 0.5f, worldPos.z };
-        q.coneDeg   = v.sight ? v.sight->coneDeg : 70.0f;
-        q.range     = v.sight ? v.sight->range : 25.0f;
+        q.coneDeg   = sight.coneDeg;
+        q.range     = sight.range;
         q.heightMap = m_walk.heightMap();
         return q.heightMap && AI::sees(q);
     }
@@ -1004,13 +1040,15 @@ namespace Dark
             const float standoffR = m_prey.standoff > 0.0f ? m_prey.standoff : kStandoff;
             const bool  standoff = distSq <= standoffR * standoffR;
             const float sightScale = m_prey.sightRangeScale > 0.0f ? m_prey.sightRangeScale : 1.0f;
+            const NpcSenseScales scales = npcSenseScales(v.skill);
+            const SenseQuery sight = scaleNpcSight(authoredSight(v.sight), sightScale, scales.seeRange, scales.seeCone);
 
             AI::SightQuery q;
             q.eye       = Vector3f{ v.xf->position.x, v.xf->position.y + 0.5f, v.xf->position.z };
             q.forward   = v.ai->forward;
             q.target    = Vector3f{ playerPos.x, playerPos.y + m_prey.targetHeight, playerPos.z };
-            q.coneDeg   = v.sight ? v.sight->coneDeg : 70.0f;
-            q.range     = (v.sight ? v.sight->range : 25.0f) * sightScale;
+            q.coneDeg   = sight.coneDeg;
+            q.range     = sight.range;
             q.heightMap = m_walk.heightMap();
             if ((!q.heightMap || !q.heightMap->valid()) && terrain.coarse().valid())
                 q.heightMap = &terrain.coarse();
@@ -1030,7 +1068,12 @@ namespace Dark
                         sees = true;
                 }
             }
-            const bool hears = !playerInWater && playerAlive && m_prey.hearRange > 0.0f && distSq <= m_prey.hearRange * m_prey.hearRange;
+            const float hearRadius = scaleHearRange(m_prey.hearRange, scales.hear);
+            const bool hears = !playerInWater && playerAlive && hearRadius > 0.0f && distSq <= hearRadius * hearRadius;
+            // Chase `sees` still includes standoff and the flat fallback. See XP does not.
+            const bool geometricSees = playerAlive && !playerInWater && q.heightMap && q.heightMap->valid() && AI::sees(q);
+            if (v.skill)
+                noteNpcSenseXp(*v.skill, geometricSees, hears, dt);
             if (hears)
                 sees = true;
             if (sees)

@@ -464,6 +464,9 @@ private:
     float                     m_playLowerBodyYaw = 0.0f;
     float                     m_jumpAttackBuffer = 0.0f;
     Dark::Entity              m_playFlashlight{};
+    float                     m_playFlashlightBaseRange = 0.0f;
+    float                     m_playFlashlightBaseOuter = 0.0f;
+    Dark::EntityID            m_playFlashlightBaseId    = 0;
     Dark::Entity              m_playShield{};
     Dark::Combat::OffhandState         m_offhand{};
     Dark::Combat::PlayerChargeSettings m_chargeSettings{};

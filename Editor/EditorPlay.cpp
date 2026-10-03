@@ -15,6 +15,7 @@
 #include "Character/HitReaction.h"
 #include "Character/PlayerMotorComponent.h"
 #include "Character/ShieldView.h"
+#include "Character/SkillSense.h"
 #include "Character/SkillXp.h"
 #include "Collision/Collision.h"
 #include "Collision/HitResult.h"
@@ -785,6 +786,8 @@ void EditorApp::updatePlay(float dt)
         poise->tick(dt);
     if (hp)
         hp->tick(dt);
+    // Alive at entry. A contact kill later in this function still notes senses once.
+    const bool senseAlive = hp && hp->alive();
 
     if (jump && (!hp || !hp->alive()))
         jump->cancel(Combat::JumpAttackCancel::NoPound);
@@ -798,6 +801,11 @@ void EditorApp::updatePlay(float dt)
         && ((input().mouseDown(MouseButton::Right) && pointerFree) || (!uiKeys && input().actionDown("shield"))
             || input().axis(GamepadAxis::LeftTrigger) > 0.45f);
     const bool toggleLight = canSteer && !uiKeys && input().actionPressed("flashlight");
+    if (toggleLight)
+    {
+        if (SkillComponent* sk = world().get<SkillComponent>(body))
+            sk->seeArmed = true;
+    }
     const bool attackDown = canSteer && !uiKeys && (input().actionDown("attack") || (pointerFree && input().mouseDown(MouseButton::Left)));
     const bool airborneNow = motor && (motor->state() == PlayerMoveState::Jumping || motor->state() == PlayerMoveState::Falling);
     Combat::DefenseComponent* defense = world().get<Combat::DefenseComponent>(body);
@@ -1036,7 +1044,24 @@ void EditorApp::updatePlay(float dt)
     {
         placePlayerFlashlight(*lightXf, m_camera.GetPosition(), m_camera.GetLook(), m_camera.GetRight(), m_camera.GetUp());
         if (LocalLightComponent* light = world().get<LocalLightComponent>(m_playFlashlight))
+        {
             light->enabled = m_offhand.lightOn;
+            if (m_playFlashlightBaseId != m_playFlashlight.id())
+            {
+                m_playFlashlightBaseRange = light->range;
+                m_playFlashlightBaseOuter = light->outerConeDeg;
+                m_playFlashlightBaseId    = m_playFlashlight.id();
+            }
+            float seeRange = kSkillIdentity;
+            float seeCone  = kSkillIdentity;
+            if (const SkillComponent* sk = world().get<SkillComponent>(body))
+            {
+                const int seeLevel = sk->level(SkillId::See);
+                seeRange = skillScalar(SkillId::See, SkillScalar::SeeRangeScale, seeLevel);
+                seeCone  = skillScalar(SkillId::See, SkillScalar::SeeConeScale, seeLevel);
+            }
+            scaleFlashlight(m_playFlashlightBaseRange, m_playFlashlightBaseOuter, seeRange, seeCone, light->range, light->outerConeDeg);
+        }
     }
 
     world().each<Combat::PoiseComponent>([&](Entity e, Combat::PoiseComponent& p) {
@@ -1091,10 +1116,20 @@ void EditorApp::updatePlay(float dt)
     m_fireQuick   = false;
     m_fireCharged = false;
     const bool airborne = motor && (motor->state() == PlayerMoveState::Jumping || motor->state() == PlayerMoveState::Falling);
+    auto noteSenses = [&]() {
+        if (!senseAlive)
+            return;
+        if (SkillComponent* sk = world().get<SkillComponent>(body))
+        {
+            const bool foreign = audio().liveForeignSpatialVoices(body.id()) > 0;
+            notePlayerSenseXp(*sk, sk->seeArmed, m_offhand.lightOn, foreign, dt);
+        }
+    };
     if (ccLocked || jumpBusy)
     {
         if (ccLocked)
             m_jumpAttackBuffer = 0.0f;
+        noteSenses();
         return;
     }
     auto tryBegin = [&]() -> bool {
@@ -1127,6 +1162,7 @@ void EditorApp::updatePlay(float dt)
             else if (attackPressed)
                 m_jumpAttackBuffer = kJumpBuf;
         }
+        noteSenses();
         return;
     }
     if (fireCharged)
@@ -1139,6 +1175,7 @@ void EditorApp::updatePlay(float dt)
         m_jumpAttackBuffer = 0.0f;
         firePlayLoadout(false);
     }
+    noteSenses();
 }
 
 Terrain::GroundContact EditorApp::groundContactAt(float x, float z) const

@@ -30,6 +30,8 @@ namespace Dark
         class TerrainGrid;
     }
 
+    struct SkillComponent;
+
     class AiSystem
     {
     public:
@@ -78,6 +80,7 @@ namespace Dark
             HitReactionComponent*  hit    = nullptr;
             BrainComponent*        brain  = nullptr;
             SightComponent*        sight  = nullptr;
+            SkillComponent*        skill  = nullptr;
         };
 
         bool bind(World& world, Entity e, View& v);
