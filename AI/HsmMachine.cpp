@@ -570,4 +570,38 @@ namespace Dark::AI
             }
         }
     }
+
+    bool HsmMachine::restoreConfiguration(const std::vector<HsmState*>& path)
+    {
+        if (path.empty() || path.front() != m_root)
+            return false;
+        for (size_t i = 1; i < path.size(); ++i)
+        {
+            if (!path[i] || path[i]->parent() != path[i - 1])
+                return false;
+        }
+        m_activePath = path;
+        m_leaf       = path.back();
+        m_running    = true;
+        return true;
+    }
+
+    void HsmMachine::visitHistory(void (*fn)(HsmState* composite, HsmState* shallow, const std::vector<HsmState*>& deep, void* user), void* user) const
+    {
+        if (!fn)
+            return;
+        for (const auto& entry : m_history)
+            fn(entry.first, entry.second.shallowChild, entry.second.deepPath, user);
+    }
+
+    bool HsmMachine::restoreHistory(HsmState* composite, HsmState* shallow, const std::vector<HsmState*>& deep)
+    {
+        if (!composite)
+            return false;
+        HistoryRecord rec;
+        rec.shallowChild = shallow;
+        rec.deepPath     = deep;
+        m_history[composite] = std::move(rec);
+        return true;
+    }
 } // namespace Dark::AI

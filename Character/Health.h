@@ -17,6 +17,7 @@ namespace Dark
 
         void reset();
         void revive(float hp = -1.0f);
+        void restore(float hp, float sinceDamage);
 
         // Returns true if this hit caused death.
         bool applyDamage(float amount);

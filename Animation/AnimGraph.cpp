@@ -438,4 +438,35 @@ namespace Dark
 		}
 		return false;
 	}
+
+	bool AnimGraphInstance::snapForLoad(std::string_view stateName, bool lock, std::string_view clipName, float time, float speed, int loopOverride, float lowerBodyYaw)
+	{
+		if (!m_def)
+			return true;
+		if (!stateName.empty())
+		{
+			bool found = false;
+			for (uint32_t i = 0; i < m_def->states.size(); ++i)
+			{
+				if (m_def->states[i].name == stateName)
+				{
+					m_state = i;
+					m_requestedState = i;
+					found = true;
+					break;
+				}
+			}
+			if (!found)
+				DE_LOG_WARN("AnimGraph: save state '{}' is not in the graph", std::string(stateName));
+		}
+		clearPath();
+		setStateLocked(lock);
+		if (!clipName.empty())
+			m_player.play(clipName, 0.0f, true);
+		m_player.setTime(time);
+		m_player.setSpeed(speed);
+		m_player.setLoopOverride(loopOverride);
+		m_player.setLowerBodyYaw(lowerBodyYaw);
+		return true;
+	}
 }

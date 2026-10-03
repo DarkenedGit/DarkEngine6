@@ -70,6 +70,11 @@ namespace Dark::AI
         // Clear shallow/deep history for a composite (or all if null).
         void clearHistory(HsmState* composite = nullptr);
 
+        // Sets the active path without enter or exit actions. path.front() is the root.
+        bool restoreConfiguration(const std::vector<HsmState*>& path);
+        void visitHistory(void (*fn)(HsmState* composite, HsmState* shallow, const std::vector<HsmState*>& deep, void* user), void* user) const;
+        bool restoreHistory(HsmState* composite, HsmState* shallow, const std::vector<HsmState*>& deep);
+
     private:
         struct HistoryRecord
         {

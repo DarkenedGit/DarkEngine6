@@ -34,6 +34,7 @@
 #include "Weapons/HittableComponent.h"
 #include "Ui/ImGuiHost.h"
 #include "Ui/MainMenu.h"
+#include "Save/SaveSystem.h"
 
 #include <unordered_map>
 #include <vector>
@@ -99,6 +100,21 @@ private:
     void resolveJumpAttackAndFx(const Dark::Combat::DamageEvent* events, int count);
     bool firePossessedLoadout(bool charged);
     void placeHealthPacks();
+    void installSaveHost();
+    void ensureSessionEntity();
+    void ensurePlayerProgress(Dark::Entity e);
+    void pullPhysicsVelocities();
+    void pushPhysicsProgress();
+    static bool saveCanSave(void* user, Dark::Save::SaveResult& why);
+    static void saveBeginLoad(void* user, Dark::World& world);
+    static void saveEndLoad(void* user, Dark::World& world);
+    static Dark::Entity saveRespawn(void* user, Dark::World& world, std::string_view archetype, const Dark::Save::SavePose& pose);
+    static void saveDestroy(void* user, Dark::World& world, Dark::Entity e);
+    static bool saveSkip(void* user, Dark::World& world, Dark::Entity e);
+    static int saveNetRole(void* user);
+    static uint32_t savePeerCount(void* user);
+    static void saveBeforeCapture(void* user, Dark::World& world);
+    static void saveAfterApply(void* user, Dark::World& world);
     void updateHealthPacks(float dt);
     void updateShoulderCamera();
     Dark::TonemapSettings playerPostFx();
@@ -232,4 +248,8 @@ private:
     Dark::BloodSplatPool             m_bloodSplats;
 
     Dark::Mesh             m_crossMesh;
+
+    Dark::Save::SaveSystem m_save;
+    Dark::Entity           m_session{};
+    bool                   m_crouchLatch = false;
 };

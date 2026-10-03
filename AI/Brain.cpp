@@ -112,4 +112,40 @@ namespace Dark::AI
             return Leaf::Flee;
         return Leaf::Wander;
     }
+
+    bool Brain::restore(const std::vector<std::string>& pathNames, float memoryLeft)
+    {
+        std::vector<HsmState*> path;
+        path.reserve(pathNames.size());
+        for (const std::string& name : pathNames)
+        {
+            HsmState* state = m_graph.findState(name);
+            if (!state)
+                return false;
+            path.push_back(state);
+        }
+        if (!path.empty() && !m_graph.machine().restoreConfiguration(path))
+            return false;
+        m_memoryLeft = memoryLeft;
+        m_graph.refreshPathNames();
+        return true;
+    }
+
+    bool Brain::restoreHistoryRecord(std::string_view composite, std::string_view shallow, const std::vector<std::string>& deep)
+    {
+        HsmState* compositeState = m_graph.findState(composite);
+        if (!compositeState)
+            return false;
+        HsmState* shallowState = shallow.empty() ? nullptr : m_graph.findState(shallow);
+        std::vector<HsmState*> deepStates;
+        deepStates.reserve(deep.size());
+        for (const std::string& name : deep)
+        {
+            HsmState* state = m_graph.findState(name);
+            if (!state)
+                return false;
+            deepStates.push_back(state);
+        }
+        return m_graph.machine().restoreHistory(compositeState, shallowState, deepStates);
+    }
 } // namespace Dark::AI

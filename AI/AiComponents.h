@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AI/Brain.h"
+#include "ECS/Persist.h"
 #include "AI/Pathfinder.h"
 #include "AI/WolfApproach.h"
 #include "Math/Vector3f.h"
@@ -28,7 +29,9 @@ namespace Dark
 
     struct AiAgentComponent
     {
-        static constexpr const char* kTypeName = "AiAgent";
+        static constexpr const char* kTypeName    = "AiAgent";
+        static constexpr uint16_t    kSaveVersion = 1;
+        static const PersistFns      kPersist;
         Math::Vector3f               forward{ 0.0f, 0.0f, 1.0f };
         Math::Vector3f               planarVelocity{};
         Math::Vector3f               lastSeen{};
@@ -58,7 +61,9 @@ namespace Dark
 
     struct BrainComponent
     {
-        static constexpr const char* kTypeName = "Brain";
+        static constexpr const char* kTypeName    = "Brain";
+        static constexpr uint16_t    kSaveVersion = 1;
+        static const PersistFns      kPersist;
         std::unique_ptr<AI::Brain>   brain;
     };
 

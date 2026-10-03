@@ -98,11 +98,24 @@ namespace Dark
         bool                       didFirstJump() const { return m_didFirstJump; }
         bool                       didDoubleJump() const { return m_didDoubleJump; }
         float                      airTime() const { return m_airTime; }
+        float                      coyoteLeft() const { return m_coyote; }
         float                      dodgeTimeLeft() const { return m_dodgeLeft; }
+        const Math::Vector3f&      dodgeWish() const { return m_dodgeWish; }
 
         void reset();
         void clearJumpBuffer();
         void setHorizontalVelocity(float x, float z);
+        void restoreProgress(PlayerMoveState state, const Math::Vector3f& velocity, float airTime, float coyote, bool didFirstJump, bool didDoubleJump, float dodgeLeft, const Math::Vector3f& dodgeWish)
+        {
+            m_state         = state;
+            m_velocity      = velocity;
+            m_airTime       = airTime;
+            m_coyote        = coyote;
+            m_didFirstJump  = didFirstJump;
+            m_didDoubleJump = didDoubleJump;
+            m_dodgeLeft     = dodgeLeft;
+            m_dodgeWish     = dodgeWish;
+        }
 
         PlayerMotorResult tick(Math::Vector3f& position, const PlayerMotorInput& in, float dt, const PlayerGroundQuery& ground);
 

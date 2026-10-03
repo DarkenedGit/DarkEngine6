@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ECS/Entity.h"
+#include "ECS/Persist.h"
 #include "Math/Matrix4f.h"
 #include "Math/Vector3f.h"
 
@@ -11,7 +12,9 @@ namespace Dark
 
     struct HealthPackComponent
     {
-        static constexpr const char* kTypeName = "HealthPack";
+        static constexpr const char* kTypeName    = "HealthPack";
+        static constexpr uint16_t    kSaveVersion = 1;
+        static const PersistFns      kPersist;
         static constexpr float       kPickupR  = 1.2f;
         static constexpr float       kHeal     = 50.0f;
         static constexpr float       kRespawn  = 16.0f;

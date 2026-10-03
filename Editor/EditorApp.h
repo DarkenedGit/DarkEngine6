@@ -45,6 +45,7 @@
 #include "Physics/PhysicsComponent.h"
 #include "Physics/PhysicsSurface.h"
 #include "Physics/PhysicsWorld.h"
+#include "Save/SaveSystem.h"
 
 #include <atomic>
 #include <filesystem>
@@ -116,7 +117,8 @@ private:
                              const float color[4],
                              const ParticleEmitterDesc* particleDesc = nullptr,
                              const SceneObjectData* authored = nullptr,
-                             bool registerNet = true);
+                             bool registerNet = true,
+                             bool editorObject = true);
 
     Entity placeAtCursor(SceneObjectType type);
     Entity placeAtWorld(SceneObjectType type, Math::Vector3f hit, const SceneObjectData* authored = nullptr);
@@ -135,6 +137,20 @@ private:
     bool   attachEditorWolf(Dark::Entity e);
     Dark::Entity findPlayPlayer();
     void   setPlayMode(bool play);
+    void   installSaveHost();
+    void   ensurePlaySession();
+    void   pullPhysicsVelocities();
+    void   pushPhysicsProgress();
+    static bool saveCanSave(void* user, Dark::Save::SaveResult& why);
+    static void saveBeginLoad(void* user, Dark::World& world);
+    static void saveEndLoad(void* user, Dark::World& world);
+    static Dark::Entity saveRespawn(void* user, Dark::World& world, std::string_view archetype, const Dark::Save::SavePose& pose);
+    static void saveDestroy(void* user, Dark::World& world, Dark::Entity e);
+    static bool saveSkip(void* user, Dark::World& world, Dark::Entity e);
+    static int saveNetRole(void* user);
+    static uint32_t savePeerCount(void* user);
+    static void saveBeforeCapture(void* user, Dark::World& world);
+    static void saveAfterApply(void* user, Dark::World& world);
     void   togglePlayMode();
     void   bakePlayWalkability();
     void   resetPlayCombat();
@@ -465,6 +481,11 @@ private:
     Physics::PhysicsSurfaceCatalog m_surfaces;
     Physics::PhysicsBodyId         m_physicsGround = Physics::kNullPhysicsBody;
     bool                      m_playMode = false;
+    bool                      m_crouchLatch = false;
+    bool                      m_suspendLiveStamp = false;
+    int                       m_liveStamp = 0;
+    Dark::Save::SaveSystem    m_save;
+    Dark::Entity              m_session{};
     Dark::Entity              m_playPlayer{};
     float                     m_playLookYaw   = 0.0f;
     float                     m_playLookPitch = 0.0f;

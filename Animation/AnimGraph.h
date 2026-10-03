@@ -107,6 +107,8 @@ namespace Dark
 		// Locks automatic parameter-driven transitions until setStateLocked(false) or a parameter is driven by gameplay.
 		bool requestState(uint32_t stateIndex);
 		bool requestStateByName(std::string_view name);
+		// Sets the state and clip without walking blends. No-op when no def is bound.
+		bool snapForLoad(std::string_view stateName, bool lock, std::string_view clipName, float time, float speed, int loopOverride, float lowerBodyYaw);
 		void clearPath();
 		void setStateLocked(bool locked);
 		bool stateLocked() const { return m_lockState; }

@@ -127,6 +127,7 @@ set(DE_ENGINE_REST_FOLDERS
     Sprite
     Terrain
     Water
+    Save
 )
 
 de_glob_folders(DE_FOUNDATION_SOURCES ${DE_FOUNDATION_FOLDERS})

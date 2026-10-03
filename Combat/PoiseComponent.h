@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ECS/Persist.h"
 #include "Math/MathHelper.h"
 
 namespace Dark::Combat
@@ -7,7 +8,9 @@ namespace Dark::Combat
 
     struct PoiseComponent
     {
-        static constexpr const char* kTypeName = "Poise";
+        static constexpr const char* kTypeName    = "Poise";
+        static constexpr uint16_t    kSaveVersion = 1;
+        static const PersistFns      kPersist;
 
         float maxPoise       = 100.0f;
         float poise          = 100.0f;

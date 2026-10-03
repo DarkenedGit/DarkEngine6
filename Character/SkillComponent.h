@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Character/SkillCatalog.h"
+#include "ECS/Persist.h"
 
 #include <type_traits>
 
@@ -15,7 +16,9 @@ namespace Dark
 
     struct SkillComponent
     {
-        static constexpr const char* kTypeName = "Skill";
+        static constexpr const char* kTypeName    = "Skill";
+        static constexpr uint16_t    kSaveVersion = 1;
+        static const PersistFns      kPersist;
 
         SkillRank ranks[kSkillCount]{};
         uint8_t   grantMask = 0x3Fu;

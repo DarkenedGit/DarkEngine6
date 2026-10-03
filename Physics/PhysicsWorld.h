@@ -104,6 +104,8 @@ namespace Dark::Physics
         bool          getBodyPose(PhysicsBodyId id, Math::Vector3f& position, Math::Quaternion& rotation) const;
         bool          setBodyPose(PhysicsBodyId id, const Math::Vector3f& position, const Math::Quaternion& rotation);
         void          clearBodyVelocity(PhysicsBodyId id);
+        bool          getBodyVelocity(PhysicsBodyId id, Math::Vector3f& linear, Math::Vector3f& angular) const;
+        bool          setBodyVelocity(PhysicsBodyId id, const Math::Vector3f& linear, const Math::Vector3f& angular);
         // Kinematic bodies only. Sets the velocity that reaches `position` over `dt` so the
         // next step sweeps into dynamic bodies and pushes them. A teleport does not.
         bool          moveKinematicTo(PhysicsBodyId id, const Math::Vector3f& position, const Math::Quaternion& rotation, float dt);

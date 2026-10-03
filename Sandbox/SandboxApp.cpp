@@ -2,6 +2,7 @@
 
 #include "ECS/Components.h"
 
+#include <format>
 #include <memory>
 #include "Core/ContentRoots.h"
 #include "Core/EntityPins.h"
@@ -30,7 +31,8 @@
 #include "Render/MaterialSurface.h"
 #include "Render/GpuResourceCache.h"
 #include "Render/GpuUpload.h"
-#include "Ui/MainMenu.h"
+#include "Save/PersistentId.h"
+#include "Save/ProgressComponents.h"
 #include "Assets/Image.h"
 #include "Assets/Material.h"
 #include "Assets/Model.h"
@@ -527,6 +529,17 @@ void SandboxApp::handleRuntimeCommands(float dt)
         return;
     }
 
+    if (!uiKeys && input().keyPressed(Key::F5))
+    {
+        const Save::SaveResult result = m_save.requestSave(Save::SaveKind::Quick, "Quick Save");
+        DE_LOG_INFO("Sandbox: quicksave {}", Save::toString(result));
+    }
+    if (!uiKeys && input().keyPressed(Key::F9))
+    {
+        const Save::SaveResult result = m_save.requestLoadNewest(Save::SaveKind::Quick);
+        DE_LOG_INFO("Sandbox: quickload {}", Save::toString(result));
+    }
+
     if (!uiKeys && input().actionPressed("pause"))
     {
         m_gameplayPaused = !m_gameplayPaused;
@@ -894,6 +907,7 @@ void SandboxApp::attachLocalPlayer(Entity e)
     Combat::equipPlayerShield(world(), e);
     attachPlayerSounds(world(), pins(), assets(), audio(), e, m_ground);
     applySkillProfile(world(), e, "player");
+    ensurePlayerProgress(e);
 }
 
 bool SandboxApp::attachAnimatedCharacter(Entity e, const char* gltfPath)
@@ -1166,7 +1180,9 @@ void SandboxApp::updatePossessed(float dt)
     PlayerMotorInput motorIn{};
     motorIn.wish            = canSteer ? wish : Vector3f{ 0.0f, 0.0f, 0.0f };
     motorIn.sprint          = canSteer && !jumpBusy && !uiKeys && input().actionDown("sprint");
-    motorIn.crouch          = canSteer && !jumpBusy && !uiKeys && input().actionDown("crouch");
+    if (m_crouchLatch && input().actionPressed("crouch"))
+        m_crouchLatch = false;
+    motorIn.crouch          = canSteer && !jumpBusy && !uiKeys && (m_crouchLatch || input().actionDown("crouch"));
     motorIn.jumpPressed     = canSteer && !jumpBusy && !uiKeys && input().actionPressed("jump");
     motorIn.allowDoubleJump = !inAirCommit;
     motorIn.allowJumpBuffer = !jumpBusy;
@@ -2515,6 +2531,7 @@ void SandboxApp::placeHealthPacks()
         pack.restPos = pos;
         pack.active  = true;
         world().emplace<HealthPackComponent>(e, pack);
+        stampProceduralId(world(), e, std::format("sandbox/healthpack/{}", count), "healthpack");
         ++count;
     }
     DE_LOG_INFO("SandboxApp: {} health packs", count);
@@ -3282,6 +3299,8 @@ void SandboxApp::onInit()
                     tag->name = "Wolf";
                 applySkillProfile(world(), hunter, "wolf");
             }
+            if (hunter.valid())
+                stampProceduralId(world(), hunter, std::format("sandbox/pathchase/hunter/{}", i), wolf ? "wolf" : "hunter");
             if (TransformComponent* hxf = hunter.valid() ? world().get<TransformComponent>(hunter) : nullptr)
             {
                 hxf->scale = Vector3f{ 1.0f, 1.0f, 1.0f };
@@ -3294,6 +3313,9 @@ void SandboxApp::onInit()
 
     placeHealthPacks();
     spawnHybridLocalLights();
+    ensureSessionEntity();
+    installSaveHost();
+    m_save.captureBaseline(world());
 }
 
 void SandboxApp::onSplashFinished()
@@ -3308,10 +3330,15 @@ void SandboxApp::onUpdate(float dt)
     const bool menuFrame = m_menu.visible();
     handleRuntimeCommands(dt);
     if (menuFrame || m_menu.visible())
+    {
+        m_save.service(world());
         return;
+    }
     if (!m_gameplayPaused || m_stepGameplay)
     {
         m_cloudTime += dt;
+        if (WorldClockComponent* clock = m_session.valid() ? world().get<WorldClockComponent>(m_session) : nullptr)
+            clock->playTimeSec += static_cast<double>(dt);
         m_env.tick(dt);
         m_water.tick(dt);
         if (m_chaseOk)
@@ -3343,6 +3370,7 @@ void SandboxApp::onUpdate(float dt)
         tickAnimGraphs(world(), assets(), dt);
         m_stepGameplay = false;
     }
+    m_save.service(world());
     m_water.updateLod(m_viewCamera.GetPosition());
     syncTerrainLod();
     updateFlashlight();

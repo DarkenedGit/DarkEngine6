@@ -111,6 +111,7 @@ namespace Dark
         RecoilKick takeRecoil(); // last shot's kick; zeros after read. Shot itself is un-kicked.
 
         const std::vector<LiveProjectile>& live() const { return m_shots; }
+        void                               restoreShots(const std::vector<LiveProjectile>& shots);
         ParticleEmitter&                   impactEmitter() { return m_impact; }
         const ParticleEmitter&             impactEmitter() const { return m_impact; }
 

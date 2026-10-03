@@ -1,4 +1,5 @@
 build/
+Saves/
 build-sourcetrail/
 third_party/box2d/build/
 third_party/box3d/build/

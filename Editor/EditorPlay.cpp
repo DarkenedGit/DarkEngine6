@@ -12,6 +12,7 @@
 #include "Assets/Model.h"
 #include "Audio/SoundComponents.h"
 #include "Character/HealthComponent.h"
+#include "Save/ProgressComponents.h"
 #include "Character/HitReaction.h"
 #include "Character/PlayerMotorComponent.h"
 #include "Character/ShieldView.h"
@@ -505,6 +506,13 @@ void EditorApp::setPlayMode(bool play)
         if (m_physics.valid())
             m_physics.pushPoses(world(), true);
         window().setCursorCaptured(window().isFocused());
+        ensurePlaySession();
+        installSaveHost();
+        if (!world().has<LookComponent>(m_playPlayer))
+            world().emplace<LookComponent>(m_playPlayer);
+        if (!world().has<RunProgressComponent>(m_playPlayer))
+            world().emplace<RunProgressComponent>(m_playPlayer);
+        m_save.captureBaseline(world());
         DE_LOG_INFO("Editor: PLAY — WASD move, mouse look, Space jump, hold LMB/F to charge an attack and release to swing, hold RMB/V to block, Ctrl/C crouch, L flashlight, Escape or F12 stop");
     }
     else
@@ -894,6 +902,8 @@ void EditorApp::updatePlay(float dt)
     }
 
     Entity body = m_playPlayer;
+    if (WorldClockComponent* clock = m_session.valid() ? world().get<WorldClockComponent>(m_session) : nullptr)
+        clock->playTimeSec += static_cast<double>(dt);
     TransformComponent* xf = world().get<TransformComponent>(body);
     if (!xf)
         return;
@@ -1001,7 +1011,9 @@ void EditorApp::updatePlay(float dt)
     PlayerMotorInput motorIn{};
     motorIn.wish            = canSteer ? wish : Vector3f{};
     motorIn.sprint          = canSteer && !jumpBusy && !uiKeys && input().actionDown("sprint");
-    motorIn.crouch          = canSteer && !jumpBusy && !uiKeys && input().actionDown("crouch");
+    if (m_crouchLatch && input().actionPressed("crouch"))
+        m_crouchLatch = false;
+    motorIn.crouch          = canSteer && !jumpBusy && !uiKeys && (m_crouchLatch || input().actionDown("crouch"));
     motorIn.jumpPressed     = canSteer && !jumpBusy && !uiKeys && input().actionPressed("jump");
     motorIn.allowDoubleJump = !inAirCommit;
     motorIn.allowJumpBuffer = !jumpBusy;

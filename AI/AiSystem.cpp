@@ -15,6 +15,7 @@
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "ECS/World.h"
+#include "Save/PersistentId.h"
 #include "Math/MathHelper.h"
 #include "Math/Sphere3f.h"
 #include "Terrain/HeightMap.h"
@@ -818,7 +819,10 @@ namespace Dark
             notice.playerForward = playerForward;
             notice.horizDistance = horiz;
             notice.packCount     = wolfPackNear(world, v.e);
-            notice.salt          = static_cast<uint32_t>(v.e.id()) * 0x9E3779B9u ^ static_cast<uint32_t>(m_time * 1000.0f);
+            uint32_t saltEntity = static_cast<uint32_t>(v.e.id());
+            if (const PersistentIdComponent* pid = world.get<PersistentIdComponent>(v.e))
+                saltEntity = static_cast<uint32_t>(static_cast<uint64_t>(pid->id));
+            notice.salt = saltEntity * 0x9E3779B9u ^ static_cast<uint32_t>(m_time * 1000.0f);
             const AI::WolfApproachPlan plan = AI::planWolfApproach(notice);
             v.ai->stalkSide                  = plan.side;
             if (plan.direct || standoff)

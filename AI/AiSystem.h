@@ -61,6 +61,11 @@ namespace Dark
         void setGroundSurface(const Terrain::TerrainGround* ground, const Terrain::HeightMap* height, const Terrain::SplatMap* splat);
 
         Entity jumpAttackToken() const { return m_jumpAttackToken; }
+        void   setJumpAttackToken(Entity e) { m_jumpAttackToken = e; }
+        float  simTime() const { return m_time; }
+        void   setSimTime(float seconds) { m_time = seconds; }
+        float  packAttackGap() const { return m_packAttackGap; }
+        void   setPackAttackGap(float seconds) { m_packAttackGap = seconds; }
         void   setJumpAttackHits(void (*fn)(void* user, const Combat::DamageEvent* events, int count), void* user);
         void   setHunterCue(void (*fn)(void* user, Entity hunter, const char* cue), void* user);
 

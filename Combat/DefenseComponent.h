@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ECS/Persist.h"
 #include "Math/MathHelper.h"
 
 namespace Dark::Combat
@@ -7,7 +8,9 @@ namespace Dark::Combat
 
     struct DefenseComponent
     {
-        static constexpr const char* kTypeName = "Defense";
+        static constexpr const char* kTypeName    = "Defense";
+        static constexpr uint16_t    kSaveVersion = 1;
+        static const PersistFns      kPersist;
 
         bool  blocking          = false;
         bool  parrying          = false;

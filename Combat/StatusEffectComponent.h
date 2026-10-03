@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Combat/DamageEvent.h"
+#include "ECS/Persist.h"
 #include "Combat/StatusDef.h"
 #include "Combat/StatusFxEvent.h"
 #include "Combat/StatusId.h"
@@ -34,6 +35,8 @@ namespace Dark::Combat
     struct StatusEffectComponent
     {
         static constexpr const char* kTypeName    = "StatusEffect";
+        static constexpr uint16_t    kSaveVersion = 1;
+        static const PersistFns      kPersist;
         static constexpr int         kMaxStatus   = 12;
         static constexpr int         kMaxFxEvents = 16;
 
@@ -350,6 +353,18 @@ namespace Dark::Combat
             }
             compactExpired();
             return written;
+        }
+
+        void replayFxForLoad()
+        {
+            fxCount = 0;
+            fxRead  = 0;
+            for (int i = 0; i < count; ++i)
+            {
+                if (slots[i].remaining <= 0.0f)
+                    continue;
+                pushFx(StatusFxOp::Applied, slots[i].id, slots[i].stacks, slots[i].remaining, slots[i].magnitude);
+            }
         }
 
     private:

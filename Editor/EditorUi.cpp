@@ -71,7 +71,7 @@ void EditorApp::drawEditorUi()
             if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  New 2D Scene", nullptr, false, sceneOk))
                 newScene2D();
             ImGui::Separator();
-            if (ImGui::MenuItem(ICON_FA_FLOPPY_DISK "  Save Scene...", "Ctrl+S"))
+            if (ImGui::MenuItem(ICON_FA_FLOPPY_DISK "  Save Scene...", "Ctrl+S", false, !m_playMode))
                 saveSceneWithDialog();
             if (ImGui::MenuItem(ICON_FA_FOLDER_OPEN "  Load Scene...", "Ctrl+O", false, sceneOk))
                 loadSceneWithDialog(m_scenePath);
@@ -889,6 +889,7 @@ void EditorApp::onUpdate(float dt)
         updatePawnAnims();
         if (m_playMode)
             simulatePhysics(dt);
+        m_save.service(world());
     }
     else
     {

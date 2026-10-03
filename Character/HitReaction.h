@@ -25,6 +25,13 @@ namespace Dark
         // Incoming attack direction (attacker toward victim). Replaces any in-flight reaction.
         void apply(const Math::Vector3f& hitDirection);
         void reset();
+        void restore(float stunLeft, float knockLeft, float knockTimeLeft, const Math::Vector3f& knockDir)
+        {
+            m_stunLeft      = stunLeft;
+            m_knockLeft     = knockLeft;
+            m_knockTimeLeft = knockTimeLeft;
+            m_knockDir      = knockDir;
+        }
 
         // Counts down stun and returns this frame's knockback displacement.
         Math::Vector3f tick(float dt);
@@ -33,6 +40,8 @@ namespace Dark
         bool  knockingBack() const { return m_knockLeft > 0.0f; }
         float stunRemaining() const { return m_stunLeft; }
         float knockbackRemaining() const { return m_knockLeft; }
+        float knockTimeLeft() const { return m_knockTimeLeft; }
+        const Math::Vector3f& knockDirection() const { return m_knockDir; }
 
     private:
         HitReactionSettings m_settings;

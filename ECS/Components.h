@@ -6,6 +6,7 @@
 
 #include "Assets/AssetHandle.h"
 #include "ECS/Entity.h"
+#include "ECS/Persist.h"
 #include "Math/MathDefines.h"
 #include "Math/Quaternion.h"
 
@@ -15,7 +16,9 @@ namespace Dark
 
     struct TransformComponent
     {
-        static constexpr const char* kTypeName = "Transform";
+        static constexpr const char* kTypeName    = "Transform";
+        static constexpr uint16_t    kSaveVersion = 1;
+        static const PersistFns      kPersist;
 
         Math::Vector3f   position{ 0, 0, 0 };
         Math::Quaternion rotation{ 1, 0, 0, 0 };

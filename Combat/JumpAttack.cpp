@@ -212,6 +212,12 @@ namespace Dark::Combat
         m_phase = JumpAttackPhase::Idle;
     }
 
+    void JumpAttack::restoreCooldown(float seconds)
+    {
+        cancel(JumpAttackCancel::ForceIdle);
+        m_cooldown = seconds < 0.0f ? 0.0f : seconds;
+    }
+
     void JumpAttack::tick(float dt)
     {
         if (dt < 0.0f)

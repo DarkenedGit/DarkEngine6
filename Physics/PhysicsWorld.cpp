@@ -650,6 +650,28 @@ namespace Dark::Physics
         b3Body_SetAngularVelocity(body, b3Vec3{0.0f, 0.0f, 0.0f});
     }
 
+    bool PhysicsWorld::getBodyVelocity(PhysicsBodyId id, Math::Vector3f& linear, Math::Vector3f& angular) const
+    {
+        if (!bodyValid(id))
+            return false;
+        const b3BodyId body = loadBody(id);
+        linear              = fromB3(b3Body_GetLinearVelocity(body));
+        angular             = fromB3(b3Body_GetAngularVelocity(body));
+        return true;
+    }
+
+    bool PhysicsWorld::setBodyVelocity(PhysicsBodyId id, const Math::Vector3f& linear, const Math::Vector3f& angular)
+    {
+        if (!bodyValid(id))
+            return false;
+        const b3BodyId body = loadBody(id);
+        if (b3Body_GetType(body) != b3_dynamicBody)
+            return false;
+        b3Body_SetLinearVelocity(body, toB3(linear));
+        b3Body_SetAngularVelocity(body, toB3(angular));
+        return true;
+    }
+
     bool PhysicsWorld::moveKinematicTo(PhysicsBodyId id, const Math::Vector3f& position, const Math::Quaternion& rotation, float dt)
     {
         if (!bodyValid(id) || dt <= 1.0e-6f)

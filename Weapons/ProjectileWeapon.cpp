@@ -234,4 +234,18 @@ namespace Dark
         m_impact.stop(true);
     }
 
+    void ProjectileWeapon::restoreShots(const std::vector<LiveProjectile>& shots)
+    {
+        m_shots.clear();
+        const size_t cap = m_desc.maxLive;
+        for (const LiveProjectile& shot : shots)
+        {
+            if (!shot.alive)
+                continue;
+            if (m_shots.size() >= cap)
+                break;
+            m_shots.push_back(shot);
+        }
+    }
+
 } // namespace Dark

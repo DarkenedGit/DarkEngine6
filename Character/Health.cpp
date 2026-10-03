@@ -31,6 +31,14 @@ namespace Dark
         m_sinceDamage = m_settings.regenDelay;
     }
 
+    void Health::restore(float hp, float sinceDamage)
+    {
+        if (sinceDamage < 0.0f)
+            sinceDamage = 0.0f;
+        m_hp          = Math::Clamp(hp, 0.0f, m_settings.maxHp);
+        m_sinceDamage = sinceDamage;
+    }
+
     bool Health::applyDamage(float amount)
     {
         if (amount <= 0.0f || m_hp <= 0.0f)

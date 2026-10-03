@@ -9,6 +9,7 @@
 #include "Core/ContentRoots.h"
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
+#include "Save/PersistentId.h"
 #include "Core/UiPalette.h"
 #include "Ui/Icons.h"
 #include "Ui/ImGuiTheme.h"
@@ -23,6 +24,8 @@
 #include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
 #include "Math/Ray3f.h"
+
+#include <format>
 #include "Render/LineMesh.h"
 #include "Render/MeshGen.h"
 #include "Render/TaaJitter.h"
@@ -218,7 +221,8 @@ Entity EditorApp::spawnObject(
     const float color[4],
     const ParticleEmitterDesc* particleDesc,
     const SceneObjectData* authored,
-    bool registerNet)
+    bool registerNet,
+    bool editorObject)
 {
     if (netClientLocked())
         return {};
@@ -328,7 +332,8 @@ Entity EditorApp::spawnObject(
         world().emplace<CloudVolumeComponent>(e, cloud);
     }
 
-    world().emplace<EditorObjectComponent>(e, so);
+    if (editorObject)
+        world().emplace<EditorObjectComponent>(e, so);
     if (type == SceneObjectType::Player && !attachEditorPlayer(e))
     {
         onEntityRemoved(world(), e, &pins());
@@ -364,6 +369,13 @@ Entity EditorApp::spawnObject(
     m_selected = e;
     if (registerNet && isReplicatedProp(type))
         network().registerEntity(world(), e, prefabFromType(type), ClientId::Host, packRgba8(so.color));
+    if (!m_suspendLiveStamp && !isLocalLightType(type) && !isGlobalLightType(type) && type != SceneObjectType::CloudVolume)
+    {
+        if (m_playMode)
+            stampSpawned(world(), e, toString(type));
+        else
+            stampProceduralId(world(), e, std::format("editor/live/{}", m_liveStamp++), toString(type));
+    }
     DE_LOG_INFO("Editor: spawn {} #{}", toString(type), e.id());
     return e;
 }

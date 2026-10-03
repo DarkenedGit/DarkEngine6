@@ -83,6 +83,9 @@ namespace Dark
         virtual void tick(float dt, const WeaponWorldQuery& world)                     = 0;
         virtual void clear()                                                           = 0;
 
+        float cooldownLeft() const { return m_cooldown; }
+        void  setCooldownLeft(float seconds) { m_cooldown = seconds < 0.0f ? 0.0f : seconds; }
+
         void setHitListener(WeaponHitFn fn, void* user)
         {
             m_hitFn   = fn;

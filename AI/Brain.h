@@ -2,6 +2,9 @@
 
 #include "AI/HsmGraph.h"
 
+#include <string>
+#include <vector>
+
 namespace Dark::AI
 {
     inline constexpr HsmEventId kHunterSee        = 10;
@@ -36,6 +39,8 @@ namespace Dark::AI
         void onAssistDone();
         void onFleeDone();
         Leaf leaf() const;
+        bool restore(const std::vector<std::string>& pathNames, float memoryLeft);
+        bool restoreHistoryRecord(std::string_view composite, std::string_view shallow, const std::vector<std::string>& deep);
         float      memoryLeft() const { return m_memoryLeft; }
         const HsmGraphInstance& graph() const { return m_graph; }
 

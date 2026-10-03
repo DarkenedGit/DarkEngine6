@@ -54,6 +54,7 @@ namespace Dark::Combat
         Entity               connectedTarget() const;
         float                connectWindowLeft() const;
         float                cooldownLeft() const;
+        void                 restoreCooldown(float seconds);
         const Math::Vector3f& velocity() const;
 
         bool begin(const JumpAttackBegin& req);

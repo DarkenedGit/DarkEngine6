@@ -8,6 +8,8 @@
 #include "Network/Replication.h"
 #include "Core/ContentRoots.h"
 #include "Core/Log.h"
+#include "Save/PersistentId.h"
+#include "Save/SaveSystem.h"
 #include "Core/UiPalette.h"
 #include "Ui/Icons.h"
 #include "Ui/ImGuiTheme.h"
@@ -47,12 +49,23 @@ using namespace Math;
 
 bool EditorApp::saveSceneWithDialog()
 {
+    if (m_playMode)
+    {
+        static bool logged = false;
+        if (!logged)
+        {
+            DE_LOG_INFO("Editor: scene save blocked during play");
+            logged = true;
+        }
+        return false;
+    }
     const std::filesystem::path suggested = m_scenePath.empty() ? defaultScenePath(m_sceneMode == SceneMode::Scene2D ? "level2d.json" : "level.json") : m_scenePath;
     std::filesystem::path       chosen;
     if (!pickEditorFile(window().nativeHandle(), true, L"Save Scene", L"Scene (*.json)\0*.json\0All files (*.*)\0*.*\0", L"json", suggested, chosen))
         return false;
     m_scenePath = chosen;
     m_sceneName = chosen.stem().string();
+    m_save.setWorldIdentity(m_scenePath.generic_string(), "", "");
     return saveScene();
 }
 
@@ -66,6 +79,7 @@ bool EditorApp::loadSceneWithDialog(const std::filesystem::path& suggested)
         return false;
     m_scenePath = chosen;
     m_sceneName = chosen.stem().string();
+    m_save.setWorldIdentity(m_scenePath.generic_string(), "", "");
     return loadScene();
 }
 
@@ -196,6 +210,7 @@ bool EditorApp::loadScene()
 {
     if (netSceneLocked())
         return false;
+    m_save.setWorldIdentity(m_scenePath.generic_string(), "", "");
     SceneFileData data{};
     std::string err;
     if (!loadSceneFromJson(m_scenePath, data, &err))
@@ -221,6 +236,7 @@ bool EditorApp::loadScene()
 
     std::vector<Entity> spawned;
     spawned.reserve(data.objects.size());
+    m_suspendLiveStamp = true;
     for (const SceneObjectData& d : data.objects)
     {
         ParticleEmitterDesc pdesc = makeDefaultParticleDesc();
@@ -228,6 +244,16 @@ bool EditorApp::loadScene()
             descFromSceneData(d, pdesc);
         spawned.push_back(spawnObject(d.type, d.position, d.scale, d.rotation, d.color,
                     d.type == SceneObjectType::ParticleEmitter ? &pdesc : nullptr, &d));
+    }
+    m_suspendLiveStamp = false;
+    for (size_t i = 0; i < data.objects.size() && i < spawned.size(); ++i)
+    {
+        if (!spawned[i].valid())
+            continue;
+        const SceneObjectType type = data.objects[i].type;
+        if (isLocalLightType(type) || isGlobalLightType(type) || type == SceneObjectType::CloudVolume)
+            continue;
+        stampAuthoredId(world(), spawned[i], m_scenePath.generic_string(), static_cast<int>(i), toString(type));
     }
     for (size_t i = 0; i < data.objects.size() && i < spawned.size(); ++i)
     {
@@ -298,11 +324,22 @@ void EditorApp::handleEditorCommands(float dt)
     {
         if (input().actionPressed("play") && m_sceneMode == SceneMode::Scene3D)
             togglePlayMode();
-        if (input().keyPressed(Key::F5) || (ctrl && input().keyPressed(Key::S)))
+        const bool shift = input().keyDown(Key::LeftShift) || input().keyDown(Key::RightShift);
+        if (m_playMode && shift && input().keyPressed(Key::F5))
+        {
+            const Save::SaveResult result = m_save.requestSave(Save::SaveKind::Quick, "Quick Save");
+            DE_LOG_INFO("Editor: quicksave {}", Save::toString(result));
+        }
+        else if (m_playMode && shift && input().keyPressed(Key::F9))
+        {
+            const Save::SaveResult result = m_save.requestLoadNewest(Save::SaveKind::Quick);
+            DE_LOG_INFO("Editor: quickload {}", Save::toString(result));
+        }
+        else if (!m_playMode && (input().keyPressed(Key::F5) || (ctrl && input().keyPressed(Key::S))))
             saveSceneWithDialog();
         if (ctrl && input().keyPressed(Key::Z))
             undoTerrainBrush();
-        if ((input().keyPressed(Key::F9) || (ctrl && input().keyPressed(Key::O))) && !netSceneLocked())
+        if (!m_playMode && (input().keyPressed(Key::F9) || (ctrl && input().keyPressed(Key::O))) && !netSceneLocked())
             loadSceneWithDialog(m_scenePath);
         if (input().actionPressed("toggle_particle_ui"))
             m_showParticlePanel = !m_showParticlePanel;

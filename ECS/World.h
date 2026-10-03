@@ -1,10 +1,12 @@
 #pragma once
 #include "ECS/Entity.h"
 #include "ECS/Component.h"
+#include "ECS/Persist.h"
 #include <unordered_map>
 #include <vector>
 #include <memory>
 #include <cassert>
+#include <cstring>
 #include <utility>
 
 namespace Dark
@@ -21,6 +23,9 @@ namespace Dark
         virtual uint32_t    stride() const      = 0;
         virtual uint64_t    bytesUsed() const   = 0;
         virtual uint64_t    bytesCapacity() const = 0;
+        virtual const PersistFns* persist() const = 0;
+        // Callback must not add or remove components in this pool.
+        virtual void visit(void (*fn)(EntityID id, void* component, void* user), void* user) = 0;
     };
 
     template <typename T> class ComponentPool : public IComponentPool
@@ -87,8 +92,19 @@ namespace Dark
         uint32_t    stride() const override { return static_cast<uint32_t>(sizeof(T)); }
         uint64_t    bytesUsed() const override { return static_cast<uint64_t>(m_components.size()) * sizeof(T); }
         uint64_t    bytesCapacity() const override { return static_cast<uint64_t>(m_components.capacity()) * sizeof(T); }
+        const PersistFns* persist() const override { return m_persist; }
+        void visit(void (*fn)(EntityID id, void* component, void* user), void* user) override
+        {
+            if (!fn)
+                return;
+            for (size_t i = 0; i < m_dense.size(); ++i)
+                fn(m_dense[i], &m_components[i], user);
+        }
+
+        void setPersist(const PersistFns* fns) { m_persist = fns; }
 
     private:
+        const PersistFns* m_persist = nullptr;
         std::unordered_map<EntityID, uint32_t> m_sparse;
         std::vector<EntityID>                  m_dense;
         std::vector<T>                         m_components;
@@ -140,6 +156,16 @@ namespace Dark
             }
         }
 
+        template <typename Fn> void forEachPool(Fn&& fn)
+        {
+            for (auto& [cid, pool] : m_pools)
+            {
+                (void)cid;
+                if (pool)
+                    fn(*pool);
+            }
+        }
+
         // Single-component view — iterate entities that have T
         template <typename T, typename Fn> void each(Fn&& fn)
         {
@@ -156,9 +182,21 @@ namespace Dark
         template <typename T> ComponentPool<T>& getOrCreatePool()
         {
             const auto cid = componentID<T>();
-            if (!m_pools.contains(cid))
-                m_pools.emplace(cid, std::make_unique<ComponentPool<T>>());
-            return static_cast<ComponentPool<T>&>(*m_pools.at(cid));
+            auto       it  = m_pools.find(cid);
+            if (it == m_pools.end())
+            {
+                auto pool = std::make_unique<ComponentPool<T>>();
+                if constexpr (requires { T::kPersist; })
+                {
+                    const PersistFns* fns = &T::kPersist;
+                    if (fns && fns->key && fns->key[0] != '\0' && std::strcmp(fns->key, "Unnamed") != 0 && fns->capture && fns->apply)
+                        pool->setPersist(fns);
+                }
+                ComponentPool<T>& ref = *pool;
+                m_pools.emplace(cid, std::move(pool));
+                return ref;
+            }
+            return static_cast<ComponentPool<T>&>(*it->second);
         }
 
         template <typename T> ComponentPool<T>* getPool()

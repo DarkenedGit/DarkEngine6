@@ -20,9 +20,11 @@
 #include "Render/Renderer.h"
 #include "Terrain/HeightMap.h"
 #include "Terrain/TerrainGrid.h"
+#include "Save/PersistentId.h"
 #include "Water/Water.h"
 
 #include <cmath>
+#include <format>
 #include <cstring>
 #include <iterator>
 #include <memory>
@@ -198,6 +200,7 @@ bool PathChase::spawnTrees(World& world, AssetPinTable& pins, AssetManager& asse
     }
 
     const Vector3f trunkHalf{ kTrunkR, kTrunkH * 0.5f, kTrunkR };
+    int treeIndex = 0;
     for (const Vector3f& seed : kTreeSeeds)
     {
         Vector3f p = seed;
@@ -205,6 +208,8 @@ bool PathChase::spawnTrees(World& world, AssetPinTable& pins, AssetManager& asse
         Entity e   = world.createEntity();
         world.emplace<TagComponent>(e, "Tree");
         world.emplace<TransformComponent>(e, p, Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
+        stampProceduralId(world, e, std::format("sandbox/pathchase/tree/{}", treeIndex), "tree");
+        ++treeIndex;
         ModelComponent mc{};
         mc.modelAssetID = treeModel->id;
         mc.castShadow   = treeModel->hasOpaque();
