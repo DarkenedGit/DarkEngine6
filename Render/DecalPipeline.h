@@ -33,7 +33,6 @@ namespace Dark
         static constexpr UINT kRootTextures  = 2;
         static constexpr UINT kRootUav       = 3;
         static constexpr UINT kRootInstances = 4;
-        static constexpr UINT kRootDwords    = kDecalRootDwords;
 
         DecalPipeline() = default;
 

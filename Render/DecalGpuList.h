@@ -26,9 +26,7 @@ namespace Dark
         D3D12_GPU_VIRTUAL_ADDRESS outsideGpuVa() const;
         D3D12_GPU_VIRTUAL_ADDRESS insideGpuVa() const;
 
-        bool     isValid() const { return m_buffer != nullptr && m_mapped != nullptr; }
-        uint32_t outsideCount() const { return m_outsideCount; }
-        uint32_t insideCount() const { return m_insideCount; }
+        bool isValid() const { return m_buffer != nullptr && m_mapped != nullptr; }
 
     private:
         ComPtr<ID3D12Resource>    m_buffer;
