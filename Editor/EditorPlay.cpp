@@ -15,6 +15,7 @@
 #include "Character/HitReaction.h"
 #include "Character/PlayerMotorComponent.h"
 #include "Character/ShieldView.h"
+#include "Character/SkillComponent.h"
 #include "Character/SkillSense.h"
 #include "Character/SkillXp.h"
 #include "Collision/Collision.h"
@@ -1295,6 +1296,9 @@ void EditorApp::drawPlayHud()
     ImGui::TextUnformatted("PLAY");
     if (HealthComponent* hp = m_playPlayer.valid() ? world().get<HealthComponent>(m_playPlayer) : nullptr)
         ImGui::Text("Player HP  %.0f / %.0f", static_cast<double>(hp->health.hp()), static_cast<double>(hp->health.maxHp()));
+    if (const SkillComponent* sk = m_playPlayer.valid() ? world().get<SkillComponent>(m_playPlayer) : nullptr)
+        ImGui::Text("Run %d  Swim %d  Jump %d  Shoot %d  Hear %d  See %d", sk->level(SkillId::Run), sk->level(SkillId::Swim), sk->level(SkillId::Jump),
+                    sk->level(SkillId::Shoot), sk->level(SkillId::Hear), sk->level(SkillId::See));
     if (JumpAttackComponent* jac = m_playPlayer.valid() ? world().get<JumpAttackComponent>(m_playPlayer) : nullptr)
         ImGui::Text("Jump CD  %.2fs", static_cast<double>(jac->jump.cooldownLeft()));
     if (const Combat::StatusEffectComponent* st = m_playPlayer.valid() ? world().get<Combat::StatusEffectComponent>(m_playPlayer) : nullptr)

@@ -2,6 +2,7 @@
 
 #include "AI/AiComponents.h"
 #include "Character/HealthComponent.h"
+#include "Character/SkillComponent.h"
 #include "ECS/Components.h"
 #include "Math/Vector4f.h"
 #include "Ui/NpcInfoOverlay.h"
@@ -594,6 +595,30 @@ void SandboxApp::drawDevTools()
                 ImGui::Text("pack token %u", token.id());
             else
                 ImGui::TextUnformatted("pack token none");
+        }
+    }
+
+    if (const Entity skillBody = possessedBody(); skillBody.valid())
+    {
+        if (const SkillComponent* sk = world().get<SkillComponent>(skillBody))
+        {
+            if (ImGui::CollapsingHeader("Skills"))
+            {
+                const int run   = sk->level(SkillId::Run);
+                const int swim  = sk->level(SkillId::Swim);
+                const int jump  = sk->level(SkillId::Jump);
+                const int shoot = sk->level(SkillId::Shoot);
+                const int hear  = sk->level(SkillId::Hear);
+                const int see   = sk->level(SkillId::See);
+                ImGui::Text("Run %d  runScale %.3f", run, static_cast<double>(skillScalar(SkillId::Run, SkillScalar::RunScale, run)));
+                ImGui::Text("Swim %d  swimScale %.3f", swim, static_cast<double>(skillScalar(SkillId::Swim, SkillScalar::SwimScale, swim)));
+                ImGui::Text("Jump %d  jumpScale %.3f", jump, static_cast<double>(skillScalar(SkillId::Jump, SkillScalar::JumpScale, jump)));
+                ImGui::Text("Shoot %d  recoilScale %.3f  cooldownScale %.3f", shoot, static_cast<double>(skillScalar(SkillId::Shoot, SkillScalar::RecoilScale, shoot)),
+                            static_cast<double>(skillScalar(SkillId::Shoot, SkillScalar::CooldownScale, shoot)));
+                ImGui::Text("Hear %d  hearScale %.3f", hear, static_cast<double>(skillScalar(SkillId::Hear, SkillScalar::HearScale, hear)));
+                ImGui::Text("See %d  seeRangeScale %.3f  seeConeScale %.3f", see, static_cast<double>(skillScalar(SkillId::See, SkillScalar::SeeRangeScale, see)),
+                            static_cast<double>(skillScalar(SkillId::See, SkillScalar::SeeConeScale, see)));
+            }
         }
     }
 
