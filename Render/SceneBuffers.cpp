@@ -129,7 +129,7 @@ namespace Dark
     }
 
     bool SceneBuffers::createColorTarget(ID3D12Device* device, uint32_t width, uint32_t height, DXGI_FORMAT resourceFormat, DXGI_FORMAT viewFormat, const float clearColor[4],
-                                         const wchar_t* name, ComPtr<ID3D12Resource>& out, D3D12_RESOURCE_STATES& state)
+                                         const wchar_t* name, ComPtr<ID3D12Resource>& out, D3D12_RESOURCE_STATES& state, D3D12_RESOURCE_FLAGS flags)
     {
         if (!device || width == 0 || height == 0 || !clearColor)
         {
@@ -154,7 +154,7 @@ namespace Dark
         rd.Format           = resourceFormat;
         rd.SampleDesc       = { 1, 0 };
         rd.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-        rd.Flags            = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+        rd.Flags            = flags;
 
         D3D12_CLEAR_VALUE clear{};
         clear.Format   = viewFormat;
@@ -208,7 +208,9 @@ namespace Dark
         if (!checkHr(device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)), "SceneBuffers CreateDescriptorHeap RTV"))
             return false;
 
-        if (!createColorTarget(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R16G16B16A16_FLOAT, m_hdrClear, L"DE.HdrColor", m_hdr, m_hdrState))
+        const D3D12_RESOURCE_FLAGS rtOnly = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+        const D3D12_RESOURCE_FLAGS rtUav  = rtOnly | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        if (!createColorTarget(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R16G16B16A16_FLOAT, m_hdrClear, L"DE.HdrColor", m_hdr, m_hdrState, rtOnly))
         {
             reset();
             return false;
@@ -235,12 +237,12 @@ namespace Dark
 
         if (gbuffer)
         {
-            if (!createColorTarget(device, width, height, DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, kAlbedoClear, L"DE.GBuffer.Albedo", m_albedo, m_albedoState)
-                || !createColorTarget(device, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM, kAttribClear, L"DE.GBuffer.Attrib", m_attrib, m_attribState)
-                || !createColorTarget(device, width, height, DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R16G16_FLOAT, kVelocityClear, L"DE.GBuffer.Velocity", m_velocity, m_velocityState)
-                || !createColorTarget(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R16G16B16A16_FLOAT, kPostClear, L"DE.HdrPost", m_post, m_postState)
-                || !createColorTarget(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R16G16B16A16_FLOAT, kPostClear, L"DE.TaaHistory", m_history, m_historyState)
-                || !createColorTarget(device, width, height, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM, kAoClear, L"DE.GBuffer.Ao", m_ao, m_aoState))
+            if (!createColorTarget(device, width, height, DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, kAlbedoClear, L"DE.GBuffer.Albedo", m_albedo, m_albedoState, rtUav)
+                || !createColorTarget(device, width, height, DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R8G8B8A8_UNORM, kAttribClear, L"DE.GBuffer.Attrib", m_attrib, m_attribState, rtUav)
+                || !createColorTarget(device, width, height, DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R16G16_FLOAT, kVelocityClear, L"DE.GBuffer.Velocity", m_velocity, m_velocityState, rtOnly)
+                || !createColorTarget(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R16G16B16A16_FLOAT, kPostClear, L"DE.HdrPost", m_post, m_postState, rtOnly)
+                || !createColorTarget(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R16G16B16A16_FLOAT, kPostClear, L"DE.TaaHistory", m_history, m_historyState, rtOnly)
+                || !createColorTarget(device, width, height, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM, kAoClear, L"DE.GBuffer.Ao", m_ao, m_aoState, rtOnly))
             {
                 reset();
                 return false;
@@ -252,7 +254,7 @@ namespace Dark
             m_historyRtv  = offsetHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), kRtvHistory, m_rtvIncr);
             m_aoRtv       = offsetHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), kRtvAo, m_rtvIncr);
             createColorRtv(device, m_albedo.Get(), DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, m_albedoRtv);
-            createColorRtv(device, m_attrib.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM, m_attribRtv);
+            createColorRtv(device, m_attrib.Get(), DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R8G8B8A8_UNORM, m_attribRtv);
             createColorRtv(device, m_velocity.Get(), DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R16G16_FLOAT, m_velocityRtv);
             createColorRtv(device, m_post.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R16G16B16A16_FLOAT, m_postRtv);
             createColorRtv(device, m_history.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R16G16B16A16_FLOAT, m_historyRtv);
