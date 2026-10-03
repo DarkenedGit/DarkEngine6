@@ -1,4 +1,5 @@
 #include "Character/PlayerMotor.h"
+#include "Character/SkillLimits.h"
 
 #include "Math/MathHelper.h"
 
@@ -128,10 +129,10 @@ namespace Dark
         m_pendingDouble = false;
     }
 
-    void PlayerMotor::beginJump(PlayerMotorResult& result)
+    void PlayerMotor::beginJump(float jumpScale, PlayerMotorResult& result)
     {
         m_state         = PlayerMoveState::Jumping;
-        m_velocity.y    = m_settings.jumpSpeed;
+        m_velocity.y    = m_settings.jumpSpeed * jumpScale;
         m_airTime       = 0.0f;
         m_coyote        = 0.0f;
         m_didFirstJump  = true;
@@ -172,7 +173,7 @@ namespace Dark
         result.dodged = true;
     }
 
-    bool PlayerMotor::tryDoubleJump(bool jumpPressed, bool allowDoubleJump, PlayerMotorResult& result)
+    bool PlayerMotor::tryDoubleJump(bool jumpPressed, bool allowDoubleJump, float jumpScale, PlayerMotorResult& result)
     {
         if (!allowDoubleJump)
             return false;
@@ -194,7 +195,7 @@ namespace Dark
             return false;
         }
 
-        m_velocity.y    = m_settings.doubleJumpSpeed;
+        m_velocity.y    = m_settings.doubleJumpSpeed * jumpScale;
         m_didDoubleJump = true;
         m_pendingDouble = false;
         m_state         = PlayerMoveState::Jumping;
@@ -209,6 +210,9 @@ namespace Dark
         if (dt < 0.0f)
             dt = 0.0f;
         const float speedScale = Math::Clamp(in.speedScale, 0.0f, 1.0f);
+        const float runScale   = clampSkill(in.runScale, kRunScaleMin, kRunScaleMax);
+        const float swimScale  = clampSkill(in.swimScale, kSwimScaleMin, kSwimScaleMax);
+        const float jumpScale  = clampSkill(in.jumpScale, kJumpScaleMin, kJumpScaleMax);
 
         if (m_jumpBuffer > 0.0f)
             m_jumpBuffer = Math::Max(0.0f, m_jumpBuffer - dt);
@@ -227,7 +231,7 @@ namespace Dark
                 enterGrounded(position, groundY);
             else
             {
-                moveHorizontal(position, in.wish, m_settings.swimSpeed * speedScale, dt);
+                moveHorizontal(position, in.wish, m_settings.swimSpeed * swimScale * speedScale, dt);
                 position.y   = waterY + m_settings.swimOffset;
                 m_velocity.y = 0.0f;
                 m_jumpBuffer = 0.0f;
@@ -244,12 +248,12 @@ namespace Dark
             {
                 enterSwim(position, waterY);
                 result.splashed = true;
-                moveHorizontal(position, in.wish, m_settings.swimSpeed * speedScale, dt);
+                moveHorizontal(position, in.wish, m_settings.swimSpeed * swimScale * speedScale, dt);
                 return result;
             }
 
             Vector3f moveWish = in.wish;
-            float    speed    = (in.sprint ? m_settings.sprintSpeed : m_settings.walkSpeed) * speedScale;
+            float    speed    = (in.sprint ? m_settings.sprintSpeed : m_settings.walkSpeed) * runScale * speedScale;
             bool     dodging  = false;
             if (m_state == PlayerMoveState::Dodge)
             {
@@ -297,7 +301,7 @@ namespace Dark
                 if (m_jumpBuffer > 0.0f && in.allowJumpBuffer)
                 {
                     m_jumpBuffer = 0.0f;
-                    beginJump(result);
+                    beginJump(jumpScale, result);
                     m_velocity.y -= m_settings.gravity * dt;
                     position.y += m_velocity.y * dt;
                     m_airTime += dt;
@@ -318,10 +322,10 @@ namespace Dark
         if (!m_didFirstJump && m_jumpBuffer > 0.0f && m_coyote > 0.0f && in.allowJumpBuffer)
         {
             m_jumpBuffer = 0.0f;
-            beginJump(result);
+            beginJump(jumpScale, result);
         }
         else
-            tryDoubleJump(in.jumpPressed, in.allowDoubleJump, result);
+            tryDoubleJump(in.jumpPressed, in.allowDoubleJump, jumpScale, result);
 
         if (m_state == PlayerMoveState::Jumping && m_velocity.y <= 0.0f)
             m_state = PlayerMoveState::Falling;
@@ -343,7 +347,7 @@ namespace Dark
             if (m_jumpBuffer > 0.0f && in.allowJumpBuffer && !terrainWet(groundY, waterY))
             {
                 m_jumpBuffer = 0.0f;
-                beginJump(result);
+                beginJump(jumpScale, result);
                 m_velocity.y -= m_settings.gravity * dt;
                 position.y += m_velocity.y * dt;
                 m_airTime += dt;

@@ -61,6 +61,9 @@ namespace Dark
         bool           allowJumpBuffer  = true; // land/coyote/grounded consume of m_jumpBuffer
         float          airControlScale  = 1.0f; // multiplies airSpeed/airAccel in applyAirControl
         float          speedScale       = 1.0f; // multiplies walk/sprint/swim/airSpeed/airAccel; clamped [0, 1]
+        float          runScale         = 1.0f; // walk + sprint only, clamped [1, 1.20]
+        float          swimScale        = 1.0f; // swimSpeed only, clamped [1, 1.25]
+        float          jumpScale        = 1.0f; // jumpSpeed + doubleJumpSpeed only, clamped [1, 1.15]
         bool           allowDodge       = true;
         MoveCardinal   dodgeTap         = MoveCardinal::None; // direction key edge this frame
         Math::Vector3f dodgeTapWish{ 0.0f, 0.0f, 0.0f };      // world XZ of that edge
@@ -111,10 +114,10 @@ namespace Dark
         void  applyAirControl(const Math::Vector3f& wish, float dt, float airControlScale);
         void  enterGrounded(Math::Vector3f& position, float groundY);
         void  enterSwim(Math::Vector3f& position, float waterY);
-        void  beginJump(PlayerMotorResult& result);
+        void  beginJump(float jumpScale, PlayerMotorResult& result);
         void  beginFalling();
         void  noteDodgeTap(const PlayerMotorInput& in, PlayerMotorResult& result);
-        bool  tryDoubleJump(bool jumpPressed, bool allowDoubleJump, PlayerMotorResult& result);
+        bool  tryDoubleJump(bool jumpPressed, bool allowDoubleJump, float jumpScale, PlayerMotorResult& result);
 
         PlayerMotorSettings m_settings;
         PlayerMoveState     m_state          = PlayerMoveState::Grounded;

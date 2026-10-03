@@ -2,6 +2,10 @@
 
 #include "Character/PlayerMotor.h"
 #include "Character/PlayerStealth.h"
+#include "Character/SkillLimits.h"
+
+#include <cmath>
+#include <limits>
 
 using namespace Dark;
 using namespace Dark::Math;
@@ -656,4 +660,301 @@ TEST(PlayerMotor, DodgeBlockedWhileAirborne)
     const PlayerMotorResult second = motor.tick(pos, dodgeTap(MoveCardinal::Forward), 1.0f / 60.0f, q);
     EXPECT_FALSE(second.dodged);
     EXPECT_NE(motor.state(), PlayerMoveState::Dodge);
+}
+
+TEST(PlayerMotor, DodgeDisplacementIgnoresRunScale)
+{
+    const PlayerGroundQuery q = flatQuery();
+    constexpr float kStep = 1.0f / 60.0f;
+    constexpr int   kSteps = 12;
+
+    auto dodgeDelta = [&](float runScale) -> float
+    {
+        PlayerMotor motor;
+        Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+        PlayerMotorInput first = dodgeTap(MoveCardinal::Forward);
+        first.runScale = runScale;
+        motor.tick(pos, first, kStep, q);
+
+        PlayerMotorInput gap{};
+        gap.runScale = runScale;
+        advance(motor, pos, gap, 0.10f, q);
+
+        PlayerMotorInput second = dodgeTap(MoveCardinal::Forward);
+        second.runScale = runScale;
+        const float z0 = pos.z;
+        const PlayerMotorResult entered = motor.tick(pos, second, kStep, q);
+        EXPECT_TRUE(entered.dodged);
+        for (int i = 1; i < kSteps; ++i)
+            motor.tick(pos, gap, kStep, q);
+        EXPECT_EQ(motor.state(), PlayerMoveState::Dodge);
+        EXPECT_NEAR(motor.velocity().z, motor.settings().dodgeSpeed, 1.0e-3f);
+        EXPECT_FLOAT_EQ(motor.settings().dodgeSpeed, 24.0f);
+        return pos.z - z0;
+    };
+
+    const float elapsed = kStep * static_cast<float>(kSteps);
+    const float plain   = dodgeDelta(kSkillIdentity);
+    const float scaled  = dodgeDelta(kRunScaleMax);
+    EXPECT_NEAR(scaled, plain, 1.0e-4f);
+    EXPECT_NEAR(scaled, 24.0f * elapsed, 1.0e-3f);
+}
+
+TEST(PlayerMotor, SprintDisplacementUsesRunScale)
+{
+    PlayerMotor motor;
+    Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+    PlayerMotorInput in{};
+    in.wish     = Vector3f{ 0.0f, 0.0f, 1.0f };
+    in.sprint   = true;
+    in.runScale = kRunScaleMax;
+    constexpr float kDt = 0.25f;
+    motor.tick(pos, in, kDt, flatQuery());
+    ASSERT_FLOAT_EQ(motor.settings().sprintSpeed, 16.0f);
+    EXPECT_NEAR(pos.z, motor.settings().sprintSpeed * kRunScaleMax * kDt, 1.0e-4f);
+    EXPECT_NEAR(motor.velocity().z, motor.settings().sprintSpeed * kRunScaleMax, 1.0e-4f);
+    EXPECT_FLOAT_EQ(motor.settings().sprintSpeed, 16.0f);
+}
+
+TEST(PlayerMotor, WalkDisplacementUsesRunScale)
+{
+    PlayerMotor motor;
+    Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+    PlayerMotorInput in{};
+    in.wish     = Vector3f{ 0.0f, 0.0f, 1.0f };
+    in.runScale = kRunScaleMax;
+    constexpr float kDt = 0.25f;
+    motor.tick(pos, in, kDt, flatQuery());
+    ASSERT_FLOAT_EQ(motor.settings().walkSpeed, 8.0f);
+    EXPECT_EQ(motor.state(), PlayerMoveState::Grounded);
+    EXPECT_NEAR(pos.z, motor.settings().walkSpeed * kRunScaleMax * kDt, 1.0e-4f);
+    EXPECT_NEAR(motor.velocity().z, motor.settings().walkSpeed * kRunScaleMax, 1.0e-4f);
+}
+
+TEST(PlayerMotor, CrouchDisplacementIgnoresRunScale)
+{
+    PlayerMotor motor;
+    Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+    PlayerMotorInput in{};
+    in.wish     = Vector3f{ 0.0f, 0.0f, 1.0f };
+    in.crouch   = true;
+    in.sprint   = true;
+    in.runScale = kRunScaleMax;
+    constexpr float kDt = 0.25f;
+    motor.tick(pos, in, kDt, flatQuery());
+    EXPECT_EQ(motor.state(), PlayerMoveState::Crouch);
+    ASSERT_FLOAT_EQ(motor.settings().crouchSpeed, 3.4f);
+    EXPECT_NEAR(pos.z, motor.settings().crouchSpeed * kDt, 1.0e-4f);
+    EXPECT_NEAR(motor.velocity().z, motor.settings().crouchSpeed, 1.0e-4f);
+}
+
+TEST(PlayerMotor, SwimScaleChangesSwimNotSprint)
+{
+    constexpr float kDt = 0.25f;
+    const PlayerGroundQuery water = flatQuery(2.0f);
+
+    PlayerMotor swimmer;
+    Vector3f    swimPos{ 0.0f, 0.35f, 0.0f };
+    PlayerMotorInput boot{};
+    swimmer.tick(swimPos, boot, 1.0f / 60.0f, water);
+    ASSERT_EQ(swimmer.state(), PlayerMoveState::Swimming);
+
+    PlayerMotorInput swim{};
+    swim.wish      = Vector3f{ 0.0f, 0.0f, 1.0f };
+    swim.sprint    = true;
+    swim.swimScale = kSwimScaleMax;
+    swim.runScale  = kRunScaleMax;
+    const float z0 = swimPos.z;
+    swimmer.tick(swimPos, swim, kDt, water);
+    ASSERT_FLOAT_EQ(swimmer.settings().swimSpeed, 5.0f);
+    EXPECT_NEAR(swimPos.z - z0, swimmer.settings().swimSpeed * kSwimScaleMax * kDt, 1.0e-4f);
+    EXPECT_FLOAT_EQ(swimmer.settings().swimSpeed, 5.0f);
+
+    PlayerMotor sprinter;
+    Vector3f    sprintPos{ 0.0f, 0.5f, 0.0f };
+    PlayerMotorInput sprint{};
+    sprint.wish      = Vector3f{ 0.0f, 0.0f, 1.0f };
+    sprint.sprint    = true;
+    sprint.swimScale = kSwimScaleMax;
+    sprinter.tick(sprintPos, sprint, kDt, flatQuery());
+    ASSERT_FLOAT_EQ(sprinter.settings().sprintSpeed, 16.0f);
+    EXPECT_NEAR(sprintPos.z, sprinter.settings().sprintSpeed * kDt, 1.0e-4f);
+    EXPECT_EQ(sprinter.state(), PlayerMoveState::Grounded);
+}
+
+TEST(PlayerMotor, JumpScaleSetsTakeoffVelocity)
+{
+    PlayerMotor motor;
+    ASSERT_FLOAT_EQ(motor.settings().jumpSpeed, 12.0f);
+    ASSERT_FLOAT_EQ(motor.settings().doubleJumpSpeed, 16.0f);
+
+    Vector3f pos{ 0.0f, 0.5f, 0.0f };
+    PlayerMotorInput press{};
+    press.jumpPressed = true;
+    press.jumpScale   = kJumpScaleMax;
+    // dt 0 leaves the takeoff in velocity().y. A positive dt subtracts gravity after beginJump.
+    const PlayerMotorResult first = motor.tick(pos, press, 0.0f, flatQuery());
+    EXPECT_TRUE(first.jumped);
+    EXPECT_FALSE(first.doubleJumped);
+    EXPECT_FLOAT_EQ(motor.velocity().y, motor.settings().jumpSpeed * kJumpScaleMax);
+    EXPECT_NEAR(motor.velocity().y, 13.8f, 1.0e-4f);
+
+    PlayerMotorInput hold{};
+    hold.jumpScale = kJumpScaleMax;
+    advance(motor, pos, hold, 0.12f, flatQuery());
+    ASSERT_EQ(motor.state(), PlayerMoveState::Jumping);
+    ASSERT_FALSE(motor.didDoubleJump());
+
+    const PlayerMotorResult second = motor.tick(pos, press, 1.0f / 60.0f, flatQuery());
+    EXPECT_TRUE(second.doubleJumped);
+    EXPECT_FLOAT_EQ(motor.velocity().y, motor.settings().doubleJumpSpeed * kJumpScaleMax);
+    EXPECT_NEAR(motor.velocity().y, 18.4f, 1.0e-4f);
+    EXPECT_FLOAT_EQ(motor.settings().jumpSpeed, 12.0f);
+    EXPECT_FLOAT_EQ(motor.settings().doubleJumpSpeed, 16.0f);
+    EXPECT_FLOAT_EQ(motor.settings().gravity, 24.0f);
+    EXPECT_FLOAT_EQ(motor.settings().coyoteTime, 0.10f);
+    EXPECT_FLOAT_EQ(motor.settings().jumpBuffer, 0.12f);
+    EXPECT_FLOAT_EQ(motor.settings().doubleJumpWindow, 0.28f);
+
+    PlayerMotor integrated;
+    Vector3f    integratedPos{ 0.0f, 0.5f, 0.0f };
+    constexpr float kDt = 1.0f / 60.0f;
+    integrated.tick(integratedPos, press, kDt, flatQuery());
+    EXPECT_NEAR(integrated.velocity().y, integrated.settings().jumpSpeed * kJumpScaleMax - integrated.settings().gravity * kDt, 1.0e-4f);
+}
+
+TEST(PlayerMotor, SpeedScaleZeroStopsHorizontalAtAnyRunScale)
+{
+    constexpr float kDt = 0.25f;
+    const float runScales[] = { kRunScaleMax, 4.0f, std::numeric_limits<float>::quiet_NaN() };
+    for (float runScale : runScales)
+    {
+        PlayerMotor motor;
+        Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+        PlayerMotorInput in{};
+        in.wish       = Vector3f{ 0.0f, 0.0f, 1.0f };
+        in.sprint     = true;
+        in.speedScale = 0.0f;
+        in.runScale   = runScale;
+        motor.tick(pos, in, kDt, flatQuery());
+        EXPECT_NEAR(pos.z, 0.0f, 1.0e-4f);
+        EXPECT_NEAR(motor.velocity().z, 0.0f, 1.0e-4f);
+        EXPECT_NEAR(motor.velocity().x, 0.0f, 1.0e-4f);
+    }
+
+    PlayerMotor walker;
+    Vector3f    walkPos{ 0.0f, 0.5f, 0.0f };
+    PlayerMotorInput walk{};
+    walk.wish       = Vector3f{ 0.0f, 0.0f, 1.0f };
+    walk.speedScale = 0.0f;
+    walk.runScale   = kRunScaleMax;
+    walker.tick(walkPos, walk, kDt, flatQuery());
+    EXPECT_NEAR(walkPos.z, 0.0f, 1.0e-4f);
+    EXPECT_NEAR(walker.velocity().z, 0.0f, 1.0e-4f);
+}
+
+TEST(PlayerMotor, AirControlIgnoresRunScale)
+{
+    const PlayerGroundQuery q = flatQuery();
+    constexpr float kDt = 0.25f;
+
+    PlayerMotor plain;
+    PlayerMotor scaled;
+    Vector3f    plainPos{ 0.0f, 0.5f, 0.0f };
+    Vector3f    scaledPos{ 0.0f, 0.5f, 0.0f };
+    PlayerMotorInput jump{};
+    jump.jumpPressed = true;
+    plain.tick(plainPos, jump, 1.0f / 60.0f, q);
+    scaled.tick(scaledPos, jump, 1.0f / 60.0f, q);
+    ASSERT_EQ(plain.state(), PlayerMoveState::Jumping);
+    ASSERT_EQ(scaled.state(), PlayerMoveState::Jumping);
+
+    PlayerMotorInput steer{};
+    steer.wish = Vector3f{ 1.0f, 0.0f, 0.0f };
+    PlayerMotorInput boosted = steer;
+    boosted.runScale = kRunScaleMax;
+    plain.tick(plainPos, steer, kDt, q);
+    scaled.tick(scaledPos, boosted, kDt, q);
+
+    EXPECT_GT(plainPos.x, 0.0f);
+    EXPECT_NEAR(plain.velocity().x, plain.settings().airSpeed, 1.0e-3f);
+    EXPECT_NEAR(scaledPos.x, plainPos.x, 1.0e-4f);
+    EXPECT_NEAR(scaled.velocity().x, plain.velocity().x, 1.0e-4f);
+}
+
+TEST(PlayerMotor, SkillScalesClampAndNonFiniteBecomeIdentity)
+{
+    constexpr float kDt = 0.25f;
+    PlayerMotorInput sprint{};
+    sprint.wish   = Vector3f{ 0.0f, 0.0f, 1.0f };
+    sprint.sprint = true;
+
+    PlayerMotor high;
+    Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+    sprint.runScale = 4.0f;
+    high.tick(pos, sprint, kDt, flatQuery());
+    EXPECT_NEAR(pos.z, high.settings().sprintSpeed * kRunScaleMax * kDt, 1.0e-4f);
+
+    PlayerMotor low;
+    pos = Vector3f{ 0.0f, 0.5f, 0.0f };
+    sprint.runScale = 0.25f;
+    low.tick(pos, sprint, kDt, flatQuery());
+    EXPECT_NEAR(pos.z, low.settings().sprintSpeed * kSkillIdentity * kDt, 1.0e-4f);
+
+    PlayerMotor nanRun;
+    pos = Vector3f{ 0.0f, 0.5f, 0.0f };
+    sprint.runScale = std::numeric_limits<float>::quiet_NaN();
+    nanRun.tick(pos, sprint, kDt, flatQuery());
+    EXPECT_TRUE(std::isfinite(nanRun.velocity().z));
+    EXPECT_NEAR(pos.z, nanRun.settings().sprintSpeed * kSkillIdentity * kDt, 1.0e-4f);
+
+    PlayerMotor infRun;
+    pos = Vector3f{ 0.0f, 0.5f, 0.0f };
+    sprint.runScale = std::numeric_limits<float>::infinity();
+    infRun.tick(pos, sprint, kDt, flatQuery());
+    EXPECT_NEAR(pos.z, infRun.settings().sprintSpeed * kSkillIdentity * kDt, 1.0e-4f);
+
+    const PlayerGroundQuery water = flatQuery(2.0f);
+    PlayerMotor swimmer;
+    Vector3f    swimPos{ 0.0f, 0.35f, 0.0f };
+    PlayerMotorInput boot{};
+    swimmer.tick(swimPos, boot, 1.0f / 60.0f, water);
+    ASSERT_EQ(swimmer.state(), PlayerMoveState::Swimming);
+
+    PlayerMotorInput swim{};
+    swim.wish      = Vector3f{ 0.0f, 0.0f, 1.0f };
+    swim.swimScale = std::numeric_limits<float>::quiet_NaN();
+    float z0 = swimPos.z;
+    swimmer.tick(swimPos, swim, kDt, water);
+    EXPECT_NEAR(swimPos.z - z0, swimmer.settings().swimSpeed * kSkillIdentity * kDt, 1.0e-4f);
+
+    swim.swimScale = 8.0f;
+    z0 = swimPos.z;
+    swimmer.tick(swimPos, swim, kDt, water);
+    EXPECT_NEAR(swimPos.z - z0, swimmer.settings().swimSpeed * kSwimScaleMax * kDt, 1.0e-4f);
+
+    swim.swimScale = 0.1f;
+    z0 = swimPos.z;
+    swimmer.tick(swimPos, swim, kDt, water);
+    EXPECT_NEAR(swimPos.z - z0, swimmer.settings().swimSpeed * kSwimScaleMin * kDt, 1.0e-4f);
+
+    PlayerMotor nanJump;
+    Vector3f    jumpPos{ 0.0f, 0.5f, 0.0f };
+    PlayerMotorInput press{};
+    press.jumpPressed = true;
+    press.jumpScale   = std::numeric_limits<float>::quiet_NaN();
+    nanJump.tick(jumpPos, press, 0.0f, flatQuery());
+    EXPECT_FLOAT_EQ(nanJump.velocity().y, nanJump.settings().jumpSpeed * kSkillIdentity);
+
+    PlayerMotor capped;
+    Vector3f    capPos{ 0.0f, 0.5f, 0.0f };
+    press.jumpScale = 3.0f;
+    capped.tick(capPos, press, 0.0f, flatQuery());
+    EXPECT_FLOAT_EQ(capped.velocity().y, capped.settings().jumpSpeed * kJumpScaleMax);
+
+    PlayerMotor weak;
+    Vector3f    weakPos{ 0.0f, 0.5f, 0.0f };
+    press.jumpScale = 0.2f;
+    weak.tick(weakPos, press, 0.0f, flatQuery());
+    EXPECT_FLOAT_EQ(weak.velocity().y, weak.settings().jumpSpeed * kJumpScaleMin);
 }
