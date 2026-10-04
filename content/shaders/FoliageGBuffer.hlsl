@@ -16,8 +16,10 @@ cbuffer PartConstants : register(b0)
     float    alphaModeMask;
 };
 
-StructuredBuffer<float4x4> gWorlds  : register(t4);
-StructuredBuffer<uint>     gIndices : register(t5);
+#include "FoliageWorld.hlsli"
+
+StructuredBuffer<FoliageWorld> gWorlds  : register(t4);
+StructuredBuffer<uint>         gIndices : register(t5);
 
 Texture2D    gAlbedo   : register(t0);
 Texture2D    gNormal   : register(t1);
@@ -48,7 +50,7 @@ struct PSInput
 
 PSInput VSMain(VSInput input)
 {
-    float4x4 world      = gWorlds[gIndices[input.iid]];
+    float4x4 world      = FoliageWorldMatrix(gWorlds[gIndices[input.iid]]);
     float4x4 localWorld = mul(localToRoot, world);
     float4   wp         = mul(float4(input.position, 1.0f), localWorld);
     PSInput  o;
