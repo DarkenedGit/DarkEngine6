@@ -69,15 +69,22 @@ PSInput VSMain(VSInput input)
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    float4 splat = gSplat.Sample(gSplatSamp, input.uv);
-    float  wsum  = splat.r + splat.g + splat.b + splat.a + 1e-5f;
-    splat /= wsum;
-
-    float4 albedo =
-          splat.r * gLayer0.Sample(gSamp, input.uv * layerTiling.x)
-        + splat.g * gLayer1.Sample(gSamp, input.uv * layerTiling.y)
-        + splat.b * gLayer2.Sample(gSamp, input.uv * layerTiling.z)
-        + splat.a * gLayer3.Sample(gSamp, input.uv * layerTiling.w);
+    float4 albedo;
+    if (layerTiling.x < 0.0f)
+    {
+        albedo = gLayer0.Sample(gSplatSamp, input.uv);
+    }
+    else
+    {
+        float4 splat = gSplat.Sample(gSplatSamp, input.uv);
+        float  wsum  = splat.r + splat.g + splat.b + splat.a + 1e-5f;
+        splat /= wsum;
+        albedo =
+              splat.r * gLayer0.Sample(gSamp, input.uv * layerTiling.x)
+            + splat.g * gLayer1.Sample(gSamp, input.uv * layerTiling.y)
+            + splat.b * gLayer2.Sample(gSamp, input.uv * layerTiling.z)
+            + splat.a * gLayer3.Sample(gSamp, input.uv * layerTiling.w);
+    }
 
     albedo *= color;
     if (lighting < 0.5f)

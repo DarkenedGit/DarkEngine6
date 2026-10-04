@@ -244,6 +244,44 @@ TEST(FoliageSpawn, PureRockPlacesRocksOnly)
     expectPadAndYaw(out.records[0]);
 }
 
+TEST(FoliageSpawn, TreeCountFollowsGrassWeight)
+{
+    HeightMap full;
+    SplatMap  fullSplat;
+    ASSERT_TRUE(makeMap(full, fullSplat, 9, 9, 1.0f, 1.0f, 2.0f, Dark::Math::Vector3f{ 0.0f, 0.0f, 0.0f }, 0, 255, 0, 0));
+    FoliageSpawnIn fullIn = baseIn(full, fullSplat, 1, 1, 8);
+    fullIn.density.grassTreesPerM2 = 1.0f;
+
+    FoliageSpawnOut fullOut;
+    ASSERT_TRUE(spawnFoliage(fullIn, fullOut));
+    uint32_t fullTrees = 0;
+    for (const FoliageRecord& rec : fullOut.records)
+    {
+        if (rec.kind == static_cast<uint8_t>(FoliageKind::Tree))
+            ++fullTrees;
+    }
+    EXPECT_EQ(fullTrees, 64u);
+
+    HeightMap half;
+    SplatMap  halfSplat;
+    ASSERT_TRUE(makeMap(half, halfSplat, 9, 9, 1.0f, 1.0f, 2.0f, Dark::Math::Vector3f{ 0.0f, 0.0f, 0.0f }, 0, 128, 127, 0));
+    FoliageSpawnIn halfIn = baseIn(half, halfSplat, 1, 1, 8);
+    halfIn.density.grassTreesPerM2 = 1.0f;
+    halfIn.density.seed            = fullIn.density.seed;
+
+    FoliageSpawnOut halfOut;
+    ASSERT_TRUE(spawnFoliage(halfIn, halfOut));
+    uint32_t halfTrees = 0;
+    for (const FoliageRecord& rec : halfOut.records)
+    {
+        EXPECT_NE(rec.kind, static_cast<uint8_t>(FoliageKind::Rock));
+        if (rec.kind == static_cast<uint8_t>(FoliageKind::Tree))
+            ++halfTrees;
+    }
+    EXPECT_GT(halfTrees, 0u);
+    EXPECT_LT(halfTrees, fullTrees);
+}
+
 TEST(FoliageSpawn, PureSnowPlacesNothing)
 {
     HeightMap hm;

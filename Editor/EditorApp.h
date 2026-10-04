@@ -35,9 +35,7 @@
 #include "Combat/Shield.h"
 #include "Combat/DamageEvent.h"
 #include "Math/AABox3f.h"
-#include "Render/TerrainErosionPipeline.h"
 #include "Terrain/FoliageFile.h"
-#include "Terrain/TerrainGen.h"
 #include "Terrain/TerrainGround.h"
 #include "Terrain/TerrainGrid.h"
 #include "Terrain/TerrainMaterial.h"
@@ -236,11 +234,10 @@ private:
     void drawTerrainPanel();
     void drawWaterTools();
     void syncTerrainLod();
-    bool createEditorTerrain();
     void removeEditorTerrain();
+    bool loadWorldEngineTerrain(const std::filesystem::path& directory, float worldSizeMeters, float heightRangeMeters);
     bool rebuildTerrainGpuFromSurface();
     bool uploadTerrainSplatGpu();
-    void applyTerrainBrush(float dt);
     bool loadTerrainFromScene(const SceneFileData& data, const std::filesystem::path& scenePath);
     void fillTerrainSceneDesc(SceneFileData& data) const;
     bool saveTerrainSidecars(const std::filesystem::path& scenePath) const;
@@ -256,30 +253,13 @@ private:
         D3D12_CPU_DESCRIPTOR_HANDLE depthCpu,
         const SsrSettings* ssr);
     void bindTerrainHeightSrv();
-    void startGenerateWorld();
-    void cancelGenerateWorld();
-    void pollTerrainGenerate();
-    bool applyGeneratedWorld();
-    static bool onGenProgress(float t, const char* phase, void* user);
     void startFoliageSpawn();
     void cancelFoliageSpawn();
     void pollFoliageSpawn();
     static bool onFoliageProgress(float t, const char* phase, void* user);
     void clearFoliageInstances(const char* reason);
     void resetFoliageAuthoring();
-    void clearTerrainUndo();
-    void pushTerrainUndo(int x0, int z0, int x1, int z1, bool heights, bool splat);
-    void undoTerrainBrush();
     bool terrainBrushesLocked() const;
-
-    enum class TerrainBrushMode : uint8_t
-    {
-        None = 0,
-        Paint,
-        SculptRaise,
-        SculptLower,
-        SculptSmooth,
-    };
     AssetRef<Model> selectedModel();
     const Model::Part* selectedModelPart();
     AssetRef<Material> meshMaterialOf(Entity e);
@@ -406,16 +386,14 @@ private:
     bool                          m_placedWaterForce = false;
     TerrainMaterial               m_terrainMaterial;
     Terrain::SplatMap             m_splat;
-    Terrain::SplatRules           m_splatRules;
     Terrain::TerrainSurfaceDesc   m_terrainSurface;
     bool                          m_haveTerrain         = false;
     bool                          m_terrainHeightDirty  = false;
     bool                          m_terrainSplatDirty   = false;
-    TerrainBrushMode              m_terrainBrush        = TerrainBrushMode::None;
-    int                           m_terrainPaintLayer   = 1;
-    bool                          m_terrainPaintLower   = false;
-    float                         m_terrainBrushRadius  = 8.0f;
-    float                         m_terrainBrushStrength = 0.5f;
+    char                          m_worldEnginePath[512]{};
+    float                         m_worldEngineSize   = 1024.0f;
+    float                         m_worldEngineHeight = 480.0f;
+    std::string                   m_terrainSource;
     std::string                   m_terrainHeightFile;
     std::string                   m_terrainSplatFile;
     std::string                   m_terrainCoarseFile;
@@ -436,42 +414,6 @@ private:
     std::thread                         m_foliageThread;
     FoliagePrototypes                   m_foliagePrototypes;
     FoliagePipeline                     m_foliagePipeline;
-    int                                 m_genTilesIndex   = 2; // 1,2,4,8
-    float                         m_genCellSize     = 1.0f;
-    float                         m_genHeightScale  = 280.0f;
-    int                           m_genThermal      = 40;
-    int                           m_genHydroIters   = 48;
-    int                           m_genHydroSteps   = 64;
-    Terrain::ErosionParams        m_genFilter{};
-    TerrainErosionPipeline        m_erosionPipe;
-    bool                          m_erosionAttempted = false;
-    std::atomic<bool>             m_genRunning{ false };
-    std::atomic<bool>             m_genCancel{ false };
-    std::atomic<bool>             m_genDone{ false };
-    std::atomic<float>            m_genProgress{ 0.0f };
-    char                          m_genPhase[64]{};
-    bool                          m_genOk = false;
-    uint32_t                      m_genRunTilesX     = 4;
-    uint32_t                      m_genRunTilesZ     = 4;
-    uint32_t                      m_genRunTileCells  = 512;
-    float                         m_genRunCellSize   = 1.0f;
-    float                         m_genRunHeightScale = 80.0f;
-    Math::Vector3f                m_genRunOrigin{ -1024.0f, 0.0f, -1024.0f };
-    Terrain::HeightMap            m_genOut;
-    Terrain::SplatMap             m_genSplat;
-    std::thread                   m_genThread;
-    struct TerrainBrushUndo
-    {
-        int  x0 = 0, z0 = 0, x1 = 0, z1 = 0;
-        bool heights = false;
-        bool splat   = false;
-        std::vector<float>   height;
-        std::vector<uint8_t> splatRgba;
-    };
-    static constexpr int kTerrainUndoDepth = 8;
-    TerrainBrushUndo m_terrainUndo[kTerrainUndoDepth];
-    int              m_terrainUndoCount   = 0;
-    bool             m_terrainStrokeActive = false;
     std::string                   m_terrainAlbedoPath[Terrain::kMaxTerrainLayers];
     std::string                   m_terrainNormalPath[Terrain::kMaxTerrainLayers];
     std::string                   m_terrainOrmPath[Terrain::kMaxTerrainLayers];

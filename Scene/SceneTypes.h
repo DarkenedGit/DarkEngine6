@@ -321,6 +321,9 @@ namespace Dark
         float                 triplanarSlope = 0.45f;
         std::string           heightFile;
         std::string           splatFile;
+        std::string           source;       // World Engine folder, content-relative or absolute
+        float                 worldSize    = 1024.0f;
+        float                 importHeight = 480.0f;
         TerrainLayerSceneDesc layers[4];
         int                   layerCount = 0;
         bool                  hasGrid    = false;

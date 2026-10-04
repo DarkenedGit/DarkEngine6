@@ -51,7 +51,6 @@ EditorApp::EditorApp(const AppConfig& cfg)
 
 EditorApp::~EditorApp()
 {
-    cancelGenerateWorld();
     cancelFoliageSpawn();
 }
 

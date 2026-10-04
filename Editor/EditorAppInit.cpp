@@ -452,7 +452,6 @@ void EditorApp::onShutdown()
     network().shutdown();
     m_imgui.shutdown(renderer());
     m_particleRenderer.destroy(renderer());
-    cancelGenerateWorld();
     cancelFoliageSpawn();
     renderer().waitForGpu();
     m_foliagePipeline.destroy();

@@ -339,8 +339,6 @@ void EditorApp::handleEditorCommands(float dt)
         }
         else if (!m_playMode && (input().keyPressed(Key::F5) || (ctrl && input().keyPressed(Key::S))))
             saveSceneWithDialog();
-        if (ctrl && input().keyPressed(Key::Z))
-            undoTerrainBrush();
         if (!m_playMode && (input().keyPressed(Key::F9) || (ctrl && input().keyPressed(Key::O))) && !netSceneLocked())
             loadSceneWithDialog(m_scenePath);
         if (input().actionPressed("toggle_particle_ui"))
@@ -421,13 +419,6 @@ void EditorApp::handleEditorCommands(float dt)
         }
     }
 
-    const bool terrainBrushing = !m_playMode && m_sceneMode == SceneMode::Scene3D && m_haveTerrain
-        && m_terrainBrush != TerrainBrushMode::None && !netClientLocked() && !terrainBrushesLocked();
-    if (terrainBrushing && !uiMouse && input().mouseDown(MouseButton::Left))
-        applyTerrainBrush(dt);
-    else
-        m_terrainStrokeActive = false;
-
     if (m_sceneMode == SceneMode::Scene3D && !m_dragging)
     {
         if (uiMouse)
@@ -445,7 +436,7 @@ void EditorApp::handleEditorCommands(float dt)
         }
     }
 
-    if (!m_playMode && !uiMouse && input().mousePressed(MouseButton::Left) && !terrainBrushing)
+    if (!m_playMode && !uiMouse && input().mousePressed(MouseButton::Left))
     {
         m_lmbDownX = input().mouseX();
         m_lmbDownY = input().mouseY();

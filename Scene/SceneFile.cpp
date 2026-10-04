@@ -133,6 +133,12 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             t["heightBlendK"]   = scene.terrain.heightBlendK;
             t["heightBlendT"]   = scene.terrain.heightBlendT;
             t["triplanarSlope"] = scene.terrain.triplanarSlope;
+            if (!scene.terrain.source.empty())
+            {
+                t["source"]       = scene.terrain.source;
+                t["worldSize"]    = scene.terrain.worldSize;
+                t["importHeight"] = scene.terrain.importHeight;
+            }
             const uint64_t tileCount = scene.terrain.hasGrid
                 ? static_cast<uint64_t>(scene.terrain.grid.tilesX) * scene.terrain.grid.tilesZ
                 : 0ull;
@@ -364,6 +370,9 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                 desc.triplanarSlope = t.value("triplanarSlope", 0.45f);
                 desc.heightFile     = t.value("heightFile", std::string());
                 desc.splatFile      = t.value("splatFile", std::string());
+                desc.source         = t.value("source", std::string());
+                desc.worldSize      = t.value("worldSize", 1024.0f);
+                desc.importHeight   = t.value("importHeight", 480.0f);
                 if (t.contains("grid") && t["grid"].is_object())
                 {
                     const json& g = t["grid"];

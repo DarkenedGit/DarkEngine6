@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "note": "RGBA channel order from this World Engine export. Ids match content/terrain/ground.json. Alpha is the forest floor, red the ridges.",
+  "channels": ["rock", "snow", "dirt", "grass"]
+}

@@ -97,6 +97,20 @@ float4 SampleOrm(Texture2D tex, float2 uvXZ, float2 uvYZ, float2 uvXY, float3 tw
 
 GBufferOut PSMain(PSInput input)
 {
+    // World Engine import: one baked albedo + ORM across the mesh UV. Splat stays on the CPU for footsteps.
+    if (heightBlendK < 0.0f)
+    {
+        float3 alb = gAlbedo0.Sample(gSplatSamp, input.uv).rgb;
+        float4 orm = gOrm0.Sample(gSplatSamp, input.uv);
+        float3 nG  = normalize(input.normalWS);
+        GBufferOut o;
+        o.albedo   = float4(alb, 0);
+        o.attrib   = float4(EncodeOct(nG), orm.g, orm.b);
+        o.velocity = VelocityUv(input.currClip, input.prevClip);
+        o.ao       = orm.r;
+        return o;
+    }
+
     float4 splat = gSplat.Sample(gSplatSamp, input.uv);
     float  wsum  = splat.r + splat.g + splat.b + splat.a + 1e-5f;
     splat /= wsum;

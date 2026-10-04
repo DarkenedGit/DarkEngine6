@@ -502,7 +502,7 @@ void EditorApp::setPlayMode(bool play)
         m_dragging         = false;
         m_playMode = true;
         ensurePhysicsWorld();
-        rebuildPhysicsGround(); // pick up terrain Generate / sculpt since the last Play
+        rebuildPhysicsGround(); // pick up a terrain loaded since the last Play
         if (m_physics.valid())
             m_physics.pushPoses(world(), true);
         window().setCursorCaptured(window().isFocused());
@@ -1365,13 +1365,14 @@ Terrain::GroundContact EditorApp::groundContactAt(float x, float z) const
 {
     const Terrain::HeightMap* height = nullptr;
     const Terrain::SplatMap*  splat  = nullptr;
-    if (m_haveTerrain && m_splat.valid())
+    if (m_haveTerrain && m_terrain.valid())
     {
-        const Terrain::HeightMap* working = m_terrain.editableWorking();
-        height = (working && working->valid()) ? working : &m_terrain.coarse();
-        splat  = &m_splat;
+        height = m_terrain.editableWorking();
+        if (!height || !height->valid())
+            height = &m_terrain.coarse();
+        splat = m_terrain.editableWorkingSplat();
     }
-    return m_ground.at(height, splat, x, z);
+    return m_ground.at(height, splat && splat->valid() ? splat : nullptr, x, z);
 }
 
 void EditorApp::tickEditorHunters(float dt)
@@ -1397,13 +1398,14 @@ void EditorApp::tickEditorHunters(float dt)
     {
         const Terrain::HeightMap* height = nullptr;
         const Terrain::SplatMap*  splat  = nullptr;
-        if (m_haveTerrain && m_splat.valid())
+        if (m_haveTerrain && m_terrain.valid())
         {
-            const Terrain::HeightMap* working = m_terrain.editableWorking();
-            height = (working && working->valid()) ? working : &m_terrain.coarse();
-            splat  = &m_splat;
+            height = m_terrain.editableWorking();
+            if (!height || !height->valid())
+                height = &m_terrain.coarse();
+            splat = m_terrain.editableWorkingSplat();
         }
-        m_ai.setGroundSurface(&m_ground, height, splat);
+        m_ai.setGroundSurface(&m_ground, height, splat && splat->valid() ? splat : nullptr);
     }
     m_ai.tickHunters(world(), m_terrain, false, dt, player, m_playCubes.empty() ? nullptr : m_playCubes.data(),
                      static_cast<int>(m_playCubes.size()), m_playSpheres.empty() ? nullptr : m_playSpheres.data(),

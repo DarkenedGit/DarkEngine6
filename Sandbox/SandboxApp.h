@@ -201,6 +201,7 @@ private:
     Dark::FoliagePrototypes    m_foliagePrototypes;
     Dark::FoliagePipeline      m_foliagePipeline;
     Dark::Terrain::FoliageDensity m_foliageDensity{};
+    std::vector<Dark::Terrain::FoliageRecord> m_foliage;
 
     Dark::Physics::PhysicsWorld  m_physics;
     Dark::Physics::PhysicsBodyId m_physicsGround = Dark::Physics::kNullPhysicsBody;

@@ -34,6 +34,8 @@
 #include "Save/PersistentId.h"
 #include "Save/ProgressComponents.h"
 #include "Assets/Image.h"
+#include "Terrain/FoliageSpawn.h"
+#include "Terrain/WorldEngineMap.h"
 #include "Assets/Material.h"
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"
@@ -1253,7 +1255,7 @@ void SandboxApp::updatePossessed(float dt)
         xf->position += hitSlide;
     }
 
-    Physics::syncFoliageCollision(m_physics, m_foliageCollision, m_terrain, nullptr, xf->position.x, xf->position.z);
+    Physics::syncFoliageCollision(m_physics, m_foliageCollision, m_terrain, m_foliage.empty() ? nullptr : &m_foliage, xf->position.x, xf->position.z);
 
     Vector3f delta{ xf->position.x - before.x, 0.0f, xf->position.z - before.z };
     if (delta.MagnitudeSqrd() > 1.0e-10f)
@@ -3005,7 +3007,9 @@ void SandboxApp::onInit()
         };
 
         bool loadedScene = false;
+        bool worldEngine = false;
         Terrain::SplatMap matSplat;
+        Terrain::WorldEngineMaps worldMaps;
         SceneFileData sceneData{};
         {
             std::string   err;
@@ -3013,7 +3017,27 @@ void SandboxApp::onInit()
             loadSceneFromJson(scenePath, sceneData, &err);
             if (sceneData.mode != SceneMode::Scene2D && sceneData.hasTerrain)
             {
-                if (sceneData.terrain.hasGrid)
+                if (!sceneData.terrain.source.empty())
+                {
+                    const std::filesystem::path dir = Terrain::resolveWorldEngineDirectory(sceneData.terrain.source);
+                    Terrain::WorldEngineLoadDesc importDesc{};
+                    importDesc.worldSizeMeters   = sceneData.terrain.worldSize > 1.0f ? sceneData.terrain.worldSize : 1024.0f;
+                    importDesc.heightRangeMeters = sceneData.terrain.importHeight > 0.0f ? sceneData.terrain.importHeight : 480.0f;
+                    if (!dir.empty()
+                        && Terrain::loadWorldEngineDirectory(dir, importDesc, worldMaps)
+                        && m_terrain.createFromHeightMap(std::move(worldMaps.height), 64))
+                    {
+                        matSplat = worldMaps.splat;
+                        if (!m_terrain.setWorkingSplat(std::move(worldMaps.splat)))
+                            DE_LOG_WARN(LogCategory::Render, "SandboxApp: World Engine splat was not kept");
+                        loadedScene = true;
+                        worldEngine = true;
+                        DE_LOG_INFO(LogCategory::Render, "SandboxApp: loaded World Engine terrain '{}'", sceneData.terrain.source);
+                    }
+                    else
+                        DE_LOG_ERROR(LogCategory::Render, "SandboxApp: World Engine folder '{}' failed", sceneData.terrain.source);
+                }
+                else if (sceneData.terrain.hasGrid)
                 {
                     TerrainGridDesc gridDesc{};
                     gridDesc.tilesX       = sceneData.terrain.grid.tilesX;
@@ -3049,9 +3073,32 @@ void SandboxApp::onInit()
             }
         }
 
-        m_foliageDensity.treeModel   = sceneData.terrain.foliage.treeModel;
-        m_foliageDensity.flowerModel = sceneData.terrain.foliage.flowerModel;
-        m_foliageDensity.rockModel   = sceneData.terrain.foliage.rockModel;
+        m_foliageDensity.dirtTreesPerM2    = sceneData.terrain.foliage.dirtTreesPerM2;
+        m_foliageDensity.dirtFlowersPerM2  = sceneData.terrain.foliage.dirtFlowersPerM2;
+        m_foliageDensity.grassTreesPerM2   = sceneData.terrain.foliage.grassTreesPerM2;
+        m_foliageDensity.grassFlowersPerM2 = sceneData.terrain.foliage.grassFlowersPerM2;
+        m_foliageDensity.rockPerM2         = sceneData.terrain.foliage.rockPerM2;
+        m_foliageDensity.seed              = sceneData.terrain.foliage.seed;
+        m_foliageDensity.treeModel         = sceneData.terrain.foliage.treeModel;
+        m_foliageDensity.flowerModel       = sceneData.terrain.foliage.flowerModel;
+        m_foliageDensity.rockModel         = sceneData.terrain.foliage.rockModel;
+
+        if (!loadedScene)
+        {
+            const std::filesystem::path dir = Terrain::resolveWorldEngineDirectory("terrain/HurricaneRidge");
+            Terrain::WorldEngineLoadDesc importDesc{};
+            if (!dir.empty()
+                && Terrain::loadWorldEngineDirectory(dir, importDesc, worldMaps)
+                && m_terrain.createFromHeightMap(std::move(worldMaps.height), 64))
+            {
+                matSplat = worldMaps.splat;
+                if (!m_terrain.setWorkingSplat(std::move(worldMaps.splat)))
+                    DE_LOG_WARN(LogCategory::Render, "SandboxApp: World Engine splat was not kept");
+                loadedScene = true;
+                worldEngine = true;
+                DE_LOG_INFO(LogCategory::Render, "SandboxApp: loaded content/terrain/HurricaneRidge");
+            }
+        }
 
         if (!loadedScene)
         {
@@ -3082,13 +3129,45 @@ void SandboxApp::onInit()
             m_terrain.setWorkingSplat(SplatMap(matSplat));
         }
 
+        if (worldEngine)
+        {
+            const HeightMap* height = m_terrain.editableWorking();
+            const SplatMap*  splat  = m_terrain.editableWorkingSplat();
+            FoliageSpawnIn   spawnIn;
+            spawnIn.height    = height;
+            spawnIn.splat     = splat;
+            spawnIn.density   = m_foliageDensity;
+            spawnIn.tilesX    = m_terrain.tilesX();
+            spawnIn.tilesZ    = m_terrain.tilesZ();
+            const int cells   = m_terrain.tileCells();
+            spawnIn.tileCells = cells > 0 ? static_cast<uint32_t>(cells) : 0u;
+            spawnIn.cellSize  = m_terrain.cellSize();
+            spawnIn.origin    = m_terrain.origin();
+            spawnIn.seaLevel  = height ? height->origin().y : 0.0f;
+            FoliageSpawnOut spawned;
+            if (height && splat && spawnFoliage(spawnIn, spawned))
+                m_foliage.swap(spawned.records);
+            else
+                DE_LOG_WARN(LogCategory::Render, "SandboxApp: splat foliage spawn failed");
+        }
+
         if (!matSplat.valid() && !matSplat.create(2, 2))
         {
             DE_LOG_FATAL("SandboxApp: dummy splat failed");
             requestQuit();
             return;
         }
-        if (tryCreateTerrainFromContent(renderer(), assets(), matSplat, m_terrainMaterial))
+        if (worldEngine)
+        {
+            if (!Terrain::uploadWorldEngineMaterial(renderer(), assets(), matSplat, worldMaps, m_terrainMaterial, nullptr))
+            {
+                DE_LOG_FATAL("SandboxApp: World Engine material failed");
+                requestQuit();
+                return;
+            }
+            DE_LOG_INFO(LogCategory::Render, "Terrain: World Engine albedo and roughness");
+        }
+        else if (tryCreateTerrainFromContent(renderer(), assets(), matSplat, m_terrainMaterial))
             DE_LOG_INFO(LogCategory::Render, "Terrain: using content layer set");
         else
         {
@@ -3487,7 +3566,7 @@ void SandboxApp::onRender()
                     drawModelDepth(cmd, gpu, m_shadows, i, *model, worldMat);
             });
             if (m_terrain.valid())
-                m_foliagePipeline.drawDepth(cmd, renderer(), assets(), m_foliagePrototypes, m_terrain, nullptr, m_foliageDensity, m_viewCamera, m_shadows.cascade(i).viewProj, casterFrustum);
+                m_foliagePipeline.drawDepth(cmd, renderer(), assets(), m_foliagePrototypes, m_terrain, m_foliage.empty() ? nullptr : &m_foliage, m_foliageDensity, m_viewCamera, m_shadows.cascade(i).viewProj, casterFrustum);
         }
         m_shadows.endCapture(cmd);
     }
@@ -3622,7 +3701,7 @@ void SandboxApp::onRender()
         });
             }
             if (m_terrain.valid())
-                m_foliagePipeline.drawGBuffer(cmd, renderer(), assets(), m_foliagePrototypes, m_terrain, nullptr, m_foliageDensity, m_viewCamera, viewProj, prevViewProj, frustum);
+                m_foliagePipeline.drawGBuffer(cmd, renderer(), assets(), m_foliagePrototypes, m_terrain, m_foliage.empty() ? nullptr : &m_foliage, m_foliageDensity, m_viewCamera, viewProj, prevViewProj, frustum);
         }
 
         m_scene.drawDecals(cmd, renderer(), m_viewCamera, viewProj);

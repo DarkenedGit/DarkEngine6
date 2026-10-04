@@ -59,7 +59,7 @@ void EditorApp::ensurePhysicsWorld()
 
 // Physics ground = the terrain's coarse height map as a Box3D height field.
 // No terrain (or height field failed) → flat stand-in box with its top at Y = 0.
-// Called when the world is created and again on Play, so Generate / sculpt edits are picked up.
+// Called when the world is created and again on Play, so a loaded heightfield is picked up.
 void EditorApp::rebuildPhysicsGround()
 {
     if (!m_physics.valid())
