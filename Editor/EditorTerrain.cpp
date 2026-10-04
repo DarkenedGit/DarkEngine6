@@ -609,6 +609,17 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
         desc.layers[i].tiling = m_terrainMaterial.layer(i).tiling;
         std::memcpy(desc.layers[i].tint, m_terrainMaterial.layer(i).tint, sizeof(desc.layers[i].tint));
     }
+    desc.foliage.present           = true;
+    desc.foliage.seed              = m_foliageDensity.seed;
+    desc.foliage.dirtTreesPerM2    = m_foliageDensity.dirtTreesPerM2;
+    desc.foliage.dirtFlowersPerM2  = m_foliageDensity.dirtFlowersPerM2;
+    desc.foliage.grassTreesPerM2   = m_foliageDensity.grassTreesPerM2;
+    desc.foliage.grassFlowersPerM2 = m_foliageDensity.grassFlowersPerM2;
+    desc.foliage.rockPerM2         = m_foliageDensity.rockPerM2;
+    desc.foliage.stale             = false;
+    desc.foliage.treeModel         = m_foliageDensity.treeModel;
+    desc.foliage.flowerModel       = m_foliageDensity.flowerModel;
+    desc.foliage.rockModel         = m_foliageDensity.rockModel;
     data.hasTerrain = true;
     data.terrain    = std::move(desc);
 }
@@ -797,6 +808,16 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
         m_terrainCoarseFile = coarseFile;
         m_terrainTileDir    = tileDir;
     }
+
+    m_foliageDensity.dirtTreesPerM2    = desc.foliage.dirtTreesPerM2;
+    m_foliageDensity.dirtFlowersPerM2  = desc.foliage.dirtFlowersPerM2;
+    m_foliageDensity.grassTreesPerM2   = desc.foliage.grassTreesPerM2;
+    m_foliageDensity.grassFlowersPerM2 = desc.foliage.grassFlowersPerM2;
+    m_foliageDensity.rockPerM2         = desc.foliage.rockPerM2;
+    m_foliageDensity.seed              = desc.foliage.seed;
+    m_foliageDensity.treeModel         = desc.foliage.treeModel;
+    m_foliageDensity.flowerModel       = desc.foliage.flowerModel;
+    m_foliageDensity.rockModel         = desc.foliage.rockModel;
 
     m_terrainSurface = {};
     m_terrainSurface.params.heightBlendK   = desc.heightBlendK;

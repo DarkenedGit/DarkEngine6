@@ -2,6 +2,7 @@
 #include "Core/ContentRoots.h"
 #include "Core/Log.h"
 #include "Math/MathDefines.h"
+#include "Math/MathHelper.h"
 #include "Terrain/TerrainTileFile.h"
 
 #include "third_party/nlohmann/json.hpp"
@@ -171,6 +172,19 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
                 layers.push_back(std::move(layer));
             }
             t["layers"] = std::move(layers);
+            json f;
+            f["version"]           = 1;
+            f["seed"]              = scene.terrain.foliage.seed;
+            f["dirtTreesPerM2"]    = scene.terrain.foliage.dirtTreesPerM2;
+            f["dirtFlowersPerM2"]  = scene.terrain.foliage.dirtFlowersPerM2;
+            f["grassTreesPerM2"]   = scene.terrain.foliage.grassTreesPerM2;
+            f["grassFlowersPerM2"] = scene.terrain.foliage.grassFlowersPerM2;
+            f["rockPerM2"]         = scene.terrain.foliage.rockPerM2;
+            f["stale"]             = scene.terrain.foliage.stale;
+            f["treeModel"]         = scene.terrain.foliage.treeModel;
+            f["flowerModel"]       = scene.terrain.foliage.flowerModel;
+            f["rockModel"]         = scene.terrain.foliage.rockModel;
+            t["foliage"]           = std::move(f);
             root["terrain"] = std::move(t);
         }
     }
@@ -376,6 +390,21 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                         desc.hasGrid = true;
                         desc.grid    = std::move(grid);
                     }
+                }
+                if (t.contains("foliage") && t["foliage"].is_object())
+                {
+                    const json& f = t["foliage"];
+                    desc.foliage.present            = true;
+                    desc.foliage.seed               = f.value("seed", 1337u);
+                    desc.foliage.dirtTreesPerM2     = Math::Clamp(f.value("dirtTreesPerM2", 0.002f), 0.0f, 1.0f);
+                    desc.foliage.dirtFlowersPerM2   = Math::Clamp(f.value("dirtFlowersPerM2", 0.006f), 0.0f, 2.0f);
+                    desc.foliage.grassTreesPerM2    = Math::Clamp(f.value("grassTreesPerM2", 0.003f), 0.0f, 1.0f);
+                    desc.foliage.grassFlowersPerM2  = Math::Clamp(f.value("grassFlowersPerM2", 0.008f), 0.0f, 2.0f);
+                    desc.foliage.rockPerM2          = Math::Clamp(f.value("rockPerM2", 0.004f), 0.0f, 1.0f);
+                    desc.foliage.stale              = f.value("stale", false);
+                    desc.foliage.treeModel          = f.value("treeModel", std::string());
+                    desc.foliage.flowerModel        = f.value("flowerModel", std::string());
+                    desc.foliage.rockModel          = f.value("rockModel", std::string());
                 }
                 if (t.contains("layers") && t["layers"].is_array())
                 {

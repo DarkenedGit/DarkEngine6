@@ -34,6 +34,7 @@
 #include "Combat/DamageEvent.h"
 #include "Math/AABox3f.h"
 #include "Render/TerrainErosionPipeline.h"
+#include "Terrain/FoliageFile.h"
 #include "Terrain/TerrainGen.h"
 #include "Terrain/TerrainGround.h"
 #include "Terrain/TerrainGrid.h"
@@ -412,6 +413,7 @@ private:
     std::string                   m_terrainTileDir;
     uint32_t                      m_terrainSeed     = 1337u;
     float                         m_terrainSeaLevel = 32.0f;
+    Terrain::FoliageDensity       m_foliageDensity{};
     int                           m_genTilesIndex   = 2; // 1,2,4,8
     float                         m_genCellSize     = 1.0f;
     float                         m_genHeightScale  = 280.0f;
