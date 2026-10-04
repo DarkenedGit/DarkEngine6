@@ -155,6 +155,7 @@ The idea that matters for **thermal** (and any Jacobi/kernel filter): padding â‰
 - CDLOD, clipmap, VS height fetch, LayerProcGen `LandscapeLayer` as a mesh scheme.
 - 8 splat layers. Folding into `Dark::Material`.
 - Vegetation, roads, rivers, locations (`CultivationLayer` / `LocationLayer`). Named v2.
+- Foliage density spawn is a separate RFC (`Terrain/DESIGN-foliage-density.md`, execute-plan 4c05816d). This streaming document still does not do runtime vegetation scatter.
 - Runtime generation of missing tiles from seed (pure proc). Missing tile â†’ coarse + log, not a live bake.
 - Growing `TerrainGBufferConstants` (64/64) or `TerrainFrameConstants` (63/64) or lighting CB.
 - Editor `createWorldEnvironment` (still terrain-pipeline only).
