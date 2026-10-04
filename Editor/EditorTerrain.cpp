@@ -5,6 +5,7 @@
 #include "Editor/EditorFileDialog.h"
 #include "Editor/EditorInternals.h"
 #include "Math/MathHelper.h"
+#include "Terrain/FoliageFile.h"
 #include "Terrain/FoliageSpawn.h"
 #include "Terrain/TerrainGen.h"
 #include "Terrain/TerrainTileFile.h"
@@ -711,6 +712,53 @@ bool EditorApp::saveTerrainSidecars(const std::filesystem::path& scenePath) cons
         }
     }
 
+    if (m_foliageAuthored)
+    {
+        const int   tilesX    = static_cast<int>(m_terrain.tilesX());
+        const int   tilesZ    = static_cast<int>(m_terrain.tilesZ());
+        const int   cells     = m_terrain.tileCells();
+        const float tileWorld = static_cast<float>(cells) * m_terrain.cellSize();
+        if (tilesX < 1 || tilesZ < 1 || !(tileWorld > 0.0f))
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Editor: foliage tile grid invalid");
+            return false;
+        }
+        const Vector3f origin = m_terrain.origin();
+        std::vector<std::vector<size_t>> bins(static_cast<size_t>(tilesX) * static_cast<size_t>(tilesZ));
+        for (size_t i = 0; i < m_foliage.size(); ++i)
+        {
+            const FoliageRecord& rec = m_foliage[i];
+            int tx = static_cast<int>(floorf((rec.x - origin.x) / tileWorld));
+            int tz = static_cast<int>(floorf((rec.z - origin.z) / tileWorld));
+            if (tx < 0)
+                tx = 0;
+            if (tz < 0)
+                tz = 0;
+            if (tx >= tilesX)
+                tx = tilesX - 1;
+            if (tz >= tilesZ)
+                tz = tilesZ - 1;
+            bins[static_cast<size_t>(tz) * static_cast<size_t>(tilesX) + static_cast<size_t>(tx)].push_back(i);
+        }
+        std::vector<FoliageRecord> tileRecs;
+        for (int tz = 0; tz < tilesZ; ++tz)
+        {
+            for (int tx = 0; tx < tilesX; ++tx)
+            {
+                const std::vector<size_t>& ids = bins[static_cast<size_t>(tz) * static_cast<size_t>(tilesX) + static_cast<size_t>(tx)];
+                tileRecs.clear();
+                tileRecs.reserve(ids.size());
+                for (size_t id : ids)
+                    tileRecs.push_back(m_foliage[id]);
+                if (tileRecs.size() > 0xffffffffu)
+                    return false;
+                const uint32_t count = static_cast<uint32_t>(tileRecs.size());
+                if (!saveFoliageTile(tileDirPath / tileFoliageFileName(tx, tz), tx, tz, count > 0 ? tileRecs.data() : nullptr, count))
+                    return false;
+            }
+        }
+    }
+
     const uint64_t tileCount = static_cast<uint64_t>(m_terrain.tilesX()) * m_terrain.tilesZ();
     if (tileCount <= 1ull)
     {
@@ -731,7 +779,10 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
 {
     removeEditorTerrain();
     if (data.mode == SceneMode::Scene2D || !data.hasTerrain)
+    {
+        resetFoliageAuthoring();
         return true;
+    }
 
     const TerrainSceneDesc& desc = data.terrain;
     std::string heightFile = desc.heightFile;
@@ -756,12 +807,14 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
         if (!m_terrain.create(gridDesc))
         {
             DE_LOG_ERROR(LogCategory::Render, "Editor: terrain grid create failed");
+            resetFoliageAuthoring();
             return false;
         }
         if (!m_terrain.assembleWorking())
         {
             DE_LOG_ERROR(LogCategory::Render, "Editor: working assemble failed");
             removeEditorTerrain();
+            resetFoliageAuthoring();
             return false;
         }
         m_terrainSeed     = desc.grid.seed;
@@ -776,6 +829,7 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
         if (!height.loadBinary(heightPath))
         {
             DE_LOG_ERROR(LogCategory::Render, "Editor: terrain height sidecar missing or invalid — no terrain");
+            resetFoliageAuthoring();
             return false;
         }
         const int chunkCells = desc.chunkCells > 0 ? desc.chunkCells : 16;
@@ -783,6 +837,7 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
         {
             DE_LOG_ERROR(LogCategory::Render, "Editor: terrain create from scene failed");
             removeEditorTerrain();
+            resetFoliageAuthoring();
             return false;
         }
         const std::filesystem::path splatPath = sidecarPath(scenePath, splatFile);
@@ -801,6 +856,7 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
                 {
                     DE_LOG_ERROR(LogCategory::Render, "Editor: splat generate failed");
                     removeEditorTerrain();
+                    resetFoliageAuthoring();
                     return false;
                 }
             }
@@ -809,6 +865,7 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
         {
             DE_LOG_ERROR(LogCategory::Render, "Editor: splat generate failed");
             removeEditorTerrain();
+            resetFoliageAuthoring();
             return false;
         }
         m_terrain.setWorkingSplat(std::move(splat));
@@ -870,6 +927,7 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
     else if (!matSplat.create(2, 2))
     {
         removeEditorTerrain();
+        resetFoliageAuthoring();
         return false;
     }
 
@@ -880,6 +938,7 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
     {
         DE_LOG_ERROR(LogCategory::Render, "Editor: splat GPU upload failed");
         removeEditorTerrain();
+        resetFoliageAuthoring();
         return false;
     }
 
@@ -892,6 +951,7 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
     {
         DE_LOG_ERROR(LogCategory::Render, "Editor: terrain material from scene failed");
         removeEditorTerrain();
+        resetFoliageAuthoring();
         return false;
     }
     if (!anyMap)
@@ -908,8 +968,46 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
     if (!applyEditorGridGpu())
     {
         removeEditorTerrain();
+        resetFoliageAuthoring();
         return false;
     }
+
+    bool anyFoliageFile = false;
+    std::vector<FoliageRecord> gathered;
+    const int foliageTilesX = static_cast<int>(m_terrain.tilesX());
+    const int foliageTilesZ = static_cast<int>(m_terrain.tilesZ());
+    const std::filesystem::path foliageDir = sidecarPath(scenePath, tileDir);
+    for (int tz = 0; tz < foliageTilesZ; ++tz)
+    {
+        for (int tx = 0; tx < foliageTilesX; ++tx)
+        {
+            const std::filesystem::path foliagePath = foliageDir / tileFoliageFileName(tx, tz);
+            std::error_code foliageEc;
+            if (!std::filesystem::exists(foliagePath, foliageEc) || foliageEc)
+                continue;
+            std::vector<FoliageRecord> loaded;
+            if (!loadFoliageTile(foliagePath, tx, tz, loaded))
+            {
+                DE_LOG_ERROR(LogCategory::Render, "Editor: foliage bin '{}' invalid", foliagePath.string());
+                resetFoliageAuthoring();
+                removeEditorTerrain();
+                return false;
+            }
+            if (static_cast<uint64_t>(gathered.size()) + static_cast<uint64_t>(loaded.size()) > static_cast<uint64_t>(kMaxFoliageInstances))
+            {
+                DE_LOG_ERROR(LogCategory::Render, "Editor: foliage exceeds instance cap at tile ({},{})", tx, tz);
+                resetFoliageAuthoring();
+                removeEditorTerrain();
+                return false;
+            }
+            anyFoliageFile = true;
+            if (!loaded.empty())
+                gathered.insert(gathered.end(), loaded.begin(), loaded.end());
+        }
+    }
+    m_foliage.swap(gathered);
+    m_foliageAuthored = anyFoliageFile;
+
     rebuildEditorWater();
     return true;
 }

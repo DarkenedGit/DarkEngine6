@@ -7,6 +7,7 @@
 #include "Math/Vector3f.h"
 #include "Render/PackedSrvHeap.h"
 #include "Render/Texture2D.h"
+#include "Terrain/FoliageFile.h"
 #include "Terrain/SplatMap.h"
 #include "Terrain/Terrain.h"
 #include "Terrain/TerrainTileFile.h"
@@ -133,6 +134,7 @@ public:
     int  residentCount() const;
     bool isResident(int tileX, int tileZ) const;
     const HeightMap* residentHeight(int tileX, int tileZ) const;
+    const std::vector<FoliageRecord>* residentFoliage(int tileX, int tileZ) const;
     const TerrainWorld* residentWorld(int tileX, int tileZ) const;
     const PackedSrvHeap* residentPackedHeap(int tileX, int tileZ) const;
 
@@ -165,11 +167,13 @@ private:
         PackedSrvHeap    heap;
         Texture2D        splatTexture;
         SplatMap         splat;
+        std::vector<FoliageRecord> foliage;
         GpuResourceCache* cache = nullptr;
-        bool             resident           = false;
-        bool             missingLogged      = false;
-        bool             firstGpuApplyDone  = false;
-        bool             heapPacked         = false;
+        bool             resident             = false;
+        bool             missingLogged        = false;
+        bool             foliageMissingLogged = false;
+        bool             firstGpuApplyDone    = false;
+        bool             heapPacked           = false;
     };
 
     void reset();

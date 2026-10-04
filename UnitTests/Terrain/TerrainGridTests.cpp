@@ -1,8 +1,10 @@
 #include <gtest/gtest.h>
 
+#include "Core/Log.h"
 #include "Render/Camera3D.h"
 #include "Render/PackedSrvHeap.h"
 #include "Render/ShadowCascades.h"
+#include "Terrain/FoliageFile.h"
 #include "Terrain/HeightMap.h"
 #include "Terrain/Terrain.h"
 #include "Terrain/TerrainGrid.h"
@@ -12,6 +14,8 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
+#include <string>
 
 using namespace Dark;
 using namespace Dark::Math;
@@ -125,6 +129,49 @@ Vector3f TileCenter(const Vector3f& origin, int tx, int tz)
         origin.x + (static_cast<float>(tx) + 0.5f) * tileWorld,
         20.0f,
         origin.z + (static_cast<float>(tz) + 0.5f) * tileWorld);
+}
+
+std::vector<std::string>* g_logs = nullptr;
+
+void captureLog(LogLevel, LogCategory, const char* message)
+{
+    if (g_logs != nullptr && message != nullptr)
+        g_logs->push_back(message);
+}
+
+class LogCapture
+{
+public:
+    explicit LogCapture(std::vector<std::string>& out) :
+        m_out(out)
+    {
+        m_out.clear();
+        g_logs = &m_out;
+        Log::setCapture(&captureLog);
+    }
+
+    ~LogCapture()
+    {
+        Log::setCapture(nullptr);
+        g_logs = nullptr;
+    }
+
+    LogCapture(const LogCapture&)            = delete;
+    LogCapture& operator=(const LogCapture&) = delete;
+
+private:
+    std::vector<std::string>& m_out;
+};
+
+int countLog(const std::vector<std::string>& logs, const char* needle)
+{
+    int n = 0;
+    for (const std::string& line : logs)
+    {
+        if (line.find(needle) != std::string::npos)
+            ++n;
+    }
+    return n;
 }
 
 } // namespace
@@ -490,4 +537,194 @@ TEST(TerrainGrid, PinKeepsTileOutsideCameraRing)
     grid.updateStreaming(TileCenter(Vector3f{ 0.0f, 0.0f, 0.0f }, 2, 2), nullptr);
     EXPECT_TRUE(grid.isResident(0, 0));
     EXPECT_TRUE(grid.isResident(2, 2));
+}
+
+TEST(TerrainGrid, FoliageDisk_LoadEvict)
+{
+    const auto     dir    = MakeTempDir("darkengine6_grid_foliage_disk_ut");
+    const Vector3f origin{ 10.0f, 0.0f, -4.0f };
+    ASSERT_TRUE(WriteTestWorld(dir, 2, 2, origin, true));
+    const auto tileDir = dir / "tiles";
+
+    FoliageRecord recs[2]{};
+    recs[0].x     = origin.x + 1.25f;
+    recs[0].y     = 42.0f;
+    recs[0].z     = origin.z + 2.5f;
+    recs[0].yaw   = 0.4f;
+    recs[0].scale = 1.1f;
+    recs[0].kind  = static_cast<uint8_t>(FoliageKind::Tree);
+    recs[1].x     = origin.x + 3.0f;
+    recs[1].y     = 7.5f;
+    recs[1].z     = origin.z + 6.0f;
+    recs[1].pitch = 0.2f;
+    recs[1].kind  = static_cast<uint8_t>(FoliageKind::Rock);
+    ASSERT_TRUE(saveFoliageTile(tileDir / tileFoliageFileName(0, 0), 0, 0, recs, 2));
+    ASSERT_TRUE(saveFoliageTile(tileDir / tileFoliageFileName(1, 0), 1, 0, nullptr, 0));
+
+    TerrainGrid grid;
+    ASSERT_TRUE(grid.create(MakeDesc(dir, 2, 2, origin, 1)));
+    EXPECT_EQ(grid.residentFoliage(0, 0), nullptr);
+
+    std::vector<std::string> logs;
+    {
+        LogCapture capture(logs);
+        grid.updateStreaming(TileCenter(origin, 0, 0), nullptr);
+        ASSERT_TRUE(grid.isResident(0, 0));
+        const std::vector<FoliageRecord>* loaded = grid.residentFoliage(0, 0);
+        ASSERT_NE(loaded, nullptr);
+        ASSERT_EQ(loaded->size(), 2u);
+        EXPECT_FLOAT_EQ((*loaded)[0].x, recs[0].x);
+        EXPECT_FLOAT_EQ((*loaded)[0].y, 42.0f);
+        EXPECT_FLOAT_EQ((*loaded)[0].z, recs[0].z);
+        EXPECT_FLOAT_EQ((*loaded)[0].yaw, recs[0].yaw);
+        EXPECT_FLOAT_EQ((*loaded)[0].scale, recs[0].scale);
+        EXPECT_EQ((*loaded)[0].kind, static_cast<uint8_t>(FoliageKind::Tree));
+        EXPECT_FLOAT_EQ((*loaded)[1].y, 7.5f);
+        EXPECT_FLOAT_EQ((*loaded)[1].pitch, recs[1].pitch);
+        EXPECT_EQ((*loaded)[1].kind, static_cast<uint8_t>(FoliageKind::Rock));
+        EXPECT_EQ(grid.residentFoliage(1, 0), nullptr);
+        EXPECT_EQ(countLog(logs, "missing foliage"), 0);
+
+        grid.updateStreaming(TileCenter(origin, 1, 0), nullptr);
+        EXPECT_FALSE(grid.isResident(0, 0));
+        EXPECT_EQ(grid.residentFoliage(0, 0), nullptr);
+        ASSERT_TRUE(grid.isResident(1, 0));
+        const std::vector<FoliageRecord>* emptyHeader = grid.residentFoliage(1, 0);
+        ASSERT_NE(emptyHeader, nullptr);
+        EXPECT_TRUE(emptyHeader->empty());
+        EXPECT_EQ(countLog(logs, "missing foliage"), 0);
+    }
+    RemoveTempDir(dir);
+}
+
+TEST(TerrainGrid, FoliageMissing_WarnsOnce)
+{
+    const auto     dir    = MakeTempDir("darkengine6_grid_foliage_missing_ut");
+    const Vector3f origin{ 0.0f, 0.0f, 0.0f };
+    ASSERT_TRUE(WriteTestWorld(dir, 2, 2, origin, true));
+    TerrainGrid grid;
+    ASSERT_TRUE(grid.create(MakeDesc(dir, 2, 2, origin, 1)));
+
+    std::vector<std::string> logs;
+    LogCapture capture(logs);
+    grid.updateStreaming(TileCenter(origin, 0, 0), nullptr);
+    ASSERT_TRUE(grid.isResident(0, 0));
+    const std::vector<FoliageRecord>* slot = grid.residentFoliage(0, 0);
+    ASSERT_NE(slot, nullptr);
+    EXPECT_TRUE(slot->empty());
+    EXPECT_EQ(countLog(logs, "missing foliage"), 1);
+
+    grid.updateStreaming(TileCenter(origin, 0, 0), nullptr);
+    EXPECT_EQ(countLog(logs, "missing foliage"), 1);
+    ASSERT_NE(grid.residentFoliage(0, 0), nullptr);
+    EXPECT_TRUE(grid.residentFoliage(0, 0)->empty());
+
+    grid.updateStreaming(TileCenter(origin, 1, 0), nullptr);
+    EXPECT_EQ(grid.residentFoliage(0, 0), nullptr);
+    EXPECT_EQ(countLog(logs, "missing foliage"), 2);
+
+    grid.updateStreaming(TileCenter(origin, 0, 0), nullptr);
+    ASSERT_TRUE(grid.isResident(0, 0));
+    EXPECT_TRUE(grid.residentFoliage(0, 0)->empty());
+    EXPECT_EQ(countLog(logs, "missing foliage"), 3);
+    RemoveTempDir(dir);
+}
+
+TEST(TerrainGrid, FoliageBadBin_KeepsHeightDropsRecords)
+{
+    const auto     dir    = MakeTempDir("darkengine6_grid_foliage_bad_ut");
+    const Vector3f origin{ 0.0f, 0.0f, 0.0f };
+    ASSERT_TRUE(WriteTestWorld(dir, 1, 1, origin, true));
+    const auto path = (dir / "tiles") / tileFoliageFileName(0, 0);
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        char bytes[32]{};
+        out.write(bytes, sizeof(bytes));
+        ASSERT_TRUE(static_cast<bool>(out));
+    }
+
+    TerrainGrid grid;
+    ASSERT_TRUE(grid.create(MakeDesc(dir, 1, 1, origin, 1)));
+    std::vector<std::string> logs;
+    LogCapture capture(logs);
+    grid.updateStreaming(TileCenter(origin, 0, 0), nullptr);
+    ASSERT_TRUE(grid.isResident(0, 0));
+    const std::vector<FoliageRecord>* slot = grid.residentFoliage(0, 0);
+    ASSERT_NE(slot, nullptr);
+    EXPECT_TRUE(slot->empty());
+    EXPECT_EQ(countLog(logs, "missing foliage"), 0);
+    EXPECT_GE(countLog(logs, "FoliageFile:"), 1);
+    float y = 0.0f;
+    ASSERT_TRUE(grid.tryHeightAtWorld(1.0f, 1.0f, y));
+    EXPECT_NEAR(y, FineRaw(1, 1), 1.0e-4f);
+
+    grid.updateStreaming(TileCenter(origin, 0, 0), nullptr);
+    EXPECT_EQ(countLog(logs, "FoliageFile:"), 1);
+    EXPECT_TRUE(grid.residentFoliage(0, 0)->empty());
+    RemoveTempDir(dir);
+}
+
+TEST(TerrainGrid, FoliageWorking_DoesNotReadOrWarn)
+{
+    std::vector<std::string> logs;
+    LogCapture capture(logs);
+
+    HeightMap hm;
+    ASSERT_TRUE(hm.create(17, 17, 1.0f, 1.0f));
+    hm.setOrigin(Vector3f{ 0.0f, 0.0f, 0.0f });
+    for (int z = 0; z < 17; ++z)
+    {
+        for (int x = 0; x < 17; ++x)
+            hm.setHeight(x, z, 4.0f);
+    }
+    TerrainGrid fbm;
+    ASSERT_TRUE(fbm.createFromHeightMap(std::move(hm), 16));
+    fbm.updateStreaming(Vector3f{ 3.0f, 20.0f, 5.0f }, nullptr);
+    ASSERT_TRUE(fbm.isResident(0, 0));
+    const std::vector<FoliageRecord>* fbmFoliage = fbm.residentFoliage(0, 0);
+    ASSERT_NE(fbmFoliage, nullptr);
+    EXPECT_TRUE(fbmFoliage->empty());
+    EXPECT_EQ(countLog(logs, "missing foliage"), 0);
+
+    const auto     dir    = MakeTempDir("darkengine6_grid_foliage_working_ut");
+    const Vector3f origin{ 0.0f, 0.0f, 0.0f };
+    FoliageRecord rec{};
+    rec.x    = 1.0f;
+    rec.y    = 42.0f;
+    rec.z    = 2.0f;
+    rec.kind = static_cast<uint8_t>(FoliageKind::Tree);
+    ASSERT_TRUE(saveFoliageTile((dir / "tiles") / tileFoliageFileName(0, 0), 0, 0, &rec, 1));
+
+    HeightMap working;
+    ASSERT_TRUE(working.create(9, 9, 1.0f, 1.0f));
+    working.setOrigin(origin);
+    for (int z = 0; z < 9; ++z)
+    {
+        for (int x = 0; x < 9; ++x)
+            working.setHeight(x, z, 4.0f);
+    }
+    HeightMap coarse = working;
+    TerrainGridDesc desc{};
+    desc.tilesX       = 1;
+    desc.tilesZ       = 1;
+    desc.tileCells    = 8;
+    desc.cellSize     = 1.0f;
+    desc.origin       = origin;
+    desc.tileDir      = dir / "tiles";
+    desc.residentRing = 1;
+    TerrainGrid grid;
+    ASSERT_TRUE(grid.createFromCoarse(desc, std::move(coarse)));
+    ASSERT_TRUE(grid.setWorking(std::move(working), SplatMap{}));
+    grid.updateStreaming(TileCenter(origin, 0, 0), nullptr);
+    ASSERT_TRUE(grid.isResident(0, 0));
+    const std::vector<FoliageRecord>* ignored = grid.residentFoliage(0, 0);
+    ASSERT_NE(ignored, nullptr);
+    EXPECT_TRUE(ignored->empty());
+    float y = 0.0f;
+    ASSERT_TRUE(grid.tryHeightAtWorld(1.0f, 1.0f, y));
+    EXPECT_NEAR(y, 4.0f, 1.0e-4f);
+    EXPECT_EQ(countLog(logs, "missing foliage"), 0);
+    EXPECT_EQ(countLog(logs, "FoliageFile:"), 0);
+    RemoveTempDir(dir);
 }

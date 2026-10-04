@@ -717,6 +717,23 @@ bool TerrainGrid::loadFineTile(int tx, int tz)
                 slot.splat.generateFromHeight(slot.world.heightMap());
         }
     }
+    slot.foliage.clear();
+    {
+        const std::filesystem::path foliagePath = m_tileDir / tileFoliageFileName(tx, tz);
+        std::error_code foliageEc;
+        if (!std::filesystem::exists(foliagePath, foliageEc) || foliageEc)
+        {
+            if (!slot.foliageMissingLogged)
+            {
+                DE_LOG_WARN(LogCategory::Render, "TerrainGrid: missing foliage ({},{})", tx, tz);
+                slot.foliageMissingLogged = true;
+            }
+        }
+        else if (!loadFoliageTile(foliagePath, tx, tz, slot.foliage))
+            slot.foliage.clear();
+        else
+            slot.foliageMissingLogged = false;
+    }
     slot.resident          = true;
     slot.firstGpuApplyDone = false;
     slot.heapPacked        = false;
@@ -769,8 +786,10 @@ void TerrainGrid::evictFineTile(int tx, int tz)
     slot.world = TerrainWorld{};
     deferDestroyGpu({}, std::move(slot.splatTexture));
     slot.splat = SplatMap{};
-    slot.resident          = false;
-    slot.firstGpuApplyDone = false;
+    std::vector<FoliageRecord>().swap(slot.foliage);
+    slot.foliageMissingLogged = false;
+    slot.resident             = false;
+    slot.firstGpuApplyDone    = false;
 }
 
 void TerrainGrid::updateLod(const Vector3f& cameraPos)
@@ -1385,6 +1404,13 @@ const HeightMap* TerrainGrid::residentHeight(int tileX, int tileZ) const
     if (!world)
         return nullptr;
     return world->heightMap().valid() ? &world->heightMap() : nullptr;
+}
+
+const std::vector<FoliageRecord>* TerrainGrid::residentFoliage(int tileX, int tileZ) const
+{
+    if (!isResident(tileX, tileZ))
+        return nullptr;
+    return &m_slots[tileZ][tileX].foliage;
 }
 
 const TerrainWorld* TerrainGrid::residentWorld(int tileX, int tileZ) const
