@@ -11,7 +11,7 @@
 | **Area** | `Terrain/` (spawn + sidecar), `Scene/SceneTypes.h`, `Scene/SceneFile.cpp`, `Editor/EditorTerrain.cpp`, `Editor/EditorRender3D.cpp`, `Sandbox/SandboxApp.cpp`, `Render/` (instanced draw of existing `Model`s), `UnitTests/Terrain/` |
 | **Audience** | Engine, Editor, and Sandbox owners who already know the geomipmap, the four-channel splat, and scene sidecars |
 
-No C++ exceptions. Failure is `bool` plus `DE_LOG_ERROR` / `DE_LOG_WARN` / `DE_LOG_INFO` (`Core/Log.h`, category `LogCategory::Render` unless noted). Programmer mistakes use `DE_ASSERT`. Allman braces, 4-space indent, C++23. Sample code below follows that rule: no `try`, `catch`, or `throw`.
+No C++ exceptions. Failure is `bool` plus `DE_LOG_ERROR` / `DE_LOG_WARN` / `DE_LOG_INFO` (`Core/Log.h`, category `LogCategory::Render` unless noted). `Terrain/FoliageFile.cpp` sidecar load/save logs omit a category and therefore use `LogCategory::Core`. Spawn, editor, and prototype logs stay `Render`. The collider cap stays `Collision`. Programmer mistakes use `DE_ASSERT`. Allman braces, 4-space indent, C++23. Sample code below follows that rule: no `try`, `catch`, or `throw`.
 
 ---
 
@@ -253,7 +253,7 @@ Draw matrix, row-vector order (translation lives in `m41..m43`):
 Scale(scale) * RotationY(yaw) * Align(pitch, tiltYaw) * Translation(x, y, z)
 ```
 
-`Align` must map model +Y onto the normal that was stored. A unit test locks the mapping to within `1e-3`. Do not ship a `RotationMatrixX` sign that fails that test. Upright instances (`pitch == 0 && tiltYaw == 0`) reduce to `Scale * RotationY(yaw) * Translation`.
+`Align` must map model +Y onto the normal that was stored. Upright instances (`pitch == 0 && tiltYaw == 0`) reduce to `Scale * RotationY(yaw) * Translation`. `UnitTests/Terrain/FoliageSpawnTests.cpp` `TreesStayUprightRocksFollowNormal` checks stored `pitch` and `tiltYaw` within `1e-5`. It does not build the draw matrix.
 
 `ModelDraw` multiplies `part.localToRoot * world`. Prototypes put the base on model y = 0 (same idea as PathChase's trunk lift), so instance scale about the ground point grows the prop upward and does not bury the base. The rock sphere from `CreateSphere` is centred at the origin (`Render/MeshGen.h`: shapes are centred unless noted), so its `localToRoot` translates by `+radius` before any instance scale.
 
@@ -456,7 +456,7 @@ New section **Foliage** in `EditorApp::drawTerrainPanel`, after **Splat** and be
 - `InputScalar` for the foliage seed (`ImGuiDataType_U32`). It stays enabled while the worker runs.
 - Text: candidate cells, the cheap `atMost` figure, the cap, and the live instance count. When the set is stale the sentence is "Instances no longer match the ground. Saving keeps the baked Y. There is no modal. Save is not refused." When instances were authored the sentence is "Save writes a header for every current tile, including after a clear, so the old forest does not come back." Authored-false scenes do not get the header sentence.
 - An empty set's button is `Spawn`. When instances are present the button is `Respawn (replaces N)`. Its own `BeginDisabled` is true while `terrainBrushesLocked()` is set, and while there is no working height or splat. That pair wraps this button only.
-- While the worker runs: progress bar, phase text, **Cancel**. **Cancel** is outside every `BeginDisabled(terrainBrushesLocked())`, so the click reaches `cancelFoliageSpawn`. Changing a slider or the seed during a run does not affect the run; the worker captured the settings at start. The next press uses the new values.
+- While the worker runs: progress bar, phase text, **Cancel**. **Cancel** is outside every `BeginDisabled(terrainBrushesLocked())`. The button stores `m_foliageCancel`. It does not call `cancelFoliageSpawn`. `onFoliageProgress` returns false, and the join stays in `pollFoliageSpawn`. `cancelFoliageSpawn` stays the destructor, shutdown, and remove-terrain path only. Changing a slider or the seed during a run does not affect the run; the worker captured the settings at start. The next press uses the new values.
 - A `BeginDisabled` is not the brush gate. `terrainBrushesLocked()` is. The **Generate from height** handler still returns before `generateFromHeight` and `setWorkingSplat` when the lock is set. Paint stays in the first lock pair. Sculpt stays in the second.
 
 Sliders edit memory immediately. They do not move instances until Spawn. Save writes the sliders even if the user never spawned. It writes bins only when `m_foliageAuthored` is set.
@@ -786,7 +786,7 @@ There is no metrics service in the engine. Signals are the log and the panel.
 | Spawn cancelled | `DE_LOG_INFO` | previous set kept |
 | Spawn refused (no working splat / height) | `DE_LOG_ERROR` | which pointer failed |
 | Generate / Remove cleared instances | `DE_LOG_INFO` | the reason string |
-| Bad foliage bin | `DE_LOG_ERROR` | path, magic, version, count, or kind |
+| Bad foliage bin | `DE_LOG_ERROR` `Core` | path, magic, version, count, or kind. `FoliageFile.cpp` omits a category, so this is `LogCategory::Core`, not `Render`. |
 | Missing bin while the tile height exists | `DE_LOG_WARN` once per tile | empty slot |
 | Pipeline create failed | `DE_LOG_ERROR` | draw skipped |
 
