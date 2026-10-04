@@ -3015,6 +3015,16 @@ void SandboxApp::onInit()
             else
                 DE_LOG_INFO(LogCategory::Render, "SandboxApp: scene {}", scenePath.string());
             applySceneAtmosphere(m_env, sceneData);
+            {
+                const ExposureSceneDesc exposure = sceneData.exposure.present ? sceneData.exposure : ExposureSceneDesc{};
+                m_autoExposure.mode        = exposure.autoExposure ? ExposureMode::Auto : ExposureMode::Manual;
+                m_autoExposure.evBias      = exposure.evBias;
+                m_autoExposure.maxEv       = exposure.maxEv;
+                m_autoExposure.adaptBright = exposure.adaptBright;
+                m_autoExposure.adaptDark   = exposure.adaptDark;
+                resetAutoExposure(m_autoExposureState);
+                DE_LOG_INFO(LogCategory::Render, "SandboxApp: exposure auto={}", exposure.autoExposure);
+            }
             if (sceneData.mode != SceneMode::Scene2D && sceneData.hasTerrain)
             {
                 if (!sceneData.terrain.source.empty())

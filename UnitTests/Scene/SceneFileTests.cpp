@@ -1232,6 +1232,13 @@ TEST(SceneFile, AtmosphereAndTerrainSourceRoundTrip)
     in.water.waves[0].amplitude     = 0.42f;
     in.water.waves[0].speed         = 1.15f;
 
+    in.exposure.present      = true;
+    in.exposure.autoExposure = false;
+    in.exposure.evBias       = -0.25f;
+    in.exposure.maxEv        = 1.5f;
+    in.exposure.adaptBright  = 6.0f;
+    in.exposure.adaptDark    = 1.0f;
+
     const auto path = tempScenePath("darkengine6_scene_atmosphere_ut.json");
     std::string err;
     ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
@@ -1271,7 +1278,24 @@ TEST(SceneFile, AtmosphereAndTerrainSourceRoundTrip)
     EXPECT_NEAR(env.weather.cloudCoverage, 0.35f, 1.0e-4f);
     EXPECT_FALSE(env.fogAuto);
     EXPECT_NEAR(env.fogDensity(), 0.02f, 1.0e-5f);
+    EXPECT_TRUE(out.exposure.present);
+    EXPECT_FALSE(out.exposure.autoExposure);
+    EXPECT_NEAR(out.exposure.evBias, -0.25f, 1.0e-4f);
+    EXPECT_NEAR(out.exposure.maxEv, 1.5f, 1.0e-4f);
+    EXPECT_NEAR(out.exposure.adaptBright, 6.0f, 1.0e-4f);
+    EXPECT_NEAR(out.exposure.adaptDark, 1.0f, 1.0e-4f);
+
+    SceneFileData omitted = in;
+    omitted.exposure = {};
+    const auto omittedPath = tempScenePath("darkengine6_scene_exposure_omit_ut.json");
+    ASSERT_TRUE(saveSceneToJson(omittedPath, omitted, &err)) << err;
+    SceneFileData missing{};
+    ASSERT_TRUE(loadSceneFromJson(omittedPath, missing, &err)) << err;
+    EXPECT_FALSE(missing.exposure.present);
+    EXPECT_FALSE(missing.exposure.autoExposure);
+    EXPECT_NEAR(missing.exposure.evBias, 0.0f, 1.0e-4f);
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
+    std::filesystem::remove(omittedPath, ec);
 }

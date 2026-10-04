@@ -197,6 +197,7 @@ void EditorApp::newScene3D()
     clearScene();
     removeEditorTerrain();
     m_authoredWater = {};
+    m_authoredExposure = {};
     m_env = Sky::Environment{};
     ensureGlobalLights();
     m_env.evaluate();

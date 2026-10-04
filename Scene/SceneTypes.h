@@ -390,6 +390,17 @@ namespace Dark
         int                waveCount        = 0; // 0 keeps the built-in Gerstner set
     };
 
+    // Meter on top of the artistic exposure. autoExposure defaults off.
+    struct ExposureSceneDesc
+    {
+        bool  present      = false;
+        bool  autoExposure = false;
+        float evBias       = 0.0f;
+        float maxEv        = 1.5f;
+        float adaptBright  = 6.0f; // 1/s, view got brighter, exposure falls
+        float adaptDark    = 1.0f; // 1/s, view got darker, exposure rises
+    };
+
     struct SceneFileData
     {
         int         version = 2;
@@ -405,6 +416,7 @@ namespace Dark
         SkySceneDesc      sky;
         FogSceneDesc      fog;
         WaterSceneDesc    water;
+        ExposureSceneDesc exposure;
         std::vector<SceneObjectData> objects;
     };
 

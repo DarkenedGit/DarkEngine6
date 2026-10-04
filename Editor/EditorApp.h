@@ -300,7 +300,8 @@ private:
     Camera2D m_camera2D;
     SceneMode m_sceneMode = SceneMode::Scene3D;
     Sky::Environment m_env;
-    WaterSceneDesc m_authoredWater{};
+    WaterSceneDesc    m_authoredWater{};
+    ExposureSceneDesc m_authoredExposure{};
     IblSettings  m_ibl;
     GtaoSettings m_ssao;
     SsrSettings  m_ssr;

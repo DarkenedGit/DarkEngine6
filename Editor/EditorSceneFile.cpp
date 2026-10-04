@@ -172,6 +172,8 @@ bool EditorApp::saveScene()
             data.water.amplitudeScale = m_water.params().amplitudeScale;
             data.water.speedScale     = m_water.params().speedScale;
         }
+        if (m_authoredExposure.present)
+            data.exposure = m_authoredExposure;
     }
     if (data.hasTerrain)
     {
@@ -232,11 +234,14 @@ bool EditorApp::loadScene()
     clearScene();
     removeEditorTerrain();
     m_authoredWater = {};
+    m_authoredExposure = {};
     if (data.mode != SceneMode::Scene2D)
     {
         applySceneAtmosphere(m_env, data);
         if (data.water.present)
             m_authoredWater = data.water;
+        if (data.exposure.present)
+            m_authoredExposure = data.exposure;
     }
     m_worldMin  = data.worldMin;
     m_worldMax  = data.worldMax;

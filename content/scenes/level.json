@@ -51,6 +51,13 @@
       { "angle": -1.35, "frequency": 1.795196, "amplitude": 0.035, "speed": 3.1 }
     ]
   },
+  "exposure": {
+    "auto": false,
+    "evBias": 0.0,
+    "maxEv": 1.5,
+    "adaptBright": 6.0,
+    "adaptDark": 1.0
+  },
   "mode": "3d",
   "name": "level",
   "objects": [

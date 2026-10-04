@@ -196,6 +196,17 @@ json waterToJson(const WaterSceneDesc& water)
     return w;
 }
 
+json exposureToJson(const ExposureSceneDesc& exposure)
+{
+    json e;
+    e["auto"]        = exposure.autoExposure;
+    e["evBias"]      = exposure.evBias;
+    e["maxEv"]       = exposure.maxEv;
+    e["adaptBright"] = exposure.adaptBright;
+    e["adaptDark"]   = exposure.adaptDark;
+    return e;
+}
+
 bool readColor(const json& j, float out[4], std::string* err, const char* field)
 {
     if (!j.is_array() || j.size() < 3)
@@ -298,6 +309,8 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             root["fog"] = fogToJson(scene.fog);
         if (scene.water.present)
             root["water"] = waterToJson(scene.water);
+        if (scene.exposure.present)
+            root["exposure"] = exposureToJson(scene.exposure);
     }
     if (scene.mode == SceneMode::Scene2D)
     {
@@ -636,6 +649,18 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                 }
             }
             outScene.water = std::move(water);
+        }
+        if (root.contains("exposure") && root["exposure"].is_object())
+        {
+            const json& e = root["exposure"];
+            ExposureSceneDesc exposure{};
+            exposure.present      = true;
+            exposure.autoExposure = e.value("auto", false);
+            exposure.evBias       = e.value("evBias", 0.0f);
+            exposure.maxEv        = e.value("maxEv", 1.5f);
+            exposure.adaptBright  = e.value("adaptBright", 6.0f);
+            exposure.adaptDark    = e.value("adaptDark", 1.0f);
+            outScene.exposure     = std::move(exposure);
         }
     }
 
