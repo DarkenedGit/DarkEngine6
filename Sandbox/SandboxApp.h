@@ -225,6 +225,7 @@ private:
     bool          m_netBrowsing    = false;
     bool          m_gameplayPaused = false;
     bool          m_stepGameplay   = false;
+    float         m_flySpeed       = 18.0f;
     float         m_spinSpeed      = 0.8f;
     float         m_cloudTime      = 0.0f;
     bool          m_showShadowMaps = false;

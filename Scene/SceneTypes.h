@@ -331,6 +331,65 @@ namespace Dark
         FoliageSceneDesc      foliage;
     };
 
+    // Celestial clock and weather. Absent from a file means the Environment defaults.
+    struct SkySceneDesc
+    {
+        bool        present       = false;
+        float       timeOfDay     = 16.2f; // hours, [0, 24)
+        float       dayOfYear     = 172.0f;
+        float       latitude      = 47.6f; // degrees
+        float       timeScale     = 0.0f;  // hours advanced per real second; 0 holds the clock
+        std::string weather       = "partly"; // clear, partly, overcast, storm, or custom
+        float       cloudCoverage = 0.35f;
+        float       turbidity     = 2.4f;
+        float       windSpeed     = 0.04f;
+        float       windDir[2]{ 1.0f, 0.2f };
+        float       rain          = 0.0f;
+    };
+
+    // Fog knobs. When autoFromWeather is set, evaluate() writes density and color.
+    struct FogSceneDesc
+    {
+        bool  present         = false;
+        bool  autoFromWeather = true;
+        float distanceScale   = 1.0f;
+        float heightScale     = 1.0f;
+        float valleyScale     = 1.0f;
+        float distanceDensity = 0.004f;
+        float heightDensity   = 0.0f;
+        float valleyDensity   = 0.012f;
+        float heightFalloff   = 0.06f;
+        float valleyHeight    = 14.0f;
+        float color[3]{ 0.55f, 0.62f, 0.72f };
+    };
+
+    struct WaterWaveSceneDesc
+    {
+        float angleFromFlow = 0.0f;
+        float frequency     = 1.0f;
+        float amplitude     = 0.1f;
+        float speed         = 1.0f;
+    };
+
+    // One water sheet for a level. hasLevel false keeps a fraction of the terrain's vertical range.
+    struct WaterSceneDesc
+    {
+        bool               present          = false;
+        bool               hasLevel         = false;
+        float              level            = 0.0f;
+        float              levelFraction    = 0.38f;
+        int                chunkCells       = 16;
+        float              lodDistances[8]{ 40.0f, 80.0f, 160.0f, 320.0f, 640.0f, 1280.0f, 2560.0f, 5120.0f };
+        int                lodDistanceCount = 5;
+        float              flowDir[2]{ 1.0f, 0.35f };
+        float              flowStrength     = 0.85f;
+        float              steepness        = 0.55f;
+        float              amplitudeScale   = 1.0f;
+        float              speedScale       = 1.0f;
+        WaterWaveSceneDesc waves[4]{};
+        int                waveCount        = 0; // 0 keeps the built-in Gerstner set
+    };
+
     struct SceneFileData
     {
         int         version = 2;
@@ -343,6 +402,9 @@ namespace Dark
         float       iblRotationRadY  = 0.0f; // radians; ImGui shows degrees
         bool              hasTerrain = false;
         TerrainSceneDesc  terrain;
+        SkySceneDesc      sky;
+        FogSceneDesc      fog;
+        WaterSceneDesc    water;
         std::vector<SceneObjectData> objects;
     };
 

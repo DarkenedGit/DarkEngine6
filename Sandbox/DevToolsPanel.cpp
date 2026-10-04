@@ -203,6 +203,9 @@ void SandboxApp::drawDevTools()
     ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::TextDisabled("O");
+    ImGui::SliderFloat(ICON_FA_GAUGE_HIGH "  Fly speed (m/s)", &m_flySpeed, 1.0f, 400.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Free-fly camera while paused. Shift multiplies by 2.5.");
     ImGui::Separator();
 
     DebugRenderState& dbg = renderer().debugState();

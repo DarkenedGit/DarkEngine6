@@ -2,6 +2,55 @@
   "environment": "env/studio_gradient.hdr",
   "iblIntensity": 1.0,
   "iblRotationRadY": 0.0,
+  "terrain": {
+    "bindLayout": 1,
+    "chunkCells": 64,
+    "heightBlendK": -1.0,
+    "source": "terrain/HurricaneRidge",
+    "worldSize": 1024.0,
+    "importHeight": 480.0
+  },
+  "sky": {
+    "timeOfDay": 16.2,
+    "dayOfYear": 172.0,
+    "latitude": 47.6,
+    "timeScale": 0.0,
+    "weather": "partly",
+    "cloudCoverage": 0.35,
+    "turbidity": 2.4,
+    "windSpeed": 0.04,
+    "windDir": [1.0, 0.2],
+    "rain": 0.0
+  },
+  "fog": {
+    "auto": true,
+    "distanceScale": 0.1,
+    "heightScale": 0.1,
+    "valleyScale": 0.1,
+    "distanceDensity": 0.004,
+    "heightDensity": 0.0,
+    "valleyDensity": 0.012,
+    "heightFalloff": 0.06,
+    "valleyHeight": 8.0,
+    "color": [0.55, 0.62, 0.72]
+  },
+  "water": {
+    "level": 100.4,
+    "levelFraction": 0.38,
+    "chunkCells": 16,
+    "lodDistances": [40.0, 80.0, 160.0, 320.0, 640.0],
+    "flowDir": [1.0, 0.35],
+    "flowStrength": 0.85,
+    "steepness": 0.55,
+    "amplitudeScale": 1.0,
+    "speedScale": 1.0,
+    "waves": [
+      { "angle": 0.1, "frequency": 0.224399, "amplitude": 0.42, "speed": 1.15 },
+      { "angle": -0.55, "frequency": 0.448799, "amplitude": 0.2, "speed": 1.7 },
+      { "angle": 0.95, "frequency": 0.897598, "amplitude": 0.09, "speed": 2.35 },
+      { "angle": -1.35, "frequency": 1.795196, "amplitude": 0.035, "speed": 3.1 }
+    ]
+  },
   "mode": "3d",
   "name": "level",
   "objects": [

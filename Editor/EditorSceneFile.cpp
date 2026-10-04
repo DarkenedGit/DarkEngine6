@@ -163,6 +163,16 @@ bool EditorApp::saveScene()
         saved.push_back(e);
     });
     fillTerrainSceneDesc(data);
+    if (data.mode != SceneMode::Scene2D)
+    {
+        captureSceneAtmosphere(m_env, data);
+        if (m_authoredWater.present)
+        {
+            data.water = m_authoredWater;
+            data.water.amplitudeScale = m_water.params().amplitudeScale;
+            data.water.speedScale     = m_water.params().speedScale;
+        }
+    }
     if (data.hasTerrain)
     {
         if (!saveTerrainSidecars(m_scenePath))
@@ -221,6 +231,13 @@ bool EditorApp::loadScene()
 
     clearScene();
     removeEditorTerrain();
+    m_authoredWater = {};
+    if (data.mode != SceneMode::Scene2D)
+    {
+        applySceneAtmosphere(m_env, data);
+        if (data.water.present)
+            m_authoredWater = data.water;
+    }
     m_worldMin  = data.worldMin;
     m_worldMax  = data.worldMax;
     if (data.mode == SceneMode::Scene3D)
@@ -264,7 +281,10 @@ bool EditorApp::loadScene()
             light->emissiveMesh = spawned[static_cast<size_t>(idx)];
     }
     if (m_sceneMode == SceneMode::Scene3D)
+    {
         ensureGlobalLights();
+        applySkyToLights();
+    }
     if (data.mode == SceneMode::Scene3D && data.hasTerrain)
     {
         if (!loadTerrainFromScene(data, m_scenePath))
@@ -272,6 +292,11 @@ bool EditorApp::loadScene()
     }
     else
         resetFoliageAuthoring();
+    if (m_authoredWater.present)
+    {
+        const float level = m_authoredWater.hasLevel ? m_authoredWater.level : m_water.params().waterLevel;
+        m_water.params() = sceneWaterParams(m_authoredWater, level);
+    }
     m_selected = {};
     DE_LOG_INFO("Editor: loaded {} objects", editorObjectCount());
     return true;

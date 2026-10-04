@@ -636,7 +636,7 @@ void SandboxApp::updateFlyCamera(float dt)
         const float strafe  = input().actionAxis("fly_strafe");
         const float climb   = input().actionAxis("fly_climb");
         const bool  sprint  = input().keyDown(Key::LeftShift) || input().actionDown("sprint");
-        const float speed   = sprint ? 48.0f : 18.0f;
+        const float speed   = (sprint ? 2.5f : 1.0f) * m_flySpeed;
 
         if (forward != 0.0f)
             m_viewCamera.Walk(forward * speed * dt);
@@ -2988,10 +2988,6 @@ void SandboxApp::onInit()
     if (!pumpBootFrame())
         return;
 
-    m_env.timeOfDay = 16.2f;
-    m_env.weather   = Sky::WeatherState::PartlyCloudy();
-    m_env.evaluate();
-
     if (!loadAndBakeIbl(renderer(), assets(), m_ibl, m_iblImageId))
         DE_LOG_INFO(LogCategory::Render, "SandboxApp: IBL off — using ambient");
 
@@ -3014,7 +3010,11 @@ void SandboxApp::onInit()
         {
             std::string   err;
             const std::filesystem::path scenePath = defaultScenePath("level.json");
-            loadSceneFromJson(scenePath, sceneData, &err);
+            if (!loadSceneFromJson(scenePath, sceneData, &err))
+                DE_LOG_ERROR(LogCategory::Render, "SandboxApp: scene load failed ({}) — {}", scenePath.string(), err);
+            else
+                DE_LOG_INFO(LogCategory::Render, "SandboxApp: scene {}", scenePath.string());
+            applySceneAtmosphere(m_env, sceneData);
             if (sceneData.mode != SceneMode::Scene2D && sceneData.hasTerrain)
             {
                 if (!sceneData.terrain.source.empty())
@@ -3023,9 +3023,10 @@ void SandboxApp::onInit()
                     Terrain::WorldEngineLoadDesc importDesc{};
                     importDesc.worldSizeMeters   = sceneData.terrain.worldSize > 1.0f ? sceneData.terrain.worldSize : 1024.0f;
                     importDesc.heightRangeMeters = sceneData.terrain.importHeight > 0.0f ? sceneData.terrain.importHeight : 480.0f;
+                    const int chunkCells = sceneData.terrain.chunkCells > 0 ? sceneData.terrain.chunkCells : 64;
                     if (!dir.empty()
                         && Terrain::loadWorldEngineDirectory(dir, importDesc, worldMaps)
-                        && m_terrain.createFromHeightMap(std::move(worldMaps.height), 64))
+                        && m_terrain.createFromHeightMap(std::move(worldMaps.height), chunkCells))
                     {
                         matSplat = worldMaps.splat;
                         if (!m_terrain.setWorkingSplat(std::move(worldMaps.splat)))
@@ -3082,23 +3083,6 @@ void SandboxApp::onInit()
         m_foliageDensity.treeModel         = sceneData.terrain.foliage.treeModel;
         m_foliageDensity.flowerModel       = sceneData.terrain.foliage.flowerModel;
         m_foliageDensity.rockModel         = sceneData.terrain.foliage.rockModel;
-
-        if (!loadedScene)
-        {
-            const std::filesystem::path dir = Terrain::resolveWorldEngineDirectory("terrain/HurricaneRidge");
-            Terrain::WorldEngineLoadDesc importDesc{};
-            if (!dir.empty()
-                && Terrain::loadWorldEngineDirectory(dir, importDesc, worldMaps)
-                && m_terrain.createFromHeightMap(std::move(worldMaps.height), 64))
-            {
-                matSplat = worldMaps.splat;
-                if (!m_terrain.setWorkingSplat(std::move(worldMaps.splat)))
-                    DE_LOG_WARN(LogCategory::Render, "SandboxApp: World Engine splat was not kept");
-                loadedScene = true;
-                worldEngine = true;
-                DE_LOG_INFO(LogCategory::Render, "SandboxApp: loaded content/terrain/HurricaneRidge");
-            }
-        }
 
         if (!loadedScene)
         {
@@ -3227,18 +3211,20 @@ void SandboxApp::onInit()
         DE_LOG_INFO(LogCategory::Render, "SandboxApp: {} cloud volume(s)", spawnedClouds);
 
         const AABox3f terrainBox = m_terrain.bounds();
-        const float   waterLevel = m_haveTerrainSea ? m_terrainSeaLevel : Lerp(terrainBox.Min.y, terrainBox.Max.y, 0.38f);
+        const WaterSceneDesc& waterScene = sceneData.water;
+        float waterLevel = Lerp(terrainBox.Min.y, terrainBox.Max.y, waterScene.levelFraction);
+        if (waterScene.hasLevel)
+            waterLevel = waterScene.level;
+        else if (m_haveTerrainSea)
+            waterLevel = m_terrainSeaLevel;
         WaterDesc waterDesc;
-        waterDesc.chunkCells       = 16;
-        waterDesc.waterLevel       = waterLevel;
-        waterDesc.lodDistanceCount = 5;
-        waterDesc.lodDistances[0]  = 40.0f;
-        waterDesc.lodDistances[1]  = 80.0f;
-        waterDesc.lodDistances[2]  = 160.0f;
-        waterDesc.lodDistances[3]  = 320.0f;
-        waterDesc.lodDistances[4]  = 640.0f;
-        waterDesc.params           = defaultWaterParams(waterLevel);
-        waterDesc.params.flowDir   = Vector2f(1.0f, 0.35f);
+        waterDesc.chunkCells = waterScene.chunkCells > 0 ? waterScene.chunkCells : 16;
+        waterDesc.waterLevel = waterLevel;
+        const int lodCount = waterScene.lodDistanceCount < 1 ? 1 : (waterScene.lodDistanceCount > Terrain::kMaxLodLevels ? Terrain::kMaxLodLevels : waterScene.lodDistanceCount);
+        waterDesc.lodDistanceCount = lodCount;
+        for (int i = 0; i < lodCount; ++i)
+            waterDesc.lodDistances[i] = waterScene.lodDistances[i];
+        waterDesc.params = sceneWaterParams(waterScene, waterLevel);
         if (!m_water.create(m_terrain.coarse(), waterDesc))
         {
             DE_LOG_FATAL("SandboxApp: water create failed");

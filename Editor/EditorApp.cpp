@@ -196,6 +196,8 @@ void EditorApp::newScene3D()
     m_sceneName = "level";
     clearScene();
     removeEditorTerrain();
+    m_authoredWater = {};
+    m_env = Sky::Environment{};
     ensureGlobalLights();
     m_env.evaluate();
     applySkyToLights();

@@ -1171,3 +1171,107 @@ TEST(SceneFile, TerrainGrid_TilesX9Rejected)
     std::error_code removeEc;
     std::filesystem::remove(path, removeEc);
 }
+
+TEST(SceneFile, AtmosphereAndTerrainSourceRoundTrip)
+{
+    SceneFileData in{};
+    in.version = 2;
+    in.name    = "ut_atmosphere";
+    in.mode    = SceneMode::Scene3D;
+    in.hasTerrain = true;
+    in.terrain.source       = "terrain/HurricaneRidge";
+    in.terrain.worldSize    = 1024.0f;
+    in.terrain.importHeight = 480.0f;
+    in.terrain.chunkCells   = 64;
+    in.terrain.heightBlendK = -1.0f;
+
+    in.sky.present       = true;
+    in.sky.timeOfDay     = 16.2f;
+    in.sky.dayOfYear     = 172.0f;
+    in.sky.latitude      = 47.6f;
+    in.sky.timeScale     = 0.0f;
+    in.sky.weather       = "partly";
+    in.sky.cloudCoverage = 0.35f;
+    in.sky.turbidity     = 2.4f;
+    in.sky.windSpeed     = 0.04f;
+    in.sky.windDir[0]    = 1.0f;
+    in.sky.windDir[1]    = 0.2f;
+    in.sky.rain          = 0.0f;
+
+    in.fog.present         = true;
+    in.fog.autoFromWeather = false;
+    in.fog.distanceScale   = 1.5f;
+    in.fog.heightScale     = 0.5f;
+    in.fog.valleyScale     = 2.0f;
+    in.fog.distanceDensity = 0.02f;
+    in.fog.heightDensity   = 0.01f;
+    in.fog.valleyDensity   = 0.03f;
+    in.fog.heightFalloff   = 0.08f;
+    in.fog.valleyHeight    = 20.0f;
+    in.fog.color[0]        = 0.2f;
+    in.fog.color[1]        = 0.3f;
+    in.fog.color[2]        = 0.4f;
+
+    in.water.present          = true;
+    in.water.hasLevel         = true;
+    in.water.level            = 182.4f;
+    in.water.levelFraction    = 0.38f;
+    in.water.chunkCells       = 16;
+    in.water.lodDistanceCount = 5;
+    in.water.lodDistances[0]  = 40.0f;
+    in.water.lodDistances[4]  = 640.0f;
+    in.water.flowDir[0]       = 1.0f;
+    in.water.flowDir[1]       = 0.35f;
+    in.water.flowStrength     = 0.85f;
+    in.water.steepness        = 0.55f;
+    in.water.amplitudeScale   = 1.25f;
+    in.water.speedScale       = 0.5f;
+    in.water.waveCount        = 1;
+    in.water.waves[0].angleFromFlow = 0.1f;
+    in.water.waves[0].frequency     = 0.224399f;
+    in.water.waves[0].amplitude     = 0.42f;
+    in.water.waves[0].speed         = 1.15f;
+
+    const auto path = tempScenePath("darkengine6_scene_atmosphere_ut.json");
+    std::string err;
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+
+    SceneFileData out{};
+    ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
+    EXPECT_TRUE(out.hasTerrain);
+    EXPECT_EQ(out.terrain.source, "terrain/HurricaneRidge");
+    EXPECT_NEAR(out.terrain.worldSize, 1024.0f, 1.0e-3f);
+    EXPECT_NEAR(out.terrain.importHeight, 480.0f, 1.0e-3f);
+    EXPECT_TRUE(out.sky.present);
+    EXPECT_NEAR(out.sky.timeOfDay, 16.2f, 1.0e-4f);
+    EXPECT_EQ(out.sky.weather, "partly");
+    EXPECT_NEAR(out.sky.cloudCoverage, 0.35f, 1.0e-4f);
+    EXPECT_TRUE(out.fog.present);
+    EXPECT_FALSE(out.fog.autoFromWeather);
+    EXPECT_NEAR(out.fog.distanceDensity, 0.02f, 1.0e-5f);
+    EXPECT_NEAR(out.fog.color[2], 0.4f, 1.0e-4f);
+    EXPECT_TRUE(out.water.present);
+    EXPECT_TRUE(out.water.hasLevel);
+    EXPECT_NEAR(out.water.level, 182.4f, 1.0e-3f);
+    EXPECT_NEAR(out.water.flowDir[1], 0.35f, 1.0e-4f);
+    EXPECT_EQ(out.water.waveCount, 1);
+    EXPECT_NEAR(out.water.waves[0].amplitude, 0.42f, 1.0e-4f);
+    EXPECT_EQ(out.water.lodDistanceCount, 5);
+    EXPECT_NEAR(out.water.lodDistances[4], 640.0f, 1.0e-3f);
+
+    const WaterParams params = sceneWaterParams(out.water, out.water.level);
+    EXPECT_NEAR(params.waterLevel, 182.4f, 1.0e-3f);
+    EXPECT_NEAR(params.flowDir.y, 0.35f, 1.0e-4f);
+    EXPECT_NEAR(params.waves[0].amplitude, 0.42f, 1.0e-4f);
+    EXPECT_NEAR(params.amplitudeScale, 1.25f, 1.0e-4f);
+
+    Sky::Environment env{};
+    applySceneAtmosphere(env, out);
+    EXPECT_NEAR(env.timeOfDay, 16.2f, 1.0e-4f);
+    EXPECT_NEAR(env.weather.cloudCoverage, 0.35f, 1.0e-4f);
+    EXPECT_FALSE(env.fogAuto);
+    EXPECT_NEAR(env.fogDensity(), 0.02f, 1.0e-5f);
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}

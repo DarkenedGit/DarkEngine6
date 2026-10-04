@@ -7,6 +7,7 @@
 
 #include "third_party/nlohmann/json.hpp"
 
+#include <cmath>
 #include <fstream>
 #include <sstream>
 
@@ -95,6 +96,104 @@ bool readQuat(const json& j, Math::Quaternion& out, std::string* err, const char
     out.y = j[2].get<float>();
     out.z = j[3].get<float>();
     return true;
+}
+
+Sky::WeatherState weatherPreset(const std::string& name)
+{
+    if (name == "clear")
+        return Sky::WeatherState::Clear();
+    if (name == "overcast")
+        return Sky::WeatherState::Overcast();
+    if (name == "storm")
+        return Sky::WeatherState::Storm();
+    return Sky::WeatherState::PartlyCloudy();
+}
+
+bool weatherMatches(const Sky::WeatherState& a, const Sky::WeatherState& b)
+{
+    return std::fabs(a.cloudCoverage - b.cloudCoverage) < 1.0e-3f && std::fabs(a.turbidity - b.turbidity) < 1.0e-3f
+        && std::fabs(a.windSpeed - b.windSpeed) < 1.0e-3f && std::fabs(a.windDir.x - b.windDir.x) < 1.0e-3f
+        && std::fabs(a.windDir.y - b.windDir.y) < 1.0e-3f && std::fabs(a.rain - b.rain) < 1.0e-3f;
+}
+
+const char* weatherNameFor(const Sky::WeatherState& weather)
+{
+    if (weatherMatches(weather, Sky::WeatherState::Clear()))
+        return "clear";
+    if (weatherMatches(weather, Sky::WeatherState::PartlyCloudy()))
+        return "partly";
+    if (weatherMatches(weather, Sky::WeatherState::Overcast()))
+        return "overcast";
+    if (weatherMatches(weather, Sky::WeatherState::Storm()))
+        return "storm";
+    return "custom";
+}
+
+json skyToJson(const SkySceneDesc& sky)
+{
+    json s;
+    s["timeOfDay"]     = sky.timeOfDay;
+    s["dayOfYear"]     = sky.dayOfYear;
+    s["latitude"]      = sky.latitude;
+    s["timeScale"]     = sky.timeScale;
+    s["weather"]       = sky.weather.empty() ? std::string("partly") : sky.weather;
+    s["cloudCoverage"] = sky.cloudCoverage;
+    s["turbidity"]     = sky.turbidity;
+    s["windSpeed"]     = sky.windSpeed;
+    s["windDir"]       = json::array({ sky.windDir[0], sky.windDir[1] });
+    s["rain"]          = sky.rain;
+    return s;
+}
+
+json fogToJson(const FogSceneDesc& fog)
+{
+    json f;
+    f["auto"]             = fog.autoFromWeather;
+    f["distanceScale"]    = fog.distanceScale;
+    f["heightScale"]      = fog.heightScale;
+    f["valleyScale"]      = fog.valleyScale;
+    f["distanceDensity"]  = fog.distanceDensity;
+    f["heightDensity"]    = fog.heightDensity;
+    f["valleyDensity"]    = fog.valleyDensity;
+    f["heightFalloff"]    = fog.heightFalloff;
+    f["valleyHeight"]     = fog.valleyHeight;
+    f["color"]            = json::array({ fog.color[0], fog.color[1], fog.color[2] });
+    return f;
+}
+
+json waterToJson(const WaterSceneDesc& water)
+{
+    json w;
+    if (water.hasLevel)
+        w["level"] = water.level;
+    w["levelFraction"]  = water.levelFraction;
+    w["chunkCells"]     = water.chunkCells;
+    w["flowDir"]        = json::array({ water.flowDir[0], water.flowDir[1] });
+    w["flowStrength"]   = water.flowStrength;
+    w["steepness"]      = water.steepness;
+    w["amplitudeScale"] = water.amplitudeScale;
+    w["speedScale"]     = water.speedScale;
+    json lod = json::array();
+    const int lodCount = water.lodDistanceCount < 1 ? 1 : (water.lodDistanceCount > 8 ? 8 : water.lodDistanceCount);
+    for (int i = 0; i < lodCount; ++i)
+        lod.push_back(water.lodDistances[i]);
+    w["lodDistances"] = std::move(lod);
+    if (water.waveCount > 0)
+    {
+        json waves = json::array();
+        const int n = water.waveCount > 4 ? 4 : water.waveCount;
+        for (int i = 0; i < n; ++i)
+        {
+            json wave;
+            wave["angle"]     = water.waves[i].angleFromFlow;
+            wave["frequency"] = water.waves[i].frequency;
+            wave["amplitude"] = water.waves[i].amplitude;
+            wave["speed"]     = water.waves[i].speed;
+            waves.push_back(std::move(wave));
+        }
+        w["waves"] = std::move(waves);
+    }
+    return w;
 }
 
 bool readColor(const json& j, float out[4], std::string* err, const char* field)
@@ -193,6 +292,12 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             t["foliage"]           = std::move(f);
             root["terrain"] = std::move(t);
         }
+        if (scene.sky.present)
+            root["sky"] = skyToJson(scene.sky);
+        if (scene.fog.present)
+            root["fog"] = fogToJson(scene.fog);
+        if (scene.water.present)
+            root["water"] = waterToJson(scene.water);
     }
     if (scene.mode == SceneMode::Scene2D)
     {
@@ -438,6 +543,99 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                 outScene.hasTerrain = true;
                 outScene.terrain    = std::move(desc);
             }
+        }
+        if (root.contains("sky") && root["sky"].is_object())
+        {
+            const json& s = root["sky"];
+            SkySceneDesc sky{};
+            sky.present       = true;
+            sky.weather       = s.value("weather", std::string("partly"));
+            const Sky::WeatherState preset = weatherPreset(sky.weather);
+            sky.timeOfDay     = s.value("timeOfDay", 16.2f);
+            sky.dayOfYear     = s.value("dayOfYear", 172.0f);
+            sky.latitude      = s.value("latitude", 47.6f);
+            sky.timeScale     = s.value("timeScale", 0.0f);
+            sky.cloudCoverage = s.value("cloudCoverage", preset.cloudCoverage);
+            sky.turbidity     = s.value("turbidity", preset.turbidity);
+            sky.windSpeed     = s.value("windSpeed", preset.windSpeed);
+            sky.windDir[0]    = preset.windDir.x;
+            sky.windDir[1]    = preset.windDir.y;
+            sky.rain          = s.value("rain", preset.rain);
+            if (s.contains("windDir") && s["windDir"].is_array() && s["windDir"].size() >= 2)
+            {
+                sky.windDir[0] = s["windDir"][0].get<float>();
+                sky.windDir[1] = s["windDir"][1].get<float>();
+            }
+            outScene.sky = std::move(sky);
+        }
+        if (root.contains("fog") && root["fog"].is_object())
+        {
+            const json& f = root["fog"];
+            FogSceneDesc fog{};
+            fog.present         = true;
+            fog.autoFromWeather = f.value("auto", true);
+            fog.distanceScale   = f.value("distanceScale", 1.0f);
+            fog.heightScale     = f.value("heightScale", 1.0f);
+            fog.valleyScale     = f.value("valleyScale", 1.0f);
+            fog.distanceDensity = f.value("distanceDensity", 0.004f);
+            fog.heightDensity   = f.value("heightDensity", 0.0f);
+            fog.valleyDensity   = f.value("valleyDensity", 0.012f);
+            fog.heightFalloff   = f.value("heightFalloff", 0.06f);
+            fog.valleyHeight    = f.value("valleyHeight", 14.0f);
+            if (f.contains("color") && f["color"].is_array() && f["color"].size() >= 3)
+            {
+                fog.color[0] = f["color"][0].get<float>();
+                fog.color[1] = f["color"][1].get<float>();
+                fog.color[2] = f["color"][2].get<float>();
+            }
+            outScene.fog = std::move(fog);
+        }
+        if (root.contains("water") && root["water"].is_object())
+        {
+            const json& w = root["water"];
+            WaterSceneDesc water{};
+            water.present        = true;
+            water.hasLevel       = w.contains("level") && w["level"].is_number();
+            water.level          = w.value("level", 0.0f);
+            water.levelFraction  = w.value("levelFraction", 0.38f);
+            water.chunkCells     = w.value("chunkCells", 16);
+            water.flowStrength   = w.value("flowStrength", 0.85f);
+            water.steepness      = w.value("steepness", 0.55f);
+            water.amplitudeScale = w.value("amplitudeScale", 1.0f);
+            water.speedScale     = w.value("speedScale", 1.0f);
+            if (w.contains("flowDir") && w["flowDir"].is_array() && w["flowDir"].size() >= 2)
+            {
+                water.flowDir[0] = w["flowDir"][0].get<float>();
+                water.flowDir[1] = w["flowDir"][1].get<float>();
+            }
+            if (w.contains("lodDistances") && w["lodDistances"].is_array())
+            {
+                const json& lod = w["lodDistances"];
+                const int n = lod.size() > 8 ? 8 : static_cast<int>(lod.size());
+                water.lodDistanceCount = n > 0 ? n : 1;
+                for (int i = 0; i < n; ++i)
+                {
+                    if (lod[i].is_number())
+                        water.lodDistances[i] = lod[i].get<float>();
+                }
+            }
+            if (w.contains("waves") && w["waves"].is_array())
+            {
+                const json& waves = w["waves"];
+                const int n = waves.size() > 4 ? 4 : static_cast<int>(waves.size());
+                water.waveCount = n;
+                for (int i = 0; i < n; ++i)
+                {
+                    if (!waves[i].is_object())
+                        continue;
+                    const json& wave = waves[i];
+                    water.waves[i].angleFromFlow = wave.value("angle", 0.0f);
+                    water.waves[i].frequency     = wave.value("frequency", 1.0f);
+                    water.waves[i].amplitude     = wave.value("amplitude", 0.1f);
+                    water.waves[i].speed         = wave.value("speed", 1.0f);
+                }
+            }
+            outScene.water = std::move(water);
         }
     }
 
@@ -688,6 +886,109 @@ std::filesystem::path defaultScenePath(const std::filesystem::path& preferredNam
         return fallback;
 
     return fs::path("content") / "scenes" / name;
+}
+
+void applySceneAtmosphere(Sky::Environment& env, const SceneFileData& scene)
+{
+    if (scene.sky.present)
+    {
+        const SkySceneDesc& sky = scene.sky;
+        env.timeOfDay = sky.timeOfDay;
+        env.dayOfYear = sky.dayOfYear;
+        env.latitude  = sky.latitude;
+        env.timeScale = sky.timeScale;
+        env.weather.cloudCoverage = sky.cloudCoverage;
+        env.weather.turbidity     = sky.turbidity;
+        env.weather.windSpeed     = sky.windSpeed;
+        env.weather.windDir       = Math::Vector2f(sky.windDir[0], sky.windDir[1]);
+        env.weather.rain          = sky.rain;
+    }
+    else
+    {
+        const Sky::Environment fresh{};
+        env.timeOfDay = fresh.timeOfDay;
+        env.dayOfYear = fresh.dayOfYear;
+        env.latitude  = fresh.latitude;
+        env.timeScale = fresh.timeScale;
+        env.weather   = fresh.weather;
+    }
+
+    if (scene.fog.present)
+    {
+        const FogSceneDesc& fog = scene.fog;
+        env.fogAuto            = fog.autoFromWeather;
+        env.fogDistanceScale   = fog.distanceScale;
+        env.heightFogScale     = fog.heightScale;
+        env.volumetricFogScale = fog.valleyScale;
+        env.setHeightFogFalloff(fog.heightFalloff);
+        env.setVolumetricFogHeight(fog.valleyHeight);
+    }
+    else
+        env.resetFogTune();
+
+    env.evaluate();
+    if (scene.fog.present && !scene.fog.autoFromWeather)
+    {
+        const FogSceneDesc& fog = scene.fog;
+        env.setFogDensity(fog.distanceDensity);
+        env.setHeightFogDensity(fog.heightDensity);
+        env.setVolumetricFogDensity(fog.valleyDensity);
+        env.setFogColor(Math::Vector3f(fog.color[0], fog.color[1], fog.color[2]));
+    }
+}
+
+void captureSceneAtmosphere(const Sky::Environment& env, SceneFileData& scene)
+{
+    SkySceneDesc sky{};
+    sky.present       = true;
+    sky.timeOfDay     = env.timeOfDay;
+    sky.dayOfYear     = env.dayOfYear;
+    sky.latitude      = env.latitude;
+    sky.timeScale     = env.timeScale;
+    sky.weather       = weatherNameFor(env.weather);
+    sky.cloudCoverage = env.weather.cloudCoverage;
+    sky.turbidity     = env.weather.turbidity;
+    sky.windSpeed     = env.weather.windSpeed;
+    sky.windDir[0]    = env.weather.windDir.x;
+    sky.windDir[1]    = env.weather.windDir.y;
+    sky.rain          = env.weather.rain;
+    scene.sky         = std::move(sky);
+
+    FogSceneDesc fog{};
+    fog.present         = true;
+    fog.autoFromWeather = env.fogAuto;
+    fog.distanceScale   = env.fogDistanceScale;
+    fog.heightScale     = env.heightFogScale;
+    fog.valleyScale     = env.volumetricFogScale;
+    fog.distanceDensity = env.fogDensity();
+    fog.heightDensity   = env.heightFogDensity();
+    fog.valleyDensity   = env.volumetricFogDensity();
+    fog.heightFalloff   = env.heightFogFalloff();
+    fog.valleyHeight    = env.volumetricFogHeight();
+    const Math::Vector3f color = env.fogColor();
+    fog.color[0] = color.x;
+    fog.color[1] = color.y;
+    fog.color[2] = color.z;
+    scene.fog = std::move(fog);
+}
+
+WaterParams sceneWaterParams(const WaterSceneDesc& water, float waterLevel)
+{
+    WaterParams params = defaultWaterParams(waterLevel);
+    params.flowDir        = Math::Vector2f(water.flowDir[0], water.flowDir[1]);
+    params.flowStrength   = water.flowStrength;
+    params.steepness      = water.steepness;
+    params.amplitudeScale = water.amplitudeScale;
+    params.speedScale     = water.speedScale;
+    const int n = water.waveCount > 4 ? 4 : water.waveCount;
+    for (int i = 0; i < n; ++i)
+    {
+        params.waves[i].angleFromFlow = water.waves[i].angleFromFlow;
+        params.waves[i].frequency     = water.waves[i].frequency;
+        params.waves[i].amplitude     = water.waves[i].amplitude;
+        params.waves[i].speed         = water.waves[i].speed;
+    }
+    return params;
 }
 
 } // namespace Dark
