@@ -1792,7 +1792,9 @@ void EditorApp::drawTerrainPanel()
         kMaxFoliageInstances,
         static_cast<unsigned long long>(m_foliage.size()));
     if (m_foliageStale)
-        ImGui::TextDisabled("Stale");
+        ImGui::TextWrapped("Instances no longer match the ground. Saving keeps the baked Y. There is no modal. Save is not refused.");
+    if (m_foliageAuthored)
+        ImGui::TextWrapped("Save writes a header for every current tile, including after a clear, so the old forest does not come back.");
 
     const HeightMap* spawnHeight = m_terrain.editableWorking();
     const SplatMap*  spawnSplat  = m_terrain.editableWorkingSplat();
@@ -1800,7 +1802,13 @@ void EditorApp::drawTerrainPanel()
         || spawnHeight == nullptr || !spawnHeight->valid()
         || spawnSplat == nullptr || !spawnSplat->valid();
     ImGui::BeginDisabled(spawnBlocked);
-    if (ImGui::Button("Spawn"))
+    char spawnLabel[64] = "Spawn";
+    if (!m_foliage.empty())
+    {
+        std::snprintf(spawnLabel, sizeof(spawnLabel), "Respawn (replaces %llu)",
+            static_cast<unsigned long long>(m_foliage.size()));
+    }
+    if (ImGui::Button(spawnLabel))
         startFoliageSpawn();
     ImGui::EndDisabled();
     if (m_foliageRunning.load())
