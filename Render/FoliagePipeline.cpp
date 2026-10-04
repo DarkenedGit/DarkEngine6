@@ -519,7 +519,10 @@ namespace Dark
         m_binnedTileWorld = 0.0f;
         m_binnedOriginX   = 0.0f;
         m_binnedOriginZ   = 0.0f;
-        m_binnedEnds      = 0;
+        m_binnedFrontX    = 0;
+        m_binnedFrontY    = 0;
+        m_binnedBackZ     = 0;
+        m_binnedFrontKind = 0;
     }
 
     void FoliagePipeline::binEditorRecords(const Terrain::TerrainGrid& grid, const std::vector<Terrain::FoliageRecord>& records)
@@ -529,23 +532,22 @@ namespace Dark
         const float tileWorld = static_cast<float>(grid.tileCells()) * grid.cellSize();
         const float ox        = grid.origin().x;
         const float oz        = grid.origin().z;
-        uint64_t    ends      = static_cast<uint64_t>(records.size());
-        ends ^= static_cast<uint64_t>(reinterpret_cast<uintptr_t>(records.data()));
+        uint32_t    frontX    = 0;
+        uint32_t    frontY    = 0;
+        uint32_t    backZ     = 0;
+        uint8_t     frontKind = 0;
         if (!records.empty())
         {
             const Terrain::FoliageRecord& a = records.front();
             const Terrain::FoliageRecord& b = records.back();
-            uint32_t bits = 0;
-            std::memcpy(&bits, &a.x, sizeof(bits));
-            ends ^= bits;
-            std::memcpy(&bits, &a.y, sizeof(bits));
-            ends ^= static_cast<uint64_t>(bits) << 32;
-            std::memcpy(&bits, &b.z, sizeof(bits));
-            ends ^= bits;
-            ends ^= static_cast<uint64_t>(a.kind) << 8;
+            std::memcpy(&frontX, &a.x, sizeof(frontX));
+            std::memcpy(&frontY, &a.y, sizeof(frontY));
+            std::memcpy(&backZ, &b.z, sizeof(backZ));
+            frontKind = a.kind;
         }
+        const bool endsSame = records.empty() || (m_binnedFrontX == frontX && m_binnedFrontY == frontY && m_binnedBackZ == backZ && m_binnedFrontKind == frontKind);
         if (m_binnedData == records.data() && m_binnedCount == records.size() && m_binnedTilesX == tilesX && m_binnedTilesZ == tilesZ && m_binnedTileWorld == tileWorld
-            && m_binnedOriginX == ox && m_binnedOriginZ == oz && m_binnedEnds == ends && static_cast<int>(m_editorTiles.size()) == tilesX * tilesZ)
+            && m_binnedOriginX == ox && m_binnedOriginZ == oz && endsSame && static_cast<int>(m_editorTiles.size()) == tilesX * tilesZ)
             return;
 
         m_binnedData      = records.data();
@@ -555,7 +557,10 @@ namespace Dark
         m_binnedTileWorld = tileWorld;
         m_binnedOriginX   = ox;
         m_binnedOriginZ   = oz;
-        m_binnedEnds      = ends;
+        m_binnedFrontX    = frontX;
+        m_binnedFrontY    = frontY;
+        m_binnedBackZ     = backZ;
+        m_binnedFrontKind = frontKind;
         const size_t nTiles = (tilesX > 0 && tilesZ > 0) ? static_cast<size_t>(tilesX) * static_cast<size_t>(tilesZ) : 0u;
         m_editorTiles.assign(nTiles, {});
         for (size_t i = 0; i < records.size(); ++i)

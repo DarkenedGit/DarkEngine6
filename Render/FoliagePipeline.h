@@ -117,7 +117,10 @@ namespace Dark
         float                         m_binnedTileWorld = 0.0f;
         float                         m_binnedOriginX   = 0.0f;
         float                         m_binnedOriginZ   = 0.0f;
-        uint64_t                      m_binnedEnds      = 0;
+        uint32_t                      m_binnedFrontX    = 0;
+        uint32_t                      m_binnedFrontY    = 0;
+        uint32_t                      m_binnedBackZ     = 0;
+        uint8_t                       m_binnedFrontKind = 0;
         std::vector<std::vector<uint32_t>> m_editorTiles;
 
         uint32_t m_cpuGen = 1;
