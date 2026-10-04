@@ -651,6 +651,46 @@ bool EditorApp::saveTerrainSidecars(const std::filesystem::path& scenePath) cons
         return false;
     }
 
+    std::vector<std::vector<size_t>> bins;
+    int tilesX = 0;
+    int tilesZ = 0;
+    if (m_foliageAuthored)
+    {
+        tilesX = static_cast<int>(m_terrain.tilesX());
+        tilesZ = static_cast<int>(m_terrain.tilesZ());
+        const int      tileCells = m_terrain.tileCells();
+        const float    tileWorld = static_cast<float>(tileCells) * m_terrain.cellSize();
+        const Vector3f origin    = m_terrain.origin();
+        bins.resize(static_cast<size_t>(tilesX) * static_cast<size_t>(tilesZ));
+        for (size_t i = 0; i < m_foliage.size(); ++i)
+        {
+            const FoliageRecord& rec = m_foliage[i];
+            int tx = static_cast<int>(floorf((rec.x - origin.x) / tileWorld));
+            int tz = static_cast<int>(floorf((rec.z - origin.z) / tileWorld));
+            if (tx < 0)
+                tx = 0;
+            if (tz < 0)
+                tz = 0;
+            if (tx >= tilesX)
+                tx = tilesX - 1;
+            if (tz >= tilesZ)
+                tz = tilesZ - 1;
+            bins[static_cast<size_t>(tz) * static_cast<size_t>(tilesX) + static_cast<size_t>(tx)].push_back(i);
+        }
+        for (int tz = 0; tz < tilesZ; ++tz)
+        {
+            for (int tx = 0; tx < tilesX; ++tx)
+            {
+                const size_t count = bins[static_cast<size_t>(tz) * static_cast<size_t>(tilesX) + static_cast<size_t>(tx)].size();
+                if (count > kMaxFoliagePerFile)
+                {
+                    DE_LOG_ERROR(LogCategory::Render, "Editor: foliage tile ({},{}) count {} exceeds the per-file cap", tx, tz, static_cast<uint64_t>(count));
+                    return false;
+                }
+            }
+        }
+    }
+
     const std::filesystem::path coarsePath = sidecarPath(scenePath, coarseFile);
     if (!m_terrain.coarse().saveBinary(coarsePath))
         return false;
@@ -714,32 +754,6 @@ bool EditorApp::saveTerrainSidecars(const std::filesystem::path& scenePath) cons
 
     if (m_foliageAuthored)
     {
-        const int   tilesX    = static_cast<int>(m_terrain.tilesX());
-        const int   tilesZ    = static_cast<int>(m_terrain.tilesZ());
-        const int   cells     = m_terrain.tileCells();
-        const float tileWorld = static_cast<float>(cells) * m_terrain.cellSize();
-        if (tilesX < 1 || tilesZ < 1 || !(tileWorld > 0.0f))
-        {
-            DE_LOG_ERROR(LogCategory::Render, "Editor: foliage tile grid invalid");
-            return false;
-        }
-        const Vector3f origin = m_terrain.origin();
-        std::vector<std::vector<size_t>> bins(static_cast<size_t>(tilesX) * static_cast<size_t>(tilesZ));
-        for (size_t i = 0; i < m_foliage.size(); ++i)
-        {
-            const FoliageRecord& rec = m_foliage[i];
-            int tx = static_cast<int>(floorf((rec.x - origin.x) / tileWorld));
-            int tz = static_cast<int>(floorf((rec.z - origin.z) / tileWorld));
-            if (tx < 0)
-                tx = 0;
-            if (tz < 0)
-                tz = 0;
-            if (tx >= tilesX)
-                tx = tilesX - 1;
-            if (tz >= tilesZ)
-                tz = tilesZ - 1;
-            bins[static_cast<size_t>(tz) * static_cast<size_t>(tilesX) + static_cast<size_t>(tx)].push_back(i);
-        }
         std::vector<FoliageRecord> tileRecs;
         for (int tz = 0; tz < tilesZ; ++tz)
         {
@@ -750,8 +764,6 @@ bool EditorApp::saveTerrainSidecars(const std::filesystem::path& scenePath) cons
                 tileRecs.reserve(ids.size());
                 for (size_t id : ids)
                     tileRecs.push_back(m_foliage[id]);
-                if (tileRecs.size() > 0xffffffffu)
-                    return false;
                 const uint32_t count = static_cast<uint32_t>(tileRecs.size());
                 if (!saveFoliageTile(tileDirPath / tileFoliageFileName(tx, tz), tx, tz, count > 0 ? tileRecs.data() : nullptr, count))
                     return false;
@@ -1261,7 +1273,42 @@ void EditorApp::startFoliageSpawn()
 
     m_foliageThread = std::thread([this, in]() {
         FoliageSpawnOut out;
-        const bool ok = spawnFoliage(in, out);
+        bool ok = spawnFoliage(in, out);
+        if (ok)
+        {
+            const int      tilesX    = static_cast<int>(in.tilesX);
+            const int      tilesZ    = static_cast<int>(in.tilesZ);
+            const float    tileWorld = static_cast<float>(in.tileCells) * in.cellSize;
+            const Vector3f origin    = in.origin;
+            std::vector<uint32_t> counts(static_cast<size_t>(tilesX) * static_cast<size_t>(tilesZ), 0u);
+            for (const FoliageRecord& rec : out.records)
+            {
+                int tx = static_cast<int>(floorf((rec.x - origin.x) / tileWorld));
+                int tz = static_cast<int>(floorf((rec.z - origin.z) / tileWorld));
+                if (tx < 0)
+                    tx = 0;
+                if (tz < 0)
+                    tz = 0;
+                if (tx >= tilesX)
+                    tx = tilesX - 1;
+                if (tz >= tilesZ)
+                    tz = tilesZ - 1;
+                ++counts[static_cast<size_t>(tz) * static_cast<size_t>(tilesX) + static_cast<size_t>(tx)];
+            }
+            for (int tz = 0; tz < tilesZ && ok; ++tz)
+            {
+                for (int tx = 0; tx < tilesX; ++tx)
+                {
+                    const uint32_t count = counts[static_cast<size_t>(tz) * static_cast<size_t>(tilesX) + static_cast<size_t>(tx)];
+                    if (count > kMaxFoliagePerFile)
+                    {
+                        DE_LOG_ERROR(LogCategory::Render, "Editor: foliage spawn exceeds the per-tile file cap ({},{}) count {} - previous set kept", tx, tz, count);
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+        }
         if (ok)
             m_foliagePending.swap(out.records);
         m_foliageOk = ok;

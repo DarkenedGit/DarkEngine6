@@ -787,9 +787,8 @@ void TerrainGrid::evictFineTile(int tx, int tz)
     deferDestroyGpu({}, std::move(slot.splatTexture));
     slot.splat = SplatMap{};
     std::vector<FoliageRecord>().swap(slot.foliage);
-    slot.foliageMissingLogged = false;
-    slot.resident             = false;
-    slot.firstGpuApplyDone    = false;
+    slot.resident          = false;
+    slot.firstGpuApplyDone = false;
 }
 
 void TerrainGrid::updateLod(const Vector3f& cameraPos)

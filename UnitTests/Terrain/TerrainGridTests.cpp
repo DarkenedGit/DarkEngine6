@@ -623,10 +623,11 @@ TEST(TerrainGrid, FoliageMissing_WarnsOnce)
     EXPECT_EQ(grid.residentFoliage(0, 0), nullptr);
     EXPECT_EQ(countLog(logs, "missing foliage"), 2);
 
+    // Evict leaves foliageMissingLogged set, so this slot does not warn again.
     grid.updateStreaming(TileCenter(origin, 0, 0), nullptr);
     ASSERT_TRUE(grid.isResident(0, 0));
     EXPECT_TRUE(grid.residentFoliage(0, 0)->empty());
-    EXPECT_EQ(countLog(logs, "missing foliage"), 3);
+    EXPECT_EQ(countLog(logs, "missing foliage"), 2);
     RemoveTempDir(dir);
 }
 
