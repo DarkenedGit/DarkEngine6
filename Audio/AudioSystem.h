@@ -20,8 +20,8 @@ namespace Dark::Audio
     struct AudioListener
     {
         Math::Vector3f position;
-        Math::Vector3f forward{ 0.0f, 0.0f, 1.0f };
-        Math::Vector3f up{ 0.0f, 1.0f, 0.0f };
+        Math::Vector3f forward{ Math::Vect3f::Z_AXIS };
+        Math::Vector3f up{ Math::Vect3f::Y_AXIS };
         Math::Vector3f velocity;
         float          distanceScale = 1.0f; // Hear skill scalar, not the X3DAudio curve.
     };

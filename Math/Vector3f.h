@@ -9,9 +9,13 @@ namespace Dark::Math
 		float z;
 		static const Vect3f ZERO;
 		static const Vect3f ONE;
-		static const Vect3f X_AXIS;
+        static const Vect3f ONE_NEG;
+        static const Vect3f X_AXIS;
 		static const Vect3f Y_AXIS;
 		static const Vect3f Z_AXIS;
+        static const Vect3f X_AXIS_NEG;
+        static const Vect3f Y_AXIS_NEG;
+        static const Vect3f Z_AXIS_NEG;
 	};
 
 	class Vector3f final : public Vect3f

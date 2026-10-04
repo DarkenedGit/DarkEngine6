@@ -17,7 +17,7 @@ namespace Dark
         DebugFill fill        = DebugFill::Solid;
         bool      lighting    = true;
         bool      localLights = true;
-        bool      clouds      = true;
+        bool      clouds      = false; // Fullscreen march of a volume that only covers part of the sky.
         bool      bloom       = true;
         bool      shadows     = true;
         bool      aces        = false; // Narkowicz display curve on HDR tonemap

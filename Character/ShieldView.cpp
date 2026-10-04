@@ -17,6 +17,8 @@
 
 namespace Dark
 {
+    using Math::Vector3f;
+    using Math::Vect3f;
 
     Entity spawnPlayerShield(World& world, AssetPinTable& pins, AssetManager& assets, Renderer& renderer)
     {
@@ -79,21 +81,17 @@ namespace Dark
         // Load the buckler back with the arm, then drive it forward on the charged parry.
         pose.position.z += (-0.18f * wind + 0.24f * strike) * t;
         pose.position.y += 0.05f * wind * t;
-        const Math::Quaternion tiltBack = Math::Quaternion::FromAxisAngle(Math::Vector3f::X_AXIS, -0.35f * wind * t);
-        const Math::Quaternion tiltFwd  = Math::Quaternion::FromAxisAngle(Math::Vector3f::X_AXIS, 0.45f * strike * t);
+        const Math::Quaternion tiltBack = Math::Quaternion::FromAxisAngle(Vector3f::X_AXIS, -0.35f * wind * t);
+        const Math::Quaternion tiltFwd  = Math::Quaternion::FromAxisAngle(Vector3f::X_AXIS, 0.45f * strike * t);
         pose.rotation = tiltFwd * tiltBack * pose.rotation;
         pose.rotation.Normalize();
         shield.position = player.position + player.rotation.Rotate(pose.position);
         shield.rotation = player.rotation * pose.rotation;
         shield.rotation.Normalize();
-        shield.scale = Math::Vector3f{ 1.0f, 1.0f, 1.0f };
+        shield.scale = Vect3f::ONE;
     }
 
-    void placePlayerFlashlight(TransformComponent& light,
-                               const Math::Vector3f& camPos,
-                               const Math::Vector3f& look,
-                               const Math::Vector3f& right,
-                               const Math::Vector3f& up)
+    void placePlayerFlashlight(TransformComponent& light, const Vector3f& camPos, const Vector3f& look, const Vector3f& right, const Vector3f& up)
     {
         light.position = camPos + look * 0.2f + right * 0.15f + up * -0.1f;
         light.rotation = Math::Quaternion::FromLookRotation(look, up);
@@ -106,7 +104,7 @@ namespace Dark
         world.emplace<TransformComponent>(e);
         auto& light         = world.emplace<LocalLightComponent>(e);
         light.type          = LocalLightType::Spot;
-        light.color         = Math::Vector3f{ 1.0f, 0.97f, 0.9f };
+        light.color         = Vector3f{ 1.0f, 0.97f, 0.9f };
         light.intensity     = 1571.0f; // 500*π after Fd/π
         light.range         = 22.0f;
         light.innerConeDeg  = 10.0f;

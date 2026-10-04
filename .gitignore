@@ -4,6 +4,10 @@ build-sourcetrail/
 third_party/box2d/build/
 third_party/box3d/build/
 
+# Profiling
+*.ngfx-capture
+*.wpix
+
 # Sourcetrail / clang tooling
 compile_commands.json
 compile_commands.engine.json

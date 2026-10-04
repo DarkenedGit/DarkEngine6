@@ -69,8 +69,8 @@ namespace Dark
             const size_t nVerts = m.positions.size();
             out.assign(nVerts, Math::Vector4f(1.0f, 0.0f, 0.0f, 1.0f));
 
-            std::vector<Math::Vector3f> tan1(nVerts, Math::Vector3f(0.0f, 0.0f, 0.0f));
-            std::vector<Math::Vector3f> tan2(nVerts, Math::Vector3f(0.0f, 0.0f, 0.0f));
+            std::vector<Math::Vector3f> tan1(nVerts, Math::Vect3f::ZERO);
+            std::vector<Math::Vector3f> tan2(nVerts, Math::Vect3f::ZERO);
 
             for (size_t i = 0; i + 2 < m.indices.size(); i += 3)
             {
@@ -83,9 +83,9 @@ namespace Dark
                 const Math::Vector3f& p0  = m.positions[i0];
                 const Math::Vector3f& p1  = m.positions[i1];
                 const Math::Vector3f& p2  = m.positions[i2];
-                const Math::Vector2f  uv0 = (i0 < m.uvs.size()) ? m.uvs[i0] : Math::Vector2f(0.0f, 0.0f);
-                const Math::Vector2f  uv1 = (i1 < m.uvs.size()) ? m.uvs[i1] : Math::Vector2f(0.0f, 0.0f);
-                const Math::Vector2f  uv2 = (i2 < m.uvs.size()) ? m.uvs[i2] : Math::Vector2f(0.0f, 0.0f);
+                const Math::Vector2f  uv0 = (i0 < m.uvs.size()) ? m.uvs[i0] : Math::Vect2f::ZERO;
+                const Math::Vector2f  uv1 = (i1 < m.uvs.size()) ? m.uvs[i1] : Math::Vect2f::ZERO;
+                const Math::Vector2f  uv2 = (i2 < m.uvs.size()) ? m.uvs[i2] : Math::Vect2f::ZERO;
 
                 const float x1 = p1.x - p0.x;
                 const float x2 = p2.x - p0.x;

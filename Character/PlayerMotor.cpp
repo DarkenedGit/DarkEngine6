@@ -6,6 +6,7 @@
 namespace Dark
 {
     using Math::Vector3f;
+    using Math::Vect3f;
 
     PlayerMotor::PlayerMotor(PlayerMotorSettings settings)
         : m_settings(settings)
@@ -16,7 +17,7 @@ namespace Dark
     void PlayerMotor::reset()
     {
         m_state         = PlayerMoveState::Grounded;
-        m_velocity      = Vector3f{ 0.0f, 0.0f, 0.0f };
+        m_velocity      = Vect3f::ZERO;
         m_airTime       = 0.0f;
         m_coyote        = 0.0f;
         m_jumpBuffer    = 0.0f;
@@ -26,7 +27,7 @@ namespace Dark
         m_lastTap       = MoveCardinal::None;
         m_tapAge        = 1.0f;
         m_dodgeLeft     = 0.0f;
-        m_dodgeWish     = Vector3f{ 0.0f, 0.0f, 0.0f };
+        m_dodgeWish     = Vect3f::ZERO;
     }
 
     void PlayerMotor::clearJumpBuffer()

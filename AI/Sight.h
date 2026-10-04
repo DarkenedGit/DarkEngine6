@@ -9,7 +9,7 @@ namespace Dark::AI
     struct SightQuery
     {
         Math::Vector3f            eye{};
-        Math::Vector3f            forward{ 0.0f, 0.0f, 1.0f };
+        Math::Vector3f            forward{ Math::Vect3f::Z_AXIS };
         Math::Vector3f            target{};
         float                     coneDeg   = 70.0f;
         float                     range     = 25.0f;

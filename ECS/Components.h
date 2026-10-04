@@ -20,9 +20,9 @@ namespace Dark
         static constexpr uint16_t    kSaveVersion = 1;
         static const PersistFns      kPersist;
 
-        Math::Vector3f   position{ 0, 0, 0 };
-        Math::Quaternion rotation{ 1, 0, 0, 0 };
-        Math::Vector3f   scale{ 1, 1, 1 };
+        Math::Vector3f   position{ Math::Vect3f::ZERO };
+        Math::Quaternion rotation{ Math::Quaternion::IDENTITY };
+        Math::Vector3f   scale{ Math::Vect3f::ONE };
     };
 
     // ─── Tag / Name ───────────────────────────────────────────────────────────────
@@ -111,7 +111,7 @@ namespace Dark
         static constexpr const char* kTypeName = "LocalLight";
 
         LocalLightType type         = LocalLightType::Point;
-        Math::Vector3f color        = { 1.0f, 1.0f, 1.0f };
+        Math::Vector3f color        = { Math::Vect3f::ONE };
         float          intensity    = 1885.0f; // candela; 600*π after Fd/π. JSON 600 stays.
         float          range        = 8.0f;
         float          innerConeDeg = 12.0f;

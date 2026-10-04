@@ -48,7 +48,7 @@ namespace Dark
         float               m_stunLeft      = 0.0f;
         float               m_knockLeft     = 0.0f;
         float               m_knockTimeLeft = 0.0f;
-        Math::Vector3f      m_knockDir{ 0.0f, 0.0f, 1.0f };
+        Math::Vector3f      m_knockDir{ Math::Vect3f::Z_AXIS };
     };
 
 } // namespace Dark

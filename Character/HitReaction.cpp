@@ -64,7 +64,7 @@ namespace Dark
         if (m_stunLeft > 0.0f)
             m_stunLeft = Math::Max(0.0f, m_stunLeft - dt);
         if (m_knockLeft <= 0.0f || dt <= 0.0f)
-            return Vector3f{ 0.0f, 0.0f, 0.0f };
+            return Vector3f{ Math::Vect3f::ZERO };
 
         float step = m_knockLeft;
         if (m_knockTimeLeft > 1.0e-6f)

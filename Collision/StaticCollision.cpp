@@ -287,12 +287,19 @@ namespace Dark::Collision
 		// Face normal from closest slab
 		Vector3f p = hit.point;
 		const float eps = 1.0e-4f;
-		if (fabsf(p.x - box.Min.x) < eps) hit.normal = Vector3f(-1, 0, 0);
-		else if (fabsf(p.x - box.Max.x) < eps) hit.normal = Vector3f(1, 0, 0);
-		else if (fabsf(p.y - box.Min.y) < eps) hit.normal = Vector3f(0, -1, 0);
-		else if (fabsf(p.y - box.Max.y) < eps) hit.normal = Vector3f(0, 1, 0);
-		else if (fabsf(p.z - box.Min.z) < eps) hit.normal = Vector3f(0, 0, -1);
-		else hit.normal = Vector3f(0, 0, 1);
+
+		if (fabsf(p.x - box.Min.x) < eps) 
+			hit.normal = Vect3f::X_AXIS_NEG;
+		else if (fabsf(p.x - box.Max.x) < eps) 
+			hit.normal = Vect3f::X_AXIS;
+		else if (fabsf(p.y - box.Min.y) < eps) 
+			hit.normal = Vect3f::Y_AXIS_NEG;
+		else if (fabsf(p.y - box.Max.y) < eps) 
+			hit.normal = Vect3f::Y_AXIS;
+		else if (fabsf(p.z - box.Min.z) < eps) 
+			hit.normal = Vect3f::Z_AXIS_NEG;
+		else 
+			hit.normal = Vect3f::Z_AXIS;
 		return hit;
 	}
 

@@ -7,11 +7,16 @@ namespace Dark
 {
 	namespace Math
 	{
-		const Vect3f Vect3f::ZERO	= { 0.0f, 0.0f, 0.0f };
-		const Vect3f Vect3f::ONE	= { 1.0f, 1.0f, 1.0f };
-		const Vect3f Vect3f::X_AXIS = { 1.0f, 0.0f, 0.0f };
-		const Vect3f Vect3f::Y_AXIS = { 0.0f, 1.0f, 0.0f };
-		const Vect3f Vect3f::Z_AXIS = { 0.0f, 0.0f, 1.0f };
+		const Vect3f Vect3f::ZERO		= { 0.0f, 0.0f, 0.0f };
+		const Vect3f Vect3f::ONE		= { 1.0f, 1.0f, 1.0f };
+		const Vect3f Vect3f::X_AXIS		= { 1.0f, 0.0f, 0.0f };
+		const Vect3f Vect3f::Y_AXIS		= { 0.0f, 1.0f, 0.0f };
+		const Vect3f Vect3f::Z_AXIS		= { 0.0f, 0.0f, 1.0f };
+        const Vect3f Vect3f::ONE_NEG    = { -1.0f, -1.0f, -1.0f };
+        const Vect3f Vect3f::X_AXIS_NEG = { -1.0f, 0.0f, 0.0f };
+        const Vect3f Vect3f::Y_AXIS_NEG = { 0.0f, -1.0f, 0.0f };
+        const Vect3f Vect3f::Z_AXIS_NEG = { 0.0f, 0.0f, -1.0f };
+
 
 		Vector3f::Vector3f()
 		{

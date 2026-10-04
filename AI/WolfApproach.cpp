@@ -20,7 +20,7 @@ namespace Dark::AI
     {
         Math::Vector3f flat{ forward.x, 0.0f, forward.z };
         if (flat.MagnitudeSqrd() <= 1.0e-8f)
-            return Math::Vector3f{ 0.0f, 0.0f, 1.0f };
+            return Math::Vect3f::Z_AXIS;
         flat.Normalize();
         return flat;
     }

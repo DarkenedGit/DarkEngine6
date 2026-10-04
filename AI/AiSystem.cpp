@@ -29,6 +29,7 @@
 namespace Dark
 {
     using Math::Vector3f;
+    using Math::Vect3f;
 
     namespace
     {
@@ -97,7 +98,7 @@ namespace Dark
                 f.Normalize();
                 return f;
             }
-            return Vector3f{ 0.0f, 0.0f, 1.0f };
+            return Vector3f{ Vect3f::Z_AXIS };
         }
 
         void sweepSolids(Vector3f& position, const Vector3f& before, const Math::AABox3f* cubes, int cubeCount, const Math::Sphere3f* spheres, int sphereCount)
@@ -180,12 +181,12 @@ namespace Dark
         if (!world.has<HittableComponent>(e))
         {
             HittableComponent hit{};
-            hit.halfExtents = Vector3f{ 1.0f, 1.0f, 1.0f };
+            hit.halfExtents = Vect3f::ONE;
             world.emplace<HittableComponent>(e, hit);
         }
 
         AiAgentComponent ai{};
-        ai.forward = Vector3f{ 0.0f, 0.0f, 1.0f };
+        ai.forward = Vect3f::Z_AXIS;
         world.emplace<AiAgentComponent>(e, ai);
 
         if (!world.has<PathAgentComponent>(e))
@@ -302,7 +303,7 @@ namespace Dark
             if (away.MagnitudeSqrd() < 1.0e-4f)
                 away = Vector3f{ ai.forward.z, 0.0f, -ai.forward.x };
             if (away.MagnitudeSqrd() < 1.0e-4f)
-                away = Vector3f{ 1.0f, 0.0f, 0.0f };
+                away = Vect3f::X_AXIS;
             away.Normalize();
             ai.repositionDest = selfPos + away * pattern.repositionDistance;
         }
@@ -415,7 +416,7 @@ namespace Dark
             v.ai->hasLastSeen = false;
             v.ai->stalk       = AI::WolfStalk::Inactive;
             v.ai->stalkLeft   = 0.0f;
-            v.ai->forward     = Vector3f{ 0.0f, 0.0f, 1.0f };
+            v.ai->forward     = Vect3f::Z_AXIS;
             v.brain->brain->start();
             DE_LOG_INFO(LogCategory::AI, "Hunter recovered");
         }
@@ -569,7 +570,7 @@ namespace Dark
             away = v.ai->forward;
         away.y = 0.0f;
         if (away.MagnitudeSqrd() < 1.0e-6f)
-            away = Vector3f{ 0.0f, 0.0f, 1.0f };
+            away = Vect3f::Z_AXIS;
         else
             away.Normalize();
         Vector3f    side{ -away.z, 0.0f, away.x };
@@ -953,13 +954,14 @@ namespace Dark
             if (!bind(world, e, v) || !v.health->health.alive())
             {
                 if (AiAgentComponent* deadAi = world.get<AiAgentComponent>(e))
-                    deadAi->planarVelocity = Vector3f{ 0.0f, 0.0f, 0.0f };
+                    deadAi->planarVelocity = Vect3f::ZERO;
                 continue;
             }
 
             const Vector3f planarOrigin = v.xf->position;
-            auto           stampPlanarVelocity = [&]() {
-                Vector3f vel{ 0.0f, 0.0f, 0.0f };
+            auto           stampPlanarVelocity = [&]() 
+            {
+                Vector3f vel{ Vect3f::ZERO };
                 if (dt > 1.0e-4f)
                 {
                     vel.x = (v.xf->position.x - planarOrigin.x) / dt;

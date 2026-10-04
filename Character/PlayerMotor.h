@@ -53,7 +53,7 @@ namespace Dark
 
     struct PlayerMotorInput
     {
-        Math::Vector3f wish{ 0.0f, 0.0f, 0.0f };
+        Math::Vector3f wish{ Math::Vect3f::ZERO };
         bool           sprint           = false;
         bool           crouch           = false; // held; grounded only, and it wins over sprint
         bool           jumpPressed      = false; // edge this tick
@@ -66,7 +66,7 @@ namespace Dark
         float          jumpScale        = 1.0f; // jumpSpeed + doubleJumpSpeed only, clamped [1, 1.15]
         bool           allowDodge       = true;
         MoveCardinal   dodgeTap         = MoveCardinal::None; // direction key edge this frame
-        Math::Vector3f dodgeTapWish{ 0.0f, 0.0f, 0.0f };      // world XZ of that edge
+        Math::Vector3f dodgeTapWish{ Math::Vect3f::ZERO };    // world XZ of that edge
     };
 
     struct PlayerMotorResult

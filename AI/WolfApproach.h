@@ -35,7 +35,7 @@ namespace Dark::AI
     {
         Math::Vector3f wolf{};
         Math::Vector3f player{};
-        Math::Vector3f playerForward{ 0.0f, 0.0f, 1.0f };
+        Math::Vector3f playerForward{ Math::Vect3f::ZERO };
         float          horizDistance = 0.0f;
         int            packCount     = 1;
         uint32_t       salt          = 0;

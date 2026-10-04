@@ -32,7 +32,7 @@ namespace Dark
         static constexpr const char* kTypeName    = "AiAgent";
         static constexpr uint16_t    kSaveVersion = 1;
         static const PersistFns      kPersist;
-        Math::Vector3f               forward{ 0.0f, 0.0f, 1.0f };
+        Math::Vector3f               forward{ Math::Vect3f::Z_AXIS };
         Math::Vector3f               planarVelocity{};
         Math::Vector3f               lastSeen{};
         Math::Vector3f               wanderDest{};
