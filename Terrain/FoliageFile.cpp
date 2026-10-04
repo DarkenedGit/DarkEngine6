@@ -17,7 +17,7 @@ namespace Dark::Terrain
 
         bool countAccepted(uint32_t count)
         {
-            return count <= kMaxFoliagePerFile && count <= kMaxFoliageInstances && foliageBytes(count) <= kMaxFoliageSidecarBytes;
+            return count <= kMaxFoliagePerFile;
         }
     }
 
