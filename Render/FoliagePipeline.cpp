@@ -43,6 +43,7 @@ namespace Dark
         {
             float localToRoot[16];
             float viewProj[16];
+            float prevViewProj[16];
             float color[4];
             float roughness;
             float metallic;
@@ -50,8 +51,6 @@ namespace Dark
             float normalScale;
             float alphaCutoff;
             float alphaModeMask;
-            float pad0;
-            float pad1;
         };
 
         struct FoliageDepthConstants
@@ -60,7 +59,9 @@ namespace Dark
             float lightWVP[16];
         };
 
-        static_assert(sizeof(FoliageGBufferConstants) == 44 * sizeof(float), "foliage gbuffer constants");
+        static_assert(sizeof(FoliageGBufferConstants) == 58 * sizeof(float), "foliage gbuffer constants");
+        // 58 constants + material table + two root SRVs = 63. A third matrix does not fit.
+        static_assert(sizeof(FoliageGBufferConstants) / sizeof(float) + 1 + 2 + 2 <= 64, "foliage gbuffer root signature");
         static_assert(sizeof(FoliageDepthConstants) == 32 * sizeof(float), "foliage depth constants");
 
         constexpr UINT64 kWorldStride     = static_cast<UINT64>(Terrain::kMaxFoliageDraw) * sizeof(Math::Matrix4f);
@@ -106,12 +107,20 @@ namespace Dark
             if (!(tileWorld > 0.0f))
                 return false;
             const Math::Vector3f& origin = grid.origin();
+            const int tilesX = static_cast<int>(grid.tilesX());
+            const int tilesZ = static_cast<int>(grid.tilesZ());
+            if (tilesX <= 0 || tilesZ <= 0)
+                return false;
             tx = static_cast<int>(floorf((x - origin.x) / tileWorld));
             tz = static_cast<int>(floorf((z - origin.z) / tileWorld));
-            if (tx < 0 || tz < 0)
-                return false;
-            if (tx >= static_cast<int>(grid.tilesX()) || tz >= static_cast<int>(grid.tilesZ()))
-                return false;
+            if (tx < 0)
+                tx = 0;
+            if (tz < 0)
+                tz = 0;
+            if (tx >= tilesX)
+                tx = tilesX - 1;
+            if (tz >= tilesZ)
+                tz = tilesZ - 1;
             return true;
         }
 
@@ -122,19 +131,32 @@ namespace Dark
         }
 
         template <typename Fn>
-        void visitResident(const Terrain::TerrainGrid& grid, const std::vector<Terrain::FoliageRecord>* editorRecords, Fn&& fn)
+        void visitResident(
+            const Terrain::TerrainGrid& grid,
+            const std::vector<Terrain::FoliageRecord>* editorRecords,
+            const std::vector<std::vector<uint32_t>>* editorTiles,
+            Fn&& fn)
         {
             if (editorRecords)
             {
-                for (const Terrain::FoliageRecord& rec : *editorRecords)
+                const int nx = static_cast<int>(grid.tilesX());
+                const int nz = static_cast<int>(grid.tilesZ());
+                if (!editorTiles || static_cast<int>(editorTiles->size()) != nx * nz)
+                    return;
+                for (int tz = 0; tz < nz; ++tz)
                 {
-                    int tx = 0;
-                    int tz = 0;
-                    if (!recordTile(grid, rec.x, rec.z, tx, tz))
-                        continue;
-                    if (!grid.isResident(tx, tz))
-                        continue;
-                    fn(rec);
+                    for (int tx = 0; tx < nx; ++tx)
+                    {
+                        if (!grid.isResident(tx, tz))
+                            continue;
+                        const std::vector<uint32_t>& indices = (*editorTiles)[static_cast<size_t>(tz) * static_cast<size_t>(nx) + static_cast<size_t>(tx)];
+                        for (uint32_t index : indices)
+                        {
+                            if (index >= editorRecords->size())
+                                continue;
+                            fn((*editorRecords)[index]);
+                        }
+                    }
                 }
                 return;
             }
@@ -489,6 +511,61 @@ namespace Dark
         m_haveGather   = false;
         m_sourceStamp  = 0;
         m_loggedView   = false;
+        m_editorTiles.clear();
+        m_binnedData      = nullptr;
+        m_binnedCount     = 0;
+        m_binnedTilesX    = 0;
+        m_binnedTilesZ    = 0;
+        m_binnedTileWorld = 0.0f;
+        m_binnedOriginX   = 0.0f;
+        m_binnedOriginZ   = 0.0f;
+        m_binnedEnds      = 0;
+    }
+
+    void FoliagePipeline::binEditorRecords(const Terrain::TerrainGrid& grid, const std::vector<Terrain::FoliageRecord>& records)
+    {
+        const int   tilesX    = static_cast<int>(grid.tilesX());
+        const int   tilesZ    = static_cast<int>(grid.tilesZ());
+        const float tileWorld = static_cast<float>(grid.tileCells()) * grid.cellSize();
+        const float ox        = grid.origin().x;
+        const float oz        = grid.origin().z;
+        uint64_t    ends      = static_cast<uint64_t>(records.size());
+        ends ^= static_cast<uint64_t>(reinterpret_cast<uintptr_t>(records.data()));
+        if (!records.empty())
+        {
+            const Terrain::FoliageRecord& a = records.front();
+            const Terrain::FoliageRecord& b = records.back();
+            uint32_t bits = 0;
+            std::memcpy(&bits, &a.x, sizeof(bits));
+            ends ^= bits;
+            std::memcpy(&bits, &a.y, sizeof(bits));
+            ends ^= static_cast<uint64_t>(bits) << 32;
+            std::memcpy(&bits, &b.z, sizeof(bits));
+            ends ^= bits;
+            ends ^= static_cast<uint64_t>(a.kind) << 8;
+        }
+        if (m_binnedData == records.data() && m_binnedCount == records.size() && m_binnedTilesX == tilesX && m_binnedTilesZ == tilesZ && m_binnedTileWorld == tileWorld
+            && m_binnedOriginX == ox && m_binnedOriginZ == oz && m_binnedEnds == ends && static_cast<int>(m_editorTiles.size()) == tilesX * tilesZ)
+            return;
+
+        m_binnedData      = records.data();
+        m_binnedCount     = records.size();
+        m_binnedTilesX    = tilesX;
+        m_binnedTilesZ    = tilesZ;
+        m_binnedTileWorld = tileWorld;
+        m_binnedOriginX   = ox;
+        m_binnedOriginZ   = oz;
+        m_binnedEnds      = ends;
+        const size_t nTiles = (tilesX > 0 && tilesZ > 0) ? static_cast<size_t>(tilesX) * static_cast<size_t>(tilesZ) : 0u;
+        m_editorTiles.assign(nTiles, {});
+        for (size_t i = 0; i < records.size(); ++i)
+        {
+            int tx = 0;
+            int tz = 0;
+            if (!recordTile(grid, records[i].x, records[i].z, tx, tz))
+                continue;
+            m_editorTiles[static_cast<size_t>(tz) * static_cast<size_t>(tilesX) + static_cast<size_t>(tx)].push_back(static_cast<uint32_t>(i));
+        }
     }
 
     void FoliagePipeline::ensureDrawSet(const Terrain::TerrainGrid& grid, const std::vector<Terrain::FoliageRecord>* editorRecords, const Camera3D& camera)
@@ -505,6 +582,10 @@ namespace Dark
         if (!need)
             return;
 
+        if (editorRecords)
+            binEditorRecords(grid, *editorRecords);
+        const std::vector<std::vector<uint32_t>>* editorTiles = editorRecords ? &m_editorTiles : nullptr;
+
         const float radius2 = kGatherRadiusM * kGatherRadiusM;
         auto inDisk = [&](const Terrain::FoliageRecord& rec)
         {
@@ -516,7 +597,7 @@ namespace Dark
         };
 
         uint64_t total = 0;
-        visitResident(grid, editorRecords, [&](const Terrain::FoliageRecord& rec)
+        visitResident(grid, editorRecords, editorTiles, [&](const Terrain::FoliageRecord& rec)
         {
             if (inDisk(rec))
                 ++total;
@@ -530,9 +611,8 @@ namespace Dark
             const uint64_t keepN = total < cap ? total : cap;
             m_cpuWorlds.reserve(static_cast<size_t>(keepN));
             m_cpuKinds.reserve(static_cast<size_t>(keepN));
-            // A prefix of the list would keep only records near the origin.
             uint64_t acc = total / 2ull;
-            visitResident(grid, editorRecords, [&](const Terrain::FoliageRecord& rec)
+            visitResident(grid, editorRecords, editorTiles, [&](const Terrain::FoliageRecord& rec)
             {
                 if (!inDisk(rec))
                     return;
@@ -664,6 +744,7 @@ namespace Dark
         const Terrain::FoliageDensity& density,
         const Camera3D& camera,
         const Math::Matrix4f& viewProj,
+        const Math::Matrix4f& prevViewProj,
         const Frustum3f& frustum)
     {
         if (!cmd || !prepare(renderer, assets, prototypes, grid, editorRecords, density, camera, frustum))
@@ -697,6 +778,7 @@ namespace Dark
                 FoliageGBufferConstants cb{};
                 copyMatrix(cb.localToRoot, part.localToRoot);
                 copyMatrix(cb.viewProj, viewProj);
+                copyMatrix(cb.prevViewProj, prevViewProj);
                 fillSurface(gpu, part.materialId, cb);
                 cmd->SetGraphicsRoot32BitConstants(kGbConstants, static_cast<UINT>(sizeof(cb) / 4), &cb, 0);
                 cmd->SetGraphicsRootShaderResourceView(kGbWorlds, worldVa);

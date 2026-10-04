@@ -3620,7 +3620,7 @@ void SandboxApp::onRender()
         });
             }
             if (m_terrain.valid())
-                m_foliagePipeline.drawGBuffer(cmd, renderer(), assets(), m_foliagePrototypes, m_terrain, nullptr, m_foliageDensity, m_viewCamera, viewProj, frustum);
+                m_foliagePipeline.drawGBuffer(cmd, renderer(), assets(), m_foliagePrototypes, m_terrain, nullptr, m_foliageDensity, m_viewCamera, viewProj, prevViewProj, frustum);
         }
 
         m_scene.drawDecals(cmd, renderer(), m_viewCamera, viewProj);

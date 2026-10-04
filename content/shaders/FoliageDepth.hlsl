@@ -1,4 +1,3 @@
-// Instanced foliage depth. No pixel shader.
 #pragma pack_matrix(row_major)
 
 cbuffer PartConstants : register(b0)

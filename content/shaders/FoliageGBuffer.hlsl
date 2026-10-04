@@ -1,4 +1,3 @@
-// Instanced opaque foliage. Same G-buffer targets as BasicMeshGBuffer.hlsl.
 #pragma pack_matrix(row_major)
 
 #include "GBuffer.hlsli"
@@ -7,6 +6,7 @@ cbuffer PartConstants : register(b0)
 {
     float4x4 localToRoot;
     float4x4 viewProj;
+    float4x4 prevViewProj;
     float4   color;
     float    roughness;
     float    metallic;
@@ -14,7 +14,6 @@ cbuffer PartConstants : register(b0)
     float    normalScale;
     float    alphaCutoff;
     float    alphaModeMask;
-    float2   pad;
 };
 
 StructuredBuffer<float4x4> gWorlds  : register(t4);
@@ -54,7 +53,7 @@ PSInput VSMain(VSInput input)
     float4   wp         = mul(float4(input.position, 1.0f), localWorld);
     PSInput  o;
     o.currClip  = mul(wp, viewProj);
-    o.prevClip  = o.currClip;
+    o.prevClip  = mul(wp, prevViewProj);
     o.position  = o.currClip;
     o.normalWS  = mul(float4(input.normal, 0.0f), localWorld).xyz;
     o.tangentWS = float4(mul(float4(input.tangent.xyz, 0.0f), localWorld).xyz, input.tangent.w);

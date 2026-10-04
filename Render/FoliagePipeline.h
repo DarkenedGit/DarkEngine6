@@ -61,6 +61,7 @@ namespace Dark
             const Terrain::FoliageDensity& density,
             const Camera3D& camera,
             const Math::Matrix4f& viewProj,
+            const Math::Matrix4f& prevViewProj,
             const Frustum3f& frustum);
 
         void drawDepth(
@@ -90,6 +91,7 @@ namespace Dark
             const Terrain::TerrainGrid& grid,
             const std::vector<Terrain::FoliageRecord>* editorRecords,
             const Camera3D& camera);
+        void binEditorRecords(const Terrain::TerrainGrid& grid, const std::vector<Terrain::FoliageRecord>& records);
         void uploadWorlds(uint32_t frameSlot);
         bool allocView(uint32_t frameIndex);
 
@@ -107,6 +109,16 @@ namespace Dark
         std::vector<Math::Matrix4f> m_cpuWorlds;
         std::vector<uint8_t>        m_cpuKinds;
         std::vector<uint32_t>       m_cpuIndex[static_cast<int>(Terrain::FoliageKind::Count)];
+
+        const Terrain::FoliageRecord* m_binnedData  = nullptr;
+        size_t                        m_binnedCount = 0;
+        int                           m_binnedTilesX = 0;
+        int                           m_binnedTilesZ = 0;
+        float                         m_binnedTileWorld = 0.0f;
+        float                         m_binnedOriginX   = 0.0f;
+        float                         m_binnedOriginZ   = 0.0f;
+        uint64_t                      m_binnedEnds      = 0;
+        std::vector<std::vector<uint32_t>> m_editorTiles;
 
         uint32_t m_cpuGen = 1;
         uint32_t m_worldSlotGen[2]{};

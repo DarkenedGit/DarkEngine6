@@ -397,7 +397,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         if (m_haveTerrain && m_terrain.valid())
         {
             const Frustum3f foliageFrustum(m_camera.GetCullViewProj());
-            m_foliagePipeline.drawGBuffer(cmd, renderer(), assets(), m_foliagePrototypes, m_terrain, &m_foliage, m_foliageDensity, m_camera, viewProj, foliageFrustum);
+            m_foliagePipeline.drawGBuffer(cmd, renderer(), assets(), m_foliagePrototypes, m_terrain, &m_foliage, m_foliageDensity, m_camera, viewProj, prevViewProj, foliageFrustum);
         }
     }
     else
