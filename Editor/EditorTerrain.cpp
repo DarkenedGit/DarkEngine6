@@ -429,7 +429,6 @@ bool EditorApp::rebuildTerrainGpuFromSurface()
 bool EditorApp::createEditorTerrain()
 {
     removeEditorTerrain();
-    clearFoliageInstances("create small FBM");
 
     HeightMap base;
     HeightMap detail;
@@ -1120,9 +1119,6 @@ void EditorApp::cancelFoliageSpawn()
         m_foliageThread.join();
     m_foliageRunning.store(false);
     m_foliageDone.store(false);
-    m_foliageOk = false;
-    std::vector<Terrain::FoliageRecord>().swap(m_foliagePending);
-    DE_LOG_INFO(LogCategory::Render, "Editor: foliage spawn cancelled - previous set kept");
 }
 
 void EditorApp::startFoliageSpawn()
@@ -1161,13 +1157,6 @@ void EditorApp::startFoliageSpawn()
     m_foliageDone.store(false);
     m_foliageOk = false;
     m_foliageProgress.store(0.0f);
-    m_foliageRunSeed = in.density.seed;
-    m_foliageAccepted = 0;
-    m_foliageKept = 0;
-    m_foliageCapped = false;
-    m_foliageKeptTrees = 0;
-    m_foliageKeptFlowers = 0;
-    m_foliageKeptRocks = 0;
     std::vector<Terrain::FoliageRecord>().swap(m_foliagePending);
     std::snprintf(m_foliagePhase, sizeof(m_foliagePhase), "starting");
     m_foliageRunning.store(true);
@@ -1176,27 +1165,7 @@ void EditorApp::startFoliageSpawn()
         FoliageSpawnOut out;
         const bool ok = spawnFoliage(in, out);
         if (ok)
-        {
-            uint32_t trees = 0;
-            uint32_t flowers = 0;
-            uint32_t rocks = 0;
-            for (const FoliageRecord& rec : out.records)
-            {
-                if (rec.kind == static_cast<uint8_t>(FoliageKind::Tree))
-                    ++trees;
-                else if (rec.kind == static_cast<uint8_t>(FoliageKind::Flower))
-                    ++flowers;
-                else if (rec.kind == static_cast<uint8_t>(FoliageKind::Rock))
-                    ++rocks;
-            }
-            m_foliageKeptTrees = trees;
-            m_foliageKeptFlowers = flowers;
-            m_foliageKeptRocks = rocks;
-            m_foliageAccepted = out.accepted;
-            m_foliageKept = out.kept;
-            m_foliageCapped = out.capped;
             m_foliagePending.swap(out.records);
-        }
         m_foliageOk = ok;
         m_foliageDone.store(true);
     });
@@ -1215,20 +1184,6 @@ void EditorApp::pollFoliageSpawn()
         m_foliage.swap(m_foliagePending);
         m_foliageAuthored = true;
         m_foliageStale = false;
-        if (m_foliageCapped)
-        {
-            DE_LOG_WARN(LogCategory::Render, "Editor: foliage cap thinned accepted {} to {}",
-                m_foliageAccepted, static_cast<uint64_t>(kMaxFoliageInstances));
-        }
-        DE_LOG_INFO(LogCategory::Render,
-            "Editor: foliage spawn kept {} accepted {} capped {} seed {} trees {} flowers {} rocks {}",
-            m_foliageKept,
-            m_foliageAccepted,
-            m_foliageCapped ? 1 : 0,
-            m_foliageRunSeed,
-            m_foliageKeptTrees,
-            m_foliageKeptFlowers,
-            m_foliageKeptRocks);
     }
     else if (m_foliageCancel.load())
         DE_LOG_INFO(LogCategory::Render, "Editor: foliage spawn cancelled - previous set kept");
@@ -1706,7 +1661,7 @@ void EditorApp::drawTerrainPanel()
     {
         ImGui::ProgressBar(m_foliageProgress.load(), ImVec2(-1.0f, 0.0f), m_foliagePhase);
         if (ImGui::Button("Cancel##foliage"))
-            cancelFoliageSpawn();
+            m_foliageCancel.store(true);
     }
 
     ImGui::BeginDisabled(terrainBrushesLocked());

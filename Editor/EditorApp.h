@@ -430,13 +430,6 @@ private:
     std::atomic<float>                  m_foliageProgress{ 0.0f };
     char                                m_foliagePhase[64]{};
     bool                                m_foliageOk = false;
-    uint32_t                            m_foliageRunSeed = 0;
-    uint64_t                            m_foliageAccepted = 0;
-    uint32_t                            m_foliageKept = 0;
-    bool                                m_foliageCapped = false;
-    uint32_t                            m_foliageKeptTrees = 0;
-    uint32_t                            m_foliageKeptFlowers = 0;
-    uint32_t                            m_foliageKeptRocks = 0;
     std::thread                         m_foliageThread;
     int                                 m_genTilesIndex   = 2; // 1,2,4,8
     float                         m_genCellSize     = 1.0f;
