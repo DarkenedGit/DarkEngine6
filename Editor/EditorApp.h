@@ -5,6 +5,8 @@
 #include "Render/LineMesh.h"
 #include "Assets/Model.h"
 #include "Render/ModelDraw.h"
+#include "Render/FoliagePipeline.h"
+#include "Render/FoliagePrototypes.h"
 #include "Render/LinePipeline.h"
 #include "Render/SceneRenderer.h"
 #include "Render/Camera3D.h"
@@ -431,6 +433,8 @@ private:
     char                                m_foliagePhase[64]{};
     bool                                m_foliageOk = false;
     std::thread                         m_foliageThread;
+    FoliagePrototypes                   m_foliagePrototypes;
+    FoliagePipeline                     m_foliagePipeline;
     int                                 m_genTilesIndex   = 2; // 1,2,4,8
     float                         m_genCellSize     = 1.0f;
     float                         m_genHeightScale  = 280.0f;

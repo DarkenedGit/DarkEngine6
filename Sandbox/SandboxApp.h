@@ -7,6 +7,8 @@
 #include "Render/Mesh.h"
 #include "Render/LinePipeline.h"
 #include "Render/ModelDraw.h"
+#include "Render/FoliagePipeline.h"
+#include "Render/FoliagePrototypes.h"
 #include "Render/SceneRenderer.h"
 #include "Render/Camera3D.h"
 #include "Sky/Environment.h"
@@ -195,6 +197,9 @@ private:
     std::vector<WeaponTargetScratch> m_weaponTargets;
 
     Dark::Terrain::TerrainGrid m_terrain;
+    Dark::FoliagePrototypes    m_foliagePrototypes;
+    Dark::FoliagePipeline      m_foliagePipeline;
+    Dark::Terrain::FoliageDensity m_foliageDensity{};
 
     Dark::Physics::PhysicsWorld  m_physics;
     Dark::Physics::PhysicsBodyId m_physicsGround = Dark::Physics::kNullPhysicsBody;

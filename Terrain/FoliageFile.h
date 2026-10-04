@@ -10,6 +10,7 @@ namespace Dark::Terrain
 {
     constexpr uint32_t kMaxFoliageInstances    = 12582912u;
     constexpr uint32_t kMaxFoliagePerFile      = 1048575u; // (32 MiB - 32) / 32
+    constexpr uint32_t kMaxFoliageDraw         = 65536u;
     constexpr uint32_t kFoliageMagic           = 0x4C464544u; // bytes 'D','E','F','L' little-endian
     constexpr uint32_t kFoliageVersion         = 1u;
     constexpr uint64_t kMaxFoliageSidecarBytes = 32ull * 1024ull * 1024ull;

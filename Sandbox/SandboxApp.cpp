@@ -2919,6 +2919,8 @@ void SandboxApp::onInit()
             requestQuit();
             return;
         }
+        m_foliagePipeline.create(renderer().device());
+        m_foliagePrototypes.create(renderer(), assets());
         if (!m_skelLinePipeline.create(renderer().device(), renderer().sceneColorFormat(), false))
             DE_LOG_ERROR(LogCategory::Render, "SandboxApp: skeleton LinePipeline create failed");
         else if (!createSkeletonLineBuffers())
@@ -3044,6 +3046,10 @@ void SandboxApp::onInit()
                 }
             }
         }
+
+        m_foliageDensity.treeModel   = sceneData.terrain.foliage.treeModel;
+        m_foliageDensity.flowerModel = sceneData.terrain.foliage.flowerModel;
+        m_foliageDensity.rockModel   = sceneData.terrain.foliage.rockModel;
 
         if (!loadedScene)
         {
@@ -3478,6 +3484,8 @@ void SandboxApp::onRender()
                 else
                     drawModelDepth(cmd, gpu, m_shadows, i, *model, worldMat);
             });
+            if (m_terrain.valid())
+                m_foliagePipeline.drawDepth(cmd, renderer(), assets(), m_foliagePrototypes, m_terrain, nullptr, m_foliageDensity, m_viewCamera, m_shadows.cascade(i).viewProj, casterFrustum);
         }
         m_shadows.endCapture(cmd);
     }
@@ -3611,6 +3619,8 @@ void SandboxApp::onRender()
                 drawModelOpaqueGBuffer(cmd, gpu, m_meshPipeline, *model, worldMat, viewProj, prevViewProj, fill);
         });
             }
+            if (m_terrain.valid())
+                m_foliagePipeline.drawGBuffer(cmd, renderer(), assets(), m_foliagePrototypes, m_terrain, nullptr, m_foliageDensity, m_viewCamera, viewProj, frustum);
         }
 
         m_scene.drawDecals(cmd, renderer(), m_viewCamera, viewProj);
@@ -4110,6 +4120,7 @@ void SandboxApp::onShutdown()
 {
     network().shutdown();
     renderer().waitForGpu();
+    m_foliagePipeline.destroy();
     m_menu.shutdown(renderer());
     m_scene.shutdown();
     m_imgui.shutdown(renderer());

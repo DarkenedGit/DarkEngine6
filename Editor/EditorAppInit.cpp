@@ -155,6 +155,8 @@ void EditorApp::onInit()
             requestQuit();
             return;
         }
+        m_foliagePipeline.create(renderer().device());
+        m_foliagePrototypes.create(renderer(), assets());
         if (renderer().scenePath() == ScenePath::HybridDeferred)
         {
             if (!m_skyPipeline.create(renderer().device(), SkyPass::DeferredLast, renderer().sceneColorFormat()))
@@ -452,6 +454,7 @@ void EditorApp::onShutdown()
     cancelGenerateWorld();
     cancelFoliageSpawn();
     renderer().waitForGpu();
+    m_foliagePipeline.destroy();
     m_placedWater.clear();
     m_placedWaterRetire.clear();
     m_water = WaterWorld{};

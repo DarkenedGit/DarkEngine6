@@ -113,6 +113,11 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                 else
                     drawModelDepth(cmd, gpu, m_shadows, i, *model, worldMat);
             });
+            if (m_haveTerrain && m_terrain.valid())
+            {
+                const Frustum3f casterFrustum(m_shadows.cascade(i).viewProj);
+                m_foliagePipeline.drawDepth(cmd, renderer(), assets(), m_foliagePrototypes, m_terrain, &m_foliage, m_foliageDensity, m_camera, m_shadows.cascade(i).viewProj, casterFrustum);
+            }
         }
         m_shadows.endCapture(cmd);
     }
@@ -389,6 +394,11 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                 drawModelOpaqueGBuffer(cmd, gpu, m_meshPipeline, *model, worldMat, viewProj, prevViewProj, fill);
             ++draws;
         });
+        if (m_haveTerrain && m_terrain.valid())
+        {
+            const Frustum3f foliageFrustum(m_camera.GetCullViewProj());
+            m_foliagePipeline.drawGBuffer(cmd, renderer(), assets(), m_foliagePrototypes, m_terrain, &m_foliage, m_foliageDensity, m_camera, viewProj, foliageFrustum);
+        }
     }
     else
     {
