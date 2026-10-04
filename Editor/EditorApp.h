@@ -258,6 +258,12 @@ private:
     void pollTerrainGenerate();
     bool applyGeneratedWorld();
     static bool onGenProgress(float t, const char* phase, void* user);
+    void startFoliageSpawn();
+    void cancelFoliageSpawn();
+    void pollFoliageSpawn();
+    static bool onFoliageProgress(float t, const char* phase, void* user);
+    void clearFoliageInstances(const char* reason);
+    void resetFoliageAuthoring();
     void clearTerrainUndo();
     void pushTerrainUndo(int x0, int z0, int x1, int z1, bool heights, bool splat);
     void undoTerrainBrush();
@@ -413,8 +419,26 @@ private:
     std::string                   m_terrainTileDir;
     uint32_t                      m_terrainSeed     = 1337u;
     float                         m_terrainSeaLevel = 32.0f;
-    Terrain::FoliageDensity       m_foliageDensity{};
-    int                           m_genTilesIndex   = 2; // 1,2,4,8
+    Terrain::FoliageDensity             m_foliageDensity{};
+    std::vector<Terrain::FoliageRecord> m_foliage;
+    std::vector<Terrain::FoliageRecord> m_foliagePending;
+    bool                                m_foliageAuthored = false;
+    bool                                m_foliageStale    = false;
+    std::atomic<bool>                   m_foliageRunning{ false };
+    std::atomic<bool>                   m_foliageCancel{ false };
+    std::atomic<bool>                   m_foliageDone{ false };
+    std::atomic<float>                  m_foliageProgress{ 0.0f };
+    char                                m_foliagePhase[64]{};
+    bool                                m_foliageOk = false;
+    uint32_t                            m_foliageRunSeed = 0;
+    uint64_t                            m_foliageAccepted = 0;
+    uint32_t                            m_foliageKept = 0;
+    bool                                m_foliageCapped = false;
+    uint32_t                            m_foliageKeptTrees = 0;
+    uint32_t                            m_foliageKeptFlowers = 0;
+    uint32_t                            m_foliageKeptRocks = 0;
+    std::thread                         m_foliageThread;
+    int                                 m_genTilesIndex   = 2; // 1,2,4,8
     float                         m_genCellSize     = 1.0f;
     float                         m_genHeightScale  = 280.0f;
     int                           m_genThermal      = 40;

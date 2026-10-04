@@ -52,6 +52,7 @@ EditorApp::EditorApp(const AppConfig& cfg)
 EditorApp::~EditorApp()
 {
     cancelGenerateWorld();
+    cancelFoliageSpawn();
 }
 
 float EditorApp::snap(float v, float grid)
@@ -200,6 +201,7 @@ void EditorApp::newScene3D()
     m_env.evaluate();
     applySkyToLights();
     DE_LOG_INFO("Editor: new 3D scene");
+    resetFoliageAuthoring();
 }
 
 void EditorApp::newScene2D()
@@ -223,6 +225,7 @@ void EditorApp::newScene2D()
     m_camera2D.SetPosition(14.0f, 6.0f);
     clampCamera2D();
     DE_LOG_INFO("Editor: new 2D scene");
+    resetFoliageAuthoring();
 }
 
 bool EditorApp::worldFromMouse2D(Vector2f& out)

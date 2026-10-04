@@ -450,6 +450,7 @@ void EditorApp::onShutdown()
     m_imgui.shutdown(renderer());
     m_particleRenderer.destroy(renderer());
     cancelGenerateWorld();
+    cancelFoliageSpawn();
     renderer().waitForGpu();
     m_placedWater.clear();
     m_placedWaterRetire.clear();

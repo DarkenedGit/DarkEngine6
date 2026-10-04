@@ -270,6 +270,8 @@ bool EditorApp::loadScene()
         if (!loadTerrainFromScene(data, m_scenePath))
             DE_LOG_ERROR("Editor: terrain load failed — using ground plane");
     }
+    else
+        resetFoliageAuthoring();
     m_selected = {};
     DE_LOG_INFO("Editor: loaded {} objects", editorObjectCount());
     return true;

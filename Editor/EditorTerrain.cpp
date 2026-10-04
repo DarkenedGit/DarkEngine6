@@ -2,8 +2,10 @@
 
 #include "Assets/Image.h"
 #include "Core/Log.h"
+#include "Editor/EditorFileDialog.h"
 #include "Editor/EditorInternals.h"
 #include "Math/MathHelper.h"
+#include "Terrain/FoliageSpawn.h"
 #include "Terrain/TerrainGen.h"
 #include "Terrain/TerrainTileFile.h"
 #include "Water/WaterWaves.h"
@@ -190,6 +192,8 @@ constexpr int kGenTileCounts[] = { 1, 2, 4, 8 };
 void EditorApp::removeEditorTerrain()
 {
     cancelGenerateWorld();
+    cancelFoliageSpawn();
+    clearFoliageInstances("remove terrain");
     clearTerrainUndo();
     if (!m_haveTerrain && !m_terrainMaterial.isValid())
     {
@@ -234,7 +238,7 @@ void EditorApp::removeEditorTerrain()
 
 bool EditorApp::terrainBrushesLocked() const
 {
-    return m_genRunning.load();
+    return m_genRunning.load() || m_foliageRunning.load();
 }
 
 void EditorApp::bindTerrainHeightSrv()
@@ -425,6 +429,7 @@ bool EditorApp::rebuildTerrainGpuFromSurface()
 bool EditorApp::createEditorTerrain()
 {
     removeEditorTerrain();
+    clearFoliageInstances("create small FBM");
 
     HeightMap base;
     HeightMap detail;
@@ -478,6 +483,7 @@ bool EditorApp::createEditorTerrain()
 void EditorApp::syncTerrainLod()
 {
     pollTerrainGenerate();
+    pollFoliageSpawn();
     if (!m_haveTerrain || !m_terrain.valid())
         return;
 
@@ -547,6 +553,7 @@ void EditorApp::applyTerrainBrush(float dt)
         splat->paintDisk(fx, fz, radiusSamples, m_terrainPaintLayer, amount);
         m_terrain.applyWorkingRect(x0, z0, x1, z1, false, true);
         m_terrainSplatDirty = true;
+        m_foliageStale = true;
         return;
     }
 
@@ -565,6 +572,7 @@ void EditorApp::applyTerrainBrush(float dt)
 
     m_terrain.applyWorkingRect(x0, z0, x1, z1, true, false);
     m_terrainHeightDirty = true;
+    m_foliageStale = true;
 }
 
 void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
@@ -616,7 +624,7 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
     desc.foliage.grassTreesPerM2   = m_foliageDensity.grassTreesPerM2;
     desc.foliage.grassFlowersPerM2 = m_foliageDensity.grassFlowersPerM2;
     desc.foliage.rockPerM2         = m_foliageDensity.rockPerM2;
-    desc.foliage.stale             = false;
+    desc.foliage.stale             = m_foliageStale;
     desc.foliage.treeModel         = m_foliageDensity.treeModel;
     desc.foliage.flowerModel       = m_foliageDensity.flowerModel;
     desc.foliage.rockModel         = m_foliageDensity.rockModel;
@@ -818,6 +826,7 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
     m_foliageDensity.treeModel         = desc.foliage.treeModel;
     m_foliageDensity.flowerModel       = desc.foliage.flowerModel;
     m_foliageDensity.rockModel         = desc.foliage.rockModel;
+    m_foliageStale                     = desc.foliage.stale;
 
     m_terrainSurface = {};
     m_terrainSurface.params.heightBlendK   = desc.heightBlendK;
@@ -930,7 +939,7 @@ void EditorApp::cancelGenerateWorld()
 
 void EditorApp::startGenerateWorld()
 {
-    if (m_genRunning.load())
+    if (m_genRunning.load() || m_foliageRunning.load())
         return;
     if (!m_erosionAttempted)
     {
@@ -1010,6 +1019,7 @@ bool EditorApp::applyGeneratedWorld()
 
     const bool keepMaterial = m_terrainMaterial.isValid();
     m_terrain.clear();
+    clearFoliageInstances("generate world");
 
     TerrainGridDesc desc{};
     desc.tilesX       = m_genRunTilesX;
@@ -1074,6 +1084,156 @@ bool EditorApp::applyGeneratedWorld()
     rebuildEditorWater();
     DE_LOG_INFO(LogCategory::Render, "Editor: generated {}x{} tiles", desc.tilesX, desc.tilesZ);
     return true;
+}
+
+void EditorApp::clearFoliageInstances(const char* reason)
+{
+    std::vector<Terrain::FoliageRecord>().swap(m_foliage);
+    m_foliageStale = false;
+    DE_LOG_INFO(LogCategory::Render, "Editor: cleared foliage instances ({})", reason != nullptr ? reason : "");
+}
+
+void EditorApp::resetFoliageAuthoring()
+{
+    m_foliageAuthored = false;
+    m_foliageStale = false;
+    m_foliageDensity = {};
+}
+
+bool EditorApp::onFoliageProgress(float t, const char* phase, void* user)
+{
+    auto* app = static_cast<EditorApp*>(user);
+    if (!app)
+        return false;
+    app->m_foliageProgress.store(t);
+    if (phase)
+        std::snprintf(app->m_foliagePhase, sizeof(app->m_foliagePhase), "%s", phase);
+    return !app->m_foliageCancel.load();
+}
+
+void EditorApp::cancelFoliageSpawn()
+{
+    if (!m_foliageRunning.load() && !m_foliageThread.joinable())
+        return;
+    m_foliageCancel.store(true);
+    if (m_foliageThread.joinable())
+        m_foliageThread.join();
+    m_foliageRunning.store(false);
+    m_foliageDone.store(false);
+    m_foliageOk = false;
+    std::vector<Terrain::FoliageRecord>().swap(m_foliagePending);
+    DE_LOG_INFO(LogCategory::Render, "Editor: foliage spawn cancelled - previous set kept");
+}
+
+void EditorApp::startFoliageSpawn()
+{
+    if (terrainBrushesLocked())
+        return;
+
+    const HeightMap* height = m_terrain.editableWorking();
+    const SplatMap*  splat  = m_terrain.editableWorkingSplat();
+    if (height == nullptr)
+        DE_LOG_ERROR(LogCategory::Render, "Editor: foliage spawn refused — editableWorking() is null");
+    else if (!height->valid())
+        DE_LOG_ERROR(LogCategory::Render, "Editor: foliage spawn refused — editableWorking() is invalid");
+    if (splat == nullptr)
+        DE_LOG_ERROR(LogCategory::Render, "Editor: foliage spawn refused — editableWorkingSplat() is null");
+    else if (!splat->valid())
+        DE_LOG_ERROR(LogCategory::Render, "Editor: foliage spawn refused — editableWorkingSplat() is invalid");
+    if (height == nullptr || !height->valid() || splat == nullptr || !splat->valid())
+        return;
+
+    FoliageSpawnIn in;
+    in.height    = height;
+    in.splat     = splat;
+    in.density   = m_foliageDensity;
+    in.tilesX    = m_terrain.tilesX();
+    in.tilesZ    = m_terrain.tilesZ();
+    const int cells = m_terrain.tileCells();
+    in.tileCells = cells > 0 ? static_cast<uint32_t>(cells) : 0u;
+    in.cellSize  = m_terrain.cellSize();
+    in.origin    = m_terrain.origin();
+    in.seaLevel  = m_terrainSeaLevel;
+    in.onProgress = &EditorApp::onFoliageProgress;
+    in.user       = this;
+
+    m_foliageCancel.store(false);
+    m_foliageDone.store(false);
+    m_foliageOk = false;
+    m_foliageProgress.store(0.0f);
+    m_foliageRunSeed = in.density.seed;
+    m_foliageAccepted = 0;
+    m_foliageKept = 0;
+    m_foliageCapped = false;
+    m_foliageKeptTrees = 0;
+    m_foliageKeptFlowers = 0;
+    m_foliageKeptRocks = 0;
+    std::vector<Terrain::FoliageRecord>().swap(m_foliagePending);
+    std::snprintf(m_foliagePhase, sizeof(m_foliagePhase), "starting");
+    m_foliageRunning.store(true);
+
+    m_foliageThread = std::thread([this, in]() {
+        FoliageSpawnOut out;
+        const bool ok = spawnFoliage(in, out);
+        if (ok)
+        {
+            uint32_t trees = 0;
+            uint32_t flowers = 0;
+            uint32_t rocks = 0;
+            for (const FoliageRecord& rec : out.records)
+            {
+                if (rec.kind == static_cast<uint8_t>(FoliageKind::Tree))
+                    ++trees;
+                else if (rec.kind == static_cast<uint8_t>(FoliageKind::Flower))
+                    ++flowers;
+                else if (rec.kind == static_cast<uint8_t>(FoliageKind::Rock))
+                    ++rocks;
+            }
+            m_foliageKeptTrees = trees;
+            m_foliageKeptFlowers = flowers;
+            m_foliageKeptRocks = rocks;
+            m_foliageAccepted = out.accepted;
+            m_foliageKept = out.kept;
+            m_foliageCapped = out.capped;
+            m_foliagePending.swap(out.records);
+        }
+        m_foliageOk = ok;
+        m_foliageDone.store(true);
+    });
+}
+
+void EditorApp::pollFoliageSpawn()
+{
+    if (!m_foliageDone.load())
+        return;
+    if (m_foliageThread.joinable())
+        m_foliageThread.join();
+    m_foliageRunning.store(false);
+    m_foliageDone.store(false);
+    if (m_foliageOk)
+    {
+        m_foliage.swap(m_foliagePending);
+        m_foliageAuthored = true;
+        m_foliageStale = false;
+        if (m_foliageCapped)
+        {
+            DE_LOG_WARN(LogCategory::Render, "Editor: foliage cap thinned accepted {} to {}",
+                m_foliageAccepted, static_cast<uint64_t>(kMaxFoliageInstances));
+        }
+        DE_LOG_INFO(LogCategory::Render,
+            "Editor: foliage spawn kept {} accepted {} capped {} seed {} trees {} flowers {} rocks {}",
+            m_foliageKept,
+            m_foliageAccepted,
+            m_foliageCapped ? 1 : 0,
+            m_foliageRunSeed,
+            m_foliageKeptTrees,
+            m_foliageKeptFlowers,
+            m_foliageKeptRocks);
+    }
+    else if (m_foliageCancel.load())
+        DE_LOG_INFO(LogCategory::Render, "Editor: foliage spawn cancelled - previous set kept");
+    std::vector<Terrain::FoliageRecord>().swap(m_foliagePending);
+    m_foliageOk = false;
 }
 
 void EditorApp::clearTerrainUndo()
@@ -1201,6 +1361,7 @@ void EditorApp::undoTerrainBrush()
     m_terrainSplatDirty  = snap.splat;
     --m_terrainUndoCount;
     snap = TerrainBrushUndo{};
+    m_foliageStale = true;
 }
 
 void EditorApp::drawWaterTools()
@@ -1435,20 +1596,22 @@ void EditorApp::drawTerrainPanel()
     ImGui::SliderFloat("Snow min", &m_splatRules.snowMin, 0.0f, 1.0f, "%.2f");
     ImGui::SliderFloat("Rock slope", &m_splatRules.rockSlope, 0.0f, 1.0f, "%.2f");
     ImGui::SliderFloat("Blend", &m_splatRules.blend, 0.0f, 0.5f, "%.2f");
-    ImGui::BeginDisabled(baking);
+    ImGui::BeginDisabled(terrainBrushesLocked());
     if (ImGui::Button("Generate from height"))
     {
-        HeightMap* working = m_terrain.editableWorking();
-        SplatMap*  splat   = m_terrain.editableWorkingSplat();
-        SplatMap   built;
-        if (working && working->valid() && built.generateFromHeight(*working, m_splatRules) && m_terrain.setWorkingSplat(std::move(built)))
+        if (!terrainBrushesLocked())
         {
-            (void)splat;
-            m_terrainSplatDirty = true;
-            uploadTerrainSplatGpu();
+            HeightMap* working = m_terrain.editableWorking();
+            SplatMap   built;
+            if (working && working->valid() && built.generateFromHeight(*working, m_splatRules) && m_terrain.setWorkingSplat(std::move(built)))
+            {
+                m_terrainSplatDirty = true;
+                uploadTerrainSplatGpu();
+                m_foliageStale = true;
+            }
+            else
+                DE_LOG_ERROR(LogCategory::Render, "Editor: generateFromHeight failed");
         }
-        else
-            DE_LOG_ERROR(LogCategory::Render, "Editor: generateFromHeight failed");
     }
 
     ImGui::Combo("Paint layer", &m_terrainPaintLayer, "Dirt\0Grass\0Rock\0Snow\0");
@@ -1460,7 +1623,93 @@ void EditorApp::drawTerrainPanel()
     bool paintOn = m_terrainBrush == TerrainBrushMode::Paint;
     if (ImGui::Checkbox("Paint brush", &paintOn))
         m_terrainBrush = paintOn ? TerrainBrushMode::Paint : TerrainBrushMode::None;
+    ImGui::EndDisabled();
 
+    ImGui::SeparatorText("Foliage");
+    ImGui::SliderFloat("Dirt trees / m2", &m_foliageDensity.dirtTreesPerM2, 0.0f, 1.0f, "%.4f");
+    ImGui::SliderFloat("Dirt flowers / m2", &m_foliageDensity.dirtFlowersPerM2, 0.0f, 2.0f, "%.4f");
+    ImGui::SliderFloat("Grass trees / m2", &m_foliageDensity.grassTreesPerM2, 0.0f, 1.0f, "%.4f");
+    ImGui::SliderFloat("Grass flowers / m2", &m_foliageDensity.grassFlowersPerM2, 0.0f, 2.0f, "%.4f");
+    ImGui::SliderFloat("Rock / m2", &m_foliageDensity.rockPerM2, 0.0f, 1.0f, "%.4f");
+    auto drawFoliageModel = [&](const char* label, const wchar_t* title, std::string& path) {
+        ImGui::PushID(label);
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(label);
+        ImGui::SameLine();
+        if (path.empty())
+            ImGui::TextDisabled("Procedural");
+        else
+            ImGui::TextUnformatted(path.c_str());
+        ImGui::SameLine();
+        if (ImGui::Button(ICON_FA_FOLDER_OPEN "  Load"))
+        {
+            std::filesystem::path suggested;
+            if (!path.empty())
+            {
+                const std::filesystem::path asPath(path);
+                if (asPath.is_absolute())
+                    suggested = asPath;
+                else
+                    suggested = assets().resolve(path);
+            }
+            std::filesystem::path chosen;
+            if (pickEditorFile(window().nativeHandle(), false, title,
+                    L"glTF (*.gltf;*.glb)\0*.gltf;*.glb\0All files (*.*)\0*.*\0",
+                    L"gltf", suggested, chosen))
+                path = terrainMapKey(assets(), chosen);
+        }
+        ImGui::SameLine();
+        ImGui::BeginDisabled(path.empty());
+        if (ImGui::Button("Clear"))
+            path.clear();
+        ImGui::EndDisabled();
+        ImGui::PopID();
+    };
+    drawFoliageModel("Tree model", L"Tree model", m_foliageDensity.treeModel);
+    drawFoliageModel("Flower model", L"Flower model", m_foliageDensity.flowerModel);
+    drawFoliageModel("Rock model", L"Rock model", m_foliageDensity.rockModel);
+    ImGui::InputScalar("Foliage seed", ImGuiDataType_U32, &m_foliageDensity.seed);
+
+    const double tileCellsM = static_cast<double>(m_terrain.tileCells());
+    const double cellM      = static_cast<double>(m_terrain.cellSize());
+    const double widthM     = static_cast<double>(m_terrain.tilesX()) * tileCellsM * cellM;
+    const double depthM     = static_cast<double>(m_terrain.tilesZ()) * tileCellsM * cellM;
+    const uint64_t cols      = widthM > 0.0 ? static_cast<uint64_t>(std::floor(widthM)) : 0ull;
+    const uint64_t rows      = depthM > 0.0 ? static_cast<uint64_t>(std::floor(depthM)) : 0ull;
+    const uint64_t areaCells = cols * rows;
+    float treeRate = m_foliageDensity.dirtTreesPerM2;
+    if (m_foliageDensity.grassTreesPerM2 > treeRate)
+        treeRate = m_foliageDensity.grassTreesPerM2;
+    float flowerRate = m_foliageDensity.dirtFlowersPerM2;
+    if (m_foliageDensity.grassFlowersPerM2 > flowerRate)
+        flowerRate = m_foliageDensity.grassFlowersPerM2;
+    const double atMost = static_cast<double>(areaCells)
+        * (static_cast<double>(treeRate) + static_cast<double>(flowerRate) + static_cast<double>(m_foliageDensity.rockPerM2));
+    ImGui::Text("Cells %llu   at most %.0f   cap %u   instances %llu",
+        static_cast<unsigned long long>(areaCells),
+        atMost,
+        kMaxFoliageInstances,
+        static_cast<unsigned long long>(m_foliage.size()));
+    if (m_foliageStale)
+        ImGui::TextDisabled("Stale");
+
+    const HeightMap* spawnHeight = m_terrain.editableWorking();
+    const SplatMap*  spawnSplat  = m_terrain.editableWorkingSplat();
+    const bool spawnBlocked = terrainBrushesLocked()
+        || spawnHeight == nullptr || !spawnHeight->valid()
+        || spawnSplat == nullptr || !spawnSplat->valid();
+    ImGui::BeginDisabled(spawnBlocked);
+    if (ImGui::Button("Spawn"))
+        startFoliageSpawn();
+    ImGui::EndDisabled();
+    if (m_foliageRunning.load())
+    {
+        ImGui::ProgressBar(m_foliageProgress.load(), ImVec2(-1.0f, 0.0f), m_foliagePhase);
+        if (ImGui::Button("Cancel##foliage"))
+            cancelFoliageSpawn();
+    }
+
+    ImGui::BeginDisabled(terrainBrushesLocked());
     ImGui::SeparatorText("Sculpt");
     int sculpt = 0;
     if (m_terrainBrush == TerrainBrushMode::SculptRaise)
