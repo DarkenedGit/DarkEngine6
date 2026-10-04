@@ -1253,6 +1253,8 @@ void SandboxApp::updatePossessed(float dt)
         xf->position += hitSlide;
     }
 
+    Physics::syncFoliageCollision(m_physics, m_foliageCollision, m_terrain, nullptr, xf->position.x, xf->position.z);
+
     Vector3f delta{ xf->position.x - before.x, 0.0f, xf->position.z - before.z };
     if (delta.MagnitudeSqrd() > 1.0e-10f)
     {
@@ -4126,6 +4128,7 @@ void SandboxApp::onShutdown()
     m_imgui.shutdown(renderer());
     m_water = WaterWorld{};
     m_terrainMaterial = TerrainMaterial{};
+    Physics::destroyFoliageCollision(m_physics, m_foliageCollision);
     m_physics.destroy();
     m_physicsGround = Physics::kNullPhysicsBody;
     m_terrain.clear();

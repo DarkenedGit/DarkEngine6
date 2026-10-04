@@ -13,6 +13,7 @@
 #include "Render/Camera3D.h"
 #include "Sky/Environment.h"
 #include "Physics/PhysicsWorld.h"
+#include "Physics/FoliageCollision.h"
 #include "Terrain/TerrainGrid.h"
 #include "Terrain/TerrainMaterial.h"
 #include "Water/Water.h"
@@ -203,6 +204,7 @@ private:
 
     Dark::Physics::PhysicsWorld  m_physics;
     Dark::Physics::PhysicsBodyId m_physicsGround = Dark::Physics::kNullPhysicsBody;
+    Dark::Physics::FoliageCollisionSet m_foliageCollision;
     float                        m_groundProbeY  = 0.0f;
     Dark::Physics::PhysicsBodyId m_groundIgnore  = Dark::Physics::kNullPhysicsBody;
 

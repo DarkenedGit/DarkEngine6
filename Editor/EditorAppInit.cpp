@@ -446,6 +446,7 @@ bool EditorApp::groundHitFromMouse(Vector3f& outPoint)
 
 void EditorApp::onShutdown()
 {
+    Physics::destroyFoliageCollision(m_physics, m_foliageCollision);
     m_physics.destroy();
     m_physicsGround = Physics::kNullPhysicsBody;
     network().shutdown();

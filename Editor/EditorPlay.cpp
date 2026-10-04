@@ -517,6 +517,7 @@ void EditorApp::setPlayMode(bool play)
     }
     else
     {
+        Physics::destroyFoliageCollision(m_physics, m_foliageCollision);
         if (JumpAttackComponent* jac = m_playPlayer.valid() ? world().get<JumpAttackComponent>(m_playPlayer) : nullptr)
             jac->jump.cancel(Combat::JumpAttackCancel::ForceIdle);
         restoreAuthoredPoses();
@@ -1073,6 +1074,7 @@ void EditorApp::updatePlay(float dt)
     }
 
     ensurePlayPhysicsVolumes();
+    Physics::syncFoliageCollision(m_physics, m_foliageCollision, m_terrain, &m_foliage, xf->position.x, xf->position.z);
 
     Vector3f delta{ xf->position.x - before.x, 0.0f, xf->position.z - before.z };
     if (delta.MagnitudeSqrd() > 1.0e-10f)

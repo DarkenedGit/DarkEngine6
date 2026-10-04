@@ -48,6 +48,7 @@
 #include "Physics/PhysicsComponent.h"
 #include "Physics/PhysicsSurface.h"
 #include "Physics/PhysicsWorld.h"
+#include "Physics/FoliageCollision.h"
 #include "Save/SaveSystem.h"
 
 #include <atomic>
@@ -503,6 +504,7 @@ private:
     Physics::PhysicsWorld          m_physics;
     Physics::PhysicsSurfaceCatalog m_surfaces;
     Physics::PhysicsBodyId         m_physicsGround = Physics::kNullPhysicsBody;
+    Physics::FoliageCollisionSet   m_foliageCollision;
     bool                      m_playMode = false;
     bool                      m_crouchLatch = false;
     bool                      m_suspendLiveStamp = false;

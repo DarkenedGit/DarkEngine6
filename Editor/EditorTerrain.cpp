@@ -192,6 +192,7 @@ constexpr int kGenTileCounts[] = { 1, 2, 4, 8 };
 
 void EditorApp::removeEditorTerrain()
 {
+    Physics::destroyFoliageCollision(m_physics, m_foliageCollision);
     cancelGenerateWorld();
     cancelFoliageSpawn();
     clearFoliageInstances("remove terrain");
