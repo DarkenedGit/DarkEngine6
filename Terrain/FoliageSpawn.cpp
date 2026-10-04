@@ -34,16 +34,6 @@ namespace Dark::Terrain
             out.capped   = false;
             return false;
         }
-
-        float clamp01(float v)
-        {
-            return Math::Clamp(v, 0.0f, 1.0f);
-        }
-
-        float clampFlower(float v)
-        {
-            return Math::Clamp(v, 0.0f, 2.0f);
-        }
     } // namespace
 
     bool spawnFoliage(const FoliageSpawnIn& in, FoliageSpawnOut& out)
@@ -107,11 +97,11 @@ namespace Dark::Terrain
         const uint32_t cols = static_cast<uint32_t>(std::floor(widthM));
         const uint32_t rows = static_cast<uint32_t>(std::floor(depthM));
 
-        const float dirtTrees   = clamp01(in.density.dirtTreesPerM2);
-        const float grassTrees  = clamp01(in.density.grassTreesPerM2);
-        const float dirtFlowers = clampFlower(in.density.dirtFlowersPerM2);
-        const float grassFlowers = clampFlower(in.density.grassFlowersPerM2);
-        const float rockPerM2   = clamp01(in.density.rockPerM2);
+        const float dirtTrees    = Math::Clamp(in.density.dirtTreesPerM2, 0.0f, 1.0f);
+        const float grassTrees   = Math::Clamp(in.density.grassTreesPerM2, 0.0f, 1.0f);
+        const float dirtFlowers  = Math::Clamp(in.density.dirtFlowersPerM2, 0.0f, 2.0f);
+        const float grassFlowers = Math::Clamp(in.density.grassFlowersPerM2, 0.0f, 2.0f);
+        const float rockPerM2    = Math::Clamp(in.density.rockPerM2, 0.0f, 1.0f);
         const uint32_t seed     = in.density.seed;
         const float seaLevel    = in.seaLevel;
         const HeightMap* height = in.height;
@@ -154,10 +144,6 @@ namespace Dark::Terrain
             {
                 const float pFlower = dirtFlowers * w[0] + grassFlowers * w[1];
                 p                   = pFlower - static_cast<float>(slot);
-                if (p < 0.0f)
-                    p = 0.0f;
-                else if (p > 1.0f)
-                    p = 1.0f;
             }
             else
                 p = rockPerM2 * w[2];
@@ -258,7 +244,6 @@ namespace Dark::Terrain
                     const float centreX = in.origin.x + static_cast<float>(cellX) + 0.5f;
                     if (!height->containsXZ(centreX, centreZ))
                         continue;
-                    // One centre sample gates the cell. Accepted props still store Y at their own XZ.
                     if (height->heightAtWorld(centreX, centreZ) < seaLevel)
                         continue;
 
@@ -303,7 +288,6 @@ namespace Dark::Terrain
             out.records.reserve(static_cast<size_t>(keepN));
 
         writing = true;
-        // total/2 spreads keeps across the scan instead of taking a prefix at the origin.
         acc = total / 2ull;
         if (!scan())
         {
