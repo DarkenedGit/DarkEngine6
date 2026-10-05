@@ -296,10 +296,12 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             f["grassTreesPerM2"]   = scene.terrain.foliage.grassTreesPerM2;
             f["grassFlowersPerM2"] = scene.terrain.foliage.grassFlowersPerM2;
             f["rockPerM2"]         = scene.terrain.foliage.rockPerM2;
+            f["grassPerM2"]        = scene.terrain.foliage.grassPerM2;
             f["stale"]             = scene.terrain.foliage.stale;
             f["treeModel"]         = scene.terrain.foliage.treeModel;
             f["flowerModel"]       = scene.terrain.foliage.flowerModel;
             f["rockModel"]         = scene.terrain.foliage.rockModel;
+            f["grassModel"]        = scene.terrain.foliage.grassModel;
             t["foliage"]           = std::move(f);
             root["terrain"] = std::move(t);
         }
@@ -528,10 +530,12 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                     desc.foliage.grassTreesPerM2    = Math::Clamp(f.value("grassTreesPerM2", 0.003f), 0.0f, 1.0f);
                     desc.foliage.grassFlowersPerM2  = Math::Clamp(f.value("grassFlowersPerM2", 0.008f), 0.0f, 2.0f);
                     desc.foliage.rockPerM2          = Math::Clamp(f.value("rockPerM2", 0.004f), 0.0f, 1.0f);
+                    desc.foliage.grassPerM2         = Math::Clamp(f.value("grassPerM2", 0.0f), 0.0f, 1.0f);
                     desc.foliage.stale              = f.value("stale", false);
-                    desc.foliage.treeModel          = f.value("treeModel", std::string());
-                    desc.foliage.flowerModel        = f.value("flowerModel", std::string());
-                    desc.foliage.rockModel          = f.value("rockModel", std::string());
+                    desc.foliage.treeModel          = f.value("treeModel", std::string("models/BirchTree/scene.gltf"));
+                    desc.foliage.flowerModel        = f.value("flowerModel", std::string("models/Dandelion/dandelion_01_2k.gltf"));
+                    desc.foliage.rockModel          = f.value("rockModel", std::string("models/RockMoss/rock_moss_set_01_2k.gltf"));
+                    desc.foliage.grassModel         = f.value("grassModel", std::string("models/Grass/grass_medium_01_2k.gltf"));
                 }
                 if (t.contains("layers") && t["layers"].is_array())
                 {

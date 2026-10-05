@@ -47,7 +47,7 @@ namespace Dark
         bool create(ID3D12Device* device);
         void destroy();
 
-        bool isValid() const { return m_gbPso != nullptr && m_depthPso != nullptr && m_worldMap != nullptr && m_indexMap != nullptr; }
+        bool isValid() const { return m_gbPso != nullptr && m_gbPsoTwoSided != nullptr && m_depthPso != nullptr && m_worldMap != nullptr && m_indexMap != nullptr; }
 
         // editorRecords non-null: that vector, kept only where the tile is resident.
         // null: residentFoliage only (Sandbox). A non-resident tile contributes nothing.
@@ -97,6 +97,7 @@ namespace Dark
 
         ComPtr<ID3D12RootSignature> m_gbRoot;
         ComPtr<ID3D12PipelineState> m_gbPso;
+        ComPtr<ID3D12PipelineState> m_gbPsoTwoSided;
         ComPtr<ID3D12RootSignature> m_depthRoot;
         ComPtr<ID3D12PipelineState> m_depthPso;
         ComPtr<ID3D12Resource>      m_worlds;

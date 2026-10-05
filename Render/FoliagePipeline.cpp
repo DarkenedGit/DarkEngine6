@@ -35,6 +35,13 @@ namespace Dark
         constexpr float    kGatherMoveM   = 16.0f;
         constexpr int      kKindCount     = static_cast<int>(Terrain::FoliageKind::Count);
 
+        constexpr Terrain::FoliageKind kKindOrder[kKindCount] = {
+            Terrain::FoliageKind::Tree,
+            Terrain::FoliageKind::Flower,
+            Terrain::FoliageKind::Rock,
+            Terrain::FoliageKind::Grass,
+        };
+
         static_assert(kFrameCount == Renderer::kFrameCount, "foliage upload frames");
         static_assert(Terrain::kMaxWorldTiles <= 8u, "resident mask");
         static_assert(Terrain::kMaxWorldTiles * Terrain::kMaxWorldTiles <= 64u, "resident mask");
@@ -128,6 +135,14 @@ namespace Dark
         {
             return Math::Matrix4f::ScaleMatrix(rec.scale) * Math::Matrix4f::RotationMatrixY(rec.yaw) * Math::Matrix4f::RotationMatrixX(rec.pitch)
                 * Math::Matrix4f::RotationMatrixY(rec.tiltYaw) * Math::Matrix4f::TranslationMatrix(rec.x, rec.y, rec.z);
+        }
+
+        // Grass and dandelion glTFs are authored at about a tenth of a meter.
+        Math::Matrix4f partLocalToRoot(const Math::Matrix4f& local, Terrain::FoliageKind kind)
+        {
+            if (kind == Terrain::FoliageKind::Grass || kind == Terrain::FoliageKind::Flower)
+                return local * Math::Matrix4f::ScaleMatrix(10.0f);
+            return local;
         }
 
         template <typename Fn>
@@ -381,6 +396,12 @@ namespace Dark
             destroy();
             return false;
         }
+        psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+        if (FailedHr(device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_gbPsoTwoSided)), "CreateGraphicsPipelineState (foliage gbuffer two-sided)"))
+        {
+            destroy();
+            return false;
+        }
 
         D3D12_ROOT_PARAMETER depthParams[3]{};
         depthParams[kDepthConstants].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
@@ -494,6 +515,7 @@ namespace Dark
         m_worlds.Reset();
         m_indices.Reset();
         m_gbPso.Reset();
+        m_gbPsoTwoSided.Reset();
         m_gbRoot.Reset();
         m_depthPso.Reset();
         m_depthRoot.Reset();
@@ -704,6 +726,7 @@ namespace Dark
             prototypes.model(Terrain::FoliageKind::Tree),
             prototypes.model(Terrain::FoliageKind::Flower),
             prototypes.model(Terrain::FoliageKind::Rock),
+            prototypes.model(Terrain::FoliageKind::Grass),
         };
 
         const size_t n = m_cpuWorlds.size();
@@ -762,18 +785,20 @@ namespace Dark
         const D3D12_GPU_VIRTUAL_ADDRESS worldVa = m_worldGpu + static_cast<UINT64>(m_activeSlot) * kWorldStride;
         const D3D12_GPU_VIRTUAL_ADDRESS indexBase = m_indexGpu + (static_cast<UINT64>(m_activeSlot) * kViewsPerFrame + m_activeView) * kIndexViewStride;
 
-        const Terrain::FoliageKind kinds[kKindCount] = { Terrain::FoliageKind::Tree, Terrain::FoliageKind::Flower, Terrain::FoliageKind::Rock };
         for (int i = 0; i < kKindCount; ++i)
         {
             const uint32_t count = static_cast<uint32_t>(m_cpuIndex[i].size());
             if (count == 0)
                 continue;
-            const AssetRef<Model>& model = prototypes.model(kinds[i]);
+            const AssetRef<Model>& model = prototypes.model(kKindOrder[i]);
             if (!model || !gpu.ensureModel(model))
                 continue;
             GpuModel* gm = gpu.model(model->id);
             if (!gm)
                 continue;
+            const Terrain::FoliageKind kind = kKindOrder[i];
+            const bool twoSided = kind == Terrain::FoliageKind::Grass || kind == Terrain::FoliageKind::Tree || kind == Terrain::FoliageKind::Flower;
+            cmd->SetPipelineState(twoSided ? m_gbPsoTwoSided.Get() : m_gbPso.Get());
             const D3D12_GPU_VIRTUAL_ADDRESS indexVa = indexBase + static_cast<UINT64>(i) * kIndexKindStride;
             for (const GpuModel::Part& part : gm->opaque())
             {
@@ -781,7 +806,7 @@ namespace Dark
                     continue;
                 gpu.bindMaterial(cmd, part.materialId, kGbMaterial);
                 FoliageGBufferConstants cb{};
-                copyMatrix(cb.localToRoot, part.localToRoot);
+                copyMatrix(cb.localToRoot, partLocalToRoot(part.localToRoot, kind));
                 copyMatrix(cb.viewProj, viewProj);
                 copyMatrix(cb.prevViewProj, prevViewProj);
                 fillSurface(gpu, part.materialId, cb);
@@ -815,25 +840,33 @@ namespace Dark
         const D3D12_GPU_VIRTUAL_ADDRESS worldVa = m_worldGpu + static_cast<UINT64>(m_activeSlot) * kWorldStride;
         const D3D12_GPU_VIRTUAL_ADDRESS indexBase = m_indexGpu + (static_cast<UINT64>(m_activeSlot) * kViewsPerFrame + m_activeView) * kIndexViewStride;
 
-        const Terrain::FoliageKind kinds[kKindCount] = { Terrain::FoliageKind::Tree, Terrain::FoliageKind::Flower, Terrain::FoliageKind::Rock };
         for (int i = 0; i < kKindCount; ++i)
         {
+            if (kKindOrder[i] == Terrain::FoliageKind::Grass)
+                continue;
             const uint32_t count = static_cast<uint32_t>(m_cpuIndex[i].size());
             if (count == 0)
                 continue;
-            const AssetRef<Model>& model = prototypes.model(kinds[i]);
+            const AssetRef<Model>& model = prototypes.model(kKindOrder[i]);
             if (!model || !gpu.ensureModel(model))
                 continue;
             GpuModel* gm = gpu.model(model->id);
             if (!gm)
                 continue;
             const D3D12_GPU_VIRTUAL_ADDRESS indexVa = indexBase + static_cast<UINT64>(i) * kIndexKindStride;
-            for (const GpuModel::Part& part : gm->opaque())
+            const std::vector<Model::Part>& cpuParts = model->opaque();
+            const std::vector<GpuModel::Part>& gpuParts = gm->opaque();
+            const size_t partCount = cpuParts.size() < gpuParts.size() ? cpuParts.size() : gpuParts.size();
+            for (size_t p = 0; p < partCount; ++p)
             {
+                const GpuModel::Part& part = gpuParts[p];
                 if (part.skinned || !part.mesh.valid())
                     continue;
+                // The depth shader has no albedo clip. Alpha-mask cards would shadow as solid quads.
+                if (cpuParts[p].material && cpuParts[p].material->alphaMode() == MaterialAlphaMode::Mask)
+                    continue;
                 FoliageDepthConstants cb{};
-                copyMatrix(cb.localToRoot, part.localToRoot);
+                copyMatrix(cb.localToRoot, partLocalToRoot(part.localToRoot, kKindOrder[i]));
                 copyMatrix(cb.lightWVP, lightViewProj);
                 cmd->SetGraphicsRoot32BitConstants(kDepthConstants, static_cast<UINT>(sizeof(cb) / 4), &cb, 0);
                 cmd->SetGraphicsRootShaderResourceView(kDepthWorlds, worldVa);

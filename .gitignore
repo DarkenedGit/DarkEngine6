@@ -3,6 +3,11 @@ Saves/
 build-sourcetrail/
 third_party/box2d/build/
 third_party/box3d/build/
+content/models/BirchTree
+content/models/Dandelion
+content/models/NaturePack
+content/models/Grass
+content/models/RockMoss
 
 # Profiling
 *.ngfx-capture

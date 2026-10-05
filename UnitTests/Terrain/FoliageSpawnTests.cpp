@@ -293,6 +293,7 @@ TEST(FoliageSpawn, PureSnowPlacesNothing)
     in.density.dirtFlowersPerM2  = 2.0f;
     in.density.grassFlowersPerM2 = 2.0f;
     in.density.rockPerM2         = 1.0f;
+    in.density.grassPerM2        = 1.0f;
 
     FoliageSpawnOut out;
     ASSERT_TRUE(spawnFoliage(in, out));
@@ -310,6 +311,7 @@ TEST(FoliageSpawn, ZeroTexelIsNotGrass)
     in.density.dirtFlowersPerM2  = 2.0f;
     in.density.grassFlowersPerM2 = 2.0f;
     in.density.rockPerM2         = 1.0f;
+    in.density.grassPerM2        = 1.0f;
 
     FoliageSpawnOut out;
     ASSERT_TRUE(spawnFoliage(in, out));
@@ -600,4 +602,33 @@ TEST(FoliageSpawn, CapSpreadsAcrossMap)
     EXPECT_GT(maxZ, 2048.0f);
     EXPECT_EQ(rocks, 0u);
     EXPECT_EQ(other, 0u);
+}
+
+TEST(FoliageSpawn, GrassFollowsGrassLayer)
+{
+    HeightMap grassHm;
+    SplatMap  grassSplat;
+    ASSERT_TRUE(makeMap(grassHm, grassSplat, 9, 9, 1.0f, 1.0f, 2.0f, Dark::Math::Vector3f{ 0.0f, 0.0f, 0.0f }, 0, 255, 0, 0));
+    FoliageSpawnIn grassIn = baseIn(grassHm, grassSplat, 1, 1, 8);
+    grassIn.density.grassPerM2 = 1.0f;
+
+    FoliageSpawnOut grassOut;
+    ASSERT_TRUE(spawnFoliage(grassIn, grassOut));
+    ASSERT_EQ(grassOut.records.size(), 64u);
+    for (const FoliageRecord& rec : grassOut.records)
+    {
+        EXPECT_EQ(rec.kind, static_cast<uint8_t>(FoliageKind::Grass));
+        EXPECT_GE(rec.scale, 0.80f);
+        EXPECT_LE(rec.scale, 1.25f);
+        expectPadAndYaw(rec);
+    }
+
+    HeightMap dirtHm;
+    SplatMap  dirtSplat;
+    ASSERT_TRUE(makeMap(dirtHm, dirtSplat, 9, 9, 1.0f, 1.0f, 2.0f, Dark::Math::Vector3f{ 0.0f, 0.0f, 0.0f }, 255, 0, 0, 0));
+    FoliageSpawnIn dirtIn = baseIn(dirtHm, dirtSplat, 1, 1, 8);
+    dirtIn.density.grassPerM2 = 1.0f;
+    FoliageSpawnOut dirtOut;
+    ASSERT_TRUE(spawnFoliage(dirtIn, dirtOut));
+    expectCleared(dirtOut);
 }

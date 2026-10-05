@@ -20,15 +20,10 @@
 #include "Render/Renderer.h"
 #include "Terrain/HeightMap.h"
 #include "Terrain/TerrainGrid.h"
-#include "Save/PersistentId.h"
 #include "Water/Water.h"
 
 #include <cmath>
-#include <format>
 #include <cstring>
-#include <iterator>
-#include <memory>
-#include <random>
 
 using namespace Dark::Math;
 
@@ -36,49 +31,6 @@ namespace Dark
 {
 namespace
 {
-    constexpr float kTreeHeight = 6.0f;
-    constexpr float kTrunkH     = kTreeHeight * (1.0f / 3.0f);
-    constexpr float kCanopyH    = kTreeHeight - kTrunkH;
-    constexpr float kTrunkR     = 0.5f;
-    constexpr float kCanopyR    = 2.0f;
-
-    const Vector3f kTreeSeeds[] = {
-        { 12.0f, 0, 8.0f },  { -10.0f, 0, 10.0f }, { 14.0f, 0, -6.0f }, { -8.0f, 0, -12.0f }, { 6.0f, 0, 16.0f },
-        { -16.0f, 0, 4.0f }, { 18.0f, 0, 2.0f },   { 4.0f, 0, -18.0f }, { -14.0f, 0, -8.0f }, { 10.0f, 0, -14.0f },
-    };
-
-    AssetRef<Model> makeTreeModel(AssetManager& assets)
-    {
-        AssetRef<Material> trunkMat  = internSolidMaterial(assets, 118, 78, 38, 255, "runtime:/pathchase/trunk-mat");
-        AssetRef<Material> canopyMat = internSolidMaterial(assets, 46, 140, 62, 255, "runtime:/pathchase/canopy-mat");
-        if (!trunkMat || !canopyMat)
-            return {};
-
-        MeshData trunkData;
-        MeshData canopyData;
-        if (!CreateCylinder(trunkData, 1.0f, 1.0f, 1.0f, 16, true, true))
-            return {};
-        if (!CreateCone(canopyData, 1.0f, 1.0f, 16, true))
-            return {};
-
-        Model::Part trunk;
-        trunk.mesh        = std::move(trunkData);
-        trunk.material    = std::move(trunkMat);
-        trunk.localToRoot = Matrix4f::ScaleMatrixXYZ(kTrunkR, kTrunkH, kTrunkR) * Matrix4f::TranslationMatrix(0.0f, kTrunkH * 0.5f, 0.0f);
-        trunk.name        = "Trunk";
-
-        Model::Part canopy;
-        canopy.mesh        = std::move(canopyData);
-        canopy.material    = std::move(canopyMat);
-        canopy.localToRoot = Matrix4f::ScaleMatrixXYZ(kCanopyR, kCanopyH, kCanopyR) * Matrix4f::TranslationMatrix(0.0f, kTrunkH + kCanopyH * 0.5f, 0.0f);
-        canopy.name        = "Canopy";
-
-        auto model = std::make_shared<Model>();
-        if (!model->createFromParts({ std::move(trunk), std::move(canopy) }))
-            return {};
-        return model;
-    }
-
     void copyMatrix(float dst[16], const Matrix4f& m)
     {
         std::memcpy(dst, &m, sizeof(float) * 16);
@@ -156,17 +108,10 @@ bool PathChase::init(Renderer& renderer, Terrain::TerrainGrid& terrain, WaterWor
     }
 
     m_cubes.clear();
+    m_hunters.clear();
     const Vector3f origin = { 0.0f, terrain.heightAtWorld(0.0f, 0.0f) + 0.5f, 0.0f };
     m_cubes.push_back(AABox3f::FromCenterExtents(origin, Vector3f{ 0.5f, 0.5f, 0.5f }));
 
-    AssetRef<Model> treeModel = makeTreeModel(assets);
-    if (!registerAndUploadModel(renderer, assets, treeModel, "runtime:/pathchase/tree"))
-    {
-        DE_LOG_ERROR(LogCategory::AI, "PathChase: tree model failed");
-        return false;
-    }
-    if (!spawnTrees(world, pins, assets, terrain, treeModel))
-        return false;
     if (!bake(terrain, water))
         return false;
 
@@ -185,37 +130,7 @@ bool PathChase::init(Renderer& renderer, Terrain::TerrainGrid& terrain, WaterWor
     }
     if (!spawnWalker(world, pins, assets, terrain, walkerModel))
         return false;
-    if (!spawnAgents(world, pins, assets, terrain))
-        return false;
-    DE_LOG_INFO(LogCategory::AI, "PathChase: ready, {} trees, 3 agents", std::size(kTreeSeeds));
-    return true;
-}
-
-bool PathChase::spawnTrees(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainGrid& terrain, const AssetRef<Model>& treeModel)
-{
-    if (!treeModel || treeModel->id == NULL_ASSET)
-    {
-        DE_LOG_ERROR(LogCategory::AI, "PathChase: tree model is not registered");
-        return false;
-    }
-
-    const Vector3f trunkHalf{ kTrunkR, kTrunkH * 0.5f, kTrunkR };
-    int treeIndex = 0;
-    for (const Vector3f& seed : kTreeSeeds)
-    {
-        Vector3f p = seed;
-        p.y        = terrain.heightAtWorld(p.x, p.z);
-        Entity e   = world.createEntity();
-        world.emplace<TagComponent>(e, "Tree");
-        world.emplace<TransformComponent>(e, p, Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
-        stampProceduralId(world, e, std::format("sandbox/pathchase/tree/{}", treeIndex), "tree");
-        ++treeIndex;
-        ModelComponent mc{};
-        mc.modelAssetID = treeModel->id;
-        mc.castShadow   = treeModel->hasOpaque();
-        setModelComponent(world, pins, assets, e, mc);
-        m_cubes.push_back(AABox3f::FromCenterExtents(Vector3f{ p.x, p.y + kTrunkH * 0.5f, p.z }, trunkHalf));
-    }
+    DE_LOG_INFO(LogCategory::AI, "PathChase: ready");
     return true;
 }
 
@@ -236,55 +151,21 @@ bool PathChase::spawnWalker(World& world, AssetPinTable& pins, AssetManager& ass
     return true;
 }
 
-bool PathChase::spawnAgents(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainGrid& terrain)
+Entity PathChase::spawnListedHunter(World& world, AssetPinTable& pins, AssetManager& assets, const TransformComponent& xf)
 {
-    std::mt19937 rng{ 20260826u };
-    std::uniform_real_distribution<float> ux(-22.0f, 22.0f);
-    std::uniform_real_distribution<float> uz(-22.0f, 22.0f);
-    const Vector3f seeds[3] = { { 16.0f, 0, -10.0f }, { -14.0f, 0, -12.0f }, { 8.0f, 0, 18.0f } };
-    m_hunterCount = 0;
+    Entity e = m_ai.spawnHunter(world, pins, assets, xf);
+    if (!e.valid())
+        return {};
+    if (PathAgentComponent* path = world.get<PathAgentComponent>(e))
+        path->repathAt = static_cast<float>(m_hunters.size()) * (0.5f / 3.0f);
+    m_hunters.push_back(e);
+    return e;
+}
 
-    for (int i = 0; i < kHunterCount; ++i)
-    {
-        bool ok = false;
-        for (int tries = 0; tries < 256; ++tries)
-        {
-            const float x = (tries == 0) ? seeds[i].x : ux(rng);
-            const float z = (tries == 0) ? seeds[i].z : uz(rng);
-            if (!m_ai.walkability().walkableWorld(x, z))
-                continue;
-            bool hit = false;
-            for (int j = 0; j < m_hunterCount; ++j)
-            {
-                const TransformComponent* ox = world.get<TransformComponent>(m_hunters[static_cast<size_t>(j)]);
-                if (!ox)
-                    continue;
-                const float dx = x - ox->position.x;
-                const float dz = z - ox->position.z;
-                if (dx * dx + dz * dz < 4.0f)
-                    hit = true;
-            }
-            if (hit)
-                continue;
-            TransformComponent xf{};
-            xf.position = Vector3f{ x, terrain.heightAtWorld(x, z) + 0.5f, z };
-            xf.scale    = Vector3f{ 1.0f, 1.0f, 1.0f };
-            Entity e    = m_ai.spawnHunter(world, pins, assets, xf);
-            if (!e.valid())
-                return false;
-            if (PathAgentComponent* path = world.get<PathAgentComponent>(e))
-                path->repathAt = static_cast<float>(i) * (0.5f / 3.0f);
-            m_hunters[static_cast<size_t>(m_hunterCount++)] = e;
-            ok = true;
-            break;
-        }
-        if (!ok)
-        {
-            DE_LOG_ERROR(LogCategory::AI, "PathChase: failed to spawn agent {}", i);
-            return false;
-        }
-    }
-    return true;
+void PathChase::addHunter(Entity e)
+{
+    if (e.valid())
+        m_hunters.push_back(e);
 }
 
 void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainGrid& terrain, Entity hostPawn, bool playerInWater)
@@ -343,9 +224,8 @@ void PathChase::drawPaths(ID3D12GraphicsCommandList* cmd, Renderer& renderer, co
     };
     if (m_world)
     {
-        for (int hi = 0; hi < m_hunterCount; ++hi)
+        for (const Entity e : m_hunters)
         {
-            const Entity e = m_hunters[static_cast<size_t>(hi)];
             const HealthComponent* hp = m_world->get<HealthComponent>(e);
             const TransformComponent* xf = m_world->get<TransformComponent>(e);
             const AiAgentComponent* ai = m_world->get<AiAgentComponent>(e);
@@ -421,7 +301,7 @@ void PathChase::drawPaths(ID3D12GraphicsCommandList* cmd, Renderer& renderer, co
 
 Entity PathChase::hunterEntity(int i) const
 {
-    if (i < 0 || i >= m_hunterCount)
+    if (i < 0 || i >= static_cast<int>(m_hunters.size()))
         return {};
     return m_hunters[static_cast<size_t>(i)];
 }

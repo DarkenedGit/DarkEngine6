@@ -16,10 +16,13 @@ namespace Dark::Terrain
         constexpr uint32_t kSaltTreeAccept    = 0x1000u;
         constexpr uint32_t kSaltFlowerAccept  = 0x2000u;
         constexpr uint32_t kSaltRockAccept    = 0x3000u;
+        constexpr uint32_t kSaltGrassAccept   = 0x3500u;
         constexpr uint32_t kSaltJitterX       = 0x4000u;
         constexpr uint32_t kSaltFlowerJitterX = 0x4100u;
+        constexpr uint32_t kSaltGrassJitterX  = 0x4500u;
         constexpr uint32_t kSaltJitterZ       = 0x5000u;
         constexpr uint32_t kSaltFlowerJitterZ = 0x5100u;
+        constexpr uint32_t kSaltGrassJitterZ  = 0x5500u;
         constexpr uint32_t kSaltYaw           = 0x6000u;
         constexpr uint32_t kSaltScale         = 0x7000u;
         constexpr float    kTreeRockJitter    = 0.45f;
@@ -102,6 +105,7 @@ namespace Dark::Terrain
         const float dirtFlowers  = Math::Clamp(in.density.dirtFlowersPerM2, 0.0f, 2.0f);
         const float grassFlowers = Math::Clamp(in.density.grassFlowersPerM2, 0.0f, 2.0f);
         const float rockPerM2    = Math::Clamp(in.density.rockPerM2, 0.0f, 1.0f);
+        const float grassPerM2   = Math::Clamp(in.density.grassPerM2, 0.0f, 1.0f);
         const uint32_t seed     = in.density.seed;
         const float seaLevel    = in.seaLevel;
         const HeightMap* height = in.height;
@@ -115,14 +119,16 @@ namespace Dark::Terrain
         uint32_t nTree   = 0;
         uint32_t nFlower = 0;
         uint32_t nRock   = 0;
+        uint32_t nGrass  = 0;
 
         auto consider = [&](FoliageKind kind, int slot, float anchorX, float anchorZ, int ix, int iz)
         {
             const bool     flower  = kind == FoliageKind::Flower;
+            const bool     grass   = kind == FoliageKind::Grass;
             const uint32_t slotU   = static_cast<uint32_t>(slot);
             const uint32_t kindU   = static_cast<uint32_t>(kind);
-            const uint32_t jxSalt  = flower ? (kSaltFlowerJitterX + slotU) : kSaltJitterX;
-            const uint32_t jzSalt  = flower ? (kSaltFlowerJitterZ + slotU) : kSaltJitterZ;
+            const uint32_t jxSalt  = flower ? (kSaltFlowerJitterX + slotU) : (grass ? kSaltGrassJitterX : kSaltJitterX);
+            const uint32_t jzSalt  = flower ? (kSaltFlowerJitterZ + slotU) : (grass ? kSaltGrassJitterZ : kSaltJitterZ);
             const float    jitter  = flower ? kFlowerJitter : kTreeRockJitter;
             const float    jx      = (hash21(ix, iz, seed ^ jxSalt) * 2.0f - 1.0f) * jitter;
             const float    jz      = (hash21(ix, iz, seed ^ jzSalt) * 2.0f - 1.0f) * jitter;
@@ -145,6 +151,8 @@ namespace Dark::Terrain
                 const float pFlower = dirtFlowers * w[0] + grassFlowers * w[1];
                 p                   = pFlower - static_cast<float>(slot);
             }
+            else if (kind == FoliageKind::Grass)
+                p = grassPerM2 * w[1];
             else
                 p = rockPerM2 * w[2];
 
@@ -158,6 +166,8 @@ namespace Dark::Terrain
                     acceptSalt = kSaltFlowerAccept + slotU;
                 else if (kind == FoliageKind::Rock)
                     acceptSalt = kSaltRockAccept;
+                else if (kind == FoliageKind::Grass)
+                    acceptSalt = kSaltGrassAccept;
                 accept = hash21(ix, iz, seed ^ acceptSalt) < p;
             }
             if (!accept)
@@ -202,6 +212,11 @@ namespace Dark::Terrain
                 scaleMin = 0.60f;
                 scaleMax = 1.80f;
             }
+            else if (kind == FoliageKind::Grass)
+            {
+                scaleMin = 0.80f;
+                scaleMax = 1.25f;
+            }
 
             FoliageRecord rec{};
             rec.x     = x;
@@ -225,6 +240,8 @@ namespace Dark::Terrain
                 ++nTree;
             else if (kind == FoliageKind::Flower)
                 ++nFlower;
+            else if (kind == FoliageKind::Grass)
+                ++nGrass;
             else
                 ++nRock;
         };
@@ -234,6 +251,7 @@ namespace Dark::Terrain
             const bool placeTrees   = dirtTrees > 0.0f || grassTrees > 0.0f;
             const bool placeFlowers = dirtFlowers > 0.0f || grassFlowers > 0.0f;
             const bool placeRocks   = rockPerM2 > 0.0f;
+            const bool placeGrass   = grassPerM2 > 0.0f;
             for (uint32_t cellZ = 0; cellZ < rows; ++cellZ)
             {
                 const int   iz = static_cast<int>(cellZ);
@@ -256,6 +274,8 @@ namespace Dark::Terrain
                     }
                     if (placeRocks)
                         consider(FoliageKind::Rock, 0, centreX, centreZ, ix, iz);
+                    if (placeGrass)
+                        consider(FoliageKind::Grass, 0, centreX, centreZ, ix, iz);
                 }
 
                 if (in.onProgress != nullptr)
@@ -300,7 +320,7 @@ namespace Dark::Terrain
         out.capped   = total > cap;
         if (out.capped)
             DE_LOG_WARN(LogCategory::Render, "FoliageSpawn: cap thinned accepted {} to {}", total, cap);
-        DE_LOG_INFO(LogCategory::Render, "FoliageSpawn: kept {} accepted {} capped {} seed {} trees {} flowers {} rocks {}", out.kept, out.accepted, out.capped ? 1 : 0, seed, nTree, nFlower, nRock);
+        DE_LOG_INFO(LogCategory::Render, "FoliageSpawn: kept {} accepted {} capped {} seed {} trees {} flowers {} rocks {} grass {}", out.kept, out.accepted, out.capped ? 1 : 0, seed, nTree, nFlower, nRock, nGrass);
         return true;
     }
 

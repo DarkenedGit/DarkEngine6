@@ -20,6 +20,7 @@ namespace Dark::Terrain
         Tree = 0,
         Flower,
         Rock,
+        Grass,
         Count
     };
 
@@ -30,10 +31,12 @@ namespace Dark::Terrain
         float       grassTreesPerM2    = 0.003f;
         float       grassFlowersPerM2  = 0.008f;
         float       rockPerM2          = 0.004f;
+        float       grassPerM2         = 0.0f; // grass layer only; 0 keeps old scenes unchanged
         uint32_t    seed               = 1337u;
-        std::string treeModel;
-        std::string flowerModel;
-        std::string rockModel;
+        std::string treeModel   = "models/BirchTree/scene.gltf";
+        std::string flowerModel = "models/Dandelion/dandelion_01_2k.gltf";
+        std::string rockModel   = "models/RockMoss/rock_moss_set_01_2k.gltf";
+        std::string grassModel  = "models/Grass/grass_medium_01_2k.gltf";
     };
 
     struct FoliageRecord

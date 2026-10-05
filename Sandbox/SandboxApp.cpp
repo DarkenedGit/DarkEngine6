@@ -2865,7 +2865,12 @@ void SandboxApp::bindCharacterPhysics()
 {
     bindEntityPhysics(m_chase.walker(), "player");
     for (int i = 0; i < m_chase.hunterCount(); ++i)
-        bindEntityPhysics(m_chase.hunterEntity(i), i == 0 ? "human" : "wolf");
+    {
+        const Entity e = m_chase.hunterEntity(i);
+        const TagComponent* tag = e.valid() ? world().get<TagComponent>(e) : nullptr;
+        const bool wolf = tag && tag->name == "Wolf";
+        bindEntityPhysics(e, wolf ? "wolf" : "human");
+    }
 }
 
 float SandboxApp::playerGroundHeight(float x, float z) const
@@ -2991,6 +2996,7 @@ void SandboxApp::onInit()
     if (!loadAndBakeIbl(renderer(), assets(), m_ibl, m_iblImageId))
         DE_LOG_INFO(LogCategory::Render, "SandboxApp: IBL off — using ambient");
 
+    std::vector<SceneObjectData> scenePawns;
     {
         auto sidecar = [](const std::filesystem::path& scenePath, const std::string& file) {
             if (file.empty())
@@ -3089,10 +3095,12 @@ void SandboxApp::onInit()
         m_foliageDensity.grassTreesPerM2   = sceneData.terrain.foliage.grassTreesPerM2;
         m_foliageDensity.grassFlowersPerM2 = sceneData.terrain.foliage.grassFlowersPerM2;
         m_foliageDensity.rockPerM2         = sceneData.terrain.foliage.rockPerM2;
+        m_foliageDensity.grassPerM2        = sceneData.terrain.foliage.grassPerM2;
         m_foliageDensity.seed              = sceneData.terrain.foliage.seed;
         m_foliageDensity.treeModel         = sceneData.terrain.foliage.treeModel;
         m_foliageDensity.flowerModel       = sceneData.terrain.foliage.flowerModel;
         m_foliageDensity.rockModel         = sceneData.terrain.foliage.rockModel;
+        m_foliageDensity.grassModel        = sceneData.terrain.foliage.grassModel;
 
         if (!loadedScene)
         {
@@ -3204,6 +3212,8 @@ void SandboxApp::onInit()
         uint32_t spawnedClouds = 0;
         for (const SceneObjectData& o : sceneData.objects)
         {
+            if (o.type == SceneObjectType::Hunter || o.type == SceneObjectType::Wolf)
+                scenePawns.push_back(o);
             if (o.type != SceneObjectType::CloudVolume)
                 continue;
             CloudVolumeDesc desc{};
@@ -3366,30 +3376,48 @@ void SandboxApp::onInit()
     m_shield = spawnPlayerShield(world(), pins(), assets(), renderer());
     if (m_chaseOk)
     {
-        for (int i = 0; i < m_chase.hunterCount(); ++i)
+        int hunterStamp = 0;
+        int wolfStamp   = 0;
+        for (const SceneObjectData& o : scenePawns)
         {
-            const Entity hunter = m_chase.hunterEntity(i);
-            const bool wolf = (i != 0);
-            const EntityMaster wolfMaster = loadEntityMasterType("wolf");
-            const std::string  wolfGltf = wolfMaster.gltf.empty() ? std::string("models/wolf.gltf") : wolfMaster.gltf;
-            attachAnimatedCharacter(hunter, wolf ? wolfGltf.c_str() : "models/skeleton.gltf");
+            const bool wolf = o.type == SceneObjectType::Wolf;
+            TransformComponent xf{};
+            xf.position = o.position;
+            xf.rotation = o.rotation;
+            const bool zeroScale = o.scale.x == 0.0f && o.scale.y == 0.0f && o.scale.z == 0.0f;
+            xf.scale = zeroScale ? Vector3f{ 1.0f, 1.0f, 1.0f } : o.scale;
+            xf.position.y = m_terrain.heightAtWorld(xf.position.x, xf.position.z) + 0.5f;
+            if (!m_chase.ai().walkability().walkableWorld(xf.position.x, xf.position.z))
+            {
+                DE_LOG_WARN(LogCategory::AI, "SandboxApp: scene {} at ({:.1f}, {:.1f}) is not walkable",
+                    wolf ? "wolf" : "hunter", xf.position.x, xf.position.z);
+            }
+
+            const Entity hunter = m_chase.spawnListedHunter(world(), pins(), assets(), xf);
+            if (!hunter.valid())
+                continue;
+            const char* gltf = "models/skeleton.gltf";
+            std::string wolfGltf;
+            if (wolf)
+            {
+                const EntityMaster wolfMaster = loadEntityMasterType("wolf");
+                wolfGltf = wolfMaster.gltf.empty() ? std::string("models/wolf.gltf") : wolfMaster.gltf;
+                gltf     = wolfGltf.c_str();
+            }
+            attachAnimatedCharacter(hunter, gltf);
             attachHunterSounds(world(), pins(), assets(), audio(), hunter, m_ground);
-            if (HittableComponent* hit = hunter.valid() ? world().get<HittableComponent>(hunter) : nullptr)
+            if (HittableComponent* hit = world().get<HittableComponent>(hunter))
                 hit->halfExtents = wolf ? Vector3f{ 0.45f, 0.45f, 0.70f } : Vector3f{ 0.4f, 0.7f, 0.4f };
             if (wolf)
             {
-                if (TagComponent* tag = hunter.valid() ? world().get<TagComponent>(hunter) : nullptr)
+                if (TagComponent* tag = world().get<TagComponent>(hunter))
                     tag->name = "Wolf";
                 applySkillProfile(world(), hunter, "wolf");
             }
-            if (hunter.valid())
-                stampProceduralId(world(), hunter, std::format("sandbox/pathchase/hunter/{}", i), wolf ? "wolf" : "hunter");
-            if (TransformComponent* hxf = hunter.valid() ? world().get<TransformComponent>(hunter) : nullptr)
-            {
-                hxf->scale = Vector3f{ 1.0f, 1.0f, 1.0f };
-                hxf->position.y = m_terrain.heightAtWorld(hxf->position.x, hxf->position.z) + 0.5f;
-            }
+            const int stamp = wolf ? wolfStamp++ : hunterStamp++;
+            stampProceduralId(world(), hunter, std::format("sandbox/level/{}/{}", wolf ? "wolf" : "hunter", stamp), wolf ? "wolf" : "hunter");
         }
+        DE_LOG_INFO(LogCategory::AI, "SandboxApp: {} scene pawn(s)", m_chase.hunterCount());
     }
     if (m_chaseOk)
         bindCharacterPhysics();

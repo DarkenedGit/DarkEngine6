@@ -63,7 +63,7 @@ PSInput VSMain(VSInput input)
     return o;
 }
 
-GBufferOut PSMain(PSInput input)
+GBufferOut PSMain(PSInput input, bool isFront : SV_IsFrontFace)
 {
     float4 albedoS = gAlbedo.Sample(gSamp, input.uv);
     if (alphaModeMask > 0.5f)
@@ -71,6 +71,8 @@ GBufferOut PSMain(PSInput input)
 
     float3 albedo = albedoS.rgb * color.rgb;
     float3 n      = ApplyNormalMap(input.normalWS, input.tangentWS, input.uv);
+    if (!isFront)
+        n = -n;
 
     float4 orm   = gOrm.Sample(gSamp, input.uv);
     float  rough = saturate(orm.g * roughness);

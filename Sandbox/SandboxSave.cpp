@@ -201,6 +201,7 @@ Entity SandboxApp::saveRespawn(void* user, World& world, std::string_view archet
             applySkillProfile(world, e, "wolf");
         }
         app->bindEntityPhysics(e, wolf ? "wolf" : "human");
+        app->m_chase.addHunter(e);
         return e;
     }
 

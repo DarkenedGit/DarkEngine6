@@ -4,6 +4,7 @@
 #include "Terrain/FoliageFile.h"
 
 #include <string>
+#include <vector>
 
 namespace Dark
 {
@@ -11,7 +12,12 @@ namespace Dark
     class Renderer;
     class AssetManager;
 
-    // Procedural tree / flower / rock, plus an optional glTF stand-in per kind.
+    // One planted instance from a showcase glTF. Drops parked LOD1+ meshes, keeps the
+    // cluster nearest the origin (bark and leaves together), recenters it, and seats
+    // the lowest vertex on Y=0. Blend materials on the kept parts become alpha mask.
+    bool makeFoliageShowcaseParts(const std::vector<Model::Part>& parts, std::vector<Model::Part>& out);
+
+    // Procedural tree / flower / rock / grass, plus an optional glTF stand-in per kind.
     class FoliagePrototypes
     {
     public:

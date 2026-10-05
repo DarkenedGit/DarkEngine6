@@ -8,6 +8,8 @@
 #include "Render/Renderer.h"
 
 #include <filesystem>
+#include <string>
+#include <vector>
 
 namespace Dark
 {
@@ -42,7 +44,178 @@ namespace Dark
                 return loadAndUploadModelFile(renderer, assets, asPath);
             return loadAndUploadModel(renderer, assets, path);
         }
+
+        // The grass glTF is a lineup of tufts. Keep the one nearest the origin and
+        // drop the showcase translation so each instance is a single plant.
+        AssetRef<Model> grassTuft(Renderer& renderer, AssetManager& assets, const AssetRef<Model>& src, const std::string& cacheKey)
+        {
+            if (!src)
+                return {};
+
+            const Model::Part* best = nullptr;
+            float              bestD = 0.0f;
+            auto consider = [&](const std::vector<Model::Part>& parts) {
+                for (const Model::Part& part : parts)
+                {
+                    if (part.skinned || part.mesh.positions.empty() || part.mesh.indices.empty())
+                        continue;
+                    const Vector4f row = part.localToRoot.GetRow(3);
+                    const float    d   = row.x * row.x + row.z * row.z;
+                    if (!best || d < bestD)
+                    {
+                        best  = &part;
+                        bestD = d;
+                    }
+                }
+            };
+            consider(src->opaque());
+            consider(src->translucent());
+            if (!best || !best->material)
+                return {};
+
+            Model::Part tuft = *best;
+            tuft.localToRoot.SetRow(3, Vector3f(0.0f, 0.0f, 0.0f));
+            tuft.translucent = false;
+            tuft.skinned     = false;
+            if (tuft.material->alphaMode() == MaterialAlphaMode::Blend)
+            {
+                tuft.material->setAlphaMode(MaterialAlphaMode::Mask);
+                tuft.material->setAlphaCutoff(0.5f);
+            }
+
+            auto model = std::make_shared<Model>();
+            if (!model->createFromParts({ std::move(tuft) }))
+            {
+                DE_LOG_ERROR(LogCategory::Render, "FoliagePrototypes: grass tuft build failed");
+                return {};
+            }
+            DE_LOG_INFO(LogCategory::Render, "FoliagePrototypes: grass tuft '{}'", best->name);
+            return registerAndUploadModel(renderer, assets, model, cacheKey);
+        }
+
+        bool parkedLodName(const std::string& name)
+        {
+            return name.find("LOD1") != std::string::npos || name.find("LOD2") != std::string::npos || name.find("LOD3") != std::string::npos;
+        }
+
+        AssetRef<Model> loadCpuModel(AssetManager& assets, const std::string& path)
+        {
+            const std::filesystem::path asPath(path);
+            if (asPath.is_absolute())
+                return assets.loadModelFile(asPath);
+            return assets.loadModel(path);
+        }
+
+        AssetRef<Model> showcaseModel(Renderer& renderer, AssetManager& assets, const std::string& path, const char* label)
+        {
+            AssetRef<Model> src = loadCpuModel(assets, path);
+            if (!src)
+                return {};
+
+            std::vector<Model::Part> all;
+            all.reserve(src->opaque().size() + src->translucent().size());
+            for (const Model::Part& part : src->opaque())
+                all.push_back(part);
+            for (const Model::Part& part : src->translucent())
+                all.push_back(part);
+
+            std::vector<Model::Part> kept;
+            if (!makeFoliageShowcaseParts(all, kept))
+            {
+                DE_LOG_ERROR(LogCategory::Render, "FoliagePrototypes: {} showcase kept nothing from '{}'", label, path);
+                return {};
+            }
+
+            std::string names;
+            for (const Model::Part& part : kept)
+            {
+                if (!names.empty())
+                    names += ", ";
+                names += part.name;
+            }
+            DE_LOG_INFO(LogCategory::Render, "FoliagePrototypes: {} showcase {}", label, names);
+
+            auto model = std::make_shared<Model>();
+            if (!model->createFromParts(std::move(kept)))
+            {
+                DE_LOG_ERROR(LogCategory::Render, "FoliagePrototypes: {} showcase build failed", label);
+                return {};
+            }
+            const std::string cacheKey = std::string("runtime:/foliage/showcase/") + label + "/" + path;
+            return registerAndUploadModel(renderer, assets, model, cacheKey);
+        }
     } // namespace
+
+    bool makeFoliageShowcaseParts(const std::vector<Model::Part>& parts, std::vector<Model::Part>& out)
+    {
+        out.clear();
+        const Model::Part* best = nullptr;
+        float              bestD = 0.0f;
+        for (const Model::Part& part : parts)
+        {
+            if (part.skinned || part.mesh.positions.empty() || part.mesh.indices.empty() || parkedLodName(part.name))
+                continue;
+            const Vector4f row = part.localToRoot.GetRow(3);
+            const float    d   = row.x * row.x + row.z * row.z;
+            if (!best || d < bestD)
+            {
+                best  = &part;
+                bestD = d;
+            }
+        }
+        if (!best)
+            return false;
+
+        const Vector4f origin = best->localToRoot.GetRow(3);
+        constexpr float kCluster = 0.25f;
+        const float     kClusterSq = kCluster * kCluster;
+        for (const Model::Part& part : parts)
+        {
+            if (part.skinned || part.mesh.positions.empty() || part.mesh.indices.empty() || parkedLodName(part.name))
+                continue;
+            const Vector4f row = part.localToRoot.GetRow(3);
+            const float    dx  = row.x - origin.x;
+            const float    dy  = row.y - origin.y;
+            const float    dz  = row.z - origin.z;
+            if (dx * dx + dy * dy + dz * dz > kClusterSq)
+                continue;
+
+            Model::Part copy = part;
+            copy.localToRoot.SetRow(3, Vector3f(dx, dy, dz));
+            copy.translucent = false;
+            copy.skinned     = false;
+            if (copy.material && copy.material->alphaMode() == MaterialAlphaMode::Blend)
+            {
+                copy.material->setAlphaMode(MaterialAlphaMode::Mask);
+                copy.material->setAlphaCutoff(0.5f);
+            }
+            out.push_back(std::move(copy));
+        }
+        if (out.empty())
+            return false;
+
+        float minY = 0.0f;
+        bool  any  = false;
+        for (const Model::Part& part : out)
+        {
+            for (const Vector3f& p : part.mesh.positions)
+            {
+                const Vector4f wp = part.localToRoot * Vector4f(p.x, p.y, p.z, 1.0f);
+                if (!any || wp.y < minY)
+                    minY = wp.y;
+                any = true;
+            }
+        }
+        if (any)
+        {
+            for (Model::Part& part : out)
+            {
+                const Vector4f row = part.localToRoot.GetRow(3);
+                part.localToRoot.SetRow(3, Vector3f(row.x, row.y - minY, row.z));
+            }
+        }
+        return true;
+    }
 
     bool FoliagePrototypes::create(Renderer& renderer, AssetManager& assets)
     {
@@ -143,6 +316,32 @@ namespace Dark
         if (!m_proto[static_cast<int>(Terrain::FoliageKind::Rock)])
             return false;
 
+        AssetRef<Material> grassMat = internSolidMaterial(assets, 76, 140, 48, 255, "runtime:/foliage/grass-mat");
+        if (!grassMat)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "FoliagePrototypes: grass material failed");
+            return false;
+        }
+        MeshData card;
+        if (!CreateQuadXY(card, 0.45f, 0.7f))
+        {
+            DE_LOG_ERROR(LogCategory::Render, "FoliagePrototypes: grass mesh failed");
+            return false;
+        }
+        Model::Part bladeA;
+        bladeA.mesh        = card;
+        bladeA.material    = grassMat;
+        bladeA.localToRoot = Matrix4f::RotationMatrixY(0.0f) * Matrix4f::TranslationMatrix(0.0f, 0.35f, 0.0f);
+        bladeA.name        = "BladeA";
+        Model::Part bladeB;
+        bladeB.mesh        = card;
+        bladeB.material    = grassMat;
+        bladeB.localToRoot = Matrix4f::RotationMatrixY(1.57079637f) * Matrix4f::TranslationMatrix(0.0f, 0.35f, 0.0f);
+        bladeB.name        = "BladeB";
+        m_proto[static_cast<int>(Terrain::FoliageKind::Grass)] = makeModel(renderer, assets, { std::move(bladeA), std::move(bladeB) }, "runtime:/foliage/grass");
+        if (!m_proto[static_cast<int>(Terrain::FoliageKind::Grass)])
+            return false;
+
         DE_LOG_INFO(LogCategory::Render, "FoliagePrototypes: ready");
         return true;
     }
@@ -159,7 +358,7 @@ namespace Dark
 
     void FoliagePrototypes::sync(Renderer& renderer, AssetManager& assets, const Terrain::FoliageDensity& density)
     {
-        const std::string* paths[kKinds] = { &density.treeModel, &density.flowerModel, &density.rockModel };
+        const std::string* paths[kKinds] = { &density.treeModel, &density.flowerModel, &density.rockModel, &density.grassModel };
         for (int i = 0; i < kKinds; ++i)
         {
             if (*paths[i] == m_path[i])
@@ -170,7 +369,23 @@ namespace Dark
             if (m_path[i].empty())
                 continue;
 
-            AssetRef<Model> loaded = loadOverride(renderer, assets, m_path[i]);
+            AssetRef<Model> loaded;
+            if (i == static_cast<int>(Terrain::FoliageKind::Grass))
+            {
+                loaded = loadOverride(renderer, assets, m_path[i]);
+                const std::string tuftKey = std::string("runtime:/foliage/grass-tuft/") + m_path[i];
+                if (AssetRef<Model> tuft = grassTuft(renderer, assets, loaded, tuftKey))
+                    loaded = std::move(tuft);
+            }
+            else
+            {
+                const char* label = "tree";
+                if (i == static_cast<int>(Terrain::FoliageKind::Flower))
+                    label = "flower";
+                else if (i == static_cast<int>(Terrain::FoliageKind::Rock))
+                    label = "rock";
+                loaded = showcaseModel(renderer, assets, m_path[i], label);
+            }
             if (!loaded || !loaded->hasOpaque() || loaded->skinned())
             {
                 if (!m_logged[i])

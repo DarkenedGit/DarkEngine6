@@ -8,7 +8,20 @@
     "heightBlendK": -1.0,
     "source": "terrain/HurricaneRidge",
     "worldSize": 1024.0,
-    "importHeight": 480.0
+    "importHeight": 480.0,
+    "foliage": {
+      "seed": 1337,
+      "dirtTreesPerM2": 0.002,
+      "dirtFlowersPerM2": 0.006,
+      "grassTreesPerM2": 0.003,
+      "grassFlowersPerM2": 0.008,
+      "rockPerM2": 0.004,
+      "grassPerM2": 0.25,
+      "treeModel": "models/BirchTree/scene.gltf",
+      "flowerModel": "models/Dandelion/dandelion_01_2k.gltf",
+      "rockModel": "models/RockMoss/rock_moss_set_01_2k.gltf",
+      "grassModel": "models/Grass/grass_medium_01_2k.gltf"
+    }
   },
   "sky": {
     "timeOfDay": 16.2,
@@ -201,6 +214,81 @@
         1.0
       ],
       "type": "player"
+    },
+    {
+      "color": [
+        0.85,
+        0.28,
+        0.22,
+        1.0
+      ],
+      "position": [
+        24.0,
+        0.5,
+        -10.0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "type": "hunter"
+    },
+    {
+      "color": [
+        0.52,
+        0.46,
+        0.40,
+        1.0
+      ],
+      "position": [
+        -24.0,
+        0.5,
+        -12.0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "type": "wolf"
+    },
+    {
+      "color": [
+        0.52,
+        0.46,
+        0.40,
+        1.0
+      ],
+      "position": [
+        0.0,
+        0.5,
+        32.0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "type": "wolf"
     },
     {
       "color": [

@@ -498,10 +498,12 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
         desc.foliage.grassTreesPerM2   = m_foliageDensity.grassTreesPerM2;
         desc.foliage.grassFlowersPerM2 = m_foliageDensity.grassFlowersPerM2;
         desc.foliage.rockPerM2         = m_foliageDensity.rockPerM2;
+        desc.foliage.grassPerM2        = m_foliageDensity.grassPerM2;
         desc.foliage.stale             = m_foliageStale;
         desc.foliage.treeModel         = m_foliageDensity.treeModel;
         desc.foliage.flowerModel       = m_foliageDensity.flowerModel;
         desc.foliage.rockModel         = m_foliageDensity.rockModel;
+        desc.foliage.grassModel        = m_foliageDensity.grassModel;
         data.hasTerrain = true;
         data.terrain    = std::move(desc);
         return;
@@ -546,10 +548,12 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
     desc.foliage.grassTreesPerM2   = m_foliageDensity.grassTreesPerM2;
     desc.foliage.grassFlowersPerM2 = m_foliageDensity.grassFlowersPerM2;
     desc.foliage.rockPerM2         = m_foliageDensity.rockPerM2;
+    desc.foliage.grassPerM2        = m_foliageDensity.grassPerM2;
     desc.foliage.stale             = m_foliageStale;
     desc.foliage.treeModel         = m_foliageDensity.treeModel;
     desc.foliage.flowerModel       = m_foliageDensity.flowerModel;
     desc.foliage.rockModel         = m_foliageDensity.rockModel;
+    desc.foliage.grassModel        = m_foliageDensity.grassModel;
     data.hasTerrain = true;
     data.terrain    = std::move(desc);
 }
@@ -740,10 +744,12 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
         m_foliageDensity.grassTreesPerM2   = desc.foliage.grassTreesPerM2;
         m_foliageDensity.grassFlowersPerM2 = desc.foliage.grassFlowersPerM2;
         m_foliageDensity.rockPerM2         = desc.foliage.rockPerM2;
+        m_foliageDensity.grassPerM2        = desc.foliage.grassPerM2;
         m_foliageDensity.seed              = desc.foliage.seed;
         m_foliageDensity.treeModel         = desc.foliage.treeModel;
         m_foliageDensity.flowerModel       = desc.foliage.flowerModel;
         m_foliageDensity.rockModel         = desc.foliage.rockModel;
+        m_foliageDensity.grassModel        = desc.foliage.grassModel;
         m_foliageStale                     = desc.foliage.stale;
         if (!loadWorldEngineTerrain(dir, worldSize, relief))
         {
@@ -845,10 +851,12 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
     m_foliageDensity.grassTreesPerM2   = desc.foliage.grassTreesPerM2;
     m_foliageDensity.grassFlowersPerM2 = desc.foliage.grassFlowersPerM2;
     m_foliageDensity.rockPerM2         = desc.foliage.rockPerM2;
+    m_foliageDensity.grassPerM2        = desc.foliage.grassPerM2;
     m_foliageDensity.seed              = desc.foliage.seed;
     m_foliageDensity.treeModel         = desc.foliage.treeModel;
     m_foliageDensity.flowerModel       = desc.foliage.flowerModel;
     m_foliageDensity.rockModel         = desc.foliage.rockModel;
+    m_foliageDensity.grassModel        = desc.foliage.grassModel;
     m_foliageStale                     = desc.foliage.stale;
 
     m_terrainSurface = {};
@@ -1269,12 +1277,15 @@ void EditorApp::drawTerrainPanel()
         else if (m_foliageAuthored)
         {
             uint32_t trees = 0;
+            uint32_t grass = 0;
             for (const FoliageRecord& rec : m_foliage)
             {
                 if (rec.kind == static_cast<uint8_t>(FoliageKind::Tree))
                     ++trees;
+                else if (rec.kind == static_cast<uint8_t>(FoliageKind::Grass))
+                    ++grass;
             }
-            ImGui::Text("Trees follow grass and dirt on the splat. %u placed.", trees);
+            ImGui::Text("Trees follow grass and dirt. Grass tufts follow the grass layer. %u trees, %u grass.", trees, grass);
         }
     }
     else

@@ -10,7 +10,6 @@
 
 #include <d3d12.h>
 #include <wrl/client.h>
-#include <array>
 #include <vector>
 
 namespace Dark
@@ -22,6 +21,7 @@ namespace Dark
     class AssetManager;
     class AssetPinTable;
     class Model;
+    struct TransformComponent;
 
     namespace Terrain
     {
@@ -44,9 +44,11 @@ namespace Dark
         Entity walker() const { return m_walker; }
         const std::vector<Math::AABox3f>& cubes() const { return m_cubes; }
 
-        static constexpr int kHunterCount = 3;
-        int    hunterCount() const { return m_hunterCount; }
+        int    hunterCount() const { return static_cast<int>(m_hunters.size()); }
         Entity hunterEntity(int i) const;
+        // Scene pawns. Ground Y is the caller's. Staggers repath so the pack does not query together.
+        Entity spawnListedHunter(World& world, AssetPinTable& pins, AssetManager& assets, const TransformComponent& xf);
+        void   addHunter(Entity e);
         AiSystem&       ai() { return m_ai; }
         const AiSystem& ai() const { return m_ai; }
 
@@ -58,17 +60,14 @@ namespace Dark
     private:
         bool bake(Terrain::TerrainGrid& terrain, WaterWorld& water);
         bool spawnWalker(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainGrid& terrain, const AssetRef<Model>& walkerModel);
-        bool spawnAgents(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainGrid& terrain);
-        bool spawnTrees(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainGrid& terrain, const AssetRef<Model>& treeModel);
         bool createLineBuffers(Renderer& renderer);
 
         AiSystem        m_ai;
         const Terrain::TerrainGround* m_ground = nullptr;
         World*          m_world = nullptr;
         LinePipeline    m_lines;
-        std::vector<Math::AABox3f>   m_cubes;
-        std::array<Entity, kHunterCount> m_hunters{};
-        int             m_hunterCount = 0;
+        std::vector<Math::AABox3f> m_cubes;
+        std::vector<Entity>        m_hunters;
         Entity          m_walker{};
         float           m_agentR = 0.8f;
 

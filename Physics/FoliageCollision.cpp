@@ -87,18 +87,20 @@ namespace Dark::Physics
 
             if (rec.kind == static_cast<uint8_t>(Terrain::FoliageKind::Tree))
             {
-                desc.halfExtents = Math::Vector3f(0.5f * scale, 1.0f * scale, 0.5f * scale);
-                desc.position    = Math::Vector3f(rec.x, rec.y + scale, rec.z);
+                // Birch LOD0 is about 12 m tall. This box is the trunk, not the crown.
+                desc.halfExtents = Math::Vector3f(0.40f * scale, 6.0f * scale, 0.40f * scale);
+                desc.position    = Math::Vector3f(rec.x, rec.y + 6.0f * scale, rec.z);
                 desc.rotation    = Math::Quaternion::FromAxisAngle(Math::Vector3f(Math::Vector3f::Y_AXIS), rec.yaw);
                 return true;
             }
             if (rec.kind != static_cast<uint8_t>(Terrain::FoliageKind::Rock))
                 return false;
 
+            // Moss boulder seated on Y=0: about 1.82 m x 1.21 m x 3.00 m. Long axis is model Z.
             const Math::Vector3f n = normalFromPitch(rec.pitch, rec.tiltYaw);
-            const float lift       = 0.45f * scale;
-            desc.halfExtents       = Math::Vector3f(lift, lift, lift);
-            desc.position          = Math::Vector3f(rec.x, rec.y, rec.z) + (n * lift);
+            const float          halfY = 0.60f * scale;
+            desc.halfExtents           = Math::Vector3f(0.91f * scale, halfY, 1.50f * scale);
+            desc.position              = Math::Vector3f(rec.x, rec.y, rec.z) + (n * halfY);
             desc.rotation          = rockRotation(rec.pitch, rec.tiltYaw, rec.yaw);
             return true;
         }
