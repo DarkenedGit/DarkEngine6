@@ -64,12 +64,15 @@ namespace Dark
         {
             float localToRoot[16];
             float lightWVP[16];
+            float alphaCutoff;
+            float alphaModeMask;
+            float pad[2];
         };
 
         static_assert(sizeof(FoliageGBufferConstants) == 58 * sizeof(float), "foliage gbuffer constants");
         // 58 constants + material table + two root SRVs = 63. A third matrix does not fit.
         static_assert(sizeof(FoliageGBufferConstants) / sizeof(float) + 1 + 2 + 2 <= 64, "foliage gbuffer root signature");
-        static_assert(sizeof(FoliageDepthConstants) == 32 * sizeof(float), "foliage depth constants");
+        static_assert(sizeof(FoliageDepthConstants) == 36 * sizeof(float), "foliage depth constants");
 
         constexpr UINT64 kWorldStride     = static_cast<UINT64>(Terrain::kMaxFoliageDraw) * sizeof(Math::Matrix4f);
         constexpr UINT64 kIndexKindStride = static_cast<UINT64>(Terrain::kMaxFoliageDraw) * sizeof(uint32_t);
@@ -403,9 +406,9 @@ namespace Dark
             return false;
         }
 
-        D3D12_ROOT_PARAMETER depthParams[3]{};
+        D3D12_ROOT_PARAMETER depthParams[4]{};
         depthParams[kDepthConstants].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-        depthParams[kDepthConstants].ShaderVisibility         = D3D12_SHADER_VISIBILITY_VERTEX;
+        depthParams[kDepthConstants].ShaderVisibility         = D3D12_SHADER_VISIBILITY_ALL;
         depthParams[kDepthConstants].Constants.ShaderRegister = 0;
         depthParams[kDepthConstants].Constants.RegisterSpace  = 0;
         depthParams[kDepthConstants].Constants.Num32BitValues = static_cast<UINT>(sizeof(FoliageDepthConstants) / 4);
@@ -420,10 +423,17 @@ namespace Dark
         depthParams[kDepthIndices].Descriptor.ShaderRegister = 5;
         depthParams[kDepthIndices].Descriptor.RegisterSpace  = 0;
 
+        depthParams[kDepthMaterial].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        depthParams[kDepthMaterial].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
+        depthParams[kDepthMaterial].DescriptorTable.NumDescriptorRanges = 1;
+        depthParams[kDepthMaterial].DescriptorTable.pDescriptorRanges   = &srvRange;
+
         D3D12_ROOT_SIGNATURE_DESC depthDesc{};
-        depthDesc.NumParameters = 3;
-        depthDesc.pParameters   = depthParams;
-        depthDesc.Flags         = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+        depthDesc.NumParameters     = 4;
+        depthDesc.pParameters       = depthParams;
+        depthDesc.NumStaticSamplers = 1;
+        depthDesc.pStaticSamplers   = &samp;
+        depthDesc.Flags             = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
         rsBlob.Reset();
         rsErr.Reset();
@@ -441,7 +451,9 @@ namespace Dark
         }
 
         ComPtr<ID3DBlob> depthVs;
-        if (!compileShaderFromContent("shaders/FoliageDepth.hlsl", "VSMain", "vs_5_0", depthVs))
+        ComPtr<ID3DBlob> depthPs;
+        if (!compileShaderFromContent("shaders/FoliageDepth.hlsl", "VSMain", "vs_5_0", depthVs)
+            || !compileShaderFromContent("shaders/FoliageDepth.hlsl", "PSMain", "ps_5_0", depthPs))
         {
             destroy();
             return false;
@@ -449,12 +461,13 @@ namespace Dark
 
         D3D12_INPUT_ELEMENT_DESC depthLayout[] = {
             { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+            { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         };
 
         D3D12_GRAPHICS_PIPELINE_STATE_DESC depthPso{};
         depthPso.pRootSignature                        = m_depthRoot.Get();
         depthPso.VS                                    = { depthVs->GetBufferPointer(), depthVs->GetBufferSize() };
-        depthPso.PS                                    = { nullptr, 0 };
+        depthPso.PS                                    = { depthPs->GetBufferPointer(), depthPs->GetBufferSize() };
         depthPso.SampleMask                            = UINT_MAX;
         depthPso.RasterizerState.FillMode              = D3D12_FILL_MODE_SOLID;
         depthPso.RasterizerState.CullMode              = D3D12_CULL_MODE_BACK;
@@ -474,6 +487,12 @@ namespace Dark
         depthPso.SampleDesc                            = { 1, 0 };
 
         if (FailedHr(device->CreateGraphicsPipelineState(&depthPso, IID_PPV_ARGS(&m_depthPso)), "CreateGraphicsPipelineState (foliage depth)"))
+        {
+            destroy();
+            return false;
+        }
+        depthPso.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+        if (FailedHr(device->CreateGraphicsPipelineState(&depthPso, IID_PPV_ARGS(&m_depthPsoTwoSided)), "CreateGraphicsPipelineState (foliage depth two-sided)"))
         {
             destroy();
             return false;
@@ -518,6 +537,7 @@ namespace Dark
         m_gbPsoTwoSided.Reset();
         m_gbRoot.Reset();
         m_depthPso.Reset();
+        m_depthPsoTwoSided.Reset();
         m_depthRoot.Reset();
         m_cpuWorlds.clear();
         m_cpuKinds.clear();
@@ -853,6 +873,9 @@ namespace Dark
             GpuModel* gm = gpu.model(model->id);
             if (!gm)
                 continue;
+            const Terrain::FoliageKind kind = kKindOrder[i];
+            const bool twoSided = kind == Terrain::FoliageKind::Tree || kind == Terrain::FoliageKind::Flower;
+            cmd->SetPipelineState(twoSided ? m_depthPsoTwoSided.Get() : m_depthPso.Get());
             const D3D12_GPU_VIRTUAL_ADDRESS indexVa = indexBase + static_cast<UINT64>(i) * kIndexKindStride;
             const std::vector<Model::Part>& cpuParts = model->opaque();
             const std::vector<GpuModel::Part>& gpuParts = gm->opaque();
@@ -862,12 +885,17 @@ namespace Dark
                 const GpuModel::Part& part = gpuParts[p];
                 if (part.skinned || !part.mesh.valid())
                     continue;
-                // The depth shader has no albedo clip. Alpha-mask cards would shadow as solid quads.
-                if (cpuParts[p].material && cpuParts[p].material->alphaMode() == MaterialAlphaMode::Mask)
-                    continue;
+                gpu.bindMaterial(cmd, part.materialId, kDepthMaterial);
                 FoliageDepthConstants cb{};
-                copyMatrix(cb.localToRoot, partLocalToRoot(part.localToRoot, kKindOrder[i]));
+                copyMatrix(cb.localToRoot, partLocalToRoot(part.localToRoot, kind));
                 copyMatrix(cb.lightWVP, lightViewProj);
+                cb.alphaCutoff   = 0.5f;
+                cb.alphaModeMask = 0.0f;
+                if (cpuParts[p].material)
+                {
+                    cb.alphaCutoff   = cpuParts[p].material->alphaCutoff();
+                    cb.alphaModeMask = cpuParts[p].material->alphaMode() == MaterialAlphaMode::Mask ? 1.0f : 0.0f;
+                }
                 cmd->SetGraphicsRoot32BitConstants(kDepthConstants, static_cast<UINT>(sizeof(cb) / 4), &cb, 0);
                 cmd->SetGraphicsRootShaderResourceView(kDepthWorlds, worldVa);
                 cmd->SetGraphicsRootShaderResourceView(kDepthIndices, indexVa);
