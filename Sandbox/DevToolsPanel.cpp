@@ -254,10 +254,23 @@ void SandboxApp::drawDevTools()
         if (ImGui::Checkbox("Shadows", &shadows))
         {
             dbg.shadows = shadows;
+            m_scene.shadows().setDebugEnabled(shadows);
+            m_scene.localShadows().setDebugEnabled(shadows);
             DE_LOG_INFO("Sandbox: shadows = {}", shadows);
         }
         if (ImGui::Checkbox("Shadow map tiles", &m_showShadowMaps))
+        {
+            dbg.shadowMapTiles = m_showShadowMaps;
             DE_LOG_INFO("Sandbox: shadow map overlay = {}", m_showShadowMaps);
+        }
+        {
+            const char* shadowDbg[] = { "Off", "Shadow factor", "Face id" };
+            int mode = dbg.localShadowDebug;
+            if (mode < 0 || mode > 2)
+                mode = 0;
+            if (ImGui::Combo("Local shadow", &mode, shadowDbg, 3))
+                dbg.localShadowDebug = mode;
+        }
         if (ImGui::Checkbox("Depth tile", &m_showDepth))
             DE_LOG_INFO("Sandbox: depth overlay = {}", m_showDepth);
         if (renderer().hasGBuffer())

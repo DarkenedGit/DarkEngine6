@@ -371,6 +371,8 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             light["outer"]        = o.lightOuterDeg;
             light["sourceRadius"] = o.lightSourceRadius;
             light["enabled"]      = o.lightEnabled;
+            if (!isGlobalLightType(o.type))
+                light["castShadow"] = o.lightCastShadow;
             jo["light"]           = std::move(light);
         }
         if (o.hasCloud || o.type == SceneObjectType::CloudVolume)
@@ -795,6 +797,9 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             o.lightOuterDeg     = light.value("outer", o.lightOuterDeg);
             o.lightSourceRadius = light.value("sourceRadius", o.lightSourceRadius);
             o.lightEnabled      = light.value("enabled", o.lightEnabled);
+            // value() throws type_error.306 on a non-bool. A missing or mistyped key stays false.
+            if (!isGlobalLightType(o.type) && light.contains("castShadow") && light["castShadow"].is_boolean())
+                o.lightCastShadow = light["castShadow"].get<bool>();
         }
         else if (o.type == SceneObjectType::PointLight || o.type == SceneObjectType::SpotLight)
         {

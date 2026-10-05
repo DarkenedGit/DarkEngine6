@@ -684,9 +684,12 @@ TEST(Decal_Normal_SlashCenter, GrooveAndOutside)
     EXPECT_EQ(flat.b, 255);
 }
 
-TEST(Decal_LightingCount_Unchanged, StaysTen)
+TEST(Decal_LightingCount_Unchanged, IsTwelve)
 {
-    EXPECT_EQ(SceneBuffers::kLightingCount, 10u);
+    EXPECT_EQ(SceneBuffers::kLightingCount, 12u);
+    EXPECT_EQ(SceneBuffers::kLightingAo, 5u);
+    EXPECT_EQ(SceneBuffers::kLightingLocalShadow, 10u);
+    EXPECT_EQ(SceneBuffers::kLightingLocalShadowRecords, 11u);
 }
 
 TEST(Decal_Cue_GroundStep, StepOrExactGroundCue)

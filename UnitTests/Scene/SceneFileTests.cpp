@@ -1311,3 +1311,120 @@ TEST(SceneFile, AtmosphereAndTerrainSourceRoundTrip)
     std::filesystem::remove(path, ec);
     std::filesystem::remove(omittedPath, ec);
 }
+
+TEST(SceneFile, CastShadowMissingKeyStaysFalse)
+{
+    const auto path = tempScenePath("darkengine6_scene_cast_missing_ut.json");
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "cast_missing",
+  "objects": [
+    {"type": "point_light", "light": {"intensity": 4, "range": 3, "enabled": true}}
+  ]
+})";
+    }
+
+    SceneFileData data{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
+    ASSERT_EQ(data.objects.size(), 1u);
+    EXPECT_TRUE(data.objects[0].hasLight);
+    EXPECT_FALSE(data.objects[0].lightCastShadow);
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+TEST(SceneFile, CastShadowTrueRoundTrip)
+{
+    SceneFileData in{};
+    in.version = 2;
+    in.name    = "ut_cast_true";
+    in.mode    = SceneMode::Scene3D;
+
+    SceneObjectData point{};
+    point.type           = SceneObjectType::PointLight;
+    point.hasLight       = true;
+    point.lightIntensity = 10.0f;
+    point.lightRange     = 4.0f;
+    point.lightEnabled   = true;
+    point.lightCastShadow = true;
+    in.objects.push_back(point);
+
+    const auto path = tempScenePath("darkengine6_scene_cast_true_ut.json");
+    std::string err;
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+
+    SceneFileData out{};
+    ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
+    ASSERT_EQ(out.objects.size(), 1u);
+    EXPECT_EQ(out.version, 2);
+    EXPECT_TRUE(out.objects[0].lightCastShadow);
+    EXPECT_NEAR(out.objects[0].lightIntensity, 10.0f, 1.0e-4f);
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+TEST(SceneFile, DirectionalLightDoesNotGainCastShadow)
+{
+    SceneFileData in{};
+    in.version = 2;
+    in.name    = "ut_cast_sun";
+    in.mode    = SceneMode::Scene3D;
+
+    SceneObjectData sun{};
+    sun.type            = SceneObjectType::DirectionalLight;
+    sun.hasLight        = true;
+    sun.lightIntensity  = 3.0f;
+    sun.lightCastShadow = true;
+    in.objects.push_back(sun);
+
+    const auto path = tempScenePath("darkengine6_scene_cast_sun_ut.json");
+    std::string err;
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+
+    std::ifstream file(path);
+    ASSERT_TRUE(static_cast<bool>(file));
+    const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(text.find("castShadow"), std::string::npos);
+
+    SceneFileData out{};
+    ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
+    ASSERT_EQ(out.objects.size(), 1u);
+    EXPECT_EQ(out.objects[0].type, SceneObjectType::DirectionalLight);
+    EXPECT_FALSE(out.objects[0].lightCastShadow);
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+TEST(SceneFile, CastShadowNonBoolStaysFalse)
+{
+    const auto path = tempScenePath("darkengine6_scene_cast_bad_ut.json");
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "cast_bad",
+  "objects": [
+    {"type": "point_light", "light": {"intensity": 4, "range": 3, "enabled": true, "castShadow": 1}},
+    {"type": "spot_light", "light": {"intensity": 4, "range": 3, "enabled": true, "castShadow": "true"}}
+  ]
+})";
+    }
+
+    SceneFileData data{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
+    ASSERT_EQ(data.objects.size(), 2u);
+    EXPECT_FALSE(data.objects[0].lightCastShadow);
+    EXPECT_FALSE(data.objects[1].lightCastShadow);
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}

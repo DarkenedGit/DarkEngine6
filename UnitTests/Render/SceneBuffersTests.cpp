@@ -20,7 +20,9 @@ TEST(SceneBuffers, LightingCount)
     EXPECT_EQ(SceneBuffers::kLightingIblPrefilter, 7u);
     EXPECT_EQ(SceneBuffers::kLightingIblBrdfLut, 8u);
     EXPECT_EQ(SceneBuffers::kLightingSsr, 9u);
-    EXPECT_EQ(SceneBuffers::kLightingCount, 10u);
+    EXPECT_EQ(SceneBuffers::kLightingLocalShadow, 10u);
+    EXPECT_EQ(SceneBuffers::kLightingLocalShadowRecords, 11u);
+    EXPECT_EQ(SceneBuffers::kLightingCount, 12u);
 }
 
 TEST(SceneBuffers, GBufferRtvLayout)
@@ -44,4 +46,5 @@ TEST(SceneBuffers, LightingRootAoSlots)
     EXPECT_EQ(LocalLightVolumePipeline::kRootHeightSrv, 4u);
     EXPECT_EQ(DeferredLightingPipeline::kRootIblSrv, 5u);
     EXPECT_EQ(DeferredLightingPipeline::kRootSsrSrv, 6u);
+    EXPECT_EQ(LocalLightVolumePipeline::kRootShadowTable, 6u);
 }

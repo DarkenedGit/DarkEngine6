@@ -313,11 +313,16 @@ void tryJumpAttackAnim(World& world, Entity e)
         ag->graph.setTrigger("jump_attack");
 }
 
+void drawShadowCaster(ID3D12GraphicsCommandList* cmd, const ShadowPipeline& pipeline, const Matrix4f& lightViewProj, const Matrix4f& world, const Mesh& mesh)
+{
+    const Matrix4f wvp = world * lightViewProj;
+    pipeline.setWvp(cmd, wvp.m_afEntry);
+    mesh.draw(cmd);
+}
+
 void drawShadowCaster(ID3D12GraphicsCommandList* cmd, const ShadowSystem& shadows, int cascade, const Matrix4f& world, const Mesh& mesh)
 {
-    const Matrix4f wvp = world * shadows.cascade(cascade).viewProj;
-    shadows.pipeline().setWvp(cmd, wvp.m_afEntry);
-    mesh.draw(cmd);
+    drawShadowCaster(cmd, shadows.pipeline(), shadows.cascade(cascade).viewProj, world, mesh);
 }
 
 const char* netRoleName(NetRole role)
@@ -2281,6 +2286,7 @@ void SandboxApp::spawnHybridLocalLights()
     flashlight.innerConeDeg   = 10.0f;
     flashlight.outerConeDeg   = 22.0f;
     flashlight.enabled        = true;
+    flashlight.castShadow     = true;
     updateFlashlight();
 
     m_muzzle = world().createEntity();
@@ -2307,6 +2313,7 @@ void SandboxApp::spawnHybridLocalLights()
     };
     const float waterY = m_water.params().waterLevel;
     int         spawned = 0;
+    bool        firstLantern = true;
     for (const Vector3f& s : spots)
     {
         const float gy = m_terrain.heightAtWorld(s.x, s.z);
@@ -2334,6 +2341,11 @@ void SandboxApp::spawnHybridLocalLights()
         light.intensity    = 1257.0f; // 400*π after Fd/π
         light.range        = 6.0f;
         light.emissiveMesh = fixture;
+        if (firstLantern)
+        {
+            light.castShadow = true;
+            firstLantern     = false;
+        }
         ++spawned;
     }
     DE_LOG_INFO("SandboxApp: flashlight on, muzzle ready, {} demo lanterns", spawned);
@@ -3294,6 +3306,11 @@ void SandboxApp::onInit()
     renderer().setShadowSrv(m_shadows.srvCpu());
     m_skyPipeline.setShadowSrv(renderer().device(), m_shadows.srvCpu());
     m_waterPipeline.setShadowSrv(renderer().device(), m_shadows.srvCpu());
+    m_scene.localShadows().setDepthPipeline(&m_shadows.pipeline());
+    {
+        const LocalShadowSystem::CpuSrvs localSrvs = m_scene.localShadows().cpuSrvs();
+        renderer().setLocalShadowSrvs(localSrvs.arraySrv, localSrvs.recordsSrv);
+    }
     spawnGltfDemo();
 
     const float aspect = (renderer().height() > 0) ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height()) : 1.0f;
@@ -3518,6 +3535,12 @@ void SandboxApp::onRender()
     if (m_skinRing.isValid())
         m_skinRing.beginFrame(renderer().frameIndex());
 
+    const Frustum3f cameraCull(m_viewCamera.GetCullViewProj());
+    const bool selectLocalShadows = renderer().scenePath() == ScenePath::HybridDeferred
+        && renderer().debugState().localLights
+        && renderer().debugState().lightingActive();
+    m_scene.localShadows().update(world(), m_viewCamera, cameraCull, renderer().frameIndex(), selectLocalShadows);
+
     AABox3f sceneBounds = m_terrain.shadowBounds(m_viewCamera);
     world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
         if (mc.primitive == PrimitiveMesh::None)
@@ -3544,6 +3567,54 @@ void SandboxApp::onRender()
         m_env.weather.cloudCoverage,
         renderer().frameIndex());
 
+    // Opaque casters only — same set as G-buffer / forward color. Water, particles, blood, lines stay out.
+    // A point light culls foliage once against its range sphere and redraws that list on each face.
+    auto drawShadowCasters = [&](const Matrix4f& lightViewProj, const Frustum3f& casterFrustum, const Sphere3f* foliageSphere, bool beginFoliage) {
+        m_terrain.drawDepth(cmd, &casterFrustum);
+        world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
+            if (world().has<ModelComponent>(e))
+                return;
+            if (!mc.castShadow)
+                return;
+            if (const HealthComponent* hp = world().get<HealthComponent>(e); hp && !hp->health.alive())
+                return;
+            const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, m_cubeMesh, m_crossMesh);
+            if (!gpuMesh)
+                return;
+            const TransformComponent* xf = world().get<TransformComponent>(e);
+            if (!xf)
+                return;
+            drawShadowCaster(cmd, m_shadows.pipeline(), lightViewProj, makeWorldMatrix(*xf), *gpuMesh);
+        });
+        world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+            if (camouflageHides(e))
+                return;
+            if (!mc.castShadow)
+                return;
+            const TransformComponent* xf = world().get<TransformComponent>(e);
+            const auto model = assets().getAs<Model>(mc.modelAssetID);
+            if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->valid() || !gpu.ensureModel(model))
+                return;
+            const Matrix4f worldMat = makeWorldMatrix(*xf);
+            if (model->skinned())
+            {
+                const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));
+                if (pose)
+                    drawSkinnedModelDepth(cmd, gpu, m_shadows.pipeline(), lightViewProj, m_skinnedShadowPipeline, m_skinRing, *model, *pose, worldMat);
+                else
+                    drawModelDepth(cmd, gpu, m_shadows.pipeline(), lightViewProj, *model, worldMat);
+            }
+            else
+                drawModelDepth(cmd, gpu, m_shadows.pipeline(), lightViewProj, *model, worldMat);
+        });
+        if (m_terrain.valid())
+        {
+            if (beginFoliage)
+                m_foliagePipeline.beginDepthView(renderer(), assets(), m_foliagePrototypes, m_terrain, m_foliage.empty() ? nullptr : &m_foliage, m_foliageDensity, m_viewCamera, casterFrustum, foliageSphere);
+            m_foliagePipeline.drawPreparedDepth(cmd, lightViewProj);
+        }
+    };
+
     if (m_shadows.isValid() && m_shadows.enabled())
     {
         m_shadows.beginCapture(cmd);
@@ -3551,52 +3622,43 @@ void SandboxApp::onRender()
         {
             m_shadows.beginCascade(cmd, i);
             const Frustum3f casterFrustum(m_shadows.cascade(i).viewProj);
-            // Opaque casters only — same set as G-buffer / forward color. Water, particles, blood, lines stay out.
-            m_terrain.drawDepth(cmd, &casterFrustum);
-            world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
-                if (world().has<ModelComponent>(e))
-                    return;
-                if (!mc.castShadow)
-                    return;
-                if (const HealthComponent* hp = world().get<HealthComponent>(e); hp && !hp->health.alive())
-                    return;
-                const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, m_cubeMesh, m_crossMesh);
-                if (!gpuMesh)
-                    return;
-                const TransformComponent* xf = world().get<TransformComponent>(e);
-                if (!xf)
-                    return;
-                drawShadowCaster(cmd, m_shadows, i, makeWorldMatrix(*xf), *gpuMesh);
-            });
-            world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
-                if (camouflageHides(e))
-                    return;
-                if (!mc.castShadow)
-                    return;
-                const TransformComponent* xf = world().get<TransformComponent>(e);
-                const auto model = assets().getAs<Model>(mc.modelAssetID);
-                if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->valid() || !gpu.ensureModel(model))
-                    return;
-                const Matrix4f worldMat = makeWorldMatrix(*xf);
-                if (model->skinned())
-                {
-                    const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));
-                    if (pose)
-                        drawSkinnedModelDepth(cmd, gpu, m_shadows, i, m_skinnedShadowPipeline, m_skinRing, *model, *pose, worldMat);
-                    else
-                        drawModelDepth(cmd, gpu, m_shadows, i, *model, worldMat);
-                }
-                else
-                    drawModelDepth(cmd, gpu, m_shadows, i, *model, worldMat);
-            });
-            if (m_terrain.valid())
-                m_foliagePipeline.drawDepth(cmd, renderer(), assets(), m_foliagePrototypes, m_terrain, m_foliage.empty() ? nullptr : &m_foliage, m_foliageDensity, m_viewCamera, m_shadows.cascade(i).viewProj, casterFrustum);
+            drawShadowCasters(m_shadows.cascade(i).viewProj, casterFrustum, nullptr, true);
         }
         m_shadows.endCapture(cmd);
     }
     else if (m_shadows.isValid())
     {
         m_shadows.endCapture(cmd);
+    }
+
+    LocalShadowSystem& localShadows = m_scene.localShadows();
+    if (localShadows.faceCountThisFrame() > 0)
+    {
+        localShadows.beginCapture(cmd);
+        for (int f = 0; f < localShadows.faceCountThisFrame(); ++f)
+        {
+            localShadows.beginFace(cmd, f);
+            const LocalShadowFaceDraw& face = localShadows.face(f);
+            Sphere3f pointSphere;
+            const Sphere3f* foliageSphere = nullptr;
+            if (face.firstFace)
+            {
+                const LocalLightComponent* light = world().get<LocalLightComponent>(face.light);
+                const TransformComponent* xf = world().get<TransformComponent>(face.light);
+                if (light && xf && light->type == LocalLightType::Point)
+                {
+                    pointSphere = Sphere3f(xf->position, Min(light->range, 80.0f));
+                    foliageSphere = &pointSphere;
+                }
+            }
+            drawShadowCasters(face.viewProj, face.frustum, foliageSphere, face.firstFace);
+        }
+        localShadows.endCapture(cmd);
+    }
+    else if (localShadows.isValid())
+    {
+        // An idle frame still has to leave this half of the array as a shader resource.
+        localShadows.endCapture(cmd);
     }
 
     const bool deferred = renderer().scenePath() == ScenePath::HybridDeferred;
@@ -3761,7 +3823,7 @@ void SandboxApp::onRender()
         fillIblLightingConstants(lc, m_ibl, renderer().debugState().iblEnabled, renderer().debugState().iblDebug, iblGpuReady(renderer().gpuResources(), m_iblImageId));
         fillSsrLightingConstants(lc, m_ssr, renderer().debugState().ssrEnabled, m_scene.ssr().isValid() && renderer().hasGBuffer());
         m_lighting.draw(cmd, renderer(), m_shadows, lc);
-        m_localLightVolumes.draw(cmd, renderer(), world(), m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_viewCamera, viewProj, lc);
+        m_localLightVolumes.draw(cmd, renderer(), world(), m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_viewCamera, viewProj, lc, &m_scene.localShadows());
 
         renderer().bindHdr(true);
         m_skyPipeline.draw(cmd, m_viewCamera, m_env, skyExposure, m_water.params().waterLevel, fogScale, &m_shadows);
@@ -3875,7 +3937,8 @@ void SandboxApp::onRender()
         in.nearZ      = m_viewCamera.GetNearZ();
         in.viewportW  = renderer().width();
         in.viewportH  = renderer().height();
-        in.viewProj   = &viewProj;
+        in.viewProj      = &viewProj;
+        in.localShadows  = &m_scene.localShadows();
         LocalLightDrawLists lists{};
         if (gatherLocalLights(world(), in, lists) && lists.count > 0)
         {
@@ -4093,7 +4156,7 @@ void SandboxApp::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
         return;
     const bool ssaoTile = renderer().hasGBuffer() && renderer().debugState().ssaoDebug == 1;
     const bool ssrTile  = renderer().hasGBuffer() && renderer().debugState().ssrDebug != 0;
-    if (!m_showShadowMaps && !m_showDepth && !m_showGBuffer && !m_showVelocity && !ssaoTile && !ssrTile)
+    if (!m_showShadowMaps && !renderer().debugState().shadowMapTiles && !m_showDepth && !m_showGBuffer && !m_showVelocity && !ssaoTile && !ssrTile)
         return;
 
     const GpuScope overlay(cmd, "Debug Overlay", ProfileColor::DebugOverlay);
@@ -4212,6 +4275,41 @@ void SandboxApp::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
                 tw,
                 tile,
                 slice0 + static_cast<float>(i),
+                1.25f,
+                true);
+        }
+    }
+
+    if (renderer().debugState().shadowMapTiles && m_scene.localShadows().isValid())
+    {
+        LocalShadowSystem& local = m_scene.localShadows();
+        const int n = local.slicesPerFrame();
+        const LONG gap = 8;
+        const LONG y = sh - pad - tile - gap - tile;
+        LONG x0 = pad;
+        LONG tw = tile;
+        if (n > 0)
+        {
+            const LONG need = n * tw + (n - 1) * gap;
+            if (x0 + need > sw - pad)
+            {
+                const LONG avail = sw - pad - x0 - (n - 1) * gap;
+                if (avail > 64)
+                    tw = avail / n;
+            }
+        }
+        for (int i = 0; i < n; ++i)
+        {
+            const LONG x = x0 + i * (tw + gap);
+            m_debugOverlay.drawArray(
+                cmd,
+                renderer().device(),
+                local.srvCpu(),
+                x,
+                y,
+                tw,
+                tile,
+                local.debugSlice(i),
                 1.25f,
                 true);
         }

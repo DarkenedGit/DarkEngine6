@@ -19,6 +19,11 @@ namespace Dark
     class Frustum3f;
     class FoliagePrototypes;
 
+    namespace Math
+    {
+        class Sphere3f;
+    }
+
     namespace Terrain
     {
         class TerrainGrid;
@@ -81,6 +86,21 @@ namespace Dark
             const Math::Matrix4f& lightViewProj,
             const Frustum3f& casterFrustum);
 
+        // casterSphere wins over casterFrustum when non-null. One view per shadowed light:
+        // a point light draws the prepared list once per cube face.
+        bool beginDepthView(
+            Renderer& renderer,
+            AssetManager& assets,
+            FoliagePrototypes& prototypes,
+            const Terrain::TerrainGrid& grid,
+            const std::vector<Terrain::FoliageRecord>* editorRecords,
+            const Terrain::FoliageDensity& density,
+            const Camera3D& camera,
+            const Frustum3f& casterFrustum,
+            const Math::Sphere3f* casterSphere);
+
+        void drawPreparedDepth(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& lightViewProj);
+
     private:
         bool prepare(
             Renderer& renderer,
@@ -90,7 +110,8 @@ namespace Dark
             const std::vector<Terrain::FoliageRecord>* editorRecords,
             const Terrain::FoliageDensity& density,
             const Camera3D& camera,
-            const Frustum3f& frustum);
+            const Frustum3f& frustum,
+            const Math::Sphere3f* casterSphere);
 
         void ensureDrawSet(
             const Terrain::TerrainGrid& grid,
@@ -134,6 +155,9 @@ namespace Dark
         uint32_t m_worldSlotGen[2]{};
         uint32_t m_frameIndex = ~0u;
         uint32_t m_viewCursor = 0;
+        bool     m_depthReady = false;
+        FoliagePrototypes* m_depthPrototypes = nullptr;
+        Renderer*          m_depthRenderer   = nullptr;
         uint32_t m_activeSlot = 0;
         uint32_t m_activeView = 0;
         float    m_gatherX    = 0.0f;

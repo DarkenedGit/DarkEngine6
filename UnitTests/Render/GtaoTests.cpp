@@ -116,8 +116,10 @@ TEST(Gtao, Settings_Defaults)
 
 TEST(Gtao, LightingCount_Unchanged)
 {
-    EXPECT_EQ(SceneBuffers::kLightingCount, 10u);
+    EXPECT_EQ(SceneBuffers::kLightingCount, 12u);
     EXPECT_EQ(SceneBuffers::kLightingAo, 5u);
+    EXPECT_EQ(SceneBuffers::kLightingLocalShadow, 10u);
+    EXPECT_EQ(SceneBuffers::kLightingLocalShadowRecords, 11u);
 }
 
 TEST(Gtao, SetLightingAoSrv_NullDevice)
@@ -214,7 +216,7 @@ TEST(Gtao, Create_NoDevice_False)
     SceneBuffers buffers;
     EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
     EXPECT_EQ(SceneBuffers::kLightingAo, 5u);
-    EXPECT_EQ(SceneBuffers::kLightingCount, 10u);
+    EXPECT_EQ(SceneBuffers::kLightingCount, 12u);
 }
 
 TEST(Gtao, Create_ZeroSize_False)

@@ -118,7 +118,7 @@ namespace Dark
         float          outerConeDeg = 25.0f;
         float          sourceRadius = 0.05f;
         bool           enabled      = true;
-        bool           castShadow   = false; // reserved, ignored
+        bool           castShadow   = false; // when true, this light may take a local shadow slot
         Entity         emissiveMesh{};
     };
 

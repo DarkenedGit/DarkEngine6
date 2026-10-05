@@ -5,6 +5,7 @@
 #include "Assets/Model.h"
 #include "Core/Log.h"
 #include "Math/AABox3f.h"
+#include "Math/Sphere3f.h"
 #include "Render/Camera3D.h"
 #include "Render/DepthState.h"
 #include "Render/FoliagePrototypes.h"
@@ -16,6 +17,7 @@
 #include "Render/MeshConstants.h"
 #include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
+#include "Render/LocalShadowMath.h"
 #include "Render/ShadowCascades.h"
 #include "Terrain/TerrainGrid.h"
 #include "Terrain/TerrainTileFile.h"
@@ -27,10 +29,13 @@ namespace Dark
 {
     namespace
     {
-        // Cascades plus the G-buffer view. Another view in the same frame would
-        // overwrite an index list the GPU has not read yet.
+        // G-buffer, the cascades, and one view per shadowed local light. A point light
+        // reuses that view for its other five faces. Another view in the same frame
+        // would overwrite an index list the GPU has not read yet.
         constexpr uint32_t kFrameCount    = 2;
-        constexpr uint32_t kViewsPerFrame = static_cast<uint32_t>(kMaxShadowCascades) + 1u;
+        constexpr uint32_t kViewsPerFrame = 1u + static_cast<uint32_t>(kMaxShadowCascades) + kMaxShadowedLocalLights;
+        static_assert(kMaxShadowedLocalLights == 4u, "foliage view cap");
+        static_assert(kViewsPerFrame == 8u, "foliage view cap");
         constexpr float    kGatherRadiusM = 96.0f;
         constexpr float    kGatherMoveM   = 16.0f;
         constexpr int      kKindCount     = static_cast<int>(Terrain::FoliageKind::Count);
@@ -729,7 +734,8 @@ namespace Dark
         const std::vector<Terrain::FoliageRecord>* editorRecords,
         const Terrain::FoliageDensity& density,
         const Camera3D& camera,
-        const Frustum3f& frustum)
+        const Frustum3f& frustum,
+        const Math::Sphere3f* casterSphere)
     {
         if (!isValid() || !prototypes.ready() || !grid.valid())
             return false;
@@ -755,7 +761,13 @@ namespace Dark
             const int kind = m_cpuKinds[i];
             if (kind < 0 || kind >= kKindCount || !models[kind] || !models[kind]->bounds().IsValid())
                 continue;
-            if (!frustum.Intersects(models[kind]->bounds().Transformed(m_cpuWorlds[i])))
+            const Math::AABox3f box = models[kind]->bounds().Transformed(m_cpuWorlds[i]);
+            if (casterSphere)
+            {
+                if (!box.Intersects(*casterSphere))
+                    continue;
+            }
+            else if (!frustum.Intersects(box))
                 continue;
             m_cpuIndex[kind].push_back(static_cast<uint32_t>(i));
         }
@@ -795,7 +807,7 @@ namespace Dark
         const Math::Matrix4f& prevViewProj,
         const Frustum3f& frustum)
     {
-        if (!cmd || !prepare(renderer, assets, prototypes, grid, editorRecords, density, camera, frustum))
+        if (!cmd || !prepare(renderer, assets, prototypes, grid, editorRecords, density, camera, frustum, nullptr))
             return;
 
         GpuResourceCache& gpu = renderer.gpuResources();
@@ -838,8 +850,7 @@ namespace Dark
         }
     }
 
-    void FoliagePipeline::drawDepth(
-        ID3D12GraphicsCommandList* cmd,
+    bool FoliagePipeline::beginDepthView(
         Renderer& renderer,
         AssetManager& assets,
         FoliagePrototypes& prototypes,
@@ -847,12 +858,22 @@ namespace Dark
         const std::vector<Terrain::FoliageRecord>* editorRecords,
         const Terrain::FoliageDensity& density,
         const Camera3D& camera,
-        const Math::Matrix4f& lightViewProj,
-        const Frustum3f& casterFrustum)
+        const Frustum3f& casterFrustum,
+        const Math::Sphere3f* casterSphere)
     {
-        if (!cmd || !prepare(renderer, assets, prototypes, grid, editorRecords, density, camera, casterFrustum))
+        m_depthRenderer   = &renderer;
+        m_depthPrototypes = &prototypes;
+        m_depthReady = prepare(renderer, assets, prototypes, grid, editorRecords, density, camera, casterFrustum, casterSphere);
+        return m_depthReady;
+    }
+
+    void FoliagePipeline::drawPreparedDepth(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& lightViewProj)
+    {
+        if (!cmd || !m_depthReady || !m_depthRenderer || !m_depthPrototypes)
             return;
 
+        Renderer& renderer = *m_depthRenderer;
+        FoliagePrototypes& prototypes = *m_depthPrototypes;
         GpuResourceCache& gpu = renderer.gpuResources();
         cmd->SetGraphicsRootSignature(m_depthRoot.Get());
         cmd->SetPipelineState(m_depthPso.Get());
@@ -902,6 +923,25 @@ namespace Dark
                 part.mesh.drawInstanced(cmd, count);
             }
         }
+    }
+
+    void FoliagePipeline::drawDepth(
+        ID3D12GraphicsCommandList* cmd,
+        Renderer& renderer,
+        AssetManager& assets,
+        FoliagePrototypes& prototypes,
+        const Terrain::TerrainGrid& grid,
+        const std::vector<Terrain::FoliageRecord>* editorRecords,
+        const Terrain::FoliageDensity& density,
+        const Camera3D& camera,
+        const Math::Matrix4f& lightViewProj,
+        const Frustum3f& casterFrustum)
+    {
+        if (!cmd)
+            return;
+        if (!beginDepthView(renderer, assets, prototypes, grid, editorRecords, density, camera, casterFrustum, nullptr))
+            return;
+        drawPreparedDepth(cmd, lightViewProj);
     }
 
 } // namespace Dark

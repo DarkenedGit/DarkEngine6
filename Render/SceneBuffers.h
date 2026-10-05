@@ -31,7 +31,9 @@ namespace Dark
         static constexpr UINT kLightingIblPrefilter  = 7;
         static constexpr UINT kLightingIblBrdfLut    = 8;
         static constexpr UINT kLightingSsr           = 9;
-        static constexpr UINT kLightingCount         = 10;
+        static constexpr UINT kLightingLocalShadow   = 10;
+        static constexpr UINT kLightingLocalShadowRecords = 11;
+        static constexpr UINT kLightingCount         = 12;
 
         SceneBuffers() = default;
 
@@ -88,6 +90,7 @@ namespace Dark
         D3D12_GPU_DESCRIPTOR_HANDLE aoTableGpu() const { return m_aoGpu; }
         D3D12_GPU_DESCRIPTOR_HANDLE iblTableGpu() const { return m_iblGpu; }
         D3D12_GPU_DESCRIPTOR_HANDLE ssrTableGpu() const { return m_ssrGpu; }
+        D3D12_GPU_DESCRIPTOR_HANDLE localShadowTableGpu() const { return m_localShadowGpu; }
         ID3D12DescriptorHeap*       lightingHeap() const { return m_lightingHeap.Get(); }
         const float*                hdrClear() const { return m_hdrClear; }
         D3D12_RESOURCE_STATES       hdrState() const { return m_hdrState; }
@@ -107,6 +110,7 @@ namespace Dark
         void transitionAo(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
 
         void setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
+        void setLocalShadowSrvs(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE arraySrv, D3D12_CPU_DESCRIPTOR_HANDLE recordsSrv);
         void setLightingAoSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE aoCpu);
         void setLightingSsrSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE ssrCpu);
         void setHeightSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE heightCpu);
@@ -156,7 +160,10 @@ namespace Dark
         D3D12_GPU_DESCRIPTOR_HANDLE  m_aoGpu{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_iblGpu{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_ssrGpu{};
+        D3D12_GPU_DESCRIPTOR_HANDLE  m_localShadowGpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_shadowCpu{};
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_localShadowCpu{};
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_localShadowRecordsCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_lightingAoCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_lightingSsrCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_heightCpu{};

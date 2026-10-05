@@ -2,9 +2,11 @@
 #include "Render/Profile.h"
 #include "Render/Camera3D.h"
 #include "Render/DeferredLightingPipeline.h"
+#include "Render/DepthState.h"
 #include "Render/Frustum3f.h"
 #include "Render/LocalLightGather.h"
 #include "Render/LocalLightGpuList.h"
+#include "Render/LocalShadowSystem.h"
 #include "Render/Mesh.h"
 #include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
@@ -70,7 +72,13 @@ namespace Dark
         aoRange.BaseShaderRegister                = 3;
         aoRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-        D3D12_ROOT_PARAMETER params[6]{};
+        D3D12_DESCRIPTOR_RANGE shadowRange{};
+        shadowRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        shadowRange.NumDescriptors                    = 2;
+        shadowRange.BaseShaderRegister                = 7;
+        shadowRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+        D3D12_ROOT_PARAMETER params[7]{};
         params[kRootConstants].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
         params[kRootConstants].ShaderVisibility         = D3D12_SHADER_VISIBILITY_ALL;
         params[kRootConstants].Constants.ShaderRegister = 0;
@@ -99,20 +107,35 @@ namespace Dark
         params[kRootAoSrv].DescriptorTable.NumDescriptorRanges = 1;
         params[kRootAoSrv].DescriptorTable.pDescriptorRanges   = &aoRange;
 
-        D3D12_STATIC_SAMPLER_DESC heightSamp{};
-        heightSamp.Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
-        heightSamp.AddressU         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-        heightSamp.AddressV         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-        heightSamp.AddressW         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-        heightSamp.MaxLOD           = D3D12_FLOAT32_MAX;
-        heightSamp.ShaderRegister   = 0;
-        heightSamp.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+        params[kRootShadowTable].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        params[kRootShadowTable].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
+        params[kRootShadowTable].DescriptorTable.NumDescriptorRanges = 1;
+        params[kRootShadowTable].DescriptorTable.pDescriptorRanges   = &shadowRange;
+
+        D3D12_STATIC_SAMPLER_DESC samps[2]{};
+        samps[0].Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        samps[0].AddressU         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        samps[0].AddressV         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        samps[0].AddressW         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        samps[0].MaxLOD           = D3D12_FLOAT32_MAX;
+        samps[0].ShaderRegister   = 0;
+        samps[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+        samps[1].Filter           = D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
+        samps[1].AddressU         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+        samps[1].AddressV         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+        samps[1].AddressW         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+        samps[1].ComparisonFunc   = shadowCmpFunc();
+        samps[1].BorderColor      = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
+        samps[1].MaxLOD           = D3D12_FLOAT32_MAX;
+        samps[1].ShaderRegister   = 1;
+        samps[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
         D3D12_ROOT_SIGNATURE_DESC rsDesc{};
-        rsDesc.NumParameters     = 6;
+        rsDesc.NumParameters     = 7;
         rsDesc.pParameters       = params;
-        rsDesc.NumStaticSamplers = 1;
-        rsDesc.pStaticSamplers   = &heightSamp;
+        rsDesc.NumStaticSamplers = 2;
+        rsDesc.pStaticSamplers   = samps;
         rsDesc.Flags             = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
         ComPtr<ID3DBlob> rsBlob;
@@ -207,6 +230,9 @@ namespace Dark
         const D3D12_GPU_DESCRIPTOR_HANDLE ao = renderer.aoTableGpu();
         if (ao.ptr != 0)
             cmd->SetGraphicsRootDescriptorTable(kRootAoSrv, ao);
+        const D3D12_GPU_DESCRIPTOR_HANDLE shadows = renderer.localShadowTableGpu();
+        if (shadows.ptr != 0)
+            cmd->SetGraphicsRootDescriptorTable(kRootShadowTable, shadows);
         return true;
     }
 
@@ -247,7 +273,8 @@ namespace Dark
     }
 
     void LocalLightVolumePipeline::draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, LocalLightGpuList& gpuList, const Mesh& sphere,
-                                        const Mesh& cone, const Camera3D& camera, const Math::Matrix4f& viewProj, const LightingConstants& lighting) const
+                                        const Mesh& cone, const Camera3D& camera, const Math::Matrix4f& viewProj, const LightingConstants& lighting,
+                                        const LocalShadowSystem* localShadows) const
     {
         if (!cmd || !isValid() || !gpuList.isValid() || !sphere.valid() || !cone.valid())
             return;
@@ -263,6 +290,7 @@ namespace Dark
         in.viewportW  = renderer.width();
         in.viewportH  = renderer.height();
         in.viewProj   = &viewProj;
+        in.localShadows = localShadows;
 
         LocalLightDrawLists lists{};
         if (!gatherLocalLights(world, in, lists) || lists.count == 0)
@@ -291,6 +319,7 @@ namespace Dark
         cb.heightCellSize        = lighting.heightCellSize;
         cb.heightWorldSizeX      = lighting.heightWorldSizeX;
         cb.heightWorldSizeZ      = lighting.heightWorldSizeZ;
+        cb.localShadowDebug      = static_cast<float>(renderer.debugState().localShadowDebug);
 
         drawInstanced(cmd, renderer, gpuList, sphere, lists.pointOutCount, 0, cb);
         drawInstanced(cmd, renderer, gpuList, cone, lists.spotOutCount, lists.pointOutCount, cb);

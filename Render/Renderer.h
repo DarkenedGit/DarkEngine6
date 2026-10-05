@@ -142,6 +142,7 @@ namespace Dark
         void clearGBuffer();
         void clearHdr();
         void setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
+        void setLocalShadowSrvs(D3D12_CPU_DESCRIPTOR_HANDLE arrayCpu, D3D12_CPU_DESCRIPTOR_HANDLE recordsCpu);
         void setLightingAoSrv(D3D12_CPU_DESCRIPTOR_HANDLE aoCpu);
         void setLightingSsrSrv(D3D12_CPU_DESCRIPTOR_HANDLE ssrCpu);
         void setHeightSrv(D3D12_CPU_DESCRIPTOR_HANDLE heightCpu);
@@ -172,6 +173,7 @@ namespace Dark
         D3D12_GPU_DESCRIPTOR_HANDLE aoTableGpu() const;
         D3D12_GPU_DESCRIPTOR_HANDLE iblTableGpu() const;
         D3D12_GPU_DESCRIPTOR_HANDLE ssrTableGpu() const;
+        D3D12_GPU_DESCRIPTOR_HANDLE localShadowTableGpu() const;
         ID3D12DescriptorHeap*       lightingHeap() const;
         bool hasGBuffer() const;
 

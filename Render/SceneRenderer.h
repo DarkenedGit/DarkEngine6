@@ -18,6 +18,7 @@
 #include "Render/Mesh.h"
 #include "Render/MeshPipeline.h"
 #include "Render/MotionBlurPipeline.h"
+#include "Render/LocalShadowSystem.h"
 #include "Render/ShadowSystem.h"
 #include "Render/SkinnedMeshPipeline.h"
 #include "Render/SkinningUploadRing.h"
@@ -131,6 +132,7 @@ public:
     MotionBlurPipeline&       motionBlur() { return m_motionBlur; }
     TaaPipeline&              taa() { return m_taa; }
     ShadowSystem&             shadows() { return m_shadows; }
+    LocalShadowSystem&        localShadows() { return m_localShadows; }
     DebugOverlay&             debugOverlay() { return m_debugOverlay; }
 
     TerrainPipeline& terrainPipeline() { return m_terrainPipeline; }
@@ -159,6 +161,7 @@ public:
     const MotionBlurPipeline&       motionBlur() const { return m_motionBlur; }
     const TaaPipeline&              taa() const { return m_taa; }
     const ShadowSystem&             shadows() const { return m_shadows; }
+    const LocalShadowSystem&        localShadows() const { return m_localShadows; }
     const DebugOverlay&             debugOverlay() const { return m_debugOverlay; }
 
     const TerrainPipeline& terrainPipeline() const { return m_terrainPipeline; }
@@ -210,6 +213,7 @@ private:
     MotionBlurPipeline       m_motionBlur;
     TaaPipeline              m_taa;
     ShadowSystem             m_shadows;
+    LocalShadowSystem        m_localShadows;
     DebugOverlay             m_debugOverlay;
 
     TerrainPipeline m_terrainPipeline;

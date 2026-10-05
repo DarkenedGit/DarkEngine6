@@ -1048,6 +1048,12 @@ namespace Dark
             m_sceneBuffers->setShadowSrv(m_device.Get(), shadowCpu);
     }
 
+    void Renderer::setLocalShadowSrvs(D3D12_CPU_DESCRIPTOR_HANDLE arrayCpu, D3D12_CPU_DESCRIPTOR_HANDLE recordsCpu)
+    {
+        if (m_sceneBuffers)
+            m_sceneBuffers->setLocalShadowSrvs(m_device.Get(), arrayCpu, recordsCpu);
+    }
+
     void Renderer::setLightingAoSrv(D3D12_CPU_DESCRIPTOR_HANDLE aoCpu)
     {
         if (m_sceneBuffers)
@@ -1340,6 +1346,13 @@ namespace Dark
         if (!m_sceneBuffers)
             return {};
         return m_sceneBuffers->iblTableGpu();
+    }
+
+    D3D12_GPU_DESCRIPTOR_HANDLE Renderer::localShadowTableGpu() const
+    {
+        if (!m_sceneBuffers)
+            return {};
+        return m_sceneBuffers->localShadowTableGpu();
     }
 
     D3D12_GPU_DESCRIPTOR_HANDLE Renderer::ssrTableGpu() const

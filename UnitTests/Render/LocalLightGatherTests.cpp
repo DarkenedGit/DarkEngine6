@@ -9,6 +9,7 @@
 #include "Render/Camera3D.h"
 #include "Render/Frustum3f.h"
 #include "Render/LocalLightGather.h"
+#include "Render/LocalShadowSystem.h"
 
 #include <cmath>
 #include <unordered_set>
@@ -432,4 +433,107 @@ TEST(LocalLightGather, SkipsDisabledAndMissingTransform)
     ASSERT_TRUE(gatherLocalLights(world, makeInput(frustum, viewProj), out));
     EXPECT_EQ(out.count, 1u);
     EXPECT_NEAR(out.lights[0].pos[2], 30.0f, 1.0e-3f);
+}
+
+TEST(LocalLightGather, LocalShadowPadEvenOddAndNull)
+{
+    World world;
+    Camera3D cam;
+    Matrix4f viewProj;
+    Frustum3f frustum;
+    makeView(cam, viewProj, frustum);
+
+    Entity spot = addLight(world, Vector3f(0.0f, 1.0f, 5.0f), LocalLightType::Spot, 100.0f, 8.0f);
+    world.get<LocalLightComponent>(spot)->castShadow = true;
+
+    LocalShadowSystem shadows;
+    const auto srvs = shadows.cpuSrvs();
+    shadows.update(world, cam, frustum, 0, true);
+    EXPECT_EQ(shadows.recordFor(spot), 0);
+    EXPECT_EQ(shadows.cpuSrvs().arraySrv.ptr, srvs.arraySrv.ptr);
+    EXPECT_EQ(shadows.cpuSrvs().recordsSrv.ptr, srvs.recordsSrv.ptr);
+
+    LocalLightCullInput in = makeInput(frustum, viewProj);
+    in.localShadows = &shadows;
+    LocalLightDrawLists out{};
+    ASSERT_TRUE(gatherLocalLights(world, in, out));
+    ASSERT_EQ(out.count, 1u);
+    EXPECT_FLOAT_EQ(out.lights[0].pad, 0.0f);
+
+    shadows.update(world, cam, frustum, 1, true);
+    EXPECT_EQ(shadows.recordFor(spot), 4);
+    EXPECT_EQ(shadows.cpuSrvs().arraySrv.ptr, srvs.arraySrv.ptr);
+    ASSERT_TRUE(gatherLocalLights(world, in, out));
+    EXPECT_FLOAT_EQ(out.lights[0].pad, 4.0f);
+
+    in.localShadows = nullptr;
+    ASSERT_TRUE(gatherLocalLights(world, in, out));
+    EXPECT_FLOAT_EQ(out.lights[0].pad, -1.0f);
+}
+
+TEST(LocalLightGather, LocalShadowOverBudgetPad)
+{
+    World world;
+    const float intensities[] = { 50.0f, 40.0f, 30.0f, 20.0f, 10.0f };
+    for (float intensity : intensities)
+    {
+        Entity e = addLight(world, Vector3f(0.0f, 1.0f, 5.0f), LocalLightType::Spot, intensity, 8.0f);
+        world.get<LocalLightComponent>(e)->castShadow = true;
+    }
+
+    Camera3D cam;
+    Matrix4f viewProj;
+    Frustum3f frustum;
+    makeView(cam, viewProj, frustum);
+
+    LocalShadowSystem shadows;
+    shadows.update(world, cam, frustum, 2, true);
+    EXPECT_EQ(shadows.faceCountThisFrame(), 4);
+
+    LocalLightCullInput in = makeInput(frustum, viewProj);
+    in.localShadows = &shadows;
+    LocalLightDrawLists out{};
+    ASSERT_TRUE(gatherLocalLights(world, in, out));
+    ASSERT_EQ(out.count, 5u);
+
+    bool sawMiss = false;
+    int kept = 0;
+    for (uint32_t i = 0; i < out.count; ++i)
+    {
+        if (out.lights[i].color[0] == 10.0f)
+        {
+            EXPECT_FLOAT_EQ(out.lights[i].pad, -1.0f);
+            sawMiss = true;
+        }
+        else if (out.lights[i].pad >= 0.0f)
+            ++kept;
+    }
+    EXPECT_TRUE(sawMiss);
+    EXPECT_EQ(kept, 4);
+}
+
+TEST(LocalLightGather, CreateNullDevicePadStaysMinusOne)
+{
+    World world;
+    Entity spot = addLight(world, Vector3f(0.0f, 1.0f, 5.0f), LocalLightType::Spot, 80.0f, 8.0f);
+    world.get<LocalLightComponent>(spot)->castShadow = true;
+
+    LocalShadowSystem shadows;
+    EXPECT_FALSE(shadows.create(nullptr));
+    EXPECT_FALSE(shadows.isValid());
+
+    Camera3D cam;
+    Matrix4f viewProj;
+    Frustum3f frustum;
+    makeView(cam, viewProj, frustum);
+    shadows.update(world, cam, frustum, 0, true);
+    EXPECT_EQ(shadows.recordFor(spot), -1);
+    EXPECT_EQ(shadows.faceCountThisFrame(), 0);
+
+    LocalLightCullInput in = makeInput(frustum, viewProj);
+    in.localShadows = &shadows;
+    LocalLightDrawLists out{};
+    ASSERT_TRUE(gatherLocalLights(world, in, out));
+    ASSERT_EQ(out.count, 1u);
+    EXPECT_FLOAT_EQ(out.lights[0].pad, -1.0f);
 }

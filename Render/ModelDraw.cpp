@@ -122,24 +122,35 @@ namespace Dark
 	void drawModelDepth(
 		ID3D12GraphicsCommandList* cmd,
 		GpuResourceCache& gpu,
-		const ShadowSystem& shadows,
-		int cascade,
+		const ShadowPipeline& pipeline,
+		const Matrix4f& lightViewProj,
 		const Model& model,
 		const Matrix4f& world)
 	{
 		GpuModel* gm = requireGpu(gpu, model);
 		if (!cmd || !gm || !gm->hasOpaque())
 			return;
-		shadows.pipeline().bind(cmd);
+		pipeline.bind(cmd);
 		for (const GpuModel::Part& part : gm->opaque())
 		{
 			if (part.skinned || !part.mesh.valid())
 				continue;
 			const Matrix4f w   = part.localToRoot * world;
-			const Matrix4f wvp = w * shadows.cascade(cascade).viewProj;
-			shadows.pipeline().setWvp(cmd, wvp.m_afEntry);
+			const Matrix4f wvp = w * lightViewProj;
+			pipeline.setWvp(cmd, wvp.m_afEntry);
 			part.mesh.draw(cmd);
 		}
+	}
+
+	void drawModelDepth(
+		ID3D12GraphicsCommandList* cmd,
+		GpuResourceCache& gpu,
+		const ShadowSystem& shadows,
+		int cascade,
+		const Model& model,
+		const Matrix4f& world)
+	{
+		drawModelDepth(cmd, gpu, shadows.pipeline(), shadows.cascade(cascade).viewProj, model, world);
 	}
 
 	void drawSkinnedModelOpaqueGBuffer(
@@ -285,8 +296,8 @@ namespace Dark
 	void drawSkinnedModelDepth(
 		ID3D12GraphicsCommandList* cmd,
 		GpuResourceCache& gpu,
-		const ShadowSystem& shadows,
-		int cascade,
+		const ShadowPipeline& staticDepth,
+		const Matrix4f& lightViewProj,
 		const SkinnedMeshPipeline& skinnedShadow,
 		SkinningUploadRing& ring,
 		const Model& model,
@@ -302,7 +313,7 @@ namespace Dark
 			if (!part.mesh.valid())
 				continue;
 			const Matrix4f w   = part.localToRoot * world;
-			const Matrix4f wvp = w * shadows.cascade(cascade).viewProj;
+			const Matrix4f wvp = w * lightViewProj;
 			if (part.skinned)
 			{
 				if (!skinnedShadow.isValid())
@@ -323,12 +334,26 @@ namespace Dark
 			{
 				if (bound != Bound::Static)
 				{
-					shadows.pipeline().bind(cmd);
+					staticDepth.bind(cmd);
 					bound = Bound::Static;
 				}
-				shadows.pipeline().setWvp(cmd, wvp.m_afEntry);
+				staticDepth.setWvp(cmd, wvp.m_afEntry);
 				part.mesh.draw(cmd);
 			}
 		}
+	}
+
+	void drawSkinnedModelDepth(
+		ID3D12GraphicsCommandList* cmd,
+		GpuResourceCache& gpu,
+		const ShadowSystem& shadows,
+		int cascade,
+		const SkinnedMeshPipeline& skinnedShadow,
+		SkinningUploadRing& ring,
+		const Model& model,
+		const AnimPose& pose,
+		const Matrix4f& world)
+	{
+		drawSkinnedModelDepth(cmd, gpu, shadows.pipeline(), shadows.cascade(cascade).viewProj, skinnedShadow, ring, model, pose, world);
 	}
 } // namespace Dark

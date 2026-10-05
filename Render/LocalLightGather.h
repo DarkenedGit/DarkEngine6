@@ -12,6 +12,8 @@
 namespace Dark
 {
 
+    class LocalShadowSystem;
+
     static constexpr uint32_t kMaxLocalLights     = 256;
     static constexpr uint32_t kWaterLocalLightMax = 8;
 
@@ -41,6 +43,7 @@ namespace Dark
         uint32_t              viewportW  = 2560;
         uint32_t              viewportH  = 1600;
         const Math::Matrix4f* viewProj   = nullptr; // for scissor; required for inside path
+        const LocalShadowSystem* localShadows = nullptr; // null → every pad is -1
     };
 
     struct LocalLightDrawLists

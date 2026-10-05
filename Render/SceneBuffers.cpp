@@ -91,7 +91,10 @@ namespace Dark
         m_aoGpu          = {};
         m_iblGpu         = {};
         m_ssrGpu         = {};
+        m_localShadowGpu = {};
         m_shadowCpu      = {};
+        m_localShadowCpu = {};
+        m_localShadowRecordsCpu = {};
         m_lightingAoCpu  = {};
         m_lightingSsrCpu = {};
         m_heightCpu      = {};
@@ -174,12 +177,16 @@ namespace Dark
     bool SceneBuffers::create(ID3D12Device* device, uint32_t width, uint32_t height, bool gbuffer, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu, const float hdrClear[4])
     {
         const D3D12_CPU_DESCRIPTOR_HANDLE savedShadow = m_shadowCpu;
+        const D3D12_CPU_DESCRIPTOR_HANDLE savedLocalShadow = m_localShadowCpu;
+        const D3D12_CPU_DESCRIPTOR_HANDLE savedLocalRecords = m_localShadowRecordsCpu;
         const D3D12_CPU_DESCRIPTOR_HANDLE savedHeight = m_heightCpu;
         const D3D12_CPU_DESCRIPTOR_HANDLE savedIblIrr = m_iblIrrCpu;
         const D3D12_CPU_DESCRIPTOR_HANDLE savedIblPref = m_iblPrefCpu;
         const D3D12_CPU_DESCRIPTOR_HANDLE savedIblLut = m_iblLutCpu;
         reset();
         m_shadowCpu  = savedShadow;
+        m_localShadowCpu = savedLocalShadow;
+        m_localShadowRecordsCpu = savedLocalRecords;
         m_heightCpu  = savedHeight;
         m_iblIrrCpu  = savedIblIrr;
         m_iblPrefCpu = savedIblPref;
@@ -317,6 +324,8 @@ namespace Dark
             m_iblGpu.ptr += static_cast<SIZE_T>(kLightingIblIrradiance) * m_srvIncr;
             m_ssrGpu = m_lightingGpu;
             m_ssrGpu.ptr += static_cast<SIZE_T>(kLightingSsr) * m_srvIncr;
+            m_localShadowGpu = m_lightingGpu;
+            m_localShadowGpu.ptr += static_cast<SIZE_T>(kLightingLocalShadow) * m_srvIncr;
             packLightingHeap(device, depthSrvCpu);
         }
 
@@ -389,6 +398,23 @@ namespace Dark
             device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingIblBrdfLut, m_srvIncr), m_iblLutCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         if (m_lightingSsrCpu.ptr != 0)
             device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingSsr, m_srvIncr), m_lightingSsrCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        if (m_localShadowCpu.ptr != 0)
+            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingLocalShadow, m_srvIncr), m_localShadowCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        if (m_localShadowRecordsCpu.ptr != 0)
+            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingLocalShadowRecords, m_srvIncr), m_localShadowRecordsCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    }
+
+    void SceneBuffers::setLocalShadowSrvs(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE arraySrv, D3D12_CPU_DESCRIPTOR_HANDLE recordsSrv)
+    {
+        m_localShadowCpu         = arraySrv;
+        m_localShadowRecordsCpu  = recordsSrv;
+        if (!device || !m_lightingHeap)
+            return;
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_lightingHeap->GetCPUDescriptorHandleForHeapStart();
+        if (arraySrv.ptr != 0)
+            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingLocalShadow, m_srvIncr), arraySrv, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        if (recordsSrv.ptr != 0)
+            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingLocalShadowRecords, m_srvIncr), recordsSrv, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     }
 
     void SceneBuffers::setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu)

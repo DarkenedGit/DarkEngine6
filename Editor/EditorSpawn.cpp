@@ -1,6 +1,7 @@
 #include "EditorApp.h"
 
 #include "Editor/EditorInternals.h"
+#include "Editor/LocalLightAuthoring.h"
 #include "Sky/Environment.h"
 #include "Editor/EditorObject.h"
 #include "Scene/SceneFile.h"
@@ -253,12 +254,9 @@ Entity EditorApp::spawnObject(
         light.color = Vector3f(color[0], color[1], color[2]);
         if (authored && authored->hasLight)
         {
-            light.intensity    = authored->lightIntensity;
-            light.range        = authored->lightRange;
+            copyAuthoredLocalLight(light, *authored);
             light.innerConeDeg = authored->lightInnerDeg;
             light.outerConeDeg = authored->lightOuterDeg;
-            light.sourceRadius = authored->lightSourceRadius;
-            light.enabled      = authored->lightEnabled;
         }
         world().emplace<LocalLightComponent>(e, light);
     }
@@ -311,11 +309,8 @@ Entity EditorApp::spawnObject(
         light.color = Vector3f(pe.desc.startColor[0], pe.desc.startColor[1], pe.desc.startColor[2]);
         if (authored && authored->hasLight)
         {
-            light.intensity    = authored->lightIntensity;
-            light.range        = authored->lightRange;
-            light.sourceRadius = authored->lightSourceRadius;
-            light.enabled      = authored->lightEnabled;
-            light.color        = Vector3f(color[0], color[1], color[2]);
+            copyAuthoredLocalLight(light, *authored);
+            light.color = Vector3f(color[0], color[1], color[2]);
         }
 
         world().emplace<ParticleEmitterComponent>(e, std::move(pe));

@@ -247,6 +247,7 @@ namespace Dark
         float lightOuterDeg      = 25.0f;
         float lightSourceRadius  = 0.05f;
         bool  lightEnabled       = true;
+        bool  lightCastShadow    = false;
         float emissive           = 0.0f;
         int   emissiveMeshIndex  = -1; // objects[] index of glow-prop mesh; -1 = none
 

@@ -111,6 +111,9 @@ bool SceneRenderer::createCorePipelines(Renderer& renderer, const char* tag)
         DE_LOG_FATAL("{}: ShadowSystem create failed", tag);
         return false;
     }
+    // A failed local-shadow atlas still leaves the scene up. Hosts publish the dummy SRV.
+    if (!m_localShadows.create(renderer.device()))
+        DE_LOG_ERROR(LogCategory::Render, "{}: LocalShadowSystem create failed — local shadows disabled", tag);
     if (!m_debugOverlay.create(renderer.device()))
         DE_LOG_WARN("{}: DebugOverlay create failed — depth/shadow tiles disabled", tag);
 
@@ -302,6 +305,7 @@ void SceneRenderer::shutdown()
     m_motionBlur               = MotionBlurPipeline{};
     m_taa                      = TaaPipeline{};
     m_shadows                  = ShadowSystem{};
+    m_localShadows             = LocalShadowSystem{};
     m_debugOverlay             = DebugOverlay{};
     m_terrainPipeline          = TerrainPipeline{};
     m_waterPipeline            = WaterPipeline{};
@@ -479,7 +483,7 @@ void SceneRenderer::drawLocalLights(
     const Math::Matrix4f&     viewProj,
     const LightingConstants&  lc)
 {
-    m_localLightVolumes.draw(cmd, renderer, world, m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, camera, viewProj, lc);
+    m_localLightVolumes.draw(cmd, renderer, world, m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, camera, viewProj, lc, &m_localShadows);
 }
 
 void SceneRenderer::tickDecals(World& world, float dt)

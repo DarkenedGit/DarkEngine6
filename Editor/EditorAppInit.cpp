@@ -285,6 +285,11 @@ void EditorApp::onInit()
     renderer().setShadowSrv(m_shadows.srvCpu());
     if (m_skyPipeline.isValid())
         m_skyPipeline.setShadowSrv(renderer().device(), m_shadows.srvCpu());
+    m_scene.localShadows().setDepthPipeline(&m_shadows.pipeline());
+    {
+        const LocalShadowSystem::CpuSrvs localSrvs = m_scene.localShadows().cpuSrvs();
+        renderer().setLocalShadowSrvs(localSrvs.arraySrv, localSrvs.recordsSrv);
+    }
 
     const float aspect = (renderer().height() > 0)
         ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height())

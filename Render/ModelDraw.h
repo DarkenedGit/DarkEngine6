@@ -13,6 +13,7 @@ namespace Dark
 {
 
     class Model;
+    class ShadowPipeline;
     class ShadowSystem;
     struct AnimGraphComponent;
 
@@ -41,6 +42,14 @@ namespace Dark
         const Matrix4f& viewProj,
         const MeshFrameConstants& lighting,
         DebugFill fill = DebugFill::Solid);
+
+    void drawModelDepth(
+        ID3D12GraphicsCommandList* cmd,
+        GpuResourceCache& gpu,
+        const ShadowPipeline& pipeline,
+        const Matrix4f& lightViewProj,
+        const Model& model,
+        const Matrix4f& world);
 
     void drawModelDepth(
         ID3D12GraphicsCommandList* cmd,
@@ -78,6 +87,17 @@ namespace Dark
         const Matrix4f& viewProj,
         const MeshFrameConstants& lighting,
         DebugFill fill = DebugFill::Solid);
+
+    void drawSkinnedModelDepth(
+        ID3D12GraphicsCommandList* cmd,
+        GpuResourceCache& gpu,
+        const ShadowPipeline& staticDepth,
+        const Matrix4f& lightViewProj,
+        const SkinnedMeshPipeline& skinnedShadow,
+        SkinningUploadRing& ring,
+        const Model& model,
+        const AnimPose& pose,
+        const Matrix4f& world);
 
     void drawSkinnedModelDepth(
         ID3D12GraphicsCommandList* cmd,

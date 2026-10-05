@@ -1,6 +1,7 @@
 #include "Render/LocalLightGather.h"
 
 #include "Core/Log.h"
+#include "Render/LocalShadowSystem.h"
 #include "Math/MathDefines.h"
 #include "Math/MathHelper.h"
 #include "Math/Quaternion.h"
@@ -172,7 +173,8 @@ namespace Dark
         }
 
         void packGpu(GpuLocalLight& gpu, const Vector3f& pos, const Vector3f& color, float intensity, float range,
-                     const Vector3f& dir, bool spot, float innerDeg, float outerDeg, float sourceRadius)
+                     const Vector3f& dir, bool spot, float innerDeg, float outerDeg, float sourceRadius,
+                     const LocalShadowSystem* shadows, Entity lightEntity)
         {
             gpu.pos[0] = pos.x;
             gpu.pos[1] = pos.y;
@@ -204,7 +206,13 @@ namespace Dark
             gpu.innerCos     = cosf(DegreesToRadians(inner));
             gpu.outerCos     = cosf(DegreesToRadians(outer));
             gpu.sourceRadius = sourceRadius;
-            gpu.pad          = 0.0f;
+            gpu.pad          = -1.0f;
+            if (shadows)
+            {
+                const int rec = shadows->recordFor(lightEntity);
+                if (rec >= 0)
+                    gpu.pad = static_cast<float>(rec);
+            }
         }
     } // namespace
 
@@ -251,7 +259,7 @@ namespace Dark
             const float    dist  = toCam.Magnitude();
 
             Candidate c{};
-            packGpu(c.gpu, pos, light.color, light.intensity, range, dir, isSpot, light.innerConeDeg, light.outerConeDeg, light.sourceRadius);
+            packGpu(c.gpu, pos, light.color, light.intensity, range, dir, isSpot, light.innerConeDeg, light.outerConeDeg, light.sourceRadius, in.localShadows, e);
             c.world    = isSpot ? makeSpotVolumeWorld(pos, dir, range, tanOuter) : makePointVolumeWorld(pos, range);
             c.score    = light.intensity / (dist * dist + 1.0f);
             c.tanOuter = tanOuter;

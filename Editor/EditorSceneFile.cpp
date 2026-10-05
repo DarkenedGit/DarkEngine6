@@ -122,6 +122,7 @@ bool EditorApp::saveScene()
             d.lightOuterDeg     = light->outerConeDeg;
             d.lightSourceRadius = light->sourceRadius;
             d.lightEnabled      = light->enabled;
+            d.lightCastShadow   = light->castShadow;
             d.color[0]          = light->color.x;
             d.color[1]          = light->color.y;
             d.color[2]          = light->color.z;
@@ -392,8 +393,10 @@ void EditorApp::handleEditorCommands(float dt)
         if (input().actionPressed("debug_shadow_enable"))
         {
             renderer().debugState().shadows = !renderer().debugState().shadows;
-            m_shadows.setDebugEnabled(renderer().debugState().shadows);
-            DE_LOG_INFO("Editor: shadows = {}", renderer().debugState().shadows);
+            const bool shadowsOn = renderer().debugState().shadows;
+            m_shadows.setDebugEnabled(shadowsOn);
+            m_scene.localShadows().setDebugEnabled(shadowsOn);
+            DE_LOG_INFO("Editor: shadows = {}", shadowsOn);
         }
         if (input().keyPressed(Key::F11) && renderer().hasGBuffer())
         {

@@ -27,6 +27,8 @@ namespace Dark
 		void beginFrame(uint32_t frameIndex);
 
 		// Returns 0 if the ring is full this frame (skip the draw).
+		// The same pose uploads once. Shadow faces and each skinned part pass it
+		// again; a second copy fills the 32 slots and the color pass skips the body.
 		D3D12_GPU_VIRTUAL_ADDRESS alloc(const AnimPose& pose);
 		D3D12_GPU_VIRTUAL_ADDRESS dummyGpuVa() const { return m_dummyGpu; }
 
@@ -43,5 +45,7 @@ namespace Dark
 		uint32_t                  m_frameSlot = 0;
 		uint32_t                  m_used      = 0;
 		bool                      m_warnedOverflow = false;
+		// Keyed by address. Callers pass the component pose, which stays live for the frame.
+		const AnimPose*           m_pose[kMaxInstances]{};
 	};
 }

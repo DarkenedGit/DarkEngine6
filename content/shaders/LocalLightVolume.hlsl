@@ -28,7 +28,7 @@ cbuffer LocalLightPassConstants : register(b0)
     float    heightCellSize;
     float    heightWorldSizeX;
     float    heightWorldSizeZ;
-    float    _padFog;
+    float    localShadowDebug;
 };
 
 Texture2D    gAlbedo     : register(t0);
@@ -53,6 +53,8 @@ struct GpuLocalLight
 
 StructuredBuffer<GpuLocalLight> gLights      : register(t4);
 StructuredBuffer<float4x4>      gVolumeWorld : register(t5);
+
+#include "LocalShadow.hlsli"
 
 struct PSInput
 {
@@ -130,7 +132,8 @@ float3 LocalLightFogScatter(float3 cam, float3 worldPos, GpuLocalLight light, Fo
         float  d        = fp.fogDensity + FogHeightDensity(p.y, fp) + FogValleyDensity(p, terrainY, fp);
         // Clamp 1/d^2 so a sample at the light origin cannot dump candela into a solid ball.
         float  att      = min(LightAttenuation(light, p), 1.5f);
-        s += T * (d * dt) * albedo * light.color * att * 0.0015f;
+        float  shadow   = SampleLocalShadowTap(light, p);
+        s += T * (d * dt) * albedo * light.color * att * shadow * 0.0015f;
         T *= exp(-d * dt);
     }
     return saturate(s);
@@ -178,10 +181,33 @@ float4 PSMain(PSInput input) : SV_TARGET
     }
 
     float3 v   = normalize(cameraPos - worldPos);
-    float3 lit = PbrPunctual(n, v, albedo.rgb, roughness, metallic, toLight, light.color, light.sourceRadius);
-    lit *= windowedDistanceAttenuation(d * d, light.invRange2);
+    int    faceId = 0;
+    float  shadow = SampleLocalShadow(light, worldPos, n, faceId);
+    float  att = windowedDistanceAttenuation(d * d, light.invRange2);
     if (light.type >= 0.5f)
-        lit *= spotAngleAttenuation(cosTheta, light.innerCos, light.outerCos);
+        att *= spotAngleAttenuation(cosTheta, light.innerCos, light.outerCos);
+
+    if (light.pad >= 0.0f && localShadowDebug > 0.5f && localShadowDebug < 1.5f)
+        return float4(shadow, shadow, shadow, 0.0f);
+    if (light.pad >= 0.0f && localShadowDebug >= 1.5f)
+    {
+        float3 faceColor = float3(1.0f, 0.0f, 0.0f);
+        if (faceId == 1)
+            faceColor = float3(0.35f, 0.0f, 0.0f);
+        else if (faceId == 2)
+            faceColor = float3(0.0f, 1.0f, 0.0f);
+        else if (faceId == 3)
+            faceColor = float3(0.0f, 0.35f, 0.0f);
+        else if (faceId == 4)
+            faceColor = float3(0.0f, 0.0f, 1.0f);
+        else if (faceId == 5)
+            faceColor = float3(0.0f, 0.0f, 0.35f);
+        return float4(faceColor * shadow * att, 0.0f);
+    }
+
+    float3 lit = PbrPunctual(n, v, albedo.rgb, roughness, metallic, toLight, light.color, light.sourceRadius);
+    lit *= att;
+    lit *= shadow;
 
     FogParams fp  = MakeFogParams();
     FogResult fog = FogIntegrate(cameraPos, worldPos, fp, gHeightMap, gHeightSamp, 1.0f);

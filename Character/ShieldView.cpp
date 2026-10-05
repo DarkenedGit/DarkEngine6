@@ -110,6 +110,7 @@ namespace Dark
         light.innerConeDeg  = 10.0f;
         light.outerConeDeg  = 22.0f;
         light.enabled       = true;
+        light.castShadow    = true;
         return e;
     }
 

@@ -12,6 +12,7 @@ namespace Dark
     class Renderer;
     class Mesh;
     class LocalLightGpuList;
+    class LocalShadowSystem;
     class Camera3D;
     class World;
     struct LightingConstants;
@@ -41,11 +42,12 @@ namespace Dark
         float    heightCellSize;
         float    heightWorldSizeX;
         float    heightWorldSizeZ;
-        float    padFog;
+        float    localShadowDebug;
     };
     static_assert(sizeof(LocalLightPassConstants) == 56 * sizeof(float), "local light root constants");
-    // 56 constants + 1 srv table + 2 lights SRV + 2 world SRV + 1 height table + 1 AO table = 63.
-    static_assert(56 + 1 + 2 + 2 + 1 + 1 <= 64, "local light root signature DWORD budget");
+    // 56 constants + 1 srv table + 2 lights + 2 worlds + 1 height + 1 AO + 1 shadow table = 64.
+    static_assert(56 + 1 + 2 + 2 + 1 + 1 + 1 == 64, "local light root signature DWORD budget");
+    static_assert(56 + 1 + 2 + 2 + 1 + 1 + 1 <= 64, "local light root signature DWORD budget");
 
     class LocalLightVolumePipeline
     {
@@ -55,7 +57,8 @@ namespace Dark
         static constexpr UINT kRootLightsSrv = 2;
         static constexpr UINT kRootWorldSrv  = 3;
         static constexpr UINT kRootHeightSrv = 4;
-        static constexpr UINT kRootAoSrv     = 5;
+        static constexpr UINT kRootAoSrv       = 5;
+        static constexpr UINT kRootShadowTable = 6;
 
         LocalLightVolumePipeline() = default;
 
@@ -70,7 +73,7 @@ namespace Dark
         // Gather + upload + instanced sphere/cone + inside fullscreen. Fog/camera copied from `lighting`.
         // Skips if pipeline, GPU list, or either volume mesh is invalid.
         void draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, LocalLightGpuList& gpuList, const Mesh& sphere, const Mesh& cone,
-                  const Camera3D& camera, const Math::Matrix4f& viewProj, const LightingConstants& lighting) const;
+                  const Camera3D& camera, const Math::Matrix4f& viewProj, const LightingConstants& lighting, const LocalShadowSystem* localShadows) const;
 
         bool isValid() const { return m_psoMesh != nullptr && m_psoFullscreen != nullptr; }
 

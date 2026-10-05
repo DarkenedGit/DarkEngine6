@@ -100,6 +100,16 @@ namespace Dark
 	{
 		if (!isValid())
 			return 0;
+
+		// One slot per pose. Each cascade, each local-shadow face, and each skinned
+		// part redraws that same AnimPose. Copying it again used to fill this ring
+		// once the lantern's six faces were live, and the color pass then skipped the body.
+		for (uint32_t i = 0; i < m_used; ++i)
+		{
+			if (m_pose[i] == &pose)
+				return m_gpu + (static_cast<UINT64>(m_frameSlot) * kMaxInstances + i) * kStride;
+		}
+
 		if (m_used >= kMaxInstances)
 		{
 			if (!m_warnedOverflow)
@@ -110,6 +120,7 @@ namespace Dark
 			return 0;
 		}
 
+		m_pose[m_used] = &pose;
 		auto* cb = reinterpret_cast<BonePaletteCB*>(m_mapped + (static_cast<size_t>(m_frameSlot) * kMaxInstances + m_used) * kStride);
 		const uint32_t n = pose.boneCount > 64 ? 64 : pose.boneCount;
 		for (uint32_t i = 0; i < 64; ++i)

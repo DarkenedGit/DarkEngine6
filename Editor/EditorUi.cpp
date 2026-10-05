@@ -145,6 +145,15 @@ void EditorApp::drawEditorUi()
                 ImGui::MenuItem("TAA", nullptr, &renderer().debugState().taa);
                 ImGui::MenuItem("Motion Blur", nullptr, &renderer().debugState().motionBlur);
                 ImGui::MenuItem("Local Lights", nullptr, &renderer().debugState().localLights);
+                ImGui::MenuItem("Shadow map tiles", nullptr, &renderer().debugState().shadowMapTiles);
+                {
+                    const char* shadowDbg[] = { "Off", "Shadow factor", "Face id" };
+                    int mode = renderer().debugState().localShadowDebug;
+                    if (mode < 0 || mode > 2)
+                        mode = 0;
+                    if (ImGui::Combo("Local shadow", &mode, shadowDbg, 3))
+                        renderer().debugState().localShadowDebug = mode;
+                }
                 ImGui::MenuItem("Cloud Volumes", nullptr, &renderer().debugState().clouds);
             }
             if (m_sceneMode == SceneMode::Scene3D)
@@ -737,6 +746,7 @@ void EditorApp::drawInspector3D()
             }
             ImGui::DragFloat("Intensity (cd)", &light->intensity, 10.0f, 0.0f, 50000.0f);
             ImGui::SliderFloat("Range (m)", &light->range, 0.25f, 80.0f);
+            ImGui::Checkbox("Cast shadow", &light->castShadow);
             ImGui::TextDisabled("Point light on this emitter. Lights the ground and nearby meshes.");
         }
     }
@@ -752,6 +762,7 @@ void EditorApp::drawInspector3D()
         }
         ImGui::DragFloat("Intensity (cd)", &light->intensity, 10.0f, 0.0f, 50000.0f);
         ImGui::SliderFloat("Range (m)", &light->range, 0.25f, 80.0f);
+        ImGui::Checkbox("Cast shadow", &light->castShadow);
         if (light->type == LocalLightType::Spot)
         {
             if (ImGui::SliderFloat("Inner (deg)", &light->innerConeDeg, 0.0f, 80.0f) && light->innerConeDeg > light->outerConeDeg)

@@ -98,12 +98,13 @@ TEST(Ssr, Settings_Defaults)
     EXPECT_FALSE(HasMaxSteps<SsrSettings>::value);
 }
 
-TEST(Ssr, LightingCount_IsTen)
+TEST(Ssr, LightingCount_LocalShadowSlots)
 {
     EXPECT_EQ(SceneBuffers::kLightingSsr, 9u);
-    EXPECT_EQ(SceneBuffers::kLightingCount, 10u);
+    EXPECT_EQ(SceneBuffers::kLightingCount, 12u);
     EXPECT_EQ(SceneBuffers::kLightingIblBrdfLut + 1u, SceneBuffers::kLightingSsr);
-    EXPECT_EQ(SceneBuffers::kLightingSsr + 1u, SceneBuffers::kLightingCount);
+    EXPECT_EQ(SceneBuffers::kLightingLocalShadow, 10u);
+    EXPECT_EQ(SceneBuffers::kLightingLocalShadowRecords, 11u);
 }
 
 TEST(Ssr, LightingRs_DwordBudget)
