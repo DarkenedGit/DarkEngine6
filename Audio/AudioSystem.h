@@ -71,6 +71,7 @@ namespace Dark::Audio
 
         void setMusic(const ::Dark::AssetRef<SoundClip>& clip, float volume = 0.18f);
         void setVoicePosition(VoiceId id, const Math::Vector3f& position);
+        void setVoiceVolume(VoiceId id, float volume);
         void stopMusic();
 
         void stop(VoiceId id);

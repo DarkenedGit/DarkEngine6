@@ -22,6 +22,7 @@
 #include "Editor/ParticleEditorPanel.h"
 #include "Editor/AnimEditorPanel.h"
 #include "Editor/HsmEditorPanel.h"
+#include "Editor/AudioPreviewPanel.h"
 #include "Animation/AnimGraphComponent.h"
 #include "Particles/ParticleComponents.h"
 #include "Particles/ParticleRenderer.h"
@@ -329,9 +330,11 @@ private:
     ParticleEditorPanel  m_particlePanel;
     AnimEditorPanel      m_animPanel;
     HsmEditorPanel       m_hsmPanel;
+    AudioPreviewPanel    m_audioPanel;
     bool                 m_showParticlePanel = true;
     bool                 m_showAnimPanel     = true;
     bool                 m_showHsmPanel      = true;
+    bool                 m_showAudioPanel    = false;
     bool                 m_showAssetBrowser  = true;
 
     SceneObjectType m_placeType  = SceneObjectType::Cube;

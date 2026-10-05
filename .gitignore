@@ -3,7 +3,9 @@ Saves/
 build-sourcetrail/
 third_party/box2d/build/
 third_party/box3d/build/
-content/audio/sfx_pack.zip
+content/audio/footsteps
+content/audio/human
+content/audio/wolf
 content/models/BirchTree
 content/models/Dandelion
 content/models/NaturePack

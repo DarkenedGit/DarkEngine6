@@ -105,6 +105,7 @@ void EditorApp::drawEditorUi()
             ImGui::MenuItem(ICON_FA_BOLT "  Particle Panel", "F2", &m_showParticlePanel);
             ImGui::MenuItem(ICON_FA_PLAY "  Animation Panel", "F4", &m_showAnimPanel);
             ImGui::MenuItem(ICON_FA_LIST "  HSM Panel", "F8", &m_showHsmPanel);
+            ImGui::MenuItem(ICON_FA_VOLUME_HIGH "  Audio", nullptr, &m_showAudioPanel);
             ImGui::MenuItem(ICON_FA_FOLDER_OPEN "  Assets", "F10", &m_showAssetBrowser);
             ImGui::MenuItem(ICON_FA_CUBE "  Model Parts", nullptr, &m_showModelParts);
             ImGui::MenuItem(ICON_FA_CUBE "  Material", nullptr, &m_showMaterialEditor);
@@ -416,6 +417,8 @@ void EditorApp::drawEditorUi()
 
     if (m_showHsmPanel)
         m_hsmPanel.draw(assets(), &m_showHsmPanel);
+
+    m_audioPanel.draw(audio(), assets(), &m_showAudioPanel);
 
     if (ImGui::Begin("Scene"))
     {

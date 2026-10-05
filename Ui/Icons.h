@@ -3,6 +3,7 @@
 // Font Awesome 6 Free Solid subset. Load with content/fonts/fa-solid-900.ttf (see ImGuiHost).
 // Codepoints from https://github.com/juliettef/IconFontCppHeaders (IconsFontAwesome6.h).
 
+#define ICON_FA_VOLUME_HIGH "\xef\x80\xa8"        // U+f028
 #define ICON_FA_LIST "\xef\x80\xba"               // U+f03a
 #define ICON_FA_PLAY "\xef\x81\x8b"               // U+f04b
 #define ICON_FA_PAUSE "\xef\x81\x8c"              // U+f04c

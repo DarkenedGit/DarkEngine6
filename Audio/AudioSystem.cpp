@@ -545,6 +545,17 @@ namespace Dark::Audio
             apply3D(slot);
     }
 
+    void AudioSystem::setVoiceVolume(VoiceId id, float volume)
+    {
+        const int index = decodeIndex(id);
+        if (!matches(id, index))
+            return;
+        VoiceSlot& slot = *m_voices[static_cast<size_t>(index)];
+        slot.desc.volume = clampf(volume, 0.0f, 1.0f);
+        if (slot.inUse && slot.voice)
+            slot.voice->SetVolume(slot.desc.volume);
+    }
+
     void AudioSystem::tick()
     {
         if (!m_valid)
