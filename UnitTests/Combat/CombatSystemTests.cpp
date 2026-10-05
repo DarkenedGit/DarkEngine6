@@ -9,6 +9,7 @@
 #include "Combat/DefenseComponent.h"
 #include "Combat/HitSet.h"
 #include "Combat/JumpAttackResolve.h"
+#include "Combat/PlayerMode.h"
 #include "Combat/PoiseComponent.h"
 #include "Combat/SpellCaster.h"
 #include "Combat/StatusDot.h"
@@ -290,6 +291,104 @@ TEST(Spell_ProjectileResolvePath, BuildsDamageEvent)
     EXPECT_EQ(out.target.id(), target.id());
     EXPECT_FLOAT_EQ(out.amount, 22.0f);
     EXPECT_EQ(out.type, DamageType::Fire);
+}
+
+TEST(CombatSystem_GodMode, IgnoresDamageHitReactionAndDots)
+{
+    World world;
+    Entity player = world.createEntity();
+    Entity attacker = world.createEntity();
+
+    HealthComponent playerHp{};
+    playerHp.health = Health{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    world.emplace<HealthComponent>(player, std::move(playerHp));
+    world.emplace<HitReactionComponent>(player);
+
+    HealthComponent attackerHp{};
+    attackerHp.health = Health{ HealthSettings{ 40.0f, 0.0f, 99.0f } };
+    world.emplace<HealthComponent>(attacker, std::move(attackerHp));
+
+    PlayerModeComponent mode{};
+    mode.godMode = true;
+    world.emplace<PlayerModeComponent>(player, mode);
+
+    CombatSystem sys;
+    DamageEvent ev = makeHit(40.0f);
+    ev.source      = attacker;
+    ev.target      = player;
+    const ResolveResult hit = sys.resolve(world, ev);
+    EXPECT_FALSE(hit.applied);
+    EXPECT_TRUE(hit.iframe);
+    EXPECT_FLOAT_EQ(world.get<HealthComponent>(player)->health.hp(), 100.0f);
+    EXPECT_FALSE(world.get<HitReactionComponent>(player)->hit.stunned());
+    EXPECT_TRUE(world.get<HealthComponent>(attacker)->health.alive());
+
+    DamageEvent dot = makeHit(12.0f);
+    dot.source      = attacker;
+    dot.target      = player;
+    dot.flags       = DamageFlags::DotTick;
+    const ResolveResult dotted = sys.resolve(world, dot);
+    EXPECT_FALSE(dotted.applied);
+    EXPECT_FLOAT_EQ(world.get<HealthComponent>(player)->health.hp(), 100.0f);
+    EXPECT_TRUE(world.get<HealthComponent>(attacker)->health.alive());
+}
+
+TEST(CombatSystem_ReaperMode, KillsAttackerWithoutHurtingPlayer)
+{
+    World world;
+    Entity player = world.createEntity();
+    Entity attacker = world.createEntity();
+
+    HealthComponent playerHp{};
+    playerHp.health = Health{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    world.emplace<HealthComponent>(player, std::move(playerHp));
+    world.emplace<HitReactionComponent>(player);
+
+    HealthComponent attackerHp{};
+    attackerHp.health = Health{ HealthSettings{ 40.0f, 0.0f, 99.0f } };
+    world.emplace<HealthComponent>(attacker, std::move(attackerHp));
+    world.emplace<HitReactionComponent>(attacker);
+
+    PlayerModeComponent mode{};
+    mode.reaperMode = true;
+    world.emplace<PlayerModeComponent>(player, mode);
+
+    CombatSystem sys;
+    DamageEvent ev = makeHit(40.0f);
+    ev.source      = attacker;
+    ev.target      = player;
+    const ResolveResult hit = sys.resolve(world, ev);
+    EXPECT_FALSE(hit.applied);
+    EXPECT_TRUE(hit.iframe);
+    EXPECT_FLOAT_EQ(world.get<HealthComponent>(player)->health.hp(), 100.0f);
+    EXPECT_FALSE(world.get<HitReactionComponent>(player)->hit.stunned());
+    EXPECT_FALSE(world.get<HealthComponent>(attacker)->health.alive());
+
+    HealthComponent freshHp{};
+    freshHp.health = Health{ HealthSettings{ 40.0f, 0.0f, 99.0f } };
+    world.emplace<HealthComponent>(attacker, std::move(freshHp));
+    DamageEvent sourceless = makeHit(40.0f);
+    sourceless.target      = player;
+    sys.resolve(world, sourceless);
+    EXPECT_FLOAT_EQ(world.get<HealthComponent>(player)->health.hp(), 100.0f);
+    EXPECT_TRUE(world.get<HealthComponent>(attacker)->health.alive());
+}
+
+TEST(CombatSystem_PlayerModeOff, StillDamages)
+{
+    World world;
+    Entity player = world.createEntity();
+    HealthComponent playerHp{};
+    playerHp.health = Health{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    world.emplace<HealthComponent>(player, std::move(playerHp));
+    world.emplace<PlayerModeComponent>(player);
+
+    CombatSystem sys;
+    DamageEvent ev = makeHit(10.0f, DamageType::True);
+    ev.target      = player;
+    const ResolveResult r = sys.resolve(world, ev);
+    EXPECT_TRUE(r.applied);
+    EXPECT_NEAR(world.get<HealthComponent>(player)->health.hp(), 90.0f, 1.0e-3f);
 }
 
 TEST(CombatSystem_WorldResolve, UsesHealthComponent)

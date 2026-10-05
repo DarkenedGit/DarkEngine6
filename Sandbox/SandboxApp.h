@@ -77,6 +77,7 @@ private:
     void updatePawnMotion(float dt);
     void updatePossessed(float dt);
     void updateCombat(float dt);
+    void syncPlayerMode();
     void handleWeaponSwitch();
     Dark::WeaponWorldQuery makeWeaponQuery();
     static void onWeaponHitThunk(void* user, const Dark::WeaponHit& hit);
@@ -224,6 +225,8 @@ private:
     uint32_t      m_browseLogCount = ~0u;
     bool          m_netBrowsing    = false;
     bool          m_gameplayPaused = false;
+    bool          m_godMode        = false;
+    bool          m_reaperMode     = false;
     bool          m_stepGameplay   = false;
     float         m_flySpeed       = 18.0f;
     float         m_spinSpeed      = 0.8f;

@@ -892,8 +892,18 @@ namespace Dark
     void AiSystem::tickHunters(World& world, Terrain::TerrainGrid& terrain, bool playerInWater, float dt, Entity player, const Math::AABox3f* cubes, int cubeCount, const Math::Sphere3f* spheres, int sphereCount)
     {
         m_time += dt;
-        if (m_jumpAttackToken.valid() && !world.alive(m_jumpAttackToken))
-            m_jumpAttackToken = {};
+        if (m_jumpAttackToken.valid())
+        {
+            bool release = !world.alive(m_jumpAttackToken);
+            if (!release)
+            {
+                if (const HealthComponent* tokenHp = world.get<HealthComponent>(m_jumpAttackToken))
+                    release = !tokenHp->health.alive();
+            }
+            // A dead leaper must not keep the pack token. Reaper kills by HP, and the entity stays alive.
+            if (release)
+                cancelJumpAndToken(world, m_jumpAttackToken, true);
+        }
         collectHunters(world);
         for (Entity e : m_scratch)
         {

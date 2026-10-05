@@ -60,6 +60,7 @@
 #include "Combat/DefenseComponent.h"
 #include "Combat/Shield.h"
 #include "Combat/DamageEvent.h"
+#include "Combat/PlayerMode.h"
 #include "Combat/JumpAttackComponent.h"
 #include "Combat/JumpAttackDef.h"
 #include "Combat/JumpAttackResolve.h"
@@ -1617,6 +1618,24 @@ void SandboxApp::onWeaponHit(const WeaponHit& hit)
     if (HitReactionComponent* hr = world().get<HitReactionComponent>(victim))
         hr->hit.apply(hit.direction);
     playSoundCueAt(world(), audio(), assets(), victim, "pain", hit.point);
+}
+
+void SandboxApp::syncPlayerMode()
+{
+    const Entity body = possessedBody();
+    if (!body.valid() || !world().alive(body))
+        return;
+    if (!m_godMode && !m_reaperMode)
+    {
+        if (world().has<Combat::PlayerModeComponent>(body))
+            world().remove<Combat::PlayerModeComponent>(body);
+        return;
+    }
+    Combat::PlayerModeComponent* mode = world().get<Combat::PlayerModeComponent>(body);
+    if (!mode)
+        mode = &world().emplace<Combat::PlayerModeComponent>(body);
+    mode->godMode    = m_godMode;
+    mode->reaperMode = m_reaperMode;
 }
 
 void SandboxApp::updateCombat(float dt)
@@ -3464,6 +3483,7 @@ void SandboxApp::onUpdate(float dt)
     }
     if (!m_gameplayPaused || m_stepGameplay)
     {
+        syncPlayerMode();
         m_cloudTime += dt;
         if (WorldClockComponent* clock = m_session.valid() ? world().get<WorldClockComponent>(m_session) : nullptr)
             clock->playTimeSec += static_cast<double>(dt);

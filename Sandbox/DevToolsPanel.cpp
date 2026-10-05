@@ -207,6 +207,21 @@ void SandboxApp::drawDevTools()
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Free-fly camera while paused. Shift multiplies by 2.5.");
     ImGui::Separator();
+    if (ImGui::Checkbox("God Mode", &m_godMode))
+    {
+        syncPlayerMode();
+        DE_LOG_INFO("Sandbox: god mode = {}", m_godMode);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Player takes no damage and plays no hit reaction.");
+    if (ImGui::Checkbox("Reaper Mode", &m_reaperMode))
+    {
+        syncPlayerMode();
+        DE_LOG_INFO("Sandbox: reaper mode = {}", m_reaperMode);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Player takes no damage and plays no hit reaction. Any entity that attacks the player dies.");
+    ImGui::Separator();
 
     DebugRenderState& dbg = renderer().debugState();
     const float elevDeg   = m_env.sunElevation() * 57.2957795f;

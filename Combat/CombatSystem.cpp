@@ -6,6 +6,8 @@
 #include "Combat/ArmorComponent.h"
 #include "Combat/ArmorStats.h"
 #include "Combat/DefenseComponent.h"
+#include "Combat/JumpAttackComponent.h"
+#include "Combat/PlayerMode.h"
 #include "Combat/PoiseComponent.h"
 #include "Combat/StatusEffectComponent.h"
 #include "Combat/StatusId.h"
@@ -62,6 +64,29 @@ namespace Dark::Combat
         {
             r.filtered = true;
             return r;
+        }
+
+        // God and Reaper must run before resolveDirect. Dot ticks apply damage in that
+        // function before the iframe check, and hit reactions are applied there too.
+        if (const PlayerModeComponent* mode = world.get<PlayerModeComponent>(ev.target))
+        {
+            if (mode->godMode || mode->reaperMode)
+            {
+                if (mode->reaperMode && ev.source.valid() && world.alive(ev.source) && ev.source.id() != ev.target.id())
+                {
+                    if (HealthComponent* attackerHp = world.get<HealthComponent>(ev.source))
+                    {
+                        if (attackerHp->health.alive())
+                            attackerHp->health.applyDamage(attackerHp->health.maxHp());
+                    }
+                    if (JumpAttackComponent* jac = world.get<JumpAttackComponent>(ev.source))
+                        jac->jump.cancel(JumpAttackCancel::ForceIdle);
+                    if (HitReactionComponent* attackerHit = world.get<HitReactionComponent>(ev.source))
+                        attackerHit->hit.reset();
+                }
+                r.iframe = true;
+                return r;
+            }
         }
 
         HealthComponent*       hpComp  = world.get<HealthComponent>(ev.target);
