@@ -202,7 +202,7 @@ void SkyPipeline::draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, c
     cb.sunColor[0]    = env.sunColor().x;
     cb.sunColor[1]    = env.sunColor().y;
     cb.sunColor[2]    = env.sunColor().z;
-    cb.cloudTime      = env.timeOfDay;
+    cb.cloudTime      = env.cloudClockSec();
     cb.moonDir[0]     = env.moonDir().x;
     cb.moonDir[1]     = env.moonDir().y;
     cb.moonDir[2]     = env.moonDir().z;

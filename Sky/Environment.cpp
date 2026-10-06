@@ -166,6 +166,7 @@ void Environment::tick(float dt)
         if (timeOfDay < 0.001f && timeScale > 0.0f)
             dayOfYear = WrapDay(dayOfYear + 1.0f);
     }
+    m_cloudClockSec += dt;
     evaluate();
 }
 

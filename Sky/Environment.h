@@ -58,6 +58,7 @@ public:
     const Math::Vector3f& skyHorizon() const { return m_skyHorizon; }
 
     float sunElevation() const { return m_sunElevation; } // radians, negative = below horizon
+    float cloudClockSec() const { return m_cloudClockSec; }
     float fogDensity() const { return m_fogDensity; }
     float heightFogDensity() const { return m_heightFogDensity; }
     float heightFogFalloff() const { return m_heightFogFalloff; }
@@ -99,6 +100,7 @@ private:
     Math::Vector3f m_skyZenith{ 0.22f, 0.40f, 0.62f };
     Math::Vector3f m_skyHorizon{ 0.62f, 0.72f, 0.82f };
     float          m_sunElevation          = 0.8f;
+    float          m_cloudClockSec         = 0.0f;
     float          m_fogDensity            = 0.004f;
     float          m_heightFogDensity      = 0.0f;
     float          m_heightFogFalloff      = 0.06f;
