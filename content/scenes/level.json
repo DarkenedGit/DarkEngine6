@@ -349,7 +349,7 @@
         "density": 0.90,
         "detailScale": 3.4,
         "detailStrength": 0.38,
-        "enabled": true,
+        "enabled": false,
         "heightFalloff": 0.55,
         "noiseScale": 0.055,
         "scattering": 1.0,
