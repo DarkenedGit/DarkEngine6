@@ -23,16 +23,45 @@ struct WeatherState
     static WeatherState Storm();
 };
 
+struct CloudLayerDesc
+{
+    bool  enabled          = true;
+    float altitude         = 2000.0f;    // meters above ground
+    float thickness        = 800.0f;     // meters
+    float planetRadius     = 6.36e6f;    // meters
+    float tMax             = 35000.0f;   // fade distance (meters)
+    float tauMax           = 12.0f;      // max optical depth
+    float kappa            = 0.5f;       // sun shadow strength
+    float rMax             = 3000.0f;    // max sun tap distance (meters)
+    float baseFreq         = 1.0f / 4000.0f;  // 1/meters
+    float detailFreq       = 1.0f / 900.0f;   // 1/meters
+    float erosion          = 0.35f;
+    float g0               = 0.45f;      // forward HG
+    float g1               = -0.16f;     // backward HG
+    float backWeight       = 0.32f;      // back lobe blend
+    float silverLining     = 0.75f;
+    float msA              = 0.5f;       // multi-scatter octave scale
+    float msB              = 0.5f;
+    float msC              = 0.5f;
+    float powder           = 0.6f;
+    float ambientScale     = 1.0f;
+    float hazeDistance     = 25000.0f;   // meters
+    float albedo           = 0.9f;
+    float windSpeedMps     = 8.0f;       // meters per second
+    Math::Vector2f windDir = Math::Vector2f(1.0f, 0.2f);
+};
+
 // Shared celestial + weather state. Call evaluate() after changing inputs
 // (tick() does this). Terrain, water, and the sky pass all read the outputs.
 class Environment
 {
 public:
-    float        timeOfDay  = 15.5f; // hours, [0, 24)
-    float        dayOfYear  = 172.0f; // 1..365
-    float        latitude   = 47.6f;  // degrees
-    float        timeScale  = 0.0f;   // hours advanced per real second
-    WeatherState weather    = WeatherState::PartlyCloudy();
+    float           timeOfDay  = 15.5f; // hours, [0, 24)
+    float           dayOfYear  = 172.0f; // 1..365
+    float           latitude   = 47.6f;  // degrees
+    float           timeScale  = 0.0f;   // hours advanced per real second
+    WeatherState    weather    = WeatherState::PartlyCloudy();
+    CloudLayerDesc  cloudLayer;
 
     // Fog art direction. When fogAuto is true, evaluate() writes densities from
     // weather/time then multiplies by the scales. When false, setFog* sticks.
@@ -57,7 +86,15 @@ public:
     const Math::Vector3f& skyZenith() const { return m_skyZenith; }
     const Math::Vector3f& skyHorizon() const { return m_skyHorizon; }
 
+    const Math::Vector3f& cloudLightDir() const { return m_cloudLightDir; }
+    const Math::Vector3f& cloudLightColor() const { return m_cloudLightColor; }
+    const Math::Vector3f& cloudSkyTop() const { return m_cloudSkyTop; }
+    const Math::Vector3f& cloudSkyBottom() const { return m_cloudSkyBottom; }
+    const Math::Vector2f& cloudWindBase() const { return m_cloudWindBase; }
+    const Math::Vector2f& cloudWindDetail() const { return m_cloudWindDetail; }
+
     float sunElevation() const { return m_sunElevation; } // radians, negative = below horizon
+    float cloudClockSec() const { return m_cloudClockSec; }
     float fogDensity() const { return m_fogDensity; }
     float heightFogDensity() const { return m_heightFogDensity; }
     float heightFogFalloff() const { return m_heightFogFalloff; }
@@ -99,12 +136,20 @@ private:
     Math::Vector3f m_skyZenith{ 0.22f, 0.40f, 0.62f };
     Math::Vector3f m_skyHorizon{ 0.62f, 0.72f, 0.82f };
     float          m_sunElevation          = 0.8f;
+    float          m_cloudClockSec         = 0.0f;
     float          m_fogDensity            = 0.004f;
     float          m_heightFogDensity      = 0.0f;
     float          m_heightFogFalloff      = 0.06f;
     float          m_volumetricFogDensity  = 0.012f;
     float          m_volumetricFogHeight   = 14.0f;
     float          m_exposure              = 1.0f;
+
+    Math::Vector3f m_cloudLightDir{ 0.35f, 0.85f, -0.35f };
+    Math::Vector3f m_cloudLightColor{ 1.0f, 0.96f, 0.88f };
+    Math::Vector3f m_cloudSkyTop{ 0.22f, 0.40f, 0.62f };
+    Math::Vector3f m_cloudSkyBottom{ 0.62f, 0.72f, 0.82f };
+    Math::Vector2f m_cloudWindBase{ 0.0f, 0.0f };
+    Math::Vector2f m_cloudWindDetail{ 0.0f, 0.0f };
 };
 
 } // namespace Sky

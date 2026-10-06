@@ -48,7 +48,7 @@ bool SkyPipeline::create(ID3D12Device* device, SkyPass pass, DXGI_FORMAT colorFo
     shadowRange.BaseShaderRegister                = 0;
     shadowRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_ROOT_PARAMETER rootParams[3]{};
+    D3D12_ROOT_PARAMETER rootParams[4]{};
     rootParams[kRootConstants].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
     rootParams[kRootConstants].ShaderVisibility         = D3D12_SHADER_VISIBILITY_ALL;
     rootParams[kRootConstants].Constants.ShaderRegister = 0;
@@ -65,6 +65,10 @@ bool SkyPipeline::create(ID3D12Device* device, SkyPass pass, DXGI_FORMAT colorFo
     rootParams[kRootShadowSrv].DescriptorTable.NumDescriptorRanges = 1;
     rootParams[kRootShadowSrv].DescriptorTable.pDescriptorRanges   = &shadowRange;
 
+    rootParams[kRootCloudCbv].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParams[kRootCloudCbv].ShaderVisibility          = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParams[kRootCloudCbv].Descriptor.ShaderRegister = 2;
+
     D3D12_STATIC_SAMPLER_DESC shadowSamp{};
     shadowSamp.Filter           = D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
     shadowSamp.AddressU         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
@@ -77,7 +81,7 @@ bool SkyPipeline::create(ID3D12Device* device, SkyPass pass, DXGI_FORMAT colorFo
     shadowSamp.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
     D3D12_ROOT_SIGNATURE_DESC rsDesc{};
-    rsDesc.NumParameters     = 3;
+    rsDesc.NumParameters     = 4;
     rsDesc.pParameters       = rootParams;
     rsDesc.NumStaticSamplers = 1;
     rsDesc.pStaticSamplers   = &shadowSamp;
@@ -155,6 +159,43 @@ bool SkyPipeline::create(ID3D12Device* device, SkyPass pass, DXGI_FORMAT colorFo
     }
     m_shadowGpu = m_shadowHeap->GetGPUDescriptorHandleForHeapStart();
 
+    D3D12_HEAP_PROPERTIES uploadHeap{};
+    uploadHeap.Type = D3D12_HEAP_TYPE_UPLOAD;
+
+    D3D12_RESOURCE_DESC cloudBufferDesc{};
+    cloudBufferDesc.Dimension          = D3D12_RESOURCE_DIMENSION_BUFFER;
+    cloudBufferDesc.Width              = kCloudSlotSize * kFrameCount;
+    cloudBufferDesc.Height             = 1;
+    cloudBufferDesc.DepthOrArraySize   = 1;
+    cloudBufferDesc.MipLevels          = 1;
+    cloudBufferDesc.SampleDesc.Count   = 1;
+    cloudBufferDesc.Layout             = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+    if (FailedHr(
+            device->CreateCommittedResource(
+                &uploadHeap, D3D12_HEAP_FLAG_NONE, &cloudBufferDesc,
+                D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&m_cloudBuffer)),
+            "CreateCommittedResource (sky cloud cbuffer)"))
+    {
+        m_rootSignature.Reset();
+        m_pso.Reset();
+        m_shadowHeap.Reset();
+        return false;
+    }
+
+    const D3D12_RANGE readRange{0, 0};
+    if (FailedHr(
+            m_cloudBuffer->Map(0, &readRange, reinterpret_cast<void**>(&m_cloudMapped)),
+            "Map (sky cloud cbuffer)"))
+    {
+        m_rootSignature.Reset();
+        m_pso.Reset();
+        m_shadowHeap.Reset();
+        m_cloudBuffer.Reset();
+        return false;
+    }
+    m_cloudGpu = m_cloudBuffer->GetGPUVirtualAddress();
+
     DE_LOG_INFO(LogCategory::Render, "SkyPipeline: ready ({})", deferredLast ? "DeferredLast" : "ForwardFirst");
     return true;
 }
@@ -202,7 +243,7 @@ void SkyPipeline::draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, c
     cb.sunColor[0]    = env.sunColor().x;
     cb.sunColor[1]    = env.sunColor().y;
     cb.sunColor[2]    = env.sunColor().z;
-    cb.cloudTime      = env.timeOfDay;
+    cb.cloudTime      = env.cloudClockSec();
     cb.moonDir[0]     = env.moonDir().x;
     cb.moonDir[1]     = env.moonDir().y;
     cb.moonDir[2]     = env.moonDir().z;
@@ -258,6 +299,58 @@ void SkyPipeline::draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, c
     }
     if (shadows && shadows->isValid())
         shadows->bindReceiverCbv(cmd, kRootShadowCbv);
+
+    if (m_cloudMapped && m_cloudGpu != 0)
+    {
+        const CloudLayerDesc& cl = env.cloudLayer;
+        CloudLayerGpu gpu{};
+        gpu.lightColor[0] = env.cloudLightColor().x;
+        gpu.lightColor[1] = env.cloudLightColor().y;
+        gpu.lightColor[2] = env.cloudLightColor().z;
+        gpu.lightColor[3] = cl.enabled ? 1.0f : 0.0f;
+        gpu.lightDir[0]   = env.cloudLightDir().x;
+        gpu.lightDir[1]   = env.cloudLightDir().y;
+        gpu.lightDir[2]   = env.cloudLightDir().z;
+        gpu.lightDir[3]   = cl.tauMax;
+        gpu.skyTop[0]     = env.cloudSkyTop().x;
+        gpu.skyTop[1]     = env.cloudSkyTop().y;
+        gpu.skyTop[2]     = env.cloudSkyTop().z;
+        gpu.skyTop[3]     = cl.ambientScale;
+        gpu.skyBottom[0]  = env.cloudSkyBottom().x;
+        gpu.skyBottom[1]  = env.cloudSkyBottom().y;
+        gpu.skyBottom[2]  = env.cloudSkyBottom().z;
+        gpu.skyBottom[3]  = env.weather.cloudCoverage;
+        gpu.geom[0]       = cl.altitude;
+        gpu.geom[1]       = cl.thickness;
+        gpu.geom[2]       = cl.planetRadius;
+        gpu.geom[3]       = cl.tMax;
+        gpu.wind[0]       = env.cloudWindBase().x;
+        gpu.wind[1]       = env.cloudWindBase().y;
+        gpu.wind[2]       = env.cloudWindDetail().x;
+        gpu.wind[3]       = env.cloudWindDetail().y;
+        gpu.scale[0]      = cl.baseFreq;
+        gpu.scale[1]      = cl.detailFreq;
+        gpu.scale[2]      = cl.erosion;
+        gpu.scale[3]      = cl.hazeDistance;
+        gpu.phase[0]      = cl.g0;
+        gpu.phase[1]      = cl.g1;
+        gpu.phase[2]      = cl.backWeight;
+        gpu.phase[3]      = cl.silverLining;
+        gpu.ms[0]         = cl.msA;
+        gpu.ms[1]         = cl.msB;
+        gpu.ms[2]         = cl.msC;
+        gpu.ms[3]         = cl.powder;
+        gpu.misc[0]       = cl.kappa;
+        gpu.misc[1]       = cl.rMax;
+        gpu.misc[2]       = cl.albedo;
+        gpu.misc[3]       = 0.0f;
+
+        const UINT offset = m_cloudSlot * kCloudSlotSize;
+        std::memcpy(m_cloudMapped + offset, &gpu, sizeof(CloudLayerGpu));
+        cmd->SetGraphicsRootConstantBufferView(kRootCloudCbv, m_cloudGpu + offset);
+        m_cloudSlot = (m_cloudSlot + 1) % kFrameCount;
+    }
+
     cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     cmd->DrawInstanced(3, 1, 0, 0);
 }

@@ -553,7 +553,7 @@ void EditorApp::drawEditorUi()
 
 void EditorApp::drawSkyPanel()
 {
-    ImGui::SetNextWindowSize(ImVec2(340.0f, 260.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(380.0f, 640.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Sky"))
     {
         ImGui::End();
@@ -599,6 +599,72 @@ void EditorApp::drawSkyPanel()
     ImGui::SameLine();
     weatherBtn("Storm", Sky::WeatherState::Storm(), ImVec4(0.28f, 0.22f, 0.40f, 1.0f));
     ImGui::TextDisabled("Time drives the directional light and cloud lighting.");
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    if (ImGui::CollapsingHeader("Cloud Layer", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        Sky::CloudLayerDesc& cl = m_env.cloudLayer;
+        if (ImGui::Checkbox("Enabled (lightweight distant clouds)", &cl.enabled))
+        {
+            m_env.evaluate();
+            DE_LOG_INFO("CloudLayer: enabled = {}", cl.enabled);
+        }
+        ImGui::TextDisabled("When enabled, replaces legacy CloudVolume as the default sky clouds.");
+
+        ImGui::Spacing();
+        ImGui::Text("Geometry");
+        if (ImGui::SliderFloat("Altitude (m)", &cl.altitude, 500.0f, 8000.0f, "%.0f"))
+            m_env.evaluate();
+        if (ImGui::SliderFloat("Thickness (m)", &cl.thickness, 200.0f, 2000.0f, "%.0f"))
+            m_env.evaluate();
+        if (ImGui::SliderFloat("Draw distance (km)", &cl.tMax, 5000.0f, 80000.0f, "%.0f"))
+            cl.tMax = Max(cl.tMax, 1000.0f);
+        ImGui::TextDisabled("Shell altitude, vertical thickness, and horizon fade distance.");
+
+        ImGui::Spacing();
+        ImGui::Text("Density & Coverage");
+        if (ImGui::SliderFloat("Optical depth", &cl.tauMax, 4.0f, 24.0f, "%.1f"))
+            m_env.evaluate();
+        ImGui::SliderFloat("Base freq (1/m)", &cl.baseFreq, 1.0f / 8000.0f, 1.0f / 1000.0f, "%.6f");
+        ImGui::SliderFloat("Detail freq (1/m)", &cl.detailFreq, 1.0f / 2000.0f, 1.0f / 300.0f, "%.6f");
+        ImGui::SliderFloat("Erosion", &cl.erosion, 0.0f, 0.8f, "%.2f");
+        ImGui::TextDisabled("Max optical depth, noise frequencies, and edge erosion.");
+
+        ImGui::Spacing();
+        ImGui::Text("Lighting & Scattering");
+        ImGui::SliderFloat("Albedo", &cl.albedo, 0.7f, 1.0f, "%.2f");
+        ImGui::SliderFloat("Forward HG (g0)", &cl.g0, 0.2f, 0.7f, "%.2f");
+        ImGui::SliderFloat("Back HG (g1)", &cl.g1, -0.4f, -0.05f, "%.2f");
+        ImGui::SliderFloat("Back weight", &cl.backWeight, 0.1f, 0.5f, "%.2f");
+        ImGui::SliderFloat("Silver lining", &cl.silverLining, 0.0f, 2.0f, "%.2f");
+        ImGui::SliderFloat("Powder", &cl.powder, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("Ambient scale", &cl.ambientScale, 0.5f, 2.0f, "%.2f");
+        ImGui::TextDisabled("Dual-lobe phase function, forward/back scatter, and ambient.");
+
+        ImGui::Spacing();
+        ImGui::Text("Multi-scatter");
+        ImGui::SliderFloat("MS a", &cl.msA, 0.3f, 0.7f, "%.2f");
+        ImGui::SliderFloat("MS b", &cl.msB, 0.3f, 0.7f, "%.2f");
+        ImGui::SliderFloat("MS c", &cl.msC, 0.3f, 0.7f, "%.2f");
+        ImGui::TextDisabled("Multi-scatter octave scales. Keep a <= b for energy conservation.");
+
+        ImGui::Spacing();
+        ImGui::Text("Sun shadow");
+        ImGui::SliderFloat("Kappa", &cl.kappa, 0.2f, 1.0f, "%.2f");
+        if (ImGui::SliderFloat("Max reach (m)", &cl.rMax, 1000.0f, 8000.0f, "%.0f"))
+            cl.rMax = Max(cl.rMax, 500.0f);
+        ImGui::TextDisabled("Shadow strength and max distance for sun taps.");
+
+        ImGui::Spacing();
+        ImGui::Text("Horizon & Wind");
+        if (ImGui::SliderFloat("Haze dist (km)", &cl.hazeDistance, 5000.0f, 60000.0f, "%.0f"))
+            cl.hazeDistance = Max(cl.hazeDistance, 1000.0f);
+        ImGui::SliderFloat("Wind speed (m/s)", &cl.windSpeedMps, 0.0f, 20.0f, "%.1f");
+        ImGui::DragFloat2("Wind dir", &cl.windDir.x, 0.01f);
+        ImGui::TextDisabled("Aerial perspective blend distance and cloud drift.");
+    }
+
     ImGui::End();
 }
 

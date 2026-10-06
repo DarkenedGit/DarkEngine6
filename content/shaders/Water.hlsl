@@ -80,6 +80,10 @@ cbuffer FrameConstants : register(b0)
     float    cloudTime; float3 _skyPad;
 };
 
+#ifndef SKY_CLOUDS_MODE
+#define SKY_CLOUDS_MODE 1
+#endif
+
 #include "SkyEval.hlsli"
 
 Texture2D    gHeightMap  : register(t1);
