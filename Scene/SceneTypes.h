@@ -348,6 +348,13 @@ namespace Dark
         float       windSpeed     = 0.04f;
         float       windDir[2]{ 1.0f, 0.2f };
         float       rain          = 0.0f;
+
+        bool        cloudLayerEnabled  = true;
+        float       cloudAltitude      = 2000.0f;
+        float       cloudThickness     = 800.0f;
+        float       cloudTauMax        = 12.0f;
+        float       cloudWindSpeedMps  = 8.0f;
+        float       cloudWindDir[2]{ 1.0f, 0.2f };
     };
 
     // Fog knobs. When autoFromWeather is set, evaluate() writes density and color.
