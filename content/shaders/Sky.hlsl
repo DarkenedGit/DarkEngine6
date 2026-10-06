@@ -74,7 +74,12 @@ PSInput VSMainDeferred(uint id : SV_VertexID)
     return VSCommon(id, 0.0f);
 }
 
+#ifndef SKY_CLOUDS_MODE
+#define SKY_CLOUDS_MODE 2
+#endif
+
 #include "SkyEval.hlsli"
+#include "CloudLayer.hlsli"
 
 float4 PSMain(PSInput input) : SV_TARGET
 {

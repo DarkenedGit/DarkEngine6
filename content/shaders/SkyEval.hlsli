@@ -73,7 +73,7 @@ float3 EvaluateSky(float3 v)
     if (v.y < 0.0f)
     {
         float t = saturate(-v.y);
-        return lerp(hor, hor * 0.35f, t);
+        return lerp(hor, hor * 0.35f, t) * exposure;
     }
 
     float h = pow(1.0f - saturate(v.y), 0.45f);
@@ -86,7 +86,6 @@ float3 EvaluateSky(float3 v)
     float horizonAmt = 1.0f - saturate(max(sunElevation, 0.0f) / 0.28f);
     horizonAmt = horizonAmt * horizonAmt * (3.0f - 2.0f * horizonAmt);
 
-    // Tight corona (real sun is ~0.5°). High g + tiny scale = small glow, not a hemisphere.
     float mieS = MiePhase(cosS, 0.86f);
     float mieM = MiePhase(cosM, 0.80f);
     float ray  = RayleighPhase(cosS);
@@ -94,17 +93,6 @@ float3 EvaluateSky(float3 v)
     base += sunColor * (0.12f * ray + 0.35f * mieS) * sunVis;
     base += moonColor * (1.2f * mieM * moonVis);
 
-    // Limb-darkened disc. Radius grows near the horizon (keep in sync with Environment::sunAngularRadius).
-    float radius = lerp(0.0046f, 0.0150f, horizonAmt);
-    float ang    = acos(saturate(cosS));
-    float r      = ang / max(radius, 1e-5f);
-    float edge   = 1.0f - smoothstep(0.88f, 1.06f, r);
-    float mu     = sqrt(saturate(1.0f - r * r)); // 1 at center, 0 at limb
-    float limb   = 0.22f + 0.78f * mu;
-    float3 discCol = lerp(float3(1.00f, 0.72f, 0.32f), float3(1.00f, 0.97f, 0.90f), mu);
-    base += discCol * (2.8f * limb * edge * sunVis);
-
-    // Horizon sunset glow band: gaussian in elevation, stronger toward the sun.
     float duskAmt = saturate((0.34f - sunElevation) / 0.38f) * (1.0f - 0.72f * coverage);
     if (duskAmt > 1e-3f)
     {
@@ -131,16 +119,31 @@ float3 EvaluateSky(float3 v)
     overcast = lerp(overcast, float3(0.18f, 0.20f, 0.22f), rain * 0.45f);
     base = lerp(base, overcast, coverage);
 
-    // Soft cloud plane in view-space XZ / Y.
+    float3 skyNoDisc = base;
+
+    float radius = lerp(0.0046f, 0.0150f, horizonAmt);
+    float ang    = acos(saturate(cosS));
+    float r      = ang / max(radius, 1e-5f);
+    float edge   = 1.0f - smoothstep(0.88f, 1.06f, r);
+    float mu     = sqrt(saturate(1.0f - r * r));
+    float limb   = 0.22f + 0.78f * mu;
+    float3 discCol = lerp(float3(1.00f, 0.72f, 0.32f), float3(1.00f, 0.97f, 0.90f), mu);
+    base += discCol * (2.8f * limb * edge * sunVis);
+
+#if SKY_CLOUDS_MODE == 2
+    float4 cl = EvaluateCloudLayer(v, skyNoDisc);
+    base = base * cl.a + cl.rgb;
+#elif SKY_CLOUDS_MODE == 1
     float2 cloudUv = v.xz / max(v.y, 0.08f);
     cloudUv += windDir * cloudTime * windSpeed;
     float n = Fbm(cloudUv * 1.6f);
     float thresh = 1.0f - coverage * 0.85f;
     float cloud = saturate((n - thresh) * (2.4f + 3.0f * coverage));
-    cloud *= saturate(v.y * 3.0f); // no clouds on the horizon line
+    cloud *= saturate(v.y * 3.0f);
     float3 cloudCol = lerp(float3(0.75f, 0.78f, 0.82f), sunColor, 0.25f * sunVis);
     cloudCol = lerp(cloudCol, float3(0.16f, 0.17f, 0.19f), rain);
     base = lerp(base, cloudCol, cloud * saturate(coverage * 1.2f));
+#endif
 
     return max(base, 0.0f) * exposure;
 }

@@ -34,6 +34,10 @@ cbuffer SkyEvalParams : register(b1)
     float  cloudTime; float3 _skyPad;
 };
 
+#ifndef SKY_CLOUDS_MODE
+#define SKY_CLOUDS_MODE 1
+#endif
+
 #include "SkyEval.hlsli"
 
 // PSTrace: t0 depth, t1 attrib, t2 sceneColor
