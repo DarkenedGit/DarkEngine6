@@ -1,15 +1,166 @@
-# Cloud volumes
+# Cloud system
 
 | Field | Value |
 |-------|-------|
 | **Status** | Implemented |
-| **Date** | 2026-09-29 |
-| **Area** | `Sky/CloudVolume.*`, `Render/CloudVolumePipeline.*`, `Render/CloudVolumeGpuList.*`, `content/shaders/CloudVolume.hlsl`, Sandbox dev tools |
+| **Date** | 2026-10-06 (updated: lightweight cloud layer) |
+| **Area** | **New:** `Sky/Environment.*` (CloudLayerDesc), `Render/SkyPipeline.*`, `content/shaders/CloudLayer.hlsli`, Editor Sky panel. **Legacy:** `Sky/CloudVolume.*`, `Render/CloudVolumePipeline.*`, `Render/CloudVolumeGpuList.*`, `content/shaders/CloudVolume.hlsl`, Sandbox Cloud LOD panel |
 | **Audience** | Engine and Sandbox owners who already know this tree |
 
-Participating-media clouds. Each placed volume is ray-marched in one fullscreen pixel pass and composited into the HDR target. Distance LOD keeps that march on the original fixed step count for nearby chords, and spends a coarse tail on the part of a ray that runs past the detail distance.
+DarkEngine6 now has **two cloud rendering paths**:
+
+1. **Lightweight distant cloud layer (default, new in 2026-10-06):** A 2.5D curved shell evaluated inside the sky pass. One shell-ray hit, 2D noise, 3 sun taps, Beer–Lambert + dual-lobe HG + multi-scatter octaves + powder + aerial perspective. Reacts to sky color and day/night instantly. ~15 2D noise evaluations per sky pixel (or ~6 texture fetches in phase 2). **Enabled by default.**
+
+2. **Placed participating-media volumes (legacy, optional):** Each placed volume is ray-marched in one fullscreen pixel pass and composited into the HDR target. Distance LOD keeps that march on the original fixed step count for nearby chords, and spends a coarse tail on the part of a ray that runs past the detail distance. **Disabled by default;** available for close-range hero shots.
 
 ---
+
+## Lightweight distant cloud layer (default)
+
+### Overview
+
+A lit 2.5D cloud layer at altitude $h$ (default 2 km) with thickness $H$ (default 800 m), wrapped on a sphere of radius $R$ (6.36×10⁶ m). Evaluated per sky pixel inside `EvaluateSky` (`content/shaders/SkyEval.hlsli` + `CloudLayer.hlsli`). No history buffer, no separate pass, no ray march. Replaces the flat noise plane that was at the bottom of the old `EvaluateSky` with a physically curved shell.
+
+**Compositing order per sky pixel:**
+1. Base sky (gradient, Rayleigh/Mie glow, moon glow, dusk band, overcast) → `skyNoDisc`
+2. Add sun disc
+3. Composite clouds: `sky·T + inscatter` (aerial-perspective target is `skyNoDisc`)
+4. Multiply by `exposure`
+5. Apply volumetric fog (280 m stand-in)
+6. Encode to sRGB / output
+
+The clouds land **before** fog and **before** exposure, so they inherit the same post chain (bloom, TAA, tonemap) as the rest of the sky.
+
+### Technique
+
+**Shell intersection:** Stable fp32 ray/sphere formula (see brief §3.1). Camera height `y0` is clamped below the shell (`y0 < h − 1 m`) for distant-only rendering. Returns distance `t` and hit cosine `muHit`.
+
+**Density:** 2D coverage/density field `d(x,z) ∈ [0,1]` at the hit point. Coverage remap (HZD-style): `d = sat((n_base − (1−c)) / max(c, 0.05))`, then erode thin edges with detail noise. Phase 1 uses 3-octave 2D value noise (ALU, `Hash21`/`Noise2` from `SkyEval.hlsli`). Phase 2 (future) will use tileable Perlin-Worley textures (BC4, 512² base + 256² detail).
+
+**View opacity:** Beer–Lambert through the column: `τ_v = τ_max · d / max(μ_hit, 0.05)`, `T_v = exp(−τ_v)`.
+
+**Sun optical depth (2D march):** 3 taps along the sun direction projected onto the layer. Phenomenological: edges facing the sun see empty neighbors and stay bright. Low sun means longer reach and longer shadows. Returns `τ_s`.
+
+**Phase:** Dual-lobe Henyey–Greenstein (Frostbite 2016), used **relative to isotropic** (×4π) so an isotropic cloud returns `E·T`. Default: `g0 = 0.45`, `g1 = −0.16`, back weight `w = 0.32`, silver lining (optional `pow(cosθ, 8)` lobe).
+
+**Multiple scattering:** Wrenninge et al. octaves (Frostbite eqs. 19–20): `L_sun = E_light · Σ a^n exp(−b^n τ_s) · 4π p_dual(θ, c^n g)`. Keep `a ≤ b` for energy conservation.
+
+**Powder:** HZD's dark sun-facing edges, applied only when looking away from the sun: `P = lerp(1, 1 − exp(−2τ_s), k_p · (1−cosθ)/2)`.
+
+**Ambient:** Height-gradient sky light: `L_amb = k_amb · lerp(L_zenith, L_horizon, d)`.
+
+**Aerial perspective:** Haze toward the clear-sky color `skyNoDisc` in the same direction: `T_ap = exp(−t / D_haze)`, `S' = lerp(skyNoDisc, S, T_ap)`. This is what makes horizon clouds melt into the sunset band.
+
+**Final:** `L = L_sky · (1−α) + S' · α`, where `α = fade · (1 − T_v)` and `fade` is a distance fade to `t_max` (default 35 km).
+
+### Lighting and day/night
+
+Cloud light comes from `Sky::Environment`, evaluated in `evaluate()` each frame:
+
+- **Cloud-top light color (`cloudLightColor`):** DE6's own sun model at `elev + dip`, **without** the `(1 − 0.82·coverage)(1 − 0.35·rain)` dimming that applies to ground-level `sunColor`. Horizon dip: `δ ≈ sqrt(2h/R)` (for h=2 km, δ≈1.4°). Clouds keep direct (red) light for a while after the sun sets at ground level — the classic pink-after-sunset look, for free. Moon blends in at night.
+- **Cloud light direction (`cloudLightDir`):** Sun→moon blend via `smoothstep(−0.02, 0.06, elev + dip)`.
+- **Ambient (`cloudSkyTop`, `cloudSkyBottom`):** `m_skyZenith` and `m_skyHorizon`, which follow day, dusk, night, and the overcast lerp.
+
+Sunset: three things handle it with no special cases:
+1. Air-mass extinction reddens the cloud-top light.
+2. Aerial perspective pulls distant clouds toward the dusk horizon band `EvaluateSky` already draws.
+3. The forward HG lobe brightens clouds near the low sun.
+
+**Night:** `cloudLightColor` becomes moonlight along `moonDir`, so the same phase and taps give moonlit edges. Ambient drops to the night sky (zenith `(0.01, 0.02, 0.05)`).
+
+**Overcast and rain:** `coverage` (from `weather.cloudCoverage`) drives the density remap. `rain` darkens `cloudLightColor`; you could also raise `tauMax` like HZD does for rain clouds.
+
+### Animation and wind
+
+Wind offsets integrate on the CPU in real time in `Environment::tick(dt)`: `m_cloudWindBase += windDir · windSpeedMps · dt`, with detail at 1.5× speed and rotated ~±37° so the two layers slide against each other. Phase 1 (ALU noise): no wrapping needed; fp32 step at 360 km is ~0.03 m, invisible after scaling by the noise frequency. Phase 2 (textures): wrap offsets modulo the texture period, which is seamless.
+
+**Real cloud clock (fixed 2026-10-06):** `Environment::m_cloudClockSec` advances in real seconds, independent of `timeOfDay`. The old code froze clouds when `timeScale == 0` and jumped them when time was scrubbed.
+
+### Shared-include macro and bindings
+
+`SkyEval.hlsli` is shared by `Sky.hlsl`, `Water.hlsl`, and `Ssr.hlsl`. The cloud layer uses resources (`b2`, `CloudLayerConstants`) that Water and Ssr don't bind yet. To avoid breaking those shaders:
+
+- **`SKY_CLOUDS_MODE` macro:**
+  - `2` = new layer (Sky.hlsl defines this before including SkyEval)
+  - `1` = legacy flat noise plane (Water/Ssr default to this)
+- `CloudLayer.hlsli` is gated `#if SKY_CLOUDS_MODE == 2` and included by `Sky.hlsl` after `SkyEval.hlsli`.
+- `EvaluateSky` calls `EvaluateCloudLayer(v, skyNoDisc)` when mode 2, otherwise the old `Fbm` plane.
+
+**GPU constants (`b2`):**
+- `CloudLayerGpu` struct: 10 `float4` (160 B), allocated in 256-B slots from a per-frame upload ring (double-buffered, 2 frames).
+- Root parameter `kRootCloudCbv` = `3` (CBV `b2`, pixel visibility). Sky root signature now uses **4 parameters (61 of 64 DWORDs)**.
+- Filled in `SkyPipeline::draw` from `env.cloudLayer` and bound every frame.
+
+### Tuning parameters (Editor Sky panel)
+
+The **Sky** window (Editor) has a collapsing **Cloud Layer** section with all tuning knobs:
+
+| Section | Parameters |
+|---------|------------|
+| **Enable** | `enabled` (checkbox): turns the layer on/off |
+| **Geometry** | `altitude` (m), `thickness` (m), `tMax` (draw distance, km) |
+| **Density & Coverage** | `tauMax` (optical depth), `baseFreq` (1/m), `detailFreq` (1/m), `erosion` |
+| **Lighting & Scattering** | `albedo`, `g0` (forward HG), `g1` (back HG), `backWeight`, `silverLining`, `powder`, `ambientScale` |
+| **Multi-scatter** | `msA`, `msB`, `msC` (keep a ≤ b) |
+| **Sun shadow** | `kappa` (shadow strength), `rMax` (max reach, m) |
+| **Horizon & Wind** | `hazeDistance` (km), `windSpeedMps` (m/s), `windDir` (xy) |
+
+All values persist in `content/scenes/<name>.json` under `"sky"` → `cloudLayerEnabled`, `cloudAltitude`, `cloudThickness`, `cloudTauMax`, `cloudWindSpeedMps`, `cloudWindDir`. Scene load/save via `SceneFile.cpp` (`applySceneAtmosphere` / `captureSceneAtmosphere`).
+
+### Toggle between new layer and legacy CloudVolume
+
+- **New lightweight layer (default):** Enabled by `env.cloudLayer.enabled = true` (default). Controlled in Editor **Sky** panel. Renders for every sky pixel in the sky pass.
+- **Legacy CloudVolume (optional):** Placed entities with `CloudVolumeComponent`. Enabled per-entity via `desc.enabled` (Inspector) or globally via **Sandbox Dev Tools → Rendering → Cloud Volumes** checkbox (`debugState().clouds`). Renders in a separate fullscreen pass (`CloudVolumePipeline::draw`) after sky and water. **Default scene (`level.json`) has one CloudVolume entity with `enabled: false`**, so it's present but not drawn until the user enables it.
+- **Both can coexist:** lightweight layer in the sky pass, then placed volumes composited after. Typical use: lightweight for distant/horizon clouds, optional hero volume for a near/inside shot.
+
+### Cost comparison and profiling
+
+| Path | Per pixel (estimated ALU/texture) |
+|------|-----------------------------------|
+| **Lightweight layer (phase 1)** | 1 `sqrt` shell hit + 15 `Noise2` (60 `Hash21`) + ~6 `exp` + 6 `pow`, **sky pixels only** in HybridDeferred |
+| **Lightweight layer (phase 2)** | Same math with ~6 bilinear `R8` fetches instead of noise |
+| **Legacy CloudVolume, fixed path** | ≤ 760 `GradientNoise3` (≈ 6,080 `Hash33`) per volume, **full res**, every frame, no history |
+
+The sky PS already does a 16-step CSM fog march per pixel, so the cloud layer is the same order of work as what's there. **The lightweight layer replaces up to ~760 3D gradient-noise evaluations per pixel per volume (worst-case fixed path) with ~15 2D value-noise evaluations per sky pixel.**
+
+**How to profile (PIX):**
+1. Open PIX (DarkEngine6 has PIX markers enabled).
+2. Capture a GPU frame in HybridDeferred or ForwardFirst.
+3. Locate the `"Sky"` and `"Cloud Volumes"` GPU scopes.
+4. Compare: **before** (legacy CloudVolume on, layer off) vs **after** (layer on, legacy off).
+5. Test at noon, sunset, night, and overcast to see lighting variation.
+6. ForwardFirst: sky is drawn full screen before geometry, so the cloud cost applies to every pixel. HybridDeferred: sky pixels only.
+
+**IMPORTANT:** The lightweight layer has **not been tested on Windows/D3D12** as of this commit. The shader code compiles under SM 5.0 / FXC and the structure mirrors working DE6 patterns (upload buffers, root CBV, macro-gated includes), but **no Windows build or PIX capture has been run**. The ALU/texture cost estimates above are operation counts from reading the code, not measured timings. Travis should profile with PIX to get real ms numbers.
+
+### What is untested on Windows
+
+- **Everything.** This implementation was developed on Linux without access to a Windows/D3D12 build or PIX. The code:
+  - Follows DE6 patterns (no exceptions, `bool` + `DE_LOG_ERROR`, root CBV like CloudVolume, double-buffered upload like CloudVolumeGpuList).
+  - Compiles under FXC SM 5.0 (`compileShaderFromContent` in `SkyPipeline.cpp`).
+  - Uses `memcpy` and `SetGraphicsRootConstantBufferView`, which are standard D3D12.
+  - The sky is still drawn (the pass runs), so if the shader has bugs they will show (black/pink/NaN, not a silent no-op).
+- **Needs Windows verification:**
+  - Does the sky still render (clear, overcast, sunset, night)?
+  - Do clouds appear? Do they react to coverage, time of day, sun elevation?
+  - Do they animate (wind)?
+  - Do Water and Ssr still compile and render reflections correctly (they default to `SKY_CLOUDS_MODE 1`)?
+  - PIX timings for the `"Sky"` scope with clouds on/off.
+- **If it doesn't work on Windows, the most likely issues are:**
+  - HLSL compile error in `CloudLayer.hlsli` (FXC quirk).
+  - Root signature mismatch (wrong `b2` register or visibility).
+  - Upload buffer alignment (already 256-B aligned, should be fine).
+  - Macro not defined (shader sees mode 0 instead of 2/1).
+
+### Horizon, aliasing, and fade
+
+- The curved shell makes clouds sink and foreshorten toward the horizon. HZD notes the same.
+- `tMax ≈ 35 km` as a start (HZD draws its cloudscape within 35 km), with a 25% distance fade.
+- **Aliasing near the horizon:** Phase 1 (ALU noise): drop the detail octave as `t` grows (not yet implemented). Phase 2 (textures): hardware mips handle it. Ghost of Tsushima also reduces density where UV derivatives are high; add that if moiré shows up.
+
+---
+
+## Placed participating-media volumes (legacy, optional)
 
 ## Draw
 
