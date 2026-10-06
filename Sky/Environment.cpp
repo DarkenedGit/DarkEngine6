@@ -167,6 +167,20 @@ void Environment::tick(float dt)
             dayOfYear = WrapDay(dayOfYear + 1.0f);
     }
     m_cloudClockSec += dt;
+
+    if (cloudLayer.enabled)
+    {
+        const Vector2f wdirNorm = cloudLayer.windDir.Magnitude() > 1e-4f
+            ? cloudLayer.windDir * (1.0f / cloudLayer.windDir.Magnitude())
+            : Vector2f(1.0f, 0.0f);
+        const float baseSpeed   = cloudLayer.windSpeedMps;
+        const float detailSpeed = baseSpeed * 1.5f;
+        m_cloudWindBase   = m_cloudWindBase + wdirNorm * (baseSpeed * dt);
+        const Vector2f detailDir(wdirNorm.y * 0.6f - wdirNorm.x * 0.8f,
+                                  wdirNorm.x * 0.6f + wdirNorm.y * 0.8f);
+        m_cloudWindDetail = m_cloudWindDetail + detailDir * (detailSpeed * dt);
+    }
+
     evaluate();
 }
 
@@ -218,6 +232,29 @@ void Environment::evaluate()
         m_volumetricFogDensity = (0.020f + 0.018f * cover + 0.024f * rain) * (0.88f + 0.12f * (1.0f - dayF)) * Max(volumetricFogScale, 0.0f);
     }
     m_exposure = Lerp(0.55f, 1.05f, dayF) * (1.0f - 0.15f * cover);
+
+    if (cloudLayer.enabled)
+    {
+        const float dip    = sqrtf(2.0f * cloudLayer.altitude / cloudLayer.planetRadius);
+        const float elevC  = elev + dip;
+        const float dayC   = SmoothStep(-0.02f, 0.06f, elevC);
+        const float airC   = 1.0f / Max(sinf(Max(elevC, 0.0f)) + 0.15f, 0.08f);
+        const float extC   = expf(-0.09f * turb * airC);
+        const float warmC  = SmoothStep(0.35f, -0.02f, elevC);
+        const Vector3f sunTop = SaturateColor((noonSun * (1.0f - warmC) + duskSun * warmC)
+                                               * (1.35f * extC * dayC)
+                                               * (1.0f - 0.35f * rain));
+        const float moonUpC = SmoothStep(-0.05f, 0.12f, m_moonDir.y);
+        const Vector3f moonTop(0.18f, 0.22f, 0.34f);
+        const Vector3f moonTopScaled = moonTop * (0.22f * moonUpC);
+        const float wC = SmoothStep(-0.02f, 0.06f, elevC);
+        m_cloudLightDir   = m_sunDir * wC + m_moonDir * (1.0f - wC);
+        m_cloudLightDir.Normalize();
+        m_cloudLightColor = sunTop * wC + moonTopScaled * (1.0f - wC);
+
+        m_cloudSkyTop    = m_skyZenith;
+        m_cloudSkyBottom = m_skyHorizon;
+    }
 
     (void)turb;
 }
