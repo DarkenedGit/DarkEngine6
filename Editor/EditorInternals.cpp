@@ -91,6 +91,7 @@ namespace Dark::EditorDetail
         case SceneObjectType::Platform: return Vector3f(4.0f, 0.6f, 1.0f);
         case SceneObjectType::Coin:     return Vector3f(0.5f, 0.5f, 1.0f);
         case SceneObjectType::Spawn:    return Vector3f(0.8f, 1.4f, 1.0f);
+        case SceneObjectType::Stream:
         default:                        return Vector3f(1.0f, 1.0f, 1.0f);
         }
     }
@@ -251,6 +252,7 @@ namespace Dark::EditorDetail
             return NetPrefab::Platform;
         case SceneObjectType::Coin:
             return NetPrefab::Coin;
+        case SceneObjectType::Stream:
         default:
             return NetPrefab::Cube;
         }
@@ -304,6 +306,7 @@ namespace Dark::EditorDetail
         case SceneObjectType::Spawn:
             out[0] = 0.20f; out[1] = 0.80f; out[2] = 0.70f; out[3] = 1.0f;
             break;
+        case SceneObjectType::Stream:
         default:
             out[0] = 1.0f; out[1] = 1.0f; out[2] = 1.0f; out[3] = 1.0f;
             break;

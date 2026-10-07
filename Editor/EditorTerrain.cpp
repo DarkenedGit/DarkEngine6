@@ -5,12 +5,12 @@
 #include "Editor/EditorFileDialog.h"
 #include "Editor/EditorInternals.h"
 #include "Math/MathHelper.h"
+#include "Scene/SceneFile.h"
 #include "Terrain/FoliageFile.h"
 #include "Terrain/FoliageSpawn.h"
 #include "Terrain/TerrainTileFile.h"
 #include "Terrain/WorldEngineMap.h"
 #include "Water/WaterWaves.h"
-#include "Render/Profile.h"
 #include "Render/WaterPipeline.h"
 #include "Terrain/HeightMap.h"
 #include "Ui/Icons.h"
@@ -230,12 +230,15 @@ void EditorApp::removeEditorTerrain()
 
     renderer().waitForGpu();
     {
-        const float amplitudeScale = m_water.params().amplitudeScale;
-        const float speedScale     = m_water.params().speedScale;
+        const WaterParams kept = m_water.params();
         m_water = WaterWorld{};
         m_water.params() = defaultWaterParams(0.0f);
-        m_water.params().amplitudeScale = amplitudeScale;
-        m_water.params().speedScale     = speedScale;
+        m_water.params().amplitudeScale = kept.amplitudeScale;
+        m_water.params().speedScale     = kept.speedScale;
+        m_water.params().foam           = kept.foam;
+        m_water.params().flowSpeed      = kept.flowSpeed;
+        m_water.params().foamWidthScale = kept.foamWidthScale;
+        m_water.params().detailAmount   = kept.detailAmount;
     }
     m_placedWaterForce = true;
     m_terrain.clear();
@@ -272,12 +275,64 @@ void EditorApp::bindTerrainHeightSrv()
 
 bool EditorApp::rebuildEditorWater()
 {
-    const float amplitudeScale = m_water.params().amplitudeScale;
-    const float speedScale     = m_water.params().speedScale;
+    const WaterParams kept = m_water.params();
     m_water = WaterWorld{};
     m_water.params() = defaultWaterParams(m_terrainSeaLevel);
-    m_water.params().amplitudeScale = amplitudeScale;
-    m_water.params().speedScale     = speedScale;
+    m_water.params().amplitudeScale = kept.amplitudeScale;
+    m_water.params().speedScale     = kept.speedScale;
+    m_water.params().foam           = kept.foam;
+    m_water.params().flowSpeed      = kept.flowSpeed;
+    m_water.params().foamWidthScale = kept.foamWidthScale;
+    m_water.params().detailAmount   = kept.detailAmount;
+    m_placedWaterForce = true;
+    return true;
+}
+
+bool EditorApp::createEditorWaterSheet()
+{
+    if (!m_authoredWater.present || !m_haveTerrain || !m_terrain.valid() || !m_terrain.coarse().valid())
+        return false;
+
+    const AABox3f terrainBox = m_terrain.bounds();
+    const float level = m_authoredWater.hasLevel
+        ? m_authoredWater.level
+        : Lerp(terrainBox.Min.y, terrainBox.Max.y, m_authoredWater.levelFraction);
+
+    WaterParams params = m_water.params();
+    params.waterLevel = level;
+
+    WaterDesc desc;
+    desc.chunkCells = m_authoredWater.chunkCells > 0 ? m_authoredWater.chunkCells : 16;
+    desc.waterLevel = level;
+    const int lodCount = m_authoredWater.lodDistanceCount < 1
+        ? 1
+        : (m_authoredWater.lodDistanceCount > Terrain::kMaxLodLevels ? Terrain::kMaxLodLevels : m_authoredWater.lodDistanceCount);
+    desc.lodDistanceCount = lodCount;
+    for (int i = 0; i < lodCount; ++i)
+        desc.lodDistances[i] = m_authoredWater.lodDistances[i];
+    desc.params = params;
+
+    const float time = m_water.time();
+    if (!m_water.create(m_terrain.coarse(), desc))
+    {
+        DE_LOG_ERROR(LogCategory::Render, "Editor: water sheet create failed");
+        m_water = WaterWorld{};
+        m_water.params() = params;
+        m_water.setTime(time);
+        m_placedWaterForce = true;
+        return false;
+    }
+    m_water.setTime(time);
+    m_water.updateLod(m_camera.GetPosition());
+    if (!m_water.createGpu(renderer()))
+    {
+        DE_LOG_ERROR(LogCategory::Render, "Editor: water sheet GPU upload failed");
+        m_water = WaterWorld{};
+        m_water.params() = params;
+        m_water.setTime(time);
+        m_placedWaterForce = true;
+        return false;
+    }
     m_placedWaterForce = true;
     return true;
 }
@@ -287,8 +342,6 @@ void EditorApp::syncPlacedWater(bool terrainChanged)
     m_placedWaterRetire.tick();
     const bool haveTerrain = m_haveTerrain && m_terrain.valid() && m_terrain.coarse().valid();
     const Terrain::HeightMap* heightMap = haveTerrain ? &m_terrain.coarse() : nullptr;
-    const float amplitudeScale = m_water.params().amplitudeScale;
-    const float speedScale     = m_water.params().speedScale;
     const bool force = terrainChanged || m_placedWaterForce;
     m_placedWaterForce = false;
 
@@ -324,16 +377,33 @@ void EditorApp::syncPlacedWater(bool terrainChanged)
         const bool rebuild = force || !slot->body.matches(desc) || slot->body.bakedTerrain() != haveTerrain;
         if (rebuild)
         {
-            if (slot->body.gpuValid())
-                m_placedWaterRetire.push(slot->body.takeGpu());
-            WaterParams params = defaultWaterParams(desc.center.y);
-            params.amplitudeScale = amplitudeScale;
-            params.speedScale     = speedScale;
+            slot->body.retireGpu(m_placedWaterRetire);
+            WaterParams params = m_water.params();
+            params.waterLevel = desc.center.y;
             if (!slot->body.build(heightMap, desc, params) || !slot->body.upload(renderer()))
                 DE_LOG_ERROR(LogCategory::Render, "Editor: water body upload failed");
+            else
+            {
+                slot->body.updateLod(m_camera.GetPosition());
+                if (slot->body.needsRebuild())
+                {
+                    slot->body.rebuildDirtyCpuMeshes();
+                    if (!slot->body.upload(renderer()))
+                        DE_LOG_ERROR(LogCategory::Render, "Editor: water body upload failed");
+                }
+            }
         }
         else
-            slot->body.setWaveScales(amplitudeScale, speedScale);
+        {
+            slot->body.applySharedParams(m_water.params());
+            slot->body.updateLod(m_camera.GetPosition());
+            if (slot->body.needsRebuild())
+            {
+                slot->body.rebuildDirtyCpuMeshes();
+                if (!slot->body.upload(renderer()))
+                    DE_LOG_ERROR(LogCategory::Render, "Editor: water body upload failed");
+            }
+        }
     });
 
     for (size_t i = 0; i < m_placedWater.size();)
@@ -352,11 +422,123 @@ void EditorApp::syncPlacedWater(bool terrainChanged)
             ++i;
             continue;
         }
-        if (m_placedWater[i].body.gpuValid())
-            m_placedWaterRetire.push(m_placedWater[i].body.takeGpu());
+        m_placedWater[i].body.retireGpu(m_placedWaterRetire);
         if (i + 1 != m_placedWater.size())
             m_placedWater[i] = std::move(m_placedWater.back());
         m_placedWater.pop_back();
+    }
+
+    const float lakeLevel = m_water.chunksX() > 0 ? m_water.params().waterLevel : m_terrainSeaLevel;
+    std::vector<EntityID> liveStreams;
+    world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
+        if (so.type != SceneObjectType::Stream)
+            return;
+        StreamComponent* stream = world().get<StreamComponent>(e);
+        TransformComponent* xf = world().get<TransformComponent>(e);
+        if (!stream || !xf || stream->points.size() < 2)
+            return;
+        liveStreams.push_back(e.id());
+
+        if (stream->snapToPoints)
+        {
+            xf->position.x = stream->points[0].x;
+            xf->position.z = stream->points[0].y;
+            stream->snapToPoints = false;
+        }
+        else
+        {
+            const float dx = xf->position.x - stream->points[0].x;
+            const float dz = xf->position.z - stream->points[0].y;
+            if (dx * dx + dz * dz > 1.0e-6f)
+            {
+                for (Vector2f& point : stream->points)
+                {
+                    point.x += dx;
+                    point.y += dz;
+                }
+            }
+            xf->position.x = stream->points[0].x;
+            xf->position.z = stream->points[0].y;
+        }
+        if (heightMap && heightMap->valid())
+        {
+            const Vector3f normal = heightMap->normalAtWorld(stream->points[0].x, stream->points[0].y);
+            xf->position.y = heightMap->heightAtWorld(stream->points[0].x, stream->points[0].y) + normal.y * 0.45f;
+        }
+
+        EditorStreamSlot* slot = nullptr;
+        for (EditorStreamSlot& candidate : m_editorStreams)
+        {
+            if (candidate.entityId == e.id())
+            {
+                slot = &candidate;
+                break;
+            }
+        }
+        if (!slot)
+        {
+            m_editorStreams.push_back(EditorStreamSlot{});
+            slot = &m_editorStreams.back();
+            slot->entityId = e.id();
+        }
+
+        bool samePoints = slot->builtPoints.size() == stream->points.size();
+        if (samePoints)
+        {
+            for (size_t p = 0; p < stream->points.size(); ++p)
+            {
+                const float px = slot->builtPoints[p].x - stream->points[p].x;
+                const float pz = slot->builtPoints[p].y - stream->points[p].y;
+                if (px * px + pz * pz > 1.0e-6f)
+                {
+                    samePoints = false;
+                    break;
+                }
+            }
+        }
+        const bool inputsChanged = !samePoints || fabsf(slot->builtWidth - stream->width) > 1.0e-3f;
+        const bool rebuild = force || inputsChanged || (heightMap && !slot->mesh.valid());
+        if (!rebuild)
+            return;
+        m_placedWaterRetire.push(std::move(slot->mesh));
+        slot->builtWidth = stream->width;
+        slot->builtPoints = stream->points;
+        if (!heightMap)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Editor: stream has no height map");
+            return;
+        }
+        StreamDesc desc;
+        desc.width        = stream->width;
+        desc.flowSpeed    = stream->flowSpeed;
+        desc.bedClearance = 0.45f;
+        desc.pointsXZ     = stream->points;
+        MeshData cpu;
+        std::string err;
+        if (!buildStreamRibbon(*heightMap, desc, lakeLevel, cpu, &slot->bounds, &err) || !Mesh::tryCreate(renderer(), cpu, slot->mesh))
+            DE_LOG_ERROR(LogCategory::Render, "Editor: stream upload failed");
+    });
+
+    for (size_t i = 0; i < m_editorStreams.size();)
+    {
+        bool found = false;
+        for (EntityID id : liveStreams)
+        {
+            if (id == m_editorStreams[i].entityId)
+            {
+                found = true;
+                break;
+            }
+        }
+        if (found)
+        {
+            ++i;
+            continue;
+        }
+        m_placedWaterRetire.push(std::move(m_editorStreams[i].mesh));
+        if (i + 1 != m_editorStreams.size())
+            m_editorStreams[i] = std::move(m_editorStreams.back());
+        m_editorStreams.pop_back();
     }
 }
 
@@ -369,18 +551,43 @@ void EditorApp::drawPlacedWater(
     D3D12_CPU_DESCRIPTOR_HANDLE depthCpu,
     const SsrSettings* ssr)
 {
-    if (!cmd || m_placedWater.empty() || !m_scene.waterPipeline().isValid())
+    const bool sheet = m_water.wetChunkCount() > 0;
+    if (!cmd || !m_scene.waterPipeline().isValid() || (!sheet && m_placedWater.empty() && m_editorStreams.empty()))
         return;
-    const GpuScope water(cmd, "Water", ProfileColor::Water);
     const Terrain::HeightMap* heightMap = (m_haveTerrain && m_terrain.valid() && m_terrain.coarse().valid()) ? &m_terrain.coarse() : nullptr;
     uint32_t drawIndex = 0;
+    auto pastCap = [&]() {
+        if (drawIndex < WaterPipeline::kMaxWaterDrawsPerFrame)
+            return false;
+        DE_LOG_WARN(LogCategory::Render, "Editor: water draw cap {} reached", WaterPipeline::kMaxWaterDrawsPerFrame);
+        return true;
+    };
+    if (sheet)
+    {
+        m_water.draw(
+            cmd,
+            m_scene.waterPipeline(),
+            m_camera,
+            &frustum,
+            &m_env,
+            &renderer().debugState(),
+            0,
+            0,
+            nullptr,
+            renderer().frameIndex(),
+            heightHeap,
+            heightGpu,
+            &m_shadows,
+            sceneColorCpu,
+            depthCpu,
+            ssr,
+            drawIndex);
+        drawIndex = 1;
+    }
     for (const EditorWaterSlot& slot : m_placedWater)
     {
-        if (drawIndex >= WaterPipeline::kMaxWaterDrawsPerFrame)
-        {
-            DE_LOG_WARN(LogCategory::Render, "Editor: water draw cap {} reached", WaterPipeline::kMaxWaterDrawsPerFrame);
+        if (pastCap())
             break;
-        }
         if (slot.body.draw(
                 cmd,
                 m_scene.waterPipeline(),
@@ -396,7 +603,39 @@ void EditorApp::drawPlacedWater(
                 sceneColorCpu,
                 depthCpu,
                 ssr,
-                heightMap))
+                heightMap,
+                &m_env))
+            ++drawIndex;
+    }
+    for (const EditorStreamSlot& slot : m_editorStreams)
+    {
+        if (pastCap())
+            break;
+        float flowSpeed = 1.6f;
+        if (const StreamComponent* stream = world().get<StreamComponent>(Entity(slot.entityId)))
+            flowSpeed = stream->flowSpeed;
+        WaterParams params = m_water.params();
+        params.flowSpeed = flowSpeed;
+        if (drawStreamRibbon(
+                cmd,
+                m_scene.waterPipeline(),
+                slot.mesh,
+                slot.bounds,
+                params,
+                m_camera,
+                &frustum,
+                &renderer().debugState(),
+                m_water.time(),
+                renderer().frameIndex(),
+                drawIndex,
+                heightHeap,
+                heightGpu,
+                &m_shadows,
+                sceneColorCpu,
+                depthCpu,
+                ssr,
+                heightMap,
+                &m_env))
             ++drawIndex;
     }
 }
@@ -471,6 +710,17 @@ void EditorApp::syncTerrainLod()
     }
     if (m_terrainSplatDirty)
         m_terrainSplatDirty = false;
+
+    if (m_water.chunksX() > 0)
+    {
+        m_water.updateLod(m_camera.GetPosition());
+        if (m_water.needsRebuild())
+        {
+            m_water.rebuildDirtyCpuMeshes();
+            if (!m_water.uploadDirty(renderer()))
+                DE_LOG_ERROR(LogCategory::Render, "Editor: water sheet upload failed");
+        }
+    }
 }
 
 void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
@@ -1133,7 +1383,7 @@ void EditorApp::drawWaterTools()
 {
     if (!m_showWaterTools)
         return;
-    ImGui::SetNextWindowSize(ImVec2(340.0f, 160.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(340.0f, 240.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Water Waves", &m_showWaterTools))
     {
         ImGui::End();
@@ -1162,6 +1412,9 @@ void EditorApp::drawWaterTools()
     ImGui::SliderFloat("Wave speed", &wp.speedScale, 0.0f, 4.0f, "%.2fx");
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("How fast the waves travel. 1 is the authored speed. 0 holds them still.");
+    ImGui::SliderFloat("Drift", &wp.flowSpeed, 0.0f, 6.0f, "%.2f m/s");
+    ImGui::SliderFloat("Foam", &wp.foam, 0.0f, 1.0f, "%.2f");
+    ImGui::SliderFloat("Foam width", &wp.foamWidthScale, 0.5f, 2.0f, "%.2f");
     if (ImGui::Button("Reset waves"))
     {
         wp.amplitudeScale = 1.0f;
@@ -1206,7 +1459,24 @@ bool EditorApp::loadWorldEngineTerrain(const std::filesystem::path& directory, f
         removeEditorTerrain();
         return false;
     }
+    const WaterParams session = m_water.params();
     rebuildEditorWater();
+    if (m_authoredWater.present)
+    {
+        const AABox3f terrainBox = m_terrain.bounds();
+        const float level = m_authoredWater.hasLevel
+            ? m_authoredWater.level
+            : Lerp(terrainBox.Min.y, terrainBox.Max.y, m_authoredWater.levelFraction);
+        WaterParams params = sceneWaterParams(m_authoredWater, level);
+        params.amplitudeScale = session.amplitudeScale;
+        params.speedScale     = session.speedScale;
+        params.foam           = session.foam;
+        params.flowSpeed      = session.flowSpeed;
+        params.foamWidthScale = session.foamWidthScale;
+        params.detailAmount   = session.detailAmount;
+        m_water.params() = params;
+        createEditorWaterSheet();
+    }
     startFoliageSpawn();
     DE_LOG_INFO(LogCategory::Render, "Editor: loaded World Engine terrain '{}'", m_terrainSource);
     return true;

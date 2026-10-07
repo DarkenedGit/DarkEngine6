@@ -246,6 +246,13 @@ void EditorApp::drawEditorUi()
                 }
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Places a lake. Position Y is the surface. Width and depth are the footprint. Add several at different heights.");
+                if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  Stream", nullptr, false, createOk))
+                {
+                    m_placeType          = SceneObjectType::Stream;
+                    m_queuePlaceAtCursor = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Places a stream ribbon. Follow downhill in the inspector to run it to the lake.");
                 if (ImGui::MenuItem(ICON_FA_CLOUD "  Cloud Volume", nullptr, false, createOk))
                 {
                     m_placeType          = SceneObjectType::CloudVolume;
@@ -831,11 +838,38 @@ void EditorApp::drawInspector3D()
         ImGui::TextUnformatted("Water body");
         float width = xf->scale.x;
         float depth = xf->scale.z;
-        if (ImGui::DragFloat("Width (m)", &width, 0.5f, 4.0f, 512.0f, "%.1f"))
+        if (ImGui::DragFloat("Width (m)", &width, 0.5f, 4.0f, 1024.0f, "%.1f"))
             xf->scale.x = Max(4.0f, width);
-        if (ImGui::DragFloat("Depth (m)", &depth, 0.5f, 4.0f, 512.0f, "%.1f"))
+        if (ImGui::DragFloat("Depth (m)", &depth, 0.5f, 4.0f, 1024.0f, "%.1f"))
             xf->scale.z = Max(4.0f, depth);
         ImGui::TextDisabled("Y is this lake's surface. Each water object is its own body.");
+    }
+    else if (so->type == SceneObjectType::Stream)
+    {
+        ImGui::Separator();
+        ImGui::TextUnformatted("Stream");
+        if (StreamComponent* stream = world().get<StreamComponent>(m_selected))
+        {
+            float width = stream->width;
+            if (ImGui::DragFloat("Width (m)", &width, 0.1f, 1.5f, 12.0f, "%.1f"))
+                stream->width = Clamp(width, 1.5f, 12.0f);
+            ImGui::SliderFloat("Flow", &stream->flowSpeed, 0.0f, 6.0f, "%.2f m/s");
+            if (ImGui::Button("Follow downhill") && !stream->points.empty() && m_haveTerrain && m_terrain.coarse().valid())
+            {
+                const float lake = m_water.chunksX() > 0 ? m_water.params().waterLevel : m_terrainSeaLevel;
+                std::vector<Vector2f> walked;
+                std::string reason;
+                if (followDownhill(m_terrain.coarse(), stream->points.front(), lake, walked, &reason))
+                {
+                    stream->points = std::move(walked);
+                    stream->snapToPoints = true;
+                }
+                stream->stopReason = reason;
+            }
+            if (!stream->stopReason.empty())
+                ImGui::TextDisabled("%s", stream->stopReason.c_str());
+            ImGui::TextDisabled("%d points", static_cast<int>(stream->points.size()));
+        }
     }
     else if (so->type == SceneObjectType::CloudVolume)
     {

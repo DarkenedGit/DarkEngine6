@@ -206,6 +206,7 @@ namespace
             case SceneObjectType::Sphere: return "sphere";
             case SceneObjectType::Player: return "player";
             case SceneObjectType::Wolf:   return "wolf";
+            case SceneObjectType::Stream: break;
             default: break;
             }
         }

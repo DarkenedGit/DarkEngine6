@@ -98,6 +98,7 @@ const char* iconForType(SceneObjectType type)
         return ICON_FA_BUG;
     case SceneObjectType::Platform:
     case SceneObjectType::Water:
+    case SceneObjectType::Stream:
         return ICON_FA_LAYER_GROUP;
     case SceneObjectType::CloudVolume:
         return ICON_FA_CLOUD;
@@ -373,6 +374,7 @@ void EditorApp::drawAssetBrowser()
             drawPrimitive(SceneObjectType::Hunter, "Hunter");
             drawPrimitive(SceneObjectType::Wolf, "Wolf");
             drawPrimitive(SceneObjectType::Water, "Water");
+            drawPrimitive(SceneObjectType::Stream, "Stream");
             drawPrimitive(SceneObjectType::CloudVolume, "Cloud Volume");
         }
     }

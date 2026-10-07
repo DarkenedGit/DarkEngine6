@@ -2,7 +2,6 @@
 #include "Render/WaterPipeline.h"
 #include "Render/Camera3D.h"
 #include "Render/Frustum3f.h"
-#include "Render/Profile.h"
 #include "Render/Renderer.h"
 #include "Render/Fog.h"
 #include "Render/ShadowSystem.h"
@@ -266,10 +265,12 @@ using namespace Terrain;
 
                 mesh.positions.push_back(Vector3f(wx, waterY, wz));
                 mesh.normals.push_back(Vector3f(0.0f, 1.0f, 0.0f));
-                // uv.x unused by lighting; uv.y carries terrain height for shore fade.
+                // uv.x is 1 so the sheet does not rectangle-fade. uv.y is the bed.
                 mesh.uvs.push_back(Vector2f(1.0f, terrainY));
             }
         }
+        // Explicit zero. computeTangents would leave w = 1 and the sheet would shade as a stream.
+        mesh.tangents.assign(mesh.positions.size(), Vector4f(0.0f, 0.0f, 0.0f, 0.0f));
 
         if (!buildGridIndices(cells, c.edges, mesh))
             return false;
@@ -332,14 +333,16 @@ using namespace Terrain;
         const ShadowSystem* shadows,
         D3D12_CPU_DESCRIPTOR_HANDLE sceneColorCpu,
         D3D12_CPU_DESCRIPTOR_HANDLE depthCpu,
-        const SsrSettings* ssrSettings) const
+        const SsrSettings* ssrSettings,
+        uint32_t drawIndex) const
     {
         m_lastDrawCalls = 0;
         m_lastTriangles = 0;
         if (!cmd || !pipeline.isValid())
             return;
+        if (drawIndex >= WaterPipeline::kMaxWaterDrawsPerFrame)
+            return;
 
-        const GpuScope water(cmd, "Water", ProfileColor::Water);
         const DebugFill fill = debug ? debug->fill : DebugFill::Solid;
         const bool lighting  = !debug || debug->lightingActive();
         pipeline.bind(cmd, fill);
@@ -367,7 +370,7 @@ using namespace Terrain;
         cb.heightWorldSizeZ = fogMap.heightWorldSizeZ;
         const bool hasSsr = sceneColorCpu.ptr != 0 && depthCpu.ptr != 0;
         WaterPipeline::fillSsr(cb, camera, ssrSettings, !debug || debug->ssrEnabled, hasSsr, env);
-        pipeline.setConstants(cmd, cb, frameIndex);
+        pipeline.setConstants(cmd, cb, frameIndex, drawIndex);
         pipeline.setLights(cmd, lightsVa);
         pipeline.setSsrSrvs(sceneColorCpu, depthCpu);
         if (pipeline.hasReceiverSrvs())
@@ -397,6 +400,7 @@ using namespace Terrain;
 
     bool WaterWorld::tryHeightAtWorld(float x, float z, float& outY) const
     {
+        // Chop-free on purpose. Walkability and swimming use the still swell, not the bank chop.
         if (!m_heightMap || !m_heightMap->containsXZ(x, z))
             return false;
         const float land = m_heightMap->heightAtWorld(x, z);

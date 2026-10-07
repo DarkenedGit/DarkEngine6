@@ -1,6 +1,7 @@
 #include "SandboxApp.h"
 
 #include "ECS/Components.h"
+#include "Water/WaterStream.h"
 
 #include <format>
 #include <memory>
@@ -3292,6 +3293,32 @@ void SandboxApp::onInit()
         if (!pumpBootFrame())
             return;
         DE_LOG_INFO("SandboxApp: water level {:.2f}, {} wet chunks", waterLevel, m_water.wetChunkCount());
+
+        // Streams are visual only. cellWet and swimming a creek stay on the still lake.
+        for (const SceneObjectData& o : sceneData.objects)
+        {
+            if (o.type != SceneObjectType::Stream || !o.hasStream)
+                continue;
+            if (m_streams.size() >= 16)
+                break;
+            StreamDesc desc;
+            desc.width        = o.streamWidth;
+            desc.flowSpeed    = o.streamFlowSpeed;
+            desc.bedClearance = 0.45f;
+            desc.pointsXZ     = o.streamPoints;
+            MeshData cpu;
+            SandboxStream slot;
+            std::string err;
+            if (!buildStreamRibbon(m_terrain.coarse(), desc, waterLevel, cpu, &slot.bounds, &err))
+                continue;
+            if (!Mesh::tryCreate(renderer(), cpu, slot.mesh))
+            {
+                DE_LOG_ERROR(LogCategory::Render, "SandboxApp: stream upload failed");
+                continue;
+            }
+            slot.flowSpeed = o.streamFlowSpeed;
+            m_streams.push_back(std::move(slot));
+        }
     }
 
     MeshData cubeData;
@@ -3993,23 +4020,65 @@ void SandboxApp::onRender()
         waterDepth      = renderer().depthSrvCpu();
         waterSsr        = &m_ssr;
     }
-    m_water.draw(
-        cmd,
-        m_waterPipeline,
-        m_viewCamera,
-        &frustum,
-        &m_env,
-        &renderer().debugState(),
-        waterLightsVa,
-        waterLightCount,
-        waterIndex,
-        renderer().frameIndex(),
-        heightHeap,
-        heightGpu,
-        &m_shadows,
-        waterSceneColor,
-        waterDepth,
-        waterSsr);
+    const bool waterSheet = m_water.wetChunkCount() > 0;
+    if (waterSheet || !m_streams.empty())
+    {
+        const GpuScope waterScope(cmd, "Water", ProfileColor::Water);
+        uint32_t drawIndex = 0;
+        if (waterSheet)
+        {
+            m_water.draw(
+                cmd,
+                m_waterPipeline,
+                m_viewCamera,
+                &frustum,
+                &m_env,
+                &renderer().debugState(),
+                waterLightsVa,
+                waterLightCount,
+                waterIndex,
+                renderer().frameIndex(),
+                heightHeap,
+                heightGpu,
+                &m_shadows,
+                waterSceneColor,
+                waterDepth,
+                waterSsr,
+                drawIndex);
+            drawIndex = 1;
+        }
+        for (const SandboxStream& stream : m_streams)
+        {
+            if (drawIndex >= WaterPipeline::kMaxWaterDrawsPerFrame)
+            {
+                DE_LOG_WARN(LogCategory::Render, "SandboxApp: water draw cap {} reached", WaterPipeline::kMaxWaterDrawsPerFrame);
+                break;
+            }
+            WaterParams streamParams = m_water.params();
+            streamParams.flowSpeed = stream.flowSpeed;
+            if (drawStreamRibbon(
+                    cmd,
+                    m_waterPipeline,
+                    stream.mesh,
+                    stream.bounds,
+                    streamParams,
+                    m_viewCamera,
+                    &frustum,
+                    &renderer().debugState(),
+                    m_water.time(),
+                    renderer().frameIndex(),
+                    drawIndex,
+                    heightHeap,
+                    heightGpu,
+                    &m_shadows,
+                    waterSceneColor,
+                    waterDepth,
+                    waterSsr,
+                    &m_terrain.coarse(),
+                    &m_env))
+                ++drawIndex;
+        }
+    }
 
     if (renderer().hasGBuffer())
     {

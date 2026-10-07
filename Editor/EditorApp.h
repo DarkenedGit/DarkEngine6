@@ -43,6 +43,7 @@
 #include "Sky/Environment.h"
 #include "Water/Water.h"
 #include "Water/WaterBody.h"
+#include "Water/WaterStream.h"
 #include "Weapons/Weapon.h"
 #include "Physics/PhysicsComponent.h"
 #include "Physics/PhysicsSurface.h"
@@ -244,6 +245,7 @@ private:
     bool saveTerrainSidecars(const std::filesystem::path& scenePath) const;
     bool applyEditorGridGpu();
     bool rebuildEditorWater();
+    bool createEditorWaterSheet();
     void syncPlacedWater(bool terrainChanged);
     void drawPlacedWater(
         ID3D12GraphicsCommandList* cmd,
@@ -387,6 +389,15 @@ private:
         WaterBody body;
     };
     std::vector<EditorWaterSlot>  m_placedWater;
+    struct EditorStreamSlot
+    {
+        EntityID                entityId = 0;
+        Mesh                    mesh;
+        float                   builtWidth = 0.0f;
+        std::vector<Math::Vector2f> builtPoints;
+        Math::AABox3f           bounds;
+    };
+    std::vector<EditorStreamSlot> m_editorStreams;
     GpuMeshRetire                 m_placedWaterRetire;
     bool                          m_placedWaterForce = false;
     TerrainMaterial               m_terrainMaterial;

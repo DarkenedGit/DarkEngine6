@@ -92,6 +92,10 @@ TEST(SceneTypes, Parse2DAnd3D)
     EXPECT_TRUE(isScene3DType(SceneObjectType::Water));
     EXPECT_FALSE(isScene2DType(SceneObjectType::Water));
     EXPECT_STREQ(toString(SceneObjectType::Water), "water");
+    EXPECT_TRUE(tryParseSceneObjectType("stream", t));
+    EXPECT_EQ(t, SceneObjectType::Stream);
+    EXPECT_TRUE(isScene3DType(SceneObjectType::Stream));
+    EXPECT_STREQ(toString(SceneObjectType::Stream), "stream");
     EXPECT_TRUE(tryParseSceneObjectType("cloud_volume", t));
     EXPECT_EQ(t, SceneObjectType::CloudVolume);
     EXPECT_TRUE(tryParseSceneObjectType("cloud", t));
@@ -1333,6 +1337,57 @@ TEST(SceneFile, CastShadowMissingKeyStaysFalse)
     ASSERT_EQ(data.objects.size(), 1u);
     EXPECT_TRUE(data.objects[0].hasLight);
     EXPECT_FALSE(data.objects[0].lightCastShadow);
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+TEST(SceneFile, StreamRoundTrip)
+{
+    SceneFileData in{};
+    in.version = 3;
+    in.mode = SceneMode::Scene3D;
+    in.name = "streams";
+    SceneObjectData stream;
+    stream.type = SceneObjectType::Stream;
+    stream.hasStream = true;
+    stream.position = Vector3f(9.0f, 8.0f, 7.0f);
+    stream.streamWidth = 4.0f;
+    stream.streamFlowSpeed = 2.0f;
+    stream.streamPoints.push_back(Vector2f(1.0f, 2.0f));
+    stream.streamPoints.push_back(Vector2f(3.0f, 4.0f));
+    stream.streamPoints.push_back(Vector2f(5.0f, 6.0f));
+    in.objects.push_back(stream);
+
+    const auto path = tempScenePath("darkengine6_scene_stream_ut.json");
+    std::string err;
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+
+    SceneFileData out{};
+    ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
+    ASSERT_EQ(out.objects.size(), 1u);
+    EXPECT_EQ(out.objects[0].type, SceneObjectType::Stream);
+    EXPECT_TRUE(out.objects[0].hasStream);
+    EXPECT_NEAR(out.objects[0].streamWidth, 4.0f, 1.0e-4f);
+    EXPECT_NEAR(out.objects[0].streamFlowSpeed, 2.0f, 1.0e-4f);
+    ASSERT_EQ(out.objects[0].streamPoints.size(), 3u);
+    EXPECT_NEAR(out.objects[0].streamPoints[2].x, 5.0f, 1.0e-4f);
+    EXPECT_NEAR(out.objects[0].position.x, 1.0f, 1.0e-4f);
+    EXPECT_NEAR(out.objects[0].position.y, 8.0f, 1.0e-4f);
+    EXPECT_NEAR(out.objects[0].position.z, 2.0f, 1.0e-4f);
+
+    in.water.present = true;
+    in.water.foam = 0.4f;
+    in.water.flowSpeed = 1.2f;
+    in.water.foamWidthScale = 1.5f;
+    in.water.detail = 0.25f;
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+    SceneFileData waterOut{};
+    ASSERT_TRUE(loadSceneFromJson(path, waterOut, &err)) << err;
+    EXPECT_NEAR(waterOut.water.foam, 0.4f, 1.0e-4f);
+    EXPECT_NEAR(waterOut.water.flowSpeed, 1.2f, 1.0e-4f);
+    EXPECT_NEAR(waterOut.water.foamWidthScale, 1.5f, 1.0e-4f);
+    EXPECT_NEAR(waterOut.water.detail, 0.25f, 1.0e-4f);
 
     std::error_code ec;
     std::filesystem::remove(path, ec);

@@ -1,4 +1,5 @@
 #pragma once
+#include <vector>
 #include <wrl/client.h>
 #include "Core/Application.h"
 #include "Animation/AnimNotify.h"
@@ -216,6 +217,13 @@ private:
     bool                      m_haveTerrainSea  = false;
     Dark::TerrainMaterial       m_terrainMaterial;
     Dark::WaterWorld            m_water;
+    struct SandboxStream
+    {
+        Dark::Mesh            mesh;
+        float                 flowSpeed = 1.6f;
+        Dark::Math::AABox3f   bounds;
+    };
+    std::vector<SandboxStream> m_streams;
 
     Dark::AssetID m_cubeModelId    = Dark::NULL_ASSET;
     Dark::AssetID m_packModelId    = Dark::NULL_ASSET;

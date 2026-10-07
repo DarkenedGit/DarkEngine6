@@ -461,6 +461,7 @@ void EditorApp::onShutdown()
     renderer().waitForGpu();
     m_foliagePipeline.destroy();
     m_placedWater.clear();
+    m_editorStreams.clear();
     m_placedWaterRetire.clear();
     m_water = WaterWorld{};
     m_terrain.clear();

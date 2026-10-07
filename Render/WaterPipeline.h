@@ -68,6 +68,10 @@ struct WaterFrameConstants
     float    ssrPad0;
     float    ssrPad1;
     SkyEvalParams skyEval;
+    float    foamAmount;
+    float    foamWidthScale;
+    float    flowSpeed;
+    float    detailAmount;
 };
 
 static_assert(offsetof(WaterFrameConstants, lightCount) == 64 * sizeof(float), "lightCount follows the old 64-float block");
@@ -76,6 +80,10 @@ static_assert(offsetof(WaterFrameConstants, fogColor) == 64 * sizeof(float) + si
 static_assert(offsetof(WaterFrameConstants, invViewProj) == 96 * sizeof(float), "invViewProj is 16-byte aligned after padFog");
 static_assert(offsetof(WaterFrameConstants, ssrEnabled) == 129 * sizeof(float), "ssrEnabled follows nearZ");
 static_assert(offsetof(WaterFrameConstants, skyEval) == 136 * sizeof(float), "SkyEvalParams follows the SSR camera block");
+static_assert(offsetof(WaterFrameConstants, foamAmount) == 180 * sizeof(float), "foamAmount follows SkyEvalParams");
+static_assert(offsetof(WaterFrameConstants, foamWidthScale) == 181 * sizeof(float), "foamWidthScale follows foamAmount");
+static_assert(offsetof(WaterFrameConstants, flowSpeed) == 182 * sizeof(float), "flowSpeed follows foamWidthScale");
+static_assert(offsetof(WaterFrameConstants, detailAmount) == 183 * sizeof(float), "detailAmount follows flowSpeed");
 static_assert(((sizeof(WaterFrameConstants) + 255u) & ~255u) == 768u, "water CBV aligned size is 768");
 
 class WaterPipeline
@@ -96,7 +104,7 @@ public:
 
     bool create(ID3D12Device* device, DXGI_FORMAT colorFormat = DXGI_FORMAT_R8G8B8A8_UNORM);
 
-    void bind(ID3D12GraphicsCommandList* cmd, DebugFill fill = DebugFill::Solid) const;
+    void bind(ID3D12GraphicsCommandList* cmd, DebugFill fill = DebugFill::Solid, bool stream = false) const;
     void setConstants(ID3D12GraphicsCommandList* cmd, const WaterFrameConstants& constants, uint32_t frameIndex, uint32_t drawIndex = 0);
     void setLights(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS lightsVa) const;
     void setHeightMap(ID3D12GraphicsCommandList* cmd, ID3D12DescriptorHeap* heap, D3D12_GPU_DESCRIPTOR_HANDLE gpu) const;
@@ -110,7 +118,8 @@ public:
 
     bool isValid() const
     {
-        return m_psoSolid != nullptr && m_psoWire != nullptr && m_psoPoint != nullptr && m_cbUpload != nullptr && m_cbMapped != nullptr;
+        return m_psoSolid != nullptr && m_psoWire != nullptr && m_psoPoint != nullptr && m_psoStreamSolid != nullptr && m_psoStreamWire != nullptr
+            && m_psoStreamPoint != nullptr && m_cbUpload != nullptr && m_cbMapped != nullptr;
     }
 
     static void fillConstants(
@@ -140,6 +149,9 @@ private:
     ComPtr<ID3D12PipelineState>  m_psoSolid;
     ComPtr<ID3D12PipelineState>  m_psoWire;
     ComPtr<ID3D12PipelineState>  m_psoPoint;
+    ComPtr<ID3D12PipelineState>  m_psoStreamSolid;
+    ComPtr<ID3D12PipelineState>  m_psoStreamWire;
+    ComPtr<ID3D12PipelineState>  m_psoStreamPoint;
     ComPtr<ID3D12Resource>       m_cbUpload;
     ComPtr<ID3D12Resource>       m_dummyLights;
     ComPtr<ID3D12DescriptorHeap> m_srvHeap;

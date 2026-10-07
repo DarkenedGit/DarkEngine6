@@ -540,7 +540,12 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                 waterDepth      = renderer().depthSrvCpu();
                 waterSsr        = &m_ssr;
             }
-            drawPlacedWater(cmd, waterFrustum, heightHeap, heightGpu, waterSceneColor, waterDepth, waterSsr);
+            const bool anyWater = m_water.wetChunkCount() > 0 || !m_placedWater.empty() || !m_editorStreams.empty();
+            if (anyWater)
+            {
+                const GpuScope water(cmd, "Water", ProfileColor::Water);
+                drawPlacedWater(cmd, waterFrustum, heightHeap, heightGpu, waterSceneColor, waterDepth, waterSsr);
+            }
         }
         {
             CloudVolumeFrame cf{};

@@ -177,6 +177,11 @@ json waterToJson(const WaterSceneDesc& water)
     w["steepness"]      = water.steepness;
     w["amplitudeScale"] = water.amplitudeScale;
     w["speedScale"]     = water.speedScale;
+    w["flowSpeed"]      = water.flowSpeed;
+    w["foam"]           = water.foam;
+    w["foamWidthScale"] = water.foamWidthScale;
+    if (std::fabs(water.detail - 1.0f) > 1.0e-4f)
+        w["detail"] = water.detail;
     json lod = json::array();
     const int lodCount = water.lodDistanceCount < 1 ? 1 : (water.lodDistanceCount > 8 ? 8 : water.lodDistanceCount);
     for (int i = 0; i < lodCount; ++i)
@@ -399,6 +404,17 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             cloud["windDir"]         = json::array({ o.cloudWindDir[0], o.cloudWindDir[1], o.cloudWindDir[2] });
             cloud["enabled"]         = o.cloudEnabled;
             jo["cloud"]              = std::move(cloud);
+        }
+        if (o.hasStream || o.type == SceneObjectType::Stream)
+        {
+            json stream;
+            stream["width"]     = o.streamWidth;
+            stream["flowSpeed"] = o.streamFlowSpeed;
+            json points = json::array();
+            for (const Math::Vector2f& p : o.streamPoints)
+                points.push_back(json::array({ p.x, p.y }));
+            stream["points"] = std::move(points);
+            jo["stream"]     = std::move(stream);
         }
 
         if (o.emissive != 0.0f)
@@ -636,6 +652,10 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             water.steepness      = w.value("steepness", 0.55f);
             water.amplitudeScale = w.value("amplitudeScale", 1.0f);
             water.speedScale     = w.value("speedScale", 1.0f);
+            water.flowSpeed      = w.value("flowSpeed", 0.4f);
+            water.foam           = w.value("foam", 1.0f);
+            water.foamWidthScale = Math::Clamp(w.value("foamWidthScale", 1.0f), 0.5f, 2.0f);
+            water.detail         = Math::Clamp(w.value("detail", 1.0f), 0.0f, 1.0f);
             if (w.contains("flowDir") && w["flowDir"].is_array() && w["flowDir"].size() >= 2)
             {
                 water.flowDir[0] = w["flowDir"][0].get<float>();
@@ -709,6 +729,8 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
         return false;
     }
 
+    int streamCount = 0;
+    bool streamCapWarned = false;
     for (const json& jo : root["objects"])
     {
         if (!jo.is_object())
@@ -882,6 +904,59 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             o.hasCloud = true;
         }
 
+        if (o.type == SceneObjectType::Stream)
+        {
+            if (streamCount >= 16)
+            {
+                if (!streamCapWarned)
+                {
+                    DE_LOG_WARN(LogCategory::Render, "SceneFile: more than 16 streams; extra streams skipped");
+                    streamCapWarned = true;
+                }
+                continue;
+            }
+            if (!jo.contains("stream") || !jo["stream"].is_object())
+            {
+                DE_LOG_ERROR(LogCategory::Render, "SceneFile: stream missing stream block — skipped");
+                continue;
+            }
+            const json& stream = jo["stream"];
+            if (!stream.contains("points") || !stream["points"].is_array())
+            {
+                DE_LOG_ERROR(LogCategory::Render, "SceneFile: stream missing points — skipped");
+                continue;
+            }
+            const json& pts = stream["points"];
+            if (pts.size() < 2 || pts.size() > 256)
+            {
+                DE_LOG_ERROR(LogCategory::Render, "SceneFile: stream point count {} is out of range — skipped", pts.size());
+                continue;
+            }
+            bool pointsOk = true;
+            o.streamPoints.clear();
+            o.streamPoints.reserve(pts.size());
+            for (const json& p : pts)
+            {
+                if (!p.is_array() || p.size() < 2 || !p[0].is_number() || !p[1].is_number())
+                {
+                    pointsOk = false;
+                    break;
+                }
+                o.streamPoints.emplace_back(p[0].get<float>(), p[1].get<float>());
+            }
+            if (!pointsOk || o.streamPoints.size() < 2)
+            {
+                DE_LOG_ERROR(LogCategory::Render, "SceneFile: stream points are not [x,z] pairs — skipped");
+                continue;
+            }
+            o.hasStream        = true;
+            o.streamWidth      = Math::Clamp(stream.value("width", 3.5f), 1.5f, 12.0f);
+            o.streamFlowSpeed  = stream.value("flowSpeed", 1.6f);
+            o.position.x       = o.streamPoints.front().x;
+            o.position.z       = o.streamPoints.front().y;
+            ++streamCount;
+        }
+
         if (o.scale.x == 0.0f)
             o.scale.x = 1.0f;
         if (o.scale.y == 0.0f)
@@ -1040,6 +1115,10 @@ WaterParams sceneWaterParams(const WaterSceneDesc& water, float waterLevel)
     params.steepness      = water.steepness;
     params.amplitudeScale = water.amplitudeScale;
     params.speedScale     = water.speedScale;
+    params.flowSpeed      = water.flowSpeed;
+    params.foam           = water.foam;
+    params.foamWidthScale = water.foamWidthScale;
+    params.detailAmount   = water.detail;
     const int n = water.waveCount > 4 ? 4 : water.waveCount;
     for (int i = 0; i < n; ++i)
     {
@@ -1047,6 +1126,19 @@ WaterParams sceneWaterParams(const WaterSceneDesc& water, float waterLevel)
         params.waves[i].frequency     = water.waves[i].frequency;
         params.waves[i].amplitude     = water.waves[i].amplitude;
         params.waves[i].speed         = water.waves[i].speed;
+    }
+    // The old 28/14/7/3.5 m octave set is replaced in memory. Level, flow, and scales stay.
+    if (n > 0 && isLegacyHarmonicPreset(params))
+    {
+        const WaterParams fresh = defaultWaterParams(waterLevel);
+        for (int i = 0; i < kWaterWaveCount; ++i)
+            params.waves[i] = fresh.waves[i];
+        static bool logged = false;
+        if (!logged)
+        {
+            logged = true;
+            DE_LOG_INFO(LogCategory::Render, "Water: legacy harmonic preset replaced");
+        }
     }
     return params;
 }

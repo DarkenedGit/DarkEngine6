@@ -57,6 +57,7 @@ namespace Dark
         Model,
         Water,
         CloudVolume,
+        Stream,
         Count
     };
 
@@ -66,7 +67,8 @@ namespace Dark
             || t == SceneObjectType::PointLight || t == SceneObjectType::SpotLight
             || t == SceneObjectType::AmbientLight || t == SceneObjectType::DirectionalLight
             || t == SceneObjectType::Player || t == SceneObjectType::Hunter || t == SceneObjectType::Wolf
-            || t == SceneObjectType::Model || t == SceneObjectType::Water || t == SceneObjectType::CloudVolume;
+            || t == SceneObjectType::Model || t == SceneObjectType::Water || t == SceneObjectType::CloudVolume
+            || t == SceneObjectType::Stream;
     }
 
     inline bool isPawnType(SceneObjectType t)
@@ -109,6 +111,7 @@ namespace Dark
         case SceneObjectType::Model:           return "model";
         case SceneObjectType::Water:           return "water";
         case SceneObjectType::CloudVolume:     return "cloud_volume";
+        case SceneObjectType::Stream:          return "stream";
         default:                               return "unknown";
         }
     }
@@ -195,6 +198,11 @@ namespace Dark
             out = SceneObjectType::CloudVolume;
             return true;
         }
+        if (s == "stream")
+        {
+            out = SceneObjectType::Stream;
+            return true;
+        }
         return false;
     }
 
@@ -269,6 +277,12 @@ namespace Dark
         float cloudAlbedo[3]{ 0.90f, 0.93f, 1.00f };
         float cloudWindDir[3]{ 1.00f, 0.02f, 0.25f };
         bool  cloudEnabled          = true;
+
+        // Mountain stream ribbon. Points are absolute world XZ. position.xz tracks points[0].
+        bool                        hasStream       = false;
+        float                       streamWidth     = 3.5f;
+        float                       streamFlowSpeed = 1.6f;
+        std::vector<Math::Vector2f> streamPoints;
     };
 
     // World-level terrain JSON DTO. Not a SceneObjectType. Paths are virtual or sidecar filenames.
@@ -393,6 +407,10 @@ namespace Dark
         float              steepness        = 0.55f;
         float              amplitudeScale   = 1.0f;
         float              speedScale       = 1.0f;
+        float              flowSpeed        = 0.4f;
+        float              foam             = 1.0f;
+        float              foamWidthScale   = 1.0f;
+        float              detail           = 1.0f;
         WaterWaveSceneDesc waves[4]{};
         int                waveCount        = 0; // 0 keeps the built-in Gerstner set
     };

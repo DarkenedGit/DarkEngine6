@@ -8,6 +8,7 @@
 #include "Math/Matrix4f.h"
 #include "Water/WaterWaves.h"
 
+#include <cmath>
 #include <cstring>
 #include <d3dcompiler.h>
 
@@ -79,6 +80,9 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
     m_psoSolid.Reset();
     m_psoWire.Reset();
     m_psoPoint.Reset();
+    m_psoStreamSolid.Reset();
+    m_psoStreamWire.Reset();
+    m_psoStreamPoint.Reset();
     m_cbUpload.Reset();
     m_dummyLights.Reset();
     m_srvHeap.Reset();
@@ -131,7 +135,7 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
     rootParams[kRootLightsSrv].Descriptor.RegisterSpace  = 0;
 
     rootParams[kRootHeightSrv].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    rootParams[kRootHeightSrv].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParams[kRootHeightSrv].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_ALL;
     rootParams[kRootHeightSrv].DescriptorTable.NumDescriptorRanges = 1;
     rootParams[kRootHeightSrv].DescriptorTable.pDescriptorRanges   = &heightRange;
 
@@ -156,7 +160,7 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
     samps[0].AddressW         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
     samps[0].MaxLOD           = D3D12_FLOAT32_MAX;
     samps[0].ShaderRegister   = 0;
-    samps[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    samps[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
     samps[1].Filter           = D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
     samps[1].AddressU         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
@@ -220,6 +224,7 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         { "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,    0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "TANGENT",  0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
     };
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc{};
@@ -261,12 +266,29 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
         return false;
     }
 
+    // Streams only. Positive bias raises the reverse-Z test toward the camera so a ribbon under a geomipmap chord still passes.
+    // The lake PSO stays at bias 0. +4 / +3 matches the blood-splat nudge, not the shadow-depth pair.
+    psoDesc.RasterizerState.DepthBias            = 4;
+    psoDesc.RasterizerState.SlopeScaledDepthBias = 3.0f;
+    psoDesc.RasterizerState.DepthBiasClamp       = 0.0f;
+    if (!createFillVariantPsos(device, psoDesc, m_psoStreamSolid, m_psoStreamWire, m_psoStreamPoint))
+    {
+        m_rootSignature.Reset();
+        m_psoSolid.Reset();
+        m_psoWire.Reset();
+        m_psoPoint.Reset();
+        return false;
+    }
+
     if (!createConstantBuffers(device))
     {
         m_rootSignature.Reset();
         m_psoSolid.Reset();
         m_psoWire.Reset();
         m_psoPoint.Reset();
+        m_psoStreamSolid.Reset();
+        m_psoStreamWire.Reset();
+        m_psoStreamPoint.Reset();
         return false;
     }
 
@@ -281,6 +303,9 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
         m_psoSolid.Reset();
         m_psoWire.Reset();
         m_psoPoint.Reset();
+        m_psoStreamSolid.Reset();
+        m_psoStreamWire.Reset();
+        m_psoStreamPoint.Reset();
         return false;
     }
     m_heightGpu = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
@@ -294,6 +319,9 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
         m_psoSolid.Reset();
         m_psoWire.Reset();
         m_psoPoint.Reset();
+        m_psoStreamSolid.Reset();
+        m_psoStreamWire.Reset();
+        m_psoStreamPoint.Reset();
         m_cbUpload.Reset();
         m_dummyLights.Reset();
         m_cbMapped = nullptr;
@@ -423,9 +451,11 @@ void WaterPipeline::packSsrDummySrvs(ID3D12Device* device)
     writeTex2dSrv(device, m_dummySsrDepth.Get(), DXGI_FORMAT_R32_FLOAT, dst);
 }
 
-void WaterPipeline::bind(ID3D12GraphicsCommandList* cmd, DebugFill fill) const
+void WaterPipeline::bind(ID3D12GraphicsCommandList* cmd, DebugFill fill, bool stream) const
 {
-    ID3D12PipelineState* pso = selectFillPso(fill, m_psoSolid.Get(), m_psoWire.Get(), m_psoPoint.Get());
+    ID3D12PipelineState* pso = stream
+        ? selectFillPso(fill, m_psoStreamSolid.Get(), m_psoStreamWire.Get(), m_psoStreamPoint.Get())
+        : selectFillPso(fill, m_psoSolid.Get(), m_psoWire.Get(), m_psoPoint.Get());
     if (!cmd || !pso)
         return;
     cmd->SetGraphicsRootSignature(m_rootSignature.Get());
@@ -526,9 +556,26 @@ void WaterPipeline::fillConstants(
     out.lightDir[1]  = lightDir[1];
     out.lightDir[2]  = lightDir[2];
     out.waterLevel   = params.waterLevel;
-    out.flowDir[0]   = params.flowDir.x;
-    out.flowDir[1]   = params.flowDir.y;
+    float flowX = params.flowDir.x;
+    float flowZ = params.flowDir.y;
+    const float flowMag = sqrtf(flowX * flowX + flowZ * flowZ);
+    if (flowMag < 1.0e-5f)
+    {
+        flowX = 1.0f;
+        flowZ = 0.0f;
+    }
+    else
+    {
+        flowX /= flowMag;
+        flowZ /= flowMag;
+    }
+    out.flowDir[0]   = flowX;
+    out.flowDir[1]   = flowZ;
     out.flowStrength = params.flowStrength;
+    out.foamAmount     = params.foam;
+    out.foamWidthScale = params.foamWidthScale;
+    out.flowSpeed      = params.flowSpeed;
+    out.detailAmount   = params.detailAmount;
     out.specPower    = 96.0f;
     out.opacity      = 0.78f;
     out.shoreDepth   = 2.4f;

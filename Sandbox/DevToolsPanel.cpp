@@ -635,6 +635,26 @@ void SandboxApp::drawDevTools()
         ImGui::SliderFloat("Wave speed", &wp.speedScale, 0.0f, 4.0f, "%.2fx");
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("How fast the waves travel. 1 is the authored speed. 0 holds them still.");
+        ImGui::SliderFloat("Drift", &wp.flowSpeed, 0.0f, 6.0f, "%.2f m/s");
+        ImGui::SliderFloat("Foam", &wp.foam, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("Foam width", &wp.foamWidthScale, 0.5f, 2.0f, "%.2f");
+        ImGui::SliderFloat("Detail", &wp.detailAmount, 0.0f, 1.0f, "%.2f");
+        bool legacy = wp.legacyPull;
+        if (ImGui::Checkbox("Legacy wave set", &legacy))
+        {
+            if (legacy)
+            {
+                copyLegacyHarmonicWaves(wp.waves);
+                wp.legacyPull = true;
+            }
+            else
+            {
+                const WaterParams fresh = defaultWaterParams(wp.waterLevel);
+                for (int i = 0; i < kWaterWaveCount; ++i)
+                    wp.waves[i] = fresh.waves[i];
+                wp.legacyPull = false;
+            }
+        }
         if (ImGui::Button("Reset waves"))
         {
             wp.amplitudeScale = 1.0f;

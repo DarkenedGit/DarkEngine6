@@ -86,7 +86,7 @@ bool EditorApp::loadSceneWithDialog(const std::filesystem::path& suggested)
 bool EditorApp::saveScene()
 {
     SceneFileData data{};
-    data.version         = 2;
+    data.version         = 3;
     data.name            = m_sceneName;
     data.mode            = m_sceneMode;
     data.worldMin        = m_worldMin;
@@ -149,6 +149,18 @@ bool EditorApp::saveScene()
             d.emissive = mc->emissive;
         if (const CloudVolumeComponent* cloud = world().get<CloudVolumeComponent>(e))
             sceneDataFromCloudDesc(cloud->desc, d);
+        if (const StreamComponent* stream = world().get<StreamComponent>(e))
+        {
+            d.hasStream        = true;
+            d.streamWidth      = stream->width;
+            d.streamFlowSpeed  = stream->flowSpeed;
+            d.streamPoints     = stream->points;
+            if (!stream->points.empty())
+            {
+                d.position.x = stream->points.front().x;
+                d.position.z = stream->points.front().y;
+            }
+        }
         if (so.type == SceneObjectType::Model)
         {
             if (const ModelComponent* modelComp = world().get<ModelComponent>(e))
@@ -170,8 +182,25 @@ bool EditorApp::saveScene()
         if (m_authoredWater.present)
         {
             data.water = m_authoredWater;
-            data.water.amplitudeScale = m_water.params().amplitudeScale;
-            data.water.speedScale     = m_water.params().speedScale;
+            const WaterParams& wp = m_water.params();
+            data.water.amplitudeScale = wp.amplitudeScale;
+            data.water.speedScale     = wp.speedScale;
+            data.water.flowSpeed      = wp.flowSpeed;
+            data.water.foam           = wp.foam;
+            data.water.foamWidthScale = wp.foamWidthScale;
+            data.water.detail         = wp.detailAmount;
+            data.water.flowDir[0]     = wp.flowDir.x;
+            data.water.flowDir[1]     = wp.flowDir.y;
+            data.water.flowStrength   = wp.flowStrength;
+            data.water.steepness      = wp.steepness;
+            data.water.waveCount      = kWaterWaveCount;
+            for (int i = 0; i < kWaterWaveCount; ++i)
+            {
+                data.water.waves[i].angleFromFlow = wp.waves[i].angleFromFlow;
+                data.water.waves[i].frequency     = wp.waves[i].frequency;
+                data.water.waves[i].amplitude     = wp.waves[i].amplitude;
+                data.water.waves[i].speed         = wp.waves[i].speed;
+            }
         }
         if (m_authoredExposure.present)
             data.exposure = m_authoredExposure;
@@ -300,8 +329,14 @@ bool EditorApp::loadScene()
         resetFoliageAuthoring();
     if (m_authoredWater.present)
     {
-        const float level = m_authoredWater.hasLevel ? m_authoredWater.level : m_water.params().waterLevel;
+        float level = m_authoredWater.level;
+        if (!m_authoredWater.hasLevel && m_haveTerrain && m_terrain.valid())
+        {
+            const AABox3f terrainBox = m_terrain.bounds();
+            level = Lerp(terrainBox.Min.y, terrainBox.Max.y, m_authoredWater.levelFraction);
+        }
         m_water.params() = sceneWaterParams(m_authoredWater, level);
+        createEditorWaterSheet();
     }
     m_selected = {};
     DE_LOG_INFO("Editor: loaded {} objects", editorObjectCount());

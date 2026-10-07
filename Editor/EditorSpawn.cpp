@@ -242,8 +242,9 @@ Entity EditorApp::spawnObject(
     const bool modelType   = type == SceneObjectType::Model;
     const bool waterType   = type == SceneObjectType::Water;
     const bool cloudType   = type == SceneObjectType::CloudVolume;
+    const bool streamType  = type == SceneObjectType::Stream;
     if (m_sceneMode == SceneMode::Scene3D && isScene3DType(type) && !emitterType && !lightType && !globalLight && !pawnType
-        && !modelType && !waterType && !cloudType && xf.position.y < 0.5f * xf.scale.y)
+        && !modelType && !waterType && !cloudType && !streamType && xf.position.y < 0.5f * xf.scale.y)
         xf.position.y = 0.5f * xf.scale.y;
     world().emplace<TransformComponent>(e, xf);
 
@@ -276,7 +277,7 @@ Entity EditorApp::spawnObject(
         amb.enabled   = (authored && authored->hasLight) ? authored->lightEnabled : true;
         world().emplace<AmbientLightComponent>(e, amb);
     }
-    else if (!emitterType && !pawnType && !modelType && !waterType && !cloudType)
+    else if (!emitterType && !pawnType && !modelType && !waterType && !cloudType && !streamType)
     {
         MeshComponent mc{};
         mc.matAssetID  = m_propMaterial ? m_propMaterial->id : NULL_ASSET;
@@ -325,6 +326,24 @@ Entity EditorApp::spawnObject(
         if (authored && authored->hasCloud)
             cloudDescFromSceneData(*authored, cloud.desc);
         world().emplace<CloudVolumeComponent>(e, cloud);
+    }
+
+    if (streamType)
+    {
+        StreamComponent stream;
+        if (authored && authored->hasStream && authored->streamPoints.size() >= 2)
+        {
+            stream.width     = authored->streamWidth;
+            stream.flowSpeed = authored->streamFlowSpeed;
+            stream.points    = authored->streamPoints;
+        }
+        else
+        {
+            stream.points.push_back(Vector2f(xf.position.x, xf.position.z));
+            stream.points.push_back(Vector2f(xf.position.x, xf.position.z - 2.0f));
+        }
+        stream.snapToPoints = true;
+        world().emplace<StreamComponent>(e, std::move(stream));
     }
 
     if (editorObject)
@@ -452,6 +471,8 @@ Entity EditorApp::placeAtWorld(SceneObjectType type, Vector3f hit, const SceneOb
         scale = Vector3f(48.0f, 2.0f, 48.0f);
         hit.y = groundY;
     }
+    else if (type == SceneObjectType::Stream)
+        hit.y = groundY;
     else if (type == SceneObjectType::CloudVolume)
     {
         scale = Vector3f(96.0f, 28.0f, 96.0f);
@@ -681,7 +702,7 @@ void EditorApp::cyclePlaceType(int delta)
         SceneObjectType::Cube, SceneObjectType::Sphere, SceneObjectType::ParticleEmitter,
         SceneObjectType::PointLight, SceneObjectType::SpotLight,
         SceneObjectType::Player, SceneObjectType::Hunter, SceneObjectType::Wolf, SceneObjectType::Water,
-        SceneObjectType::CloudVolume
+        SceneObjectType::Stream, SceneObjectType::CloudVolume
     };
     const SceneObjectType types2D[] = {
         SceneObjectType::Platform, SceneObjectType::Coin, SceneObjectType::Spawn

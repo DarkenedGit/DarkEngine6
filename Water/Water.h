@@ -100,7 +100,8 @@ namespace Dark
             const ShadowSystem* shadows = nullptr,
             D3D12_CPU_DESCRIPTOR_HANDLE sceneColorCpu = {},
             D3D12_CPU_DESCRIPTOR_HANDLE depthCpu = {},
-            const SsrSettings* ssrSettings = nullptr) const;
+            const SsrSettings* ssrSettings = nullptr,
+            uint32_t drawIndex = 0) const;
 
         float heightAtWorld(float x, float z) const;
         bool  tryHeightAtWorld(float x, float z, float& outY) const;
