@@ -2,9 +2,13 @@
 #define DE_SKY_EVAL_HLSLI
 
 // EvaluateSky + helpers. Caller provides sunDir, coverage, sunColor, turbidity,
-// moonDir, rain, moonColor, windSpeed, windDir, sunElevation, exposure, cloudTime
-// (Sky.hlsl FrameConstants or SkyEvalParams CBV b1).
-// Keep visually consistent with Sky::Environment::evaluateSky (CPU).
+// moonDir, rain, moonColor, windSpeed, windDir, sunElevation, exposure, cloudTime,
+// and when CLOUD_LAYER is 1 the cl* deck fields plus cameraPos.
+// Keep visually consistent with Sky::Environment::evaluateSky (CPU). The deck is GPU only.
+
+#ifndef CLOUD_LAYER
+#define CLOUD_LAYER 1
+#endif
 
 float Hash21(float2 p)
 {
@@ -38,6 +42,10 @@ float Fbm(float2 p)
     }
     return v;
 }
+
+#if CLOUD_LAYER
+#include "CloudLayer.hlsli"
+#endif
 
 float RayleighPhase(float cosTheta)
 {
@@ -130,19 +138,9 @@ float3 EvaluateSky(float3 v)
     float3 discCol = lerp(float3(1.00f, 0.72f, 0.32f), float3(1.00f, 0.97f, 0.90f), mu);
     base += discCol * (2.8f * limb * edge * sunVis);
 
-#if SKY_CLOUDS_MODE == 2
-    float4 cl = EvaluateCloudLayer(v, skyNoDisc);
-    base = base * cl.a + cl.rgb;
-#elif SKY_CLOUDS_MODE == 1
-    float2 cloudUv = v.xz / max(v.y, 0.08f);
-    cloudUv += windDir * cloudTime * windSpeed;
-    float n = Fbm(cloudUv * 1.6f);
-    float thresh = 1.0f - coverage * 0.85f;
-    float cloud = saturate((n - thresh) * (2.4f + 3.0f * coverage));
-    cloud *= saturate(v.y * 3.0f);
-    float3 cloudCol = lerp(float3(0.75f, 0.78f, 0.82f), sunColor, 0.25f * sunVis);
-    cloudCol = lerp(cloudCol, float3(0.16f, 0.17f, 0.19f), rain);
-    base = lerp(base, cloudCol, cloud * saturate(coverage * 1.2f));
+#if CLOUD_LAYER
+    float4 cloud = EvaluateCloudLayer(v, skyNoDisc);
+    base = base * cloud.a + cloud.rgb;
 #endif
 
     return max(base, 0.0f) * exposure;

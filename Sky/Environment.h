@@ -2,6 +2,7 @@
 
 #include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
+#include "Sky/CloudLayer.h"
 
 namespace Dark
 {
@@ -21,34 +22,6 @@ struct WeatherState
     static WeatherState PartlyCloudy();
     static WeatherState Overcast();
     static WeatherState Storm();
-};
-
-struct CloudLayerDesc
-{
-    bool  enabled          = true;
-    float altitude         = 2000.0f;    // meters above ground
-    float thickness        = 800.0f;     // meters
-    float planetRadius     = 6.36e6f;    // meters
-    float tMax             = 35000.0f;   // fade distance (meters)
-    float tauMax           = 12.0f;      // max optical depth
-    float kappa            = 0.5f;       // sun shadow strength
-    float rMax             = 3000.0f;    // max sun tap distance (meters)
-    float baseFreq         = 1.0f / 4000.0f;  // 1/meters
-    float detailFreq       = 1.0f / 900.0f;   // 1/meters
-    float erosion          = 0.35f;
-    float g0               = 0.45f;      // forward HG
-    float g1               = -0.16f;     // backward HG
-    float backWeight       = 0.32f;      // back lobe blend
-    float silverLining     = 0.75f;
-    float msA              = 0.5f;       // multi-scatter octave scale
-    float msB              = 0.5f;
-    float msC              = 0.5f;
-    float powder           = 0.6f;
-    float ambientScale     = 1.0f;
-    float hazeDistance     = 25000.0f;   // meters
-    float albedo           = 0.9f;
-    float windSpeedMps     = 8.0f;       // meters per second
-    Math::Vector2f windDir = Math::Vector2f(1.0f, 0.2f);
 };
 
 // Shared celestial + weather state. Call evaluate() after changing inputs
@@ -72,6 +45,7 @@ public:
 
     void tick(float dt);
     void evaluate();
+    void resetCloudWind();
 
     // Direction *toward* the body (same convention as existing lightDirWS).
     const Math::Vector3f& sunDir() const { return m_sunDir; }
@@ -88,8 +62,6 @@ public:
 
     const Math::Vector3f& cloudLightDir() const { return m_cloudLightDir; }
     const Math::Vector3f& cloudLightColor() const { return m_cloudLightColor; }
-    const Math::Vector3f& cloudSkyTop() const { return m_cloudSkyTop; }
-    const Math::Vector3f& cloudSkyBottom() const { return m_cloudSkyBottom; }
     const Math::Vector2f& cloudWindBase() const { return m_cloudWindBase; }
     const Math::Vector2f& cloudWindDetail() const { return m_cloudWindDetail; }
 
@@ -146,8 +118,6 @@ private:
 
     Math::Vector3f m_cloudLightDir{ 0.35f, 0.85f, -0.35f };
     Math::Vector3f m_cloudLightColor{ 1.0f, 0.96f, 0.88f };
-    Math::Vector3f m_cloudSkyTop{ 0.22f, 0.40f, 0.62f };
-    Math::Vector3f m_cloudSkyBottom{ 0.62f, 0.72f, 0.82f };
     Math::Vector2f m_cloudWindBase{ 0.0f, 0.0f };
     Math::Vector2f m_cloudWindDetail{ 0.0f, 0.0f };
 };

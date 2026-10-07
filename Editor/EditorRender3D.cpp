@@ -516,7 +516,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         if (m_skyPipeline.isValid())
         {
             const float waterLevel = m_water.params().waterLevel;
-            m_skyPipeline.draw(cmd, m_camera, m_env, 1.0f, waterLevel, 0.0f, &m_shadows);
+            m_skyPipeline.upload(renderer().frameIndex(), m_camera, m_env, 1.0f, waterLevel, 0.0f);
+            m_skyPipeline.draw(cmd, renderer().frameIndex(), &m_shadows);
         }
         m_scene.captureSsrSceneColor(cmd, renderer());
         renderer().bindHdrDepthRead();

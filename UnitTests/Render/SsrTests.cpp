@@ -232,7 +232,9 @@ TEST(Ssr, GpuParams_Size)
     EXPECT_EQ(sizeof(Dark::SsrGpuParams), 64u * sizeof(float));
     EXPECT_EQ(sizeof(Dark::SsrGpuParams), 256u);
     EXPECT_EQ(sizeof(Dark::SsrGpuParams), SsrPipeline::kCbBytes);
-    EXPECT_EQ(sizeof(SkyEvalParams), 24u * sizeof(float));
+    EXPECT_EQ(sizeof(SkyEvalParams), 44u * sizeof(float));
+    EXPECT_EQ(offsetof(SkyEvalParams, cloudTime), 20u * sizeof(float));
+    EXPECT_EQ(offsetof(SkyEvalParams, clLightColor), 24u * sizeof(float));
     EXPECT_EQ(SsrPipeline::kRootSkyCbv, 2u);
     EXPECT_EQ(SsrPipeline::kSkyEvalCbBytes, 256u);
     EXPECT_EQ(SsrPipeline::cbUploadBytes(), 1536u);

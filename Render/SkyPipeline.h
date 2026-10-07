@@ -2,6 +2,7 @@
 
 #include "Sky/Environment.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <d3d12.h>
 #include <wrl/client.h>
@@ -53,33 +54,24 @@ struct SkyFrameConstants
     float fogScale;
     float fogLightDir[3];
     float padFog;
+    float clLightColor[4];
+    float clLightDir[4];
+    float clSkyTop[4];
+    float clSkyBottom[4];
+    float clWind[4];
 };
 
-static_assert(sizeof(SkyFrameConstants) == 56 * sizeof(float), "sky root constant size");
-
-struct CloudLayerGpu
-{
-    float lightColor[4];    // rgb: light radiance at cloud altitude; a: enable
-    float lightDir[4];      // xyz: dominant light dir; w: tauMax
-    float skyTop[4];        // rgb: ambient from above; a: kAmb
-    float skyBottom[4];     // rgb: ambient from below; a: coverage
-    float geom[4];          // x: altitude (m), y: thickness (m), z: R (m), w: tMax (m)
-    float wind[4];          // xy: base offset (m), zw: detail offset (m)
-    float scale[4];         // x: base freq (1/m), y: detail freq, z: kErode, w: D_haze (m)
-    float phase[4];         // x: g0, y: g1, z: w, w: silverLining
-    float ms[4];            // x: a, y: b, z: c, w: kPowder
-    float misc[4];          // x: kappa, y: rMax (m), z: albedo, w: unused
-};
-
-static_assert(sizeof(CloudLayerGpu) == 160, "cloud layer constants size");
+static_assert(sizeof(SkyFrameConstants) == 76 * sizeof(float), "sky CBV is 76 floats");
+static_assert(offsetof(SkyFrameConstants, clLightColor) == 56 * sizeof(float), "cloud tail follows the 56-float prefix");
+static_assert(offsetof(SkyFrameConstants, clWind) == offsetof(SkyFrameConstants, clLightColor) + 16 * sizeof(float), "cloud tail is contiguous");
 
 class SkyPipeline
 {
 public:
-    static constexpr UINT kRootConstants = 0;
-    static constexpr UINT kRootShadowCbv = 1;
-    static constexpr UINT kRootShadowSrv = 2;
-    static constexpr UINT kRootCloudCbv  = 3;
+    static constexpr UINT kRootCbv            = 0;
+    static constexpr UINT kRootShadowCbv      = 1;
+    static constexpr UINT kRootShadowSrv      = 2;
+    static constexpr UINT kRootParameterCount = 3;
 
     SkyPipeline() = default;
 
@@ -87,23 +79,25 @@ public:
     void setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
 
     void bind(ID3D12GraphicsCommandList* cmd) const;
-    // exposure < 0 uses Environment::exposure(). Pass 1 on HybridDeferred (tonemap owns exposure).
-    void draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, const Sky::Environment& env, float exposure = -1.0f, float waterLevel = 0.0f, float fogScale = 1.0f, const ShadowSystem* shadows = nullptr) const;
+    // Writes slot frameIndex % 2. exposure < 0 uses Environment::exposure(). Pass 1 on HybridDeferred.
+    void upload(uint32_t frameIndex, const Camera3D& camera, const Sky::Environment& env, float exposure = -1.0f, float waterLevel = 0.0f, float fogScale = 1.0f);
+    void draw(ID3D12GraphicsCommandList* cmd, uint32_t frameIndex, const ShadowSystem* shadows = nullptr) const;
 
     bool isValid() const { return m_pso != nullptr; }
+    bool hasCloudLayer() const { return m_psoCloud != nullptr; }
 
 private:
-    static constexpr UINT kFrameCount    = 2;
-    static constexpr UINT kCloudSlotSize = 256;
+    static constexpr UINT kFrameCount   = 2;
+    static constexpr UINT kSkySlotBytes = 512; // 76 floats align up to a 256-byte CBV
 
-    ComPtr<ID3D12RootSignature>  m_rootSignature;
-    ComPtr<ID3D12PipelineState>  m_pso;
+    ComPtr<ID3D12RootSignature> m_rootSignature;
+    ComPtr<ID3D12PipelineState> m_pso;
+    ComPtr<ID3D12PipelineState> m_psoCloud;
     ComPtr<ID3D12DescriptorHeap> m_shadowHeap;
-    D3D12_GPU_DESCRIPTOR_HANDLE  m_shadowGpu{};
-    ComPtr<ID3D12Resource>       m_cloudBuffer;
-    uint8_t*                     m_cloudMapped = nullptr;
-    D3D12_GPU_VIRTUAL_ADDRESS    m_cloudGpu    = 0;
-    uint32_t                     m_cloudSlot   = 0;
+    D3D12_GPU_DESCRIPTOR_HANDLE m_shadowGpu{};
+    ComPtr<ID3D12Resource>      m_skyCb;
+    uint8_t*                    m_skyMapped = nullptr;
+    D3D12_GPU_VIRTUAL_ADDRESS   m_skyGpu    = 0;
 };
 
 } // namespace Dark

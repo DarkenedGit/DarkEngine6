@@ -45,6 +45,11 @@ cbuffer FrameConstants : register(b0)
     float  fogScale;
     float3 fogLightDir;
     float  _fogPad2;
+    float4 clLightColor;
+    float4 clLightDir;
+    float4 clSkyTop;
+    float4 clSkyBottom;
+    float4 clWind;
 };
 
 struct PSInput
@@ -74,12 +79,11 @@ PSInput VSMainDeferred(uint id : SV_VertexID)
     return VSCommon(id, 0.0f);
 }
 
-#ifndef SKY_CLOUDS_MODE
-#define SKY_CLOUDS_MODE 2
+#ifndef CLOUD_LAYER
+#define CLOUD_LAYER 1
 #endif
 
 #include "SkyEval.hlsli"
-#include "CloudLayer.hlsli"
 
 float4 PSMain(PSInput input) : SV_TARGET
 {

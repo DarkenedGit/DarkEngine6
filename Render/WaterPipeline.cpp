@@ -56,6 +56,9 @@ void fillSkyEval(SkyEvalParams& out, const Sky::Environment* env)
     out.sunElevation  = env->sunElevation();
     out.exposure      = 1.0f; // HybridDeferred sky pass: tonemap owns exposure
     out.cloudTime     = env->timeOfDay;
+    Sky::CloudLayerGpu layer{};
+    Sky::writeCloudLayer(layer, *env);
+    std::memcpy(reinterpret_cast<uint8_t*>(&out) + offsetof(SkyEvalParams, clLightColor), &layer, sizeof(layer));
 }
 
 void writeTex2dSrv(ID3D12Device* device, ID3D12Resource* res, DXGI_FORMAT format, D3D12_CPU_DESCRIPTOR_HANDLE dest)
@@ -201,10 +204,14 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
 
     ComPtr<ID3DBlob> vs;
     ComPtr<ID3DBlob> ps;
-    D3D_SHADER_MACRO encodeMacros[2];
-    makeEncodeSrgbMacros(encodeSrgbForColorFormat(colorFormat), encodeMacros);
-    if (!compileShaderFromContent("shaders/Water.hlsl", "VSMain", "vs_5_0", vs, encodeMacros)
-        || !compileShaderFromContent("shaders/Water.hlsl", "PSMain", "ps_5_0", ps, encodeMacros))
+    const bool encode = encodeSrgbForColorFormat(colorFormat);
+    D3D_SHADER_MACRO waterMacros[3] = {
+        { "ENCODE_SRGB", encode ? "1" : "0" },
+        { "CLOUD_LAYER", "1" },
+        { nullptr, nullptr },
+    };
+    if (!compileShaderFromContent("shaders/Water.hlsl", "VSMain", "vs_5_0", vs, waterMacros)
+        || !compileShaderFromContent("shaders/Water.hlsl", "PSMain", "ps_5_0", ps, waterMacros))
     {
         return false;
     }

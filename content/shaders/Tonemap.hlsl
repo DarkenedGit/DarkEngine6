@@ -55,6 +55,12 @@ float3 tonemapColor(float3 hdr)
     return aces(hdr * exposure);
 }
 
+// Jimenez 2014. Same pattern as GTAO. Static, so a still camera does not shimmer.
+float interleavedGradientNoise(float2 pos)
+{
+    return frac(52.9829189f * frac(dot(pos, float2(0.06711056f, 0.00583715f))));
+}
+
 float4 PSMain(PSInput input) : SV_TARGET
 {
     int2   texel = int2(input.position.xy);
@@ -86,5 +92,9 @@ float4 PSMain(PSInput input) : SV_TARGET
     }
 
     float3 outRgb = tonemapColor(rgb) * saturate(1.0f - fade);
+    // The swap chain is 8-bit. A straight-up view is one smooth ramp (thin deck at
+    // screen center, sky gradient outward) and those steps draw as rings.
+    float dither = (interleavedGradientNoise(input.position.xy) - 0.5f) * (1.0f / 255.0f);
+    outRgb = saturate(outRgb + dither);
     return float4(outRgb, 1);
 }

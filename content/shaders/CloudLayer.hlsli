@@ -1,35 +1,26 @@
 #ifndef DE_CLOUD_LAYER_HLSLI
 #define DE_CLOUD_LAYER_HLSLI
 
-#if SKY_CLOUDS_MODE == 2
+// Distant deck. Must match Sky::cloudShellHit. No cbuffer: the caller already
+// declared cameraPos, coverage, and clLightColor / clLightDir / clSkyTop / clSkyBottom / clWind.
 
-cbuffer CloudLayerConstants : register(b2)
+static const float kCloudR      = 6.36e6f;
+static const float kCloudFourPi = 12.5663706f;
+
+float CloudHg(float cosT, float g)
 {
-    float4 clLightColor;
-    float4 clLightDir;
-    float4 clSkyTop;
-    float4 clSkyBottom;
-    float4 clGeom;
-    float4 clWind;
-    float4 clScale;
-    float4 clPhase;
-    float4 clMs;
-    float4 clMisc;
-};
-
-static const float kFourPi = 12.5663706f;
-
-float ClHG(float cosT, float g)
-{
-    float g2 = g * g;
-    return (1.0f - g2) / (kFourPi * pow(max(1.0f + g2 - 2.0f * g * cosT, 1e-4f), 1.5f));
+    float g2    = g * g;
+    float denom = max(1.0f + g2 - 2.0f * g * cosT, 1e-4f);
+    return (1.0f - g2) / (kCloudFourPi * pow(denom, 1.5f));
 }
 
-float ClNoise(float2 p)
+float CloudNoise(float2 p)
 {
     const float2x2 m = float2x2(1.6f, 1.2f, -1.2f, 1.6f);
-    float v = 0.0f, a = 0.5f;
-    [unroll] for (int i = 0; i < 3; ++i)
+    float v = 0.0f;
+    float a = 0.5f;
+    [unroll]
+    for (int octave = 0; octave < 3; ++octave)
     {
         v += a * Noise2(p);
         p = mul(m, p);
@@ -38,80 +29,96 @@ float ClNoise(float2 p)
     return v / 0.875f;
 }
 
-float ClDensity(float2 xz, bool detail)
+float CloudDensityBase(float2 xz)
 {
-    float c = clSkyBottom.a;
-    float n = ClNoise((xz + clWind.xy) * clScale.x);
-    float d = saturate((n - (1.0f - c)) / max(c, 0.05f));
-    if (detail && d > 0.0f)
-    {
-        float e = ClNoise((xz + clWind.zw) * clScale.y);
-        d = saturate(d - (1.0f - d) * clScale.z * e);
-    }
-    return d;
+    float n = CloudNoise((xz + clWind.xy) * (1.0f / 4000.0f));
+    return saturate((n - (1.0f - coverage)) / max(coverage, 0.05f));
 }
 
-float ClShell(float mu, float y0, out float muHit)
+float CloudDensity(float2 xz)
 {
-    float h = clGeom.x, R = clGeom.z;
-    y0 = min(y0, h - 1.0f);
-    float r0 = R + y0, r1 = R + h;
-    float k  = (h - y0) * (2.0f * R + h + y0);
-    float b  = r0 * mu;
+    float d      = CloudDensityBase(xz);
+    float detail = CloudNoise((xz + clWind.zw) * (1.0f / 900.0f));
+    return saturate(d - (1.0f - d) * 0.35f * detail);
+}
+
+bool CloudShellHit(float cameraY, float viewY, float altitude, out float t, out float muHit)
+{
+    t     = 0.0f;
+    muHit = 1.0f;
+    if (viewY <= 0.0f || cameraY >= altitude - 1.0f)
+        return false;
+
+    float y0 = cameraY;
+    float k  = (altitude - y0) * (2.0f * kCloudR + altitude + y0);
+    float b  = (kCloudR + y0) * viewY;
     float s  = sqrt(b * b + k);
-    float t  = (b >= 0.0f) ? k / (s + b) : (s - b);
-    muHit    = (b + t) / r1;
-    return t;
+    t        = (b >= 0.0f) ? k / (s + b) : (s - b);
+    muHit    = (b + t) / (kCloudR + altitude);
+    return true;
 }
 
 float4 EvaluateCloudLayer(float3 v, float3 skyNoDisc)
 {
-    if (clLightColor.a < 0.5f || v.y <= 0.0f)
-        return float4(0, 0, 0, 1);
+    if (coverage < 0.02f)
+        return float4(0.0f, 0.0f, 0.0f, 1.0f);
 
+    float t;
     float muHit;
-    float t = ClShell(v.y, cameraPos.y, muHit);
-    float fade = saturate((clGeom.w - t) / (0.25f * clGeom.w));
+    if (!CloudShellHit(cameraPos.y, v.y, clLightDir.w, t, muHit))
+        return float4(0.0f, 0.0f, 0.0f, 1.0f);
+
+    float fade = saturate((35000.0f - t) / (0.25f * 35000.0f));
     if (fade <= 0.0f)
-        return float4(0, 0, 0, 1);
+        return float4(0.0f, 0.0f, 0.0f, 1.0f);
 
     float2 xz = cameraPos.xz + v.xz * t;
-    float  d  = ClDensity(xz, true);
+    float d   = CloudDensity(xz);
     if (d <= 1e-3f)
-        return float4(0, 0, 0, 1);
+        return float4(0.0f, 0.0f, 0.0f, 1.0f);
 
-    float tauMax = clLightDir.w;
-    float Tv     = exp(-tauMax * d / max(muHit, 0.05f));
+    float amount = clLightColor.a;
+    float tau    = 12.0f * amount * d / max(muHit, 0.05f);
+    float viewT  = exp(-tau);
 
-    float3 L    = clLightDir.xyz;
-    float  sy   = max(L.y, 0.08f);
-    float2 s2   = L.xz / max(length(L.xz), 1e-4f);
-    float  r    = min(0.5f * clGeom.y / sy, clMisc.y);
-    float  acc  = 0.5f * d;
-    [unroll] for (int k = 1; k <= 3; ++k)
-        acc += ClDensity(xz + s2 * (r * (k / 3.0f)), false);
-    float tauS = tauMax * clMisc.x * acc / (3.5f * sy);
+    float3 L     = clLightDir.xyz;
+    float  sy    = max(L.y, 0.08f);
+    float2 s2    = L.xz / max(length(L.xz), 1e-4f);
+    float  reach = min(0.5f * 800.0f / sy, 3000.0f);
+    // Half a step at the hit plus three base taps. 3.5 keeps kappa on the mean density.
+    float acc = 0.5f * d;
+    [unroll]
+    for (int tap = 1; tap <= 3; ++tap)
+        acc += CloudDensityBase(xz + s2 * (reach * (tap / 3.0f)));
+    float tauS = (12.0f * amount) * 0.5f * acc / (3.5f * sy);
 
     float cosT = dot(v, L);
-    float sun = 0.0f, an = 1.0f, bn = 1.0f, cn = 1.0f;
-    [unroll] for (int n = 0; n < 3; ++n)
+    float sun  = 0.0f;
+    float an   = 1.0f;
+    float bn   = 1.0f;
+    float cn   = 1.0f;
+    [unroll]
+    for (int n = 0; n < 3; ++n)
     {
-        float ph = lerp(ClHG(cosT, clPhase.x * cn), ClHG(cosT, clPhase.y * cn), clPhase.z) * kFourPi;
+        float ph = lerp(CloudHg(cosT, 0.45f * cn), CloudHg(cosT, -0.16f * cn), 0.32f) * kCloudFourPi;
         sun += an * exp(-bn * tauS) * ph;
-        an *= clMs.x; bn *= clMs.y; cn *= clMs.z;
+        an *= 0.5f;
+        bn *= 0.5f;
+        cn *= 0.5f;
     }
-    sun += clPhase.w * pow(saturate(cosT), 8.0f) * exp(-0.25f * tauS);
-    float powder = lerp(1.0f, 1.0f - exp(-2.0f * tauS), clMs.w * saturate(0.5f - 0.5f * cosT));
+    // Extinct the silver spike. An unextincted 0.75 blows out through a thick deck.
+    sun += 0.75f * pow(saturate(cosT), 8.0f) * exp(-tauS);
 
-    float3 amb = clSkyTop.a * lerp(clSkyTop.rgb, clSkyBottom.rgb, d);
-    float3 S   = clMisc.z * (clLightColor.rgb * (sun * powder) + amb);
+    float powder = 1.0f;
+    if (cosT < 0.0f)
+        powder = lerp(1.0f, 1.0f - exp(-2.0f * tauS), 0.6f);
 
-    float  Tap = exp(-t / clScale.w);
-    S = lerp(skyNoDisc, S, Tap);
+    float3 amb = lerp(clSkyTop.rgb, clSkyBottom.rgb, d);
+    float3 S   = 0.9f * (clLightColor.rgb * (sun * powder) + amb);
+    S          = lerp(skyNoDisc, S, exp(-t / 25000.0f));
 
-    float alpha = fade * (1.0f - Tv);
+    float alpha = fade * (1.0f - viewT);
     return float4(S * alpha, 1.0f - alpha);
 }
 
-#endif
 #endif

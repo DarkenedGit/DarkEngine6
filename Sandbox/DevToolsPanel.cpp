@@ -500,6 +500,7 @@ void SandboxApp::drawDevTools()
             if (ImGui::Button(label, ImVec2(92.0f, 28.0f)))
             {
                 m_env.weather = w;
+                m_env.cloudLayer.windSpeedMps = Sky::cloudWindSpeedMpsFor(w);
                 m_env.evaluate();
                 DE_LOG_INFO("Sky: weather {}", label);
             }

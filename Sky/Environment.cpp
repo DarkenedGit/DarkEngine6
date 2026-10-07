@@ -47,6 +47,18 @@ Vector3f SaturateColor(const Vector3f& c)
     return Vector3f(Max(c.x, 0.0f), Max(c.y, 0.0f), Max(c.z, 0.0f));
 }
 
+// Ground sun color before coverage and rain. Clouds reuse it at the deck elevation.
+Vector3f SunColorAt(float elev, float turb)
+{
+    const float    dayF       = SmoothStep(-0.10f, 0.18f, elev);
+    const float    airMass    = 1.0f / Max(sinf(Max(elev, 0.0f)) + 0.15f, 0.08f);
+    const float    extinction = expf(-0.09f * turb * airMass * (1.0f - 0.35f * Max(-elev, 0.0f)));
+    const Vector3f noonSun(1.00f, 0.97f, 0.90f);
+    const Vector3f duskSun(1.00f, 0.48f, 0.18f);
+    const float    warm = SmoothStep(0.35f, -0.02f, elev);
+    return SaturateColor((noonSun * (1.0f - warm) + duskSun * warm) * (1.35f * extinction * dayF));
+}
+
 } // namespace
 
 WeatherState WeatherState::Clear()
@@ -168,24 +180,27 @@ void Environment::tick(float dt)
     }
     m_cloudClockSec += dt;
 
-    if (cloudLayer.enabled)
-    {
-        const Vector2f wdirNorm = cloudLayer.windDir.Magnitude() > 1e-4f
-            ? cloudLayer.windDir * (1.0f / cloudLayer.windDir.Magnitude())
-            : Vector2f(1.0f, 0.0f);
-        const float baseSpeed   = cloudLayer.windSpeedMps;
-        const float detailSpeed = baseSpeed * 1.5f;
-        m_cloudWindBase   = m_cloudWindBase + wdirNorm * (baseSpeed * dt);
-        const Vector2f detailDir(wdirNorm.y * 0.6f - wdirNorm.x * 0.8f,
-                                  wdirNorm.x * 0.6f + wdirNorm.y * 0.8f);
-        m_cloudWindDetail = m_cloudWindDetail + detailDir * (detailSpeed * dt);
-    }
+    sanitizeCloudLayer(cloudLayer);
+    const float    windMag  = weather.windDir.Magnitude();
+    const Vector2f wdirNorm = windMag > 1.0e-4f ? weather.windDir * (1.0f / windMag) : Vector2f(1.0f, 0.0f);
+    const float    baseSpeed = cloudLayer.windSpeedMps;
+    m_cloudWindBase          = m_cloudWindBase + wdirNorm * (baseSpeed * dt);
+    // 0.6/0.8 is already unit length when wdirNorm is. Do not renormalize.
+    const Vector2f detailDir(wdirNorm.y * 0.6f - wdirNorm.x * 0.8f, wdirNorm.x * 0.6f + wdirNorm.y * 0.8f);
+    m_cloudWindDetail = m_cloudWindDetail + detailDir * (baseSpeed * 1.5f * dt);
 
     evaluate();
 }
 
+void Environment::resetCloudWind()
+{
+    m_cloudWindBase   = Vector2f(0.0f, 0.0f);
+    m_cloudWindDetail = Vector2f(0.0f, 0.0f);
+}
+
 void Environment::evaluate()
 {
+    sanitizeCloudLayer(cloudLayer);
     sunMoonDirections(timeOfDay, dayOfYear, latitude, m_sunDir, m_moonDir, m_sunElevation);
 
     const float cover = Clamp(weather.cloudCoverage, 0.0f, 1.0f);
@@ -194,16 +209,8 @@ void Environment::evaluate()
 
     const float elev = m_sunElevation;
     const float dayF = SmoothStep(-0.10f, 0.18f, elev);
-
     // Extinction: long path at the horizon reddens and dims the sun.
-    const float airMass    = 1.0f / Max(sinf(Max(elev, 0.0f)) + 0.15f, 0.08f);
-    const float extinction = expf(-0.09f * turb * airMass * (1.0f - 0.35f * Max(-elev, 0.0f)));
-
-    const Vector3f noonSun(1.00f, 0.97f, 0.90f);
-    const Vector3f duskSun(1.00f, 0.48f, 0.18f);
-    const float    warm    = SmoothStep(0.35f, -0.02f, elev);
-    m_sunColor             = SaturateColor((noonSun * (1.0f - warm) + duskSun * warm) * (1.35f * extinction * dayF));
-    m_sunColor             = m_sunColor * (1.0f - 0.82f * cover) * (1.0f - 0.35f * rain);
+    m_sunColor = SunColorAt(elev, turb) * (1.0f - 0.82f * cover) * (1.0f - 0.35f * rain);
 
     const float moonUp = SmoothStep(-0.05f, 0.12f, m_moonDir.y);
     m_moonColor        = Vector3f(0.18f, 0.22f, 0.34f) * (0.22f * moonUp * (1.0f - 0.6f * cover));
@@ -233,30 +240,14 @@ void Environment::evaluate()
     }
     m_exposure = Lerp(0.55f, 1.05f, dayF) * (1.0f - 0.15f * cover);
 
-    if (cloudLayer.enabled)
-    {
-        const float dip    = sqrtf(2.0f * cloudLayer.altitude / cloudLayer.planetRadius);
-        const float elevC  = elev + dip;
-        const float dayC   = SmoothStep(-0.02f, 0.06f, elevC);
-        const float airC   = 1.0f / Max(sinf(Max(elevC, 0.0f)) + 0.15f, 0.08f);
-        const float extC   = expf(-0.09f * turb * airC);
-        const float warmC  = SmoothStep(0.35f, -0.02f, elevC);
-        const Vector3f sunTop = SaturateColor((noonSun * (1.0f - warmC) + duskSun * warmC)
-                                               * (1.35f * extC * dayC)
-                                               * (1.0f - 0.35f * rain));
-        const float moonUpC = SmoothStep(-0.05f, 0.12f, m_moonDir.y);
-        const Vector3f moonTop(0.18f, 0.22f, 0.34f);
-        const Vector3f moonTopScaled = moonTop * (0.22f * moonUpC);
-        const float wC = SmoothStep(-0.02f, 0.06f, elevC);
-        m_cloudLightDir   = m_sunDir * wC + m_moonDir * (1.0f - wC);
-        m_cloudLightDir.Normalize();
-        m_cloudLightColor = sunTop * wC + moonTopScaled * (1.0f - wC);
-
-        m_cloudSkyTop    = m_skyZenith;
-        m_cloudSkyBottom = m_skyHorizon;
-    }
-
-    (void)turb;
+    // Deck sees the sun a little earlier than the ground. No coverage dim on that direct color.
+    const float dip   = sqrtf(2.0f * cloudLayer.altitude / kCloudPlanetRadius);
+    const float elevC = elev + dip;
+    const float wC    = SmoothStep(-0.02f, 0.06f, elevC);
+    const Vector3f sunTop = SunColorAt(elevC, turb) * (1.0f - 0.35f * rain);
+    m_cloudLightDir       = m_sunDir * wC + m_moonDir * (1.0f - wC);
+    m_cloudLightDir.Normalize();
+    m_cloudLightColor = sunTop * wC + m_moonColor * (1.0f - wC);
 }
 
 Vector3f Environment::evaluateSky(const Vector3f& viewDir) const

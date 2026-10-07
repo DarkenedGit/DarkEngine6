@@ -214,6 +214,30 @@ TEST(ShaderCompile, SkyEval_Included)
     EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps));
 }
 
+TEST(ShaderCompile, SkyCloudLayer)
+{
+    const std::filesystem::path hlsl = Dark::resolveContentPath("shaders/Sky.hlsl");
+    if (hlsl.empty())
+        GTEST_SKIP() << "shaders/Sky.hlsl not on content roots";
+
+    const D3D_SHADER_MACRO off[] = {
+        { "ENCODE_SRGB", "0" },
+        { "CLOUD_LAYER", "0" },
+        { nullptr, nullptr },
+    };
+    const D3D_SHADER_MACRO on[] = {
+        { "ENCODE_SRGB", "0" },
+        { "CLOUD_LAYER", "1" },
+        { nullptr, nullptr },
+    };
+    ComPtr<ID3DBlob> vs;
+    ComPtr<ID3DBlob> psOff;
+    ComPtr<ID3DBlob> psOn;
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "VSMainDeferred", "vs_5_0", vs, off));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", psOff, off));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", psOn, on));
+}
+
 TEST(ShaderCompile, Water)
 {
     const std::filesystem::path hlsl = Dark::resolveContentPath("shaders/Water.hlsl");

@@ -5,6 +5,7 @@
 #include "Math/Vector4f.h"
 #include "Render/SsrSettings.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <d3d12.h>
 #include <wrl/client.h>
@@ -57,8 +58,16 @@ namespace Dark
         float exposure;
         float cloudTime;
         float _pad[3];
+        float clLightColor[4];
+        float clLightDir[4];
+        float clSkyTop[4];
+        float clSkyBottom[4];
+        float clWind[4];
     };
-    static_assert(sizeof(SkyEvalParams) == 24 * sizeof(float), "SkyEvalParams is 24 floats");
+    static_assert(sizeof(SkyEvalParams) == 44 * sizeof(float), "SkyEvalParams is 44 floats");
+    static_assert(offsetof(SkyEvalParams, cloudTime) == 20 * sizeof(float), "cloudTime stays at float 20");
+    static_assert(offsetof(SkyEvalParams, clLightColor) == 24 * sizeof(float), "cloud tail starts at float 24");
+    static_assert(offsetof(SkyEvalParams, clWind) == offsetof(SkyEvalParams, clLightColor) + 16 * sizeof(float), "cloud tail is contiguous");
 
     enum class SsrMissKind : uint32_t
     {

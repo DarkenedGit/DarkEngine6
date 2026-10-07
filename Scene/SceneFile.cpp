@@ -143,12 +143,9 @@ json skyToJson(const SkySceneDesc& sky)
     s["windDir"]       = json::array({ sky.windDir[0], sky.windDir[1] });
     s["rain"]          = sky.rain;
 
-    s["cloudLayerEnabled"]  = sky.cloudLayerEnabled;
-    s["cloudAltitude"]      = sky.cloudAltitude;
-    s["cloudThickness"]     = sky.cloudThickness;
-    s["cloudTauMax"]        = sky.cloudTauMax;
-    s["cloudWindSpeedMps"]  = sky.cloudWindSpeedMps;
-    s["cloudWindDir"]       = json::array({ sky.cloudWindDir[0], sky.cloudWindDir[1] });
+    s["cloudAltitude"]     = sky.cloudAltitude;
+    s["cloudAmount"]       = sky.cloudAmount;
+    s["cloudWindSpeedMps"] = sky.cloudWindSpeedMps;
     return s;
 }
 
@@ -593,16 +590,14 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                 sky.windDir[1] = s["windDir"][1].get<float>();
             }
 
-            sky.cloudLayerEnabled = s.value("cloudLayerEnabled", true);
-            sky.cloudAltitude     = s.value("cloudAltitude", 2000.0f);
-            sky.cloudThickness    = s.value("cloudThickness", 800.0f);
-            sky.cloudTauMax       = s.value("cloudTauMax", 12.0f);
-            sky.cloudWindSpeedMps = s.value("cloudWindSpeedMps", 8.0f);
-            if (s.contains("cloudWindDir") && s["cloudWindDir"].is_array() && s["cloudWindDir"].size() >= 2)
-            {
-                sky.cloudWindDir[0] = s["cloudWindDir"][0].get<float>();
-                sky.cloudWindDir[1] = s["cloudWindDir"][1].get<float>();
-            }
+            Sky::CloudLayerDesc deck{};
+            deck.altitude     = s.value("cloudAltitude", 2000.0f);
+            deck.amount       = s.value("cloudAmount", 1.0f);
+            deck.windSpeedMps = s.value("cloudWindSpeedMps", 8.0f);
+            Sky::sanitizeCloudLayer(deck);
+            sky.cloudAltitude     = deck.altitude;
+            sky.cloudAmount       = deck.amount;
+            sky.cloudWindSpeedMps = deck.windSpeedMps;
 
             outScene.sky = std::move(sky);
         }
@@ -956,22 +951,21 @@ void applySceneAtmosphere(Sky::Environment& env, const SceneFileData& scene)
         env.weather.windDir       = Math::Vector2f(sky.windDir[0], sky.windDir[1]);
         env.weather.rain          = sky.rain;
 
-        env.cloudLayer.enabled      = sky.cloudLayerEnabled;
         env.cloudLayer.altitude     = sky.cloudAltitude;
-        env.cloudLayer.thickness    = sky.cloudThickness;
-        env.cloudLayer.tauMax       = sky.cloudTauMax;
+        env.cloudLayer.amount       = sky.cloudAmount;
         env.cloudLayer.windSpeedMps = sky.cloudWindSpeedMps;
-        env.cloudLayer.windDir      = Math::Vector2f(sky.cloudWindDir[0], sky.cloudWindDir[1]);
+        env.resetCloudWind();
     }
     else
     {
         const Sky::Environment fresh{};
-        env.timeOfDay = fresh.timeOfDay;
-        env.dayOfYear = fresh.dayOfYear;
-        env.latitude  = fresh.latitude;
-        env.timeScale = fresh.timeScale;
-        env.weather   = fresh.weather;
+        env.timeOfDay  = fresh.timeOfDay;
+        env.dayOfYear  = fresh.dayOfYear;
+        env.latitude   = fresh.latitude;
+        env.timeScale  = fresh.timeScale;
+        env.weather    = fresh.weather;
         env.cloudLayer = fresh.cloudLayer;
+        env.resetCloudWind();
     }
 
     if (scene.fog.present)
@@ -1014,15 +1008,11 @@ void captureSceneAtmosphere(const Sky::Environment& env, SceneFileData& scene)
     sky.windDir[1]    = env.weather.windDir.y;
     sky.rain          = env.weather.rain;
 
-    sky.cloudLayerEnabled = env.cloudLayer.enabled;
     sky.cloudAltitude     = env.cloudLayer.altitude;
-    sky.cloudThickness    = env.cloudLayer.thickness;
-    sky.cloudTauMax       = env.cloudLayer.tauMax;
+    sky.cloudAmount       = env.cloudLayer.amount;
     sky.cloudWindSpeedMps = env.cloudLayer.windSpeedMps;
-    sky.cloudWindDir[0]   = env.cloudLayer.windDir.x;
-    sky.cloudWindDir[1]   = env.cloudLayer.windDir.y;
 
-    scene.sky         = std::move(sky);
+    scene.sky = std::move(sky);
 
     FogSceneDesc fog{};
     fog.present         = true;

@@ -88,6 +88,9 @@ namespace Dark
             out.sunElevation  = env->sunElevation();
             out.exposure      = 1.0f; // HybridDeferred sky pass: tonemap owns exposure
             out.cloudTime     = env->timeOfDay;
+            Sky::CloudLayerGpu layer{};
+            Sky::writeCloudLayer(layer, *env);
+            std::memcpy(reinterpret_cast<uint8_t*>(&out) + offsetof(SkyEvalParams, clLightColor), &layer, sizeof(layer));
         }
     } // namespace
 
@@ -397,10 +400,15 @@ namespace Dark
         ComPtr<ID3DBlob> psUp;
         ComPtr<ID3DBlob> psDown;
         ComPtr<ID3DBlob> psDebug;
-        if (!compileShaderFromContent("shaders/Ssr.hlsl", "VSMain", "vs_5_0", vs) || !compileShaderFromContent("shaders/Ssr.hlsl", "PSTrace", "ps_5_0", psTrace)
-            || !compileShaderFromContent("shaders/Ssr.hlsl", "PSUpsampleTemporal", "ps_5_0", psUp)
-            || !compileShaderFromContent("shaders/Ssr.hlsl", "PSDownsample", "ps_5_0", psDown)
-            || !compileShaderFromContent("shaders/Ssr.hlsl", "PSDebugConf", "ps_5_0", psDebug))
+        const D3D_SHADER_MACRO ssrMacros[] = {
+            { "CLOUD_LAYER", "1" },
+            { nullptr, nullptr },
+        };
+        if (!compileShaderFromContent("shaders/Ssr.hlsl", "VSMain", "vs_5_0", vs, ssrMacros)
+            || !compileShaderFromContent("shaders/Ssr.hlsl", "PSTrace", "ps_5_0", psTrace, ssrMacros)
+            || !compileShaderFromContent("shaders/Ssr.hlsl", "PSUpsampleTemporal", "ps_5_0", psUp, ssrMacros)
+            || !compileShaderFromContent("shaders/Ssr.hlsl", "PSDownsample", "ps_5_0", psDown, ssrMacros)
+            || !compileShaderFromContent("shaders/Ssr.hlsl", "PSDebugConf", "ps_5_0", psDebug, ssrMacros))
         {
             m_rootSignature.Reset();
             return false;

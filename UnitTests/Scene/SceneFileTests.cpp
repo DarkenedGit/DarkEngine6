@@ -1428,3 +1428,81 @@ TEST(SceneFile, CastShadowNonBoolStaysFalse)
     std::error_code ec;
     std::filesystem::remove(path, ec);
 }
+
+TEST(SceneFile, CloudDeckRoundTrip)
+{
+    SceneFileData in{};
+    in.version = 2;
+    in.name    = "ut_cloud_deck";
+    in.mode    = SceneMode::Scene3D;
+    in.sky.present           = true;
+    in.sky.cloudAltitude     = 3200.0f;
+    in.sky.cloudAmount       = 1.25f;
+    in.sky.cloudWindSpeedMps = 11.0f;
+
+    const auto path = tempScenePath("darkengine6_scene_cloud_deck_ut.json");
+    std::string err;
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+
+    SceneFileData out{};
+    ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
+    EXPECT_NEAR(out.sky.cloudAltitude, 3200.0f, 1.0e-3f);
+    EXPECT_NEAR(out.sky.cloudAmount, 1.25f, 1.0e-4f);
+    EXPECT_NEAR(out.sky.cloudWindSpeedMps, 11.0f, 1.0e-3f);
+
+    Sky::Environment env;
+    env.cloudLayer.altitude     = 4100.0f;
+    env.cloudLayer.amount       = 0.4f;
+    env.cloudLayer.windSpeedMps = 6.0f;
+    env.tick(0.2f);
+    EXPECT_GT(env.cloudWindBase().Magnitude(), 0.5f);
+
+    SceneFileData captured{};
+    captureSceneAtmosphere(env, captured);
+    Sky::Environment loaded;
+    loaded.tick(0.2f);
+    applySceneAtmosphere(loaded, captured);
+    EXPECT_NEAR(loaded.cloudLayer.altitude, 4100.0f, 1.0e-3f);
+    EXPECT_NEAR(loaded.cloudLayer.amount, 0.4f, 1.0e-4f);
+    EXPECT_NEAR(loaded.cloudLayer.windSpeedMps, 6.0f, 1.0e-3f);
+    EXPECT_FLOAT_EQ(loaded.cloudWindBase().x, 0.0f);
+    EXPECT_FLOAT_EQ(loaded.cloudWindBase().y, 0.0f);
+
+    std::error_code ecRemove;
+    std::filesystem::remove(path, ecRemove);
+}
+
+TEST(SceneFile, CloudDeckMissingKeysUseDefaults)
+{
+    const auto path = tempScenePath("darkengine6_scene_cloud_old_ut.json");
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "sky_old",
+  "objects": [],
+  "sky": {
+    "timeOfDay": 16.2,
+    "weather": "partly",
+    "cloudCoverage": 0.35,
+    "cloudLayerEnabled": true,
+    "cloudThickness": 100,
+    "cloudTauMax": 4,
+    "cloudWindDir": [0, 1]
+  }
+})";
+    }
+
+    SceneFileData data{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
+    EXPECT_TRUE(data.sky.present);
+    EXPECT_NEAR(data.sky.cloudCoverage, 0.35f, 1.0e-4f);
+    EXPECT_NEAR(data.sky.cloudAltitude, 2000.0f, 1.0e-3f);
+    EXPECT_NEAR(data.sky.cloudAmount, 1.0f, 1.0e-4f);
+    EXPECT_NEAR(data.sky.cloudWindSpeedMps, 8.0f, 1.0e-3f);
+
+    std::error_code ecRemove;
+    std::filesystem::remove(path, ecRemove);
+}

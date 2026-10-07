@@ -3708,8 +3708,9 @@ void SandboxApp::onRender()
 
     const float skyExposure = deferred ? 1.0f : m_env.exposure();
     const float fogScale    = renderer().debugState().lightingActive() ? 1.0f : 0.0f;
+    m_skyPipeline.upload(renderer().frameIndex(), m_viewCamera, m_env, skyExposure, m_water.params().waterLevel, fogScale);
     if (!deferred)
-        m_skyPipeline.draw(cmd, m_viewCamera, m_env, skyExposure, m_water.params().waterLevel, fogScale, &m_shadows);
+        m_skyPipeline.draw(cmd, renderer().frameIndex(), &m_shadows);
 
     AssetRef<Material> material;
     if (m_cube.valid())
@@ -3846,7 +3847,7 @@ void SandboxApp::onRender()
         m_localLightVolumes.draw(cmd, renderer(), world(), m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_viewCamera, viewProj, lc, &m_scene.localShadows());
 
         renderer().bindHdr(true);
-        m_skyPipeline.draw(cmd, m_viewCamera, m_env, skyExposure, m_water.params().waterLevel, fogScale, &m_shadows);
+        m_skyPipeline.draw(cmd, renderer().frameIndex(), &m_shadows);
     }
     else
     {

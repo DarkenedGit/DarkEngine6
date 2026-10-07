@@ -78,11 +78,12 @@ cbuffer FrameConstants : register(b0)
     float3   moonColor; float windSpeed;
     float2   windDir;   float sunElevation; float exposure;
     float    cloudTime; float3 _skyPad;
+    float4   clLightColor;
+    float4   clLightDir;
+    float4   clSkyTop;
+    float4   clSkyBottom;
+    float4   clWind;
 };
-
-#ifndef SKY_CLOUDS_MODE
-#define SKY_CLOUDS_MODE 1
-#endif
 
 #include "SkyEval.hlsli"
 
