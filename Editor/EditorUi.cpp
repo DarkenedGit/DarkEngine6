@@ -955,6 +955,7 @@ void EditorApp::onUpdate(float dt)
     {
         updatePlay(dt);
         tickEditorHunters(dt);
+        syncArmorVisuals(world());
         Combat::harvestAndResolveDots(world(), m_combat);
         tickStatusFx(world(), &audio(), &assets());
         updatePawnAnims();

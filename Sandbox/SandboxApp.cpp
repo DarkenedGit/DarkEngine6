@@ -54,6 +54,7 @@
 #include "Animation/AnimNotify.h"
 #include "Character/HealthComponent.h"
 #include "Character/PlayerMotorComponent.h"
+#include "Character/ArmorView.h"
 #include "Character/ShieldView.h"
 #include "Character/SkillSense.h"
 #include "Character/SkillXp.h"
@@ -1590,7 +1591,16 @@ void SandboxApp::onWeaponHit(const WeaponHit& hit)
     {
         if (!m_chaseOk)
             return;
-        if (!m_chase.ai().applyHunterDamage(world(), victim, hit.damage))
+        float               damage = hit.damage;
+        Combat::ArmorBreak  broke;
+        if (Combat::ArmorPiecesComponent* armor = world().get<Combat::ArmorPiecesComponent>(victim))
+        {
+            if (const TransformComponent* vxf = world().get<TransformComponent>(victim))
+                damage = Combat::absorbArmorHit(*armor, vxf->position, vxf->rotation, hit.point, hit.direction, damage, broke);
+        }
+        if (broke.index >= 0)
+            knockOffArmor(world(), m_physics, victim, broke);
+        if (!m_chase.ai().applyHunterDamage(world(), victim, damage))
             return;
         m_chase.ai().applyHunterHitReaction(world(), victim, hit.direction);
         playSoundCueAt(world(), audio(), assets(), victim, "pain", hit.point);
@@ -1979,7 +1989,9 @@ void SandboxApp::updateFlashlight()
     TransformComponent* xf = world().get<TransformComponent>(m_flashlight);
     if (!xf)
         return;
-    placePlayerFlashlight(*xf, m_viewCamera.GetPosition(), m_viewCamera.GetLook(), m_viewCamera.GetRight(), m_viewCamera.GetUp());
+    const TransformComponent* bodyXf = possessedBody().valid() ? world().get<TransformComponent>(possessedBody()) : nullptr;
+    const Vector3f            bodyPos = bodyXf ? bodyXf->position : m_viewCamera.GetPosition();
+    placePlayerFlashlight(*xf, bodyPos, m_viewCamera.GetLook(), m_viewCamera.GetRight(), m_viewCamera.GetUp());
     LocalLightComponent* light = world().get<LocalLightComponent>(m_flashlight);
     if (!light)
         return;
@@ -3483,7 +3495,16 @@ void SandboxApp::onInit()
         DE_LOG_INFO(LogCategory::AI, "SandboxApp: {} scene pawn(s)", m_chase.hunterCount());
     }
     if (m_chaseOk)
+    {
         bindCharacterPhysics();
+        for (int i = 0; i < m_chase.hunterCount(); ++i)
+        {
+            const Entity        e   = m_chase.hunterEntity(i);
+            const TagComponent* tag = e.valid() ? world().get<TagComponent>(e) : nullptr;
+            if (!tag || tag->name != "Wolf")
+                equipHunterArmor(world(), pins(), assets(), renderer(), e);
+        }
+    }
 
     placeHealthPacks();
     spawnHybridLocalLights();
@@ -3527,10 +3548,12 @@ void SandboxApp::onUpdate(float dt)
             m_chase.tick(dt, world(), input(), m_terrain, possessedBody(), m_playerWet);
         }
         updateCombat(dt);
+        syncArmorVisuals(world());
         if (m_physics.valid())
         {
             m_physics.pushPoses(world(), false);
             m_physics.step(dt, world());
+            m_physics.writeDynamicPoses(world());
         }
         Combat::CombatSystem combat;
         Combat::harvestAndResolveDots(world(), combat);

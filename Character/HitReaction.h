@@ -36,6 +36,10 @@ namespace Dark
         // Counts down stun and returns this frame's knockback displacement.
         Math::Vector3f tick(float dt);
 
+        void                  decayFlinch(float dt);
+        float                 flinch() const { return m_flinch; }
+        const Math::Vector3f& flinchDirection() const { return m_flinchDir; }
+
         bool  stunned() const { return m_stunLeft > 0.0f; }
         bool  knockingBack() const { return m_knockLeft > 0.0f; }
         float stunRemaining() const { return m_stunLeft; }
@@ -49,6 +53,8 @@ namespace Dark
         float               m_knockLeft     = 0.0f;
         float               m_knockTimeLeft = 0.0f;
         Math::Vector3f      m_knockDir{ Math::Vect3f::Z_AXIS };
+        float               m_flinch        = 0.0f;
+        Math::Vector3f      m_flinchDir{ Math::Vect3f::Z_AXIS };
     };
 
 } // namespace Dark

@@ -234,7 +234,7 @@ namespace Dark
         const auto index = static_cast<uint32_t>(id);
         if (index >= static_cast<uint32_t>(DecalDefId::Count))
         {
-            DE_ASSERT(false && "decal def id");
+            DE_ASSERT(false, "decal def id");
             return defTable()[0];
         }
         return defTable()[index];

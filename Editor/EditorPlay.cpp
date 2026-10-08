@@ -553,12 +553,34 @@ void EditorApp::ensurePlayGear()
         m_playFlashlight = spawnPlayerFlashlight(world());
     if (!m_playShield.valid() || !world().alive(m_playShield))
         m_playShield = spawnPlayerShield(world(), pins(), assets(), renderer());
+    equipPlayArmor();
 }
 
 void EditorApp::destroyPlayGear()
 {
     destroyPlayerShield(world(), pins(), m_playShield);
     destroyPlayerFlashlight(world(), m_playFlashlight);
+    clearPlayArmor();
+}
+
+void EditorApp::equipPlayArmor()
+{
+    clearPlayArmor();
+    std::vector<Entity> hunters;
+    world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
+        if (so.type == SceneObjectType::Hunter)
+            hunters.push_back(e);
+    });
+    for (Entity hunter : hunters)
+        equipHunterArmor(world(), pins(), assets(), renderer(), hunter);
+}
+
+void EditorApp::clearPlayArmor()
+{
+    std::vector<Entity> owners;
+    world().each<Combat::ArmorPiecesComponent>([&](Entity e, Combat::ArmorPiecesComponent&) { owners.push_back(e); });
+    for (Entity owner : owners)
+        removeArmor(world(), pins(), m_physics, owner);
 }
 
 void EditorApp::updatePlayCamera()
@@ -650,6 +672,14 @@ void EditorApp::onPlayWeaponHit(const WeaponHit& hit)
     if (!hit.hitTarget || !hit.targetEntity.valid())
         return;
     Combat::DamageEvent ev = Combat::damageEventFromWeaponHit(hit, m_playPlayer);
+    Combat::ArmorBreak  broke;
+    if (Combat::ArmorPiecesComponent* armor = world().get<Combat::ArmorPiecesComponent>(hit.targetEntity))
+    {
+        if (const TransformComponent* txf = world().get<TransformComponent>(hit.targetEntity))
+            ev.amount = Combat::absorbArmorHit(*armor, txf->position, txf->rotation, ev.hitPoint, ev.hitDir, ev.amount, broke);
+    }
+    if (broke.index >= 0)
+        knockOffArmor(world(), m_physics, hit.targetEntity, broke);
     Combat::ResolveResult r = m_combat.resolve(world(), ev);
     if (!r.applied)
         return;
@@ -1225,7 +1255,9 @@ void EditorApp::updatePlay(float dt)
     updatePlayCamera();
     if (TransformComponent* lightXf = m_playFlashlight.valid() ? world().get<TransformComponent>(m_playFlashlight) : nullptr)
     {
-        placePlayerFlashlight(*lightXf, m_camera.GetPosition(), m_camera.GetLook(), m_camera.GetRight(), m_camera.GetUp());
+        const TransformComponent* bodyXf  = m_playPlayer.valid() ? world().get<TransformComponent>(m_playPlayer) : nullptr;
+        const Vector3f            bodyPos = bodyXf ? bodyXf->position : m_camera.GetPosition();
+        placePlayerFlashlight(*lightXf, bodyPos, m_camera.GetLook(), m_camera.GetRight(), m_camera.GetUp());
         if (LocalLightComponent* light = world().get<LocalLightComponent>(m_playFlashlight))
         {
             light->enabled = m_offhand.lightOn;

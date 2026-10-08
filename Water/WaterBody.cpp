@@ -48,7 +48,7 @@ namespace Dark
         outNearest = dx < dz ? dx : dz;
         if (outNearest < -1.0e-3f)
             return 0.0f;
-        if (kWaterEdgeFadeMeters <= 1.0e-4f)
+        if constexpr (kWaterEdgeFadeMeters <= 1.0e-4f)
             return 1.0f;
         return Clamp(outNearest / kWaterEdgeFadeMeters, 0.0f, 1.0f);
     }

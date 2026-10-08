@@ -86,6 +86,8 @@ namespace Dark
 
 	void applyChargeWindup(const Skeleton& skeleton, Math::Quaternion* localR, uint32_t count, const ChargeWindup& wind);
 
+	void applyHitFlinch(const Skeleton& skeleton, Math::Quaternion* localR, uint32_t count, float forward, float side);
+
 	// Smooth the pose toward the live hold. Release eases the arm forward into the swing.
 	inline void stepChargeWindup(ChargeWindup& pose, float dt, bool attackHeld, float attackHeldSec, float attackWindow,
 		bool blockHeld, float blockHeldSec, float blockWindow, bool blockStriking)

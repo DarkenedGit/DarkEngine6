@@ -18,9 +18,9 @@ namespace Dark
     // chargeWindup pulls the buckler back. chargeStrike punches it forward on a charged parry.
     void placePlayerShield(TransformComponent& shield, const TransformComponent& player, float raiseAlpha, float chargeWindup = 0.0f, float chargeStrike = 0.0f);
 
-    // Same spot the sandbox flashlight already uses, just left of the camera.
+    // Held at the player's chest, just in front of the body.
     void placePlayerFlashlight(TransformComponent& light,
-                               const Math::Vector3f& camPos,
+                               const Math::Vector3f& bodyPos,
                                const Math::Vector3f& look,
                                const Math::Vector3f& right,
                                const Math::Vector3f& up);

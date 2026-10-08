@@ -68,4 +68,26 @@ namespace Dark
 		add(upper, Math::Vector3f::Z_AXIS, -0.35f * strike);
 		add(chest, Math::Vector3f::Y_AXIS, 0.28f * strike);
 	}
+
+	void applyHitFlinch(const Skeleton& skeleton, Math::Quaternion* localR, uint32_t count, float forward, float side)
+	{
+		if (!localR || count == 0 || (fabsf(forward) < 1.0e-4f && fabsf(side) < 1.0e-4f))
+			return;
+
+		auto add = [&](int32_t joint, const Math::Vector3f& axis, float radians) {
+			if (joint < 0 || static_cast<uint32_t>(joint) >= count)
+				return;
+			localR[joint] = Math::Quaternion::FromAxisAngle(axis, radians) * localR[joint];
+		};
+
+		const int32_t spine = findJoint(skeleton, "Spine");
+		const int32_t chest = findJoint(skeleton, "Chest");
+		const int32_t neck  = findJoint(skeleton, "Neck");
+		add(spine, Math::Vector3f::X_AXIS, 0.30f * forward);
+		add(chest, Math::Vector3f::X_AXIS, 0.25f * forward);
+		add(neck, Math::Vector3f::X_AXIS, 0.20f * forward);
+		add(spine, Math::Vector3f::Z_AXIS, -0.30f * side);
+		add(chest, Math::Vector3f::Z_AXIS, -0.25f * side);
+		add(neck, Math::Vector3f::Z_AXIS, -0.20f * side);
+	}
 }

@@ -29,6 +29,7 @@
 
 #include "AI/AiSystem.h"
 #include "Audio/SoundClip.h"
+#include "Character/ArmorView.h"
 #include "Combat/CombatSystem.h"
 #include "Animation/Locomotion.h"
 #include "Character/PlayerStealth.h"
@@ -182,6 +183,8 @@ private:
     bool   firePlayLoadout(bool charged);
     void   ensurePlayGear();
     void   destroyPlayGear();
+    void   equipPlayArmor();
+    void   clearPlayArmor();
     void   drawInspector3D();
     void   drawPhysicsInspector(Entity e);
     void   ensurePhysicsWorld();

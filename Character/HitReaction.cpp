@@ -37,6 +37,14 @@ namespace Dark
 
         m_stunLeft = m_settings.stunSeconds;
 
+        Vector3f flat{ hitDirection.x, 0.0f, hitDirection.z };
+        if (flat.MagnitudeSqrd() > 1.0e-8f)
+        {
+            flat.Normalize();
+            m_flinchDir = flat;
+            m_flinch    = 1.0f;
+        }
+
         if (m_settings.knockbackDistance <= 0.0f || dir.MagnitudeSqrd() < 1.0e-8f)
         {
             m_knockLeft     = 0.0f;
@@ -55,6 +63,13 @@ namespace Dark
         m_stunLeft      = 0.0f;
         m_knockLeft     = 0.0f;
         m_knockTimeLeft = 0.0f;
+        m_flinch        = 0.0f;
+    }
+
+    void HitReaction::decayFlinch(float dt)
+    {
+        if (dt > 0.0f)
+            m_flinch = Math::Max(0.0f, m_flinch - dt * 3.5f);
     }
 
     Vector3f HitReaction::tick(float dt)
