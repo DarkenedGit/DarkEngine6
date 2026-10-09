@@ -662,6 +662,28 @@ void SandboxApp::drawDevTools()
         }
     }
 
+    if (ImGui::CollapsingHeader("Procedural grass"))
+    {
+        Terrain::GrassParams grass = m_grassField.params();
+        if (!m_grassPipeline.isValid())
+            grass.enabled = false;
+        bool edited = false;
+        ImGui::BeginDisabled(!m_grassPipeline.isValid());
+        edited |= ImGui::Checkbox("Enable", &grass.enabled);
+        ImGui::EndDisabled();
+        edited |= ImGui::SliderFloat("Height", &grass.heightMetres, 0.05f, 1.50f, "%.2f");
+        edited |= ImGui::SliderFloat("Flexibility", &grass.flexibility, 0.0f, 1.0f, "%.2f");
+        edited |= ImGui::SliderFloat("Density scale", &grass.densityScale, 0.0f, 1.5f, "%.2f");
+        if (!m_grassPipeline.isValid())
+            grass.enabled = false;
+        if (edited)
+            m_grassField.setParams(grass);
+        uint32_t bladeCount = 0;
+        for (int lod = 0; lod < Terrain::kGrassLodCount; ++lod)
+            bladeCount += m_grassField.blades(lod).count;
+        ImGui::Text("Blades %u   tiles %u", bladeCount, m_grassField.residentTileCount());
+    }
+
     if (ImGui::CollapsingHeader("Jump attack"))
     {
         const Entity body = possessedBody();

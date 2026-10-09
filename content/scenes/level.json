@@ -21,6 +21,14 @@
       "flowerModel": "models/Dandelion/dandelion_01_2k.gltf",
       "rockModel": "models/RockMoss/rock_moss_set_01_2k.gltf",
       "grassModel": "models/Grass/grass_medium_01_2k.gltf"
+    },
+    "grass": {
+      "enabled": true,
+      "height": 0.55,
+      "flexibility": 0.65,
+      "densityScale": 1.0,
+      "windBaseYaw": 1.37,
+      "seed": 1337
     }
   },
   "sky": {

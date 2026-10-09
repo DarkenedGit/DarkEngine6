@@ -2961,6 +2961,13 @@ void SandboxApp::onInit()
             return;
         }
         m_foliagePipeline.create(renderer().device());
+        if (!m_grassPipeline.create(renderer()))
+        {
+            DE_LOG_ERROR(LogCategory::Render, "SandboxApp: grass pipeline create failed");
+            GrassParams grassOff = m_grassField.params();
+            grassOff.enabled     = false;
+            m_grassField.setParams(grassOff);
+        }
         m_foliagePrototypes.create(renderer(), assets());
         if (!m_skelLinePipeline.create(renderer().device(), renderer().sceneColorFormat(), false))
             DE_LOG_ERROR(LogCategory::Render, "SandboxApp: skeleton LinePipeline create failed");
@@ -3133,6 +3140,22 @@ void SandboxApp::onInit()
         m_foliageDensity.flowerModel       = sceneData.terrain.foliage.flowerModel;
         m_foliageDensity.rockModel         = sceneData.terrain.foliage.rockModel;
         m_foliageDensity.grassModel        = sceneData.terrain.foliage.grassModel;
+
+        const GrassSceneDesc& grassScene = sceneData.terrain.grass;
+        GrassParams           grassParams;
+        grassParams.enabled          = grassScene.enabled;
+        grassParams.heightMetres     = grassScene.heightMetres;
+        grassParams.flexibility      = grassScene.flexibility;
+        grassParams.densityScale     = grassScene.densityScale;
+        grassParams.windBaseYaw      = grassScene.windBaseYaw;
+        grassParams.windDeflection   = grassScene.windDeflection;
+        grassParams.windTipMetres    = grassScene.windTipMetres;
+        grassParams.windSpatialFreq  = grassScene.windSpatialFreq;
+        grassParams.windTemporalFreq = grassScene.windTemporalFreq;
+        grassParams.seed             = grassScene.seed;
+        if (!m_grassPipeline.isValid())
+            grassParams.enabled = false;
+        m_grassField.setParams(grassParams);
 
         if (!loadedScene)
         {
@@ -3553,6 +3576,26 @@ void SandboxApp::onUpdate(float dt)
     m_save.service(world());
     m_water.updateLod(m_viewCamera.GetPosition());
     syncTerrainLod();
+    if (const Entity body = possessedBody(); body.valid())
+    {
+        if (const TransformComponent* xf = world().get<TransformComponent>(body))
+        {
+            GrassPlayerSample sample;
+            sample.x = xf->position.x;
+            sample.z = xf->position.z;
+            if (const PlayerMotor* motor = localMotor())
+            {
+                sample.velX                = motor->velocity().x;
+                sample.velZ                = motor->velocity().z;
+                const PlayerMoveState move = motor->state();
+                sample.shoving             = move == PlayerMoveState::Grounded || move == PlayerMoveState::Crouch || move == PlayerMoveState::Dodge;
+            }
+            double playTimeSec = 0.0;
+            if (const WorldClockComponent* clock = m_session.valid() ? world().get<WorldClockComponent>(m_session) : nullptr)
+                playTimeSec = clock->playTimeSec;
+            m_grassField.update(m_terrain, xf->position.x, xf->position.z, playTimeSec, m_water.params().waterLevel, sample);
+        }
+    }
     updateFlashlight();
 
     AudioListener lis{};
@@ -3764,6 +3807,24 @@ void SandboxApp::onRender()
         {
             const GpuScope gbuffer(cmd, "GBuffer", ProfileColor::GBuffer);
             m_terrain.drawGBuffer(cmd, m_terrainPipeline, m_terrainMaterial, m_viewCamera, &frustum, &renderer().debugState(), &prevViewProj);
+            if (m_grassPipeline.isValid() && m_grassField.params().enabled)
+            {
+                const GpuScope      grassScope(cmd, "Grass", ProfileColor::Grass);
+                GrassFrameConstants grassFrame{};
+                copyMatrix(grassFrame.viewProj, viewProj);
+                copyMatrix(grassFrame.prevViewProj, prevViewProj);
+                grassFrame.heightMetres = m_grassField.params().heightMetres;
+                grassFrame.flexibility  = m_grassField.params().flexibility;
+                m_grassField.writeFrameInteraction(grassFrame);
+                GrassLodSpan grassLods[kGrassLodCount]{};
+                for (int lod = 0; lod < kGrassLodCount; ++lod)
+                {
+                    const GrassField::BladeSpan span = m_grassField.blades(lod);
+                    grassLods[lod].blades            = span.data;
+                    grassLods[lod].count             = span.count;
+                }
+                m_grassPipeline.draw(cmd, renderer(), grassLods, m_grassField.tileWind(), m_grassField.tileWindCount(), grassFrame);
+            }
             {
                 const GpuScope meshes(cmd, "Opaque Meshes", ProfileColor::OpaqueMeshes);
                 m_meshPipeline.bind(cmd, fill);
@@ -3883,6 +3944,11 @@ void SandboxApp::onRender()
     }
     else
     {
+        if (!m_loggedForwardGrassSkip && m_grassPipeline.isValid() && m_grassField.params().enabled)
+        {
+            m_loggedForwardGrassSkip = true;
+            DE_LOG_INFO(LogCategory::Render, "SandboxApp: forward frame skips grass");
+        }
         const GpuScope forward(cmd, "Forward Opaque", ProfileColor::ForwardOpaque);
         m_terrain.draw(
             cmd, m_terrainPipeline, m_terrainMaterial, m_viewCamera, &frustum, &m_env, &m_shadows,
@@ -4419,6 +4485,7 @@ void SandboxApp::onShutdown()
     network().shutdown();
     renderer().waitForGpu();
     m_foliagePipeline.destroy();
+    m_grassPipeline.destroy();
     m_menu.shutdown(renderer());
     m_scene.shutdown();
     m_imgui.shutdown(renderer());

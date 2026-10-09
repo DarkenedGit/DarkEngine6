@@ -9,12 +9,14 @@
 #include "Render/LinePipeline.h"
 #include "Render/ModelDraw.h"
 #include "Render/FoliagePipeline.h"
+#include "Render/GrassPipeline.h"
 #include "Render/FoliagePrototypes.h"
 #include "Render/SceneRenderer.h"
 #include "Render/Camera3D.h"
 #include "Sky/Environment.h"
 #include "Physics/PhysicsWorld.h"
 #include "Physics/FoliageCollision.h"
+#include "Terrain/GrassField.h"
 #include "Terrain/TerrainGrid.h"
 #include "Terrain/TerrainMaterial.h"
 #include "Water/Water.h"
@@ -200,9 +202,12 @@ private:
     std::vector<WeaponTargetScratch> m_weaponTargets;
 
     Dark::Terrain::TerrainGrid m_terrain;
-    Dark::FoliagePrototypes    m_foliagePrototypes;
-    Dark::FoliagePipeline      m_foliagePipeline;
-    Dark::Terrain::FoliageDensity m_foliageDensity{};
+    Dark::FoliagePrototypes                   m_foliagePrototypes;
+    Dark::FoliagePipeline                     m_foliagePipeline;
+    Dark::GrassPipeline                       m_grassPipeline;
+    Dark::Terrain::GrassField                 m_grassField;
+    bool                                      m_loggedForwardGrassSkip = false;
+    Dark::Terrain::FoliageDensity             m_foliageDensity{};
     std::vector<Dark::Terrain::FoliageRecord> m_foliage;
 
     Dark::Physics::PhysicsWorld  m_physics;
