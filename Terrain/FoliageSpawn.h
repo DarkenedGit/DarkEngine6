@@ -9,6 +9,18 @@
 
 namespace Dark::Terrain
 {
+    // Still water. entireMap is the level lake (every XZ). Otherwise the rectangle is one placed body.
+    // Trees and grass whose terrain height is below surfaceY are not planted. Flowers and rocks are.
+    struct FoliageWaterVolume
+    {
+        float minX      = 0.0f;
+        float maxX      = 0.0f;
+        float minZ      = 0.0f;
+        float maxZ      = 0.0f;
+        float surfaceY  = 0.0f;
+        bool  entireMap = false;
+    };
+
     struct FoliageSpawnIn
     {
         const HeightMap* height = nullptr;
@@ -20,6 +32,7 @@ namespace Dark::Terrain
         float            cellSize  = 0.0f;
         Math::Vector3f   origin{ 0.0f, 0.0f, 0.0f };
         float            seaLevel = 0.0f;
+        std::vector<FoliageWaterVolume> water;
         bool (*onProgress)(float t, const char* phase, void* user) = nullptr;
         void* user = nullptr;
     };

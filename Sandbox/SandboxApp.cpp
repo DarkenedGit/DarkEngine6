@@ -3175,6 +3175,14 @@ void SandboxApp::onInit()
             m_terrain.setWorkingSplat(SplatMap(matSplat));
         }
 
+        const AABox3f terrainBox = m_terrain.bounds();
+        const WaterSceneDesc& waterScene = sceneData.water;
+        float waterLevel = Lerp(terrainBox.Min.y, terrainBox.Max.y, waterScene.levelFraction);
+        if (waterScene.hasLevel)
+            waterLevel = waterScene.level;
+        else if (m_haveTerrainSea)
+            waterLevel = m_terrainSeaLevel;
+
         if (worldEngine)
         {
             const HeightMap* height = m_terrain.editableWorking();
@@ -3190,6 +3198,10 @@ void SandboxApp::onInit()
             spawnIn.cellSize  = m_terrain.cellSize();
             spawnIn.origin    = m_terrain.origin();
             spawnIn.seaLevel  = height ? height->origin().y : 0.0f;
+            FoliageWaterVolume lake;
+            lake.entireMap = true;
+            lake.surfaceY  = waterLevel;
+            spawnIn.water.push_back(lake);
             FoliageSpawnOut spawned;
             if (height && splat && spawnFoliage(spawnIn, spawned))
                 m_foliage.swap(spawned.records);
@@ -3274,13 +3286,6 @@ void SandboxApp::onInit()
         }
         DE_LOG_INFO(LogCategory::Render, "SandboxApp: {} cloud volume(s)", spawnedClouds);
 
-        const AABox3f terrainBox = m_terrain.bounds();
-        const WaterSceneDesc& waterScene = sceneData.water;
-        float waterLevel = Lerp(terrainBox.Min.y, terrainBox.Max.y, waterScene.levelFraction);
-        if (waterScene.hasLevel)
-            waterLevel = waterScene.level;
-        else if (m_haveTerrainSea)
-            waterLevel = m_terrainSeaLevel;
         WaterDesc waterDesc;
         waterDesc.chunkCells = waterScene.chunkCells > 0 ? waterScene.chunkCells : 16;
         waterDesc.waterLevel = waterLevel;
