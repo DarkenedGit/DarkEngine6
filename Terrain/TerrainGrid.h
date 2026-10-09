@@ -134,6 +134,7 @@ public:
     int  residentCount() const;
     bool isResident(int tileX, int tileZ) const;
     const HeightMap* residentHeight(int tileX, int tileZ) const;
+    const SplatMap*  residentSplat(int tileX, int tileZ) const;
     const std::vector<FoliageRecord>* residentFoliage(int tileX, int tileZ) const;
     const TerrainWorld* residentWorld(int tileX, int tileZ) const;
     const PackedSrvHeap* residentPackedHeap(int tileX, int tileZ) const;

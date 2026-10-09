@@ -1405,6 +1405,16 @@ const HeightMap* TerrainGrid::residentHeight(int tileX, int tileZ) const
     return world->heightMap().valid() ? &world->heightMap() : nullptr;
 }
 
+const SplatMap* TerrainGrid::residentSplat(int tileX, int tileZ) const
+{
+    if (!isResident(tileX, tileZ))
+        return nullptr;
+    const SplatMap& splat = m_slots[tileZ][tileX].splat;
+    if (!splat.valid())
+        return nullptr;
+    return &splat;
+}
+
 const std::vector<FoliageRecord>* TerrainGrid::residentFoliage(int tileX, int tileZ) const
 {
     if (!isResident(tileX, tileZ))
