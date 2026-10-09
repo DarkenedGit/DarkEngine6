@@ -13,6 +13,7 @@
 #include "Render/SceneRenderer.h"
 #include "Render/Camera3D.h"
 #include "Sky/Environment.h"
+#include "Gameplay/Item.h"
 #include "Physics/PhysicsWorld.h"
 #include "Physics/FoliageCollision.h"
 #include "Terrain/TerrainGrid.h"
@@ -66,6 +67,14 @@ private:
     void handleNetHotkeys();
     void applyNetRole();
     void drawDevTools();
+    void drawInventory();
+    void drawArmorHud();
+    void drawPickupLabels();
+    bool uiOpen() const { return m_showDevTools || m_showInventory; }
+    bool ownsWeapon(Dark::WeaponKind kind);
+    void pickUpNearestItem();
+    void dropInventoryItem(int bagIndex);
+    void applyInventoryArmor();
     void drawPauseOverlay();
     void drawNpcInfoOverlay();
     bool camouflageHides(Dark::Entity e);
@@ -245,6 +254,8 @@ private:
     bool          m_showVelocity   = false;
     bool          m_showSkeleton   = false;
     bool          m_showDevTools   = false;
+    bool          m_showInventory  = false;
+    const Dark::ItemDef* m_wornArmor[static_cast<int>(Dark::EquipSlot::Count)]{};
     Dark::NpcInfoOverlaySettings m_npcInfo{};
     bool          m_camouflage     = false;
     ImGuiHost     m_imgui;

@@ -5,6 +5,7 @@
 #include "Core/Log.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
+#include "Gameplay/Inventory.h"
 #include "Physics/PhysicsBind.h"
 #include "Physics/PhysicsComponent.h"
 #include "Physics/PhysicsWorld.h"
@@ -15,11 +16,16 @@ namespace Dark
 
     void equipHunterArmor(World& world, AssetPinTable& pins, AssetManager& assets, Renderer& renderer, Entity hunter)
     {
-        if (!hunter.valid() || !world.alive(hunter))
+        equipArmorPieces(world, pins, assets, renderer, hunter, Combat::makeHunterArmor());
+    }
+
+    void equipArmorPieces(World& world, AssetPinTable& pins, AssetManager& assets, Renderer& renderer, Entity owner,
+                          Combat::ArmorPiecesComponent armor)
+    {
+        if (!owner.valid() || !world.alive(owner))
             return;
         AssetRef<Model> cube = loadAndUploadModel(renderer, assets, "models/unit_cube.gltf");
 
-        Combat::ArmorPiecesComponent armor = Combat::makeHunterArmor();
         for (int i = 0; cube && i < armor.count; ++i)
         {
             Combat::ArmorPiece& piece = armor.pieces[i];
@@ -30,7 +36,7 @@ namespace Dark
             mc.castShadow   = true;
             setModelComponent(world, pins, assets, piece.visual, mc);
         }
-        world.emplace<Combat::ArmorPiecesComponent>(hunter, armor);
+        world.emplace<Combat::ArmorPiecesComponent>(owner, armor);
         syncArmorVisuals(world);
     }
 
@@ -70,6 +76,8 @@ namespace Dark
 
         const Math::Vector3f push{ broke.push.x * 4.0f, 3.0f, broke.push.z * 4.0f };
         physics.setBodyVelocity(physics.bodyOf(piece.visual), push, Math::Vector3f{ 6.0f, 2.0f, 4.0f });
+        if (const ItemDef* def = findItemDef(piece.name))
+            world.emplace<ItemPickupComponent>(piece.visual, ItemPickupComponent{ { def, 1 } });
         DE_LOG_INFO("Armor: {} knocked off", piece.name);
     }
 
