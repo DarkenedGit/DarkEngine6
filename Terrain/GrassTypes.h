@@ -21,7 +21,6 @@ namespace Dark::Terrain
         uint32_t seed             = 1337u;
     };
 
-    // -pi and +pi are one heading; keep +pi so yaw stays in (-pi, pi].
     inline void clampGrassParams(GrassParams& params)
     {
         params.heightMetres     = Math::Clamp(params.heightMetres, 0.05f, 1.50f);
