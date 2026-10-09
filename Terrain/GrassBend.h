@@ -149,7 +149,6 @@ namespace Dark::Terrain
         return shove;
     }
 
-    // Current and previous yaw share one float: the 528-byte block has no second spare channel.
     inline uint16_t grassPackYawBits(float velX, float velZ)
     {
         const float speed2 = velX * velX + velZ * velZ;
@@ -163,14 +162,6 @@ namespace Dark::Terrain
         if (q > 65535)
             q = 65535;
         return static_cast<uint16_t>(q);
-    }
-
-    inline float grassPackPlanarYaw(float velX, float velZ, float prevVelX, float prevVelZ)
-    {
-        const uint32_t bits   = (static_cast<uint32_t>(grassPackYawBits(prevVelX, prevVelZ)) << 16) | static_cast<uint32_t>(grassPackYawBits(velX, velZ));
-        float          packed = 0.0f;
-        std::memcpy(&packed, &bits, sizeof(packed));
-        return packed;
     }
 
     inline GrassPlanarYaw grassDecodeYawBits(uint16_t q)

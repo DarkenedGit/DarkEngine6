@@ -103,7 +103,6 @@ PSInput VSMain(VSInput input)
     float prevVelX;
     float prevVelZ;
     grassReadPackedYaw(pad0, velX, velZ, prevVelX, prevVelZ);
-    // Distance rejects a disc before that blade normalizes a direction.
     shove = grassGatherShove(blade.x, blade.z, pushMetres, velX, velZ, interactor, footprint);
     prevShove = grassGatherShove(blade.x, blade.z, pushMetres, prevVelX, prevVelZ, prevInteractor, prevFootprint);
 #endif
@@ -157,7 +156,6 @@ PSInput VSMain(VSInput input)
     float4 prevWp = float4(prevWorld, 1.0f);
     PSInput o;
     o.currClip = mul(wp, viewProj);
-    // Previous shove is a real blade, not a zero clip, even when the interactor block is empty.
     o.prevClip = mul(prevWp, prevViewProj);
     o.position = o.currClip;
     o.normalWS = n;

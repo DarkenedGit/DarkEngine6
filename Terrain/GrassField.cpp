@@ -378,7 +378,10 @@ namespace Dark::Terrain
     void GrassField::writeFrameInteraction(GrassFrameConstants& frame) const
     {
         frame.pushMetres = kGrassPushMetres;
-        frame.pad0       = grassPackPlanarYaw(m_velX, m_velZ, m_prevVelX, m_prevVelZ);
+        const uint32_t bits = (static_cast<uint32_t>(grassPackYawBits(m_prevVelX, m_prevVelZ)) << 16) | static_cast<uint32_t>(grassPackYawBits(m_velX, m_velZ));
+        float packed = 0.0f;
+        std::memcpy(&packed, &bits, sizeof(packed));
+        frame.pad0 = packed;
         for (int i = 0; i < kGrassInteractorSlots; ++i)
         {
             frame.interactor[i]     = m_interactor[i];
