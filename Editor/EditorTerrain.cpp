@@ -1303,6 +1303,33 @@ void EditorApp::startFoliageSpawn()
     in.origin    = m_terrain.origin();
     // Imported valleys sit at the height origin. The old sea level would skip the forest floor.
     in.seaLevel  = m_terrainSource.empty() ? m_terrainSeaLevel : m_terrain.origin().y;
+    if (m_water.chunksX() > 0)
+    {
+        FoliageWaterVolume sheet;
+        sheet.entireMap = true;
+        sheet.surfaceY  = m_water.params().waterLevel;
+        in.water.push_back(sheet);
+    }
+    world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
+        if (so.type != SceneObjectType::Water)
+            return;
+        const TransformComponent* xf = world().get<TransformComponent>(e);
+        if (!xf)
+            return;
+        float minX = 0.0f;
+        float maxX = 0.0f;
+        float minZ = 0.0f;
+        float maxZ = 0.0f;
+        if (!placedWaterFootprint(xf->position.x, xf->position.z, xf->scale.x, xf->scale.z, minX, maxX, minZ, maxZ))
+            return;
+        FoliageWaterVolume pond;
+        pond.minX     = minX;
+        pond.maxX     = maxX;
+        pond.minZ     = minZ;
+        pond.maxZ     = maxZ;
+        pond.surfaceY = xf->position.y;
+        in.water.push_back(pond);
+    });
     in.onProgress = &EditorApp::onFoliageProgress;
     in.user       = this;
 

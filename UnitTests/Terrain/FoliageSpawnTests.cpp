@@ -632,3 +632,100 @@ TEST(FoliageSpawn, GrassFollowsGrassLayer)
     ASSERT_TRUE(spawnFoliage(dirtIn, dirtOut));
     expectCleared(dirtOut);
 }
+
+TEST(FoliageSpawn, TreesAndGrassSkipWaterVolumes)
+{
+    HeightMap hm;
+    SplatMap  splat;
+    ASSERT_TRUE(makeMap(hm, splat, 9, 9, 1.0f, 1.0f, 1.0f, Dark::Math::Vector3f{ 0.0f, 0.0f, 0.0f }, 0, 255, 0, 0));
+
+    FoliageSpawnIn in = baseIn(hm, splat, 1, 1, 8);
+    in.density.grassTreesPerM2   = 1.0f;
+    in.density.grassFlowersPerM2 = 2.0f;
+    in.density.grassPerM2        = 1.0f;
+    // Covers cell columns 0 and 1 after ±0.45 m jitter. Column 2 starts at x = 2.05.
+    FoliageWaterVolume pond;
+    pond.minX     = -1.0f;
+    pond.maxX     = 2.0f;
+    pond.minZ     = -10.0f;
+    pond.maxZ     = 100.0f;
+    pond.surfaceY = 3.0f;
+    in.water.push_back(pond);
+
+    FoliageSpawnOut out;
+    ASSERT_TRUE(spawnFoliage(in, out));
+
+    uint32_t trees = 0;
+    uint32_t flowers = 0;
+    uint32_t grass = 0;
+    uint32_t rocks = 0;
+    uint32_t flowersInPond = 0;
+    for (const FoliageRecord& rec : out.records)
+    {
+        const auto kind = static_cast<FoliageKind>(rec.kind);
+        if (kind == FoliageKind::Tree)
+        {
+            ++trees;
+            EXPECT_GT(rec.x, 2.0f);
+            EXPECT_FLOAT_EQ(rec.y, 1.0f);
+        }
+        else if (kind == FoliageKind::Grass)
+        {
+            ++grass;
+            EXPECT_GT(rec.x, 2.0f);
+        }
+        else if (kind == FoliageKind::Flower)
+        {
+            ++flowers;
+            if (rec.x <= pond.maxX && rec.z >= pond.minZ && rec.z <= pond.maxZ)
+                ++flowersInPond;
+        }
+        else
+            ++rocks;
+    }
+    EXPECT_EQ(trees, 48u);
+    EXPECT_EQ(grass, 48u);
+    EXPECT_EQ(flowers, 128u);
+    EXPECT_EQ(rocks, 0u);
+    EXPECT_GT(flowersInPond, 0u);
+
+    FoliageSpawnIn shore = baseIn(hm, splat, 1, 1, 8);
+    shore.density.grassTreesPerM2 = 1.0f;
+    shore.density.grassPerM2      = 1.0f;
+    FoliageWaterVolume atBed;
+    atBed.entireMap = true;
+    atBed.surfaceY  = 1.0f;
+    shore.water.push_back(atBed);
+    FoliageSpawnOut shoreOut;
+    ASSERT_TRUE(spawnFoliage(shore, shoreOut));
+    EXPECT_EQ(shoreOut.records.size(), 128u);
+
+    FoliageSpawnIn flooded = in;
+    flooded.water.clear();
+    FoliageWaterVolume lake;
+    lake.entireMap = true;
+    lake.surfaceY  = 3.0f;
+    flooded.water.push_back(lake);
+    FoliageSpawnOut floodOut;
+    ASSERT_TRUE(spawnFoliage(flooded, floodOut));
+    ASSERT_EQ(floodOut.records.size(), 128u);
+    for (const FoliageRecord& rec : floodOut.records)
+        EXPECT_EQ(rec.kind, static_cast<uint8_t>(FoliageKind::Flower));
+
+    HeightMap rockHm;
+    SplatMap  rockSplat;
+    ASSERT_TRUE(makeMap(rockHm, rockSplat, 2, 2, 1.0f, 1.0f, 2.0f, Dark::Math::Vector3f{ 0.0f, 0.0f, 0.0f }, 0, 0, 255, 0));
+    FoliageSpawnIn rockIn = baseIn(rockHm, rockSplat, 1, 1, 1);
+    rockIn.density.rockPerM2       = 1.0f;
+    rockIn.density.grassTreesPerM2 = 1.0f;
+    rockIn.density.grassPerM2      = 1.0f;
+    FoliageWaterVolume overRock;
+    overRock.entireMap = true;
+    overRock.surfaceY  = 10.0f;
+    rockIn.water.push_back(overRock);
+    FoliageSpawnOut rockOut;
+    ASSERT_TRUE(spawnFoliage(rockIn, rockOut));
+    ASSERT_EQ(rockOut.records.size(), 1u);
+    EXPECT_EQ(rockOut.records[0].kind, static_cast<uint8_t>(FoliageKind::Rock));
+    EXPECT_FLOAT_EQ(rockOut.records[0].y, 2.0f);
+}

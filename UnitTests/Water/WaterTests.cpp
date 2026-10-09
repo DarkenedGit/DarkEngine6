@@ -112,6 +112,20 @@ TEST(WaterBody, FiniteFootprintAndEdgeFade)
     EXPECT_TRUE(body.containsXZ(10.0f, -4.0f));
     EXPECT_TRUE(body.containsXZ(34.0f, 20.0f));
     EXPECT_FALSE(body.containsXZ(34.1f, -4.0f));
+
+    float minX = 0.0f;
+    float maxX = 0.0f;
+    float minZ = 0.0f;
+    float maxZ = 0.0f;
+    ASSERT_TRUE(placedWaterFootprint(10.0f, -4.0f, 48.0f, 48.0f, minX, maxX, minZ, maxZ));
+    EXPECT_TRUE(body.containsXZ(minX, minZ));
+    EXPECT_TRUE(body.containsXZ(maxX, maxZ));
+    EXPECT_FALSE(body.containsXZ(minX - 0.05f, -4.0f));
+    EXPECT_NEAR(maxX, 34.0f, 1.0e-4f);
+
+    ASSERT_TRUE(placedWaterFootprint(10.0f, -4.0f, 1.0f, 48.0f, minX, maxX, minZ, maxZ));
+    EXPECT_NEAR(maxX - minX, 4.0f, 1.0e-4f);
+    EXPECT_FALSE(placedWaterFootprint(0.0f, 0.0f, 1025.0f, 48.0f, minX, maxX, minZ, maxZ));
     EXPECT_NEAR(body.bounds().Min.y, 3.0f - maxWaveAmplitude(body.params()), 1.0e-3f);
 
     WaterBodyDesc moved = desc;

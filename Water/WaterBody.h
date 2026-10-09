@@ -40,6 +40,9 @@ namespace Dark
         float          extentZ = 48.0f;
     };
 
+    // XZ rectangle WaterBody::build keeps. Extents under 4 m become 4 m. False when either extent is over 1024 m.
+    bool placedWaterFootprint(float centerX, float centerZ, float extentX, float extentZ, float& minX, float& maxX, float& minZ, float& maxZ);
+
     // One wet 64 m square, or the single chunk of a body smaller than 64 m on both axes.
     struct WaterBodyChunk
     {

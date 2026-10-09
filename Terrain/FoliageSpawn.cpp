@@ -37,6 +37,18 @@ namespace Dark::Terrain
             out.capped   = false;
             return false;
         }
+
+        bool coveredByWater(const std::vector<FoliageWaterVolume>& water, float x, float z, float bedY)
+        {
+            for (const FoliageWaterVolume& volume : water)
+            {
+                if (!(bedY < volume.surfaceY))
+                    continue;
+                if (volume.entireMap || (x >= volume.minX && x <= volume.maxX && z >= volume.minZ && z <= volume.maxZ))
+                    return true;
+            }
+            return false;
+        }
     } // namespace
 
     bool spawnFoliage(const FoliageSpawnIn& in, FoliageSpawnOut& out)
@@ -136,6 +148,11 @@ namespace Dark::Terrain
             const float    z       = anchorZ + jz;
             if (!height->containsXZ(x, z))
                 return;
+            if (!in.water.empty() && (kind == FoliageKind::Tree || kind == FoliageKind::Grass || kind == FoliageKind::Flower))
+            {
+                if (coveredByWater(in.water, x, z, height->heightAtWorld(x, z)))
+                    return;
+            }
 
             float fx = 0.0f;
             float fz = 0.0f;

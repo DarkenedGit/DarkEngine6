@@ -23,9 +23,10 @@ namespace Dark
     namespace
     {
 
-    constexpr float kWaterEdgeFadeMeters = 4.0f;
-    constexpr float kWaterCellMeters     = 2.0f;
-    constexpr float kWaterChunkMeters    = 64.0f;
+    constexpr float kWaterMinExtentMeters = 4.0f;
+    constexpr float kWaterEdgeFadeMeters  = 4.0f;
+    constexpr float kWaterCellMeters      = 2.0f;
+    constexpr float kWaterChunkMeters     = 64.0f;
     constexpr int   kWaterChunkCells     = 32;
     constexpr int   kWaterMaxExtent      = 1024;
     constexpr int   kWaterMaxWetChunks   = 256;
@@ -54,6 +55,23 @@ namespace Dark
     }
 
     } // namespace
+
+    bool placedWaterFootprint(float centerX, float centerZ, float extentX, float extentZ, float& minX, float& maxX, float& minZ, float& maxZ)
+    {
+        if (extentX < kWaterMinExtentMeters)
+            extentX = kWaterMinExtentMeters;
+        if (extentZ < kWaterMinExtentMeters)
+            extentZ = kWaterMinExtentMeters;
+        if (extentX > static_cast<float>(kWaterMaxExtent) || extentZ > static_cast<float>(kWaterMaxExtent))
+            return false;
+        const float halfX = extentX * 0.5f;
+        const float halfZ = extentZ * 0.5f;
+        minX = centerX - halfX;
+        maxX = centerX + halfX;
+        minZ = centerZ - halfZ;
+        maxZ = centerZ + halfZ;
+        return true;
+    }
 
     bool WaterBody::buildOneChunk(int ix, int iz)
     {
@@ -150,16 +168,20 @@ namespace Dark
         m_chunksZ = 0;
         m_retire.clear();
 
-        float extentX = desc.extentX;
-        float extentZ = desc.extentZ;
-        if (extentX < 4.0f)
-            extentX = 4.0f;
-        if (extentZ < 4.0f)
-            extentZ = 4.0f;
-        if (extentX > static_cast<float>(kWaterMaxExtent) || extentZ > static_cast<float>(kWaterMaxExtent))
+        float extentX = 0.0f;
+        float extentZ = 0.0f;
         {
-            DE_LOG_ERROR(LogCategory::Render, "WaterBody: extent {:.1f} x {:.1f} exceeds {} m", extentX, extentZ, kWaterMaxExtent);
-            return false;
+            float minX = 0.0f;
+            float maxX = 0.0f;
+            float minZ = 0.0f;
+            float maxZ = 0.0f;
+            if (!placedWaterFootprint(desc.center.x, desc.center.z, desc.extentX, desc.extentZ, minX, maxX, minZ, maxZ))
+            {
+                DE_LOG_ERROR(LogCategory::Render, "WaterBody: extent {:.1f} x {:.1f} exceeds {} m", desc.extentX, desc.extentZ, kWaterMaxExtent);
+                return false;
+            }
+            extentX = maxX - minX;
+            extentZ = maxZ - minZ;
         }
 
         m_desc         = desc;
@@ -281,8 +303,14 @@ namespace Dark
 
     bool WaterBody::matches(const WaterBodyDesc& desc) const
     {
-        const float extentX = desc.extentX < 4.0f ? 4.0f : desc.extentX;
-        const float extentZ = desc.extentZ < 4.0f ? 4.0f : desc.extentZ;
+        float minX = 0.0f;
+        float maxX = 0.0f;
+        float minZ = 0.0f;
+        float maxZ = 0.0f;
+        if (!placedWaterFootprint(desc.center.x, desc.center.z, desc.extentX, desc.extentZ, minX, maxX, minZ, maxZ))
+            return false;
+        const float extentX = maxX - minX;
+        const float extentZ = maxZ - minZ;
         return fabsf(m_desc.center.x - desc.center.x) < 1.0e-3f
             && fabsf(m_desc.center.y - desc.center.y) < 1.0e-3f
             && fabsf(m_desc.center.z - desc.center.z) < 1.0e-3f
