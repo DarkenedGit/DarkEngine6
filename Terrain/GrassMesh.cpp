@@ -23,13 +23,12 @@ namespace Dark::Terrain
             const uint32_t right0 = left0 + 1u;
             const uint32_t left1  = left0 + 2u;
             const uint32_t right1 = left0 + 3u;
-            // CCW from +Z, matching FrontCounterClockwise.
             out.indices.push_back(left0);
+            out.indices.push_back(right1);
             out.indices.push_back(right0);
-            out.indices.push_back(right1);
             out.indices.push_back(left0);
-            out.indices.push_back(right1);
             out.indices.push_back(left1);
+            out.indices.push_back(right1);
         }
     } // namespace
 

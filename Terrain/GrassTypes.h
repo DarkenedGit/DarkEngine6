@@ -40,7 +40,6 @@ namespace Dark::Terrain
         params.windBaseYaw = yaw;
     }
 
-    // 32-byte instance row. Not a float4x4. tileSlot indexes GrassTileWind.
     struct GrassBlade
     {
         float    x         = 0.0f;

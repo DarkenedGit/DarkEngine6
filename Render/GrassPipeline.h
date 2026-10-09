@@ -20,7 +20,6 @@ namespace Dark
         uint32_t                   count  = 0;
     };
 
-    // Instanced blade G-buffer. LOD 2 and LOD 3 share one quad mesh.
     class GrassPipeline
     {
     public:
@@ -44,7 +43,6 @@ namespace Dark
             return m_valid;
         }
 
-        // Four LOD ranges. Each draw's blade SRV starts at that range, so SV_InstanceID is 0-based.
         // Call after beginFrame. tileWind may be null when tileCount is 0.
         void draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const GrassLodSpan lods[4], const Terrain::GrassTileWind* tileWind, uint32_t tileCount,
                   const Terrain::GrassFrameConstants& frame);

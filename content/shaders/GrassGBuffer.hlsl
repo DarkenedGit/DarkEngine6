@@ -118,7 +118,15 @@ PSInput VSMain(VSInput input)
 
     float3 n = faceDir;
 #if GRASS_LOD == 0
-    n = grassSafeNormalize(cross(widthAxis, grassBezierDeriv(t, tip, height)), faceDir);
+    {
+        float yTip = grassYTip(tip, height);
+        float u = 1.0f - t;
+        float3 p0 = float3(0.0f, 0.0f, 0.0f);
+        float3 p1 = float3(tip.x * 0.25f, height * 0.55f, tip.z * 0.25f);
+        float3 p2 = float3(tip.x, yTip, tip.z);
+        float3 deriv = 2.0f * u * (p1 - p0) + 2.0f * t * (p2 - p1);
+        n = grassSafeNormalize(cross(widthAxis, deriv), faceDir);
+    }
 #elif GRASS_LOD < 3
     n = grassSafeNormalize(faceDir + float3(tip.x, 0.0f, tip.z) * t, faceDir);
 #endif

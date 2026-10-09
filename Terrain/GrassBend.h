@@ -7,11 +7,11 @@ namespace Dark::Terrain
 {
     struct GrassTipIn
     {
-        float height = 0.55f; // metres, already mean * per-blade mul * fade
-        float flex   = 0.65f; // 0 rigid, 1 full yield, already mean * per-blade mul
-        float windX  = 0.0f;  // metres at flex 1, already phase-scaled on LOD 0-2
+        float height = 0.55f;
+        float flex   = 0.65f;
+        float windX  = 0.0f;
         float windZ  = 0.0f;
-        float shoveX = 0.0f; // player metres at flex 1; LOD 2 and 3 pass 0
+        float shoveX = 0.0f;
         float shoveZ = 0.0f;
     };
 
@@ -28,7 +28,6 @@ namespace Dark::Terrain
         float z = 0.0f;
     };
 
-    // LOD 2 and 3 zero shove before this call. The curve does not read shove.
     inline GrassTip grassTipOffset(const GrassTipIn& in)
     {
         GrassTip tip{};
@@ -45,8 +44,6 @@ namespace Dark::Terrain
         return tip;
     }
 
-    // lod is 0..3. t is in [0, 1]. Height is the curve length input, already combined.
-    // Mesh half-width is not an input. There is no root lift here.
     inline GrassLocal grassBladeLocal(int lod, float t, const GrassTip& tip, float height)
     {
         const float tipLen2 = tip.x * tip.x + tip.z * tip.z;

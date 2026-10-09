@@ -114,7 +114,7 @@ TEST(GrassMesh, LodCountsAndBladeShape)
             const Math::Vector3f& b  = mesh.positions[i1];
             const Math::Vector3f& c  = mesh.positions[i2];
             const float           nz = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-            EXPECT_GT(nz, 0.0f);
+            EXPECT_LT(nz, 0.0f);
         }
 
         if (lod == 2)
