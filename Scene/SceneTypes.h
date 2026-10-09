@@ -327,6 +327,20 @@ namespace Dark
         std::string grassModel  = "models/Grass/grass_medium_01_2k.gltf";
     };
 
+    struct GrassSceneDesc
+    {
+        bool     enabled          = false;
+        float    heightMetres     = 0.55f;
+        float    flexibility      = 0.65f;
+        float    densityScale     = 1.0f;
+        float    windBaseYaw      = 1.37f;
+        float    windDeflection   = 0.55f;
+        float    windTipMetres    = 0.40f;
+        float    windSpatialFreq  = 0.004f;
+        float    windTemporalFreq = 0.015f;
+        uint32_t seed             = 1337u;
+    };
+
     struct TerrainSceneDesc
     {
         static constexpr int kBindLayoutV1 = 1;
@@ -346,6 +360,7 @@ namespace Dark
         bool                  hasGrid    = false;
         TerrainGridSceneDesc  grid;
         FoliageSceneDesc      foliage;
+        GrassSceneDesc        grass;
     };
 
     // Celestial clock and weather. Absent from a file means the Environment defaults.

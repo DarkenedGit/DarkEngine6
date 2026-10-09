@@ -3,6 +3,7 @@
 #include "Core/Log.h"
 #include "Math/MathDefines.h"
 #include "Math/MathHelper.h"
+#include "Terrain/GrassTypes.h"
 #include "Terrain/TerrainTileFile.h"
 
 #include "third_party/nlohmann/json.hpp"
@@ -231,6 +232,32 @@ bool readColor(const json& j, float out[4], std::string* err, const char* field)
     return true;
 }
 
+void clampGrassScene(GrassSceneDesc& desc)
+{
+    Terrain::GrassParams params;
+    params.enabled          = desc.enabled;
+    params.heightMetres     = desc.heightMetres;
+    params.flexibility      = desc.flexibility;
+    params.densityScale     = desc.densityScale;
+    params.windBaseYaw      = desc.windBaseYaw;
+    params.windDeflection   = desc.windDeflection;
+    params.windTipMetres    = desc.windTipMetres;
+    params.windSpatialFreq  = desc.windSpatialFreq;
+    params.windTemporalFreq = desc.windTemporalFreq;
+    params.seed             = desc.seed;
+    Terrain::clampGrassParams(params);
+    desc.enabled          = params.enabled;
+    desc.heightMetres     = params.heightMetres;
+    desc.flexibility      = params.flexibility;
+    desc.densityScale     = params.densityScale;
+    desc.windBaseYaw      = params.windBaseYaw;
+    desc.windDeflection   = params.windDeflection;
+    desc.windTipMetres    = params.windTipMetres;
+    desc.windSpatialFreq  = params.windSpatialFreq;
+    desc.windTemporalFreq = params.windTemporalFreq;
+    desc.seed             = params.seed;
+}
+
 } // namespace
 
 bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& scene, std::string* errorOut)
@@ -312,6 +339,20 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             f["rockModel"]         = scene.terrain.foliage.rockModel;
             f["grassModel"]        = scene.terrain.foliage.grassModel;
             t["foliage"]           = std::move(f);
+            GrassSceneDesc grass = scene.terrain.grass;
+            clampGrassScene(grass);
+            json grassJson;
+            grassJson["enabled"]          = grass.enabled;
+            grassJson["height"]           = grass.heightMetres;
+            grassJson["flexibility"]      = grass.flexibility;
+            grassJson["densityScale"]     = grass.densityScale;
+            grassJson["windBaseYaw"]      = grass.windBaseYaw;
+            grassJson["windDeflection"]   = grass.windDeflection;
+            grassJson["windTipMetres"]    = grass.windTipMetres;
+            grassJson["windSpatialFreq"]  = grass.windSpatialFreq;
+            grassJson["windTemporalFreq"] = grass.windTemporalFreq;
+            grassJson["seed"]             = grass.seed;
+            t["grass"] = std::move(grassJson);
             root["terrain"] = std::move(t);
         }
         if (scene.sky.present)
@@ -558,6 +599,22 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                     desc.foliage.flowerModel        = f.value("flowerModel", std::string("models/Dandelion/dandelion_01_2k.gltf"));
                     desc.foliage.rockModel          = f.value("rockModel", std::string("models/RockMoss/rock_moss_set_01_2k.gltf"));
                     desc.foliage.grassModel         = f.value("grassModel", std::string("models/Grass/grass_medium_01_2k.gltf"));
+                }
+                if (t.contains("grass") && t["grass"].is_object())
+                {
+                    const json& g = t["grass"];
+                    const GrassSceneDesc fallback{};
+                    desc.grass.enabled          = g.value("enabled", fallback.enabled);
+                    desc.grass.heightMetres     = g.value("height", fallback.heightMetres);
+                    desc.grass.flexibility      = g.value("flexibility", fallback.flexibility);
+                    desc.grass.densityScale     = g.value("densityScale", fallback.densityScale);
+                    desc.grass.windBaseYaw      = g.value("windBaseYaw", fallback.windBaseYaw);
+                    desc.grass.windDeflection   = g.value("windDeflection", fallback.windDeflection);
+                    desc.grass.windTipMetres    = g.value("windTipMetres", fallback.windTipMetres);
+                    desc.grass.windSpatialFreq  = g.value("windSpatialFreq", fallback.windSpatialFreq);
+                    desc.grass.windTemporalFreq = g.value("windTemporalFreq", fallback.windTemporalFreq);
+                    desc.grass.seed             = g.value("seed", fallback.seed);
+                    clampGrassScene(desc.grass);
                 }
                 if (t.contains("layers") && t["layers"].is_array())
                 {

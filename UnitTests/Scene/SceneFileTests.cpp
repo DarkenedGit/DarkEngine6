@@ -5,6 +5,7 @@
 #include "Math/MathDefines.h"
 #include "Scene/SceneFile.h"
 #include "Terrain/FoliageFile.h"
+#include "Terrain/GrassTypes.h"
 
 #include <cmath>
 #include <filesystem>
@@ -27,6 +28,37 @@ std::filesystem::path weaklyCanonical(const std::filesystem::path& path)
     std::error_code       ec;
     std::filesystem::path n = std::filesystem::weakly_canonical(path, ec);
     return ec ? path.lexically_normal() : n;
+}
+
+void expectGrassDefaults(const GrassSceneDesc& grass)
+{
+    const Terrain::GrassParams defaults{};
+    EXPECT_EQ(grass.enabled, defaults.enabled);
+    EXPECT_FALSE(grass.enabled);
+    EXPECT_NEAR(grass.heightMetres, defaults.heightMetres, 1.0e-5f);
+    EXPECT_NEAR(grass.flexibility, defaults.flexibility, 1.0e-5f);
+    EXPECT_NEAR(grass.densityScale, defaults.densityScale, 1.0e-5f);
+    EXPECT_NEAR(grass.windBaseYaw, defaults.windBaseYaw, 1.0e-5f);
+    EXPECT_NEAR(grass.windDeflection, defaults.windDeflection, 1.0e-5f);
+    EXPECT_NEAR(grass.windTipMetres, defaults.windTipMetres, 1.0e-5f);
+    EXPECT_NEAR(grass.windSpatialFreq, defaults.windSpatialFreq, 1.0e-5f);
+    EXPECT_NEAR(grass.windTemporalFreq, defaults.windTemporalFreq, 1.0e-5f);
+    EXPECT_EQ(grass.seed, defaults.seed);
+}
+
+void expectGrassMatchesClamp(const GrassSceneDesc& grass, Terrain::GrassParams params)
+{
+    Terrain::clampGrassParams(params);
+    EXPECT_EQ(grass.enabled, params.enabled);
+    EXPECT_NEAR(grass.heightMetres, params.heightMetres, 1.0e-5f);
+    EXPECT_NEAR(grass.flexibility, params.flexibility, 1.0e-5f);
+    EXPECT_NEAR(grass.densityScale, params.densityScale, 1.0e-5f);
+    EXPECT_NEAR(grass.windBaseYaw, params.windBaseYaw, 1.0e-5f);
+    EXPECT_NEAR(grass.windDeflection, params.windDeflection, 1.0e-5f);
+    EXPECT_NEAR(grass.windTipMetres, params.windTipMetres, 1.0e-5f);
+    EXPECT_NEAR(grass.windSpatialFreq, params.windSpatialFreq, 1.0e-5f);
+    EXPECT_NEAR(grass.windTemporalFreq, params.windTemporalFreq, 1.0e-5f);
+    EXPECT_EQ(grass.seed, params.seed);
 }
 
 } // namespace
@@ -606,6 +638,9 @@ TEST(SceneFile, TerrainRoundTrip)
     EXPECT_NEAR(out.terrain.layers[0].tiling, 24.0f, 1.0e-4f);
     EXPECT_NEAR(out.terrain.layers[0].tint[1], 0.9f, 1.0e-4f);
     EXPECT_EQ(out.terrain.layers[1].albedo, "terrain/grass/albedo.png");
+    EXPECT_NE(text.find("\"grass\""), std::string::npos);
+    EXPECT_EQ(text.find("\"heightMetres\""), std::string::npos);
+    expectGrassDefaults(out.terrain.grass);
 
     std::error_code removeEc;
     std::filesystem::remove(path, removeEc);
@@ -912,6 +947,16 @@ TEST(SceneFile, TerrainFoliage_RoundTrip)
     in.terrain.foliage.flowerModel        = "models/flower.gltf";
     in.terrain.foliage.rockModel          = "models/rock.gltf";
     in.terrain.foliage.grassModel         = "models/Grass/grass_medium_01_2k.gltf";
+    in.terrain.grass.enabled              = true;
+    in.terrain.grass.heightMetres         = 0.80f;
+    in.terrain.grass.flexibility          = 0.25f;
+    in.terrain.grass.densityScale         = 1.25f;
+    in.terrain.grass.windBaseYaw          = -1.20f;
+    in.terrain.grass.windDeflection       = 0.30f;
+    in.terrain.grass.windTipMetres        = 0.15f;
+    in.terrain.grass.windSpatialFreq      = 0.008f;
+    in.terrain.grass.windTemporalFreq     = 0.040f;
+    in.terrain.grass.seed                 = 0xA11F5Eu;
 
     const auto path = tempScenePath("darkengine6_scene_terrain_foliage_ut.json");
     std::string err;
@@ -957,6 +1002,18 @@ TEST(SceneFile, TerrainFoliage_RoundTrip)
     EXPECT_EQ(out.terrain.foliage.flowerModel, "models/flower.gltf");
     EXPECT_EQ(out.terrain.foliage.rockModel, "models/rock.gltf");
     EXPECT_EQ(out.terrain.foliage.grassModel, "models/Grass/grass_medium_01_2k.gltf");
+    EXPECT_TRUE(out.terrain.grass.enabled);
+    EXPECT_NEAR(out.terrain.grass.heightMetres, 0.80f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.grass.flexibility, 0.25f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.grass.densityScale, 1.25f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.grass.windBaseYaw, -1.20f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.grass.windDeflection, 0.30f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.grass.windTipMetres, 0.15f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.grass.windSpatialFreq, 0.008f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.grass.windTemporalFreq, 0.040f, 1.0e-5f);
+    EXPECT_EQ(out.terrain.grass.seed, 0xA11F5Eu);
+    EXPECT_NE(text.find("\"height\":"), std::string::npos);
+    EXPECT_EQ(text.find("\"heightMetres\""), std::string::npos);
 
     SceneFileData twoD = in;
     twoD.mode = SceneMode::Scene2D;
@@ -970,6 +1027,7 @@ TEST(SceneFile, TerrainFoliage_RoundTrip)
     }
     EXPECT_EQ(text2d.find("\"terrain\""), std::string::npos);
     EXPECT_EQ(text2d.find("\"foliage\""), std::string::npos);
+    EXPECT_EQ(text2d.find("\"grass\""), std::string::npos);
     EXPECT_NE(text2d.find("\"version\": 2"), std::string::npos);
 
     std::error_code removeEc;
@@ -1036,6 +1094,7 @@ TEST(SceneFile, TerrainFoliage_MissingKey_Defaults)
     EXPECT_EQ(data.terrain.foliage.flowerModel, defaults.flowerModel);
     EXPECT_EQ(data.terrain.foliage.rockModel, defaults.rockModel);
     EXPECT_EQ(data.terrain.foliage.grassModel, defaults.grassModel);
+    expectGrassDefaults(data.terrain.grass);
 
     std::error_code removeEc;
     std::filesystem::remove(path, removeEc);
@@ -1115,6 +1174,297 @@ TEST(SceneFile, TerrainFoliage_ClampDensities)
     std::filesystem::remove(path, removeEc);
 }
 
+TEST(SceneFile, TerrainGrass_RoundTrip)
+{
+    const auto missingPath = tempScenePath("darkengine6_scene_terrain_grass_missing_ut.json");
+    {
+        std::ofstream out(missingPath, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "grass_missing",
+  "mode": "3d",
+  "terrain": {
+    "bindLayout": 1,
+    "heightFile": "grass_missing.height.bin",
+    "layers": []
+  },
+  "objects": []
+})";
+    }
+
+    SceneFileData missing{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(missingPath, missing, &err)) << err;
+    EXPECT_EQ(missing.version, 2);
+    EXPECT_TRUE(missing.hasTerrain);
+    EXPECT_FALSE(missing.terrain.foliage.present);
+    expectGrassDefaults(missing.terrain.grass);
+
+    const auto highPath = tempScenePath("darkengine6_scene_terrain_grass_high_ut.json");
+    {
+        std::ofstream out(highPath, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "grass_high",
+  "mode": "3d",
+  "terrain": {
+    "bindLayout": 1,
+    "foliage": {
+      "version": 1,
+      "grassPerM2": 0.4,
+      "stale": true,
+      "treeModel": "models/tree.gltf",
+      "grassModel": "models/Grass/grass_medium_01_2k.gltf",
+      "notes": "ignored"
+    },
+    "grass": {
+      "enabled": true,
+      "height": 10,
+      "flexibility": 4,
+      "densityScale": 9,
+      "windBaseYaw": 10,
+      "windDeflection": 5,
+      "windTipMetres": 4,
+      "windSpatialFreq": 1,
+      "windTemporalFreq": 1,
+      "seed": 99,
+      "notes": "ignored"
+    },
+    "layers": []
+  },
+  "objects": []
+})";
+    }
+
+    SceneFileData high{};
+    ASSERT_TRUE(loadSceneFromJson(highPath, high, &err)) << err;
+    EXPECT_EQ(high.version, 2);
+    EXPECT_TRUE(high.terrain.foliage.present);
+    EXPECT_TRUE(high.terrain.foliage.stale);
+    EXPECT_NEAR(high.terrain.foliage.grassPerM2, 0.4f, 1.0e-5f);
+    EXPECT_EQ(high.terrain.foliage.treeModel, "models/tree.gltf");
+    EXPECT_EQ(high.terrain.foliage.grassModel, "models/Grass/grass_medium_01_2k.gltf");
+    EXPECT_NEAR(high.terrain.grass.heightMetres, 1.50f, 1.0e-5f);
+    EXPECT_NEAR(high.terrain.grass.flexibility, 1.0f, 1.0e-5f);
+    EXPECT_NEAR(high.terrain.grass.densityScale, 1.5f, 1.0e-5f);
+    Terrain::GrassParams highParams{};
+    highParams.enabled          = true;
+    highParams.heightMetres     = 10.0f;
+    highParams.flexibility      = 4.0f;
+    highParams.densityScale     = 9.0f;
+    highParams.windBaseYaw      = 10.0f;
+    highParams.windDeflection   = 5.0f;
+    highParams.windTipMetres    = 4.0f;
+    highParams.windSpatialFreq  = 1.0f;
+    highParams.windTemporalFreq = 1.0f;
+    highParams.seed             = 99u;
+    expectGrassMatchesClamp(high.terrain.grass, highParams);
+
+    const auto lowPath = tempScenePath("darkengine6_scene_terrain_grass_low_ut.json");
+    {
+        std::ofstream out(lowPath, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "grass_low",
+  "mode": "3d",
+  "terrain": {
+    "bindLayout": 1,
+    "grass": {
+      "enabled": false,
+      "height": 0,
+      "flexibility": -1,
+      "densityScale": -4,
+      "windBaseYaw": -10,
+      "windDeflection": -1,
+      "windTipMetres": -2,
+      "windSpatialFreq": 0,
+      "windTemporalFreq": -1,
+      "seed": 0
+    },
+    "layers": []
+  },
+  "objects": []
+})";
+    }
+
+    SceneFileData low{};
+    ASSERT_TRUE(loadSceneFromJson(lowPath, low, &err)) << err;
+    EXPECT_EQ(low.version, 2);
+    EXPECT_FALSE(low.terrain.grass.enabled);
+    EXPECT_NEAR(low.terrain.grass.heightMetres, 0.05f, 1.0e-5f);
+    EXPECT_NEAR(low.terrain.grass.flexibility, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(low.terrain.grass.densityScale, 0.0f, 1.0e-5f);
+    EXPECT_EQ(low.terrain.grass.seed, 0u);
+    Terrain::GrassParams lowParams{};
+    lowParams.enabled          = false;
+    lowParams.heightMetres     = 0.0f;
+    lowParams.flexibility      = -1.0f;
+    lowParams.densityScale     = -4.0f;
+    lowParams.windBaseYaw      = -10.0f;
+    lowParams.windDeflection   = -1.0f;
+    lowParams.windTipMetres    = -2.0f;
+    lowParams.windSpatialFreq  = 0.0f;
+    lowParams.windTemporalFreq = -1.0f;
+    lowParams.seed             = 0u;
+    expectGrassMatchesClamp(low.terrain.grass, lowParams);
+
+    const auto partialPath = tempScenePath("darkengine6_scene_terrain_grass_partial_ut.json");
+    {
+        std::ofstream out(partialPath, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "grass_partial",
+  "mode": "3d",
+  "terrain": {
+    "bindLayout": 1,
+    "grass": { "enabled": true, "seed": 5, "notes": "ignored" },
+    "layers": []
+  },
+  "objects": []
+})";
+    }
+
+    SceneFileData partial{};
+    ASSERT_TRUE(loadSceneFromJson(partialPath, partial, &err)) << err;
+    EXPECT_TRUE(partial.terrain.grass.enabled);
+    EXPECT_EQ(partial.terrain.grass.seed, 5u);
+    const GrassSceneDesc partialDefaults{};
+    EXPECT_NEAR(partial.terrain.grass.heightMetres, partialDefaults.heightMetres, 1.0e-5f);
+    EXPECT_NEAR(partial.terrain.grass.flexibility, partialDefaults.flexibility, 1.0e-5f);
+    EXPECT_NEAR(partial.terrain.grass.densityScale, partialDefaults.densityScale, 1.0e-5f);
+    EXPECT_NEAR(partial.terrain.grass.windBaseYaw, partialDefaults.windBaseYaw, 1.0e-5f);
+    EXPECT_NEAR(partial.terrain.grass.windDeflection, partialDefaults.windDeflection, 1.0e-5f);
+    EXPECT_NEAR(partial.terrain.grass.windTipMetres, partialDefaults.windTipMetres, 1.0e-5f);
+    EXPECT_NEAR(partial.terrain.grass.windSpatialFreq, partialDefaults.windSpatialFreq, 1.0e-5f);
+    EXPECT_NEAR(partial.terrain.grass.windTemporalFreq, partialDefaults.windTemporalFreq, 1.0e-5f);
+
+    const auto badPath = tempScenePath("darkengine6_scene_terrain_grass_nonobject_ut.json");
+    {
+        std::ofstream out(badPath, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "grass_nonobject",
+  "mode": "3d",
+  "terrain": { "bindLayout": 1, "grass": false, "layers": [] },
+  "objects": []
+})";
+    }
+
+    SceneFileData nonObject{};
+    ASSERT_TRUE(loadSceneFromJson(badPath, nonObject, &err)) << err;
+    EXPECT_EQ(nonObject.version, 2);
+    expectGrassDefaults(nonObject.terrain.grass);
+
+    SceneFileData in{};
+    in.version    = 2;
+    in.name       = "ut_terrain_grass";
+    in.mode       = SceneMode::Scene3D;
+    in.hasTerrain = true;
+    in.terrain.bindLayout = TerrainSceneDesc::kBindLayoutV1;
+    in.terrain.foliage.present    = true;
+    in.terrain.foliage.grassPerM2 = 0.4f;
+    in.terrain.foliage.stale      = true;
+    in.terrain.foliage.treeModel  = "models/tree.gltf";
+    in.terrain.grass.enabled          = true;
+    in.terrain.grass.heightMetres     = 10.0f;
+    in.terrain.grass.flexibility      = 4.0f;
+    in.terrain.grass.densityScale     = 9.0f;
+    in.terrain.grass.windBaseYaw      = 1.37f + Math::TwoPi;
+    in.terrain.grass.windDeflection   = 1.20f;
+    in.terrain.grass.windTipMetres    = 0.0f;
+    in.terrain.grass.windSpatialFreq  = 0.0005f;
+    in.terrain.grass.windTemporalFreq = 0.0f;
+    in.terrain.grass.seed             = 0xFFFFFFFFu;
+
+    const auto path = tempScenePath("darkengine6_scene_terrain_grass_ut.json");
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+    std::string text;
+    {
+        std::ifstream inFile(path);
+        ASSERT_TRUE(static_cast<bool>(inFile));
+        text.assign((std::istreambuf_iterator<char>(inFile)), std::istreambuf_iterator<char>());
+    }
+    EXPECT_NE(text.find("\"version\": 2"), std::string::npos);
+    EXPECT_NE(text.find("\"version\": 1"), std::string::npos);
+    EXPECT_EQ(text.find("\"version\": 3"), std::string::npos);
+    EXPECT_NE(text.find("\"grass\""), std::string::npos);
+    EXPECT_NE(text.find("\"height\":"), std::string::npos);
+    EXPECT_EQ(text.find("\"heightMetres\""), std::string::npos);
+    EXPECT_NE(text.find("\"enabled\": true"), std::string::npos);
+    EXPECT_EQ(text.find("\"height\": 10"), std::string::npos);
+
+    SceneFileData out{};
+    ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
+    EXPECT_EQ(out.version, 2);
+    EXPECT_TRUE(out.terrain.foliage.present);
+    EXPECT_TRUE(out.terrain.foliage.stale);
+    EXPECT_NEAR(out.terrain.foliage.grassPerM2, 0.4f, 1.0e-5f);
+    EXPECT_EQ(out.terrain.foliage.treeModel, "models/tree.gltf");
+    EXPECT_TRUE(out.terrain.grass.enabled);
+    EXPECT_NEAR(out.terrain.grass.heightMetres, 1.50f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.grass.flexibility, 1.0f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.grass.densityScale, 1.5f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.grass.windBaseYaw, 1.37f, 1.0e-4f);
+    EXPECT_NEAR(out.terrain.grass.windDeflection, 1.20f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.grass.windTipMetres, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.grass.windSpatialFreq, 0.0005f, 1.0e-6f);
+    EXPECT_NEAR(out.terrain.grass.windTemporalFreq, 0.0f, 1.0e-5f);
+    EXPECT_EQ(out.terrain.grass.seed, 0xFFFFFFFFu);
+    Terrain::GrassParams roundParams{};
+    roundParams.enabled          = true;
+    roundParams.heightMetres     = 10.0f;
+    roundParams.flexibility      = 4.0f;
+    roundParams.densityScale     = 9.0f;
+    roundParams.windBaseYaw      = 1.37f + Math::TwoPi;
+    roundParams.windDeflection   = 1.20f;
+    roundParams.windTipMetres    = 0.0f;
+    roundParams.windSpatialFreq  = 0.0005f;
+    roundParams.windTemporalFreq = 0.0f;
+    roundParams.seed             = 0xFFFFFFFFu;
+    expectGrassMatchesClamp(out.terrain.grass, roundParams);
+
+    SceneFileData zeros = in;
+    zeros.terrain.grass.enabled          = false;
+    zeros.terrain.grass.heightMetres     = 0.05f;
+    zeros.terrain.grass.flexibility      = 0.0f;
+    zeros.terrain.grass.densityScale     = 0.0f;
+    zeros.terrain.grass.windBaseYaw      = Math::Pi;
+    zeros.terrain.grass.windDeflection   = 0.0f;
+    zeros.terrain.grass.windTipMetres    = 0.0f;
+    zeros.terrain.grass.windSpatialFreq  = 0.02f;
+    zeros.terrain.grass.windTemporalFreq = 0.10f;
+    zeros.terrain.grass.seed             = 0u;
+    const auto zeroPath = tempScenePath("darkengine6_scene_terrain_grass_zero_ut.json");
+    ASSERT_TRUE(saveSceneToJson(zeroPath, zeros, &err)) << err;
+    SceneFileData zeroOut{};
+    ASSERT_TRUE(loadSceneFromJson(zeroPath, zeroOut, &err)) << err;
+    EXPECT_FALSE(zeroOut.terrain.grass.enabled);
+    EXPECT_NEAR(zeroOut.terrain.grass.heightMetres, 0.05f, 1.0e-5f);
+    EXPECT_NEAR(zeroOut.terrain.grass.flexibility, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(zeroOut.terrain.grass.densityScale, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(zeroOut.terrain.grass.windBaseYaw, Math::Pi, 1.0e-5f);
+    EXPECT_NEAR(zeroOut.terrain.grass.windDeflection, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(zeroOut.terrain.grass.windTipMetres, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(zeroOut.terrain.grass.windSpatialFreq, 0.02f, 1.0e-5f);
+    EXPECT_NEAR(zeroOut.terrain.grass.windTemporalFreq, 0.10f, 1.0e-5f);
+    EXPECT_EQ(zeroOut.terrain.grass.seed, 0u);
+    EXPECT_NEAR(zeroOut.terrain.foliage.grassPerM2, 0.4f, 1.0e-5f);
+
+    std::error_code removeEc;
+    std::filesystem::remove(missingPath, removeEc);
+    std::filesystem::remove(highPath, removeEc);
+    std::filesystem::remove(lowPath, removeEc);
+    std::filesystem::remove(partialPath, removeEc);
+    std::filesystem::remove(badPath, removeEc);
+    std::filesystem::remove(path, removeEc);
+    std::filesystem::remove(zeroPath, removeEc);
+}
+
 TEST(SceneFile, Terrain_LegacyHeightFile_StillLoads)
 {
     const auto path = tempScenePath("darkengine6_scene_terrain_legacy_hf_ut.json");
@@ -1147,6 +1497,7 @@ TEST(SceneFile, Terrain_LegacyHeightFile_StillLoads)
     EXPECT_EQ(data.terrain.splatFile, "legacy.splat.png");
     EXPECT_EQ(data.terrain.bindLayout, TerrainSceneDesc::kBindLayoutV1);
     EXPECT_EQ(data.terrain.chunkCells, 16);
+    expectGrassDefaults(data.terrain.grass);
 
     std::error_code removeEc;
     std::filesystem::remove(path, removeEc);
