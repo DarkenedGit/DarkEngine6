@@ -1,11 +1,11 @@
 #pragma pack_matrix(row_major)
 
-#include "GBuffer.hlsli"
-#include "GrassBend.hlsli"
-
 #ifndef GRASS_LOD
 #define GRASS_LOD 0
 #endif
+
+#include "GBuffer.hlsli"
+#include "GrassBend.hlsli"
 
 cbuffer GrassFrameConstants : register(b0)
 {
@@ -95,26 +95,47 @@ PSInput VSMain(VSInput input)
     windZ *= windScale;
 #endif
 
+    float2 shove = float2(0.0f, 0.0f);
+    float2 prevShove = float2(0.0f, 0.0f);
+#if GRASS_LOD < 2
+    float velX;
+    float velZ;
+    float prevVelX;
+    float prevVelZ;
+    grassReadPackedYaw(pad0, velX, velZ, prevVelX, prevVelZ);
+    // Distance rejects a disc before that blade normalizes a direction.
+    shove = grassGatherShove(blade.x, blade.z, pushMetres, velX, velZ, interactor, footprint);
+    prevShove = grassGatherShove(blade.x, blade.z, pushMetres, prevVelX, prevVelZ, prevInteractor, prevFootprint);
+#endif
+
     GrassTipIn tipIn;
     tipIn.height = height;
     tipIn.flex = flex;
     tipIn.windX = windX;
     tipIn.windZ = windZ;
-    // LOD 2 and 3 have no player shove. LOD 0 and 1 stay at 0 until that loop exists.
-    tipIn.shoveX = 0.0f;
-    tipIn.shoveZ = 0.0f;
+    tipIn.shoveX = shove.x;
+    tipIn.shoveZ = shove.y;
     GrassTip tip = grassTipOffset(tipIn);
+
+    GrassTipIn prevIn = tipIn;
+    prevIn.shoveX = prevShove.x;
+    prevIn.shoveZ = prevShove.y;
+    GrassTip prevTip = grassTipOffset(prevIn);
 
     float t = input.position.y;
     GrassLocal bent = grassBladeLocal(GRASS_LOD, t, tip, height);
+    GrassLocal prevBent = grassBladeLocal(GRASS_LOD, t, prevTip, height);
 
     float s;
     float c;
     sincos(blade.yaw, s, c);
     float3 faceDir = grassYaw(input.normal, s, c);
     float3 widthAxis = grassYaw(input.tangent.xyz, s, c);
-    float3 world = float3(blade.x, blade.y, blade.z) + widthAxis * input.position.x + float3(bent.x, bent.y, bent.z);
+    float3 root = float3(blade.x, blade.y, blade.z);
+    float3 world = root + widthAxis * input.position.x + float3(bent.x, bent.y, bent.z);
     world.z += input.position.z;
+    float3 prevWorld = root + widthAxis * input.position.x + float3(prevBent.x, prevBent.y, prevBent.z);
+    prevWorld.z += input.position.z;
 
     float3 n = faceDir;
 #if GRASS_LOD == 0
@@ -133,10 +154,11 @@ PSInput VSMain(VSInput input)
     n *= input.tangent.w;
 
     float4 wp = float4(world, 1.0f);
+    float4 prevWp = float4(prevWorld, 1.0f);
     PSInput o;
     o.currClip = mul(wp, viewProj);
-    // Previous wind is not a separate buffer yet. The previous view still has to be finite.
-    o.prevClip = mul(wp, prevViewProj);
+    // Previous shove is a real blade, not a zero clip, even when the interactor block is empty.
+    o.prevClip = mul(prevWp, prevViewProj);
     o.position = o.currClip;
     o.normalWS = n;
     o.t = input.uv.y;

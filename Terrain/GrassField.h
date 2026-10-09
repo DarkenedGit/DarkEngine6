@@ -10,6 +10,15 @@ namespace Dark::Terrain
 {
     class TerrainGrid;
 
+    struct GrassPlayerSample
+    {
+        float x       = 0.0f;
+        float z       = 0.0f;
+        float velX    = 0.0f;
+        float velZ    = 0.0f;
+        bool  shoving = false;
+    };
+
     class GrassField
     {
     public:
@@ -31,7 +40,7 @@ namespace Dark::Terrain
         const GrassParams& params() const { return m_params; }
 
         void reset();
-        void update(const TerrainGrid& grid, float playerX, float playerZ, double playTimeSec, float waterLevel);
+        void update(const TerrainGrid& grid, float playerX, float playerZ, double playTimeSec, float waterLevel, const GrassPlayerSample& player = {});
 
         static void tileIndex(float worldX, float worldZ, int& tileX, int& tileZ);
 
@@ -42,6 +51,12 @@ namespace Dark::Terrain
 
         const GrassTileWind* tileWind() const { return m_wind.empty() ? nullptr : m_wind.data(); }
         uint32_t              tileWindCount() const { return m_wind.empty() ? 0u : kGrassWindSlots; }
+
+        const GrassInteractor* interactors() const { return m_interactor; }
+        const GrassInteractor* prevInteractors() const { return m_prevInteractor; }
+        const GrassInteractor* footprints() const { return m_footprint; }
+        const GrassInteractor* prevFootprints() const { return m_prevFootprint; }
+        void                   writeFrameInteraction(GrassFrameConstants& frame) const;
 
     private:
         struct Tile
@@ -66,6 +81,10 @@ namespace Dark::Terrain
         uint32_t allocWindSlot();
         void     freeWindSlot(uint32_t slot);
         void     sampleWind(float playerX, float playerZ, double playTimeSec);
+        void     clearInteraction();
+        void     updateInteraction(const GrassPlayerSample& player, double playTimeSec);
+        void     decayFootprints(float dt);
+        void     placeFootprint(float x, float z);
         void     warnFull(int lod);
 
         Tile*       findTile(int tileX, int tileZ);
@@ -95,6 +114,20 @@ namespace Dark::Terrain
         std::vector<GrassBlade>             m_scratch;
         bool                                m_loggedNoSplat = false;
         bool                                m_refused[kGrassLodCount]{};
+        GrassInteractor                     m_interactor[4]{};
+        GrassInteractor                     m_prevInteractor[4]{};
+        GrassInteractor                     m_footprint[8]{};
+        GrassInteractor                     m_prevFootprint[8]{};
+        float                               m_footAge[8]{};
+        float                               m_velX        = 0.0f;
+        float                               m_velZ        = 0.0f;
+        float                               m_prevVelX    = 0.0f;
+        float                               m_prevVelZ    = 0.0f;
+        float                               m_dropX       = 0.0f;
+        float                               m_dropZ       = 0.0f;
+        bool                                m_hasDrop     = false;
+        bool                                m_hasClock    = false;
+        double                              m_lastPlaySec = 0.0;
     };
 
 } // namespace Dark::Terrain

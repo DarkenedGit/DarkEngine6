@@ -3,6 +3,7 @@
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
 #include "Math/Vector3f.h"
+#include "Terrain/GrassBend.h"
 #include "Terrain/GrassWind.h"
 #include "Terrain/TerrainGen.h"
 #include "Terrain/TerrainGrid.h"
@@ -248,6 +249,146 @@ namespace Dark::Terrain
         m_loggedNoSplat = false;
         for (int lod = 0; lod < kGrassLodCount; ++lod)
             m_refused[lod] = false;
+        clearInteraction();
+    }
+
+    void GrassField::clearInteraction()
+    {
+        for (int i = 0; i < kGrassInteractorSlots; ++i)
+        {
+            m_interactor[i]     = {};
+            m_prevInteractor[i] = {};
+        }
+        for (int i = 0; i < kGrassFootprintSlots; ++i)
+        {
+            m_footprint[i]     = {};
+            m_prevFootprint[i] = {};
+            m_footAge[i]       = 0.0f;
+        }
+        m_velX        = 0.0f;
+        m_velZ        = 0.0f;
+        m_prevVelX    = 0.0f;
+        m_prevVelZ    = 0.0f;
+        m_dropX       = 0.0f;
+        m_dropZ       = 0.0f;
+        m_hasDrop     = false;
+        m_hasClock    = false;
+        m_lastPlaySec = 0.0;
+    }
+
+    void GrassField::decayFootprints(float dt)
+    {
+        if (!(dt > 0.0f))
+            return;
+        for (int i = 0; i < kGrassFootprintSlots; ++i)
+        {
+            if (!(m_footprint[i].strength > 0.0f))
+                continue;
+            m_footAge[i] += dt;
+            if (m_footAge[i] >= kGrassFootprintLifeSec)
+            {
+                m_footprint[i] = {};
+                m_footAge[i]   = 0.0f;
+                continue;
+            }
+            m_footprint[i].strength = 1.0f - m_footAge[i] / kGrassFootprintLifeSec;
+        }
+    }
+
+    void GrassField::placeFootprint(float x, float z)
+    {
+        int   slot      = -1;
+        int   oldest    = 0;
+        float oldestAge = -1.0f;
+        for (int i = 0; i < kGrassFootprintSlots; ++i)
+        {
+            if (!(m_footprint[i].strength > 0.0f))
+            {
+                slot = i;
+                break;
+            }
+            if (m_footAge[i] > oldestAge)
+            {
+                oldestAge = m_footAge[i];
+                oldest    = i;
+            }
+        }
+        if (slot < 0)
+            slot = oldest;
+        m_footprint[slot].x        = x;
+        m_footprint[slot].z        = z;
+        m_footprint[slot].strength = 1.0f;
+        m_footprint[slot].radius   = kGrassShoveRadiusMetres;
+        m_footAge[slot]            = 0.0f;
+    }
+
+    void GrassField::updateInteraction(const GrassPlayerSample& player, double playTimeSec)
+    {
+        for (int i = 0; i < kGrassInteractorSlots; ++i)
+            m_prevInteractor[i] = m_interactor[i];
+        for (int i = 0; i < kGrassFootprintSlots; ++i)
+            m_prevFootprint[i] = m_footprint[i];
+        m_prevVelX = m_velX;
+        m_prevVelZ = m_velZ;
+
+        float dt = 0.0f;
+        if (m_hasClock)
+        {
+            const double step = playTimeSec - m_lastPlaySec;
+            if (step > 0.0)
+                dt = static_cast<float>(step);
+        }
+        m_hasClock    = true;
+        m_lastPlaySec = playTimeSec;
+        decayFootprints(dt);
+
+        m_velX = player.velX;
+        m_velZ = player.velZ;
+        for (int i = 0; i < kGrassInteractorSlots; ++i)
+            m_interactor[i] = {};
+        if (!player.shoving)
+        {
+            m_hasDrop = false;
+            return;
+        }
+
+        m_interactor[0].x        = player.x;
+        m_interactor[0].z        = player.z;
+        m_interactor[0].strength = 1.0f;
+        m_interactor[0].radius   = kGrassShoveRadiusMetres;
+
+        if (!m_hasDrop)
+        {
+            m_hasDrop = true;
+            m_dropX   = player.x;
+            m_dropZ   = player.z;
+            return;
+        }
+
+        const float dx = player.x - m_dropX;
+        const float dz = player.z - m_dropZ;
+        if (dx * dx + dz * dz > kGrassFootprintStepMetres * kGrassFootprintStepMetres)
+        {
+            placeFootprint(player.x, player.z);
+            m_dropX = player.x;
+            m_dropZ = player.z;
+        }
+    }
+
+    void GrassField::writeFrameInteraction(GrassFrameConstants& frame) const
+    {
+        frame.pushMetres = kGrassPushMetres;
+        frame.pad0       = grassPackPlanarYaw(m_velX, m_velZ, m_prevVelX, m_prevVelZ);
+        for (int i = 0; i < kGrassInteractorSlots; ++i)
+        {
+            frame.interactor[i]     = m_interactor[i];
+            frame.prevInteractor[i] = m_prevInteractor[i];
+        }
+        for (int i = 0; i < kGrassFootprintSlots; ++i)
+        {
+            frame.footprint[i]     = m_footprint[i];
+            frame.prevFootprint[i] = m_prevFootprint[i];
+        }
     }
 
     GrassField::BladeSpan GrassField::blades(int lod) const
@@ -688,7 +829,7 @@ namespace Dark::Terrain
         }
     }
 
-    void GrassField::update(const TerrainGrid& grid, float playerX, float playerZ, double playTimeSec, float waterLevel)
+    void GrassField::update(const TerrainGrid& grid, float playerX, float playerZ, double playTimeSec, float waterLevel, const GrassPlayerSample& player)
     {
         if (!m_params.enabled || !grid.valid())
         {
@@ -697,6 +838,7 @@ namespace Dark::Terrain
         }
 
         sampleWind(playerX, playerZ, playTimeSec);
+        updateInteraction(player, playTimeSec);
 
         std::vector<Demote> demotes;
         demotes.reserve(m_tiles.size());

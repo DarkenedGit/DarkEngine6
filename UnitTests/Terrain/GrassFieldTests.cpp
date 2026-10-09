@@ -2,6 +2,7 @@
 
 #include "Math/MathHelper.h"
 #include "Math/Vector3f.h"
+#include "Terrain/GrassBend.h"
 #include "Terrain/GrassField.h"
 #include "Terrain/GrassWind.h"
 #include "Terrain/TerrainGrid.h"
@@ -462,4 +463,265 @@ TEST(GrassField, SpawnGates)
     missing.update(unsplat, 4.0f, 4.0f, 0.0, -1000.0f);
     EXPECT_EQ(bladeTotal(missing), 0u);
     EXPECT_EQ(missing.residentTileCount(), 0u);
+}
+
+namespace
+{
+    float shoveLength(const GrassShove& shove)
+    {
+        return std::sqrt(shove.x * shove.x + shove.z * shove.z);
+    }
+
+    bool makeGrass(TerrainGrid& grid)
+    {
+        return makeGrid(grid, 9, Vector3f(0.0f, 0.0f, 0.0f), 0.0f, 0, 255, 0, 0, true);
+    }
+} // namespace
+
+TEST(GrassField, PlayerCenterShove_IsFlexTimesPush)
+{
+    TerrainGrid grid;
+    ASSERT_TRUE(makeGrass(grid));
+    GrassField field;
+    enable(field, 1337u);
+
+    GrassPlayerSample player;
+    player.x       = 4.0f;
+    player.z       = 4.0f;
+    player.shoving = true;
+    field.update(grid, player.x, player.z, 0.0, -1000.0f, player);
+
+    EXPECT_FLOAT_EQ(field.interactors()[0].x, player.x);
+    EXPECT_FLOAT_EQ(field.interactors()[0].z, player.z);
+    EXPECT_FLOAT_EQ(field.interactors()[0].strength, 1.0f);
+    EXPECT_FLOAT_EQ(field.interactors()[0].radius, kGrassShoveRadiusMetres);
+    EXPECT_FLOAT_EQ(field.prevInteractors()[0].strength, 0.0f);
+    for (int i = 1; i < kGrassInteractorSlots; ++i)
+    {
+        EXPECT_FLOAT_EQ(field.interactors()[i].strength, 0.0f);
+        EXPECT_FLOAT_EQ(field.interactors()[i].radius, 0.0f);
+    }
+
+    const float height = 1.0f;
+    const float flex   = 0.65f;
+    EXPECT_LT(flex * kGrassPushMetres, 0.85f * height);
+    EXPECT_FLOAT_EQ(grassShoveFalloff(0.0f, kGrassShoveRadiusMetres), 1.0f);
+
+    const GrassShove shove = grassShoveMetres(0, player.x, player.z, field.interactors(), field.footprints(), player.velX, player.velZ, kGrassPushMetres);
+    GrassTipIn       in;
+    in.height          = height;
+    in.flex            = flex;
+    in.shoveX          = shove.x;
+    in.shoveZ          = shove.z;
+    const GrassTip tip = grassTipOffset(in);
+    EXPECT_NEAR(shoveLength(shove), kGrassPushMetres, 1e-5f);
+    EXPECT_NEAR(std::sqrt(tip.x * tip.x + tip.z * tip.z), flex * kGrassPushMetres, 1e-5f);
+}
+
+TEST(GrassField, ShovePastRadius_IsZero)
+{
+    TerrainGrid grid;
+    ASSERT_TRUE(makeGrass(grid));
+    GrassField field;
+    enable(field, 1337u);
+
+    GrassPlayerSample player;
+    player.x       = 4.0f;
+    player.z       = 4.0f;
+    player.shoving = true;
+    field.update(grid, player.x, player.z, 0.0, -1000.0f, player);
+
+    EXPECT_FLOAT_EQ(grassShoveFalloff(kGrassShoveRadiusMetres, kGrassShoveRadiusMetres), 0.0f);
+    const GrassShove past = grassShoveMetres(0, player.x + 1.20f, player.z, field.interactors(), field.footprints(), 0.0f, 0.0f, kGrassPushMetres);
+    EXPECT_FLOAT_EQ(past.x, 0.0f);
+    EXPECT_FLOAT_EQ(past.z, 0.0f);
+
+    GrassTipIn in;
+    in.height          = 1.0f;
+    in.flex            = 1.0f;
+    in.shoveX          = past.x;
+    in.shoveZ          = past.z;
+    const GrassTip tip = grassTipOffset(in);
+    EXPECT_FLOAT_EQ(tip.x, 0.0f);
+    EXPECT_FLOAT_EQ(tip.z, 0.0f);
+}
+
+TEST(GrassField, Lod2AndLod3_IgnorePlayerOnBlade)
+{
+    TerrainGrid grid;
+    ASSERT_TRUE(makeGrass(grid));
+    GrassField field;
+    enable(field, 1337u);
+
+    GrassPlayerSample player;
+    player.x       = 4.0f;
+    player.z       = 4.0f;
+    player.shoving = true;
+    field.update(grid, player.x, player.z, 0.0, -1000.0f, player);
+
+    const GrassShove lod0 = grassShoveMetres(0, player.x, player.z, field.interactors(), field.footprints(), 0.0f, 0.0f, kGrassPushMetres);
+    const GrassShove lod1 = grassShoveMetres(1, player.x, player.z, field.interactors(), field.footprints(), 0.0f, 0.0f, kGrassPushMetres);
+    EXPECT_GT(shoveLength(lod0), 0.5f);
+    EXPECT_NEAR(lod1.x, lod0.x, 1e-6f);
+    EXPECT_NEAR(lod1.z, lod0.z, 1e-6f);
+
+    for (int lod = 2; lod <= 3; ++lod)
+    {
+        const GrassShove ignored = grassShoveMetres(lod, player.x, player.z, field.interactors(), field.footprints(), 0.0f, 0.0f, kGrassPushMetres);
+        EXPECT_FLOAT_EQ(ignored.x, 0.0f);
+        EXPECT_FLOAT_EQ(ignored.z, 0.0f);
+        GrassTipIn in;
+        in.height          = 1.0f;
+        in.flex            = 1.0f;
+        in.shoveX          = ignored.x;
+        in.shoveZ          = ignored.z;
+        const GrassTip tip = grassTipOffset(in);
+        EXPECT_FLOAT_EQ(tip.x, 0.0f);
+        EXPECT_FLOAT_EQ(tip.z, 0.0f);
+    }
+}
+
+TEST(GrassField, FootprintStrength_DecaysOverHalfSecond)
+{
+    TerrainGrid grid;
+    ASSERT_TRUE(makeGrass(grid));
+    GrassField field;
+    enable(field, 1337u);
+
+    GrassPlayerSample player;
+    player.x       = 4.0f;
+    player.z       = 4.0f;
+    player.shoving = true;
+    field.update(grid, player.x, player.z, 0.0, -1000.0f, player);
+
+    player.x = 4.36f;
+    field.update(grid, player.x, player.z, 0.0, -1000.0f, player);
+
+    int live = -1;
+    for (int i = 0; i < kGrassFootprintSlots; ++i)
+    {
+        if (field.footprints()[i].strength > 0.0f)
+        {
+            live = i;
+            break;
+        }
+    }
+    ASSERT_GE(live, 0);
+    EXPECT_FLOAT_EQ(field.footprints()[live].strength, 1.0f);
+    EXPECT_FLOAT_EQ(field.footprints()[live].radius, kGrassShoveRadiusMetres);
+    EXPECT_FLOAT_EQ(field.footprints()[live].x, player.x);
+    EXPECT_FLOAT_EQ(field.footprints()[live].z, player.z);
+
+    field.update(grid, player.x, player.z, 0.25, -1000.0f, player);
+    EXPECT_NEAR(field.footprints()[live].strength, 0.5f, 1e-5f);
+    EXPECT_NEAR(field.prevFootprints()[live].strength, 1.0f, 1e-5f);
+
+    field.update(grid, player.x, player.z, 0.50, -1000.0f, player);
+    EXPECT_FLOAT_EQ(field.footprints()[live].x, 0.0f);
+    EXPECT_FLOAT_EQ(field.footprints()[live].z, 0.0f);
+    EXPECT_FLOAT_EQ(field.footprints()[live].strength, 0.0f);
+    EXPECT_FLOAT_EQ(field.footprints()[live].radius, 0.0f);
+    EXPECT_NEAR(field.prevFootprints()[live].strength, 0.5f, 1e-5f);
+}
+
+TEST(GrassField, NonShovingSample_WritesZeroInteractor)
+{
+    TerrainGrid grid;
+    ASSERT_TRUE(makeGrass(grid));
+    GrassField field;
+    enable(field, 1337u);
+    field.update(grid, 4.0f, 4.0f, 0.0, -1000.0f);
+
+    GrassFrameConstants frame{};
+    frame.viewProj[0]            = 7.0f;
+    frame.interactor[0].strength = 4.0f;
+    frame.pad0                   = 3.0f;
+    field.writeFrameInteraction(frame);
+    EXPECT_FLOAT_EQ(frame.viewProj[0], 7.0f);
+    EXPECT_FLOAT_EQ(frame.pushMetres, kGrassPushMetres);
+    EXPECT_FLOAT_EQ(frame.pad0, 0.0f);
+    for (int i = 0; i < kGrassInteractorSlots; ++i)
+    {
+        EXPECT_FLOAT_EQ(field.interactors()[i].x, 0.0f);
+        EXPECT_FLOAT_EQ(field.interactors()[i].z, 0.0f);
+        EXPECT_FLOAT_EQ(field.interactors()[i].strength, 0.0f);
+        EXPECT_FLOAT_EQ(field.interactors()[i].radius, 0.0f);
+        EXPECT_FLOAT_EQ(frame.interactor[i].strength, 0.0f);
+        EXPECT_FLOAT_EQ(frame.interactor[i].radius, 0.0f);
+        EXPECT_FLOAT_EQ(frame.prevInteractor[i].strength, 0.0f);
+    }
+
+    GrassPlayerSample shove;
+    shove.x       = 2.0f;
+    shove.z       = 3.0f;
+    shove.shoving = true;
+    field.update(grid, shove.x, shove.z, 1.0, -1000.0f, shove);
+    EXPECT_FLOAT_EQ(field.interactors()[0].strength, 1.0f);
+
+    field.update(grid, shove.x, shove.z, 1.0, -1000.0f);
+    EXPECT_FLOAT_EQ(field.interactors()[0].x, 0.0f);
+    EXPECT_FLOAT_EQ(field.interactors()[0].z, 0.0f);
+    EXPECT_FLOAT_EQ(field.interactors()[0].strength, 0.0f);
+    EXPECT_FLOAT_EQ(field.interactors()[0].radius, 0.0f);
+    EXPECT_FLOAT_EQ(field.prevInteractors()[0].x, shove.x);
+    EXPECT_FLOAT_EQ(field.prevInteractors()[0].z, shove.z);
+    EXPECT_FLOAT_EQ(field.prevInteractors()[0].strength, 1.0f);
+    EXPECT_FLOAT_EQ(field.prevInteractors()[0].radius, kGrassShoveRadiusMetres);
+    for (int i = 1; i < kGrassInteractorSlots; ++i)
+        EXPECT_FLOAT_EQ(field.prevInteractors()[i].strength, 0.0f);
+}
+
+TEST(GrassField, MovingPlayer_BiasesShoveTowardVelocity)
+{
+    TerrainGrid grid;
+    ASSERT_TRUE(makeGrass(grid));
+    GrassField field;
+    enable(field, 1337u);
+
+    GrassPlayerSample player;
+    player.x       = 4.0f;
+    player.z       = 4.0f;
+    player.velX    = 0.0f;
+    player.velZ    = 2.0f;
+    player.shoving = true;
+    field.update(grid, player.x, player.z, 0.0, -1000.0f, player);
+
+    const float      bladeX = player.x + 1.0f;
+    const float      bladeZ = player.z;
+    const float      fall   = grassShoveFalloff(1.0f, kGrassShoveRadiusMetres);
+    const GrassShove still  = grassShoveMetres(0, bladeX, bladeZ, field.interactors(), field.footprints(), 0.0f, 0.0f, kGrassPushMetres);
+    EXPECT_NEAR(still.x, kGrassPushMetres * fall, 1e-5f);
+    EXPECT_NEAR(still.z, 0.0f, 1e-5f);
+
+    const GrassShove moving = grassShoveMetres(0, bladeX, bladeZ, field.interactors(), field.footprints(), player.velX, player.velZ, kGrassPushMetres);
+    const float      mx     = kGrassShoveAwayWeight;
+    const float      mz     = kGrassShoveVelWeight;
+    const float      inv    = 1.0f / std::sqrt(mx * mx + mz * mz);
+    EXPECT_NEAR(moving.x, inv * mx * kGrassPushMetres * fall, 1e-5f);
+    EXPECT_NEAR(moving.z, inv * mz * kGrassPushMetres * fall, 1e-5f);
+
+    EXPECT_EQ(grassPackYawBits(0.50f, 0.0f), 0);
+    EXPECT_GT(grassPackYawBits(0.0f, 0.51f), 0);
+
+    GrassFrameConstants frame{};
+    field.writeFrameInteraction(frame);
+    GrassPlanarYaw current{};
+    GrassPlanarYaw previous{};
+    grassUnpackPlanarYaw(frame.pad0, current, previous);
+    EXPECT_TRUE(current.bias);
+    EXPECT_FALSE(previous.bias);
+    EXPECT_NEAR(current.x, 0.0f, 1e-3f);
+    EXPECT_NEAR(current.z, 1.0f, 1e-3f);
+
+    player.velX = 2.0f;
+    player.velZ = 0.0f;
+    field.update(grid, player.x, player.z, 0.10, -1000.0f, player);
+    field.writeFrameInteraction(frame);
+    grassUnpackPlanarYaw(frame.pad0, current, previous);
+    EXPECT_TRUE(current.bias);
+    EXPECT_TRUE(previous.bias);
+    EXPECT_NEAR(current.x, 1.0f, 1e-3f);
+    EXPECT_NEAR(current.z, 0.0f, 1e-3f);
+    EXPECT_NEAR(previous.x, 0.0f, 1e-3f);
+    EXPECT_NEAR(previous.z, 1.0f, 1e-3f);
 }

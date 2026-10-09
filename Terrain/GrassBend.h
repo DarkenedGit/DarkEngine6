@@ -1,10 +1,199 @@
 #pragma once
 
+#include "Terrain/GrassTypes.h"
+
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace Dark::Terrain
 {
+    constexpr float kGrassPushMetres          = 0.55f;
+    constexpr float kGrassShoveRadiusMetres   = 1.15f;
+    constexpr float kGrassShoveInnerMetres    = 0.15f;
+    constexpr float kGrassShoveSpeedMetres    = 0.50f;
+    constexpr float kGrassShoveAwayWeight     = 0.75f;
+    constexpr float kGrassShoveVelWeight      = 0.25f;
+    constexpr float kGrassFootprintStepMetres = 0.35f;
+    constexpr float kGrassFootprintLifeSec    = 0.50f;
+    constexpr int   kGrassInteractorSlots     = 4;
+    constexpr int   kGrassFootprintSlots      = 8;
+
+    static_assert(kGrassInteractorSlots == 4, "grass interactor slots");
+    static_assert(kGrassFootprintSlots == 8, "grass footprint slots");
+
+    struct GrassShove
+    {
+        float x = 0.0f;
+        float z = 0.0f;
+    };
+
+    struct GrassPlanarYaw
+    {
+        float x    = 0.0f;
+        float z    = 0.0f;
+        bool  bias = false;
+    };
+
+    inline float grassShoveFalloff(float dist, float radius)
+    {
+        if (!(radius > kGrassShoveInnerMetres))
+            return dist <= kGrassShoveInnerMetres ? 1.0f : 0.0f;
+        return Math::SmoothStep(radius, kGrassShoveInnerMetres, dist);
+    }
+
+    inline void grassShoveDirection(float bladeX, float bladeZ, float discX, float discZ, float velX, float velZ, bool bias, float& outX, float& outZ)
+    {
+        const float dx         = bladeX - discX;
+        const float dz         = bladeZ - discZ;
+        const float len2       = dx * dx + dz * dz;
+        float       ax         = 0.0f;
+        float       az         = 1.0f;
+        const bool  degenerate = !(len2 > 1.0e-8f);
+        if (!degenerate)
+        {
+            const float inv = 1.0f / std::sqrt(len2);
+            ax              = dx * inv;
+            az              = dz * inv;
+        }
+
+        const float speed2 = velX * velX + velZ * velZ;
+        const bool  moving = bias && speed2 > kGrassShoveSpeedMetres * kGrassShoveSpeedMetres;
+        if (!moving)
+        {
+            outX = ax;
+            outZ = az;
+            return;
+        }
+
+        const float invS = 1.0f / std::sqrt(speed2);
+        const float vx   = velX * invS;
+        const float vz   = velZ * invS;
+        if (degenerate)
+        {
+            outX = vx;
+            outZ = vz;
+            return;
+        }
+
+        const float mx = ax * kGrassShoveAwayWeight + vx * kGrassShoveVelWeight;
+        const float mz = az * kGrassShoveAwayWeight + vz * kGrassShoveVelWeight;
+        const float m2 = mx * mx + mz * mz;
+        if (m2 > 1.0e-8f)
+        {
+            const float invM = 1.0f / std::sqrt(m2);
+            outX             = mx * invM;
+            outZ             = mz * invM;
+            return;
+        }
+        outX = vx;
+        outZ = vz;
+    }
+
+    inline GrassShove grassShoveMetres(int lod, float bladeX, float bladeZ, const GrassInteractor* interactors, const GrassInteractor* footprints, float velX, float velZ, float pushMetres)
+    {
+        GrassShove shove{};
+        if (lod < 0 || lod >= 2 || !interactors || !footprints || !(pushMetres > 0.0f))
+            return shove;
+
+        float best   = 0.0f;
+        float winX   = 0.0f;
+        float winZ   = 0.0f;
+        bool  player = false;
+        for (int i = 0; i < kGrassInteractorSlots; ++i)
+        {
+            const GrassInteractor& disc = interactors[i];
+            if (!(disc.strength > 0.0f) || !(disc.radius > 0.0f))
+                continue;
+            const float dx    = bladeX - disc.x;
+            const float dz    = bladeZ - disc.z;
+            const float dist2 = dx * dx + dz * dz;
+            if (dist2 > disc.radius * disc.radius)
+                continue;
+            const float fall = grassShoveFalloff(std::sqrt(dist2), disc.radius) * disc.strength;
+            if (fall > best)
+            {
+                best   = fall;
+                winX   = disc.x;
+                winZ   = disc.z;
+                player = i == 0;
+            }
+        }
+        for (int i = 0; i < kGrassFootprintSlots; ++i)
+        {
+            const GrassInteractor& disc = footprints[i];
+            if (!(disc.strength > 0.0f) || !(disc.radius > 0.0f))
+                continue;
+            const float dx    = bladeX - disc.x;
+            const float dz    = bladeZ - disc.z;
+            const float dist2 = dx * dx + dz * dz;
+            if (dist2 > disc.radius * disc.radius)
+                continue;
+            const float fall = grassShoveFalloff(std::sqrt(dist2), disc.radius) * disc.strength;
+            if (fall > best)
+            {
+                best   = fall;
+                winX   = disc.x;
+                winZ   = disc.z;
+                player = false;
+            }
+        }
+        if (!(best > 0.0f))
+            return shove;
+
+        float dirX = 0.0f;
+        float dirZ = 1.0f;
+        grassShoveDirection(bladeX, bladeZ, winX, winZ, velX, velZ, player, dirX, dirZ);
+        shove.x = dirX * pushMetres * best;
+        shove.z = dirZ * pushMetres * best;
+        return shove;
+    }
+
+    // Current and previous yaw share one float: the 528-byte block has no second spare channel.
+    inline uint16_t grassPackYawBits(float velX, float velZ)
+    {
+        const float speed2 = velX * velX + velZ * velZ;
+        if (!(speed2 > kGrassShoveSpeedMetres * kGrassShoveSpeedMetres))
+            return 0;
+        const float yaw = std::atan2(velX, velZ);
+        const float u   = (yaw + Math::Pi) / Math::TwoPi;
+        int         q   = 1 + static_cast<int>(std::lround(u * 65534.0f));
+        if (q < 1)
+            q = 1;
+        if (q > 65535)
+            q = 65535;
+        return static_cast<uint16_t>(q);
+    }
+
+    inline float grassPackPlanarYaw(float velX, float velZ, float prevVelX, float prevVelZ)
+    {
+        const uint32_t bits   = (static_cast<uint32_t>(grassPackYawBits(prevVelX, prevVelZ)) << 16) | static_cast<uint32_t>(grassPackYawBits(velX, velZ));
+        float          packed = 0.0f;
+        std::memcpy(&packed, &bits, sizeof(packed));
+        return packed;
+    }
+
+    inline GrassPlanarYaw grassDecodeYawBits(uint16_t q)
+    {
+        GrassPlanarYaw decoded{};
+        if (q == 0)
+            return decoded;
+        const float u   = (static_cast<float>(q) - 1.0f) / 65534.0f;
+        const float yaw = u * Math::TwoPi - Math::Pi;
+        decoded.bias    = true;
+        decoded.x       = std::sin(yaw);
+        decoded.z       = std::cos(yaw);
+        return decoded;
+    }
+
+    inline void grassUnpackPlanarYaw(float packed, GrassPlanarYaw& current, GrassPlanarYaw& previous)
+    {
+        uint32_t bits = 0;
+        std::memcpy(&bits, &packed, sizeof(bits));
+        current  = grassDecodeYawBits(static_cast<uint16_t>(bits & 0xFFFFu));
+        previous = grassDecodeYawBits(static_cast<uint16_t>(bits >> 16));
+    }
+
     struct GrassTipIn
     {
         float height = 0.55f;
