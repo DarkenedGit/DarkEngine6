@@ -18,6 +18,7 @@ constexpr uint32_t ShadowCascade    = 0xFF8E6CC0;
 constexpr uint32_t GBuffer          = 0xFF1E8E3E;
 constexpr uint32_t ForwardOpaque    = 0xFF43A047;
 constexpr uint32_t Terrain          = 0xFF6B8E23;
+constexpr uint32_t Grass            = 0xFF8BC34A;
 constexpr uint32_t TerrainDepth     = 0xFF3D5C1E;
 constexpr uint32_t OpaqueMeshes     = 0xFF00897B;
 constexpr uint32_t OpaqueModels     = 0xFF00ACC1;
