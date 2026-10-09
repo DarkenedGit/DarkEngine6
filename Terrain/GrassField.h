@@ -10,7 +10,6 @@ namespace Dark::Terrain
 {
     class TerrainGrid;
 
-    // CPU grass tiles around a point. No GPU resources.
     class GrassField
     {
     public:
@@ -34,7 +33,6 @@ namespace Dark::Terrain
         void reset();
         void update(const TerrainGrid& grid, float playerX, float playerZ, double playTimeSec, float waterLevel);
 
-        // std::floor, so negative world XZ does not truncate toward zero.
         static void tileIndex(float worldX, float worldZ, int& tileX, int& tileZ);
 
         BladeSpan blades(int lod) const;
@@ -42,7 +40,6 @@ namespace Dark::Terrain
         int       residentLod(int tileX, int tileZ) const;
         uint32_t  residentTileCount() const { return static_cast<uint32_t>(m_tiles.size()); }
 
-        // Fixed table. tileSlot indexes it. Empty until the first resident tile.
         const GrassTileWind* tileWind() const { return m_wind.empty() ? nullptr : m_wind.data(); }
         uint32_t              tileWindCount() const { return m_wind.empty() ? 0u : kGrassWindSlots; }
 
