@@ -131,7 +131,7 @@ One `SceneObjectData` in `level.json` is a JSON object with type, position, rota
 - Walkability rebakes and hunter pathing around foliage. PathChase's ten trunks stay in `WalkabilityDesc::cubes`. Foliage does not.
 - Hand-editing one instance (move, delete, or pin against the next Spawn). Not in v1.
 - Distance impostors, billboards, and mesh LOD. Not in v1.
-- Wind or vertex animation. Not in v1. There is no previous per-instance matrix. Foliage writes `prevClip = mul(currentWorld, prevViewProj)`, the same matrix terrain uses. The instance buffer is still the current world only.
+- Wind or vertex animation. Not in v1. There is no previous per-instance matrix. Foliage writes `prevClip = mul(currentWorld, prevViewProj)`, the same matrix terrain uses. The instance buffer is still the current world only. Tuft instances still do not animate, and blade wind lives in `Terrain/DESIGN-procedural-grass.md`.
 - A modal that blocks save while the set is stale. Save writes the baked Y and the panel keeps the warning.
 - Replacing PathChase's ten ECS trees. Those stay a sandbox demo.
 - Async I/O. `loadFineTile` already reads height and splat on the caller. Foliage matches that.
