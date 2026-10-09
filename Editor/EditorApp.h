@@ -305,6 +305,7 @@ private:
     Sky::Environment m_env;
     WaterSceneDesc    m_authoredWater{};
     ExposureSceneDesc m_authoredExposure{};
+    GrassSceneDesc    m_authoredGrass{};
     IblSettings  m_ibl;
     GtaoSettings m_ssao;
     SsrSettings  m_ssr;

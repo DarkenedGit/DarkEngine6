@@ -754,6 +754,7 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
         desc.foliage.flowerModel       = m_foliageDensity.flowerModel;
         desc.foliage.rockModel         = m_foliageDensity.rockModel;
         desc.foliage.grassModel        = m_foliageDensity.grassModel;
+        desc.grass                     = m_authoredGrass;
         data.hasTerrain = true;
         data.terrain    = std::move(desc);
         return;
@@ -804,6 +805,7 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
     desc.foliage.flowerModel       = m_foliageDensity.flowerModel;
     desc.foliage.rockModel         = m_foliageDensity.rockModel;
     desc.foliage.grassModel        = m_foliageDensity.grassModel;
+    desc.grass                     = m_authoredGrass;
     data.hasTerrain = true;
     data.terrain    = std::move(desc);
 }
@@ -975,6 +977,8 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
     }
 
     const TerrainSceneDesc& desc = data.terrain;
+    // fillTerrainSceneDesc rebuilds the block from live terrain, which has no grass params.
+    m_authoredGrass = desc.grass;
     if (!desc.source.empty())
     {
         const std::filesystem::path dir = resolveWorldEngineDirectory(desc.source);

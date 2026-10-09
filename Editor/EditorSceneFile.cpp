@@ -265,6 +265,7 @@ bool EditorApp::loadScene()
     removeEditorTerrain();
     m_authoredWater = {};
     m_authoredExposure = {};
+    m_authoredGrass = {};
     if (data.mode != SceneMode::Scene2D)
     {
         applySceneAtmosphere(m_env, data);
