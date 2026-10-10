@@ -1522,34 +1522,94 @@ void SandboxApp::pickUpNearestItem()
     const TransformComponent* xf   = body.valid() ? world().get<TransformComponent>(body) : nullptr;
     if (!inv || !xf)
         return;
-    const Entity         e      = findPickupNear(world(), xf->position, 2.0f);
+    const Entity e = findPickupNear(world(), xf->position, 2.0f);
+    if (e.valid() && world().has<LootComponent>(e))
+    {
+        m_lootTarget = e;
+        return;
+    }
     ItemPickupComponent* pickup = e.valid() ? world().get<ItemPickupComponent>(e) : nullptr;
     if (!pickup)
         return;
 
-    const int added = addItem(*inv, *pickup->item.def, pickup->item.count);
+    const int added = giveItem(*inv, pickup->item);
+    pickup->item.count -= added;
+    if (pickup->item.count <= 0)
+        destroyPickup(world(), pins(), m_physics, e);
+}
+
+int SandboxApp::giveItem(InventoryComponent& inv, const ItemStack& item)
+{
+    const int added = addItem(inv, *item.def, item.count);
     if (added <= 0)
     {
         DE_LOG_INFO("Inventory: bag full");
-        return;
+        return 0;
     }
-    DE_LOG_INFO("Inventory: picked up {} x{}", pickup->item.def->name, added);
+    DE_LOG_INFO("Inventory: picked up {} x{}", item.def->name, added);
     playSoundCue(world(), audio(), assets(), m_camera, "click");
-    const ItemDef* def = pickup->item.def;
-    if (def->type == ItemType::Armor && inv->equipped[static_cast<int>(def->slot)].empty())
+    if (item.def->type == ItemType::Armor && inv.equipped[static_cast<int>(item.def->slot)].empty())
     {
         for (int i = 0; i < InventoryComponent::kBagSize; ++i)
         {
-            if (inv->bag[i].def == def && equipItem(*inv, i))
+            if (inv.bag[i].def == item.def && equipItem(inv, i))
             {
-                DE_LOG_INFO("Inventory: wearing {}", def->name);
+                DE_LOG_INFO("Inventory: wearing {}", item.def->name);
                 break;
             }
         }
     }
-    pickup->item.count -= added;
-    if (pickup->item.count <= 0)
-        destroyPickup(world(), pins(), m_physics, e);
+    return added;
+}
+
+void SandboxApp::stockHunter(Entity hunter)
+{
+    InventoryComponent inv;
+    addItem(inv, *findItemDef("medkit"), 1);
+    if (InventoryComponent* existing = world().get<InventoryComponent>(hunter))
+        *existing = inv;
+    else
+        world().emplace<InventoryComponent>(hunter, inv);
+    removeArmor(world(), pins(), m_physics, hunter);
+    equipHunterArmor(world(), pins(), assets(), renderer(), hunter);
+}
+
+void SandboxApp::updateHunterLoot()
+{
+    for (int i = 0; i < m_chase.hunterCount(); ++i)
+    {
+        const Entity            e  = m_chase.hunterEntity(i);
+        const HealthComponent*  hp = e.valid() ? world().get<HealthComponent>(e) : nullptr;
+        const TransformComponent* xf = e.valid() ? world().get<TransformComponent>(e) : nullptr;
+        if (!hp || !xf || !world().has<InventoryComponent>(e))
+            continue;
+
+        const bool dead    = !hp->health.alive();
+        const bool dropped = m_lootDropped.contains(e.id());
+        if (!dead && dropped)
+        {
+            m_lootDropped.erase(e.id());
+            stockHunter(e);
+        }
+        if (!dead || dropped)
+            continue;
+
+        m_lootDropped.insert(e.id());
+        InventoryComponent contents = *world().get<InventoryComponent>(e);
+        *world().get<InventoryComponent>(e) = {};
+        if (const Combat::ArmorPiecesComponent* armor = world().get<Combat::ArmorPiecesComponent>(e))
+        {
+            for (int p = 0; p < armor->count; ++p)
+            {
+                const ItemDef* def = findItemDef(armor->pieces[p].name);
+                if (armor->pieces[p].attached && def)
+                    addItem(contents, *def, 1);
+            }
+        }
+        removeArmor(world(), pins(), m_physics, e);
+        const Vector3f bagPos{ xf->position.x, m_terrain.heightAtWorld(xf->position.x, xf->position.z) + 0.18f, xf->position.z };
+        spawnLootBag(world(), pins(), assets(), renderer(), bagPos, "Hunter loot", contents);
+    }
 }
 
 void SandboxApp::dropInventoryItem(int bagIndex)
@@ -3653,7 +3713,7 @@ void SandboxApp::onInit()
             const Entity        e   = m_chase.hunterEntity(i);
             const TagComponent* tag = e.valid() ? world().get<TagComponent>(e) : nullptr;
             if (!tag || tag->name != "Wolf")
-                equipHunterArmor(world(), pins(), assets(), renderer(), e);
+                stockHunter(e);
         }
     }
 
@@ -3711,6 +3771,7 @@ void SandboxApp::onUpdate(float dt)
         tickStatusFx(world(), &audio(), &assets());
         updateHealthPacks(dt);
         applyInventoryArmor();
+        updateHunterLoot();
         m_blood.update(dt);
         tickParticleEmitters(world(), dt);
         if (Health* hpAlive = localHealth(); hpAlive && hpAlive->alive())
@@ -4450,6 +4511,8 @@ void SandboxApp::onRender()
             drawDevTools();
         if (m_showInventory)
             drawInventory();
+        if (m_lootTarget.valid())
+            drawLoot();
         m_imgui.render(renderer());
     }
     else if (m_imgui.isReady() && m_menu.visible())

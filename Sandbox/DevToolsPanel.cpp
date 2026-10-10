@@ -205,9 +205,9 @@ void SandboxApp::drawPickupLabels()
     const TransformComponent* pxf     = body.valid() ? world().get<TransformComponent>(body) : nullptr;
     const Entity              nearest = pxf ? findPickupNear(world(), pxf->position, 2.0f) : Entity{};
 
-    world().each<ItemPickupComponent>([&](Entity e, ItemPickupComponent& pickup) {
+    auto label = [&](Entity e, const char* name) {
         const TransformComponent* xf = world().get<TransformComponent>(e);
-        if (!xf || pickup.item.empty())
+        if (!xf)
             return;
         if (pxf && (xf->position - pxf->position).MagnitudeSqrd() > 15.0f * 15.0f)
             return;
@@ -223,17 +223,81 @@ void SandboxApp::drawPickupLabels()
         const float sy = (1.0f - (clip.y * invW * 0.5f + 0.5f)) * vh;
 
         const bool canTake = nearest.valid() && e.id() == nearest.id();
-        char       text[96];
-        if (pickup.item.count > 1)
-            std::snprintf(text, sizeof(text), "%s%s x%d", canTake ? "[G] " : "", pickup.item.def->name, pickup.item.count);
-        else
-            std::snprintf(text, sizeof(text), "%s%s", canTake ? "[G] " : "", pickup.item.def->name);
+        char       text[112];
+        std::snprintf(text, sizeof(text), "%s%s", canTake ? "[G] " : "", name);
 
         const ImVec2 ts = ImGui::CalcTextSize(text);
         const ImVec2 pos{ vpPos.x + sx - ts.x * 0.5f, vpPos.y + sy - ts.y };
         dl->AddText(ImVec2(pos.x + 1.0f, pos.y + 1.0f), IM_COL32(0, 0, 0, 200), text);
         dl->AddText(pos, canTake ? IM_COL32(255, 220, 90, 255) : IM_COL32(235, 235, 235, 255), text);
+    };
+
+    char name[96];
+    world().each<ItemPickupComponent>([&](Entity e, ItemPickupComponent& pickup) {
+        if (pickup.item.empty())
+            return;
+        if (pickup.item.count > 1)
+            std::snprintf(name, sizeof(name), "%s x%d", pickup.item.def->name, pickup.item.count);
+        else
+            std::snprintf(name, sizeof(name), "%s", pickup.item.def->name);
+        label(e, name);
     });
+    world().each<LootComponent>([&](Entity e, LootComponent& loot) {
+        const int n = itemCount(loot.contents);
+        if (n == 0)
+            return;
+        std::snprintf(name, sizeof(name), "%s (%d)", loot.label, n);
+        label(e, name);
+    });
+}
+
+void SandboxApp::drawLoot()
+{
+    const Entity              body = possessedBody();
+    InventoryComponent*       inv  = body.valid() ? world().get<InventoryComponent>(body) : nullptr;
+    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    LootComponent*            loot = world().alive(m_lootTarget) ? world().get<LootComponent>(m_lootTarget) : nullptr;
+    const TransformComponent* lxf  = loot ? world().get<TransformComponent>(m_lootTarget) : nullptr;
+    if (!inv || !pxf || !lxf || (lxf->position - pxf->position).MagnitudeSqrd() > 3.0f * 3.0f)
+    {
+        m_lootTarget = {};
+        return;
+    }
+
+    bool open = true;
+    ImGui::SetNextWindowSize(ImVec2(320.0f, 300.0f), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin(loot->label, &open))
+    {
+        const bool takeAll = ImGui::Button("Take all");
+        ImGui::Separator();
+        for (int i = 0; i < InventoryComponent::kBagSize; ++i)
+        {
+            ItemStack& item = loot->contents.bag[i];
+            if (item.empty())
+                continue;
+            ImGui::PushID(i);
+            ImGui::Text("%s x%d (%s)", item.def->name, item.count, itemTypeName(item.def->type));
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Take") || takeAll)
+            {
+                item.count -= giveItem(*inv, item);
+                if (item.count <= 0)
+                    item = {};
+            }
+            ImGui::PopID();
+        }
+        if (itemCount(loot->contents) == 0)
+            ImGui::TextUnformatted("Empty");
+    }
+    ImGui::End();
+
+    if (itemCount(loot->contents) == 0)
+    {
+        destroyPickup(world(), pins(), m_physics, m_lootTarget);
+        m_lootTarget = {};
+    }
+    else if (!open)
+        m_lootTarget = {};
 }
 
 void SandboxApp::drawNpcInfoOverlay()

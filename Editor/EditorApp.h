@@ -30,6 +30,7 @@
 #include "AI/AiSystem.h"
 #include "Audio/SoundClip.h"
 #include "Character/ArmorView.h"
+#include "Character/ItemView.h"
 #include "Combat/CombatSystem.h"
 #include "Animation/Locomotion.h"
 #include "Character/PlayerStealth.h"

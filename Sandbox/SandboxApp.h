@@ -14,7 +14,7 @@
 #include "Render/SceneRenderer.h"
 #include "Render/Camera3D.h"
 #include "Sky/Environment.h"
-#include "Gameplay/Item.h"
+#include "Gameplay/Inventory.h"
 #include "Physics/PhysicsWorld.h"
 #include "Physics/FoliageCollision.h"
 #include "Terrain/GrassField.h"
@@ -44,6 +44,7 @@
 #include "Save/SaveSystem.h"
 
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace Dark::Combat
@@ -72,7 +73,11 @@ private:
     void drawInventory();
     void drawArmorHud();
     void drawPickupLabels();
-    bool uiOpen() const { return m_showDevTools || m_showInventory; }
+    bool uiOpen() const { return m_showDevTools || m_showInventory || m_lootTarget.valid(); }
+    void drawLoot();
+    int  giveItem(Dark::InventoryComponent& inv, const Dark::ItemStack& item);
+    void stockHunter(Dark::Entity hunter);
+    void updateHunterLoot();
     bool ownsWeapon(Dark::WeaponKind kind);
     void pickUpNearestItem();
     void dropInventoryItem(int bagIndex);
@@ -261,6 +266,8 @@ private:
     bool          m_showSkeleton   = false;
     bool          m_showDevTools   = false;
     bool          m_showInventory  = false;
+    Dark::Entity  m_lootTarget{};
+    std::unordered_set<uint32_t> m_lootDropped;
     const Dark::ItemDef* m_wornArmor[static_cast<int>(Dark::EquipSlot::Count)]{};
     Dark::NpcInfoOverlaySettings m_npcInfo{};
     bool          m_camouflage     = false;
