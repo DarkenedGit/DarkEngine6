@@ -674,6 +674,7 @@ void SandboxApp::drawDevTools()
         edited |= ImGui::SliderFloat("Height", &grass.heightMetres, 0.05f, 1.50f, "%.2f");
         edited |= ImGui::SliderFloat("Flexibility", &grass.flexibility, 0.0f, 1.0f, "%.2f");
         edited |= ImGui::SliderFloat("Density scale", &grass.densityScale, 0.0f, 1.5f, "%.2f");
+        edited |= ImGui::SliderFloat("Wind speed", &grass.windTemporalFreq, 0.0f, 1.0f, "%.2f /s");
         if (!m_grassPipeline.isValid())
             grass.enabled = false;
         if (edited)

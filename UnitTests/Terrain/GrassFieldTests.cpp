@@ -99,6 +99,38 @@ namespace
         }
         return false;
     }
+
+    int longestCircularRun(const bool* line, int n)
+    {
+        bool all  = true;
+        int  best = 0;
+        int  cur  = 0;
+        for (int i = 0; i < n; ++i)
+        {
+            if (line[i])
+            {
+                ++cur;
+                if (cur > best)
+                    best = cur;
+            }
+            else
+            {
+                all = false;
+                cur = 0;
+            }
+        }
+        if (all)
+            return n;
+        int head = 0;
+        while (head < n && line[head])
+            ++head;
+        int tail = 0;
+        while (tail < n && line[n - 1 - tail])
+            ++tail;
+        if (head + tail > best)
+            best = head + tail;
+        return best;
+    }
 } // namespace
 
 TEST(GrassField, RegionSlotsSumToBladeCap)
@@ -397,6 +429,97 @@ TEST(GrassField, Lod3IsSubsetAndDemoteKeepsRoots)
         }
         EXPECT_TRUE(found);
         EXPECT_EQ(blade.tileSlot, slot);
+    }
+}
+
+TEST(GrassField, CoarseTilesAreScattered)
+{
+    struct Band
+    {
+        float    playerX;
+        int      lod;
+        int      perLine;
+        int      maxGap;
+        uint32_t blades;
+    };
+    const Band bands[] = {
+        { 24.0f, 1, 32, 4, kGrassLod1PerTile },
+        { 54.0f, 2, 16, 6, kGrassLod2PerTile },
+        { 104.0f, 3, 10, 8, kGrassLod3PerTile },
+    };
+    constexpr int   kSide = 64;
+    constexpr float kCell = kGrassTileMetres / static_cast<float>(kSide);
+
+    for (const Band& band : bands)
+    {
+        TerrainGrid grid;
+        ASSERT_TRUE(makeGrid(grid, 9, Vector3f(0.0f, 0.0f, 0.0f), 0.0f, 0, 255, 0, 0, true));
+        GrassField field;
+        enable(field, 1337u);
+        field.update(grid, band.playerX, 4.0f, 0.0, -1000.0f);
+        ASSERT_EQ(field.residentLod(0, 0), band.lod) << band.playerX;
+        const std::vector<GrassBlade> blades = tileCopy(field, 0, 0);
+        ASSERT_EQ(blades.size(), static_cast<size_t>(band.blades)) << band.lod;
+
+        bool occupied[kSide][kSide] = {};
+        for (const GrassBlade& blade : blades)
+        {
+            const int ix = static_cast<int>(std::floor(blade.x / kCell));
+            const int iz = static_cast<int>(std::floor(blade.z / kCell));
+            ASSERT_GE(ix, 0) << band.lod;
+            ASSERT_LT(ix, kSide) << band.lod;
+            ASSERT_GE(iz, 0) << band.lod;
+            ASSERT_LT(iz, kSide) << band.lod;
+            EXPECT_FALSE(occupied[iz][ix]) << band.lod;
+            occupied[iz][ix] = true;
+        }
+
+        int gap = 0;
+        for (int z = 0; z < kSide; ++z)
+        {
+            int  count = 0;
+            bool empty[kSide];
+            for (int x = 0; x < kSide; ++x)
+            {
+                count += occupied[z][x] ? 1 : 0;
+                empty[x] = !occupied[z][x];
+            }
+            EXPECT_EQ(count, band.perLine) << band.lod;
+            const int run = longestCircularRun(empty, kSide);
+            if (run > gap)
+                gap = run;
+        }
+        for (int x = 0; x < kSide; ++x)
+        {
+            int  count = 0;
+            bool empty[kSide];
+            for (int z = 0; z < kSide; ++z)
+            {
+                count += occupied[z][x] ? 1 : 0;
+                empty[z] = !occupied[z][x];
+            }
+            EXPECT_EQ(count, band.perLine) << band.lod;
+            const int run = longestCircularRun(empty, kSide);
+            if (run > gap)
+                gap = run;
+        }
+        for (int d = 0; d < kSide; ++d)
+        {
+            bool emptyDiag[kSide];
+            bool emptyAnti[kSide];
+            for (int z = 0; z < kSide; ++z)
+            {
+                emptyDiag[z] = !occupied[z][(z + d) & (kSide - 1)];
+                emptyAnti[z] = !occupied[z][(d - z) & (kSide - 1)];
+            }
+            const int diag = longestCircularRun(emptyDiag, kSide);
+            const int anti = longestCircularRun(emptyAnti, kSide);
+            if (diag > gap)
+                gap = diag;
+            if (anti > gap)
+                gap = anti;
+        }
+        EXPECT_LE(gap, band.maxGap) << band.lod;
     }
 }
 

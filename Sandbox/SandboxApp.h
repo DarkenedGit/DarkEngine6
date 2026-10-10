@@ -206,6 +206,7 @@ private:
     Dark::FoliagePipeline                     m_foliagePipeline;
     Dark::GrassPipeline                       m_grassPipeline;
     Dark::Terrain::GrassField                 m_grassField;
+    double                                    m_grassWindSeconds = 0.0;
     bool                                      m_loggedForwardGrassSkip = false;
     Dark::Terrain::FoliageDensity             m_foliageDensity{};
     std::vector<Dark::Terrain::FoliageRecord> m_foliage;

@@ -3590,10 +3590,8 @@ void SandboxApp::onUpdate(float dt)
                 const PlayerMoveState move = motor->state();
                 sample.shoving             = move == PlayerMoveState::Grounded || move == PlayerMoveState::Crouch || move == PlayerMoveState::Dodge;
             }
-            double playTimeSec = 0.0;
-            if (const WorldClockComponent* clock = m_session.valid() ? world().get<WorldClockComponent>(m_session) : nullptr)
-                playTimeSec = clock->playTimeSec;
-            m_grassField.update(m_terrain, xf->position.x, xf->position.z, playTimeSec, m_water.params().waterLevel, sample);
+            m_grassWindSeconds += static_cast<double>(dt);
+            m_grassField.update(m_terrain, xf->position.x, xf->position.z, m_grassWindSeconds, m_water.params().waterLevel, sample);
         }
     }
     updateFlashlight();

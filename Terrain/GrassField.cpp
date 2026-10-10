@@ -79,12 +79,21 @@ namespace Dark::Terrain
             return k;
         }
 
+        // 5 and 9 are odd, so each residue 0..31 covers 128 cells and every row and column
+        // holds the same count. The step sizes keep a threshold's runs short on both axes and both diagonals.
+        int keepRank(int i)
+        {
+            const int ix = i & (kGrid - 1);
+            const int iz = i / kGrid;
+            return (ix * 5 + iz * 9) & 31;
+        }
+
         int countKept(const uint64_t* bits, int k)
         {
             int n = 0;
             for (int i = 0; i < kCandidates; ++i)
             {
-                if ((i & 31) >= k)
+                if (keepRank(i) >= k)
                     continue;
                 if (bitSet(bits, i))
                     ++n;
@@ -614,7 +623,8 @@ namespace Dark::Terrain
 
         for (int i = 0; i < kCandidates; ++i)
         {
-            const bool pred = (i & 31) < newK;
+            const int  rank = keepRank(i);
+            const bool pred = rank < newK;
             const bool was  = oldBits && bitSet(oldBits, i);
             if (was)
             {
@@ -632,7 +642,7 @@ namespace Dark::Terrain
             if (!pred)
                 continue;
             // Coarser predicate already rejected these. Promotion only samples the new bits.
-            if (!resampleAll && oldK >= 0 && (i & 31) < oldK)
+            if (!resampleAll && oldK >= 0 && rank < oldK)
                 continue;
             GrassBlade blade;
             if (!acceptCandidate(grid, i, tileSeed, originX, originZ, tileSlot, waterLevel, blade))

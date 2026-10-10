@@ -30,7 +30,7 @@ namespace Dark::Terrain
         params.windDeflection   = Math::Clamp(params.windDeflection, 0.0f, 1.20f);
         params.windTipMetres    = Math::Clamp(params.windTipMetres, 0.0f, 1.50f);
         params.windSpatialFreq  = Math::Clamp(params.windSpatialFreq, 0.0005f, 0.02f);
-        params.windTemporalFreq = Math::Clamp(params.windTemporalFreq, 0.0f, 0.10f);
+        params.windTemporalFreq = Math::Clamp(params.windTemporalFreq, 0.0f, 1.0f);
 
         float yaw = std::fmod(params.windBaseYaw, Math::TwoPi);
         if (yaw <= -Math::Pi)

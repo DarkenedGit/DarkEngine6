@@ -291,11 +291,11 @@ Nominal bands are the LOD a **new** tile is created at. Hysteresis then moves an
 | LOD | Nominal `d` | Keep predicate on candidate `i` in `0 .. 4095` | Accepted at scale 1 | Blades / m² |
 |-----|-------------|--------------------------------------------------|---------------------|-------------|
 | 0 | `d <= 16` | all that pass gates | 4096 | 64 |
-| 1 | `16 < d <= 40` | `(i % 32) < 16` | 2048 | 32 |
-| 2 | `40 < d <= 80` | `(i % 32) < 8` | 1024 | 16 |
-| 3 | `80 < d <= 128` | `(i % 32) < 5` | 640 | 10 |
+| 1 | `16 < d <= 40` | `keepRank(i) < 16` | 2048 | 32 |
+| 2 | `40 < d <= 80` | `keepRank(i) < 8` | 1024 | 16 |
+| 3 | `80 < d <= 128` | `keepRank(i) < 5` | 640 | 10 |
 
-`(i % 32) < 5` is a subset of `< 8`, `< 16`, and `< 32`. A promotion adds blades. A demotion filters blades that already exist. Survivors keep their XZ. `i = iz * 64 + ix` with `ix, iz` in `0 .. 63`, so the survivors are spread across the tile and not packed into one corner.
+`keepRank(i) < 5` is a subset of `< 8`, `< 16`, and `< 32`. A promotion adds blades. A demotion filters blades that already exist. Survivors keep their XZ. `i = iz * 64 + ix` with `ix, iz` in `0 .. 63`, and `keepRank(i) = (ix * 5 + iz * 9) & 31`. Each residue `0 .. 31` is on 128 candidates, so open ground still yields 4096 / 2048 / 1024 / 640 blades. Both factors are odd, so every row and every column of the tile holds the same count and a threshold stays a short stipple.
 
 Hysteresis edges are 0.85× and 1.15× the nominal band edges:
 
@@ -337,7 +337,7 @@ Spawn gates, all must pass, evaluated in this order:
 
 An all-zero `sampleWeights` result (invalid map, or a zero texel that does not renormalize) fails the grass threshold. `TerrainGround::at` returning grass when the map is missing is intentionally not used.
 
-`densityScale` (default 1, clamp `[0, 1.5]`) changes the predicates, not the gates. At 1 the table above holds. At 0 the field admits nothing. Other values scale the `% 32` thresholds: `keep = (i % 32) < round(baseKeep * densityScale)` with `baseKeep` of 32 / 16 / 8 / 5, and the result clamped to `[0, 32]`. LOD0’s base is already every candidate (`round(32 * scale)` clamps at 32), so scale cannot put more than 4096 blades on an LOD0 tile. Regions below are sized for scale 1. Above 1 the field is **best-effort**: if the scaled keep does not fit in that LOD’s free slots, use the largest threshold `k` that fits and is still at least the scale-1 base; if even the scale-1 count does not fit, skip the tile. Do not claim scale 1.5 admits another 50%. Changing `densityScale` or `seed` marks every resident tile dirty. Regeneration consumes the generate budget, closest first.
+`densityScale` (default 1, clamp `[0, 1.5]`) changes the predicates, not the gates. At 1 the table above holds. At 0 the field admits nothing. Other values scale those rank thresholds: `keep = keepRank(i) < round(baseKeep * densityScale)` with `baseKeep` of 32 / 16 / 8 / 5, and the result clamped to `[0, 32]`. LOD0’s base is already every candidate (`round(32 * scale)` clamps at 32), so scale cannot put more than 4096 blades on an LOD0 tile. Regions below are sized for scale 1. Above 1 the field is **best-effort**: if the scaled keep does not fit in that LOD’s free slots, use the largest threshold `k` that fits and is still at least the scale-1 base; if even the scale-1 count does not fit, skip the tile. Do not claim scale 1.5 admits another 50%. Changing `densityScale` or `seed` marks every resident tile dirty. Regeneration consumes the generate budget, closest first.
 
 ### Resident count
 
@@ -430,7 +430,7 @@ Per frame, in order:
 3. Decay footprints. Place a new footprint when the player moved more than 0.35 m while shoving.
 4. Demote tiles that have crossed 18.4 / 46 / 92, one step each. A demotion **filters** the existing subset and moves the span. It does not resample the candidates it keeps, and it does **not** spend a generate slot. Cap demotion span-moves at **8 per frame** (closest first). A 16 m/s sprint crosses the three demote rings at `(2·v/64)·(18.4+46+92) = (16/32)·156.4 = 78.2` tiles/s, about 1.3/frame at 60 Hz and 2.6/frame at 30 Hz, so 8 is headroom. If the destination region is full, keep the current LOD and do not drop the tile.
 5. Evict every resident tile with center distance above 147.2 m. Swap-remove those blades, append the byte ranges to the blade dirty log, and free the tile record. Do not destroy the GPU buffer. Eviction is not capped at 8; a teleport may drop the whole ring’s bookkeeping in one frame.
-6. Build the generate list: promotions (a finer LOD needs blades that are not stored) and missing tiles whose center is inside 128 m and inside `containsXZ`. Sort closest first. Take at most **4** of them this frame in steady state. A promotion resamples only the predicate bits the coarser tile did not keep: LOD3→2 adds `(i % 32) ∈ {5, 6, 7}` (384 candidates), LOD2→1 adds 1,024, LOD1→0 adds 2,048. A create walks all 4,096 candidates and keeps the predicate. Do not split one tile across frames.
+6. Build the generate list: promotions (a finer LOD needs blades that are not stored) and missing tiles whose center is inside 128 m and inside `containsXZ`. Sort closest first. Take at most **4** of them this frame in steady state. A promotion resamples only the predicate bits the coarser tile did not keep: LOD3→2 adds `keepRank(i) ∈ {5, 6, 7}` (384 candidates), LOD2→1 adds 1,024, LOD1→0 adds 2,048. A create walks all 4,096 candidates and keeps the predicate. Do not split one tile across frames.
 7. One LOD step per generate. A tile that must climb two bands takes two frames and two slots.
 
 Warm-up, while any missing tile or pending promotion has center distance under **48 m**: the generate cap is **8**, still closest first, with no extra “only one of them may be LOD0” rule. Closest-first already prefers the feet. After that disc is caught up, steady state is 4 generates per frame.
@@ -560,7 +560,7 @@ The tile stores `windX = dirX * strength * windTipMetres`, `windZ = dirZ * stren
 
 Coherence check an implementer can do by hand: at 0.004 cycles/m the Perlin gradient is O(1) per noise unit, so 8 m changes the noise by about 0.032 and the yaw by about `0.032 * 0.55 ≈ 0.018` rad (about one degree). The unit test locks a stricter bound (below).
 
-`sampleGrassWind` runs once per resident tile per `update`. The upload copies the whole table every draw, including tiles that were not regenerated. Playing paused freezes `playTimeSec`, so the field holds still, which is what we want.
+`sampleGrassWind` runs once per resident tile per `update`. The upload copies the whole table every draw, including tiles that were not regenerated. Sandbox feeds that sample a clock that advances with the frame delta, including while gameplay is paused, so the fly cam still shows the lean moving. `playTimeSec` itself still freezes with the simulation.
 
 Sky `windSpeed` (0.04 in `level.json`) is a cloud parameter. It is not multiplied in.
 
@@ -636,7 +636,7 @@ A D3D12 constant-buffer view size must be a multiple of 256. `528 = 2·256 + 16`
 | `windDeflection` | 0.55 | `[0.0, 1.20]` | Radians. 1.20 still cannot flip a neighbor 180°. |
 | `windTipMetres` | 0.40 | `[0.0, 1.50]` | Metres at flex 1, strength 1. |
 | `windSpatialFreq` | 0.004 | `[0.0005, 0.02]` | Cycles per metre. |
-| `windTemporalFreq` | 0.015 | `[0.0, 0.10]` | Cycles per second. 0 freezes the scroll. |
+| `windTemporalFreq` | 0.015 | `[0.0, 1.0]` | Cycles per second. 0 freezes the scroll. `level.json` sets 0.5 so a cycle takes about 2 s. |
 | `seed` | 1337 | any `uint32_t` | Same default as `FoliageDensity::seed`. Independent. Changing it regenerates. |
 
 The outer radius, hysteresis, and region sizes are engine constants, not JSON fields. Per-blade variation is the muls in `GrassBlade`, not extra sliders.
@@ -656,7 +656,7 @@ Scene JSON, sibling of `terrain.foliage`, not inside it. Scene `version` stays 2
 
 `GrassSceneDesc` on `TerrainSceneDesc` carries the same fields. `SceneFile.cpp` clamps on load the way `grassPerM2` is clamped to `[0, 1]`. Unknown keys are ignored. A missing `terrain.grass` object leaves `enabled` false so old scenes do not grow a blade field. `level.json` sets `enabled` true in the Sandbox hookup PR only.
 
-Sandbox Dev Tools (M, `SandboxApp::drawDevTools`) gets a “Procedural grass” collapsing header: enable checkbox, height slider, flexibility slider, density slider. Those edit the live `GrassParams` for the session. They do not write `level.json`. There is no Editor terrain-panel slider in v1.
+Sandbox Dev Tools (M, `SandboxApp::drawDevTools`) gets a “Procedural grass” collapsing header: enable checkbox, height slider, flexibility slider, density slider, and a wind-speed slider (`windTemporalFreq`, 0 to 1 cycle/s). Those edit the live `GrassParams` for the session. They do not write `level.json`. There is no Editor terrain-panel slider in v1.
 
 Startup copy happens next to the existing foliage density copy in `SandboxApp::onInit` (the block that reads `sceneData.terrain.foliage`).
 

@@ -216,7 +216,7 @@ TEST(GrassWind, GrassParams_Clamp)
     low.windDeflection   = 2.0f;
     low.windTipMetres    = -0.5f;
     low.windSpatialFreq  = 0.0001f;
-    low.windTemporalFreq = 0.25f;
+    low.windTemporalFreq = 2.0f;
     low.windBaseYaw      = Dark::Math::Pi + 0.5f;
     low.seed             = 0xFFFFFFFFu;
     low.enabled          = true;
@@ -227,7 +227,7 @@ TEST(GrassWind, GrassParams_Clamp)
     EXPECT_FLOAT_EQ(low.windDeflection, 1.20f);
     EXPECT_FLOAT_EQ(low.windTipMetres, 0.0f);
     EXPECT_FLOAT_EQ(low.windSpatialFreq, 0.0005f);
-    EXPECT_FLOAT_EQ(low.windTemporalFreq, 0.10f);
+    EXPECT_FLOAT_EQ(low.windTemporalFreq, 1.0f);
     EXPECT_GT(low.windBaseYaw, -Dark::Math::Pi);
     EXPECT_LE(low.windBaseYaw, Dark::Math::Pi);
     EXPECT_NEAR(low.windBaseYaw, -Dark::Math::Pi + 0.5f, 1.0e-5f);
