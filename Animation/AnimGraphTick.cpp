@@ -1,5 +1,6 @@
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
+#include "Character/HealthComponent.h"
 #include "Core/Log.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
@@ -56,6 +57,16 @@ namespace Dark
 			{
 				overlayCount = ag.graphDef->overlayForClip(ag.graph.player().incomingClip(), overlay, 64);
 				overlayPtr = overlay;
+			}
+
+			if (HitReactionComponent* hr = world.get<HitReactionComponent>(e))
+			{
+				hr->hit.decayFlinch(dt);
+				Math::Vector3f local = hr->hit.flinchDirection();
+				if (const TransformComponent* xf = world.get<TransformComponent>(e))
+					local = xf->rotation.Conjugate().Rotate(local);
+				const float flinch = hr->hit.flinch();
+				ag.graph.player().setHitFlinch(local.z * flinch, local.x * flinch);
 			}
 
 			AnimNotifyQueue queue;

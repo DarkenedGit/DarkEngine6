@@ -91,9 +91,9 @@ namespace Dark
         shield.scale = Vect3f::ONE;
     }
 
-    void placePlayerFlashlight(TransformComponent& light, const Vector3f& camPos, const Vector3f& look, const Vector3f& right, const Vector3f& up)
+    void placePlayerFlashlight(TransformComponent& light, const Vector3f& bodyPos, const Vector3f& look, const Vector3f& right, const Vector3f& up)
     {
-        light.position = camPos + look * 0.2f + right * 0.15f + up * -0.1f;
+        light.position = bodyPos + Vector3f{ 0.0f, 0.35f, 0.0f } + look * 0.6f + right * 0.2f;
         light.rotation = Math::Quaternion::FromLookRotation(look, up);
     }
 

@@ -37,6 +37,11 @@ namespace Dark
 			m_chargeBlock = block;
 			m_chargeStrike = blockStrike;
 		}
+		void setHitFlinch(float forward, float side)
+		{
+			m_flinchForward = forward;
+			m_flinchSide    = side;
+		}
 		void stop();
 		void update(float dt, AnimNotifyQueue& outNotifies, const AnimMarker* overlay = nullptr, uint32_t overlayCount = 0);
 
@@ -83,6 +88,8 @@ namespace Dark
 		float               m_chargeAttack = 0.0f;
 		float               m_chargeBlock = 0.0f;
 		float               m_chargeStrike = 0.0f;
+		float               m_flinchForward = 0.0f;
+		float               m_flinchSide = 0.0f;
 		Math::Vector3f      m_rootMotionDelta{ 0.0f, 0.0f, 0.0f };
 		Math::Vector3f      m_prevRootPos{ 0.0f, 0.0f, 0.0f };
 		Math::Vector3f      m_clipStartRoot{ 0.0f, 0.0f, 0.0f };

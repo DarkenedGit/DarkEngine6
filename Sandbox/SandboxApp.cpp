@@ -54,6 +54,10 @@
 #include "Animation/AnimNotify.h"
 #include "Character/HealthComponent.h"
 #include "Character/PlayerMotorComponent.h"
+#include "Character/ArmorView.h"
+#include "Character/ItemView.h"
+#include "Combat/ArmorComponent.h"
+#include "Gameplay/Inventory.h"
 #include "Character/ShieldView.h"
 #include "Character/SkillSense.h"
 #include "Character/SkillXp.h"
@@ -460,6 +464,8 @@ void SandboxApp::registerDefaultActions()
     a.bindButton("sprint", GamepadButton::LeftShoulder);
 
     a.bindKey("dev_tools", Key::M);
+    a.bindKey("inventory", Key::I);
+    a.bindKey("pickup", Key::G);
     a.bindKey("anim_walk", Key::T);
     a.bindButton("anim_walk", GamepadButton::RightThumb);
 
@@ -503,7 +509,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
     handleNetHotkeys();
     applyNetRole();
 
-    const bool uiKeys = m_showDevTools && m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
+    const bool uiKeys = uiOpen() && m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
     if (!uiKeys)
         handleWeaponSwitch();
     if (!uiKeys && input().actionPressed("dev_tools"))
@@ -512,6 +518,13 @@ void SandboxApp::handleRuntimeCommands(float dt)
         playSoundCue(world(), audio(), assets(), m_camera, "click");
         DE_LOG_INFO("Sandbox: dev tools = {}", m_showDevTools);
     }
+    if (!uiKeys && input().actionPressed("inventory"))
+    {
+        m_showInventory = !m_showInventory;
+        playSoundCue(world(), audio(), assets(), m_camera, "click");
+    }
+    if (!uiKeys && input().actionPressed("pickup"))
+        pickUpNearestItem();
 
     if (!uiKeys && input().actionPressed("camouflage"))
     {
@@ -591,7 +604,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
         DE_LOG_INFO("Command: spin speed = {:.2f}", m_spinSpeed);
     }
 
-    window().setCursorCaptured(window().isFocused() && !m_showDevTools && !m_menu.visible());
+    window().setCursorCaptured(window().isFocused() && !uiOpen() && !m_menu.visible());
     if (m_gameplayPaused)
         updateFlyCamera(dt);
     else
@@ -634,8 +647,8 @@ void SandboxApp::handleRuntimeCommands(float dt)
 
 void SandboxApp::updateFlyCamera(float dt)
 {
-    const bool uiKeys  = m_showDevTools && m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
-    const bool uiMouse = m_showDevTools && m_imgui.isReady() && m_imgui.wantCaptureMouse();
+    const bool uiKeys  = uiOpen() && m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
+    const bool uiMouse = uiOpen() && m_imgui.isReady() && m_imgui.wantCaptureMouse();
 
     if (!uiKeys)
     {
@@ -657,7 +670,7 @@ void SandboxApp::updateFlyCamera(float dt)
     constexpr float kPadLook = 2.1f;
     if (!uiMouse)
     {
-        if (!m_showDevTools || input().mouseDown(MouseButton::Right))
+        if (!uiOpen() || input().mouseDown(MouseButton::Right))
         {
             m_viewCamera.RotateY(static_cast<float>(input().mouseDeltaX()) * kSens);
             m_viewCamera.Pitch(static_cast<float>(input().mouseDeltaY()) * kSens);
@@ -869,6 +882,14 @@ void SandboxApp::attachReplicaCombat(Entity e)
 void SandboxApp::attachLocalPlayer(Entity e)
 {
     attachReplicaCombat(e);
+    if (!world().has<InventoryComponent>(e))
+    {
+        InventoryComponent inv;
+        for (const char* id : { "sword", "rifle" })
+            addItem(inv, *findItemDef(id), 1);
+        addItem(inv, *findItemDef("medkit"), 2);
+        world().emplace<InventoryComponent>(e, inv);
+    }
     if (!world().has<PlayerMotorComponent>(e))
         world().emplace<PlayerMotorComponent>(e);
     if (!world().has<HsmGraphComponent>(e))
@@ -1101,7 +1122,7 @@ void SandboxApp::updatePossessed(float dt)
     constexpr float kPadLook   = 2.1f;
     constexpr float kRadius    = 0.45f;
 
-    if (!m_showDevTools)
+    if (!uiOpen())
     {
         m_lookYaw += static_cast<float>(input().mouseDeltaX()) * kMouseSens;
         // mouseDeltaY is already up-positive; add it so mouse-up looks up.
@@ -1121,7 +1142,7 @@ void SandboxApp::updatePossessed(float dt)
     if (right.MagnitudeSqrd() > 1.0e-6f)
         right.Normalize();
 
-    const bool uiKeys = m_showDevTools && m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
+    const bool uiKeys = uiOpen() && m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
     const float mx = uiKeys ? 0.0f : input().actionAxis("move_x");
     const float mz = uiKeys ? 0.0f : input().actionAxis("move_z");
     Vector3f wish = right * mx + flat * mz;
@@ -1148,7 +1169,7 @@ void SandboxApp::updatePossessed(float dt)
     const bool jumpBusy   = jump && jump->busy();
     const bool inAirCommit = jump && jump->inAirCommit();
     const bool canSteer   = hp && hp->alive() && !ccLocked && !(jump && jump->phase() == Combat::JumpAttackPhase::Pound);
-    const bool uiMouse = m_showDevTools && m_imgui.isReady() && m_imgui.wantCaptureMouse();
+    const bool uiMouse = uiOpen() && m_imgui.isReady() && m_imgui.wantCaptureMouse();
     const bool holdShield = canSteer
         && ((input().mouseDown(MouseButton::Right) && !uiMouse) || (!uiKeys && input().actionDown("shield"))
             || input().axis(GamepadAxis::LeftTrigger) > 0.45f);
@@ -1159,7 +1180,7 @@ void SandboxApp::updatePossessed(float dt)
             sk->seeArmed = true;
     }
     const bool attackDown = canSteer && !uiKeys
-        && (input().actionDown("attack") || (!m_showDevTools && input().mouseDown(MouseButton::Left)));
+        && (input().actionDown("attack") || (!uiOpen() && input().mouseDown(MouseButton::Left)));
     const bool airborneNow = motor && (motor->state() == PlayerMoveState::Jumping || motor->state() == PlayerMoveState::Falling);
     Combat::DefenseComponent* defense = world().get<Combat::DefenseComponent>(body);
     if (defense)
@@ -1487,20 +1508,123 @@ TonemapSettings SandboxApp::playerPostFx()
     return s;
 }
 
+bool SandboxApp::ownsWeapon(WeaponKind kind)
+{
+    const Entity              body = possessedBody();
+    const InventoryComponent* inv  = body.valid() ? world().get<InventoryComponent>(body) : nullptr;
+    return !inv || hasItem(*inv, kind == WeaponKind::Melee ? "sword" : "rifle");
+}
+
+void SandboxApp::pickUpNearestItem()
+{
+    const Entity              body = possessedBody();
+    InventoryComponent*       inv  = body.valid() ? world().get<InventoryComponent>(body) : nullptr;
+    const TransformComponent* xf   = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    if (!inv || !xf)
+        return;
+    const Entity         e      = findPickupNear(world(), xf->position, 2.0f);
+    ItemPickupComponent* pickup = e.valid() ? world().get<ItemPickupComponent>(e) : nullptr;
+    if (!pickup)
+        return;
+
+    const int added = addItem(*inv, *pickup->item.def, pickup->item.count);
+    if (added <= 0)
+    {
+        DE_LOG_INFO("Inventory: bag full");
+        return;
+    }
+    DE_LOG_INFO("Inventory: picked up {} x{}", pickup->item.def->name, added);
+    playSoundCue(world(), audio(), assets(), m_camera, "click");
+    const ItemDef* def = pickup->item.def;
+    if (def->type == ItemType::Armor && inv->equipped[static_cast<int>(def->slot)].empty())
+    {
+        for (int i = 0; i < InventoryComponent::kBagSize; ++i)
+        {
+            if (inv->bag[i].def == def && equipItem(*inv, i))
+            {
+                DE_LOG_INFO("Inventory: wearing {}", def->name);
+                break;
+            }
+        }
+    }
+    pickup->item.count -= added;
+    if (pickup->item.count <= 0)
+        destroyPickup(world(), pins(), m_physics, e);
+}
+
+void SandboxApp::dropInventoryItem(int bagIndex)
+{
+    const Entity              body = possessedBody();
+    InventoryComponent*       inv  = body.valid() ? world().get<InventoryComponent>(body) : nullptr;
+    const TransformComponent* xf   = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    if (!inv || !xf)
+        return;
+    const ItemStack item = takeItem(*inv, bagIndex);
+    if (item.empty())
+        return;
+
+    Vector3f forward = m_viewCamera.GetLook();
+    forward.y        = 0.0f;
+    if (forward.MagnitudeSqrd() < 1.0e-6f)
+        forward = Vector3f{ 0.0f, 0.0f, 1.0f };
+    forward.Normalize();
+    spawnItemPickup(world(), pins(), assets(), renderer(), m_physics, item, xf->position + forward + Vector3f{ 0.0f, 0.6f, 0.0f },
+                    forward * 2.0f + Vector3f{ 0.0f, 2.0f, 0.0f });
+    DE_LOG_INFO("Inventory: dropped {} x{}", item.def->name, item.count);
+}
+
+void SandboxApp::applyInventoryArmor()
+{
+    const Entity              body = possessedBody();
+    const InventoryComponent* inv  = body.valid() ? world().get<InventoryComponent>(body) : nullptr;
+    if (!inv)
+        return;
+    Combat::ArmorComponent* armor = world().get<Combat::ArmorComponent>(body);
+    if (!armor)
+        armor = &world().emplace<Combat::ArmorComponent>(body);
+    armor->stats.armor = equippedArmor(*inv);
+
+    bool changed = false;
+    for (int s = 0; s < static_cast<int>(EquipSlot::Count); ++s)
+    {
+        if (m_wornArmor[s] != inv->equipped[s].def)
+        {
+            m_wornArmor[s] = inv->equipped[s].def;
+            changed        = true;
+        }
+    }
+    if (!changed)
+        return;
+
+    removeArmor(world(), pins(), m_physics, body);
+    const Combat::ArmorPiecesComponent all = Combat::makeHunterArmor();
+    Combat::ArmorPiecesComponent       worn;
+    for (int i = 0; i < all.count; ++i)
+    {
+        for (const ItemStack& eq : inv->equipped)
+        {
+            if (!eq.empty() && std::strcmp(eq.def->id, all.pieces[i].name) == 0)
+                worn.pieces[worn.count++] = all.pieces[i];
+        }
+    }
+    if (worn.count > 0)
+        equipArmorPieces(world(), pins(), assets(), renderer(), body, worn);
+}
+
 void SandboxApp::handleWeaponSwitch()
 {
     WeaponLoadout* w = localWeapons();
     if (!w)
         return;
     WeaponLoadoutComponent* wlc = world().get<WeaponLoadoutComponent>(possessedBody());
-    if (input().actionPressed("weapon_1") && w->selectMelee())
+    if (input().actionPressed("weapon_1") && ownsWeapon(WeaponKind::Melee) && w->selectMelee())
     {
         if (wlc)
             wlc->slot = w->slot();
         playSoundCue(world(), audio(), assets(), m_camera, "click");
         DE_LOG_INFO("Player: weapon melee");
     }
-    if (input().actionPressed("weapon_2") && w->selectProjectile())
+    if (input().actionPressed("weapon_2") && ownsWeapon(WeaponKind::Projectile) && w->selectProjectile())
     {
         if (wlc)
             wlc->slot = w->slot();
@@ -1590,7 +1714,16 @@ void SandboxApp::onWeaponHit(const WeaponHit& hit)
     {
         if (!m_chaseOk)
             return;
-        if (!m_chase.ai().applyHunterDamage(world(), victim, hit.damage))
+        float               damage = hit.damage;
+        Combat::ArmorBreak  broke;
+        if (Combat::ArmorPiecesComponent* armor = world().get<Combat::ArmorPiecesComponent>(victim))
+        {
+            if (const TransformComponent* vxf = world().get<TransformComponent>(victim))
+                damage = Combat::absorbArmorHit(*armor, vxf->position, vxf->rotation, hit.point, hit.direction, damage, broke);
+        }
+        if (broke.index >= 0)
+            knockOffArmor(world(), m_physics, victim, broke);
+        if (!m_chase.ai().applyHunterDamage(world(), victim, damage))
             return;
         m_chase.ai().applyHunterHitReaction(world(), victim, hit.direction);
         playSoundCueAt(world(), audio(), assets(), victim, "pain", hit.point);
@@ -1749,7 +1882,7 @@ void SandboxApp::updateCombat(float dt)
     if (m_jumpAttackBuffer > 0.0f)
         m_jumpAttackBuffer = Math::Max(0.0f, m_jumpAttackBuffer - dt);
 
-    const bool attackPressed = input().actionPressed("attack") || (!m_showDevTools && input().mousePressed(MouseButton::Left));
+    const bool attackPressed = input().actionPressed("attack") || (!uiOpen() && input().mousePressed(MouseButton::Left));
     const bool swimming = motor && motor->state() == PlayerMoveState::Swimming;
     const bool airborne = motor && (motor->state() == PlayerMoveState::Jumping || motor->state() == PlayerMoveState::Falling);
     const bool fireQuick = m_fireQuick;
@@ -1931,7 +2064,7 @@ bool SandboxApp::firePossessedLoadout(bool charged)
     }
 
     const WeaponWorldQuery query = makeWeaponQuery();
-    if (!wFire || !wFire->fire(req, query))
+    if (!wFire || !ownsWeapon(wFire->activeKind()) || !wFire->fire(req, query))
         return false;
     if (skill)
         noteShotXp(*skill, true);
@@ -1979,7 +2112,9 @@ void SandboxApp::updateFlashlight()
     TransformComponent* xf = world().get<TransformComponent>(m_flashlight);
     if (!xf)
         return;
-    placePlayerFlashlight(*xf, m_viewCamera.GetPosition(), m_viewCamera.GetLook(), m_viewCamera.GetRight(), m_viewCamera.GetUp());
+    const TransformComponent* bodyXf = possessedBody().valid() ? world().get<TransformComponent>(possessedBody()) : nullptr;
+    const Vector3f            bodyPos = bodyXf ? bodyXf->position : m_viewCamera.GetPosition();
+    placePlayerFlashlight(*xf, bodyPos, m_viewCamera.GetLook(), m_viewCamera.GetRight(), m_viewCamera.GetUp());
     LocalLightComponent* light = world().get<LocalLightComponent>(m_flashlight);
     if (!light)
         return;
@@ -2152,7 +2287,7 @@ void SandboxApp::updateWiggleAnim()
         return;
 
     float speed = 0.0f;
-    const bool uiKeys = m_showDevTools && m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
+    const bool uiKeys = uiOpen() && m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
     if (!uiKeys && input().actionDown("anim_walk"))
         speed = 1.0f;
     else
@@ -3511,7 +3646,16 @@ void SandboxApp::onInit()
         DE_LOG_INFO(LogCategory::AI, "SandboxApp: {} scene pawn(s)", m_chase.hunterCount());
     }
     if (m_chaseOk)
+    {
         bindCharacterPhysics();
+        for (int i = 0; i < m_chase.hunterCount(); ++i)
+        {
+            const Entity        e   = m_chase.hunterEntity(i);
+            const TagComponent* tag = e.valid() ? world().get<TagComponent>(e) : nullptr;
+            if (!tag || tag->name != "Wolf")
+                equipHunterArmor(world(), pins(), assets(), renderer(), e);
+        }
+    }
 
     placeHealthPacks();
     spawnHybridLocalLights();
@@ -3555,15 +3699,18 @@ void SandboxApp::onUpdate(float dt)
             m_chase.tick(dt, world(), input(), m_terrain, possessedBody(), m_playerWet);
         }
         updateCombat(dt);
+        syncArmorVisuals(world());
         if (m_physics.valid())
         {
             m_physics.pushPoses(world(), false);
             m_physics.step(dt, world());
+            m_physics.writeDynamicPoses(world());
         }
         Combat::CombatSystem combat;
         Combat::harvestAndResolveDots(world(), combat);
         tickStatusFx(world(), &audio(), &assets());
         updateHealthPacks(dt);
+        applyInventoryArmor();
         m_blood.update(dt);
         tickParticleEmitters(world(), dt);
         if (Health* hpAlive = localHealth(); hpAlive && hpAlive->alive())
@@ -4295,10 +4442,14 @@ void SandboxApp::onRender()
     if (m_imgui.isReady() && !m_menu.visible())
     {
         drawNpcInfoOverlay();
+        drawArmorHud();
+        drawPickupLabels();
         if (m_gameplayPaused)
             drawPauseOverlay();
         if (m_showDevTools)
             drawDevTools();
+        if (m_showInventory)
+            drawInventory();
         m_imgui.render(renderer());
     }
     else if (m_imgui.isReady() && m_menu.visible())

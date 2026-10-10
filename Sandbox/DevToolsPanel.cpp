@@ -4,6 +4,9 @@
 #include "Character/HealthComponent.h"
 #include "Character/SkillComponent.h"
 #include "ECS/Components.h"
+#include "Combat/ArmorStats.h"
+#include "Character/ItemView.h"
+#include "Gameplay/Inventory.h"
 #include "Math/Vector4f.h"
 #include "Ui/NpcInfoOverlay.h"
 #include "Weapons/HittableComponent.h"
@@ -24,6 +27,7 @@
 #include <imgui.h>
 
 #include <cstdio>
+#include <string>
 
 using namespace Dark;
 using namespace Math;
@@ -99,6 +103,138 @@ void applyDebugStatus(World& world, Entity body, Combat::StatusId id)
 }
 
 } // namespace
+
+void SandboxApp::drawInventory()
+{
+    const Entity        body = possessedBody();
+    InventoryComponent* inv  = body.valid() ? world().get<InventoryComponent>(body) : nullptr;
+    if (!inv)
+        return;
+    ImGui::SetNextWindowSize(ImVec2(380.0f, 420.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Inventory", &m_showInventory))
+    {
+        ImGui::End();
+        return;
+    }
+
+    ImGui::TextUnformatted("Equipped");
+    for (int s = 1; s < static_cast<int>(EquipSlot::Count); ++s)
+    {
+        const EquipSlot  slot = static_cast<EquipSlot>(s);
+        const ItemStack& eq   = inv->equipped[s];
+        ImGui::PushID(s);
+        ImGui::Text("%s: %s", equipSlotName(slot), eq.empty() ? "-" : eq.def->name);
+        if (!eq.empty())
+        {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Unequip"))
+                unequipItem(*inv, slot);
+        }
+        ImGui::PopID();
+    }
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("Bag");
+    for (int i = 0; i < InventoryComponent::kBagSize; ++i)
+    {
+        const ItemStack item = inv->bag[i];
+        if (item.empty())
+            continue;
+        ImGui::PushID(100 + i);
+        ImGui::Text("%s x%d (%s)", item.def->name, item.count, itemTypeName(item.def->type));
+        if (item.def->type == ItemType::Consumable)
+        {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Use"))
+                useItem(world(), body, *inv, i);
+        }
+        else if (item.def->type == ItemType::Armor)
+        {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Equip"))
+                equipItem(*inv, i);
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Drop"))
+            dropInventoryItem(i);
+        ImGui::PopID();
+    }
+    ImGui::End();
+}
+
+void SandboxApp::drawArmorHud()
+{
+    const Entity              body = possessedBody();
+    const InventoryComponent* inv  = body.valid() ? world().get<InventoryComponent>(body) : nullptr;
+    if (!inv)
+        return;
+
+    std::string worn;
+    for (const ItemStack& eq : inv->equipped)
+    {
+        if (eq.empty())
+            continue;
+        if (!worn.empty())
+            worn += " + ";
+        worn += eq.def->name;
+    }
+    if (worn.empty())
+        return;
+
+    char text[160];
+    std::snprintf(text, sizeof(text), "%s  (-%.0f%% damage)", worn.c_str(),
+                  static_cast<double>(Combat::hyperbolicDamageReduction(equippedArmor(*inv)) * 100.0f));
+
+    const ImGuiViewport* vp   = ImGui::GetMainViewport();
+    const ImVec2         size = ImGui::CalcTextSize(text);
+    const ImVec2         pos{ vp->Pos.x + vp->Size.x - 28.0f - size.x, vp->Pos.y + vp->Size.y - 56.0f - size.y };
+    ImDrawList*          dl = ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp));
+    dl->AddText(ImVec2(pos.x + 1.0f, pos.y + 1.0f), IM_COL32(0, 0, 0, 200), text);
+    dl->AddText(pos, IM_COL32(150, 200, 255, 255), text);
+}
+
+void SandboxApp::drawPickupLabels()
+{
+    ImDrawList* dl = ImGui::GetBackgroundDrawList(ImGui::GetMainViewport());
+    const float vw = static_cast<float>(renderer().width());
+    const float vh = static_cast<float>(renderer().height());
+    if (!dl || vw < 1.0f || vh < 1.0f)
+        return;
+    const ImVec2              vpPos   = ImGui::GetMainViewport()->Pos;
+    const Entity              body    = possessedBody();
+    const TransformComponent* pxf     = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    const Entity              nearest = pxf ? findPickupNear(world(), pxf->position, 2.0f) : Entity{};
+
+    world().each<ItemPickupComponent>([&](Entity e, ItemPickupComponent& pickup) {
+        const TransformComponent* xf = world().get<TransformComponent>(e);
+        if (!xf || pickup.item.empty())
+            return;
+        if (pxf && (xf->position - pxf->position).MagnitudeSqrd() > 15.0f * 15.0f)
+            return;
+
+        const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(Vector3f(xf->position.x, xf->position.y + 0.5f, xf->position.z), 1.0f);
+        if (clip.w <= 1.0e-4f)
+            return;
+        const float invW = 1.0f / clip.w;
+        const float ndcZ = clip.z * invW;
+        if (ndcZ < 0.0f || ndcZ > 1.0f)
+            return;
+        const float sx = (clip.x * invW * 0.5f + 0.5f) * vw;
+        const float sy = (1.0f - (clip.y * invW * 0.5f + 0.5f)) * vh;
+
+        const bool canTake = nearest.valid() && e.id() == nearest.id();
+        char       text[96];
+        if (pickup.item.count > 1)
+            std::snprintf(text, sizeof(text), "%s%s x%d", canTake ? "[G] " : "", pickup.item.def->name, pickup.item.count);
+        else
+            std::snprintf(text, sizeof(text), "%s%s", canTake ? "[G] " : "", pickup.item.def->name);
+
+        const ImVec2 ts = ImGui::CalcTextSize(text);
+        const ImVec2 pos{ vpPos.x + sx - ts.x * 0.5f, vpPos.y + sy - ts.y };
+        dl->AddText(ImVec2(pos.x + 1.0f, pos.y + 1.0f), IM_COL32(0, 0, 0, 200), text);
+        dl->AddText(pos, canTake ? IM_COL32(255, 220, 90, 255) : IM_COL32(235, 235, 235, 255), text);
+    });
+}
 
 void SandboxApp::drawNpcInfoOverlay()
 {
