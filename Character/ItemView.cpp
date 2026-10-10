@@ -41,13 +41,30 @@ namespace Dark
         return e;
     }
 
+    Entity spawnLootBag(World& world, AssetPinTable& pins, AssetManager& assets, Renderer& renderer, const Math::Vector3f& position,
+                        const char* label, const InventoryComponent& contents)
+    {
+        AssetRef<Model> cube = loadAndUploadModel(renderer, assets, "models/unit_cube.gltf");
+        if (!cube || itemCount(contents) == 0)
+            return {};
+
+        const Entity e = world.createEntity();
+        world.emplace<TransformComponent>(e, position, Math::Quaternion::IDENTITY, Math::Vector3f{ 0.6f, 0.35f, 0.45f });
+        ModelComponent mc{};
+        mc.modelAssetID = cube->id;
+        mc.castShadow   = true;
+        setModelComponent(world, pins, assets, e, mc);
+        world.emplace<LootComponent>(e, LootComponent{ label, contents });
+        return e;
+    }
+
     Entity findPickupNear(World& world, const Math::Vector3f& position, float radius)
     {
         Entity best{};
         float  bestD = radius * radius;
-        world.each<ItemPickupComponent>([&](Entity e, ItemPickupComponent& pickup) {
+        auto   consider = [&](Entity e) {
             const TransformComponent* xf = world.get<TransformComponent>(e);
-            if (!xf || pickup.item.empty())
+            if (!xf)
                 return;
             const float d = (xf->position - position).MagnitudeSqrd();
             if (d <= bestD)
@@ -55,6 +72,14 @@ namespace Dark
                 best  = e;
                 bestD = d;
             }
+        };
+        world.each<ItemPickupComponent>([&](Entity e, ItemPickupComponent& pickup) {
+            if (!pickup.item.empty())
+                consider(e);
+        });
+        world.each<LootComponent>([&](Entity e, LootComponent& loot) {
+            if (itemCount(loot.contents) > 0)
+                consider(e);
         });
         return best;
     }

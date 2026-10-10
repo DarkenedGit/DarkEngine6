@@ -581,6 +581,11 @@ void EditorApp::clearPlayArmor()
     world().each<Combat::ArmorPiecesComponent>([&](Entity e, Combat::ArmorPiecesComponent&) { owners.push_back(e); });
     for (Entity owner : owners)
         removeArmor(world(), pins(), m_physics, owner);
+
+    std::vector<Entity> pickups;
+    world().each<ItemPickupComponent>([&](Entity e, ItemPickupComponent&) { pickups.push_back(e); });
+    for (Entity pickup : pickups)
+        destroyPickup(world(), pins(), m_physics, pickup);
 }
 
 void EditorApp::updatePlayCamera()
