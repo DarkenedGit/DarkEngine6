@@ -340,6 +340,37 @@ TEST(HunterJumpAttack, ApplyHunterDamageDeathClearsToken)
     EXPECT_FALSE(h.ai.jumpAttackToken().valid());
 }
 
+TEST(HunterJumpAttack, DeathDuringLeapFallsToGround)
+{
+    Harness h;
+    ASSERT_TRUE(h.setup());
+    Entity e = h.spawnHunterAt(8.0f, 8.0f);
+    ASSERT_TRUE(e.valid());
+    h.tick();
+    ASSERT_TRUE(h.tickUntilAir(e));
+    h.tickFor(0.25f);
+    ASSERT_TRUE(h.jump(e)->inAirCommit());
+
+    TransformComponent* xf = h.world.get<TransformComponent>(e);
+    ASSERT_NE(xf, nullptr);
+    const float yKill    = xf->position.y;
+    const float playerHp = h.world.get<HealthComponent>(h.player)->health.hp();
+    EXPECT_GT(yKill, 2.0f);
+
+    EXPECT_TRUE(h.ai.applyHunterDamage(h.world, e, 200.0f));
+    EXPECT_TRUE(h.world.get<HealthComponent>(e)->health.dead());
+
+    h.tick();
+    EXPECT_GT(xf->position.y, 1.5f);
+
+    h.tickFor(2.0f);
+    EXPECT_NEAR(xf->position.y, 1.0f, 0.08f);
+    EXPECT_LT(xf->position.y, yKill);
+    EXPECT_EQ(h.jump(e)->phase(), JumpAttackPhase::Idle);
+    EXPECT_FALSE(h.ai.jumpAttackToken().valid());
+    EXPECT_NEAR(h.world.get<HealthComponent>(h.player)->health.hp(), playerHp, 1.0e-3f);
+}
+
 TEST(HunterJumpAttack, RecoverToIdleWhileCcClearsToken)
 {
     Harness h;

@@ -481,4 +481,21 @@ namespace Dark::Combat
         }
     }
 
+    bool JumpAttack::stepFreefall(Vector3f& position, float dt, float groundY)
+    {
+        if (dt < 0.0f)
+            dt = 0.0f;
+        m_velocity.y -= m_def.gravity * dt;
+        position.x += m_velocity.x * dt;
+        position.y += m_velocity.y * dt;
+        position.z += m_velocity.z * dt;
+        if (m_velocity.y <= 0.0f && position.y <= groundY + m_def.groundOffset)
+        {
+            position.y = groundY + m_def.groundOffset;
+            m_velocity = Vector3f{ 0.0f, 0.0f, 0.0f };
+            return true;
+        }
+        return false;
+    }
+
 } // namespace Dark::Combat

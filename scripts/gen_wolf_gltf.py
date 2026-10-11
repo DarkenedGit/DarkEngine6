@@ -262,18 +262,31 @@ def make_clips():
     }
     clips.append(clip_channels("Jump", jt, jump))
 
-    dtm = [0.0, 0.35, 0.70, 1.15]
+    # Root sits about 1 m above the terrain. Rolling in place leaves the body
+    # sideways at that height. These keys roll onto the side and lower the hips
+    # until the mesh rests on model y = -1.
+    dtm = [0.0, 0.35, 0.75, 1.20]
+    us = (0.0, 0.30, 0.70, 1.0)
+
+    def fall(ax, ay, az, angle):
+        return [q_axis(ax, ay, az, angle * u) for u in us]
+
     die = {
-        0: [q_ident(), q_axis(0, 0, 1, 0.55), q_axis(0, 0, 1, 1.15), q_axis(0, 0, 1, 1.40)],
-        1: [q_ident(), q_axis(1, 0, 0, 0.20), q_axis(1, 0, 0, 0.35), q_axis(1, 0, 0, 0.40)],
-        3: [q_ident(), q_axis(1, 0, 0, 0.25), q_axis(1, 0, 0, 0.45), q_axis(1, 0, 0, 0.50)],
-        9: [q_ident(), q_axis(1, 0, 0, 0.40), q_axis(1, 0, 0, 0.70), q_axis(1, 0, 0, 0.80)],
-        12: [q_ident(), q_axis(1, 0, 0, 0.35), q_axis(1, 0, 0, 0.65), q_axis(1, 0, 0, 0.75)],
-        15: [q_ident(), q_axis(1, 0, 0, 0.50), q_axis(1, 0, 0, 0.90), q_axis(1, 0, 0, 1.05)],
-        18: [q_ident(), q_axis(1, 0, 0, 0.45), q_axis(1, 0, 0, 0.85), q_axis(1, 0, 0, 1.00)],
-        6: [q_ident(), q_axis(0, 0, 1, -0.30), q_axis(0, 0, 1, -0.55), q_axis(0, 0, 1, -0.60)],
+        0: fall(0, 0, 1, math.pi / 2),
+        1: fall(1, 0, 0, 0.15),
+        6: fall(0, 0, 1, -0.4),
+        9: fall(1, 0, 0, 0.35),
+        12: fall(1, 0, 0, 0.25),
+        15: fall(1, 0, 0, 0.40),
+        18: fall(1, 0, 0, 0.30),
     }
-    clips.append(clip_channels("Die", dtm, die))
+    hips = [
+        (0.0, 0.0, 0.0),
+        (0.0, -0.108, 0.0),
+        (0.0, -0.488, 0.0),
+        (0.0, -0.850, 0.0),
+    ]
+    clips.append(("Die", dtm, die, {0: hips}))
     return clips
 
 
@@ -348,7 +361,9 @@ def build_gltf() -> dict:
     nodes.append({"name": "Mesh", "mesh": 0, "skin": 0})
 
     animations = []
-    for name, times, joint_rots in make_clips():
+    for clip in make_clips():
+        name, times, joint_rots = clip[0], clip[1], clip[2]
+        joint_trans = clip[3] if len(clip) > 3 else {}
         samplers = []
         channels = []
         raw_t = bytearray()
@@ -356,6 +371,18 @@ def build_gltf() -> dict:
         i_t = push_view(raw_t)
         a_t = len(accessors)
         accessors.append(acc(i_t, 5126, len(times), "SCALAR", {"min": [times[0]], "max": [times[-1]]}))
+        for joint, positions in joint_trans.items():
+            flat = []
+            for p in positions:
+                flat.extend(p)
+            raw_p = bytearray()
+            pack_f32(raw_p, flat)
+            i_p = push_view(raw_p)
+            a_p = len(accessors)
+            accessors.append(acc(i_p, 5126, len(positions), "VEC3"))
+            si = len(samplers)
+            samplers.append({"input": a_t, "output": a_p, "interpolation": "LINEAR"})
+            channels.append({"sampler": si, "target": {"node": joint, "path": "translation"}})
         for joint, rots in joint_rots.items():
             if len(rots) != len(times):
                 raise RuntimeError(f"{name} joint {joint} has {len(rots)} keys, expected {len(times)}")

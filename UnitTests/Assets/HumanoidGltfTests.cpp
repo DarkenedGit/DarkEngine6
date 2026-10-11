@@ -2,10 +2,14 @@
 
 #include "Animation/AnimGraph.h"
 #include "Animation/AnimGraphJson.h"
+#include "Animation/AnimSampler.h"
 #include "Animation/AnimationSet.h"
 #include "Assets/GltfLoader.h"
 #include "Core/ContentRoots.h"
+#include "Math/Vector4f.h"
 
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -96,6 +100,118 @@ TEST(HumanoidGltf, SkeletonHasDieClip)
     EXPECT_TRUE(hasClip(cpu.clips, "Shoot"));
     EXPECT_TRUE(hasClip(cpu.clips, "SwingSword"));
     EXPECT_TRUE(hasClip(cpu.clips, "Die"));
+}
+
+void skinnedVerticalSpan(const GltfCpuModel& cpu, const AnimationClip& clip, float time, float& outMinY, float& outMaxY, bool& ok)
+{
+    using namespace Dark::Math;
+    outMinY = 0.0f;
+    outMaxY = 0.0f;
+    ok      = false;
+    const uint32_t n = static_cast<uint32_t>(cpu.skeleton.joints.size());
+    if (n == 0 || n > AnimPose::kMaxBones || cpu.primitives.empty())
+        return;
+    const MeshData& mesh = cpu.primitives[0].mesh;
+    if (mesh.positions.size() != mesh.jointPacked.size() || mesh.positions.size() != mesh.weights.size())
+        return;
+
+    Vector3f   T[AnimPose::kMaxBones];
+    Quaternion R[AnimPose::kMaxBones];
+    Vector3f   S[AnimPose::kMaxBones];
+    if (!sampleClipLocal(clip, cpu.skeleton, time, T, R, S))
+        return;
+    AnimPose pose;
+    localToPalette(cpu.skeleton, T, R, S, pose);
+
+    float minY = 1.0e9f;
+    float maxY = -1.0e9f;
+    for (size_t i = 0; i < mesh.positions.size(); ++i)
+    {
+        const uint32_t packed = mesh.jointPacked[i];
+        const Vector4f w     = mesh.weights[i];
+        const float    wk[4] = { w.x, w.y, w.z, w.w };
+        const Vector4f hp(mesh.positions[i], 1.0f);
+        Vector3f       skinned = Vector3f::ZERO;
+        for (int k = 0; k < 4; ++k)
+        {
+            if (wk[k] <= 0.0f)
+                continue;
+            const uint32_t j = (packed >> (8 * k)) & 255u;
+            if (j >= n)
+                return;
+            const Vector4f s = pose.palette[j] * hp;
+            skinned.x += wk[k] * s.x;
+            skinned.y += wk[k] * s.y;
+            skinned.z += wk[k] * s.z;
+        }
+        minY = std::min(minY, skinned.y);
+        maxY = std::max(maxY, skinned.y);
+    }
+    outMinY = minY;
+    outMaxY = maxY;
+    ok      = true;
+}
+
+TEST(HumanoidGltf, SkeletonDieLiesOnTheGround)
+{
+    // Hunter origin is the hips, 1 m above the terrain, so model y = -1 is the ground.
+    const auto gltf = findContentFile("models/skeleton.gltf");
+    ASSERT_FALSE(gltf.empty());
+
+    GltfCpuModel cpu;
+    ASSERT_TRUE(parseGltfFile(gltf, cpu));
+
+    const AnimationClip* die = nullptr;
+    for (const AnimationClip& clip : cpu.clips)
+    {
+        if (clip.name == "Die")
+            die = &clip;
+    }
+    ASSERT_NE(die, nullptr);
+
+    float standMin = 0.0f;
+    float standMax = 0.0f;
+    bool  standOk  = false;
+    skinnedVerticalSpan(cpu, *die, 0.0f, standMin, standMax, standOk);
+    ASSERT_TRUE(standOk);
+    EXPECT_GT(standMax, 0.7f);
+    EXPECT_GT(standMin, -0.7f);
+
+    float layMin = 0.0f;
+    float layMax = 0.0f;
+    bool  layOk  = false;
+    skinnedVerticalSpan(cpu, *die, die->duration, layMin, layMax, layOk);
+    ASSERT_TRUE(layOk);
+    EXPECT_NEAR(layMin, -1.0f, 0.08f);
+    EXPECT_LT(layMax, -0.40f);
+    EXPECT_LT(layMax - layMin, 0.55f);
+
+    const uint32_t n = static_cast<uint32_t>(cpu.skeleton.joints.size());
+    ASSERT_GT(n, 0u);
+    ASSERT_LE(n, AnimPose::kMaxBones);
+    Math::Vector3f   T[AnimPose::kMaxBones];
+    Math::Quaternion R[AnimPose::kMaxBones];
+    Math::Vector3f   S[AnimPose::kMaxBones];
+    ASSERT_TRUE(sampleClipLocal(*die, cpu.skeleton, die->duration, T, R, S));
+    Math::Matrix4f worlds[AnimPose::kMaxBones];
+    localToJointWorlds(cpu.skeleton, T, R, S, worlds);
+
+    const Math::Matrix4f* hips = nullptr;
+    const Math::Matrix4f* head = nullptr;
+    for (uint32_t i = 0; i < n; ++i)
+    {
+        if (cpu.skeleton.joints[i].name == "Hips")
+            hips = &worlds[i];
+        if (cpu.skeleton.joints[i].name == "Head")
+            head = &worlds[i];
+    }
+    ASSERT_NE(hips, nullptr);
+    ASSERT_NE(head, nullptr);
+    const Math::Vector3f hipPos  = hips->GetTranslation();
+    const Math::Vector3f headPos = head->GetTranslation();
+    EXPECT_LT(std::fabs(headPos.y - hipPos.y), 0.2f);
+    EXPECT_GT(std::fabs(headPos.z - hipPos.z), 0.45f);
+    EXPECT_LT(hipPos.y, -0.5f);
 }
 
 void expectArmsHang(const char* relativePath)

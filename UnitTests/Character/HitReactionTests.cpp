@@ -96,6 +96,27 @@ TEST(HitReaction, NewHitReplacesKnockbackAndRefreshesStun)
     EXPECT_NEAR(d.z, 3.0f, 1.0e-4f);
 }
 
+TEST(HitReaction, NudgeDoesNotRefreshStunOrSettings)
+{
+    HitReactionSettings s;
+    s.stunSeconds       = 0.50f;
+    s.knockbackDistance = 3.0f;
+    s.knockbackSeconds  = 0.20f;
+    HitReaction r{ s };
+    r.apply(Vector3f{ 1.0f, 0.0f, 0.0f });
+    r.tick(0.20f);
+    EXPECT_NEAR(r.stunRemaining(), 0.30f, 1.0e-3f);
+
+    r.nudge(Vector3f{ 0.0f, 0.0f, 1.0f }, 0.35f, 0.08f);
+    EXPECT_NEAR(r.stunRemaining(), 0.30f, 1.0e-3f);
+    EXPECT_NEAR(r.settings().stunSeconds, 0.50f, 1.0e-4f);
+    EXPECT_NEAR(r.settings().knockbackDistance, 3.0f, 1.0e-4f);
+    EXPECT_TRUE(r.knockingBack());
+
+    r.tick(0.30f);
+    EXPECT_FALSE(r.stunned());
+}
+
 TEST(HitReaction, ResetClearsStunAndPush)
 {
     HitReaction r;

@@ -396,7 +396,7 @@ void SandboxApp::registerDefaultActions()
     a.bindKey("quit", Key::Escape);
     a.bindButton("quit", GamepadButton::Back);
 
-    a.bindKey("pause", Key::P);
+    a.bindKey("pause", Key::F3);
     a.bindButton("pause", GamepadButton::Start);
     a.bindKey("step", Key::O);
 
@@ -464,16 +464,17 @@ void SandboxApp::registerDefaultActions()
     a.bindButton("sprint", GamepadButton::LeftShoulder);
 
     a.bindKey("dev_tools", Key::M);
+    a.bindKey("profiler", Key::P);
     a.bindKey("inventory", Key::I);
     a.bindKey("pickup", Key::G);
     a.bindKey("anim_walk", Key::T);
     a.bindButton("anim_walk", GamepadButton::RightThumb);
 
     DE_LOG_INFO(
-        "Input: quit(Esc/Back) pause(P/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
+        "Input: quit(Esc/Back) pause(F3/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
         "possessed WASD/arrows/LS move, double-tap a direction to dodge, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, 1 melee  2 rifle, "
         "hold attack to charge, release to swing (tap = normal). Hold RMB/V/LT shield; hold longer then release to parry-slam. Ctrl crouch, C camouflage, L flashlight, Shift/LB sprint, swim in water, "
-        "T/R3 walk the wiggle demo  F2 lighting  M dev tools  -forward linear albedo + sRGB encode (legacyUnormAlbedo restores old sampling)  -no-menu skip scene picker");
+        "T/R3 walk the wiggle demo  F2 lighting  M dev tools  P profiler  -forward linear albedo + sRGB encode (legacyUnormAlbedo restores old sampling)  -no-menu skip scene picker");
 }
 
 void SandboxApp::populateMainMenu()
@@ -512,13 +513,22 @@ void SandboxApp::handleRuntimeCommands(float dt)
     const bool uiKeys = uiOpen() && m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
     if (!uiKeys)
         handleWeaponSwitch();
-    if (!uiKeys && input().actionPressed("dev_tools"))
+    // Dev tools and inventory become the keyboard-nav target, so WantCaptureKeyboard
+    // is set and would swallow the same key that should close them. A text field still owns the key.
+    const bool typing = m_imgui.isReady() && m_imgui.wantTextInput();
+    if (input().actionPressed("profiler") && !typing && (!uiKeys || m_showProfiler))
+    {
+        m_showProfiler = !m_showProfiler;
+        playSoundCue(world(), audio(), assets(), m_camera, "click");
+        DE_LOG_INFO("Sandbox: profiler = {}", m_showProfiler);
+    }
+    if (input().actionPressed("dev_tools") && !typing && (!uiKeys || m_showDevTools))
     {
         m_showDevTools = !m_showDevTools;
         playSoundCue(world(), audio(), assets(), m_camera, "click");
         DE_LOG_INFO("Sandbox: dev tools = {}", m_showDevTools);
     }
-    if (!uiKeys && input().actionPressed("inventory"))
+    if (input().actionPressed("inventory") && !typing && (!uiKeys || m_showInventory))
     {
         m_showInventory = !m_showInventory;
         playSoundCue(world(), audio(), assets(), m_camera, "click");
@@ -1874,8 +1884,14 @@ void SandboxApp::updateCombat(float dt)
                 best = d2;
                 away = Vector3f{ -dx, 0.0f, -dz };
             });
+            // Chip damage used to call apply(), which restarts stun from the last real
+            // hit's settings. A knockdown stun is longer than this 0.40s pulse, so a
+            // hunter in standoff refreshed the lock and input never came back.
             if (HitReaction* hit = localHit())
-                hit->apply(away);
+            {
+                if (!hit->stunned() && !hit->knockingBack())
+                    hit->nudge(away, 0.35f, 0.08f);
+            }
         }
     }
 
@@ -4444,6 +4460,8 @@ void SandboxApp::onRender()
         drawNpcInfoOverlay();
         drawArmorHud();
         drawPickupLabels();
+        if (m_showProfiler)
+            drawProfiler();
         if (m_gameplayPaused)
             drawPauseOverlay();
         if (m_showDevTools)

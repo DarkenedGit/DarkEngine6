@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+struct ID3D12Device;
+struct ID3D12CommandQueue;
 struct ID3D12GraphicsCommandList;
 
 namespace Dark
@@ -53,8 +55,53 @@ constexpr uint32_t Skeleton         = 0xFFAED581;
 constexpr uint32_t Collision        = 0xFFFFA726;
 } // namespace ProfileColor
 
+// One graphics-queue slot per swap-chain frame. Timestamp heaps are not reused
+// until Renderer has waited for that slot, which is when the previous submission's
+// resolves are safe to map.
+constexpr uint32_t kProfileGpuSlots   = 2;
+constexpr uint32_t kProfileMaxRanges  = 192;
+constexpr uint32_t kProfileNameBytes  = 48;
+
+// gpuMs is negative when the range had no GPU timestamp (CPU-only PIX scope).
+struct ProfileRange
+{
+    char     name[kProfileNameBytes]{};
+    uint32_t color = 0;
+    float    cpuMs = 0.0f;
+    float    gpuMs = -1.0f;
+    uint16_t depth = 0;
+};
+
+// The in-game panel reads this. GPU columns match the CPU ranges, so the snapshot
+// is the newest frame whose timestamp resolves have been mapped (one or two frames
+// behind the one being recorded).
+struct ProfileSnapshot
+{
+    float        fps        = 0.0f;
+    float        frameMs    = 0.0f;
+    float        cpuMs      = 0.0f;
+    float        gpuMs      = 0.0f;
+    bool         gpuValid   = false;
+    uint32_t     rangeCount = 0;
+    ProfileRange ranges[kProfileMaxRanges]{};
+};
+
 // Call once after the device exists so the first frame does not pay NVTX init.
 void profileStartup();
+
+// Bracket Application's frame, outside Present, so CPU time is work and frameMs is the real interval.
+void profileFrameBegin();
+void profileFrameEnd(float dtSeconds);
+
+// Timestamp queries for GpuScope. Safe to call again; a failed init leaves CPU timings working.
+bool profileTimersInit(ID3D12Device* device, ID3D12CommandQueue* queue);
+void profileTimersShutdown();
+// Read the slot's previous resolve, then start a new query cursor. cmd is the graphics list.
+void profileTimersBeginFrame(uint32_t frameSlot, ID3D12GraphicsCommandList* cmd);
+// Resolve this frame's timestamps. Call after the last GpuScope and before Close.
+void profileTimersResolve(ID3D12GraphicsCommandList* cmd);
+
+const ProfileSnapshot& profileSnapshot();
 
 void profileCpuBegin(const char* name, uint32_t argb);
 void profileCpuEnd();

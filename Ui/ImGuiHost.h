@@ -25,6 +25,7 @@ public:
 
     bool wantCaptureMouse() const;
     bool wantCaptureKeyboard() const;
+    bool wantTextInput() const;
 
     bool isReady() const { return m_ready; }
 

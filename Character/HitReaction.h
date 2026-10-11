@@ -24,6 +24,10 @@ namespace Dark
 
         // Incoming attack direction (attacker toward victim). Replaces any in-flight reaction.
         void apply(const Math::Vector3f& hitDirection);
+
+        // Small contact shove. Does not change stun or the authored settings, so chip
+        // damage cannot refresh a longer hit-lock.
+        void nudge(const Math::Vector3f& hitDirection, float distance, float seconds);
         void reset();
         void restore(float stunLeft, float knockLeft, float knockTimeLeft, const Math::Vector3f& knockDir)
         {

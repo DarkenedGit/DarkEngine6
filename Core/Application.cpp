@@ -600,10 +600,16 @@ namespace Dark
             const float now = m_window.getTime();
             float dt = now - lastTime;
             lastTime = now;
+            float frameDt = dt;
+            if (frameDt < 0.0f)
+                frameDt = 0.0f;
 
             if (dt < 0.0f || dt > 0.25f)
                 dt = 1.0f / 60.0f;
 
+            // CPU time stops before Present so a vsync wait is not counted as CPU work.
+            // frameDt is the real interval, including the previous Present.
+            profileFrameBegin();
             m_debug.perf().beginFrame();
 
             float t0 = m_window.getTime();
@@ -632,6 +638,7 @@ namespace Dark
             t0 = m_window.getTime();
             onRender();
             m_debug.perf().add(PerfSlot::Render, m_window.getTime() - t0);
+            profileFrameEnd(frameDt);
 
             if (!m_running)
                 break;

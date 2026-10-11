@@ -69,10 +69,11 @@ private:
     void handleNetHotkeys();
     void applyNetRole();
     void drawDevTools();
+    void drawProfiler();
     void drawInventory();
     void drawArmorHud();
     void drawPickupLabels();
-    bool uiOpen() const { return m_showDevTools || m_showInventory; }
+    bool uiOpen() const { return m_showDevTools || m_showInventory || m_showProfiler; }
     bool ownsWeapon(Dark::WeaponKind kind);
     void pickUpNearestItem();
     void dropInventoryItem(int bagIndex);
@@ -261,6 +262,7 @@ private:
     bool          m_showSkeleton   = false;
     bool          m_showDevTools   = false;
     bool          m_showInventory  = false;
+    bool          m_showProfiler   = false;
     const Dark::ItemDef* m_wornArmor[static_cast<int>(Dark::EquipSlot::Count)]{};
     Dark::NpcInfoOverlaySettings m_npcInfo{};
     bool          m_camouflage     = false;

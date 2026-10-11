@@ -58,6 +58,33 @@ namespace Dark
         m_knockTimeLeft = m_settings.knockbackSeconds;
     }
 
+    void HitReaction::nudge(const Vector3f& hitDirection, float distance, float seconds)
+    {
+        Vector3f dir = hitDirection;
+        if (m_settings.horizontalOnly)
+            dir.y = 0.0f;
+
+        Vector3f flat{ hitDirection.x, 0.0f, hitDirection.z };
+        if (flat.MagnitudeSqrd() > 1.0e-8f)
+        {
+            flat.Normalize();
+            m_flinchDir = flat;
+            m_flinch    = 1.0f;
+        }
+
+        if (distance < 0.0f)
+            distance = 0.0f;
+        if (seconds < 0.0f)
+            seconds = 0.0f;
+        if (distance <= 0.0f || dir.MagnitudeSqrd() < 1.0e-8f)
+            return;
+
+        dir.Normalize();
+        m_knockDir      = dir;
+        m_knockLeft     = distance;
+        m_knockTimeLeft = seconds;
+    }
+
     void HitReaction::reset()
     {
         m_stunLeft      = 0.0f;

@@ -337,16 +337,38 @@ def make_clips(include_die: bool):
     clips.append(clip_channels("SwingSword", swt, swingc))
 
     if include_die:
-        dtm = [0.0, 0.35, 0.7, 1.2]
+        # Hips are the entity origin, and hunters hold that origin 1 m above the
+        # terrain. A pitch with no translation leaves the body horizontal in the
+        # air. These keys tip onto the face and lower the hips until the mesh
+        # rests on model y = -1, which is the terrain under that origin.
+        dtm = [0.0, 0.30, 0.65, 1.00, 1.40]
+        us = (0.0, 0.22, 0.55, 0.85, 1.0)
+
+        def fall(ax, ay, az, angle):
+            return [q_axis(ax, ay, az, angle * u) for u in us]
+
         die = {
-            0: [q_ident(), q_axis(1, 0, 0, 0.4), q_axis(1, 0, 0, 1.1), q_axis(1, 0, 0, 1.35)],
-            1: [q_ident(), q_axis(1, 0, 0, 0.3), q_axis(1, 0, 0, 0.5), q_axis(1, 0, 0, 0.55)],
-            11: [q_ident(), q_axis(1, 0, 0, 0.6), q_axis(1, 0, 0, 1.1), q_axis(1, 0, 0, 1.2)],
-            14: [q_ident(), q_axis(1, 0, 0, 0.5), q_axis(1, 0, 0, 1.0), q_axis(1, 0, 0, 1.15)],
-            5: [q_ident(), q_axis(0, 0, 1, 0.4), q_axis(0, 0, 1, 0.8), q_axis(0, 0, 1, 0.9)],
-            8: [q_ident(), q_axis(0, 0, 1, -0.4), q_axis(0, 0, 1, -0.8), q_axis(0, 0, 1, -0.9)],
+            0: fall(1, 0, 0, math.pi / 2),
+            1: fall(1, 0, 0, 0.08),
+            4: fall(0, 1, 0, 0.45),
+            5: fall(0, 0, 1, 0.85),
+            6: fall(0, 0, 1, 0.35),
+            8: fall(0, 0, 1, -0.55),
+            9: fall(0, 0, 1, -0.25),
+            11: fall(0, 0, 1, 0.22),
+            12: fall(1, 0, 0, 0.15),
+            14: fall(0, 0, 1, -0.28),
+            15: fall(1, 0, 0, 0.22),
         }
-        clips.append(clip_channels("Die", dtm, die))
+        # Lowest skinned vertex eases from the standing feet onto the terrain.
+        hips = [
+            (0.0, 0.0, 0.0),
+            (0.0, -0.016, 0.048),
+            (0.0, -0.264, 0.121),
+            (0.0, -0.638, 0.187),
+            (0.0, -0.686, 0.220),
+        ]
+        clips.append(("Die", dtm, die, {0: hips}))
 
     # Crouch keeps the feet near the standing plant while the hips drop and the knees bend.
     # CrouchWalk is that pose with a short opposite-leg cycle.

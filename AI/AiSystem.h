@@ -101,6 +101,7 @@ namespace Dark
         void beginFlee(World& world, View& v);
         void seekToward(View& v, float dt, Terrain::TerrainGrid& terrain, float speed, float destX, float destZ);
         void cancelJumpAndToken(World& world, Entity e, bool forceIdle);
+        void fallDeadAgent(World& world, View& v, float dt, Terrain::TerrainGrid& terrain, const Math::AABox3f* cubes, int cubeCount, const Math::Sphere3f* spheres, int sphereCount);
         void ensureAttackPatterns();
         const AI::AttackPattern* attackPatternFor(World& world, Entity e) const;
         void releaseMelee(World& world, View& v, const AI::AttackPattern& pattern, Entity player, const Math::Vector3f& playerPos);

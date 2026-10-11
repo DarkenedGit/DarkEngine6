@@ -293,3 +293,10 @@ bool ImGuiHost::wantCaptureKeyboard() const
         return false;
     return ImGui::GetIO().WantCaptureKeyboard;
 }
+
+bool ImGuiHost::wantTextInput() const
+{
+    if (!m_ready)
+        return false;
+    return ImGui::GetIO().WantTextInput;
+}
