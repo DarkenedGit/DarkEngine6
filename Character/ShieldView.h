@@ -16,7 +16,9 @@ namespace Dark
     void   destroyPlayerShield(World& world, AssetPinTable& pins, Entity& shield);
 
     // chargeWindup pulls the buckler back. chargeStrike punches it forward on a charged parry.
-    void placePlayerShield(TransformComponent& shield, const TransformComponent& player, float raiseAlpha, float chargeWindup = 0.0f, float chargeStrike = 0.0f);
+    // grip (world off-hand position) straps the buckler to that hand instead of the chest.
+    void placePlayerShield(TransformComponent& shield, const TransformComponent& player, float raiseAlpha, float chargeWindup = 0.0f, float chargeStrike = 0.0f,
+                           const Math::Vector3f* grip = nullptr);
 
     // Held at the player's chest, just in front of the body.
     void placePlayerFlashlight(TransformComponent& light,

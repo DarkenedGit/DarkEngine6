@@ -90,4 +90,23 @@ namespace Dark
 		add(chest, Math::Vector3f::Z_AXIS, -0.25f * side);
 		add(neck, Math::Vector3f::Z_AXIS, -0.20f * side);
 	}
+
+	void applyShieldGuard(const Skeleton& skeleton, Math::Quaternion* localR, uint32_t count, float alpha)
+	{
+		const float a = Math::Clamp(alpha, 0.0f, 1.0f);
+		if (!localR || count == 0 || a < 1.0e-4f)
+			return;
+
+		auto add = [&](int32_t joint, const Math::Vector3f& axis, float radians) {
+			if (joint < 0 || static_cast<uint32_t>(joint) >= count)
+				return;
+			localR[joint] = Math::Quaternion::FromAxisAngle(axis, radians) * localR[joint];
+		};
+
+		const int32_t upper = findJoint(skeleton, "L_UpperArm");
+		const int32_t lower = findJoint(skeleton, "L_LowerArm");
+		add(upper, Math::Vector3f::X_AXIS, -1.0f * a);
+		add(upper, Math::Vector3f::Z_AXIS, -0.35f * a);
+		add(lower, Math::Vector3f::X_AXIS, -1.1f * a);
+	}
 }

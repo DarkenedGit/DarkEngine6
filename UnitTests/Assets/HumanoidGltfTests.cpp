@@ -162,7 +162,7 @@ TEST(HumanoidGltf, HumanGraphBindsClips)
     ASSERT_FALSE(text.empty());
     AnimGraphDef def;
     ASSERT_TRUE(parseAnimGraphJson(text.c_str(), set, def));
-    EXPECT_EQ(def.states.size(), 13u);
+    EXPECT_EQ(def.states.size(), 15u);
     EXPECT_EQ(def.states[def.defaultState].name, "Idle");
     EXPECT_GE(set.findClipIndex("StrafeLeft"), 0);
     EXPECT_GE(set.findClipIndex("StrafeRight"), 0);

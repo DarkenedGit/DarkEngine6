@@ -303,6 +303,7 @@ namespace Dark
 			applyLocomotionYawSplit(*m_skel, inR, n, m_lowerBodyYaw);
 			applyChargeWindup(*m_skel, inR, n, ChargeWindup{ m_chargeAttack, m_chargeBlock, m_chargeStrike });
 			applyHitFlinch(*m_skel, inR, n, m_flinchForward, m_flinchSide);
+			applyShieldGuard(*m_skel, inR, n, m_shieldGuard);
 			evalPose(inT, inR, inS);
 			if (m_applyRootMotion && !m_rootPrimed)
 			{
@@ -400,6 +401,7 @@ namespace Dark
 		applyLocomotionYawSplit(*m_skel, R, n, m_lowerBodyYaw);
 		applyChargeWindup(*m_skel, R, n, ChargeWindup{ m_chargeAttack, m_chargeBlock, m_chargeStrike });
 		applyHitFlinch(*m_skel, R, n, m_flinchForward, m_flinchSide);
+		applyShieldGuard(*m_skel, R, n, m_shieldGuard);
 		evalPose(T, R, S);
 
 		const Vector3f newRoot = rootTranslation(T, R, S);

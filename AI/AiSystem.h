@@ -71,6 +71,16 @@ namespace Dark
 
         bool applyHunterDamage(World& world, Entity e, float amount);
         void applyHunterHitReaction(World& world, Entity e, const Math::Vector3f& hitDirection);
+        enum class MeleeResponse : uint8_t
+        {
+            Stagger,
+            Poise,
+            Blocked
+        };
+        // How a hunter takes a sword swing from `attackerPos`: blocks it, shrugs it off, or staggers.
+        MeleeResponse respondToMelee(World& world, Entity e, const Math::Vector3f& attackerPos);
+        // Cancels a melee wind-up and holds the next attack back for `recover` seconds.
+        void interruptAttack(World& world, Entity e, float recover);
         void onHunterAttacked(World& world, Entity victim, const Math::Vector3f& playerPos);
         void onHunterKilled(World& world, Entity victim);
 
@@ -131,6 +141,7 @@ namespace Dark
         float               m_agentR = 0.8f;
         float               m_waterY = -1.0e9f;
         Entity              m_jumpAttackToken{};
+        Entity              m_duelToken{};
         void (*m_jumpHitsFn)(void* user, const Combat::DamageEvent* events, int count) = nullptr;
         void* m_jumpHitsUser                                                           = nullptr;
         void (*m_hunterCueFn)(void* user, Entity hunter, const char* cue)              = nullptr;

@@ -224,8 +224,8 @@ def make_clips(include_die: bool):
         ]
 
     walk = {
-        11: swing(0.55),
-        14: swing_opp(0.55),
+        11: swing(0.68),
+        14: swing_opp(0.68),
         12: [q_axis(1, 0, 0, 0.35), q_ident(), q_axis(1, 0, 0, 0.05), q_ident(), q_axis(1, 0, 0, 0.35)],
         15: [q_axis(1, 0, 0, 0.05), q_ident(), q_axis(1, 0, 0, 0.35), q_ident(), q_axis(1, 0, 0, 0.05)],
         5: swing_opp(0.40),
@@ -242,8 +242,8 @@ def make_clips(include_die: bool):
     # Run: faster, bigger
     rt = [0.0, 0.125, 0.25, 0.375, 0.5]
     run = {
-        11: swing(0.85),
-        14: swing_opp(0.85),
+        11: swing(1.15),
+        14: swing_opp(1.15),
         12: [q_axis(1, 0, 0, 0.55), q_ident(), q_axis(1, 0, 0, 0.1), q_ident(), q_axis(1, 0, 0, 0.55)],
         15: [q_axis(1, 0, 0, 0.1), q_ident(), q_axis(1, 0, 0, 0.55), q_ident(), q_axis(1, 0, 0, 0.1)],
         5: swing_opp(0.70),
@@ -317,24 +317,71 @@ def make_clips(include_die: bool):
     }
     clips.append(clip_channels("Shoot", st, shoot))
 
-    # SwingSword: right arm arc. 0.5s
-    swt = [0.0, 0.12, 0.28, 0.5]
+    # SwingWindup: sword raised high and back, body coiled. Holds so the strike reads.
+    raised = q_mul(q_axis(1, 0, 0, 0.35), q_axis(0, 0, 1, -2.4))
+    bent = q_axis(1, 0, 0, -0.7)
+    wut = [0.0, 0.25, 0.5]
+    windup = {
+        8: [q_ident(), raised, raised],
+        9: [q_ident(), bent, bent],
+        2: [q_ident(), q_axis(0, 1, 0, -0.4), q_axis(0, 1, 0, -0.4)],
+        1: [q_ident(), q_axis(1, 0, 0, -0.12), q_axis(1, 0, 0, -0.12)],
+        5: [q_ident(), q_axis(0, 0, 1, 0.45), q_axis(0, 0, 1, 0.45)],
+    }
+    clips.append(clip_channels("SwingWindup", wut, windup))
+
+    # SwingSword: overhead chop from the raised pose, stepping in. 0.5s
+    swt = [0.0, 0.1, 0.22, 0.5]
     swingc = {
-        8: [
-            q_ident(),
-            q_axis(0, 0, 1, -2.2),
-            q_axis(1, 0, 0, -1.6),
-            q_ident(),
-        ],
-        9: [
-            q_ident(),
-            q_axis(1, 0, 0, -0.4),
-            q_axis(1, 0, 0, 0.8),
-            q_ident(),
-        ],
-        2: [q_ident(), q_axis(0, 1, 0, -0.25), q_axis(0, 1, 0, 0.35), q_ident()],
+        8: [raised, q_axis(1, 0, 0, -1.7), q_axis(1, 0, 0, -0.8), q_ident()],
+        9: [bent, q_axis(1, 0, 0, -0.2), q_axis(1, 0, 0, -0.1), q_ident()],
+        2: [q_axis(0, 1, 0, -0.4), q_axis(0, 1, 0, 0.3), q_axis(0, 1, 0, 0.4), q_ident()],
+        1: [q_axis(1, 0, 0, -0.12), q_axis(1, 0, 0, 0.25), q_axis(1, 0, 0, 0.3), q_ident()],
+        5: [q_axis(0, 0, 1, 0.45), q_axis(0, 0, 1, 0.2), q_axis(0, 0, 1, 0.2), q_ident()],
+        11: [q_ident(), q_axis(1, 0, 0, -0.45), q_axis(1, 0, 0, -0.45), q_ident()],
+        12: [q_ident(), q_axis(1, 0, 0, 0.4), q_axis(1, 0, 0, 0.4), q_ident()],
+        14: [q_ident(), q_axis(1, 0, 0, 0.25), q_axis(1, 0, 0, 0.25), q_ident()],
     }
     clips.append(clip_channels("SwingSword", swt, swingc))
+
+    # SwingSword2: flat backhand from the left side across to the right. 0.5s
+    level = q_axis(1, 0, 0, -1.45)
+    sweep = lambda a: q_mul(q_axis(0, 1, 0, a), level)
+    sw2 = {
+        8: [sweep(-1.0), sweep(-0.1), sweep(0.9), q_ident()],
+        9: [q_axis(1, 0, 0, -0.5), q_ident(), q_ident(), q_ident()],
+        2: [q_axis(0, 1, 0, -0.5), q_axis(0, 1, 0, 0.1), q_axis(0, 1, 0, 0.5), q_ident()],
+        1: [q_ident(), q_axis(1, 0, 0, 0.15), q_axis(1, 0, 0, 0.15), q_ident()],
+        14: [q_ident(), q_axis(1, 0, 0, -0.35), q_axis(1, 0, 0, -0.35), q_ident()],
+        15: [q_ident(), q_axis(1, 0, 0, 0.3), q_axis(1, 0, 0, 0.3), q_ident()],
+    }
+    clips.append(clip_channels("SwingSword2", swt, sw2))
+
+    # Block: sword held across the body at chest height, braced. 0.45s
+    guard = q_mul(q_axis(0, 1, 0, 0.9), q_axis(1, 0, 0, -1.3))
+    bt = [0.0, 0.08, 0.35, 0.45]
+    block = {
+        8: [q_ident(), guard, guard, q_ident()],
+        9: [q_ident(), q_axis(1, 0, 0, -0.9), q_axis(1, 0, 0, -0.9), q_ident()],
+        2: [q_ident(), q_axis(0, 1, 0, 0.25), q_axis(0, 1, 0, 0.25), q_ident()],
+        1: [q_ident(), q_axis(1, 0, 0, -0.12), q_axis(1, 0, 0, -0.08), q_ident()],
+        11: [q_ident(), q_axis(1, 0, 0, 0.25), q_axis(1, 0, 0, 0.25), q_ident()],
+        12: [q_ident(), q_axis(1, 0, 0, 0.3), q_axis(1, 0, 0, 0.3), q_ident()],
+    }
+    clips.append(clip_channels("Block", bt, block))
+
+    # HitReact: torso snaps back, arms fly out, then recovers. 0.4s
+    ht = [0.0, 0.08, 0.4]
+    hit = {
+        1: [q_ident(), q_axis(1, 0, 0, -0.3), q_ident()],
+        2: [q_ident(), q_axis(1, 0, 0, -0.2), q_ident()],
+        3: [q_ident(), q_axis(1, 0, 0, -0.3), q_ident()],
+        5: [q_ident(), q_axis(0, 0, 1, 0.5), q_ident()],
+        8: [q_ident(), q_axis(0, 0, 1, -0.5), q_ident()],
+        11: [q_ident(), q_axis(1, 0, 0, 0.2), q_ident()],
+        14: [q_ident(), q_axis(1, 0, 0, -0.15), q_ident()],
+    }
+    clips.append(clip_channels("HitReact", ht, hit))
 
     if include_die:
         dtm = [0.0, 0.35, 0.7, 1.2]

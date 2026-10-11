@@ -6,6 +6,7 @@
 #include "Math/Vector3f.h"
 
 #include <cmath>
+#include <string_view>
 
 namespace Dark
 {
@@ -62,6 +63,25 @@ namespace Dark
 		return atan2f(crossY, dot);
 	}
 
+	// Clip rate that keeps the feet moving at the body's planar speed. Other clips play at 1.
+	inline float locomotionPlaybackScale(std::string_view clip, float speed)
+	{
+		float native = 0.0f;
+		if (clip == "Walk" || clip == "WalkBack")
+			native = 1.45f;
+		else if (clip == "Run" || clip == "RunBack")
+			native = 3.4f;
+		else if (clip == "StrafeLeft" || clip == "StrafeRight")
+			native = 1.3f;
+		else if (clip == "StrafeRunLeft" || clip == "StrafeRunRight")
+			native = 2.7f;
+		else if (clip == "CrouchWalk")
+			native = 0.55f;
+		if (native <= 0.0f || speed < 0.05f)
+			return 1.0f;
+		return Math::Clamp(speed / native, 0.6f, 2.4f);
+	}
+
 	inline float approachAngle(float current, float target, float speedRadPerSec, float dt)
 	{
 		const float delta = Math::WrapPi(target - current);
@@ -87,6 +107,9 @@ namespace Dark
 	void applyChargeWindup(const Skeleton& skeleton, Math::Quaternion* localR, uint32_t count, const ChargeWindup& wind);
 
 	void applyHitFlinch(const Skeleton& skeleton, Math::Quaternion* localR, uint32_t count, float forward, float side);
+
+	// 0..1. Lifts the off-hand (L_*) arm so the forearm is across the chest, shield out front.
+	void applyShieldGuard(const Skeleton& skeleton, Math::Quaternion* localR, uint32_t count, float alpha);
 
 	// Smooth the pose toward the live hold. Release eases the arm forward into the swing.
 	inline void stepChargeWindup(ChargeWindup& pose, float dt, bool attackHeld, float attackHeldSec, float attackWindow,

@@ -12,6 +12,8 @@ namespace Dark
         float       range    = 2.7f;
         float       minDot   = 0.25f;
         float       cooldown = 0.45f;
+        float       hitDelay = 0.0f;
+        bool        singleTarget = false;
     };
 
     class MeleeWeapon : public Weapon
@@ -32,8 +34,15 @@ namespace Dark
         void tick(float dt, const WeaponWorldQuery& world) override;
         void clear() override;
 
+        // Best target in reach for this swing (closest to the look direction), or -1.
+        int pickTarget(const WeaponFireRequest& req, const WeaponWorldQuery& world) const;
+
     private:
-        MeleeWeaponDesc m_desc{};
+        void strike(const WeaponFireRequest& req, const WeaponWorldQuery& world);
+
+        MeleeWeaponDesc   m_desc{};
+        WeaponFireRequest m_pending{};
+        float             m_pendingLeft = -1.0f;
     };
 
 } // namespace Dark

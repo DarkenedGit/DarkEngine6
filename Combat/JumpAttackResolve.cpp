@@ -7,7 +7,7 @@
 namespace Dark::Combat
 {
 
-    int resolveJumpAttackEvents(World& world, CombatSystem& combat, const DamageEvent* events, int count)
+    int resolveJumpAttackEvents(World& world, CombatSystem& combat, const DamageEvent* events, int count, ResolveResult* results)
     {
         if (count <= 0)
             return 0;
@@ -18,7 +18,10 @@ namespace Dark::Combat
         int applied = 0;
         for (int i = 0; i < count; ++i)
         {
-            if (combat.resolve(world, events[i]).applied)
+            const ResolveResult r = combat.resolve(world, events[i]);
+            if (results)
+                results[i] = r;
+            if (r.applied)
                 ++applied;
         }
         return applied;
