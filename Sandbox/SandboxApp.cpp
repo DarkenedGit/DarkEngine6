@@ -380,6 +380,23 @@ const Mesh* sandboxPrimitiveMesh(PrimitiveMesh p, const Mesh& cube, const Mesh& 
     }
 }
 
+// Local bounds of the meshes sandboxPrimitiveMesh returns. CreateCube(1) is ±0.5.
+// CreateCross(1, 0.30, 0.22) is the union of those two cuboids.
+AABox3f sandboxPrimitiveBounds(PrimitiveMesh p)
+{
+    switch (p)
+    {
+    case PrimitiveMesh::Cube:
+        return AABox3f(Vector3f(-0.5f, -0.5f, -0.5f), Vector3f(0.5f, 0.5f, 0.5f));
+    case PrimitiveMesh::Cross:
+        return AABox3f(Vector3f(-0.5f, -0.5f, -0.11f), Vector3f(0.5f, 0.5f, 0.11f));
+    case PrimitiveMesh::Sphere:
+    case PrimitiveMesh::None:
+    default:
+        return AABox3f::Empty();
+    }
+}
+
 void attachSandboxCubeModel(World& world, AssetPinTable& pins, AssetManager& assets, Entity e, AssetID modelId)
 {
     ModelComponent mc{};
@@ -3901,7 +3918,11 @@ void SandboxApp::onRender()
             const TransformComponent* xf = world().get<TransformComponent>(e);
             if (!xf)
                 return;
-            drawShadowCaster(cmd, m_shadows.pipeline(), lightViewProj, makeWorldMatrix(*xf), *gpuMesh);
+            const Matrix4f worldMat = makeWorldMatrix(*xf);
+            const AABox3f local = sandboxPrimitiveBounds(mc.primitive);
+            if (local.IsValid() && !casterFrustum.Intersects(local.Transformed(worldMat)))
+                return;
+            drawShadowCaster(cmd, m_shadows.pipeline(), lightViewProj, worldMat, *gpuMesh);
         });
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             if (camouflageHides(e))
@@ -3910,9 +3931,13 @@ void SandboxApp::onRender()
                 return;
             const TransformComponent* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
-            if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->valid() || !gpu.ensureModel(model))
+            if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->valid())
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
+            if (model->bounds().IsValid() && !casterFrustum.Intersects(model->bounds().Transformed(worldMat)))
+                return;
+            if (!gpu.ensureModel(model))
+                return;
             if (model->skinned())
             {
                 const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));
