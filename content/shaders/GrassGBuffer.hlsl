@@ -21,6 +21,15 @@ cbuffer GrassFrameConstants : register(b0)
     float4 prevFootprint[8] : packoffset(c25);
 };
 
+// One logical uint. FXC still declares one 16-byte register, so the root range is 4 DWORDs.
+cbuffer GrassDrawConstants : register(b1)
+{
+    uint baseIndex;
+    uint padDraw1;
+    uint padDraw2;
+    uint padDraw3;
+};
+
 struct GrassBladeGpu
 {
     float x;
@@ -43,6 +52,7 @@ struct GrassTileWindGpu
 
 StructuredBuffer<GrassBladeGpu> gBlades : register(t0);
 StructuredBuffer<GrassTileWindGpu> gTiles : register(t1);
+StructuredBuffer<uint> gIndices : register(t2);
 
 struct VSInput
 {
@@ -77,7 +87,7 @@ float3 grassSafeNormalize(float3 v, float3 fallback)
 
 PSInput VSMain(VSInput input)
 {
-    GrassBladeGpu blade = gBlades[input.iid];
+    GrassBladeGpu blade = gBlades[gIndices[input.iid + baseIndex]];
     GrassTileWindGpu tile = gTiles[blade.tileSlot];
 
     float height = heightMetres * blade.heightMul * tile.fade;

@@ -848,3 +848,93 @@ TEST(GrassField, MovingPlayer_BiasesShoveTowardVelocity)
     EXPECT_NEAR(previous.x, 0.0f, 1e-3f);
     EXPECT_NEAR(previous.z, 1.0f, 1e-3f);
 }
+
+TEST(GrassField, LodStaleBothSlotsOnStreamingOnly)
+{
+    TerrainGrid grid;
+    ASSERT_TRUE(makeGrid(grid, 9, Vector3f(0.0f, 0.0f, 0.0f), 0.0f, 0, 255, 0, 0, true));
+    GrassField field;
+    enable(field, 1337u);
+    for (int lod = 0; lod < kGrassLodCount; ++lod)
+        EXPECT_EQ(field.lodStaleMask(lod), 0u);
+    EXPECT_EQ(field.lodStaleMask(-1), 0u);
+    EXPECT_EQ(field.lodStaleMask(kGrassLodCount), 0u);
+
+    field.update(grid, 4.0f, 4.0f, 0.0, -1000.0f);
+    ASSERT_EQ(field.blades(0).count, kGrassLod0PerTile);
+    EXPECT_EQ(field.lodStaleMask(0), 0x3u);
+    for (int lod = 1; lod < kGrassLodCount; ++lod)
+    {
+        EXPECT_EQ(field.blades(lod).count, 0u);
+        EXPECT_EQ(field.lodStaleMask(lod), 0u);
+    }
+
+    field.clearLodStale(0, 0);
+    EXPECT_EQ(field.lodStaleMask(0), 0x2u);
+    field.clearLodStale(0, kGrassFrameSlots);
+    field.clearLodStale(-1, 0);
+    field.clearLodStale(kGrassLodCount, 1);
+    EXPECT_EQ(field.lodStaleMask(0), 0x2u);
+
+    field.update(grid, 4.0f, 4.0f, 1.0, -1000.0f);
+    EXPECT_EQ(field.blades(0).count, kGrassLod0PerTile);
+    EXPECT_EQ(field.lodStaleMask(0), 0x2u);
+    for (int lod = 1; lod < kGrassLodCount; ++lod)
+        EXPECT_EQ(field.lodStaleMask(lod), 0u);
+
+    field.clearLodStale(0, 1);
+    EXPECT_EQ(field.lodStaleMask(0), 0u);
+    field.update(grid, 4.0f, 4.0f, 2.0, -1000.0f);
+    EXPECT_EQ(field.blades(0).count, kGrassLod0PerTile);
+    EXPECT_EQ(field.lodStaleMask(0), 0u);
+
+    GrassParams thinner = field.params();
+    thinner.densityScale = 0.5f;
+    field.setParams(thinner);
+    EXPECT_EQ(field.lodStaleMask(0), 0u);
+    field.update(grid, 4.0f, 4.0f, 3.0, -1000.0f);
+    EXPECT_EQ(field.blades(0).count, 2048u);
+    EXPECT_EQ(field.lodStaleMask(0), 0x3u);
+    for (int lod = 1; lod < kGrassLodCount; ++lod)
+        EXPECT_EQ(field.lodStaleMask(lod), 0u);
+
+    for (int lod = 0; lod < kGrassLodCount; ++lod)
+    {
+        field.clearLodStale(lod, 0);
+        field.clearLodStale(lod, 1);
+    }
+    field.update(grid, 10000.0f, 10000.0f, 4.0, -1000.0f);
+    EXPECT_EQ(field.blades(0).count, 0u);
+    EXPECT_EQ(field.residentTileCount(), 0u);
+    EXPECT_EQ(field.lodStaleMask(0), 0x3u);
+    for (int lod = 1; lod < kGrassLodCount; ++lod)
+        EXPECT_EQ(field.lodStaleMask(lod), 0u);
+}
+
+TEST(GrassField, ResetMarksLodThatHadBlades)
+{
+    TerrainGrid grid;
+    ASSERT_TRUE(makeGrid(grid, 9, Vector3f(0.0f, 0.0f, 0.0f), 0.0f, 0, 255, 0, 0, true));
+    GrassField field;
+    enable(field, 1337u);
+    field.update(grid, 4.0f, 4.0f, 0.0, -1000.0f);
+    ASSERT_GT(field.blades(0).count, 0u);
+    for (int lod = 0; lod < kGrassLodCount; ++lod)
+    {
+        field.clearLodStale(lod, 0);
+        field.clearLodStale(lod, 1);
+    }
+
+    GrassParams off = field.params();
+    off.enabled     = false;
+    field.setParams(off);
+    EXPECT_EQ(field.lodStaleMask(0), 0u);
+    field.update(grid, 4.0f, 4.0f, 1.0, -1000.0f);
+    EXPECT_EQ(field.blades(0).count, 0u);
+    EXPECT_EQ(field.lodStaleMask(0), 0x3u);
+    for (int lod = 1; lod < kGrassLodCount; ++lod)
+        EXPECT_EQ(field.lodStaleMask(lod), 0u);
+
+    field.update(grid, 4.0f, 4.0f, 2.0, -1000.0f);
+    EXPECT_EQ(field.lodStaleMask(0), 0x3u);
+}

@@ -28,6 +28,7 @@ namespace Dark::Terrain
         constexpr int      kDemoteBudget    = 8;
         constexpr int      kGenerateBudget  = 4;
         constexpr int      kGenerateWarm    = 8;
+        static_assert(kGrassFrameSlots == 2, "lod stale mask is two frame slots");
         constexpr float    kWarmRadius      = 48.0f;
 
         double sq(float metres)
@@ -246,8 +247,12 @@ namespace Dark::Terrain
     {
         m_tiles.clear();
         m_lookup.clear();
-        for (Region& region : m_region)
-            region.blades.clear();
+        for (int lod = 0; lod < kGrassLodCount; ++lod)
+        {
+            if (!m_region[lod].blades.empty())
+                markLodStale(lod);
+            m_region[lod].blades.clear();
+        }
         if (!m_wind.empty())
         {
             std::fill(m_wind.begin(), m_wind.end(), GrassTileWind{});
@@ -413,6 +418,28 @@ namespace Dark::Terrain
         return span;
     }
 
+    uint8_t GrassField::lodStaleMask(int lod) const
+    {
+        if (lod < 0 || lod >= kGrassLodCount)
+            return 0;
+        return m_lodStale[lod];
+    }
+
+    void GrassField::clearLodStale(int lod, uint32_t frameSlot)
+    {
+        if (lod < 0 || lod >= kGrassLodCount || frameSlot >= kGrassFrameSlots)
+            return;
+        const uint8_t bit = static_cast<uint8_t>(1u << frameSlot);
+        m_lodStale[lod]   = static_cast<uint8_t>(m_lodStale[lod] & static_cast<uint8_t>(~bit));
+    }
+
+    void GrassField::markLodStale(int lod)
+    {
+        if (lod < 0 || lod >= kGrassLodCount)
+            return;
+        m_lodStale[lod] = static_cast<uint8_t>(m_lodStale[lod] | 0x3u);
+    }
+
     GrassField::BladeSpan GrassField::tileBlades(int tileX, int tileZ) const
     {
         BladeSpan   span;
@@ -490,6 +517,8 @@ namespace Dark::Terrain
         if (count == 0 || !src)
             return begin;
         region.blades.insert(region.blades.end(), src, src + count);
+        // A later tile's begin shifts on any insert into this packed region. Mark the whole LOD, both slots.
+        markLodStale(lod);
         return begin;
     }
 
@@ -508,6 +537,8 @@ namespace Dark::Terrain
             if (tile.lod == lod && tile.begin >= end)
                 tile.begin -= count;
         }
+        // Erasing a span slides every later tile. A per-tile upload would copy the wrong bytes.
+        markLodStale(lod);
     }
 
     void GrassField::eraseTileAt(size_t index)

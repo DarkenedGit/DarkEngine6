@@ -45,6 +45,9 @@ namespace Dark::Terrain
         static void tileIndex(float worldX, float worldZ, int& tileX, int& tileZ);
 
         BladeSpan blades(int lod) const;
+        // Bit 0 is frame slot 0, bit 1 is frame slot 1. removeSpan and append set both.
+        uint8_t   lodStaleMask(int lod) const;
+        void      clearLodStale(int lod, uint32_t frameSlot);
         BladeSpan tileBlades(int tileX, int tileZ) const;
         int       residentLod(int tileX, int tileZ) const;
         uint32_t  residentTileCount() const { return static_cast<uint32_t>(m_tiles.size()); }
@@ -92,6 +95,7 @@ namespace Dark::Terrain
 
         uint32_t appendBlades(int lod, const GrassBlade* src, uint32_t count);
         void     removeSpan(int lod, uint32_t begin, uint32_t count);
+        void     markLodStale(int lod);
         void     eraseTileAt(size_t index);
 
         bool splatReady(const TerrainGrid& grid, float x, float z) const;
@@ -109,6 +113,7 @@ namespace Dark::Terrain
         std::vector<Tile>                    m_tiles;
         std::unordered_map<uint64_t, uint32_t> m_lookup;
         Region                               m_region[kGrassLodCount];
+        uint8_t                              m_lodStale[kGrassLodCount]{};
         std::vector<GrassTileWind>          m_wind;
         std::vector<uint32_t>               m_freeSlots;
         std::vector<GrassBlade>             m_scratch;

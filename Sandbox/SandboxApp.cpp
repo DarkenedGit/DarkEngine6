@@ -4274,8 +4274,16 @@ void SandboxApp::onRender()
                     const GrassField::BladeSpan span = m_grassField.blades(lod);
                     grassLods[lod].blades            = span.data;
                     grassLods[lod].count             = span.count;
+                    grassLods[lod].staleMask         = m_grassField.lodStaleMask(lod);
                 }
-                m_grassPipeline.draw(cmd, renderer(), grassLods, m_grassField.tileWind(), m_grassField.tileWindCount(), grassFrame);
+                // This slot has seen the CPU blades. Leave the other slot stale until its fence.
+                if (m_grassPipeline.draw(cmd, renderer(), grassLods, m_grassField.tileWind(), m_grassField.tileWindCount(), grassFrame, frustum,
+                                         renderer().debugState().instancedIndirect))
+                {
+                    const uint32_t slot = renderer().frameIndex() % kGrassFrameSlots;
+                    for (int lod = 0; lod < kGrassLodCount; ++lod)
+                        m_grassField.clearLodStale(lod, slot);
+                }
             }
             if (instanceColor && !m_drawList.gpuCullActive())
             {

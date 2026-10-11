@@ -105,9 +105,10 @@ namespace Dark::Terrain
     static_assert(offsetof(GrassFrameConstants, footprint) == 272, "grass cb footprint");
     static_assert(offsetof(GrassFrameConstants, prevFootprint) == 400, "grass cb prev footprint");
 
-    constexpr int      kGrassLodCount  = 4;
-    constexpr uint32_t kGrassBladeCap  = 1048576u;
-    constexpr uint32_t kGrassWindSlots = 2048u;
+    constexpr int      kGrassLodCount   = 4;
+    constexpr uint32_t kGrassFrameSlots = 2u;
+    constexpr uint32_t kGrassBladeCap   = 1048576u;
+    constexpr uint32_t kGrassWindSlots  = 2048u;
 
     constexpr uint32_t kGrassLod0Tiles   = 21u;
     constexpr uint32_t kGrassLod1Tiles   = 96u;
