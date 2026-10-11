@@ -65,6 +65,20 @@ struct MeshInstanceGpu
 };
 static_assert(sizeof(MeshInstanceGpu) == 144, "static instance");
 
+constexpr uint32_t kMaxSkinnedParts    = 1024;
+constexpr uint32_t kMaxSkinnedPalettes = 256;
+
+// Not a row of MeshInstanceGpu. paletteIndex selects one BonePaletteCB in the skinned upload.
+struct SkinnedInstanceGpu
+{
+    float    world[16];
+    float    prevWorld[16];
+    float    color[4];
+    uint32_t paletteIndex;
+    uint32_t pad[3];
+};
+static_assert(sizeof(SkinnedInstanceGpu) == 160, "skinned instance");
+
 struct MeshBatchConstants
 {
     float    viewProj[16];
