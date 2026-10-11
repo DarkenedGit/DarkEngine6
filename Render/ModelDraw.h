@@ -73,6 +73,21 @@ namespace Dark
         const Matrix4f& prevViewProj,
         DebugFill fill = DebugFill::Solid);
 
+    // Skips parts with skinned == false. Used when those parts were accepted by DrawList.
+    void drawSkinnedModelForwardSkinnedOnly(
+        ID3D12GraphicsCommandList* cmd,
+        GpuResourceCache& gpu,
+        const SkinnedMeshPipeline& skinned,
+        const MeshPipeline& staticPipeline,
+        const ShadowSystem& shadows,
+        SkinningUploadRing& ring,
+        const Model& model,
+        const AnimPose& pose,
+        const Matrix4f& world,
+        const Matrix4f& viewProj,
+        const MeshFrameConstants& lighting,
+        DebugFill fill = DebugFill::Solid);
+
     void drawSkinnedModelForward(
         ID3D12GraphicsCommandList* cmd,
         GpuResourceCache& gpu,

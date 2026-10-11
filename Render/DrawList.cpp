@@ -105,6 +105,24 @@ void drawStaticBatch(const Mesh& mesh, ID3D12GraphicsCommandList* cmd, bool indi
         mesh.drawInstanced(cmd, visible);
 }
 
+void fillForwardScalars(GpuResourceCache& gpu, AssetID material, MeshForwardBatchConstants& cb)
+{
+    MeshGBufferConstants surface{};
+    if (const AssetRef<Material> mat = gpu.cpuMaterial(material))
+        applyMaterialSurface(*mat, surface);
+    else
+    {
+        surface.ao            = 1.0f;
+        surface.normalScale   = 1.0f;
+        surface.alphaCutoff   = 0.5f;
+        surface.alphaModeMask = 0.0f;
+    }
+    cb.normalScale   = surface.normalScale;
+    cb.ao            = surface.ao;
+    cb.alphaCutoff   = surface.alphaCutoff;
+    cb.alphaModeMask = surface.alphaModeMask;
+}
+
 void fillBatchScalars(GpuResourceCache& gpu, AssetID material, MeshBatchConstants& cb)
 {
     MeshGBufferConstants surface{};
@@ -750,6 +768,104 @@ void DrawList::recordOpaque(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gp
         gpu.bindMaterial(cmd, batch.key.material, InstancedMeshPipeline::kGbMaterial);
         const UINT64 argOffset = (static_cast<UINT64>(view.index) * kMaxBatches + i) * sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
         drawStaticBatch(*batch.mesh, cmd, useIndirect, m_gpu->signature.Get(), m_gpu->args[frameSlot].Get(), argOffset, slot.visible[i]);
+    }
+}
+
+bool DrawList::forwardReady() const
+{
+    return m_gpu && m_gpu->pipeline.forwardReady();
+}
+
+void DrawList::recordForward(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, ViewId view, StaticPopulation population,
+                             const MeshForwardBatchConstants& lighting, uint64_t shadowCbv) const
+{
+    if (!cmd || !gpuReady() || !forwardReady())
+        return;
+    compile();
+    if (view.index >= kMaxStaticViews)
+        return;
+    const ViewSlot& slot = m_views[view.index];
+    if (!slot.built || slot.pass != RenderPassKind::GBuffer)
+        return;
+
+    const uint32_t frameSlot = m_frameIndex % kUploadSlots;
+    const D3D12_GPU_VIRTUAL_ADDRESS instanceGpu = m_gpu->instances->GetGPUVirtualAddress() + static_cast<UINT64>(frameSlot) * kMaxStaticItems * sizeof(MeshInstanceGpu);
+    const uint32_t populationId = static_cast<uint32_t>(population);
+
+    auto issue = [&](const GBufferBatch& batch, uint32_t batchIndex, bool indirect, uint32_t visible) {
+        MeshForwardBatchConstants cb = lighting;
+        std::memcpy(cb.viewProj, slot.drawViewProj, sizeof(cb.viewProj));
+        fillForwardScalars(gpu, batch.key.material, cb);
+        cb.baseIndex = batch.itemBegin;
+        cb.pad[0]    = 0;
+        cb.pad[1]    = 0;
+        cb.pad[2]    = 0;
+        m_gpu->pipeline.setForwardConstants(cmd, cb);
+        gpu.bindMaterial(cmd, batch.key.material, InstancedMeshPipeline::kForwardMaterial);
+        const UINT64 argOffset = (static_cast<UINT64>(view.index) * kMaxBatches + batchIndex) * sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
+        if (indirect)
+            batch.mesh->drawIndirect(cmd, m_gpu->signature.Get(), m_gpu->args[frameSlot].Get(), argOffset);
+        else
+            batch.mesh->drawInstanced(cmd, visible);
+    };
+
+    if (slot.gpu)
+    {
+        if (!m_cullDispatched || !m_cull || !indirectReady())
+            return;
+        const D3D12_GPU_VIRTUAL_ADDRESS indexGpu = m_cull->indexAddress(frameSlot, view.index);
+        if (indexGpu == 0)
+            return;
+        bool any = false;
+        for (uint32_t i = 0; i < m_gbuffer.size(); ++i)
+        {
+            if (m_gbuffer[i].key.population == populationId && m_gbuffer[i].mesh != nullptr)
+            {
+                any = true;
+                break;
+            }
+        }
+        if (!any)
+            return;
+
+        m_gpu->pipeline.bindForward(cmd);
+        m_gpu->pipeline.setForwardBuffers(cmd, instanceGpu, indexGpu);
+        m_gpu->pipeline.setForwardShadow(cmd, static_cast<D3D12_GPU_VIRTUAL_ADDRESS>(shadowCbv));
+        for (uint32_t i = 0; i < m_gbuffer.size(); ++i)
+        {
+            const GBufferBatch& batch = m_gbuffer[i];
+            if (batch.key.population != populationId || batch.mesh == nullptr)
+                continue;
+            issue(batch, i, true, 0);
+        }
+        return;
+    }
+
+    bool any = false;
+    for (uint32_t i = 0; i < m_gbuffer.size(); ++i)
+    {
+        if (m_gbuffer[i].key.population != populationId)
+            continue;
+        if (i >= slot.visible.size() || slot.visible[i] == 0 || m_gbuffer[i].mesh == nullptr)
+            continue;
+        any = true;
+        break;
+    }
+    if (!any)
+        return;
+
+    const bool useIndirect = m_indirect && indirectReady() && copyViewArgs(cmd, view);
+    const D3D12_GPU_VIRTUAL_ADDRESS indexGpu = m_gpu->indices->GetGPUVirtualAddress()
+        + (static_cast<UINT64>(frameSlot) * kMaxStaticViews + view.index) * kMaxStaticItems * sizeof(uint32_t);
+    m_gpu->pipeline.bindForward(cmd);
+    m_gpu->pipeline.setForwardBuffers(cmd, instanceGpu, indexGpu);
+    m_gpu->pipeline.setForwardShadow(cmd, static_cast<D3D12_GPU_VIRTUAL_ADDRESS>(shadowCbv));
+    for (uint32_t i = 0; i < m_gbuffer.size(); ++i)
+    {
+        const GBufferBatch& batch = m_gbuffer[i];
+        if (batch.key.population != populationId || i >= slot.visible.size() || slot.visible[i] == 0 || batch.mesh == nullptr)
+            continue;
+        issue(batch, i, useIndirect, slot.visible[i]);
     }
 }
 

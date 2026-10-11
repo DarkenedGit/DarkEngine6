@@ -1,9 +1,11 @@
 #include "Render/InstancedMeshPipeline.h"
 #include "Render/DepthState.h"
 #include "Render/GpuMaterial.h"
+#include "Render/MeshPipeline.h"
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
 
+#include <cstddef>
 #include <d3dcompiler.h>
 
 namespace Dark
@@ -34,12 +36,20 @@ namespace Dark
 
     } // namespace
 
+    static_assert(sizeof(MeshForwardBatchConstants) / sizeof(uint32_t) == 36u, "forward constants");
+    static_assert(offsetof(MeshForwardBatchConstants, lightDirWS) == 64u, "forward light");
+    static_assert(offsetof(MeshForwardBatchConstants, normalScale) == 112u, "forward material");
+    static_assert(offsetof(MeshForwardBatchConstants, baseIndex) == 128u, "forward base");
+    static_assert(36u + 1u + 2u + 2u + 2u == 43u, "forward root signature");
+
     void InstancedMeshPipeline::reset()
     {
         m_gbRoot.Reset();
         m_gbPso.Reset();
         m_depthRoot.Reset();
         m_depthPso.Reset();
+        m_forwardRoot.Reset();
+        m_forwardPso.Reset();
     }
 
     bool InstancedMeshPipeline::create(ID3D12Device* device)
@@ -229,7 +239,133 @@ namespace Dark
             return false;
         }
 
-        DE_LOG_INFO(LogCategory::Render, "InstancedMeshPipeline: ready (gbuffer 45 DWORDs, depth 24 DWORDs)");
+        if (!createForward(device))
+        {
+            m_forwardRoot.Reset();
+            m_forwardPso.Reset();
+            DE_LOG_ERROR(LogCategory::Render, "InstancedMeshPipeline: forward instancing unavailable; opaque color stays immediate");
+        }
+
+        if (m_forwardPso)
+            DE_LOG_INFO(LogCategory::Render, "InstancedMeshPipeline: ready (gbuffer 45 DWORDs, depth 24 DWORDs, forward 43 DWORDs)");
+        else
+            DE_LOG_INFO(LogCategory::Render, "InstancedMeshPipeline: ready (gbuffer 45 DWORDs, depth 24 DWORDs)");
+        return true;
+    }
+
+    bool InstancedMeshPipeline::createForward(ID3D12Device* device)
+    {
+        m_forwardRoot.Reset();
+        m_forwardPso.Reset();
+        if (!device)
+            return false;
+
+        D3D12_DESCRIPTOR_RANGE srvRange{};
+        srvRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        srvRange.NumDescriptors                    = GpuMaterial::kSrvCount;
+        srvRange.BaseShaderRegister                = 0;
+        srvRange.RegisterSpace                     = 0;
+        srvRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+        D3D12_ROOT_PARAMETER params[5]{};
+        params[kForwardConstants].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        params[kForwardConstants].ShaderVisibility         = D3D12_SHADER_VISIBILITY_ALL;
+        params[kForwardConstants].Constants.ShaderRegister = 0;
+        params[kForwardConstants].Constants.RegisterSpace  = 0;
+        params[kForwardConstants].Constants.Num32BitValues = static_cast<UINT>(sizeof(MeshForwardBatchConstants) / 4);
+
+        params[kForwardMaterial].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        params[kForwardMaterial].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
+        params[kForwardMaterial].DescriptorTable.NumDescriptorRanges = 1;
+        params[kForwardMaterial].DescriptorTable.pDescriptorRanges   = &srvRange;
+
+        params[kForwardShadow].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        params[kForwardShadow].ShaderVisibility          = D3D12_SHADER_VISIBILITY_PIXEL;
+        params[kForwardShadow].Descriptor.ShaderRegister = 1;
+        params[kForwardShadow].Descriptor.RegisterSpace  = 0;
+
+        params[kForwardInstances].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        params[kForwardInstances].ShaderVisibility          = D3D12_SHADER_VISIBILITY_VERTEX;
+        params[kForwardInstances].Descriptor.ShaderRegister = 5;
+        params[kForwardInstances].Descriptor.RegisterSpace  = 0;
+
+        params[kForwardIndices].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        params[kForwardIndices].ShaderVisibility          = D3D12_SHADER_VISIBILITY_VERTEX;
+        params[kForwardIndices].Descriptor.ShaderRegister = 6;
+        params[kForwardIndices].Descriptor.RegisterSpace  = 0;
+
+        D3D12_STATIC_SAMPLER_DESC samps[2]{};
+        samps[0].Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        samps[0].AddressU         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        samps[0].AddressV         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        samps[0].AddressW         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        samps[0].MaxLOD           = D3D12_FLOAT32_MAX;
+        samps[0].ShaderRegister   = 0;
+        samps[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+        samps[1].Filter           = D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
+        samps[1].AddressU         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+        samps[1].AddressV         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+        samps[1].AddressW         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+        samps[1].ComparisonFunc   = shadowCmpFunc();
+        samps[1].BorderColor      = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
+        samps[1].MaxLOD           = D3D12_FLOAT32_MAX;
+        samps[1].ShaderRegister   = 1;
+        samps[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+        D3D12_ROOT_SIGNATURE_DESC desc{};
+        desc.NumParameters     = 5;
+        desc.pParameters       = params;
+        desc.NumStaticSamplers = 2;
+        desc.pStaticSamplers   = samps;
+        desc.Flags             = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+        ComPtr<ID3DBlob> rsBlob;
+        if (!serializeRoot(desc, "D3D12SerializeRootSignature (instanced forward)", rsBlob))
+            return false;
+        if (FailedHr(device->CreateRootSignature(0, rsBlob->GetBufferPointer(), rsBlob->GetBufferSize(), IID_PPV_ARGS(&m_forwardRoot)),
+                     "CreateRootSignature (instanced forward)"))
+            return false;
+
+        const DXGI_FORMAT colorFormat = meshPassColorFormat(MeshPass::ForwardUnorm);
+        D3D_SHADER_MACRO encodeMacros[2]{};
+        makeEncodeSrgbMacros(encodeSrgbForColorFormat(colorFormat), encodeMacros);
+        ComPtr<ID3DBlob> vs;
+        ComPtr<ID3DBlob> ps;
+        if (!compileShaderFromContent("shaders/BasicMeshInstanced.hlsl", "VSMain", "vs_5_0", vs, encodeMacros)
+            || !compileShaderFromContent("shaders/BasicMeshInstanced.hlsl", "PSMain", "ps_5_0", ps, encodeMacros))
+            return false;
+
+        D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
+            { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+            { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+            { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+            { "TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        };
+
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC pso{};
+        pso.pRootSignature                                   = m_forwardRoot.Get();
+        pso.VS                                               = { vs->GetBufferPointer(), vs->GetBufferSize() };
+        pso.PS                                               = { ps->GetBufferPointer(), ps->GetBufferSize() };
+        pso.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+        pso.SampleMask                                       = UINT_MAX;
+        pso.RasterizerState.FillMode                         = D3D12_FILL_MODE_SOLID;
+        pso.RasterizerState.CullMode                         = D3D12_CULL_MODE_BACK;
+        pso.RasterizerState.FrontCounterClockwise            = TRUE;
+        pso.RasterizerState.DepthClipEnable                  = TRUE;
+        pso.DepthStencilState.DepthEnable                    = TRUE;
+        pso.DepthStencilState.DepthWriteMask                 = D3D12_DEPTH_WRITE_MASK_ALL;
+        pso.DepthStencilState.DepthFunc                      = sceneDepthFunc();
+        pso.DepthStencilState.StencilEnable                  = FALSE;
+        pso.InputLayout                                      = { inputLayout, _countof(inputLayout) };
+        pso.PrimitiveTopologyType                            = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        pso.NumRenderTargets                                 = 1;
+        pso.RTVFormats[0]                                    = colorFormat;
+        pso.DSVFormat                                        = DXGI_FORMAT_D32_FLOAT;
+        pso.SampleDesc                                       = { 1, 0 };
+
+        if (FailedHr(device->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&m_forwardPso)), "CreateGraphicsPipelineState (instanced forward)"))
+            return false;
         return true;
     }
 
@@ -277,6 +413,36 @@ namespace Dark
             return;
         cmd->SetGraphicsRootShaderResourceView(kDepthInstances, instances);
         cmd->SetGraphicsRootShaderResourceView(kDepthIndices, indices);
+    }
+
+    void InstancedMeshPipeline::bindForward(ID3D12GraphicsCommandList* cmd) const
+    {
+        if (!cmd || !m_forwardPso)
+            return;
+        cmd->SetGraphicsRootSignature(m_forwardRoot.Get());
+        cmd->SetPipelineState(m_forwardPso.Get());
+    }
+
+    void InstancedMeshPipeline::setForwardConstants(ID3D12GraphicsCommandList* cmd, const MeshForwardBatchConstants& constants) const
+    {
+        if (!cmd || !m_forwardRoot)
+            return;
+        cmd->SetGraphicsRoot32BitConstants(kForwardConstants, static_cast<UINT>(sizeof(MeshForwardBatchConstants) / 4), &constants, 0);
+    }
+
+    void InstancedMeshPipeline::setForwardBuffers(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS instances, D3D12_GPU_VIRTUAL_ADDRESS indices) const
+    {
+        if (!cmd || !m_forwardRoot)
+            return;
+        cmd->SetGraphicsRootShaderResourceView(kForwardInstances, instances);
+        cmd->SetGraphicsRootShaderResourceView(kForwardIndices, indices);
+    }
+
+    void InstancedMeshPipeline::setForwardShadow(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS shadowCbv) const
+    {
+        if (!cmd || !m_forwardRoot || shadowCbv == 0)
+            return;
+        cmd->SetGraphicsRootConstantBufferView(kForwardShadow, shadowCbv);
     }
 
 } // namespace Dark

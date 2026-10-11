@@ -202,6 +202,22 @@ void copyMatrix(float dst[16], const Math::Matrix4f& m)
     std::memcpy(dst, m.m_afEntry, sizeof(float) * 16);
 }
 
+void fillForwardLighting(MeshForwardBatchConstants& dst, const MeshFrameConstants& src)
+{
+    dst.lightDirWS[0] = src.lightDirWS[0];
+    dst.lightDirWS[1] = src.lightDirWS[1];
+    dst.lightDirWS[2] = src.lightDirWS[2];
+    dst.ambientScale  = src.ambientScale;
+    dst.lightColor[0] = src.lightColor[0];
+    dst.lightColor[1] = src.lightColor[1];
+    dst.lightColor[2] = src.lightColor[2];
+    dst.padLight      = src.pad1;
+    dst.cameraPos[0]  = src.cameraPos[0];
+    dst.cameraPos[1]  = src.cameraPos[1];
+    dst.cameraPos[2]  = src.cameraPos[2];
+    dst.lighting      = src.lighting;
+}
+
 void fillMeshGBufferXforms(MeshGBufferConstants& cb, const Matrix4f& world, const Matrix4f& viewProj, const Matrix4f& prevViewProj, const Matrix4f& prevWorld)
 {
     copyMatrix(cb.worldViewProj, world * viewProj);
@@ -2809,11 +2825,11 @@ void SandboxApp::updateHealthPacks(float dt)
         playSoundCue(world(), audio(), assets(), possessedBody(), "heal");
 }
 
-void SandboxApp::drawProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, MeshFrameConstants& cb)
+void SandboxApp::drawProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, MeshFrameConstants& cb, bool instanced, const std::vector<int>* rejectedShots)
 {
     WeaponLoadout* w = localWeapons();
     const auto model = assets().getAs<Model>(m_tracerModelId);
-    if (!cmd || !w || !model || !model->hasOpaque() || !renderer().gpuResources().ensureModel(model))
+    if (!cmd || !w || !model || !model->hasOpaque())
         return;
     bool any = false;
     for (const LiveProjectile& s : w->projectile().live())
@@ -2827,11 +2843,44 @@ void SandboxApp::drawProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix4f&
     if (!any)
         return;
 
+    GpuResourceCache& gpu = renderer().gpuResources();
+    if (!instanced && !gpu.ensureModel(model))
+        return;
+
     const GpuScope projectiles(cmd, "Projectiles", ProfileColor::Projectiles);
     const float     radius = w->projectile().desc().radius;
     const float     scale  = radius * 2.0f;
     const DebugFill fill   = renderer().debugState().fill;
-    GpuResourceCache& gpu  = renderer().gpuResources();
+    if (instanced)
+    {
+        MeshForwardBatchConstants lighting{};
+        fillForwardLighting(lighting, cb);
+        m_drawList.recordForward(cmd, gpu, ViewId{ 0 }, StaticPopulation::Projectiles, lighting, m_shadows.receiverCbvGpu());
+        if (!rejectedShots || rejectedShots->empty() || !gpu.ensureModel(model))
+            return;
+        int shot = 0;
+        for (const LiveProjectile& s : w->projectile().live())
+        {
+            const int index = shot++;
+            if (!s.alive)
+                continue;
+            bool rejected = false;
+            for (int r : *rejectedShots)
+            {
+                if (r == index)
+                {
+                    rejected = true;
+                    break;
+                }
+            }
+            if (!rejected)
+                continue;
+            const Matrix4f world = Matrix4f::ScaleMatrixXYZ(scale, scale, scale) * Matrix4f::TranslationMatrix(s.position.x, s.position.y, s.position.z);
+            drawModelForward(cmd, gpu, m_meshPipeline, m_shadows, *model, false, world, viewProj, cb, fill);
+        }
+        return;
+    }
+
     for (const LiveProjectile& s : w->projectile().live())
     {
         if (!s.alive)
@@ -4140,7 +4189,7 @@ void SandboxApp::onRender()
             const LocalShadowFaceDraw& face = cullLocals.face(f);
             addDepthView(face.viewProj, face.frustum);
         }
-        if (deferredEarly)
+        if (deferredEarly || m_drawList.forwardReady())
         {
             const Matrix4f camVp   = m_scene.beginCameraFrame(m_viewCamera, renderer());
             const Matrix4f camPrev = m_scene.havePrevViewProj() ? m_scene.prevViewProj() : camVp;
@@ -4205,6 +4254,7 @@ void SandboxApp::onRender()
 
     const bool deferred = renderer().scenePath() == ScenePath::HybridDeferred;
     const bool instanceColor = instanceStatic && deferred;
+    const bool instanceForward = instanceStatic && !deferred && m_drawList.forwardReady();
     const Matrix4f viewProjEarly = m_scene.beginCameraFrame(m_viewCamera, renderer());
     (void)viewProjEarly;
     if (deferred)
@@ -4470,9 +4520,28 @@ void SandboxApp::onRender()
         cb.cameraPos[1]  = camPos.y;
         cb.cameraPos[2]  = camPos.z;
         cb.lighting      = renderer().debugState().lightingActive() ? 1.0f : 0.0f;
+        if (instanceForward && !m_drawList.gpuCullActive())
+        {
+            float drawVp[16];
+            float drawPrev[16];
+            copyMatrix(drawVp, viewProj);
+            copyMatrix(drawPrev, prevViewProj);
+            m_drawList.buildView(frustum, drawVp, drawPrev, RenderPassKind::GBuffer, ViewId{ 0 });
+        }
+        MeshForwardBatchConstants forwardLighting{};
+        fillForwardLighting(forwardLighting, cb);
+        const D3D12_GPU_VIRTUAL_ADDRESS forwardShadow = m_shadows.receiverCbvGpu();
 
         {
             const GpuScope meshes(cmd, "Opaque Meshes", ProfileColor::OpaqueMeshes);
+            if (instanceForward)
+            {
+                m_drawList.recordForward(cmd, gpu, ViewId{ 0 }, StaticPopulation::OpaqueMeshes, forwardLighting, forwardShadow);
+                m_meshPipeline.bind(cmd, fill);
+                if (material && material->isValid())
+                    renderer().gpuResources().bindMaterial(cmd, *material, MeshPipeline::kRootAlbedoSrv);
+                m_shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
+            }
             world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
             if (world().has<ModelComponent>(e))
                 return;
@@ -4483,6 +4552,8 @@ void SandboxApp::onRender()
                 return;
             const TransformComponent* xf = world().get<TransformComponent>(e);
             if (!xf)
+                return;
+            if (instanceForward && acceptedMesh.count(e.id()) != 0)
                 return;
             if (auto mat = assets().getAs<Material>(mc.matAssetID))
             {
@@ -4501,9 +4572,11 @@ void SandboxApp::onRender()
         });
         }
 
-        drawProjectiles(cmd, viewProj, cb);
+        drawProjectiles(cmd, viewProj, cb, instanceForward, &rejectedShots);
         {
             const GpuScope models(cmd, "Opaque Models", ProfileColor::OpaqueModels);
+            if (instanceForward)
+                m_drawList.recordForward(cmd, gpu, ViewId{ 0 }, StaticPopulation::OpaqueModels, forwardLighting, forwardShadow);
             world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             if (camouflageHides(e))
                 return;
@@ -4523,9 +4596,12 @@ void SandboxApp::onRender()
                     ag->prevWorld = worldMat;
                     ag->prevWorldValid = true;
                 }
-                drawSkinnedModelForward(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_shadows, m_skinRing, *model, false, *pose, worldMat, viewProj, cb, fill);
+                if (instanceForward && acceptedModel.count(e.id()) != 0)
+                    drawSkinnedModelForwardSkinnedOnly(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_shadows, m_skinRing, *model, *pose, worldMat, viewProj, cb, fill);
+                else
+                    drawSkinnedModelForward(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_shadows, m_skinRing, *model, false, *pose, worldMat, viewProj, cb, fill);
             }
-            else
+            else if (!(instanceForward && acceptedModel.count(e.id()) != 0))
                 drawModelForward(cmd, gpu, m_meshPipeline, m_shadows, *model, false, worldMat, viewProj, cb, fill);
         });
         }

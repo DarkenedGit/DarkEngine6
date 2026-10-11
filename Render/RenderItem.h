@@ -88,6 +88,25 @@ struct MeshDepthBatchConstants
 };
 static_assert(sizeof(MeshDepthBatchConstants) == 20 * sizeof(uint32_t), "depth batch CB");
 
+// Forward opaque batches. Lighting floats are copied per batch. Shadow CBV stays once per view.
+struct MeshForwardBatchConstants
+{
+    float    viewProj[16];
+    float    lightDirWS[3];
+    float    ambientScale;
+    float    lightColor[3];
+    float    padLight;
+    float    cameraPos[3];
+    float    lighting;
+    float    normalScale;
+    float    ao;
+    float    alphaCutoff;
+    float    alphaModeMask;
+    uint32_t baseIndex;
+    uint32_t pad[3];
+};
+static_assert(sizeof(MeshForwardBatchConstants) == 36 * sizeof(uint32_t), "forward batch");
+
 // Layout matches D3D12_DRAW_INDEXED_ARGUMENTS. StartInstanceLocation stays 0; the batch base is a root constant.
 struct DrawIndexedArgs
 {

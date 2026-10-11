@@ -38,6 +38,12 @@ public:
     void endCapture(ID3D12GraphicsCommandList* cmd);
 
     void bindReceiverCbv(ID3D12GraphicsCommandList* cmd, UINT rootCbv) const;
+    D3D12_GPU_VIRTUAL_ADDRESS receiverCbvGpu() const
+    {
+        if (m_cbGpu == 0)
+            return 0;
+        return m_cbGpu + static_cast<UINT64>(m_frame) * cbBytes();
+    }
     void writeSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE dest) const;
 
     const ShadowPipeline& pipeline() const { return m_pipeline; }

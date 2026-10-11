@@ -438,4 +438,50 @@ namespace Dark
 			part.mesh.draw(cmd);
 		}
 	}
+
+	void drawSkinnedModelForwardSkinnedOnly(
+		ID3D12GraphicsCommandList* cmd,
+		GpuResourceCache& gpu,
+		const SkinnedMeshPipeline& skinned,
+		const MeshPipeline& staticPipeline,
+		const ShadowSystem& shadows,
+		SkinningUploadRing& ring,
+		const Model& model,
+		const AnimPose& pose,
+		const Matrix4f& world,
+		const Matrix4f& viewProj,
+		const MeshFrameConstants& lighting,
+		DebugFill fill)
+	{
+		(void)staticPipeline;
+		GpuModel* gm = requireGpu(gpu, model);
+		if (!cmd || !gm || !gm->hasOpaque() || !skinned.isValid())
+			return;
+		const bool points = fill == DebugFill::Points;
+		bool bound = false;
+		for (const GpuModel::Part& part : gm->opaque())
+		{
+			if (!part.skinned || !part.mesh.valid())
+				continue;
+			const D3D12_GPU_VIRTUAL_ADDRESS bones = ring.alloc(pose);
+			if (bones == 0)
+				continue;
+			if (!bound)
+			{
+				skinned.bind(cmd, fill);
+				bound = true;
+			}
+			skinned.setBoneCbv(cmd, bones);
+			shadows.bindReceiverCbv(cmd, SkinnedMeshPipeline::kRootShadowCbv);
+			const Matrix4f w = part.localToRoot * world;
+			gpu.bindMaterial(cmd, part.materialId, SkinnedMeshPipeline::kRootAlbedoSrv);
+			MeshFrameConstants cb = lighting;
+			copyMatrix(cb.worldViewProj, w * viewProj);
+			copyMatrix(cb.world, w);
+			if (AssetRef<Material> mat = gpu.cpuMaterial(part.materialId))
+				applyMaterialSurface(*mat, cb);
+			skinned.setConstants(cmd, cb);
+			part.mesh.draw(cmd, points);
+		}
+	}
 } // namespace Dark

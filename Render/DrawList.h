@@ -71,6 +71,12 @@ public:
     void recordOpaque(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, ViewId view, StaticPopulation population) const;
     void recordDepth(ID3D12GraphicsCommandList* cmd, ViewId view, const float lightViewProj[16]) const;
 
+    // Opaque -forward color for one population. Uses the camera full-key batches.
+    // Does not cull. A cull that already wrote this view is drawn with those args.
+    bool forwardReady() const;
+    void recordForward(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, ViewId view, StaticPopulation population,
+                       const MeshForwardBatchConstants& lighting, uint64_t shadowCbv) const;
+
     uint32_t staticCount() const;
     uint32_t batchCount(ViewId view) const;
     uint32_t frameIndex() const { return m_frameIndex; }

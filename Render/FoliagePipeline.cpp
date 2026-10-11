@@ -15,6 +15,7 @@
 #include "Render/GpuResourceCache.h"
 #include "Render/MaterialSurface.h"
 #include "Render/MeshConstants.h"
+#include "Render/Profile.h"
 #include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
 #include "Render/LocalShadowMath.h"
@@ -23,6 +24,7 @@
 #include "Terrain/TerrainTileFile.h"
 
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 
 namespace Dark
@@ -82,6 +84,12 @@ namespace Dark
         constexpr UINT64 kWorldStride     = static_cast<UINT64>(Terrain::kMaxFoliageDraw) * sizeof(Math::Matrix4f);
         constexpr UINT64 kIndexKindStride = static_cast<UINT64>(Terrain::kMaxFoliageDraw) * sizeof(uint32_t);
         constexpr UINT64 kIndexViewStride = kIndexKindStride * static_cast<UINT64>(kKindCount);
+        constexpr UINT64 kKindStride      = static_cast<UINT64>(Terrain::kMaxFoliageDraw) * sizeof(uint32_t);
+        constexpr UINT64 kCullCbStride    = 512;
+
+        static_assert(kFrameCount == FoliagePipeline::kCullFrameSlots, "foliage cull frames");
+        static_assert(kViewsPerFrame == FoliagePipeline::kCullViewsPerFrame, "foliage cull views");
+        static_assert(kKindCount == static_cast<int>(FoliagePipeline::kCullKindCount), "foliage cull kinds");
 
         bool FailedHr(HRESULT hr, const char* what)
         {
@@ -90,6 +98,42 @@ namespace Dark
             DE_LOG_ERROR(LogCategory::Render, "{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
             return true;
         }
+
+        constexpr UINT kCullConstants = 0;
+        constexpr UINT kCullWorlds    = 1;
+        constexpr UINT kCullKinds     = 2;
+        constexpr UINT kCullIndices   = 3;
+        constexpr UINT kCullCounters  = 4;
+        constexpr UINT kCullArgs      = 5;
+
+        struct FoliageCullConstants
+        {
+            float    planes[6][4];
+            float    sphere[4];
+            float    boundsMin[4][4];
+            float    boundsMax[4][4];
+            uint32_t kindResident[4];
+            uint32_t instanceCount;
+            uint32_t useSphere;
+            uint32_t shadowView;
+            uint32_t viewIndex;
+            uint32_t partCount[4];
+            uint32_t indexCount[32];
+            uint32_t tail[4];
+        };
+
+        static_assert(sizeof(FoliageCullConstants) == FoliagePipeline::kCullConstantBytes, "foliage cull constants");
+        static_assert(offsetof(FoliageCullConstants, sphere) == 96, "foliage cull sphere");
+        static_assert(offsetof(FoliageCullConstants, boundsMin) == 112, "foliage cull bounds");
+        static_assert(offsetof(FoliageCullConstants, boundsMax) == 176, "foliage cull bounds max");
+        static_assert(offsetof(FoliageCullConstants, kindResident) == 240, "foliage cull resident");
+        static_assert(offsetof(FoliageCullConstants, instanceCount) == 256, "foliage cull instance count");
+        static_assert(offsetof(FoliageCullConstants, partCount) == 272, "foliage cull parts");
+        static_assert(offsetof(FoliageCullConstants, indexCount) == 288, "foliage cull index counts");
+        static_assert(offsetof(FoliageCullConstants, tail) == 416, "foliage cull tail");
+        static_assert(sizeof(D3D12_DRAW_INDEXED_ARGUMENTS) == 20, "foliage indirect stride");
+        static_assert(kCullCbStride >= sizeof(FoliageCullConstants), "foliage cull cb");
+        static_assert(kCullCbStride % 256u == 0u, "foliage cull cb align");
 
         ComPtr<ID3D12Resource> createUpload(ID3D12Device* device, UINT64 bytes, const char* what)
         {
@@ -107,6 +151,108 @@ namespace Dark
             if (FailedHr(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&res)), what))
                 return nullptr;
             return res;
+        }
+
+        ComPtr<ID3D12Resource> createUav(ID3D12Device* device, UINT64 bytes, const char* what)
+        {
+            D3D12_HEAP_PROPERTIES heap{};
+            heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+            D3D12_RESOURCE_DESC desc{};
+            desc.Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER;
+            desc.Width            = bytes;
+            desc.Height           = 1;
+            desc.DepthOrArraySize = 1;
+            desc.MipLevels        = 1;
+            desc.Format           = DXGI_FORMAT_UNKNOWN;
+            desc.SampleDesc       = { 1, 0 };
+            desc.Layout           = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            desc.Flags            = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+            ComPtr<ID3D12Resource> res;
+            if (FailedHr(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&res)), what))
+                return nullptr;
+            return res;
+        }
+
+        void transitionBuffer(ID3D12GraphicsCommandList* cmd, ID3D12Resource* resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after)
+        {
+            if (!cmd || !resource || before == after)
+                return;
+            D3D12_RESOURCE_BARRIER barrier{};
+            barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barrier.Transition.pResource   = resource;
+            barrier.Transition.StateBefore = before;
+            barrier.Transition.StateAfter  = after;
+            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            cmd->ResourceBarrier(1, &barrier);
+        }
+
+        void uavBarrier(ID3D12GraphicsCommandList* cmd, ID3D12Resource* resource)
+        {
+            if (!cmd || !resource)
+                return;
+            D3D12_RESOURCE_BARRIER barrier{};
+            barrier.Type          = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+            barrier.UAV.pResource = resource;
+            cmd->ResourceBarrier(1, &barrier);
+        }
+
+        bool foliageArgWritable(D3D12_RESOURCE_STATES state)
+        {
+            return state == D3D12_RESOURCE_STATE_UNORDERED_ACCESS || state == D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
+        }
+
+        bool foliageIndexWritable(D3D12_RESOURCE_STATES state)
+        {
+            return state == D3D12_RESOURCE_STATE_UNORDERED_ACCESS || state == D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        }
+
+        bool logFoliageCullUnavailable()
+        {
+            static bool logged = false;
+            if (!logged)
+            {
+                logged = true;
+                DE_LOG_ERROR(LogCategory::Render, "FoliagePipeline: foliage cull unavailable; instances stay CPU lists");
+            }
+            return false;
+        }
+
+        bool logFoliagePartCap()
+        {
+            static bool logged = false;
+            if (!logged)
+            {
+                logged = true;
+                DE_LOG_ERROR(LogCategory::Render, "FoliagePipeline: foliage part cap exceeded; view stays on CPU lists");
+            }
+            return false;
+        }
+
+        // depth limits the walk to the CPU part prefix the depth constants read. capParts stops at the argument table.
+        template <typename Fn>
+        bool forKindParts(GpuResourceCache& gpu, const AssetRef<Model>& model, bool depth, bool capParts, Fn&& fn)
+        {
+            if (!model || !gpu.ensureModel(model))
+                return true;
+            GpuModel* gm = gpu.model(model->id);
+            if (!gm)
+                return true;
+            const std::vector<GpuModel::Part>& gpuParts = gm->opaque();
+            const std::vector<Model::Part>&    cpuParts = model->opaque();
+            const size_t limit = depth ? (cpuParts.size() < gpuParts.size() ? cpuParts.size() : gpuParts.size()) : gpuParts.size();
+            uint32_t     slot  = 0;
+            for (size_t p = 0; p < limit; ++p)
+            {
+                const GpuModel::Part& part = gpuParts[p];
+                if (part.skinned || !part.mesh.valid())
+                    continue;
+                if (capParts && slot >= FoliagePipeline::kCullPartsPerKind)
+                    return false;
+                const Model::Part* cpu = p < cpuParts.size() ? &cpuParts[p] : nullptr;
+                fn(part, cpu, slot);
+                ++slot;
+            }
+            return true;
         }
 
         void copyMatrix(float dst[16], const Math::Matrix4f& m)
@@ -286,6 +432,32 @@ namespace Dark
             cb.alphaModeMask = surface.alphaModeMask;
         }
     } // namespace
+
+    struct FoliageCullGpu
+    {
+        ComPtr<ID3D12Device>           device;
+        ComPtr<ID3D12RootSignature>    root;
+        ComPtr<ID3D12PipelineState>    compact;
+        ComPtr<ID3D12PipelineState>    argsPso;
+        ComPtr<ID3D12CommandSignature> signature;
+        ComPtr<ID3D12DescriptorHeap>   heap;
+        ComPtr<ID3D12Resource>         indices[FoliagePipeline::kCullFrameSlots];
+        ComPtr<ID3D12Resource>         counters[FoliagePipeline::kCullFrameSlots];
+        ComPtr<ID3D12Resource>         args[FoliagePipeline::kCullFrameSlots];
+        ComPtr<ID3D12Resource>         kinds;
+        ComPtr<ID3D12Resource>         cb;
+        uint8_t*                       kindMap = nullptr;
+        uint8_t*                       cbMap   = nullptr;
+        D3D12_GPU_VIRTUAL_ADDRESS      kindGpu = 0;
+        D3D12_GPU_VIRTUAL_ADDRESS      cbGpu   = 0;
+        D3D12_CPU_DESCRIPTOR_HANDLE    cpu[FoliagePipeline::kCullFrameSlots]{};
+        D3D12_GPU_DESCRIPTOR_HANDLE    gpu[FoliagePipeline::kCullFrameSlots]{};
+        D3D12_RESOURCE_STATES          argState[FoliagePipeline::kCullFrameSlots]   = { D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS };
+        D3D12_RESOURCE_STATES          indexState[FoliagePipeline::kCullFrameSlots] = { D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS };
+        bool                           ready = false;
+    };
+
+    FoliagePipeline::FoliagePipeline() = default;
 
     FoliagePipeline::~FoliagePipeline()
     {
@@ -522,6 +694,9 @@ namespace Dark
         m_indexGpu = m_indices->GetGPUVirtualAddress();
         m_cpuGen   = 1;
 
+        // Cull failure leaves the CPU lists. It does not turn foliage off.
+        createCull(device);
+
         DE_LOG_INFO(LogCategory::Render, "FoliagePipeline: ready");
         return true;
     }
@@ -551,10 +726,47 @@ namespace Dark
         m_cpuGen       = 1;
         m_worldSlotGen[0] = 0;
         m_worldSlotGen[1] = 0;
+        m_kindSlotGen[0]  = 0;
+        m_kindSlotGen[1]  = 0;
         m_frameIndex   = ~0u;
         m_viewCursor   = 0;
         m_activeSlot   = 0;
         m_activeView   = 0;
+        m_gpuCull      = false;
+        m_depthCullPending = false;
+        m_cpuUseSphere = false;
+        for (int i = 0; i < kKindCount; ++i)
+        {
+            m_kindResident[i] = 0;
+            m_kindValid[i]    = 0;
+        }
+        if (m_cull)
+        {
+            if (m_cull->kinds && m_cull->kindMap)
+                m_cull->kinds->Unmap(0, nullptr);
+            if (m_cull->cb && m_cull->cbMap)
+                m_cull->cb->Unmap(0, nullptr);
+            m_cull->kindMap = nullptr;
+            m_cull->cbMap   = nullptr;
+            if (m_renderer)
+            {
+                m_renderer->deferRelease(m_cull->root.Get());
+                m_renderer->deferRelease(m_cull->compact.Get());
+                m_renderer->deferRelease(m_cull->argsPso.Get());
+                m_renderer->deferRelease(m_cull->signature.Get());
+                m_renderer->deferRelease(m_cull->heap.Get());
+                m_renderer->deferRelease(m_cull->kinds.Get());
+                m_renderer->deferRelease(m_cull->cb.Get());
+                for (uint32_t slot = 0; slot < kCullFrameSlots; ++slot)
+                {
+                    m_renderer->deferRelease(m_cull->indices[slot].Get());
+                    m_renderer->deferRelease(m_cull->counters[slot].Get());
+                    m_renderer->deferRelease(m_cull->args[slot].Get());
+                }
+            }
+        }
+        m_cull.reset();
+        m_renderer = nullptr;
         m_haveGather   = false;
         m_sourceStamp  = 0;
         m_loggedView   = false;
@@ -570,6 +782,289 @@ namespace Dark
         m_binnedFrontY    = 0;
         m_binnedBackZ     = 0;
         m_binnedFrontKind = 0;
+    }
+
+    bool FoliagePipeline::createCull(ID3D12Device* device)
+    {
+        m_cull.reset();
+        m_kindSlotGen[0] = 0;
+        m_kindSlotGen[1] = 0;
+        if (!device)
+            return logFoliageCullUnavailable();
+
+        std::unique_ptr<FoliageCullGpu> cull = std::make_unique<FoliageCullGpu>();
+        cull->device                          = device;
+
+        D3D12_ROOT_PARAMETER params[6]{};
+        params[kCullConstants].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        params[kCullConstants].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
+        params[kCullConstants].Descriptor.ShaderRegister = 0;
+        params[kCullConstants].Descriptor.RegisterSpace  = 0;
+
+        params[kCullWorlds].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        params[kCullWorlds].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
+        params[kCullWorlds].Descriptor.ShaderRegister = 0;
+        params[kCullWorlds].Descriptor.RegisterSpace  = 0;
+
+        params[kCullKinds].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        params[kCullKinds].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
+        params[kCullKinds].Descriptor.ShaderRegister = 1;
+        params[kCullKinds].Descriptor.RegisterSpace  = 0;
+
+        params[kCullIndices].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_UAV;
+        params[kCullIndices].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
+        params[kCullIndices].Descriptor.ShaderRegister = 0;
+        params[kCullIndices].Descriptor.RegisterSpace  = 0;
+
+        params[kCullCounters].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_UAV;
+        params[kCullCounters].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
+        params[kCullCounters].Descriptor.ShaderRegister = 1;
+        params[kCullCounters].Descriptor.RegisterSpace  = 0;
+
+        params[kCullArgs].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_UAV;
+        params[kCullArgs].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
+        params[kCullArgs].Descriptor.ShaderRegister = 2;
+        params[kCullArgs].Descriptor.RegisterSpace  = 0;
+
+        D3D12_ROOT_SIGNATURE_DESC rootDesc{};
+        rootDesc.NumParameters = 6;
+        rootDesc.pParameters   = params;
+
+        ComPtr<ID3DBlob> rsBlob;
+        ComPtr<ID3DBlob> rsErr;
+        if (FailedHr(D3D12SerializeRootSignature(&rootDesc, D3D_ROOT_SIGNATURE_VERSION_1, &rsBlob, &rsErr), "D3D12SerializeRootSignature (foliage cull)"))
+        {
+            if (rsErr)
+                DE_LOG_ERROR(LogCategory::Render, "Foliage cull root signature: {}", static_cast<const char*>(rsErr->GetBufferPointer()));
+            return logFoliageCullUnavailable();
+        }
+        if (FailedHr(device->CreateRootSignature(0, rsBlob->GetBufferPointer(), rsBlob->GetBufferSize(), IID_PPV_ARGS(&cull->root)), "CreateRootSignature (foliage cull)"))
+            return logFoliageCullUnavailable();
+
+        ComPtr<ID3DBlob> compact;
+        ComPtr<ID3DBlob> args;
+        if (!compileShaderFromContent("shaders/FoliageCull.hlsl", "CSCompact", "cs_5_0", compact) || !compileShaderFromContent("shaders/FoliageCull.hlsl", "CSArgs", "cs_5_0", args))
+            return logFoliageCullUnavailable();
+
+        D3D12_COMPUTE_PIPELINE_STATE_DESC pso{};
+        pso.pRootSignature = cull->root.Get();
+        pso.CS             = { compact->GetBufferPointer(), compact->GetBufferSize() };
+        if (FailedHr(device->CreateComputePipelineState(&pso, IID_PPV_ARGS(&cull->compact)), "CreateComputePipelineState (foliage cull compact)"))
+            return logFoliageCullUnavailable();
+        pso.CS = { args->GetBufferPointer(), args->GetBufferSize() };
+        if (FailedHr(device->CreateComputePipelineState(&pso, IID_PPV_ARGS(&cull->argsPso)), "CreateComputePipelineState (foliage cull args)"))
+            return logFoliageCullUnavailable();
+        cull->compact->SetName(L"DE.Foliage.CullCompact");
+        cull->argsPso->SetName(L"DE.Foliage.CullArgs");
+
+        D3D12_INDIRECT_ARGUMENT_DESC argument{};
+        argument.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
+        D3D12_COMMAND_SIGNATURE_DESC signature{};
+        signature.ByteStride       = sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
+        signature.NumArgumentDescs = 1;
+        signature.pArgumentDescs   = &argument;
+        if (FailedHr(device->CreateCommandSignature(&signature, nullptr, IID_PPV_ARGS(&cull->signature)), "CreateCommandSignature (foliage)"))
+            return logFoliageCullUnavailable();
+        cull->signature->SetName(L"DE.Foliage.CommandSignature");
+
+        // ClearUnorderedAccessViewUint takes a GPU handle in the heap currently bound on this list.
+        D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
+        heapDesc.NumDescriptors = kCullFrameSlots;
+        heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&cull->heap)), "CreateDescriptorHeap (foliage cull)"))
+            return logFoliageCullUnavailable();
+
+        const UINT64 indexBytes   = static_cast<UINT64>(kCullViewsPerFrame) * kCullKindCount * Terrain::kMaxFoliageDraw * sizeof(uint32_t);
+        const UINT64 counterBytes = static_cast<UINT64>(kCullKindCount) * sizeof(uint32_t);
+        const UINT64 argBytes     = static_cast<UINT64>(kCullViewsPerFrame) * kCullKindCount * kCullPartsPerKind * sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
+        const wchar_t* indexNames[]   = { L"DE.Foliage.CullIndices0", L"DE.Foliage.CullIndices1" };
+        const wchar_t* counterNames[] = { L"DE.Foliage.CullCounters0", L"DE.Foliage.CullCounters1" };
+        const wchar_t* argNames[]     = { L"DE.Foliage.CullArgs0", L"DE.Foliage.CullArgs1" };
+
+        const UINT                  increment = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu       = cull->heap->GetCPUDescriptorHandleForHeapStart();
+        D3D12_GPU_DESCRIPTOR_HANDLE gpu       = cull->heap->GetGPUDescriptorHandleForHeapStart();
+        for (uint32_t slot = 0; slot < kCullFrameSlots; ++slot)
+        {
+            cull->indices[slot]  = createUav(device, indexBytes, "CreateCommittedResource (foliage cull indices)");
+            cull->counters[slot] = createUav(device, counterBytes, "CreateCommittedResource (foliage cull counters)");
+            cull->args[slot]     = createUav(device, argBytes, "CreateCommittedResource (foliage cull args)");
+            if (!cull->indices[slot] || !cull->counters[slot] || !cull->args[slot])
+                return logFoliageCullUnavailable();
+            cull->indices[slot]->SetName(indexNames[slot]);
+            cull->counters[slot]->SetName(counterNames[slot]);
+            cull->args[slot]->SetName(argNames[slot]);
+
+            cull->cpu[slot] = cpu;
+            cull->gpu[slot] = gpu;
+            D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
+            uav.Format              = DXGI_FORMAT_R32_UINT;
+            uav.ViewDimension       = D3D12_UAV_DIMENSION_BUFFER;
+            uav.Buffer.FirstElement = 0;
+            uav.Buffer.NumElements  = kCullKindCount;
+            device->CreateUnorderedAccessView(cull->counters[slot].Get(), nullptr, &uav, cpu);
+            cpu.ptr += increment;
+            gpu.ptr += increment;
+        }
+
+        cull->kinds = createUpload(device, kKindStride * kCullFrameSlots, "CreateCommittedResource (foliage kinds)");
+        cull->cb    = createUpload(device, kCullCbStride * kCullViewsPerFrame * kCullFrameSlots, "CreateCommittedResource (foliage cull constants)");
+        if (!cull->kinds || !cull->cb)
+            return logFoliageCullUnavailable();
+        if (FailedHr(cull->kinds->Map(0, nullptr, reinterpret_cast<void**>(&cull->kindMap)), "Map foliage kinds")
+            || FailedHr(cull->cb->Map(0, nullptr, reinterpret_cast<void**>(&cull->cbMap)), "Map foliage cull constants"))
+        {
+            if (cull->kindMap)
+                cull->kinds->Unmap(0, nullptr);
+            if (cull->cbMap)
+                cull->cb->Unmap(0, nullptr);
+            cull->kindMap = nullptr;
+            cull->cbMap   = nullptr;
+            return logFoliageCullUnavailable();
+        }
+        std::memset(cull->kindMap, 0, static_cast<size_t>(kKindStride * kCullFrameSlots));
+        std::memset(cull->cbMap, 0, static_cast<size_t>(kCullCbStride * kCullViewsPerFrame * kCullFrameSlots));
+        cull->kindGpu = cull->kinds->GetGPUVirtualAddress();
+        cull->cbGpu   = cull->cb->GetGPUVirtualAddress();
+        cull->kinds->SetName(L"DE.Foliage.Kinds");
+        cull->cb->SetName(L"DE.Foliage.CullConstants");
+
+        cull->ready = true;
+        m_cull      = std::move(cull);
+        return true;
+    }
+
+    bool FoliagePipeline::cullReady() const
+    {
+        return m_cull && m_cull->ready;
+    }
+
+    ID3D12Resource* FoliagePipeline::cullArgumentResource(uint32_t frameSlot) const
+    {
+        if (!m_cull || frameSlot >= kCullFrameSlots)
+            return nullptr;
+        return m_cull->args[frameSlot].Get();
+    }
+
+    ID3D12Resource* FoliagePipeline::cullIndexResource(uint32_t frameSlot) const
+    {
+        if (!m_cull || frameSlot >= kCullFrameSlots)
+            return nullptr;
+        return m_cull->indices[frameSlot].Get();
+    }
+
+    bool FoliagePipeline::recordCull(ID3D12GraphicsCommandList* cmd, uint32_t frameSlot, const FoliageCullDesc& desc)
+    {
+        if (!cmd || !cullReady() || frameSlot >= kCullFrameSlots || desc.worlds == 0 || desc.kinds == 0)
+            return false;
+        if (desc.viewIndex >= kCullViewsPerFrame || desc.instanceCount == 0)
+            return false;
+        for (uint32_t kind = 0; kind < kCullKindCount; ++kind)
+        {
+            if (desc.partCount[kind] > kCullPartsPerKind)
+                return false;
+        }
+
+        FoliageCullGpu& cull = *m_cull;
+        if (!foliageArgWritable(cull.argState[frameSlot]) || !foliageIndexWritable(cull.indexState[frameSlot]))
+        {
+            static bool logged = false;
+            if (!logged)
+            {
+                logged = true;
+                DE_LOG_ERROR(LogCategory::Render, "FoliagePipeline: foliage cull skipped; buffer state is not a compute source");
+            }
+            return false;
+        }
+
+        uint32_t instanceCount = desc.instanceCount;
+        if (instanceCount > Terrain::kMaxFoliageDraw)
+            instanceCount = Terrain::kMaxFoliageDraw;
+
+        FoliageCullConstants constants{};
+        for (int plane = 0; plane < 6; ++plane)
+        {
+            constants.planes[plane][0] = desc.planes[plane][0];
+            constants.planes[plane][1] = desc.planes[plane][1];
+            constants.planes[plane][2] = desc.planes[plane][2];
+            constants.planes[plane][3] = desc.planes[plane][3];
+        }
+        for (int axis = 0; axis < 4; ++axis)
+            constants.sphere[axis] = desc.sphere[axis];
+        constants.instanceCount = instanceCount;
+        constants.useSphere     = desc.useSphere;
+        constants.shadowView    = desc.shadowView;
+        constants.viewIndex     = desc.viewIndex;
+        for (uint32_t kind = 0; kind < kCullKindCount; ++kind)
+        {
+            uint32_t resident = desc.kindResident[kind];
+            if (resident > instanceCount)
+                resident = instanceCount;
+            constants.kindResident[kind] = resident;
+            constants.partCount[kind]    = desc.partCount[kind];
+            constants.boundsMin[kind][0] = desc.boundsMin[kind][0];
+            constants.boundsMin[kind][1] = desc.boundsMin[kind][1];
+            constants.boundsMin[kind][2] = desc.boundsMin[kind][2];
+            constants.boundsMin[kind][3] = desc.kindValid[kind] != 0 ? 1.0f : 0.0f;
+            constants.boundsMax[kind][0] = desc.boundsMax[kind][0];
+            constants.boundsMax[kind][1] = desc.boundsMax[kind][1];
+            constants.boundsMax[kind][2] = desc.boundsMax[kind][2];
+            constants.boundsMax[kind][3] = 0.0f;
+            for (uint32_t part = 0; part < kCullPartsPerKind; ++part)
+                constants.indexCount[kind * kCullPartsPerKind + part] = desc.indexCount[kind][part];
+        }
+
+        const UINT64 cbOff = (static_cast<UINT64>(frameSlot) * kCullViewsPerFrame + desc.viewIndex) * kCullCbStride;
+        std::memcpy(cull.cbMap + cbOff, &constants, sizeof(constants));
+
+        ID3D12Resource* indices  = cull.indices[frameSlot].Get();
+        ID3D12Resource* counters = cull.counters[frameSlot].Get();
+        ID3D12Resource* args     = cull.args[frameSlot].Get();
+        if (cull.argState[frameSlot] != D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+        {
+            transitionBuffer(cmd, args, cull.argState[frameSlot], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            cull.argState[frameSlot] = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        }
+        if (cull.indexState[frameSlot] != D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+        {
+            transitionBuffer(cmd, indices, cull.indexState[frameSlot], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            cull.indexState[frameSlot] = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        }
+
+        ID3D12DescriptorHeap* heaps[] = { cull.heap.Get() };
+        cmd->SetDescriptorHeaps(1, heaps);
+        cmd->SetComputeRootSignature(cull.root.Get());
+        cmd->SetComputeRootConstantBufferView(kCullConstants, cull.cbGpu + cbOff);
+        cmd->SetComputeRootShaderResourceView(kCullWorlds, desc.worlds);
+        cmd->SetComputeRootShaderResourceView(kCullKinds, desc.kinds);
+        cmd->SetComputeRootUnorderedAccessView(kCullIndices, indices->GetGPUVirtualAddress());
+        cmd->SetComputeRootUnorderedAccessView(kCullCounters, counters->GetGPUVirtualAddress());
+        cmd->SetComputeRootUnorderedAccessView(kCullArgs, args->GetGPUVirtualAddress());
+
+        const UINT zeros[4] = { 0, 0, 0, 0 };
+        cmd->ClearUnorderedAccessViewUint(cull.gpu[frameSlot], cull.cpu[frameSlot], counters, zeros, 0, nullptr);
+        uavBarrier(cmd, counters);
+
+        cmd->SetPipelineState(cull.compact.Get());
+        const UINT groups = (instanceCount + 63u) / 64u;
+        cmd->Dispatch(groups, 1, 1);
+        uavBarrier(cmd, counters);
+
+        cmd->SetPipelineState(cull.argsPso.Get());
+        cmd->Dispatch(1, 1, 1);
+
+        D3D12_RESOURCE_BARRIER done[2]{};
+        done[0].Type          = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        done[0].UAV.pResource = args;
+        done[1].Type          = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        done[1].UAV.pResource = indices;
+        cmd->ResourceBarrier(2, done);
+        transitionBuffer(cmd, args, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
+        transitionBuffer(cmd, indices, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        cull.argState[frameSlot]   = D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
+        cull.indexState[frameSlot] = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        return true;
     }
 
     void FoliagePipeline::binEditorRecords(const Terrain::TerrainGrid& grid, const std::vector<Terrain::FoliageRecord>& records)
@@ -704,6 +1199,198 @@ namespace Dark
         m_worldSlotGen[frameSlot] = m_cpuGen;
     }
 
+    void FoliagePipeline::uploadKinds(uint32_t frameSlot)
+    {
+        if (!m_cull || !m_cull->kindMap || frameSlot >= kFrameCount)
+            return;
+        if (m_kindSlotGen[frameSlot] == m_cpuGen)
+            return;
+        uint32_t* dst = reinterpret_cast<uint32_t*>(m_cull->kindMap + static_cast<size_t>(frameSlot) * static_cast<size_t>(kKindStride));
+        const size_t n = m_cpuKinds.size() < Terrain::kMaxFoliageDraw ? m_cpuKinds.size() : static_cast<size_t>(Terrain::kMaxFoliageDraw);
+        for (size_t i = 0; i < n; ++i)
+            dst[i] = m_cpuKinds[i];
+        m_kindSlotGen[frameSlot] = m_cpuGen;
+    }
+
+    void FoliagePipeline::snapshotKindBounds(FoliagePrototypes& prototypes)
+    {
+        const AssetRef<Model> models[kKindCount] = {
+            prototypes.model(Terrain::FoliageKind::Tree),
+            prototypes.model(Terrain::FoliageKind::Flower),
+            prototypes.model(Terrain::FoliageKind::Rock),
+            prototypes.model(Terrain::FoliageKind::Grass),
+        };
+        for (int kind = 0; kind < kKindCount; ++kind)
+        {
+            m_kindResident[kind] = 0;
+            m_kindValid[kind]    = 0;
+            m_boundsMin[kind][0] = 0.0f;
+            m_boundsMin[kind][1] = 0.0f;
+            m_boundsMin[kind][2] = 0.0f;
+            m_boundsMax[kind][0] = 0.0f;
+            m_boundsMax[kind][1] = 0.0f;
+            m_boundsMax[kind][2] = 0.0f;
+            if (!models[kind] || !models[kind]->bounds().IsValid())
+                continue;
+            const Math::AABox3f& box = models[kind]->bounds();
+            m_kindValid[kind]        = 1;
+            m_boundsMin[kind][0]     = box.Min.x;
+            m_boundsMin[kind][1]     = box.Min.y;
+            m_boundsMin[kind][2]     = box.Min.z;
+            m_boundsMax[kind][0]     = box.Max.x;
+            m_boundsMax[kind][1]     = box.Max.y;
+            m_boundsMax[kind][2]     = box.Max.z;
+        }
+        const size_t n = m_cpuWorlds.size() < Terrain::kMaxFoliageDraw ? m_cpuWorlds.size() : static_cast<size_t>(Terrain::kMaxFoliageDraw);
+        for (size_t i = 0; i < n; ++i)
+        {
+            const int kind = m_cpuKinds[i];
+            if (kind < 0 || kind >= kKindCount || m_kindValid[kind] == 0)
+                continue;
+            ++m_kindResident[kind];
+        }
+    }
+
+    bool FoliagePipeline::buildCpuIndices(FoliagePrototypes& prototypes)
+    {
+        for (int i = 0; i < kKindCount; ++i)
+            m_cpuIndex[i].clear();
+
+        const AssetRef<Model> models[kKindCount] = {
+            prototypes.model(Terrain::FoliageKind::Tree),
+            prototypes.model(Terrain::FoliageKind::Flower),
+            prototypes.model(Terrain::FoliageKind::Rock),
+            prototypes.model(Terrain::FoliageKind::Grass),
+        };
+
+        const size_t n = m_cpuWorlds.size();
+        for (size_t i = 0; i < n; ++i)
+        {
+            const int kind = m_cpuKinds[i];
+            if (kind < 0 || kind >= kKindCount || !models[kind] || !models[kind]->bounds().IsValid())
+                continue;
+            const Math::AABox3f box = models[kind]->bounds().Transformed(m_cpuWorlds[i]);
+            if (m_cpuUseSphere)
+            {
+                if (!box.Intersects(m_cpuSphere))
+                    continue;
+            }
+            else if (!m_cpuFrustum.Intersects(box))
+                continue;
+            m_cpuIndex[kind].push_back(static_cast<uint32_t>(i));
+        }
+
+        for (int i = 0; i < kKindCount; ++i)
+        {
+            if (!m_cpuIndex[i].empty())
+                return true;
+        }
+        return false;
+    }
+
+    void FoliagePipeline::publishCpuIndices(FoliagePrototypes& prototypes)
+    {
+        buildCpuIndices(prototypes);
+        if (!m_indexMap)
+            return;
+        uint8_t* base = m_indexMap + (static_cast<size_t>(m_activeSlot) * kViewsPerFrame + m_activeView) * static_cast<size_t>(kIndexViewStride);
+        for (int i = 0; i < kKindCount; ++i)
+        {
+            if (m_cpuIndex[i].empty())
+                continue;
+            std::memcpy(base + static_cast<size_t>(i) * static_cast<size_t>(kIndexKindStride), m_cpuIndex[i].data(), m_cpuIndex[i].size() * sizeof(uint32_t));
+        }
+    }
+
+    FoliageCullDesc FoliagePipeline::makeCullDesc(bool shadow) const
+    {
+        FoliageCullDesc desc{};
+        desc.worlds = m_worldGpu + static_cast<UINT64>(m_activeSlot) * kWorldStride;
+        desc.kinds  = m_cull->kindGpu + static_cast<UINT64>(m_activeSlot) * kKindStride;
+        uint32_t count = static_cast<uint32_t>(m_cpuWorlds.size());
+        if (m_cpuWorlds.size() > Terrain::kMaxFoliageDraw)
+            count = Terrain::kMaxFoliageDraw;
+        desc.instanceCount = count;
+        desc.useSphere     = m_cpuUseSphere ? 1u : 0u;
+        desc.shadowView    = shadow ? 1u : 0u;
+        desc.viewIndex     = m_activeView;
+        if (m_cpuUseSphere)
+        {
+            desc.sphere[0] = m_cpuSphere.Center.x;
+            desc.sphere[1] = m_cpuSphere.Center.y;
+            desc.sphere[2] = m_cpuSphere.Center.z;
+            desc.sphere[3] = m_cpuSphere.Radius;
+        }
+        for (int plane = 0; plane < 6; ++plane)
+        {
+            const Math::Plane4f& p = m_cpuFrustum.GetPlane(plane);
+            desc.planes[plane][0]  = p.x;
+            desc.planes[plane][1]  = p.y;
+            desc.planes[plane][2]  = p.z;
+            desc.planes[plane][3]  = p.w;
+        }
+        for (int kind = 0; kind < kKindCount; ++kind)
+        {
+            desc.kindResident[kind] = m_kindResident[kind];
+            desc.kindValid[kind]    = m_kindValid[kind];
+            desc.boundsMin[kind][0] = m_boundsMin[kind][0];
+            desc.boundsMin[kind][1] = m_boundsMin[kind][1];
+            desc.boundsMin[kind][2] = m_boundsMin[kind][2];
+            desc.boundsMax[kind][0] = m_boundsMax[kind][0];
+            desc.boundsMax[kind][1] = m_boundsMax[kind][1];
+            desc.boundsMax[kind][2] = m_boundsMax[kind][2];
+        }
+        return desc;
+    }
+
+    bool FoliagePipeline::fillPartArgs(GpuResourceCache& gpu, FoliagePrototypes& prototypes, bool depth, FoliageCullDesc& desc)
+    {
+        for (int kind = 0; kind < kKindCount; ++kind)
+        {
+            desc.partCount[kind] = 0;
+            for (uint32_t part = 0; part < kCullPartsPerKind; ++part)
+                desc.indexCount[kind][part] = 0;
+            if (depth && kind == static_cast<int>(Terrain::FoliageKind::Grass))
+                continue;
+            if (m_kindResident[kind] == 0)
+                continue;
+            uint32_t n = 0;
+            const bool ok = forKindParts(gpu, prototypes.model(kKindOrder[kind]), depth, true, [&](const GpuModel::Part& part, const Model::Part*, uint32_t slot) {
+                desc.indexCount[kind][slot] = part.mesh.indexCount();
+                n                           = slot + 1;
+            });
+            if (!ok)
+                return logFoliagePartCap();
+            desc.partCount[kind] = n;
+        }
+        return true;
+    }
+
+    bool FoliagePipeline::tryGpuCull(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, FoliagePrototypes& prototypes, bool depth, bool shadow)
+    {
+        if (!m_gpuCull || !m_cull)
+            return false;
+        FoliageCullDesc desc = makeCullDesc(shadow);
+        if (!fillPartArgs(gpu, prototypes, depth, desc))
+        {
+            publishCpuIndices(prototypes);
+            m_gpuCull = false;
+            return false;
+        }
+        bool ok = false;
+        {
+            const GpuScope cullScope(cmd, "Foliage Cull", ProfileColor::Terrain);
+            ok = recordCull(cmd, m_activeSlot, desc);
+        }
+        if (!ok)
+        {
+            publishCpuIndices(prototypes);
+            m_gpuCull = false;
+            return false;
+        }
+        return true;
+    }
+
     bool FoliagePipeline::allocView(uint32_t frameIndex)
     {
         const uint32_t slot = frameIndex % kFrameCount;
@@ -737,6 +1424,8 @@ namespace Dark
         const Frustum3f& frustum,
         const Math::Sphere3f* casterSphere)
     {
+        // instancedIndirect replaces this view's box test with FoliageCull.hlsl. The 96 m gather stays on the CPU.
+        m_gpuCull = false;
         if (!isValid() || !prototypes.ready() || !grid.valid())
             return false;
 
@@ -745,40 +1434,32 @@ namespace Dark
         if (m_cpuWorlds.empty())
             return false;
 
+        m_cpuFrustum   = frustum;
+        m_cpuUseSphere = casterSphere != nullptr;
+        if (casterSphere)
+            m_cpuSphere = *casterSphere;
+
         for (int i = 0; i < kKindCount; ++i)
             m_cpuIndex[i].clear();
+        snapshotKindBounds(prototypes);
 
-        const AssetRef<Model> models[kKindCount] = {
-            prototypes.model(Terrain::FoliageKind::Tree),
-            prototypes.model(Terrain::FoliageKind::Flower),
-            prototypes.model(Terrain::FoliageKind::Rock),
-            prototypes.model(Terrain::FoliageKind::Grass),
-        };
-
-        const size_t n = m_cpuWorlds.size();
-        for (size_t i = 0; i < n; ++i)
+        const bool wantGpu = renderer.debugState().instancedIndirect && cullReady();
+        if (wantGpu)
         {
-            const int kind = m_cpuKinds[i];
-            if (kind < 0 || kind >= kKindCount || !models[kind] || !models[kind]->bounds().IsValid())
-                continue;
-            const Math::AABox3f box = models[kind]->bounds().Transformed(m_cpuWorlds[i]);
-            if (casterSphere)
-            {
-                if (!box.Intersects(*casterSphere))
-                    continue;
-            }
-            else if (!frustum.Intersects(box))
-                continue;
-            m_cpuIndex[kind].push_back(static_cast<uint32_t>(i));
+            bool any = false;
+            for (int i = 0; i < kKindCount; ++i)
+                any = any || m_kindResident[i] > 0;
+            if (!any)
+                return false;
+            if (!allocView(renderer.frameIndex()))
+                return false;
+            uploadWorlds(m_activeSlot);
+            uploadKinds(m_activeSlot);
+            m_gpuCull = true;
+            return true;
         }
 
-        bool any = false;
-        for (int i = 0; i < kKindCount; ++i)
-        {
-            if (!m_cpuIndex[i].empty())
-                any = true;
-        }
-        if (!any)
+        if (!buildCpuIndices(prototypes))
             return false;
         if (!allocView(renderer.frameIndex()))
             return false;
@@ -807,35 +1488,33 @@ namespace Dark
         const Math::Matrix4f& prevViewProj,
         const Frustum3f& frustum)
     {
+        m_renderer = &renderer;
         if (!cmd || !prepare(renderer, assets, prototypes, grid, editorRecords, density, camera, frustum, nullptr))
             return;
 
         GpuResourceCache& gpu = renderer.gpuResources();
+        if (m_gpuCull)
+            tryGpuCull(cmd, gpu, prototypes, false, false);
+
         cmd->SetGraphicsRootSignature(m_gbRoot.Get());
         cmd->SetPipelineState(m_gbPso.Get());
 
-        const D3D12_GPU_VIRTUAL_ADDRESS worldVa = m_worldGpu + static_cast<UINT64>(m_activeSlot) * kWorldStride;
+        const D3D12_GPU_VIRTUAL_ADDRESS worldVa   = m_worldGpu + static_cast<UINT64>(m_activeSlot) * kWorldStride;
         const D3D12_GPU_VIRTUAL_ADDRESS indexBase = m_indexGpu + (static_cast<UINT64>(m_activeSlot) * kViewsPerFrame + m_activeView) * kIndexViewStride;
 
         for (int i = 0; i < kKindCount; ++i)
         {
-            const uint32_t count = static_cast<uint32_t>(m_cpuIndex[i].size());
+            const uint32_t count = m_gpuCull ? m_kindResident[i] : static_cast<uint32_t>(m_cpuIndex[i].size());
             if (count == 0)
                 continue;
             const AssetRef<Model>& model = prototypes.model(kKindOrder[i]);
-            if (!model || !gpu.ensureModel(model))
-                continue;
-            GpuModel* gm = gpu.model(model->id);
-            if (!gm)
-                continue;
             const Terrain::FoliageKind kind = kKindOrder[i];
             const bool twoSided = kind == Terrain::FoliageKind::Grass || kind == Terrain::FoliageKind::Tree || kind == Terrain::FoliageKind::Flower;
             cmd->SetPipelineState(twoSided ? m_gbPsoTwoSided.Get() : m_gbPso.Get());
-            const D3D12_GPU_VIRTUAL_ADDRESS indexVa = indexBase + static_cast<UINT64>(i) * kIndexKindStride;
-            for (const GpuModel::Part& part : gm->opaque())
-            {
-                if (part.skinned || !part.mesh.valid())
-                    continue;
+            D3D12_GPU_VIRTUAL_ADDRESS indexVa = indexBase + static_cast<UINT64>(i) * kIndexKindStride;
+            if (m_gpuCull && m_cull)
+                indexVa = m_cull->indices[m_activeSlot]->GetGPUVirtualAddress() + cullIndexByteOffset(m_activeView, static_cast<uint32_t>(i));
+            forKindParts(gpu, model, false, m_gpuCull, [&](const GpuModel::Part& part, const Model::Part*, uint32_t partSlot) {
                 gpu.bindMaterial(cmd, part.materialId, kGbMaterial);
                 FoliageGBufferConstants cb{};
                 copyMatrix(cb.localToRoot, partLocalToRoot(part.localToRoot, kind));
@@ -845,8 +1524,11 @@ namespace Dark
                 cmd->SetGraphicsRoot32BitConstants(kGbConstants, static_cast<UINT>(sizeof(cb) / 4), &cb, 0);
                 cmd->SetGraphicsRootShaderResourceView(kGbWorlds, worldVa);
                 cmd->SetGraphicsRootShaderResourceView(kGbIndices, indexVa);
-                part.mesh.drawInstanced(cmd, count);
-            }
+                if (m_gpuCull && m_cull)
+                    part.mesh.drawIndirect(cmd, m_cull->signature.Get(), m_cull->args[m_activeSlot].Get(), cullArgumentOffset(m_activeView, static_cast<uint32_t>(i), partSlot));
+                else
+                    part.mesh.drawInstanced(cmd, count);
+            });
         }
     }
 
@@ -861,9 +1543,11 @@ namespace Dark
         const Frustum3f& casterFrustum,
         const Math::Sphere3f* casterSphere)
     {
+        m_renderer        = &renderer;
         m_depthRenderer   = &renderer;
         m_depthPrototypes = &prototypes;
-        m_depthReady = prepare(renderer, assets, prototypes, grid, editorRecords, density, camera, casterFrustum, casterSphere);
+        m_depthReady       = prepare(renderer, assets, prototypes, grid, editorRecords, density, camera, casterFrustum, casterSphere);
+        m_depthCullPending = m_depthReady && m_gpuCull;
         return m_depthReady;
     }
 
@@ -875,53 +1559,51 @@ namespace Dark
         Renderer& renderer = *m_depthRenderer;
         FoliagePrototypes& prototypes = *m_depthPrototypes;
         GpuResourceCache& gpu = renderer.gpuResources();
+        if (m_depthCullPending)
+        {
+            m_depthCullPending = false;
+            tryGpuCull(cmd, gpu, prototypes, true, true);
+        }
         cmd->SetGraphicsRootSignature(m_depthRoot.Get());
         cmd->SetPipelineState(m_depthPso.Get());
 
-        const D3D12_GPU_VIRTUAL_ADDRESS worldVa = m_worldGpu + static_cast<UINT64>(m_activeSlot) * kWorldStride;
+        const D3D12_GPU_VIRTUAL_ADDRESS worldVa   = m_worldGpu + static_cast<UINT64>(m_activeSlot) * kWorldStride;
         const D3D12_GPU_VIRTUAL_ADDRESS indexBase = m_indexGpu + (static_cast<UINT64>(m_activeSlot) * kViewsPerFrame + m_activeView) * kIndexViewStride;
 
         for (int i = 0; i < kKindCount; ++i)
         {
             if (kKindOrder[i] == Terrain::FoliageKind::Grass)
                 continue;
-            const uint32_t count = static_cast<uint32_t>(m_cpuIndex[i].size());
+            const uint32_t count = m_gpuCull ? m_kindResident[i] : static_cast<uint32_t>(m_cpuIndex[i].size());
             if (count == 0)
                 continue;
             const AssetRef<Model>& model = prototypes.model(kKindOrder[i]);
-            if (!model || !gpu.ensureModel(model))
-                continue;
-            GpuModel* gm = gpu.model(model->id);
-            if (!gm)
-                continue;
             const Terrain::FoliageKind kind = kKindOrder[i];
             const bool twoSided = kind == Terrain::FoliageKind::Tree || kind == Terrain::FoliageKind::Flower;
             cmd->SetPipelineState(twoSided ? m_depthPsoTwoSided.Get() : m_depthPso.Get());
-            const D3D12_GPU_VIRTUAL_ADDRESS indexVa = indexBase + static_cast<UINT64>(i) * kIndexKindStride;
-            const std::vector<Model::Part>& cpuParts = model->opaque();
-            const std::vector<GpuModel::Part>& gpuParts = gm->opaque();
-            const size_t partCount = cpuParts.size() < gpuParts.size() ? cpuParts.size() : gpuParts.size();
-            for (size_t p = 0; p < partCount; ++p)
-            {
-                const GpuModel::Part& part = gpuParts[p];
-                if (part.skinned || !part.mesh.valid())
-                    continue;
+            D3D12_GPU_VIRTUAL_ADDRESS indexVa = indexBase + static_cast<UINT64>(i) * kIndexKindStride;
+            if (m_gpuCull && m_cull)
+                indexVa = m_cull->indices[m_activeSlot]->GetGPUVirtualAddress() + cullIndexByteOffset(m_activeView, static_cast<uint32_t>(i));
+            forKindParts(gpu, model, true, m_gpuCull, [&](const GpuModel::Part& part, const Model::Part* cpuPart, uint32_t partSlot) {
                 gpu.bindMaterial(cmd, part.materialId, kDepthMaterial);
                 FoliageDepthConstants cb{};
                 copyMatrix(cb.localToRoot, partLocalToRoot(part.localToRoot, kind));
                 copyMatrix(cb.lightWVP, lightViewProj);
                 cb.alphaCutoff   = 0.5f;
                 cb.alphaModeMask = 0.0f;
-                if (cpuParts[p].material)
+                if (cpuPart && cpuPart->material)
                 {
-                    cb.alphaCutoff   = cpuParts[p].material->alphaCutoff();
-                    cb.alphaModeMask = cpuParts[p].material->alphaMode() == MaterialAlphaMode::Mask ? 1.0f : 0.0f;
+                    cb.alphaCutoff   = cpuPart->material->alphaCutoff();
+                    cb.alphaModeMask = cpuPart->material->alphaMode() == MaterialAlphaMode::Mask ? 1.0f : 0.0f;
                 }
                 cmd->SetGraphicsRoot32BitConstants(kDepthConstants, static_cast<UINT>(sizeof(cb) / 4), &cb, 0);
                 cmd->SetGraphicsRootShaderResourceView(kDepthWorlds, worldVa);
                 cmd->SetGraphicsRootShaderResourceView(kDepthIndices, indexVa);
-                part.mesh.drawInstanced(cmd, count);
-            }
+                if (m_gpuCull && m_cull)
+                    part.mesh.drawIndirect(cmd, m_cull->signature.Get(), m_cull->args[m_activeSlot].Get(), cullArgumentOffset(m_activeView, static_cast<uint32_t>(i), partSlot));
+                else
+                    part.mesh.drawInstanced(cmd, count);
+            });
         }
     }
 

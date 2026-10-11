@@ -270,7 +270,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             const LocalShadowFaceDraw& face = cullLocals.face(f);
             addDepthView(face.viewProj, face.frustum);
         }
-        if (deferredEarly)
+        if (deferredEarly || m_drawList.forwardReady())
         {
             const Matrix4f camVp   = m_scene.beginCameraFrame(m_camera, renderer());
             const Matrix4f camPrev = m_scene.havePrevViewProj() ? m_scene.prevViewProj() : camVp;
@@ -334,6 +334,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 
     const bool deferred = renderer().scenePath() == ScenePath::HybridDeferred;
     const bool instanceColor = instanceStatic && deferred;
+    const bool instanceForward = instanceStatic && !deferred && m_drawList.forwardReady();
     const Matrix4f viewProj = m_scene.beginCameraFrame(m_camera, renderer());
     const Matrix4f prevViewProj = m_scene.havePrevViewProj() ? m_scene.prevViewProj() : viewProj;
     if (deferred)
@@ -539,7 +540,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     if (!deferred)
         drawGrid();
 
-    if (instanceColor && !m_drawList.gpuCullActive())
+    if ((instanceColor || instanceForward) && !m_drawList.gpuCullActive())
     {
         float drawVp[16];
         float drawPrev[16];
@@ -549,11 +550,31 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         m_drawList.buildView(cameraFrustum, drawVp, drawPrev, RenderPassKind::GBuffer, ViewId{ 0 });
     }
 
+    MeshForwardBatchConstants forwardLighting{};
+    const D3D12_GPU_VIRTUAL_ADDRESS forwardShadow = m_shadows.receiverCbvGpu();
+    if (instanceForward)
+    {
+        forwardLighting.lightDirWS[0] = lightDir.x;
+        forwardLighting.lightDirWS[1] = lightDir.y;
+        forwardLighting.lightDirWS[2] = lightDir.z;
+        forwardLighting.ambientScale  = ambientScale;
+        forwardLighting.lightColor[0] = sunColor.x;
+        forwardLighting.lightColor[1] = sunColor.y;
+        forwardLighting.lightColor[2] = sunColor.z;
+        const Vector3f cam = m_camera.GetPosition();
+        forwardLighting.cameraPos[0] = cam.x;
+        forwardLighting.cameraPos[1] = cam.y;
+        forwardLighting.cameraPos[2] = cam.z;
+        forwardLighting.lighting     = renderer().debugState().lightingActive() ? 1.0f : 0.0f;
+    }
+
     uint32_t draws = 0;
     {
         const GpuScope meshes(cmd, "Opaque Meshes", ProfileColor::OpaqueMeshes);
         if (instanceColor)
             m_drawList.recordOpaque(cmd, gpu, ViewId{ 0 }, StaticPopulation::OpaqueMeshes);
+        if (instanceForward)
+            m_drawList.recordForward(cmd, gpu, ViewId{ 0 }, StaticPopulation::OpaqueMeshes, forwardLighting, forwardShadow);
         world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
         if (!isScene3DType(so.type))
             return;
@@ -582,7 +603,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                 material = mat.get();
             }
         }
-        if (instanceColor && acceptedProp.count(e.id()) != 0)
+        if ((instanceColor || instanceForward) && acceptedProp.count(e.id()) != 0)
             return;
         drawMesh(*mesh, makeWorldMatrix(*xf), material, cr, cg, cb, emissive);
         ++draws;
@@ -636,6 +657,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     else
     {
         const GpuScope models(cmd, "Opaque Models", ProfileColor::OpaqueModels);
+        if (instanceForward)
+            m_drawList.recordForward(cmd, gpu, ViewId{ 0 }, StaticPopulation::OpaqueModels, forwardLighting, forwardShadow);
         MeshFrameConstants lit{};
         lit.lightDirWS[0] = lightDir.x;
         lit.lightDirWS[1] = lightDir.y;
@@ -666,9 +689,12 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                     ag->prevWorld = worldMat;
                     ag->prevWorldValid = true;
                 }
-                drawSkinnedModelForward(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_shadows, m_skinRing, *model, false, *pose, worldMat, viewProj, lit, fill);
+                if (instanceForward && acceptedModel.count(e.id()) != 0)
+                    drawSkinnedModelForwardSkinnedOnly(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_shadows, m_skinRing, *model, *pose, worldMat, viewProj, lit, fill);
+                else
+                    drawSkinnedModelForward(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_shadows, m_skinRing, *model, false, *pose, worldMat, viewProj, lit, fill);
             }
-            else
+            else if (!(instanceForward && acceptedModel.count(e.id()) != 0))
                 drawModelForward(cmd, gpu, m_meshPipeline, m_shadows, *model, false, worldMat, viewProj, lit, fill);
             ++draws;
         });

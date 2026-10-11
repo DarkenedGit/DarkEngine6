@@ -101,7 +101,7 @@ private:
     Dark::WeaponWorldQuery makeWeaponQuery();
     static void onWeaponHitThunk(void* user, const Dark::WeaponHit& hit);
     void onWeaponHit(const Dark::WeaponHit& hit);
-    void drawProjectiles(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, Dark::MeshFrameConstants& cb);
+    void drawProjectiles(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, Dark::MeshFrameConstants& cb, bool instanced = false, const std::vector<int>* rejectedShots = nullptr);
     void drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, const Dark::Math::Matrix4f& prevViewProj, bool instanced = false, const std::vector<int>* rejectedShots = nullptr);
     bool createSandboxModels();
     void spawnGltfDemo();
