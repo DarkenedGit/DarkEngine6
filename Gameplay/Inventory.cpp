@@ -124,6 +124,17 @@ namespace Dark
         return s;
     }
 
+    int itemCount(const InventoryComponent& inv)
+    {
+        int n = 0;
+        for (const ItemStack& s : inv.bag)
+        {
+            if (!s.empty())
+                ++n;
+        }
+        return n;
+    }
+
     float equippedArmor(const InventoryComponent& inv)
     {
         float armor = 0.0f;

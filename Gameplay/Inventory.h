@@ -34,6 +34,16 @@ namespace Dark
         ItemStack item{};
     };
 
+    struct LootComponent
+    {
+        static constexpr const char* kTypeName = "Loot";
+
+        const char*        label = "Loot";
+        InventoryComponent contents{};
+    };
+
+    int itemCount(const InventoryComponent& inv);
+
     int       addItem(InventoryComponent& inv, const ItemDef& def, int count);
     bool      hasItem(const InventoryComponent& inv, std::string_view id);
     bool      equipItem(InventoryComponent& inv, int bagIndex);

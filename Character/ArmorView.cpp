@@ -63,7 +63,7 @@ namespace Dark
         Combat::ArmorPiecesComponent* armor = world.get<Combat::ArmorPiecesComponent>(owner);
         if (!armor || broke.index < 0 || !physics.valid())
             return;
-        const Combat::ArmorPiece& piece = armor->pieces[broke.index];
+        Combat::ArmorPiece& piece = armor->pieces[broke.index];
         if (!piece.visual.valid() || !world.alive(piece.visual))
             return;
 
@@ -77,7 +77,10 @@ namespace Dark
         const Math::Vector3f push{ broke.push.x * 4.0f, 3.0f, broke.push.z * 4.0f };
         physics.setBodyVelocity(physics.bodyOf(piece.visual), push, Math::Vector3f{ 6.0f, 2.0f, 4.0f });
         if (const ItemDef* def = findItemDef(piece.name))
+        {
             world.emplace<ItemPickupComponent>(piece.visual, ItemPickupComponent{ { def, 1 } });
+            piece.visual = {};
+        }
         DE_LOG_INFO("Armor: {} knocked off", piece.name);
     }
 
