@@ -4047,7 +4047,8 @@ void SandboxApp::onRender()
             float lightVp[16];
             copyMatrix(lightVp, lightViewProj);
             const ViewId view{ shadowViewIndex };
-            m_drawList.buildView(casterFrustum, lightVp, lightVp, RenderPassKind::Depth, view);
+            if (!m_drawList.gpuCullActive())
+                m_drawList.buildView(casterFrustum, lightVp, lightVp, RenderPassKind::Depth, view);
             m_drawList.recordDepth(cmd, view, lightVp);
             ++shadowViewIndex;
             m_shadows.pipeline().bind(cmd);
@@ -4112,6 +4113,45 @@ void SandboxApp::onRender()
             m_foliagePipeline.drawPreparedDepth(cmd, lightViewProj);
         }
     };
+
+    // Cull every static view before any of them draw. The argument buffer stays unordered until the last rewrite.
+    const bool deferredEarly = renderer().scenePath() == ScenePath::HybridDeferred;
+    const bool gpuCull       = instanceStatic && renderer().debugState().instancedIndirect && m_drawList.cullReady();
+    if (gpuCull)
+    {
+        m_drawList.setGpuCull(true);
+        uint8_t cullView = 1;
+        auto addDepthView = [&](const Matrix4f& lightViewProj, const Frustum3f& lightFrustum) {
+            if (cullView >= kMaxStaticViews)
+                return;
+            float lightVp[16];
+            copyMatrix(lightVp, lightViewProj);
+            m_drawList.buildView(lightFrustum, lightVp, lightVp, RenderPassKind::Depth, ViewId{ cullView });
+            ++cullView;
+        };
+        if (m_shadows.isValid() && m_shadows.enabled())
+        {
+            for (int i = 0; i < m_shadows.cascadeCount(); ++i)
+                addDepthView(m_shadows.cascade(i).viewProj, Frustum3f(m_shadows.cascade(i).viewProj));
+        }
+        LocalShadowSystem& cullLocals = m_scene.localShadows();
+        for (int f = 0; f < cullLocals.faceCountThisFrame(); ++f)
+        {
+            const LocalShadowFaceDraw& face = cullLocals.face(f);
+            addDepthView(face.viewProj, face.frustum);
+        }
+        if (deferredEarly)
+        {
+            const Matrix4f camVp   = m_scene.beginCameraFrame(m_viewCamera, renderer());
+            const Matrix4f camPrev = m_scene.havePrevViewProj() ? m_scene.prevViewProj() : camVp;
+            float drawVp[16];
+            float drawPrev[16];
+            copyMatrix(drawVp, camVp);
+            copyMatrix(drawPrev, camPrev);
+            m_drawList.buildView(Frustum3f(m_viewCamera.GetCullViewProj()), drawVp, drawPrev, RenderPassKind::GBuffer, ViewId{ 0 });
+        }
+        m_drawList.dispatchCull(cmd);
+    }
 
     if (m_shadows.isValid())
         markPass(PassId::Shadows);
@@ -4237,7 +4277,7 @@ void SandboxApp::onRender()
                 }
                 m_grassPipeline.draw(cmd, renderer(), grassLods, m_grassField.tileWind(), m_grassField.tileWindCount(), grassFrame);
             }
-            if (instanceColor)
+            if (instanceColor && !m_drawList.gpuCullActive())
             {
                 float drawVp[16];
                 float drawPrev[16];

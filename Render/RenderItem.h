@@ -98,6 +98,30 @@ struct DrawIndexedArgs
     uint32_t startInstanceLocation = 0;
 };
 
+constexpr uint32_t kCullAlwaysVisible = 1u;
+constexpr uint32_t kCullCastShadow    = 2u;
+
+// Scalar fields. A float3 here would pad differently from this layout in FXC.
+struct MeshCullAabb
+{
+    float    center[3]{};
+    uint32_t flags = 0;
+    float    extent[3]{};
+    uint32_t gbufferBatch = 0;
+    uint32_t depthBatch   = 0;
+    uint32_t pad[3]{};
+};
+static_assert(sizeof(MeshCullAabb) == 48, "cull aabb");
+
+struct GpuBatchRecord
+{
+    uint32_t indexCount = 0;
+    uint32_t itemBegin  = 0;
+    uint32_t itemCount  = 0;
+    uint32_t _pad       = 0;
+};
+static_assert(sizeof(GpuBatchRecord) == 16, "batch record");
+
 inline bool batchKeyLess(const BatchKey& a, const BatchKey& b)
 {
     if (a.population != b.population)

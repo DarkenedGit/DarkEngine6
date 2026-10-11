@@ -624,3 +624,215 @@ TEST(DrawList, IndirectArgsKeepZeroStartInstance)
     list.recordDepth(cmd.Get(), ViewId{ 1 }, ident);
     ASSERT_TRUE(SUCCEEDED(cmd->Close()));
 }
+
+TEST(DrawList, CullAabbMatchesFrustum)
+{
+    const AABox3f empty = AABox3f::Empty();
+    EXPECT_FALSE(empty.IsValid());
+    // Empty uses +/- FLT_MAX. Extents() of that box is not zero, so a zero extent was not measured.
+    EXPECT_NE(empty.Extents().x, 0.0f);
+
+    MeshCullAabb encoded{};
+    encodeCullAabb(empty, true, encoded);
+    EXPECT_EQ(encoded.flags & kCullAlwaysVisible, kCullAlwaysVisible);
+    EXPECT_EQ(encoded.flags & kCullCastShadow, kCullCastShadow);
+    EXPECT_EQ(encoded.center[0], 0.0f);
+    EXPECT_EQ(encoded.center[1], 0.0f);
+    EXPECT_EQ(encoded.center[2], 0.0f);
+    EXPECT_EQ(encoded.extent[0], 0.0f);
+    EXPECT_EQ(encoded.extent[1], 0.0f);
+    EXPECT_EQ(encoded.extent[2], 0.0f);
+
+    encodeCullAabb(empty, false, encoded);
+    EXPECT_EQ(encoded.flags, kCullAlwaysVisible);
+
+    const Frustum3f frustum = cameraFrustum(Vector3f(0.0f, 0.0f, 0.0f), Vector3f(0.0f, 0.0f, 1.0f), 40.0f);
+    EXPECT_TRUE(cullAabbVisible(encoded, frustum.Planes.data()));
+
+    const AABox3f inside(Vector3f(-0.25f, -0.25f, 7.5f), Vector3f(0.25f, 0.25f, 8.5f));
+    const AABox3f outside(Vector3f(-0.25f, -0.25f, 79.5f), Vector3f(0.25f, 0.25f, 80.5f));
+    EXPECT_TRUE(frustum.Intersects(inside));
+    EXPECT_FALSE(frustum.Intersects(outside));
+
+    MeshCullAabb insideAabb{};
+    MeshCullAabb outsideAabb{};
+    encodeCullAabb(inside, true, insideAabb);
+    encodeCullAabb(outside, true, outsideAabb);
+    EXPECT_EQ(insideAabb.flags, kCullCastShadow);
+    EXPECT_NEAR(insideAabb.center[2], inside.Center().z, 1.0e-5f);
+    EXPECT_NEAR(insideAabb.extent[0], inside.Extents().x, 1.0e-5f);
+    EXPECT_EQ(cullAabbVisible(insideAabb, frustum.Planes.data()), frustum.Intersects(inside));
+    EXPECT_EQ(cullAabbVisible(outsideAabb, frustum.Planes.data()), frustum.Intersects(outside));
+
+    Camera3D camera;
+    camera.SetLens(1.0f, 1.0f, 0.1f, 40.0f);
+    camera.LookAt(Vector3f(0.0f, 0.0f, 0.0f), Vector3f(0.0f, 0.0f, 1.0f), Vector3f(0.0f, 1.0f, 0.0f));
+    camera.SetSubpixelJitter(0.5f, -0.25f, 1280, 720);
+    EXPECT_NE(camera.GetViewProj(), camera.GetCullViewProj());
+    const Frustum3f cullFrustum(camera.GetCullViewProj());
+    EXPECT_EQ(cullAabbVisible(insideAabb, cullFrustum.Planes.data()), cullFrustum.Intersects(inside));
+}
+
+TEST(DrawList, ComputeCullMatchesCpuOracle)
+{
+    ComPtr<ID3D12Device> device = tryWarpDevice();
+    if (!device)
+        GTEST_SKIP() << "no WARP device at feature level 11_0";
+
+    ComPtr<ID3D12CommandQueue> queue;
+    D3D12_COMMAND_QUEUE_DESC queueDesc{};
+    queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    if (FAILED(device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&queue))))
+        GTEST_SKIP() << "CreateCommandQueue failed";
+
+    DrawList list;
+    ASSERT_TRUE(list.create(device.Get()));
+    ASSERT_TRUE(list.indirectReady());
+    ASSERT_TRUE(list.cullReady());
+
+    Mesh meshA = Mesh::takeSortIdentity();
+    Mesh meshB = Mesh::takeSortIdentity();
+    list.beginFrame(0);
+    list.setIndirect(true);
+    list.setGpuCull(true);
+    ASSERT_TRUE(list.gpuCullActive());
+
+    RenderItem insideItem = staticItem(meshA, NULL_ASSET, StaticPopulation::OpaqueModels, 1.0f);
+    insideItem.worldAabb  = AABox3f(Vector3f(-0.25f, -0.25f, 7.5f), Vector3f(0.25f, 0.25f, 8.5f));
+    insideItem.castShadow = true;
+    RenderItem alwaysItem = staticItem(meshA, NULL_ASSET, StaticPopulation::OpaqueModels, 0.5f);
+    alwaysItem.worldAabb  = AABox3f::Empty();
+    alwaysItem.castShadow = false;
+    RenderItem farItem    = staticItem(meshB, NULL_ASSET, StaticPopulation::OpaqueModels, 0.2f);
+    farItem.worldAabb     = AABox3f(Vector3f(-0.25f, -0.25f, 79.5f), Vector3f(0.25f, 0.25f, 80.5f));
+    farItem.castShadow    = true;
+    ASSERT_TRUE(list.submit(insideItem));
+    ASSERT_TRUE(list.submit(alwaysItem));
+    ASSERT_TRUE(list.submit(farItem));
+
+    float ident[16] = {};
+    ident[0] = ident[5] = ident[10] = ident[15] = 1.0f;
+    const Frustum3f frustum = cameraFrustum(Vector3f(0.0f, 0.0f, 0.0f), Vector3f(0.0f, 0.0f, 1.0f), 40.0f);
+    EXPECT_TRUE(frustum.Intersects(insideItem.worldAabb));
+    EXPECT_FALSE(frustum.Intersects(farItem.worldAabb));
+    list.buildView(frustum, ident, ident, RenderPassKind::GBuffer, ViewId{ 0 });
+    list.buildView(frustum, ident, ident, RenderPassKind::Depth, ViewId{ 1 });
+    EXPECT_EQ(list.visibleCount(ViewId{ 0 }, 0), 0u);
+    ASSERT_EQ(list.gbufferBatchCount(), 2u);
+    ASSERT_EQ(list.depthBatchCount(), 2u);
+    EXPECT_EQ(list.gbufferBatch(0).itemCount, 2u);
+    EXPECT_EQ(list.gbufferBatch(1).itemBegin, 2u);
+    EXPECT_EQ(list.depthBatch(0).itemCount, 2u);
+
+    ComPtr<ID3D12CommandAllocator> allocator;
+    ComPtr<ID3D12GraphicsCommandList> cmd;
+    ASSERT_TRUE(SUCCEEDED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator))));
+    ASSERT_TRUE(SUCCEEDED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr, IID_PPV_ARGS(&cmd))));
+    ASSERT_TRUE(list.dispatchCull(cmd.Get()));
+
+    ID3D12Resource* args    = list.argumentResource(0);
+    ID3D12Resource* indices = list.cullIndexResource(0);
+    ASSERT_NE(args, nullptr);
+    ASSERT_NE(indices, nullptr);
+    const UINT64 argBytes   = args->GetDesc().Width;
+    const UINT64 indexBytes = indices->GetDesc().Width;
+
+    auto makeReadback = [&](UINT64 bytes) {
+        D3D12_HEAP_PROPERTIES heap{};
+        heap.Type = D3D12_HEAP_TYPE_READBACK;
+        D3D12_RESOURCE_DESC desc{};
+        desc.Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER;
+        desc.Width            = bytes;
+        desc.Height           = 1;
+        desc.DepthOrArraySize = 1;
+        desc.MipLevels        = 1;
+        desc.SampleDesc       = { 1, 0 };
+        desc.Layout           = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        ComPtr<ID3D12Resource> res;
+        EXPECT_TRUE(SUCCEEDED(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&res))));
+        return res;
+    };
+    ComPtr<ID3D12Resource> argRead   = makeReadback(argBytes);
+    ComPtr<ID3D12Resource> indexRead = makeReadback(indexBytes);
+    ASSERT_TRUE(argRead);
+    ASSERT_TRUE(indexRead);
+
+    auto transition = [](ID3D12GraphicsCommandList* listCmd, ID3D12Resource* resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
+        D3D12_RESOURCE_BARRIER barrier{};
+        barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.pResource   = resource;
+        barrier.Transition.StateBefore = before;
+        barrier.Transition.StateAfter  = after;
+        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        listCmd->ResourceBarrier(1, &barrier);
+    };
+    transition(cmd.Get(), args, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition(cmd.Get(), indices, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    cmd->CopyBufferRegion(argRead.Get(), 0, args, 0, argBytes);
+    cmd->CopyBufferRegion(indexRead.Get(), 0, indices, 0, indexBytes);
+    ASSERT_TRUE(SUCCEEDED(cmd->Close()));
+
+    ComPtr<ID3D12Fence> fence;
+    ASSERT_TRUE(SUCCEEDED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))));
+    ID3D12CommandList* lists[] = { cmd.Get() };
+    queue->ExecuteCommandLists(1, lists);
+    ASSERT_TRUE(SUCCEEDED(queue->Signal(fence.Get(), 1)));
+    if (fence->GetCompletedValue() < 1)
+    {
+        const HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        ASSERT_NE(event, nullptr);
+        ASSERT_TRUE(SUCCEEDED(fence->SetEventOnCompletion(1, event)));
+        ASSERT_EQ(WaitForSingleObject(event, 10000), WAIT_OBJECT_0);
+        CloseHandle(event);
+    }
+
+    std::vector<uint8_t> argCopy(static_cast<size_t>(argBytes));
+    std::vector<uint8_t> indexCopy(static_cast<size_t>(indexBytes));
+    void* argMap = nullptr;
+    void* indexMap = nullptr;
+    ASSERT_TRUE(SUCCEEDED(argRead->Map(0, nullptr, &argMap)));
+    ASSERT_TRUE(SUCCEEDED(indexRead->Map(0, nullptr, &indexMap)));
+    std::memcpy(argCopy.data(), argMap, argCopy.size());
+    std::memcpy(indexCopy.data(), indexMap, indexCopy.size());
+    argRead->Unmap(0, nullptr);
+    indexRead->Unmap(0, nullptr);
+
+    auto readArg = [&](uint32_t view, uint32_t batch) {
+        DrawIndexedArgs out{};
+        const size_t offset = (static_cast<size_t>(view) * kMaxBatches + batch) * sizeof(DrawIndexedArgs);
+        std::memcpy(&out, argCopy.data() + offset, sizeof(out));
+        return out;
+    };
+    auto readIndex = [&](uint32_t view, uint32_t element) {
+        uint32_t out = 0;
+        const size_t offset = (static_cast<size_t>(view) * kMaxStaticItems + element) * sizeof(uint32_t);
+        std::memcpy(&out, indexCopy.data() + offset, sizeof(out));
+        return out;
+    };
+
+    const DrawIndexedArgs gb0 = readArg(0, 0);
+    const DrawIndexedArgs gb1 = readArg(0, 1);
+    EXPECT_EQ(gb0.instanceCount, 2u);
+    EXPECT_EQ(gb0.startInstanceLocation, 0u);
+    EXPECT_EQ(gb0.startIndexLocation, 0u);
+    EXPECT_EQ(gb0.baseVertexLocation, 0);
+    EXPECT_EQ(gb0.indexCountPerInstance, meshA.indexCount());
+    EXPECT_EQ(gb1.instanceCount, 0u);
+    EXPECT_EQ(gb1.startInstanceLocation, 0u);
+    EXPECT_NE(gb1.startInstanceLocation, list.gbufferBatch(1).itemBegin);
+    EXPECT_EQ(gb1.indexCountPerInstance, meshB.indexCount());
+
+    const uint32_t i0 = readIndex(0, 0);
+    const uint32_t i1 = readIndex(0, 1);
+    EXPECT_TRUE((i0 == 0u && i1 == 1u) || (i0 == 1u && i1 == 0u));
+
+    const DrawIndexedArgs depth0 = readArg(1, 0);
+    const DrawIndexedArgs depth1 = readArg(1, 1);
+    EXPECT_EQ(depth0.instanceCount, 1u);
+    EXPECT_EQ(depth0.startInstanceLocation, 0u);
+    EXPECT_EQ(depth0.indexCountPerInstance, meshA.indexCount());
+    EXPECT_EQ(readIndex(1, list.depthBatch(0).itemBegin), 0u);
+    EXPECT_EQ(depth1.instanceCount, 0u);
+    EXPECT_EQ(depth1.startInstanceLocation, 0u);
+    EXPECT_EQ(depth1.indexCountPerInstance, meshB.indexCount());
+}

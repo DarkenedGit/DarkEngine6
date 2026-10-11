@@ -10,12 +10,17 @@
 
 struct ID3D12Device;
 struct ID3D12GraphicsCommandList;
+struct ID3D12Resource;
 
 namespace Dark
 {
 
 class GpuModel;
 class GpuResourceCache;
+class InstanceCull;
+
+void encodeCullAabb(const Math::AABox3f& box, bool castShadow, MeshCullAabb& out);
+bool cullAabbVisible(const MeshCullAabb& aabb, const Math::Plane4f planes[6]);
 
 enum class RenderPassKind : uint8_t
 {
@@ -43,6 +48,12 @@ public:
     bool gpuReady() const;
     void setIndirect(bool enabled);
     bool indirectReady() const;
+    void setGpuCull(bool enabled);
+    bool gpuCullActive() const { return m_gpuCull; }
+    bool cullReady() const;
+    bool dispatchCull(ID3D12GraphicsCommandList* cmd);
+    ID3D12Resource* argumentResource(uint32_t frameSlot) const;
+    ID3D12Resource* cullIndexResource(uint32_t frameSlot) const;
 
     // One primitive or editor prop. False when the cap is hit or the kind is not static.
     bool     submit(const RenderItem& item);
@@ -85,9 +96,11 @@ private:
     struct ViewSlot
     {
         bool           built = false;
+        bool           gpu   = false;
         RenderPassKind pass  = RenderPassKind::GBuffer;
         float          drawViewProj[16]{};
         float          drawPrevViewProj[16]{};
+        float          planes[6][4]{};
         std::vector<uint32_t> indices;
         std::vector<uint32_t> visible;
         std::vector<DrawIndexedArgs> indirect;
@@ -97,16 +110,23 @@ private:
     void invalidateViews();
     bool acceptItem(const RenderItem& item);
     void uploadInstances() const;
+    void uploadCullData() const;
     void uploadIndices(ViewId view) const;
     bool setupIndirect(ID3D12Device* device, GpuUploads& gpu);
+    void setupCull(ID3D12Device* device, GpuUploads& gpu);
     bool copyViewArgs(ID3D12GraphicsCommandList* cmd, ViewId view) const;
 
     uint32_t m_frameIndex = 0;
     bool     m_indirect   = true;
+    bool     m_gpuCull    = false;
+    bool     m_cullDispatched = false;
     mutable std::array<bool, kMaxStaticViews> m_argsCopied{};
     std::unique_ptr<GpuUploads> m_gpu;
+    std::unique_ptr<InstanceCull> m_cull;
     mutable bool m_compiled = false;
     mutable std::vector<RenderItem> m_items;
+    mutable std::vector<uint32_t> m_itemGBuffer;
+    mutable std::vector<uint32_t> m_itemDepth;
     mutable std::vector<GBufferBatch> m_gbuffer;
     mutable std::vector<DepthBatch> m_depth;
     std::array<ViewSlot, kMaxStaticViews> m_views{};
