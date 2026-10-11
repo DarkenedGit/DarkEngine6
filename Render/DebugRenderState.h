@@ -21,6 +21,7 @@ namespace Dark
         bool      bloom       = true;
         bool      shadows     = true;
         bool      instancedStatic = true; // Solid static meshes and projectiles. Wire and points stay immediate.
+        bool      instancedIndirect = true; // Cleared keeps DrawIndexedInstanced for those batches.
         bool      aces        = false; // Narkowicz display curve on HDR tonemap
         bool      motionBlur  = true;
         bool      taa         = true;

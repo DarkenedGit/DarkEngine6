@@ -3953,6 +3953,7 @@ void SandboxApp::onRender()
     if (instanceStatic)
     {
         m_drawList.beginFrame(renderer().frameIndex());
+        m_drawList.setIndirect(renderer().debugState().instancedIndirect);
         world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
             if (world().has<ModelComponent>(e))
                 return;

@@ -545,3 +545,82 @@ TEST(DrawList, UploadKeepsSortedSlotAndRecords)
     EXPECT_NEAR(slot1[0].color[0], 0.9f, 1e-5f);
     EXPECT_NEAR(slot0[0].color[0], 0.7f, 1e-5f);
 }
+
+TEST(DrawList, IndirectArgsKeepZeroStartInstance)
+{
+    ComPtr<ID3D12Device> device = tryWarpDevice();
+    if (!device)
+        GTEST_SKIP() << "no WARP device at feature level 11_0";
+
+    Mesh meshA = Mesh::takeSortIdentity();
+    Mesh meshB = Mesh::takeSortIdentity();
+    DrawList list;
+    ASSERT_TRUE(list.create(device.Get()));
+    EXPECT_TRUE(list.gpuReady());
+    ASSERT_TRUE(list.indirectReady());
+
+    list.beginFrame(0);
+    RenderItem later = staticItem(meshB, NULL_ASSET, StaticPopulation::OpaqueModels, 0.2f);
+    RenderItem first = staticItem(meshA, NULL_ASSET, StaticPopulation::OpaqueModels, 0.7f);
+    EXPECT_TRUE(list.submit(later));
+    EXPECT_TRUE(list.submit(first));
+
+    float ident[16] = {};
+    ident[0] = ident[5] = ident[10] = ident[15] = 1.0f;
+    const Frustum3f frustum = cameraFrustum(Vector3f(0.0f, 0.0f, 0.0f), Vector3f(0.0f, 0.0f, 1.0f), 80.0f);
+    list.buildView(frustum, ident, ident, RenderPassKind::GBuffer, ViewId{ 0 });
+    list.buildView(frustum, ident, ident, RenderPassKind::Depth, ViewId{ 1 });
+
+    ASSERT_GE(list.gbufferBatchCount(), 2u);
+    EXPECT_EQ(list.gbufferBatch(0).mesh, &meshA);
+    EXPECT_EQ(list.gbufferBatch(1).mesh, &meshB);
+    EXPECT_NE(list.gbufferBatch(1).itemBegin, 0u);
+
+    const DrawIndexedArgs& arg0 = list.drawArg(ViewId{ 0 }, 0);
+    const DrawIndexedArgs& arg1 = list.drawArg(ViewId{ 0 }, 1);
+    EXPECT_EQ(arg0.startInstanceLocation, 0u);
+    EXPECT_EQ(arg1.startInstanceLocation, 0u);
+    EXPECT_NE(arg1.startInstanceLocation, list.gbufferBatch(1).itemBegin);
+    EXPECT_EQ(arg0.startIndexLocation, 0u);
+    EXPECT_EQ(arg1.startIndexLocation, 0u);
+    EXPECT_EQ(arg0.baseVertexLocation, 0);
+    EXPECT_EQ(arg1.baseVertexLocation, 0);
+    EXPECT_EQ(arg0.instanceCount, list.visibleCount(ViewId{ 0 }, 0));
+    EXPECT_EQ(arg1.instanceCount, list.visibleCount(ViewId{ 0 }, 1));
+    EXPECT_EQ(arg0.indexCountPerInstance, meshA.indexCount());
+    EXPECT_EQ(arg1.indexCountPerInstance, meshB.indexCount());
+
+    ASSERT_GE(list.depthBatchCount(), 2u);
+    EXPECT_NE(list.depthBatch(1).itemBegin, 0u);
+    const DrawIndexedArgs& depth1 = list.drawArg(ViewId{ 1 }, 1);
+    EXPECT_EQ(depth1.startInstanceLocation, 0u);
+    EXPECT_EQ(depth1.baseVertexLocation, 0);
+    EXPECT_EQ(depth1.instanceCount, list.visibleCount(ViewId{ 1 }, 1));
+    EXPECT_EQ(depth1.indexCountPerInstance, meshB.indexCount());
+
+    GpuResourceCache gpu(nullptr);
+    ComPtr<ID3D12CommandAllocator> allocator;
+    ComPtr<ID3D12GraphicsCommandList> cmd;
+    ASSERT_TRUE(SUCCEEDED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator))));
+    ASSERT_TRUE(SUCCEEDED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr, IID_PPV_ARGS(&cmd))));
+    list.recordOpaque(cmd.Get(), gpu, ViewId{ 0 }, StaticPopulation::OpaqueModels);
+    list.recordOpaque(cmd.Get(), gpu, ViewId{ 0 }, StaticPopulation::Projectiles);
+    list.recordDepth(cmd.Get(), ViewId{ 1 }, ident);
+    ASSERT_TRUE(SUCCEEDED(cmd->Close()));
+
+    list.setIndirect(false);
+    list.beginFrame(0);
+    EXPECT_TRUE(list.submit(later));
+    EXPECT_TRUE(list.submit(first));
+    list.buildView(frustum, ident, ident, RenderPassKind::GBuffer, ViewId{ 0 });
+    list.buildView(frustum, ident, ident, RenderPassKind::Depth, ViewId{ 1 });
+    EXPECT_EQ(list.drawArg(ViewId{ 0 }, 1).startInstanceLocation, 0u);
+    EXPECT_EQ(list.drawArg(ViewId{ 0 }, 1).instanceCount, list.visibleCount(ViewId{ 0 }, 1));
+    EXPECT_NE(list.gbufferBatch(1).itemBegin, 0u);
+
+    ASSERT_TRUE(SUCCEEDED(allocator->Reset()));
+    ASSERT_TRUE(SUCCEEDED(cmd->Reset(allocator.Get(), nullptr)));
+    list.recordOpaque(cmd.Get(), gpu, ViewId{ 0 }, StaticPopulation::OpaqueModels);
+    list.recordDepth(cmd.Get(), ViewId{ 1 }, ident);
+    ASSERT_TRUE(SUCCEEDED(cmd->Close()));
+}

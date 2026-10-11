@@ -88,6 +88,16 @@ struct MeshDepthBatchConstants
 };
 static_assert(sizeof(MeshDepthBatchConstants) == 20 * sizeof(uint32_t), "depth batch CB");
 
+// Layout matches D3D12_DRAW_INDEXED_ARGUMENTS. StartInstanceLocation stays 0; the batch base is a root constant.
+struct DrawIndexedArgs
+{
+    uint32_t indexCountPerInstance = 0;
+    uint32_t instanceCount         = 0;
+    uint32_t startIndexLocation    = 0;
+    int32_t  baseVertexLocation    = 0;
+    uint32_t startInstanceLocation = 0;
+};
+
 inline bool batchKeyLess(const BatchKey& a, const BatchKey& b)
 {
     if (a.population != b.population)

@@ -291,4 +291,14 @@ namespace Dark
 		cmd->IASetIndexBuffer(&m_ibv);
 		cmd->DrawIndexedInstanced(m_indexCount, instanceCount, 0, 0, 0);
 	}
+
+	void Mesh::drawIndirect(ID3D12GraphicsCommandList* cmd, ID3D12CommandSignature* signature, ID3D12Resource* args, UINT64 argOffset) const
+	{
+		if (!cmd || !valid() || !signature || !args)
+			return;
+		cmd->IASetVertexBuffers(0, 1, &m_vbv);
+		cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		cmd->IASetIndexBuffer(&m_ibv);
+		cmd->ExecuteIndirect(signature, 1, args, argOffset, nullptr, 0);
+	}
 } // namespace Dark

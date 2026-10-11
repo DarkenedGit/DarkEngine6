@@ -13,6 +13,7 @@
 #include "Render/ShadowCascades.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstring>
 #include <d3d12.h>
 #include <wrl/client.h>
@@ -57,6 +58,45 @@ ComPtr<ID3D12Resource> createUpload(ID3D12Device* device, UINT64 bytes, const ch
     if (FailedHr(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&res)), what))
         return nullptr;
     return res;
+}
+
+ComPtr<ID3D12Resource> createDefault(ID3D12Device* device, UINT64 bytes, const char* what)
+{
+    D3D12_HEAP_PROPERTIES heap{};
+    heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_RESOURCE_DESC desc{};
+    desc.Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER;
+    desc.Width            = bytes;
+    desc.Height           = 1;
+    desc.DepthOrArraySize = 1;
+    desc.MipLevels        = 1;
+    desc.SampleDesc       = { 1, 0 };
+    desc.Layout           = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    ComPtr<ID3D12Resource> res;
+    if (FailedHr(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&res)), what))
+        return nullptr;
+    return res;
+}
+
+void transitionBuffer(ID3D12GraphicsCommandList* cmd, ID3D12Resource* resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after)
+{
+    if (!cmd || !resource || before == after)
+        return;
+    D3D12_RESOURCE_BARRIER barrier{};
+    barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Transition.pResource   = resource;
+    barrier.Transition.StateBefore = before;
+    barrier.Transition.StateAfter  = after;
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    cmd->ResourceBarrier(1, &barrier);
+}
+
+void drawStaticBatch(const Mesh& mesh, ID3D12GraphicsCommandList* cmd, bool indirect, ID3D12CommandSignature* signature, ID3D12Resource* args, UINT64 argOffset, uint32_t visible)
+{
+    if (indirect)
+        mesh.drawIndirect(cmd, signature, args, argOffset);
+    else
+        mesh.drawInstanced(cmd, visible);
 }
 
 void fillBatchScalars(GpuResourceCache& gpu, AssetID material, MeshBatchConstants& cb)
@@ -130,6 +170,13 @@ uint32_t countDistinct(const std::vector<RenderItem>& items)
 
 static_assert(kMaxStaticViews == 1u + static_cast<uint32_t>(kMaxShadowCascades) + kLocalShadowSlicesPerFrame, "static views");
 static_assert(kUploadSlots == Renderer::kFrameCount, "draw list upload slots");
+static_assert(sizeof(DrawIndexedArgs) == sizeof(D3D12_DRAW_INDEXED_ARGUMENTS), "indirect arg size");
+static_assert(offsetof(DrawIndexedArgs, indexCountPerInstance) == offsetof(D3D12_DRAW_INDEXED_ARGUMENTS, IndexCountPerInstance), "index count");
+static_assert(offsetof(DrawIndexedArgs, instanceCount) == offsetof(D3D12_DRAW_INDEXED_ARGUMENTS, InstanceCount), "instance count");
+static_assert(offsetof(DrawIndexedArgs, startIndexLocation) == offsetof(D3D12_DRAW_INDEXED_ARGUMENTS, StartIndexLocation), "start index");
+static_assert(offsetof(DrawIndexedArgs, baseVertexLocation) == offsetof(D3D12_DRAW_INDEXED_ARGUMENTS, BaseVertexLocation), "base vertex");
+static_assert(offsetof(DrawIndexedArgs, startInstanceLocation) == offsetof(D3D12_DRAW_INDEXED_ARGUMENTS, StartInstanceLocation), "start instance");
+static_assert(sizeof(D3D12_DRAW_INDEXED_ARGUMENTS) % 4u == 0u, "indirect stride");
 
 struct DrawList::GpuUploads
 {
@@ -139,12 +186,24 @@ struct DrawList::GpuUploads
     uint8_t* instanceBytes = nullptr;
     uint8_t* indexBytes    = nullptr;
 
+    // One buffer per frame slot. A buffer has one state, and the other slot can still be queued.
+    ComPtr<ID3D12CommandSignature> signature;
+    ComPtr<ID3D12Resource> args[kUploadSlots];
+    ComPtr<ID3D12Resource> argStaging;
+    uint8_t* argStagingBytes = nullptr;
+    mutable D3D12_RESOURCE_STATES argState[kUploadSlots] = {
+        D3D12_RESOURCE_STATE_COPY_DEST,
+        D3D12_RESOURCE_STATE_COPY_DEST,
+    };
+
     ~GpuUploads()
     {
         if (instances && instanceBytes)
             instances->Unmap(0, nullptr);
         if (indices && indexBytes)
             indices->Unmap(0, nullptr);
+        if (argStaging && argStagingBytes)
+            argStaging->Unmap(0, nullptr);
     }
 };
 
@@ -177,7 +236,10 @@ bool DrawList::create(ID3D12Device* device)
     }
     gpu->instances->SetName(L"DrawListInstances");
     gpu->indices->SetName(L"DrawListIndices");
+    if (!setupIndirect(device, *gpu))
+        DE_LOG_ERROR(LogCategory::Render, "DrawList: indirect arguments unavailable; static draws stay DrawIndexedInstanced");
     m_gpu = std::move(gpu);
+    m_argsCopied.fill(false);
     if (m_compiled)
         uploadInstances();
     for (uint32_t i = 0; i < kMaxStaticViews; ++i)
@@ -371,6 +433,7 @@ void DrawList::invalidateViews()
 {
     for (ViewSlot& slot : m_views)
         slot = ViewSlot{};
+    m_argsCopied.fill(false);
 }
 
 void DrawList::compile() const
@@ -463,6 +526,16 @@ void DrawList::buildView(const Frustum3f& cullFrustum, const float drawViewProj[
         }
         slot.visible[batchIndex] = written;
     }
+
+    slot.indirect.assign(batches, DrawIndexedArgs{});
+    for (uint32_t batchIndex = 0; batchIndex < batches; ++batchIndex)
+    {
+        const Mesh* mesh = (pass == RenderPassKind::Depth) ? m_depth[batchIndex].mesh : m_gbuffer[batchIndex].mesh;
+        DrawIndexedArgs& args = slot.indirect[batchIndex];
+        args.indexCountPerInstance = mesh ? mesh->indexCount() : 0u;
+        args.instanceCount         = slot.visible[batchIndex];
+    }
+    m_argsCopied[view.index] = false;
     uploadIndices(view);
 }
 
@@ -492,6 +565,7 @@ void DrawList::recordOpaque(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gp
         return;
 
     const uint32_t frameSlot = m_frameIndex % kUploadSlots;
+    const bool useIndirect   = m_indirect && indirectReady() && copyViewArgs(cmd, view);
     const D3D12_GPU_VIRTUAL_ADDRESS instanceGpu = m_gpu->instances->GetGPUVirtualAddress() + static_cast<UINT64>(frameSlot) * kMaxStaticItems * sizeof(MeshInstanceGpu);
     const D3D12_GPU_VIRTUAL_ADDRESS indexGpu = m_gpu->indices->GetGPUVirtualAddress()
         + (static_cast<UINT64>(frameSlot) * kMaxStaticViews + view.index) * kMaxStaticItems * sizeof(uint32_t);
@@ -510,7 +584,8 @@ void DrawList::recordOpaque(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gp
         cb.baseIndex = batch.itemBegin;
         m_gpu->pipeline.setGBufferConstants(cmd, cb);
         gpu.bindMaterial(cmd, batch.key.material, InstancedMeshPipeline::kGbMaterial);
-        batch.mesh->drawInstanced(cmd, slot.visible[i]);
+        const UINT64 argOffset = (static_cast<UINT64>(view.index) * kMaxBatches + i) * sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
+        drawStaticBatch(*batch.mesh, cmd, useIndirect, m_gpu->signature.Get(), m_gpu->args[frameSlot].Get(), argOffset, slot.visible[i]);
     }
 }
 
@@ -537,6 +612,7 @@ void DrawList::recordDepth(ID3D12GraphicsCommandList* cmd, ViewId view, const fl
         return;
 
     const uint32_t frameSlot = m_frameIndex % kUploadSlots;
+    const bool useIndirect   = m_indirect && indirectReady() && copyViewArgs(cmd, view);
     const D3D12_GPU_VIRTUAL_ADDRESS instanceGpu = m_gpu->instances->GetGPUVirtualAddress() + static_cast<UINT64>(frameSlot) * kMaxStaticItems * sizeof(MeshInstanceGpu);
     const D3D12_GPU_VIRTUAL_ADDRESS indexGpu = m_gpu->indices->GetGPUVirtualAddress()
         + (static_cast<UINT64>(frameSlot) * kMaxStaticViews + view.index) * kMaxStaticItems * sizeof(uint32_t);
@@ -554,7 +630,8 @@ void DrawList::recordDepth(ID3D12GraphicsCommandList* cmd, ViewId view, const fl
         std::memcpy(cb.lightViewProj, light, sizeof(cb.lightViewProj));
         cb.baseIndex = batch.itemBegin;
         m_gpu->pipeline.setDepthConstants(cmd, cb);
-        batch.mesh->drawInstanced(cmd, slot.visible[i]);
+        const UINT64 argOffset = (static_cast<UINT64>(view.index) * kMaxBatches + i) * sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
+        drawStaticBatch(*batch.mesh, cmd, useIndirect, m_gpu->signature.Get(), m_gpu->args[frameSlot].Get(), argOffset, slot.visible[i]);
     }
 }
 
@@ -641,6 +718,106 @@ const float* DrawList::drawPrevViewProj(ViewId view) const
     if (view.index >= kMaxStaticViews || !m_views[view.index].built)
         return nullptr;
     return m_views[view.index].drawPrevViewProj;
+}
+
+void DrawList::setIndirect(bool enabled)
+{
+    m_indirect = enabled;
+}
+
+bool DrawList::indirectReady() const
+{
+    return m_gpu && m_gpu->signature && m_gpu->args[0] && m_gpu->args[1] && m_gpu->argStagingBytes;
+}
+
+const DrawIndexedArgs& DrawList::drawArg(ViewId view, uint32_t batchIndex) const
+{
+    static const DrawIndexedArgs kEmpty{};
+    if (view.index >= kMaxStaticViews || !m_views[view.index].built)
+        return kEmpty;
+    const std::vector<DrawIndexedArgs>& args = m_views[view.index].indirect;
+    if (batchIndex >= args.size())
+        return kEmpty;
+    return args[batchIndex];
+}
+
+bool DrawList::setupIndirect(ID3D12Device* device, GpuUploads& gpu)
+{
+    D3D12_INDIRECT_ARGUMENT_DESC argument{};
+    argument.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
+
+    D3D12_COMMAND_SIGNATURE_DESC signature{};
+    signature.ByteStride       = sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
+    signature.NumArgumentDescs = 1;
+    signature.pArgumentDescs   = &argument;
+
+    if (FailedHr(device->CreateCommandSignature(&signature, nullptr, IID_PPV_ARGS(&gpu.signature)), "CreateCommandSignature (draw list)"))
+    {
+        gpu.signature.Reset();
+        return false;
+    }
+
+    const UINT64 slotBytes = static_cast<UINT64>(kMaxStaticViews) * kMaxBatches * sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
+    gpu.args[0]    = createDefault(device, slotBytes, "CreateCommittedResource (draw list indirect 0)");
+    gpu.args[1]    = createDefault(device, slotBytes, "CreateCommittedResource (draw list indirect 1)");
+    gpu.argStaging = createUpload(device, slotBytes * kUploadSlots, "CreateCommittedResource (draw list indirect staging)");
+    if (!gpu.args[0] || !gpu.args[1] || !gpu.argStaging
+        || FailedHr(gpu.argStaging->Map(0, nullptr, reinterpret_cast<void**>(&gpu.argStagingBytes)), "Map draw list indirect staging"))
+    {
+        gpu.signature.Reset();
+        gpu.args[0].Reset();
+        gpu.args[1].Reset();
+        if (gpu.argStaging && gpu.argStagingBytes)
+        {
+            gpu.argStaging->Unmap(0, nullptr);
+            gpu.argStagingBytes = nullptr;
+        }
+        gpu.argStaging.Reset();
+        return false;
+    }
+
+    gpu.args[0]->SetName(L"DrawListIndirectArgs0");
+    gpu.args[1]->SetName(L"DrawListIndirectArgs1");
+    gpu.argStaging->SetName(L"DrawListIndirectStaging");
+    gpu.argState[0] = D3D12_RESOURCE_STATE_COPY_DEST;
+    gpu.argState[1] = D3D12_RESOURCE_STATE_COPY_DEST;
+    return true;
+}
+
+bool DrawList::copyViewArgs(ID3D12GraphicsCommandList* cmd, ViewId view) const
+{
+    if (!cmd || !m_gpu || view.index >= kMaxStaticViews)
+        return false;
+    if (m_argsCopied[view.index])
+        return true;
+
+    const ViewSlot& slot = m_views[view.index];
+    if (slot.indirect.empty() || slot.indirect.size() > kMaxBatches)
+        return false;
+
+    const uint32_t frameSlot = m_frameIndex % kUploadSlots;
+    const UINT64 argBytes    = sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
+    const UINT64 viewBytes   = static_cast<UINT64>(kMaxBatches) * argBytes;
+    const UINT64 halfBytes   = static_cast<UINT64>(kMaxStaticViews) * viewBytes;
+    const UINT64 dstOffset   = static_cast<UINT64>(view.index) * viewBytes;
+    const UINT64 srcOffset   = static_cast<UINT64>(frameSlot) * halfBytes + dstOffset;
+    const UINT64 copyBytes   = static_cast<UINT64>(slot.indirect.size()) * argBytes;
+
+    uint8_t* staging = m_gpu->argStagingBytes + srcOffset;
+    std::memcpy(staging, slot.indirect.data(), static_cast<size_t>(copyBytes));
+
+    ID3D12Resource* dest = m_gpu->args[frameSlot].Get();
+    // This slot is copied once per view, and those records are not back to back.
+    if (m_gpu->argState[frameSlot] != D3D12_RESOURCE_STATE_COPY_DEST)
+    {
+        transitionBuffer(cmd, dest, m_gpu->argState[frameSlot], D3D12_RESOURCE_STATE_COPY_DEST);
+        m_gpu->argState[frameSlot] = D3D12_RESOURCE_STATE_COPY_DEST;
+    }
+    cmd->CopyBufferRegion(dest, dstOffset, m_gpu->argStaging.Get(), srcOffset, copyBytes);
+    transitionBuffer(cmd, dest, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
+    m_gpu->argState[frameSlot] = D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
+    m_argsCopied[view.index]   = true;
+    return true;
 }
 
 } // namespace Dark

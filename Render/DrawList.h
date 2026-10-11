@@ -41,6 +41,8 @@ public:
     // Upload heaps and the instanced PSOs. Failure leaves record calls as no-ops.
     bool create(ID3D12Device* device);
     bool gpuReady() const;
+    void setIndirect(bool enabled);
+    bool indirectReady() const;
 
     // One primitive or editor prop. False when the cap is hit or the kind is not static.
     bool     submit(const RenderItem& item);
@@ -68,10 +70,11 @@ public:
     const DepthBatch&   depthBatch(uint32_t index) const;
     const RenderItem&   itemAt(uint32_t sortedIndex) const;
 
-    uint32_t       visibleCount(ViewId view, uint32_t batchIndex) const;
-    uint32_t       indexAt(ViewId view, uint32_t element) const;
-    const float*   drawViewProj(ViewId view) const;
-    const float*   drawPrevViewProj(ViewId view) const;
+    uint32_t               visibleCount(ViewId view, uint32_t batchIndex) const;
+    const DrawIndexedArgs& drawArg(ViewId view, uint32_t batchIndex) const;
+    uint32_t               indexAt(ViewId view, uint32_t element) const;
+    const float*           drawViewProj(ViewId view) const;
+    const float*           drawPrevViewProj(ViewId view) const;
 
     // Current frame slot. Null until create() succeeds.
     const MeshInstanceGpu* uploadedInstances() const;
@@ -87,6 +90,7 @@ private:
         float          drawPrevViewProj[16]{};
         std::vector<uint32_t> indices;
         std::vector<uint32_t> visible;
+        std::vector<DrawIndexedArgs> indirect;
     };
 
     void compile() const;
@@ -94,8 +98,12 @@ private:
     bool acceptItem(const RenderItem& item);
     void uploadInstances() const;
     void uploadIndices(ViewId view) const;
+    bool setupIndirect(ID3D12Device* device, GpuUploads& gpu);
+    bool copyViewArgs(ID3D12GraphicsCommandList* cmd, ViewId view) const;
 
     uint32_t m_frameIndex = 0;
+    bool     m_indirect   = true;
+    mutable std::array<bool, kMaxStaticViews> m_argsCopied{};
     std::unique_ptr<GpuUploads> m_gpu;
     mutable bool m_compiled = false;
     mutable std::vector<RenderItem> m_items;

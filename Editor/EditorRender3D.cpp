@@ -90,6 +90,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     if (instanceStatic)
     {
         m_drawList.beginFrame(renderer().frameIndex());
+        m_drawList.setIndirect(renderer().debugState().instancedIndirect);
         const AABox3f propLocal(Vector3f(-0.5f, -0.5f, -0.5f), Vector3f(0.5f, 0.5f, 0.5f));
         world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
             if (!isScene3DType(so.type))

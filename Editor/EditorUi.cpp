@@ -117,6 +117,8 @@ void EditorApp::drawEditorUi()
             ImGui::MenuItem(ICON_FA_CUBE "  Solid Ground", nullptr, &m_showSolid);
             if (ImGui::MenuItem("Instanced static meshes", nullptr, &renderer().debugState().instancedStatic))
                 DE_LOG_INFO("Editor: instanced static = {}", renderer().debugState().instancedStatic);
+            if (ImGui::MenuItem("Indirect static draws", nullptr, &renderer().debugState().instancedIndirect))
+                DE_LOG_INFO("Editor: indirect static draws = {}", renderer().debugState().instancedIndirect);
             if (renderer().hasSceneBuffers())
             {
                 bool aces = renderer().debugState().aces;
