@@ -110,4 +110,30 @@ namespace Dark
         const AnimPose& pose,
         const Matrix4f& world);
 
+    // Skips parts with skinned == false. Used when those parts were accepted by DrawList.
+    void drawSkinnedModelOpaqueGBufferSkinnedOnly(
+        ID3D12GraphicsCommandList* cmd,
+        GpuResourceCache& gpu,
+        const SkinnedMeshPipeline& skinned,
+        const MeshPipeline& staticPipeline,
+        SkinningUploadRing& ring,
+        const Model& model,
+        const AnimPose& pose,
+        const Matrix4f& world,
+        const Matrix4f& prevWorld,
+        const Matrix4f& viewProj,
+        const Matrix4f& prevViewProj,
+        DebugFill fill = DebugFill::Solid);
+
+    void drawSkinnedModelDepthSkinnedOnly(
+        ID3D12GraphicsCommandList* cmd,
+        GpuResourceCache& gpu,
+        const ShadowPipeline& staticDepth,
+        const Matrix4f& lightViewProj,
+        const SkinnedMeshPipeline& skinnedShadow,
+        SkinningUploadRing& ring,
+        const Model& model,
+        const AnimPose& pose,
+        const Matrix4f& world);
+
 } // namespace Dark

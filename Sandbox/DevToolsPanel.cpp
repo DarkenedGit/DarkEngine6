@@ -544,6 +544,8 @@ void SandboxApp::drawDevTools()
             m_scene.localShadows().setDebugEnabled(shadows);
             DE_LOG_INFO("Sandbox: shadows = {}", shadows);
         }
+        if (ImGui::Checkbox("Instanced static meshes", &dbg.instancedStatic))
+            DE_LOG_INFO("Sandbox: instanced static = {}", dbg.instancedStatic);
         if (ImGui::Checkbox("Shadow map tiles", &m_showShadowMaps))
         {
             dbg.shadowMapTiles = m_showShadowMaps;

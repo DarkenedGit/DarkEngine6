@@ -115,6 +115,8 @@ void EditorApp::drawEditorUi()
                 ImGui::SetTooltip("WASD / climb. Shift still multiplies by 2.5. Default 8 for models.");
             ImGui::MenuItem(ICON_FA_EYE "  Grid", nullptr, &m_showGrid);
             ImGui::MenuItem(ICON_FA_CUBE "  Solid Ground", nullptr, &m_showSolid);
+            if (ImGui::MenuItem("Instanced static meshes", nullptr, &renderer().debugState().instancedStatic))
+                DE_LOG_INFO("Editor: instanced static = {}", renderer().debugState().instancedStatic);
             if (renderer().hasSceneBuffers())
             {
                 bool aces = renderer().debugState().aces;

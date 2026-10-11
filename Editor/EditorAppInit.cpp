@@ -156,6 +156,8 @@ void EditorApp::onInit()
             return;
         }
         m_foliagePipeline.create(renderer().device());
+        if (!m_drawList.create(renderer().device()))
+            DE_LOG_ERROR(LogCategory::Render, "EditorApp: instanced mesh pipeline failed; static draws stay immediate");
         m_foliagePrototypes.create(renderer(), assets());
         if (renderer().scenePath() == ScenePath::HybridDeferred)
         {

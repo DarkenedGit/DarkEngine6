@@ -7,9 +7,14 @@
 #include "Render/GpuResourceCache.h"
 #include "Render/PassTable.h"
 
+#include <d3d12.h>
+#include <dxgi1_4.h>
+
 #include <cstring>
 #include <new>
 #include <vector>
+
+using Microsoft::WRL::ComPtr;
 
 using namespace Dark;
 using namespace Dark::Math;
@@ -386,4 +391,157 @@ TEST(DrawList, PassSequenceSkipsOptionalAndRejectsReorder)
     const PassId reversedCopy[] = { PassId::EditorGizmos, PassId::EditorGrid, PassId::Translucent, PassId::Post };
     EXPECT_FALSE(passSequenceOk(editorForward, editorForwardCount, editorReversed, 4));
     EXPECT_EQ(std::memcmp(editorReversed, reversedCopy, sizeof(reversedCopy)), 0);
+}
+
+TEST(DrawList, ThreeKeyInterleaveSecondBatchBaseIsNotZero)
+{
+    Mesh meshA = Mesh::takeSortIdentity();
+    Mesh meshB = Mesh::takeSortIdentity();
+    Mesh meshC = Mesh::takeSortIdentity();
+    DrawList list;
+    list.beginFrame(0);
+    RenderItem b = staticItem(meshB, 1, StaticPopulation::OpaqueModels, 0.2f);
+    RenderItem a0 = staticItem(meshA, 1, StaticPopulation::OpaqueModels, 0.4f);
+    RenderItem c = staticItem(meshC, 1, StaticPopulation::OpaqueModels, 0.6f);
+    RenderItem a1 = staticItem(meshA, 1, StaticPopulation::OpaqueModels, 0.8f);
+    EXPECT_TRUE(list.submit(b));
+    EXPECT_TRUE(list.submit(a0));
+    EXPECT_TRUE(list.submit(c));
+    EXPECT_TRUE(list.submit(a1));
+
+    ASSERT_EQ(list.gbufferBatchCount(), 3u);
+    EXPECT_EQ(list.gbufferBatch(0).mesh, &meshA);
+    EXPECT_EQ(list.gbufferBatch(0).itemBegin, 0u);
+    EXPECT_EQ(list.gbufferBatch(0).itemCount, 2u);
+    EXPECT_EQ(list.gbufferBatch(1).mesh, &meshB);
+    EXPECT_NE(list.gbufferBatch(1).itemBegin, 0u);
+    EXPECT_EQ(list.gbufferBatch(1).itemBegin, 2u);
+    EXPECT_EQ(list.gbufferBatch(2).mesh, &meshC);
+    EXPECT_EQ(list.gbufferBatch(2).itemBegin, 3u);
+    EXPECT_NEAR(list.itemAt(0).color[0], 0.4f, 1e-5f);
+    EXPECT_NEAR(list.itemAt(1).color[0], 0.8f, 1e-5f);
+
+    float ident[16] = {};
+    ident[0] = ident[5] = ident[10] = ident[15] = 1.0f;
+    const Frustum3f frustum = cameraFrustum(Vector3f(0.0f, 0.0f, 0.0f), Vector3f(0.0f, 0.0f, 1.0f), 50.0f);
+    list.buildView(frustum, ident, ident, RenderPassKind::GBuffer, ViewId{ 0 });
+    EXPECT_EQ(list.indexAt(ViewId{ 0 }, list.gbufferBatch(0).itemBegin), 0u);
+    EXPECT_EQ(list.indexAt(ViewId{ 0 }, list.gbufferBatch(1).itemBegin), 2u);
+    EXPECT_EQ(list.indexAt(ViewId{ 0 }, list.gbufferBatch(2).itemBegin), 3u);
+}
+
+TEST(DrawList, MaskedDepthPrefixBaseIndexIsNotZero)
+{
+    Mesh meshA = Mesh::takeSortIdentity();
+    Mesh meshB = Mesh::takeSortIdentity();
+    DrawList list;
+    list.beginFrame(0);
+    RenderItem opaque = staticItem(meshA, 1, StaticPopulation::OpaqueModels, 0.1f);
+    RenderItem masked = staticItem(meshA, 2, StaticPopulation::OpaqueModels, 0.2f);
+    masked.alphaMask = true;
+    RenderItem other = staticItem(meshB, 1, StaticPopulation::OpaqueModels, 0.3f);
+    EXPECT_TRUE(list.submit(opaque));
+    EXPECT_TRUE(list.submit(masked));
+    EXPECT_TRUE(list.submit(other));
+
+    ASSERT_EQ(list.gbufferBatchCount(), 3u);
+    EXPECT_EQ(list.gbufferBatch(1).itemBegin, 1u);
+    EXPECT_NE(list.gbufferBatch(1).itemBegin, 0u);
+    ASSERT_EQ(list.depthBatchCount(), 2u);
+    EXPECT_EQ(list.depthBatch(0).itemBegin, 0u);
+    EXPECT_EQ(list.depthBatch(0).itemCount, 2u);
+    EXPECT_EQ(list.depthBatch(1).meshKey, meshB.sortKey());
+    EXPECT_NE(list.depthBatch(1).itemBegin, 0u);
+    EXPECT_EQ(list.depthBatch(1).itemBegin, 2u);
+
+    float ident[16] = {};
+    ident[0] = ident[5] = ident[10] = ident[15] = 1.0f;
+    const Frustum3f frustum = cameraFrustum(Vector3f(0.0f, 0.0f, 0.0f), Vector3f(0.0f, 0.0f, 1.0f), 50.0f);
+    list.buildView(frustum, ident, ident, RenderPassKind::Depth, ViewId{ 1 });
+    EXPECT_EQ(list.indexAt(ViewId{ 1 }, list.depthBatch(1).itemBegin), 2u);
+    EXPECT_EQ(list.visibleCount(ViewId{ 1 }, 0), 2u);
+}
+
+ComPtr<ID3D12Device> tryWarpDevice()
+{
+    ComPtr<ID3D12Device> device;
+    ComPtr<IDXGIFactory4> factory;
+    if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
+        return {};
+    ComPtr<IDXGIAdapter> warp;
+    if (SUCCEEDED(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp))))
+    {
+        if (SUCCEEDED(D3D12CreateDevice(warp.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))))
+            return device;
+    }
+    return {};
+}
+
+TEST(DrawList, UploadKeepsSortedSlotAndRecords)
+{
+    ComPtr<ID3D12Device> device = tryWarpDevice();
+    if (!device)
+        GTEST_SKIP() << "no WARP device at feature level 11_0";
+
+    Mesh meshA = Mesh::takeSortIdentity();
+    Mesh meshB = Mesh::takeSortIdentity();
+    DrawList list;
+    ASSERT_TRUE(list.create(device.Get()));
+    EXPECT_TRUE(list.gpuReady());
+
+    list.beginFrame(0);
+    RenderItem later = staticItem(meshB, NULL_ASSET, StaticPopulation::OpaqueModels, 0.2f);
+    later.world = Matrix4f::TranslationMatrix(4.0f, 0.0f, 0.0f);
+    RenderItem first = staticItem(meshA, NULL_ASSET, StaticPopulation::OpaqueModels, 0.7f);
+    first.world = Matrix4f::TranslationMatrix(-2.0f, 1.0f, 3.0f);
+    first.prevWorld = Matrix4f::TranslationMatrix(-1.0f, 0.0f, 0.0f);
+    EXPECT_TRUE(list.submit(later));
+    EXPECT_TRUE(list.submit(first));
+
+    float ident[16] = {};
+    ident[0] = ident[5] = ident[10] = ident[15] = 1.0f;
+    const Frustum3f frustum = cameraFrustum(Vector3f(0.0f, 0.0f, 0.0f), Vector3f(0.0f, 0.0f, 1.0f), 80.0f);
+    list.buildView(frustum, ident, ident, RenderPassKind::GBuffer, ViewId{ 0 });
+    list.buildView(frustum, ident, ident, RenderPassKind::Depth, ViewId{ 1 });
+
+    const MeshInstanceGpu* slot0 = list.uploadedInstances();
+    ASSERT_NE(slot0, nullptr);
+    EXPECT_EQ(list.gbufferBatch(0).mesh, &meshA);
+    EXPECT_NE(list.gbufferBatch(1).itemBegin, 0u);
+    EXPECT_NEAR(slot0[0].color[0], 0.7f, 1e-5f);
+    EXPECT_NEAR(slot0[0].world[12], -2.0f, 1e-5f);
+    EXPECT_NEAR(slot0[0].prevWorld[12], -1.0f, 1e-5f);
+    EXPECT_NEAR(slot0[1].color[0], 0.2f, 1e-5f);
+    EXPECT_NEAR(slot0[1].world[12], 4.0f, 1e-5f);
+
+    const uint32_t* indices = list.uploadedIndices(ViewId{ 0 });
+    ASSERT_NE(indices, nullptr);
+    EXPECT_EQ(indices[list.gbufferBatch(1).itemBegin], list.indexAt(ViewId{ 0 }, list.gbufferBatch(1).itemBegin));
+    EXPECT_EQ(indices[0], 0u);
+    EXPECT_EQ(indices[1], 1u);
+
+    const uint32_t* depthIndices = list.uploadedIndices(ViewId{ 1 });
+    ASSERT_NE(depthIndices, nullptr);
+    EXPECT_EQ(depthIndices[list.depthBatch(1).itemBegin], 1u);
+
+    GpuResourceCache gpu(nullptr);
+    ComPtr<ID3D12CommandAllocator> allocator;
+    ComPtr<ID3D12GraphicsCommandList> cmd;
+    ASSERT_TRUE(SUCCEEDED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator))));
+    ASSERT_TRUE(SUCCEEDED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr, IID_PPV_ARGS(&cmd))));
+    list.recordOpaque(cmd.Get(), gpu, ViewId{ 0 }, StaticPopulation::OpaqueModels);
+    list.recordOpaque(cmd.Get(), gpu, ViewId{ 0 }, StaticPopulation::Projectiles);
+    list.recordDepth(cmd.Get(), ViewId{ 1 }, ident);
+    list.recordDepth(nullptr, ViewId{ 1 }, ident);
+    EXPECT_TRUE(SUCCEEDED(cmd->Close()));
+
+    list.beginFrame(1);
+    RenderItem only = staticItem(meshA, NULL_ASSET, StaticPopulation::Projectiles, 0.9f);
+    EXPECT_TRUE(list.submit(only));
+    list.buildView(frustum, ident, ident, RenderPassKind::GBuffer, ViewId{ 0 });
+    const MeshInstanceGpu* slot1 = list.uploadedInstances();
+    ASSERT_NE(slot1, nullptr);
+    EXPECT_NE(slot1, slot0);
+    EXPECT_NEAR(slot1[0].color[0], 0.9f, 1e-5f);
+    EXPECT_NEAR(slot0[0].color[0], 0.7f, 1e-5f);
 }

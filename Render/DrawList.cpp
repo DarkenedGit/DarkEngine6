@@ -4,13 +4,18 @@
 #include "Core/Log.h"
 #include "Render/GpuModel.h"
 #include "Render/GpuResourceCache.h"
+#include "Render/InstancedMeshPipeline.h"
 #include "Render/LocalShadowMath.h"
 #include "Render/MaterialSurface.h"
 #include "Render/Mesh.h"
+#include "Render/MeshConstants.h"
+#include "Render/Renderer.h"
 #include "Render/ShadowCascades.h"
 
 #include <algorithm>
 #include <cstring>
+#include <d3d12.h>
+#include <wrl/client.h>
 
 namespace Dark
 {
@@ -24,6 +29,56 @@ void logOnce(bool& logged, const char* message)
         return;
     logged = true;
     DE_LOG_ERROR(LogCategory::Render, "{}", message);
+}
+
+constexpr uint32_t kUploadSlots = 2;
+
+bool FailedHr(HRESULT hr, const char* what)
+{
+    if (SUCCEEDED(hr))
+        return false;
+    DE_LOG_ERROR(LogCategory::Render, "{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
+    return true;
+}
+
+ComPtr<ID3D12Resource> createUpload(ID3D12Device* device, UINT64 bytes, const char* what)
+{
+    D3D12_HEAP_PROPERTIES heap{};
+    heap.Type = D3D12_HEAP_TYPE_UPLOAD;
+    D3D12_RESOURCE_DESC desc{};
+    desc.Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER;
+    desc.Width            = bytes;
+    desc.Height           = 1;
+    desc.DepthOrArraySize = 1;
+    desc.MipLevels        = 1;
+    desc.SampleDesc       = { 1, 0 };
+    desc.Layout           = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    ComPtr<ID3D12Resource> res;
+    if (FailedHr(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&res)), what))
+        return nullptr;
+    return res;
+}
+
+void fillBatchScalars(GpuResourceCache& gpu, AssetID material, MeshBatchConstants& cb)
+{
+    MeshGBufferConstants surface{};
+    if (const AssetRef<Material> mat = gpu.cpuMaterial(material))
+        applyMaterialSurface(*mat, surface);
+    else
+    {
+        surface.roughness     = 1.0f;
+        surface.metallic      = 0.0f;
+        surface.ao            = 1.0f;
+        surface.normalScale   = 1.0f;
+        surface.alphaCutoff   = 0.5f;
+        surface.alphaModeMask = 0.0f;
+    }
+    cb.roughness     = surface.roughness;
+    cb.metallic      = surface.metallic;
+    cb.ao            = surface.ao;
+    cb.normalScale   = surface.normalScale;
+    cb.alphaCutoff   = surface.alphaCutoff;
+    cb.alphaModeMask = surface.alphaModeMask;
 }
 
 void store16(float dst[16], const float* src)
@@ -74,6 +129,113 @@ uint32_t countDistinct(const std::vector<RenderItem>& items)
 } // namespace
 
 static_assert(kMaxStaticViews == 1u + static_cast<uint32_t>(kMaxShadowCascades) + kLocalShadowSlicesPerFrame, "static views");
+static_assert(kUploadSlots == Renderer::kFrameCount, "draw list upload slots");
+
+struct DrawList::GpuUploads
+{
+    InstancedMeshPipeline pipeline;
+    ComPtr<ID3D12Resource> instances;
+    ComPtr<ID3D12Resource> indices;
+    uint8_t* instanceBytes = nullptr;
+    uint8_t* indexBytes    = nullptr;
+
+    ~GpuUploads()
+    {
+        if (instances && instanceBytes)
+            instances->Unmap(0, nullptr);
+        if (indices && indexBytes)
+            indices->Unmap(0, nullptr);
+    }
+};
+
+DrawList::DrawList() = default;
+DrawList::~DrawList() = default;
+
+bool DrawList::create(ID3D12Device* device)
+{
+    m_gpu.reset();
+    if (!device)
+    {
+        DE_LOG_ERROR(LogCategory::Render, "DrawList::create: null device");
+        return false;
+    }
+
+    std::unique_ptr<GpuUploads> gpu = std::make_unique<GpuUploads>();
+    if (!gpu->pipeline.create(device))
+        return false;
+
+    const UINT64 instanceBytes = static_cast<UINT64>(kUploadSlots) * kMaxStaticItems * sizeof(MeshInstanceGpu);
+    const UINT64 indexBytes    = static_cast<UINT64>(kUploadSlots) * kMaxStaticViews * kMaxStaticItems * sizeof(uint32_t);
+    gpu->instances = createUpload(device, instanceBytes, "CreateCommittedResource (draw list instances)");
+    gpu->indices   = createUpload(device, indexBytes, "CreateCommittedResource (draw list indices)");
+    if (!gpu->instances || !gpu->indices)
+        return false;
+    if (FailedHr(gpu->instances->Map(0, nullptr, reinterpret_cast<void**>(&gpu->instanceBytes)), "Map draw list instances")
+        || FailedHr(gpu->indices->Map(0, nullptr, reinterpret_cast<void**>(&gpu->indexBytes)), "Map draw list indices"))
+    {
+        return false;
+    }
+    gpu->instances->SetName(L"DrawListInstances");
+    gpu->indices->SetName(L"DrawListIndices");
+    m_gpu = std::move(gpu);
+    if (m_compiled)
+        uploadInstances();
+    for (uint32_t i = 0; i < kMaxStaticViews; ++i)
+    {
+        if (m_views[i].built)
+            uploadIndices(ViewId{ static_cast<uint8_t>(i) });
+    }
+    return true;
+}
+
+bool DrawList::gpuReady() const
+{
+    return m_gpu && m_gpu->pipeline.isValid() && m_gpu->instanceBytes && m_gpu->indexBytes;
+}
+
+void DrawList::uploadInstances() const
+{
+    if (!m_gpu || !m_gpu->instanceBytes)
+        return;
+    const uint32_t frameSlot = m_frameIndex % kUploadSlots;
+    MeshInstanceGpu* dst = reinterpret_cast<MeshInstanceGpu*>(m_gpu->instanceBytes) + static_cast<size_t>(frameSlot) * kMaxStaticItems;
+    const uint32_t count = static_cast<uint32_t>(m_items.size());
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        const RenderItem& item = m_items[i];
+        std::memcpy(dst[i].world, item.world.m_afEntry, sizeof(dst[i].world));
+        std::memcpy(dst[i].prevWorld, item.prevWorld.m_afEntry, sizeof(dst[i].prevWorld));
+        std::memcpy(dst[i].color, item.color, sizeof(dst[i].color));
+    }
+}
+
+void DrawList::uploadIndices(ViewId view) const
+{
+    if (!m_gpu || !m_gpu->indexBytes || view.index >= kMaxStaticViews)
+        return;
+    const ViewSlot& slot = m_views[view.index];
+    if (!slot.built || slot.indices.size() < kMaxStaticItems)
+        return;
+    const uint32_t frameSlot = m_frameIndex % kUploadSlots;
+    uint32_t* dst = reinterpret_cast<uint32_t*>(m_gpu->indexBytes) + (static_cast<size_t>(frameSlot) * kMaxStaticViews + view.index) * kMaxStaticItems;
+    std::memcpy(dst, slot.indices.data(), kMaxStaticItems * sizeof(uint32_t));
+}
+
+const MeshInstanceGpu* DrawList::uploadedInstances() const
+{
+    if (!m_gpu || !m_gpu->instanceBytes)
+        return nullptr;
+    const uint32_t frameSlot = m_frameIndex % kUploadSlots;
+    return reinterpret_cast<const MeshInstanceGpu*>(m_gpu->instanceBytes) + static_cast<size_t>(frameSlot) * kMaxStaticItems;
+}
+
+const uint32_t* DrawList::uploadedIndices(ViewId view) const
+{
+    if (!m_gpu || !m_gpu->indexBytes || view.index >= kMaxStaticViews)
+        return nullptr;
+    const uint32_t frameSlot = m_frameIndex % kUploadSlots;
+    return reinterpret_cast<const uint32_t*>(m_gpu->indexBytes) + (static_cast<size_t>(frameSlot) * kMaxStaticViews + view.index) * kMaxStaticItems;
+}
 
 BatchKey batchKeyOf(const RenderItem& item)
 {
@@ -257,6 +419,7 @@ void DrawList::compile() const
         }
     }
     m_compiled = true;
+    uploadInstances();
 }
 
 void DrawList::buildView(const Frustum3f& cullFrustum, const float drawViewProj[16], const float drawPrevViewProj[16], RenderPassKind pass, ViewId view)
@@ -300,14 +463,99 @@ void DrawList::buildView(const Frustum3f& cullFrustum, const float drawViewProj[
         }
         slot.visible[batchIndex] = written;
     }
+    uploadIndices(view);
 }
 
-void DrawList::recordOpaque(ID3D12GraphicsCommandList*, GpuResourceCache&, ViewId, StaticPopulation) const
+void DrawList::recordOpaque(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, ViewId view, StaticPopulation population) const
 {
+    if (!cmd || !gpuReady())
+        return;
+    compile();
+    if (view.index >= kMaxStaticViews)
+        return;
+    const ViewSlot& slot = m_views[view.index];
+    if (!slot.built || slot.pass != RenderPassKind::GBuffer)
+        return;
+
+    const uint32_t populationId = static_cast<uint32_t>(population);
+    bool any = false;
+    for (uint32_t i = 0; i < m_gbuffer.size(); ++i)
+    {
+        if (m_gbuffer[i].key.population != populationId)
+            continue;
+        if (i >= slot.visible.size() || slot.visible[i] == 0 || m_gbuffer[i].mesh == nullptr)
+            continue;
+        any = true;
+        break;
+    }
+    if (!any)
+        return;
+
+    const uint32_t frameSlot = m_frameIndex % kUploadSlots;
+    const D3D12_GPU_VIRTUAL_ADDRESS instanceGpu = m_gpu->instances->GetGPUVirtualAddress() + static_cast<UINT64>(frameSlot) * kMaxStaticItems * sizeof(MeshInstanceGpu);
+    const D3D12_GPU_VIRTUAL_ADDRESS indexGpu = m_gpu->indices->GetGPUVirtualAddress()
+        + (static_cast<UINT64>(frameSlot) * kMaxStaticViews + view.index) * kMaxStaticItems * sizeof(uint32_t);
+    m_gpu->pipeline.bindGBuffer(cmd);
+    m_gpu->pipeline.setGBufferBuffers(cmd, instanceGpu, indexGpu);
+
+    for (uint32_t i = 0; i < m_gbuffer.size(); ++i)
+    {
+        const GBufferBatch& batch = m_gbuffer[i];
+        if (batch.key.population != populationId || i >= slot.visible.size() || slot.visible[i] == 0 || batch.mesh == nullptr)
+            continue;
+        MeshBatchConstants cb{};
+        std::memcpy(cb.viewProj, slot.drawViewProj, sizeof(cb.viewProj));
+        std::memcpy(cb.prevViewProj, slot.drawPrevViewProj, sizeof(cb.prevViewProj));
+        fillBatchScalars(gpu, batch.key.material, cb);
+        cb.baseIndex = batch.itemBegin;
+        m_gpu->pipeline.setGBufferConstants(cmd, cb);
+        gpu.bindMaterial(cmd, batch.key.material, InstancedMeshPipeline::kGbMaterial);
+        batch.mesh->drawInstanced(cmd, slot.visible[i]);
+    }
 }
 
-void DrawList::recordDepth(ID3D12GraphicsCommandList*, ViewId, const float*) const
+void DrawList::recordDepth(ID3D12GraphicsCommandList* cmd, ViewId view, const float lightViewProj[16]) const
 {
+    if (!cmd || !gpuReady())
+        return;
+    compile();
+    if (view.index >= kMaxStaticViews)
+        return;
+    const ViewSlot& slot = m_views[view.index];
+    if (!slot.built || slot.pass != RenderPassKind::Depth)
+        return;
+
+    bool any = false;
+    for (uint32_t i = 0; i < m_depth.size(); ++i)
+    {
+        if (i >= slot.visible.size() || slot.visible[i] == 0 || m_depth[i].mesh == nullptr)
+            continue;
+        any = true;
+        break;
+    }
+    if (!any)
+        return;
+
+    const uint32_t frameSlot = m_frameIndex % kUploadSlots;
+    const D3D12_GPU_VIRTUAL_ADDRESS instanceGpu = m_gpu->instances->GetGPUVirtualAddress() + static_cast<UINT64>(frameSlot) * kMaxStaticItems * sizeof(MeshInstanceGpu);
+    const D3D12_GPU_VIRTUAL_ADDRESS indexGpu = m_gpu->indices->GetGPUVirtualAddress()
+        + (static_cast<UINT64>(frameSlot) * kMaxStaticViews + view.index) * kMaxStaticItems * sizeof(uint32_t);
+    m_gpu->pipeline.bindDepth(cmd);
+    m_gpu->pipeline.setDepthBuffers(cmd, instanceGpu, indexGpu);
+
+    float light[16];
+    store16(light, lightViewProj);
+    for (uint32_t i = 0; i < m_depth.size(); ++i)
+    {
+        const DepthBatch& batch = m_depth[i];
+        if (i >= slot.visible.size() || slot.visible[i] == 0 || batch.mesh == nullptr)
+            continue;
+        MeshDepthBatchConstants cb{};
+        std::memcpy(cb.lightViewProj, light, sizeof(cb.lightViewProj));
+        cb.baseIndex = batch.itemBegin;
+        m_gpu->pipeline.setDepthConstants(cmd, cb);
+        batch.mesh->drawInstanced(cmd, slot.visible[i]);
+    }
 }
 
 uint32_t DrawList::staticCount() const

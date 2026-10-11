@@ -287,6 +287,24 @@ TEST(ShaderCompile, TerrainErosion)
     EXPECT_NE(pipe.Get(), nullptr);
 }
 
+TEST(ShaderCompile, InstancedMesh)
+{
+    const std::filesystem::path gbuffer = Dark::resolveContentPath("shaders/BasicMeshGBufferInstanced.hlsl");
+    const std::filesystem::path depth   = Dark::resolveContentPath("shaders/BasicMeshDepthInstanced.hlsl");
+    if (gbuffer.empty() || depth.empty())
+        GTEST_SKIP() << "instanced mesh shaders not on content roots";
+
+    ComPtr<ID3DBlob> vs;
+    ComPtr<ID3DBlob> ps;
+    ComPtr<ID3DBlob> depthVs;
+    EXPECT_TRUE(compileShaderFromFile(gbuffer, "VSMain", "vs_5_0", vs));
+    EXPECT_TRUE(compileShaderFromFile(gbuffer, "PSMain", "ps_5_0", ps));
+    EXPECT_TRUE(compileShaderFromFile(depth, "VSMain", "vs_5_0", depthVs));
+    EXPECT_NE(vs.Get(), nullptr);
+    EXPECT_NE(ps.Get(), nullptr);
+    EXPECT_NE(depthVs.Get(), nullptr);
+}
+
 TEST(ShaderCompile, ReverseZSceneShaders)
 {
     const char* cases[][3] = {

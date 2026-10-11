@@ -5,6 +5,7 @@
 #include "Animation/AnimNotify.h"
 #include "Network/Replication.h"
 #include "Assets/Model.h"
+#include "Render/DrawList.h"
 #include "Render/Mesh.h"
 #include "Render/LinePipeline.h"
 #include "Render/ModelDraw.h"
@@ -101,7 +102,7 @@ private:
     static void onWeaponHitThunk(void* user, const Dark::WeaponHit& hit);
     void onWeaponHit(const Dark::WeaponHit& hit);
     void drawProjectiles(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, Dark::MeshFrameConstants& cb);
-    void drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, const Dark::Math::Matrix4f& prevViewProj);
+    void drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, const Dark::Math::Matrix4f& prevViewProj, bool instanced = false, const std::vector<int>* rejectedShots = nullptr);
     bool createSandboxModels();
     void spawnGltfDemo();
     void spawnAnimatedDemo();
@@ -171,6 +172,7 @@ private:
     Dark::Entity m_wiggle;
 
     Dark::Mesh    m_cubeMesh;
+    Dark::DrawList m_drawList;
     Dark::SceneRenderer     m_scene;
     Dark::LinePipeline        m_skelLinePipeline;
     Microsoft::WRL::ComPtr<ID3D12Resource> m_skelLineVb[2];

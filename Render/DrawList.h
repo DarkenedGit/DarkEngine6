@@ -5,8 +5,10 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
+struct ID3D12Device;
 struct ID3D12GraphicsCommandList;
 
 namespace Dark
@@ -29,7 +31,16 @@ struct ViewId
 class DrawList
 {
 public:
+    DrawList();
+    ~DrawList();
+    DrawList(const DrawList&) = delete;
+    DrawList& operator=(const DrawList&) = delete;
+
     bool beginFrame(uint32_t frameIndex);
+
+    // Upload heaps and the instanced PSOs. Failure leaves record calls as no-ops.
+    bool create(ID3D12Device* device);
+    bool gpuReady() const;
 
     // One primitive or editor prop. False when the cap is hit or the kind is not static.
     bool     submit(const RenderItem& item);
@@ -62,7 +73,12 @@ public:
     const float*   drawViewProj(ViewId view) const;
     const float*   drawPrevViewProj(ViewId view) const;
 
+    // Current frame slot. Null until create() succeeds.
+    const MeshInstanceGpu* uploadedInstances() const;
+    const uint32_t*        uploadedIndices(ViewId view) const;
+
 private:
+    struct GpuUploads;
     struct ViewSlot
     {
         bool           built = false;
@@ -76,8 +92,11 @@ private:
     void compile() const;
     void invalidateViews();
     bool acceptItem(const RenderItem& item);
+    void uploadInstances() const;
+    void uploadIndices(ViewId view) const;
 
     uint32_t m_frameIndex = 0;
+    std::unique_ptr<GpuUploads> m_gpu;
     mutable bool m_compiled = false;
     mutable std::vector<RenderItem> m_items;
     mutable std::vector<GBufferBatch> m_gbuffer;

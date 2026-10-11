@@ -25,6 +25,7 @@
 #include "Render/MeshGen.h"
 #include "Render/TaaJitter.h"
 #include "Render/ModelDraw.h"
+#include "Render/PassTable.h"
 #include "Render/Profile.h"
 #include "Render/MaterialSurface.h"
 #include "Render/GpuUpload.h"
@@ -45,6 +46,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 using namespace Dark;
@@ -54,6 +56,12 @@ using namespace Math;
 void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 {
     GpuResourceCache& gpu = renderer().gpuResources();
+    PassId   playedPasses[24]{};
+    uint32_t playedCount = 0;
+    auto markPass = [&](PassId id) {
+        if (playedCount < 24)
+            playedPasses[playedCount++] = id;
+    };
     m_camera.ClearSubpixelJitter();
     Vector3f lightDir{};
     Vector3f sunColor{};
@@ -75,6 +83,87 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     });
     m_shadows.update(m_camera, lightDir, sceneBounds, 0.8f, 0.20f, renderer().frameIndex());
 
+    const bool instanceStatic = m_drawList.gpuReady() && renderer().debugState().instancedStatic && renderer().debugState().fill == DebugFill::Solid;
+    std::unordered_set<EntityID> acceptedProp;
+    std::unordered_set<EntityID> acceptedModel;
+    uint8_t shadowViewIndex = 1;
+    if (instanceStatic)
+    {
+        m_drawList.beginFrame(renderer().frameIndex());
+        const AABox3f propLocal(Vector3f(-0.5f, -0.5f, -0.5f), Vector3f(0.5f, 0.5f, 0.5f));
+        world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
+            if (!isScene3DType(so.type))
+                return;
+            const auto* xf = world().get<TransformComponent>(e);
+            const Mesh* mesh = meshForType(so.type);
+            if (!xf || !mesh || !mesh->valid() || world().get<LocalLightComponent>(e))
+                return;
+            RenderItem item;
+            item.mesh       = mesh;
+            item.kind       = RenderItemKind::Static;
+            item.population = StaticPopulation::OpaqueMeshes;
+            item.world      = makeWorldMatrix(*xf);
+            item.prevWorld  = item.world;
+            item.worldAabb  = propLocal.Transformed(item.world);
+            item.castShadow = true;
+            float cr = so.color[0];
+            float cg = so.color[1];
+            float cb = so.color[2];
+            if (m_selected.valid() && m_selected.id() == e.id())
+            {
+                cr = cr * 0.55f + 1.0f * 0.45f;
+                cg = cg * 0.55f + 0.85f * 0.45f;
+                cb = cb * 0.55f + 0.20f * 0.45f;
+            }
+            item.color[0] = cr;
+            item.color[1] = cg;
+            item.color[2] = cb;
+            float emissive = 0.0f;
+            item.material  = NULL_ASSET;
+            float alphaModeMask = 0.0f;
+            const Material* surfaceMat = nullptr;
+            if (const MeshComponent* mc = world().get<MeshComponent>(e))
+            {
+                emissive = mc->emissive;
+                if (auto mat = assets().getAs<Material>(mc->matAssetID))
+                {
+                    gpu.ensureMaterial(mat);
+                    surfaceMat    = mat.get();
+                    item.material = mat->id;
+                }
+            }
+            if (!surfaceMat && m_propMaterial && m_propMaterial->isValid())
+            {
+                gpu.ensureMaterial(m_propMaterial);
+                surfaceMat    = m_propMaterial.get();
+                item.material = m_propMaterial->id;
+            }
+            if (surfaceMat)
+            {
+                MeshGBufferConstants surface{};
+                applyMaterialSurface(*surfaceMat, surface);
+                alphaModeMask = surface.alphaModeMask;
+                emissive      = Max(emissive, surfaceMat->emissive());
+            }
+            item.color[3]  = emissive;
+            item.alphaMask = alphaModeMask > 0.5f;
+            if (m_drawList.submit(item))
+                acceptedProp.insert(e.id());
+        });
+        world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+            const auto* xf = world().get<TransformComponent>(e);
+            const auto model = assets().getAs<Model>(mc.modelAssetID);
+            if (!xf || !model || !model->valid() || !model->hasOpaque() || !gpu.ensureModel(model))
+                return;
+            GpuModel* gm = gpu.model(model->id);
+            if (!gm)
+                return;
+            const Matrix4f worldMat = makeWorldMatrix(*xf);
+            if (m_drawList.submitStaticModel(gpu, *gm, worldMat, StaticPopulation::OpaqueModels, mc.castShadow, model->bounds(), nullptr))
+                acceptedModel.insert(e.id());
+        });
+    }
+
     // A point light culls foliage once against its range sphere and redraws that list on each face.
     auto drawShadowCasters = [&](const Matrix4f& lightViewProj, const Frustum3f& casterFrustum, const Sphere3f* foliageSphere, bool beginFoliage) {
         if (drawTerrain)
@@ -85,6 +174,17 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             const AABox3f ground(Vector3f(-20.0f, 0.0f, -20.0f), Vector3f(20.0f, 0.0f, 20.0f));
             if (casterFrustum.Intersects(ground))
                 m_groundMesh.draw(cmd);
+        }
+        const bool recordThisView = instanceStatic && shadowViewIndex < kMaxStaticViews;
+        if (recordThisView)
+        {
+            float lightVp[16];
+            copyMatrix(lightVp, lightViewProj);
+            const ViewId view{ shadowViewIndex };
+            m_drawList.buildView(casterFrustum, lightVp, lightVp, RenderPassKind::Depth, view);
+            m_drawList.recordDepth(cmd, view, lightVp);
+            ++shadowViewIndex;
+            m_shadows.pipeline().bind(cmd);
         }
         world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
             if (!isScene3DType(so.type))
@@ -98,7 +198,9 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             const AABox3f local(Vector3f(-0.5f, -0.5f, -0.5f), Vector3f(0.5f, 0.5f, 0.5f));
             if (!casterFrustum.Intersects(local.Transformed(worldMat)))
                 return;
-            const Matrix4f wvp      = worldMat * lightViewProj;
+            if (recordThisView && acceptedProp.count(e.id()) != 0)
+                return;
+            const Matrix4f wvp = worldMat * lightViewProj;
             m_shadows.pipeline().setWvp(cmd, wvp.m_afEntry);
             mesh->draw(cmd);
         });
@@ -114,15 +216,22 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                 return;
             if (!gpu.ensureModel(model))
                 return;
+            const bool accepted = recordThisView && acceptedModel.count(e.id()) != 0;
             if (model->skinned())
             {
                 const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));
+                if (accepted)
+                {
+                    if (pose)
+                        drawSkinnedModelDepthSkinnedOnly(cmd, gpu, m_shadows.pipeline(), lightViewProj, m_skinnedShadowPipeline, m_skinRing, *model, *pose, worldMat);
+                    return;
+                }
                 if (pose)
                     drawSkinnedModelDepth(cmd, gpu, m_shadows.pipeline(), lightViewProj, m_skinnedShadowPipeline, m_skinRing, *model, *pose, worldMat);
                 else
                     drawModelDepth(cmd, gpu, m_shadows.pipeline(), lightViewProj, *model, worldMat);
             }
-            else
+            else if (!accepted)
                 drawModelDepth(cmd, gpu, m_shadows.pipeline(), lightViewProj, *model, worldMat);
         });
         if (m_haveTerrain && m_terrain.valid())
@@ -133,6 +242,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         }
     };
 
+    if (m_shadows.isValid())
+        markPass(PassId::Shadows);
     if (m_shadows.isValid() && m_shadows.enabled())
     {
         m_shadows.beginCapture(cmd);
@@ -150,6 +261,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     }
 
     LocalShadowSystem& localShadows = m_scene.localShadows();
+    if (localShadows.faceCountThisFrame() > 0 || localShadows.isValid())
+        markPass(PassId::LocalShadows);
     if (localShadows.faceCountThisFrame() > 0)
     {
         localShadows.beginCapture(cmd);
@@ -179,10 +292,12 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     }
 
     const bool deferred = renderer().scenePath() == ScenePath::HybridDeferred;
+    const bool instanceColor = instanceStatic && deferred;
     const Matrix4f viewProj = m_scene.beginCameraFrame(m_camera, renderer());
     const Matrix4f prevViewProj = m_scene.havePrevViewProj() ? m_scene.prevViewProj() : viewProj;
     if (deferred)
     {
+        markPass(PassId::GBuffer);
         renderer().bindGBuffer();
         renderer().clearGBuffer();
     }
@@ -263,6 +378,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     auto drawGrid = [&]() {
         if (!m_showGrid || !m_gridMesh.valid())
             return;
+        markPass(PassId::EditorGrid);
         const GpuScope grid(cmd, "Editor Grid", ProfileColor::Grid);
         LinePipeline& lines = m_linePipeline3D.isValid() ? m_linePipeline3D : m_linePipeline;
         lines.bind(cmd);
@@ -280,6 +396,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         LinePipeline& lines = m_linePipeline3D.isValid() ? m_linePipeline3D : m_linePipeline;
         if (!lines.isValid())
             return;
+        markPass(PassId::EditorGizmos);
         const GpuScope gizmos(cmd, "Light Gizmos", ProfileColor::Gizmos);
         lines.bind(cmd);
         world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
@@ -381,9 +498,21 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     if (!deferred)
         drawGrid();
 
+    if (instanceColor)
+    {
+        float drawVp[16];
+        float drawPrev[16];
+        copyMatrix(drawVp, viewProj);
+        copyMatrix(drawPrev, prevViewProj);
+        const Frustum3f cameraFrustum(m_camera.GetCullViewProj());
+        m_drawList.buildView(cameraFrustum, drawVp, drawPrev, RenderPassKind::GBuffer, ViewId{ 0 });
+    }
+
     uint32_t draws = 0;
     {
         const GpuScope meshes(cmd, "Opaque Meshes", ProfileColor::OpaqueMeshes);
+        if (instanceColor)
+            m_drawList.recordOpaque(cmd, gpu, ViewId{ 0 }, StaticPopulation::OpaqueMeshes);
         world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
         if (!isScene3DType(so.type))
             return;
@@ -412,6 +541,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                 material = mat.get();
             }
         }
+        if (instanceColor && acceptedProp.count(e.id()) != 0)
+            return;
         drawMesh(*mesh, makeWorldMatrix(*xf), material, cr, cg, cb, emissive);
         ++draws;
     });
@@ -420,12 +551,15 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     if (deferred)
     {
         const GpuScope models(cmd, "Opaque Models", ProfileColor::OpaqueModels);
+        if (instanceColor)
+            m_drawList.recordOpaque(cmd, gpu, ViewId{ 0 }, StaticPopulation::OpaqueModels);
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             const auto* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
             if (!xf || !model || !model->hasOpaque() || !gpu.ensureModel(model))
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
+            const bool accepted = instanceColor && acceptedModel.count(e.id()) != 0;
             if (model->skinned())
             {
                 AnimGraphComponent* ag = world().get<AnimGraphComponent>(e);
@@ -440,11 +574,17 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                     ag->prevWorld = worldMat;
                     ag->prevWorldValid = true;
                 }
-                drawSkinnedModelOpaqueGBuffer(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
+                if (accepted)
+                    drawSkinnedModelOpaqueGBufferSkinnedOnly(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
+                else
+                    drawSkinnedModelOpaqueGBuffer(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
+                ++draws;
             }
-            else
+            else if (!accepted)
+            {
                 drawModelOpaqueGBuffer(cmd, gpu, m_meshPipeline, *model, worldMat, viewProj, prevViewProj, fill);
-            ++draws;
+                ++draws;
+            }
         });
         if (m_haveTerrain && m_terrain.valid())
         {
@@ -495,10 +635,13 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 
     if (deferred)
     {
+        markPass(PassId::Decals);
         m_scene.drawDecals(cmd, renderer(), m_camera, viewProj);
         renderer().bindHdr(false);
         renderer().clearHdr();
+        markPass(PassId::Gtao);
         m_scene.applyGtao(cmd, renderer(), m_camera, prevViewProj, m_ssao);
+        markPass(PassId::Ssr);
         m_scene.applySsr(cmd, renderer(), m_camera, prevViewProj, m_ssr, nullptr);
         LightingConstants lc{};
         copyMatrix(lc.invViewProj, viewProj.Inverse());
@@ -523,15 +666,19 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         lc.ambientColor[2] = ambientColor.z;
         fillIblLightingConstants(lc, m_ibl, renderer().debugState().iblEnabled, renderer().debugState().iblDebug, iblGpuReady(renderer().gpuResources(), m_iblImageId));
         fillSsrLightingConstants(lc, m_ssr, renderer().debugState().ssrEnabled, m_scene.ssr().isValid() && renderer().hasGBuffer());
+        markPass(PassId::Lighting);
         m_lighting.draw(cmd, renderer(), m_shadows, lc);
+        markPass(PassId::LocalVolumes);
         m_localLightVolumes.draw(cmd, renderer(), world(), m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_camera, viewProj, lc, &m_scene.localShadows());
         renderer().bindHdr(true);
         if (m_skyPipeline.isValid())
         {
+            markPass(PassId::Sky);
             const float waterLevel = m_water.params().waterLevel;
             m_skyPipeline.upload(renderer().frameIndex(), m_camera, m_env, 1.0f, waterLevel, 0.0f);
             m_skyPipeline.draw(cmd, renderer().frameIndex(), &m_shadows);
         }
+        markPass(PassId::SsrCapture);
         m_scene.captureSsrSceneColor(cmd, renderer());
         renderer().bindHdrDepthRead();
         if (m_haveTerrain && m_scene.waterPipeline().isValid())
@@ -556,11 +703,13 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             const bool anyWater = m_water.wetChunkCount() > 0 || !m_placedWater.empty() || !m_editorStreams.empty();
             if (anyWater)
             {
+                markPass(PassId::Water);
                 const GpuScope water(cmd, "Water", ProfileColor::Water);
                 drawPlacedWater(cmd, waterFrustum, heightHeap, heightGpu, waterSceneColor, waterDepth, waterSsr);
             }
         }
         {
+            markPass(PassId::Clouds);
             CloudVolumeFrame cf{};
             cf.sunDir       = lightDir;
             cf.sunColor     = sunColor;
@@ -581,6 +730,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     }
 
     {
+        markPass(PassId::Translucent);
         const GpuScope translucent(cmd, "Translucent", ProfileColor::Translucent);
         MeshFrameConstants lit{};
         lit.lightDirWS[0] = lightDir.x;
@@ -595,26 +745,47 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         lit.cameraPos[1] = cam.y;
         lit.cameraPos[2] = cam.z;
         lit.lighting     = renderer().debugState().lightingActive() ? 1.0f : 0.0f;
+        std::vector<Entity> translucentEntities;
+        std::vector<TranslucentDraw> translucentOrder;
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             const auto* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
             if (!xf || !model || !model->hasTranslucent() || !gpu.ensureModel(model))
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
+            if (model->skinned() && !skinnedPose(*model, world().get<AnimGraphComponent>(e)))
+                return;
+            TranslucentDraw draw;
+            draw.user      = static_cast<uint32_t>(translucentEntities.size());
+            draw.worldAabb = model->bounds().IsValid() ? model->bounds().Transformed(worldMat) : AABox3f::Empty();
+            translucentEntities.push_back(e);
+            translucentOrder.push_back(draw);
+        });
+        sortTranslucent(translucentOrder.data(), static_cast<uint32_t>(translucentOrder.size()), m_camera.GetView());
+        for (const TranslucentDraw& draw : translucentOrder)
+        {
+            const Entity e = translucentEntities[draw.user];
+            const ModelComponent* mc = world().get<ModelComponent>(e);
+            const auto* xf = world().get<TransformComponent>(e);
+            const auto model = (mc && xf) ? assets().getAs<Model>(mc->modelAssetID) : AssetRef<Model>{};
+            if (!xf || !model || !gpu.ensureModel(model))
+                continue;
+            const Matrix4f worldMat = makeWorldMatrix(*xf);
             if (model->skinned())
             {
                 const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));
                 if (!pose)
-                    return;
+                    continue;
                 drawSkinnedModelForward(cmd, gpu, m_skinnedTransparentPipeline, m_meshTransparentPipeline, m_shadows, m_skinRing, *model, true, *pose, worldMat, viewProj, lit, fill);
             }
             else
                 drawModelForward(cmd, gpu, m_meshTransparentPipeline, m_shadows, *model, true, worldMat, viewProj, lit, fill);
             ++draws;
-        });
+        }
     }
 
     {
+        markPass(PassId::Particles);
         const GpuScope particles(cmd, "Particles", ProfileColor::Particles);
         m_particleRenderer.beginFrame(renderer().frameIndex());
         world().each<ParticleEmitterComponent>([&](Entity, ParticleEmitterComponent& pe) {
@@ -636,6 +807,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         TonemapSettings ts{};
         ts.mode     = aces ? 1.0f : 0.0f;
         ts.exposure = 1.0f;
+        markPass(PassId::Post);
         m_scene.applyPost(renderer(), cmd, viewProj, ts);
     }
 
@@ -646,6 +818,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         const bool shadowTiles = renderer().debugState().shadowMapTiles && m_scene.localShadows().isValid();
         if (m_debugOverlay.isValid() && (((m_showGBuffer || m_showVelocity || ssaoTile || ssrTile) && renderer().hasGBuffer()) || shadowTiles))
         {
+            markPass(PassId::Overlay);
             const GpuScope overlay(cmd, "Debug Overlay", ProfileColor::DebugOverlay);
             // Unbind DSV / HDR so we can sample G-buffer. Overlay copies from FLAG_NONE CPU SRVs.
             renderer().bindColorTargetOnly();
@@ -753,4 +926,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 
     m_scene.endCameraFrame(m_camera, viewProj);
     renderer().stats().drawCalls = draws;
+    uint32_t tableCount = 0;
+    const PassNode* table = deferred ? editorDeferredPasses(tableCount) : editorForwardPasses(tableCount);
+    (void)passSequenceOk(table, tableCount, playedPasses, playedCount);
 }

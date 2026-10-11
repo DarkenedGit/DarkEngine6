@@ -356,4 +356,86 @@ namespace Dark
 	{
 		drawSkinnedModelDepth(cmd, gpu, shadows.pipeline(), shadows.cascade(cascade).viewProj, skinnedShadow, ring, model, pose, world);
 	}
+
+	void drawSkinnedModelOpaqueGBufferSkinnedOnly(
+		ID3D12GraphicsCommandList* cmd,
+		GpuResourceCache& gpu,
+		const SkinnedMeshPipeline& skinned,
+		const MeshPipeline& staticPipeline,
+		SkinningUploadRing& ring,
+		const Model& model,
+		const AnimPose& pose,
+		const Matrix4f& world,
+		const Matrix4f& prevWorld,
+		const Matrix4f& viewProj,
+		const Matrix4f& prevViewProj,
+		DebugFill fill)
+	{
+		(void)staticPipeline;
+		GpuModel* gm = requireGpu(gpu, model);
+		if (!cmd || !gm || !gm->hasOpaque() || !skinned.isValid())
+			return;
+		const bool points = fill == DebugFill::Points;
+		bool bound = false;
+		for (const GpuModel::Part& part : gm->opaque())
+		{
+			if (!part.skinned || !part.mesh.valid())
+				continue;
+			const D3D12_GPU_VIRTUAL_ADDRESS bones = ring.alloc(pose);
+			if (bones == 0)
+				continue;
+			if (!bound)
+			{
+				skinned.bind(cmd, fill);
+				bound = true;
+			}
+			skinned.setBoneCbv(cmd, bones);
+			skinned.setShadowCbv(cmd, ring.dummyGpuVa());
+			const Matrix4f w = part.localToRoot * world;
+			const Matrix4f pw = part.localToRoot * prevWorld;
+			gpu.bindMaterial(cmd, part.materialId, SkinnedMeshPipeline::kRootAlbedoSrv);
+			MeshGBufferConstants cb{};
+			copyMatrix(cb.worldViewProj, w * viewProj);
+			copyMatrix(cb.world, w);
+			copyMatrix(cb.prevWorldViewProj, pw * prevViewProj);
+			applyGBufferSurface(gpu, part.materialId, cb);
+			skinned.setGBufferConstants(cmd, cb);
+			part.mesh.draw(cmd, points);
+		}
+	}
+
+	void drawSkinnedModelDepthSkinnedOnly(
+		ID3D12GraphicsCommandList* cmd,
+		GpuResourceCache& gpu,
+		const ShadowPipeline& staticDepth,
+		const Matrix4f& lightViewProj,
+		const SkinnedMeshPipeline& skinnedShadow,
+		SkinningUploadRing& ring,
+		const Model& model,
+		const AnimPose& pose,
+		const Matrix4f& world)
+	{
+		(void)staticDepth;
+		GpuModel* gm = requireGpu(gpu, model);
+		if (!cmd || !gm || !gm->hasOpaque() || !skinnedShadow.isValid())
+			return;
+		bool bound = false;
+		for (const GpuModel::Part& part : gm->opaque())
+		{
+			if (!part.skinned || !part.mesh.valid())
+				continue;
+			const D3D12_GPU_VIRTUAL_ADDRESS bones = ring.alloc(pose);
+			if (bones == 0)
+				continue;
+			if (!bound)
+			{
+				skinnedShadow.bind(cmd);
+				bound = true;
+			}
+			const Matrix4f w = part.localToRoot * world;
+			skinnedShadow.setBoneCbv(cmd, bones);
+			skinnedShadow.setWvp(cmd, (w * lightViewProj).m_afEntry);
+			part.mesh.draw(cmd);
+		}
+	}
 } // namespace Dark

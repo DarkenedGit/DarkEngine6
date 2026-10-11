@@ -28,6 +28,7 @@
 #include "Render/Fog.h"
 #include "Render/PbrLighting.h"
 #include "Render/ModelDraw.h"
+#include "Render/PassTable.h"
 #include "Render/Profile.h"
 #include "Render/MaterialSurface.h"
 #include "Render/GpuResourceCache.h"
@@ -2840,11 +2841,11 @@ void SandboxApp::drawProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix4f&
     }
 }
 
-void SandboxApp::drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, const Matrix4f& prevViewProj)
+void SandboxApp::drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, const Matrix4f& prevViewProj, bool instanced, const std::vector<int>* rejectedShots)
 {
     WeaponLoadout* w = localWeapons();
     const auto model = assets().getAs<Model>(m_tracerModelId);
-    if (!cmd || !w || !model || !model->hasOpaque() || !renderer().gpuResources().ensureModel(model))
+    if (!cmd || !w || !model || !model->hasOpaque())
         return;
     bool any = false;
     for (const LiveProjectile& s : w->projectile().live())
@@ -2858,11 +2859,45 @@ void SandboxApp::drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Ma
     if (!any)
         return;
 
+    GpuResourceCache& gpu = renderer().gpuResources();
+    if (!instanced && !gpu.ensureModel(model))
+        return;
+
     const GpuScope projectiles(cmd, "Projectiles", ProfileColor::Projectiles);
+    if (instanced)
+    {
+        m_drawList.recordOpaque(cmd, gpu, ViewId{ 0 }, StaticPopulation::Projectiles);
+        if (!rejectedShots || rejectedShots->empty() || !gpu.ensureModel(model))
+            return;
+        const float     radius = w->projectile().desc().radius;
+        const float     scale  = radius * 2.0f;
+        const DebugFill fill   = renderer().debugState().fill;
+        int             shot   = 0;
+        for (const LiveProjectile& s : w->projectile().live())
+        {
+            const int index = shot++;
+            if (!s.alive)
+                continue;
+            bool rejected = false;
+            for (int r : *rejectedShots)
+            {
+                if (r == index)
+                {
+                    rejected = true;
+                    break;
+                }
+            }
+            if (!rejected)
+                continue;
+            const Matrix4f world = Matrix4f::ScaleMatrixXYZ(scale, scale, scale) * Matrix4f::TranslationMatrix(s.position.x, s.position.y, s.position.z);
+            drawModelOpaqueGBuffer(cmd, gpu, m_meshPipeline, *model, world, viewProj, prevViewProj, fill);
+        }
+        return;
+    }
+
     const float     radius = w->projectile().desc().radius;
     const float     scale  = radius * 2.0f;
     const DebugFill fill   = renderer().debugState().fill;
-    GpuResourceCache& gpu  = renderer().gpuResources();
     for (const LiveProjectile& s : w->projectile().live())
     {
         if (!s.alive)
@@ -3189,6 +3224,8 @@ void SandboxApp::onInit()
             return;
         }
         m_foliagePipeline.create(renderer().device());
+        if (!m_drawList.create(renderer().device()))
+            DE_LOG_ERROR(LogCategory::Render, "SandboxApp: instanced mesh pipeline failed; static draws stay immediate");
         if (!m_grassPipeline.create(renderer()))
         {
             DE_LOG_ERROR(LogCategory::Render, "SandboxApp: grass pipeline create failed");
@@ -3869,6 +3906,13 @@ void SandboxApp::onRender()
     if (m_skinRing.isValid())
         m_skinRing.beginFrame(renderer().frameIndex());
 
+    PassId   playedPasses[24]{};
+    uint32_t playedCount = 0;
+    auto markPass = [&](PassId id) {
+        if (playedCount < 24)
+            playedPasses[playedCount++] = id;
+    };
+
     const Frustum3f cameraCull(m_viewCamera.GetCullViewProj());
     const bool selectLocalShadows = renderer().scenePath() == ScenePath::HybridDeferred
         && renderer().debugState().localLights
@@ -3901,10 +3945,112 @@ void SandboxApp::onRender()
         m_env.weather.cloudCoverage,
         renderer().frameIndex());
 
+    const bool instanceStatic = m_drawList.gpuReady() && renderer().debugState().instancedStatic && renderer().debugState().fill == DebugFill::Solid;
+    std::unordered_set<EntityID> acceptedMesh;
+    std::unordered_set<EntityID> acceptedModel;
+    std::vector<int> rejectedShots;
+    uint8_t shadowViewIndex = 1;
+    if (instanceStatic)
+    {
+        m_drawList.beginFrame(renderer().frameIndex());
+        world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
+            if (world().has<ModelComponent>(e))
+                return;
+            if (const HealthComponent* hp = world().get<HealthComponent>(e); hp && !hp->health.alive())
+                return;
+            const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, m_cubeMesh, m_crossMesh);
+            if (!gpuMesh)
+                return;
+            const TransformComponent* xf = world().get<TransformComponent>(e);
+            if (!xf)
+                return;
+            RenderItem item;
+            item.mesh       = gpuMesh;
+            item.kind       = RenderItemKind::Static;
+            item.population = StaticPopulation::OpaqueMeshes;
+            item.world      = makeWorldMatrix(*xf);
+            const auto prev = m_prevWorldByEntity.find(e.id());
+            item.prevWorld  = prev != m_prevWorldByEntity.end() ? prev->second : item.world;
+            const AABox3f local = sandboxPrimitiveBounds(mc.primitive);
+            item.worldAabb  = local.IsValid() ? local.Transformed(item.world) : AABox3f::Empty();
+            item.color[0]   = 1.0f;
+            item.color[1]   = 1.0f;
+            item.color[2]   = 1.0f;
+            item.color[3]   = 0.0f;
+            item.material   = NULL_ASSET;
+            float alphaModeMask = 0.0f;
+            if (auto mat = assets().getAs<Material>(mc.matAssetID))
+            {
+                gpu.ensureMaterial(mat);
+                item.material = mc.matAssetID;
+                MeshGBufferConstants surface{};
+                applyMaterialSurface(*mat, surface);
+                item.color[0]   = surface.color[0];
+                item.color[1]   = surface.color[1];
+                item.color[2]   = surface.color[2];
+                alphaModeMask   = surface.alphaModeMask;
+            }
+            if (const NetworkedComponent* nc = world().get<NetworkedComponent>(e))
+                unpackRgba8(nc->colorRgba8, item.color);
+            item.color[3]   = mc.emissive;
+            item.castShadow = mc.castShadow;
+            item.alphaMask  = alphaModeMask > 0.5f;
+            if (m_drawList.submit(item))
+                acceptedMesh.insert(e.id());
+        });
+        world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+            if (camouflageHides(e))
+                return;
+            const TransformComponent* xf = world().get<TransformComponent>(e);
+            const auto model = assets().getAs<Model>(mc.modelAssetID);
+            if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->valid() || !model->hasOpaque() || !gpu.ensureModel(model))
+                return;
+            GpuModel* gm = gpu.model(model->id);
+            if (!gm)
+                return;
+            const Matrix4f worldMat = makeWorldMatrix(*xf);
+            if (m_drawList.submitStaticModel(gpu, *gm, worldMat, StaticPopulation::OpaqueModels, mc.castShadow, model->bounds(), nullptr))
+                acceptedModel.insert(e.id());
+        });
+        if (WeaponLoadout* w = localWeapons())
+        {
+            const auto tracer = assets().getAs<Model>(m_tracerModelId);
+            if (tracer && tracer->hasOpaque() && gpu.ensureModel(tracer))
+            {
+                if (GpuModel* gm = gpu.model(tracer->id))
+                {
+                    const float scale = w->projectile().desc().radius * 2.0f;
+                    int shot = 0;
+                    for (const LiveProjectile& s : w->projectile().live())
+                    {
+                        const int index = shot++;
+                        if (!s.alive)
+                            continue;
+                        const Matrix4f world = Matrix4f::ScaleMatrixXYZ(scale, scale, scale) * Matrix4f::TranslationMatrix(s.position.x, s.position.y, s.position.z);
+                        const Matrix4f prev  = Matrix4f::ScaleMatrixXYZ(scale, scale, scale) * Matrix4f::TranslationMatrix(s.prevPosition.x, s.prevPosition.y, s.prevPosition.z);
+                        if (!m_drawList.submitStaticModel(gpu, *gm, world, StaticPopulation::Projectiles, false, tracer->bounds(), &prev))
+                            rejectedShots.push_back(index);
+                    }
+                }
+            }
+        }
+    }
+
     // Opaque casters only — same set as G-buffer / forward color. Water, particles, blood, lines stay out.
     // A point light culls foliage once against its range sphere and redraws that list on each face.
     auto drawShadowCasters = [&](const Matrix4f& lightViewProj, const Frustum3f& casterFrustum, const Sphere3f* foliageSphere, bool beginFoliage) {
         m_terrain.drawDepth(cmd, &casterFrustum);
+        const bool recordThisView = instanceStatic && shadowViewIndex < kMaxStaticViews;
+        if (recordThisView)
+        {
+            float lightVp[16];
+            copyMatrix(lightVp, lightViewProj);
+            const ViewId view{ shadowViewIndex };
+            m_drawList.buildView(casterFrustum, lightVp, lightVp, RenderPassKind::Depth, view);
+            m_drawList.recordDepth(cmd, view, lightVp);
+            ++shadowViewIndex;
+            m_shadows.pipeline().bind(cmd);
+        }
         world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
             if (world().has<ModelComponent>(e))
                 return;
@@ -3922,6 +4068,8 @@ void SandboxApp::onRender()
             const AABox3f local = sandboxPrimitiveBounds(mc.primitive);
             if (local.IsValid() && !casterFrustum.Intersects(local.Transformed(worldMat)))
                 return;
+            if (recordThisView && acceptedMesh.count(e.id()) != 0)
+                return;
             drawShadowCaster(cmd, m_shadows.pipeline(), lightViewProj, worldMat, *gpuMesh);
         });
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
@@ -3938,15 +4086,22 @@ void SandboxApp::onRender()
                 return;
             if (!gpu.ensureModel(model))
                 return;
+            const bool accepted = recordThisView && acceptedModel.count(e.id()) != 0;
             if (model->skinned())
             {
                 const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));
+                if (accepted)
+                {
+                    if (pose)
+                        drawSkinnedModelDepthSkinnedOnly(cmd, gpu, m_shadows.pipeline(), lightViewProj, m_skinnedShadowPipeline, m_skinRing, *model, *pose, worldMat);
+                    return;
+                }
                 if (pose)
                     drawSkinnedModelDepth(cmd, gpu, m_shadows.pipeline(), lightViewProj, m_skinnedShadowPipeline, m_skinRing, *model, *pose, worldMat);
                 else
                     drawModelDepth(cmd, gpu, m_shadows.pipeline(), lightViewProj, *model, worldMat);
             }
-            else
+            else if (!accepted)
                 drawModelDepth(cmd, gpu, m_shadows.pipeline(), lightViewProj, *model, worldMat);
         });
         if (m_terrain.valid())
@@ -3957,6 +4112,8 @@ void SandboxApp::onRender()
         }
     };
 
+    if (m_shadows.isValid())
+        markPass(PassId::Shadows);
     if (m_shadows.isValid() && m_shadows.enabled())
     {
         m_shadows.beginCapture(cmd);
@@ -3974,6 +4131,8 @@ void SandboxApp::onRender()
     }
 
     LocalShadowSystem& localShadows = m_scene.localShadows();
+    if (localShadows.faceCountThisFrame() > 0 || localShadows.isValid())
+        markPass(PassId::LocalShadows);
     if (localShadows.faceCountThisFrame() > 0)
     {
         localShadows.beginCapture(cmd);
@@ -4004,10 +4163,12 @@ void SandboxApp::onRender()
     }
 
     const bool deferred = renderer().scenePath() == ScenePath::HybridDeferred;
+    const bool instanceColor = instanceStatic && deferred;
     const Matrix4f viewProjEarly = m_scene.beginCameraFrame(m_viewCamera, renderer());
     (void)viewProjEarly;
     if (deferred)
     {
+        markPass(PassId::GBuffer);
         renderer().bindGBuffer();
         renderer().clearGBuffer();
     }
@@ -4032,7 +4193,10 @@ void SandboxApp::onRender()
     const float fogScale    = renderer().debugState().lightingActive() ? 1.0f : 0.0f;
     m_skyPipeline.upload(renderer().frameIndex(), m_viewCamera, m_env, skyExposure, m_water.params().waterLevel, fogScale);
     if (!deferred)
+    {
+        markPass(PassId::Sky);
         m_skyPipeline.draw(cmd, renderer().frameIndex(), &m_shadows);
+    }
 
     AssetRef<Material> material;
     if (m_cube.valid())
@@ -4072,8 +4236,18 @@ void SandboxApp::onRender()
                 }
                 m_grassPipeline.draw(cmd, renderer(), grassLods, m_grassField.tileWind(), m_grassField.tileWindCount(), grassFrame);
             }
+            if (instanceColor)
+            {
+                float drawVp[16];
+                float drawPrev[16];
+                copyMatrix(drawVp, viewProj);
+                copyMatrix(drawPrev, prevViewProj);
+                m_drawList.buildView(frustum, drawVp, drawPrev, RenderPassKind::GBuffer, ViewId{ 0 });
+            }
             {
                 const GpuScope meshes(cmd, "Opaque Meshes", ProfileColor::OpaqueMeshes);
+                if (instanceColor)
+                    m_drawList.recordOpaque(cmd, gpu, ViewId{ 0 }, StaticPopulation::OpaqueMeshes);
                 m_meshPipeline.bind(cmd, fill);
         if (material && material->isValid())
             renderer().gpuResources().bindMaterial(cmd, *material, MeshPipeline::kRootAlbedoSrv);
@@ -4105,6 +4279,11 @@ void SandboxApp::onRender()
                 applyMaterialSurface(*mat, gcb);
             }
             const Matrix4f worldMat  = makeWorldMatrix(*xf);
+            if (instanceColor && acceptedMesh.count(e.id()) != 0)
+            {
+                m_prevWorldByEntity[e.id()] = worldMat;
+                return;
+            }
             const Matrix4f prevWorld = m_prevWorldByEntity.count(e.id()) ? m_prevWorldByEntity[e.id()] : worldMat;
             fillMeshGBufferXforms(gcb, worldMat, viewProj, prevViewProj, prevWorld);
             if (const NetworkedComponent* nc = world().get<NetworkedComponent>(e))
@@ -4116,9 +4295,11 @@ void SandboxApp::onRender()
             ++meshDraws;
         });
             }
-            drawProjectilesGBuffer(cmd, viewProj, prevViewProj);
+            drawProjectilesGBuffer(cmd, viewProj, prevViewProj, instanceColor, &rejectedShots);
             {
                 const GpuScope models(cmd, "Opaque Models", ProfileColor::OpaqueModels);
+                if (instanceColor)
+                    m_drawList.recordOpaque(cmd, gpu, ViewId{ 0 }, StaticPopulation::OpaqueModels);
                 world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             if (camouflageHides(e))
                 return;
@@ -4127,6 +4308,7 @@ void SandboxApp::onRender()
             if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->hasOpaque() || !gpu.ensureModel(model))
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
+            const bool accepted = instanceColor && acceptedModel.count(e.id()) != 0;
             if (model->skinned())
             {
                 AnimGraphComponent* ag = world().get<AnimGraphComponent>(e);
@@ -4141,9 +4323,12 @@ void SandboxApp::onRender()
                     ag->prevWorld = worldMat;
                     ag->prevWorldValid = true;
                 }
-                drawSkinnedModelOpaqueGBuffer(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
+                if (accepted)
+                    drawSkinnedModelOpaqueGBufferSkinnedOnly(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
+                else
+                    drawSkinnedModelOpaqueGBuffer(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
             }
-            else
+            else if (!accepted)
                 drawModelOpaqueGBuffer(cmd, gpu, m_meshPipeline, *model, worldMat, viewProj, prevViewProj, fill);
         });
             }
@@ -4151,10 +4336,13 @@ void SandboxApp::onRender()
                 m_foliagePipeline.drawGBuffer(cmd, renderer(), assets(), m_foliagePrototypes, m_terrain, m_foliage.empty() ? nullptr : &m_foliage, m_foliageDensity, m_viewCamera, viewProj, prevViewProj, frustum);
         }
 
+        markPass(PassId::Decals);
         m_scene.drawDecals(cmd, renderer(), m_viewCamera, viewProj);
         renderer().bindHdr(false);
         renderer().clearHdr();
+        markPass(PassId::Gtao);
         m_scene.applyGtao(cmd, renderer(), m_viewCamera, prevViewProj, m_ssao);
+        markPass(PassId::Ssr);
         m_scene.applySsr(cmd, renderer(), m_viewCamera, prevViewProj, m_ssr, &m_env);
         LightingConstants lc{};
         copyMatrix(lc.invViewProj, viewProj.Inverse());
@@ -4183,10 +4371,13 @@ void SandboxApp::onRender()
         applyFogToLighting(lc, fog);
         fillIblLightingConstants(lc, m_ibl, renderer().debugState().iblEnabled, renderer().debugState().iblDebug, iblGpuReady(renderer().gpuResources(), m_iblImageId));
         fillSsrLightingConstants(lc, m_ssr, renderer().debugState().ssrEnabled, m_scene.ssr().isValid() && renderer().hasGBuffer());
+        markPass(PassId::Lighting);
         m_lighting.draw(cmd, renderer(), m_shadows, lc);
+        markPass(PassId::LocalVolumes);
         m_localLightVolumes.draw(cmd, renderer(), world(), m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_viewCamera, viewProj, lc, &m_scene.localShadows());
 
         renderer().bindHdr(true);
+        markPass(PassId::Sky);
         m_skyPipeline.draw(cmd, renderer().frameIndex(), &m_shadows);
     }
     else
@@ -4328,7 +4519,10 @@ void SandboxApp::onRender()
         heightGpu  = renderer().heightTableGpu();
     }
     if (renderer().hasSceneBuffers())
+    {
+        markPass(PassId::SsrCapture);
         m_scene.captureSsrSceneColor(cmd, renderer());
+    }
     D3D12_CPU_DESCRIPTOR_HANDLE waterSceneColor{};
     D3D12_CPU_DESCRIPTOR_HANDLE waterDepth{};
     const SsrSettings*          waterSsr = nullptr;
@@ -4341,6 +4535,7 @@ void SandboxApp::onRender()
     const bool waterSheet = m_water.wetChunkCount() > 0;
     if (waterSheet || !m_streams.empty())
     {
+        markPass(PassId::Water);
         const GpuScope waterScope(cmd, "Water", ProfileColor::Water);
         uint32_t drawIndex = 0;
         if (waterSheet)
@@ -4400,6 +4595,7 @@ void SandboxApp::onRender()
 
     if (renderer().hasGBuffer())
     {
+        markPass(PassId::Clouds);
         renderer().bindHdrDepthRead();
         CloudVolumeFrame cf{};
         cf.sunDir       = m_env.lightDir();
@@ -4412,6 +4608,7 @@ void SandboxApp::onRender()
 
     if (m_camouflage && renderer().hasSceneBuffers() && m_scene.camouflage().isValid())
     {
+        markPass(PassId::Camouflage);
         const Entity body = possessedBody();
         const TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
         const ModelComponent* mc = body.valid() ? world().get<ModelComponent>(body) : nullptr;
@@ -4431,6 +4628,7 @@ void SandboxApp::onRender()
     }
 
     {
+        markPass(PassId::Translucent);
         const GpuScope translucent(cmd, "Translucent", ProfileColor::Translucent);
         MeshFrameConstants lit{};
         lit.lightDirWS[0] = m_env.lightDir().x;
@@ -4447,6 +4645,8 @@ void SandboxApp::onRender()
         lit.cameraPos[1]  = camPos.y;
         lit.cameraPos[2]  = camPos.z;
         lit.lighting      = renderer().debugState().lightingActive() ? 1.0f : 0.0f;
+        std::vector<Entity> translucentEntities;
+        std::vector<TranslucentDraw> translucentOrder;
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             if (camouflageHides(e))
                 return;
@@ -4455,16 +4655,34 @@ void SandboxApp::onRender()
             if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->hasTranslucent() || !gpu.ensureModel(model))
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
+            if (model->skinned() && !skinnedPose(*model, world().get<AnimGraphComponent>(e)))
+                return;
+            TranslucentDraw draw;
+            draw.user      = static_cast<uint32_t>(translucentEntities.size());
+            draw.worldAabb = model->bounds().IsValid() ? model->bounds().Transformed(worldMat) : AABox3f::Empty();
+            translucentEntities.push_back(e);
+            translucentOrder.push_back(draw);
+        });
+        sortTranslucent(translucentOrder.data(), static_cast<uint32_t>(translucentOrder.size()), m_viewCamera.GetView());
+        for (const TranslucentDraw& draw : translucentOrder)
+        {
+            const Entity e = translucentEntities[draw.user];
+            const ModelComponent* mc = world().get<ModelComponent>(e);
+            const TransformComponent* xf = world().get<TransformComponent>(e);
+            const auto model = (mc && xf) ? assets().getAs<Model>(mc->modelAssetID) : AssetRef<Model>{};
+            if (!xf || !model || !gpu.ensureModel(model))
+                continue;
+            const Matrix4f worldMat = makeWorldMatrix(*xf);
             if (model->skinned())
             {
                 const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));
                 if (!pose)
-                    return;
+                    continue;
                 drawSkinnedModelForward(cmd, gpu, m_skinnedTransparentPipeline, m_meshTransparentPipeline, m_shadows, m_skinRing, *model, true, *pose, worldMat, viewProj, lit, fill);
             }
             else
                 drawModelForward(cmd, gpu, m_meshTransparentPipeline, m_shadows, *model, true, worldMat, viewProj, lit, fill);
-        });
+        }
     }
 
     if (m_chaseOk)
@@ -4476,6 +4694,7 @@ void SandboxApp::onRender()
     m_scene.drawDecalVolumes(cmd, renderer(), m_chase.linePipeline(), viewProj);
 
     {
+        markPass(PassId::Particles);
         const GpuScope particles(cmd, "Particles", ProfileColor::Particles);
         m_particles.beginFrame(renderer().frameIndex());
     if (m_blood.aliveCount() > 0)
@@ -4516,6 +4735,7 @@ void SandboxApp::onRender()
             exposure             = m_autoExposureResult.finalExposure;
         }
         post.exposure = exposure;
+        markPass(PassId::Post);
         m_scene.applyPost(renderer(), cmd, viewProj, post, deferredMeter && m_autoExposure.mode == ExposureMode::Auto);
     }
 
@@ -4539,6 +4759,11 @@ void SandboxApp::onRender()
     renderer().stats().triangles =
         m_terrain.lastTriangles() + m_water.lastTriangles() + meshDraws * (m_cubeMesh.indexCount() / 3);
 
+    const bool ssaoTile = renderer().hasGBuffer() && renderer().debugState().ssaoDebug == 1;
+    const bool ssrTile  = renderer().hasGBuffer() && renderer().debugState().ssrDebug != 0;
+    if (cmd && m_debugOverlay.isValid()
+        && (m_showShadowMaps || renderer().debugState().shadowMapTiles || m_showDepth || m_showGBuffer || m_showVelocity || ssaoTile || ssrTile))
+        markPass(PassId::Overlay);
     drawDebugOverlays(cmd);
     m_menu.draw(renderer());
     if (m_imgui.isReady() && !m_menu.visible())
@@ -4563,6 +4788,9 @@ void SandboxApp::onRender()
         // ImGui frame was begun; submit an empty frame so the backend stays paired.
         m_imgui.render(renderer());
     }
+    uint32_t tableCount = 0;
+    const PassNode* table = deferred ? sandboxDeferredPasses(tableCount) : sandboxForwardPasses(tableCount);
+    (void)passSequenceOk(table, tableCount, playedPasses, playedCount);
     renderer().endFrame();
 }
 

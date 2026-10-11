@@ -20,6 +20,7 @@ namespace Dark
         bool      clouds      = false; // Fullscreen march of a volume that only covers part of the sky.
         bool      bloom       = true;
         bool      shadows     = true;
+        bool      instancedStatic = true; // Solid static meshes and projectiles. Wire and points stay immediate.
         bool      aces        = false; // Narkowicz display curve on HDR tonemap
         bool      motionBlur  = true;
         bool      taa         = true;

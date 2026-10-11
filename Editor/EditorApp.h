@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Application.h"
+#include "Render/DrawList.h"
 #include "Render/Mesh.h"
 #include "Render/LineMesh.h"
 #include "Assets/Model.h"
@@ -292,6 +293,7 @@ private:
     LinePipeline    m_linePipeline3D;
 
     Mesh m_cubeMesh;
+    DrawList m_drawList;
     Mesh m_sphereMesh;
     Mesh m_groundMesh;
     LineMesh m_gridMesh;
