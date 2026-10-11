@@ -2,6 +2,7 @@
 #include "Render/Renderer.h"
 #include "Core/Log.h"
 
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <iterator>
@@ -100,8 +101,22 @@ namespace Dark
 			out.m_ibv.BufferLocation = out.m_ib->GetGPUVirtualAddress();
 			out.m_ibv.Format         = DXGI_FORMAT_R32_UINT;
 			out.m_ibv.SizeInBytes    = static_cast<UINT>(ibBytes);
+			out.m_sortKey            = allocateSortKey();
 			DE_LOG_INFO("Mesh: uploaded {} verts, {} indices (stride {})", out.m_vertexCount, out.m_indexCount, stride);
 			return true;
+	}
+
+	uint32_t Mesh::allocateSortKey()
+	{
+		static std::atomic<uint32_t> next{1};
+		return next.fetch_add(1, std::memory_order_relaxed);
+	}
+
+	Mesh Mesh::takeSortIdentity()
+	{
+		Mesh mesh;
+		mesh.m_sortKey = allocateSortKey();
+		return mesh;
 	}
 
 	uint32_t packBlendWeightsUnorm8(float w0, float w1, float w2, float w3)

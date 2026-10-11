@@ -69,12 +69,22 @@ namespace Dark
             return m_vb != nullptr && m_indexCount > 0;
         }
 
+        // 0 until tryCreate or tryCreateSkinned uploads. Process-local, not a pointer.
+        uint32_t sortKey() const
+        {
+            return m_sortKey;
+        }
+
+        // Same id counter as a successful upload, without creating GPU buffers.
+        static Mesh takeSortIdentity();
+
         // Hands default-heap buffers to the renderer. tryCreate returns before the
         // copy queue finishes, so dropping a Mesh immediately deletes them early.
         void deferRelease(Renderer& renderer);
 
     private:
         static bool uploadBuffers(Renderer& renderer, const void* verts, uint64_t vbBytes, uint32_t stride, const uint32_t* indices, uint32_t indexCount, Mesh& out);
+        static uint32_t allocateSortKey();
 
         ComPtr<ID3D12Resource>   m_vb;
         ComPtr<ID3D12Resource>   m_ib;
@@ -82,6 +92,7 @@ namespace Dark
         D3D12_INDEX_BUFFER_VIEW  m_ibv{};
         uint32_t                 m_indexCount  = 0;
         uint32_t                 m_vertexCount = 0;
+        uint32_t                 m_sortKey     = 0;
     };
 
     // Keep a Mesh's GPU buffers alive for a few frames after swap-out so the
