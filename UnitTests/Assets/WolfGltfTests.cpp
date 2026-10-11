@@ -2,10 +2,14 @@
 
 #include "Animation/AnimGraph.h"
 #include "Animation/AnimGraphJson.h"
+#include "Animation/AnimSampler.h"
 #include "Animation/AnimationSet.h"
 #include "Assets/GltfLoader.h"
 #include "Core/ContentRoots.h"
+#include "Math/Vector4f.h"
 
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -100,4 +104,77 @@ TEST(WolfGltf, GraphBindsClips)
     EXPECT_TRUE(hasState(def, "Bite"));
     EXPECT_TRUE(hasState(def, "Jump"));
     EXPECT_TRUE(hasState(def, "Die"));
+}
+
+TEST(WolfGltf, DieLiesOnTheGround)
+{
+    // Wolf origin is the hips, held 1 m above the terrain, so model y = -1 is the ground.
+    const auto gltf = findContentFile("models/wolf.gltf");
+    ASSERT_FALSE(gltf.empty());
+
+    GltfCpuModel cpu;
+    ASSERT_TRUE(parseGltfFile(gltf, cpu));
+    ASSERT_FALSE(cpu.primitives.empty());
+    const MeshData& mesh = cpu.primitives[0].mesh;
+    ASSERT_EQ(mesh.positions.size(), mesh.jointPacked.size());
+    ASSERT_EQ(mesh.positions.size(), mesh.weights.size());
+
+    const AnimationClip* die = nullptr;
+    for (const AnimationClip& clip : cpu.clips)
+    {
+        if (clip.name == "Die")
+            die = &clip;
+    }
+    ASSERT_NE(die, nullptr);
+
+    const uint32_t n = static_cast<uint32_t>(cpu.skeleton.joints.size());
+    ASSERT_GT(n, 0u);
+    ASSERT_LE(n, AnimPose::kMaxBones);
+
+    auto spanAt = [&](float time, float& outMinY, float& outMaxY) -> bool {
+        Math::Vector3f   T[AnimPose::kMaxBones];
+        Math::Quaternion R[AnimPose::kMaxBones];
+        Math::Vector3f   S[AnimPose::kMaxBones];
+        if (!sampleClipLocal(*die, cpu.skeleton, time, T, R, S))
+            return false;
+        AnimPose pose;
+        localToPalette(cpu.skeleton, T, R, S, pose);
+        float minY = 1.0e9f;
+        float maxY = -1.0e9f;
+        for (size_t i = 0; i < mesh.positions.size(); ++i)
+        {
+            const uint32_t packed = mesh.jointPacked[i];
+            const Math::Vector4f w = mesh.weights[i];
+            const float wk[4] = { w.x, w.y, w.z, w.w };
+            const Math::Vector4f hp(mesh.positions[i], 1.0f);
+            float y = 0.0f;
+            for (int k = 0; k < 4; ++k)
+            {
+                if (wk[k] <= 0.0f)
+                    continue;
+                const uint32_t j = (packed >> (8 * k)) & 255u;
+                if (j >= n)
+                    return false;
+                y += wk[k] * (pose.palette[j] * hp).y;
+            }
+            minY = std::min(minY, y);
+            maxY = std::max(maxY, y);
+        }
+        outMinY = minY;
+        outMaxY = maxY;
+        return true;
+    };
+
+    float standMin = 0.0f;
+    float standMax = 0.0f;
+    ASSERT_TRUE(spanAt(0.0f, standMin, standMax));
+    EXPECT_GT(standMax, 0.2f);
+    EXPECT_GT(standMin, -0.7f);
+
+    float layMin = 0.0f;
+    float layMax = 0.0f;
+    ASSERT_TRUE(spanAt(die->duration, layMin, layMax));
+    EXPECT_NEAR(layMin, -1.0f, 0.08f);
+    EXPECT_LT(layMax, -0.45f);
+    EXPECT_LT(layMax - layMin, 0.45f);
 }

@@ -24,6 +24,8 @@
 namespace Dark
 {
 
+    static_assert(kProfileGpuSlots == Renderer::kFrameCount, "timestamp slots match the swap-chain frame count");
+
     namespace
     {
         bool checkHr(HRESULT hr, const char* what)
@@ -149,6 +151,7 @@ namespace Dark
     Renderer::~Renderer()
     {
         waitForGpu();
+        profileTimersShutdown();
         if (m_copyQueue && m_copyFence)
         {
             const UINT64 v = m_copyFenceValue;
@@ -354,6 +357,8 @@ namespace Dark
         updateViewport();
 
         m_gpuResources = std::make_unique<GpuResourceCache>(*this);
+        if (!profileTimersInit(m_device.Get(), m_commandQueue.Get()))
+            DE_LOG_WARN(LogCategory::Render, "GPU timestamp queries unavailable; profiler GPU times stay empty");
         profileStartup();
         DE_LOG_INFO(LogCategory::Render, "Renderer: D3D12 ready ({}x{}, {} buffers)", m_width, m_height, kFrameCount);
         return true;
@@ -592,6 +597,8 @@ namespace Dark
         m_commandList->ClearRenderTargetView(rtv, m_clearColor, 0, nullptr);
         m_commandList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, depthClearValue(), 0, 0, nullptr);
 
+        // The slot's previous submission has been waited out in moveToNextFrame.
+        profileTimersBeginFrame(m_frameIndex, m_commandList.Get());
         profileCpuBegin("Frame", ProfileColor::Frame);
         profileGpuBegin(m_commandList.Get(), "Frame", ProfileColor::Frame);
         m_profileFrame = true;
@@ -706,6 +713,7 @@ namespace Dark
         barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
         m_commandList->ResourceBarrier(1, &barrier);
         closeProfileFrame();
+        profileTimersResolve(m_commandList.Get());
 
         if (!checkHr(m_commandList->Close(), "CommandList Close"))
             return false;

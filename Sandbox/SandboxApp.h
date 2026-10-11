@@ -70,10 +70,11 @@ private:
     void handleNetHotkeys();
     void applyNetRole();
     void drawDevTools();
+    void drawProfiler();
     void drawInventory();
     void drawArmorHud();
     void drawPickupLabels();
-    bool uiOpen() const { return m_showDevTools || m_showInventory || m_lootTarget.valid(); }
+    bool uiOpen() const { return m_showDevTools || m_showInventory || m_showProfiler || m_lootTarget.valid(); }
     void drawLoot();
     int  giveItem(Dark::InventoryComponent& inv, const Dark::ItemStack& item);
     void stockHunter(Dark::Entity hunter);
@@ -285,6 +286,7 @@ private:
     bool          m_showSkeleton   = false;
     bool          m_showDevTools   = false;
     bool          m_showInventory  = false;
+    bool          m_showProfiler   = false;
     Dark::Entity  m_lootTarget{};
     std::unordered_set<uint32_t> m_lootDropped;
     const Dark::ItemDef* m_wornArmor[static_cast<int>(Dark::EquipSlot::Count)]{};

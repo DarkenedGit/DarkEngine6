@@ -20,6 +20,7 @@
 #include "Network/NetTypes.h"
 #include "Math/MathDefines.h"
 #include "Render/DebugRenderState.h"
+#include "Render/Profile.h"
 #include "Render/ScenePath.h"
 #include "Sky/Environment.h"
 
@@ -428,13 +429,83 @@ void SandboxApp::drawNpcInfoOverlay()
     });
 }
 
+void SandboxApp::drawProfiler()
+{
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+    const ImVec2           display = ImGui::GetIO().DisplaySize;
+    const float            height  = display.y > 240.0f ? display.y * 0.62f : 480.0f;
+    ImGui::SetNextWindowPos(ImVec2(display.x - 16.0f, 16.0f), ImGuiCond_FirstUseEver, ImVec2(1.0f, 0.0f));
+    ImGui::SetNextWindowSize(ImVec2(440.0f, height), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Profiler", &m_showProfiler, flags))
+    {
+        ImGui::End();
+        return;
+    }
+
+    const ProfileSnapshot& snap = profileSnapshot();
+    ImGui::Text("%.1f fps", static_cast<double>(snap.fps));
+    ImGui::SameLine(0.0f, 16.0f);
+    ImGui::Text("frame %.2f ms", static_cast<double>(snap.frameMs));
+    ImGui::Text("CPU %.2f ms", static_cast<double>(snap.cpuMs));
+    ImGui::SameLine(0.0f, 16.0f);
+    if (snap.gpuValid)
+        ImGui::Text("GPU %.2f ms", static_cast<double>(snap.gpuMs));
+    else
+        ImGui::TextUnformatted("GPU --");
+    ImGui::TextDisabled("PIX groups. GPU time lags by a frame or two. P hides.");
+    ImGui::Separator();
+
+    const ImGuiTableFlags tableFlags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp
+        | ImGuiTableFlags_PadOuterX;
+    if (ImGui::BeginTable("pix_groups", 3, tableFlags, ImVec2(0.0f, ImGui::GetContentRegionAvail().y)))
+    {
+        ImGui::TableSetupColumn("PIX group", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("CPU ms", ImGuiTableColumnFlags_WidthFixed, 72.0f);
+        ImGui::TableSetupColumn("GPU ms", ImGuiTableColumnFlags_WidthFixed, 72.0f);
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableHeadersRow();
+
+        for (uint32_t i = 0; i < snap.rangeCount; ++i)
+        {
+            const ProfileRange& range = snap.ranges[i];
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            const unsigned depth = range.depth > 8 ? 8u : range.depth;
+            if (depth > 0)
+            {
+                ImGui::Dummy(ImVec2(static_cast<float>(depth) * 12.0f, ImGui::GetTextLineHeight()));
+                ImGui::SameLine(0.0f, 0.0f);
+            }
+            const ImVec2 sw = ImGui::GetCursorScreenPos();
+            const float  lh = ImGui::GetTextLineHeight();
+            const unsigned r = (range.color >> 16) & 255u;
+            const unsigned g = (range.color >> 8) & 255u;
+            const unsigned b = range.color & 255u;
+            ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(sw.x, sw.y + 2.0f), ImVec2(sw.x + 8.0f, sw.y + lh - 1.0f), IM_COL32(r, g, b, 255), 1.0f);
+            ImGui::Dummy(ImVec2(8.0f, lh));
+            ImGui::SameLine(0.0f, 6.0f);
+            ImGui::TextUnformatted(range.name[0] != '\0' ? range.name : "(unnamed)");
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%.3f", static_cast<double>(range.cpuMs));
+            ImGui::TableSetColumnIndex(2);
+            if (range.gpuMs < 0.0f)
+                ImGui::TextUnformatted("--");
+            else
+                ImGui::Text("%.3f", static_cast<double>(range.gpuMs));
+        }
+        ImGui::EndTable();
+    }
+    ImGui::End();
+}
+
 void SandboxApp::drawPauseOverlay()
 {
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings
         | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
     ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x * 0.5f, 16.0f), ImGuiCond_Always, ImVec2(0.5f, 0.0f));
     if (ImGui::Begin("##pausedBanner", nullptr, flags))
-        ImGui::TextUnformatted("PAUSED  fly cam  WASD move  Q/Space up  Z/Ctrl down  Shift sprint  mouse look  O step  P resume");
+        ImGui::TextUnformatted("PAUSED  fly cam  WASD move  Q/Space up  Z/Ctrl down  Shift sprint  mouse look  O step  F3 resume");
     ImGui::End();
 }
 
@@ -454,7 +525,7 @@ void SandboxApp::drawDevTools()
         DE_LOG_INFO("Sandbox: gameplay paused = {}", m_gameplayPaused);
     }
     ImGui::SameLine();
-    ImGui::TextDisabled("P");
+    ImGui::TextDisabled("F3");
     ImGui::BeginDisabled(!m_gameplayPaused);
     if (ImGui::Button(ICON_FA_FORWARD_STEP "  Step"))
         m_stepGameplay = true;

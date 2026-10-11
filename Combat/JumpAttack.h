@@ -74,6 +74,11 @@ namespace Dark::Combat
         void tickAutonomous(Math::Vector3f& position, float dt, float (*heightAt)(void*, float, float), void* heightUser, float waterY, const Math::Vector3f* targetPos, bool hasTarget, bool& landed,
                             bool& splashed);
 
+        // Gravity step with no homing and no phase change. True when the body
+        // has descended onto groundY + groundOffset. Keeps an in-flight velocity
+        // after cancel(), so a corpse can finish the arc.
+        bool stepFreefall(Math::Vector3f& position, float dt, float groundY);
+
     private:
         void enterLeap();
         void enterRecover();

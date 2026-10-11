@@ -80,7 +80,12 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         if (drawTerrain)
             m_terrain.drawDepth(cmd, &casterFrustum);
         else if (m_showSolid && m_groundMesh.valid())
-            m_groundMesh.draw(cmd);
+        {
+            // CreateGroundPlane(40, 0, 10) is the ±20 square on Y=0.
+            const AABox3f ground(Vector3f(-20.0f, 0.0f, -20.0f), Vector3f(20.0f, 0.0f, 20.0f));
+            if (casterFrustum.Intersects(ground))
+                m_groundMesh.draw(cmd);
+        }
         world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
             if (!isScene3DType(so.type))
                 return;
@@ -89,6 +94,10 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             if (!xf || !mesh || !mesh->valid() || world().get<LocalLightComponent>(e))
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
+            // CreateCube(1) and CreateSphere(0.5) both occupy ±0.5.
+            const AABox3f local(Vector3f(-0.5f, -0.5f, -0.5f), Vector3f(0.5f, 0.5f, 0.5f));
+            if (!casterFrustum.Intersects(local.Transformed(worldMat)))
+                return;
             const Matrix4f wvp      = worldMat * lightViewProj;
             m_shadows.pipeline().setWvp(cmd, wvp.m_afEntry);
             mesh->draw(cmd);
@@ -98,9 +107,13 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                 return;
             const auto* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
-            if (!xf || !model || !model->valid() || !gpu.ensureModel(model))
+            if (!xf || !model || !model->valid())
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
+            if (model->bounds().IsValid() && !casterFrustum.Intersects(model->bounds().Transformed(worldMat)))
+                return;
+            if (!gpu.ensureModel(model))
+                return;
             if (model->skinned())
             {
                 const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));

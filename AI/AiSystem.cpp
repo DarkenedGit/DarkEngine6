@@ -644,6 +644,41 @@ namespace Dark
         }
     }
 
+    void AiSystem::fallDeadAgent(World& world, View& v, float dt, Terrain::TerrainGrid& terrain, const Math::AABox3f* cubes, int cubeCount, const Math::Sphere3f* spheres, int sphereCount)
+    {
+        JumpAttackComponent* jac = world.get<JumpAttackComponent>(v.e);
+        if (!jac || !v.xf)
+            return;
+        Combat::JumpAttack& jump = jac->jump;
+        const float          groundY = terrain.heightAtWorld(v.xf->position.x, v.xf->position.z);
+        const float          feet    = groundY + jump.def().groundOffset;
+        // Still on the stance height. A telegraph death cancels here. An airborne
+        // body is left for the freefall below, including after cancel() which
+        // keeps the leap velocity.
+        if (v.xf->position.y <= feet + 0.15f)
+        {
+            v.xf->position.y = feet;
+            if (jump.busy())
+                cancelJumpAndToken(world, v.e, false);
+            return;
+        }
+
+        const Vector3f before  = v.xf->position;
+        const bool     landed  = jump.stepFreefall(v.xf->position, dt, groundY);
+        sweepSolids(v.xf->position, before, cubes, cubeCount, spheres, sphereCount);
+        if (m_walk.valid() && !m_walk.walkableWorld(v.xf->position.x, v.xf->position.z))
+            walkableBackStep(v.xf->position, Vector3f{ v.xf->position.x - before.x, 0.0f, v.xf->position.z - before.z });
+
+        const float landedFeet = terrain.heightAtWorld(v.xf->position.x, v.xf->position.z) + jump.def().groundOffset;
+        if (landed || v.xf->position.y <= landedFeet)
+        {
+            v.xf->position.y = landedFeet;
+            if (jump.busy())
+                cancelJumpAndToken(world, v.e, false);
+            DE_LOG_INFO(LogCategory::AI, "Hunter: corpse landed");
+        }
+    }
+
     void AiSystem::collectJumpTargets(World& world)
     {
         m_jumpTargets.clear();
@@ -968,6 +1003,8 @@ namespace Dark
             {
                 if (AiAgentComponent* deadAi = world.get<AiAgentComponent>(e))
                     deadAi->planarVelocity = Vect3f::ZERO;
+                if (v.xf && v.health && !v.health->health.alive())
+                    fallDeadAgent(world, v, dt, terrain, cubes, cubeCount, spheres, sphereCount);
                 continue;
             }
 

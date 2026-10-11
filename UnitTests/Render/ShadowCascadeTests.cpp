@@ -96,6 +96,29 @@ TEST(ShadowCascades, BuildCascadeRejectsZeroLight)
     EXPECT_FALSE(buildCascadeMatrix(corners, Vector3f(0.0f, 0.0f, 0.0f), scene, 10.0f, 1024, out));
 }
 
+TEST(ShadowCascades, LightBoxFrustumRejectsABoxOutsideTheSlice)
+{
+    Camera3D cam;
+    cam.SetLens(1.04719755f, 1.6f, 1.0f, 80.0f);
+    cam.LookAt(Vector3f(0.0f, 12.0f, -20.0f), Vector3f(0.0f, 0.0f, 0.0f), Vector3f(0.0f, 1.0f, 0.0f));
+
+    Vector3f corners[8];
+    extractFrustumCorners(cam, 2.0f, 30.0f, corners);
+
+    AABox3f     scene(Vector3f(-40.0f, -5.0f, -40.0f), Vector3f(40.0f, 30.0f, 40.0f));
+    CascadeData out;
+    ASSERT_TRUE(buildCascadeMatrix(corners, Vector3f(0.35f, 0.85f, -0.35f), scene, 40.0f, 1024, out));
+
+    const Frustum3f light(out.viewProj);
+    const AABox3f inside(
+        corners[0] - Vector3f(0.25f, 0.25f, 0.25f),
+        corners[0] + Vector3f(0.25f, 0.25f, 0.25f));
+    EXPECT_TRUE(light.Intersects(inside));
+
+    const AABox3f outside(Vector3f(400.0f, 0.0f, 400.0f), Vector3f(402.0f, 2.0f, 402.0f));
+    EXPECT_FALSE(light.Intersects(outside));
+}
+
 TEST(ShadowCascades, BuildCascadePlacesSliceCenterInClip)
 {
     Camera3D cam;

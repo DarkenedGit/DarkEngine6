@@ -1,0 +1,389 @@
+#include <gtest/gtest.h>
+
+#include "Render/Camera3D.h"
+#include "Render/DrawList.h"
+#include "Render/Frustum3f.h"
+#include "Render/GpuModel.h"
+#include "Render/GpuResourceCache.h"
+#include "Render/PassTable.h"
+
+#include <cstring>
+#include <new>
+#include <vector>
+
+using namespace Dark;
+using namespace Dark::Math;
+
+namespace
+{
+
+RenderItem staticItem(const Mesh& mesh, AssetID material, StaticPopulation population, float red)
+{
+    RenderItem item;
+    item.mesh         = &mesh;
+    item.material     = material;
+    item.population   = population;
+    item.kind         = RenderItemKind::Static;
+    item.worldAabb    = AABox3f::Empty();
+    item.color[0]     = red;
+    item.color[1]     = 1.0f;
+    item.color[2]     = 1.0f;
+    item.color[3]     = 0.0f;
+    return item;
+}
+
+void storeMatrix(float dst[16], const Matrix4f& matrix)
+{
+    for (int i = 0; i < 16; ++i)
+        dst[i] = matrix[i];
+}
+
+Frustum3f cameraFrustum(const Vector3f& eye, const Vector3f& at, float farZ)
+{
+    Camera3D camera;
+    camera.SetLens(1.0f, 1.0f, 0.1f, farZ);
+    camera.LookAt(eye, at, Vector3f(0.0f, 1.0f, 0.0f));
+    return Frustum3f(camera.GetCullViewProj());
+}
+
+const GBufferBatch* batchForMesh(const DrawList& list, const Mesh& mesh)
+{
+    for (uint32_t i = 0; i < list.gbufferBatchCount(); ++i)
+    {
+        if (list.gbufferBatch(i).mesh == &mesh)
+            return &list.gbufferBatch(i);
+    }
+    return nullptr;
+}
+
+const DepthBatch* depthForMesh(const DrawList& list, const Mesh& mesh)
+{
+    for (uint32_t i = 0; i < list.depthBatchCount(); ++i)
+    {
+        if (list.depthBatch(i).mesh == &mesh)
+            return &list.depthBatch(i);
+    }
+    return nullptr;
+}
+
+std::vector<PassId> idsExcept(const PassNode* table, uint32_t count, PassId skip)
+{
+    std::vector<PassId> ids;
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        if (table[i].id != skip)
+            ids.push_back(table[i].id);
+    }
+    return ids;
+}
+
+} // namespace
+
+TEST(DrawList, SortKeyIsProcessLocalNotAnAddress)
+{
+    Mesh blank;
+    EXPECT_EQ(blank.sortKey(), 0u);
+
+    alignas(Mesh) unsigned char storage[2][sizeof(Mesh)];
+    Mesh* higherAddress = new (storage[1]) Mesh(Mesh::takeSortIdentity());
+    Mesh* lowerAddress  = new (storage[0]) Mesh(Mesh::takeSortIdentity());
+    EXPECT_LT(reinterpret_cast<uintptr_t>(lowerAddress), reinterpret_cast<uintptr_t>(higherAddress));
+    EXPECT_NE(higherAddress->sortKey(), 0u);
+    EXPECT_LT(higherAddress->sortKey(), lowerAddress->sortKey());
+    EXPECT_NE(higherAddress->sortKey(), static_cast<uint32_t>(reinterpret_cast<uintptr_t>(higherAddress)));
+    EXPECT_NE(lowerAddress->sortKey(), static_cast<uint32_t>(reinterpret_cast<uintptr_t>(lowerAddress)));
+
+    RenderItem lowKey  = staticItem(*higherAddress, 1, StaticPopulation::OpaqueMeshes, 1.0f);
+    RenderItem highKey = staticItem(*lowerAddress, 1, StaticPopulation::OpaqueMeshes, 1.0f);
+    EXPECT_TRUE(batchKeyLess(batchKeyOf(lowKey), batchKeyOf(highKey)));
+    EXPECT_FALSE(batchKeyLess(batchKeyOf(highKey), batchKeyOf(lowKey)));
+
+    DrawList list;
+    list.beginFrame(0);
+    ASSERT_TRUE(list.submit(highKey));
+    ASSERT_TRUE(list.submit(lowKey));
+    EXPECT_EQ(list.gbufferBatchCount(), 2u);
+    EXPECT_EQ(list.itemAt(0).mesh, higherAddress);
+    EXPECT_EQ(list.itemAt(1).mesh, lowerAddress);
+
+    higherAddress->~Mesh();
+    lowerAddress->~Mesh();
+}
+
+TEST(DrawList, SameMeshAndMaterialIsOneBatch)
+{
+    Mesh cube = Mesh::takeSortIdentity();
+    DrawList list;
+    list.beginFrame(0);
+    ASSERT_TRUE(list.submit(staticItem(cube, 4, StaticPopulation::OpaqueMeshes, 0.2f)));
+    ASSERT_TRUE(list.submit(staticItem(cube, 4, StaticPopulation::OpaqueMeshes, 0.8f)));
+    ASSERT_TRUE(list.submit(staticItem(cube, 4, StaticPopulation::Projectiles, 0.8f)));
+
+    EXPECT_EQ(list.gbufferBatchCount(), 2u);
+    const GBufferBatch& cubes = list.gbufferBatch(0);
+    EXPECT_EQ(cubes.itemCount, 2u);
+    EXPECT_EQ(cubes.key.population, static_cast<uint32_t>(StaticPopulation::OpaqueMeshes));
+    EXPECT_EQ(cubes.key.meshKey, cube.sortKey());
+    EXPECT_FLOAT_EQ(list.itemAt(cubes.itemBegin).color[0], 0.2f);
+    EXPECT_FLOAT_EQ(list.itemAt(cubes.itemBegin + 1).color[0], 0.8f);
+    EXPECT_EQ(list.gbufferBatch(1).key.population, static_cast<uint32_t>(StaticPopulation::Projectiles));
+    EXPECT_EQ(list.gbufferBatch(1).key.meshKey, cube.sortKey());
+}
+
+TEST(DrawList, MaskedAndOpaqueShareOneDepthPrefix)
+{
+    Mesh meshA = Mesh::takeSortIdentity();
+    Mesh meshB = Mesh::takeSortIdentity();
+    DrawList list;
+    list.beginFrame(0);
+    RenderItem masked = staticItem(meshA, 2, StaticPopulation::OpaqueMeshes, 1.0f);
+    masked.alphaMask  = true;
+    RenderItem other  = staticItem(meshB, 1, StaticPopulation::OpaqueMeshes, 1.0f);
+    RenderItem opaque = staticItem(meshA, 3, StaticPopulation::OpaqueMeshes, 1.0f);
+    ASSERT_TRUE(list.submit(masked));
+    ASSERT_TRUE(list.submit(other));
+    ASSERT_TRUE(list.submit(opaque));
+
+    EXPECT_EQ(list.gbufferBatchCount(), 3u);
+    const GBufferBatch* aOpaque = nullptr;
+    const GBufferBatch* aMasked = nullptr;
+    for (uint32_t i = 0; i < list.gbufferBatchCount(); ++i)
+    {
+        const GBufferBatch& batch = list.gbufferBatch(i);
+        if (batch.mesh != &meshA)
+            continue;
+        if (batch.key.alphaMask == 0)
+            aOpaque = &batch;
+        else
+            aMasked = &batch;
+    }
+    ASSERT_NE(aOpaque, nullptr);
+    ASSERT_NE(aMasked, nullptr);
+    EXPECT_EQ(aMasked->itemCount, 1u);
+    EXPECT_EQ(aOpaque->itemCount, 1u);
+    EXPECT_LT(aOpaque->itemBegin, aMasked->itemBegin);
+
+    const DepthBatch* depthA = depthForMesh(list, meshA);
+    ASSERT_NE(depthA, nullptr);
+    EXPECT_EQ(depthA->itemBegin, aOpaque->itemBegin);
+    EXPECT_EQ(depthA->itemCount, aOpaque->itemCount + aMasked->itemCount);
+    const DepthBatch* depthB = depthForMesh(list, meshB);
+    ASSERT_NE(depthB, nullptr);
+    EXPECT_EQ(depthB->itemCount, 1u);
+}
+
+TEST(DrawList, StableMeshRunsKeepSubmissionOrder)
+{
+    Mesh cube  = Mesh::takeSortIdentity();
+    Mesh sphere = Mesh::takeSortIdentity();
+    Mesh cross = Mesh::takeSortIdentity();
+    DrawList list;
+    list.beginFrame(0);
+    ASSERT_TRUE(list.submit(staticItem(cube, 1, StaticPopulation::OpaqueMeshes, 0.1f)));
+    ASSERT_TRUE(list.submit(staticItem(sphere, 1, StaticPopulation::OpaqueMeshes, 0.2f)));
+    ASSERT_TRUE(list.submit(staticItem(cross, 1, StaticPopulation::OpaqueMeshes, 0.3f)));
+    ASSERT_TRUE(list.submit(staticItem(cube, 1, StaticPopulation::OpaqueMeshes, 0.4f)));
+
+    EXPECT_EQ(list.gbufferBatchCount(), 3u);
+    const GBufferBatch* cubes = batchForMesh(list, cube);
+    ASSERT_NE(cubes, nullptr);
+    EXPECT_EQ(cubes->itemCount, 2u);
+    EXPECT_FLOAT_EQ(list.itemAt(cubes->itemBegin).color[0], 0.1f);
+    EXPECT_FLOAT_EQ(list.itemAt(cubes->itemBegin + 1).color[0], 0.4f);
+    EXPECT_EQ(batchForMesh(list, sphere)->itemCount, 1u);
+    EXPECT_EQ(batchForMesh(list, cross)->itemCount, 1u);
+    EXPECT_LT(cubes->itemBegin, batchForMesh(list, sphere)->itemBegin);
+    EXPECT_LT(batchForMesh(list, sphere)->itemBegin, batchForMesh(list, cross)->itemBegin);
+}
+
+TEST(DrawList, WorldAabbCullKeepsInvalidBoxes)
+{
+    Mesh cube   = Mesh::takeSortIdentity();
+    Mesh sphere = Mesh::takeSortIdentity();
+    const AABox3f local(Vector3f(-0.5f, -0.5f, -0.5f), Vector3f(0.5f, 0.5f, 0.5f));
+    const Matrix4f placed = Matrix4f::TranslationMatrix(0.0f, 0.0f, 8.0f);
+
+    DrawList list;
+    list.beginFrame(0);
+    RenderItem cubeItem = staticItem(cube, 1, StaticPopulation::OpaqueMeshes, 1.0f);
+    cubeItem.worldAabb  = local.Transformed(placed);
+    RenderItem sphereItem = staticItem(sphere, 1, StaticPopulation::OpaqueMeshes, 1.0f);
+    sphereItem.worldAabb = AABox3f::Empty();
+    ASSERT_TRUE(list.submit(cubeItem));
+    ASSERT_TRUE(list.submit(sphereItem));
+
+    const float identity[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+    const Frustum3f aimed = cameraFrustum(Vector3f(0.0f, 0.0f, 4.0f), Vector3f(0.0f, 0.0f, 8.0f), 30.0f);
+    const Frustum3f origin = cameraFrustum(Vector3f(0.0f, 0.0f, 0.0f), Vector3f(0.0f, 0.0f, 1.0f), 2.0f);
+    list.buildView(aimed, identity, identity, RenderPassKind::GBuffer, ViewId{ 0 });
+    list.buildView(origin, identity, identity, RenderPassKind::GBuffer, ViewId{ 1 });
+
+    const uint32_t cubeBatch = 0;
+    const uint32_t sphereBatch = 1;
+    EXPECT_EQ(list.gbufferBatch(cubeBatch).mesh, &cube);
+    EXPECT_EQ(list.gbufferBatch(sphereBatch).mesh, &sphere);
+    EXPECT_EQ(list.visibleCount(ViewId{ 0 }, cubeBatch), 1u);
+    EXPECT_EQ(list.visibleCount(ViewId{ 0 }, sphereBatch), 1u);
+    EXPECT_EQ(list.visibleCount(ViewId{ 1 }, cubeBatch), 0u);
+    EXPECT_EQ(list.visibleCount(ViewId{ 1 }, sphereBatch), 1u);
+}
+
+TEST(DrawList, ShadowViewDoesNotReuseCameraSurvivors)
+{
+    Mesh mesh = Mesh::takeSortIdentity();
+    const AABox3f local(Vector3f(-0.5f, -0.5f, -0.5f), Vector3f(0.5f, 0.5f, 0.5f));
+    DrawList list;
+    list.beginFrame(0);
+    RenderItem nearItem = staticItem(mesh, 1, StaticPopulation::OpaqueModels, 1.0f);
+    nearItem.worldAabb  = local.Transformed(Matrix4f::TranslationMatrix(0.0f, 0.0f, 8.0f));
+    RenderItem farItem  = staticItem(mesh, 1, StaticPopulation::OpaqueModels, 1.0f);
+    farItem.worldAabb   = local.Transformed(Matrix4f::TranslationMatrix(0.0f, 0.0f, 40.0f));
+    ASSERT_TRUE(list.submit(nearItem));
+    ASSERT_TRUE(list.submit(farItem));
+
+    const float identity[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+    const Frustum3f camera = cameraFrustum(Vector3f(0.0f, 0.0f, 0.0f), Vector3f(0.0f, 0.0f, 1.0f), 80.0f);
+    const Frustum3f shadow = cameraFrustum(Vector3f(0.0f, 0.0f, 0.0f), Vector3f(0.0f, 0.0f, 1.0f), 12.0f);
+    list.buildView(camera, identity, identity, RenderPassKind::GBuffer, ViewId{ 0 });
+    list.buildView(shadow, identity, identity, RenderPassKind::Depth, ViewId{ 1 });
+
+    EXPECT_EQ(list.visibleCount(ViewId{ 0 }, 0), 2u);
+    EXPECT_EQ(list.visibleCount(ViewId{ 1 }, 0), 1u);
+    EXPECT_EQ(list.indexAt(ViewId{ 1 }, list.depthBatch(0).itemBegin), 0u);
+}
+
+TEST(DrawList, StaticModelBakesLocalToRootAndRollsBack)
+{
+    const Matrix4f local  = Matrix4f::ScaleMatrixXYZ(2.0f, 0.5f, 4.0f);
+    const Matrix4f entity = Matrix4f::TranslationMatrix(10.0f, -3.0f, 1.0f);
+    const Matrix4f prevEntity = Matrix4f::TranslationMatrix(-4.0f, 0.5f, 0.0f);
+    EXPECT_NE(local * entity, entity * local);
+
+    GpuModel::Part part;
+    part.mesh        = Mesh::takeSortIdentity();
+    part.localToRoot = local;
+    part.materialId  = NULL_ASSET;
+    std::vector<GpuModel::Part> parts;
+    parts.push_back(std::move(part));
+    GpuModel model(std::move(parts), {});
+
+    const AABox3f asset(Vector3f(-0.5f, -0.5f, -0.5f), Vector3f(0.5f, 0.5f, 0.5f));
+    const Matrix4f view = Matrix4f::TranslationMatrix(0.0f, 1.0f, 0.0f);
+    const Matrix4f prevView = Matrix4f::TranslationMatrix(0.0f, 0.0f, 2.0f);
+    float viewF[16];
+    float prevF[16];
+    storeMatrix(viewF, view);
+    storeMatrix(prevF, prevView);
+
+    GpuResourceCache gpu(nullptr);
+    DrawList list;
+    list.beginFrame(2);
+    ASSERT_TRUE(list.submitStaticModel(gpu, model, entity, StaticPopulation::OpaqueModels, true, asset, &prevEntity));
+    const Frustum3f wide = cameraFrustum(Vector3f(0.0f, 0.0f, 0.0f), Vector3f(0.0f, 0.0f, 1.0f), 100.0f);
+    list.buildView(wide, viewF, prevF, RenderPassKind::GBuffer, ViewId{ 0 });
+
+    const RenderItem& item = list.itemAt(0);
+    const Matrix4f baked = local * entity;
+    const Matrix4f bakedPrev = local * prevEntity;
+    for (int i = 0; i < 16; ++i)
+    {
+        EXPECT_FLOAT_EQ(item.world[i], baked[i]);
+        EXPECT_FLOAT_EQ(item.prevWorld[i], bakedPrev[i]);
+        EXPECT_FLOAT_EQ(list.drawViewProj(ViewId{ 0 })[i], viewF[i]);
+        EXPECT_FLOAT_EQ(list.drawPrevViewProj(ViewId{ 0 })[i], prevF[i]);
+    }
+    const AABox3f expectedBox = asset.Transformed(entity);
+    EXPECT_FLOAT_EQ(item.worldAabb.Min.x, expectedBox.Min.x);
+    EXPECT_FLOAT_EQ(item.worldAabb.Min.y, expectedBox.Min.y);
+    EXPECT_FLOAT_EQ(item.worldAabb.Min.z, expectedBox.Min.z);
+    EXPECT_FLOAT_EQ(item.worldAabb.Max.x, expectedBox.Max.x);
+
+    const Vector4f point(0.25f, -0.5f, 0.75f, 1.0f);
+    const Vector4f clip = view * (item.world * point);
+    const Vector4f expectedClip = view * (baked * point);
+    const Vector4f prevClip = prevView * (item.prevWorld * point);
+    const Vector4f expectedPrev = prevView * (bakedPrev * point);
+    for (int i = 0; i < 4; ++i)
+    {
+        EXPECT_NEAR(clip[i], expectedClip[i], 1.0e-5f);
+        EXPECT_NEAR(prevClip[i], expectedPrev[i], 1.0e-5f);
+    }
+
+    DrawList full;
+    full.beginFrame(3);
+    Mesh filler = Mesh::takeSortIdentity();
+    for (uint32_t i = 0; i < kMaxStaticItems - 1; ++i)
+        ASSERT_TRUE(full.submit(staticItem(filler, 1, StaticPopulation::OpaqueMeshes, 1.0f)));
+    GpuModel::Part first;
+    GpuModel::Part second;
+    first.mesh         = Mesh::takeSortIdentity();
+    second.mesh        = Mesh::takeSortIdentity();
+    first.localToRoot  = Matrix4f::IDENTITY;
+    second.localToRoot = Matrix4f::IDENTITY;
+    std::vector<GpuModel::Part> overflow;
+    overflow.push_back(std::move(first));
+    overflow.push_back(std::move(second));
+    GpuModel tooBig(std::move(overflow), {});
+    EXPECT_FALSE(full.submitStaticModel(gpu, tooBig, Matrix4f::IDENTITY, StaticPopulation::OpaqueModels, true, AABox3f::Empty(), nullptr));
+    EXPECT_EQ(full.staticCount(), kMaxStaticItems - 1);
+}
+
+TEST(DrawList, TranslucentSortsFartherFirstAndDoesNotBatch)
+{
+    Camera3D camera;
+    camera.SetLens(1.0f, 1.0f, 0.1f, 100.0f);
+    camera.LookAt(Vector3f(0.0f, 0.0f, 0.0f), Vector3f(0.0f, 0.0f, 1.0f), Vector3f(0.0f, 1.0f, 0.0f));
+
+    TranslucentDraw draws[3];
+    draws[0].worldAabb = AABox3f(Vector3f(-0.5f, -0.5f, 1.5f), Vector3f(0.5f, 0.5f, 2.5f));
+    draws[0].user      = 0;
+    draws[1].worldAabb = AABox3f(Vector3f(-0.5f, -0.5f, 9.5f), Vector3f(0.5f, 0.5f, 10.5f));
+    draws[1].user      = 1;
+    draws[2].worldAabb = draws[1].worldAabb;
+    draws[2].user      = 2;
+    sortTranslucent(draws, 3, camera.GetView());
+    EXPECT_EQ(draws[0].user, 1u);
+    EXPECT_EQ(draws[1].user, 2u);
+    EXPECT_EQ(draws[2].user, 0u);
+
+    Mesh mesh = Mesh::takeSortIdentity();
+    DrawList list;
+    list.beginFrame(0);
+    RenderItem blend = staticItem(mesh, 1, StaticPopulation::OpaqueModels, 1.0f);
+    blend.kind       = RenderItemKind::Translucent;
+    EXPECT_FALSE(list.submit(blend));
+    EXPECT_EQ(list.staticCount(), 0u);
+    EXPECT_EQ(list.gbufferBatchCount(), 0u);
+}
+
+TEST(DrawList, PassSequenceSkipsOptionalAndRejectsReorder)
+{
+    uint32_t deferredCount = 0;
+    const PassNode* deferred = sandboxDeferredPasses(deferredCount);
+    const std::vector<PassId> withoutWater = idsExcept(deferred, deferredCount, PassId::Water);
+    EXPECT_TRUE(passSequenceOk(deferred, deferredCount, withoutWater.data(), static_cast<uint32_t>(withoutWater.size())));
+
+    const std::vector<PassId> withoutGBuffer = idsExcept(deferred, deferredCount, PassId::GBuffer);
+    EXPECT_FALSE(passSequenceOk(deferred, deferredCount, withoutGBuffer.data(), static_cast<uint32_t>(withoutGBuffer.size())));
+
+    std::vector<PassId> swapped = withoutWater;
+    ASSERT_GE(swapped.size(), 2u);
+    std::swap(swapped[0], swapped[1]);
+    const std::vector<PassId> swappedCopy = swapped;
+    EXPECT_FALSE(passSequenceOk(deferred, deferredCount, swapped.data(), static_cast<uint32_t>(swapped.size())));
+    EXPECT_EQ(swapped, swappedCopy);
+
+    uint32_t forwardCount = 0;
+    const PassNode* forward = sandboxForwardPasses(forwardCount);
+    const PassId gbuffer = PassId::GBuffer;
+    EXPECT_FALSE(passSequenceOk(forward, forwardCount, &gbuffer, 1));
+
+    uint32_t editorForwardCount = 0;
+    const PassNode* editorForward = editorForwardPasses(editorForwardCount);
+    const PassId editorOrder[] = { PassId::EditorGrid, PassId::EditorGizmos, PassId::Translucent, PassId::Post };
+    EXPECT_TRUE(passSequenceOk(editorForward, editorForwardCount, editorOrder, 4));
+    PassId editorReversed[] = { PassId::EditorGizmos, PassId::EditorGrid, PassId::Translucent, PassId::Post };
+    const PassId reversedCopy[] = { PassId::EditorGizmos, PassId::EditorGrid, PassId::Translucent, PassId::Post };
+    EXPECT_FALSE(passSequenceOk(editorForward, editorForwardCount, editorReversed, 4));
+    EXPECT_EQ(std::memcmp(editorReversed, reversedCopy, sizeof(reversedCopy)), 0);
+}
