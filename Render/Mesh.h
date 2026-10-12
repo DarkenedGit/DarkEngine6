@@ -54,7 +54,7 @@ namespace Dark
         // pointList: POINTLIST + DrawInstanced(vertexCount). Shadow capture
         // must keep the default (indexed triangle list).
         void draw(ID3D12GraphicsCommandList* cmd, bool pointList = false) const;
-        void drawInstanced(ID3D12GraphicsCommandList* cmd, uint32_t instanceCount) const;
+        void drawInstanced(ID3D12GraphicsCommandList* cmd, uint32_t instanceCount, uint32_t startInstance = 0) const;
         void drawIndirect(ID3D12GraphicsCommandList* cmd, ID3D12CommandSignature* signature, ID3D12Resource* args, UINT64 argOffset) const;
 
         uint32_t indexCount() const

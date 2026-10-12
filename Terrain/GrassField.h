@@ -6,8 +6,31 @@
 #include <unordered_map>
 #include <vector>
 
+namespace Dark
+{
+    class Frustum3f;
+}
+
 namespace Dark::Terrain
 {
+    // Resident 8 m tile. minY/maxY are blade roots. The caller pads height and wind lean.
+    struct GrassTileVolume
+    {
+        int      lod      = 0;
+        int      tileX    = 0;
+        int      tileZ    = 0;
+        uint32_t begin    = 0;
+        uint32_t count    = 0;
+        uint32_t windSlot = 0;
+        float    minY     = 0.0f;
+        float    maxY     = 0.0f;
+    };
+
+    // Keeps a tile when its padded box meets the frustum, and copies the whole blade span.
+    // fade <= 0 is past the draw distance and is dropped. A partial overlap still draws every blade.
+    uint32_t selectVisibleGrassTiles(const GrassTileVolume* tiles, uint32_t tileCount, const GrassTileWind* wind, uint32_t windCount, const Frustum3f& frustum,
+                                     float horizontalPad, float verticalPad, GrassTileDraw* out, uint32_t cap);
+
     class TerrainGrid;
 
     struct GrassPlayerSample
@@ -48,6 +71,8 @@ namespace Dark::Terrain
         // Bit 0 is frame slot 0, bit 1 is frame slot 1. removeSpan and append set both.
         uint8_t   lodStaleMask(int lod) const;
         void      clearLodStale(int lod, uint32_t frameSlot);
+        // Tiles whose 8 m square meets the frustum. Each draw is that tile's full blade span.
+        uint32_t  visibleTiles(const Frustum3f& frustum, GrassTileDraw* out, uint32_t cap) const;
         BladeSpan tileBlades(int tileX, int tileZ) const;
         int       residentLod(int tileX, int tileZ) const;
         uint32_t  residentTileCount() const { return static_cast<uint32_t>(m_tiles.size()); }
@@ -71,6 +96,8 @@ namespace Dark::Terrain
             uint32_t windSlot = 0;
             uint32_t begin    = 0;
             uint32_t count    = 0;
+            float    minY     = 0.0f;
+            float    maxY     = 0.0f;
             bool     dirty    = false;
             uint64_t kept[64]{};
         };

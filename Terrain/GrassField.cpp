@@ -1,8 +1,10 @@
 #include "Terrain/GrassField.h"
 
 #include "Core/Log.h"
+#include "Math/AABox3f.h"
 #include "Math/MathHelper.h"
 #include "Math/Vector3f.h"
+#include "Render/Frustum3f.h"
 #include "Terrain/GrassBend.h"
 #include "Terrain/GrassWind.h"
 #include "Terrain/TerrainGen.h"
@@ -24,12 +26,33 @@ namespace Dark::Terrain
         constexpr float    kRockWeightMax   = 0.55f;
         constexpr float    kSnowWeightMax   = 0.45f;
         constexpr float    kNormalYMin      = 0.80f;
-        constexpr float    kRootLiftMetres  = 0.015f;
+        constexpr float    kRootLiftMetres    = 0.015f;
+        constexpr float    kGrassHeightMulMax = 1.30f;
         constexpr int      kDemoteBudget    = 8;
         constexpr int      kGenerateBudget  = 4;
         constexpr int      kGenerateWarm    = 8;
         static_assert(kGrassFrameSlots == 2, "lod stale mask is two frame slots");
         constexpr float    kWarmRadius      = 48.0f;
+
+        void storeRootHeight(const std::vector<GrassBlade>& blades, float& minY, float& maxY)
+        {
+            if (blades.empty())
+            {
+                minY = 0.0f;
+                maxY = 0.0f;
+                return;
+            }
+            minY = blades[0].y;
+            maxY = blades[0].y;
+            for (size_t i = 1; i < blades.size(); ++i)
+            {
+                const float y = blades[i].y;
+                if (y < minY)
+                    minY = y;
+                if (y > maxY)
+                    maxY = y;
+            }
+        }
 
         double sq(float metres)
         {
@@ -440,6 +463,66 @@ namespace Dark::Terrain
         m_lodStale[lod] = static_cast<uint8_t>(m_lodStale[lod] | 0x3u);
     }
 
+    uint32_t selectVisibleGrassTiles(const GrassTileVolume* tiles, uint32_t tileCount, const GrassTileWind* wind, uint32_t windCount, const Frustum3f& frustum,
+                                     float horizontalPad, float verticalPad, GrassTileDraw* out, uint32_t cap)
+    {
+        if (!tiles || !out || cap == 0)
+            return 0;
+        if (horizontalPad < 0.0f)
+            horizontalPad = 0.0f;
+        if (verticalPad < 0.0f)
+            verticalPad = 0.0f;
+
+        uint32_t written = 0;
+        for (uint32_t i = 0; i < tileCount && written < cap; ++i)
+        {
+            const GrassTileVolume& tile = tiles[i];
+            if (tile.count == 0 || tile.lod < 0 || tile.lod >= kGrassLodCount)
+                continue;
+            if (wind && tile.windSlot < windCount && wind[tile.windSlot].fade <= 0.0f)
+                continue;
+
+            const float originX = static_cast<float>(tile.tileX) * kGrassTileMetres;
+            const float originZ = static_cast<float>(tile.tileZ) * kGrassTileMetres;
+            const Math::AABox3f box(Math::Vector3f{ originX - horizontalPad, tile.minY, originZ - horizontalPad },
+                                    Math::Vector3f{ originX + kGrassTileMetres + horizontalPad, tile.maxY + verticalPad, originZ + kGrassTileMetres + horizontalPad });
+            if (!frustum.Intersects(box))
+                continue;
+
+            GrassTileDraw& draw = out[written++];
+            draw.lod            = tile.lod;
+            draw.begin          = tile.begin;
+            draw.count          = tile.count;
+        }
+        return written;
+    }
+
+    uint32_t GrassField::visibleTiles(const Frustum3f& frustum, GrassTileDraw* out, uint32_t cap) const
+    {
+        if (!out || cap == 0 || m_tiles.empty())
+            return 0;
+
+        const float horizontal = m_params.windTipMetres + kRootLiftMetres;
+        const float vertical   = m_params.heightMetres * kGrassHeightMulMax;
+        uint32_t    written    = 0;
+        for (const Tile& tile : m_tiles)
+        {
+            if (written >= cap)
+                break;
+            GrassTileVolume volume{};
+            volume.lod      = tile.lod;
+            volume.tileX    = tile.tileX;
+            volume.tileZ    = tile.tileZ;
+            volume.begin    = tile.begin;
+            volume.count    = tile.count;
+            volume.windSlot = tile.windSlot;
+            volume.minY     = tile.minY;
+            volume.maxY     = tile.maxY;
+            written += selectVisibleGrassTiles(&volume, 1, tileWind(), tileWindCount(), frustum, horizontal, vertical, out + written, cap - written);
+        }
+        return written;
+    }
+
     GrassField::BladeSpan GrassField::tileBlades(int tileX, int tileZ) const
     {
         BladeSpan   span;
@@ -634,7 +717,7 @@ namespace Dark::Terrain
         out.x         = worldX + normal.x * kRootLiftMetres;
         out.y         = surfaceY + normal.y * kRootLiftMetres;
         out.z         = worldZ + normal.z * kRootLiftMetres;
-        out.heightMul = Math::Lerp(0.70f, 1.30f, hash21(i, 3, tileSeed));
+        out.heightMul = Math::Lerp(0.70f, kGrassHeightMulMax, hash21(i, 3, tileSeed));
         out.flexMul   = Math::Lerp(0.80f, 1.20f, hash21(i, 4, tileSeed));
         out.phase     = hash21(i, 5, tileSeed) * 2.0f - 1.0f;
         out.yaw       = hash21(i, 6, tileSeed) * Math::TwoPi;
@@ -712,6 +795,7 @@ namespace Dark::Terrain
         placed.count = newCount;
         placed.dirty = clearDirty ? false : wasDirty;
         std::memcpy(placed.kept, newBits, sizeof(placed.kept));
+        storeRootHeight(m_scratch, placed.minY, placed.maxY);
         return true;
     }
 
@@ -760,6 +844,7 @@ namespace Dark::Terrain
         tile.begin    = appendBlades(lod, m_scratch.data(), count);
         tile.count    = count;
         tile.dirty    = false;
+        storeRootHeight(m_scratch, tile.minY, tile.maxY);
         std::memcpy(tile.kept, bits, sizeof(tile.kept));
 
         const uint32_t index = static_cast<uint32_t>(m_tiles.size());

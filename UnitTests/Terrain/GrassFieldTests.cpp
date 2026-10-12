@@ -2,6 +2,8 @@
 
 #include "Math/MathHelper.h"
 #include "Math/Vector3f.h"
+#include "Render/Camera3D.h"
+#include "Render/Frustum3f.h"
 #include "Terrain/GrassBend.h"
 #include "Terrain/GrassField.h"
 #include "Terrain/GrassWind.h"
@@ -937,4 +939,82 @@ TEST(GrassField, ResetMarksLodThatHadBlades)
 
     field.update(grid, 4.0f, 4.0f, 2.0, -1000.0f);
     EXPECT_EQ(field.lodStaleMask(0), 0x3u);
+}
+
+TEST(GrassField, TileCullKeepsWholeSpan)
+{
+    GrassTileVolume tiles[3]{};
+    tiles[0].lod      = 0;
+    tiles[0].tileX    = 0;
+    tiles[0].tileZ    = 0;
+    tiles[0].begin    = 10;
+    tiles[0].count    = 100;
+    tiles[0].windSlot = 0;
+    tiles[0].minY     = 0.0f;
+    tiles[0].maxY     = 0.2f;
+
+    tiles[1]          = tiles[0];
+    tiles[1].tileZ    = -3;
+    tiles[1].begin    = 200;
+    tiles[1].count    = 50;
+    tiles[1].windSlot = 1;
+
+    tiles[2]          = tiles[0];
+    tiles[2].tileX    = 8;
+    tiles[2].begin    = 300;
+    tiles[2].count    = 7;
+    tiles[2].windSlot = 2;
+
+    GrassTileWind wind[3]{};
+    wind[0].fade = 1.0f;
+    wind[1].fade = 1.0f;
+    wind[2].fade = 1.0f;
+
+    Dark::Camera3D camera;
+    camera.SetLens(1.0f, 1.0f, 0.1f, 80.0f);
+    camera.LookAt(Vector3f(4.0f, 2.0f, -4.0f), Vector3f(4.0f, 2.0f, 8.0f), Vector3f(0.0f, 1.0f, 0.0f));
+    const Dark::Frustum3f frustum(camera.GetCullViewProj());
+
+    GrassTileDraw draws[4]{};
+    const uint32_t n = selectVisibleGrassTiles(tiles, 3, wind, 3, frustum, 0.0f, 1.0f, draws, 4);
+    ASSERT_EQ(n, 1u);
+    EXPECT_EQ(draws[0].lod, 0);
+    EXPECT_EQ(draws[0].begin, 10u);
+    EXPECT_EQ(draws[0].count, 100u);
+
+    camera.LookAt(Vector3f(4.0f, 2.0f, 2.0f), Vector3f(4.0f, 2.0f, 12.0f), Vector3f(0.0f, 1.0f, 0.0f));
+    const Dark::Frustum3f cutting(camera.GetCullViewProj());
+    const uint32_t        cut = selectVisibleGrassTiles(tiles, 1, wind, 3, cutting, 0.0f, 1.0f, draws, 4);
+    ASSERT_EQ(cut, 1u);
+    EXPECT_EQ(draws[0].count, 100u);
+    EXPECT_EQ(draws[0].begin, 10u);
+
+    wind[0].fade = 0.0f;
+    EXPECT_EQ(selectVisibleGrassTiles(tiles, 1, wind, 3, frustum, 0.0f, 1.0f, draws, 4), 0u);
+}
+
+TEST(GrassField, VisibleTilesUseRootHeight)
+{
+    TerrainGrid grid;
+    ASSERT_TRUE(makeGrid(grid, 9, Vector3f(0.0f, 0.0f, 0.0f), 20.0f, 0, 255, 0, 0, true));
+    GrassField field;
+    enable(field, 1337u);
+    field.update(grid, 4.0f, 4.0f, 0.0, -1000.0f);
+    ASSERT_GT(field.blades(0).count, 0u);
+
+    Dark::Camera3D low;
+    low.SetLens(1.0f, 1.0f, 0.1f, 40.0f);
+    low.LookAt(Vector3f(4.0f, 2.0f, -6.0f), Vector3f(4.0f, 2.0f, 4.0f), Vector3f(0.0f, 1.0f, 0.0f));
+    GrassTileDraw lowDraws[4]{};
+    EXPECT_EQ(field.visibleTiles(Dark::Frustum3f(low.GetCullViewProj()), lowDraws, 4), 0u);
+
+    Dark::Camera3D high;
+    high.SetLens(1.0f, 1.0f, 0.1f, 40.0f);
+    high.LookAt(Vector3f(4.0f, 21.0f, -6.0f), Vector3f(4.0f, 20.2f, 4.0f), Vector3f(0.0f, 1.0f, 0.0f));
+    GrassTileDraw highDraws[4]{};
+    const uint32_t n = field.visibleTiles(Dark::Frustum3f(high.GetCullViewProj()), highDraws, 4);
+    ASSERT_EQ(n, 1u);
+    EXPECT_EQ(highDraws[0].lod, 0);
+    EXPECT_EQ(highDraws[0].begin, 0u);
+    EXPECT_EQ(highDraws[0].count, field.blades(0).count);
 }

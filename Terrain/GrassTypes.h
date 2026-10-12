@@ -105,6 +105,14 @@ namespace Dark::Terrain
     static_assert(offsetof(GrassFrameConstants, footprint) == 272, "grass cb footprint");
     static_assert(offsetof(GrassFrameConstants, prevFootprint) == 400, "grass cb prev footprint");
 
+    // One instanced draw. begin/count are a contiguous span in that LOD's blade buffer.
+    struct GrassTileDraw
+    {
+        int      lod   = 0;
+        uint32_t begin = 0;
+        uint32_t count = 0;
+    };
+
     constexpr int      kGrassLodCount   = 4;
     constexpr uint32_t kGrassFrameSlots = 2u;
     constexpr uint32_t kGrassBladeCap   = 1048576u;

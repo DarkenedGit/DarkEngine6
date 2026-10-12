@@ -4363,9 +4363,11 @@ void SandboxApp::onRender()
                     grassLods[lod].count             = span.count;
                     grassLods[lod].staleMask         = m_grassField.lodStaleMask(lod);
                 }
+                constexpr uint32_t kGrassTileCap = kGrassLod0Tiles + kGrassLod1Tiles + kGrassLod2Tiles + kGrassLod3Tiles;
+                GrassTileDraw       grassTiles[kGrassTileCap];
+                const uint32_t      grassDraws = m_grassField.visibleTiles(frustum, grassTiles, kGrassTileCap);
                 // This slot has seen the CPU blades. Leave the other slot stale until its fence.
-                if (m_grassPipeline.draw(cmd, renderer(), grassLods, m_grassField.tileWind(), m_grassField.tileWindCount(), grassFrame, frustum,
-                                         renderer().debugState().instancedIndirect))
+                if (m_grassPipeline.draw(cmd, renderer(), grassLods, m_grassField.tileWind(), m_grassField.tileWindCount(), grassFrame, grassTiles, grassDraws))
                 {
                     const uint32_t slot = renderer().frameIndex() % kGrassFrameSlots;
                     for (int lod = 0; lod < kGrassLodCount; ++lod)
