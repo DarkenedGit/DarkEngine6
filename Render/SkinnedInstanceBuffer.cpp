@@ -8,6 +8,7 @@
 #include "Render/GpuResourceCache.h"
 #include "Render/MaterialSurface.h"
 #include "Render/Mesh.h"
+#include "Render/MeshPipeline.h"
 #include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
 
@@ -116,6 +117,24 @@ namespace Dark
             cb.alphaModeMask = surface.alphaModeMask;
         }
 
+        void fillForwardScalars(GpuResourceCache& gpu, AssetID material, MeshForwardBatchConstants& cb)
+        {
+            MeshGBufferConstants surface{};
+            if (const AssetRef<Material> mat = gpu.cpuMaterial(material))
+                applyMaterialSurface(*mat, surface);
+            else
+            {
+                surface.ao            = 1.0f;
+                surface.normalScale   = 1.0f;
+                surface.alphaCutoff   = 0.5f;
+                surface.alphaModeMask = 0.0f;
+            }
+            cb.normalScale   = surface.normalScale;
+            cb.ao            = surface.ao;
+            cb.alphaCutoff   = surface.alphaCutoff;
+            cb.alphaModeMask = surface.alphaModeMask;
+        }
+
     } // namespace
 
     static_assert(sizeof(SkinnedInstanceGpu) == 160u, "skinned instance");
@@ -123,6 +142,7 @@ namespace Dark
     static_assert(sizeof(BonePaletteCB) == 4u * 2048u, "palette chunks");
     static_assert(40u + 1u + 2u + 2u + 2u == 47u, "skinned gbuffer root");
     static_assert(20u + 2u + 2u + 2u == 26u, "skinned depth root");
+    static_assert(36u + 1u + 2u + 2u + 2u + 2u == 45u, "skinned forward root");
     static_assert(SkinnedInstanceBuffer::kFrameSlots == Renderer::kFrameCount, "skinned slots");
 
     struct SkinnedInstanceBuffer::Gpu
@@ -138,14 +158,21 @@ namespace Dark
         ComPtr<ID3D12PipelineState> gbPso;
         ComPtr<ID3D12RootSignature> depthRoot;
         ComPtr<ID3D12PipelineState> depthPso;
+        ComPtr<ID3D12RootSignature> forwardRoot;
+        ComPtr<ID3D12PipelineState> forwardPso;
 
         bool createPipelines(ID3D12Device* device);
+        bool createForward(ID3D12Device* device);
         void bindGBuffer(ID3D12GraphicsCommandList* cmd) const;
         void setGBufferConstants(ID3D12GraphicsCommandList* cmd, const MeshBatchConstants& constants) const;
         void setGBufferBuffers(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS instanceVa, D3D12_GPU_VIRTUAL_ADDRESS indexVa, D3D12_GPU_VIRTUAL_ADDRESS paletteVa) const;
         void bindDepth(ID3D12GraphicsCommandList* cmd) const;
         void setDepthConstants(ID3D12GraphicsCommandList* cmd, const MeshDepthBatchConstants& constants) const;
         void setDepthBuffers(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS instanceVa, D3D12_GPU_VIRTUAL_ADDRESS indexVa, D3D12_GPU_VIRTUAL_ADDRESS paletteVa) const;
+        void bindForward(ID3D12GraphicsCommandList* cmd) const;
+        void setForwardConstants(ID3D12GraphicsCommandList* cmd, const MeshForwardBatchConstants& constants) const;
+        void setForwardBuffers(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS instanceVa, D3D12_GPU_VIRTUAL_ADDRESS indexVa, D3D12_GPU_VIRTUAL_ADDRESS paletteVa) const;
+        void setForwardShadow(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS shadowCbv) const;
     };
 
     bool SkinnedInstanceBuffer::Gpu::createPipelines(ID3D12Device* device)
@@ -321,6 +348,129 @@ namespace Dark
         return true;
     }
 
+    bool SkinnedInstanceBuffer::Gpu::createForward(ID3D12Device* device)
+    {
+        forwardRoot.Reset();
+        forwardPso.Reset();
+        if (!device)
+            return false;
+
+        D3D12_DESCRIPTOR_RANGE srvRange{};
+        srvRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        srvRange.NumDescriptors                    = GpuMaterial::kSrvCount;
+        srvRange.BaseShaderRegister                = 0;
+        srvRange.RegisterSpace                     = 0;
+        srvRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+        D3D12_ROOT_PARAMETER params[6]{};
+        params[SkinnedInstanceBuffer::kForwardConstants].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        params[SkinnedInstanceBuffer::kForwardConstants].ShaderVisibility         = D3D12_SHADER_VISIBILITY_ALL;
+        params[SkinnedInstanceBuffer::kForwardConstants].Constants.ShaderRegister = 0;
+        params[SkinnedInstanceBuffer::kForwardConstants].Constants.RegisterSpace  = 0;
+        params[SkinnedInstanceBuffer::kForwardConstants].Constants.Num32BitValues = static_cast<UINT>(sizeof(MeshForwardBatchConstants) / 4);
+
+        params[SkinnedInstanceBuffer::kForwardMaterial].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        params[SkinnedInstanceBuffer::kForwardMaterial].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
+        params[SkinnedInstanceBuffer::kForwardMaterial].DescriptorTable.NumDescriptorRanges = 1;
+        params[SkinnedInstanceBuffer::kForwardMaterial].DescriptorTable.pDescriptorRanges   = &srvRange;
+
+        params[SkinnedInstanceBuffer::kForwardShadow].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        params[SkinnedInstanceBuffer::kForwardShadow].ShaderVisibility          = D3D12_SHADER_VISIBILITY_PIXEL;
+        params[SkinnedInstanceBuffer::kForwardShadow].Descriptor.ShaderRegister = 1;
+        params[SkinnedInstanceBuffer::kForwardShadow].Descriptor.RegisterSpace  = 0;
+
+        params[SkinnedInstanceBuffer::kForwardInstances].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        params[SkinnedInstanceBuffer::kForwardInstances].ShaderVisibility          = D3D12_SHADER_VISIBILITY_VERTEX;
+        params[SkinnedInstanceBuffer::kForwardInstances].Descriptor.ShaderRegister = 5;
+        params[SkinnedInstanceBuffer::kForwardInstances].Descriptor.RegisterSpace  = 0;
+
+        params[SkinnedInstanceBuffer::kForwardIndices].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        params[SkinnedInstanceBuffer::kForwardIndices].ShaderVisibility          = D3D12_SHADER_VISIBILITY_VERTEX;
+        params[SkinnedInstanceBuffer::kForwardIndices].Descriptor.ShaderRegister = 6;
+        params[SkinnedInstanceBuffer::kForwardIndices].Descriptor.RegisterSpace  = 0;
+
+        params[SkinnedInstanceBuffer::kForwardPalettes].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        params[SkinnedInstanceBuffer::kForwardPalettes].ShaderVisibility          = D3D12_SHADER_VISIBILITY_VERTEX;
+        params[SkinnedInstanceBuffer::kForwardPalettes].Descriptor.ShaderRegister = 7;
+        params[SkinnedInstanceBuffer::kForwardPalettes].Descriptor.RegisterSpace  = 0;
+
+        D3D12_STATIC_SAMPLER_DESC samps[2]{};
+        samps[0].Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        samps[0].AddressU         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        samps[0].AddressV         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        samps[0].AddressW         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        samps[0].MaxLOD           = D3D12_FLOAT32_MAX;
+        samps[0].ShaderRegister   = 0;
+        samps[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+        samps[1].Filter           = D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
+        samps[1].AddressU         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+        samps[1].AddressV         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+        samps[1].AddressW         = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+        samps[1].ComparisonFunc   = shadowCmpFunc();
+        samps[1].BorderColor      = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
+        samps[1].MaxLOD           = D3D12_FLOAT32_MAX;
+        samps[1].ShaderRegister   = 1;
+        samps[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+        D3D12_ROOT_SIGNATURE_DESC desc{};
+        desc.NumParameters     = 6;
+        desc.pParameters       = params;
+        desc.NumStaticSamplers = 2;
+        desc.pStaticSamplers   = samps;
+        desc.Flags             = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+        ComPtr<ID3DBlob> rsBlob;
+        if (!serializeRoot(desc, "D3D12SerializeRootSignature (skinned forward)", rsBlob))
+            return false;
+        if (FailedHr(device->CreateRootSignature(0, rsBlob->GetBufferPointer(), rsBlob->GetBufferSize(), IID_PPV_ARGS(&forwardRoot)),
+                     "CreateRootSignature (skinned forward)"))
+            return false;
+
+        const DXGI_FORMAT colorFormat = meshPassColorFormat(MeshPass::ForwardUnorm);
+        D3D_SHADER_MACRO  encodeMacros[2]{};
+        makeEncodeSrgbMacros(encodeSrgbForColorFormat(colorFormat), encodeMacros);
+        ComPtr<ID3DBlob> vs;
+        ComPtr<ID3DBlob> ps;
+        if (!compileShaderFromContent("shaders/SkinnedMeshForwardInstanced.hlsl", "VSMain", "vs_5_0", vs, encodeMacros)
+            || !compileShaderFromContent("shaders/SkinnedMeshForwardInstanced.hlsl", "PSMain", "ps_5_0", ps, encodeMacros))
+            return false;
+
+        D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
+            { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+            { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+            { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+            { "TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+            { "BLENDINDICES", 0, DXGI_FORMAT_R8G8B8A8_UINT, 0, 48, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+            { "BLENDWEIGHT", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, 52, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        };
+
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC pso{};
+        pso.pRootSignature                                   = forwardRoot.Get();
+        pso.VS                                               = { vs->GetBufferPointer(), vs->GetBufferSize() };
+        pso.PS                                               = { ps->GetBufferPointer(), ps->GetBufferSize() };
+        pso.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+        pso.SampleMask                                       = UINT_MAX;
+        pso.RasterizerState.FillMode                         = D3D12_FILL_MODE_SOLID;
+        pso.RasterizerState.CullMode                         = D3D12_CULL_MODE_BACK;
+        pso.RasterizerState.FrontCounterClockwise            = TRUE;
+        pso.RasterizerState.DepthClipEnable                  = TRUE;
+        pso.DepthStencilState.DepthEnable                    = TRUE;
+        pso.DepthStencilState.DepthWriteMask                 = D3D12_DEPTH_WRITE_MASK_ALL;
+        pso.DepthStencilState.DepthFunc                      = sceneDepthFunc();
+        pso.DepthStencilState.StencilEnable                  = FALSE;
+        pso.InputLayout                                      = { inputLayout, _countof(inputLayout) };
+        pso.PrimitiveTopologyType                            = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        pso.NumRenderTargets                                 = 1;
+        pso.RTVFormats[0]                                    = colorFormat;
+        pso.DSVFormat                                        = DXGI_FORMAT_D32_FLOAT;
+        pso.SampleDesc                                       = { 1, 0 };
+
+        if (FailedHr(device->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&forwardPso)), "CreateGraphicsPipelineState (skinned forward)"))
+            return false;
+        return true;
+    }
+
     void SkinnedInstanceBuffer::Gpu::bindGBuffer(ID3D12GraphicsCommandList* cmd) const
     {
         if (!cmd || !gbPso)
@@ -369,6 +519,38 @@ namespace Dark
         cmd->SetGraphicsRootShaderResourceView(SkinnedInstanceBuffer::kDepthInstances, instanceVa);
         cmd->SetGraphicsRootShaderResourceView(SkinnedInstanceBuffer::kDepthIndices, indexVa);
         cmd->SetGraphicsRootShaderResourceView(SkinnedInstanceBuffer::kDepthPalettes, paletteVa);
+    }
+
+    void SkinnedInstanceBuffer::Gpu::bindForward(ID3D12GraphicsCommandList* cmd) const
+    {
+        if (!cmd || !forwardPso)
+            return;
+        cmd->SetGraphicsRootSignature(forwardRoot.Get());
+        cmd->SetPipelineState(forwardPso.Get());
+    }
+
+    void SkinnedInstanceBuffer::Gpu::setForwardConstants(ID3D12GraphicsCommandList* cmd, const MeshForwardBatchConstants& constants) const
+    {
+        if (!cmd || !forwardRoot)
+            return;
+        cmd->SetGraphicsRoot32BitConstants(SkinnedInstanceBuffer::kForwardConstants, static_cast<UINT>(sizeof(MeshForwardBatchConstants) / 4), &constants, 0);
+    }
+
+    void SkinnedInstanceBuffer::Gpu::setForwardBuffers(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS instanceVa, D3D12_GPU_VIRTUAL_ADDRESS indexVa,
+                                                       D3D12_GPU_VIRTUAL_ADDRESS paletteVa) const
+    {
+        if (!cmd || !forwardRoot)
+            return;
+        cmd->SetGraphicsRootShaderResourceView(SkinnedInstanceBuffer::kForwardInstances, instanceVa);
+        cmd->SetGraphicsRootShaderResourceView(SkinnedInstanceBuffer::kForwardIndices, indexVa);
+        cmd->SetGraphicsRootShaderResourceView(SkinnedInstanceBuffer::kForwardPalettes, paletteVa);
+    }
+
+    void SkinnedInstanceBuffer::Gpu::setForwardShadow(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS shadowCbv) const
+    {
+        if (!cmd || !forwardRoot || shadowCbv == 0)
+            return;
+        cmd->SetGraphicsRootConstantBufferView(SkinnedInstanceBuffer::kForwardShadow, shadowCbv);
     }
 
     SkinnedInstanceBuffer::SkinnedInstanceBuffer() = default;
@@ -456,13 +638,28 @@ namespace Dark
             return false;
         }
 
-        DE_LOG_INFO(LogCategory::Render, "SkinnedInstanceBuffer: ready (gbuffer 47 DWORDs, depth 26 DWORDs, 256 palettes, 1024 parts)");
+        if (!m_gpu->createForward(device))
+        {
+            m_gpu->forwardRoot.Reset();
+            m_gpu->forwardPso.Reset();
+            DE_LOG_ERROR(LogCategory::Render, "SkinnedInstanceBuffer: forward skinned instancing unavailable; -forward stays immediate");
+        }
+
+        if (m_gpu->forwardPso)
+            DE_LOG_INFO(LogCategory::Render, "SkinnedInstanceBuffer: ready (gbuffer 47 DWORDs, depth 26 DWORDs, forward 45 DWORDs, 256 palettes, 1024 parts)");
+        else
+            DE_LOG_INFO(LogCategory::Render, "SkinnedInstanceBuffer: ready (gbuffer 47 DWORDs, depth 26 DWORDs, 256 palettes, 1024 parts)");
         return true;
     }
 
     bool SkinnedInstanceBuffer::isValid() const
     {
         return m_gpu && m_gpu->gbPso && m_gpu->depthPso && m_gpu->instancesMapped && m_gpu->palettesMapped && m_gpu->indicesMapped;
+    }
+
+    bool SkinnedInstanceBuffer::forwardReady() const
+    {
+        return m_gpu && m_gpu->forwardPso;
     }
 
     void SkinnedInstanceBuffer::beginFrame(uint32_t frameIndex)
@@ -827,6 +1024,47 @@ namespace Dark
             cb.baseIndex = batch.itemBegin;
             cb.pad[0] = cb.pad[1] = cb.pad[2] = 0u;
             m_gpu->setDepthConstants(cmd, cb);
+            batch.mesh->drawInstanced(cmd, batch.itemCount);
+        }
+    }
+
+    void SkinnedInstanceBuffer::recordForward(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, StaticPopulation population, const MeshForwardBatchConstants& lighting,
+                                               const float viewProj[16], uint64_t shadowCbv) const
+    {
+        if (!cmd || !forwardReady() || !viewProj)
+            return;
+        compile();
+        const uint32_t populationId = static_cast<uint32_t>(population);
+        bool           any          = false;
+        for (const GBufferBatch& batch : m_gbuffer)
+        {
+            if (batch.key.population == populationId && batch.mesh && batch.mesh->valid() && batch.itemCount > 0)
+            {
+                any = true;
+                break;
+            }
+        }
+        if (!any)
+            return;
+
+        const uint32_t                  slot      = m_frameIndex % kFrameSlots;
+        const D3D12_GPU_VIRTUAL_ADDRESS instances = m_gpu->instances->GetGPUVirtualAddress() + static_cast<UINT64>(slot) * kMaxSkinnedParts * sizeof(SkinnedInstanceGpu);
+        const D3D12_GPU_VIRTUAL_ADDRESS indices   = m_gpu->indices->GetGPUVirtualAddress() + static_cast<UINT64>(slot) * kMaxSkinnedParts * 2u * sizeof(uint32_t);
+        const D3D12_GPU_VIRTUAL_ADDRESS palettes  = m_gpu->palettes->GetGPUVirtualAddress() + static_cast<UINT64>(slot) * kMaxSkinnedPalettes * sizeof(BonePaletteCB);
+        m_gpu->bindForward(cmd);
+        m_gpu->setForwardBuffers(cmd, instances, indices, palettes);
+        m_gpu->setForwardShadow(cmd, static_cast<D3D12_GPU_VIRTUAL_ADDRESS>(shadowCbv));
+        for (const GBufferBatch& batch : m_gbuffer)
+        {
+            if (batch.key.population != populationId || !batch.mesh || !batch.mesh->valid() || batch.itemCount == 0)
+                continue;
+            MeshForwardBatchConstants cb = lighting;
+            std::memcpy(cb.viewProj, viewProj, sizeof(cb.viewProj));
+            fillForwardScalars(gpu, batch.key.material, cb);
+            cb.baseIndex = batch.itemBegin;
+            cb.pad[0] = cb.pad[1] = cb.pad[2] = 0u;
+            m_gpu->setForwardConstants(cmd, cb);
+            gpu.bindMaterial(cmd, batch.key.material, SkinnedInstanceBuffer::kForwardMaterial);
             batch.mesh->drawInstanced(cmd, batch.itemCount);
         }
     }

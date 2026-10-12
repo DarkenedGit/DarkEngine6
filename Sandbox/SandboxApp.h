@@ -6,6 +6,7 @@
 #include "Network/Replication.h"
 #include "Assets/Model.h"
 #include "Render/DrawList.h"
+#include "Render/SkinnedInstanceBuffer.h"
 #include "Render/Mesh.h"
 #include "Render/LinePipeline.h"
 #include "Render/ModelDraw.h"
@@ -173,6 +174,7 @@ private:
 
     Dark::Mesh    m_cubeMesh;
     Dark::DrawList m_drawList;
+    Dark::SkinnedInstanceBuffer m_skinnedInstances;
     Dark::SceneRenderer     m_scene;
     Dark::LinePipeline        m_skelLinePipeline;
     Microsoft::WRL::ComPtr<ID3D12Resource> m_skelLineVb[2];

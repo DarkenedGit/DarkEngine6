@@ -3275,6 +3275,8 @@ void SandboxApp::onInit()
         m_foliagePipeline.create(renderer().device());
         if (!m_drawList.create(renderer().device()))
             DE_LOG_ERROR(LogCategory::Render, "SandboxApp: instanced mesh pipeline failed; static draws stay immediate");
+        if (!m_skinnedInstances.create(renderer().device()))
+            DE_LOG_ERROR(LogCategory::Render, "SandboxApp: skinned instancing unavailable; skinned draws stay immediate");
         if (!m_grassPipeline.create(renderer()))
         {
             DE_LOG_ERROR(LogCategory::Render, "SandboxApp: grass pipeline create failed");
@@ -3954,6 +3956,8 @@ void SandboxApp::onRender()
     GpuResourceCache& gpu = renderer().gpuResources();
     if (m_skinRing.isValid())
         m_skinRing.beginFrame(renderer().frameIndex());
+    if (m_skinnedInstances.isValid())
+        m_skinnedInstances.beginFrame(renderer().frameIndex());
 
     PassId   playedPasses[24]{};
     uint32_t playedCount = 0;
@@ -3995,8 +3999,11 @@ void SandboxApp::onRender()
         renderer().frameIndex());
 
     const bool instanceStatic = m_drawList.gpuReady() && renderer().debugState().instancedStatic && renderer().debugState().fill == DebugFill::Solid;
+    const bool instanceSkinned = instanceStatic && m_skinnedInstances.isValid()
+        && (renderer().scenePath() == ScenePath::HybridDeferred || m_skinnedInstances.forwardReady());
     std::unordered_set<EntityID> acceptedMesh;
     std::unordered_set<EntityID> acceptedModel;
+    std::unordered_set<EntityID> acceptedSkinned;
     std::vector<int> rejectedShots;
     uint8_t shadowViewIndex = 1;
     if (instanceStatic)
@@ -4061,6 +4068,16 @@ void SandboxApp::onRender()
             const Matrix4f worldMat = makeWorldMatrix(*xf);
             if (m_drawList.submitStaticModel(gpu, *gm, worldMat, StaticPopulation::OpaqueModels, mc.castShadow, model->bounds(), nullptr))
                 acceptedModel.insert(e.id());
+            if (instanceSkinned && model->skinned())
+            {
+                const AnimGraphComponent* ag = world().get<AnimGraphComponent>(e);
+                const AnimPose* pose = skinnedPose(*model, ag);
+                Matrix4f prevW = worldMat;
+                if (ag && ag->prevWorldValid)
+                    prevW = ag->prevWorld;
+                if (submitSkinnedModelOpaque(m_skinnedInstances, gpu, *gm, pose, worldMat, prevW, StaticPopulation::OpaqueModels, mc.castShadow))
+                    acceptedSkinned.insert(e.id());
+            }
         });
         if (WeaponLoadout* w = localWeapons())
         {
@@ -4102,6 +4119,13 @@ void SandboxApp::onRender()
             ++shadowViewIndex;
             m_shadows.pipeline().bind(cmd);
         }
+        if (instanceSkinned)
+        {
+            float skinVp[16];
+            copyMatrix(skinVp, lightViewProj);
+            m_skinnedInstances.recordDepth(cmd, skinVp);
+            m_shadows.pipeline().bind(cmd);
+        }
         world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
             if (world().has<ModelComponent>(e))
                 return;
@@ -4138,13 +4162,21 @@ void SandboxApp::onRender()
             if (!gpu.ensureModel(model))
                 return;
             const bool accepted = recordThisView && acceptedModel.count(e.id()) != 0;
+            const bool skinnedListed = instanceSkinned && acceptedSkinned.count(e.id()) != 0;
             if (model->skinned())
             {
                 const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));
+                if (accepted && skinnedListed)
+                    return;
                 if (accepted)
                 {
                     if (pose)
                         drawSkinnedModelDepthSkinnedOnly(cmd, gpu, m_shadows.pipeline(), lightViewProj, m_skinnedShadowPipeline, m_skinRing, *model, *pose, worldMat);
+                    return;
+                }
+                if (skinnedListed)
+                {
+                    drawModelDepth(cmd, gpu, m_shadows.pipeline(), lightViewProj, *model, worldMat);
                     return;
                 }
                 if (pose)
@@ -4399,6 +4431,14 @@ void SandboxApp::onRender()
                 const GpuScope models(cmd, "Opaque Models", ProfileColor::OpaqueModels);
                 if (instanceColor)
                     m_drawList.recordOpaque(cmd, gpu, ViewId{ 0 }, StaticPopulation::OpaqueModels);
+                if (instanceSkinned)
+                {
+                    float drawVp[16];
+                    float drawPrev[16];
+                    copyMatrix(drawVp, viewProj);
+                    copyMatrix(drawPrev, prevViewProj);
+                    m_skinnedInstances.recordGBuffer(cmd, gpu, StaticPopulation::OpaqueModels, drawVp, drawPrev);
+                }
                 world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             if (camouflageHides(e))
                 return;
@@ -4422,8 +4462,13 @@ void SandboxApp::onRender()
                     ag->prevWorld = worldMat;
                     ag->prevWorldValid = true;
                 }
+                const bool skinnedListed = instanceSkinned && acceptedSkinned.count(e.id()) != 0;
+                if (accepted && skinnedListed)
+                    return;
                 if (accepted)
                     drawSkinnedModelOpaqueGBufferSkinnedOnly(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
+                else if (skinnedListed)
+                    drawModelOpaqueGBuffer(cmd, gpu, m_meshPipeline, *model, worldMat, viewProj, prevViewProj, fill);
                 else
                     drawSkinnedModelOpaqueGBuffer(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
             }
@@ -4577,6 +4622,12 @@ void SandboxApp::onRender()
             const GpuScope models(cmd, "Opaque Models", ProfileColor::OpaqueModels);
             if (instanceForward)
                 m_drawList.recordForward(cmd, gpu, ViewId{ 0 }, StaticPopulation::OpaqueModels, forwardLighting, forwardShadow);
+            if (instanceSkinned)
+            {
+                float drawVp[16];
+                copyMatrix(drawVp, viewProj);
+                m_skinnedInstances.recordForward(cmd, gpu, StaticPopulation::OpaqueModels, forwardLighting, drawVp, forwardShadow);
+            }
             world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
             if (camouflageHides(e))
                 return;
@@ -4596,8 +4647,14 @@ void SandboxApp::onRender()
                     ag->prevWorld = worldMat;
                     ag->prevWorldValid = true;
                 }
-                if (instanceForward && acceptedModel.count(e.id()) != 0)
+                const bool accepted = instanceForward && acceptedModel.count(e.id()) != 0;
+                const bool skinnedListed = instanceSkinned && acceptedSkinned.count(e.id()) != 0;
+                if (accepted && skinnedListed)
+                    return;
+                if (accepted)
                     drawSkinnedModelForwardSkinnedOnly(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_shadows, m_skinRing, *model, *pose, worldMat, viewProj, cb, fill);
+                else if (skinnedListed)
+                    drawModelForward(cmd, gpu, m_meshPipeline, m_shadows, *model, false, worldMat, viewProj, cb, fill);
                 else
                     drawSkinnedModelForward(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_shadows, m_skinRing, *model, false, *pose, worldMat, viewProj, cb, fill);
             }

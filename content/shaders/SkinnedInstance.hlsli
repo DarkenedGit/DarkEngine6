@@ -27,9 +27,21 @@ struct PaletteChunk
     float4 rows[128];
 };
 
-StructuredBuffer<SkinnedInstanceGpu> gInstances : register(t4);
-StructuredBuffer<uint>               gIndices   : register(t5);
-StructuredBuffer<PaletteChunk>       gPalettes  : register(t6);
+// G-buffer and depth use t4/t5/t6. Forward defines these before the include
+// because its material table already occupies t0-t4 (shadow map at t4).
+#ifndef DE_SKINNED_INSTANCES_REG
+#define DE_SKINNED_INSTANCES_REG t4
+#endif
+#ifndef DE_SKINNED_INDICES_REG
+#define DE_SKINNED_INDICES_REG t5
+#endif
+#ifndef DE_SKINNED_PALETTES_REG
+#define DE_SKINNED_PALETTES_REG t6
+#endif
+
+StructuredBuffer<SkinnedInstanceGpu> gInstances : register(DE_SKINNED_INSTANCES_REG);
+StructuredBuffer<uint>               gIndices   : register(DE_SKINNED_INDICES_REG);
+StructuredBuffer<PaletteChunk>       gPalettes  : register(DE_SKINNED_PALETTES_REG);
 
 float4x4 skinnedRows(float4 r0, float4 r1, float4 r2, float4 r3)
 {

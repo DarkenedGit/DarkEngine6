@@ -1,7 +1,10 @@
 #include <gtest/gtest.h>
 
 #include "Animation/Pose.h"
+#include "Render/GpuModel.h"
+#include "Render/GpuResourceCache.h"
 #include "Render/Mesh.h"
+#include "Render/ModelDraw.h"
 #include "Render/ShaderCompile.h"
 #include "Render/SkinnedInstanceBuffer.h"
 
@@ -245,6 +248,7 @@ TEST(SkinnedInstance, WarpKeepsTheOtherFrameSlot)
     SkinnedInstanceBuffer buffer;
     ASSERT_TRUE(buffer.create(device.Get()));
     EXPECT_TRUE(buffer.isValid());
+    EXPECT_TRUE(buffer.forwardReady());
 
     Mesh     mesh = Mesh::takeSortIdentity();
     AnimPose poseA{};
@@ -377,4 +381,133 @@ TEST(SkinnedInstance, BoneThenPartWorld)
     EXPECT_NEAR(normal.y, 3.0f, 1.0e-4f);
     EXPECT_NEAR(normal.z, 0.0f, 1.0e-4f);
     EXPECT_NEAR(normal.w, 0.0f, 1.0e-4f);
+}
+
+TEST(SkinnedInstance, SubmitBakesWorldAndRollsBackTheCharacter)
+{
+    const Matrix4f localA     = Matrix4f::ScaleMatrixXYZ(2.0f, 1.0f, 1.0f);
+    const Matrix4f localB     = Matrix4f::TranslationMatrix(1.0f, 2.0f, 3.0f);
+    const Matrix4f entity     = Matrix4f::TranslationMatrix(10.0f, 0.0f, 0.0f);
+    const Matrix4f prevEntity = Matrix4f::TranslationMatrix(4.0f, 0.0f, 0.0f);
+
+    GpuModel::Part partA;
+    partA.mesh        = Mesh::takeSortIdentity();
+    partA.localToRoot = localA;
+    partA.skinned     = true;
+    GpuModel::Part partB;
+    partB.mesh        = Mesh::takeSortIdentity();
+    partB.localToRoot = localB;
+    partB.skinned     = true;
+    GpuModel::Part staticPart;
+    staticPart.mesh    = Mesh::takeSortIdentity();
+    staticPart.skinned = false;
+    GpuModel::Part translucentFlag;
+    translucentFlag.mesh        = Mesh::takeSortIdentity();
+    translucentFlag.skinned     = true;
+    translucentFlag.translucent = true;
+    GpuModel::Part emptyPart;
+    emptyPart.skinned = true;
+    GpuModel::Part translucentOnly;
+    translucentOnly.mesh    = Mesh::takeSortIdentity();
+    translucentOnly.skinned = true;
+
+    std::vector<GpuModel::Part> opaqueParts;
+    opaqueParts.push_back(std::move(partA));
+    opaqueParts.push_back(std::move(partB));
+    opaqueParts.push_back(std::move(staticPart));
+    opaqueParts.push_back(std::move(translucentFlag));
+    opaqueParts.push_back(std::move(emptyPart));
+    std::vector<GpuModel::Part> translucentParts;
+    translucentParts.push_back(std::move(translucentOnly));
+    const GpuModel model(std::move(opaqueParts), std::move(translucentParts));
+
+    AnimPose         pose{};
+    pose.boneCount = 1;
+    GpuResourceCache gpu(nullptr);
+    SkinnedInstanceBuffer buffer;
+    ASSERT_TRUE(submitSkinnedModelOpaque(buffer, gpu, model, &pose, entity, prevEntity, StaticPopulation::OpaqueModels, true));
+    EXPECT_EQ(buffer.partCount(), 2u);
+    EXPECT_EQ(buffer.paletteCount(), 1u);
+
+    const Matrix4f expectA     = localA * entity;
+    const Matrix4f expectPrevA = localA * prevEntity;
+    const Matrix4f expectB     = localB * entity;
+    const Matrix4f expectPrevB = localB * prevEntity;
+    const SkinnedInstanceGpu* instances = buffer.instances();
+    ASSERT_NE(instances, nullptr);
+    EXPECT_EQ(instances[0].paletteIndex, instances[1].paletteIndex);
+    EXPECT_FLOAT_EQ(instances[0].color[0], 1.0f);
+    EXPECT_FLOAT_EQ(instances[0].color[3], 0.0f);
+    for (int i = 0; i < 16; ++i)
+    {
+        EXPECT_FLOAT_EQ(instances[0].world[i], expectA.m_afEntry[i]);
+        EXPECT_FLOAT_EQ(instances[0].prevWorld[i], expectPrevA.m_afEntry[i]);
+        EXPECT_FLOAT_EQ(instances[1].world[i], expectB.m_afEntry[i]);
+        EXPECT_FLOAT_EQ(instances[1].prevWorld[i], expectPrevB.m_afEntry[i]);
+    }
+
+    uint32_t depthItems = 0;
+    for (uint32_t i = 0; i < buffer.depthBatchCount(); ++i)
+        depthItems += buffer.depthBatch(i).itemCount;
+    EXPECT_EQ(depthItems, 2u);
+
+    EXPECT_FALSE(submitSkinnedModelOpaque(buffer, gpu, model, nullptr, entity, prevEntity, StaticPopulation::OpaqueModels, true));
+    EXPECT_EQ(buffer.partCount(), 2u);
+
+    Mesh                  filler = Mesh::takeSortIdentity();
+    AnimPose              shared{};
+    SkinnedInstanceBuffer capped;
+    for (uint32_t i = 0; i < kMaxSkinnedParts - 1u; ++i)
+        ASSERT_TRUE(capped.submit(partOf(&filler, &shared, 1, StaticPopulation::OpaqueModels, true, false)));
+    const uint32_t before = capped.partCount();
+    EXPECT_FALSE(submitSkinnedModelOpaque(capped, gpu, model, &pose, entity, prevEntity, StaticPopulation::OpaqueModels, true));
+    EXPECT_EQ(capped.partCount(), before);
+    EXPECT_EQ(capped.paletteCount(), 1u);
+}
+
+TEST(SkinnedInstance, ForwardSignatureIs45)
+{
+    EXPECT_EQ(36u + 1u + 2u + 2u + 2u + 2u, 45u);
+    EXPECT_EQ(sizeof(MeshForwardBatchConstants), 144u);
+    EXPECT_EQ(SkinnedInstanceBuffer::kForwardConstants, 0u);
+    EXPECT_EQ(SkinnedInstanceBuffer::kForwardMaterial, 1u);
+    EXPECT_EQ(SkinnedInstanceBuffer::kForwardShadow, 2u);
+    EXPECT_EQ(SkinnedInstanceBuffer::kForwardInstances, 3u);
+    EXPECT_EQ(SkinnedInstanceBuffer::kForwardIndices, 4u);
+    EXPECT_EQ(SkinnedInstanceBuffer::kForwardPalettes, 5u);
+
+    ComPtr<ID3DBlob> vs;
+    ComPtr<ID3DBlob> ps;
+    ASSERT_TRUE(compileShaderFromContent("shaders/SkinnedMeshForwardInstanced.hlsl", "VSMain", "vs_5_0", vs));
+    ASSERT_TRUE(compileShaderFromContent("shaders/SkinnedMeshForwardInstanced.hlsl", "PSMain", "ps_5_0", ps));
+
+    UINT vsBytes = 0;
+    UINT psBytes = 0;
+    ASSERT_TRUE(cbufferBytes(vs.Get(), "MeshForwardBatchConstants", vsBytes));
+    ASSERT_TRUE(cbufferBytes(ps.Get(), "MeshForwardBatchConstants", psBytes));
+    EXPECT_EQ(vsBytes, 144u);
+    EXPECT_EQ(psBytes, 144u);
+
+    UINT base = 0;
+    ASSERT_TRUE(variableOffset(vs.Get(), "MeshForwardBatchConstants", "baseIndex", base));
+    EXPECT_EQ(base, 128u);
+
+    UINT instances = 0;
+    UINT indices   = 0;
+    UINT palettes  = 0;
+    UINT albedo    = 0;
+    UINT shadow    = 0;
+    ASSERT_TRUE(bindPoint(vs.Get(), "gInstances", instances));
+    ASSERT_TRUE(bindPoint(vs.Get(), "gIndices", indices));
+    ASSERT_TRUE(bindPoint(vs.Get(), "gPalettes", palettes));
+    ASSERT_TRUE(bindPoint(ps.Get(), "gAlbedo", albedo));
+    ASSERT_TRUE(bindPoint(ps.Get(), "gShadowMap", shadow));
+    EXPECT_EQ(instances, 5u);
+    EXPECT_EQ(indices, 6u);
+    EXPECT_EQ(palettes, 7u);
+    EXPECT_EQ(albedo, 0u);
+    EXPECT_EQ(shadow, 4u);
+
+    EXPECT_TRUE(disassemblyHas(vs.Get(), "dcl_resource_structured t5, 160"));
+    EXPECT_TRUE(disassemblyHas(vs.Get(), "dcl_resource_structured t7, 2048"));
 }

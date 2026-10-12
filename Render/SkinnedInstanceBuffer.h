@@ -17,7 +17,7 @@ class GpuResourceCache;
 class Mesh;
 
 // One skinned part. world and prevWorld are already part.localToRoot times the entity matrix.
-// A failed submit appends nothing. Hosts are not wired to this buffer yet.
+// A failed submit appends nothing. Hosts submit opaque parts or roll the character back.
 struct SkinnedPartSubmit
 {
     const Mesh*      mesh       = nullptr;
@@ -33,8 +33,9 @@ struct SkinnedPartSubmit
 
 // Palette upload and skinned instance upload. Two frame slots.
 // One pose is 8192 bytes. The shader reads it as four 2048-byte structured elements (SM 5.0 limit).
-// G-buffer root is 47 DWORDs. Depth root is 26. The immediate skinned signature is not extended.
-// No compute and no ExecuteIndirect. DrawIndexedInstanced keeps StartInstanceLocation at 0.
+// G-buffer root is 47 DWORDs. Depth root is 26. Forward root is 45. The immediate skinned signature is not extended.
+// A failed forward PSO leaves g-buffer and depth instancing on. No compute and no ExecuteIndirect.
+// DrawIndexedInstanced keeps StartInstanceLocation at 0.
 class SkinnedInstanceBuffer
 {
 public:
@@ -51,6 +52,13 @@ public:
     static constexpr UINT kDepthIndices   = 2;
     static constexpr UINT kDepthPalettes  = 3;
 
+    static constexpr UINT kForwardConstants = 0;
+    static constexpr UINT kForwardMaterial  = 1;
+    static constexpr UINT kForwardShadow    = 2;
+    static constexpr UINT kForwardInstances = 3;
+    static constexpr UINT kForwardIndices   = 4;
+    static constexpr UINT kForwardPalettes  = 5;
+
     SkinnedInstanceBuffer();
     ~SkinnedInstanceBuffer();
     SkinnedInstanceBuffer(const SkinnedInstanceBuffer&)            = delete;
@@ -58,6 +66,7 @@ public:
 
     bool create(ID3D12Device* device);
     bool isValid() const;
+    bool forwardReady() const;
 
     void     beginFrame(uint32_t frameIndex);
     uint32_t mark() const;
@@ -80,6 +89,8 @@ public:
 
     void recordGBuffer(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, StaticPopulation population, const float viewProj[16], const float prevViewProj[16]) const;
     void recordDepth(ID3D12GraphicsCommandList* cmd, const float lightViewProj[16]) const;
+    void recordForward(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, StaticPopulation population, const MeshForwardBatchConstants& lighting,
+                       const float viewProj[16], uint64_t shadowCbv) const;
 
 private:
     struct Part

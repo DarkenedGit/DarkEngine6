@@ -2,6 +2,7 @@
 
 #include "Core/Application.h"
 #include "Render/DrawList.h"
+#include "Render/SkinnedInstanceBuffer.h"
 #include "Render/Mesh.h"
 #include "Render/LineMesh.h"
 #include "Assets/Model.h"
@@ -294,6 +295,7 @@ private:
 
     Mesh m_cubeMesh;
     DrawList m_drawList;
+    SkinnedInstanceBuffer m_skinnedInstances;
     Mesh m_sphereMesh;
     Mesh m_groundMesh;
     LineMesh m_gridMesh;

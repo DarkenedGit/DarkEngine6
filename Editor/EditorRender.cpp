@@ -53,6 +53,8 @@ void EditorApp::onRender()
     }
     if (m_skinRing.isValid())
         m_skinRing.beginFrame(renderer().frameIndex());
+    if (m_skinnedInstances.isValid())
+        m_skinnedInstances.beginFrame(renderer().frameIndex());
     auto* cmd = renderer().commandList();
 
     if (m_imgui.isReady())

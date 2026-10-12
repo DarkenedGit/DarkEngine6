@@ -3,8 +3,10 @@
 #include "Assets/Material.h"
 #include "Assets/Model.h"
 #include "Render/GpuModel.h"
+#include "Render/GpuResourceCache.h"
 #include "Render/MaterialSurface.h"
 #include "Render/ShadowSystem.h"
+#include "Render/SkinnedInstanceBuffer.h"
 
 #include <cstring>
 
@@ -49,6 +51,60 @@ namespace Dark
 		if (model.skeleton())
 			return &model.skeleton()->restPose;
 		return nullptr;
+	}
+
+	bool submitSkinnedModelOpaque(
+		SkinnedInstanceBuffer& buffer,
+		GpuResourceCache& gpu,
+		const GpuModel& model,
+		const AnimPose* pose,
+		const Matrix4f& entityWorld,
+		const Matrix4f& prevEntityWorld,
+		StaticPopulation population,
+		bool castShadow)
+	{
+		if (!pose)
+			return false;
+		const uint32_t saved = buffer.mark();
+		bool any = false;
+		for (const GpuModel::Part& part : model.opaque())
+		{
+			// sortKey 0 is an empty mesh. record skips a mesh that is not valid().
+			if (!part.skinned || part.translucent || part.mesh.sortKey() == 0)
+				continue;
+			any = true;
+			SkinnedPartSubmit sub;
+			sub.mesh        = &part.mesh;
+			sub.material    = part.materialId;
+			sub.world       = part.localToRoot * entityWorld;
+			sub.prevWorld   = part.localToRoot * prevEntityWorld;
+			sub.population  = population;
+			sub.castShadow  = castShadow;
+			sub.pose        = pose;
+			sub.color[0]    = 1.0f;
+			sub.color[1]    = 1.0f;
+			sub.color[2]    = 1.0f;
+			sub.color[3]    = 0.0f;
+			sub.alphaMask   = false;
+			if (const AssetRef<Material> mat = gpu.cpuMaterial(part.materialId))
+			{
+				MeshGBufferConstants surface{};
+				applyMaterialSurface(*mat, surface);
+				sub.color[0]  = surface.color[0];
+				sub.color[1]  = surface.color[1];
+				sub.color[2]  = surface.color[2];
+				sub.color[3]  = surface.color[3];
+				sub.alphaMask = surface.alphaModeMask > 0.5f;
+			}
+			if (!buffer.submit(sub))
+			{
+				buffer.rollback(saved);
+				return false;
+			}
+		}
+		if (!any)
+			return false;
+		return true;
 	}
 
 	void drawModelOpaqueGBuffer(
