@@ -1,4 +1,5 @@
-// Static DrawList cull. CSCompact is one thread per sorted item. CSArgs is one thread per batch.
+// Static and skinned batch cull. CSCompact is one thread per item. CSArgs is one thread per batch.
+// Skinned draws bind their own argument, index, and counter buffers. This file does not size those buffers.
 // MeshCullAabb is scalar fields so the 48-byte layout matches the C++ struct.
 #pragma pack_matrix(row_major)
 

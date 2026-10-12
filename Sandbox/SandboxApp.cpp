@@ -4075,7 +4075,7 @@ void SandboxApp::onRender()
                 Matrix4f prevW = worldMat;
                 if (ag && ag->prevWorldValid)
                     prevW = ag->prevWorld;
-                if (submitSkinnedModelOpaque(m_skinnedInstances, gpu, *gm, pose, worldMat, prevW, StaticPopulation::OpaqueModels, mc.castShadow))
+                if (submitSkinnedModelOpaque(m_skinnedInstances, gpu, *gm, pose, worldMat, prevW, StaticPopulation::OpaqueModels, mc.castShadow, model->bounds()))
                     acceptedSkinned.insert(e.id());
             }
         });
@@ -4108,6 +4108,7 @@ void SandboxApp::onRender()
     auto drawShadowCasters = [&](const Matrix4f& lightViewProj, const Frustum3f& casterFrustum, const Sphere3f* foliageSphere, bool beginFoliage) {
         m_terrain.drawDepth(cmd, &casterFrustum);
         const bool recordThisView = instanceStatic && shadowViewIndex < kMaxStaticViews;
+        const uint32_t skinView   = shadowViewIndex;
         if (recordThisView)
         {
             float lightVp[16];
@@ -4123,7 +4124,7 @@ void SandboxApp::onRender()
         {
             float skinVp[16];
             copyMatrix(skinVp, lightViewProj);
-            m_skinnedInstances.recordDepth(cmd, skinVp);
+            m_skinnedInstances.recordDepth(cmd, skinView, skinVp);
             m_shadows.pipeline().bind(cmd);
         }
         world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
@@ -4221,7 +4222,7 @@ void SandboxApp::onRender()
             const LocalShadowFaceDraw& face = cullLocals.face(f);
             addDepthView(face.viewProj, face.frustum);
         }
-        if (deferredEarly || m_drawList.forwardReady())
+        if (deferredEarly || m_drawList.forwardReady() || instanceSkinned)
         {
             const Matrix4f camVp   = m_scene.beginCameraFrame(m_viewCamera, renderer());
             const Matrix4f camPrev = m_scene.havePrevViewProj() ? m_scene.prevViewProj() : camVp;
@@ -4231,7 +4232,11 @@ void SandboxApp::onRender()
             copyMatrix(drawPrev, camPrev);
             m_drawList.buildView(Frustum3f(m_viewCamera.GetCullViewProj()), drawVp, drawPrev, RenderPassKind::GBuffer, ViewId{ 0 });
         }
+        CullViewDesc skinViews[kMaxStaticViews];
+        const uint32_t skinViewCount = m_drawList.exportGpuViews(skinViews, kMaxStaticViews);
         m_drawList.dispatchCull(cmd);
+        if (instanceSkinned)
+            m_skinnedInstances.dispatchCull(cmd, skinViews, skinViewCount);
     }
 
     if (m_shadows.isValid())

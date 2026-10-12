@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Render/RenderItem.h"
+
 #include <cstdint>
 #include <d3d12.h>
 #include <wrl/client.h>
@@ -50,6 +52,60 @@ namespace Dark
         D3D12_GPU_DESCRIPTOR_HANDLE  m_gpuStart{};
         UINT                         m_increment = 0;
         D3D12_RESOURCE_STATES        m_indexState[kFrameSlots] = {
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        };
+    };
+
+    // Skinned cull. Own arguments, indices, and counters. Not the static 4096-wide lists.
+    // kStride is the part cap. One view owns that many indices and that many batch slots.
+    class SkinnedInstanceCull
+    {
+    public:
+        static constexpr uint32_t kFrameSlots = 2;
+        static constexpr uint32_t kStride     = kMaxSkinnedParts;
+
+        SkinnedInstanceCull();
+        ~SkinnedInstanceCull();
+        SkinnedInstanceCull(const SkinnedInstanceCull&)            = delete;
+        SkinnedInstanceCull& operator=(const SkinnedInstanceCull&) = delete;
+
+        bool create(ID3D12Device* device);
+        bool isReady() const;
+
+        bool upload(uint32_t frameSlot, const MeshCullAabb* aabbs, uint32_t aabbCount, const GpuBatchRecord* gbuffer, uint32_t gbufferCount, const GpuBatchRecord* depth, uint32_t depthCount);
+        bool dispatch(ID3D12GraphicsCommandList* cmd, uint32_t frameSlot, const CullViewDesc* views, uint32_t viewCount);
+
+        D3D12_GPU_VIRTUAL_ADDRESS indexAddress(uint32_t frameSlot, uint32_t viewIndex) const;
+        ID3D12Resource*           indexResource(uint32_t frameSlot) const;
+        ID3D12Resource*           argumentResource(uint32_t frameSlot) const;
+        ID3D12CommandSignature*   signature() const;
+        static UINT64             argumentOffset(uint32_t viewIndex, uint32_t batchIndex);
+
+    private:
+        bool createShaderVisibleHeap(ID3D12Device* device);
+        bool createBuffers(ID3D12Device* device);
+        D3D12_GPU_VIRTUAL_ADDRESS slotBase(uint32_t frameSlot) const;
+
+        ComPtr<ID3D12Device>              m_device;
+        ComPtr<ID3D12RootSignature>       m_root;
+        ComPtr<ID3D12PipelineState>       m_compact;
+        ComPtr<ID3D12PipelineState>       m_argsPso;
+        ComPtr<ID3D12DescriptorHeap>      m_heap;
+        ComPtr<ID3D12CommandSignature>    m_signature;
+        ComPtr<ID3D12Resource>            m_indices[kFrameSlots];
+        ComPtr<ID3D12Resource>            m_counters[kFrameSlots];
+        ComPtr<ID3D12Resource>            m_args[kFrameSlots];
+        ComPtr<ID3D12Resource>            m_upload;
+        uint8_t*                          m_uploadBytes = nullptr;
+        D3D12_CPU_DESCRIPTOR_HANDLE       m_cpuStart{};
+        D3D12_GPU_DESCRIPTOR_HANDLE       m_gpuStart{};
+        UINT                              m_increment = 0;
+        D3D12_RESOURCE_STATES             m_argState[kFrameSlots] = {
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        };
+        D3D12_RESOURCE_STATES             m_indexState[kFrameSlots] = {
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
         };

@@ -7,14 +7,18 @@
 #include <memory>
 #include <vector>
 
+struct ID3D12CommandSignature;
 struct ID3D12Device;
 struct ID3D12GraphicsCommandList;
+struct ID3D12Resource;
 
 namespace Dark
 {
 
 class GpuResourceCache;
 class Mesh;
+class SkinnedInstanceCull;
+struct CullViewDesc;
 
 // One skinned part. world and prevWorld are already part.localToRoot times the entity matrix.
 // A failed submit appends nothing. Hosts submit opaque parts or roll the character back.
@@ -29,17 +33,22 @@ struct SkinnedPartSubmit
     bool             alphaMask  = false;
     bool             castShadow = true;
     const AnimPose*  pose       = nullptr;
+    // Empty stays always-visible. A valid box is culled in world space.
+    Math::AABox3f    worldAabb  = Math::AABox3f::Empty();
 };
 
 // Palette upload and skinned instance upload. Two frame slots.
 // One pose is 8192 bytes. The shader reads it as four 2048-byte structured elements (SM 5.0 limit).
 // G-buffer root is 47 DWORDs. Depth root is 26. Forward root is 45. The immediate skinned signature is not extended.
-// A failed forward PSO leaves g-buffer and depth instancing on. No compute and no ExecuteIndirect.
-// DrawIndexedInstanced keeps StartInstanceLocation at 0.
+// A failed forward PSO leaves g-buffer and depth instancing on.
+// A failed cull leaves DrawIndexedInstanced. The cull owns its arguments, indices, and counters.
+// DrawIndexedInstanced and ExecuteIndirect keep StartInstanceLocation at 0.
 class SkinnedInstanceBuffer
 {
 public:
     static constexpr uint32_t kFrameSlots = 2;
+    // depthBatch on a part that does not cast. The compact rejects it on a shadow view.
+    static constexpr uint32_t kNoDepthBatch = 0xFFFFFFFFu;
 
     static constexpr UINT kGbConstants = 0;
     static constexpr UINT kGbMaterial  = 1;
@@ -67,6 +76,7 @@ public:
     bool create(ID3D12Device* device);
     bool isValid() const;
     bool forwardReady() const;
+    bool cullReady() const;
 
     void     beginFrame(uint32_t frameIndex);
     uint32_t mark() const;
@@ -86,9 +96,17 @@ public:
     // Mapped upload for one frame slot. Null until create() succeeds.
     const BonePaletteCB*     uploadedPalettes(uint32_t frameSlot) const;
     const SkinnedInstanceGpu* uploadedInstances(uint32_t frameSlot) const;
+    const MeshCullAabb*       cullAabbs() const;
+    uint32_t                  cullAabbCount() const;
+
+    // views are the static cull's planes and pass kind. Batch counts come from this list.
+    // Records every skinned view while the skinned argument buffer stays unordered, then one transition.
+    bool dispatchCull(ID3D12GraphicsCommandList* cmd, const CullViewDesc* views, uint32_t viewCount);
+    ID3D12Resource* cullArgumentResource(uint32_t frameSlot) const;
+    ID3D12Resource* cullIndexResource(uint32_t frameSlot) const;
 
     void recordGBuffer(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, StaticPopulation population, const float viewProj[16], const float prevViewProj[16]) const;
-    void recordDepth(ID3D12GraphicsCommandList* cmd, const float lightViewProj[16]) const;
+    void recordDepth(ID3D12GraphicsCommandList* cmd, uint32_t viewIndex, const float lightViewProj[16]) const;
     void recordForward(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, StaticPopulation population, const MeshForwardBatchConstants& lighting,
                        const float viewProj[16], uint64_t shadowCbv) const;
 
@@ -104,6 +122,7 @@ private:
         bool             alphaMask  = false;
         bool             castShadow = true;
         const AnimPose*  pose       = nullptr;
+        Math::AABox3f    worldAabb  = Math::AABox3f::Empty();
     };
 
     struct Gpu;
@@ -111,8 +130,10 @@ private:
     void compile() const;
     void destroy();
     void rebuildPoseKeys();
+    bool indirectFor(uint32_t viewIndex, uint64_t& indexVa, ID3D12Resource*& args, ID3D12CommandSignature*& signature) const;
 
     uint32_t                         m_frameIndex = 0;
+    uint32_t                         m_culledMask = 0;
     std::vector<Part>                m_parts;
     std::vector<const AnimPose*>     m_poseKeys;
     mutable bool                     m_compiled = false;
@@ -122,7 +143,9 @@ private:
     mutable std::vector<uint32_t>           m_depthIndices;
     mutable std::vector<GBufferBatch>       m_gbuffer;
     mutable std::vector<DepthBatch>         m_depth;
+    mutable std::vector<MeshCullAabb>       m_cullAabbs;
     std::unique_ptr<Gpu>             m_gpu;
+    std::unique_ptr<SkinnedInstanceCull> m_cull;
 };
 
 } // namespace Dark

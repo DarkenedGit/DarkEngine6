@@ -4,6 +4,8 @@
 #include "Assets/Material.h"
 #include "Core/Log.h"
 #include "Render/DepthState.h"
+#include "Render/DrawList.h"
+#include "Render/InstanceCull.h"
 #include "Render/GpuMaterial.h"
 #include "Render/GpuResourceCache.h"
 #include "Render/MaterialSurface.h"
@@ -562,6 +564,7 @@ namespace Dark
 
     void SkinnedInstanceBuffer::destroy()
     {
+        m_cull.reset();
         if (!m_gpu)
             return;
         if (m_gpu->instances && m_gpu->instancesMapped)
@@ -645,6 +648,13 @@ namespace Dark
             DE_LOG_ERROR(LogCategory::Render, "SkinnedInstanceBuffer: forward skinned instancing unavailable; -forward stays immediate");
         }
 
+        m_cull = std::make_unique<SkinnedInstanceCull>();
+        if (!m_cull->create(device))
+        {
+            m_cull.reset();
+            DE_LOG_ERROR(LogCategory::Render, "SkinnedInstanceBuffer: skinned cull unavailable; draws stay direct");
+        }
+
         if (m_gpu->forwardPso)
             DE_LOG_INFO(LogCategory::Render, "SkinnedInstanceBuffer: ready (gbuffer 47 DWORDs, depth 26 DWORDs, forward 45 DWORDs, 256 palettes, 1024 parts)");
         else
@@ -662,9 +672,15 @@ namespace Dark
         return m_gpu && m_gpu->forwardPso;
     }
 
+    bool SkinnedInstanceBuffer::cullReady() const
+    {
+        return m_cull && m_cull->isReady();
+    }
+
     void SkinnedInstanceBuffer::beginFrame(uint32_t frameIndex)
     {
         m_frameIndex = frameIndex;
+        m_culledMask = 0;
         m_parts.clear();
         m_poseKeys.clear();
         m_compiled = false;
@@ -674,6 +690,7 @@ namespace Dark
         m_depthIndices.clear();
         m_gbuffer.clear();
         m_depth.clear();
+        m_cullAabbs.clear();
     }
 
     uint32_t SkinnedInstanceBuffer::mark() const
@@ -687,7 +704,8 @@ namespace Dark
             mark = static_cast<uint32_t>(m_parts.size());
         m_parts.resize(mark);
         rebuildPoseKeys();
-        m_compiled = false;
+        m_compiled   = false;
+        m_culledMask = 0;
     }
 
     void SkinnedInstanceBuffer::rebuildPoseKeys()
@@ -749,8 +767,10 @@ namespace Dark
         stored.alphaMask  = part.alphaMask;
         stored.castShadow = part.castShadow;
         stored.pose       = part.pose;
+        stored.worldAabb  = part.worldAabb;
         std::memcpy(stored.color, part.color, sizeof(stored.color));
         m_parts.push_back(stored);
+        m_culledMask = 0;
         if (!known)
             m_poseKeys.push_back(part.pose);
         m_compiled = false;
@@ -809,6 +829,9 @@ namespace Dark
             return batchKeyLess(partKey(m_parts[a]), partKey(m_parts[b]));
         });
 
+        std::vector<uint32_t> gbatchOf(m_parts.size(), 0u);
+        std::vector<uint32_t> dbatchOf(m_parts.size(), kNoDepthBatch);
+
         m_gbuffer.clear();
         m_gbufferIndices.resize(order.size());
         for (uint32_t i = 0; i < static_cast<uint32_t>(order.size()); ++i)
@@ -827,6 +850,7 @@ namespace Dark
             }
             else
                 m_gbuffer.back().itemCount += 1;
+            gbatchOf[submitIndex] = static_cast<uint32_t>(m_gbuffer.size() - 1);
         }
 
         m_depth.clear();
@@ -851,6 +875,7 @@ namespace Dark
             else
                 m_depth.back().itemCount += 1;
             m_depthIndices.push_back(submitIndex);
+            dbatchOf[submitIndex] = static_cast<uint32_t>(m_depth.size() - 1);
         }
 
         if (m_gpu && m_gpu->instancesMapped && m_gpu->palettesMapped && m_gpu->indicesMapped)
@@ -871,6 +896,14 @@ namespace Dark
                 std::memcpy(indices, m_gbufferIndices.data(), m_gbufferIndices.size() * sizeof(uint32_t));
             if (!m_depthIndices.empty())
                 std::memcpy(indices + kMaxSkinnedParts, m_depthIndices.data(), m_depthIndices.size() * sizeof(uint32_t));
+        }
+
+        m_cullAabbs.resize(m_parts.size());
+        for (uint32_t i = 0; i < static_cast<uint32_t>(m_parts.size()); ++i)
+        {
+            encodeCullAabb(m_parts[i].worldAabb, m_parts[i].castShadow, m_cullAabbs[i]);
+            m_cullAabbs[i].gbufferBatch = gbatchOf[i];
+            m_cullAabbs[i].depthBatch   = dbatchOf[i];
         }
 
         m_compiled = true;
@@ -952,6 +985,112 @@ namespace Dark
         return reinterpret_cast<const SkinnedInstanceGpu*>(m_gpu->instancesMapped) + static_cast<size_t>(frameSlot) * kMaxSkinnedParts;
     }
 
+    const MeshCullAabb* SkinnedInstanceBuffer::cullAabbs() const
+    {
+        compile();
+        if (m_cullAabbs.empty())
+            return nullptr;
+        return m_cullAabbs.data();
+    }
+
+    uint32_t SkinnedInstanceBuffer::cullAabbCount() const
+    {
+        compile();
+        return static_cast<uint32_t>(m_cullAabbs.size());
+    }
+
+    ID3D12Resource* SkinnedInstanceBuffer::cullArgumentResource(uint32_t frameSlot) const
+    {
+        if (!m_cull || frameSlot >= kFrameSlots)
+            return nullptr;
+        return m_cull->argumentResource(frameSlot);
+    }
+
+    ID3D12Resource* SkinnedInstanceBuffer::cullIndexResource(uint32_t frameSlot) const
+    {
+        if (!m_cull || frameSlot >= kFrameSlots)
+            return nullptr;
+        return m_cull->indexResource(frameSlot);
+    }
+
+    bool SkinnedInstanceBuffer::indirectFor(uint32_t viewIndex, uint64_t& indexVa, ID3D12Resource*& args, ID3D12CommandSignature*& signature) const
+    {
+        indexVa   = 0;
+        args      = nullptr;
+        signature = nullptr;
+        if (!m_cull || viewIndex >= kMaxStaticViews || (m_culledMask & (1u << viewIndex)) == 0)
+            return false;
+        const uint32_t slot = m_frameIndex % kFrameSlots;
+        indexVa             = m_cull->indexAddress(slot, viewIndex);
+        args                = m_cull->argumentResource(slot);
+        signature           = m_cull->signature();
+        return indexVa != 0 && args != nullptr && signature != nullptr;
+    }
+
+    bool SkinnedInstanceBuffer::dispatchCull(ID3D12GraphicsCommandList* cmd, const CullViewDesc* views, uint32_t viewCount)
+    {
+        m_culledMask = 0;
+        if (!cmd || !cullReady() || !views || viewCount == 0)
+            return false;
+
+        compile();
+        const uint32_t parts = static_cast<uint32_t>(m_cullAabbs.size());
+        const uint32_t gb    = static_cast<uint32_t>(m_gbuffer.size());
+        const uint32_t db    = static_cast<uint32_t>(m_depth.size());
+
+        CullViewDesc local[kMaxStaticViews];
+        uint32_t     localCount = 0;
+        uint32_t     mask       = 0;
+        for (uint32_t i = 0; i < viewCount && localCount < kMaxStaticViews; ++i)
+        {
+            if (views[i].viewIndex >= kMaxStaticViews)
+                continue;
+            const uint32_t batches = views[i].useDepthBatch != 0 ? db : gb;
+            if (batches == 0 || batches > SkinnedInstanceCull::kStride)
+                continue;
+            const uint32_t bit = 1u << views[i].viewIndex;
+            if ((mask & bit) != 0)
+                continue;
+            CullViewDesc desc = views[i];
+            desc.batchCount   = batches;
+            desc.itemCount    = parts;
+            local[localCount++] = desc;
+            mask |= bit;
+        }
+        if (localCount == 0)
+            return false;
+
+        std::vector<GpuBatchRecord> gbuffer(gb);
+        std::vector<GpuBatchRecord> depth(db);
+        for (uint32_t i = 0; i < gb; ++i)
+        {
+            const GBufferBatch& batch = m_gbuffer[i];
+            gbuffer[i].indexCount     = batch.mesh ? batch.mesh->indexCount() : 0u;
+            gbuffer[i].itemBegin      = batch.itemBegin;
+            gbuffer[i].itemCount      = batch.itemCount;
+            gbuffer[i]._pad           = 0;
+        }
+        for (uint32_t i = 0; i < db; ++i)
+        {
+            const DepthBatch& batch = m_depth[i];
+            depth[i].indexCount     = batch.mesh ? batch.mesh->indexCount() : 0u;
+            depth[i].itemBegin      = batch.itemBegin;
+            depth[i].itemCount      = batch.itemCount;
+            depth[i]._pad           = 0;
+        }
+
+        const uint32_t        slot    = m_frameIndex % kFrameSlots;
+        const MeshCullAabb*   aabbPtr = m_cullAabbs.empty() ? nullptr : m_cullAabbs.data();
+        const GpuBatchRecord* gbPtr   = gbuffer.empty() ? nullptr : gbuffer.data();
+        const GpuBatchRecord* dbPtr   = depth.empty() ? nullptr : depth.data();
+        if (!m_cull->upload(slot, aabbPtr, parts, gbPtr, gb, dbPtr, db))
+            return false;
+        if (!m_cull->dispatch(cmd, slot, local, localCount))
+            return false;
+        m_culledMask = mask;
+        return true;
+    }
+
     void SkinnedInstanceBuffer::recordGBuffer(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, StaticPopulation population, const float viewProj[16], const float prevViewProj[16]) const
     {
         if (!cmd || !isValid() || !viewProj || !prevViewProj)
@@ -970,14 +1109,22 @@ namespace Dark
         if (!any)
             return;
 
-        const uint32_t                slot       = m_frameIndex % kFrameSlots;
+        const uint32_t                  slot       = m_frameIndex % kFrameSlots;
         const D3D12_GPU_VIRTUAL_ADDRESS instances = m_gpu->instances->GetGPUVirtualAddress() + static_cast<UINT64>(slot) * kMaxSkinnedParts * sizeof(SkinnedInstanceGpu);
-        const D3D12_GPU_VIRTUAL_ADDRESS indices   = m_gpu->indices->GetGPUVirtualAddress() + static_cast<UINT64>(slot) * kMaxSkinnedParts * 2u * sizeof(uint32_t);
+        D3D12_GPU_VIRTUAL_ADDRESS       indices   = m_gpu->indices->GetGPUVirtualAddress() + static_cast<UINT64>(slot) * kMaxSkinnedParts * 2u * sizeof(uint32_t);
         const D3D12_GPU_VIRTUAL_ADDRESS palettes  = m_gpu->palettes->GetGPUVirtualAddress() + static_cast<UINT64>(slot) * kMaxSkinnedPalettes * sizeof(BonePaletteCB);
+        uint64_t                        culled    = 0;
+        ID3D12Resource*                 args      = nullptr;
+        ID3D12CommandSignature*         sig       = nullptr;
+        // Camera view is view 0, the same index the static cull uses for the G-buffer.
+        const bool indirect = indirectFor(0, culled, args, sig);
+        if (indirect)
+            indices = static_cast<D3D12_GPU_VIRTUAL_ADDRESS>(culled);
         m_gpu->bindGBuffer(cmd);
         m_gpu->setGBufferBuffers(cmd, instances, indices, palettes);
-        for (const GBufferBatch& batch : m_gbuffer)
+        for (uint32_t i = 0; i < static_cast<uint32_t>(m_gbuffer.size()); ++i)
         {
+            const GBufferBatch& batch = m_gbuffer[i];
             if (batch.key.population != populationId || !batch.mesh || !batch.mesh->valid() || batch.itemCount == 0)
                 continue;
             MeshBatchConstants cb{};
@@ -988,11 +1135,14 @@ namespace Dark
             cb.pad       = 0u;
             m_gpu->setGBufferConstants(cmd, cb);
             gpu.bindMaterial(cmd, batch.key.material, SkinnedInstanceBuffer::kGbMaterial);
-            batch.mesh->drawInstanced(cmd, batch.itemCount);
+            if (indirect)
+                batch.mesh->drawIndirect(cmd, sig, args, SkinnedInstanceCull::argumentOffset(0, i));
+            else
+                batch.mesh->drawInstanced(cmd, batch.itemCount);
         }
     }
 
-    void SkinnedInstanceBuffer::recordDepth(ID3D12GraphicsCommandList* cmd, const float lightViewProj[16]) const
+    void SkinnedInstanceBuffer::recordDepth(ID3D12GraphicsCommandList* cmd, uint32_t viewIndex, const float lightViewProj[16]) const
     {
         if (!cmd || !isValid() || !lightViewProj)
             return;
@@ -1009,14 +1159,21 @@ namespace Dark
         if (!any)
             return;
 
-        const uint32_t                  slot       = m_frameIndex % kFrameSlots;
-        const D3D12_GPU_VIRTUAL_ADDRESS instances  = m_gpu->instances->GetGPUVirtualAddress() + static_cast<UINT64>(slot) * kMaxSkinnedParts * sizeof(SkinnedInstanceGpu);
-        const D3D12_GPU_VIRTUAL_ADDRESS indices    = m_gpu->indices->GetGPUVirtualAddress() + (static_cast<UINT64>(slot) * kMaxSkinnedParts * 2u + kMaxSkinnedParts) * sizeof(uint32_t);
-        const D3D12_GPU_VIRTUAL_ADDRESS palettes   = m_gpu->palettes->GetGPUVirtualAddress() + static_cast<UINT64>(slot) * kMaxSkinnedPalettes * sizeof(BonePaletteCB);
+        const uint32_t                  slot      = m_frameIndex % kFrameSlots;
+        const D3D12_GPU_VIRTUAL_ADDRESS instances = m_gpu->instances->GetGPUVirtualAddress() + static_cast<UINT64>(slot) * kMaxSkinnedParts * sizeof(SkinnedInstanceGpu);
+        D3D12_GPU_VIRTUAL_ADDRESS       indices   = m_gpu->indices->GetGPUVirtualAddress() + (static_cast<UINT64>(slot) * kMaxSkinnedParts * 2u + kMaxSkinnedParts) * sizeof(uint32_t);
+        const D3D12_GPU_VIRTUAL_ADDRESS palettes  = m_gpu->palettes->GetGPUVirtualAddress() + static_cast<UINT64>(slot) * kMaxSkinnedPalettes * sizeof(BonePaletteCB);
+        uint64_t                        culled    = 0;
+        ID3D12Resource*                 args      = nullptr;
+        ID3D12CommandSignature*         sig       = nullptr;
+        const bool                      indirect  = indirectFor(viewIndex, culled, args, sig);
+        if (indirect)
+            indices = static_cast<D3D12_GPU_VIRTUAL_ADDRESS>(culled);
         m_gpu->bindDepth(cmd);
         m_gpu->setDepthBuffers(cmd, instances, indices, palettes);
-        for (const DepthBatch& batch : m_depth)
+        for (uint32_t i = 0; i < static_cast<uint32_t>(m_depth.size()); ++i)
         {
+            const DepthBatch& batch = m_depth[i];
             if (!batch.mesh || !batch.mesh->valid() || batch.itemCount == 0)
                 continue;
             MeshDepthBatchConstants cb{};
@@ -1024,7 +1181,10 @@ namespace Dark
             cb.baseIndex = batch.itemBegin;
             cb.pad[0] = cb.pad[1] = cb.pad[2] = 0u;
             m_gpu->setDepthConstants(cmd, cb);
-            batch.mesh->drawInstanced(cmd, batch.itemCount);
+            if (indirect)
+                batch.mesh->drawIndirect(cmd, sig, args, SkinnedInstanceCull::argumentOffset(viewIndex, i));
+            else
+                batch.mesh->drawInstanced(cmd, batch.itemCount);
         }
     }
 
@@ -1049,13 +1209,20 @@ namespace Dark
 
         const uint32_t                  slot      = m_frameIndex % kFrameSlots;
         const D3D12_GPU_VIRTUAL_ADDRESS instances = m_gpu->instances->GetGPUVirtualAddress() + static_cast<UINT64>(slot) * kMaxSkinnedParts * sizeof(SkinnedInstanceGpu);
-        const D3D12_GPU_VIRTUAL_ADDRESS indices   = m_gpu->indices->GetGPUVirtualAddress() + static_cast<UINT64>(slot) * kMaxSkinnedParts * 2u * sizeof(uint32_t);
+        D3D12_GPU_VIRTUAL_ADDRESS       indices   = m_gpu->indices->GetGPUVirtualAddress() + static_cast<UINT64>(slot) * kMaxSkinnedParts * 2u * sizeof(uint32_t);
         const D3D12_GPU_VIRTUAL_ADDRESS palettes  = m_gpu->palettes->GetGPUVirtualAddress() + static_cast<UINT64>(slot) * kMaxSkinnedPalettes * sizeof(BonePaletteCB);
+        uint64_t                        culled    = 0;
+        ID3D12Resource*                 args      = nullptr;
+        ID3D12CommandSignature*         sig       = nullptr;
+        const bool                      indirect  = indirectFor(0, culled, args, sig);
+        if (indirect)
+            indices = static_cast<D3D12_GPU_VIRTUAL_ADDRESS>(culled);
         m_gpu->bindForward(cmd);
         m_gpu->setForwardBuffers(cmd, instances, indices, palettes);
         m_gpu->setForwardShadow(cmd, static_cast<D3D12_GPU_VIRTUAL_ADDRESS>(shadowCbv));
-        for (const GBufferBatch& batch : m_gbuffer)
+        for (uint32_t i = 0; i < static_cast<uint32_t>(m_gbuffer.size()); ++i)
         {
+            const GBufferBatch& batch = m_gbuffer[i];
             if (batch.key.population != populationId || !batch.mesh || !batch.mesh->valid() || batch.itemCount == 0)
                 continue;
             MeshForwardBatchConstants cb = lighting;
@@ -1065,7 +1232,10 @@ namespace Dark
             cb.pad[0] = cb.pad[1] = cb.pad[2] = 0u;
             m_gpu->setForwardConstants(cmd, cb);
             gpu.bindMaterial(cmd, batch.key.material, SkinnedInstanceBuffer::kForwardMaterial);
-            batch.mesh->drawInstanced(cmd, batch.itemCount);
+            if (indirect)
+                batch.mesh->drawIndirect(cmd, sig, args, SkinnedInstanceCull::argumentOffset(0, i));
+            else
+                batch.mesh->drawInstanced(cmd, batch.itemCount);
         }
     }
 

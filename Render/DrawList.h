@@ -2,6 +2,7 @@
 
 #include "Render/RenderItem.h"
 #include "Render/Frustum3f.h"
+#include "Render/InstanceCull.h"
 
 #include <array>
 #include <cstdint>
@@ -17,7 +18,6 @@ namespace Dark
 
 class GpuModel;
 class GpuResourceCache;
-class InstanceCull;
 
 void encodeCullAabb(const Math::AABox3f& box, bool castShadow, MeshCullAabb& out);
 bool cullAabbVisible(const MeshCullAabb& aabb, const Math::Plane4f planes[6]);
@@ -52,6 +52,10 @@ public:
     bool gpuCullActive() const { return m_gpuCull; }
     bool cullReady() const;
     bool dispatchCull(ID3D12GraphicsCommandList* cmd);
+
+    // Planes and pass kind for views built while the GPU cull is on.
+    // batchCount and itemCount stay 0. The caller fills those for its own list.
+    uint32_t exportGpuViews(CullViewDesc* out, uint32_t capacity) const;
     ID3D12Resource* argumentResource(uint32_t frameSlot) const;
     ID3D12Resource* cullIndexResource(uint32_t frameSlot) const;
 

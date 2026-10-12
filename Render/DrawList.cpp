@@ -1217,6 +1217,25 @@ bool DrawList::dispatchCull(ID3D12GraphicsCommandList* cmd)
     return ok;
 }
 
+uint32_t DrawList::exportGpuViews(CullViewDesc* out, uint32_t capacity) const
+{
+    if (!out || capacity == 0)
+        return 0;
+    uint32_t count = 0;
+    for (uint32_t i = 0; i < kMaxStaticViews && count < capacity; ++i)
+    {
+        const ViewSlot& slot = m_views[i];
+        if (!slot.built || !slot.gpu)
+            continue;
+        CullViewDesc& desc = out[count++];
+        desc               = CullViewDesc{};
+        desc.viewIndex     = i;
+        desc.useDepthBatch = slot.pass == RenderPassKind::Depth ? 1u : 0u;
+        std::memcpy(desc.planes, slot.planes, sizeof(desc.planes));
+    }
+    return count;
+}
+
 ID3D12Resource* DrawList::argumentResource(uint32_t frameSlot) const
 {
     if (!m_gpu || frameSlot >= kUploadSlots)

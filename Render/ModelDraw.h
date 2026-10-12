@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Animation/Pose.h"
+#include "Math/AABox3f.h"
 #include "Math/Matrix4f.h"
 #include "Render/GpuResourceCache.h"
 #include "Render/GpuModel.h"
@@ -26,6 +27,7 @@ namespace Dark
 
     // Opaque skinned parts only, all of them or none. Does not call SkinningUploadRing::alloc.
     // world and prevWorld are baked here as part.localToRoot times the entity matrix.
+    // A valid asset box is transformed once by entityWorld and stored on every part.
     bool submitSkinnedModelOpaque(
         SkinnedInstanceBuffer& buffer,
         GpuResourceCache& gpu,
@@ -34,7 +36,8 @@ namespace Dark
         const Matrix4f& entityWorld,
         const Matrix4f& prevEntityWorld,
         StaticPopulation population,
-        bool castShadow);
+        bool castShadow,
+        const Math::AABox3f& assetBounds = Math::AABox3f::Empty());
 
     void drawModelOpaqueGBuffer(
         ID3D12GraphicsCommandList* cmd,

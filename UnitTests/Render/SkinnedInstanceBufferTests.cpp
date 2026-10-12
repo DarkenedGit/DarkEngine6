@@ -1,13 +1,18 @@
 #include <gtest/gtest.h>
 
 #include "Animation/Pose.h"
+#include "Render/Camera3D.h"
+#include "Render/DrawList.h"
+#include "Render/Frustum3f.h"
 #include "Render/GpuModel.h"
 #include "Render/GpuResourceCache.h"
+#include "Render/InstanceCull.h"
 #include "Render/Mesh.h"
 #include "Render/ModelDraw.h"
 #include "Render/ShaderCompile.h"
 #include "Render/SkinnedInstanceBuffer.h"
 
+#include "Math/AABox3f.h"
 #include "Math/Matrix4f.h"
 #include "Math/Vector4f.h"
 
@@ -510,4 +515,335 @@ TEST(SkinnedInstance, ForwardSignatureIs45)
 
     EXPECT_TRUE(disassemblyHas(vs.Get(), "dcl_resource_structured t5, 160"));
     EXPECT_TRUE(disassemblyHas(vs.Get(), "dcl_resource_structured t7, 2048"));
+}
+
+TEST(SkinnedInstance, CullAabbUsesOneWorldBoxAndSkipsInvalidCenters)
+{
+    Mesh meshA = Mesh::takeSortIdentity();
+    Mesh meshB = Mesh::takeSortIdentity();
+    AnimPose pose{};
+    pose.boneCount = 1;
+
+    const AABox3f asset(Vector3f(-1.0f, -2.0f, -3.0f), Vector3f(1.0f, 2.0f, 3.0f));
+    const Matrix4f entity = Matrix4f::TranslationMatrix(10.0f, 0.0f, 0.0f);
+    const AABox3f world = asset.Transformed(entity);
+    ASSERT_TRUE(world.IsValid());
+    const Vector3f center = world.Center();
+    const Vector3f extent = world.Extents();
+
+    GpuModel::Part partA;
+    partA.mesh        = Mesh::takeSortIdentity();
+    partA.skinned     = true;
+    GpuModel::Part partB;
+    partB.mesh        = Mesh::takeSortIdentity();
+    partB.skinned     = true;
+    std::vector<GpuModel::Part> opaque;
+    opaque.push_back(std::move(partA));
+    opaque.push_back(std::move(partB));
+    const GpuModel model(std::move(opaque), std::vector<GpuModel::Part>{});
+    GpuResourceCache gpu(nullptr);
+    SkinnedInstanceBuffer baked;
+    ASSERT_TRUE(submitSkinnedModelOpaque(baked, gpu, model, &pose, entity, entity, StaticPopulation::OpaqueModels, true, asset));
+    const MeshCullAabb* bakedAabbs = baked.cullAabbs();
+    ASSERT_EQ(baked.cullAabbCount(), 2u);
+    ASSERT_NE(bakedAabbs, nullptr);
+    for (uint32_t i = 0; i < 2u; ++i)
+    {
+        EXPECT_FLOAT_EQ(bakedAabbs[i].center[0], center.x);
+        EXPECT_FLOAT_EQ(bakedAabbs[i].center[1], center.y);
+        EXPECT_FLOAT_EQ(bakedAabbs[i].center[2], center.z);
+        EXPECT_FLOAT_EQ(bakedAabbs[i].extent[0], extent.x);
+        EXPECT_FLOAT_EQ(bakedAabbs[i].extent[1], extent.y);
+        EXPECT_FLOAT_EQ(bakedAabbs[i].extent[2], extent.z);
+        EXPECT_EQ(bakedAabbs[i].flags & kCullAlwaysVisible, 0u);
+        EXPECT_EQ(bakedAabbs[i].flags & kCullCastShadow, kCullCastShadow);
+    }
+
+    SkinnedInstanceBuffer buffer;
+    SkinnedPartSubmit inside = partOf(&meshA, &pose, 1, StaticPopulation::OpaqueModels, true, false);
+    inside.worldAabb = AABox3f(Vector3f(-0.25f, -0.25f, 7.5f), Vector3f(0.25f, 0.25f, 8.5f));
+    SkinnedPartSubmit always = partOf(&meshA, &pose, 1, StaticPopulation::OpaqueModels, false, false);
+    SkinnedPartSubmit farPart = partOf(&meshB, &pose, 1, StaticPopulation::OpaqueModels, true, false);
+    farPart.worldAabb = AABox3f(Vector3f(-0.25f, -0.25f, 79.5f), Vector3f(0.25f, 0.25f, 80.5f));
+    ASSERT_TRUE(buffer.submit(inside));
+    ASSERT_TRUE(buffer.submit(always));
+    ASSERT_TRUE(buffer.submit(farPart));
+
+    const MeshCullAabb* aabbs = buffer.cullAabbs();
+    ASSERT_EQ(buffer.cullAabbCount(), 3u);
+    ASSERT_NE(aabbs, nullptr);
+    EXPECT_EQ(aabbs[1].flags & kCullAlwaysVisible, kCullAlwaysVisible);
+    EXPECT_EQ(aabbs[1].flags & kCullCastShadow, 0u);
+    EXPECT_FLOAT_EQ(aabbs[1].center[0], 0.0f);
+    EXPECT_FLOAT_EQ(aabbs[1].center[1], 0.0f);
+    EXPECT_FLOAT_EQ(aabbs[1].center[2], 0.0f);
+    EXPECT_FLOAT_EQ(aabbs[1].extent[0], 0.0f);
+    EXPECT_EQ(aabbs[1].depthBatch, SkinnedInstanceBuffer::kNoDepthBatch);
+    EXPECT_EQ(aabbs[0].gbufferBatch, aabbs[1].gbufferBatch);
+    EXPECT_NE(aabbs[0].depthBatch, SkinnedInstanceBuffer::kNoDepthBatch);
+    EXPECT_NE(aabbs[2].depthBatch, SkinnedInstanceBuffer::kNoDepthBatch);
+
+    Camera3D camera;
+    camera.SetLens(1.0f, 1.0f, 0.1f, 40.0f);
+    camera.LookAt(Vector3f(0.0f, 0.0f, 0.0f), Vector3f(0.0f, 0.0f, 1.0f), Vector3f(0.0f, 1.0f, 0.0f));
+    const Frustum3f frustum(camera.GetCullViewProj());
+    EXPECT_TRUE(frustum.Intersects(inside.worldAabb));
+    EXPECT_FALSE(frustum.Intersects(farPart.worldAabb));
+    EXPECT_EQ(cullAabbVisible(aabbs[0], frustum.Planes.data()), frustum.Intersects(inside.worldAabb));
+    EXPECT_EQ(cullAabbVisible(aabbs[2], frustum.Planes.data()), frustum.Intersects(farPart.worldAabb));
+    EXPECT_TRUE(cullAabbVisible(aabbs[1], frustum.Planes.data()));
+    EXPECT_EQ(buffer.depthBatchCount(), 2u);
+}
+
+TEST(SkinnedInstance, CullStaysDirectWithoutADevice)
+{
+    SkinnedInstanceBuffer buffer;
+    EXPECT_FALSE(buffer.cullReady());
+    EXPECT_FALSE(buffer.dispatchCull(nullptr, nullptr, 0));
+}
+
+TEST(SkinnedInstance, CullShaderKeepsTheStaticLayout)
+{
+    EXPECT_EQ(sizeof(MeshCullAabb), 48u);
+    EXPECT_EQ(sizeof(GpuBatchRecord), 16u);
+    EXPECT_EQ(sizeof(D3D12_DRAW_INDEXED_ARGUMENTS), 20u);
+    EXPECT_EQ(SkinnedInstanceCull::kStride, kMaxSkinnedParts);
+    EXPECT_NE(SkinnedInstanceCull::kStride, kMaxStaticItems);
+
+    ComPtr<ID3DBlob> compact;
+    ComPtr<ID3DBlob> args;
+    ASSERT_TRUE(compileShaderFromContent("shaders/InstanceCull.hlsl", "CSCompact", "cs_5_0", compact));
+    ASSERT_TRUE(compileShaderFromContent("shaders/InstanceCull.hlsl", "CSArgs", "cs_5_0", args));
+    UINT bytes = 0;
+    ASSERT_TRUE(cbufferBytes(compact.Get(), "CullConstants", bytes));
+    EXPECT_EQ(bytes, 128u);
+    UINT aabbs = 0;
+    UINT batches = 0;
+    UINT indices = 0;
+    UINT counters = 0;
+    UINT argReg = 0;
+    ASSERT_TRUE(bindPoint(compact.Get(), "gAabbs", aabbs));
+    ASSERT_TRUE(bindPoint(compact.Get(), "gBatches", batches));
+    ASSERT_TRUE(bindPoint(compact.Get(), "gIndices", indices));
+    ASSERT_TRUE(bindPoint(compact.Get(), "gCounters", counters));
+    // CSCompact never writes arguments, so FXC drops gArgs from that entry point.
+    ASSERT_TRUE(bindPoint(args.Get(), "gArgs", argReg));
+    EXPECT_EQ(aabbs, 0u);
+    EXPECT_EQ(batches, 1u);
+    EXPECT_EQ(indices, 0u);
+    EXPECT_EQ(counters, 1u);
+    EXPECT_EQ(argReg, 2u);
+    EXPECT_TRUE(disassemblyHas(compact.Get(), "dcl_resource_structured t0, 48"));
+    EXPECT_TRUE(disassemblyHas(args.Get(), "dcl_uav_structured u2, 4"));
+}
+
+TEST(SkinnedInstance, GpuCullMatchesTheFrustumOnItsOwnBuffers)
+{
+    ComPtr<ID3D12Device> device = tryCreateWarpDevice();
+    if (!device)
+        GTEST_SKIP() << "no WARP device at feature level 11_0";
+
+    SkinnedInstanceBuffer buffer;
+    ASSERT_TRUE(buffer.create(device.Get()));
+    ASSERT_TRUE(buffer.isValid());
+    ASSERT_TRUE(buffer.cullReady());
+
+    DrawList list;
+    ASSERT_TRUE(list.create(device.Get()));
+    ASSERT_TRUE(list.cullReady());
+    EXPECT_NE(buffer.cullArgumentResource(0), list.argumentResource(0));
+    EXPECT_NE(buffer.cullIndexResource(0), list.cullIndexResource(0));
+    ASSERT_NE(buffer.cullIndexResource(0), nullptr);
+    EXPECT_EQ(buffer.cullIndexResource(0)->GetDesc().Width, static_cast<UINT64>(kMaxStaticViews) * kMaxSkinnedParts * sizeof(uint32_t));
+    EXPECT_EQ(buffer.cullArgumentResource(0)->GetDesc().Width, static_cast<UINT64>(kMaxStaticViews) * SkinnedInstanceCull::kStride * sizeof(D3D12_DRAW_INDEXED_ARGUMENTS));
+
+    Mesh meshA = Mesh::takeSortIdentity();
+    Mesh meshB = Mesh::takeSortIdentity();
+    AnimPose pose{};
+    pose.boneCount = 1;
+    buffer.beginFrame(0);
+    SkinnedPartSubmit inside = partOf(&meshA, &pose, 1, StaticPopulation::OpaqueModels, true, false);
+    inside.worldAabb = AABox3f(Vector3f(-0.25f, -0.25f, 7.5f), Vector3f(0.25f, 0.25f, 8.5f));
+    SkinnedPartSubmit always = partOf(&meshA, &pose, 1, StaticPopulation::OpaqueModels, false, false);
+    SkinnedPartSubmit farPart = partOf(&meshB, &pose, 1, StaticPopulation::OpaqueModels, true, false);
+    farPart.worldAabb = AABox3f(Vector3f(-0.25f, -0.25f, 79.5f), Vector3f(0.25f, 0.25f, 80.5f));
+    ASSERT_TRUE(buffer.submit(inside));
+    ASSERT_TRUE(buffer.submit(always));
+    ASSERT_TRUE(buffer.submit(farPart));
+
+    Camera3D camera;
+    camera.SetLens(1.0f, 1.0f, 0.1f, 40.0f);
+    camera.LookAt(Vector3f(0.0f, 0.0f, 0.0f), Vector3f(0.0f, 0.0f, 1.0f), Vector3f(0.0f, 1.0f, 0.0f));
+    const Frustum3f frustum(camera.GetCullViewProj());
+    CullViewDesc views[2]{};
+    views[0].viewIndex = 0;
+    views[1].viewIndex = 1;
+    views[1].useDepthBatch = 1;
+    for (int plane = 0; plane < Frustum3f::Count; ++plane)
+    {
+        const Plane4f& p = frustum.Planes[static_cast<size_t>(plane)];
+        views[0].planes[plane][0] = p.x;
+        views[0].planes[plane][1] = p.y;
+        views[0].planes[plane][2] = p.z;
+        views[0].planes[plane][3] = p.w;
+        views[1].planes[plane][0] = p.x;
+        views[1].planes[plane][1] = p.y;
+        views[1].planes[plane][2] = p.z;
+        views[1].planes[plane][3] = p.w;
+    }
+
+    ComPtr<ID3D12CommandQueue> queue;
+    D3D12_COMMAND_QUEUE_DESC queueDesc{};
+    queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    if (FAILED(device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&queue))))
+        GTEST_SKIP() << "CreateCommandQueue failed";
+    ComPtr<ID3D12CommandAllocator> allocator;
+    ComPtr<ID3D12GraphicsCommandList> cmd;
+    ASSERT_TRUE(SUCCEEDED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator))));
+    ASSERT_TRUE(SUCCEEDED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr, IID_PPV_ARGS(&cmd))));
+    ASSERT_TRUE(buffer.dispatchCull(cmd.Get(), views, 2));
+
+    ID3D12Resource* args = buffer.cullArgumentResource(0);
+    ID3D12Resource* indices = buffer.cullIndexResource(0);
+    ASSERT_NE(args, nullptr);
+    ASSERT_NE(indices, nullptr);
+    const UINT64 argBytes = args->GetDesc().Width;
+    const UINT64 indexBytes = indices->GetDesc().Width;
+
+    auto makeReadback = [&](UINT64 bytes) {
+        D3D12_HEAP_PROPERTIES heap{};
+        heap.Type = D3D12_HEAP_TYPE_READBACK;
+        D3D12_RESOURCE_DESC desc{};
+        desc.Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER;
+        desc.Width            = bytes;
+        desc.Height           = 1;
+        desc.DepthOrArraySize = 1;
+        desc.MipLevels        = 1;
+        desc.SampleDesc       = { 1, 0 };
+        desc.Layout           = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        ComPtr<ID3D12Resource> res;
+        EXPECT_TRUE(SUCCEEDED(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&res))));
+        return res;
+    };
+    ComPtr<ID3D12Resource> argRead = makeReadback(argBytes);
+    ComPtr<ID3D12Resource> indexRead = makeReadback(indexBytes);
+    ASSERT_TRUE(argRead);
+    ASSERT_TRUE(indexRead);
+
+    auto transition = [](ID3D12GraphicsCommandList* listCmd, ID3D12Resource* resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
+        D3D12_RESOURCE_BARRIER barrier{};
+        barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.pResource   = resource;
+        barrier.Transition.StateBefore = before;
+        barrier.Transition.StateAfter  = after;
+        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        listCmd->ResourceBarrier(1, &barrier);
+    };
+    transition(cmd.Get(), args, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition(cmd.Get(), indices, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    cmd->CopyBufferRegion(argRead.Get(), 0, args, 0, argBytes);
+    cmd->CopyBufferRegion(indexRead.Get(), 0, indices, 0, indexBytes);
+    ASSERT_TRUE(SUCCEEDED(cmd->Close()));
+
+    ComPtr<ID3D12Fence> fence;
+    ASSERT_TRUE(SUCCEEDED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))));
+    ID3D12CommandList* lists[] = { cmd.Get() };
+    queue->ExecuteCommandLists(1, lists);
+    ASSERT_TRUE(SUCCEEDED(queue->Signal(fence.Get(), 1)));
+    if (fence->GetCompletedValue() < 1)
+    {
+        const HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        ASSERT_NE(event, nullptr);
+        ASSERT_TRUE(SUCCEEDED(fence->SetEventOnCompletion(1, event)));
+        ASSERT_EQ(WaitForSingleObject(event, 10000), WAIT_OBJECT_0);
+        CloseHandle(event);
+    }
+
+    std::vector<uint8_t> argCopy(static_cast<size_t>(argBytes));
+    std::vector<uint8_t> indexCopy(static_cast<size_t>(indexBytes));
+    void* argMap = nullptr;
+    void* indexMap = nullptr;
+    ASSERT_TRUE(SUCCEEDED(argRead->Map(0, nullptr, &argMap)));
+    ASSERT_TRUE(SUCCEEDED(indexRead->Map(0, nullptr, &indexMap)));
+    std::memcpy(argCopy.data(), argMap, argCopy.size());
+    std::memcpy(indexCopy.data(), indexMap, indexCopy.size());
+    argRead->Unmap(0, nullptr);
+    indexRead->Unmap(0, nullptr);
+
+    auto readArg = [&](uint32_t view, uint32_t batch) {
+        DrawIndexedArgs out{};
+        const size_t offset = (static_cast<size_t>(view) * SkinnedInstanceCull::kStride + batch) * sizeof(DrawIndexedArgs);
+        std::memcpy(&out, argCopy.data() + offset, sizeof(out));
+        return out;
+    };
+    auto readIndex = [&](uint32_t view, uint32_t element) {
+        uint32_t out = 0;
+        const size_t offset = (static_cast<size_t>(view) * SkinnedInstanceCull::kStride + element) * sizeof(uint32_t);
+        std::memcpy(&out, indexCopy.data() + offset, sizeof(out));
+        return out;
+    };
+
+    const GBufferBatch* batchA = nullptr;
+    const GBufferBatch* batchB = nullptr;
+    uint32_t indexA = 0;
+    uint32_t indexB = 0;
+    for (uint32_t i = 0; i < buffer.gbufferBatchCount(); ++i)
+    {
+        if (buffer.gbufferBatch(i).mesh == &meshA)
+        {
+            batchA = &buffer.gbufferBatch(i);
+            indexA = i;
+        }
+        if (buffer.gbufferBatch(i).mesh == &meshB)
+        {
+            batchB = &buffer.gbufferBatch(i);
+            indexB = i;
+        }
+    }
+    ASSERT_NE(batchA, nullptr);
+    ASSERT_NE(batchB, nullptr);
+    const DrawIndexedArgs gbA = readArg(0, indexA);
+    const DrawIndexedArgs gbB = readArg(0, indexB);
+    EXPECT_EQ(gbA.instanceCount, 2u);
+    EXPECT_EQ(gbA.startInstanceLocation, 0u);
+    EXPECT_EQ(gbA.startIndexLocation, 0u);
+    EXPECT_EQ(gbA.baseVertexLocation, 0);
+    EXPECT_EQ(gbA.indexCountPerInstance, meshA.indexCount());
+    EXPECT_EQ(gbB.instanceCount, 0u);
+    EXPECT_EQ(gbB.startInstanceLocation, 0u);
+    EXPECT_EQ(gbB.indexCountPerInstance, meshB.indexCount());
+    if (batchB->itemBegin != 0)
+        EXPECT_NE(gbB.startInstanceLocation, batchB->itemBegin);
+    const uint32_t i0 = readIndex(0, batchA->itemBegin);
+    const uint32_t i1 = readIndex(0, batchA->itemBegin + 1u);
+    EXPECT_TRUE((i0 == 0u && i1 == 1u) || (i0 == 1u && i1 == 0u));
+
+    const DepthBatch* depthA = nullptr;
+    const DepthBatch* depthB = nullptr;
+    uint32_t depthIndexA = 0;
+    uint32_t depthIndexB = 0;
+    for (uint32_t i = 0; i < buffer.depthBatchCount(); ++i)
+    {
+        if (buffer.depthBatch(i).mesh == &meshA)
+        {
+            depthA = &buffer.depthBatch(i);
+            depthIndexA = i;
+        }
+        if (buffer.depthBatch(i).mesh == &meshB)
+        {
+            depthB = &buffer.depthBatch(i);
+            depthIndexB = i;
+        }
+    }
+    ASSERT_NE(depthA, nullptr);
+    ASSERT_NE(depthB, nullptr);
+    const DrawIndexedArgs dA = readArg(1, depthIndexA);
+    const DrawIndexedArgs dB = readArg(1, depthIndexB);
+    EXPECT_EQ(dA.instanceCount, 1u);
+    EXPECT_EQ(dA.startInstanceLocation, 0u);
+    EXPECT_EQ(dA.indexCountPerInstance, meshA.indexCount());
+    EXPECT_EQ(readIndex(1, depthA->itemBegin), 0u);
+    EXPECT_EQ(dB.instanceCount, 0u);
+    EXPECT_EQ(dB.startInstanceLocation, 0u);
+    EXPECT_EQ(dB.indexCountPerInstance, meshB.indexCount());
 }

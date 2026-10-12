@@ -61,10 +61,14 @@ namespace Dark
 		const Matrix4f& entityWorld,
 		const Matrix4f& prevEntityWorld,
 		StaticPopulation population,
-		bool castShadow)
+		bool castShadow,
+		const Math::AABox3f& assetBounds)
 	{
 		if (!pose)
 			return false;
+		Math::AABox3f worldBox = Math::AABox3f::Empty();
+		if (assetBounds.IsValid())
+			worldBox = assetBounds.Transformed(entityWorld);
 		const uint32_t saved = buffer.mark();
 		bool any = false;
 		for (const GpuModel::Part& part : model.opaque())
@@ -81,6 +85,7 @@ namespace Dark
 			sub.population  = population;
 			sub.castShadow  = castShadow;
 			sub.pose        = pose;
+			sub.worldAabb   = worldBox;
 			sub.color[0]    = 1.0f;
 			sub.color[1]    = 1.0f;
 			sub.color[2]    = 1.0f;
