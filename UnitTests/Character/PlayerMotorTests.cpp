@@ -229,7 +229,7 @@ TEST(PlayerMotor, SpeedScaleHalfWalksAtHalfWalkSpeed)
     motor.tick(pos, in, kDt, flatQuery());
     EXPECT_NEAR(pos.z, motor.settings().walkSpeed * 0.5f * kDt, 1.0e-4f);
     EXPECT_NEAR(motor.velocity().z, motor.settings().walkSpeed * 0.5f, 1.0e-4f);
-    EXPECT_NEAR(motor.settings().walkSpeed * 0.5f, 4.0f, 1.0e-4f);
+    EXPECT_NEAR(motor.settings().walkSpeed * 0.5f, 1.8f, 1.0e-4f);
 }
 
 TEST(PlayerMotor, SpeedScaleClampsToZeroOne)
@@ -306,7 +306,7 @@ TEST(PlayerMotor, WalkOffLedgeEntersFalling)
 
     PlayerMotorInput run{};
     run.wish = Vector3f{ 1.0f, 0.0f, 0.0f };
-    for (int i = 0; i < 20; ++i)
+    for (int i = 0; i < 40; ++i)
         motor.tick(pos, run, 1.0f / 60.0f, q);
 
     EXPECT_EQ(motor.state(), PlayerMoveState::Falling);
@@ -376,7 +376,7 @@ TEST(PlayerMotor, FallingUsesAirSpeedNotWalkSpeed)
 
     PlayerMotorInput run{};
     run.wish = Vector3f{ 1.0f, 0.0f, 0.0f };
-    for (int i = 0; i < 20; ++i)
+    for (int i = 0; i < 40; ++i)
         motor.tick(pos, run, 1.0f / 60.0f, q);
     ASSERT_EQ(motor.state(), PlayerMoveState::Falling);
 
@@ -689,7 +689,7 @@ TEST(PlayerMotor, DodgeDisplacementIgnoresRunScale)
             motor.tick(pos, gap, kStep, q);
         EXPECT_EQ(motor.state(), PlayerMoveState::Dodge);
         EXPECT_NEAR(motor.velocity().z, motor.settings().dodgeSpeed, 1.0e-3f);
-        EXPECT_FLOAT_EQ(motor.settings().dodgeSpeed, 24.0f);
+        EXPECT_FLOAT_EQ(motor.settings().dodgeSpeed, 10.0f);
         return pos.z - z0;
     };
 
@@ -697,7 +697,7 @@ TEST(PlayerMotor, DodgeDisplacementIgnoresRunScale)
     const float plain   = dodgeDelta(kSkillIdentity);
     const float scaled  = dodgeDelta(kRunScaleMax);
     EXPECT_NEAR(scaled, plain, 1.0e-4f);
-    EXPECT_NEAR(scaled, 24.0f * elapsed, 1.0e-3f);
+    EXPECT_NEAR(scaled, 10.0f * elapsed, 1.0e-3f);
 }
 
 TEST(PlayerMotor, SprintDisplacementUsesRunScale)
@@ -710,10 +710,10 @@ TEST(PlayerMotor, SprintDisplacementUsesRunScale)
     in.runScale = kRunScaleMax;
     constexpr float kDt = 0.25f;
     motor.tick(pos, in, kDt, flatQuery());
-    ASSERT_FLOAT_EQ(motor.settings().sprintSpeed, 16.0f);
+    ASSERT_FLOAT_EQ(motor.settings().sprintSpeed, 7.0f);
     EXPECT_NEAR(pos.z, motor.settings().sprintSpeed * kRunScaleMax * kDt, 1.0e-4f);
     EXPECT_NEAR(motor.velocity().z, motor.settings().sprintSpeed * kRunScaleMax, 1.0e-4f);
-    EXPECT_FLOAT_EQ(motor.settings().sprintSpeed, 16.0f);
+    EXPECT_FLOAT_EQ(motor.settings().sprintSpeed, 7.0f);
 }
 
 TEST(PlayerMotor, WalkDisplacementUsesRunScale)
@@ -725,7 +725,7 @@ TEST(PlayerMotor, WalkDisplacementUsesRunScale)
     in.runScale = kRunScaleMax;
     constexpr float kDt = 0.25f;
     motor.tick(pos, in, kDt, flatQuery());
-    ASSERT_FLOAT_EQ(motor.settings().walkSpeed, 8.0f);
+    ASSERT_FLOAT_EQ(motor.settings().walkSpeed, 3.6f);
     EXPECT_EQ(motor.state(), PlayerMoveState::Grounded);
     EXPECT_NEAR(pos.z, motor.settings().walkSpeed * kRunScaleMax * kDt, 1.0e-4f);
     EXPECT_NEAR(motor.velocity().z, motor.settings().walkSpeed * kRunScaleMax, 1.0e-4f);
@@ -743,7 +743,7 @@ TEST(PlayerMotor, CrouchDisplacementIgnoresRunScale)
     constexpr float kDt = 0.25f;
     motor.tick(pos, in, kDt, flatQuery());
     EXPECT_EQ(motor.state(), PlayerMoveState::Crouch);
-    ASSERT_FLOAT_EQ(motor.settings().crouchSpeed, 3.4f);
+    ASSERT_FLOAT_EQ(motor.settings().crouchSpeed, 1.6f);
     EXPECT_NEAR(pos.z, motor.settings().crouchSpeed * kDt, 1.0e-4f);
     EXPECT_NEAR(motor.velocity().z, motor.settings().crouchSpeed, 1.0e-4f);
 }
@@ -777,7 +777,7 @@ TEST(PlayerMotor, SwimScaleChangesSwimNotSprint)
     sprint.sprint    = true;
     sprint.swimScale = kSwimScaleMax;
     sprinter.tick(sprintPos, sprint, kDt, flatQuery());
-    ASSERT_FLOAT_EQ(sprinter.settings().sprintSpeed, 16.0f);
+    ASSERT_FLOAT_EQ(sprinter.settings().sprintSpeed, 7.0f);
     EXPECT_NEAR(sprintPos.z, sprinter.settings().sprintSpeed * kDt, 1.0e-4f);
     EXPECT_EQ(sprinter.state(), PlayerMoveState::Grounded);
 }

@@ -10,6 +10,7 @@
 #include "Math/Vector4f.h"
 #include "Ui/NpcInfoOverlay.h"
 #include "Weapons/HittableComponent.h"
+#include "Weapons/WeaponLoadout.h"
 #include "Combat/CombatSystem.h"
 #include "Combat/JumpAttackComponent.h"
 #include "Combat/StatusDef.h"
@@ -250,6 +251,63 @@ void SandboxApp::drawPickupLabels()
         std::snprintf(name, sizeof(name), "%s (%d)", loot.label, n);
         label(e, name);
     });
+}
+
+void SandboxApp::drawDefenseText()
+{
+    if (m_defenseTextLeft <= 0.0f)
+        return;
+    m_defenseTextLeft -= m_frameDt;
+    const float          a    = Math::Clamp(m_defenseTextLeft / 0.7f, 0.0f, 1.0f);
+    const bool           parry = m_defenseText[0] == 'P';
+    const ImGuiViewport* vp   = ImGui::GetMainViewport();
+    ImDrawList*          dl   = ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp));
+    const float          size = ImGui::GetFontSize() * (parry ? 2.2f : 1.7f);
+    const ImVec2         ts   = ImGui::GetFont()->CalcTextSizeA(size, FLT_MAX, 0.0f, m_defenseText);
+    const ImVec2         pos{ vp->Pos.x + (vp->Size.x - ts.x) * 0.5f, vp->Pos.y + vp->Size.y * 0.36f - (1.0f - a) * 18.0f };
+    const int            alpha = static_cast<int>(a * 255.0f);
+    dl->AddText(ImGui::GetFont(), size, ImVec2(pos.x + 2.0f, pos.y + 2.0f), IM_COL32(0, 0, 0, alpha * 3 / 4), m_defenseText);
+    dl->AddText(ImGui::GetFont(), size, pos, parry ? IM_COL32(255, 210, 70, alpha) : IM_COL32(170, 210, 255, alpha), m_defenseText);
+}
+
+void SandboxApp::drawTargetMarker()
+{
+    const Entity              body = possessedBody();
+    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    WeaponLoadout*            w    = localWeapons();
+    if (!pxf)
+        return;
+
+    if (!w || w->activeKind() != WeaponKind::Melee || !ownsWeapon(WeaponKind::Melee))
+        return;
+    WeaponFireRequest req{};
+    req.ownerPos               = pxf->position;
+    req.direction              = m_viewCamera.GetLook();
+    const WeaponWorldQuery q   = makeWeaponQuery();
+    const int              hit = w->melee().pickTarget(req, q);
+    if (hit < 0 || !q.targetEntityAt)
+        return;
+    const Entity target = q.targetEntityAt(q.targetUser, hit);
+    const TransformComponent* xf = target.valid() && world().alive(target) ? world().get<TransformComponent>(target) : nullptr;
+    ImDrawList*               dl = ImGui::GetBackgroundDrawList(ImGui::GetMainViewport());
+    const float               vw = static_cast<float>(renderer().width());
+    const float               vh = static_cast<float>(renderer().height());
+    if (!xf || !dl || vw < 1.0f || vh < 1.0f)
+        return;
+
+    const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(Vector3f(xf->position.x, xf->position.y + 1.1f, xf->position.z), 1.0f);
+    if (clip.w <= 1.0e-4f)
+        return;
+    const float invW = 1.0f / clip.w;
+    if (clip.z * invW < 0.0f || clip.z * invW > 1.0f)
+        return;
+    const ImVec2 vp = ImGui::GetMainViewport()->Pos;
+    const float  sx = vp.x + (clip.x * invW * 0.5f + 0.5f) * vw;
+    const float  sy = vp.y + (1.0f - (clip.y * invW * 0.5f + 0.5f)) * vh;
+    const float  r  = 6.0f;
+    const ImU32  c  = IM_COL32(255, 255, 255, 200);
+    dl->AddTriangleFilled(ImVec2(sx - r - 1.5f, sy - r - 1.5f), ImVec2(sx + r + 1.5f, sy - r - 1.5f), ImVec2(sx, sy + 1.5f), IM_COL32(0, 0, 0, 180));
+    dl->AddTriangleFilled(ImVec2(sx - r, sy - r), ImVec2(sx + r, sy - r), ImVec2(sx, sy), c);
 }
 
 void SandboxApp::drawLoot()
@@ -1144,8 +1202,8 @@ void SandboxApp::drawDevTools()
         ch |= ImGui::SliderFloat("Help sprint time (s)", &pack.assistSeconds, 0.5f, 12.0f, "%.1f");
         ch |= ImGui::SliderFloat("Flee after witnessed kill (s)", &pack.fleeSeconds, 0.5f, 12.0f, "%.1f");
         ch |= ImGui::SliderFloat("Attack yell range (m)", &pack.alertRange, 0.0f, 40.0f, "%.1f");
-        ch |= ImGui::SliderFloat("Sprint speed", &pack.sprintSpeed, 8.0f, 28.0f, "%.1f");
-        ch |= ImGui::SliderFloat("Walk speed", &pack.walkSpeed, 2.0f, 16.0f, "%.1f");
+        ch |= ImGui::SliderFloat("Sprint speed", &pack.sprintSpeed, 2.0f, 28.0f, "%.1f");
+        ch |= ImGui::SliderFloat("Walk speed", &pack.walkSpeed, 1.0f, 16.0f, "%.1f");
         if (ch)
             m_chase.setPackSettings(pack);
     }

@@ -27,11 +27,11 @@ namespace Dark
 
     struct PlayerMotorSettings
     {
-        float walkSpeed           = 8.0f;
-        float crouchSpeed         = 3.4f; // slower than walkSpeed
-        float sprintSpeed         = 16.0f;
+        float walkSpeed           = 3.6f;
+        float crouchSpeed         = 1.6f; // slower than walkSpeed
+        float sprintSpeed         = 7.0f;
         float swimSpeed           = 5.0f;
-        float airSpeed            = 2.4f;  // extra speed you can add along wish while airborne
+        float airSpeed            = 1.2f;  // extra speed you can add along wish while airborne
         float airAccel            = 12.0f; // units/s^2 of air steering
         float gravity             = 24.0f;
         float jumpSpeed           = 12.0f;
@@ -42,7 +42,7 @@ namespace Dark
         float jumpBuffer          = 0.12f;
         float dodgeTapWindow      = 0.15f; // second press of the same direction must land within this
         float dodgeDuration       = 0.50f;
-        float dodgeSpeed          = 24.0f; // planar burst, faster than sprint
+        float dodgeSpeed          = 10.0f; // planar burst, faster than sprint
         float dodgeAnimSpeed      = 2.0f;  // locomotion clip playback while dodging
         float stepDown            = 0.55f;
         float groundOffset        = 0.5f;

@@ -92,17 +92,17 @@ TEST(LocomotionGraph, HumanStrafeSelectsSideStep)
 	ASSERT_TRUE(bindGraph("models/human.gltf", "models/human.anim.json", cpu, set, def, graph));
 	EXPECT_STREQ(graph.currentStateName(), "Idle");
 
-	graph.setFloat("speed", 4.0f);
-	graph.setFloat("strafe", 4.0f);
+	graph.setFloat("speed", 2.0f);
+	graph.setFloat("strafe", 2.0f);
 	graph.evaluate();
 	EXPECT_STREQ(graph.currentStateName(), "StrafeRight");
 
-	graph.setFloat("strafe", -4.0f);
+	graph.setFloat("strafe", -2.0f);
 	graph.evaluate();
 	EXPECT_STREQ(graph.currentStateName(), "StrafeLeft");
 
-	graph.setFloat("speed", 14.0f);
-	graph.setFloat("strafe", -14.0f);
+	graph.setFloat("speed", 12.0f);
+	graph.setFloat("strafe", -12.0f);
 	graph.evaluate();
 	EXPECT_STREQ(graph.currentStateName(), "StrafeRunLeft");
 

@@ -72,7 +72,8 @@ namespace Dark
         shield = {};
     }
 
-    void placePlayerShield(TransformComponent& shield, const TransformComponent& player, float raiseAlpha, float chargeWindup, float chargeStrike)
+    void placePlayerShield(TransformComponent& shield, const TransformComponent& player, float raiseAlpha, float chargeWindup, float chargeStrike,
+                           const Vector3f* grip)
     {
         const float t = Math::SmoothStep(0.0f, 1.0f, Math::Clamp(raiseAlpha, 0.0f, 1.0f));
         Combat::ShieldLocalPose pose = Combat::shieldLocalPose(t);
@@ -85,7 +86,14 @@ namespace Dark
         const Math::Quaternion tiltFwd  = Math::Quaternion::FromAxisAngle(Vector3f::X_AXIS, 0.45f * strike * t);
         pose.rotation = tiltFwd * tiltBack * pose.rotation;
         pose.rotation.Normalize();
-        shield.position = player.position + player.rotation.Rotate(pose.position);
+        if (grip)
+        {
+            const Vector3f strap = Math::Lerp(Vector3f{ 0.07f, 0.0f, 0.02f }, Vector3f{ -0.02f, 0.04f, 0.1f }, t)
+                + Vector3f{ 0.0f, 0.0f, (-0.12f * wind + 0.2f * strike) * t };
+            shield.position = *grip + player.rotation.Rotate(strap);
+        }
+        else
+            shield.position = player.position + player.rotation.Rotate(pose.position);
         shield.rotation = player.rotation * pose.rotation;
         shield.rotation.Normalize();
         shield.scale = Vect3f::ONE;

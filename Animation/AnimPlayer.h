@@ -37,6 +37,7 @@ namespace Dark
 			m_chargeBlock = block;
 			m_chargeStrike = blockStrike;
 		}
+		void setShieldGuard(float alpha) { m_shieldGuard = alpha; }
 		void setHitFlinch(float forward, float side)
 		{
 			m_flinchForward = forward;
@@ -90,6 +91,7 @@ namespace Dark
 		float               m_chargeStrike = 0.0f;
 		float               m_flinchForward = 0.0f;
 		float               m_flinchSide = 0.0f;
+		float               m_shieldGuard = 0.0f;
 		Math::Vector3f      m_rootMotionDelta{ 0.0f, 0.0f, 0.0f };
 		Math::Vector3f      m_prevRootPos{ 0.0f, 0.0f, 0.0f };
 		Math::Vector3f      m_clipStartRoot{ 0.0f, 0.0f, 0.0f };

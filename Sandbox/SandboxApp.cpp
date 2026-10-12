@@ -57,6 +57,7 @@
 #include "Character/PlayerMotorComponent.h"
 #include "Character/ArmorView.h"
 #include "Character/ItemView.h"
+#include "Character/SwordView.h"
 #include "Combat/ArmorComponent.h"
 #include "Gameplay/Inventory.h"
 #include "Character/ShieldView.h"
@@ -275,6 +276,7 @@ void attachPlayerSounds(World& world, AssetPinTable& pins, AssetManager& assets,
     addSoundCue(bank, "pain", loadSandboxClip(audio, assets, "audio/pain.wav", 380.0f, 0.12f, 0.5f), 0.75f, true);
     addSoundCue(bank, "heal", loadSandboxClip(audio, assets, "audio/coin.wav", 880.0f, 0.16f, 0.4f), 0.7f, false);
     addSoundCue(bank, "fire", loadSandboxClip(audio, assets, "audio/whoosh.wav", 520.0f, 0.12f, 0.45f), 0.45f, true);
+    addSoundCue(bank, "swing", loadSandboxClip(audio, assets, "audio/whoosh.wav", 520.0f, 0.12f, 0.45f), 0.7f, true);
     addSoundCue(bank, "impact", loadSandboxClip(audio, assets, "audio/place.wav", 180.0f, 0.10f, 0.5f), 0.5f, true);
     addSoundCue(bank, "death", loadSandboxClip(audio, assets, "audio/whoosh.wav", 180.0f, 0.22f, 0.35f), 0.55f, false);
     setSoundBank(world, pins, assets, e, std::move(bank));
@@ -894,7 +896,7 @@ void SandboxApp::attachReplicaCombat(Entity e)
     if (!world().has<HealthComponent>(e))
     {
         HealthSettings playerHp;
-        playerHp.maxHp       = 100.0f;
+        playerHp.maxHp       = 200.0f;
         playerHp.regenPerSec = 10.0f;
         playerHp.regenDelay  = 3.5f;
         HealthComponent hc{};
@@ -934,6 +936,7 @@ void SandboxApp::attachLocalPlayer(Entity e)
         addItem(inv, *findItemDef("medkit"), 2);
         world().emplace<InventoryComponent>(e, inv);
     }
+    equipSword(world(), pins(), assets(), renderer(), e);
     if (!world().has<PlayerMotorComponent>(e))
         world().emplace<PlayerMotorComponent>(e);
     if (!world().has<HsmGraphComponent>(e))
@@ -963,6 +966,10 @@ void SandboxApp::attachLocalPlayer(Entity e)
         auto& wlc   = world().emplace<WeaponLoadoutComponent>(e);
         wlc.loadout = std::make_unique<WeaponLoadout>();
         wlc.loadout->setHitListener(&SandboxApp::onWeaponHitThunk, this);
+        MeleeWeaponDesc sword = wlc.loadout->melee().desc();
+        sword.hitDelay        = 0.12f;
+        sword.singleTarget    = true;
+        wlc.loadout->melee().setDesc(sword);
         wlc.slot = wlc.loadout->slot();
     }
     if (!world().has<JumpAttackComponent>(e))
@@ -1070,7 +1077,10 @@ void SandboxApp::updateCharacterAnims(float dt)
             m_lowerBodyYaw = approachAngle(m_lowerBodyYaw, aim.lowerYaw, 10.0f, dt);
             ag->graph.player().setLowerBodyYaw(m_lowerBodyYaw);
             ag->graph.player().setChargeWindup(m_chargeWindup.attack, m_chargeWindup.block, m_chargeWindup.blockStrike);
-            const float playScale = (motor && motor->state() == PlayerMoveState::Dodge) ? motor->settings().dodgeAnimSpeed : 1.0f;
+            ag->graph.player().setShieldGuard(m_offhand.shield.alpha());
+            const char* clip      = ag->graph.player().clipName();
+            const float playScale = (motor && motor->state() == PlayerMoveState::Dodge) ? motor->settings().dodgeAnimSpeed
+                                                                                        : locomotionPlaybackScale(clip ? clip : "", aim.speed);
             ag->graph.setPlaybackScale(playScale);
         }
     }
@@ -1095,31 +1105,28 @@ void SandboxApp::updateCharacterAnims(float dt)
             }
         }
 
-        const Entity player = possessedBody();
-        const TransformComponent* pxf = player.valid() ? world().get<TransformComponent>(player) : nullptr;
-        bool standoff = false;
-        if (alive && xf && pxf)
-        {
-            const float dx = xf->position.x - pxf->position.x;
-            const float dz = xf->position.z - pxf->position.z;
-            standoff = (dx * dx + dz * dz) <= (2.25f * 2.25f);
-        }
-
-        const BrainComponent* brain = world().get<BrainComponent>(e);
-        const AI::Leaf leaf = (brain && brain->brain) ? brain->brain->leaf() : AI::Leaf::Wander;
         LocomotionSample loco{};
         if (alive && xf)
             loco = locomotionSample(ai.planarVelocity, xf->rotation);
         ag->graph.setFloat("speed", loco.speed);
         ag->graph.setFloat("strafe", loco.strafe);
 
-        if (alive && standoff && leaf == AI::Leaf::Chase)
+        const TagComponent* tag  = world().get<TagComponent>(e);
+        const bool          wolf = tag && tag->name == "Wolf";
+        const char*         clip = ag->graph.player().clipName();
+        if (!wolf)
+            ag->graph.setPlaybackScale(locomotionPlaybackScale(clip ? clip : "", loco.speed));
+        if (alive && ai.meleeWindup > 0.0f)
         {
-            const char* clip = ag->graph.player().clipName();
-            if (!clip
-                || (std::strcmp(clip, "SwingSword") != 0 && std::strcmp(clip, "Bite") != 0 && std::strcmp(clip, "Die") != 0
-                    && std::strcmp(clip, "Jump") != 0))
-                ag->graph.setTrigger("swing");
+            if (wolf || ai.meleeWindup < 0.12f)
+            {
+                if (!clip
+                    || (std::strcmp(clip, "SwingSword") != 0 && std::strcmp(clip, "Bite") != 0 && std::strcmp(clip, "Die") != 0
+                        && std::strcmp(clip, "Jump") != 0))
+                    ag->graph.setTrigger("swing");
+            }
+            else if (!clip || (std::strcmp(clip, "SwingWindup") != 0 && std::strcmp(clip, "SwingSword") != 0))
+                ag->graph.setTrigger("windup");
         }
     });
 }
@@ -1152,6 +1159,60 @@ WeaponLoadout* SandboxApp::localWeapons()
     return (wlc && wlc->loadout) ? wlc->loadout.get() : nullptr;
 }
 
+bool SandboxApp::boneWorldPos(Entity e, const char* bone, Vector3f& out)
+{
+    const TransformComponent* xf = world().get<TransformComponent>(e);
+    const AnimGraphComponent* ag = world().get<AnimGraphComponent>(e);
+    const Skeleton*           sk = ag ? ag->graph.skeleton() : nullptr;
+    if (!xf || !sk)
+        return false;
+    const AnimPose& pose = ag->graph.player().pose();
+    for (size_t j = 0; j < sk->joints.size() && j < pose.boneCount; ++j)
+    {
+        if (sk->joints[j].name == bone)
+        {
+            out = (pose.jointWorld[j] * makeWorldMatrix(*xf)).GetTranslation();
+            return true;
+        }
+    }
+    return false;
+}
+
+void SandboxApp::onPlayerDefended(Entity attacker, bool parried)
+{
+    faceHitTarget(attacker);
+    m_shieldBump      = 0.2f;
+    m_hitStop         = parried ? 0.1f : 0.05f;
+    m_shake           = parried ? 0.09f : 0.06f;
+    m_defenseText     = parried ? "PARRY!" : "BLOCKED";
+    m_defenseTextLeft = 0.7f;
+    playSoundCue(world(), audio(), assets(), possessedBody(), "impact");
+    if (!parried || !attacker.valid() || !world().has<AiAgentComponent>(attacker))
+        return;
+    const TransformComponent* axf = world().get<TransformComponent>(attacker);
+    const TransformComponent* pxf = possessedBody().valid() ? world().get<TransformComponent>(possessedBody()) : nullptr;
+    m_chase.ai().interruptAttack(world(), attacker, 1.2f);
+    if (axf && pxf)
+        m_chase.ai().applyHunterHitReaction(world(), attacker, Vector3f{ axf->position.x - pxf->position.x, 0.0f, axf->position.z - pxf->position.z });
+    if (AnimGraphComponent* aag = world().get<AnimGraphComponent>(attacker))
+        aag->graph.setTrigger("hit");
+}
+
+void SandboxApp::faceHitTarget(Entity target)
+{
+    const Entity              body = possessedBody();
+    const TransformComponent* xf   = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    const TransformComponent* txf  = world().get<TransformComponent>(target);
+    if (!xf || !txf)
+        return;
+    const float dx = txf->position.x - xf->position.x;
+    const float dz = txf->position.z - xf->position.z;
+    if (dx * dx + dz * dz < 1.0e-4f)
+        return;
+    m_faceYaw  = std::atan2f(dx, dz);
+    m_faceLeft = 0.15f;
+}
+
 void SandboxApp::updatePossessed(float dt)
 {
     const Entity body = possessedBody();
@@ -1166,6 +1227,17 @@ void SandboxApp::updatePossessed(float dt)
     constexpr float kPadLook   = 2.1f;
     constexpr float kRadius    = 0.45f;
 
+    if (m_swingLock > 0.0f)
+        m_swingLock -= dt;
+    if (m_comboWindow > 0.0f)
+        m_comboWindow -= dt;
+    if (m_blockRecoil > 0.0f)
+        m_blockRecoil -= dt;
+    if (m_faceLeft > 0.0f)
+    {
+        m_faceLeft -= dt;
+        m_lookYaw = approachAngle(m_lookYaw, m_faceYaw, 12.0f, dt);
+    }
     if (!uiOpen())
     {
         m_lookYaw += static_cast<float>(input().mouseDeltaX()) * kMouseSens;
@@ -1253,7 +1325,7 @@ void SandboxApp::updatePossessed(float dt)
 
     PlayerMotorInput motorIn{};
     motorIn.wish            = canSteer ? wish : Vector3f{ 0.0f, 0.0f, 0.0f };
-    motorIn.sprint          = canSteer && !jumpBusy && !uiKeys && input().actionDown("sprint");
+    motorIn.sprint          = canSteer && !jumpBusy && !uiKeys && m_swingLock <= 0.0f && input().actionDown("sprint");
     if (m_crouchLatch && input().actionPressed("crouch"))
         m_crouchLatch = false;
     motorIn.crouch          = canSteer && !jumpBusy && !uiKeys && (m_crouchLatch || input().actionDown("crouch"));
@@ -1263,7 +1335,8 @@ void SandboxApp::updatePossessed(float dt)
     motorIn.airControlScale = inAirCommit ? jump->def().airControlScale : 1.0f;
     const bool onGround = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch || motor->state() == PlayerMoveState::Dodge);
     const Terrain::GroundContact groundSurf = (onGround && xf) ? groundContactAt(xf->position.x, xf->position.z) : Terrain::GroundContact{};
-    motorIn.speedScale      = (status ? status->moveSpeedScale() : 1.0f) * m_offhand.shield.speedScale() * (onGround ? groundSurf.moveSpeed : 1.0f);
+    const float swingSlow   = m_blockRecoil > 0.0f ? 0.4f : (m_swingLock <= 0.0f ? 1.0f : (m_comboCount > 1 ? 0.45f : 0.8f));
+    motorIn.speedScale      = (status ? status->moveSpeedScale() : 1.0f) * m_offhand.shield.speedScale() * (onGround ? groundSurf.moveSpeed : 1.0f) * swingSlow;
     if (skills)
     {
         motorIn.runScale  = skillScalar(SkillId::Run, SkillScalar::RunScale, skills->level(SkillId::Run));
@@ -1436,7 +1509,17 @@ void SandboxApp::updatePossessed(float dt)
         m_blockCharge.phase() != Combat::HoldChargePhase::Idle, m_blockCharge.heldSeconds(), m_chargeSettings.blockWindowSeconds,
         blockStriking);
     if (TransformComponent* shieldXf = m_shield.valid() ? world().get<TransformComponent>(m_shield) : nullptr)
-        placePlayerShield(*shieldXf, *xf, m_offhand.shield.alpha(), m_chargeWindup.block, m_chargeWindup.blockStrike);
+    {
+        Vector3f   grip{};
+        const bool inHand = boneWorldPos(body, "L_Hand", grip);
+        if (m_shieldBump > 0.0f)
+        {
+            m_shieldBump -= dt;
+            const float k = Math::Max(0.0f, m_shieldBump) / 0.2f;
+            grip += flat * (-0.1f * k) + right * (std::sinf(m_shieldBump * 120.0f) * 0.03f * k);
+        }
+        placePlayerShield(*shieldXf, *xf, m_offhand.shield.alpha(), m_chargeWindup.block, m_chargeWindup.blockStrike, inHand ? &grip : nullptr);
+    }
 
     if (motorOut.jumped)
         playSoundCue(world(), audio(), assets(), body, "jump");
@@ -1616,6 +1699,7 @@ void SandboxApp::stockHunter(Entity hunter)
         world().emplace<InventoryComponent>(hunter, inv);
     removeArmor(world(), pins(), m_physics, hunter);
     equipHunterArmor(world(), pins(), assets(), renderer(), hunter);
+    equipSword(world(), pins(), assets(), renderer(), hunter);
 }
 
 void SandboxApp::updateHunterLoot()
@@ -1818,6 +1902,25 @@ void SandboxApp::onWeaponHit(const WeaponHit& hit)
     {
         if (!m_chaseOk)
             return;
+        const TransformComponent* playerXf = possessedBody().valid() ? world().get<TransformComponent>(possessedBody()) : nullptr;
+        const Vector3f            playerPos = playerXf ? playerXf->position : Vector3f{};
+        using MeleeResponse          = AiSystem::MeleeResponse;
+        const bool          melee    = hit.weapon == WeaponKind::Melee;
+        const MeleeResponse response = melee ? m_chase.ai().respondToMelee(world(), victim, playerPos) : MeleeResponse::Stagger;
+        if (response == MeleeResponse::Blocked)
+        {
+            faceHitTarget(victim);
+            m_hitStop     = 0.06f;
+            m_shake       = 0.07f;
+            m_blockRecoil = 0.55f;
+            playSoundCueAt(world(), audio(), assets(), victim, "impact", hit.point);
+            if (AnimGraphComponent* vag = world().get<AnimGraphComponent>(victim))
+                vag->graph.setTrigger("block");
+            if (AnimGraphComponent* pag = possessedBody().valid() ? world().get<AnimGraphComponent>(possessedBody()) : nullptr)
+                pag->graph.setTrigger("hit");
+            m_chase.ai().onHunterAttacked(world(), victim, playerPos);
+            return;
+        }
         float               damage = hit.damage;
         Combat::ArmorBreak  broke;
         if (Combat::ArmorPiecesComponent* armor = world().get<Combat::ArmorPiecesComponent>(victim))
@@ -1829,11 +1932,20 @@ void SandboxApp::onWeaponHit(const WeaponHit& hit)
             knockOffArmor(world(), m_physics, victim, broke);
         if (!m_chase.ai().applyHunterDamage(world(), victim, damage))
             return;
-        m_chase.ai().applyHunterHitReaction(world(), victim, hit.direction);
+        if (response == MeleeResponse::Stagger)
+            m_chase.ai().applyHunterHitReaction(world(), victim, hit.direction);
+        if (melee)
+        {
+            faceHitTarget(victim);
+            const HealthComponent* after = world().get<HealthComponent>(victim);
+            if (AnimGraphComponent* vag = world().get<AnimGraphComponent>(victim); vag && after && after->health.alive() && response == MeleeResponse::Stagger)
+                vag->graph.setTrigger("hit");
+            const bool heavy = m_swingCharged || (hp && !hp->health.alive());
+            m_hitStop        = heavy ? 0.12f : 0.07f;
+            playSoundCueAt(world(), audio(), assets(), victim, "impact", hit.point);
+        }
         playSoundCueAt(world(), audio(), assets(), victim, "pain", hit.point);
         playSoundCueAt(world(), audio(), assets(), victim, "grunt", hit.point);
-        const TransformComponent* playerXf = possessedBody().valid() ? world().get<TransformComponent>(possessedBody()) : nullptr;
-        const Vector3f playerPos = playerXf ? playerXf->position : Vector3f{};
         m_chase.ai().onHunterAttacked(world(), victim, playerPos);
         spawnHunterBlood(hit.point);
         spawnLivingBloodDecal(victim, hit.point, hit.normal);
@@ -2109,10 +2221,16 @@ void SandboxApp::resolveJumpAttackAndFx(const Combat::DamageEvent* events, int c
         }
     }
 
-    Combat::CombatSystem combat;
-    Combat::resolveJumpAttackEvents(world(), combat, events, count);
+    Combat::CombatSystem  combat;
+    Combat::ResolveResult results[8]{};
+    Combat::resolveJumpAttackEvents(world(), combat, events, count, count <= 8 ? results : nullptr);
 
     const Entity player = possessedBody();
+    for (int i = 0; i < n; ++i)
+    {
+        if (player.valid() && snaps[i].e.id() == player.id() && (results[i].blocked || results[i].parried))
+            onPlayerDefended(events[i].source, results[i].parried);
+    }
     const TransformComponent* playerXf = player.valid() ? world().get<TransformComponent>(player) : nullptr;
     const Vector3f playerPos = playerXf ? playerXf->position : Vector3f{};
     for (int i = 0; i < n; ++i)
@@ -2126,6 +2244,13 @@ void SandboxApp::resolveJumpAttackAndFx(const Combat::DamageEvent* events, int c
         const bool killed  = snaps[i].wasAlive && !hp->health.alive();
         if (!damaged && !killed)
             continue;
+        if (!snaps[i].hunter && hp->health.alive() && !results[i].blocked)
+        {
+            if (player.valid() && snaps[i].e.id() == player.id())
+                m_shake = 0.08f;
+            if (AnimGraphComponent* ag = world().get<AnimGraphComponent>(snaps[i].e))
+                ag->graph.setTrigger("hit");
+        }
         if (!snaps[i].hunter)
         {
             if (snaps[i].e.id() == player.id())
@@ -2173,23 +2298,37 @@ bool SandboxApp::firePossessedLoadout(bool charged)
         req.cooldownScale    = skillScalar(SkillId::Shoot, SkillScalar::CooldownScale, shootLevel);
     }
 
+    const bool melee = wFire && wFire->activeKind() == WeaponKind::Melee;
+    if (melee && m_blockRecoil > 0.0f)
+        return false;
+
     const WeaponWorldQuery query = makeWeaponQuery();
     if (!wFire || !ownsWeapon(wFire->activeKind()) || !wFire->fire(req, query))
         return false;
     if (skill)
         noteShotXp(*skill, true);
+    if (melee)
+    {
+        m_comboStep   = m_comboWindow > 0.0f ? 1 - m_comboStep : 0;
+        m_comboCount  = m_comboWindow > 0.0f ? m_comboCount + 1 : 1;
+        m_comboWindow = 0.9f;
+        m_swingLock   = 0.45f;
+    }
     if (AnimGraphComponent* ag = body.valid() ? world().get<AnimGraphComponent>(body) : nullptr)
     {
-        if (wFire->activeKind() == WeaponKind::Melee)
-            ag->graph.setTrigger("swing");
+        if (melee)
+            ag->graph.setTrigger(m_comboStep ? "swing2" : "swing");
         else
             ag->graph.setTrigger("shoot");
     }
-    pulseMuzzle();
-    if (wFire->activeKind() == WeaponKind::Melee)
-        playSoundCue(world(), audio(), assets(), m_camera, "click");
+    if (melee)
+    {
+        m_swingCharged = charged;
+        playSoundCue(world(), audio(), assets(), body, "swing");
+    }
     else
     {
+        pulseMuzzle();
         const RecoilKick kick = wFire->projectile().takeRecoil();
         m_lookYaw += kick.yaw;
         m_lookPitch += kick.pitch;
@@ -2987,6 +3126,8 @@ void SandboxApp::updateShoulderCamera()
     boomLen = Math::Max(kMinBoom, boomLen);
 
     Vector3f cam = target + boomDir * boomLen;
+    if (m_shake > 0.0f)
+        cam += right * (std::sinf(m_shakeTime * 95.0f) * m_shake) + Vector3f{ 0.0f, std::sinf(m_shakeTime * 120.0f + 1.0f) * m_shake, 0.0f };
     if (m_playerWet)
         cam.y = Math::Max(cam.y, m_water.params().waterLevel + 0.45f);
 
@@ -3753,6 +3894,11 @@ void SandboxApp::onInit()
     else
     {
         addChaseObstaclesToPhysics();
+        HitReactionSettings hunterHit = m_chase.ai().hunterHitReaction();
+        hunterHit.stunSeconds       = 0.45f;
+        hunterHit.knockbackDistance = 0.6f;
+        hunterHit.knockbackSeconds  = 0.18f;
+        m_chase.ai().setHunterHitReactionSettings(hunterHit);
         m_chase.ai().setJumpAttackHits(
             [](void* user, const Combat::DamageEvent* events, int count) {
                 static_cast<SandboxApp*>(user)->resolveJumpAttackAndFx(events, count);
@@ -3854,6 +4000,16 @@ void SandboxApp::onSplashFinished()
 void SandboxApp::onUpdate(float dt)
 {
     m_frameDt = dt;
+    if (m_shake > 0.0f)
+    {
+        m_shakeTime += dt;
+        m_shake = Math::Max(0.0f, m_shake - dt * 0.5f);
+    }
+    if (m_hitStop > 0.0f)
+    {
+        m_hitStop -= dt;
+        dt *= 0.05f;
+    }
     const bool menuFrame = m_menu.visible();
     handleRuntimeCommands(dt);
     if (menuFrame || m_menu.visible())
@@ -3900,6 +4056,9 @@ void SandboxApp::onUpdate(float dt)
         updateWiggleAnim();
         updateCharacterAnims(dt);
         tickAnimGraphs(world(), assets(), dt);
+        if (SwordComponent* sword = possessedBody().valid() ? world().get<SwordComponent>(possessedBody()) : nullptr)
+            sword->shown = localWeapons() && localWeapons()->activeKind() == WeaponKind::Melee && ownsWeapon(WeaponKind::Melee);
+        syncSwordVisuals(world());
         m_stepGameplay = false;
     }
     m_save.service(world());
@@ -4960,6 +5119,8 @@ void SandboxApp::onRender()
         drawNpcInfoOverlay();
         drawArmorHud();
         drawPickupLabels();
+        drawTargetMarker();
+        drawDefenseText();
         if (m_showProfiler)
             drawProfiler();
         if (m_gameplayPaused)

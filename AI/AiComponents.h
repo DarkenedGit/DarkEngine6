@@ -57,6 +57,12 @@ namespace Dark
         AI::WolfApproachSide         stalkSide   = AI::WolfApproachSide::Behind;
         Math::Vector3f               stalkDest{};
         float                        stalkLeft   = 0.0f;
+        float                        circleLeft  = 0.0f;
+        float                        circleDir   = 1.0f;
+        bool                         inDuel      = false;
+        float                        guardLeft   = 0.0f;
+        float                        hitWindow   = 0.0f;
+        int                          hitsTaken   = 0;
     };
 
     struct BrainComponent
@@ -75,8 +81,8 @@ namespace Dark
             float assistSeconds    = 5.0f;
             float fleeSeconds      = 4.0f;
             float alertRange       = 18.0f;
-            float sprintSpeed      = 17.0f;
-            float walkSpeed        = 9.0f;
+            float sprintSpeed      = 6.8f;
+            float walkSpeed        = 3.4f;
         };
     } // namespace AI
 

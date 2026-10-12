@@ -11,7 +11,9 @@ namespace Dark::Combat
 {
 
     class CombatSystem;
+    struct ResolveResult;
 
-    int resolveJumpAttackEvents(World& world, CombatSystem& combat, const DamageEvent* events, int count);
+    // results (optional) receives one entry per event.
+    int resolveJumpAttackEvents(World& world, CombatSystem& combat, const DamageEvent* events, int count, ResolveResult* results = nullptr);
 
 } // namespace Dark::Combat

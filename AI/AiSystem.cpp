@@ -81,6 +81,9 @@ namespace Dark
             def.leapVerticalSpeed   = 10.0f;
             def.leapForwardSpeedMax = 12.0f;
             def.gravity             = 24.0f;
+            def.homingRate          = 1.5f;
+            def.knockdownDuration   = 0.8f;
+            def.knockdownForce      = 1.0f;
             return def;
         }
 
@@ -332,7 +335,7 @@ namespace Dark
         ev.hitDir          = Vector3f{ dx, 0.0f, dz };
         if (ev.hitDir.MagnitudeSqrd() > 1.0e-6f)
             ev.hitDir.Normalize();
-        ev.flags           = Combat::DamageFlags::CanBlock | Combat::DamageFlags::HardCc;
+        ev.flags           = Combat::DamageFlags::CanBlock | Combat::DamageFlags::CanParry | Combat::DamageFlags::HardCc;
         ev.statusDuration  = move.stunSeconds;
         resolveJumpHits(world, &ev, 1);
         DE_LOG_INFO(LogCategory::AI, "Hunter: melee {}", move.id);
@@ -1017,6 +1020,11 @@ namespace Dark
                 v.ai->planarVelocity = vel;
             };
 
+            if (v.ai->guardLeft > 0.0f)
+                v.ai->guardLeft -= dt;
+            if (v.ai->hitWindow > 0.0f)
+                v.ai->hitWindow -= dt;
+
             JumpAttackComponent*           jac  = world.get<JumpAttackComponent>(e);
             Combat::JumpAttack*            jump = jac ? &jac->jump : nullptr;
             Combat::PoiseComponent*        poise = world.get<Combat::PoiseComponent>(e);
@@ -1221,11 +1229,37 @@ namespace Dark
             }
             const bool pacing = pattern && !AI::attackClockReady(AI::AttackClock{ v.ai->attackGap, v.ai->attackPause, v.ai->repositionLeft, v.ai->attackChain, v.ai->lastAttack, v.ai->preferOtherAttack }, m_packAttackGap);
             const bool jumpBusy = jump && jump->busy();
+
+            constexpr float kDuelEngage = 4.0f;
+            constexpr float kDuelRing   = 3.2f;
+            const bool duelist = pattern && !entityIsWolf(world, e) && leaf == AI::Leaf::Chase && sees && playerAlive && horiz < kDuelEngage;
+            auto duelPause = [&]() { return 1.5f + std::fmod(static_cast<float>(e.id()) * 0.618f + m_time * 7.31f, 1.0f) * 1.5f; };
+            if (duelist && !v.ai->inDuel)
+                v.ai->circleLeft = duelPause();
+            v.ai->inDuel = duelist;
+            if (v.ai->circleLeft > 0.0f)
+                v.ai->circleLeft -= dt;
+            if (m_duelToken.id() == e.id() && !duelist)
+                m_duelToken = {};
+            if (m_duelToken.valid())
+            {
+                const HealthComponent* holder = world.alive(m_duelToken) ? world.get<HealthComponent>(m_duelToken) : nullptr;
+                if (!holder || !holder->health.alive())
+                    m_duelToken = {};
+            }
+            bool lunging = false;
+            if (duelist && !pacing && v.ai->circleLeft <= 0.0f)
+            {
+                if (!m_duelToken.valid())
+                    m_duelToken = e;
+                lunging = m_duelToken.id() == e.id();
+            }
+
             updateWolfApproach(world, v, leaf, sees, playerAlive, standoff, playerPos, playerForward, horiz, dt);
             // BackOff and Flank hold the bite until the wolf has reached its side. A notice inside pounce range must not leap straight in.
             const bool wolfCircling = v.ai->stalk == AI::WolfStalk::BackOff || v.ai->stalk == AI::WolfStalk::Flank;
             const bool wantJump = !pattern && !wolfCircling && (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist) && sees && horiz >= kHunterJumpMin && horiz <= kHunterJumpMax;
-            if (pattern && !wolfCircling && (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist) && sees && !pacing && !jumpBusy)
+            if (pattern && !wolfCircling && (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist) && sees && !pacing && !jumpBusy && (!duelist || lunging))
             {
                 const int attackIndex = AI::pickAttack(*pattern, horiz, v.ai->preferOtherAttack, v.ai->lastAttack);
                 if (attackIndex >= 0)
@@ -1267,7 +1301,16 @@ namespace Dark
                             m_hunterCueFn(m_hunterCueUser, e, "grunt");
                     }
                     if (started)
+                    {
                         commitAttack(*v.ai, *pattern, attackIndex, v.xf->position, playerPos);
+                        if (m_duelToken.id() == e.id())
+                        {
+                            m_duelToken      = {};
+                            v.ai->circleLeft = duelPause();
+                            if (std::fmod(m_time * 3.7f, 1.0f) < 0.5f)
+                                v.ai->circleDir = -v.ai->circleDir;
+                        }
+                    }
                 }
             }
             else if (wantJump)
@@ -1307,7 +1350,24 @@ namespace Dark
             float runS = 1.0f;
             if (const SkillComponent* sk = world.get<SkillComponent>(e))
                 runS = skillScalar(SkillId::Run, SkillScalar::RunScale, sk->level(SkillId::Run));
-            const float speed  = (sprint ? m_pack.sprintSpeed : m_pack.walkSpeed) * (stCc ? stCc->moveSpeedScale() : 1.0f) * ground.moveSpeed * runS;
+            const float speed  = ((sprint || lunging) ? m_pack.sprintSpeed : m_pack.walkSpeed) * (stCc ? stCc->moveSpeedScale() : 1.0f) * ground.moveSpeed * runS;
+            if (duelist && !lunging)
+            {
+                Vector3f away{ v.xf->position.x - playerPos.x, 0.0f, v.xf->position.z - playerPos.z };
+                if (away.MagnitudeSqrd() < 1.0e-4f)
+                    away = -v.ai->forward;
+                away.y = 0.0f;
+                away.Normalize();
+                const Vector3f side{ -away.z * v.ai->circleDir, 0.0f, away.x * v.ai->circleDir };
+                const Vector3f dest = playerPos + away * kDuelRing + side * 2.0f;
+                seekToward(v, dt, terrain, speed * 0.35f, dest.x, dest.z);
+                v.ai->forward = flattenDir(Vector3f{ playerPos.x - v.xf->position.x, 0.0f, playerPos.z - v.xf->position.z }, v.ai->forward);
+                v.path->path.points.clear();
+                v.path->waypoint = 0;
+                stampPlanarVelocity();
+                continue;
+            }
+
             float       aimX   = playerPos.x;
             float       aimZ   = playerPos.z;
             if (wolfCircling)
@@ -1451,6 +1511,58 @@ namespace Dark
             DE_LOG_INFO(LogCategory::AI, "Hunter down");
         }
         return hp->health.hp() < before;
+    }
+
+    AiSystem::MeleeResponse AiSystem::respondToMelee(World& world, Entity e, const Vector3f& attackerPos)
+    {
+        AiAgentComponent*         ai = world.get<AiAgentComponent>(e);
+        const TransformComponent* xf = world.get<TransformComponent>(e);
+        if (!ai || !xf || entityIsWolf(world, e))
+            return MeleeResponse::Stagger;
+
+        auto counter = [&]() {
+            ai->circleLeft = 0.0f;
+            ai->attackGap  = Math::Min(ai->attackGap, 0.2f);
+            if (!m_duelToken.valid())
+                m_duelToken = e;
+        };
+        const Vector3f to     = flattenDir(Vector3f{ attackerPos.x - xf->position.x, 0.0f, attackerPos.z - xf->position.z }, ai->forward);
+        const bool     facing = to.Dot(flattenDir(ai->forward, to)) > 0.5f;
+        const float    roll   = std::fmod(static_cast<float>(e.id()) * 0.37f + m_time * 5.13f, 1.0f);
+        if (facing && ai->meleeWindup <= 0.0f && (ai->guardLeft > 0.0f || roll < 0.35f))
+        {
+            ai->guardLeft = 0.8f;
+            counter();
+            return MeleeResponse::Blocked;
+        }
+        if (ai->meleeWindup > 0.0f && ai->meleeWindup < 0.25f)
+            return MeleeResponse::Poise;
+
+        if (ai->hitWindow <= 0.0f)
+            ai->hitsTaken = 0;
+        ai->hitsTaken += 1;
+        ai->hitWindow = 1.5f;
+        if (ai->hitsTaken >= 3)
+        {
+            ai->hitsTaken = 0;
+            ai->guardLeft = 1.0f;
+            counter();
+            return MeleeResponse::Poise;
+        }
+        interruptAttack(world, e, 0.7f);
+        return MeleeResponse::Stagger;
+    }
+
+    void AiSystem::interruptAttack(World& world, Entity e, float recover)
+    {
+        AiAgentComponent* ai = world.get<AiAgentComponent>(e);
+        if (!ai)
+            return;
+        ai->meleeWindup = 0.0f;
+        ai->meleeAttack = -1;
+        ai->attackGap   = Math::Max(ai->attackGap, recover);
+        if (m_duelToken.id() == e.id())
+            m_duelToken = {};
     }
 
     void AiSystem::applyHunterHitReaction(World& world, Entity e, const Vector3f& hitDirection)
