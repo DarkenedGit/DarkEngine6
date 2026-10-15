@@ -79,7 +79,7 @@ namespace Dark
 			native = 0.55f;
 		if (native <= 0.0f || speed < 0.05f)
 			return 1.0f;
-		return Math::Clamp(speed / native, 0.6f, 2.4f);
+		return Math::Clamp(speed / native, 0.6f, 3.0f);
 	}
 
 	inline float approachAngle(float current, float target, float speedRadPerSec, float dt)

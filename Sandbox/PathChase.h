@@ -43,6 +43,12 @@ namespace Dark
 
         Entity walker() const { return m_walker; }
         const std::vector<Math::AABox3f>& cubes() const { return m_cubes; }
+        void addObstacle(const Math::AABox3f& box) { m_levelCubes.push_back(box); }
+        void setPlayerStart(const Math::Vector3f& pos)
+        {
+            m_playerStart    = pos;
+            m_hasPlayerStart = true;
+        }
 
         int    hunterCount() const { return static_cast<int>(m_hunters.size()); }
         Entity hunterEntity(int i) const;
@@ -67,6 +73,9 @@ namespace Dark
         World*          m_world = nullptr;
         LinePipeline    m_lines;
         std::vector<Math::AABox3f> m_cubes;
+        std::vector<Math::AABox3f> m_levelCubes;
+        Math::Vector3f             m_playerStart{};
+        bool                       m_hasPlayerStart = false;
         std::vector<Entity>        m_hunters;
         Entity          m_walker{};
         float           m_agentR = 0.8f;

@@ -458,6 +458,18 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             jo["stream"]     = std::move(stream);
         }
 
+        if (o.conceal)
+            jo["conceal"] = true;
+        if (o.goal)
+            jo["goal"] = true;
+        if (!o.patrol.empty())
+        {
+            json points = json::array();
+            for (const Math::Vector2f& p : o.patrol)
+                points.push_back(json::array({ p.x, p.y }));
+            jo["patrol"] = std::move(points);
+        }
+
         if (o.emissive != 0.0f)
             jo["emissive"] = o.emissive;
         if (o.emissiveMeshIndex >= 0)
@@ -959,6 +971,17 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
         else if (o.type == SceneObjectType::CloudVolume)
         {
             o.hasCloud = true;
+        }
+
+        o.conceal = jo.value("conceal", false);
+        o.goal    = jo.value("goal", false);
+        if (jo.contains("patrol") && jo["patrol"].is_array())
+        {
+            for (const json& p : jo["patrol"])
+            {
+                if (p.is_array() && p.size() >= 2 && p[0].is_number() && p[1].is_number())
+                    o.patrol.emplace_back(p[0].get<float>(), p[1].get<float>());
+            }
         }
 
         if (o.type == SceneObjectType::Stream)
