@@ -283,6 +283,11 @@ namespace Dark
         float                       streamWidth     = 3.5f;
         float                       streamFlowSpeed = 1.6f;
         std::vector<Math::Vector2f> streamPoints;
+
+        std::vector<Math::Vector2f> patrol;
+
+        bool conceal = false;
+        bool goal    = false;
     };
 
     // World-level terrain JSON DTO. Not a SceneObjectType. Paths are virtual or sidecar filenames.

@@ -253,6 +253,191 @@ void SandboxApp::drawPickupLabels()
     });
 }
 
+void SandboxApp::drawGuardAwareness()
+{
+    ImDrawList* dl = ImGui::GetBackgroundDrawList(ImGui::GetMainViewport());
+    const float vw = static_cast<float>(renderer().width());
+    const float vh = static_cast<float>(renderer().height());
+    if (!dl || vw < 1.0f || vh < 1.0f)
+        return;
+    const ImVec2              vp   = ImGui::GetMainViewport()->Pos;
+    const Entity              body = possessedBody();
+    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    ImFont*                   font = ImGui::GetFont();
+    const ImVec2              mid{ vp.x + vw * 0.5f, vp.y + vh * 0.5f };
+
+    auto project = [&](const Vector3f& p, ImVec2& out) {
+        const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(p, 1.0f);
+        if (clip.w <= 1.0e-4f)
+            return false;
+        const float invW = 1.0f / clip.w;
+        if (clip.z * invW < 0.0f || clip.z * invW > 1.0f)
+            return false;
+        out = ImVec2(vp.x + (clip.x * invW * 0.5f + 0.5f) * vw, vp.y + (1.0f - (clip.y * invW * 0.5f + 0.5f)) * vh);
+        return true;
+    };
+    auto stateColor = [](AI::Alertness a, int alpha) {
+        if (a == AI::Alertness::Alert)
+            return IM_COL32(235, 50, 40, alpha);
+        if (a == AI::Alertness::Calm)
+            return IM_COL32(245, 245, 245, alpha);
+        return IM_COL32(255, 196, 40, alpha);
+    };
+
+    struct Marker
+    {
+        Vector3f at;
+        bool     sound;
+        bool     hunting;
+    };
+    std::vector<Marker> markers;
+    bool                anyoneSees = false;
+
+    world().each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
+        const TagComponent*       tag = world().get<TagComponent>(e);
+        const HealthComponent*    hp  = world().get<HealthComponent>(e);
+        const TransformComponent* xf  = world().get<TransformComponent>(e);
+        const AI::AwarenessState& aw  = ai.aware;
+        if (!xf || !hp || !hp->health.alive() || (tag && tag->name == "Wolf"))
+            return;
+        if (aw.alertness == AI::Alertness::Calm && aw.meter < 0.02f)
+            return;
+        const bool alert   = aw.alertness == AI::Alertness::Alert;
+        const bool curious = !alert && aw.alertness != AI::Alertness::Calm;
+        anyoneSees = anyoneSees || aw.seesNow;
+        if ((curious || alert) && !aw.seesNow)
+        {
+            const bool hunt = alert || aw.alertness == AI::Alertness::Searching;
+            bool       seen = false;
+            for (Marker& m : markers)
+            {
+                if ((m.at - aw.noticePos).MagnitudeSqrd() < 4.0f)
+                {
+                    m.hunting = m.hunting || hunt;
+                    m.sound   = m.sound && aw.heardOnly;
+                    seen      = true;
+                }
+            }
+            if (!seen)
+                markers.push_back(Marker{ aw.noticePos, aw.heardOnly, hunt });
+        }
+
+        if (pxf)
+        {
+            const float rel   = Math::WrapPi(std::atan2(xf->position.x - pxf->position.x, xf->position.z - pxf->position.z) - m_lookYaw);
+            const float theta = rel - 1.5707963f;
+            const float fill  = alert ? 1.0f : Math::Clamp(aw.meter, 0.0f, 1.0f);
+            const int   alpha = static_cast<int>(110.0f + 145.0f * fill);
+            const float half  = 0.08f + 0.22f * fill;
+            dl->PathArcTo(mid, 95.0f, theta - half, theta + half, 12);
+            dl->PathStroke(stateColor(aw.alertness, alpha), 0, 6.0f);
+        }
+
+        if (pxf && (xf->position - pxf->position).MagnitudeSqrd() > 45.0f * 45.0f)
+            return;
+        ImVec2 c;
+        if (!project(Vector3f(xf->position.x, xf->position.y + 1.3f, xf->position.z), c))
+            return;
+        const float r = 13.0f;
+        if (alert)
+        {
+            dl->AddCircleFilled(c, r + 2.0f, IM_COL32(0, 0, 0, 150), 24);
+            dl->AddCircleFilled(c, r, stateColor(aw.alertness, 255), 24);
+        }
+        else
+        {
+            const float fill = Math::Clamp(aw.meter, 0.0f, 1.0f);
+            dl->AddCircle(c, r, IM_COL32(0, 0, 0, 170), 24, 6.0f);
+            dl->AddCircle(c, r, curious ? IM_COL32(120, 90, 20, 200) : IM_COL32(90, 90, 90, 160), 24, 4.0f);
+            if (fill > 0.01f)
+            {
+                dl->PathArcTo(c, r, -1.5707963f, -1.5707963f + fill * 6.2831853f, 24);
+                dl->PathStroke(stateColor(aw.alertness, 255), 0, 4.0f);
+            }
+        }
+        if (alert || curious)
+        {
+            const char*  icon = alert ? "!" : "?";
+            const float  size = ImGui::GetFontSize() * 1.3f;
+            const ImVec2 ts   = font->CalcTextSizeA(size, FLT_MAX, 0.0f, icon);
+            dl->AddText(font, size, ImVec2(c.x - ts.x * 0.5f, c.y - ts.y * 0.5f), alert ? IM_COL32(255, 255, 255, 255) : stateColor(aw.alertness, 255), icon);
+        }
+    });
+
+    for (const Marker& m : markers)
+    {
+        if (anyoneSees)
+            break;
+        if (pxf && (Vector3f{ m.at.x - pxf->position.x, 0.0f, m.at.z - pxf->position.z }).MagnitudeSqrd() < 3.0f * 3.0f)
+            continue;
+        const ImU32 fill = m.hunting ? IM_COL32(255, 196, 40, 70) : IM_COL32(255, 255, 255, 55);
+        const ImU32 edge = m.hunting ? IM_COL32(255, 196, 40, 220) : IM_COL32(255, 255, 255, 200);
+        const float baseY = m.at.y - 0.5f;
+        if (m.sound)
+        {
+            ImVec2 pts[24];
+            int    count = 0;
+            for (int i = 0; i < 24; ++i)
+            {
+                const float a = 6.2831853f * static_cast<float>(i) / 24.0f;
+                if (project(Vector3f(m.at.x + std::sin(a) * 1.5f, baseY + 0.05f, m.at.z + std::cos(a) * 1.5f), pts[count]))
+                    ++count;
+            }
+            if (count == 24)
+                dl->AddPolyline(pts, count, edge, ImDrawFlags_Closed, 3.0f);
+            ImVec2 c;
+            if (project(Vector3f(m.at.x, baseY + 0.9f, m.at.z), c))
+            {
+                const float  size = ImGui::GetFontSize() * 1.6f;
+                const ImVec2 ts   = font->CalcTextSizeA(size, FLT_MAX, 0.0f, "?");
+                dl->AddText(font, size, ImVec2(c.x - ts.x * 0.5f, c.y - ts.y * 0.5f), edge, "?");
+            }
+            continue;
+        }
+        ImVec2 feet;
+        ImVec2 head;
+        if (!project(Vector3f(m.at.x, baseY, m.at.z), feet) || !project(Vector3f(m.at.x, m.at.y + 1.2f, m.at.z), head))
+            continue;
+        const float  h     = feet.y - head.y;
+        const float  headR = h * 0.1f;
+        const ImVec2 headC{ head.x, head.y + headR };
+        const float  sh    = h * 0.2f;
+        const float  hip   = h * 0.12f;
+        const float  neckY = headC.y + headR * 1.25f;
+        const float  hipY  = neckY + h * 0.38f;
+        const ImVec2 shape[6] = { { feet.x - sh, neckY }, { feet.x + sh, neckY }, { feet.x + hip, hipY }, { feet.x + hip * 0.9f, feet.y }, { feet.x - hip * 0.9f, feet.y }, { feet.x - hip, hipY } };
+        dl->AddCircleFilled(headC, headR, fill, 20);
+        dl->AddCircle(headC, headR, edge, 20, 2.0f);
+        dl->AddConvexPolyFilled(shape, 6, fill);
+        dl->AddPolyline(shape, 6, edge, ImDrawFlags_Closed, 2.0f);
+    }
+
+    {
+        const float  e      = Math::Clamp(m_exposure, 0.0f, 1.0f);
+        const ImVec2 c{ mid.x, vp.y + vh - 70.0f };
+        const float  w      = 34.0f;
+        const float  open   = 4.0f + 12.0f * e;
+        const ImU32  col    = e > 0.6f ? IM_COL32(255, 220, 120, 230) : (e > 0.3f ? IM_COL32(230, 230, 230, 210) : IM_COL32(140, 150, 160, 180));
+        dl->AddBezierQuadratic(ImVec2(c.x - w, c.y), ImVec2(c.x, c.y - open * 2.0f), ImVec2(c.x + w, c.y), col, 3.0f);
+        dl->AddBezierQuadratic(ImVec2(c.x - w, c.y), ImVec2(c.x, c.y + open * 2.0f), ImVec2(c.x + w, c.y), col, 3.0f);
+        dl->AddCircleFilled(c, 3.0f + 6.0f * e, col, 20);
+    }
+
+    if (pxf && m_goalBox.Max.x > m_goalBox.Min.x && pxf->position.x >= m_goalBox.Min.x && pxf->position.x <= m_goalBox.Max.x
+        && pxf->position.z >= m_goalBox.Min.z && pxf->position.z <= m_goalBox.Max.z)
+        m_goalShown = 4.0f;
+    if (m_goalShown > 0.0f)
+    {
+        m_goalShown -= m_frameDt;
+        const char*  text = "OBJECTIVE COMPLETE";
+        const float  size = ImGui::GetFontSize() * 2.6f;
+        const ImVec2 ts   = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text);
+        const ImVec2 pos{ mid.x - ts.x * 0.5f, vp.y + vh * 0.28f };
+        dl->AddText(font, size, ImVec2(pos.x + 2.0f, pos.y + 2.0f), IM_COL32(0, 0, 0, 200), text);
+        dl->AddText(font, size, pos, IM_COL32(120, 230, 140, 255), text);
+    }
+}
+
 void SandboxApp::drawDefenseText()
 {
     if (m_defenseTextLeft <= 0.0f)

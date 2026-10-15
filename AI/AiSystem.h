@@ -53,6 +53,17 @@ namespace Dark
         bool   attachHunter(World& world, Entity e, AssetPinTable& pins, AssetManager& assets);
 
         void setPreySense(const PreySense& sense) { m_prey = sense; }
+        void setAwarenessEnabled(bool on) { m_awarenessOn = on; }
+        bool awarenessEnabled() const { return m_awarenessOn; }
+        void setPlayerExposure(float exposure) { m_playerExposure = exposure; }
+        void setConcealVolumes(std::vector<Math::AABox3f> volumes) { m_conceal = std::move(volumes); }
+        void setPlayerMotion(float motion) { m_playerMotion = motion; }
+        void addNoise(const Math::Vector3f& pos, float range)
+        {
+            if (m_noises.size() < 32)
+                m_noises.push_back(Noise{ pos, range });
+        }
+        void forceAlert(World& world, Entity e, const Math::Vector3f& attackerPos);
         const PreySense& preySense() const { return m_prey; }
 
         void tickHunters(World& world, Terrain::TerrainGrid& terrain, bool playerInWater, float dt, Entity player, const Math::AABox3f* cubes = nullptr, int cubeCount = 0, const Math::Sphere3f* spheres = nullptr, int sphereCount = 0);
@@ -121,6 +132,7 @@ namespace Dark
         void walkableBackStep(Math::Vector3f& position, const Math::Vector3f& incomingXZ) const;
         bool packTokenBusy(World& world, Entity self) const;
         bool entityIsWolf(World& world, Entity e) const;
+        void guardMove(World& world, View& v, float dt, Terrain::TerrainGrid& terrain, float speed, const char* stepCue);
         int  wolfPackNear(World& world, Entity self) const;
         Math::Vector3f nudgeWolfPoint(const Math::Vector3f& islandAt, const Math::Vector3f& origin, const Math::Vector3f& ideal) const;
         void updateWolfApproach(World& world, View& v, AI::Leaf leaf, bool sees, bool playerAlive, bool standoff, const Math::Vector3f& playerPos, const Math::Vector3f& playerForward, float horiz, float dt);
@@ -143,6 +155,17 @@ namespace Dark
         float               m_waterY = -1.0e9f;
         Entity              m_jumpAttackToken{};
         Entity              m_duelToken{};
+        bool                m_awarenessOn = false;
+        float               m_playerExposure = 1.0f;
+        float               m_playerMotion   = 0.0f;
+        struct Noise
+        {
+            Math::Vector3f pos;
+            float          range;
+        };
+        std::vector<Noise>  m_noises;
+        std::vector<Math::AABox3f> m_conceal;
+        AI::AwarenessSettings m_aware{};
         void (*m_jumpHitsFn)(void* user, const Combat::DamageEvent* events, int count) = nullptr;
         void* m_jumpHitsUser                                                           = nullptr;
         void (*m_hunterCueFn)(void* user, Entity hunter, const char* cue)              = nullptr;

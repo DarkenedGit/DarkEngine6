@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AI/Awareness.h"
 #include "AI/Brain.h"
 #include "ECS/Persist.h"
 #include "AI/Pathfinder.h"
@@ -7,6 +8,7 @@
 #include "Math/Vector3f.h"
 
 #include <memory>
+#include <vector>
 
 namespace Dark
 {
@@ -63,6 +65,23 @@ namespace Dark
         float                        guardLeft   = 0.0f;
         float                        hitWindow   = 0.0f;
         int                          hitsTaken   = 0;
+        AI::AwarenessState           aware{};
+        float                        lookLeft    = 0.0f;
+        Math::Vector3f               searchDest{};
+        float                        stuckFor    = 0.0f;
+        float                        reactLeft   = 0.0f;
+        float                        boostLeft   = 0.0f;
+        float                        holdYaw     = 0.0f;
+        float                        glanceLeft  = 0.0f;
+        bool                         reacting    = false;
+    };
+
+    struct PatrolComponent
+    {
+        static constexpr const char* kTypeName = "Patrol";
+        std::vector<Math::Vector3f>  points;
+        int                          next     = 0;
+        float                        waitLeft = 0.0f;
     };
 
     struct BrainComponent
