@@ -1,6 +1,7 @@
 #include "SandboxApp.h"
 
 #include "Play/CharacterAttach.h"
+#include "Play/HunterTick.h"
 #include "Play/PhysicsGround.h"
 #include "Play/PlayLook.h"
 #include "Play/PlayMotor.h"
@@ -3532,12 +3533,7 @@ void SandboxApp::onUpdate(float dt)
         m_water.tick(dt);
         if (m_chaseOk)
         {
-            const PlayerMotor* motor = localMotor();
-            const float speed = motor ? Vector3f{ motor->velocity().x, 0.0f, motor->velocity().z }.Magnitude() : 0.0f;
-            const bool crouched = motor && motor->state() == PlayerMoveState::Crouch;
-            const bool moving = speed >= m_stealth.stillSpeed;
-            const bool sprinting = moving && !crouched && input().actionDown("sprint");
-            m_chase.ai().setPreySense(preySenseFor(m_stealth, crouched, moving, sprinting));
+            applyPreyFromMotor(m_chase.ai(), m_stealth, localMotor(), input().actionDown("sprint"));
             m_chase.tick(dt, world(), input(), m_terrain, possessedBody(), m_playerWet);
         }
         updateCombat(dt);

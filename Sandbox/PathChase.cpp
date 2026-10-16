@@ -1,5 +1,7 @@
 #include "PathChase.h"
 
+#include "Play/HunterTick.h"
+
 #include "AI/AiComponents.h"
 #include "AI/Sight.h"
 #include "Assets/AssetManager.h"
@@ -82,8 +84,7 @@ bool PathChase::bake(Terrain::TerrainGrid& terrain, WaterWorld& water)
     d.heightMap   = &terrain.coarse();
     d.waterLevel  = water.params().waterLevel;
     d.agentRadius = m_agentR;
-    d.cubes       = m_cubes.empty() ? nullptr : m_cubes.data();
-    d.cubeCount   = static_cast<int>(m_cubes.size());
+    setHunterBakeObstacles(d, m_cubes.data(), static_cast<int>(m_cubes.size()), nullptr, 0);
     return m_ai.bake(d);
 }
 
@@ -189,11 +190,7 @@ void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainGrid&
     }
 
     const Entity player = hostPawn.valid() ? hostPawn : m_walker;
-    const Terrain::HeightMap* height = terrain.editableWorking();
-    if (!height || !height->valid())
-        height = &terrain.coarse();
-    const Terrain::SplatMap* splat = terrain.editableWorkingSplat();
-    m_ai.setGroundSurface(m_ground, height, splat && splat->valid() ? splat : nullptr);
+    bindHunterGround(m_ai, m_ground, &terrain);
     m_ai.tickHunters(world, terrain, playerInWater, dt, player, m_cubes.empty() ? nullptr : m_cubes.data(), static_cast<int>(m_cubes.size()));
 }
 

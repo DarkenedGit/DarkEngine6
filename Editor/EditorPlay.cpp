@@ -1,6 +1,7 @@
 #include "EditorApp.h"
 
 #include "Play/CharacterAttach.h"
+#include "Play/HunterTick.h"
 #include "Play/PlayLook.h"
 #include "Play/PlayMotor.h"
 #include "Play/ShoulderCamera.h"
@@ -300,10 +301,7 @@ void EditorApp::bakePlayWalkability()
     d.heightMap   = height;
     d.waterLevel  = -1.0e9f;
     d.agentRadius = 0.8f;
-    d.cubes       = m_playCubes.empty() ? nullptr : m_playCubes.data();
-    d.cubeCount   = static_cast<int>(m_playCubes.size());
-    d.spheres     = m_playSpheres.empty() ? nullptr : m_playSpheres.data();
-    d.sphereCount = static_cast<int>(m_playSpheres.size());
+    setHunterBakeObstacles(d, m_playCubes.data(), static_cast<int>(m_playCubes.size()), m_playSpheres.data(), static_cast<int>(m_playSpheres.size()));
     if (!m_ai.bake(d))
         DE_LOG_WARN(LogCategory::AI, "Editor: walkability bake failed");
 }
@@ -1058,30 +1056,13 @@ void EditorApp::tickEditorHunters(float dt)
     if (!player.valid())
         return;
     if (const PlayerMotorComponent* pmc = world().get<PlayerMotorComponent>(player))
-    {
-        const PlayerMotor& motor = pmc->motor;
-        const float speed = Vector3f{ motor.velocity().x, 0.0f, motor.velocity().z }.Magnitude();
-        const bool crouched = motor.state() == PlayerMoveState::Crouch;
-        const bool moving = speed >= m_stealth.stillSpeed;
-        const bool sprinting = moving && !crouched && input().actionDown("sprint");
-        m_ai.setPreySense(preySenseFor(m_stealth, crouched, moving, sprinting));
-    }
+        applyPreyFromMotor(m_ai, m_stealth, &pmc->motor, input().actionDown("sprint"));
     if (!m_ai.walkability().valid())
         bakePlayWalkability();
     m_ai.setJumpAttackHits(&EditorApp::onPlayJumpHitsThunk, this);
     m_ai.setHunterCue(&EditorApp::onPlayHunterCueThunk, this);
-    {
-        const Terrain::HeightMap* height = nullptr;
-        const Terrain::SplatMap*  splat  = nullptr;
-        if (m_haveTerrain && m_terrain.valid())
-        {
-            height = m_terrain.editableWorking();
-            if (!height || !height->valid())
-                height = &m_terrain.coarse();
-            splat = m_terrain.editableWorkingSplat();
-        }
-        m_ai.setGroundSurface(&m_ground, height, splat && splat->valid() ? splat : nullptr);
-    }
+    const Terrain::TerrainGrid* grid = (m_haveTerrain && m_terrain.valid()) ? &m_terrain : nullptr;
+    bindHunterGround(m_ai, &m_ground, grid);
     m_ai.tickHunters(world(), m_terrain, false, dt, player, m_playCubes.empty() ? nullptr : m_playCubes.data(),
                      static_cast<int>(m_playCubes.size()), m_playSpheres.empty() ? nullptr : m_playSpheres.data(),
                      static_cast<int>(m_playSpheres.size()));

@@ -10,6 +10,7 @@
 #include "Character/SkillComponent.h"
 #include "Combat/JumpAttack.h"
 #include "Play/CharacterAttach.h"
+#include "Play/HunterTick.h"
 #include "Play/PhysicsGround.h"
 #include "Play/PlayLook.h"
 #include "Play/PlayMotor.h"
@@ -23,6 +24,50 @@
 
 using namespace Dark;
 using namespace Dark::Math;
+
+TEST(HunterTick, PreyGroundAndBakeObstacles)
+{
+    AiSystem ai;
+    PlayerStealthSettings stealth;
+    applyPreyFromMotor(ai, stealth, nullptr, true);
+    EXPECT_FLOAT_EQ(ai.preySense().hearRange, stealth.hearStand);
+    EXPECT_FLOAT_EQ(ai.preySense().sightRangeScale, 1.0f);
+
+    PlayerMotor motor;
+    motor.setHorizontalVelocity(2.0f, 0.0f);
+    applyPreyFromMotor(ai, stealth, &motor, true);
+    EXPECT_FLOAT_EQ(ai.preySense().hearRange, stealth.hearSprint);
+    EXPECT_FLOAT_EQ(ai.preySense().targetHeight, stealth.standTargetHeight);
+
+    motor.restoreProgress(PlayerMoveState::Crouch, Vector3f{ 0.0f, 0.0f, 0.0f }, 0.0f, 0.0f, false, false, 0.0f, Vector3f{ 0.0f, 0.0f, 0.0f });
+    applyPreyFromMotor(ai, stealth, &motor, true);
+    EXPECT_FLOAT_EQ(ai.preySense().hearRange, stealth.hearCrouchStill);
+    EXPECT_FLOAT_EQ(ai.preySense().sightRangeScale, stealth.sightCrouchStill);
+    EXPECT_FLOAT_EQ(ai.preySense().standoff, stealth.standoffCrouchStill);
+
+    const HunterGroundView empty = hunterGroundView(nullptr);
+    EXPECT_EQ(empty.height, nullptr);
+    EXPECT_EQ(empty.splat, nullptr);
+
+    Terrain::TerrainGrid grid;
+    const HunterGroundView fallback = hunterGroundView(&grid);
+    EXPECT_EQ(fallback.height, &grid.coarse());
+    EXPECT_EQ(fallback.splat, nullptr);
+
+    AI::WalkabilityDesc desc;
+    const AABox3f cube = AABox3f::FromCenterExtents(Vector3f{ 0.0f, 0.0f, 0.0f }, Vector3f{ 0.5f, 0.5f, 0.5f });
+    const Sphere3f sphere{ Vector3f{ 2.0f, 0.0f, 0.0f }, 0.4f };
+    setHunterBakeObstacles(desc, &cube, 1, &sphere, 1);
+    EXPECT_EQ(desc.cubeCount, 1);
+    EXPECT_EQ(desc.sphereCount, 1);
+    EXPECT_EQ(desc.cubes, &cube);
+    EXPECT_EQ(desc.spheres, &sphere);
+    setHunterBakeObstacles(desc, &cube, 0, nullptr, 0);
+    EXPECT_EQ(desc.cubes, nullptr);
+    EXPECT_EQ(desc.cubeCount, 0);
+    EXPECT_EQ(desc.spheres, nullptr);
+    EXPECT_EQ(desc.sphereCount, 0);
+}
 
 TEST(WeaponTargetList, GatherSkipsSelfAndBodiesWithoutTransform)
 {
