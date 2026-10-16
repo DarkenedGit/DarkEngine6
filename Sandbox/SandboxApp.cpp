@@ -1,6 +1,6 @@
 #include "SandboxApp.h"
 
-#include "Play/CharacterAudio.h"
+#include "Play/CharacterAttach.h"
 
 #include "ECS/Components.h"
 #include "Water/WaterStream.h"
@@ -790,33 +790,7 @@ void SandboxApp::attachReplicaCombat(Entity e)
 {
     if (!e.valid() || !world().alive(e))
         return;
-    if (!world().has<HealthComponent>(e))
-    {
-        HealthSettings playerHp;
-        playerHp.maxHp       = 200.0f;
-        playerHp.regenPerSec = 10.0f;
-        playerHp.regenDelay  = 3.5f;
-        HealthComponent hc{};
-        hc.health = Health{ playerHp };
-        world().emplace<HealthComponent>(e, std::move(hc));
-    }
-    if (!world().has<HitReactionComponent>(e))
-    {
-        HitReactionSettings hit{};
-        hit.stunSeconds       = 0.28f;
-        hit.knockbackDistance = 1.1f;
-        hit.knockbackSeconds  = 0.14f;
-        hit.horizontalOnly    = true;
-        HitReactionComponent hr{};
-        hr.hit.setSettings(hit);
-        world().emplace<HitReactionComponent>(e, std::move(hr));
-    }
-    if (!world().has<HittableComponent>(e))
-    {
-        HittableComponent h{};
-        h.halfExtents = Vector3f{ 0.35f, 0.7f, 0.35f };
-        world().emplace<HittableComponent>(e, h);
-    }
+    ensureHumanoidBody(world(), e, 200.0f, Vector3f{ 0.35f, 0.7f, 0.35f });
     const EntityMaster playerMaster = loadEntityMasterType("player");
     const std::string  playerGltf = playerMaster.gltf.empty() ? std::string("models/human.gltf") : playerMaster.gltf;
     attachAnimatedCharacter(e, playerGltf.c_str());
@@ -834,57 +808,14 @@ void SandboxApp::attachLocalPlayer(Entity e)
         world().emplace<InventoryComponent>(e, inv);
     }
     equipSword(world(), pins(), assets(), renderer(), e);
-    if (!world().has<PlayerMotorComponent>(e))
-        world().emplace<PlayerMotorComponent>(e);
-    if (!world().has<HsmGraphComponent>(e))
-    {
-        HsmGraphComponent hsm{};
-        const EntityMaster playerMaster = loadEntityMasterType("player");
-        const std::string  hsmPath = playerMaster.hsm.empty() ? std::string("ai/player.hsm.json") : playerMaster.hsm;
-        hsm.def      = assets().tryLoadHsmGraph(hsmPath);
-        hsm.instance = std::make_unique<HsmGraphInstance>();
-        const bool built = hsm.def ? hsm.instance->build(*hsm.def) : hsm.instance->build(makePlayerHsmGraph());
-        if (!built)
-            DE_LOG_WARN(LogCategory::AI, "SandboxApp: player HSM build failed");
-        else
-        {
-            hsm.instance->start();
-            world().emplace<HsmGraphComponent>(e, std::move(hsm));
-        }
-    }
     if (!world().has<HudTagComponent>(e))
     {
         HudTagComponent hud{};
         hud.kind = HudKind::HealthBar;
         world().emplace<HudTagComponent>(e, hud);
     }
-    if (!world().has<WeaponLoadoutComponent>(e))
-    {
-        auto& wlc   = world().emplace<WeaponLoadoutComponent>(e);
-        wlc.loadout = std::make_unique<WeaponLoadout>();
-        wlc.loadout->setHitListener(&SandboxApp::onWeaponHitThunk, this);
-        MeleeWeaponDesc sword = wlc.loadout->melee().desc();
-        sword.hitDelay        = 0.12f;
-        sword.singleTarget    = true;
-        wlc.loadout->melee().setDesc(sword);
-        wlc.slot = wlc.loadout->slot();
-    }
-    if (!world().has<JumpAttackComponent>(e))
-    {
-        auto& jac = world().emplace<JumpAttackComponent>(e);
-        Combat::JumpAttackDef def = jac.jump.def();
-        def.telegraphSeconds = 0.0f;
-        def.cooldown         = 1.25f;
-        def.connectFlags     = Combat::DamageFlags::CanBlock | Combat::DamageFlags::HardCc | Combat::DamageFlags::Knockdown;
-        jac.jump.setDef(def);
-    }
-    if (!world().has<Combat::StatusEffectComponent>(e))
-        world().emplace<Combat::StatusEffectComponent>(e);
-    if (!world().has<Combat::PoiseComponent>(e))
-        world().emplace<Combat::PoiseComponent>(e);
-    Combat::equipPlayerShield(world(), e);
-    attachPlayerSounds(world(), pins(), assets(), audio(), e, m_ground);
-    applySkillProfile(world(), e, "player");
+    const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
+    ensureLocalPlayerRig(host, e, &SandboxApp::onWeaponHitThunk, this);
     ensurePlayerProgress(e);
 }
 
@@ -895,56 +826,9 @@ bool SandboxApp::attachAnimatedCharacter(Entity e, const char* gltfPath)
     if (world().has<AnimGraphComponent>(e) && world().has<ModelComponent>(e))
         return true;
 
-    AssetRef<Model> model = loadAndUploadModel(renderer(), assets(), gltfPath);
-    if (!model || !model->valid())
-    {
-        DE_LOG_WARN("SandboxApp: animated character '{}' failed to load", gltfPath);
-        return false;
-    }
-    if (!model->skeleton())
-    {
-        DE_LOG_WARN("SandboxApp: '{}' has no skeleton", gltfPath);
-        return false;
-    }
-
-    AssetRef<AnimGraphDef> graph = assets().tryLoadAnimGraphForModel(gltfPath);
-    if (!graph)
-        DE_LOG_WARN("SandboxApp: '{}' has no anim graph sidecar", gltfPath);
-
-    if (const ModelComponent* old = world().get<ModelComponent>(e))
-        unpinModelComponent(pins(), *old);
-    ModelComponent mc{};
-    mc.modelAssetID = model->id;
-    mc.castShadow   = model->hasOpaque();
-    world().emplace<ModelComponent>(e, mc);
-    pinModelComponent(pins(), assets(), mc);
-
-    if (MeshComponent* mesh = world().get<MeshComponent>(e))
-    {
-        MeshComponent next = *mesh;
-        next.primitive     = PrimitiveMesh::None;
-        setMeshComponent(world(), pins(), assets(), e, next);
-    }
-
-    if (TransformComponent* xf = world().get<TransformComponent>(e))
-        xf->scale = Vector3f{ 1.0f, 1.0f, 1.0f };
-
-    AnimGraphComponent ag;
-    ag.model    = model;
-    ag.animSet  = model->animationSet();
-    ag.graphDef = graph;
-    if (graph)
-        ag.graph.bind(graph.get(), model->skeleton());
-    else if (ag.animSet)
-    {
-        ag.graph.player().bind(model->skeleton(), ag.animSet.get());
-        if (!ag.graph.player().play("Idle", 0.0f))
-            ag.graph.player().playIndex(0, 0.0f);
-    }
-    ag.graph.setApplyRootMotion(false);
-    world().emplace<AnimGraphComponent>(e, std::move(ag));
-    DE_LOG_INFO("SandboxApp: attached '{}' to entity graph={}", gltfPath, graph ? "yes" : "no");
-    return true;
+    const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
+    const ContentModelResult result = attachContentModel(host, e, gltfPath, ModelAttach::AnimatedOnly);
+    return result.attached && result.skinned;
 }
 
 void SandboxApp::updateCharacterAnims(float dt)
@@ -3700,24 +3584,8 @@ void SandboxApp::onInit()
             const Entity hunter = m_chase.spawnListedHunter(world(), pins(), assets(), xf);
             if (!hunter.valid())
                 continue;
-            const char* gltf = "models/skeleton.gltf";
-            std::string wolfGltf;
-            if (wolf)
-            {
-                const EntityMaster wolfMaster = loadEntityMasterType("wolf");
-                wolfGltf = wolfMaster.gltf.empty() ? std::string("models/wolf.gltf") : wolfMaster.gltf;
-                gltf     = wolfGltf.c_str();
-            }
-            attachAnimatedCharacter(hunter, gltf);
-            attachHunterSounds(world(), pins(), assets(), audio(), hunter, m_ground);
-            if (HittableComponent* hit = world().get<HittableComponent>(hunter))
-                hit->halfExtents = wolf ? Vector3f{ 0.45f, 0.45f, 0.70f } : Vector3f{ 0.4f, 0.7f, 0.4f };
-            if (wolf)
-            {
-                if (TagComponent* tag = world().get<TagComponent>(hunter))
-                    tag->name = "Wolf";
-                applySkillProfile(world(), hunter, "wolf");
-            }
+            const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
+            attachNpcVisual(host, hunter, wolf ? NpcKind::Wolf : NpcKind::Hunter, ModelAttach::AnimatedOnly);
             const int stamp = wolf ? wolfStamp++ : hunterStamp++;
             stampProceduralId(world(), hunter, std::format("sandbox/level/{}/{}", wolf ? "wolf" : "hunter", stamp), wolf ? "wolf" : "hunter");
         }

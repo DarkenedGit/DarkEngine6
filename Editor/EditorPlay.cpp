@@ -1,6 +1,6 @@
 #include "EditorApp.h"
 
-#include "Play/CharacterAudio.h"
+#include "Play/CharacterAttach.h"
 
 #include "AI/AiComponents.h"
 #include "AI/Brain.h"
@@ -79,59 +79,13 @@ bool EditorApp::attachEditorModel(Entity e, const char* gltfPath)
     if (world().has<ModelComponent>(e) && world().get<ModelComponent>(e)->modelAssetID != NULL_ASSET)
         return true;
 
-    AssetRef<Model> model = loadAndUploadModel(renderer(), assets(), gltfPath);
-    if (!model || !model->valid())
-    {
-        DE_LOG_WARN("Editor: model '{}' failed to load", gltfPath);
+    const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
+    const ContentModelResult result = attachContentModel(host, e, gltfPath, ModelAttach::AllowStatic);
+    if (!result.attached)
         return false;
-    }
-
-    ModelComponent mc{};
-    mc.modelAssetID = model->id;
-    mc.castShadow   = model->hasOpaque();
-    setModelComponent(world(), pins(), assets(), e, mc);
-
-    if (MeshComponent* mesh = world().get<MeshComponent>(e))
-    {
-        MeshComponent next = *mesh;
-        next.primitive     = PrimitiveMesh::None;
-        setMeshComponent(world(), pins(), assets(), e, next);
-    }
-
-    if (!model->skeleton())
-    {
-        tryLoadModelPhysics(e);
-        DE_LOG_INFO("Editor: attached '{}' (static)", gltfPath);
-        return true;
-    }
-
-    const std::string modelStem = std::filesystem::path(gltfPath).stem().string();
-    const EntityMaster modelMaster = loadEntityMasterType(modelStem);
-    AssetRef<AnimGraphDef> graph;
-    if (!modelMaster.anim.empty())
-        graph = assets().loadAnimGraph(modelMaster.anim);
-    if (!graph)
-        graph = assets().tryLoadAnimGraphForModel(gltfPath);
-    if (!graph && model->skeleton())
-        DE_LOG_WARN("Editor: '{}' has no anim graph sidecar", gltfPath);
-
-    AnimGraphComponent ag;
-    ag.model    = model;
-    ag.animSet  = model->animationSet();
-    ag.graphDef = graph;
-    if (graph)
-        ag.graph.bind(graph.get(), model->skeleton());
-    else if (ag.animSet)
-    {
-        ag.graph.player().bind(model->skeleton(), ag.animSet.get());
-        if (!ag.graph.player().play("Idle", 0.0f))
-            ag.graph.player().playIndex(0, 0.0f);
-    }
-    ag.graph.setApplyRootMotion(false);
-    world().emplace<AnimGraphComponent>(e, std::move(ag));
-    tickAnimGraphs(world(), assets(), 1.0f / 60.0f);
+    if (result.skinned)
+        tickAnimGraphs(world(), assets(), 1.0f / 60.0f);
     tryLoadModelPhysics(e);
-    DE_LOG_INFO("Editor: attached '{}' graph={}", gltfPath, graph ? "yes" : "no");
     return true;
 }
 
@@ -140,80 +94,13 @@ bool EditorApp::attachEditorPlayer(Entity e)
     if (!e.valid() || !world().alive(e))
         return false;
 
-    if (!world().has<HealthComponent>(e))
-    {
-        HealthSettings playerHp;
-        playerHp.maxHp       = 100.0f;
-        playerHp.regenPerSec = 10.0f;
-        playerHp.regenDelay  = 3.5f;
-        HealthComponent hc{};
-        hc.health = Health{ playerHp };
-        world().emplace<HealthComponent>(e, std::move(hc));
-    }
-    if (!world().has<HitReactionComponent>(e))
-    {
-        HitReactionSettings hit{};
-        hit.stunSeconds       = 0.28f;
-        hit.knockbackDistance = 1.1f;
-        hit.knockbackSeconds  = 0.14f;
-        hit.horizontalOnly    = true;
-        HitReactionComponent hr{};
-        hr.hit.setSettings(hit);
-        world().emplace<HitReactionComponent>(e, std::move(hr));
-    }
-    if (!world().has<HittableComponent>(e))
-    {
-        HittableComponent h{};
-        h.halfExtents = Vector3f{ 0.35f, 0.7f, 0.35f };
-        world().emplace<HittableComponent>(e, h);
-    }
-    if (!world().has<PlayerMotorComponent>(e))
-        world().emplace<PlayerMotorComponent>(e);
-    if (!world().has<HsmGraphComponent>(e))
-    {
-        HsmGraphComponent hsm{};
-        const EntityMaster playerMaster = loadEntityMasterType("player");
-        const std::string  hsmPath = playerMaster.hsm.empty() ? std::string("ai/player.hsm.json") : playerMaster.hsm;
-        hsm.def      = assets().tryLoadHsmGraph(hsmPath);
-        hsm.instance = std::make_unique<HsmGraphInstance>();
-        const bool built = hsm.def ? hsm.instance->build(*hsm.def) : hsm.instance->build(makePlayerHsmGraph());
-        if (built)
-        {
-            hsm.instance->start();
-            world().emplace<HsmGraphComponent>(e, std::move(hsm));
-        }
-        else
-            DE_LOG_WARN(LogCategory::AI, "Editor: player HSM build failed");
-    }
-    if (!world().has<WeaponLoadoutComponent>(e))
-    {
-        auto& wlc   = world().emplace<WeaponLoadoutComponent>(e);
-        wlc.loadout = std::make_unique<WeaponLoadout>();
-        wlc.loadout->setHitListener(&EditorApp::onPlayWeaponHitThunk, this);
-        wlc.slot = wlc.loadout->slot();
-    }
-    else if (WeaponLoadoutComponent* wlc = world().get<WeaponLoadoutComponent>(e); wlc && wlc->loadout)
-        wlc->loadout->setHitListener(&EditorApp::onPlayWeaponHitThunk, this);
-    if (!world().has<JumpAttackComponent>(e))
-    {
-        auto& jac = world().emplace<JumpAttackComponent>(e);
-        Combat::JumpAttackDef def = jac.jump.def();
-        def.telegraphSeconds = 0.0f;
-        def.cooldown         = 1.25f;
-        def.connectFlags     = Combat::DamageFlags::CanBlock | Combat::DamageFlags::HardCc | Combat::DamageFlags::Knockdown;
-        jac.jump.setDef(def);
-    }
-    if (!world().has<Combat::StatusEffectComponent>(e))
-        world().emplace<Combat::StatusEffectComponent>(e);
-    if (!world().has<Combat::PoiseComponent>(e))
-        world().emplace<Combat::PoiseComponent>(e);
-    Combat::equipPlayerShield(world(), e);
+    ensureHumanoidBody(world(), e, 200.0f, Vector3f{ 0.35f, 0.7f, 0.35f });
+    const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
+    ensureLocalPlayerRig(host, e, &EditorApp::onPlayWeaponHitThunk, this);
 
     const EntityMaster playerMaster = loadEntityMasterType("player");
     const std::string  playerGltf = playerMaster.gltf.empty() ? std::string("models/human.gltf") : playerMaster.gltf;
     attachEditorModel(e, playerGltf.c_str());
-    attachPlayerSounds(world(), pins(), assets(), audio(), e, m_ground);
-    applySkillProfile(world(), e, "player");
     return true;
 }
 
@@ -221,7 +108,15 @@ bool EditorApp::attachEditorHunter(Entity e)
 {
     if (!m_ai.attachHunter(world(), e, pins(), assets()))
         return false;
-    if (!attachEditorModel(e, "models/skeleton.gltf"))
+    const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
+    const bool haveModel = world().has<ModelComponent>(e) && world().get<ModelComponent>(e)->modelAssetID != NULL_ASSET;
+    if (haveModel)
+    {
+        configureNpc(host, e, NpcKind::Hunter);
+        return true;
+    }
+    const ContentModelResult vis = attachNpcVisual(host, e, NpcKind::Hunter, ModelAttach::AllowStatic);
+    if (!vis.attached)
     {
         MeshComponent mc{};
         mc.matAssetID  = m_propMaterial ? m_propMaterial->id : NULL_ASSET;
@@ -229,9 +124,12 @@ bool EditorApp::attachEditorHunter(Entity e)
         setMeshComponent(world(), pins(), assets(), e, mc);
         DE_LOG_WARN("Editor: hunter using cube proxy (skeleton model missing)");
     }
-    if (HittableComponent* hit = world().get<HittableComponent>(e))
-        hit->halfExtents = Vector3f{ 0.4f, 0.7f, 0.4f };
-    attachHunterSounds(world(), pins(), assets(), audio(), e, m_ground);
+    else
+    {
+        if (vis.skinned)
+            tickAnimGraphs(world(), assets(), 1.0f / 60.0f);
+        tryLoadModelPhysics(e);
+    }
     return true;
 }
 
@@ -239,9 +137,15 @@ bool EditorApp::attachEditorWolf(Entity e)
 {
     if (!m_ai.attachHunter(world(), e, pins(), assets()))
         return false;
-    const EntityMaster wolfMaster = loadEntityMasterType("wolf");
-    const std::string  wolfGltf = wolfMaster.gltf.empty() ? std::string("models/wolf.gltf") : wolfMaster.gltf;
-    if (!attachEditorModel(e, wolfGltf.c_str()))
+    const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
+    const bool haveModel = world().has<ModelComponent>(e) && world().get<ModelComponent>(e)->modelAssetID != NULL_ASSET;
+    if (haveModel)
+    {
+        configureNpc(host, e, NpcKind::Wolf);
+        return true;
+    }
+    const ContentModelResult vis = attachNpcVisual(host, e, NpcKind::Wolf, ModelAttach::AllowStatic);
+    if (!vis.attached)
     {
         MeshComponent mc{};
         mc.matAssetID  = m_propMaterial ? m_propMaterial->id : NULL_ASSET;
@@ -249,12 +153,12 @@ bool EditorApp::attachEditorWolf(Entity e)
         setMeshComponent(world(), pins(), assets(), e, mc);
         DE_LOG_WARN("Editor: wolf using cube proxy (wolf model missing)");
     }
-    if (HittableComponent* hit = world().get<HittableComponent>(e))
-        hit->halfExtents = Vector3f{ 0.45f, 0.45f, 0.70f };
-    if (TagComponent* tag = world().get<TagComponent>(e))
-        tag->name = "Wolf";
-    applySkillProfile(world(), e, "wolf");
-    attachHunterSounds(world(), pins(), assets(), audio(), e, m_ground);
+    else
+    {
+        if (vis.skinned)
+            tickAnimGraphs(world(), assets(), 1.0f / 60.0f);
+        tryLoadModelPhysics(e);
+    }
     return true;
 }
 

@@ -1,13 +1,12 @@
 #include "SandboxApp.h"
 
-#include "Play/CharacterAudio.h"
+#include "Play/CharacterAttach.h"
 
 #include "AI/AiSystem.h"
 #include "Animation/AnimGraphComponent.h"
 #include "Audio/SoundComponents.h"
 #include "Character/HealthComponent.h"
 #include "Character/PlayerMotorComponent.h"
-#include "Character/SkillXp.h"
 #include "Combat/JumpAttackComponent.h"
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
@@ -20,9 +19,6 @@
 #include "Save/HostSync.h"
 #include "Save/PersistentId.h"
 #include "Save/ProgressComponents.h"
-#include "Scene/EntityMaster.h"
-#include "Weapons/HittableComponent.h"
-
 #include <cstring>
 #include <format>
 #include <string>
@@ -182,24 +178,8 @@ Entity SandboxApp::saveRespawn(void* user, World& world, std::string_view archet
         if (!e.valid())
             return {};
         const bool wolf = archetype == "wolf";
-        std::string wolfGltf;
-        const char* gltf = "models/skeleton.gltf";
-        if (wolf)
-        {
-            const EntityMaster wolfMaster = loadEntityMasterType("wolf");
-            wolfGltf = wolfMaster.gltf.empty() ? std::string("models/wolf.gltf") : wolfMaster.gltf;
-            gltf     = wolfGltf.c_str();
-        }
-        app->attachAnimatedCharacter(e, gltf);
-        attachHunterSounds(world, app->pins(), app->assets(), app->audio(), e, app->m_ground);
-        if (HittableComponent* hit = world.get<HittableComponent>(e))
-            hit->halfExtents = wolf ? Vector3f{ 0.45f, 0.45f, 0.70f } : Vector3f{ 0.4f, 0.7f, 0.4f };
-        if (wolf)
-        {
-            if (TagComponent* tag = world.get<TagComponent>(e))
-                tag->name = "Wolf";
-            applySkillProfile(world, e, "wolf");
-        }
+        const CharacterHost host{ world, app->renderer(), app->assets(), app->pins(), app->audio(), app->m_ground };
+        attachNpcVisual(host, e, wolf ? NpcKind::Wolf : NpcKind::Hunter, ModelAttach::AnimatedOnly);
         app->bindEntityPhysics(e, wolf ? "wolf" : "human");
         app->m_chase.addHunter(e);
         return e;
