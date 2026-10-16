@@ -1,9 +1,9 @@
 #include "SandboxApp.h"
 
 #include "Play/CharacterAttach.h"
+#include "Save/PlayClock.h"
 
 #include "AI/AiSystem.h"
-#include "Animation/AnimGraphComponent.h"
 #include "Audio/SoundComponents.h"
 #include "Character/HealthComponent.h"
 #include "Character/PlayerMotorComponent.h"
@@ -60,13 +60,7 @@ void SandboxApp::installSaveHost()
 
 void SandboxApp::ensureSessionEntity()
 {
-    if (m_session.valid() && world().alive(m_session))
-        return;
-    m_session = world().createEntity();
-    world().emplace<TagComponent>(m_session, "Session");
-    stampProceduralId(world(), m_session, "session");
-    world().emplace<WorldClockComponent>(m_session);
-    world().emplace<AiClockComponent>(m_session);
+    m_session = Save::ensureSessionEntity(world(), m_session);
 }
 
 void SandboxApp::ensurePlayerProgress(Entity e)
@@ -263,12 +257,12 @@ void SandboxApp::saveBeforeCapture(void* user, World& world)
         return;
     app->pullPhysicsVelocities();
     const Entity body = app->possessedBody();
-    if (LookComponent* look = body.valid() ? world.get<LookComponent>(body) : nullptr)
-    {
-        look->yaw     = app->m_lookYaw;
-        look->pitch   = app->m_lookPitch;
-        look->lightOn = app->m_offhand.lightOn;
-    }
+    Save::BodyLookState look;
+    look.yaw          = app->m_lookYaw;
+    look.pitch        = app->m_lookPitch;
+    look.lightOn      = app->m_offhand.lightOn;
+    look.lowerBodyYaw = app->m_lowerBodyYaw;
+    Save::captureBodyLook(world, body, look);
     if (RunProgressComponent* run = body.valid() ? world.get<RunProgressComponent>(body) : nullptr)
     {
         run->deadTimer = app->m_playerDeadTimer;
@@ -276,14 +270,13 @@ void SandboxApp::saveBeforeCapture(void* user, World& world)
         run->hasSpawn  = app->m_havePlayerSpawn;
         run->spawn     = app->m_playerSpawn;
     }
-    if (AnimGraphComponent* ag = body.valid() ? world.get<AnimGraphComponent>(body) : nullptr)
-        ag->graph.player().setLowerBodyYaw(app->m_lowerBodyYaw);
     if (WorldClockComponent* clock = sessionClock(world, app->m_session))
     {
-        clock->cloudTime    = app->m_cloudTime;
-        clock->envTimeOfDay = app->m_env.timeOfDay;
-        clock->waterTime    = app->m_water.time();
-        clock->simTimeSec   = app->m_cloudTime;
+        Save::SessionClockState clockState;
+        clockState.cloudTime    = app->m_cloudTime;
+        clockState.envTimeOfDay = app->m_env.timeOfDay;
+        clockState.waterTime    = app->m_water.time();
+        Save::writeSessionClock(*clock, clockState);
     }
     if (AiClockComponent* ai = sessionAi(world, app->m_session))
     {
@@ -299,12 +292,17 @@ void SandboxApp::saveAfterApply(void* user, World& world)
     if (!app)
         return;
     const Entity body = app->possessedBody();
-    if (const LookComponent* look = body.valid() ? world.get<LookComponent>(body) : nullptr)
-    {
-        app->m_lookYaw        = look->yaw;
-        app->m_lookPitch      = look->pitch;
-        app->m_offhand.lightOn = look->lightOn;
-    }
+    Save::BodyLookState look;
+    look.yaw          = app->m_lookYaw;
+    look.pitch        = app->m_lookPitch;
+    look.lightOn      = app->m_offhand.lightOn;
+    look.lowerBodyYaw = app->m_lowerBodyYaw;
+    Save::restoreBodyLook(world, body, look);
+    app->m_lookYaw         = look.yaw;
+    app->m_lookPitch       = look.pitch;
+    app->m_offhand.lightOn = look.lightOn;
+    app->m_lowerBodyYaw    = look.lowerBodyYaw;
+    app->m_crouchLatch     = look.crouch;
     if (const RunProgressComponent* run = body.valid() ? world.get<RunProgressComponent>(body) : nullptr)
     {
         app->m_playerDeadTimer = run->deadTimer;
@@ -312,16 +310,13 @@ void SandboxApp::saveAfterApply(void* user, World& world)
         app->m_havePlayerSpawn = run->hasSpawn;
         app->m_playerSpawn     = run->spawn;
     }
-    app->m_crouchLatch = false;
-    if (const PlayerMotor* motor = app->localMotor())
-        app->m_crouchLatch = motor->state() == PlayerMoveState::Crouch;
-    if (const AnimGraphComponent* ag = body.valid() ? world.get<AnimGraphComponent>(body) : nullptr)
-        app->m_lowerBodyYaw = ag->graph.player().lowerBodyYaw();
     if (const WorldClockComponent* clock = sessionClock(world, app->m_session))
     {
-        app->m_cloudTime     = clock->cloudTime;
-        app->m_env.timeOfDay = clock->envTimeOfDay;
-        app->m_water.setTime(clock->waterTime);
+        Save::SessionClockState clockState;
+        Save::readSessionClock(*clock, clockState);
+        app->m_cloudTime     = clockState.cloudTime;
+        app->m_env.timeOfDay = clockState.envTimeOfDay;
+        app->m_water.setTime(clockState.waterTime);
     }
     if (const AiClockComponent* ai = sessionAi(world, app->m_session))
     {
