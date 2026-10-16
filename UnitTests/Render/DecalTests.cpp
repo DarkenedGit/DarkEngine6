@@ -12,6 +12,7 @@
 #include "Render/SceneBuffers.h"
 
 #include <cmath>
+#include <limits>
 
 using Dark::AnimGraphComponent;
 using Dark::Camera3D;
@@ -29,6 +30,10 @@ using Dark::DecalChannel_Emissive;
 using Dark::DecalChannel_Normal;
 using Dark::DecalChannel_Roughness;
 using Dark::decalCueIsGroundStep;
+using Dark::decalFlatFacing;
+using Dark::decalPointFinite;
+using Dark::decalSafeNormal;
+using Dark::decalYawFacing;
 using Dark::decalDeathAxisY;
 using Dark::decalImpactAxisX;
 using Dark::decalClipLocal;
@@ -745,6 +750,29 @@ TEST(Decal_ImpactAxis_Tangent, NotParallelToNormal)
     EXPECT_NEAR(fallback.x, 1.0f, 1.0e-5f);
     EXPECT_NEAR(fallback.y, 0.0f, 1.0e-5f);
     EXPECT_NEAR(fallback.z, 0.0f, 1.0e-5f);
+}
+
+TEST(Decal_BasisHelpers, SafeNormalFlatFacingYawAndFinite)
+{
+    const Vector3f up = decalSafeNormal(Vector3f(0.0f, 0.0f, 0.0f));
+    EXPECT_NEAR(up.x, 0.0f, 1.0e-6f);
+    EXPECT_NEAR(up.y, 1.0f, 1.0e-6f);
+    EXPECT_NEAR(up.z, 0.0f, 1.0e-6f);
+
+    const Vector3f flat = decalFlatFacing(Vector3f(0.0f, 4.0f, 0.0f));
+    EXPECT_NEAR(flat.x, 0.0f, 1.0e-6f);
+    EXPECT_NEAR(flat.y, 0.0f, 1.0e-6f);
+    EXPECT_NEAR(flat.z, 1.0f, 1.0e-6f);
+
+    const Vector3f yawA = decalYawFacing(1.25f, -3.5f);
+    const Vector3f yawB = decalYawFacing(1.25f, -3.5f);
+    EXPECT_NEAR(yawA.x, yawB.x, 1.0e-6f);
+    EXPECT_NEAR(yawA.y, 0.0f, 1.0e-6f);
+    EXPECT_NEAR(yawA.z, yawB.z, 1.0e-6f);
+    EXPECT_NEAR(yawA.MagnitudeSqrd(), 1.0f, 1.0e-5f);
+
+    EXPECT_FALSE(decalPointFinite(Vector3f(std::numeric_limits<float>::quiet_NaN(), 0.0f, 0.0f)));
+    EXPECT_TRUE(decalPointFinite(Vector3f(1.0f, 2.0f, 3.0f)));
 }
 
 TEST(Decal_Spawn_Rejects, BadKindAndAxis)

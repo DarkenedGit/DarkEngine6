@@ -609,22 +609,7 @@ void EditorApp::updatePlayCamera()
 
 WeaponWorldQuery EditorApp::makePlayWeaponQuery()
 {
-    m_playWeaponTargets.clear();
-    const Entity self = m_playPlayer;
-    world().each<HittableComponent>([&](Entity e, HittableComponent& h) {
-        if (self.valid() && e.id() == self.id())
-            return;
-        const TransformComponent* xf = world().get<TransformComponent>(e);
-        const HealthComponent*    hp = world().get<HealthComponent>(e);
-        if (!xf)
-            return;
-        PlayWeaponTarget t{};
-        t.entity      = e;
-        t.center      = xf->position;
-        t.halfExtents = h.halfExtents;
-        t.alive       = hp && hp->health.alive();
-        m_playWeaponTargets.push_back(t);
-    });
+    m_playWeaponTargets.gather(world(), m_playPlayer);
 
     WeaponWorldQuery q{};
     q.terrainUser = this;
@@ -634,32 +619,7 @@ WeaponWorldQuery EditorApp::makePlayWeaponQuery()
     q.heightAt = [](void* user, float x, float z) {
         return static_cast<EditorApp*>(user)->m_terrain.heightAtWorld(x, z);
     };
-    q.targetUser = this;
-    q.targetCount = [](void* user) {
-        return static_cast<int>(static_cast<EditorApp*>(user)->m_playWeaponTargets.size());
-    };
-    q.targetAlive = [](void* user, int i) {
-        auto* app = static_cast<EditorApp*>(user);
-        return i >= 0 && i < static_cast<int>(app->m_playWeaponTargets.size()) && app->m_playWeaponTargets[static_cast<size_t>(i)].alive;
-    };
-    q.targetCenter = [](void* user, int i) {
-        auto* app = static_cast<EditorApp*>(user);
-        if (i < 0 || i >= static_cast<int>(app->m_playWeaponTargets.size()))
-            return Vector3f{};
-        return app->m_playWeaponTargets[static_cast<size_t>(i)].center;
-    };
-    q.targetHalfExtentsAt = [](void* user, int i) {
-        auto* app = static_cast<EditorApp*>(user);
-        if (i < 0 || i >= static_cast<int>(app->m_playWeaponTargets.size()))
-            return Vector3f{ 1.0f, 1.0f, 1.0f };
-        return app->m_playWeaponTargets[static_cast<size_t>(i)].halfExtents;
-    };
-    q.targetEntityAt = [](void* user, int i) {
-        auto* app = static_cast<EditorApp*>(user);
-        if (i < 0 || i >= static_cast<int>(app->m_playWeaponTargets.size()))
-            return Entity{};
-        return app->m_playWeaponTargets[static_cast<size_t>(i)].entity;
-    };
+    m_playWeaponTargets.bind(q);
     q.maxRange = 90.0f;
     return q;
 }
@@ -745,153 +705,52 @@ void EditorApp::resolvePlayHits(const Combat::DamageEvent* events, int count)
     }
 }
 
-namespace
+ImpactFxHost EditorApp::impactHost()
 {
-
-    bool decalPointFinite(const Vector3f& p)
-    {
-        return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z);
-    }
-
-    Vector3f decalSafeNormal(const Vector3f& n)
-    {
-        if (n.MagnitudeSqrd() <= 1.0e-8f)
-            return Vector3f(0.0f, 1.0f, 0.0f);
-        Vector3f out = n;
-        out.Normalize();
-        return out;
-    }
-
-    Vector3f decalFlatFacing(const Vector3f& facing)
-    {
-        Vector3f f(facing.x, 0.0f, facing.z);
-        if (f.MagnitudeSqrd() <= 1.0e-8f)
-            return Vector3f(0.0f, 0.0f, 1.0f);
-        f.Normalize();
-        return f;
-    }
-
-    Vector3f decalYawFacing(float x, float z)
-    {
-        const uint32_t hx  = static_cast<uint32_t>(std::fabs(x) * 1000.0f);
-        const uint32_t hz  = static_cast<uint32_t>(std::fabs(z) * 1000.0f);
-        const uint32_t h   = hx * 1664525u + hz + 1013904223u;
-        const float    yaw = static_cast<float>(h & 0xFFFFu) * (6.2831853f / 65535.0f);
-        return Vector3f(std::cos(yaw), 0.0f, std::sin(yaw));
-    }
-
+    ImpactFxHost host;
+    host.world       = &world();
+    host.scene       = &m_scene;
+    host.renderer    = &renderer();
+    host.terrain     = &m_terrain;
+    host.ground      = &m_ground;
+    host.contactGrid = (m_haveTerrain && m_terrain.valid()) ? &m_terrain : nullptr;
+    host.targets     = &m_playWeaponTargets;
+    return host;
 }
 
 bool EditorApp::deferredDecals()
 {
-    return renderer().scenePath() == ScenePath::HybridDeferred
-        && renderer().debugState().decalsEnabled
-        && m_scene.decalsReady();
+    return impactDecalsReady(impactHost());
 }
 
 bool EditorApp::isStepCue(Entity e, const char* cue)
 {
-    const TransformComponent* xf = e.valid() ? world().get<TransformComponent>(e) : nullptr;
-    const char* groundCue = nullptr;
-    if (xf)
-        groundCue = groundContactAt(xf->position.x, xf->position.z).cue;
-    return decalCueIsGroundStep(cue, groundCue);
+    return impactIsStepCue(impactHost(), e, cue);
 }
 
 void EditorApp::spawnFootmark(const Vector3f& bodyPos, const Vector3f& facing)
 {
-    if (!deferredDecals())
-        return;
-    DecalSpawnDesc desc;
-    desc.kind     = DecalKind::Footmark;
-    desc.space    = DecalSpace::World;
-    desc.position = Vector3f(bodyPos.x, m_terrain.heightAtWorld(bodyPos.x, bodyPos.z), bodyPos.z);
-    desc.axisY    = Vector3f(0.0f, 1.0f, 0.0f);
-    desc.axisX    = decalFlatFacing(facing);
-    m_scene.spawnDecal(desc);
+    Dark::spawnFootmark(impactHost(), bodyPos, facing);
 }
 
 void EditorApp::spawnHunterFootmark(Entity hunter)
 {
-    if (!deferredDecals())
-        return;
-    const TransformComponent* xf = hunter.valid() ? world().get<TransformComponent>(hunter) : nullptr;
-    if (!xf)
-        return;
-    Vector3f facing(0.0f, 0.0f, 1.0f);
-    if (const AiAgentComponent* ai = world().get<AiAgentComponent>(hunter))
-        facing = ai->forward;
-    spawnFootmark(xf->position, facing);
+    Dark::spawnHunterFootmark(impactHost(), hunter);
 }
 
 void EditorApp::spawnWeaponImpact(const WeaponHit& hit)
 {
-    if (!deferredDecals() || !decalPointFinite(hit.point))
-        return;
-    const Vector3f normal = decalSafeNormal(hit.normal);
-    DecalSpawnDesc desc;
-    desc.kind   = DecalKind::Impact;
-    desc.weapon = hit.weapon;
-    desc.axisY  = normal;
-    desc.axisX  = decalImpactAxisX(normal, hit.direction);
-    Entity victim = hit.targetEntity;
-    if (!victim.valid() && hit.targetIndex >= 0 && hit.targetIndex < static_cast<int>(m_playWeaponTargets.size()))
-        victim = m_playWeaponTargets[static_cast<size_t>(hit.targetIndex)].entity;
-    const bool attach = hit.hitTarget && victim.valid() && world().alive(victim) && world().get<TransformComponent>(victim);
-    if (attach)
-    {
-        desc.entity   = victim;
-        desc.position = decalShellBiasedPosition(hit.point, normal);
-        if (world().has<AnimGraphComponent>(victim))
-        {
-            desc.space = DecalSpace::Bone;
-            desc.bone  = -1;
-        }
-        else
-            desc.space = DecalSpace::Entity;
-    }
-    else
-    {
-        desc.space    = DecalSpace::World;
-        desc.position = hit.point;
-    }
-    m_scene.spawnDecal(desc);
+    Dark::spawnWeaponImpact(impactHost(), hit);
 }
 
 void EditorApp::spawnLivingBloodDecal(Entity victim, const Vector3f& point, const Vector3f& hitNormal)
 {
-    if (!deferredDecals() || !decalPointFinite(point))
-        return;
-    if (!victim.valid() || !world().alive(victim) || !world().get<TransformComponent>(victim))
-        return;
-    const Vector3f normal = decalSafeNormal(hitNormal);
-    DecalSpawnDesc desc;
-    desc.kind     = DecalKind::Blood;
-    desc.entity   = victim;
-    desc.position = decalShellBiasedPosition(point, normal);
-    desc.axisY    = normal;
-    desc.axisX    = decalImpactAxisX(normal, Vector3f(1.0f, 0.0f, 0.0f));
-    if (world().has<AnimGraphComponent>(victim))
-    {
-        desc.space = DecalSpace::Bone;
-        desc.bone  = -1;
-    }
-    else
-        desc.space = DecalSpace::Entity;
-    m_scene.spawnDecal(desc);
+    Dark::spawnLivingBloodDecal(impactHost(), victim, point, hitNormal);
 }
 
 void EditorApp::spawnDeathBloodDecal(const Vector3f& point, const Vector3f& hitNormal)
 {
-    if (!deferredDecals() || !decalPointFinite(point))
-        return;
-    DecalSpawnDesc desc;
-    desc.kind     = DecalKind::Blood;
-    desc.space    = DecalSpace::World;
-    desc.position = Vector3f(point.x, m_terrain.heightAtWorld(point.x, point.z), point.z);
-    desc.axisY    = decalDeathAxisY(hitNormal, m_terrain.normalAtWorld(point.x, point.z));
-    desc.axisX    = decalYawFacing(point.x, point.z);
-    m_scene.spawnDecal(desc);
+    Dark::spawnDeathBloodDecal(impactHost(), point, hitNormal);
 }
 
 bool EditorApp::firePlayLoadout(bool charged)
@@ -1400,16 +1259,8 @@ void EditorApp::updatePlay(float dt)
 
 Terrain::GroundContact EditorApp::groundContactAt(float x, float z) const
 {
-    const Terrain::HeightMap* height = nullptr;
-    const Terrain::SplatMap*  splat  = nullptr;
-    if (m_haveTerrain && m_terrain.valid())
-    {
-        height = m_terrain.editableWorking();
-        if (!height || !height->valid())
-            height = &m_terrain.coarse();
-        splat = m_terrain.editableWorkingSplat();
-    }
-    return m_ground.at(height, splat && splat->valid() ? splat : nullptr, x, z);
+    const Terrain::TerrainGrid* grid = (m_haveTerrain && m_terrain.valid()) ? &m_terrain : nullptr;
+    return Terrain::groundContactAt(m_ground, grid, x, z);
 }
 
 void EditorApp::tickEditorHunters(float dt)

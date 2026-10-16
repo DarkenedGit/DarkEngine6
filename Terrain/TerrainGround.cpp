@@ -1,4 +1,5 @@
 #include "Terrain/TerrainGround.h"
+#include "Terrain/TerrainGrid.h"
 #include "Core/ContentRoots.h"
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
@@ -236,5 +237,19 @@ namespace Dark::Terrain
             }
         }
         return m_layers[layer];
+    }
+
+    GroundContact groundContactAt(const TerrainGround& ground, const TerrainGrid* grid, float x, float z)
+    {
+        const HeightMap* height = nullptr;
+        const SplatMap*  splat  = nullptr;
+        if (grid)
+        {
+            height = grid->editableWorking();
+            if (!height || !height->valid())
+                height = &grid->coarse();
+            splat = grid->editableWorkingSplat();
+        }
+        return ground.at(height, splat && splat->valid() ? splat : nullptr, x, z);
     }
 }

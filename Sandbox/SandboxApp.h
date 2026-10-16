@@ -38,6 +38,8 @@
 #include "Gameplay/HealthPack.h"
 #include "PathChase.h"
 #include "Terrain/TerrainGround.h"
+#include "Play/ImpactFx.h"
+#include "Play/WeaponTargets.h"
 #include "Ui/HudTagComponent.h"
 #include "Ui/NpcInfoOverlay.h"
 #include "Weapons/HittableComponent.h"
@@ -118,6 +120,7 @@ private:
     void updateFlashlight();
     void pulseMuzzle();
     void spawnHunterBlood(const Dark::Math::Vector3f& pos);
+    Dark::ImpactFxHost impactHost();
     bool deferredDecals();
     bool isStepCue(Dark::Entity e, const char* cue);
     void spawnFootmark(const Dark::Math::Vector3f& bodyPos, const Dark::Math::Vector3f& facing);
@@ -230,14 +233,7 @@ private:
 
     Dark::PathChase                m_chase;
     bool                           m_chaseOk = false;
-    struct WeaponTargetScratch
-    {
-        Dark::Entity         entity{};
-        Dark::Math::Vector3f center{};
-        Dark::Math::Vector3f halfExtents{ 1.0f, 1.0f, 1.0f };
-        bool                 alive = false;
-    };
-    std::vector<WeaponTargetScratch> m_weaponTargets;
+    Dark::WeaponTargetList m_weaponTargets;
 
     Dark::Terrain::TerrainGrid m_terrain;
     Dark::FoliagePrototypes                   m_foliagePrototypes;
