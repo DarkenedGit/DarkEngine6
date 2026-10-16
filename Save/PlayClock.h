@@ -79,7 +79,7 @@ namespace Dark::Save
     // A live session is returned as-is. A missing or dead one is stamped "session".
     inline Entity ensureSessionEntity(World& world, Entity current)
     {
-        if (current.valid() && world.alive(current))
+        if (world.alive(current))
             return current;
         Entity session = world.createEntity();
         world.emplace<TagComponent>(session, "Session");
@@ -87,6 +87,16 @@ namespace Dark::Save
         world.emplace<WorldClockComponent>(session);
         world.emplace<AiClockComponent>(session);
         return session;
+    }
+
+    inline WorldClockComponent* sessionClock(World& world, Entity session)
+    {
+        return session.valid() ? world.get<WorldClockComponent>(session) : nullptr;
+    }
+
+    inline AiClockComponent* sessionAi(World& world, Entity session)
+    {
+        return session.valid() ? world.get<AiClockComponent>(session) : nullptr;
     }
 
 } // namespace Dark::Save

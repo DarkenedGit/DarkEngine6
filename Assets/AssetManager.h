@@ -23,8 +23,8 @@ namespace Dark
         AssetManager();
         ~AssetManager();
 
-        // Register a root content directory
-        void mountDirectory(const std::filesystem::path& dir);
+        // Register a root content directory. True when this call added a mount.
+        bool mountDirectory(const std::filesystem::path& dir);
 
         // Mount every existing directory from contentRootCandidates().
         // Returns how many mounts were newly added. Logs an error when none are mounted.

@@ -19,14 +19,6 @@ namespace Dark
     namespace
     {
 
-        Matrix4f entityMatrix(const TransformComponent& xf)
-        {
-            const Matrix4f S = Matrix4f::ScaleMatrixXYZ(xf.scale.x, xf.scale.y, xf.scale.z);
-            const Matrix4f R = xf.rotation.ToMatrix4();
-            const Matrix4f T = Matrix4f::TranslationMatrix(xf.position.x, xf.position.y, xf.position.z);
-            return S * R * T;
-        }
-
         void copyMatrix(float dst[16], const Matrix4f& m)
         {
             m.store(dst);
@@ -317,7 +309,7 @@ namespace Dark
                 continue;
             }
 
-            const Matrix4f entityWorld = entityMatrix(*xf);
+            const Matrix4f entityWorld = worldMatrix(*xf);
             if (slot.space == DecalSpace::Bone)
             {
                 AnimGraphComponent* ag          = world.get<AnimGraphComponent>(slot.entity);

@@ -65,6 +65,11 @@
 #include <thread>
 #include <vector>
 
+namespace Dark
+{
+    enum class NpcKind : uint8_t;
+}
+
 using namespace Dark;
 
 class EditorApp : public Application
@@ -145,6 +150,7 @@ private:
     bool   attachEditorPlayer(Dark::Entity e);
     bool   attachEditorHunter(Dark::Entity e);
     bool   attachEditorWolf(Dark::Entity e);
+    bool   attachEditorNpc(Dark::Entity e, Dark::NpcKind kind, const char* proxyWarn);
     Dark::Entity findPlayPlayer();
     void   setPlayMode(bool play);
     void   installSaveHost();

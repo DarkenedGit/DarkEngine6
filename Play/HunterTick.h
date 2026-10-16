@@ -16,14 +16,10 @@ namespace Dark
     // A null grid leaves both maps empty so hunters keep full speed.
     inline HunterGroundView hunterGroundView(const Terrain::TerrainGrid* grid)
     {
+        const Terrain::GridSurfaceMaps maps = Terrain::gridSurfaceMaps(grid);
         HunterGroundView view;
-        if (!grid)
-            return view;
-        view.height = grid->editableWorking();
-        if (!view.height || !view.height->valid())
-            view.height = &grid->coarse();
-        const Terrain::SplatMap* splat = grid->editableWorkingSplat();
-        view.splat = splat && splat->valid() ? splat : nullptr;
+        view.height = maps.height;
+        view.splat  = maps.splat;
         return view;
     }
 

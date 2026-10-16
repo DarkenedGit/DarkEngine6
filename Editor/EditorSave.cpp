@@ -29,16 +29,6 @@ namespace
         return isLocalLightType(type) || isGlobalLightType(type) || type == SceneObjectType::CloudVolume;
     }
 
-    WorldClockComponent* sessionClock(World& world, Entity session)
-    {
-        return session.valid() ? world.get<WorldClockComponent>(session) : nullptr;
-    }
-
-    AiClockComponent* sessionAi(World& world, Entity session)
-    {
-        return session.valid() ? world.get<AiClockComponent>(session) : nullptr;
-    }
-
     // Respawn omits EditorObjectComponent until the saved origin is known.
     void restoreAuthoredSceneObjects(World& world)
     {
@@ -212,7 +202,7 @@ void EditorApp::saveBeforeCapture(void* user, World& world)
     look.lightOn      = app->m_offhand.lightOn;
     look.lowerBodyYaw = app->m_playLowerBodyYaw;
     Save::captureBodyLook(world, body, look);
-    if (WorldClockComponent* clock = sessionClock(world, app->m_session))
+    if (WorldClockComponent* clock = Save::sessionClock(world, app->m_session))
     {
         Save::SessionClockState clockState;
         clockState.cloudTime    = app->m_cloudTime;
@@ -220,7 +210,7 @@ void EditorApp::saveBeforeCapture(void* user, World& world)
         clockState.waterTime    = app->m_water.time();
         Save::writeSessionClock(*clock, clockState);
     }
-    if (AiClockComponent* ai = sessionAi(world, app->m_session))
+    if (AiClockComponent* ai = Save::sessionAi(world, app->m_session))
     {
         ai->time          = app->m_ai.simTime();
         ai->packAttackGap = app->m_ai.packAttackGap();
@@ -246,7 +236,7 @@ void EditorApp::saveAfterApply(void* user, World& world)
     app->m_offhand.lightOn  = look.lightOn;
     app->m_playLowerBodyYaw = look.lowerBodyYaw;
     app->m_crouchLatch      = look.crouch;
-    if (const WorldClockComponent* clock = sessionClock(world, app->m_session))
+    if (const WorldClockComponent* clock = Save::sessionClock(world, app->m_session))
     {
         Save::SessionClockState clockState;
         Save::readSessionClock(*clock, clockState);
@@ -254,7 +244,7 @@ void EditorApp::saveAfterApply(void* user, World& world)
         app->m_env.timeOfDay = clockState.envTimeOfDay;
         app->m_water.setTime(clockState.waterTime);
     }
-    if (const AiClockComponent* ai = sessionAi(world, app->m_session))
+    if (const AiClockComponent* ai = Save::sessionAi(world, app->m_session))
     {
         app->m_ai.setSimTime(ai->time);
         app->m_ai.setPackAttackGap(ai->packAttackGap);

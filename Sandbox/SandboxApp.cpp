@@ -1575,8 +1575,7 @@ WeaponWorldQuery SandboxApp::makeWeaponQuery()
         return static_cast<SandboxApp*>(user)->m_terrain.heightAtWorld(x, z);
     };
     m_weaponTargets.bind(q);
-    q.targetHalfExtents = Vector3f{ 1.0f, 1.0f, 1.0f };
-    q.maxRange          = 90.0f;
+    q.maxRange = 90.0f;
     return q;
 }
 

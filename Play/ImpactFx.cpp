@@ -62,6 +62,17 @@ namespace Dark
         spawnFootmark(host, xf->position, facing);
     }
 
+    void setVictimDecalSpace(DecalSpawnDesc& desc, const World& world, Entity victim)
+    {
+        if (world.has<AnimGraphComponent>(victim))
+        {
+            desc.space = DecalSpace::Bone;
+            desc.bone  = -1;
+        }
+        else
+            desc.space = DecalSpace::Entity;
+    }
+
     void spawnWeaponImpact(const ImpactFxHost& host, const WeaponHit& hit)
     {
         if (!impactDecalsReady(host) || !host.scene || !decalPointFinite(hit.point))
@@ -75,18 +86,12 @@ namespace Dark
         Entity victim = hit.targetEntity;
         if (!victim.valid() && host.targets)
             victim = host.targets->entityAt(hit.targetIndex);
-        const bool attach = host.world && hit.hitTarget && victim.valid() && host.world->alive(victim) && host.world->get<TransformComponent>(victim);
+        const bool attach = host.world && hit.hitTarget && host.world->alive(victim) && host.world->get<TransformComponent>(victim);
         if (attach)
         {
             desc.entity   = victim;
             desc.position = decalShellBiasedPosition(hit.point, normal);
-            if (host.world->has<AnimGraphComponent>(victim))
-            {
-                desc.space = DecalSpace::Bone;
-                desc.bone  = -1;
-            }
-            else
-                desc.space = DecalSpace::Entity;
+            setVictimDecalSpace(desc, *host.world, victim);
         }
         else
         {
@@ -100,7 +105,7 @@ namespace Dark
     {
         if (!impactDecalsReady(host) || !host.scene || !host.world || !decalPointFinite(point))
             return;
-        if (!victim.valid() || !host.world->alive(victim) || !host.world->get<TransformComponent>(victim))
+        if (!host.world->alive(victim) || !host.world->get<TransformComponent>(victim))
             return;
         const Vector3f normal = decalSafeNormal(hitNormal);
         DecalSpawnDesc desc;
@@ -109,13 +114,7 @@ namespace Dark
         desc.position = decalShellBiasedPosition(point, normal);
         desc.axisY    = normal;
         desc.axisX    = decalImpactAxisX(normal, Vector3f(1.0f, 0.0f, 0.0f));
-        if (host.world->has<AnimGraphComponent>(victim))
-        {
-            desc.space = DecalSpace::Bone;
-            desc.bone  = -1;
-        }
-        else
-            desc.space = DecalSpace::Entity;
+        setVictimDecalSpace(desc, *host.world, victim);
         host.scene->spawnDecal(desc);
     }
 

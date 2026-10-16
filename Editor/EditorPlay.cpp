@@ -106,7 +106,7 @@ bool EditorApp::attachEditorPlayer(Entity e)
     return true;
 }
 
-bool EditorApp::attachEditorHunter(Entity e)
+bool EditorApp::attachEditorNpc(Entity e, NpcKind kind, const char* proxyWarn)
 {
     if (!m_ai.attachHunter(world(), e, pins(), assets()))
         return false;
@@ -114,17 +114,17 @@ bool EditorApp::attachEditorHunter(Entity e)
     const bool haveModel = world().has<ModelComponent>(e) && world().get<ModelComponent>(e)->modelAssetID != NULL_ASSET;
     if (haveModel)
     {
-        configureNpc(host, e, NpcKind::Hunter);
+        configureNpc(host, e, kind);
         return true;
     }
-    const ContentModelResult vis = attachNpcVisual(host, e, NpcKind::Hunter, ModelAttach::AllowStatic);
+    const ContentModelResult vis = attachNpcVisual(host, e, kind, ModelAttach::AllowStatic);
     if (!vis.attached)
     {
         MeshComponent mc{};
         mc.matAssetID  = m_propMaterial ? m_propMaterial->id : NULL_ASSET;
         mc.meshAssetID = NULL_ASSET;
         setMeshComponent(world(), pins(), assets(), e, mc);
-        DE_LOG_WARN("Editor: hunter using cube proxy (skeleton model missing)");
+        DE_LOG_WARN("{}", proxyWarn ? proxyWarn : "Editor: npc using cube proxy");
     }
     else
     {
@@ -135,33 +135,14 @@ bool EditorApp::attachEditorHunter(Entity e)
     return true;
 }
 
+bool EditorApp::attachEditorHunter(Entity e)
+{
+    return attachEditorNpc(e, NpcKind::Hunter, "Editor: hunter using cube proxy (skeleton model missing)");
+}
+
 bool EditorApp::attachEditorWolf(Entity e)
 {
-    if (!m_ai.attachHunter(world(), e, pins(), assets()))
-        return false;
-    const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
-    const bool haveModel = world().has<ModelComponent>(e) && world().get<ModelComponent>(e)->modelAssetID != NULL_ASSET;
-    if (haveModel)
-    {
-        configureNpc(host, e, NpcKind::Wolf);
-        return true;
-    }
-    const ContentModelResult vis = attachNpcVisual(host, e, NpcKind::Wolf, ModelAttach::AllowStatic);
-    if (!vis.attached)
-    {
-        MeshComponent mc{};
-        mc.matAssetID  = m_propMaterial ? m_propMaterial->id : NULL_ASSET;
-        mc.meshAssetID = NULL_ASSET;
-        setMeshComponent(world(), pins(), assets(), e, mc);
-        DE_LOG_WARN("Editor: wolf using cube proxy (wolf model missing)");
-    }
-    else
-    {
-        if (vis.skinned)
-            tickAnimGraphs(world(), assets(), 1.0f / 60.0f);
-        tryLoadModelPhysics(e);
-    }
-    return true;
+    return attachEditorNpc(e, NpcKind::Wolf, "Editor: wolf using cube proxy (wolf model missing)");
 }
 
 Entity EditorApp::findPlayPlayer()

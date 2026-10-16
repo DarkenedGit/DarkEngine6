@@ -26,19 +26,6 @@
 using namespace Dark;
 using namespace Dark::Math;
 
-namespace
-{
-    WorldClockComponent* sessionClock(World& world, Entity session)
-    {
-        return session.valid() ? world.get<WorldClockComponent>(session) : nullptr;
-    }
-
-    AiClockComponent* sessionAi(World& world, Entity session)
-    {
-        return session.valid() ? world.get<AiClockComponent>(session) : nullptr;
-    }
-}
-
 void SandboxApp::installSaveHost()
 {
     Save::SaveHost host{};
@@ -270,7 +257,7 @@ void SandboxApp::saveBeforeCapture(void* user, World& world)
         run->hasSpawn  = app->m_havePlayerSpawn;
         run->spawn     = app->m_playerSpawn;
     }
-    if (WorldClockComponent* clock = sessionClock(world, app->m_session))
+    if (WorldClockComponent* clock = Save::sessionClock(world, app->m_session))
     {
         Save::SessionClockState clockState;
         clockState.cloudTime    = app->m_cloudTime;
@@ -278,7 +265,7 @@ void SandboxApp::saveBeforeCapture(void* user, World& world)
         clockState.waterTime    = app->m_water.time();
         Save::writeSessionClock(*clock, clockState);
     }
-    if (AiClockComponent* ai = sessionAi(world, app->m_session))
+    if (AiClockComponent* ai = Save::sessionAi(world, app->m_session))
     {
         ai->time          = app->m_chase.ai().simTime();
         ai->packAttackGap = app->m_chase.ai().packAttackGap();
@@ -310,7 +297,7 @@ void SandboxApp::saveAfterApply(void* user, World& world)
         app->m_havePlayerSpawn = run->hasSpawn;
         app->m_playerSpawn     = run->spawn;
     }
-    if (const WorldClockComponent* clock = sessionClock(world, app->m_session))
+    if (const WorldClockComponent* clock = Save::sessionClock(world, app->m_session))
     {
         Save::SessionClockState clockState;
         Save::readSessionClock(*clock, clockState);
@@ -318,7 +305,7 @@ void SandboxApp::saveAfterApply(void* user, World& world)
         app->m_env.timeOfDay = clockState.envTimeOfDay;
         app->m_water.setTime(clockState.waterTime);
     }
-    if (const AiClockComponent* ai = sessionAi(world, app->m_session))
+    if (const AiClockComponent* ai = Save::sessionAi(world, app->m_session))
     {
         app->m_chase.ai().setSimTime(ai->time);
         app->m_chase.ai().setPackAttackGap(ai->packAttackGap);

@@ -32,20 +32,10 @@
 namespace Dark
 {
 
-    namespace
-    {
-
-        bool aliveEntity(const World& world, Entity e)
-        {
-            return e.valid() && world.alive(e);
-        }
-
-    } // namespace
-
     ContentModelResult attachContentModel(const CharacterHost& host, Entity e, const char* gltfPath, ModelAttach mode)
     {
         ContentModelResult result;
-        if (!aliveEntity(host.world, e) || !gltfPath || gltfPath[0] == '\0')
+        if (!host.world.alive(e) || !gltfPath || gltfPath[0] == '\0')
             return result;
 
         AssetRef<Model> model = loadAndUploadModel(host.renderer, host.assets, gltfPath);
@@ -119,7 +109,7 @@ namespace Dark
 
     void ensureHumanoidBody(World& world, Entity e, float maxHp, const Math::Vector3f& halfExtents)
     {
-        if (!aliveEntity(world, e))
+        if (!world.alive(e))
             return;
 
         if (!world.has<HealthComponent>(e))
@@ -127,7 +117,6 @@ namespace Dark
             HealthSettings playerHp;
             playerHp.maxHp       = maxHp;
             playerHp.regenPerSec = 10.0f;
-            playerHp.regenDelay  = 3.5f;
             HealthComponent hc{};
             hc.health = Health{ playerHp };
             world.emplace<HealthComponent>(e, std::move(hc));
@@ -138,7 +127,6 @@ namespace Dark
             hit.stunSeconds       = 0.28f;
             hit.knockbackDistance = 1.1f;
             hit.knockbackSeconds  = 0.14f;
-            hit.horizontalOnly    = true;
             HitReactionComponent hr{};
             hr.hit.setSettings(hit);
             world.emplace<HitReactionComponent>(e, std::move(hr));
@@ -153,7 +141,7 @@ namespace Dark
 
     void ensureLocalPlayerRig(const CharacterHost& host, Entity e, WeaponHitFn hitFn, void* hitUser)
     {
-        if (!aliveEntity(host.world, e))
+        if (!host.world.alive(e))
             return;
 
         if (!host.world.has<PlayerMotorComponent>(e))
@@ -207,7 +195,7 @@ namespace Dark
 
     void configureNpc(const CharacterHost& host, Entity e, NpcKind kind)
     {
-        if (!aliveEntity(host.world, e))
+        if (!host.world.alive(e))
             return;
 
         const bool wolf = kind == NpcKind::Wolf;

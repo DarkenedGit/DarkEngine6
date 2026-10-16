@@ -241,15 +241,7 @@ namespace Dark::Terrain
 
     GroundContact groundContactAt(const TerrainGround& ground, const TerrainGrid* grid, float x, float z)
     {
-        const HeightMap* height = nullptr;
-        const SplatMap*  splat  = nullptr;
-        if (grid)
-        {
-            height = grid->editableWorking();
-            if (!height || !height->valid())
-                height = &grid->coarse();
-            splat = grid->editableWorkingSplat();
-        }
-        return ground.at(height, splat && splat->valid() ? splat : nullptr, x, z);
+        const GridSurfaceMaps maps = gridSurfaceMaps(grid);
+        return ground.at(maps.height, maps.splat, x, z);
     }
 }

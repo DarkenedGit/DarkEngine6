@@ -19,8 +19,7 @@ namespace Dark
         hf.countZ      = coarse.height();
         hf.cellSize    = coarse.cellSize();
         hf.heightScale = coarse.heightScale();
-        hf.origin      = coarse.origin();
-        hf.friction    = 0.8f;
+        hf.origin = coarse.origin();
 
         const Physics::PhysicsBodyId body = physics.createHeightField(hf);
         if (body != Physics::kNullPhysicsBody)
