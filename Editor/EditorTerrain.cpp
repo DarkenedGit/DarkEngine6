@@ -1,5 +1,7 @@
 #include "EditorApp.h"
 
+#include "Play/TerrainStream.h"
+
 #include "Assets/Image.h"
 #include "Core/Log.h"
 #include "Editor/EditorFileDialog.h"
@@ -691,15 +693,9 @@ void EditorApp::syncTerrainLod()
     if (!m_haveTerrain || !m_terrain.valid())
         return;
 
-    if (m_playMode && m_playPlayer.valid())
-    {
-        if (const TransformComponent* xf = world().get<TransformComponent>(m_playPlayer))
-            m_terrain.pinWorldXZ(xf->position.x, xf->position.z, 3);
-    }
-    else
-        m_terrain.clearPin();
-
-    m_terrain.updateStreaming(m_camera.GetPosition(), &renderer(), &m_terrainMaterial);
+    const bool followPlayer = m_playMode && m_playPlayer.valid();
+    const TransformComponent* anchor = followPlayer ? world().get<TransformComponent>(m_playPlayer) : nullptr;
+    Dark::updatePinnedTerrainStream(m_terrain, m_camera.GetPosition(), renderer(), m_terrainMaterial, !followPlayer, anchor);
     if (m_terrainHeightDirty)
     {
         if (!m_terrain.uploadCoarseHeightTexture(renderer()))
@@ -714,12 +710,8 @@ void EditorApp::syncTerrainLod()
     if (m_water.chunksX() > 0)
     {
         m_water.updateLod(m_camera.GetPosition());
-        if (m_water.needsRebuild())
-        {
-            m_water.rebuildDirtyCpuMeshes();
-            if (!m_water.uploadDirty(renderer()))
-                DE_LOG_ERROR(LogCategory::Render, "Editor: water sheet upload failed");
-        }
+        if (!Dark::flushDirtyWater(m_water, renderer()))
+            DE_LOG_ERROR(LogCategory::Render, "Editor: water sheet upload failed");
     }
 }
 

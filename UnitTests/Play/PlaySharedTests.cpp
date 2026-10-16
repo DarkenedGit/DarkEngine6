@@ -3,8 +3,11 @@
 #include "Character/HealthComponent.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
+#include "Physics/PhysicsWorld.h"
 #include "Play/CharacterAttach.h"
+#include "Play/PhysicsGround.h"
 #include "Play/WeaponTargets.h"
+#include "Terrain/HeightMap.h"
 #include "Terrain/TerrainGround.h"
 #include "Weapons/HittableComponent.h"
 #include "Weapons/Weapon.h"
@@ -94,6 +97,45 @@ TEST(CharacterAttach, HumanoidBodySetsHpOnce)
     EXPECT_NEAR(world.get<HittableComponent>(kept)->halfExtents.y, 0.7f, 1.0e-5f);
 
     ensureHumanoidBody(world, Entity{}, 200.0f, Vector3f{ 1.0f, 1.0f, 1.0f });
+}
+
+TEST(PhysicsGround, InvalidWorldKeepsTerrainAndRejectsHeightField)
+{
+    Physics::PhysicsWorld physics;
+    Terrain::HeightMap empty;
+    EXPECT_FALSE(physics.valid());
+    EXPECT_EQ(bindHeightFieldGround(physics, empty, "Test"), Physics::kNullPhysicsBody);
+    EXPECT_FLOAT_EQ(raisedGroundY(physics, Physics::kNullPhysicsBody, Physics::kNullPhysicsBody, 4.5f, 1.0f, 2.0f, 10.0f), 4.5f);
+}
+
+TEST(PhysicsGround, HeightFieldAndRaisedSurface)
+{
+    Physics::PhysicsWorld physics;
+    Physics::PhysicsWorldDesc desc;
+    desc.enabled = true;
+    desc.gravity = 24.0f;
+    ASSERT_TRUE(physics.create(desc));
+
+    Terrain::HeightMap empty;
+    EXPECT_EQ(bindHeightFieldGround(physics, empty, "Test"), Physics::kNullPhysicsBody);
+
+    Terrain::HeightMap coarse;
+    ASSERT_TRUE(coarse.create(2, 2, 1.0f, 1.0f));
+    const Physics::PhysicsBodyId field = bindHeightFieldGround(physics, coarse, "Test");
+    EXPECT_NE(field, Physics::kNullPhysicsBody);
+
+    Physics::PhysicsBoxDesc box;
+    box.position    = Vector3f(0.0f, 2.0f, 0.0f);
+    box.halfExtents = Vector3f(1.0f, 1.0f, 1.0f);
+    box.dynamic     = false;
+    const Physics::PhysicsBodyId deck = physics.createBox(box);
+    ASSERT_NE(deck, Physics::kNullPhysicsBody);
+
+    const float raised = raisedGroundY(physics, Physics::kNullPhysicsBody, field, 0.0f, 0.0f, 0.0f, 10.0f);
+    EXPECT_GT(raised, 0.0f);
+    EXPECT_NEAR(raised, 3.0f, 0.35f);
+    EXPECT_FLOAT_EQ(raisedGroundY(physics, Physics::kNullPhysicsBody, deck, 0.0f, 0.0f, 0.0f, 10.0f), 0.0f);
+    EXPECT_FLOAT_EQ(raisedGroundY(physics, Physics::kNullPhysicsBody, field, 4.0f, 0.0f, 0.0f, 10.0f), 4.0f);
 }
 
 TEST(TerrainGround, NullGridContactIsGrass)

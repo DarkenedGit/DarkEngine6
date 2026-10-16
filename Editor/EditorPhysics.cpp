@@ -1,5 +1,7 @@
 #include "EditorApp.h"
 
+#include "Play/PhysicsGround.h"
+
 #include "Assets/Model.h"
 #include "Character/PlayerMotorComponent.h"
 #include "Core/Log.h"
@@ -74,20 +76,9 @@ void EditorApp::rebuildPhysicsGround()
     const Terrain::HeightMap& coarse = m_terrain.coarse();
     if (m_haveTerrain && coarse.valid())
     {
-        Physics::PhysicsHeightFieldDesc hf;
-        hf.heights     = coarse.samples();
-        hf.countX      = coarse.width();
-        hf.countZ      = coarse.height();
-        hf.cellSize    = coarse.cellSize();
-        hf.heightScale = coarse.heightScale();
-        hf.origin      = coarse.origin();
-        hf.friction    = 0.8f;
-        m_physicsGround = m_physics.createHeightField(hf);
+        m_physicsGround = Dark::bindHeightFieldGround(m_physics, coarse, "Editor");
         if (m_physicsGround != Physics::kNullPhysicsBody)
-        {
-            DE_LOG_INFO(LogCategory::Collision, "Editor: physics ground = terrain height field {}x{} (cell {:.2f} m)", hf.countX, hf.countZ, hf.cellSize);
             return;
-        }
         DE_LOG_WARN(LogCategory::Collision, "Editor: terrain height field failed; using flat ground");
     }
 
@@ -103,22 +94,7 @@ void EditorApp::rebuildPhysicsGround()
 
 float EditorApp::playGroundHeight(float x, float z) const
 {
-    float groundY = m_terrain.heightAtWorld(x, z);
-    if (!m_physics.valid())
-        return groundY;
-
-    Physics::PhysicsWorld::GroundProbe probe;
-    probe.from       = Vector3f(x, m_playGroundProbeY, z);
-    probe.radius     = 0.3f;
-    probe.maxDrop    = (m_playGroundProbeY - groundY) + 1.0f;
-    probe.ignore     = m_playGroundIgnore;
-    probe.ignore2    = m_physicsGround;
-    probe.staticOnly = true;
-
-    float surfaceY = 0.0f;
-    if (probe.maxDrop > 0.0f && m_physics.probeGround(probe, surfaceY) && surfaceY > groundY)
-        groundY = surfaceY;
-    return groundY;
+    return Dark::raisedGroundY(m_physics, m_playGroundIgnore, m_physicsGround, m_terrain.heightAtWorld(x, z), x, z, m_playGroundProbeY);
 }
 
 void EditorApp::ensurePlayPhysicsVolumes()

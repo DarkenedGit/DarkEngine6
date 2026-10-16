@@ -1,6 +1,8 @@
 #include "SandboxApp.h"
 
 #include "Play/CharacterAttach.h"
+#include "Play/PhysicsGround.h"
+#include "Play/TerrainStream.h"
 
 #include "ECS/Components.h"
 #include "Water/WaterStream.h"
@@ -2887,26 +2889,15 @@ void SandboxApp::onNetPeer(const NetPeerInfo& info, NetPeerEvent event, void* us
 
 void SandboxApp::syncTerrainLod()
 {
-    if (const Entity body = possessedBody(); body.valid())
-    {
-        if (const TransformComponent* xf = world().get<TransformComponent>(body))
-            m_terrain.pinWorldXZ(xf->position.x, xf->position.z, 3);
-    }
-    else
-        m_terrain.clearPin();
-
-    m_terrain.updateStreaming(m_viewCamera.GetPosition(), &renderer(), &m_terrainMaterial);
+    const Entity body = possessedBody();
+    const TransformComponent* anchor = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    updatePinnedTerrainStream(m_terrain, m_viewCamera.GetPosition(), renderer(), m_terrainMaterial, !body.valid(), anchor);
     if (m_terrain.heightTexture().valid())
     {
         renderer().setHeightSrv(m_terrain.heightTexture().cpuHandle());
         m_waterPipeline.setHeightSrv(renderer().device(), m_terrain.heightTexture().cpuHandle());
     }
-
-    const bool waterDirty = m_water.needsRebuild();
-    if (!waterDirty)
-        return;
-    m_water.rebuildDirtyCpuMeshes();
-    if (!m_water.uploadDirty(renderer()))
+    if (!flushDirtyWater(m_water, renderer()))
         DE_LOG_ERROR("SandboxApp: water upload failed");
 }
 
@@ -2928,15 +2919,7 @@ void SandboxApp::createPhysicsWorld()
         return;
     }
 
-    Physics::PhysicsHeightFieldDesc hf;
-    hf.heights     = coarse.samples();
-    hf.countX      = coarse.width();
-    hf.countZ      = coarse.height();
-    hf.cellSize    = coarse.cellSize();
-    hf.heightScale = coarse.heightScale();
-    hf.origin      = coarse.origin();
-    hf.friction    = 0.8f;
-    m_physicsGround = m_physics.createHeightField(hf);
+    m_physicsGround = bindHeightFieldGround(m_physics, coarse, "SandboxApp");
     if (m_physicsGround == Physics::kNullPhysicsBody)
         DE_LOG_WARN(LogCategory::Collision, "SandboxApp: terrain height field failed");
 }
@@ -3000,22 +2983,7 @@ void SandboxApp::bindCharacterPhysics()
 
 float SandboxApp::playerGroundHeight(float x, float z) const
 {
-    float groundY = m_terrain.heightAtWorld(x, z);
-    if (!m_physics.valid())
-        return groundY;
-
-    Physics::PhysicsWorld::GroundProbe probe;
-    probe.from       = Vector3f(x, m_groundProbeY, z);
-    probe.radius     = 0.3f;
-    probe.maxDrop    = (m_groundProbeY - groundY) + 1.0f;
-    probe.ignore     = m_groundIgnore;
-    probe.ignore2    = m_physicsGround;
-    probe.staticOnly = true;
-
-    float surfaceY = 0.0f;
-    if (probe.maxDrop > 0.0f && m_physics.probeGround(probe, surfaceY) && surfaceY > groundY)
-        groundY = surfaceY;
-    return groundY;
+    return raisedGroundY(m_physics, m_groundIgnore, m_physicsGround, m_terrain.heightAtWorld(x, z), x, z, m_groundProbeY);
 }
 
 Terrain::GroundContact SandboxApp::groundContactAt(float x, float z) const
