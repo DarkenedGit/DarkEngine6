@@ -33,7 +33,7 @@ namespace
 {
     void copyMatrix(float dst[16], const Matrix4f& m)
     {
-        std::memcpy(dst, &m, sizeof(float) * 16);
+        m.store(dst);
     }
 
     ComPtr<ID3D12Resource> createUpload(ID3D12Device* device, uint64_t bytes)

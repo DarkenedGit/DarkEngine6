@@ -22,7 +22,7 @@ using namespace Terrain;
 
     void CopyMatrix(float dst[16], const Matrix4f& m)
     {
-        std::memcpy(dst, m.m_afEntry, sizeof(float) * 16);
+        m.store(dst);
     }
 
     bool WaterWorld::create(const HeightMap& heightMap, WaterDesc desc)

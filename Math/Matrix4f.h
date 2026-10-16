@@ -94,6 +94,13 @@ namespace Dark::Math
 		float  operator[](int iPos) const;
 		float& operator[](int iPos);
 
+		// Row-major copy into a 16-float constant buffer.
+		void store(float dst[16]) const
+		{
+			for (int i = 0; i < 16; ++i)
+				dst[i] = m_afEntry[i];
+		}
+
 		void     SetRow(int iRow, const Vector4f& Vector);
 		void     SetRow(int iRow, const Vector3f& Vector);
 		Vector4f GetRow(int iRow) const;

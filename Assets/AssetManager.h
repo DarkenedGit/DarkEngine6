@@ -26,6 +26,10 @@ namespace Dark
         // Register a root content directory
         void mountDirectory(const std::filesystem::path& dir);
 
+        // Mount every existing directory from contentRootCandidates().
+        // Returns how many mounts were newly added. Logs an error when none are mounted.
+        int mountContentRoots();
+
         // Take ownership of a runtime-created asset; sets asset->id. Returns id or NULL_ASSET.
         // Optional cacheKey (usually TextureCache::normalizePath) enables path-based reuse like loadModel.
         AssetID registerAsset(AssetRef<Asset> asset, const std::string& cacheKey = {});

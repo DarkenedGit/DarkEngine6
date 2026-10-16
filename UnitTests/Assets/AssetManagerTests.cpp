@@ -21,6 +21,15 @@ namespace
     };
 }
 
+TEST(AssetManager, MountContentRootsIsIdempotent)
+{
+    AssetManager mgr;
+    const int first = mgr.mountContentRoots();
+    const int second = mgr.mountContentRoots();
+    EXPECT_GT(first, 0);
+    EXPECT_EQ(second, 0);
+}
+
 TEST(AssetManager, RegisterAndGet)
 {
     AssetManager mgr;

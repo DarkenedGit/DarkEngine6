@@ -10,6 +10,7 @@
 #include "Assets/ImageCache.h"
 #include "Assets/Model.h"
 #include "Assets/Material.h"
+#include "Core/ContentRoots.h"
 #include "Core/Log.h"
 
 #include <filesystem>
@@ -71,6 +72,48 @@ namespace Dark
 
         m_mounts.push_back(mounted);
         DE_LOG_INFO("AssetManager: mounted '{}'", m_mounts.back().string());
+    }
+
+    int AssetManager::mountContentRoots()
+    {
+        namespace fs = std::filesystem;
+        const std::vector<fs::path> candidates = contentRootCandidates();
+        int added = 0;
+        for (const fs::path& c : candidates)
+        {
+            std::error_code ec;
+            if (c.empty() || !fs::exists(c, ec) || ec || !fs::is_directory(c, ec) || ec)
+                continue;
+
+            size_t before = 0;
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                before = m_mounts.size();
+            }
+            mountDirectory(c);
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                added += static_cast<int>(m_mounts.size() - before);
+            }
+        }
+
+        bool anyMounted = false;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            anyMounted = !m_mounts.empty();
+        }
+        if (!anyMounted)
+        {
+            std::string listed;
+            for (const fs::path& c : candidates)
+            {
+                if (!listed.empty())
+                    listed += " | ";
+                listed += c.string();
+            }
+            DE_LOG_ERROR("AssetManager: no content directory found. Tried: {}", listed.empty() ? std::string("<none>") : listed);
+        }
+        return added;
     }
 
     std::filesystem::path AssetManager::resolve(const std::string& vpath) const

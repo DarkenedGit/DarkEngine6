@@ -5,7 +5,6 @@
 
 #include <format>
 #include <memory>
-#include "Core/ContentRoots.h"
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "Input/InputCodes.h"
@@ -128,36 +127,6 @@ bool useAcesTonemap(const Renderer& r)
     return r.hasSceneBuffers() && r.debugState().aces && r.debugState().lightingActive();
 }
 
-void mountContentRoots(AssetManager& assets)
-{
-    namespace fs = std::filesystem;
-
-    const std::vector<fs::path> candidates = contentRootCandidates();
-
-    bool any = false;
-    for (const fs::path& c : candidates)
-    {
-        std::error_code ec;
-        if (!c.empty() && fs::exists(c, ec) && !ec && fs::is_directory(c, ec) && !ec)
-        {
-            assets.mountDirectory(c);
-            any = true;
-        }
-    }
-
-    if (!any)
-    {
-        std::string listed;
-        for (const fs::path& c : candidates)
-        {
-            if (!listed.empty())
-                listed += " | ";
-            listed += c.string();
-        }
-        DE_LOG_ERROR("SandboxApp: no content directory found. Tried: {}", listed.empty() ? std::string("<none>") : listed);
-    }
-}
-
 AssetRef<Image> loadTerrainLayerMap(AssetManager& assets, const std::string& virtualPath, Dark::Color::ColorSpace space)
 {
     AssetRef<Image> img = assets.loadImage(virtualPath);
@@ -200,7 +169,7 @@ constexpr float kSpawnFocusSeconds = 1.75f;
 
 void copyMatrix(float dst[16], const Math::Matrix4f& m)
 {
-    std::memcpy(dst, m.m_afEntry, sizeof(float) * 16);
+    m.store(dst);
 }
 
 void fillForwardLighting(MeshForwardBatchConstants& dst, const MeshFrameConstants& src)
@@ -228,10 +197,7 @@ void fillMeshGBufferXforms(MeshGBufferConstants& cb, const Matrix4f& world, cons
 
 Math::Matrix4f makeWorldMatrix(const TransformComponent& xf)
 {
-    const Matrix4f S = Matrix4f::ScaleMatrixXYZ(xf.scale.x, xf.scale.y, xf.scale.z);
-    const Matrix4f R = xf.rotation.ToMatrix4();
-    const Matrix4f T = Matrix4f::TranslationMatrix(xf.position.x, xf.position.y, xf.position.z);
-    return S * R * T;
+    return worldMatrix(xf);
 }
 
 AssetID loadSandboxClip(Audio::AudioSystem& audio, AssetManager& assets, const char* path, float freq, float dur, float amp)
@@ -3391,7 +3357,6 @@ void SandboxApp::onInit()
 {
     DE_LOG_INFO("SandboxApp: init");
 
-    mountContentRoots(assets());
     m_ground.loadFromContent();
     skillCatalog().loadFromContent();
     m_chase.setGround(&m_ground);

@@ -44,7 +44,7 @@ namespace Dark
 
 		void copyMat(float dst[16], const Math::Matrix4f& src)
 		{
-			std::memcpy(dst, src.m_afEntry, 16 * sizeof(float));
+			src.store(dst);
 		}
 	} // namespace
 

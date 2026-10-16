@@ -7,7 +7,6 @@
 #include "Scene/SceneFile.h"
 #include "ECS/Components.h"
 #include "Network/Replication.h"
-#include "Core/ContentRoots.h"
 #include "Core/Log.h"
 #include "Core/UiPalette.h"
 #include "Ui/Icons.h"
@@ -122,7 +121,6 @@ void EditorApp::onInit()
 {
     m_water.params() = defaultWaterParams(0.0f);
     DE_LOG_INFO("EditorApp: init");
-    mountContentRoots(assets());
     m_ground.loadFromContent();
     skillCatalog().loadFromContent();
     ensurePhysicsWorld();
