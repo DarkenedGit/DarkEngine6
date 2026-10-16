@@ -2,7 +2,11 @@
 
 #include "Play/CharacterAttach.h"
 #include "Play/PhysicsGround.h"
+#include "Play/PlayLook.h"
+#include "Play/PlayMotor.h"
+#include "Play/ShoulderCamera.h"
 #include "Play/TerrainStream.h"
+#include "Play/WeaponFire.h"
 
 #include "ECS/Components.h"
 #include "Water/WaterStream.h"
@@ -1006,10 +1010,6 @@ void SandboxApp::updatePossessed(float dt)
     if (!xf)
         return;
 
-    constexpr float kMouseSens = 0.0045f;
-    constexpr float kPadLook   = 2.1f;
-    constexpr float kRadius    = 0.45f;
-
     if (m_swingLock > 0.0f)
         m_swingLock -= dt;
     if (m_comboWindow > 0.0f)
@@ -1021,33 +1021,17 @@ void SandboxApp::updatePossessed(float dt)
         m_faceLeft -= dt;
         m_lookYaw = approachAngle(m_lookYaw, m_faceYaw, 12.0f, dt);
     }
-    if (!uiOpen())
-    {
-        m_lookYaw += static_cast<float>(input().mouseDeltaX()) * kMouseSens;
-        // mouseDeltaY is already up-positive; add it so mouse-up looks up.
-        m_lookPitch += static_cast<float>(input().mouseDeltaY()) * kMouseSens;
-    }
-    m_lookYaw += input().actionAxis("look_yaw") * kPadLook * dt;
-    m_lookPitch += input().actionAxis("look_pitch") * kPadLook * dt;
-    m_lookYaw   = Math::WrapPi(m_lookYaw);
-    m_lookPitch = Math::Clamp(m_lookPitch, -0.96f, 0.96f);
-
-    Vector3f look{ std::sinf(m_lookYaw) * std::cosf(m_lookPitch), std::sinf(m_lookPitch), std::cosf(m_lookYaw) * std::cosf(m_lookPitch) };
-    Vector3f flat = look;
-    flat.y = 0.0f;
-    if (flat.MagnitudeSqrd() > 1.0e-6f)
-        flat.Normalize();
-    Vector3f right = Vector3f{ 0.0f, 1.0f, 0.0f }.Cross(flat);
-    if (right.MagnitudeSqrd() > 1.0e-6f)
-        right.Normalize();
+    // mouseDeltaY is already up-positive; add it so mouse-up looks up.
+    accumulatePlayLook(m_lookYaw, m_lookPitch, static_cast<float>(input().mouseDeltaX()), static_cast<float>(input().mouseDeltaY()), !uiOpen(),
+                       input().actionAxis("look_yaw"), input().actionAxis("look_pitch"), dt);
 
     const bool uiKeys = uiOpen() && m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
     const float mx = uiKeys ? 0.0f : input().actionAxis("move_x");
     const float mz = uiKeys ? 0.0f : input().actionAxis("move_z");
-    Vector3f wish = right * mx + flat * mz;
-    const float mag = wish.Magnitude();
-    if (mag > 1.0f)
-        wish *= (1.0f / mag);
+    const PlayBasis basis = playBasis(m_lookYaw, m_lookPitch, mx, mz);
+    const Vector3f& flat  = basis.flat;
+    const Vector3f& right = basis.right;
+    const Vector3f& wish  = basis.wish;
 
     if (!m_havePlayerSpawn)
     {
@@ -1107,15 +1091,17 @@ void SandboxApp::updatePossessed(float dt)
     }
 
     PlayerMotorInput motorIn{};
-    motorIn.wish            = canSteer ? wish : Vector3f{ 0.0f, 0.0f, 0.0f };
-    motorIn.sprint          = canSteer && !jumpBusy && !uiKeys && m_swingLock <= 0.0f && input().actionDown("sprint");
-    if (m_crouchLatch && input().actionPressed("crouch"))
-        m_crouchLatch = false;
-    motorIn.crouch          = canSteer && !jumpBusy && !uiKeys && (m_crouchLatch || input().actionDown("crouch"));
-    motorIn.jumpPressed     = canSteer && !jumpBusy && !uiKeys && input().actionPressed("jump");
-    motorIn.allowDoubleJump = !inAirCommit;
-    motorIn.allowJumpBuffer = !jumpBusy;
-    motorIn.airControlScale = inAirCommit ? jump->def().airControlScale : 1.0f;
+    PlayMotorEdges edges{};
+    edges.sprintDown    = input().actionDown("sprint");
+    edges.crouchPressed = input().actionPressed("crouch");
+    edges.crouchDown    = input().actionDown("crouch");
+    edges.jumpPressed   = input().actionPressed("jump");
+    edges.forward       = input().keyPressed(Key::W) || input().keyPressed(Key::Up);
+    edges.back          = input().keyPressed(Key::S) || input().keyPressed(Key::Down);
+    edges.left          = input().keyPressed(Key::A) || input().keyPressed(Key::Left);
+    edges.right         = input().keyPressed(Key::D) || input().keyPressed(Key::Right);
+    const bool sprintAllowed = canSteer && !jumpBusy && !uiKeys && m_swingLock <= 0.0f;
+    buildPlayMotorInput(motorIn, m_crouchLatch, wish, flat, right, canSteer, jumpBusy, uiKeys, inAirCommit, jump, sprintAllowed, edges);
     const bool onGround = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch || motor->state() == PlayerMoveState::Dodge);
     const Terrain::GroundContact groundSurf = (onGround && xf) ? groundContactAt(xf->position.x, xf->position.z) : Terrain::GroundContact{};
     const float swingSlow   = m_blockRecoil > 0.0f ? 0.4f : (m_swingLock <= 0.0f ? 1.0f : (m_comboCount > 1 ? 0.45f : 0.8f));
@@ -1125,16 +1111,6 @@ void SandboxApp::updatePossessed(float dt)
         motorIn.runScale  = skillScalar(SkillId::Run, SkillScalar::RunScale, skills->level(SkillId::Run));
         motorIn.swimScale = skillScalar(SkillId::Swim, SkillScalar::SwimScale, skills->level(SkillId::Swim));
         motorIn.jumpScale = skillScalar(SkillId::Jump, SkillScalar::JumpScale, skills->level(SkillId::Jump));
-    }
-    motorIn.allowDodge      = canSteer && !jumpBusy && !uiKeys;
-    if (motorIn.allowDodge)
-    {
-        motorIn.dodgeTap = moveCardinalFromEdges(
-            input().keyPressed(Key::W) || input().keyPressed(Key::Up),
-            input().keyPressed(Key::S) || input().keyPressed(Key::Down),
-            input().keyPressed(Key::A) || input().keyPressed(Key::Left),
-            input().keyPressed(Key::D) || input().keyPressed(Key::Right));
-        motorIn.dodgeTapWish = moveCardinalWish(motorIn.dodgeTap, flat, right);
     }
 
     m_groundProbeY = xf->position.y;
@@ -1188,7 +1164,7 @@ void SandboxApp::updatePossessed(float dt)
     Vector3f delta{ xf->position.x - before.x, 0.0f, xf->position.z - before.z };
     if (delta.MagnitudeSqrd() > 1.0e-10f)
     {
-        Sphere3f ball{ Vector3f{ before.x, xf->position.y, before.z }, kRadius };
+        Sphere3f ball{ Vector3f{ before.x, xf->position.y, before.z }, kPlayBodyRadius };
         float    bestT = 1.0f;
         for (const AABox3f& cube : m_chase.cubes())
         {
@@ -1198,27 +1174,8 @@ void SandboxApp::updatePossessed(float dt)
             if (hit.hit && hit.t < bestT)
                 bestT = hit.t;
         }
-        if (m_physics.valid())
-        {
-            Physics::PhysicsWorld::MoverCast cast;
-            cast.origin      = Vector3f{ before.x, xf->position.y, before.z };
-            cast.radius      = kRadius;
-            cast.bottom      = -kRadius;
-            cast.top         = 1.35f;
-            cast.translation = delta;
-            cast.ignore      = m_groundIgnore;
-            cast.ignore2     = m_physicsGround;
-            cast.staticOnly  = true;
-            const float physicsT = m_physics.clipMover(cast);
-            if (physicsT < bestT)
-                bestT = physicsT;
-        }
-        if (bestT < 1.0f)
-            delta *= Math::Max(0.0f, bestT - 0.02f);
-        xf->position.x = before.x + delta.x;
-        xf->position.z = before.z + delta.z;
-        if (dt > 1.0e-4f && motor)
-            motor->setHorizontalVelocity(delta.x / dt, delta.z / dt);
+        bestT = tightenPlanarClip(m_physics, m_groundIgnore, m_physicsGround, Vector3f{ before.x, xf->position.y, before.z }, delta, bestT);
+        commitPlanarClip(xf->position, before, delta, bestT, dt, motor);
     }
     if (motor && skills)
     {
@@ -2020,26 +1977,14 @@ bool SandboxApp::firePossessedLoadout(bool charged)
 {
     const Entity body = possessedBody();
     const TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    WeaponFireRequest req{};
-    req.direction = m_viewCamera.GetLook();
-    if (req.direction.MagnitudeSqrd() > 1.0e-6f)
-        req.direction.Normalize();
-    else
-        req.direction = Vector3f{ 0.0f, 0.0f, 1.0f };
-    req.origin      = m_viewCamera.GetPosition() + req.direction * 2.2f;
-    req.ownerPos    = xf ? xf->position : m_viewCamera.GetPosition();
-    req.damageScale = charged ? m_chargeSettings.attackDamageScale : 1.0f;
+    WeaponFireRequest req = makeCameraFireRequest(m_viewCamera.GetPosition(), m_viewCamera.GetLook(), xf ? &xf->position : nullptr,
+                                                  charged ? m_chargeSettings.attackDamageScale : 1.0f);
 
     WeaponLoadout*  wFire = localWeapons();
     SkillComponent* skill = nullptr;
     if (wFire && wFire->activeKind() == WeaponKind::Projectile && body.valid())
         skill = world().get<SkillComponent>(body);
-    if (skill)
-    {
-        const int shootLevel = skill->level(SkillId::Shoot);
-        req.recoilScale      = skillScalar(SkillId::Shoot, SkillScalar::RecoilScale, shootLevel);
-        req.cooldownScale    = skillScalar(SkillId::Shoot, SkillScalar::CooldownScale, shootLevel);
-    }
+    applyShootSkill(req, skill);
 
     const bool melee = wFire && wFire->activeKind() == WeaponKind::Melee;
     if (melee && m_blockRecoil > 0.0f)
@@ -2745,37 +2690,10 @@ void SandboxApp::updateShoulderCamera()
         return;
 
     const bool crouched = localMotor() && localMotor()->state() == PlayerMoveState::Crouch;
-    const Vector3f target{ xf->position.x, xf->position.y + (crouched ? 0.78f : 1.15f), xf->position.z };
-    Vector3f look{ std::sinf(m_lookYaw) * std::cosf(m_lookPitch), std::sinf(m_lookPitch), std::cosf(m_lookYaw) * std::cosf(m_lookPitch) };
-    look.Normalize();
-    Vector3f right = look.Cross(Vector3f{ 0.0f, 1.0f, 0.0f });
-    if (right.MagnitudeSqrd() < 1.0e-6f)
-        right = Vector3f::X_AXIS;
-    right.Normalize();
-
-    constexpr float kBoom = 2.4f;
-    constexpr float kMinBoom = 0.28f;
-    Vector3f boom = look * -kBoom + right * 0.42f + Vector3f{ 0.0f, 0.28f, 0.0f };
-    float boomLen = boom.Magnitude();
-    if (boomLen < 1.0e-3f)
-        boomLen = kBoom;
-    Vector3f boomDir = boom * (1.0f / boomLen);
-
-    Ray3f ray{ target, boomDir };
-    const Dark::Collision::RayHit3D hit = m_terrain.raycast(ray, boomLen);
-    if (hit.hit && hit.t < boomLen)
-        boomLen = Math::Max(kMinBoom, hit.t - 0.12f);
-    boomLen = Math::Max(kMinBoom, boomLen);
-
-    Vector3f cam = target + boomDir * boomLen;
-    if (m_shake > 0.0f)
-        cam += right * (std::sinf(m_shakeTime * 95.0f) * m_shake) + Vector3f{ 0.0f, std::sinf(m_shakeTime * 120.0f + 1.0f) * m_shake, 0.0f };
-    if (m_playerWet)
-        cam.y = Math::Max(cam.y, m_water.params().waterLevel + 0.45f);
+    const ShoulderView view = solveShoulderCamera(xf->position, m_lookYaw, m_lookPitch, crouched, m_shake, m_shakeTime, m_playerWet, m_water.params().waterLevel, &shoulderTerrainRay, &m_terrain);
 
     m_viewCamera.SetLens(1.04719755f, m_viewCamera.GetAspect(), m_viewCamera.GetNearZ(), m_viewCamera.GetFarZ());
-    const Vector3f aim = target + look * 16.0f;
-    m_viewCamera.LookAt(cam, aim, Vector3f{ 0.0f, 1.0f, 0.0f });
+    m_viewCamera.LookAt(view.eye, view.aim, Vector3f{ 0.0f, 1.0f, 0.0f });
     if (auto* cxf = world().get<TransformComponent>(m_camera))
         cxf->position = m_viewCamera.GetPosition();
 }

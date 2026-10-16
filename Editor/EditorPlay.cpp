@@ -1,6 +1,10 @@
 #include "EditorApp.h"
 
 #include "Play/CharacterAttach.h"
+#include "Play/PlayLook.h"
+#include "Play/PlayMotor.h"
+#include "Play/ShoulderCamera.h"
+#include "Play/WeaponFire.h"
 
 #include "AI/AiComponents.h"
 #include "AI/Brain.h"
@@ -63,9 +67,6 @@ using namespace Dark::Math;
 
 namespace
 {
-    constexpr float kPlayMouseSens = 0.0045f;
-    constexpr float kPlayPadLook   = 2.1f;
-    constexpr float kPlayRadius    = 0.45f;
     constexpr float kJumpBuf       = 0.12f;
     constexpr float kContactDps    = 12.0f;
     constexpr float kStandoff      = 2.25f;
@@ -441,18 +442,14 @@ void EditorApp::updatePlayCamera()
     const TransformComponent* xf = m_playPlayer.valid() ? world().get<TransformComponent>(m_playPlayer) : nullptr;
     if (!xf)
         return;
-    const Vector3f look{
-        std::sinf(m_playLookYaw) * std::cosf(m_playLookPitch),
-        std::sinf(m_playLookPitch),
-        std::cosf(m_playLookYaw) * std::cosf(m_playLookPitch)
-    };
     const PlayerMotor* motor = nullptr;
     if (const PlayerMotorComponent* pmc = world().get<PlayerMotorComponent>(m_playPlayer))
         motor = &pmc->motor;
-    const float focusY = (motor && motor->state() == PlayerMoveState::Crouch) ? 0.78f : 1.15f;
-    const Vector3f focus = xf->position + Vector3f{ 0.0f, focusY, 0.0f };
-    const Vector3f eye   = focus - look * 5.5f + Vector3f{ 0.0f, 0.35f, 0.0f };
-    m_camera.LookAt(eye, focus, Vector3f::Y_AXIS);
+    const bool crouched = motor && motor->state() == PlayerMoveState::Crouch;
+    const bool rayOk = m_haveTerrain && m_terrain.valid();
+    const ShoulderView view = solveShoulderCamera(xf->position, m_playLookYaw, m_playLookPitch, crouched, 0.0f, 0.0f, false, 0.0f,
+                                                  rayOk ? &shoulderTerrainRay : nullptr, rayOk ? &m_terrain : nullptr);
+    m_camera.LookAt(view.eye, view.aim, Vector3f::Y_AXIS);
 }
 
 WeaponWorldQuery EditorApp::makePlayWeaponQuery()
@@ -608,24 +605,12 @@ bool EditorApp::firePlayLoadout(bool charged)
     WeaponLoadoutComponent* wlc = body.valid() ? world().get<WeaponLoadoutComponent>(body) : nullptr;
     if (!wlc || !wlc->loadout)
         return false;
-    WeaponFireRequest req{};
-    req.direction = m_camera.GetLook();
-    if (req.direction.MagnitudeSqrd() > 1.0e-6f)
-        req.direction.Normalize();
-    else
-        req.direction = Vector3f{ 0.0f, 0.0f, 1.0f };
-    req.origin      = m_camera.GetPosition() + req.direction * 2.2f;
-    req.ownerPos    = xf ? xf->position : m_camera.GetPosition();
-    req.damageScale = charged ? m_chargeSettings.attackDamageScale : 1.0f;
+    WeaponFireRequest req = makeCameraFireRequest(m_camera.GetPosition(), m_camera.GetLook(), xf ? &xf->position : nullptr,
+                                                  charged ? m_chargeSettings.attackDamageScale : 1.0f);
     SkillComponent* skill = nullptr;
     if (wlc->loadout->activeKind() == WeaponKind::Projectile)
         skill = world().get<SkillComponent>(body);
-    if (skill)
-    {
-        const int shootLevel = skill->level(SkillId::Shoot);
-        req.recoilScale      = skillScalar(SkillId::Shoot, SkillScalar::RecoilScale, shootLevel);
-        req.cooldownScale    = skillScalar(SkillId::Shoot, SkillScalar::CooldownScale, shootLevel);
-    }
+    applyShootSkill(req, skill);
     if (!wlc->loadout->fire(req, makePlayWeaponQuery()))
         return false;
     if (skill)
@@ -654,35 +639,16 @@ void EditorApp::updatePlay(float dt)
     const bool uiKeys  = m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
     const bool uiMouse = m_imgui.isReady() && m_imgui.wantCaptureMouse();
     // Captured play matches the game: the cursor is hidden and clipped, so it is not an ImGui pointer.
-    if (window().cursorCaptured() || !uiMouse)
-    {
-        m_playLookYaw += static_cast<float>(input().mouseDeltaX()) * kPlayMouseSens;
-        m_playLookPitch += static_cast<float>(input().mouseDeltaY()) * kPlayMouseSens;
-    }
-    m_playLookYaw += input().actionAxis("look_x") * kPlayPadLook * dt;
-    m_playLookPitch += -input().actionAxis("look_y") * kPlayPadLook * dt;
-    m_playLookYaw   = Math::WrapPi(m_playLookYaw);
-    m_playLookPitch = Math::Clamp(m_playLookPitch, -0.96f, 0.96f);
-
-    Vector3f look{
-        std::sinf(m_playLookYaw) * std::cosf(m_playLookPitch),
-        std::sinf(m_playLookPitch),
-        std::cosf(m_playLookYaw) * std::cosf(m_playLookPitch)
-    };
-    Vector3f flat = look;
-    flat.y        = 0.0f;
-    if (flat.MagnitudeSqrd() > 1.0e-6f)
-        flat.Normalize();
-    Vector3f right = Vector3f{ 0.0f, 1.0f, 0.0f }.Cross(flat);
-    if (right.MagnitudeSqrd() > 1.0e-6f)
-        right.Normalize();
+    // Pad pitch is negated here. The shared look step adds the value it is given.
+    accumulatePlayLook(m_playLookYaw, m_playLookPitch, static_cast<float>(input().mouseDeltaX()), static_cast<float>(input().mouseDeltaY()),
+                       window().cursorCaptured() || !uiMouse, input().actionAxis("look_x"), -input().actionAxis("look_y"), dt);
 
     const float mx = uiKeys ? 0.0f : input().actionAxis("move_x");
     const float mz = uiKeys ? 0.0f : input().actionAxis("move_z");
-    Vector3f    wish = right * mx + flat * mz;
-    const float mag  = wish.Magnitude();
-    if (mag > 1.0f)
-        wish *= (1.0f / mag);
+    const PlayBasis basis = playBasis(m_playLookYaw, m_playLookPitch, mx, mz);
+    const Vector3f& flat  = basis.flat;
+    const Vector3f& right = basis.right;
+    const Vector3f& wish  = basis.wish;
 
     HealthComponent* hpComp = world().get<HealthComponent>(body);
     Health*          hp     = hpComp ? &hpComp->health : nullptr;
@@ -752,15 +718,17 @@ void EditorApp::updatePlay(float dt)
     }
 
     PlayerMotorInput motorIn{};
-    motorIn.wish            = canSteer ? wish : Vector3f{};
-    motorIn.sprint          = canSteer && !jumpBusy && !uiKeys && input().actionDown("sprint");
-    if (m_crouchLatch && input().actionPressed("crouch"))
-        m_crouchLatch = false;
-    motorIn.crouch          = canSteer && !jumpBusy && !uiKeys && (m_crouchLatch || input().actionDown("crouch"));
-    motorIn.jumpPressed     = canSteer && !jumpBusy && !uiKeys && input().actionPressed("jump");
-    motorIn.allowDoubleJump = !inAirCommit;
-    motorIn.allowJumpBuffer = !jumpBusy;
-    motorIn.airControlScale = inAirCommit && jump ? jump->def().airControlScale : 1.0f;
+    PlayMotorEdges edges{};
+    edges.sprintDown    = input().actionDown("sprint");
+    edges.crouchPressed = input().actionPressed("crouch");
+    edges.crouchDown    = input().actionDown("crouch");
+    edges.jumpPressed   = input().actionPressed("jump");
+    edges.forward       = input().keyPressed(Key::W) || input().keyPressed(Key::Up);
+    edges.back          = input().keyPressed(Key::S) || input().keyPressed(Key::Down);
+    edges.left          = input().keyPressed(Key::A) || input().keyPressed(Key::Left);
+    edges.right         = input().keyPressed(Key::D) || input().keyPressed(Key::Right);
+    const bool sprintAllowed = canSteer && !jumpBusy && !uiKeys;
+    buildPlayMotorInput(motorIn, m_crouchLatch, wish, flat, right, canSteer, jumpBusy, uiKeys, inAirCommit, jump, sprintAllowed, edges);
     const bool onGround = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch || motor->state() == PlayerMoveState::Dodge);
     const Terrain::GroundContact groundSurf = (onGround && xf) ? groundContactAt(xf->position.x, xf->position.z) : Terrain::GroundContact{};
     motorIn.speedScale      = (status ? status->moveSpeedScale() : 1.0f) * m_offhand.shield.speedScale() * (onGround ? groundSurf.moveSpeed : 1.0f);
@@ -769,16 +737,6 @@ void EditorApp::updatePlay(float dt)
         motorIn.runScale  = skillScalar(SkillId::Run, SkillScalar::RunScale, skills->level(SkillId::Run));
         motorIn.swimScale = skillScalar(SkillId::Swim, SkillScalar::SwimScale, skills->level(SkillId::Swim));
         motorIn.jumpScale = skillScalar(SkillId::Jump, SkillScalar::JumpScale, skills->level(SkillId::Jump));
-    }
-    motorIn.allowDodge      = canSteer && !jumpBusy && !uiKeys;
-    if (motorIn.allowDodge)
-    {
-        motorIn.dodgeTap = moveCardinalFromEdges(
-            input().keyPressed(Key::W) || input().keyPressed(Key::Up),
-            input().keyPressed(Key::S) || input().keyPressed(Key::Down),
-            input().keyPressed(Key::A) || input().keyPressed(Key::Left),
-            input().keyPressed(Key::D) || input().keyPressed(Key::Right));
-        motorIn.dodgeTapWish = moveCardinalWish(motorIn.dodgeTap, flat, right);
     }
 
     m_playGroundProbeY = xf->position.y;
@@ -825,7 +783,7 @@ void EditorApp::updatePlay(float dt)
             const PhysicsBodyComponent* body = world().get<PhysicsBodyComponent>(solid);
             return body && body->valid && body->mode != PhysicsBodyMode::Static && m_physics.bodyValid(body->body);
         };
-        Sphere3f ball{ Vector3f{ before.x, xf->position.y, before.z }, kPlayRadius };
+        Sphere3f ball{ Vector3f{ before.x, xf->position.y, before.z }, kPlayBodyRadius };
         float bestT = 1.0f;
         for (size_t i = 0; i < m_playCubes.size(); ++i)
         {
@@ -847,28 +805,9 @@ void EditorApp::updatePlay(float dt)
             if (hit.hit && hit.t < bestT)
                 bestT = hit.t;
         }
-        if (m_physics.valid())
-        {
-            // Origin sits groundOffset (0.5 m) above the feet. This capsule's bottom is just above the floor.
-            Physics::PhysicsWorld::MoverCast cast;
-            cast.origin      = Vector3f{ before.x, xf->position.y, before.z };
-            cast.radius      = kPlayRadius;
-            cast.bottom      = -kPlayRadius;
-            cast.top         = 1.35f;
-            cast.translation = delta;
-            cast.ignore      = m_physics.bodyOf(body);
-            cast.ignore2     = m_physicsGround;
-            cast.staticOnly  = true;
-            const float physicsT = m_physics.clipMover(cast);
-            if (physicsT < bestT)
-                bestT = physicsT;
-        }
-        if (bestT < 1.0f)
-            delta *= Math::Max(0.0f, bestT - 0.02f);
-        xf->position.x = before.x + delta.x;
-        xf->position.z = before.z + delta.z;
-        if (dt > 1.0e-4f && motor)
-            motor->setHorizontalVelocity(delta.x / dt, delta.z / dt);
+        // Origin sits groundOffset (0.5 m) above the feet. The capsule bottom is just above the floor.
+        bestT = tightenPlanarClip(m_physics, m_physics.bodyOf(body), m_physicsGround, Vector3f{ before.x, xf->position.y, before.z }, delta, bestT);
+        commitPlanarClip(xf->position, before, delta, bestT, dt, motor);
     }
     if (motor && skills)
     {
