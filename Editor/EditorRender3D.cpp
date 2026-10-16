@@ -762,14 +762,6 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 
     if (deferred)
     {
-        markPass(PassId::Decals);
-        m_scene.drawDecals(cmd, renderer(), m_camera, viewProj);
-        renderer().bindHdr(false);
-        renderer().clearHdr();
-        markPass(PassId::Gtao);
-        m_scene.applyGtao(cmd, renderer(), m_camera, prevViewProj, m_ssao);
-        markPass(PassId::Ssr);
-        m_scene.applySsr(cmd, renderer(), m_camera, prevViewProj, m_ssr, nullptr);
         LightingConstants lc{};
         copyMatrix(lc.invViewProj, viewProj.Inverse());
         const Vector3f cam = m_camera.GetPosition();
@@ -793,10 +785,20 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         lc.ambientColor[2] = ambientColor.z;
         fillIblLightingConstants(lc, m_ibl, renderer().debugState().iblEnabled, renderer().debugState().iblDebug, iblGpuReady(renderer().gpuResources(), m_iblImageId));
         fillSsrLightingConstants(lc, m_ssr, renderer().debugState().ssrEnabled, m_scene.ssr().isValid() && renderer().hasGBuffer());
+        // The pass list is an order check after the frame. These five run inside resolveDeferred in this order.
+        markPass(PassId::Decals);
+        markPass(PassId::Gtao);
+        markPass(PassId::Ssr);
         markPass(PassId::Lighting);
-        m_lighting.draw(cmd, renderer(), m_shadows, lc);
         markPass(PassId::LocalVolumes);
-        m_localLightVolumes.draw(cmd, renderer(), world(), m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_camera, viewProj, lc, &m_scene.localShadows());
+        DeferredResolveInput resolve;
+        resolve.viewProj     = &viewProj;
+        resolve.prevViewProj = &prevViewProj;
+        resolve.gtao         = &m_ssao;
+        resolve.ssr          = &m_ssr;
+        resolve.ssrEnv       = nullptr;
+        resolve.lighting     = &lc;
+        m_scene.resolveDeferred(cmd, renderer(), world(), m_camera, resolve);
         renderer().bindHdr(true);
         if (m_skyPipeline.isValid())
         {

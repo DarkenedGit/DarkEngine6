@@ -470,6 +470,25 @@ void SceneRenderer::captureSsrSceneColor(ID3D12GraphicsCommandList* cmd, Rendere
     m_ssr.captureSceneColor(cmd, renderer);
 }
 
+void SceneRenderer::resolveDeferred(ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, const Camera3D& camera, const DeferredResolveInput& in)
+{
+    if (!in.viewProj || !in.prevViewProj || !in.gtao || !in.ssr || !in.lighting)
+    {
+        DE_LOG_ERROR(LogCategory::Render, "SceneRenderer: resolveDeferred is missing a required input");
+        return;
+    }
+    LightingConstants lc = *in.lighting;
+    drawDecals(cmd, renderer, camera, *in.viewProj);
+    renderer.bindHdr(false);
+    renderer.clearHdr();
+    applyGtao(cmd, renderer, camera, *in.prevViewProj, *in.gtao);
+    applySsr(cmd, renderer, camera, *in.prevViewProj, *in.ssr, in.ssrEnv);
+    // applySsr may resize the history. Sample the enable bit after that.
+    fillSsrLightingConstants(lc, *in.ssr, renderer.debugState().ssrEnabled, m_ssr.isValid() && renderer.hasGBuffer());
+    drawDeferredLighting(cmd, renderer, lc);
+    drawLocalLights(cmd, renderer, world, camera, *in.viewProj, lc);
+}
+
 void SceneRenderer::drawDeferredLighting(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const LightingConstants& lc) const
 {
     m_lighting.draw(cmd, renderer, m_shadows, lc);

@@ -4147,14 +4147,6 @@ void SandboxApp::onRender()
                 m_foliagePipeline.drawGBuffer(cmd, renderer(), assets(), m_foliagePrototypes, m_terrain, m_foliage.empty() ? nullptr : &m_foliage, m_foliageDensity, m_viewCamera, viewProj, prevViewProj, frustum);
         }
 
-        markPass(PassId::Decals);
-        m_scene.drawDecals(cmd, renderer(), m_viewCamera, viewProj);
-        renderer().bindHdr(false);
-        renderer().clearHdr();
-        markPass(PassId::Gtao);
-        m_scene.applyGtao(cmd, renderer(), m_viewCamera, prevViewProj, m_ssao);
-        markPass(PassId::Ssr);
-        m_scene.applySsr(cmd, renderer(), m_viewCamera, prevViewProj, m_ssr, &m_env);
         LightingConstants lc{};
         copyMatrix(lc.invViewProj, viewProj.Inverse());
         lc.cameraPos[0]     = camPos.x;
@@ -4182,10 +4174,20 @@ void SandboxApp::onRender()
         applyFogToLighting(lc, fog);
         fillIblLightingConstants(lc, m_ibl, renderer().debugState().iblEnabled, renderer().debugState().iblDebug, iblGpuReady(renderer().gpuResources(), m_iblImageId));
         fillSsrLightingConstants(lc, m_ssr, renderer().debugState().ssrEnabled, m_scene.ssr().isValid() && renderer().hasGBuffer());
+        // The pass list is an order check after the frame. These five run inside resolveDeferred in this order.
+        markPass(PassId::Decals);
+        markPass(PassId::Gtao);
+        markPass(PassId::Ssr);
         markPass(PassId::Lighting);
-        m_lighting.draw(cmd, renderer(), m_shadows, lc);
         markPass(PassId::LocalVolumes);
-        m_localLightVolumes.draw(cmd, renderer(), world(), m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_viewCamera, viewProj, lc, &m_scene.localShadows());
+        DeferredResolveInput resolve;
+        resolve.viewProj     = &viewProj;
+        resolve.prevViewProj = &prevViewProj;
+        resolve.gtao         = &m_ssao;
+        resolve.ssr          = &m_ssr;
+        resolve.ssrEnv       = &m_env;
+        resolve.lighting     = &lc;
+        m_scene.resolveDeferred(cmd, renderer(), world(), m_viewCamera, resolve);
 
         renderer().bindHdr(true);
         markPass(PassId::Sky);
