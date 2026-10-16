@@ -1,5 +1,7 @@
 #include "EditorApp.h"
 
+#include "Play/CharacterAudio.h"
+
 #include "AI/AiComponents.h"
 #include "AI/Brain.h"
 #include "AI/HsmGraph.h"
@@ -68,64 +70,6 @@ namespace
     constexpr float kContactDps    = 12.0f;
     constexpr float kStandoff      = 2.25f;
 
-    AssetID loadEditorClip(Audio::AudioSystem& audio, AssetManager& assets, const char* path, float freq, float dur, float amp)
-    {
-        const auto clip = audio.loadOrBlip(assets, path, freq, dur, amp);
-        return (clip && clip->id != NULL_ASSET) ? clip->id : NULL_ASSET;
-    }
-
-    void addGroundFootsteps(SoundBankComponent& bank, Audio::AudioSystem& audio, AssetManager& assets, const Terrain::TerrainGround& ground)
-    {
-        for (int i = 0; i < ground.layerCount(); ++i)
-        {
-            const Terrain::GroundContact& layer = ground.layer(i);
-            if (!layer.cue || !layer.cue[0])
-                continue;
-            addSoundCue(bank, layer.cue, loadEditorClip(audio, assets, layer.footstep ? layer.footstep : "audio/foot_dirt.wav", layer.blipHz, 0.05f, 0.4f), 0.4f, true);
-        }
-    }
-
-    void attachEditorHunterSounds(World& world, AssetPinTable& pins, AssetManager& assets, Audio::AudioSystem& audio, Entity e, const Terrain::TerrainGround& ground)
-    {
-        SoundBankComponent bank;
-        addGroundFootsteps(bank, audio, assets, ground);
-        addSoundCue(bank, "pain", loadEditorClip(audio, assets, "audio/pain.wav", 380.0f, 0.12f, 0.5f), 0.75f, true);
-        addSoundCue(bank, "grunt", loadEditorClip(audio, assets, "audio/grunt.wav", 140.0f, 0.18f, 0.5f), 0.95f, true);
-        addSoundCue(bank, "growl", loadEditorClip(audio, assets, "audio/growl.wav", 90.0f, 0.55f, 0.5f), 0.9f, true);
-        const AssetID impactClip = loadEditorClip(audio, assets, "audio/place.wav", 180.0f, 0.10f, 0.5f);
-        addSoundCue(bank, "impact", impactClip, 0.5f, true);
-        // Catalog Poison/Ignite applyCue is "fire"; hunters have no weapon fire row — alias impact so one-shots aren't silent.
-        addSoundCue(bank, "fire", impactClip, 0.5f, true);
-        addSoundCue(bank, "land", loadEditorClip(audio, assets, "audio/land.wav", 70.0f, 0.12f, 0.55f), 0.75f, true);
-        setSoundBank(world, pins, assets, e, std::move(bank));
-    }
-
-    void attachEditorPlayerSounds(World& world, AssetPinTable& pins, AssetManager& assets, Audio::AudioSystem& audio, Entity e, const Terrain::TerrainGround& ground)
-    {
-        SoundBankComponent bank;
-        addGroundFootsteps(bank, audio, assets, ground);
-        addSoundCue(bank, "step", loadEditorClip(audio, assets, "audio/foot_grass.wav", 160.0f, 0.05f, 0.4f), 0.35f, true);
-        addSoundCue(bank, "jump", loadEditorClip(audio, assets, "audio/grunt.wav", 140.0f, 0.18f, 0.5f), 0.7f, false);
-        addSoundCue(bank, "land", loadEditorClip(audio, assets, "audio/land.wav", 70.0f, 0.12f, 0.55f), 0.75f, false);
-        addSoundCue(bank, "pain", loadEditorClip(audio, assets, "audio/pain.wav", 380.0f, 0.12f, 0.5f), 0.75f, true);
-        addSoundCue(bank, "fire", loadEditorClip(audio, assets, "audio/whoosh.wav", 520.0f, 0.12f, 0.45f), 0.45f, true);
-        addSoundCue(bank, "impact", loadEditorClip(audio, assets, "audio/place.wav", 180.0f, 0.10f, 0.5f), 0.5f, true);
-        addSoundCue(bank, "death", loadEditorClip(audio, assets, "audio/whoosh.wav", 180.0f, 0.22f, 0.35f), 0.55f, false);
-        setSoundBank(world, pins, assets, e, std::move(bank));
-        if (WeaponLoadoutComponent* wlc = world.get<WeaponLoadoutComponent>(e); wlc && wlc->loadout)
-        {
-            AssetID fireId   = NULL_ASSET;
-            AssetID impactId = NULL_ASSET;
-            if (const SoundBankComponent* cues = world.get<SoundBankComponent>(e))
-            {
-                if (const SoundCueDesc* c = findSoundCue(*cues, "fire"))
-                    fireId = c->clipId;
-                if (const SoundCueDesc* c = findSoundCue(*cues, "impact"))
-                    impactId = c->clipId;
-            }
-            wlc->loadout->projectile().setAudio(&audio, &assets, fireId, impactId);
-        }
-    }
 } // namespace
 
 bool EditorApp::attachEditorModel(Entity e, const char* gltfPath)
@@ -268,7 +212,7 @@ bool EditorApp::attachEditorPlayer(Entity e)
     const EntityMaster playerMaster = loadEntityMasterType("player");
     const std::string  playerGltf = playerMaster.gltf.empty() ? std::string("models/human.gltf") : playerMaster.gltf;
     attachEditorModel(e, playerGltf.c_str());
-    attachEditorPlayerSounds(world(), pins(), assets(), audio(), e, m_ground);
+    attachPlayerSounds(world(), pins(), assets(), audio(), e, m_ground);
     applySkillProfile(world(), e, "player");
     return true;
 }
@@ -287,7 +231,7 @@ bool EditorApp::attachEditorHunter(Entity e)
     }
     if (HittableComponent* hit = world().get<HittableComponent>(e))
         hit->halfExtents = Vector3f{ 0.4f, 0.7f, 0.4f };
-    attachEditorHunterSounds(world(), pins(), assets(), audio(), e, m_ground);
+    attachHunterSounds(world(), pins(), assets(), audio(), e, m_ground);
     return true;
 }
 
@@ -310,7 +254,7 @@ bool EditorApp::attachEditorWolf(Entity e)
     if (TagComponent* tag = world().get<TagComponent>(e))
         tag->name = "Wolf";
     applySkillProfile(world(), e, "wolf");
-    attachEditorHunterSounds(world(), pins(), assets(), audio(), e, m_ground);
+    attachHunterSounds(world(), pins(), assets(), audio(), e, m_ground);
     return true;
 }
 

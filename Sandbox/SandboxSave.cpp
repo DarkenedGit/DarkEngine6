@@ -1,5 +1,7 @@
 #include "SandboxApp.h"
 
+#include "Play/CharacterAudio.h"
+
 #include "AI/AiSystem.h"
 #include "Animation/AnimGraphComponent.h"
 #include "Audio/SoundComponents.h"
@@ -27,8 +29,6 @@
 
 using namespace Dark;
 using namespace Dark::Math;
-
-void attachHunterSounds(World& world, AssetPinTable& pins, AssetManager& assets, Audio::AudioSystem& audio, Entity e, const Terrain::TerrainGround& ground);
 
 namespace
 {

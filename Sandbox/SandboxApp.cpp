@@ -1,5 +1,7 @@
 #include "SandboxApp.h"
 
+#include "Play/CharacterAudio.h"
+
 #include "ECS/Components.h"
 #include "Water/WaterStream.h"
 
@@ -217,77 +219,6 @@ void attachCameraSounds(World& world, AssetPinTable& pins, AssetManager& assets,
     if (music && music->id != NULL_ASSET)
         addSoundCue(bank, "music", music->id, 0.10f, false);
     setSoundBank(world, pins, assets, camera, std::move(bank));
-}
-
-void addGroundFootsteps(SoundBankComponent& bank, Audio::AudioSystem& audio, AssetManager& assets, const Terrain::TerrainGround& ground)
-{
-    for (int i = 0; i < ground.layerCount(); ++i)
-    {
-        const Terrain::GroundContact& layer = ground.layer(i);
-        if (!layer.cue || !layer.cue[0])
-            continue;
-        addSoundCue(bank, layer.cue, loadSandboxClip(audio, assets, layer.footstep ? layer.footstep : "audio/foot_dirt.wav", layer.blipHz, 0.05f, 0.4f), 0.4f, true);
-    }
-}
-
-void attachPlayerSounds(World& world, AssetPinTable& pins, AssetManager& assets, Audio::AudioSystem& audio, Entity e, const Terrain::TerrainGround& ground)
-{
-    SoundBankComponent bank;
-    addGroundFootsteps(bank, audio, assets, ground);
-    addSoundCue(bank, "step", loadSandboxClip(audio, assets, "audio/foot_grass.wav", 160.0f, 0.05f, 0.4f), 0.35f, true);
-    addSoundCue(bank, "jump", loadSandboxClip(audio, assets, "audio/grunt.wav", 140.0f, 0.18f, 0.5f), 0.7f, false);
-    addSoundCue(bank, "land", loadSandboxClip(audio, assets, "audio/land.wav", 70.0f, 0.12f, 0.55f), 0.75f, false);
-    addSoundCue(bank, "splash", loadSandboxClip(audio, assets, "audio/splash.wav", 220.0f, 0.22f, 0.45f), 0.8f, false);
-    addSoundCue(bank, "swim_step", loadSandboxClip(audio, assets, "audio/splash.wav", 220.0f, 0.22f, 0.45f), 0.42f, false);
-    addSoundCue(bank, "pain", loadSandboxClip(audio, assets, "audio/pain.wav", 380.0f, 0.12f, 0.5f), 0.75f, true);
-    addSoundCue(bank, "heal", loadSandboxClip(audio, assets, "audio/coin.wav", 880.0f, 0.16f, 0.4f), 0.7f, false);
-    addSoundCue(bank, "fire", loadSandboxClip(audio, assets, "audio/whoosh.wav", 520.0f, 0.12f, 0.45f), 0.45f, true);
-    addSoundCue(bank, "swing", loadSandboxClip(audio, assets, "audio/whoosh.wav", 520.0f, 0.12f, 0.45f), 0.7f, true);
-    addSoundCue(bank, "impact", loadSandboxClip(audio, assets, "audio/place.wav", 180.0f, 0.10f, 0.5f), 0.5f, true);
-    addSoundCue(bank, "death", loadSandboxClip(audio, assets, "audio/whoosh.wav", 180.0f, 0.22f, 0.35f), 0.55f, false);
-    setSoundBank(world, pins, assets, e, std::move(bank));
-
-    const AssetID waterId = loadSandboxClip(audio, assets, "audio/whoosh.wav", 70.0f, 0.8f, 0.25f);
-    if (waterId != NULL_ASSET && !world.has<SoundEmitterComponent>(e))
-    {
-        SoundEmitterComponent se{};
-        se.clipId  = waterId;
-        se.volume  = 0.28f;
-        se.looping = true;
-        se.spatial = false;
-        se.play    = false;
-        world.emplace<SoundEmitterComponent>(e, se);
-        pinSoundEmitter(pins, assets, se);
-    }
-
-    if (WeaponLoadoutComponent* wlc = world.get<WeaponLoadoutComponent>(e); wlc && wlc->loadout)
-    {
-        AssetID fireId   = NULL_ASSET;
-        AssetID impactId = NULL_ASSET;
-        if (const SoundBankComponent* cues = world.get<SoundBankComponent>(e))
-        {
-            if (const SoundCueDesc* c = findSoundCue(*cues, "fire"))
-                fireId = c->clipId;
-            if (const SoundCueDesc* c = findSoundCue(*cues, "impact"))
-                impactId = c->clipId;
-        }
-        wlc->loadout->projectile().setAudio(&audio, &assets, fireId, impactId);
-    }
-}
-
-void attachHunterSounds(World& world, AssetPinTable& pins, AssetManager& assets, Audio::AudioSystem& audio, Entity e, const Terrain::TerrainGround& ground)
-{
-    SoundBankComponent bank;
-    addGroundFootsteps(bank, audio, assets, ground);
-    addSoundCue(bank, "pain", loadSandboxClip(audio, assets, "audio/pain.wav", 380.0f, 0.12f, 0.5f), 0.75f, true);
-    addSoundCue(bank, "grunt", loadSandboxClip(audio, assets, "audio/grunt.wav", 140.0f, 0.18f, 0.5f), 0.95f, true);
-    addSoundCue(bank, "growl", loadSandboxClip(audio, assets, "audio/growl.wav", 90.0f, 0.55f, 0.5f), 0.9f, true);
-    const AssetID impactClip = loadSandboxClip(audio, assets, "audio/place.wav", 180.0f, 0.10f, 0.5f);
-    addSoundCue(bank, "impact", impactClip, 0.5f, true);
-    // Catalog Poison/Ignite applyCue is "fire"; hunters have no weapon fire row — alias impact so one-shots aren't silent.
-    addSoundCue(bank, "fire", impactClip, 0.5f, true);
-    addSoundCue(bank, "land", loadSandboxClip(audio, assets, "audio/land.wav", 70.0f, 0.12f, 0.55f), 0.75f, true);
-    setSoundBank(world, pins, assets, e, std::move(bank));
 }
 
 bool playSoundCueFallback(World& world, Audio::AudioSystem& audio, AssetManager& assets, Entity e, const char* primary, const char* fallback)
