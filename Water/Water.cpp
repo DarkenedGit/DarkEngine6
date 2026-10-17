@@ -395,16 +395,24 @@ using namespace Terrain;
 
     float WaterWorld::heightAtWorld(float x, float z) const
     {
-        return waveHeight(m_params, x, z, m_time);
+        const float y = waveHeight(m_params, x, z, m_time);
+        if (!m_heightMap || !m_heightMap->containsXZ(x, z))
+            return y;
+        const float land  = m_heightMap->heightAtWorld(x, z);
+        const float shoal = lakeShoalScale(m_params.waterLevel - land);
+        return m_params.waterLevel + (y - m_params.waterLevel) * shoal;
     }
 
     bool WaterWorld::tryHeightAtWorld(float x, float z, float& outY) const
     {
-        // Chop-free on purpose. Walkability and swimming use the still swell, not the bank chop.
+        // Chop-free on purpose. The swell is scaled by still-water depth so a
+        // query near the bank matches the mesh. Walkability does not use the bank chop.
         if (!m_heightMap || !m_heightMap->containsXZ(x, z))
             return false;
-        const float land = m_heightMap->heightAtWorld(x, z);
-        const float y    = waveHeight(m_params, x, z, m_time);
+        const float land  = m_heightMap->heightAtWorld(x, z);
+        const float full  = waveHeight(m_params, x, z, m_time);
+        const float shoal = lakeShoalScale(m_params.waterLevel - land);
+        const float y     = m_params.waterLevel + (full - m_params.waterLevel) * shoal;
         if (land >= y)
             return false;
         outY = y;

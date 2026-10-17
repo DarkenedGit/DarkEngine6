@@ -266,6 +266,7 @@ bool EditorApp::loadScene()
     m_authoredWater = {};
     m_authoredExposure = {};
     m_authoredGrass = {};
+    applyAuthoredGrass();
     if (data.mode != SceneMode::Scene2D)
     {
         applySceneAtmosphere(m_env, data);

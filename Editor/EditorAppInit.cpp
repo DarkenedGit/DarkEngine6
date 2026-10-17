@@ -154,6 +154,11 @@ void EditorApp::onInit()
             return;
         }
         m_foliagePipeline.create(renderer().device());
+        if (!m_grassPipeline.create(renderer()))
+        {
+            DE_LOG_ERROR(LogCategory::Render, "EditorApp: grass pipeline create failed");
+            applyAuthoredGrass();
+        }
         if (!m_drawList.create(renderer().device()))
             DE_LOG_ERROR(LogCategory::Render, "EditorApp: instanced mesh pipeline failed; static draws stay immediate");
         if (!m_skinnedInstances.create(renderer().device()))
@@ -465,6 +470,7 @@ void EditorApp::onShutdown()
     cancelFoliageSpawn();
     renderer().waitForGpu();
     m_foliagePipeline.destroy();
+    m_grassPipeline.destroy();
     m_placedWater.clear();
     m_editorStreams.clear();
     m_placedWaterRetire.clear();

@@ -1,7 +1,8 @@
 // Lakes and streams share this shader. Vertex Y is the rest height (water level
 // on a lake, bed plus clearance on a ribbon). VS and PS add the same four swells
-// plus the same shore chop. Crest phase is warped so the sun does not sit on
-// straight rows. The pixel shader then adds a gated detail normal and noise.
+// plus the same shore chop. Swell headings are a narrow wind fan. A small phase
+// wander keeps a crest from being a ruler. The pixel shader adds a weak
+// wind-aligned capillary normal. It does not add a second set of crests.
 // Far banks: the 1.6 m / 0.9 m chop is under the LOD 2 grid, so a distant
 // cliff line is long swell plus foam shading, not a tessellated silhouette.
 // TEXCOORD0.x is the rectangle fade on a lake and centerline-to-bank on a ribbon.
@@ -20,7 +21,9 @@
 #include "Fog.hlsli"
 #include "SsrMarch.hlsli"
 
-#define kWaterRoughness 0.15f
+// 0.15 squared to a hairline GGX and traced every slope contour. 0.24 still
+// passes the default SSR roughness gate (0.4) and lays the sun on a wave face.
+#define kWaterRoughness 0.24f
 #define kTwoPi 6.28318530718f
 
 cbuffer FrameConstants : register(b0)
@@ -266,43 +269,28 @@ void AddNoiseSlope(inout float3 n, float2 xz, float freq, float gain)
 }
 
 // Detail speeds are literals. They match nothing on the CPU.
-// Straight sines become glint rows. Warp the sample, gate the sine, and add a
-// rotated noise slope so a crest cannot run across the lake.
-void AddDetail(inout float3 n, float2 xz, float2 flow)
+// Mid-scale crossing sines (2.7 m down to 0.47 m) drew their own rings because
+// their slopes out-tilted the swell. These two stay wind-aligned and weaker
+// than the swell, with a fine noise break so the sun streak is not a cord.
+void AddDetail(inout float3 n, float2 xz, float2 flow, float shoal)
 {
-    float amount = saturate(detailAmount);
+    float amount = saturate(detailAmount) * saturate(shoal);
     if (amount <= 0.0f)
         return;
     float scroll = flowSpeed * time;
     float2 drifted = xz - flow * scroll;
+    float bend = (ValueNoise(drifted * 0.02f) - 0.5f) * 0.55f;
 
-    float2 warp;
-    warp.x = ValueNoise(drifted * 0.23f) - 0.5f;
-    warp.y = ValueNoise(drifted * 0.23f + float2(4.2f, 9.7f)) - 0.5f;
-    float2 sampleXz = drifted + warp * 5.0f;
+    float2 d0 = RotateFlow(flow, 0.10f);
+    float k0 = kTwoPi / 0.90f;
+    AddSlope(n, d0, k0, 0.0022f * amount, dot(d0, drifted) * k0 + time * 1.55f + bend);
 
-    float gate = smoothstep(0.15f, 0.82f, ValueNoise(drifted * 0.19f + float2(2.2f, 6.8f)));
-    float sine = amount * lerp(0.20f, 0.55f, gate);
+    float2 d1 = RotateFlow(flow, -0.22f);
+    float k1 = kTwoPi / 0.38f;
+    AddSlope(n, d1, k1, 0.00065f * amount, dot(d1, drifted) * k1 + time * 2.15f - bend);
 
-    float2 d0 = RotateFlow(flow, 0.40f);
-    float k0 = kTwoPi / 2.70f;
-    AddSlope(n, d0, k0, 0.08f * sine, dot(d0, sampleXz) * k0 + time * 1.35f);
-
-    float2 d1 = RotateFlow(flow, 1.70f);
-    float k1 = kTwoPi / 1.45f;
-    AddSlope(n, d1, k1, 0.05f * sine, dot(d1, sampleXz) * k1 + time * 1.85f);
-
-    float2 d2 = RotateFlow(flow, 2.80f);
-    float k2 = kTwoPi / 0.83f;
-    AddSlope(n, d2, k2, 0.03f * sine, dot(d2, sampleXz) * k2 + time * 2.45f);
-
-    float2 d3 = RotateFlow(flow, -0.90f);
-    float k3 = kTwoPi / 0.47f;
-    AddSlope(n, d3, k3, 0.02f * sine, dot(d3, sampleXz) * k3 + time * 3.05f);
-
-    float2 spun = RotateFlow(drifted, 0.77f);
-    AddNoiseSlope(n, spun, 0.55f, 0.70f * amount);
-    AddNoiseSlope(n, spun + float2(20.0f, 7.0f), 1.70f, 0.38f * amount);
+    float2 spun = RotateFlow(drifted, 0.40f);
+    AddNoiseSlope(n, spun, 3.5f, 0.028f * amount);
 }
 
 void AddStreamRipples(inout float3 n, float2 xz, float w, float2 tangentXZ)
@@ -326,6 +314,21 @@ float RibbonBank(float bankUv, float width)
     return saturate(1.0f - fromBank / max(band, 1.0e-3f));
 }
 
+// Still-water depth. Full swell by 6 m, a little motion left at the waterline.
+// lakeShoalScale in WaterWaves.cpp uses the same edges.
+float LakeShoal(float depth)
+{
+    float t = smoothstep(0.15f, 6.0f, max(depth, 0.0f));
+    return lerp(0.08f, 1.0f, t);
+}
+
+// bankUv is 0 on the bank and 1 on the centerline. Stream clearance is too
+// shallow to use LakeShoal, or the whole ribbon would go flat.
+float StreamShoal(float bankUv)
+{
+    return lerp(0.12f, 1.0f, smoothstep(0.0f, 0.55f, saturate(bankUv)));
+}
+
 // Both stages call this. Shore depth is the swell, before chop, so chop cannot feed itself.
 void EvalSurface(
     float2 xz,
@@ -346,31 +349,40 @@ void EvalSurface(
     offset = 0.0f.xxx;
     float3 partial = float3(0.0f, 1.0f, 0.0f);
 
+    float bedY = bakedBed;
+    float slope = 0.0f;
+    float2 down = float2(1.0f, 0.0f);
+    bool bedOk = SampleBed(xz, bedY, slope, down);
+    if (!bedOk)
+        bedY = bakedBed;
+
+    bool stream = streamWidth > 0.5f;
+    // Depth is the still surface, so the swell cannot feed its own scale.
+    float shoal = 1.0f;
+    if (stream)
+        shoal = StreamShoal(bankUv);
+    else if (bedOk)
+        shoal = LakeShoal(max(restY - bedY, 0.0f));
+
     [unroll]
     for (int i = 0; i < 4; ++i)
     {
         float2 D = FlowHeading(waves[i].xy, tangent.xz, w);
-        float amp = waves[i].w * lerp(1.0f, 0.35f, w);
-        // Longer swells bend a little. The short ones scramble so their crests do not rule the lake.
+        float amp = waves[i].w * lerp(1.0f, 0.35f, w) * shoal;
+        // A few tenths of a radian over ~90 m. More than that on a short wave
+        // folds the crest into a closed ring.
         float seed = float(i) * 17.0f + 3.0f;
-        float jitterAmp = lerp(2.2f, 5.5f, float(i) * (1.0f / 3.0f));
-        float jitter = (ValueNoise(xz * 0.037f + seed) - 0.5f) * jitterAmp;
+        float jitterAmp = lerp(0.70f, 0.22f, float(i) * (1.0f / 3.0f));
+        float jitter = (ValueNoise(xz * 0.011f + seed) - 0.5f) * jitterAmp;
         AccumGerstner(D, waves[i].z, amp, waveSpeed[i], Q, xz, jitter, offset, partial);
     }
 
     float swellY = offset.y;
     float maxAmp = waves[0].w + waves[1].w + waves[2].w + waves[3].w;
-    float bedY = bakedBed;
-    float slope = 0.0f;
-    float2 down = float2(1.0f, 0.0f);
-    bool bedOk = SampleBed(xz, bedY, slope, down);
     float lakeShore = 0.0f;
     if (bedOk)
         lakeShore = ShoreWeight(restY + swellY, bedY, slope, maxAmp);
-    else
-        bedY = bakedBed;
 
-    bool stream = streamWidth > 0.5f;
     float ribbon = stream ? RibbonBank(bankUv, streamWidth) : 0.0f;
     shore = max(lakeShore, ribbon);
 
@@ -384,7 +396,7 @@ void EvalSurface(
     float2 flow = flowDir;
     float flowLen = length(flow);
     flow = (flowLen > 1.0e-5f) ? (flow / flowLen) : float2(1.0f, 0.0f);
-    AddDetail(nrm, xz, flow);
+    AddDetail(nrm, xz, flow, shoal);
     AddStreamRipples(nrm, xz, w, tangent.xz);
     shadedNormal = normalize(nrm);
 

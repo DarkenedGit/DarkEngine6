@@ -110,6 +110,7 @@ void EditorApp::drawEditorUi()
             ImGui::MenuItem(ICON_FA_CUBE "  Model Parts", nullptr, &m_showModelParts);
             ImGui::MenuItem(ICON_FA_CUBE "  Material", nullptr, &m_showMaterialEditor);
             ImGui::MenuItem(ICON_FA_LAYER_GROUP "  Terrain", nullptr, &m_showTerrainPanel);
+            ImGui::MenuItem("Water", nullptr, &m_showWaterTools);
             ImGui::SliderFloat(ICON_FA_GAUGE_HIGH "  Fly speed (m/s)", &m_moveSpeed, 1.0f, 400.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("WASD / climb. Shift still multiplies by 2.5. Default 8 for models.");
@@ -978,6 +979,7 @@ void EditorApp::onUpdate(float dt)
         const bool terrainChanged = m_terrainHeightDirty;
         syncTerrainLod();
         syncPlacedWater(terrainChanged);
+        updateEditorGrass(dt);
     }
 
     if (m_sceneMode != SceneMode::Scene2D)

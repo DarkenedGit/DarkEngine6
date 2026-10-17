@@ -73,11 +73,13 @@ namespace Dark
         p.foamWidthScale = 1.0f;
         p.detailAmount = 1.0f;
 
-        // Incommensurate swell. Ratios are not integers, so crests do not phase-lock.
-        p.waves[0] = WaterWave{ 0.15f, TwoPi / 37.0f, 0.36f, 1.05f };
-        p.waves[1] = WaterWave{ 2.05f, TwoPi / 19.4f, 0.18f, 1.45f };
-        p.waves[2] = WaterWave{ -1.55f, TwoPi / 11.3f, 0.11f, 1.85f };
-        p.waves[3] = WaterWave{ 1.15f, TwoPi / 6.4f, 0.07f, 2.25f };
+        // Wind sea. Headings stay inside about 0.6 rad so crests run together
+        // instead of crossing into rings. Wavelength ratios are not integers.
+        // Sum of amplitudes stays 0.72 m.
+        p.waves[0] = WaterWave{ 0.06f, TwoPi / 42.0f, 0.40f, 0.90f };
+        p.waves[1] = WaterWave{ -0.34f, TwoPi / 23.7f, 0.16f, 1.18f };
+        p.waves[2] = WaterWave{ 0.22f, TwoPi / 14.6f, 0.10f, 1.52f };
+        p.waves[3] = WaterWave{ -0.15f, TwoPi / 8.8f, 0.06f, 1.88f };
         return p;
     }
 
@@ -204,6 +206,13 @@ namespace Dark
                 return false;
         }
         return true;
+    }
+
+    float lakeShoalScale(float stillDepth)
+    {
+        const float depth = stillDepth > 0.0f ? stillDepth : 0.0f;
+        const float t     = SmoothStep(0.15f, 6.0f, depth);
+        return Lerp(0.08f, 1.0f, t);
     }
 
     ShoreSample evaluateShore(
