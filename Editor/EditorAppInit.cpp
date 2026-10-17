@@ -287,6 +287,9 @@ void EditorApp::onInit()
     renderer().setShadowSrv(m_shadows.srvCpu());
     if (m_skyPipeline.isValid())
         m_skyPipeline.setShadowSrv(renderer().device(), m_shadows.srvCpu());
+    // The renderer shadow bind does not fill this heap. Water fog and SSR both sample it.
+    if (m_scene.waterPipeline().isValid())
+        m_scene.waterPipeline().setShadowSrv(renderer().device(), m_shadows.srvCpu());
     m_scene.localShadows().setDepthPipeline(&m_shadows.pipeline());
     {
         const LocalShadowSystem::CpuSrvs localSrvs = m_scene.localShadows().cpuSrvs();

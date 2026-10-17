@@ -113,6 +113,11 @@ public:
     void setSsrSrvs(D3D12_CPU_DESCRIPTOR_HANDLE sceneColorCpu, D3D12_CPU_DESCRIPTOR_HANDLE depthCpu);
     void bindReceiverSrvs(ID3D12GraphicsCommandList* cmd) const;
     bool hasReceiverSrvs() const { return m_srvHeap != nullptr && m_haveHeight && m_haveShadow; }
+    // Scene color and depth share the shadow heap. The march must stay off until bindReceiverSrvs runs.
+    bool ssrDescriptorsBound(D3D12_CPU_DESCRIPTOR_HANDLE sceneColorCpu, D3D12_CPU_DESCRIPTOR_HANDLE depthCpu) const
+    {
+        return hasReceiverSrvs() && sceneColorCpu.ptr != 0 && depthCpu.ptr != 0;
+    }
 
     D3D12_GPU_VIRTUAL_ADDRESS dummyLightsGpuVa() const { return m_dummyGpu; }
 

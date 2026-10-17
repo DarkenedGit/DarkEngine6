@@ -1,6 +1,7 @@
 #include "EditorApp.h"
 
 #include "Play/CharacterAttach.h"
+#include "Play/ContactGrind.h"
 #include "Play/HunterTick.h"
 #include "Play/PlayLook.h"
 #include "Play/PlayMotor.h"
@@ -68,9 +69,7 @@ using namespace Dark::Math;
 
 namespace
 {
-    constexpr float kJumpBuf       = 0.12f;
-    constexpr float kContactDps    = 12.0f;
-    constexpr float kStandoff      = 2.25f;
+    constexpr float kJumpBuf = 0.12f;
 
 } // namespace
 
@@ -916,32 +915,7 @@ void EditorApp::updatePlay(float dt)
     });
 
     if (hp && hp->alive() && !inAirCommit)
-    {
-        world().each<AiAgentComponent>([&](Entity e, AiAgentComponent&) {
-            const HealthComponent* hhp = world().get<HealthComponent>(e);
-            const TransformComponent* hxf = world().get<TransformComponent>(e);
-            if (!hhp || !hhp->health.alive() || !hxf)
-                return;
-            const float dx = hxf->position.x - xf->position.x;
-            const float dz = hxf->position.z - xf->position.z;
-            if (dx * dx + dz * dz > kStandoff * kStandoff)
-                return;
-            Vector3f hitDir{ xf->position.x - hxf->position.x, 0.0f, xf->position.z - hxf->position.z };
-            if (hitDir.MagnitudeSqrd() > 1.0e-8f)
-                hitDir.Normalize();
-            else
-                hitDir = Vector3f{ 0.0f, 0.0f, 1.0f };
-            Combat::DamageEvent ev{};
-            ev.source   = e;
-            ev.target   = body;
-            ev.amount   = kContactDps * dt;
-            ev.type     = Combat::DamageType::Slash;
-            ev.hitDir   = hitDir;
-            ev.hitPoint = xf->position;
-            ev.flags    = Combat::DamageFlags::CanBlock | Combat::DamageFlags::CanParry;
-            m_combat.resolve(world(), ev);
-        });
-    }
+        applyContactGrind(world(), m_combat, body, xf->position, dt);
 
     WeaponLoadoutComponent* wlc = world().get<WeaponLoadoutComponent>(body);
     if (wlc && wlc->loadout)

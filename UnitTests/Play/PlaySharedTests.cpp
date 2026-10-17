@@ -9,7 +9,10 @@
 #include "Character/PlayerMotor.h"
 #include "Character/SkillComponent.h"
 #include "Combat/JumpAttack.h"
+#include "Combat/DefenseComponent.h"
+#include "Combat/StatusEffectComponent.h"
 #include "Play/CharacterAttach.h"
+#include "Play/ContactGrind.h"
 #include "Play/HunterTick.h"
 #include "Play/PhysicsGround.h"
 #include "Play/PlayLook.h"
@@ -354,4 +357,72 @@ TEST(ShoulderCamera, BoomShortenAndWetClamp)
 
     const Collision::RayHit3D miss = shoulderTerrainRay(nullptr, Ray3f{}, 2.0f);
     EXPECT_FALSE(miss.hit);
+}
+
+TEST(ContactGrind, ProximityDoesNotSpendParry)
+{
+    World world;
+    Entity player = world.createEntity();
+    world.emplace<TransformComponent>(player, Vector3f{ 0.0f, 0.0f, 0.0f });
+    HealthComponent playerHp{};
+    playerHp.health = Health{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    world.emplace<HealthComponent>(player, std::move(playerHp));
+
+    Combat::DefenseComponent defense{};
+    defense.blockArcDeg = 120.0f;
+    defense.facingYawRad = 0.0f;
+    defense.beginParryWindow(0.22f);
+    defense.chargedParry = true;
+    defense.parryStunSeconds = 0.90f;
+    defense.chargedParryStunSeconds = 1.80f;
+    world.emplace<Combat::DefenseComponent>(player, defense);
+
+    Entity hunter = world.createEntity();
+    world.emplace<AiAgentComponent>(hunter);
+    world.emplace<TransformComponent>(hunter, Vector3f{ 0.0f, 0.0f, 1.0f });
+    HealthComponent hunterHp{};
+    hunterHp.health = Health{ HealthSettings{ 40.0f, 0.0f, 99.0f } };
+    world.emplace<HealthComponent>(hunter, std::move(hunterHp));
+    world.emplace<Combat::StatusEffectComponent>(hunter);
+    world.emplace<HitReactionComponent>(hunter);
+
+    Entity distant = world.createEntity();
+    world.emplace<AiAgentComponent>(distant);
+    world.emplace<TransformComponent>(distant, Vector3f{ 0.0f, 0.0f, 4.0f });
+    HealthComponent distantHp{};
+    distantHp.health = Health{ HealthSettings{ 40.0f, 0.0f, 99.0f } };
+    world.emplace<HealthComponent>(distant, std::move(distantHp));
+
+    Entity dead = world.createEntity();
+    world.emplace<AiAgentComponent>(dead);
+    world.emplace<TransformComponent>(dead, Vector3f{ 0.5f, 0.0f, 0.0f });
+    HealthComponent deadHp{};
+    deadHp.health = Health{ HealthSettings{ 40.0f, 0.0f, 99.0f } };
+    deadHp.health.applyDamage(40.0f);
+    world.emplace<HealthComponent>(dead, std::move(deadHp));
+
+    Combat::CombatSystem combat;
+    const float dt = 0.1f;
+    const ContactGrindResult grind = applyContactGrind(world, combat, player, Vector3f{ 0.0f, 0.0f, 0.0f }, dt);
+
+    HealthComponent* hp = world.get<HealthComponent>(player);
+    ASSERT_NE(hp, nullptr);
+    EXPECT_TRUE(grind.damaged);
+    EXPECT_FALSE(grind.killed);
+    EXPECT_NEAR(hp->health.hp(), 100.0f - kContactDps * dt, 1.0e-4f);
+    EXPECT_NEAR(grind.away.x, 0.0f, 1.0e-4f);
+    EXPECT_NEAR(grind.away.z, -1.0f, 1.0e-4f);
+
+    Combat::DefenseComponent* live = world.get<Combat::DefenseComponent>(player);
+    ASSERT_NE(live, nullptr);
+    EXPECT_TRUE(live->inParryWindow());
+    EXPECT_TRUE(live->chargedParry);
+
+    Combat::StatusEffectComponent* st = world.get<Combat::StatusEffectComponent>(hunter);
+    ASSERT_NE(st, nullptr);
+    EXPECT_FALSE(st->has(Combat::StatusId::Stun));
+    EXPECT_FALSE(st->knockedDown());
+    HitReactionComponent* hit = world.get<HitReactionComponent>(hunter);
+    ASSERT_NE(hit, nullptr);
+    EXPECT_FALSE(hit->hit.stunned());
 }

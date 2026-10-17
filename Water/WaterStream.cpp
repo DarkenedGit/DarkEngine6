@@ -382,7 +382,7 @@ namespace Dark
         cb.heightCellSize = fogMap.heightCellSize;
         cb.heightWorldSizeX = fogMap.heightWorldSizeX;
         cb.heightWorldSizeZ = fogMap.heightWorldSizeZ;
-        const bool hasSsr = sceneColorCpu.ptr != 0 && depthCpu.ptr != 0;
+        const bool hasSsr = pipeline.ssrDescriptorsBound(sceneColorCpu, depthCpu);
         WaterPipeline::fillSsr(cb, camera, ssrSettings, !debug || debug->ssrEnabled, hasSsr, env);
         pipeline.setConstants(cmd, cb, frameIndex, drawIndex);
         pipeline.setLights(cmd, 0);

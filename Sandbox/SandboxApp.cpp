@@ -1,6 +1,7 @@
 #include "SandboxApp.h"
 
 #include "Play/CharacterAttach.h"
+#include "Play/ContactGrind.h"
 #include "Play/HunterTick.h"
 #include "Play/PhysicsGround.h"
 #include "Play/PlayLook.h"
@@ -1724,8 +1725,6 @@ void SandboxApp::updateCombat(float dt)
         return;
     }
 
-    constexpr float kStandoff = 2.25f;
-    constexpr float kContactDps = 12.0f;
     constexpr float kJumpAttackBuffer = 0.12f;
     const TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
     JumpAttackComponent* jac = body.valid() ? world().get<JumpAttackComponent>(body) : nullptr;
@@ -1739,64 +1738,26 @@ void SandboxApp::updateCombat(float dt)
 
     if (m_chaseOk && xf && !inAirCommit)
     {
-        const float before = hpCombat->hp();
         Combat::CombatSystem combat;
         if (Combat::DefenseComponent* defense = world().get<Combat::DefenseComponent>(body))
             Combat::syncShieldDefense(*defense, m_offhand.shield, m_lookYaw);
-        world().each<AiAgentComponent>([&](Entity e, AiAgentComponent&) {
-            const HealthComponent* hp = world().get<HealthComponent>(e);
-            const TransformComponent* hxf = world().get<TransformComponent>(e);
-            if (!hp || !hp->health.alive() || !hxf)
-                return;
-            const float dx = hxf->position.x - xf->position.x;
-            const float dz = hxf->position.z - xf->position.z;
-            if (dx * dx + dz * dz > kStandoff * kStandoff)
-                return;
-            Vector3f hitDir{ xf->position.x - hxf->position.x, 0.0f, xf->position.z - hxf->position.z };
-            if (hitDir.MagnitudeSqrd() > 1.0e-8f)
-                hitDir.Normalize();
-            else
-                hitDir = Vector3f{ 0.0f, 0.0f, 1.0f };
-            Combat::DamageEvent ev{};
-            ev.source   = e;
-            ev.target   = body;
-            ev.amount   = kContactDps * dt;
-            ev.type     = Combat::DamageType::Slash;
-            ev.hitDir   = hitDir;
-            ev.hitPoint = xf->position;
-            ev.flags    = Combat::DamageFlags::CanBlock | Combat::DamageFlags::CanParry;
-            if (combat.resolve(world(), ev).killed)
-            {
-                DE_LOG_INFO("Player: down");
-                playSoundCue(world(), audio(), assets(), possessedBody(), "death");
-            }
-        });
-        if (hpCombat->hp() < before && m_hurtSoundTimer <= 0.0f)
+        const ContactGrindResult grind = applyContactGrind(world(), combat, body, xf->position, dt);
+        if (grind.killed)
+        {
+            DE_LOG_INFO("Player: down");
+            playSoundCue(world(), audio(), assets(), possessedBody(), "death");
+        }
+        if (grind.damaged && m_hurtSoundTimer <= 0.0f)
         {
             playSoundCue(world(), audio(), assets(), possessedBody(), "pain");
             m_hurtSoundTimer = 0.40f;
-            Vector3f away{ 0.0f, 0.0f, 0.0f };
-            float    best = kStandoff * kStandoff;
-            world().each<AiAgentComponent>([&](Entity e, AiAgentComponent&) {
-                const HealthComponent* hp = world().get<HealthComponent>(e);
-                const TransformComponent* hxf = world().get<TransformComponent>(e);
-                if (!hp || !hp->health.alive() || !hxf)
-                    return;
-                const float dx = hxf->position.x - xf->position.x;
-                const float dz = hxf->position.z - xf->position.z;
-                const float d2 = dx * dx + dz * dz;
-                if (d2 > best)
-                    return;
-                best = d2;
-                away = Vector3f{ -dx, 0.0f, -dz };
-            });
             // Chip damage used to call apply(), which restarts stun from the last real
             // hit's settings. A knockdown stun is longer than this 0.40s pulse, so a
             // hunter in standoff refreshed the lock and input never came back.
             if (HitReaction* hit = localHit())
             {
                 if (!hit->stunned() && !hit->knockingBack())
-                    hit->nudge(away, 0.35f, 0.08f);
+                    hit->nudge(grind.away, 0.35f, 0.08f);
             }
         }
     }

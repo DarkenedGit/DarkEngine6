@@ -154,6 +154,18 @@ TEST(WaterLightPick, FillSsrWritesEnabledAndSkyEval)
     EXPECT_FLOAT_EQ(cb.ssrEnabled, 0.0f);
 }
 
+TEST(WaterLightPick, SsrDescriptorsRequireReceiverCopies)
+{
+    WaterPipeline pipeline;
+    D3D12_CPU_DESCRIPTOR_HANDLE color{};
+    D3D12_CPU_DESCRIPTOR_HANDLE depth{};
+    color.ptr = 1;
+    depth.ptr = 1;
+    EXPECT_FALSE(pipeline.ssrDescriptorsBound(color, depth));
+    depth.ptr = 0;
+    EXPECT_FALSE(pipeline.ssrDescriptorsBound(color, depth));
+}
+
 TEST(WaterLightPick, EmptyWorldHasZeroWaterCount)
 {
     World world;

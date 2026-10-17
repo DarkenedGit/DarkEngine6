@@ -82,11 +82,11 @@ private:
     void drawLoot();
     int  giveItem(Dark::InventoryComponent& inv, const Dark::ItemStack& item);
     void stockHunter(Dark::Entity hunter);
-    void                 faceHitTarget(Dark::Entity target);
-    bool                 boneWorldPos(Dark::Entity e, const char* bone, Dark::Math::Vector3f& out);
-    void                 onPlayerDefended(Dark::Entity attacker, bool parried);
-    void                 drawDefenseText();
-    void                 drawTargetMarker();
+    void faceHitTarget(Dark::Entity target);
+    bool boneWorldPos(Dark::Entity e, const char* bone, Dark::Math::Vector3f& out);
+    void onPlayerDefended(Dark::Entity attacker, bool parried);
+    void drawDefenseText();
+    void drawTargetMarker();
     void updateHunterLoot();
     bool ownsWeapon(Dark::WeaponKind kind);
     void pickUpNearestItem();
