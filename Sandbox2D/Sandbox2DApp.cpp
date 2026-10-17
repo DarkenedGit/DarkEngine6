@@ -1,7 +1,6 @@
 #include "Sandbox2DApp.h"
 
 #include "Collision/Collision.h"
-#include "Core/ContentRoots.h"
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "ECS/Components.h"
@@ -18,7 +17,6 @@
 #include "Sprite/SpriteSheet.h"
 
 #include <cmath>
-#include <cstring>
 #include <filesystem>
 #include <vector>
 
@@ -31,7 +29,7 @@ namespace
 
 void copyMatrix(float dst[16], const Matrix4f& m)
 {
-    std::memcpy(dst, m.m_afEntry, sizeof(float) * 16);
+    m.store(dst);
 }
 
 bool createChecker(
@@ -56,17 +54,6 @@ bool createChecker(
         }
     }
     return out.createFromRGBA(renderer, px.data(), size, size, size * 4u, Dark::Color::TextureUsage::Hud);
-}
-
-void mountContentRoots(AssetManager& assets)
-{
-    namespace fs = std::filesystem;
-    for (const fs::path& c : contentRootCandidates())
-    {
-        std::error_code ec;
-        if (!c.empty() && fs::exists(c, ec) && !ec && fs::is_directory(c, ec) && !ec)
-            assets.mountDirectory(c);
-    }
 }
 
 AABox2f playerBounds(const Vector2f& pos, const Vector2f& half)
@@ -1035,7 +1022,6 @@ void Sandbox2DApp::onNetPeer(const NetPeerInfo& info, NetPeerEvent event, void* 
 void Sandbox2DApp::onInit()
 {
     DE_LOG_INFO("Sandbox2D: init");
-    mountContentRoots(assets());
     registerActions();
 
     renderer().setClearColor(0.38f, 0.62f, 0.86f, 1.0f);

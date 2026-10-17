@@ -25,6 +25,15 @@ namespace Dark
         Math::Vector3f   scale{ Math::Vect3f::ONE };
     };
 
+    // Scale, then rotation, then translation. Matches every host draw matrix.
+    inline Math::Matrix4f worldMatrix(const TransformComponent& xf)
+    {
+        const Math::Matrix4f S = Math::Matrix4f::ScaleMatrixXYZ(xf.scale.x, xf.scale.y, xf.scale.z);
+        const Math::Matrix4f R = xf.rotation.ToMatrix4();
+        const Math::Matrix4f T = Math::Matrix4f::TranslationMatrix(xf.position.x, xf.position.y, xf.position.z);
+        return S * R * T;
+    }
+
     // ─── Tag / Name ───────────────────────────────────────────────────────────────
 
     struct TagComponent

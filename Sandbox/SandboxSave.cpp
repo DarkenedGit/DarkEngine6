@@ -1,11 +1,12 @@
 #include "SandboxApp.h"
 
+#include "Play/CharacterAttach.h"
+#include "Save/PlayClock.h"
+
 #include "AI/AiSystem.h"
-#include "Animation/AnimGraphComponent.h"
 #include "Audio/SoundComponents.h"
 #include "Character/HealthComponent.h"
 #include "Character/PlayerMotorComponent.h"
-#include "Character/SkillXp.h"
 #include "Combat/JumpAttackComponent.h"
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
@@ -18,30 +19,12 @@
 #include "Save/HostSync.h"
 #include "Save/PersistentId.h"
 #include "Save/ProgressComponents.h"
-#include "Scene/EntityMaster.h"
-#include "Weapons/HittableComponent.h"
-
 #include <cstring>
 #include <format>
 #include <string>
 
 using namespace Dark;
 using namespace Dark::Math;
-
-void attachHunterSounds(World& world, AssetPinTable& pins, AssetManager& assets, Audio::AudioSystem& audio, Entity e, const Terrain::TerrainGround& ground);
-
-namespace
-{
-    WorldClockComponent* sessionClock(World& world, Entity session)
-    {
-        return session.valid() ? world.get<WorldClockComponent>(session) : nullptr;
-    }
-
-    AiClockComponent* sessionAi(World& world, Entity session)
-    {
-        return session.valid() ? world.get<AiClockComponent>(session) : nullptr;
-    }
-}
 
 void SandboxApp::installSaveHost()
 {
@@ -64,13 +47,7 @@ void SandboxApp::installSaveHost()
 
 void SandboxApp::ensureSessionEntity()
 {
-    if (m_session.valid() && world().alive(m_session))
-        return;
-    m_session = world().createEntity();
-    world().emplace<TagComponent>(m_session, "Session");
-    stampProceduralId(world(), m_session, "session");
-    world().emplace<WorldClockComponent>(m_session);
-    world().emplace<AiClockComponent>(m_session);
+    m_session = Save::ensureSessionEntity(world(), m_session);
 }
 
 void SandboxApp::ensurePlayerProgress(Entity e)
@@ -182,24 +159,8 @@ Entity SandboxApp::saveRespawn(void* user, World& world, std::string_view archet
         if (!e.valid())
             return {};
         const bool wolf = archetype == "wolf";
-        std::string wolfGltf;
-        const char* gltf = "models/skeleton.gltf";
-        if (wolf)
-        {
-            const EntityMaster wolfMaster = loadEntityMasterType("wolf");
-            wolfGltf = wolfMaster.gltf.empty() ? std::string("models/wolf.gltf") : wolfMaster.gltf;
-            gltf     = wolfGltf.c_str();
-        }
-        app->attachAnimatedCharacter(e, gltf);
-        attachHunterSounds(world, app->pins(), app->assets(), app->audio(), e, app->m_ground);
-        if (HittableComponent* hit = world.get<HittableComponent>(e))
-            hit->halfExtents = wolf ? Vector3f{ 0.45f, 0.45f, 0.70f } : Vector3f{ 0.4f, 0.7f, 0.4f };
-        if (wolf)
-        {
-            if (TagComponent* tag = world.get<TagComponent>(e))
-                tag->name = "Wolf";
-            applySkillProfile(world, e, "wolf");
-        }
+        const CharacterHost host{ world, app->renderer(), app->assets(), app->pins(), app->audio(), app->m_ground };
+        attachNpcVisual(host, e, wolf ? NpcKind::Wolf : NpcKind::Hunter, ModelAttach::AnimatedOnly);
         app->bindEntityPhysics(e, wolf ? "wolf" : "human");
         app->m_chase.addHunter(e);
         return e;
@@ -283,12 +244,12 @@ void SandboxApp::saveBeforeCapture(void* user, World& world)
         return;
     app->pullPhysicsVelocities();
     const Entity body = app->possessedBody();
-    if (LookComponent* look = body.valid() ? world.get<LookComponent>(body) : nullptr)
-    {
-        look->yaw     = app->m_lookYaw;
-        look->pitch   = app->m_lookPitch;
-        look->lightOn = app->m_offhand.lightOn;
-    }
+    Save::BodyLookState look;
+    look.yaw          = app->m_lookYaw;
+    look.pitch        = app->m_lookPitch;
+    look.lightOn      = app->m_offhand.lightOn;
+    look.lowerBodyYaw = app->m_lowerBodyYaw;
+    Save::captureBodyLook(world, body, look);
     if (RunProgressComponent* run = body.valid() ? world.get<RunProgressComponent>(body) : nullptr)
     {
         run->deadTimer = app->m_playerDeadTimer;
@@ -296,16 +257,15 @@ void SandboxApp::saveBeforeCapture(void* user, World& world)
         run->hasSpawn  = app->m_havePlayerSpawn;
         run->spawn     = app->m_playerSpawn;
     }
-    if (AnimGraphComponent* ag = body.valid() ? world.get<AnimGraphComponent>(body) : nullptr)
-        ag->graph.player().setLowerBodyYaw(app->m_lowerBodyYaw);
-    if (WorldClockComponent* clock = sessionClock(world, app->m_session))
+    if (WorldClockComponent* clock = Save::sessionClock(world, app->m_session))
     {
-        clock->cloudTime    = app->m_cloudTime;
-        clock->envTimeOfDay = app->m_env.timeOfDay;
-        clock->waterTime    = app->m_water.time();
-        clock->simTimeSec   = app->m_cloudTime;
+        Save::SessionClockState clockState;
+        clockState.cloudTime    = app->m_cloudTime;
+        clockState.envTimeOfDay = app->m_env.timeOfDay;
+        clockState.waterTime    = app->m_water.time();
+        Save::writeSessionClock(*clock, clockState);
     }
-    if (AiClockComponent* ai = sessionAi(world, app->m_session))
+    if (AiClockComponent* ai = Save::sessionAi(world, app->m_session))
     {
         ai->time          = app->m_chase.ai().simTime();
         ai->packAttackGap = app->m_chase.ai().packAttackGap();
@@ -319,12 +279,17 @@ void SandboxApp::saveAfterApply(void* user, World& world)
     if (!app)
         return;
     const Entity body = app->possessedBody();
-    if (const LookComponent* look = body.valid() ? world.get<LookComponent>(body) : nullptr)
-    {
-        app->m_lookYaw        = look->yaw;
-        app->m_lookPitch      = look->pitch;
-        app->m_offhand.lightOn = look->lightOn;
-    }
+    Save::BodyLookState look;
+    look.yaw          = app->m_lookYaw;
+    look.pitch        = app->m_lookPitch;
+    look.lightOn      = app->m_offhand.lightOn;
+    look.lowerBodyYaw = app->m_lowerBodyYaw;
+    Save::restoreBodyLook(world, body, look);
+    app->m_lookYaw         = look.yaw;
+    app->m_lookPitch       = look.pitch;
+    app->m_offhand.lightOn = look.lightOn;
+    app->m_lowerBodyYaw    = look.lowerBodyYaw;
+    app->m_crouchLatch     = look.crouch;
     if (const RunProgressComponent* run = body.valid() ? world.get<RunProgressComponent>(body) : nullptr)
     {
         app->m_playerDeadTimer = run->deadTimer;
@@ -332,18 +297,15 @@ void SandboxApp::saveAfterApply(void* user, World& world)
         app->m_havePlayerSpawn = run->hasSpawn;
         app->m_playerSpawn     = run->spawn;
     }
-    app->m_crouchLatch = false;
-    if (const PlayerMotor* motor = app->localMotor())
-        app->m_crouchLatch = motor->state() == PlayerMoveState::Crouch;
-    if (const AnimGraphComponent* ag = body.valid() ? world.get<AnimGraphComponent>(body) : nullptr)
-        app->m_lowerBodyYaw = ag->graph.player().lowerBodyYaw();
-    if (const WorldClockComponent* clock = sessionClock(world, app->m_session))
+    if (const WorldClockComponent* clock = Save::sessionClock(world, app->m_session))
     {
-        app->m_cloudTime     = clock->cloudTime;
-        app->m_env.timeOfDay = clock->envTimeOfDay;
-        app->m_water.setTime(clock->waterTime);
+        Save::SessionClockState clockState;
+        Save::readSessionClock(*clock, clockState);
+        app->m_cloudTime     = clockState.cloudTime;
+        app->m_env.timeOfDay = clockState.envTimeOfDay;
+        app->m_water.setTime(clockState.waterTime);
     }
-    if (const AiClockComponent* ai = sessionAi(world, app->m_session))
+    if (const AiClockComponent* ai = Save::sessionAi(world, app->m_session))
     {
         app->m_chase.ai().setSimTime(ai->time);
         app->m_chase.ai().setPackAttackGap(ai->packAttackGap);

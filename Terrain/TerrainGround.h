@@ -8,6 +8,8 @@
 
 namespace Dark::Terrain
 {
+    class TerrainGrid;
+
     // Splat channels: 0 dirt, 1 grass, 2 rock, 3 snow.
     struct GroundContact
     {
@@ -41,4 +43,7 @@ namespace Dark::Terrain
         std::string   m_cue[kMaxTerrainLayers];
         std::string   m_footstep[kMaxTerrainLayers];
     };
+
+    // Null grid samples grass. A grid uses the editable working map, then coarse.
+    GroundContact groundContactAt(const TerrainGround& ground, const TerrainGrid* grid, float x, float z);
 }

@@ -233,5 +233,26 @@ private:
     std::vector<RetiredTileGpu> m_retiredGpu;
 };
 
+// Null grid leaves both maps empty. Otherwise the editable working height, then coarse.
+// Splat is returned only when that working map is valid.
+struct GridSurfaceMaps
+{
+    const HeightMap* height = nullptr;
+    const SplatMap*  splat  = nullptr;
+};
+
+inline GridSurfaceMaps gridSurfaceMaps(const TerrainGrid* grid)
+{
+    GridSurfaceMaps maps;
+    if (!grid)
+        return maps;
+    maps.height = grid->editableWorking();
+    if (!maps.height || !maps.height->valid())
+        maps.height = &grid->coarse();
+    const SplatMap* splat = grid->editableWorkingSplat();
+    maps.splat            = splat && splat->valid() ? splat : nullptr;
+    return maps;
+}
+
 } // namespace Terrain
 } // namespace Dark

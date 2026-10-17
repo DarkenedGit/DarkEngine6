@@ -7,7 +7,6 @@
 #include "Scene/SceneFile.h"
 #include "ECS/Components.h"
 #include "Network/Replication.h"
-#include "Core/ContentRoots.h"
 #include "Core/Log.h"
 #include "Core/UiPalette.h"
 #include "Ui/Icons.h"
@@ -122,7 +121,6 @@ void EditorApp::onInit()
 {
     m_water.params() = defaultWaterParams(0.0f);
     DE_LOG_INFO("EditorApp: init");
-    mountContentRoots(assets());
     m_ground.loadFromContent();
     skillCatalog().loadFromContent();
     ensurePhysicsWorld();
@@ -289,6 +287,9 @@ void EditorApp::onInit()
     renderer().setShadowSrv(m_shadows.srvCpu());
     if (m_skyPipeline.isValid())
         m_skyPipeline.setShadowSrv(renderer().device(), m_shadows.srvCpu());
+    // The renderer shadow bind does not fill this heap. Water fog and SSR both sample it.
+    if (m_scene.waterPipeline().isValid())
+        m_scene.waterPipeline().setShadowSrv(renderer().device(), m_shadows.srvCpu());
     m_scene.localShadows().setDepthPipeline(&m_shadows.pipeline());
     {
         const LocalShadowSystem::CpuSrvs localSrvs = m_scene.localShadows().cpuSrvs();

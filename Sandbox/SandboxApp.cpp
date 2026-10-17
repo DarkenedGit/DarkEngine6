@@ -1,11 +1,20 @@
 #include "SandboxApp.h"
 
+#include "Play/CharacterAttach.h"
+#include "Play/ContactGrind.h"
+#include "Play/HunterTick.h"
+#include "Play/PhysicsGround.h"
+#include "Play/PlayLook.h"
+#include "Play/PlayMotor.h"
+#include "Play/ShoulderCamera.h"
+#include "Play/TerrainStream.h"
+#include "Play/WeaponFire.h"
+
 #include "ECS/Components.h"
 #include "Water/WaterStream.h"
 
 #include <format>
 #include <memory>
-#include "Core/ContentRoots.h"
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "Input/InputCodes.h"
@@ -129,36 +138,6 @@ bool useAcesTonemap(const Renderer& r)
     return r.hasSceneBuffers() && r.debugState().aces && r.debugState().lightingActive();
 }
 
-void mountContentRoots(AssetManager& assets)
-{
-    namespace fs = std::filesystem;
-
-    const std::vector<fs::path> candidates = contentRootCandidates();
-
-    bool any = false;
-    for (const fs::path& c : candidates)
-    {
-        std::error_code ec;
-        if (!c.empty() && fs::exists(c, ec) && !ec && fs::is_directory(c, ec) && !ec)
-        {
-            assets.mountDirectory(c);
-            any = true;
-        }
-    }
-
-    if (!any)
-    {
-        std::string listed;
-        for (const fs::path& c : candidates)
-        {
-            if (!listed.empty())
-                listed += " | ";
-            listed += c.string();
-        }
-        DE_LOG_ERROR("SandboxApp: no content directory found. Tried: {}", listed.empty() ? std::string("<none>") : listed);
-    }
-}
-
 AssetRef<Image> loadTerrainLayerMap(AssetManager& assets, const std::string& virtualPath, Dark::Color::ColorSpace space)
 {
     AssetRef<Image> img = assets.loadImage(virtualPath);
@@ -201,7 +180,7 @@ constexpr float kSpawnFocusSeconds = 1.75f;
 
 void copyMatrix(float dst[16], const Math::Matrix4f& m)
 {
-    std::memcpy(dst, m.m_afEntry, sizeof(float) * 16);
+    m.store(dst);
 }
 
 void fillForwardLighting(MeshForwardBatchConstants& dst, const MeshFrameConstants& src)
@@ -229,10 +208,7 @@ void fillMeshGBufferXforms(MeshGBufferConstants& cb, const Matrix4f& world, cons
 
 Math::Matrix4f makeWorldMatrix(const TransformComponent& xf)
 {
-    const Matrix4f S = Matrix4f::ScaleMatrixXYZ(xf.scale.x, xf.scale.y, xf.scale.z);
-    const Matrix4f R = xf.rotation.ToMatrix4();
-    const Matrix4f T = Matrix4f::TranslationMatrix(xf.position.x, xf.position.y, xf.position.z);
-    return S * R * T;
+    return worldMatrix(xf);
 }
 
 MeshData makeGrassPatch(float sizeX, float sizeZ, uint32_t seed)
@@ -303,77 +279,6 @@ void attachCameraSounds(World& world, AssetPinTable& pins, AssetManager& assets,
     if (music && music->id != NULL_ASSET)
         addSoundCue(bank, "music", music->id, 0.10f, false);
     setSoundBank(world, pins, assets, camera, std::move(bank));
-}
-
-void addGroundFootsteps(SoundBankComponent& bank, Audio::AudioSystem& audio, AssetManager& assets, const Terrain::TerrainGround& ground)
-{
-    for (int i = 0; i < ground.layerCount(); ++i)
-    {
-        const Terrain::GroundContact& layer = ground.layer(i);
-        if (!layer.cue || !layer.cue[0])
-            continue;
-        addSoundCue(bank, layer.cue, loadSandboxClip(audio, assets, layer.footstep ? layer.footstep : "audio/foot_dirt.wav", layer.blipHz, 0.05f, 0.4f), 0.4f, true);
-    }
-}
-
-void attachPlayerSounds(World& world, AssetPinTable& pins, AssetManager& assets, Audio::AudioSystem& audio, Entity e, const Terrain::TerrainGround& ground)
-{
-    SoundBankComponent bank;
-    addGroundFootsteps(bank, audio, assets, ground);
-    addSoundCue(bank, "step", loadSandboxClip(audio, assets, "audio/foot_grass.wav", 160.0f, 0.05f, 0.4f), 0.35f, true);
-    addSoundCue(bank, "jump", loadSandboxClip(audio, assets, "audio/grunt.wav", 140.0f, 0.18f, 0.5f), 0.7f, false);
-    addSoundCue(bank, "land", loadSandboxClip(audio, assets, "audio/land.wav", 70.0f, 0.12f, 0.55f), 0.75f, false);
-    addSoundCue(bank, "splash", loadSandboxClip(audio, assets, "audio/splash.wav", 220.0f, 0.22f, 0.45f), 0.8f, false);
-    addSoundCue(bank, "swim_step", loadSandboxClip(audio, assets, "audio/splash.wav", 220.0f, 0.22f, 0.45f), 0.42f, false);
-    addSoundCue(bank, "pain", loadSandboxClip(audio, assets, "audio/pain.wav", 380.0f, 0.12f, 0.5f), 0.75f, true);
-    addSoundCue(bank, "heal", loadSandboxClip(audio, assets, "audio/coin.wav", 880.0f, 0.16f, 0.4f), 0.7f, false);
-    addSoundCue(bank, "fire", loadSandboxClip(audio, assets, "audio/whoosh.wav", 520.0f, 0.12f, 0.45f), 0.45f, true);
-    addSoundCue(bank, "swing", loadSandboxClip(audio, assets, "audio/whoosh.wav", 520.0f, 0.12f, 0.45f), 0.7f, true);
-    addSoundCue(bank, "impact", loadSandboxClip(audio, assets, "audio/place.wav", 180.0f, 0.10f, 0.5f), 0.5f, true);
-    addSoundCue(bank, "death", loadSandboxClip(audio, assets, "audio/whoosh.wav", 180.0f, 0.22f, 0.35f), 0.55f, false);
-    setSoundBank(world, pins, assets, e, std::move(bank));
-
-    const AssetID waterId = loadSandboxClip(audio, assets, "audio/whoosh.wav", 70.0f, 0.8f, 0.25f);
-    if (waterId != NULL_ASSET && !world.has<SoundEmitterComponent>(e))
-    {
-        SoundEmitterComponent se{};
-        se.clipId  = waterId;
-        se.volume  = 0.28f;
-        se.looping = true;
-        se.spatial = false;
-        se.play    = false;
-        world.emplace<SoundEmitterComponent>(e, se);
-        pinSoundEmitter(pins, assets, se);
-    }
-
-    if (WeaponLoadoutComponent* wlc = world.get<WeaponLoadoutComponent>(e); wlc && wlc->loadout)
-    {
-        AssetID fireId   = NULL_ASSET;
-        AssetID impactId = NULL_ASSET;
-        if (const SoundBankComponent* cues = world.get<SoundBankComponent>(e))
-        {
-            if (const SoundCueDesc* c = findSoundCue(*cues, "fire"))
-                fireId = c->clipId;
-            if (const SoundCueDesc* c = findSoundCue(*cues, "impact"))
-                impactId = c->clipId;
-        }
-        wlc->loadout->projectile().setAudio(&audio, &assets, fireId, impactId);
-    }
-}
-
-void attachHunterSounds(World& world, AssetPinTable& pins, AssetManager& assets, Audio::AudioSystem& audio, Entity e, const Terrain::TerrainGround& ground)
-{
-    SoundBankComponent bank;
-    addGroundFootsteps(bank, audio, assets, ground);
-    addSoundCue(bank, "pain", loadSandboxClip(audio, assets, "audio/pain.wav", 380.0f, 0.12f, 0.5f), 0.75f, true);
-    addSoundCue(bank, "grunt", loadSandboxClip(audio, assets, "audio/grunt.wav", 140.0f, 0.18f, 0.5f), 0.95f, true);
-    addSoundCue(bank, "growl", loadSandboxClip(audio, assets, "audio/growl.wav", 90.0f, 0.55f, 0.5f), 0.9f, true);
-    const AssetID impactClip = loadSandboxClip(audio, assets, "audio/place.wav", 180.0f, 0.10f, 0.5f);
-    addSoundCue(bank, "impact", impactClip, 0.5f, true);
-    // Catalog Poison/Ignite applyCue is "fire"; hunters have no weapon fire row — alias impact so one-shots aren't silent.
-    addSoundCue(bank, "fire", impactClip, 0.5f, true);
-    addSoundCue(bank, "land", loadSandboxClip(audio, assets, "audio/land.wav", 70.0f, 0.12f, 0.55f), 0.75f, true);
-    setSoundBank(world, pins, assets, e, std::move(bank));
 }
 
 bool playSoundCueFallback(World& world, Audio::AudioSystem& audio, AssetManager& assets, Entity e, const char* primary, const char* fallback)
@@ -945,33 +850,7 @@ void SandboxApp::attachReplicaCombat(Entity e)
 {
     if (!e.valid() || !world().alive(e))
         return;
-    if (!world().has<HealthComponent>(e))
-    {
-        HealthSettings playerHp;
-        playerHp.maxHp       = 200.0f;
-        playerHp.regenPerSec = 10.0f;
-        playerHp.regenDelay  = 3.5f;
-        HealthComponent hc{};
-        hc.health = Health{ playerHp };
-        world().emplace<HealthComponent>(e, std::move(hc));
-    }
-    if (!world().has<HitReactionComponent>(e))
-    {
-        HitReactionSettings hit{};
-        hit.stunSeconds       = 0.28f;
-        hit.knockbackDistance = 1.1f;
-        hit.knockbackSeconds  = 0.14f;
-        hit.horizontalOnly    = true;
-        HitReactionComponent hr{};
-        hr.hit.setSettings(hit);
-        world().emplace<HitReactionComponent>(e, std::move(hr));
-    }
-    if (!world().has<HittableComponent>(e))
-    {
-        HittableComponent h{};
-        h.halfExtents = Vector3f{ 0.35f, 0.7f, 0.35f };
-        world().emplace<HittableComponent>(e, h);
-    }
+    ensureHumanoidBody(world(), e, 200.0f, Vector3f{ 0.35f, 0.7f, 0.35f });
     const EntityMaster playerMaster = loadEntityMasterType("player");
     const std::string  playerGltf = playerMaster.gltf.empty() ? std::string("models/human.gltf") : playerMaster.gltf;
     attachAnimatedCharacter(e, playerGltf.c_str());
@@ -989,61 +868,14 @@ void SandboxApp::attachLocalPlayer(Entity e)
         world().emplace<InventoryComponent>(e, inv);
     }
     equipSword(world(), pins(), assets(), renderer(), e);
-    if (!world().has<PlayerMotorComponent>(e))
-    {
-        PlayerMotorSettings& move = world().emplace<PlayerMotorComponent>(e).motor.settings();
-        move.walkSpeed            = 4.5f;
-        move.sprintSpeed          = 8.5f;
-    }
-    if (!world().has<HsmGraphComponent>(e))
-    {
-        HsmGraphComponent hsm{};
-        const EntityMaster playerMaster = loadEntityMasterType("player");
-        const std::string  hsmPath = playerMaster.hsm.empty() ? std::string("ai/player.hsm.json") : playerMaster.hsm;
-        hsm.def      = assets().tryLoadHsmGraph(hsmPath);
-        hsm.instance = std::make_unique<HsmGraphInstance>();
-        const bool built = hsm.def ? hsm.instance->build(*hsm.def) : hsm.instance->build(makePlayerHsmGraph());
-        if (!built)
-            DE_LOG_WARN(LogCategory::AI, "SandboxApp: player HSM build failed");
-        else
-        {
-            hsm.instance->start();
-            world().emplace<HsmGraphComponent>(e, std::move(hsm));
-        }
-    }
     if (!world().has<HudTagComponent>(e))
     {
         HudTagComponent hud{};
         hud.kind = HudKind::HealthBar;
         world().emplace<HudTagComponent>(e, hud);
     }
-    if (!world().has<WeaponLoadoutComponent>(e))
-    {
-        auto& wlc   = world().emplace<WeaponLoadoutComponent>(e);
-        wlc.loadout = std::make_unique<WeaponLoadout>();
-        wlc.loadout->setHitListener(&SandboxApp::onWeaponHitThunk, this);
-        MeleeWeaponDesc sword = wlc.loadout->melee().desc();
-        sword.hitDelay        = 0.12f;
-        sword.singleTarget    = true;
-        wlc.loadout->melee().setDesc(sword);
-        wlc.slot = wlc.loadout->slot();
-    }
-    if (!world().has<JumpAttackComponent>(e))
-    {
-        auto& jac = world().emplace<JumpAttackComponent>(e);
-        Combat::JumpAttackDef def = jac.jump.def();
-        def.telegraphSeconds = 0.0f;
-        def.cooldown         = 1.25f;
-        def.connectFlags     = Combat::DamageFlags::CanBlock | Combat::DamageFlags::HardCc | Combat::DamageFlags::Knockdown;
-        jac.jump.setDef(def);
-    }
-    if (!world().has<Combat::StatusEffectComponent>(e))
-        world().emplace<Combat::StatusEffectComponent>(e);
-    if (!world().has<Combat::PoiseComponent>(e))
-        world().emplace<Combat::PoiseComponent>(e);
-    Combat::equipPlayerShield(world(), e);
-    attachPlayerSounds(world(), pins(), assets(), audio(), e, m_ground);
-    applySkillProfile(world(), e, "player");
+    const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
+    ensureLocalPlayerRig(host, e, &SandboxApp::onWeaponHitThunk, this);
     ensurePlayerProgress(e);
 }
 
@@ -1054,56 +886,9 @@ bool SandboxApp::attachAnimatedCharacter(Entity e, const char* gltfPath)
     if (world().has<AnimGraphComponent>(e) && world().has<ModelComponent>(e))
         return true;
 
-    AssetRef<Model> model = loadAndUploadModel(renderer(), assets(), gltfPath);
-    if (!model || !model->valid())
-    {
-        DE_LOG_WARN("SandboxApp: animated character '{}' failed to load", gltfPath);
-        return false;
-    }
-    if (!model->skeleton())
-    {
-        DE_LOG_WARN("SandboxApp: '{}' has no skeleton", gltfPath);
-        return false;
-    }
-
-    AssetRef<AnimGraphDef> graph = assets().tryLoadAnimGraphForModel(gltfPath);
-    if (!graph)
-        DE_LOG_WARN("SandboxApp: '{}' has no anim graph sidecar", gltfPath);
-
-    if (const ModelComponent* old = world().get<ModelComponent>(e))
-        unpinModelComponent(pins(), *old);
-    ModelComponent mc{};
-    mc.modelAssetID = model->id;
-    mc.castShadow   = model->hasOpaque();
-    world().emplace<ModelComponent>(e, mc);
-    pinModelComponent(pins(), assets(), mc);
-
-    if (MeshComponent* mesh = world().get<MeshComponent>(e))
-    {
-        MeshComponent next = *mesh;
-        next.primitive     = PrimitiveMesh::None;
-        setMeshComponent(world(), pins(), assets(), e, next);
-    }
-
-    if (TransformComponent* xf = world().get<TransformComponent>(e))
-        xf->scale = Vector3f{ 1.0f, 1.0f, 1.0f };
-
-    AnimGraphComponent ag;
-    ag.model    = model;
-    ag.animSet  = model->animationSet();
-    ag.graphDef = graph;
-    if (graph)
-        ag.graph.bind(graph.get(), model->skeleton());
-    else if (ag.animSet)
-    {
-        ag.graph.player().bind(model->skeleton(), ag.animSet.get());
-        if (!ag.graph.player().play("Idle", 0.0f))
-            ag.graph.player().playIndex(0, 0.0f);
-    }
-    ag.graph.setApplyRootMotion(false);
-    world().emplace<AnimGraphComponent>(e, std::move(ag));
-    DE_LOG_INFO("SandboxApp: attached '{}' to entity graph={}", gltfPath, graph ? "yes" : "no");
-    return true;
+    const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
+    const ContentModelResult result = attachContentModel(host, e, gltfPath, ModelAttach::AnimatedOnly);
+    return result.attached && result.skinned;
 }
 
 void SandboxApp::updateCharacterAnims(float dt)
@@ -1332,10 +1117,6 @@ void SandboxApp::updatePossessed(float dt)
     if (!xf)
         return;
 
-    constexpr float kMouseSens = 0.0045f;
-    constexpr float kPadLook   = 2.1f;
-    constexpr float kRadius    = 0.45f;
-
     if (m_swingLock > 0.0f)
         m_swingLock -= dt;
     if (m_comboWindow > 0.0f)
@@ -1347,33 +1128,17 @@ void SandboxApp::updatePossessed(float dt)
         m_faceLeft -= dt;
         m_lookYaw = approachAngle(m_lookYaw, m_faceYaw, 12.0f, dt);
     }
-    if (!uiOpen())
-    {
-        m_lookYaw += static_cast<float>(input().mouseDeltaX()) * kMouseSens;
-        // mouseDeltaY is already up-positive; add it so mouse-up looks up.
-        m_lookPitch += static_cast<float>(input().mouseDeltaY()) * kMouseSens;
-    }
-    m_lookYaw += input().actionAxis("look_yaw") * kPadLook * dt;
-    m_lookPitch += input().actionAxis("look_pitch") * kPadLook * dt;
-    m_lookYaw   = Math::WrapPi(m_lookYaw);
-    m_lookPitch = Math::Clamp(m_lookPitch, -0.96f, 0.96f);
-
-    Vector3f look{ std::sinf(m_lookYaw) * std::cosf(m_lookPitch), std::sinf(m_lookPitch), std::cosf(m_lookYaw) * std::cosf(m_lookPitch) };
-    Vector3f flat = look;
-    flat.y = 0.0f;
-    if (flat.MagnitudeSqrd() > 1.0e-6f)
-        flat.Normalize();
-    Vector3f right = Vector3f{ 0.0f, 1.0f, 0.0f }.Cross(flat);
-    if (right.MagnitudeSqrd() > 1.0e-6f)
-        right.Normalize();
+    // mouseDeltaY is already up-positive; add it so mouse-up looks up.
+    accumulatePlayLook(m_lookYaw, m_lookPitch, static_cast<float>(input().mouseDeltaX()), static_cast<float>(input().mouseDeltaY()), !uiOpen(),
+                       input().actionAxis("look_yaw"), input().actionAxis("look_pitch"), dt);
 
     const bool uiKeys = uiOpen() && m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
     const float mx = uiKeys ? 0.0f : input().actionAxis("move_x");
     const float mz = uiKeys ? 0.0f : input().actionAxis("move_z");
-    Vector3f wish = right * mx + flat * mz;
-    const float mag = wish.Magnitude();
-    if (mag > 1.0f)
-        wish *= (1.0f / mag);
+    const PlayBasis basis = playBasis(m_lookYaw, m_lookPitch, mx, mz);
+    const Vector3f& flat  = basis.flat;
+    const Vector3f& right = basis.right;
+    const Vector3f& wish  = basis.wish;
 
     if (!m_havePlayerSpawn)
     {
@@ -1433,15 +1198,17 @@ void SandboxApp::updatePossessed(float dt)
     }
 
     PlayerMotorInput motorIn{};
-    motorIn.wish            = canSteer ? wish : Vector3f{ 0.0f, 0.0f, 0.0f };
-    motorIn.sprint          = canSteer && !jumpBusy && !uiKeys && m_swingLock <= 0.0f && input().actionDown("sprint");
-    if (m_crouchLatch && input().actionPressed("crouch"))
-        m_crouchLatch = false;
-    motorIn.crouch          = canSteer && !jumpBusy && !uiKeys && (m_crouchLatch || input().actionDown("crouch"));
-    motorIn.jumpPressed     = canSteer && !jumpBusy && !uiKeys && input().actionPressed("jump");
-    motorIn.allowDoubleJump = !inAirCommit;
-    motorIn.allowJumpBuffer = !jumpBusy;
-    motorIn.airControlScale = inAirCommit ? jump->def().airControlScale : 1.0f;
+    PlayMotorEdges edges{};
+    edges.sprintDown    = input().actionDown("sprint");
+    edges.crouchPressed = input().actionPressed("crouch");
+    edges.crouchDown    = input().actionDown("crouch");
+    edges.jumpPressed   = input().actionPressed("jump");
+    edges.forward       = input().keyPressed(Key::W) || input().keyPressed(Key::Up);
+    edges.back          = input().keyPressed(Key::S) || input().keyPressed(Key::Down);
+    edges.left          = input().keyPressed(Key::A) || input().keyPressed(Key::Left);
+    edges.right         = input().keyPressed(Key::D) || input().keyPressed(Key::Right);
+    const bool sprintAllowed = canSteer && !jumpBusy && !uiKeys && m_swingLock <= 0.0f;
+    buildPlayMotorInput(motorIn, m_crouchLatch, wish, flat, right, canSteer, jumpBusy, uiKeys, inAirCommit, jump, sprintAllowed, edges);
     const bool onGround = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch || motor->state() == PlayerMoveState::Dodge);
     const Terrain::GroundContact groundSurf = (onGround && xf) ? groundContactAt(xf->position.x, xf->position.z) : Terrain::GroundContact{};
     const float swingSlow   = m_blockRecoil > 0.0f ? 0.4f : (m_swingLock <= 0.0f ? 1.0f : (m_comboCount > 1 ? 0.45f : 0.8f));
@@ -1451,16 +1218,6 @@ void SandboxApp::updatePossessed(float dt)
         motorIn.runScale  = skillScalar(SkillId::Run, SkillScalar::RunScale, skills->level(SkillId::Run));
         motorIn.swimScale = skillScalar(SkillId::Swim, SkillScalar::SwimScale, skills->level(SkillId::Swim));
         motorIn.jumpScale = skillScalar(SkillId::Jump, SkillScalar::JumpScale, skills->level(SkillId::Jump));
-    }
-    motorIn.allowDodge      = canSteer && !jumpBusy && !uiKeys;
-    if (motorIn.allowDodge)
-    {
-        motorIn.dodgeTap = moveCardinalFromEdges(
-            input().keyPressed(Key::W) || input().keyPressed(Key::Up),
-            input().keyPressed(Key::S) || input().keyPressed(Key::Down),
-            input().keyPressed(Key::A) || input().keyPressed(Key::Left),
-            input().keyPressed(Key::D) || input().keyPressed(Key::Right));
-        motorIn.dodgeTapWish = moveCardinalWish(motorIn.dodgeTap, flat, right);
     }
 
     m_groundProbeY = xf->position.y;
@@ -1514,7 +1271,7 @@ void SandboxApp::updatePossessed(float dt)
     Vector3f delta{ xf->position.x - before.x, 0.0f, xf->position.z - before.z };
     if (delta.MagnitudeSqrd() > 1.0e-10f)
     {
-        Sphere3f ball{ Vector3f{ before.x, xf->position.y, before.z }, kRadius };
+        Sphere3f ball{ Vector3f{ before.x, xf->position.y, before.z }, kPlayBodyRadius };
         float    bestT = 1.0f;
         for (const AABox3f& cube : m_chase.cubes())
         {
@@ -1524,27 +1281,8 @@ void SandboxApp::updatePossessed(float dt)
             if (hit.hit && hit.t < bestT)
                 bestT = hit.t;
         }
-        if (m_physics.valid())
-        {
-            Physics::PhysicsWorld::MoverCast cast;
-            cast.origin      = Vector3f{ before.x, xf->position.y, before.z };
-            cast.radius      = kRadius;
-            cast.bottom      = -kRadius;
-            cast.top         = 1.35f;
-            cast.translation = delta;
-            cast.ignore      = m_groundIgnore;
-            cast.ignore2     = m_physicsGround;
-            cast.staticOnly  = true;
-            const float physicsT = m_physics.clipMover(cast);
-            if (physicsT < bestT)
-                bestT = physicsT;
-        }
-        if (bestT < 1.0f)
-            delta *= Math::Max(0.0f, bestT - 0.02f);
-        xf->position.x = before.x + delta.x;
-        xf->position.z = before.z + delta.z;
-        if (dt > 1.0e-4f && motor)
-            motor->setHorizontalVelocity(delta.x / dt, delta.z / dt);
+        bestT = tightenPlanarClip(m_physics, m_groundIgnore, m_physicsGround, Vector3f{ before.x, xf->position.y, before.z }, delta, bestT);
+        commitPlanarClip(xf->position, before, delta, bestT, dt, motor);
     }
     if (motor && skills)
     {
@@ -1932,22 +1670,7 @@ void SandboxApp::handleWeaponSwitch()
 
 WeaponWorldQuery SandboxApp::makeWeaponQuery()
 {
-    m_weaponTargets.clear();
-    const Entity self = possessedBody();
-    world().each<HittableComponent>([&](Entity e, HittableComponent& h) {
-        if (self.valid() && e.id() == self.id())
-            return;
-        const TransformComponent* xf = world().get<TransformComponent>(e);
-        const HealthComponent*    hp = world().get<HealthComponent>(e);
-        if (!xf)
-            return;
-        WeaponTargetScratch t{};
-        t.entity      = e;
-        t.center      = xf->position;
-        t.halfExtents = h.halfExtents;
-        t.alive       = hp && hp->health.alive();
-        m_weaponTargets.push_back(t);
-    });
+    m_weaponTargets.gather(world(), possessedBody());
 
     WeaponWorldQuery q{};
     q.terrainUser = this;
@@ -1957,34 +1680,8 @@ WeaponWorldQuery SandboxApp::makeWeaponQuery()
     q.heightAt = [](void* user, float x, float z) {
         return static_cast<SandboxApp*>(user)->m_terrain.heightAtWorld(x, z);
     };
-    q.targetUser = this;
-    q.targetCount = [](void* user) {
-        return static_cast<int>(static_cast<SandboxApp*>(user)->m_weaponTargets.size());
-    };
-    q.targetAlive = [](void* user, int i) {
-        auto* app = static_cast<SandboxApp*>(user);
-        return i >= 0 && i < static_cast<int>(app->m_weaponTargets.size()) && app->m_weaponTargets[static_cast<size_t>(i)].alive;
-    };
-    q.targetCenter = [](void* user, int i) {
-        auto* app = static_cast<SandboxApp*>(user);
-        if (i < 0 || i >= static_cast<int>(app->m_weaponTargets.size()))
-            return Vector3f{ 0.0f, 0.0f, 0.0f };
-        return app->m_weaponTargets[static_cast<size_t>(i)].center;
-    };
-    q.targetHalfExtentsAt = [](void* user, int i) {
-        auto* app = static_cast<SandboxApp*>(user);
-        if (i < 0 || i >= static_cast<int>(app->m_weaponTargets.size()))
-            return Vector3f{ 1.0f, 1.0f, 1.0f };
-        return app->m_weaponTargets[static_cast<size_t>(i)].halfExtents;
-    };
-    q.targetEntityAt = [](void* user, int i) {
-        auto* app = static_cast<SandboxApp*>(user);
-        if (i < 0 || i >= static_cast<int>(app->m_weaponTargets.size()))
-            return Entity{};
-        return app->m_weaponTargets[static_cast<size_t>(i)].entity;
-    };
-    q.targetHalfExtents = Vector3f{ 1.0f, 1.0f, 1.0f };
-    q.maxRange          = 90.0f;
+    m_weaponTargets.bind(q);
+    q.maxRange = 90.0f;
     return q;
 }
 
@@ -2001,8 +1698,8 @@ void SandboxApp::onWeaponHit(const WeaponHit& hit)
     if (!hit.hitTarget)
         return;
     Entity victim = hit.targetEntity;
-    if (!victim.valid() && hit.targetIndex >= 0 && hit.targetIndex < static_cast<int>(m_weaponTargets.size()))
-        victim = m_weaponTargets[static_cast<size_t>(hit.targetIndex)].entity;
+    if (!victim.valid())
+        victim = m_weaponTargets.entityAt(hit.targetIndex);
     if (!victim.valid() || !world().alive(victim))
         return;
     HealthComponent* hp = world().get<HealthComponent>(victim);
@@ -2134,8 +1831,6 @@ void SandboxApp::updateCombat(float dt)
         return;
     }
 
-    constexpr float kStandoff = 2.25f;
-    constexpr float kContactDps = 12.0f;
     constexpr float kJumpAttackBuffer = 0.12f;
     const TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
     JumpAttackComponent* jac = body.valid() ? world().get<JumpAttackComponent>(body) : nullptr;
@@ -2149,64 +1844,26 @@ void SandboxApp::updateCombat(float dt)
 
     if (m_chaseOk && xf && !inAirCommit)
     {
-        const float before = hpCombat->hp();
         Combat::CombatSystem combat;
         if (Combat::DefenseComponent* defense = world().get<Combat::DefenseComponent>(body))
             Combat::syncShieldDefense(*defense, m_offhand.shield, m_lookYaw);
-        world().each<AiAgentComponent>([&](Entity e, AiAgentComponent&) {
-            const HealthComponent* hp = world().get<HealthComponent>(e);
-            const TransformComponent* hxf = world().get<TransformComponent>(e);
-            if (!hp || !hp->health.alive() || !hxf)
-                return;
-            const float dx = hxf->position.x - xf->position.x;
-            const float dz = hxf->position.z - xf->position.z;
-            if (dx * dx + dz * dz > kStandoff * kStandoff)
-                return;
-            Vector3f hitDir{ xf->position.x - hxf->position.x, 0.0f, xf->position.z - hxf->position.z };
-            if (hitDir.MagnitudeSqrd() > 1.0e-8f)
-                hitDir.Normalize();
-            else
-                hitDir = Vector3f{ 0.0f, 0.0f, 1.0f };
-            Combat::DamageEvent ev{};
-            ev.source   = e;
-            ev.target   = body;
-            ev.amount   = kContactDps * dt;
-            ev.type     = Combat::DamageType::Slash;
-            ev.hitDir   = hitDir;
-            ev.hitPoint = xf->position;
-            ev.flags    = Combat::DamageFlags::CanBlock | Combat::DamageFlags::CanParry;
-            if (combat.resolve(world(), ev).killed)
-            {
-                DE_LOG_INFO("Player: down");
-                playSoundCue(world(), audio(), assets(), possessedBody(), "death");
-            }
-        });
-        if (hpCombat->hp() < before && m_hurtSoundTimer <= 0.0f)
+        const ContactGrindResult grind = applyContactGrind(world(), combat, body, xf->position, dt);
+        if (grind.killed)
+        {
+            DE_LOG_INFO("Player: down");
+            playSoundCue(world(), audio(), assets(), possessedBody(), "death");
+        }
+        if (grind.damaged && m_hurtSoundTimer <= 0.0f)
         {
             playSoundCue(world(), audio(), assets(), possessedBody(), "pain");
             m_hurtSoundTimer = 0.40f;
-            Vector3f away{ 0.0f, 0.0f, 0.0f };
-            float    best = kStandoff * kStandoff;
-            world().each<AiAgentComponent>([&](Entity e, AiAgentComponent&) {
-                const HealthComponent* hp = world().get<HealthComponent>(e);
-                const TransformComponent* hxf = world().get<TransformComponent>(e);
-                if (!hp || !hp->health.alive() || !hxf)
-                    return;
-                const float dx = hxf->position.x - xf->position.x;
-                const float dz = hxf->position.z - xf->position.z;
-                const float d2 = dx * dx + dz * dz;
-                if (d2 > best)
-                    return;
-                best = d2;
-                away = Vector3f{ -dx, 0.0f, -dz };
-            });
             // Chip damage used to call apply(), which restarts stun from the last real
             // hit's settings. A knockdown stun is longer than this 0.40s pulse, so a
             // hunter in standoff refreshed the lock and input never came back.
             if (HitReaction* hit = localHit())
             {
                 if (!hit->stunned() && !hit->knockingBack())
-                    hit->nudge(away, 0.35f, 0.08f);
+                    hit->nudge(grind.away, 0.35f, 0.08f);
             }
         }
     }
@@ -2387,26 +2044,14 @@ bool SandboxApp::firePossessedLoadout(bool charged)
 {
     const Entity body = possessedBody();
     const TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    WeaponFireRequest req{};
-    req.direction = m_viewCamera.GetLook();
-    if (req.direction.MagnitudeSqrd() > 1.0e-6f)
-        req.direction.Normalize();
-    else
-        req.direction = Vector3f{ 0.0f, 0.0f, 1.0f };
-    req.origin      = m_viewCamera.GetPosition() + req.direction * 2.2f;
-    req.ownerPos    = xf ? xf->position : m_viewCamera.GetPosition();
-    req.damageScale = charged ? m_chargeSettings.attackDamageScale : 1.0f;
+    WeaponFireRequest req = makeCameraFireRequest(m_viewCamera.GetPosition(), m_viewCamera.GetLook(), xf ? &xf->position : nullptr,
+                                                  charged ? m_chargeSettings.attackDamageScale : 1.0f);
 
     WeaponLoadout*  wFire = localWeapons();
     SkillComponent* skill = nullptr;
     if (wFire && wFire->activeKind() == WeaponKind::Projectile && body.valid())
         skill = world().get<SkillComponent>(body);
-    if (skill)
-    {
-        const int shootLevel = skill->level(SkillId::Shoot);
-        req.recoilScale      = skillScalar(SkillId::Shoot, SkillScalar::RecoilScale, shootLevel);
-        req.cooldownScale    = skillScalar(SkillId::Shoot, SkillScalar::CooldownScale, shootLevel);
-    }
+    applyShootSkill(req, skill);
 
     const bool melee = wFire && wFire->activeKind() == WeaponKind::Melee;
     if (melee && m_blockRecoil > 0.0f)
@@ -2877,153 +2522,52 @@ void SandboxApp::spawnHunterBlood(const Vector3f& pos)
     m_blood.emitBurst(12);
 }
 
-namespace
+ImpactFxHost SandboxApp::impactHost()
 {
-
-    bool decalPointFinite(const Vector3f& p)
-    {
-        return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z);
-    }
-
-    Vector3f decalSafeNormal(const Vector3f& n)
-    {
-        if (n.MagnitudeSqrd() <= 1.0e-8f)
-            return Vector3f(0.0f, 1.0f, 0.0f);
-        Vector3f out = n;
-        out.Normalize();
-        return out;
-    }
-
-    Vector3f decalFlatFacing(const Vector3f& facing)
-    {
-        Vector3f f(facing.x, 0.0f, facing.z);
-        if (f.MagnitudeSqrd() <= 1.0e-8f)
-            return Vector3f(0.0f, 0.0f, 1.0f);
-        f.Normalize();
-        return f;
-    }
-
-    Vector3f decalYawFacing(float x, float z)
-    {
-        const uint32_t hx  = static_cast<uint32_t>(std::fabs(x) * 1000.0f);
-        const uint32_t hz  = static_cast<uint32_t>(std::fabs(z) * 1000.0f);
-        const uint32_t h   = hx * 1664525u + hz + 1013904223u;
-        const float    yaw = static_cast<float>(h & 0xFFFFu) * (6.2831853f / 65535.0f);
-        return Vector3f(std::cos(yaw), 0.0f, std::sin(yaw));
-    }
-
+    ImpactFxHost host;
+    host.world       = &world();
+    host.scene       = &m_scene;
+    host.renderer    = &renderer();
+    host.terrain     = &m_terrain;
+    host.ground      = &m_ground;
+    host.contactGrid = &m_terrain;
+    host.targets     = &m_weaponTargets;
+    return host;
 }
 
 bool SandboxApp::deferredDecals()
 {
-    return renderer().scenePath() == ScenePath::HybridDeferred
-        && renderer().debugState().decalsEnabled
-        && m_scene.decalsReady();
+    return impactDecalsReady(impactHost());
 }
 
 bool SandboxApp::isStepCue(Entity e, const char* cue)
 {
-    const TransformComponent* xf = e.valid() ? world().get<TransformComponent>(e) : nullptr;
-    const char* groundCue = nullptr;
-    if (xf)
-        groundCue = groundContactAt(xf->position.x, xf->position.z).cue;
-    return decalCueIsGroundStep(cue, groundCue);
+    return impactIsStepCue(impactHost(), e, cue);
 }
 
 void SandboxApp::spawnFootmark(const Vector3f& bodyPos, const Vector3f& facing)
 {
-    if (!deferredDecals())
-        return;
-    DecalSpawnDesc desc;
-    desc.kind     = DecalKind::Footmark;
-    desc.space    = DecalSpace::World;
-    desc.position = Vector3f(bodyPos.x, m_terrain.heightAtWorld(bodyPos.x, bodyPos.z), bodyPos.z);
-    desc.axisY    = Vector3f(0.0f, 1.0f, 0.0f);
-    desc.axisX    = decalFlatFacing(facing);
-    m_scene.spawnDecal(desc);
+    Dark::spawnFootmark(impactHost(), bodyPos, facing);
 }
 
 void SandboxApp::spawnHunterFootmark(Entity hunter)
 {
-    if (!deferredDecals())
-        return;
-    const TransformComponent* xf = hunter.valid() ? world().get<TransformComponent>(hunter) : nullptr;
-    if (!xf)
-        return;
-    Vector3f facing(0.0f, 0.0f, 1.0f);
-    if (const AiAgentComponent* ai = world().get<AiAgentComponent>(hunter))
-        facing = ai->forward;
-    spawnFootmark(xf->position, facing);
+    Dark::spawnHunterFootmark(impactHost(), hunter);
 }
 
 void SandboxApp::spawnWeaponImpact(const WeaponHit& hit)
 {
-    if (!deferredDecals() || !decalPointFinite(hit.point))
-        return;
-    const Vector3f normal = decalSafeNormal(hit.normal);
-    DecalSpawnDesc desc;
-    desc.kind   = DecalKind::Impact;
-    desc.weapon = hit.weapon;
-    desc.axisY  = normal;
-    desc.axisX  = decalImpactAxisX(normal, hit.direction);
-    Entity victim = hit.targetEntity;
-    if (!victim.valid() && hit.targetIndex >= 0 && hit.targetIndex < static_cast<int>(m_weaponTargets.size()))
-        victim = m_weaponTargets[static_cast<size_t>(hit.targetIndex)].entity;
-    const bool attach = hit.hitTarget && victim.valid() && world().alive(victim) && world().get<TransformComponent>(victim);
-    if (attach)
-    {
-        desc.entity   = victim;
-        desc.position = decalShellBiasedPosition(hit.point, normal);
-        if (world().has<AnimGraphComponent>(victim))
-        {
-            desc.space = DecalSpace::Bone;
-            desc.bone  = -1;
-        }
-        else
-            desc.space = DecalSpace::Entity;
-    }
-    else
-    {
-        desc.space    = DecalSpace::World;
-        desc.position = hit.point;
-    }
-    m_scene.spawnDecal(desc);
+    Dark::spawnWeaponImpact(impactHost(), hit);
 }
 
 void SandboxApp::spawnLivingBloodDecal(Entity victim, const Vector3f& point, const Vector3f& hitNormal)
 {
-    if (!deferredDecals() || !decalPointFinite(point))
-        return;
-    if (!victim.valid() || !world().alive(victim) || !world().get<TransformComponent>(victim))
-        return;
-    const Vector3f normal = decalSafeNormal(hitNormal);
-    DecalSpawnDesc desc;
-    desc.kind     = DecalKind::Blood;
-    desc.entity   = victim;
-    desc.position = decalShellBiasedPosition(point, normal);
-    desc.axisY    = normal;
-    desc.axisX    = decalImpactAxisX(normal, Vector3f(1.0f, 0.0f, 0.0f));
-    if (world().has<AnimGraphComponent>(victim))
-    {
-        desc.space = DecalSpace::Bone;
-        desc.bone  = -1;
-    }
-    else
-        desc.space = DecalSpace::Entity;
-    m_scene.spawnDecal(desc);
+    Dark::spawnLivingBloodDecal(impactHost(), victim, point, hitNormal);
 }
 
 void SandboxApp::spawnDeathBloodDecal(const Vector3f& point, const Vector3f& hitNormal)
 {
-    if (!deferredDecals() || !decalPointFinite(point))
-        return;
-    DecalSpawnDesc desc;
-    desc.kind     = DecalKind::Blood;
-    desc.space    = DecalSpace::World;
-    desc.position = Vector3f(point.x, m_terrain.heightAtWorld(point.x, point.z), point.z);
-    desc.axisY    = decalDeathAxisY(hitNormal, m_terrain.normalAtWorld(point.x, point.z));
-    desc.axisX    = decalYawFacing(point.x, point.z);
-    m_scene.spawnDecal(desc);
+    Dark::spawnDeathBloodDecal(impactHost(), point, hitNormal);
 }
 
 void SandboxApp::placeHealthPacks()
@@ -3219,37 +2763,10 @@ void SandboxApp::updateShoulderCamera()
         return;
 
     const bool crouched = localMotor() && localMotor()->state() == PlayerMoveState::Crouch;
-    const Vector3f target{ xf->position.x, xf->position.y + (crouched ? 0.78f : 1.15f), xf->position.z };
-    Vector3f look{ std::sinf(m_lookYaw) * std::cosf(m_lookPitch), std::sinf(m_lookPitch), std::cosf(m_lookYaw) * std::cosf(m_lookPitch) };
-    look.Normalize();
-    Vector3f right = look.Cross(Vector3f{ 0.0f, 1.0f, 0.0f });
-    if (right.MagnitudeSqrd() < 1.0e-6f)
-        right = Vector3f::X_AXIS;
-    right.Normalize();
-
-    constexpr float kBoom = 2.4f;
-    constexpr float kMinBoom = 0.28f;
-    Vector3f boom = look * -kBoom + right * 0.42f + Vector3f{ 0.0f, 0.28f, 0.0f };
-    float boomLen = boom.Magnitude();
-    if (boomLen < 1.0e-3f)
-        boomLen = kBoom;
-    Vector3f boomDir = boom * (1.0f / boomLen);
-
-    Ray3f ray{ target, boomDir };
-    const Dark::Collision::RayHit3D hit = m_terrain.raycast(ray, boomLen);
-    if (hit.hit && hit.t < boomLen)
-        boomLen = Math::Max(kMinBoom, hit.t - 0.12f);
-    boomLen = Math::Max(kMinBoom, boomLen);
-
-    Vector3f cam = target + boomDir * boomLen;
-    if (m_shake > 0.0f)
-        cam += right * (std::sinf(m_shakeTime * 95.0f) * m_shake) + Vector3f{ 0.0f, std::sinf(m_shakeTime * 120.0f + 1.0f) * m_shake, 0.0f };
-    if (m_playerWet)
-        cam.y = Math::Max(cam.y, m_water.params().waterLevel + 0.45f);
+    const ShoulderView view = solveShoulderCamera(xf->position, m_lookYaw, m_lookPitch, crouched, m_shake, m_shakeTime, m_playerWet, m_water.params().waterLevel, &shoulderTerrainRay, &m_terrain);
 
     m_viewCamera.SetLens(1.04719755f, m_viewCamera.GetAspect(), m_viewCamera.GetNearZ(), m_viewCamera.GetFarZ());
-    const Vector3f aim = target + look * 16.0f;
-    m_viewCamera.LookAt(cam, aim, Vector3f{ 0.0f, 1.0f, 0.0f });
+    m_viewCamera.LookAt(view.eye, view.aim, Vector3f{ 0.0f, 1.0f, 0.0f });
     if (auto* cxf = world().get<TransformComponent>(m_camera))
         cxf->position = m_viewCamera.GetPosition();
 }
@@ -3363,26 +2880,15 @@ void SandboxApp::onNetPeer(const NetPeerInfo& info, NetPeerEvent event, void* us
 
 void SandboxApp::syncTerrainLod()
 {
-    if (const Entity body = possessedBody(); body.valid())
-    {
-        if (const TransformComponent* xf = world().get<TransformComponent>(body))
-            m_terrain.pinWorldXZ(xf->position.x, xf->position.z, 3);
-    }
-    else
-        m_terrain.clearPin();
-
-    m_terrain.updateStreaming(m_viewCamera.GetPosition(), &renderer(), &m_terrainMaterial);
+    const Entity body = possessedBody();
+    const TransformComponent* anchor = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    updatePinnedTerrainStream(m_terrain, m_viewCamera.GetPosition(), renderer(), m_terrainMaterial, !body.valid(), anchor);
     if (m_terrain.heightTexture().valid())
     {
         renderer().setHeightSrv(m_terrain.heightTexture().cpuHandle());
         m_waterPipeline.setHeightSrv(renderer().device(), m_terrain.heightTexture().cpuHandle());
     }
-
-    const bool waterDirty = m_water.needsRebuild();
-    if (!waterDirty)
-        return;
-    m_water.rebuildDirtyCpuMeshes();
-    if (!m_water.uploadDirty(renderer()))
+    if (!flushDirtyWater(m_water, renderer()))
         DE_LOG_ERROR("SandboxApp: water upload failed");
 }
 
@@ -3404,15 +2910,7 @@ void SandboxApp::createPhysicsWorld()
         return;
     }
 
-    Physics::PhysicsHeightFieldDesc hf;
-    hf.heights     = coarse.samples();
-    hf.countX      = coarse.width();
-    hf.countZ      = coarse.height();
-    hf.cellSize    = coarse.cellSize();
-    hf.heightScale = coarse.heightScale();
-    hf.origin      = coarse.origin();
-    hf.friction    = 0.8f;
-    m_physicsGround = m_physics.createHeightField(hf);
+    m_physicsGround = bindHeightFieldGround(m_physics, coarse, "SandboxApp");
     if (m_physicsGround == Physics::kNullPhysicsBody)
         DE_LOG_WARN(LogCategory::Collision, "SandboxApp: terrain height field failed");
 }
@@ -3476,38 +2974,18 @@ void SandboxApp::bindCharacterPhysics()
 
 float SandboxApp::playerGroundHeight(float x, float z) const
 {
-    float groundY = m_terrain.heightAtWorld(x, z);
-    if (!m_physics.valid())
-        return groundY;
-
-    Physics::PhysicsWorld::GroundProbe probe;
-    probe.from       = Vector3f(x, m_groundProbeY, z);
-    probe.radius     = 0.3f;
-    probe.maxDrop    = (m_groundProbeY - groundY) + 1.0f;
-    probe.ignore     = m_groundIgnore;
-    probe.ignore2    = m_physicsGround;
-    probe.staticOnly = true;
-
-    float surfaceY = 0.0f;
-    if (probe.maxDrop > 0.0f && m_physics.probeGround(probe, surfaceY) && surfaceY > groundY)
-        groundY = surfaceY;
-    return groundY;
+    return raisedGroundY(m_physics, m_groundIgnore, m_physicsGround, m_terrain.heightAtWorld(x, z), x, z, m_groundProbeY);
 }
 
 Terrain::GroundContact SandboxApp::groundContactAt(float x, float z) const
 {
-    const Terrain::HeightMap* height = m_terrain.editableWorking();
-    if (!height || !height->valid())
-        height = &m_terrain.coarse();
-    const Terrain::SplatMap* splat = m_terrain.editableWorkingSplat();
-    return m_ground.at(height, splat && splat->valid() ? splat : nullptr, x, z);
+    return Terrain::groundContactAt(m_ground, &m_terrain, x, z);
 }
 
 void SandboxApp::onInit()
 {
     DE_LOG_INFO("SandboxApp: init");
 
-    mountContentRoots(assets());
     m_ground.loadFromContent();
     skillCatalog().loadFromContent();
     m_chase.setGround(&m_ground);
@@ -4150,24 +3628,8 @@ void SandboxApp::onInit()
             const Entity hunter = m_chase.spawnListedHunter(world(), pins(), assets(), xf);
             if (!hunter.valid())
                 continue;
-            const char* gltf = "models/skeleton.gltf";
-            std::string wolfGltf;
-            if (wolf)
-            {
-                const EntityMaster wolfMaster = loadEntityMasterType("wolf");
-                wolfGltf = wolfMaster.gltf.empty() ? std::string("models/wolf.gltf") : wolfMaster.gltf;
-                gltf     = wolfGltf.c_str();
-            }
-            attachAnimatedCharacter(hunter, gltf);
-            attachHunterSounds(world(), pins(), assets(), audio(), hunter, m_ground);
-            if (HittableComponent* hit = world().get<HittableComponent>(hunter))
-                hit->halfExtents = wolf ? Vector3f{ 0.45f, 0.45f, 0.70f } : Vector3f{ 0.4f, 0.7f, 0.4f };
-            if (wolf)
-            {
-                if (TagComponent* tag = world().get<TagComponent>(hunter))
-                    tag->name = "Wolf";
-                applySkillProfile(world(), hunter, "wolf");
-            }
+            const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
+            attachNpcVisual(host, hunter, wolf ? NpcKind::Wolf : NpcKind::Hunter, ModelAttach::AnimatedOnly);
             const int stamp = wolf ? wolfStamp++ : hunterStamp++;
             stampProceduralId(world(), hunter, std::format("sandbox/level/{}/{}", wolf ? "wolf" : "hunter", stamp), wolf ? "wolf" : "hunter");
             if (!wolf)
@@ -4235,12 +3697,12 @@ void SandboxApp::onUpdate(float dt)
         m_water.tick(dt);
         if (m_chaseOk)
         {
+            applyPreyFromMotor(m_chase.ai(), m_stealth, localMotor(), input().actionDown("sprint"));
             const PlayerMotor* motor = localMotor();
             const float speed = motor ? Vector3f{ motor->velocity().x, 0.0f, motor->velocity().z }.Magnitude() : 0.0f;
             const bool crouched = motor && motor->state() == PlayerMoveState::Crouch;
             const bool moving = speed >= m_stealth.stillSpeed;
             const bool sprinting = moving && !crouched && input().actionDown("sprint");
-            m_chase.ai().setPreySense(preySenseFor(m_stealth, crouched, moving, sprinting));
             m_lightLevel = playerLightLevel();
             float stance = crouched ? (moving ? 0.55f : 0.4f) : (sprinting ? 1.3f : (moving ? 1.0f : 0.8f));
             if (m_camouflage)
@@ -4872,14 +4334,6 @@ void SandboxApp::onRender()
                 m_foliagePipeline.drawGBuffer(cmd, renderer(), assets(), m_foliagePrototypes, m_terrain, m_foliage.empty() ? nullptr : &m_foliage, m_foliageDensity, m_viewCamera, viewProj, prevViewProj, frustum);
         }
 
-        markPass(PassId::Decals);
-        m_scene.drawDecals(cmd, renderer(), m_viewCamera, viewProj);
-        renderer().bindHdr(false);
-        renderer().clearHdr();
-        markPass(PassId::Gtao);
-        m_scene.applyGtao(cmd, renderer(), m_viewCamera, prevViewProj, m_ssao);
-        markPass(PassId::Ssr);
-        m_scene.applySsr(cmd, renderer(), m_viewCamera, prevViewProj, m_ssr, &m_env);
         LightingConstants lc{};
         copyMatrix(lc.invViewProj, viewProj.Inverse());
         lc.cameraPos[0]     = camPos.x;
@@ -4907,10 +4361,20 @@ void SandboxApp::onRender()
         applyFogToLighting(lc, fog);
         fillIblLightingConstants(lc, m_ibl, renderer().debugState().iblEnabled, renderer().debugState().iblDebug, iblGpuReady(renderer().gpuResources(), m_iblImageId));
         fillSsrLightingConstants(lc, m_ssr, renderer().debugState().ssrEnabled, m_scene.ssr().isValid() && renderer().hasGBuffer());
+        // The pass list is an order check after the frame. These five run inside resolveDeferred in this order.
+        markPass(PassId::Decals);
+        markPass(PassId::Gtao);
+        markPass(PassId::Ssr);
         markPass(PassId::Lighting);
-        m_lighting.draw(cmd, renderer(), m_shadows, lc);
         markPass(PassId::LocalVolumes);
-        m_localLightVolumes.draw(cmd, renderer(), world(), m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, m_viewCamera, viewProj, lc, &m_scene.localShadows());
+        DeferredResolveInput resolve;
+        resolve.viewProj     = &viewProj;
+        resolve.prevViewProj = &prevViewProj;
+        resolve.gtao         = &m_ssao;
+        resolve.ssr          = &m_ssr;
+        resolve.ssrEnv       = &m_env;
+        resolve.lighting     = &lc;
+        m_scene.resolveDeferred(cmd, renderer(), world(), m_viewCamera, resolve);
 
         renderer().bindHdr(true);
         markPass(PassId::Sky);

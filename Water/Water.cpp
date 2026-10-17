@@ -22,7 +22,7 @@ using namespace Terrain;
 
     void CopyMatrix(float dst[16], const Matrix4f& m)
     {
-        std::memcpy(dst, m.m_afEntry, sizeof(float) * 16);
+        m.store(dst);
     }
 
     bool WaterWorld::create(const HeightMap& heightMap, WaterDesc desc)
@@ -368,7 +368,7 @@ using namespace Terrain;
         cb.heightCellSize   = fogMap.heightCellSize;
         cb.heightWorldSizeX = fogMap.heightWorldSizeX;
         cb.heightWorldSizeZ = fogMap.heightWorldSizeZ;
-        const bool hasSsr = sceneColorCpu.ptr != 0 && depthCpu.ptr != 0;
+        const bool hasSsr = pipeline.ssrDescriptorsBound(sceneColorCpu, depthCpu);
         WaterPipeline::fillSsr(cb, camera, ssrSettings, !debug || debug->ssrEnabled, hasSsr, env);
         pipeline.setConstants(cmd, cb, frameIndex, drawIndex);
         pipeline.setLights(cmd, lightsVa);

@@ -53,6 +53,17 @@ struct SceneRendererDesc
     bool createAutoExposure = false;
 };
 
+// ssrEnv may be null. The other pointers are required.
+struct DeferredResolveInput
+{
+    const Math::Matrix4f*   viewProj     = nullptr;
+    const Math::Matrix4f*   prevViewProj = nullptr;
+    const GtaoSettings*     gtao         = nullptr;
+    const SsrSettings*      ssr          = nullptr;
+    const Sky::Environment* ssrEnv       = nullptr;
+    const LightingConstants* lighting    = nullptr;
+};
+
 class SceneRenderer
 {
 public:
@@ -77,6 +88,10 @@ public:
     // Resize the meter with the swap chain. True when the size changed: the readback was
     // dropped, and the host should zero its stored EV before adapting.
     bool syncAutoExposureSize(Renderer& renderer);
+
+    // Decals, HDR clear, GTAO, SSR, deferred lighting, local volumes.
+    // Hosts fill LightingConstants. ssrEnv may be null.
+    void resolveDeferred(ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, const Camera3D& camera, const DeferredResolveInput& in);
 
     // After bindHdr(false), before lighting.draw. Compose authored*ssao into slot 5 when enabled;
     // restore MRT3 on skip so a disable cannot stick a stale compose handle.

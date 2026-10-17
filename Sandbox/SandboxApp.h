@@ -38,6 +38,8 @@
 #include "Gameplay/HealthPack.h"
 #include "PathChase.h"
 #include "Terrain/TerrainGround.h"
+#include "Play/ImpactFx.h"
+#include "Play/WeaponTargets.h"
 #include "Ui/HudTagComponent.h"
 #include "Ui/NpcInfoOverlay.h"
 #include "Weapons/HittableComponent.h"
@@ -80,13 +82,13 @@ private:
     void drawLoot();
     int  giveItem(Dark::InventoryComponent& inv, const Dark::ItemStack& item);
     void stockHunter(Dark::Entity hunter);
-    void                 faceHitTarget(Dark::Entity target);
-    bool                 boneWorldPos(Dark::Entity e, const char* bone, Dark::Math::Vector3f& out);
-    void                 onPlayerDefended(Dark::Entity attacker, bool parried);
-    void                 drawDefenseText();
-    void                 drawGuardAwareness();
-    float                playerLightLevel();
-    void                 drawTargetMarker();
+    void faceHitTarget(Dark::Entity target);
+    bool boneWorldPos(Dark::Entity e, const char* bone, Dark::Math::Vector3f& out);
+    void onPlayerDefended(Dark::Entity attacker, bool parried);
+    void drawDefenseText();
+    void drawTargetMarker();
+    void drawGuardAwareness();
+    float playerLightLevel();
     void updateHunterLoot();
     bool ownsWeapon(Dark::WeaponKind kind);
     void pickUpNearestItem();
@@ -120,6 +122,7 @@ private:
     void updateFlashlight();
     void pulseMuzzle();
     void spawnHunterBlood(const Dark::Math::Vector3f& pos);
+    Dark::ImpactFxHost impactHost();
     bool deferredDecals();
     bool isStepCue(Dark::Entity e, const char* cue);
     void spawnFootmark(const Dark::Math::Vector3f& bodyPos, const Dark::Math::Vector3f& facing);
@@ -238,14 +241,7 @@ private:
 
     Dark::PathChase                m_chase;
     bool                           m_chaseOk = false;
-    struct WeaponTargetScratch
-    {
-        Dark::Entity         entity{};
-        Dark::Math::Vector3f center{};
-        Dark::Math::Vector3f halfExtents{ 1.0f, 1.0f, 1.0f };
-        bool                 alive = false;
-    };
-    std::vector<WeaponTargetScratch> m_weaponTargets;
+    Dark::WeaponTargetList m_weaponTargets;
 
     Dark::Terrain::TerrainGrid m_terrain;
     Dark::FoliagePrototypes                   m_foliagePrototypes;

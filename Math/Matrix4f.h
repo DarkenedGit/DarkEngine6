@@ -3,6 +3,8 @@
 #include "Matrix3f.h"
 #include "Vector4f.h"
 
+#include <cstring>
+
 namespace Dark::Math
 {
 	// Row-major 4x4 matrix (D3D-friendly: translation in m41,m42,m43).
@@ -93,6 +95,12 @@ namespace Dark::Math
 		float& operator()(int iRow, int iCol);
 		float  operator[](int iPos) const;
 		float& operator[](int iPos);
+
+		// Row-major copy into a disjoint 16-float constant buffer.
+		void store(float dst[16]) const
+		{
+			std::memcpy(dst, m_afEntry, sizeof(m_afEntry));
+		}
 
 		void     SetRow(int iRow, const Vector4f& Vector);
 		void     SetRow(int iRow, const Vector3f& Vector);

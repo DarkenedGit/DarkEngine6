@@ -128,6 +128,7 @@ set(DE_ENGINE_REST_FOLDERS
     Terrain
     Water
     Save
+    Play
 )
 
 de_glob_folders(DE_FOUNDATION_SOURCES ${DE_FOUNDATION_FOLDERS})

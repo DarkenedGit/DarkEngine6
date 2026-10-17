@@ -99,6 +99,11 @@ namespace Dark
 
     Math::Vector3f decalShellBiasedPosition(const Math::Vector3f& hitPoint, const Math::Vector3f& hitNormal);
 
+    bool           decalPointFinite(const Math::Vector3f& p);
+    Math::Vector3f decalSafeNormal(const Math::Vector3f& n);
+    Math::Vector3f decalFlatFacing(const Math::Vector3f& facing);
+    Math::Vector3f decalYawFacing(float x, float z);
+
     bool decalCueIsGroundStep(const char* cue, const char* groundCue);
     Math::Vector3f decalDeathAxisY(const Math::Vector3f& hitNormal, const Math::Vector3f& terrainNormal);
     Math::Vector3f decalImpactAxisX(const Math::Vector3f& hitNormal, const Math::Vector3f& hitDirection);

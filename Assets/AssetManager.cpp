@@ -10,6 +10,7 @@
 #include "Assets/ImageCache.h"
 #include "Assets/Model.h"
 #include "Assets/Material.h"
+#include "Core/ContentRoots.h"
 #include "Core/Log.h"
 
 #include <filesystem>
@@ -29,12 +30,12 @@ namespace Dark
         std::erase_if(m_pathToID, [id](const auto& kv) { return kv.second == id; });
     }
 
-    void AssetManager::mountDirectory(const std::filesystem::path& dir)
+    bool AssetManager::mountDirectory(const std::filesystem::path& dir)
     {
         if (dir.empty())
         {
             DE_LOG_WARN("AssetManager: mount path is empty");
-            return;
+            return false;
         }
 
         std::error_code             ec;
@@ -42,19 +43,19 @@ namespace Dark
         if (ec)
         {
             DE_LOG_WARN("AssetManager: cannot resolve mount path '{}': {}", dir.string(), ec.message());
-            return;
+            return false;
         }
 
         if (!std::filesystem::exists(abs, ec) || ec)
         {
             DE_LOG_WARN("AssetManager: mount path does not exist: {} (cwd={})", abs.string(), std::filesystem::current_path().string());
-            return;
+            return false;
         }
 
         if (!std::filesystem::is_directory(abs, ec) || ec)
         {
             DE_LOG_WARN("AssetManager: mount path is not a directory: {}", abs.string());
-            return;
+            return false;
         }
 
         const std::filesystem::path  canonical = std::filesystem::weakly_canonical(abs, ec);
@@ -66,11 +67,46 @@ namespace Dark
         for (const auto& existing : m_mounts)
         {
             if (existing == mounted)
-                return;
+                return false;
         }
 
         m_mounts.push_back(mounted);
         DE_LOG_INFO("AssetManager: mounted '{}'", m_mounts.back().string());
+        return true;
+    }
+
+    int AssetManager::mountContentRoots()
+    {
+        namespace fs = std::filesystem;
+        const std::vector<fs::path> candidates = contentRootCandidates();
+        int added = 0;
+        for (const fs::path& c : candidates)
+        {
+            std::error_code ec;
+            if (c.empty() || !fs::exists(c, ec) || ec || !fs::is_directory(c, ec) || ec)
+                continue;
+
+            if (mountDirectory(c))
+                ++added;
+        }
+
+        bool anyMounted = false;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            anyMounted = !m_mounts.empty();
+        }
+        if (!anyMounted)
+        {
+            std::string listed;
+            for (const fs::path& c : candidates)
+            {
+                if (!listed.empty())
+                    listed += " | ";
+                listed += c.string();
+            }
+            DE_LOG_ERROR("AssetManager: no content directory found. Tried: {}", listed.empty() ? std::string("<none>") : listed);
+        }
+        return added;
     }
 
     std::filesystem::path AssetManager::resolve(const std::string& vpath) const

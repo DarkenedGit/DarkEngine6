@@ -38,6 +38,8 @@
 #include "Character/PlayerStealth.h"
 #include "Combat/HoldCharge.h"
 #include "Combat/Shield.h"
+#include "Play/ImpactFx.h"
+#include "Play/WeaponTargets.h"
 #include "Combat/DamageEvent.h"
 #include "Math/AABox3f.h"
 #include "Terrain/FoliageFile.h"
@@ -62,6 +64,11 @@
 #include <string_view>
 #include <thread>
 #include <vector>
+
+namespace Dark
+{
+    enum class NpcKind : uint8_t;
+}
 
 using namespace Dark;
 
@@ -143,6 +150,7 @@ private:
     bool   attachEditorPlayer(Dark::Entity e);
     bool   attachEditorHunter(Dark::Entity e);
     bool   attachEditorWolf(Dark::Entity e);
+    bool   attachEditorNpc(Dark::Entity e, Dark::NpcKind kind, const char* proxyWarn);
     Dark::Entity findPlayPlayer();
     void   setPlayMode(bool play);
     void   installSaveHost();
@@ -176,6 +184,7 @@ private:
     void   onPlayWeaponHit(const Dark::WeaponHit& hit);
     static void onPlayJumpHitsThunk(void* user, const Dark::Combat::DamageEvent* events, int count);
     static void onPlayHunterCueThunk(void* user, Dark::Entity hunter, const char* cue);
+    ImpactFxHost impactHost();
     bool   deferredDecals();
     bool   isStepCue(Entity e, const char* cue);
     void   spawnFootmark(const Math::Vector3f& bodyPos, const Math::Vector3f& facing);
@@ -505,12 +514,5 @@ private:
     Physics::PhysicsBodyId m_playGroundIgnore = Physics::kNullPhysicsBody;
     std::vector<Dark::Entity>        m_playCubeEntities;
     std::vector<Dark::Entity>        m_playSphereEntities;
-    struct PlayWeaponTarget
-    {
-        Dark::Entity         entity{};
-        Dark::Math::Vector3f center{};
-        Dark::Math::Vector3f halfExtents{ 1.0f, 1.0f, 1.0f };
-        bool                 alive = false;
-    };
-    std::vector<PlayWeaponTarget> m_playWeaponTargets;
+    WeaponTargetList m_playWeaponTargets;
 };

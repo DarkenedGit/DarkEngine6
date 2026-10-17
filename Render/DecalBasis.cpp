@@ -543,6 +543,38 @@ namespace Dark
         return 255;
     }
 
+    bool decalPointFinite(const Vector3f& p)
+    {
+        return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z);
+    }
+
+    Vector3f decalSafeNormal(const Vector3f& n)
+    {
+        if (n.MagnitudeSqrd() <= 1.0e-8f)
+            return Vector3f(0.0f, 1.0f, 0.0f);
+        Vector3f out = n;
+        out.Normalize();
+        return out;
+    }
+
+    Vector3f decalFlatFacing(const Vector3f& facing)
+    {
+        Vector3f f(facing.x, 0.0f, facing.z);
+        if (f.MagnitudeSqrd() <= 1.0e-8f)
+            return Vector3f(0.0f, 0.0f, 1.0f);
+        f.Normalize();
+        return f;
+    }
+
+    Vector3f decalYawFacing(float x, float z)
+    {
+        const uint32_t hx  = static_cast<uint32_t>(std::fabs(x) * 1000.0f);
+        const uint32_t hz  = static_cast<uint32_t>(std::fabs(z) * 1000.0f);
+        const uint32_t h   = hx * 1664525u + hz + 1013904223u;
+        const float    yaw = static_cast<float>(h & 0xFFFFu) * (6.2831853f / 65535.0f);
+        return Vector3f(std::cos(yaw), 0.0f, std::sin(yaw));
+    }
+
     Vector3f decalShellBiasedPosition(const Vector3f& hitPoint, const Vector3f& hitNormal)
     {
         Vector3f n = hitNormal;

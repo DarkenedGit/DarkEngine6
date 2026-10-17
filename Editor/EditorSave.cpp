@@ -1,7 +1,7 @@
 #include "EditorApp.h"
 
-#include "Animation/AnimGraphComponent.h"
 #include "Character/HealthComponent.h"
+#include "Save/PlayClock.h"
 #include "Character/PlayerMotorComponent.h"
 #include "Combat/JumpAttackComponent.h"
 #include "Core/EntityPins.h"
@@ -27,16 +27,6 @@ namespace
     bool skipStampType(SceneObjectType type)
     {
         return isLocalLightType(type) || isGlobalLightType(type) || type == SceneObjectType::CloudVolume;
-    }
-
-    WorldClockComponent* sessionClock(World& world, Entity session)
-    {
-        return session.valid() ? world.get<WorldClockComponent>(session) : nullptr;
-    }
-
-    AiClockComponent* sessionAi(World& world, Entity session)
-    {
-        return session.valid() ? world.get<AiClockComponent>(session) : nullptr;
     }
 
     // Respawn omits EditorObjectComponent until the saved origin is known.
@@ -80,13 +70,7 @@ void EditorApp::installSaveHost()
 
 void EditorApp::ensurePlaySession()
 {
-    if (m_session.valid() && world().alive(m_session))
-        return;
-    m_session = world().createEntity();
-    world().emplace<TagComponent>(m_session, "Session");
-    stampProceduralId(world(), m_session, "session");
-    world().emplace<WorldClockComponent>(m_session);
-    world().emplace<AiClockComponent>(m_session);
+    m_session = Save::ensureSessionEntity(world(), m_session);
 }
 
 void EditorApp::pullPhysicsVelocities()
@@ -212,22 +196,21 @@ void EditorApp::saveBeforeCapture(void* user, World& world)
     app->m_save.setWorldIdentity(app->m_scenePath.generic_string(), "", "");
     app->pullPhysicsVelocities();
     const Entity body = app->m_playPlayer;
-    if (LookComponent* look = body.valid() ? world.get<LookComponent>(body) : nullptr)
+    Save::BodyLookState look;
+    look.yaw          = app->m_playLookYaw;
+    look.pitch        = app->m_playLookPitch;
+    look.lightOn      = app->m_offhand.lightOn;
+    look.lowerBodyYaw = app->m_playLowerBodyYaw;
+    Save::captureBodyLook(world, body, look);
+    if (WorldClockComponent* clock = Save::sessionClock(world, app->m_session))
     {
-        look->yaw     = app->m_playLookYaw;
-        look->pitch   = app->m_playLookPitch;
-        look->lightOn = app->m_offhand.lightOn;
+        Save::SessionClockState clockState;
+        clockState.cloudTime    = app->m_cloudTime;
+        clockState.envTimeOfDay = app->m_env.timeOfDay;
+        clockState.waterTime    = app->m_water.time();
+        Save::writeSessionClock(*clock, clockState);
     }
-    if (AnimGraphComponent* ag = body.valid() ? world.get<AnimGraphComponent>(body) : nullptr)
-        ag->graph.player().setLowerBodyYaw(app->m_playLowerBodyYaw);
-    if (WorldClockComponent* clock = sessionClock(world, app->m_session))
-    {
-        clock->cloudTime    = app->m_cloudTime;
-        clock->envTimeOfDay = app->m_env.timeOfDay;
-        clock->waterTime    = app->m_water.time();
-        clock->simTimeSec   = app->m_cloudTime;
-    }
-    if (AiClockComponent* ai = sessionAi(world, app->m_session))
+    if (AiClockComponent* ai = Save::sessionAi(world, app->m_session))
     {
         ai->time          = app->m_ai.simTime();
         ai->packAttackGap = app->m_ai.packAttackGap();
@@ -242,24 +225,26 @@ void EditorApp::saveAfterApply(void* user, World& world)
         return;
     restoreAuthoredSceneObjects(world);
     const Entity body = app->m_playPlayer;
-    if (const LookComponent* look = body.valid() ? world.get<LookComponent>(body) : nullptr)
+    Save::BodyLookState look;
+    look.yaw          = app->m_playLookYaw;
+    look.pitch        = app->m_playLookPitch;
+    look.lightOn      = app->m_offhand.lightOn;
+    look.lowerBodyYaw = app->m_playLowerBodyYaw;
+    Save::restoreBodyLook(world, body, look);
+    app->m_playLookYaw      = look.yaw;
+    app->m_playLookPitch    = look.pitch;
+    app->m_offhand.lightOn  = look.lightOn;
+    app->m_playLowerBodyYaw = look.lowerBodyYaw;
+    app->m_crouchLatch      = look.crouch;
+    if (const WorldClockComponent* clock = Save::sessionClock(world, app->m_session))
     {
-        app->m_playLookYaw   = look->yaw;
-        app->m_playLookPitch = look->pitch;
-        app->m_offhand.lightOn = look->lightOn;
+        Save::SessionClockState clockState;
+        Save::readSessionClock(*clock, clockState);
+        app->m_cloudTime     = clockState.cloudTime;
+        app->m_env.timeOfDay = clockState.envTimeOfDay;
+        app->m_water.setTime(clockState.waterTime);
     }
-    app->m_crouchLatch = false;
-    if (const PlayerMotorComponent* motor = body.valid() ? world.get<PlayerMotorComponent>(body) : nullptr)
-        app->m_crouchLatch = motor->motor.state() == PlayerMoveState::Crouch;
-    if (const AnimGraphComponent* ag = body.valid() ? world.get<AnimGraphComponent>(body) : nullptr)
-        app->m_playLowerBodyYaw = ag->graph.player().lowerBodyYaw();
-    if (const WorldClockComponent* clock = sessionClock(world, app->m_session))
-    {
-        app->m_cloudTime     = clock->cloudTime;
-        app->m_env.timeOfDay = clock->envTimeOfDay;
-        app->m_water.setTime(clock->waterTime);
-    }
-    if (const AiClockComponent* ai = sessionAi(world, app->m_session))
+    if (const AiClockComponent* ai = Save::sessionAi(world, app->m_session))
     {
         app->m_ai.setSimTime(ai->time);
         app->m_ai.setPackAttackGap(ai->packAttackGap);

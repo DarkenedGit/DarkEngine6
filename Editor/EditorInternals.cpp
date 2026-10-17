@@ -1,17 +1,13 @@
 #include "Editor/EditorInternals.h"
 
-#include "Core/ContentRoots.h"
 #include "Collision/StaticCollision.h"
 #include "Math/AABox3f.h"
 #include "Math/MathHelper.h"
 #include "Math/Sphere3f.h"
 #include "Render/Texture2D.h"
 #include "Render/Renderer.h"
-#include "Assets/AssetManager.h"
 
 #include <cmath>
-#include <cstring>
-#include <filesystem>
 #include <vector>
 
 using namespace Dark;
@@ -31,30 +27,6 @@ namespace Dark::EditorDetail
         { 0.95f, 0.55f, 0.20f, 1.0f },
     };
     const int kPaletteCount = static_cast<int>(sizeof(kPalette) / sizeof(kPalette[0]));
-
-    void mountContentRoots(AssetManager& assets)
-    {
-        namespace fs = std::filesystem;
-        for (const fs::path& c : contentRootCandidates())
-        {
-            std::error_code ec;
-            if (!c.empty() && fs::exists(c, ec) && !ec && fs::is_directory(c, ec) && !ec)
-                assets.mountDirectory(c);
-        }
-    }
-
-    void copyMatrix(float dst[16], const Matrix4f& m)
-    {
-        std::memcpy(dst, m.m_afEntry, sizeof(float) * 16);
-    }
-
-    Matrix4f makeWorldMatrix(const TransformComponent& xf)
-    {
-        const Matrix4f S = Matrix4f::ScaleMatrixXYZ(xf.scale.x, xf.scale.y, xf.scale.z);
-        const Matrix4f R = xf.rotation.ToMatrix4();
-        const Matrix4f T = Matrix4f::TranslationMatrix(xf.position.x, xf.position.y, xf.position.z);
-        return S * R * T;
-    }
 
     void copyColor(float dst[4], const float src[4])
     {

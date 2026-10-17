@@ -41,9 +41,15 @@ namespace Dark::EditorDetail
     extern const float kPalette[][4];
     extern const int kPaletteCount;
 
-    void mountContentRoots(AssetManager& assets);
-    void copyMatrix(float dst[16], const Math::Matrix4f& m);
-    Math::Matrix4f makeWorldMatrix(const TransformComponent& xf);
+    inline void copyMatrix(float dst[16], const Math::Matrix4f& m)
+    {
+        m.store(dst);
+    }
+
+    inline Math::Matrix4f makeWorldMatrix(const TransformComponent& xf)
+    {
+        return worldMatrix(xf);
+    }
     void copyColor(float dst[4], const float src[4]);
     bool createChecker(Renderer& renderer, Texture2D& out,
         uint8_t r0, uint8_t g0, uint8_t b0, uint8_t r1, uint8_t g1, uint8_t b1,

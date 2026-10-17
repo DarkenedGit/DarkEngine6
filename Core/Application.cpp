@@ -1,5 +1,4 @@
 #include "Core/Application.h"
-#include "Core/ContentRoots.h"
 #include "Core/Log.h"
 #include "Core/Version.h"
 #include "Input/InputCodes.h"
@@ -12,7 +11,6 @@
 
 #include <cstdint>
 #include <cstdlib>
-#include <filesystem>
 #include <stdlib.h>
 
 namespace Dark
@@ -342,13 +340,7 @@ namespace Dark
 
     void Application::mountDefaultContentRoots()
     {
-        namespace fs = std::filesystem;
-        for (const fs::path& c : contentRootCandidates())
-        {
-            std::error_code ec;
-            if (!c.empty() && fs::exists(c, ec) && !ec && fs::is_directory(c, ec) && !ec)
-                m_assets.mountDirectory(c);
-        }
+        m_assets.mountContentRoots();
     }
 
     bool Application::shouldShowSplash() const
