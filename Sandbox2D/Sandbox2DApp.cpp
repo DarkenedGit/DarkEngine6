@@ -4,7 +4,6 @@
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "ECS/Components.h"
-#include "Input/InputCodes.h"
 #include "Math/MathHelper.h"
 #include "Math/Matrix4f.h"
 #include "Math/Quaternion.h"
@@ -12,6 +11,7 @@
 #include "Network/NetTypes.h"
 #include "Render/MeshGen.h"
 #include "Render/Profile.h"
+#include "Scene/EntityInput.h"
 #include "Scene/SceneCatalog.h"
 #include "Scene/SceneFile.h"
 #include "Sprite/SpriteSheet.h"
@@ -113,33 +113,12 @@ void Sandbox2DApp::registerActions()
     ActionMap& a = input().actions();
     a.clear();
 
-    a.bindKey("quit", Key::Escape);
-    a.bindButton("quit", GamepadButton::Back);
+    // App commands first. The player2d file loads second and replaces any action it names.
+    if (!applySandbox2dInputFile(a))
+        DE_LOG_ERROR(LogCategory::Input, "Sandbox2D: sandbox2d input file was not applied");
 
-    a.bindKey("reset", Key::R);
-    a.bindButton("reset", GamepadButton::Y);
-
-    a.bindKey("jump", Key::Space);
-    a.bindKey("jump", Key::W);
-    a.bindKey("jump", Key::Up);
-    a.bindButton("jump", GamepadButton::A);
-    a.bindButton("jump", GamepadButton::B);
-
-    a.bindKeyAsAxis("move", Key::A, -1.0f);
-    a.bindKeyAsAxis("move", Key::D, 1.0f);
-    a.bindKeyAsAxis("move", Key::Left, -1.0f);
-    a.bindKeyAsAxis("move", Key::Right, 1.0f);
-    a.bindAxis("move", GamepadAxis::LeftX, 1.0f);
-    a.bindButtonAsAxis("move", GamepadButton::DPadLeft, -1.0f);
-    a.bindButtonAsAxis("move", GamepadButton::DPadRight, 1.0f);
-
-    a.bindKey("debug", Key::F1);
-    a.bindButton("debug", GamepadButton::Start);
-
-    a.bindKey("net_disconnect", Key::F4);
-    a.bindKey("net_host", Key::F5);
-    a.bindKey("net_join", Key::F6);
-    a.bindKey("debug_listen", Key::F10);
+    if (!applyPlayer2dInputFile(a))
+        DE_LOG_ERROR(LogCategory::Input, "Sandbox2D: player2d input file was not applied");
 
     DE_LOG_INFO(
         "Sandbox2D: move(A/D / arrows / LS / D-pad) jump(Space/W / A/B) reset(R/Y) debug(F1/Start) quit(Esc/Back)");

@@ -2,6 +2,7 @@
 
 #include "AI/HsmGraph.h"
 #include "AI/Sight.h"
+#include "Character/PlayerMotor.h"
 #include "Character/SkillSense.h"
 #include "Character/SkillXp.h"
 #include "Assets/AssetManager.h"
@@ -1607,7 +1608,13 @@ namespace Dark
             float runS = 1.0f;
             if (const SkillComponent* sk = world.get<SkillComponent>(e))
                 runS = skillScalar(SkillId::Run, SkillScalar::RunScale, sk->level(SkillId::Run));
-            const float speed  = ((sprint || lunging) ? m_pack.sprintSpeed : m_pack.walkSpeed) * (stCc ? stCc->moveSpeedScale() : 1.0f) * ground.moveSpeed * runS;
+            // Per-type speeds come from entities/*.entity.movement.json. Pack speeds remain the fallback.
+            const float walk   = v.ai->authoredMove ? v.ai->walkSpeed : m_pack.walkSpeed;
+            const float run    = v.ai->authoredMove ? v.ai->runSpeed : m_pack.sprintSpeed;
+            const float accel  = v.ai->authoredMove ? v.ai->acceleration : m_pack.acceleration;
+            const float speed  = ((sprint || lunging) ? run : walk) * (stCc ? stCc->moveSpeedScale() : 1.0f) * ground.moveSpeed * runS;
+            const float currentPlanar = std::sqrt(v.ai->planarVelocity.x * v.ai->planarVelocity.x + v.ai->planarVelocity.z * v.ai->planarVelocity.z);
+            const float paced = approachSpeed(currentPlanar, speed, accel, dt);
             if (guard && leaf != AI::Leaf::Chase && leaf != AI::Leaf::Assist && leaf != AI::Leaf::Flee)
             {
                 guardMove(world, v, dt, terrain, speed, (ground.cue && ground.cue[0]) ? ground.cue : "step");
@@ -1624,7 +1631,7 @@ namespace Dark
                 away.Normalize();
                 const Vector3f side{ -away.z * v.ai->circleDir, 0.0f, away.x * v.ai->circleDir };
                 const Vector3f dest = playerPos + away * kDuelRing + side * 2.0f;
-                seekToward(v, dt, terrain, speed * 0.35f, dest.x, dest.z);
+                seekToward(v, dt, terrain, approachSpeed(currentPlanar, speed * 0.35f, accel, dt), dest.x, dest.z);
                 v.ai->forward = flattenDir(Vector3f{ playerPos.x - v.xf->position.x, 0.0f, playerPos.z - v.xf->position.z }, v.ai->forward);
                 v.path->path.points.clear();
                 v.path->waypoint = 0;
@@ -1679,23 +1686,23 @@ namespace Dark
             const bool     holding = v.ai->attackPause > 0.0f;
             if (v.ai->repositionLeft > 0.0f)
             {
-                seekToward(v, dt, terrain, speed, v.ai->repositionDest.x, v.ai->repositionDest.z);
+                seekToward(v, dt, terrain, paced, v.ai->repositionDest.x, v.ai->repositionDest.z);
                 const float rdx = v.ai->repositionDest.x - v.xf->position.x;
                 const float rdz = v.ai->repositionDest.z - v.xf->position.z;
                 if (rdx * rdx + rdz * rdz < 0.36f)
                     v.ai->repositionLeft = 0.0f;
             }
             else if (!holding)
-                follow(v, dt, terrain, speed);
+                follow(v, dt, terrain, paced);
             Vector3f move{ v.xf->position.x - before.x, 0.0f, v.xf->position.z - before.z };
             if (move.MagnitudeSqrd() < 1.0e-8f && !holding && v.ai->repositionLeft <= 0.0f)
             {
                 if (leaf == AI::Leaf::Chase && playerAlive)
-                    seekToward(v, dt, terrain, speed, aimX, aimZ);
+                    seekToward(v, dt, terrain, paced, aimX, aimZ);
                 else if (leaf == AI::Leaf::Assist)
-                    seekToward(v, dt, terrain, speed, v.ai->helpPos.x, v.ai->helpPos.z);
+                    seekToward(v, dt, terrain, paced, v.ai->helpPos.x, v.ai->helpPos.z);
                 else if (leaf == AI::Leaf::Memory && v.ai->hasLastSeen)
-                    seekToward(v, dt, terrain, speed, wolfCircling ? aimX : v.ai->lastSeen.x, wolfCircling ? aimZ : v.ai->lastSeen.z);
+                    seekToward(v, dt, terrain, paced, wolfCircling ? aimX : v.ai->lastSeen.x, wolfCircling ? aimZ : v.ai->lastSeen.z);
                 else if (leaf == AI::Leaf::Wander && !m_walk.valid())
                 {
                     Vector3f toW{ v.ai->wanderDest.x - v.xf->position.x, 0.0f, v.ai->wanderDest.z - v.xf->position.z };
@@ -1704,7 +1711,7 @@ namespace Dark
                         v.ai->wanderDest.x = v.xf->position.x + ((static_cast<int>(m_time * 17.0f) & 1) ? 8.0f : -8.0f);
                         v.ai->wanderDest.z = v.xf->position.z + ((static_cast<int>(m_time * 13.0f) & 1) ? 6.0f : -6.0f);
                     }
-                    seekToward(v, dt, terrain, speed, v.ai->wanderDest.x, v.ai->wanderDest.z);
+                    seekToward(v, dt, terrain, paced, v.ai->wanderDest.x, v.ai->wanderDest.z);
                 }
                 move = Vector3f{ v.xf->position.x - before.x, 0.0f, v.xf->position.z - before.z };
             }

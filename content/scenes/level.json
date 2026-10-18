@@ -1,93 +1,38 @@
 {
   "environment": "env/studio_gradient.hdr",
-  "iblIntensity": 1.0,
-  "iblRotationRadY": 0.0,
-  "terrain": {
-    "bindLayout": 1,
-    "chunkCells": 64,
-    "heightBlendK": -1.0,
-    "source": "terrain/HurricaneRidge",
-    "worldSize": 1024.0,
-    "importHeight": 480.0,
-    "foliage": {
-      "seed": 1337,
-      "dirtTreesPerM2": 0.002,
-      "dirtFlowersPerM2": 0.006,
-      "grassTreesPerM2": 0.003,
-      "grassFlowersPerM2": 0.008,
-      "rockPerM2": 0.004,
-      "grassPerM2": 0.25,
-      "treeModel": "models/BirchTree/scene.gltf",
-      "flowerModel": "models/Dandelion/dandelion_01_2k.gltf",
-      "rockModel": "models/RockMoss/rock_moss_set_01_2k.gltf",
-      "grassModel": "models/Grass/grass_medium_01_2k.gltf"
-    },
-    "grass": {
-      "enabled": true,
-      "height": 0.55,
-      "flexibility": 0.65,
-      "densityScale": 1.0,
-      "windBaseYaw": 1.37,
-      "windTemporalFreq": 0.5,
-      "seed": 1337
-    }
-  },
-  "sky": {
-    "timeOfDay": 16.2,
-    "dayOfYear": 172.0,
-    "latitude": 47.6,
-    "timeScale": 0.0,
-    "weather": "partly",
-    "cloudCoverage": 0.35,
-    "turbidity": 2.4,
-    "windSpeed": 0.04,
-    "windDir": [1.0, 0.2],
-    "rain": 0.0
+  "exposure": {
+    "adaptBright": 6.0,
+    "adaptDark": 1.0,
+    "auto": false,
+    "evBias": 0.0,
+    "maxEv": 1.5
   },
   "fog": {
     "auto": true,
-    "distanceScale": 0.1,
-    "heightScale": 0.1,
-    "valleyScale": 0.1,
-    "distanceDensity": 0.004,
+    "color": [
+      0.4718243479728699,
+      0.5404999852180481,
+      0.6221663355827332
+    ],
+    "distanceDensity": 0.0009450000943616033,
+    "distanceScale": 0.10000000149011612,
     "heightDensity": 0.0,
-    "valleyDensity": 0.012,
-    "heightFalloff": 0.06,
+    "heightFalloff": 0.05999999865889549,
+    "heightScale": 0.10000000149011612,
+    "valleyDensity": 0.0023143996950238943,
     "valleyHeight": 8.0,
-    "color": [0.55, 0.62, 0.72]
+    "valleyScale": 0.10000000149011612
   },
-  "water": {
-    "level": 100.4,
-    "levelFraction": 0.38,
-    "chunkCells": 16,
-    "lodDistances": [40.0, 80.0, 160.0, 320.0, 640.0],
-    "flowDir": [1.0, 0.35],
-    "flowStrength": 0.85,
-    "steepness": 0.55,
-    "amplitudeScale": 1.0,
-    "speedScale": 1.0,
-    "waves": [
-      { "angle": 0.15, "frequency": 0.169815, "amplitude": 0.36, "speed": 1.05 },
-      { "angle": 2.05, "frequency": 0.323876, "amplitude": 0.18, "speed": 1.45 },
-      { "angle": -1.55, "frequency": 0.556034, "amplitude": 0.11, "speed": 1.85 },
-      { "angle": 1.15, "frequency": 0.981748, "amplitude": 0.07, "speed": 2.25 }
-    ]
-  },
-  "exposure": {
-    "auto": false,
-    "evBias": 0.0,
-    "maxEv": 1.5,
-    "adaptBright": 6.0,
-    "adaptDark": 1.0
-  },
+  "iblIntensity": 1.0,
+  "iblRotationRadY": 0.0,
   "mode": "3d",
   "name": "level",
   "objects": [
     {
       "color": [
-        0.2199999988079071,
-        0.2199999988079071,
-        0.2199999988079071,
+        0.08923554420471191,
+        0.11695206165313721,
+        0.15829578042030334,
         1.0
       ],
       "light": {
@@ -118,9 +63,9 @@
     },
     {
       "color": [
-        0.8902438879013062,
-        0.7080935835838318,
-        0.3437933623790741,
+        0.7144690155982971,
+        0.6930349469184875,
+        0.6430220603942871,
         1.0
       ],
       "light": {
@@ -137,10 +82,10 @@
         -4.0
       ],
       "rotation": [
-        0.33176907896995544,
-        -0.1907247006893158,
-        0.8009614944458008,
-        0.460450142621994
+        0.6578798890113831,
+        -0.2079337239265442,
+        -0.6901951432228088,
+        -0.21814750134944916
       ],
       "scale": [
         1.0,
@@ -226,9 +171,9 @@
     },
     {
       "color": [
-        0.85,
-        0.28,
-        0.22,
+        0.8500000238418579,
+        0.2800000011920929,
+        0.2199999988079071,
         1.0
       ],
       "position": [
@@ -251,9 +196,9 @@
     },
     {
       "color": [
-        0.52,
-        0.46,
-        0.40,
+        0.5199999809265137,
+        0.46000000834465027,
+        0.4000000059604645,
         1.0
       ],
       "position": [
@@ -276,9 +221,9 @@
     },
     {
       "color": [
-        0.52,
-        0.46,
-        0.40,
+        0.5199999809265137,
+        0.46000000834465027,
+        0.4000000059604645,
         1.0
       ],
       "position": [
@@ -351,29 +296,327 @@
     },
     {
       "cloud": {
-        "absorption": 1.15,
-        "albedo": [0.90, 0.93, 1.0],
-        "anisotropy": 0.45,
-        "coverage": 0.58,
-        "density": 0.90,
-        "detailScale": 3.4,
-        "detailStrength": 0.38,
+        "absorption": 1.149999976158142,
+        "albedo": [
+          0.8999999761581421,
+          0.9300000071525574,
+          1.0
+        ],
+        "anisotropy": 0.44999998807907104,
+        "coverage": 0.5799999833106995,
+        "density": 0.8999999761581421,
+        "detailScale": 3.4000000953674316,
+        "detailStrength": 0.3799999952316284,
         "enabled": false,
-        "heightFalloff": 0.55,
-        "noiseScale": 0.055,
+        "heightFalloff": 0.550000011920929,
+        "noiseScale": 0.054999999701976776,
         "scattering": 1.0,
         "shape": "ellipsoid",
         "silverLining": 0.75,
-        "softness": 0.42,
-        "windDir": [1.0, 0.02, 0.25],
-        "windSpeed": 1.2
+        "softness": 0.41999998688697815,
+        "windDir": [
+          1.0,
+          0.019999999552965164,
+          0.25
+        ],
+        "windSpeed": 1.2000000476837158
       },
-      "color": [0.90, 0.93, 1.0, 1.0],
-      "position": [0.0, 36.0, 0.0],
-      "rotation": [1.0, 0.0, 0.0, 0.0],
-      "scale": [140.0, 32.0, 140.0],
+      "color": [
+        0.8999999761581421,
+        0.9300000071525574,
+        1.0,
+        1.0
+      ],
+      "position": [
+        0.0,
+        36.0,
+        0.0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        140.0,
+        32.0,
+        140.0
+      ],
       "type": "cloud_volume"
+    },
+    {
+      "color": [
+        1.0,
+        0.699999988079071,
+        0.25,
+        1.0
+      ],
+      "light": {
+        "castShadow": false,
+        "enabled": true,
+        "inner": 12.0,
+        "intensity": 1885.0,
+        "outer": 25.0,
+        "range": 8.0,
+        "sourceRadius": 0.05000000074505806
+      },
+      "particle": {
+        "additiveBlend": true,
+        "direction": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "duration": 0.0,
+        "emissionRate": 40.0,
+        "endColor": [
+          1.0,
+          0.15000000596046448,
+          0.05000000074505806,
+          0.0
+        ],
+        "endSize": [
+          0.019999999552965164,
+          0.10000000149011612
+        ],
+        "gravity": [
+          0.0,
+          -2.0,
+          0.0
+        ],
+        "lifetime": [
+          0.800000011920929,
+          1.600000023841858
+        ],
+        "looping": true,
+        "maxParticles": 512,
+        "name": "Emitter",
+        "renderMode": 0,
+        "ribbonCount": 1,
+        "ribbonUvScale": 1.0,
+        "shape": 0,
+        "shapeSize": [
+          0.25,
+          0.0,
+          0.25
+        ],
+        "simulationSpeed": 1.0,
+        "spreadDegrees": 25.0,
+        "startColor": [
+          1.0,
+          0.699999988079071,
+          0.25,
+          1.0
+        ],
+        "startSize": [
+          0.15000000596046448,
+          0.3499999940395355
+        ],
+        "startSpeed": [
+          1.0,
+          3.0
+        ]
+      },
+      "position": [
+        36.0,
+        178.0,
+        2.0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "type": "particle_emitter"
+    },
+    {
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "position": [
+        476.0,
+        111.0,
+        171.0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        48.0,
+        2.0,
+        48.0
+      ],
+      "type": "water"
     }
   ],
-  "version": 2
+  "sky": {
+    "cloudAltitude": 2000.0,
+    "cloudAmount": 1.0,
+    "cloudCoverage": 0.3499999940395355,
+    "cloudWindSpeedMps": 8.0,
+    "dayOfYear": 172.0,
+    "latitude": 47.599998474121094,
+    "rain": 0.0,
+    "timeOfDay": 16.200000762939453,
+    "timeScale": 0.0,
+    "turbidity": 2.4000000953674316,
+    "weather": "partly",
+    "windDir": [
+      1.0,
+      0.20000000298023224
+    ],
+    "windSpeed": 0.03999999910593033
+  },
+  "terrain": {
+    "bindLayout": 1,
+    "chunkCells": 1024,
+    "foliage": {
+      "dirtFlowersPerM2": 0.006000000052154064,
+      "dirtTreesPerM2": 0.0020000000949949026,
+      "flowerModel": "models/Dandelion/dandelion_01_2k.gltf",
+      "grassFlowersPerM2": 0.00800000037997961,
+      "grassModel": "models/Grass/grass_medium_01_2k.gltf",
+      "grassPerM2": 0.25,
+      "grassTreesPerM2": 0.003000000026077032,
+      "rockModel": "models/RockMoss/rock_moss_set_01_2k.gltf",
+      "rockPerM2": 0.004000000189989805,
+      "seed": 1337,
+      "stale": false,
+      "treeModel": "models/BirchTree/scene.gltf",
+      "version": 1
+    },
+    "grass": {
+      "densityScale": 1.0,
+      "enabled": true,
+      "flexibility": 0.6499999761581421,
+      "height": 0.550000011920929,
+      "seed": 1337,
+      "windBaseYaw": 1.3700000047683716,
+      "windDeflection": 0.550000011920929,
+      "windSpatialFreq": 0.004000000189989805,
+      "windTemporalFreq": 0.5,
+      "windTipMetres": 0.4000000059604645
+    },
+    "heightBlendK": -1.0,
+    "heightBlendT": 0.10000000149011612,
+    "heightFile": "",
+    "importHeight": 480.0,
+    "layers": [
+      {
+        "albedo": "",
+        "normal": "",
+        "orm": "",
+        "tiling": 8.0,
+        "tint": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "albedo": "",
+        "normal": "",
+        "orm": "",
+        "tiling": 8.0,
+        "tint": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "albedo": "",
+        "normal": "",
+        "orm": "",
+        "tiling": 8.0,
+        "tint": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "albedo": "",
+        "normal": "",
+        "orm": "",
+        "tiling": 8.0,
+        "tint": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    ],
+    "source": "terrain/HurricaneRidge",
+    "splatFile": "",
+    "triplanarSlope": 1.0,
+    "worldSize": 1024.0
+  },
+  "version": 3,
+  "water": {
+    "amplitudeScale": 1.0,
+    "chunkCells": 16,
+    "flowDir": [
+      1.0,
+      0.3499999940395355
+    ],
+    "flowSpeed": 0.4000000059604645,
+    "flowStrength": 0.8500000238418579,
+    "foam": 1.0,
+    "foamWidthScale": 1.0,
+    "level": 100.4000015258789,
+    "levelFraction": 0.3799999952316284,
+    "lodDistances": [
+      40.0,
+      80.0,
+      160.0,
+      320.0,
+      640.0
+    ],
+    "speedScale": 1.0,
+    "steepness": 0.550000011920929,
+    "waves": [
+      {
+        "amplitude": 0.4000000059604645,
+        "angle": 0.05999999865889549,
+        "frequency": 0.14959999918937683,
+        "speed": 0.8999999761581421
+      },
+      {
+        "amplitude": 0.1599999964237213,
+        "angle": -0.3400000035762787,
+        "frequency": 0.2651129961013794,
+        "speed": 1.1799999475479126
+      },
+      {
+        "amplitude": 0.10000000149011612,
+        "angle": 0.2199999988079071,
+        "frequency": 0.4303550124168396,
+        "speed": 1.5199999809265137
+      },
+      {
+        "amplitude": 0.05999999865889549,
+        "angle": -0.15000000596046448,
+        "frequency": 0.713998019695282,
+        "speed": 1.8799999952316284
+      }
+    ]
+  }
 }

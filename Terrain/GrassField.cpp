@@ -1,4 +1,5 @@
 #include "Terrain/GrassField.h"
+#include "Terrain/TerrainLodFile.h"
 
 #include "Core/Log.h"
 #include "Math/AABox3f.h"
@@ -155,35 +156,35 @@ namespace Dark::Terrain
 
         int nominalLod(double d2)
         {
-            if (d2 <= sq(kGrassLod0NominalMetres))
+            if (d2 <= sq(grassLod().nominal0))
                 return 0;
-            if (d2 <= sq(kGrassLod1NominalMetres))
+            if (d2 <= sq(grassLod().nominal1))
                 return 1;
-            if (d2 <= sq(kGrassLod2NominalMetres))
+            if (d2 <= sq(grassLod().nominal2))
                 return 2;
-            if (d2 <= sq(kGrassCreateRadiusMetres))
+            if (d2 <= sq(grassLod().createRadius))
                 return 3;
             return -1;
         }
 
         int promoteTo(int lod, double d2)
         {
-            if (lod == 1 && d2 < sq(kGrassPromoteTo0Metres))
+            if (lod == 1 && d2 < sq(grassLod().promote0))
                 return 0;
-            if (lod == 2 && d2 < sq(kGrassPromoteTo1Metres))
+            if (lod == 2 && d2 < sq(grassLod().promote1))
                 return 1;
-            if (lod == 3 && d2 < sq(kGrassPromoteTo2Metres))
+            if (lod == 3 && d2 < sq(grassLod().promote2))
                 return 2;
             return -1;
         }
 
         int demoteTo(int lod, double d2)
         {
-            if (lod == 0 && d2 > sq(kGrassDemoteFrom0Metres))
+            if (lod == 0 && d2 > sq(grassLod().demote0))
                 return 1;
-            if (lod == 1 && d2 > sq(kGrassDemoteFrom1Metres))
+            if (lod == 1 && d2 > sq(grassLod().demote1))
                 return 2;
-            if (lod == 2 && d2 > sq(kGrassDemoteFrom2Metres))
+            if (lod == 2 && d2 > sq(grassLod().demote2))
                 return 3;
             return -1;
         }
@@ -943,13 +944,13 @@ namespace Dark::Terrain
             wind.windX          = sample.dirX * sample.strength * tip;
             wind.windZ          = sample.dirZ * sample.strength * tip;
             wind.pad            = 0.0f;
-            if (d <= kGrassFadeStartMetres)
+            if (d <= grassLod().fadeStart)
             {
                 wind.fade = 1.0f;
                 continue;
             }
-            const float span = kGrassFadeEndMetres - kGrassFadeStartMetres;
-            float       fade = span > 0.0f ? (kGrassFadeEndMetres - d) / span : 0.0f;
+            const float span = grassLod().fadeEnd - grassLod().fadeStart;
+            float       fade = span > 0.0f ? (grassLod().fadeEnd - d) / span : 0.0f;
             if (fade < 0.0f)
                 fade = 0.0f;
             if (fade > 1.0f)
@@ -975,7 +976,7 @@ namespace Dark::Terrain
         {
             const Tile&  tile = m_tiles[i];
             const double d2   = dist2(tileCenterCoord(tile.tileX), tileCenterCoord(tile.tileZ), playerX, playerZ);
-            if (d2 > sq(kGrassEvictRadiusMetres))
+            if (d2 > sq(grassLod().evictRadius))
                 continue;
             if (demoteTo(tile.lod, d2) < 0)
                 continue;
@@ -1005,11 +1006,11 @@ namespace Dark::Terrain
         {
             const Tile&  tile = m_tiles[i];
             const double d2   = dist2(tileCenterCoord(tile.tileX), tileCenterCoord(tile.tileZ), playerX, playerZ);
-            if (d2 > sq(kGrassEvictRadiusMetres))
+            if (d2 > sq(grassLod().evictRadius))
                 eraseTileAt(i);
         }
 
-        const float reach = kGrassCreateRadiusMetres;
+        const float reach = grassLod().createRadius;
         const int   minX  = static_cast<int>(std::floor((static_cast<double>(playerX) - reach) / static_cast<double>(kGrassTileMetres))) - 1;
         const int   maxX  = static_cast<int>(std::floor((static_cast<double>(playerX) + reach) / static_cast<double>(kGrassTileMetres))) + 1;
         const int   minZ  = static_cast<int>(std::floor((static_cast<double>(playerZ) - reach) / static_cast<double>(kGrassTileMetres))) - 1;
@@ -1024,7 +1025,7 @@ namespace Dark::Terrain
                 const float  cx = tileCenterCoord(tx);
                 const float  cz = tileCenterCoord(tz);
                 const double d2 = dist2(cx, cz, playerX, playerZ);
-                if (d2 > sq(kGrassCreateRadiusMetres))
+                if (d2 > sq(grassLod().createRadius))
                     continue;
                 if (!grid.containsXZ(cx, cz))
                     continue;

@@ -199,6 +199,7 @@ void EditorApp::newScene3D()
     m_authoredWater = {};
     m_authoredExposure = {};
     m_authoredGrass = {};
+    applyAuthoredGrass();
     m_env = Sky::Environment{};
     ensureGlobalLights();
     m_env.evaluate();
@@ -217,6 +218,7 @@ void EditorApp::newScene2D()
     clearScene();
     removeEditorTerrain();
     m_authoredGrass = {};
+    applyAuthoredGrass();
     m_worldMin = Vector2f(0.0f, 0.0f);
     m_worldMax = Vector2f(96.0f, 22.0f);
     rebuildGrid2D();

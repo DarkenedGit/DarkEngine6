@@ -23,22 +23,6 @@ namespace Dark
         return reinterpret_cast<Window*>(GetWindowLongPtrA(hwnd, GWLP_USERDATA));
     }
 
-    uint16_t sidedModifier(uint16_t vk, LPARAM lp)
-    {
-        const bool extended = (lp & (1LL << 24)) != 0;
-        switch (vk)
-        {
-        case VK_SHIFT:
-            return static_cast<uint16_t>(MapVirtualKeyW(static_cast<UINT>((lp >> 16) & 0xFF), MAPVK_VSC_TO_VK_EX));
-        case VK_CONTROL:
-            return extended ? VK_RCONTROL : VK_LCONTROL;
-        case VK_MENU:
-            return extended ? VK_RMENU : VK_LMENU;
-        default:
-            return vk;
-        }
-    }
-
     float dpiScaleFromDpi(UINT dpi)
     {
         return (dpi > 0) ? (static_cast<float>(dpi) / 96.0f) : 1.0f;
@@ -184,12 +168,10 @@ namespace Dark
         case WM_SYSKEYDOWN:
             if (input)
             {
-                const uint16_t vk = static_cast<uint16_t>(wp & 0xFFFF);
-                const bool repeat = (lp & (1LL << 30)) != 0;
-                input->onKeyDown(vk, repeat);
-                const uint16_t sided = sidedModifier(vk, lp);
-                if (sided != vk)
-                    input->onKeyDown(sided, repeat);
+                const uint16_t raw    = static_cast<uint16_t>(wp & 0xFFFF);
+                const uint16_t flags  = static_cast<uint16_t>((static_cast<unsigned long long>(lp) >> 16) & 0xFFFF);
+                const bool     repeat = (lp & (1LL << 30)) != 0;
+                input->onKeyDown(sidedVirtualKey(raw, flags), repeat);
             }
             return 0;
 
@@ -197,11 +179,9 @@ namespace Dark
         case WM_SYSKEYUP:
             if (input)
             {
-                const uint16_t vk = static_cast<uint16_t>(wp & 0xFFFF);
-                input->onKeyUp(vk);
-                const uint16_t sided = sidedModifier(vk, lp);
-                if (sided != vk)
-                    input->onKeyUp(sided);
+                const uint16_t raw   = static_cast<uint16_t>(wp & 0xFFFF);
+                const uint16_t flags = static_cast<uint16_t>((static_cast<unsigned long long>(lp) >> 16) & 0xFFFF);
+                input->onKeyUp(sidedVirtualKey(raw, flags));
             }
             return 0;
 

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "type": "player",
+  "walkSpeed": 2.5,
+  "runSpeed": 7.5,
+  "acceleration": 8,
+  "gravity": 9.8,
+  "jumpSpeed": 6.0,
+  "jumpHeight": 3.0,
+  "doubleJumpSpeed": 12.0,
+  "note": "Speeds are meters per second. acceleration is how fast walk and run are reached, in m/s^2. 0 snaps. jumpHeight, when set, replaces jumpSpeed. doubleJumpHeight is optional and is not set here, so doubleJumpSpeed stays."
+}

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "type": "wolf",
+  "walkSpeed": 2.0,
+  "runSpeed": 6.0,
+  "acceleration": 8,
+  "gravity": 9.8,
+  "jumpSpeed": 5.0,
+  "leapForwardSpeed": 10.0,
+  "leapForwardSpeedMax": 12.0,
+  "note": "Walk and run are locomotion. acceleration is m/s^2 toward those speeds. 0 snaps. jumpSpeed is the jump-attack leap. jumpHeight, when set, replaces jumpSpeed. It is omitted here so jumpSpeed stays exact."
+}

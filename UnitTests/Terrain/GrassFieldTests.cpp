@@ -6,6 +6,7 @@
 #include "Render/Frustum3f.h"
 #include "Terrain/GrassBend.h"
 #include "Terrain/GrassField.h"
+#include "Terrain/TerrainLodFile.h"
 #include "Terrain/GrassWind.h"
 #include "Terrain/TerrainGrid.h"
 
@@ -226,12 +227,12 @@ TEST(GrassField, SeedStableAndDistinct)
 
 TEST(GrassField, NominalLodAndHysteresis)
 {
-    EXPECT_FLOAT_EQ(kGrassPromoteTo0Metres, 13.6f);
-    EXPECT_FLOAT_EQ(kGrassPromoteTo1Metres, 34.0f);
-    EXPECT_FLOAT_EQ(kGrassPromoteTo2Metres, 68.0f);
-    EXPECT_FLOAT_EQ(kGrassDemoteFrom0Metres, 18.4f);
-    EXPECT_FLOAT_EQ(kGrassDemoteFrom1Metres, 46.0f);
-    EXPECT_FLOAT_EQ(kGrassDemoteFrom2Metres, 92.0f);
+    EXPECT_FLOAT_EQ(grassLod().promote0, 13.6f);
+    EXPECT_FLOAT_EQ(grassLod().promote1, 34.0f);
+    EXPECT_FLOAT_EQ(grassLod().promote2, 68.0f);
+    EXPECT_FLOAT_EQ(grassLod().demote0, 18.4f);
+    EXPECT_FLOAT_EQ(grassLod().demote1, 46.0f);
+    EXPECT_FLOAT_EQ(grassLod().demote2, 92.0f);
 
     TerrainGrid grid;
     ASSERT_TRUE(makeGrid(grid, 9, Vector3f(0.0f, 0.0f, 0.0f), 0.0f, 0, 255, 0, 0, true));
@@ -284,49 +285,49 @@ TEST(GrassField, NominalLodAndHysteresis)
     GrassField promote;
     enable(promote, 1337u);
     promote.update(grid, center + 20.0f, center, 0.0, -1000.0f);
-    promote.update(grid, center + kGrassPromoteTo0Metres, center, 0.0, -1000.0f);
+    promote.update(grid, center + grassLod().promote0, center, 0.0, -1000.0f);
     EXPECT_EQ(promote.residentLod(0, 0), 1);
-    promote.update(grid, center + (kGrassPromoteTo0Metres - 0.1f), center, 0.0, -1000.0f);
+    promote.update(grid, center + (grassLod().promote0 - 0.1f), center, 0.0, -1000.0f);
     EXPECT_EQ(promote.residentLod(0, 0), 0);
 
     GrassField demote;
     enable(demote, 1337u);
     demote.update(grid, center, center, 0.0, -1000.0f);
-    demote.update(grid, center + kGrassDemoteFrom0Metres, center, 0.0, -1000.0f);
+    demote.update(grid, center + grassLod().demote0, center, 0.0, -1000.0f);
     EXPECT_EQ(demote.residentLod(0, 0), 0);
-    demote.update(grid, center + (kGrassDemoteFrom0Metres + 0.1f), center, 0.0, -1000.0f);
+    demote.update(grid, center + (grassLod().demote0 + 0.1f), center, 0.0, -1000.0f);
     EXPECT_EQ(demote.residentLod(0, 0), 1);
 
     GrassField mid;
     enable(mid, 1337u);
     mid.update(grid, center + 50.0f, center, 0.0, -1000.0f);
-    mid.update(grid, center + kGrassPromoteTo1Metres, center, 0.0, -1000.0f);
+    mid.update(grid, center + grassLod().promote1, center, 0.0, -1000.0f);
     EXPECT_EQ(mid.residentLod(0, 0), 2);
-    mid.update(grid, center + (kGrassPromoteTo1Metres - 0.1f), center, 0.0, -1000.0f);
+    mid.update(grid, center + (grassLod().promote1 - 0.1f), center, 0.0, -1000.0f);
     EXPECT_EQ(mid.residentLod(0, 0), 1);
 
     GrassField midDemote;
     enable(midDemote, 1337u);
     midDemote.update(grid, center + 20.0f, center, 0.0, -1000.0f);
-    midDemote.update(grid, center + kGrassDemoteFrom1Metres, center, 0.0, -1000.0f);
+    midDemote.update(grid, center + grassLod().demote1, center, 0.0, -1000.0f);
     EXPECT_EQ(midDemote.residentLod(0, 0), 1);
-    midDemote.update(grid, center + (kGrassDemoteFrom1Metres + 0.1f), center, 0.0, -1000.0f);
+    midDemote.update(grid, center + (grassLod().demote1 + 0.1f), center, 0.0, -1000.0f);
     EXPECT_EQ(midDemote.residentLod(0, 0), 2);
 
     GrassField outer;
     enable(outer, 1337u);
     outer.update(grid, center + 100.0f, center, 0.0, -1000.0f);
-    outer.update(grid, center + kGrassPromoteTo2Metres, center, 0.0, -1000.0f);
+    outer.update(grid, center + grassLod().promote2, center, 0.0, -1000.0f);
     EXPECT_EQ(outer.residentLod(0, 0), 3);
-    outer.update(grid, center + (kGrassPromoteTo2Metres - 0.1f), center, 0.0, -1000.0f);
+    outer.update(grid, center + (grassLod().promote2 - 0.1f), center, 0.0, -1000.0f);
     EXPECT_EQ(outer.residentLod(0, 0), 2);
 
     GrassField outerDemote;
     enable(outerDemote, 1337u);
     outerDemote.update(grid, center + 50.0f, center, 0.0, -1000.0f);
-    outerDemote.update(grid, center + kGrassDemoteFrom2Metres, center, 0.0, -1000.0f);
+    outerDemote.update(grid, center + grassLod().demote2, center, 0.0, -1000.0f);
     EXPECT_EQ(outerDemote.residentLod(0, 0), 2);
-    outerDemote.update(grid, center + (kGrassDemoteFrom2Metres + 0.1f), center, 0.0, -1000.0f);
+    outerDemote.update(grid, center + (grassLod().demote2 + 0.1f), center, 0.0, -1000.0f);
     EXPECT_EQ(outerDemote.residentLod(0, 0), 3);
 
     GrassField jump;
@@ -342,9 +343,9 @@ TEST(GrassField, NominalLodAndHysteresis)
     enable(linger, 1337u);
     linger.update(grid, center + 100.0f, center, 0.0, -1000.0f);
     ASSERT_EQ(linger.residentLod(0, 0), 3);
-    linger.update(grid, center + kGrassEvictRadiusMetres, center, 0.0, -1000.0f);
+    linger.update(grid, center + grassLod().evictRadius, center, 0.0, -1000.0f);
     EXPECT_EQ(linger.residentLod(0, 0), 3);
-    linger.update(grid, center + (kGrassEvictRadiusMetres + 0.05f), center, 0.0, -1000.0f);
+    linger.update(grid, center + (grassLod().evictRadius + 0.05f), center, 0.0, -1000.0f);
     EXPECT_EQ(linger.residentLod(0, 0), -1);
     EXPECT_EQ(bladeTotal(linger), 0u);
 }

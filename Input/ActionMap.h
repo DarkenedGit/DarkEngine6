@@ -23,15 +23,23 @@ namespace Dark
             Key,
             GamepadButton,
             GamepadAxis,
+            MouseButton,
         };
 
         struct Binding
         {
-            BindingType type  = BindingType::Key;
-            uint16_t    code  = 0;    // Key vk, GamepadButton index, or GamepadAxis index
-            int8_t      pad   = 0;    // gamepad index
-            float       scale = 1.0f; // for axes (use -1 to invert)
+            BindingType type      = BindingType::Key;
+            uint16_t    code      = 0;    // Key vk, GamepadButton, GamepadAxis, or MouseButton
+            int8_t      pad       = 0;    // gamepad index
+            float       scale     = 1.0f; // for axes and digital-as-axis (use -1 to invert)
+            float       threshold = 0.0f; // axis is a hold when this is > 0; not part of actionAxis
+            uint8_t     mods      = 0;    // ModCtrl / ModShift / ModAlt; 0 counts with or without them
         };
+
+        // A binding with one of these set counts only while that modifier is held.
+        static constexpr uint8_t ModCtrl  = 1;
+        static constexpr uint8_t ModShift = 2;
+        static constexpr uint8_t ModAlt   = 4;
 
         void clear();
         void clearAction(std::string_view name);
@@ -39,14 +47,22 @@ namespace Dark
         void bindKey(std::string_view action, Key key);
         void bindButton(std::string_view action, GamepadButton button, int padIndex = 0);
         // Axis binding: contribution = deviceAxis * scale (use -1 to invert).
-        void bindAxis(std::string_view action, GamepadAxis axis, float scale = 1.0f, int padIndex = 0);
+        void bindAxis(std::string_view action, GamepadAxis axis, float scale = 1.0f, int padIndex = 0, uint8_t mods = 0);
+        // Held while the axis, multiplied by scale, is greater than threshold. Omitted from actionAxis.
+        void bindAxisHeld(std::string_view action, GamepadAxis axis, float threshold, float scale = 1.0f, int padIndex = 0, uint8_t mods = 0);
+        void bindMouse(std::string_view action, Dark::MouseButton button, uint8_t mods = 0);
         // Digital → axis while held (keyboard or gamepad button).
-        void bindKeyAsAxis(std::string_view action, Key key, float scale);
-        void bindButtonAsAxis(std::string_view action, GamepadButton button, float scale, int padIndex = 0);
+        void bindKeyAsAxis(std::string_view action, Key key, float scale, uint8_t mods = 0);
+        void bindButtonAsAxis(std::string_view action, GamepadButton button, float scale, int padIndex = 0, uint8_t mods = 0);
 
         bool down(const Input& input, std::string_view action) const;
         bool pressed(const Input& input, std::string_view action) const;
         bool released(const Input& input, std::string_view action) const;
+
+        // Mouse and axis-holds are separate so a caller can ignore keys while a panel has the keyboard.
+        bool mouseDown(const Input& input, std::string_view action) const;
+        bool mousePressed(const Input& input, std::string_view action) const;
+        bool axisHeld(const Input& input, std::string_view action) const;
 
         // Sum of bound axes / digital-as-axis contributors, clamped to [-1, 1].
         float axis(const Input& input, std::string_view action) const;

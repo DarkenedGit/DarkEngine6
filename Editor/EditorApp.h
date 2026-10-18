@@ -9,6 +9,8 @@
 #include "Render/ModelDraw.h"
 #include "Render/FoliagePipeline.h"
 #include "Render/FoliagePrototypes.h"
+#include "Render/GrassPipeline.h"
+#include "Terrain/GrassField.h"
 #include "Render/LinePipeline.h"
 #include "Render/SceneRenderer.h"
 #include "Render/Camera3D.h"
@@ -251,6 +253,9 @@ private:
     void drawTerrainPanel();
     void drawWaterTools();
     void syncTerrainLod();
+    void applyAuthoredGrass();
+    void updateEditorGrass(float dt);
+    void drawEditorGrass(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, const Math::Matrix4f& prevViewProj, const Frustum3f& frustum);
     void removeEditorTerrain();
     bool loadWorldEngineTerrain(const std::filesystem::path& directory, float worldSizeMeters, float heightRangeMeters);
     bool rebuildTerrainGpuFromSurface();
@@ -448,6 +453,10 @@ private:
     std::thread                         m_foliageThread;
     FoliagePrototypes                   m_foliagePrototypes;
     FoliagePipeline                     m_foliagePipeline;
+    GrassPipeline                       m_grassPipeline;
+    Terrain::GrassField                 m_grassField;
+    double                              m_grassWindSeconds = 0.0;
+    bool                                m_loggedForwardGrassSkip = false;
     std::string                   m_terrainAlbedoPath[Terrain::kMaxTerrainLayers];
     std::string                   m_terrainNormalPath[Terrain::kMaxTerrainLayers];
     std::string                   m_terrainOrmPath[Terrain::kMaxTerrainLayers];

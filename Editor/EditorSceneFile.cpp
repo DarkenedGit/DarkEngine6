@@ -266,6 +266,7 @@ bool EditorApp::loadScene()
     m_authoredWater = {};
     m_authoredExposure = {};
     m_authoredGrass = {};
+    applyAuthoredGrass();
     if (data.mode != SceneMode::Scene2D)
     {
         applySceneAtmosphere(m_env, data);
@@ -365,7 +366,6 @@ void EditorApp::handleEditorCommands(float dt)
             flushQueuedAssetPlace();
     }
 
-    const bool ctrl = input().keyDown(Key::LeftControl) || input().keyDown(Key::RightControl);
     const bool uiKey = m_imgui.wantCaptureKeyboard();
     const bool uiMouse = m_imgui.wantCaptureMouse();
 
@@ -393,20 +393,19 @@ void EditorApp::handleEditorCommands(float dt)
     {
         if (input().actionPressed("play") && m_sceneMode == SceneMode::Scene3D)
             togglePlayMode();
-        const bool shift = input().keyDown(Key::LeftShift) || input().keyDown(Key::RightShift);
-        if (m_playMode && shift && input().keyPressed(Key::F5))
+        if (m_playMode && input().actionPressed("quick_save"))
         {
             const Save::SaveResult result = m_save.requestSave(Save::SaveKind::Quick, "Quick Save");
             DE_LOG_INFO("Editor: quicksave {}", Save::toString(result));
         }
-        else if (m_playMode && shift && input().keyPressed(Key::F9))
+        else if (m_playMode && input().actionPressed("quick_load"))
         {
             const Save::SaveResult result = m_save.requestLoadNewest(Save::SaveKind::Quick);
             DE_LOG_INFO("Editor: quickload {}", Save::toString(result));
         }
-        else if (!m_playMode && (input().keyPressed(Key::F5) || (ctrl && input().keyPressed(Key::S))))
+        else if (!m_playMode && input().actionPressed("save_scene"))
             saveSceneWithDialog();
-        if (!m_playMode && (input().keyPressed(Key::F9) || (ctrl && input().keyPressed(Key::O))) && !netSceneLocked())
+        if (!m_playMode && input().actionPressed("load_scene") && !netSceneLocked())
             loadSceneWithDialog(m_scenePath);
         if (input().actionPressed("toggle_particle_ui"))
             m_showParticlePanel = !m_showParticlePanel;
@@ -434,7 +433,7 @@ void EditorApp::handleEditorCommands(float dt)
             m_scene.localShadows().setDebugEnabled(shadowsOn);
             DE_LOG_INFO("Editor: shadows = {}", shadowsOn);
         }
-        if (input().keyPressed(Key::F11) && renderer().hasGBuffer())
+        if (input().actionPressed("debug_gbuffer") && renderer().hasGBuffer())
         {
             m_showGBuffer = !m_showGBuffer;
             DE_LOG_INFO("Editor: G-buffer overlay = {}", m_showGBuffer);
@@ -449,7 +448,7 @@ void EditorApp::handleEditorCommands(float dt)
             selectNext(+1);
         if (input().actionPressed("select_prev"))
             selectNext(-1);
-        if (input().keyPressed(Key::F3))
+        if (input().actionPressed("toggle_scene_mode"))
         {
             if (m_sceneMode == SceneMode::Scene2D)
                 applySceneMode(SceneMode::Scene3D);

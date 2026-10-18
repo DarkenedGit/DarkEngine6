@@ -18,6 +18,7 @@
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "Input/InputCodes.h"
+#include "Scene/EntityInput.h"
 #include "Collision/Collision.h"
 #include "Collision/StaticCollision.h"
 #include "Math/MathHelper.h"
@@ -386,88 +387,18 @@ void SandboxApp::registerDefaultActions()
     ActionMap& a = input().actions();
     a.clear();
 
-    a.bindKey("quit", Key::Escape);
-    a.bindButton("quit", GamepadButton::Back);
+    // App commands first. The player file loads second and replaces any action it names.
+    if (!applySandboxInputFile(a))
+        DE_LOG_ERROR(LogCategory::Input, "Sandbox: sandbox input file was not applied");
 
-    a.bindKey("pause", Key::F3);
-    a.bindButton("pause", GamepadButton::Start);
-    a.bindKey("step", Key::O);
-
-    a.bindKey("jump", Key::Space);
-    a.bindButton("jump", GamepadButton::A);
-    a.bindKey("attack", Key::F);
-    a.bindButton("attack", GamepadButton::B);
-    a.bindKey("weapon_1", Key::Digit1);
-    a.bindKey("weapon_2", Key::Digit2);
-    a.bindKey("flashlight", Key::L);
-    a.bindKey("shield", Key::V);
-    a.bindKey("toggle_lighting", Key::F2);
-
-    a.bindKey("reset", Key::R);
-    a.bindButton("reset", GamepadButton::Y);
-
-    a.bindKey("speed_up", Key::Equal);
-    a.bindButton("speed_up", GamepadButton::RightShoulder);
-    a.bindKey("speed_down", Key::Minus);
-    a.bindButton("speed_down", GamepadButton::X);
-
-    // Cube yaw/pitch: WASD only (host). Arrows + D-pad drive the local pawn XZ.
-    a.bindKeyAsAxis("yaw", Key::Q, -1.0f);
-    a.bindKeyAsAxis("yaw", Key::E, 1.0f);
-    a.bindKeyAsAxis("pitch", Key::Z, 1.0f);
-    a.bindKeyAsAxis("pitch", Key::X, -1.0f);
-    a.bindKey("camouflage", Key::C);
-
-    a.bindKeyAsAxis("pawn_x", Key::Left, -1.0f);
-    a.bindKeyAsAxis("pawn_x", Key::Right, 1.0f);
-    a.bindButtonAsAxis("pawn_x", GamepadButton::DPadLeft, -1.0f);
-    a.bindButtonAsAxis("pawn_x", GamepadButton::DPadRight, 1.0f);
-    a.bindKeyAsAxis("pawn_z", Key::Up, 1.0f);
-    a.bindKeyAsAxis("pawn_z", Key::Down, -1.0f);
-    a.bindButtonAsAxis("pawn_z", GamepadButton::DPadUp, 1.0f);
-    a.bindButtonAsAxis("pawn_z", GamepadButton::DPadDown, -1.0f);
-
-    a.bindKeyAsAxis("move_x", Key::A, -1.0f);
-    a.bindKeyAsAxis("move_x", Key::D, 1.0f);
-    a.bindAxis("move_x", GamepadAxis::LeftX, 1.0f);
-    a.bindKeyAsAxis("move_z", Key::W, 1.0f);
-    a.bindKeyAsAxis("move_z", Key::S, -1.0f);
-    a.bindAxis("move_z", GamepadAxis::LeftY, 1.0f);
-    a.bindKey("sprint", Key::LeftShift);
-    a.bindKey("crouch", Key::LeftControl);
-    a.bindKey("crouch", Key::RightControl);
-
-    a.bindKeyAsAxis("fly_forward", Key::W, 1.0f);
-    a.bindKeyAsAxis("fly_forward", Key::S, -1.0f);
-    a.bindAxis("fly_forward", GamepadAxis::LeftY, 1.0f);
-    a.bindKeyAsAxis("fly_strafe", Key::A, -1.0f);
-    a.bindKeyAsAxis("fly_strafe", Key::D, 1.0f);
-    a.bindAxis("fly_strafe", GamepadAxis::LeftX, 1.0f);
-    a.bindKeyAsAxis("fly_climb", Key::Q, 1.0f);
-    a.bindKeyAsAxis("fly_climb", Key::Space, 1.0f);
-    a.bindKeyAsAxis("fly_climb", Key::Z, -1.0f);
-    a.bindKeyAsAxis("fly_climb", Key::LeftControl, -1.0f);
-    a.bindAxis("fly_climb", GamepadAxis::RightTrigger, 1.0f);
-    a.bindAxis("fly_climb", GamepadAxis::LeftTrigger, -1.0f);
-
-    a.bindAxis("look_yaw", GamepadAxis::RightX, 1.0f);
-    a.bindAxis("look_pitch", GamepadAxis::RightY, 1.0f);
-
-    a.bindButton("sprint", GamepadButton::LeftThumb);
-    a.bindButton("sprint", GamepadButton::LeftShoulder);
-
-    a.bindKey("dev_tools", Key::M);
-    a.bindKey("profiler", Key::P);
-    a.bindKey("inventory", Key::I);
-    a.bindKey("pickup", Key::G);
-    a.bindKey("anim_walk", Key::T);
-    a.bindButton("anim_walk", GamepadButton::RightThumb);
+    if (!applyPlayerInputFile(a, "sandbox"))
+        DE_LOG_ERROR(LogCategory::Input, "Sandbox: player input file was not applied");
 
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(F3/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
         "possessed WASD/arrows/LS move, double-tap a direction to dodge, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, 1 melee  2 rifle, "
-        "hold attack to charge, release to swing (tap = normal). Hold RMB/V/LT shield; hold longer then release to parry-slam. Ctrl crouch, C camouflage, L flashlight, Shift/LB sprint, swim in water, "
-        "T/R3 walk the wiggle demo  F2 lighting  M dev tools  P profiler  -forward linear albedo + sRGB encode (legacyUnormAlbedo restores old sampling)  -no-menu skip scene picker");
+        "hold attack to charge, release to swing (tap = normal). Hold RMB/V/LT shield; hold longer then release to parry-slam. Ctrl crouch, C camouflage, G pickup, L flashlight, Shift/LB sprint, swim in water, "
+        "T/R3 walk the wiggle demo  F2 lighting  F5 quicksave  F9 quickload  M dev tools  P profiler  -forward linear albedo + sRGB encode (legacyUnormAlbedo restores old sampling)  -no-menu skip scene picker");
 }
 
 void SandboxApp::populateMainMenu()
@@ -554,12 +485,12 @@ void SandboxApp::handleRuntimeCommands(float dt)
         return;
     }
 
-    if (!uiKeys && input().keyPressed(Key::F5))
+    if (!uiKeys && input().actionPressed("quick_save"))
     {
         const Save::SaveResult result = m_save.requestSave(Save::SaveKind::Quick, "Quick Save");
         DE_LOG_INFO("Sandbox: quicksave {}", Save::toString(result));
     }
-    if (!uiKeys && input().keyPressed(Key::F9))
+    if (!uiKeys && input().actionPressed("quick_load"))
     {
         const Save::SaveResult result = m_save.requestLoadNewest(Save::SaveKind::Quick);
         DE_LOG_INFO("Sandbox: quickload {}", Save::toString(result));
@@ -1161,8 +1092,8 @@ void SandboxApp::updatePossessed(float dt)
     const bool canSteer   = hp && hp->alive() && !ccLocked && !(jump && jump->phase() == Combat::JumpAttackPhase::Pound);
     const bool uiMouse = uiOpen() && m_imgui.isReady() && m_imgui.wantCaptureMouse();
     const bool holdShield = canSteer
-        && ((input().mouseDown(MouseButton::Right) && !uiMouse) || (!uiKeys && input().actionDown("shield"))
-            || input().axis(GamepadAxis::LeftTrigger) > 0.45f);
+        && ((input().actionMouseDown("shield") && !uiMouse) || (!uiKeys && input().actionDown("shield"))
+            || input().actionAxisHeld("shield"));
     const bool toggleLight = canSteer && !uiKeys && input().actionPressed("flashlight");
     if (toggleLight)
     {
@@ -1170,7 +1101,7 @@ void SandboxApp::updatePossessed(float dt)
             sk->seeArmed = true;
     }
     const bool attackDown = canSteer && !uiKeys
-        && (input().actionDown("attack") || (!uiOpen() && input().mouseDown(MouseButton::Left)));
+        && (input().actionDown("attack") || (!uiOpen() && input().actionMouseDown("attack")));
     const bool airborneNow = motor && (motor->state() == PlayerMoveState::Jumping || motor->state() == PlayerMoveState::Falling);
     Combat::DefenseComponent* defense = world().get<Combat::DefenseComponent>(body);
     if (defense)
@@ -1203,10 +1134,10 @@ void SandboxApp::updatePossessed(float dt)
     edges.crouchPressed = input().actionPressed("crouch");
     edges.crouchDown    = input().actionDown("crouch");
     edges.jumpPressed   = input().actionPressed("jump");
-    edges.forward       = input().keyPressed(Key::W) || input().keyPressed(Key::Up);
-    edges.back          = input().keyPressed(Key::S) || input().keyPressed(Key::Down);
-    edges.left          = input().keyPressed(Key::A) || input().keyPressed(Key::Left);
-    edges.right         = input().keyPressed(Key::D) || input().keyPressed(Key::Right);
+    edges.forward       = input().actionPressed("dodge_forward");
+    edges.back          = input().actionPressed("dodge_back");
+    edges.left          = input().actionPressed("dodge_left");
+    edges.right         = input().actionPressed("dodge_right");
     const bool sprintAllowed = canSteer && !jumpBusy && !uiKeys && m_swingLock <= 0.0f;
     buildPlayMotorInput(motorIn, m_crouchLatch, wish, flat, right, canSteer, jumpBusy, uiKeys, inAirCommit, jump, sprintAllowed, edges);
     const bool onGround = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch || motor->state() == PlayerMoveState::Dodge);
@@ -1871,7 +1802,7 @@ void SandboxApp::updateCombat(float dt)
     if (m_jumpAttackBuffer > 0.0f)
         m_jumpAttackBuffer = Math::Max(0.0f, m_jumpAttackBuffer - dt);
 
-    const bool attackPressed = input().actionPressed("attack") || (!uiOpen() && input().mousePressed(MouseButton::Left));
+    const bool attackPressed = input().actionPressed("attack") || (!uiOpen() && input().actionMousePressed("attack"));
     const bool swimming = motor && motor->state() == PlayerMoveState::Swimming;
     const bool airborne = motor && (motor->state() == PlayerMoveState::Jumping || motor->state() == PlayerMoveState::Falling);
     const bool fireQuick = m_fireQuick;

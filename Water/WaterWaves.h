@@ -81,6 +81,10 @@ namespace Dark
         float weight      = 0.0f; // 0 open, 1 on the bank
     };
 
+    // Still-water depth in meters. 1 at 6 m and deeper, 0.08 at the waterline.
+    // Water.hlsl LakeShoal uses the same edges. Streams do not.
+    float lakeShoalScale(float stillDepth);
+
     // maxDisplacementAmp is the four swell amplitudes, not maxWaveAmplitude after the 0.18 m pad.
     ShoreSample evaluateShore(
         float waterSurfaceY,

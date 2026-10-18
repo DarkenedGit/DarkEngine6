@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "type": "player2d",
+  "note": "Sandbox2D jump and move. Quit, reset, debug, and net keys stay in Sandbox2D.",
+  "bindings": [
+    { "action": "jump", "key": "Space" },
+    { "action": "jump", "key": "W" },
+    { "action": "jump", "key": "Up" },
+    { "action": "jump", "button": "A" },
+    { "action": "jump", "button": "B" },
+
+    { "action": "move", "key": "A", "scale": -1 },
+    { "action": "move", "key": "D", "scale": 1 },
+    { "action": "move", "key": "Left", "scale": -1 },
+    { "action": "move", "key": "Right", "scale": 1 },
+    { "action": "move", "axis": "LeftX", "scale": 1 },
+    { "action": "move", "button": "DPadLeft", "scale": -1 },
+    { "action": "move", "button": "DPadRight", "scale": 1 }
+  ]
+}

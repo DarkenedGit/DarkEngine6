@@ -8,6 +8,7 @@
 #include "Editor/EditorInternals.h"
 #include "Math/MathHelper.h"
 #include "Scene/SceneFile.h"
+#include "Character/PlayerMotorComponent.h"
 #include "Terrain/FoliageFile.h"
 #include "Terrain/FoliageSpawn.h"
 #include "Terrain/TerrainTileFile.h"
@@ -221,6 +222,7 @@ void EditorApp::removeEditorTerrain()
     if (!m_haveTerrain && !m_terrainMaterial.isValid())
     {
         m_terrain.clear();
+        m_grassField.reset();
         m_terrainMaterial    = {};
         m_splat              = {};
         m_terrainSurface     = {};
@@ -244,6 +246,7 @@ void EditorApp::removeEditorTerrain()
     }
     m_placedWaterForce = true;
     m_terrain.clear();
+    m_grassField.reset();
     m_terrainMaterial    = {};
     m_splat              = {};
     m_terrainSurface     = {};
@@ -687,6 +690,56 @@ bool EditorApp::rebuildTerrainGpuFromSurface()
     return true;
 }
 
+void EditorApp::applyAuthoredGrass()
+{
+    GrassParams params;
+    params.enabled          = m_authoredGrass.enabled;
+    params.heightMetres     = m_authoredGrass.heightMetres;
+    params.flexibility      = m_authoredGrass.flexibility;
+    params.densityScale     = m_authoredGrass.densityScale;
+    params.windBaseYaw      = m_authoredGrass.windBaseYaw;
+    params.windDeflection   = m_authoredGrass.windDeflection;
+    params.windTipMetres    = m_authoredGrass.windTipMetres;
+    params.windSpatialFreq  = m_authoredGrass.windSpatialFreq;
+    params.windTemporalFreq = m_authoredGrass.windTemporalFreq;
+    params.seed             = m_authoredGrass.seed;
+    if (!m_grassPipeline.isValid())
+        params.enabled = false;
+    m_grassField.setParams(params);
+    if (!params.enabled)
+        m_grassField.reset();
+}
+
+void EditorApp::updateEditorGrass(float dt)
+{
+    if (!m_grassPipeline.isValid())
+        return;
+
+    // Edit mode has no pawn. Stream around the view. Play mode uses the body so the shove matches the motor.
+    float x = m_camera.GetPosition().x;
+    float z = m_camera.GetPosition().z;
+    GrassPlayerSample sample;
+    if (m_playMode && m_playPlayer.valid())
+    {
+        if (const TransformComponent* xf = world().get<TransformComponent>(m_playPlayer))
+        {
+            x        = xf->position.x;
+            z        = xf->position.z;
+            sample.x = x;
+            sample.z = z;
+            if (const PlayerMotorComponent* pmc = world().get<PlayerMotorComponent>(m_playPlayer))
+            {
+                sample.velX                = pmc->motor.velocity().x;
+                sample.velZ                = pmc->motor.velocity().z;
+                const PlayerMoveState move = pmc->motor.state();
+                sample.shoving             = move == PlayerMoveState::Grounded || move == PlayerMoveState::Crouch || move == PlayerMoveState::Dodge;
+            }
+        }
+    }
+    m_grassWindSeconds += static_cast<double>(dt);
+    m_grassField.update(m_terrain, x, z, m_grassWindSeconds, m_water.params().waterLevel, sample);
+}
+
 void EditorApp::syncTerrainLod()
 {
     pollFoliageSpawn();
@@ -971,6 +1024,7 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
     const TerrainSceneDesc& desc = data.terrain;
     // fillTerrainSceneDesc rebuilds the block from live terrain, which has no grass params.
     m_authoredGrass = desc.grass;
+    applyAuthoredGrass();
     if (!desc.source.empty())
     {
         const std::filesystem::path dir = resolveWorldEngineDirectory(desc.source);
@@ -1406,8 +1460,8 @@ void EditorApp::drawWaterTools()
 {
     if (!m_showWaterTools)
         return;
-    ImGui::SetNextWindowSize(ImVec2(340.0f, 240.0f), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Water Waves", &m_showWaterTools))
+    ImGui::SetNextWindowSize(ImVec2(380.0f, 640.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Water", &m_showWaterTools))
     {
         ImGui::End();
         return;
@@ -1415,34 +1469,184 @@ void EditorApp::drawWaterTools()
 
     if (m_sceneMode != SceneMode::Scene3D)
     {
-        ImGui::TextDisabled("Water waves are part of the 3D terrain.");
+        ImGui::TextDisabled("Water is part of the 3D scene.");
         ImGui::End();
         return;
     }
 
-    ImGui::TextDisabled("Wave height and speed apply to every placed water body.");
+    WaterParams& wp = m_water.params();
+    bool edited = false;
 
-    WaterParams& wp      = m_water.params();
-    float        baseAmp = 0.0f;
+    auto syncAuthored = [&]() {
+        if (!m_authoredWater.present)
+            return;
+        m_authoredWater.amplitudeScale = wp.amplitudeScale;
+        m_authoredWater.speedScale     = wp.speedScale;
+        m_authoredWater.flowSpeed      = wp.flowSpeed;
+        m_authoredWater.foam           = wp.foam;
+        m_authoredWater.foamWidthScale = wp.foamWidthScale;
+        m_authoredWater.detail         = wp.detailAmount;
+        m_authoredWater.flowDir[0]     = wp.flowDir.x;
+        m_authoredWater.flowDir[1]     = wp.flowDir.y;
+        m_authoredWater.flowStrength   = wp.flowStrength;
+        m_authoredWater.steepness      = wp.steepness;
+        m_authoredWater.waveCount      = kWaterWaveCount;
+        for (int i = 0; i < kWaterWaveCount; ++i)
+        {
+            m_authoredWater.waves[i].angleFromFlow = wp.waves[i].angleFromFlow;
+            m_authoredWater.waves[i].frequency     = wp.waves[i].frequency;
+            m_authoredWater.waves[i].amplitude     = wp.waves[i].amplitude;
+            m_authoredWater.waves[i].speed         = wp.waves[i].speed;
+        }
+    };
+
+    ImGui::TextDisabled("The lake and every placed water body use these settings. A lake saves them with the scene.");
+
+    const bool terrainOk = m_haveTerrain && m_terrain.valid();
+    if (!m_authoredWater.present)
+    {
+        ImGui::TextDisabled("This scene has no valley lake.");
+        if (terrainOk && ImGui::Button("Add lake"))
+        {
+            const AABox3f box = m_terrain.bounds();
+            m_authoredWater.present = true;
+            m_authoredWater.hasLevel = true;
+            m_authoredWater.level = Lerp(box.Min.y, box.Max.y, m_authoredWater.levelFraction);
+            syncAuthored();
+            createEditorWaterSheet();
+        }
+    }
+    else if (!terrainOk)
+    {
+        ImGui::TextDisabled("Load terrain to move the lake.");
+    }
+    else
+    {
+        float level = m_authoredWater.hasLevel ? m_authoredWater.level : wp.waterLevel;
+        const AABox3f box = m_terrain.bounds();
+        float lo = box.Min.y;
+        float hi = box.Max.y;
+        if (level < lo)
+            lo = level;
+        if (level > hi)
+            hi = level;
+        if (hi < lo + 0.1f)
+            hi = lo + 0.1f;
+        if (ImGui::SliderFloat("Water level", &level, lo, hi, "%.2f m"))
+        {
+            m_authoredWater.hasLevel = true;
+            m_authoredWater.level = level;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Release to rebuild the sheet at this height.");
+        if (ImGui::IsItemDeactivatedAfterEdit())
+            createEditorWaterSheet();
+    }
+
+    ImGui::Separator();
+    float headingDeg = atan2f(wp.flowDir.y, wp.flowDir.x) * RadToDeg;
+    if (ImGui::SliderFloat("Wind heading", &headingDeg, -180.0f, 180.0f, "%.0f deg"))
+    {
+        const float rad = headingDeg * DegToRad;
+        wp.flowDir = Vector2f(cosf(rad), sinf(rad));
+        edited = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Swell headings are measured from this direction.");
+    edited |= ImGui::SliderFloat("Wind pull", &wp.flowStrength, 0.0f, 1.0f, "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("How hard the swells turn toward the wind. 0 leaves each heading as authored.");
+    edited |= ImGui::SliderFloat("Steepness", &wp.steepness, 0.0f, 1.0f, "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("0 is a round sine. 1 pinches the crest.");
+
+    float baseAmp = 0.0f;
     for (int i = 0; i < kWaterWaveCount; ++i)
         baseAmp += wp.waves[i].amplitude;
-
     float heightM = baseAmp * (wp.amplitudeScale > 0.0f ? wp.amplitudeScale : 0.0f);
     if (ImGui::SliderFloat("Wave height", &heightM, 0.0f, 6.0f, "%.2f m"))
+    {
         wp.amplitudeScale = baseAmp > 1.0e-5f ? heightM / baseAmp : 0.0f;
+        edited = true;
+    }
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("How high the crests rise if every wave peaks together. The authored height is about %.2f m.", static_cast<double>(baseAmp));
-    ImGui::SliderFloat("Wave speed", &wp.speedScale, 0.0f, 4.0f, "%.2fx");
+        ImGui::SetTooltip("How high the crests rise if every swell peaks together. The authored height is about %.2f m.", static_cast<double>(baseAmp));
+    edited |= ImGui::SliderFloat("Wave speed", &wp.speedScale, 0.0f, 4.0f, "%.2fx");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("How fast the waves travel. 1 is the authored speed. 0 holds them still.");
-    ImGui::SliderFloat("Drift", &wp.flowSpeed, 0.0f, 6.0f, "%.2f m/s");
-    ImGui::SliderFloat("Foam", &wp.foam, 0.0f, 1.0f, "%.2f");
-    ImGui::SliderFloat("Foam width", &wp.foamWidthScale, 0.5f, 2.0f, "%.2f");
-    if (ImGui::Button("Reset waves"))
+        ImGui::SetTooltip("How fast the swells travel. 1 is the authored speed. 0 holds them still.");
+    edited |= ImGui::SliderFloat("Detail", &wp.detailAmount, 0.0f, 1.0f, "%.2f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Fine ripples on the face. 0 leaves only the swells.");
+    edited |= ImGui::SliderFloat("Drift", &wp.flowSpeed, 0.0f, 6.0f, "%.2f m/s");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Scrolls the fine ripples and the foam along the wind.");
+    edited |= ImGui::SliderFloat("Foam", &wp.foam, 0.0f, 1.0f, "%.2f");
+    edited |= ImGui::SliderFloat("Foam width", &wp.foamWidthScale, 0.5f, 2.0f, "%.2f");
+
+    if (ImGui::CollapsingHeader("Swells", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        for (int i = 0; i < kWaterWaveCount; ++i)
+        {
+            ImGui::PushID(i);
+            ImGui::Text("Swell %d", i + 1);
+            float deg = wp.waves[i].angleFromFlow * RadToDeg;
+            if (ImGui::SliderFloat("Heading", &deg, -180.0f, 180.0f, "%.0f deg"))
+            {
+                wp.waves[i].angleFromFlow = deg * DegToRad;
+                edited = true;
+            }
+            float lengthM = wp.waves[i].frequency > 1.0e-4f ? TwoPi / wp.waves[i].frequency : 8.0f;
+            if (ImGui::SliderFloat("Length", &lengthM, 2.0f, 80.0f, "%.1f m", ImGuiSliderFlags_Logarithmic))
+            {
+                if (lengthM < 0.5f)
+                    lengthM = 0.5f;
+                wp.waves[i].frequency = TwoPi / lengthM;
+                edited = true;
+            }
+            edited |= ImGui::SliderFloat("Amplitude", &wp.waves[i].amplitude, 0.0f, 1.5f, "%.3f m");
+            edited |= ImGui::SliderFloat("Speed", &wp.waves[i].speed, 0.0f, 4.0f, "%.2f");
+            ImGui::PopID();
+        }
+    }
+
+    if (ImGui::Button("Reset scales"))
     {
         wp.amplitudeScale = 1.0f;
         wp.speedScale     = 1.0f;
+        edited = true;
     }
+    ImGui::SameLine();
+    if (ImGui::Button("Wind sea"))
+    {
+        const float level = wp.waterLevel;
+        wp = defaultWaterParams(level);
+        edited = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Restores the built-in swells, wind, steepness, foam, and detail. The lake height stays.");
+
+    bool legacy = wp.legacyPull;
+    if (ImGui::Checkbox("Legacy wave set", &legacy))
+    {
+        if (legacy)
+        {
+            copyLegacyHarmonicWaves(wp.waves);
+            wp.legacyPull = true;
+        }
+        else
+        {
+            const WaterParams fresh = defaultWaterParams(wp.waterLevel);
+            for (int i = 0; i < kWaterWaveCount; ++i)
+                wp.waves[i] = fresh.waves[i];
+            wp.legacyPull = false;
+        }
+        edited = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Session preview of the old octave swells. Reloading the scene restores the wind sea.");
+
+    if (edited)
+        syncAuthored();
     ImGui::End();
 }
 

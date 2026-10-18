@@ -8,6 +8,7 @@
 #include "Render/ShadowCascades.h"
 #include "Render/TerrainPipeline.h"
 #include "Sky/Environment.h"
+#include "Terrain/TerrainLodFile.h"
 #include "Terrain/TerrainMaterial.h"
 
 #include <chrono>
@@ -156,9 +157,7 @@ bool TerrainGrid::configure(const TerrainGridDesc& desc, HeightMap&& coarse)
     m_valid        = true;
     {
         const float unit = m_cellSize * static_cast<float>(m_chunkCells);
-        m_lodDistanceCount = 5;
-        for (int i = 0; i < 5; ++i)
-            m_lodDistances[i] = unit * static_cast<float>(2 << i);
+        fillChunkLodDistances(unit, terrainLodSettings(), m_lodDistances, m_lodDistanceCount);
     }
     return true;
 }

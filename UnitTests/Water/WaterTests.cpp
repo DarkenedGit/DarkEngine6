@@ -359,6 +359,51 @@ TEST(WaterWaves, HashPinsMatchTheShader)
     EXPECT_NEAR(hash01(-1, 2), 0.682527f, 1.0e-5f);
 }
 
+TEST(WaterWaves, ShoalScaleFollowsDepth)
+{
+    EXPECT_NEAR(lakeShoalScale(0.0f), 0.08f, 1.0e-4f);
+    EXPECT_NEAR(lakeShoalScale(-3.0f), 0.08f, 1.0e-4f);
+    EXPECT_NEAR(lakeShoalScale(6.0f), 1.0f, 1.0e-4f);
+    EXPECT_NEAR(lakeShoalScale(40.0f), 1.0f, 1.0e-4f);
+    EXPECT_GT(lakeShoalScale(3.0f), lakeShoalScale(1.0f));
+    EXPECT_LT(lakeShoalScale(3.0f), 1.0f);
+}
+
+TEST(WaterWorld, ShallowQueryScalesTheSwell)
+{
+    HeightMap hm;
+    ASSERT_TRUE(hm.create(9, 9, 1.0f, 1.0f));
+    for (int z = 0; z < 9; ++z)
+    {
+        for (int x = 0; x < 9; ++x)
+            hm.setHeight(x, z, 0.0f);
+    }
+
+    WaterDesc desc;
+    desc.chunkCells = 4;
+    desc.waterLevel = 2.0f;
+    desc.params     = defaultWaterParams(2.0f);
+    for (int i = 0; i < kWaterWaveCount; ++i)
+        desc.params.waves[i].amplitude = 0.0f;
+    desc.params.waves[0].amplitude = 0.40f;
+    desc.params.waves[0].frequency = 1.0f;
+    desc.params.waves[0].speed     = 0.0f;
+    desc.params.waves[0].angleFromFlow = 0.0f;
+    desc.params.flowDir = Vector2f(1.0f, 0.0f);
+    desc.params.flowStrength = 0.0f;
+
+    WaterWorld water;
+    ASSERT_TRUE(water.create(hm, desc));
+    water.setTime(0.0f);
+
+    const float full = waveHeight(desc.params, 1.2f, 1.0f, 0.0f);
+    const float shoal = lakeShoalScale(2.0f);
+    float y = 0.0f;
+    ASSERT_TRUE(water.tryHeightAtWorld(1.2f, 1.0f, y));
+    EXPECT_NEAR(y, 2.0f + (full - 2.0f) * shoal, 1.0e-4f);
+    EXPECT_LT(fabsf(y - 2.0f), fabsf(full - 2.0f));
+}
+
 TEST(WaterWaves, ShoreBandFollowsSlopeAndAmplitude)
 {
     const ShoreSample gentle = evaluateShore(0.0f, 0.0f, 0.15f, 1.0f, 0.72f);
@@ -419,7 +464,7 @@ TEST(WaterWaves, LegacyDetectorKeepsPartialEdits)
     }
     const WaterParams replaced = sceneWaterParams(full, 10.0f);
     EXPECT_FALSE(isLegacyHarmonicPreset(replaced));
-    EXPECT_NEAR(replaced.waves[0].amplitude, 0.36f, 1.0e-4f);
+    EXPECT_NEAR(replaced.waves[0].amplitude, 0.40f, 1.0e-4f);
     EXPECT_NEAR(replaced.amplitudeScale, 1.5f, 1.0e-4f);
     EXPECT_NEAR(replaced.waterLevel, 10.0f, 1.0e-4f);
 

@@ -439,9 +439,19 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     {
         const Frustum3f frustum(m_camera.GetCullViewProj());
         if (deferred)
+        {
             m_terrain.drawGBuffer(cmd, m_scene.terrainPipeline(), m_terrainMaterial, m_camera, &frustum, &renderer().debugState(), &prevViewProj);
+            drawEditorGrass(cmd, viewProj, prevViewProj, frustum);
+        }
         else
+        {
             m_terrain.draw(cmd, m_scene.terrainPipeline(), m_terrainMaterial, m_camera, &frustum, nullptr, &m_shadows, &renderer().debugState());
+            if (!m_loggedForwardGrassSkip && m_grassPipeline.isValid() && m_grassField.params().enabled)
+            {
+                m_loggedForwardGrassSkip = true;
+                DE_LOG_INFO(LogCategory::Render, "Editor: forward frame skips grass");
+            }
+        }
     }
     else if (m_showSolid && m_groundMesh.valid() && m_groundMaterial)
     {
@@ -1058,4 +1068,36 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     uint32_t tableCount = 0;
     const PassNode* table = deferred ? editorDeferredPasses(tableCount) : editorForwardPasses(tableCount);
     (void)passSequenceOk(table, tableCount, playedPasses, playedCount);
+}
+
+void EditorApp::drawEditorGrass(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, const Matrix4f& prevViewProj, const Frustum3f& frustum)
+{
+    if (!cmd || !m_grassPipeline.isValid() || !m_grassField.params().enabled)
+        return;
+
+    const GpuScope               grassScope(cmd, "Grass", ProfileColor::Grass);
+    Terrain::GrassFrameConstants grassFrame{};
+    copyMatrix(grassFrame.viewProj, viewProj);
+    copyMatrix(grassFrame.prevViewProj, prevViewProj);
+    grassFrame.heightMetres = m_grassField.params().heightMetres;
+    grassFrame.flexibility  = m_grassField.params().flexibility;
+    m_grassField.writeFrameInteraction(grassFrame);
+
+    GrassLodSpan grassLods[Terrain::kGrassLodCount]{};
+    for (int lod = 0; lod < Terrain::kGrassLodCount; ++lod)
+    {
+        const Terrain::GrassField::BladeSpan span = m_grassField.blades(lod);
+        grassLods[lod].blades                     = span.data;
+        grassLods[lod].count                      = span.count;
+        grassLods[lod].staleMask                  = m_grassField.lodStaleMask(lod);
+    }
+    constexpr uint32_t     kGrassTileCap = Terrain::kGrassLod0Tiles + Terrain::kGrassLod1Tiles + Terrain::kGrassLod2Tiles + Terrain::kGrassLod3Tiles;
+    Terrain::GrassTileDraw grassTiles[kGrassTileCap];
+    const uint32_t         grassDraws = m_grassField.visibleTiles(frustum, grassTiles, kGrassTileCap);
+    if (m_grassPipeline.draw(cmd, renderer(), grassLods, m_grassField.tileWind(), m_grassField.tileWindCount(), grassFrame, grassTiles, grassDraws))
+    {
+        const uint32_t slot = renderer().frameIndex() % Terrain::kGrassFrameSlots;
+        for (int lod = 0; lod < Terrain::kGrassLodCount; ++lod)
+            m_grassField.clearLodStale(lod, slot);
+    }
 }

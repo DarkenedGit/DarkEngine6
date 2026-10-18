@@ -140,6 +140,7 @@ void SandboxApp::saveEndLoad(void* user, World& world)
     if (!app)
         return;
     app->pushPhysicsProgress();
+    applyAuthoredMovement(world);
     playMusicCue(world, app->audio(), app->assets(), app->m_camera, "music");
 }
 

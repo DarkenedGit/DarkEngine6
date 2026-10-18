@@ -138,20 +138,7 @@ namespace Dark::Terrain
     static_assert(kGrassLod3Slots == 435200u, "lod3 slots");
     static_assert(kGrassLod0Slots + kGrassLod1Slots + kGrassLod2Slots + kGrassLod3Slots == kGrassBladeCap, "grass cap");
 
-    constexpr float kGrassTileMetres         = 8.0f;
-    constexpr float kGrassLod0NominalMetres  = 16.0f;
-    constexpr float kGrassLod1NominalMetres  = 40.0f;
-    constexpr float kGrassLod2NominalMetres  = 80.0f;
-    constexpr float kGrassLod3NominalMetres  = 128.0f;
-    constexpr float kGrassCreateRadiusMetres = 128.0f;
-    constexpr float kGrassEvictRadiusMetres  = 147.2f;
-    constexpr float kGrassFadeStartMetres    = 112.0f;
-    constexpr float kGrassFadeEndMetres      = 128.0f;
-    constexpr float kGrassPromoteTo0Metres   = 13.6f;
-    constexpr float kGrassDemoteFrom0Metres  = 18.4f;
-    constexpr float kGrassPromoteTo1Metres   = 34.0f;
-    constexpr float kGrassDemoteFrom1Metres  = 46.0f;
-    constexpr float kGrassPromoteTo2Metres   = 68.0f;
-    constexpr float kGrassDemoteFrom2Metres  = 92.0f;
+    constexpr float kGrassTileMetres = 8.0f;
+    // LOD band distances are content/terrain/lod.json, read through grassLod().
 
 } // namespace Dark::Terrain

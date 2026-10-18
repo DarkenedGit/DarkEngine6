@@ -61,10 +61,15 @@ namespace Dark
     void ensureHumanoidBody(World& world, Entity e, float maxHp, const Math::Vector3f& halfExtents);
 
     // Motor, HSM, weapons, shield, sounds, and the player skill profile. Melee timing is set only when the loadout is created.
+    // Movement speeds are re-read from entities/player.entity.movement.json. Crouch, dodge, and motor progress stay as they are.
     void ensureLocalPlayerRig(const CharacterHost& host, Entity e, WeaponHitFn hitFn, void* hitUser);
 
-    // Extents, wolf tag and skill, and the hunter sound bank. Does not load a model.
+    // Extents, wolf tag and skill, the hunter sound bank, and that type's movement file. Does not load a model.
     void configureNpc(const CharacterHost& host, Entity e, NpcKind kind);
+
+    // Re-reads player, hunter, and wolf movement files onto bodies already in the world.
+    // A missing file leaves that body on the speeds it already has. Wolf is the tag "Wolf" or "wolf".
+    void applyAuthoredMovement(World& world);
 
     // Model, then configureNpc. Extents and sounds are applied even when the model fails to load.
     ContentModelResult attachNpcVisual(const CharacterHost& host, Entity e, NpcKind kind, ModelAttach mode);

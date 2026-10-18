@@ -20,7 +20,9 @@
 #include "ECS/Components.h"
 #include "ECS/World.h"
 #include "Render/GpuUpload.h"
+#include "AI/AiComponents.h"
 #include "Scene/EntityMaster.h"
+#include "Scene/EntityMovement.h"
 #include "Weapons/HittableComponent.h"
 #include "Weapons/MeleeWeapon.h"
 #include "Weapons/WeaponLoadoutComponent.h"
@@ -139,6 +141,73 @@ namespace Dark
         }
     }
 
+    namespace
+    {
+        void applyPlayerMovementFile(PlayerMotorSettings& settings)
+        {
+            EntityMovement move;
+            move.walkSpeed       = settings.walkSpeed;
+            move.runSpeed        = settings.sprintSpeed;
+            move.acceleration    = settings.acceleration;
+            move.gravity         = settings.gravity;
+            move.jumpSpeed       = settings.jumpSpeed;
+            move.doubleJumpSpeed = settings.doubleJumpSpeed;
+            if (!loadEntityMovementType("player", move))
+                return;
+            settings.walkSpeed       = move.walkSpeed;
+            settings.sprintSpeed     = move.runSpeed;
+            settings.acceleration    = move.acceleration;
+            settings.gravity         = move.gravity;
+            settings.jumpSpeed       = move.jumpSpeed;
+            settings.doubleJumpSpeed = move.doubleJumpSpeed;
+        }
+
+        bool tagIsWolf(const TagComponent* tag)
+        {
+            return tag && (tag->name == "Wolf" || tag->name == "wolf");
+        }
+
+        void applyNpcMovementFile(World& world, Entity e, const char* typeName)
+        {
+            if (!typeName || typeName[0] == '\0' || !world.alive(e))
+                return;
+
+            EntityMovement move;
+            const AI::PackSettings pack{};
+            move.walkSpeed    = pack.walkSpeed;
+            move.runSpeed     = pack.sprintSpeed;
+            move.acceleration = pack.acceleration;
+
+            Combat::JumpAttackDef def{};
+            JumpAttackComponent*   jac = world.get<JumpAttackComponent>(e);
+            if (jac)
+                def = jac->jump.def();
+            move.gravity             = def.gravity;
+            move.jumpSpeed           = def.leapVerticalSpeed;
+            move.leapForwardSpeed    = def.leapForwardSpeed;
+            move.leapForwardSpeedMax = def.leapForwardSpeedMax;
+
+            if (!loadEntityMovementType(typeName, move))
+                return;
+
+            if (AiAgentComponent* ai = world.get<AiAgentComponent>(e))
+            {
+                ai->walkSpeed     = move.walkSpeed;
+                ai->runSpeed      = move.runSpeed;
+                ai->acceleration  = move.acceleration;
+                ai->authoredMove  = true;
+            }
+            if (jac)
+            {
+                def.gravity             = move.gravity;
+                def.leapVerticalSpeed   = move.jumpSpeed;
+                def.leapForwardSpeed    = move.leapForwardSpeed;
+                def.leapForwardSpeedMax = move.leapForwardSpeedMax;
+                jac->jump.setDef(def);
+            }
+        }
+    } // namespace
+
     void ensureLocalPlayerRig(const CharacterHost& host, Entity e, WeaponHitFn hitFn, void* hitUser)
     {
         if (!host.world.alive(e))
@@ -146,6 +215,8 @@ namespace Dark
 
         if (!host.world.has<PlayerMotorComponent>(e))
             host.world.emplace<PlayerMotorComponent>(e);
+        if (PlayerMotorComponent* motor = host.world.get<PlayerMotorComponent>(e))
+            applyPlayerMovementFile(motor->motor.settings());
         if (!host.world.has<HsmGraphComponent>(e))
         {
             HsmGraphComponent hsm{};
@@ -208,6 +279,7 @@ namespace Dark
             applySkillProfile(host.world, e, "wolf");
         }
         attachHunterSounds(host.world, host.pins, host.assets, host.audio, e, host.ground);
+        applyNpcMovementFile(host.world, e, wolf ? "wolf" : "hunter");
     }
 
     ContentModelResult attachNpcVisual(const CharacterHost& host, Entity e, NpcKind kind, ModelAttach mode)
@@ -223,6 +295,17 @@ namespace Dark
         const ContentModelResult result = attachContentModel(host, e, path, mode);
         configureNpc(host, e, kind);
         return result;
+    }
+
+    void applyAuthoredMovement(World& world)
+    {
+        world.each<PlayerMotorComponent>([&](Entity, PlayerMotorComponent& motor) {
+            applyPlayerMovementFile(motor.motor.settings());
+        });
+        world.each<AiAgentComponent>([&](Entity e, AiAgentComponent&) {
+            const TagComponent* tag = world.get<TagComponent>(e);
+            applyNpcMovementFile(world, e, tagIsWolf(tag) ? "wolf" : "hunter");
+        });
     }
 
 } // namespace Dark
