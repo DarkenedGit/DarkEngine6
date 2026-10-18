@@ -964,11 +964,11 @@ float SandboxApp::playerLightLevel()
     world().each<LocalLightComponent>([&](Entity e, LocalLightComponent& light) {
         if (!light.enabled || e == m_muzzle)
             return;
-        if (e == m_flashlight)
-        {
-            lamps += 0.35f;
-            return;
-        }
+        //if (e == m_flashlight)
+        //{
+        //    lamps += 0.35f;
+        //    return;
+        //}
         const TransformComponent* lxf = world().get<TransformComponent>(e);
         if (!lxf || light.range <= 0.0f)
             return;
