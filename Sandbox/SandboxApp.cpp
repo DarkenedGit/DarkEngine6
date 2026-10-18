@@ -846,6 +846,8 @@ void SandboxApp::updateCharacterAnims(float dt)
             ag->graph.setFloat("strafe", aim.strafe);
             ag->graph.setBool("backward", aim.backward);
             ag->graph.setBool("crouch", crouched);
+            ag->graph.setBool("climb", motor && motor->state() == PlayerMoveState::WallRun);
+            ag->graph.setBool("hang", motor && motor->state() == PlayerMoveState::Hang);
             m_lowerBodyYaw = approachAngle(m_lowerBodyYaw, aim.lowerYaw, 10.0f, dt);
             ag->graph.player().setLowerBodyYaw(m_lowerBodyYaw);
             ag->graph.player().setChargeWindup(m_chargeWindup.attack, m_chargeWindup.block, m_chargeWindup.blockStrike);
@@ -1160,6 +1162,8 @@ void SandboxApp::updatePossessed(float dt)
     ground.heightAt = [](void* user, float x, float z) -> float {
         return static_cast<const SandboxApp*>(user)->playerGroundHeight(x, z);
     };
+    const PlayWallProbe walls{ &m_physics, m_groundIgnore, m_physicsGround };
+    bindWallProbe(ground, walls);
 
     const Vector3f before = xf->position;
     PlayerMotorResult motorOut{};
@@ -1200,7 +1204,7 @@ void SandboxApp::updatePossessed(float dt)
     Physics::syncFoliageCollision(m_physics, m_foliageCollision, m_terrain, m_foliage.empty() ? nullptr : &m_foliage, xf->position.x, xf->position.z);
 
     Vector3f delta{ xf->position.x - before.x, 0.0f, xf->position.z - before.z };
-    if (delta.MagnitudeSqrd() > 1.0e-10f)
+    if (delta.MagnitudeSqrd() > 1.0e-10f && !motorOut.climbed)
     {
         Sphere3f ball{ Vector3f{ before.x, xf->position.y, before.z }, kPlayBodyRadius };
         float    bestT = 1.0f;
@@ -1229,7 +1233,10 @@ void SandboxApp::updatePossessed(float dt)
         noteMotorXp(*skills, sample);
     }
     if (motor && motor->state() == PlayerMoveState::Grounded)
+    {
+        m_groundProbeY = Math::Max(m_groundProbeY, xf->position.y);
         xf->position.y = playerGroundHeight(xf->position.x, xf->position.z) + motor->settings().groundOffset;
+    }
 
     m_playerWet = motor && motor->state() == PlayerMoveState::Swimming;
 
@@ -4740,6 +4747,7 @@ void SandboxApp::onRender()
         drawNpcInfoOverlay();
         drawGuardAwareness();
         drawArmorHud();
+        drawStaminaBar();
         drawPickupLabels();
         drawTargetMarker();
         drawDefenseText();

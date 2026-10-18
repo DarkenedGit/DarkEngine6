@@ -164,6 +164,21 @@ void SandboxApp::drawInventory()
     ImGui::End();
 }
 
+void SandboxApp::drawStaminaBar()
+{
+    const PlayerMotor* motor = localMotor();
+    if (!motor || motor->stamina() >= 0.999f)
+        return;
+    const ImGuiViewport* vp  = ImGui::GetMainViewport();
+    ImDrawList*          dl  = ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp));
+    const float          w   = 220.0f;
+    const ImVec2         min{ vp->Pos.x + vp->Size.x - 28.0f - w, vp->Pos.y + vp->Size.y - 92.0f };
+    const ImVec2         max{ min.x + w, min.y + 8.0f };
+    const float          s   = Math::Clamp(motor->stamina(), 0.0f, 1.0f);
+    dl->AddRectFilled(min, max, IM_COL32(0, 0, 0, 150), 3.0f);
+    dl->AddRectFilled(min, ImVec2(min.x + w * s, max.y), s < 0.25f ? IM_COL32(230, 90, 60, 230) : IM_COL32(240, 210, 90, 230), 3.0f);
+}
+
 void SandboxApp::drawArmorHud()
 {
     const Entity              body = possessedBody();

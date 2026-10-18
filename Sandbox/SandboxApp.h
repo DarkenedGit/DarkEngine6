@@ -89,6 +89,7 @@ private:
     void drawTargetMarker();
     void drawGuardAwareness();
     float playerLightLevel();
+    void drawStaminaBar();
     void updateHunterLoot();
     bool ownsWeapon(Dark::WeaponKind kind);
     void pickUpNearestItem();

@@ -1,5 +1,6 @@
 #include "Play/PhysicsGround.h"
 
+#include "Character/PlayerMotor.h"
 #include "Core/Log.h"
 #include "Physics/PhysicsWorld.h"
 #include "Terrain/HeightMap.h"
@@ -44,6 +45,41 @@ namespace Dark
         if (probe.maxDrop > 0.0f && physics.probeGround(probe, surfaceY) && surfaceY > terrainY)
             return surfaceY;
         return terrainY;
+    }
+
+    void bindWallProbe(PlayerGroundQuery& query, const PlayWallProbe& probe)
+    {
+        if (!probe.physics || !probe.physics->valid())
+            return;
+        query.wallUser = const_cast<PlayWallProbe*>(&probe);
+        query.wallAt   = [](void* user, const Math::Vector3f& from, const Math::Vector3f& dir, float maxDist, float& outDist) {
+            const PlayWallProbe&                 p = *static_cast<const PlayWallProbe*>(user);
+            Physics::PhysicsWorld::MoverCast cast;
+            cast.origin      = from;
+            cast.radius      = 0.3f;
+            cast.bottom      = -0.1f;
+            cast.top         = 1.1f;
+            cast.translation = dir * maxDist;
+            cast.ignore      = p.ignore;
+            cast.ignore2     = p.ground;
+            cast.staticOnly  = true;
+            const float t    = p.physics->clipMover(cast);
+            if (t >= 1.0f)
+                return false;
+            outDist = t * maxDist;
+            return true;
+        };
+        query.ledgeAt = [](void* user, float x, float z, float fromY, float& outTopY) {
+            const PlayWallProbe&               p = *static_cast<const PlayWallProbe*>(user);
+            Physics::PhysicsWorld::GroundProbe probeDown;
+            probeDown.from       = Math::Vector3f(x, fromY, z);
+            probeDown.radius     = 0.2f;
+            probeDown.maxDrop    = 4.0f;
+            probeDown.ignore     = p.ignore;
+            probeDown.ignore2    = p.ground;
+            probeDown.staticOnly = true;
+            return p.physics->probeGround(probeDown, outTopY);
+        };
     }
 
 } // namespace Dark

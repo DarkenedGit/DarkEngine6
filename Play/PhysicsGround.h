@@ -4,6 +4,7 @@
 
 namespace Dark
 {
+    struct PlayerGroundQuery;
 
     namespace Physics
     {
@@ -22,5 +23,13 @@ namespace Dark
     // Terrain height, raised when a static body sits above it. The physics ground body is ignored so the
     // height field does not report itself as a raised surface. An invalid world returns terrainY.
     float raisedGroundY(const Physics::PhysicsWorld& physics, Physics::PhysicsBodyId ignore, Physics::PhysicsBodyId groundBody, float terrainY, float x, float z, float probeY);
+
+    struct PlayWallProbe
+    {
+        const Physics::PhysicsWorld* physics = nullptr;
+        Physics::PhysicsBodyId       ignore  = Physics::kNullPhysicsBody;
+        Physics::PhysicsBodyId       ground  = Physics::kNullPhysicsBody;
+    };
+    void bindWallProbe(PlayerGroundQuery& query, const PlayWallProbe& probe);
 
 } // namespace Dark

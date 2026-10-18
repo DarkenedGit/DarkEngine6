@@ -62,11 +62,11 @@ namespace Dark
 
     inline void commitPlanarClip(Math::Vector3f& position, const Math::Vector3f& before, Math::Vector3f& delta, float bestT, float dt, PlayerMotor* motor)
     {
-        if (bestT < 1.0f)
-            delta *= Math::Max(0.0f, bestT - 0.02f);
+        const float keep = bestT < 1.0f ? Math::Max(0.0f, bestT - 0.02f) : 1.0f;
+        delta *= keep;
         position.x = before.x + delta.x;
         position.z = before.z + delta.z;
-        if (dt > 1.0e-4f && motor)
+        if (dt > 1.0e-4f && motor && keep < 1.0f)
             motor->setHorizontalVelocity(delta.x / dt, delta.z / dt);
     }
 
