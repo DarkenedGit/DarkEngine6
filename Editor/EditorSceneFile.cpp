@@ -161,6 +161,12 @@ bool EditorApp::saveScene()
                 d.position.z = stream->points.front().y;
             }
         }
+        if (const SpawnerComponent* spawner = world().get<SpawnerComponent>(e))
+        {
+            d.hasSpawner = true;
+            d.spawner    = spawner->desc;
+            clampSpawnerDesc(d.spawner);
+        }
         if (so.type == SceneObjectType::Model)
         {
             if (const ModelComponent* modelComp = world().get<ModelComponent>(e))

@@ -134,6 +134,14 @@ TEST(SceneTypes, Parse2DAnd3D)
     EXPECT_TRUE(isScene3DType(SceneObjectType::CloudVolume));
     EXPECT_FALSE(isScene2DType(SceneObjectType::CloudVolume));
     EXPECT_STREQ(toString(SceneObjectType::CloudVolume), "cloud_volume");
+    EXPECT_TRUE(tryParseSceneObjectType("spawner", t));
+    EXPECT_EQ(t, SceneObjectType::Spawner);
+    EXPECT_TRUE(isScene3DType(SceneObjectType::Spawner));
+    EXPECT_FALSE(isScene2DType(SceneObjectType::Spawner));
+    EXPECT_FALSE(isPawnType(SceneObjectType::Spawner));
+    EXPECT_STREQ(toString(SceneObjectType::Spawner), "spawner");
+    EXPECT_TRUE(tryParseSceneObjectType("spawn", t));
+    EXPECT_EQ(t, SceneObjectType::Spawn);
 
     SceneMode mode{};
     EXPECT_TRUE(tryParseSceneMode("2d", mode));
@@ -1911,4 +1919,86 @@ TEST(SceneFile, CloudDeckMissingKeysUseDefaults)
 
     std::error_code ecRemove;
     std::filesystem::remove(path, ecRemove);
+}
+
+TEST(SceneFile, SpawnerRoundTrip)
+{
+    SceneFileData in{};
+    in.version = 3;
+    in.name    = "ut_spawner";
+    in.mode    = SceneMode::Scene3D;
+
+    SceneObjectData spawner{};
+    spawner.type                 = SceneObjectType::Spawner;
+    spawner.hasSpawner           = true;
+    spawner.position             = Vector3f(12.0f, 0.5f, -6.0f);
+    spawner.spawner.mode         = SpawnerMode::Waves;
+    spawner.spawner.unit         = SpawnerUnit::Wolf;
+    spawner.spawner.gate         = SpawnerWaveGate::Time;
+    spawner.spawner.count        = 4;
+    spawner.spawner.radius       = 9.5f;
+    spawner.spawner.respawnDelay = 2.25f;
+    spawner.spawner.waveInterval = 12.0f;
+    spawner.spawner.maxWaves     = 3;
+    spawner.spawner.enabled      = false;
+    spawner.spawner.seed         = 99;
+    in.objects.push_back(spawner);
+
+    const auto path = tempScenePath("darkengine6_scene_spawner_ut.json");
+    std::string err;
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+
+    SceneFileData out{};
+    ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
+    ASSERT_EQ(out.objects.size(), 1u);
+    EXPECT_EQ(out.objects[0].type, SceneObjectType::Spawner);
+    EXPECT_TRUE(out.objects[0].hasSpawner);
+    EXPECT_EQ(out.objects[0].spawner.mode, SpawnerMode::Waves);
+    EXPECT_EQ(out.objects[0].spawner.unit, SpawnerUnit::Wolf);
+    EXPECT_EQ(out.objects[0].spawner.gate, SpawnerWaveGate::Time);
+    EXPECT_EQ(out.objects[0].spawner.count, 4);
+    EXPECT_NEAR(out.objects[0].spawner.radius, 9.5f, 1.0e-4f);
+    EXPECT_NEAR(out.objects[0].spawner.respawnDelay, 2.25f, 1.0e-4f);
+    EXPECT_NEAR(out.objects[0].spawner.waveInterval, 12.0f, 1.0e-4f);
+    EXPECT_EQ(out.objects[0].spawner.maxWaves, 3);
+    EXPECT_FALSE(out.objects[0].spawner.enabled);
+    EXPECT_EQ(out.objects[0].spawner.seed, 99u);
+    EXPECT_NEAR(out.objects[0].position.x, 12.0f, 1.0e-4f);
+    EXPECT_NEAR(out.objects[0].position.z, -6.0f, 1.0e-4f);
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+TEST(SceneFile, SpawnerMistypedFieldsKeepDefaults)
+{
+    const auto path = tempScenePath("darkengine6_scene_spawner_bad_ut.json");
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 3,
+  "name": "spawner_bad",
+  "objects": [
+    {"type": "spawner", "spawner": {"mode": 1, "unit": false, "gate": "nope", "count": "x", "radius": true, "enabled": "yes", "seed": -4, "maxWaves": 0}}
+  ]
+})";
+    }
+
+    SceneFileData data{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
+    ASSERT_EQ(data.objects.size(), 1u);
+    EXPECT_TRUE(data.objects[0].hasSpawner);
+    EXPECT_EQ(data.objects[0].spawner.mode, SpawnerMode::Maintain);
+    EXPECT_EQ(data.objects[0].spawner.unit, SpawnerUnit::Hunter);
+    EXPECT_EQ(data.objects[0].spawner.gate, SpawnerWaveGate::Cleared);
+    EXPECT_EQ(data.objects[0].spawner.count, 3);
+    EXPECT_NEAR(data.objects[0].spawner.radius, 6.0f, 1.0e-4f);
+    EXPECT_TRUE(data.objects[0].spawner.enabled);
+    EXPECT_EQ(data.objects[0].spawner.seed, 1u);
+    EXPECT_EQ(data.objects[0].spawner.maxWaves, 0);
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
 }

@@ -19,6 +19,7 @@
 #include "Render/SpritePipeline.h"
 #include "Render/Texture2D.h"
 #include "Scene/SceneTypes.h"
+#include "Play/Crow.h"
 #include "Editor/EditorObject.h"
 #include "Math/AABox2f.h"
 #include "Editor/EditorImGui.h"
@@ -175,6 +176,10 @@ private:
     void   captureAuthoredPoses();
     void   restoreAuthoredPoses();
     void   tickEditorHunters(float dt);
+    void   tickSpawners(float dt);
+    void   tickCrows(float dt);
+    void   destroySpawnedUnits(Entity onlySpawner);
+    Entity spawnSpawnerUnit(Entity spawner, const SpawnerRequest& req);
     Dark::Terrain::GroundContact groundContactAt(float x, float z) const;
     void   updatePawnAnims();
     void   updatePlay(float dt);
@@ -497,6 +502,7 @@ private:
     Dark::Save::SaveSystem    m_save;
     Dark::Entity              m_session{};
     Dark::Entity              m_playPlayer{};
+    CrowModels                m_crowModels{};
     float                     m_playLookYaw   = 0.0f;
     float                     m_playLookPitch = 0.0f;
     float                     m_playLowerBodyYaw = 0.0f;

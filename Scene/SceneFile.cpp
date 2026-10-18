@@ -84,6 +84,64 @@ bool readVec3(const json& j, Math::Vector3f& out, std::string* err, const char* 
     return true;
 }
 
+bool readJsonNumber(const json& j, const char* key, double& out)
+{
+    if (!j.contains(key) || !j[key].is_number())
+        return false;
+    const double v = j[key].get<double>();
+    if (!std::isfinite(v))
+        return false;
+    out = v;
+    return true;
+}
+
+bool readJsonString(const json& j, const char* key, std::string& out)
+{
+    if (!j.contains(key) || !j[key].is_string())
+        return false;
+    out = j[key].get<std::string>();
+    return true;
+}
+
+void readSpawnerBlock(const json& j, SpawnerDesc& desc)
+{
+    std::string text;
+    if (readJsonString(j, "mode", text))
+    {
+        SpawnerMode mode{};
+        if (tryParseSpawnerMode(text, mode))
+            desc.mode = mode;
+    }
+    if (readJsonString(j, "unit", text))
+    {
+        SpawnerUnit unit{};
+        if (tryParseSpawnerUnit(text, unit))
+            desc.unit = unit;
+    }
+    if (readJsonString(j, "gate", text))
+    {
+        SpawnerWaveGate gate{};
+        if (tryParseSpawnerWaveGate(text, gate))
+            desc.gate = gate;
+    }
+    double number = 0.0;
+    if (readJsonNumber(j, "count", number))
+        desc.count = static_cast<int>(number);
+    if (readJsonNumber(j, "radius", number))
+        desc.radius = static_cast<float>(number);
+    if (readJsonNumber(j, "respawnDelay", number))
+        desc.respawnDelay = static_cast<float>(number);
+    if (readJsonNumber(j, "waveInterval", number))
+        desc.waveInterval = static_cast<float>(number);
+    if (readJsonNumber(j, "maxWaves", number))
+        desc.maxWaves = static_cast<int>(number);
+    if (readJsonNumber(j, "seed", number) && number >= 1.0 && number <= 4294967295.0)
+        desc.seed = static_cast<uint32_t>(number);
+    if (j.contains("enabled") && j["enabled"].is_boolean())
+        desc.enabled = j["enabled"].get<bool>();
+    clampSpawnerDesc(desc);
+}
+
 bool readQuat(const json& j, Math::Quaternion& out, std::string* err, const char* field)
 {
     if (!j.is_array() || j.size() < 4)
@@ -456,6 +514,21 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
                 points.push_back(json::array({ p.x, p.y }));
             stream["points"] = std::move(points);
             jo["stream"]     = std::move(stream);
+        }
+        if (o.hasSpawner || o.type == SceneObjectType::Spawner)
+        {
+            json spawner;
+            spawner["mode"]          = toString(o.spawner.mode);
+            spawner["unit"]          = toString(o.spawner.unit);
+            spawner["gate"]          = toString(o.spawner.gate);
+            spawner["count"]         = o.spawner.count;
+            spawner["radius"]        = o.spawner.radius;
+            spawner["respawnDelay"]  = o.spawner.respawnDelay;
+            spawner["waveInterval"]  = o.spawner.waveInterval;
+            spawner["maxWaves"]      = o.spawner.maxWaves;
+            spawner["enabled"]       = o.spawner.enabled;
+            spawner["seed"]          = o.spawner.seed;
+            jo["spawner"]            = std::move(spawner);
         }
 
         if (o.conceal)
@@ -1035,6 +1108,15 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             o.position.x       = o.streamPoints.front().x;
             o.position.z       = o.streamPoints.front().y;
             ++streamCount;
+        }
+
+        if (o.type == SceneObjectType::Spawner || (jo.contains("spawner") && jo["spawner"].is_object()))
+        {
+            o.hasSpawner = true;
+            if (jo.contains("spawner") && jo["spawner"].is_object())
+                readSpawnerBlock(jo["spawner"], o.spawner);
+            else
+                clampSpawnerDesc(o.spawner);
         }
 
         if (o.scale.x == 0.0f)

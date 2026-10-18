@@ -72,6 +72,7 @@
 #include "Combat/ArmorComponent.h"
 #include "Gameplay/Inventory.h"
 #include "Play/PlayerFlashlight.h"
+#include "Play/Spawner.h"
 #include "Character/ShieldView.h"
 #include "Character/SkillSense.h"
 #include "Character/SkillXp.h"
@@ -1476,6 +1477,84 @@ int SandboxApp::giveItem(InventoryComponent& inv, const ItemStack& item)
         }
     }
     return added;
+}
+
+void SandboxApp::tickCrows(float dt)
+{
+    if (!m_chaseOk || dt < 0.0f)
+        return;
+    const Dark::Terrain::TerrainGrid* grid = m_terrain.valid() ? &m_terrain : nullptr;
+    Dark::simulateCrows(world(), grid, &m_crowModels, &assets(), &audio(), dt);
+}
+
+Entity SandboxApp::spawnSpawnerUnit(Entity spawner, const SpawnerRequest& req)
+{
+    if (!m_chaseOk)
+        return {};
+    if (req.unit == SpawnerUnit::Crow)
+    {
+        const TransformComponent* home = world().get<TransformComponent>(spawner);
+        const float homeX = home ? home->position.x : req.x;
+        const float homeZ = home ? home->position.z : req.z;
+        const float groundY = m_terrain.valid() ? m_terrain.heightAtWorld(req.x, req.z) : 0.0f;
+        return Dark::spawnCrow(world(), renderer(), assets(), m_crowModels, m_terrain.valid() ? &m_terrain : nullptr, spawner, req, groundY, homeX, homeZ);
+    }
+    const bool wolf = req.unit == SpawnerUnit::Wolf;
+    TransformComponent xf{};
+    xf.position = Vector3f{ req.x, m_terrain.heightAtWorld(req.x, req.z) + 0.5f, req.z };
+    xf.scale    = Vector3f{ 1.0f, 1.0f, 1.0f };
+    const Entity hunter = m_chase.spawnListedHunter(world(), pins(), assets(), xf);
+    if (!hunter.valid())
+    {
+        DE_LOG_WARN(LogCategory::AI, "Sandbox: spawner failed to create a {}", wolf ? "wolf" : "hunter");
+        return {};
+    }
+    const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
+    attachNpcVisual(host, hunter, wolf ? NpcKind::Wolf : NpcKind::Hunter, ModelAttach::AnimatedOnly);
+    bindEntityPhysics(hunter, wolf ? "wolf" : "human");
+    if (!wolf)
+        stockHunter(hunter);
+    SpawnedUnitComponent mark{};
+    mark.spawner = spawner;
+    mark.slot    = req.slot;
+    world().emplace<SpawnedUnitComponent>(hunter, mark);
+    return hunter;
+}
+
+void SandboxApp::tickSpawners(float dt)
+{
+    if (!m_chaseOk || dt < 0.0f)
+        return;
+
+    struct Job
+    {
+        Entity         spawner{};
+        SpawnerRequest req{};
+    };
+    std::vector<Job> jobs;
+    world().each<SpawnerComponent>([&](Entity e, SpawnerComponent& spawner) {
+        const TransformComponent* xf = world().get<TransformComponent>(e);
+        if (!xf)
+            return;
+        bool alive[kSpawnerSlotCount]{};
+        for (int i = 0; i < kSpawnerSlotCount; ++i)
+            alive[i] = spawnerOccupantAlive(world(), spawner.runtime.slots[i].occupant);
+        SpawnerRequest reqs[kSpawnerSlotCount];
+        const int n = tickSpawner(spawner.desc, spawner.runtime, xf->position.x, xf->position.z, dt, alive, reqs, kSpawnerSlotCount);
+        for (int i = 0; i < n; ++i)
+            jobs.push_back(Job{ e, reqs[i] });
+    });
+    for (const Job& job : jobs)
+    {
+        const Entity unit = spawnSpawnerUnit(job.spawner, job.req);
+        SpawnerComponent* spawner = world().get<SpawnerComponent>(job.spawner);
+        if (!spawner || job.req.slot < 0 || job.req.slot >= kSpawnerSlotCount)
+            continue;
+        if (unit.valid())
+            spawner->runtime.slots[job.req.slot].occupant = unit;
+        else
+            spawner->runtime.slots[job.req.slot].tracked = false;
+    }
 }
 
 void SandboxApp::stockHunter(Entity hunter)
@@ -2990,6 +3069,7 @@ void SandboxApp::onInit()
     std::vector<SceneObjectData> scenePawns;
     std::vector<SceneObjectData> sceneBoxes;
     std::vector<SceneObjectData> sceneLights;
+    std::vector<SceneObjectData> sceneSpawners;
     {
         auto sidecar = [](const std::filesystem::path& scenePath, const std::string& file) {
             if (file.empty())
@@ -3235,6 +3315,8 @@ void SandboxApp::onInit()
         {
             if (o.type == SceneObjectType::Hunter || o.type == SceneObjectType::Wolf)
                 scenePawns.push_back(o);
+            if (o.type == SceneObjectType::Spawner)
+                sceneSpawners.push_back(o);
             if (o.type == SceneObjectType::Cube)
                 sceneBoxes.push_back(o);
             if (o.type == SceneObjectType::PointLight || o.type == SceneObjectType::SpotLight)
@@ -3543,6 +3625,44 @@ void SandboxApp::onInit()
         }
         DE_LOG_INFO(LogCategory::AI, "SandboxApp: {} scene pawn(s)", m_chase.hunterCount());
     }
+    if (!sceneSpawners.empty())
+    {
+        AssetRef<Model> marker;
+        MeshData markerMesh;
+        if (CreateCube(markerMesh, 1.0f))
+        {
+            marker = internAndUploadProceduralModel(renderer(), assets(), std::move(markerMesh),
+                internSolidMaterial(assets(), 255, 158, 38, 255, "runtime:/scene/spawner-mat"), "runtime:/scene/spawner");
+        }
+        int spawnerStamp = 0;
+        for (const SceneObjectData& o : sceneSpawners)
+        {
+            const bool zeroScale = o.scale.x == 0.0f && o.scale.y == 0.0f && o.scale.z == 0.0f;
+            const Vector3f scale = zeroScale ? Vector3f{ 0.8f, 0.8f, 0.8f } : o.scale;
+            TransformComponent xf{};
+            xf.rotation = o.rotation;
+            xf.scale    = scale;
+            xf.position = o.position;
+            xf.position.y = m_terrain.heightAtWorld(o.position.x, o.position.z) + 0.5f * std::fabs(scale.y);
+            const Entity e = world().createEntity();
+            world().emplace<TagComponent>(e, "Spawner");
+            world().emplace<TransformComponent>(e, xf);
+            SpawnerComponent spawner{};
+            if (o.hasSpawner)
+                spawner.desc = o.spawner;
+            clampSpawnerDesc(spawner.desc);
+            world().emplace<SpawnerComponent>(e, spawner);
+            if (marker)
+            {
+                ModelComponent mc{};
+                mc.modelAssetID = marker->id;
+                mc.castShadow   = true;
+                setModelComponent(world(), pins(), assets(), e, mc);
+            }
+            stampProceduralId(world(), e, std::format("sandbox/level/spawner/{}", spawnerStamp++), "spawner");
+        }
+        DE_LOG_INFO(LogCategory::AI, "SandboxApp: {} spawner(s)", sceneSpawners.size());
+    }
     if (m_chaseOk)
     {
         bindCharacterPhysics();
@@ -3622,6 +3742,8 @@ void SandboxApp::onUpdate(float dt)
                         m_chase.ai().addNoise(pxf->position, crouched ? m_stealth.hearCrouchWalk : (sprinting ? m_stealth.hearSprint : m_stealth.hearWalk));
                 }
             }
+            tickSpawners(dt);
+            tickCrows(dt);
             m_chase.tick(dt, world(), input(), m_terrain, possessedBody(), m_playerWet);
         }
         updateCombat(dt);

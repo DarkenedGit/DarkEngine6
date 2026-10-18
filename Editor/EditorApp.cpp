@@ -359,6 +359,7 @@ const Mesh* EditorApp::meshForType(SceneObjectType type) const
     case SceneObjectType::Coin:
     case SceneObjectType::Spawn:
     case SceneObjectType::Cube:
+    case SceneObjectType::Spawner:
     default:
         return &m_cubeMesh;
     }

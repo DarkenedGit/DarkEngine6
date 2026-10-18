@@ -3,6 +3,7 @@
 #include "Math/Quaternion.h"
 #include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
+#include "Play/Spawner.h"
 
 #include <cstdint>
 #include <string>
@@ -58,6 +59,7 @@ namespace Dark
         Water,
         CloudVolume,
         Stream,
+        Spawner,
         Count
     };
 
@@ -68,7 +70,7 @@ namespace Dark
             || t == SceneObjectType::AmbientLight || t == SceneObjectType::DirectionalLight
             || t == SceneObjectType::Player || t == SceneObjectType::Hunter || t == SceneObjectType::Wolf
             || t == SceneObjectType::Model || t == SceneObjectType::Water || t == SceneObjectType::CloudVolume
-            || t == SceneObjectType::Stream;
+            || t == SceneObjectType::Stream || t == SceneObjectType::Spawner;
     }
 
     inline bool isPawnType(SceneObjectType t)
@@ -112,6 +114,7 @@ namespace Dark
         case SceneObjectType::Water:           return "water";
         case SceneObjectType::CloudVolume:     return "cloud_volume";
         case SceneObjectType::Stream:          return "stream";
+        case SceneObjectType::Spawner:         return "spawner";
         default:                               return "unknown";
         }
     }
@@ -203,6 +206,11 @@ namespace Dark
             out = SceneObjectType::Stream;
             return true;
         }
+        if (s == "spawner")
+        {
+            out = SceneObjectType::Spawner;
+            return true;
+        }
         return false;
     }
 
@@ -288,6 +296,10 @@ namespace Dark
 
         bool conceal = false;
         bool goal    = false;
+
+        // Unit spawner. Radius is metres on the ground, not the marker scale.
+        bool        hasSpawner = false;
+        SpawnerDesc spawner{};
     };
 
     // World-level terrain JSON DTO. Not a SceneObjectType. Paths are virtual or sidecar filenames.

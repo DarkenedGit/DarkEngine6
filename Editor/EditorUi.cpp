@@ -242,6 +242,13 @@ void EditorApp::drawEditorUi()
                     m_placeType            = SceneObjectType::Wolf;
                     m_queuePlaceAtCursor   = true;
                 }
+                if (ImGui::MenuItem(ICON_FA_FORWARD_STEP "  Spawner", nullptr, false, createOk))
+                {
+                    m_placeType          = SceneObjectType::Spawner;
+                    m_queuePlaceAtCursor = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Places a spawner. Maintain replaces dead units. Waves wait for a timer or until the wave is dead.");
                 if (ImGui::MenuItem(ICON_FA_BOLT "  Glow Prop", nullptr, false, createOk))
                     m_queueGlowProp = true;
                 if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  Water", nullptr, false, createOk))
@@ -837,6 +844,73 @@ void EditorApp::drawInspector3D()
         }
         ImGui::DragFloat("Source radius", &light->sourceRadius, 0.005f, 0.0f, 2.0f);
     }
+    else if (so->type == SceneObjectType::Spawner)
+    {
+        ImGui::Separator();
+        ImGui::TextUnformatted("Spawner");
+        if (SpawnerComponent* spawner = world().get<SpawnerComponent>(m_selected))
+        {
+            SpawnerDesc& d = spawner->desc;
+            ImGui::Checkbox("Enabled", &d.enabled);
+            int mode = static_cast<int>(d.mode);
+            if (ImGui::Combo("Mode", &mode, "Maintain\0Waves\0"))
+                d.mode = static_cast<SpawnerMode>(mode);
+            int unit = static_cast<int>(d.unit);
+            if (ImGui::Combo("Unit", &unit, "Hunter\0Wolf\0Crow\0"))
+                d.unit = static_cast<SpawnerUnit>(unit);
+            if (d.unit == SpawnerUnit::Crow)
+                ImGui::TextDisabled("Crows flock, perch in trees, or hop for food. A nearby hunter or the player makes them call and fly off.");
+            int count = d.count;
+            if (ImGui::SliderInt("Count", &count, 1, kSpawnerSlotCount))
+                d.count = count;
+            ImGui::DragFloat("Radius (m)", &d.radius, 0.1f, 0.0f, 64.0f, "%.1f");
+            if (d.mode == SpawnerMode::Maintain)
+            {
+                ImGui::DragFloat("Respawn delay", &d.respawnDelay, 0.05f, 0.0f, 60.0f, "%.2f s");
+                ImGui::TextDisabled("Keeps Count units alive. Each death waits, then a new unit appears inside the radius.");
+            }
+            else
+            {
+                int gate = static_cast<int>(d.gate);
+                if (ImGui::Combo("Next wave", &gate, "After time\0When cleared\0"))
+                    d.gate = static_cast<SpawnerWaveGate>(gate);
+                if (d.gate == SpawnerWaveGate::Time)
+                {
+                    ImGui::DragFloat("Wave interval", &d.waveInterval, 0.1f, 0.25f, 120.0f, "%.2f s");
+                    ImGui::TextDisabled("Spawns Count units on the interval. Earlier units stay in the level.");
+                }
+                else
+                {
+                    ImGui::TextDisabled("Spawns Count units. The next wave starts when that wave is dead.");
+                }
+                ImGui::SliderInt("Max waves", &d.maxWaves, 0, 32);
+                ImGui::TextDisabled("0 keeps spawning.");
+            }
+            int seed = static_cast<int>(d.seed > 1000000000u ? 1000000000u : d.seed);
+            if (ImGui::DragInt("Seed", &seed, 1.0f, 1, 1000000000))
+                d.seed = static_cast<uint32_t>(seed < 1 ? 1 : seed);
+            clampSpawnerDesc(d);
+            if (m_playMode)
+            {
+                int live = 0;
+                for (int i = 0; i < d.count && i < kSpawnerSlotCount; ++i)
+                {
+                    if (spawner->runtime.slots[i].tracked)
+                        ++live;
+                }
+                if (d.mode == SpawnerMode::Waves)
+                    ImGui::Text("Live %d    waves %d", live, spawner->runtime.wavesSpawned);
+                else
+                    ImGui::Text("Live %d / %d", live, d.count);
+            }
+        }
+        if (ImGui::ColorEdit3("Tint", so->color))
+        {
+            if (AssetRef<Material> mat = ensureUniqueMeshMaterial(m_selected))
+                mat->setBaseColor(so->color[0], so->color[1], so->color[2], mat->baseColor()[3]);
+        }
+        ImGui::TextDisabled("The cube is a marker. Radius is the spawn area, not the cube size.");
+    }
     else if (so->type == SceneObjectType::Water)
     {
         ImGui::Separator();
@@ -959,6 +1033,8 @@ void EditorApp::onUpdate(float dt)
     if (m_playMode)
     {
         updatePlay(dt);
+        tickSpawners(dt);
+        tickCrows(dt);
         tickEditorHunters(dt);
         syncArmorVisuals(world());
         Combat::harvestAndResolveDots(world(), m_combat);

@@ -39,6 +39,8 @@
 #include "PathChase.h"
 #include "Terrain/TerrainGround.h"
 #include "Play/ImpactFx.h"
+#include "Play/Spawner.h"
+#include "Play/Crow.h"
 #include "Play/WeaponTargets.h"
 #include "Ui/HudTagComponent.h"
 #include "Ui/NpcInfoOverlay.h"
@@ -82,6 +84,9 @@ private:
     void drawLoot();
     int  giveItem(Dark::InventoryComponent& inv, const Dark::ItemStack& item);
     void stockHunter(Dark::Entity hunter);
+    void tickSpawners(float dt);
+    void tickCrows(float dt);
+    Dark::Entity spawnSpawnerUnit(Dark::Entity spawner, const Dark::SpawnerRequest& req);
     void faceHitTarget(Dark::Entity target);
     bool boneWorldPos(Dark::Entity e, const char* bone, Dark::Math::Vector3f& out);
     void onPlayerDefended(Dark::Entity attacker, bool parried);
@@ -237,6 +242,7 @@ private:
 
     Dark::PathChase                m_chase;
     bool                           m_chaseOk = false;
+    Dark::CrowModels               m_crowModels{};
     Dark::WeaponTargetList m_weaponTargets;
 
     Dark::Terrain::TerrainGrid m_terrain;

@@ -171,6 +171,43 @@
     },
     {
       "color": [
+        1.0,
+        0.62,
+        0.15,
+        1.0
+      ],
+      "position": [
+        10.0,
+        0.5,
+        8.0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        0.8,
+        0.8,
+        0.8
+      ],
+      "spawner": {
+        "count": 6,
+        "enabled": true,
+        "gate": "cleared",
+        "maxWaves": 0,
+        "mode": "maintain",
+        "radius": 18.0,
+        "respawnDelay": 2.0,
+        "seed": 3,
+        "unit": "crow",
+        "waveInterval": 8.0
+      },
+      "type": "spawner"
+    },
+    {
+      "color": [
         0.8500000238418579,
         0.2800000011920929,
         0.2199999988079071,

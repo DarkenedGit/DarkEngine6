@@ -66,6 +66,7 @@
 #include <filesystem>
 #include <cstring>
 #include <memory>
+#include <vector>
 
 using namespace Dark;
 using namespace Dark::Math;
@@ -351,6 +352,7 @@ void EditorApp::setPlayMode(bool play)
         Physics::destroyFoliageCollision(m_physics, m_foliageCollision);
         if (JumpAttackComponent* jac = m_playPlayer.valid() ? world().get<JumpAttackComponent>(m_playPlayer) : nullptr)
             jac->jump.cancel(Combat::JumpAttackCancel::ForceIdle);
+        destroySpawnedUnits({});
         restoreAuthoredPoses();
         resetPlayCombat();
         clearAllStatusFx(world(), &audio());
@@ -982,6 +984,115 @@ Terrain::GroundContact EditorApp::groundContactAt(float x, float z) const
 {
     const Terrain::TerrainGrid* grid = (m_haveTerrain && m_terrain.valid()) ? &m_terrain : nullptr;
     return Terrain::groundContactAt(m_ground, grid, x, z);
+}
+
+void EditorApp::destroySpawnedUnits(Entity onlySpawner)
+{
+    std::vector<Entity> doomed;
+    world().each<SpawnedUnitComponent>([&](Entity e, SpawnedUnitComponent& mark) {
+        if (onlySpawner.valid() && mark.spawner.id() != onlySpawner.id())
+            return;
+        doomed.push_back(e);
+    });
+    for (Entity e : doomed)
+    {
+        if (!world().alive(e))
+            continue;
+        releasePhysicsBody(e);
+        onEntityRemoved(world(), e, &pins());
+        world().destroyEntity(e);
+    }
+    if (onlySpawner.valid())
+    {
+        if (SpawnerComponent* spawner = world().get<SpawnerComponent>(onlySpawner))
+            resetSpawnerRuntime(spawner->runtime);
+        return;
+    }
+    world().each<SpawnerComponent>([&](Entity, SpawnerComponent& spawner) {
+        resetSpawnerRuntime(spawner.runtime);
+    });
+}
+
+void EditorApp::tickCrows(float dt)
+{
+    if (!m_playMode || m_sceneMode != SceneMode::Scene3D || dt < 0.0f)
+        return;
+    const Terrain::TerrainGrid* grid = (m_haveTerrain && m_terrain.valid()) ? &m_terrain : nullptr;
+    simulateCrows(world(), grid, &m_crowModels, &assets(), &audio(), dt);
+}
+
+Entity EditorApp::spawnSpawnerUnit(Entity spawner, const SpawnerRequest& req)
+{
+    // No EditorObjectComponent and no persistent id. A play-mode scene save must not keep the army.
+    if (req.unit == SpawnerUnit::Crow)
+    {
+        const TransformComponent* home = world().get<TransformComponent>(spawner);
+        const float homeX = home ? home->position.x : req.x;
+        const float homeZ = home ? home->position.z : req.z;
+        const bool haveGround = m_haveTerrain && m_terrain.valid();
+        const float groundY = haveGround ? m_terrain.heightAtWorld(req.x, req.z) : 0.0f;
+        return spawnCrow(world(), renderer(), assets(), m_crowModels, haveGround ? &m_terrain : nullptr, spawner, req, groundY, homeX, homeZ);
+    }
+    const bool wolf = req.unit == SpawnerUnit::Wolf;
+    Entity e = world().createEntity();
+    world().emplace<TagComponent>(e, wolf ? "Wolf" : "Hunter");
+    TransformComponent xf{};
+    xf.position = Vector3f{ req.x, m_terrain.heightAtWorld(req.x, req.z) + 0.5f, req.z };
+    xf.scale    = Vector3f{ 1.0f, 1.0f, 1.0f };
+    world().emplace<TransformComponent>(e, xf);
+    const bool ok = wolf ? attachEditorWolf(e) : attachEditorHunter(e);
+    if (!ok || !world().alive(e))
+    {
+        if (world().alive(e))
+        {
+            releasePhysicsBody(e);
+            onEntityRemoved(world(), e, &pins());
+            world().destroyEntity(e);
+        }
+        DE_LOG_WARN(LogCategory::AI, "Editor: spawner failed to create a {}", wolf ? "wolf" : "hunter");
+        return {};
+    }
+    SpawnedUnitComponent mark{};
+    mark.spawner = spawner;
+    mark.slot    = req.slot;
+    world().emplace<SpawnedUnitComponent>(e, mark);
+    return e;
+}
+
+void EditorApp::tickSpawners(float dt)
+{
+    if (!m_playMode || m_sceneMode != SceneMode::Scene3D || dt < 0.0f)
+        return;
+
+    struct Job
+    {
+        Entity          spawner{};
+        SpawnerRequest  req{};
+    };
+    std::vector<Job> jobs;
+    world().each<SpawnerComponent>([&](Entity e, SpawnerComponent& spawner) {
+        const TransformComponent* xf = world().get<TransformComponent>(e);
+        if (!xf)
+            return;
+        bool alive[kSpawnerSlotCount]{};
+        for (int i = 0; i < kSpawnerSlotCount; ++i)
+            alive[i] = spawnerOccupantAlive(world(), spawner.runtime.slots[i].occupant);
+        SpawnerRequest reqs[kSpawnerSlotCount];
+        const int n = tickSpawner(spawner.desc, spawner.runtime, xf->position.x, xf->position.z, dt, alive, reqs, kSpawnerSlotCount);
+        for (int i = 0; i < n; ++i)
+            jobs.push_back(Job{ e, reqs[i] });
+    });
+    for (const Job& job : jobs)
+    {
+        const Entity unit = spawnSpawnerUnit(job.spawner, job.req);
+        SpawnerComponent* spawner = world().get<SpawnerComponent>(job.spawner);
+        if (!spawner || job.req.slot < 0 || job.req.slot >= kSpawnerSlotCount)
+            continue;
+        if (unit.valid())
+            spawner->runtime.slots[job.req.slot].occupant = unit;
+        else
+            spawner->runtime.slots[job.req.slot].tracked = false;
+    }
 }
 
 void EditorApp::tickEditorHunters(float dt)
