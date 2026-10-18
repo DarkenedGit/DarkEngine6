@@ -660,15 +660,15 @@ void EditorApp::updatePlay(float dt)
     const bool canSteer    = hp && hp->alive() && !ccLocked && !(jump && jump->phase() == Combat::JumpAttackPhase::Pound);
     const bool pointerFree = window().cursorCaptured() || !uiMouse;
     const bool holdShield = canSteer
-        && ((input().mouseDown(MouseButton::Right) && pointerFree) || (!uiKeys && input().actionDown("shield"))
-            || input().axis(GamepadAxis::LeftTrigger) > 0.45f);
+        && ((input().actionMouseDown("shield") && pointerFree) || (!uiKeys && input().actionDown("shield"))
+            || input().actionAxisHeld("shield"));
     const bool toggleLight = canSteer && !uiKeys && input().actionPressed("flashlight");
     if (toggleLight)
     {
         if (SkillComponent* sk = world().get<SkillComponent>(body))
             sk->seeArmed = true;
     }
-    const bool attackDown = canSteer && !uiKeys && (input().actionDown("attack") || (pointerFree && input().mouseDown(MouseButton::Left)));
+    const bool attackDown = canSteer && !uiKeys && (input().actionDown("attack") || (pointerFree && input().actionMouseDown("attack")));
     const bool airborneNow = motor && (motor->state() == PlayerMoveState::Jumping || motor->state() == PlayerMoveState::Falling);
     Combat::DefenseComponent* defense = world().get<Combat::DefenseComponent>(body);
     if (defense)
@@ -701,10 +701,10 @@ void EditorApp::updatePlay(float dt)
     edges.crouchPressed = input().actionPressed("crouch");
     edges.crouchDown    = input().actionDown("crouch");
     edges.jumpPressed   = input().actionPressed("jump");
-    edges.forward       = input().keyPressed(Key::W) || input().keyPressed(Key::Up);
-    edges.back          = input().keyPressed(Key::S) || input().keyPressed(Key::Down);
-    edges.left          = input().keyPressed(Key::A) || input().keyPressed(Key::Left);
-    edges.right         = input().keyPressed(Key::D) || input().keyPressed(Key::Right);
+    edges.forward       = input().actionPressed("dodge_forward");
+    edges.back          = input().actionPressed("dodge_back");
+    edges.left          = input().actionPressed("dodge_left");
+    edges.right         = input().actionPressed("dodge_right");
     const bool sprintAllowed = canSteer && !jumpBusy && !uiKeys;
     buildPlayMotorInput(motorIn, m_crouchLatch, wish, flat, right, canSteer, jumpBusy, uiKeys, inAirCommit, jump, sprintAllowed, edges);
     const bool onGround = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch || motor->state() == PlayerMoveState::Dodge);
@@ -929,7 +929,7 @@ void EditorApp::updatePlay(float dt)
     if (m_jumpAttackBuffer > 0.0f)
         m_jumpAttackBuffer = Math::Max(0.0f, m_jumpAttackBuffer - dt);
 
-    const bool attackPressed = input().actionPressed("attack") || (pointerFree && input().mousePressed(MouseButton::Left));
+    const bool attackPressed = input().actionPressed("attack") || (pointerFree && input().actionMousePressed("attack"));
     const bool fireQuick     = m_fireQuick;
     const bool fireCharged   = m_fireCharged;
     m_fireQuick   = false;

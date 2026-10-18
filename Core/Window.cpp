@@ -168,9 +168,10 @@ namespace Dark
         case WM_SYSKEYDOWN:
             if (input)
             {
-                const uint16_t vk = static_cast<uint16_t>(wp & 0xFFFF);
-                const bool repeat = (lp & (1LL << 30)) != 0;
-                input->onKeyDown(vk, repeat);
+                const uint16_t raw    = static_cast<uint16_t>(wp & 0xFFFF);
+                const uint16_t flags  = static_cast<uint16_t>((static_cast<unsigned long long>(lp) >> 16) & 0xFFFF);
+                const bool     repeat = (lp & (1LL << 30)) != 0;
+                input->onKeyDown(sidedVirtualKey(raw, flags), repeat);
             }
             return 0;
 
@@ -178,8 +179,9 @@ namespace Dark
         case WM_SYSKEYUP:
             if (input)
             {
-                const uint16_t vk = static_cast<uint16_t>(wp & 0xFFFF);
-                input->onKeyUp(vk);
+                const uint16_t raw   = static_cast<uint16_t>(wp & 0xFFFF);
+                const uint16_t flags = static_cast<uint16_t>((static_cast<unsigned long long>(lp) >> 16) & 0xFFFF);
+                input->onKeyUp(sidedVirtualKey(raw, flags));
             }
             return 0;
 

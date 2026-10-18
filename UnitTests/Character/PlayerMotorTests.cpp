@@ -53,6 +53,73 @@ namespace
     }
 } // namespace
 
+TEST(ApproachSpeed, RampsUpDownAndSnapsWhenUnset)
+{
+    EXPECT_FLOAT_EQ(approachSpeed(0.0f, 3.6f, 0.0f, 0.25f), 3.6f);
+    EXPECT_FLOAT_EQ(approachSpeed(0.0f, 3.6f, 8.0f, 0.25f), 2.0f);
+    EXPECT_FLOAT_EQ(approachSpeed(3.6f, 7.0f, 8.0f, 0.25f), 5.6f);
+    EXPECT_FLOAT_EQ(approachSpeed(7.0f, 3.6f, 8.0f, 0.25f), 5.0f);
+    EXPECT_FLOAT_EQ(approachSpeed(2.0f, 0.0f, 8.0f, 0.25f), 0.0f);
+    EXPECT_FLOAT_EQ(approachSpeed(1.0f, 3.0f, 8.0f, 0.0f), 3.0f);
+}
+
+TEST(PlayerMotor, AccelerationRampsWalkRunAndStop)
+{
+    PlayerMotor motor;
+    motor.settings().acceleration = 8.0f;
+    Vector3f pos{ 0.0f, 0.5f, 0.0f };
+    PlayerMotorInput in{};
+    in.wish = Vector3f{ 0.0f, 0.0f, 1.0f };
+    constexpr float kDt = 0.25f;
+
+    motor.tick(pos, in, kDt, flatQuery());
+    EXPECT_NEAR(motor.velocity().z, 2.0f, 1.0e-4f);
+    EXPECT_NEAR(pos.z, 2.0f * kDt, 1.0e-4f);
+    EXPECT_LT(motor.velocity().z, motor.settings().walkSpeed);
+
+    motor.tick(pos, in, kDt, flatQuery());
+    EXPECT_NEAR(motor.velocity().z, motor.settings().walkSpeed, 1.0e-4f);
+
+    in.sprint = true;
+    motor.tick(pos, in, kDt, flatQuery());
+    EXPECT_NEAR(motor.velocity().z, motor.settings().walkSpeed + 2.0f, 1.0e-4f);
+
+    const float gained = pos.z;
+    in.wish   = Vector3f{ 0.0f, 0.0f, 0.0f };
+    in.sprint = false;
+    const float before = motor.velocity().z;
+    motor.tick(pos, in, kDt, flatQuery());
+    EXPECT_NEAR(motor.velocity().z, before - 2.0f, 1.0e-4f);
+    EXPECT_GT(pos.z, gained);
+}
+
+TEST(PlayerMotor, AccelerationDoesNotSoftenDodgeOrSwim)
+{
+    PlayerMotor motor;
+    motor.settings().acceleration = 8.0f;
+    Vector3f pos{ 0.0f, 0.5f, 0.0f };
+    motor.restoreProgress(PlayerMoveState::Dodge, Vector3f{ 0.0f, 0.0f, 0.0f }, 0.0f, 0.0f, false, false, 0.5f, Vector3f{ 0.0f, 0.0f, 1.0f });
+    PlayerMotorInput dodge{};
+    constexpr float kDt = 0.25f;
+    motor.tick(pos, dodge, kDt, flatQuery());
+    EXPECT_EQ(motor.state(), PlayerMoveState::Dodge);
+    EXPECT_NEAR(motor.velocity().z, motor.settings().dodgeSpeed, 1.0e-4f);
+    EXPECT_NEAR(pos.z, motor.settings().dodgeSpeed * kDt, 1.0e-4f);
+
+    PlayerMotor swimmer;
+    swimmer.settings().acceleration = 8.0f;
+    Vector3f swimPos{ 0.0f, 0.35f, 0.0f };
+    const PlayerGroundQuery water = flatQuery(2.0f);
+    PlayerMotorInput hold{};
+    swimmer.tick(swimPos, hold, 1.0f / 60.0f, water);
+    ASSERT_EQ(swimmer.state(), PlayerMoveState::Swimming);
+    PlayerMotorInput swim{};
+    swim.wish = Vector3f{ 0.0f, 0.0f, 1.0f };
+    const float z0 = swimPos.z;
+    swimmer.tick(swimPos, swim, kDt, water);
+    EXPECT_NEAR(swimPos.z - z0, swimmer.settings().swimSpeed * kDt, 1.0e-4f);
+}
+
 TEST(PlayerMotor, CrouchWalkIsSlowerThanWalk)
 {
     PlayerMotor motor;

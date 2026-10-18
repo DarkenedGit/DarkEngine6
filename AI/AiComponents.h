@@ -63,6 +63,12 @@ namespace Dark
         float                        guardLeft   = 0.0f;
         float                        hitWindow   = 0.0f;
         int                          hitsTaken   = 0;
+        // False until a movement file or the dev-tools speed slider writes walk and run.
+        // Tick keeps using PackSettings while this is false.
+        bool                         authoredMove = false;
+        float                        walkSpeed     = 0.0f;
+        float                        runSpeed      = 0.0f;
+        float                        acceleration  = 0.0f; // m/s^2 toward walk and run. 0 snaps.
     };
 
     struct BrainComponent
@@ -83,6 +89,7 @@ namespace Dark
             float alertRange       = 18.0f;
             float sprintSpeed      = 6.8f;
             float walkSpeed        = 3.4f;
+            float acceleration     = 0.0f; // m/s^2. 0 snaps. Authored agents use the movement file instead.
         };
     } // namespace AI
 

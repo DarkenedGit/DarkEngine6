@@ -77,6 +77,26 @@ namespace Dark
         ensure(action).push_back(b);
     }
 
+    void ActionMap::bindAxisHeld(std::string_view action, GamepadAxis axis, float threshold, float scale, int padIndex)
+    {
+        Binding b{};
+        b.type      = BindingType::GamepadAxis;
+        b.code      = static_cast<uint16_t>(axis);
+        b.pad       = static_cast<int8_t>(padIndex);
+        b.scale     = scale;
+        b.threshold = threshold;
+        ensure(action).push_back(b);
+    }
+
+    void ActionMap::bindMouse(std::string_view action, MouseButton button)
+    {
+        Binding b{};
+        b.type  = BindingType::MouseButton;
+        b.code  = static_cast<uint16_t>(button);
+        b.scale = 1.0f;
+        ensure(action).push_back(b);
+    }
+
     const std::vector<ActionMap::Binding>* ActionMap::bindings(std::string_view action) const
     {
         const auto it = m_map.find(normalize(action));
@@ -162,6 +182,8 @@ namespace Dark
         {
             if (b.type == BindingType::GamepadAxis)
             {
+                if (b.threshold > 0.0f)
+                    continue;
                 sum += input.axis(static_cast<GamepadAxis>(b.code), b.pad) * b.scale;
             }
             else if (b.type == BindingType::Key)
@@ -182,6 +204,48 @@ namespace Dark
         if (sum < -1.0f)
             sum = -1.0f;
         return sum;
+    }
+
+    bool ActionMap::mouseDown(const Input& input, std::string_view action) const
+    {
+        const auto* list = bindings(action);
+        if (!list)
+            return false;
+        for (const Binding& b : *list)
+        {
+            if (b.type == BindingType::MouseButton && input.mouseDown(static_cast<MouseButton>(b.code)))
+                return true;
+        }
+        return false;
+    }
+
+    bool ActionMap::mousePressed(const Input& input, std::string_view action) const
+    {
+        const auto* list = bindings(action);
+        if (!list)
+            return false;
+        for (const Binding& b : *list)
+        {
+            if (b.type == BindingType::MouseButton && input.mousePressed(static_cast<MouseButton>(b.code)))
+                return true;
+        }
+        return false;
+    }
+
+    bool ActionMap::axisHeld(const Input& input, std::string_view action) const
+    {
+        const auto* list = bindings(action);
+        if (!list)
+            return false;
+        for (const Binding& b : *list)
+        {
+            if (b.type != BindingType::GamepadAxis || !(b.threshold > 0.0f))
+                continue;
+            const float v = input.axis(static_cast<GamepadAxis>(b.code), b.pad) * b.scale;
+            if (v > b.threshold)
+                return true;
+        }
+        return false;
     }
 
 } // namespace Dark

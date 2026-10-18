@@ -11,6 +11,21 @@
 
 namespace Dark
 {
+    uint16_t sidedVirtualKey(uint16_t vk, uint16_t keyFlags)
+    {
+        if (vk != VK_SHIFT && vk != VK_CONTROL && vk != VK_MENU)
+            return vk;
+
+        // Right Ctrl and Alt set the extended flag. The scan code alone names the left key.
+        UINT scan = keyFlags & 0xFFu;
+        if ((keyFlags & KF_EXTENDED) != 0)
+            scan |= 0xE000u;
+        const UINT sided = MapVirtualKeyW(scan, MAPVK_VSC_TO_VK_EX);
+        if (sided == 0 || sided > 0xFFFFu)
+            return vk;
+        return static_cast<uint16_t>(sided);
+    }
+
         constexpr float kStickDeadzone    = 0.2f;
         constexpr float kTriggerThreshold = 0.1f; // unused for digital; triggers are analog
 
@@ -325,6 +340,21 @@ namespace Dark
     bool Input::actionReleased(const char* name) const
     {
         return m_actions.released(*this, name);
+    }
+
+    bool Input::actionMouseDown(const char* name) const
+    {
+        return name && m_actions.mouseDown(*this, name);
+    }
+
+    bool Input::actionMousePressed(const char* name) const
+    {
+        return name && m_actions.mousePressed(*this, name);
+    }
+
+    bool Input::actionAxisHeld(const char* name) const
+    {
+        return name && m_actions.axisHeld(*this, name);
     }
 
     float Input::actionAxis(const char* name) const

@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "type": "player",
+  "note": "Shared rows apply to Sandbox and Editor. app limits a row to one of them. scale -1 reverses a key or stick. threshold makes an axis a hold. Editor play still negates look_y.",
+  "bindings": [
+    { "action": "move_x", "key": "D", "scale": 1 },
+    { "action": "move_x", "key": "A", "scale": -1 },
+    { "action": "move_x", "axis": "LeftX", "scale": 1 },
+    { "action": "move_z", "key": "W", "scale": 1 },
+    { "action": "move_z", "key": "S", "scale": -1 },
+    { "action": "move_z", "axis": "LeftY", "scale": 1 },
+
+    { "action": "jump", "key": "Space" },
+    { "action": "jump", "button": "A" },
+    { "action": "sprint", "key": "LeftShift" },
+    { "action": "sprint", "key": "RightShift" },
+    { "action": "sprint", "button": "LeftThumb" },
+    { "action": "sprint", "button": "LeftShoulder" },
+    { "action": "crouch", "key": "LeftControl" },
+    { "action": "crouch", "key": "RightControl" },
+    { "action": "crouch", "key": "C", "app": "editor" },
+
+    { "action": "attack", "key": "F" },
+    { "action": "attack", "button": "B" },
+    { "action": "attack", "mouse": "Left" },
+    { "action": "shield", "key": "V" },
+    { "action": "shield", "mouse": "Right" },
+    { "action": "shield", "axis": "LeftTrigger", "scale": 1, "threshold": 0.45 },
+    { "action": "flashlight", "key": "L" },
+    { "action": "weapon_1", "key": "Digit1" },
+    { "action": "weapon_2", "key": "Digit2" },
+
+    { "action": "look_yaw", "axis": "RightX", "scale": 1 },
+    { "action": "look_pitch", "axis": "RightY", "scale": 1 },
+    { "action": "look_x", "axis": "RightX", "scale": 1 },
+    { "action": "look_y", "axis": "RightY", "scale": 1 },
+
+    { "action": "dodge_forward", "key": "W" },
+    { "action": "dodge_forward", "key": "Up" },
+    { "action": "dodge_back", "key": "S" },
+    { "action": "dodge_back", "key": "Down" },
+    { "action": "dodge_left", "key": "A" },
+    { "action": "dodge_left", "key": "Left" },
+    { "action": "dodge_right", "key": "D" },
+    { "action": "dodge_right", "key": "Right" }
+  ]
+}

@@ -1202,10 +1202,26 @@ void SandboxApp::drawDevTools()
         ch |= ImGui::SliderFloat("Help sprint time (s)", &pack.assistSeconds, 0.5f, 12.0f, "%.1f");
         ch |= ImGui::SliderFloat("Flee after witnessed kill (s)", &pack.fleeSeconds, 0.5f, 12.0f, "%.1f");
         ch |= ImGui::SliderFloat("Attack yell range (m)", &pack.alertRange, 0.0f, 40.0f, "%.1f");
-        ch |= ImGui::SliderFloat("Sprint speed", &pack.sprintSpeed, 2.0f, 28.0f, "%.1f");
-        ch |= ImGui::SliderFloat("Walk speed", &pack.walkSpeed, 1.0f, 16.0f, "%.1f");
-        if (ch)
+        const bool runCh  = ImGui::SliderFloat("Sprint speed", &pack.sprintSpeed, 2.0f, 28.0f, "%.1f");
+        const bool walkCh = ImGui::SliderFloat("Walk speed", &pack.walkSpeed, 1.0f, 16.0f, "%.1f");
+        if (ch || runCh || walkCh)
             m_chase.setPackSettings(pack);
+        if (runCh || walkCh)
+        {
+            world().each<AiAgentComponent>([&](Entity, AiAgentComponent& ai) {
+                if (!ai.authoredMove)
+                {
+                    ai.walkSpeed    = pack.walkSpeed;
+                    ai.runSpeed     = pack.sprintSpeed;
+                    ai.authoredMove = true;
+                }
+                if (walkCh)
+                    ai.walkSpeed = pack.walkSpeed;
+                if (runCh)
+                    ai.runSpeed = pack.sprintSpeed;
+            });
+        }
+        ImGui::TextDisabled("Session override. Authored in content/entities/*.entity.movement.json.");
     }
 
     if (ImGui::CollapsingHeader("Network", ImGuiTreeNodeFlags_DefaultOpen))

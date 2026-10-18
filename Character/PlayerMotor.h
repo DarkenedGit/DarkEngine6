@@ -33,6 +33,7 @@ namespace Dark
         float swimSpeed           = 5.0f;
         float airSpeed            = 1.2f;  // extra speed you can add along wish while airborne
         float airAccel            = 12.0f; // units/s^2 of air steering
+        float acceleration        = 0.0f;  // m/s^2 toward walk, crouch, and sprint on the ground. 0 snaps. Dodge and swim ignore it.
         float gravity             = 24.0f;
         float jumpSpeed           = 12.0f;
         float doubleJumpSpeed     = 16.0f; // higher than jumpSpeed
@@ -123,7 +124,7 @@ namespace Dark
         float sampleGround(const PlayerGroundQuery& ground, float x, float z) const;
         bool  terrainWet(float groundY, float waterY) const;
         bool  terrainDry(float groundY, float waterY) const;
-        void  moveHorizontal(Math::Vector3f& position, Math::Vector3f wish, float speed, float dt);
+        void  moveHorizontal(Math::Vector3f& position, Math::Vector3f wish, float speed, float dt, float acceleration);
         void  applyAirControl(const Math::Vector3f& wish, float dt, float airControlScale);
         void  enterGrounded(Math::Vector3f& position, float groundY);
         void  enterSwim(Math::Vector3f& position, float waterY);
@@ -146,6 +147,22 @@ namespace Dark
         float               m_dodgeLeft      = 0.0f;
         Math::Vector3f      m_dodgeWish{ 0.0f, 0.0f, 0.0f };
     };
+
+    // Planar speed in m/s. Non-positive acceleration snaps to desired so a missing tune keeps the old step.
+    inline float approachSpeed(float current, float desired, float acceleration, float dt)
+    {
+        if (desired < 0.0f)
+            desired = 0.0f;
+        if (!(acceleration > 0.0f) || !(dt > 0.0f))
+            return desired;
+        const float delta = desired - current;
+        const float step  = acceleration * dt;
+        if (delta > step)
+            return current + step;
+        if (delta < -step)
+            return current - step;
+        return desired;
+    }
 
     inline MoveCardinal moveCardinalFromEdges(bool forward, bool back, bool left, bool right)
     {

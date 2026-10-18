@@ -12,6 +12,7 @@
 #include "Ui/Icons.h"
 #include "Ui/ImGuiTheme.h"
 #include "Input/InputCodes.h"
+#include "Scene/EntityInput.h"
 #include "Collision/HitResult.h"
 #include "Collision/StaticCollision.h"
 #include "Math/AABox3f.h"
@@ -75,20 +76,6 @@ void EditorApp::registerActions()
     a.bindKey("type_hunter", Key::Digit7);
     a.bindKey("type_wolf", Key::Digit8);
     a.bindKey("play", Key::F12);
-    a.bindKey("jump", Key::Space);
-    a.bindButton("jump", GamepadButton::A);
-    a.bindKey("attack", Key::F);
-    a.bindButton("attack", GamepadButton::B);
-    a.bindKey("sprint", Key::LeftShift);
-    a.bindKey("sprint", Key::RightShift);
-    a.bindKey("crouch", Key::LeftControl);
-    a.bindKey("crouch", Key::RightControl);
-    a.bindKey("crouch", Key::C);
-    a.bindButton("sprint", GamepadButton::LeftShoulder);
-    a.bindKey("weapon_1", Key::Digit1);
-    a.bindKey("weapon_2", Key::Digit2);
-    a.bindKey("flashlight", Key::L);
-    a.bindKey("shield", Key::V);
     a.bindKey("cycle_type", Key::T);
     a.bindKey("cycle_color", Key::C);
     a.bindKey("toggle_particle_ui", Key::F2);
@@ -99,18 +86,13 @@ void EditorApp::registerActions()
     a.bindKey("debug_lighting", Key::F6);
     a.bindKey("debug_shadow_enable", Key::F7);
 
-    a.bindKeyAsAxis("move_x", Key::D, 1.0f);
-    a.bindKeyAsAxis("move_x", Key::A, -1.0f);
-    a.bindAxis("move_x", GamepadAxis::LeftX, 1.0f);
-    a.bindKeyAsAxis("move_z", Key::W, 1.0f);
-    a.bindKeyAsAxis("move_z", Key::S, -1.0f);
-    a.bindAxis("move_z", GamepadAxis::LeftY, 1.0f);
     a.bindKeyAsAxis("move_y", Key::E, 1.0f);
     a.bindKeyAsAxis("move_y", Key::Q, -1.0f);
     a.bindAxis("move_y", GamepadAxis::RightTrigger, 1.0f);
     a.bindAxis("move_y", GamepadAxis::LeftTrigger, -1.0f);
-    a.bindAxis("look_x", GamepadAxis::RightX, 1.0f);
-    a.bindAxis("look_y", GamepadAxis::RightY, 1.0f);
+
+    if (!applyPlayerInputFile(a, "editor"))
+        DE_LOG_ERROR(LogCategory::Input, "Editor: player input file was not applied");
 
     DE_LOG_INFO(
         "Editor: F3 toggle 2D/3D | F2 particle UI | F4 animation UI | F8 HSM UI | F1 fill F6 lighting F7 shadows | F11 G-buffer | "

@@ -18,6 +18,7 @@
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "Input/InputCodes.h"
+#include "Scene/EntityInput.h"
 #include "Collision/Collision.h"
 #include "Math/MathHelper.h"
 #include "Math/Matrix4f.h"
@@ -341,14 +342,6 @@ void SandboxApp::registerDefaultActions()
     a.bindButton("pause", GamepadButton::Start);
     a.bindKey("step", Key::O);
 
-    a.bindKey("jump", Key::Space);
-    a.bindButton("jump", GamepadButton::A);
-    a.bindKey("attack", Key::F);
-    a.bindButton("attack", GamepadButton::B);
-    a.bindKey("weapon_1", Key::Digit1);
-    a.bindKey("weapon_2", Key::Digit2);
-    a.bindKey("flashlight", Key::L);
-    a.bindKey("shield", Key::V);
     a.bindKey("toggle_lighting", Key::F2);
 
     a.bindKey("reset", Key::R);
@@ -375,16 +368,6 @@ void SandboxApp::registerDefaultActions()
     a.bindButtonAsAxis("pawn_z", GamepadButton::DPadUp, 1.0f);
     a.bindButtonAsAxis("pawn_z", GamepadButton::DPadDown, -1.0f);
 
-    a.bindKeyAsAxis("move_x", Key::A, -1.0f);
-    a.bindKeyAsAxis("move_x", Key::D, 1.0f);
-    a.bindAxis("move_x", GamepadAxis::LeftX, 1.0f);
-    a.bindKeyAsAxis("move_z", Key::W, 1.0f);
-    a.bindKeyAsAxis("move_z", Key::S, -1.0f);
-    a.bindAxis("move_z", GamepadAxis::LeftY, 1.0f);
-    a.bindKey("sprint", Key::LeftShift);
-    a.bindKey("crouch", Key::LeftControl);
-    a.bindKey("crouch", Key::RightControl);
-
     a.bindKeyAsAxis("fly_forward", Key::W, 1.0f);
     a.bindKeyAsAxis("fly_forward", Key::S, -1.0f);
     a.bindAxis("fly_forward", GamepadAxis::LeftY, 1.0f);
@@ -398,18 +381,15 @@ void SandboxApp::registerDefaultActions()
     a.bindAxis("fly_climb", GamepadAxis::RightTrigger, 1.0f);
     a.bindAxis("fly_climb", GamepadAxis::LeftTrigger, -1.0f);
 
-    a.bindAxis("look_yaw", GamepadAxis::RightX, 1.0f);
-    a.bindAxis("look_pitch", GamepadAxis::RightY, 1.0f);
-
-    a.bindButton("sprint", GamepadButton::LeftThumb);
-    a.bindButton("sprint", GamepadButton::LeftShoulder);
-
     a.bindKey("dev_tools", Key::M);
     a.bindKey("profiler", Key::P);
     a.bindKey("inventory", Key::I);
     a.bindKey("pickup", Key::G);
     a.bindKey("anim_walk", Key::T);
     a.bindButton("anim_walk", GamepadButton::RightThumb);
+
+    if (!applyPlayerInputFile(a, "sandbox"))
+        DE_LOG_ERROR(LogCategory::Input, "Sandbox: player input file was not applied");
 
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(F3/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
@@ -1056,8 +1036,8 @@ void SandboxApp::updatePossessed(float dt)
     const bool canSteer   = hp && hp->alive() && !ccLocked && !(jump && jump->phase() == Combat::JumpAttackPhase::Pound);
     const bool uiMouse = uiOpen() && m_imgui.isReady() && m_imgui.wantCaptureMouse();
     const bool holdShield = canSteer
-        && ((input().mouseDown(MouseButton::Right) && !uiMouse) || (!uiKeys && input().actionDown("shield"))
-            || input().axis(GamepadAxis::LeftTrigger) > 0.45f);
+        && ((input().actionMouseDown("shield") && !uiMouse) || (!uiKeys && input().actionDown("shield"))
+            || input().actionAxisHeld("shield"));
     const bool toggleLight = canSteer && !uiKeys && input().actionPressed("flashlight");
     if (toggleLight)
     {
@@ -1065,7 +1045,7 @@ void SandboxApp::updatePossessed(float dt)
             sk->seeArmed = true;
     }
     const bool attackDown = canSteer && !uiKeys
-        && (input().actionDown("attack") || (!uiOpen() && input().mouseDown(MouseButton::Left)));
+        && (input().actionDown("attack") || (!uiOpen() && input().actionMouseDown("attack")));
     const bool airborneNow = motor && (motor->state() == PlayerMoveState::Jumping || motor->state() == PlayerMoveState::Falling);
     Combat::DefenseComponent* defense = world().get<Combat::DefenseComponent>(body);
     if (defense)
@@ -1098,10 +1078,10 @@ void SandboxApp::updatePossessed(float dt)
     edges.crouchPressed = input().actionPressed("crouch");
     edges.crouchDown    = input().actionDown("crouch");
     edges.jumpPressed   = input().actionPressed("jump");
-    edges.forward       = input().keyPressed(Key::W) || input().keyPressed(Key::Up);
-    edges.back          = input().keyPressed(Key::S) || input().keyPressed(Key::Down);
-    edges.left          = input().keyPressed(Key::A) || input().keyPressed(Key::Left);
-    edges.right         = input().keyPressed(Key::D) || input().keyPressed(Key::Right);
+    edges.forward       = input().actionPressed("dodge_forward");
+    edges.back          = input().actionPressed("dodge_back");
+    edges.left          = input().actionPressed("dodge_left");
+    edges.right         = input().actionPressed("dodge_right");
     const bool sprintAllowed = canSteer && !jumpBusy && !uiKeys && m_swingLock <= 0.0f;
     buildPlayMotorInput(motorIn, m_crouchLatch, wish, flat, right, canSteer, jumpBusy, uiKeys, inAirCommit, jump, sprintAllowed, edges);
     const bool onGround = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch || motor->state() == PlayerMoveState::Dodge);
@@ -1765,7 +1745,7 @@ void SandboxApp::updateCombat(float dt)
     if (m_jumpAttackBuffer > 0.0f)
         m_jumpAttackBuffer = Math::Max(0.0f, m_jumpAttackBuffer - dt);
 
-    const bool attackPressed = input().actionPressed("attack") || (!uiOpen() && input().mousePressed(MouseButton::Left));
+    const bool attackPressed = input().actionPressed("attack") || (!uiOpen() && input().actionMousePressed("attack"));
     const bool swimming = motor && motor->state() == PlayerMoveState::Swimming;
     const bool airborne = motor && (motor->state() == PlayerMoveState::Jumping || motor->state() == PlayerMoveState::Falling);
     const bool fireQuick = m_fireQuick;

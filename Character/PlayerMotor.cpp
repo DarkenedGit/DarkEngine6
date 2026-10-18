@@ -58,20 +58,44 @@ namespace Dark
         return groundY > waterY + m_settings.leaveWaterHeight;
     }
 
-    void PlayerMotor::moveHorizontal(Vector3f& position, Vector3f wish, float speed, float dt)
+    void PlayerMotor::moveHorizontal(Vector3f& position, Vector3f wish, float speed, float dt, float acceleration)
     {
-        wish.y           = 0.0f;
-        const float mag  = wish.Magnitude();
+        wish.y          = 0.0f;
+        const float mag = wish.Magnitude();
         if (mag > 1.0f)
             wish *= (1.0f / mag);
-        if (mag < 1.0e-8f)
+
+        Vector3f desired{ 0.0f, 0.0f, 0.0f };
+        if (mag >= 1.0e-8f)
         {
-            m_velocity.x = 0.0f;
-            m_velocity.z = 0.0f;
-            return;
+            desired.x = wish.x * speed;
+            desired.z = wish.z * speed;
         }
-        m_velocity.x = wish.x * speed;
-        m_velocity.z = wish.z * speed;
+
+        // Zero acceleration is the old snap, including an instant stop when the stick is released.
+        if (!(acceleration > 0.0f))
+        {
+            m_velocity.x = desired.x;
+            m_velocity.z = desired.z;
+            if (mag < 1.0e-8f)
+                return;
+        }
+        else
+        {
+            Vector3f delta{ desired.x - m_velocity.x, 0.0f, desired.z - m_velocity.z };
+            const float dist = delta.Magnitude();
+            const float step = acceleration * ((dt > 0.0f) ? dt : 0.0f);
+            if (dist > step && dist > 1.0e-8f)
+                delta *= step / dist;
+            m_velocity.x += delta.x;
+            m_velocity.z += delta.z;
+            if (mag < 1.0e-8f && (m_velocity.x * m_velocity.x + m_velocity.z * m_velocity.z) < 1.0e-8f)
+            {
+                m_velocity.x = 0.0f;
+                m_velocity.z = 0.0f;
+                return;
+            }
+        }
         position.x += m_velocity.x * dt;
         position.z += m_velocity.z * dt;
     }
@@ -232,7 +256,7 @@ namespace Dark
                 enterGrounded(position, groundY);
             else
             {
-                moveHorizontal(position, in.wish, m_settings.swimSpeed * swimScale * speedScale, dt);
+                moveHorizontal(position, in.wish, m_settings.swimSpeed * swimScale * speedScale, dt, 0.0f);
                 position.y   = waterY + m_settings.swimOffset;
                 m_velocity.y = 0.0f;
                 m_jumpBuffer = 0.0f;
@@ -249,7 +273,7 @@ namespace Dark
             {
                 enterSwim(position, waterY);
                 result.splashed = true;
-                moveHorizontal(position, in.wish, m_settings.swimSpeed * swimScale * speedScale, dt);
+                moveHorizontal(position, in.wish, m_settings.swimSpeed * swimScale * speedScale, dt, 0.0f);
                 return result;
             }
 
@@ -275,7 +299,7 @@ namespace Dark
             }
             else if (!dodging && m_state == PlayerMoveState::Crouch)
                 m_state = PlayerMoveState::Grounded;
-            moveHorizontal(position, moveWish, speed, dt);
+            moveHorizontal(position, moveWish, speed, dt, dodging ? 0.0f : m_settings.acceleration);
             groundY               = sampleGround(ground, position.x, position.z);
             const float feetY     = groundY + m_settings.groundOffset;
 

@@ -1,6 +1,7 @@
 #include "EditorApp.h"
 
 #include "Character/HealthComponent.h"
+#include "Play/CharacterAttach.h"
 #include "Save/PlayClock.h"
 #include "Character/PlayerMotorComponent.h"
 #include "Combat/JumpAttackComponent.h"
@@ -133,12 +134,13 @@ void EditorApp::saveBeginLoad(void* user, World&)
     app->m_playFootstepAcc = 0.0f;
 }
 
-void EditorApp::saveEndLoad(void* user, World&)
+void EditorApp::saveEndLoad(void* user, World& world)
 {
     auto* app = static_cast<EditorApp*>(user);
     if (!app)
         return;
     app->pushPhysicsProgress();
+    applyAuthoredMovement(world);
 }
 
 Entity EditorApp::saveRespawn(void* user, World&, std::string_view archetype, const Save::SavePose& pose)

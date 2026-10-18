@@ -8,6 +8,10 @@
 namespace Dark
 {
 
+    // WM_KEY* posts VK_SHIFT, VK_CONTROL, and VK_MENU. Bindings use the left and right codes.
+    // keyFlags is the high word of that message's lParam (scan code in the low byte, extended bit set for right Ctrl and Alt).
+    uint16_t sidedVirtualKey(uint16_t vk, uint16_t keyFlags);
+
     // Polled keyboard + XInput gamepad state with edge detection (pressed / released).
     //
     // Usage each frame (Application does this):
@@ -94,6 +98,9 @@ namespace Dark
         bool actionDown(const char* name) const;
         bool actionPressed(const char* name) const;
         bool actionReleased(const char* name) const;
+        bool actionMouseDown(const char* name) const;
+        bool actionMousePressed(const char* name) const;
+        bool actionAxisHeld(const char* name) const;
 
         // Combined 2D stick from an action pair of axes, or keyboard fallbacks
         // registered on the ActionMap (optional helpers for camera/move).
