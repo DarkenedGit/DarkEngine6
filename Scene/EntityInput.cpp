@@ -219,6 +219,21 @@ namespace Dark
                 }
                 parsed.pad = pad;
             }
+            std::string modName;
+            if (readString(row, "mod", modName) && !modName.empty())
+            {
+                if (sameText(modName, "ctrl"))
+                    parsed.mods = ActionMap::ModCtrl;
+                else if (sameText(modName, "shift"))
+                    parsed.mods = ActionMap::ModShift;
+                else if (sameText(modName, "alt"))
+                    parsed.mods = ActionMap::ModAlt;
+                else
+                {
+                    DE_LOG_WARN(LogCategory::Input, "EntityInput: unknown mod '{}' on '{}'", modName, parsed.action);
+                    return false;
+                }
+            }
             if (!parsed.app.empty() && !sameText(parsed.app, "sandbox") && !sameText(parsed.app, "editor"))
             {
                 DE_LOG_WARN(LogCategory::Input, "EntityInput: unknown app '{}' on '{}'", parsed.app, parsed.action);
@@ -253,7 +268,7 @@ namespace Dark
                     DE_LOG_WARN(LogCategory::Input, "EntityInput: unknown key '{}' on '{}'", row.key, row.action);
                     return false;
                 }
-                actions.bindKeyAsAxis(row.action, key, row.scale);
+                actions.bindKeyAsAxis(row.action, key, row.scale, row.mods);
                 return true;
             }
             if (!row.button.empty())
@@ -264,7 +279,7 @@ namespace Dark
                     DE_LOG_WARN(LogCategory::Input, "EntityInput: unknown button '{}' on '{}'", row.button, row.action);
                     return false;
                 }
-                actions.bindButtonAsAxis(row.action, button, row.scale, row.pad);
+                actions.bindButtonAsAxis(row.action, button, row.scale, row.pad, row.mods);
                 return true;
             }
             if (!row.axis.empty())
@@ -276,9 +291,9 @@ namespace Dark
                     return false;
                 }
                 if (row.threshold > 0.0f)
-                    actions.bindAxisHeld(row.action, axis, row.threshold, row.scale, row.pad);
+                    actions.bindAxisHeld(row.action, axis, row.threshold, row.scale, row.pad, row.mods);
                 else
-                    actions.bindAxis(row.action, axis, row.scale, row.pad);
+                    actions.bindAxis(row.action, axis, row.scale, row.pad, row.mods);
                 return true;
             }
             MouseButton mouse = MouseButton::Left;
@@ -287,7 +302,7 @@ namespace Dark
                 DE_LOG_WARN(LogCategory::Input, "EntityInput: unknown mouse '{}' on '{}'", row.mouse, row.action);
                 return false;
             }
-            actions.bindMouse(row.action, mouse);
+            actions.bindMouse(row.action, mouse, row.mods);
             return true;
         }
     } // namespace
@@ -297,7 +312,7 @@ namespace Dark
         return std::string("entities/") + std::string(typeName) + ".entity.input.json";
     }
 
-    bool parseEntityInput(std::string_view jsonText, std::vector<EntityInputBinding>& out)
+    bool parseEntityInput(std::string_view jsonText, std::vector<EntityInputBinding>& out, std::string_view expectedType)
     {
         if (jsonText.empty() || jsonText.size() > kMaxJsonBytes)
         {
@@ -322,10 +337,11 @@ namespace Dark
             }
         }
 
+        // Player, player2d, sandbox, sandbox2d, and editor files share this parser. The type keeps one from loading as another.
         std::string type;
-        if (!readString(root, "type", type) || type != "player")
+        if (!readString(root, "type", type) || type != expectedType)
         {
-            DE_LOG_ERROR(LogCategory::Input, "EntityInput: type must be player");
+            DE_LOG_ERROR(LogCategory::Input, "EntityInput: type must be {}", expectedType);
             return false;
         }
 
@@ -408,6 +424,134 @@ namespace Dark
             return false;
         }
         DE_LOG_INFO(LogCategory::Input, "EntityInput: loaded {} player bindings for {}", static_cast<int>(bindings.size()), app);
+        return true;
+    }
+
+    bool applyPlayer2dInputFile(ActionMap& actions)
+    {
+        const std::filesystem::path path = resolveContentFile(entityInputVirtualPath("player2d"));
+        if (path.empty())
+        {
+            DE_LOG_ERROR(LogCategory::Input, "EntityInput: missing entities/player2d.entity.input.json");
+            return false;
+        }
+        std::error_code ec;
+        const auto      sz = std::filesystem::file_size(path, ec);
+        if (ec || sz > kMaxJsonBytes)
+        {
+            DE_LOG_ERROR(LogCategory::Input, "EntityInput: unreadable or too large '{}'", path.string());
+            return false;
+        }
+        std::ifstream in(path, std::ios::binary);
+        if (!in)
+            return false;
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        std::vector<EntityInputBinding> bindings;
+        if (!parseEntityInput(ss.str(), bindings, "player2d"))
+            return false;
+        if (!applyEntityInput(actions, bindings, "sandbox2d"))
+        {
+            DE_LOG_ERROR(LogCategory::Input, "EntityInput: no player2d bindings");
+            return false;
+        }
+        DE_LOG_INFO(LogCategory::Input, "EntityInput: loaded {} player2d bindings", static_cast<int>(bindings.size()));
+        return true;
+    }
+
+    bool applySandboxInputFile(ActionMap& actions)
+    {
+        const std::filesystem::path path = resolveContentFile("sandbox.input.json");
+        if (path.empty())
+        {
+            DE_LOG_ERROR(LogCategory::Input, "EntityInput: missing sandbox.input.json");
+            return false;
+        }
+        std::error_code ec;
+        const auto      sz = std::filesystem::file_size(path, ec);
+        if (ec || sz > kMaxJsonBytes)
+        {
+            DE_LOG_ERROR(LogCategory::Input, "EntityInput: unreadable or too large '{}'", path.string());
+            return false;
+        }
+        std::ifstream in(path, std::ios::binary);
+        if (!in)
+            return false;
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        std::vector<EntityInputBinding> bindings;
+        if (!parseEntityInput(ss.str(), bindings, "sandbox"))
+            return false;
+        if (!applyEntityInput(actions, bindings, "sandbox"))
+        {
+            DE_LOG_ERROR(LogCategory::Input, "EntityInput: no sandbox bindings");
+            return false;
+        }
+        DE_LOG_INFO(LogCategory::Input, "EntityInput: loaded {} sandbox bindings", static_cast<int>(bindings.size()));
+        return true;
+    }
+
+    bool applySandbox2dInputFile(ActionMap& actions)
+    {
+        const std::filesystem::path path = resolveContentFile("sandbox2d.input.json");
+        if (path.empty())
+        {
+            DE_LOG_ERROR(LogCategory::Input, "EntityInput: missing sandbox2d.input.json");
+            return false;
+        }
+        std::error_code ec;
+        const auto      sz = std::filesystem::file_size(path, ec);
+        if (ec || sz > kMaxJsonBytes)
+        {
+            DE_LOG_ERROR(LogCategory::Input, "EntityInput: unreadable or too large '{}'", path.string());
+            return false;
+        }
+        std::ifstream in(path, std::ios::binary);
+        if (!in)
+            return false;
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        std::vector<EntityInputBinding> bindings;
+        if (!parseEntityInput(ss.str(), bindings, "sandbox2d"))
+            return false;
+        if (!applyEntityInput(actions, bindings, "sandbox2d"))
+        {
+            DE_LOG_ERROR(LogCategory::Input, "EntityInput: no sandbox2d bindings");
+            return false;
+        }
+        DE_LOG_INFO(LogCategory::Input, "EntityInput: loaded {} sandbox2d bindings", static_cast<int>(bindings.size()));
+        return true;
+    }
+
+    bool applyEditorInputFile(ActionMap& actions)
+    {
+        const std::filesystem::path path = resolveContentFile("editor.input.json");
+        if (path.empty())
+        {
+            DE_LOG_ERROR(LogCategory::Input, "EntityInput: missing editor.input.json");
+            return false;
+        }
+        std::error_code ec;
+        const auto      sz = std::filesystem::file_size(path, ec);
+        if (ec || sz > kMaxJsonBytes)
+        {
+            DE_LOG_ERROR(LogCategory::Input, "EntityInput: unreadable or too large '{}'", path.string());
+            return false;
+        }
+        std::ifstream in(path, std::ios::binary);
+        if (!in)
+            return false;
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        std::vector<EntityInputBinding> bindings;
+        if (!parseEntityInput(ss.str(), bindings, "editor"))
+            return false;
+        if (!applyEntityInput(actions, bindings, "editor"))
+        {
+            DE_LOG_ERROR(LogCategory::Input, "EntityInput: no editor bindings");
+            return false;
+        }
+        DE_LOG_INFO(LogCategory::Input, "EntityInput: loaded {} editor bindings", static_cast<int>(bindings.size()));
         return true;
     }
 

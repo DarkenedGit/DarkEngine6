@@ -55,41 +55,9 @@ void EditorApp::registerActions()
     ActionMap& a = input().actions();
     a.clear();
 
-    a.bindKey("quit", Key::Escape);
-    a.bindButton("quit", GamepadButton::Back);
-    a.bindKey("place", Key::P);
-    a.bindButton("place", GamepadButton::X);
-    a.bindKey("delete", Key::Delete);
-    a.bindKey("delete", Key::Backspace);
-    a.bindButton("delete", GamepadButton::B);
-    a.bindKey("toggle_grid", Key::G);
-    a.bindKey("toggle_solid", Key::F);
-    a.bindKey("toggle_snap", Key::Tab);
-    a.bindKey("select_next", Key::RightBracket);
-    a.bindKey("select_prev", Key::LeftBracket);
-    a.bindKey("type_cube", Key::Digit1);
-    a.bindKey("type_sphere", Key::Digit2);
-    a.bindKey("type_particle", Key::Digit3);
-    a.bindKey("type_point_light", Key::Digit4);
-    a.bindKey("type_spot_light", Key::Digit5);
-    a.bindKey("type_player", Key::Digit6);
-    a.bindKey("type_hunter", Key::Digit7);
-    a.bindKey("type_wolf", Key::Digit8);
-    a.bindKey("play", Key::F12);
-    a.bindKey("cycle_type", Key::T);
-    a.bindKey("cycle_color", Key::C);
-    a.bindKey("toggle_particle_ui", Key::F2);
-    a.bindKey("toggle_anim_ui", Key::F4);
-    a.bindKey("toggle_hsm_ui", Key::F8);
-    a.bindKey("toggle_assets_ui", Key::F10);
-    a.bindKey("debug_fill", Key::F1);
-    a.bindKey("debug_lighting", Key::F6);
-    a.bindKey("debug_shadow_enable", Key::F7);
-
-    a.bindKeyAsAxis("move_y", Key::E, 1.0f);
-    a.bindKeyAsAxis("move_y", Key::Q, -1.0f);
-    a.bindAxis("move_y", GamepadAxis::RightTrigger, 1.0f);
-    a.bindAxis("move_y", GamepadAxis::LeftTrigger, -1.0f);
+    // Editor commands first. The player file loads second and replaces any action it names.
+    if (!applyEditorInputFile(a))
+        DE_LOG_ERROR(LogCategory::Input, "Editor: editor input file was not applied");
 
     if (!applyPlayerInputFile(a, "editor"))
         DE_LOG_ERROR(LogCategory::Input, "Editor: player input file was not applied");

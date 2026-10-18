@@ -38,12 +38,13 @@ namespace Dark
         ensure(action).push_back(b);
     }
 
-    void ActionMap::bindKeyAsAxis(std::string_view action, Key key, float scale)
+    void ActionMap::bindKeyAsAxis(std::string_view action, Key key, float scale, uint8_t mods)
     {
         Binding b{};
         b.type  = BindingType::Key;
         b.code  = static_cast<uint16_t>(key);
         b.scale = scale;
+        b.mods  = mods;
         ensure(action).push_back(b);
     }
 
@@ -57,27 +58,29 @@ namespace Dark
         ensure(action).push_back(b);
     }
 
-    void ActionMap::bindButtonAsAxis(std::string_view action, GamepadButton button, float scale, int padIndex)
+    void ActionMap::bindButtonAsAxis(std::string_view action, GamepadButton button, float scale, int padIndex, uint8_t mods)
     {
         Binding b{};
         b.type  = BindingType::GamepadButton;
         b.code  = static_cast<uint16_t>(button);
         b.pad   = static_cast<int8_t>(padIndex);
         b.scale = scale;
+        b.mods  = mods;
         ensure(action).push_back(b);
     }
 
-    void ActionMap::bindAxis(std::string_view action, GamepadAxis axis, float scale, int padIndex)
+    void ActionMap::bindAxis(std::string_view action, GamepadAxis axis, float scale, int padIndex, uint8_t mods)
     {
         Binding b{};
         b.type  = BindingType::GamepadAxis;
         b.code  = static_cast<uint16_t>(axis);
         b.pad   = static_cast<int8_t>(padIndex);
         b.scale = scale;
+        b.mods  = mods;
         ensure(action).push_back(b);
     }
 
-    void ActionMap::bindAxisHeld(std::string_view action, GamepadAxis axis, float threshold, float scale, int padIndex)
+    void ActionMap::bindAxisHeld(std::string_view action, GamepadAxis axis, float threshold, float scale, int padIndex, uint8_t mods)
     {
         Binding b{};
         b.type      = BindingType::GamepadAxis;
@@ -85,16 +88,34 @@ namespace Dark
         b.pad       = static_cast<int8_t>(padIndex);
         b.scale     = scale;
         b.threshold = threshold;
+        b.mods      = mods;
         ensure(action).push_back(b);
     }
 
-    void ActionMap::bindMouse(std::string_view action, MouseButton button)
+    void ActionMap::bindMouse(std::string_view action, MouseButton button, uint8_t mods)
     {
         Binding b{};
         b.type  = BindingType::MouseButton;
         b.code  = static_cast<uint16_t>(button);
         b.scale = 1.0f;
+        b.mods  = mods;
         ensure(action).push_back(b);
+    }
+
+    namespace
+    {
+        bool bindingModsHeld(const Input& input, uint8_t mods)
+        {
+            if (mods == 0)
+                return true;
+            if ((mods & ActionMap::ModCtrl) != 0 && !input.keyDown(Key::LeftControl) && !input.keyDown(Key::RightControl))
+                return false;
+            if ((mods & ActionMap::ModShift) != 0 && !input.keyDown(Key::LeftShift) && !input.keyDown(Key::RightShift))
+                return false;
+            if ((mods & ActionMap::ModAlt) != 0 && !input.keyDown(Key::LeftAlt) && !input.keyDown(Key::RightAlt))
+                return false;
+            return true;
+        }
     }
 
     const std::vector<ActionMap::Binding>* ActionMap::bindings(std::string_view action) const
@@ -113,6 +134,8 @@ namespace Dark
 
         for (const Binding& b : *list)
         {
+            if (!bindingModsHeld(input, b.mods))
+                continue;
             if (b.type == BindingType::Key)
             {
                 if (input.keyDown(b.code))
@@ -135,6 +158,8 @@ namespace Dark
 
         for (const Binding& b : *list)
         {
+            if (!bindingModsHeld(input, b.mods))
+                continue;
             if (b.type == BindingType::Key)
             {
                 if (input.keyPressed(b.code))
@@ -157,6 +182,8 @@ namespace Dark
 
         for (const Binding& b : *list)
         {
+            if (!bindingModsHeld(input, b.mods))
+                continue;
             if (b.type == BindingType::Key)
             {
                 if (input.keyReleased(b.code))
@@ -180,6 +207,8 @@ namespace Dark
         float sum = 0.0f;
         for (const Binding& b : *list)
         {
+            if (!bindingModsHeld(input, b.mods))
+                continue;
             if (b.type == BindingType::GamepadAxis)
             {
                 if (b.threshold > 0.0f)
@@ -213,6 +242,8 @@ namespace Dark
             return false;
         for (const Binding& b : *list)
         {
+            if (!bindingModsHeld(input, b.mods))
+                continue;
             if (b.type == BindingType::MouseButton && input.mouseDown(static_cast<MouseButton>(b.code)))
                 return true;
         }
@@ -226,6 +257,8 @@ namespace Dark
             return false;
         for (const Binding& b : *list)
         {
+            if (!bindingModsHeld(input, b.mods))
+                continue;
             if (b.type == BindingType::MouseButton && input.mousePressed(static_cast<MouseButton>(b.code)))
                 return true;
         }
@@ -239,6 +272,8 @@ namespace Dark
             return false;
         for (const Binding& b : *list)
         {
+            if (!bindingModsHeld(input, b.mods))
+                continue;
             if (b.type != BindingType::GamepadAxis || !(b.threshold > 0.0f))
                 continue;
             const float v = input.axis(static_cast<GamepadAxis>(b.code), b.pad) * b.scale;

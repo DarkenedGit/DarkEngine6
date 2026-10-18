@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "type": "sandbox2d",
+  "note": "Sandbox2D app commands. Jump and move stay in entities/player2d.entity.input.json, which loads after this file.",
+  "bindings": [
+    { "action": "quit", "key": "Escape" },
+    { "action": "quit", "button": "Back" },
+    { "action": "reset", "key": "R" },
+    { "action": "reset", "button": "Y" },
+    { "action": "debug", "key": "F1" },
+    { "action": "debug", "button": "Start" },
+    { "action": "net_disconnect", "key": "F4" },
+    { "action": "net_host", "key": "F5" },
+    { "action": "net_join", "key": "F6" },
+    { "action": "debug_listen", "key": "F10" }
+  ]
+}

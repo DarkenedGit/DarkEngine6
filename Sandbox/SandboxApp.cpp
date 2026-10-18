@@ -335,58 +335,9 @@ void SandboxApp::registerDefaultActions()
     ActionMap& a = input().actions();
     a.clear();
 
-    a.bindKey("quit", Key::Escape);
-    a.bindButton("quit", GamepadButton::Back);
-
-    a.bindKey("pause", Key::F3);
-    a.bindButton("pause", GamepadButton::Start);
-    a.bindKey("step", Key::O);
-
-    a.bindKey("toggle_lighting", Key::F2);
-
-    a.bindKey("reset", Key::R);
-    a.bindButton("reset", GamepadButton::Y);
-
-    a.bindKey("speed_up", Key::Equal);
-    a.bindButton("speed_up", GamepadButton::RightShoulder);
-    a.bindKey("speed_down", Key::Minus);
-    a.bindButton("speed_down", GamepadButton::X);
-
-    // Cube yaw/pitch: WASD only (host). Arrows + D-pad drive the local pawn XZ.
-    a.bindKeyAsAxis("yaw", Key::Q, -1.0f);
-    a.bindKeyAsAxis("yaw", Key::E, 1.0f);
-    a.bindKeyAsAxis("pitch", Key::Z, 1.0f);
-    a.bindKeyAsAxis("pitch", Key::X, -1.0f);
-    a.bindKey("camouflage", Key::C);
-
-    a.bindKeyAsAxis("pawn_x", Key::Left, -1.0f);
-    a.bindKeyAsAxis("pawn_x", Key::Right, 1.0f);
-    a.bindButtonAsAxis("pawn_x", GamepadButton::DPadLeft, -1.0f);
-    a.bindButtonAsAxis("pawn_x", GamepadButton::DPadRight, 1.0f);
-    a.bindKeyAsAxis("pawn_z", Key::Up, 1.0f);
-    a.bindKeyAsAxis("pawn_z", Key::Down, -1.0f);
-    a.bindButtonAsAxis("pawn_z", GamepadButton::DPadUp, 1.0f);
-    a.bindButtonAsAxis("pawn_z", GamepadButton::DPadDown, -1.0f);
-
-    a.bindKeyAsAxis("fly_forward", Key::W, 1.0f);
-    a.bindKeyAsAxis("fly_forward", Key::S, -1.0f);
-    a.bindAxis("fly_forward", GamepadAxis::LeftY, 1.0f);
-    a.bindKeyAsAxis("fly_strafe", Key::A, -1.0f);
-    a.bindKeyAsAxis("fly_strafe", Key::D, 1.0f);
-    a.bindAxis("fly_strafe", GamepadAxis::LeftX, 1.0f);
-    a.bindKeyAsAxis("fly_climb", Key::Q, 1.0f);
-    a.bindKeyAsAxis("fly_climb", Key::Space, 1.0f);
-    a.bindKeyAsAxis("fly_climb", Key::Z, -1.0f);
-    a.bindKeyAsAxis("fly_climb", Key::LeftControl, -1.0f);
-    a.bindAxis("fly_climb", GamepadAxis::RightTrigger, 1.0f);
-    a.bindAxis("fly_climb", GamepadAxis::LeftTrigger, -1.0f);
-
-    a.bindKey("dev_tools", Key::M);
-    a.bindKey("profiler", Key::P);
-    a.bindKey("inventory", Key::I);
-    a.bindKey("pickup", Key::G);
-    a.bindKey("anim_walk", Key::T);
-    a.bindButton("anim_walk", GamepadButton::RightThumb);
+    // App commands first. The player file loads second and replaces any action it names.
+    if (!applySandboxInputFile(a))
+        DE_LOG_ERROR(LogCategory::Input, "Sandbox: sandbox input file was not applied");
 
     if (!applyPlayerInputFile(a, "sandbox"))
         DE_LOG_ERROR(LogCategory::Input, "Sandbox: player input file was not applied");
@@ -394,8 +345,8 @@ void SandboxApp::registerDefaultActions()
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(F3/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
         "possessed WASD/arrows/LS move, double-tap a direction to dodge, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, 1 melee  2 rifle, "
-        "hold attack to charge, release to swing (tap = normal). Hold RMB/V/LT shield; hold longer then release to parry-slam. Ctrl crouch, C camouflage, L flashlight, Shift/LB sprint, swim in water, "
-        "T/R3 walk the wiggle demo  F2 lighting  M dev tools  P profiler  -forward linear albedo + sRGB encode (legacyUnormAlbedo restores old sampling)  -no-menu skip scene picker");
+        "hold attack to charge, release to swing (tap = normal). Hold RMB/V/LT shield; hold longer then release to parry-slam. Ctrl crouch, C camouflage, G pickup, L flashlight, Shift/LB sprint, swim in water, "
+        "T/R3 walk the wiggle demo  F2 lighting  F5 quicksave  F9 quickload  M dev tools  P profiler  -forward linear albedo + sRGB encode (legacyUnormAlbedo restores old sampling)  -no-menu skip scene picker");
 }
 
 void SandboxApp::populateMainMenu()
@@ -482,12 +433,12 @@ void SandboxApp::handleRuntimeCommands(float dt)
         return;
     }
 
-    if (!uiKeys && input().keyPressed(Key::F5))
+    if (!uiKeys && input().actionPressed("quick_save"))
     {
         const Save::SaveResult result = m_save.requestSave(Save::SaveKind::Quick, "Quick Save");
         DE_LOG_INFO("Sandbox: quicksave {}", Save::toString(result));
     }
-    if (!uiKeys && input().keyPressed(Key::F9))
+    if (!uiKeys && input().actionPressed("quick_load"))
     {
         const Save::SaveResult result = m_save.requestLoadNewest(Save::SaveKind::Quick);
         DE_LOG_INFO("Sandbox: quickload {}", Save::toString(result));
