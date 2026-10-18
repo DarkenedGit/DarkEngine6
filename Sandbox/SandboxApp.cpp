@@ -70,6 +70,7 @@
 #include "Character/SwordView.h"
 #include "Combat/ArmorComponent.h"
 #include "Gameplay/Inventory.h"
+#include "Play/PlayerFlashlight.h"
 #include "Character/ShieldView.h"
 #include "Character/SkillSense.h"
 #include "Character/SkillXp.h"
@@ -745,6 +746,7 @@ void SandboxApp::attachLocalPlayer(Entity e)
             addItem(inv, *findItemDef(id), 1);
         addItem(inv, *findItemDef("medkit"), 2);
         world().emplace<InventoryComponent>(e, inv);
+        ensurePlayerFlashlight(world(), e);
     }
     equipSword(world(), pins(), assets(), renderer(), e);
     if (!world().has<HudTagComponent>(e))
@@ -989,7 +991,8 @@ void SandboxApp::updatePossessed(float dt)
     const bool holdShield = canSteer
         && ((input().actionMouseDown("shield") && !uiMouse) || (!uiKeys && input().actionDown("shield"))
             || input().actionAxisHeld("shield"));
-    const bool toggleLight = canSteer && !uiKeys && input().actionPressed("flashlight");
+    const bool carriesLight = flashlightEquipped(body.valid() ? world().get<InventoryComponent>(body) : nullptr);
+    const bool toggleLight = carriesLight && canSteer && !uiKeys && input().actionPressed("flashlight");
     if (toggleLight)
     {
         if (SkillComponent* sk = world().get<SkillComponent>(body))
@@ -1348,7 +1351,8 @@ int SandboxApp::giveItem(InventoryComponent& inv, const ItemStack& item)
     }
     DE_LOG_INFO("Inventory: picked up {} x{}", item.def->name, added);
     playSoundCue(world(), audio(), assets(), m_camera, "click");
-    if (item.def->type == ItemType::Armor && inv.equipped[static_cast<int>(item.def->slot)].empty())
+    const bool wearable = item.def->slot != EquipSlot::None && (item.def->type == ItemType::Armor || item.def->type == ItemType::Tool);
+    if (wearable && inv.equipped[static_cast<int>(item.def->slot)].empty())
     {
         for (int i = 0; i < InventoryComponent::kBagSize; ++i)
         {
@@ -1448,6 +1452,8 @@ void SandboxApp::applyInventoryArmor()
     bool changed = false;
     for (int s = 0; s < static_cast<int>(EquipSlot::Count); ++s)
     {
+        if (static_cast<EquipSlot>(s) == EquipSlot::Light)
+            continue;
         if (m_wornArmor[s] != inv->equipped[s].def)
         {
             m_wornArmor[s] = inv->equipped[s].def;
@@ -1934,38 +1940,6 @@ void SandboxApp::pulseMuzzle()
     m_muzzleTimer = 0.05f;
 }
 
-void SandboxApp::updateFlashlight()
-{
-    if (!m_flashlight.valid())
-        return;
-    TransformComponent* xf = world().get<TransformComponent>(m_flashlight);
-    if (!xf)
-        return;
-    const TransformComponent* bodyXf = possessedBody().valid() ? world().get<TransformComponent>(possessedBody()) : nullptr;
-    const Vector3f            bodyPos = bodyXf ? bodyXf->position : m_viewCamera.GetPosition();
-    placePlayerFlashlight(*xf, bodyPos, m_viewCamera.GetLook(), m_viewCamera.GetRight(), m_viewCamera.GetUp());
-    LocalLightComponent* light = world().get<LocalLightComponent>(m_flashlight);
-    if (!light)
-        return;
-    light->enabled = m_offhand.lightOn;
-    if (m_flashlightBaseId != m_flashlight.id())
-    {
-        m_flashlightBaseRange = light->range;
-        m_flashlightBaseOuter = light->outerConeDeg;
-        m_flashlightBaseId    = m_flashlight.id();
-    }
-    float seeRange = kSkillIdentity;
-    float seeCone  = kSkillIdentity;
-    const Entity body = possessedBody();
-    if (const SkillComponent* sk = body.valid() ? world().get<SkillComponent>(body) : nullptr)
-    {
-        const int seeLevel = sk->level(SkillId::See);
-        seeRange = skillScalar(SkillId::See, SkillScalar::SeeRangeScale, seeLevel);
-        seeCone  = skillScalar(SkillId::See, SkillScalar::SeeConeScale, seeLevel);
-    }
-    scaleFlashlight(m_flashlightBaseRange, m_flashlightBaseOuter, seeRange, seeCone, light->range, light->outerConeDeg);
-}
-
 bool SandboxApp::createSandboxModels()
 {
     MeshData cubeData;
@@ -2172,6 +2146,8 @@ void SandboxApp::drawSkeletonOverlay(ID3D12GraphicsCommandList* cmd, const Matri
     const GpuScope skeleton(cmd, "Skeleton", ProfileColor::Skeleton);
     SkeletonDebugLines lines;
     world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+        if (!mc.visible)
+            return;
         const TransformComponent* xf = world().get<TransformComponent>(e);
         const auto model = assets().getAs<Model>(mc.modelAssetID);
         if (!xf || !model || !model->skinned() || !model->skeleton())
@@ -2259,20 +2235,6 @@ void SandboxApp::spawnHybridLocalLights()
     if (renderer().scenePath() != ScenePath::HybridDeferred)
         return;
 
-    m_flashlight = world().createEntity();
-    world().emplace<TagComponent>(m_flashlight, "Flashlight");
-    world().emplace<TransformComponent>(m_flashlight, Vector3f{}, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
-    auto& flashlight          = world().emplace<LocalLightComponent>(m_flashlight);
-    flashlight.type           = LocalLightType::Spot;
-    flashlight.color          = Vector3f{ 1.0f, 0.97f, 0.9f };
-    flashlight.intensity      = 1571.0f; // 500*π after Fd/π
-    flashlight.range          = 22.0f;
-    flashlight.innerConeDeg   = 10.0f;
-    flashlight.outerConeDeg   = 22.0f;
-    flashlight.enabled        = true;
-    flashlight.castShadow     = true;
-    updateFlashlight();
-
     m_muzzle = world().createEntity();
     world().emplace<TagComponent>(m_muzzle, "Muzzle");
     world().emplace<TransformComponent>(m_muzzle, Vector3f{}, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
@@ -2332,7 +2294,7 @@ void SandboxApp::spawnHybridLocalLights()
         }
         ++spawned;
     }
-    DE_LOG_INFO("SandboxApp: flashlight on, muzzle ready, {} demo lanterns", spawned);
+    DE_LOG_INFO("SandboxApp: muzzle ready, {} demo lanterns", spawned);
 }
 
 void SandboxApp::spawnHunterBlood(const Vector3f& pos)
@@ -2676,6 +2638,7 @@ void SandboxApp::onNetDespawn(World& world, Entity e, NetId, void* user)
     auto* app = static_cast<SandboxApp*>(user);
     if (!app)
         return;
+    clearPlayerFlashlight(world, e);
     onEntityRemoved(world, e, &app->pins());
     if (app->m_cube == e)
         app->m_cube = {};
@@ -3474,7 +3437,8 @@ void SandboxApp::onUpdate(float dt)
             m_grassField.update(m_terrain, xf->position.x, xf->position.z, m_grassWindSeconds, m_water.params().waterLevel, sample);
         }
     }
-    updateFlashlight();
+    if (renderer().scenePath() == ScenePath::HybridDeferred)
+        syncPlayerFlashlight(world(), possessedBody(), m_viewCamera.GetPosition(), m_viewCamera.GetLook(), m_viewCamera.GetRight(), m_viewCamera.GetUp(), m_offhand.lightOn);
 
     AudioListener lis{};
     lis.position = m_viewCamera.GetPosition();
@@ -3531,6 +3495,8 @@ void SandboxApp::onRender()
             sceneBounds.ExpandToInclude(xf->position);
     });
     world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+        if (!mc.visible)
+            return;
         const TransformComponent* xf = world().get<TransformComponent>(e);
         if (!xf)
             return;
@@ -3607,7 +3573,7 @@ void SandboxApp::onRender()
                 acceptedMesh.insert(e.id());
         });
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
-            if (camouflageHides(e))
+            if (!mc.visible || camouflageHides(e))
                 return;
             const TransformComponent* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
@@ -3700,7 +3666,7 @@ void SandboxApp::onRender()
             drawShadowCaster(cmd, m_shadows.pipeline(), lightViewProj, worldMat, *gpuMesh);
         });
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
-            if (camouflageHides(e))
+            if (!mc.visible || camouflageHides(e))
                 return;
             if (!mc.castShadow)
                 return;
@@ -3998,7 +3964,7 @@ void SandboxApp::onRender()
                     m_skinnedInstances.recordGBuffer(cmd, gpu, StaticPopulation::OpaqueModels, drawVp, drawPrev);
                 }
                 world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
-            if (camouflageHides(e))
+            if (!mc.visible || camouflageHides(e))
                 return;
             const TransformComponent* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
@@ -4189,7 +4155,7 @@ void SandboxApp::onRender()
                 m_skinnedInstances.recordForward(cmd, gpu, StaticPopulation::OpaqueModels, forwardLighting, drawVp, forwardShadow);
             }
             world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
-            if (camouflageHides(e))
+            if (!mc.visible || camouflageHides(e))
                 return;
             const TransformComponent* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
@@ -4390,7 +4356,7 @@ void SandboxApp::onRender()
         std::vector<Entity> translucentEntities;
         std::vector<TranslucentDraw> translucentOrder;
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
-            if (camouflageHides(e))
+            if (!mc.visible || camouflageHides(e))
                 return;
             const TransformComponent* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);

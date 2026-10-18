@@ -14,6 +14,7 @@ namespace Dark
         Key,
         Quest,
         Resource,
+        Tool,
     };
 
     enum class EquipSlot : uint8_t
@@ -21,6 +22,7 @@ namespace Dark
         None,
         Head,
         Chest,
+        Light,
         Count,
     };
 

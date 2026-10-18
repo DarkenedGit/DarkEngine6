@@ -7,6 +7,7 @@
 #include "Combat/ArmorStats.h"
 #include "Character/ItemView.h"
 #include "Gameplay/Inventory.h"
+#include "Play/PlayerFlashlight.h"
 #include "Math/Vector4f.h"
 #include "Ui/NpcInfoOverlay.h"
 #include "Weapons/HittableComponent.h"
@@ -125,12 +126,29 @@ void SandboxApp::drawInventory()
         const EquipSlot  slot = static_cast<EquipSlot>(s);
         const ItemStack& eq   = inv->equipped[s];
         ImGui::PushID(s);
-        ImGui::Text("%s: %s", equipSlotName(slot), eq.empty() ? "-" : eq.def->name);
-        if (!eq.empty())
+        if (slot == EquipSlot::Light)
         {
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Unequip"))
-                unequipItem(*inv, slot);
+            // L toggles the beam. The slot staying filled does not tell the panel that.
+            const bool on = !eq.empty() && m_offhand.lightOn;
+            ImGui::Text("%s: %s", equipSlotName(slot), on ? "equipped" : "unequipped");
+            if (!eq.empty())
+            {
+                ImGui::SameLine();
+                ImGui::TextUnformatted(eq.def->name);
+                ImGui::SameLine();
+                if (ImGui::SmallButton("To bag"))
+                    unequipItem(*inv, slot);
+            }
+        }
+        else
+        {
+            ImGui::Text("%s: %s", equipSlotName(slot), eq.empty() ? "-" : eq.def->name);
+            if (!eq.empty())
+            {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Unequip"))
+                    unequipItem(*inv, slot);
+            }
         }
         ImGui::PopID();
     }
@@ -143,14 +161,17 @@ void SandboxApp::drawInventory()
         if (item.empty())
             continue;
         ImGui::PushID(100 + i);
-        ImGui::Text("%s x%d (%s)", item.def->name, item.count, itemTypeName(item.def->type));
+        if (item.def->slot == EquipSlot::Light)
+            ImGui::Text("%s x%d (%s) — unequipped", item.def->name, item.count, itemTypeName(item.def->type));
+        else
+            ImGui::Text("%s x%d (%s)", item.def->name, item.count, itemTypeName(item.def->type));
         if (item.def->type == ItemType::Consumable)
         {
             ImGui::SameLine();
             if (ImGui::SmallButton("Use"))
                 useItem(world(), body, *inv, i);
         }
-        else if (item.def->type == ItemType::Armor)
+        else if (item.def->type == ItemType::Armor || item.def->type == ItemType::Tool)
         {
             ImGui::SameLine();
             if (ImGui::SmallButton("Equip"))
@@ -172,8 +193,11 @@ void SandboxApp::drawArmorHud()
         return;
 
     std::string worn;
-    for (const ItemStack& eq : inv->equipped)
+    for (int s = 0; s < static_cast<int>(EquipSlot::Count); ++s)
     {
+        if (static_cast<EquipSlot>(s) == EquipSlot::Light)
+            continue;
+        const ItemStack& eq = inv->equipped[s];
         if (eq.empty())
             continue;
         if (!worn.empty())
@@ -1174,7 +1198,9 @@ void SandboxApp::drawDevTools()
             m_offhand.shield.blocking() ? "shield up" : "shield down",
             m_blockCharge.isCharged() ? "block charged" : "block tap",
             m_attackCharge.isCharged() ? "attack charged" : "attack tap");
-        ImGui::TextDisabled("%s", m_offhand.lightOn ? "flashlight on" : "flashlight off");
+        const bool carriesLight = flashlightEquipped(possessedBody().valid() ? world().get<InventoryComponent>(possessedBody()) : nullptr);
+        const char* lightLabel = !carriesLight ? "no flashlight" : (m_offhand.lightOn ? "flashlight on" : "flashlight off");
+        ImGui::TextDisabled("%s", lightLabel);
         ImGui::TextDisabled("Hold RMB, V, or left trigger. The flashlight turns off while the shield is in use.");
     }
 

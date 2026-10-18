@@ -46,6 +46,12 @@ namespace Dark
                 v.Normalize();
             return v;
         }
+
+        void setPartVisible(World& world, Entity part, bool visible)
+        {
+            if (ModelComponent* mc = world.get<ModelComponent>(part))
+                mc->visible = visible;
+        }
     } // namespace
 
     void equipSword(World& world, AssetPinTable& pins, AssetManager& assets, Renderer& renderer, Entity owner)
@@ -85,12 +91,12 @@ namespace Dark
             const AnimPose* pose = ag ? &ag->graph.player().pose() : nullptr;
             const bool      show = sword.shown && owner && pose && (!hp || hp->health.alive()) && sword.hand >= 0
                 && static_cast<uint32_t>(sword.hand) < pose->boneCount;
+            // A stowed sword keeps its real size. Render walks skip ModelComponent::visible == false
+            // before upload, so hiding does not depend on a zero scale.
+            setPartVisible(world, sword.blade, show);
+            setPartVisible(world, sword.guard, show);
             if (!show)
-            {
-                blade->scale = Vector3f{};
-                guard->scale = Vector3f{};
                 return;
-            }
 
             const Matrix4f ownerWorld = Matrix4f::ScaleMatrixXYZ(owner->scale.x, owner->scale.y, owner->scale.z) * owner->rotation.ToMatrix4()
                 * Matrix4f::TranslationMatrix(owner->position.x, owner->position.y, owner->position.z);

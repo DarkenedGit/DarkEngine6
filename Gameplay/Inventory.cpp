@@ -73,7 +73,8 @@ namespace Dark
         if (!validBagIndex(bagIndex) || inv.bag[bagIndex].empty())
             return false;
         const ItemDef* def = inv.bag[bagIndex].def;
-        if (def->type != ItemType::Armor || def->slot == EquipSlot::None)
+        // Armor and tools with a slot can be worn. Weapons stay in the bag.
+        if (def->slot == EquipSlot::None || (def->type != ItemType::Armor && def->type != ItemType::Tool))
             return false;
 
         ItemStack&      slot = inv.equipped[static_cast<int>(def->slot)];

@@ -117,7 +117,6 @@ private:
     void updateWiggleAnim();
     static void onWiggleNotify(void* user, const Dark::AnimNotify& n);
     void spawnHybridLocalLights();
-    void updateFlashlight();
     void pulseMuzzle();
     void spawnHunterBlood(const Dark::Math::Vector3f& pos);
     Dark::ImpactFxHost impactHost();
@@ -189,10 +188,6 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> m_skelLineIb[2];
     D3D12_VERTEX_BUFFER_VIEW  m_skelLineVbv[2]{};
     D3D12_INDEX_BUFFER_VIEW   m_skelLineIbv[2]{};
-    Dark::Entity                    m_flashlight;
-    float                           m_flashlightBaseRange = 0.0f;
-    float                           m_flashlightBaseOuter = 0.0f;
-    Dark::EntityID                  m_flashlightBaseId    = 0;
     Dark::Entity                    m_shield;
     Dark::Combat::OffhandState         m_offhand{};
     Dark::Combat::PlayerChargeSettings m_chargeSettings{};

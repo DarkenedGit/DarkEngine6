@@ -6,6 +6,7 @@
 #include "Play/PlayLook.h"
 #include "Play/PlayMotor.h"
 #include "Play/ShoulderCamera.h"
+#include "Play/PlayerFlashlight.h"
 #include "Play/WeaponFire.h"
 
 #include "AI/AiComponents.h"
@@ -43,6 +44,7 @@
 #include "Core/EntityPins.h"
 #include "Scene/EntityMaster.h"
 #include "Core/Log.h"
+#include "Gameplay/Inventory.h"
 #include "ECS/Components.h"
 #include "Input/Input.h"
 #include "Input/InputCodes.h"
@@ -323,6 +325,7 @@ void EditorApp::setPlayMode(bool play)
         m_chargeWindup = {};
         m_fireQuick   = false;
         m_fireCharged = false;
+        ensurePlayerFlashlight(world(), m_playPlayer);
         ensurePlayGear();
         m_jumpAttackBuffer = 0.0f;
         m_gizmoDragAxis    = EditorDetail::TranslateGizmoAxis::None;
@@ -376,8 +379,6 @@ void EditorApp::togglePlayMode()
 
 void EditorApp::ensurePlayGear()
 {
-    if (!m_playFlashlight.valid() || !world().alive(m_playFlashlight))
-        m_playFlashlight = spawnPlayerFlashlight(world());
     if (!m_playShield.valid() || !world().alive(m_playShield))
         m_playShield = spawnPlayerShield(world(), pins(), assets(), renderer());
     equipPlayArmor();
@@ -386,7 +387,7 @@ void EditorApp::ensurePlayGear()
 void EditorApp::destroyPlayGear()
 {
     destroyPlayerShield(world(), pins(), m_playShield);
-    destroyPlayerFlashlight(world(), m_playFlashlight);
+    clearPlayerFlashlight(world(), m_playPlayer);
     clearPlayArmor();
 }
 
@@ -662,7 +663,8 @@ void EditorApp::updatePlay(float dt)
     const bool holdShield = canSteer
         && ((input().actionMouseDown("shield") && pointerFree) || (!uiKeys && input().actionDown("shield"))
             || input().actionAxisHeld("shield"));
-    const bool toggleLight = canSteer && !uiKeys && input().actionPressed("flashlight");
+    const bool carriesLight = flashlightEquipped(world().get<InventoryComponent>(body));
+    const bool toggleLight = carriesLight && canSteer && !uiKeys && input().actionPressed("flashlight");
     if (toggleLight)
     {
         if (SkillComponent* sk = world().get<SkillComponent>(body))
@@ -882,31 +884,7 @@ void EditorApp::updatePlay(float dt)
     }
 
     updatePlayCamera();
-    if (TransformComponent* lightXf = m_playFlashlight.valid() ? world().get<TransformComponent>(m_playFlashlight) : nullptr)
-    {
-        const TransformComponent* bodyXf  = m_playPlayer.valid() ? world().get<TransformComponent>(m_playPlayer) : nullptr;
-        const Vector3f            bodyPos = bodyXf ? bodyXf->position : m_camera.GetPosition();
-        placePlayerFlashlight(*lightXf, bodyPos, m_camera.GetLook(), m_camera.GetRight(), m_camera.GetUp());
-        if (LocalLightComponent* light = world().get<LocalLightComponent>(m_playFlashlight))
-        {
-            light->enabled = m_offhand.lightOn;
-            if (m_playFlashlightBaseId != m_playFlashlight.id())
-            {
-                m_playFlashlightBaseRange = light->range;
-                m_playFlashlightBaseOuter = light->outerConeDeg;
-                m_playFlashlightBaseId    = m_playFlashlight.id();
-            }
-            float seeRange = kSkillIdentity;
-            float seeCone  = kSkillIdentity;
-            if (const SkillComponent* sk = world().get<SkillComponent>(body))
-            {
-                const int seeLevel = sk->level(SkillId::See);
-                seeRange = skillScalar(SkillId::See, SkillScalar::SeeRangeScale, seeLevel);
-                seeCone  = skillScalar(SkillId::See, SkillScalar::SeeConeScale, seeLevel);
-            }
-            scaleFlashlight(m_playFlashlightBaseRange, m_playFlashlightBaseOuter, seeRange, seeCone, light->range, light->outerConeDeg);
-        }
-    }
+    syncPlayerFlashlight(world(), body, m_camera.GetPosition(), m_camera.GetLook(), m_camera.GetRight(), m_camera.GetUp(), m_offhand.lightOn);
 
     world().each<Combat::PoiseComponent>([&](Entity e, Combat::PoiseComponent& p) {
         if (body.valid() && e.id() == body.id())

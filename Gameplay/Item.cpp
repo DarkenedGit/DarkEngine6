@@ -11,6 +11,7 @@ namespace Dark
             { "medkit", "Medkit", ItemType::Consumable, EquipSlot::None, 5, 50.0f, 0.0f },
             { "helmet", "Helmet", ItemType::Armor, EquipSlot::Head, 1, 0.0f, 25.0f },
             { "chest", "Chest Plate", ItemType::Armor, EquipSlot::Chest, 1, 0.0f, 40.0f },
+            { "flashlight", "Flashlight", ItemType::Tool, EquipSlot::Light, 1, 0.0f, 0.0f },
         };
     }
 
@@ -34,6 +35,7 @@ namespace Dark
         case ItemType::Key:        return "Key";
         case ItemType::Quest:      return "Quest";
         case ItemType::Resource:   return "Resource";
+        case ItemType::Tool:       return "Tool";
         }
         return "";
     }
@@ -44,6 +46,7 @@ namespace Dark
         {
         case EquipSlot::Head:  return "Head";
         case EquipSlot::Chest: return "Chest";
+        case EquipSlot::Light: return "Light";
         default:               return "";
         }
     }

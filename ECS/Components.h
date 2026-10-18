@@ -73,6 +73,8 @@ namespace Dark
 
         AssetID modelAssetID = NULL_ASSET;
         bool    castShadow   = true;
+        // Host render walks return before GPU upload, shadow bounds, and draws when this is false.
+        bool    visible      = true;
     };
 
     // ─── Camera ──────────────────────────────────────────────────────────────────

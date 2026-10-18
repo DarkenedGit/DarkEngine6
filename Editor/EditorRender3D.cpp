@@ -155,6 +155,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                 acceptedProp.insert(e.id());
         });
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+            if (!mc.visible)
+                return;
             const auto* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
             if (!xf || !model || !model->valid() || !model->hasOpaque() || !gpu.ensureModel(model))
@@ -228,7 +230,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             mesh->draw(cmd);
         });
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
-            if (!mc.castShadow)
+            if (!mc.visible || !mc.castShadow)
                 return;
             const auto* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
@@ -667,6 +669,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             m_skinnedInstances.recordGBuffer(cmd, gpu, StaticPopulation::OpaqueModels, drawVp, drawPrev);
         }
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+            if (!mc.visible)
+                return;
             const auto* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
             if (!xf || !model || !model->hasOpaque() || !gpu.ensureModel(model))
@@ -736,6 +740,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         lit.cameraPos[2] = cam.z;
         lit.lighting     = renderer().debugState().lightingActive() ? 1.0f : 0.0f;
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+            if (!mc.visible)
+                return;
             const auto* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
             if (!xf || !model || !model->hasOpaque() || !gpu.ensureModel(model))
@@ -887,6 +893,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         std::vector<Entity> translucentEntities;
         std::vector<TranslucentDraw> translucentOrder;
         world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+            if (!mc.visible)
+                return;
             const auto* xf = world().get<TransformComponent>(e);
             const auto model = assets().getAs<Model>(mc.modelAssetID);
             if (!xf || !model || !model->hasTranslucent() || !gpu.ensureModel(model))
