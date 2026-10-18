@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "note": "terrain.chunkMultiples are multiplied by the chunk width (cell size times chunk cells) when the grid is created. Grass distances are metres. createRadius is the LOD 3 edge and must match nominal[3].",
+  "terrain": {
+    "chunkMultiples": [2, 4, 8, 16, 32]
+  },
+  "grass": {
+    "nominal": [16, 40, 80, 256],
+    "promote": [13.6, 34, 68],
+    "demote": [18.4, 46, 92],
+    "createRadius": 256,
+    "evictRadius": 280,
+    "fadeStart": 236,
+    "fadeEnd": 256
+  }
+}
