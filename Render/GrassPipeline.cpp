@@ -6,6 +6,7 @@
 #include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
 #include "Terrain/GrassMesh.h"
+#include "Terrain/TerrainLodFile.h"
 
 #include <cstring>
 
@@ -15,16 +16,7 @@ namespace Dark
     {
         static_assert(Renderer::kFrameCount == Terrain::kGrassFrameSlots, "grass upload slots");
 
-        constexpr uint64_t kBladeSlice = static_cast<uint64_t>(Terrain::kGrassBladeCap) * sizeof(Terrain::GrassBlade);
-        constexpr uint64_t kWindSlice  = static_cast<uint64_t>(Terrain::kGrassWindSlots) * sizeof(Terrain::GrassTileWind);
-        constexpr uint64_t kCbStride   = Terrain::kGrassFrameCbStride;
-
-        constexpr uint32_t kLodSlots[4] = {
-            Terrain::kGrassLod0Slots,
-            Terrain::kGrassLod1Slots,
-            Terrain::kGrassLod2Slots,
-            Terrain::kGrassLod3Slots,
-        };
+        constexpr uint64_t kCbStride = Terrain::kGrassFrameCbStride;
 
         bool FailedHr(HRESULT hr, const char* what)
         {
@@ -52,13 +44,6 @@ namespace Dark
             return res;
         }
 
-        uint32_t lodIndexBase(int lod)
-        {
-            uint32_t base = 0;
-            for (int i = 0; i < lod && i < 4; ++i)
-                base += kLodSlots[i];
-            return base;
-        }
     } // namespace
 
     GrassPipeline::GrassPipeline() = default;
@@ -201,8 +186,18 @@ namespace Dark
             m_pso[lod]->SetName(psoNames[lod]);
         }
 
-        m_blades = createUpload(device, kBladeSlice * Renderer::kFrameCount, "CreateCommittedResource grass blades");
-        m_wind   = createUpload(device, kWindSlice * Renderer::kFrameCount, "CreateCommittedResource grass wind");
+        const Terrain::GrassRegionBudget budget = Terrain::grassRegionBudget();
+        m_bladeCap = budget.bladeCap;
+        m_windSlots = budget.residentTiles;
+        for (int lod = 0; lod < 4; ++lod)
+            m_lodSlots[lod] = budget.slots[lod];
+        m_bladeSlice = static_cast<uint64_t>(m_bladeCap) * sizeof(Terrain::GrassBlade);
+        m_windSlice  = static_cast<uint64_t>(m_windSlots) * sizeof(Terrain::GrassTileWind);
+        if (m_bladeCap == 0 || m_windSlots == 0)
+            return fail("grass region budget is empty");
+
+        m_blades = createUpload(device, m_bladeSlice * Renderer::kFrameCount, "CreateCommittedResource grass blades");
+        m_wind   = createUpload(device, m_windSlice * Renderer::kFrameCount, "CreateCommittedResource grass wind");
         m_cb     = createUpload(device, kCbStride * Renderer::kFrameCount, "CreateCommittedResource grass constants");
         if (!m_blades || !m_wind || !m_cb)
             return fail("upload buffer");
@@ -211,8 +206,8 @@ namespace Dark
             FailedHr(m_wind->Map(0, nullptr, reinterpret_cast<void**>(&m_windMap)), "Map grass wind") || FailedHr(m_cb->Map(0, nullptr, reinterpret_cast<void**>(&m_cbMap)), "Map grass constants"))
             return fail("map upload");
 
-        std::memset(m_bladeMap, 0, static_cast<size_t>(kBladeSlice * Renderer::kFrameCount));
-        std::memset(m_windMap, 0, static_cast<size_t>(kWindSlice * Renderer::kFrameCount));
+        std::memset(m_bladeMap, 0, static_cast<size_t>(m_bladeSlice * Renderer::kFrameCount));
+        std::memset(m_windMap, 0, static_cast<size_t>(m_windSlice * Renderer::kFrameCount));
         std::memset(m_cbMap, 0, static_cast<size_t>(kCbStride * Renderer::kFrameCount));
         m_bladeGpu = m_blades->GetGPUVirtualAddress();
         m_windGpu  = m_wind->GetGPUVirtualAddress();
@@ -223,7 +218,7 @@ namespace Dark
         m_cb->SetName(L"DE.Grass.Constants");
 
         // LOD-local 0,1,2,... inside each span. The vertex shader adds baseIndex, so a global identity is wrong for LOD 1+.
-        m_identity = createUpload(device, static_cast<UINT64>(Terrain::kGrassBladeCap) * sizeof(uint32_t), "CreateCommittedResource grass identity");
+        m_identity = createUpload(device, static_cast<UINT64>(m_bladeCap) * sizeof(uint32_t), "CreateCommittedResource grass identity");
         if (!m_identity)
             return fail("identity indices");
         uint32_t* identity = nullptr;
@@ -232,13 +227,13 @@ namespace Dark
         uint32_t cursor = 0;
         for (int lod = 0; lod < 4; ++lod)
         {
-            const uint32_t slots = kLodSlots[lod];
+            const uint32_t slots = m_lodSlots[lod];
             for (uint32_t i = 0; i < slots; ++i)
                 identity[cursor + i] = i;
             cursor += slots;
         }
         m_identity->Unmap(0, nullptr);
-        DE_ASSERT(cursor == Terrain::kGrassBladeCap);
+        DE_ASSERT(cursor == m_bladeCap);
         m_identityGpu = m_identity->GetGPUVirtualAddress();
         m_identity->SetName(L"DE.Grass.Identity");
 
@@ -247,7 +242,16 @@ namespace Dark
         DE_ASSERT(m_mesh[2].indexCount() == 6u);
 
         m_valid = true;
-        DE_LOG_INFO(LogCategory::Render, "GrassPipeline: ready ({} blades, {} slices)", Terrain::kGrassBladeCap, Renderer::kFrameCount);
+        DE_LOG_INFO(
+            LogCategory::Render,
+            "GrassPipeline: ready ({} blades, tiles {}/{}/{}/{}, resident {}, {} slices)",
+            m_bladeCap,
+            budget.tiles[0],
+            budget.tiles[1],
+            budget.tiles[2],
+            budget.tiles[3],
+            m_windSlots,
+            Renderer::kFrameCount);
         return true;
     }
 
@@ -292,6 +296,12 @@ namespace Dark
         m_cbGpu       = 0;
         m_identity.Reset();
         m_identityGpu = 0;
+        m_bladeSlice  = 0;
+        m_windSlice   = 0;
+        m_bladeCap    = 0;
+        m_windSlots   = 0;
+        for (int i = 0; i < 4; ++i)
+            m_lodSlots[i] = 0;
         m_renderer = nullptr;
         m_valid    = false;
     }
@@ -317,7 +327,7 @@ namespace Dark
         uint32_t                  bladeCursor = 0;
         for (int lod = 0; lod < 4; ++lod)
         {
-            const uint32_t slots = kLodSlots[lod];
+            const uint32_t slots = m_lodSlots[lod];
             uint32_t       count = 0;
             if (lods[lod].blades)
                 count = lods[lod].count;
@@ -326,18 +336,18 @@ namespace Dark
             const uint64_t byteOff = static_cast<uint64_t>(bladeCursor) * sizeof(Terrain::GrassBlade);
             const bool     upload  = count > 0 && (lods[lod].staleMask & static_cast<uint8_t>(1u << slot)) != 0;
             if (upload)
-                std::memcpy(m_bladeMap + slot * kBladeSlice + byteOff, lods[lod].blades, sizeof(Terrain::GrassBlade) * count);
+                std::memcpy(m_bladeMap + slot * m_bladeSlice + byteOff, lods[lod].blades, sizeof(Terrain::GrassBlade) * count);
             counts[lod]  = count;
-            bladeVa[lod] = m_bladeGpu + slot * kBladeSlice + byteOff;
+            bladeVa[lod] = m_bladeGpu + slot * m_bladeSlice + byteOff;
             bladeCursor += slots;
         }
 
         uint32_t windCount = 0;
-        uint8_t* windDst   = m_windMap + slot * kWindSlice;
-        std::memset(windDst, 0, static_cast<size_t>(kWindSlice));
+        uint8_t* windDst   = m_windMap + slot * m_windSlice;
+        std::memset(windDst, 0, static_cast<size_t>(m_windSlice));
         if (tileWind && tileCount > 0)
         {
-            windCount = tileCount < Terrain::kGrassWindSlots ? tileCount : Terrain::kGrassWindSlots;
+            windCount = tileCount < m_windSlots ? tileCount : m_windSlots;
             std::memcpy(windDst, tileWind, sizeof(Terrain::GrassTileWind) * windCount);
         }
 
@@ -346,7 +356,7 @@ namespace Dark
         const GpuScope scope(cmd, "Grass", ProfileColor::Grass);
         cmd->SetGraphicsRootSignature(m_root.Get());
         cmd->SetGraphicsRootConstantBufferView(kRootCb, m_cbGpu + slot * kCbStride);
-        cmd->SetGraphicsRootShaderResourceView(kRootWind, m_windGpu + slot * kWindSlice);
+        cmd->SetGraphicsRootShaderResourceView(kRootWind, m_windGpu + slot * m_windSlice);
         cmd->SetGraphicsRootShaderResourceView(kRootIndices, m_identityGpu);
 
         if (!tiles || tileDraws == 0)
@@ -358,7 +368,9 @@ namespace Dark
                 continue;
             bool           bound      = false;
             const int      meshIndex  = lod < 2 ? lod : 2;
-            const uint32_t lodBase    = lodIndexBase(lod);
+            uint32_t lodBase = 0;
+            for (int prev = 0; prev < lod; ++prev)
+                lodBase += m_lodSlots[prev];
             for (uint32_t i = 0; i < tileDraws; ++i)
             {
                 const Terrain::GrassTileDraw& tile = tiles[i];

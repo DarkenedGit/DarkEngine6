@@ -19,10 +19,21 @@ namespace Dark::Terrain
 {
     namespace
     {
-        constexpr int      kGrid            = 64;
-        constexpr int      kCandidates      = kGrid * kGrid;
-        constexpr int      kBaseKeep[4]     = { 32, 16, 8, 5 };
-        constexpr uint32_t kRegionSlots[4]  = { kGrassLod0Slots, kGrassLod1Slots, kGrassLod2Slots, kGrassLod3Slots };
+        constexpr int kGrid        = 64;
+        constexpr int kCandidates  = kGrid * kGrid;
+        constexpr int kBaseKeep[4] = { 32, 16, 8, 5 };
+
+        uint32_t regionSlots(int lod)
+        {
+            if (lod < 0 || lod >= kGrassLodCount)
+                return 0;
+            return grassRegionBudget().slots[lod];
+        }
+
+        uint32_t windSlotCount()
+        {
+            return grassRegionBudget().residentTiles;
+        }
         constexpr float    kGrassWeightMin  = 0.35f;
         constexpr float    kRockWeightMax   = 0.55f;
         constexpr float    kSnowWeightMax   = 0.45f;
@@ -281,7 +292,7 @@ namespace Dark::Terrain
         {
             std::fill(m_wind.begin(), m_wind.end(), GrassTileWind{});
             m_freeSlots.clear();
-            for (uint32_t slot = kGrassWindSlots; slot-- > 0;)
+            for (uint32_t slot = static_cast<uint32_t>(m_wind.size()); slot-- > 0;)
                 m_freeSlots.push_back(slot);
         }
         m_loggedNoSplat = false;
@@ -541,14 +552,20 @@ namespace Dark::Terrain
         return tile ? tile->lod : -1;
     }
 
+    uint32_t GrassField::tileWindCount() const
+    {
+        return m_wind.empty() ? 0u : windSlotCount();
+    }
+
     void GrassField::ensureWind()
     {
         if (!m_wind.empty())
             return;
-        m_wind.assign(kGrassWindSlots, GrassTileWind{});
+        const uint32_t slots = windSlotCount();
+        m_wind.assign(slots, GrassTileWind{});
         m_freeSlots.clear();
-        m_freeSlots.reserve(kGrassWindSlots);
-        for (uint32_t slot = kGrassWindSlots; slot-- > 0;)
+        m_freeSlots.reserve(slots);
+        for (uint32_t slot = slots; slot-- > 0;)
             m_freeSlots.push_back(slot);
     }
 
@@ -556,7 +573,7 @@ namespace Dark::Terrain
     {
         ensureWind();
         if (m_freeSlots.empty())
-            return kGrassWindSlots;
+            return windSlotCount();
         const uint32_t slot = m_freeSlots.back();
         m_freeSlots.pop_back();
         return slot;
@@ -564,7 +581,7 @@ namespace Dark::Terrain
 
     void GrassField::freeWindSlot(uint32_t slot)
     {
-        if (slot >= kGrassWindSlots || m_wind.empty())
+        if (slot >= windSlotCount() || m_wind.empty())
             return;
         m_wind[slot] = GrassTileWind{};
         m_freeSlots.push_back(slot);
@@ -814,7 +831,7 @@ namespace Dark::Terrain
             return false;
         }
 
-        const uint32_t free = kRegionSlots[lod] - static_cast<uint32_t>(m_region[lod].blades.size());
+        const uint32_t free = regionSlots(lod) - static_cast<uint32_t>(m_region[lod].blades.size());
         const int      k    = fitKeep(lod, m_params.densityScale, free, -1, 0, nullptr);
         if (k < 0)
         {
@@ -823,7 +840,7 @@ namespace Dark::Terrain
         }
 
         const uint32_t slot = allocWindSlot();
-        if (slot >= kGrassWindSlots)
+        if (slot >= windSlotCount())
             return false;
 
         uint64_t bits[64]{};
@@ -857,7 +874,7 @@ namespace Dark::Terrain
     bool GrassField::tryPromote(const TerrainGrid& grid, size_t index, int newLod, float waterLevel)
     {
         const Tile&    tile = m_tiles[index];
-        const uint32_t free = kRegionSlots[newLod] - static_cast<uint32_t>(m_region[newLod].blades.size());
+        const uint32_t free = regionSlots(newLod) - static_cast<uint32_t>(m_region[newLod].blades.size());
         const int      k    = fitKeep(newLod, m_params.densityScale, free, tile.keepK, tile.count, tile.kept);
         if (k < 0)
         {
@@ -880,7 +897,7 @@ namespace Dark::Terrain
     {
         const Tile&    tile = m_tiles[index];
         const uint32_t used = static_cast<uint32_t>(m_region[tile.lod].blades.size());
-        const uint32_t free = kRegionSlots[tile.lod] - used;
+        const uint32_t free = regionSlots(tile.lod) - used;
         const uint32_t room = free + tile.count;
         const int      k    = fitKeep(tile.lod, m_params.densityScale, room, -1, 0, nullptr);
         if (k < 0)
@@ -910,7 +927,7 @@ namespace Dark::Terrain
         if (k > tile.keepK)
             k = tile.keepK;
         const int      need = countKept(tile.kept, k);
-        const uint32_t free = kRegionSlots[newLod] - static_cast<uint32_t>(m_region[newLod].blades.size());
+        const uint32_t free = regionSlots(newLod) - static_cast<uint32_t>(m_region[newLod].blades.size());
         if (static_cast<uint32_t>(need) > free)
         {
             warnFull(newLod);

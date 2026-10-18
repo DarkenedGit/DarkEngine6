@@ -154,6 +154,7 @@ TEST(Spawner, DiscStaysInsideRadiusAndIsStable)
     for (int i = 0; i < 6; ++i)
     {
         EXPECT_TRUE(insideDisc(first[i].x, first[i].z, 10.0f, -4.0f, 5.0f));
+        EXPECT_EQ(first[i].seed, 42u);
         EXPECT_NEAR(first[i].x, second[i].x, 1.0e-5f);
         EXPECT_NEAR(first[i].z, second[i].z, 1.0e-5f);
         if (first[i].x != first[0].x || first[i].z != first[0].z)

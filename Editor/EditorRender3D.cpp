@@ -35,6 +35,7 @@
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
 #include "Sky/CloudVolume.h"
+#include "Terrain/TerrainLodFile.h"
 #include "Sky/Environment.h"
 #include "Render/SkyPipeline.h"
 
@@ -1099,10 +1100,10 @@ void EditorApp::drawEditorGrass(ID3D12GraphicsCommandList* cmd, const Matrix4f& 
         grassLods[lod].count                      = span.count;
         grassLods[lod].staleMask                  = m_grassField.lodStaleMask(lod);
     }
-    constexpr uint32_t     kGrassTileCap = Terrain::kGrassLod0Tiles + Terrain::kGrassLod1Tiles + Terrain::kGrassLod2Tiles + Terrain::kGrassLod3Tiles;
-    Terrain::GrassTileDraw grassTiles[kGrassTileCap];
-    const uint32_t         grassDraws = m_grassField.visibleTiles(frustum, grassTiles, kGrassTileCap);
-    if (m_grassPipeline.draw(cmd, renderer(), grassLods, m_grassField.tileWind(), m_grassField.tileWindCount(), grassFrame, grassTiles, grassDraws))
+    const uint32_t                      residentTiles = Terrain::grassRegionBudget().residentTiles;
+    std::vector<Terrain::GrassTileDraw> grassTiles(residentTiles);
+    const uint32_t                      grassDraws = m_grassField.visibleTiles(frustum, grassTiles.data(), residentTiles);
+    if (m_grassPipeline.draw(cmd, renderer(), grassLods, m_grassField.tileWind(), m_grassField.tileWindCount(), grassFrame, grassTiles.data(), grassDraws))
     {
         const uint32_t slot = renderer().frameIndex() % Terrain::kGrassFrameSlots;
         for (int lod = 0; lod < Terrain::kGrassLodCount; ++lod)

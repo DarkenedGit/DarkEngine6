@@ -1018,7 +1018,7 @@ void EditorApp::tickCrows(float dt)
     if (!m_playMode || m_sceneMode != SceneMode::Scene3D || dt < 0.0f)
         return;
     const Terrain::TerrainGrid* grid = (m_haveTerrain && m_terrain.valid()) ? &m_terrain : nullptr;
-    simulateCrows(world(), grid, &m_crowModels, &assets(), &audio(), dt);
+    simulateCrows(world(), grid, &m_crowModels, &assets(), &pins(), &audio(), dt);
 }
 
 Entity EditorApp::spawnSpawnerUnit(Entity spawner, const SpawnerRequest& req)
@@ -1031,7 +1031,7 @@ Entity EditorApp::spawnSpawnerUnit(Entity spawner, const SpawnerRequest& req)
         const float homeZ = home ? home->position.z : req.z;
         const bool haveGround = m_haveTerrain && m_terrain.valid();
         const float groundY = haveGround ? m_terrain.heightAtWorld(req.x, req.z) : 0.0f;
-        return spawnCrow(world(), renderer(), assets(), m_crowModels, haveGround ? &m_terrain : nullptr, spawner, req, groundY, homeX, homeZ);
+        return spawnCrow(world(), renderer(), assets(), pins(), m_crowModels, haveGround ? &m_terrain : nullptr, spawner, req, groundY, homeX, homeZ);
     }
     const bool wolf = req.unit == SpawnerUnit::Wolf;
     Entity e = world().createEntity();

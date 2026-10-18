@@ -281,6 +281,8 @@ void EditorApp::bindTerrainHeightSrv()
 bool EditorApp::rebuildEditorWater()
 {
     const WaterParams kept = m_water.params();
+    // The assignment destroys m_gpuRetire with the world.
+    m_water.retireGpu(m_placedWaterRetire);
     m_water = WaterWorld{};
     m_water.params() = defaultWaterParams(m_terrainSeaLevel);
     m_water.params().amplitudeScale = kept.amplitudeScale;
@@ -318,9 +320,14 @@ bool EditorApp::createEditorWaterSheet()
     desc.params = params;
 
     const float time = m_water.time();
+    // The water panel runs after the sheet draw and before endFrame submits.
+    // updateLod ticks m_gpuRetire in this call, so parking there would free
+    // the VB/IB one frame before beginFrame waits on that submission.
+    m_water.retireGpu(m_placedWaterRetire);
     if (!m_water.create(m_terrain.coarse(), desc))
     {
         DE_LOG_ERROR(LogCategory::Render, "Editor: water sheet create failed");
+        m_water.retireGpu(m_placedWaterRetire);
         m_water = WaterWorld{};
         m_water.params() = params;
         m_water.setTime(time);
@@ -332,6 +339,7 @@ bool EditorApp::createEditorWaterSheet()
     if (!m_water.createGpu(renderer()))
     {
         DE_LOG_ERROR(LogCategory::Render, "Editor: water sheet GPU upload failed");
+        m_water.retireGpu(m_placedWaterRetire);
         m_water = WaterWorld{};
         m_water.params() = params;
         m_water.setTime(time);

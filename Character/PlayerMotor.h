@@ -119,6 +119,8 @@ namespace Dark
         float                      dodgeTimeLeft() const { return m_dodgeLeft; }
         const Math::Vector3f&      dodgeWish() const { return m_dodgeWish; }
         float                      stamina() const { return m_stamina; }
+        float                      ledgeY() const { return m_ledgeY; }
+        const Math::Vector3f&      wallDir() const { return m_wallDir; }
 
         void reset();
         void clearJumpBuffer();
@@ -133,6 +135,18 @@ namespace Dark
             m_didDoubleJump = didDoubleJump;
             m_dodgeLeft     = dodgeLeft;
             m_dodgeWish     = dodgeWish;
+        }
+
+        // Climb is separate so the older restoreProgress callers do not reset stamina.
+        void restoreClimb(float stamina, float ledgeY, const Math::Vector3f& wallDir)
+        {
+            if (!(stamina >= 0.0f))
+                stamina = 0.0f;
+            else if (stamina > 1.0f)
+                stamina = 1.0f;
+            m_stamina = stamina;
+            m_ledgeY  = ledgeY;
+            m_wallDir = wallDir;
         }
 
         PlayerMotorResult tick(Math::Vector3f& position, const PlayerMotorInput& in, float dt, const PlayerGroundQuery& ground);

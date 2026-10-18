@@ -27,6 +27,10 @@ using namespace Terrain;
 
     bool WaterWorld::create(const HeightMap& heightMap, WaterDesc desc)
     {
+        // LOD swaps already park the old VB/IB. clear() would Release them
+        // while a recorded draw can still be unsubmitted or in flight.
+        for (WaterChunk& c : m_chunks)
+            m_gpuRetire.push(std::move(c.gpu));
         m_chunks.clear();
         m_lods.clear();
         m_chunksX    = 0;
@@ -315,6 +319,13 @@ using namespace Terrain;
             }
         }
         return ok;
+    }
+
+    void WaterWorld::retireGpu(GpuMeshRetire& retire)
+    {
+        for (WaterChunk& c : m_chunks)
+            retire.push(std::move(c.gpu));
+        retire.takeFrom(m_gpuRetire);
     }
 
     void WaterWorld::draw(

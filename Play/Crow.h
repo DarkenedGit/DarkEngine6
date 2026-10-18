@@ -2,6 +2,7 @@
 
 #include "Assets/AssetHandle.h"
 #include "Assets/MeshData.h"
+#include "Assets/Model.h"
 #include "ECS/Entity.h"
 #include "Math/Vector3f.h"
 #include "Play/Spawner.h"
@@ -13,6 +14,7 @@ namespace Dark
 {
 
     class AssetManager;
+    class AssetPinTable;
     class Renderer;
     class World;
 
@@ -79,12 +81,16 @@ namespace Dark
     };
 
     // Three rigid poses. The bird has no skeleton, so the wing flap swaps meshes.
+    // The keeps are the lifetime pins. An ID alone is collected by AssetManager::collectGarbage.
     struct CrowModels
     {
-        AssetID folded = NULL_ASSET;
-        AssetID down   = NULL_ASSET;
-        AssetID up     = NULL_ASSET;
-        bool    ready  = false;
+        AssetID         folded = NULL_ASSET;
+        AssetID         down   = NULL_ASSET;
+        AssetID         up     = NULL_ASSET;
+        AssetRef<Model> foldedKeep;
+        AssetRef<Model> downKeep;
+        AssetRef<Model> upKeep;
+        bool            ready = false;
     };
 
     // wingLift is radians about the shoulders. Negative droops, positive lifts.
@@ -97,15 +103,19 @@ namespace Dark
     bool tickCrow(CrowBrain& brain, float groundY, float dt, const CrowNeighbor* neighbors, int neighborCount, const Math::Vector3f* threats, int threatCount, const CrowPerch* perches, int perchCount);
 
     // Trees within radius of (x, z). Perch height is mid-canopy.
+    // Only tiles that overlap the disc are read.
     void gatherCrowPerches(const Terrain::TerrainGrid& grid, float x, float z, float radius, std::vector<CrowPerch>& out);
 
     // Living hunters and the player. Wolves are not threats.
     void gatherCrowThreats(World& world, std::vector<Math::Vector3f>& out);
 
     // Moves every living crow and plays the alarm when audio is set. Dead crows fall to the ground.
-    void simulateCrows(World& world, const Terrain::TerrainGrid* terrain, CrowModels* models, AssetManager* assets, Audio::AudioSystem* audio, float dt);
+    // pins is required to change the pose mesh. A null pin table leaves the current mesh in place.
+    void simulateCrows(World& world, const Terrain::TerrainGrid* terrain, CrowModels* models, AssetManager* assets, AssetPinTable* pins, Audio::AudioSystem* audio, float dt);
 
     // No persistent id and no editor object. A failed model upload returns a null entity.
-    Entity spawnCrow(World& world, Renderer& renderer, AssetManager& assets, CrowModels& models, const Terrain::TerrainGrid* terrain, Entity spawner, const SpawnerRequest& req, float groundY, float homeX, float homeZ);
+    // The pose mesh is pinned on the entity so destroy/unpin matches a normal model.
+    Entity spawnCrow(World& world, Renderer& renderer, AssetManager& assets, AssetPinTable& pins, CrowModels& models,
+        const Terrain::TerrainGrid* terrain, Entity spawner, const SpawnerRequest& req, float groundY, float homeX, float homeZ);
 
 } // namespace Dark

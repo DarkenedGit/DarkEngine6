@@ -94,6 +94,8 @@ namespace Dark
 
         AssetRef<class Audio::SoundClip> loadAudio(const std::string& virtualPath);
         AssetRef<class Audio::SoundClip> internSoundClip(AssetRef<class Audio::SoundClip> clip, const std::string& cacheKey = {});
+        // Already interned clip for this key, or empty. Does not synthesize.
+        AssetRef<class Audio::SoundClip> findAudio(const std::string& cacheKey);
 
     private:
         mutable std::mutex                                      m_mutex;

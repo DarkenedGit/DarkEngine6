@@ -136,15 +136,31 @@ namespace
     }
 } // namespace
 
-TEST(GrassField, RegionSlotsSumToBladeCap)
+TEST(GrassField, RegionSlotsFollowLodRadii)
 {
-    const uint32_t sum = kGrassLod0Tiles * kGrassLod0PerTile + kGrassLod1Tiles * kGrassLod1PerTile + kGrassLod2Tiles * kGrassLod2PerTile + kGrassLod3Tiles * kGrassLod3PerTile;
-    EXPECT_EQ(sum, kGrassBladeCap);
-    EXPECT_EQ(sum, 1048576u);
-    EXPECT_EQ(kGrassLod0Slots, kGrassLod0Tiles * kGrassLod0PerTile);
-    EXPECT_EQ(kGrassLod1Slots, kGrassLod1Tiles * kGrassLod1PerTile);
-    EXPECT_EQ(kGrassLod2Slots, kGrassLod2Tiles * kGrassLod2PerTile);
-    EXPECT_EQ(kGrassLod3Slots, kGrassLod3Tiles * kGrassLod3PerTile);
+    const GrassRegionBudget built = measureGrassRegions(builtinTerrainLodSettings().grass);
+    EXPECT_EQ(built.tiles[0], 21u);
+    EXPECT_EQ(built.tiles[1], 96u);
+    EXPECT_EQ(built.tiles[2], 320u);
+    EXPECT_EQ(built.tiles[3], 656u);
+    EXPECT_EQ(built.residentTiles, 1070u);
+    const uint32_t perTile[kGrassLodCount] = { kGrassLod0PerTile, kGrassLod1PerTile, kGrassLod2PerTile, kGrassLod3PerTile };
+    uint32_t       blades                  = 0;
+    for (int lod = 0; lod < kGrassLodCount; ++lod)
+    {
+        EXPECT_EQ(built.slots[lod], built.tiles[lod] * perTile[lod]);
+        blades += built.slots[lod];
+    }
+    EXPECT_EQ(built.bladeCap, blades);
+
+    const GrassRegionBudget live = grassRegionBudget();
+    EXPECT_EQ(live.tiles[0], 21u);
+    EXPECT_EQ(live.tiles[1], 96u);
+    EXPECT_EQ(live.tiles[2], 320u);
+    EXPECT_GT(live.tiles[3], 680u);
+    EXPECT_EQ(live.tiles[3], measureGrassRegions(terrainLodSettings().grass).tiles[3]);
+    EXPECT_EQ(live.bladeCap, live.slots[0] + live.slots[1] + live.slots[2] + live.slots[3]);
+    EXPECT_EQ(live.residentTiles, measureGrassRegions(terrainLodSettings().grass).residentTiles);
 }
 
 TEST(GrassField, TileIndexUsesFloor)
@@ -260,12 +276,15 @@ TEST(GrassField, NominalLodAndHysteresis)
         EXPECT_EQ(bladeTotal(field), band.count) << band.distance;
     }
 
+    // Past evict nothing is kept. Back inside the linger band, but still outside
+    // createRadius, a tile that was never admitted stays absent.
+    ASSERT_LT(grassLod().createRadius + 1.0f, grassLod().evictRadius);
     GrassField farField;
     enable(farField, 1337u);
-    farField.update(grid, center + 160.0f, center, 0.0, -1000.0f);
+    farField.update(grid, center + grassLod().evictRadius + 1.0f, center, 0.0, -1000.0f);
     EXPECT_EQ(farField.residentLod(0, 0), -1);
     EXPECT_EQ(bladeTotal(farField), 0u);
-    farField.update(grid, center + 140.0f, center, 0.0, -1000.0f);
+    farField.update(grid, center + grassLod().createRadius + 1.0f, center, 0.0, -1000.0f);
     EXPECT_EQ(farField.residentLod(0, 0), -1);
 
     GrassField edge;

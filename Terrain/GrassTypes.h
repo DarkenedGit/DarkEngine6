@@ -115,28 +115,13 @@ namespace Dark::Terrain
 
     constexpr int      kGrassLodCount   = 4;
     constexpr uint32_t kGrassFrameSlots = 2u;
-    constexpr uint32_t kGrassBladeCap   = 1048576u;
-    constexpr uint32_t kGrassWindSlots  = 2048u;
 
-    constexpr uint32_t kGrassLod0Tiles   = 21u;
-    constexpr uint32_t kGrassLod1Tiles   = 96u;
-    constexpr uint32_t kGrassLod2Tiles   = 323u;
-    constexpr uint32_t kGrassLod3Tiles   = 680u;
+    // Blades on one full 8 m tile. How many tiles each band can hold is
+    // grassRegionBudget(), counted from the radii in content/terrain/lod.json.
     constexpr uint32_t kGrassLod0PerTile = 4096u;
     constexpr uint32_t kGrassLod1PerTile = 2048u;
     constexpr uint32_t kGrassLod2PerTile = 1024u;
     constexpr uint32_t kGrassLod3PerTile = 640u;
-
-    constexpr uint32_t kGrassLod0Slots = kGrassLod0Tiles * kGrassLod0PerTile;
-    constexpr uint32_t kGrassLod1Slots = kGrassLod1Tiles * kGrassLod1PerTile;
-    constexpr uint32_t kGrassLod2Slots = kGrassLod2Tiles * kGrassLod2PerTile;
-    constexpr uint32_t kGrassLod3Slots = kGrassLod3Tiles * kGrassLod3PerTile;
-
-    static_assert(kGrassLod0Slots == 86016u, "lod0 slots");
-    static_assert(kGrassLod1Slots == 196608u, "lod1 slots");
-    static_assert(kGrassLod2Slots == 330752u, "lod2 slots");
-    static_assert(kGrassLod3Slots == 435200u, "lod3 slots");
-    static_assert(kGrassLod0Slots + kGrassLod1Slots + kGrassLod2Slots + kGrassLod3Slots == kGrassBladeCap, "grass cap");
 
     constexpr float kGrassTileMetres = 8.0f;
     // LOD band distances are content/terrain/lod.json, read through grassLod().

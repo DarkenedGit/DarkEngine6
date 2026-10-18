@@ -8,6 +8,7 @@
 #include "Play/PlayMotor.h"
 #include "Play/ShoulderCamera.h"
 #include "Play/TerrainStream.h"
+#include "Terrain/TerrainLodFile.h"
 #include "Play/WeaponFire.h"
 
 #include "ECS/Components.h"
@@ -94,6 +95,7 @@
 #include "Weapons/HittableComponent.h"
 #include "Animation/SkeletonDebug.h"
 #include "Render/LinePipeline.h"
+#include "Scene/SceneCatalog.h"
 #include "Scene/SceneFile.h"
 #include "Sky/CloudVolume.h"
 #include "Terrain/SplatMap.h"
@@ -408,8 +410,18 @@ void SandboxApp::populateMainMenu()
     m_menu.clearEntries();
     m_menu.setTitle(config().hostName ? config().hostName : "Sandbox");
     m_menu.setAccent(UiAccent::Sandbox);
-    m_menu.addBuiltIn("sandbox", "Play", "Default sandbox");
+    // Sandbox is the 3D host. level2d.json stays on the Sandbox2D menu.
+    const auto scenes = listSceneFiles(SceneMode::Scene3D);
+    if (scenes.empty())
+        m_menu.addBuiltIn("sandbox", "Play", "Default sandbox");
+    else
+    {
+        for (const SceneFileInfo& s : scenes)
+            m_menu.addScene(s.fileName, s.displayName, s.path, s.fileName);
+    }
     m_menu.addQuit();
+    if (!m_menu.selectById(sceneFileArg()))
+        m_menu.selectById(std::filesystem::path(sceneFileArg()).filename().string());
 }
 
 void SandboxApp::handleRuntimeCommands(float dt)
@@ -421,6 +433,33 @@ void SandboxApp::handleRuntimeCommands(float dt)
         switch (m_menu.pollResult())
         {
         case MainMenuResult::Confirm:
+            // The 3D world is built once. Esc brings this menu back as a pause;
+            // confirming a different row does not tear the level down.
+            if (!m_sceneStarted)
+            {
+                std::filesystem::path path = defaultScenePath(sceneFileArg());
+                if (const MainMenuEntry* e = m_menu.selected())
+                {
+                    if (e->kind == MainMenuKind::Scene && !e->path.empty())
+                        path = e->path;
+                    else if (e->kind == MainMenuKind::BuiltIn)
+                        path = defaultScenePath("level.json");
+                }
+                if (!startScene(path))
+                {
+                    m_menu.hide();
+                    return;
+                }
+                // Splash already finished without a camera, so the usual cue never played.
+                playMusicCue(world(), audio(), assets(), m_camera, "music");
+            }
+            else if (const MainMenuEntry* picked = m_menu.selected())
+            {
+                const bool otherScene = picked->kind == MainMenuKind::Scene && !picked->path.empty()
+                    && picked->path.filename() != m_loadedScenePath.filename();
+                if (otherScene)
+                    DE_LOG_INFO("Sandbox: already in '{}'; staying in this scene", m_loadedScenePath.filename().string());
+            }
             m_menu.hide();
             break;
         case MainMenuResult::Quit:
@@ -1484,7 +1523,7 @@ void SandboxApp::tickCrows(float dt)
     if (!m_chaseOk || dt < 0.0f)
         return;
     const Dark::Terrain::TerrainGrid* grid = m_terrain.valid() ? &m_terrain : nullptr;
-    Dark::simulateCrows(world(), grid, &m_crowModels, &assets(), &audio(), dt);
+    Dark::simulateCrows(world(), grid, &m_crowModels, &assets(), &pins(), &audio(), dt);
 }
 
 Entity SandboxApp::spawnSpawnerUnit(Entity spawner, const SpawnerRequest& req)
@@ -1497,7 +1536,7 @@ Entity SandboxApp::spawnSpawnerUnit(Entity spawner, const SpawnerRequest& req)
         const float homeX = home ? home->position.x : req.x;
         const float homeZ = home ? home->position.z : req.z;
         const float groundY = m_terrain.valid() ? m_terrain.heightAtWorld(req.x, req.z) : 0.0f;
-        return Dark::spawnCrow(world(), renderer(), assets(), m_crowModels, m_terrain.valid() ? &m_terrain : nullptr, spawner, req, groundY, homeX, homeZ);
+        return Dark::spawnCrow(world(), renderer(), assets(), pins(), m_crowModels, m_terrain.valid() ? &m_terrain : nullptr, spawner, req, groundY, homeX, homeZ);
     }
     const bool wolf = req.unit == SpawnerUnit::Wolf;
     TransformComponent xf{};
@@ -3056,7 +3095,10 @@ void SandboxApp::onInit()
     if (!m_menu.create(renderer(), UiAccent::Sandbox))
         DE_LOG_ERROR(LogCategory::Render, "SandboxApp: main menu GPU init failed");
     else if (shouldShowMainMenu(config()))
+    {
         m_menu.show();
+        DE_LOG_INFO("Sandbox: main menu ({} entries)", m_menu.entries().size());
+    }
 
     if (!m_imgui.init(window(), renderer(), "sandbox_imgui.ini", false, UiAccent::Sandbox))
         DE_LOG_WARN("SandboxApp: ImGui init failed — Dev Tools (M) disabled");
@@ -3065,6 +3107,20 @@ void SandboxApp::onInit()
 
     if (!loadAndBakeIbl(renderer(), assets(), m_ibl, m_iblImageId))
         DE_LOG_INFO(LogCategory::Render, "SandboxApp: IBL off — using ambient");
+
+    // Menu keys are polled in the main loop, after onInit returns. Load now only
+    // when the picker will not be shown (-no-menu, net host, or menu GPU failed).
+    if (!m_menu.visible())
+    {
+        if (!startScene(defaultScenePath(sceneFileArg())))
+            return;
+    }
+}
+
+bool SandboxApp::startScene(const std::filesystem::path& scenePath)
+{
+    if (m_sceneStarted)
+        return true;
 
     std::vector<SceneObjectData> scenePawns;
     std::vector<SceneObjectData> sceneBoxes;
@@ -3087,8 +3143,7 @@ void SandboxApp::onInit()
         Terrain::WorldEngineMaps worldMaps;
         SceneFileData sceneData{};
         {
-            std::string   err;
-            const std::filesystem::path scenePath = defaultScenePath(sceneFileArg());
+            std::string err;
             if (!loadSceneFromJson(scenePath, sceneData, &err))
                 DE_LOG_ERROR(LogCategory::Render, "SandboxApp: scene load failed ({}) — {}", scenePath.string(), err);
             else
@@ -3201,7 +3256,7 @@ void SandboxApp::onInit()
             {
                 DE_LOG_FATAL("SandboxApp: height map create failed");
                 requestQuit();
-                return;
+                return false;
             }
             const float extent = 128.0f * 2.0f;
             base.setOrigin(Vector3f{ -0.5f * extent, 0.0f, -0.5f * extent });
@@ -3209,13 +3264,13 @@ void SandboxApp::onInit()
             {
                 DE_LOG_FATAL("SandboxApp: splat generate failed");
                 requestQuit();
-                return;
+                return false;
             }
             if (!m_terrain.createFromHeightMap(std::move(base), 16))
             {
                 DE_LOG_FATAL("SandboxApp: terrain create failed");
                 requestQuit();
-                return;
+                return false;
             }
             m_terrain.setWorkingSplat(SplatMap(matSplat));
         }
@@ -3258,7 +3313,7 @@ void SandboxApp::onInit()
         {
             DE_LOG_FATAL("SandboxApp: dummy splat failed");
             requestQuit();
-            return;
+            return false;
         }
         if (worldEngine)
         {
@@ -3266,7 +3321,7 @@ void SandboxApp::onInit()
             {
                 DE_LOG_FATAL("SandboxApp: World Engine material failed");
                 requestQuit();
-                return;
+                return false;
             }
             DE_LOG_INFO(LogCategory::Render, "Terrain: World Engine albedo and roughness");
         }
@@ -3279,18 +3334,18 @@ void SandboxApp::onInit()
             {
                 DE_LOG_FATAL("SandboxApp: terrain material create failed");
                 requestQuit();
-                return;
+                return false;
             }
         }
         m_terrainMaterial.setLayerSamplingRaw(renderer().device(), renderer().debugState().legacyUnormAlbedo);
         if (!pumpBootFrame())
-            return;
+            return false;
         m_terrain.updateStreaming(Vector3f{ 0.0f, 50.0f, -80.0f }, &renderer(), &m_terrainMaterial);
         if (!m_terrain.uploadCoarseHeightTexture(renderer()))
         {
             DE_LOG_FATAL("SandboxApp: coarse height texture upload failed");
             requestQuit();
-            return;
+            return false;
         }
         if (m_terrain.heightTexture().valid())
         {
@@ -3298,7 +3353,7 @@ void SandboxApp::onInit()
             m_waterPipeline.setHeightSrv(renderer().device(), m_terrain.heightTexture().cpuHandle());
         }
         if (!pumpBootFrame())
-            return;
+            return false;
 
         auto spawnCloudEntity = [&](const Vector3f& pos, const Vector3f& scale, const CloudVolumeDesc& desc) {
             Entity e = world().createEntity();
@@ -3351,17 +3406,17 @@ void SandboxApp::onInit()
         {
             DE_LOG_FATAL("SandboxApp: water create failed");
             requestQuit();
-            return;
+            return false;
         }
         m_water.updateLod(Vector3f{ 0.0f, 50.0f, -80.0f });
         if (!m_water.createGpu(renderer()))
         {
             DE_LOG_FATAL("SandboxApp: water GPU upload failed");
             requestQuit();
-            return;
+            return false;
         }
         if (!pumpBootFrame())
-            return;
+            return false;
         DE_LOG_INFO("SandboxApp: water level {:.2f}, {} wet chunks", waterLevel, m_water.wetChunkCount());
 
         // Streams are visual only. cellWet and swimming a creek stay on the still lake.
@@ -3398,25 +3453,25 @@ void SandboxApp::onInit()
     {
         DE_LOG_FATAL("SandboxApp: cube mesh upload failed");
         requestQuit();
-        return;
+        return false;
     }
     MeshData crossData;
     if (!CreateCross(crossData, 1.0f, 0.30f, 0.22f) || !Mesh::tryCreate(renderer(), crossData, m_crossMesh))
     {
         DE_LOG_FATAL("SandboxApp: health pack mesh failed");
         requestQuit();
-        return;
+        return false;
     }
 
     if (!createSandboxModels())
     {
         DE_LOG_FATAL("SandboxApp: procedural models failed");
         requestQuit();
-        return;
+        return false;
     }
 
     if (!pumpBootFrame())
-        return;
+        return false;
 
     renderer().gpuResources().setShadowSrv(m_shadows.srvCpu());
     renderer().setShadowSrv(m_shadows.srvCpu());
@@ -3427,7 +3482,8 @@ void SandboxApp::onInit()
         const LocalShadowSystem::CpuSrvs localSrvs = m_scene.localShadows().cpuSrvs();
         renderer().setLocalShadowSrvs(localSrvs.arraySrv, localSrvs.recordsSrv);
     }
-    m_demoScene = sceneFileArg() == "level.json";
+    // The glTF demo and the npc overlay belong to level.json, whichever way it was opened.
+    m_demoScene = scenePath.filename() == "level.json";
     if (!m_demoScene)
         m_npcInfo.enabled = false;
     m_stealth.hearStand      = 0.0f;
@@ -3680,6 +3736,9 @@ void SandboxApp::onInit()
     ensureSessionEntity();
     installSaveHost();
     m_save.captureBaseline(world());
+    m_loadedScenePath = scenePath;
+    m_sceneStarted    = true;
+    return true;
 }
 
 void SandboxApp::onSplashFinished()
@@ -3708,6 +3767,8 @@ void SandboxApp::onUpdate(float dt)
         m_save.service(world());
         return;
     }
+    if (!m_sceneStarted)
+        return;
     if (!m_gameplayPaused || m_stepGameplay)
     {
         syncPlayerMode();
@@ -3817,6 +3878,19 @@ void SandboxApp::onRender()
     if (!renderer().beginFrame())
     {
         requestQuit();
+        return;
+    }
+
+    // The scene is still unbuilt while the start menu is waiting for a pick.
+    // shadowBounds is safe on an empty grid; the water and post path is not.
+    if (!m_sceneStarted)
+    {
+        if (m_imgui.isReady())
+            m_imgui.beginFrame();
+        m_menu.draw(renderer());
+        if (m_imgui.isReady())
+            m_imgui.render(renderer());
+        renderer().endFrame();
         return;
     }
 
@@ -4236,11 +4310,11 @@ void SandboxApp::onRender()
                     grassLods[lod].count             = span.count;
                     grassLods[lod].staleMask         = m_grassField.lodStaleMask(lod);
                 }
-                constexpr uint32_t kGrassTileCap = kGrassLod0Tiles + kGrassLod1Tiles + kGrassLod2Tiles + kGrassLod3Tiles;
-                GrassTileDraw       grassTiles[kGrassTileCap];
-                const uint32_t      grassDraws = m_grassField.visibleTiles(frustum, grassTiles, kGrassTileCap);
+                const uint32_t residentTiles = grassRegionBudget().residentTiles;
+                std::vector<GrassTileDraw> grassTiles(residentTiles);
+                const uint32_t grassDraws = m_grassField.visibleTiles(frustum, grassTiles.data(), residentTiles);
                 // This slot has seen the CPU blades. Leave the other slot stale until its fence.
-                if (m_grassPipeline.draw(cmd, renderer(), grassLods, m_grassField.tileWind(), m_grassField.tileWindCount(), grassFrame, grassTiles, grassDraws))
+                if (m_grassPipeline.draw(cmd, renderer(), grassLods, m_grassField.tileWind(), m_grassField.tileWindCount(), grassFrame, grassTiles.data(), grassDraws))
                 {
                     const uint32_t slot = renderer().frameIndex() % kGrassFrameSlots;
                     for (int lod = 0; lod < kGrassLodCount; ++lod)

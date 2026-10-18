@@ -217,6 +217,8 @@ namespace Dark::Audio
         char buf[80];
         std::snprintf(buf, sizeof(buf), "tone:%.3f,%.3f,%.3f", freqHz, durationSec, amplitude);
         const std::string key(buf);
+        if (::Dark::AssetRef<SoundClip> existing = assets.findAudio(key))
+            return existing;
         auto clip = std::make_shared<SoundClip>();
         if (!clip->createTone(freqHz, durationSec, amplitude))
             return {};
@@ -229,6 +231,8 @@ namespace Dark::Audio
         char buf[80];
         std::snprintf(buf, sizeof(buf), "blip:%.3f,%.3f,%.3f", freqHz, durationSec, amplitude);
         const std::string key(buf);
+        if (::Dark::AssetRef<SoundClip> existing = assets.findAudio(key))
+            return existing;
         auto clip = std::make_shared<SoundClip>();
         if (!clip->createBlip(freqHz, durationSec, amplitude))
             return {};

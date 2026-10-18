@@ -19,6 +19,19 @@ using Dark::onEntityRemoved;
 using Dark::pinSoundEmitter;
 using Dark::Audio::AudioSystem;
 
+TEST(SoundClipAsset, InternToneHitsTheCache)
+{
+    AssetManager assets;
+    AudioSystem  audio;
+    auto         a = audio.createTone(assets, 980.0f, 0.16f, 0.35f);
+    auto         b = audio.createTone(assets, 980.0f, 0.16f, 0.35f);
+    ASSERT_TRUE(a);
+    ASSERT_TRUE(b);
+    EXPECT_EQ(a->id, b->id);
+    EXPECT_EQ(assets.assetCount(), 1u);
+    EXPECT_EQ(a.get(), b.get());
+}
+
 TEST(SoundClipAsset, InternBlipSameKey)
 {
     AssetManager assets;

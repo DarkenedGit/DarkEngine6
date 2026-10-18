@@ -63,17 +63,17 @@ TEST(TerrainLodFile, ContentFileIsTheLiveGrassAndTerrain)
     EXPECT_FLOAT_EQ(parsed.grass.nominal0, 16.0f);
     EXPECT_FLOAT_EQ(parsed.grass.nominal1, 40.0f);
     EXPECT_FLOAT_EQ(parsed.grass.nominal2, 80.0f);
-    EXPECT_FLOAT_EQ(parsed.grass.nominal3, 128.0f);
+    EXPECT_FLOAT_EQ(parsed.grass.nominal3, 256.0f);
     EXPECT_FLOAT_EQ(parsed.grass.promote0, 13.6f);
     EXPECT_FLOAT_EQ(parsed.grass.promote1, 34.0f);
     EXPECT_FLOAT_EQ(parsed.grass.promote2, 68.0f);
     EXPECT_FLOAT_EQ(parsed.grass.demote0, 18.4f);
     EXPECT_FLOAT_EQ(parsed.grass.demote1, 46.0f);
     EXPECT_FLOAT_EQ(parsed.grass.demote2, 92.0f);
-    EXPECT_FLOAT_EQ(parsed.grass.createRadius, 128.0f);
-    EXPECT_FLOAT_EQ(parsed.grass.evictRadius, 147.2f);
-    EXPECT_FLOAT_EQ(parsed.grass.fadeStart, 112.0f);
-    EXPECT_FLOAT_EQ(parsed.grass.fadeEnd, 128.0f);
+    EXPECT_FLOAT_EQ(parsed.grass.createRadius, 256.0f);
+    EXPECT_FLOAT_EQ(parsed.grass.evictRadius, 280.0f);
+    EXPECT_FLOAT_EQ(parsed.grass.fadeStart, 236.0f);
+    EXPECT_FLOAT_EQ(parsed.grass.fadeEnd, 256.0f);
 
     const TerrainLodSettings& live = terrainLodSettings();
     EXPECT_EQ(live.terrainCount, parsed.terrainCount);

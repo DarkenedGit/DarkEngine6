@@ -83,6 +83,9 @@ namespace Dark
         bool needsRebuild() const;
         bool createGpu(Renderer& renderer);
         bool uploadDirty(Renderer& renderer);
+        // Chunk VB/IB plus anything an LOD swap already parked. The caller
+        // owns the list across the destroy of this world.
+        void retireGpu(GpuMeshRetire& retire);
 
         void draw(
             ID3D12GraphicsCommandList* cmd,

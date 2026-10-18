@@ -72,6 +72,7 @@ namespace Dark
         int         slot = 0;
         float       x    = 0.0f;
         float       z    = 0.0f;
+        uint32_t    seed = 1;
     };
 
     // Marker entity. The spawned units are separate and must not be editor objects.

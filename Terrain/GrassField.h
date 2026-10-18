@@ -78,7 +78,7 @@ namespace Dark::Terrain
         uint32_t  residentTileCount() const { return static_cast<uint32_t>(m_tiles.size()); }
 
         const GrassTileWind* tileWind() const { return m_wind.empty() ? nullptr : m_wind.data(); }
-        uint32_t              tileWindCount() const { return m_wind.empty() ? 0u : kGrassWindSlots; }
+        uint32_t              tileWindCount() const;
 
         const GrassInteractor* interactors() const { return m_interactor; }
         const GrassInteractor* prevInteractors() const { return m_prevInteractor; }

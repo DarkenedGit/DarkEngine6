@@ -49,6 +49,7 @@
 #include "Ui/MainMenu.h"
 #include "Save/SaveSystem.h"
 
+#include <filesystem>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -72,6 +73,9 @@ public:
 private:
     void registerDefaultActions();
     void populateMainMenu();
+    // Terrain, pawns, and the save baseline. Called once: from onInit when the
+    // menu is skipped, or from the first menu confirm. A later confirm resumes.
+    bool startScene(const std::filesystem::path& scenePath);
     void handleRuntimeCommands(float dt);
     void handleNetHotkeys();
     void applyNetRole();
@@ -219,6 +223,8 @@ private:
     float                           m_faceLeft     = 0.0f;
     float                           m_blockRecoil  = 0.0f;
     bool                            m_demoScene    = true;
+    bool                            m_sceneStarted = false;
+    std::filesystem::path           m_loadedScenePath;
     float                           m_lightLevel   = 1.0f;
     float                           m_exposure     = 1.0f;
     float                           m_strideLeft   = 0.0f;

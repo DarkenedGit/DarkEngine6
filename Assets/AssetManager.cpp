@@ -227,6 +227,13 @@ namespace Dark
         return clip;
     }
 
+    AssetRef<Audio::SoundClip> AssetManager::findAudio(const std::string& cacheKey)
+    {
+        if (cacheKey.empty())
+            return {};
+        return tryGetInterned<Audio::SoundClip>(cacheKey, InternLookup::EraseMissingOrWrongType);
+    }
+
     AssetRef<Audio::SoundClip> AssetManager::loadAudio(const std::string& virtualPath)
     {
         const std::filesystem::path path = resolve(virtualPath);

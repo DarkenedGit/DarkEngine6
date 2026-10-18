@@ -75,6 +75,13 @@ namespace Dark
         D3D12_GPU_VIRTUAL_ADDRESS m_cbGpu       = 0;
         ComPtr<ID3D12Resource>    m_identity;
         D3D12_GPU_VIRTUAL_ADDRESS m_identityGpu = 0;
+
+        // Sized from grassRegionBudget() in create. The radii live in lod.json.
+        uint64_t m_bladeSlice = 0;
+        uint64_t m_windSlice  = 0;
+        uint32_t m_lodSlots[4]{};
+        uint32_t m_bladeCap  = 0;
+        uint32_t m_windSlots = 0;
     };
 
 } // namespace Dark

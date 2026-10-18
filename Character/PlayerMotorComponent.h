@@ -9,7 +9,7 @@ namespace Dark
     struct PlayerMotorComponent
     {
         static constexpr const char* kTypeName    = "PlayerMotor";
-        static constexpr uint16_t    kSaveVersion = 1;
+        static constexpr uint16_t    kSaveVersion = 2;
         static const PersistFns      kPersist;
 
         PlayerMotor motor;

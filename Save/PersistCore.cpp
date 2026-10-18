@@ -42,13 +42,15 @@ namespace Dark
             case PlayerMoveState::Swimming: return "Swimming";
             case PlayerMoveState::Dodge:    return "Dodge";
             case PlayerMoveState::Crouch:   return "Crouch";
+            case PlayerMoveState::WallRun:  return "WallRun";
+            case PlayerMoveState::Hang:     return "Hang";
             }
             return "Grounded";
         }
 
         bool motorStateFromName(std::string_view name, PlayerMoveState& out)
         {
-            for (int i = 0; i <= static_cast<int>(PlayerMoveState::Crouch); ++i)
+            for (int i = 0; i <= static_cast<int>(PlayerMoveState::Hang); ++i)
             {
                 const auto state = static_cast<PlayerMoveState>(i);
                 if (name == motorStateName(state))
@@ -327,6 +329,15 @@ namespace Dark
             run.spawn     = spawn;
         }
 
+        static float clampedStamina(float stamina)
+        {
+            if (!(stamina >= 0.0f))
+                return 0.0f;
+            if (stamina > 1.0f)
+                return 1.0f;
+            return stamina;
+        }
+
         void captureMotor(const void* component, void* writer)
         {
             const auto& motor = static_cast<const PlayerMotorComponent*>(component)->motor;
@@ -339,9 +350,12 @@ namespace Dark
             out.boolean("didDoubleJump", motor.didDoubleJump());
             out.f32("dodgeLeft", motor.dodgeTimeLeft());
             out.vec3("dodgeWish", motor.dodgeWish());
+            out.f32("stamina", clampedStamina(motor.stamina()));
+            out.f32("ledgeY", motor.ledgeY());
+            out.vec3("wallDir", motor.wallDir());
         }
 
-        void applyMotor(void* component, void* reader, uint16_t)
+        void applyMotor(void* component, void* reader, uint16_t version)
         {
             auto& motor = static_cast<PlayerMotorComponent*>(component)->motor;
             auto& in    = *static_cast<SaveReader*>(reader);
@@ -352,16 +366,31 @@ namespace Dark
             bool first = motor.didFirstJump();
             bool second = motor.didDoubleJump();
             float dodge = motor.dodgeTimeLeft();
-            Math::Vector3f wish{};
+            Math::Vector3f wish = motor.dodgeWish();
             if (!in.string("state", stateName, 32) || !in.vec3("velocity", velocity, Save::kMaxAbsPosition) || !in.f32("airTime", air, 0.0f, Save::kMaxTimerSeconds) || !in.f32("coyote", coyote, 0.0f, Save::kMaxTimerSeconds) || !in.boolean("didFirstJump", first) || !in.boolean("didDoubleJump", second) || !in.f32("dodgeLeft", dodge, 0.0f, Save::kMaxTimerSeconds) || !in.vec3("dodgeWish", wish, Save::kMaxAbsPosition))
                 return;
+            // Version 1 never wrote climb fields. Leaving the live motor keeps a fresh body's stamina at 1.
+            float stamina = motor.stamina();
+            float ledgeY = motor.ledgeY();
+            Math::Vector3f wallDir = motor.wallDir();
+            if (version >= 2)
+            {
+                if (!in.f32("stamina", stamina, 0.0f, 1.0f) || !in.f32("ledgeY", ledgeY, -Save::kMaxAbsPosition, Save::kMaxAbsPosition) || !in.vec3("wallDir", wallDir, Save::kMaxAbsPosition))
+                    return;
+            }
             PlayerMoveState state = motor.state();
             if (!motorStateFromName(stateName, state))
             {
                 DE_LOG_WARN("Save: unknown motor state '{}'", stateName);
                 state = motor.state();
             }
+            // findWall follows wallDir. A climb saved with no horizontal direction would stick.
+            const float wallHoriz = wallDir.x * wallDir.x + wallDir.z * wallDir.z;
+            if ((state == PlayerMoveState::WallRun || state == PlayerMoveState::Hang) && wallHoriz < 1.0e-8f)
+                state = PlayerMoveState::Falling;
             motor.restoreProgress(state, velocity, air, coyote, first, second, dodge, wish);
+            if (version >= 2)
+                motor.restoreClimb(stamina, ledgeY, wallDir);
         }
 
     const PersistFns TransformComponent::kPersist{ "Transform", TransformComponent::kSaveVersion, 10, nullptr, &captureTransform, &applyTransform, nullptr };

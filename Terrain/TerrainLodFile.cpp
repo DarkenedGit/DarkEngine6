@@ -6,6 +6,7 @@
 #include "third_party/nlohmann/json.hpp"
 
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -17,10 +18,6 @@ namespace Dark::Terrain
         using json = nlohmann::json;
 
         constexpr std::uintmax_t kMaxJsonBytes = 64u * 1024u;
-
-        TerrainLodSettings g_settings{};
-        bool               g_loaded   = false;
-        bool               g_fromFile = false;
 
         bool readFloat(const json& v, float& out)
         {
@@ -208,23 +205,141 @@ namespace Dark::Terrain
         return true;
     }
 
+    GrassRegionBudget measureGrassRegions(const GrassLodDistances& distances)
+    {
+        GrassRegionBudget out{};
+        const double      outer[kGrassLodCount] = {
+            static_cast<double>(distances.demote0),
+            static_cast<double>(distances.demote1),
+            static_cast<double>(distances.demote2),
+            static_cast<double>(distances.evictRadius),
+        };
+        if (!(outer[kGrassLodCount - 1] > 0.0))
+            return out;
+
+        double outer2[kGrassLodCount]{};
+        double inner2[kGrassLodCount]{};
+        for (int band = 0; band < kGrassLodCount; ++band)
+        {
+            outer2[band] = outer[band] * outer[band];
+            if (band > 0)
+                inner2[band] = outer2[band - 1];
+        }
+
+        // 0.125 m across one 8 m tile. 0.25 m misses two LOD3 tiles at the old 147.2 m edge.
+        constexpr int    kSteps = 64;
+        constexpr double kStep  = 0.125;
+        const int        reach  = static_cast<int>(std::ceil((outer[kGrassLodCount - 1] + 8.0) / 8.0)) + 2;
+
+        uint32_t bestBand[kGrassLodCount]{};
+        uint32_t bestDisc = 0;
+        for (int sx = 0; sx < kSteps; ++sx)
+        {
+            const double px = static_cast<double>(sx) * kStep;
+            for (int sz = 0; sz < kSteps; ++sz)
+            {
+                const double pz = static_cast<double>(sz) * kStep;
+                uint32_t     bandCount[kGrassLodCount]{};
+                uint32_t     disc = 0;
+                for (int ix = -reach; ix <= reach; ++ix)
+                {
+                    const double cx  = static_cast<double>(ix) * 8.0 + 4.0;
+                    const double dx  = cx - px;
+                    const double dx2 = dx * dx;
+                    if (dx2 > outer2[kGrassLodCount - 1])
+                        continue;
+                    for (int iz = -reach; iz <= reach; ++iz)
+                    {
+                        const double cz = static_cast<double>(iz) * 8.0 + 4.0;
+                        const double dz = cz - pz;
+                        const double d2 = dx2 + dz * dz;
+                        if (d2 > outer2[kGrassLodCount - 1])
+                            continue;
+                        ++disc;
+                        for (int band = 0; band < kGrassLodCount; ++band)
+                        {
+                            if (d2 <= outer2[band] && (band == 0 || d2 > inner2[band]))
+                            {
+                                ++bandCount[band];
+                                break;
+                            }
+                        }
+                    }
+                }
+                for (int band = 0; band < kGrassLodCount; ++band)
+                {
+                    if (bandCount[band] > bestBand[band])
+                        bestBand[band] = bandCount[band];
+                }
+                if (disc > bestDisc)
+                    bestDisc = disc;
+            }
+        }
+
+        const uint32_t perTile[kGrassLodCount] = { kGrassLod0PerTile, kGrassLod1PerTile, kGrassLod2PerTile, kGrassLod3PerTile };
+        uint64_t       blades                  = 0;
+        for (int band = 0; band < kGrassLodCount; ++band)
+        {
+            out.tiles[band] = bestBand[band];
+            const uint64_t slots = static_cast<uint64_t>(bestBand[band]) * static_cast<uint64_t>(perTile[band]);
+            out.slots[band]      = slots > 0xffffffffull ? 0xffffffffu : static_cast<uint32_t>(slots);
+            blades += out.slots[band];
+        }
+        out.bladeCap = blades > 0xffffffffull ? 0xffffffffu : static_cast<uint32_t>(blades);
+        // A 0.0625 m step can include one more linger tile than 0.125 m.
+        const uint64_t resident = bestDisc == 0 ? 0ull : static_cast<uint64_t>(bestDisc) + 1ull;
+        out.residentTiles       = resident > 0xffffffffull ? 0xffffffffu : static_cast<uint32_t>(resident);
+        return out;
+    }
+
+    namespace
+    {
+        struct LodCache
+        {
+            TerrainLodSettings settings{};
+            bool               fromFile = false;
+            GrassRegionBudget  grass{};
+        };
+
+        LodCache makeLodCache()
+        {
+            LodCache           cache;
+            TerrainLodSettings loaded{};
+            cache.fromFile = loadFile(loaded);
+            cache.settings = cache.fromFile ? loaded : builtinTerrainLodSettings();
+            cache.grass    = measureGrassRegions(cache.settings.grass);
+            DE_LOG_INFO(
+                LogCategory::Render,
+                "TerrainLod: grass tiles {}/{}/{}/{}, resident {}",
+                cache.grass.tiles[0],
+                cache.grass.tiles[1],
+                cache.grass.tiles[2],
+                cache.grass.tiles[3],
+                cache.grass.residentTiles);
+            return cache;
+        }
+
+        // The load finishes before any other caller observes the settings.
+        const LodCache& lodCache()
+        {
+            static const LodCache cache = makeLodCache();
+            return cache;
+        }
+    }
+
     const TerrainLodSettings& terrainLodSettings()
     {
-        if (!g_loaded)
-        {
-            g_loaded = true;
-            TerrainLodSettings loaded = g_settings;
-            g_fromFile = loadFile(loaded);
-            if (g_fromFile)
-                g_settings = loaded;
-        }
-        return g_settings;
+        return lodCache().settings;
+    }
+
+    const GrassRegionBudget& grassRegionBudget()
+    {
+        return lodCache().grass;
     }
 
     bool terrainLodLoadedFromFile()
     {
-        terrainLodSettings();
-        return g_fromFile;
+        return lodCache().fromFile;
     }
 
 } // namespace Dark::Terrain

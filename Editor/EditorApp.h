@@ -426,6 +426,9 @@ private:
         Math::AABox3f           bounds;
     };
     std::vector<EditorStreamSlot> m_editorStreams;
+    // Placed bodies, streams, and the valley sheet when a live frame still
+    // holds its VB/IB. syncPlacedWater ticks this; the sheet's own list does not
+    // survive WaterWorld{} and is ticked too early by the panel rebuild.
     GpuMeshRetire                 m_placedWaterRetire;
     bool                          m_placedWaterForce = false;
     TerrainMaterial               m_terrainMaterial;

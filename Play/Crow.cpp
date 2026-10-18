@@ -5,6 +5,7 @@
 #include "Assets/Model.h"
 #include "Audio/AudioSystem.h"
 #include "Character/HealthComponent.h"
+#include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
@@ -18,6 +19,7 @@
 #include "Terrain/TerrainGrid.h"
 #include "Weapons/HittableComponent.h"
 
+#include <algorithm>
 #include <cmath>
 #include <string_view>
 #include <vector>
@@ -35,6 +37,12 @@ namespace
     constexpr float kTreeMin      = 6.0f;
     constexpr float kTreeMax      = 28.0f;
     constexpr float kPerchLift    = 5.5f;
+    // A grounded crow blocks the branch within 1.5 m, and that branch can sit
+    // kTreeMax from the bird. The query has to cover both, not just the flock.
+    constexpr float kNeighborQuery = 30.0f;
+    constexpr float kPerchCell     = 16.0f;
+    // kTreeMax plus the corner of a 16 m cell, with a little float slack.
+    constexpr float kPerchGather   = 42.0f;
 
     uint32_t xorshift32(uint32_t& state)
     {
@@ -438,7 +446,75 @@ namespace
         return name == "Hunter" || name == "hunter" || name == "Player" || name == "player" || name == "PlayerPawn";
     }
 
-    bool uploadPose(Renderer& renderer, AssetManager& assets, AssetRef<Material> bodyMat, AssetRef<Material> beakMat, AssetRef<Material> eyeMat, float lift, const char* key, AssetID& outId)
+    int cellIndex(float v, float size)
+    {
+        return static_cast<int>(std::floor(v / size));
+    }
+
+    int hashCell(int cx, int cz, int mask)
+    {
+        const uint32_t h = static_cast<uint32_t>(cx) * 73856093u ^ static_cast<uint32_t>(cz) * 19349663u;
+        return static_cast<int>(h & static_cast<uint32_t>(mask));
+    }
+
+    struct FlockBird
+    {
+        Math::Vector3f position{ 0.0f, 0.0f, 0.0f };
+        Math::Vector3f velocity{ 0.0f, 0.0f, 0.0f };
+        int            snap    = -1;
+        int            next    = -1;
+        bool           flying  = false;
+    };
+
+    struct PerchBin
+    {
+        int cellX = 0;
+        int cellZ = 0;
+        int begin = 0;
+        int count = 0;
+    };
+
+    const PerchBin* findPerchBin(const std::vector<PerchBin>& bins, int cellX, int cellZ)
+    {
+        for (const PerchBin& bin : bins)
+        {
+            if (bin.cellX == cellX && bin.cellZ == cellZ)
+                return &bin;
+        }
+        return nullptr;
+    }
+
+    void collectNeighbors(const FlockBird& self, const std::vector<FlockBird>& birds, const std::vector<int>& heads, int mask, std::vector<int>& picked)
+    {
+        picked.clear();
+        const int   cx     = cellIndex(self.position.x, kNeighborQuery);
+        const int   cz     = cellIndex(self.position.z, kNeighborQuery);
+        const float limit2 = kNeighborQuery * kNeighborQuery;
+        for (int dz = -1; dz <= 1; ++dz)
+        {
+            for (int dx = -1; dx <= 1; ++dx)
+            {
+                const int bucket = hashCell(cx + dx, cz + dz, mask);
+                for (int i = heads[static_cast<size_t>(bucket)]; i >= 0; i = birds[static_cast<size_t>(i)].next)
+                {
+                    const FlockBird& other = birds[static_cast<size_t>(i)];
+                    if (other.snap == self.snap)
+                        continue;
+                    const float dxp = other.position.x - self.position.x;
+                    const float dyp = other.position.y - self.position.y;
+                    const float dzp = other.position.z - self.position.z;
+                    if (dxp * dxp + dyp * dyp + dzp * dzp > limit2)
+                        continue;
+                    picked.push_back(i);
+                }
+            }
+        }
+        std::sort(picked.begin(), picked.end(), [&](int a, int b) { return birds[static_cast<size_t>(a)].snap < birds[static_cast<size_t>(b)].snap; });
+        // Two cells can share a bucket, so one bird can be visited twice.
+        picked.erase(std::unique(picked.begin(), picked.end()), picked.end());
+    }
+
+    bool uploadPose(Renderer& renderer, AssetManager& assets, AssetRef<Material> bodyMat, AssetRef<Material> beakMat, AssetRef<Material> eyeMat, float lift, const char* key, AssetRef<Model>& outModel, AssetID& outId)
     {
         MeshData body;
         MeshData beak;
@@ -470,7 +546,8 @@ namespace
         AssetRef<Model> uploaded = registerAndUploadModel(renderer, assets, model, key);
         if (!uploaded)
             return false;
-        outId = uploaded->id;
+        outModel = std::move(uploaded);
+        outId    = outModel->id;
         return outId != NULL_ASSET;
     }
 
@@ -490,12 +567,15 @@ namespace
             return false;
         }
 
+        models.foldedKeep.reset();
+        models.downKeep.reset();
+        models.upKeep.reset();
         models.folded = NULL_ASSET;
         models.down   = NULL_ASSET;
         models.up     = NULL_ASSET;
-        const bool ok = uploadPose(renderer, assets, bodyMat, beakMat, eyeMat, -1.05f, "runtime:/creature/crow-folded", models.folded)
-            && uploadPose(renderer, assets, bodyMat, beakMat, eyeMat, -0.35f, "runtime:/creature/crow-down", models.down)
-            && uploadPose(renderer, assets, bodyMat, beakMat, eyeMat, 0.75f, "runtime:/creature/crow-up", models.up);
+        const bool ok = uploadPose(renderer, assets, bodyMat, beakMat, eyeMat, -1.05f, "runtime:/creature/crow-folded", models.foldedKeep, models.folded)
+            && uploadPose(renderer, assets, bodyMat, beakMat, eyeMat, -0.35f, "runtime:/creature/crow-down", models.downKeep, models.down)
+            && uploadPose(renderer, assets, bodyMat, beakMat, eyeMat, 0.75f, "runtime:/creature/crow-up", models.upKeep, models.up);
         models.ready = ok;
         if (!ok)
             DE_LOG_ERROR(LogCategory::Render, "Crow: model upload failed");
@@ -580,16 +660,34 @@ namespace
     void gatherCrowPerches(const Terrain::TerrainGrid& grid, float x, float z, float radius, std::vector<CrowPerch>& out)
     {
         out.clear();
-        if (radius < 0.0f)
+        if (radius < 0.0f || !grid.valid())
+            return;
+        const float tileWorld = static_cast<float>(grid.tileCells()) * grid.cellSize();
+        if (!(tileWorld > 0.0f))
             return;
         const float radiusSq = radius * radius;
-        const uint32_t tilesX = grid.tilesX();
-        const uint32_t tilesZ = grid.tilesZ();
-        for (uint32_t tz = 0; tz < tilesZ; ++tz)
+        const Math::Vector3f origin = grid.origin();
+        int minTx = static_cast<int>(std::floor((x - radius - origin.x) / tileWorld));
+        int maxTx = static_cast<int>(std::floor((x + radius - origin.x) / tileWorld));
+        int minTz = static_cast<int>(std::floor((z - radius - origin.z) / tileWorld));
+        int maxTz = static_cast<int>(std::floor((z + radius - origin.z) / tileWorld));
+        if (minTx < 0)
+            minTx = 0;
+        if (minTz < 0)
+            minTz = 0;
+        const int tilesX = static_cast<int>(grid.tilesX());
+        const int tilesZ = static_cast<int>(grid.tilesZ());
+        if (maxTx >= tilesX)
+            maxTx = tilesX - 1;
+        if (maxTz >= tilesZ)
+            maxTz = tilesZ - 1;
+        if (minTx > maxTx || minTz > maxTz)
+            return;
+        for (int tz = minTz; tz <= maxTz; ++tz)
         {
-            for (uint32_t tx = 0; tx < tilesX; ++tx)
+            for (int tx = minTx; tx <= maxTx; ++tx)
             {
-                const std::vector<Terrain::FoliageRecord>* records = grid.residentFoliage(static_cast<int>(tx), static_cast<int>(tz));
+                const std::vector<Terrain::FoliageRecord>* records = grid.residentFoliage(tx, tz);
                 if (!records)
                     continue;
                 for (const Terrain::FoliageRecord& rec : *records)
@@ -629,7 +727,7 @@ namespace
         });
     }
 
-    void simulateCrows(World& world, const Terrain::TerrainGrid* terrain, CrowModels* models, AssetManager* assets, Audio::AudioSystem* audio, float dt)
+    void simulateCrows(World& world, const Terrain::TerrainGrid* terrain, CrowModels* models, AssetManager* assets, AssetPinTable* pins, Audio::AudioSystem* audio, float dt)
     {
         if (dt < 0.0f)
             return;
@@ -655,24 +753,68 @@ namespace
         std::vector<Math::Vector3f> threats;
         gatherCrowThreats(world, threats);
 
-        float centroidX = 0.0f;
-        float centroidZ = 0.0f;
-        int   living    = 0;
-        for (const Snap& snap : snaps)
+        std::vector<FlockBird> birds;
+        birds.reserve(snaps.size());
+        std::vector<int> birdOfSnap(snaps.size(), -1);
+        for (int i = 0; i < static_cast<int>(snaps.size()); ++i)
         {
+            const Snap& snap = snaps[static_cast<size_t>(i)];
             if (!snap.alive)
                 continue;
-            centroidX += snap.brain.position.x;
-            centroidZ += snap.brain.position.z;
-            ++living;
+            FlockBird bird;
+            bird.position = snap.brain.position;
+            bird.velocity = snap.brain.velocity;
+            bird.snap     = i;
+            bird.flying   = snap.brain.state == CrowState::Flock || snap.brain.state == CrowState::Flee;
+            birdOfSnap[static_cast<size_t>(i)] = static_cast<int>(birds.size());
+            birds.push_back(bird);
         }
-        std::vector<CrowPerch> perches;
-        if (terrain && living > 0)
-            gatherCrowPerches(*terrain, centroidX / static_cast<float>(living), centroidZ / static_cast<float>(living), 48.0f, perches);
+
+        int buckets = 16;
+        const int need = birds.empty() ? 16 : static_cast<int>(birds.size()) * 2;
+        while (buckets < need)
+            buckets *= 2;
+        std::vector<int> heads(static_cast<size_t>(buckets), -1);
+        const int mask = buckets - 1;
+        for (int i = 0; i < static_cast<int>(birds.size()); ++i)
+        {
+            FlockBird& bird = birds[static_cast<size_t>(i)];
+            const int  bucket = hashCell(cellIndex(bird.position.x, kNeighborQuery), cellIndex(bird.position.z, kNeighborQuery), mask);
+            bird.next = heads[static_cast<size_t>(bucket)];
+            heads[static_cast<size_t>(bucket)] = i;
+        }
+
+        // One centroid hides every flock that is not standing on it. Each 16 m
+        // cell keeps the trees its own birds can reach.
+        std::vector<CrowPerch> perchStore;
+        std::vector<PerchBin>  perchBins;
+        std::vector<CrowPerch> perchScratch;
+        if (terrain)
+        {
+            for (const FlockBird& bird : birds)
+            {
+                const int cellX = cellIndex(bird.position.x, kPerchCell);
+                const int cellZ = cellIndex(bird.position.z, kPerchCell);
+                if (findPerchBin(perchBins, cellX, cellZ))
+                    continue;
+                const float qx = (static_cast<float>(cellX) + 0.5f) * kPerchCell;
+                const float qz = (static_cast<float>(cellZ) + 0.5f) * kPerchCell;
+                gatherCrowPerches(*terrain, qx, qz, kPerchGather, perchScratch);
+                PerchBin bin;
+                bin.cellX = cellX;
+                bin.cellZ = cellZ;
+                bin.begin = static_cast<int>(perchStore.size());
+                bin.count = static_cast<int>(perchScratch.size());
+                perchStore.insert(perchStore.end(), perchScratch.begin(), perchScratch.end());
+                perchBins.push_back(bin);
+            }
+        }
 
         AssetRef<Audio::SoundClip> cawClip;
-        if (audio && assets)
-            cawClip = audio->createTone(*assets, 980.0f, 0.16f, 0.35f);
+        std::vector<int>           picked;
+        std::vector<CrowNeighbor>  neighbors;
+        picked.reserve(birds.size());
+        neighbors.reserve(birds.size());
 
         for (int i = 0; i < static_cast<int>(snaps.size()); ++i)
         {
@@ -693,22 +835,36 @@ namespace
                 continue;
             }
 
-            std::vector<CrowNeighbor> neighbors;
-            neighbors.reserve(snaps.size());
-            for (int n = 0; n < static_cast<int>(snaps.size()); ++n)
+            neighbors.clear();
+            const int birdIndex = birdOfSnap[static_cast<size_t>(i)];
+            if (birdIndex >= 0)
             {
-                if (n == i || !snaps[static_cast<size_t>(n)].alive)
-                    continue;
-                const CrowBrain& other = snaps[static_cast<size_t>(n)].brain;
-                CrowNeighbor nb;
-                nb.position = other.position;
-                nb.velocity = other.velocity;
-                nb.flying   = other.state == CrowState::Flock || other.state == CrowState::Flee;
-                neighbors.push_back(nb);
+                collectNeighbors(birds[static_cast<size_t>(birdIndex)], birds, heads, mask, picked);
+                for (int pick : picked)
+                {
+                    const FlockBird& other = birds[static_cast<size_t>(pick)];
+                    CrowNeighbor nb;
+                    nb.position = other.position;
+                    nb.velocity = other.velocity;
+                    nb.flying   = other.flying;
+                    neighbors.push_back(nb);
+                }
+            }
+
+            const CrowPerch* perchPtr = nullptr;
+            int              perchCount = 0;
+            if (birdIndex >= 0)
+            {
+                const PerchBin* bin = findPerchBin(perchBins, cellIndex(snap.brain.position.x, kPerchCell), cellIndex(snap.brain.position.z, kPerchCell));
+                if (bin && bin->count > 0)
+                {
+                    perchPtr   = perchStore.data() + bin->begin;
+                    perchCount = bin->count;
+                }
             }
 
             const bool caw = tickCrow(snap.brain, groundY, dt, neighbors.empty() ? nullptr : neighbors.data(), static_cast<int>(neighbors.size()),
-                threats.empty() ? nullptr : threats.data(), static_cast<int>(threats.size()), perches.empty() ? nullptr : perches.data(), static_cast<int>(perches.size()));
+                threats.empty() ? nullptr : threats.data(), static_cast<int>(threats.size()), perchPtr, perchCount);
 
             if (CrowComponent* crow = world.get<CrowComponent>(snap.entity))
                 crow->brain = snap.brain;
@@ -719,26 +875,38 @@ namespace
             const Math::Vector3f forward{ std::sin(snap.brain.yaw) * cp, sp, std::cos(snap.brain.yaw) * cp };
             xf->rotation = Math::Quaternion::FromLookRotation(forward, Math::Vector3f{ 0.0f, 1.0f, 0.0f });
 
-            if (models && models->ready)
+            // Writing the ID directly skips the pin. Stop Play then unpins an ID the table never recorded.
+            if (models && models->ready && pins && assets)
             {
-                if (ModelComponent* model = world.get<ModelComponent>(snap.entity))
-                    model->modelAssetID = poseModel(*models, snap.brain.wingPose);
+                const AssetID next = poseModel(*models, snap.brain.wingPose);
+                if (ModelComponent* model = world.get<ModelComponent>(snap.entity); model && next != NULL_ASSET && model->modelAssetID != next)
+                {
+                    ModelComponent updated = *model;
+                    updated.modelAssetID   = next;
+                    setModelComponent(world, *pins, *assets, snap.entity, updated);
+                }
             }
-            if (caw && cawClip && audio)
+            if (caw && audio && assets)
             {
-                Audio::PlayDesc desc;
-                desc.volume      = 0.8f;
-                desc.pitch       = 0.82f + static_cast<float>(snap.brain.rng & 7u) * 0.05f;
-                desc.spatial     = true;
-                desc.position    = snap.brain.position;
-                desc.minDistance = 4.0f;
-                desc.maxDistance = 56.0f;
-                audio->play(cawClip, desc);
+                if (!cawClip)
+                    cawClip = audio->createTone(*assets, 980.0f, 0.16f, 0.35f);
+                if (cawClip)
+                {
+                    Audio::PlayDesc desc;
+                    desc.volume      = 0.8f;
+                    desc.pitch       = 0.82f + static_cast<float>(snap.brain.rng & 7u) * 0.05f;
+                    desc.spatial     = true;
+                    desc.position    = snap.brain.position;
+                    desc.minDistance = 4.0f;
+                    desc.maxDistance = 56.0f;
+                    audio->play(cawClip, desc);
+                }
             }
         }
     }
 
-    Entity spawnCrow(World& world, Renderer& renderer, AssetManager& assets, CrowModels& models, const Terrain::TerrainGrid* terrain, Entity spawner, const SpawnerRequest& req, float groundY, float homeX, float homeZ)
+    Entity spawnCrow(World& world, Renderer& renderer, AssetManager& assets, AssetPinTable& pins, CrowModels& models,
+        const Terrain::TerrainGrid* terrain, Entity spawner, const SpawnerRequest& req, float groundY, float homeX, float homeZ)
     {
         if (!ensureCrowModels(renderer, assets, models))
         {
@@ -754,8 +922,8 @@ namespace
         world.emplace<TagComponent>(e, "Crow");
 
         CrowComponent crow;
-        initCrow(crow.brain, req.x, req.z, groundY, homeX, homeZ, req.slot + 1u, req.slot, perches.empty() ? nullptr : perches.data(), static_cast<int>(perches.size()));
-        // The spawner seed is not on the request. Fold the slot so a flock does not share one velocity.
+        const uint32_t seed = req.seed == 0u ? 1u : req.seed;
+        initCrow(crow.brain, req.x, req.z, groundY, homeX, homeZ, seed, req.slot, perches.empty() ? nullptr : perches.data(), static_cast<int>(perches.size()));
         world.emplace<CrowComponent>(e, crow);
 
         TransformComponent xf;
@@ -772,7 +940,7 @@ namespace
         model.modelAssetID = poseModel(models, crow.brain.wingPose);
         model.castShadow   = true;
         model.visible      = true;
-        world.emplace<ModelComponent>(e, model);
+        setModelComponent(world, pins, assets, e, model);
 
         HealthSettings settings;
         settings.maxHp       = 12.0f;
