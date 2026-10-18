@@ -7,6 +7,7 @@
 #include "Character/SkillXp.h"
 #include "Assets/AssetManager.h"
 #include "Character/SkillXp.h"
+#include "Collision/StaticCollision.h"
 #include "Collision/SweptCollision.h"
 #include "Combat/CombatSystem.h"
 #include "Combat/JumpAttackComponent.h"
@@ -103,6 +104,23 @@ namespace Dark
                 return f;
             }
             return Vector3f{ Vect3f::Z_AXIS };
+        }
+
+        bool sightBlocked(const Vector3f& eye, const Vector3f& target, const Math::AABox3f* cubes, int cubeCount)
+        {
+            Vector3f    dir  = target - eye;
+            const float dist = dir.Magnitude();
+            if (!cubes || cubeCount <= 0 || dist < 1.0e-3f)
+                return false;
+            dir *= (1.0f / dist);
+            const Math::Ray3f ray{ eye, dir };
+            for (int i = 0; i < cubeCount; ++i)
+            {
+                const Collision::RayHit3D hit = Collision::Intersect(ray, cubes[i]);
+                if (hit.hit && hit.t > 0.0f && hit.t < dist)
+                    return true;
+            }
+            return false;
         }
 
         void sweepSolids(Vector3f& position, const Vector3f& before, const Math::AABox3f* cubes, int cubeCount, const Math::Sphere3f* spheres, int sphereCount)
@@ -420,6 +438,7 @@ namespace Dark
             v.ai->hasLastSeen = false;
             v.ai->stalk       = AI::WolfStalk::Inactive;
             v.ai->stalkLeft   = 0.0f;
+            v.ai->aware       = {};
             v.ai->forward     = Vect3f::Z_AXIS;
             v.brain->brain->start();
             DE_LOG_INFO(LogCategory::AI, "Hunter recovered");
@@ -485,6 +504,166 @@ namespace Dark
             remain -= step;
         }
         v.xf->position.y = terrain.heightAtWorld(v.xf->position.x, v.xf->position.z) + 1.0f;
+    }
+
+    void AiSystem::guardMove(World& world, View& v, float dt, Terrain::TerrainGrid& terrain, float speed, const char* stepCue)
+    {
+        AI::AwarenessState& aw     = v.ai->aware;
+        const Vector3f      before = v.xf->position;
+
+        auto turnTo = [&](const Vector3f& dir, float rate) {
+            Vector3f d{ dir.x, 0.0f, dir.z };
+            if (d.MagnitudeSqrd() < 1.0e-6f)
+                return;
+            d.Normalize();
+            const float yaw  = std::atan2(v.ai->forward.x, v.ai->forward.z);
+            const float want = std::atan2(d.x, d.z);
+            const float step = Math::Clamp(Math::WrapPi(want - yaw), -rate * dt, rate * dt);
+            v.ai->forward    = Vector3f{ std::sin(yaw + step), 0.0f, std::cos(yaw + step) };
+        };
+        auto hash = [&](float salt) {
+            const float x = std::sin(static_cast<float>(v.e.id()) * 12.9898f + salt * 78.233f) * 43758.5453f;
+            return x - std::floor(x);
+        };
+        auto lookAround = [&]() {
+            v.ai->glanceLeft -= dt;
+            if (v.ai->glanceLeft <= 0.0f)
+            {
+                const float base  = std::atan2(v.ai->forward.x, v.ai->forward.z);
+                const float swing = (0.6f + 0.8f * hash(m_time)) * (hash(m_time + 3.1f) < 0.5f ? -1.0f : 1.0f);
+                v.ai->holdYaw     = base + swing;
+                v.ai->glanceLeft  = 1.2f + hash(m_time + 7.7f);
+            }
+            turnTo(Vector3f{ std::sin(v.ai->holdYaw), 0.0f, std::cos(v.ai->holdYaw) }, 1.6f);
+        };
+        auto faceCue = [&](float rate) {
+            const Vector3f toCue = aw.noticePos - v.xf->position;
+            turnTo(toCue, rate);
+            if (v.ai->reactLeft > -0.5f && flattenDir(v.ai->forward, toCue).Dot(flattenDir(toCue, v.ai->forward)) > 0.94f)
+            {
+                v.ai->boostLeft = 0.6f;
+                v.ai->reactLeft = -1.0f;
+            }
+        };
+        if (v.ai->boostLeft > 0.0f)
+            v.ai->boostLeft -= dt;
+        auto walkTo = [&](const Vector3f& goal, float pace) {
+            const float dx = goal.x - v.xf->position.x;
+            const float dz = goal.z - v.xf->position.z;
+            if (dx * dx + dz * dz < 1.0f)
+                return true;
+            const float gx = goal.x - v.ai->wanderDest.x;
+            const float gz = goal.z - v.ai->wanderDest.z;
+            const bool  done = v.path->path.points.empty() || v.path->waypoint >= static_cast<int>(v.path->path.points.size());
+            if (done || m_time >= v.path->repathAt || gx * gx + gz * gz > 0.25f)
+            {
+                v.ai->wanderDest = Vector3f{ goal.x, 0.0f, goal.z };
+                repath(world, v, goal.x, goal.z);
+            }
+            const Vector3f from = v.xf->position;
+            follow(v, dt, terrain, speed * pace);
+            if (!m_walk.valid() && (v.xf->position - from).MagnitudeSqrd() < 1.0e-10f)
+                seekToward(v, dt, terrain, speed * pace, goal.x, goal.z);
+            Vector3f moved{ v.xf->position.x - from.x, 0.0f, v.xf->position.z - from.z };
+            if (moved.MagnitudeSqrd() < 1.0e-10f)
+            {
+                v.ai->stuckFor += dt;
+                if (v.ai->stuckFor > 1.5f)
+                {
+                    v.ai->stuckFor = 0.0f;
+                    return true;
+                }
+            }
+            else
+            {
+                v.ai->stuckFor = 0.0f;
+                turnTo(moved, 3.5f);
+            }
+            return false;
+        };
+
+        switch (aw.alertness)
+        {
+        case AI::Alertness::Calm:
+        {
+            if (aw.meter >= 0.15f)
+            {
+                if (!v.ai->reacting)
+                {
+                    v.ai->reacting  = true;
+                    v.ai->reactLeft = 0.2f;
+                }
+                if (v.ai->reactLeft > 0.0f)
+                    v.ai->reactLeft -= dt;
+                else
+                    faceCue(4.2f);
+                break;
+            }
+            v.ai->reacting = false;
+            PatrolComponent* patrol = world.get<PatrolComponent>(v.e);
+            if (!patrol || patrol->points.empty())
+            {
+                lookAround();
+                break;
+            }
+            if (patrol->waitLeft > 0.0f)
+            {
+                patrol->waitLeft -= dt;
+                lookAround();
+                if (patrol->waitLeft <= 0.0f)
+                    patrol->next = (patrol->next + 1) % static_cast<int>(patrol->points.size());
+            }
+            else if (walkTo(patrol->points[static_cast<size_t>(patrol->next)], 0.32f + 0.08f * hash(1.0f)))
+                patrol->waitLeft = 1.5f + 3.0f * hash(static_cast<float>(patrol->next) + m_time * 0.37f);
+            break;
+        }
+        case AI::Alertness::Suspicious:
+            faceCue(3.0f);
+            break;
+        case AI::Alertness::Investigating:
+            if (walkTo(aw.noticePos, 0.45f))
+                lookAround();
+            break;
+        case AI::Alertness::Alert:
+            if (walkTo(aw.noticePos, 1.0f))
+                lookAround();
+            break;
+        case AI::Alertness::Searching:
+            if ((v.ai->searchDest - aw.noticePos).MagnitudeSqrd() > 64.0f)
+                v.ai->searchDest = aw.noticePos;
+            if (v.ai->lookLeft > 0.0f)
+            {
+                v.ai->lookLeft -= dt;
+                lookAround();
+            }
+            else if (walkTo(v.ai->searchDest, 0.6f))
+            {
+                v.ai->lookLeft = 1.5f;
+                for (int tries = 0; tries < 8; ++tries)
+                {
+                    const float a = std::fmod(m_time * 2.39f + static_cast<float>(tries) * 1.7f, 6.2831853f);
+                    const float r = 2.0f + std::fmod(m_time * 3.1f + static_cast<float>(tries), 3.5f);
+                    const Vector3f p{ aw.noticePos.x + std::sin(a) * r, 0.0f, aw.noticePos.z + std::cos(a) * r };
+                    if (m_walk.valid() && !m_walk.walkableWorld(p.x, p.z))
+                        continue;
+                    v.ai->searchDest = p;
+                    break;
+                }
+            }
+            break;
+        }
+
+        const float traveled  = Vector3f{ v.xf->position.x - before.x, 0.0f, v.xf->position.z - before.z }.Magnitude();
+        const float stepSpeed = traveled / Math::Max(dt, 1.0e-4f);
+        if (stepSpeed > 0.8f && m_hunterCueFn)
+        {
+            v.ai->footstepAcc += dt * stepSpeed * 0.5f;
+            if (v.ai->footstepAcc >= 1.0f)
+            {
+                v.ai->footstepAcc = 0.0f;
+                m_hunterCueFn(m_hunterCueUser, v.e, stepCue);
+            }
+        }
     }
 
     void AiSystem::seekToward(View& v, float dt, Terrain::TerrainGrid& terrain, float speed, float destX, float destZ)
@@ -1101,7 +1280,8 @@ namespace Dark
             const float distSq   = dx * dx + dz * dz;
             const float standoffR = m_prey.standoff > 0.0f ? m_prey.standoff : kStandoff;
             const bool  standoff = distSq <= standoffR * standoffR;
-            const float sightScale = m_prey.sightRangeScale > 0.0f ? m_prey.sightRangeScale : 1.0f;
+            const bool  guard      = m_awarenessOn && !entityIsWolf(world, e);
+            const float sightScale = guard ? 1.0f : (m_prey.sightRangeScale > 0.0f ? m_prey.sightRangeScale : 1.0f);
             const NpcSenseScales scales = npcSenseScales(v.skill);
             const SenseQuery sight = scaleNpcSight(authoredSight(v.sight), sightScale, scales.seeRange, scales.seeCone);
 
@@ -1110,7 +1290,7 @@ namespace Dark
             q.forward   = v.ai->forward;
             q.target    = Vector3f{ playerPos.x, playerPos.y + m_prey.targetHeight, playerPos.z };
             q.coneDeg   = sight.coneDeg;
-            q.range     = sight.range;
+            q.range     = guard ? m_aware.maxRange : sight.range;
             q.heightMap = m_walk.heightMap();
             if ((!q.heightMap || !q.heightMap->valid()) && terrain.coarse().valid())
                 q.heightMap = &terrain.coarse();
@@ -1130,13 +1310,88 @@ namespace Dark
                         sees = true;
                 }
             }
-            const float hearRadius = scaleHearRange(m_prey.hearRange, scales.hear);
+            const bool walled = sightBlocked(q.eye, q.target, cubes, cubeCount);
+            if (sees && walled)
+                sees = false;
+            const float hearRadius = scaleHearRange(m_prey.hearRange, scales.hear) * (walled ? 0.5f : 1.0f);
             const bool hears = !playerInWater && playerAlive && hearRadius > 0.0f && distSq <= hearRadius * hearRadius;
+            if (guard)
+            {
+                const Vector3f to{ playerPos.x - v.xf->position.x, 0.0f, playerPos.z - v.xf->position.z };
+                const float    dist    = to.Magnitude();
+                const float    facing  = dist > 1.0e-3f ? flattenDir(v.ai->forward, to).Dot(to * (1.0f / dist)) : 1.0f;
+                const float    kRad    = 3.14159265f / 180.0f;
+                const bool     focus   = facing >= std::cos(m_aware.focusHalfDeg * kRad);
+                const bool     side    = !focus && facing >= std::cos(m_aware.sideHalfDeg * kRad) && dist <= m_aware.sideRange;
+                const bool     present = playerAlive && !playerInWater;
+
+                float bodyShown = 0.0f;
+                if (present && (focus || side) && dist <= m_aware.maxRange)
+                {
+                    AI::SightQuery los = q;
+                    los.coneDeg        = 359.0f;
+                    const bool  crouched   = m_prey.targetHeight < 0.4f;
+                    const float heights[3] = { crouched ? 0.3f : 0.75f, crouched ? 0.1f : 0.45f, crouched ? -0.25f : -0.2f };
+                    const float weights[3] = { 0.4f, 0.4f, 0.2f };
+                    for (int k = 0; k < 3; ++k)
+                    {
+                        const Vector3f point{ playerPos.x, playerPos.y + heights[k], playerPos.z };
+                        los.target = point;
+                        if ((los.heightMap && los.heightMap->valid() && !AI::sees(los)) || sightBlocked(q.eye, point, cubes, cubeCount))
+                            continue;
+                        float shown = 1.0f;
+                        if (!m_conceal.empty() && sightBlocked(q.eye, point, m_conceal.data(), static_cast<int>(m_conceal.size())))
+                            shown = 0.15f;
+                        bodyShown += weights[k] * shown;
+                    }
+                }
+
+                float    noise = 0.0f;
+                Vector3f noisePos{};
+                for (const Noise& n : m_noises)
+                {
+                    const float range = n.range * (sightBlocked(q.eye, Vector3f{ n.pos.x, n.pos.y + 0.3f, n.pos.z }, cubes, cubeCount) ? 0.5f : 1.0f);
+                    const float d     = Vector3f{ n.pos.x - v.xf->position.x, 0.0f, n.pos.z - v.xf->position.z }.Magnitude();
+                    if (range <= 0.0f || d >= range)
+                        continue;
+                    const float impulse = 0.3f + 0.5f * (1.0f - d / range);
+                    if (impulse > noise)
+                    {
+                        noise    = impulse;
+                        noisePos = n.pos;
+                    }
+                }
+
+                AI::AwarenessInput in{};
+                in.sees      = bodyShown >= 0.05f;
+                in.primary   = focus;
+                in.distance  = dist;
+                in.bodyShown = bodyShown;
+                in.exposure  = Math::Clamp(bodyShown * m_playerExposure, 0.0f, 1.0f);
+                in.motion    = m_playerMotion;
+                in.nearby      = present && dist < m_aware.proximityRange && std::fabs(playerPos.y - v.xf->position.y) < 1.5f && !walled;
+                in.looking   = v.ai->boostLeft > 0.0f;
+                in.noise     = noise;
+                in.noisePos  = noisePos;
+                in.playerPos = playerPos;
+                if (AI::stepAwareness(v.ai->aware, m_aware, in, dt))
+                {
+                    for (Entity other : m_scratch)
+                    {
+                        AiAgentComponent*         oai = other.id() != e.id() ? world.get<AiAgentComponent>(other) : nullptr;
+                        const TransformComponent* oxf = oai ? world.get<TransformComponent>(other) : nullptr;
+                        if (!oxf || entityIsWolf(world, other) || (oxf->position - v.xf->position).MagnitudeSqrd() > 12.0f * 12.0f)
+                            continue;
+                        AI::alertToInvestigate(oai->aware, playerPos);
+                    }
+                }
+                sees = v.ai->aware.alertness == AI::Alertness::Alert && v.ai->aware.seesNow;
+            }
             // Chase `sees` still includes standoff and the flat fallback. See XP does not.
             const bool geometricSees = playerAlive && !playerInWater && q.heightMap && q.heightMap->valid() && AI::sees(q);
             if (v.skill)
                 noteNpcSenseXp(*v.skill, geometricSees, hears, dt);
-            if (hears)
+            if (hears && !guard)
                 sees = true;
             if (sees)
             {
@@ -1162,7 +1417,7 @@ namespace Dark
                 }
             }
 
-            if (v.brain->brain->leaf() != AI::Leaf::Flee && v.brain->brain->leaf() != AI::Leaf::Chase)
+            if (!guard && v.brain->brain->leaf() != AI::Leaf::Flee && v.brain->brain->leaf() != AI::Leaf::Chase)
             {
                 const float allyR2 = m_pack.assistAllyRadius * m_pack.assistAllyRadius;
                 for (Entity other : m_scratch)
@@ -1171,6 +1426,8 @@ namespace Dark
                         continue;
                     View ov{};
                     if (!bind(world, other, ov) || !ov.health->health.alive())
+                        continue;
+                    if (guard && ov.ai->aware.alertness != AI::Alertness::Alert)
                         continue;
                     const float adx = ov.xf->position.x - playerPos.x;
                     const float adz = ov.xf->position.z - playerPos.z;
@@ -1195,7 +1452,7 @@ namespace Dark
                 continue;
             }
 
-            if (standoff)
+            if (standoff && !guard)
             {
                 Vector3f to{ -dx, 0.0f, -dz };
                 if (to.MagnitudeSqrd() > 1.0e-6f)
@@ -1358,6 +1615,13 @@ namespace Dark
             const float speed  = ((sprint || lunging) ? run : walk) * (stCc ? stCc->moveSpeedScale() : 1.0f) * ground.moveSpeed * runS;
             const float currentPlanar = std::sqrt(v.ai->planarVelocity.x * v.ai->planarVelocity.x + v.ai->planarVelocity.z * v.ai->planarVelocity.z);
             const float paced = approachSpeed(currentPlanar, speed, accel, dt);
+            if (guard && leaf != AI::Leaf::Chase && leaf != AI::Leaf::Assist && leaf != AI::Leaf::Flee)
+            {
+                guardMove(world, v, dt, terrain, speed, (ground.cue && ground.cue[0]) ? ground.cue : "step");
+                stampPlanarVelocity();
+                continue;
+            }
+
             if (duelist && !lunging)
             {
                 Vector3f away{ v.xf->position.x - playerPos.x, 0.0f, v.xf->position.z - playerPos.z };
@@ -1489,6 +1753,7 @@ namespace Dark
                 v.ai->footstepAcc = 0.0f;
             stampPlanarVelocity();
         }
+        m_noises.clear();
     }
 
     bool AiSystem::applyHunterDamage(World& world, Entity e, float amount)
@@ -1518,6 +1783,25 @@ namespace Dark
             DE_LOG_INFO(LogCategory::AI, "Hunter down");
         }
         return hp->health.hp() < before;
+    }
+
+    void AiSystem::forceAlert(World& world, Entity e, const Vector3f& attackerPos)
+    {
+        AiAgentComponent*         ai = world.get<AiAgentComponent>(e);
+        const TransformComponent* xf = world.get<TransformComponent>(e);
+        if (!ai || !xf || entityIsWolf(world, e))
+            return;
+        const bool already = ai->aware.alertness == AI::Alertness::Alert;
+        AI::forceAlert(ai->aware, attackerPos);
+        if (already)
+            return;
+        for (Entity other : m_scratch)
+        {
+            AiAgentComponent*         oai = other.id() != e.id() ? world.get<AiAgentComponent>(other) : nullptr;
+            const TransformComponent* oxf = oai ? world.get<TransformComponent>(other) : nullptr;
+            if (oxf && !entityIsWolf(world, other) && (oxf->position - xf->position).MagnitudeSqrd() <= 12.0f * 12.0f)
+                AI::alertToInvestigate(oai->aware, attackerPos);
+        }
     }
 
     AiSystem::MeleeResponse AiSystem::respondToMelee(World& world, Entity e, const Vector3f& attackerPos)

@@ -3,6 +3,7 @@
 #include "Play/CharacterAttach.h"
 #include "Play/ContactGrind.h"
 #include "Play/HunterTick.h"
+#include "Play/PhysicsGround.h"
 #include "Play/PlayLook.h"
 #include "Play/PlayMotor.h"
 #include "Play/ShoulderCamera.h"
@@ -728,6 +729,8 @@ void EditorApp::updatePlay(float dt)
     ground.heightAt = [](void* user, float x, float z) {
         return static_cast<const EditorApp*>(user)->playGroundHeight(x, z);
     };
+    const PlayWallProbe walls{ &m_physics, m_playGroundIgnore, m_physicsGround };
+    bindWallProbe(ground, walls);
 
     const Vector3f before = xf->position;
     PlayerMotorResult motorOut{};
@@ -757,7 +760,7 @@ void EditorApp::updatePlay(float dt)
     Physics::syncFoliageCollision(m_physics, m_foliageCollision, m_terrain, &m_foliage, xf->position.x, xf->position.z);
 
     Vector3f delta{ xf->position.x - before.x, 0.0f, xf->position.z - before.z };
-    if (delta.MagnitudeSqrd() > 1.0e-10f)
+    if (delta.MagnitudeSqrd() > 1.0e-10f && !motorOut.climbed)
     {
         auto livePhysics = [&](Entity solid) {
             const PhysicsBodyComponent* body = world().get<PhysicsBodyComponent>(solid);

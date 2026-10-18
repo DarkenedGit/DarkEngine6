@@ -20,6 +20,7 @@
 #include "Input/InputCodes.h"
 #include "Scene/EntityInput.h"
 #include "Collision/Collision.h"
+#include "Collision/StaticCollision.h"
 #include "Math/MathHelper.h"
 #include "Math/Matrix4f.h"
 #include "Math/Quaternion.h"
@@ -210,6 +211,57 @@ void fillMeshGBufferXforms(MeshGBufferConstants& cb, const Matrix4f& world, cons
 Math::Matrix4f makeWorldMatrix(const TransformComponent& xf)
 {
     return worldMatrix(xf);
+}
+
+MeshData makeGrassPatch(float sizeX, float sizeZ, uint32_t seed)
+{
+    MeshData m;
+    uint32_t h   = seed * 2654435761u + 1u;
+    auto     rnd = [&]() {
+        h ^= h << 13;
+        h ^= h >> 17;
+        h ^= h << 5;
+        return static_cast<float>(h & 0xFFFFFFu) / static_cast<float>(0xFFFFFFu);
+    };
+    auto tri = [&](const Vector3f& a, const Vector3f& b, const Vector3f& c) {
+        Vector3f n = (b - a).Cross(c - a);
+        if (n.MagnitudeSqrd() > 1.0e-12f)
+            n.Normalize();
+        for (const Vector3f& p : { a, b, c })
+        {
+            m.indices.push_back(static_cast<uint32_t>(m.positions.size()));
+            m.positions.push_back(p);
+            m.normals.push_back(n);
+            m.uvs.emplace_back(0.0f, p.y);
+        }
+    };
+    const int blades = static_cast<int>(sizeX * sizeZ * 16.0f);
+    for (int i = 0; i < blades; ++i)
+    {
+        const float    x     = (rnd() - 0.5f) * sizeX;
+        const float    z     = (rnd() - 0.5f) * sizeZ;
+        const float    yaw   = rnd() * 6.2831853f;
+        const float    width = 0.05f + 0.04f * rnd();
+        const float    tall  = 0.75f + 0.45f * rnd();
+        const float    lean  = (rnd() - 0.5f) * 0.4f;
+        const Vector3f side{ std::cosf(yaw) * width, 0.0f, -std::sinf(yaw) * width };
+        const Vector3f base{ x, 0.0f, z };
+        const Vector3f tip{ x + std::sinf(yaw) * lean, tall, z + std::cosf(yaw) * lean };
+        tri(base - side, base + side, tip);
+        tri(base + side, base - side, tip);
+    }
+    return m;
+}
+
+std::string sceneFileArg()
+{
+    const std::string cmd = ::GetCommandLineA();
+    const size_t      at  = cmd.find("-scene:");
+    if (at == std::string::npos)
+        return "level.json";
+    const size_t start = at + 7;
+    const size_t end   = cmd.find(' ', start);
+    return cmd.substr(start, end == std::string::npos ? std::string::npos : end - start);
 }
 
 AssetID loadSandboxClip(Audio::AudioSystem& audio, AssetManager& assets, const char* path, float freq, float dur, float amp)
@@ -796,6 +848,8 @@ void SandboxApp::updateCharacterAnims(float dt)
             ag->graph.setFloat("strafe", aim.strafe);
             ag->graph.setBool("backward", aim.backward);
             ag->graph.setBool("crouch", crouched);
+            ag->graph.setBool("climb", motor && motor->state() == PlayerMoveState::WallRun);
+            ag->graph.setBool("hang", motor && motor->state() == PlayerMoveState::Hang);
             m_lowerBodyYaw = approachAngle(m_lowerBodyYaw, aim.lowerYaw, 10.0f, dt);
             ag->graph.player().setLowerBodyYaw(m_lowerBodyYaw);
             ag->graph.player().setChargeWindup(m_chargeWindup.attack, m_chargeWindup.block, m_chargeWindup.blockStrike);
@@ -879,6 +933,59 @@ WeaponLoadout* SandboxApp::localWeapons()
     const Entity body = possessedBody();
     WeaponLoadoutComponent* wlc = body.valid() ? world().get<WeaponLoadoutComponent>(body) : nullptr;
     return (wlc && wlc->loadout) ? wlc->loadout.get() : nullptr;
+}
+
+float SandboxApp::playerLightLevel()
+{
+    const Entity              body = possessedBody();
+    const TransformComponent* xf   = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    if (!xf)
+        return 1.0f;
+    const Vector3f chest{ xf->position.x, xf->position.y + 0.45f, xf->position.z };
+
+    float    sun   = Math::Clamp((m_env.sunElevation() + 0.05f) * 3.0f, 0.0f, 1.0f);
+    Vector3f toSun = m_env.sunDir();
+    if (sun > 0.0f && toSun.MagnitudeSqrd() > 1.0e-6f)
+    {
+        toSun.Normalize();
+        const Ray3f ray{ chest, toSun };
+        for (const AABox3f& box : m_chase.cubes())
+        {
+            const Collision::RayHit3D hit = Collision::Intersect(ray, box);
+            if (hit.hit && hit.t > 0.0f && hit.t < 80.0f)
+            {
+                sun *= 0.3f;
+                break;
+            }
+        }
+    }
+
+    float lamps = 0.0f;
+    world().each<LocalLightComponent>([&](Entity e, LocalLightComponent& light) {
+        if (!light.enabled || e == m_muzzle)
+            return;
+        if (e == m_flashlight)
+        {
+            lamps += 0.35f;
+            return;
+        }
+        const TransformComponent* lxf = world().get<TransformComponent>(e);
+        if (!lxf || light.range <= 0.0f)
+            return;
+        Vector3f    to   = chest - lxf->position;
+        const float dist = to.Magnitude();
+        if (dist >= light.range)
+            return;
+        if (light.type == LocalLightType::Spot && dist > 1.0e-3f)
+        {
+            const Vector3f fwd = lxf->rotation.Rotate(Vector3f::Z_AXIS);
+            if (fwd.Dot(to * (1.0f / dist)) < std::cosf(light.outerConeDeg * 0.0174533f))
+                return;
+        }
+        const float f = 1.0f - dist / light.range;
+        lamps += f * f;
+    });
+    return Math::Clamp(0.12f + 0.88f * sun + lamps, 0.0f, 1.0f);
 }
 
 bool SandboxApp::boneWorldPos(Entity e, const char* bone, Vector3f& out)
@@ -1058,6 +1165,8 @@ void SandboxApp::updatePossessed(float dt)
     ground.heightAt = [](void* user, float x, float z) -> float {
         return static_cast<const SandboxApp*>(user)->playerGroundHeight(x, z);
     };
+    const PlayWallProbe walls{ &m_physics, m_groundIgnore, m_physicsGround };
+    bindWallProbe(ground, walls);
 
     const Vector3f before = xf->position;
     PlayerMotorResult motorOut{};
@@ -1098,7 +1207,7 @@ void SandboxApp::updatePossessed(float dt)
     Physics::syncFoliageCollision(m_physics, m_foliageCollision, m_terrain, m_foliage.empty() ? nullptr : &m_foliage, xf->position.x, xf->position.z);
 
     Vector3f delta{ xf->position.x - before.x, 0.0f, xf->position.z - before.z };
-    if (delta.MagnitudeSqrd() > 1.0e-10f)
+    if (delta.MagnitudeSqrd() > 1.0e-10f && !motorOut.climbed)
     {
         Sphere3f ball{ Vector3f{ before.x, xf->position.y, before.z }, kPlayBodyRadius };
         float    bestT = 1.0f;
@@ -1127,7 +1236,10 @@ void SandboxApp::updatePossessed(float dt)
         noteMotorXp(*skills, sample);
     }
     if (motor && motor->state() == PlayerMoveState::Grounded)
+    {
+        m_groundProbeY = Math::Max(m_groundProbeY, xf->position.y);
         xf->position.y = playerGroundHeight(xf->position.x, xf->position.z) + motor->settings().groundOffset;
+    }
 
     m_playerWet = motor && motor->state() == PlayerMoveState::Swimming;
 
@@ -1542,6 +1654,7 @@ void SandboxApp::onWeaponHit(const WeaponHit& hit)
             return;
         const TransformComponent* playerXf = possessedBody().valid() ? world().get<TransformComponent>(possessedBody()) : nullptr;
         const Vector3f            playerPos = playerXf ? playerXf->position : Vector3f{};
+        m_chase.ai().forceAlert(world(), victim, playerPos);
         using MeleeResponse          = AiSystem::MeleeResponse;
         const bool          melee    = hit.weapon == WeaponKind::Melee;
         const MeleeResponse response = melee ? m_chase.ai().respondToMelee(world(), victim, playerPos) : MeleeResponse::Stagger;
@@ -2257,6 +2370,12 @@ void SandboxApp::spawnHybridLocalLights()
         { 14.0f, 0.0f, -7.2f },
         { 5.2f, 0.0f, -18.0f },
     };
+    if (!m_demoScene)
+    {
+        m_offhand.lightOn = false;
+        DE_LOG_INFO("SandboxApp: flashlight off, no demo lanterns in this scene");
+        return;
+    }
     const float waterY = m_water.params().waterLevel;
     int         spawned = 0;
     bool        firstLantern = true;
@@ -2869,6 +2988,8 @@ void SandboxApp::onInit()
         DE_LOG_INFO(LogCategory::Render, "SandboxApp: IBL off — using ambient");
 
     std::vector<SceneObjectData> scenePawns;
+    std::vector<SceneObjectData> sceneBoxes;
+    std::vector<SceneObjectData> sceneLights;
     {
         auto sidecar = [](const std::filesystem::path& scenePath, const std::string& file) {
             if (file.empty())
@@ -2887,7 +3008,7 @@ void SandboxApp::onInit()
         SceneFileData sceneData{};
         {
             std::string   err;
-            const std::filesystem::path scenePath = defaultScenePath("level.json");
+            const std::filesystem::path scenePath = defaultScenePath(sceneFileArg());
             if (!loadSceneFromJson(scenePath, sceneData, &err))
                 DE_LOG_ERROR(LogCategory::Render, "SandboxApp: scene load failed ({}) — {}", scenePath.string(), err);
             else
@@ -3114,6 +3235,12 @@ void SandboxApp::onInit()
         {
             if (o.type == SceneObjectType::Hunter || o.type == SceneObjectType::Wolf)
                 scenePawns.push_back(o);
+            if (o.type == SceneObjectType::Cube)
+                sceneBoxes.push_back(o);
+            if (o.type == SceneObjectType::PointLight || o.type == SceneObjectType::SpotLight)
+                sceneLights.push_back(o);
+            if (o.type == SceneObjectType::Player)
+                m_chase.setPlayerStart(o.position);
             if (o.type != SceneObjectType::CloudVolume)
                 continue;
             CloudVolumeDesc desc{};
@@ -3218,7 +3345,15 @@ void SandboxApp::onInit()
         const LocalShadowSystem::CpuSrvs localSrvs = m_scene.localShadows().cpuSrvs();
         renderer().setLocalShadowSrvs(localSrvs.arraySrv, localSrvs.recordsSrv);
     }
-    spawnGltfDemo();
+    m_demoScene = sceneFileArg() == "level.json";
+    if (!m_demoScene)
+        m_npcInfo.enabled = false;
+    m_stealth.hearStand      = 0.0f;
+    m_stealth.hearWalk       = 6.0f;
+    m_stealth.hearSprint     = 16.0f;
+    m_stealth.hearCrouchWalk = 2.5f;
+    if (m_demoScene)
+        spawnGltfDemo();
 
     const float aspect = (renderer().height() > 0) ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height()) : 1.0f;
     m_viewCamera.SetLens(/*fovY*/ 1.04719755f /*60deg*/, aspect, 0.05f, 1.0e5f);
@@ -3264,12 +3399,81 @@ void SandboxApp::onInit()
 
     createPhysicsWorld();
 
+    std::vector<AABox3f> grass;
+    for (const SceneObjectData& o : sceneBoxes)
+    {
+        const AABox3f bounds = AABox3f::FromCenterExtents(o.position, o.scale * 0.5f);
+        if (o.goal)
+            m_goalBox = bounds;
+        if (o.conceal)
+            grass.push_back(bounds);
+        else if (o.scale.y >= 0.3f && !o.goal)
+            m_chase.addObstacle(bounds);
+    }
     m_chaseOk = m_chase.init(renderer(), m_terrain, m_water, world(), pins(), assets());
+    m_chase.ai().setConcealVolumes(grass);
+    uint32_t patchSeed = 1;
+    for (const SceneObjectData& o : sceneBoxes)
+    {
+        if (!o.conceal)
+            continue;
+        const uint8_t     r   = static_cast<uint8_t>(Math::Clamp(o.color[0], 0.0f, 1.0f) * 255.0f);
+        const uint8_t     g   = static_cast<uint8_t>(Math::Clamp(o.color[1], 0.0f, 1.0f) * 255.0f);
+        const uint8_t     b   = static_cast<uint8_t>(Math::Clamp(o.color[2], 0.0f, 1.0f) * 255.0f);
+        const std::string key = std::format("runtime:/scene/grass-{}", patchSeed);
+        AssetRef<Model>   patch = internAndUploadProceduralModel(renderer(), assets(), makeGrassPatch(o.scale.x, o.scale.z, patchSeed++),
+                                                               internSolidMaterial(assets(), r, g, b, 255, "runtime:/scene/grass-mat"), key);
+        if (!patch)
+            continue;
+        const Entity e = world().createEntity();
+        world().emplace<TransformComponent>(e, Vector3f{ o.position.x, m_terrain.heightAtWorld(o.position.x, o.position.z), o.position.z }, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
+        ModelComponent mc{};
+        mc.modelAssetID = patch->id;
+        mc.castShadow   = true;
+        setModelComponent(world(), pins(), assets(), e, mc);
+    }
+    for (const SceneObjectData& o : sceneLights)
+    {
+        const Entity e = world().createEntity();
+        world().emplace<TagComponent>(e, "SceneLight");
+        world().emplace<TransformComponent>(e, o.position, o.rotation, Vector3f{ 1.0f, 1.0f, 1.0f });
+        auto& light        = world().emplace<LocalLightComponent>(e);
+        light.type         = o.type == SceneObjectType::SpotLight ? LocalLightType::Spot : LocalLightType::Point;
+        light.color        = Vector3f{ o.color[0], o.color[1], o.color[2] };
+        light.intensity    = o.lightIntensity;
+        light.range        = o.lightRange;
+        light.innerConeDeg = o.lightInnerDeg;
+        light.outerConeDeg = o.lightOuterDeg;
+        light.enabled      = o.lightEnabled;
+        light.castShadow   = o.lightCastShadow;
+    }
+    for (const SceneObjectData& o : sceneBoxes)
+    {
+        if (o.conceal)
+            continue;
+        const uint8_t r = static_cast<uint8_t>(Math::Clamp(o.color[0], 0.0f, 1.0f) * 255.0f);
+        const uint8_t g = static_cast<uint8_t>(Math::Clamp(o.color[1], 0.0f, 1.0f) * 255.0f);
+        const uint8_t b = static_cast<uint8_t>(Math::Clamp(o.color[2], 0.0f, 1.0f) * 255.0f);
+        const std::string key = std::format("runtime:/scene/box-{:02x}{:02x}{:02x}", r, g, b);
+        MeshData          mesh;
+        if (!CreateCube(mesh, 1.0f))
+            continue;
+        AssetRef<Model> box = internAndUploadProceduralModel(renderer(), assets(), std::move(mesh), internSolidMaterial(assets(), r, g, b, 255, key + "-mat"), key);
+        if (!box)
+            continue;
+        const Entity e = world().createEntity();
+        world().emplace<TransformComponent>(e, o.position, o.rotation, o.scale);
+        ModelComponent mc{};
+        mc.modelAssetID = box->id;
+        mc.castShadow   = true;
+        setModelComponent(world(), pins(), assets(), e, mc);
+    }
     if (!m_chaseOk)
         DE_LOG_ERROR(LogCategory::AI, "SandboxApp: path chase init failed");
     else
     {
         addChaseObstaclesToPhysics();
+        m_chase.ai().setAwarenessEnabled(true);
         HitReactionSettings hunterHit = m_chase.ai().hunterHitReaction();
         hunterHit.stunSeconds       = 0.45f;
         hunterHit.knockbackDistance = 0.6f;
@@ -3329,6 +3533,13 @@ void SandboxApp::onInit()
             attachNpcVisual(host, hunter, wolf ? NpcKind::Wolf : NpcKind::Hunter, ModelAttach::AnimatedOnly);
             const int stamp = wolf ? wolfStamp++ : hunterStamp++;
             stampProceduralId(world(), hunter, std::format("sandbox/level/{}/{}", wolf ? "wolf" : "hunter", stamp), wolf ? "wolf" : "hunter");
+            if (!wolf)
+            {
+                PatrolComponent patrol;
+                for (const Vector2f& p : o.patrol)
+                    patrol.points.push_back(Vector3f{ p.x, m_terrain.heightAtWorld(p.x, p.y), p.y });
+                world().emplace<PatrolComponent>(hunter, std::move(patrol));
+            }
         }
         DE_LOG_INFO(LogCategory::AI, "SandboxApp: {} scene pawn(s)", m_chase.hunterCount());
     }
@@ -3388,6 +3599,29 @@ void SandboxApp::onUpdate(float dt)
         if (m_chaseOk)
         {
             applyPreyFromMotor(m_chase.ai(), m_stealth, localMotor(), input().actionDown("sprint"));
+            const PlayerMotor* motor = localMotor();
+            const float speed = motor ? Vector3f{ motor->velocity().x, 0.0f, motor->velocity().z }.Magnitude() : 0.0f;
+            const bool crouched = motor && motor->state() == PlayerMoveState::Crouch;
+            const bool moving = speed >= m_stealth.stillSpeed;
+            const bool sprinting = moving && !crouched && input().actionDown("sprint");
+            m_lightLevel = playerLightLevel();
+            float stance = crouched ? (moving ? 0.55f : 0.4f) : (sprinting ? 1.3f : (moving ? 1.0f : 0.8f));
+            if (m_camouflage)
+                stance *= 0.3f;
+            m_exposure = Math::Clamp((0.45f + 0.55f * m_lightLevel) * stance, 0.0f, 1.0f);
+            m_chase.ai().setPlayerExposure(m_exposure);
+            m_chase.ai().setPlayerMotion(Math::Clamp((speed - 0.15f) / 1.35f, 0.0f, 1.0f));
+            const bool grounded = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch);
+            if (grounded && moving)
+            {
+                m_strideLeft -= speed * dt;
+                if (m_strideLeft <= 0.0f)
+                {
+                    m_strideLeft = crouched ? 0.65f : (sprinting ? 2.2f : 1.4f);
+                    if (const TransformComponent* pxf = possessedBody().valid() ? world().get<TransformComponent>(possessedBody()) : nullptr)
+                        m_chase.ai().addNoise(pxf->position, crouched ? m_stealth.hearCrouchWalk : (sprinting ? m_stealth.hearSprint : m_stealth.hearWalk));
+                }
+            }
             m_chase.tick(dt, world(), input(), m_terrain, possessedBody(), m_playerWet);
         }
         updateCombat(dt);
@@ -4393,7 +4627,7 @@ void SandboxApp::onRender()
         }
     }
 
-    if (m_chaseOk)
+    if (m_chaseOk && (m_demoScene || m_showDevTools))
     {
         const GpuScope paths(cmd, "Path Debug", ProfileColor::DebugOverlay);
         m_chase.drawPaths(cmd, renderer(), viewProj);
@@ -4477,7 +4711,9 @@ void SandboxApp::onRender()
     if (m_imgui.isReady() && !m_menu.visible())
     {
         drawNpcInfoOverlay();
+        drawGuardAwareness();
         drawArmorHud();
+        drawStaminaBar();
         drawPickupLabels();
         drawTargetMarker();
         drawDefenseText();

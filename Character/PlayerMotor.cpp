@@ -229,6 +229,136 @@ namespace Dark
         return true;
     }
 
+    bool PlayerMotor::findWall(const PlayerGroundQuery& ground, const Vector3f& position, const Vector3f& dir, float reach, float& dist) const
+    {
+        return ground.wallAt && dir.MagnitudeSqrd() > 1.0e-6f && ground.wallAt(ground.wallUser, position, dir, reach, dist);
+    }
+
+    bool PlayerMotor::findLedge(const PlayerGroundQuery& ground, const Vector3f& position, const Vector3f& dir, float wallDist, float& topY) const
+    {
+        if (!ground.ledgeAt)
+            return false;
+        const float feetY = position.y - m_settings.groundOffset;
+        const float x     = position.x + dir.x * (wallDist + 0.35f);
+        const float z     = position.z + dir.z * (wallDist + 0.35f);
+        return ground.ledgeAt(ground.wallUser, x, z, feetY + m_settings.handReach + 0.8f, topY) && topY > feetY + 0.4f;
+    }
+
+    bool PlayerMotor::nearestWall(const PlayerGroundQuery& ground, const Vector3f& position, const Vector3f& wish, Vector3f& dir) const
+    {
+        Vector3f ahead{ wish.x, 0.0f, wish.z };
+        if (ahead.MagnitudeSqrd() < 1.0e-4f)
+            ahead = Vector3f{ m_velocity.x, 0.0f, m_velocity.z };
+        if (ahead.MagnitudeSqrd() < 1.0e-4f)
+            ahead = Vector3f{ 0.0f, 0.0f, 1.0f };
+        ahead.Normalize();
+        const Vector3f dirs[4] = { ahead, Vector3f{ -ahead.z, 0.0f, ahead.x }, Vector3f{ ahead.z, 0.0f, -ahead.x }, -ahead };
+        float          best    = m_settings.wallReach;
+        bool           found   = false;
+        for (const Vector3f& d : dirs)
+        {
+            float dist = 0.0f;
+            if (findWall(ground, position, d, m_settings.wallReach, dist) && dist <= best)
+            {
+                best  = dist;
+                dir   = d;
+                found = true;
+            }
+        }
+        return found;
+    }
+
+    void PlayerMotor::wallJump(const Vector3f& awayFromWall, PlayerMotorResult& result)
+    {
+        m_velocity      = awayFromWall * m_settings.wallJumpOut;
+        m_velocity.y    = m_settings.wallJumpUp;
+        m_state         = PlayerMoveState::Jumping;
+        m_didFirstJump  = true;
+        m_didDoubleJump = false;
+        m_wallCooldown  = m_settings.wallJumpCooldown;
+        m_stamina       = Math::Max(0.0f, m_stamina - m_settings.wallJumpCost);
+        m_jumpBuffer    = 0.0f;
+        result.jumped   = true;
+    }
+
+    void PlayerMotor::enterWallRun(const Vector3f& dir)
+    {
+        m_wallDir  = dir;
+        m_state    = PlayerMoveState::WallRun;
+        m_velocity = Vector3f{ 0.0f, m_settings.wallRunSpeed, 0.0f };
+        m_jumpBuffer = 0.0f;
+    }
+
+    void PlayerMotor::climbOnto(Vector3f& position, float topY, PlayerMotorResult& result)
+    {
+        position.x += m_wallDir.x * 0.8f;
+        position.z += m_wallDir.z * 0.8f;
+        position.y  = topY + m_settings.groundOffset;
+        m_velocity  = Vector3f{ 0.0f, 0.0f, 0.0f };
+        m_state     = PlayerMoveState::Grounded;
+        m_airTime   = 0.0f;
+        m_didFirstJump  = false;
+        m_didDoubleJump = false;
+        result.landed   = true;
+        result.climbed  = true;
+    }
+
+    void PlayerMotor::tickWall(Vector3f& position, const PlayerMotorInput& in, float dt, const PlayerGroundQuery& ground, PlayerMotorResult& result)
+    {
+        const float into  = Vector3f{ in.wish.x, 0.0f, in.wish.z }.Dot(m_wallDir);
+        const float feetY = position.y - m_settings.groundOffset;
+
+        if (m_state == PlayerMoveState::Hang)
+        {
+            m_stamina -= m_settings.hangDrain * dt;
+            if (in.crouch || m_stamina <= 0.0f)
+            {
+                beginFalling();
+                return;
+            }
+            if (in.jumpPressed && into < -0.5f)
+            {
+                wallJump(-m_wallDir, result);
+                return;
+            }
+            if (in.jumpPressed || into > 0.5f)
+                climbOnto(position, m_ledgeY, result);
+            return;
+        }
+
+        if (in.jumpPressed)
+        {
+            wallJump(-m_wallDir, result);
+            return;
+        }
+        m_stamina -= m_settings.wallRunDrain * dt;
+
+        float wallDist = 0.0f;
+        const bool wall = findWall(ground, position, m_wallDir, m_settings.wallReach + 0.3f, wallDist);
+        float topY = 0.0f;
+        if (findLedge(ground, position, m_wallDir, wall ? wallDist : 0.3f, topY) && topY <= feetY + m_settings.handReach)
+        {
+            m_ledgeY = topY;
+            if (into > 0.5f)
+                climbOnto(position, topY, result);
+            else
+            {
+                m_state      = PlayerMoveState::Hang;
+                m_velocity   = Vector3f{ 0.0f, 0.0f, 0.0f };
+                position.y   = topY - m_settings.handReach + m_settings.groundOffset;
+            }
+            return;
+        }
+        if (!wall || m_stamina <= 0.0f)
+        {
+            beginFalling();
+            return;
+        }
+        const float climb = m_settings.wallRunSpeed * (0.6f + 0.4f * Math::Max(0.0f, m_stamina));
+        m_velocity         = Vector3f{ 0.0f, climb, 0.0f };
+        position.y        += climb * dt;
+    }
+
     PlayerMotorResult PlayerMotor::tick(Vector3f& position, const PlayerMotorInput& in, float dt, const PlayerGroundQuery& ground)
     {
         PlayerMotorResult result{};
@@ -246,6 +376,15 @@ namespace Dark
 
         m_tapAge += dt;
         noteDodgeTap(in, result);
+        if (m_wallCooldown > 0.0f)
+            m_wallCooldown -= dt;
+        if (m_state == PlayerMoveState::Grounded || m_state == PlayerMoveState::Crouch || m_state == PlayerMoveState::Dodge)
+            m_stamina = Math::Min(1.0f, m_stamina + m_settings.staminaRegen * dt);
+        if (m_state == PlayerMoveState::WallRun || m_state == PlayerMoveState::Hang)
+        {
+            tickWall(position, in, dt, ground, result);
+            return result;
+        }
 
         const float waterY  = ground.waterY;
         float       groundY = sampleGround(ground, position.x, position.z);
@@ -274,6 +413,17 @@ namespace Dark
                 enterSwim(position, waterY);
                 result.splashed = true;
                 moveHorizontal(position, in.wish, m_settings.swimSpeed * swimScale * speedScale, dt, 0.0f);
+                return result;
+            }
+
+            float wallDist = 0.0f;
+            if (in.jumpPressed && m_state != PlayerMoveState::Dodge && m_stamina > 0.15f && in.wish.MagnitudeSqrd() > 0.25f
+                && findWall(ground, position, Vector3f{ in.wish.x, 0.0f, in.wish.z }, m_settings.wallReach, wallDist))
+            {
+                Vector3f dir{ in.wish.x, 0.0f, in.wish.z };
+                dir.Normalize();
+                enterWallRun(dir);
+                result.jumped = true;
                 return result;
             }
 
@@ -344,10 +494,22 @@ namespace Dark
         if (m_coyote > 0.0f)
             m_coyote = Math::Max(0.0f, m_coyote - dt);
 
+        Vector3f wallDir{};
+        float    wallDist = 0.0f;
         if (!m_didFirstJump && m_jumpBuffer > 0.0f && m_coyote > 0.0f && in.allowJumpBuffer)
         {
             m_jumpBuffer = 0.0f;
             beginJump(jumpScale, result);
+        }
+        else if (in.jumpPressed && m_wallCooldown <= 0.0f && m_stamina > 0.0f && nearestWall(ground, position, in.wish, wallDir))
+            wallJump(-wallDir, result);
+        else if (m_wallCooldown <= 0.0f && m_stamina > 0.15f && m_velocity.y > -8.0f && in.wish.MagnitudeSqrd() > 0.25f
+                 && findWall(ground, position, Vector3f{ in.wish.x, 0.0f, in.wish.z }, 0.5f, wallDist))
+        {
+            Vector3f dir{ in.wish.x, 0.0f, in.wish.z };
+            dir.Normalize();
+            enterWallRun(dir);
+            return result;
         }
         else
             tryDoubleJump(in.jumpPressed, in.allowDoubleJump, jumpScale, result);

@@ -11,7 +11,9 @@
     { "name": "swing2", "type": "trigger" },
     { "name": "hit", "type": "trigger" },
     { "name": "jump_attack", "type": "trigger" },
-    { "name": "crouch", "type": "bool", "default": false }
+    { "name": "crouch", "type": "bool", "default": false },
+    { "name": "climb", "type": "bool", "default": false },
+    { "name": "hang", "type": "bool", "default": false }
   ],
   "states": [
     { "name": "Idle", "clip": "Idle", "loop": true },
@@ -28,9 +30,19 @@
     { "name": "Shoot", "clip": "Shoot", "loop": false },
     { "name": "Swing", "clip": "SwingSword", "loop": false },
     { "name": "Swing2", "clip": "SwingSword2", "loop": false },
-    { "name": "HitReact", "clip": "HitReact", "loop": false }
+    { "name": "HitReact", "clip": "HitReact", "loop": false },
+    { "name": "Climb", "clip": "Climb", "loop": true },
+    { "name": "Hang", "clip": "Hang", "loop": true }
   ],
   "transitions": [
+    { "from": "*", "to": "Climb", "blend": 0.1, "interrupt": true,
+      "when": [{ "param": "climb", "eq": true }] },
+    { "from": "*", "to": "Hang", "blend": 0.12, "interrupt": true,
+      "when": [{ "param": "hang", "eq": true }] },
+    { "from": "Climb", "to": "Idle", "blend": 0.15, "interrupt": true,
+      "when": [{ "param": "climb", "eq": false }] },
+    { "from": "Hang", "to": "Idle", "blend": 0.15, "interrupt": true,
+      "when": [{ "param": "hang", "eq": false }] },
     { "from": "*", "to": "Shoot", "blend": 0.08, "interrupt": true,
       "when": [{ "param": "shoot", "eq": true }] },
     { "from": "*", "to": "Swing", "blend": 0.08, "interrupt": true,

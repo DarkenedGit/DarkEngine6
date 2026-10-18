@@ -14,6 +14,8 @@ namespace Dark
         Swimming,
         Dodge,
         Crouch,
+        WallRun,
+        Hang,
     };
 
     enum class MoveCardinal : uint8_t
@@ -50,6 +52,16 @@ namespace Dark
         float swimOffset          = 0.35f;
         float enterWaterDepth     = 0.25f;
         float leaveWaterHeight    = 0.35f;
+        float wallReach           = 0.7f;
+        float wallJumpUp          = 9.0f;
+        float wallJumpOut         = 6.0f;
+        float wallJumpCooldown    = 0.3f;
+        float wallRunSpeed        = 4.5f;
+        float handReach           = 1.9f;
+        float staminaRegen        = 0.35f;
+        float wallRunDrain        = 0.45f;
+        float hangDrain           = 0.08f;
+        float wallJumpCost        = 0.12f;
     };
 
     struct PlayerMotorInput
@@ -77,6 +89,7 @@ namespace Dark
         bool landed       = false;  // airborne -> ground
         bool splashed     = false;  // entered water
         bool dodged       = false;  // entered Dodge this tick
+        bool climbed      = false;
     };
 
     struct PlayerGroundQuery
@@ -84,6 +97,9 @@ namespace Dark
         float (*heightAt)(void* user, float x, float z) = nullptr;
         void* user                                      = nullptr;
         float waterY                                    = 0.0f;
+        bool (*wallAt)(void* user, const Math::Vector3f& from, const Math::Vector3f& dir, float maxDist, float& outDist) = nullptr;
+        bool (*ledgeAt)(void* user, float x, float z, float fromY, float& outTopY)                                   = nullptr;
+        void* wallUser                                                                                              = nullptr;
     };
 
     // Possessed-body locomotion: ground, swim, jump, and a timed double jump.
@@ -102,6 +118,7 @@ namespace Dark
         float                      coyoteLeft() const { return m_coyote; }
         float                      dodgeTimeLeft() const { return m_dodgeLeft; }
         const Math::Vector3f&      dodgeWish() const { return m_dodgeWish; }
+        float                      stamina() const { return m_stamina; }
 
         void reset();
         void clearJumpBuffer();
@@ -132,6 +149,13 @@ namespace Dark
         void  beginFalling();
         void  noteDodgeTap(const PlayerMotorInput& in, PlayerMotorResult& result);
         bool  tryDoubleJump(bool jumpPressed, bool allowDoubleJump, float jumpScale, PlayerMotorResult& result);
+        bool  findWall(const PlayerGroundQuery& ground, const Math::Vector3f& position, const Math::Vector3f& dir, float reach, float& dist) const;
+        bool  findLedge(const PlayerGroundQuery& ground, const Math::Vector3f& position, const Math::Vector3f& dir, float wallDist, float& topY) const;
+        bool  nearestWall(const PlayerGroundQuery& ground, const Math::Vector3f& position, const Math::Vector3f& wish, Math::Vector3f& dir) const;
+        void  wallJump(const Math::Vector3f& awayFromWall, PlayerMotorResult& result);
+        void  enterWallRun(const Math::Vector3f& dir);
+        void  climbOnto(Math::Vector3f& position, float topY, PlayerMotorResult& result);
+        void  tickWall(Math::Vector3f& position, const PlayerMotorInput& in, float dt, const PlayerGroundQuery& ground, PlayerMotorResult& result);
 
         PlayerMotorSettings m_settings;
         PlayerMoveState     m_state          = PlayerMoveState::Grounded;
@@ -146,6 +170,10 @@ namespace Dark
         float               m_tapAge         = 1.0f;
         float               m_dodgeLeft      = 0.0f;
         Math::Vector3f      m_dodgeWish{ 0.0f, 0.0f, 0.0f };
+        float               m_stamina        = 1.0f;
+        float               m_wallCooldown   = 0.0f;
+        float               m_ledgeY         = 0.0f;
+        Math::Vector3f      m_wallDir{ 0.0f, 0.0f, 0.0f };
     };
 
     // Planar speed in m/s. Non-positive acceleration snaps to desired so a missing tune keeps the old step.

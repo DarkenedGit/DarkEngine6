@@ -370,6 +370,39 @@ def make_clips(include_die: bool):
     }
     clips.append(clip_channels("Block", bt, block))
 
+    # Climb: hands reach up the wall one after the other while the knees drive. 0.6s loop
+    reach_up = q_axis(1, 0, 0, -2.7)
+    reach_mid = q_axis(1, 0, 0, -1.8)
+    knee_up = q_axis(1, 0, 0, -1.1)
+    ct2 = [0.0, 0.3, 0.6]
+    climb = {
+        5: [reach_up, reach_mid, reach_up],
+        8: [reach_mid, reach_up, reach_mid],
+        6: [q_axis(1, 0, 0, -0.3), q_axis(1, 0, 0, -0.9), q_axis(1, 0, 0, -0.3)],
+        9: [q_axis(1, 0, 0, -0.9), q_axis(1, 0, 0, -0.3), q_axis(1, 0, 0, -0.9)],
+        11: [knee_up, q_axis(1, 0, 0, -0.2), knee_up],
+        12: [q_axis(1, 0, 0, 1.3), q_axis(1, 0, 0, 0.4), q_axis(1, 0, 0, 1.3)],
+        14: [q_axis(1, 0, 0, -0.2), knee_up, q_axis(1, 0, 0, -0.2)],
+        15: [q_axis(1, 0, 0, 0.4), q_axis(1, 0, 0, 1.3), q_axis(1, 0, 0, 0.4)],
+        1: [q_axis(1, 0, 0, 0.15)] * 3,
+    }
+    clips.append(clip_channels("Climb", ct2, climb))
+
+    # Hang: both hands on the ledge overhead, legs dangling with a slow sway. 1.6s loop
+    overhead = q_axis(1, 0, 0, -2.95)
+    hgt = [0.0, 0.8, 1.6]
+    hang = {
+        5: [overhead] * 3,
+        8: [overhead] * 3,
+        6: [q_axis(1, 0, 0, -0.15)] * 3,
+        9: [q_axis(1, 0, 0, -0.15)] * 3,
+        11: [q_axis(1, 0, 0, -0.1), q_axis(1, 0, 0, 0.1), q_axis(1, 0, 0, -0.1)],
+        14: [q_axis(1, 0, 0, 0.1), q_axis(1, 0, 0, -0.1), q_axis(1, 0, 0, 0.1)],
+        12: [q_axis(1, 0, 0, 0.25)] * 3,
+        15: [q_axis(1, 0, 0, 0.25)] * 3,
+    }
+    clips.append(clip_channels("Hang", hgt, hang))
+
     # HitReact: torso snaps back, arms fly out, then recovers. 0.4s
     ht = [0.0, 0.08, 0.4]
     hit = {

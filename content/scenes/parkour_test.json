@@ -1,0 +1,576 @@
+{
+  "environment": "env/studio_gradient.hdr",
+  "iblIntensity": 1.0,
+  "iblRotationRadY": 0.0,
+  "sky": {
+    "timeOfDay": 14.5,
+    "dayOfYear": 172.0,
+    "latitude": 47.6,
+    "timeScale": 0.0,
+    "weather": "partly",
+    "cloudCoverage": 0.35,
+    "turbidity": 2.4,
+    "windSpeed": 0.04,
+    "windDir": [
+      1.0,
+      0.2
+    ],
+    "rain": 0.0
+  },
+  "fog": {
+    "auto": true,
+    "distanceScale": 0.1,
+    "heightScale": 0.1,
+    "valleyScale": 0.1,
+    "distanceDensity": 0.004,
+    "heightDensity": 0.0,
+    "valleyDensity": 0.012,
+    "heightFalloff": 0.06,
+    "valleyHeight": 8.0,
+    "color": [
+      0.55,
+      0.62,
+      0.72
+    ]
+  },
+  "water": {
+    "level": -50.0,
+    "levelFraction": 0.38,
+    "chunkCells": 16,
+    "lodDistances": [
+      40.0,
+      80.0,
+      160.0,
+      320.0,
+      640.0
+    ],
+    "flowDir": [
+      1.0,
+      0.35
+    ],
+    "flowStrength": 0.85,
+    "steepness": 0.55,
+    "amplitudeScale": 1.0,
+    "speedScale": 1.0,
+    "waves": [
+      {
+        "angle": 0.15,
+        "frequency": 0.169815,
+        "amplitude": 0.36,
+        "speed": 1.05
+      },
+      {
+        "angle": 2.05,
+        "frequency": 0.323876,
+        "amplitude": 0.18,
+        "speed": 1.45
+      },
+      {
+        "angle": -1.55,
+        "frequency": 0.556034,
+        "amplitude": 0.11,
+        "speed": 1.85
+      },
+      {
+        "angle": 1.15,
+        "frequency": 0.981748,
+        "amplitude": 0.07,
+        "speed": 2.25
+      }
+    ]
+  },
+  "exposure": {
+    "auto": false,
+    "evBias": 0.0,
+    "maxEv": 1.5,
+    "adaptBright": 6.0,
+    "adaptDark": 1.0
+  },
+  "mode": "3d",
+  "version": 2,
+  "name": "parkour_test",
+  "terrain": {
+    "bindLayout": 1,
+    "chunkCells": 16,
+    "heightFile": "stealth_test.height",
+    "grass": {
+      "enabled": false
+    },
+    "foliage": {
+      "dirtTreesPerM2": 0.0,
+      "dirtFlowersPerM2": 0.0,
+      "grassTreesPerM2": 0.0,
+      "grassFlowersPerM2": 0.0,
+      "rockPerM2": 0.0,
+      "grassPerM2": 0.0
+    }
+  },
+  "objects": [
+    {
+      "color": [
+        0.2199999988079071,
+        0.2199999988079071,
+        0.2199999988079071,
+        1.0
+      ],
+      "light": {
+        "enabled": true,
+        "inner": 12.0,
+        "intensity": 1.0,
+        "outer": 25.0,
+        "range": 8.0,
+        "sourceRadius": 0.05000000074505806
+      },
+      "position": [
+        -4.0,
+        6.0,
+        4.0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "type": "ambient_light"
+    },
+    {
+      "color": [
+        0.8902438879013062,
+        0.7080935835838318,
+        0.3437933623790741,
+        1.0
+      ],
+      "light": {
+        "enabled": true,
+        "inner": 12.0,
+        "intensity": 3.252000093460083,
+        "outer": 25.0,
+        "range": 8.0,
+        "sourceRadius": 0.05000000074505806
+      },
+      "position": [
+        4.0,
+        8.0,
+        -4.0
+      ],
+      "rotation": [
+        0.33176907896995544,
+        -0.1907247006893158,
+        0.8009614944458008,
+        0.460450142621994
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "type": "directional_light"
+    },
+    {
+      "type": "cube",
+      "color": [
+        0.33,
+        0.35,
+        0.33,
+        1.0
+      ],
+      "position": [
+        0,
+        0.0,
+        10
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        90,
+        0.1,
+        90
+      ]
+    },
+    {
+      "type": "cube",
+      "color": [
+        0.25,
+        0.45,
+        0.85,
+        1.0
+      ],
+      "position": [
+        0,
+        0.01,
+        -20
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        8,
+        0.12,
+        6
+      ]
+    },
+    {
+      "type": "player",
+      "color": [
+        0.35,
+        0.85,
+        0.72,
+        1.0
+      ],
+      "position": [
+        0.0,
+        0.5,
+        -20.0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "type": "cube",
+      "color": [
+        0.85,
+        0.62,
+        0.3,
+        1.0
+      ],
+      "position": [
+        -20,
+        0.6,
+        0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        5,
+        1.2,
+        1.0
+      ]
+    },
+    {
+      "type": "cube",
+      "color": [
+        0.8,
+        0.5,
+        0.3,
+        1.0
+      ],
+      "position": [
+        -12,
+        1.1,
+        0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        5,
+        2.2,
+        1.0
+      ]
+    },
+    {
+      "type": "cube",
+      "color": [
+        0.75,
+        0.4,
+        0.35,
+        1.0
+      ],
+      "position": [
+        -4,
+        1.6,
+        0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        5,
+        3.2,
+        1.0
+      ]
+    },
+    {
+      "type": "cube",
+      "color": [
+        0.65,
+        0.35,
+        0.45,
+        1.0
+      ],
+      "position": [
+        4,
+        2.25,
+        0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        5,
+        4.5,
+        1.0
+      ]
+    },
+    {
+      "type": "cube",
+      "color": [
+        0.5,
+        0.35,
+        0.6,
+        1.0
+      ],
+      "position": [
+        12,
+        3.0,
+        0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        5,
+        6.0,
+        1.0
+      ]
+    },
+    {
+      "type": "cube",
+      "color": [
+        0.5,
+        0.35,
+        0.6,
+        1.0
+      ],
+      "position": [
+        20,
+        3.75,
+        0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        5,
+        7.5,
+        1.0
+      ]
+    },
+    {
+      "type": "cube",
+      "color": [
+        0.55,
+        0.55,
+        0.62,
+        1.0
+      ],
+      "position": [
+        -26,
+        4.5,
+        18
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        9.0,
+        8
+      ]
+    },
+    {
+      "type": "cube",
+      "color": [
+        0.55,
+        0.55,
+        0.62,
+        1.0
+      ],
+      "position": [
+        -22.6,
+        4.5,
+        18
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        9.0,
+        8
+      ]
+    },
+    {
+      "type": "cube",
+      "color": [
+        0.85,
+        0.62,
+        0.3,
+        1.0
+      ],
+      "position": [
+        2,
+        1.0,
+        14
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        4,
+        2.0,
+        3
+      ]
+    },
+    {
+      "type": "cube",
+      "color": [
+        0.8,
+        0.5,
+        0.3,
+        1.0
+      ],
+      "position": [
+        2,
+        2.0,
+        17
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        4,
+        4.0,
+        3
+      ]
+    },
+    {
+      "type": "cube",
+      "color": [
+        0.75,
+        0.4,
+        0.35,
+        1.0
+      ],
+      "position": [
+        2,
+        3.0,
+        20
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        4,
+        6.0,
+        3
+      ]
+    },
+    {
+      "type": "cube",
+      "color": [
+        0.65,
+        0.35,
+        0.45,
+        1.0
+      ],
+      "position": [
+        2,
+        4.0,
+        23
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        4,
+        8.0,
+        3
+      ]
+    },
+    {
+      "type": "cube",
+      "color": [
+        0.7,
+        0.7,
+        0.72,
+        1.0
+      ],
+      "position": [
+        20,
+        1.7,
+        16
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        6,
+        3.4,
+        1.0
+      ]
+    }
+  ]
+}

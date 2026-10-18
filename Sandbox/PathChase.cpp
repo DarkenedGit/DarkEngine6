@@ -112,6 +112,7 @@ bool PathChase::init(Renderer& renderer, Terrain::TerrainGrid& terrain, WaterWor
     m_hunters.clear();
     const Vector3f origin = { 0.0f, terrain.heightAtWorld(0.0f, 0.0f) + 0.5f, 0.0f };
     m_cubes.push_back(AABox3f::FromCenterExtents(origin, Vector3f{ 0.5f, 0.5f, 0.5f }));
+    m_cubes.insert(m_cubes.end(), m_levelCubes.begin(), m_levelCubes.end());
 
     if (!bake(terrain, water))
         return false;
@@ -137,8 +138,8 @@ bool PathChase::init(Renderer& renderer, Terrain::TerrainGrid& terrain, WaterWor
 
 bool PathChase::spawnWalker(World& world, AssetPinTable& pins, AssetManager& assets, Terrain::TerrainGrid& terrain, const AssetRef<Model>& walkerModel)
 {
-    Vector3f pos{ -6.0f, 0.0f, 0.0f };
-    pos.y    = terrain.heightAtWorld(pos.x, pos.z) + 0.5f;
+    Vector3f pos = m_hasPlayerStart ? m_playerStart : Vector3f{ -6.0f, 0.0f, 0.0f };
+    pos.y        = terrain.heightAtWorld(pos.x, pos.z) + 0.5f;
     m_walker = world.createEntity();
     world.emplace<TagComponent>(m_walker, "ChasePawn");
     world.emplace<TransformComponent>(m_walker, pos, Quaternion::IDENTITY, Vector3f{ 2, 2, 2 });

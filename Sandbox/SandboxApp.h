@@ -87,6 +87,9 @@ private:
     void onPlayerDefended(Dark::Entity attacker, bool parried);
     void drawDefenseText();
     void drawTargetMarker();
+    void drawGuardAwareness();
+    float playerLightLevel();
+    void drawStaminaBar();
     void updateHunterLoot();
     bool ownsWeapon(Dark::WeaponKind kind);
     void pickUpNearestItem();
@@ -210,6 +213,12 @@ private:
     float                           m_faceYaw      = 0.0f;
     float                           m_faceLeft     = 0.0f;
     float                           m_blockRecoil  = 0.0f;
+    bool                            m_demoScene    = true;
+    float                           m_lightLevel   = 1.0f;
+    float                           m_exposure     = 1.0f;
+    float                           m_strideLeft   = 0.0f;
+    Dark::Math::AABox3f             m_goalBox{};
+    float                           m_goalShown    = 0.0f;
     float                           m_shieldBump   = 0.0f;
     const char*                     m_defenseText  = "";
     float                           m_defenseTextLeft = 0.0f;
