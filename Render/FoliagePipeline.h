@@ -111,6 +111,7 @@ namespace Dark
         // editorRecords non-null: that vector, kept only where the tile is resident.
         // null: residentFoliage only (Sandbox). A non-resident tile contributes nothing.
         void setThermal(bool on) { m_thermal = on; }
+        void setUltraviolet(bool on) { m_ultraviolet = on; }
 
         void drawGBuffer(
             ID3D12GraphicsCommandList* cmd,
@@ -184,7 +185,10 @@ namespace Dark
         ComPtr<ID3D12PipelineState> m_gbPsoTwoSided;
         ComPtr<ID3D12PipelineState> m_gbThermal;
         ComPtr<ID3D12PipelineState> m_gbThermalTwoSided;
+        ComPtr<ID3D12PipelineState> m_gbUv;
+        ComPtr<ID3D12PipelineState> m_gbUvTwoSided;
         bool                        m_thermal = false;
+        bool                        m_ultraviolet = false;
         ComPtr<ID3D12RootSignature> m_depthRoot;
         ComPtr<ID3D12PipelineState> m_depthPso;
         ComPtr<ID3D12PipelineState> m_depthPsoTwoSided;

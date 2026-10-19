@@ -55,4 +55,16 @@ namespace Dark
         outMacros[2].Definition = nullptr;
     }
 
+    // outMacros must have room for 3 entries. classReflect is a literal such as "0.30" and must outlive the compile.
+    // Compile the pixel shader as ps_5_1. gUv lives in register space 1, which ps_5_0 rejects.
+    inline void makeUvMacros(const char* classReflect, D3D_SHADER_MACRO outMacros[3])
+    {
+        outMacros[0].Name       = "DE_ULTRAVIOLET";
+        outMacros[0].Definition = "1";
+        outMacros[1].Name       = "DE_UV_CLASS";
+        outMacros[1].Definition = classReflect;
+        outMacros[2].Name       = nullptr;
+        outMacros[2].Definition = nullptr;
+    }
+
 } // namespace Dark

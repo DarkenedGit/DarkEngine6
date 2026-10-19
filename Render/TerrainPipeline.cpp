@@ -28,7 +28,9 @@ namespace Dark
         m_psoWire.Reset();
         m_psoPoint.Reset();
         m_psoThermal.Reset();
+        m_psoUv.Reset();
         m_thermal = false;
+        m_ultraviolet = false;
 
         if (!device)
         {
@@ -195,6 +197,21 @@ namespace Dark
                 m_rootSignature.Reset();
                 return false;
             }
+            D3D_SHADER_MACRO uvMacros[3];
+            makeUvMacros("0.12", uvMacros);
+            ComPtr<ID3DBlob> uvPs;
+            if (!compileShaderFromContent(shader, "PSMain", "ps_5_0", uvPs, uvMacros))
+            {
+                m_rootSignature.Reset();
+                return false;
+            }
+            D3D12_GRAPHICS_PIPELINE_STATE_DESC uvDesc = psoDesc;
+            uvDesc.PS = { uvPs->GetBufferPointer(), uvPs->GetBufferSize() };
+            if (FailedHr(device->CreateGraphicsPipelineState(&uvDesc, IID_PPV_ARGS(&m_psoUv)), "CreateGraphicsPipelineState (terrain ultraviolet)"))
+            {
+                m_rootSignature.Reset();
+                return false;
+            }
         }
 
         const char* passName = pass == TerrainPass::GBuffer ? "GBuffer" : "UNORM";
@@ -204,7 +221,8 @@ namespace Dark
 
     void TerrainPipeline::bind(ID3D12GraphicsCommandList* cmd, DebugFill fill) const
     {
-        ID3D12PipelineState* pso = (m_thermal && fill == DebugFill::Solid && m_psoThermal)
+        ID3D12PipelineState* pso = (m_ultraviolet && fill == DebugFill::Solid && m_psoUv) ? m_psoUv.Get()
+            : (m_thermal && fill == DebugFill::Solid && m_psoThermal)
             ? m_psoThermal.Get()
             : selectFillPso(fill, m_psoSolid.Get(), m_psoWire.Get(), m_psoPoint.Get());
         if (!cmd || !pso)

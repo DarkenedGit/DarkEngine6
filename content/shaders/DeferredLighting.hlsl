@@ -10,6 +10,7 @@
 #define FOG_SAMPLE_CSM 1
 #include "Fog.hlsli"
 #include "Thermal.hlsli"
+#include "Ultraviolet.hlsli"
 
 cbuffer LightingConstants : register(b0)
 {
@@ -42,7 +43,7 @@ cbuffer LightingConstants : register(b0)
     float    iblMaxRoughnessMip;
     float    iblEnabled;
     float    iblDebug;
-    float    thermal; // 0 off, 1 false-color heat. RT0.a is heat while this is on.
+    float    thermal; // >0 infrared, <0 ultraviolet strength, 0 off. RT0.a matches the sign.
 };
 
 Texture2D    gAlbedo    : register(t0);
@@ -100,12 +101,18 @@ float4 PSMain(PSInput input) : SV_TARGET
     if (IsSkyDepth(depth))
         discard;
 
+    const float uvStrength = saturate(-thermal);
+    const float irStrength = saturate(thermal);
     if (lighting < 0.5f)
     {
-        if (thermal > 1.0e-4f)
-            return float4(lerp(albedo.rgb, thermalFalseColor(saturate(albedo.a)), saturate(thermal)), 1);
+        if (irStrength > 1.0e-4f)
+            return float4(lerp(albedo.rgb, thermalFalseColor(saturate(albedo.a)), irStrength), 1);
+        if (uvStrength > 1.0e-4f)
+            return float4(beeShift(albedo.rgb, albedo.a, uvStrength), 1);
         return float4(albedo.rgb, 1);
     }
+
+    float3 baseAlbedo = beeShift(albedo.rgb, albedo.a, uvStrength);
 
     uint w, h;
     gDepth.GetDimensions(w, h);
@@ -119,7 +126,7 @@ float4 PSMain(PSInput input) : SV_TARGET
     float  emissive  = albedo.a;
     float  ao        = gAo.Load(int3(texel, 0)).r;
     float3 v         = normalize(cameraPos - worldPos);
-    float3 F0        = lerp(float3(0.04, 0.04, 0.04), albedo.rgb, metallic);
+    float3 F0        = lerp(float3(0.04, 0.04, 0.04), baseAlbedo, metallic);
 
     float3 nRot = IblRotateY(n, iblRotationRadY);
     float3 r    = reflect(-v, n);
@@ -142,10 +149,10 @@ float4 PSMain(PSInput input) : SV_TARGET
     float  conf = (ssrEnabled >= 0.5f && iblDebug < 0.5f) ? saturate(ssr.a) : 0.0f;
 
     float3 specIblTerm = 0.0.xxx;
-    float3 diffTerm    = ambientColor * albedo.rgb * ao;
+    float3 diffTerm    = ambientColor * baseAlbedo * ao;
     if (iblEnabled >= 0.5f)
     {
-        float3 Fd      = albedo.rgb * (1.0f - metallic) * (1.0f / DE_PBR_PI);
+        float3 Fd      = baseAlbedo * (1.0f - metallic) * (1.0f / DE_PBR_PI);
         float3 specIbl = pre * (F0 * dfg.x + dfg.y);
         // The studio cube does not follow the clock. Night keeps the sky ambient instead.
         float keep     = 1.0f - saturate(iblNight);
@@ -160,7 +167,7 @@ float4 PSMain(PSInput input) : SV_TARGET
     float  shadow     = ComputeShadow(worldPos + n * recvOffset, cameraPos);
 
     float3 lit = diffTerm + spec
-        + PbrDirectional(n, v, albedo.rgb, roughness, metallic, lightDirWS, pbrLightColor) * shadow;
+        + PbrDirectional(n, v, baseAlbedo, roughness, metallic, lightDirWS, pbrLightColor) * shadow;
 
     // Debug is gated on iblDebug only, not iblEnabled. Dummy cubes → black. Skip fog.
     if (iblDebug >= 0.5f && iblDebug < 1.5f)
@@ -171,14 +178,19 @@ float4 PSMain(PSInput input) : SV_TARGET
     if (iblDebug >= 2.5f)
         return float4(dfg.x, dfg.y, 0, 1);
 
-    if (thermal > 1.0e-4f)
+    if (irStrength > 1.0e-4f)
     {
         float3 heatCol = thermalFalseColor(saturate(emissive));
-        return float4(lerp(lit, heatCol, saturate(thermal)), 1);
+        return float4(lerp(lit, heatCol, irStrength), 1);
     }
 
-    lit += albedo.rgb * emissive * emissiveGain;
+    // Alpha is heat or UV reflectance while a vision mode is bound, so it is not emissive.
+    if (!(abs(thermal) > 1.0e-4f))
+        lit += baseAlbedo * emissive * emissiveGain;
 
-    FogResult fog = FogIntegrate(cameraPos, worldPos, MakeFogParams(), gHeightMap, gHeightSamp, shadow);
+    FogParams fogParams = MakeFogParams();
+    if (uvStrength > 1.0e-4f)
+        fogParams.fogColor = beeShift(fogParams.fogColor, kUvFog, uvStrength);
+    FogResult fog = FogIntegrate(cameraPos, worldPos, fogParams, gHeightMap, gHeightSamp, shadow);
     return float4(ApplyLitFog(lit, fog), 1);
 }

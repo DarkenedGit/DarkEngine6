@@ -312,6 +312,8 @@ private:
     float         m_nightSight     = 0.0f;
     bool          m_infraredOn     = false;
     float         m_infrared       = 0.0f;
+    bool          m_ultravioletOn  = false;
+    float         m_ultraviolet    = 0.0f;
     ImGuiHost     m_imgui;
     Dark::MainMenu m_menu;
     char          m_joinHost[64]   = "127.0.0.1";

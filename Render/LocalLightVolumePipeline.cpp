@@ -306,6 +306,9 @@ namespace Dark
         cb.fogDensity = lighting.fogDensity;
         std::memcpy(cb.fogColor, lighting.fogColor, sizeof(cb.fogColor));
         cb.lighting              = lighting.lighting;
+        // The local-light root is full. A negative value is the ultraviolet strength so the fade lerps these lights too.
+        if (lighting.thermal < -1.0e-4f && lighting.lighting > 0.5f)
+            cb.lighting = lighting.thermal;
         cb.viewportW             = static_cast<float>(renderer.width());
         cb.viewportH             = static_cast<float>(renderer.height());
         cb.heightFogDensity      = lighting.heightFogDensity;

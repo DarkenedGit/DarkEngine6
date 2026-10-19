@@ -12,9 +12,10 @@ TEST(GpuMaterial, SlotMap)
     EXPECT_EQ(GpuMaterial::kNormalSlot, 1u);
     EXPECT_EQ(GpuMaterial::kOrmSlot, 2u);
     EXPECT_EQ(GpuMaterial::kEmissiveSlot, 3u);
-    EXPECT_EQ(GpuMaterial::kShadowSlot, 4u);
-    EXPECT_EQ(GpuMaterial::kSrvCount, 5u);
-    EXPECT_EQ(GpuMaterial::kMapSrvCount, 4u);
+    EXPECT_EQ(GpuMaterial::kUvSlot, 4u);
+    EXPECT_EQ(GpuMaterial::kShadowSlot, 5u);
+    EXPECT_EQ(GpuMaterial::kSrvCount, 6u);
+    EXPECT_EQ(GpuMaterial::kMapSrvCount, 5u);
 }
 
 TEST(GpuMaterial, Pack_NullAlbedo_Fails)
@@ -23,8 +24,9 @@ TEST(GpuMaterial, Pack_NullAlbedo_Fails)
     Texture2D   normal;
     Texture2D   orm;
     Texture2D   emissive;
+    Texture2D   uv;
     GpuMaterial mat;
-    EXPECT_FALSE(mat.pack(nullptr, albedo, normal, orm, emissive));
+    EXPECT_FALSE(mat.pack(nullptr, albedo, normal, orm, emissive, uv));
     EXPECT_FALSE(mat.isValid());
 }
 
@@ -37,4 +39,5 @@ TEST(GpuMaterial, PackedMapIdsDefaultNull)
     EXPECT_EQ(ids[GpuMaterial::kNormalSlot], Dark::NULL_ASSET);
     EXPECT_EQ(ids[GpuMaterial::kOrmSlot], Dark::NULL_ASSET);
     EXPECT_EQ(ids[GpuMaterial::kEmissiveSlot], Dark::NULL_ASSET);
+    EXPECT_EQ(ids[GpuMaterial::kUvSlot], Dark::NULL_ASSET);
 }

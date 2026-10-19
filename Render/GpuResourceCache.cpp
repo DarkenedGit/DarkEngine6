@@ -115,7 +115,8 @@ namespace Dark
 
     bool GpuResourceCache::ensureDefaultMaps()
     {
-        if (m_defaultNormal && m_defaultNormal->valid() && m_defaultOrm && m_defaultOrm->valid() && m_defaultEmissive && m_defaultEmissive->valid())
+        if (m_defaultNormal && m_defaultNormal->valid() && m_defaultOrm && m_defaultOrm->valid() && m_defaultEmissive && m_defaultEmissive->valid()
+            && m_defaultUv && m_defaultUv->valid())
             return true;
         if (!m_renderer)
         {
@@ -141,6 +142,14 @@ namespace Dark
         if (!m_defaultEmissive->valid() && !m_defaultEmissive->createSolidColor(*m_renderer, 255, 255, 255, 255, Color::TextureUsage::Emissive))
         {
             DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureDefaultMaps: default emissive failed");
+            return false;
+        }
+        if (!m_defaultUv)
+            m_defaultUv = std::make_unique<Texture2D>();
+        // Alpha 0 marks "no mask". An authored image uses alpha 1, so a painted 0 still wins.
+        if (!m_defaultUv->valid() && !m_defaultUv->createSolidColor(*m_renderer, 0, 0, 0, 0, Color::TextureUsage::Data))
+        {
+            DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureDefaultMaps: default UV reflectance failed");
             return false;
         }
         return true;
@@ -208,13 +217,14 @@ namespace Dark
         const AssetID normalId = mapAssetId(material->normalImage());
         const AssetID ormId    = mapAssetId(material->ormImage());
         const AssetID emisId   = mapAssetId(material->emissiveImage());
+        const AssetID uvId     = mapAssetId(material->uvImage());
 
         auto it = m_materials.find(material->id);
         if (it != m_materials.end() && it->second.gpu && it->second.gpu->isValid())
         {
             const AssetID* ids = it->second.gpu->packedMapIds();
             if (ids[GpuMaterial::kAlbedoSlot] == albedoId && ids[GpuMaterial::kNormalSlot] == normalId && ids[GpuMaterial::kOrmSlot] == ormId
-                && ids[GpuMaterial::kEmissiveSlot] == emisId)
+                && ids[GpuMaterial::kEmissiveSlot] == emisId && ids[GpuMaterial::kUvSlot] == uvId)
                 return true;
             unregisterPackedHeap(&it->second.gpu->packedHeap());
         }
@@ -244,7 +254,8 @@ namespace Dark
         const Texture2D* normalTex = resolveMapOrDefault(material->normalImage(), Color::TextureUsage::Normal, m_defaultNormal.get());
         const Texture2D* ormTex    = resolveMapOrDefault(material->ormImage(), Color::TextureUsage::Orm, m_defaultOrm.get());
         const Texture2D* emisTex   = resolveMapOrDefault(material->emissiveImage(), Color::TextureUsage::Emissive, m_defaultEmissive.get());
-        if (!normalTex || !ormTex || !emisTex)
+        const Texture2D* uvTex     = resolveMapOrDefault(material->uvImage(), Color::TextureUsage::Data, m_defaultUv.get());
+        if (!normalTex || !ormTex || !emisTex || !uvTex)
         {
             DE_LOG_ERROR(LogCategory::Render, "GpuResourceCache::ensureMaterial: id={} missing default map SRV", material->id);
             return false;
@@ -260,9 +271,9 @@ namespace Dark
             packed  = created.get();
         }
 
-        if (!packed->pack(m_renderer->device(), *albedoTex, *normalTex, *ormTex, *emisTex))
+        if (!packed->pack(m_renderer->device(), *albedoTex, *normalTex, *ormTex, *emisTex, *uvTex))
             return false;
-        packed->setPackedMapIds(albedoId, normalId, ormId, emisId);
+        packed->setPackedMapIds(albedoId, normalId, ormId, emisId, uvId);
 
         registerPackedHeap(&packed->packedHeap());
         if (m_shadowCpu.ptr != 0)
@@ -547,6 +558,7 @@ namespace Dark
         m_defaultNormal.reset();
         m_defaultOrm.reset();
         m_defaultEmissive.reset();
+        m_defaultUv.reset();
         m_defaultTerrainAlbedo.reset();
         m_defaultTerrainOrm.reset();
         m_shadowCpu     = {};

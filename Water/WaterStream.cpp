@@ -355,7 +355,8 @@ namespace Dark
         const SsrSettings* ssrSettings,
         const Terrain::HeightMap* heightMap,
         const Sky::Environment* env,
-        float thermal)
+        float thermal,
+        float ultraviolet)
     {
         // Caller copies the lake params and writes this ribbon's flowSpeed first.
         if (!cmd || !pipeline.isValid() || !mesh.valid())
@@ -386,6 +387,7 @@ namespace Dark
         const bool hasSsr = pipeline.ssrDescriptorsBound(sceneColorCpu, depthCpu);
         WaterPipeline::fillSsr(cb, camera, ssrSettings, !debug || debug->ssrEnabled, hasSsr, env);
         cb.thermal = thermal > 0.0f ? thermal : 0.0f;
+        cb.ultraviolet = ultraviolet > 0.0f ? ultraviolet : 0.0f;
         pipeline.setConstants(cmd, cb, frameIndex, drawIndex);
         pipeline.setLights(cmd, 0);
         pipeline.setSsrSrvs(sceneColorCpu, depthCpu);

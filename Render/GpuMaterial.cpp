@@ -5,7 +5,7 @@
 namespace Dark
 {
 
-    bool GpuMaterial::pack(ID3D12Device* device, const Texture2D& albedo, const Texture2D& normal, const Texture2D& orm, const Texture2D& emissive)
+    bool GpuMaterial::pack(ID3D12Device* device, const Texture2D& albedo, const Texture2D& normal, const Texture2D& orm, const Texture2D& emissive, const Texture2D& uv)
     {
         m_heap = PackedSrvHeap{};
         m_heap.shadowSlot = kShadowSlot;
@@ -16,26 +16,28 @@ namespace Dark
             DE_LOG_ERROR(LogCategory::Render, "GpuMaterial::pack: {} has no CPU SRV", name);
             return false;
         };
-        if (!requireSrv(albedo, "albedo") || !requireSrv(normal, "normal") || !requireSrv(orm, "orm") || !requireSrv(emissive, "emissive"))
+        if (!requireSrv(albedo, "albedo") || !requireSrv(normal, "normal") || !requireSrv(orm, "orm") || !requireSrv(emissive, "emissive") || !requireSrv(uv, "uv"))
             return false;
         D3D12_CPU_DESCRIPTOR_HANDLE src[kSrvCount]{};
         src[kAlbedoSlot]   = albedo.cpuHandle();
         src[kNormalSlot]   = normal.cpuHandle();
         src[kOrmSlot]      = orm.cpuHandle();
         src[kEmissiveSlot] = emissive.cpuHandle();
-        // Slot 4 (shadow) is filled later by copyShadow.
+        src[kUvSlot]       = uv.cpuHandle();
+        // Shadow is the last slot, filled later by copyShadow.
         if (!packFromCpuHandles(device, m_heap, src, kSrvCount))
             return false;
         m_heap.shadowSlot = kShadowSlot;
         return true;
     }
 
-    void GpuMaterial::setPackedMapIds(AssetID albedo, AssetID normal, AssetID orm, AssetID emissive)
+    void GpuMaterial::setPackedMapIds(AssetID albedo, AssetID normal, AssetID orm, AssetID emissive, AssetID uv)
     {
         m_packedMapIds[kAlbedoSlot]   = albedo;
         m_packedMapIds[kNormalSlot]   = normal;
         m_packedMapIds[kOrmSlot]      = orm;
         m_packedMapIds[kEmissiveSlot] = emissive;
+        m_packedMapIds[kUvSlot]       = uv;
     }
 
     void GpuMaterial::bind(ID3D12GraphicsCommandList* cmd, UINT albedoSrvRootIndex) const

@@ -10,6 +10,7 @@ using Dark::compileShaderFromFile;
 using Dark::encodeSrgbForColorFormat;
 using Dark::makeEncodeSrgbMacros;
 using Dark::makeThermalMacros;
+using Dark::makeUvMacros;
 using Microsoft::WRL::ComPtr;
 
 namespace
@@ -121,6 +122,9 @@ TEST(ShaderCompile, TerrainGBufferCompiles)
     D3D_SHADER_MACRO thermalMacros[3];
     makeThermalMacros("0.41", thermalMacros);
     EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps, thermalMacros));
+    D3D_SHADER_MACRO uvMacros[3];
+    makeUvMacros("0.12", uvMacros);
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps, uvMacros));
 }
 
 TEST(ShaderCompile, TerrainForwardCompiles)
@@ -306,6 +310,10 @@ TEST(ShaderCompile, InstancedMesh)
     D3D_SHADER_MACRO thermalMacros[3];
     makeThermalMacros("0.41", thermalMacros);
     EXPECT_TRUE(compileShaderFromFile(gbuffer, "PSMain", "ps_5_0", ps, thermalMacros));
+    D3D_SHADER_MACRO uvMacros[3];
+    makeUvMacros("0.00", uvMacros);
+    // gUv is register(t0, space1). ps_5_0 rejects register spaces.
+    EXPECT_TRUE(compileShaderFromFile(gbuffer, "PSMain", "ps_5_1", ps, uvMacros));
     EXPECT_TRUE(compileShaderFromFile(depth, "VSMain", "vs_5_0", depthVs));
     EXPECT_NE(vs.Get(), nullptr);
     EXPECT_NE(ps.Get(), nullptr);

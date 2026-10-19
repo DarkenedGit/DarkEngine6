@@ -4,6 +4,7 @@
 #include "GBuffer.hlsli"
 #include "PbrLighting.hlsli"
 #include "Fog.hlsli"
+#include "Ultraviolet.hlsli"
 
 cbuffer LocalLightPassConstants : register(b0)
 {
@@ -141,7 +142,9 @@ float3 LocalLightFogScatter(float3 cam, float3 worldPos, GpuLocalLight light, Fo
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    if (lighting < 0.5f)
+    // Positive is lit. Negative is the ultraviolet strength. Zero discards.
+    const float uvStrength = saturate(-lighting);
+    if (!(lighting > 0.5f || uvStrength > 1.0e-4f))
         discard;
 
     int2  texel = int2(input.position.xy);
@@ -205,11 +208,14 @@ float4 PSMain(PSInput input) : SV_TARGET
         return float4(faceColor * shadow * att, 0.0f);
     }
 
-    float3 lit = PbrPunctual(n, v, albedo.rgb, roughness, metallic, toLight, light.color, light.sourceRadius);
+    float3 surf = beeShift(albedo.rgb, albedo.a, uvStrength);
+    float3 lit = PbrPunctual(n, v, surf, roughness, metallic, toLight, light.color, light.sourceRadius);
     lit *= att;
     lit *= shadow;
 
     FogParams fp  = MakeFogParams();
+    if (uvStrength > 1.0e-4f)
+        fp.fogColor = beeShift(fp.fogColor, kUvFog, uvStrength);
     FogResult fog = FogIntegrate(cameraPos, worldPos, fp, gHeightMap, gHeightSamp, 1.0f);
     lit *= fog.transmittance;
     lit += LocalLightFogScatter(cameraPos, worldPos, light, fp);

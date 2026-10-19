@@ -163,6 +163,7 @@ TEST(EntityInput, ContentFileFeedsSandboxAndEditor)
     EXPECT_TRUE(hasKey(sandbox, "pickup", Key::G, 1.0f));
     EXPECT_TRUE(hasKey(sandbox, "night_sight", Key::N, 1.0f));
     EXPECT_TRUE(hasKey(sandbox, "infrared", Key::H, 1.0f));
+    EXPECT_TRUE(hasKey(sandbox, "ultraviolet", Key::U, 1.0f));
     EXPECT_TRUE(hasMouse(sandbox, "attack", MouseButton::Left));
     EXPECT_TRUE(hasMouse(sandbox, "shield", MouseButton::Right));
     EXPECT_TRUE(hasAxisHeld(sandbox, "shield", GamepadAxis::LeftTrigger, 0.45f));
@@ -178,6 +179,7 @@ TEST(EntityInput, ContentFileFeedsSandboxAndEditor)
     EXPECT_FALSE(hasKey(editor, "pickup", Key::G, 1.0f));
     EXPECT_FALSE(hasKey(editor, "night_sight", Key::N, 1.0f));
     EXPECT_FALSE(hasKey(editor, "infrared", Key::H, 1.0f));
+    EXPECT_FALSE(hasKey(editor, "ultraviolet", Key::U, 1.0f));
     EXPECT_TRUE(hasKey(editor, "move_x", Key::D, 1.0f));
     const std::vector<ActionMap::Binding>* lookY = editor.bindings("look_y");
     ASSERT_NE(lookY, nullptr);

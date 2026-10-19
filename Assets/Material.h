@@ -54,9 +54,11 @@ namespace Dark
         void setNormalImage(AssetRef<Image> image);
         void setOrmImage(AssetRef<Image> image);
         void setEmissiveImage(AssetRef<Image> image);
+        void setUvImage(AssetRef<Image> image);
         const AssetRef<Image>& normalImage() const { return m_normal; }
         const AssetRef<Image>& ormImage() const { return m_orm; }
         const AssetRef<Image>& emissiveImage() const { return m_emissiveImage; }
+        const AssetRef<Image>& uvImage() const { return m_uvImage; }
 
         void  setAo(float ao);
         float ao() const { return m_ao; }
@@ -77,6 +79,7 @@ namespace Dark
         AssetRef<Image>   m_normal;
         AssetRef<Image>   m_orm;
         AssetRef<Image>   m_emissiveImage;
+        AssetRef<Image>   m_uvImage;
         float             m_baseColor[4]{ 1.0f, 1.0f, 1.0f, 1.0f };
         float             m_emissiveColor[3]{ 1.0f, 1.0f, 1.0f };
         float             m_metallic     = 0.0f;
@@ -88,7 +91,7 @@ namespace Dark
         MaterialAlphaMode m_alphaMode    = MaterialAlphaMode::Opaque;
     };
 
-    // "m:{albedo}:{normal}:{orm}:{emis}:{r}:{g}:{b}:{a}:{metal}:{rough}:{emisS}:{ao}:{nScale}:{cut}:{mode}:{er}:{eg}:{eb}"
+    // "m:{albedo}:{normal}:{orm}:{emis}:{uv}:{r}:{g}:{b}:{a}:{metal}:{rough}:{emisS}:{ao}:{nScale}:{cut}:{mode}:{er}:{eg}:{eb}"
     std::string materialRecipeKey(const Material& m);
 
     // Packed ORM: R=AO, G=roughness, B=metallic, A=255. Linear, not defaulted. Both null → false.

@@ -90,6 +90,7 @@ namespace Dark
         const SsrSettings* ssrSettings,
         const Terrain::HeightMap* heightMap,
         const Sky::Environment* env,
-        float thermal = 0.0f);
+        float thermal = 0.0f,
+        float ultraviolet = 0.0f);
 
 } // namespace Dark

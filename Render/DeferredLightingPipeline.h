@@ -47,7 +47,7 @@ namespace Dark
         float iblMaxRoughnessMip;
         float iblEnabled;
         float iblDebug;
-        float thermal; // 0 off, 1 false-color heat. RT0.a is heat while this is above 0.
+        float thermal; // >0 infrared, <0 ultraviolet strength, 0 off. RT0.a matches the sign.
     };
 
     static_assert(sizeof(LightingConstants) == 57 * sizeof(float), "lighting root constants");

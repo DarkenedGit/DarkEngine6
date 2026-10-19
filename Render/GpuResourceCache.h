@@ -60,6 +60,7 @@ namespace Dark
         const Texture2D* defaultNormal() const { return m_defaultNormal.get(); }
         const Texture2D* defaultOrm() const { return m_defaultOrm.get(); }
         const Texture2D* defaultEmissive() const { return m_defaultEmissive.get(); }
+        const Texture2D* defaultUv() const { return m_defaultUv.get(); }
         const Texture2D* defaultTerrainAlbedo() const { return m_defaultTerrainAlbedo.get(); }
         const Texture2D* defaultTerrainOrm() const { return m_defaultTerrainOrm.get(); }
 
@@ -125,6 +126,7 @@ namespace Dark
         std::unique_ptr<Texture2D>  m_defaultNormal;
         std::unique_ptr<Texture2D>  m_defaultOrm;
         std::unique_ptr<Texture2D>  m_defaultEmissive;
+        std::unique_ptr<Texture2D>  m_defaultUv;
         std::unique_ptr<Texture2D>  m_defaultTerrainAlbedo;
         std::unique_ptr<Texture2D>  m_defaultTerrainOrm;
         std::unordered_map<AssetID, TexEntry> m_textures;

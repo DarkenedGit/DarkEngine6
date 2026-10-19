@@ -27,7 +27,9 @@ namespace Dark
 		m_psoWire.Reset();
 		m_psoPoint.Reset();
 		m_psoThermal.Reset();
+		m_psoUv.Reset();
 		m_thermal = false;
+		m_ultraviolet = false;
 		m_gbuffer = pass == SkinnedMeshPass::GBuffer;
 		m_shadow  = pass == SkinnedMeshPass::Shadow;
 		const bool transparent = pass == SkinnedMeshPass::ForwardTransparent;
@@ -38,11 +40,15 @@ namespace Dark
 			return false;
 		}
 
-		D3D12_DESCRIPTOR_RANGE srvRange{};
-		srvRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-		srvRange.NumDescriptors                    = m_gbuffer ? GpuMaterial::kMapSrvCount : GpuMaterial::kSrvCount;
-		srvRange.BaseShaderRegister                = 0;
-		srvRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+		D3D12_DESCRIPTOR_RANGE mapRanges[3]{};
+		UINT                   mapRangeCount = 2;
+		if (m_gbuffer)
+			fillGBufferMapRanges(mapRanges);
+		else
+		{
+			fillForwardMapRanges(mapRanges);
+			mapRangeCount = 3;
+		}
 
 		D3D12_ROOT_PARAMETER rootParams[4]{};
 		rootParams[kRootConstants].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
@@ -55,8 +61,8 @@ namespace Dark
 
 		rootParams[kRootAlbedoSrv].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
 		rootParams[kRootAlbedoSrv].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
-		rootParams[kRootAlbedoSrv].DescriptorTable.NumDescriptorRanges = 1;
-		rootParams[kRootAlbedoSrv].DescriptorTable.pDescriptorRanges   = &srvRange;
+		rootParams[kRootAlbedoSrv].DescriptorTable.NumDescriptorRanges = mapRangeCount;
+		rootParams[kRootAlbedoSrv].DescriptorTable.pDescriptorRanges   = mapRanges;
 
 		rootParams[kRootShadowCbv].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
 		rootParams[kRootShadowCbv].ShaderVisibility          = D3D12_SHADER_VISIBILITY_PIXEL;
@@ -214,6 +220,21 @@ namespace Dark
 				m_rootSignature.Reset();
 				return false;
 			}
+			D3D_SHADER_MACRO uvMacros[3];
+			makeUvMacros("0.30", uvMacros);
+			ComPtr<ID3DBlob> uvPs;
+			if (!compileShaderFromContent(shader, "PSMain", "ps_5_1", uvPs, uvMacros))
+			{
+				m_rootSignature.Reset();
+				return false;
+			}
+			D3D12_GRAPHICS_PIPELINE_STATE_DESC uvDesc = psoDesc;
+			uvDesc.PS = { uvPs->GetBufferPointer(), uvPs->GetBufferSize() };
+			if (FailedHr(device->CreateGraphicsPipelineState(&uvDesc, IID_PPV_ARGS(&m_psoUv)), "CreateGraphicsPipelineState (skinned ultraviolet)"))
+			{
+				m_rootSignature.Reset();
+				return false;
+			}
 		}
 		const char* passName = m_gbuffer ? "GBuffer" : (transparent ? "ForwardTransparent" : "Forward");
 		DE_LOG_INFO(LogCategory::Render, "SkinnedMeshPipeline: ready ({})", passName);
@@ -225,6 +246,7 @@ namespace Dark
 		if (!cmd || !m_rootSignature)
 			return;
 		ID3D12PipelineState* pso = m_shadow ? m_psoSolid.Get()
+			: (m_ultraviolet && fill == DebugFill::Solid && m_psoUv) ? m_psoUv.Get()
 			: (m_thermal && fill == DebugFill::Solid && m_psoThermal) ? m_psoThermal.Get()
 			: selectFillPso(fill, m_psoSolid.Get(), m_psoWire.Get(), m_psoPoint.Get());
 		if (!pso)

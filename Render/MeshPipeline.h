@@ -33,7 +33,7 @@ namespace Dark
         static constexpr UINT kRootConstants = 0;
         static constexpr UINT kRootAlbedoSrv = 1;
         static constexpr UINT kRootShadowCbv = 2;
-        static constexpr UINT kSrvCount      = 5; // albedo + normal + orm + emissive + shadow
+        static constexpr UINT kSrvCount      = 6; // albedo + normal + orm + emissive + UV + shadow
 
         MeshPipeline() = default;
 
@@ -42,6 +42,7 @@ namespace Dark
 
         void bind(ID3D12GraphicsCommandList* cmd, DebugFill fill = DebugFill::Solid) const;
         void setThermal(bool on) { m_thermal = on; }
+        void setUltraviolet(bool on) { m_ultraviolet = on; }
         void setConstants(ID3D12GraphicsCommandList* cmd, const MeshFrameConstants& constants) const;
         void setGBufferConstants(ID3D12GraphicsCommandList* cmd, const MeshGBufferConstants& constants) const;
 
@@ -56,7 +57,9 @@ namespace Dark
         ComPtr<ID3D12PipelineState> m_psoWire;
         ComPtr<ID3D12PipelineState> m_psoPoint;
         ComPtr<ID3D12PipelineState> m_psoThermal;
-        bool                        m_thermal = false;
+        ComPtr<ID3D12PipelineState> m_psoUv;
+        bool                        m_thermal     = false;
+        bool                        m_ultraviolet = false;
     };
 
 } // namespace Dark

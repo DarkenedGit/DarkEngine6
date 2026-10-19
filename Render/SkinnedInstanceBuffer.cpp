@@ -159,7 +159,9 @@ namespace Dark
         ComPtr<ID3D12RootSignature> gbRoot;
         ComPtr<ID3D12PipelineState> gbPso;
         ComPtr<ID3D12PipelineState> gbThermal;
+        ComPtr<ID3D12PipelineState> gbUv;
         bool                        thermal = false;
+        bool                        ultraviolet = false;
         ComPtr<ID3D12RootSignature> depthRoot;
         ComPtr<ID3D12PipelineState> depthPso;
         ComPtr<ID3D12RootSignature> forwardRoot;
@@ -181,12 +183,9 @@ namespace Dark
 
     bool SkinnedInstanceBuffer::Gpu::createPipelines(ID3D12Device* device)
     {
-        D3D12_DESCRIPTOR_RANGE srvRange{};
-        srvRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-        srvRange.NumDescriptors                    = GpuMaterial::kMapSrvCount;
-        srvRange.BaseShaderRegister                = 0;
-        srvRange.RegisterSpace                     = 0;
-        srvRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+        // UV is t0 space1 so instances stay t4. The table is still one root DWORD.
+        D3D12_DESCRIPTOR_RANGE mapRanges[2]{};
+        fillGBufferMapRanges(mapRanges);
 
         D3D12_ROOT_PARAMETER gbParams[5]{};
         gbParams[SkinnedInstanceBuffer::kGbConstants].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
@@ -197,8 +196,8 @@ namespace Dark
 
         gbParams[SkinnedInstanceBuffer::kGbMaterial].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         gbParams[SkinnedInstanceBuffer::kGbMaterial].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
-        gbParams[SkinnedInstanceBuffer::kGbMaterial].DescriptorTable.NumDescriptorRanges = 1;
-        gbParams[SkinnedInstanceBuffer::kGbMaterial].DescriptorTable.pDescriptorRanges   = &srvRange;
+        gbParams[SkinnedInstanceBuffer::kGbMaterial].DescriptorTable.NumDescriptorRanges = 2;
+        gbParams[SkinnedInstanceBuffer::kGbMaterial].DescriptorTable.pDescriptorRanges   = mapRanges;
 
         gbParams[SkinnedInstanceBuffer::kGbInstances].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_SRV;
         gbParams[SkinnedInstanceBuffer::kGbInstances].ShaderVisibility          = D3D12_SHADER_VISIBILITY_VERTEX;
@@ -291,6 +290,15 @@ namespace Dark
             thermalDesc.PS = { thermalPs->GetBufferPointer(), thermalPs->GetBufferSize() };
             if (FailedHr(device->CreateGraphicsPipelineState(&thermalDesc, IID_PPV_ARGS(&gbThermal)), "CreateGraphicsPipelineState (skinned thermal)"))
                 return false;
+            D3D_SHADER_MACRO uvMacros[3];
+            makeUvMacros("0.30", uvMacros);
+            ComPtr<ID3DBlob> uvPs;
+            if (!compileShaderFromContent("shaders/SkinnedMeshGBufferInstanced.hlsl", "PSMain", "ps_5_1", uvPs, uvMacros))
+                return false;
+            D3D12_GRAPHICS_PIPELINE_STATE_DESC uvDesc = gbPsoDesc;
+            uvDesc.PS = { uvPs->GetBufferPointer(), uvPs->GetBufferSize() };
+            if (FailedHr(device->CreateGraphicsPipelineState(&uvDesc, IID_PPV_ARGS(&gbUv)), "CreateGraphicsPipelineState (skinned ultraviolet)"))
+                return false;
         }
 
         D3D12_ROOT_PARAMETER depthParams[4]{};
@@ -370,12 +378,9 @@ namespace Dark
         if (!device)
             return false;
 
-        D3D12_DESCRIPTOR_RANGE srvRange{};
-        srvRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-        srvRange.NumDescriptors                    = GpuMaterial::kSrvCount;
-        srvRange.BaseShaderRegister                = 0;
-        srvRange.RegisterSpace                     = 0;
-        srvRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+        // Shadow stays shader t4, taken from heap slot 5. UV sits at t0 space1.
+        D3D12_DESCRIPTOR_RANGE mapRanges[3]{};
+        fillForwardMapRanges(mapRanges);
 
         D3D12_ROOT_PARAMETER params[6]{};
         params[SkinnedInstanceBuffer::kForwardConstants].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
@@ -386,8 +391,8 @@ namespace Dark
 
         params[SkinnedInstanceBuffer::kForwardMaterial].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         params[SkinnedInstanceBuffer::kForwardMaterial].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
-        params[SkinnedInstanceBuffer::kForwardMaterial].DescriptorTable.NumDescriptorRanges = 1;
-        params[SkinnedInstanceBuffer::kForwardMaterial].DescriptorTable.pDescriptorRanges   = &srvRange;
+        params[SkinnedInstanceBuffer::kForwardMaterial].DescriptorTable.NumDescriptorRanges = 3;
+        params[SkinnedInstanceBuffer::kForwardMaterial].DescriptorTable.pDescriptorRanges   = mapRanges;
 
         params[SkinnedInstanceBuffer::kForwardShadow].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
         params[SkinnedInstanceBuffer::kForwardShadow].ShaderVisibility          = D3D12_SHADER_VISIBILITY_PIXEL;
@@ -491,7 +496,7 @@ namespace Dark
         if (!cmd || !gbPso)
             return;
         cmd->SetGraphicsRootSignature(gbRoot.Get());
-        cmd->SetPipelineState((thermal && gbThermal) ? gbThermal.Get() : gbPso.Get());
+        cmd->SetPipelineState((ultraviolet && gbUv) ? gbUv.Get() : (thermal && gbThermal) ? gbThermal.Get() : gbPso.Get());
     }
 
     void SkinnedInstanceBuffer::Gpu::setGBufferConstants(ID3D12GraphicsCommandList* cmd, const MeshBatchConstants& constants) const
@@ -684,6 +689,12 @@ namespace Dark
     {
         if (m_gpu)
             m_gpu->thermal = on;
+    }
+
+    void SkinnedInstanceBuffer::setUltraviolet(bool on)
+    {
+        if (m_gpu)
+            m_gpu->ultraviolet = on;
     }
 
     bool SkinnedInstanceBuffer::forwardReady() const

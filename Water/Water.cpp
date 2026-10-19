@@ -346,7 +346,8 @@ using namespace Terrain;
         D3D12_CPU_DESCRIPTOR_HANDLE depthCpu,
         const SsrSettings* ssrSettings,
         uint32_t drawIndex,
-        float thermal) const
+        float thermal,
+        float ultraviolet) const
     {
         m_lastDrawCalls = 0;
         m_lastTriangles = 0;
@@ -383,6 +384,7 @@ using namespace Terrain;
         const bool hasSsr = pipeline.ssrDescriptorsBound(sceneColorCpu, depthCpu);
         WaterPipeline::fillSsr(cb, camera, ssrSettings, !debug || debug->ssrEnabled, hasSsr, env);
         cb.thermal = thermal > 0.0f ? thermal : 0.0f;
+        cb.ultraviolet = ultraviolet > 0.0f ? ultraviolet : 0.0f;
         pipeline.setConstants(cmd, cb, frameIndex, drawIndex);
         pipeline.setLights(cmd, lightsVa);
         pipeline.setSsrSrvs(sceneColorCpu, depthCpu);

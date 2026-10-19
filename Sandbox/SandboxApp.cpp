@@ -184,6 +184,7 @@ constexpr float kDeathSeconds           = 2.5f;
 constexpr float kSpawnFocusSeconds      = 1.75f;
 constexpr float kNightSightBlendSeconds = 0.5f;
 constexpr float kInfraredBlendSeconds   = 0.5f;
+constexpr float kUltravioletBlendSeconds = 0.5f;
 
 void copyMatrix(float dst[16], const Math::Matrix4f& m)
 {
@@ -403,7 +404,7 @@ void SandboxApp::registerDefaultActions()
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(F3/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
         "possessed WASD/arrows/LS move, double-tap a direction to dodge, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, 1 melee  2 rifle, "
-        "hold attack to charge, release to swing (tap = normal). Hold RMB/V/LT shield; hold longer then release to parry-slam. Ctrl crouch, C camouflage, G pickup, L flashlight, N night sight, H infrared, Shift/LB sprint, swim in water, "
+        "hold attack to charge, release to swing (tap = normal). Hold RMB/V/LT shield; hold longer then release to parry-slam. Ctrl crouch, C camouflage, G pickup, L flashlight, N night sight, H infrared, U ultraviolet, Shift/LB sprint, swim in water, "
         "T/R3 walk the wiggle demo  F2 lighting  F5 quicksave  F9 quickload  M dev tools  P profiler  -forward linear albedo + sRGB encode (legacyUnormAlbedo restores old sampling)  -no-menu skip scene picker");
 }
 
@@ -520,13 +521,30 @@ void SandboxApp::handleRuntimeCommands(float dt)
         {
             m_infraredOn = !m_infraredOn;
             DE_LOG_INFO("Sandbox: infrared = {}", m_infraredOn);
+            if (m_infraredOn)
+            {
+                m_ultravioletOn = false;
+                m_ultraviolet   = 0.0f;
+            }
+        }
+        if (!uiKeys && nightAlive && input().actionPressed("ultraviolet"))
+        {
+            m_ultravioletOn = !m_ultravioletOn;
+            DE_LOG_INFO("Sandbox: ultraviolet = {}", m_ultravioletOn);
+            if (m_ultravioletOn)
+            {
+                m_infraredOn = false;
+                m_infrared   = 0.0f;
+            }
         }
         if (!nightAlive)
         {
-            m_nightSightOn = false;
-            m_nightSight   = 0.0f;
-            m_infraredOn   = false;
-            m_infrared     = 0.0f;
+            m_nightSightOn  = false;
+            m_nightSight    = 0.0f;
+            m_infraredOn    = false;
+            m_infrared      = 0.0f;
+            m_ultravioletOn = false;
+            m_ultraviolet   = 0.0f;
         }
         else
         {
@@ -543,6 +561,13 @@ void SandboxApp::handleRuntimeCommands(float dt)
                 m_infrared = Math::Min(heatTarget, m_infrared + heatStep);
             else
                 m_infrared = Math::Max(heatTarget, m_infrared - heatStep);
+
+            const float uvTarget = m_ultravioletOn ? 1.0f : 0.0f;
+            const float uvStep   = dt > 0.0f ? dt / kUltravioletBlendSeconds : 0.0f;
+            if (m_ultraviolet < uvTarget)
+                m_ultraviolet = Math::Min(uvTarget, m_ultraviolet + uvStep);
+            else
+                m_ultraviolet = Math::Max(uvTarget, m_ultraviolet - uvStep);
         }
     }
     if (!uiKeys && input().actionPressed("toggle_lighting"))
@@ -1458,6 +1483,8 @@ void SandboxApp::respawnPlayer()
     m_nightSight        = 0.0f;
     m_infraredOn        = false;
     m_infrared          = 0.0f;
+    m_ultravioletOn     = false;
+    m_ultraviolet       = 0.0f;
     m_playerDeadTimer   = 0.0f;
     m_spawnAge          = 0.0f;
     m_hurtSoundTimer    = 0.0f;
@@ -1504,7 +1531,7 @@ TonemapSettings SandboxApp::playerPostFx()
     s.blur           = 1.0f - u;
     s.uniformBlur    = 1.0f - u;
     s.fade           = 0.0f;
-    s.nightSight     = m_infrared > 0.0f ? 0.0f : m_nightSight;
+    s.nightSight     = (m_infrared > 0.0f || m_ultraviolet > 0.0f) ? 0.0f : m_nightSight;
     return s;
 }
 
@@ -4291,7 +4318,15 @@ void SandboxApp::onRender()
         markPass(PassId::GBuffer);
         renderer().bindGBuffer();
         renderer().clearGBuffer();
-        const bool thermalDraw = m_infrared > 0.0f;
+        const bool uvDraw = m_ultraviolet > 0.0f;
+        const bool thermalDraw = !uvDraw && m_infrared > 0.0f;
+        m_meshPipeline.setUltraviolet(uvDraw);
+        m_skinnedPipeline.setUltraviolet(uvDraw);
+        m_terrainPipeline.setUltraviolet(uvDraw);
+        m_foliagePipeline.setUltraviolet(uvDraw);
+        m_grassPipeline.setUltraviolet(uvDraw);
+        m_drawList.setUltraviolet(uvDraw);
+        m_skinnedInstances.setUltraviolet(uvDraw);
         m_meshPipeline.setThermal(thermalDraw);
         m_skinnedPipeline.setThermal(thermalDraw);
         m_terrainPipeline.setThermal(thermalDraw);
@@ -4319,8 +4354,9 @@ void SandboxApp::onRender()
 
     const float skyExposure = deferred ? 1.0f : m_env.exposure();
     const float fogScale    = renderer().debugState().lightingActive() ? 1.0f : 0.0f;
-    const float thermal     = deferred ? m_infrared : 0.0f;
-    m_skyPipeline.upload(renderer().frameIndex(), m_viewCamera, m_env, skyExposure, m_water.params().waterLevel, fogScale, thermal);
+    const float ultraviolet = (deferred && m_ultraviolet > 0.0f) ? m_ultraviolet : 0.0f;
+    const float thermal     = (deferred && !(m_ultraviolet > 0.0f)) ? m_infrared : 0.0f;
+    m_skyPipeline.upload(renderer().frameIndex(), m_viewCamera, m_env, skyExposure, m_water.params().waterLevel, fogScale, thermal, ultraviolet);
     if (!deferred)
     {
         markPass(PassId::Sky);
@@ -4488,6 +4524,13 @@ void SandboxApp::onRender()
                 m_foliagePipeline.drawGBuffer(cmd, renderer(), assets(), m_foliagePrototypes, m_terrain, m_foliage.empty() ? nullptr : &m_foliage, m_foliageDensity, m_viewCamera, viewProj, prevViewProj, frustum);
         }
 
+        m_meshPipeline.setUltraviolet(false);
+        m_skinnedPipeline.setUltraviolet(false);
+        m_terrainPipeline.setUltraviolet(false);
+        m_foliagePipeline.setUltraviolet(false);
+        m_grassPipeline.setUltraviolet(false);
+        m_drawList.setUltraviolet(false);
+        m_skinnedInstances.setUltraviolet(false);
         m_meshPipeline.setThermal(false);
         m_skinnedPipeline.setThermal(false);
         m_terrainPipeline.setThermal(false);
@@ -4523,7 +4566,7 @@ void SandboxApp::onRender()
         applyFogToLighting(lc, fog);
         fillIblLightingConstants(lc, m_ibl, renderer().debugState().iblEnabled, renderer().debugState().iblDebug, iblGpuReady(renderer().gpuResources(), m_iblImageId));
         lc.iblNight = 1.0f - m_env.dayFactor();
-        lc.thermal  = m_infrared;
+        lc.thermal  = m_ultraviolet > 0.0f ? -m_ultraviolet : m_infrared;
         fillSsrLightingConstants(lc, m_ssr, renderer().debugState().ssrEnabled, m_scene.ssr().isValid() && renderer().hasGBuffer());
         // The pass list is an order check after the frame. These five run inside resolveDeferred in this order.
         markPass(PassId::Decals);
@@ -4760,7 +4803,8 @@ void SandboxApp::onRender()
                 waterDepth,
                 waterSsr,
                 drawIndex,
-                thermal);
+                thermal,
+                ultraviolet);
             drawIndex = 1;
         }
         for (const SandboxStream& stream : m_streams)
@@ -4792,7 +4836,8 @@ void SandboxApp::onRender()
                     waterSsr,
                     &m_terrain.coarse(),
                     &m_env,
-                    thermal))
+                    thermal,
+                    ultraviolet))
                 ++drawIndex;
         }
     }
@@ -4934,8 +4979,9 @@ void SandboxApp::onRender()
             // Resize drops the 1×1. Zero the correction before this frame can apply a stale sample.
             if (m_scene.syncAutoExposureSize(renderer()))
                 resetAutoExposure(m_autoExposureState);
-            // A thermal frame is mostly dark blue. Hold the correction so the meter does not open the exposure.
-            const float measured = (m_autoExposure.mode == ExposureMode::Auto && !(m_infrared > 0.0f))
+            // Infrared and ultraviolet both swing the meter. Hold the correction while either is on.
+            const bool holdExposure = m_infrared > 0.0f || m_ultraviolet > 0.0f;
+            const float measured = (m_autoExposure.mode == ExposureMode::Auto && !holdExposure)
                 ? m_scene.autoExposure().readMeasuredLuma(renderer().frameIndex())
                 : 0.0f;
             m_autoExposureResult = adaptExposure(m_autoExposureState, measured, exposure, m_frameDt, m_autoExposure);
@@ -4943,7 +4989,7 @@ void SandboxApp::onRender()
         }
         post.exposure = exposure;
         markPass(PassId::Post);
-        m_scene.applyPost(renderer(), cmd, viewProj, post, deferredMeter && m_autoExposure.mode == ExposureMode::Auto && !(m_infrared > 0.0f));
+        m_scene.applyPost(renderer(), cmd, viewProj, post, deferredMeter && m_autoExposure.mode == ExposureMode::Auto && !(m_infrared > 0.0f || m_ultraviolet > 0.0f));
     }
 
     m_scene.endCameraFrame(m_viewCamera, viewProj);

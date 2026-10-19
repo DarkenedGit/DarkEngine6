@@ -235,7 +235,7 @@ void SkyPipeline::bind(ID3D12GraphicsCommandList* cmd) const
     cmd->SetPipelineState(m_psoCloud ? m_psoCloud.Get() : m_pso.Get());
 }
 
-void SkyPipeline::upload(uint32_t frameIndex, const Camera3D& camera, const Sky::Environment& env, float exposure, float waterLevel, float fogScale, float thermal)
+void SkyPipeline::upload(uint32_t frameIndex, const Camera3D& camera, const Sky::Environment& env, float exposure, float waterLevel, float fogScale, float thermal, float ultraviolet)
 {
     if (!m_skyMapped)
         return;
@@ -310,6 +310,7 @@ void SkyPipeline::upload(uint32_t frameIndex, const Camera3D& camera, const Sky:
     Sky::writeCloudLayer(layer, env);
     std::memcpy(reinterpret_cast<uint8_t*>(&cb) + offsetof(SkyFrameConstants, clLightColor), &layer, sizeof(layer));
     cb.thermal = thermal > 0.0f ? thermal : 0.0f;
+    cb.ultraviolet = ultraviolet > 0.0f ? ultraviolet : 0.0f;
 
     const UINT slot = frameIndex % kFrameCount;
     std::memcpy(m_skyMapped + static_cast<size_t>(slot) * kSkySlotBytes, &cb, sizeof(cb));

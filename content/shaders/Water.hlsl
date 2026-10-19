@@ -97,10 +97,12 @@ cbuffer FrameConstants : register(b0)
     float    flowSpeed;
     float    detailAmount;
     float    thermal; // 0 beauty water, 1 the cold stop
+    float    ultraviolet; // 0 beauty water. Shifts the body only; SSR stays.
 };
 
 #include "SkyEval.hlsli"
 #include "Thermal.hlsli"
+#include "Ultraviolet.hlsli"
 
 Texture2D    gHeightMap  : register(t1);
 SamplerState gHeightSamp : register(s0);
@@ -454,6 +456,11 @@ float4 PSMain(PSInput input) : SV_TARGET
     float3 body = lerp(deepColor, shallowColor, shallow);
     body *= lerp(1.0f, 0.2f, foam);
     float3 foamColor = float3(0.85f, 0.88f, 0.86f);
+    if (ultraviolet > 1.0e-4f)
+    {
+        body = beeShift(body, kUvWater, ultraviolet);
+        foamColor = beeShift(foamColor, kUvWater, ultraviolet);
+    }
 
     float edge = stream ? 1.0f : saturate(input.bankUv);
     float metersIn = input.bankUv * (input.streamWidth * 0.5f);
@@ -525,7 +532,7 @@ float4 PSMain(PSInput input) : SV_TARGET
     fp.lightDir             = lightDir;
     fp.lightColor           = lightColor;
     fp.ambientColor         = ambientColor;
-    fp.fogColor             = fogColor;
+    fp.fogColor             = ultraviolet > 1.0e-4f ? beeShift(fogColor, kUvFog, ultraviolet) : fogColor;
     fp.fogDensity           = fogDensity;
     fp.heightFogDensity     = heightFogDensity;
     fp.heightFogFalloff     = heightFogFalloff;

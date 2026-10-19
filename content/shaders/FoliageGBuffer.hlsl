@@ -2,6 +2,7 @@
 
 #include "GBuffer.hlsli"
 #include "Thermal.hlsli"
+#include "Ultraviolet.hlsli"
 
 cbuffer PartConstants : register(b0)
 {
@@ -83,7 +84,11 @@ GBufferOut PSMain(PSInput input, bool isFront : SV_IsFrontFace)
     float emis = dot(gEmissive.Sample(gSamp, input.uv).rgb, float3(0.2126f, 0.7152f, 0.0722f)) * color.a;
 
     GBufferOut o;
+#ifdef DE_ULTRAVIOLET
+    o.albedo   = float4(albedo, saturate(DE_UV_CLASS));
+#else
     o.albedo   = float4(albedo, thermalScalar(emis, metal));
+#endif
     o.attrib   = float4(EncodeOct(n), rough, metal);
     o.velocity = VelocityUv(input.currClip, input.prevClip);
     o.ao       = aoOut;

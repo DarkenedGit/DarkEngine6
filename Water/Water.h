@@ -105,7 +105,8 @@ namespace Dark
             D3D12_CPU_DESCRIPTOR_HANDLE depthCpu = {},
             const SsrSettings* ssrSettings = nullptr,
             uint32_t drawIndex = 0,
-            float thermal = 0.0f) const;
+            float thermal = 0.0f,
+            float ultraviolet = 0.0f) const;
 
         float heightAtWorld(float x, float z) const;
         bool  tryHeightAtWorld(float x, float z, float& outY) const;

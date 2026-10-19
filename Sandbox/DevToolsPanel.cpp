@@ -1404,6 +1404,7 @@ void SandboxApp::drawDevTools()
         ImGui::TextDisabled("Hold RMB, V, or left trigger. The flashlight turns off while the shield is in use.");
         ImGui::TextDisabled("Night sight %s  (N)", m_nightSightOn ? "on" : "off");
         ImGui::TextDisabled("Infrared %s  (H)", m_infraredOn ? "on" : "off");
+        ImGui::TextDisabled("Ultraviolet %s  (U)", m_ultravioletOn ? "on" : "off");
     }
 
     if (ImGui::CollapsingHeader("Rifle"))

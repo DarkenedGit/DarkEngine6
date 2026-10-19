@@ -3,6 +3,7 @@
 
 #include "GBuffer.hlsli"
 #include "Thermal.hlsli"
+#include "Ultraviolet.hlsli"
 
 cbuffer FrameConstants : register(b0)
 {
@@ -105,7 +106,11 @@ GBufferOut PSMain(PSInput input)
         float4 orm = gOrm0.Sample(gSplatSamp, input.uv);
         float3 nG  = normalize(input.normalWS);
         GBufferOut o;
+#ifdef DE_ULTRAVIOLET
+        o.albedo   = float4(alb, saturate(DE_UV_CLASS));
+#else
         o.albedo   = float4(alb, thermalScalar(0.0f, 0.0f));
+#endif
         o.attrib   = float4(EncodeOct(nG), orm.g, orm.b);
         o.velocity = VelocityUv(input.currClip, input.prevClip);
         o.ao       = orm.r;
@@ -208,7 +213,11 @@ GBufferOut PSMain(PSInput input)
     float3 nWorld = normalize(nT.x * tW + nT.y * bW + nT.z * nG);
 
     GBufferOut o;
+#ifdef DE_ULTRAVIOLET
+    o.albedo   = float4(alb, saturate(DE_UV_CLASS));
+#else
     o.albedo   = float4(alb, thermalScalar(0.0f, 0.0f));
+#endif
     o.attrib   = float4(EncodeOct(nWorld), rough, metal);
     o.velocity = VelocityUv(input.currClip, input.prevClip);
     o.ao       = ao;

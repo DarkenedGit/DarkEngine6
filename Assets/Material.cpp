@@ -49,6 +49,7 @@ namespace Dark
         m_normal.reset();
         m_orm.reset();
         m_emissiveImage.reset();
+        m_uvImage.reset();
         m_baseColor[0] = r;
         m_baseColor[1] = g;
         m_baseColor[2] = b;
@@ -94,6 +95,7 @@ namespace Dark
         m_normal          = src.normalImage();
         m_orm             = src.ormImage();
         m_emissiveImage   = src.emissiveImage();
+        m_uvImage         = src.uvImage();
         m_baseColor[0]    = src.m_baseColor[0];
         m_baseColor[1]    = src.m_baseColor[1];
         m_baseColor[2]    = src.m_baseColor[2];
@@ -152,6 +154,11 @@ namespace Dark
         m_emissiveImage = std::move(image);
     }
 
+    void Material::setUvImage(AssetRef<Image> image)
+    {
+        m_uvImage = std::move(image);
+    }
+
     void Material::setAo(float ao)
     {
         m_ao = ao < 0.0f ? 0.0f : (ao > 1.0f ? 1.0f : ao);
@@ -184,11 +191,12 @@ namespace Dark
         char buf[512];
         const float* c  = m.baseColor();
         const float* e  = m.emissiveColor();
-        std::snprintf(buf, sizeof(buf), "m:%llu:%llu:%llu:%llu:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%u:%.9g:%.9g:%.9g",
+        std::snprintf(buf, sizeof(buf), "m:%llu:%llu:%llu:%llu:%llu:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%u:%.9g:%.9g:%.9g",
                       static_cast<unsigned long long>(recipeImageId(m.albedo())),
                       static_cast<unsigned long long>(recipeImageId(m.normalImage())),
                       static_cast<unsigned long long>(recipeImageId(m.ormImage())),
                       static_cast<unsigned long long>(recipeImageId(m.emissiveImage())),
+                      static_cast<unsigned long long>(recipeImageId(m.uvImage())),
                       static_cast<double>(c[0]),
                       static_cast<double>(c[1]),
                       static_cast<double>(c[2]),
