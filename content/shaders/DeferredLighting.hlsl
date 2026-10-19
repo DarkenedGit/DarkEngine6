@@ -9,6 +9,7 @@
 #include "Shadow.hlsli"
 #define FOG_SAMPLE_CSM 1
 #include "Fog.hlsli"
+#include "Thermal.hlsli"
 
 cbuffer LightingConstants : register(b0)
 {
@@ -41,6 +42,7 @@ cbuffer LightingConstants : register(b0)
     float    iblMaxRoughnessMip;
     float    iblEnabled;
     float    iblDebug;
+    float    thermal; // 0 off, 1 false-color heat. RT0.a is heat while this is on.
 };
 
 Texture2D    gAlbedo    : register(t0);
@@ -99,7 +101,11 @@ float4 PSMain(PSInput input) : SV_TARGET
         discard;
 
     if (lighting < 0.5f)
+    {
+        if (thermal > 1.0e-4f)
+            return float4(lerp(albedo.rgb, thermalFalseColor(saturate(albedo.a)), saturate(thermal)), 1);
         return float4(albedo.rgb, 1);
+    }
 
     uint w, h;
     gDepth.GetDimensions(w, h);
@@ -154,8 +160,7 @@ float4 PSMain(PSInput input) : SV_TARGET
     float  shadow     = ComputeShadow(worldPos + n * recvOffset, cameraPos);
 
     float3 lit = diffTerm + spec
-        + PbrDirectional(n, v, albedo.rgb, roughness, metallic, lightDirWS, pbrLightColor) * shadow
-        + albedo.rgb * emissive * emissiveGain;
+        + PbrDirectional(n, v, albedo.rgb, roughness, metallic, lightDirWS, pbrLightColor) * shadow;
 
     // Debug is gated on iblDebug only, not iblEnabled. Dummy cubes → black. Skip fog.
     if (iblDebug >= 0.5f && iblDebug < 1.5f)
@@ -165,6 +170,14 @@ float4 PSMain(PSInput input) : SV_TARGET
         // lod0 along **nRot** (the cube itself), not rRot — not a reflection preview
     if (iblDebug >= 2.5f)
         return float4(dfg.x, dfg.y, 0, 1);
+
+    if (thermal > 1.0e-4f)
+    {
+        float3 heatCol = thermalFalseColor(saturate(emissive));
+        return float4(lerp(lit, heatCol, saturate(thermal)), 1);
+    }
+
+    lit += albedo.rgb * emissive * emissiveGain;
 
     FogResult fog = FogIntegrate(cameraPos, worldPos, MakeFogParams(), gHeightMap, gHeightSamp, shadow);
     return float4(ApplyLitFog(lit, fog), 1);

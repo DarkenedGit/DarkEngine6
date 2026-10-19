@@ -582,6 +582,30 @@ namespace Dark
             destroy();
             return false;
         }
+        {
+            D3D_SHADER_MACRO thermalMacros[3];
+            makeThermalMacros("0.40", thermalMacros);
+            ComPtr<ID3DBlob> thermalPs;
+            if (!compileShaderFromContent("shaders/FoliageGBuffer.hlsl", "PSMain", "ps_5_0", thermalPs, thermalMacros))
+            {
+                destroy();
+                return false;
+            }
+            D3D12_GRAPHICS_PIPELINE_STATE_DESC thermalDesc = psoDesc;
+            thermalDesc.PS = { thermalPs->GetBufferPointer(), thermalPs->GetBufferSize() };
+            thermalDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+            if (FailedHr(device->CreateGraphicsPipelineState(&thermalDesc, IID_PPV_ARGS(&m_gbThermal)), "CreateGraphicsPipelineState (foliage thermal)"))
+            {
+                destroy();
+                return false;
+            }
+            thermalDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+            if (FailedHr(device->CreateGraphicsPipelineState(&thermalDesc, IID_PPV_ARGS(&m_gbThermalTwoSided)), "CreateGraphicsPipelineState (foliage thermal two-sided)"))
+            {
+                destroy();
+                return false;
+            }
+        }
 
         D3D12_ROOT_PARAMETER depthParams[4]{};
         depthParams[kDepthConstants].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
@@ -715,6 +739,9 @@ namespace Dark
         m_indices.Reset();
         m_gbPso.Reset();
         m_gbPsoTwoSided.Reset();
+        m_gbThermal.Reset();
+        m_gbThermalTwoSided.Reset();
+        m_thermal = false;
         m_gbRoot.Reset();
         m_depthPso.Reset();
         m_depthPsoTwoSided.Reset();
@@ -1497,7 +1524,7 @@ namespace Dark
             tryGpuCull(cmd, gpu, prototypes, false, false);
 
         cmd->SetGraphicsRootSignature(m_gbRoot.Get());
-        cmd->SetPipelineState(m_gbPso.Get());
+        cmd->SetPipelineState((m_thermal && m_gbThermal) ? m_gbThermal.Get() : m_gbPso.Get());
 
         const D3D12_GPU_VIRTUAL_ADDRESS worldVa   = m_worldGpu + static_cast<UINT64>(m_activeSlot) * kWorldStride;
         const D3D12_GPU_VIRTUAL_ADDRESS indexBase = m_indexGpu + (static_cast<UINT64>(m_activeSlot) * kViewsPerFrame + m_activeView) * kIndexViewStride;
@@ -1510,7 +1537,11 @@ namespace Dark
             const AssetRef<Model>& model = prototypes.model(kKindOrder[i]);
             const Terrain::FoliageKind kind = kKindOrder[i];
             const bool twoSided = kind == Terrain::FoliageKind::Grass || kind == Terrain::FoliageKind::Tree || kind == Terrain::FoliageKind::Flower;
-            cmd->SetPipelineState(twoSided ? m_gbPsoTwoSided.Get() : m_gbPso.Get());
+            ID3D12PipelineState* pso = twoSided ? m_gbPsoTwoSided.Get() : m_gbPso.Get();
+            if (m_thermal)
+                pso = twoSided ? m_gbThermalTwoSided.Get() : m_gbThermal.Get();
+            if (pso)
+                cmd->SetPipelineState(pso);
             D3D12_GPU_VIRTUAL_ADDRESS indexVa = indexBase + static_cast<UINT64>(i) * kIndexKindStride;
             if (m_gpuCull && m_cull)
                 indexVa = m_cull->indices[m_activeSlot]->GetGPUVirtualAddress() + cullIndexByteOffset(m_activeView, static_cast<uint32_t>(i));

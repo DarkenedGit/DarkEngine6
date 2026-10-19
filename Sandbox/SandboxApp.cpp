@@ -183,6 +183,7 @@ bool tryCreateTerrainFromContent(Renderer& renderer, AssetManager& assets, const
 constexpr float kDeathSeconds           = 2.5f;
 constexpr float kSpawnFocusSeconds      = 1.75f;
 constexpr float kNightSightBlendSeconds = 0.5f;
+constexpr float kInfraredBlendSeconds   = 0.5f;
 
 void copyMatrix(float dst[16], const Math::Matrix4f& m)
 {
@@ -402,7 +403,7 @@ void SandboxApp::registerDefaultActions()
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(F3/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
         "possessed WASD/arrows/LS move, double-tap a direction to dodge, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, 1 melee  2 rifle, "
-        "hold attack to charge, release to swing (tap = normal). Hold RMB/V/LT shield; hold longer then release to parry-slam. Ctrl crouch, C camouflage, G pickup, L flashlight, N night sight, Shift/LB sprint, swim in water, "
+        "hold attack to charge, release to swing (tap = normal). Hold RMB/V/LT shield; hold longer then release to parry-slam. Ctrl crouch, C camouflage, G pickup, L flashlight, N night sight, H infrared, Shift/LB sprint, swim in water, "
         "T/R3 walk the wiggle demo  F2 lighting  F5 quicksave  F9 quickload  M dev tools  P profiler  -forward linear albedo + sRGB encode (legacyUnormAlbedo restores old sampling)  -no-menu skip scene picker");
 }
 
@@ -515,10 +516,17 @@ void SandboxApp::handleRuntimeCommands(float dt)
             m_nightSightOn = !m_nightSightOn;
             DE_LOG_INFO("Sandbox: night sight = {}", m_nightSightOn);
         }
+        if (!uiKeys && nightAlive && input().actionPressed("infrared"))
+        {
+            m_infraredOn = !m_infraredOn;
+            DE_LOG_INFO("Sandbox: infrared = {}", m_infraredOn);
+        }
         if (!nightAlive)
         {
             m_nightSightOn = false;
             m_nightSight   = 0.0f;
+            m_infraredOn   = false;
+            m_infrared     = 0.0f;
         }
         else
         {
@@ -528,6 +536,13 @@ void SandboxApp::handleRuntimeCommands(float dt)
                 m_nightSight = Math::Min(target, m_nightSight + step);
             else
                 m_nightSight = Math::Max(target, m_nightSight - step);
+
+            const float heatTarget = m_infraredOn ? 1.0f : 0.0f;
+            const float heatStep   = dt > 0.0f ? dt / kInfraredBlendSeconds : 0.0f;
+            if (m_infrared < heatTarget)
+                m_infrared = Math::Min(heatTarget, m_infrared + heatStep);
+            else
+                m_infrared = Math::Max(heatTarget, m_infrared - heatStep);
         }
     }
     if (!uiKeys && input().actionPressed("toggle_lighting"))
@@ -1441,6 +1456,8 @@ void SandboxApp::respawnPlayer()
     m_playerWet         = false;
     m_nightSightOn      = false;
     m_nightSight        = 0.0f;
+    m_infraredOn        = false;
+    m_infrared          = 0.0f;
     m_playerDeadTimer   = 0.0f;
     m_spawnAge          = 0.0f;
     m_hurtSoundTimer    = 0.0f;
@@ -1487,7 +1504,7 @@ TonemapSettings SandboxApp::playerPostFx()
     s.blur           = 1.0f - u;
     s.uniformBlur    = 1.0f - u;
     s.fade           = 0.0f;
-    s.nightSight     = m_nightSight;
+    s.nightSight     = m_infrared > 0.0f ? 0.0f : m_nightSight;
     return s;
 }
 
@@ -4274,6 +4291,14 @@ void SandboxApp::onRender()
         markPass(PassId::GBuffer);
         renderer().bindGBuffer();
         renderer().clearGBuffer();
+        const bool thermalDraw = m_infrared > 0.0f;
+        m_meshPipeline.setThermal(thermalDraw);
+        m_skinnedPipeline.setThermal(thermalDraw);
+        m_terrainPipeline.setThermal(thermalDraw);
+        m_foliagePipeline.setThermal(thermalDraw);
+        m_grassPipeline.setThermal(thermalDraw);
+        m_drawList.setThermal(thermalDraw);
+        m_skinnedInstances.setThermal(thermalDraw);
     }
     else if (renderer().hasSceneBuffers())
     {
@@ -4294,7 +4319,8 @@ void SandboxApp::onRender()
 
     const float skyExposure = deferred ? 1.0f : m_env.exposure();
     const float fogScale    = renderer().debugState().lightingActive() ? 1.0f : 0.0f;
-    m_skyPipeline.upload(renderer().frameIndex(), m_viewCamera, m_env, skyExposure, m_water.params().waterLevel, fogScale);
+    const float thermal     = deferred ? m_infrared : 0.0f;
+    m_skyPipeline.upload(renderer().frameIndex(), m_viewCamera, m_env, skyExposure, m_water.params().waterLevel, fogScale, thermal);
     if (!deferred)
     {
         markPass(PassId::Sky);
@@ -4462,6 +4488,14 @@ void SandboxApp::onRender()
                 m_foliagePipeline.drawGBuffer(cmd, renderer(), assets(), m_foliagePrototypes, m_terrain, m_foliage.empty() ? nullptr : &m_foliage, m_foliageDensity, m_viewCamera, viewProj, prevViewProj, frustum);
         }
 
+        m_meshPipeline.setThermal(false);
+        m_skinnedPipeline.setThermal(false);
+        m_terrainPipeline.setThermal(false);
+        m_foliagePipeline.setThermal(false);
+        m_grassPipeline.setThermal(false);
+        m_drawList.setThermal(false);
+        m_skinnedInstances.setThermal(false);
+
         LightingConstants lc{};
         copyMatrix(lc.invViewProj, viewProj.Inverse());
         lc.cameraPos[0]     = camPos.x;
@@ -4489,6 +4523,7 @@ void SandboxApp::onRender()
         applyFogToLighting(lc, fog);
         fillIblLightingConstants(lc, m_ibl, renderer().debugState().iblEnabled, renderer().debugState().iblDebug, iblGpuReady(renderer().gpuResources(), m_iblImageId));
         lc.iblNight = 1.0f - m_env.dayFactor();
+        lc.thermal  = m_infrared;
         fillSsrLightingConstants(lc, m_ssr, renderer().debugState().ssrEnabled, m_scene.ssr().isValid() && renderer().hasGBuffer());
         // The pass list is an order check after the frame. These five run inside resolveDeferred in this order.
         markPass(PassId::Decals);
@@ -4724,7 +4759,8 @@ void SandboxApp::onRender()
                 waterSceneColor,
                 waterDepth,
                 waterSsr,
-                drawIndex);
+                drawIndex,
+                thermal);
             drawIndex = 1;
         }
         for (const SandboxStream& stream : m_streams)
@@ -4755,7 +4791,8 @@ void SandboxApp::onRender()
                     waterDepth,
                     waterSsr,
                     &m_terrain.coarse(),
-                    &m_env))
+                    &m_env,
+                    thermal))
                 ++drawIndex;
         }
     }
@@ -4897,13 +4934,16 @@ void SandboxApp::onRender()
             // Resize drops the 1×1. Zero the correction before this frame can apply a stale sample.
             if (m_scene.syncAutoExposureSize(renderer()))
                 resetAutoExposure(m_autoExposureState);
-            const float measured = m_autoExposure.mode == ExposureMode::Auto ? m_scene.autoExposure().readMeasuredLuma(renderer().frameIndex()) : 0.0f;
+            // A thermal frame is mostly dark blue. Hold the correction so the meter does not open the exposure.
+            const float measured = (m_autoExposure.mode == ExposureMode::Auto && !(m_infrared > 0.0f))
+                ? m_scene.autoExposure().readMeasuredLuma(renderer().frameIndex())
+                : 0.0f;
             m_autoExposureResult = adaptExposure(m_autoExposureState, measured, exposure, m_frameDt, m_autoExposure);
             exposure             = m_autoExposureResult.finalExposure;
         }
         post.exposure = exposure;
         markPass(PassId::Post);
-        m_scene.applyPost(renderer(), cmd, viewProj, post, deferredMeter && m_autoExposure.mode == ExposureMode::Auto);
+        m_scene.applyPost(renderer(), cmd, viewProj, post, deferredMeter && m_autoExposure.mode == ExposureMode::Auto && !(m_infrared > 0.0f));
     }
 
     m_scene.endCameraFrame(m_viewCamera, viewProj);

@@ -96,9 +96,11 @@ cbuffer FrameConstants : register(b0)
     float    foamWidthScale;
     float    flowSpeed;
     float    detailAmount;
+    float    thermal; // 0 beauty water, 1 the cold stop
 };
 
 #include "SkyEval.hlsli"
+#include "Thermal.hlsli"
 
 Texture2D    gHeightMap  : register(t1);
 SamplerState gHeightSamp : register(s0);
@@ -465,7 +467,7 @@ float4 PSMain(PSInput input) : SV_TARGET
     {
         float3 unlit = lerp(body, foamColor, foam);
         alpha = max(alpha, foam * 0.85f);
-        return float4(encodeSceneRgb(unlit), saturate(alpha));
+        return float4(encodeSceneRgb(thermalMix(unlit, kThermalWater, thermal)), saturate(alpha));
     }
 
     float3 v = normalize(cameraPos - worldPos);
@@ -540,5 +542,5 @@ float4 PSMain(PSInput input) : SV_TARGET
     // Fresnel boost is not multiplied by the rectangle edge. Foam stays opaque on a ribbon bank.
     alpha += fres * 0.15f * (1.0f - foam);
     alpha = max(alpha, foam * 0.85f);
-    return float4(encodeSceneRgb(color), saturate(alpha));
+    return float4(encodeSceneRgb(thermalMix(color, kThermalWater, thermal)), saturate(alpha));
 }

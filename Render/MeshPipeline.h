@@ -41,6 +41,7 @@ namespace Dark
         bool create(ID3D12Device* device, MeshPass pass = MeshPass::ForwardUnorm, DXGI_FORMAT colorFormat = DXGI_FORMAT_R8G8B8A8_UNORM);
 
         void bind(ID3D12GraphicsCommandList* cmd, DebugFill fill = DebugFill::Solid) const;
+        void setThermal(bool on) { m_thermal = on; }
         void setConstants(ID3D12GraphicsCommandList* cmd, const MeshFrameConstants& constants) const;
         void setGBufferConstants(ID3D12GraphicsCommandList* cmd, const MeshGBufferConstants& constants) const;
 
@@ -54,6 +55,8 @@ namespace Dark
         ComPtr<ID3D12PipelineState> m_psoSolid;
         ComPtr<ID3D12PipelineState> m_psoWire;
         ComPtr<ID3D12PipelineState> m_psoPoint;
+        ComPtr<ID3D12PipelineState> m_psoThermal;
+        bool                        m_thermal = false;
     };
 
 } // namespace Dark

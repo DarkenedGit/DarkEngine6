@@ -72,6 +72,7 @@ struct WaterFrameConstants
     float    foamWidthScale;
     float    flowSpeed;
     float    detailAmount;
+    float    thermal; // 0 beauty water, 1 the cold stop
 };
 
 static_assert(offsetof(WaterFrameConstants, lightCount) == 64 * sizeof(float), "lightCount follows the old 64-float block");
@@ -84,6 +85,7 @@ static_assert(offsetof(WaterFrameConstants, foamAmount) == 180 * sizeof(float), 
 static_assert(offsetof(WaterFrameConstants, foamWidthScale) == 181 * sizeof(float), "foamWidthScale follows foamAmount");
 static_assert(offsetof(WaterFrameConstants, flowSpeed) == 182 * sizeof(float), "flowSpeed follows foamWidthScale");
 static_assert(offsetof(WaterFrameConstants, detailAmount) == 183 * sizeof(float), "detailAmount follows flowSpeed");
+static_assert(offsetof(WaterFrameConstants, thermal) == 184 * sizeof(float), "thermal follows detailAmount");
 static_assert(((sizeof(WaterFrameConstants) + 255u) & ~255u) == 768u, "water CBV aligned size is 768");
 
 class WaterPipeline

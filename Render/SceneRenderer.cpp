@@ -486,7 +486,9 @@ void SceneRenderer::resolveDeferred(ID3D12GraphicsCommandList* cmd, Renderer& re
     // applySsr may resize the history. Sample the enable bit after that.
     fillSsrLightingConstants(lc, *in.ssr, renderer.debugState().ssrEnabled, m_ssr.isValid() && renderer.hasGBuffer());
     drawDeferredLighting(cmd, renderer, lc);
-    drawLocalLights(cmd, renderer, world, camera, *in.viewProj, lc);
+    // A flashlight pool is visible light. Heat is already in the emissive meshes.
+    if (!(lc.thermal > 1.0e-4f))
+        drawLocalLights(cmd, renderer, world, camera, *in.viewProj, lc);
 }
 
 void SceneRenderer::drawDeferredLighting(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const LightingConstants& lc) const

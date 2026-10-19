@@ -44,4 +44,15 @@ namespace Dark
         outMacros[1].Definition = nullptr;
     }
 
+    // outMacros must have room for 3 entries. classHeat is a literal such as "0.72" and must outlive the compile.
+    inline void makeThermalMacros(const char* classHeat, D3D_SHADER_MACRO outMacros[3])
+    {
+        outMacros[0].Name       = "DE_THERMAL";
+        outMacros[0].Definition = "1";
+        outMacros[1].Name       = "DE_THERMAL_HEAT";
+        outMacros[1].Definition = classHeat;
+        outMacros[2].Name       = nullptr;
+        outMacros[2].Definition = nullptr;
+    }
+
 } // namespace Dark

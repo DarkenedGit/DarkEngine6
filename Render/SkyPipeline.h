@@ -59,9 +59,10 @@ struct SkyFrameConstants
     float clSkyTop[4];
     float clSkyBottom[4];
     float clWind[4];
+    float thermal; // 0 beauty sky, 1 cold air plus a hot sun disk
 };
 
-static_assert(sizeof(SkyFrameConstants) == 76 * sizeof(float), "sky CBV is 76 floats");
+static_assert(sizeof(SkyFrameConstants) == 77 * sizeof(float), "sky CBV is 77 floats");
 static_assert(offsetof(SkyFrameConstants, clLightColor) == 56 * sizeof(float), "cloud tail follows the 56-float prefix");
 static_assert(offsetof(SkyFrameConstants, clWind) == offsetof(SkyFrameConstants, clLightColor) + 16 * sizeof(float), "cloud tail is contiguous");
 
@@ -80,7 +81,7 @@ public:
 
     void bind(ID3D12GraphicsCommandList* cmd) const;
     // Writes slot frameIndex % 2. exposure < 0 uses Environment::exposure(). Pass 1 on HybridDeferred.
-    void upload(uint32_t frameIndex, const Camera3D& camera, const Sky::Environment& env, float exposure = -1.0f, float waterLevel = 0.0f, float fogScale = 1.0f);
+    void upload(uint32_t frameIndex, const Camera3D& camera, const Sky::Environment& env, float exposure = -1.0f, float waterLevel = 0.0f, float fogScale = 1.0f, float thermal = 0.0f);
     void draw(ID3D12GraphicsCommandList* cmd, uint32_t frameIndex, const ShadowSystem* shadows = nullptr) const;
 
     bool isValid() const { return m_pso != nullptr; }
@@ -88,7 +89,7 @@ public:
 
 private:
     static constexpr UINT kFrameCount   = 2;
-    static constexpr UINT kSkySlotBytes = 512; // 76 floats align up to a 256-byte CBV
+    static constexpr UINT kSkySlotBytes = 512; // 77 floats align up to a 256-byte CBV
 
     ComPtr<ID3D12RootSignature> m_rootSignature;
     ComPtr<ID3D12PipelineState> m_pso;

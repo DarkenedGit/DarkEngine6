@@ -75,6 +75,7 @@ public:
 
     bool create(ID3D12Device* device);
     bool isValid() const;
+    void setThermal(bool on);
     bool forwardReady() const;
     bool cullReady() const;
 

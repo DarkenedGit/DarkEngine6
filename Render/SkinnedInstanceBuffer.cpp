@@ -158,6 +158,8 @@ namespace Dark
 
         ComPtr<ID3D12RootSignature> gbRoot;
         ComPtr<ID3D12PipelineState> gbPso;
+        ComPtr<ID3D12PipelineState> gbThermal;
+        bool                        thermal = false;
         ComPtr<ID3D12RootSignature> depthRoot;
         ComPtr<ID3D12PipelineState> depthPso;
         ComPtr<ID3D12RootSignature> forwardRoot;
@@ -279,6 +281,17 @@ namespace Dark
 
         if (FailedHr(device->CreateGraphicsPipelineState(&gbPsoDesc, IID_PPV_ARGS(&gbPso)), "CreateGraphicsPipelineState (skinned gbuffer)"))
             return false;
+        {
+            D3D_SHADER_MACRO thermalMacros[3];
+            makeThermalMacros("0.72", thermalMacros);
+            ComPtr<ID3DBlob> thermalPs;
+            if (!compileShaderFromContent("shaders/SkinnedMeshGBufferInstanced.hlsl", "PSMain", "ps_5_0", thermalPs, thermalMacros))
+                return false;
+            D3D12_GRAPHICS_PIPELINE_STATE_DESC thermalDesc = gbPsoDesc;
+            thermalDesc.PS = { thermalPs->GetBufferPointer(), thermalPs->GetBufferSize() };
+            if (FailedHr(device->CreateGraphicsPipelineState(&thermalDesc, IID_PPV_ARGS(&gbThermal)), "CreateGraphicsPipelineState (skinned thermal)"))
+                return false;
+        }
 
         D3D12_ROOT_PARAMETER depthParams[4]{};
         depthParams[SkinnedInstanceBuffer::kDepthConstants].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
@@ -478,7 +491,7 @@ namespace Dark
         if (!cmd || !gbPso)
             return;
         cmd->SetGraphicsRootSignature(gbRoot.Get());
-        cmd->SetPipelineState(gbPso.Get());
+        cmd->SetPipelineState((thermal && gbThermal) ? gbThermal.Get() : gbPso.Get());
     }
 
     void SkinnedInstanceBuffer::Gpu::setGBufferConstants(ID3D12GraphicsCommandList* cmd, const MeshBatchConstants& constants) const
@@ -665,6 +678,12 @@ namespace Dark
     bool SkinnedInstanceBuffer::isValid() const
     {
         return m_gpu && m_gpu->gbPso && m_gpu->depthPso && m_gpu->instancesMapped && m_gpu->palettesMapped && m_gpu->indicesMapped;
+    }
+
+    void SkinnedInstanceBuffer::setThermal(bool on)
+    {
+        if (m_gpu)
+            m_gpu->thermal = on;
     }
 
     bool SkinnedInstanceBuffer::forwardReady() const

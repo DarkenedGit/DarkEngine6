@@ -89,6 +89,7 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE depthCpu,
         const SsrSettings* ssrSettings,
         const Terrain::HeightMap* heightMap,
-        const Sky::Environment* env);
+        const Sky::Environment* env,
+        float thermal = 0.0f);
 
 } // namespace Dark

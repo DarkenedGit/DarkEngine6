@@ -27,6 +27,8 @@ namespace Dark
         m_psoSolid.Reset();
         m_psoWire.Reset();
         m_psoPoint.Reset();
+        m_psoThermal.Reset();
+        m_thermal = false;
 
         if (!device)
         {
@@ -176,6 +178,25 @@ namespace Dark
             return false;
         }
 
+        if (gbuffer)
+        {
+            D3D_SHADER_MACRO thermalMacros[3];
+            makeThermalMacros("0.41", thermalMacros);
+            ComPtr<ID3DBlob> thermalPs;
+            if (!compileShaderFromContent(shader, "PSMain", "ps_5_0", thermalPs, thermalMacros))
+            {
+                m_rootSignature.Reset();
+                return false;
+            }
+            D3D12_GRAPHICS_PIPELINE_STATE_DESC thermalDesc = psoDesc;
+            thermalDesc.PS = { thermalPs->GetBufferPointer(), thermalPs->GetBufferSize() };
+            if (FailedHr(device->CreateGraphicsPipelineState(&thermalDesc, IID_PPV_ARGS(&m_psoThermal)), "CreateGraphicsPipelineState (terrain thermal)"))
+            {
+                m_rootSignature.Reset();
+                return false;
+            }
+        }
+
         const char* passName = pass == TerrainPass::GBuffer ? "GBuffer" : "UNORM";
         DE_LOG_INFO(LogCategory::Render, "TerrainPipeline: ready (14-slot metal-rough, solid/wire/point, {})", passName);
         return true;
@@ -183,7 +204,9 @@ namespace Dark
 
     void TerrainPipeline::bind(ID3D12GraphicsCommandList* cmd, DebugFill fill) const
     {
-        ID3D12PipelineState* pso = selectFillPso(fill, m_psoSolid.Get(), m_psoWire.Get(), m_psoPoint.Get());
+        ID3D12PipelineState* pso = (m_thermal && fill == DebugFill::Solid && m_psoThermal)
+            ? m_psoThermal.Get()
+            : selectFillPso(fill, m_psoSolid.Get(), m_psoWire.Get(), m_psoPoint.Get());
         if (!cmd || !pso)
             return;
         cmd->SetGraphicsRootSignature(m_rootSignature.Get());

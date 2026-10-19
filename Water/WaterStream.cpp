@@ -354,7 +354,8 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE depthCpu,
         const SsrSettings* ssrSettings,
         const Terrain::HeightMap* heightMap,
-        const Sky::Environment* env)
+        const Sky::Environment* env,
+        float thermal)
     {
         // Caller copies the lake params and writes this ribbon's flowSpeed first.
         if (!cmd || !pipeline.isValid() || !mesh.valid())
@@ -384,6 +385,7 @@ namespace Dark
         cb.heightWorldSizeZ = fogMap.heightWorldSizeZ;
         const bool hasSsr = pipeline.ssrDescriptorsBound(sceneColorCpu, depthCpu);
         WaterPipeline::fillSsr(cb, camera, ssrSettings, !debug || debug->ssrEnabled, hasSsr, env);
+        cb.thermal = thermal > 0.0f ? thermal : 0.0f;
         pipeline.setConstants(cmd, cb, frameIndex, drawIndex);
         pipeline.setLights(cmd, 0);
         pipeline.setSsrSrvs(sceneColorCpu, depthCpu);

@@ -119,9 +119,10 @@ TEST(PbrLighting, EditorSunMatchesSandboxPi)
 
 TEST(PbrLighting, LightingConstants_Size)
 {
-    EXPECT_EQ(sizeof(Dark::LightingConstants), 56u * sizeof(float));
+    EXPECT_EQ(sizeof(Dark::LightingConstants), 57u * sizeof(float));
     EXPECT_EQ(offsetof(Dark::LightingConstants, pbrLightColor), 48u * sizeof(float));
     EXPECT_EQ(offsetof(Dark::LightingConstants, iblIntensity), 51u * sizeof(float));
+    EXPECT_EQ(offsetof(Dark::LightingConstants, thermal), 56u * sizeof(float));
 }
 
 TEST(PbrLighting, IblLightingConstantsDefaultOff)

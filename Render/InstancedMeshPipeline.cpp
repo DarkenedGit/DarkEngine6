@@ -46,6 +46,8 @@ namespace Dark
     {
         m_gbRoot.Reset();
         m_gbPso.Reset();
+        m_gbThermal.Reset();
+        m_thermal = false;
         m_depthRoot.Reset();
         m_depthPso.Reset();
         m_forwardRoot.Reset();
@@ -163,6 +165,23 @@ namespace Dark
         {
             reset();
             return false;
+        }
+        {
+            D3D_SHADER_MACRO thermalMacros[3];
+            makeThermalMacros("0.41", thermalMacros);
+            ComPtr<ID3DBlob> thermalPs;
+            if (!compileShaderFromContent("shaders/BasicMeshGBufferInstanced.hlsl", "PSMain", "ps_5_0", thermalPs, thermalMacros))
+            {
+                reset();
+                return false;
+            }
+            D3D12_GRAPHICS_PIPELINE_STATE_DESC thermalDesc = gbPso;
+            thermalDesc.PS = { thermalPs->GetBufferPointer(), thermalPs->GetBufferSize() };
+            if (FailedHr(device->CreateGraphicsPipelineState(&thermalDesc, IID_PPV_ARGS(&m_gbThermal)), "CreateGraphicsPipelineState (instanced thermal)"))
+            {
+                reset();
+                return false;
+            }
         }
 
         D3D12_ROOT_PARAMETER depthParams[3]{};
@@ -374,7 +393,7 @@ namespace Dark
         if (!cmd || !m_gbPso)
             return;
         cmd->SetGraphicsRootSignature(m_gbRoot.Get());
-        cmd->SetPipelineState(m_gbPso.Get());
+        cmd->SetPipelineState((m_thermal && m_gbThermal) ? m_gbThermal.Get() : m_gbPso.Get());
     }
 
     void InstancedMeshPipeline::setGBufferConstants(ID3D12GraphicsCommandList* cmd, const MeshBatchConstants& constants) const

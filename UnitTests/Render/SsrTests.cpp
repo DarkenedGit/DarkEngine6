@@ -110,17 +110,17 @@ TEST(Ssr, LightingCount_LocalShadowSlots)
 TEST(Ssr, LightingRs_DwordBudget)
 {
     const UINT cbDwords = static_cast<UINT>(sizeof(LightingConstants) / sizeof(float));
-    EXPECT_EQ(cbDwords, 56u);
+    EXPECT_EQ(cbDwords, 57u);
     EXPECT_EQ(DeferredLightingPipeline::kRootSsrSrv, 6u);
     EXPECT_EQ(DeferredLightingPipeline::kRootIblSrv + 1u, DeferredLightingPipeline::kRootSsrSrv);
     EXPECT_LE(cbDwords + 1u + 2u + 1u + 1u + 1u + 1u, 64u);
-    EXPECT_EQ(cbDwords + 1u + 2u + 1u + 1u + 1u + 1u, 63u);
+    EXPECT_EQ(cbDwords + 1u + 2u + 1u + 1u + 1u + 1u, 64u);
 }
 
-TEST(Ssr, LightingConstants_Still56)
+TEST(Ssr, LightingConstants_Still57)
 {
     LightingConstants lc{};
-    EXPECT_EQ(sizeof(LightingConstants), 56u * sizeof(float));
+    EXPECT_EQ(sizeof(LightingConstants), 57u * sizeof(float));
     EXPECT_EQ(offsetof(LightingConstants, ssrEnabled), 46u * sizeof(float));
     EXPECT_EQ(offsetof(LightingConstants, pbrLightColor), 48u * sizeof(float));
     EXPECT_FLOAT_EQ(lc.ssrEnabled, 0.0f);

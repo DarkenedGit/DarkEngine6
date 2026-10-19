@@ -47,13 +47,15 @@ namespace Dark
         float iblMaxRoughnessMip;
         float iblEnabled;
         float iblDebug;
+        float thermal; // 0 off, 1 false-color heat. RT0.a is heat while this is above 0.
     };
 
-    static_assert(sizeof(LightingConstants) == 56 * sizeof(float), "lighting root constants");
+    static_assert(sizeof(LightingConstants) == 57 * sizeof(float), "lighting root constants");
     static_assert(offsetof(LightingConstants, ssrEnabled) == 46 * sizeof(float), "ssrEnabled occupies register 11.z");
     static_assert(offsetof(LightingConstants, pbrLightColor) == 48 * sizeof(float), "float3 must start on a 16-byte boundary");
     static_assert(offsetof(LightingConstants, iblIntensity) == 51 * sizeof(float), "iblIntensity shares register 12.w");
-    static_assert(56 + 1 + 2 + 1 + 1 + 1 + 1 <= 64, "deferred lighting RS DWORD budget");
+    static_assert(offsetof(LightingConstants, thermal) == 56 * sizeof(float), "thermal is the last lighting float");
+    static_assert(sizeof(LightingConstants) / sizeof(float) + 1 + 2 + 1 + 1 + 1 + 1 <= 64, "deferred lighting RS DWORD budget");
 
     inline constexpr char kDefaultIblVirtualPath[] = "env/studio_gradient.hdr";
 

@@ -26,6 +26,8 @@ namespace Dark
 		m_psoSolid.Reset();
 		m_psoWire.Reset();
 		m_psoPoint.Reset();
+		m_psoThermal.Reset();
+		m_thermal = false;
 		m_gbuffer = pass == SkinnedMeshPass::GBuffer;
 		m_shadow  = pass == SkinnedMeshPass::Shadow;
 		const bool transparent = pass == SkinnedMeshPass::ForwardTransparent;
@@ -195,6 +197,24 @@ namespace Dark
 			m_rootSignature.Reset();
 			return false;
 		}
+		if (m_gbuffer)
+		{
+			D3D_SHADER_MACRO thermalMacros[3];
+			makeThermalMacros("0.72", thermalMacros);
+			ComPtr<ID3DBlob> thermalPs;
+			if (!compileShaderFromContent(shader, "PSMain", "ps_5_0", thermalPs, thermalMacros))
+			{
+				m_rootSignature.Reset();
+				return false;
+			}
+			D3D12_GRAPHICS_PIPELINE_STATE_DESC thermalDesc = psoDesc;
+			thermalDesc.PS = { thermalPs->GetBufferPointer(), thermalPs->GetBufferSize() };
+			if (FailedHr(device->CreateGraphicsPipelineState(&thermalDesc, IID_PPV_ARGS(&m_psoThermal)), "CreateGraphicsPipelineState (skinned thermal)"))
+			{
+				m_rootSignature.Reset();
+				return false;
+			}
+		}
 		const char* passName = m_gbuffer ? "GBuffer" : (transparent ? "ForwardTransparent" : "Forward");
 		DE_LOG_INFO(LogCategory::Render, "SkinnedMeshPipeline: ready ({})", passName);
 		return true;
@@ -205,7 +225,8 @@ namespace Dark
 		if (!cmd || !m_rootSignature)
 			return;
 		ID3D12PipelineState* pso = m_shadow ? m_psoSolid.Get()
-											: selectFillPso(fill, m_psoSolid.Get(), m_psoWire.Get(), m_psoPoint.Get());
+			: (m_thermal && fill == DebugFill::Solid && m_psoThermal) ? m_psoThermal.Get()
+			: selectFillPso(fill, m_psoSolid.Get(), m_psoWire.Get(), m_psoPoint.Get());
 		if (!pso)
 			return;
 		cmd->SetGraphicsRootSignature(m_rootSignature.Get());

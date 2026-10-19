@@ -1043,6 +1043,12 @@ void DrawList::setIndirect(bool enabled)
     m_indirect = enabled;
 }
 
+void DrawList::setThermal(bool on)
+{
+    if (m_gpu)
+        m_gpu->pipeline.setThermal(on);
+}
+
 bool DrawList::indirectReady() const
 {
     return m_gpu && m_gpu->signature && m_gpu->args[0] && m_gpu->args[1] && m_gpu->argStagingBytes;

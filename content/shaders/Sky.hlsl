@@ -50,6 +50,7 @@ cbuffer FrameConstants : register(b0)
     float4 clSkyTop;
     float4 clSkyBottom;
     float4 clWind;
+    float  thermal; // 0 beauty sky, 1 cold air plus a hot sun disk
 };
 
 struct PSInput
@@ -84,6 +85,7 @@ PSInput VSMainDeferred(uint id : SV_VertexID)
 #endif
 
 #include "SkyEval.hlsli"
+#include "Thermal.hlsli"
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
@@ -114,6 +116,12 @@ float4 PSMain(PSInput input) : SV_TARGET
         float3 farPos = cameraPos + dir * 280.0f;
         FogResult fog = FogIntegrateNoHeight(cameraPos, farPos, fp, 1.0f);
         sky = ApplyLitFog(sky, fog);
+    }
+    if (thermal > 1.0e-4f)
+    {
+        float3 sun = normalize(sunDir);
+        float disk = smoothstep(0.9995f, 0.99985f, saturate(dot(dir, sun)));
+        sky = lerp(sky, thermalFalseColor(lerp(kThermalSky, 1.0f, disk)), saturate(thermal));
     }
     return float4(encodeSceneRgb(sky), 1.0f);
 }

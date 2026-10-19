@@ -73,7 +73,7 @@ TEST(Fog, ApplyFogToLightingCopiesFields)
     EXPECT_FLOAT_EQ(lc.fogDensity, 0.01f);
     EXPECT_FLOAT_EQ(lc.fogColor[0], 0.2f);
     EXPECT_FLOAT_EQ(lc.waterLevel, 4.0f);
-    EXPECT_EQ(sizeof(LightingConstants), 56u * sizeof(float));
+    EXPECT_EQ(sizeof(LightingConstants), 57u * sizeof(float));
     EXPECT_EQ(offsetof(LightingConstants, pbrLightColor), 48u * sizeof(float));
     EXPECT_EQ(offsetof(LightingConstants, iblIntensity), 51u * sizeof(float));
 }
@@ -106,7 +106,7 @@ TEST(Fog, FillFogHeightMap_CoarseAndDummy)
 
     LightingConstants lc{};
     applyFogToLighting(lc, fog);
-    EXPECT_EQ(sizeof(LightingConstants), 56u * sizeof(float));
+    EXPECT_EQ(sizeof(LightingConstants), 57u * sizeof(float));
     EXPECT_FLOAT_EQ(lc.heightOriginX, -1024.0f);
     EXPECT_FLOAT_EQ(lc.heightCellSize, 2.0f);
     EXPECT_FLOAT_EQ(lc.heightWorldSizeX, 2048.0f);

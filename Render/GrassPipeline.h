@@ -48,6 +48,8 @@ namespace Dark
             return m_valid;
         }
 
+        void setThermal(bool on) { m_thermal = on; }
+
         // Call after beginFrame. Copies a LOD only when its staleMask bit for this frame slot is set.
         // Each entry in tiles is one 8 m tile's full blade span. The caller already dropped tiles outside the frustum.
         // Returns false when that slot was not published; the caller keeps the mask. tileWind may be null when tileCount is 0.
@@ -62,6 +64,8 @@ namespace Dark
 
         ComPtr<ID3D12RootSignature> m_root;
         ComPtr<ID3D12PipelineState> m_pso[4];
+        ComPtr<ID3D12PipelineState> m_psoThermal[4];
+        bool                        m_thermal = false;
         Mesh                        m_mesh[3];
 
         ComPtr<ID3D12Resource>    m_blades;

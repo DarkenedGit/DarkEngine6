@@ -128,6 +128,11 @@ namespace Dark
         ComPtr<ID3DBlob> ps;
         if (!compileShaderFromContent("shaders/GrassGBuffer.hlsl", "PSMain", "ps_5_0", ps))
             return fail("pixel shader");
+        D3D_SHADER_MACRO thermalMacros[3];
+        makeThermalMacros("0.40", thermalMacros);
+        ComPtr<ID3DBlob> thermalPs;
+        if (!compileShaderFromContent("shaders/GrassGBuffer.hlsl", "PSMain", "ps_5_0", thermalPs, thermalMacros))
+            return fail("thermal pixel shader");
 
         D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
             { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -184,6 +189,10 @@ namespace Dark
             if (FailedHr(device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pso[lod])), "CreateGraphicsPipelineState (grass)"))
                 return fail("graphics PSO");
             m_pso[lod]->SetName(psoNames[lod]);
+            D3D12_GRAPHICS_PIPELINE_STATE_DESC thermalDesc = psoDesc;
+            thermalDesc.PS = { thermalPs->GetBufferPointer(), thermalPs->GetBufferSize() };
+            if (FailedHr(device->CreateGraphicsPipelineState(&thermalDesc, IID_PPV_ARGS(&m_psoThermal[lod])), "CreateGraphicsPipelineState (grass thermal)"))
+                return fail("thermal graphics PSO");
         }
 
         const Terrain::GrassRegionBudget budget = Terrain::grassRegionBudget();
@@ -273,7 +282,10 @@ namespace Dark
                 m_mesh[i].deferRelease(*m_renderer);
             m_renderer->deferRelease(m_root.Get());
             for (int i = 0; i < 4; ++i)
+            {
                 m_renderer->deferRelease(m_pso[i].Get());
+                m_renderer->deferRelease(m_psoThermal[i].Get());
+            }
             m_renderer->deferRelease(m_blades.Get());
             m_renderer->deferRelease(m_wind.Get());
             m_renderer->deferRelease(m_cb.Get());
@@ -287,7 +299,11 @@ namespace Dark
 
         m_root.Reset();
         for (int i = 0; i < 4; ++i)
+        {
             m_pso[i].Reset();
+            m_psoThermal[i].Reset();
+        }
+        m_thermal = false;
         m_blades.Reset();
         m_wind.Reset();
         m_cb.Reset();
@@ -380,7 +396,7 @@ namespace Dark
                     continue;
                 if (!bound)
                 {
-                    cmd->SetPipelineState(m_pso[lod].Get());
+                    cmd->SetPipelineState((m_thermal && m_psoThermal[lod]) ? m_psoThermal[lod].Get() : m_pso[lod].Get());
                     cmd->SetGraphicsRootShaderResourceView(kRootBlades, bladeVa[lod]);
                     bound = true;
                 }
