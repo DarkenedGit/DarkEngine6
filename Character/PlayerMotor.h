@@ -62,6 +62,16 @@ namespace Dark
         float wallRunDrain        = 0.45f;
         float hangDrain           = 0.08f;
         float wallJumpCost        = 0.12f;
+        float diveSpeed           = 2.2f;
+        float surfaceSpeed        = 2.8f;
+        float floatSpeed          = 0.4f;
+        float underwaterSwimScale = 0.75f;
+        float submergeDepth       = 1.3f;
+        float plungeScale         = 0.08f;
+        float breathSeconds       = 20.0f;
+        float breathRegen         = 0.5f;
+        float leapDepth           = 0.3f;
+        float waterLeapSpeed      = 9.0f;
     };
 
     struct PlayerMotorInput
@@ -70,6 +80,7 @@ namespace Dark
         bool           sprint           = false;
         bool           crouch           = false; // held; grounded only, and it wins over sprint
         bool           jumpPressed      = false; // edge this tick
+        bool           jumpHeld         = false;
         bool           allowDoubleJump  = true;
         bool           allowJumpBuffer  = true; // land/coyote/grounded consume of m_jumpBuffer
         float          airControlScale  = 1.0f; // multiplies airSpeed/airAccel in applyAirControl
@@ -90,6 +101,7 @@ namespace Dark
         bool splashed     = false;  // entered water
         bool dodged       = false;  // entered Dodge this tick
         bool climbed      = false;
+        bool leapt        = false;
     };
 
     struct PlayerGroundQuery
@@ -121,6 +133,9 @@ namespace Dark
         float                      stamina() const { return m_stamina; }
         float                      ledgeY() const { return m_ledgeY; }
         const Math::Vector3f&      wallDir() const { return m_wallDir; }
+        float                      depth() const { return m_depth; }
+        float                      breath() const { return m_breath; }
+        bool                       submerged() const { return m_state == PlayerMoveState::Swimming && m_depth >= m_settings.submergeDepth; }
 
         void reset();
         void clearJumpBuffer();
@@ -188,6 +203,8 @@ namespace Dark
         float               m_wallCooldown   = 0.0f;
         float               m_ledgeY         = 0.0f;
         Math::Vector3f      m_wallDir{ 0.0f, 0.0f, 0.0f };
+        float               m_depth          = 0.0f;
+        float               m_breath         = 1.0f;
     };
 
     // Planar speed in m/s. Non-positive acceleration snaps to desired so a missing tune keeps the old step.

@@ -682,7 +682,8 @@
         "inner": 12.0,
         "outer": 25.0,
         "sourceRadius": 0.1
-      }
+      },
+      "circuit": "A"
     },
     {
       "type": "hunter",
@@ -1122,7 +1123,8 @@
         "inner": 12.0,
         "outer": 25.0,
         "sourceRadius": 0.1
-      }
+      },
+      "circuit": "A"
     },
     {
       "type": "cube",
@@ -1180,7 +1182,8 @@
         "inner": 12.0,
         "outer": 25.0,
         "sourceRadius": 0.1
-      }
+      },
+      "circuit": "B"
     },
     {
       "type": "hunter",
@@ -1807,7 +1810,8 @@
         "inner": 12.0,
         "outer": 25.0,
         "sourceRadius": 0.1
-      }
+      },
+      "circuit": "B"
     },
     {
       "type": "cube",
@@ -1865,7 +1869,8 @@
         "inner": 12.0,
         "outer": 25.0,
         "sourceRadius": 0.1
-      }
+      },
+      "circuit": "C"
     },
     {
       "type": "cube",
@@ -1923,7 +1928,8 @@
         "inner": 12.0,
         "outer": 25.0,
         "sourceRadius": 0.1
-      }
+      },
+      "circuit": "C"
     },
     {
       "type": "hunter",
@@ -2304,7 +2310,8 @@
         "inner": 12.0,
         "outer": 25.0,
         "sourceRadius": 0.1
-      }
+      },
+      "circuit": "D"
     },
     {
       "type": "cube",
@@ -2362,7 +2369,8 @@
         "inner": 12.0,
         "outer": 25.0,
         "sourceRadius": 0.1
-      }
+      },
+      "circuit": "D"
     },
     {
       "type": "hunter",
@@ -2484,6 +2492,110 @@
         8,
         0.8
       ]
+    },
+    {
+      "type": "cube",
+      "color": [
+        0.85,
+        0.7,
+        0.15,
+        1.0
+      ],
+      "position": [
+        -20.5,
+        0.65,
+        -67.0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        0.6,
+        1.3,
+        0.45
+      ],
+      "circuit": "A"
+    },
+    {
+      "type": "cube",
+      "color": [
+        0.85,
+        0.7,
+        0.15,
+        1.0
+      ],
+      "position": [
+        7.5,
+        0.65,
+        11.5
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        0.6,
+        1.3,
+        0.45
+      ],
+      "circuit": "B"
+    },
+    {
+      "type": "cube",
+      "color": [
+        0.85,
+        0.7,
+        0.15,
+        1.0
+      ],
+      "position": [
+        8.5,
+        0.65,
+        52.5
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        0.6,
+        1.3,
+        0.45
+      ],
+      "circuit": "C"
+    },
+    {
+      "type": "cube",
+      "color": [
+        0.85,
+        0.7,
+        0.15,
+        1.0
+      ],
+      "position": [
+        0.5,
+        0.65,
+        86.5
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        0.6,
+        1.3,
+        0.45
+      ],
+      "circuit": "D"
     }
   ]
 }

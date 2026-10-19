@@ -74,6 +74,9 @@ namespace Dark
         float                        holdYaw     = 0.0f;
         float                        glanceLeft  = 0.0f;
         bool                         reacting    = false;
+        bool                         bodyFound   = false;
+        bool                         carried     = false;
+        bool                         passive     = false;
         // False until a movement file or the dev-tools speed slider writes walk and run.
         // Tick keeps using PackSettings while this is false.
         bool                         authoredMove = false;

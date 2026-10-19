@@ -21,6 +21,7 @@
     { "action": "crouch", "key": "X", "app": "editor" },
     { "action": "camouflage", "key": "C", "app": "sandbox" },
     { "action": "pickup", "key": "G", "app": "sandbox" },
+    { "action": "takedown", "key": "E", "app": "sandbox" },
 
     { "action": "attack", "key": "F" },
     { "action": "attack", "button": "B" },
