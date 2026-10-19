@@ -66,6 +66,7 @@ public:
     const Math::Vector2f& cloudWindDetail() const { return m_cloudWindDetail; }
 
     float sunElevation() const { return m_sunElevation; } // radians, negative = below horizon
+    float dayFactor() const;                              // 0 below twilight, 1 in full day
     float cloudClockSec() const { return m_cloudClockSec; }
     float fogDensity() const { return m_fogDensity; }
     float heightFogDensity() const { return m_heightFogDensity; }

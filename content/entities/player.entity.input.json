@@ -29,6 +29,7 @@
     { "action": "shield", "mouse": "Right" },
     { "action": "shield", "axis": "LeftTrigger", "scale": 1, "threshold": 0.45 },
     { "action": "flashlight", "key": "L" },
+    { "action": "night_sight", "key": "N", "app": "sandbox" },
     { "action": "weapon_1", "key": "Digit1" },
     { "action": "weapon_2", "key": "Digit2" },
 

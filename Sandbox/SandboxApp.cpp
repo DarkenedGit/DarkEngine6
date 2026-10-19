@@ -180,8 +180,9 @@ bool tryCreateTerrainFromContent(Renderer& renderer, AssetManager& assets, const
     return material.create(renderer, desc, std::move(splatTex));
 }
 
-constexpr float kDeathSeconds      = 2.5f;
-constexpr float kSpawnFocusSeconds = 1.75f;
+constexpr float kDeathSeconds           = 2.5f;
+constexpr float kSpawnFocusSeconds      = 1.75f;
+constexpr float kNightSightBlendSeconds = 0.5f;
 
 void copyMatrix(float dst[16], const Math::Matrix4f& m)
 {
@@ -401,7 +402,7 @@ void SandboxApp::registerDefaultActions()
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(F3/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
         "possessed WASD/arrows/LS move, double-tap a direction to dodge, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, 1 melee  2 rifle, "
-        "hold attack to charge, release to swing (tap = normal). Hold RMB/V/LT shield; hold longer then release to parry-slam. Ctrl crouch, C camouflage, G pickup, L flashlight, Shift/LB sprint, swim in water, "
+        "hold attack to charge, release to swing (tap = normal). Hold RMB/V/LT shield; hold longer then release to parry-slam. Ctrl crouch, C camouflage, G pickup, L flashlight, N night sight, Shift/LB sprint, swim in water, "
         "T/R3 walk the wiggle demo  F2 lighting  F5 quicksave  F9 quickload  M dev tools  P profiler  -forward linear albedo + sRGB encode (legacyUnormAlbedo restores old sampling)  -no-menu skip scene picker");
 }
 
@@ -505,6 +506,29 @@ void SandboxApp::handleRuntimeCommands(float dt)
     {
         m_camouflage = !m_camouflage;
         DE_LOG_INFO("Sandbox: camouflage = {}", m_camouflage);
+    }
+    {
+        Health* nightHp = localHealth();
+        const bool nightAlive = nightHp && nightHp->alive();
+        if (!uiKeys && nightAlive && input().actionPressed("night_sight"))
+        {
+            m_nightSightOn = !m_nightSightOn;
+            DE_LOG_INFO("Sandbox: night sight = {}", m_nightSightOn);
+        }
+        if (!nightAlive)
+        {
+            m_nightSightOn = false;
+            m_nightSight   = 0.0f;
+        }
+        else
+        {
+            const float target = m_nightSightOn ? 1.0f : 0.0f;
+            const float step   = dt > 0.0f ? dt / kNightSightBlendSeconds : 0.0f;
+            if (m_nightSight < target)
+                m_nightSight = Math::Min(target, m_nightSight + step);
+            else
+                m_nightSight = Math::Max(target, m_nightSight - step);
+        }
     }
     if (!uiKeys && input().actionPressed("toggle_lighting"))
     {
@@ -1415,6 +1439,8 @@ void SandboxApp::respawnPlayer()
         poise->hyperArmor = false;
     }
     m_playerWet         = false;
+    m_nightSightOn      = false;
+    m_nightSight        = 0.0f;
     m_playerDeadTimer   = 0.0f;
     m_spawnAge          = 0.0f;
     m_hurtSoundTimer    = 0.0f;
@@ -1453,6 +1479,7 @@ TonemapSettings SandboxApp::playerPostFx()
         s.blur           = SmoothStep(0.0f, 0.55f, t);
         s.uniformBlur    = SmoothStep(0.0f, 0.70f, t);
         s.fade           = SmoothStep(0.30f, 1.00f, t);
+        s.nightSight     = 0.0f;
         return s;
     }
 
@@ -1460,6 +1487,7 @@ TonemapSettings SandboxApp::playerPostFx()
     s.blur           = 1.0f - u;
     s.uniformBlur    = 1.0f - u;
     s.fade           = 0.0f;
+    s.nightSight     = m_nightSight;
     return s;
 }
 
@@ -4460,6 +4488,7 @@ void SandboxApp::onRender()
         fillFogHeightMap(fog, &m_terrain.coarse());
         applyFogToLighting(lc, fog);
         fillIblLightingConstants(lc, m_ibl, renderer().debugState().iblEnabled, renderer().debugState().iblDebug, iblGpuReady(renderer().gpuResources(), m_iblImageId));
+        lc.iblNight = 1.0f - m_env.dayFactor();
         fillSsrLightingConstants(lc, m_ssr, renderer().debugState().ssrEnabled, m_scene.ssr().isValid() && renderer().hasGBuffer());
         // The pass list is an order check after the frame. These five run inside resolveDeferred in this order.
         markPass(PassId::Decals);

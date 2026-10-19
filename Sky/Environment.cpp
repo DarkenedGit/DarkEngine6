@@ -150,6 +150,11 @@ void Environment::sunMoonDirections(
     outMoonDir.Normalize();
 }
 
+float Environment::dayFactor() const
+{
+    return SmoothStep(-0.10f, 0.18f, m_sunElevation);
+}
+
 float Environment::sunAngularRadius(float sunElevationRadians)
 {
     // High sun ~0.26° half-angle. On the horizon the disc + airlight reads larger.
@@ -315,8 +320,11 @@ Vector3f Environment::evaluateSky(const Vector3f& viewDir) const
         + Vector3f(1.00f, 0.97f, 0.90f) * mu;
     base = base + discCol * (2.8f * limb * edge * sunVis);
 
-    // Horizon sunset glow band: gaussian in elevation, stronger toward the sun.
-    const float duskAmt = SmoothStep(0.34f, -0.04f, elev) * (1.0f - 0.72f * cover);
+    // Horizon sunset glow. A one-sided step stays at full orange for the whole night.
+    // Rise into the horizon, then gone once the sun is about 17 degrees below it.
+    const float duskRise = SmoothStep(0.36f, 0.02f, elev);
+    const float duskFall = SmoothStep(-0.30f, -0.04f, elev);
+    const float duskAmt  = duskRise * duskFall * (1.0f - 0.72f * cover);
     if (duskAmt > 1.0e-3f)
     {
         const float bandY = 0.045f + 0.02f * horizonAmt;

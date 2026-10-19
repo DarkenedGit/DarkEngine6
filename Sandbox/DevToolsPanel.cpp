@@ -1402,6 +1402,7 @@ void SandboxApp::drawDevTools()
         const char* lightLabel = !carriesLight ? "no flashlight" : (m_offhand.lightOn ? "flashlight on" : "flashlight off");
         ImGui::TextDisabled("%s", lightLabel);
         ImGui::TextDisabled("Hold RMB, V, or left trigger. The flashlight turns off while the shield is in use.");
+        ImGui::TextDisabled("Night sight %s  (N)", m_nightSightOn ? "on" : "off");
     }
 
     if (ImGui::CollapsingHeader("Rifle"))

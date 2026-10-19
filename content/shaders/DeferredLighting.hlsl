@@ -34,7 +34,7 @@ cbuffer LightingConstants : register(b0)
     float    heightWorldSizeZ;
     float    _padFog;
     float    ssrEnabled;    // 11.z
-    float    _padPbr1;      // 11.w
+    float    iblNight;      // 11.w — 0 studio IBL, 1 sky ambient only
     float3   pbrLightColor; // 12.xyz — π-scaled; PbrDirectional only
     float    iblIntensity;  // 12.w
     float    iblRotationRadY;
@@ -141,8 +141,10 @@ float4 PSMain(PSInput input) : SV_TARGET
     {
         float3 Fd      = albedo.rgb * (1.0f - metallic) * (1.0f / DE_PBR_PI);
         float3 specIbl = pre * (F0 * dfg.x + dfg.y);
-        specIblTerm    = specIbl * ao * iblIntensity;
-        diffTerm       = Fd * irr * ao * iblIntensity;
+        // The studio cube does not follow the clock. Night keeps the sky ambient instead.
+        float keep     = 1.0f - saturate(iblNight);
+        specIblTerm    = specIbl * ao * iblIntensity * keep;
+        diffTerm       = lerp(diffTerm, Fd * irr * ao * iblIntensity, keep);
     }
     float3 spec = lerp(specIblTerm, ssr.rgb, conf); // SSR: no AO, no iblIntensity
 

@@ -309,6 +309,7 @@ TEST(ShaderCompile, ReverseZSceneShaders)
 {
     const char* cases[][3] = {
         { "shaders/Sky.hlsl", "VSMainDeferred", "vs_5_0" },
+        { "shaders/Sky.hlsl", "PSMain", "ps_5_0" },
         { "shaders/Taa.hlsl", "PSMain", "ps_5_0" },
         { "shaders/MotionBlur.hlsl", "PSMain", "ps_5_0" },
         { "shaders/Tonemap.hlsl", "PSMain", "ps_5_0" },

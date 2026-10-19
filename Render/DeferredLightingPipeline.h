@@ -40,7 +40,7 @@ namespace Dark
         float heightWorldSizeZ;
         float padFog;
         float ssrEnabled;       // register 11.z so float3 does not straddle
-        float padPbr1;          // occupy register 11.w
+        float iblNight;         // 0 = full studio IBL, 1 = analytic sky ambient only
         float pbrLightColor[3]; // π-scaled; PbrDirectional only. Starts at float 48 = register 12.xyz
         float iblIntensity;     // register 12.w
         float iblRotationRadY;

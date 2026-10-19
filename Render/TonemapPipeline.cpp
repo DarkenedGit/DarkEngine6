@@ -168,7 +168,7 @@ namespace Dark
             1.0f / w,
             1.0f / h,
             settings.uniformBlur,
-            0.0f,
+            Math::Clamp(settings.nightSight, 0.0f, 1.0f),
         };
 
         cmd->SetGraphicsRootSignature(m_rootSignature.Get());

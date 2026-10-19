@@ -212,3 +212,50 @@ TEST(Environment, SunsetGlowBandTowardTheSun)
     EXPECT_GT(bandRB, upRB);
     EXPECT_GT(band.x + band.y, back.x + back.y);
 }
+
+float luma(const Vector3f& c)
+{
+    return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z;
+}
+
+TEST(Environment, MidnightSkyIsNotSunset)
+{
+    Environment night;
+    night.timeOfDay = 0.0f;
+    night.dayOfYear = 172.0f;
+    night.latitude  = 47.6f;
+    night.weather   = WeatherState::Clear();
+    night.evaluate();
+
+    Environment dusk;
+    dusk.timeOfDay = 19.6f;
+    dusk.dayOfYear = 172.0f;
+    dusk.latitude  = 47.6f;
+    dusk.weather   = WeatherState::Clear();
+    dusk.evaluate();
+
+    Vector3f nightH(night.sunDir().x, 0.0f, night.sunDir().z);
+    nightH.Normalize();
+    Vector3f nightBand = nightH;
+    nightBand.y = 0.05f;
+    nightBand.Normalize();
+
+    Vector3f duskH(dusk.sunDir().x, 0.0f, dusk.sunDir().z);
+    duskH.Normalize();
+    Vector3f duskBand = duskH;
+    duskBand.y = 0.05f;
+    duskBand.Normalize();
+
+    const Vector3f nightCol = night.evaluateSky(nightBand);
+    const Vector3f duskCol  = dusk.evaluateSky(duskBand);
+    const Vector3f zen      = night.evaluateSky(Vector3f(0.0f, 1.0f, 0.0f));
+    const float    amb      = night.ambientColor().x + night.ambientColor().y + night.ambientColor().z;
+
+    EXPECT_LT(night.sunElevation(), -0.25f);
+    EXPECT_GT(nightCol.z, nightCol.x);
+    EXPECT_GT(zen.z, zen.x);
+    EXPECT_LT(luma(nightCol), luma(duskCol) * 0.35f);
+    EXPECT_LT(amb, 0.02f);
+    EXPECT_NEAR(night.dayFactor(), 0.0f, 1.0e-4f);
+    EXPECT_GT(dusk.dayFactor(), 0.4f);
+}

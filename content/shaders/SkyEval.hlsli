@@ -101,7 +101,10 @@ float3 EvaluateSky(float3 v)
     base += sunColor * (0.12f * ray + 0.35f * mieS) * sunVis;
     base += moonColor * (1.2f * mieM * moonVis);
 
-    float duskAmt = saturate((0.34f - sunElevation) / 0.38f) * (1.0f - 0.72f * coverage);
+    // Same window as Environment::evaluateSky: off in the day, full at the horizon, off ~17° below.
+    float duskRise = saturate((0.36f - sunElevation) / 0.34f);
+    float duskFall = saturate((sunElevation + 0.30f) / 0.26f);
+    float duskAmt = duskRise * duskFall * (1.0f - 0.72f * coverage);
     if (duskAmt > 1e-3f)
     {
         float bandY = 0.045f + 0.02f * horizonAmt;

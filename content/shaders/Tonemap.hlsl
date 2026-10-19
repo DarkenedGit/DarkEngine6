@@ -17,7 +17,7 @@ cbuffer TonemapConstants : register(b0)
     float invWidth;
     float invHeight;
     float uniformBlur;  // 0 = depth CoC, 1 = full-frame defocus
-    float _pad;
+    float nightSight;   // 0 off, 1 rod vision in the shadows
 };
 
 Texture2D    gHdr   : register(t0);
@@ -53,6 +53,21 @@ float3 tonemapColor(float3 hdr)
     if (mode < 0.5f)
         return linearToSrgb(saturate(hdr * exposure));
     return aces(hdr * exposure);
+}
+
+// Rods replace color below mid-grey with cool silver and lift those shadows.
+// Bright pixels stay put, so fire and the flashlight keep their color. Strength 0 is a no-op.
+float3 applyNightSight(float3 rgb, float strength)
+{
+    strength = saturate(strength);
+    if (strength <= 1.0e-4f)
+        return rgb;
+    const float y = max(dot(rgb, float3(0.2126f, 0.7152f, 0.0722f)), 0.0f);
+    const float rods = dot(rgb, float3(0.15f, 0.40f, 0.45f));
+    const float3 silver = rods * float3(0.72f, 0.82f, 1.0f);
+    const float dark = saturate(1.0f - y / 0.18f);
+    const float k = strength * dark;
+    return lerp(rgb, silver, k) * lerp(1.0f, 4.0f, k);
 }
 
 // Jimenez 2014. Same pattern as GTAO. Static, so a still camera does not shimmer.
@@ -91,6 +106,7 @@ float4 PSMain(PSInput input) : SV_TARGET
         }
     }
 
+    rgb = applyNightSight(rgb, nightSight);
     float3 outRgb = tonemapColor(rgb) * saturate(1.0f - fade);
     // The swap chain is 8-bit. A straight-up view is one smooth ramp (thin deck at
     // screen center, sky gradient outward) and those steps draw as rings.
