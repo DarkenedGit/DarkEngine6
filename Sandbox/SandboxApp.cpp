@@ -404,7 +404,7 @@ void SandboxApp::registerDefaultActions()
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(F3/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
         "possessed WASD/arrows/LS move, double-tap a direction to dodge, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, 1 melee  2 rifle, "
-        "hold attack to charge, release to swing (tap = normal). Hold RMB/V/LT shield; hold longer then release to parry-slam. Ctrl crouch, C camouflage, G pickup, L flashlight, N night sight, H infrared, U ultraviolet, Shift/LB sprint, swim in water, "
+        "hold attack to charge, release to swing (tap = normal). Hold RMB/V/LT shield; hold longer then release to parry-slam. Ctrl crouch, C camouflage, G pickup / carry body, E takedown from behind, L flashlight, N night sight, H infrared, U ultraviolet, Shift/LB sprint, swim in water, "
         "T/R3 walk the wiggle demo  F2 lighting  F5 quicksave  F9 quickload  M dev tools  P profiler  -forward linear albedo + sRGB encode (legacyUnormAlbedo restores old sampling)  -no-menu skip scene picker");
 }
 
@@ -503,6 +503,8 @@ void SandboxApp::handleRuntimeCommands(float dt)
     }
     if (!uiKeys && input().actionPressed("pickup"))
         pickUpNearestItem();
+    if (!uiKeys && input().actionPressed("takedown"))
+        tryTakedown();
 
     if (!uiKeys && input().actionPressed("camouflage"))
     {
@@ -1039,6 +1041,346 @@ WeaponLoadout* SandboxApp::localWeapons()
     return (wlc && wlc->loadout) ? wlc->loadout.get() : nullptr;
 }
 
+SandboxApp::InteractPick SandboxApp::pickInteract()
+{
+    InteractPick              best{};
+    const Entity              body = possessedBody();
+    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    if (!pxf || m_carried.valid())
+        return best;
+    const Vector3f eye  = m_viewCamera.GetPosition();
+    Vector3f       look = m_viewCamera.GetLook();
+    look.Normalize();
+    float bestAim  = 0.94f;
+    auto  consider = [&](InteractKind kind, Entity e, size_t box, const Vector3f& at, float range) {
+        if (Vector3f{ at.x - pxf->position.x, 0.0f, at.z - pxf->position.z }.MagnitudeSqrd() > range * range)
+            return;
+        Vector3f to = at - eye;
+        if (to.MagnitudeSqrd() < 1.0e-6f)
+            return;
+        to.Normalize();
+        const float aim = look.Dot(to);
+        if (aim <= bestAim)
+            return;
+        bestAim = aim;
+        best    = InteractPick{ kind, e, box };
+    };
+    world().each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
+        const TagComponent*       tag = world().get<TagComponent>(e);
+        const TransformComponent* gxf = world().get<TransformComponent>(e);
+        const HealthComponent*    hp  = world().get<HealthComponent>(e);
+        if (gxf && hp && !hp->health.alive() && !ai.carried && !(tag && tag->name == "Wolf"))
+            consider(InteractKind::Body, e, 0, gxf->position, 2.2f);
+    });
+    for (size_t i = 0; i < m_powerBoxes.size(); ++i)
+        consider(InteractKind::Power, {}, i, m_powerBoxes[i].pos, 2.5f);
+    world().each<ItemPickupComponent>([&](Entity e, ItemPickupComponent& pickup) {
+        if (const TransformComponent* ixf = world().get<TransformComponent>(e); ixf && !pickup.item.empty())
+            consider(InteractKind::Item, e, 0, ixf->position, 2.2f);
+    });
+    world().each<LootComponent>([&](Entity e, LootComponent& loot) {
+        if (const TransformComponent* ixf = world().get<TransformComponent>(e); ixf && itemCount(loot.contents) > 0)
+            consider(InteractKind::Item, e, 0, ixf->position, 2.2f);
+    });
+    return best;
+}
+
+void SandboxApp::setCircuit(size_t breaker, bool on, bool alertGuards)
+{
+    PowerBox&              box  = m_powerBoxes[breaker];
+    const AI::Walkability& walk = m_chase.ai().walkability();
+    auto                   open = [&](float x, float z) { return !walk.valid() || walk.walkableWorld(x, z); };
+    box.on     = on;
+    box.fixFor = 0.0f;
+    if (on && box.fixer.valid())
+    {
+        box.checker    = box.fixer;
+        box.checkIdx   = 0;
+        box.checkFor   = 0.0f;
+        box.checkTime  = 0.0f;
+        const float a0 = std::fmod(m_cloudTime * 1.37f, 6.2831853f);
+        for (int k = 0; k < 3; ++k)
+        {
+            box.checks[k] = box.service;
+            for (int t = 0; t < 12; ++t)
+            {
+                const float a = a0 + static_cast<float>(k) * 2.09f + static_cast<float>(t) * 0.55f;
+                const float r = 3.0f + std::fmod(m_cloudTime * 0.73f + static_cast<float>(k) * 1.9f + static_cast<float>(t) * 1.3f, 4.0f);
+                const float x = box.pos.x + std::sin(a) * r;
+                const float z = box.pos.z + std::cos(a) * r;
+                if (!open(x, z))
+                    continue;
+                box.checks[k] = Vector3f{ x, box.pos.y, z };
+                break;
+            }
+        }
+        box.fixer = {};
+    }
+    for (const auto& [circuit, light] : m_circuitLights)
+    {
+        if (circuit != box.circuit)
+            continue;
+        if (LocalLightComponent* l = world().alive(light) ? world().get<LocalLightComponent>(light) : nullptr)
+            l->enabled = on;
+    }
+    playSoundCue(world(), audio(), assets(), m_camera, "click");
+    DE_LOG_INFO("Power: circuit {} {}", box.circuit, on ? "on" : "off");
+    if (on || !alertGuards)
+        return;
+    float bestD = 30.0f * 30.0f;
+    world().each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
+        const TagComponent*       tag = world().get<TagComponent>(e);
+        const TransformComponent* gxf = world().get<TransformComponent>(e);
+        const HealthComponent*    hp  = world().get<HealthComponent>(e);
+        if (!gxf || !hp || !hp->health.alive() || (tag && tag->name == "Wolf") || ai.aware.alertness == AI::Alertness::Alert)
+            return;
+        const float d = Vector3f{ gxf->position.x - box.pos.x, 0.0f, gxf->position.z - box.pos.z }.MagnitudeSqrd();
+        if (d > bestD)
+            return;
+        bestD     = d;
+        box.fixer = e;
+    });
+    if (!box.fixer.valid())
+    {
+        DE_LOG_INFO("Power: no guard near circuit {}", box.circuit);
+        return;
+    }
+    if (box.checker == box.fixer)
+        box.checker = {};
+    const TransformComponent* gxf = world().get<TransformComponent>(box.fixer);
+    Vector3f                  side{ gxf->position.x - box.pos.x, 0.0f, gxf->position.z - box.pos.z };
+    side             = side.MagnitudeSqrd() > 1.0e-4f ? side * (1.0f / std::sqrt(side.MagnitudeSqrd())) : Vector3f::Z_AXIS;
+    const float base = std::atan2(side.x, side.z);
+    box.service      = Vector3f{ box.pos.x + side.x * 1.6f, box.pos.y, box.pos.z + side.z * 1.6f };
+    bool found       = false;
+    for (float r = 1.4f; r < 3.5f && !found; r += 0.5f)
+    {
+        for (int t = 0; t < 8 && !found; ++t)
+        {
+            const float a = base + static_cast<float>((t + 1) / 2) * 0.785f * ((t & 1) ? 1.0f : -1.0f);
+            const float x = box.pos.x + std::sin(a) * r;
+            const float z = box.pos.z + std::cos(a) * r;
+            if (!open(x, z))
+                continue;
+            box.service = Vector3f{ x, box.pos.y, z };
+            found       = true;
+        }
+    }
+    DE_LOG_INFO("Power: guard {} going to fix circuit {}", box.fixer.id(), box.circuit);
+}
+
+void SandboxApp::updatePower(float dt)
+{
+    for (size_t i = 0; i < m_powerBoxes.size(); ++i)
+    {
+        PowerBox& box = m_powerBoxes[i];
+        if (box.checker.valid())
+        {
+            AiAgentComponent*         ai  = world().alive(box.checker) ? world().get<AiAgentComponent>(box.checker) : nullptr;
+            const TransformComponent* gxf = ai ? world().get<TransformComponent>(box.checker) : nullptr;
+            const HealthComponent*    hp  = ai ? world().get<HealthComponent>(box.checker) : nullptr;
+            if (!ai || !gxf || !hp || !hp->health.alive() || ai->aware.alertness == AI::Alertness::Alert)
+                box.checker = {};
+            else if (!ai->aware.seesNow)
+            {
+                AI::AwarenessState& aw = ai->aware;
+                const Vector3f      at = box.checks[box.checkIdx];
+                AI::alertToInvestigate(aw, at);
+                aw.alertness   = AI::Alertness::Investigating;
+                aw.stateTime   = 0.0f;
+                box.checkTime += dt;
+                if (Vector3f{ gxf->position.x - at.x, 0.0f, gxf->position.z - at.z }.MagnitudeSqrd() <= 1.5f * 1.5f)
+                    box.checkFor += dt;
+                if (box.checkFor >= 2.5f || box.checkTime >= 15.0f)
+                {
+                    box.checkFor  = 0.0f;
+                    box.checkTime = 0.0f;
+                    if (++box.checkIdx >= 3)
+                    {
+                        aw.alertness = AI::Alertness::Calm;
+                        aw.meter     = 0.0f;
+                        box.checker  = {};
+                        DE_LOG_INFO("Power: guard done checking circuit {}", box.circuit);
+                    }
+                }
+            }
+        }
+        if (box.on)
+            continue;
+        AiAgentComponent*         ai  = box.fixer.valid() && world().alive(box.fixer) ? world().get<AiAgentComponent>(box.fixer) : nullptr;
+        const TransformComponent* gxf = ai ? world().get<TransformComponent>(box.fixer) : nullptr;
+        const HealthComponent*    hp  = ai ? world().get<HealthComponent>(box.fixer) : nullptr;
+        if (!ai || !gxf || !hp || !hp->health.alive())
+        {
+            box.fixer  = {};
+            box.fixFor = 0.0f;
+            continue;
+        }
+        AI::AwarenessState& aw = ai->aware;
+        if (aw.alertness != AI::Alertness::Alert && !aw.seesNow)
+        {
+            AI::alertToInvestigate(aw, box.service);
+            aw.alertness = AI::Alertness::Investigating;
+            aw.stateTime = 0.0f;
+        }
+        const float toBox  = Vector3f{ gxf->position.x - box.pos.x, 0.0f, gxf->position.z - box.pos.z }.MagnitudeSqrd();
+        const float toSpot = Vector3f{ gxf->position.x - box.service.x, 0.0f, gxf->position.z - box.service.z }.MagnitudeSqrd();
+        const bool  fixing = aw.alertness != AI::Alertness::Alert && (toBox <= 2.5f * 2.5f || toSpot <= 1.5f * 1.5f);
+        box.fixFor         = fixing ? box.fixFor + dt : 0.0f;
+        if (box.fixFor >= 1.5f)
+        {
+            DE_LOG_INFO("Power: guard {} fixed circuit {}", box.fixer.id(), box.circuit);
+            setCircuit(i, true, false);
+        }
+    }
+}
+
+Entity SandboxApp::takedownTarget()
+{
+    const Entity              body = possessedBody();
+    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    if (!pxf || m_carried.valid() || !m_chaseOk)
+        return {};
+    Entity best{};
+    float  bestD = 2.5f * 2.5f;
+    world().each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
+        const TagComponent*       tag = world().get<TagComponent>(e);
+        const TransformComponent* gxf = world().get<TransformComponent>(e);
+        const HealthComponent*    hp  = world().get<HealthComponent>(e);
+        if (!gxf || !hp || !hp->health.alive() || (tag && tag->name == "Wolf") || ai.aware.alertness == AI::Alertness::Alert)
+            return;
+        const Vector3f to{ pxf->position.x - gxf->position.x, 0.0f, pxf->position.z - gxf->position.z };
+        const float    d = to.MagnitudeSqrd();
+        Vector3f       fwd{ ai.forward.x, 0.0f, ai.forward.z };
+        if (d > bestD || d < 1.0e-6f || std::fabs(pxf->position.y - gxf->position.y) > 1.2f || fwd.MagnitudeSqrd() < 1.0e-6f)
+            return;
+        fwd.Normalize();
+        if (fwd.Dot(to * (1.0f / std::sqrt(d))) > -0.2f)
+            return;
+        best  = e;
+        bestD = d;
+    });
+    return best;
+}
+
+Entity SandboxApp::bodyNear()
+{
+    const Entity              body = possessedBody();
+    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    if (!pxf)
+        return {};
+    Entity best{};
+    float  bestD = 2.0f * 2.0f;
+    world().each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
+        const TagComponent*       tag = world().get<TagComponent>(e);
+        const TransformComponent* gxf = world().get<TransformComponent>(e);
+        const HealthComponent*    hp  = world().get<HealthComponent>(e);
+        if (!gxf || !hp || hp->health.alive() || ai.carried || (tag && tag->name == "Wolf"))
+            return;
+        const float d = Vector3f{ pxf->position.x - gxf->position.x, 0.0f, pxf->position.z - gxf->position.z }.MagnitudeSqrd();
+        if (d > bestD)
+            return;
+        best  = e;
+        bestD = d;
+    });
+    return best;
+}
+
+bool SandboxApp::tryTakedown()
+{
+    const Entity target = takedownTarget();
+    if (!target.valid())
+        return false;
+    m_chase.ai().applyHunterDamage(world(), target, 1.0e6f);
+    if (const TransformComponent* gxf = world().get<TransformComponent>(target))
+        playSoundCueAt(world(), audio(), assets(), target, "grunt", gxf->position);
+    DE_LOG_INFO("Player: takedown");
+    return true;
+}
+
+bool SandboxApp::toggleCarry(Entity target)
+{
+    const Entity              body = possessedBody();
+    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    if (m_carried.valid())
+    {
+        TransformComponent* bxf = world().alive(m_carried) ? world().get<TransformComponent>(m_carried) : nullptr;
+        AiAgentComponent*   ai  = bxf ? world().get<AiAgentComponent>(m_carried) : nullptr;
+        if (bxf && ai && pxf)
+        {
+            Vector3f forward = m_viewCamera.GetLook();
+            forward.y        = 0.0f;
+            if (forward.MagnitudeSqrd() < 1.0e-6f)
+                forward = Vector3f::Z_AXIS;
+            forward.Normalize();
+            bxf->position   = pxf->position + forward * 0.9f;
+            bxf->position.y = m_terrain.heightAtWorld(bxf->position.x, bxf->position.z) + m_carryFloor;
+            ai->carried     = false;
+        }
+        m_carried = {};
+        DE_LOG_INFO("Player: dropped body");
+        return true;
+    }
+    const Entity found = target.valid() ? target : bodyNear();
+    if (!found.valid())
+        return false;
+    const TransformComponent* bxf = world().get<TransformComponent>(found);
+    m_carryFloor                  = bxf->position.y - m_terrain.heightAtWorld(bxf->position.x, bxf->position.z);
+    world().get<AiAgentComponent>(found)->carried = true;
+    m_carried = found;
+    DE_LOG_INFO("Player: picked up body");
+    return true;
+}
+
+void SandboxApp::updateCarry()
+{
+    if (!m_carried.valid())
+        return;
+    const Entity              body = possessedBody();
+    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    const HealthComponent*    php  = body.valid() ? world().get<HealthComponent>(body) : nullptr;
+    TransformComponent*       bxf  = world().alive(m_carried) ? world().get<TransformComponent>(m_carried) : nullptr;
+    if (!bxf || !pxf || !php || !php->health.alive())
+    {
+        if (bxf)
+            toggleCarry();
+        m_carried = {};
+        return;
+    }
+    Vector3f forward = m_viewCamera.GetLook();
+    forward.y        = 0.0f;
+    if (forward.MagnitudeSqrd() < 1.0e-6f)
+        forward = Vector3f::Z_AXIS;
+    forward.Normalize();
+    bxf->position = pxf->position - forward * 0.35f + Vector3f{ 0.0f, 0.55f, 0.0f };
+}
+
+void SandboxApp::updateGuardFlashlights()
+{
+    const bool night = m_env.sunElevation() < 0.15f;
+    for (const auto& [guard, torch] : m_guardLights)
+    {
+        LocalLightComponent*      beam = world().alive(torch) ? world().get<LocalLightComponent>(torch) : nullptr;
+        TransformComponent*       lxf  = beam ? world().get<TransformComponent>(torch) : nullptr;
+        const TransformComponent* gxf  = world().alive(guard) ? world().get<TransformComponent>(guard) : nullptr;
+        const AiAgentComponent*   ai   = gxf ? world().get<AiAgentComponent>(guard) : nullptr;
+        const HealthComponent*    hp   = gxf ? world().get<HealthComponent>(guard) : nullptr;
+        if (!beam || !lxf)
+            continue;
+        beam->enabled = night && ai && hp && hp->health.alive();
+        if (!beam->enabled)
+            continue;
+        Vector3f fwd{ ai->forward.x, 0.0f, ai->forward.z };
+        if (fwd.MagnitudeSqrd() < 1.0e-6f)
+            fwd = Vector3f::Z_AXIS;
+        fwd.Normalize();
+        lxf->position = gxf->position + Vector3f{ 0.0f, 0.75f, 0.0f } + fwd * 0.35f;
+        Vector3f aim  = fwd + Vector3f{ 0.0f, -0.28f, 0.0f };
+        aim.Normalize();
+        lxf->rotation = Quaternion::FromLookRotation(aim, Vector3f::Y_AXIS);
+    }
+}
+
 float SandboxApp::playerLightLevel()
 {
     const Entity              body = possessedBody();
@@ -1243,6 +1585,7 @@ void SandboxApp::updatePossessed(float dt)
     edges.crouchPressed = input().actionPressed("crouch");
     edges.crouchDown    = input().actionDown("crouch");
     edges.jumpPressed   = input().actionPressed("jump");
+    edges.jumpDown      = input().actionDown("jump");
     edges.forward       = input().actionPressed("dodge_forward");
     edges.back          = input().actionPressed("dodge_back");
     edges.left          = input().actionPressed("dodge_left");
@@ -1252,7 +1595,8 @@ void SandboxApp::updatePossessed(float dt)
     const bool onGround = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch || motor->state() == PlayerMoveState::Dodge);
     const Terrain::GroundContact groundSurf = (onGround && xf) ? groundContactAt(xf->position.x, xf->position.z) : Terrain::GroundContact{};
     const float swingSlow   = m_blockRecoil > 0.0f ? 0.4f : (m_swingLock <= 0.0f ? 1.0f : (m_comboCount > 1 ? 0.45f : 0.8f));
-    motorIn.speedScale      = (status ? status->moveSpeedScale() : 1.0f) * m_offhand.shield.speedScale() * (onGround ? groundSurf.moveSpeed : 1.0f) * swingSlow;
+    motorIn.speedScale      = (status ? status->moveSpeedScale() : 1.0f) * m_offhand.shield.speedScale() * (onGround ? groundSurf.moveSpeed : 1.0f) * swingSlow
+                            * (m_carried.valid() ? 0.6f : 1.0f);
     if (skills)
     {
         motorIn.runScale  = skillScalar(SkillId::Run, SkillScalar::RunScale, skills->level(SkillId::Run));
@@ -1345,7 +1689,10 @@ void SandboxApp::updatePossessed(float dt)
         xf->position.y = playerGroundHeight(xf->position.x, xf->position.z) + motor->settings().groundOffset;
     }
 
-    m_playerWet = motor && motor->state() == PlayerMoveState::Swimming;
+    m_playerWet       = motor && motor->state() == PlayerMoveState::Swimming;
+    m_playerSubmerged = motor && motor->submerged();
+    if (m_playerWet && hp && hp->alive() && motor->breath() <= 0.0f)
+        hp->applyDamage(8.0f * dt);
 
     bool skipLandCue = false;
     if (jump)
@@ -1417,7 +1764,7 @@ void SandboxApp::updatePossessed(float dt)
         playSoundCue(world(), audio(), assets(), body, "jump");
     if (motorOut.landed && !skipLandCue)
         playSoundCue(world(), audio(), assets(), body, "land");
-    if (motorOut.splashed)
+    if (motorOut.splashed || motorOut.leapt)
         playSoundCue(world(), audio(), assets(), body, "splash");
     if (motorOut.landed || motorOut.splashed)
         m_footstepAcc = 0.0f;
@@ -1479,6 +1826,7 @@ void SandboxApp::respawnPlayer()
         poise->hyperArmor = false;
     }
     m_playerWet         = false;
+    m_playerSubmerged   = false;
     m_nightSightOn      = false;
     m_nightSight        = 0.0f;
     m_infraredOn        = false;
@@ -1544,12 +1892,30 @@ bool SandboxApp::ownsWeapon(WeaponKind kind)
 
 void SandboxApp::pickUpNearestItem()
 {
+    if (m_carried.valid())
+    {
+        toggleCarry();
+        return;
+    }
+    const InteractPick pick = pickInteract();
+    if (pick.kind == InteractKind::Body)
+    {
+        toggleCarry(pick.e);
+        return;
+    }
+    if (pick.kind == InteractKind::Power)
+    {
+        setCircuit(pick.box, !m_powerBoxes[pick.box].on, true);
+        return;
+    }
+    if (pick.kind != InteractKind::Item)
+        return;
     const Entity              body = possessedBody();
     InventoryComponent*       inv  = body.valid() ? world().get<InventoryComponent>(body) : nullptr;
     const TransformComponent* xf   = body.valid() ? world().get<TransformComponent>(body) : nullptr;
     if (!inv || !xf)
         return;
-    const Entity e = findPickupNear(world(), xf->position, 2.0f);
+    const Entity e = pick.e;
     if (e.valid() && world().has<LootComponent>(e))
     {
         m_lootTarget = e;
@@ -2853,7 +3219,9 @@ void SandboxApp::updateShoulderCamera()
         return;
 
     const bool crouched = localMotor() && localMotor()->state() == PlayerMoveState::Crouch;
-    const ShoulderView view = solveShoulderCamera(xf->position, m_lookYaw, m_lookPitch, crouched, m_shake, m_shakeTime, m_playerWet, m_water.params().waterLevel, &shoulderTerrainRay, &m_terrain);
+    const bool surface  = m_playerWet && localMotor() && localMotor()->depth() < 0.25f;
+    const ShoulderView view = solveShoulderCamera(xf->position, m_lookYaw, m_lookPitch, crouched, m_shake, m_shakeTime, surface, m_water.params().waterLevel, &shoulderTerrainRay, &m_terrain);
+    m_cameraUnderwater = m_playerWet && view.eye.y < m_water.params().waterLevel;
 
     m_viewCamera.SetLens(1.04719755f, m_viewCamera.GetAspect(), m_viewCamera.GetNearZ(), m_viewCamera.GetFarZ());
     m_viewCamera.LookAt(view.eye, view.aim, Vector3f{ 0.0f, 1.0f, 0.0f });
@@ -3561,7 +3929,7 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
     m_stealth.hearStand      = 0.0f;
     m_stealth.hearWalk       = 6.0f;
     m_stealth.hearSprint     = 16.0f;
-    m_stealth.hearCrouchWalk = 2.5f;
+    m_stealth.hearCrouchWalk = 0.0f;
     if (m_demoScene)
         spawnGltfDemo();
 
@@ -3615,6 +3983,8 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
         const AABox3f bounds = AABox3f::FromCenterExtents(o.position, o.scale * 0.5f);
         if (o.goal)
             m_goalBox = bounds;
+        if (!o.circuit.empty())
+            m_powerBoxes.push_back(PowerBox{ o.position, o.circuit });
         if (o.conceal)
             grass.push_back(bounds);
         else if (o.scale.y >= 0.3f && !o.goal)
@@ -3656,6 +4026,8 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
         light.outerConeDeg = o.lightOuterDeg;
         light.enabled      = o.lightEnabled;
         light.castShadow   = o.lightCastShadow;
+        if (!o.circuit.empty())
+            m_circuitLights.emplace_back(o.circuit, e);
     }
     for (const SceneObjectData& o : sceneBoxes)
     {
@@ -3745,6 +4117,17 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
             stampProceduralId(world(), hunter, std::format("sandbox/level/{}/{}", wolf ? "wolf" : "hunter", stamp), wolf ? "wolf" : "hunter");
             if (!wolf)
             {
+                const Entity torch = world().createEntity();
+                world().emplace<TransformComponent>(torch, xf.position, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
+                auto& beam        = world().emplace<LocalLightComponent>(torch);
+                beam.type         = LocalLightType::Spot;
+                beam.color        = Vector3f{ 1.0f, 0.95f, 0.85f };
+                beam.intensity    = 1300.0f;
+                beam.range        = 18.0f;
+                beam.innerConeDeg = 12.0f;
+                beam.outerConeDeg = 26.0f;
+                beam.enabled      = false;
+                m_guardLights.emplace_back(hunter, torch);
                 PatrolComponent patrol;
                 for (const Vector2f& p : o.patrol)
                     patrol.points.push_back(Vector3f{ p.x, m_terrain.heightAtWorld(p.x, p.y), p.y });
@@ -3877,7 +4260,7 @@ void SandboxApp::onUpdate(float dt)
             }
             tickSpawners(dt);
             tickCrows(dt);
-            m_chase.tick(dt, world(), input(), m_terrain, possessedBody(), m_playerWet);
+            m_chase.tick(dt, world(), input(), m_terrain, possessedBody(), m_playerSubmerged);
         }
         updateCombat(dt);
         syncArmorVisuals(world());
@@ -3893,6 +4276,9 @@ void SandboxApp::onUpdate(float dt)
         updateHealthPacks(dt);
         applyInventoryArmor();
         updateHunterLoot();
+        updatePower(dt);
+        updateCarry();
+        updateGuardFlashlights();
         m_blood.update(dt);
         tickParticleEmitters(world(), dt);
         if (Health* hpAlive = localHealth(); hpAlive && hpAlive->alive())
@@ -5025,6 +5411,7 @@ void SandboxApp::onRender()
         drawGuardAwareness();
         drawArmorHud();
         drawStaminaBar();
+        drawBreathBar();
         drawPickupLabels();
         drawTargetMarker();
         drawDefenseText();

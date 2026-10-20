@@ -28,6 +28,8 @@ namespace Dark
         m_tapAge        = 1.0f;
         m_dodgeLeft     = 0.0f;
         m_dodgeWish     = Vect3f::ZERO;
+        m_depth         = 0.0f;
+        m_breath        = 1.0f;
     }
 
     void PlayerMotor::clearJumpBuffer()
@@ -144,8 +146,9 @@ namespace Dark
     void PlayerMotor::enterSwim(Vector3f& position, float waterY)
     {
         m_state         = PlayerMoveState::Swimming;
+        m_depth         = Math::Max(0.0f, -m_velocity.y * m_settings.plungeScale);
         m_velocity.y    = 0.0f;
-        position.y      = waterY + m_settings.swimOffset;
+        position.y      = waterY + m_settings.swimOffset - m_depth;
         m_airTime       = 0.0f;
         m_coyote        = 0.0f;
         m_jumpBuffer    = 0.0f;
@@ -376,6 +379,10 @@ namespace Dark
 
         m_tapAge += dt;
         noteDodgeTap(in, result);
+        if (submerged())
+            m_breath = Math::Max(0.0f, m_breath - dt / Math::Max(m_settings.breathSeconds, 0.1f));
+        else
+            m_breath = Math::Min(1.0f, m_breath + m_settings.breathRegen * dt);
         if (m_wallCooldown > 0.0f)
             m_wallCooldown -= dt;
         if (m_state == PlayerMoveState::Grounded || m_state == PlayerMoveState::Crouch || m_state == PlayerMoveState::Dodge)
@@ -392,13 +399,37 @@ namespace Dark
         if (m_state == PlayerMoveState::Swimming)
         {
             if (terrainDry(groundY, waterY))
+            {
+                m_depth = 0.0f;
                 enterGrounded(position, groundY);
+            }
             else
             {
-                moveHorizontal(position, in.wish, m_settings.swimSpeed * swimScale * speedScale, dt, 0.0f);
-                position.y   = waterY + m_settings.swimOffset;
-                m_velocity.y = 0.0f;
-                m_jumpBuffer = 0.0f;
+                const float surfaceY = waterY + m_settings.swimOffset;
+                if (in.jumpPressed && m_depth <= m_settings.leapDepth)
+                {
+                    m_depth         = 0.0f;
+                    position.y      = surfaceY;
+                    m_state         = PlayerMoveState::Jumping;
+                    m_velocity.y    = m_settings.waterLeapSpeed * jumpScale;
+                    m_airTime       = 0.0f;
+                    m_coyote        = 0.0f;
+                    m_jumpBuffer    = 0.0f;
+                    m_didFirstJump  = true;
+                    m_didDoubleJump = true;
+                    result.jumped   = true;
+                    result.leapt    = true;
+                    return result;
+                }
+                const float rise  = in.crouch ? -m_settings.diveSpeed : (in.jumpHeld ? m_settings.surfaceSpeed : m_settings.floatSpeed);
+                const float under = m_depth >= m_settings.submergeDepth ? m_settings.underwaterSwimScale : 1.0f;
+                moveHorizontal(position, in.wish, m_settings.swimSpeed * swimScale * speedScale * under, dt, 0.0f);
+                groundY              = sampleGround(ground, position.x, position.z);
+                const float maxDepth = Math::Max(0.0f, surfaceY - (groundY + m_settings.groundOffset));
+                m_depth              = Math::Clamp(m_depth - rise * dt, 0.0f, maxDepth);
+                position.y           = surfaceY - m_depth;
+                m_velocity.y         = 0.0f;
+                m_jumpBuffer         = 0.0f;
                 return result;
             }
         }

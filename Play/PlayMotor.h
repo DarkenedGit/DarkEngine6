@@ -16,6 +16,7 @@ namespace Dark
         bool crouchPressed = false;
         bool crouchDown    = false;
         bool jumpPressed   = false;
+        bool jumpDown      = false;
         bool forward       = false;
         bool back          = false;
         bool left          = false;
@@ -32,6 +33,7 @@ namespace Dark
             crouchLatch = false;
         motorIn.crouch          = canSteer && !jumpBusy && !uiKeys && (crouchLatch || edges.crouchDown);
         motorIn.jumpPressed     = canSteer && !jumpBusy && !uiKeys && edges.jumpPressed;
+        motorIn.jumpHeld        = canSteer && !uiKeys && edges.jumpDown;
         motorIn.allowDoubleJump = !inAirCommit;
         motorIn.allowJumpBuffer = !jumpBusy;
         motorIn.airControlScale = (inAirCommit && jump) ? jump->def().airControlScale : 1.0f;

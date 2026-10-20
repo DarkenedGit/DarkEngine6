@@ -285,6 +285,41 @@ TEST(PlayerMotor, NoJumpWhileSwimming)
     EXPECT_NEAR(motor.velocity().y, 0.0f, 1.0e-4f);
 }
 
+TEST(PlayerMotor, JumpAtSurfaceLeapsOutOfWater)
+{
+    PlayerMotor             motor;
+    Vector3f                pos{ 0.0f, 0.35f, 0.0f };
+    const PlayerGroundQuery water = flatQuery(4.0f);
+    motor.tick(pos, PlayerMotorInput{}, 1.0f / 60.0f, water);
+    ASSERT_EQ(motor.state(), PlayerMoveState::Swimming);
+    PlayerMotorInput press{};
+    press.jumpPressed           = true;
+    const PlayerMotorResult out = motor.tick(pos, press, 1.0f / 60.0f, water);
+    EXPECT_TRUE(out.leapt);
+    EXPECT_EQ(motor.state(), PlayerMoveState::Jumping);
+    EXPECT_GT(motor.velocity().y, 0.0f);
+}
+
+TEST(PlayerMotor, DivingDrainsBreathAndHidesBelowSurface)
+{
+    PlayerMotor             motor;
+    Vector3f                pos{ 0.0f, 0.35f, 0.0f };
+    const PlayerGroundQuery water = flatQuery(4.0f);
+    motor.tick(pos, PlayerMotorInput{}, 1.0f / 60.0f, water);
+    PlayerMotorInput dive{};
+    dive.crouch = true;
+    advance(motor, pos, dive, 2.0f, water);
+    EXPECT_TRUE(motor.submerged());
+    EXPECT_LT(pos.y, 4.0f);
+    advance(motor, pos, dive, 5.0f, water);
+    EXPECT_LT(motor.breath(), 1.0f);
+    PlayerMotorInput up{};
+    up.jumpHeld = true;
+    advance(motor, pos, up, 3.0f, water);
+    EXPECT_FALSE(motor.submerged());
+    EXPECT_NEAR(motor.depth(), 0.0f, 1.0e-4f);
+}
+
 TEST(PlayerMotor, SpeedScaleHalfWalksAtHalfWalkSpeed)
 {
     PlayerMotor motor;

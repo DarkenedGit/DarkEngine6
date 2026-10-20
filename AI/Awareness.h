@@ -34,6 +34,12 @@ namespace Dark::AI
         float instantExposureWary = 0.2f;
         float proximityRange      = 2.5f;
         float proximityRate       = 3.0f;
+        float noticeExposure      = 0.12f;
+        float noticeMotion        = 0.1f;
+        float bodyRange           = 25.0f;
+        float waryFillScale       = 1.6f;
+        float waryDrainScale      = 0.4f;
+        float waryTimeScale       = 1.5f;
         float lookBoost           = 1.5f;
         float evidenceGrace       = 0.4f;
         float drainCalm           = 0.2f;
@@ -71,6 +77,7 @@ namespace Dark::AI
         Math::Vector3f noticePos{};
         bool           seesNow   = false;
         bool           heardOnly = false;
+        bool           wary      = false;
     };
 
     bool stepAwareness(AwarenessState& state, const AwarenessSettings& settings, const AwarenessInput& in, float dt);
