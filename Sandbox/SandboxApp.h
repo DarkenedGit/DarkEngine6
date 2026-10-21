@@ -100,6 +100,15 @@ private:
     void drawGuardAwareness();
     float playerLightLevel();
     void drawStaminaBar();
+    void drawBreathBar();
+    void setCircuit(size_t breaker, bool on, bool alertGuards);
+    void updatePower(float dt);
+    void updateGuardFlashlights();
+    Dark::Entity takedownTarget();
+    Dark::Entity bodyNear();
+    bool tryTakedown();
+    bool toggleCarry(Dark::Entity target = {});
+    void updateCarry();
     void updateHunterLoot();
     bool ownsWeapon(Dark::WeaponKind kind);
     void pickUpNearestItem();
@@ -229,6 +238,39 @@ private:
     float                           m_lightLevel   = 1.0f;
     float                           m_exposure     = 1.0f;
     float                           m_strideLeft   = 0.0f;
+    struct PowerBox
+    {
+        Dark::Math::Vector3f pos;
+        std::string          circuit;
+        bool                 on     = true;
+        float                fixFor = 0.0f;
+        Dark::Entity         fixer{};
+        Dark::Math::Vector3f service{};
+        Dark::Entity         checker{};
+        Dark::Math::Vector3f checks[3]{};
+        int                  checkIdx  = 0;
+        float                checkFor  = 0.0f;
+        float                checkTime = 0.0f;
+    };
+    std::vector<PowerBox>                                   m_powerBoxes;
+    std::vector<std::pair<std::string, Dark::Entity>>       m_circuitLights;
+    std::vector<std::pair<Dark::Entity, Dark::Entity>>      m_guardLights;
+    enum class InteractKind
+    {
+        None,
+        Body,
+        Power,
+        Item
+    };
+    struct InteractPick
+    {
+        InteractKind kind = InteractKind::None;
+        Dark::Entity e{};
+        size_t       box = 0;
+    };
+    InteractPick pickInteract();
+    Dark::Entity                                            m_carried{};
+    float                                                   m_carryFloor = 0.0f;
     Dark::Math::AABox3f             m_goalBox{};
     float                           m_goalShown    = 0.0f;
     float                           m_shieldBump   = 0.0f;
@@ -330,6 +372,8 @@ private:
     float         m_lookPitch      = 0.18f;
     float         m_lowerBodyYaw   = 0.0f;
     bool          m_playerWet      = false;
+    bool          m_playerSubmerged = false;
+    bool          m_cameraUnderwater = false;
     float         m_footstepAcc    = 0.0f;
     Dark::HealthHud                  m_healthHud;
     Dark::Math::Vector3f             m_playerSpawn{ 0.0f, 0.5f, 0.0f };

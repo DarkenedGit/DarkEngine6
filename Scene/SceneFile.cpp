@@ -574,6 +574,8 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             jo["conceal"] = true;
         if (o.goal)
             jo["goal"] = true;
+        if (!o.circuit.empty())
+            jo["circuit"] = o.circuit;
         if (!o.patrol.empty())
         {
             json points = json::array();
@@ -1124,6 +1126,7 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
 
         o.conceal = jo.value("conceal", false);
         o.goal    = jo.value("goal", false);
+        o.circuit = jo.value("circuit", std::string());
         if (jo.contains("patrol") && jo["patrol"].is_array())
         {
             for (const json& p : jo["patrol"])

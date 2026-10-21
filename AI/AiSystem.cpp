@@ -409,7 +409,7 @@ namespace Dark
             }
             cancelJumpAndToken(world, e, false);
             v.ai->deadFor += dt;
-            if (v.ai->deadFor < 8.0f || !m_walk.valid())
+            if (v.ai->deadFor < 8.0f || !m_walk.valid() || (m_awarenessOn && !entityIsWolf(world, e)))
                 continue;
 
             std::mt19937                          rng{ static_cast<unsigned>((m_time + v.ai->deadFor) * 1000.0f) + 91u };
@@ -621,7 +621,7 @@ namespace Dark
                     patrol->next = (patrol->next + 1) % static_cast<int>(patrol->points.size());
             }
             else if (walkTo(patrol->points[static_cast<size_t>(patrol->next)], 0.32f + 0.08f * hash(1.0f)))
-                patrol->waitLeft = 1.5f + 3.0f * hash(static_cast<float>(patrol->next) + m_time * 0.37f);
+                patrol->waitLeft = (1.5f + 3.0f * hash(static_cast<float>(patrol->next) + m_time * 0.37f)) * (aw.wary ? 1.8f : 1.0f);
             break;
         }
         case AI::Alertness::Suspicious:
@@ -1206,7 +1206,7 @@ namespace Dark
             {
                 if (AiAgentComponent* deadAi = world.get<AiAgentComponent>(e))
                     deadAi->planarVelocity = Vect3f::ZERO;
-                if (v.xf && v.health && !v.health->health.alive())
+                if (v.xf && v.health && !v.health->health.alive() && !(v.ai && v.ai->carried))
                     fallDeadAgent(world, v, dt, terrain, cubes, cubeCount, spheres, sphereCount);
                 continue;
             }
@@ -1350,6 +1350,7 @@ namespace Dark
                 const bool     focus   = facing >= std::cos(m_aware.focusHalfDeg * kRad);
                 const bool     side    = !focus && facing >= std::cos(m_aware.sideHalfDeg * kRad) && dist <= m_aware.sideRange;
                 const bool     present = playerAlive && !playerInWater;
+                const bool     crouchedPrey = m_prey.targetHeight < 0.4f;
 
                 float bodyShown = 0.0f;
                 if (present && (focus || side) && dist <= m_aware.maxRange)
@@ -1394,7 +1395,7 @@ namespace Dark
                 in.bodyShown = bodyShown;
                 in.exposure  = Math::Clamp(bodyShown * m_playerExposure, 0.0f, 1.0f);
                 in.motion    = m_playerMotion;
-                in.nearby      = present && dist < m_aware.proximityRange && std::fabs(playerPos.y - v.xf->position.y) < 1.5f && !walled;
+                in.nearby      = present && !crouchedPrey && dist < m_aware.proximityRange && std::fabs(playerPos.y - v.xf->position.y) < 1.5f && !walled;
                 in.looking   = v.ai->boostLeft > 0.0f;
                 in.noise     = noise;
                 in.noisePos  = noisePos;
@@ -1410,8 +1411,53 @@ namespace Dark
                         AI::alertToInvestigate(oai->aware, playerPos);
                     }
                 }
+                for (Entity other : m_scratch)
+                {
+                    if (v.ai->aware.alertness == AI::Alertness::Alert)
+                        break;
+                    AiAgentComponent*         oai = other.id() != e.id() ? world.get<AiAgentComponent>(other) : nullptr;
+                    const TransformComponent* oxf = oai ? world.get<TransformComponent>(other) : nullptr;
+                    const HealthComponent*    ohp = oai ? world.get<HealthComponent>(other) : nullptr;
+                    if (!oxf || !ohp || ohp->health.alive() || oai->bodyFound || oai->carried || entityIsWolf(world, other))
+                        continue;
+                    const Vector3f toBody{ oxf->position.x - v.xf->position.x, 0.0f, oxf->position.z - v.xf->position.z };
+                    const float    bodyDist = toBody.Magnitude();
+                    if (bodyDist > m_aware.bodyRange)
+                        continue;
+                    if (bodyDist > 3.0f && flattenDir(v.ai->forward, toBody).Dot(toBody * (1.0f / bodyDist)) < std::cos(m_aware.focusHalfDeg * kRad))
+                        continue;
+                    AI::SightQuery bq = q;
+                    bq.coneDeg        = 359.0f;
+                    bq.target         = oxf->position;
+                    if ((bq.heightMap && bq.heightMap->valid() && !AI::sees(bq)) || sightBlocked(q.eye, bq.target, cubes, cubeCount))
+                        continue;
+                    if (!m_conceal.empty() && sightBlocked(q.eye, bq.target, m_conceal.data(), static_cast<int>(m_conceal.size())))
+                        continue;
+                    oai->bodyFound            = true;
+                    v.ai->aware.noticePos     = oxf->position;
+                    v.ai->aware.heardOnly     = false;
+                    v.ai->aware.alertness     = AI::Alertness::Searching;
+                    v.ai->aware.stateTime     = 0.0f;
+                    v.ai->aware.meter         = Math::Max(v.ai->aware.meter, 0.5f);
+                    v.ai->aware.wary          = true;
+                    DE_LOG_INFO(LogCategory::AI, "Guard: found a body");
+                    if (m_hunterCueFn)
+                        m_hunterCueFn(m_hunterCueUser, e, "grunt");
+                    for (Entity mate : m_scratch)
+                    {
+                        AiAgentComponent*         mai = mate.id() != e.id() ? world.get<AiAgentComponent>(mate) : nullptr;
+                        const TransformComponent* mxf = mai ? world.get<TransformComponent>(mate) : nullptr;
+                        const HealthComponent*    mhp = mai ? world.get<HealthComponent>(mate) : nullptr;
+                        if (!mxf || !mhp || !mhp->health.alive() || entityIsWolf(world, mate) || (mxf->position - v.xf->position).MagnitudeSqrd() > 15.0f * 15.0f)
+                            continue;
+                        AI::alertToInvestigate(mai->aware, oxf->position);
+                        mai->aware.wary = true;
+                    }
+                    break;
+                }
                 sees = v.ai->aware.alertness == AI::Alertness::Alert && v.ai->aware.seesNow;
             }
+            v.ai->passive = guard && v.ai->aware.alertness != AI::Alertness::Alert;
             // Chase `sees` still includes standoff and the flat fallback. See XP does not.
             const bool geometricSees = playerAlive && !playerInWater && q.heightMap && q.heightMap->valid() && AI::sees(q);
             if (v.skill)

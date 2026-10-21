@@ -200,6 +200,26 @@ void SandboxApp::drawStaminaBar()
     dl->AddRectFilled(min, ImVec2(min.x + w * s, max.y), s < 0.25f ? IM_COL32(230, 90, 60, 230) : IM_COL32(240, 210, 90, 230), 3.0f);
 }
 
+void SandboxApp::drawBreathBar()
+{
+    if (m_cameraUnderwater)
+    {
+        const ImGuiViewport* vp = ImGui::GetMainViewport();
+        ImGui::GetBackgroundDrawList(const_cast<ImGuiViewport*>(vp))->AddRectFilled(vp->Pos, ImVec2(vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y), IM_COL32(15, 70, 110, 120));
+    }
+    const PlayerMotor* motor = localMotor();
+    if (!motor || motor->breath() >= 0.999f)
+        return;
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImDrawList*          dl = ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp));
+    const float          w  = 220.0f;
+    const ImVec2         min{ vp->Pos.x + vp->Size.x - 28.0f - w, vp->Pos.y + vp->Size.y - 108.0f };
+    const ImVec2         max{ min.x + w, min.y + 8.0f };
+    const float          b  = Math::Clamp(motor->breath(), 0.0f, 1.0f);
+    dl->AddRectFilled(min, max, IM_COL32(0, 0, 0, 150), 3.0f);
+    dl->AddRectFilled(min, ImVec2(min.x + w * b, max.y), b < 0.25f ? IM_COL32(230, 90, 60, 230) : IM_COL32(90, 180, 255, 230), 3.0f);
+}
+
 void SandboxApp::drawArmorHud()
 {
     const Entity              body = possessedBody();
@@ -244,7 +264,8 @@ void SandboxApp::drawPickupLabels()
     const ImVec2              vpPos   = ImGui::GetMainViewport()->Pos;
     const Entity              body    = possessedBody();
     const TransformComponent* pxf     = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    const Entity              nearest = pxf ? findPickupNear(world(), pxf->position, 2.0f) : Entity{};
+    const InteractPick        pick    = pickInteract();
+    const Entity              nearest = pick.kind == InteractKind::Item ? pick.e : Entity{};
 
     auto label = [&](Entity e, const char* name) {
         const TransformComponent* xf = world().get<TransformComponent>(e);
@@ -272,6 +293,46 @@ void SandboxApp::drawPickupLabels()
         dl->AddText(ImVec2(pos.x + 1.0f, pos.y + 1.0f), IM_COL32(0, 0, 0, 200), text);
         dl->AddText(pos, canTake ? IM_COL32(255, 220, 90, 255) : IM_COL32(235, 235, 235, 255), text);
     };
+
+    for (const PowerBox& box : m_powerBoxes)
+    {
+        if (!pxf)
+            break;
+        const Vector3f d{ box.pos.x - pxf->position.x, 0.0f, box.pos.z - pxf->position.z };
+        if (d.MagnitudeSqrd() > 15.0f * 15.0f)
+            continue;
+        const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(Vector3f(box.pos.x, box.pos.y + 1.0f, box.pos.z), 1.0f);
+        if (clip.w <= 1.0e-4f || clip.z / clip.w < 0.0f || clip.z / clip.w > 1.0f)
+            continue;
+        const bool   close = pick.kind == InteractKind::Power && pick.box == static_cast<size_t>(&box - m_powerBoxes.data());
+        const char*  text  = close ? (box.on ? "[G] Cut power" : "[G] Restore power") : (box.on ? "Power box" : "Power box (off)");
+        const ImVec2 ts    = ImGui::CalcTextSize(text);
+        const ImVec2 pos{ vpPos.x + (clip.x / clip.w * 0.5f + 0.5f) * vw - ts.x * 0.5f, vpPos.y + (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * vh - ts.y };
+        dl->AddText(ImVec2(pos.x + 1.0f, pos.y + 1.0f), IM_COL32(0, 0, 0, 200), text);
+        dl->AddText(pos, close ? IM_COL32(255, 220, 90, 255) : (box.on ? IM_COL32(150, 230, 150, 255) : IM_COL32(230, 120, 100, 255)), text);
+    }
+
+    auto prompt = [&](const Vector3f& at, const char* text, ImU32 color) {
+        const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(at, 1.0f);
+        if (clip.w <= 1.0e-4f || clip.z / clip.w < 0.0f || clip.z / clip.w > 1.0f)
+            return;
+        const ImVec2 ts = ImGui::CalcTextSize(text);
+        const ImVec2 pos{ vpPos.x + (clip.x / clip.w * 0.5f + 0.5f) * vw - ts.x * 0.5f, vpPos.y + (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * vh - ts.y };
+        dl->AddText(ImVec2(pos.x + 1.0f, pos.y + 1.0f), IM_COL32(0, 0, 0, 200), text);
+        dl->AddText(pos, color, text);
+    };
+    if (pxf && m_carried.valid())
+        prompt(pxf->position + Vector3f{ 0.0f, 1.4f, 0.0f }, "[G] Drop body", IM_COL32(255, 220, 90, 255));
+    else if (const Entity target = takedownTarget(); target.valid())
+    {
+        if (const TransformComponent* gxf = world().get<TransformComponent>(target))
+            prompt(gxf->position + Vector3f{ 0.0f, 1.2f, 0.0f }, "[E] Takedown", IM_COL32(255, 110, 90, 255));
+    }
+    else if (pick.kind == InteractKind::Body)
+    {
+        if (const TransformComponent* gxf = world().get<TransformComponent>(pick.e))
+            prompt(gxf->position + Vector3f{ 0.0f, 0.6f, 0.0f }, "[G] Pick up body", IM_COL32(255, 220, 90, 255));
+    }
 
     char name[96];
     world().each<ItemPickupComponent>([&](Entity e, ItemPickupComponent& pickup) {
@@ -340,7 +401,13 @@ void SandboxApp::drawGuardAwareness()
         if (!xf || !hp || !hp->health.alive() || (tag && tag->name == "Wolf"))
             return;
         if (aw.alertness == AI::Alertness::Calm && aw.meter < 0.02f)
+        {
+            ImVec2 c;
+            if (aw.wary && pxf && (xf->position - pxf->position).MagnitudeSqrd() <= 45.0f * 45.0f
+                && project(Vector3f(xf->position.x, xf->position.y + 1.3f, xf->position.z), c))
+                dl->AddCircle(c, 9.0f, IM_COL32(230, 180, 40, 150), 20, 2.5f);
             return;
+        }
         const bool alert   = aw.alertness == AI::Alertness::Alert;
         const bool curious = !alert && aw.alertness != AI::Alertness::Calm;
         anyoneSees = anyoneSees || aw.seesNow;
@@ -387,7 +454,7 @@ void SandboxApp::drawGuardAwareness()
         {
             const float fill = Math::Clamp(aw.meter, 0.0f, 1.0f);
             dl->AddCircle(c, r, IM_COL32(0, 0, 0, 170), 24, 6.0f);
-            dl->AddCircle(c, r, curious ? IM_COL32(120, 90, 20, 200) : IM_COL32(90, 90, 90, 160), 24, 4.0f);
+            dl->AddCircle(c, r, (curious || aw.wary) ? IM_COL32(120, 90, 20, 200) : IM_COL32(90, 90, 90, 160), 24, 4.0f);
             if (fill > 0.01f)
             {
                 dl->PathArcTo(c, r, -1.5707963f, -1.5707963f + fill * 6.2831853f, 24);

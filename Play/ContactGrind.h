@@ -28,10 +28,10 @@ namespace Dark
         const float        reach2   = kContactStandoff * kContactStandoff;
         float              best     = reach2;
 
-        world.each<AiAgentComponent>([&](Entity e, AiAgentComponent&) {
+        world.each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
             const HealthComponent*    hp  = world.get<HealthComponent>(e);
             const TransformComponent* hxf = world.get<TransformComponent>(e);
-            if (!hp || !hp->health.alive() || !hxf)
+            if (!hp || !hp->health.alive() || !hxf || ai.passive)
                 return;
             const float dx = hxf->position.x - playerPos.x;
             const float dz = hxf->position.z - playerPos.z;

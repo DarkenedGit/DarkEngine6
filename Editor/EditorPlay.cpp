@@ -706,6 +706,7 @@ void EditorApp::updatePlay(float dt)
     edges.crouchPressed = input().actionPressed("crouch");
     edges.crouchDown    = input().actionDown("crouch");
     edges.jumpPressed   = input().actionPressed("jump");
+    edges.jumpDown      = input().actionDown("jump");
     edges.forward       = input().actionPressed("dodge_forward");
     edges.back          = input().actionPressed("dodge_back");
     edges.left          = input().actionPressed("dodge_left");

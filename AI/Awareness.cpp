@@ -15,8 +15,10 @@ namespace Dark::AI
 {
     bool stepAwareness(AwarenessState& state, const AwarenessSettings& settings, const AwarenessInput& in, float dt)
     {
-        state.seesNow = in.sees || in.touching;
-        if (state.seesNow || in.nearby)
+        const bool noticed = in.sees && in.exposure >= settings.noticeExposure;
+        const bool feels   = in.nearby && in.motion > settings.noticeMotion;
+        state.seesNow      = noticed || in.touching;
+        if (state.seesNow || feels)
         {
             state.noticePos = in.playerPos;
             state.heardOnly = false;
@@ -26,11 +28,11 @@ namespace Dark::AI
             state.noticePos = in.noisePos;
             state.heardOnly = state.alertness == Alertness::Calm || state.heardOnly;
         }
-        const bool cue = state.seesNow || in.nearby || in.noise > 0.0f;
+        const bool cue = state.seesNow || feels || in.noise > 0.0f;
         state.sinceCue = cue ? 0.0f : state.sinceCue + dt;
 
         float sight = 0.0f;
-        if (in.sees)
+        if (noticed)
         {
             const float angleScale = in.primary ? 1.0f : settings.sideStill + settings.sideMoving * in.motion;
             sight                  = settings.fillNear * std::exp(-in.distance / settings.falloff) * angleScale * in.exposure;
@@ -39,7 +41,14 @@ namespace Dark::AI
             if (in.looking)
                 sight *= settings.lookBoost;
         }
-        const float felt = in.nearby ? settings.proximityRate * in.motion : 0.0f;
+        float felt = feels ? settings.proximityRate * in.motion : 0.0f;
+        if (state.wary)
+        {
+            sight *= settings.waryFillScale;
+            felt *= settings.waryFillScale;
+        }
+        const float drainScale = state.wary ? settings.waryDrainScale : 1.0f;
+        const float timeScale  = state.wary ? settings.waryTimeScale : 1.0f;
 
         state.stateTime += dt;
         auto enter = [&](Alertness next) {
@@ -48,9 +57,9 @@ namespace Dark::AI
             state.meter     = 0.0f;
         };
 
-        const bool  wary       = state.alertness != Alertness::Calm;
-        const bool  pointBlank = in.sees && in.primary && in.distance < settings.instantRange
-                              && in.exposure >= (wary ? settings.instantExposureWary : settings.instantExposure);
+        const bool  tense      = state.alertness != Alertness::Calm || state.wary;
+        const bool  pointBlank = noticed && in.primary && in.distance < settings.instantRange
+                              && in.exposure >= (tense ? settings.instantExposureWary : settings.instantExposure);
         if ((in.touching || pointBlank) && state.alertness != Alertness::Alert)
         {
             enter(Alertness::Alert);
@@ -63,7 +72,7 @@ namespace Dark::AI
         case Alertness::Calm:
             state.meter += Math::Max(sight, felt) * dt + in.noise;
             if (draining)
-                state.meter -= settings.drainCalm * dt;
+                state.meter -= settings.drainCalm * drainScale * dt;
             if (state.meter >= 1.0f)
                 enter(Alertness::Suspicious);
             break;
@@ -76,7 +85,7 @@ namespace Dark::AI
             if (yellow > 0.0f)
                 state.meter += yellow * (state.alertness == Alertness::Searching ? settings.searchFillScale : settings.suspiciousFillScale) * dt;
             else if (draining)
-                state.meter -= settings.drainCurious * dt;
+                state.meter -= settings.drainCurious * drainScale * dt;
             if (cue)
                 state.stateTime = Math::Min(state.stateTime, settings.investigateAfter);
             if (state.meter >= 1.0f)
@@ -89,9 +98,9 @@ namespace Dark::AI
                 state.alertness = Alertness::Investigating;
                 state.stateTime = 0.0f;
             }
-            else if (state.alertness == Alertness::Investigating && state.stateTime >= settings.investigateSeconds)
+            else if (state.alertness == Alertness::Investigating && state.stateTime >= settings.investigateSeconds * timeScale)
                 enter(Alertness::Calm);
-            else if (state.alertness == Alertness::Searching && state.stateTime >= settings.searchSeconds)
+            else if (state.alertness == Alertness::Searching && state.stateTime >= settings.searchSeconds * timeScale)
             {
                 state.alertness = Alertness::Investigating;
                 state.stateTime = 0.0f;
@@ -100,10 +109,13 @@ namespace Dark::AI
         }
 
         case Alertness::Alert:
-            if (state.seesNow || in.nearby)
+            if (state.seesNow || feels)
                 state.stateTime = 0.0f;
             else if (state.stateTime >= settings.alertLoseSeconds)
+            {
                 enter(Alertness::Searching);
+                state.wary = true;
+            }
             break;
         }
         state.meter = Math::Clamp(state.meter, 0.0f, 1.0f);

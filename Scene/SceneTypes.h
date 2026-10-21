@@ -297,6 +297,7 @@ namespace Dark
 
         bool conceal = false;
         bool goal    = false;
+        std::string circuit;
 
         // Unit spawner. Radius is metres on the ground, not the marker scale.
         bool        hasSpawner = false;
