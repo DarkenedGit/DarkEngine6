@@ -39,6 +39,7 @@ constexpr uint32_t AutoExposure     = 0xFFFFD54F;
 constexpr uint32_t Bloom            = 0xFFFFEE58;
 constexpr uint32_t Taa              = 0xFFB39DDB;
 constexpr uint32_t MotionBlur       = 0xFF7E57C2;
+constexpr uint32_t Echo             = 0xFF00B8D4;
 constexpr uint32_t Tonemap          = 0xFFFFFFFF;
 constexpr uint32_t Gtao             = 0xFF8D6E63;
 constexpr uint32_t Ssr              = 0xFF546E7A;

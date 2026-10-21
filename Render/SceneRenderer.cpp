@@ -186,6 +186,8 @@ bool SceneRenderer::createPostPipelines(Renderer& renderer, const char* tag)
     }
     if (!m_motionBlur.create(renderer.device()))
         DE_LOG_WARN(LogCategory::Render, "{}: MotionBlurPipeline create failed — motion blur disabled", tag);
+    if (!m_echo.create(renderer.device()))
+        DE_LOG_WARN(LogCategory::Render, "{}: EchoPipeline create failed — echolocation disabled", tag);
     if (!m_taa.create(renderer.device()))
         DE_LOG_WARN(LogCategory::Render, "{}: TaaPipeline create failed — TAA disabled", tag);
 
@@ -303,6 +305,7 @@ void SceneRenderer::shutdown()
     m_gtao                     = GtaoPipeline{};
     m_ssr                      = SsrPipeline{};
     m_motionBlur               = MotionBlurPipeline{};
+    m_echo                     = EchoPipeline{};
     m_taa                      = TaaPipeline{};
     m_shadows                  = ShadowSystem{};
     m_localShadows             = LocalShadowSystem{};
@@ -689,7 +692,8 @@ bool SceneRenderer::syncAutoExposureSize(Renderer& renderer)
     return sizeChanged;
 }
 
-void SceneRenderer::applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, TonemapSettings tonemap, bool meterAutoExposure)
+void SceneRenderer::applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, TonemapSettings tonemap, bool meterAutoExposure,
+                              bool holdTemporal)
 {
     const bool deferred = renderer.scenePath() == ScenePath::HybridDeferred;
     const Math::Matrix4f prevViewProj = m_havePrevViewProj ? m_prevViewProj : viewProj;
@@ -735,13 +739,14 @@ void SceneRenderer::applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd
         copyMatrix(taa.invViewProj, viewProj.Inverse());
         copyMatrix(taa.prevViewProj, prevViewProj);
         taa.blend = 0.1f;
-        taa.reset = !m_taaHistoryValid;
+        taa.reset = holdTemporal || !m_taaHistoryValid;
         m_taa.draw(cmd, renderer, taa);
-        m_taaHistoryValid = true;
+        // A held frame's history is the strobe. Drop it so the next normal frame starts clean.
+        m_taaHistoryValid = !holdTemporal;
         usedPostHdr       = true;
     }
 
-    const bool useMb = deferred && renderer.debugState().motionBlur && m_motionBlur.isValid();
+    const bool useMb = !holdTemporal && deferred && renderer.debugState().motionBlur && m_motionBlur.isValid();
     if (useMb)
     {
         MotionBlurSettings mb{};

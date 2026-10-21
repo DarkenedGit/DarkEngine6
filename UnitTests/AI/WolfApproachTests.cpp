@@ -272,3 +272,231 @@ TEST(WolfApproach, CloseNoticeAndPackCloseFromTheFront)
     EXPECT_EQ(agentB->stalk, WolfStalk::Commit);
     EXPECT_EQ(packSim.cues.growl, 2);
 }
+
+namespace
+{
+    Dark::Math::AABox3f cubeWall()
+    {
+        return Dark::Math::AABox3f::FromCenterExtents(Dark::Math::Vector3f{ 8.0f, 1.5f, 5.0f }, Dark::Math::Vector3f{ 3.0f, 2.0f, 0.5f });
+    }
+
+    Dark::AI::Leaf brainLeaf(Dark::World& world, Dark::Entity e)
+    {
+        const Dark::BrainComponent* brain = world.get<Dark::BrainComponent>(e);
+        if (!brain || !brain->brain)
+            return Dark::AI::Leaf::Wander;
+        return brain->brain->leaf();
+    }
+}
+
+TEST(WolfApproach, WolfSeesAndHearsThroughACube)
+{
+    const Dark::Math::AABox3f wall = cubeWall();
+
+    WolfWorld seen;
+    ASSERT_TRUE(seen.setup());
+    const Dark::Entity wolf = seen.spawnWolf(8.0f, 2.0f);
+    ASSERT_TRUE(wolf.valid());
+    seen.ai.tickHunters(seen.world, seen.terrain, false, 1.0f / 60.0f, seen.player, &wall, 1);
+    const Dark::AiAgentComponent* seenAgent = seen.world.get<Dark::AiAgentComponent>(wolf);
+    ASSERT_NE(seenAgent, nullptr);
+    EXPECT_TRUE(seenAgent->hasLastSeen);
+    EXPECT_EQ(seenAgent->stalk, WolfStalk::BackOff);
+    EXPECT_EQ(seen.cues.growl, 1);
+    EXPECT_EQ(brainLeaf(seen.world, wolf), Leaf::Chase);
+
+    WolfWorld heard;
+    ASSERT_TRUE(heard.setup());
+    Dark::TransformComponent* playerXf = heard.world.get<Dark::TransformComponent>(heard.player);
+    ASSERT_NE(playerXf, nullptr);
+    playerXf->position = { 8.0f, 1.0f, 14.0f };
+    const Dark::Entity listener = heard.spawnWolf(8.0f, 2.0f);
+    ASSERT_TRUE(listener.valid());
+    if (Dark::AiAgentComponent* agent = heard.world.get<Dark::AiAgentComponent>(listener))
+        agent->forward = { 0.0f, 0.0f, -1.0f };
+    Dark::PreySense sense{};
+    sense.hearRange    = 16.0f;
+    sense.standoff     = 1.0f;
+    sense.targetHeight = 0.5f;
+    heard.ai.setPreySense(sense);
+    heard.ai.tickHunters(heard.world, heard.terrain, false, 1.0f / 60.0f, heard.player, &wall, 1);
+    const Dark::AiAgentComponent* heardAgent = heard.world.get<Dark::AiAgentComponent>(listener);
+    ASSERT_NE(heardAgent, nullptr);
+    EXPECT_TRUE(heardAgent->hasLastSeen);
+    EXPECT_EQ(heardAgent->stalk, WolfStalk::BackOff);
+    EXPECT_EQ(brainLeaf(heard.world, listener), Leaf::Chase);
+}
+
+TEST(WolfApproach, OpenHunterSeesThroughACubeAndAGuardDoesNot)
+{
+    const Dark::Math::AABox3f wall = cubeWall();
+
+    WolfWorld open;
+    ASSERT_TRUE(open.setup());
+    Dark::TransformComponent xf{};
+    xf.position = { 8.0f, 1.0f, 2.0f };
+    const Dark::Entity hunter = open.ai.spawnHunter(open.world, open.pins, open.assets, xf);
+    ASSERT_TRUE(hunter.valid());
+    if (Dark::AiAgentComponent* agent = open.world.get<Dark::AiAgentComponent>(hunter))
+    {
+        agent->forward = { 0.0f, 0.0f, 1.0f };
+    }
+    open.ai.tickHunters(open.world, open.terrain, false, 1.0f / 60.0f, open.player, &wall, 1);
+    const Dark::AiAgentComponent* openAgent = open.world.get<Dark::AiAgentComponent>(hunter);
+    ASSERT_NE(openAgent, nullptr);
+    EXPECT_TRUE(openAgent->hasLastSeen);
+    EXPECT_EQ(brainLeaf(open.world, hunter), Leaf::Chase);
+
+    WolfWorld guard;
+    ASSERT_TRUE(guard.setup());
+    guard.ai.setAwarenessEnabled(true);
+    const Dark::Entity guarded = guard.ai.spawnHunter(guard.world, guard.pins, guard.assets, xf);
+    ASSERT_TRUE(guarded.valid());
+    if (Dark::AiAgentComponent* agent = guard.world.get<Dark::AiAgentComponent>(guarded))
+        agent->forward = { 0.0f, 0.0f, 1.0f };
+    guard.ai.tickHunters(guard.world, guard.terrain, false, 1.0f / 60.0f, guard.player, &wall, 1);
+    const Dark::AiAgentComponent* guardAgent = guard.world.get<Dark::AiAgentComponent>(guarded);
+    ASSERT_NE(guardAgent, nullptr);
+    EXPECT_FALSE(guardAgent->hasLastSeen);
+    EXPECT_EQ(guardAgent->aware.alertness, Alertness::Calm);
+    EXPECT_EQ(brainLeaf(guard.world, guarded), Leaf::Wander);
+}
+
+namespace
+{
+    void placeAt(Dark::World& world, Dark::Entity e, float z)
+    {
+        if (Dark::TransformComponent* xf = world.get<Dark::TransformComponent>(e))
+            xf->position = { 8.0f, 1.0f, z };
+    }
+
+    void calmAgent(Dark::World& world, Dark::Entity e)
+    {
+        if (Dark::AiAgentComponent* agent = world.get<Dark::AiAgentComponent>(e))
+            agent->aware = {};
+    }
+
+    Dark::Entity spawnOpenHunter(WolfWorld& sim, float z)
+    {
+        Dark::TransformComponent xf{};
+        xf.position = { 8.0f, 1.0f, z };
+        return sim.ai.spawnHunter(sim.world, sim.pins, sim.assets, xf);
+    }
+}
+
+TEST(WolfApproach, AlertShareRadiusComesFromSettings)
+{
+    WolfWorld sim;
+    ASSERT_TRUE(sim.setup());
+    Dark::TransformComponent* playerXf = sim.world.get<Dark::TransformComponent>(sim.player);
+    ASSERT_NE(playerXf, nullptr);
+    playerXf->position = { 80.0f, 1.0f, 80.0f };
+
+    const Dark::Entity source = spawnOpenHunter(sim, 2.0f);
+    const Dark::Entity other  = spawnOpenHunter(sim, 8.0f);
+    const Dark::Entity wolf   = sim.spawnWolf(8.0f, 5.0f);
+    ASSERT_TRUE(source.valid());
+    ASSERT_TRUE(other.valid());
+    ASSERT_TRUE(wolf.valid());
+
+    AwarenessSettings share{};
+    share.alertShareRadius = 0.0f;
+    sim.ai.setAwarenessSettings(share);
+    sim.ai.tickHunters(sim.world, sim.terrain, false, 1.0f / 60.0f, sim.player);
+
+    placeAt(sim.world, source, 8.0f);
+    placeAt(sim.world, other, 8.0f);
+    sim.ai.forceAlert(sim.world, source, { 8.0f, 1.0f, 8.0f });
+    const Dark::AiAgentComponent* sourceAgent = sim.world.get<Dark::AiAgentComponent>(source);
+    const Dark::AiAgentComponent* otherAgent  = sim.world.get<Dark::AiAgentComponent>(other);
+    const Dark::AiAgentComponent* wolfAgent   = sim.world.get<Dark::AiAgentComponent>(wolf);
+    ASSERT_NE(sourceAgent, nullptr);
+    ASSERT_NE(otherAgent, nullptr);
+    ASSERT_NE(wolfAgent, nullptr);
+    EXPECT_EQ(sourceAgent->aware.alertness, Alertness::Alert);
+    EXPECT_EQ(otherAgent->aware.alertness, Alertness::Calm);
+    EXPECT_EQ(wolfAgent->aware.alertness, Alertness::Calm);
+
+    calmAgent(sim.world, source);
+    share.alertShareRadius = 1.0f;
+    sim.ai.setAwarenessSettings(share);
+    placeAt(sim.world, source, 2.0f);
+    placeAt(sim.world, other, 8.0f);
+    sim.ai.forceAlert(sim.world, source, { 8.0f, 1.0f, 8.0f });
+    EXPECT_EQ(otherAgent->aware.alertness, Alertness::Calm);
+
+    calmAgent(sim.world, source);
+    share.alertShareRadius = 12.0f;
+    sim.ai.setAwarenessSettings(share);
+    sim.ai.forceAlert(sim.world, source, { 8.0f, 1.0f, 8.0f });
+    EXPECT_EQ(otherAgent->aware.alertness, Alertness::Investigating);
+    EXPECT_EQ(wolfAgent->aware.alertness, Alertness::Calm);
+
+    calmAgent(sim.world, source);
+    calmAgent(sim.world, other);
+    placeAt(sim.world, other, 14.0f);
+    sim.ai.forceAlert(sim.world, source, { 8.0f, 1.0f, 8.0f });
+    EXPECT_EQ(otherAgent->aware.alertness, Alertness::Investigating);
+
+    calmAgent(sim.world, source);
+    calmAgent(sim.world, other);
+    placeAt(sim.world, other, 14.5f);
+    sim.ai.forceAlert(sim.world, source, { 8.0f, 1.0f, 8.0f });
+    EXPECT_EQ(otherAgent->aware.alertness, Alertness::Calm);
+
+    calmAgent(sim.world, source);
+    share.alertShareRadius = -4.0f;
+    sim.ai.setAwarenessSettings(share);
+    EXPECT_FLOAT_EQ(sim.ai.awarenessSettings().alertShareRadius, 0.0f);
+    placeAt(sim.world, source, 8.0f);
+    placeAt(sim.world, other, 8.0f);
+    sim.ai.forceAlert(sim.world, source, { 8.0f, 1.0f, 8.0f });
+    EXPECT_EQ(otherAgent->aware.alertness, Alertness::Calm);
+}
+
+TEST(WolfApproach, GuardNoiseWallAndReactUseSettings)
+{
+    const Dark::Math::AABox3f wall = cubeWall();
+
+    WolfWorld open;
+    ASSERT_TRUE(open.setup());
+    Dark::TransformComponent* playerXf = open.world.get<Dark::TransformComponent>(open.player);
+    ASSERT_NE(playerXf, nullptr);
+    playerXf->position = { 80.0f, 1.0f, 80.0f };
+    open.ai.setAwarenessEnabled(true);
+    AwarenessSettings aware{};
+    aware.maxRange     = 5.0f;
+    aware.noiseBase    = 0.3f;
+    aware.noiseFalloff = 0.5f;
+    aware.reactMeter   = 0.9f;
+    aware.wallScale    = 0.5f;
+    open.ai.setAwarenessSettings(aware);
+    const Dark::Entity guard = spawnOpenHunter(open, 2.0f);
+    ASSERT_TRUE(guard.valid());
+    open.ai.addNoise({ 8.0f, 1.0f, 10.0f }, 10.0f);
+    open.ai.tickHunters(open.world, open.terrain, false, 1.0f / 60.0f, open.player);
+    const Dark::AiAgentComponent* agent = open.world.get<Dark::AiAgentComponent>(guard);
+    ASSERT_NE(agent, nullptr);
+    EXPECT_NEAR(agent->aware.meter, 0.4f, 1.0e-3f);
+    EXPECT_FALSE(agent->reacting);
+
+    aware.reactMeter = 0.2f;
+    open.ai.setAwarenessSettings(aware);
+    open.ai.tickHunters(open.world, open.terrain, false, 1.0f / 60.0f, open.player);
+    EXPECT_TRUE(agent->reacting);
+
+    WolfWorld blocked;
+    ASSERT_TRUE(blocked.setup());
+    Dark::TransformComponent* blockedPlayer = blocked.world.get<Dark::TransformComponent>(blocked.player);
+    ASSERT_NE(blockedPlayer, nullptr);
+    blockedPlayer->position = { 80.0f, 1.0f, 80.0f };
+    blocked.ai.setAwarenessEnabled(true);
+    blocked.ai.setAwarenessSettings(aware);
+    const Dark::Entity walled = spawnOpenHunter(blocked, 2.0f);
+    ASSERT_TRUE(walled.valid());
+    blocked.ai.addNoise({ 8.0f, 1.0f, 10.0f }, 10.0f);
+    blocked.ai.tickHunters(blocked.world, blocked.terrain, false, 1.0f / 60.0f, blocked.player, &wall, 1);
+    const Dark::AiAgentComponent* walledAgent = blocked.world.get<Dark::AiAgentComponent>(walled);
+    ASSERT_NE(walledAgent, nullptr);
+    EXPECT_NEAR(walledAgent->aware.meter, 0.0f, 1.0e-3f);
+}

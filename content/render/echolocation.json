@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "note": "periodSeconds is how long one chirp is held. speed is how fast the shell expands, in metres per second. The shell stops at 40 m. Dev Tools can change both for the session and does not write this file.",
+  "periodSeconds": 1.25,
+  "speed": 50
+}

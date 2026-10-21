@@ -18,6 +18,7 @@
 #include "Render/Mesh.h"
 #include "Render/MeshPipeline.h"
 #include "Render/MotionBlurPipeline.h"
+#include "Render/EchoPipeline.h"
 #include "Render/LocalShadowSystem.h"
 #include "Render/ShadowSystem.h"
 #include "Render/SkinnedMeshPipeline.h"
@@ -83,7 +84,9 @@ public:
     // Caller must have finished HDR scene draws. tonemap.usePostHdr is set by this helper.
     // meterAutoExposure records this frame's 1×1. The host reads the previous sample and
     // writes tonemap.exposure before the call, so bloom and tonemap share that exposure.
-    void applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, TonemapSettings tonemap, bool meterAutoExposure = false);
+    // holdTemporal forces a TAA reset and skips motion blur so a strobe is not smeared.
+    void applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, TonemapSettings tonemap, bool meterAutoExposure = false,
+                   bool holdTemporal = false);
 
     // Resize the meter with the swap chain. True when the size changed: the readback was
     // dropped, and the host should zero its stored EV before adapting.
@@ -145,6 +148,7 @@ public:
     GtaoPipeline&             gtao() { return m_gtao; }
     SsrPipeline&              ssr() { return m_ssr; }
     MotionBlurPipeline&       motionBlur() { return m_motionBlur; }
+    EchoPipeline&             echo() { return m_echo; }
     TaaPipeline&              taa() { return m_taa; }
     ShadowSystem&             shadows() { return m_shadows; }
     LocalShadowSystem&        localShadows() { return m_localShadows; }
@@ -174,6 +178,7 @@ public:
     const GtaoPipeline&             gtao() const { return m_gtao; }
     const SsrPipeline&              ssr() const { return m_ssr; }
     const MotionBlurPipeline&       motionBlur() const { return m_motionBlur; }
+    const EchoPipeline&             echo() const { return m_echo; }
     const TaaPipeline&              taa() const { return m_taa; }
     const ShadowSystem&             shadows() const { return m_shadows; }
     const LocalShadowSystem&        localShadows() const { return m_localShadows; }
@@ -226,6 +231,7 @@ private:
     GtaoPipeline             m_gtao;
     SsrPipeline              m_ssr;
     MotionBlurPipeline       m_motionBlur;
+    EchoPipeline             m_echo;
     TaaPipeline              m_taa;
     ShadowSystem             m_shadows;
     LocalShadowSystem        m_localShadows;

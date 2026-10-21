@@ -1383,6 +1383,72 @@ void SandboxApp::drawDevTools()
         ImGui::TextDisabled("%s", (shown && shown->state() == PlayerMoveState::Crouch) ? "crouching" : "standing");
     }
 
+    if (m_chaseOk && ImGui::CollapsingHeader("Guard awareness"))
+    {
+        m_chase.ai().ensureAwarenessSettings();
+        AI::AwarenessSettings aware = m_chase.ai().awarenessSettings();
+        bool ch = false;
+        auto row = [&](const char* label, float& value, float lo, float hi, const char* fmt) {
+            ch |= ImGui::SliderFloat(label, &value, lo, hi, fmt);
+        };
+        ImGui::TextDisabled("Meter");
+        row("Fill near", aware.fillNear, 0.0f, 10.0f, "%.2f");
+        row("Falloff", aware.falloff, 0.1f, 40.0f, "%.1f");
+        row("Max range", aware.maxRange, 1.0f, 300.0f, "%.0f");
+        row("Focus half-angle", aware.focusHalfDeg, 1.0f, 180.0f, "%.0f");
+        row("Side half-angle", aware.sideHalfDeg, 1.0f, 180.0f, "%.0f");
+        row("Side range", aware.sideRange, 0.0f, 80.0f, "%.1f");
+        row("Side still", aware.sideStill, 0.0f, 2.0f, "%.2f");
+        row("Side moving", aware.sideMoving, 0.0f, 2.0f, "%.2f");
+        row("Near range", aware.nearRange, 0.0f, 40.0f, "%.1f");
+        row("Clear rate", aware.clearRate, 0.0f, 10.0f, "%.2f");
+        row("Clear exposure", aware.clearExposure, 0.0f, 1.0f, "%.2f");
+        row("Clear body", aware.clearBody, 0.0f, 1.0f, "%.2f");
+        row("Instant range", aware.instantRange, 0.0f, 30.0f, "%.1f");
+        row("Instant exposure", aware.instantExposure, 0.0f, 1.0f, "%.2f");
+        row("Instant exposure wary", aware.instantExposureWary, 0.0f, 1.0f, "%.2f");
+        row("Proximity range", aware.proximityRange, 0.0f, 15.0f, "%.2f");
+        row("Proximity rate", aware.proximityRate, 0.0f, 10.0f, "%.2f");
+        row("Look boost", aware.lookBoost, 0.0f, 5.0f, "%.2f");
+        row("Evidence grace", aware.evidenceGrace, 0.0f, 5.0f, "%.2f");
+        row("Drain calm", aware.drainCalm, 0.0f, 2.0f, "%.2f");
+        row("Drain curious", aware.drainCurious, 0.0f, 2.0f, "%.2f");
+        row("Suspicious fill", aware.suspiciousFillScale, 0.0f, 6.0f, "%.2f");
+        row("Investigate after", aware.investigateAfter, 0.0f, 10.0f, "%.1f");
+        row("Investigate seconds", aware.investigateSeconds, 0.0f, 30.0f, "%.1f");
+        row("Alert lose seconds", aware.alertLoseSeconds, 0.0f, 15.0f, "%.1f");
+        row("Search seconds", aware.searchSeconds, 0.0f, 40.0f, "%.1f");
+        row("Search fill", aware.searchFillScale, 0.0f, 8.0f, "%.2f");
+        ImGui::TextDisabled("Occlusion and noise");
+        row("Alert share radius", aware.alertShareRadius, 0.0f, 40.0f, "%.1f");
+        row("React meter", aware.reactMeter, 0.0f, 1.0f, "%.2f");
+        row("Conceal shown", aware.concealShown, 0.0f, 1.0f, "%.2f");
+        row("Wall scale", aware.wallScale, 0.0f, 1.0f, "%.2f");
+        row("Noise base", aware.noiseBase, 0.0f, 2.0f, "%.2f");
+        row("Noise falloff", aware.noiseFalloff, 0.0f, 2.0f, "%.2f");
+        row("Stand sample high", aware.bodyStandHeight[0], -1.0f, 2.0f, "%.2f");
+        row("Stand sample mid", aware.bodyStandHeight[1], -1.0f, 2.0f, "%.2f");
+        row("Stand sample low", aware.bodyStandHeight[2], -1.0f, 2.0f, "%.2f");
+        row("Crouch sample high", aware.bodyCrouchHeight[0], -1.0f, 2.0f, "%.2f");
+        row("Crouch sample mid", aware.bodyCrouchHeight[1], -1.0f, 2.0f, "%.2f");
+        row("Crouch sample low", aware.bodyCrouchHeight[2], -1.0f, 2.0f, "%.2f");
+        row("Sample weight high", aware.bodyWeight[0], 0.0f, 1.0f, "%.2f");
+        row("Sample weight mid", aware.bodyWeight[1], 0.0f, 1.0f, "%.2f");
+        row("Sample weight low", aware.bodyWeight[2], 0.0f, 1.0f, "%.2f");
+        ImGui::TextDisabled("Exposure and stride");
+        row("Stance crouch walk", aware.stanceCrouchWalk, 0.0f, 3.0f, "%.2f");
+        row("Stance crouch still", aware.stanceCrouchStill, 0.0f, 3.0f, "%.2f");
+        row("Stance sprint", aware.stanceSprint, 0.0f, 3.0f, "%.2f");
+        row("Stance walk", aware.stanceWalk, 0.0f, 3.0f, "%.2f");
+        row("Stance stand", aware.stanceStand, 0.0f, 3.0f, "%.2f");
+        row("Stance camouflage", aware.stanceCamouflage, 0.0f, 1.0f, "%.2f");
+        row("Stride crouch", aware.strideCrouch, 0.1f, 6.0f, "%.2f");
+        row("Stride sprint", aware.strideSprint, 0.1f, 6.0f, "%.2f");
+        row("Stride walk", aware.strideWalk, 0.1f, 6.0f, "%.2f");
+        if (ch)
+            m_chase.ai().setAwarenessSettings(aware);
+    }
+
     if (ImGui::CollapsingHeader("Shield"))
     {
         Combat::ShieldSettings& shield = m_offhand.shield.settings();
@@ -1405,6 +1471,14 @@ void SandboxApp::drawDevTools()
         ImGui::TextDisabled("Night sight %s  (N)", m_nightSightOn ? "on" : "off");
         ImGui::TextDisabled("Infrared %s  (H)", m_infraredOn ? "on" : "off");
         ImGui::TextDisabled("Ultraviolet %s  (U)", m_ultravioletOn ? "on" : "off");
+        ImGui::TextDisabled("Echolocation %s  (B)", m_echoOn ? "on" : "off");
+        ImGui::SliderFloat("Refresh period (s)", &m_echoChirp.periodSeconds, Dark::EchoChirpSettings::kPeriodMin, Dark::EchoChirpSettings::kPeriodMax, "%.2f");
+        ImGui::SliderFloat("Shell speed (m/s)", &m_echoChirp.speedMetersPerSec, Dark::EchoChirpSettings::kSpeedMin, Dark::EchoChirpSettings::kSpeedMax, "%.1f");
+        const float period = m_echoChirp.periodSeconds;
+        const float speed  = m_echoChirp.speedMetersPerSec;
+        const float hz     = period > 0.0f ? (1.0f / period) : 0.0f;
+        const float travel = speed > 0.0f ? (Dark::EchoPipeline::kRangeMeters / speed) : 0.0f;
+        ImGui::TextDisabled("%.2f Hz. 40 m in %.2f s. content/render/echolocation.json is the startup value.", static_cast<double>(hz), static_cast<double>(travel));
     }
 
     if (ImGui::CollapsingHeader("Rifle"))

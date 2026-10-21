@@ -275,6 +275,43 @@ json exposureToJson(const ExposureSceneDesc& exposure)
     return e;
 }
 
+json stealthToJson(const StealthSceneDesc& stealth)
+{
+    json s;
+    s["awareness"] = stealth.awareness;
+    if (stealth.hasHearStand)
+        s["hearStand"] = stealth.hearStand;
+    if (stealth.hasHearWalk)
+        s["hearWalk"] = stealth.hearWalk;
+    if (stealth.hasHearSprint)
+        s["hearSprint"] = stealth.hearSprint;
+    if (stealth.hasHearCrouchWalk)
+        s["hearCrouchWalk"] = stealth.hearCrouchWalk;
+    if (stealth.hasHearCrouchStill)
+        s["hearCrouchStill"] = stealth.hearCrouchStill;
+    if (stealth.hasSettings && stealth.settingsMask != 0)
+    {
+        std::string text;
+        if (AI::writeAwarenessSettings(stealth.settings, stealth.settingsMask, text))
+        {
+            const json parsed = json::parse(text, nullptr, false);
+            if (!parsed.is_discarded() && parsed.is_object())
+                s["settings"] = parsed;
+        }
+    }
+    return s;
+}
+
+void readStealthHear(const json& s, const char* key, bool& has, float& value)
+{
+    if (!s.contains(key) || !s[key].is_number())
+        return;
+    has   = true;
+    value = s[key].get<float>();
+    if (value < 0.0f)
+        value = 0.0f;
+}
+
 bool readColor(const json& j, float out[4], std::string* err, const char* field)
 {
     if (!j.is_array() || j.size() < 3)
@@ -421,6 +458,8 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             root["water"] = waterToJson(scene.water);
         if (scene.exposure.present)
             root["exposure"] = exposureToJson(scene.exposure);
+        if (scene.stealth.present)
+            root["stealth"] = stealthToJson(scene.stealth);
     }
     if (scene.mode == SceneMode::Scene2D)
     {
@@ -843,6 +882,43 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             exposure.adaptBright  = e.value("adaptBright", 6.0f);
             exposure.adaptDark    = e.value("adaptDark", 1.0f);
             outScene.exposure     = std::move(exposure);
+        }
+        if (root.contains("stealth"))
+        {
+            const json& s = root["stealth"];
+            if (s.is_boolean())
+            {
+                if (s.get<bool>())
+                {
+                    StealthSceneDesc stealth{};
+                    stealth.present   = true;
+                    stealth.awareness = true;
+                    outScene.stealth  = stealth;
+                }
+            }
+            else if (s.is_object())
+            {
+                StealthSceneDesc stealth{};
+                stealth.present   = true;
+                stealth.awareness = s.contains("awareness") && s["awareness"].is_boolean() && s["awareness"].get<bool>();
+                readStealthHear(s, "hearStand", stealth.hasHearStand, stealth.hearStand);
+                readStealthHear(s, "hearWalk", stealth.hasHearWalk, stealth.hearWalk);
+                readStealthHear(s, "hearSprint", stealth.hasHearSprint, stealth.hearSprint);
+                readStealthHear(s, "hearCrouchWalk", stealth.hasHearCrouchWalk, stealth.hearCrouchWalk);
+                readStealthHear(s, "hearCrouchStill", stealth.hasHearCrouchStill, stealth.hearCrouchStill);
+                if (s.contains("settings") && s["settings"].is_object())
+                {
+                    AI::AwarenessSettings settings{};
+                    uint64_t mask = 0;
+                    if (AI::readAwarenessSettings(s["settings"].dump(), settings, &mask))
+                    {
+                        stealth.hasSettings  = true;
+                        stealth.settings     = settings;
+                        stealth.settingsMask = mask;
+                    }
+                }
+                outScene.stealth = stealth;
+            }
         }
     }
 

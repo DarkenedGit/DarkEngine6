@@ -3,6 +3,8 @@
 #include "Math/Vector3f.h"
 
 #include <cstdint>
+#include <string>
+#include <string_view>
 
 namespace Dark::AI
 {
@@ -44,6 +46,32 @@ namespace Dark::AI
         float alertLoseSeconds    = 2.0f;
         float searchSeconds       = 10.0f;
         float searchFillScale     = 2.5f;
+
+        // 3D radius for sharing an alert with nearby guards.
+        float alertShareRadius = 12.0f;
+        // Calm meter that starts the glance toward a cue.
+        float reactMeter       = 0.15f;
+        // Body-sample fraction that remains inside a conceal volume.
+        float concealShown     = 0.15f;
+        // Multiplies a guard's hear radius and noise range when a cube blocks the ray.
+        float wallScale        = 0.5f;
+        // Sample points above the player's feet, head to feet. Weights sum to 1.
+        float bodyStandHeight[3]{ 0.75f, 0.45f, -0.2f };
+        float bodyCrouchHeight[3]{ 0.3f, 0.1f, -0.25f };
+        float bodyWeight[3]{ 0.4f, 0.4f, 0.2f };
+        // Noise impulse is noiseBase + noiseFalloff * (1 - distance / range).
+        float noiseBase    = 0.3f;
+        float noiseFalloff = 0.5f;
+        // Sandbox exposure multipliers for the player's stance, then footstep spacing in meters.
+        float stanceCrouchWalk = 0.55f;
+        float stanceCrouchStill = 0.4f;
+        float stanceSprint      = 1.3f;
+        float stanceWalk        = 1.0f;
+        float stanceStand       = 0.8f;
+        float stanceCamouflage  = 0.3f;
+        float strideCrouch      = 0.65f;
+        float strideSprint      = 2.2f;
+        float strideWalk        = 1.4f;
     };
 
     struct AwarenessInput
@@ -76,5 +104,13 @@ namespace Dark::AI
     bool stepAwareness(AwarenessState& state, const AwarenessSettings& settings, const AwarenessInput& in, float dt);
     void forceAlert(AwarenessState& state, const Math::Vector3f& where);
     void alertToInvestigate(AwarenessState& state, const Math::Vector3f& where);
+
+    // Present numeric keys overlay inout. writtenMask bits mark the keys that applied.
+    bool readAwarenessSettings(std::string_view jsonText, AwarenessSettings& inout, uint64_t* writtenMask = nullptr);
+    bool writeAwarenessSettings(const AwarenessSettings& settings, uint64_t mask, std::string& jsonOut);
+    void applyAwarenessMask(AwarenessSettings& dst, const AwarenessSettings& src, uint64_t mask);
+    void sanitizeAwarenessSettings(AwarenessSettings& settings);
+    // Overlays content/ai/awareness.json when that file is present, then sanitizes.
+    bool loadAwarenessSettings(AwarenessSettings& inout);
 
 } // namespace Dark::AI

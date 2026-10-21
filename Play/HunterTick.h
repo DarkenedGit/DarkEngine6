@@ -2,6 +2,7 @@
 
 #include "AI/AiSystem.h"
 #include "Character/PlayerMotor.h"
+#include "Scene/SceneTypes.h"
 #include "Terrain/TerrainGrid.h"
 
 namespace Dark
@@ -37,6 +38,29 @@ namespace Dark
         const bool  moving    = speed >= stealth.stillSpeed;
         const bool  sprinting = moving && !crouched && sprintDown;
         ai.setPreySense(preySenseFor(stealth, crouched, moving, sprinting));
+    }
+
+    // Built-in prey radii, then any hear overrides on the scene.
+    // Guard tuning starts from content/ai/awareness.json, then scene settings overlay authored keys.
+    inline void applySceneStealth(PlayerStealthSettings& stealth, AiSystem& ai, const StealthSceneDesc& scene)
+    {
+        stealth = PlayerStealthSettings{};
+        if (scene.hasHearStand)
+            stealth.hearStand = scene.hearStand;
+        if (scene.hasHearWalk)
+            stealth.hearWalk = scene.hearWalk;
+        if (scene.hasHearSprint)
+            stealth.hearSprint = scene.hearSprint;
+        if (scene.hasHearCrouchWalk)
+            stealth.hearCrouchWalk = scene.hearCrouchWalk;
+        if (scene.hasHearCrouchStill)
+            stealth.hearCrouchStill = scene.hearCrouchStill;
+        AI::AwarenessSettings aware{};
+        AI::loadAwarenessSettings(aware);
+        if (scene.hasSettings)
+            AI::applyAwarenessMask(aware, scene.settings, scene.settingsMask);
+        ai.setAwarenessSettings(aware);
+        ai.setAwarenessEnabled(scene.awareness);
     }
 
     // Sphere count stays zero for cube-only bakes. Empty lists store null.

@@ -86,6 +86,13 @@
     "adaptBright": 6.0,
     "adaptDark": 1.0
   },
+  "stealth": {
+    "awareness": true,
+    "hearStand": 0.0,
+    "hearWalk": 6.0,
+    "hearSprint": 16.0,
+    "hearCrouchWalk": 2.5
+  },
   "mode": "3d",
   "version": 2,
   "name": "stealth_test",

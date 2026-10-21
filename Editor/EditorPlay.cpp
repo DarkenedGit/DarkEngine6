@@ -1095,6 +1095,11 @@ void EditorApp::tickSpawners(float dt)
     }
 }
 
+void EditorApp::applyAuthoredStealth()
+{
+    applySceneStealth(m_stealth, m_ai, m_authoredStealth);
+}
+
 void EditorApp::tickEditorHunters(float dt)
 {
     if (m_sceneMode != SceneMode::Scene3D || dt <= 0.0f)
