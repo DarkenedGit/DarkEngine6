@@ -1179,9 +1179,10 @@ void SandboxApp::updatePower(float dt)
             AiAgentComponent*         ai  = world().alive(box.checker) ? world().get<AiAgentComponent>(box.checker) : nullptr;
             const TransformComponent* gxf = ai ? world().get<TransformComponent>(box.checker) : nullptr;
             const HealthComponent*    hp  = ai ? world().get<HealthComponent>(box.checker) : nullptr;
-            if (!ai || !gxf || !hp || !hp->health.alive() || ai->aware.alertness == AI::Alertness::Alert)
+            const bool noticedPlayer = ai && ai->aware.alertness != AI::Alertness::Calm && !ai->aware.heardOnly;
+            if (!ai || !gxf || !hp || !hp->health.alive() || ai->aware.alertness == AI::Alertness::Alert || ai->aware.alertness == AI::Alertness::Searching || noticedPlayer)
                 box.checker = {};
-            else if (!ai->aware.seesNow)
+            else
             {
                 AI::AwarenessState& aw = ai->aware;
                 const Vector3f      at = box.checks[box.checkIdx];
@@ -1217,7 +1218,9 @@ void SandboxApp::updatePower(float dt)
             continue;
         }
         AI::AwarenessState& aw = ai->aware;
-        if (aw.alertness != AI::Alertness::Alert && !aw.seesNow)
+        const bool onTask = aw.alertness == AI::Alertness::Calm
+                         || ((aw.alertness == AI::Alertness::Suspicious || aw.alertness == AI::Alertness::Investigating) && aw.heardOnly);
+        if (onTask)
         {
             AI::alertToInvestigate(aw, box.service);
             aw.alertness = AI::Alertness::Investigating;
