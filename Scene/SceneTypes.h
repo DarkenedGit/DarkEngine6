@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AI/Awareness.h"
 #include "Math/Quaternion.h"
 #include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
@@ -459,6 +460,28 @@ namespace Dark
         float adaptDark    = 1.0f; // 1/s, view got darker, exposure rises
     };
 
+    // Opt-in guard awareness. Hear fields apply only when their hasHear* flag is set.
+    // A missing block leaves awareness off and keeps the host's prey hear radii.
+    struct StealthSceneDesc
+    {
+        bool  present            = false;
+        bool  awareness          = false;
+        bool  hasHearStand       = false;
+        bool  hasHearWalk        = false;
+        bool  hasHearSprint      = false;
+        bool  hasHearCrouchWalk  = false;
+        bool  hasHearCrouchStill = false;
+        float hearStand          = 0.0f;
+        float hearWalk           = 0.0f;
+        float hearSprint         = 0.0f;
+        float hearCrouchWalk     = 0.0f;
+        float hearCrouchStill    = 0.0f;
+        // Partial overlay on content/ai/awareness.json. settingsMask marks authored keys.
+        bool                  hasSettings   = false;
+        uint64_t              settingsMask  = 0;
+        AI::AwarenessSettings settings{};
+    };
+
     struct SceneFileData
     {
         int         version = 2;
@@ -475,6 +498,7 @@ namespace Dark
         FogSceneDesc      fog;
         WaterSceneDesc    water;
         ExposureSceneDesc exposure;
+        StealthSceneDesc  stealth;
         std::vector<SceneObjectData> objects;
     };
 

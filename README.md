@@ -37,7 +37,7 @@ Runtime HLSL lives in `content/shaders/`. It shows up in the IDE but is compiled
   - Terrain, terrain foliage instancing with alpha-cutout shadows (`FoliagePipeline`), GPU terrain erosion bake (`TerrainErosionPipeline`)
   - Procedural grass (`GrassPipeline`): blade LODs, per-tile Perlin wind, and bending around the player (see Terrain below and `Terrain/DESIGN-procedural-grass.md`)
   - Static and skinned meshes, sprites, lines, particles, camouflage
-  - Post: auto exposure, bloom, TAA, motion blur, tonemap
+  - Post: auto exposure, bloom, TAA, motion blur, tonemap. Sandbox echolocation (B) is a deferred chirp drawn in the post group before bloom, not its own pass. One 1/8-resolution snapshot per pulse (about 0.8 Hz) is held world-locked until the next pulse. The shell expands at 50 m/s. Both live in `content/render/echolocation.json`; Dev Tools can change them for the session. The picture is one hue on black. A hard near ping's leading edge can bloom; the held return stays under the threshold of 1.0. It is exclusive with infrared and ultraviolet, holds auto-exposure, resets TAA, and skips motion blur. Forward does not apply it.
   - Loading screen / boot splash, HUD (crosshair, health), debug overlay (G-buffer tiles)
 - **Draw submission** (`DrawList`, `RenderItem`, `InstancedMeshPipeline`, `SkinnedInstanceBuffer`, `InstanceCull`):
   - Static opaque meshes and models are batched and drawn instanced. Batches sort by population, mesh, alpha mask, then material (`BatchKey`).

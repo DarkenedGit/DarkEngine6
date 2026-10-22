@@ -106,6 +106,13 @@ namespace Dark
             return Vector3f{ Vect3f::Z_AXIS };
         }
 
+        bool withinAlertShare(const Vector3f& a, const Vector3f& b, float radius)
+        {
+            if (radius <= 0.0f)
+                return false;
+            return (a - b).MagnitudeSqrd() <= radius * radius;
+        }
+
         bool sightBlocked(const Vector3f& eye, const Vector3f& target, const Math::AABox3f* cubes, int cubeCount)
         {
             Vector3f    dir  = target - eye;
@@ -586,7 +593,7 @@ namespace Dark
         {
         case AI::Alertness::Calm:
         {
-            if (aw.meter >= 0.15f)
+            if (aw.meter >= m_aware.reactMeter)
             {
                 if (!v.ai->reacting)
                 {
@@ -1107,8 +1114,24 @@ namespace Dark
         return false;
     }
 
+    void AiSystem::setAwarenessSettings(const AI::AwarenessSettings& settings)
+    {
+        m_aware = settings;
+        AI::sanitizeAwarenessSettings(m_aware);
+        m_awareFromData = true;
+    }
+
+    void AiSystem::ensureAwarenessSettings()
+    {
+        if (m_awareFromData)
+            return;
+        m_awareFromData = true;
+        AI::loadAwarenessSettings(m_aware);
+    }
+
     void AiSystem::tickHunters(World& world, Terrain::TerrainGrid& terrain, bool playerInWater, float dt, Entity player, const Math::AABox3f* cubes, int cubeCount, const Math::Sphere3f* spheres, int sphereCount)
     {
+        ensureAwarenessSettings();
         m_time += dt;
         if (m_jumpAttackToken.valid())
         {
@@ -1310,10 +1333,13 @@ namespace Dark
                         sees = true;
                 }
             }
-            const bool walled = sightBlocked(q.eye, q.target, cubes, cubeCount);
+            // Cube occlusion is a guard check. Wolves and hunters with awareness off keep open sight and full hearing.
+            bool walled = false;
+            if (guard)
+                walled = sightBlocked(q.eye, q.target, cubes, cubeCount);
             if (sees && walled)
                 sees = false;
-            const float hearRadius = scaleHearRange(m_prey.hearRange, scales.hear) * (walled ? 0.5f : 1.0f);
+            const float hearRadius = scaleHearRange(m_prey.hearRange, scales.hear) * (walled ? m_aware.wallScale : 1.0f);
             const bool hears = !playerInWater && playerAlive && hearRadius > 0.0f && distSq <= hearRadius * hearRadius;
             if (guard)
             {
@@ -1331,9 +1357,8 @@ namespace Dark
                 {
                     AI::SightQuery los = q;
                     los.coneDeg        = 359.0f;
-                    const bool  crouched   = m_prey.targetHeight < 0.4f;
-                    const float heights[3] = { crouched ? 0.3f : 0.75f, crouched ? 0.1f : 0.45f, crouched ? -0.25f : -0.2f };
-                    const float weights[3] = { 0.4f, 0.4f, 0.2f };
+                    const bool  crouched = m_prey.targetHeight < 0.4f;
+                    const float* heights = crouched ? m_aware.bodyCrouchHeight : m_aware.bodyStandHeight;
                     for (int k = 0; k < 3; ++k)
                     {
                         const Vector3f point{ playerPos.x, playerPos.y + heights[k], playerPos.z };
@@ -1342,8 +1367,8 @@ namespace Dark
                             continue;
                         float shown = 1.0f;
                         if (!m_conceal.empty() && sightBlocked(q.eye, point, m_conceal.data(), static_cast<int>(m_conceal.size())))
-                            shown = 0.15f;
-                        bodyShown += weights[k] * shown;
+                            shown = m_aware.concealShown;
+                        bodyShown += m_aware.bodyWeight[k] * shown;
                     }
                 }
 
@@ -1351,11 +1376,11 @@ namespace Dark
                 Vector3f noisePos{};
                 for (const Noise& n : m_noises)
                 {
-                    const float range = n.range * (sightBlocked(q.eye, Vector3f{ n.pos.x, n.pos.y + 0.3f, n.pos.z }, cubes, cubeCount) ? 0.5f : 1.0f);
+                    const float range = n.range * (sightBlocked(q.eye, Vector3f{ n.pos.x, n.pos.y + 0.3f, n.pos.z }, cubes, cubeCount) ? m_aware.wallScale : 1.0f);
                     const float d     = Vector3f{ n.pos.x - v.xf->position.x, 0.0f, n.pos.z - v.xf->position.z }.Magnitude();
                     if (range <= 0.0f || d >= range)
                         continue;
-                    const float impulse = 0.3f + 0.5f * (1.0f - d / range);
+                    const float impulse = m_aware.noiseBase + m_aware.noiseFalloff * (1.0f - d / range);
                     if (impulse > noise)
                     {
                         noise    = impulse;
@@ -1381,7 +1406,7 @@ namespace Dark
                     {
                         AiAgentComponent*         oai = other.id() != e.id() ? world.get<AiAgentComponent>(other) : nullptr;
                         const TransformComponent* oxf = oai ? world.get<TransformComponent>(other) : nullptr;
-                        if (!oxf || entityIsWolf(world, other) || (oxf->position - v.xf->position).MagnitudeSqrd() > 12.0f * 12.0f)
+                        if (!oxf || entityIsWolf(world, other) || !withinAlertShare(oxf->position, v.xf->position, m_aware.alertShareRadius))
                             continue;
                         AI::alertToInvestigate(oai->aware, playerPos);
                     }
@@ -1845,7 +1870,7 @@ namespace Dark
         {
             AiAgentComponent*         oai = other.id() != e.id() ? world.get<AiAgentComponent>(other) : nullptr;
             const TransformComponent* oxf = oai ? world.get<TransformComponent>(other) : nullptr;
-            if (oxf && !entityIsWolf(world, other) && (oxf->position - xf->position).MagnitudeSqrd() <= 12.0f * 12.0f)
+            if (oxf && !entityIsWolf(world, other) && withinAlertShare(oxf->position, xf->position, m_aware.alertShareRadius))
                 AI::alertToInvestigate(oai->aware, attackerPos);
         }
     }

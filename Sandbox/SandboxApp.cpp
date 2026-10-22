@@ -185,6 +185,7 @@ constexpr float kSpawnFocusSeconds      = 1.75f;
 constexpr float kNightSightBlendSeconds = 0.5f;
 constexpr float kInfraredBlendSeconds   = 0.5f;
 constexpr float kUltravioletBlendSeconds = 0.5f;
+constexpr float kEchoBlendSeconds        = 0.5f;
 
 void copyMatrix(float dst[16], const Math::Matrix4f& m)
 {
@@ -404,7 +405,7 @@ void SandboxApp::registerDefaultActions()
     DE_LOG_INFO(
         "Input: quit(Esc/Back) pause(F3/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
         "possessed WASD/arrows/LS move, double-tap a direction to dodge, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, 1 melee  2 rifle, "
-        "hold attack to charge, release to swing (tap = normal). Hold RMB/V/LT shield; hold longer then release to parry-slam. Ctrl crouch, C camouflage, G pickup / carry body, E takedown from behind, L flashlight, N night sight, H infrared, U ultraviolet, Shift/LB sprint, swim in water, "
+        "hold attack to charge, release to swing (tap = normal). Hold RMB/V/LT shield; hold longer then release to parry-slam. Ctrl crouch, C camouflage, G pickup / carry body, E takedown from behind, L flashlight, N night sight, H infrared, U ultraviolet, B echolocation, Shift/LB sprint, swim in water, "
         "T/R3 walk the wiggle demo  F2 lighting  F5 quicksave  F9 quickload  M dev tools  P profiler  -forward linear albedo + sRGB encode (legacyUnormAlbedo restores old sampling)  -no-menu skip scene picker");
 }
 
@@ -527,6 +528,10 @@ void SandboxApp::handleRuntimeCommands(float dt)
             {
                 m_ultravioletOn = false;
                 m_ultraviolet   = 0.0f;
+                m_echoOn        = false;
+                m_echo          = 0.0f;
+                m_echoHaveChirp = false;
+                m_echoCapture   = false;
             }
         }
         if (!uiKeys && nightAlive && input().actionPressed("ultraviolet"))
@@ -535,8 +540,27 @@ void SandboxApp::handleRuntimeCommands(float dt)
             DE_LOG_INFO("Sandbox: ultraviolet = {}", m_ultravioletOn);
             if (m_ultravioletOn)
             {
-                m_infraredOn = false;
-                m_infrared   = 0.0f;
+                m_infraredOn    = false;
+                m_infrared      = 0.0f;
+                m_echoOn        = false;
+                m_echo          = 0.0f;
+                m_echoHaveChirp = false;
+                m_echoCapture   = false;
+            }
+        }
+        if (!uiKeys && nightAlive && input().actionPressed("echolocation"))
+        {
+            m_echoOn = !m_echoOn;
+            DE_LOG_INFO("Sandbox: echolocation = {}", m_echoOn);
+            if (m_echoOn)
+            {
+                m_infraredOn    = false;
+                m_infrared      = 0.0f;
+                m_ultravioletOn = false;
+                m_ultraviolet   = 0.0f;
+                m_echoHaveChirp = false;
+                m_echoCapture   = true;
+                m_echoChirpAge  = 0.0f;
             }
         }
         if (!nightAlive)
@@ -547,6 +571,10 @@ void SandboxApp::handleRuntimeCommands(float dt)
             m_infrared      = 0.0f;
             m_ultravioletOn = false;
             m_ultraviolet   = 0.0f;
+            m_echoOn        = false;
+            m_echo          = 0.0f;
+            m_echoHaveChirp = false;
+            m_echoCapture   = false;
         }
         else
         {
@@ -570,6 +598,23 @@ void SandboxApp::handleRuntimeCommands(float dt)
                 m_ultraviolet = Math::Min(uvTarget, m_ultraviolet + uvStep);
             else
                 m_ultraviolet = Math::Max(uvTarget, m_ultraviolet - uvStep);
+
+            const float echoTarget = m_echoOn ? 1.0f : 0.0f;
+            const float echoStep   = dt > 0.0f ? dt / kEchoBlendSeconds : 0.0f;
+            if (m_echo < echoTarget)
+                m_echo = Math::Min(echoTarget, m_echo + echoStep);
+            else
+                m_echo = Math::Max(echoTarget, m_echo - echoStep);
+
+            if (m_echoOn || m_echo > 0.0f)
+            {
+                m_echoChirpAge += dt;
+                if (!m_echoHaveChirp || m_echoChirpAge >= m_echoChirp.periodSeconds)
+                {
+                    m_echoCapture  = true;
+                    m_echoChirpAge = 0.0f;
+                }
+            }
         }
     }
     if (!uiKeys && input().actionPressed("toggle_lighting"))
@@ -1836,6 +1881,10 @@ void SandboxApp::respawnPlayer()
     m_infrared          = 0.0f;
     m_ultravioletOn     = false;
     m_ultraviolet       = 0.0f;
+    m_echoOn            = false;
+    m_echo              = 0.0f;
+    m_echoHaveChirp     = false;
+    m_echoCapture       = false;
     m_playerDeadTimer   = 0.0f;
     m_spawnAge          = 0.0f;
     m_hurtSoundTimer    = 0.0f;
@@ -1882,7 +1931,7 @@ TonemapSettings SandboxApp::playerPostFx()
     s.blur           = 1.0f - u;
     s.uniformBlur    = 1.0f - u;
     s.fade           = 0.0f;
-    s.nightSight     = (m_infrared > 0.0f || m_ultraviolet > 0.0f) ? 0.0f : m_nightSight;
+    s.nightSight     = (m_infrared > 0.0f || m_ultraviolet > 0.0f || m_echo > 0.0f) ? 0.0f : m_nightSight;
     return s;
 }
 
@@ -3447,6 +3496,7 @@ Terrain::GroundContact SandboxApp::groundContactAt(float x, float z) const
 void SandboxApp::onInit()
 {
     DE_LOG_INFO("SandboxApp: init");
+    loadEchoChirpSettings(m_echoChirp);
 
     m_ground.loadFromContent();
     skillCatalog().loadFromContent();
@@ -3591,6 +3641,7 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
                 DE_LOG_ERROR(LogCategory::Render, "SandboxApp: scene load failed ({}) — {}", scenePath.string(), err);
             else
                 DE_LOG_INFO(LogCategory::Render, "SandboxApp: scene {}", scenePath.string());
+            applySceneStealth(m_stealth, m_chase.ai(), sceneData.stealth);
             applySceneAtmosphere(m_env, sceneData);
             {
                 const ExposureSceneDesc exposure = sceneData.exposure.present ? sceneData.exposure : ExposureSceneDesc{};
@@ -3929,10 +3980,6 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
     m_demoScene = scenePath.filename() == "level.json";
     if (!m_demoScene)
         m_npcInfo.enabled = false;
-    m_stealth.hearStand      = 0.0f;
-    m_stealth.hearWalk       = 6.0f;
-    m_stealth.hearSprint     = 16.0f;
-    m_stealth.hearCrouchWalk = 0.0f;
     if (m_demoScene)
         spawnGltfDemo();
 
@@ -4058,7 +4105,6 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
     else
     {
         addChaseObstaclesToPhysics();
-        m_chase.ai().setAwarenessEnabled(true);
         HitReactionSettings hunterHit = m_chase.ai().hunterHitReaction();
         hunterHit.stunSeconds       = 0.45f;
         hunterHit.knockbackDistance = 0.6f;
@@ -4238,15 +4284,18 @@ void SandboxApp::onUpdate(float dt)
         if (m_chaseOk)
         {
             applyPreyFromMotor(m_chase.ai(), m_stealth, localMotor(), input().actionDown("sprint"));
+            m_chase.ai().ensureAwarenessSettings();
+            const AI::AwarenessSettings& aware = m_chase.ai().awarenessSettings();
             const PlayerMotor* motor = localMotor();
             const float speed = motor ? Vector3f{ motor->velocity().x, 0.0f, motor->velocity().z }.Magnitude() : 0.0f;
             const bool crouched = motor && motor->state() == PlayerMoveState::Crouch;
             const bool moving = speed >= m_stealth.stillSpeed;
             const bool sprinting = moving && !crouched && input().actionDown("sprint");
             m_lightLevel = playerLightLevel();
-            float stance = crouched ? (moving ? 0.55f : 0.4f) : (sprinting ? 1.3f : (moving ? 1.0f : 0.8f));
+            float stance = crouched ? (moving ? aware.stanceCrouchWalk : aware.stanceCrouchStill)
+                                    : (sprinting ? aware.stanceSprint : (moving ? aware.stanceWalk : aware.stanceStand));
             if (m_camouflage)
-                stance *= 0.3f;
+                stance *= aware.stanceCamouflage;
             m_exposure = Math::Clamp((0.45f + 0.55f * m_lightLevel) * stance, 0.0f, 1.0f);
             m_chase.ai().setPlayerExposure(m_exposure);
             m_chase.ai().setPlayerMotion(Math::Clamp((speed - 0.15f) / 1.35f, 0.0f, 1.0f));
@@ -4256,7 +4305,7 @@ void SandboxApp::onUpdate(float dt)
                 m_strideLeft -= speed * dt;
                 if (m_strideLeft <= 0.0f)
                 {
-                    m_strideLeft = crouched ? 0.65f : (sprinting ? 2.2f : 1.4f);
+                    m_strideLeft = crouched ? aware.strideCrouch : (sprinting ? aware.strideSprint : aware.strideWalk);
                     if (const TransformComponent* pxf = possessedBody().valid() ? world().get<TransformComponent>(possessedBody()) : nullptr)
                         m_chase.ai().addNoise(pxf->position, crouched ? m_stealth.hearCrouchWalk : (sprinting ? m_stealth.hearSprint : m_stealth.hearWalk));
                 }
@@ -5368,8 +5417,8 @@ void SandboxApp::onRender()
             // Resize drops the 1×1. Zero the correction before this frame can apply a stale sample.
             if (m_scene.syncAutoExposureSize(renderer()))
                 resetAutoExposure(m_autoExposureState);
-            // Infrared and ultraviolet both swing the meter. Hold the correction while either is on.
-            const bool holdExposure = m_infrared > 0.0f || m_ultraviolet > 0.0f;
+            // Infrared, ultraviolet, and echolocation swing the meter. Hold the correction while any is on.
+            const bool holdExposure = m_infrared > 0.0f || m_ultraviolet > 0.0f || m_echo > 0.0f;
             const float measured = (m_autoExposure.mode == ExposureMode::Auto && !holdExposure)
                 ? m_scene.autoExposure().readMeasuredLuma(renderer().frameIndex())
                 : 0.0f;
@@ -5378,7 +5427,45 @@ void SandboxApp::onRender()
         }
         post.exposure = exposure;
         markPass(PassId::Post);
-        m_scene.applyPost(renderer(), cmd, viewProj, post, deferredMeter && m_autoExposure.mode == ExposureMode::Auto && !(m_infrared > 0.0f || m_ultraviolet > 0.0f));
+        const bool echoImage = deferred && m_echo > 0.0f && renderer().hasGBuffer() && m_scene.echo().isValid();
+        if (echoImage)
+        {
+            EchoPipeline& echo = m_scene.echo();
+            bool capturedThisFrame = false;
+            if (m_echoCapture)
+            {
+                EchoSnapshotFrame snap{};
+                copyMatrix(snap.invViewProj, viewProj.Inverse());
+                snap.cameraPos[0] = camPos.x;
+                snap.cameraPos[1] = camPos.y;
+                snap.cameraPos[2] = camPos.z;
+                if (echo.capture(cmd, renderer(), snap))
+                {
+                    m_echoChirpViewProj = viewProj;
+                    m_echoChirpPos      = camPos;
+                    m_echoHaveChirp     = true;
+                    m_echoCapture       = false;
+                    capturedThisFrame   = true;
+                }
+            }
+            if (m_echoHaveChirp && echo.hasSnapshot())
+            {
+                EchoCompositeFrame comp{};
+                copyMatrix(comp.currInvViewProj, viewProj.Inverse());
+                copyMatrix(comp.chirpViewProj, m_echoChirpViewProj);
+                comp.chirpCamera[0] = m_echoChirpPos.x;
+                comp.chirpCamera[1] = m_echoChirpPos.y;
+                comp.chirpCamera[2] = m_echoChirpPos.z;
+                float radius = Math::Min(m_echoChirpAge * m_echoChirp.speedMetersPerSec, EchoPipeline::kRangeMeters);
+                if (capturedThisFrame)
+                    radius = Math::Max(radius, EchoPipeline::kEdgeMeters);
+                comp.radius   = radius;
+                comp.strength = m_echo;
+                echo.composite(cmd, renderer(), comp);
+            }
+        }
+        const bool holdExposure = m_infrared > 0.0f || m_ultraviolet > 0.0f || m_echo > 0.0f;
+        m_scene.applyPost(renderer(), cmd, viewProj, post, deferredMeter && m_autoExposure.mode == ExposureMode::Auto && !holdExposure, m_echo > 0.0f);
     }
 
     m_scene.endCameraFrame(m_viewCamera, viewProj);

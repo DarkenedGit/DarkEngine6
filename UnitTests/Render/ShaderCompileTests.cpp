@@ -328,6 +328,7 @@ TEST(ShaderCompile, ReverseZSceneShaders)
         { "shaders/Taa.hlsl", "PSMain", "ps_5_0" },
         { "shaders/MotionBlur.hlsl", "PSMain", "ps_5_0" },
         { "shaders/Tonemap.hlsl", "PSMain", "ps_5_0" },
+        { "shaders/Echo.hlsl", "PSComposite", "ps_5_0" },
         { "shaders/LocalLightVolume.hlsl", "PSMain", "ps_5_0" },
     };
     for (const auto& c : cases)
@@ -338,4 +339,16 @@ TEST(ShaderCompile, ReverseZSceneShaders)
         ComPtr<ID3DBlob> blob;
         EXPECT_TRUE(compileShaderFromFile(hlsl, c[1], c[2], blob)) << c[0] << " " << c[1];
     }
+}
+
+TEST(ShaderCompile, EchoSnapshot)
+{
+    const std::filesystem::path hlsl = Dark::resolveContentPath("shaders/Echo.hlsl");
+    if (hlsl.empty())
+        GTEST_SKIP() << "Echo.hlsl not on content roots";
+
+    D3D_SHADER_MACRO snap[2] = { { "ECHO_SNAPSHOT", "1" }, { nullptr, nullptr } };
+    ComPtr<ID3DBlob> blob;
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "VSMain", "vs_5_0", blob));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSSnapshot", "ps_5_0", blob, snap));
 }

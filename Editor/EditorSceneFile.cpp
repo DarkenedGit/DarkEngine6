@@ -210,6 +210,8 @@ bool EditorApp::saveScene()
         }
         if (m_authoredExposure.present)
             data.exposure = m_authoredExposure;
+        if (m_authoredStealth.present)
+            data.stealth = m_authoredStealth;
     }
     if (data.hasTerrain)
     {
@@ -271,6 +273,7 @@ bool EditorApp::loadScene()
     removeEditorTerrain();
     m_authoredWater = {};
     m_authoredExposure = {};
+    m_authoredStealth = {};
     m_authoredGrass = {};
     applyAuthoredGrass();
     if (data.mode != SceneMode::Scene2D)
@@ -280,7 +283,10 @@ bool EditorApp::loadScene()
             m_authoredWater = data.water;
         if (data.exposure.present)
             m_authoredExposure = data.exposure;
+        if (data.stealth.present)
+            m_authoredStealth = data.stealth;
     }
+    applyAuthoredStealth();
     m_worldMin  = data.worldMin;
     m_worldMax  = data.worldMax;
     if (data.mode == SceneMode::Scene3D)

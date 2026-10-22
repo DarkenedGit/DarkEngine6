@@ -2002,3 +2002,209 @@ TEST(SceneFile, SpawnerMistypedFieldsKeepDefaults)
     std::error_code ec;
     std::filesystem::remove(path, ec);
 }
+
+TEST(SceneFile, StealthRoundTrip)
+{
+    SceneFileData in{};
+    in.version = 2;
+    in.name    = "ut_stealth";
+    in.mode    = SceneMode::Scene3D;
+    in.stealth.present           = true;
+    in.stealth.awareness         = true;
+    in.stealth.hasHearStand      = true;
+    in.stealth.hearStand         = 0.0f;
+    in.stealth.hasHearWalk       = true;
+    in.stealth.hearWalk          = 6.0f;
+    in.stealth.hasHearSprint     = true;
+    in.stealth.hearSprint        = 16.0f;
+    in.stealth.hasHearCrouchWalk = true;
+    in.stealth.hearCrouchWalk    = 2.5f;
+
+    const auto path = tempScenePath("darkengine6_scene_stealth_ut.json");
+    std::string err;
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+
+    SceneFileData out{};
+    ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
+    EXPECT_TRUE(out.stealth.present);
+    EXPECT_TRUE(out.stealth.awareness);
+    EXPECT_TRUE(out.stealth.hasHearStand);
+    EXPECT_FLOAT_EQ(out.stealth.hearStand, 0.0f);
+    EXPECT_TRUE(out.stealth.hasHearWalk);
+    EXPECT_FLOAT_EQ(out.stealth.hearWalk, 6.0f);
+    EXPECT_TRUE(out.stealth.hasHearSprint);
+    EXPECT_FLOAT_EQ(out.stealth.hearSprint, 16.0f);
+    EXPECT_TRUE(out.stealth.hasHearCrouchWalk);
+    EXPECT_FLOAT_EQ(out.stealth.hearCrouchWalk, 2.5f);
+    EXPECT_FALSE(out.stealth.hasHearCrouchStill);
+
+    std::error_code ecRemove;
+    std::filesystem::remove(path, ecRemove);
+}
+
+TEST(SceneFile, StealthMissingKeyStaysOff)
+{
+    const auto path = tempScenePath("darkengine6_scene_stealth_off_ut.json");
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "no_stealth",
+  "objects": []
+})";
+    }
+
+    SceneFileData data{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
+    EXPECT_FALSE(data.stealth.present);
+    EXPECT_FALSE(data.stealth.awareness);
+    EXPECT_FALSE(data.stealth.hasHearWalk);
+
+    std::error_code ecRemove;
+    std::filesystem::remove(path, ecRemove);
+}
+
+TEST(SceneFile, StealthBooleanAndHearOnly)
+{
+    const auto flagPath = tempScenePath("darkengine6_scene_stealth_flag_ut.json");
+    {
+        std::ofstream out(flagPath, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "stealth_flag",
+  "stealth": true,
+  "objects": []
+})";
+    }
+
+    SceneFileData flagged{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(flagPath, flagged, &err)) << err;
+    EXPECT_TRUE(flagged.stealth.present);
+    EXPECT_TRUE(flagged.stealth.awareness);
+    EXPECT_FALSE(flagged.stealth.hasHearWalk);
+    EXPECT_FALSE(flagged.stealth.hasSettings);
+
+    const auto hearPath = tempScenePath("darkengine6_scene_stealth_hear_ut.json");
+    {
+        std::ofstream out(hearPath, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "stealth_hear",
+  "stealth": { "awareness": false, "hearWalk": 6.0, "hearSprint": -3 },
+  "objects": []
+})";
+    }
+
+    SceneFileData hear{};
+    ASSERT_TRUE(loadSceneFromJson(hearPath, hear, &err)) << err;
+    EXPECT_TRUE(hear.stealth.present);
+    EXPECT_FALSE(hear.stealth.awareness);
+    EXPECT_TRUE(hear.stealth.hasHearWalk);
+    EXPECT_FLOAT_EQ(hear.stealth.hearWalk, 6.0f);
+    EXPECT_TRUE(hear.stealth.hasHearSprint);
+    EXPECT_FLOAT_EQ(hear.stealth.hearSprint, 0.0f);
+    EXPECT_FALSE(hear.stealth.hasHearStand);
+    EXPECT_FALSE(hear.stealth.hasSettings);
+
+    std::error_code ecRemove;
+    std::filesystem::remove(flagPath, ecRemove);
+    std::filesystem::remove(hearPath, ecRemove);
+}
+
+TEST(SceneFile, StealthSettingsRoundTrip)
+{
+    const auto path = tempScenePath("darkengine6_scene_stealth_settings_ut.json");
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "stealth_settings",
+  "stealth": {
+    "awareness": true,
+    "settings": {
+      "alertShareRadius": 3.5,
+      "wallScale": 0.25,
+      "stanceSprint": 1.7,
+      "bodyWeight": [0.4, 0.4, 0.55]
+    }
+  },
+  "objects": []
+})";
+    }
+
+    SceneFileData partial{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(path, partial, &err)) << err;
+    EXPECT_TRUE(partial.stealth.present);
+    EXPECT_TRUE(partial.stealth.awareness);
+    EXPECT_TRUE(partial.stealth.hasSettings);
+    EXPECT_NEAR(partial.stealth.settings.alertShareRadius, 3.5f, 1.0e-4f);
+    EXPECT_NEAR(partial.stealth.settings.wallScale, 0.25f, 1.0e-4f);
+    EXPECT_NEAR(partial.stealth.settings.stanceSprint, 1.7f, 1.0e-4f);
+    EXPECT_NEAR(partial.stealth.settings.bodyWeight[2], 0.55f, 1.0e-4f);
+    EXPECT_NEAR(partial.stealth.settings.fillNear, AI::AwarenessSettings{}.fillNear, 1.0e-4f);
+    EXPECT_EQ(partial.stealth.settingsMask & (1ull << 0), 0ull);
+    EXPECT_NE(partial.stealth.settingsMask & (1ull << 27), 0ull);
+    EXPECT_NE(partial.stealth.settingsMask & (1ull << 30), 0ull);
+    EXPECT_NE(partial.stealth.settingsMask & (1ull << 35), 0ull);
+    EXPECT_NE(partial.stealth.settingsMask & (1ull << 50), 0ull);
+
+    const auto badPath = tempScenePath("darkengine6_scene_stealth_bad_settings_ut.json");
+    {
+        std::ofstream out(badPath, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "stealth_bad_settings",
+  "stealth": { "awareness": true, "hearWalk": 6, "settings": { "version": 2, "alertShareRadius": 1 } },
+  "objects": []
+})";
+    }
+    SceneFileData bad{};
+    ASSERT_TRUE(loadSceneFromJson(badPath, bad, &err)) << err;
+    EXPECT_TRUE(bad.stealth.awareness);
+    EXPECT_TRUE(bad.stealth.hasHearWalk);
+    EXPECT_FLOAT_EQ(bad.stealth.hearWalk, 6.0f);
+    EXPECT_FALSE(bad.stealth.hasSettings);
+
+    SceneFileData in{};
+    in.version = 2;
+    in.name    = "ut_aware_settings";
+    in.mode    = SceneMode::Scene3D;
+    in.stealth.present      = true;
+    in.stealth.awareness    = true;
+    in.stealth.hasSettings  = true;
+    in.stealth.settingsMask = ~0ull;
+    in.stealth.settings.alertShareRadius = 3.5f;
+    in.stealth.settings.wallScale        = 0.25f;
+    in.stealth.settings.stanceSprint     = 1.7f;
+    in.stealth.settings.bodyWeight[2]    = 0.55f;
+
+    const auto roundPath = tempScenePath("darkengine6_scene_stealth_settings_round_ut.json");
+    ASSERT_TRUE(saveSceneToJson(roundPath, in, &err)) << err;
+    SceneFileData out{};
+    ASSERT_TRUE(loadSceneFromJson(roundPath, out, &err)) << err;
+    EXPECT_TRUE(out.stealth.hasSettings);
+    EXPECT_NEAR(out.stealth.settings.alertShareRadius, 3.5f, 1.0e-4f);
+    EXPECT_NEAR(out.stealth.settings.wallScale, 0.25f, 1.0e-4f);
+    EXPECT_NEAR(out.stealth.settings.stanceSprint, 1.7f, 1.0e-4f);
+    EXPECT_NEAR(out.stealth.settings.bodyWeight[0], 0.4f, 1.0e-4f);
+    EXPECT_NEAR(out.stealth.settings.bodyWeight[2], 0.55f, 1.0e-4f);
+    EXPECT_NEAR(out.stealth.settings.fillNear, 1.8f, 1.0e-4f);
+    EXPECT_NE(out.stealth.settingsMask & (1ull << 0), 0ull);
+    EXPECT_NE(out.stealth.settingsMask & (1ull << 27), 0ull);
+    EXPECT_NE(out.stealth.settingsMask & (1ull << 48), 0ull);
+    EXPECT_NE(out.stealth.settingsMask & (1ull << 50), 0ull);
+    EXPECT_EQ(out.stealth.settingsMask >> 51, 0ull);
+
+    std::error_code ecRemove;
+    std::filesystem::remove(path, ecRemove);
+    std::filesystem::remove(badPath, ecRemove);
+    std::filesystem::remove(roundPath, ecRemove);
+}

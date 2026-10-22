@@ -259,6 +259,7 @@ private:
     void drawWaterTools();
     void syncTerrainLod();
     void applyAuthoredGrass();
+    void applyAuthoredStealth();
     void updateEditorGrass(float dt);
     void drawEditorGrass(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, const Math::Matrix4f& prevViewProj, const Frustum3f& frustum);
     void removeEditorTerrain();
@@ -332,6 +333,7 @@ private:
     Sky::Environment m_env;
     WaterSceneDesc    m_authoredWater{};
     ExposureSceneDesc m_authoredExposure{};
+    StealthSceneDesc  m_authoredStealth{};
     GrassSceneDesc    m_authoredGrass{};
     IblSettings  m_ibl;
     GtaoSettings m_ssao;

@@ -55,6 +55,9 @@ namespace Dark
         void setPreySense(const PreySense& sense) { m_prey = sense; }
         void setAwarenessEnabled(bool on) { m_awarenessOn = on; }
         bool awarenessEnabled() const { return m_awarenessOn; }
+        void setAwarenessSettings(const AI::AwarenessSettings& settings);
+        const AI::AwarenessSettings& awarenessSettings() const { return m_aware; }
+        void ensureAwarenessSettings();
         void setPlayerExposure(float exposure) { m_playerExposure = exposure; }
         void setConcealVolumes(std::vector<Math::AABox3f> volumes) { m_conceal = std::move(volumes); }
         void setPlayerMotion(float motion) { m_playerMotion = motion; }
@@ -166,6 +169,7 @@ namespace Dark
         std::vector<Noise>  m_noises;
         std::vector<Math::AABox3f> m_conceal;
         AI::AwarenessSettings m_aware{};
+        bool                  m_awareFromData = false;
         void (*m_jumpHitsFn)(void* user, const Combat::DamageEvent* events, int count) = nullptr;
         void* m_jumpHitsUser                                                           = nullptr;
         void (*m_hunterCueFn)(void* user, Entity hunter, const char* cue)              = nullptr;

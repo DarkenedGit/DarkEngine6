@@ -72,6 +72,50 @@ TEST(HunterTick, PreyGroundAndBakeObstacles)
     EXPECT_EQ(desc.sphereCount, 0);
 }
 
+TEST(HunterTick, SceneStealthOverridesHearingAndAwareness)
+{
+    AiSystem ai;
+    PlayerStealthSettings stealth;
+    stealth.hearWalk = 1.0f;
+    StealthSceneDesc scene{};
+    applySceneStealth(stealth, ai, scene);
+    EXPECT_FALSE(ai.awarenessEnabled());
+    EXPECT_FLOAT_EQ(stealth.hearStand, 4.0f);
+    EXPECT_FLOAT_EQ(stealth.hearWalk, 14.0f);
+    EXPECT_FLOAT_EQ(stealth.hearSprint, 24.0f);
+    EXPECT_FLOAT_EQ(stealth.hearCrouchWalk, 5.5f);
+
+    scene.present           = true;
+    scene.awareness         = true;
+    scene.hasHearStand      = true;
+    scene.hearStand         = 0.0f;
+    scene.hasHearWalk       = true;
+    scene.hearWalk          = 6.0f;
+    scene.hasHearSprint     = true;
+    scene.hearSprint        = 16.0f;
+    scene.hasHearCrouchWalk = true;
+    scene.hearCrouchWalk    = 2.5f;
+    applySceneStealth(stealth, ai, scene);
+    EXPECT_TRUE(ai.awarenessEnabled());
+    EXPECT_FLOAT_EQ(stealth.hearStand, 0.0f);
+    EXPECT_FLOAT_EQ(stealth.hearWalk, 6.0f);
+    EXPECT_FLOAT_EQ(stealth.hearSprint, 16.0f);
+    EXPECT_FLOAT_EQ(stealth.hearCrouchWalk, 2.5f);
+    EXPECT_FLOAT_EQ(stealth.hearCrouchStill, 1.25f);
+    EXPECT_FLOAT_EQ(stealth.sightCrouchStill, PlayerStealthSettings{}.sightCrouchStill);
+    EXPECT_NEAR(ai.awarenessSettings().alertShareRadius, 12.0f, 1.0e-3f);
+
+    scene.hasSettings = true;
+    scene.settings.alertShareRadius = 3.5f;
+    scene.settings.wallScale        = -1.0f;
+    scene.settingsMask              = (1ull << 27) | (1ull << 30);
+    applySceneStealth(stealth, ai, scene);
+    EXPECT_NEAR(ai.awarenessSettings().alertShareRadius, 3.5f, 1.0e-4f);
+    EXPECT_FLOAT_EQ(ai.awarenessSettings().wallScale, 0.0f);
+    EXPECT_NEAR(ai.awarenessSettings().fillNear, 1.8f, 1.0e-3f);
+    EXPECT_FLOAT_EQ(stealth.hearWalk, 6.0f);
+}
+
 TEST(WeaponTargetList, GatherSkipsSelfAndBodiesWithoutTransform)
 {
     World  world;

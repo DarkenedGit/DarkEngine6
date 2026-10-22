@@ -198,8 +198,10 @@ void EditorApp::newScene3D()
     removeEditorTerrain();
     m_authoredWater = {};
     m_authoredExposure = {};
+    m_authoredStealth = {};
     m_authoredGrass = {};
     applyAuthoredGrass();
+    applyAuthoredStealth();
     m_env = Sky::Environment{};
     ensureGlobalLights();
     m_env.evaluate();
@@ -217,8 +219,10 @@ void EditorApp::newScene2D()
     m_sceneName = "level2d";
     clearScene();
     removeEditorTerrain();
+    m_authoredStealth = {};
     m_authoredGrass = {};
     applyAuthoredGrass();
+    applyAuthoredStealth();
     m_worldMin = Vector2f(0.0f, 0.0f);
     m_worldMax = Vector2f(96.0f, 22.0f);
     rebuildGrid2D();
