@@ -36,8 +36,8 @@ cbuffer EchoViewConstants : register(b0)
     float    rangeTol;
     float    edgeMeters;
     float    maxRange;
-    float    _viewPad0;
-    float    _viewPad1;
+    float    snapWidth;
+    float    snapHeight;
 };
 
 Texture2D    gSnap   : register(t0);
@@ -101,60 +101,107 @@ float3 EchoAt(int2 texel)
 float2 PSSnapshot(PSInput input) : SV_TARGET
 {
     float2 scale = float2(fullWidth, fullHeight) / float2(max(snapWidth, 1.0f), max(snapHeight, 1.0f));
-    // SV_POSITION is the pixel center, so this lands on the middle texel of the block.
-    int2 full = int2(input.position.xy * scale);
+    int2 base = int2(input.position.xy * scale);
     int2 limit = int2(max(fullWidth, 1.0f), max(fullHeight, 1.0f)) - 1;
-    full = clamp(full, int2(0, 0), max(limit, int2(0, 0)));
+    base = clamp(base, int2(0, 0), max(limit, int2(0, 0)));
 
-    float3 center = EchoAt(full);
+    float3 center = EchoAt(base);
     if (center.x <= 0.0f)
         return float2(0.0f, 0.0f);
-    // A smooth surface, and anything that is not rough, keeps one hard sample.
-    if (center.z < 0.50f)
-        return float2(center.x, center.y);
 
-    // Meters per pixel at this depth. The old kernel stepped one block, which is a
-    // single blade up close, so the field stayed sharp.
-    float depth = gDepth.Load(int3(full, 0)).r;
-    float2 ndc = NdcFromTexel(full, fullWidth, fullHeight);
-    float3 world = ReconstructWorldPos(ndc.x, ndc.y, depth, invViewProj);
-    int2 side = clamp(full + int2(1, 0), int2(0, 0), max(limit, int2(0, 0)));
-    float2 ndcSide = NdcFromTexel(side, fullWidth, fullHeight);
-    float3 worldSide = ReconstructWorldPos(ndcSide.x, ndcSide.y, depth, invViewProj);
-    float metersPerPixel = max(length(worldSide - world), 1e-4f);
-    float stepPx = clamp(0.50f / metersPerPixel, max(scale.x, 1.0f), 240.0f);
-    int step = max(int(stepPx + 0.5f), 1);
+    // Prefilter: aggregate a 4x4 grid at stride 2 within the 8x8 block.
+    // Weight by depth agreement. Store mean echo and representative range.
+    int blockSize = int(max(scale.x, 1.0f));
+    int stride = max(blockSize / 4, 1);
+    if (stride < 2)
+        stride = 2;
+    int halfStride = max(stride * 2, 1);
 
-    // Two metres across. Blades disagree. A hill or a body agrees with itself.
-    float band = max(4.0f, center.x * 0.50f);
-    float sumE = 0.0f;
-    int count = 0;
-    int disagree = 0;
+    float refRange = center.x;
+    float depthBand = max(4.0f, refRange * 0.50f);
+    float sumEcho = 0.0f;
+    float sumWeight = 0.0f;
+    float nearestRange = refRange;
+    float minRangeDist = 1e6f;
+
     [unroll]
-    for (int y = -2; y <= 2; ++y)
+    for (int dy = -1; dy <= 1; dy += 1)
     {
         [unroll]
-        for (int x = -2; x <= 2; ++x)
+        for (int dx = -1; dx <= 1; dx += 1)
         {
-            if (x == 0 && y == 0)
+            int2 offset = int2(dx, dy) * halfStride;
+            int2 texel = clamp(base + offset, int2(0, 0), max(limit, int2(0, 0)));
+            float3 tap = EchoAt(texel);
+            if (tap.x <= 0.0f)
                 continue;
-            float3 tap = EchoAt(full + int2(x, y) * step);
-            if (tap.x <= 0.0f || tap.z < 0.50f || abs(tap.x - center.x) > band)
+
+            float rangeDiff = abs(tap.x - refRange);
+            if (rangeDiff > depthBand)
                 continue;
-            sumE += tap.y;
-            count += 1;
-            if (abs(tap.y - center.y) > 0.07f)
-                disagree += 1;
+
+            float weight = 1.0f - saturate(rangeDiff / max(depthBand, 1e-3f));
+            weight = weight * weight;
+            sumEcho += tap.y * weight;
+            sumWeight += weight;
+
+            if (rangeDiff < minRangeDist)
+            {
+                minRangeDist = rangeDiff;
+                nearestRange = tap.x;
+            }
         }
     }
 
-    if (count >= 6 && disagree * 2 >= count)
+    if (sumWeight < 1e-4f)
+        return float2(refRange, center.y);
+
+    float meanEcho = sumEcho / sumWeight;
+    float rough = center.z;
+
+    // Grass carpet vote: if rough and echo varies, mark as carpet.
+    if (rough >= 0.50f)
     {
-        float mean = (sumE + center.y) / float(count + 1);
-        float flat = lerp(mean, 0.30f, 0.88f);
-        return float2(center.x, flat + 2.0f);
+        float depth = gDepth.Load(int3(base, 0)).r;
+        float2 ndc = NdcFromTexel(base, fullWidth, fullHeight);
+        float3 world = ReconstructWorldPos(ndc.x, ndc.y, depth, invViewProj);
+        int2 side = clamp(base + int2(1, 0), int2(0, 0), max(limit, int2(0, 0)));
+        float2 ndcSide = NdcFromTexel(side, fullWidth, fullHeight);
+        float3 worldSide = ReconstructWorldPos(ndcSide.x, ndcSide.y, depth, invViewProj);
+        float metersPerPixel = max(length(worldSide - world), 1e-4f);
+        float stepPx = clamp(0.50f / metersPerPixel, max(scale.x, 1.0f), 240.0f);
+        int step = max(int(stepPx + 0.5f), 1);
+
+        float sumE2 = 0.0f;
+        int count2 = 0;
+        int disagree = 0;
+        [unroll]
+        for (int y = -2; y <= 2; ++y)
+        {
+            [unroll]
+            for (int x = -2; x <= 2; ++x)
+            {
+                if (x == 0 && y == 0)
+                    continue;
+                float3 tap2 = EchoAt(base + int2(x, y) * step);
+                if (tap2.x <= 0.0f || tap2.z < 0.50f || abs(tap2.x - refRange) > depthBand)
+                    continue;
+                sumE2 += tap2.y;
+                count2 += 1;
+                if (abs(tap2.y - meanEcho) > 0.07f)
+                    disagree += 1;
+            }
+        }
+
+        if (count2 >= 6 && disagree * 2 >= count2)
+        {
+            float mean2 = (sumE2 + meanEcho) / float(count2 + 1);
+            float flat = lerp(mean2, 0.30f, 0.88f);
+            return float2(nearestRange, flat + 2.0f);
+        }
     }
-    return float2(center.x, center.y);
+
+    return float2(nearestRange, meanEcho);
 }
 
 #else
@@ -195,19 +242,68 @@ float4 PSComposite(PSInput input) : SV_TARGET
             float2 uv       = chirpNdc * float2(0.5f, -0.5f) + 0.5f;
             if (uv.x >= 0.0f && uv.y >= 0.0f && uv.x <= 1.0f && uv.y <= 1.0f)
             {
-                float2 snap  = gSnap.SampleLevel(gPoint, uv, 0).rg;
-                float  range = snap.r;
-                float  echo  = snap.g;
-                float  live  = distance(world, chirpCamera);
-                float  tol   = rangeTol + range * 0.04f;
-                // Carpet flag: grass and plants light the whole clump, not one blade.
-                if (echo >= 1.5f)
+                float live = distance(world, chirpCamera);
+                float2 snapSize = float2(max(snapWidth, 1.0f), max(snapHeight, 1.0f));
+                float2 snapUv = uv * snapSize - 0.5f;
+                int2 snapBase = int2(floor(snapUv));
+                float2 frac = snapUv - float2(snapBase);
+
+                // Depth-aware 2x2 bilateral upsample instead of point sampling.
+                float sumEcho = 0.0f;
+                float sumRange = 0.0f;
+                float sumWeight = 0.0f;
+                float carpet = 0.0f;
+                [unroll]
+                for (int dy = 0; dy <= 1; ++dy)
                 {
-                    echo -= 2.0f;
-                    tol = max(2.5f, range * 0.50f);
+                    [unroll]
+                    for (int dx = 0; dx <= 1; ++dx)
+                    {
+                        int2 tapCoord = clamp(snapBase + int2(dx, dy), int2(0, 0), int2(snapSize) - 1);
+                        float2 tapSnap = gSnap.Load(int3(tapCoord, 0)).rg;
+                        float tapRange = tapSnap.r;
+                        float tapEcho = tapSnap.g;
+                        if (tapRange <= 0.0f)
+                            continue;
+
+                        // Handle carpet flag per tap.
+                        float tapCarpet = 0.0f;
+                        if (tapEcho >= 1.5f)
+                        {
+                            tapEcho -= 2.0f;
+                            tapCarpet = 1.0f;
+                        }
+
+                        // Bilinear weight x range-agreement weight.
+                        float2 bilinear = float2(dx == 0 ? 1.0f - frac.x : frac.x, dy == 0 ? 1.0f - frac.y : frac.y);
+                        float spatialWeight = bilinear.x * bilinear.y;
+
+                        float rangeDiff = abs(live - tapRange);
+                        float rangeWeight = 1.0f - saturate(rangeDiff / max(tapRange * 0.50f + 4.0f, 1e-3f));
+                        rangeWeight = rangeWeight * rangeWeight;
+
+                        float weight = spatialWeight * rangeWeight;
+                        sumEcho += tapEcho * weight;
+                        sumRange += tapRange * weight;
+                        sumWeight += weight;
+                        carpet = max(carpet, tapCarpet * weight);
+                    }
                 }
-                if (abs(live - range) <= tol)
-                    echoRgb = EchoColor(range, echo, radius, edgeMeters, maxRange);
+
+                if (sumWeight > 1e-4f)
+                {
+                    float range = sumRange / sumWeight;
+                    float echo = sumEcho / sumWeight;
+                    float tol = rangeTol + range * 0.04f;
+                    if (carpet > 0.1f)
+                        tol = max(2.5f, range * 0.50f);
+
+                    // Soft threshold for range test using smoothstep.
+                    float rangeDiff = abs(live - range);
+                    float rangeMatch = 1.0f - smoothstep(tol * 0.75f, tol * 1.25f, rangeDiff);
+                    if (rangeMatch > 1e-3f)
+                        echoRgb = EchoColor(range, echo, radius, edgeMeters, maxRange) * rangeMatch;
+                }
             }
         }
     }

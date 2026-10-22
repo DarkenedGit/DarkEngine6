@@ -434,6 +434,8 @@ void EchoPipeline::composite(ID3D12GraphicsCommandList* cmd, Renderer& renderer,
     constants[39] = kRangeTolerance;
     constants[40] = kEdgeMeters;
     constants[41] = kRangeMeters;
+    constants[42] = static_cast<float>(m_snapW);
+    constants[43] = static_cast<float>(m_snapH);
 
     cmd->SetGraphicsRootSignature(m_compositeRoot.Get());
     cmd->SetPipelineState(m_compositePso.Get());
