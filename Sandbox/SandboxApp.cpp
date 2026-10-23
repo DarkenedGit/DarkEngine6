@@ -5453,11 +5453,12 @@ void SandboxApp::onRender()
                 comp.chirpCamera[0] = m_echoChirpPos.x;
                 comp.chirpCamera[1] = m_echoChirpPos.y;
                 comp.chirpCamera[2] = m_echoChirpPos.z;
-                float radius = Math::Min(m_echoChirpAge * m_echoChirp.speedMetersPerSec, EchoPipeline::kRangeMeters);
+                float radius = Math::Min(m_echoChirpAge * m_echoChirp.speedMetersPerSec, m_echoChirp.rangeMeters);
                 if (capturedThisFrame)
                     radius = Math::Max(radius, EchoPipeline::kEdgeMeters);
                 comp.radius   = radius;
                 comp.strength = m_echo;
+                comp.maxRange = m_echoChirp.rangeMeters;
                 echo.composite(cmd, renderer(), comp);
             }
         }

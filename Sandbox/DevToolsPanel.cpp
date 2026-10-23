@@ -1541,11 +1541,13 @@ void SandboxApp::drawDevTools()
         ImGui::TextDisabled("Echolocation %s  (B)", m_echoOn ? "on" : "off");
         ImGui::SliderFloat("Refresh period (s)", &m_echoChirp.periodSeconds, Dark::EchoChirpSettings::kPeriodMin, Dark::EchoChirpSettings::kPeriodMax, "%.2f");
         ImGui::SliderFloat("Shell speed (m/s)", &m_echoChirp.speedMetersPerSec, Dark::EchoChirpSettings::kSpeedMin, Dark::EchoChirpSettings::kSpeedMax, "%.1f");
+        ImGui::SliderFloat("Shell range (m)", &m_echoChirp.rangeMeters, Dark::EchoChirpSettings::kRangeMin, Dark::EchoChirpSettings::kRangeMax, "%.1f");
         const float period = m_echoChirp.periodSeconds;
         const float speed  = m_echoChirp.speedMetersPerSec;
+        const float range  = m_echoChirp.rangeMeters;
         const float hz     = period > 0.0f ? (1.0f / period) : 0.0f;
-        const float travel = speed > 0.0f ? (Dark::EchoPipeline::kRangeMeters / speed) : 0.0f;
-        ImGui::TextDisabled("%.2f Hz. 40 m in %.2f s. content/render/echolocation.json is the startup value.", static_cast<double>(hz), static_cast<double>(travel));
+        const float travel = speed > 0.0f ? (range / speed) : 0.0f;
+        ImGui::TextDisabled("%.2f Hz. %.0f m in %.2f s. content/render/echolocation.json is the startup value.", static_cast<double>(hz), static_cast<double>(range), static_cast<double>(travel));
     }
 
     if (ImGui::CollapsingHeader("Rifle"))

@@ -6,16 +6,20 @@ namespace Dark
 {
 
 // Chirp clock. periodSeconds is how long one snapshot is held. speedMetersPerSec is
-// how fast the shell expands. Range, edge, and the snapshot scale stay on EchoPipeline.
+// how fast the shell expands. rangeMeters is where the shell stops. The leading edge
+// and the snapshot scale stay on EchoPipeline.
 struct EchoChirpSettings
 {
     static constexpr float kPeriodMin = 0.05f;
     static constexpr float kPeriodMax = 8.0f;
     static constexpr float kSpeedMin  = 1.0f;
     static constexpr float kSpeedMax  = 800.0f;
+    static constexpr float kRangeMin  = 8.0f;
+    static constexpr float kRangeMax  = 200.0f;
 
     float periodSeconds     = 1.25f;
     float speedMetersPerSec = 50.0f;
+    float rangeMeters       = 40.0f;
 };
 
 // Built-in copy of content/render/echolocation.json, used when that file is missing.

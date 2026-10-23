@@ -1,7 +1,10 @@
 // Echolocation. Compile PSSnapshot with ECHO_SNAPSHOT. Compile PSComposite without it.
-// The snapshot stores range and echo strength. A grass or plant clump stores echo + 2
-// so the composite can light the whole clump. The composite reprojects that frozen
-// chirp and lerps HDR toward it. Live normals are not read.
+// The snapshot stores range and echo strength. A porous rough cluster (a crown or a
+// grass layer) stores echo + 2 so the composite can hold the whole clump. Echo already
+// scales with density and size: a filled crown returns more than grass, and a small
+// prop returns less than a wall. The composite reprojects that frozen chirp and lerps
+// HDR toward it. Strength falls to nothing as range reaches the chirp limit.
+// Live normals are not read.
 #pragma pack_matrix(row_major)
 
 #include "GBuffer.hlsli"
@@ -66,13 +69,13 @@ float2 NdcFromTexel(int2 texel, float width, float height)
     return float2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);
 }
 
-// Smooth facing surfaces ping. Rough foliage stays soft, not silent.
+// Smooth facing surfaces ping. Rough solids still return; a grazing face stays quiet.
 float EchoStrength(float facing, float roughness)
 {
     float lobe = saturate(facing);
     lobe *= lobe;
     float hard = saturate(1.0f - roughness);
-    return lobe * lerp(0.18f, 1.0f, hard);
+    return lobe * lerp(0.50f, 1.0f, hard);
 }
 
 #if defined(ECHO_SNAPSHOT)
@@ -98,110 +101,157 @@ float3 EchoAt(int2 texel)
     return float3(max(range, 1e-3f), echo, rough);
 }
 
+// 0.2 m props stay dim. Something that spans the sample window reads at full size.
+float SizeScale(float extentMeters, bool fillsWindow)
+{
+    float extent = fillsWindow ? max(extentMeters, 1.70f) : extentMeters;
+    float t = saturate((extent - 0.12f) / 1.55f);
+    t = t * t * (3.0f - 2.0f * t);
+    return lerp(0.22f, 1.0f, t);
+}
+
 float2 PSSnapshot(PSInput input) : SV_TARGET
 {
     float2 scale = float2(fullWidth, fullHeight) / float2(max(snapWidth, 1.0f), max(snapHeight, 1.0f));
-    int2 base = int2(input.position.xy * scale);
     int2 limit = int2(max(fullWidth, 1.0f), max(fullHeight, 1.0f)) - 1;
-    base = clamp(base, int2(0, 0), max(limit, int2(0, 0)));
+    int2 block = max(int2(scale + 0.5f), int2(1, 1));
+    int2 origin = clamp(int2(input.position.xy) * block, int2(0, 0), limit);
 
-    float3 center = EchoAt(base);
-    if (center.x <= 0.0f)
-        return float2(0.0f, 0.0f);
-
-    // Prefilter: aggregate a 4x4 grid at stride 2 within the 8x8 block.
-    // Weight by depth agreement. Store mean echo and representative range.
-    int blockSize = int(max(scale.x, 1.0f));
-    int stride = max(blockSize / 4, 1);
-    if (stride < 2)
-        stride = 2;
-    int halfStride = max(stride * 2, 1);
-
-    float refRange = center.x;
-    float depthBand = max(4.0f, refRange * 0.50f);
-    float sumEcho = 0.0f;
-    float sumWeight = 0.0f;
-    float nearestRange = refRange;
-    float minRangeDist = 1e6f;
-
+    // The 8x8 block's closest hit. A leaf in the block wins over a hole at the corner,
+    // which is what used to drop whole crowns.
+    int2 anchor = origin;
+    float anchorRange = 1e9f;
+    bool found = false;
     [unroll]
-    for (int dy = -1; dy <= 1; dy += 1)
+    for (int by = 0; by < 4; ++by)
     {
         [unroll]
-        for (int dx = -1; dx <= 1; dx += 1)
+        for (int bx = 0; bx < 4; ++bx)
         {
-            int2 offset = int2(dx, dy) * halfStride;
-            int2 texel = clamp(base + offset, int2(0, 0), max(limit, int2(0, 0)));
+            int2 texel = origin + int2(((bx * 2 + 1) * block.x) / 8, ((by * 2 + 1) * block.y) / 8);
+            float3 tap = EchoAt(texel);
+            if (tap.x <= 0.0f)
+                continue;
+            if (!found || tap.x < anchorRange)
+            {
+                found = true;
+                anchorRange = tap.x;
+                anchor = texel;
+            }
+        }
+    }
+    if (!found)
+        return float2(0.0f, 0.0f);
+
+    float depth = gDepth.Load(int3(anchor, 0)).r;
+    float2 ndc = NdcFromTexel(anchor, fullWidth, fullHeight);
+    float3 world = ReconstructWorldPos(ndc.x, ndc.y, depth, invViewProj);
+    int2 side = clamp(anchor + int2(1, 0), int2(0, 0), limit);
+    float2 ndcSide = NdcFromTexel(side, fullWidth, fullHeight);
+    float3 worldSide = ReconstructWorldPos(ndcSide.x, ndcSide.y, depth, invViewProj);
+    float metersPerPixel = max(length(worldSide - world), 1e-4f);
+    int stepPx = (int)clamp(0.32f / metersPerPixel + 0.5f, 1.0f, 220.0f);
+
+    // Inner 3x3 is density. The outer ring is size. 0.30 m keeps grass tips off the ground;
+    // 0.50 m still joins a crown's front shell.
+    const float kStepM = 0.32f;
+    const float kFillBand = 0.30f;
+    const float kExtentBand = 0.50f;
+
+    int innerHits = 0;
+    int innerNear = 0;
+    float sumE = 0.0f;
+    float sumE2 = 0.0f;
+    float sumR = 0.0f;
+    float extent = 0.0f;
+    float sumSpan = 0.0f;
+    int spanCount = 0;
+    int posX = 0;
+    int negX = 0;
+    int posY = 0;
+    int negY = 0;
+
+    [loop]
+    for (int dy = -2; dy <= 2; ++dy)
+    {
+        [loop]
+        for (int dx = -2; dx <= 2; ++dx)
+        {
+            int2 texel = clamp(anchor + int2(dx, dy) * stepPx, int2(0, 0), limit);
             float3 tap = EchoAt(texel);
             if (tap.x <= 0.0f)
                 continue;
 
-            float rangeDiff = abs(tap.x - refRange);
-            if (rangeDiff > depthBand)
+            float lateral = length(float2((float)dx, (float)dy)) * kStepM;
+            bool inner = abs(dx) <= 1 && abs(dy) <= 1;
+            bool near = abs(tap.x - anchorRange) <= kFillBand;
+            // Depth of this clump, ignoring hills far behind a hole. Grass sits on ground
+            // half a metre back. A crown still has leaves metres deeper than its front.
+            if (tap.x <= anchorRange + 5.0f)
+            {
+                sumSpan += tap.x - anchorRange;
+                spanCount += 1;
+            }
+            if (inner)
+            {
+                innerHits += 1;
+                if (near)
+                {
+                    innerNear += 1;
+                    sumE += tap.y;
+                    sumE2 += tap.y * tap.y;
+                    sumR += tap.z;
+                }
+            }
+
+            if (abs(tap.x - anchorRange) > kExtentBand)
                 continue;
-
-            float weight = 1.0f - saturate(rangeDiff / max(depthBand, 1e-3f));
-            weight = weight * weight;
-            sumEcho += tap.y * weight;
-            sumWeight += weight;
-
-            if (rangeDiff < minRangeDist)
-            {
-                minRangeDist = rangeDiff;
-                nearestRange = tap.x;
-            }
+            extent = max(extent, lateral);
+            if (abs(dx) != 2 && abs(dy) != 2)
+                continue;
+            if (dx == 2)
+                posX = 1;
+            if (dx == -2)
+                negX = 1;
+            if (dy == 2)
+                posY = 1;
+            if (dy == -2)
+                negY = 1;
         }
     }
 
-    if (sumWeight < 1e-4f)
-        return float2(refRange, center.y);
+    if (innerNear < 1)
+        return float2(anchorRange, 0.0f);
 
-    float meanEcho = sumEcho / sumWeight;
-    float rough = center.z;
+    float meanE = sumE / (float)innerNear;
+    float meanR = sumR / (float)innerNear;
+    float varE = 0.0f;
+    if (innerNear > 1)
+        varE = max(sumE2 / (float)innerNear - meanE * meanE, 0.0f);
 
-    // Grass carpet vote: if rough and echo varies, mark as carpet.
-    if (rough >= 0.50f)
+    // fill is the front surface's share of the rays that hit anything. Sky does not dilute a crown.
+    // Grass stays low because most rays hit the ground behind the blades. A card crown stays high.
+    float fill = (float)innerNear / (float)max(innerHits, 1);
+    bool gappy = innerHits >= innerNear + 2;
+    // A flat rough surface (terrain, bark) keeps the facing response. Grass is gappy: rays fall
+    // through to the ground. A crown of crossed cards scatters even when the shell itself is filled.
+    bool volume = meanR >= 0.50f && innerNear >= 3 && (gappy || varE >= 0.025f);
+    bool spans = (posX + negX) == 2 || (posY + negY) == 2;
+    float sizeScale = SizeScale(extent, spans);
+
+    if (volume)
     {
-        float depth = gDepth.Load(int3(base, 0)).r;
-        float2 ndc = NdcFromTexel(base, fullWidth, fullHeight);
-        float3 world = ReconstructWorldPos(ndc.x, ndc.y, depth, invViewProj);
-        int2 side = clamp(base + int2(1, 0), int2(0, 0), max(limit, int2(0, 0)));
-        float2 ndcSide = NdcFromTexel(side, fullWidth, fullHeight);
-        float3 worldSide = ReconstructWorldPos(ndcSide.x, ndcSide.y, depth, invViewProj);
-        float metersPerPixel = max(length(worldSide - world), 1e-4f);
-        float stepPx = clamp(0.50f / metersPerPixel, max(scale.x, 1.0f), 240.0f);
-        int step = max(int(stepPx + 0.5f), 1);
-
-        float sumE2 = 0.0f;
-        int count2 = 0;
-        int disagree = 0;
-        [unroll]
-        for (int y = -2; y <= 2; ++y)
-        {
-            [unroll]
-            for (int x = -2; x <= 2; ++x)
-            {
-                if (x == 0 && y == 0)
-                    continue;
-                float3 tap2 = EchoAt(base + int2(x, y) * step);
-                if (tap2.x <= 0.0f || tap2.z < 0.50f || abs(tap2.x - refRange) > depthBand)
-                    continue;
-                sumE2 += tap2.y;
-                count2 += 1;
-                if (abs(tap2.y - meanEcho) > 0.07f)
-                    disagree += 1;
-            }
-        }
-
-        if (count2 >= 6 && disagree * 2 >= count2)
-        {
-            float mean2 = (sumE2 + meanEcho) / float(count2 + 1);
-            float flat = lerp(mean2, 0.30f, 0.88f);
-            return float2(nearestRange, flat + 2.0f);
-        }
+        // Coverage squared keeps sparse grass light. Depth keeps a thin sheet under a crown:
+        // grass averages a fraction of a metre, a birch crown averages much more.
+        float cover = saturate(fill);
+        float meanSpan = spanCount > 0 ? sumSpan / (float)spanCount : 0.0f;
+        float bulk = saturate(meanSpan / 1.25f);
+        float depthScale = lerp(0.30f, 1.0f, bulk);
+        float echo = cover * cover * depthScale * sizeScale;
+        return float2(anchorRange, min(echo, 1.2f) + 2.0f);
     }
 
-    return float2(nearestRange, meanEcho);
+    return float2(anchorRange, saturate(meanE * sizeScale));
 }
 
 #else
@@ -214,13 +264,23 @@ float3 EchoColor(float range, float echo, float shellRadius, float edgeWidth, fl
     float edge = 1.0f - saturate((shellRadius - range) / max(edgeWidth, 1e-3f));
     float dist = saturate(1.0f - range / max(farMeters, 1e-3f));
     // Held body stays under the bloom threshold. A hard near edge may sit just above 1.
+    // dist is 0 at the chirp limit. The return fades across the outer part of the range
+    // and is gone when the shell reaches that limit.
+    float falloff = smoothstep(0.0f, 0.42f, dist);
     float body = echo * lerp(0.12f, 0.85f, dist);
     float lead = echo * lerp(0.25f, 1.35f, dist);
-    float luma = lerp(body, lead, edge);
+    float luma = lerp(body, lead, edge) * falloff;
 
     float3 hue   = float3(0.55f, 0.78f, 1.0f);
     float  paper = saturate(luma);
     return lerp(hue, float3(1.0f, 1.0f, 1.0f), paper) * luma;
+}
+
+float MatchTol(float range, float carpet)
+{
+    if (carpet > 0.5f)
+        return 2.25f;
+    return rangeTol + range * 0.04f;
 }
 
 float4 PSComposite(PSInput input) : SV_TARGET
@@ -266,7 +326,7 @@ float4 PSComposite(PSInput input) : SV_TARGET
                         if (tapRange <= 0.0f)
                             continue;
 
-                        // Handle carpet flag per tap.
+                        // Porous cluster (crown, grass layer) is stored as echo + 2.
                         float tapCarpet = 0.0f;
                         if (tapEcho >= 1.5f)
                         {
@@ -294,15 +354,61 @@ float4 PSComposite(PSInput input) : SV_TARGET
                 {
                     float range = sumRange / sumWeight;
                     float echo = sumEcho / sumWeight;
-                    float tol = rangeTol + range * 0.04f;
-                    if (carpet > 0.1f)
-                        tol = max(2.5f, range * 0.50f);
+                    float tol = MatchTol(range, carpet > 0.1f ? 1.0f : 0.0f);
 
                     // Soft threshold for range test using smoothstep.
                     float rangeDiff = abs(live - range);
                     float rangeMatch = 1.0f - smoothstep(tol * 0.75f, tol * 1.25f, rangeDiff);
                     if (rangeMatch > 1e-3f)
                         echoRgb = EchoColor(range, echo, radius, edgeMeters, maxRange) * rangeMatch;
+                }
+
+                // A mixed block stores the front surface (the crown). Ground pixels in that
+                // block look one snap neighborhood over for their own range. Skip pixels the
+                // shell has not reached; those stay black without a wider search.
+                if (dot(echoRgb, echoRgb) <= 1e-8f && live <= radius)
+                {
+                    int2 snapCenter = clamp(int2(uv * snapSize), int2(0, 0), int2(snapSize) - 1);
+                    float bestDiff = 1e9f;
+                    float bestEcho = 0.0f;
+                    float bestRange = 0.0f;
+                    float bestCarpet = 0.0f;
+                    [loop]
+                    for (int sy = -2; sy <= 2; ++sy)
+                    {
+                        [loop]
+                        for (int sx = -2; sx <= 2; ++sx)
+                        {
+                            int2 tapCoord = clamp(snapCenter + int2(sx, sy), int2(0, 0), int2(snapSize) - 1);
+                            float2 tapSnap = gSnap.Load(int3(tapCoord, 0)).rg;
+                            float tapRange = tapSnap.r;
+                            float tapEcho = tapSnap.g;
+                            if (tapRange <= 0.0f)
+                                continue;
+                            float tapCarpet = 0.0f;
+                            if (tapEcho >= 1.5f)
+                            {
+                                tapEcho -= 2.0f;
+                                tapCarpet = 1.0f;
+                            }
+                            float diff = abs(live - tapRange);
+                            float tapTol = MatchTol(tapRange, tapCarpet);
+                            if (diff < tapTol && diff < bestDiff)
+                            {
+                                bestDiff = diff;
+                                bestEcho = tapEcho;
+                                bestRange = tapRange;
+                                bestCarpet = tapCarpet;
+                            }
+                        }
+                    }
+                    if (bestDiff < 1e8f)
+                    {
+                        float tapTol = MatchTol(bestRange, bestCarpet);
+                        float rangeMatch = 1.0f - smoothstep(tapTol * 0.75f, tapTol * 1.25f, bestDiff);
+                        if (rangeMatch > 1e-3f)
+                            echoRgb = EchoColor(bestRange, bestEcho, radius, edgeMeters, maxRange) * rangeMatch;
+                    }
                 }
             }
         }

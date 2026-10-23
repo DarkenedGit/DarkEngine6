@@ -26,6 +26,7 @@ struct EchoCompositeFrame
     float chirpCamera[3]{};
     float radius   = 0.0f;
     float strength = 0.0f;
+    float maxRange = 0.0f;
 };
 
 // Deferred echolocation. A low-resolution G-buffer snapshot once per chirp, then a
@@ -37,10 +38,10 @@ public:
     static constexpr UINT kRootSrv       = 1;
 
     // Built-in chirp, not the speed of sound. Sandbox loads content/render/echolocation.json
-    // over these two and Dev Tools can change the live copies. At the built-in speed the shell
-    // crosses kRangeMeters in kExpandSeconds, then holds until the next pulse. A shorter period
-    // or a faster shell can start the next chirp while the shell is still moving. kEdgeMeters
-    // is wide enough to show for about one 60 Hz frame at the built-in speed.
+    // over the period, the speed, and the range. Dev Tools can change the live copies. At the
+    // built-in speed the shell crosses kRangeMeters in kExpandSeconds, then holds until the next
+    // pulse. A shorter period or a faster shell can start the next chirp while the shell is still
+    // moving. kEdgeMeters is wide enough to show for about one 60 Hz frame at the built-in speed.
     static constexpr float    kPeriodSeconds     = 1.25f;
     static constexpr float    kRangeMeters       = 40.0f;
     static constexpr float    kSpeedMetersPerSec = 50.0f;

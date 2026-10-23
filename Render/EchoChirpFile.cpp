@@ -52,6 +52,7 @@ namespace Dark
 
     static_assert(EchoChirpSettings{}.periodSeconds == EchoPipeline::kPeriodSeconds, "builtin chirp period");
     static_assert(EchoChirpSettings{}.speedMetersPerSec == EchoPipeline::kSpeedMetersPerSec, "builtin chirp speed");
+    static_assert(EchoChirpSettings{}.rangeMeters == EchoPipeline::kRangeMeters, "builtin chirp range");
 
     EchoChirpSettings builtinEchoChirpSettings()
     {
@@ -83,20 +84,24 @@ namespace Dark
         }
         const auto period = root.find("periodSeconds");
         const auto speed  = root.find("speed");
-        if (period == root.end() || speed == root.end())
+        const auto range  = root.find("rangeMeters");
+        if (period == root.end() || speed == root.end() || range == root.end())
         {
-            DE_LOG_ERROR(LogCategory::Render, "EchoChirp: periodSeconds and speed are required");
+            DE_LOG_ERROR(LogCategory::Render, "EchoChirp: periodSeconds, speed, and rangeMeters are required");
             return false;
         }
         float periodSeconds = 0.0f;
         float speedMps      = 0.0f;
-        if (!readFloat(*period, periodSeconds) || !(periodSeconds > 0.0f) || !readFloat(*speed, speedMps) || !(speedMps > 0.0f))
+        float rangeMeters   = 0.0f;
+        if (!readFloat(*period, periodSeconds) || !(periodSeconds > 0.0f) || !readFloat(*speed, speedMps) || !(speedMps > 0.0f)
+            || !readFloat(*range, rangeMeters) || !(rangeMeters > 0.0f))
         {
-            DE_LOG_ERROR(LogCategory::Render, "EchoChirp: periodSeconds and speed must be finite and positive");
+            DE_LOG_ERROR(LogCategory::Render, "EchoChirp: periodSeconds, speed, and rangeMeters must be finite and positive");
             return false;
         }
         out.periodSeconds     = clampWindow(periodSeconds, EchoChirpSettings::kPeriodMin, EchoChirpSettings::kPeriodMax);
         out.speedMetersPerSec = clampWindow(speedMps, EchoChirpSettings::kSpeedMin, EchoChirpSettings::kSpeedMax);
+        out.rangeMeters       = clampWindow(rangeMeters, EchoChirpSettings::kRangeMin, EchoChirpSettings::kRangeMax);
         return true;
     }
 
@@ -126,10 +131,11 @@ namespace Dark
                 DE_LOG_ERROR(LogCategory::Render, "EchoChirp: parse failed '{}'", path.string());
                 return false;
             }
-            DE_LOG_INFO(LogCategory::Render, "EchoChirp: loaded '{}' period {:.3f} s speed {:.1f} m/s", path.string(), static_cast<double>(out.periodSeconds), static_cast<double>(out.speedMetersPerSec));
+            DE_LOG_INFO(LogCategory::Render, "EchoChirp: loaded '{}' period {:.3f} s speed {:.1f} m/s range {:.1f} m", path.string(),
+                static_cast<double>(out.periodSeconds), static_cast<double>(out.speedMetersPerSec), static_cast<double>(out.rangeMeters));
             return true;
         }
-        DE_LOG_WARN(LogCategory::Render, "EchoChirp: render/echolocation.json not found; using built-in period and speed");
+        DE_LOG_WARN(LogCategory::Render, "EchoChirp: render/echolocation.json not found; using built-in period, speed, and range");
         return false;
     }
 

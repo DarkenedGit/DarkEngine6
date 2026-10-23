@@ -433,7 +433,7 @@ void EchoPipeline::composite(ID3D12GraphicsCommandList* cmd, Renderer& renderer,
     constants[38] = fullH;
     constants[39] = kRangeTolerance;
     constants[40] = kEdgeMeters;
-    constants[41] = kRangeMeters;
+    constants[41] = frame.maxRange > 0.0f ? frame.maxRange : kRangeMeters;
     constants[42] = static_cast<float>(m_snapW);
     constants[43] = static_cast<float>(m_snapH);
 
