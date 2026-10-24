@@ -72,6 +72,7 @@
 #include "Character/SwordView.h"
 #include "Combat/ArmorComponent.h"
 #include "Gameplay/Inventory.h"
+#include "Gameplay/ThrowableCatalog.h"
 #include "Play/PlayerFlashlight.h"
 #include "Play/Spawner.h"
 #include "Character/ShieldView.h"
@@ -3497,6 +3498,7 @@ void SandboxApp::onInit()
 
     m_ground.loadFromContent();
     skillCatalog().loadFromContent();
+    throwableCatalog().loadFromContent();
     m_chase.setGround(&m_ground);
     registerDefaultActions();
     audio().setMasterVolume(0.85f);

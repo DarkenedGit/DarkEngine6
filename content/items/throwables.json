@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "throwables": [
+    {
+      "id": "rock",
+      "weight": 1.5,
+      "throwDistance": 12,
+      "impactSound": "audio/foot_rock.wav",
+      "callDistance": 8,
+      "model": "models/NaturePack/glTF/Rock_Medium_1.gltf"
+    },
+    {
+      "id": "bottle",
+      "weight": 0.25,
+      "throwDistance": 14,
+      "impactSound": "audio/splash.wav",
+      "callDistance": 22,
+      "model": "models/unit_glass.gltf"
+    }
+  ]
+}
