@@ -23,15 +23,19 @@ namespace Dark
 
     // Counts beside the weapon loadout, keyed by throwable catalog id.
     // Pickup never changes which weapon is selected.
+    // WeaponLoadout::spendThrowable spends one and updates the slot.
     class ThrowableBelt
     {
     public:
         int              count(std::string_view id) const;
+        bool             any() const;
         std::string_view hand() const;
         // Empty clears. A catalog id sticks. Unknown ids are refused. Pickup does not call this.
         bool             setHand(std::string_view id);
         // +1 when id is in the catalog. Does not change hand(). Returns the new count, or 0 if unknown.
         int              add(std::string_view id);
+        // -1 when the count is above zero. Returns the count left, or -1 if nothing was spent.
+        int              consume(std::string_view id);
 
     private:
         struct Count

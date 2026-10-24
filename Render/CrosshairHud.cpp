@@ -58,7 +58,7 @@ namespace Dark
         m_quad.draw(cmd);
     }
 
-    void CrosshairHud::draw(ID3D12GraphicsCommandList* cmd, uint32_t viewW, uint32_t viewH, WeaponKind active) const
+    void CrosshairHud::draw(ID3D12GraphicsCommandList* cmd, uint32_t viewW, uint32_t viewH, WeaponKind active, bool throwableSlot) const
     {
         if (!cmd || !isValid() || viewW < 8 || viewH < 8)
             return;
@@ -69,8 +69,12 @@ namespace Dark
         const float cx   = w * 0.5f;
         const float cy   = h * 0.5f;
 
-        const UiColor accent = active == WeaponKind::Projectile ? UiPalette::kWarn : UiPalette::kText;
-        const UiColor dim    = UiPalette::kTextMuted;
+        UiColor accent = UiPalette::kText;
+        if (active == WeaponKind::Projectile)
+            accent = UiPalette::kWarn;
+        else if (active == WeaponKind::Throwable)
+            accent = UiPalette::kOk;
+        const UiColor dim = UiPalette::kTextMuted;
 
         m_pipe.bind(cmd);
 
@@ -87,8 +91,20 @@ namespace Dark
         const float s     = 7.0f;
         const UiColor meleeCol = active == WeaponKind::Melee ? UiPalette::kText : dim;
         const UiColor gunCol   = active == WeaponKind::Projectile ? UiPalette::kWarn : dim;
-        drawRect(cmd, proj, cx - 10.0f, slotY, s, s, meleeCol.r, meleeCol.g, meleeCol.b, active == WeaponKind::Melee ? 0.95f : 0.45f);
-        drawRect(cmd, proj, cx + 10.0f, slotY, s, s, gunCol.r, gunCol.g, gunCol.b, active == WeaponKind::Projectile ? 0.95f : 0.45f);
+        const float meleeA = active == WeaponKind::Melee ? 0.95f : 0.45f;
+        const float gunA   = active == WeaponKind::Projectile ? 0.95f : 0.45f;
+        if (!throwableSlot)
+        {
+            drawRect(cmd, proj, cx - 10.0f, slotY, s, s, meleeCol.r, meleeCol.g, meleeCol.b, meleeA);
+            drawRect(cmd, proj, cx + 10.0f, slotY, s, s, gunCol.r, gunCol.g, gunCol.b, gunA);
+            return;
+        }
+
+        const UiColor throwCol = active == WeaponKind::Throwable ? UiPalette::kOk : dim;
+        const float throwA = active == WeaponKind::Throwable ? 0.95f : 0.45f;
+        drawRect(cmd, proj, cx - 18.0f, slotY, s, s, meleeCol.r, meleeCol.g, meleeCol.b, meleeA);
+        drawRect(cmd, proj, cx, slotY, s, s, gunCol.r, gunCol.g, gunCol.b, gunA);
+        drawRect(cmd, proj, cx + 18.0f, slotY, s, s, throwCol.r, throwCol.g, throwCol.b, throwA);
     }
 
 } // namespace Dark

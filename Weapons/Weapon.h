@@ -15,6 +15,7 @@ namespace Dark
     {
         Melee = 0,
         Projectile = 1,
+        Throwable = 2,
     };
 
     struct WeaponHit

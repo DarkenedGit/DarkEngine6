@@ -606,6 +606,8 @@ bool EditorApp::firePlayLoadout(bool charged)
         return false;
     WeaponFireRequest req = makeCameraFireRequest(m_camera.GetPosition(), m_camera.GetLook(), xf ? &xf->position : nullptr,
                                                   charged ? m_chargeSettings.attackDamageScale : 1.0f);
+    if (wlc->loadout->activeKind() == WeaponKind::Throwable)
+        return false;
     SkillComponent* skill = nullptr;
     if (wlc->loadout->activeKind() == WeaponKind::Projectile)
         skill = world().get<SkillComponent>(body);
@@ -615,7 +617,13 @@ bool EditorApp::firePlayLoadout(bool charged)
     if (skill)
         noteShotXp(*skill, true);
     if (AnimGraphComponent* ag = body.valid() ? world().get<AnimGraphComponent>(body) : nullptr)
-        ag->graph.setTrigger(wlc->loadout->activeKind() == WeaponKind::Melee ? "swing" : "shoot");
+    {
+        const WeaponKind kind = wlc->loadout->activeKind();
+        if (kind == WeaponKind::Melee)
+            ag->graph.setTrigger("swing");
+        else if (kind == WeaponKind::Projectile)
+            ag->graph.setTrigger("shoot");
+    }
     return true;
 }
 
@@ -937,10 +945,12 @@ void EditorApp::updatePlay(float dt)
     if (wlc && wlc->loadout)
         wlc->loadout->tick(dt, makePlayWeaponQuery());
 
-    if (input().actionPressed("weapon_1") && wlc && wlc->loadout)
-        wlc->loadout->selectMelee();
-    if (input().actionPressed("weapon_2") && wlc && wlc->loadout)
-        wlc->loadout->selectProjectile();
+    if (input().actionPressed("weapon_1") && wlc && wlc->loadout && wlc->loadout->selectMelee())
+        wlc->slot = wlc->loadout->slot();
+    if (input().actionPressed("weapon_2") && wlc && wlc->loadout && wlc->loadout->selectProjectile())
+        wlc->slot = wlc->loadout->slot();
+    if (input().actionPressed("weapon_3") && wlc && wlc->loadout && wlc->loadout->selectSlot(2, throwableBelt(world(), body)))
+        wlc->slot = wlc->loadout->slot();
 
     if (m_jumpAttackBuffer > 0.0f)
         m_jumpAttackBuffer = Math::Max(0.0f, m_jumpAttackBuffer - dt);

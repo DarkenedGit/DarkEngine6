@@ -60,7 +60,7 @@ namespace Dark
     // Adds health, hit reaction, and a hittable only when each one is missing.
     void ensureHumanoidBody(World& world, Entity e, float maxHp, const Math::Vector3f& halfExtents);
 
-    // Motor, HSM, weapons, shield, sounds, and the player skill profile. Melee timing is set only when the loadout is created.
+    // Motor, HSM, weapons, throwable belt, shield, sounds, and the player skill profile. Melee timing is set only when the loadout is created.
     // Movement speeds are re-read from entities/player.entity.movement.json. Crouch, dodge, and motor progress stay as they are.
     void ensureLocalPlayerRig(const CharacterHost& host, Entity e, WeaponHitFn hitFn, void* hitUser);
 

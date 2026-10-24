@@ -10,12 +10,13 @@ namespace Dark
 {
     class Renderer;
 
-    // Screen-center reticle plus 1/2 weapon slots. Pixel Y-up, origin bottom-left.
+    // Screen-center reticle plus weapon slots. Pixel Y-up, origin bottom-left.
+    // The third cell is drawn only while throwableSlot is true.
     class CrosshairHud
     {
     public:
         bool create(Renderer& renderer);
-        void draw(ID3D12GraphicsCommandList* cmd, uint32_t viewW, uint32_t viewH, WeaponKind active) const;
+        void draw(ID3D12GraphicsCommandList* cmd, uint32_t viewW, uint32_t viewH, WeaponKind active, bool throwableSlot) const;
         bool isValid() const { return m_pipe.isValid() && m_quad.valid() && m_white.valid(); }
 
     private:

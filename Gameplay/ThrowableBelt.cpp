@@ -51,6 +51,35 @@ namespace Dark
         return 0;
     }
 
+    bool ThrowableBelt::any() const
+    {
+        for (const Count& row : m_counts)
+        {
+            if (row.count > 0)
+                return true;
+        }
+        return false;
+    }
+
+    int ThrowableBelt::consume(std::string_view id)
+    {
+        for (auto it = m_counts.begin(); it != m_counts.end(); ++it)
+        {
+            if (it->id != id)
+                continue;
+            if (it->count <= 0)
+            {
+                m_counts.erase(it);
+                return -1;
+            }
+            const int left = --it->count;
+            if (left <= 0)
+                m_counts.erase(it);
+            return left;
+        }
+        return -1;
+    }
+
     std::string_view ThrowableBelt::hand() const
     {
         return m_hand;

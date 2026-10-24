@@ -6,7 +6,9 @@
 namespace Dark
 {
 
-    // Two-slot player loadout: 1 = melee, 2 = projectile.
+    class ThrowableBelt;
+
+    // Player loadout: 0 melee, 1 projectile, 2 throwable.
     class WeaponLoadout
     {
     public:
@@ -24,13 +26,27 @@ namespace Dark
 
         Weapon&       active();
         const Weapon& active() const;
-        WeaponKind    activeKind() const { return m_slot == 0 ? WeaponKind::Melee : WeaponKind::Projectile; }
-        int           slot() const { return m_slot; } // 0 = melee (key 1), 1 = projectile (key 2)
+        WeaponKind    activeKind() const
+        {
+            if (m_slot == 1)
+                return WeaponKind::Projectile;
+            if (m_slot == 2)
+                return WeaponKind::Throwable;
+            return WeaponKind::Melee;
+        }
+        int slot() const { return m_slot; } // 0 melee, 1 projectile, 2 throwable
 
-        // slot is 0 or 1. Returns true if the active weapon changed.
+        // 0, 1, or 2. Other values do not change the slot. True when the slot changed.
         bool selectSlot(int slot);
+        // Player press. Slot 2 is refused while every count is zero, and a press that finds
+        // slot 2 already active cycles to the next carried type. The first press does not.
+        bool selectSlot(int slot, ThrowableBelt& belt);
         bool selectMelee() { return selectSlot(0); }
         bool selectProjectile() { return selectSlot(1); }
+
+        // Spends one of the type in hand. The last of a type brings the next carried type to hand.
+        // The last of every type selects the sword and clears the hand.
+        bool spendThrowable(ThrowableBelt& belt);
 
         bool fire(const WeaponFireRequest& req, const WeaponWorldQuery& world);
         void tick(float dt, const WeaponWorldQuery& world);

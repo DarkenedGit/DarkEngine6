@@ -351,6 +351,8 @@ TEST(EntityInput, EditorFileThenPlayerFile)
     EXPECT_TRUE(hasKey(map, "quick_save", Key::F5, 1.0f, ActionMap::ModShift));
     EXPECT_TRUE(hasKey(map, "weapon_1", Key::Digit1, 1.0f));
     EXPECT_TRUE(hasKey(map, "type_cube", Key::Digit1, 1.0f));
+    EXPECT_TRUE(hasKey(map, "weapon_3", Key::Digit3, 1.0f));
+    EXPECT_TRUE(hasKey(map, "type_particle", Key::Digit3, 1.0f));
 }
 
 TEST(EntityInput, Player2dFileLeavesOtherActions)

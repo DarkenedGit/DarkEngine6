@@ -37,6 +37,7 @@
     { "action": "echolocation", "key": "B", "app": "sandbox" },
     { "action": "weapon_1", "key": "Digit1" },
     { "action": "weapon_2", "key": "Digit2" },
+    { "action": "weapon_3", "key": "Digit3" },
 
     { "action": "look_yaw", "axis": "RightX", "scale": 1 },
     { "action": "look_pitch", "axis": "RightY", "scale": 1 },

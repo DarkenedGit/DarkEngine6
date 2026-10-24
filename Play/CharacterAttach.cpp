@@ -19,6 +19,7 @@
 #include "Core/Log.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
+#include "Gameplay/ThrowableBelt.h"
 #include "Render/GpuUpload.h"
 #include "AI/AiComponents.h"
 #include "Scene/EntityMaster.h"
@@ -246,6 +247,8 @@ namespace Dark
         }
         else if (WeaponLoadoutComponent* wlc = host.world.get<WeaponLoadoutComponent>(e); wlc && wlc->loadout)
             wlc->loadout->setHitListener(hitFn, hitUser);
+        if (!host.world.has<ThrowableBeltComponent>(e))
+            host.world.emplace<ThrowableBeltComponent>(e);
         if (!host.world.has<JumpAttackComponent>(e))
         {
             auto& jac                = host.world.emplace<JumpAttackComponent>(e);

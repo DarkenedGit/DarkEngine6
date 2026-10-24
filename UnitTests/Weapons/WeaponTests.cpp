@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Weapons/WeaponLoadout.h"
+#include "Gameplay/ThrowableBelt.h"
 #include "Character/SkillLimits.h"
 #include "Character/SkillXp.h"
 #include "Collision/HitResult.h"
@@ -573,4 +574,148 @@ TEST(WeaponLoadout, KeysOneAndTwoSelectMeleeThenProjectile)
     EXPECT_STREQ(loadout.active().name(), "Melee");
     loadout.selectProjectile();
     EXPECT_STREQ(loadout.active().name(), "Rifle");
+}
+
+TEST(WeaponLoadout, SlotTwoIsDistinctKind)
+{
+    WeaponLoadout loadout;
+    EXPECT_TRUE(loadout.selectSlot(2));
+    EXPECT_EQ(loadout.slot(), 2);
+    EXPECT_EQ(loadout.activeKind(), WeaponKind::Throwable);
+    EXPECT_FALSE(loadout.fire(WeaponFireRequest{}, WeaponWorldQuery{}));
+    EXPECT_FLOAT_EQ(loadout.projectile().cooldownLeft(), 0.0f);
+    for (const LiveProjectile& shot : loadout.projectile().live())
+        EXPECT_FALSE(shot.alive);
+}
+
+TEST(WeaponLoadout, SlotZeroStaysMeleeAndSlotOneStaysProjectile)
+{
+    WeaponLoadout loadout;
+    ThrowableBelt belt;
+    ASSERT_EQ(belt.add("rock"), 1);
+    ASSERT_TRUE(loadout.selectSlot(2, belt));
+    EXPECT_EQ(loadout.activeKind(), WeaponKind::Throwable);
+
+    EXPECT_TRUE(loadout.selectSlot(0));
+    EXPECT_EQ(loadout.slot(), 0);
+    EXPECT_EQ(loadout.activeKind(), WeaponKind::Melee);
+    EXPECT_STREQ(loadout.active().name(), "Melee");
+    EXPECT_TRUE(loadout.fire(WeaponFireRequest{}, WeaponWorldQuery{}));
+
+    EXPECT_TRUE(loadout.selectSlot(1));
+    EXPECT_EQ(loadout.slot(), 1);
+    EXPECT_EQ(loadout.activeKind(), WeaponKind::Projectile);
+    EXPECT_STREQ(loadout.active().name(), "Rifle");
+    EXPECT_TRUE(loadout.fire(WeaponFireRequest{}, WeaponWorldQuery{}));
+    EXPECT_GT(loadout.projectile().cooldownLeft(), 0.0f);
+}
+
+TEST(WeaponLoadout, SelectSlotTwoWithZeroCountsDoesNotStayOnThrowable)
+{
+    WeaponLoadout loadout;
+    ThrowableBelt belt;
+    EXPECT_FALSE(loadout.selectSlot(2, belt));
+    EXPECT_EQ(loadout.slot(), 0);
+    EXPECT_EQ(loadout.activeKind(), WeaponKind::Melee);
+    EXPECT_NE(loadout.activeKind(), WeaponKind::Throwable);
+}
+
+TEST(WeaponLoadout, Ae14CycleOnlyWhenThrowableAlreadySelected)
+{
+    WeaponLoadout loadout;
+    ThrowableBelt belt;
+    ASSERT_EQ(belt.add("rock"), 1);
+    ASSERT_EQ(belt.add("bottle"), 1);
+    ASSERT_TRUE(belt.setHand("rock"));
+
+    ASSERT_TRUE(loadout.selectSlot(2, belt));
+    EXPECT_EQ(loadout.slot(), 2);
+    EXPECT_EQ(loadout.activeKind(), WeaponKind::Throwable);
+    EXPECT_EQ(belt.hand(), "rock");
+    EXPECT_EQ(belt.count("rock"), 1);
+    EXPECT_EQ(belt.count("bottle"), 1);
+
+    EXPECT_TRUE(loadout.selectSlot(1));
+    EXPECT_EQ(loadout.activeKind(), WeaponKind::Projectile);
+    ASSERT_TRUE(loadout.selectSlot(2, belt));
+    EXPECT_EQ(belt.hand(), "rock");
+    EXPECT_EQ(belt.count("rock"), 1);
+    EXPECT_EQ(belt.count("bottle"), 1);
+
+    ASSERT_TRUE(loadout.selectSlot(2, belt));
+    EXPECT_EQ(loadout.slot(), 2);
+    EXPECT_EQ(loadout.activeKind(), WeaponKind::Throwable);
+    EXPECT_EQ(belt.hand(), "bottle");
+    EXPECT_EQ(belt.count("rock"), 1);
+    EXPECT_EQ(belt.count("bottle"), 1);
+
+    ASSERT_TRUE(loadout.selectSlot(2, belt));
+    EXPECT_EQ(belt.hand(), "rock");
+    EXPECT_EQ(belt.count("rock"), 1);
+    EXPECT_EQ(belt.count("bottle"), 1);
+}
+
+TEST(WeaponLoadout, SpendWhileCountRemainsKeepsHand)
+{
+    WeaponLoadout loadout;
+    ThrowableBelt belt;
+    ASSERT_EQ(belt.add("rock"), 1);
+    ASSERT_EQ(belt.add("rock"), 2);
+    ASSERT_EQ(belt.add("bottle"), 1);
+    ASSERT_TRUE(belt.setHand("rock"));
+    ASSERT_TRUE(loadout.selectSlot(2, belt));
+
+    ASSERT_TRUE(loadout.spendThrowable(belt));
+    EXPECT_EQ(loadout.slot(), 2);
+    EXPECT_EQ(loadout.activeKind(), WeaponKind::Throwable);
+    EXPECT_EQ(belt.hand(), "rock");
+    EXPECT_EQ(belt.count("rock"), 1);
+    EXPECT_EQ(belt.count("bottle"), 1);
+}
+
+TEST(WeaponLoadout, Ae4LastRockLeavesBottleInHand)
+{
+    WeaponLoadout loadout;
+    ThrowableBelt belt;
+    ASSERT_EQ(belt.add("rock"), 1);
+    ASSERT_EQ(belt.add("bottle"), 1);
+    ASSERT_TRUE(belt.setHand("rock"));
+    ASSERT_TRUE(loadout.selectSlot(2, belt));
+    EXPECT_EQ(loadout.activeKind(), WeaponKind::Throwable);
+
+    ASSERT_TRUE(loadout.spendThrowable(belt));
+    EXPECT_EQ(loadout.slot(), 2);
+    EXPECT_EQ(loadout.activeKind(), WeaponKind::Throwable);
+    EXPECT_EQ(belt.hand(), "bottle");
+    EXPECT_EQ(belt.count("rock"), 0);
+    EXPECT_EQ(belt.count("bottle"), 1);
+}
+
+TEST(WeaponLoadout, Ae5LastThrowableReturnsToSword)
+{
+    WeaponLoadout loadout;
+    ThrowableBelt belt;
+    ASSERT_EQ(belt.add("rock"), 1);
+    ASSERT_TRUE(belt.setHand("rock"));
+    ASSERT_TRUE(loadout.selectSlot(2, belt));
+
+    ASSERT_TRUE(loadout.spendThrowable(belt));
+    EXPECT_EQ(loadout.slot(), 0);
+    EXPECT_EQ(loadout.activeKind(), WeaponKind::Melee);
+    EXPECT_TRUE(belt.hand().empty());
+    EXPECT_EQ(belt.count("rock"), 0);
+
+    EXPECT_FALSE(loadout.selectSlot(2, belt));
+    EXPECT_EQ(loadout.slot(), 0);
+    EXPECT_NE(loadout.activeKind(), WeaponKind::Throwable);
+
+    ASSERT_EQ(belt.add("rock"), 1);
+    EXPECT_EQ(loadout.slot(), 0);
+    EXPECT_EQ(loadout.activeKind(), WeaponKind::Melee);
+    EXPECT_TRUE(belt.hand().empty());
+
+    ASSERT_TRUE(loadout.selectSlot(2, belt));
+    EXPECT_EQ(loadout.slot(), 2);
+    EXPECT_EQ(loadout.activeKind(), WeaponKind::Throwable);
+    EXPECT_EQ(belt.hand(), "rock");
 }

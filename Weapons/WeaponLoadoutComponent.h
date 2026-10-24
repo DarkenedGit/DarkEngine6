@@ -14,7 +14,7 @@ namespace Dark
         static constexpr uint16_t    kSaveVersion = 1;
         static const PersistFns      kPersist;
 
-        int                            slot = 0; // 0 melee, 1 projectile
+        int                            slot = 0; // 0 melee, 1 projectile, 2 throwable
         std::unique_ptr<WeaponLoadout> loadout;
     };
 

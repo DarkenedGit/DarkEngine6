@@ -1936,9 +1936,17 @@ TonemapSettings SandboxApp::playerPostFx()
 
 bool SandboxApp::ownsWeapon(WeaponKind kind)
 {
-    const Entity              body = possessedBody();
-    const InventoryComponent* inv  = body.valid() ? world().get<InventoryComponent>(body) : nullptr;
-    return !inv || hasItem(*inv, kind == WeaponKind::Melee ? "sword" : "rifle");
+    const Entity body = possessedBody();
+    if (kind == WeaponKind::Throwable)
+    {
+        if (!body.valid())
+            return false;
+        const ThrowableBeltComponent* belt = world().get<ThrowableBeltComponent>(body);
+        return belt && belt->belt.any();
+    }
+    const InventoryComponent* inv = body.valid() ? world().get<InventoryComponent>(body) : nullptr;
+    const char*               id  = kind == WeaponKind::Melee ? "sword" : "rifle";
+    return !inv || hasItem(*inv, id);
 }
 
 void SandboxApp::pickUpNearestItem()
@@ -2214,7 +2222,8 @@ void SandboxApp::handleWeaponSwitch()
     WeaponLoadout* w = localWeapons();
     if (!w)
         return;
-    WeaponLoadoutComponent* wlc = world().get<WeaponLoadoutComponent>(possessedBody());
+    const Entity            body = possessedBody();
+    WeaponLoadoutComponent* wlc  = body.valid() ? world().get<WeaponLoadoutComponent>(body) : nullptr;
     if (input().actionPressed("weapon_1") && ownsWeapon(WeaponKind::Melee) && w->selectMelee())
     {
         if (wlc)
@@ -2228,6 +2237,14 @@ void SandboxApp::handleWeaponSwitch()
             wlc->slot = w->slot();
         playSoundCue(world(), audio(), assets(), m_camera, "click");
         DE_LOG_INFO("Player: weapon {}", w->projectile().name());
+    }
+    if (body.valid() && input().actionPressed("weapon_3") && w->selectSlot(2, throwableBelt(world(), body)))
+    {
+        if (wlc)
+            wlc->slot = w->slot();
+        playSoundCue(world(), audio(), assets(), m_camera, "click");
+        const std::string held(throwableBelt(world(), body).hand());
+        DE_LOG_INFO("Player: weapon {}", held);
     }
 }
 
@@ -2610,7 +2627,10 @@ bool SandboxApp::firePossessedLoadout(bool charged)
     WeaponFireRequest req = makeCameraFireRequest(m_viewCamera.GetPosition(), m_viewCamera.GetLook(), xf ? &xf->position : nullptr,
                                                   charged ? m_chargeSettings.attackDamageScale : 1.0f);
 
-    WeaponLoadout*  wFire = localWeapons();
+    WeaponLoadout* wFire = localWeapons();
+    if (wFire && wFire->activeKind() == WeaponKind::Throwable)
+        return false;
+
     SkillComponent* skill = nullptr;
     if (wFire && wFire->activeKind() == WeaponKind::Projectile && body.valid())
         skill = world().get<SkillComponent>(body);
@@ -2636,7 +2656,7 @@ bool SandboxApp::firePossessedLoadout(bool charged)
     {
         if (melee)
             ag->graph.setTrigger(m_comboStep ? "swing2" : "swing");
-        else
+        else if (wFire->activeKind() == WeaponKind::Projectile)
             ag->graph.setTrigger("shoot");
     }
     if (melee)
@@ -2644,7 +2664,7 @@ bool SandboxApp::firePossessedLoadout(bool charged)
         m_swingCharged = charged;
         playSoundCue(world(), audio(), assets(), body, "swing");
     }
-    else
+    else if (wFire && wFire->activeKind() == WeaponKind::Projectile)
     {
         pulseMuzzle();
         const RecoilKick kick = wFire->projectile().takeRecoil();
@@ -5497,7 +5517,16 @@ void SandboxApp::onRender()
         if (drawHealth)
             m_healthHud.draw(cmd, renderer().width(), renderer().height(), hudHp->ratio());
         if (drawCrosshair)
-            m_crosshair.draw(cmd, renderer().width(), renderer().height(), localWeapons() ? localWeapons()->activeKind() : WeaponKind::Melee);
+        {
+            bool throwableSlot = false;
+            if (hudBody.valid())
+            {
+                if (const ThrowableBeltComponent* carried = world().get<ThrowableBeltComponent>(hudBody))
+                    throwableSlot = carried->belt.any();
+            }
+            const WeaponKind hudKind = localWeapons() ? localWeapons()->activeKind() : WeaponKind::Melee;
+            m_crosshair.draw(cmd, renderer().width(), renderer().height(), hudKind, throwableSlot);
+        }
     }
 
     renderer().stats().drawCalls = m_terrain.lastDrawCalls() + m_water.lastDrawCalls() + meshDraws + 1;
