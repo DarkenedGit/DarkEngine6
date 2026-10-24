@@ -711,17 +711,15 @@ namespace
                 brain.lureFrom = CrowState::Forage;
                 brain.lureHome = brain.goal;
             }
-            else if (brain.state == CrowState::Flock)
-            {
-                brain.lureFrom = CrowState::Flock;
-                brain.lureHome = brain.goal;
-            }
             else
             {
                 brain.lureFrom = CrowState::Flock;
                 brain.lureHome = brain.goal;
-                brain.state = CrowState::Flock;
-                brain.fleeToTree = false;
+                if (brain.state != CrowState::Flock)
+                {
+                    brain.state      = CrowState::Flock;
+                    brain.fleeToTree = false;
+                }
             }
         }
         brain.lure = true;

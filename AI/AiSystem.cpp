@@ -138,12 +138,20 @@ namespace Dark
         {
             if (!(callDistance > 0.0f))
                 return false;
-            const float dx = point.x - feet.x;
-            const float dz = point.z - feet.z;
+            const float dx   = point.x - feet.x;
+            const float dz   = point.z - feet.z;
             const float dist = std::sqrt(dx * dx + dz * dz);
-            float reach = callDistance;
-            if (sightBlocked(eye, point, cubes, cubeCount))
-                reach *= wallScale;
+            const float openReach   = callDistance;
+            const float wallReach   = callDistance * wallScale;
+            const bool  wallSmaller = wallReach < openReach;
+            const float nearReach   = wallSmaller ? wallReach : openReach;
+            const float farReach    = wallSmaller ? openReach : wallReach;
+            // A wall only changes the result between the open reach and the walled reach.
+            if (!(farReach > 0.0f) || !(dist < farReach))
+                return false;
+            if (nearReach > 0.0f && dist < nearReach)
+                return true;
+            const float reach = sightBlocked(eye, point, cubes, cubeCount) ? wallReach : openReach;
             return reach > 0.0f && dist < reach;
         }
 

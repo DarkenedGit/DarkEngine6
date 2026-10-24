@@ -44,14 +44,12 @@ namespace Dark
         int         joint = -1;
         std::string modelPath;
         float       scale = 1.0f;
-        bool        shown = false;
     };
 
     struct ThrowableFlightVisualComponent
     {
         static constexpr const char* kTypeName = "ThrowableFlightVisual";
 
-        std::string itemId;
         std::string modelPath;
         float       scale = 1.0f;
     };

@@ -180,16 +180,20 @@ namespace Dark
         float step = dt;
         bool  last = false;
         const float remain = flight.maxLife - flight.age;
-        if (!(remain > 0.0f))
+        auto landExpired = [&]()
         {
             ThrowableLanding landing;
-            landing.itemId          = flight.itemId;
-            landing.impactClip      = flight.impactClip;
-            landing.position        = flight.position;
-            landing.expired         = true;
-            landing.damage          = 0.0f;
+            landing.itemId           = flight.itemId;
+            landing.impactClip       = flight.impactClip;
+            landing.position         = flight.position;
+            landing.expired          = true;
+            landing.damage           = 0.0f;
             landing.emittedWeaponHit = false;
             m_landings.push_back(std::move(landing));
+        };
+        if (!(remain > 0.0f))
+        {
+            landExpired();
             return true;
         }
         if (step >= remain)
@@ -302,14 +306,7 @@ namespace Dark
         if (!last && flight.age < flight.maxLife)
             return false;
 
-        ThrowableLanding landing;
-        landing.itemId           = flight.itemId;
-        landing.impactClip       = flight.impactClip;
-        landing.position         = flight.position;
-        landing.expired          = true;
-        landing.damage           = 0.0f;
-        landing.emittedWeaponHit = false;
-        m_landings.push_back(std::move(landing));
+        landExpired();
         return true;
     }
 

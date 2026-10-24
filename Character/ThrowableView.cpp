@@ -124,10 +124,7 @@ namespace Dark
             if (!choice.shown)
             {
                 if (hand)
-                {
-                    hand->shown = false;
                     setPartVisible(world, hand->mesh, false);
-                }
                 return;
             }
 
@@ -144,7 +141,7 @@ namespace Dark
             {
                 for (size_t j = 0; j < skel->joints.size(); ++j)
                 {
-                    if (skel->joints[j].name == kThrowableHandJoint)
+                    if (skel->joints[j].name == choice.jointName)
                         hand->joint = static_cast<int>(j);
                 }
             }
@@ -152,7 +149,6 @@ namespace Dark
             const bool jointOk = pose && hand->joint >= 0 && static_cast<uint32_t>(hand->joint) < pose->boneCount;
             if (!alive || !owner || !jointOk)
             {
-                hand->shown = false;
                 setPartVisible(world, hand->mesh, false);
                 return;
             }
@@ -170,13 +166,11 @@ namespace Dark
             {
                 if (samePath && !haveMesh)
                 {
-                    hand->shown = false;
                     setPartVisible(world, hand->mesh, false);
                     return;
                 }
                 if (!attachThrowableMesh(world, pins, assets, renderer, hand->mesh, choice.modelPath, true))
                 {
-                    hand->shown     = false;
                     hand->modelPath = choice.modelPath;
                     setPartVisible(world, hand->mesh, false);
                     return;
@@ -190,15 +184,13 @@ namespace Dark
             if (!part)
                 return;
 
-            const Matrix4f ownerWorld = Matrix4f::ScaleMatrixXYZ(owner->scale.x, owner->scale.y, owner->scale.z) * owner->rotation.ToMatrix4()
-                * Matrix4f::TranslationMatrix(owner->position.x, owner->position.y, owner->position.z);
+            const Matrix4f ownerWorld = worldMatrix(*owner);
             const Matrix4f jointWorld = pose->jointWorld[hand->joint] * ownerWorld;
             const Vector3f grip       = jointWorld.GetTranslation();
             const Vector3f forward    = axis(jointWorld, 2);
             part->position            = grip + forward * 0.04f;
             part->rotation            = Math::Quaternion::FromLookRotation(forward, axis(jointWorld, 1));
             part->scale               = Vector3f{ hand->scale, hand->scale, hand->scale };
-            hand->shown               = true;
             setPartVisible(world, hand->mesh, true);
         }
     } // namespace
@@ -326,7 +318,6 @@ namespace Dark
                     xf->scale = Vector3f{ visual->scale, visual->scale, visual->scale };
                     continue;
                 }
-                visual->itemId.assign(itemId.begin(), itemId.end());
                 if (!attachThrowableMesh(world, pins, assets, renderer, e, path, false))
                 {
                     visual->modelPath = path;
