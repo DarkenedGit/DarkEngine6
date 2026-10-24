@@ -261,6 +261,44 @@ TEST(Spawner, MaintainReplacesACrow)
     EXPECT_EQ(reqs[0].seed, 99u);
 }
 
+TEST(Crow, PerchDivertsToImpactThenReturns)
+{
+    CrowPerch tree{ 0.0f, 5.5f, 1.0f };
+    CrowBrain brain;
+    initCrow(brain, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 9u, 1, &tree, 1);
+    ASSERT_EQ(brain.state, CrowState::Perch);
+    const Math::Vector3f branch = brain.position;
+    const Math::Vector3f impact{ 8.0f, 1.0f, 1.0f };
+    beginCrowLure(brain, impact);
+    EXPECT_TRUE(brain.lure);
+    EXPECT_EQ(brain.lureFrom, CrowState::Perch);
+    step(brain, 0.0f, 1.5f, nullptr, 0, &tree, 1, nullptr);
+    EXPECT_TRUE(brain.lure);
+    EXPECT_LT(horiz(brain.position, impact), horiz(branch, impact) - 2.0f);
+    EXPECT_NEAR(brain.goal.x, impact.x, 0.05f);
+    EXPECT_NEAR(brain.goal.z, impact.z, 0.05f);
+    step(brain, 0.0f, 8.0f, nullptr, 0, &tree, 1, nullptr);
+    EXPECT_FALSE(brain.lure);
+    EXPECT_EQ(brain.state, CrowState::Perch);
+    EXPECT_NEAR(brain.position.x, branch.x, 0.05f);
+    EXPECT_NEAR(brain.position.y, branch.y, 0.05f);
+    EXPECT_NEAR(brain.position.z, branch.z, 0.05f);
+}
+
+TEST(Crow, ScareDuringDivertClearsTheLure)
+{
+    CrowPerch tree{ 0.0f, 5.5f, 0.0f };
+    CrowBrain brain;
+    initCrow(brain, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 9u, 1, &tree, 1);
+    ASSERT_EQ(brain.state, CrowState::Perch);
+    beginCrowLure(brain, Math::Vector3f{ 12.0f, 1.0f, 0.0f });
+    ASSERT_TRUE(brain.lure);
+    const Math::Vector3f threat{ 3.0f, 0.0f, 0.0f };
+    tickCrow(brain, 0.0f, 0.05f, nullptr, 0, &threat, 1, &tree, 1);
+    EXPECT_FALSE(brain.lure);
+    EXPECT_EQ(brain.state, CrowState::Flee);
+}
+
 TEST(Crow, PoseSwapPinsAndKeepsUnusedPoses)
 {
     AssetManager assets;

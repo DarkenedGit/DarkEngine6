@@ -22,6 +22,8 @@
 #include "Math/Sphere3f.h"
 #include "Terrain/HeightMap.h"
 #include "Terrain/TerrainGrid.h"
+#include "Play/Crow.h"
+#include "Play/Spawner.h"
 #include "Weapons/HittableComponent.h"
 #include "Weapons/Weapon.h"
 
@@ -37,6 +39,8 @@ namespace Dark
     {
         constexpr float kHunterJumpMin     = 4.0f;
         constexpr float kHunterJumpMax     = 9.0f;
+        constexpr float kLureSearchSeconds = 9.0f;
+        constexpr float kLureSearchRadius  = 4.0f;
         constexpr float kSweepRadius       = 0.45f;
         constexpr float kBackStepMeters    = 0.5f;
         constexpr int   kBackStepTries     = 8;
@@ -128,6 +132,19 @@ namespace Dark
                     return true;
             }
             return false;
+        }
+
+        bool lureInRange(const Vector3f& eye, const Vector3f& feet, const Vector3f& point, float callDistance, float wallScale, const Math::AABox3f* cubes, int cubeCount)
+        {
+            if (!(callDistance > 0.0f))
+                return false;
+            const float dx = point.x - feet.x;
+            const float dz = point.z - feet.z;
+            const float dist = std::sqrt(dx * dx + dz * dz);
+            float reach = callDistance;
+            if (sightBlocked(eye, point, cubes, cubeCount))
+                reach *= wallScale;
+            return reach > 0.0f && dist < reach;
         }
 
         void sweepSolids(Vector3f& position, const Vector3f& before, const Math::AABox3f* cubes, int cubeCount, const Math::Sphere3f* spheres, int sphereCount)
@@ -447,6 +464,9 @@ namespace Dark
             v.ai->stalkLeft   = 0.0f;
             v.ai->aware       = {};
             v.ai->forward     = Vect3f::Z_AXIS;
+            v.ai->lureSearch  = false;
+            v.ai->lureReached = false;
+            v.ai->lureLeft    = 0.0f;
             v.brain->brain->start();
             DE_LOG_INFO(LogCategory::AI, "Hunter recovered");
         }
@@ -690,6 +710,101 @@ namespace Dark
         v.xf->position.y = terrain.heightAtWorld(v.xf->position.x, v.xf->position.z) + 1.0f;
         v.ai->forward    = d;
         v.ai->givenUp    = false;
+    }
+
+    void AiSystem::clearLureSearch(View& v, bool leaveAssist)
+    {
+        v.ai->lureSearch  = false;
+        v.ai->lureReached = false;
+        v.ai->lureLeft    = 0.0f;
+        v.path->path.points.clear();
+        v.path->waypoint = 0;
+        v.path->repathAt = 0.0f;
+        if (v.brain->brain->leaf() == AI::Leaf::Flee)
+        {
+            v.ai->fleeLeft = 0.0f;
+            v.brain->brain->onFleeDone();
+        }
+        else if (leaveAssist && v.brain->brain->leaf() == AI::Leaf::Assist)
+        {
+            v.ai->assistLeft = 0.0f;
+            v.brain->brain->onAssistDone();
+        }
+    }
+
+    void AiSystem::moveLureSearch(View& v, float dt, Terrain::TerrainGrid& terrain, float speed)
+    {
+        constexpr float kArrive = 0.6f;
+        const float dx = v.ai->lureDest.x - v.xf->position.x;
+        const float dz = v.ai->lureDest.z - v.xf->position.z;
+        if (dx * dx + dz * dz <= kArrive * kArrive)
+        {
+            if (!v.ai->lureReached)
+            {
+                v.ai->lureReached = true;
+                v.ai->lureDest = v.ai->lurePoint;
+            }
+            else
+            {
+                uint32_t roll = v.ai->lureSalt * 1664525u + 1013904223u;
+                if (roll == 0u)
+                    roll = 1u;
+                v.ai->lureSalt = roll;
+                const float ang = static_cast<float>(roll & 0xFFFFu) * (6.2831853f / 65536.0f);
+                float rad = 1.25f + static_cast<float>((roll >> 16) & 0xFFFFu) * (2.5f / 65536.0f);
+                if (rad > kLureSearchRadius)
+                    rad = kLureSearchRadius;
+                v.ai->lureDest.x = v.ai->lurePoint.x + std::cos(ang) * rad;
+                v.ai->lureDest.y = v.ai->lurePoint.y;
+                v.ai->lureDest.z = v.ai->lurePoint.z + std::sin(ang) * rad;
+            }
+        }
+        seekToward(v, dt, terrain, speed, v.ai->lureDest.x, v.ai->lureDest.z);
+    }
+
+    void AiSystem::postThrowableLanding(World& world, const ThrowableLanding& landing, float callDistance, const Math::AABox3f* cubes, int cubeCount)
+    {
+        if (landing.expired)
+            return;
+        ensureAwarenessSettings();
+        const Vector3f point{ landing.position.x, landing.position.y, landing.position.z };
+        const float wall = m_aware.wallScale;
+        world.each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
+            if (world.has<SpawnerComponent>(e))
+                return;
+            const HealthComponent* hp = world.get<HealthComponent>(e);
+            const TransformComponent* xf = world.get<TransformComponent>(e);
+            BrainComponent* brain = world.get<BrainComponent>(e);
+            if (!hp || !hp->health.alive() || !xf || !brain || !brain->brain)
+                return;
+            if (brain->brain->leaf() == AI::Leaf::Chase)
+                return;
+            const Vector3f eye{ xf->position.x, xf->position.y + 0.5f, xf->position.z };
+            if (!lureInRange(eye, xf->position, point, callDistance, wall, cubes, cubeCount))
+                return;
+            ai.lureSearch  = true;
+            ai.lureReached = false;
+            ai.lureLeft    = kLureSearchSeconds;
+            ai.lurePoint   = point;
+            ai.lureDest    = point;
+            if (PathAgentComponent* path = world.get<PathAgentComponent>(e))
+            {
+                path->path.points.clear();
+                path->waypoint = 0;
+                path->repathAt = 0.0f;
+            }
+        });
+        world.each<CrowComponent>([&](Entity e, CrowComponent& crow) {
+            if (world.has<SpawnerComponent>(e))
+                return;
+            const HealthComponent* hp = world.get<HealthComponent>(e);
+            if (hp && !hp->health.alive())
+                return;
+            const Vector3f eye = crow.brain.position;
+            if (!lureInRange(eye, eye, point, callDistance, wall, cubes, cubeCount))
+                return;
+            beginCrowLure(crow.brain, point);
+        });
     }
 
     void AiSystem::repath(World& world, View& v, float destX, float destZ)
@@ -1469,6 +1584,16 @@ namespace Dark
                 v.ai->lastSeen    = playerPos;
                 v.ai->hasLastSeen = true;
             }
+            // Sight, including hearing that forces sight, drops the search before the brain ticks.
+            // The 9 seconds include the walk. A timeout returns the leaf to patrol or wander.
+            if (v.ai->lureSearch && sees)
+                clearLureSearch(v, false);
+            else if (v.ai->lureSearch)
+            {
+                v.ai->lureLeft -= dt;
+                if (v.ai->lureLeft <= 0.0f)
+                    clearLureSearch(v, true);
+            }
             if (v.ai->fleeLeft > 0.0f)
             {
                 v.ai->fleeLeft -= dt;
@@ -1686,6 +1811,13 @@ namespace Dark
             const float speed  = ((sprint || lunging) ? run : walk) * (stCc ? stCc->moveSpeedScale() : 1.0f) * ground.moveSpeed * runS;
             const float currentPlanar = std::sqrt(v.ai->planarVelocity.x * v.ai->planarVelocity.x + v.ai->planarVelocity.z * v.ai->planarVelocity.z);
             const float paced = approachSpeed(currentPlanar, speed, accel, dt);
+            if (v.ai->lureSearch)
+            {
+                const float lureSpeed = approachSpeed(currentPlanar, walk * (stCc ? stCc->moveSpeedScale() : 1.0f) * ground.moveSpeed * runS, accel, dt);
+                moveLureSearch(v, dt, terrain, lureSpeed);
+                stampPlanarVelocity();
+                continue;
+            }
             if (guard && leaf != AI::Leaf::Chase && leaf != AI::Leaf::Assist && leaf != AI::Leaf::Flee)
             {
                 guardMove(world, v, dt, terrain, speed, (ground.cue && ground.cue[0]) ? ground.cue : "step");
@@ -1733,14 +1865,45 @@ namespace Dark
             }
             else if (leaf == AI::Leaf::Wander)
             {
-                const bool arrived = v.path->path.points.empty() || v.path->waypoint >= static_cast<int>(v.path->path.points.size());
-                if (arrived)
+                PatrolComponent* patrol = world.get<PatrolComponent>(v.e);
+                const bool onPatrol = patrol && !patrol->points.empty();
+                if (onPatrol)
                 {
-                    if (pickWanderDest(v))
+                    const int count = static_cast<int>(patrol->points.size());
+                    if (patrol->next < 0 || patrol->next >= count)
+                        patrol->next = 0;
+                    if (patrol->waitLeft > 0.0f)
+                        patrol->waitLeft -= dt;
+                    else
+                    {
+                        const Vector3f& goal = patrol->points[static_cast<size_t>(patrol->next)];
+                        const float pdx = goal.x - v.xf->position.x;
+                        const float pdz = goal.z - v.xf->position.z;
+                        if (pdx * pdx + pdz * pdz < 1.0f)
+                        {
+                            patrol->waitLeft = 1.5f;
+                            patrol->next = (patrol->next + 1) % count;
+                        }
+                        else
+                        {
+                            v.ai->wanderDest = Vector3f{ goal.x, 0.0f, goal.z };
+                            const bool arrived = v.path->path.points.empty() || v.path->waypoint >= static_cast<int>(v.path->path.points.size());
+                            if (arrived || m_time >= v.path->repathAt)
+                                repath(world, v, goal.x, goal.z);
+                        }
+                    }
+                }
+                else
+                {
+                    const bool arrived = v.path->path.points.empty() || v.path->waypoint >= static_cast<int>(v.path->path.points.size());
+                    if (arrived)
+                    {
+                        if (pickWanderDest(v))
+                            repath(world, v, v.ai->wanderDest.x, v.ai->wanderDest.z);
+                    }
+                    else if (m_time >= v.path->repathAt)
                         repath(world, v, v.ai->wanderDest.x, v.ai->wanderDest.z);
                 }
-                else if (m_time >= v.path->repathAt)
-                    repath(world, v, v.ai->wanderDest.x, v.ai->wanderDest.z);
             }
             else if (leaf == AI::Leaf::Chase)
             {
@@ -1783,6 +1946,16 @@ namespace Dark
                         v.ai->wanderDest.z = v.xf->position.z + ((static_cast<int>(m_time * 13.0f) & 1) ? 6.0f : -6.0f);
                     }
                     seekToward(v, dt, terrain, paced, v.ai->wanderDest.x, v.ai->wanderDest.z);
+                }
+                else if (leaf == AI::Leaf::Wander)
+                {
+                    if (const PatrolComponent* patrol = world.get<PatrolComponent>(v.e); patrol && !patrol->points.empty() && patrol->waitLeft <= 0.0f)
+                    {
+                        const int count = static_cast<int>(patrol->points.size());
+                        const int index = (patrol->next >= 0 && patrol->next < count) ? patrol->next : 0;
+                        const Vector3f& goal = patrol->points[static_cast<size_t>(index)];
+                        seekToward(v, dt, terrain, paced, goal.x, goal.z);
+                    }
                 }
                 move = Vector3f{ v.xf->position.x - before.x, 0.0f, v.xf->position.z - before.z };
             }

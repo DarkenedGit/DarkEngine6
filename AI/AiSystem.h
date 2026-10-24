@@ -15,6 +15,7 @@
 #include "Math/Sphere3f.h"
 #include "Math/Vector3f.h"
 #include "Terrain/TerrainGround.h"
+#include "Weapons/ThrowableFlight.h"
 
 #include <vector>
 
@@ -66,6 +67,9 @@ namespace Dark
             if (m_noises.size() < 32)
                 m_noises.push_back(Noise{ pos, range });
         }
+        int noiseCount() const { return static_cast<int>(m_noises.size()); }
+        // Impact call. Expired landings return without posting. Does not call addNoise.
+        void postThrowableLanding(World& world, const ThrowableLanding& landing, float callDistance, const Math::AABox3f* cubes = nullptr, int cubeCount = 0);
         void forceAlert(World& world, Entity e, const Math::Vector3f& attackerPos);
         const PreySense& preySense() const { return m_prey; }
 
@@ -124,6 +128,8 @@ namespace Dark
         void beginAssist(View& v, const Math::Vector3f& helpPos);
         void beginFlee(World& world, View& v);
         void seekToward(View& v, float dt, Terrain::TerrainGrid& terrain, float speed, float destX, float destZ);
+        void moveLureSearch(View& v, float dt, Terrain::TerrainGrid& terrain, float speed);
+        void clearLureSearch(View& v, bool leaveAssist);
         void cancelJumpAndToken(World& world, Entity e, bool forceIdle);
         void fallDeadAgent(World& world, View& v, float dt, Terrain::TerrainGrid& terrain, const Math::AABox3f* cubes, int cubeCount, const Math::Sphere3f* spheres, int sphereCount);
         void ensureAttackPatterns();

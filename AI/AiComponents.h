@@ -83,6 +83,13 @@ namespace Dark
         float                        walkSpeed     = 0.0f;
         float                        runSpeed      = 0.0f;
         float                        acceleration  = 0.0f; // m/s^2 toward walk and run. 0 snaps.
+        // Throwable search. Not saved. lurePoint is a copied world position.
+        bool                         lureSearch  = false;
+        bool                         lureReached = false;
+        float                        lureLeft    = 0.0f;
+        uint32_t                     lureSalt    = 1;
+        Math::Vector3f               lurePoint{};
+        Math::Vector3f               lureDest{};
     };
 
     struct PatrolComponent

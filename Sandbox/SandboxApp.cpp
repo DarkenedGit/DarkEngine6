@@ -2739,6 +2739,14 @@ void SandboxApp::tickThrowableFlights(float dt)
             if (const auto clip = audio().loadWav(assets(), landing.impactClip.c_str()))
                 audio().play3D(clip, landing.position, 1.0f);
         }
+        if (!landing.expired)
+        {
+            float callDistance = 0.0f;
+            if (const ThrowableDef* item = throwableCatalog().find(landing.itemId))
+                callDistance = item->callDistance;
+            const std::vector<AABox3f>& cubes = m_chase.cubes();
+            m_chase.ai().postThrowableLanding(world(), landing, callDistance, cubes.empty() ? nullptr : cubes.data(), static_cast<int>(cubes.size()));
+        }
     }
     m_throwFlights.clearLandings();
     syncThrowableFlightVisuals(world(), pins(), assets(), renderer(), m_throwFlights);

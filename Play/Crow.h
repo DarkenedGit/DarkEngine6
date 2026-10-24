@@ -71,6 +71,12 @@ namespace Dark
         bool           alarmLatched = false;
         bool           fleeToTree   = false;
         uint32_t       rng          = 1;
+        // Impact divert. Not a CrowState. lureHome is the perch or goal they leave.
+        bool           lure       = false;
+        CrowState      lureFrom   = CrowState::Flock;
+        Math::Vector3f lurePoint{};
+        Math::Vector3f lureHome{};
+        float          lureLeft   = 0.0f;
     };
 
     struct CrowComponent
@@ -98,6 +104,9 @@ namespace Dark
     bool ensureCrowModels(Renderer& renderer, AssetManager& assets, CrowModels& models);
 
     void initCrow(CrowBrain& brain, float x, float z, float groundY, float homeX, float homeZ, uint32_t seed, int slot, const CrowPerch* perches, int perchCount);
+
+    // Fly to a copied world point, then resume the flock, perch, or forage they left.
+    void beginCrowLure(CrowBrain& brain, const Math::Vector3f& impact);
 
     // True on the single tick that starts an alarm call.
     bool tickCrow(CrowBrain& brain, float groundY, float dt, const CrowNeighbor* neighbors, int neighborCount, const Math::Vector3f* threats, int threatCount, const CrowPerch* perches, int perchCount);

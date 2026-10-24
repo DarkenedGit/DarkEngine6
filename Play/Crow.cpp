@@ -366,6 +366,66 @@ namespace
             goFlock(brain);
     }
 
+    constexpr float kLureDivertSeconds = 9.0f;
+
+    void restoreCrowLure(CrowBrain& brain, float groundY)
+    {
+        const CrowState back = brain.lureFrom;
+        const Math::Vector3f home = brain.lureHome;
+        brain.lure = false;
+        brain.lureLeft = 0.0f;
+        brain.fleeToTree = false;
+        if (back == CrowState::Perch)
+        {
+            brain.state = CrowState::Perch;
+            brain.goal = home;
+            brain.position = home;
+            brain.velocity = vec(0.0f, 0.0f, 0.0f);
+            brain.pitch = 0.0f;
+            brain.wingPose = 0;
+            brain.decision = 12.0f;
+            brain.stateTime = 0.0f;
+            return;
+        }
+        if (back == CrowState::Forage)
+        {
+            brain.state = CrowState::Forage;
+            brain.goal = home;
+            brain.position.y = groundY + 0.12f;
+            brain.velocity = vec(0.0f, 0.0f, 0.0f);
+            brain.pitch = 0.1f;
+            brain.wingPose = 0;
+            brain.decision = 8.0f;
+            brain.stateTime = 0.0f;
+            return;
+        }
+        goFlock(brain);
+    }
+
+    void flyLure(CrowBrain& brain, float groundY, float dt)
+    {
+        brain.goal = brain.lurePoint;
+        const float dx = brain.goal.x - brain.position.x;
+        const float dy = brain.goal.y - brain.position.y;
+        const float dz = brain.goal.z - brain.position.z;
+        const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (d > 0.8f)
+        {
+            const Math::Vector3f desired = vec(dx / d * kFlySpeed, dy / d * kFlySpeed, dz / d * kFlySpeed);
+            integrate(brain, (desired - brain.velocity) * 4.0f, dt);
+            setWing(brain, true, dt);
+        }
+        else
+        {
+            brain.position = brain.goal;
+            brain.velocity = vec(0.0f, 0.0f, 0.0f);
+            setWing(brain, true, dt);
+        }
+        brain.lureLeft -= dt;
+        if (brain.lureLeft <= 0.0f)
+            restoreCrowLure(brain, groundY);
+    }
+
     void tickFlee(CrowBrain& brain, float groundY, float dt, const Math::Vector3f* threats, int threatCount)
     {
         if (brain.fleeToTree)
@@ -637,6 +697,39 @@ namespace
         brain.wingPose  = 2;
     }
 
+    void beginCrowLure(CrowBrain& brain, const Math::Vector3f& impact)
+    {
+        if (!brain.lure)
+        {
+            if (brain.state == CrowState::Perch)
+            {
+                brain.lureFrom = CrowState::Perch;
+                brain.lureHome = brain.position;
+            }
+            else if (brain.state == CrowState::Forage)
+            {
+                brain.lureFrom = CrowState::Forage;
+                brain.lureHome = brain.goal;
+            }
+            else if (brain.state == CrowState::Flock)
+            {
+                brain.lureFrom = CrowState::Flock;
+                brain.lureHome = brain.goal;
+            }
+            else
+            {
+                brain.lureFrom = CrowState::Flock;
+                brain.lureHome = brain.goal;
+                brain.state = CrowState::Flock;
+                brain.fleeToTree = false;
+            }
+        }
+        brain.lure = true;
+        brain.lurePoint = impact;
+        brain.lureLeft = kLureDivertSeconds;
+        brain.goal = impact;
+    }
+
     bool tickCrow(CrowBrain& brain, float groundY, float dt, const CrowNeighbor* neighbors, int neighborCount, const Math::Vector3f* threats, int threatCount, const CrowPerch* perches, int perchCount)
     {
         if (dt < 0.0f)
@@ -646,6 +739,17 @@ namespace
         brain.stateTime += dt;
 
         const bool caw = noticeThreat(brain, neighbors, neighborCount, threats, threatCount, perches, perchCount);
+        // Scare this tick wins. Perch and flock must not rewrite the divert goal.
+        if (brain.lure && brain.state == CrowState::Flee)
+        {
+            brain.lure = false;
+            brain.lureLeft = 0.0f;
+        }
+        if (brain.lure)
+        {
+            flyLure(brain, groundY, dt);
+            return caw;
+        }
         if (brain.state == CrowState::Flock)
             tickFlock(brain, groundY, dt, neighbors, neighborCount, perches, perchCount);
         else if (brain.state == CrowState::Perch)
