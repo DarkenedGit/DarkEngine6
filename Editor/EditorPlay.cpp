@@ -46,6 +46,7 @@
 #include "Scene/EntityMaster.h"
 #include "Core/Log.h"
 #include "Gameplay/Inventory.h"
+#include "Gameplay/ThrowableBelt.h"
 #include "ECS/Components.h"
 #include "Input/Input.h"
 #include "Input/InputCodes.h"
@@ -328,6 +329,8 @@ void EditorApp::setPlayMode(bool play)
         m_fireQuick   = false;
         m_fireCharged = false;
         ensurePlayerFlashlight(world(), m_playPlayer);
+        // clearPlayArmor inside ensurePlayGear deletes every pickup. Throwables are copied so they can come back.
+        const std::vector<ThrowablePickupSpot> authoredThrowables = captureThrowablePickups(world());
         ensurePlayGear();
         m_jumpAttackBuffer = 0.0f;
         m_gizmoDragAxis    = EditorDetail::TranslateGizmoAxis::None;
@@ -337,6 +340,20 @@ void EditorApp::setPlayMode(bool play)
         rebuildPhysicsGround(); // pick up a terrain loaded since the last Play
         if (m_physics.valid())
             m_physics.pushPoses(world(), true);
+        respawnThrowablePickups(world(), pins(), assets(), renderer(), m_physics, authoredThrowables);
+        if (const TransformComponent* start = world().get<TransformComponent>(m_playPlayer))
+        {
+            bool haveRock   = false;
+            bool haveBottle = false;
+            for (const ThrowablePickupSpot& spot : authoredThrowables)
+            {
+                if (spot.id == "rock")
+                    haveRock = true;
+                else if (spot.id == "bottle")
+                    haveBottle = true;
+            }
+            stockMissingThrowablePickups(world(), pins(), assets(), renderer(), m_physics, start->position, haveRock, haveBottle);
+        }
         window().setCursorCaptured(window().isFocused());
         ensurePlaySession();
         installSaveHost();
@@ -345,7 +362,7 @@ void EditorApp::setPlayMode(bool play)
         if (!world().has<RunProgressComponent>(m_playPlayer))
             world().emplace<RunProgressComponent>(m_playPlayer);
         m_save.captureBaseline(world());
-        DE_LOG_INFO("Editor: PLAY — WASD move, mouse look, Space jump, hold LMB/F to charge an attack and release to swing, hold RMB/V to block, Ctrl/C crouch, L flashlight, Escape or F12 stop");
+        DE_LOG_INFO("Editor: PLAY — WASD move, mouse look, Space jump, hold LMB/F to charge an attack and release to swing, hold RMB/V to block, Ctrl/C crouch, E pickup, L flashlight, Escape or F12 stop");
     }
     else
     {
@@ -668,6 +685,21 @@ void EditorApp::updatePlay(float dt)
             || input().actionAxisHeld("shield"));
     const bool carriesLight = flashlightEquipped(world().get<InventoryComponent>(body));
     const bool toggleLight = carriesLight && canSteer && !uiKeys && input().actionPressed("flashlight");
+    if (canSteer && !uiKeys && input().actionPressed("pickup"))
+    {
+        const Entity closest = findThrowablePickupNear(world(), xf->position, 2.2f);
+        if (closest.valid())
+        {
+            const ItemPickupComponent* picked = world().get<ItemPickupComponent>(closest);
+            const std::string          id = (picked && picked->item.def) ? picked->item.def->id : std::string{};
+            const CarryPickupResult    took = takeCarryPickup(world(), pins(), m_physics, closest, throwableBelt(world(), body), nullptr);
+            if (took.throwable)
+            {
+                DE_LOG_INFO("Throwable: picked up {}", id);
+                playSoundCue(world(), audio(), assets(), body, "click");
+            }
+        }
+    }
     if (toggleLight)
     {
         if (SkillComponent* sk = world().get<SkillComponent>(body))

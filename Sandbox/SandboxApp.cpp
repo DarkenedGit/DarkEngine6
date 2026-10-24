@@ -72,6 +72,7 @@
 #include "Character/SwordView.h"
 #include "Combat/ArmorComponent.h"
 #include "Gameplay/Inventory.h"
+#include "Gameplay/ThrowableBelt.h"
 #include "Gameplay/ThrowableCatalog.h"
 #include "Play/PlayerFlashlight.h"
 #include "Play/Spawner.h"
@@ -1972,8 +1973,20 @@ void SandboxApp::pickUpNearestItem()
         return;
     }
     ItemPickupComponent* pickup = e.valid() ? world().get<ItemPickupComponent>(e) : nullptr;
-    if (!pickup)
+    if (!pickup || pickup->item.empty() || !pickup->item.def)
         return;
+
+    if (throwableCatalog().find(pickup->item.def->id))
+    {
+        const std::string id(pickup->item.def->id);
+        const CarryPickupResult took = takeCarryPickup(world(), pins(), m_physics, e, throwableBelt(world(), body), nullptr);
+        if (took.throwable)
+        {
+            DE_LOG_INFO("Throwable: picked up {}", id);
+            playSoundCue(world(), audio(), assets(), m_camera, "click");
+        }
+        return;
+    }
 
     const int added = giveItem(*inv, pickup->item);
     pickup->item.count -= added;
@@ -4235,6 +4248,9 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
     }
 
     placeHealthPacks();
+    if (const TransformComponent* start = m_chase.walker().valid() ? world().get<TransformComponent>(m_chase.walker()) : nullptr)
+        stockMissingThrowablePickups(world(), pins(), assets(), renderer(), m_physics, start->position, worldHasThrowablePickup(world(), "rock"),
+                                     worldHasThrowablePickup(world(), "bottle"));
     spawnHybridLocalLights();
     ensureSessionEntity();
     installSaveHost();
