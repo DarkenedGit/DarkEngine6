@@ -800,13 +800,23 @@ void EditorApp::updatePlay(float dt)
     }
     const bool attackDown = canSteer && !uiKeys && (input().actionDown("attack") || (pointerFree && input().actionMouseDown("attack")));
     const bool airborneNow = motor && (motor->state() == PlayerMoveState::Jumping || motor->state() == PlayerMoveState::Falling);
+    WeaponAttackInput chargeQuery{};
+    chargeQuery.airborne = airborneNow;
+    chargeQuery.ccLocked = ccLocked;
+    chargeQuery.jumpBusy = jumpBusy;
+    if (const WeaponLoadoutComponent* held = world().get<WeaponLoadoutComponent>(body))
+    {
+        if (held->loadout)
+            classifyWeaponAttack(chargeQuery, held->loadout->activeKind());
+    }
+    const WeaponAttackDecision chargeDecision = decideWeaponAttack(chargeQuery);
     Combat::DefenseComponent* defense = world().get<Combat::DefenseComponent>(body);
     if (defense)
         defense->tick(dt);
     Combat::PlayerChargeInput chargeIn{};
     chargeIn.dt              = dt;
     chargeIn.attackDown      = attackDown;
-    chargeIn.canChargeAttack = canSteer && !airborneNow && !jumpBusy;
+    chargeIn.canChargeAttack = canSteer && chargeDecision.allowCharge;
     chargeIn.holdShield      = holdShield;
     chargeIn.canHoldShield   = canSteer;
     chargeIn.chargedParryUp  = defense && defense->chargedParry && defense->inParryWindow();
@@ -1046,6 +1056,20 @@ void EditorApp::updatePlay(float dt)
     m_fireQuick   = false;
     m_fireCharged = false;
     const bool airborne = motor && (motor->state() == PlayerMoveState::Jumping || motor->state() == PlayerMoveState::Falling);
+    WeaponAttackInput attackQuery{};
+    attackQuery.airborne      = airborne;
+    attackQuery.attackPressed = attackPressed;
+    attackQuery.jumpBuffered  = m_jumpAttackBuffer > 0.0f;
+    attackQuery.fireQuick     = fireQuick;
+    attackQuery.fireCharged   = fireCharged;
+    attackQuery.ccLocked      = ccLocked;
+    attackQuery.jumpBusy      = jumpBusy;
+    if (const WeaponLoadoutComponent* held = world().get<WeaponLoadoutComponent>(body))
+    {
+        if (held->loadout)
+            classifyWeaponAttack(attackQuery, held->loadout->activeKind());
+    }
+    const WeaponAttackDecision decision = decideWeaponAttack(attackQuery);
     auto noteSenses = [&]() {
         if (!senseAlive)
             return;
@@ -1085,35 +1109,35 @@ void EditorApp::updatePlay(float dt)
     };
     if (airborne)
     {
-        if (attackPressed || m_jumpAttackBuffer > 0.0f)
+        if (decision.beginJumpAttack)
         {
             if (tryBegin())
                 m_jumpAttackBuffer = 0.0f;
             else if (attackPressed)
                 m_jumpAttackBuffer = kJumpBuf;
         }
-        noteSenses();
-        return;
-    }
-    if (fireCharged || fireQuick || m_jumpAttackBuffer > 0.0f)
-    {
-        WeaponLoadoutComponent* thrown = world().get<WeaponLoadoutComponent>(body);
-        const bool throwable = thrown && thrown->loadout && thrown->loadout->activeKind() == WeaponKind::Throwable;
-        if (throwable && (fireCharged || fireQuick))
+        if (decision.throwOnRelease)
         {
             m_jumpAttackBuffer = 0.0f;
             releaseThrowable(fireCharged);
         }
-        else if (fireCharged)
-        {
-            m_jumpAttackBuffer = 0.0f;
-            firePlayLoadout(true);
-        }
-        else
-        {
-            m_jumpAttackBuffer = 0.0f;
-            firePlayLoadout(false);
-        }
+        noteSenses();
+        return;
+    }
+    if (decision.throwOnRelease)
+    {
+        m_jumpAttackBuffer = 0.0f;
+        releaseThrowable(fireCharged);
+    }
+    else if (decision.fireLoadoutOnRelease)
+    {
+        m_jumpAttackBuffer = 0.0f;
+        firePlayLoadout(fireCharged);
+    }
+    else if (m_jumpAttackBuffer > 0.0f)
+    {
+        m_jumpAttackBuffer = 0.0f;
+        firePlayLoadout(false);
     }
     noteSenses();
 }

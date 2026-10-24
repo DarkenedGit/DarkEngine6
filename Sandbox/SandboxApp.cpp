@@ -483,7 +483,8 @@ void SandboxApp::handleRuntimeCommands(float dt)
     applyNetRole();
 
     const bool uiKeys = uiOpen() && m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
-    if (!uiKeys)
+    // Playing swaps after the charge step. Paused play never reaches that step, so it still swaps here.
+    if (!uiKeys && m_gameplayPaused)
         handleWeaponSwitch();
     // Dev tools and inventory become the keyboard-nav target, so WantCaptureKeyboard
     // is set and would swallow the same key that should close them. A text field still owns the key.
@@ -1542,9 +1543,14 @@ void SandboxApp::updatePossessed(float dt)
     SkillComponent* skills = body.valid() ? world().get<SkillComponent>(body) : nullptr;
     if (skills)
         tickSkill(*skills, dt);
+    const bool uiKeys = uiOpen() && m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
     TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
     if (!xf)
+    {
+        if (!uiKeys)
+            handleWeaponSwitch();
         return;
+    }
 
     if (m_swingLock > 0.0f)
         m_swingLock -= dt;
@@ -1561,7 +1567,6 @@ void SandboxApp::updatePossessed(float dt)
     accumulatePlayLook(m_lookYaw, m_lookPitch, static_cast<float>(input().mouseDeltaX()), static_cast<float>(input().mouseDeltaY()), !uiOpen(),
                        input().actionAxis("look_yaw"), input().actionAxis("look_pitch"), dt);
 
-    const bool uiKeys = uiOpen() && m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
     const float mx = uiKeys ? 0.0f : input().actionAxis("move_x");
     const float mz = uiKeys ? 0.0f : input().actionAxis("move_z");
     const PlayBasis basis = playBasis(m_lookYaw, m_lookPitch, mx, mz);
@@ -1602,13 +1607,21 @@ void SandboxApp::updatePossessed(float dt)
     const bool attackDown = canSteer && !uiKeys
         && (input().actionDown("attack") || (!uiOpen() && input().actionMouseDown("attack")));
     const bool airborneNow = motor && (motor->state() == PlayerMoveState::Jumping || motor->state() == PlayerMoveState::Falling);
+    WeaponAttackInput chargeQuery{};
+    chargeQuery.airborne = airborneNow;
+    chargeQuery.swimming = motor && motor->state() == PlayerMoveState::Swimming;
+    chargeQuery.ccLocked = ccLocked;
+    chargeQuery.jumpBusy = jumpBusy;
+    if (const WeaponLoadout* held = localWeapons())
+        classifyWeaponAttack(chargeQuery, held->activeKind());
+    const WeaponAttackDecision chargeDecision = decideWeaponAttack(chargeQuery);
     Combat::DefenseComponent* defense = world().get<Combat::DefenseComponent>(body);
     if (defense)
         defense->tick(dt);
     Combat::PlayerChargeInput chargeIn{};
     chargeIn.dt              = dt;
     chargeIn.attackDown      = attackDown;
-    chargeIn.canChargeAttack = canSteer && !airborneNow && !jumpBusy;
+    chargeIn.canChargeAttack = canSteer && chargeDecision.allowCharge;
     chargeIn.holdShield      = holdShield;
     chargeIn.canHoldShield   = canSteer;
     chargeIn.chargedParryUp  = defense && defense->chargedParry && defense->inParryWindow();
@@ -1616,6 +1629,8 @@ void SandboxApp::updatePossessed(float dt)
     Combat::stepPlayerCharge(m_attackCharge, m_blockCharge, m_chargeSettings, chargeIn, charge);
     m_fireQuick   = charge.fireQuick;
     m_fireCharged = charge.fireCharged;
+    if (!uiKeys)
+        handleWeaponSwitch();
     const bool wasBlocking = m_offhand.shield.blocking();
     m_offhand.tick(dt, charge.wantShield, toggleLight);
     if (defense)
@@ -2460,6 +2475,18 @@ void SandboxApp::updateCombat(float dt)
     const bool fireCharged = m_fireCharged;
     m_fireQuick   = false;
     m_fireCharged = false;
+    WeaponAttackInput attackQuery{};
+    attackQuery.airborne      = airborne;
+    attackQuery.swimming      = swimming;
+    attackQuery.attackPressed = attackPressed;
+    attackQuery.jumpBuffered  = m_jumpAttackBuffer > 0.0f;
+    attackQuery.fireQuick     = fireQuick;
+    attackQuery.fireCharged   = fireCharged;
+    attackQuery.ccLocked      = ccLocked;
+    attackQuery.jumpBusy      = jumpBusy;
+    if (const WeaponLoadout* held = localWeapons())
+        classifyWeaponAttack(attackQuery, held->activeKind());
+    const WeaponAttackDecision decision = decideWeaponAttack(attackQuery);
 
     auto noteSenses = [&]() {
         if (SkillComponent* sk = body.valid() ? world().get<SkillComponent>(body) : nullptr)
@@ -2480,10 +2507,10 @@ void SandboxApp::updateCombat(float dt)
     if (swimming)
     {
         m_jumpAttackBuffer = 0.0f;
-        if (fireCharged)
-            firePossessedLoadout(true);
-        else if (fireQuick)
-            firePossessedLoadout(false);
+        if (decision.throwOnRelease)
+            releaseThrowable(fireCharged);
+        else if (decision.fireLoadoutOnRelease)
+            firePossessedLoadout(fireCharged);
         noteSenses();
         return;
     }
@@ -2518,35 +2545,36 @@ void SandboxApp::updateCombat(float dt)
 
     if (airborne)
     {
-        if (attackPressed || m_jumpAttackBuffer > 0.0f)
+        if (decision.beginJumpAttack)
         {
             if (tryBeginJumpAttack())
                 m_jumpAttackBuffer = 0.0f;
             else if (attackPressed)
                 m_jumpAttackBuffer = kJumpAttackBuffer;
         }
-        noteSenses();
-        return;
-    }
-
-    if (fireCharged || fireQuick || m_jumpAttackBuffer > 0.0f)
-    {
-        const bool throwable = localWeapons() && localWeapons()->activeKind() == WeaponKind::Throwable;
-        if (throwable && (fireCharged || fireQuick))
+        if (decision.throwOnRelease)
         {
             m_jumpAttackBuffer = 0.0f;
             releaseThrowable(fireCharged);
         }
-        else if (fireCharged)
-        {
-            m_jumpAttackBuffer = 0.0f;
-            firePossessedLoadout(true);
-        }
-        else
-        {
-            m_jumpAttackBuffer = 0.0f;
-            firePossessedLoadout(false);
-        }
+        noteSenses();
+        return;
+    }
+
+    if (decision.throwOnRelease)
+    {
+        m_jumpAttackBuffer = 0.0f;
+        releaseThrowable(fireCharged);
+    }
+    else if (decision.fireLoadoutOnRelease)
+    {
+        m_jumpAttackBuffer = 0.0f;
+        firePossessedLoadout(fireCharged);
+    }
+    else if (m_jumpAttackBuffer > 0.0f)
+    {
+        m_jumpAttackBuffer = 0.0f;
+        firePossessedLoadout(false);
     }
     noteSenses();
 }
