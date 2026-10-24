@@ -3,7 +3,7 @@
   "throwables": [
     {
       "id": "rock",
-      "weight": 1.5,
+      "weight": 0.75,
       "throwDistance": 12,
       "impactSound": "audio/foot_rock.wav",
       "callDistance": 8,
@@ -11,7 +11,7 @@
     },
     {
       "id": "bottle",
-      "weight": 0.25,
+      "weight": 0.5,
       "throwDistance": 14,
       "impactSound": "audio/splash.wav",
       "callDistance": 22,

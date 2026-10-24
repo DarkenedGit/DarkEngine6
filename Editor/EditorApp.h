@@ -43,6 +43,7 @@
 #include "Combat/Shield.h"
 #include "Play/ImpactFx.h"
 #include "Play/WeaponTargets.h"
+#include "Weapons/ThrowableFlight.h"
 #include "Combat/DamageEvent.h"
 #include "Math/AABox3f.h"
 #include "Terrain/FoliageFile.h"
@@ -200,6 +201,8 @@ private:
     void   spawnLivingBloodDecal(Entity victim, const Math::Vector3f& point, const Math::Vector3f& normal);
     void   spawnDeathBloodDecal(const Math::Vector3f& point, const Math::Vector3f& normal);
     bool   firePlayLoadout(bool charged);
+    bool   releaseThrowable(bool charged);
+    void   tickThrowableFlights(float dt);
     void   ensurePlayGear();
     void   destroyPlayGear();
     void   equipPlayArmor();
@@ -524,6 +527,7 @@ private:
     float                              m_playFootstepAcc = 0.0f;
     bool                               m_fireQuick   = false;
     bool                               m_fireCharged = false;
+    Dark::ThrowableFlights             m_throwFlights;
     std::vector<Dark::Math::AABox3f> m_playCubes;
     std::vector<Dark::Math::Sphere3f> m_playSpheres;
     float                  m_playGroundProbeY = 0.0f;

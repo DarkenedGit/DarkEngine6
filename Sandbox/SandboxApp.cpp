@@ -74,6 +74,7 @@
 #include "Gameplay/Inventory.h"
 #include "Gameplay/ThrowableBelt.h"
 #include "Gameplay/ThrowableCatalog.h"
+#include "Weapons/ThrowableFlight.h"
 #include "Play/PlayerFlashlight.h"
 #include "Play/Spawner.h"
 #include "Character/ShieldView.h"
@@ -2377,6 +2378,7 @@ void SandboxApp::syncPlayerMode()
 
 void SandboxApp::updateCombat(float dt)
 {
+    tickThrowableFlights(dt);
     if (m_hurtSoundTimer > 0.0f)
         m_hurtSoundTimer -= dt;
     if (m_muzzleTimer > 0.0f)
@@ -2527,15 +2529,24 @@ void SandboxApp::updateCombat(float dt)
         return;
     }
 
-    if (fireCharged)
+    if (fireCharged || fireQuick || m_jumpAttackBuffer > 0.0f)
     {
-        m_jumpAttackBuffer = 0.0f;
-        firePossessedLoadout(true);
-    }
-    else if (fireQuick || m_jumpAttackBuffer > 0.0f)
-    {
-        m_jumpAttackBuffer = 0.0f;
-        firePossessedLoadout(false);
+        const bool throwable = localWeapons() && localWeapons()->activeKind() == WeaponKind::Throwable;
+        if (throwable && (fireCharged || fireQuick))
+        {
+            m_jumpAttackBuffer = 0.0f;
+            releaseThrowable(fireCharged);
+        }
+        else if (fireCharged)
+        {
+            m_jumpAttackBuffer = 0.0f;
+            firePossessedLoadout(true);
+        }
+        else
+        {
+            m_jumpAttackBuffer = 0.0f;
+            firePossessedLoadout(false);
+        }
     }
     noteSenses();
 }
@@ -2618,6 +2629,86 @@ void SandboxApp::resolveJumpAttackAndFx(const Combat::DamageEvent* events, int c
             m_chase.ai().onHunterKilled(world(), snaps[i].e);
         }
     }
+}
+
+bool SandboxApp::releaseThrowable(bool charged)
+{
+    const Entity   body    = possessedBody();
+    WeaponLoadout* weapons = localWeapons();
+    if (!weapons || weapons->activeKind() != WeaponKind::Throwable || !body.valid())
+        return false;
+    ThrowableBelt&      belt = throwableBelt(world(), body);
+    const ThrowableDef* def  = throwableCatalog().find(belt.hand());
+    if (!def)
+        return false;
+    const TransformComponent* xf = world().get<TransformComponent>(body);
+    const WeaponFireRequest req = makeCameraFireRequest(m_viewCamera.GetPosition(), m_viewCamera.GetLook(), xf ? &xf->position : nullptr, 1.0f);
+    ThrowableLaunch         launch;
+    launch.itemId        = def->id;
+    launch.impactClip    = def->impactSound;
+    launch.weight        = def->weight;
+    launch.throwDistance = def->throwDistance;
+    launch.origin        = req.origin;
+    launch.direction     = req.direction;
+    launch.charged       = charged;
+    launch.thrower       = body;
+    if (!beginThrowableThrow(m_throwFlights, *weapons, belt, launch))
+        return false;
+    if (WeaponLoadoutComponent* wlc = world().get<WeaponLoadoutComponent>(body))
+        wlc->slot = weapons->slot();
+    DE_LOG_INFO("Player: threw {}", launch.itemId);
+    return true;
+}
+
+void SandboxApp::tickThrowableFlights(float dt)
+{
+    if (m_throwFlights.liveCount() == 0 && m_throwFlights.landings().empty())
+        return;
+    if (m_throwFlights.liveCount() > 0)
+    {
+        WeaponTargetList bodies;
+        bodies.gather(world(), Entity{});
+        std::vector<ThrowableBody> list;
+        list.reserve(bodies.targets().size());
+        for (const WeaponTarget& target : bodies.targets())
+        {
+            ThrowableBody body;
+            body.entity      = target.entity;
+            body.center      = target.center;
+            body.halfExtents = target.halfExtents;
+            body.alive       = target.alive;
+            list.push_back(body);
+        }
+        ThrowableWorld query;
+        query.hasTerrain     = true;
+        query.terrainUser    = this;
+        query.raycastTerrain = [](void* user, const Ray3f& ray, float maxDistance) -> Collision::RayHit3D {
+            return static_cast<SandboxApp*>(user)->m_terrain.raycast(ray, maxDistance);
+        };
+        query.heightAt = [](void* user, float x, float z) {
+            return static_cast<SandboxApp*>(user)->m_terrain.heightAtWorld(x, z);
+        };
+        query.bodies    = list.empty() ? nullptr : list.data();
+        query.bodyCount = static_cast<int>(list.size());
+        const std::vector<AABox3f>& cubes = m_chase.cubes();
+        query.cubes     = cubes.empty() ? nullptr : cubes.data();
+        query.cubeCount = static_cast<int>(cubes.size());
+        m_throwFlights.tick(dt, query);
+    }
+    for (const ThrowableLanding& landing : m_throwFlights.landings())
+    {
+        const ItemDef* def = throwablePickupDef(landing.itemId);
+        if (!def)
+            DE_LOG_WARN("Throwable: could not spawn '{}'", landing.itemId);
+        else if (!spawnItemPickup(world(), pins(), assets(), renderer(), m_physics, ItemStack{ def, 1 }, landing.position, Vector3f{}).valid())
+            DE_LOG_WARN("Throwable: could not spawn '{}'", landing.itemId);
+        if (!landing.impactClip.empty())
+        {
+            if (const auto clip = audio().loadWav(assets(), landing.impactClip.c_str()))
+                audio().play3D(clip, landing.position, 1.0f);
+        }
+    }
+    m_throwFlights.clearLandings();
 }
 
 bool SandboxApp::firePossessedLoadout(bool charged)

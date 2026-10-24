@@ -46,6 +46,7 @@
 #include "Ui/HudTagComponent.h"
 #include "Ui/NpcInfoOverlay.h"
 #include "Weapons/HittableComponent.h"
+#include "Weapons/ThrowableFlight.h"
 #include "Ui/ImGuiHost.h"
 #include "Ui/MainMenu.h"
 #include "Save/SaveSystem.h"
@@ -152,6 +153,8 @@ private:
     void respawnPlayer();
     void resolveJumpAttackAndFx(const Dark::Combat::DamageEvent* events, int count);
     bool firePossessedLoadout(bool charged);
+    bool releaseThrowable(bool charged);
+    void tickThrowableFlights(float dt);
     void placeHealthPacks();
     void installSaveHost();
     void ensureSessionEntity();
@@ -219,6 +222,7 @@ private:
     Dark::ChargeWindup                 m_chargeWindup{};
     bool                               m_fireQuick    = false;
     bool                               m_fireCharged  = false;
+    Dark::ThrowableFlights             m_throwFlights;
     Dark::Entity                    m_muzzle;
     float                           m_muzzleTimer = 0.0f;
     float                           m_hitStop      = 0.0f;

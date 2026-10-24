@@ -47,6 +47,8 @@
 #include "Core/Log.h"
 #include "Gameplay/Inventory.h"
 #include "Gameplay/ThrowableBelt.h"
+#include "Gameplay/ThrowableCatalog.h"
+#include "Weapons/ThrowableFlight.h"
 #include "ECS/Components.h"
 #include "Input/Input.h"
 #include "Input/InputCodes.h"
@@ -383,6 +385,7 @@ void EditorApp::setPlayMode(bool play)
         m_chargeWindup = {};
         m_fireQuick   = false;
         m_fireCharged = false;
+        m_throwFlights.clear();
         m_playMode   = false;
         m_playPlayer = {};
         if (m_physics.valid())
@@ -597,6 +600,86 @@ void EditorApp::spawnDeathBloodDecal(const Vector3f& point, const Vector3f& hitN
     Dark::spawnDeathBloodDecal(impactHost(), point, hitNormal);
 }
 
+bool EditorApp::releaseThrowable(bool charged)
+{
+    const Entity            body = m_playPlayer;
+    WeaponLoadoutComponent* wlc  = body.valid() ? world().get<WeaponLoadoutComponent>(body) : nullptr;
+    if (!wlc || !wlc->loadout || wlc->loadout->activeKind() != WeaponKind::Throwable)
+        return false;
+    ThrowableBelt&      belt = throwableBelt(world(), body);
+    const ThrowableDef* def  = throwableCatalog().find(belt.hand());
+    if (!def)
+        return false;
+    const TransformComponent* xf = world().get<TransformComponent>(body);
+    const WeaponFireRequest req = makeCameraFireRequest(m_camera.GetPosition(), m_camera.GetLook(), xf ? &xf->position : nullptr, 1.0f);
+    ThrowableLaunch         launch;
+    launch.itemId        = def->id;
+    launch.impactClip    = def->impactSound;
+    launch.weight        = def->weight;
+    launch.throwDistance = def->throwDistance;
+    launch.origin        = req.origin;
+    launch.direction     = req.direction;
+    launch.charged       = charged;
+    launch.thrower       = body;
+    if (!beginThrowableThrow(m_throwFlights, *wlc->loadout, belt, launch))
+        return false;
+    wlc->slot = wlc->loadout->slot();
+    DE_LOG_INFO("Throwable: threw {}", launch.itemId);
+    return true;
+}
+
+void EditorApp::tickThrowableFlights(float dt)
+{
+    if (m_throwFlights.liveCount() == 0 && m_throwFlights.landings().empty())
+        return;
+    if (m_throwFlights.liveCount() > 0)
+    {
+        WeaponTargetList bodies;
+        bodies.gather(world(), Entity{});
+        std::vector<ThrowableBody> list;
+        list.reserve(bodies.targets().size());
+        for (const WeaponTarget& target : bodies.targets())
+        {
+            ThrowableBody body;
+            body.entity      = target.entity;
+            body.center      = target.center;
+            body.halfExtents = target.halfExtents;
+            body.alive       = target.alive;
+            list.push_back(body);
+        }
+        ThrowableWorld query;
+        query.hasTerrain     = true;
+        query.terrainUser    = this;
+        query.raycastTerrain = [](void* user, const Ray3f& ray, float maxDistance) -> Collision::RayHit3D {
+            return static_cast<EditorApp*>(user)->m_terrain.raycast(ray, maxDistance);
+        };
+        query.heightAt = [](void* user, float x, float z) {
+            return static_cast<EditorApp*>(user)->m_terrain.heightAtWorld(x, z);
+        };
+        query.bodies      = list.empty() ? nullptr : list.data();
+        query.bodyCount   = static_cast<int>(list.size());
+        query.cubes       = m_playCubes.empty() ? nullptr : m_playCubes.data();
+        query.cubeCount   = static_cast<int>(m_playCubes.size());
+        query.spheres     = m_playSpheres.empty() ? nullptr : m_playSpheres.data();
+        query.sphereCount = static_cast<int>(m_playSpheres.size());
+        m_throwFlights.tick(dt, query);
+    }
+    for (const ThrowableLanding& landing : m_throwFlights.landings())
+    {
+        const ItemDef* def = throwablePickupDef(landing.itemId);
+        if (!def)
+            DE_LOG_WARN("Throwable: could not spawn '{}'", landing.itemId);
+        else if (!spawnItemPickup(world(), pins(), assets(), renderer(), m_physics, ItemStack{ def, 1 }, landing.position, Vector3f{}).valid())
+            DE_LOG_WARN("Throwable: could not spawn '{}'", landing.itemId);
+        if (!landing.impactClip.empty())
+        {
+            if (const auto clip = audio().loadWav(assets(), landing.impactClip.c_str()))
+                audio().play3D(clip, landing.position, 1.0f);
+        }
+    }
+    m_throwFlights.clearLandings();
+}
+
 bool EditorApp::firePlayLoadout(bool charged)
 {
     const Entity body = m_playPlayer;
@@ -635,6 +718,8 @@ void EditorApp::updatePlay(float dt)
             setPlayMode(false);
         return;
     }
+
+    tickThrowableFlights(dt);
 
     Entity body = m_playPlayer;
     if (WorldClockComponent* clock = m_session.valid() ? world().get<WorldClockComponent>(m_session) : nullptr)
@@ -1010,15 +1095,25 @@ void EditorApp::updatePlay(float dt)
         noteSenses();
         return;
     }
-    if (fireCharged)
+    if (fireCharged || fireQuick || m_jumpAttackBuffer > 0.0f)
     {
-        m_jumpAttackBuffer = 0.0f;
-        firePlayLoadout(true);
-    }
-    else if (fireQuick || m_jumpAttackBuffer > 0.0f)
-    {
-        m_jumpAttackBuffer = 0.0f;
-        firePlayLoadout(false);
+        WeaponLoadoutComponent* thrown = world().get<WeaponLoadoutComponent>(body);
+        const bool throwable = thrown && thrown->loadout && thrown->loadout->activeKind() == WeaponKind::Throwable;
+        if (throwable && (fireCharged || fireQuick))
+        {
+            m_jumpAttackBuffer = 0.0f;
+            releaseThrowable(fireCharged);
+        }
+        else if (fireCharged)
+        {
+            m_jumpAttackBuffer = 0.0f;
+            firePlayLoadout(true);
+        }
+        else
+        {
+            m_jumpAttackBuffer = 0.0f;
+            firePlayLoadout(false);
+        }
     }
     noteSenses();
 }

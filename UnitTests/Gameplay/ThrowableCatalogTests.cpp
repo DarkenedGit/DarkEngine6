@@ -21,10 +21,10 @@ namespace
     constexpr float kBuiltinBottleThrowDistance = 11.0f;
     constexpr float kBuiltinBottleCallDistance  = 16.0f;
 
-    constexpr float kSampleRockWeight          = 1.5f;
+    constexpr float kSampleRockWeight          = 0.75f;
     constexpr float kSampleRockThrowDistance   = 12.0f;
     constexpr float kSampleRockCallDistance    = 8.0f;
-    constexpr float kSampleBottleWeight        = 0.25f;
+    constexpr float kSampleBottleWeight        = 0.5f;
     constexpr float kSampleBottleThrowDistance = 14.0f;
     constexpr float kSampleBottleCallDistance  = 22.0f;
 
