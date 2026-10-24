@@ -137,6 +137,12 @@ namespace Dark
         std::vector<ThrowableLanding>  m_landings;
     };
 
+    struct ThrowablePickupSpot;
+
+    // Live flights and pending landings. Copies positions. Does not change the belt.
+    void appendUnresolvedThrowableSpots(std::vector<ThrowablePickupSpot>& spots, const ThrowableFlights& flights);
+    bool throwableIdInFlightOrLanding(const ThrowableFlights& flights, std::string_view id);
+
     // Spends one, then starts the sweep. False leaves the belt and the flights unchanged.
     bool beginThrowableThrow(ThrowableFlights& flights, WeaponLoadout& loadout, ThrowableBelt& belt, const ThrowableLaunch& launch);
 

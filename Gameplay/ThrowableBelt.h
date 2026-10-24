@@ -91,4 +91,10 @@ namespace Dark
     void stockMissingThrowablePickups(World& world, AssetPinTable& pins, AssetManager& assets, Renderer& renderer, Physics::PhysicsWorld& physics,
                                       const Math::Vector3f& origin, bool haveRock, bool haveBottle);
 
+    // Editor fallback stock is for an id that is not in the scene, not on the belt, and not still in the air.
+    inline bool throwableAlreadyAccounted(bool worldHasId, int beltCount, bool inFlight)
+    {
+        return worldHasId || beltCount > 0 || inFlight;
+    }
+
 } // namespace Dark

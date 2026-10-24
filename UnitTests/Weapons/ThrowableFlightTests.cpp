@@ -483,3 +483,42 @@ TEST(ThrowableFlight, SampleWeightsReachWhenChargedAndStayShortOnATap)
     ASSERT_NE(heavier, nullptr);
     EXPECT_LT(heavier->weight, 1.0f);
 }
+
+TEST(ThrowableFlight, UnresolvedSpotsKeepLiveThrowAndPendingLanding)
+{
+    const ThrowableLaunch rock = makeLaunch(10.0f, 0.75f, 0.2f, true);
+    ThrowableFlights      live;
+    ASSERT_TRUE(live.launch(rock));
+
+    std::vector<ThrowablePickupSpot> spots;
+    appendUnresolvedThrowableSpots(spots, live);
+    ASSERT_EQ(spots.size(), 1u);
+    EXPECT_EQ(spots[0].id, "rock");
+    EXPECT_FLOAT_EQ(spots[0].position.x, rock.origin.x);
+    EXPECT_FLOAT_EQ(spots[0].position.y, rock.origin.y);
+    EXPECT_FLOAT_EQ(spots[0].position.z, rock.origin.z);
+    EXPECT_EQ(live.liveCount(), 1);
+    EXPECT_TRUE(live.landings().empty());
+
+    ThrowableLaunch bottle = makeLaunch(10.0f, 1.0f, 0.2f, true);
+    bottle.maxLife         = 0.35f;
+    bottle.impactClip      = "audio/splash.wav";
+    bottle.itemId          = "bottle";
+
+    ThrowableFlights expired;
+    ASSERT_TRUE(expired.launch(bottle));
+    expired.tick(1.0f, ThrowableWorld{});
+    EXPECT_EQ(expired.liveCount(), 0);
+    ASSERT_EQ(expired.landings().size(), 1u);
+    const Vector3f landedAt = expired.landings().front().position;
+
+    std::vector<ThrowablePickupSpot> landed;
+    appendUnresolvedThrowableSpots(landed, expired);
+    ASSERT_EQ(landed.size(), 1u);
+    EXPECT_EQ(landed[0].id, "bottle");
+    EXPECT_FLOAT_EQ(landed[0].position.x, landedAt.x);
+    EXPECT_FLOAT_EQ(landed[0].position.y, landedAt.y);
+    EXPECT_FLOAT_EQ(landed[0].position.z, landedAt.z);
+    EXPECT_EQ(expired.liveCount(), 0);
+    EXPECT_EQ(expired.landings().size(), 1u);
+}

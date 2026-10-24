@@ -198,6 +198,11 @@ void EditorApp::resetPlayCombat()
             ai->assistLeft  = 0.0f;
             ai->fleeLeft    = 0.0f;
             ai->deadFor     = 0.0f;
+            ai->lureSearch  = false;
+            ai->lureReached = false;
+            ai->lureLeft    = 0.0f;
+            ai->lurePoint   = {};
+            ai->lureDest    = {};
         }
         const char* profileId = "hunter";
         if (so.type == SceneObjectType::Player)
@@ -355,6 +360,11 @@ void EditorApp::setPlayMode(bool play)
                 else if (spot.id == "bottle")
                     haveBottle = true;
             }
+            const ThrowableBeltComponent* belt         = world().get<ThrowableBeltComponent>(m_playPlayer);
+            const int                     rockOnBelt   = belt ? belt->belt.count("rock") : 0;
+            const int                     bottleOnBelt = belt ? belt->belt.count("bottle") : 0;
+            haveRock   = throwableAlreadyAccounted(haveRock, rockOnBelt, throwableIdInFlightOrLanding(m_throwFlights, "rock"));
+            haveBottle = throwableAlreadyAccounted(haveBottle, bottleOnBelt, throwableIdInFlightOrLanding(m_throwFlights, "bottle"));
             stockMissingThrowablePickups(world(), pins(), assets(), renderer(), m_physics, start->position, haveRock, haveBottle);
         }
         window().setCursorCaptured(window().isFocused());
@@ -379,6 +389,10 @@ void EditorApp::setPlayMode(bool play)
         if (AnimGraphComponent* ag = m_playPlayer.valid() ? world().get<AnimGraphComponent>(m_playPlayer) : nullptr)
             ag->graph.player().setLowerBodyYaw(0.0f);
         m_playLowerBodyYaw = 0.0f;
+        // clearPlayArmor deletes every pickup. Copy throwables, including throws still in the air, and put them back.
+        std::vector<ThrowablePickupSpot> keptThrowables = captureThrowablePickups(world());
+        appendUnresolvedThrowableSpots(keptThrowables, m_throwFlights);
+        m_throwFlights.clear();
         destroyPlayGear();
         m_offhand.reset();
         m_attackCharge.reset();
@@ -386,7 +400,7 @@ void EditorApp::setPlayMode(bool play)
         m_chargeWindup = {};
         m_fireQuick   = false;
         m_fireCharged = false;
-        m_throwFlights.clear();
+        respawnThrowablePickups(world(), pins(), assets(), renderer(), m_physics, keptThrowables);
         clearThrowablePlayVisuals(world(), pins());
         m_playMode   = false;
         m_playPlayer = {};

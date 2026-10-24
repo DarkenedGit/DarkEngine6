@@ -197,3 +197,13 @@ TEST(ThrowableBelt, CaptureKeepsThrowablePlacementAndSkipsOtherItems)
     EXPECT_FLOAT_EQ(spots[0].position.y, 1.0f);
     EXPECT_FLOAT_EQ(spots[0].position.z, -2.0f);
 }
+
+TEST(ThrowableBelt, FallbackStockSkipsWorldBeltAndFlight)
+{
+    EXPECT_TRUE(throwableAlreadyAccounted(true, 0, false));
+    EXPECT_TRUE(throwableAlreadyAccounted(false, 1, false));
+    EXPECT_TRUE(throwableAlreadyAccounted(false, 0, true));
+    EXPECT_TRUE(throwableAlreadyAccounted(false, 2, false));
+    EXPECT_FALSE(throwableAlreadyAccounted(false, 0, false));
+    EXPECT_FALSE(throwableAlreadyAccounted(false, -1, false));
+}

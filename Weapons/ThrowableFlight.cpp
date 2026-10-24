@@ -446,4 +446,47 @@ namespace Dark
         return e;
     }
 
+    void appendUnresolvedThrowableSpots(std::vector<ThrowablePickupSpot>& spots, const ThrowableFlights& flights)
+    {
+        const int live = flights.liveCount();
+        for (int i = 0; i < live; ++i)
+        {
+            Math::Vector3f         position{};
+            const std::string_view id = flights.liveItemId(i);
+            if (!flights.livePosition(i, position) || id.empty())
+                continue;
+            ThrowablePickupSpot spot;
+            spot.id       = std::string(id);
+            spot.position = position;
+            spots.push_back(std::move(spot));
+        }
+        for (const ThrowableLanding& landing : flights.landings())
+        {
+            if (landing.itemId.empty())
+                continue;
+            ThrowablePickupSpot spot;
+            spot.id       = landing.itemId;
+            spot.position = landing.position;
+            spots.push_back(std::move(spot));
+        }
+    }
+
+    bool throwableIdInFlightOrLanding(const ThrowableFlights& flights, std::string_view id)
+    {
+        if (id.empty())
+            return false;
+        const int live = flights.liveCount();
+        for (int i = 0; i < live; ++i)
+        {
+            if (flights.liveItemId(i) == id)
+                return true;
+        }
+        for (const ThrowableLanding& landing : flights.landings())
+        {
+            if (landing.itemId == id)
+                return true;
+        }
+        return false;
+    }
+
 } // namespace Dark
