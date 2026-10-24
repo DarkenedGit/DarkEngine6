@@ -298,6 +298,9 @@ namespace Dark
         bool conceal = false;
         bool goal    = false;
         std::string circuit;
+        std::string zone;
+        std::string pickup;
+        int         pickupCount = 1;
 
         // Unit spawner. Radius is metres on the ground, not the marker scale.
         bool        hasSpawner = false;
@@ -499,6 +502,7 @@ namespace Dark
         WaterSceneDesc    water;
         ExposureSceneDesc exposure;
         StealthSceneDesc  stealth;
+        std::string       quest;
         std::vector<SceneObjectData> objects;
     };
 

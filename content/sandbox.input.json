@@ -48,6 +48,7 @@
     { "action": "dev_tools", "key": "M" },
     { "action": "profiler", "key": "P" },
     { "action": "inventory", "key": "I" },
+    { "action": "journal", "key": "J" },
     { "action": "anim_walk", "key": "T" },
     { "action": "anim_walk", "button": "RightThumb" }
   ]

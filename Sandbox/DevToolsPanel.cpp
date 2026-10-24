@@ -185,6 +185,157 @@ void SandboxApp::drawInventory()
     ImGui::End();
 }
 
+void SandboxApp::drawQuestHud()
+{
+    if (!m_quest.active())
+        return;
+    const ImGuiViewport* vp   = ImGui::GetMainViewport();
+    ImDrawList*          dl   = ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp));
+    ImFont*              font = ImGui::GetFont();
+    const float          fs   = ImGui::GetFontSize();
+    const QuestDef&      def  = m_quest.def();
+
+    const float width = 330.0f;
+    const float x     = vp->Pos.x + vp->Size.x - 28.0f - width;
+    float       y     = vp->Pos.y + 70.0f;
+    struct Line
+    {
+        std::string text;
+        ImU32       color;
+        float       size;
+    };
+    std::vector<Line> lines;
+    lines.push_back(Line{ def.title, IM_COL32(240, 205, 110, 255), fs * 1.2f });
+    if (m_quest.complete())
+        lines.push_back(Line{ "Complete. Press J for rewards.", IM_COL32(120, 230, 140, 255), fs });
+    for (size_t i = 0; i < def.objectives.size(); ++i)
+    {
+        const ObjectiveDef&   o  = def.objectives[i];
+        const ObjectiveState& st = m_quest.state(i);
+        if (!st.done && !m_quest.open(i))
+            continue;
+        std::string text = std::string(st.done ? "[x] " : "[ ] ") + o.text;
+        if (o.count > 1)
+            text += std::format(" ({}/{})", st.progress, o.count);
+        if (o.optional)
+            text += "  optional";
+        const ImU32 color = st.done ? IM_COL32(120, 200, 135, 200) : (o.optional ? IM_COL32(190, 190, 190, 235) : IM_COL32(245, 245, 245, 255));
+        lines.push_back(Line{ text, color, fs });
+    }
+    float height = 14.0f;
+    for (const Line& l : lines)
+        height += l.size + 6.0f;
+    dl->AddRectFilled(ImVec2(x - 12.0f, y - 10.0f), ImVec2(x + width, y + height), IM_COL32(10, 14, 12, 150), 4.0f);
+    dl->AddRectFilled(ImVec2(x - 12.0f, y - 10.0f), ImVec2(x - 9.0f, y + height), IM_COL32(240, 205, 110, 220));
+    for (const Line& l : lines)
+    {
+        dl->AddText(font, l.size, ImVec2(x + 1.0f, y + 1.0f), IM_COL32(0, 0, 0, 180), l.text.c_str(), nullptr, width - 8.0f);
+        dl->AddText(font, l.size, ImVec2(x, y), l.color, l.text.c_str(), nullptr, width - 8.0f);
+        y += l.size + 6.0f;
+    }
+
+    if (!m_questBanners.empty())
+    {
+        const QuestBanner& b     = m_questBanners.front();
+        const float        alpha = Math::Clamp(Math::Min(b.timeLeft, 3.5f - b.timeLeft) * 3.0f, 0.0f, 1.0f);
+        const float        midX  = vp->Pos.x + vp->Size.x * 0.5f;
+        const float        top   = vp->Pos.y + vp->Size.y * 0.16f;
+        const float        labelSize = fs * 1.1f;
+        const float        textSize   = fs * 2.0f;
+        const ImVec2       ls    = font->CalcTextSizeA(labelSize, FLT_MAX, 0.0f, b.label.c_str());
+        const ImVec2       ts    = font->CalcTextSizeA(textSize, FLT_MAX, 0.0f, b.text.c_str());
+        const int          a     = static_cast<int>(alpha * 255.0f);
+        const ImU32        col   = (b.color & 0x00FFFFFFu) | (static_cast<ImU32>(a) << 24);
+        dl->AddRectFilled(ImVec2(midX - Math::Max(ls.x, ts.x) * 0.5f - 24.0f, top - 10.0f), ImVec2(midX + Math::Max(ls.x, ts.x) * 0.5f + 24.0f, top + ls.y + ts.y + 16.0f),
+                          IM_COL32(10, 14, 12, static_cast<int>(alpha * 160.0f)), 4.0f);
+        dl->AddText(font, labelSize, ImVec2(midX - ls.x * 0.5f, top), col, b.label.c_str());
+        dl->AddText(font, textSize, ImVec2(midX - ts.x * 0.5f + 2.0f, top + ls.y + 6.0f), IM_COL32(0, 0, 0, a * 3 / 4), b.text.c_str());
+        dl->AddText(font, textSize, ImVec2(midX - ts.x * 0.5f, top + ls.y + 4.0f), IM_COL32(255, 255, 255, a), b.text.c_str());
+    }
+
+    Vector3f target;
+    const Entity              body = possessedBody();
+    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    if (!pxf || m_quest.complete() || !questTarget(target))
+        return;
+    const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(Vector3f(target.x, target.y + 1.4f, target.z), 1.0f);
+    float          nx   = clip.w > 1.0e-4f ? clip.x / clip.w : -clip.x;
+    float          ny   = clip.w > 1.0e-4f ? clip.y / clip.w : -clip.y;
+    if (clip.w <= 1.0e-4f)
+    {
+        const float m = Math::Max(std::fabs(nx), std::fabs(ny));
+        nx = m > 1.0e-6f ? nx / m : 0.0f;
+        ny = m > 1.0e-6f ? ny / m : -1.0f;
+    }
+    const float edge = Math::Max(std::fabs(nx), std::fabs(ny));
+    if (edge > 0.9f)
+    {
+        nx *= 0.9f / edge;
+        ny *= 0.9f / edge;
+    }
+    const ImVec2 c{ vp->Pos.x + (nx * 0.5f + 0.5f) * vp->Size.x, vp->Pos.y + (1.0f - (ny * 0.5f + 0.5f)) * vp->Size.y };
+    const float  r = 9.0f;
+    dl->AddQuadFilled(ImVec2(c.x, c.y - r), ImVec2(c.x + r, c.y), ImVec2(c.x, c.y + r), ImVec2(c.x - r, c.y), IM_COL32(240, 205, 110, 230));
+    dl->AddQuad(ImVec2(c.x, c.y - r), ImVec2(c.x + r, c.y), ImVec2(c.x, c.y + r), ImVec2(c.x - r, c.y), IM_COL32(0, 0, 0, 200), 1.5f);
+    char         dist[24];
+    std::snprintf(dist, sizeof(dist), "%.0f m", static_cast<double>((target - pxf->position).Magnitude()));
+    const ImVec2 ds = ImGui::CalcTextSize(dist);
+    dl->AddText(ImVec2(c.x - ds.x * 0.5f + 1.0f, c.y + r + 3.0f), IM_COL32(0, 0, 0, 200), dist);
+    dl->AddText(ImVec2(c.x - ds.x * 0.5f, c.y + r + 2.0f), IM_COL32(240, 205, 110, 255), dist);
+}
+
+void SandboxApp::drawJournal()
+{
+    ImGui::SetNextWindowSize(ImVec2(440.0f, 360.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Journal", &m_showJournal))
+    {
+        ImGui::End();
+        return;
+    }
+    if (!m_quest.active())
+    {
+        ImGui::TextDisabled("No quest in this level.");
+        ImGui::End();
+        return;
+    }
+    const QuestDef& def = m_quest.def();
+    ImGui::TextColored(ImVec4(0.94f, 0.80f, 0.43f, 1.0f), "%s", def.title.c_str());
+    if (m_quest.complete())
+    {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.47f, 0.90f, 0.55f, 1.0f), "(complete)");
+    }
+    if (!def.description.empty())
+        ImGui::TextWrapped("%s", def.description.c_str());
+    ImGui::Separator();
+    ImGui::TextUnformatted("Objectives");
+    for (size_t i = 0; i < def.objectives.size(); ++i)
+    {
+        const ObjectiveDef&   o  = def.objectives[i];
+        const ObjectiveState& st = m_quest.state(i);
+        const bool            open = m_quest.open(i);
+        if (!st.done && !open)
+        {
+            ImGui::TextDisabled("  ???");
+            continue;
+        }
+        const std::string progress = o.count > 1 ? std::format(" ({}/{})", st.progress, o.count) : std::string();
+        const ImVec4      color    = st.done ? ImVec4(0.47f, 0.80f, 0.53f, 1.0f) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+        ImGui::TextColored(color, "%s %s%s%s", st.done ? "[x]" : "[ ]", o.text.c_str(), progress.c_str(), o.optional ? "  (optional)" : "");
+    }
+    if (!def.rewards.empty())
+    {
+        ImGui::Separator();
+        ImGui::TextUnformatted(m_quest.complete() ? "Rewards (received)" : "Rewards");
+        for (const QuestReward& r : def.rewards)
+        {
+            const ItemDef* item = findItemDef(r.item);
+            ImGui::BulletText("%s x%d", item ? item->name : r.item.c_str(), r.count);
+        }
+    }
+    ImGui::End();
+}
+
 void SandboxApp::drawStaminaBar()
 {
     const PlayerMotor* motor = localMotor();
@@ -529,7 +680,7 @@ void SandboxApp::drawGuardAwareness()
         dl->AddCircleFilled(c, 3.0f + 6.0f * e, col, 20);
     }
 
-    if (pxf && m_goalBox.Max.x > m_goalBox.Min.x && pxf->position.x >= m_goalBox.Min.x && pxf->position.x <= m_goalBox.Max.x
+    if (pxf && !m_quest.active() && m_goalBox.Max.x > m_goalBox.Min.x && pxf->position.x >= m_goalBox.Min.x && pxf->position.x <= m_goalBox.Max.x
         && pxf->position.z >= m_goalBox.Min.z && pxf->position.z <= m_goalBox.Max.z)
         m_goalShown = 4.0f;
     if (m_goalShown > 0.0f)

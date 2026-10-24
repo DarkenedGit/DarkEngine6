@@ -18,6 +18,7 @@
 #include "Render/Camera3D.h"
 #include "Sky/Environment.h"
 #include "Gameplay/Inventory.h"
+#include "Gameplay/Quest.h"
 #include "Physics/PhysicsWorld.h"
 #include "Physics/FoliageCollision.h"
 #include "Terrain/GrassField.h"
@@ -85,7 +86,7 @@ private:
     void drawInventory();
     void drawArmorHud();
     void drawPickupLabels();
-    bool uiOpen() const { return m_showDevTools || m_showInventory || m_showProfiler || m_lootTarget.valid(); }
+    bool uiOpen() const { return m_showDevTools || m_showInventory || m_showProfiler || m_showJournal || m_lootTarget.valid(); }
     void drawLoot();
     int  giveItem(Dark::InventoryComponent& inv, const Dark::ItemStack& item);
     void stockHunter(Dark::Entity hunter);
@@ -100,6 +101,11 @@ private:
     void drawGuardAwareness();
     float playerLightLevel();
     void drawStaminaBar();
+    void startQuest(const std::string& id);
+    void updateQuest(float dt);
+    void drawQuestHud();
+    void drawJournal();
+    bool questTarget(Dark::Math::Vector3f& out);
     void drawBreathBar();
     void setCircuit(size_t breaker, bool on, bool alertGuards);
     void updatePower(float dt);
@@ -272,6 +278,20 @@ private:
     Dark::Entity                                            m_carried{};
     float                                                   m_carryFloor = 0.0f;
     Dark::Math::AABox3f             m_goalBox{};
+    Dark::QuestTracker              m_quest;
+    std::string                     m_sceneQuest;
+    std::vector<std::pair<std::string, Dark::Math::AABox3f>> m_zones;
+    std::vector<std::string>        m_zonesInside;
+    std::vector<Dark::Math::AABox3f> m_grassBoxes;
+    struct QuestBanner
+    {
+        std::string label;
+        std::string text;
+        uint32_t    color    = 0xFFFFFFFFu;
+        float       timeLeft = 3.5f;
+    };
+    std::vector<QuestBanner>        m_questBanners;
+    bool                            m_showJournal = false;
     float                           m_goalShown    = 0.0f;
     float                           m_shieldBump   = 0.0f;
     const char*                     m_defenseText  = "";
