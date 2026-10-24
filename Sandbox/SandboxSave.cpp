@@ -12,6 +12,7 @@
 #include "Core/Log.h"
 #include "ECS/Components.h"
 #include "Gameplay/HealthPack.h"
+#include "Weapons/WeaponLoadoutComponent.h"
 #include "Math/Vector3f.h"
 #include "Network/Replication.h"
 #include "Particles/StatusFxDriver.h"
@@ -272,6 +273,7 @@ void SandboxApp::saveBeforeCapture(void* user, World& world)
         ai->packAttackGap = app->m_chase.ai().packAttackGap();
         ai->token         = app->m_chase.ai().jumpAttackToken();
     }
+    syncThrowableLoadout(world, body, app->m_throwFlights, ThrowableLoadoutSync::OntoRecord);
 }
 
 void SandboxApp::saveAfterApply(void* user, World& world)
@@ -313,4 +315,5 @@ void SandboxApp::saveAfterApply(void* user, World& world)
         app->m_chase.ai().setJumpAttackToken(ai->token);
     }
     app->pushPhysicsProgress();
+    syncThrowableLoadout(world, body, app->m_throwFlights, ThrowableLoadoutSync::FromRecord);
 }

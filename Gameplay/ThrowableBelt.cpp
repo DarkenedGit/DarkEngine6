@@ -111,6 +111,26 @@ namespace Dark
         return 1;
     }
 
+    bool ThrowableBelt::setCount(std::string_view id, int count)
+    {
+        if (!isThrowableId(id))
+            return false;
+        for (auto it = m_counts.begin(); it != m_counts.end(); ++it)
+        {
+            if (it->id != id)
+                continue;
+            if (count <= 0)
+                m_counts.erase(it);
+            else
+                it->count = count;
+            return true;
+        }
+        if (count <= 0)
+            return true;
+        m_counts.push_back(Count{ std::string(id), count });
+        return true;
+    }
+
     ThrowableBelt& throwableBelt(World& world, Entity actor)
     {
         if (ThrowableBeltComponent* existing = world.get<ThrowableBeltComponent>(actor))

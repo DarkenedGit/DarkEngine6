@@ -16,6 +16,7 @@
 #include "Save/PersistentId.h"
 #include "Save/ProgressComponents.h"
 #include "Scene/SceneTypes.h"
+#include "Weapons/WeaponLoadoutComponent.h"
 
 #include <format>
 #include <string>
@@ -218,6 +219,7 @@ void EditorApp::saveBeforeCapture(void* user, World& world)
         ai->packAttackGap = app->m_ai.packAttackGap();
         ai->token         = app->m_ai.jumpAttackToken();
     }
+    syncThrowableLoadout(world, body, app->m_throwFlights, ThrowableLoadoutSync::OntoRecord);
 }
 
 void EditorApp::saveAfterApply(void* user, World& world)
@@ -253,4 +255,5 @@ void EditorApp::saveAfterApply(void* user, World& world)
         app->m_ai.setJumpAttackToken(ai->token);
     }
     app->pushPhysicsProgress();
+    syncThrowableLoadout(world, body, app->m_throwFlights, ThrowableLoadoutSync::FromRecord);
 }

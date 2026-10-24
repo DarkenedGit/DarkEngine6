@@ -160,9 +160,11 @@ namespace Dark
         dir.Normalize();
         const float scale = launch.charged ? 1.0f : kThrowableTapSpeedScale;
         Live        live;
-        live.itemId     = launch.itemId;
-        live.impactClip = launch.impactClip;
-        live.position   = launch.origin;
+        live.itemId        = launch.itemId;
+        live.impactClip    = launch.impactClip;
+        live.weight        = launch.weight;
+        live.throwDistance = launch.throwDistance;
+        live.position      = launch.origin;
         live.velocity   = dir * (throwableChargedSpeed(launch.throwDistance) * scale);
         live.gravity    = throwableGravity(launch.weight);
         live.age        = 0.0f;
@@ -368,6 +370,57 @@ namespace Dark
     {
         m_live.clear();
         m_landings.clear();
+    }
+
+    void ThrowableFlights::copyLive(std::vector<ThrowableFlightSnapshot>& out) const
+    {
+        out.clear();
+        out.reserve(m_live.size());
+        for (const Live& flight : m_live)
+        {
+            ThrowableFlightSnapshot snap;
+            snap.itemId         = flight.itemId;
+            snap.impactClip     = flight.impactClip;
+            snap.weight         = flight.weight;
+            snap.throwDistance  = flight.throwDistance;
+            snap.position       = flight.position;
+            snap.velocity       = flight.velocity;
+            snap.gravity        = flight.gravity;
+            snap.age            = flight.age;
+            snap.life           = flight.maxLife;
+            snap.clearOfThrower = flight.clearOfThrower;
+            out.push_back(std::move(snap));
+        }
+    }
+
+    void ThrowableFlights::restoreLive(const std::vector<ThrowableFlightSnapshot>& snaps)
+    {
+        m_live.clear();
+        m_landings.clear();
+        for (const ThrowableFlightSnapshot& snap : snaps)
+        {
+            if (snap.itemId.empty() || !finiteVec(snap.position) || !finiteVec(snap.velocity))
+                continue;
+            if (!std::isfinite(snap.gravity) || snap.gravity < 0.0f)
+                continue;
+            if (!std::isfinite(snap.age) || !std::isfinite(snap.life) || snap.life < 0.0f)
+                continue;
+            if (!std::isfinite(snap.weight) || !std::isfinite(snap.throwDistance))
+                continue;
+            Live live;
+            live.itemId         = snap.itemId;
+            live.impactClip     = snap.impactClip;
+            live.weight         = snap.weight;
+            live.throwDistance  = snap.throwDistance;
+            live.position       = snap.position;
+            live.velocity       = snap.velocity;
+            live.gravity        = snap.gravity;
+            live.age            = snap.age > 0.0f ? snap.age : 0.0f;
+            live.maxLife        = snap.life;
+            live.thrower        = {};
+            live.clearOfThrower = snap.clearOfThrower;
+            m_live.push_back(std::move(live));
+        }
     }
 
     bool beginThrowableThrow(ThrowableFlights& flights, WeaponLoadout& loadout, ThrowableBelt& belt, const ThrowableLaunch& launch)

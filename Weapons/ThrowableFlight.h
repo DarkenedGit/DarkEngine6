@@ -84,6 +84,21 @@ namespace Dark
         bool           emittedWeaponHit  = false;
     };
 
+    // In-flight throw. Restoring one does not spawn a pickup.
+    struct ThrowableFlightSnapshot
+    {
+        std::string    itemId;
+        std::string    impactClip;
+        float          weight         = 0.0f;
+        float          throwDistance  = 0.0f;
+        Math::Vector3f position{};
+        Math::Vector3f velocity{};
+        float          gravity        = 0.0f;
+        float          age            = 0.0f;
+        float          life           = 0.0f;
+        bool           clearOfThrower = false;
+    };
+
     class ThrowableFlights
     {
     public:
@@ -97,12 +112,16 @@ namespace Dark
         const std::vector<ThrowableLanding>& landings() const;
         void                                 clearLandings();
         void                                 clear();
+        void                                 copyLive(std::vector<ThrowableFlightSnapshot>& out) const;
+        void                                 restoreLive(const std::vector<ThrowableFlightSnapshot>& snaps);
 
     private:
         struct Live
         {
             std::string    itemId;
             std::string    impactClip;
+            float          weight        = 0.0f;
+            float          throwDistance = 0.0f;
             Math::Vector3f position{};
             Math::Vector3f velocity{};
             float          gravity = 0.0f;

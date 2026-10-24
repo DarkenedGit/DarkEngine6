@@ -4,6 +4,8 @@
 #include "Combat/StatusDef.h"
 #include "Combat/StatusEffectComponent.h"
 #include "ECS/World.h"
+#include "Gameplay/ThrowableBelt.h"
+#include "Gameplay/ThrowableCatalog.h"
 #include "Save/SaveBinding.h"
 #include "Save/SaveJson.h"
 #include "Save/SaveTypes.h"
@@ -302,12 +304,53 @@ namespace Dark
             item.boolean("alive", shot.alive);
         }
 
+        constexpr int kMaxThrowCounts = 64;
+        constexpr int kMaxThrowFlights = 64;
+        constexpr int kMaxThrowCount = 1000000;
+
+        struct ThrowCountWrite
+        {
+            const std::vector<ThrowableCountRecord>* counts = nullptr;
+        };
+
+        void writeThrowCount(SaveWriter& item, int index, void* user)
+        {
+            const ThrowableCountRecord& row = (*static_cast<ThrowCountWrite*>(user)->counts)[static_cast<size_t>(index)];
+            item.string("id", row.id);
+            item.i32("count", row.count);
+        }
+
+        struct ThrowFlightWrite
+        {
+            const std::vector<ThrowableFlightSnapshot>* flights = nullptr;
+        };
+
+        void writeThrowFlight(SaveWriter& item, int index, void* user)
+        {
+            const ThrowableFlightSnapshot& flight = (*static_cast<ThrowFlightWrite*>(user)->flights)[static_cast<size_t>(index)];
+            item.string("id", flight.itemId);
+            item.string("clip", flight.impactClip);
+            item.f32("weight", flight.weight);
+            item.f32("distance", flight.throwDistance);
+            item.vec3("pos", flight.position);
+            item.vec3("vel", flight.velocity);
+            item.f32("gravity", flight.gravity);
+            item.f32("age", flight.age);
+            item.f32("life", flight.life);
+            item.boolean("cleared", flight.clearOfThrower);
+        }
+
         void captureLoadout(const void* component, void* writer)
         {
             const auto& loadout = *static_cast<const WeaponLoadoutComponent*>(component);
             auto&       out     = *static_cast<SaveWriter*>(writer);
             const int   slot    = loadout.loadout ? loadout.loadout->slot() : loadout.slot;
             out.i32("slot", slot);
+            ThrowCountWrite counts{ &loadout.throwCounts };
+            out.arrayObjects("counts", static_cast<int>(loadout.throwCounts.size()), &writeThrowCount, &counts);
+            out.string("hand", loadout.throwHand);
+            ThrowFlightWrite flights{ &loadout.throwFlights };
+            out.arrayObjects("flights", static_cast<int>(loadout.throwFlights.size()), &writeThrowFlight, &flights);
             if (!loadout.loadout)
                 return;
             out.f32("meleeCd", loadout.loadout->melee().cooldownLeft());
@@ -330,12 +373,54 @@ namespace Dark
             static_cast<ShotRead*>(user)->shots->push_back(shot);
         }
 
+        struct ThrowCountRead
+        {
+            std::vector<ThrowableCountRecord>* counts = nullptr;
+        };
+
+        void readThrowCount(SaveReader& item, int, void* user)
+        {
+            ThrowableCountRecord row;
+            int count = 0;
+            if (!item.string("id", row.id, Save::kMaxStringBytes) || !item.i32("count", count, 0, kMaxThrowCount))
+                return;
+            if (row.id.empty())
+                return;
+            row.count = count;
+            static_cast<ThrowCountRead*>(user)->counts->push_back(std::move(row));
+        }
+
+        struct ThrowFlightRead
+        {
+            std::vector<ThrowableFlightSnapshot>* flights = nullptr;
+        };
+
+        void readThrowFlight(SaveReader& item, int, void* user)
+        {
+            ThrowableFlightSnapshot flight;
+            if (!item.string("id", flight.itemId, Save::kMaxStringBytes) || !item.string("clip", flight.impactClip, Save::kMaxStringBytes) || !item.f32("weight", flight.weight, 0.0f, 1.0e6f) || !item.f32("distance", flight.throwDistance, 0.0f, Save::kMaxAbsPosition) || !item.vec3("pos", flight.position, Save::kMaxAbsPosition) || !item.vec3("vel", flight.velocity, Save::kMaxAbsPosition) || !item.f32("gravity", flight.gravity, 0.0f, 1.0e6f) || !item.f32("age", flight.age, 0.0f, Save::kMaxTimerSeconds) || !item.f32("life", flight.life, 0.0f, Save::kMaxTimerSeconds) || !item.boolean("cleared", flight.clearOfThrower))
+                return;
+            if (flight.itemId.empty())
+                return;
+            static_cast<ThrowFlightRead*>(user)->flights->push_back(std::move(flight));
+        }
+
+        bool anyThrowCount(const std::vector<ThrowableCountRecord>& counts)
+        {
+            for (const ThrowableCountRecord& row : counts)
+            {
+                if (row.count > 0)
+                    return true;
+            }
+            return false;
+        }
+
         void applyLoadout(void* component, void* reader, uint16_t)
         {
             auto& loadout = *static_cast<WeaponLoadoutComponent*>(component);
             auto& in      = *static_cast<SaveReader*>(reader);
             int slot = loadout.loadout ? loadout.loadout->slot() : loadout.slot;
-            if (!in.i32("slot", slot, 0, 1))
+            if (!in.i32("slot", slot, 0, 2))
                 return;
             float melee = loadout.loadout ? loadout.loadout->melee().cooldownLeft() : 0.0f;
             float projectile = loadout.loadout ? loadout.loadout->projectile().cooldownLeft() : 0.0f;
@@ -349,7 +434,31 @@ namespace Dark
                 if (!in.arrayObjects("shots", 64, shotCount, &readShot, &ctx))
                     return;
             }
+            std::vector<ThrowableCountRecord> counts;
+            std::string hand;
+            std::vector<ThrowableFlightSnapshot> flights;
+            ThrowCountRead countCtx{ &counts };
+            ThrowFlightRead flightCtx{ &flights };
+            int countRows = -1;
+            int flightRows = -1;
+            if (!in.arrayObjects("counts", kMaxThrowCounts, countRows, &readThrowCount, &countCtx))
+                return;
+            if (!in.string("hand", hand, Save::kMaxStringBytes))
+                return;
+            if (!in.arrayObjects("flights", kMaxThrowFlights, flightRows, &readThrowFlight, &flightCtx))
+                return;
+            (void)countRows;
+            (void)flightRows;
+            // A throwable selection with nothing carried is the sword. Do not leave the kind on throwable.
+            if (slot == 2 && !anyThrowCount(counts))
+            {
+                slot = 0;
+                hand.clear();
+            }
             loadout.slot = slot;
+            loadout.throwCounts = std::move(counts);
+            loadout.throwHand = std::move(hand);
+            loadout.throwFlights = std::move(flights);
             if (!loadout.loadout)
                 return;
             loadout.loadout->selectSlot(slot);
@@ -358,6 +467,57 @@ namespace Dark
             if (shotCount >= 0)
                 loadout.loadout->projectile().restoreShots(shots);
         }
+
+    void syncThrowableLoadout(World& world, Entity actor, ThrowableFlights& flights, ThrowableLoadoutSync dir)
+    {
+        if (!actor.valid() || !world.alive(actor))
+            return;
+        WeaponLoadoutComponent* wlc = world.get<WeaponLoadoutComponent>(actor);
+        if (!wlc)
+            return;
+
+        if (dir == ThrowableLoadoutSync::OntoRecord)
+        {
+            wlc->throwCounts.clear();
+            wlc->throwHand.clear();
+            if (const ThrowableBeltComponent* beltComp = world.get<ThrowableBeltComponent>(actor))
+            {
+                const ThrowableBelt& belt = beltComp->belt;
+                for (const ThrowableDef& item : throwableCatalog().items())
+                {
+                    const int n = belt.count(item.id);
+                    if (n <= 0)
+                        continue;
+                    ThrowableCountRecord row;
+                    row.id    = item.id;
+                    row.count = n;
+                    wlc->throwCounts.push_back(std::move(row));
+                }
+                wlc->throwHand.assign(belt.hand());
+            }
+            flights.copyLive(wlc->throwFlights);
+            return;
+        }
+
+        const bool wantBelt = !wlc->throwCounts.empty() || !wlc->throwHand.empty();
+        ThrowableBeltComponent* beltComp = world.get<ThrowableBeltComponent>(actor);
+        if (beltComp || wantBelt)
+        {
+            ThrowableBelt& belt = beltComp ? beltComp->belt : throwableBelt(world, actor);
+            for (const ThrowableDef& item : throwableCatalog().items())
+                belt.setCount(item.id, 0);
+            for (const ThrowableCountRecord& row : wlc->throwCounts)
+            {
+                if (row.count <= 0)
+                    continue;
+                belt.setCount(row.id, row.count);
+            }
+            belt.setHand("");
+            if (!wlc->throwHand.empty())
+                belt.setHand(wlc->throwHand);
+        }
+        flights.restoreLive(wlc->throwFlights);
+    }
 
     const PersistFns Combat::DefenseComponent::kPersist{ "Defense", Combat::DefenseComponent::kSaveVersion, 100, nullptr, captureDefense, applyDefense, nullptr };
     const PersistFns Combat::PoiseComponent::kPersist{ "Poise", Combat::PoiseComponent::kSaveVersion, 100, nullptr, capturePoise, applyPoise, nullptr };

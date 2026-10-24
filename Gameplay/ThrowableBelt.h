@@ -34,6 +34,8 @@ namespace Dark
         bool             setHand(std::string_view id);
         // +1 when id is in the catalog. Does not change hand(). Returns the new count, or 0 if unknown.
         int              add(std::string_view id);
+        // Exact count for a catalog id. Zero removes the row. Unknown ids are refused.
+        bool             setCount(std::string_view id, int count);
         // -1 when the count is above zero. Returns the count left, or -1 if nothing was spent.
         int              consume(std::string_view id);
 
