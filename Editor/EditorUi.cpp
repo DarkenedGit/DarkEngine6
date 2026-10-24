@@ -34,6 +34,7 @@
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
 #include "Character/HealthComponent.h"
+#include "Character/ThrowableView.h"
 #include "Character/SkillXp.h"
 #include "Combat/JumpAttackComponent.h"
 #include "Combat/StatusDot.h"
@@ -1078,6 +1079,8 @@ void EditorApp::onUpdate(float dt)
             }
         });
         tickAnimGraphs(world(), assets(), dt);
+        if (m_playMode)
+            syncThrowableHands(world(), pins(), assets(), renderer());
     }
 
     tickParticleEmitters(world(), dt);

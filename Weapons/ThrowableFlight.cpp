@@ -347,6 +347,13 @@ namespace Dark
         return true;
     }
 
+    std::string_view ThrowableFlights::liveItemId(int index) const
+    {
+        if (index < 0 || index >= static_cast<int>(m_live.size()))
+            return {};
+        return m_live[static_cast<size_t>(index)].itemId;
+    }
+
     const std::vector<ThrowableLanding>& ThrowableFlights::landings() const
     {
         return m_landings;

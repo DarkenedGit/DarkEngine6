@@ -26,6 +26,7 @@
 #include "Character/HitReaction.h"
 #include "Character/PlayerMotorComponent.h"
 #include "Character/ShieldView.h"
+#include "Character/ThrowableView.h"
 #include "Character/SkillComponent.h"
 #include "Character/SkillSense.h"
 #include "Character/SkillXp.h"
@@ -386,6 +387,7 @@ void EditorApp::setPlayMode(bool play)
         m_fireQuick   = false;
         m_fireCharged = false;
         m_throwFlights.clear();
+        clearThrowablePlayVisuals(world(), pins());
         m_playMode   = false;
         m_playPlayer = {};
         if (m_physics.valid())
@@ -631,7 +633,10 @@ bool EditorApp::releaseThrowable(bool charged)
 void EditorApp::tickThrowableFlights(float dt)
 {
     if (m_throwFlights.liveCount() == 0 && m_throwFlights.landings().empty())
+    {
+        syncThrowableFlightVisuals(world(), pins(), assets(), renderer(), m_throwFlights);
         return;
+    }
     if (m_throwFlights.liveCount() > 0)
     {
         WeaponTargetList bodies;
@@ -678,6 +683,7 @@ void EditorApp::tickThrowableFlights(float dt)
         }
     }
     m_throwFlights.clearLandings();
+    syncThrowableFlightVisuals(world(), pins(), assets(), renderer(), m_throwFlights);
 }
 
 bool EditorApp::firePlayLoadout(bool charged)

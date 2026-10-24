@@ -70,6 +70,7 @@
 #include "Character/ArmorView.h"
 #include "Character/ItemView.h"
 #include "Character/SwordView.h"
+#include "Character/ThrowableView.h"
 #include "Combat/ArmorComponent.h"
 #include "Gameplay/Inventory.h"
 #include "Gameplay/ThrowableBelt.h"
@@ -2691,7 +2692,10 @@ bool SandboxApp::releaseThrowable(bool charged)
 void SandboxApp::tickThrowableFlights(float dt)
 {
     if (m_throwFlights.liveCount() == 0 && m_throwFlights.landings().empty())
+    {
+        syncThrowableFlightVisuals(world(), pins(), assets(), renderer(), m_throwFlights);
         return;
+    }
     if (m_throwFlights.liveCount() > 0)
     {
         WeaponTargetList bodies;
@@ -2737,6 +2741,7 @@ void SandboxApp::tickThrowableFlights(float dt)
         }
     }
     m_throwFlights.clearLandings();
+    syncThrowableFlightVisuals(world(), pins(), assets(), renderer(), m_throwFlights);
 }
 
 bool SandboxApp::firePossessedLoadout(bool charged)
@@ -4495,6 +4500,7 @@ void SandboxApp::onUpdate(float dt)
         if (SwordComponent* sword = possessedBody().valid() ? world().get<SwordComponent>(possessedBody()) : nullptr)
             sword->shown = localWeapons() && localWeapons()->activeKind() == WeaponKind::Melee && ownsWeapon(WeaponKind::Melee);
         syncSwordVisuals(world());
+        syncThrowableHands(world(), pins(), assets(), renderer());
         m_stepGameplay = false;
     }
     m_save.service(world());

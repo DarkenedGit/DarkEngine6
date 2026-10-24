@@ -90,8 +90,9 @@ namespace Dark
         bool launch(const ThrowableLaunch& launch);
         void tick(float dt, const ThrowableWorld& world);
 
-        int  liveCount() const;
-        bool livePosition(int index, Math::Vector3f& out) const;
+        int              liveCount() const;
+        bool             livePosition(int index, Math::Vector3f& out) const;
+        std::string_view liveItemId(int index) const;
 
         const std::vector<ThrowableLanding>& landings() const;
         void                                 clearLandings();

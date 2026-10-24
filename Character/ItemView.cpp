@@ -1,9 +1,11 @@
 #include "Character/ItemView.h"
 #include "Assets/AssetManager.h"
 #include "Assets/Model.h"
+#include "Character/ThrowableView.h"
 #include "Core/EntityPins.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
+#include "Gameplay/ThrowableCatalog.h"
 #include "Physics/PhysicsBind.h"
 #include "Physics/PhysicsComponent.h"
 #include "Physics/PhysicsWorld.h"
@@ -17,6 +19,36 @@ namespace Dark
     {
         if (item.empty())
             return {};
+
+        // Catalog throwables draw their authored model. A missing mesh still leaves the pickup,
+        // so the landing is not dropped because the art failed. Other items stay on the cube.
+        if (item.def && throwableCatalog().find(item.def->id) != nullptr)
+        {
+            const Entity e = world.createEntity();
+            world.emplace<TransformComponent>(e, position, Math::Quaternion::IDENTITY, Math::Vector3f{ 0.3f, 0.3f, 0.3f });
+            world.emplace<ItemPickupComponent>(e, ItemPickupComponent{ item });
+            const std::string path   = throwableVisualModelPath(item.def->id);
+            const bool        meshed = attachThrowableMesh(world, pins, assets, renderer, e, path, false);
+            if (physics.valid())
+            {
+                PhysicsComponent phys;
+                phys.mode  = PhysicsBodyMode::Dynamic;
+                phys.shape = meshed ? PhysicsShapeKind::Model : PhysicsShapeKind::Box;
+                world.emplace<PhysicsComponent>(e, phys);
+                const Model*    model = nullptr;
+                AssetRef<Model> held;
+                if (meshed)
+                {
+                    if (const ModelComponent* mc = world.get<ModelComponent>(e))
+                        held = assets.getAs<Model>(mc->modelAssetID);
+                    model = held.get();
+                }
+                if (Physics::bindPhysicsEntity(physics, world, e, model))
+                    physics.setBodyVelocity(physics.bodyOf(e), velocity, Math::Vector3f{});
+            }
+            return e;
+        }
+
         AssetRef<Model> cube = loadAndUploadModel(renderer, assets, "models/unit_cube.gltf");
         if (!cube)
             return {};
