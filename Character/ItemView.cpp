@@ -44,7 +44,7 @@ namespace Dark
                     model = held.get();
                 }
                 if (Physics::bindPhysicsEntity(physics, world, e, model))
-                    physics.setBodyVelocity(physics.bodyOf(e), velocity, Math::Vector3f{});
+                    physics.setBodyVelocity(physics.bodyOf(e), velocity, Math::Vector3f::ZERO);
             }
             return e;
         }
@@ -68,7 +68,7 @@ namespace Dark
             phys.shape = PhysicsShapeKind::Box;
             world.emplace<PhysicsComponent>(e, phys);
             if (Physics::bindPhysicsEntity(physics, world, e))
-                physics.setBodyVelocity(physics.bodyOf(e), velocity, Math::Vector3f{});
+                physics.setBodyVelocity(physics.bodyOf(e), velocity, Math::Vector3f::ZERO);
         }
         return e;
     }

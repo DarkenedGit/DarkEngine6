@@ -30,7 +30,7 @@ namespace Dark
             const ItemDef* def = throwablePickupDef(id);
             if (!def)
                 return {};
-            return spawnItemPickup(world, pins, assets, renderer, physics, ItemStack{ def, 1 }, position, Math::Vector3f{});
+            return spawnItemPickup(world, pins, assets, renderer, physics, ItemStack{ def, 1 }, position, Math::Vector3f::ZERO);
         }
 
         void warnIfSpawnFailed(Entity spawned, std::string_view id)

@@ -38,6 +38,7 @@
 #include "Render/MeshGen.h"
 #include "Render/ScenePath.h"
 #include "Render/Fog.h"
+#include "Render/Underwater.h"
 #include "Render/PbrLighting.h"
 #include "Render/ModelDraw.h"
 #include "Render/PassTable.h"
@@ -1891,6 +1892,7 @@ void SandboxApp::respawnPlayer()
     }
     m_playerWet         = false;
     m_playerSubmerged   = false;
+    m_underAmount       = 0.0f;
     m_nightSightOn      = false;
     m_nightSight        = 0.0f;
     m_infraredOn        = false;
@@ -2732,7 +2734,7 @@ void SandboxApp::tickThrowableFlights(float dt)
         const ItemDef* def = throwablePickupDef(landing.itemId);
         if (!def)
             DE_LOG_WARN("Throwable: could not spawn '{}'", landing.itemId);
-        else if (!spawnItemPickup(world(), pins(), assets(), renderer(), m_physics, ItemStack{ def, 1 }, landing.position, Vector3f{}).valid())
+        else if (!spawnItemPickup(world(), pins(), assets(), renderer(), m_physics, ItemStack{ def, 1 }, landing.position, Vector3f::ZERO).valid())
             DE_LOG_WARN("Throwable: could not spawn '{}'", landing.itemId);
         if (!landing.impactClip.empty())
         {
@@ -3436,7 +3438,7 @@ void SandboxApp::updateShoulderCamera()
     const bool crouched = localMotor() && localMotor()->state() == PlayerMoveState::Crouch;
     const bool surface  = m_playerWet && localMotor() && localMotor()->depth() < 0.25f;
     const ShoulderView view = solveShoulderCamera(xf->position, m_lookYaw, m_lookPitch, crouched, m_shake, m_shakeTime, surface, m_water.params().waterLevel, &shoulderTerrainRay, &m_terrain);
-    m_cameraUnderwater = m_playerWet && view.eye.y < m_water.params().waterLevel;
+    m_underAmount = underwaterAmount(m_playerWet, view.eye.y, m_water.params().waterLevel);
 
     m_viewCamera.SetLens(1.04719755f, m_viewCamera.GetAspect(), m_viewCamera.GetNearZ(), m_viewCamera.GetFarZ());
     m_viewCamera.LookAt(view.eye, view.aim, Vector3f{ 0.0f, 1.0f, 0.0f });
@@ -4915,6 +4917,8 @@ void SandboxApp::onRender()
     }
 
     const bool deferred = renderer().scenePath() == ScenePath::HybridDeferred;
+    const bool visionPicture = m_infrared > 0.0f || m_ultraviolet > 0.0f || m_echo > 0.0f;
+    const float underDraw = (deferred && !visionPicture) ? Math::Clamp(m_underAmount, 0.0f, 1.0f) : 0.0f;
     const bool instanceColor = instanceStatic && deferred;
     const bool instanceForward = instanceStatic && !deferred && m_drawList.forwardReady();
     const Matrix4f viewProjEarly = m_scene.beginCameraFrame(m_viewCamera, renderer());
@@ -4959,7 +4963,7 @@ void SandboxApp::onRender()
     uint32_t        meshDraws = 0;
 
     const float skyExposure = deferred ? 1.0f : m_env.exposure();
-    const float fogScale    = renderer().debugState().lightingActive() ? 1.0f : 0.0f;
+    const float fogScale    = (renderer().debugState().lightingActive() ? 1.0f : 0.0f) * (1.0f - underDraw);
     const float ultraviolet = (deferred && m_ultraviolet > 0.0f) ? m_ultraviolet : 0.0f;
     const float thermal     = (deferred && !(m_ultraviolet > 0.0f)) ? m_infrared : 0.0f;
     m_skyPipeline.upload(renderer().frameIndex(), m_viewCamera, m_env, skyExposure, m_water.params().waterLevel, fogScale, thermal, ultraviolet);
@@ -5168,6 +5172,10 @@ void SandboxApp::onRender()
         lc.ambientColor[1]  = m_env.ambientColor().y;
         lc.ambientColor[2]  = m_env.ambientColor().z;
         FogGpu fog = makeFogGpu(&m_env, m_water.params().waterLevel, lc.lighting > 0.5f);
+        const float air = 1.0f - underDraw;
+        fog.fogDensity *= air;
+        fog.heightFogDensity *= air;
+        fog.volumetricFogDensity *= air;
         fillFogHeightMap(fog, &m_terrain.coarse());
         applyFogToLighting(lc, fog);
         fillIblLightingConstants(lc, m_ibl, renderer().debugState().iblEnabled, renderer().debugState().iblDebug, iblGpuReady(renderer().gpuResources(), m_iblImageId));
@@ -5410,7 +5418,8 @@ void SandboxApp::onRender()
                 waterSsr,
                 drawIndex,
                 thermal,
-                ultraviolet);
+                ultraviolet,
+                underDraw);
             drawIndex = 1;
         }
         for (const SandboxStream& stream : m_streams)
@@ -5572,6 +5581,42 @@ void SandboxApp::onRender()
     if (!deferredDecals())
         m_bloodSplats.draw(cmd, m_viewCamera);
 
+    if (underDraw > 0.0f && renderer().hasSceneBuffers() && m_scene.underwater().isValid())
+    {
+        markPass(PassId::Underwater);
+        UnderwaterFrame under{};
+        copyMatrix(under.invViewProj, viewProj.Inverse());
+        under.cameraPos[0] = camPos.x;
+        under.cameraPos[1] = camPos.y;
+        under.cameraPos[2] = camPos.z;
+        under.waterLevel   = m_water.params().waterLevel;
+        under.amount       = underDraw;
+        m_scene.underwater().draw(cmd, renderer(), under);
+        renderer().bindHdr(true);
+        m_water.draw(
+            cmd,
+            m_waterPipeline,
+            m_viewCamera,
+            &frustum,
+            &m_env,
+            &renderer().debugState(),
+            waterLightsVa,
+            waterLightCount,
+            waterIndex,
+            renderer().frameIndex(),
+            heightHeap,
+            heightGpu,
+            &m_shadows,
+            waterSceneColor,
+            waterDepth,
+            waterSsr,
+            0,
+            thermal,
+            ultraviolet,
+            underDraw,
+            true);
+    }
+
     {
         const bool aces = useAcesTonemap(renderer());
         TonemapSettings post = playerPostFx();
@@ -5585,8 +5630,8 @@ void SandboxApp::onRender()
             // Resize drops the 1×1. Zero the correction before this frame can apply a stale sample.
             if (m_scene.syncAutoExposureSize(renderer()))
                 resetAutoExposure(m_autoExposureState);
-            // Infrared, ultraviolet, and echolocation swing the meter. Hold the correction while any is on.
-            const bool holdExposure = m_infrared > 0.0f || m_ultraviolet > 0.0f || m_echo > 0.0f;
+            // Infrared, ultraviolet, echolocation, and the underwater column swing the meter. Hold the correction while any is on.
+            const bool holdExposure = m_infrared > 0.0f || m_ultraviolet > 0.0f || m_echo > 0.0f || m_underAmount > 0.0f;
             const float measured = (m_autoExposure.mode == ExposureMode::Auto && !holdExposure)
                 ? m_scene.autoExposure().readMeasuredLuma(renderer().frameIndex())
                 : 0.0f;
@@ -5633,7 +5678,7 @@ void SandboxApp::onRender()
                 echo.composite(cmd, renderer(), comp);
             }
         }
-        const bool holdExposure = m_infrared > 0.0f || m_ultraviolet > 0.0f || m_echo > 0.0f;
+        const bool holdExposure = m_infrared > 0.0f || m_ultraviolet > 0.0f || m_echo > 0.0f || m_underAmount > 0.0f;
         m_scene.applyPost(renderer(), cmd, viewProj, post, deferredMeter && m_autoExposure.mode == ExposureMode::Auto && !holdExposure, m_echo > 0.0f);
     }
 

@@ -31,7 +31,7 @@ namespace Dark
         bool                   sensor     = false;
         bool                   valid      = false;
         Math::Vector3f         bakedScale{1.0f, 1.0f, 1.0f};
-        Math::Vector3f         linearVelocity{};
-        Math::Vector3f         angularVelocity{};
+        Math::Vector3f         linearVelocity = Math::Vector3f::ZERO;
+        Math::Vector3f         angularVelocity = Math::Vector3f::ZERO;
     };
 } // namespace Dark

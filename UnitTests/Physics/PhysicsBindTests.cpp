@@ -80,6 +80,30 @@ TEST(PhysicsBind, CreateBodyWritesComponent)
     EXPECT_TRUE(NearEqual(pos.x, 3.0f) && NearEqual(pos.y, 4.0f) && NearEqual(pos.z, 5.0f));
 }
 
+TEST(PhysicsBind, NewBodyStoresRestVelocity)
+{
+    PhysicsWorld phys;
+    PhysicsWorldDesc wdesc;
+    wdesc.enabled = true;
+    ASSERT_TRUE(phys.create(wdesc));
+
+    CollisionShape shape;
+    ASSERT_TRUE(cookCube(shape, Vector3f(1.0f, 1.0f, 1.0f)));
+
+    World ecs;
+    Entity e = spawnWithTransform(ecs, Vector3f(0.0f, 1.0f, 0.0f));
+
+    PhysicsBodyDesc bdesc;
+    bdesc.mode  = PhysicsBodyMode::Dynamic;
+    bdesc.shape = &shape;
+    ASSERT_TRUE(phys.createBody(ecs, e, bdesc));
+
+    const PhysicsBodyComponent* c = ecs.get<PhysicsBodyComponent>(e);
+    ASSERT_NE(c, nullptr);
+    EXPECT_TRUE(NearEqual(c->linearVelocity.x, 0.0f) && NearEqual(c->linearVelocity.y, 0.0f) && NearEqual(c->linearVelocity.z, 0.0f));
+    EXPECT_TRUE(NearEqual(c->angularVelocity.x, 0.0f) && NearEqual(c->angularVelocity.y, 0.0f) && NearEqual(c->angularVelocity.z, 0.0f));
+}
+
 TEST(PhysicsBind, MissingTransformFails)
 {
     PhysicsWorld phys;

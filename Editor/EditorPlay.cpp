@@ -688,7 +688,7 @@ void EditorApp::tickThrowableFlights(float dt)
         const ItemDef* def = throwablePickupDef(landing.itemId);
         if (!def)
             DE_LOG_WARN("Throwable: could not spawn '{}'", landing.itemId);
-        else if (!spawnItemPickup(world(), pins(), assets(), renderer(), m_physics, ItemStack{ def, 1 }, landing.position, Vector3f{}).valid())
+        else if (!spawnItemPickup(world(), pins(), assets(), renderer(), m_physics, ItemStack{ def, 1 }, landing.position, Vector3f::ZERO).valid())
             DE_LOG_WARN("Throwable: could not spawn '{}'", landing.itemId);
         if (!landing.impactClip.empty())
         {
