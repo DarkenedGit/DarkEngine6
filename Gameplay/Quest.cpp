@@ -1,5 +1,6 @@
 #include "Gameplay/Quest.h"
 
+#include "Core/Json.h"
 #include "third_party/nlohmann/json.hpp"
 
 #include <algorithm>
@@ -33,6 +34,7 @@ namespace Dark
                 return false;
             return true;
         }
+
     } // namespace
 
     std::string questVirtualPath(std::string_view id)
@@ -46,10 +48,14 @@ namespace Dark
         if (root.is_discarded() || !root.is_object())
             return fail(error, "not a JSON object");
         QuestDef def;
-        def.id          = root.value("id", std::string());
-        def.title       = root.value("title", def.id);
-        def.description = root.value("description", std::string());
-        def.sequential  = root.value("sequential", true);
+        if (!jsonStringOr(root, "id", def.id, std::string(), "Quest", error))
+            return false;
+        if (!jsonStringOr(root, "title", def.title, def.id, "Quest", error))
+            return false;
+        if (!jsonStringOr(root, "description", def.description, std::string(), "Quest", error))
+            return false;
+        if (!jsonBoolOr(root, "sequential", def.sequential, true, "Quest", error))
+            return false;
         if (def.id.empty())
             return fail(error, "missing \"id\"");
         if (!root.contains("objectives") || !root["objectives"].is_array() || root["objectives"].empty())
@@ -59,13 +65,22 @@ namespace Dark
             if (!jo.is_object())
                 return fail(error, "objective is not an object");
             ObjectiveDef o;
-            o.id       = jo.value("id", std::string());
-            o.text     = jo.value("text", o.id);
-            o.count    = jo.value("count", 1);
-            o.optional = jo.value("optional", false);
-            if (!parseType(jo.value("type", std::string()), o.type))
+            if (!jsonStringOr(jo, "id", o.id, std::string(), "Quest", error))
+                return false;
+            if (!jsonStringOr(jo, "text", o.text, o.id, "Quest", error))
+                return false;
+            if (!jsonIntOr(jo, "count", o.count, 1, "Quest", error))
+                return false;
+            if (!jsonBoolOr(jo, "optional", o.optional, false, "Quest", error))
+                return false;
+            std::string typeName;
+            if (!jsonStringOr(jo, "type", typeName, std::string(), "Quest", error))
+                return false;
+            if (!parseType(typeName, o.type))
                 return fail(error, "objective '" + o.id + "' needs \"type\": reach, collect or event");
-            o.target = jo.value(o.type == ObjectiveType::Collect ? "item" : (o.type == ObjectiveType::Reach ? "zone" : "event"), std::string());
+            const char* targetKey = o.type == ObjectiveType::Collect ? "item" : (o.type == ObjectiveType::Reach ? "zone" : "event");
+            if (!jsonStringOr(jo, targetKey, o.target, std::string(), "Quest", error))
+                return false;
             if (o.target.empty())
                 return fail(error, "objective '" + o.id + "' has no target");
             if (o.count < 1)
@@ -79,8 +94,10 @@ namespace Dark
                 if (!jr.is_object())
                     continue;
                 QuestReward r;
-                r.item  = jr.value("item", std::string());
-                r.count = jr.value("count", 1);
+                if (!jsonStringOr(jr, "item", r.item, std::string(), "Quest", error))
+                    return false;
+                if (!jsonIntOr(jr, "count", r.count, 1, "Quest", error))
+                    return false;
                 if (!r.item.empty() && r.count > 0)
                     def.rewards.push_back(std::move(r));
             }

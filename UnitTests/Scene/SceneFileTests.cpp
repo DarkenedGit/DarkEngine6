@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Core/ContentRoots.h"
+#include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Math/MathDefines.h"
 #include "Scene/SceneFile.h"
@@ -11,6 +12,8 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <string>
+#include <vector>
 
 using namespace Dark;
 using namespace Dark::Math;
@@ -2207,4 +2210,101 @@ TEST(SceneFile, StealthSettingsRoundTrip)
     std::filesystem::remove(path, ecRemove);
     std::filesystem::remove(badPath, ecRemove);
     std::filesystem::remove(roundPath, ecRemove);
+}
+
+namespace
+{
+    std::vector<std::string>* g_sceneLogs = nullptr;
+
+    void captureSceneLog(LogLevel, LogCategory, const char* message)
+    {
+        if (g_sceneLogs != nullptr && message != nullptr)
+            g_sceneLogs->push_back(message);
+    }
+} // namespace
+
+TEST(SceneFile, QuestTagsWrongTypeLogsAndKeepsDefaults)
+{
+    const auto goodPath = tempScenePath("darkengine6_scene_quest_tags_ut.json");
+    {
+        std::ofstream out(goodPath, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "quest_tags",
+  "quest": "north_lab",
+  "objects": [
+    { "type": "cube", "conceal": true, "goal": true, "circuit": "power", "zone": "gate", "pickup": "rock", "pickupCount": 3 }
+  ]
+})";
+    }
+
+    SceneFileData good{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(goodPath, good, &err)) << err;
+    EXPECT_EQ(good.quest, "north_lab");
+    ASSERT_EQ(good.objects.size(), 1u);
+    EXPECT_TRUE(good.objects[0].conceal);
+    EXPECT_TRUE(good.objects[0].goal);
+    EXPECT_EQ(good.objects[0].circuit, "power");
+    EXPECT_EQ(good.objects[0].zone, "gate");
+    EXPECT_EQ(good.objects[0].pickup, "rock");
+    EXPECT_EQ(good.objects[0].pickupCount, 3);
+
+    const auto badPath = tempScenePath("darkengine6_scene_quest_tags_bad_ut.json");
+    {
+        std::ofstream out(badPath, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "quest_tags_bad",
+  "quest": 12,
+  "objects": [
+    { "type": "cube", "conceal": "yes", "goal": 1, "circuit": true, "zone": 4, "pickup": false, "pickupCount": "two" }
+  ]
+})";
+    }
+
+    std::vector<std::string> logs;
+    g_sceneLogs = &logs;
+    Log::setCapture(&captureSceneLog);
+    struct ClearCapture
+    {
+        ~ClearCapture()
+        {
+            Log::setCapture(nullptr);
+            g_sceneLogs = nullptr;
+        }
+    } clearCapture;
+
+    SceneFileData bad{};
+    ASSERT_TRUE(loadSceneFromJson(badPath, bad, &err)) << err;
+    EXPECT_TRUE(bad.quest.empty());
+    ASSERT_EQ(bad.objects.size(), 1u);
+    EXPECT_FALSE(bad.objects[0].conceal);
+    EXPECT_FALSE(bad.objects[0].goal);
+    EXPECT_TRUE(bad.objects[0].circuit.empty());
+    EXPECT_TRUE(bad.objects[0].zone.empty());
+    EXPECT_TRUE(bad.objects[0].pickup.empty());
+    EXPECT_EQ(bad.objects[0].pickupCount, 1);
+
+    auto logged = [&logs](const char* key) {
+        for (const std::string& line : logs)
+        {
+            if (line.find(key) != std::string::npos)
+                return true;
+        }
+        return false;
+    };
+    EXPECT_TRUE(logged("\"quest\""));
+    EXPECT_TRUE(logged("\"conceal\""));
+    EXPECT_TRUE(logged("\"goal\""));
+    EXPECT_TRUE(logged("\"circuit\""));
+    EXPECT_TRUE(logged("\"zone\""));
+    EXPECT_TRUE(logged("\"pickup\""));
+    EXPECT_TRUE(logged("\"pickupCount\""));
+
+    std::error_code ecRemove;
+    std::filesystem::remove(goodPath, ecRemove);
+    std::filesystem::remove(badPath, ecRemove);
 }

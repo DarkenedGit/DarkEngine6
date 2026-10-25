@@ -1,7 +1,11 @@
 #include "Core/ContentRoots.h"
+#include "Core/Log.h"
 #include "Gameplay/Quest.h"
 
 #include <gtest/gtest.h>
+
+#include <string>
+#include <vector>
 
 using namespace Dark;
 
@@ -51,6 +55,54 @@ TEST(Quest, RejectsBadJson)
     EXPECT_FALSE(parseQuest(R"({ "id": "x", "objectives": [] })", def, &error));
     EXPECT_FALSE(parseQuest(R"({ "id": "x", "objectives": [ { "id": "a", "type": "fly", "zone": "z" } ] })", def, &error));
     EXPECT_FALSE(error.empty());
+}
+
+namespace
+{
+    std::vector<std::string>* g_questLogs = nullptr;
+
+    void captureQuestLog(LogLevel, LogCategory, const char* message)
+    {
+        if (g_questLogs != nullptr && message != nullptr)
+            g_questLogs->push_back(message);
+    }
+} // namespace
+
+TEST(Quest, WrongFieldTypeLogsAndLeavesDefUnchanged)
+{
+    QuestDef    def;
+    def.id = "keep";
+    std::string error;
+    std::vector<std::string> logs;
+    g_questLogs = &logs;
+    Log::setCapture(&captureQuestLog);
+    struct ClearCapture
+    {
+        ~ClearCapture()
+        {
+            Log::setCapture(nullptr);
+            g_questLogs = nullptr;
+        }
+    } clearCapture;
+
+    EXPECT_FALSE(parseQuest(R"({ "id": "x", "sequential": "yes", "objectives": [ { "id": "a", "type": "reach", "zone": "z" } ] })", def, &error));
+    EXPECT_NE(error.find("sequential"), std::string::npos);
+    EXPECT_NE(error.find("bool"), std::string::npos);
+    EXPECT_EQ(def.id, "keep");
+    ASSERT_FALSE(logs.empty());
+    EXPECT_NE(logs.back().find("sequential"), std::string::npos);
+
+    logs.clear();
+    EXPECT_FALSE(parseQuest(R"({ "id": 4, "objectives": [ { "id": "a", "type": "reach", "zone": "z" } ] })", def, &error));
+    EXPECT_NE(error.find("\"id\""), std::string::npos);
+    EXPECT_EQ(def.id, "keep");
+
+    EXPECT_FALSE(parseQuest(R"({ "id": "x", "objectives": [ { "id": "a", "type": "collect", "item": "rock", "count": "3" } ] })", def, &error));
+    EXPECT_NE(error.find("count"), std::string::npos);
+    EXPECT_EQ(def.id, "keep");
+
+    EXPECT_FALSE(parseQuest(R"({ "id": "x", "objectives": [ { "id": "a", "type": 1, "zone": "z" } ] })", def, &error));
+    EXPECT_NE(error.find("type"), std::string::npos);
 }
 
 TEST(Quest, ObjectivesOpenInOrderAndOptionalDoesNotBlock)

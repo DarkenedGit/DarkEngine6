@@ -1,5 +1,6 @@
 #include "Scene/SceneFile.h"
 #include "Core/ContentRoots.h"
+#include "Core/Json.h"
 #include "Core/Log.h"
 #include "Math/MathDefines.h"
 #include "Math/MathHelper.h"
@@ -661,7 +662,7 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
 
     outScene.version = root.value("version", 1);
     outScene.name    = root.value("name", std::string("untitled"));
-    outScene.quest   = root.value("quest", std::string());
+    jsonStringOr(root, "quest", outScene.quest, std::string(), "SceneFile");
     const std::string modeStr = root.value("mode", std::string("3d"));
     if (!tryParseSceneMode(modeStr, outScene.mode))
         outScene.mode = SceneMode::Scene3D;
@@ -1135,12 +1136,12 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             o.hasCloud = true;
         }
 
-        o.conceal = jo.value("conceal", false);
-        o.goal    = jo.value("goal", false);
-        o.circuit = jo.value("circuit", std::string());
-        o.zone    = jo.value("zone", std::string());
-        o.pickup  = jo.value("pickup", std::string());
-        o.pickupCount = jo.value("pickupCount", 1);
+        jsonBoolOr(jo, "conceal", o.conceal, false, "SceneFile");
+        jsonBoolOr(jo, "goal", o.goal, false, "SceneFile");
+        jsonStringOr(jo, "circuit", o.circuit, std::string(), "SceneFile");
+        jsonStringOr(jo, "zone", o.zone, std::string(), "SceneFile");
+        jsonStringOr(jo, "pickup", o.pickup, std::string(), "SceneFile");
+        jsonIntOr(jo, "pickupCount", o.pickupCount, 1, "SceneFile");
         if (jo.contains("patrol") && jo["patrol"].is_array())
         {
             for (const json& p : jo["patrol"])
