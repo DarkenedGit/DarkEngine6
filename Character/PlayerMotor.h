@@ -18,6 +18,16 @@ namespace Dark
         Hang,
     };
 
+    // How a swimmer is presented. None covers dry ground and a wadable bed.
+    enum class SwimPosture : uint8_t
+    {
+        None = 0,
+        Diving,
+        Horizontal,
+        Treading,
+        Standing,
+    };
+
     enum class MoveCardinal : uint8_t
     {
         None = 0,
@@ -50,8 +60,15 @@ namespace Dark
         float stepDown            = 0.55f;
         float groundOffset        = 0.5f;
         float swimOffset          = 0.35f;
-        float enterWaterDepth     = 0.25f;
-        float leaveWaterHeight    = 0.35f;
+        float swimDepth           = 1.0f;  // still column deeper than this starts a swim
+        float swimHipDrop         = 0.05f; // horizontal hips under the still level
+        float treadHipDrop        = 0.20f; // upright tread, chest in the water
+        float diveSeconds         = 0.45f;
+        float standSeconds        = 0.50f;
+        float strokeBlendSeconds  = 0.20f;
+        float swimWish            = 0.20f; // planar wish past this keeps the stroke flat
+        float enterWaterDepth     = 0.25f; // unused; swimDepth is the column test
+        float leaveWaterHeight    = 0.35f; // unused; leaving swim is a column under swimDepth
         float wallReach           = 0.7f;
         float wallJumpUp          = 9.0f;
         float wallJumpOut         = 6.0f;
@@ -99,6 +116,7 @@ namespace Dark
         bool doubleJumped = false;
         bool landed       = false;  // airborne -> ground
         bool splashed     = false;  // entered water
+        bool stood        = false;  // left swim onto a wadable bed this tick
         bool dodged       = false;  // entered Dodge this tick
         bool climbed      = false;
         bool leapt        = false;
@@ -136,6 +154,9 @@ namespace Dark
         float                      depth() const { return m_depth; }
         float                      breath() const { return m_breath; }
         bool                       submerged() const { return m_state == PlayerMoveState::Swimming && m_depth >= m_settings.submergeDepth; }
+        SwimPosture                posture() const { return m_posture; }
+        float                      swimPose() const { return m_pose; } // 0 upright, 1 flat
+        bool                       swimPushing() const { return m_pushing; }
 
         void reset();
         void clearJumpBuffer();
@@ -168,8 +189,12 @@ namespace Dark
 
     private:
         float sampleGround(const PlayerGroundQuery& ground, float x, float z) const;
-        bool  terrainWet(float groundY, float waterY) const;
-        bool  terrainDry(float groundY, float waterY) const;
+        bool  columnDeep(float groundY, float waterY) const;
+        bool  columnShallow(float groundY, float waterY) const;
+        void  clearSwimPose();
+        void  beginStand(const Math::Vector3f& position);
+        void  swimFrame(Math::Vector3f& position, const PlayerMotorInput& in, float dt, const PlayerGroundQuery& ground, bool slide);
+        float standHeight(float feetY, float dt);
         void  moveHorizontal(Math::Vector3f& position, Math::Vector3f wish, float speed, float dt, float acceleration);
         void  applyAirControl(const Math::Vector3f& wish, float dt, float airControlScale);
         void  enterGrounded(Math::Vector3f& position, float groundY);
@@ -205,6 +230,14 @@ namespace Dark
         Math::Vector3f      m_wallDir{ 0.0f, 0.0f, 0.0f };
         float               m_depth          = 0.0f;
         float               m_breath         = 1.0f;
+        SwimPosture         m_posture        = SwimPosture::None;
+        float               m_pose           = 0.0f;
+        float               m_diveLeft       = 0.0f;
+        float               m_diveFromY      = 0.0f;
+        float               m_standLeft      = 0.0f;
+        float               m_standFromY     = 0.0f;
+        float               m_standPose0     = 0.0f;
+        bool                m_pushing        = false;
     };
 
     // Planar speed in m/s. Non-positive acceleration snaps to desired so a missing tune keeps the old step.

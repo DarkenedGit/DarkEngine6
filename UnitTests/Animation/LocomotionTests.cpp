@@ -138,6 +138,45 @@ TEST(LocomotionGraph, HumanStrafeSelectsSideStep)
 	EXPECT_STREQ(graph.currentStateName(), "Idle");
 }
 
+TEST(LocomotionGraph, SwimDiveTreadAndStand)
+{
+	GltfCpuModel           cpu;
+	AssetRef<AnimationSet> set;
+	AnimGraphDef           def;
+	AnimGraphInstance      graph;
+	ASSERT_TRUE(bindGraph("models/human.gltf", "models/human.anim.json", cpu, set, def, graph));
+	graph.evaluate();
+	EXPECT_STREQ(graph.currentStateName(), "Idle");
+
+	graph.setBool("swimming", true);
+	graph.setBool("swimMove", true);
+	ASSERT_TRUE(graph.setTrigger("dive"));
+	graph.evaluate();
+	EXPECT_STREQ(graph.currentStateName(), "Dive");
+
+	AnimNotifyQueue notes;
+	graph.player().update(0.6f, notes);
+	graph.evaluate();
+	EXPECT_STREQ(graph.currentStateName(), "Swim");
+
+	graph.setBool("swimMove", false);
+	graph.evaluate();
+	EXPECT_STREQ(graph.currentStateName(), "Tread");
+
+	graph.setBool("swimMove", true);
+	graph.evaluate();
+	EXPECT_STREQ(graph.currentStateName(), "Swim");
+
+	graph.setBool("swimming", false);
+	graph.setFloat("speed", 0.0f);
+	ASSERT_TRUE(graph.setTrigger("standup"));
+	graph.evaluate();
+	EXPECT_STREQ(graph.currentStateName(), "StandUp");
+	graph.player().update(0.7f, notes);
+	graph.evaluate();
+	EXPECT_STREQ(graph.currentStateName(), "Idle");
+}
+
 TEST(LocomotionGraph, SkeletonDiesFromSideStep)
 {
 	GltfCpuModel           cpu;

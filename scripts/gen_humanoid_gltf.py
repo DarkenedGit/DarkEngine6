@@ -497,6 +497,65 @@ def make_clips(include_die: bool):
     bob = [(0.0, -0.20 + y, 0.06) for y in (0.0, 0.025, 0.0, 0.025, 0.0)]
     clips.append(( "CrouchWalk", wt, walk_c, {0: bob} ))
 
+    # Swim clips move the limbs only. The entity pitch lays the body flat.
+    def reach(a):
+        return q_axis(1, 0, 0, a)
+
+    dive_t = [0.0, 0.20, 0.45]
+    dive = {
+        5: [q_ident(), reach(0.55), reach(1.15)],
+        6: [q_ident(), reach(-0.20), reach(-0.45)],
+        8: [q_ident(), reach(0.55), reach(1.15)],
+        9: [q_ident(), reach(-0.20), reach(-0.45)],
+        11: [q_ident(), reach(0.30), reach(0.75)],
+        12: [q_ident(), reach(0.10), reach(0.30)],
+        14: [q_ident(), reach(0.30), reach(0.75)],
+        15: [q_ident(), reach(0.10), reach(0.30)],
+        1: [q_ident(), reach(0.08), reach(0.12)],
+    }
+    clips.append(clip_channels("Dive", dive_t, dive))
+
+    swim_t = [0.0, 0.16, 0.32, 0.48, 0.64]
+    swim = {
+        5: [reach(1.05), reach(0.35), reach(1.05), reach(1.35), reach(1.05)],
+        6: [reach(-0.50), reach(-0.15), reach(-0.70), reach(-0.20), reach(-0.50)],
+        8: [reach(0.35), reach(1.35), reach(0.35), reach(1.05), reach(0.35)],
+        9: [reach(-0.15), reach(-0.70), reach(-0.15), reach(-0.50), reach(-0.15)],
+        11: [reach(0.55), reach(0.85), reach(0.45), reach(0.75), reach(0.55)],
+        12: [reach(0.15), reach(0.45), reach(0.10), reach(0.35), reach(0.15)],
+        14: [reach(0.85), reach(0.45), reach(0.75), reach(0.55), reach(0.85)],
+        15: [reach(0.45), reach(0.10), reach(0.35), reach(0.15), reach(0.45)],
+    }
+    clips.append(clip_channels("Swim", swim_t, swim))
+
+    tread_t = [0.0, 0.35, 0.70, 1.05]
+    tread = {
+        5: [reach(0.35), reach(0.15), reach(0.45), reach(0.35)],
+        6: [reach(-0.55), reach(-0.25), reach(-0.70), reach(-0.55)],
+        8: [reach(0.35), reach(0.55), reach(0.20), reach(0.35)],
+        9: [reach(-0.55), reach(-0.75), reach(-0.30), reach(-0.55)],
+        11: [reach(0.85), reach(1.05), reach(0.70), reach(0.85)],
+        12: [reach(-1.15), reach(-0.85), reach(-1.25), reach(-1.15)],
+        14: [reach(0.85), reach(0.70), reach(1.05), reach(0.85)],
+        15: [reach(-1.15), reach(-1.25), reach(-0.85), reach(-1.15)],
+        1: [q_ident(), reach(0.06), q_ident(), reach(0.06)],
+    }
+    clips.append(clip_channels("Tread", tread_t, tread))
+
+    stand_t = [0.0, 0.22, 0.50]
+    stand = {
+        5: [reach(1.15), reach(0.40), q_ident()],
+        6: [reach(-0.45), reach(-0.15), q_ident()],
+        8: [reach(1.15), reach(0.40), q_ident()],
+        9: [reach(-0.45), reach(-0.15), q_ident()],
+        11: [reach(0.75), reach(0.25), q_ident()],
+        12: [reach(0.30), reach(0.08), q_ident()],
+        14: [reach(0.75), reach(0.25), q_ident()],
+        15: [reach(0.30), reach(0.08), q_ident()],
+        1: [reach(0.12), reach(0.04), q_ident()],
+    }
+    clips.append(clip_channels("StandUp", stand_t, stand))
+
     return clips
 
 

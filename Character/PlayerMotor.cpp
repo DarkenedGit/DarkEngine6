@@ -30,6 +30,7 @@ namespace Dark
         m_dodgeWish     = Vect3f::ZERO;
         m_depth         = 0.0f;
         m_breath        = 1.0f;
+        clearSwimPose();
     }
 
     void PlayerMotor::clearJumpBuffer()
@@ -50,14 +51,108 @@ namespace Dark
         return ground.heightAt(ground.user, x, z);
     }
 
-    bool PlayerMotor::terrainWet(float groundY, float waterY) const
+    bool PlayerMotor::columnDeep(float groundY, float waterY) const
     {
-        return groundY < waterY - m_settings.enterWaterDepth;
+        return (waterY - groundY) > m_settings.swimDepth;
     }
 
-    bool PlayerMotor::terrainDry(float groundY, float waterY) const
+    bool PlayerMotor::columnShallow(float groundY, float waterY) const
     {
-        return groundY > waterY + m_settings.leaveWaterHeight;
+        return (waterY - groundY) < m_settings.swimDepth;
+    }
+
+    void PlayerMotor::clearSwimPose()
+    {
+        m_posture    = SwimPosture::None;
+        m_pose       = 0.0f;
+        m_diveLeft   = 0.0f;
+        m_standLeft  = 0.0f;
+        m_pushing    = false;
+    }
+
+    void PlayerMotor::beginStand(const Vector3f& position)
+    {
+        m_standFromY = position.y;
+        m_standPose0 = m_pose;
+        m_standLeft  = m_settings.standSeconds;
+        m_posture    = SwimPosture::Standing;
+        m_state      = PlayerMoveState::Grounded;
+        m_depth      = 0.0f;
+        m_velocity.y = 0.0f;
+        m_diveLeft   = 0.0f;
+        m_pushing    = false;
+        m_airTime    = 0.0f;
+        m_coyote     = m_settings.coyoteTime;
+        m_didFirstJump  = false;
+        m_didDoubleJump = false;
+        m_pendingDouble = false;
+    }
+
+    void PlayerMotor::swimFrame(Vector3f& position, const PlayerMotorInput& in, float dt, const PlayerGroundQuery& ground, bool slide)
+    {
+        const float wishMag = Vector3f{ in.wish.x, 0.0f, in.wish.z }.Magnitude();
+        m_pushing           = wishMag >= m_settings.swimWish;
+
+        if (slide)
+        {
+            const float under     = m_depth >= m_settings.submergeDepth ? m_settings.underwaterSwimScale : 1.0f;
+            const float swimScale = clampSkill(in.swimScale, kSwimScaleMin, kSwimScaleMax);
+            const float speedScale = Math::Clamp(in.speedScale, 0.0f, 1.0f);
+            moveHorizontal(position, in.wish, m_settings.swimSpeed * swimScale * speedScale * under, dt, 0.0f);
+        }
+
+        if (m_diveLeft > 0.0f)
+        {
+            m_diveLeft -= dt;
+            if (m_diveLeft < 0.0f)
+                m_diveLeft = 0.0f;
+        }
+        if (m_diveLeft > 0.0f)
+        {
+            m_posture = SwimPosture::Diving;
+            const float dur = m_settings.diveSeconds > 0.05f ? m_settings.diveSeconds : 0.05f;
+            m_pose          = approachSpeed(m_pose, 1.0f, 1.0f / dur, dt);
+        }
+        else
+        {
+            m_posture       = m_pushing ? SwimPosture::Horizontal : SwimPosture::Treading;
+            const float dur = m_settings.strokeBlendSeconds > 0.05f ? m_settings.strokeBlendSeconds : 0.05f;
+            m_pose          = approachSpeed(m_pose, m_pushing ? 1.0f : 0.0f, 1.0f / dur, dt);
+        }
+        m_pose = Math::Clamp(m_pose, 0.0f, 1.0f);
+
+        const float groundY = sampleGround(ground, position.x, position.z);
+        const float rise    = in.crouch ? -m_settings.diveSpeed : (in.jumpHeld ? m_settings.surfaceSpeed : m_settings.floatSpeed);
+        const float drop    = m_settings.treadHipDrop + (m_settings.swimHipDrop - m_settings.treadHipDrop) * m_pose;
+        const float ceiling = ground.waterY - drop;
+        const float bed     = groundY + m_settings.groundOffset;
+        const float maxDepth = Math::Max(0.0f, ceiling - bed);
+        m_depth              = Math::Clamp(m_depth - rise * dt, 0.0f, maxDepth);
+        const float floatHip = ceiling - m_depth;
+        if (m_posture == SwimPosture::Diving)
+            position.y = m_diveFromY + (floatHip - m_diveFromY) * m_pose;
+        else
+            position.y = floatHip;
+        m_velocity.y = 0.0f;
+        m_jumpBuffer = 0.0f;
+    }
+
+    float PlayerMotor::standHeight(float feetY, float dt)
+    {
+        const float dur = m_settings.standSeconds > 0.05f ? m_settings.standSeconds : 0.05f;
+        m_standLeft -= dt;
+        float u = 1.0f - m_standLeft / dur;
+        if (u < 0.0f)
+            u = 0.0f;
+        if (m_standLeft <= 0.0f || u >= 1.0f)
+        {
+            m_posture   = SwimPosture::None;
+            m_pose      = 0.0f;
+            m_standLeft = 0.0f;
+            return feetY;
+        }
+        m_pose = m_standPose0 * (1.0f - u);
+        return m_standFromY + (feetY - m_standFromY) * u;
     }
 
     void PlayerMotor::moveHorizontal(Vector3f& position, Vector3f wish, float speed, float dt, float acceleration)
@@ -133,6 +228,7 @@ namespace Dark
 
     void PlayerMotor::enterGrounded(Vector3f& position, float groundY)
     {
+        clearSwimPose();
         m_state         = PlayerMoveState::Grounded;
         m_velocity.y    = 0.0f;
         position.y      = groundY + m_settings.groundOffset;
@@ -145,10 +241,15 @@ namespace Dark
 
     void PlayerMotor::enterSwim(Vector3f& position, float waterY)
     {
+        (void)waterY;
         m_state         = PlayerMoveState::Swimming;
         m_depth         = Math::Max(0.0f, -m_velocity.y * m_settings.plungeScale);
         m_velocity.y    = 0.0f;
-        position.y      = waterY + m_settings.swimOffset - m_depth;
+        m_diveFromY     = position.y;
+        m_diveLeft      = m_settings.diveSeconds;
+        m_posture       = SwimPosture::Diving;
+        m_pose          = 0.0f;
+        m_standLeft     = 0.0f;
         m_airTime       = 0.0f;
         m_coyote        = 0.0f;
         m_jumpBuffer    = 0.0f;
@@ -159,6 +260,7 @@ namespace Dark
 
     void PlayerMotor::beginJump(float jumpScale, PlayerMotorResult& result)
     {
+        clearSwimPose();
         m_state         = PlayerMoveState::Jumping;
         m_velocity.y    = m_settings.jumpSpeed * jumpScale;
         m_airTime       = 0.0f;
@@ -171,6 +273,7 @@ namespace Dark
 
     void PlayerMotor::beginFalling()
     {
+        clearSwimPose();
         m_state         = PlayerMoveState::Falling;
         m_velocity.y    = 0.0f;
         m_airTime       = 0.0f;
@@ -273,6 +376,7 @@ namespace Dark
 
     void PlayerMotor::wallJump(const Vector3f& awayFromWall, PlayerMotorResult& result)
     {
+        clearSwimPose();
         m_velocity      = awayFromWall * m_settings.wallJumpOut;
         m_velocity.y    = m_settings.wallJumpUp;
         m_state         = PlayerMoveState::Jumping;
@@ -286,6 +390,7 @@ namespace Dark
 
     void PlayerMotor::enterWallRun(const Vector3f& dir)
     {
+        clearSwimPose();
         m_wallDir  = dir;
         m_state    = PlayerMoveState::WallRun;
         m_velocity = Vector3f{ 0.0f, m_settings.wallRunSpeed, 0.0f };
@@ -297,6 +402,7 @@ namespace Dark
         position.x += m_wallDir.x * 0.8f;
         position.z += m_wallDir.z * 0.8f;
         position.y  = topY + m_settings.groundOffset;
+        clearSwimPose();
         m_velocity  = Vector3f{ 0.0f, 0.0f, 0.0f };
         m_state     = PlayerMoveState::Grounded;
         m_airTime   = 0.0f;
@@ -369,7 +475,6 @@ namespace Dark
             dt = 0.0f;
         const float speedScale = Math::Clamp(in.speedScale, 0.0f, 1.0f);
         const float runScale   = clampSkill(in.runScale, kRunScaleMin, kRunScaleMax);
-        const float swimScale  = clampSkill(in.swimScale, kSwimScaleMin, kSwimScaleMax);
         const float jumpScale  = clampSkill(in.jumpScale, kJumpScaleMin, kJumpScaleMax);
 
         if (m_jumpBuffer > 0.0f)
@@ -398,16 +503,17 @@ namespace Dark
 
         if (m_state == PlayerMoveState::Swimming)
         {
-            if (terrainDry(groundY, waterY))
+            if (columnShallow(groundY, waterY))
             {
-                m_depth = 0.0f;
-                enterGrounded(position, groundY);
+                beginStand(position);
+                result.stood = true;
             }
             else
             {
                 const float surfaceY = waterY + m_settings.swimOffset;
                 if (in.jumpPressed && m_depth <= m_settings.leapDepth)
                 {
+                    clearSwimPose();
                     m_depth         = 0.0f;
                     position.y      = surfaceY;
                     m_state         = PlayerMoveState::Jumping;
@@ -421,15 +527,7 @@ namespace Dark
                     result.leapt    = true;
                     return result;
                 }
-                const float rise  = in.crouch ? -m_settings.diveSpeed : (in.jumpHeld ? m_settings.surfaceSpeed : m_settings.floatSpeed);
-                const float under = m_depth >= m_settings.submergeDepth ? m_settings.underwaterSwimScale : 1.0f;
-                moveHorizontal(position, in.wish, m_settings.swimSpeed * swimScale * speedScale * under, dt, 0.0f);
-                groundY              = sampleGround(ground, position.x, position.z);
-                const float maxDepth = Math::Max(0.0f, surfaceY - (groundY + m_settings.groundOffset));
-                m_depth              = Math::Clamp(m_depth - rise * dt, 0.0f, maxDepth);
-                position.y           = surfaceY - m_depth;
-                m_velocity.y         = 0.0f;
-                m_jumpBuffer         = 0.0f;
+                swimFrame(position, in, dt, ground, true);
                 return result;
             }
         }
@@ -439,11 +537,11 @@ namespace Dark
 
         if (m_state == PlayerMoveState::Grounded || m_state == PlayerMoveState::Dodge || m_state == PlayerMoveState::Crouch)
         {
-            if (terrainWet(groundY, waterY))
+            if (columnDeep(groundY, waterY))
             {
                 enterSwim(position, waterY);
                 result.splashed = true;
-                moveHorizontal(position, in.wish, m_settings.swimSpeed * swimScale * speedScale, dt, 0.0f);
+                swimFrame(position, in, dt, ground, true);
                 return result;
             }
 
@@ -484,14 +582,15 @@ namespace Dark
             groundY               = sampleGround(ground, position.x, position.z);
             const float feetY     = groundY + m_settings.groundOffset;
 
-            if (terrainWet(groundY, waterY))
+            if (columnDeep(groundY, waterY))
             {
                 enterSwim(position, waterY);
                 result.splashed = true;
+                swimFrame(position, in, dt, ground, false);
                 return result;
             }
 
-            if (position.y - feetY > m_settings.stepDown)
+            if (m_posture != SwimPosture::Standing && position.y - feetY > m_settings.stepDown)
             {
                 beginFalling();
                 m_velocity.y -= m_settings.gravity * dt;
@@ -501,7 +600,7 @@ namespace Dark
             }
             else
             {
-                position.y   = feetY;
+                position.y   = m_posture == SwimPosture::Standing ? standHeight(feetY, dt) : feetY;
                 m_velocity.y = 0.0f;
                 m_coyote     = m_settings.coyoteTime;
                 if (m_jumpBuffer > 0.0f && in.allowJumpBuffer)
@@ -551,10 +650,11 @@ namespace Dark
         groundY           = sampleGround(ground, position.x, position.z);
         const float feetY = groundY + m_settings.groundOffset;
 
-        if (terrainWet(groundY, waterY) && position.y <= waterY + m_settings.swimOffset)
+        if (columnDeep(groundY, waterY) && position.y <= waterY + m_settings.swimOffset)
         {
             enterSwim(position, waterY);
             result.splashed = true;
+            swimFrame(position, in, dt, ground, false);
             return result;
         }
 
@@ -562,7 +662,7 @@ namespace Dark
         {
             result.landed = true;
             enterGrounded(position, groundY);
-            if (m_jumpBuffer > 0.0f && in.allowJumpBuffer && !terrainWet(groundY, waterY))
+            if (m_jumpBuffer > 0.0f && in.allowJumpBuffer && !columnDeep(groundY, waterY))
             {
                 m_jumpBuffer = 0.0f;
                 beginJump(jumpScale, result);

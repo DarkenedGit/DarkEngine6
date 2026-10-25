@@ -377,6 +377,8 @@ private:
     float         m_lowerBodyYaw   = 0.0f;
     bool          m_playerWet       = false;
     bool          m_playerSubmerged  = false;
+    bool          m_swimDiveEdge     = false;
+    bool          m_swimStandEdge    = false;
     float         m_underAmount      = 0.0f;
     float         m_footstepAcc    = 0.0f;
     Dark::HealthHud                  m_healthHud;

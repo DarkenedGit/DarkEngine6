@@ -2,6 +2,7 @@
 
 #include "Collision/HitResult.h"
 #include "Math/MathHelper.h"
+#include "Math/Quaternion.h"
 #include "Math/Ray3f.h"
 #include "Math/Vector3f.h"
 #include "Terrain/TerrainGrid.h"
@@ -65,6 +66,49 @@ namespace Dark
         view.eye = eye;
         view.aim = target + look * 16.0f;
         return view;
+    }
+
+    // Flat stroke. The eye sits behind the hips and above the back, looking forward over the head.
+    inline ShoulderView solveSwimCamera(const Math::Vector3f& hips, float yaw,
+                                        Collision::RayHit3D (*raycast)(void* user, const Math::Ray3f& ray, float maxDistance), void* rayUser)
+    {
+        const Math::Vector3f forward{ std::sinf(yaw), 0.0f, std::cosf(yaw) };
+        const Math::Vector3f up{ 0.0f, 1.0f, 0.0f };
+        Math::Vector3f       eye = hips - forward * 0.90f + up * 0.55f;
+        const Math::Vector3f aim = hips + forward * 1.20f + up * 0.25f;
+
+        constexpr float kMinBoom = 0.28f;
+        if (raycast)
+        {
+            Math::Vector3f delta = eye - hips;
+            const float    len   = delta.Magnitude();
+            if (len > 1.0e-3f)
+            {
+                const Math::Vector3f dir = delta * (1.0f / len);
+                const Collision::RayHit3D hit = raycast(rayUser, Math::Ray3f{ hips, dir }, len);
+                if (hit.hit && hit.t < len)
+                    eye = hips + dir * Math::Max(kMinBoom, hit.t - 0.12f);
+            }
+        }
+
+        ShoulderView view;
+        view.eye = eye;
+        view.aim = aim;
+        return view;
+    }
+
+    // Positive pitch about local X tips the head toward look. pose is 0 upright, 1 flat.
+    inline Math::Quaternion swimBodyRotation(const Math::Quaternion& upright, float pose)
+    {
+        constexpr float kSwimPitch = 1.3962634f;
+        if (!(pose > 1.0e-4f))
+            return upright;
+        float p = pose;
+        if (p > 1.0f)
+            p = 1.0f;
+        if (p < 0.0f)
+            p = 0.0f;
+        return upright * Math::Quaternion::FromAxisAngle(Math::Vector3f::X_AXIS, p * kSwimPitch);
     }
 
 } // namespace Dark

@@ -1060,3 +1060,94 @@ TEST(PlayerMotor, SkillScalesClampAndNonFiniteBecomeIdentity)
     weak.tick(weakPos, press, 0.0f, flatQuery());
     EXPECT_FLOAT_EQ(weak.velocity().y, weak.settings().jumpSpeed * kJumpScaleMin);
 }
+
+namespace
+{
+    struct BedLevel
+    {
+        float y = 0.0f;
+    };
+
+    float bedHeight(void* user, float, float)
+    {
+        return static_cast<const BedLevel*>(user)->y;
+    }
+
+    PlayerGroundQuery bedQuery(BedLevel& bed, float waterY)
+    {
+        PlayerGroundQuery q;
+        q.heightAt = bedHeight;
+        q.user     = &bed;
+        q.waterY   = waterY;
+        return q;
+    }
+}
+
+TEST(PlayerMotor, ShallowWaterStaysOnTheBed)
+{
+    PlayerMotor motor;
+    BedLevel    bed{ 0.0f };
+    Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+    const PlayerGroundQuery water = bedQuery(bed, 0.5f);
+    PlayerMotorInput walk{};
+    walk.wish = Vector3f{ 0.0f, 0.0f, 1.0f };
+    advance(motor, pos, walk, 0.4f, water);
+    EXPECT_EQ(motor.state(), PlayerMoveState::Grounded);
+    EXPECT_EQ(motor.posture(), SwimPosture::None);
+    EXPECT_NEAR(pos.y, 0.5f, 1.0e-3f);
+    EXPECT_GT(pos.z, 0.2f);
+}
+
+TEST(PlayerMotor, DeepWaterDivesThenTreadsAndStands)
+{
+    PlayerMotor motor;
+    BedLevel    bed{ 0.0f };
+    Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+    PlayerGroundQuery water = bedQuery(bed, 1.5f);
+    PlayerMotorInput push{};
+    push.wish = Vector3f{ 0.0f, 0.0f, 1.0f };
+    const PlayerMotorResult entered = motor.tick(pos, push, 1.0f / 60.0f, water);
+    EXPECT_TRUE(entered.splashed);
+    EXPECT_EQ(motor.state(), PlayerMoveState::Swimming);
+    EXPECT_EQ(motor.posture(), SwimPosture::Diving);
+
+    advance(motor, pos, push, 0.50f, water);
+    EXPECT_EQ(motor.posture(), SwimPosture::Horizontal);
+    EXPECT_NEAR(motor.swimPose(), 1.0f, 0.05f);
+    EXPECT_NEAR(pos.y, 1.5f - motor.settings().swimHipDrop, 0.08f);
+
+    PlayerMotorInput still{};
+    advance(motor, pos, still, 0.35f, water);
+    EXPECT_EQ(motor.posture(), SwimPosture::Treading);
+    EXPECT_LT(motor.swimPose(), 0.15f);
+
+    push.wish = Vector3f{ 0.0f, 0.0f, 1.0f };
+    advance(motor, pos, push, 0.35f, water);
+    EXPECT_EQ(motor.posture(), SwimPosture::Horizontal);
+
+    bed.y = 1.1f;
+    const PlayerMotorResult left = motor.tick(pos, push, 1.0f / 60.0f, water);
+    EXPECT_TRUE(left.stood);
+    EXPECT_EQ(motor.state(), PlayerMoveState::Grounded);
+    EXPECT_EQ(motor.posture(), SwimPosture::Standing);
+    advance(motor, pos, push, 0.60f, water);
+    EXPECT_EQ(motor.posture(), SwimPosture::None);
+    EXPECT_EQ(motor.state(), PlayerMoveState::Grounded);
+    EXPECT_NEAR(pos.y, bed.y + motor.settings().groundOffset, 0.05f);
+}
+
+TEST(PlayerMotor, OneMeterColumnKeepsTheCurrentMode)
+{
+    PlayerMotor motor;
+    Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+    const PlayerGroundQuery line = flatQuery(1.0f);
+    motor.tick(pos, PlayerMotorInput{}, 1.0f / 60.0f, line);
+    EXPECT_EQ(motor.state(), PlayerMoveState::Grounded);
+
+    PlayerMotor swimmer;
+    Vector3f    swimPos{ 0.0f, 0.5f, 0.0f };
+    swimmer.tick(swimPos, PlayerMotorInput{}, 1.0f / 60.0f, flatQuery(2.0f));
+    ASSERT_EQ(swimmer.state(), PlayerMoveState::Swimming);
+    swimmer.tick(swimPos, PlayerMotorInput{}, 1.0f / 60.0f, line);
+    EXPECT_EQ(swimmer.state(), PlayerMoveState::Swimming);
+}

@@ -1001,12 +1001,28 @@ void SandboxApp::updateCharacterAnims(float dt)
                 aim.strafe   = 0.0f;
                 aim.backward = false;
             }
-            ag->graph.setFloat("speed", aim.speed);
-            ag->graph.setFloat("strafe", aim.strafe);
-            ag->graph.setBool("backward", aim.backward);
             ag->graph.setBool("crouch", crouched);
             ag->graph.setBool("climb", motor && motor->state() == PlayerMoveState::WallRun);
             ag->graph.setBool("hang", motor && motor->state() == PlayerMoveState::Hang);
+            const bool swimming = motor && motor->state() == PlayerMoveState::Swimming;
+            const bool standingUp = motor && motor->posture() == SwimPosture::Standing;
+            if (swimming || standingUp)
+            {
+                aim.strafe    = 0.0f;
+                aim.backward  = false;
+                aim.lowerYaw  = 0.0f;
+            }
+            ag->graph.setFloat("speed", aim.speed);
+            ag->graph.setFloat("strafe", aim.strafe);
+            ag->graph.setBool("backward", aim.backward);
+            ag->graph.setBool("swimming", swimming);
+            ag->graph.setBool("swimMove", motor && motor->swimPushing());
+            if (m_swimDiveEdge)
+                ag->graph.setTrigger("dive");
+            if (m_swimStandEdge)
+                ag->graph.setTrigger("standup");
+            m_swimDiveEdge  = false;
+            m_swimStandEdge = false;
             m_lowerBodyYaw = approachAngle(m_lowerBodyYaw, aim.lowerYaw, 10.0f, dt);
             ag->graph.player().setLowerBodyYaw(m_lowerBodyYaw);
             ag->graph.player().setChargeWindup(m_chargeWindup.attack, m_chargeWindup.block, m_chargeWindup.blockStrike);
@@ -1541,6 +1557,8 @@ void SandboxApp::faceHitTarget(Entity target)
 
 void SandboxApp::updatePossessed(float dt)
 {
+    m_swimDiveEdge  = false;
+    m_swimStandEdge = false;
     const Entity body = possessedBody();
     SkillComponent* skills = body.valid() ? world().get<SkillComponent>(body) : nullptr;
     if (skills)
@@ -1685,6 +1703,8 @@ void SandboxApp::updatePossessed(float dt)
     PlayerMotorResult motorOut{};
     if (motor)
         motorOut = motor->tick(xf->position, motorIn, dt, ground);
+    m_swimDiveEdge  = motorOut.splashed;
+    m_swimStandEdge = motorOut.stood;
     if (jump && jump->inAirCommit() && motor && !motorOut.landed && !motorOut.splashed)
     {
         Vector3f vel = motor->velocity();
@@ -1807,6 +1827,8 @@ void SandboxApp::updatePossessed(float dt)
 
     if (canSteer && flat.MagnitudeSqrd() > 1.0e-6f)
         xf->rotation = Quaternion::FromLookRotation(flat, Vector3f::Y_AXIS);
+    if (canSteer && motor && motor->swimPose() > 1.0e-4f)
+        xf->rotation = swimBodyRotation(xf->rotation, motor->swimPose());
     const bool blockStriking = defense && defense->chargedParry && defense->inParryWindow();
     stepChargeWindup(m_chargeWindup, dt,
         m_attackCharge.phase() != Combat::HoldChargePhase::Idle, m_attackCharge.heldSeconds(), m_chargeSettings.attackWindowSeconds,
@@ -3435,9 +3457,17 @@ void SandboxApp::updateShoulderCamera()
     if (!xf)
         return;
 
-    const bool crouched = localMotor() && localMotor()->state() == PlayerMoveState::Crouch;
-    const bool surface  = m_playerWet && localMotor() && localMotor()->depth() < 0.25f;
-    const ShoulderView view = solveShoulderCamera(xf->position, m_lookYaw, m_lookPitch, crouched, m_shake, m_shakeTime, surface, m_water.params().waterLevel, &shoulderTerrainRay, &m_terrain);
+    const PlayerMotor* motor = localMotor();
+    const bool crouched = motor && motor->state() == PlayerMoveState::Crouch;
+    const float pose    = motor ? motor->swimPose() : 0.0f;
+    const bool surface  = m_playerWet && motor && motor->depth() < 0.25f && pose < 0.05f;
+    ShoulderView view = solveShoulderCamera(xf->position, m_lookYaw, m_lookPitch, crouched, m_shake, m_shakeTime, surface, m_water.params().waterLevel, &shoulderTerrainRay, &m_terrain);
+    if (pose > 0.0f)
+    {
+        const ShoulderView swim = solveSwimCamera(xf->position, m_lookYaw, &shoulderTerrainRay, &m_terrain);
+        view.eye = view.eye + (swim.eye - view.eye) * pose;
+        view.aim = view.aim + (swim.aim - view.aim) * pose;
+    }
     m_underAmount = underwaterAmount(m_playerWet, view.eye.y, m_water.params().waterLevel);
 
     m_viewCamera.SetLens(1.04719755f, m_viewCamera.GetAspect(), m_viewCamera.GetNearZ(), m_viewCamera.GetFarZ());

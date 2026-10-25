@@ -464,9 +464,16 @@ void EditorApp::updatePlayCamera()
     if (const PlayerMotorComponent* pmc = world().get<PlayerMotorComponent>(m_playPlayer))
         motor = &pmc->motor;
     const bool crouched = motor && motor->state() == PlayerMoveState::Crouch;
+    const float pose = motor ? motor->swimPose() : 0.0f;
     const bool rayOk = m_haveTerrain && m_terrain.valid();
-    const ShoulderView view = solveShoulderCamera(xf->position, m_playLookYaw, m_playLookPitch, crouched, 0.0f, 0.0f, false, 0.0f,
-                                                  rayOk ? &shoulderTerrainRay : nullptr, rayOk ? &m_terrain : nullptr);
+    ShoulderView view = solveShoulderCamera(xf->position, m_playLookYaw, m_playLookPitch, crouched, 0.0f, 0.0f, false, 0.0f,
+                                            rayOk ? &shoulderTerrainRay : nullptr, rayOk ? &m_terrain : nullptr);
+    if (pose > 0.0f)
+    {
+        const ShoulderView swim = solveSwimCamera(xf->position, m_playLookYaw, rayOk ? &shoulderTerrainRay : nullptr, rayOk ? &m_terrain : nullptr);
+        view.eye = view.eye + (swim.eye - view.eye) * pose;
+        view.aim = view.aim + (swim.aim - view.aim) * pose;
+    }
     m_camera.LookAt(view.eye, view.aim, Vector3f::Y_AXIS);
 }
 
@@ -994,6 +1001,8 @@ void EditorApp::updatePlay(float dt)
 
     if (canSteer && flat.MagnitudeSqrd() > 1.0e-6f)
         xf->rotation = Quaternion::FromLookRotation(flat, Vector3f::Y_AXIS);
+    if (canSteer && motor && motor->swimPose() > 1.0e-4f)
+        xf->rotation = swimBodyRotation(xf->rotation, motor->swimPose());
     const bool blockStriking = defense && defense->chargedParry && defense->inParryWindow();
     stepChargeWindup(m_chargeWindup, dt,
         m_attackCharge.phase() != Combat::HoldChargePhase::Idle, m_attackCharge.heldSeconds(), m_chargeSettings.attackWindowSeconds,
@@ -1040,10 +1049,24 @@ void EditorApp::updatePlay(float dt)
             aim.strafe   = 0.0f;
             aim.backward = false;
         }
+        ag->graph.setBool("crouch", crouched);
+        const bool swimming = motor && motor->state() == PlayerMoveState::Swimming;
+        const bool standingUp = motor && motor->posture() == SwimPosture::Standing;
+        if (swimming || standingUp)
+        {
+            aim.strafe   = 0.0f;
+            aim.backward = false;
+            aim.lowerYaw = 0.0f;
+        }
         ag->graph.setFloat("speed", aim.speed);
         ag->graph.setFloat("strafe", aim.strafe);
         ag->graph.setBool("backward", aim.backward);
-        ag->graph.setBool("crouch", crouched);
+        ag->graph.setBool("swimming", swimming);
+        ag->graph.setBool("swimMove", motor && motor->swimPushing());
+        if (motorOut.splashed)
+            ag->graph.setTrigger("dive");
+        if (motorOut.stood)
+            ag->graph.setTrigger("standup");
         m_playLowerBodyYaw = approachAngle(m_playLowerBodyYaw, aim.lowerYaw, 10.0f, dt);
         ag->graph.player().setLowerBodyYaw(m_playLowerBodyYaw);
         ag->graph.player().setChargeWindup(m_chargeWindup.attack, m_chargeWindup.block, m_chargeWindup.blockStrike);
