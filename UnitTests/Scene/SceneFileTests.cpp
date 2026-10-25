@@ -64,6 +64,14 @@ void expectGrassMatchesClamp(const GrassSceneDesc& grass, Terrain::GrassParams p
     EXPECT_EQ(grass.seed, params.seed);
 }
 
+std::vector<std::string>* g_sceneLogs = nullptr;
+
+void captureSceneLog(LogLevel, LogCategory, const char* message)
+{
+    if (g_sceneLogs != nullptr && message != nullptr)
+        g_sceneLogs->push_back(message);
+}
+
 } // namespace
 
 TEST(SceneTypes, Parse2DAnd3D)
@@ -1988,6 +1996,18 @@ TEST(SceneFile, SpawnerMistypedFieldsKeepDefaults)
 })";
     }
 
+    std::vector<std::string> logs;
+    g_sceneLogs = &logs;
+    Log::setCapture(&captureSceneLog);
+    struct ClearCapture
+    {
+        ~ClearCapture()
+        {
+            Log::setCapture(nullptr);
+            g_sceneLogs = nullptr;
+        }
+    } clearCapture;
+
     SceneFileData data{};
     std::string err;
     ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
@@ -2001,6 +2021,20 @@ TEST(SceneFile, SpawnerMistypedFieldsKeepDefaults)
     EXPECT_TRUE(data.objects[0].spawner.enabled);
     EXPECT_EQ(data.objects[0].spawner.seed, 1u);
     EXPECT_EQ(data.objects[0].spawner.maxWaves, 0);
+
+    auto logged = [&logs](const char* key) {
+        for (const std::string& line : logs)
+        {
+            if (line.find(key) != std::string::npos)
+                return true;
+        }
+        return false;
+    };
+    EXPECT_TRUE(logged("\"mode\""));
+    EXPECT_TRUE(logged("\"unit\""));
+    EXPECT_TRUE(logged("\"count\""));
+    EXPECT_TRUE(logged("\"radius\""));
+    EXPECT_TRUE(logged("\"enabled\""));
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
@@ -2211,17 +2245,6 @@ TEST(SceneFile, StealthSettingsRoundTrip)
     std::filesystem::remove(badPath, ecRemove);
     std::filesystem::remove(roundPath, ecRemove);
 }
-
-namespace
-{
-    std::vector<std::string>* g_sceneLogs = nullptr;
-
-    void captureSceneLog(LogLevel, LogCategory, const char* message)
-    {
-        if (g_sceneLogs != nullptr && message != nullptr)
-            g_sceneLogs->push_back(message);
-    }
-} // namespace
 
 TEST(SceneFile, QuestTagsWrongTypeLogsAndKeepsDefaults)
 {

@@ -78,4 +78,39 @@ namespace Dark
         return true;
     }
 
+    bool jsonDoubleOr(const nlohmann::json& object, const char* key, double& out, double fallback, const char* where, std::string* error)
+    {
+        if (!object.contains(key))
+        {
+            out = fallback;
+            return true;
+        }
+        const nlohmann::json& value = object[key];
+        if (!value.is_number())
+        {
+            out = fallback;
+            return rejectType(where, key, value, "a number", error);
+        }
+        const double number = value.get<double>();
+        if (!std::isfinite(number))
+        {
+            out = fallback;
+            return rejectType(where, key, value, "a finite number", error);
+        }
+        out = number;
+        return true;
+    }
+
+    bool jsonFloatOr(const nlohmann::json& object, const char* key, float& out, float fallback, const char* where, std::string* error)
+    {
+        double number = fallback;
+        if (!jsonDoubleOr(object, key, number, fallback, where, error))
+        {
+            out = fallback;
+            return false;
+        }
+        out = static_cast<float>(number);
+        return true;
+    }
+
 } // namespace Dark

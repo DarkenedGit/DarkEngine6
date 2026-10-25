@@ -56,8 +56,7 @@ namespace Dark
 
         static bool shouldLog(LogLevel level, LogCategory category);
 
-        template <typename... Args>
-        static void log(LogLevel level, LogCategory category, std::string_view fmt, Args&&... args)
+        template <typename... Args> static void log(LogLevel level, LogCategory category, std::string_view fmt, Args&&... args)
         {
             if (!shouldLog(level, category))
                 return;
@@ -65,8 +64,7 @@ namespace Dark
             write(level, category, msg);
         }
 
-        template <typename... Args>
-        static void log(LogLevel level, std::string_view fmt, Args&&... args)
+        template <typename... Args> static void log(LogLevel level, std::string_view fmt, Args&&... args)
         {
             log(level, LogCategory::Core, fmt, std::forward<Args>(args)...);
         }

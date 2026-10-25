@@ -85,61 +85,27 @@ bool readVec3(const json& j, Math::Vector3f& out, std::string* err, const char* 
     return true;
 }
 
-bool readJsonNumber(const json& j, const char* key, double& out)
-{
-    if (!j.contains(key) || !j[key].is_number())
-        return false;
-    const double v = j[key].get<double>();
-    if (!std::isfinite(v))
-        return false;
-    out = v;
-    return true;
-}
-
-bool readJsonString(const json& j, const char* key, std::string& out)
-{
-    if (!j.contains(key) || !j[key].is_string())
-        return false;
-    out = j[key].get<std::string>();
-    return true;
-}
-
 void readSpawnerBlock(const json& j, SpawnerDesc& desc)
 {
     std::string text;
-    if (readJsonString(j, "mode", text))
-    {
-        SpawnerMode mode{};
-        if (tryParseSpawnerMode(text, mode))
-            desc.mode = mode;
-    }
-    if (readJsonString(j, "unit", text))
-    {
-        SpawnerUnit unit{};
-        if (tryParseSpawnerUnit(text, unit))
-            desc.unit = unit;
-    }
-    if (readJsonString(j, "gate", text))
-    {
-        SpawnerWaveGate gate{};
-        if (tryParseSpawnerWaveGate(text, gate))
-            desc.gate = gate;
-    }
-    double number = 0.0;
-    if (readJsonNumber(j, "count", number))
-        desc.count = static_cast<int>(number);
-    if (readJsonNumber(j, "radius", number))
-        desc.radius = static_cast<float>(number);
-    if (readJsonNumber(j, "respawnDelay", number))
-        desc.respawnDelay = static_cast<float>(number);
-    if (readJsonNumber(j, "waveInterval", number))
-        desc.waveInterval = static_cast<float>(number);
-    if (readJsonNumber(j, "maxWaves", number))
-        desc.maxWaves = static_cast<int>(number);
-    if (readJsonNumber(j, "seed", number) && number >= 1.0 && number <= 4294967295.0)
-        desc.seed = static_cast<uint32_t>(number);
-    if (j.contains("enabled") && j["enabled"].is_boolean())
-        desc.enabled = j["enabled"].get<bool>();
+    SpawnerMode mode{};
+    if (jsonStringOr(j, "mode", text, std::string(), "SceneFile") && tryParseSpawnerMode(text, mode))
+        desc.mode = mode;
+    SpawnerUnit unit{};
+    if (jsonStringOr(j, "unit", text, std::string(), "SceneFile") && tryParseSpawnerUnit(text, unit))
+        desc.unit = unit;
+    SpawnerWaveGate gate{};
+    if (jsonStringOr(j, "gate", text, std::string(), "SceneFile") && tryParseSpawnerWaveGate(text, gate))
+        desc.gate = gate;
+    jsonIntOr(j, "count", desc.count, desc.count, "SceneFile");
+    jsonFloatOr(j, "radius", desc.radius, desc.radius, "SceneFile");
+    jsonFloatOr(j, "respawnDelay", desc.respawnDelay, desc.respawnDelay, "SceneFile");
+    jsonFloatOr(j, "waveInterval", desc.waveInterval, desc.waveInterval, "SceneFile");
+    jsonIntOr(j, "maxWaves", desc.maxWaves, desc.maxWaves, "SceneFile");
+    double seed = static_cast<double>(desc.seed);
+    if (jsonDoubleOr(j, "seed", seed, seed, "SceneFile") && seed >= 1.0 && seed <= 4294967295.0)
+        desc.seed = static_cast<uint32_t>(seed);
+    jsonBoolOr(j, "enabled", desc.enabled, desc.enabled, "SceneFile");
     clampSpawnerDesc(desc);
 }
 

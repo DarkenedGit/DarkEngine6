@@ -15,5 +15,7 @@ namespace Dark
                       std::string* error = nullptr);
     bool jsonBoolOr(const nlohmann::json& object, const char* key, bool& out, bool fallback, const char* where, std::string* error = nullptr);
     bool jsonIntOr(const nlohmann::json& object, const char* key, int& out, int fallback, const char* where, std::string* error = nullptr);
+    bool jsonFloatOr(const nlohmann::json& object, const char* key, float& out, float fallback, const char* where, std::string* error = nullptr);
+    bool jsonDoubleOr(const nlohmann::json& object, const char* key, double& out, double fallback, const char* where, std::string* error = nullptr);
 
 } // namespace Dark
