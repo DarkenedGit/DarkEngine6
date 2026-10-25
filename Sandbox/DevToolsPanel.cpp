@@ -202,11 +202,6 @@ void SandboxApp::drawStaminaBar()
 
 void SandboxApp::drawBreathBar()
 {
-    if (m_cameraUnderwater)
-    {
-        const ImGuiViewport* vp = ImGui::GetMainViewport();
-        ImGui::GetBackgroundDrawList(const_cast<ImGuiViewport*>(vp))->AddRectFilled(vp->Pos, ImVec2(vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y), IM_COL32(15, 70, 110, 120));
-    }
     const PlayerMotor* motor = localMotor();
     if (!motor || motor->breath() >= 0.999f)
         return;

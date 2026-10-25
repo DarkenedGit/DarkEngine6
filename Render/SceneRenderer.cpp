@@ -188,6 +188,8 @@ bool SceneRenderer::createPostPipelines(Renderer& renderer, const char* tag)
         DE_LOG_WARN(LogCategory::Render, "{}: MotionBlurPipeline create failed — motion blur disabled", tag);
     if (!m_echo.create(renderer.device()))
         DE_LOG_WARN(LogCategory::Render, "{}: EchoPipeline create failed — echolocation disabled", tag);
+    if (!m_underwater.create(renderer.device()))
+        DE_LOG_WARN(LogCategory::Render, "{}: UnderwaterPipeline create failed — underwater view disabled", tag);
     if (!m_taa.create(renderer.device()))
         DE_LOG_WARN(LogCategory::Render, "{}: TaaPipeline create failed — TAA disabled", tag);
 
@@ -306,6 +308,7 @@ void SceneRenderer::shutdown()
     m_ssr                      = SsrPipeline{};
     m_motionBlur               = MotionBlurPipeline{};
     m_echo                     = EchoPipeline{};
+    m_underwater               = UnderwaterPipeline{};
     m_taa                      = TaaPipeline{};
     m_shadows                  = ShadowSystem{};
     m_localShadows             = LocalShadowSystem{};

@@ -27,6 +27,7 @@
 #include "Render/TaaPipeline.h"
 #include "Render/TerrainPipeline.h"
 #include "Render/TonemapPipeline.h"
+#include "Render/UnderwaterPipeline.h"
 #include "Render/WaterPipeline.h"
 #include "Render/CloudVolumePipeline.h"
 #include "Render/CamouflagePipeline.h"
@@ -149,6 +150,7 @@ public:
     SsrPipeline&              ssr() { return m_ssr; }
     MotionBlurPipeline&       motionBlur() { return m_motionBlur; }
     EchoPipeline&             echo() { return m_echo; }
+    UnderwaterPipeline&       underwater() { return m_underwater; }
     TaaPipeline&              taa() { return m_taa; }
     ShadowSystem&             shadows() { return m_shadows; }
     LocalShadowSystem&        localShadows() { return m_localShadows; }
@@ -179,6 +181,7 @@ public:
     const SsrPipeline&              ssr() const { return m_ssr; }
     const MotionBlurPipeline&       motionBlur() const { return m_motionBlur; }
     const EchoPipeline&             echo() const { return m_echo; }
+    const UnderwaterPipeline&       underwater() const { return m_underwater; }
     const TaaPipeline&              taa() const { return m_taa; }
     const ShadowSystem&             shadows() const { return m_shadows; }
     const LocalShadowSystem&        localShadows() const { return m_localShadows; }
@@ -232,6 +235,7 @@ private:
     SsrPipeline              m_ssr;
     MotionBlurPipeline       m_motionBlur;
     EchoPipeline             m_echo;
+    UnderwaterPipeline       m_underwater;
     TaaPipeline              m_taa;
     ShadowSystem             m_shadows;
     LocalShadowSystem        m_localShadows;

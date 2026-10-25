@@ -38,6 +38,7 @@ enum class PassId : uint8_t
     Camouflage,
     Translucent,
     Particles,
+    Underwater,
     Post,
     Overlay,
     EditorGrid,

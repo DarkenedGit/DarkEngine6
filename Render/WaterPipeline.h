@@ -74,6 +74,7 @@ struct WaterFrameConstants
     float    detailAmount;
     float    thermal; // 0 beauty water, 1 the cold stop
     float    ultraviolet; // 0 beauty water. Shifts the body only; SSR stays.
+    float    underAmount; // 0 above the lake, 1 the eye is through the ease band
 };
 
 static_assert(offsetof(WaterFrameConstants, lightCount) == 64 * sizeof(float), "lightCount follows the old 64-float block");
@@ -88,6 +89,7 @@ static_assert(offsetof(WaterFrameConstants, flowSpeed) == 182 * sizeof(float), "
 static_assert(offsetof(WaterFrameConstants, detailAmount) == 183 * sizeof(float), "detailAmount follows flowSpeed");
 static_assert(offsetof(WaterFrameConstants, thermal) == 184 * sizeof(float), "thermal follows detailAmount");
 static_assert(offsetof(WaterFrameConstants, ultraviolet) == 185 * sizeof(float), "ultraviolet follows thermal");
+static_assert(offsetof(WaterFrameConstants, underAmount) == 186 * sizeof(float), "underAmount follows ultraviolet");
 static_assert(((sizeof(WaterFrameConstants) + 255u) & ~255u) == 768u, "water CBV aligned size is 768");
 
 class WaterPipeline
@@ -108,7 +110,7 @@ public:
 
     bool create(ID3D12Device* device, DXGI_FORMAT colorFormat = DXGI_FORMAT_R8G8B8A8_UNORM);
 
-    void bind(ID3D12GraphicsCommandList* cmd, DebugFill fill = DebugFill::Solid, bool stream = false) const;
+    void bind(ID3D12GraphicsCommandList* cmd, DebugFill fill = DebugFill::Solid, bool stream = false, bool ceiling = false) const;
     void setConstants(ID3D12GraphicsCommandList* cmd, const WaterFrameConstants& constants, uint32_t frameIndex, uint32_t drawIndex = 0);
     void setLights(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS lightsVa) const;
     void setHeightMap(ID3D12GraphicsCommandList* cmd, ID3D12DescriptorHeap* heap, D3D12_GPU_DESCRIPTOR_HANDLE gpu) const;
@@ -127,8 +129,9 @@ public:
 
     bool isValid() const
     {
-        return m_psoSolid != nullptr && m_psoWire != nullptr && m_psoPoint != nullptr && m_psoStreamSolid != nullptr && m_psoStreamWire != nullptr
-            && m_psoStreamPoint != nullptr && m_cbUpload != nullptr && m_cbMapped != nullptr;
+        return m_psoSolid != nullptr && m_psoWire != nullptr && m_psoPoint != nullptr && m_psoCeilingSolid != nullptr && m_psoCeilingWire != nullptr
+            && m_psoCeilingPoint != nullptr && m_psoStreamSolid != nullptr && m_psoStreamWire != nullptr && m_psoStreamPoint != nullptr && m_cbUpload != nullptr
+            && m_cbMapped != nullptr;
     }
 
     static void fillConstants(
@@ -158,6 +161,9 @@ private:
     ComPtr<ID3D12PipelineState>  m_psoSolid;
     ComPtr<ID3D12PipelineState>  m_psoWire;
     ComPtr<ID3D12PipelineState>  m_psoPoint;
+    ComPtr<ID3D12PipelineState>  m_psoCeilingSolid;
+    ComPtr<ID3D12PipelineState>  m_psoCeilingWire;
+    ComPtr<ID3D12PipelineState>  m_psoCeilingPoint;
     ComPtr<ID3D12PipelineState>  m_psoStreamSolid;
     ComPtr<ID3D12PipelineState>  m_psoStreamWire;
     ComPtr<ID3D12PipelineState>  m_psoStreamPoint;

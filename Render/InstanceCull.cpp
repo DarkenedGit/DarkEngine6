@@ -134,17 +134,21 @@ namespace Dark
 
     bool InstanceCull::createShaderVisibleHeap(ID3D12Device* device)
     {
-        // ClearUnorderedAccessViewUint takes a GPU handle in the heap currently bound on this list.
-        // The design asked for a non-shader-visible heap; that handle would be invalid there.
+        // ClearUnorderedAccessViewUint reads a CPU descriptor and clears through a GPU one.
+        // The CPU handle must be non-shader-visible. The GPU handle must sit in the heap bound on this list.
         D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
         heapDesc.NumDescriptors = kFrameSlots * kMaxStaticViews;
         heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_heap)), "CreateDescriptorHeap (instance cull)"))
             return false;
-        m_increment = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        m_cpuStart  = m_heap->GetCPUDescriptorHandleForHeapStart();
-        m_gpuStart  = m_heap->GetGPUDescriptorHandleForHeapStart();
+        heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+        if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_cpuHeap)), "CreateDescriptorHeap (instance cull CPU)"))
+            return false;
+        m_increment   = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        m_gpuCpuStart = m_heap->GetCPUDescriptorHandleForHeapStart();
+        m_cpuStart    = m_cpuHeap->GetCPUDescriptorHandleForHeapStart();
+        m_gpuStart    = m_heap->GetGPUDescriptorHandleForHeapStart();
         return true;
     }
 
@@ -174,6 +178,7 @@ namespace Dark
         m_compact.Reset();
         m_argsPso.Reset();
         m_heap.Reset();
+        m_cpuHeap.Reset();
         m_indices[0].Reset();
         m_indices[1].Reset();
         m_counters[0].Reset();
@@ -313,8 +318,10 @@ namespace Dark
                 continue;
 
             const UINT descriptor = frameSlot * kMaxStaticViews + view.viewIndex;
-            D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_cpuStart;
-            D3D12_GPU_DESCRIPTOR_HANDLE gpu = m_gpuStart;
+            D3D12_CPU_DESCRIPTOR_HANDLE gpuCpu = m_gpuCpuStart;
+            D3D12_CPU_DESCRIPTOR_HANDLE cpu    = m_cpuStart;
+            D3D12_GPU_DESCRIPTOR_HANDLE gpu    = m_gpuStart;
+            gpuCpu.ptr += static_cast<SIZE_T>(descriptor) * m_increment;
             cpu.ptr += static_cast<SIZE_T>(descriptor) * m_increment;
             gpu.ptr += static_cast<UINT64>(descriptor) * m_increment;
 
@@ -323,6 +330,7 @@ namespace Dark
             uav.ViewDimension               = D3D12_UAV_DIMENSION_BUFFER;
             uav.Buffer.FirstElement         = static_cast<UINT64>(view.viewIndex) * kMaxBatches;
             uav.Buffer.NumElements          = view.batchCount;
+            m_device->CreateUnorderedAccessView(counters, nullptr, &uav, gpuCpu);
             m_device->CreateUnorderedAccessView(counters, nullptr, &uav, cpu);
 
             const UINT zeros[4] = { 0, 0, 0, 0 };
@@ -399,15 +407,20 @@ namespace Dark
 
     bool SkinnedInstanceCull::createShaderVisibleHeap(ID3D12Device* device)
     {
+        // Same split as the static cull: the clear reads a non-shader-visible CPU descriptor.
         D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
         heapDesc.NumDescriptors = kFrameSlots * kMaxStaticViews;
         heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_heap)), "CreateDescriptorHeap (skinned cull)"))
             return false;
-        m_increment = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        m_cpuStart  = m_heap->GetCPUDescriptorHandleForHeapStart();
-        m_gpuStart  = m_heap->GetGPUDescriptorHandleForHeapStart();
+        heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+        if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_cpuHeap)), "CreateDescriptorHeap (skinned cull CPU)"))
+            return false;
+        m_increment   = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        m_gpuCpuStart = m_heap->GetCPUDescriptorHandleForHeapStart();
+        m_cpuStart    = m_cpuHeap->GetCPUDescriptorHandleForHeapStart();
+        m_gpuStart    = m_heap->GetGPUDescriptorHandleForHeapStart();
         return true;
     }
 
@@ -452,6 +465,7 @@ namespace Dark
         m_compact.Reset();
         m_argsPso.Reset();
         m_heap.Reset();
+        m_cpuHeap.Reset();
         m_signature.Reset();
         m_indices[0].Reset();
         m_indices[1].Reset();
@@ -659,8 +673,10 @@ namespace Dark
                 continue;
 
             const UINT descriptor = frameSlot * kMaxStaticViews + view.viewIndex;
-            D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_cpuStart;
-            D3D12_GPU_DESCRIPTOR_HANDLE gpu = m_gpuStart;
+            D3D12_CPU_DESCRIPTOR_HANDLE gpuCpu = m_gpuCpuStart;
+            D3D12_CPU_DESCRIPTOR_HANDLE cpu    = m_cpuStart;
+            D3D12_GPU_DESCRIPTOR_HANDLE gpu    = m_gpuStart;
+            gpuCpu.ptr += static_cast<SIZE_T>(descriptor) * m_increment;
             cpu.ptr += static_cast<SIZE_T>(descriptor) * m_increment;
             gpu.ptr += static_cast<UINT64>(descriptor) * m_increment;
 
@@ -669,6 +685,7 @@ namespace Dark
             uav.ViewDimension               = D3D12_UAV_DIMENSION_BUFFER;
             uav.Buffer.FirstElement         = static_cast<UINT64>(view.viewIndex) * kStride;
             uav.Buffer.NumElements          = view.batchCount;
+            m_device->CreateUnorderedAccessView(counters, nullptr, &uav, gpuCpu);
             m_device->CreateUnorderedAccessView(counters, nullptr, &uav, cpu);
 
             const UINT zeros[4] = { 0, 0, 0, 0 };

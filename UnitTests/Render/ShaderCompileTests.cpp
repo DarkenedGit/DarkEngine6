@@ -246,6 +246,18 @@ TEST(ShaderCompile, SkyCloudLayer)
     EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", psOn, on));
 }
 
+TEST(ShaderCompile, Underwater)
+{
+    const std::filesystem::path hlsl = Dark::resolveContentPath("shaders/Underwater.hlsl");
+    if (hlsl.empty())
+        GTEST_SKIP() << "shaders/Underwater.hlsl not on content roots";
+
+    ComPtr<ID3DBlob> vs;
+    ComPtr<ID3DBlob> ps;
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "VSMain", "vs_5_0", vs));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps));
+}
+
 TEST(ShaderCompile, Water)
 {
     const std::filesystem::path hlsl = Dark::resolveContentPath("shaders/Water.hlsl");

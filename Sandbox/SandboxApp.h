@@ -375,9 +375,9 @@ private:
     float         m_lookYaw        = 0.0f;
     float         m_lookPitch      = 0.18f;
     float         m_lowerBodyYaw   = 0.0f;
-    bool          m_playerWet      = false;
-    bool          m_playerSubmerged = false;
-    bool          m_cameraUnderwater = false;
+    bool          m_playerWet       = false;
+    bool          m_playerSubmerged  = false;
+    float         m_underAmount      = 0.0f;
     float         m_footstepAcc    = 0.0f;
     Dark::HealthHud                  m_healthHud;
     Dark::Math::Vector3f             m_playerSpawn{ 0.0f, 0.5f, 0.0f };

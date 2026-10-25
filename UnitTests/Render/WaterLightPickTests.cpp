@@ -70,6 +70,7 @@ TEST(WaterLightPick, FrameConstantsKeepLayoutThenGainLightIndices)
     EXPECT_EQ(offsetof(WaterFrameConstants, foamWidthScale), 181u * sizeof(float));
     EXPECT_EQ(offsetof(WaterFrameConstants, flowSpeed), 182u * sizeof(float));
     EXPECT_EQ(offsetof(WaterFrameConstants, detailAmount), 183u * sizeof(float));
+    EXPECT_EQ(offsetof(WaterFrameConstants, underAmount), 186u * sizeof(float));
     EXPECT_EQ((sizeof(WaterFrameConstants) + 255u) & ~255u, 768u);
     EXPECT_EQ(WaterPipeline::kRootSsrSrv, 5u);
     EXPECT_EQ(kWaterLocalLightMax, 8u);

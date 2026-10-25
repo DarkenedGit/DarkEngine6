@@ -80,6 +80,9 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
     m_psoSolid.Reset();
     m_psoWire.Reset();
     m_psoPoint.Reset();
+    m_psoCeilingSolid.Reset();
+    m_psoCeilingWire.Reset();
+    m_psoCeilingPoint.Reset();
     m_psoStreamSolid.Reset();
     m_psoStreamWire.Reset();
     m_psoStreamPoint.Reset();
@@ -266,6 +269,18 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
         return false;
     }
 
+    // Lake underside. Back faces only, so a dive sees the sheet as a ceiling. The above-water PSO stays cull-back.
+    psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_FRONT;
+    if (!createFillVariantPsos(device, psoDesc, m_psoCeilingSolid, m_psoCeilingWire, m_psoCeilingPoint))
+    {
+        m_rootSignature.Reset();
+        m_psoSolid.Reset();
+        m_psoWire.Reset();
+        m_psoPoint.Reset();
+        return false;
+    }
+    psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+
     // Streams only. Positive bias raises the reverse-Z test toward the camera so a ribbon under a geomipmap chord still passes.
     // The lake PSO stays at bias 0. +4 / +3 matches the blood-splat nudge, not the shadow-depth pair.
     psoDesc.RasterizerState.DepthBias            = 4;
@@ -277,6 +292,9 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
         m_psoSolid.Reset();
         m_psoWire.Reset();
         m_psoPoint.Reset();
+        m_psoCeilingSolid.Reset();
+        m_psoCeilingWire.Reset();
+        m_psoCeilingPoint.Reset();
         return false;
     }
 
@@ -286,6 +304,9 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
         m_psoSolid.Reset();
         m_psoWire.Reset();
         m_psoPoint.Reset();
+        m_psoCeilingSolid.Reset();
+        m_psoCeilingWire.Reset();
+        m_psoCeilingPoint.Reset();
         m_psoStreamSolid.Reset();
         m_psoStreamWire.Reset();
         m_psoStreamPoint.Reset();
@@ -303,6 +324,9 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
         m_psoSolid.Reset();
         m_psoWire.Reset();
         m_psoPoint.Reset();
+        m_psoCeilingSolid.Reset();
+        m_psoCeilingWire.Reset();
+        m_psoCeilingPoint.Reset();
         m_psoStreamSolid.Reset();
         m_psoStreamWire.Reset();
         m_psoStreamPoint.Reset();
@@ -319,6 +343,9 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
         m_psoSolid.Reset();
         m_psoWire.Reset();
         m_psoPoint.Reset();
+        m_psoCeilingSolid.Reset();
+        m_psoCeilingWire.Reset();
+        m_psoCeilingPoint.Reset();
         m_psoStreamSolid.Reset();
         m_psoStreamWire.Reset();
         m_psoStreamPoint.Reset();
@@ -451,11 +478,13 @@ void WaterPipeline::packSsrDummySrvs(ID3D12Device* device)
     writeTex2dSrv(device, m_dummySsrDepth.Get(), DXGI_FORMAT_R32_FLOAT, dst);
 }
 
-void WaterPipeline::bind(ID3D12GraphicsCommandList* cmd, DebugFill fill, bool stream) const
+void WaterPipeline::bind(ID3D12GraphicsCommandList* cmd, DebugFill fill, bool stream, bool ceiling) const
 {
-    ID3D12PipelineState* pso = stream
-        ? selectFillPso(fill, m_psoStreamSolid.Get(), m_psoStreamWire.Get(), m_psoStreamPoint.Get())
-        : selectFillPso(fill, m_psoSolid.Get(), m_psoWire.Get(), m_psoPoint.Get());
+    ID3D12PipelineState* pso = ceiling
+        ? selectFillPso(fill, m_psoCeilingSolid.Get(), m_psoCeilingWire.Get(), m_psoCeilingPoint.Get())
+        : stream
+            ? selectFillPso(fill, m_psoStreamSolid.Get(), m_psoStreamWire.Get(), m_psoStreamPoint.Get())
+            : selectFillPso(fill, m_psoSolid.Get(), m_psoWire.Get(), m_psoPoint.Get());
     if (!cmd || !pso)
         return;
     cmd->SetGraphicsRootSignature(m_rootSignature.Get());
@@ -577,6 +606,7 @@ void WaterPipeline::fillConstants(
     out.flowSpeed      = params.flowSpeed;
     out.detailAmount   = params.detailAmount;
     out.specPower    = 96.0f;
+    out.underAmount  = 0.0f;
     out.opacity      = 0.78f;
     out.shoreDepth   = 2.4f;
     out.fresnelF0    = 0.04f;

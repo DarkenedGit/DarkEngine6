@@ -98,6 +98,7 @@ cbuffer FrameConstants : register(b0)
     float    detailAmount;
     float    thermal; // 0 beauty water, 1 the cold stop
     float    ultraviolet; // 0 beauty water. Shifts the body only; SSR stays.
+    float    underAmount; // 0 above the lake. Back faces are the ceiling.
 };
 
 #include "SkyEval.hlsli"
@@ -441,7 +442,7 @@ PSInput VSMain(VSInput input)
     return o;
 }
 
-float4 PSMain(PSInput input) : SV_TARGET
+float4 PSMain(PSInput input, bool isFront : SV_IsFrontFace) : SV_TARGET
 {
     float3 offset;
     float3 dispNormal;
@@ -469,6 +470,42 @@ float4 PSMain(PSInput input) : SV_TARGET
     float alpha = opacity * alphaDepth * edge * rim;
 
     float3 worldPos = float3(input.restXZ.x, input.restY, input.restXZ.y) + offset;
+
+    // Cull-front lake draw. The geometric back face is the ceiling. Skip SSR.
+    if (underAmount > 1.0e-4f && !isFront)
+    {
+        float3 view = normalize(cameraPos - worldPos);
+        float facing = saturate(dot(-n, view));
+        float alphaUnder = lerp(0.90f, 0.25f, facing) * underAmount;
+        float3 underBody = deepColor * 0.45f;
+        float3 underFoam = float3(0.85f, 0.88f, 0.86f);
+        float3 underColor = lerp(underBody, underFoam, foam);
+        if (specPower >= 0.0f)
+        {
+            float ndotl = saturate(dot(-n, normalize(lightDir)));
+            underColor *= 0.35f + 0.65f * ndotl;
+        }
+        FogParams underFog;
+        underFog.cameraPos            = cameraPos;
+        underFog.lightDir             = lightDir;
+        underFog.lightColor           = lightColor;
+        underFog.ambientColor         = ambientColor;
+        underFog.fogColor             = fogColor;
+        underFog.fogDensity           = fogDensity;
+        underFog.heightFogDensity     = heightFogDensity;
+        underFog.heightFogFalloff     = heightFogFalloff;
+        underFog.heightFogHeight      = heightFogHeight;
+        underFog.volumetricFogDensity = volumetricFogDensity;
+        underFog.waterLevel           = waterLevel;
+        underFog.volumetricHeight     = volumetricHeight;
+        underFog.heightOrigin         = float2(heightOriginX, heightOriginZ);
+        underFog.heightCellSize       = heightCellSize;
+        underFog.heightWorldSize      = float2(heightWorldSizeX, heightWorldSizeZ);
+        FogResult underResult = FogIntegrate(cameraPos, worldPos, underFog, gHeightMap, gHeightSamp, 1.0f);
+        underColor = ApplyLitFog(underColor, underResult);
+        alphaUnder = max(alphaUnder, foam * 0.85f * underAmount);
+        return float4(encodeSceneRgb(thermalMix(underColor, kThermalWater, thermal)), saturate(alphaUnder));
+    }
 
     if (specPower < 0.0f)
     {

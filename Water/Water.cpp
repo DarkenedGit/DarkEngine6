@@ -347,7 +347,9 @@ using namespace Terrain;
         const SsrSettings* ssrSettings,
         uint32_t drawIndex,
         float thermal,
-        float ultraviolet) const
+        float ultraviolet,
+        float underAmount,
+        bool ceilingPass) const
     {
         m_lastDrawCalls = 0;
         m_lastTriangles = 0;
@@ -358,7 +360,9 @@ using namespace Terrain;
 
         const DebugFill fill = debug ? debug->fill : DebugFill::Solid;
         const bool lighting  = !debug || debug->lightingActive();
-        pipeline.bind(cmd, fill);
+        if (ceilingPass && !(underAmount > 1.0e-4f))
+            return;
+        pipeline.bind(cmd, fill, false, ceilingPass);
 
         const Matrix4f viewProj = camera.GetViewProj();
         WaterFrameConstants cb{};
@@ -385,27 +389,44 @@ using namespace Terrain;
         WaterPipeline::fillSsr(cb, camera, ssrSettings, !debug || debug->ssrEnabled, hasSsr, env);
         cb.thermal = thermal > 0.0f ? thermal : 0.0f;
         cb.ultraviolet = ultraviolet > 0.0f ? ultraviolet : 0.0f;
-        pipeline.setConstants(cmd, cb, frameIndex, drawIndex);
-        pipeline.setLights(cmd, lightsVa);
-        pipeline.setSsrSrvs(sceneColorCpu, depthCpu);
-        if (pipeline.hasReceiverSrvs())
-            pipeline.bindReceiverSrvs(cmd);
-        else
-            pipeline.setHeightMap(cmd, heightHeap, heightGpu);
-        if (shadows && shadows->isValid())
-            shadows->bindReceiverCbv(cmd, WaterPipeline::kRootShadowCbv);
+        float under = underAmount;
+        if (!(under > 0.0f))
+            under = 0.0f;
+        else if (under > 1.0f)
+            under = 1.0f;
+        cb.underAmount = under;
+        const float air = 1.0f - under;
+        cb.fogDensity *= air;
+        cb.heightFogDensity *= air;
+        cb.volumetricFogDensity *= air;
 
-        const bool pointList = fill == DebugFill::Points;
-        for (const WaterChunk& c : m_chunks)
-        {
-            if (!c.wet || !c.gpu.valid())
-                continue;
-            if (frustum && !frustum->Intersects(c.bounds))
-                continue;
-            c.gpu.draw(cmd, pointList);
-            ++m_lastDrawCalls;
-            m_lastTriangles += c.gpu.indexCount() / 3u;
-        }
+        auto bindFrame = [&]() {
+            pipeline.setConstants(cmd, cb, frameIndex, drawIndex);
+            pipeline.setLights(cmd, lightsVa);
+            pipeline.setSsrSrvs(sceneColorCpu, depthCpu);
+            if (pipeline.hasReceiverSrvs())
+                pipeline.bindReceiverSrvs(cmd);
+            else
+                pipeline.setHeightMap(cmd, heightHeap, heightGpu);
+            if (shadows && shadows->isValid())
+                shadows->bindReceiverCbv(cmd, WaterPipeline::kRootShadowCbv);
+        };
+        auto drawWet = [&]() {
+            const bool pointList = fill == DebugFill::Points;
+            for (const WaterChunk& c : m_chunks)
+            {
+                if (!c.wet || !c.gpu.valid())
+                    continue;
+                if (frustum && !frustum->Intersects(c.bounds))
+                    continue;
+                c.gpu.draw(cmd, pointList);
+                ++m_lastDrawCalls;
+                m_lastTriangles += c.gpu.indexCount() / 3u;
+            }
+        };
+
+        bindFrame();
+        drawWet();
     }
 
     float WaterWorld::heightAtWorld(float x, float z) const

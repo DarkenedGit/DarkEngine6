@@ -441,6 +441,7 @@ namespace Dark
         ComPtr<ID3D12PipelineState>    argsPso;
         ComPtr<ID3D12CommandSignature> signature;
         ComPtr<ID3D12DescriptorHeap>   heap;
+        ComPtr<ID3D12DescriptorHeap>   cpuHeap;
         ComPtr<ID3D12Resource>         indices[FoliagePipeline::kCullFrameSlots];
         ComPtr<ID3D12Resource>         counters[FoliagePipeline::kCullFrameSlots];
         ComPtr<ID3D12Resource>         args[FoliagePipeline::kCullFrameSlots];
@@ -920,12 +921,16 @@ namespace Dark
             return logFoliageCullUnavailable();
         cull->signature->SetName(L"DE.Foliage.CommandSignature");
 
-        // ClearUnorderedAccessViewUint takes a GPU handle in the heap currently bound on this list.
+        // ClearUnorderedAccessViewUint reads a CPU descriptor and clears through a GPU one.
+        // The CPU handle must be non-shader-visible. The GPU handle must sit in the heap bound on this list.
         D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
         heapDesc.NumDescriptors = kCullFrameSlots;
         heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&cull->heap)), "CreateDescriptorHeap (foliage cull)"))
+            return logFoliageCullUnavailable();
+        heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+        if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&cull->cpuHeap)), "CreateDescriptorHeap (foliage cull CPU)"))
             return logFoliageCullUnavailable();
 
         const UINT64 indexBytes   = static_cast<UINT64>(kCullViewsPerFrame) * kCullKindCount * Terrain::kMaxFoliageDraw * sizeof(uint32_t);
@@ -936,7 +941,8 @@ namespace Dark
         const wchar_t* argNames[]     = { L"DE.Foliage.CullArgs0", L"DE.Foliage.CullArgs1" };
 
         const UINT                  increment = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        D3D12_CPU_DESCRIPTOR_HANDLE cpu       = cull->heap->GetCPUDescriptorHandleForHeapStart();
+        D3D12_CPU_DESCRIPTOR_HANDLE gpuCpu    = cull->heap->GetCPUDescriptorHandleForHeapStart();
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu       = cull->cpuHeap->GetCPUDescriptorHandleForHeapStart();
         D3D12_GPU_DESCRIPTOR_HANDLE gpu       = cull->heap->GetGPUDescriptorHandleForHeapStart();
         for (uint32_t slot = 0; slot < kCullFrameSlots; ++slot)
         {
@@ -956,7 +962,9 @@ namespace Dark
             uav.ViewDimension       = D3D12_UAV_DIMENSION_BUFFER;
             uav.Buffer.FirstElement = 0;
             uav.Buffer.NumElements  = kCullKindCount;
+            device->CreateUnorderedAccessView(cull->counters[slot].Get(), nullptr, &uav, gpuCpu);
             device->CreateUnorderedAccessView(cull->counters[slot].Get(), nullptr, &uav, cpu);
+            gpuCpu.ptr += increment;
             cpu.ptr += increment;
             gpu.ptr += increment;
         }

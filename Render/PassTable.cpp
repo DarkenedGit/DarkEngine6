@@ -97,6 +97,7 @@ const PassNode* sandboxDeferredPasses(uint32_t& count)
         makeNode(PassId::Camouflage, nullptr, true, {}, { RenderResource::Hdr }),
         makeNode(PassId::Translucent, "Translucent", false, { RenderResource::Depth }, { RenderResource::Hdr }),
         makeNode(PassId::Particles, "Particles", true, {}, { RenderResource::Hdr }),
+        makeNode(PassId::Underwater, "Underwater", true, { RenderResource::Hdr, RenderResource::Depth }, { RenderResource::Hdr }),
         makeNode(PassId::Post, nullptr, false, { RenderResource::Hdr }, { RenderResource::Swap }),
         makeNode(PassId::Overlay, nullptr, true, {}, { RenderResource::Swap }),
     };
@@ -115,6 +116,7 @@ const PassNode* sandboxForwardPasses(uint32_t& count)
         makeNode(PassId::Camouflage, nullptr, true, {}, { RenderResource::Hdr }),
         makeNode(PassId::Translucent, "Translucent", false, { RenderResource::Depth }, { RenderResource::Hdr }),
         makeNode(PassId::Particles, "Particles", true, {}, { RenderResource::Hdr }),
+        makeNode(PassId::Underwater, "Underwater", true, { RenderResource::Hdr, RenderResource::Depth }, { RenderResource::Hdr }),
         makeNode(PassId::Post, nullptr, false, { RenderResource::Hdr }, { RenderResource::Swap }),
         makeNode(PassId::Overlay, nullptr, true, {}, { RenderResource::Swap }),
     };
@@ -141,6 +143,7 @@ const PassNode* editorDeferredPasses(uint32_t& count)
         makeNode(PassId::EditorGizmos, "Light Gizmos", true, {}, { RenderResource::Hdr }),
         makeNode(PassId::Translucent, "Translucent", false, { RenderResource::Depth }, { RenderResource::Hdr }),
         makeNode(PassId::Particles, "Particles", true, {}, { RenderResource::Hdr }),
+        makeNode(PassId::Underwater, "Underwater", true, { RenderResource::Hdr, RenderResource::Depth }, { RenderResource::Hdr }),
         makeNode(PassId::Post, nullptr, false, { RenderResource::Hdr }, { RenderResource::Swap }),
         makeNode(PassId::Overlay, nullptr, true, {}, { RenderResource::Swap }),
     };
@@ -157,6 +160,7 @@ const PassNode* editorForwardPasses(uint32_t& count)
         makeNode(PassId::EditorGizmos, "Light Gizmos", true, {}, { RenderResource::Hdr }),
         makeNode(PassId::Translucent, "Translucent", false, { RenderResource::Depth }, { RenderResource::Hdr }),
         makeNode(PassId::Particles, "Particles", true, {}, { RenderResource::Hdr }),
+        makeNode(PassId::Underwater, "Underwater", true, { RenderResource::Hdr, RenderResource::Depth }, { RenderResource::Hdr }),
         makeNode(PassId::Post, nullptr, false, { RenderResource::Hdr }, { RenderResource::Swap }),
         makeNode(PassId::Overlay, nullptr, true, {}, { RenderResource::Swap }),
     };

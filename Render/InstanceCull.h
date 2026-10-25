@@ -46,9 +46,13 @@ namespace Dark
         ComPtr<ID3D12PipelineState>  m_compact;
         ComPtr<ID3D12PipelineState>  m_argsPso;
         ComPtr<ID3D12DescriptorHeap> m_heap;
+        ComPtr<ID3D12DescriptorHeap> m_cpuHeap;
         ComPtr<ID3D12Resource>       m_indices[kFrameSlots];
         ComPtr<ID3D12Resource>       m_counters[kFrameSlots];
+        // m_cpuStart is non-shader-visible. ClearUnorderedAccessViewUint reads that descriptor.
+        // m_gpuCpuStart writes the same view into the shader-visible heap bound on the list.
         D3D12_CPU_DESCRIPTOR_HANDLE  m_cpuStart{};
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_gpuCpuStart{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_gpuStart{};
         UINT                         m_increment = 0;
         D3D12_RESOURCE_STATES        m_indexState[kFrameSlots] = {
@@ -92,13 +96,17 @@ namespace Dark
         ComPtr<ID3D12PipelineState>       m_compact;
         ComPtr<ID3D12PipelineState>       m_argsPso;
         ComPtr<ID3D12DescriptorHeap>      m_heap;
+        ComPtr<ID3D12DescriptorHeap>      m_cpuHeap;
         ComPtr<ID3D12CommandSignature>    m_signature;
         ComPtr<ID3D12Resource>            m_indices[kFrameSlots];
         ComPtr<ID3D12Resource>            m_counters[kFrameSlots];
         ComPtr<ID3D12Resource>            m_args[kFrameSlots];
         ComPtr<ID3D12Resource>            m_upload;
         uint8_t*                          m_uploadBytes = nullptr;
+        // m_cpuStart is non-shader-visible. ClearUnorderedAccessViewUint reads that descriptor.
+        // m_gpuCpuStart writes the same view into the shader-visible heap bound on the list.
         D3D12_CPU_DESCRIPTOR_HANDLE       m_cpuStart{};
+        D3D12_CPU_DESCRIPTOR_HANDLE       m_gpuCpuStart{};
         D3D12_GPU_DESCRIPTOR_HANDLE       m_gpuStart{};
         UINT                              m_increment = 0;
         D3D12_RESOURCE_STATES             m_argState[kFrameSlots] = {
