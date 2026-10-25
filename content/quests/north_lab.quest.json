@@ -1,0 +1,44 @@
+{
+  "id": "north_lab",
+  "title": "Break into the North Lab",
+  "description": "A research facility is hiding its work behind four lit yards and ten guards. Get inside, steal their research and a bio-sample, and get out to the extraction point without starting a fight you can't win.",
+  "sequential": true,
+  "objectives": [
+    {
+      "id": "gate",
+      "text": "Slip through the facility gate",
+      "type": "reach",
+      "zone": "facility_gate"
+    },
+    {
+      "id": "files",
+      "text": "Steal research files",
+      "type": "collect",
+      "item": "research_file",
+      "count": 3
+    },
+    {
+      "id": "sample",
+      "text": "Take the bio-sample",
+      "type": "collect",
+      "item": "bio_sample",
+      "count": 1
+    },
+    {
+      "id": "escape",
+      "text": "Reach the extraction point",
+      "type": "reach",
+      "zone": "extraction"
+    }
+  ],
+  "rewards": [
+    {
+      "item": "research",
+      "count": 3
+    },
+    {
+      "item": "bio_material",
+      "count": 1
+    }
+  ]
+}

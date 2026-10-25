@@ -508,6 +508,11 @@ void SandboxApp::handleRuntimeCommands(float dt)
         m_showInventory = !m_showInventory;
         playSoundCue(world(), audio(), assets(), m_camera, "click");
     }
+    if (input().actionPressed("journal") && !typing && (!uiKeys || m_showJournal))
+    {
+        m_showJournal = !m_showJournal;
+        playSoundCue(world(), audio(), assets(), m_camera, "click");
+    }
     if (!uiKeys && input().actionPressed("pickup"))
         pickUpNearestItem();
     if (!uiKeys && input().actionPressed("takedown"))
@@ -1192,6 +1197,8 @@ void SandboxApp::setCircuit(size_t breaker, bool on, bool alertGuards)
     }
     playSoundCue(world(), audio(), assets(), m_camera, "click");
     DE_LOG_INFO("Power: circuit {} {}", box.circuit, on ? "on" : "off");
+    if (!on && alertGuards)
+        m_quest.event("power_off");
     if (on || !alertGuards)
         return;
     float bestD = 30.0f * 30.0f;
@@ -1246,9 +1253,10 @@ void SandboxApp::updatePower(float dt)
             AiAgentComponent*         ai  = world().alive(box.checker) ? world().get<AiAgentComponent>(box.checker) : nullptr;
             const TransformComponent* gxf = ai ? world().get<TransformComponent>(box.checker) : nullptr;
             const HealthComponent*    hp  = ai ? world().get<HealthComponent>(box.checker) : nullptr;
-            if (!ai || !gxf || !hp || !hp->health.alive() || ai->aware.alertness == AI::Alertness::Alert)
+            const bool noticedPlayer = ai && ai->aware.alertness != AI::Alertness::Calm && !ai->aware.heardOnly;
+            if (!ai || !gxf || !hp || !hp->health.alive() || ai->aware.alertness == AI::Alertness::Alert || ai->aware.alertness == AI::Alertness::Searching || noticedPlayer)
                 box.checker = {};
-            else if (!ai->aware.seesNow)
+            else
             {
                 AI::AwarenessState& aw = ai->aware;
                 const Vector3f      at = box.checks[box.checkIdx];
@@ -1284,7 +1292,9 @@ void SandboxApp::updatePower(float dt)
             continue;
         }
         AI::AwarenessState& aw = ai->aware;
-        if (aw.alertness != AI::Alertness::Alert && !aw.seesNow)
+        const bool onTask = aw.alertness == AI::Alertness::Calm
+                         || ((aw.alertness == AI::Alertness::Suspicious || aw.alertness == AI::Alertness::Investigating) && aw.heardOnly);
+        if (onTask)
         {
             AI::alertToInvestigate(aw, box.service);
             aw.alertness = AI::Alertness::Investigating;
@@ -1362,6 +1372,7 @@ bool SandboxApp::tryTakedown()
     if (const TransformComponent* gxf = world().get<TransformComponent>(target))
         playSoundCueAt(world(), audio(), assets(), target, "grunt", gxf->position);
     DE_LOG_INFO("Player: takedown");
+    m_quest.event("takedown");
     return true;
 }
 
@@ -1383,6 +1394,17 @@ bool SandboxApp::toggleCarry(Entity target)
             bxf->position   = pxf->position + forward * 0.9f;
             bxf->position.y = m_terrain.heightAtWorld(bxf->position.x, bxf->position.z) + m_carryFloor;
             ai->carried     = false;
+        }
+        if (bxf)
+        {
+            for (const AABox3f& patch : m_grassBoxes)
+            {
+                if (bxf->position.x > patch.Min.x && bxf->position.x < patch.Max.x && bxf->position.z > patch.Min.z && bxf->position.z < patch.Max.z)
+                {
+                    m_quest.event("body_hidden");
+                    break;
+                }
+            }
         }
         m_carried = {};
         DE_LOG_INFO("Player: dropped body");
@@ -1446,6 +1468,147 @@ void SandboxApp::updateGuardFlashlights()
         aim.Normalize();
         lxf->rotation = Quaternion::FromLookRotation(aim, Vector3f::Y_AXIS);
     }
+}
+
+void SandboxApp::startQuest(const std::string& id)
+{
+    QuestDef    def;
+    std::string error;
+    if (!loadQuestFile(resolveContentFile(questVirtualPath(id)), def, &error))
+    {
+        DE_LOG_ERROR("Quest: could not load '{}': {}", id, error);
+        return;
+    }
+    DE_LOG_INFO("Quest: started '{}' ({} objectives)", def.title, def.objectives.size());
+    m_quest.start(std::move(def));
+}
+
+namespace
+{
+    constexpr uint32_t questColor(uint32_t r, uint32_t g, uint32_t b) { return 0xFF000000u | (b << 16) | (g << 8) | r; }
+} // namespace
+
+void SandboxApp::updateQuest(float dt)
+{
+    if (m_quest.active())
+    {
+        const Entity              body = possessedBody();
+        const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+        for (const auto& [name, box] : m_zones)
+        {
+            const bool inside = pxf && pxf->position.x > box.Min.x && pxf->position.x < box.Max.x && pxf->position.z > box.Min.z && pxf->position.z < box.Max.z
+                             && pxf->position.y > box.Min.y - 1.5f && pxf->position.y < box.Max.y + 2.5f;
+            const auto was = std::find(m_zonesInside.begin(), m_zonesInside.end(), name);
+            if (inside && was == m_zonesInside.end())
+            {
+                m_zonesInside.push_back(name);
+                m_quest.reach(name);
+            }
+            else if (!inside && was != m_zonesInside.end())
+                m_zonesInside.erase(was);
+        }
+    }
+    for (QuestNoteEvent& note : m_quest.takeNotes())
+    {
+        QuestBanner banner;
+        banner.text = note.text;
+        switch (note.kind)
+        {
+        case QuestNote::Started:
+            banner.label = "NEW QUEST";
+            banner.color = questColor(240, 205, 110);
+            break;
+        case QuestNote::NewObjective:
+            banner.label = "NEW OBJECTIVE";
+            banner.color = questColor(235, 235, 235);
+            break;
+        case QuestNote::ObjectiveDone:
+            banner.label = "OBJECTIVE COMPLETE";
+            banner.color = questColor(120, 230, 140);
+            break;
+        case QuestNote::QuestDone:
+            banner.label = "QUEST COMPLETE";
+            banner.color = questColor(240, 205, 110);
+            break;
+        }
+        DE_LOG_INFO("Quest: {} - {}", banner.label, banner.text);
+        if (note.kind == QuestNote::QuestDone)
+        {
+            const Entity        body = possessedBody();
+            InventoryComponent* inv  = body.valid() ? world().get<InventoryComponent>(body) : nullptr;
+            for (const QuestReward& reward : m_quest.def().rewards)
+            {
+                const ItemDef* def = findItemDef(reward.item);
+                if (!def)
+                {
+                    DE_LOG_WARN("Quest: unknown reward item '{}'", reward.item);
+                    continue;
+                }
+                if (inv)
+                    giveItem(*inv, ItemStack{ def, reward.count });
+            }
+        }
+        if (note.kind != QuestNote::NewObjective || m_questBanners.size() < 4)
+            m_questBanners.push_back(std::move(banner));
+    }
+    if (!m_questBanners.empty())
+    {
+        m_questBanners.front().timeLeft -= dt;
+        if (m_questBanners.front().timeLeft <= 0.0f)
+            m_questBanners.erase(m_questBanners.begin());
+    }
+}
+
+bool SandboxApp::questTarget(Vector3f& out)
+{
+    const int focus = m_quest.focus();
+    if (focus < 0)
+        return false;
+    const ObjectiveDef&       o    = m_quest.def().objectives[static_cast<size_t>(focus)];
+    const Entity              body = possessedBody();
+    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    if (!pxf)
+        return false;
+    if (o.type == ObjectiveType::Reach)
+    {
+        for (const auto& [name, box] : m_zones)
+        {
+            if (name == o.target)
+            {
+                out = box.Center();
+                return true;
+            }
+        }
+        return false;
+    }
+    float best = 1.0e12f;
+    bool  found = false;
+    auto  consider = [&](const Vector3f& at) {
+        const float d = (at - pxf->position).MagnitudeSqrd();
+        if (d < best)
+        {
+            best  = d;
+            out   = at;
+            found = true;
+        }
+    };
+    if (o.type == ObjectiveType::Collect)
+    {
+        world().each<ItemPickupComponent>([&](Entity e, ItemPickupComponent& pickup) {
+            const TransformComponent* xf = world().get<TransformComponent>(e);
+            if (xf && pickup.item.def && o.target == pickup.item.def->id)
+                consider(xf->position);
+        });
+    }
+    else if (o.target == "power_off")
+    {
+        for (const PowerBox& box : m_powerBoxes)
+        {
+            if (box.on)
+                consider(box.pos);
+        }
+    }
+    return found;
 }
 
 float SandboxApp::playerLightLevel()
@@ -2053,6 +2216,7 @@ int SandboxApp::giveItem(InventoryComponent& inv, const ItemStack& item)
     }
     DE_LOG_INFO("Inventory: picked up {} x{}", item.def->name, added);
     playSoundCue(world(), audio(), assets(), m_camera, "click");
+    m_quest.collect(item.def->id, added);
     const bool wearable = item.def->slot != EquipSlot::None && (item.def->type == ItemType::Armor || item.def->type == ItemType::Tool);
     if (wearable && inv.equipped[static_cast<int>(item.def->slot)].empty())
     {
@@ -3838,6 +4002,7 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
             else
                 DE_LOG_INFO(LogCategory::Render, "SandboxApp: scene {}", scenePath.string());
             applySceneStealth(m_stealth, m_chase.ai(), sceneData.stealth);
+            m_sceneQuest = sceneData.quest;
             applySceneAtmosphere(m_env, sceneData);
             {
                 const ExposureSceneDesc exposure = sceneData.exposure.present ? sceneData.exposure : ExposureSceneDesc{};
@@ -4224,9 +4389,27 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
     createPhysicsWorld();
 
     std::vector<AABox3f> grass;
+    m_quest.clear();
+    m_zones.clear();
+    m_zonesInside.clear();
+    m_questBanners.clear();
     for (const SceneObjectData& o : sceneBoxes)
     {
         const AABox3f bounds = AABox3f::FromCenterExtents(o.position, o.scale * 0.5f);
+        if (!o.zone.empty())
+        {
+            m_zones.emplace_back(o.zone, bounds);
+            continue;
+        }
+        if (!o.pickup.empty())
+        {
+            Physics::PhysicsWorld placedInLevel;
+            if (const ItemDef* def = findItemDef(o.pickup))
+                spawnItemPickup(world(), pins(), assets(), renderer(), placedInLevel, ItemStack{ def, Math::Max(1, o.pickupCount) }, o.position, Vector3f{});
+            else
+                DE_LOG_WARN("Scene: unknown pickup item '{}'", o.pickup);
+            continue;
+        }
         if (o.goal)
             m_goalBox = bounds;
         if (!o.circuit.empty())
@@ -4237,7 +4420,10 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
             m_chase.addObstacle(bounds);
     }
     m_chaseOk = m_chase.init(renderer(), m_terrain, m_water, world(), pins(), assets());
+    m_grassBoxes = grass;
     m_chase.ai().setConcealVolumes(grass);
+    if (!m_sceneQuest.empty())
+        startQuest(m_sceneQuest);
     uint32_t patchSeed = 1;
     for (const SceneObjectData& o : sceneBoxes)
     {
@@ -4277,7 +4463,7 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
     }
     for (const SceneObjectData& o : sceneBoxes)
     {
-        if (o.conceal)
+        if (o.conceal || !o.zone.empty() || !o.pickup.empty())
             continue;
         const uint8_t r = static_cast<uint8_t>(Math::Clamp(o.color[0], 0.0f, 1.0f) * 255.0f);
         const uint8_t g = static_cast<uint8_t>(Math::Clamp(o.color[1], 0.0f, 1.0f) * 255.0f);
@@ -4528,6 +4714,7 @@ void SandboxApp::onUpdate(float dt)
         applyInventoryArmor();
         updateHunterLoot();
         updatePower(dt);
+        updateQuest(dt);
         updateCarry();
         updateGuardFlashlights();
         m_blood.update(dt);
@@ -5754,6 +5941,7 @@ void SandboxApp::onRender()
         drawGuardAwareness();
         drawArmorHud();
         drawStaminaBar();
+        drawQuestHud();
         drawBreathBar();
         drawPickupLabels();
         drawTargetMarker();
@@ -5764,6 +5952,8 @@ void SandboxApp::onRender()
             drawPauseOverlay();
         if (m_showDevTools)
             drawDevTools();
+        if (m_showJournal)
+            drawJournal();
         if (m_showInventory)
             drawInventory();
         if (m_lootTarget.valid())

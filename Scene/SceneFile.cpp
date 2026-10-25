@@ -360,6 +360,8 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
     json root;
     root["version"] = scene.version > 0 ? scene.version : 1;
     root["name"]    = scene.name.empty() ? "untitled" : scene.name;
+    if (!scene.quest.empty())
+        root["quest"] = scene.quest;
     root["mode"]    = toString(scene.mode);
     if (scene.mode != SceneMode::Scene2D)
     {
@@ -576,6 +578,14 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             jo["goal"] = true;
         if (!o.circuit.empty())
             jo["circuit"] = o.circuit;
+        if (!o.zone.empty())
+            jo["zone"] = o.zone;
+        if (!o.pickup.empty())
+        {
+            jo["pickup"] = o.pickup;
+            if (o.pickupCount != 1)
+                jo["pickupCount"] = o.pickupCount;
+        }
         if (!o.patrol.empty())
         {
             json points = json::array();
@@ -651,6 +661,7 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
 
     outScene.version = root.value("version", 1);
     outScene.name    = root.value("name", std::string("untitled"));
+    outScene.quest   = root.value("quest", std::string());
     const std::string modeStr = root.value("mode", std::string("3d"));
     if (!tryParseSceneMode(modeStr, outScene.mode))
         outScene.mode = SceneMode::Scene3D;
@@ -1127,6 +1138,9 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
         o.conceal = jo.value("conceal", false);
         o.goal    = jo.value("goal", false);
         o.circuit = jo.value("circuit", std::string());
+        o.zone    = jo.value("zone", std::string());
+        o.pickup  = jo.value("pickup", std::string());
+        o.pickupCount = jo.value("pickupCount", 1);
         if (jo.contains("patrol") && jo["patrol"].is_array())
         {
             for (const json& p : jo["patrol"])

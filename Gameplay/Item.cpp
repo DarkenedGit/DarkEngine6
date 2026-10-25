@@ -12,6 +12,10 @@ namespace Dark
             { "helmet", "Helmet", ItemType::Armor, EquipSlot::Head, 1, 0.0f, 25.0f },
             { "chest", "Chest Plate", ItemType::Armor, EquipSlot::Chest, 1, 0.0f, 40.0f },
             { "flashlight", "Flashlight", ItemType::Tool, EquipSlot::Light, 1, 0.0f, 0.0f },
+            { "research_file", "Research File", ItemType::Quest, EquipSlot::None, 10, 0.0f, 0.0f },
+            { "bio_sample", "Bio-Sample", ItemType::Quest, EquipSlot::None, 10, 0.0f, 0.0f },
+            { "research", "Research Data", ItemType::Resource, EquipSlot::None, 99, 0.0f, 0.0f },
+            { "bio_material", "Bio Material", ItemType::Resource, EquipSlot::None, 99, 0.0f, 0.0f },
         };
     }
 
