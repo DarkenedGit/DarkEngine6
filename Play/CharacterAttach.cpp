@@ -11,6 +11,7 @@
 #include "Character/HealthComponent.h"
 #include "Character/PlayerMotorComponent.h"
 #include "Character/SkillXp.h"
+#include "Combat/HitVolumes.h"
 #include "Combat/JumpAttackComponent.h"
 #include "Combat/PoiseComponent.h"
 #include "Combat/Shield.h"
@@ -140,6 +141,8 @@ namespace Dark
             h.halfExtents = halfExtents;
             world.emplace<HittableComponent>(e, h);
         }
+        if (!world.has<Combat::HitVolumesComponent>(e))
+            world.emplace<Combat::HitVolumesComponent>(e);
     }
 
     namespace

@@ -10,6 +10,7 @@
 #include "Collision/StaticCollision.h"
 #include "Collision/SweptCollision.h"
 #include "Combat/CombatSystem.h"
+#include "Combat/HitVolumes.h"
 #include "Combat/JumpAttackComponent.h"
 #include "Combat/JumpAttackResolve.h"
 #include "Combat/PoiseComponent.h"
@@ -238,6 +239,8 @@ namespace Dark
             hit.halfExtents = Vect3f::ONE;
             world.emplace<HittableComponent>(e, hit);
         }
+        if (!world.has<Combat::HitVolumesComponent>(e))
+            world.emplace<Combat::HitVolumesComponent>(e);
 
         AiAgentComponent ai{};
         ai.forward = Vect3f::Z_AXIS;

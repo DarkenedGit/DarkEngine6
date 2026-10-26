@@ -456,7 +456,7 @@ Editor: a Collision section on the selected object (geom enum, surface dropdown,
 | Projectile | **no body** in v1 | — | Existing sweep / optional `CastShape` |
 | Pickup | static or kinematic sensor | sphere | Replaces AABB coin test in 3D |
 
-Skinned meshes: collider is a **single capsule or compound of a few capsules** at rest pose, not per-bone in v1. Hit boxes for weapons stay `HittableComponent` AABBs unless a later PR adds bone capsules.
+Skinned meshes: collider is a **single capsule or compound of a few capsules** at rest pose, not per-bone in v1. Gameplay hit capsules are not the physics mover. Weapon hits use those posed capsules when a body has them active, and otherwise stay `HittableComponent` AABBs.
 
 ### Procedural Sandbox objects
 
