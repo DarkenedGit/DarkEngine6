@@ -154,6 +154,55 @@ TEST(Quest, NotesReportProgress)
     EXPECT_TRUE(next);
 }
 
+TEST(Quest, SyncCollectTracksHeldStack)
+{
+    QuestTracker t = started();
+    t.syncCollect("research_file", 3);
+    EXPECT_EQ(t.state(1).progress, 0);
+    EXPECT_FALSE(t.state(1).done);
+
+    t.reach("gate");
+    t.syncCollect("research_file", 1);
+    EXPECT_EQ(t.state(1).progress, 1);
+    EXPECT_FALSE(t.state(1).done);
+    t.syncCollect("research_file", 1);
+    EXPECT_EQ(t.state(1).progress, 1);
+
+    t.syncCollect("research_file", 0);
+    EXPECT_EQ(t.state(1).progress, 0);
+    EXPECT_FALSE(t.state(1).done);
+
+    t.syncCollect("research_file", 5);
+    EXPECT_EQ(t.state(1).progress, 3);
+    EXPECT_TRUE(t.state(1).done);
+    t.syncCollect("research_file", 0);
+    EXPECT_EQ(t.state(1).progress, 3);
+    EXPECT_TRUE(t.state(1).done);
+
+    t.reach("exit");
+    EXPECT_TRUE(t.complete());
+    t.syncCollect("research_file", 0);
+    EXPECT_EQ(t.state(1).progress, 3);
+}
+
+TEST(Quest, SyncCollectRewardStackDoesNotFarm)
+{
+    QuestDef def;
+    ASSERT_TRUE(parseQuest(kQuest, def));
+    def.rewards[0].item  = "research_file";
+    def.rewards[0].count = 2;
+    QuestTracker t;
+    t.start(std::move(def));
+    t.reach("gate");
+    t.syncCollect("research_file", 1);
+    EXPECT_EQ(t.state(1).progress, 1);
+    t.syncCollect("research_file", 3);
+    EXPECT_EQ(t.state(1).progress, 3);
+    EXPECT_TRUE(t.state(1).done);
+    t.syncCollect("research_file", 3);
+    EXPECT_EQ(t.state(1).progress, 3);
+}
+
 TEST(Quest, ShippedNorthLabQuestLoads)
 {
     bool loaded = false;

@@ -1,8 +1,18 @@
 #include "SandboxApp.h"
 
+#include "Play/AttachedLights.h"
+#include "Play/Carry.h"
 #include "Play/CharacterAttach.h"
 #include "Play/ContactGrind.h"
+#include "Play/HunterCue.h"
+#include "Play/ThrowableHost.h"
 #include "Play/HunterTick.h"
+#include "Gameplay/LootMark.h"
+#include "Gameplay/PowerComponents.h"
+#include "Gameplay/PowerSystem.h"
+#include "Gameplay/QuestZone.h"
+#include "Scene/SceneSpawn.h"
+#include "Gameplay/PowerCheck.h"
 #include "Play/PhysicsGround.h"
 #include "Play/PlayLook.h"
 #include "Play/PlayMotor.h"
@@ -300,13 +310,6 @@ bool playSoundCueFallback(World& world, Audio::AudioSystem& audio, AssetManager&
     if (playSoundCue(world, audio, assets, e, primary))
         return true;
     return fallback && playSoundCue(world, audio, assets, e, fallback);
-}
-
-void tryJumpAttackAnim(World& world, Entity e)
-{
-    AnimGraphComponent* ag = e.valid() ? world.get<AnimGraphComponent>(e) : nullptr;
-    if (ag)
-        ag->graph.setTrigger("jump_attack");
 }
 
 void drawShadowCaster(ID3D12GraphicsCommandList* cmd, const ShadowPipeline& pipeline, const Matrix4f& lightViewProj, const Matrix4f& world, const Mesh& mesh)
@@ -1118,13 +1121,13 @@ SandboxApp::InteractPick SandboxApp::pickInteract()
     InteractPick              best{};
     const Entity              body = possessedBody();
     const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    if (!pxf || m_carried.valid())
+    if (!pxf || carriedBody(world()).valid())
         return best;
     const Vector3f eye  = m_viewCamera.GetPosition();
     Vector3f       look = m_viewCamera.GetLook();
     look.Normalize();
     float bestAim  = 0.94f;
-    auto  consider = [&](InteractKind kind, Entity e, size_t box, const Vector3f& at, float range) {
+    auto  consider = [&](InteractKind kind, Entity e, const Vector3f& at, float range) {
         if (Vector3f{ at.x - pxf->position.x, 0.0f, at.z - pxf->position.z }.MagnitudeSqrd() > range * range)
             return;
         Vector3f to = at - eye;
@@ -1135,188 +1138,53 @@ SandboxApp::InteractPick SandboxApp::pickInteract()
         if (aim <= bestAim)
             return;
         bestAim = aim;
-        best    = InteractPick{ kind, e, box };
+        best    = InteractPick{ kind, e };
     };
     world().each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
         const TagComponent*       tag = world().get<TagComponent>(e);
         const TransformComponent* gxf = world().get<TransformComponent>(e);
         const HealthComponent*    hp  = world().get<HealthComponent>(e);
         if (gxf && hp && !hp->health.alive() && !ai.carried && !(tag && tag->name == "Wolf"))
-            consider(InteractKind::Body, e, 0, gxf->position, 2.2f);
+            consider(InteractKind::Body, e, gxf->position, 2.2f);
     });
-    for (size_t i = 0; i < m_powerBoxes.size(); ++i)
-        consider(InteractKind::Power, {}, i, m_powerBoxes[i].pos, 2.5f);
+    world().each<PowerBoxComponent>([&](Entity e, PowerBoxComponent& box) {
+        const TransformComponent* xf = world().get<TransformComponent>(e);
+        consider(InteractKind::Power, e, xf ? xf->position : box.pos, 2.5f);
+    });
     world().each<ItemPickupComponent>([&](Entity e, ItemPickupComponent& pickup) {
         if (const TransformComponent* ixf = world().get<TransformComponent>(e); ixf && !pickup.item.empty())
-            consider(InteractKind::Item, e, 0, ixf->position, 2.2f);
+            consider(InteractKind::Item, e, ixf->position, 2.2f);
     });
     world().each<LootComponent>([&](Entity e, LootComponent& loot) {
         if (const TransformComponent* ixf = world().get<TransformComponent>(e); ixf && itemCount(loot.contents) > 0)
-            consider(InteractKind::Item, e, 0, ixf->position, 2.2f);
+            consider(InteractKind::Item, e, ixf->position, 2.2f);
     });
     return best;
 }
 
-void SandboxApp::setCircuit(size_t breaker, bool on, bool alertGuards)
+void SandboxApp::powerClick(void* user)
 {
-    PowerBox&              box  = m_powerBoxes[breaker];
-    const AI::Walkability& walk = m_chase.ai().walkability();
-    auto                   open = [&](float x, float z) { return !walk.valid() || walk.walkableWorld(x, z); };
-    box.on     = on;
-    box.fixFor = 0.0f;
-    if (on && box.fixer.valid())
-    {
-        box.checker    = box.fixer;
-        box.checkIdx   = 0;
-        box.checkFor   = 0.0f;
-        box.checkTime  = 0.0f;
-        const float a0 = std::fmod(m_cloudTime * 1.37f, 6.2831853f);
-        for (int k = 0; k < 3; ++k)
-        {
-            box.checks[k] = box.service;
-            for (int t = 0; t < 12; ++t)
-            {
-                const float a = a0 + static_cast<float>(k) * 2.09f + static_cast<float>(t) * 0.55f;
-                const float r = 3.0f + std::fmod(m_cloudTime * 0.73f + static_cast<float>(k) * 1.9f + static_cast<float>(t) * 1.3f, 4.0f);
-                const float x = box.pos.x + std::sin(a) * r;
-                const float z = box.pos.z + std::cos(a) * r;
-                if (!open(x, z))
-                    continue;
-                box.checks[k] = Vector3f{ x, box.pos.y, z };
-                break;
-            }
-        }
-        box.fixer = {};
-    }
-    for (const auto& [circuit, light] : m_circuitLights)
-    {
-        if (circuit != box.circuit)
-            continue;
-        if (LocalLightComponent* l = world().alive(light) ? world().get<LocalLightComponent>(light) : nullptr)
-            l->enabled = on;
-    }
-    playSoundCue(world(), audio(), assets(), m_camera, "click");
-    DE_LOG_INFO("Power: circuit {} {}", box.circuit, on ? "on" : "off");
-    if (!on && alertGuards)
-        m_quest.event("power_off");
-    if (on || !alertGuards)
+    auto* app = static_cast<SandboxApp*>(user);
+    if (!app)
         return;
-    float bestD = 30.0f * 30.0f;
-    world().each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
-        const TagComponent*       tag = world().get<TagComponent>(e);
-        const TransformComponent* gxf = world().get<TransformComponent>(e);
-        const HealthComponent*    hp  = world().get<HealthComponent>(e);
-        if (!gxf || !hp || !hp->health.alive() || (tag && tag->name == "Wolf") || ai.aware.alertness == AI::Alertness::Alert)
-            return;
-        const float d = Vector3f{ gxf->position.x - box.pos.x, 0.0f, gxf->position.z - box.pos.z }.MagnitudeSqrd();
-        if (d > bestD)
-            return;
-        bestD     = d;
-        box.fixer = e;
-    });
-    if (!box.fixer.valid())
-    {
-        DE_LOG_INFO("Power: no guard near circuit {}", box.circuit);
-        return;
-    }
-    if (box.checker == box.fixer)
-        box.checker = {};
-    const TransformComponent* gxf = world().get<TransformComponent>(box.fixer);
-    Vector3f                  side{ gxf->position.x - box.pos.x, 0.0f, gxf->position.z - box.pos.z };
-    side             = side.MagnitudeSqrd() > 1.0e-4f ? side * (1.0f / std::sqrt(side.MagnitudeSqrd())) : Vector3f::Z_AXIS;
-    const float base = std::atan2(side.x, side.z);
-    box.service      = Vector3f{ box.pos.x + side.x * 1.6f, box.pos.y, box.pos.z + side.z * 1.6f };
-    bool found       = false;
-    for (float r = 1.4f; r < 3.5f && !found; r += 0.5f)
-    {
-        for (int t = 0; t < 8 && !found; ++t)
-        {
-            const float a = base + static_cast<float>((t + 1) / 2) * 0.785f * ((t & 1) ? 1.0f : -1.0f);
-            const float x = box.pos.x + std::sin(a) * r;
-            const float z = box.pos.z + std::cos(a) * r;
-            if (!open(x, z))
-                continue;
-            box.service = Vector3f{ x, box.pos.y, z };
-            found       = true;
-        }
-    }
-    DE_LOG_INFO("Power: guard {} going to fix circuit {}", box.fixer.id(), box.circuit);
+    playSoundCue(app->world(), app->audio(), app->assets(), app->m_camera, "click");
+}
+
+void SandboxApp::setCircuit(Entity breaker, bool on, bool alertGuards)
+{
+    setPowerCircuit(world(), breaker, on, alertGuards, &m_chase.ai().walkability(), m_cloudTime, &m_quest.tracker(), &SandboxApp::powerClick, this);
 }
 
 void SandboxApp::updatePower(float dt)
 {
-    for (size_t i = 0; i < m_powerBoxes.size(); ++i)
-    {
-        PowerBox& box = m_powerBoxes[i];
-        if (box.checker.valid())
-        {
-            AiAgentComponent*         ai  = world().alive(box.checker) ? world().get<AiAgentComponent>(box.checker) : nullptr;
-            const TransformComponent* gxf = ai ? world().get<TransformComponent>(box.checker) : nullptr;
-            const HealthComponent*    hp  = ai ? world().get<HealthComponent>(box.checker) : nullptr;
-            const bool noticedPlayer = ai && ai->aware.alertness != AI::Alertness::Calm && !ai->aware.heardOnly;
-            if (!ai || !gxf || !hp || !hp->health.alive() || ai->aware.alertness == AI::Alertness::Alert || ai->aware.alertness == AI::Alertness::Searching || noticedPlayer)
-                box.checker = {};
-            else
-            {
-                AI::AwarenessState& aw = ai->aware;
-                const Vector3f      at = box.checks[box.checkIdx];
-                AI::alertToInvestigate(aw, at);
-                aw.alertness   = AI::Alertness::Investigating;
-                aw.stateTime   = 0.0f;
-                box.checkTime += dt;
-                if (Vector3f{ gxf->position.x - at.x, 0.0f, gxf->position.z - at.z }.MagnitudeSqrd() <= 1.5f * 1.5f)
-                    box.checkFor += dt;
-                if (box.checkFor >= 2.5f || box.checkTime >= 15.0f)
-                {
-                    box.checkFor  = 0.0f;
-                    box.checkTime = 0.0f;
-                    if (++box.checkIdx >= 3)
-                    {
-                        aw.alertness = AI::Alertness::Calm;
-                        aw.meter     = 0.0f;
-                        box.checker  = {};
-                        DE_LOG_INFO("Power: guard done checking circuit {}", box.circuit);
-                    }
-                }
-            }
-        }
-        if (box.on)
-            continue;
-        AiAgentComponent*         ai  = box.fixer.valid() && world().alive(box.fixer) ? world().get<AiAgentComponent>(box.fixer) : nullptr;
-        const TransformComponent* gxf = ai ? world().get<TransformComponent>(box.fixer) : nullptr;
-        const HealthComponent*    hp  = ai ? world().get<HealthComponent>(box.fixer) : nullptr;
-        if (!ai || !gxf || !hp || !hp->health.alive())
-        {
-            box.fixer  = {};
-            box.fixFor = 0.0f;
-            continue;
-        }
-        AI::AwarenessState& aw = ai->aware;
-        const bool onTask = aw.alertness == AI::Alertness::Calm
-                         || ((aw.alertness == AI::Alertness::Suspicious || aw.alertness == AI::Alertness::Investigating) && aw.heardOnly);
-        if (onTask)
-        {
-            AI::alertToInvestigate(aw, box.service);
-            aw.alertness = AI::Alertness::Investigating;
-            aw.stateTime = 0.0f;
-        }
-        const float toBox  = Vector3f{ gxf->position.x - box.pos.x, 0.0f, gxf->position.z - box.pos.z }.MagnitudeSqrd();
-        const float toSpot = Vector3f{ gxf->position.x - box.service.x, 0.0f, gxf->position.z - box.service.z }.MagnitudeSqrd();
-        const bool  fixing = aw.alertness != AI::Alertness::Alert && (toBox <= 2.5f * 2.5f || toSpot <= 1.5f * 1.5f);
-        box.fixFor         = fixing ? box.fixFor + dt : 0.0f;
-        if (box.fixFor >= 1.5f)
-        {
-            DE_LOG_INFO("Power: guard {} fixed circuit {}", box.fixer.id(), box.circuit);
-            setCircuit(i, true, false);
-        }
-    }
+    tickPower(world(), dt, &m_chase.ai().walkability(), m_cloudTime, &m_quest.tracker(), &SandboxApp::powerClick, this);
 }
 
 Entity SandboxApp::takedownTarget()
 {
     const Entity              body = possessedBody();
     const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    if (!pxf || m_carried.valid() || !m_chaseOk)
+    if (!pxf || carriedBody(world()).valid() || !m_chaseOk)
         return {};
     Entity best{};
     float  bestD = 2.5f * 2.5f;
@@ -1376,98 +1244,58 @@ bool SandboxApp::tryTakedown()
     return true;
 }
 
+float SandboxApp::carryHeightAt(void* user, float x, float z)
+{
+    return static_cast<SandboxApp*>(user)->m_terrain.heightAtWorld(x, z);
+}
+
+void SandboxApp::carryHidden(void* user)
+{
+    static_cast<SandboxApp*>(user)->m_quest.event("body_hidden");
+}
+
+void SandboxApp::fillCarryView(CarryView& view)
+{
+    const std::vector<AABox3f>& volumes = m_chase.ai().concealVolumes();
+    view.world        = &world();
+    view.carrier      = possessedBody();
+    view.look         = m_viewCamera.GetLook();
+    view.heightAt     = &SandboxApp::carryHeightAt;
+    view.heightUser   = this;
+    view.conceal      = volumes.empty() ? nullptr : volumes.data();
+    view.concealCount = static_cast<int>(volumes.size());
+    view.onHidden     = &SandboxApp::carryHidden;
+    view.user         = this;
+}
+
 bool SandboxApp::toggleCarry(Entity target)
 {
-    const Entity              body = possessedBody();
-    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    if (m_carried.valid())
+    CarryView view{};
+    fillCarryView(view);
+    if (carriedBody(world()).valid())
     {
-        TransformComponent* bxf = world().alive(m_carried) ? world().get<TransformComponent>(m_carried) : nullptr;
-        AiAgentComponent*   ai  = bxf ? world().get<AiAgentComponent>(m_carried) : nullptr;
-        if (bxf && ai && pxf)
-        {
-            Vector3f forward = m_viewCamera.GetLook();
-            forward.y        = 0.0f;
-            if (forward.MagnitudeSqrd() < 1.0e-6f)
-                forward = Vector3f::Z_AXIS;
-            forward.Normalize();
-            bxf->position   = pxf->position + forward * 0.9f;
-            bxf->position.y = m_terrain.heightAtWorld(bxf->position.x, bxf->position.z) + m_carryFloor;
-            ai->carried     = false;
-        }
-        if (bxf)
-        {
-            for (const AABox3f& patch : m_grassBoxes)
-            {
-                if (bxf->position.x > patch.Min.x && bxf->position.x < patch.Max.x && bxf->position.z > patch.Min.z && bxf->position.z < patch.Max.z)
-                {
-                    m_quest.event("body_hidden");
-                    break;
-                }
-            }
-        }
-        m_carried = {};
-        DE_LOG_INFO("Player: dropped body");
+        dropCarriedBody(view);
         return true;
     }
     const Entity found = target.valid() ? target : bodyNear();
     if (!found.valid())
         return false;
-    const TransformComponent* bxf = world().get<TransformComponent>(found);
-    m_carryFloor                  = bxf->position.y - m_terrain.heightAtWorld(bxf->position.x, bxf->position.z);
-    world().get<AiAgentComponent>(found)->carried = true;
-    m_carried = found;
+    if (!takeCarriedBody(world(), possessedBody(), found, &SandboxApp::carryHeightAt, this))
+        return false;
     DE_LOG_INFO("Player: picked up body");
     return true;
 }
 
 void SandboxApp::updateCarry()
 {
-    if (!m_carried.valid())
-        return;
-    const Entity              body = possessedBody();
-    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    const HealthComponent*    php  = body.valid() ? world().get<HealthComponent>(body) : nullptr;
-    TransformComponent*       bxf  = world().alive(m_carried) ? world().get<TransformComponent>(m_carried) : nullptr;
-    if (!bxf || !pxf || !php || !php->health.alive())
-    {
-        if (bxf)
-            toggleCarry();
-        m_carried = {};
-        return;
-    }
-    Vector3f forward = m_viewCamera.GetLook();
-    forward.y        = 0.0f;
-    if (forward.MagnitudeSqrd() < 1.0e-6f)
-        forward = Vector3f::Z_AXIS;
-    forward.Normalize();
-    bxf->position = pxf->position - forward * 0.35f + Vector3f{ 0.0f, 0.55f, 0.0f };
+    CarryView view{};
+    fillCarryView(view);
+    tickCarriedBody(view);
 }
 
 void SandboxApp::updateGuardFlashlights()
 {
-    const bool night = m_env.sunElevation() < 0.15f;
-    for (const auto& [guard, torch] : m_guardLights)
-    {
-        LocalLightComponent*      beam = world().alive(torch) ? world().get<LocalLightComponent>(torch) : nullptr;
-        TransformComponent*       lxf  = beam ? world().get<TransformComponent>(torch) : nullptr;
-        const TransformComponent* gxf  = world().alive(guard) ? world().get<TransformComponent>(guard) : nullptr;
-        const AiAgentComponent*   ai   = gxf ? world().get<AiAgentComponent>(guard) : nullptr;
-        const HealthComponent*    hp   = gxf ? world().get<HealthComponent>(guard) : nullptr;
-        if (!beam || !lxf)
-            continue;
-        beam->enabled = night && ai && hp && hp->health.alive();
-        if (!beam->enabled)
-            continue;
-        Vector3f fwd{ ai->forward.x, 0.0f, ai->forward.z };
-        if (fwd.MagnitudeSqrd() < 1.0e-6f)
-            fwd = Vector3f::Z_AXIS;
-        fwd.Normalize();
-        lxf->position = gxf->position + Vector3f{ 0.0f, 0.75f, 0.0f } + fwd * 0.35f;
-        Vector3f aim  = fwd + Vector3f{ 0.0f, -0.28f, 0.0f };
-        aim.Normalize();
-        lxf->rotation = Quaternion::FromLookRotation(aim, Vector3f::Y_AXIS);
-    }
+    tickAttachedLights(world(), m_env.sunElevation());
 }
 
 void SandboxApp::startQuest(const std::string& id)
@@ -1490,24 +1318,7 @@ namespace
 
 void SandboxApp::updateQuest(float dt)
 {
-    if (m_quest.active())
-    {
-        const Entity              body = possessedBody();
-        const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-        for (const auto& [name, box] : m_zones)
-        {
-            const bool inside = pxf && pxf->position.x > box.Min.x && pxf->position.x < box.Max.x && pxf->position.z > box.Min.z && pxf->position.z < box.Max.z
-                             && pxf->position.y > box.Min.y - 1.5f && pxf->position.y < box.Max.y + 2.5f;
-            const auto was = std::find(m_zonesInside.begin(), m_zonesInside.end(), name);
-            if (inside && was == m_zonesInside.end())
-            {
-                m_zonesInside.push_back(name);
-                m_quest.reach(name);
-            }
-            else if (!inside && was != m_zonesInside.end())
-                m_zonesInside.erase(was);
-        }
-    }
+    m_quest.tick(world(), possessedBody());
     for (QuestNoteEvent& note : m_quest.takeNotes())
     {
         QuestBanner banner;
@@ -1571,15 +1382,14 @@ bool SandboxApp::questTarget(Vector3f& out)
         return false;
     if (o.type == ObjectiveType::Reach)
     {
-        for (const auto& [name, box] : m_zones)
-        {
-            if (name == o.target)
-            {
-                out = box.Center();
-                return true;
-            }
-        }
-        return false;
+        bool foundZone = false;
+        world().each<QuestZoneComponent>([&](Entity, QuestZoneComponent& zone) {
+            if (foundZone || zone.zone != o.target)
+                return;
+            out       = zone.box.Center();
+            foundZone = true;
+        });
+        return foundZone;
     }
     float best = 1.0e12f;
     bool  found = false;
@@ -1602,11 +1412,12 @@ bool SandboxApp::questTarget(Vector3f& out)
     }
     else if (o.target == "power_off")
     {
-        for (const PowerBox& box : m_powerBoxes)
-        {
-            if (box.on)
-                consider(box.pos);
-        }
+        world().each<PowerBoxComponent>([&](Entity e, PowerBoxComponent& box) {
+            if (!box.on)
+                return;
+            const TransformComponent* xf = world().get<TransformComponent>(e);
+            consider(xf ? xf->position : box.pos);
+        });
     }
     return found;
 }
@@ -1842,7 +1653,7 @@ void SandboxApp::updatePossessed(float dt)
     const Terrain::GroundContact groundSurf = (onGround && xf) ? groundContactAt(xf->position.x, xf->position.z) : Terrain::GroundContact{};
     const float swingSlow   = m_blockRecoil > 0.0f ? 0.4f : (m_swingLock <= 0.0f ? 1.0f : (m_comboCount > 1 ? 0.45f : 0.8f));
     motorIn.speedScale      = (status ? status->moveSpeedScale() : 1.0f) * m_offhand.shield.speedScale() * (onGround ? groundSurf.moveSpeed : 1.0f) * swingSlow
-                            * (m_carried.valid() ? 0.6f : 1.0f);
+                            * (carriedBody(world()).valid() ? 0.6f : 1.0f);
     if (skills)
     {
         motorIn.runScale  = skillScalar(SkillId::Run, SkillScalar::RunScale, skills->level(SkillId::Run));
@@ -2155,7 +1966,7 @@ bool SandboxApp::ownsWeapon(WeaponKind kind)
 
 void SandboxApp::pickUpNearestItem()
 {
-    if (m_carried.valid())
+    if (carriedBody(world()).valid())
     {
         toggleCarry();
         return;
@@ -2168,7 +1979,9 @@ void SandboxApp::pickUpNearestItem()
     }
     if (pick.kind == InteractKind::Power)
     {
-        setCircuit(pick.box, !m_powerBoxes[pick.box].on, true);
+        const PowerBoxComponent* box = pick.e.valid() ? world().get<PowerBoxComponent>(pick.e) : nullptr;
+        if (box)
+            setCircuit(pick.e, !box->on, true);
         return;
     }
     if (pick.kind != InteractKind::Item)
@@ -2216,7 +2029,6 @@ int SandboxApp::giveItem(InventoryComponent& inv, const ItemStack& item)
     }
     DE_LOG_INFO("Inventory: picked up {} x{}", item.def->name, added);
     playSoundCue(world(), audio(), assets(), m_camera, "click");
-    m_quest.collect(item.def->id, added);
     const bool wearable = item.def->slot != EquipSlot::None && (item.def->type == ItemType::Armor || item.def->type == ItemType::Tool);
     if (wearable && inv.equipped[static_cast<int>(item.def->slot)].empty())
     {
@@ -2278,36 +2090,10 @@ void SandboxApp::tickSpawners(float dt)
 {
     if (!m_chaseOk || dt < 0.0f)
         return;
-
-    struct Job
-    {
-        Entity         spawner{};
-        SpawnerRequest req{};
-    };
-    std::vector<Job> jobs;
-    world().each<SpawnerComponent>([&](Entity e, SpawnerComponent& spawner) {
-        const TransformComponent* xf = world().get<TransformComponent>(e);
-        if (!xf)
-            return;
-        bool alive[kSpawnerSlotCount]{};
-        for (int i = 0; i < kSpawnerSlotCount; ++i)
-            alive[i] = spawnerOccupantAlive(world(), spawner.runtime.slots[i].occupant);
-        SpawnerRequest reqs[kSpawnerSlotCount];
-        const int n = tickSpawner(spawner.desc, spawner.runtime, xf->position.x, xf->position.z, dt, alive, reqs, kSpawnerSlotCount);
-        for (int i = 0; i < n; ++i)
-            jobs.push_back(Job{ e, reqs[i] });
-    });
-    for (const Job& job : jobs)
-    {
-        const Entity unit = spawnSpawnerUnit(job.spawner, job.req);
-        SpawnerComponent* spawner = world().get<SpawnerComponent>(job.spawner);
-        if (!spawner || job.req.slot < 0 || job.req.slot >= kSpawnerSlotCount)
-            continue;
-        if (unit.valid())
-            spawner->runtime.slots[job.req.slot].occupant = unit;
-        else
-            spawner->runtime.slots[job.req.slot].tracked = false;
-    }
+    tickSpawnerJobs(
+        world(), dt,
+        [](void* user, Entity spawner, const SpawnerRequest& req) { return static_cast<SandboxApp*>(user)->spawnSpawnerUnit(spawner, req); },
+        this);
 }
 
 void SandboxApp::stockHunter(Entity hunter)
@@ -2334,16 +2120,29 @@ void SandboxApp::updateHunterLoot()
             continue;
 
         const bool dead    = !hp->health.alive();
-        const bool dropped = m_lootDropped.contains(e.id());
+        const bool dropped = world().has<LootDroppedComponent>(e);
         if (!dead && dropped)
         {
-            m_lootDropped.erase(e.id());
+            world().remove<LootDroppedComponent>(e);
             stockHunter(e);
-        }
-        if (!dead || dropped)
             continue;
-
-        m_lootDropped.insert(e.id());
+        }
+        // startScene restocks every hunter before a save puts this mark back on a corpse.
+        auto holdingLoot = [](const InventoryComponent& inv) {
+            if (itemCount(inv) > 0)
+                return true;
+            for (const ItemStack& stack : inv.equipped)
+                if (!stack.empty())
+                    return true;
+            return false;
+        };
+        const InventoryComponent* held = world().get<InventoryComponent>(e);
+        if (dropped && (!held || !holdingLoot(*held)))
+            continue;
+        if (!dead)
+            continue;
+        if (!dropped)
+            world().emplace<LootDroppedComponent>(e);
         InventoryComponent contents = *world().get<InventoryComponent>(e);
         *world().get<InventoryComponent>(e) = {};
         if (const Combat::ArmorPiecesComponent* armor = world().get<Combat::ArmorPiecesComponent>(e))
@@ -2727,7 +2526,7 @@ void SandboxApp::updateCombat(float dt)
         if (!jump->begin(req))
             return false;
         motor->clearJumpBuffer();
-        tryJumpAttackAnim(world(), body);
+        triggerJumpAttackAnim(world(), body);
         DE_LOG_INFO("Player: jump attack");
         return true;
     };
@@ -2854,90 +2653,38 @@ bool SandboxApp::releaseThrowable(bool charged)
     WeaponLoadout* weapons = localWeapons();
     if (!weapons || weapons->activeKind() != WeaponKind::Throwable || !body.valid())
         return false;
-    ThrowableBelt&      belt = throwableBelt(world(), body);
-    const ThrowableDef* def  = throwableCatalog().find(belt.hand());
-    if (!def)
-        return false;
-    const TransformComponent* xf = world().get<TransformComponent>(body);
-    const WeaponFireRequest req = makeCameraFireRequest(m_viewCamera.GetPosition(), m_viewCamera.GetLook(), xf ? &xf->position : nullptr, 1.0f);
-    ThrowableLaunch         launch;
-    launch.itemId        = def->id;
-    launch.impactClip    = def->impactSound;
-    launch.weight        = def->weight;
-    launch.throwDistance = def->throwDistance;
-    launch.origin        = req.origin;
-    launch.direction     = req.direction;
-    launch.charged       = charged;
-    launch.thrower       = body;
-    if (!beginThrowableThrow(m_throwFlights, *weapons, belt, launch))
+    ThrowableBelt&            belt = throwableBelt(world(), body);
+    const TransformComponent* xf   = world().get<TransformComponent>(body);
+    const WeaponFireRequest   req  = makeCameraFireRequest(m_viewCamera.GetPosition(), m_viewCamera.GetLook(), xf ? &xf->position : nullptr, 1.0f);
+    std::string               thrown;
+    if (!throwFromLoadout(m_throwFlights, *weapons, belt, req, body, charged, &thrown))
         return false;
     if (WeaponLoadoutComponent* wlc = world().get<WeaponLoadoutComponent>(body))
         wlc->slot = weapons->slot();
-    DE_LOG_INFO("Player: threw {}", launch.itemId);
+    DE_LOG_INFO("Player: threw {}", thrown);
     return true;
 }
 
 void SandboxApp::tickThrowableFlights(float dt)
 {
-    if (m_throwFlights.liveCount() == 0 && m_throwFlights.landings().empty())
-    {
-        syncThrowableFlightVisuals(world(), pins(), assets(), renderer(), m_throwFlights);
-        return;
-    }
-    if (m_throwFlights.liveCount() > 0)
-    {
-        WeaponTargetList bodies;
-        bodies.gather(world(), Entity{});
-        std::vector<ThrowableBody> list;
-        list.reserve(bodies.targets().size());
-        for (const WeaponTarget& target : bodies.targets())
-        {
-            ThrowableBody body;
-            body.entity      = target.entity;
-            body.center      = target.center;
-            body.halfExtents = target.halfExtents;
-            body.alive       = target.alive;
-            list.push_back(body);
-        }
-        ThrowableWorld query;
-        query.hasTerrain     = true;
-        query.terrainUser    = this;
-        query.raycastTerrain = [](void* user, const Ray3f& ray, float maxDistance) -> Collision::RayHit3D {
-            return static_cast<SandboxApp*>(user)->m_terrain.raycast(ray, maxDistance);
-        };
-        query.heightAt = [](void* user, float x, float z) {
-            return static_cast<SandboxApp*>(user)->m_terrain.heightAtWorld(x, z);
-        };
-        query.bodies    = list.empty() ? nullptr : list.data();
-        query.bodyCount = static_cast<int>(list.size());
-        const std::vector<AABox3f>& cubes = m_chase.cubes();
-        query.cubes     = cubes.empty() ? nullptr : cubes.data();
-        query.cubeCount = static_cast<int>(cubes.size());
-        m_throwFlights.tick(dt, query);
-    }
-    for (const ThrowableLanding& landing : m_throwFlights.landings())
-    {
-        const ItemDef* def = throwablePickupDef(landing.itemId);
-        if (!def)
-            DE_LOG_WARN("Throwable: could not spawn '{}'", landing.itemId);
-        else if (!spawnItemPickup(world(), pins(), assets(), renderer(), m_physics, ItemStack{ def, 1 }, landing.position, Vector3f::ZERO).valid())
-            DE_LOG_WARN("Throwable: could not spawn '{}'", landing.itemId);
-        if (!landing.impactClip.empty())
-        {
-            if (const auto clip = audio().loadWav(assets(), landing.impactClip.c_str()))
-                audio().play3D(clip, landing.position, 1.0f);
-        }
-        if (!landing.expired)
-        {
-            float callDistance = 0.0f;
-            if (const ThrowableDef* item = throwableCatalog().find(landing.itemId))
-                callDistance = item->callDistance;
-            const std::vector<AABox3f>& cubes = m_chase.cubes();
-            m_chase.ai().postThrowableLanding(world(), landing, callDistance, cubes.empty() ? nullptr : cubes.data(), static_cast<int>(cubes.size()));
-        }
-    }
-    m_throwFlights.clearLandings();
-    syncThrowableFlightVisuals(world(), pins(), assets(), renderer(), m_throwFlights);
+    ThrowableFlightHost host;
+    host.world    = &world();
+    host.pins     = &pins();
+    host.assets   = &assets();
+    host.renderer = &renderer();
+    host.physics  = &m_physics;
+    host.audio    = &audio();
+    host.ai       = &m_chase.ai();
+    host.solids.hasTerrain     = true;
+    host.solids.terrainUser    = this;
+    host.solids.raycastTerrain = [](void* user, const Ray3f& ray, float maxDistance) -> Collision::RayHit3D {
+        return static_cast<SandboxApp*>(user)->m_terrain.raycast(ray, maxDistance);
+    };
+    host.solids.heightAt = [](void* user, float x, float z) { return static_cast<SandboxApp*>(user)->m_terrain.heightAtWorld(x, z); };
+    const std::vector<AABox3f>& cubes = m_chase.cubes();
+    host.solids.cubes     = cubes.empty() ? nullptr : cubes.data();
+    host.solids.cubeCount = static_cast<int>(cubes.size());
+    tickThrowableFlightHost(m_throwFlights, dt, host);
 }
 
 bool SandboxApp::firePossessedLoadout(bool charged)
@@ -4388,40 +4135,23 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
 
     createPhysicsWorld();
 
-    std::vector<AABox3f> grass;
     m_quest.clear();
-    m_zones.clear();
-    m_zonesInside.clear();
     m_questBanners.clear();
-    for (const SceneObjectData& o : sceneBoxes)
     {
-        const AABox3f bounds = AABox3f::FromCenterExtents(o.position, o.scale * 0.5f);
-        if (!o.zone.empty())
-        {
-            m_zones.emplace_back(o.zone, bounds);
-            continue;
-        }
-        if (!o.pickup.empty())
-        {
-            Physics::PhysicsWorld placedInLevel;
-            if (const ItemDef* def = findItemDef(o.pickup))
-                spawnItemPickup(world(), pins(), assets(), renderer(), placedInLevel, ItemStack{ def, Math::Max(1, o.pickupCount) }, o.position, Vector3f{});
-            else
-                DE_LOG_WARN("Scene: unknown pickup item '{}'", o.pickup);
-            continue;
-        }
-        if (o.goal)
-            m_goalBox = bounds;
-        if (!o.circuit.empty())
-            m_powerBoxes.push_back(PowerBox{ o.position, o.circuit });
-        if (o.conceal)
-            grass.push_back(bounds);
-        else if (o.scale.y >= 0.3f && !o.goal)
-            m_chase.addObstacle(bounds);
+        SceneSpawnHost host{};
+        host.world       = &world();
+        host.physics     = m_physics.valid() ? &m_physics : nullptr;
+        host.pins        = &pins();
+        host.assets      = &assets();
+        host.renderer    = &renderer();
+        host.stampPrefix = "sandbox/level";
+        instantiateSceneObjects(sceneBoxes.data(), static_cast<int>(sceneBoxes.size()), host);
+        world().each<ObstacleVolumeComponent>([&](Entity, ObstacleVolumeComponent& block) { m_chase.addObstacle(block.box); });
+        std::vector<AABox3f> conceal;
+        gatherConcealVolumes(world(), conceal);
+        m_chase.ai().setConcealVolumes(std::move(conceal));
     }
     m_chaseOk = m_chase.init(renderer(), m_terrain, m_water, world(), pins(), assets());
-    m_grassBoxes = grass;
-    m_chase.ai().setConcealVolumes(grass);
     if (!m_sceneQuest.empty())
         startQuest(m_sceneQuest);
     uint32_t patchSeed = 1;
@@ -4433,12 +4163,15 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
         const uint8_t     g   = static_cast<uint8_t>(Math::Clamp(o.color[1], 0.0f, 1.0f) * 255.0f);
         const uint8_t     b   = static_cast<uint8_t>(Math::Clamp(o.color[2], 0.0f, 1.0f) * 255.0f);
         const std::string key = std::format("runtime:/scene/grass-{}", patchSeed);
-        AssetRef<Model>   patch = internAndUploadProceduralModel(renderer(), assets(), makeGrassPatch(o.scale.x, o.scale.z, patchSeed++),
-                                                               internSolidMaterial(assets(), r, g, b, 255, "runtime:/scene/grass-mat"), key);
-        if (!patch)
-            continue;
         const Entity e = world().createEntity();
         world().emplace<TransformComponent>(e, Vector3f{ o.position.x, m_terrain.heightAtWorld(o.position.x, o.position.z), o.position.z }, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
+        AssetRef<Model> patch = internAndUploadProceduralModel(renderer(), assets(), makeGrassPatch(o.scale.x, o.scale.z, patchSeed++),
+                                                               internSolidMaterial(assets(), r, g, b, 255, "runtime:/scene/grass-mat"), key);
+        if (!patch)
+        {
+            world().destroyEntity(e);
+            continue;
+        }
         ModelComponent mc{};
         mc.modelAssetID = patch->id;
         mc.castShadow   = true;
@@ -4459,7 +4192,11 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
         light.enabled      = o.lightEnabled;
         light.castShadow   = o.lightCastShadow;
         if (!o.circuit.empty())
-            m_circuitLights.emplace_back(o.circuit, e);
+        {
+            CircuitMemberComponent member{};
+            member.circuit = o.circuit;
+            world().emplace<CircuitMemberComponent>(e, member);
+        }
     }
     for (const SceneObjectData& o : sceneBoxes)
     {
@@ -4487,11 +4224,7 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
     else
     {
         addChaseObstaclesToPhysics();
-        HitReactionSettings hunterHit = m_chase.ai().hunterHitReaction();
-        hunterHit.stunSeconds       = 0.45f;
-        hunterHit.knockbackDistance = 0.6f;
-        hunterHit.knockbackSeconds  = 0.18f;
-        m_chase.ai().setHunterHitReactionSettings(hunterHit);
+        m_chase.ai().setHunterHitReactionSettings(defaultHunterHitReaction());
         m_chase.ai().setJumpAttackHits(
             [](void* user, const Combat::DamageEvent* events, int count) {
                 static_cast<SandboxApp*>(user)->resolveJumpAttackAndFx(events, count);
@@ -4500,19 +4233,10 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
         m_chase.ai().setHunterCue(
             [](void* user, Entity hunter, const char* cue) {
                 auto* app = static_cast<SandboxApp*>(user);
-                if (!cue || cue[0] == '\0')
-                    return;
-                if (std::strcmp(cue, "grunt") == 0)
-                    tryJumpAttackAnim(app->world(), hunter);
-                // playSoundCue returns when the bank has the cue, so the mark has to be first.
-                if (app->isStepCue(hunter, cue))
-                    app->spawnHunterFootmark(hunter);
-                if (playSoundCue(app->world(), app->audio(), app->assets(), hunter, cue))
-                    return;
-                if (std::strcmp(cue, "pounce") == 0)
-                    playSoundCue(app->world(), app->audio(), app->assets(), hunter, "impact");
-                else if (std::strcmp(cue, "pound") == 0)
-                    playSoundCueFallback(app->world(), app->audio(), app->assets(), hunter, "land", "impact");
+                playHunterCue(
+                    app->world(), app->audio(), app->assets(), hunter, cue,
+                    [](void* stepUser, Entity e, const char* stepCue) { return static_cast<SandboxApp*>(stepUser)->isStepCue(e, stepCue); },
+                    [](void* markUser, Entity e) { static_cast<SandboxApp*>(markUser)->spawnHunterFootmark(e); }, user);
             },
             this);
     }
@@ -4550,15 +4274,18 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
             {
                 const Entity torch = world().createEntity();
                 world().emplace<TransformComponent>(torch, xf.position, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
+                AttachedLightComponent att{};
+                att.owner = hunter;
                 auto& beam        = world().emplace<LocalLightComponent>(torch);
                 beam.type         = LocalLightType::Spot;
                 beam.color        = Vector3f{ 1.0f, 0.95f, 0.85f };
-                beam.intensity    = 1300.0f;
-                beam.range        = 18.0f;
-                beam.innerConeDeg = 12.0f;
-                beam.outerConeDeg = 26.0f;
+                beam.intensity    = att.intensity;
+                beam.range        = att.range;
+                beam.innerConeDeg = att.innerConeDeg;
+                beam.outerConeDeg = att.outerConeDeg;
                 beam.enabled      = false;
-                m_guardLights.emplace_back(hunter, torch);
+                world().emplace<AttachedLightComponent>(torch, att);
+                stampProceduralId(world(), torch, std::format("sandbox/level/torch/{}", stamp), "torch");
                 PatrolComponent patrol;
                 for (const Vector2f& p : o.patrol)
                     patrol.points.push_back(Vector3f{ p.x, m_terrain.heightAtWorld(p.x, p.y), p.y });

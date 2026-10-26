@@ -61,6 +61,7 @@ namespace Dark
         void ensureAwarenessSettings();
         void setPlayerExposure(float exposure) { m_playerExposure = exposure; }
         void setConcealVolumes(std::vector<Math::AABox3f> volumes) { m_conceal = std::move(volumes); }
+        const std::vector<Math::AABox3f>& concealVolumes() const { return m_conceal; }
         void setPlayerMotion(float motion) { m_playerMotion = motion; }
         void addNoise(const Math::Vector3f& pos, float range)
         {

@@ -178,6 +178,27 @@ namespace Dark
         advance(ObjectiveType::Collect, item, count);
     }
 
+    void QuestTracker::syncCollect(std::string_view item, int held)
+    {
+        if (!m_active || m_complete)
+            return;
+        const int amount  = std::max(0, held);
+        bool      changed = false;
+        for (size_t i = 0; i < m_state.size(); ++i)
+        {
+            const ObjectiveDef& o = m_def.objectives[i];
+            if (m_state[i].done || o.type != ObjectiveType::Collect || o.target != item || !open(i))
+                continue;
+            const int next = std::min(o.count, amount);
+            if (m_state[i].progress == next)
+                continue;
+            m_state[i].progress = next;
+            changed             = true;
+        }
+        if (changed)
+            settle();
+    }
+
     void QuestTracker::reach(std::string_view zone)
     {
         advance(ObjectiveType::Reach, zone, 1);

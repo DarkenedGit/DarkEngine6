@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include "ECS/Components.h"
+#include "ECS/World.h"
 #include "Play/Spawner.h"
 
 #include <cmath>
@@ -161,4 +163,56 @@ TEST(Spawner, DiscStaysInsideRadiusAndIsStable)
             differ = true;
     }
     EXPECT_TRUE(differ);
+}
+
+TEST(Spawner, JobLoopStoresTheUnitTheHostCreates)
+{
+    World world;
+    const Entity spawner = world.createEntity();
+    TransformComponent xf{};
+    xf.position = Math::Vector3f{ 3.0f, 0.0f, 4.0f };
+    world.emplace<TransformComponent>(spawner, xf);
+    SpawnerComponent comp{};
+    comp.desc.count        = 1;
+    comp.desc.radius       = 0.0f;
+    comp.desc.respawnDelay = 1.5f;
+    world.emplace<SpawnerComponent>(spawner, comp);
+
+    struct Host
+    {
+        World* world = nullptr;
+        Entity made{};
+        int    calls = 0;
+        bool   fail  = false;
+    } host;
+    host.world = &world;
+
+    auto spawn = [](void* user, Entity, const SpawnerRequest&) -> Entity {
+        auto* h = static_cast<Host*>(user);
+        ++h->calls;
+        if (h->fail)
+            return {};
+        h->made = h->world->createEntity();
+        return h->made;
+    };
+
+    tickSpawnerJobs(world, -1.0f, spawn, &host);
+    EXPECT_EQ(host.calls, 0);
+
+    tickSpawnerJobs(world, 0.0f, spawn, &host);
+    const SpawnerComponent* stored = world.get<SpawnerComponent>(spawner);
+    ASSERT_NE(stored, nullptr);
+    EXPECT_EQ(host.calls, 1);
+    EXPECT_EQ(stored->runtime.slots[0].occupant.id(), host.made.id());
+    EXPECT_TRUE(stored->runtime.slots[0].tracked);
+
+    host.fail  = true;
+    host.calls = 0;
+    SpawnerComponent* again = world.get<SpawnerComponent>(spawner);
+    again->runtime.slots[0].tracked = false;
+    again->runtime.slots[0].occupant = {};
+    tickSpawnerJobs(world, 0.0f, spawn, &host);
+    EXPECT_EQ(host.calls, 1);
+    EXPECT_FALSE(again->runtime.slots[0].tracked);
+    EXPECT_FALSE(again->runtime.slots[0].occupant.valid());
 }

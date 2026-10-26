@@ -1,6 +1,7 @@
 #include "Play/Spawner.h"
 
 #include "Character/HealthComponent.h"
+#include "ECS/Components.h"
 #include "ECS/World.h"
 #include "Math/MathDefines.h"
 #include "Math/MathHelper.h"
@@ -310,6 +311,42 @@ namespace
         if (!runtime.filling)
             return 0;
         return fillWave(runtime, tuned, originX, originZ, count, out, 0, outCapacity);
+    }
+
+    void tickSpawnerJobs(World& world, float dt, SpawnerSpawnFn spawn, void* user)
+    {
+        if (!spawn || dt < 0.0f)
+            return;
+
+        struct Job
+        {
+            Entity         spawner{};
+            SpawnerRequest req{};
+        };
+        std::vector<Job> jobs;
+        world.each<SpawnerComponent>([&](Entity e, SpawnerComponent& spawner) {
+            const TransformComponent* xf = world.get<TransformComponent>(e);
+            if (!xf)
+                return;
+            bool alive[kSpawnerSlotCount]{};
+            for (int i = 0; i < kSpawnerSlotCount; ++i)
+                alive[i] = spawnerOccupantAlive(world, spawner.runtime.slots[i].occupant);
+            SpawnerRequest reqs[kSpawnerSlotCount];
+            const int n = tickSpawner(spawner.desc, spawner.runtime, xf->position.x, xf->position.z, dt, alive, reqs, kSpawnerSlotCount);
+            for (int i = 0; i < n; ++i)
+                jobs.push_back(Job{ e, reqs[i] });
+        });
+        for (const Job& job : jobs)
+        {
+            const Entity      unit    = spawn(user, job.spawner, job.req);
+            SpawnerComponent* spawner = world.get<SpawnerComponent>(job.spawner);
+            if (!spawner || job.req.slot < 0 || job.req.slot >= kSpawnerSlotCount)
+                continue;
+            if (unit.valid())
+                spawner->runtime.slots[job.req.slot].occupant = unit;
+            else
+                spawner->runtime.slots[job.req.slot].tracked = false;
+        }
     }
 
 } // namespace Dark

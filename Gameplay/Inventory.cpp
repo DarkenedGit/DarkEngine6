@@ -68,6 +68,22 @@ namespace Dark
         return false;
     }
 
+    int countItem(const InventoryComponent& inv, std::string_view id)
+    {
+        int n = 0;
+        for (const ItemStack& s : inv.bag)
+        {
+            if (!s.empty() && id == s.def->id)
+                n += s.count;
+        }
+        for (const ItemStack& s : inv.equipped)
+        {
+            if (!s.empty() && id == s.def->id)
+                n += s.count;
+        }
+        return n;
+    }
+
     bool equipItem(InventoryComponent& inv, int bagIndex)
     {
         if (!validBagIndex(bagIndex) || inv.bag[bagIndex].empty())

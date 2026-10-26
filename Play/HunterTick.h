@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AI/AiSystem.h"
+#include "Character/HitReaction.h"
 #include "Character/PlayerMotor.h"
 #include "Scene/SceneTypes.h"
 #include "Terrain/TerrainGrid.h"
@@ -61,6 +62,17 @@ namespace Dark
             AI::applyAwarenessMask(aware, scene.settings, scene.settingsMask);
         ai.setAwarenessSettings(aware);
         ai.setAwarenessEnabled(scene.awareness);
+    }
+
+    // Sandbox live values. PathChase::init and both apps set this so a later write cannot fight it.
+    inline HitReactionSettings defaultHunterHitReaction()
+    {
+        HitReactionSettings settings;
+        settings.stunSeconds       = 0.45f;
+        settings.knockbackDistance = 0.6f;
+        settings.knockbackSeconds  = 0.18f;
+        settings.horizontalOnly    = true;
+        return settings;
     }
 
     // Sphere count stays zero for cube-only bakes. Empty lists store null.

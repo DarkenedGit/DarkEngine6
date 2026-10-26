@@ -90,12 +90,7 @@ bool PathChase::bake(Terrain::TerrainGrid& terrain, WaterWorld& water)
 
 bool PathChase::init(Renderer& renderer, Terrain::TerrainGrid& terrain, WaterWorld& water, World& world, AssetPinTable& pins, AssetManager& assets)
 {
-    HitReactionSettings hunterHit{};
-    hunterHit.stunSeconds       = 0.45f;
-    hunterHit.knockbackDistance = 2.2f;
-    hunterHit.knockbackSeconds  = 0.18f;
-    hunterHit.horizontalOnly    = true;
-    m_ai.setHunterHitReactionSettings(hunterHit);
+    m_ai.setHunterHitReactionSettings(defaultHunterHitReaction());
     m_world = &world;
     if (!m_lines.create(renderer.device(), renderer.sceneColorFormat()))
     {

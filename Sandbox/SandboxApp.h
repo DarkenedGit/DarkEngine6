@@ -18,7 +18,7 @@
 #include "Render/Camera3D.h"
 #include "Sky/Environment.h"
 #include "Gameplay/Inventory.h"
-#include "Gameplay/Quest.h"
+#include "Gameplay/QuestRuntime.h"
 #include "Physics/PhysicsWorld.h"
 #include "Physics/FoliageCollision.h"
 #include "Terrain/GrassField.h"
@@ -40,6 +40,7 @@
 #include "Gameplay/HealthPack.h"
 #include "PathChase.h"
 #include "Terrain/TerrainGround.h"
+#include "Play/Carry.h"
 #include "Play/ImpactFx.h"
 #include "Play/Spawner.h"
 #include "Play/Crow.h"
@@ -108,9 +109,13 @@ private:
     void drawJournal();
     bool questTarget(Dark::Math::Vector3f& out);
     void drawBreathBar();
-    void setCircuit(size_t breaker, bool on, bool alertGuards);
+    void setCircuit(Dark::Entity breaker, bool on, bool alertGuards);
     void updatePower(float dt);
     void updateGuardFlashlights();
+    static void powerClick(void* user);
+    static float carryHeightAt(void* user, float x, float z);
+    static void carryHidden(void* user);
+    void fillCarryView(Dark::CarryView& view);
     Dark::Entity takedownTarget();
     Dark::Entity bodyNear();
     bool tryTakedown();
@@ -248,23 +253,6 @@ private:
     float                           m_lightLevel   = 1.0f;
     float                           m_exposure     = 1.0f;
     float                           m_strideLeft   = 0.0f;
-    struct PowerBox
-    {
-        Dark::Math::Vector3f pos;
-        std::string          circuit;
-        bool                 on     = true;
-        float                fixFor = 0.0f;
-        Dark::Entity         fixer{};
-        Dark::Math::Vector3f service{};
-        Dark::Entity         checker{};
-        Dark::Math::Vector3f checks[3]{};
-        int                  checkIdx  = 0;
-        float                checkFor  = 0.0f;
-        float                checkTime = 0.0f;
-    };
-    std::vector<PowerBox>                                   m_powerBoxes;
-    std::vector<std::pair<std::string, Dark::Entity>>       m_circuitLights;
-    std::vector<std::pair<Dark::Entity, Dark::Entity>>      m_guardLights;
     enum class InteractKind
     {
         None,
@@ -276,17 +264,10 @@ private:
     {
         InteractKind kind = InteractKind::None;
         Dark::Entity e{};
-        size_t       box = 0;
     };
     InteractPick pickInteract();
-    Dark::Entity                                            m_carried{};
-    float                                                   m_carryFloor = 0.0f;
-    Dark::Math::AABox3f             m_goalBox{};
-    Dark::QuestTracker              m_quest;
+    Dark::QuestRuntime              m_quest;
     std::string                     m_sceneQuest;
-    std::vector<std::pair<std::string, Dark::Math::AABox3f>> m_zones;
-    std::vector<std::string>        m_zonesInside;
-    std::vector<Dark::Math::AABox3f> m_grassBoxes;
     struct QuestBanner
     {
         std::string label;
@@ -371,7 +352,6 @@ private:
     bool          m_showInventory  = false;
     bool          m_showProfiler   = false;
     Dark::Entity  m_lootTarget{};
-    std::unordered_set<uint32_t> m_lootDropped;
     const Dark::ItemDef* m_wornArmor[static_cast<int>(Dark::EquipSlot::Count)]{};
     Dark::NpcInfoOverlaySettings m_npcInfo{};
     bool          m_camouflage     = false;

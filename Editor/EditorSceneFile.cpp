@@ -3,6 +3,7 @@
 #include "Editor/EditorInternals.h"
 #include "Editor/EditorObject.h"
 #include "Scene/SceneFile.h"
+#include "Scene/SceneSpawn.h"
 #include "Editor/EditorFileDialog.h"
 #include "ECS/Components.h"
 #include "Network/Replication.h"
@@ -320,6 +321,16 @@ bool EditorApp::loadScene()
         if (isLocalLightType(type) || isGlobalLightType(type) || type == SceneObjectType::CloudVolume)
             continue;
         stampAuthoredId(world(), spawned[i], m_scenePath.generic_string(), static_cast<int>(i), toString(type));
+    }
+    {
+        SceneSpawnHost host{};
+        host.world       = &world();
+        host.physics     = m_physics.valid() ? &m_physics : nullptr;
+        host.pins        = &pins();
+        host.assets      = &assets();
+        host.renderer    = &renderer();
+        host.stampPrefix = "editor/scene";
+        instantiateSceneObjects(data.objects.data(), static_cast<int>(data.objects.size()), host);
     }
     for (size_t i = 0; i < data.objects.size() && i < spawned.size(); ++i)
     {

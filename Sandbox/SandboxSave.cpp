@@ -12,6 +12,8 @@
 #include "Core/Log.h"
 #include "ECS/Components.h"
 #include "Gameplay/HealthPack.h"
+#include "Gameplay/PowerSystem.h"
+#include "Play/Carry.h"
 #include "Weapons/WeaponLoadoutComponent.h"
 #include "Math/Vector3f.h"
 #include "Network/Replication.h"
@@ -316,4 +318,6 @@ void SandboxApp::saveAfterApply(void* user, World& world)
     }
     app->pushPhysicsProgress();
     syncThrowableLoadout(world, body, app->m_throwFlights, ThrowableLoadoutSync::FromRecord);
+    applyDisabledCircuits(world);
+    syncCarriedAgents(world);
 }

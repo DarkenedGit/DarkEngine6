@@ -213,7 +213,7 @@ namespace Dark
         cmd->CopyResource(m_copy.Get(), hdr);
         transitionCopy(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         renderer.bindHdrColorTarget();
-
+        // bindHdrColorTarget also transitions depth...
         const UINT slot = renderer.frameIndex() % kBufferedFrames;
         D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_cpu;
         cpu.ptr += static_cast<SIZE_T>(slot * kSrvPerFrame) * m_srvIncr;

@@ -46,6 +46,7 @@ namespace Dark
 
     int       addItem(InventoryComponent& inv, const ItemDef& def, int count);
     bool      hasItem(const InventoryComponent& inv, std::string_view id);
+    int       countItem(const InventoryComponent& inv, std::string_view id);
     bool      equipItem(InventoryComponent& inv, int bagIndex);
     bool      unequipItem(InventoryComponent& inv, EquipSlot slot);
     bool      useItem(World& world, Entity owner, InventoryComponent& inv, int bagIndex);

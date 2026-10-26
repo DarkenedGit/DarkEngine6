@@ -1,6 +1,8 @@
 #include "EditorApp.h"
 
 #include "Character/HealthComponent.h"
+#include "Gameplay/PowerSystem.h"
+#include "Play/Carry.h"
 #include "Play/CharacterAttach.h"
 #include "Save/PlayClock.h"
 #include "Character/PlayerMotorComponent.h"
@@ -256,4 +258,6 @@ void EditorApp::saveAfterApply(void* user, World& world)
     }
     app->pushPhysicsProgress();
     syncThrowableLoadout(world, body, app->m_throwFlights, ThrowableLoadoutSync::FromRecord);
+    applyDisabledCircuits(world);
+    syncCarriedAgents(world);
 }

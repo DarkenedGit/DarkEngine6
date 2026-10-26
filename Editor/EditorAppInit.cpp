@@ -1,6 +1,6 @@
 #include "EditorApp.h"
 
-#include "Character/HitReaction.h"
+#include "Play/HunterTick.h"
 #include "Character/SkillCatalog.h"
 #include "Gameplay/ThrowableCatalog.h"
 #include "Editor/EditorInternals.h"
@@ -78,14 +78,7 @@ void EditorApp::onInit()
     ensurePhysicsWorld();
     registerActions();
 
-    {
-        HitReactionSettings hunterHit{};
-        hunterHit.stunSeconds       = 0.45f;
-        hunterHit.knockbackDistance = 2.2f;
-        hunterHit.knockbackSeconds  = 0.18f;
-        hunterHit.horizontalOnly    = true;
-        m_ai.setHunterHitReactionSettings(hunterHit);
-    }
+    m_ai.setHunterHitReactionSettings(defaultHunterHitReaction());
 
     m_scenePath = defaultScenePath("level.json");
     m_sceneName = "level";

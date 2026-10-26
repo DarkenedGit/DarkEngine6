@@ -192,6 +192,8 @@ private:
     void   onPlayWeaponHit(const Dark::WeaponHit& hit);
     static void onPlayJumpHitsThunk(void* user, const Dark::Combat::DamageEvent* events, int count);
     static void onPlayHunterCueThunk(void* user, Dark::Entity hunter, const char* cue);
+    static void playPowerClick(void* user);
+    static float playCarryHeight(void* user, float x, float z);
     ImpactFxHost impactHost();
     bool   deferredDecals();
     bool   isStepCue(Entity e, const char* cue);

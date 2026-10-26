@@ -114,4 +114,8 @@ namespace Dark
     // Returns the number of requests written.
     int tickSpawner(const SpawnerDesc& desc, SpawnerRuntime& runtime, float originX, float originZ, float dt, const bool alive[kSpawnerSlotCount], SpawnerRequest* out, int outCapacity);
 
+    // Host creates the unit. A null entity clears that slot's tracked flag so the next tick can try again.
+    using SpawnerSpawnFn = Entity (*)(void* user, Entity spawner, const SpawnerRequest& req);
+    void tickSpawnerJobs(World& world, float dt, SpawnerSpawnFn spawn, void* user);
+
 } // namespace Dark

@@ -1,7 +1,13 @@
 #include "EditorApp.h"
 
+#include "Play/AttachedLights.h"
+#include "Play/Carry.h"
 #include "Play/CharacterAttach.h"
 #include "Play/ContactGrind.h"
+#include "Gameplay/PowerComponents.h"
+#include "Gameplay/PowerSystem.h"
+#include "Play/HunterCue.h"
+#include "Play/ThrowableHost.h"
 #include "Play/HunterTick.h"
 #include "Play/PhysicsGround.h"
 #include "Play/PlayLook.h"
@@ -299,6 +305,22 @@ void EditorApp::bakePlayWalkability()
         DE_LOG_WARN(LogCategory::AI, "Editor: walkability bake failed");
 }
 
+void EditorApp::playPowerClick(void* user)
+{
+    auto* app = static_cast<EditorApp*>(user);
+    if (!app)
+        return;
+    playSoundCue(app->world(), app->audio(), app->assets(), app->m_playPlayer, "click");
+}
+
+float EditorApp::playCarryHeight(void* user, float x, float z)
+{
+    auto* app = static_cast<EditorApp*>(user);
+    if (app && app->m_haveTerrain && app->m_terrain.valid())
+        return app->m_terrain.heightAtWorld(x, z);
+    return 0.0f;
+}
+
 void EditorApp::setPlayMode(bool play)
 {
     if (m_sceneMode != SceneMode::Scene3D)
@@ -315,6 +337,11 @@ void EditorApp::setPlayMode(bool play)
         }
         captureAuthoredPoses();
         bakePlayWalkability();
+        {
+            std::vector<AABox3f> conceal;
+            gatherConcealVolumes(world(), conceal);
+            m_ai.setConcealVolumes(std::move(conceal));
+        }
         m_ai.setJumpAttackHits(&EditorApp::onPlayJumpHitsThunk, this);
         m_ai.setHunterCue(&EditorApp::onPlayHunterCueThunk, this);
         if (const TransformComponent* xf = world().get<TransformComponent>(m_playPlayer))
@@ -541,12 +568,12 @@ void EditorApp::onPlayJumpHitsThunk(void* user, const Combat::DamageEvent* event
 void EditorApp::onPlayHunterCueThunk(void* user, Entity hunter, const char* cue)
 {
     auto* app = static_cast<EditorApp*>(user);
-    if (!app || !cue)
+    if (!app)
         return;
-    // playSoundCue returns when the bank has the cue, so the mark has to be first.
-    if (app->isStepCue(hunter, cue))
-        app->spawnHunterFootmark(hunter);
-    playSoundCue(app->world(), app->audio(), app->assets(), hunter, cue);
+    playHunterCue(
+        app->world(), app->audio(), app->assets(), hunter, cue,
+        [](void* stepUser, Entity e, const char* stepCue) { return static_cast<EditorApp*>(stepUser)->isStepCue(e, stepCue); },
+        [](void* markUser, Entity e) { static_cast<EditorApp*>(markUser)->spawnHunterFootmark(e); }, user);
 }
 
 void EditorApp::resolvePlayHits(const Combat::DamageEvent* events, int count)
@@ -629,89 +656,38 @@ bool EditorApp::releaseThrowable(bool charged)
     WeaponLoadoutComponent* wlc  = body.valid() ? world().get<WeaponLoadoutComponent>(body) : nullptr;
     if (!wlc || !wlc->loadout || wlc->loadout->activeKind() != WeaponKind::Throwable)
         return false;
-    ThrowableBelt&      belt = throwableBelt(world(), body);
-    const ThrowableDef* def  = throwableCatalog().find(belt.hand());
-    if (!def)
-        return false;
-    const TransformComponent* xf = world().get<TransformComponent>(body);
-    const WeaponFireRequest req = makeCameraFireRequest(m_camera.GetPosition(), m_camera.GetLook(), xf ? &xf->position : nullptr, 1.0f);
-    ThrowableLaunch         launch;
-    launch.itemId        = def->id;
-    launch.impactClip    = def->impactSound;
-    launch.weight        = def->weight;
-    launch.throwDistance = def->throwDistance;
-    launch.origin        = req.origin;
-    launch.direction     = req.direction;
-    launch.charged       = charged;
-    launch.thrower       = body;
-    if (!beginThrowableThrow(m_throwFlights, *wlc->loadout, belt, launch))
+    ThrowableBelt&            belt = throwableBelt(world(), body);
+    const TransformComponent* xf   = world().get<TransformComponent>(body);
+    const WeaponFireRequest   req  = makeCameraFireRequest(m_camera.GetPosition(), m_camera.GetLook(), xf ? &xf->position : nullptr, 1.0f);
+    std::string               thrown;
+    if (!throwFromLoadout(m_throwFlights, *wlc->loadout, belt, req, body, charged, &thrown))
         return false;
     wlc->slot = wlc->loadout->slot();
-    DE_LOG_INFO("Throwable: threw {}", launch.itemId);
+    DE_LOG_INFO("Throwable: threw {}", thrown);
     return true;
 }
 
 void EditorApp::tickThrowableFlights(float dt)
 {
-    if (m_throwFlights.liveCount() == 0 && m_throwFlights.landings().empty())
-    {
-        syncThrowableFlightVisuals(world(), pins(), assets(), renderer(), m_throwFlights);
-        return;
-    }
-    if (m_throwFlights.liveCount() > 0)
-    {
-        WeaponTargetList bodies;
-        bodies.gather(world(), Entity{});
-        std::vector<ThrowableBody> list;
-        list.reserve(bodies.targets().size());
-        for (const WeaponTarget& target : bodies.targets())
-        {
-            ThrowableBody body;
-            body.entity      = target.entity;
-            body.center      = target.center;
-            body.halfExtents = target.halfExtents;
-            body.alive       = target.alive;
-            list.push_back(body);
-        }
-        ThrowableWorld query;
-        query.hasTerrain     = true;
-        query.terrainUser    = this;
-        query.raycastTerrain = [](void* user, const Ray3f& ray, float maxDistance) -> Collision::RayHit3D {
-            return static_cast<EditorApp*>(user)->m_terrain.raycast(ray, maxDistance);
-        };
-        query.heightAt = [](void* user, float x, float z) {
-            return static_cast<EditorApp*>(user)->m_terrain.heightAtWorld(x, z);
-        };
-        query.bodies      = list.empty() ? nullptr : list.data();
-        query.bodyCount   = static_cast<int>(list.size());
-        query.cubes       = m_playCubes.empty() ? nullptr : m_playCubes.data();
-        query.cubeCount   = static_cast<int>(m_playCubes.size());
-        query.spheres     = m_playSpheres.empty() ? nullptr : m_playSpheres.data();
-        query.sphereCount = static_cast<int>(m_playSpheres.size());
-        m_throwFlights.tick(dt, query);
-    }
-    for (const ThrowableLanding& landing : m_throwFlights.landings())
-    {
-        const ItemDef* def = throwablePickupDef(landing.itemId);
-        if (!def)
-            DE_LOG_WARN("Throwable: could not spawn '{}'", landing.itemId);
-        else if (!spawnItemPickup(world(), pins(), assets(), renderer(), m_physics, ItemStack{ def, 1 }, landing.position, Vector3f::ZERO).valid())
-            DE_LOG_WARN("Throwable: could not spawn '{}'", landing.itemId);
-        if (!landing.impactClip.empty())
-        {
-            if (const auto clip = audio().loadWav(assets(), landing.impactClip.c_str()))
-                audio().play3D(clip, landing.position, 1.0f);
-        }
-        if (!landing.expired)
-        {
-            float callDistance = 0.0f;
-            if (const ThrowableDef* item = throwableCatalog().find(landing.itemId))
-                callDistance = item->callDistance;
-            m_ai.postThrowableLanding(world(), landing, callDistance, m_playCubes.empty() ? nullptr : m_playCubes.data(), static_cast<int>(m_playCubes.size()));
-        }
-    }
-    m_throwFlights.clearLandings();
-    syncThrowableFlightVisuals(world(), pins(), assets(), renderer(), m_throwFlights);
+    ThrowableFlightHost host;
+    host.world    = &world();
+    host.pins     = &pins();
+    host.assets   = &assets();
+    host.renderer = &renderer();
+    host.physics  = &m_physics;
+    host.audio    = &audio();
+    host.ai       = &m_ai;
+    host.solids.hasTerrain     = true;
+    host.solids.terrainUser    = this;
+    host.solids.raycastTerrain = [](void* user, const Ray3f& ray, float maxDistance) -> Collision::RayHit3D {
+        return static_cast<EditorApp*>(user)->m_terrain.raycast(ray, maxDistance);
+    };
+    host.solids.heightAt = [](void* user, float x, float z) { return static_cast<EditorApp*>(user)->m_terrain.heightAtWorld(x, z); };
+    host.solids.cubes       = m_playCubes.empty() ? nullptr : m_playCubes.data();
+    host.solids.cubeCount   = static_cast<int>(m_playCubes.size());
+    host.solids.spheres     = m_playSpheres.empty() ? nullptr : m_playSpheres.data();
+    host.solids.sphereCount = static_cast<int>(m_playSpheres.size());
+    tickThrowableFlightHost(m_throwFlights, dt, host);
 }
 
 bool EditorApp::firePlayLoadout(bool charged)
@@ -753,6 +729,8 @@ void EditorApp::updatePlay(float dt)
         return;
     }
 
+    tickPower(world(), dt, &m_ai.walkability(), m_cloudTime, nullptr, &EditorApp::playPowerClick, this);
+    tickAttachedLights(world(), m_env.sunElevation());
     tickThrowableFlights(dt);
 
     Entity body = m_playPlayer;
@@ -814,16 +792,23 @@ void EditorApp::updatePlay(float dt)
     const bool toggleLight = carriesLight && canSteer && !uiKeys && input().actionPressed("flashlight");
     if (canSteer && !uiKeys && input().actionPressed("pickup"))
     {
-        const Entity closest = findThrowablePickupNear(world(), xf->position, 2.2f);
-        if (closest.valid())
+        const Entity box = nearestPowerBox(world(), xf->position, 2.5f);
+        const PowerBoxComponent* power = box.valid() ? world().get<PowerBoxComponent>(box) : nullptr;
+        if (power)
+            setPowerCircuit(world(), box, !power->on, true, &m_ai.walkability(), m_cloudTime, nullptr, &EditorApp::playPowerClick, this);
+        else
         {
-            const ItemPickupComponent* picked = world().get<ItemPickupComponent>(closest);
-            const std::string          id = (picked && picked->item.def) ? picked->item.def->id : std::string{};
-            const CarryPickupResult    took = takeCarryPickup(world(), pins(), m_physics, closest, throwableBelt(world(), body), nullptr);
-            if (took.throwable)
+            const Entity closest = findThrowablePickupNear(world(), xf->position, 2.2f);
+            if (closest.valid())
             {
-                DE_LOG_INFO("Throwable: picked up {}", id);
-                playSoundCue(world(), audio(), assets(), body, "click");
+                const ItemPickupComponent* picked = world().get<ItemPickupComponent>(closest);
+                const std::string          id = (picked && picked->item.def) ? picked->item.def->id : std::string{};
+                const CarryPickupResult    took = takeCarryPickup(world(), pins(), m_physics, closest, throwableBelt(world(), body), nullptr);
+                if (took.throwable)
+                {
+                    DE_LOG_INFO("Throwable: picked up {}", id);
+                    playSoundCue(world(), audio(), assets(), body, "click");
+                }
             }
         }
     }
@@ -1075,6 +1060,18 @@ void EditorApp::updatePlay(float dt)
     }
 
     updatePlayCamera();
+    {
+        CarryView carry{};
+        carry.world      = &world();
+        carry.carrier    = body;
+        carry.look       = m_camera.GetLook();
+        carry.heightAt   = &EditorApp::playCarryHeight;
+        carry.heightUser = this;
+        const std::vector<AABox3f>& volumes = m_ai.concealVolumes();
+        carry.conceal      = volumes.empty() ? nullptr : volumes.data();
+        carry.concealCount = static_cast<int>(volumes.size());
+        tickCarriedBody(carry);
+    }
     syncPlayerFlashlight(world(), body, m_camera.GetPosition(), m_camera.GetLook(), m_camera.GetRight(), m_camera.GetUp(), m_offhand.lightOn);
 
     world().each<Combat::PoiseComponent>([&](Entity e, Combat::PoiseComponent& p) {
@@ -1275,36 +1272,10 @@ void EditorApp::tickSpawners(float dt)
 {
     if (!m_playMode || m_sceneMode != SceneMode::Scene3D || dt < 0.0f)
         return;
-
-    struct Job
-    {
-        Entity          spawner{};
-        SpawnerRequest  req{};
-    };
-    std::vector<Job> jobs;
-    world().each<SpawnerComponent>([&](Entity e, SpawnerComponent& spawner) {
-        const TransformComponent* xf = world().get<TransformComponent>(e);
-        if (!xf)
-            return;
-        bool alive[kSpawnerSlotCount]{};
-        for (int i = 0; i < kSpawnerSlotCount; ++i)
-            alive[i] = spawnerOccupantAlive(world(), spawner.runtime.slots[i].occupant);
-        SpawnerRequest reqs[kSpawnerSlotCount];
-        const int n = tickSpawner(spawner.desc, spawner.runtime, xf->position.x, xf->position.z, dt, alive, reqs, kSpawnerSlotCount);
-        for (int i = 0; i < n; ++i)
-            jobs.push_back(Job{ e, reqs[i] });
-    });
-    for (const Job& job : jobs)
-    {
-        const Entity unit = spawnSpawnerUnit(job.spawner, job.req);
-        SpawnerComponent* spawner = world().get<SpawnerComponent>(job.spawner);
-        if (!spawner || job.req.slot < 0 || job.req.slot >= kSpawnerSlotCount)
-            continue;
-        if (unit.valid())
-            spawner->runtime.slots[job.req.slot].occupant = unit;
-        else
-            spawner->runtime.slots[job.req.slot].tracked = false;
-    }
+    tickSpawnerJobs(
+        world(), dt,
+        [](void* user, Entity spawner, const SpawnerRequest& req) { return static_cast<EditorApp*>(user)->spawnSpawnerUnit(spawner, req); },
+        this);
 }
 
 void EditorApp::applyAuthoredStealth()

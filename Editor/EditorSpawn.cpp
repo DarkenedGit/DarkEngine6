@@ -2,6 +2,8 @@
 
 #include "Editor/EditorInternals.h"
 #include "Editor/LocalLightAuthoring.h"
+#include "Gameplay/PowerComponents.h"
+#include "Play/Carry.h"
 #include "Sky/Environment.h"
 #include "Editor/EditorObject.h"
 #include "Scene/SceneFile.h"
@@ -390,6 +392,12 @@ Entity EditorApp::spawnObject(
     }
     if (type == SceneObjectType::Cube || type == SceneObjectType::Sphere)
         tryLoadModelPhysics(e);
+    if (authored && !authored->circuit.empty() && isLocalLightType(type))
+    {
+        CircuitMemberComponent member{};
+        member.circuit = authored->circuit;
+        world().emplace<CircuitMemberComponent>(e, member);
+    }
     m_selected = e;
     if (registerNet && isReplicatedProp(type))
         network().registerEntity(world(), e, prefabFromType(type), ClientId::Host, packRgba8(so.color));

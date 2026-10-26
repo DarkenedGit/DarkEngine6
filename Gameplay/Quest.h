@@ -81,6 +81,8 @@ namespace Dark
         int                   focus() const;
 
         void collect(std::string_view item, int count);
+        // Absolute progress for open, not-done Collect objectives. A finished objective stays finished.
+        void syncCollect(std::string_view item, int held);
         void reach(std::string_view zone);
         void event(std::string_view name, int count = 1);
 

@@ -7,6 +7,9 @@
 #include "Combat/ArmorStats.h"
 #include "Character/ItemView.h"
 #include "Gameplay/Inventory.h"
+#include "Gameplay/PowerComponents.h"
+#include "Gameplay/QuestZone.h"
+#include "Play/Carry.h"
 #include "Play/PlayerFlashlight.h"
 #include "Math/Vector4f.h"
 #include "Ui/NpcInfoOverlay.h"
@@ -440,23 +443,24 @@ void SandboxApp::drawPickupLabels()
         dl->AddText(pos, canTake ? IM_COL32(255, 220, 90, 255) : IM_COL32(235, 235, 235, 255), text);
     };
 
-    for (const PowerBox& box : m_powerBoxes)
-    {
+    world().each<PowerBoxComponent>([&](Entity e, PowerBoxComponent& box) {
         if (!pxf)
-            break;
-        const Vector3f d{ box.pos.x - pxf->position.x, 0.0f, box.pos.z - pxf->position.z };
+            return;
+        const TransformComponent* bxf = world().get<TransformComponent>(e);
+        const Vector3f            at  = bxf ? bxf->position : box.pos;
+        const Vector3f            d{ at.x - pxf->position.x, 0.0f, at.z - pxf->position.z };
         if (d.MagnitudeSqrd() > 15.0f * 15.0f)
-            continue;
-        const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(Vector3f(box.pos.x, box.pos.y + 1.0f, box.pos.z), 1.0f);
+            return;
+        const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(Vector3f(at.x, at.y + 1.0f, at.z), 1.0f);
         if (clip.w <= 1.0e-4f || clip.z / clip.w < 0.0f || clip.z / clip.w > 1.0f)
-            continue;
-        const bool   close = pick.kind == InteractKind::Power && pick.box == static_cast<size_t>(&box - m_powerBoxes.data());
+            return;
+        const bool   close = pick.kind == InteractKind::Power && pick.e == e;
         const char*  text  = close ? (box.on ? "[G] Cut power" : "[G] Restore power") : (box.on ? "Power box" : "Power box (off)");
         const ImVec2 ts    = ImGui::CalcTextSize(text);
         const ImVec2 pos{ vpPos.x + (clip.x / clip.w * 0.5f + 0.5f) * vw - ts.x * 0.5f, vpPos.y + (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * vh - ts.y };
         dl->AddText(ImVec2(pos.x + 1.0f, pos.y + 1.0f), IM_COL32(0, 0, 0, 200), text);
         dl->AddText(pos, close ? IM_COL32(255, 220, 90, 255) : (box.on ? IM_COL32(150, 230, 150, 255) : IM_COL32(230, 120, 100, 255)), text);
-    }
+    });
 
     auto prompt = [&](const Vector3f& at, const char* text, ImU32 color) {
         const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(at, 1.0f);
@@ -467,7 +471,7 @@ void SandboxApp::drawPickupLabels()
         dl->AddText(ImVec2(pos.x + 1.0f, pos.y + 1.0f), IM_COL32(0, 0, 0, 200), text);
         dl->AddText(pos, color, text);
     };
-    if (pxf && m_carried.valid())
+    if (pxf && carriedBody(world()).valid())
         prompt(pxf->position + Vector3f{ 0.0f, 1.4f, 0.0f }, "[G] Drop body", IM_COL32(255, 220, 90, 255));
     else if (const Entity target = takedownTarget(); target.valid())
     {
@@ -675,8 +679,18 @@ void SandboxApp::drawGuardAwareness()
         dl->AddCircleFilled(c, 3.0f + 6.0f * e, col, 20);
     }
 
-    if (pxf && !m_quest.active() && m_goalBox.Max.x > m_goalBox.Min.x && pxf->position.x >= m_goalBox.Min.x && pxf->position.x <= m_goalBox.Max.x
-        && pxf->position.z >= m_goalBox.Min.z && pxf->position.z <= m_goalBox.Max.z)
+    bool inGoal = false;
+    if (pxf && !m_quest.active())
+    {
+        world().each<GoalVolumeComponent>([&](Entity, GoalVolumeComponent& goal) {
+            if (inGoal)
+                return;
+            const AABox3f& box = goal.box;
+            if (box.Max.x > box.Min.x && pxf->position.x >= box.Min.x && pxf->position.x <= box.Max.x && pxf->position.z >= box.Min.z && pxf->position.z <= box.Max.z)
+                inGoal = true;
+        });
+    }
+    if (inGoal)
         m_goalShown = 4.0f;
     if (m_goalShown > 0.0f)
     {
