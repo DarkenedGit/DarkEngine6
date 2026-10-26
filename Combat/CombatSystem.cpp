@@ -4,6 +4,7 @@
 #include "Character/HealthComponent.h"
 #include "Character/HitReaction.h"
 #include "Combat/ArmorComponent.h"
+#include "Combat/ArmorPieces.h"
 #include "Combat/ArmorStats.h"
 #include "Combat/DefenseComponent.h"
 #include "Combat/HitVolumes.h"
@@ -12,6 +13,7 @@
 #include "Combat/PoiseComponent.h"
 #include "Combat/StatusEffectComponent.h"
 #include "Combat/StatusId.h"
+#include "ECS/Components.h"
 #include "ECS/World.h"
 #include "Math/MathHelper.h"
 
@@ -44,9 +46,11 @@ namespace Dark::Combat
         return face.Dot(fromAttacker) >= minDot;
     }
 
-    ResolveResult CombatSystem::resolve(World& world, const DamageEvent& ev)
+    ResolveResult CombatSystem::resolve(World& world, const DamageEvent& ev, ArmorBreak* armorBreak)
     {
         ResolveResult r{};
+        if (armorBreak)
+            *armorBreak = {};
         if (!ev.target.valid() || !world.alive(ev.target))
         {
             r.filtered = true;
@@ -106,9 +110,22 @@ namespace Dark::Combat
         const float  maxHp  = health ? health->maxHp() : 100.0f;
 
         const bool chargedParry = defense && defense->chargedParry;
-        r = resolveDirect(ev, health, hitRx, defense, armor, poise, status, &facing, maxHp);
+        const TransformComponent* targetXf = world.get<TransformComponent>(ev.target);
+        const TransformComponent* attackerXf = nullptr;
+        if (ev.source.valid() && world.alive(ev.source))
+            attackerXf = world.get<TransformComponent>(ev.source);
+        const Vector3f knock = partKnockbackDirection(ev.part, attackerXf, ev.hitPoint, ev.hitDir);
+        ArmorPiecesComponent* pieces = world.get<ArmorPiecesComponent>(ev.target);
+        r = resolveDirect(ev, health, hitRx, defense, armor, poise, status, &facing, maxHp, &knock, pieces,
+                          targetXf ? &targetXf->position : nullptr, targetXf ? &targetXf->rotation : nullptr, armorBreak);
         if (r.parried)
             punishParry(world, ev, defense, chargedParry);
+        // resolveDirect does not touch hit volumes. One note here covers jump, melee release, and editor shots.
+        if (partHitLanded(r) && ev.part != HitPart::None && health && health->alive())
+        {
+            if (HitVolumesComponent* volumes = world.get<HitVolumesComponent>(ev.target))
+                noteLandedPartHit(*volumes, ev.part);
+        }
         return r;
     }
 
@@ -162,7 +179,12 @@ namespace Dark::Combat
                                               PoiseComponent* poise,
                                               StatusEffectComponent* status,
                                               const Vector3f* targetFacingFlat,
-                                              float maxHpForSeverity)
+                                              float maxHpForSeverity,
+                                              const Vector3f* knockDirection,
+                                              ArmorPiecesComponent* armorPieces,
+                                              const Vector3f* armorOwnerPos,
+                                              const Math::Quaternion* armorOwnerRot,
+                                              ArmorBreak* armorBreak)
     {
         ResolveResult r{};
 
@@ -239,6 +261,15 @@ namespace Dark::Combat
             }
         }
 
+        // A block already reduced the hit. Spending a piece after resolve would leave that reduction unused.
+        if (!r.blocked && armorPieces && armorOwnerPos && armorOwnerRot)
+        {
+            ArmorBreak unused{};
+            ArmorBreak& broke = armorBreak ? *armorBreak : unused;
+            dmg = absorbArmorHit(*armorPieces, *armorOwnerPos, *armorOwnerRot, ev.hitPoint, ev.hitDir, dmg, broke, ev.part,
+                                 armor != nullptr, ev.flags, ev.type);
+        }
+
         const bool ignoreArmor = (ev.flags & DamageFlags::IgnoresArmor) != 0 || isTrue(ev.type);
         ArmorStats stats{};
         if (armor)
@@ -295,6 +326,7 @@ namespace Dark::Combat
 
         if (hitReaction && !r.blocked)
         {
+            const Vector3f& reactionDir = knockDirection ? *knockDirection : ev.hitDir;
             const bool hyper        = poise && poise->hyperArmor;
             const bool knockdownHit = (ev.statusId == 0 && mappedKnockdown)
                 || static_cast<StatusId>(ev.statusId) == StatusId::Knockdown;
@@ -309,7 +341,7 @@ namespace Dark::Combat
                     kd.knockbackSeconds  = 0.22f;
                     kd.horizontalOnly    = true;
                     hitReaction->setSettings(kd);
-                    hitReaction->apply(ev.hitDir);
+                    hitReaction->apply(reactionDir);
                 }
             }
             else if (shockApplied && !hyper)
@@ -320,12 +352,12 @@ namespace Dark::Combat
                 hitch.knockbackSeconds  = 0.0f;
                 hitch.horizontalOnly    = true;
                 hitReaction->setSettings(hitch);
-                hitReaction->apply(ev.hitDir);
+                hitReaction->apply(reactionDir);
             }
             else if (r.severity != Severity::Tick && !hyper)
             {
                 hitReaction->setSettings(hitReactionForSeverity(r.severity));
-                hitReaction->apply(ev.hitDir);
+                hitReaction->apply(reactionDir);
             }
         }
 

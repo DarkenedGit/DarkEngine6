@@ -11,11 +11,18 @@ namespace Dark
     class HitReaction;
 }
 
+namespace Dark::Math
+{
+    class Quaternion;
+}
+
 namespace Dark::Combat
 {
 
     struct DefenseComponent;
     struct ArmorComponent;
+    struct ArmorPiecesComponent;
+    struct ArmorBreak;
     struct PoiseComponent;
     struct StatusEffectComponent;
 
@@ -33,14 +40,22 @@ namespace Dark::Combat
         float    ccDuration   = 0.f;
     };
 
+    // A blocked, parried, iframe, or filtered result did not land on the body.
+    inline bool partHitLanded(const ResolveResult& r)
+    {
+        return r.applied && !r.blocked && !r.parried && !r.iframe && !r.filtered;
+    }
+
     class CombatSystem
     {
     public:
         CombatSystem() = default;
 
-        ResolveResult resolve(World& world, const DamageEvent& ev);
+        ResolveResult resolve(World& world, const DamageEvent& ev, ArmorBreak* armorBreak = nullptr);
 
         // Component-pointer path for unit tests (no World required).
+        // knockDirection, when set, is the slide passed to HitReaction. hitDir stays the attack direction.
+        // Armor pieces are spent here, before mitigation, and only when the hit is not blocked.
         ResolveResult resolveDirect(const DamageEvent& ev,
                                     Health* health,
                                     HitReaction* hitReaction,
@@ -49,7 +64,12 @@ namespace Dark::Combat
                                     PoiseComponent* poise,
                                     StatusEffectComponent* status,
                                     const Math::Vector3f* targetFacingFlat,
-                                    float maxHpForSeverity);
+                                    float maxHpForSeverity,
+                                    const Math::Vector3f* knockDirection = nullptr,
+                                    ArmorPiecesComponent* armorPieces = nullptr,
+                                    const Math::Vector3f* armorOwnerPos = nullptr,
+                                    const Math::Quaternion* armorOwnerRot = nullptr,
+                                    ArmorBreak* armorBreak = nullptr);
     };
 
     Math::Vector3f facingFromYaw(float yawRad);

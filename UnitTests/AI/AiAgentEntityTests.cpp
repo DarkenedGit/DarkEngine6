@@ -3,8 +3,11 @@
 #include "AI/AiSystem.h"
 #include "Assets/AssetManager.h"
 #include "Character/HealthComponent.h"
+#include "Combat/ArmorPieces.h"
 #include "Combat/CombatSystem.h"
 #include "Combat/DamageEvent.h"
+#include "Combat/DefenseComponent.h"
+#include "Combat/HitVolumes.h"
 #include "Combat/JumpAttackComponent.h"
 #include "Combat/JumpAttackDef.h"
 #include "Combat/JumpAttackResolve.h"
@@ -199,4 +202,137 @@ TEST(AiAgentEntity, StatusResetAfterKnockdownAllowsFullDurationAgain)
     EXPECT_TRUE(st->knockedDown());
     ASSERT_GT(st->count, 0);
     EXPECT_NEAR(st->slots[0].remaining, 1.4f, 1.0e-3f);
+}
+
+TEST(AiAgentEntity, JumpConnectSpendsHeadArmorAndDisablesOnce)
+{
+    World         world;
+    AssetManager  assets;
+    AssetPinTable pins;
+    AiSystem      ai;
+
+    TransformComponent xf{};
+    Entity hunter = ai.spawnHunter(world, pins, assets, xf);
+    ASSERT_TRUE(hunter.valid());
+    world.emplace<Dark::Combat::ArmorPiecesComponent>(hunter) = Dark::Combat::makeHunterArmor();
+
+    Entity attacker = world.createEntity();
+    world.emplace<TransformComponent>(attacker, Dark::Math::Vector3f{ 0.0f, 0.0f, 0.0f });
+
+    Dark::Combat::CombatSystem sys;
+    Dark::Combat::DamageEvent  ev{};
+    ev.source   = attacker;
+    ev.target   = hunter;
+    ev.amount   = 10.0f;
+    ev.part     = Dark::Combat::HitPart::Head;
+    ev.hitPoint = Dark::Math::Vector3f{ 0.0f, 1.0f, 2.0f };
+    ev.hitDir   = Dark::Math::Vector3f{ 1.0f, 0.0f, 0.0f };
+    ev.flags    = Dark::Combat::DamageFlags::CanBlock;
+    EXPECT_EQ(Dark::Combat::resolveJumpAttackEvents(world, sys, &ev, 1), 1);
+
+    const Dark::Combat::ArmorPiecesComponent* armor = world.get<Dark::Combat::ArmorPiecesComponent>(hunter);
+    ASSERT_NE(armor, nullptr);
+    EXPECT_NEAR(armor->pieces[0].hp, 32.0f, 1.0e-3f);
+    EXPECT_TRUE(armor->pieces[0].attached);
+    EXPECT_NEAR(armor->pieces[1].hp, 60.0f, 1.0e-3f);
+    EXPECT_NEAR(world.get<HealthComponent>(hunter)->health.hp(), 46.0f, 1.0e-3f);
+
+    const Dark::Combat::HitVolumesComponent* volumes = world.get<Dark::Combat::HitVolumesComponent>(hunter);
+    ASSERT_NE(volumes, nullptr);
+    const int head = Dark::Combat::hitPartIndex(Dark::Combat::HitPart::Head);
+    EXPECT_FLOAT_EQ(volumes->disableTimer[head], 3.0f);
+    EXPECT_FLOAT_EQ(volumes->impactWeight[head], 1.0f);
+    for (int i = 0; i < Dark::Combat::HitVolumesComponent::kSlotCount; ++i)
+    {
+        if (i == head)
+            continue;
+        EXPECT_FLOAT_EQ(volumes->disableTimer[i], 0.0f);
+        EXPECT_FLOAT_EQ(volumes->impactWeight[i], 0.0f);
+    }
+
+    Dark::HitReactionComponent* hr = world.get<Dark::HitReactionComponent>(hunter);
+    ASSERT_NE(hr, nullptr);
+    EXPECT_NEAR(hr->hit.knockDirection().x, 0.0f, 1.0e-4f);
+    EXPECT_NEAR(hr->hit.knockDirection().y, 0.0f, 1.0e-4f);
+    EXPECT_NEAR(hr->hit.knockDirection().z, 1.0f, 1.0e-4f);
+}
+
+TEST(AiAgentEntity, BlockedResolveDoesNotSpendArmorOrRefreshTimer)
+{
+    World         world;
+    AssetManager  assets;
+    AssetPinTable pins;
+    AiSystem      ai;
+
+    TransformComponent xf{};
+    Entity hunter = ai.spawnHunter(world, pins, assets, xf);
+    ASSERT_TRUE(hunter.valid());
+    world.emplace<Dark::Combat::ArmorPiecesComponent>(hunter) = Dark::Combat::makeHunterArmor();
+    Dark::Combat::HitVolumesComponent* volumes = world.get<Dark::Combat::HitVolumesComponent>(hunter);
+    ASSERT_NE(volumes, nullptr);
+    const int head = Dark::Combat::hitPartIndex(Dark::Combat::HitPart::Head);
+    volumes->disableTimer[head] = 1.0f;
+    volumes->impactWeight[head] = 0.25f;
+
+    Dark::Combat::DefenseComponent& defense = world.emplace<Dark::Combat::DefenseComponent>(hunter);
+    defense.blocking     = true;
+    defense.facingYawRad = 0.0f;
+    defense.blockArcDeg  = 140.0f;
+    defense.stamina      = 100.0f;
+
+    Dark::Combat::CombatSystem sys;
+    Dark::Combat::DamageEvent  ev{};
+    ev.target   = hunter;
+    ev.amount   = 10.0f;
+    ev.part     = Dark::Combat::HitPart::Head;
+    ev.hitDir   = Dark::Math::Vector3f{ 0.0f, 0.0f, -1.0f };
+    ev.hitPoint = Dark::Math::Vector3f{ 0.0f, 1.6f, 0.2f };
+    ev.flags    = Dark::Combat::DamageFlags::CanBlock;
+    Dark::Combat::ResolveResult results[1]{};
+    EXPECT_EQ(Dark::Combat::resolveJumpAttackEvents(world, sys, &ev, 1, results), 1);
+    EXPECT_TRUE(results[0].blocked);
+    EXPECT_FALSE(Dark::Combat::partHitLanded(results[0]));
+
+    const Dark::Combat::ArmorPiecesComponent* armor = world.get<Dark::Combat::ArmorPiecesComponent>(hunter);
+    ASSERT_NE(armor, nullptr);
+    EXPECT_FLOAT_EQ(armor->pieces[0].hp, 40.0f);
+    EXPECT_FLOAT_EQ(armor->pieces[1].hp, 60.0f);
+    EXPECT_FLOAT_EQ(volumes->disableTimer[head], 1.0f);
+    EXPECT_FLOAT_EQ(volumes->impactWeight[head], 0.25f);
+}
+
+TEST(AiAgentEntity, KillingResolveDoesNotRearmPartTimer)
+{
+    World         world;
+    AssetManager  assets;
+    AssetPinTable pins;
+    AiSystem      ai;
+
+    TransformComponent xf{};
+    Entity hunter = ai.spawnHunter(world, pins, assets, xf);
+    ASSERT_TRUE(hunter.valid());
+    world.emplace<Dark::Combat::ArmorPiecesComponent>(hunter) = Dark::Combat::makeHunterArmor();
+    Dark::Combat::HitVolumesComponent* volumes = world.get<Dark::Combat::HitVolumesComponent>(hunter);
+    ASSERT_NE(volumes, nullptr);
+    const int head = Dark::Combat::hitPartIndex(Dark::Combat::HitPart::Head);
+    volumes->disableTimer[head] = 1.0f;
+    volumes->impactWeight[head] = 0.25f;
+
+    Dark::Combat::CombatSystem sys;
+    Dark::Combat::DamageEvent  ev{};
+    ev.target = hunter;
+    ev.amount = 300.0f;
+    ev.part   = Dark::Combat::HitPart::Head;
+    ev.hitDir = Dark::Math::Vector3f{ 0.0f, 0.0f, 1.0f };
+    ev.flags  = Dark::Combat::DamageFlags::CanBlock;
+    EXPECT_EQ(Dark::Combat::resolveJumpAttackEvents(world, sys, &ev, 1), 1);
+    EXPECT_TRUE(world.get<HealthComponent>(hunter)->health.dead());
+
+    const Dark::Combat::ArmorPiecesComponent* armor = world.get<Dark::Combat::ArmorPiecesComponent>(hunter);
+    ASSERT_NE(armor, nullptr);
+    EXPECT_FLOAT_EQ(armor->pieces[0].hp, 0.0f);
+    EXPECT_FALSE(armor->pieces[0].attached);
+    EXPECT_FLOAT_EQ(armor->pieces[1].hp, 60.0f);
+    EXPECT_FLOAT_EQ(volumes->disableTimer[head], 1.0f);
+    EXPECT_FLOAT_EQ(volumes->impactWeight[head], 0.25f);
 }

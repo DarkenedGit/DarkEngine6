@@ -371,6 +371,8 @@ namespace Dark
         v.ai->meleeWindup = 0.0f;
         const int index = v.ai->meleeAttack;
         v.ai->meleeAttack = -1;
+        if (Combat::hitVolumesBlockHunterRelease(world.get<Combat::HitVolumesComponent>(v.e)))
+            return;
         if (index < 0 || index >= static_cast<int>(pattern.attacks.size()) || !player.valid())
             return;
         const AI::AttackMove& move = pattern.attacks[static_cast<size_t>(index)];
@@ -1864,12 +1866,15 @@ namespace Dark
             const float walk   = v.ai->authoredMove ? v.ai->walkSpeed : m_pack.walkSpeed;
             const float run    = v.ai->authoredMove ? v.ai->runSpeed : m_pack.sprintSpeed;
             const float accel  = v.ai->authoredMove ? v.ai->acceleration : m_pack.acceleration;
-            const float speed  = ((sprint || lunging) ? run : walk) * (stCc ? stCc->moveSpeedScale() : 1.0f) * ground.moveSpeed * runS;
+            float pace = (stCc ? stCc->moveSpeedScale() : 1.0f) * ground.moveSpeed * runS;
+            if (const Combat::HitVolumesComponent* volumes = world.get<Combat::HitVolumesComponent>(e))
+                pace = Combat::hitVolumesSpeedScale(volumes, pace);
+            const float speed  = ((sprint || lunging) ? run : walk) * pace;
             const float currentPlanar = std::sqrt(v.ai->planarVelocity.x * v.ai->planarVelocity.x + v.ai->planarVelocity.z * v.ai->planarVelocity.z);
             const float paced = approachSpeed(currentPlanar, speed, accel, dt);
             if (v.ai->lureSearch)
             {
-                const float lureSpeed = approachSpeed(currentPlanar, walk * (stCc ? stCc->moveSpeedScale() : 1.0f) * ground.moveSpeed * runS, accel, dt);
+                const float lureSpeed = approachSpeed(currentPlanar, walk * pace, accel, dt);
                 moveLureSearch(v, dt, terrain, lureSpeed);
                 stampPlanarVelocity();
                 continue;
@@ -2124,7 +2129,8 @@ namespace Dark
         const Vector3f to     = flattenDir(Vector3f{ attackerPos.x - xf->position.x, 0.0f, attackerPos.z - xf->position.z }, ai->forward);
         const bool     facing = to.Dot(flattenDir(ai->forward, to)) > 0.5f;
         const float    roll   = std::fmod(static_cast<float>(e.id()) * 0.37f + m_time * 5.13f, 1.0f);
-        if (facing && ai->meleeWindup <= 0.0f && (ai->guardLeft > 0.0f || roll < 0.35f))
+        const bool     leftArmDown = Combat::hitVolumesBlockHunterBlock(world.get<Combat::HitVolumesComponent>(e));
+        if (!leftArmDown && facing && ai->meleeWindup <= 0.0f && (ai->guardLeft > 0.0f || roll < 0.35f))
         {
             ai->guardLeft = 0.8f;
             counter();

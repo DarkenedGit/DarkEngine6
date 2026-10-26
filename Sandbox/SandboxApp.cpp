@@ -1589,7 +1589,9 @@ void SandboxApp::updatePossessed(float dt)
     const bool inAirCommit = jump && jump->inAirCommit();
     const bool canSteer   = hp && hp->alive() && !ccLocked && !(jump && jump->phase() == Combat::JumpAttackPhase::Pound);
     const bool uiMouse = uiOpen() && m_imgui.isReady() && m_imgui.wantCaptureMouse();
-    const bool holdShield = canSteer
+    const Combat::HitVolumesComponent* partVolumes = body.valid() ? world().get<Combat::HitVolumesComponent>(body) : nullptr;
+    const bool shieldBlocked = Combat::hitVolumesBlockShield(partVolumes);
+    const bool holdShield = canSteer && !shieldBlocked
         && ((input().actionMouseDown("shield") && !uiMouse) || (!uiKeys && input().actionDown("shield"))
             || input().actionAxisHeld("shield"));
     const bool carriesLight = flashlightEquipped(body.valid() ? world().get<InventoryComponent>(body) : nullptr);
@@ -1618,7 +1620,7 @@ void SandboxApp::updatePossessed(float dt)
     chargeIn.attackDown      = attackDown;
     chargeIn.canChargeAttack = canSteer && chargeDecision.allowCharge;
     chargeIn.holdShield      = holdShield;
-    chargeIn.canHoldShield   = canSteer;
+    chargeIn.canHoldShield   = canSteer && !shieldBlocked;
     chargeIn.chargedParryUp  = defense && defense->chargedParry && defense->inParryWindow();
     Combat::PlayerChargeStep charge{};
     Combat::stepPlayerCharge(m_attackCharge, m_blockCharge, m_chargeSettings, chargeIn, charge);
@@ -1653,8 +1655,11 @@ void SandboxApp::updatePossessed(float dt)
     const bool onGround = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch || motor->state() == PlayerMoveState::Dodge);
     const Terrain::GroundContact groundSurf = (onGround && xf) ? groundContactAt(xf->position.x, xf->position.z) : Terrain::GroundContact{};
     const float swingSlow   = m_blockRecoil > 0.0f ? 0.4f : (m_swingLock <= 0.0f ? 1.0f : (m_comboCount > 1 ? 0.45f : 0.8f));
-    motorIn.speedScale      = (status ? status->moveSpeedScale() : 1.0f) * m_offhand.shield.speedScale() * (onGround ? groundSurf.moveSpeed : 1.0f) * swingSlow
+    float speedScale        = (status ? status->moveSpeedScale() : 1.0f) * m_offhand.shield.speedScale() * (onGround ? groundSurf.moveSpeed : 1.0f) * swingSlow
                             * (carriedBody(world()).valid() ? 0.6f : 1.0f);
+    if (partVolumes)
+        speedScale = Combat::hitVolumesSpeedScale(partVolumes, speedScale);
+    motorIn.speedScale = speedScale;
     if (skills)
     {
         motorIn.runScale  = skillScalar(SkillId::Run, SkillScalar::RunScale, skills->level(SkillId::Run));
@@ -2295,6 +2300,29 @@ void SandboxApp::onWeaponHit(const WeaponHit& hit)
         return;
     HealthComponent* hp = world().get<HealthComponent>(victim);
     const bool wasAlive = hp && hp->health.alive();
+    const TransformComponent* attackerXf = possessedBody().valid() ? world().get<TransformComponent>(possessedBody()) : nullptr;
+    const Vector3f knock = Combat::partKnockbackDirection(hit.part, attackerXf, hit.point, hit.direction);
+    auto spendPieces = [&](float damage) {
+        Combat::ArmorBreak broke{};
+        if (Combat::ArmorPiecesComponent* armor = world().get<Combat::ArmorPiecesComponent>(victim))
+        {
+            if (const TransformComponent* vxf = world().get<TransformComponent>(victim))
+            {
+                const bool hasFlat = world().get<Combat::ArmorComponent>(victim) != nullptr;
+                damage = Combat::absorbArmorHit(*armor, vxf->position, vxf->rotation, hit.point, hit.direction, damage, broke, hit.part, hasFlat);
+            }
+        }
+        if (broke.index >= 0)
+            knockOffArmor(world(), m_physics, victim, broke);
+        return damage;
+    };
+    auto noteIfAlive = [&]() {
+        const HealthComponent* after = world().get<HealthComponent>(victim);
+        if (!after || !after->health.alive())
+            return;
+        if (Combat::HitVolumesComponent* volumes = world().get<Combat::HitVolumesComponent>(victim))
+            Combat::noteLandedPartHit(*volumes, hit.part);
+    };
     if (world().has<AiAgentComponent>(victim))
     {
         if (!m_chaseOk)
@@ -2319,19 +2347,13 @@ void SandboxApp::onWeaponHit(const WeaponHit& hit)
             m_chase.ai().onHunterAttacked(world(), victim, playerPos);
             return;
         }
-        float               damage = hit.damage;
-        Combat::ArmorBreak  broke;
-        if (Combat::ArmorPiecesComponent* armor = world().get<Combat::ArmorPiecesComponent>(victim))
-        {
-            if (const TransformComponent* vxf = world().get<TransformComponent>(victim))
-                damage = Combat::absorbArmorHit(*armor, vxf->position, vxf->rotation, hit.point, hit.direction, damage, broke);
-        }
-        if (broke.index >= 0)
-            knockOffArmor(world(), m_physics, victim, broke);
-        if (!m_chase.ai().applyHunterDamage(world(), victim, damage))
+        const float damage = spendPieces(hit.damage);
+        const bool damaged = m_chase.ai().applyHunterDamage(world(), victim, damage);
+        noteIfAlive();
+        if (!damaged)
             return;
         if (response == MeleeResponse::Stagger)
-            m_chase.ai().applyHunterHitReaction(world(), victim, hit.direction);
+            m_chase.ai().applyHunterHitReaction(world(), victim, knock);
         if (melee)
         {
             faceHitTarget(victim);
@@ -2359,12 +2381,14 @@ void SandboxApp::onWeaponHit(const WeaponHit& hit)
     }
     if (!hp)
         return;
+    const float damage = spendPieces(hit.damage);
     const float before = hp->health.hp();
-    hp->health.applyDamage(hit.damage);
+    hp->health.applyDamage(damage);
+    noteIfAlive();
     if (hp->health.hp() >= before)
         return;
     if (HitReactionComponent* hr = world().get<HitReactionComponent>(victim))
-        hr->hit.apply(hit.direction);
+        hr->hit.apply(knock);
     playSoundCueAt(world(), audio(), assets(), victim, "pain", hit.point);
 }
 
@@ -2711,6 +2735,9 @@ bool SandboxApp::firePossessedLoadout(bool charged)
     applyShootSkill(req, skill);
 
     const bool melee = wFire && wFire->activeKind() == WeaponKind::Melee;
+    const bool rifle = wFire && wFire->activeKind() == WeaponKind::Projectile;
+    if ((melee || rifle) && Combat::hitVolumesBlockFire(body.valid() ? world().get<Combat::HitVolumesComponent>(body) : nullptr))
+        return false;
     if (melee && m_blockRecoil > 0.0f)
         return false;
 

@@ -539,15 +539,10 @@ void EditorApp::onPlayWeaponHit(const WeaponHit& hit)
     if (!hit.hitTarget || !hit.targetEntity.valid())
         return;
     Combat::DamageEvent ev = Combat::damageEventFromWeaponHit(hit, m_playPlayer);
-    Combat::ArmorBreak  broke;
-    if (Combat::ArmorPiecesComponent* armor = world().get<Combat::ArmorPiecesComponent>(hit.targetEntity))
-    {
-        if (const TransformComponent* txf = world().get<TransformComponent>(hit.targetEntity))
-            ev.amount = Combat::absorbArmorHit(*armor, txf->position, txf->rotation, ev.hitPoint, ev.hitDir, ev.amount, broke);
-    }
+    Combat::ArmorBreak broke{};
+    Combat::ResolveResult r = m_combat.resolve(world(), ev, &broke);
     if (broke.index >= 0)
         knockOffArmor(world(), m_physics, hit.targetEntity, broke);
-    Combat::ResolveResult r = m_combat.resolve(world(), ev);
     if (!r.applied)
         return;
     playSoundCueAt(world(), audio(), assets(), hit.targetEntity, "pain", hit.point);
@@ -706,6 +701,10 @@ bool EditorApp::firePlayLoadout(bool charged)
                                                   charged ? m_chargeSettings.attackDamageScale : 1.0f);
     if (wlc->loadout->activeKind() == WeaponKind::Throwable)
         return false;
+    const WeaponKind kind = wlc->loadout->activeKind();
+    if ((kind == WeaponKind::Melee || kind == WeaponKind::Projectile)
+        && Combat::hitVolumesBlockFire(world().get<Combat::HitVolumesComponent>(body)))
+        return false;
     SkillComponent* skill = nullptr;
     if (wlc->loadout->activeKind() == WeaponKind::Projectile)
         skill = world().get<SkillComponent>(body);
@@ -716,7 +715,6 @@ bool EditorApp::firePlayLoadout(bool charged)
         noteShotXp(*skill, true);
     if (AnimGraphComponent* ag = body.valid() ? world().get<AnimGraphComponent>(body) : nullptr)
     {
-        const WeaponKind kind = wlc->loadout->activeKind();
         if (kind == WeaponKind::Melee)
             ag->graph.setTrigger("swing");
         else if (kind == WeaponKind::Projectile)
@@ -790,7 +788,9 @@ void EditorApp::updatePlay(float dt)
     const bool inAirCommit = jump && jump->inAirCommit();
     const bool canSteer    = hp && hp->alive() && !ccLocked && !(jump && jump->phase() == Combat::JumpAttackPhase::Pound);
     const bool pointerFree = window().cursorCaptured() || !uiMouse;
-    const bool holdShield = canSteer
+    const Combat::HitVolumesComponent* partVolumes = world().get<Combat::HitVolumesComponent>(body);
+    const bool shieldBlocked = Combat::hitVolumesBlockShield(partVolumes);
+    const bool holdShield = canSteer && !shieldBlocked
         && ((input().actionMouseDown("shield") && pointerFree) || (!uiKeys && input().actionDown("shield"))
             || input().actionAxisHeld("shield"));
     const bool carriesLight = flashlightEquipped(world().get<InventoryComponent>(body));
@@ -842,7 +842,7 @@ void EditorApp::updatePlay(float dt)
     chargeIn.attackDown      = attackDown;
     chargeIn.canChargeAttack = canSteer && chargeDecision.allowCharge;
     chargeIn.holdShield      = holdShield;
-    chargeIn.canHoldShield   = canSteer;
+    chargeIn.canHoldShield   = canSteer && !shieldBlocked;
     chargeIn.chargedParryUp  = defense && defense->chargedParry && defense->inParryWindow();
     Combat::PlayerChargeStep charge{};
     Combat::stepPlayerCharge(m_attackCharge, m_blockCharge, m_chargeSettings, chargeIn, charge);
@@ -874,7 +874,10 @@ void EditorApp::updatePlay(float dt)
     buildPlayMotorInput(motorIn, m_crouchLatch, wish, flat, right, canSteer, jumpBusy, uiKeys, inAirCommit, jump, sprintAllowed, edges);
     const bool onGround = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch || motor->state() == PlayerMoveState::Dodge);
     const Terrain::GroundContact groundSurf = (onGround && xf) ? groundContactAt(xf->position.x, xf->position.z) : Terrain::GroundContact{};
-    motorIn.speedScale      = (status ? status->moveSpeedScale() : 1.0f) * m_offhand.shield.speedScale() * (onGround ? groundSurf.moveSpeed : 1.0f);
+    float speedScale        = (status ? status->moveSpeedScale() : 1.0f) * m_offhand.shield.speedScale() * (onGround ? groundSurf.moveSpeed : 1.0f);
+    if (partVolumes)
+        speedScale = Combat::hitVolumesSpeedScale(partVolumes, speedScale);
+    motorIn.speedScale = speedScale;
     if (skills)
     {
         motorIn.runScale  = skillScalar(SkillId::Run, SkillScalar::RunScale, skills->level(SkillId::Run));

@@ -1,6 +1,11 @@
 #include <gtest/gtest.h>
 
+#include "Character/HealthComponent.h"
+#include "Combat/ArmorPieces.h"
 #include "Combat/HitVolumes.h"
+#include "ECS/Components.h"
+#include "ECS/World.h"
+#include "Play/ContactGrind.h"
 
 using namespace Dark;
 using namespace Dark::Combat;
@@ -200,4 +205,60 @@ TEST(BodyPart, ClearZerosState)
         expectSlot(volumes, i, 0.0f, 0.0f);
     EXPECT_FLOAT_EQ(volumes.segment[head].radius, 0.25f);
     EXPECT_TRUE(volumes.segment[head].active);
+}
+
+TEST(BodyPart, KnockbackAimsFromAttackerToSurface)
+{
+    TransformComponent attacker{};
+    attacker.position = Math::Vector3f{ 0.0f, 0.0f, 0.0f };
+    const Math::Vector3f attack{ 1.0f, 0.0f, 0.0f };
+    const Math::Vector3f aimed = partKnockbackDirection(HitPart::Head, &attacker, Math::Vector3f{ 0.0f, 1.0f, 2.0f }, attack);
+    EXPECT_NEAR(aimed.x, 0.0f, 1.0e-4f);
+    EXPECT_NEAR(aimed.y, 0.0f, 1.0e-4f);
+    EXPECT_NEAR(aimed.z, 1.0f, 1.0e-4f);
+
+    const Math::Vector3f missing = partKnockbackDirection(HitPart::Head, nullptr, Math::Vector3f{ 0.0f, 1.0f, 2.0f }, attack);
+    EXPECT_NEAR(missing.x, 1.0f, 1.0e-4f);
+    EXPECT_NEAR(missing.z, 0.0f, 1.0e-4f);
+
+    const Math::Vector3f wholeBody = partKnockbackDirection(HitPart::None, &attacker, Math::Vector3f{ 0.0f, 1.0f, 2.0f }, attack);
+    EXPECT_NEAR(wholeBody.x, 1.0f, 1.0e-4f);
+    EXPECT_NEAR(wholeBody.z, 0.0f, 1.0e-4f);
+
+    attacker.position = Math::Vector3f{ 1.0f, 5.0f, 2.0f };
+    const Math::Vector3f stacked = partKnockbackDirection(HitPart::Chest, &attacker, Math::Vector3f{ 1.0f, 0.0f, 2.0f }, attack);
+    EXPECT_NEAR(stacked.x, 1.0f, 1.0e-4f);
+    EXPECT_NEAR(stacked.z, 0.0f, 1.0e-4f);
+}
+
+TEST(BodyPart, ContactGrindLeavesTimersAtZero)
+{
+    World world;
+    Entity player = world.createEntity();
+    world.emplace<TransformComponent>(player, Math::Vector3f{ 0.0f, 0.0f, 0.0f });
+    HealthComponent playerHp{};
+    playerHp.health = Health{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    world.emplace<HealthComponent>(player, std::move(playerHp));
+    world.emplace<HitVolumesComponent>(player);
+    world.emplace<ArmorPiecesComponent>(player) = makeHunterArmor();
+
+    Entity hunter = world.createEntity();
+    world.emplace<AiAgentComponent>(hunter);
+    world.emplace<TransformComponent>(hunter, Math::Vector3f{ 0.0f, 0.0f, 1.0f });
+    HealthComponent hunterHp{};
+    hunterHp.health = Health{ HealthSettings{ 40.0f, 0.0f, 99.0f } };
+    world.emplace<HealthComponent>(hunter, std::move(hunterHp));
+
+    CombatSystem combat;
+    const ContactGrindResult grind = applyContactGrind(world, combat, player, Math::Vector3f{ 0.0f, 0.0f, 0.0f }, 0.1f);
+    EXPECT_TRUE(grind.damaged);
+
+    const ArmorPiecesComponent* worn = world.get<ArmorPiecesComponent>(player);
+    ASSERT_NE(worn, nullptr);
+    EXPECT_FLOAT_EQ(worn->pieces[0].hp, 40.0f);
+    EXPECT_FLOAT_EQ(worn->pieces[1].hp, 60.0f);
+    const HitVolumesComponent* volumes = world.get<HitVolumesComponent>(player);
+    ASSERT_NE(volumes, nullptr);
+    for (int i = 0; i < HitVolumesComponent::kSlotCount; ++i)
+        expectSlot(*volumes, i, 0.0f, 0.0f);
 }
