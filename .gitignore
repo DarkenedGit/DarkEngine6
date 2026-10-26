@@ -13,6 +13,9 @@ content/models/Grass
 content/models/RockMoss
 content/models/AnimatedAnimals
 
+# Local Settings
+*.ini
+
 # Profiling
 *.ngfx-capture
 *.wpix
