@@ -38,13 +38,18 @@ namespace Dark
         bool           on = true;
         float          fixFor = 0.0f;
         Entity         fixer{};
-        Math::Vector3f service{};
+        // Vector3f() does not write its floats. A default box must still save.
+        Math::Vector3f service{ 0.0f, 0.0f, 0.0f };
         Entity         checker{};
-        Math::Vector3f checks[kCheckCount]{};
+        Math::Vector3f checks[kCheckCount]{
+            { 0.0f, 0.0f, 0.0f },
+            { 0.0f, 0.0f, 0.0f },
+            { 0.0f, 0.0f, 0.0f },
+        };
         int            checkIdx  = 0;
         float          checkFor  = 0.0f;
         float          checkTime = 0.0f;
-        Math::Vector3f pos{};
+        Math::Vector3f pos{ 0.0f, 0.0f, 0.0f };
     };
 
     struct CircuitMemberComponent
