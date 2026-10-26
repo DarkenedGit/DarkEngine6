@@ -26,7 +26,7 @@ Runtime HLSL lives in `content/shaders/`. It shows up in the IDE but is compiled
 
 ## What is in the tree
 
-- **Core**: `Application`, Win32 `Window`, logging (`DE_LOG_*` + `LogCategory`), paths and content roots, UUID, memory tracker. Configure generates `Core/Version.h` (git describe / commit when available).
+- **Core**: `Application`, Win32 `Window`, logging (`DE_LOG_*` + `LogCategory`), paths and content roots, UUID, memory tracker, and type-checked JSON readers (`Core/Json.h`: `jsonStringOr` / `jsonBoolOr` / `jsonIntOr` / `jsonFloatOr` / `jsonDoubleOr`). These log and fall back on a wrong type instead of calling nlohmann `value()`, which aborts when exceptions are off. Configure generates `Core/Version.h` (git describe / commit when available).
 - **ECS**: `World` with generation-packed `EntityID` (slot + generation; `NULL_ENTITY` is 0), O(1) `alive()`, safe emplace over existing entities.
 - **Render**: a D3D12 renderer with two scene paths: `HybridDeferred` (G-buffer, fullscreen lighting, forward transparents) and `SwapChainForward` (`-forward`). It uses reverse-Z depth (`GREATER` compare). `SceneRenderer` is shared by Sandbox and Editor. Passes and systems in `Render/`:
   - Cascaded directional shadows (up to 3 cascades, `ShadowSystem`) and local-light shadows (`LocalShadowSystem`). Static and model shadow casters are culled against each shadow view's frustum.
@@ -38,6 +38,7 @@ Runtime HLSL lives in `content/shaders/`. It shows up in the IDE but is compiled
   - Procedural grass (`GrassPipeline`): blade LODs, per-tile Perlin wind, and bending around the player (see Terrain below and `Terrain/DESIGN-procedural-grass.md`)
   - Static and skinned meshes, sprites, lines, particles, camouflage
   - Post: auto exposure, bloom, TAA, motion blur, tonemap. Sandbox echolocation (B) is a deferred chirp drawn in the post group before bloom, not its own pass. One 1/8-resolution snapshot per pulse (about 0.8 Hz) is held world-locked until the next pulse. The shell expands at 50 m/s. Both live in `content/render/echolocation.json`; Dev Tools can change them for the session. The picture is one hue on black. A hard near ping's leading edge can bloom; the held return stays under the threshold of 1.0. It is exclusive with infrared and ultraviolet, holds auto-exposure, resets TAA, and skips motion blur. Forward does not apply it.
+  - Underwater view (`UnderwaterPipeline`, `content/shaders/Underwater.hlsl`): when the camera goes below the water level, a fullscreen pass copies HDR and fogs the scene by depth. The lake is then drawn again with front faces culled, so you see its surface from below as a ceiling. Its pass sits after particles and before post.
   - Loading screen / boot splash, HUD (crosshair, health), debug overlay (G-buffer tiles)
 - **Draw submission** (`DrawList`, `RenderItem`, `InstancedMeshPipeline`, `SkinnedInstanceBuffer`, `InstanceCull`):
   - Static opaque meshes and models are batched and drawn instanced. Batches sort by population, mesh, alpha mask, then material (`BatchKey`).
@@ -45,7 +46,7 @@ Runtime HLSL lives in `content/shaders/`. It shows up in the IDE but is compiled
   - Skinned characters draw instanced: bone palettes are uploaded per frame and skinning runs in the instanced vertex shaders (`SkinnedInstance.hlsli`). Skinned parts have their own GPU cull (`SkinnedInstanceCull`).
   - Terrain foliage is culled on the GPU (`FoliageCull.hlsl`). Grass is culled per 8 m tile on the CPU.
   - Dev Tools and the Editor View menu have **Instanced static meshes** and **Indirect static draws** toggles (both on by default). Wireframe and point fill stay on the immediate path.
-- **Pass order**: `Render/PassTable.*` lists the expected pass order for Sandbox and Editor, deferred and forward. Hosts check the passes they actually played against it and log once on a mismatch. The deferred order is: shadows, local shadows, G-buffer, decals, GTAO, SSR, deferred lighting, local light volumes, sky, SSR capture, water, clouds, camouflage (Sandbox) or editor grid and light gizmos (Editor), translucent, particles, post, overlay.
+- **Pass order**: `Render/PassTable.*` lists the expected pass order for Sandbox and Editor, deferred and forward. Hosts check the passes they actually played against it and log once on a mismatch. The deferred order is: shadows, local shadows, G-buffer, decals, GTAO, SSR, deferred lighting, local light volumes, sky, SSR capture, water, clouds, camouflage (Sandbox) or editor grid and light gizmos (Editor), translucent, particles, underwater, post, overlay.
 - **Assets**: `AssetManager` / handles, texture cache, glTF load via cgltf (`GltfLoader`), animated glTF.
 - **Animation**: skeletons, clips, sampler, anim graph (`*.anim.json`), locomotion, anim notifies. Locomotion clip rate follows planar speed. Procedural layers add a directional hit flinch and a shield guard pose.
 - **AI**: hierarchical state machines loaded from JSON (`content/ai/*.hsm.json`), attack patterns, pathfinding, walkability, sight, wolf approach / flanking. An awareness meter (`AI/Awareness`) moves enemies through Calm, Suspicious, Investigating, Alert, and Searching from sight, motion, noise, and proximity. Per-type movement speeds come from `content/entities/*.entity.movement.json`.
@@ -58,10 +59,12 @@ Runtime HLSL lives in `content/shaders/`. It shows up in the IDE but is compiled
 - **Combat / Gameplay / Weapons**: `CombatSystem` (damage resolve, status effects, DoT ticks), status catalog (`Poison`, `Bleed`, `Ignite`, `Chill`, `Shock`, `Stun`), jump attacks, charged attacks, knockdown. Armor pieces (`Combat/ArmorPieces`) absorb hits and break off. `PlayerModeComponent` adds God and Reaper dev switches (both off by default, not saved). See `Combat/DESIGN-status-effects.md`.
   - **Inventory** (`Gameplay/Inventory`, `Gameplay/Item`): a 20-slot bag plus Head, Chest, and Light equip slots. Items come from a built-in table (sword, rifle, medkit, helmet, chest plate, flashlight). Weapon switching needs the weapon in the bag, and the flashlight works while it is equipped. Items on the ground show a label and are picked up with G.
   - **Loot**: dead hunters drop a loot bag with their items and armor. G opens the nearest bag so you can take items.
+  - **Throwables** (`Gameplay/ThrowableCatalog`, `Gameplay/ThrowableBelt`, `Weapons/ThrowableFlight`, `Character/ThrowableView`): throwable types come from `content/items/throwables.json`, which sets weight, throw distance, impact sound, call distance, and model. The shipped types are `rock` and `bottle`. Picked-up throwables go onto a belt that keeps a count per type, selected as weapon 3. You can throw while in the air or charge a throw by holding before release. A throw flies on an arc and lands as a pickup you can grab again. The model shows in the hand, in flight, and on the ground. When one lands, nearby NPCs within its call distance come to search the spot. Belt counts and throws still in flight are saved with the loadout (`Save/PersistCombat.cpp`).
+  - **Quests** (`Gameplay/Quest`): data-driven quests in `content/quests/<id>.quest.json`, with `reach` (scene zone), `collect` (item and count), and `event` objectives (`power_off`, `takedown`, `body_hidden`), which can run in sequence, plus rewards. Sandbox shows banners for a new quest, a new objective, and completion, and opens a journal with J. Scenes can place quest zones and pickups (`zone`, `pickup`, `pickupCount` fields). The sample quest is `north_lab`, played in `stealth_test.json`. Quest progress is not saved yet.
 - **Terrain**: height and splat maps, LOD, `TerrainGrid` streaming ring, procedural Generate with CPU erosion and GPU erosion, World Engine / World Creator map import (`Terrain/WorldEngineMap`, sample under `content/terrain/HurricaneRidge`), and foliage spawned from splat weights and saved per tile (DEFL sidecar). See `Terrain/DESIGN-*.md`.
   - **Procedural grass** (`Terrain/GrassField`, `GrassMesh`, `GrassWind`, `GrassBend`): blade tiles spawned around a point, four blade LODs, per-tile Perlin wind, and blades that bend around the player. Parameters (height, flexibility, density, wind, seed) are saved in the scene's `terrain.grass` block and can be changed in Sandbox Dev Tools under **Procedural grass**.
   - **LOD distances**: `content/terrain/lod.json` holds the terrain chunk LOD multiples and the grass LOD band distances (promote / demote, create / evict radius, fade). If the file is missing, built-in values are used and a warning is logged.
-- **Water**: water planes, multiple finite lakes (`WaterBody`), swells, and streams (`WaterStream`: ribbon meshes along a path; the Editor can trace one downhill to the lake). Streams are visual only; you cannot swim in them. `Water/DESIGN-water-bodies.md` has its own status line.
+- **Water**: water planes, multiple finite lakes (`WaterBody`), swells, and streams (`WaterStream`: ribbon meshes along a path; the Editor can trace one downhill to the lake). Streams are visual only; you cannot swim in them. The player can swim in lakes, and going under the surface switches to the underwater view (see Render). `Water/DESIGN-water-bodies.md` has its own status line.
 - **Scene**: JSON scene files under `content/scenes/` (`level.json`, `level2d.json`, `parkour_test.json`, `stealth_test.json`) that hold entities, terrain, grass, atmosphere, water, spawners, and exposure settings. Entity templates live in `content/entities/*.entity.json` (`EntityMaster`).
 - **Save**: quick and manual saves through `SaveSystem` with atomic file writes. Saves go to `%LOCALAPPDATA%\DarkEngine6\Saves`. See `Save/DESIGN-save-load.md`.
 - **Audio**: XAudio2, WAV clips, sound emitters.
@@ -155,8 +158,8 @@ Key, mouse, and gamepad bindings live in JSON, not in code. Each host loads its 
 
 | File | Loaded by | Holds |
 |------|-----------|-------|
-| `content/sandbox.input.json` | Sandbox | App commands: quit, pause, step, saves, lighting, reset, speed, fly camera, Dev Tools, profiler, inventory |
-| `content/entities/player.entity.input.json` | Sandbox, Editor (Play) | Player move, look, jump, sprint, crouch, attack, shield, flashlight, weapons, dodge, pickup, camouflage |
+| `content/sandbox.input.json` | Sandbox | App commands: quit, pause, step, saves, lighting, reset, speed, fly camera, Dev Tools, profiler, inventory, journal |
+| `content/entities/player.entity.input.json` | Sandbox, Editor (Play) | Player move, look, jump, sprint, crouch, attack, shield, flashlight, weapons 1–3, dodge, pickup (E in Editor Play), takedown, vision modes, camouflage |
 | `content/editor.input.json` | Editor | Editor commands: place, delete, type select, panels, debug views, save / load |
 | `content/sandbox2d.input.json` | Sandbox2D | App commands: quit, reset, debug, net host / join / disconnect, debug listen |
 | `content/entities/player2d.entity.input.json` | Sandbox2D | 2D jump and move |
@@ -177,9 +180,12 @@ Defaults from the files above:
 | Left / Right Ctrl | Crouch |
 | F / left mouse | Attack; hold to charge, release to swing |
 | V / right mouse | Shield (hold) |
-| 1 / 2 | Melee / rifle (if in the inventory) |
-| G | Pick up the nearest item, or open the nearest loot bag |
+| 1 / 2 / 3 | Melee / rifle (if in the inventory) / throwable belt |
+| G | Pick up the nearest item or throwable, open the nearest loot bag, or carry a body |
+| E | Takedown from behind |
+| N / H / U / B | Night sight / infrared / ultraviolet / echolocation |
 | I | Inventory |
+| J | Quest journal |
 | C | Camouflage |
 | L | Flashlight (when equipped) |
 | T | Walk the wiggle demo |
@@ -259,7 +265,7 @@ Sandbox2D/        2D sample
 Editor/           ImGui editor
 VisualDebugger/   remote perf / debug viewer
 UnitTests/        GoogleTest suite, one folder per module
-content/          runtime data: shaders, scenes, entities, input files, models, terrain, ai, skills, audio, ...
+content/          runtime data: shaders, scenes, entities, input files, models, terrain, ai, skills, audio, items, quests, ...
 third_party/      box2d, box3d, cgltf, nlohmann, nvtx
 cmake/            compiler options, layered targets, content copy, Version.h, WinPixEventRuntime
 docs/plans/       feature plans and notes
@@ -274,7 +280,7 @@ Design docs live next to the code they describe (for example `Render/DESIGN-*.md
 
 Full rules are in [`AGENTS.md`](AGENTS.md). Short version:
 
-- No C++ exceptions in engine or sample code. Return `bool` / status, log, `DE_ASSERT`. `scripts\check-no-exceptions.ps1` scans for violations.
+- No C++ exceptions in engine or sample code. Return `bool` / status, log, `DE_ASSERT`. Read JSON fields through `Core/Json.h` helpers rather than nlohmann `value()` / `get<T>()` on unchecked types. `scripts\check-no-exceptions.ps1` scans for violations.
 - **C++23**, MSVC-friendly, `.clang-format` (Allman, 4-space). `scripts\format-all.ps1` formats or checks the tree.
 - Log with `DE_LOG_INFO` / `WARN` / `ERROR` / `FATAL` from `Core/Log.h`, with a `LogCategory` first.
 
