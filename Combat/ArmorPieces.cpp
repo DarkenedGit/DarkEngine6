@@ -1,7 +1,5 @@
 #include "Combat/ArmorPieces.h"
 
-#include <cmath>
-
 namespace Dark::Combat
 {
 
@@ -11,40 +9,42 @@ namespace Dark::Combat
     }
 
     float absorbArmorHit(ArmorPiecesComponent& armor, const Math::Vector3f& ownerPos, const Math::Quaternion& ownerRot,
-                         const Math::Vector3f& hitPoint, const Math::Vector3f& hitDir, float damage, ArmorBreak& broke)
+                         const Math::Vector3f& hitPoint, const Math::Vector3f& hitDir, float damage, ArmorBreak& broke,
+                         HitPart part, bool hasFlatArmorRating, uint32_t damageFlags, DamageType damageType)
     {
         broke = {};
         if (damage <= 0.0f)
             return damage;
 
-        const float hitY  = hitPoint.y - ownerPos.y;
-        int         best  = -1;
-        float       bestD = 0.0f;
-        for (int i = 0; i < armor.count; ++i)
-        {
-            const ArmorPiece& piece = armor.pieces[i];
-            const float       d     = std::fabs(hitY - piece.offset.y);
-            if (!piece.attached || d > piece.halfExtents.y + 0.15f)
-                continue;
-            if (best < 0 || d < bestD)
-            {
-                best  = i;
-                bestD = d;
-            }
-        }
-        if (best < 0)
+        // Height does not choose a piece, and HitPart::None is not a slot.
+        (void)hitPoint;
+        if (part == HitPart::None || (damageFlags & DamageFlags::IgnoresArmor) != 0u || isTrue(damageType))
             return damage;
 
-        ArmorPiece& piece = armor.pieces[best];
+        int hitIndex = -1;
+        for (int i = 0; i < armor.count; ++i)
+        {
+            const ArmorPiece& candidate = armor.pieces[i];
+            if (!candidate.attached || candidate.part != part)
+                continue;
+            hitIndex = i;
+            break;
+        }
+        if (hitIndex < 0)
+            return damage;
+
+        ArmorPiece& piece = armor.pieces[hitIndex];
         piece.hp -= damage * piece.absorb;
         if (piece.hp <= 0.0f)
         {
             piece.hp       = 0.0f;
             piece.attached = false;
-            broke.index    = best;
+            broke.index    = hitIndex;
             broke.position = armorPieceWorldPos(piece, ownerPos, ownerRot);
             broke.push     = hitDir;
         }
+        if (hasFlatArmorRating)
+            return damage;
         return damage * (1.0f - piece.absorb);
     }
 
