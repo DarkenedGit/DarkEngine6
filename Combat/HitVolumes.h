@@ -99,6 +99,11 @@ namespace Dark
         bool hitVolumesBlockHunterBlock(const HitVolumesComponent* volumes);
         bool hitVolumesBlockJump(const HitVolumesComponent* volumes);
 
+        // Horizontal unit from the attacker to the surface point.
+        // Part None, a missing attacker, or no horizontal separation keeps the attack direction.
+        Math::Vector3f partKnockbackDirection(HitPart part, const TransformComponent* attacker, const Math::Vector3f& surfacePoint,
+                                              const Math::Vector3f& attackDirection);
+
     } // namespace Combat
 
 } // namespace Dark

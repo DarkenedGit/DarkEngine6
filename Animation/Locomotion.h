@@ -108,6 +108,16 @@ namespace Dark
 
 	void applyHitFlinch(const Skeleton& skeleton, Math::Quaternion* localR, uint32_t count, float forward, float side);
 
+	// Slot order matches the seven hit parts: head, right arm, left arm, right leg, left leg, chest, waist.
+	struct PartImpactWeights
+	{
+		static constexpr int kCount = 7;
+		float weight[kCount]{};
+	};
+
+	// Local twist on the struck joints. Weight 0 leaves the pose alone. Missing joint names are skipped.
+	void applyPartImpact(const Skeleton& skeleton, Math::Quaternion* localR, uint32_t count, const PartImpactWeights& impact);
+
 	// 0..1. Lifts the off-hand (L_*) arm so the forearm is across the chest, shield out front.
 	void applyShieldGuard(const Skeleton& skeleton, Math::Quaternion* localR, uint32_t count, float alpha);
 

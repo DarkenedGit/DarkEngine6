@@ -1,5 +1,6 @@
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
+#include "Animation/Locomotion.h"
 #include "Character/HealthComponent.h"
 #include "Combat/HitVolumes.h"
 #include "Core/Log.h"
@@ -83,6 +84,15 @@ namespace Dark
 				const float flinch = hr->hit.flinch();
 				ag.graph.player().setHitFlinch(local.z * flinch, local.x * flinch);
 			}
+
+			PartImpactWeights impact{};
+			if (const Combat::HitVolumesComponent* volumes = world.get<Combat::HitVolumesComponent>(e))
+			{
+				static_assert(PartImpactWeights::kCount == Combat::HitVolumesComponent::kSlotCount);
+				for (int i = 0; i < Combat::HitVolumesComponent::kSlotCount; ++i)
+					impact.weight[i] = volumes->impactWeight[i];
+			}
+			ag.graph.player().setPartImpact(impact);
 
 			AnimNotifyQueue queue;
 			ag.graph.player().update(dt, queue, overlayPtr, overlayCount);

@@ -2,6 +2,7 @@
 
 #include "Animation/AnimNotify.h"
 #include "Animation/AnimationSet.h"
+#include "Animation/Locomotion.h"
 #include "Animation/Pose.h"
 #include "Animation/Skeleton.h"
 #include "Math/Quaternion.h"
@@ -43,6 +44,7 @@ namespace Dark
 			m_flinchForward = forward;
 			m_flinchSide    = side;
 		}
+		void setPartImpact(const PartImpactWeights& weights) { m_partImpact = weights; }
 		void stop();
 		void update(float dt, AnimNotifyQueue& outNotifies, const AnimMarker* overlay = nullptr, uint32_t overlayCount = 0);
 
@@ -91,6 +93,7 @@ namespace Dark
 		float               m_chargeStrike = 0.0f;
 		float               m_flinchForward = 0.0f;
 		float               m_flinchSide = 0.0f;
+		PartImpactWeights   m_partImpact{};
 		float               m_shieldGuard = 0.0f;
 		Math::Vector3f      m_rootMotionDelta{ 0.0f, 0.0f, 0.0f };
 		Math::Vector3f      m_prevRootPos{ 0.0f, 0.0f, 0.0f };

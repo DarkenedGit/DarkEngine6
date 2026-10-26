@@ -91,6 +91,49 @@ namespace Dark
 		add(neck, Math::Vector3f::Z_AXIS, -0.20f * side);
 	}
 
+	void applyPartImpact(const Skeleton& skeleton, Math::Quaternion* localR, uint32_t count, const PartImpactWeights& impact)
+	{
+		if (!localR || count == 0)
+			return;
+
+		bool any = false;
+		for (int i = 0; i < PartImpactWeights::kCount; ++i)
+		{
+			if (fabsf(impact.weight[i]) >= 1.0e-4f)
+			{
+				any = true;
+				break;
+			}
+		}
+		if (!any)
+			return;
+
+		auto add = [&](int32_t joint, float radians) {
+			if (joint < 0 || static_cast<uint32_t>(joint) >= count || fabsf(radians) < 1.0e-4f)
+				return;
+			localR[joint] = Math::Quaternion::FromAxisAngle(Math::Vector3f::X_AXIS, radians) * localR[joint];
+		};
+		auto twist = [&](const char* name, float radians) {
+			add(findJoint(skeleton, name), radians);
+		};
+
+		// Same local X the spine flinch uses for a hit from the front. Limbs peak higher than the torso.
+		constexpr float kLimb  = 0.35f;
+		constexpr float kTorso = 0.20f;
+		const float* w = impact.weight;
+		twist("Head", kTorso * w[0]);
+		twist("R_UpperArm", kLimb * w[1]);
+		twist("R_LowerArm", kLimb * w[1]);
+		twist("L_UpperArm", kLimb * w[2]);
+		twist("L_LowerArm", kLimb * w[2]);
+		twist("R_UpperLeg", kLimb * w[3]);
+		twist("R_LowerLeg", kLimb * w[3]);
+		twist("L_UpperLeg", kLimb * w[4]);
+		twist("L_LowerLeg", kLimb * w[4]);
+		twist("Chest", kTorso * w[5]);
+		twist("Hips", kTorso * w[6]);
+	}
+
 	void applyShieldGuard(const Skeleton& skeleton, Math::Quaternion* localR, uint32_t count, float alpha)
 	{
 		const float a = Math::Clamp(alpha, 0.0f, 1.0f);

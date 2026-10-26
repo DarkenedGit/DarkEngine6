@@ -243,4 +243,16 @@ namespace Dark::Combat
         return false;
     }
 
+    Math::Vector3f partKnockbackDirection(HitPart part, const TransformComponent* attacker, const Math::Vector3f& surfacePoint,
+                                          const Math::Vector3f& attackDirection)
+    {
+        if (part == HitPart::None || !attacker)
+            return attackDirection;
+        Math::Vector3f flat{ surfacePoint.x - attacker->position.x, 0.0f, surfacePoint.z - attacker->position.z };
+        if (flat.MagnitudeSqrd() < 1.0e-8f)
+            return attackDirection;
+        flat.Normalize();
+        return flat;
+    }
+
 } // namespace Dark::Combat

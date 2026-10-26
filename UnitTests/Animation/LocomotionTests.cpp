@@ -333,3 +333,105 @@ TEST(ChargeWindup, AttackPullsTheArmBackAndTheBlockDrivesItForward)
 	EXPECT_GT(pose.blockStrike, 0.4f);
 	EXPECT_LT(pose.attack, 0.8f);
 }
+
+namespace
+{
+	Skeleton impactSkeleton(bool withHead)
+	{
+		Skeleton sk;
+		sk.meshWorld = Matrix4f();
+		auto add = [&](const char* name, int parent) {
+			Joint j;
+			j.name = name;
+			j.parent = parent;
+			j.restT = Vector3f(0.0f, 0.0f, 0.0f);
+			j.restR = Quaternion::IDENTITY;
+			j.restS = Vector3f(1.0f, 1.0f, 1.0f);
+			j.inverseBind = Matrix4f();
+			sk.joints.push_back(j);
+		};
+		add("Hips", -1);
+		add("Spine", 0);
+		add("Chest", 1);
+		if (withHead)
+			add("Head", 2);
+		add("R_UpperArm", 2);
+		add("R_LowerArm", 0);
+		add("L_UpperArm", 2);
+		add("L_LowerArm", 0);
+		const int n = static_cast<int>(sk.joints.size());
+		sk.fkOrder.resize(static_cast<size_t>(n));
+		for (int i = 0; i < n; ++i)
+			sk.fkOrder[static_cast<size_t>(i)] = i;
+		return sk;
+	}
+
+	int jointIndex(const Skeleton& sk, const char* name)
+	{
+		for (int i = 0; i < static_cast<int>(sk.joints.size()); ++i)
+		{
+			if (sk.joints[static_cast<size_t>(i)].name == name)
+				return i;
+		}
+		return -1;
+	}
+
+	void identityLocals(const Skeleton& sk, Quaternion* R)
+	{
+		for (uint32_t i = 0; i < static_cast<uint32_t>(sk.joints.size()); ++i)
+			R[i] = Quaternion::IDENTITY;
+	}
+}
+
+TEST(PartImpact, RightArmTwistsThatArmAndSpineFlinchStillApplies)
+{
+	const Skeleton sk = impactSkeleton(true);
+	const int spine = jointIndex(sk, "Spine");
+	const int rightUpper = jointIndex(sk, "R_UpperArm");
+	const int rightLower = jointIndex(sk, "R_LowerArm");
+	const int leftUpper = jointIndex(sk, "L_UpperArm");
+	const int head = jointIndex(sk, "Head");
+	ASSERT_GE(spine, 0);
+	ASSERT_GE(head, 0);
+
+	Quaternion R[8];
+	identityLocals(sk, R);
+	PartImpactWeights impact{};
+	impact.weight[1] = 1.0f;
+	applyHitFlinch(sk, R, static_cast<uint32_t>(sk.joints.size()), 1.0f, 0.0f);
+	applyPartImpact(sk, R, static_cast<uint32_t>(sk.joints.size()), impact);
+
+	const float limbHalf = 0.35f * 0.5f;
+	const float flinchHalf = 0.30f * 0.5f;
+	EXPECT_NEAR(R[rightUpper].w, std::cos(limbHalf), 1.0e-4f);
+	EXPECT_NEAR(R[rightUpper].x, std::sin(limbHalf), 1.0e-4f);
+	EXPECT_NEAR(R[rightLower].w, std::cos(limbHalf), 1.0e-4f);
+	EXPECT_NEAR(R[rightLower].x, std::sin(limbHalf), 1.0e-4f);
+	EXPECT_NEAR(R[leftUpper].w, 1.0f, 1.0e-4f);
+	EXPECT_NEAR(R[head].w, 1.0f, 1.0e-4f);
+	EXPECT_NEAR(R[spine].w, std::cos(flinchHalf), 1.0e-4f);
+	EXPECT_NEAR(R[spine].x, std::sin(flinchHalf), 1.0e-4f);
+}
+
+TEST(PartImpact, ZeroWeightLeavesEveryJoint)
+{
+	const Skeleton sk = impactSkeleton(true);
+	Quaternion R[8];
+	identityLocals(sk, R);
+	applyPartImpact(sk, R, static_cast<uint32_t>(sk.joints.size()), {});
+	for (uint32_t i = 0; i < static_cast<uint32_t>(sk.joints.size()); ++i)
+		EXPECT_NEAR(R[i].w, 1.0f, 1.0e-4f);
+}
+
+TEST(PartImpact, MissingHeadJointLeavesThePoseUnchanged)
+{
+	const Skeleton sk = impactSkeleton(false);
+	ASSERT_EQ(jointIndex(sk, "Head"), -1);
+	Quaternion R[8];
+	identityLocals(sk, R);
+	PartImpactWeights impact{};
+	impact.weight[0] = 1.0f;
+	applyPartImpact(sk, R, static_cast<uint32_t>(sk.joints.size()), impact);
+	for (uint32_t i = 0; i < static_cast<uint32_t>(sk.joints.size()); ++i)
+		EXPECT_NEAR(R[i].w, 1.0f, 1.0e-4f);
+}
