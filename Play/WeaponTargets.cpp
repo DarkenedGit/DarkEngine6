@@ -1,6 +1,7 @@
 #include "Play/WeaponTargets.h"
 
 #include "Character/HealthComponent.h"
+#include "Combat/HitVolumes.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
 #include "Weapons/HittableComponent.h"
@@ -48,6 +49,21 @@ namespace Dark
             return listOf(user)->entityAt(index);
         }
 
+        const Combat::HitSegment* targetCapsules(void* user, int index, int* outCount)
+        {
+            if (outCount)
+                *outCount = 0;
+            const WeaponTargetList* list = listOf(user);
+            if (!list || index < 0 || index >= static_cast<int>(list->targets().size()))
+                return nullptr;
+            const WeaponTarget& target = list->targets()[static_cast<size_t>(index)];
+            if (!target.hasCapsules)
+                return nullptr;
+            if (outCount)
+                *outCount = Combat::HitVolumesComponent::kSlotCount;
+            return target.segments;
+        }
+
     } // namespace
 
     void WeaponTargetList::gather(World& world, Entity ignore)
@@ -65,6 +81,12 @@ namespace Dark
             t.center      = xf->position;
             t.halfExtents = h.halfExtents;
             t.alive       = hp && hp->health.alive();
+            if (const Combat::HitVolumesComponent* volumes = world.get<Combat::HitVolumesComponent>(e))
+            {
+                t.hasCapsules = true;
+                for (int i = 0; i < Combat::HitVolumesComponent::kSlotCount; ++i)
+                    t.segments[i] = volumes->segment[i];
+            }
             m_targets.push_back(t);
         });
     }
@@ -77,6 +99,7 @@ namespace Dark
         query.targetCenter        = targetCenter;
         query.targetHalfExtentsAt = targetHalfExtentsAt;
         query.targetEntityAt      = targetEntityAt;
+        query.targetCapsules      = targetCapsules;
     }
 
     Entity WeaponTargetList::entityAt(int index) const

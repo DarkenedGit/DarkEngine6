@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Combat/HitVolumes.h"
 #include "ECS/Entity.h"
 #include "Math/Vector3f.h"
 #include "Weapons/Weapon.h"
@@ -16,7 +17,9 @@ namespace Dark
         Entity         entity{};
         Math::Vector3f center{};
         Math::Vector3f halfExtents{ 1.0f, 1.0f, 1.0f };
-        bool           alive = false;
+        bool           alive       = false;
+        bool           hasCapsules = false;
+        Combat::HitSegment segments[Combat::HitVolumesComponent::kSlotCount]{};
     };
 
     // Hittable bodies for one weapon query. Terrain callbacks stay with the host.

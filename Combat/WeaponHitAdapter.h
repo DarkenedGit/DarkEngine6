@@ -16,6 +16,7 @@ namespace Dark::Combat
         ev.amount      = hit.damage;
         ev.hitPoint    = hit.point;
         ev.hitDir      = hit.direction;
+        ev.part        = hit.part;
         ev.flags       = DamageFlags::CanBlock | DamageFlags::CanParry;
         if (attack)
         {

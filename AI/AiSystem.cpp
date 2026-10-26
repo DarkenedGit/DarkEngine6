@@ -377,15 +377,37 @@ namespace Dark
         const float dx = playerPos.x - v.xf->position.x;
         const float dz = playerPos.z - v.xf->position.z;
         const float dist = std::sqrt(dx * dx + dz * dz);
-        if (dist > move.maxRange + 0.35f)
+        const float reach = move.maxRange + 0.35f;
+
+        Vector3f        hitPoint = playerPos;
+        Combat::HitPart part     = Combat::HitPart::None;
+        const Combat::HitVolumesComponent* volumes = world.get<Combat::HitVolumesComponent>(player);
+        const Combat::HitSegment*          segments = nullptr;
+        int                                segmentCount = 0;
+        if (volumes)
+        {
+            segments     = volumes->segment;
+            segmentCount = Combat::HitVolumesComponent::kSlotCount;
+        }
+        if (weaponCapsulesActive(segments, segmentCount))
+        {
+            WeaponPartContact contact{};
+            if (!weaponPickCapsuleReach(segments, segmentCount, v.xf->position, Vector3f{ dx, 0.0f, dz }, reach, -1.0f, contact))
+                return;
+            hitPoint = contact.point;
+            part     = contact.part;
+        }
+        else if (dist > reach)
             return;
+
         Combat::DamageEvent ev{};
         ev.source          = v.e;
         ev.target          = player;
         ev.type            = Combat::DamageType::Slash;
         ev.amount          = move.damage;
         ev.poiseDamage     = move.poise;
-        ev.hitPoint        = playerPos;
+        ev.hitPoint        = hitPoint;
+        ev.part            = part;
         ev.hitDir          = Vector3f{ dx, 0.0f, dz };
         if (ev.hitDir.MagnitudeSqrd() > 1.0e-6f)
             ev.hitDir.Normalize();
@@ -1004,6 +1026,12 @@ namespace Dark
             t.e      = e;
             t.center = xf->position;
             t.alive  = hp && hp->health.alive();
+            if (const Combat::HitVolumesComponent* volumes = world.get<Combat::HitVolumesComponent>(e))
+            {
+                t.hasCapsules = true;
+                for (int i = 0; i < Combat::HitVolumesComponent::kSlotCount; ++i)
+                    t.segments[i] = volumes->segment[i];
+            }
             m_jumpTargets.push_back(t);
         });
     }
@@ -1319,6 +1347,19 @@ namespace Dark
             if (i < 0 || i >= static_cast<int>(self->m_jumpTargets.size()))
                 return {};
             return self->m_jumpTargets[static_cast<size_t>(i)].e;
+        };
+        jumpQuery.targetCapsules = [](void* user, int i, int* outCount) -> const Combat::HitSegment* {
+            if (outCount)
+                *outCount = 0;
+            auto* self = static_cast<AiSystem*>(user);
+            if (i < 0 || i >= static_cast<int>(self->m_jumpTargets.size()))
+                return nullptr;
+            const JumpTargetScratch& target = self->m_jumpTargets[static_cast<size_t>(i)];
+            if (!target.hasCapsules)
+                return nullptr;
+            if (outCount)
+                *outCount = Combat::HitVolumesComponent::kSlotCount;
+            return target.segments;
         };
 
         constexpr float kStandoff = 2.25f;

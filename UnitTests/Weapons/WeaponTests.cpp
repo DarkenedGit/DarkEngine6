@@ -2,13 +2,23 @@
 
 #include "Weapons/WeaponLoadout.h"
 #include "Gameplay/ThrowableBelt.h"
+#include "Character/HealthComponent.h"
 #include "Character/SkillLimits.h"
 #include "Character/SkillXp.h"
 #include "Collision/HitResult.h"
+#include "Combat/DamageEvent.h"
+#include "Combat/HitVolumes.h"
+#include "Combat/WeaponHitAdapter.h"
+#include "ECS/Components.h"
+#include "ECS/World.h"
+#include "Math/Capsule3f.h"
 #include "Math/MathDefines.h"
 #include "Math/Ray3f.h"
 #include "Math/Vector3f.h"
+#include "Play/WeaponTargets.h"
+#include "Weapons/HittableComponent.h"
 
+#include <cmath>
 #include <limits>
 #include <vector>
 
@@ -718,4 +728,379 @@ TEST(WeaponLoadout, Ae5LastThrowableReturnsToSword)
     EXPECT_EQ(loadout.slot(), 2);
     EXPECT_EQ(loadout.activeKind(), WeaponKind::Throwable);
     EXPECT_EQ(belt.hand(), "rock");
+}
+
+namespace
+{
+    using Dark::Combat::DamageEvent;
+    using Dark::Combat::HitPart;
+    using Dark::Combat::HitSegment;
+    using Dark::Combat::HitVolumesComponent;
+    using Dark::Combat::damageEventFromWeaponHit;
+    using Dark::Combat::hitPartIndex;
+
+    HitSegment spherePart(HitPart part, const Vector3f& at, float radius)
+    {
+        HitSegment segment;
+        segment.part   = part;
+        segment.a      = at;
+        segment.b      = at;
+        segment.radius = radius;
+        segment.active = true;
+        return segment;
+    }
+
+    void expectOnCapsule(const Vector3f& point, const HitSegment& segment)
+    {
+        const Capsule3f cap(segment.a, segment.b, segment.radius);
+        const float     radial = (point - cap.ClosestPointOnSegment(point)).Magnitude();
+        EXPECT_NEAR(radial, segment.radius, 1.5e-3f);
+    }
+
+    void expectNormalToward(const Vector3f& normal, const Vector3f& point, const Vector3f& from)
+    {
+        Vector3f want = from - point;
+        ASSERT_GT(want.MagnitudeSqrd(), 1.0e-8f);
+        want.Normalize();
+        EXPECT_NEAR(normal.x, want.x, 2.0e-3f);
+        EXPECT_NEAR(normal.y, want.y, 2.0e-3f);
+        EXPECT_NEAR(normal.z, want.z, 2.0e-3f);
+    }
+
+    struct PartBody
+    {
+        Vector3f              center{};
+        Vector3f              half{ 1.0f, 1.0f, 1.0f };
+        bool                  alive        = true;
+        bool                  listCapsules = false;
+        std::vector<HitSegment> segments;
+    };
+
+    struct PartWorld
+    {
+        std::vector<PartBody> bodies;
+        float                 groundY = -1000.0f;
+
+        static int count(void* user)
+        {
+            auto* w = static_cast<PartWorld*>(user);
+            return w ? static_cast<int>(w->bodies.size()) : 0;
+        }
+
+        static bool aliveAt(void* user, int index)
+        {
+            auto* w = static_cast<PartWorld*>(user);
+            if (!w || index < 0 || index >= static_cast<int>(w->bodies.size()))
+                return false;
+            return w->bodies[static_cast<size_t>(index)].alive;
+        }
+
+        static Vector3f center(void* user, int index)
+        {
+            auto* w = static_cast<PartWorld*>(user);
+            if (!w || index < 0 || index >= static_cast<int>(w->bodies.size()))
+                return Vector3f{ 0.0f, 0.0f, 0.0f };
+            return w->bodies[static_cast<size_t>(index)].center;
+        }
+
+        static Vector3f halfAt(void* user, int index)
+        {
+            auto* w = static_cast<PartWorld*>(user);
+            if (!w || index < 0 || index >= static_cast<int>(w->bodies.size()))
+                return Vector3f{ 1.0f, 1.0f, 1.0f };
+            return w->bodies[static_cast<size_t>(index)].half;
+        }
+
+        static const HitSegment* capsules(void* user, int index, int* outCount)
+        {
+            if (outCount)
+                *outCount = 0;
+            auto* w = static_cast<PartWorld*>(user);
+            if (!w || index < 0 || index >= static_cast<int>(w->bodies.size()))
+                return nullptr;
+            const PartBody& body = w->bodies[static_cast<size_t>(index)];
+            if (!body.listCapsules || body.segments.empty())
+                return nullptr;
+            if (outCount)
+                *outCount = static_cast<int>(body.segments.size());
+            return body.segments.data();
+        }
+
+        WeaponWorldQuery query()
+        {
+            WeaponWorldQuery q{};
+            q.targetCount         = count;
+            q.targetAlive         = aliveAt;
+            q.targetCenter        = center;
+            q.targetHalfExtentsAt = halfAt;
+            q.targetCapsules      = capsules;
+            q.targetUser          = this;
+            q.maxRange            = 80.0f;
+            q.heightAt            = [](void* user, float, float) {
+                auto* w = static_cast<PartWorld*>(user);
+                return w ? w->groundY : 0.0f;
+            };
+            q.terrainUser = this;
+            return q;
+        }
+    };
+} // namespace
+
+TEST(DamageEvent, PartDefaultsNoneForWholeBodyEvents)
+{
+    const DamageEvent grind{};
+    EXPECT_EQ(grind.part, HitPart::None);
+    DamageEvent dot{};
+    dot.flags  = Dark::Combat::DamageFlags::DotTick;
+    dot.amount = 3.0f;
+    EXPECT_EQ(dot.part, HitPart::None);
+
+    WeaponHit hit{};
+    EXPECT_EQ(hit.part, HitPart::None);
+    const Entity source{ makeEntityID(1, 1) };
+    EXPECT_EQ(damageEventFromWeaponHit(hit, source, nullptr).part, HitPart::None);
+    hit.part = HitPart::LeftLeg;
+    Dark::Combat::AttackDef attack{};
+    attack.damage = 9.0f;
+    const DamageEvent copied = damageEventFromWeaponHit(hit, source, &attack);
+    EXPECT_EQ(copied.part, HitPart::LeftLeg);
+    EXPECT_FLOAT_EQ(copied.amount, 9.0f);
+    EXPECT_EQ(copied.hitDir, hit.direction);
+}
+
+TEST(WeaponRay, HitscanPicksHeadNotSideChest)
+{
+    PartWorld world;
+    PartBody  body;
+    body.center       = Vector3f{ 0.0f, 1.5f, 3.0f };
+    body.half         = Vector3f{ 1.0f, 1.0f, 1.0f };
+    body.listCapsules = true;
+    body.segments.push_back(spherePart(HitPart::Chest, Vector3f{ 0.9f, 1.5f, 3.0f }, 0.20f));
+    body.segments.push_back(spherePart(HitPart::Head, Vector3f{ 0.0f, 1.7f, 3.0f }, 0.15f));
+    world.bodies.push_back(body);
+
+    WeaponHit hit{};
+    const Vector3f origin{ 0.0f, 1.7f, 0.0f };
+    ASSERT_TRUE(weaponRaycastClosest(world.query(), Ray3f{ origin, Vector3f{ 0.0f, 0.0f, 1.0f } }, 40.0f, hit));
+    EXPECT_EQ(hit.part, HitPart::Head);
+    EXPECT_EQ(hit.targetIndex, 0);
+    EXPECT_TRUE(hit.hitTarget);
+    expectOnCapsule(hit.point, world.bodies[0].segments[1]);
+    expectNormalToward(hit.normal, hit.point, origin);
+}
+
+TEST(WeaponRay, TieWithinMillimeterUsesPartOrder)
+{
+    PartWorld world;
+    PartBody  body;
+    body.center       = Vector3f{ 0.0f, 1.0f, 5.0f };
+    body.half         = Vector3f{ 0.2f, 0.2f, 0.2f };
+    body.listCapsules = true;
+    body.segments.push_back(spherePart(HitPart::Chest, Vector3f{ 0.0f, 1.0f, 5.0f }, 0.50f));
+    body.segments.push_back(spherePart(HitPart::Head, Vector3f{ 0.0f, 1.0f, 5.0004f }, 0.50f));
+    world.bodies.push_back(body);
+
+    WeaponHit hit{};
+    ASSERT_TRUE(weaponRaycastClosest(world.query(), Ray3f{ Vector3f{ 0.0f, 1.0f, 0.0f }, Vector3f{ 0.0f, 0.0f, 1.0f } }, 40.0f, hit));
+    EXPECT_EQ(hit.part, HitPart::Head);
+    expectOnCapsule(hit.point, world.bodies[0].segments[1]);
+}
+
+TEST(WeaponRay, MissesActiveCapsulesAndHitsLaterBox)
+{
+    PartWorld world;
+    PartBody  human;
+    human.center       = Vector3f{ 0.0f, 1.0f, 3.0f };
+    human.half         = Vector3f{ 1.0f, 1.0f, 1.0f };
+    human.listCapsules = true;
+    human.segments.push_back(spherePart(HitPart::Chest, Vector3f{ 2.0f, 1.0f, 3.0f }, 0.20f));
+    world.bodies.push_back(human);
+
+    PartBody wolf;
+    wolf.center = Vector3f{ 0.0f, 1.0f, 8.0f };
+    wolf.half   = Vector3f{ 0.4f, 1.0f, 0.4f };
+    world.bodies.push_back(wolf);
+
+    WeaponHit hit{};
+    ASSERT_TRUE(weaponRaycastClosest(world.query(), Ray3f{ Vector3f{ 0.0f, 1.0f, 0.0f }, Vector3f{ 0.0f, 0.0f, 1.0f } }, 40.0f, hit));
+    EXPECT_EQ(hit.targetIndex, 1);
+    EXPECT_EQ(hit.part, HitPart::None);
+    EXPECT_TRUE(hit.hitTarget);
+    EXPECT_NEAR(hit.point.z, 7.6f, 1.0e-3f);
+}
+
+TEST(ProjectileWeapon, RifleBoxHitReportsNoPart)
+{
+    PartWorld world;
+    PartBody  wolf;
+    wolf.center = Vector3f{ 0.0f, 1.0f, 6.0f };
+    wolf.half   = Vector3f{ 0.5f, 1.0f, 0.5f };
+    world.bodies.push_back(wolf);
+
+    HitLog log;
+    ProjectileWeaponDesc d{};
+    d.instant        = true;
+    d.cooldown       = 0.0f;
+    d.recoilPitchDeg = 0.0f;
+    d.recoilYawDeg   = 0.0f;
+    ProjectileWeapon w{ d };
+    w.setHitListener(&HitLog::onHit, &log);
+    ASSERT_TRUE(w.fire(aim(Vector3f{ 0, 1, 0 }, Vector3f{ 0, 0, 1 }, Vector3f{ 0, 0.5f, 0 }), world.query()));
+    ASSERT_EQ(log.hits.size(), 1u);
+    EXPECT_TRUE(log.hits[0].hitTarget);
+    EXPECT_EQ(log.hits[0].part, HitPart::None);
+    EXPECT_NEAR(log.hits[0].point.z, 5.5f, 1.0e-3f);
+    EXPECT_NEAR(log.hits[0].direction.z, 1.0f, 1.0e-4f);
+}
+
+TEST(WeaponSweep, CapsuleBeatsBroadBox)
+{
+    PartWorld world;
+    PartBody  body;
+    body.center       = Vector3f{ 0.0f, 1.7f, 3.0f };
+    body.half         = Vector3f{ 1.0f, 1.0f, 1.0f };
+    body.listCapsules = true;
+    body.segments.push_back(spherePart(HitPart::Chest, Vector3f{ 1.2f, 1.7f, 3.0f }, 0.20f));
+    body.segments.push_back(spherePart(HitPart::Head, Vector3f{ 0.0f, 1.7f, 2.5f }, 0.15f));
+    world.bodies.push_back(body);
+
+    WeaponHit hit{};
+    const Vector3f start{ 0.0f, 1.7f, 0.0f };
+    ASSERT_TRUE(weaponSweepClosest(world.query(), start, Vector3f{ 0.0f, 0.0f, 4.0f }, 0.05f, hit));
+    EXPECT_TRUE(hit.hitTarget);
+    EXPECT_EQ(hit.part, HitPart::Head);
+    expectOnCapsule(hit.point, world.bodies[0].segments[1]);
+}
+
+TEST(WeaponSweep, MissesCapsulesAndHitsLaterBox)
+{
+    PartWorld world;
+    PartBody  human;
+    human.center       = Vector3f{ 0.0f, 1.0f, 3.0f };
+    human.half         = Vector3f{ 1.0f, 1.0f, 1.0f };
+    human.listCapsules = true;
+    human.segments.push_back(spherePart(HitPart::Chest, Vector3f{ 2.0f, 1.0f, 3.0f }, 0.20f));
+    world.bodies.push_back(human);
+
+    PartBody wolf;
+    wolf.center = Vector3f{ 0.0f, 1.0f, 8.0f };
+    wolf.half   = Vector3f{ 0.4f, 1.0f, 0.4f };
+    world.bodies.push_back(wolf);
+
+    WeaponHit hit{};
+    ASSERT_TRUE(weaponSweepClosest(world.query(), Vector3f{ 0.0f, 1.0f, 0.0f }, Vector3f{ 0.0f, 0.0f, 10.0f }, 0.05f, hit));
+    EXPECT_EQ(hit.targetIndex, 1);
+    EXPECT_EQ(hit.part, HitPart::None);
+    EXPECT_TRUE(hit.hitTarget);
+    EXPECT_GT(hit.point.z, 4.0f);
+}
+
+TEST(MeleeWeapon, NullCapsuleListKeepsCenterAndNoPart)
+{
+    PartWorld world;
+    PartBody  body;
+    body.center = Vector3f{ 0.0f, 1.0f, 2.0f };
+    world.bodies.push_back(body);
+
+    HitLog log;
+    MeleeWeapon w;
+    w.setHitListener(&HitLog::onHit, &log);
+    ASSERT_TRUE(w.fire(aim(Vector3f{ 0, 1, 0 }, Vector3f{ 0, 0, 1 }, Vector3f{ 0, 0.5f, 0 }), world.query()));
+    ASSERT_EQ(log.hits.size(), 1u);
+    EXPECT_EQ(log.hits[0].part, HitPart::None);
+    EXPECT_NEAR(log.hits[0].point.x, 0.0f, 1.0e-4f);
+    EXPECT_NEAR(log.hits[0].point.y, 1.0f, 1.0e-4f);
+    EXPECT_NEAR(log.hits[0].point.z, 2.0f, 1.0e-4f);
+    EXPECT_NEAR(log.hits[0].direction.z, 1.0f, 1.0e-4f);
+}
+
+TEST(MeleeWeapon, InactiveCapsulesKeepCenter)
+{
+    PartWorld world;
+    PartBody  body;
+    body.center       = Vector3f{ 0.0f, 1.0f, 2.0f };
+    body.listCapsules = true;
+    HitSegment head   = spherePart(HitPart::Head, Vector3f{ 0.0f, 1.0f, 0.4f }, 0.20f);
+    head.active       = false;
+    body.segments.push_back(head);
+    world.bodies.push_back(body);
+
+    HitLog log;
+    MeleeWeapon w;
+    w.setHitListener(&HitLog::onHit, &log);
+    ASSERT_TRUE(w.fire(aim(Vector3f{ 0, 1, 0 }, Vector3f{ 0, 0, 1 }, Vector3f{ 0, 0.5f, 0 }), world.query()));
+    ASSERT_EQ(log.hits.size(), 1u);
+    EXPECT_EQ(log.hits[0].part, HitPart::None);
+    EXPECT_NEAR(log.hits[0].point.z, 2.0f, 1.0e-4f);
+}
+
+TEST(MeleeWeapon, RightArmInReachReportsSurfacePoint)
+{
+    PartWorld world;
+    PartBody  body;
+    body.center       = Vector3f{ 0.0f, 1.0f, 2.0f };
+    body.listCapsules = true;
+    HitSegment ignored = spherePart(HitPart::Head, Vector3f{ 0.0f, 1.0f, 0.35f }, 0.20f);
+    ignored.active     = false;
+    body.segments.push_back(ignored);
+    body.segments.push_back(spherePart(HitPart::Chest, Vector3f{ 0.0f, 1.3f, 2.2f }, 0.14f));
+    body.segments.push_back(spherePart(HitPart::RightArm, Vector3f{ 0.40f, 1.05f, 1.05f }, 0.08f));
+    world.bodies.push_back(body);
+
+    const Vector3f owner{ 0.0f, 0.5f, 0.0f };
+    HitLog log;
+    MeleeWeapon w;
+    w.setHitListener(&HitLog::onHit, &log);
+    ASSERT_TRUE(w.fire(aim(owner, Vector3f{ 0, 0, 1 }, owner), world.query()));
+    ASSERT_EQ(log.hits.size(), 1u);
+    EXPECT_EQ(log.hits[0].part, HitPart::RightArm);
+    EXPECT_NEAR(log.hits[0].direction.z, 1.0f, 1.0e-4f);
+    expectOnCapsule(log.hits[0].point, world.bodies[0].segments[2]);
+    expectNormalToward(log.hits[0].normal, log.hits[0].point, owner);
+}
+
+TEST(MeleeWeapon, CenterInsideConeMissesWhenCapsulesAreOutsideReach)
+{
+    PartWorld world;
+    PartBody  body;
+    body.center       = Vector3f{ 0.0f, 1.0f, 2.0f };
+    body.listCapsules = true;
+    body.segments.push_back(spherePart(HitPart::Chest, Vector3f{ 0.0f, 1.0f, 5.0f }, 0.10f));
+    world.bodies.push_back(body);
+
+    HitLog log;
+    MeleeWeapon w;
+    w.setHitListener(&HitLog::onHit, &log);
+    ASSERT_TRUE(w.fire(aim(Vector3f{ 0, 1, 0 }, Vector3f{ 0, 0, 1 }, Vector3f{ 0, 0.5f, 0 }), world.query()));
+    EXPECT_TRUE(log.hits.empty());
+}
+
+TEST(WeaponTargetList, RayUsesGatheredCapsules)
+{
+    World  world;
+    Entity e = world.createEntity();
+    TransformComponent xf{};
+    xf.position = Vector3f{ 0.0f, 1.7f, 3.0f };
+    world.emplace<TransformComponent>(e, xf);
+    HittableComponent box{};
+    box.halfExtents = Vector3f{ 1.0f, 1.0f, 1.0f };
+    world.emplace<HittableComponent>(e, box);
+    world.emplace<HealthComponent>(e);
+
+    HitVolumesComponent volumes;
+    volumes.segment[hitPartIndex(HitPart::Chest)] = spherePart(HitPart::Chest, Vector3f{ 0.9f, 1.5f, 3.0f }, 0.20f);
+    volumes.segment[hitPartIndex(HitPart::Head)]  = spherePart(HitPart::Head, Vector3f{ 0.0f, 1.7f, 3.0f }, 0.15f);
+    world.emplace<HitVolumesComponent>(e, volumes);
+
+    WeaponTargetList list;
+    list.gather(world, {});
+    WeaponWorldQuery query;
+    list.bind(query);
+
+    WeaponHit hit{};
+    const Vector3f origin{ 0.0f, 1.7f, 0.0f };
+    ASSERT_TRUE(weaponRaycastClosest(query, Ray3f{ origin, Vector3f{ 0.0f, 0.0f, 1.0f } }, 40.0f, hit));
+    EXPECT_EQ(hit.part, HitPart::Head);
+    EXPECT_EQ(hit.targetEntity, e);
+    expectOnCapsule(hit.point, volumes.segment[hitPartIndex(HitPart::Head)]);
 }

@@ -1,5 +1,6 @@
 #include "Weapons/MeleeWeapon.h"
 
+#include "Combat/HitPart.h"
 #include "Math/MathDefines.h"
 
 namespace Dark
@@ -49,6 +50,55 @@ namespace Dark
                 look = Vector3f{ 0.0f, 0.0f, 1.0f };
             return look;
         }
+
+        struct SwingContact
+        {
+            bool            found = false;
+            Combat::HitPart part  = Combat::HitPart::None;
+            Vector3f        point{};
+            Vector3f        normal{};
+            float           dist = 0.0f;
+            float           dot  = 0.0f;
+        };
+
+        SwingContact swingContact(const MeleeWeaponDesc& desc, const WeaponFireRequest& req, const WeaponWorldQuery& world, int index, const Vector3f& look)
+        {
+            SwingContact contact;
+            int          segmentCount = 0;
+            const Combat::HitSegment* segments = weaponTargetCapsules(world, index, segmentCount);
+            if (weaponCapsulesActive(segments, segmentCount))
+            {
+                WeaponPartContact picked{};
+                if (!weaponPickCapsuleReach(segments, segmentCount, req.ownerPos, look, desc.range, desc.minDot, picked))
+                    return contact;
+                contact.found  = true;
+                contact.part   = picked.part;
+                contact.point  = picked.point;
+                contact.normal = picked.normal;
+                contact.dist   = picked.distance;
+                contact.dot    = picked.facing;
+                return contact;
+            }
+
+            Vector3f center{};
+            if (!weaponTargetCenter(world, index, center))
+                return contact;
+            Vector3f to = center - req.ownerPos;
+            to.y        = 0.0f;
+            const float dist = to.Magnitude();
+            if (dist > desc.range || dist < 1.0e-4f)
+                return contact;
+            to *= (1.0f / dist);
+            const float dot = look.Dot(to);
+            if (dot < desc.minDot)
+                return contact;
+            contact.found  = true;
+            contact.point  = center;
+            contact.normal = -look;
+            contact.dist   = dist;
+            contact.dot    = dot;
+            return contact;
+        }
     } // namespace
 
     int MeleeWeapon::pickTarget(const WeaponFireRequest& req, const WeaponWorldQuery& world) const
@@ -59,18 +109,12 @@ namespace Dark
         const int      n     = weaponTargetCount(world);
         for (int i = 0; i < n; ++i)
         {
-            Vector3f center{};
-            if (!weaponTargetAlive(world, i) || !weaponTargetCenter(world, i, center))
+            if (!weaponTargetAlive(world, i))
                 continue;
-            Vector3f to = center - req.ownerPos;
-            to.y        = 0.0f;
-            const float dist = to.Magnitude();
-            if (dist > m_desc.range || dist < 1.0e-4f)
+            const SwingContact contact = swingContact(m_desc, req, world, i, look);
+            if (!contact.found)
                 continue;
-            const float dot = look.Dot(to * (1.0f / dist));
-            if (dot < m_desc.minDot)
-                continue;
-            const float s = dot - 0.5f * dist / m_desc.range;
+            const float s = contact.dot - 0.5f * contact.dist / m_desc.range;
             if (s > score)
             {
                 score = s;
@@ -94,24 +138,17 @@ namespace Dark
                 continue;
             if (!weaponTargetAlive(world, i))
                 continue;
-            Vector3f center{};
-            if (!weaponTargetCenter(world, i, center))
-                continue;
-            Vector3f to = center - req.ownerPos;
-            to.y        = 0.0f;
-            const float dist = to.Magnitude();
-            if (dist > m_desc.range || dist < 1.0e-4f)
-                continue;
-            to *= (1.0f / dist);
-            if (look.Dot(to) < m_desc.minDot)
+            const SwingContact contact = swingContact(m_desc, req, world, i, look);
+            if (!contact.found)
                 continue;
 
             const float scale = req.damageScale > 0.0f ? req.damageScale : 1.0f;
             WeaponHit hit{};
-            hit.point       = center;
-            hit.normal      = -look;
+            hit.point       = contact.point;
+            hit.normal      = contact.normal;
             hit.direction   = look;
             hit.damage      = m_desc.damage * scale;
+            hit.part        = contact.part;
             hit.targetIndex = i;
             if (world.targetEntityAt)
                 hit.targetEntity = world.targetEntityAt(world.targetUser, i);

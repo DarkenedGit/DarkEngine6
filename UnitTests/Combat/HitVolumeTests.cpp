@@ -10,12 +10,18 @@
 #include "Assets/AssetManager.h"
 #include "Assets/Model.h"
 #include "Audio/AudioSystem.h"
+#include "Character/HealthComponent.h"
 #include "Combat/HitVolumes.h"
 #include "Core/AssetPinTable.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
+#include "Math/Capsule3f.h"
 #include "Play/CharacterAttach.h"
+#include "Terrain/HeightMap.h"
+#include "Terrain/TerrainGrid.h"
 #include "Terrain/TerrainGround.h"
+#include "Weapons/HittableComponent.h"
+#include "Weapons/MeleeWeapon.h"
 
 #include <cstring>
 #include <memory>
@@ -418,4 +424,240 @@ TEST(HitVolume, TickRebuildsHeadFromLatestPose)
     expectVec(segment->a, modelPoint(rest, neck) + translation);
     expectVec(segment->b, modelPoint(rest, head) + translation);
     EXPECT_EQ(world.get<HitVolumesComponent>(e)->activeCount(), 7);
+}
+
+namespace
+{
+    HitPart nearestReachPart(const HitVolumesComponent& volumes, const Vector3f& origin, float range, float minDot, Vector3f& outPoint)
+    {
+        const Vector3f look{ 0.0f, 0.0f, 1.0f };
+        float          minDist = 1.0e30f;
+        bool           any     = false;
+        for (int i = 0; i < kHitPartCount; ++i)
+        {
+            const HitSegment& seg = volumes.segment[i];
+            if (!seg.active || seg.radius <= 0.0f)
+                continue;
+            const Capsule3f  cap(seg.a, seg.b, seg.radius);
+            const Vector3f   point = cap.ClosestPoint(origin);
+            const Vector3f   flat{ point.x - origin.x, 0.0f, point.z - origin.z };
+            const float      dist = flat.Magnitude();
+            if (dist > range || dist < 1.0e-4f)
+                continue;
+            Vector3f dir = flat * (1.0f / dist);
+            if (look.Dot(dir) < minDot)
+                continue;
+            any = true;
+            if (dist < minDist)
+                minDist = dist;
+        }
+        if (!any)
+            return HitPart::None;
+
+        HitPart best = HitPart::None;
+        for (int i = 0; i < kHitPartCount; ++i)
+        {
+            const HitSegment& seg = volumes.segment[i];
+            if (!seg.active || seg.radius <= 0.0f)
+                continue;
+            const Capsule3f cap(seg.a, seg.b, seg.radius);
+            const Vector3f  point = cap.ClosestPoint(origin);
+            const Vector3f  flat{ point.x - origin.x, 0.0f, point.z - origin.z };
+            const float     dist = flat.Magnitude();
+            if (dist > range || dist < 1.0e-4f || dist > minDist + 0.001f)
+                continue;
+            Vector3f dir = flat * (1.0f / dist);
+            if (look.Dot(dir) < minDot)
+                continue;
+            if (best == HitPart::None || hitPartIndex(seg.part) < hitPartIndex(best))
+            {
+                best     = seg.part;
+                outPoint = point;
+            }
+        }
+        return best;
+    }
+
+    struct PoseCapsules
+    {
+        const HitVolumesComponent* volumes = nullptr;
+
+        static int count(void*) { return 1; }
+
+        static bool alive(void*, int) { return true; }
+
+        static Vector3f center(void*, int) { return Vector3f{ 0.0f, 0.0f, 0.0f }; }
+
+        static const HitSegment* capsules(void* user, int, int* outCount)
+        {
+            auto* pose = static_cast<PoseCapsules*>(user);
+            if (outCount)
+                *outCount = HitVolumesComponent::kSlotCount;
+            return pose->volumes ? pose->volumes->segment : nullptr;
+        }
+    };
+
+    struct MeleeLog
+    {
+        std::vector<WeaponHit> hits;
+        static void onHit(void* user, const WeaponHit& hit) { static_cast<MeleeLog*>(user)->hits.push_back(hit); }
+    };
+
+    Terrain::HeightMap flatHeights()
+    {
+        Terrain::HeightMap hm;
+        EXPECT_TRUE(hm.create(17, 17, 1.0f, 1.0f));
+        hm.setOrigin(Vector3f{ 0.0f, 0.0f, 0.0f });
+        for (int z = 0; z < 17; ++z)
+        {
+            for (int x = 0; x < 17; ++x)
+                hm.setHeight(x, z, 0.0f);
+        }
+        return hm;
+    }
+} // namespace
+
+TEST(HitVolume, BindPoseMeleeHitsFromPlayerAndHunterHeight)
+{
+    const Skeleton           skeleton = humanoidSkeleton(nullptr);
+    const AnimPose           pose     = poseAtRest(skeleton);
+    const TransformComponent xf       = transformAt(Vector3f{ 0.0f, 0.0f, 0.0f }, Vector3f{ 1.0f, 1.0f, 1.0f });
+    HitVolumesComponent      volumes;
+    rebuildHitVolumes(volumes, &skeleton, &pose, &xf);
+    ASSERT_EQ(volumes.activeCount(), 7);
+
+    PoseCapsules poseQuery;
+    poseQuery.volumes = &volumes;
+    WeaponWorldQuery query{};
+    query.targetCount    = &PoseCapsules::count;
+    query.targetAlive    = &PoseCapsules::alive;
+    query.targetCenter   = &PoseCapsules::center;
+    query.targetCapsules = &PoseCapsules::capsules;
+    query.targetUser     = &poseQuery;
+
+    const float range  = 2.7f;
+    const float minDot = 0.25f;
+    const Vector3f origins[2] = {
+        Vector3f{ 0.0f, 0.5f, -2.0f },
+        Vector3f{ 0.0f, 1.0f, -2.0f },
+    };
+    for (const Vector3f& origin : origins)
+    {
+        Vector3f      wantPoint{};
+        const HitPart want = nearestReachPart(volumes, origin, range, minDot, wantPoint);
+        ASSERT_NE(want, HitPart::None) << "origin y " << origin.y;
+
+        MeleeLog    log;
+        MeleeWeapon weapon;
+        weapon.setHitListener(&MeleeLog::onHit, &log);
+        WeaponFireRequest req{};
+        req.origin    = origin;
+        req.direction = Vector3f{ 0.0f, 0.0f, 1.0f };
+        req.ownerPos  = origin;
+        ASSERT_TRUE(weapon.fire(req, query));
+        ASSERT_EQ(log.hits.size(), 1u);
+        EXPECT_EQ(log.hits[0].part, want);
+        EXPECT_NEAR(log.hits[0].direction.z, 1.0f, 1.0e-4f);
+        const HitSegment* segment = volumes.find(want);
+        ASSERT_NE(segment, nullptr);
+        const Capsule3f cap(segment->a, segment->b, segment->radius);
+        EXPECT_NEAR((log.hits[0].point - cap.ClosestPointOnSegment(log.hits[0].point)).Magnitude(), segment->radius, 1.5e-3f);
+        Vector3f normal = origin - log.hits[0].point;
+        ASSERT_GT(normal.MagnitudeSqrd(), 1.0e-8f);
+        normal.Normalize();
+        EXPECT_NEAR(log.hits[0].normal.x, normal.x, 2.0e-3f);
+        EXPECT_NEAR(log.hits[0].normal.y, normal.y, 2.0e-3f);
+        EXPECT_NEAR(log.hits[0].normal.z, normal.z, 2.0e-3f);
+    }
+}
+
+TEST(HitVolume, HunterMeleeReportsPlayerPartOnly)
+{
+    World                      world;
+    AssetManager               assets;
+    AssetPinTable              pins;
+    AiSystem                   ai;
+    Terrain::TerrainGrid       terrain;
+    ASSERT_TRUE(terrain.createFromHeightMap(flatHeights(), 16));
+    AI::WalkabilityDesc walk;
+    walk.heightMap   = &terrain.coarse();
+    walk.waterLevel  = -100.0f;
+    walk.agentRadius = 0.8f;
+    ASSERT_TRUE(ai.bake(walk));
+
+    Entity player = world.createEntity();
+    TransformComponent playerXf{};
+    playerXf.position = Vector3f{ 0.0f, 1.0f, 2.0f };
+    world.emplace<TransformComponent>(player, playerXf);
+    HealthComponent playerHp{};
+    world.emplace<HealthComponent>(player, std::move(playerHp));
+    HittableComponent playerBox{};
+    playerBox.halfExtents = Vector3f{ 0.4f, 1.0f, 0.4f };
+    world.emplace<HittableComponent>(player, playerBox);
+
+    HitVolumesComponent playerVolumes;
+    {
+        HitSegment& arm = playerVolumes.segment[hitPartIndex(HitPart::RightArm)];
+        arm.part        = HitPart::RightArm;
+        arm.a           = Vector3f{ 0.2f, 1.1f, 1.0f };
+        arm.b           = arm.a;
+        arm.radius      = 0.08f;
+        arm.active      = true;
+        HitSegment& chest = playerVolumes.segment[hitPartIndex(HitPart::Chest)];
+        chest.part        = HitPart::Chest;
+        chest.a           = Vector3f{ 0.0f, 1.2f, 5.5f };
+        chest.b           = chest.a;
+        chest.radius      = 0.10f;
+        chest.active      = true;
+    }
+    world.emplace<HitVolumesComponent>(player, playerVolumes);
+
+    Entity decoy = world.createEntity();
+    TransformComponent decoyXf{};
+    decoyXf.position = Vector3f{ 0.0f, 1.0f, 0.25f };
+    world.emplace<TransformComponent>(decoy, decoyXf);
+    world.emplace<HealthComponent>(decoy);
+    HittableComponent decoyBox{};
+    decoyBox.halfExtents = Vector3f{ 0.4f, 1.0f, 0.4f };
+    world.emplace<HittableComponent>(decoy, decoyBox);
+    HitVolumesComponent decoyVolumes;
+    {
+        HitSegment& head = decoyVolumes.segment[hitPartIndex(HitPart::Head)];
+        head.part        = HitPart::Head;
+        head.a           = Vector3f{ 0.0f, 1.0f, 0.30f };
+        head.b           = head.a;
+        head.radius      = 0.10f;
+        head.active      = true;
+    }
+    world.emplace<HitVolumesComponent>(decoy, decoyVolumes);
+
+    TransformComponent hunterXf{};
+    hunterXf.position = Vector3f{ 0.0f, 1.0f, 0.0f };
+    const Entity hunter = ai.spawnHunter(world, pins, assets, hunterXf);
+    ASSERT_TRUE(hunter.valid());
+    AiAgentComponent* agent = world.get<AiAgentComponent>(hunter);
+    ASSERT_NE(agent, nullptr);
+    agent->meleeWindup = 0.01f;
+    agent->meleeAttack = 0;
+
+    struct Sink
+    {
+        std::vector<DamageEvent> events;
+        static void onHits(void* user, const DamageEvent* ev, int count)
+        {
+            auto* sink = static_cast<Sink*>(user);
+            for (int i = 0; i < count; ++i)
+                sink->events.push_back(ev[i]);
+        }
+    } sink;
+    ai.setJumpAttackHits(&Sink::onHits, &sink);
+
+    ai.tickHunters(world, terrain, false, 0.05f, player);
+    ASSERT_EQ(sink.events.size(), 1u);
+    EXPECT_EQ(sink.events[0].target, player);
+    EXPECT_NE(sink.events[0].target, decoy);
+    EXPECT_EQ(sink.events[0].part, HitPart::RightArm);
+    EXPECT_NEAR(sink.events[0].hitDir.z, 1.0f, 1.0e-3f);
+    const Capsule3f arm(Vector3f{ 0.2f, 1.1f, 1.0f }, Vector3f{ 0.2f, 1.1f, 1.0f }, 0.08f);
+    EXPECT_NEAR((sink.events[0].hitPoint - arm.ClosestPointOnSegment(sink.events[0].hitPoint)).Magnitude(), 0.08f, 1.5e-3f);
 }

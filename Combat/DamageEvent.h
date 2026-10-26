@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Combat/DamageTypes.h"
+#include "Combat/HitPart.h"
 #include "ECS/Entity.h"
 #include "Math/Vector3f.h"
 
@@ -33,6 +34,7 @@ namespace Dark::Combat
         float          armorPen    = 0.f; // 0..1 -> A_eff = A*(1-p)
         Math::Vector3f hitPoint{};
         Math::Vector3f hitDir{}; // attacker -> victim
+        HitPart        part = HitPart::None;
         uint32_t       flags       = DamageFlags::CanBlock | DamageFlags::CanParry;
         uint8_t        teamSource  = 0;
         uint8_t        teamTarget  = 0;

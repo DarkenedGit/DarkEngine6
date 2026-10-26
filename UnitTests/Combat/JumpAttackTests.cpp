@@ -1,8 +1,10 @@
 #include <gtest/gtest.h>
 
+#include "Combat/HitVolumes.h"
 #include "Combat/JumpAttack.h"
 #include "Combat/JumpAttackComponent.h"
 #include "ECS/Entity.h"
+#include "Math/Capsule3f.h"
 #include "Math/MathHelper.h"
 
 #include <cmath>
@@ -690,4 +692,202 @@ TEST(JumpAttack_Component, WrapsMachine)
     EXPECT_STREQ(JumpAttackComponent::kTypeName, "JumpAttack");
     EXPECT_EQ(c.jump.phase(), JumpAttackPhase::Idle);
     EXPECT_FALSE(c.jump.busy());
+}
+
+namespace
+{
+    HitSegment spherePart(HitPart part, const Vector3f& at, float radius)
+    {
+        HitSegment segment;
+        segment.part   = part;
+        segment.a      = at;
+        segment.b      = at;
+        segment.radius = radius;
+        segment.active = true;
+        return segment;
+    }
+
+    void expectOnCapsule(const Vector3f& point, const HitSegment& segment)
+    {
+        const Capsule3f cap(segment.a, segment.b, segment.radius);
+        const float     radial = (point - cap.ClosestPointOnSegment(point)).Magnitude();
+        EXPECT_NEAR(radial, segment.radius, 1.5e-3f);
+    }
+
+    struct CapBody
+    {
+        Vector3f                pos{};
+        Entity                  entity{};
+        bool                    alive = true;
+        std::vector<HitSegment> segments;
+    };
+
+    struct CapWorld
+    {
+        std::vector<CapBody> bodies;
+
+        static int count(void* user)
+        {
+            auto* w = static_cast<CapWorld*>(user);
+            return w ? static_cast<int>(w->bodies.size()) : 0;
+        }
+
+        static bool aliveAt(void* user, int index)
+        {
+            auto* w = static_cast<CapWorld*>(user);
+            if (!w || index < 0 || index >= static_cast<int>(w->bodies.size()))
+                return false;
+            return w->bodies[static_cast<size_t>(index)].alive;
+        }
+
+        static Vector3f center(void* user, int index)
+        {
+            auto* w = static_cast<CapWorld*>(user);
+            if (!w || index < 0 || index >= static_cast<int>(w->bodies.size()))
+                return Vector3f{ 0.0f, 0.0f, 0.0f };
+            return w->bodies[static_cast<size_t>(index)].pos;
+        }
+
+        static Entity entityAt(void* user, int index)
+        {
+            auto* w = static_cast<CapWorld*>(user);
+            if (!w || index < 0 || index >= static_cast<int>(w->bodies.size()))
+                return {};
+            return w->bodies[static_cast<size_t>(index)].entity;
+        }
+
+        static const HitSegment* capsules(void* user, int index, int* outCount)
+        {
+            if (outCount)
+                *outCount = 0;
+            auto* w = static_cast<CapWorld*>(user);
+            if (!w || index < 0 || index >= static_cast<int>(w->bodies.size()))
+                return nullptr;
+            const CapBody& body = w->bodies[static_cast<size_t>(index)];
+            if (body.segments.empty())
+                return nullptr;
+            if (outCount)
+                *outCount = static_cast<int>(body.segments.size());
+            return body.segments.data();
+        }
+
+        WeaponWorldQuery query()
+        {
+            WeaponWorldQuery q{};
+            q.targetCount     = count;
+            q.targetAlive     = aliveAt;
+            q.targetCenter    = center;
+            q.targetEntityAt  = entityAt;
+            q.targetCapsules  = capsules;
+            q.targetUser      = this;
+            return q;
+        }
+    };
+} // namespace
+
+TEST(JumpAttack_Connect, ClosestCapsuleInsideSlopExclusiveTarget)
+{
+    JumpAttack ja{};
+    JumpAttackBegin req = airReq();
+    req.intendedTarget  = ent(9);
+    ASSERT_TRUE(ja.begin(req));
+
+    CapWorld world;
+    CapBody  decoy;
+    decoy.pos    = Vector3f{ 0.0f, 2.0f, 0.30f };
+    decoy.entity = ent(2);
+    decoy.segments.push_back(spherePart(HitPart::Chest, Vector3f{ 0.0f, 2.0f, 0.35f }, 0.05f));
+    world.bodies.push_back(decoy);
+
+    CapBody prey;
+    prey.pos    = Vector3f{ 0.0f, 2.0f, 1.60f };
+    prey.entity = ent(9);
+    prey.segments.push_back(spherePart(HitPart::Head, Vector3f{ 0.0f, 2.0f, 2.30f }, 0.08f));
+    prey.segments.push_back(spherePart(HitPart::LeftArm, Vector3f{ 0.0f, 4.20f, 0.40f }, 0.08f));
+    prey.segments.push_back(spherePart(HitPart::RightArm, Vector3f{ 0.0f, 2.0f, 1.15f }, 0.08f));
+    world.bodies.push_back(prey);
+
+    const Vector3f attacker{ 0.0f, 2.0f, 0.0f };
+    DamageEvent    ev{};
+    ASSERT_TRUE(ja.tryConnect(world.query(), attacker, Vector3f{ 0.0f, 0.0f, 1.0f }, ev));
+    EXPECT_EQ(ev.target.id(), ent(9).id());
+    EXPECT_EQ(ev.part, HitPart::RightArm);
+    EXPECT_NEAR(ev.hitDir.z, 1.0f, 1.0e-3f);
+    EXPECT_NEAR(ev.hitDir.y, 0.0f, 1.0e-3f);
+    expectOnCapsule(ev.hitPoint, world.bodies[1].segments[2]);
+    EXPECT_EQ(ja.connectedTarget().id(), ent(9).id());
+}
+
+TEST(JumpAttack_Connect, CapsuleMissFallsThroughToCenterBody)
+{
+    JumpAttack ja{};
+    ASSERT_TRUE(ja.begin(airReq()));
+
+    CapWorld world;
+    CapBody  volumes;
+    volumes.pos    = Vector3f{ 0.0f, 2.0f, 1.50f };
+    volumes.entity = ent(2);
+    volumes.segments.push_back(spherePart(HitPart::Chest, Vector3f{ 0.0f, 2.0f, 6.0f }, 0.10f));
+    world.bodies.push_back(volumes);
+
+    CapBody wolf;
+    wolf.pos    = Vector3f{ 0.0f, 2.0f, 2.20f };
+    wolf.entity = ent(3);
+    world.bodies.push_back(wolf);
+
+    DamageEvent ev{};
+    ASSERT_TRUE(ja.tryConnect(world.query(), Vector3f{ 0.0f, 2.0f, 0.0f }, Vector3f{ 0.0f, 0.0f, 1.0f }, ev));
+    EXPECT_EQ(ev.target.id(), ent(3).id());
+    EXPECT_EQ(ev.part, HitPart::None);
+    EXPECT_NEAR(ev.hitPoint.z, 2.20f, 1.0e-3f);
+}
+
+TEST(JumpAttack_Pound, OnePartPerTargetInsideRadius)
+{
+    JumpAttack ja{};
+    ASSERT_TRUE(ja.begin(airReq()));
+    const Vector3f land{ 0.0f, 0.5f, 0.0f };
+    ja.onLanded(land);
+
+    CapWorld world;
+    CapBody  nearBody;
+    nearBody.pos    = Vector3f{ 1.2f, 0.5f, 0.0f };
+    nearBody.entity = ent(2);
+    nearBody.segments.push_back(spherePart(HitPart::Chest, Vector3f{ 2.4f, 0.5f, 0.0f }, 0.10f));
+    nearBody.segments.push_back(spherePart(HitPart::Waist, Vector3f{ 0.5f, 1.3f, 0.0f }, 0.10f));
+    world.bodies.push_back(nearBody);
+
+    CapBody headBody;
+    headBody.pos    = Vector3f{ 0.0f, 0.5f, 2.2f };
+    headBody.entity = ent(3);
+    headBody.segments.push_back(spherePart(HitPart::Head, Vector3f{ 0.0f, 0.5f, 1.6f }, 0.10f));
+    world.bodies.push_back(headBody);
+
+    CapBody highLeg;
+    highLeg.pos    = Vector3f{ 0.0f, 0.5f, 1.0f };
+    highLeg.entity = ent(4);
+    highLeg.segments.push_back(spherePart(HitPart::RightLeg, Vector3f{ 0.0f, 3.2f, 0.3f }, 0.10f));
+    world.bodies.push_back(highLeg);
+
+    CapBody wolf;
+    wolf.pos    = Vector3f{ 0.0f, 0.5f, 2.8f };
+    wolf.entity = ent(5);
+    world.bodies.push_back(wolf);
+
+    DamageEvent events[8]{};
+    const int   n = ja.tryPound(world.query(), land, events, 8);
+    ASSERT_EQ(n, 3);
+    EXPECT_EQ(events[0].target.id(), ent(2).id());
+    EXPECT_EQ(events[0].part, HitPart::Waist);
+    EXPECT_NEAR(events[0].hitDir.y, 0.0f, 1.0e-3f);
+    EXPECT_GT(events[0].hitDir.x, 0.5f);
+    expectOnCapsule(events[0].hitPoint, world.bodies[0].segments[1]);
+
+    EXPECT_EQ(events[1].target.id(), ent(3).id());
+    EXPECT_EQ(events[1].part, HitPart::Head);
+    expectOnCapsule(events[1].hitPoint, world.bodies[1].segments[0]);
+
+    EXPECT_EQ(events[2].target.id(), ent(5).id());
+    EXPECT_EQ(events[2].part, HitPart::None);
+    EXPECT_NEAR(events[2].hitPoint.z, 2.8f, 1.0e-3f);
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Collision/HitResult.h"
+#include "Combat/HitPart.h"
 #include "ECS/Entity.h"
 #include "Math/AABox3f.h"
 #include "Math/Ray3f.h"
@@ -10,6 +11,10 @@
 
 namespace Dark
 {
+    namespace Combat
+    {
+        struct HitSegment;
+    }
 
     enum class WeaponKind : uint8_t
     {
@@ -26,8 +31,29 @@ namespace Dark
         float          damage        = 0.0f;
         int            targetIndex   = -1;
         Entity         targetEntity{};
-        bool           hitTarget     = false;
-        WeaponKind     weapon        = WeaponKind::Melee;
+        bool            hitTarget   = false;
+        WeaponKind      weapon      = WeaponKind::Melee;
+        Combat::HitPart part        = Combat::HitPart::None;
+    };
+
+    // Part-order tie window for rays, sweeps, and closest-capsule picks. Meters along the query.
+    inline constexpr float kWeaponPartTieMeters = 0.001f;
+
+    struct WeaponCapsuleSample
+    {
+        Combat::HitPart part       = Combat::HitPart::None;
+        Math::Vector3f  point{};
+        float           horizontal = 0.0f;
+        float           vertical   = 0.0f;
+    };
+
+    struct WeaponPartContact
+    {
+        Combat::HitPart part     = Combat::HitPart::None;
+        Math::Vector3f  point{};
+        Math::Vector3f  normal{ 0.0f, 1.0f, 0.0f };
+        float           distance = 0.0f;
+        float           facing   = 1.0f;
     };
 
     struct WeaponWorldQuery
@@ -41,6 +67,8 @@ namespace Dark
         Math::Vector3f (*targetCenter)(void* user, int index)       = nullptr;
         Math::Vector3f (*targetHalfExtentsAt)(void* user, int index) = nullptr;
         Entity (*targetEntityAt)(void* user, int index)             = nullptr;
+        // Null callback, a null return, or no active segment keeps the center or box test and reports no part.
+        const Combat::HitSegment* (*targetCapsules)(void* user, int index, int* outCount) = nullptr;
         Math::Vector3f targetHalfExtents{ 1.0f, 1.0f, 1.0f };
         void*          targetUser = nullptr;
 
@@ -68,6 +96,11 @@ namespace Dark
     float weaponHeightAt(const WeaponWorldQuery& world, float x, float z);
     bool weaponRaycastClosest(const WeaponWorldQuery& world, const Math::Ray3f& ray, float maxDistance, WeaponHit& out);
     bool weaponSweepClosest(const WeaponWorldQuery& world, const Math::Vector3f& start, const Math::Vector3f& delta, float radius, WeaponHit& out);
+    const Combat::HitSegment* weaponTargetCapsules(const WeaponWorldQuery& world, int index, int& outCount);
+    bool weaponCapsulesActive(const Combat::HitSegment* segments, int count);
+    int  weaponSampleActiveCapsules(const Combat::HitSegment* segments, int count, const Math::Vector3f& from, WeaponCapsuleSample* out, int outCap);
+    // Nearest active shell point inside the horizontal reach and facing gate. Normal points toward origin.
+    bool weaponPickCapsuleReach(const Combat::HitSegment* segments, int count, const Math::Vector3f& origin, const Math::Vector3f& lookFlat, float range, float minDot, WeaponPartContact& out);
 
     class Weapon
     {

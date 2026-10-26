@@ -1,7 +1,9 @@
 #include "Combat/JumpAttack.h"
 
+#include "Combat/HitVolumes.h"
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
+#include "Weapons/Weapon.h"
 
 #include <cmath>
 
@@ -52,6 +54,96 @@ namespace Dark::Combat
                 out.Normalize();
             else
                 out = Vector3f{ 0.0f, 0.0f, 1.0f };
+        }
+
+        bool selectClosestCapsule(const WeaponCapsuleSample* samples, int count, float maxHorizontal, float maxVertical, WeaponCapsuleSample& out)
+        {
+            if (!samples || count <= 0)
+                return false;
+            float minDist = 1.0e30f;
+            bool  any     = false;
+            for (int i = 0; i < count; ++i)
+            {
+                if (samples[i].horizontal > maxHorizontal || fabsf(samples[i].vertical) > maxVertical)
+                    continue;
+                any = true;
+                if (samples[i].horizontal < minDist)
+                    minDist = samples[i].horizontal;
+            }
+            if (!any)
+                return false;
+
+            int best = -1;
+            for (int i = 0; i < count; ++i)
+            {
+                if (samples[i].horizontal > maxHorizontal || fabsf(samples[i].vertical) > maxVertical)
+                    continue;
+                if (samples[i].horizontal > minDist + kWeaponPartTieMeters)
+                    continue;
+                if (best < 0 || hitPartIndex(samples[i].part) < hitPartIndex(samples[best].part))
+                    best = i;
+            }
+            if (best < 0)
+                return false;
+            out = samples[best];
+            return true;
+        }
+
+        struct BodyContact
+        {
+            bool     hit = false;
+            Vector3f center{};
+            Vector3f point{};
+            HitPart  part = HitPart::None;
+            float    dist = 0.0f;
+        };
+
+        BodyContact contactBody(const WeaponWorldQuery& world, int index, const Vector3f& origin, float maxHorizontal, float maxVertical, bool useCone, const Vector3f& lookDir, float minDot)
+        {
+            BodyContact contact;
+            if (!weaponTargetCenter(world, index, contact.center))
+                return contact;
+
+            if (useCone)
+            {
+                const Vector3f to   = flatten(contact.center - origin);
+                const float    dist = to.Magnitude();
+                if (dist > kEps)
+                {
+                    Vector3f dir = to;
+                    dir *= (1.0f / dist);
+                    if (lookDir.Dot(dir) < minDot)
+                        return contact;
+                }
+            }
+
+            int                       segmentCount = 0;
+            const HitSegment*         segments     = weaponTargetCapsules(world, index, segmentCount);
+            WeaponCapsuleSample       samples[32];
+            const int                 nSamples = weaponSampleActiveCapsules(segments, segmentCount, origin, samples, 32);
+            if (nSamples > 0)
+            {
+                WeaponCapsuleSample sample{};
+                if (!selectClosestCapsule(samples, nSamples, maxHorizontal, maxVertical, sample))
+                    return contact;
+                contact.hit   = true;
+                contact.point = sample.point;
+                contact.part  = sample.part;
+                contact.dist  = sample.horizontal;
+                return contact;
+            }
+
+            const Vector3f to   = flatten(contact.center - origin);
+            const float    dist = to.Magnitude();
+            if (dist > maxHorizontal)
+                return contact;
+            if (fabsf(contact.center.y - origin.y) > maxVertical)
+                return contact;
+            contact.hit   = true;
+            contact.point = contact.center;
+            contact.part  = HitPart::None;
+            contact.dist  = dist;
+            return contact;
         }
     } // namespace
 
@@ -265,15 +357,14 @@ namespace Dark::Combat
 
         Entity   best{};
         Vector3f bestPos{};
+        Vector3f bestPoint{};
+        HitPart  bestPart = HitPart::None;
         float    bestDist = 1.0e30f;
 
         const int n = weaponTargetCount(world);
         for (int i = 0; i < n; ++i)
         {
             if (!weaponTargetAlive(world, i))
-                continue;
-            Vector3f center{};
-            if (!weaponTargetCenter(world, i, center))
                 continue;
             const Entity e = targetEntityAt(world, i);
             if (!e.valid())
@@ -285,31 +376,25 @@ namespace Dark::Combat
             if (exclusive && e.id() != m_intendedTarget.id())
                 continue;
 
-            const Vector3f to   = flatten(center - attackerPos);
-            const float    dist = to.Magnitude();
-            if (dist > m_def.connectRange)
+            const BodyContact contact = contactBody(world, i, attackerPos, m_def.connectRange, m_def.connectVerticalSlop, useCone, lookDir, m_def.connectMinDot);
+            if (!contact.hit)
                 continue;
-            if (fabsf(center.y - attackerPos.y) > m_def.connectVerticalSlop)
-                continue;
-            if (useCone && dist > kEps)
-            {
-                Vector3f dir = to;
-                dir *= (1.0f / dist);
-                if (lookDir.Dot(dir) < m_def.connectMinDot)
-                    continue;
-            }
 
             if (exclusive)
             {
-                best    = e;
-                bestPos = center;
+                best      = e;
+                bestPos   = contact.center;
+                bestPoint = contact.point;
+                bestPart  = contact.part;
                 break;
             }
-            if (dist < bestDist)
+            if (contact.dist < bestDist)
             {
-                bestDist = dist;
-                best     = e;
-                bestPos  = center;
+                bestDist  = contact.dist;
+                best      = e;
+                bestPos   = contact.center;
+                bestPoint = contact.point;
+                bestPart  = contact.part;
             }
         }
 
@@ -319,6 +404,8 @@ namespace Dark::Combat
             return false;
 
         fillConnectEvent(out, best, attackerPos, bestPos);
+        out.hitPoint = bestPoint;
+        out.part     = bestPart;
         m_connectedTarget = best;
         m_didConnect      = true;
         m_snapLeft        = m_def.connectSnapSeconds;
@@ -347,14 +434,13 @@ namespace Dark::Combat
         {
             Entity   best{};
             Vector3f bestPos{};
+            Vector3f bestPoint{};
+            HitPart  bestPart = HitPart::None;
             float    bestDist = 1.0e30f;
 
             for (int i = 0; i < n; ++i)
             {
                 if (!weaponTargetAlive(world, i))
-                    continue;
-                Vector3f center{};
-                if (!weaponTargetCenter(world, i, center))
                     continue;
                 const Entity e = targetEntityAt(world, i);
                 if (!e.valid())
@@ -364,16 +450,16 @@ namespace Dark::Combat
                 if (m_hits.contains(e))
                     continue;
 
-                const float dist = flatten(center - landPos).Magnitude();
-                if (dist > m_def.poundRadius)
+                const BodyContact contact = contactBody(world, i, landPos, m_def.poundRadius, m_def.poundVerticalSlop, false, Vector3f{}, 0.0f);
+                if (!contact.hit)
                     continue;
-                if (fabsf(center.y - landPos.y) > m_def.poundVerticalSlop)
-                    continue;
-                if (dist < bestDist)
+                if (contact.dist < bestDist)
                 {
-                    bestDist = dist;
-                    best     = e;
-                    bestPos  = center;
+                    bestDist  = contact.dist;
+                    best      = e;
+                    bestPos   = contact.center;
+                    bestPoint = contact.point;
+                    bestPart  = contact.part;
                 }
             }
 
@@ -382,6 +468,8 @@ namespace Dark::Combat
             if (!m_hits.tryAdd(best))
                 break;
             fillPoundEvent(out[written], best, landPos, bestPos);
+            out[written].hitPoint = bestPoint;
+            out[written].part     = bestPart;
             ++written;
         }
 

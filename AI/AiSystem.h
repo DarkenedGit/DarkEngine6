@@ -9,6 +9,7 @@
 #include "Character/PlayerStealth.h"
 #include "Character/HitReaction.h"
 #include "Combat/DamageEvent.h"
+#include "Combat/HitVolumes.h"
 #include "ECS/Components.h"
 #include "ECS/Entity.h"
 #include "Math/AABox3f.h"
@@ -152,7 +153,9 @@ namespace Dark
         {
             Entity         e{};
             Math::Vector3f center{};
-            bool           alive = false;
+            bool           alive       = false;
+            bool           hasCapsules = false;
+            Combat::HitSegment segments[Combat::HitVolumesComponent::kSlotCount]{};
         };
 
         AI::Walkability     m_walk;
