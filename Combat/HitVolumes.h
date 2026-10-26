@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Combat/HitPart.h"
+#include "ECS/Persist.h"
 #include "Math/Vector3f.h"
 
 #include <cstdint>
@@ -25,12 +26,19 @@ namespace Dark
             bool           active = false;
         };
 
-        // Pose cache plus room for seven disable timers and seven impact weights.
-        // Save does not own this cache.
+        // Pose cache plus seven disable timers and seven impact weights.
+        // Save persists the timers and weights. The pose cache is rebuilt.
+        inline constexpr float kPartDisableSeconds      = 3.0f;
+        inline constexpr float kImpactWeightDecayPerSec = 3.5f;
+        inline constexpr float kDisabledLegSpeedScale   = 0.65f;
+        inline constexpr float kDisabledWaistSpeedScale = 0.85f;
+
         struct HitVolumesComponent
         {
-            static constexpr const char* kTypeName = "HitVolumes";
-            static constexpr int         kSlotCount = kHitPartCount;
+            static constexpr const char* kTypeName    = "HitVolumes";
+            static constexpr uint16_t    kSaveVersion = 1;
+            static constexpr int         kSlotCount   = kHitPartCount;
+            static const PersistFns      kPersist;
 
             bool       jointsResolved = false;
             int32_t    proximal[kSlotCount]{};
@@ -77,6 +85,19 @@ namespace Dark
         // Resolve joint indices on the first skeleton. A null skeleton does not stick.
         // No pose, or a skeleton without the four limb names, leaves every segment inactive.
         void rebuildHitVolumes(HitVolumesComponent& volumes, const Skeleton* skeleton, const AnimPose* pose, const TransformComponent* transform);
+
+        // Sets this part's disable timer to 3 seconds and its impact weight to 1. None is ignored.
+        void noteLandedPartHit(HitVolumesComponent& volumes, HitPart part);
+        void tickHitVolumes(HitVolumesComponent& volumes, float dt);
+        void clearHitPartState(HitVolumesComponent& volumes);
+
+        // Null volumes yield 1. Otherwise the existing scale times each disabled leg and a disabled waist, clamped to 0..1.
+        float hitVolumesSpeedScale(const HitVolumesComponent* volumes, float existingScale);
+        bool hitVolumesBlockFire(const HitVolumesComponent* volumes);
+        bool hitVolumesBlockHunterRelease(const HitVolumesComponent* volumes);
+        bool hitVolumesBlockShield(const HitVolumesComponent* volumes);
+        bool hitVolumesBlockHunterBlock(const HitVolumesComponent* volumes);
+        bool hitVolumesBlockJump(const HitVolumesComponent* volumes);
 
     } // namespace Combat
 

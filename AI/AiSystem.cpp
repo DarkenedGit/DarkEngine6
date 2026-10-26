@@ -483,6 +483,8 @@ namespace Dark
             v.health->health.revive();
             v.hit->hit.setSettings(m_hunterHit);
             v.hit->hit.reset();
+            if (Combat::HitVolumesComponent* volumes = world.get<Combat::HitVolumesComponent>(e))
+                Combat::clearHitPartState(*volumes);
             cancelJumpAndToken(world, e, true);
             if (Combat::StatusEffectComponent* st = world.get<Combat::StatusEffectComponent>(e))
                 st->reset();
@@ -1462,6 +1464,8 @@ namespace Dark
             if (poise)
                 poise->hyperArmor = jump && jump->inAirCommit();
 
+            if (Combat::HitVolumesComponent* volumes = world.get<Combat::HitVolumesComponent>(e))
+                Combat::tickHitVolumes(*volumes, dt);
             if (!(jump && jump->inAirCommit()))
                 integrateHitReaction(v, dt, terrain);
 
@@ -2069,7 +2073,11 @@ namespace Dark
                 path->waypoint = 0;
             }
             if (HitReactionComponent* hit = world.get<HitReactionComponent>(e))
+            {
                 hit->hit.reset();
+                if (Combat::HitVolumesComponent* volumes = world.get<Combat::HitVolumesComponent>(e))
+                    Combat::clearHitPartState(*volumes);
+            }
             if (JumpAttackComponent* jac = world.get<JumpAttackComponent>(e))
             {
                 if (jac->jump.busy())

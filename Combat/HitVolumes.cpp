@@ -2,6 +2,7 @@
 
 #include "Animation/Skeleton.h"
 #include "ECS/Components.h"
+#include "Math/MathHelper.h"
 
 #include <cmath>
 #include <string_view>
@@ -113,6 +114,14 @@ namespace Dark::Combat
             return axis;
         }
 
+        bool timerAboveZero(const HitVolumesComponent* volumes, HitPart part)
+        {
+            if (!volumes)
+                return false;
+            const int index = hitPartIndex(part);
+            return index >= 0 && volumes->disableTimer[index] > 0.0f;
+        }
+
         void writeSegments(HitVolumesComponent& volumes, const AnimPose& pose, const TransformComponent& transform)
         {
             // jointWorld is model space. Same entity matrix as SwordView: scale, then rotation, then translation.
@@ -160,6 +169,78 @@ namespace Dark::Combat
         }
 
         writeSegments(volumes, *pose, *transform);
+    }
+
+    void noteLandedPartHit(HitVolumesComponent& volumes, HitPart part)
+    {
+        const int index = hitPartIndex(part);
+        if (index < 0)
+            return;
+        volumes.disableTimer[index]  = kPartDisableSeconds;
+        volumes.impactWeight[index]  = 1.0f;
+    }
+
+    void tickHitVolumes(HitVolumesComponent& volumes, float dt)
+    {
+        if (dt < 0.0f)
+            return;
+        for (int i = 0; i < HitVolumesComponent::kSlotCount; ++i)
+        {
+            volumes.disableTimer[i] -= dt;
+            if (volumes.disableTimer[i] < 0.0f)
+                volumes.disableTimer[i] = 0.0f;
+            volumes.impactWeight[i] -= kImpactWeightDecayPerSec * dt;
+            if (volumes.impactWeight[i] < 0.0f)
+                volumes.impactWeight[i] = 0.0f;
+        }
+    }
+
+    void clearHitPartState(HitVolumesComponent& volumes)
+    {
+        for (int i = 0; i < HitVolumesComponent::kSlotCount; ++i)
+        {
+            volumes.disableTimer[i]  = 0.0f;
+            volumes.impactWeight[i]  = 0.0f;
+        }
+    }
+
+    float hitVolumesSpeedScale(const HitVolumesComponent* volumes, float existingScale)
+    {
+        if (!volumes)
+            return 1.0f;
+        float product = existingScale;
+        if (timerAboveZero(volumes, HitPart::RightLeg))
+            product *= kDisabledLegSpeedScale;
+        if (timerAboveZero(volumes, HitPart::LeftLeg))
+            product *= kDisabledLegSpeedScale;
+        if (timerAboveZero(volumes, HitPart::Waist))
+            product *= kDisabledWaistSpeedScale;
+        return Math::Clamp(product, 0.0f, 1.0f);
+    }
+
+    bool hitVolumesBlockFire(const HitVolumesComponent* volumes)
+    {
+        return timerAboveZero(volumes, HitPart::RightArm);
+    }
+
+    bool hitVolumesBlockHunterRelease(const HitVolumesComponent* volumes)
+    {
+        return timerAboveZero(volumes, HitPart::RightArm);
+    }
+
+    bool hitVolumesBlockShield(const HitVolumesComponent* volumes)
+    {
+        return timerAboveZero(volumes, HitPart::LeftArm);
+    }
+
+    bool hitVolumesBlockHunterBlock(const HitVolumesComponent* volumes)
+    {
+        return timerAboveZero(volumes, HitPart::LeftArm);
+    }
+
+    bool hitVolumesBlockJump(const HitVolumesComponent*)
+    {
+        return false;
     }
 
 } // namespace Dark::Combat

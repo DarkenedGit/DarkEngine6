@@ -6,6 +6,7 @@
 #include "Combat/ArmorComponent.h"
 #include "Combat/ArmorStats.h"
 #include "Combat/DefenseComponent.h"
+#include "Combat/HitVolumes.h"
 #include "Combat/JumpAttackComponent.h"
 #include "Combat/PlayerMode.h"
 #include "Combat/PoiseComponent.h"
@@ -82,7 +83,11 @@ namespace Dark::Combat
                     if (JumpAttackComponent* jac = world.get<JumpAttackComponent>(ev.source))
                         jac->jump.cancel(JumpAttackCancel::ForceIdle);
                     if (HitReactionComponent* attackerHit = world.get<HitReactionComponent>(ev.source))
+                    {
                         attackerHit->hit.reset();
+                        if (HitVolumesComponent* volumes = world.get<HitVolumesComponent>(ev.source))
+                            clearHitPartState(*volumes);
+                    }
                 }
                 r.iframe = true;
                 return r;

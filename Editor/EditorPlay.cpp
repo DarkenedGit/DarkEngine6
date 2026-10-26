@@ -40,6 +40,7 @@
 #include "Collision/HitResult.h"
 #include "Collision/SweptCollision.h"
 #include "Combat/DefenseComponent.h"
+#include "Combat/HitVolumes.h"
 #include "Combat/JumpAttack.h"
 #include "Combat/Shield.h"
 #include "Combat/JumpAttackComponent.h"
@@ -181,7 +182,11 @@ void EditorApp::resetPlayCombat()
         if (HealthComponent* hp = world().get<HealthComponent>(e))
             hp->health.reset();
         if (HitReactionComponent* hr = world().get<HitReactionComponent>(e))
+        {
             hr->hit.reset();
+            if (Combat::HitVolumesComponent* volumes = world().get<Combat::HitVolumesComponent>(e))
+                Combat::clearHitPartState(*volumes);
+        }
         if (PlayerMotorComponent* pmc = world().get<PlayerMotorComponent>(e))
             pmc->motor.reset();
         if (JumpAttackComponent* jac = world().get<JumpAttackComponent>(e))
@@ -899,6 +904,8 @@ void EditorApp::updatePlay(float dt)
         hitSlide = hitRx->tick(dt);
         xf->position += hitSlide;
     }
+    if (Combat::HitVolumesComponent* volumes = world().get<Combat::HitVolumesComponent>(body))
+        Combat::tickHitVolumes(*volumes, dt);
 
     if (inAirCommit && jump && motor)
     {

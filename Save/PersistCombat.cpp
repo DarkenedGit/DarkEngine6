@@ -1,4 +1,5 @@
 #include "Combat/DefenseComponent.h"
+#include "Combat/HitVolumes.h"
 #include "Combat/JumpAttackComponent.h"
 #include "Combat/PoiseComponent.h"
 #include "Combat/StatusDef.h"
@@ -519,6 +520,45 @@ namespace Dark
         flights.restoreLive(wlc->throwFlights);
     }
 
+    namespace
+    {
+        constexpr const char* kHitVolumeDisableKey[Combat::HitVolumesComponent::kSlotCount] = { "d0", "d1", "d2", "d3", "d4", "d5", "d6" };
+        constexpr const char* kHitVolumeWeightKey[Combat::HitVolumesComponent::kSlotCount]  = { "w0", "w1", "w2", "w3", "w4", "w5", "w6" };
+
+        void captureHitVolumes(const void* component, void* writer)
+        {
+            const auto& volumes = *static_cast<const Combat::HitVolumesComponent*>(component);
+            auto&       out     = *static_cast<SaveWriter*>(writer);
+            for (int i = 0; i < Combat::HitVolumesComponent::kSlotCount; ++i)
+            {
+                out.f32(kHitVolumeDisableKey[i], volumes.disableTimer[i]);
+                out.f32(kHitVolumeWeightKey[i], volumes.impactWeight[i]);
+            }
+        }
+
+        void applyHitVolumes(void* component, void* reader, uint16_t)
+        {
+            auto& volumes = *static_cast<Combat::HitVolumesComponent*>(component);
+            auto& in      = *static_cast<SaveReader*>(reader);
+            float timers[Combat::HitVolumesComponent::kSlotCount];
+            float weights[Combat::HitVolumesComponent::kSlotCount];
+            for (int i = 0; i < Combat::HitVolumesComponent::kSlotCount; ++i)
+            {
+                timers[i]  = volumes.disableTimer[i];
+                weights[i] = volumes.impactWeight[i];
+                if (!in.f32(kHitVolumeDisableKey[i], timers[i], 0.0f, Save::kMaxTimerSeconds)
+                    || !in.f32(kHitVolumeWeightKey[i], weights[i], 0.0f, Save::kMaxTimerSeconds))
+                    return;
+            }
+            for (int i = 0; i < Combat::HitVolumesComponent::kSlotCount; ++i)
+            {
+                volumes.disableTimer[i] = timers[i];
+                volumes.impactWeight[i] = weights[i];
+            }
+        }
+    }
+
+    const PersistFns Combat::HitVolumesComponent::kPersist{ "HitVolumes", Combat::HitVolumesComponent::kSaveVersion, 100, nullptr, captureHitVolumes, applyHitVolumes, nullptr };
     const PersistFns Combat::DefenseComponent::kPersist{ "Defense", Combat::DefenseComponent::kSaveVersion, 100, nullptr, captureDefense, applyDefense, nullptr };
     const PersistFns Combat::PoiseComponent::kPersist{ "Poise", Combat::PoiseComponent::kSaveVersion, 100, nullptr, capturePoise, applyPoise, nullptr };
     const PersistFns Combat::StatusEffectComponent::kPersist{ "StatusEffect", Combat::StatusEffectComponent::kSaveVersion, 100, nullptr, captureStatusFx, applyStatusFx, bindStatusFx };
@@ -531,6 +571,7 @@ namespace Dark
         {
             PersistReg()
             {
+                Save::bindPersist<Combat::HitVolumesComponent>();
                 Save::bindPersist<Combat::DefenseComponent>();
                 Save::bindPersist<Combat::PoiseComponent>();
                 Save::bindPersist<Combat::StatusEffectComponent>();

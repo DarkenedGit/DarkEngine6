@@ -4,6 +4,7 @@
 
 #include "Character/HealthComponent.h"
 #include "Character/PlayerMotorComponent.h"
+#include "Combat/HitVolumes.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
 
@@ -135,4 +136,51 @@ TEST(ComponentRoundTrip, MotorClimbWithoutWallBecomesFalling)
     EXPECT_FLOAT_EQ(live->motor.wallDir().x, 0.0f);
     EXPECT_FLOAT_EQ(live->motor.wallDir().y, 1.0f);
     EXPECT_FLOAT_EQ(live->motor.wallDir().z, 0.0f);
+}
+
+TEST(ComponentRoundTrip, HitVolumesTimersAndWeights)
+{
+    World world;
+    Entity e = world.createEntity();
+    Combat::HitVolumesComponent volumes{};
+    const int arm = Combat::hitPartIndex(Combat::HitPart::RightArm);
+    volumes.disableTimer[arm] = 1.5f;
+    volumes.impactWeight[arm] = 0.4f;
+    world.emplace<Combat::HitVolumesComponent>(e, volumes);
+    stampProceduralId(world, e, "unit/hit-volumes");
+    Save::SaveSystem save;
+    const std::string json = capture(save, world);
+
+    auto* live = world.get<Combat::HitVolumesComponent>(e);
+    ASSERT_NE(live, nullptr);
+    for (int i = 0; i < Combat::HitVolumesComponent::kSlotCount; ++i)
+    {
+        live->disableTimer[i] = 0.0f;
+        live->impactWeight[i] = 0.0f;
+    }
+    ASSERT_EQ(save.applyPayloadText(world, json), Save::SaveResult::Ok);
+    EXPECT_FLOAT_EQ(live->disableTimer[arm], 1.5f);
+    EXPECT_FLOAT_EQ(live->impactWeight[arm], 0.4f);
+    for (int i = 0; i < Combat::HitVolumesComponent::kSlotCount; ++i)
+    {
+        if (i == arm)
+            continue;
+        EXPECT_FLOAT_EQ(live->disableTimer[i], 0.0f);
+        EXPECT_FLOAT_EQ(live->impactWeight[i], 0.0f);
+    }
+
+    for (int i = 0; i < Combat::HitVolumesComponent::kSlotCount; ++i)
+    {
+        live->disableTimer[i] = 0.0f;
+        live->impactWeight[i] = 0.0f;
+    }
+    const std::string zeros = capture(save, world);
+    live->disableTimer[arm] = 2.0f;
+    live->impactWeight[arm] = 0.8f;
+    ASSERT_EQ(save.applyPayloadText(world, zeros), Save::SaveResult::Ok);
+    for (int i = 0; i < Combat::HitVolumesComponent::kSlotCount; ++i)
+    {
+        EXPECT_FLOAT_EQ(live->disableTimer[i], 0.0f);
+        EXPECT_FLOAT_EQ(live->impactWeight[i], 0.0f);
+    }
 }

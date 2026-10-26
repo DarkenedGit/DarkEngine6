@@ -97,6 +97,7 @@
 #include "Combat/Shield.h"
 #include "Combat/DamageEvent.h"
 #include "Combat/PlayerMode.h"
+#include "Combat/HitVolumes.h"
 #include "Combat/JumpAttackComponent.h"
 #include "Combat/JumpAttackDef.h"
 #include "Combat/JumpAttackResolve.h"
@@ -1710,6 +1711,8 @@ void SandboxApp::updatePossessed(float dt)
         hitSlide = hitRx->tick(dt);
         xf->position += hitSlide;
     }
+    if (Combat::HitVolumesComponent* volumes = world().get<Combat::HitVolumesComponent>(body))
+        Combat::tickHitVolumes(*volumes, dt);
 
     Physics::syncFoliageCollision(m_physics, m_foliageCollision, m_terrain, m_foliage.empty() ? nullptr : &m_foliage, xf->position.x, xf->position.z);
 
@@ -1874,7 +1877,11 @@ void SandboxApp::respawnPlayer()
     if (Health* hp = localHealth())
         hp->revive();
     if (HitReaction* hit = localHit())
+    {
         hit->reset();
+        if (Combat::HitVolumesComponent* volumes = world().get<Combat::HitVolumesComponent>(body))
+            Combat::clearHitPartState(*volumes);
+    }
     if (JumpAttackComponent* jac = body.valid() ? world().get<JumpAttackComponent>(body) : nullptr)
         jac->jump.cancel(Combat::JumpAttackCancel::ForceIdle);
     if (Combat::StatusEffectComponent* st = body.valid() ? world().get<Combat::StatusEffectComponent>(body) : nullptr)
