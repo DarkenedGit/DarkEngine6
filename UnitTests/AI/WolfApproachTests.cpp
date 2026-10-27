@@ -429,14 +429,14 @@ TEST(WolfApproach, AlertShareRadiusComesFromSettings)
     share.alertShareRadius = 12.0f;
     sim.ai.setAwarenessSettings(share);
     sim.ai.forceAlert(sim.world, source, { 8.0f, 1.0f, 8.0f });
-    EXPECT_EQ(otherAgent->aware.alertness, Alertness::Investigating);
+    EXPECT_EQ(otherAgent->aware.alertness, Alertness::Alert);
     EXPECT_EQ(wolfAgent->aware.alertness, Alertness::Calm);
 
     calmAgent(sim.world, source);
     calmAgent(sim.world, other);
     placeAt(sim.world, other, 14.0f);
     sim.ai.forceAlert(sim.world, source, { 8.0f, 1.0f, 8.0f });
-    EXPECT_EQ(otherAgent->aware.alertness, Alertness::Investigating);
+    EXPECT_EQ(otherAgent->aware.alertness, Alertness::Alert);
 
     calmAgent(sim.world, source);
     calmAgent(sim.world, other);
@@ -499,4 +499,28 @@ TEST(WolfApproach, GuardNoiseWallAndReactUseSettings)
     const Dark::AiAgentComponent* walledAgent = blocked.world.get<Dark::AiAgentComponent>(walled);
     ASSERT_NE(walledAgent, nullptr);
     EXPECT_NEAR(walledAgent->aware.meter, 0.0f, 1.0e-3f);
+}
+
+TEST(WolfApproach, SquadMatesShareAlertAtAnyDistance)
+{
+    WolfWorld sim;
+    ASSERT_TRUE(sim.setup());
+    Dark::TransformComponent* playerXf = sim.world.get<Dark::TransformComponent>(sim.player);
+    ASSERT_NE(playerXf, nullptr);
+    playerXf->position = { 80.0f, 1.0f, 80.0f };
+
+    const Dark::Entity caller   = spawnOpenHunter(sim, 2.0f);
+    const Dark::Entity mate     = spawnOpenHunter(sim, 42.0f);
+    const Dark::Entity stranger = spawnOpenHunter(sim, 44.0f);
+    ASSERT_TRUE(caller.valid() && mate.valid() && stranger.valid());
+    sim.ai.tickHunters(sim.world, sim.terrain, false, 1.0f / 60.0f, sim.player);
+    sim.world.get<Dark::AiAgentComponent>(caller)->squad = 7u;
+    sim.world.get<Dark::AiAgentComponent>(mate)->squad   = 7u;
+
+    AwarenessSettings share{};
+    share.alertShareRadius = 12.0f;
+    sim.ai.setAwarenessSettings(share);
+    sim.ai.forceAlert(sim.world, caller, { 8.0f, 1.0f, 8.0f });
+    EXPECT_EQ(sim.world.get<Dark::AiAgentComponent>(mate)->aware.alertness, Alertness::Alert);
+    EXPECT_EQ(sim.world.get<Dark::AiAgentComponent>(stranger)->aware.alertness, Alertness::Calm);
 }

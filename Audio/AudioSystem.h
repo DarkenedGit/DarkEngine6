@@ -36,6 +36,7 @@ namespace Dark::Audio
         float          minDistance = 2.0f;
         float          maxDistance = 64.0f;
         uint32_t       sourceId    = 0; // 0 is unattributed and does not train Hear.
+        bool           doppler     = true;
     };
 
     using VoiceId = uint32_t; // 0 = invalid

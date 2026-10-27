@@ -54,7 +54,7 @@ namespace Dark::AI
         float searchFillScale     = 2.5f;
 
         // 3D radius for sharing an alert with nearby guards.
-        float alertShareRadius = 12.0f;
+        float alertShareRadius = 30.0f;
         // Calm meter that starts the glance toward a cue.
         float reactMeter       = 0.15f;
         // Body-sample fraction that remains inside a conceal volume.

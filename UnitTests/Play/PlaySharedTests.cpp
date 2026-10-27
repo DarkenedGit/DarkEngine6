@@ -103,7 +103,7 @@ TEST(HunterTick, SceneStealthOverridesHearingAndAwareness)
     EXPECT_FLOAT_EQ(stealth.hearCrouchWalk, 2.5f);
     EXPECT_FLOAT_EQ(stealth.hearCrouchStill, 1.25f);
     EXPECT_FLOAT_EQ(stealth.sightCrouchStill, PlayerStealthSettings{}.sightCrouchStill);
-    EXPECT_NEAR(ai.awarenessSettings().alertShareRadius, 12.0f, 1.0e-3f);
+    EXPECT_NEAR(ai.awarenessSettings().alertShareRadius, 30.0f, 1.0e-3f);
 
     scene.hasSettings = true;
     scene.settings.alertShareRadius = 3.5f;

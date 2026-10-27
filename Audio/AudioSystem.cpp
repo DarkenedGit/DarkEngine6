@@ -384,11 +384,11 @@ namespace Dark::Audio
             m_device->x3d,
             &listener,
             &emitter,
-            X3DAUDIO_CALCULATE_MATRIX | X3DAUDIO_CALCULATE_DOPPLER,
+            slot.desc.doppler ? (X3DAUDIO_CALCULATE_MATRIX | X3DAUDIO_CALCULATE_DOPPLER) : X3DAUDIO_CALCULATE_MATRIX,
             &dsp);
 
         slot.voice->SetOutputMatrix(nullptr, 1, m_device->dstChannels, matrix);
-        slot.voice->SetFrequencyRatio(clampf(slot.desc.pitch * dsp.DopplerFactor, 0.5f, 2.0f));
+        slot.voice->SetFrequencyRatio(clampf(slot.desc.pitch * (slot.desc.doppler ? dsp.DopplerFactor : 1.0f), 0.5f, 2.0f));
     }
 
     VoiceId AudioSystem::play(const ::Dark::AssetRef<SoundClip>& clip, const PlayDesc& desc)

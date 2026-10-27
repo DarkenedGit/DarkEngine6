@@ -4188,6 +4188,15 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
     m_chaseOk = m_chase.init(renderer(), m_terrain, m_water, world(), pins(), assets());
     if (!m_sceneQuest.empty())
         startQuest(m_sceneQuest);
+    if (m_chaseOk && m_chase.ai().awarenessEnabled())
+    {
+        GuardBarks  barks;
+        std::string barkError;
+        if (loadGuardBarks(resolveContentFile("ai/barks.json"), barks, &barkError))
+            m_guardVoice.start(std::move(barks));
+        else
+            DE_LOG_WARN(LogCategory::AI, "Guard barks: {}", barkError);
+    }
     uint32_t patchSeed = 1;
     for (const SceneObjectData& o : sceneBoxes)
     {
@@ -4324,6 +4333,8 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
                 for (const Vector2f& p : o.patrol)
                     patrol.points.push_back(Vector3f{ p.x, m_terrain.heightAtWorld(p.x, p.y), p.y });
                 world().emplace<PatrolComponent>(hunter, std::move(patrol));
+                if (AiAgentComponent* agent = world().get<AiAgentComponent>(hunter); agent && !o.squad.empty())
+                    agent->squad = static_cast<uint32_t>(std::hash<std::string>{}(o.squad) | 1u);
             }
         }
         DE_LOG_INFO(LogCategory::AI, "SandboxApp: {} scene pawn(s)", m_chase.hunterCount());
@@ -4459,6 +4470,8 @@ void SandboxApp::onUpdate(float dt)
             tickSpawners(dt);
             tickCrows(dt);
             m_chase.tick(dt, world(), input(), m_terrain, possessedBody(), m_playerSubmerged);
+            if (const TransformComponent* pxf = possessedBody().valid() ? world().get<TransformComponent>(possessedBody()) : nullptr)
+                m_guardVoice.tick(world(), audio(), assets(), pxf->position, dt);
         }
         updateCombat(dt);
         syncArmorVisuals(world());
@@ -5700,6 +5713,7 @@ void SandboxApp::onRender()
     {
         drawNpcInfoOverlay();
         drawGuardAwareness();
+        drawGuardSpeech();
         drawArmorHud();
         drawStaminaBar();
         drawQuestHud();
@@ -5903,6 +5917,7 @@ void SandboxApp::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
 
 void SandboxApp::onShutdown()
 {
+    m_guardVoice.stop();
     network().shutdown();
     renderer().waitForGpu();
     m_foliagePipeline.destroy();
