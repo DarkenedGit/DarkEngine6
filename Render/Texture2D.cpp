@@ -64,13 +64,14 @@ namespace Dark
             return static_cast<uint16_t>(sign | (static_cast<uint32_t>(exponent) << 10) | (mantissa >> 13));
         }
 
-        void CreateTexSrv(ID3D12Device* device, ID3D12Resource* resource, DXGI_FORMAT format, D3D12_CPU_DESCRIPTOR_HANDLE dest)
+        void CreateTexSrv(ID3D12Device* device, ID3D12Resource* resource, DXGI_FORMAT format, UINT mipLevels, D3D12_CPU_DESCRIPTOR_HANDLE dest)
         {
             D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-            srvDesc.Format                  = format;
-            srvDesc.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
-            srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-            srvDesc.Texture2D.MipLevels     = 1;
+            srvDesc.Format                    = format;
+            srvDesc.ViewDimension             = D3D12_SRV_DIMENSION_TEXTURE2D;
+            srvDesc.Shader4ComponentMapping   = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            srvDesc.Texture2D.MostDetailedMip = 0;
+            srvDesc.Texture2D.MipLevels       = mipLevels;
             device->CreateShaderResourceView(resource, &srvDesc, dest);
         }
 
@@ -173,31 +174,84 @@ namespace Dark
         if (!resolveTextureFormats(gpuSpace, image.format(), resourceFmt, srvFmt, footprintFmt))
             return false;
 
+        const MipFilter filter = mipFilterForImage(usage, gpuSpace, image.format());
+        const uint32_t  width  = image.width();
+        const uint32_t  height = image.height();
+
         if (image.format() == ImageFormat::RGBA32F)
         {
-            const uint32_t        w        = image.width();
-            const uint32_t        h        = image.height();
-            const uint32_t        srcPitch = image.rowPitchBytes();
-            const uint32_t        dstPitch = w * 8u;
-            std::vector<uint16_t> half(static_cast<size_t>(w) * static_cast<size_t>(h) * 4u);
-            for (uint32_t y = 0; y < h; ++y)
+            std::vector<MipLevel> floatMips;
+            if (filter == MipFilter::LinearFloat)
             {
-                const uint8_t* srcRow = image.pixels() + static_cast<size_t>(y) * srcPitch;
-                uint16_t*      dstRow = half.data() + static_cast<size_t>(y) * w * 4u;
-                for (uint32_t x = 0; x < w; ++x)
+                if (!buildMipChain(image.pixels(), width, height, image.rowPitchBytes(), filter, floatMips))
                 {
-                    float rgba[4];
-                    std::memcpy(rgba, srcRow + static_cast<size_t>(x) * 16u, sizeof(rgba));
-                    dstRow[x * 4u + 0] = FloatToHalf(rgba[0]);
-                    dstRow[x * 4u + 1] = FloatToHalf(rgba[1]);
-                    dstRow[x * 4u + 2] = FloatToHalf(rgba[2]);
-                    dstRow[x * 4u + 3] = FloatToHalf(rgba[3]);
+                    DE_LOG_ERROR(LogCategory::Render, "Texture2D: RGBA32F mip chain failed");
+                    return false;
                 }
             }
-            return createFromRaw(renderer, half.data(), w, h, dstPitch, resourceFmt, srvFmt, footprintFmt, 8u);
+            else
+            {
+                floatMips.resize(1);
+                floatMips[0].width         = width;
+                floatMips[0].height        = height;
+                floatMips[0].rowPitchBytes = image.rowPitchBytes();
+                const size_t bytes         = static_cast<size_t>(image.rowPitchBytes()) * height;
+                floatMips[0].pixels.resize(bytes);
+                std::memcpy(floatMips[0].pixels.data(), image.pixels(), bytes);
+            }
+
+            std::vector<std::vector<uint16_t>> half(floatMips.size());
+            std::vector<MipSource>             sources(floatMips.size());
+            for (size_t mip = 0; mip < floatMips.size(); ++mip)
+            {
+                const MipLevel& src = floatMips[mip];
+                half[mip].resize(static_cast<size_t>(src.width) * src.height * 4u);
+                for (uint32_t y = 0; y < src.height; ++y)
+                {
+                    const uint8_t* srcRow = src.pixels.data() + static_cast<size_t>(y) * src.rowPitchBytes;
+                    uint16_t*      dstRow = half[mip].data() + static_cast<size_t>(y) * src.width * 4u;
+                    for (uint32_t x = 0; x < src.width; ++x)
+                    {
+                        float rgba[4];
+                        std::memcpy(rgba, srcRow + static_cast<size_t>(x) * 16u, sizeof(rgba));
+                        dstRow[x * 4u + 0] = FloatToHalf(rgba[0]);
+                        dstRow[x * 4u + 1] = FloatToHalf(rgba[1]);
+                        dstRow[x * 4u + 2] = FloatToHalf(rgba[2]);
+                        dstRow[x * 4u + 3] = FloatToHalf(rgba[3]);
+                    }
+                }
+                sources[mip].data          = half[mip].data();
+                sources[mip].width         = src.width;
+                sources[mip].height        = src.height;
+                sources[mip].rowPitchBytes = src.width * 8u;
+            }
+            return createFromRaw(renderer, sources.data(), static_cast<uint32_t>(sources.size()), resourceFmt, srvFmt, footprintFmt, 8u);
         }
 
-        return createFromRaw(renderer, image.pixels(), image.width(), image.height(), image.rowPitchBytes(), resourceFmt, srvFmt, footprintFmt, image.bytesPerPixel());
+        std::vector<MipLevel>  chain;
+        std::vector<MipSource> generated;
+        MipSource              single{ image.pixels(), width, height, image.rowPitchBytes() };
+        const MipSource*       levels     = &single;
+        uint32_t               levelCount = 1;
+        if (filter != MipFilter::None && textureMipCount(width, height) > 1)
+        {
+            if (!buildMipChain(image.pixels(), width, height, image.rowPitchBytes(), filter, chain))
+            {
+                DE_LOG_ERROR(LogCategory::Render, "Texture2D: mip chain failed");
+                return false;
+            }
+            generated.resize(chain.size());
+            for (size_t mip = 0; mip < chain.size(); ++mip)
+            {
+                generated[mip].data          = chain[mip].pixels.data();
+                generated[mip].width         = chain[mip].width;
+                generated[mip].height        = chain[mip].height;
+                generated[mip].rowPitchBytes = chain[mip].rowPitchBytes;
+            }
+            levels     = generated.data();
+            levelCount = static_cast<uint32_t>(generated.size());
+        }
+        return createFromRaw(renderer, levels, levelCount, resourceFmt, srvFmt, footprintFmt, image.bytesPerPixel());
     }
 
     bool Texture2D::createFromFile(Renderer& renderer, const std::filesystem::path& path, Color::TextureUsage usage)
@@ -256,7 +310,8 @@ namespace Dark
         DXGI_FORMAT footprintFmt{};
         if (!resolveTextureFormats(Color::ColorSpace::Linear, ImageFormat::R32F, resourceFmt, srvFmt, footprintFmt))
             return false;
-        return createFromRaw(renderer, samples, width, height, rowPitchBytes, resourceFmt, srvFmt, footprintFmt, static_cast<uint32_t>(sizeof(float)));
+        const MipSource level{ samples, width, height, rowPitchBytes };
+        return createFromRaw(renderer, &level, 1, resourceFmt, srvFmt, footprintFmt, static_cast<uint32_t>(sizeof(float)));
     }
 
     bool Texture2D::createUavR32Float(ID3D12Device* device, uint32_t width, uint32_t height)
@@ -281,6 +336,7 @@ namespace Dark
         m_gpuHandle     = {};
         m_width         = 0;
         m_height        = 0;
+        m_mipCount      = 0;
 
         if (!device)
         {
@@ -339,12 +395,13 @@ namespace Dark
         m_cpuHandleUav.ptr += incr;
         m_gpuHandle = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
 
-        CreateTexSrv(device, m_resource.Get(), format, m_cpuHandle);
+        CreateTexSrv(device, m_resource.Get(), format, 1, m_cpuHandle);
         CreateTexUav(device, m_resource.Get(), format, m_cpuHandleUav);
-        CreateTexSrv(device, m_resource.Get(), format, m_srvHeap->GetCPUDescriptorHandleForHeapStart());
+        CreateTexSrv(device, m_resource.Get(), format, 1, m_srvHeap->GetCPUDescriptorHandleForHeapStart());
 
-        m_width  = width;
-        m_height = height;
+        m_width    = width;
+        m_height   = height;
+        m_mipCount = 1;
         return true;
     }
 
@@ -369,16 +426,30 @@ namespace Dark
                 dstRow[x * 2u + 1] = FloatToHalf(pair[1]);
             }
         }
-        return createFromRaw(renderer, half.data(), width, height, dstPitch, DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R16G16_FLOAT, 4u);
+        const MipSource level{ half.data(), width, height, dstPitch };
+        return createFromRaw(renderer, &level, 1, DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R16G16_FLOAT, 4u);
     }
 
-    bool Texture2D::createFromRaw(Renderer& renderer, const void* data, uint32_t width, uint32_t height, uint32_t rowPitchBytes, DXGI_FORMAT resourceFormat, DXGI_FORMAT srvFormat,
-                                  DXGI_FORMAT footprintFormat, uint32_t bytesPerPixel)
+    bool Texture2D::createFromRaw(Renderer& renderer, const MipSource* levels, uint32_t levelCount, DXGI_FORMAT resourceFormat, DXGI_FORMAT srvFormat, DXGI_FORMAT footprintFormat,
+                                  uint32_t bytesPerPixel)
     {
-        if (!data || width == 0 || height == 0 || bytesPerPixel == 0 || rowPitchBytes < width * bytesPerPixel)
+        if (!levels || levelCount == 0 || levelCount > 32 || bytesPerPixel == 0)
         {
             DE_LOG_ERROR(LogCategory::Render, "Texture2D: invalid pixel data");
             return false;
+        }
+        uint32_t expectW = levels[0].width;
+        uint32_t expectH = levels[0].height;
+        for (uint32_t mip = 0; mip < levelCount; ++mip)
+        {
+            const MipSource& level = levels[mip];
+            if (!level.data || level.width == 0 || level.height == 0 || level.width != expectW || level.height != expectH || level.rowPitchBytes < level.width * bytesPerPixel)
+            {
+                DE_LOG_ERROR(LogCategory::Render, "Texture2D: invalid mip {}", mip);
+                return false;
+            }
+            expectW = expectW > 1 ? (expectW >> 1u) : 1u;
+            expectH = expectH > 1 ? (expectH >> 1u) : 1u;
         }
         if (resourceFormat == DXGI_FORMAT_UNKNOWN || srvFormat == DXGI_FORMAT_UNKNOWN || footprintFormat == DXGI_FORMAT_UNKNOWN || IsTypeless(srvFormat) || IsTypeless(footprintFormat))
         {
@@ -398,7 +469,11 @@ namespace Dark
             return false;
         }
 
-        // Reset previous GPU objects if reloading.
+        // A live texture may still be sampled or copied. deferRelease instead of freeing it.
+        if (m_resource)
+            renderer.deferRelease(m_resource.Get());
+        if (m_srvHeap)
+            renderer.deferRelease(m_srvHeap.Get());
         m_resource.Reset();
         m_cpuSrvHeap.Reset();
         m_srvHeap.Reset();
@@ -407,15 +482,19 @@ namespace Dark
         m_cpuHandleSrgb = {};
         m_cpuHandleUav  = {};
         m_gpuHandle     = {};
-        m_width         = width;
-        m_height        = height;
+        m_width         = 0;
+        m_height        = 0;
+        m_mipCount      = 0;
+
+        const uint32_t width  = levels[0].width;
+        const uint32_t height = levels[0].height;
 
         D3D12_RESOURCE_DESC texDesc{};
         texDesc.Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
         texDesc.Width            = width;
         texDesc.Height           = height;
         texDesc.DepthOrArraySize = 1;
-        texDesc.MipLevels        = 1;
+        texDesc.MipLevels        = static_cast<UINT16>(levelCount);
         texDesc.Format           = resourceFormat;
         texDesc.SampleDesc       = { 1, 0 };
         texDesc.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
@@ -424,7 +503,8 @@ namespace Dark
         D3D12_HEAP_PROPERTIES defaultHeap{};
         defaultHeap.Type = D3D12_HEAP_TYPE_DEFAULT;
 
-        if (FailedHr(device->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &texDesc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&m_resource)),
+        // COMMON so the copy queue can promote it. The graphics barrier lands it in the SRV state.
+        if (FailedHr(device->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &texDesc, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&m_resource)),
                      "CreateCommittedResource texture"))
         {
             return false;
@@ -434,11 +514,26 @@ namespace Dark
         D3D12_RESOURCE_DESC footprintDesc = texDesc;
         footprintDesc.Format              = footprintFormat;
 
-        UINT64                             uploadBytes = 0;
-        D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
-        UINT                               numRows = 0;
-        UINT64                             rowSize = 0;
-        device->GetCopyableFootprints(&footprintDesc, 0, 1, 0, &footprint, &numRows, &rowSize, &uploadBytes);
+        std::vector<D3D12_PLACED_SUBRESOURCE_FOOTPRINT> footprints(levelCount);
+        std::vector<UINT>                               numRows(levelCount);
+        std::vector<UINT64>                             rowSizes(levelCount);
+        UINT64                                          uploadBytes = 0;
+        device->GetCopyableFootprints(&footprintDesc, 0, levelCount, 0, footprints.data(), numRows.data(), rowSizes.data(), &uploadBytes);
+        if (uploadBytes == 0)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Texture2D: empty upload footprint");
+            m_resource.Reset();
+            return false;
+        }
+        for (uint32_t mip = 0; mip < levelCount; ++mip)
+        {
+            if (numRows[mip] != levels[mip].height || rowSizes[mip] < static_cast<UINT64>(levels[mip].width) * bytesPerPixel)
+            {
+                DE_LOG_ERROR(LogCategory::Render, "Texture2D: footprint does not match mip {}", mip);
+                m_resource.Reset();
+                return false;
+            }
+        }
 
         D3D12_HEAP_PROPERTIES uploadHeap{};
         uploadHeap.Type = D3D12_HEAP_TYPE_UPLOAD;
@@ -468,52 +563,29 @@ namespace Dark
             return false;
         }
 
-        for (UINT y = 0; y < numRows; ++y)
+        for (uint32_t mip = 0; mip < levelCount; ++mip)
         {
-            uint8_t*       dst = mapped + footprint.Offset + y * footprint.Footprint.RowPitch;
-            const uint8_t* src = static_cast<const uint8_t*>(data) + y * rowPitchBytes;
-            memcpy(dst, src, static_cast<size_t>(width) * bytesPerPixel);
+            const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& footprint = footprints[mip];
+            for (UINT y = 0; y < numRows[mip]; ++y)
+            {
+                uint8_t*       dst = mapped + footprint.Offset + static_cast<UINT64>(y) * footprint.Footprint.RowPitch;
+                const uint8_t* src = static_cast<const uint8_t*>(levels[mip].data) + static_cast<size_t>(y) * levels[mip].rowPitchBytes;
+                memcpy(dst, src, static_cast<size_t>(levels[mip].width) * bytesPerPixel);
+            }
         }
         upload->Unmap(0, nullptr);
 
-        ComPtr<ID3D12CommandAllocator>    alloc;
-        ComPtr<ID3D12GraphicsCommandList> list;
-        if (FailedHr(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc)), "CreateCommandAllocator (texture upload)") ||
-            FailedHr(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc.Get(), nullptr, IID_PPV_ARGS(&list)), "CreateCommandList (texture upload)"))
+        bool       queued = false;
+        const bool submitted = renderer.submitTextureCopies(m_resource.Get(), upload.Get(), footprints.data(), levelCount, &queued);
+        if (queued)
+            renderer.deferRelease(upload.Get());
+        if (!submitted)
         {
+            if (queued)
+                renderer.deferRelease(m_resource.Get());
             m_resource.Reset();
             return false;
         }
-
-        D3D12_TEXTURE_COPY_LOCATION dstLoc{};
-        dstLoc.pResource        = m_resource.Get();
-        dstLoc.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        dstLoc.SubresourceIndex = 0;
-
-        D3D12_TEXTURE_COPY_LOCATION srcLoc{};
-        srcLoc.pResource       = upload.Get();
-        srcLoc.Type            = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-        srcLoc.PlacedFootprint = footprint;
-
-        list->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, nullptr);
-
-        D3D12_RESOURCE_BARRIER barrier{};
-        barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        barrier.Transition.pResource   = m_resource.Get();
-        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-        barrier.Transition.StateAfter  = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        list->ResourceBarrier(1, &barrier);
-
-        if (FailedHr(list->Close(), "Close texture upload list"))
-        {
-            m_resource.Reset();
-            return false;
-        }
-
-        ID3D12CommandList* lists[] = { list.Get() };
-        renderer.queue()->ExecuteCommandLists(1, lists);
-        renderer.waitForGpu();
 
         // Staging heap is CPU-readable (legal CopyDescriptors source). Shader-visible heaps
         // are CPU write-only — CreateSRV into them is fine, copying FROM them is not (#654).
@@ -524,6 +596,7 @@ namespace Dark
         cpuHeapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
         if (FailedHr(device->CreateDescriptorHeap(&cpuHeapDesc, IID_PPV_ARGS(&m_cpuSrvHeap)), "CreateDescriptorHeap texture CPU SRV"))
         {
+            renderer.deferRelease(m_resource.Get());
             m_resource.Reset();
             return false;
         }
@@ -533,6 +606,7 @@ namespace Dark
         gpuHeapDesc.Flags                      = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         if (FailedHr(device->CreateDescriptorHeap(&gpuHeapDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap texture GPU SRV"))
         {
+            renderer.deferRelease(m_resource.Get());
             m_cpuSrvHeap.Reset();
             m_resource.Reset();
             return false;
@@ -547,18 +621,21 @@ namespace Dark
             const UINT incr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
             m_cpuHandleSrgb = m_cpuHandleRaw;
             m_cpuHandleSrgb.ptr += incr;
-            CreateTexSrv(device, m_resource.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, m_cpuHandleRaw);
-            CreateTexSrv(device, m_resource.Get(), DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, m_cpuHandleSrgb);
+            CreateTexSrv(device, m_resource.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, levelCount, m_cpuHandleRaw);
+            CreateTexSrv(device, m_resource.Get(), DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, levelCount, m_cpuHandleSrgb);
             m_cpuHandle = m_cpuHandleSrgb;
         }
         else
         {
             m_cpuHandle     = m_cpuHandleRaw;
             m_cpuHandleSrgb = {};
-            CreateTexSrv(device, m_resource.Get(), srvFormat, m_cpuHandle);
+            CreateTexSrv(device, m_resource.Get(), srvFormat, levelCount, m_cpuHandle);
         }
-        CreateTexSrv(device, m_resource.Get(), srvFormat, m_srvHeap->GetCPUDescriptorHandleForHeapStart());
+        CreateTexSrv(device, m_resource.Get(), srvFormat, levelCount, m_srvHeap->GetCPUDescriptorHandleForHeapStart());
 
+        m_width    = width;
+        m_height   = height;
+        m_mipCount = levelCount;
         return true;
     }
 

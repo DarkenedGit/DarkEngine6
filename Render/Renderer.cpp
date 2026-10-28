@@ -882,6 +882,85 @@ namespace Dark
         return true;
     }
 
+    bool Renderer::submitTextureCopies(ID3D12Resource* dst, ID3D12Resource* upload, const D3D12_PLACED_SUBRESOURCE_FOOTPRINT* footprints, UINT count, bool* queued)
+    {
+        if (queued)
+            *queued = false;
+        if (!m_device || !m_commandQueue || !dst || !upload || !footprints || count == 0 || count > 32)
+            return false;
+
+        const bool          useCopy  = m_copyQueue && m_copyFence;
+        ID3D12CommandQueue* q        = useCopy ? m_copyQueue.Get() : m_commandQueue.Get();
+        const D3D12_COMMAND_LIST_TYPE listType = useCopy ? D3D12_COMMAND_LIST_TYPE_COPY : D3D12_COMMAND_LIST_TYPE_DIRECT;
+
+        auto transition = [](ID3D12GraphicsCommandList* list, ID3D12Resource* resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after)
+        {
+            D3D12_RESOURCE_BARRIER barrier{};
+            barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barrier.Transition.pResource   = resource;
+            barrier.Transition.StateBefore = before;
+            barrier.Transition.StateAfter  = after;
+            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            list->ResourceBarrier(1, &barrier);
+        };
+
+        ComPtr<ID3D12CommandAllocator>    alloc;
+        ComPtr<ID3D12GraphicsCommandList> list;
+        if (!checkHr(m_device->CreateCommandAllocator(listType, IID_PPV_ARGS(&alloc)), "CreateCommandAllocator (texture copy)")
+            || !checkHr(m_device->CreateCommandList(0, listType, alloc.Get(), nullptr, IID_PPV_ARGS(&list)), "CreateCommandList (texture copy)"))
+            return false;
+
+        // COPY lists may only transition among COMMON / COPY_*. DIRECT keeps the
+        // texture in PIXEL_SHADER_RESOURCE because a graphics queue does not decay it.
+        transition(list.Get(), dst, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
+        for (UINT mip = 0; mip < count; ++mip)
+        {
+            D3D12_TEXTURE_COPY_LOCATION dstLoc{};
+            dstLoc.pResource        = dst;
+            dstLoc.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            dstLoc.SubresourceIndex = mip;
+
+            D3D12_TEXTURE_COPY_LOCATION srcLoc{};
+            srcLoc.pResource       = upload;
+            srcLoc.Type            = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            srcLoc.PlacedFootprint = footprints[mip];
+            list->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, nullptr);
+        }
+        transition(list.Get(), dst, D3D12_RESOURCE_STATE_COPY_DEST,
+                   useCopy ? D3D12_RESOURCE_STATE_COMMON : D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
+        if (!checkHr(list->Close(), "Close texture copy list"))
+            return false;
+        ID3D12CommandList* lists[] = { list.Get() };
+        q->ExecuteCommandLists(1, lists);
+        if (queued)
+            *queued = true;
+        deferRelease(alloc.Get());
+        deferRelease(list.Get());
+
+        if (!useCopy)
+            return true;
+
+        const UINT64 fenceValue = m_copyFenceValue++;
+        if (FAILED(m_copyQueue->Signal(m_copyFence.Get(), fenceValue)) || FAILED(m_commandQueue->Wait(m_copyFence.Get(), fenceValue)))
+            return false;
+
+        ComPtr<ID3D12CommandAllocator>    barrierAlloc;
+        ComPtr<ID3D12GraphicsCommandList> barrierList;
+        if (!checkHr(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&barrierAlloc)), "CreateCommandAllocator (texture barrier)")
+            || !checkHr(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, barrierAlloc.Get(), nullptr, IID_PPV_ARGS(&barrierList)), "CreateCommandList (texture barrier)"))
+            return false;
+
+        transition(barrierList.Get(), dst, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        if (!checkHr(barrierList->Close(), "Close texture barrier list"))
+            return false;
+        ID3D12CommandList* barrierLists[] = { barrierList.Get() };
+        m_commandQueue->ExecuteCommandLists(1, barrierLists);
+        deferRelease(barrierAlloc.Get());
+        deferRelease(barrierList.Get());
+        return true;
+    }
+
     bool Renderer::hasSceneBuffers() const
     {
         return m_sceneBuffers && m_sceneBuffers->valid();

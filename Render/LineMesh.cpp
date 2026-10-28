@@ -82,36 +82,10 @@ namespace Dark
                 uploadIb->Unmap(0, nullptr);
             }
 
-            ComPtr<ID3D12CommandAllocator>    alloc;
-            ComPtr<ID3D12GraphicsCommandList> list;
-            if (FailedHr(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc)), "LineMesh allocator") ||
-                FailedHr(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc.Get(), nullptr, IID_PPV_ARGS(&list)), "LineMesh list"))
-            {
+            if (!renderer.submitBufferCopies(mesh.m_vb.Get(), uploadVb.Get(), vbBytes, mesh.m_ib.Get(), uploadIb.Get(), ibBytes))
                 return {};
-            }
-
-            list->CopyBufferRegion(mesh.m_vb.Get(), 0, uploadVb.Get(), 0, vbBytes);
-            list->CopyBufferRegion(mesh.m_ib.Get(), 0, uploadIb.Get(), 0, ibBytes);
-
-            D3D12_RESOURCE_BARRIER barriers[2]{};
-            barriers[0].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barriers[0].Transition.pResource   = mesh.m_vb.Get();
-            barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-            barriers[0].Transition.StateAfter  = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
-            barriers[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            barriers[1].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barriers[1].Transition.pResource   = mesh.m_ib.Get();
-            barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-            barriers[1].Transition.StateAfter  = D3D12_RESOURCE_STATE_INDEX_BUFFER;
-            barriers[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            list->ResourceBarrier(2, barriers);
-
-            if (FailedHr(list->Close(), "Close line upload"))
-                return {};
-
-            ID3D12CommandList* lists[] = { list.Get() };
-            renderer.queue()->ExecuteCommandLists(1, lists);
-            renderer.waitForGpu();
+            renderer.deferRelease(uploadVb.Get());
+            renderer.deferRelease(uploadIb.Get());
 
             mesh.m_vbv.BufferLocation = mesh.m_vb->GetGPUVirtualAddress();
             mesh.m_vbv.StrideInBytes  = sizeof(Math::Vector3f);

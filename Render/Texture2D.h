@@ -2,6 +2,7 @@
 
 #include "Assets/Image.h"
 #include "Math/Color.h"
+#include "Render/TextureMips.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -27,6 +28,11 @@ namespace Dark
     // cpuHandle() is the sampling view: slot 1 _SRGB when present, else slot 0 UNORM.
     // Shader-visible heap is 1 slot matching cpuHandle(). Hud/Data have no sRGB view.
     // Loaded from common image formats via WIC (PNG, JPEG, BMP, etc.).
+    // Sampled uploads copy on the COPY queue and do not call waitForGpu.
+    // Albedo, normal, ORM, data, HUD, and IBL equirect images get a full mip chain.
+    // Height, the BRDF LUT, fonts, and UAV targets stay one level.
+    // Reloading deferReleases the previous resource. Dropping a texture the GPU
+    // may still sample is the caller's deferRelease, same as Mesh.
     class Texture2D
     {
     public:
@@ -75,6 +81,10 @@ namespace Dark
         {
             return m_height;
         }
+        uint32_t mipCount() const
+        {
+            return m_mipCount;
+        }
 
         ID3D12Resource* resource() const
         {
@@ -102,8 +112,8 @@ namespace Dark
         }
 
     private:
-        bool createFromRaw(Renderer& renderer, const void* data, uint32_t width, uint32_t height, uint32_t rowPitchBytes, DXGI_FORMAT resourceFormat, DXGI_FORMAT srvFormat,
-                           DXGI_FORMAT footprintFormat, uint32_t bytesPerPixel);
+        bool createFromRaw(Renderer& renderer, const MipSource* levels, uint32_t levelCount, DXGI_FORMAT resourceFormat, DXGI_FORMAT srvFormat, DXGI_FORMAT footprintFormat,
+                           uint32_t bytesPerPixel);
         bool createUavTyped(ID3D12Device* device, uint32_t width, uint32_t height, DXGI_FORMAT format);
 
         ComPtr<ID3D12Resource>       m_resource;
@@ -114,8 +124,9 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE  m_cpuHandleSrgb{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_cpuHandleUav{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_gpuHandle{};
-        uint32_t                     m_width  = 0;
-        uint32_t                     m_height = 0;
+        uint32_t                     m_width    = 0;
+        uint32_t                     m_height   = 0;
+        uint32_t                     m_mipCount = 0;
     };
 
 } // namespace Dark

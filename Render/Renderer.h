@@ -66,6 +66,13 @@ namespace Dark
         // until pumpDeferredReleases (caller should deferRelease them).
         bool submitBufferCopies(ID3D12Resource* dstA, ID3D12Resource* srcA, uint64_t bytesA, ID3D12Resource* dstB, ID3D12Resource* srcB, uint64_t bytesB);
 
+        // Copy upload footprints into a texture created in COMMON. Prefers the
+        // COPY queue, then a graphics barrier to PIXEL_SHADER_RESOURCE. CPU does
+        // not stall. upload must stay alive until pumpDeferredReleases (caller
+        // should deferRelease it). *queued is set once the GPU may reference dst
+        // or upload; on false with queued, keep both alive via deferRelease.
+        bool submitTextureCopies(ID3D12Resource* dst, ID3D12Resource* upload, const D3D12_PLACED_SUBRESOURCE_FOOTPRINT* footprints, UINT count, bool* queued = nullptr);
+
         // Keep a resource/allocator/list until in-flight GPU work that used it is done.
         void deferRelease(IUnknown* obj);
         void pumpDeferredReleases();
