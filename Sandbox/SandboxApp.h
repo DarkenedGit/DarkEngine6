@@ -35,6 +35,7 @@
 #include "Particles/ParticleRenderer.h"
 #include "Particles/LeafRenderer.h"
 #include "Terrain/LeafField.h"
+#include "Terrain/LeafRustle.h"
 #include "Particles/BloodSplatPool.h"
 #include "Combat/HoldCharge.h"
 #include "Combat/Shield.h"
@@ -312,6 +313,7 @@ private:
     Dark::Terrain::GrassField                 m_grassField;
     double                                    m_grassWindSeconds = 0.0;
     Dark::Terrain::LeafField                  m_leafField;
+    Dark::Terrain::LeafRustleVoices           m_leafRustle;
     Dark::LeafRenderer                        m_leafRenderer;
     float                                     m_leafShedScale  = 1.0f;
     double                                    m_leafSimSeconds = 0.0;

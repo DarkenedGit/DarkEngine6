@@ -33,6 +33,7 @@
 #include "Particles/ParticleRenderer.h"
 #include "Particles/LeafRenderer.h"
 #include "Terrain/LeafField.h"
+#include "Terrain/LeafRustle.h"
 
 #include "AI/AiSystem.h"
 #include "Audio/SoundClip.h"
@@ -366,6 +367,7 @@ private:
     ParticleRenderer                           m_particleRenderer;
     LeafRenderer                               m_leafRenderer;
     Terrain::LeafField                         m_leafField;
+    Terrain::LeafRustleVoices                  m_leafRustle;
     float                                      m_leafShedScale  = 1.0f;
     double                                     m_leafSimSeconds = 0.0;
     Entity                                     m_selected{};

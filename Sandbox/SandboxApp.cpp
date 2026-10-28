@@ -715,7 +715,10 @@ void SandboxApp::handleRuntimeCommands(float dt)
     }
 
     if (m_gameplayPaused && !m_stepGameplay)
+    {
+        m_leafRustle.stopAll(audio());
         return;
+    }
 
     if (auto* xf = m_cube.valid() ? world().get<TransformComponent>(m_cube) : nullptr)
     {
@@ -4414,7 +4417,10 @@ void SandboxApp::onSplashFinished()
 void SandboxApp::tickLeaves(float dt)
 {
     if (!m_terrain.valid() || !(dt > 0.0f))
+    {
+        m_leafRustle.stopAll(audio());
         return;
+    }
 
     m_leafSimSeconds += static_cast<double>(dt);
     float treeTop = 12.0f;
@@ -4423,9 +4429,9 @@ void SandboxApp::tickLeaves(float dt)
         treeTop = treeModel->bounds().Max.y;
 
     const Vector3f cam = m_viewCamera.GetPosition();
-    const Frustum3f frustum(m_viewCamera.GetCullViewProj());
+    Frustum3f frustum(m_viewCamera.GetCullViewProj());
     Terrain::LeafField::Crown crowns[Terrain::LeafField::kMaxCrowns];
-    const int crownCount = gatherLeafCrowns(m_terrain, m_foliage.empty() ? nullptr : &m_foliage, cam, &frustum, treeTop, crowns,
+    const int crownCount = gatherLeafCrowns(m_terrain, m_foliage.empty() ? nullptr : &m_foliage, cam, nullptr, treeTop, crowns,
                                              Terrain::LeafField::kMaxCrowns);
 
     Terrain::LeafField::Step step;
@@ -4445,8 +4451,13 @@ void SandboxApp::tickLeaves(float dt)
     step.lake        = m_water.chunksX() > 0;
     step.lakeLevel   = m_water.params().waterLevel;
     step.cellMetres  = m_terrain.cellSize();
+    step.inFrustum   = [](float x, float y, float z, void* user) {
+        return static_cast<const Frustum3f*>(user)->Contains(Vector3f(x, y, z));
+    };
+    step.frustumUser = &frustum;
     m_leafField.setShedScale(m_leafShedScale);
     m_leafField.step(step);
+    m_leafRustle.tick(audio(), assets(), crowns, crownCount, cam.x, cam.y, cam.z, m_leafSimSeconds, dt);
 }
 
 void SandboxApp::onUpdate(float dt)

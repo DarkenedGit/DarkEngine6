@@ -755,7 +755,10 @@ void EditorApp::updateEditorGrass(float dt)
 void EditorApp::tickLeaves(float dt)
 {
     if (!m_terrain.valid() || !(dt > 0.0f))
+    {
+        m_leafRustle.stopAll(audio());
         return;
+    }
 
     m_leafSimSeconds += static_cast<double>(dt);
     float treeTop = 12.0f;
@@ -764,9 +767,9 @@ void EditorApp::tickLeaves(float dt)
         treeTop = treeModel->bounds().Max.y;
 
     const Vector3f cam = m_camera.GetPosition();
-    const Frustum3f frustum(m_camera.GetCullViewProj());
+    Frustum3f frustum(m_camera.GetCullViewProj());
     Terrain::LeafField::Crown crowns[Terrain::LeafField::kMaxCrowns];
-    const int crownCount = gatherLeafCrowns(m_terrain, &m_foliage, cam, &frustum, treeTop, crowns, Terrain::LeafField::kMaxCrowns);
+    const int crownCount = gatherLeafCrowns(m_terrain, &m_foliage, cam, nullptr, treeTop, crowns, Terrain::LeafField::kMaxCrowns);
 
     Terrain::LeafField::Pond ponds[32];
     int pondCount = 0;
@@ -802,8 +805,13 @@ void EditorApp::tickLeaves(float dt)
     step.ponds       = ponds;
     step.pondCount   = pondCount;
     step.cellMetres  = m_terrain.cellSize();
+    step.inFrustum   = [](float x, float y, float z, void* user) {
+        return static_cast<const Frustum3f*>(user)->Contains(Vector3f(x, y, z));
+    };
+    step.frustumUser = &frustum;
     m_leafField.setShedScale(m_leafShedScale);
     m_leafField.step(step);
+    m_leafRustle.tick(audio(), assets(), crowns, crownCount, cam.x, cam.y, cam.z, m_leafSimSeconds, dt);
 }
 
 void EditorApp::syncTerrainLod()
