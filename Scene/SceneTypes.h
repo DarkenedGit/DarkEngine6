@@ -5,6 +5,7 @@
 #include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
 #include "Play/Spawner.h"
+#include "Terrain/WindTypes.h"
 
 #include <cstdint>
 #include <string>
@@ -363,6 +364,12 @@ namespace Dark
         uint32_t seed             = 1337u;
     };
 
+    struct WindSceneDesc
+    {
+        bool                      present  = false;
+        Terrain::WindSettings     settings = Terrain::defaultWindSettings();
+    };
+
     struct TerrainSceneDesc
     {
         static constexpr int kBindLayoutV1 = 1;
@@ -383,6 +390,7 @@ namespace Dark
         TerrainGridSceneDesc  grid;
         FoliageSceneDesc      foliage;
         GrassSceneDesc        grass;
+        WindSceneDesc         wind;
     };
 
     // Celestial clock and weather. Absent from a file means the Environment defaults.

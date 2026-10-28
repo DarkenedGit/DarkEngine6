@@ -2331,3 +2331,260 @@ TEST(SceneFile, QuestTagsWrongTypeLogsAndKeepsDefaults)
     std::filesystem::remove(goodPath, ecRemove);
     std::filesystem::remove(badPath, ecRemove);
 }
+
+TEST(SceneFile, WindDefaultsRoundTrip)
+{
+    const auto tempPath = tempScenePath("wind_defaults.json");
+    std::string err;
+
+    SceneFileData original;
+    original.terrain.wind.present = true;
+    original.terrain.wind.settings = Terrain::defaultWindSettings();
+
+    ASSERT_TRUE(saveSceneToJson(tempPath, original, &err)) << err;
+
+    SceneFileData loaded;
+    ASSERT_TRUE(loadSceneFromJson(tempPath, loaded, &err)) << err;
+
+    EXPECT_TRUE(loaded.terrain.wind.present);
+    const Terrain::WindSettings& w = loaded.terrain.wind.settings;
+    const Terrain::WindSettings  d = Terrain::defaultWindSettings();
+
+    EXPECT_NEAR(w.strength, d.strength, 1e-5f);
+    EXPECT_NEAR(w.headingRad, d.headingRad, 1e-5f);
+    EXPECT_NEAR(w.deflection, d.deflection, 1e-5f);
+    EXPECT_NEAR(w.spatialFreq, d.spatialFreq, 1e-5f);
+    EXPECT_NEAR(w.temporalFreq, d.temporalFreq, 1e-5f);
+    EXPECT_NEAR(w.gustStrength, d.gustStrength, 1e-5f);
+    EXPECT_NEAR(w.gustFreq, d.gustFreq, 1e-5f);
+    EXPECT_EQ(w.grassFollowsStrength, d.grassFollowsStrength);
+    EXPECT_EQ(w.seed, d.seed);
+
+    for (int i = 0; i < static_cast<int>(Terrain::WindKind::Count); ++i)
+    {
+        EXPECT_NEAR(w.kind[i].influence, d.kind[i].influence, 1e-5f);
+        EXPECT_NEAR(w.kind[i].stiffness, d.kind[i].stiffness, 1e-5f);
+        EXPECT_NEAR(w.kind[i].mainBendMetres, d.kind[i].mainBendMetres, 1e-5f);
+    }
+
+    std::filesystem::remove(tempPath);
+}
+
+TEST(SceneFile, WindNonDefaultRoundTrip)
+{
+    const auto tempPath = tempScenePath("wind_nondefault.json");
+    std::string err;
+
+    SceneFileData original;
+    original.terrain.wind.present = true;
+    Terrain::WindSettings& w = original.terrain.wind.settings;
+    w.strength = 2.5f;
+    w.headingRad = -1.0f;
+    w.deflection = 0.8f;
+    w.spatialFreq = 0.01f;
+    w.temporalFreq = 0.5f;
+    w.gustStrength = 0.6f;
+    w.gustFreq = 0.3f;
+    w.grassFollowsStrength = true;
+    w.seed = 9999u;
+
+    w.kind[static_cast<int>(Terrain::WindKind::Tree)].influence = 2.0f;
+    w.kind[static_cast<int>(Terrain::WindKind::Tree)].stiffness = 0.5f;
+    w.kind[static_cast<int>(Terrain::WindKind::Tree)].mainBendMetres = 0.8f;
+    w.kind[static_cast<int>(Terrain::WindKind::Tree)].branchAmp = 0.1f;
+    w.kind[static_cast<int>(Terrain::WindKind::Tree)].edgeAmp = 0.05f;
+    w.kind[static_cast<int>(Terrain::WindKind::Tree)].flutterFreq = 3.0f;
+    w.kind[static_cast<int>(Terrain::WindKind::Tree)].detailFadeStart = 30.0f;
+    w.kind[static_cast<int>(Terrain::WindKind::Tree)].detailFadeEnd = 60.0f;
+    w.kind[static_cast<int>(Terrain::WindKind::Tree)].bendFadeStart = 150.0f;
+    w.kind[static_cast<int>(Terrain::WindKind::Tree)].bendFadeEnd = 200.0f;
+    w.kind[static_cast<int>(Terrain::WindKind::Tree)].maxSwayMetres = 2.5f;
+
+    ASSERT_TRUE(saveSceneToJson(tempPath, original, &err)) << err;
+
+    SceneFileData loaded;
+    ASSERT_TRUE(loadSceneFromJson(tempPath, loaded, &err)) << err;
+
+    EXPECT_TRUE(loaded.terrain.wind.present);
+    const Terrain::WindSettings& l = loaded.terrain.wind.settings;
+
+    EXPECT_NEAR(l.strength, 2.5f, 1e-5f);
+    EXPECT_NEAR(l.headingRad, -1.0f, 1e-5f);
+    EXPECT_NEAR(l.deflection, 0.8f, 1e-5f);
+    EXPECT_NEAR(l.spatialFreq, 0.01f, 1e-5f);
+    EXPECT_NEAR(l.temporalFreq, 0.5f, 1e-5f);
+    EXPECT_NEAR(l.gustStrength, 0.6f, 1e-5f);
+    EXPECT_NEAR(l.gustFreq, 0.3f, 1e-5f);
+    EXPECT_TRUE(l.grassFollowsStrength);
+    EXPECT_EQ(l.seed, 9999u);
+
+    const Terrain::TreeWindParams& tree = l.kind[static_cast<int>(Terrain::WindKind::Tree)];
+    EXPECT_NEAR(tree.influence, 2.0f, 1e-5f);
+    EXPECT_NEAR(tree.stiffness, 0.5f, 1e-5f);
+    EXPECT_NEAR(tree.mainBendMetres, 0.8f, 1e-5f);
+    EXPECT_NEAR(tree.branchAmp, 0.1f, 1e-5f);
+    EXPECT_NEAR(tree.edgeAmp, 0.05f, 1e-5f);
+    EXPECT_NEAR(tree.flutterFreq, 3.0f, 1e-5f);
+    EXPECT_NEAR(tree.detailFadeStart, 30.0f, 1e-5f);
+    EXPECT_NEAR(tree.detailFadeEnd, 60.0f, 1e-5f);
+    EXPECT_NEAR(tree.bendFadeStart, 150.0f, 1e-5f);
+    EXPECT_NEAR(tree.bendFadeEnd, 200.0f, 1e-5f);
+    EXPECT_NEAR(tree.maxSwayMetres, 2.5f, 1e-5f);
+
+    std::filesystem::remove(tempPath);
+}
+
+TEST(SceneFile, OldSceneGrassOnlyLoadsWind)
+{
+    const auto tempPath = tempScenePath("old_grass_only.json");
+
+    {
+        std::ofstream f(tempPath);
+        f << R"({
+  "mode": "3d",
+  "terrain": {
+    "grass": {
+      "enabled": true,
+      "windBaseYaw": 2.0,
+      "windDeflection": 0.7,
+      "windSpatialFreq": 0.008,
+      "windTemporalFreq": 0.02,
+      "seed": 4242
+    }
+  }
+})";
+    }
+
+    std::string err;
+    SceneFileData loaded;
+    ASSERT_TRUE(loadSceneFromJson(tempPath, loaded, &err)) << err;
+
+    EXPECT_FALSE(loaded.terrain.wind.present);
+    EXPECT_NEAR(loaded.terrain.wind.settings.headingRad, 2.0f, 1e-5f);
+    EXPECT_NEAR(loaded.terrain.wind.settings.deflection, 0.7f, 1e-5f);
+    EXPECT_NEAR(loaded.terrain.wind.settings.spatialFreq, 0.008f, 1e-5f);
+    EXPECT_NEAR(loaded.terrain.wind.settings.temporalFreq, 0.02f, 1e-5f);
+    EXPECT_EQ(loaded.terrain.wind.settings.seed, 4242u);
+
+    EXPECT_NEAR(loaded.terrain.grass.windBaseYaw, 2.0f, 1e-5f);
+
+    std::filesystem::remove(tempPath);
+}
+
+TEST(SceneFile, WindWrongTypedJsonLoadsDefaults)
+{
+    const auto tempPath = tempScenePath("wind_wrong_type.json");
+
+    {
+        std::ofstream f(tempPath);
+        f << R"({
+  "mode": "3d",
+  "terrain": {
+    "wind": {
+      "strength": "high",
+      "heading": "north",
+      "gustStrength": true,
+      "seed": "random",
+      "kinds": {
+        "tree": 3
+      }
+    }
+  }
+})";
+    }
+
+    std::vector<std::string> logs;
+    g_sceneLogs = &logs;
+    Log::setCapture(&captureSceneLog);
+    struct ClearCapture
+    {
+        ~ClearCapture()
+        {
+            Log::setCapture(nullptr);
+            g_sceneLogs = nullptr;
+        }
+    } clearCapture;
+
+    std::string err;
+    SceneFileData loaded;
+    ASSERT_TRUE(loadSceneFromJson(tempPath, loaded, &err)) << err;
+
+    EXPECT_TRUE(loaded.terrain.wind.present);
+    const Terrain::WindSettings d = Terrain::defaultWindSettings();
+    EXPECT_NEAR(loaded.terrain.wind.settings.strength, d.strength, 1e-5f);
+    EXPECT_NEAR(loaded.terrain.wind.settings.headingRad, d.headingRad, 1e-5f);
+    EXPECT_NEAR(loaded.terrain.wind.settings.gustStrength, d.gustStrength, 1e-5f);
+    EXPECT_EQ(loaded.terrain.wind.settings.seed, d.seed);
+
+    EXPECT_FALSE(logs.empty());
+
+    std::filesystem::remove(tempPath);
+}
+
+TEST(SceneFile, WindOutOfRangeClamped)
+{
+    const auto tempPath = tempScenePath("wind_out_of_range.json");
+
+    {
+        std::ofstream f(tempPath);
+        f << R"({
+  "mode": "3d",
+  "terrain": {
+    "wind": {
+      "strength": 100.0,
+      "deflection": -5.0,
+      "gustStrength": 10.0,
+      "kinds": {
+        "tree": {
+          "influence": 50.0,
+          "stiffness": -1.0
+        }
+      }
+    }
+  }
+})";
+    }
+
+    std::string err;
+    SceneFileData loaded;
+    ASSERT_TRUE(loadSceneFromJson(tempPath, loaded, &err)) << err;
+
+    EXPECT_TRUE(loaded.terrain.wind.present);
+    EXPECT_LE(loaded.terrain.wind.settings.strength, 3.0f);
+    EXPECT_GE(loaded.terrain.wind.settings.deflection, 0.0f);
+    EXPECT_LE(loaded.terrain.wind.settings.gustStrength, 1.0f);
+
+    const Terrain::TreeWindParams& tree = loaded.terrain.wind.settings.kind[static_cast<int>(Terrain::WindKind::Tree)];
+    EXPECT_LE(tree.influence, 3.0f);
+    EXPECT_GE(tree.stiffness, 0.25f);
+
+    std::filesystem::remove(tempPath);
+}
+
+TEST(SceneFile, WindSavesMirroredGrassKeys)
+{
+    const auto tempPath = tempScenePath("wind_grass_mirror.json");
+    std::string err;
+
+    SceneFileData original;
+    original.terrain.wind.present = true;
+    original.terrain.wind.settings.headingRad = 0.5f;
+    original.terrain.wind.settings.deflection = 0.9f;
+    original.terrain.wind.settings.spatialFreq = 0.006f;
+    original.terrain.wind.settings.temporalFreq = 0.03f;
+    original.terrain.wind.settings.seed = 7777u;
+
+    ASSERT_TRUE(saveSceneToJson(tempPath, original, &err)) << err;
+
+    std::ifstream f(tempPath);
+    std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+
+    EXPECT_NE(content.find("\"windBaseYaw\": 0.5"), std::string::npos);
+    EXPECT_NE(content.find("\"windDeflection\": 0.9"), std::string::npos);
+    EXPECT_NE(content.find("\"windSpatialFreq\": 0.006"), std::string::npos);
+    EXPECT_NE(content.find("\"windTemporalFreq\": 0.03"), std::string::npos);
+    EXPECT_NE(content.find("\"seed\": 7777"), std::string::npos);
+
+    std::filesystem::remove(tempPath);
+}
+
