@@ -711,6 +711,7 @@ void EditorApp::applyAuthoredGrass()
     params.windSpatialFreq  = m_authoredGrass.windSpatialFreq;
     params.windTemporalFreq = m_authoredGrass.windTemporalFreq;
     params.seed             = m_authoredGrass.seed;
+    Terrain::applyWindToGrass(m_wind, params);
     if (!m_grassPipeline.isValid())
         params.enabled = false;
     m_grassField.setParams(params);
@@ -744,7 +745,8 @@ void EditorApp::updateEditorGrass(float dt)
             }
         }
     }
-    m_grassWindSeconds += static_cast<double>(dt);
+    m_windClock.tick(dt);
+    m_grassWindSeconds = m_windClock.time;
     m_grassField.update(m_terrain, x, z, m_grassWindSeconds, m_water.params().waterLevel, sample);
 }
 
@@ -808,6 +810,8 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
         desc.foliage.rockModel         = m_foliageDensity.rockModel;
         desc.foliage.grassModel        = m_foliageDensity.grassModel;
         desc.grass                     = m_authoredGrass;
+        desc.wind.present              = true;
+        desc.wind.settings             = m_wind;
         data.hasTerrain = true;
         data.terrain    = std::move(desc);
         return;
@@ -859,6 +863,8 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
     desc.foliage.rockModel         = m_foliageDensity.rockModel;
     desc.foliage.grassModel        = m_foliageDensity.grassModel;
     desc.grass                     = m_authoredGrass;
+    desc.wind.present              = true;
+    desc.wind.settings             = m_wind;
     data.hasTerrain = true;
     data.terrain    = std::move(desc);
 }
@@ -1032,6 +1038,7 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
     const TerrainSceneDesc& desc = data.terrain;
     // fillTerrainSceneDesc rebuilds the block from live terrain, which has no grass params.
     m_authoredGrass = desc.grass;
+    m_wind = desc.wind.settings;
     applyAuthoredGrass();
     if (!desc.source.empty())
     {

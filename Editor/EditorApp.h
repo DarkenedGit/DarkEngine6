@@ -11,6 +11,7 @@
 #include "Render/FoliagePrototypes.h"
 #include "Render/GrassPipeline.h"
 #include "Terrain/GrassField.h"
+#include "Terrain/WindField.h"
 #include "Render/LinePipeline.h"
 #include "Render/SceneRenderer.h"
 #include "Render/Camera3D.h"
@@ -340,6 +341,8 @@ private:
     ExposureSceneDesc m_authoredExposure{};
     StealthSceneDesc  m_authoredStealth{};
     GrassSceneDesc    m_authoredGrass{};
+    Terrain::WindSettings m_wind = Terrain::defaultWindSettings();
+    Terrain::WindClock    m_windClock;
     IblSettings  m_ibl;
     GtaoSettings m_ssao;
     SsrSettings  m_ssr;

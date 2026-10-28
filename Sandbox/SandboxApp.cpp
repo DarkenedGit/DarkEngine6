@@ -3878,6 +3878,8 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
         grassParams.windSpatialFreq  = grassScene.windSpatialFreq;
         grassParams.windTemporalFreq = grassScene.windTemporalFreq;
         grassParams.seed             = grassScene.seed;
+        m_wind = sceneData.terrain.wind.settings;
+        Terrain::applyWindToGrass(m_wind, grassParams);
         if (!m_grassPipeline.isValid())
             grassParams.enabled = false;
         m_grassField.setParams(grassParams);
@@ -4494,6 +4496,8 @@ void SandboxApp::onUpdate(float dt)
     m_save.service(world());
     m_water.updateLod(m_viewCamera.GetPosition());
     syncTerrainLod();
+    m_windClock.tick(dt);
+    m_grassWindSeconds = m_windClock.time;
     if (const Entity body = possessedBody(); body.valid())
     {
         if (const TransformComponent* xf = world().get<TransformComponent>(body))
@@ -4508,7 +4512,6 @@ void SandboxApp::onUpdate(float dt)
                 const PlayerMoveState move = motor->state();
                 sample.shoving             = move == PlayerMoveState::Grounded || move == PlayerMoveState::Crouch || move == PlayerMoveState::Dodge;
             }
-            m_grassWindSeconds += static_cast<double>(dt);
             m_grassField.update(m_terrain, xf->position.x, xf->position.z, m_grassWindSeconds, m_water.params().waterLevel, sample);
         }
     }
