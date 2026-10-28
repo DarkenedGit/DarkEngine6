@@ -802,7 +802,7 @@ void EditorApp::tickLeaves(float dt)
     step.ponds       = ponds;
     step.pondCount   = pondCount;
     step.cellMetres  = m_terrain.cellSize();
-    m_leafField.setShedScale(1.0f);
+    m_leafField.setShedScale(m_leafShedScale);
     m_leafField.step(step);
 }
 
@@ -861,6 +861,7 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
         desc.foliage.rockPerM2         = m_foliageDensity.rockPerM2;
         desc.foliage.grassPerM2        = m_foliageDensity.grassPerM2;
         desc.foliage.stale             = m_foliageStale;
+        desc.foliage.shedScale         = m_leafShedScale;
         desc.foliage.treeModel         = m_foliageDensity.treeModel;
         desc.foliage.flowerModel       = m_foliageDensity.flowerModel;
         desc.foliage.rockModel         = m_foliageDensity.rockModel;
@@ -912,6 +913,7 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
     desc.foliage.rockPerM2         = m_foliageDensity.rockPerM2;
     desc.foliage.grassPerM2        = m_foliageDensity.grassPerM2;
     desc.foliage.stale             = m_foliageStale;
+    desc.foliage.shedScale         = m_leafShedScale;
     desc.foliage.treeModel         = m_foliageDensity.treeModel;
     desc.foliage.flowerModel       = m_foliageDensity.flowerModel;
     desc.foliage.rockModel         = m_foliageDensity.rockModel;
@@ -1117,6 +1119,7 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
         m_foliageDensity.rockModel         = desc.foliage.rockModel;
         m_foliageDensity.grassModel        = desc.foliage.grassModel;
         m_foliageStale                     = desc.foliage.stale;
+        m_leafShedScale                    = desc.foliage.shedScale;
         if (!loadWorldEngineTerrain(dir, worldSize, relief))
         {
             resetFoliageAuthoring();
@@ -1224,6 +1227,7 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
     m_foliageDensity.rockModel         = desc.foliage.rockModel;
     m_foliageDensity.grassModel        = desc.foliage.grassModel;
     m_foliageStale                     = desc.foliage.stale;
+    m_leafShedScale                    = desc.foliage.shedScale;
 
     m_terrainSurface = {};
     m_terrainSurface.params.heightBlendK   = desc.heightBlendK;
@@ -1365,6 +1369,7 @@ void EditorApp::resetFoliageAuthoring()
     m_foliageAuthored = false;
     m_foliageStale = false;
     m_foliageDensity = {};
+    m_leafShedScale = 1.0f;
 }
 
 bool EditorApp::onFoliageProgress(float t, const char* phase, void* user)
@@ -1850,6 +1855,9 @@ void EditorApp::drawTerrainPanel()
             }
             ImGui::Text("Trees follow grass and dirt. Grass tufts follow the grass layer. %u trees, %u grass.", trees, grass);
         }
+        ImGui::SliderFloat("Leaf shed", &m_leafShedScale, 0.0f, 1.0f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Share of the designed leaf rate. 0 sheds nothing. 1 is the full rate, still capped by the leaf pool.");
     }
     else
         ImGui::TextWrapped("No terrain in this level. Outdoor scenes use the grey ground plane until you load one.");

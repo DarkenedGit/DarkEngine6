@@ -344,6 +344,7 @@ namespace Dark
         float       rockPerM2          = 0.004f;
         float       grassPerM2         = 0.0f;
         bool        stale              = false;
+        float       shedScale          = 1.0f;
         std::string treeModel   = "models/BirchTree/scene.gltf";
         std::string flowerModel = "models/Dandelion/dandelion_01_2k.gltf";
         std::string rockModel   = "models/RockMoss/rock_moss_set_01_2k.gltf";

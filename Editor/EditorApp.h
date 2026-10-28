@@ -366,6 +366,7 @@ private:
     ParticleRenderer                           m_particleRenderer;
     LeafRenderer                               m_leafRenderer;
     Terrain::LeafField                         m_leafField;
+    float                                      m_leafShedScale  = 1.0f;
     double                                     m_leafSimSeconds = 0.0;
     Entity                                     m_selected{};
 

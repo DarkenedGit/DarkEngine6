@@ -50,6 +50,10 @@ namespace Dark::AI
         float investigateAfter    = 1.0f;
         float investigateSeconds  = 9.0f;
         float alertLoseSeconds    = 2.0f;
+        // Spotter follows the live player this long after losing sight. 0 disables.
+        float alertTrackSeconds   = 1.0f;
+        // Hold the lose timer until the guard reaches noticePos, for at most this long. 0 disables.
+        float alertCatchSeconds   = 10.0f;
         float searchSeconds       = 10.0f;
         float searchFillScale     = 2.5f;
 

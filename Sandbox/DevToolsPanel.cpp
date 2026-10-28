@@ -1517,6 +1517,9 @@ void SandboxApp::drawDevTools()
         ImGui::Text("Blades %u   tiles %u", bladeCount, m_grassField.residentTileCount());
     }
 
+    if (ImGui::CollapsingHeader("Falling leaves"))
+        ImGui::SliderFloat("Shed scale", &m_leafShedScale, 0.0f, 1.0f, "%.2f");
+
     if (ImGui::CollapsingHeader("Jump attack"))
     {
         const Entity body = possessedBody();
@@ -1692,6 +1695,8 @@ void SandboxApp::drawDevTools()
         row("Investigate after", aware.investigateAfter, 0.0f, 10.0f, "%.1f");
         row("Investigate seconds", aware.investigateSeconds, 0.0f, 30.0f, "%.1f");
         row("Alert lose seconds", aware.alertLoseSeconds, 0.0f, 15.0f, "%.1f");
+        row("Alert track seconds", aware.alertTrackSeconds, 0.0f, 5.0f, "%.1f");
+        row("Alert catch seconds", aware.alertCatchSeconds, 0.0f, 30.0f, "%.1f");
         row("Search seconds", aware.searchSeconds, 0.0f, 40.0f, "%.1f");
         row("Search fill", aware.searchFillScale, 0.0f, 8.0f, "%.2f");
         ImGui::TextDisabled("Occlusion and noise");

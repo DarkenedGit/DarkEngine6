@@ -14,8 +14,8 @@ namespace
     constexpr uint64_t kAlertShareBit      = 1ull << 27;
     constexpr uint64_t kWallScaleBit       = 1ull << 30;
     constexpr uint64_t kStanceSprintBit    = 1ull << 35;
-    constexpr uint64_t kBodyStandMidBit    = 1ull << 43;
-    constexpr uint64_t kBodyWeightBit      = 1ull << 48;
+    constexpr uint64_t kBodyStandMidBit    = 1ull << 45;
+    constexpr uint64_t kBodyWeightBit      = 1ull << 50;
 
     void expectNearBuiltIn(const AwarenessSettings& s)
     {
@@ -45,6 +45,8 @@ namespace
         EXPECT_NEAR(s.investigateAfter, d.investigateAfter, 1.0e-4f);
         EXPECT_NEAR(s.investigateSeconds, d.investigateSeconds, 1.0e-4f);
         EXPECT_NEAR(s.alertLoseSeconds, d.alertLoseSeconds, 1.0e-4f);
+        EXPECT_NEAR(s.alertTrackSeconds, d.alertTrackSeconds, 1.0e-4f);
+        EXPECT_NEAR(s.alertCatchSeconds, d.alertCatchSeconds, 1.0e-4f);
         EXPECT_NEAR(s.searchSeconds, d.searchSeconds, 1.0e-4f);
         EXPECT_NEAR(s.searchFillScale, d.searchFillScale, 1.0e-4f);
         EXPECT_NEAR(s.alertShareRadius, d.alertShareRadius, 1.0e-4f);
@@ -154,6 +156,8 @@ TEST(AwarenessSettings, SanitizeClampsRatesAndKeepsHeights)
     settings.noiseBase        = -0.5f;
     settings.stanceSprint     = -2.0f;
     settings.strideWalk       = -1.0f;
+    settings.alertTrackSeconds = -1.0f;
+    settings.alertCatchSeconds = -2.0f;
     settings.clearExposure    = 2.0f;
     settings.bodyWeight[1]    = -0.5f;
     settings.bodyStandHeight[2] = -0.4f;
@@ -165,6 +169,8 @@ TEST(AwarenessSettings, SanitizeClampsRatesAndKeepsHeights)
     EXPECT_FLOAT_EQ(settings.noiseBase, 0.0f);
     EXPECT_FLOAT_EQ(settings.stanceSprint, 0.0f);
     EXPECT_FLOAT_EQ(settings.strideWalk, 0.0f);
+    EXPECT_FLOAT_EQ(settings.alertTrackSeconds, 0.0f);
+    EXPECT_FLOAT_EQ(settings.alertCatchSeconds, 0.0f);
     EXPECT_FLOAT_EQ(settings.clearExposure, 1.0f);
     EXPECT_FLOAT_EQ(settings.bodyWeight[1], 0.0f);
     EXPECT_FLOAT_EQ(settings.bodyStandHeight[2], -0.4f);

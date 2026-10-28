@@ -25,6 +25,8 @@
   "investigateAfter": 1.0,
   "investigateSeconds": 9.0,
   "alertLoseSeconds": 2.0,
+  "alertTrackSeconds": 1.0,
+  "alertCatchSeconds": 10.0,
   "searchSeconds": 10.0,
   "searchFillScale": 2.5,
   "alertShareRadius": 30.0,

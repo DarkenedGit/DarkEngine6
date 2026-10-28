@@ -3867,6 +3867,7 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
         m_foliageDensity.flowerModel       = sceneData.terrain.foliage.flowerModel;
         m_foliageDensity.rockModel         = sceneData.terrain.foliage.rockModel;
         m_foliageDensity.grassModel        = sceneData.terrain.foliage.grassModel;
+        m_leafShedScale                    = sceneData.terrain.foliage.shedScale;
 
         const GrassSceneDesc& grassScene = sceneData.terrain.grass;
         GrassParams           grassParams;
@@ -4444,7 +4445,7 @@ void SandboxApp::tickLeaves(float dt)
     step.lake        = m_water.chunksX() > 0;
     step.lakeLevel   = m_water.params().waterLevel;
     step.cellMetres  = m_terrain.cellSize();
-    m_leafField.setShedScale(1.0f);
+    m_leafField.setShedScale(m_leafShedScale);
     m_leafField.step(step);
 }
 

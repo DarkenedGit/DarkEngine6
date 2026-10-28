@@ -7,6 +7,7 @@
 #include "Scene/SceneFile.h"
 #include "Terrain/FoliageFile.h"
 #include "Terrain/GrassTypes.h"
+#include "Terrain/LeafField.h"
 
 #include <cmath>
 #include <filesystem>
@@ -1193,6 +1194,121 @@ TEST(SceneFile, TerrainFoliage_ClampDensities)
     std::filesystem::remove(path, removeEc);
 }
 
+TEST(SceneFile, FoliageShedScale_RoundTripClampAndMissing)
+{
+    SceneFileData in{};
+    in.version                 = 2;
+    in.name                    = "ut_shed";
+    in.mode                    = SceneMode::Scene3D;
+    in.hasTerrain              = true;
+    in.terrain.hasGrid         = true;
+    in.terrain.grid.tilesX     = 1;
+    in.terrain.grid.tilesZ     = 1;
+    in.terrain.foliage.present = true;
+    in.terrain.foliage.shedScale = 0.25f;
+
+    const auto path = tempScenePath("darkengine6_scene_shed_scale_ut.json");
+    std::string err;
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+    SceneFileData out{};
+    ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
+    EXPECT_NEAR(out.terrain.foliage.shedScale, 0.25f, 1.0e-5f);
+    Terrain::LeafField field;
+    field.setShedScale(out.terrain.foliage.shedScale);
+    EXPECT_NEAR(field.shedScale(), 0.25f, 1.0e-5f);
+
+    const auto missingPath = tempScenePath("darkengine6_scene_shed_missing_ut.json");
+    {
+        std::ofstream file(missingPath, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(file));
+        file << R"({
+  "version": 2,
+  "name": "shed_missing",
+  "mode": "3d",
+  "terrain": { "bindLayout": 1, "foliage": { "version": 1, "seed": 7 }, "layers": [] },
+  "objects": []
+})";
+    }
+    SceneFileData missing{};
+    ASSERT_TRUE(loadSceneFromJson(missingPath, missing, &err)) << err;
+    EXPECT_TRUE(missing.terrain.foliage.present);
+    EXPECT_NEAR(missing.terrain.foliage.shedScale, 1.0f, 1.0e-5f);
+
+    const auto clampPath = tempScenePath("darkengine6_scene_shed_clamp_ut.json");
+    {
+        std::ofstream file(clampPath, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(file));
+        file << R"({
+  "version": 2,
+  "name": "shed_low",
+  "mode": "3d",
+  "terrain": { "bindLayout": 1, "foliage": { "shedScale": -2.5 }, "layers": [] },
+  "objects": []
+})";
+    }
+    SceneFileData low{};
+    ASSERT_TRUE(loadSceneFromJson(clampPath, low, &err)) << err;
+    EXPECT_NEAR(low.terrain.foliage.shedScale, 0.0f, 1.0e-5f);
+    field.setShedScale(low.terrain.foliage.shedScale);
+    Terrain::LeafField::Crown crown;
+    crown.id     = 1;
+    crown.crownY = 12.0f;
+    Terrain::LeafField::Step step;
+    step.dt         = 1.0f;
+    step.simTime    = 1.0;
+    step.crowns     = &crown;
+    step.crownCount = 1;
+    field.step(step);
+    EXPECT_EQ(field.spawnedTotal(), 0u);
+
+    {
+        std::ofstream file(clampPath, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(file));
+        file << R"({
+  "version": 2,
+  "name": "shed_high",
+  "mode": "3d",
+  "terrain": { "bindLayout": 1, "foliage": { "shedScale": 4.0 }, "layers": [] },
+  "objects": []
+})";
+    }
+    SceneFileData high{};
+    ASSERT_TRUE(loadSceneFromJson(clampPath, high, &err)) << err;
+    EXPECT_NEAR(high.terrain.foliage.shedScale, 1.0f, 1.0e-5f);
+
+    {
+        std::ofstream file(clampPath, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(file));
+        file << R"({
+  "version": 2,
+  "name": "shed_bad",
+  "mode": "3d",
+  "terrain": { "bindLayout": 1, "foliage": { "shedScale": "lots" }, "layers": [] },
+  "objects": []
+})";
+    }
+    SceneFileData bad{};
+    ASSERT_TRUE(loadSceneFromJson(clampPath, bad, &err)) << err;
+    EXPECT_NEAR(bad.terrain.foliage.shedScale, 1.0f, 1.0e-5f);
+
+    std::error_code removeEc;
+    std::filesystem::remove(path, removeEc);
+    std::filesystem::remove(missingPath, removeEc);
+    std::filesystem::remove(clampPath, removeEc);
+}
+
+TEST(SceneFile, LevelJson_MissingShedScaleDefaultsToOne)
+{
+    const auto path = defaultScenePath("level.json");
+    std::error_code existsEc;
+    if (!std::filesystem::exists(path, existsEc) || existsEc)
+        GTEST_SKIP() << "level.json is not in the content root";
+    SceneFileData data{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
+    EXPECT_NEAR(data.terrain.foliage.shedScale, 1.0f, 1.0e-5f);
+}
+
 TEST(SceneFile, TerrainGrass_RoundTrip)
 {
     const auto missingPath = tempScenePath("darkengine6_scene_terrain_grass_missing_ut.json");
@@ -2190,7 +2306,7 @@ TEST(SceneFile, StealthSettingsRoundTrip)
     EXPECT_NE(partial.stealth.settingsMask & (1ull << 27), 0ull);
     EXPECT_NE(partial.stealth.settingsMask & (1ull << 30), 0ull);
     EXPECT_NE(partial.stealth.settingsMask & (1ull << 35), 0ull);
-    EXPECT_NE(partial.stealth.settingsMask & (1ull << 50), 0ull);
+    EXPECT_NE(partial.stealth.settingsMask & (1ull << 52), 0ull);
 
     const auto badPath = tempScenePath("darkengine6_scene_stealth_bad_settings_ut.json");
     {
@@ -2236,9 +2352,9 @@ TEST(SceneFile, StealthSettingsRoundTrip)
     EXPECT_NEAR(out.stealth.settings.fillNear, 1.8f, 1.0e-4f);
     EXPECT_NE(out.stealth.settingsMask & (1ull << 0), 0ull);
     EXPECT_NE(out.stealth.settingsMask & (1ull << 27), 0ull);
-    EXPECT_NE(out.stealth.settingsMask & (1ull << 48), 0ull);
     EXPECT_NE(out.stealth.settingsMask & (1ull << 50), 0ull);
-    EXPECT_EQ(out.stealth.settingsMask >> 51, 0ull);
+    EXPECT_NE(out.stealth.settingsMask & (1ull << 52), 0ull);
+    EXPECT_EQ(out.stealth.settingsMask >> 53, 0ull);
 
     std::error_code ecRemove;
     std::filesystem::remove(path, ecRemove);

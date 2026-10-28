@@ -313,6 +313,7 @@ private:
     double                                    m_grassWindSeconds = 0.0;
     Dark::Terrain::LeafField                  m_leafField;
     Dark::LeafRenderer                        m_leafRenderer;
+    float                                     m_leafShedScale  = 1.0f;
     double                                    m_leafSimSeconds = 0.0;
     bool                                      m_loggedForwardGrassSkip = false;
     Dark::Terrain::FoliageDensity             m_foliageDensity{};

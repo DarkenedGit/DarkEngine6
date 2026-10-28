@@ -201,6 +201,8 @@ namespace Dark::AI
             { "strideCrouch", &AwarenessSettings::strideCrouch, true, -1.0f },
             { "strideSprint", &AwarenessSettings::strideSprint, true, -1.0f },
             { "strideWalk", &AwarenessSettings::strideWalk, true, -1.0f },
+            { "alertTrackSeconds", &AwarenessSettings::alertTrackSeconds, true, -1.0f },
+            { "alertCatchSeconds", &AwarenessSettings::alertCatchSeconds, true, -1.0f },
         };
 
         constexpr int kScalarCount = static_cast<int>(sizeof(kFields) / sizeof(kFields[0]));

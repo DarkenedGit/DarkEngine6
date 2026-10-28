@@ -398,6 +398,14 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             f["rockPerM2"]         = scene.terrain.foliage.rockPerM2;
             f["grassPerM2"]        = scene.terrain.foliage.grassPerM2;
             f["stale"]             = scene.terrain.foliage.stale;
+            {
+                float shed = scene.terrain.foliage.shedScale;
+                if (!(shed > 0.0f))
+                    shed = 0.0f;
+                else if (shed > 1.0f)
+                    shed = 1.0f;
+                f["shedScale"] = shed;
+            }
             f["treeModel"]         = scene.terrain.foliage.treeModel;
             f["flowerModel"]       = scene.terrain.foliage.flowerModel;
             f["rockModel"]         = scene.terrain.foliage.rockModel;
@@ -701,6 +709,15 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                     desc.foliage.rockPerM2          = Math::Clamp(f.value("rockPerM2", 0.004f), 0.0f, 1.0f);
                     desc.foliage.grassPerM2         = Math::Clamp(f.value("grassPerM2", 0.0f), 0.0f, 1.0f);
                     desc.foliage.stale              = f.value("stale", false);
+                    {
+                        float shed = 1.0f;
+                        jsonFloatOr(f, "shedScale", shed, 1.0f, "SceneFile");
+                        if (!(shed > 0.0f))
+                            shed = 0.0f;
+                        else if (shed > 1.0f)
+                            shed = 1.0f;
+                        desc.foliage.shedScale = shed;
+                    }
                     desc.foliage.treeModel          = f.value("treeModel", std::string("models/BirchTree/scene.gltf"));
                     desc.foliage.flowerModel        = f.value("flowerModel", std::string("models/Dandelion/dandelion_01_2k.gltf"));
                     desc.foliage.rockModel          = f.value("rockModel", std::string("models/RockMoss/rock_moss_set_01_2k.gltf"));
