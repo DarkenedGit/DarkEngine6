@@ -1321,6 +1321,18 @@ namespace Dark
             m_boundsMax[kind][0]     = box.Max.x;
             m_boundsMax[kind][1]     = box.Max.y;
             m_boundsMax[kind][2]     = box.Max.z;
+
+            // Inflate bounds for wind sway
+            const Terrain::TreeWindParams& windParams = m_wind.kind[kind];
+            if (windParams.influence > 0.0f && m_kindValid[kind] != 0)
+            {
+                const float m = windParams.maxSwayMetres * std::min(windParams.influence, 1.0f) * std::max(m_wind.strength, 1.0f);
+                m_boundsMin[kind][0] -= m;
+                m_boundsMin[kind][2] -= m;
+                m_boundsMax[kind][0] += m;
+                m_boundsMax[kind][2] += m;
+                m_boundsMax[kind][1] += 0.1f * m;
+            }
         }
         const size_t n = m_cpuWorlds.size() < Terrain::kMaxFoliageDraw ? m_cpuWorlds.size() : static_cast<size_t>(Terrain::kMaxFoliageDraw);
         for (size_t i = 0; i < n; ++i)
@@ -1573,6 +1585,8 @@ namespace Dark
         if (!cmd || !prepare(renderer, assets, prototypes, grid, editorRecords, density, camera, frustum, nullptr))
             return;
 
+        writeViewConstants(camera, &viewProj, &prevViewProj);
+
         GpuResourceCache& gpu = renderer.gpuResources();
         if (m_gpuCull)
             tryGpuCull(cmd, gpu, prototypes, false, false);
@@ -1587,6 +1601,7 @@ namespace Dark
 
         const D3D12_GPU_VIRTUAL_ADDRESS worldVa   = m_worldGpu + static_cast<UINT64>(m_activeSlot) * kWorldStride;
         const D3D12_GPU_VIRTUAL_ADDRESS indexBase = m_indexGpu + (static_cast<UINT64>(m_activeSlot) * kViewsPerFrame + m_activeView) * kIndexViewStride;
+        const D3D12_GPU_VIRTUAL_ADDRESS viewVa    = m_viewCbGpu + (static_cast<UINT64>(m_activeSlot) * kViewsPerFrame + m_activeView) * Terrain::kFoliageViewCbStride;
 
         for (int i = 0; i < kKindCount; ++i)
         {
@@ -1610,12 +1625,12 @@ namespace Dark
                 gpu.bindMaterial(cmd, part.materialId, kGbMaterial);
                 FoliageGBufferConstants cb{};
                 copyMatrix(cb.localToRoot, partLocalToRoot(part.localToRoot, kind));
-                copyMatrix(cb.viewProj, viewProj);
-                copyMatrix(cb.prevViewProj, prevViewProj);
                 fillSurface(gpu, part.materialId, cb);
+                cb.kindIndex = static_cast<float>(i);
                 cmd->SetGraphicsRoot32BitConstants(kGbConstants, static_cast<UINT>(sizeof(cb) / 4), &cb, 0);
                 cmd->SetGraphicsRootShaderResourceView(kGbWorlds, worldVa);
                 cmd->SetGraphicsRootShaderResourceView(kGbIndices, indexVa);
+                cmd->SetGraphicsRootConstantBufferView(kGbView, viewVa);
                 if (m_gpuCull && m_cull)
                     part.mesh.drawIndirect(cmd, m_cull->signature.Get(), m_cull->args[m_activeSlot].Get(), cullArgumentOffset(m_activeView, static_cast<uint32_t>(i), partSlot));
                 else
@@ -1648,6 +1663,8 @@ namespace Dark
         if (!cmd || !m_depthReady || !m_depthRenderer || !m_depthPrototypes)
             return;
 
+        writeViewConstants(m_depthRenderer->camera(), nullptr, nullptr);
+
         Renderer& renderer = *m_depthRenderer;
         FoliagePrototypes& prototypes = *m_depthPrototypes;
         GpuResourceCache& gpu = renderer.gpuResources();
@@ -1661,6 +1678,7 @@ namespace Dark
 
         const D3D12_GPU_VIRTUAL_ADDRESS worldVa   = m_worldGpu + static_cast<UINT64>(m_activeSlot) * kWorldStride;
         const D3D12_GPU_VIRTUAL_ADDRESS indexBase = m_indexGpu + (static_cast<UINT64>(m_activeSlot) * kViewsPerFrame + m_activeView) * kIndexViewStride;
+        const D3D12_GPU_VIRTUAL_ADDRESS viewVa    = m_viewCbGpu + (static_cast<UINT64>(m_activeSlot) * kViewsPerFrame + m_activeView) * Terrain::kFoliageViewCbStride;
 
         for (int i = 0; i < kKindCount; ++i)
         {
@@ -1683,6 +1701,7 @@ namespace Dark
                 copyMatrix(cb.lightWVP, lightViewProj);
                 cb.alphaCutoff   = 0.5f;
                 cb.alphaModeMask = 0.0f;
+                cb.kindIndex     = static_cast<float>(i);
                 if (cpuPart && cpuPart->material)
                 {
                     cb.alphaCutoff   = cpuPart->material->alphaCutoff();
@@ -1691,6 +1710,7 @@ namespace Dark
                 cmd->SetGraphicsRoot32BitConstants(kDepthConstants, static_cast<UINT>(sizeof(cb) / 4), &cb, 0);
                 cmd->SetGraphicsRootShaderResourceView(kDepthWorlds, worldVa);
                 cmd->SetGraphicsRootShaderResourceView(kDepthIndices, indexVa);
+                cmd->SetGraphicsRootConstantBufferView(kDepthView, viewVa);
                 if (m_gpuCull && m_cull)
                     part.mesh.drawIndirect(cmd, m_cull->signature.Get(), m_cull->args[m_activeSlot].Get(), cullArgumentOffset(m_activeView, static_cast<uint32_t>(i), partSlot));
                 else
