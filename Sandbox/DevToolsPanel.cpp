@@ -339,6 +339,54 @@ void SandboxApp::drawJournal()
     ImGui::End();
 }
 
+void SandboxApp::drawGuardSpeech()
+{
+    const std::vector<GuardSubtitle>& subs = m_guardVoice.subtitles();
+    if (subs.empty())
+        return;
+    const ImGuiViewport*      vp   = ImGui::GetMainViewport();
+    ImDrawList*               dl   = ImGui::GetBackgroundDrawList(const_cast<ImGuiViewport*>(vp));
+    ImFont*                   font = ImGui::GetFont();
+    const float               fs   = ImGui::GetFontSize();
+    const Entity              body = possessedBody();
+    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    const float               vw   = static_cast<float>(renderer().width());
+    const float               vh   = static_cast<float>(renderer().height());
+    const GuardSubtitle*      closest = nullptr;
+    float                     closestD = 1.0e12f;
+    for (const GuardSubtitle& sub : subs)
+    {
+        const TransformComponent* gxf = world().alive(sub.speaker) ? world().get<TransformComponent>(sub.speaker) : nullptr;
+        if (!gxf)
+            continue;
+        const float d = pxf ? (gxf->position - pxf->position).MagnitudeSqrd() : 0.0f;
+        if (d > 45.0f * 45.0f)
+            continue;
+        if (d < closestD)
+        {
+            closestD = d;
+            closest  = &sub;
+        }
+        const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(Vector3f(gxf->position.x, gxf->position.y + 2.1f, gxf->position.z), 1.0f);
+        if (clip.w <= 1.0e-4f || clip.z / clip.w < 0.0f || clip.z / clip.w > 1.0f)
+            continue;
+        const int    a  = static_cast<int>(Math::Clamp(sub.timeLeft * 3.0f, 0.0f, 1.0f) * 255.0f);
+        const ImVec2 ts = font->CalcTextSizeA(fs, 260.0f, 260.0f, sub.text.c_str());
+        const ImVec2 at{ vp->Pos.x + (clip.x / clip.w * 0.5f + 0.5f) * vw - ts.x * 0.5f, vp->Pos.y + (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * vh - ts.y };
+        dl->AddRectFilled(ImVec2(at.x - 6.0f, at.y - 3.0f), ImVec2(at.x + ts.x + 6.0f, at.y + ts.y + 3.0f), IM_COL32(10, 14, 12, a * 150 / 255), 3.0f);
+        dl->AddText(font, fs, at, IM_COL32(255, 255, 255, a), sub.text.c_str(), nullptr, 260.0f);
+    }
+    if (closest)
+    {
+        const std::string line = "Guard: " + closest->text;
+        const float       size = fs * 1.15f;
+        const ImVec2      ts   = font->CalcTextSizeA(size, FLT_MAX, 0.0f, line.c_str());
+        const ImVec2      at{ vp->Pos.x + (vp->Size.x - ts.x) * 0.5f, vp->Pos.y + vp->Size.y - 150.0f };
+        dl->AddText(font, size, ImVec2(at.x + 1.5f, at.y + 1.5f), IM_COL32(0, 0, 0, 220), line.c_str());
+        dl->AddText(font, size, at, IM_COL32(235, 235, 210, 255), line.c_str());
+    }
+}
+
 void SandboxApp::drawStaminaBar()
 {
     const PlayerMotor* motor = localMotor();

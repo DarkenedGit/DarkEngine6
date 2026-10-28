@@ -41,6 +41,7 @@
 #include "PathChase.h"
 #include "Terrain/TerrainGround.h"
 #include "Play/Carry.h"
+#include "Play/GuardVoice.h"
 #include "Play/ImpactFx.h"
 #include "Play/Spawner.h"
 #include "Play/Crow.h"
@@ -101,6 +102,7 @@ private:
     void drawDefenseText();
     void drawTargetMarker();
     void drawGuardAwareness();
+    void drawGuardSpeech();
     float playerLightLevel();
     void drawStaminaBar();
     void startQuest(const std::string& id);
@@ -267,6 +269,7 @@ private:
     };
     InteractPick pickInteract();
     Dark::QuestRuntime              m_quest;
+    Dark::GuardVoice                m_guardVoice;
     std::string                     m_sceneQuest;
     struct QuestBanner
     {

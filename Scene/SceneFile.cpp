@@ -553,6 +553,8 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             if (o.pickupCount != 1)
                 jo["pickupCount"] = o.pickupCount;
         }
+        if (!o.squad.empty())
+            jo["squad"] = o.squad;
         if (!o.patrol.empty())
         {
             json points = json::array();
@@ -1106,6 +1108,7 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
         jsonBoolOr(jo, "goal", o.goal, false, "SceneFile");
         jsonStringOr(jo, "circuit", o.circuit, std::string(), "SceneFile");
         jsonStringOr(jo, "zone", o.zone, std::string(), "SceneFile");
+        jsonStringOr(jo, "squad", o.squad, std::string(), "SceneFile");
         jsonStringOr(jo, "pickup", o.pickup, std::string(), "SceneFile");
         jsonIntOr(jo, "pickupCount", o.pickupCount, 1, "SceneFile");
         if (jo.contains("patrol") && jo["patrol"].is_array())

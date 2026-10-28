@@ -1573,17 +1573,22 @@ namespace Dark
                 in.noise     = noise;
                 in.noisePos  = noisePos;
                 in.playerPos = playerPos;
+                const AI::Alertness wasAlertness = v.ai->aware.alertness;
                 if (AI::stepAwareness(v.ai->aware, m_aware, in, dt))
+                    shoutAlert(world, e, v.xf->position, playerPos);
+                else if (wasAlertness == AI::Alertness::Calm && v.ai->aware.alertness != AI::Alertness::Calm)
+                    shareSuspicion(world, e, v.ai->aware.noticePos);
+                if (v.ai->aware.alertness == AI::Alertness::Alert && !v.ai->aware.seesNow && playerAlive)
                 {
-                    for (Entity other : m_scratch)
-                    {
-                        AiAgentComponent*         oai = other.id() != e.id() ? world.get<AiAgentComponent>(other) : nullptr;
-                        const TransformComponent* oxf = oai ? world.get<TransformComponent>(other) : nullptr;
-                        if (!oxf || entityIsWolf(world, other) || !withinAlertShare(oxf->position, v.xf->position, m_aware.alertShareRadius))
-                            continue;
-                        AI::alertToInvestigate(oai->aware, playerPos);
-                    }
+                    v.ai->lostFor += dt;
+                    if (v.ai->lostFor < 1.0f)
+                        v.ai->aware.noticePos = playerPos;
+                    const float toLast = Vector3f{ v.ai->aware.noticePos.x - v.xf->position.x, 0.0f, v.ai->aware.noticePos.z - v.xf->position.z }.MagnitudeSqrd();
+                    if (toLast > 2.0f * 2.0f && v.ai->lostFor < 10.0f)
+                        v.ai->aware.stateTime = 0.0f;
                 }
+                else
+                    v.ai->lostFor = 0.0f;
                 for (Entity other : m_scratch)
                 {
                     if (v.ai->aware.alertness == AI::Alertness::Alert)
@@ -1621,7 +1626,8 @@ namespace Dark
                         AiAgentComponent*         mai = mate.id() != e.id() ? world.get<AiAgentComponent>(mate) : nullptr;
                         const TransformComponent* mxf = mai ? world.get<TransformComponent>(mate) : nullptr;
                         const HealthComponent*    mhp = mai ? world.get<HealthComponent>(mate) : nullptr;
-                        if (!mxf || !mhp || !mhp->health.alive() || entityIsWolf(world, mate) || (mxf->position - v.xf->position).MagnitudeSqrd() > 15.0f * 15.0f)
+                        const bool squadMate = v.ai->squad != 0 && mai && mai->squad == v.ai->squad;
+                        if (!mxf || !mhp || !mhp->health.alive() || entityIsWolf(world, mate) || (!squadMate && (mxf->position - v.xf->position).MagnitudeSqrd() > 15.0f * 15.0f))
                             continue;
                         AI::alertToInvestigate(mai->aware, oxf->position);
                         mai->aware.wary = true;
@@ -1629,6 +1635,8 @@ namespace Dark
                     break;
                 }
                 sees = v.ai->aware.alertness == AI::Alertness::Alert && v.ai->aware.seesNow;
+                if (sees)
+                    m_spotters.push_back(Spotter{ v.xf->position, v.ai->squad });
             }
             v.ai->passive = guard && v.ai->aware.alertness != AI::Alertness::Alert;
             // Chase `sees` still includes standoff and the flat fallback. See XP does not.
@@ -2058,6 +2066,31 @@ namespace Dark
                 v.ai->footstepAcc = 0.0f;
             stampPlanarVelocity();
         }
+        if (!m_spotters.empty() && playerAlive)
+        {
+            for (Entity other : m_scratch)
+            {
+                AiAgentComponent*         oai = world.get<AiAgentComponent>(other);
+                const TransformComponent* oxf = oai ? world.get<TransformComponent>(other) : nullptr;
+                const HealthComponent*    ohp = oai ? world.get<HealthComponent>(other) : nullptr;
+                if (!oxf || !ohp || !ohp->health.alive() || entityIsWolf(world, other) || oai->aware.seesNow)
+                    continue;
+                const bool squadded = oai->squad != 0;
+                if (!squadded && oai->aware.alertness != AI::Alertness::Alert && oai->aware.alertness != AI::Alertness::Searching)
+                    continue;
+                for (const Spotter& spotter : m_spotters)
+                {
+                    if (!teammates(oai->squad, oxf->position, spotter.squad, spotter.pos))
+                        continue;
+                    oai->aware.alertness = AI::Alertness::Alert;
+                    oai->aware.noticePos = playerPos;
+                    oai->aware.heardOnly = false;
+                    oai->aware.stateTime = 0.0f;
+                    break;
+                }
+            }
+        }
+        m_spotters.clear();
         m_noises.clear();
     }
 
@@ -2102,15 +2135,53 @@ namespace Dark
             return;
         const bool already = ai->aware.alertness == AI::Alertness::Alert;
         AI::forceAlert(ai->aware, attackerPos);
-        if (already)
+        if (!already)
+            shoutAlert(world, e, xf->position, attackerPos);
+    }
+
+    bool AiSystem::teammates(uint32_t squadA, const Vector3f& a, uint32_t squadB, const Vector3f& b) const
+    {
+        if (squadA != 0 && squadA == squadB)
+            return true;
+        return withinAlertShare(a, b, m_aware.alertShareRadius);
+    }
+
+    void AiSystem::shareSuspicion(World& world, Entity caller, const Vector3f& where)
+    {
+        const AiAgentComponent* cai = world.get<AiAgentComponent>(caller);
+        if (!cai || cai->squad == 0)
             return;
         for (Entity other : m_scratch)
         {
-            AiAgentComponent*         oai = other.id() != e.id() ? world.get<AiAgentComponent>(other) : nullptr;
-            const TransformComponent* oxf = oai ? world.get<TransformComponent>(other) : nullptr;
-            if (oxf && !entityIsWolf(world, other) && withinAlertShare(oxf->position, xf->position, m_aware.alertShareRadius))
-                AI::alertToInvestigate(oai->aware, attackerPos);
+            AiAgentComponent*      oai = other.id() != caller.id() ? world.get<AiAgentComponent>(other) : nullptr;
+            const HealthComponent* ohp = oai ? world.get<HealthComponent>(other) : nullptr;
+            if (!ohp || !ohp->health.alive() || oai->squad != cai->squad || oai->aware.alertness != AI::Alertness::Calm)
+                continue;
+            AI::alertToInvestigate(oai->aware, where);
         }
+    }
+
+    void AiSystem::shoutAlert(World& world, Entity caller, const Vector3f& callerPos, const Vector3f& playerPos)
+    {
+        int                     called = 0;
+        const AiAgentComponent* cai    = world.get<AiAgentComponent>(caller);
+        const uint32_t          squad  = cai ? cai->squad : 0u;
+        for (Entity other : m_scratch)
+        {
+            AiAgentComponent*         oai = other.id() != caller.id() ? world.get<AiAgentComponent>(other) : nullptr;
+            const TransformComponent* oxf = oai ? world.get<TransformComponent>(other) : nullptr;
+            const HealthComponent*    ohp = oai ? world.get<HealthComponent>(other) : nullptr;
+            if (!oxf || !ohp || !ohp->health.alive() || entityIsWolf(world, other) || !teammates(squad, callerPos, oai->squad, oxf->position))
+                continue;
+            if (oai->aware.alertness != AI::Alertness::Alert)
+            {
+                AI::forceAlert(oai->aware, playerPos);
+                oai->aware.seesNow = false;
+                ++called;
+            }
+        }
+        if (called > 0)
+            DE_LOG_INFO(LogCategory::AI, "Guard: shouted for help, {} guard(s) responding", called);
     }
 
     AiSystem::MeleeResponse AiSystem::respondToMelee(World& world, Entity e, const Vector3f& attackerPos)

@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "enabled": true,
+  "volume": 1.0,
+  "maxDistance": 40.0,
+  "hearRange": 30.0,
+  "idleMin": 25.0,
+  "idleMax": 55.0,
+  "chatRange": 8.0,
+  "chatEvery": 40.0,
+  "lines": {
+    "suspicious": [
+      "Hm? What was that?",
+      "Did something just move?",
+      "Who's there?",
+      "Huh. I thought I saw something.",
+      "Hello?"
+    ],
+    "investigate": [
+      "I'm going to check that out.",
+      "Stay sharp. I'll take a look.",
+      "Something's over there.",
+      "Better make sure."
+    ],
+    "alert": [
+      "There! Intruder!",
+      "Got you! Over here!",
+      "Contact! I need backup!",
+      "Stop right there!",
+      "Someone's in the facility!"
+    ],
+    "answer": [
+      "On my way!",
+      "Coming!",
+      "Hold him there!",
+      "I'm right behind you!"
+    ],
+    "lost": [
+      "Where did he go?",
+      "I lost him. Spread out!",
+      "He can't have gone far.",
+      "Check every corner!"
+    ],
+    "giveUp": [
+      "Must have been nothing.",
+      "Probably just a rat.",
+      "I'm getting jumpy.",
+      "All clear. Back to it."
+    ],
+    "foundBody": [
+      "Man down! We've got a man down!",
+      "Oh no. Somebody did this.",
+      "He's out cold. Someone's here!",
+      "Body! Search the area!"
+    ],
+    "idle": [
+      "Long night.",
+      "Another twelve hours of this.",
+      "I hate the night shift.",
+      "Why do they even need us out here?",
+      "My feet are killing me."
+    ]
+  },
+  "chats": [
+    [ "Quiet tonight.", "Too quiet, if you ask me." ],
+    [ "You hear what they keep in the north lab?", "Don't ask. I don't want to know." ],
+    [ "Did the power flicker earlier?", "Old wiring. Happens every week." ],
+    [ "When's your shift over?", "Not soon enough." ],
+    [ "Keep your eyes open.", "Always do." ]
+  ]
+}

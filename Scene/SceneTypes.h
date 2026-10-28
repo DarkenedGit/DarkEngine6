@@ -294,6 +294,7 @@ namespace Dark
         std::vector<Math::Vector2f> streamPoints;
 
         std::vector<Math::Vector2f> patrol;
+        std::string                 squad;
 
         bool conceal = false;
         bool goal    = false;

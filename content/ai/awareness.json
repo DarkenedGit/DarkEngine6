@@ -27,7 +27,7 @@
   "alertLoseSeconds": 2.0,
   "searchSeconds": 10.0,
   "searchFillScale": 2.5,
-  "alertShareRadius": 12.0,
+  "alertShareRadius": 30.0,
   "reactMeter": 0.15,
   "concealShown": 0.15,
   "wallScale": 0.5,

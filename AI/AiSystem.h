@@ -177,6 +177,15 @@ namespace Dark
             float          range;
         };
         std::vector<Noise>  m_noises;
+        struct Spotter
+        {
+            Math::Vector3f pos;
+            uint32_t       squad = 0;
+        };
+        std::vector<Spotter> m_spotters;
+        bool teammates(uint32_t squadA, const Math::Vector3f& a, uint32_t squadB, const Math::Vector3f& b) const;
+        void shoutAlert(World& world, Entity caller, const Math::Vector3f& callerPos, const Math::Vector3f& playerPos);
+        void shareSuspicion(World& world, Entity caller, const Math::Vector3f& where);
         std::vector<Math::AABox3f> m_conceal;
         AI::AwarenessSettings m_aware{};
         bool                  m_awareFromData = false;
