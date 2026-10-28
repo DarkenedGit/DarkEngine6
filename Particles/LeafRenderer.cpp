@@ -202,6 +202,42 @@ namespace Dark
             crown.crownY = crownY;
             return true;
         }
+
+        // Tree indices in host order for one vector (pointer + size). Not crown positions.
+        // Rebuild when that key changes or a cached index is no longer a tree.
+        struct HostTreeIndex
+        {
+            const Terrain::FoliageRecord* data = nullptr;
+            size_t                        size = 0;
+            std::vector<uint32_t>         trees;
+        };
+
+        bool hostTreeIndexCurrent(const HostTreeIndex& cache, const std::vector<Terrain::FoliageRecord>& host)
+        {
+            if (cache.data != host.data() || cache.size != host.size())
+                return false;
+            const uint8_t tree = static_cast<uint8_t>(Terrain::FoliageKind::Tree);
+            for (uint32_t index : cache.trees)
+            {
+                if (static_cast<size_t>(index) >= host.size() || host[index].kind != tree)
+                    return false;
+            }
+            return true;
+        }
+
+        void rebuildHostTreeIndex(HostTreeIndex& cache, const std::vector<Terrain::FoliageRecord>& host)
+        {
+            cache.data = host.data();
+            cache.size = host.size();
+            cache.trees.clear();
+            const uint8_t tree = static_cast<uint8_t>(Terrain::FoliageKind::Tree);
+            for (size_t i = 0; i < host.size(); ++i)
+            {
+                if (host[i].kind != tree)
+                    continue;
+                cache.trees.push_back(static_cast<uint32_t>(i));
+            }
+        }
     } // namespace
 
     int gatherLeafCrowns(const Terrain::TerrainGrid& grid, const std::vector<Terrain::FoliageRecord>* hostRecords,
@@ -212,8 +248,12 @@ namespace Dark
         int count = 0;
         if (hostRecords)
         {
-            for (const Terrain::FoliageRecord& rec : *hostRecords)
+            static HostTreeIndex treeIndex;
+            if (!hostTreeIndexCurrent(treeIndex, *hostRecords))
+                rebuildHostTreeIndex(treeIndex, *hostRecords);
+            for (uint32_t index : treeIndex.trees)
             {
+                const Terrain::FoliageRecord& rec = (*hostRecords)[index];
                 if (!tileResident(grid, rec.x, rec.z))
                     continue;
                 if (!pushCrown(rec, camera, frustum, treeTopY, out, cap, count))

@@ -241,7 +241,6 @@ namespace Dark::Terrain
                 slot.vz += (targetZ - slot.vz) * damp;
                 slot.vy -= kDownAccel * sub;
 
-                const float prevY = slot.y;
                 slot.x += slot.vx * sub;
                 slot.y += slot.vy * sub;
                 slot.z += slot.vz * sub;
@@ -258,25 +257,58 @@ namespace Dark::Terrain
                 }
 
                 const float surface = restHeight(in, slot.x, slot.z, bedY);
-                if (prevY > surface && slot.y <= surface)
+                if (slot.y <= surface)
                 {
+                    // Higher ground and a spawn already under the bed have no downward crossing.
+                    float nx = 0.0f;
+                    float ny = 1.0f;
+                    float nz = 0.0f;
+                    if (surface <= bedY && in.sampleNormal)
+                    {
+                        in.sampleNormal(slot.x, slot.z, nx, ny, nz, in.normalUser);
+                    }
                     slot.y         = surface;
                     slot.vx        = 0.0f;
                     slot.vy        = 0.0f;
                     slot.vz        = 0.0f;
-                    slot.nx        = 0.0f;
-                    slot.ny        = 1.0f;
-                    slot.nz        = 0.0f;
+                    slot.nx        = nx;
+                    slot.ny        = ny;
+                    slot.nz        = nz;
                     slot.phase     = LeafPhase::Rest;
                     slot.phaseTime = 0.0f;
                 }
+                else if (slot.flightTime >= kFlightCapSeconds)
+                {
+                    freeSlot(i);
+                }
             }
+        }
+
+        const int crownCount = in.crowns ? in.crownCount : 0;
+        // Input presence keeps shed carry across a frustum miss. Idle runs that left the list are released.
+        bool listed[kMaxCrowns] = {};
+        for (int i = 0; i < crownCount; ++i)
+        {
+            const uint32_t id = in.crowns[i].id;
+            for (int r = 0; r < kMaxCrowns; ++r)
+            {
+                if (!m_crowns[r].used || m_crowns[r].id != id)
+                    continue;
+                listed[r] = true;
+                break;
+            }
+        }
+        for (int r = 0; r < kMaxCrowns; ++r)
+        {
+            CrownRun& run = m_crowns[r];
+            if (!run.used || listed[r] || run.living > 0)
+                continue;
+            run = CrownRun{};
         }
 
         int candidates[kMaxCrowns];
         int candidateCount = 0;
         const float radius2 = kGatherRadiusM * kGatherRadiusM;
-        const int crownCount = in.crowns ? in.crownCount : 0;
         for (int i = 0; i < crownCount && candidateCount < kMaxCrowns; ++i)
         {
             const Crown& crown = in.crowns[i];

@@ -800,6 +800,13 @@ void EditorApp::tickLeaves(float dt)
         return static_cast<const Terrain::TerrainGrid*>(user)->tryHeightAtWorld(x, z, y);
     };
     step.heightUser  = &m_terrain;
+    step.sampleNormal = [](float x, float z, float& nx, float& ny, float& nz, void* user) {
+        const Vector3f n = static_cast<const Terrain::TerrainGrid*>(user)->normalAtWorld(x, z);
+        nx = n.x;
+        ny = n.y;
+        nz = n.z;
+    };
+    step.normalUser  = &m_terrain;
     step.lake        = m_water.chunksX() > 0;
     step.lakeLevel   = m_water.params().waterLevel;
     step.ponds       = ponds;

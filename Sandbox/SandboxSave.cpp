@@ -125,6 +125,7 @@ void SandboxApp::saveBeginLoad(void* user, World&)
     if (!app)
         return;
     app->audio().stopAll();
+    app->m_leafRustle.stopAll(app->audio());
     clearAllStatusFx(app->world(), &app->audio());
     app->m_attackCharge.reset();
     app->m_blockCharge.reset();

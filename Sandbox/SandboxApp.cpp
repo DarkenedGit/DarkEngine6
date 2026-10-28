@@ -4448,6 +4448,13 @@ void SandboxApp::tickLeaves(float dt)
         return static_cast<const Terrain::TerrainGrid*>(user)->tryHeightAtWorld(x, z, y);
     };
     step.heightUser  = &m_terrain;
+    step.sampleNormal = [](float x, float z, float& nx, float& ny, float& nz, void* user) {
+        const Vector3f n = static_cast<const Terrain::TerrainGrid*>(user)->normalAtWorld(x, z);
+        nx = n.x;
+        ny = n.y;
+        nz = n.z;
+    };
+    step.normalUser  = &m_terrain;
     step.lake        = m_water.chunksX() > 0;
     step.lakeLevel   = m_water.params().waterLevel;
     step.cellMetres  = m_terrain.cellSize();
@@ -4477,11 +4484,15 @@ void SandboxApp::onUpdate(float dt)
     handleRuntimeCommands(dt);
     if (menuFrame || m_menu.visible())
     {
+        m_leafRustle.stopAll(audio());
         m_save.service(world());
         return;
     }
     if (!m_sceneStarted)
+    {
+        m_leafRustle.stopAll(audio());
         return;
+    }
     if (!m_gameplayPaused || m_stepGameplay)
     {
         syncPlayerMode();
@@ -4554,7 +4565,12 @@ void SandboxApp::onUpdate(float dt)
             sword->shown = localWeapons() && localWeapons()->activeKind() == WeaponKind::Melee && ownsWeapon(WeaponKind::Melee);
         syncSwordVisuals(world());
         syncThrowableHands(world(), pins(), assets(), renderer());
+        tickLeaves(dt);
         m_stepGameplay = false;
+    }
+    else
+    {
+        m_leafRustle.stopAll(audio());
     }
     m_save.service(world());
     m_water.updateLod(m_viewCamera.GetPosition());
@@ -4577,7 +4593,6 @@ void SandboxApp::onUpdate(float dt)
             m_grassField.update(m_terrain, xf->position.x, xf->position.z, m_grassWindSeconds, m_water.params().waterLevel, sample);
         }
     }
-    tickLeaves(dt);
     if (renderer().scenePath() == ScenePath::HybridDeferred)
         syncPlayerFlashlight(world(), possessedBody(), m_viewCamera.GetPosition(), m_viewCamera.GetLook(), m_viewCamera.GetRight(), m_viewCamera.GetUp(), m_offhand.lightOn);
 

@@ -210,8 +210,10 @@ namespace Dark::Terrain
                 continue;
             if (!(dist + kRustleSwapMarginM < farDist))
                 continue;
+            // One stop per call. The nearer tree is not inserted until a later call.
             chosen[farthest].stop   = true;
             chosen[farthest].volume = 0.0f;
+            break;
         }
 
         for (int i = 0; i < count; ++i)
@@ -243,6 +245,20 @@ namespace Dark::Terrain
     {
         for (Slot& slot : m_slots)
             clearSlot(audio, slot);
+    }
+
+    uint32_t LeafRustleVoices::slotTreeId(int index) const
+    {
+        if (index < 0 || index >= kRustleVoices)
+            return 0;
+        return m_slots[index].treeId;
+    }
+
+    uint32_t LeafRustleVoices::slotVoice(int index) const
+    {
+        if (index < 0 || index >= kRustleVoices)
+            return 0;
+        return m_slots[index].voice;
     }
 
     void LeafRustleVoices::tick(Audio::AudioSystem& audio, AssetManager& assets, const LeafField::Crown* crowns, int crownCount, float listenerX,
@@ -302,8 +318,14 @@ namespace Dark::Terrain
 
         RustleHeld held[kRustleVoices];
         int        heldCount = 0;
-        for (const Slot& slot : m_slots)
+        for (Slot& slot : m_slots)
         {
+            // stopAll bumps voice generation. A stale id is not still playing.
+            if (slot.voice != 0 && !audio.isPlaying(slot.voice))
+            {
+                clearSlot(audio, slot);
+                continue;
+            }
             if (slot.treeId == 0 || slot.voice == 0)
                 continue;
             held[heldCount].id       = slot.treeId;
@@ -366,9 +388,18 @@ namespace Dark::Terrain
             if (slot.voice == 0)
             {
                 if (!play.startVoice || play.requestTone)
+                {
+                    slot            = {};
+                    used[slotIndex] = false;
                     continue;
+                }
                 const Audio::PlayDesc desc = makeRustlePlayDesc(slot.volume, slot.x, slot.y, slot.z);
                 slot.voice                 = audio.play(m_clip, desc);
+                if (slot.voice == 0)
+                {
+                    slot            = {};
+                    used[slotIndex] = false;
+                }
                 continue;
             }
             audio.setVoiceVolume(slot.voice, slot.volume);

@@ -78,6 +78,9 @@ namespace Dark::Terrain
             void (*wind)(float x, float z, double simTime, float& dirX, float& dirZ, float& strength, void* user) = nullptr;
             bool (*tryHeight)(float x, float z, float& bedY, void* user) = nullptr;
             void* heightUser = nullptr;
+            // Null keeps world up. Still water stays flat; a bed rest copies this normal.
+            void (*sampleNormal)(float x, float z, float& nx, float& ny, float& nz, void* user) = nullptr;
+            void* normalUser = nullptr;
             bool        lake      = false;
             float       lakeLevel = 0.0f;
             const Pond* ponds     = nullptr;

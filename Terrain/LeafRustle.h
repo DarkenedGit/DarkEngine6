@@ -61,16 +61,19 @@ namespace Dark::Terrain
 
     // Up to four trees inside 32 m. A stopping held voice keeps its slot until the host clears it.
     // A newcomer inside the swap margin does not evict a tree the set already holds.
+    // A nearer set marks at most one held voice stop, and does not insert the challenger in that call.
     int selectLeafRustle(const RustleTree* trees, int treeCount, float listenerX, float listenerZ, const RustleHeld* held, int heldCount,
                          RustleChoice* out, int cap);
 
-    // Owns at most four voices. A missing clip stays silent.
+    // Owns at most four voices. A missing clip stays silent. A failed or stale voice does not keep the slot.
     class LeafRustleVoices
     {
     public:
         void tick(Audio::AudioSystem& audio, AssetManager& assets, const LeafField::Crown* crowns, int crownCount, float listenerX, float listenerZ,
                   double simTime, float dt);
         void stopAll(Audio::AudioSystem& audio);
+        uint32_t slotTreeId(int index) const;
+        uint32_t slotVoice(int index) const;
 
     private:
         struct Slot

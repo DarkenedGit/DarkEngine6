@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Terrain/LeafField.h"
+#include "Terrain/LeafWind.h"
 
 #include <cmath>
 #include <cstdint>
@@ -90,6 +91,63 @@ namespace
                 ++n;
         }
         return n;
+    }
+
+    bool firstOccupied(const LeafField& field, LeafSlot& out)
+    {
+        for (int i = 0; i < LeafField::kPoolSize; ++i)
+        {
+            if (!field.copySlot(i, out) || out.phase == LeafPhase::Free)
+                continue;
+            return true;
+        }
+        return false;
+    }
+
+    int signOf(float v)
+    {
+        if (v > 0.05f)
+            return 1;
+        if (v < -0.05f)
+            return -1;
+        return 0;
+    }
+
+    void forwardLeafWind(float x, float z, double simTime, float& dirX, float& dirZ, float& strength, void*)
+    {
+        const LeafWindSample sample = sampleLeafWind(x, z, simTime);
+        dirX                         = sample.dirX;
+        dirZ                         = sample.dirZ;
+        strength                     = sample.strength;
+    }
+
+    struct RiseBed
+    {
+        float low    = 0.0f;
+        float high   = 6.0f;
+        float splitX = 1.0f;
+    };
+
+    bool riseBed(float x, float, float& bedY, void* user)
+    {
+        const RiseBed* bed = static_cast<const RiseBed*>(user);
+        bedY               = x >= bed->splitX ? bed->high : bed->low;
+        return true;
+    }
+
+    struct TiltNormal
+    {
+        float nx = 0.0f;
+        float ny = 0.0f;
+        float nz = 1.0f;
+    };
+
+    void tiltNormal(float, float, float& nx, float& ny, float& nz, void* user)
+    {
+        const TiltNormal* tilt = static_cast<const TiltNormal*>(user);
+        nx                     = tilt->nx;
+        ny                     = tilt->ny;
+        nz                     = tilt->nz;
     }
 
     bool findSlot(const LeafField& field, uint32_t serial, LeafSlot& out)
@@ -404,6 +462,9 @@ TEST(LeafField, CrossingSegment_SnapsToBedAndStops)
     EXPECT_FLOAT_EQ(slot.vx, 0.0f);
     EXPECT_FLOAT_EQ(slot.vy, 0.0f);
     EXPECT_FLOAT_EQ(slot.vz, 0.0f);
+    EXPECT_FLOAT_EQ(slot.nx, 0.0f);
+    EXPECT_FLOAT_EQ(slot.ny, 1.0f);
+    EXPECT_FLOAT_EQ(slot.nz, 0.0f);
 }
 
 TEST(LeafField, StillWater_RestsOnTheStillLevelNotTheBed)
@@ -685,4 +746,393 @@ TEST(LeafField, OutsideFrustum_DoesNotShed)
     EXPECT_EQ(countPhase(field, 2, LeafPhase::Airborne), 0);
     EXPECT_EQ(countPhase(field, 2, LeafPhase::Rest), 0);
     EXPECT_EQ(countPhase(field, 2, LeafPhase::Fade), 0);
+}
+
+TEST(LeafField, HigherGround_RestsWithoutADownwardCrossing)
+{
+    FlatWind wind;
+    wind.strength = 1.0f;
+    wind.dirX     = 1.0f;
+    wind.dirZ     = 0.0f;
+    RiseBed bed;
+    const LeafField::Crown tree = crownAt(1, 0.0f, 0.0f, 3.0f);
+    LeafField              field;
+    LeafField::Step        step = makeStep(&tree, 1, &wind, nullptr);
+    step.tryHeight              = riseBed;
+    step.heightUser             = &bed;
+    step.dt                     = 0.5f;
+    field.step(step);
+    ASSERT_EQ(countPhase(field, tree.id, LeafPhase::Airborne), 1);
+
+    field.setShedScale(0.0f);
+    field.step(step);
+
+    LeafSlot slot{};
+    ASSERT_TRUE(firstOccupied(field, slot));
+    EXPECT_EQ(slot.phase, LeafPhase::Rest);
+    EXPECT_GE(slot.x, bed.splitX);
+    EXPECT_FLOAT_EQ(slot.y, bed.high);
+    EXPECT_FLOAT_EQ(slot.vx, 0.0f);
+    EXPECT_FLOAT_EQ(slot.vy, 0.0f);
+    EXPECT_FLOAT_EQ(slot.vz, 0.0f);
+    EXPECT_FLOAT_EQ(slot.phaseTime, 0.0f);
+    EXPECT_EQ(field.livingCount(), 1);
+}
+
+TEST(LeafField, StillAboveBed_FlightCapFreesTheLeaf)
+{
+    FlatWind wind;
+    FlatBed  bed;
+    bed.y = 0.0f;
+    // Four 2 s steps drop well under 500 m, so the leaf is still above the bed at 8 s.
+    const LeafField::Crown tree = crownAt(1, 0.0f, 0.0f, 500.0f);
+    LeafField              field;
+    LeafField::Step        step = makeStep(&tree, 1, &wind, &bed);
+    ASSERT_TRUE(waitForLiving(field, step, 5.0f));
+    field.setShedScale(0.0f);
+
+    for (int n = 0; n < 3; ++n)
+    {
+        step.dt = 2.0f;
+        field.step(step);
+    }
+    LeafSlot slot{};
+    ASSERT_TRUE(firstOccupied(field, slot));
+    EXPECT_EQ(slot.phase, LeafPhase::Airborne);
+    EXPECT_GT(slot.y, bed.y);
+
+    step.dt = 2.0f;
+    field.step(step);
+    EXPECT_EQ(field.livingCount(), 0);
+    EXPECT_FALSE(firstOccupied(field, slot));
+}
+
+TEST(LeafField, FlightCap_RestWinsWhenTheLeafHasLanded)
+{
+    FlatWind wind;
+    FlatBed  bed;
+    bed.y = 0.0f;
+    const LeafField::Crown tree = crownAt(1, 0.0f, 0.0f, 10.0f);
+    LeafField              field;
+    LeafField::Step        step = makeStep(&tree, 1, &wind, &bed);
+    ASSERT_TRUE(waitForLiving(field, step, 5.0f));
+    field.setShedScale(0.0f);
+    step.dt = 8.0f;
+    field.step(step);
+
+    LeafSlot slot{};
+    ASSERT_TRUE(firstOccupied(field, slot));
+    EXPECT_EQ(slot.phase, LeafPhase::Rest);
+    EXPECT_FLOAT_EQ(slot.y, bed.y);
+    EXPECT_EQ(field.livingCount(), 1);
+}
+
+TEST(LeafField, FullCrownTable_NewCrownStillSheds)
+{
+    std::vector<LeafField::Crown> filled(static_cast<size_t>(LeafField::kMaxCrowns));
+    for (int i = 0; i < LeafField::kMaxCrowns; ++i)
+        filled[static_cast<size_t>(i)] = crownAt(static_cast<uint32_t>(i + 1), 0.0f, 0.0f, 8.0f);
+
+    FlatWind wind;
+    wind.strength = 1.0f;
+    FlatBed bed;
+    bed.y = -100.0f;
+    LeafField       field;
+    field.setShedScale(0.0f);
+    LeafField::Step step = makeStep(filled.data(), static_cast<int>(filled.size()), &wind, &bed);
+    step.dt              = 0.05f;
+    field.step(step);
+    EXPECT_EQ(field.spawnedTotal(), 0u);
+
+    const LeafField::Crown fresh = crownAt(100000u, 0.0f, 0.0f, 12.0f);
+    field.setShedScale(1.0f);
+    step.crowns     = &fresh;
+    step.crownCount = 1;
+    step.dt         = 1.0f;
+    field.step(step);
+    EXPECT_GE(field.spawnedTotal(), 1u);
+    EXPECT_GE(countPhase(field, fresh.id, LeafPhase::Airborne), 1);
+}
+
+TEST(LeafField, FrustumMiss_KeepsShedCarry)
+{
+    FlatWind wind;
+    wind.strength = 1.0f;
+    FlatBed bed;
+    bed.y = -50.0f;
+    const LeafField::Crown tree = crownAt(4, 0.0f, 0.0f, 30.0f);
+    LeafField              field;
+    LeafField::Step        step = makeStep(&tree, 1, &wind, &bed);
+    bool                   visible = true;
+    step.inFrustum                 = [](float, float, float, void* user) { return *static_cast<const bool*>(user); };
+    step.frustumUser               = &visible;
+
+    step.dt = 0.3f;
+    field.step(step);
+    EXPECT_EQ(field.spawnedTotal(), 0u);
+
+    visible = false;
+    step.dt = 0.2f;
+    field.step(step);
+    EXPECT_EQ(field.spawnedTotal(), 0u);
+
+    visible = true;
+    step.dt = 0.1f;
+    field.step(step);
+    EXPECT_EQ(field.spawnedTotal(), 1u);
+}
+
+TEST(LeafField, CrownLeftDisk_DropsShedCarry)
+{
+    FlatWind wind;
+    wind.strength = 1.0f;
+    FlatBed bed;
+    bed.y = -50.0f;
+    const LeafField::Crown tree = crownAt(3, 0.0f, 0.0f, 20.0f);
+    LeafField              field;
+    LeafField::Step        step = makeStep(&tree, 1, &wind, &bed);
+    step.dt                     = 0.3f;
+    field.step(step);
+    EXPECT_EQ(field.spawnedTotal(), 0u);
+
+    step.crowns     = nullptr;
+    step.crownCount = 0;
+    step.dt         = 0.05f;
+    field.step(step);
+
+    step.crowns     = &tree;
+    step.crownCount = 1;
+    step.dt         = 0.3f;
+    field.step(step);
+    EXPECT_EQ(field.spawnedTotal(), 0u);
+}
+
+TEST(LeafField, LivingCrown_KeepsCarryWhenItLeavesTheDisk)
+{
+    FlatWind wind;
+    wind.strength = 1.0f;
+    FlatBed bed;
+    bed.y = -100.0f;
+    const LeafField::Crown tree = crownAt(9, 0.0f, 0.0f, 40.0f);
+    LeafField              field;
+    LeafField::Step        step = makeStep(&tree, 1, &wind, &bed);
+    step.dt                     = 0.4f;
+    field.step(step);
+    ASSERT_EQ(field.spawnedTotal(), 1u);
+
+    for (int n = 0; n < 6; ++n)
+    {
+        step.dt = 0.05f;
+        field.step(step);
+    }
+    EXPECT_EQ(field.spawnedTotal(), 1u);
+    EXPECT_EQ(countPhase(field, tree.id, LeafPhase::Airborne), 1);
+
+    step.crowns     = nullptr;
+    step.crownCount = 0;
+    step.dt         = 0.05f;
+    field.step(step);
+    EXPECT_EQ(field.spawnedTotal(), 1u);
+    EXPECT_EQ(countPhase(field, tree.id, LeafPhase::Airborne), 1);
+
+    step.crowns     = &tree;
+    step.crownCount = 1;
+    step.dt         = 0.1f;
+    field.step(step);
+    EXPECT_EQ(field.spawnedTotal(), 2u);
+}
+
+TEST(LeafField, RestedOnBed_CopiesCallbackNormal)
+{
+    FlatWind wind;
+    FlatBed  bed;
+    bed.y = 4.0f;
+    TiltNormal tilt;
+    tilt.nx = 0.5f;
+    tilt.ny = 0.25f;
+    tilt.nz = 0.75f;
+    const LeafField::Crown tree = crownAt(1, 2.0f, 3.0f, 5.0f);
+    LeafField              field;
+    LeafField::Step        step = makeStep(&tree, 1, &wind, &bed);
+    step.sampleNormal           = tiltNormal;
+    step.normalUser             = &tilt;
+    ASSERT_TRUE(waitForLiving(field, step, 5.0f));
+    step.dt = 1.0f;
+    field.step(step);
+
+    LeafSlot slot{};
+    ASSERT_TRUE(firstOccupied(field, slot));
+    EXPECT_EQ(slot.phase, LeafPhase::Rest);
+    EXPECT_FLOAT_EQ(slot.y, bed.y);
+    EXPECT_FLOAT_EQ(slot.nx, tilt.nx);
+    EXPECT_FLOAT_EQ(slot.ny, tilt.ny);
+    EXPECT_FLOAT_EQ(slot.nz, tilt.nz);
+}
+
+TEST(LeafField, RestedOnStillWater_KeepsWorldUpNormal)
+{
+    FlatWind wind;
+    FlatBed  bed;
+    bed.y = 1.0f;
+    TiltNormal tilt;
+    tilt.nx = 0.5f;
+    tilt.ny = 0.25f;
+    tilt.nz = 0.75f;
+    LeafField::Pond pond;
+    pond.minX  = -5.0f;
+    pond.minZ  = -5.0f;
+    pond.maxX  = 5.0f;
+    pond.maxZ  = 5.0f;
+    pond.level = 4.0f;
+    const LeafField::Crown tree = crownAt(1, 0.0f, 0.0f, 8.0f);
+    LeafField              field;
+    LeafField::Step        step = makeStep(&tree, 1, &wind, &bed);
+    step.ponds                  = &pond;
+    step.pondCount              = 1;
+    step.sampleNormal           = tiltNormal;
+    step.normalUser             = &tilt;
+    ASSERT_TRUE(waitForLiving(field, step, 5.0f));
+    step.dt = 1.0f;
+    field.step(step);
+
+    LeafSlot slot{};
+    ASSERT_TRUE(firstOccupied(field, slot));
+    EXPECT_EQ(slot.phase, LeafPhase::Rest);
+    EXPECT_FLOAT_EQ(slot.y, pond.level);
+    EXPECT_FLOAT_EQ(slot.nx, 0.0f);
+    EXPECT_FLOAT_EQ(slot.ny, 1.0f);
+    EXPECT_FLOAT_EQ(slot.nz, 0.0f);
+}
+
+TEST(LeafField, NullWind_MatchesForwardedSample)
+{
+    float bestStrength = -1.0f;
+    float bestX        = 0.0f;
+    float bestZ        = 0.0f;
+    for (int z = 0; z < 8; ++z)
+    {
+        for (int x = 0; x < 8; ++x)
+        {
+            const float          wx     = static_cast<float>(x) * 40.0f;
+            const float          wz     = static_cast<float>(z) * 35.0f;
+            const LeafWindSample sample = sampleLeafWind(wx, wz, 1.0);
+            if (sample.strength > bestStrength)
+            {
+                bestStrength = sample.strength;
+                bestX        = wx;
+                bestZ        = wz;
+            }
+        }
+    }
+    ASSERT_GT(bestStrength, 0.2f);
+
+    FlatBed bed;
+    bed.y = 0.0f;
+    const LeafField::Crown tree = crownAt(1, bestX, bestZ, 12.0f);
+
+    auto run = [&](bool forward, std::vector<Landing>& lands) {
+        LeafField       field;
+        LeafField::Step step = makeStep(&tree, 1, nullptr, &bed);
+        step.wind            = forward ? forwardLeafWind : nullptr;
+        step.windUser        = nullptr;
+        step.cameraX         = tree.x;
+        step.cameraZ         = tree.z;
+        float t              = 0.0f;
+        while (t < 4.0f)
+        {
+            step.dt = 0.05f;
+            step.simTime += 0.05;
+            field.step(step);
+            collectLandings(field, lands);
+            t += 0.05f;
+        }
+        return field.spawnedTotal();
+    };
+
+    std::vector<Landing> nullLands;
+    std::vector<Landing> hookLands;
+    const uint32_t       nullSpawned = run(false, nullLands);
+    const uint32_t       hookSpawned = run(true, hookLands);
+    EXPECT_EQ(nullSpawned, hookSpawned);
+    EXPECT_GT(nullSpawned, 0u);
+    ASSERT_FALSE(nullLands.empty());
+    ASSERT_EQ(nullLands.size(), hookLands.size());
+    const float dx = nullLands[0].x - tree.x;
+    const float dz = nullLands[0].z - tree.z;
+    EXPECT_GT(dx * dx + dz * dz, 0.2f * 0.2f);
+    for (size_t i = 0; i < nullLands.size(); ++i)
+    {
+        EXPECT_EQ(signOf(nullLands[i].x - tree.x), signOf(hookLands[i].x - tree.x));
+        EXPECT_EQ(signOf(nullLands[i].z - tree.z), signOf(hookLands[i].z - tree.z));
+    }
+}
+
+TEST(LeafField, LakeAboveBed_RestsOnTheBed)
+{
+    FlatWind wind;
+    FlatBed  bed;
+    bed.y = 4.0f;
+    const LeafField::Crown tree = crownAt(1, 0.0f, 0.0f, 8.0f);
+    LeafField              field;
+    LeafField::Step        step = makeStep(&tree, 1, &wind, &bed);
+    step.lake                   = true;
+    step.lakeLevel              = 1.0f;
+    ASSERT_TRUE(waitForLiving(field, step, 5.0f));
+    step.dt = 1.0f;
+    field.step(step);
+
+    LeafSlot slot{};
+    ASSERT_TRUE(firstOccupied(field, slot));
+    EXPECT_EQ(slot.phase, LeafPhase::Rest);
+    EXPECT_FLOAT_EQ(slot.y, bed.y);
+    EXPECT_NE(slot.y, step.lakeLevel);
+}
+
+TEST(LeafField, PondMiss_RestsOnTheBed)
+{
+    FlatWind wind;
+    FlatBed  bed;
+    bed.y = 3.0f;
+    LeafField::Pond pond;
+    pond.minX  = 40.0f;
+    pond.minZ  = 40.0f;
+    pond.maxX  = 50.0f;
+    pond.maxZ  = 50.0f;
+    pond.level = 9.0f;
+    const LeafField::Crown tree = crownAt(1, 0.0f, 0.0f, 8.0f);
+    LeafField              field;
+    LeafField::Step        step = makeStep(&tree, 1, &wind, &bed);
+    step.ponds                  = &pond;
+    step.pondCount              = 1;
+    ASSERT_TRUE(waitForLiving(field, step, 5.0f));
+    step.dt = 1.0f;
+    field.step(step);
+
+    LeafSlot slot{};
+    ASSERT_TRUE(firstOccupied(field, slot));
+    EXPECT_EQ(slot.phase, LeafPhase::Rest);
+    EXPECT_FLOAT_EQ(slot.y, bed.y);
+    EXPECT_NE(slot.y, pond.level);
+}
+
+TEST(LeafField, HalfShedScale_SpawnsFewerLeavesThanFull)
+{
+    FlatWind wind;
+    wind.strength = 1.0f;
+    FlatBed bed;
+    bed.y = -100.0f;
+    const LeafField::Crown tree = crownAt(1, 0.0f, 0.0f, 16.0f);
+
+    auto spawnedAt = [&](float scale) {
+        LeafField       field;
+        field.setShedScale(scale);
+        LeafField::Step step = makeStep(&tree, 1, &wind, &bed);
+        stepFor(field, step, 4.0f);
+        return field.spawnedTotal();
+    };
+
+    const uint32_t full = spawnedAt(1.0f);
+    const uint32_t half = spawnedAt(0.5f);
+    EXPECT_GT(half, 0u);
+    EXPECT_LT(half, full);
 }
