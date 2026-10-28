@@ -4,6 +4,7 @@
 #include "Math/Sphere3f.h"
 #include "Render/Frustum3f.h"
 #include "Terrain/FoliageFile.h"
+#include "Terrain/WindTypes.h"
 
 #include <cstdint>
 #include <d3d12.h>
@@ -56,11 +57,13 @@ namespace Dark
         static constexpr UINT kGbMaterial  = 1;
         static constexpr UINT kGbWorlds    = 2;
         static constexpr UINT kGbIndices   = 3;
+        static constexpr UINT kGbView      = 4;
 
         static constexpr UINT kDepthConstants = 0;
         static constexpr UINT kDepthWorlds    = 1;
         static constexpr UINT kDepthIndices   = 2;
         static constexpr UINT kDepthMaterial  = 3;
+        static constexpr UINT kDepthView      = 4;
 
         static constexpr uint32_t kCullFrameSlots    = 2;
         static constexpr uint32_t kCullViewsPerFrame = 8;
@@ -112,6 +115,8 @@ namespace Dark
         // null: residentFoliage only (Sandbox). A non-resident tile contributes nothing.
         void setThermal(bool on) { m_thermal = on; }
         void setUltraviolet(bool on) { m_ultraviolet = on; }
+        void setWind(const Terrain::WindSettings& settings, double time, double prevTime);
+        void setWindEnabled(bool enabled) { m_windEnabled = enabled; }
 
         void drawGBuffer(
             ID3D12GraphicsCommandList* cmd,
@@ -179,6 +184,7 @@ namespace Dark
         FoliageCullDesc makeCullDesc(bool shadow) const;
         bool fillPartArgs(GpuResourceCache& gpu, FoliagePrototypes& prototypes, bool depth, FoliageCullDesc& desc);
         bool tryGpuCull(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, FoliagePrototypes& prototypes, bool depth, bool shadow);
+        void writeViewConstants(const Camera3D& camera, const Math::Matrix4f* viewProj, const Math::Matrix4f* prevViewProj);
 
         ComPtr<ID3D12RootSignature> m_gbRoot;
         ComPtr<ID3D12PipelineState> m_gbPso;
@@ -242,6 +248,14 @@ namespace Dark
         bool     m_haveGather = false;
         uint64_t m_sourceStamp = 0;
         bool     m_loggedView  = false;
+
+        ComPtr<ID3D12Resource>      m_viewCb;
+        uint8_t*                    m_viewCbMap = nullptr;
+        D3D12_GPU_VIRTUAL_ADDRESS   m_viewCbGpu = 0;
+        Terrain::WindSettings       m_wind = Terrain::defaultWindSettings();
+        double                      m_windTime     = 0.0;
+        double                      m_windPrevTime = 0.0;
+        bool                        m_windEnabled  = true;
     };
 
 } // namespace Dark

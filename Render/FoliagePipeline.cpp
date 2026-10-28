@@ -56,8 +56,6 @@ namespace Dark
         struct FoliageGBufferConstants
         {
             float localToRoot[16];
-            float viewProj[16];
-            float prevViewProj[16];
             float color[4];
             float roughness;
             float metallic;
@@ -65,6 +63,8 @@ namespace Dark
             float normalScale;
             float alphaCutoff;
             float alphaModeMask;
+            float kindIndex;
+            float pad[3];
         };
 
         struct FoliageDepthConstants
@@ -73,12 +73,13 @@ namespace Dark
             float lightWVP[16];
             float alphaCutoff;
             float alphaModeMask;
-            float pad[2];
+            float kindIndex;
+            float pad;
         };
 
-        static_assert(sizeof(FoliageGBufferConstants) == 58 * sizeof(float), "foliage gbuffer constants");
-        // 58 constants + material table + two root SRVs = 63. A third matrix does not fit.
-        static_assert(sizeof(FoliageGBufferConstants) / sizeof(float) + 1 + 2 + 2 <= 64, "foliage gbuffer root signature");
+        static_assert(sizeof(FoliageGBufferConstants) == 28 * sizeof(float), "foliage gbuffer constants");
+        // 28 constants + material table + two root SRVs + view CBV = 28 + 1 + 2 + 2 + 2 = 35.
+        static_assert(sizeof(FoliageGBufferConstants) / sizeof(float) + 1 + 2 + 2 + 2 <= 64, "foliage gbuffer root signature");
         static_assert(sizeof(FoliageDepthConstants) == 36 * sizeof(float), "foliage depth constants");
 
         constexpr UINT64 kWorldStride     = static_cast<UINT64>(Terrain::kMaxFoliageDraw) * sizeof(Math::Matrix4f);
@@ -482,7 +483,7 @@ namespace Dark
         srvRange.RegisterSpace                     = 0;
         srvRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-        D3D12_ROOT_PARAMETER gbParams[4]{};
+        D3D12_ROOT_PARAMETER gbParams[5]{};
         gbParams[kGbConstants].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
         gbParams[kGbConstants].ShaderVisibility         = D3D12_SHADER_VISIBILITY_ALL;
         gbParams[kGbConstants].Constants.ShaderRegister = 0;
@@ -504,6 +505,11 @@ namespace Dark
         gbParams[kGbIndices].Descriptor.ShaderRegister = 5;
         gbParams[kGbIndices].Descriptor.RegisterSpace  = 0;
 
+        gbParams[kGbView].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        gbParams[kGbView].ShaderVisibility          = D3D12_SHADER_VISIBILITY_VERTEX;
+        gbParams[kGbView].Descriptor.ShaderRegister = 1;
+        gbParams[kGbView].Descriptor.RegisterSpace  = 0;
+
         D3D12_STATIC_SAMPLER_DESC samp{};
         samp.Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
         samp.AddressU         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
@@ -514,7 +520,7 @@ namespace Dark
         samp.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
         D3D12_ROOT_SIGNATURE_DESC gbDesc{};
-        gbDesc.NumParameters     = 4;
+        gbDesc.NumParameters     = 5;
         gbDesc.pParameters       = gbParams;
         gbDesc.NumStaticSamplers = 1;
         gbDesc.pStaticSamplers   = &samp;
@@ -631,7 +637,7 @@ namespace Dark
             }
         }
 
-        D3D12_ROOT_PARAMETER depthParams[4]{};
+        D3D12_ROOT_PARAMETER depthParams[5]{};
         depthParams[kDepthConstants].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
         depthParams[kDepthConstants].ShaderVisibility         = D3D12_SHADER_VISIBILITY_ALL;
         depthParams[kDepthConstants].Constants.ShaderRegister = 0;
@@ -653,8 +659,13 @@ namespace Dark
         depthParams[kDepthMaterial].DescriptorTable.NumDescriptorRanges = 1;
         depthParams[kDepthMaterial].DescriptorTable.pDescriptorRanges   = &srvRange;
 
+        depthParams[kDepthView].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        depthParams[kDepthView].ShaderVisibility          = D3D12_SHADER_VISIBILITY_VERTEX;
+        depthParams[kDepthView].Descriptor.ShaderRegister = 1;
+        depthParams[kDepthView].Descriptor.RegisterSpace  = 0;
+
         D3D12_ROOT_SIGNATURE_DESC depthDesc{};
-        depthDesc.NumParameters     = 4;
+        depthDesc.NumParameters     = 5;
         depthDesc.pParameters       = depthParams;
         depthDesc.NumStaticSamplers = 1;
         depthDesc.pStaticSamplers   = &samp;
@@ -725,13 +736,16 @@ namespace Dark
 
         m_worlds  = createUpload(device, kWorldStride * kFrameCount, "CreateCommittedResource foliage worlds");
         m_indices = createUpload(device, kIndexViewStride * kViewsPerFrame * kFrameCount, "CreateCommittedResource foliage indices");
-        if (!m_worlds || !m_indices)
+        constexpr UINT64 kViewCbSize = static_cast<UINT64>(kFrameCount) * static_cast<UINT64>(kViewsPerFrame) * Terrain::kFoliageViewCbStride;
+        m_viewCb  = createUpload(device, kViewCbSize, "CreateCommittedResource foliage view CB");
+        if (!m_worlds || !m_indices || !m_viewCb)
         {
             destroy();
             return false;
         }
         if (FailedHr(m_worlds->Map(0, nullptr, reinterpret_cast<void**>(&m_worldMap)), "Map foliage worlds")
-            || FailedHr(m_indices->Map(0, nullptr, reinterpret_cast<void**>(&m_indexMap)), "Map foliage indices"))
+            || FailedHr(m_indices->Map(0, nullptr, reinterpret_cast<void**>(&m_indexMap)), "Map foliage indices")
+            || FailedHr(m_viewCb->Map(0, nullptr, reinterpret_cast<void**>(&m_viewCbMap)), "Map foliage view CB"))
         {
             destroy();
             return false;
@@ -740,6 +754,7 @@ namespace Dark
         std::memset(m_indexMap, 0, static_cast<size_t>(kIndexViewStride * kViewsPerFrame * kFrameCount));
         m_worldGpu = m_worlds->GetGPUVirtualAddress();
         m_indexGpu = m_indices->GetGPUVirtualAddress();
+        m_viewCbGpu = m_viewCb->GetGPUVirtualAddress();
         m_cpuGen   = 1;
 
         // Cull failure leaves the CPU lists. It does not turn foliage off.
@@ -755,12 +770,17 @@ namespace Dark
             m_worlds->Unmap(0, nullptr);
         if (m_indices && m_indexMap)
             m_indices->Unmap(0, nullptr);
+        if (m_viewCb && m_viewCbMap)
+            m_viewCb->Unmap(0, nullptr);
         m_worldMap  = nullptr;
         m_indexMap  = nullptr;
+        m_viewCbMap = nullptr;
         m_worldGpu  = 0;
         m_indexGpu  = 0;
+        m_viewCbGpu = 0;
         m_worlds.Reset();
         m_indices.Reset();
+        m_viewCb.Reset();
         m_gbPso.Reset();
         m_gbPsoTwoSided.Reset();
         m_gbThermal.Reset();
@@ -1696,6 +1716,83 @@ namespace Dark
         if (!beginDepthView(renderer, assets, prototypes, grid, editorRecords, density, camera, casterFrustum, nullptr))
             return;
         drawPreparedDepth(cmd, lightViewProj);
+    }
+
+    void FoliagePipeline::setWind(const Terrain::WindSettings& settings, double time, double prevTime)
+    {
+        m_wind         = settings;
+        m_windTime     = time;
+        m_windPrevTime = prevTime;
+    }
+
+    void FoliagePipeline::writeViewConstants(const Camera3D& camera, const Math::Matrix4f* viewProj, const Math::Matrix4f* prevViewProj)
+    {
+        if (!m_viewCbMap)
+            return;
+
+        const UINT64 offset = (static_cast<UINT64>(m_activeSlot) * kViewsPerFrame + m_activeView) * Terrain::kFoliageViewCbStride;
+        Terrain::FoliageViewConstants cb{};
+
+        if (viewProj)
+            copyMatrix(cb.viewProj, *viewProj);
+        if (prevViewProj)
+            copyMatrix(cb.prevViewProj, *prevViewProj);
+
+        const float heading = m_wind.headingRad;
+        const float gustCur = Terrain::gustAt(m_windTime, m_wind);
+        const float gustPrv = Terrain::gustAt(m_windPrevTime, m_wind);
+        const float strengthCur = m_wind.strength * gustCur;
+        const float strengthPrv = m_wind.strength * gustPrv;
+
+        const double wrap = 3600.0;
+        double tCur  = std::fmod(m_windTime, wrap);
+        double tPrv  = std::fmod(m_windPrevTime, wrap);
+        if (std::floor(m_windTime / wrap) != std::floor(m_windPrevTime / wrap))
+            tPrv = tCur;
+
+        cb.windCur[0]  = std::sin(heading);
+        cb.windCur[1]  = std::cos(heading);
+        cb.windCur[2]  = strengthCur;
+        cb.windCur[3]  = static_cast<float>(tCur);
+        cb.windPrev[0] = std::sin(heading);
+        cb.windPrev[1] = std::cos(heading);
+        cb.windPrev[2] = strengthPrv;
+        cb.windPrev[3] = static_cast<float>(tPrv);
+
+        cb.field[0] = m_wind.spatialFreq;
+        cb.field[1] = m_wind.temporalFreq;
+        cb.field[2] = m_wind.deflection;
+        std::memcpy(&cb.field[3], &m_wind.seed, sizeof(uint32_t));
+
+        for (int i = 0; i < 4; ++i)
+        {
+            const Terrain::TreeWindParams& k = m_wind.kind[i];
+            const float kindHeight = m_boundsMax[i][1];
+            const float infl = k.influence;
+
+            cb.kindA[i][0] = k.stiffness;
+            cb.kindA[i][1] = k.mainBendMetres * infl;
+            cb.kindA[i][2] = k.branchAmp * infl;
+            cb.kindA[i][3] = k.edgeAmp * infl;
+
+            cb.kindB[i][0] = k.flutterFreq;
+            cb.kindB[i][1] = k.detailFadeStart;
+            cb.kindB[i][2] = k.detailFadeEnd;
+            cb.kindB[i][3] = k.bendFadeStart;
+
+            cb.kindC[i][0] = k.bendFadeEnd;
+            cb.kindC[i][1] = kindHeight;
+            cb.kindC[i][2] = infl;
+            cb.kindC[i][3] = 0.0f;
+        }
+
+        const Math::Vector3f pos = camera.GetPosition();
+        cb.eye[0] = pos.x;
+        cb.eye[1] = pos.y;
+        cb.eye[2] = pos.z;
+        cb.eye[3] = m_windEnabled ? 1.0f : 0.0f;
+
+        std::memcpy(m_viewCbMap + offset, &cb, sizeof(cb));
     }
 
 } // namespace Dark
