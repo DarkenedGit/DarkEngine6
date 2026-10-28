@@ -33,6 +33,8 @@
 #include "Render/CrosshairHud.h"
 #include "Particles/ParticleEmitter.h"
 #include "Particles/ParticleRenderer.h"
+#include "Particles/LeafRenderer.h"
+#include "Terrain/LeafField.h"
 #include "Particles/BloodSplatPool.h"
 #include "Combat/HoldCharge.h"
 #include "Combat/Shield.h"
@@ -95,6 +97,7 @@ private:
     void stockHunter(Dark::Entity hunter);
     void tickSpawners(float dt);
     void tickCrows(float dt);
+    void tickLeaves(float dt);
     Dark::Entity spawnSpawnerUnit(Dark::Entity spawner, const Dark::SpawnerRequest& req);
     void faceHitTarget(Dark::Entity target);
     bool boneWorldPos(Dark::Entity e, const char* bone, Dark::Math::Vector3f& out);
@@ -308,6 +311,9 @@ private:
     Dark::GrassPipeline                       m_grassPipeline;
     Dark::Terrain::GrassField                 m_grassField;
     double                                    m_grassWindSeconds = 0.0;
+    Dark::Terrain::LeafField                  m_leafField;
+    Dark::LeafRenderer                        m_leafRenderer;
+    double                                    m_leafSimSeconds = 0.0;
     bool                                      m_loggedForwardGrassSkip = false;
     Dark::Terrain::FoliageDensity             m_foliageDensity{};
     std::vector<Dark::Terrain::FoliageRecord> m_foliage;

@@ -140,6 +140,8 @@ void EditorApp::onInit()
         requestQuit();
         return;
     }
+    if (!m_leafRenderer.create(renderer(), assets()))
+        DE_LOG_ERROR(LogCategory::Render, "EditorApp: leaf renderer failed");
     if (!pumpBootFrame())
         return;
     if (!m_imgui.init(window(), renderer(), "editor_imgui.ini", true, UiAccent::Editor))
@@ -412,6 +414,7 @@ void EditorApp::onShutdown()
     network().shutdown();
     m_imgui.shutdown(renderer());
     m_particleRenderer.destroy(renderer());
+    m_leafRenderer.destroy(renderer());
     cancelFoliageSpawn();
     renderer().waitForGpu();
     m_foliagePipeline.destroy();

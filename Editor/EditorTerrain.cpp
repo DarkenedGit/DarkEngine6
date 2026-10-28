@@ -721,7 +721,10 @@ void EditorApp::applyAuthoredGrass()
 void EditorApp::updateEditorGrass(float dt)
 {
     if (!m_grassPipeline.isValid())
+    {
+        tickLeaves(dt);
         return;
+    }
 
     // Edit mode has no pawn. Stream around the view. Play mode uses the body so the shove matches the motor.
     float x = m_camera.GetPosition().x;
@@ -746,6 +749,61 @@ void EditorApp::updateEditorGrass(float dt)
     }
     m_grassWindSeconds += static_cast<double>(dt);
     m_grassField.update(m_terrain, x, z, m_grassWindSeconds, m_water.params().waterLevel, sample);
+    tickLeaves(dt);
+}
+
+void EditorApp::tickLeaves(float dt)
+{
+    if (!m_terrain.valid() || !(dt > 0.0f))
+        return;
+
+    m_leafSimSeconds += static_cast<double>(dt);
+    float treeTop = 12.0f;
+    const AssetRef<Model>& treeModel = m_foliagePrototypes.model(Terrain::FoliageKind::Tree);
+    if (treeModel && treeModel->bounds().Max.y > 0.05f)
+        treeTop = treeModel->bounds().Max.y;
+
+    const Vector3f cam = m_camera.GetPosition();
+    const Frustum3f frustum(m_camera.GetCullViewProj());
+    Terrain::LeafField::Crown crowns[Terrain::LeafField::kMaxCrowns];
+    const int crownCount = gatherLeafCrowns(m_terrain, &m_foliage, cam, &frustum, treeTop, crowns, Terrain::LeafField::kMaxCrowns);
+
+    Terrain::LeafField::Pond ponds[32];
+    int pondCount = 0;
+    for (const EditorWaterSlot& slot : m_placedWater)
+    {
+        if (pondCount >= 32)
+            break;
+        const Math::AABox3f& box = slot.body.bounds();
+        Terrain::LeafField::Pond& pond = ponds[pondCount++];
+        pond.minX  = box.Min.x;
+        pond.maxX  = box.Max.x;
+        pond.minZ  = box.Min.z;
+        pond.maxZ  = box.Max.z;
+        pond.level = slot.body.params().waterLevel;
+    }
+
+    Terrain::LeafField::Step step;
+    step.dt          = dt;
+    step.simTime     = m_leafSimSeconds;
+    step.listenerX   = cam.x;
+    step.listenerY   = cam.y;
+    step.listenerZ   = cam.z;
+    step.cameraX     = cam.x;
+    step.cameraZ     = cam.z;
+    step.crowns      = crowns;
+    step.crownCount  = crownCount;
+    step.tryHeight   = [](float x, float z, float& y, void* user) {
+        return static_cast<const Terrain::TerrainGrid*>(user)->tryHeightAtWorld(x, z, y);
+    };
+    step.heightUser  = &m_terrain;
+    step.lake        = m_water.chunksX() > 0;
+    step.lakeLevel   = m_water.params().waterLevel;
+    step.ponds       = ponds;
+    step.pondCount   = pondCount;
+    step.cellMetres  = m_terrain.cellSize();
+    m_leafField.setShedScale(1.0f);
+    m_leafField.step(step);
 }
 
 void EditorApp::syncTerrainLod()

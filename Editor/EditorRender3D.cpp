@@ -948,6 +948,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         m_particleRenderer.draw(cmd, m_camera, *pe.runtime, pe.runtime->desc().additiveBlend, sprite);
         ++draws;
     });
+        m_leafRenderer.draw(cmd, m_camera, m_leafField);
     }
 
     {

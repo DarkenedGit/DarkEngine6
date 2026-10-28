@@ -34,6 +34,7 @@ namespace Dark::Terrain
     {
     public:
         static constexpr int   kPoolSize           = 256;
+        static constexpr int   kMaxCrowns          = 1024;
         static constexpr int   kMaxSpawnsPerStep   = 8;
         static constexpr float kGatherRadiusM      = 96.0f;
         static constexpr float kRestSeconds        = 1.5f;
@@ -97,8 +98,6 @@ namespace Dark::Terrain
         bool     copySlot(int index, LeafSlot& out) const;
 
     private:
-        static constexpr int kMaxCrowns = 1024;
-
         struct SimLeaf
         {
             LeafPhase phase      = LeafPhase::Free;

@@ -3685,6 +3685,8 @@ void SandboxApp::onInit()
         DE_LOG_ERROR("SandboxApp: crosshair HUD failed");
     if (!m_particles.create(renderer(), assets()))
         DE_LOG_ERROR("SandboxApp: particle renderer failed");
+    if (!m_leafRenderer.create(renderer(), assets()))
+        DE_LOG_ERROR(LogCategory::Render, "SandboxApp: leaf renderer failed");
     if (!m_bloodSplats.create(renderer()))
         DE_LOG_ERROR("SandboxApp: blood splat pool failed");
     {
@@ -4408,6 +4410,44 @@ void SandboxApp::onSplashFinished()
     playMusicCue(world(), audio(), assets(), m_camera, "music");
 }
 
+void SandboxApp::tickLeaves(float dt)
+{
+    if (!m_terrain.valid() || !(dt > 0.0f))
+        return;
+
+    m_leafSimSeconds += static_cast<double>(dt);
+    float treeTop = 12.0f;
+    const AssetRef<Model>& treeModel = m_foliagePrototypes.model(Terrain::FoliageKind::Tree);
+    if (treeModel && treeModel->bounds().Max.y > 0.05f)
+        treeTop = treeModel->bounds().Max.y;
+
+    const Vector3f cam = m_viewCamera.GetPosition();
+    const Frustum3f frustum(m_viewCamera.GetCullViewProj());
+    Terrain::LeafField::Crown crowns[Terrain::LeafField::kMaxCrowns];
+    const int crownCount = gatherLeafCrowns(m_terrain, m_foliage.empty() ? nullptr : &m_foliage, cam, &frustum, treeTop, crowns,
+                                             Terrain::LeafField::kMaxCrowns);
+
+    Terrain::LeafField::Step step;
+    step.dt          = dt;
+    step.simTime     = m_leafSimSeconds;
+    step.listenerX   = cam.x;
+    step.listenerY   = cam.y;
+    step.listenerZ   = cam.z;
+    step.cameraX     = cam.x;
+    step.cameraZ     = cam.z;
+    step.crowns      = crowns;
+    step.crownCount  = crownCount;
+    step.tryHeight   = [](float x, float z, float& y, void* user) {
+        return static_cast<const Terrain::TerrainGrid*>(user)->tryHeightAtWorld(x, z, y);
+    };
+    step.heightUser  = &m_terrain;
+    step.lake        = m_water.chunksX() > 0;
+    step.lakeLevel   = m_water.params().waterLevel;
+    step.cellMetres  = m_terrain.cellSize();
+    m_leafField.setShedScale(1.0f);
+    m_leafField.step(step);
+}
+
 void SandboxApp::onUpdate(float dt)
 {
     m_frameDt = dt;
@@ -4525,6 +4565,7 @@ void SandboxApp::onUpdate(float dt)
             m_grassField.update(m_terrain, xf->position.x, xf->position.z, m_grassWindSeconds, m_water.params().waterLevel, sample);
         }
     }
+    tickLeaves(dt);
     if (renderer().scenePath() == ScenePath::HybridDeferred)
         syncPlayerFlashlight(world(), possessedBody(), m_viewCamera.GetPosition(), m_viewCamera.GetLook(), m_viewCamera.GetRight(), m_viewCamera.GetUp(), m_offhand.lightOn);
 
@@ -5567,6 +5608,7 @@ void SandboxApp::onRender()
     });
     if (WeaponLoadout* wFx = localWeapons(); wFx && wFx->projectile().impactEmitter().aliveCount() > 0)
         m_particles.draw(cmd, m_viewCamera, wFx->projectile().impactEmitter(), true);
+    m_leafRenderer.draw(cmd, m_viewCamera, m_leafField);
     }
 
     if (!deferredDecals())
@@ -5938,6 +5980,7 @@ void SandboxApp::onShutdown()
         w->clear();
     }
     m_particles.destroy(renderer());
+    m_leafRenderer.destroy(renderer());
     m_bloodSplats.destroy(renderer());
     DE_LOG_INFO("SandboxApp: shutdown");
 }

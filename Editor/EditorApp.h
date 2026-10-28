@@ -31,6 +31,8 @@
 #include "Animation/AnimGraphComponent.h"
 #include "Particles/ParticleComponents.h"
 #include "Particles/ParticleRenderer.h"
+#include "Particles/LeafRenderer.h"
+#include "Terrain/LeafField.h"
 
 #include "AI/AiSystem.h"
 #include "Audio/SoundClip.h"
@@ -266,6 +268,7 @@ private:
     void applyAuthoredGrass();
     void applyAuthoredStealth();
     void updateEditorGrass(float dt);
+    void tickLeaves(float dt);
     void drawEditorGrass(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, const Math::Matrix4f& prevViewProj, const Frustum3f& frustum);
     void removeEditorTerrain();
     bool loadWorldEngineTerrain(const std::filesystem::path& directory, float worldSizeMeters, float heightRangeMeters);
@@ -361,6 +364,9 @@ private:
     int                  m_panMouseY = 0;
 
     ParticleRenderer                           m_particleRenderer;
+    LeafRenderer                               m_leafRenderer;
+    Terrain::LeafField                         m_leafField;
+    double                                     m_leafSimSeconds = 0.0;
     Entity                                     m_selected{};
 
     EditorImGui          m_imgui;
