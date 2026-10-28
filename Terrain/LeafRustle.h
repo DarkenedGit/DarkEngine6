@@ -68,11 +68,9 @@ namespace Dark::Terrain
     class LeafRustleVoices
     {
     public:
-        void tick(Audio::AudioSystem& audio, AssetManager& assets, const LeafField::Crown* crowns, int crownCount, float listenerX, float listenerY,
-                  float listenerZ, double simTime, float dt);
+        void tick(Audio::AudioSystem& audio, AssetManager& assets, const LeafField::Crown* crowns, int crownCount, float listenerX, float listenerZ,
+                  double simTime, float dt);
         void stopAll(Audio::AudioSystem& audio);
-
-        int activeVoiceCount() const;
 
     private:
         struct Slot

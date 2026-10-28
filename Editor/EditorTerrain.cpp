@@ -811,7 +811,7 @@ void EditorApp::tickLeaves(float dt)
     step.frustumUser = &frustum;
     m_leafField.setShedScale(m_leafShedScale);
     m_leafField.step(step);
-    m_leafRustle.tick(audio(), assets(), crowns, crownCount, cam.x, cam.y, cam.z, m_leafSimSeconds, dt);
+    m_leafRustle.tick(audio(), assets(), crowns, crownCount, cam.x, cam.z, m_leafSimSeconds, dt);
 }
 
 void EditorApp::syncTerrainLod()

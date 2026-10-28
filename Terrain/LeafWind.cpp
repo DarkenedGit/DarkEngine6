@@ -15,6 +15,8 @@ namespace Dark::Terrain
         constexpr float    kTemporalFreq  = 0.02f;
         constexpr float    kBaseYaw       = 0.85f;
         constexpr float    kDeflection    = 1.05f;
+        const float        kScrollCos     = std::cos(kBaseYaw);
+        const float        kScrollSin     = std::sin(kBaseYaw);
     } // namespace
 
     float leafWindStrengthFromNoise(float noise)
@@ -26,8 +28,8 @@ namespace Dark::Terrain
     LeafWindSample sampleLeafWind(float worldX, float worldZ, double simTimeSec)
     {
         const float scroll = static_cast<float>(simTimeSec * static_cast<double>(kTemporalFreq));
-        const float sx     = worldX * kSpatialFreq + std::cos(kBaseYaw) * scroll;
-        const float sz     = worldZ * kSpatialFreq + std::sin(kBaseYaw) * scroll;
+        const float sx     = worldX * kSpatialFreq + kScrollCos * scroll;
+        const float sz     = worldZ * kSpatialFreq + kScrollSin * scroll;
         const float n      = perlin2(sx, sz, kSeed);
 
         LeafWindSample sample;

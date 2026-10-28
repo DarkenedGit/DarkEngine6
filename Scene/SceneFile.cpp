@@ -40,6 +40,16 @@ json colorToJson(const float c[4])
     return json::array({ c[0], c[1], c[2], c[3] });
 }
 
+// NaN and negatives become 0. Math::Clamp would leave a NaN in place.
+float clampShedScale(float shed)
+{
+    if (!(shed > 0.0f))
+        return 0.0f;
+    if (shed > 1.0f)
+        return 1.0f;
+    return shed;
+}
+
 void applyTypeLightDefaults(SceneObjectData& o)
 {
     if (o.type == SceneObjectType::SpotLight)
@@ -398,14 +408,7 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             f["rockPerM2"]         = scene.terrain.foliage.rockPerM2;
             f["grassPerM2"]        = scene.terrain.foliage.grassPerM2;
             f["stale"]             = scene.terrain.foliage.stale;
-            {
-                float shed = scene.terrain.foliage.shedScale;
-                if (!(shed > 0.0f))
-                    shed = 0.0f;
-                else if (shed > 1.0f)
-                    shed = 1.0f;
-                f["shedScale"] = shed;
-            }
+            f["shedScale"] = clampShedScale(scene.terrain.foliage.shedScale);
             f["treeModel"]         = scene.terrain.foliage.treeModel;
             f["flowerModel"]       = scene.terrain.foliage.flowerModel;
             f["rockModel"]         = scene.terrain.foliage.rockModel;
@@ -712,11 +715,7 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                     {
                         float shed = 1.0f;
                         jsonFloatOr(f, "shedScale", shed, 1.0f, "SceneFile");
-                        if (!(shed > 0.0f))
-                            shed = 0.0f;
-                        else if (shed > 1.0f)
-                            shed = 1.0f;
-                        desc.foliage.shedScale = shed;
+                        desc.foliage.shedScale = clampShedScale(shed);
                     }
                     desc.foliage.treeModel          = f.value("treeModel", std::string("models/BirchTree/scene.gltf"));
                     desc.foliage.flowerModel        = f.value("flowerModel", std::string("models/Dandelion/dandelion_01_2k.gltf"));

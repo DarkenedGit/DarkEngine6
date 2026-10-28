@@ -35,7 +35,7 @@ namespace Dark
     };
 
     // One shared upload, two frames, sized to the leaf pool. Not the blood/scene ring.
-    inline constexpr int kLeafQuadCapacity = 256;
+    inline constexpr int kLeafQuadCapacity = Terrain::LeafField::kPoolSize;
 
     // Writes 6 vertices. Airborne cards face the camera. Rested and fading cards lie on the normal.
     // Returns false for an empty phase.
@@ -76,8 +76,6 @@ namespace Dark
         uint8_t*                           m_mapped   = nullptr;
         D3D12_GPU_VIRTUAL_ADDRESS          m_gpu      = 0;
         Renderer*                          m_renderer = nullptr;
-        uint32_t                           m_frameSlot = 0;
-        uint32_t                           m_boundFrame = ~0u;
         bool                               m_ready = false;
     };
 

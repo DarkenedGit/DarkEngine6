@@ -181,29 +181,9 @@ namespace Dark::Terrain
             const RustleTree& tree = trees[order[n]];
             const float       dist = orderDist[n];
 
-            int freeSlot = -1;
-            for (int s = 0; s < cap; ++s)
-            {
-                if (s >= count || chosen[s].id == 0)
-                {
-                    freeSlot = s;
-                    break;
-                }
-            }
-            if (freeSlot >= 0 && freeSlot >= count)
+            if (count < cap)
             {
                 RustleChoice& choice = chosen[count++];
-                choice.id            = tree.id;
-                choice.x             = tree.x;
-                choice.y             = tree.y;
-                choice.z             = tree.z;
-                choice.volume        = leafRustleVolume(tree.strength);
-                choice.stop          = false;
-                continue;
-            }
-            if (freeSlot >= 0 && chosen[freeSlot].id == 0)
-            {
-                RustleChoice& choice = chosen[freeSlot];
                 choice.id            = tree.id;
                 choice.x             = tree.x;
                 choice.y             = tree.y;
@@ -217,7 +197,7 @@ namespace Dark::Terrain
             float farDist  = -1.0f;
             for (int s = 0; s < count; ++s)
             {
-                if (chosen[s].stop || chosen[s].id == 0)
+                if (chosen[s].stop)
                     continue;
                 const float heldDist = xzDistance(chosen[s].x, chosen[s].z, listenerX, listenerZ);
                 if (heldDist > farDist)
@@ -265,21 +245,9 @@ namespace Dark::Terrain
             clearSlot(audio, slot);
     }
 
-    int LeafRustleVoices::activeVoiceCount() const
-    {
-        int count = 0;
-        for (const Slot& slot : m_slots)
-        {
-            if (slot.voice != 0)
-                ++count;
-        }
-        return count;
-    }
-
     void LeafRustleVoices::tick(Audio::AudioSystem& audio, AssetManager& assets, const LeafField::Crown* crowns, int crownCount, float listenerX,
-                                float listenerY, float listenerZ, double simTime, float dt)
+                                float listenerZ, double simTime, float dt)
     {
-        (void)listenerY;
         if (!m_tried)
         {
             m_tried = true;
@@ -303,12 +271,11 @@ namespace Dark::Terrain
                 item.tree.x  = crown.x;
                 item.tree.y  = crown.seatY;
                 item.tree.z  = crown.z;
-                const LeafWindSample wind = sampleLeafWind(crown.x, crown.z, simTime);
-                item.tree.strength        = wind.strength;
-                item.dist                 = dist;
+                item.dist    = dist;
                 if (nearCount < 256)
                 {
-                    near[nearCount++] = item;
+                    item.tree.strength = sampleLeafWind(crown.x, crown.z, simTime).strength;
+                    near[nearCount++]  = item;
                     continue;
                 }
                 int   farthest = 0;
@@ -322,7 +289,10 @@ namespace Dark::Terrain
                     }
                 }
                 if (dist < farDist)
-                    near[farthest] = item;
+                {
+                    item.tree.strength = sampleLeafWind(crown.x, crown.z, simTime).strength;
+                    near[farthest]     = item;
+                }
             }
         }
 
@@ -386,12 +356,13 @@ namespace Dark::Terrain
                 stepStop(audio, slot, dt);
                 continue;
             }
-            slot.treeId   = choice.id;
-            slot.stopping = false;
-            slot.x        = choice.x;
-            slot.y        = choice.y;
-            slot.z        = choice.z;
-            slot.volume   = choice.volume;
+            const bool moved = slot.x != choice.x || slot.y != choice.y || slot.z != choice.z;
+            slot.treeId      = choice.id;
+            slot.stopping    = false;
+            slot.x           = choice.x;
+            slot.y           = choice.y;
+            slot.z           = choice.z;
+            slot.volume      = choice.volume;
             if (slot.voice == 0)
             {
                 if (!play.startVoice || play.requestTone)
@@ -401,7 +372,8 @@ namespace Dark::Terrain
                 continue;
             }
             audio.setVoiceVolume(slot.voice, slot.volume);
-            audio.setVoicePosition(slot.voice, Math::Vector3f(slot.x, slot.y, slot.z));
+            if (moved)
+                audio.setVoicePosition(slot.voice, Math::Vector3f(slot.x, slot.y, slot.z));
         }
 
         for (int s = 0; s < kRustleVoices; ++s)

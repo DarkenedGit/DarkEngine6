@@ -1,8 +1,8 @@
 #include "Particles/LeafRenderer.h"
 
 #include "Assets/AssetManager.h"
-#include "Assets/Model.h"
 #include "Core/Log.h"
+#include "Math/MathHelper.h"
 #include "Math/Vector3f.h"
 #include "Particles/ParticleMaterials.h"
 #include "Render/Camera3D.h"
@@ -80,7 +80,7 @@ namespace Dark
         {
             if (leaf.phase == LeafCardPhase::Fade)
             {
-                const float t = leaf.fade01 < 0.0f ? 0.0f : (leaf.fade01 > 1.0f ? 1.0f : leaf.fade01);
+                const float t = Math::Clamp(leaf.fade01, 0.0f, 1.0f);
                 return 1.0f - t;
             }
             return 1.0f;
@@ -336,12 +336,8 @@ namespace Dark
     {
         if (!m_ready || !cmd || !m_mapped || field.livingCount() <= 0)
             return;
-        const uint32_t frame = m_renderer ? m_renderer->frameIndex() : 0u;
-        if (m_boundFrame != frame)
-        {
-            m_boundFrame = frame;
-            m_frameSlot  = frame % kFrameCount;
-        }
+        const uint32_t frame     = m_renderer ? m_renderer->frameIndex() : 0u;
+        const uint32_t frameSlot = frame % kFrameCount;
 
         ParticleVertex verts[kLeafQuadCapacity * 6];
         int quads = 0;
@@ -375,13 +371,13 @@ namespace Dark
         if (quads <= 0)
             return;
 
-        const uint32_t vertOffset = m_frameSlot * static_cast<uint32_t>(kLeafQuadCapacity) * 6u;
+        const uint32_t vertOffset = frameSlot * static_cast<uint32_t>(kLeafQuadCapacity) * 6u;
         std::memcpy(m_mapped + static_cast<size_t>(vertOffset) * sizeof(ParticleVertex), verts, static_cast<size_t>(quads) * 6u * sizeof(ParticleVertex));
 
         m_pipe.bind(cmd);
         ParticleFrameConstants constants{};
         const Math::Matrix4f viewProj = camera.GetViewProj();
-        std::memcpy(constants.viewProj, viewProj.m_afEntry, sizeof(float) * 16);
+        viewProj.store(constants.viewProj);
         m_pipe.setConstants(cmd, constants);
 
         if (!m_renderer || !m_sprite || !m_sprite->albedo())
