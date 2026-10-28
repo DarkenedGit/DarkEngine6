@@ -56,6 +56,8 @@ using namespace Math;
 
 void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 {
+    m_foliagePipeline.setWind(m_wind, m_windClock.time, m_windClock.prevTime);
+
     GpuResourceCache& gpu = renderer().gpuResources();
     PassId   playedPasses[24]{};
     uint32_t playedCount = 0;

@@ -263,6 +263,7 @@ private:
     void drawMaterialPanel();
     void drawTerrainPanel();
     void drawWaterTools();
+    void drawWindPanel();
     void syncTerrainLod();
     void applyAuthoredGrass();
     void applyAuthoredStealth();
@@ -413,6 +414,7 @@ private:
     bool  m_showMaterialEditor = false;
     bool  m_showTerrainPanel   = true;
     bool  m_showWaterTools     = false;
+    bool  m_showWindPanel      = false;
 
     // Editor UI icons, one per SceneObjectType (content/ui/icons/<toString(type)>.png).
     // ImTextureID 0 = not loaded; callers fall back to text.

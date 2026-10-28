@@ -4606,6 +4606,8 @@ void SandboxApp::onRender()
         m_env.weather.cloudCoverage,
         renderer().frameIndex());
 
+    m_foliagePipeline.setWind(m_wind, m_windClock.time, m_windClock.prevTime);
+
     const bool instanceStatic = m_drawList.gpuReady() && renderer().debugState().instancedStatic && renderer().debugState().fill == DebugFill::Solid;
     const bool instanceSkinned = instanceStatic && m_skinnedInstances.isValid()
         && (renderer().scenePath() == ScenePath::HybridDeferred || m_skinnedInstances.forwardReady());

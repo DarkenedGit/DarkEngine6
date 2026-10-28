@@ -1665,6 +1665,94 @@ void EditorApp::drawWaterTools()
     ImGui::End();
 }
 
+void EditorApp::drawWindPanel()
+{
+    if (!m_showWindPanel)
+        return;
+    ImGui::SetNextWindowSize(ImVec2(450.0f, 700.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Wind", &m_showWindPanel))
+    {
+        ImGui::End();
+        return;
+    }
+
+    if (m_sceneMode != SceneMode::Scene3D)
+    {
+        ImGui::TextDisabled("Wind is part of the 3D scene.");
+        ImGui::End();
+        return;
+    }
+
+    bool edited = false;
+
+    ImGui::SeparatorText("Global");
+    edited |= ImGui::SliderFloat("Strength", &m_wind.strength, 0.0f, 3.0f);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Global wind strength multiplier");
+
+    float headingDeg = m_wind.headingRad * 180.0f / Math::Pi;
+    if (ImGui::SliderFloat("Heading (deg)", &headingDeg, -180.0f, 180.0f))
+    {
+        m_wind.headingRad = headingDeg * Math::Pi / 180.0f;
+        edited = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Wind direction in degrees");
+
+    edited |= ImGui::SliderFloat("Deflection", &m_wind.deflection, 0.0f, 1.2f);
+    edited |= ImGui::SliderFloat("Spatial Freq", &m_wind.spatialFreq, 0.0005f, 0.02f, "%.4f");
+    edited |= ImGui::SliderFloat("Temporal Freq", &m_wind.temporalFreq, 0.0f, 1.0f, "%.4f");
+    edited |= ImGui::SliderFloat("Gust Strength", &m_wind.gustStrength, 0.0f, 1.0f);
+    edited |= ImGui::SliderFloat("Gust Freq", &m_wind.gustFreq, 0.0f, 2.0f);
+    edited |= ImGui::Checkbox("Grass Follows Strength", &m_wind.grassFollowsStrength);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("When enabled, grass wind tip scales with strength (default off for exact grass match)");
+
+    int seedInt = static_cast<int>(m_wind.seed);
+    if (ImGui::InputInt("Seed", &seedInt))
+    {
+        m_wind.seed = static_cast<uint32_t>(seedInt >= 0 ? seedInt : 0);
+        edited = true;
+    }
+
+    ImGui::Separator();
+    if (ImGui::Button("Reset to Defaults"))
+    {
+        m_wind = Terrain::defaultWindSettings();
+        edited = true;
+    }
+
+    const char* kindNames[] = { "Tree", "Flower", "Rock", "Grass Tuft" };
+    for (int k = 0; k < static_cast<int>(Terrain::WindKind::Count); ++k)
+    {
+        if (!ImGui::CollapsingHeader(kindNames[k]))
+            continue;
+
+        Terrain::TreeWindParams& kind = m_wind.kind[k];
+        ImGui::Indent();
+        edited |= ImGui::SliderFloat("Influence", &kind.influence, 0.0f, 3.0f);
+        edited |= ImGui::SliderFloat("Stiffness", &kind.stiffness, 0.25f, 8.0f);
+        edited |= ImGui::SliderFloat("Main Bend (m)", &kind.mainBendMetres, 0.0f, 3.0f);
+        edited |= ImGui::SliderFloat("Branch Amp", &kind.branchAmp, 0.0f, 0.5f);
+        edited |= ImGui::SliderFloat("Leaf Flutter Amp", &kind.edgeAmp, 0.0f, 0.3f);
+        edited |= ImGui::SliderFloat("Flutter Freq", &kind.flutterFreq, 0.0f, 8.0f);
+        edited |= ImGui::SliderFloat("Detail Fade Start", &kind.detailFadeStart, 0.0f, 500.0f);
+        edited |= ImGui::SliderFloat("Detail Fade End", &kind.detailFadeEnd, 0.0f, 500.0f);
+        edited |= ImGui::SliderFloat("Bend Fade Start", &kind.bendFadeStart, 0.0f, 1000.0f);
+        edited |= ImGui::SliderFloat("Bend Fade End", &kind.bendFadeEnd, 0.0f, 1000.0f);
+        edited |= ImGui::SliderFloat("Max Sway (m)", &kind.maxSwayMetres, 0.0f, 5.0f);
+        ImGui::Unindent();
+    }
+
+    if (edited)
+    {
+        Terrain::clampWindSettings(m_wind);
+        applyAuthoredGrass();
+    }
+
+    ImGui::End();
+}
+
 bool EditorApp::loadWorldEngineTerrain(const std::filesystem::path& directory, float worldSizeMeters, float heightRangeMeters)
 {
     WorldEngineLoadDesc importDesc{};
