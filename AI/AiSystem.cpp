@@ -46,6 +46,8 @@ namespace Dark
         constexpr float kBackStepMeters    = 0.5f;
         constexpr int   kBackStepTries     = 8;
         constexpr float kLookEps           = 1.0e-6f;
+        // A sighting is called in once, after this delay, with the position from that first spot.
+        constexpr float kSquadRadioDelay   = 0.6f;
 
         SenseQuery authoredSight(const SightComponent* sight)
         {
@@ -1575,16 +1577,22 @@ namespace Dark
                 in.playerPos = playerPos;
                 const AI::Alertness wasAlertness = v.ai->aware.alertness;
                 if (AI::stepAwareness(v.ai->aware, m_aware, in, dt))
-                    shoutAlert(world, e, v.xf->position, playerPos);
+                {
+                    // A sighting waits for the radio. A feel or a noise still calls at once.
+                    if (!v.ai->aware.seesNow)
+                        shoutAlert(world, e, v.xf->position, playerPos);
+                }
                 else if (wasAlertness == AI::Alertness::Calm && v.ai->aware.alertness != AI::Alertness::Calm)
                     shareSuspicion(world, e, v.ai->aware.noticePos);
                 if (v.ai->aware.alertness == AI::Alertness::Alert && !v.ai->aware.seesNow && playerAlive)
                 {
                     v.ai->lostFor += dt;
-                    if (v.ai->lostFor < 1.0f)
+                    // Only the guard who spotted the player keeps a short live trace. A radioed mate holds the called point.
+                    if (v.ai->spotCalled && v.ai->lostFor < m_aware.alertTrackSeconds)
                         v.ai->aware.noticePos = playerPos;
                     const float toLast = Vector3f{ v.ai->aware.noticePos.x - v.xf->position.x, 0.0f, v.ai->aware.noticePos.z - v.xf->position.z }.MagnitudeSqrd();
-                    if (toLast > 2.0f * 2.0f && v.ai->lostFor < 10.0f)
+                    // Same 1 m arrival as walkTo. Reaching the spot, or passing alertCatchSeconds, lets the lose timer run.
+                    if (toLast >= 1.0f && v.ai->lostFor < m_aware.alertCatchSeconds)
                         v.ai->aware.stateTime = 0.0f;
                 }
                 else
@@ -1635,8 +1643,6 @@ namespace Dark
                     break;
                 }
                 sees = v.ai->aware.alertness == AI::Alertness::Alert && v.ai->aware.seesNow;
-                if (sees)
-                    m_spotters.push_back(Spotter{ v.xf->position, v.ai->squad });
             }
             v.ai->passive = guard && v.ai->aware.alertness != AI::Alertness::Alert;
             // Chase `sees` still includes standoff and the flat fallback. See XP does not.
@@ -1650,6 +1656,13 @@ namespace Dark
                 v.ai->lastSeen    = playerPos;
                 v.ai->hasLastSeen = true;
             }
+            if (guard && sees && !v.ai->spotCalled)
+            {
+                v.ai->spotCalled = true;
+                queueSpotRadio(e, v.xf->position, v.ai->lastSeen);
+            }
+            if (guard && v.ai->aware.alertness != AI::Alertness::Alert)
+                v.ai->spotCalled = false;
             // Sight, including hearing that forces sight, drops the search before the brain ticks.
             // The 9 seconds include the walk. A timeout returns the leaf to patrol or wander.
             if (v.ai->lureSearch && sees)
@@ -2066,31 +2079,7 @@ namespace Dark
                 v.ai->footstepAcc = 0.0f;
             stampPlanarVelocity();
         }
-        if (!m_spotters.empty() && playerAlive)
-        {
-            for (Entity other : m_scratch)
-            {
-                AiAgentComponent*         oai = world.get<AiAgentComponent>(other);
-                const TransformComponent* oxf = oai ? world.get<TransformComponent>(other) : nullptr;
-                const HealthComponent*    ohp = oai ? world.get<HealthComponent>(other) : nullptr;
-                if (!oxf || !ohp || !ohp->health.alive() || entityIsWolf(world, other) || oai->aware.seesNow)
-                    continue;
-                const bool squadded = oai->squad != 0;
-                if (!squadded && oai->aware.alertness != AI::Alertness::Alert && oai->aware.alertness != AI::Alertness::Searching)
-                    continue;
-                for (const Spotter& spotter : m_spotters)
-                {
-                    if (!teammates(oai->squad, oxf->position, spotter.squad, spotter.pos))
-                        continue;
-                    oai->aware.alertness = AI::Alertness::Alert;
-                    oai->aware.noticePos = playerPos;
-                    oai->aware.heardOnly = false;
-                    oai->aware.stateTime = 0.0f;
-                    break;
-                }
-            }
-        }
-        m_spotters.clear();
+        dispatchSpotRadios(world, dt);
         m_noises.clear();
     }
 
@@ -2158,6 +2147,38 @@ namespace Dark
             if (!ohp || !ohp->health.alive() || oai->squad != cai->squad || oai->aware.alertness != AI::Alertness::Calm)
                 continue;
             AI::alertToInvestigate(oai->aware, where);
+        }
+    }
+
+    void AiSystem::queueSpotRadio(Entity caller, const Vector3f& callerPos, const Vector3f& where)
+    {
+        for (const RadioCall& call : m_radios)
+        {
+            if (call.caller.id() == caller.id())
+                return;
+        }
+        if (m_radios.size() >= 16)
+            return;
+        m_radios.push_back(RadioCall{ caller, callerPos, where, kSquadRadioDelay });
+    }
+
+    void AiSystem::dispatchSpotRadios(World& world, float dt)
+    {
+        size_t i = 0;
+        while (i < m_radios.size())
+        {
+            RadioCall& call = m_radios[i];
+            call.left -= dt;
+            if (call.left > 0.0f)
+            {
+                ++i;
+                continue;
+            }
+            const RadioCall due = call;
+            m_radios[i] = m_radios.back();
+            m_radios.pop_back();
+            if (world.alive(due.caller))
+                shoutAlert(world, due.caller, due.callerPos, due.where);
         }
     }
 

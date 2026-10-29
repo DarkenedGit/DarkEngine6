@@ -79,6 +79,8 @@ namespace Dark
         bool                         passive     = false;
         float                        lostFor     = 0.0f;
         uint32_t                     squad       = 0; // 0 = no squad. Squad mates share alerts at any distance.
+        // This alert already radioed its first sighting. Cleared when the guard leaves Alert. Not saved.
+        bool                         spotCalled  = false;
         // False until a movement file or the dev-tools speed slider writes walk and run.
         // Tick keeps using PackSettings while this is false.
         bool                         authoredMove = false;

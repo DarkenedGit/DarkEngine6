@@ -524,3 +524,231 @@ TEST(WolfApproach, SquadMatesShareAlertAtAnyDistance)
     EXPECT_EQ(sim.world.get<Dark::AiAgentComponent>(mate)->aware.alertness, Alertness::Alert);
     EXPECT_EQ(sim.world.get<Dark::AiAgentComponent>(stranger)->aware.alertness, Alertness::Calm);
 }
+
+TEST(WolfApproach, SquadRadioSendsTheFirstSpotOnce)
+{
+    WolfWorld sim;
+    ASSERT_TRUE(sim.setup());
+    sim.ai.setAwarenessEnabled(true);
+    AwarenessSettings aware{};
+    aware.instantRange     = 20.0f;
+    aware.instantExposure  = 0.2f;
+    aware.maxRange         = 30.0f;
+    aware.focusHalfDeg     = 8.0f;
+    aware.sideRange        = 0.0f;
+    aware.alertShareRadius = 3.0f;
+    aware.alertLoseSeconds = 2.0f;
+    sim.ai.setAwarenessSettings(aware);
+
+    // 3 m keeps the caller inside the jump minimum for the whole check.
+    const Dark::Entity caller = spawnOpenHunter(sim, 6.0f);
+    Dark::TransformComponent mateXf{};
+    mateXf.position = { 1.0f, 1.0f, 8.0f };
+    const Dark::Entity mate = sim.ai.spawnHunter(sim.world, sim.pins, sim.assets, mateXf);
+    Dark::TransformComponent strangerXf{};
+    strangerXf.position = { 1.0f, 1.0f, 2.0f };
+    const Dark::Entity stranger = sim.ai.spawnHunter(sim.world, sim.pins, sim.assets, strangerXf);
+    ASSERT_TRUE(caller.valid() && mate.valid() && stranger.valid());
+    sim.world.get<Dark::AiAgentComponent>(caller)->squad     = 7u;
+    sim.world.get<Dark::AiAgentComponent>(caller)->forward   = { 0.0f, 0.0f, -1.0f };
+    sim.world.get<Dark::AiAgentComponent>(caller)->attackGap = 30.0f;
+    sim.world.get<Dark::AiAgentComponent>(mate)->squad       = 7u;
+    sim.world.get<Dark::AiAgentComponent>(mate)->forward     = { -1.0f, 0.0f, 0.0f };
+    sim.world.get<Dark::AiAgentComponent>(mate)->attackGap   = 30.0f;
+    sim.world.get<Dark::AiAgentComponent>(stranger)->forward = { -1.0f, 0.0f, 0.0f };
+
+    // Spawning hunters grows the transform pool. Take the player pointer after that.
+    Dark::TransformComponent* playerXf = sim.world.get<Dark::TransformComponent>(sim.player);
+    ASSERT_NE(playerXf, nullptr);
+    playerXf->position = { 8.0f, 1.0f, 3.0f };
+
+    // Keeps the mate from seeing the player. The caller and the player are on the other side.
+    const Dark::Math::AABox3f wall = Dark::Math::AABox3f::FromCenterExtents({ 4.0f, 1.5f, 8.0f }, { 0.4f, 2.0f, 8.0f });
+
+    auto tick = [&](int frames) {
+        for (int i = 0; i < frames; ++i)
+            sim.ai.tickHunters(sim.world, sim.terrain, false, 1.0f / 60.0f, sim.player, &wall, 1);
+    };
+
+    tick(1);
+    EXPECT_EQ(sim.world.get<Dark::AiAgentComponent>(caller)->aware.alertness, Alertness::Alert);
+    EXPECT_TRUE(sim.world.get<Dark::AiAgentComponent>(caller)->spotCalled);
+    EXPECT_EQ(sim.world.get<Dark::AiAgentComponent>(mate)->aware.alertness, Alertness::Calm);
+
+    playerXf->position = { 8.0f, 1.0f, 3.4f };
+    tick(34);
+    EXPECT_EQ(sim.world.get<Dark::AiAgentComponent>(mate)->aware.alertness, Alertness::Calm);
+
+    tick(2);
+    const Dark::AiAgentComponent* mateAgent = sim.world.get<Dark::AiAgentComponent>(mate);
+    ASSERT_NE(mateAgent, nullptr);
+    EXPECT_EQ(mateAgent->aware.alertness, Alertness::Alert);
+    EXPECT_NEAR(mateAgent->aware.noticePos.x, 8.0f, 1.0e-3f);
+    EXPECT_NEAR(mateAgent->aware.noticePos.z, 3.0f, 1.0e-3f);
+    EXPECT_FALSE(mateAgent->aware.seesNow);
+    EXPECT_EQ(sim.world.get<Dark::AiAgentComponent>(stranger)->aware.alertness, Alertness::Calm);
+
+    tick(8);
+    mateAgent = sim.world.get<Dark::AiAgentComponent>(mate);
+    ASSERT_NE(mateAgent, nullptr);
+    EXPECT_NEAR(mateAgent->aware.noticePos.x, 8.0f, 1.0e-3f);
+    EXPECT_NEAR(mateAgent->aware.noticePos.z, 3.0f, 1.0e-3f);
+    EXPECT_FALSE(mateAgent->aware.seesNow);
+}
+
+namespace
+{
+    AwarenessSettings lostSightSettings(float trackSeconds, float catchSeconds)
+    {
+        AwarenessSettings aware{};
+        aware.instantRange      = 20.0f;
+        aware.instantExposure   = 0.2f;
+        aware.maxRange          = 30.0f;
+        aware.focusHalfDeg      = 8.0f;
+        aware.sideRange         = 0.0f;
+        aware.proximityRange    = 0.0f;
+        aware.alertShareRadius  = 0.0f;
+        aware.alertLoseSeconds  = 2.0f;
+        aware.alertTrackSeconds = trackSeconds;
+        aware.alertCatchSeconds = catchSeconds;
+        return aware;
+    }
+
+    Dark::Entity prepareSpotter(WolfWorld& sim, float trackSeconds, float catchSeconds)
+    {
+        sim.ai.setAwarenessEnabled(true);
+        sim.ai.setAwarenessSettings(lostSightSettings(trackSeconds, catchSeconds));
+        const Dark::Entity guard = spawnOpenHunter(sim, 6.0f);
+        if (!guard.valid())
+            return {};
+        sim.world.get<Dark::AiAgentComponent>(guard)->forward   = { 0.0f, 0.0f, -1.0f };
+        sim.world.get<Dark::AiAgentComponent>(guard)->attackGap = 30.0f;
+        if (Dark::TransformComponent* playerXf = sim.world.get<Dark::TransformComponent>(sim.player))
+            playerXf->position = { 8.0f, 1.0f, 3.0f };
+        return guard;
+    }
+}
+
+TEST(WolfApproach, LostSightTraceStopsAndCatchReleasesTheTimer)
+{
+    WolfWorld sim;
+    ASSERT_TRUE(sim.setup());
+    const Dark::Entity guard = prepareSpotter(sim, 0.25f, 0.35f);
+    ASSERT_TRUE(guard.valid());
+    Dark::TransformComponent* playerXf = sim.world.get<Dark::TransformComponent>(sim.player);
+    ASSERT_NE(playerXf, nullptr);
+
+    const Dark::Math::AABox3f wall = Dark::Math::AABox3f::FromCenterExtents({ 8.0f, 1.5f, 4.5f }, { 8.0f, 2.0f, 0.3f });
+    auto tick = [&](int frames) {
+        for (int i = 0; i < frames; ++i)
+            sim.ai.tickHunters(sim.world, sim.terrain, false, 1.0f / 60.0f, sim.player, &wall, 1);
+    };
+
+    sim.ai.tickHunters(sim.world, sim.terrain, false, 1.0f / 60.0f, sim.player);
+    Dark::AiAgentComponent* agent = sim.world.get<Dark::AiAgentComponent>(guard);
+    ASSERT_NE(agent, nullptr);
+    EXPECT_EQ(agent->aware.alertness, Alertness::Alert);
+    EXPECT_TRUE(agent->spotCalled);
+    EXPECT_TRUE(agent->aware.seesNow);
+
+    // 14 frames at 1/60 stay inside the 0.25 s trace. The 15th frame is the first one past it.
+    playerXf->position = { 8.0f, 1.0f, 1.0f };
+    tick(14);
+    agent = sim.world.get<Dark::AiAgentComponent>(guard);
+    ASSERT_NE(agent, nullptr);
+    EXPECT_FALSE(agent->aware.seesNow);
+    EXPECT_EQ(agent->aware.alertness, Alertness::Alert);
+    EXPECT_NEAR(agent->aware.noticePos.z, 1.0f, 1.0e-3f);
+    EXPECT_NEAR(agent->aware.stateTime, 0.0f, 1.0e-4f);
+    EXPECT_LT(agent->lostFor, 0.25f);
+
+    playerXf->position = { 8.0f, 1.0f, 0.2f };
+    tick(1);
+    agent = sim.world.get<Dark::AiAgentComponent>(guard);
+    ASSERT_NE(agent, nullptr);
+    EXPECT_NEAR(agent->aware.noticePos.z, 1.0f, 1.0e-3f);
+    EXPECT_GE(agent->lostFor, 0.25f);
+    EXPECT_NEAR(agent->aware.stateTime, 0.0f, 1.0e-4f);
+
+    tick(5);
+    agent = sim.world.get<Dark::AiAgentComponent>(guard);
+    ASSERT_NE(agent, nullptr);
+    EXPECT_LT(agent->lostFor, 0.35f);
+    EXPECT_NEAR(agent->aware.stateTime, 0.0f, 1.0e-4f);
+    EXPECT_NEAR(agent->aware.noticePos.z, 1.0f, 1.0e-3f);
+    EXPECT_EQ(agent->aware.alertness, Alertness::Alert);
+
+    tick(1);
+    agent = sim.world.get<Dark::AiAgentComponent>(guard);
+    ASSERT_NE(agent, nullptr);
+    EXPECT_GE(agent->lostFor, 0.35f);
+    EXPECT_NEAR(agent->aware.stateTime, 1.0f / 60.0f, 1.0e-5f);
+    EXPECT_EQ(agent->aware.alertness, Alertness::Alert);
+    EXPECT_NEAR(agent->aware.noticePos.z, 1.0f, 1.0e-3f);
+    EXPECT_FALSE(agent->aware.seesNow);
+}
+
+TEST(WolfApproach, LostSightHoldStopsAtTheLastKnownSpot)
+{
+    WolfWorld sim;
+    ASSERT_TRUE(sim.setup());
+    const Dark::Entity guard = prepareSpotter(sim, 1.0f, 10.0f);
+    ASSERT_TRUE(guard.valid());
+
+    const Dark::Math::AABox3f farWall = Dark::Math::AABox3f::FromCenterExtents({ 8.0f, 1.5f, 4.5f }, { 8.0f, 2.0f, 0.3f });
+    sim.ai.tickHunters(sim.world, sim.terrain, false, 1.0f / 60.0f, sim.player);
+    sim.ai.tickHunters(sim.world, sim.terrain, false, 1.0f / 60.0f, sim.player, &farWall, 1);
+    sim.ai.tickHunters(sim.world, sim.terrain, false, 1.0f / 60.0f, sim.player, &farWall, 1);
+
+    Dark::AiAgentComponent* agent = sim.world.get<Dark::AiAgentComponent>(guard);
+    ASSERT_NE(agent, nullptr);
+    EXPECT_EQ(agent->aware.alertness, Alertness::Alert);
+    EXPECT_FALSE(agent->aware.seesNow);
+    EXPECT_NEAR(agent->aware.noticePos.z, 3.0f, 1.0e-3f);
+    EXPECT_NEAR(agent->aware.stateTime, 0.0f, 1.0e-4f);
+    EXPECT_LT(agent->lostFor, 10.0f);
+
+    Dark::TransformComponent* guardXf = sim.world.get<Dark::TransformComponent>(guard);
+    ASSERT_NE(guardXf, nullptr);
+    guardXf->position = { 8.0f, 1.0f, 3.5f };
+    const Dark::Math::AABox3f closeWall = Dark::Math::AABox3f::FromCenterExtents({ 8.0f, 1.5f, 3.25f }, { 8.0f, 2.0f, 0.08f });
+    sim.ai.tickHunters(sim.world, sim.terrain, false, 1.0f / 60.0f, sim.player, &closeWall, 1);
+
+    agent = sim.world.get<Dark::AiAgentComponent>(guard);
+    ASSERT_NE(agent, nullptr);
+    EXPECT_FALSE(agent->aware.seesNow);
+    EXPECT_EQ(agent->aware.alertness, Alertness::Alert);
+    EXPECT_NEAR(agent->aware.noticePos.z, 3.0f, 1.0e-3f);
+    EXPECT_LT(agent->lostFor, 10.0f);
+    EXPECT_NEAR(agent->aware.stateTime, 1.0f / 60.0f, 1.0e-5f);
+}
+
+TEST(WolfApproach, LostSightZeroDurationsSkipTraceAndHold)
+{
+    WolfWorld sim;
+    ASSERT_TRUE(sim.setup());
+    const Dark::Entity guard = prepareSpotter(sim, 0.0f, 0.0f);
+    ASSERT_TRUE(guard.valid());
+    Dark::TransformComponent* playerXf = sim.world.get<Dark::TransformComponent>(sim.player);
+    ASSERT_NE(playerXf, nullptr);
+
+    sim.ai.tickHunters(sim.world, sim.terrain, false, 1.0f / 60.0f, sim.player);
+    Dark::AiAgentComponent* agent = sim.world.get<Dark::AiAgentComponent>(guard);
+    ASSERT_NE(agent, nullptr);
+    EXPECT_TRUE(agent->spotCalled);
+    EXPECT_NEAR(agent->aware.noticePos.z, 3.0f, 1.0e-3f);
+
+    playerXf->position = { 8.0f, 1.0f, 1.0f };
+    const Dark::Math::AABox3f wall = Dark::Math::AABox3f::FromCenterExtents({ 8.0f, 1.5f, 4.5f }, { 8.0f, 2.0f, 0.3f });
+    for (int i = 0; i < 3; ++i)
+        sim.ai.tickHunters(sim.world, sim.terrain, false, 1.0f / 60.0f, sim.player, &wall, 1);
+
+    agent = sim.world.get<Dark::AiAgentComponent>(guard);
+    ASSERT_NE(agent, nullptr);
+    EXPECT_EQ(agent->aware.alertness, Alertness::Alert);
+    EXPECT_FALSE(agent->aware.seesNow);
+    EXPECT_TRUE(agent->spotCalled);
+    EXPECT_NEAR(agent->aware.noticePos.z, 3.0f, 1.0e-3f);
+    EXPECT_GT(agent->lostFor, 0.0f);
+    EXPECT_NEAR(agent->aware.stateTime, 3.0f / 60.0f, 1.0e-5f);
+}
