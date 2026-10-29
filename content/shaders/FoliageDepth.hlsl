@@ -1,12 +1,28 @@
 #pragma pack_matrix(row_major)
 
+#include "TreeWind.hlsli"
+
 cbuffer PartConstants : register(b0)
 {
     float4x4 localToRoot;
     float4x4 lightWVP;
     float    alphaCutoff;
     float    alphaModeMask;
-    float2   depthPad;
+    float    kindIndex;
+    float    depthPad;
+};
+
+cbuffer FoliageView : register(b1)
+{
+    float4x4 viewProj;
+    float4x4 prevViewProj;
+    float4   windCur;
+    float4   windPrev;
+    float4   field;
+    float4   kindA[4];
+    float4   kindB[4];
+    float4   kindC[4];
+    float4   eye;
 };
 
 #include "FoliageWorld.hlsli"
@@ -20,6 +36,7 @@ SamplerState gSamp   : register(s0);
 struct VSInput
 {
     float3 position : POSITION;
+    float3 normal   : NORMAL;
     float2 uv       : TEXCOORD0;
     uint   iid      : SV_InstanceID;
 };
@@ -34,8 +51,20 @@ PSInput VSMain(VSInput input)
 {
     float4x4 world      = FoliageWorldMatrix(gWorlds[gIndices[input.iid]]);
     float4x4 localWorld = mul(localToRoot, world);
-    PSInput  o;
-    o.position = mul(mul(float4(input.position, 1.0f), localWorld), lightWVP);
+    float4   wp         = mul(float4(input.position, 1.0f), localWorld);
+    float3   pos        = wp.xyz;
+    if (eye.w > 0.5)
+    {
+        uint   kind   = (uint)kindIndex;
+        float3 origin = world[3].xyz;
+        float  scaleY = length(world[1].xyz);
+        float3 nRaw   = mul(float4(input.normal, 0.0f), localWorld).xyz;
+        float  nLen   = length(nRaw);
+        float3 nWS    = nLen > 1e-4 ? nRaw / nLen : float3(0.0, 0.0, 0.0);
+        pos = wp.xyz + TreeWindOffset(wp.xyz, origin, scaleY, nWS, windCur, field, kindA[kind], kindB[kind], kindC[kind], eye.xyz);
+    }
+    PSInput o;
+    o.position = mul(float4(pos, 1.0f), lightWVP);
     o.uv       = input.uv;
     return o;
 }

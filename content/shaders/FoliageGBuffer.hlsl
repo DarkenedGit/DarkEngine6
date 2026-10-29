@@ -3,12 +3,11 @@
 #include "GBuffer.hlsli"
 #include "Thermal.hlsli"
 #include "Ultraviolet.hlsli"
+#include "TreeWind.hlsli"
 
 cbuffer PartConstants : register(b0)
 {
     float4x4 localToRoot;
-    float4x4 viewProj;
-    float4x4 prevViewProj;
     float4   color;
     float    roughness;
     float    metallic;
@@ -16,6 +15,21 @@ cbuffer PartConstants : register(b0)
     float    normalScale;
     float    alphaCutoff;
     float    alphaModeMask;
+    float    kindIndex;
+    float    kindPad;
+};
+
+cbuffer FoliageView : register(b1)
+{
+    float4x4 viewProj;
+    float4x4 prevViewProj;
+    float4   windCur;
+    float4   windPrev;
+    float4   field;
+    float4   kindA[4];
+    float4   kindB[4];
+    float4   kindC[4];
+    float4   eye;
 };
 
 #include "FoliageWorld.hlsli"
@@ -55,9 +69,22 @@ PSInput VSMain(VSInput input)
     float4x4 world      = FoliageWorldMatrix(gWorlds[gIndices[input.iid]]);
     float4x4 localWorld = mul(localToRoot, world);
     float4   wp         = mul(float4(input.position, 1.0f), localWorld);
+    float3   pos        = wp.xyz;
+    float3   prev       = wp.xyz;
+    if (eye.w > 0.5)
+    {
+        uint   kind    = (uint)kindIndex;
+        float3 origin  = world[3].xyz;
+        float  scaleY  = length(world[1].xyz);
+        float3 nRaw    = mul(float4(input.normal, 0.0f), localWorld).xyz;
+        float  nLen    = length(nRaw);
+        float3 nWS     = nLen > 1e-4 ? nRaw / nLen : float3(0.0, 0.0, 0.0);
+        pos  = wp.xyz + TreeWindOffset(wp.xyz, origin, scaleY, nWS, windCur, field, kindA[kind], kindB[kind], kindC[kind], eye.xyz);
+        prev = wp.xyz + TreeWindOffset(wp.xyz, origin, scaleY, nWS, windPrev, field, kindA[kind], kindB[kind], kindC[kind], eye.xyz);
+    }
     PSInput  o;
-    o.currClip  = mul(wp, viewProj);
-    o.prevClip  = mul(wp, prevViewProj);
+    o.currClip  = mul(float4(pos, 1.0f), viewProj);
+    o.prevClip  = mul(float4(prev, 1.0f), prevViewProj);
     o.position  = o.currClip;
     o.normalWS  = mul(float4(input.normal, 0.0f), localWorld).xyz;
     o.tangentWS = float4(mul(float4(input.tangent.xyz, 0.0f), localWorld).xyz, input.tangent.w);

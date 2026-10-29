@@ -22,6 +22,7 @@
 #include "Physics/PhysicsWorld.h"
 #include "Physics/FoliageCollision.h"
 #include "Terrain/GrassField.h"
+#include "Terrain/WindField.h"
 #include "Terrain/TerrainGrid.h"
 #include "Terrain/TerrainMaterial.h"
 #include "Water/Water.h"
@@ -312,6 +313,8 @@ private:
     Dark::GrassPipeline                       m_grassPipeline;
     Dark::Terrain::GrassField                 m_grassField;
     double                                    m_grassWindSeconds = 0.0;
+    Dark::Terrain::WindSettings               m_wind = Dark::Terrain::defaultWindSettings();
+    Dark::Terrain::WindClock                  m_windClock;
     Dark::Terrain::LeafField                  m_leafField;
     Dark::Terrain::LeafRustleVoices           m_leafRustle;
     Dark::LeafRenderer                        m_leafRenderer;

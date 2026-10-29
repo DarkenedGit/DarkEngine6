@@ -4,6 +4,7 @@
 #include "Math/Sphere3f.h"
 #include "Render/Frustum3f.h"
 #include "Terrain/FoliageFile.h"
+#include "Terrain/WindTypes.h"
 
 #include <cstdint>
 #include <d3d12.h>
@@ -56,11 +57,13 @@ namespace Dark
         static constexpr UINT kGbMaterial  = 1;
         static constexpr UINT kGbWorlds    = 2;
         static constexpr UINT kGbIndices   = 3;
+        static constexpr UINT kGbView      = 4;
 
         static constexpr UINT kDepthConstants = 0;
         static constexpr UINT kDepthWorlds    = 1;
         static constexpr UINT kDepthIndices   = 2;
         static constexpr UINT kDepthMaterial  = 3;
+        static constexpr UINT kDepthView      = 4;
 
         static constexpr uint32_t kCullFrameSlots    = 2;
         static constexpr uint32_t kCullViewsPerFrame = 8;
@@ -105,13 +108,14 @@ namespace Dark
         bool isValid() const
         {
             return m_gbPso != nullptr && m_gbPsoTwoSided != nullptr && m_depthPso != nullptr && m_depthPsoTwoSided != nullptr
-                && m_worldMap != nullptr && m_indexMap != nullptr;
+                && m_worldMap != nullptr && m_indexMap != nullptr && m_viewMap != nullptr;
         }
 
         // editorRecords non-null: that vector, kept only where the tile is resident.
         // null: residentFoliage only (Sandbox). A non-resident tile contributes nothing.
         void setThermal(bool on) { m_thermal = on; }
         void setUltraviolet(bool on) { m_ultraviolet = on; }
+        void setWind(const Terrain::WindSettings& wind, double timeSec, double prevTimeSec);
 
         void drawGBuffer(
             ID3D12GraphicsCommandList* cmd,
@@ -179,6 +183,8 @@ namespace Dark
         FoliageCullDesc makeCullDesc(bool shadow) const;
         bool fillPartArgs(GpuResourceCache& gpu, FoliagePrototypes& prototypes, bool depth, FoliageCullDesc& desc);
         bool tryGpuCull(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, FoliagePrototypes& prototypes, bool depth, bool shadow);
+        bool writeViewConstants(const Camera3D& camera, const Math::Matrix4f* viewProj, const Math::Matrix4f* prevViewProj);
+        D3D12_GPU_VIRTUAL_ADDRESS viewConstantAddress() const;
 
         ComPtr<ID3D12RootSignature> m_gbRoot;
         ComPtr<ID3D12PipelineState> m_gbPso;
@@ -194,10 +200,17 @@ namespace Dark
         ComPtr<ID3D12PipelineState> m_depthPsoTwoSided;
         ComPtr<ID3D12Resource>      m_worlds;
         ComPtr<ID3D12Resource>      m_indices;
+        ComPtr<ID3D12Resource>      m_viewCb;
         uint8_t*                    m_worldMap = nullptr;
         uint8_t*                    m_indexMap = nullptr;
+        uint8_t*                    m_viewMap  = nullptr;
         D3D12_GPU_VIRTUAL_ADDRESS   m_worldGpu = 0;
         D3D12_GPU_VIRTUAL_ADDRESS   m_indexGpu = 0;
+        D3D12_GPU_VIRTUAL_ADDRESS   m_viewGpu  = 0;
+        Terrain::WindSettings       m_wind{};
+        double                      m_windTime     = 0.0;
+        double                      m_windPrevTime = 0.0;
+        float                       m_sway[4]{};
 
         std::vector<Math::Matrix4f> m_cpuWorlds;
         std::vector<uint8_t>        m_cpuKinds;

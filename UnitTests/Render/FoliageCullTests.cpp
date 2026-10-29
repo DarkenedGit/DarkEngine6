@@ -173,6 +173,24 @@ TEST(FoliageCull, ShadersCompile)
     ASSERT_TRUE(cbufferBytes(args.Get(), "FoliageCullConstants", argBytes));
     EXPECT_EQ(compactBytes, FoliagePipeline::kCullConstantBytes);
     EXPECT_EQ(argBytes, FoliagePipeline::kCullConstantBytes);
+
+    ComPtr<ID3DBlob> foliageVs;
+    ComPtr<ID3DBlob> foliagePs;
+    ComPtr<ID3DBlob> depthVs;
+    ComPtr<ID3DBlob> depthPs;
+    ASSERT_TRUE(compileShaderFromContent("shaders/FoliageGBuffer.hlsl", "VSMain", "vs_5_0", foliageVs));
+    ASSERT_TRUE(compileShaderFromContent("shaders/FoliageGBuffer.hlsl", "PSMain", "ps_5_0", foliagePs));
+    ASSERT_TRUE(compileShaderFromContent("shaders/FoliageDepth.hlsl", "VSMain", "vs_5_0", depthVs));
+    ASSERT_TRUE(compileShaderFromContent("shaders/FoliageDepth.hlsl", "PSMain", "ps_5_0", depthPs));
+    UINT partBytes = 0;
+    UINT viewBytes = 0;
+    UINT depthPart = 0;
+    ASSERT_TRUE(cbufferBytes(foliageVs.Get(), "PartConstants", partBytes));
+    ASSERT_TRUE(cbufferBytes(foliageVs.Get(), "FoliageView", viewBytes));
+    ASSERT_TRUE(cbufferBytes(depthVs.Get(), "PartConstants", depthPart));
+    EXPECT_EQ(partBytes, 28u * sizeof(float));
+    EXPECT_EQ(viewBytes, 384u);
+    EXPECT_EQ(depthPart, 36u * sizeof(float));
 }
 
 TEST(FoliageCull, GrassEmitsNoShadowIndices)

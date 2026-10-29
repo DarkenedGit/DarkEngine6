@@ -200,6 +200,7 @@ void EditorApp::newScene3D()
     m_authoredExposure = {};
     m_authoredStealth = {};
     m_authoredGrass = {};
+    m_wind          = Terrain::defaultWindSettings();
     applyAuthoredGrass();
     applyAuthoredStealth();
     m_env = Sky::Environment{};
@@ -221,6 +222,7 @@ void EditorApp::newScene2D()
     removeEditorTerrain();
     m_authoredStealth = {};
     m_authoredGrass = {};
+    m_wind          = Terrain::defaultWindSettings();
     applyAuthoredGrass();
     applyAuthoredStealth();
     m_worldMin = Vector2f(0.0f, 0.0f);

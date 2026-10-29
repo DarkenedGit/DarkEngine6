@@ -8,6 +8,7 @@
 #include "Terrain/FoliageFile.h"
 #include "Terrain/GrassTypes.h"
 #include "Terrain/LeafField.h"
+#include "Terrain/WindTypes.h"
 
 #include <cmath>
 #include <filesystem>
@@ -1598,6 +1599,63 @@ TEST(SceneFile, TerrainGrass_RoundTrip)
     std::filesystem::remove(badPath, removeEc);
     std::filesystem::remove(path, removeEc);
     std::filesystem::remove(zeroPath, removeEc);
+}
+
+TEST(SceneFile, TerrainWind_RoundTrip)
+{
+    SceneFileData scene{};
+    scene.version             = 2;
+    scene.name                = "wind";
+    scene.mode                = SceneMode::Scene3D;
+    scene.hasTerrain          = true;
+    scene.terrain.bindLayout  = TerrainSceneDesc::kBindLayoutV1;
+    scene.terrain.heightFile  = "wind.height.bin";
+    scene.terrain.wind.present  = true;
+    scene.terrain.wind.settings = Terrain::defaultWindSettings();
+    scene.terrain.wind.settings.strength   = 1.5f;
+    scene.terrain.wind.settings.headingRad = 0.4f;
+    scene.terrain.wind.settings.kind[static_cast<int>(Terrain::WindKind::Tree)].mainBendMetres = 0.8f;
+    scene.terrain.grass.enabled = true;
+
+    const auto path = tempScenePath("darkengine6_scene_wind_rt.json");
+    std::string err;
+    ASSERT_TRUE(saveSceneToJson(path, scene, &err)) << err;
+
+    SceneFileData loaded{};
+    ASSERT_TRUE(loadSceneFromJson(path, loaded, &err)) << err;
+    EXPECT_TRUE(loaded.terrain.wind.present);
+    EXPECT_NEAR(loaded.terrain.wind.settings.strength, 1.5f, 1.0e-4f);
+    EXPECT_NEAR(loaded.terrain.wind.settings.headingRad, 0.4f, 1.0e-4f);
+    EXPECT_NEAR(loaded.terrain.wind.settings.kind[static_cast<int>(Terrain::WindKind::Tree)].mainBendMetres, 0.8f, 1.0e-4f);
+    EXPECT_NEAR(loaded.terrain.wind.settings.kind[static_cast<int>(Terrain::WindKind::Rock)].influence, 0.0f, 1.0e-4f);
+    EXPECT_NEAR(loaded.terrain.grass.windBaseYaw, loaded.terrain.wind.settings.headingRad, 1.0e-4f);
+    EXPECT_TRUE(loaded.terrain.grass.enabled);
+
+    SceneFileData omitted{};
+    omitted.version            = 2;
+    omitted.name               = "wind_omit";
+    omitted.mode               = SceneMode::Scene3D;
+    omitted.hasTerrain         = true;
+    omitted.terrain.bindLayout = TerrainSceneDesc::kBindLayoutV1;
+    omitted.terrain.heightFile = "wind_omit.height.bin";
+    omitted.terrain.grass.windBaseYaw      = 0.25f;
+    omitted.terrain.grass.windTemporalFreq = 0.5f;
+    omitted.terrain.grass.seed             = 42u;
+    const auto omitPath = tempScenePath("darkengine6_scene_wind_omit.json");
+    ASSERT_TRUE(saveSceneToJson(omitPath, omitted, &err)) << err;
+    SceneFileData omitLoaded{};
+    ASSERT_TRUE(loadSceneFromJson(omitPath, omitLoaded, &err)) << err;
+    EXPECT_FALSE(omitLoaded.terrain.wind.present);
+    EXPECT_NEAR(omitLoaded.terrain.wind.settings.headingRad, 0.25f, 1.0e-4f);
+    EXPECT_NEAR(omitLoaded.terrain.wind.settings.temporalFreq, 0.5f, 1.0e-4f);
+    EXPECT_EQ(omitLoaded.terrain.wind.settings.seed, 42u);
+    EXPECT_NEAR(omitLoaded.terrain.grass.windBaseYaw, 0.25f, 1.0e-4f);
+    EXPECT_NEAR(omitLoaded.terrain.grass.windTemporalFreq, 0.5f, 1.0e-4f);
+    EXPECT_NEAR(omitLoaded.terrain.wind.settings.kind[static_cast<int>(Terrain::WindKind::Rock)].influence, 0.0f, 1.0e-4f);
+
+    std::error_code removeEc;
+    std::filesystem::remove(path, removeEc);
+    std::filesystem::remove(omitPath, removeEc);
 }
 
 TEST(SceneFile, Terrain_LegacyHeightFile_StillLoads)

@@ -700,17 +700,20 @@ bool EditorApp::rebuildTerrainGpuFromSurface()
 
 void EditorApp::applyAuthoredGrass()
 {
+    // One field drives both. The authored tip stays put; grassFollowsStrength scales only the live copy.
+    m_authoredGrass.windBaseYaw      = m_wind.headingRad;
+    m_authoredGrass.windDeflection   = m_wind.deflection;
+    m_authoredGrass.windSpatialFreq  = m_wind.spatialFreq;
+    m_authoredGrass.windTemporalFreq = m_wind.temporalFreq;
+    m_authoredGrass.seed             = m_wind.seed;
+
     GrassParams params;
     params.enabled          = m_authoredGrass.enabled;
     params.heightMetres     = m_authoredGrass.heightMetres;
     params.flexibility      = m_authoredGrass.flexibility;
     params.densityScale     = m_authoredGrass.densityScale;
-    params.windBaseYaw      = m_authoredGrass.windBaseYaw;
-    params.windDeflection   = m_authoredGrass.windDeflection;
     params.windTipMetres    = m_authoredGrass.windTipMetres;
-    params.windSpatialFreq  = m_authoredGrass.windSpatialFreq;
-    params.windTemporalFreq = m_authoredGrass.windTemporalFreq;
-    params.seed             = m_authoredGrass.seed;
+    Terrain::applyWindToGrass(m_wind, params);
     if (!m_grassPipeline.isValid())
         params.enabled = false;
     m_grassField.setParams(params);
@@ -720,6 +723,9 @@ void EditorApp::applyAuthoredGrass()
 
 void EditorApp::updateEditorGrass(float dt)
 {
+    // Trees read this clock from the foliage pass. It still advances when grass failed to create.
+    m_windClock.tick(dt);
+    m_grassWindSeconds = m_windClock.time;
     if (!m_grassPipeline.isValid())
     {
         tickLeaves(dt);
@@ -747,7 +753,6 @@ void EditorApp::updateEditorGrass(float dt)
             }
         }
     }
-    m_grassWindSeconds += static_cast<double>(dt);
     m_grassField.update(m_terrain, x, z, m_grassWindSeconds, m_water.params().waterLevel, sample);
     tickLeaves(dt);
 }
@@ -882,6 +887,8 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
         desc.foliage.rockModel         = m_foliageDensity.rockModel;
         desc.foliage.grassModel        = m_foliageDensity.grassModel;
         desc.grass                     = m_authoredGrass;
+        desc.wind.present              = true;
+        desc.wind.settings             = m_wind;
         data.hasTerrain = true;
         data.terrain    = std::move(desc);
         return;
@@ -934,6 +941,8 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
     desc.foliage.rockModel         = m_foliageDensity.rockModel;
     desc.foliage.grassModel        = m_foliageDensity.grassModel;
     desc.grass                     = m_authoredGrass;
+    desc.wind.present              = true;
+    desc.wind.settings             = m_wind;
     data.hasTerrain = true;
     data.terrain    = std::move(desc);
 }
@@ -1107,6 +1116,8 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
     const TerrainSceneDesc& desc = data.terrain;
     // fillTerrainSceneDesc rebuilds the block from live terrain, which has no grass params.
     m_authoredGrass = desc.grass;
+    m_wind          = desc.wind.settings;
+    Terrain::clampWindSettings(m_wind);
     applyAuthoredGrass();
     if (!desc.source.empty())
     {
@@ -1876,6 +1887,98 @@ void EditorApp::drawTerrainPanel()
     }
     else
         ImGui::TextWrapped("No terrain in this level. Outdoor scenes use the grey ground plane until you load one.");
+
+    ImGui::End();
+}
+
+void EditorApp::drawWindPanel()
+{
+    if (!m_showWindPanel)
+        return;
+    ImGui::SetNextWindowSize(ImVec2(450.0f, 700.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Wind", &m_showWindPanel))
+    {
+        ImGui::End();
+        return;
+    }
+
+    if (m_sceneMode != SceneMode::Scene3D)
+    {
+        ImGui::TextDisabled("Wind is part of the 3D scene.");
+        ImGui::End();
+        return;
+    }
+
+    if (!m_haveTerrain)
+        ImGui::TextDisabled("Saved with the terrain. Load a heightfield to keep these settings.");
+
+    bool edited = false;
+
+    ImGui::SeparatorText("Field");
+    edited |= ImGui::SliderFloat("Strength", &m_wind.strength, 0.0f, 3.0f);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Scales the bend and the gust. Grass tip length stays as authored unless Grass follows strength is on.");
+
+    float headingDeg = m_wind.headingRad * 180.0f / Math::Pi;
+    if (ImGui::SliderFloat("Heading (deg)", &headingDeg, -180.0f, 180.0f))
+    {
+        m_wind.headingRad = headingDeg * Math::Pi / 180.0f;
+        edited = true;
+    }
+
+    edited |= ImGui::SliderFloat("Deflection", &m_wind.deflection, 0.0f, 1.2f);
+    edited |= ImGui::SliderFloat("Spatial freq", &m_wind.spatialFreq, 0.0005f, 0.02f, "%.4f");
+    edited |= ImGui::SliderFloat("Temporal freq", &m_wind.temporalFreq, 0.0f, 1.0f, "%.4f");
+    edited |= ImGui::SliderFloat("Gust strength", &m_wind.gustStrength, 0.0f, 1.0f);
+    edited |= ImGui::SliderFloat("Gust freq", &m_wind.gustFreq, 0.0f, 2.0f);
+    edited |= ImGui::Checkbox("Grass follows strength", &m_wind.grassFollowsStrength);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Multiplies the authored grass tip by strength when the field is applied. Dragging does not stack.");
+
+    int seedInt = static_cast<int>(m_wind.seed);
+    if (ImGui::InputInt("Seed", &seedInt))
+    {
+        m_wind.seed = static_cast<uint32_t>(seedInt >= 0 ? seedInt : 0);
+        edited = true;
+    }
+
+    ImGui::Separator();
+    if (ImGui::Button("Reset to defaults"))
+    {
+        m_wind = Terrain::defaultWindSettings();
+        edited = true;
+    }
+
+    const char* kindNames[] = { "Tree", "Flower", "Rock", "Grass tuft" };
+    for (int k = 0; k < static_cast<int>(Terrain::WindKind::Count); ++k)
+    {
+        if (!ImGui::CollapsingHeader(kindNames[k]))
+            continue;
+
+        Terrain::TreeWindParams& kind = m_wind.kind[k];
+        ImGui::PushID(k);
+        ImGui::Indent();
+        edited |= ImGui::SliderFloat("Influence", &kind.influence, 0.0f, 3.0f);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("0 holds this kind still. Rocks start at 0.");
+        edited |= ImGui::SliderFloat("Stiffness", &kind.stiffness, 0.25f, 8.0f);
+        edited |= ImGui::SliderFloat("Main bend (m)", &kind.mainBendMetres, 0.0f, 3.0f);
+        edited |= ImGui::SliderFloat("Branch amp", &kind.branchAmp, 0.0f, 0.5f);
+        edited |= ImGui::SliderFloat("Leaf flutter", &kind.edgeAmp, 0.0f, 0.3f);
+        edited |= ImGui::SliderFloat("Flutter freq", &kind.flutterFreq, 0.0f, 8.0f);
+        edited |= ImGui::SliderFloat("Detail fade start", &kind.detailFadeStart, 0.0f, 500.0f, "%.0f m");
+        edited |= ImGui::SliderFloat("Detail fade end", &kind.detailFadeEnd, 0.0f, 500.0f, "%.0f m");
+        edited |= ImGui::SliderFloat("Bend fade start", &kind.bendFadeStart, 0.0f, 1000.0f, "%.0f m");
+        edited |= ImGui::SliderFloat("Bend fade end", &kind.bendFadeEnd, 0.0f, 1000.0f, "%.0f m");
+        ImGui::Unindent();
+        ImGui::PopID();
+    }
+
+    if (edited)
+    {
+        Terrain::clampWindSettings(m_wind);
+        applyAuthoredGrass();
+    }
 
     ImGui::End();
 }

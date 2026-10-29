@@ -99,6 +99,11 @@ bool boundsVisible(uint kind, FoliageWorld rows)
         mx = max(mx, p);
     }
 
+    // w is the world-space wind margin. The bend is in metres, after instance scale.
+    float sway = max(boundsMax[kind].w, 0.0);
+    mn -= sway;
+    mx += sway;
+
     if (useSphere != 0)
     {
         float3 center  = sphere.xyz;

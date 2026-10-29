@@ -11,6 +11,7 @@
 #include "Render/FoliagePrototypes.h"
 #include "Render/GrassPipeline.h"
 #include "Terrain/GrassField.h"
+#include "Terrain/WindField.h"
 #include "Render/LinePipeline.h"
 #include "Render/SceneRenderer.h"
 #include "Render/Camera3D.h"
@@ -265,6 +266,7 @@ private:
     void drawMaterialPanel();
     void drawTerrainPanel();
     void drawWaterTools();
+    void drawWindPanel();
     void syncTerrainLod();
     void applyAuthoredGrass();
     void applyAuthoredStealth();
@@ -343,7 +345,8 @@ private:
     WaterSceneDesc    m_authoredWater{};
     ExposureSceneDesc m_authoredExposure{};
     StealthSceneDesc  m_authoredStealth{};
-    GrassSceneDesc    m_authoredGrass{};
+    GrassSceneDesc        m_authoredGrass{};
+    Terrain::WindSettings m_wind = Terrain::defaultWindSettings();
     IblSettings  m_ibl;
     GtaoSettings m_ssao;
     SsrSettings  m_ssr;
@@ -419,6 +422,7 @@ private:
     bool  m_showMaterialEditor = false;
     bool  m_showTerrainPanel   = true;
     bool  m_showWaterTools     = false;
+    bool  m_showWindPanel      = false;
 
     // Editor UI icons, one per SceneObjectType (content/ui/icons/<toString(type)>.png).
     // ImTextureID 0 = not loaded; callers fall back to text.
@@ -480,6 +484,7 @@ private:
     GrassPipeline                       m_grassPipeline;
     Terrain::GrassField                 m_grassField;
     double                              m_grassWindSeconds = 0.0;
+    Terrain::WindClock                  m_windClock;
     bool                                m_loggedForwardGrassSkip = false;
     std::string                   m_terrainAlbedoPath[Terrain::kMaxTerrainLayers];
     std::string                   m_terrainNormalPath[Terrain::kMaxTerrainLayers];

@@ -276,6 +276,7 @@ bool EditorApp::loadScene()
     m_authoredExposure = {};
     m_authoredStealth = {};
     m_authoredGrass = {};
+    m_wind          = Terrain::defaultWindSettings();
     applyAuthoredGrass();
     if (data.mode != SceneMode::Scene2D)
     {

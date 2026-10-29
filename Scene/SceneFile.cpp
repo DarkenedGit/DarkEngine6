@@ -6,6 +6,7 @@
 #include "Math/MathHelper.h"
 #include "Terrain/GrassTypes.h"
 #include "Terrain/TerrainTileFile.h"
+#include "Terrain/WindField.h"
 
 #include "third_party/nlohmann/json.hpp"
 
@@ -330,6 +331,49 @@ void clampGrassScene(GrassSceneDesc& desc)
     desc.seed             = params.seed;
 }
 
+json windKindToJson(const Terrain::TreeWindParams& kind)
+{
+    json out;
+    out["influence"]       = kind.influence;
+    out["stiffness"]       = kind.stiffness;
+    out["mainBendMetres"]  = kind.mainBendMetres;
+    out["branchAmp"]       = kind.branchAmp;
+    out["edgeAmp"]         = kind.edgeAmp;
+    out["flutterFreq"]     = kind.flutterFreq;
+    out["detailFadeStart"] = kind.detailFadeStart;
+    out["detailFadeEnd"]   = kind.detailFadeEnd;
+    out["bendFadeStart"]   = kind.bendFadeStart;
+    out["bendFadeEnd"]     = kind.bendFadeEnd;
+    out["maxSwayMetres"]   = kind.maxSwayMetres;
+    return out;
+}
+
+void readWindKind(const json& object, Terrain::TreeWindParams& kind, const Terrain::TreeWindParams& fallback, const char* where)
+{
+    if (!object.is_object())
+        return;
+    jsonFloatOr(object, "influence", kind.influence, fallback.influence, where);
+    jsonFloatOr(object, "stiffness", kind.stiffness, fallback.stiffness, where);
+    jsonFloatOr(object, "mainBendMetres", kind.mainBendMetres, fallback.mainBendMetres, where);
+    jsonFloatOr(object, "branchAmp", kind.branchAmp, fallback.branchAmp, where);
+    jsonFloatOr(object, "edgeAmp", kind.edgeAmp, fallback.edgeAmp, where);
+    jsonFloatOr(object, "flutterFreq", kind.flutterFreq, fallback.flutterFreq, where);
+    jsonFloatOr(object, "detailFadeStart", kind.detailFadeStart, fallback.detailFadeStart, where);
+    jsonFloatOr(object, "detailFadeEnd", kind.detailFadeEnd, fallback.detailFadeEnd, where);
+    jsonFloatOr(object, "bendFadeStart", kind.bendFadeStart, fallback.bendFadeStart, where);
+    jsonFloatOr(object, "bendFadeEnd", kind.bendFadeEnd, fallback.bendFadeEnd, where);
+    jsonFloatOr(object, "maxSwayMetres", kind.maxSwayMetres, fallback.maxSwayMetres, where);
+}
+
+void copyWindFieldToGrass(const Terrain::WindSettings& wind, GrassSceneDesc& grass)
+{
+    grass.windBaseYaw      = wind.headingRad;
+    grass.windDeflection   = wind.deflection;
+    grass.windSpatialFreq  = wind.spatialFreq;
+    grass.windTemporalFreq = wind.temporalFreq;
+    grass.seed             = wind.seed;
+}
+
 } // namespace
 
 bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& scene, std::string* errorOut)
@@ -428,6 +472,36 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             grassJson["windTemporalFreq"] = grass.windTemporalFreq;
             grassJson["seed"]             = grass.seed;
             t["grass"] = std::move(grassJson);
+            if (scene.terrain.wind.present)
+            {
+                Terrain::WindSettings wind = scene.terrain.wind.settings;
+                Terrain::clampWindSettings(wind);
+                json windJson;
+                windJson["strength"]             = wind.strength;
+                windJson["heading"]              = wind.headingRad;
+                windJson["deflection"]           = wind.deflection;
+                windJson["spatialFreq"]          = wind.spatialFreq;
+                windJson["temporalFreq"]         = wind.temporalFreq;
+                windJson["gustStrength"]         = wind.gustStrength;
+                windJson["gustFreq"]             = wind.gustFreq;
+                windJson["grassFollowsStrength"] = wind.grassFollowsStrength;
+                windJson["seed"]                 = wind.seed;
+                json kinds;
+                kinds["tree"]      = windKindToJson(wind.kind[static_cast<int>(Terrain::WindKind::Tree)]);
+                kinds["flower"]    = windKindToJson(wind.kind[static_cast<int>(Terrain::WindKind::Flower)]);
+                kinds["rock"]      = windKindToJson(wind.kind[static_cast<int>(Terrain::WindKind::Rock)]);
+                kinds["grassTuft"] = windKindToJson(wind.kind[static_cast<int>(Terrain::WindKind::GrassTuft)]);
+                windJson["kinds"]  = std::move(kinds);
+                t["wind"]          = std::move(windJson);
+
+                json mirrored = t["grass"];
+                mirrored["windBaseYaw"]      = wind.headingRad;
+                mirrored["windDeflection"]   = wind.deflection;
+                mirrored["windSpatialFreq"]  = wind.spatialFreq;
+                mirrored["windTemporalFreq"] = wind.temporalFreq;
+                mirrored["seed"]             = wind.seed;
+                t["grass"] = std::move(mirrored);
+            }
             root["terrain"] = std::move(t);
         }
         if (scene.sky.present)
@@ -738,6 +812,50 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                     desc.grass.seed             = g.value("seed", fallback.seed);
                     clampGrassScene(desc.grass);
                 }
+                if (t.contains("wind") && t["wind"].is_object())
+                {
+                    const json& w = t["wind"];
+                    desc.wind.present = true;
+                    Terrain::WindSettings& settings = desc.wind.settings;
+                    const Terrain::WindSettings fallback = Terrain::defaultWindSettings();
+                    settings = fallback;
+                    jsonFloatOr(w, "strength", settings.strength, fallback.strength, "SceneFile");
+                    jsonFloatOr(w, "heading", settings.headingRad, fallback.headingRad, "SceneFile");
+                    jsonFloatOr(w, "deflection", settings.deflection, fallback.deflection, "SceneFile");
+                    jsonFloatOr(w, "spatialFreq", settings.spatialFreq, fallback.spatialFreq, "SceneFile");
+                    jsonFloatOr(w, "temporalFreq", settings.temporalFreq, fallback.temporalFreq, "SceneFile");
+                    jsonFloatOr(w, "gustStrength", settings.gustStrength, fallback.gustStrength, "SceneFile");
+                    jsonFloatOr(w, "gustFreq", settings.gustFreq, fallback.gustFreq, "SceneFile");
+                    jsonBoolOr(w, "grassFollowsStrength", settings.grassFollowsStrength, fallback.grassFollowsStrength, "SceneFile");
+                    int seedInt = static_cast<int>(fallback.seed);
+                    if (jsonIntOr(w, "seed", seedInt, seedInt, "SceneFile") && seedInt >= 0)
+                        settings.seed = static_cast<uint32_t>(seedInt);
+                    if (w.contains("kinds") && w["kinds"].is_object())
+                    {
+                        const json& kinds = w["kinds"];
+                        readWindKind(kinds.value("tree", json::object()), settings.kind[static_cast<int>(Terrain::WindKind::Tree)],
+                            fallback.kind[static_cast<int>(Terrain::WindKind::Tree)], "SceneFile");
+                        readWindKind(kinds.value("flower", json::object()), settings.kind[static_cast<int>(Terrain::WindKind::Flower)],
+                            fallback.kind[static_cast<int>(Terrain::WindKind::Flower)], "SceneFile");
+                        readWindKind(kinds.value("rock", json::object()), settings.kind[static_cast<int>(Terrain::WindKind::Rock)],
+                            fallback.kind[static_cast<int>(Terrain::WindKind::Rock)], "SceneFile");
+                        readWindKind(kinds.value("grassTuft", json::object()), settings.kind[static_cast<int>(Terrain::WindKind::GrassTuft)],
+                            fallback.kind[static_cast<int>(Terrain::WindKind::GrassTuft)], "SceneFile");
+                    }
+                    Terrain::clampWindSettings(settings);
+                }
+                else
+                {
+                    desc.wind.present           = false;
+                    desc.wind.settings          = Terrain::defaultWindSettings();
+                    desc.wind.settings.headingRad   = desc.grass.windBaseYaw;
+                    desc.wind.settings.deflection   = desc.grass.windDeflection;
+                    desc.wind.settings.spatialFreq  = desc.grass.windSpatialFreq;
+                    desc.wind.settings.temporalFreq = desc.grass.windTemporalFreq;
+                    desc.wind.settings.seed         = desc.grass.seed;
+                    Terrain::clampWindSettings(desc.wind.settings);
+                }
+                copyWindFieldToGrass(desc.wind.settings, desc.grass);
                 if (t.contains("layers") && t["layers"].is_array())
                 {
                     const json& layers = t["layers"];

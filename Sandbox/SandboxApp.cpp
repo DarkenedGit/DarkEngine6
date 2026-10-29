@@ -3872,18 +3872,17 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
         m_foliageDensity.grassModel        = sceneData.terrain.foliage.grassModel;
         m_leafShedScale                    = sceneData.terrain.foliage.shedScale;
 
+        m_wind = sceneData.terrain.wind.settings;
+        clampWindSettings(m_wind);
+
         const GrassSceneDesc& grassScene = sceneData.terrain.grass;
         GrassParams           grassParams;
         grassParams.enabled          = grassScene.enabled;
         grassParams.heightMetres     = grassScene.heightMetres;
         grassParams.flexibility      = grassScene.flexibility;
         grassParams.densityScale     = grassScene.densityScale;
-        grassParams.windBaseYaw      = grassScene.windBaseYaw;
-        grassParams.windDeflection   = grassScene.windDeflection;
         grassParams.windTipMetres    = grassScene.windTipMetres;
-        grassParams.windSpatialFreq  = grassScene.windSpatialFreq;
-        grassParams.windTemporalFreq = grassScene.windTemporalFreq;
-        grassParams.seed             = grassScene.seed;
+        applyWindToGrass(m_wind, grassParams);
         if (!m_grassPipeline.isValid())
             grassParams.enabled = false;
         m_grassField.setParams(grassParams);
@@ -4575,6 +4574,9 @@ void SandboxApp::onUpdate(float dt)
     m_save.service(world());
     m_water.updateLod(m_viewCamera.GetPosition());
     syncTerrainLod();
+    // Shared with foliage. Trees sway with no possessed body, and while gameplay is paused.
+    m_windClock.tick(dt);
+    m_grassWindSeconds = m_windClock.time;
     if (const Entity body = possessedBody(); body.valid())
     {
         if (const TransformComponent* xf = world().get<TransformComponent>(body))
@@ -4589,7 +4591,6 @@ void SandboxApp::onUpdate(float dt)
                 const PlayerMoveState move = motor->state();
                 sample.shoving             = move == PlayerMoveState::Grounded || move == PlayerMoveState::Crouch || move == PlayerMoveState::Dodge;
             }
-            m_grassWindSeconds += static_cast<double>(dt);
             m_grassField.update(m_terrain, xf->position.x, xf->position.z, m_grassWindSeconds, m_water.params().waterLevel, sample);
         }
     }
@@ -4632,6 +4633,8 @@ void SandboxApp::onRender()
         renderer().endFrame();
         return;
     }
+
+    m_foliagePipeline.setWind(m_wind, m_windClock.time, m_windClock.prevTime);
 
     if (m_imgui.isReady())
         m_imgui.beginFrame();
