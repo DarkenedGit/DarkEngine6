@@ -48,6 +48,10 @@ void expectGrassDefaults(const GrassSceneDesc& grass)
     EXPECT_NEAR(grass.windTipMetres, defaults.windTipMetres, 1.0e-5f);
     EXPECT_NEAR(grass.windSpatialFreq, defaults.windSpatialFreq, 1.0e-5f);
     EXPECT_NEAR(grass.windTemporalFreq, defaults.windTemporalFreq, 1.0e-5f);
+    EXPECT_NEAR(grass.faceEdge, defaults.faceEdge, 1.0e-5f);
+    EXPECT_NEAR(grass.faceYaw, defaults.faceYaw, 1.0e-5f);
+    EXPECT_NEAR(grass.faceLean, defaults.faceLean, 1.0e-5f);
+    EXPECT_NEAR(grass.faceSteep, defaults.faceSteep, 1.0e-5f);
     EXPECT_EQ(grass.seed, defaults.seed);
 }
 
@@ -63,6 +67,10 @@ void expectGrassMatchesClamp(const GrassSceneDesc& grass, Terrain::GrassParams p
     EXPECT_NEAR(grass.windTipMetres, params.windTipMetres, 1.0e-5f);
     EXPECT_NEAR(grass.windSpatialFreq, params.windSpatialFreq, 1.0e-5f);
     EXPECT_NEAR(grass.windTemporalFreq, params.windTemporalFreq, 1.0e-5f);
+    EXPECT_NEAR(grass.faceEdge, params.faceEdge, 1.0e-5f);
+    EXPECT_NEAR(grass.faceYaw, params.faceYaw, 1.0e-5f);
+    EXPECT_NEAR(grass.faceLean, params.faceLean, 1.0e-5f);
+    EXPECT_NEAR(grass.faceSteep, params.faceSteep, 1.0e-5f);
     EXPECT_EQ(grass.seed, params.seed);
 }
 
@@ -1477,6 +1485,10 @@ TEST(SceneFile, TerrainGrass_RoundTrip)
     EXPECT_NEAR(partial.terrain.grass.windTipMetres, partialDefaults.windTipMetres, 1.0e-5f);
     EXPECT_NEAR(partial.terrain.grass.windSpatialFreq, partialDefaults.windSpatialFreq, 1.0e-5f);
     EXPECT_NEAR(partial.terrain.grass.windTemporalFreq, partialDefaults.windTemporalFreq, 1.0e-5f);
+    EXPECT_NEAR(partial.terrain.grass.faceEdge, partialDefaults.faceEdge, 1.0e-5f);
+    EXPECT_NEAR(partial.terrain.grass.faceYaw, partialDefaults.faceYaw, 1.0e-5f);
+    EXPECT_NEAR(partial.terrain.grass.faceLean, partialDefaults.faceLean, 1.0e-5f);
+    EXPECT_NEAR(partial.terrain.grass.faceSteep, partialDefaults.faceSteep, 1.0e-5f);
 
     const auto badPath = tempScenePath("darkengine6_scene_terrain_grass_nonobject_ut.json");
     {
@@ -1515,6 +1527,10 @@ TEST(SceneFile, TerrainGrass_RoundTrip)
     in.terrain.grass.windTipMetres    = 0.0f;
     in.terrain.grass.windSpatialFreq  = 0.0005f;
     in.terrain.grass.windTemporalFreq = 0.0f;
+    in.terrain.grass.faceEdge         = 1.5f;
+    in.terrain.grass.faceYaw          = 0.2f;
+    in.terrain.grass.faceLean         = -0.5f;
+    in.terrain.grass.faceSteep        = 0.8f;
     in.terrain.grass.seed             = 0xFFFFFFFFu;
 
     const auto path = tempScenePath("darkengine6_scene_terrain_grass_ut.json");
@@ -1532,6 +1548,7 @@ TEST(SceneFile, TerrainGrass_RoundTrip)
     EXPECT_NE(text.find("\"height\":"), std::string::npos);
     EXPECT_EQ(text.find("\"heightMetres\""), std::string::npos);
     EXPECT_NE(text.find("\"enabled\": true"), std::string::npos);
+    EXPECT_NE(text.find("\"faceEdge\""), std::string::npos);
     EXPECT_EQ(text.find("\"height\": 10"), std::string::npos);
 
     SceneFileData out{};
@@ -1551,6 +1568,10 @@ TEST(SceneFile, TerrainGrass_RoundTrip)
     EXPECT_NEAR(out.terrain.grass.windSpatialFreq, 0.0005f, 1.0e-6f);
     EXPECT_NEAR(out.terrain.grass.windTemporalFreq, 0.0f, 1.0e-5f);
     EXPECT_EQ(out.terrain.grass.seed, 0xFFFFFFFFu);
+    EXPECT_NEAR(out.terrain.grass.faceEdge, 1.0f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.grass.faceYaw, 0.2f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.grass.faceLean, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.grass.faceSteep, 0.8f, 1.0e-5f);
     Terrain::GrassParams roundParams{};
     roundParams.enabled          = true;
     roundParams.heightMetres     = 10.0f;
@@ -1561,6 +1582,10 @@ TEST(SceneFile, TerrainGrass_RoundTrip)
     roundParams.windTipMetres    = 0.0f;
     roundParams.windSpatialFreq  = 0.0005f;
     roundParams.windTemporalFreq = 0.0f;
+    roundParams.faceEdge         = 1.5f;
+    roundParams.faceYaw          = 0.2f;
+    roundParams.faceLean         = -0.5f;
+    roundParams.faceSteep        = 0.8f;
     roundParams.seed             = 0xFFFFFFFFu;
     expectGrassMatchesClamp(out.terrain.grass, roundParams);
 
@@ -1574,6 +1599,10 @@ TEST(SceneFile, TerrainGrass_RoundTrip)
     zeros.terrain.grass.windTipMetres    = 0.0f;
     zeros.terrain.grass.windSpatialFreq  = 0.02f;
     zeros.terrain.grass.windTemporalFreq = 0.10f;
+    zeros.terrain.grass.faceEdge         = 0.0f;
+    zeros.terrain.grass.faceYaw          = 0.0f;
+    zeros.terrain.grass.faceLean         = 0.0f;
+    zeros.terrain.grass.faceSteep        = 0.0f;
     zeros.terrain.grass.seed             = 0u;
     const auto zeroPath = tempScenePath("darkengine6_scene_terrain_grass_zero_ut.json");
     ASSERT_TRUE(saveSceneToJson(zeroPath, zeros, &err)) << err;
@@ -1588,6 +1617,10 @@ TEST(SceneFile, TerrainGrass_RoundTrip)
     EXPECT_NEAR(zeroOut.terrain.grass.windTipMetres, 0.0f, 1.0e-5f);
     EXPECT_NEAR(zeroOut.terrain.grass.windSpatialFreq, 0.02f, 1.0e-5f);
     EXPECT_NEAR(zeroOut.terrain.grass.windTemporalFreq, 0.10f, 1.0e-5f);
+    EXPECT_NEAR(zeroOut.terrain.grass.faceEdge, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(zeroOut.terrain.grass.faceYaw, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(zeroOut.terrain.grass.faceLean, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(zeroOut.terrain.grass.faceSteep, 0.0f, 1.0e-5f);
     EXPECT_EQ(zeroOut.terrain.grass.seed, 0u);
     EXPECT_NEAR(zeroOut.terrain.foliage.grassPerM2, 0.4f, 1.0e-5f);
 

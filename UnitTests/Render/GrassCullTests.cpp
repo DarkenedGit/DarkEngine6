@@ -76,6 +76,10 @@ TEST(GrassCull, ShadersCompile)
         ASSERT_TRUE(cbufferBytes(vs.Get(), "GrassDrawConstants", drawBytes));
         EXPECT_EQ(drawBytes, GrassPipeline::kRootBaseDwords * static_cast<UINT>(sizeof(uint32_t)));
 
+        UINT frameBytes = 0;
+        ASSERT_TRUE(cbufferBytes(vs.Get(), "GrassFrameConstants", frameBytes));
+        EXPECT_EQ(frameBytes, Terrain::kGrassFrameCbBytes);
+
         ComPtr<ID3D11ShaderReflection> reflect;
         ASSERT_TRUE(SUCCEEDED(D3DReflect(vs->GetBufferPointer(), vs->GetBufferSize(), IID_PPV_ARGS(&reflect))));
         D3D11_SHADER_INPUT_BIND_DESC bind{};

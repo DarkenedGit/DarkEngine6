@@ -19,6 +19,11 @@ namespace Dark::Terrain
         float    windTipMetres    = 0.40f;
         float    windSpatialFreq  = 0.004f;
         float    windTemporalFreq = 0.015f;
+        // Edge-on cards disappear from above. These turn a blade toward the camera only while it is sideways.
+        float    faceEdge         = 0.35f;
+        float    faceYaw          = 0.65f;
+        float    faceLean         = 0.30f;
+        float    faceSteep        = 0.55f;
         uint32_t seed             = 1337u;
     };
 
@@ -31,6 +36,10 @@ namespace Dark::Terrain
         params.windTipMetres    = Math::Clamp(params.windTipMetres, 0.0f, 1.50f);
         params.windSpatialFreq  = Math::Clamp(params.windSpatialFreq, 0.0005f, 0.02f);
         params.windTemporalFreq = Math::Clamp(params.windTemporalFreq, 0.0f, 1.0f);
+        params.faceEdge         = Math::Clamp(params.faceEdge, 0.0f, 1.0f);
+        params.faceYaw          = Math::Clamp(params.faceYaw, 0.0f, 1.0f);
+        params.faceLean         = Math::Clamp(params.faceLean, 0.0f, 1.0f);
+        params.faceSteep        = Math::Clamp(params.faceSteep, 0.0f, 0.95f);
 
         float yaw = std::fmod(params.windBaseYaw, Math::TwoPi);
         if (yaw <= -Math::Pi)
@@ -78,7 +87,7 @@ namespace Dark::Terrain
     static_assert(sizeof(GrassInteractor) == 16, "grass interactor");
 
     // Row-major view matrices, translation in the last row (Matrix4f::m_afEntry).
-    // 528 bytes is not a CBV size; the aligned stride is kGrassFrameCbStride.
+    // 592 bytes is not a CBV size; the aligned stride is kGrassFrameCbStride.
     struct GrassFrameConstants
     {
         float           viewProj[16]{};
@@ -91,9 +100,16 @@ namespace Dark::Terrain
         GrassInteractor prevInteractor[4]{};
         GrassInteractor footprint[8]{};
         GrassInteractor prevFootprint[8]{};
+        float           cameraPos[4]{};
+        float           cameraRight[4]{};
+        float           cameraLook[4]{};
+        float           faceEdge  = 0.0f;
+        float           faceYaw   = 0.0f;
+        float           faceLean  = 0.0f;
+        float           faceSteep = 0.0f;
     };
 
-    constexpr uint32_t kGrassFrameCbBytes  = 528u;
+    constexpr uint32_t kGrassFrameCbBytes  = 592u;
     constexpr uint32_t kGrassFrameCbStride = 768u;
 
     static_assert(sizeof(GrassFrameConstants) == kGrassFrameCbBytes, "grass frame CB");
@@ -104,6 +120,10 @@ namespace Dark::Terrain
     static_assert(offsetof(GrassFrameConstants, prevInteractor) == 208, "grass cb prev interactor");
     static_assert(offsetof(GrassFrameConstants, footprint) == 272, "grass cb footprint");
     static_assert(offsetof(GrassFrameConstants, prevFootprint) == 400, "grass cb prev footprint");
+    static_assert(offsetof(GrassFrameConstants, cameraPos) == 528, "grass cb camera");
+    static_assert(offsetof(GrassFrameConstants, cameraRight) == 544, "grass cb camera right");
+    static_assert(offsetof(GrassFrameConstants, cameraLook) == 560, "grass cb camera look");
+    static_assert(offsetof(GrassFrameConstants, faceEdge) == 576, "grass cb face");
 
     // One instanced draw. begin/count are a contiguous span in that LOD's blade buffer.
     struct GrassTileDraw

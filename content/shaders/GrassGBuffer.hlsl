@@ -21,6 +21,10 @@ cbuffer GrassFrameConstants : register(b0)
     float4 prevInteractor[4] : packoffset(c13);
     float4 footprint[8] : packoffset(c17);
     float4 prevFootprint[8] : packoffset(c25);
+    float4 cameraPos : packoffset(c33);
+    float4 cameraRight : packoffset(c34);
+    float4 cameraLook : packoffset(c35);
+    float4 face : packoffset(c36); // x edge start, y yaw blend, z tip lean, w steep start
 };
 
 // One logical uint. FXC still declares one 16-byte register, so the root range is 4 DWORDs.
@@ -87,6 +91,53 @@ float3 grassSafeNormalize(float3 v, float3 fallback)
     return fallback;
 }
 
+// A full billboard kills the wind silhouette. Turn the card only while it is edge-on, and keep the root planted.
+void grassApplyFacing(float3 root, float height, float along, inout float3 widthAxis, inout float3 faceDir, out float3 leanOff, out float3 leanSlope)
+{
+    float3 toCam = cameraPos.xyz - root;
+    float len2 = dot(toCam, toCam);
+    float3 viewDir = len2 > 1e-8f ? toCam * rsqrt(len2) : float3(0.0f, 1.0f, 0.0f);
+
+    float facing = abs(dot(viewDir, faceDir));
+    float edge = saturate((face.x - facing) / max(face.x, 1e-3f));
+    float yawBlend = edge * saturate(face.y);
+    if (yawBlend > 0.0f)
+    {
+        float3 right = cameraRight.xyz;
+        // Stay in the card's current half so the width does not flip through zero.
+        if (dot(right, widthAxis) < 0.0f)
+            right = -right;
+        widthAxis = grassSafeNormalize(lerp(widthAxis, right, yawBlend), widthAxis);
+        float3 turned = cross(float3(0.0f, 1.0f, 0.0f), widthAxis);
+        if (dot(turned, faceDir) < 0.0f)
+            turned = -turned;
+        faceDir = grassSafeNormalize(turned, faceDir);
+    }
+
+    float steep = saturate((viewDir.y - face.w) / max(1.0f - face.w, 1e-3f));
+    float3 horiz = float3(viewDir.x, 0.0f, viewDir.z);
+    float h2 = dot(horiz, horiz);
+    float3 leanDir;
+    if (h2 > 0.0025f)
+        leanDir = horiz * rsqrt(h2);
+    else
+    {
+        float3 fwd = float3(cameraLook.x, 0.0f, cameraLook.z);
+        float f2 = dot(fwd, fwd);
+        if (f2 > 1e-8f)
+            leanDir = fwd * rsqrt(f2);
+        else
+        {
+            leanDir = float3(cameraRight.x, 0.0f, cameraRight.z);
+            float r2 = dot(leanDir, leanDir);
+            leanDir = r2 > 1e-8f ? leanDir * rsqrt(r2) : float3(1.0f, 0.0f, 0.0f);
+        }
+    }
+
+    leanSlope = leanDir * (steep * edge * max(face.z, 0.0f) * height);
+    leanOff = leanSlope * saturate(along);
+}
+
 PSInput VSMain(VSInput input)
 {
     GrassBladeGpu blade = gBlades[gIndices[input.iid + baseIndex]];
@@ -143,9 +194,13 @@ PSInput VSMain(VSInput input)
     float3 faceDir = grassYaw(input.normal, s, c);
     float3 widthAxis = grassYaw(input.tangent.xyz, s, c);
     float3 root = float3(blade.x, blade.y, blade.z);
-    float3 world = root + widthAxis * input.position.x + float3(bent.x, bent.y, bent.z);
+    float3 leanOff;
+    float3 leanSlope;
+    grassApplyFacing(root, height, t, widthAxis, faceDir, leanOff, leanSlope);
+    float3 world = root + widthAxis * input.position.x + float3(bent.x, bent.y, bent.z) + leanOff;
     world.z += input.position.z;
-    float3 prevWorld = root + widthAxis * input.position.x + float3(prevBent.x, prevBent.y, prevBent.z);
+    // Same facing on the previous position. A view-dependent delta in the velocity buffer smears under TAA.
+    float3 prevWorld = root + widthAxis * input.position.x + float3(prevBent.x, prevBent.y, prevBent.z) + leanOff;
     prevWorld.z += input.position.z;
 
     float3 n = faceDir;
@@ -156,7 +211,7 @@ PSInput VSMain(VSInput input)
         float3 p0 = float3(0.0f, 0.0f, 0.0f);
         float3 p1 = float3(tip.x * 0.25f, height * 0.55f, tip.z * 0.25f);
         float3 p2 = float3(tip.x, yTip, tip.z);
-        float3 deriv = 2.0f * u * (p1 - p0) + 2.0f * t * (p2 - p1);
+        float3 deriv = 2.0f * u * (p1 - p0) + 2.0f * t * (p2 - p1) + leanSlope;
         n = grassSafeNormalize(cross(widthAxis, deriv), faceDir);
     }
 #elif GRASS_LOD < 3

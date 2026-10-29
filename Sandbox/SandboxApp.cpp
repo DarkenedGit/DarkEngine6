@@ -3882,6 +3882,10 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
         grassParams.flexibility      = grassScene.flexibility;
         grassParams.densityScale     = grassScene.densityScale;
         grassParams.windTipMetres    = grassScene.windTipMetres;
+        grassParams.faceEdge         = grassScene.faceEdge;
+        grassParams.faceYaw          = grassScene.faceYaw;
+        grassParams.faceLean         = grassScene.faceLean;
+        grassParams.faceSteep        = grassScene.faceSteep;
         applyWindToGrass(m_wind, grassParams);
         if (!m_grassPipeline.isValid())
             grassParams.enabled = false;
@@ -5063,6 +5067,19 @@ void SandboxApp::onRender()
                 copyMatrix(grassFrame.prevViewProj, prevViewProj);
                 grassFrame.heightMetres = m_grassField.params().heightMetres;
                 grassFrame.flexibility  = m_grassField.params().flexibility;
+                grassFrame.faceEdge     = m_grassField.params().faceEdge;
+                grassFrame.faceYaw      = m_grassField.params().faceYaw;
+                grassFrame.faceLean     = m_grassField.params().faceLean;
+                grassFrame.faceSteep    = m_grassField.params().faceSteep;
+                grassFrame.cameraPos[0]   = camPos.x;
+                grassFrame.cameraPos[1]   = camPos.y;
+                grassFrame.cameraPos[2]   = camPos.z;
+                grassFrame.cameraRight[0] = m_viewCamera.GetRight().x;
+                grassFrame.cameraRight[1] = m_viewCamera.GetRight().y;
+                grassFrame.cameraRight[2] = m_viewCamera.GetRight().z;
+                grassFrame.cameraLook[0]  = m_viewCamera.GetLook().x;
+                grassFrame.cameraLook[1]  = m_viewCamera.GetLook().y;
+                grassFrame.cameraLook[2]  = m_viewCamera.GetLook().z;
                 m_grassField.writeFrameInteraction(grassFrame);
                 GrassLodSpan grassLods[kGrassLodCount]{};
                 for (int lod = 0; lod < kGrassLodCount; ++lod)

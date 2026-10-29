@@ -713,6 +713,10 @@ void EditorApp::applyAuthoredGrass()
     params.flexibility      = m_authoredGrass.flexibility;
     params.densityScale     = m_authoredGrass.densityScale;
     params.windTipMetres    = m_authoredGrass.windTipMetres;
+    params.faceEdge         = m_authoredGrass.faceEdge;
+    params.faceYaw          = m_authoredGrass.faceYaw;
+    params.faceLean         = m_authoredGrass.faceLean;
+    params.faceSteep        = m_authoredGrass.faceSteep;
     Terrain::applyWindToGrass(m_wind, params);
     if (!m_grassPipeline.isValid())
         params.enabled = false;
@@ -1881,6 +1885,22 @@ void EditorApp::drawTerrainPanel()
             }
             ImGui::Text("Trees follow grass and dirt. Grass tufts follow the grass layer. %u trees, %u grass.", trees, grass);
         }
+        ImGui::SeparatorText("Procedural grass");
+        bool grassEdited = false;
+        grassEdited |= ImGui::SliderFloat("Edge start", &m_authoredGrass.faceEdge, 0.0f, 1.0f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Blades more edge-on than this turn toward the camera. 0 leaves them as they are.");
+        grassEdited |= ImGui::SliderFloat("Yaw blend", &m_authoredGrass.faceYaw, 0.0f, 1.0f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How far an edge-on blade turns toward the camera. 1 faces it fully.");
+        grassEdited |= ImGui::SliderFloat("Tip lean", &m_authoredGrass.faceLean, 0.0f, 1.0f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How far the tip leans toward the camera when you look down, as a fraction of blade height.");
+        grassEdited |= ImGui::SliderFloat("Steep start", &m_authoredGrass.faceSteep, 0.0f, 0.95f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How overhead the camera must be before the tip leans. 0 starts at the horizon.");
+        if (grassEdited)
+            applyAuthoredGrass();
         ImGui::SliderFloat("Leaf shed", &m_leafShedScale, 0.0f, 1.0f, "%.2f");
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Share of the designed leaf rate. 0 sheds nothing. 1 is the full rate, still capped by the leaf pool.");

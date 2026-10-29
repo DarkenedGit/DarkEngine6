@@ -317,6 +317,10 @@ void clampGrassScene(GrassSceneDesc& desc)
     params.windTipMetres    = desc.windTipMetres;
     params.windSpatialFreq  = desc.windSpatialFreq;
     params.windTemporalFreq = desc.windTemporalFreq;
+    params.faceEdge         = desc.faceEdge;
+    params.faceYaw          = desc.faceYaw;
+    params.faceLean         = desc.faceLean;
+    params.faceSteep        = desc.faceSteep;
     params.seed             = desc.seed;
     Terrain::clampGrassParams(params);
     desc.enabled          = params.enabled;
@@ -328,6 +332,10 @@ void clampGrassScene(GrassSceneDesc& desc)
     desc.windTipMetres    = params.windTipMetres;
     desc.windSpatialFreq  = params.windSpatialFreq;
     desc.windTemporalFreq = params.windTemporalFreq;
+    desc.faceEdge         = params.faceEdge;
+    desc.faceYaw          = params.faceYaw;
+    desc.faceLean         = params.faceLean;
+    desc.faceSteep        = params.faceSteep;
     desc.seed             = params.seed;
 }
 
@@ -470,6 +478,10 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             grassJson["windTipMetres"]    = grass.windTipMetres;
             grassJson["windSpatialFreq"]  = grass.windSpatialFreq;
             grassJson["windTemporalFreq"] = grass.windTemporalFreq;
+            grassJson["faceEdge"]         = grass.faceEdge;
+            grassJson["faceYaw"]          = grass.faceYaw;
+            grassJson["faceLean"]         = grass.faceLean;
+            grassJson["faceSteep"]        = grass.faceSteep;
             grassJson["seed"]             = grass.seed;
             t["grass"] = std::move(grassJson);
             if (scene.terrain.wind.present)
@@ -809,6 +821,10 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                     desc.grass.windTipMetres    = g.value("windTipMetres", fallback.windTipMetres);
                     desc.grass.windSpatialFreq  = g.value("windSpatialFreq", fallback.windSpatialFreq);
                     desc.grass.windTemporalFreq = g.value("windTemporalFreq", fallback.windTemporalFreq);
+                    desc.grass.faceEdge         = g.value("faceEdge", fallback.faceEdge);
+                    desc.grass.faceYaw          = g.value("faceYaw", fallback.faceYaw);
+                    desc.grass.faceLean         = g.value("faceLean", fallback.faceLean);
+                    desc.grass.faceSteep        = g.value("faceSteep", fallback.faceSteep);
                     desc.grass.seed             = g.value("seed", fallback.seed);
                     clampGrassScene(desc.grass);
                 }

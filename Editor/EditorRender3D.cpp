@@ -1092,6 +1092,24 @@ void EditorApp::drawEditorGrass(ID3D12GraphicsCommandList* cmd, const Matrix4f& 
     copyMatrix(grassFrame.prevViewProj, prevViewProj);
     grassFrame.heightMetres = m_grassField.params().heightMetres;
     grassFrame.flexibility  = m_grassField.params().flexibility;
+    grassFrame.faceEdge     = m_grassField.params().faceEdge;
+    grassFrame.faceYaw      = m_grassField.params().faceYaw;
+    grassFrame.faceLean     = m_grassField.params().faceLean;
+    grassFrame.faceSteep    = m_grassField.params().faceSteep;
+    {
+        const Vector3f eye   = m_camera.GetPosition();
+        const Vector3f right = m_camera.GetRight();
+        const Vector3f look  = m_camera.GetLook();
+        grassFrame.cameraPos[0]   = eye.x;
+        grassFrame.cameraPos[1]   = eye.y;
+        grassFrame.cameraPos[2]   = eye.z;
+        grassFrame.cameraRight[0] = right.x;
+        grassFrame.cameraRight[1] = right.y;
+        grassFrame.cameraRight[2] = right.z;
+        grassFrame.cameraLook[0]  = look.x;
+        grassFrame.cameraLook[1]  = look.y;
+        grassFrame.cameraLook[2]  = look.z;
+    }
     m_grassField.writeFrameInteraction(grassFrame);
 
     GrassLodSpan grassLods[Terrain::kGrassLodCount]{};

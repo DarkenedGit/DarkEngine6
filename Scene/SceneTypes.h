@@ -363,6 +363,10 @@ namespace Dark
         float    windTipMetres    = 0.40f;
         float    windSpatialFreq  = 0.004f;
         float    windTemporalFreq = 0.015f;
+        float    faceEdge         = 0.35f;
+        float    faceYaw          = 0.65f;
+        float    faceLean         = 0.30f;
+        float    faceSteep        = 0.55f;
         uint32_t seed             = 1337u;
     };
 

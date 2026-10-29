@@ -1507,6 +1507,18 @@ void SandboxApp::drawDevTools()
         edited |= ImGui::SliderFloat("Flexibility", &grass.flexibility, 0.0f, 1.0f, "%.2f");
         edited |= ImGui::SliderFloat("Density scale", &grass.densityScale, 0.0f, 1.5f, "%.2f");
         edited |= ImGui::SliderFloat("Wind speed", &grass.windTemporalFreq, 0.0f, 1.0f, "%.2f /s");
+        edited |= ImGui::SliderFloat("Edge start", &grass.faceEdge, 0.0f, 1.0f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Blades more edge-on than this turn toward the camera. 0 leaves them as they are.");
+        edited |= ImGui::SliderFloat("Yaw blend", &grass.faceYaw, 0.0f, 1.0f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How far an edge-on blade turns toward the camera. 1 faces it fully.");
+        edited |= ImGui::SliderFloat("Tip lean", &grass.faceLean, 0.0f, 1.0f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How far the tip leans toward the camera when you look down, as a fraction of blade height.");
+        edited |= ImGui::SliderFloat("Steep start", &grass.faceSteep, 0.0f, 0.95f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How overhead the camera must be before the tip leans. 0 starts at the horizon. Saved values come from the scene file.");
         if (!m_grassPipeline.isValid())
             grass.enabled = false;
         if (edited)
