@@ -86,7 +86,7 @@ namespace Dark
                 world.emplace<ConcealVolumeComponent>(e, vol);
                 return;
             }
-            if (cube && o.scale.y >= 0.3f && !o.goal)
+            if (cube && o.scale.y >= 0.3f && !o.goal && o.block)
             {
                 const Entity e = world.createEntity();
                 world.emplace<TransformComponent>(e, o.position, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });

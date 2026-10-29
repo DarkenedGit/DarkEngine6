@@ -752,3 +752,33 @@ TEST(WolfApproach, LostSightZeroDurationsSkipTraceAndHold)
     EXPECT_GT(agent->lostFor, 0.0f);
     EXPECT_NEAR(agent->aware.stateTime, 3.0f / 60.0f, 1.0e-5f);
 }
+
+TEST(WolfApproach, SquadMateNoticesAMissingGuard)
+{
+    WolfWorld sim;
+    ASSERT_TRUE(sim.setup());
+    Dark::TransformComponent* playerXf = sim.world.get<Dark::TransformComponent>(sim.player);
+    ASSERT_NE(playerXf, nullptr);
+    playerXf->position = { 80.0f, 1.0f, 80.0f };
+
+    const Dark::Entity downed = spawnOpenHunter(sim, 2.0f);
+    const Dark::Entity mate   = spawnOpenHunter(sim, 30.0f);
+    ASSERT_TRUE(downed.valid() && mate.valid());
+    AwarenessSettings aware{};
+    sim.ai.setAwarenessSettings(aware);
+    sim.ai.setAwarenessEnabled(true);
+    sim.ai.tickHunters(sim.world, sim.terrain, false, 1.0f / 60.0f, sim.player);
+    sim.world.get<Dark::AiAgentComponent>(downed)->squad = 9u;
+    sim.world.get<Dark::AiAgentComponent>(mate)->squad   = 9u;
+    sim.ai.applyHunterDamage(sim.world, downed, 1.0e6f);
+
+    for (int i = 0; i < 20; ++i)
+        sim.ai.tickHunters(sim.world, sim.terrain, false, 1.0f, sim.player);
+    EXPECT_EQ(sim.world.get<Dark::AiAgentComponent>(mate)->aware.alertness, Alertness::Calm);
+    for (int i = 0; i < 15; ++i)
+        sim.ai.tickHunters(sim.world, sim.terrain, false, 1.0f, sim.player);
+    const Dark::AiAgentComponent* m = sim.world.get<Dark::AiAgentComponent>(mate);
+    EXPECT_NE(m->aware.alertness, Alertness::Calm);
+    EXPECT_TRUE(m->aware.wary);
+    EXPECT_TRUE(sim.world.get<Dark::AiAgentComponent>(downed)->missingReported);
+}

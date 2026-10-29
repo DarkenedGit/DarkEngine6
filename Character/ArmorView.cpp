@@ -1,4 +1,5 @@
 #include "Character/ArmorView.h"
+#include "Combat/HitVolumes.h"
 #include "Assets/AssetManager.h"
 #include "Assets/Model.h"
 #include "Core/EntityPins.h"
@@ -16,7 +17,7 @@ namespace Dark
 
     void equipHunterArmor(World& world, AssetPinTable& pins, AssetManager& assets, Renderer& renderer, Entity hunter)
     {
-        equipArmorPieces(world, pins, assets, renderer, hunter, Combat::makeHunterArmor());
+        equipArmorPieces(world, pins, assets, renderer, hunter, Combat::makeGuardArmor());
     }
 
     void equipArmorPieces(World& world, AssetPinTable& pins, AssetManager& assets, Renderer& renderer, Entity owner,
@@ -46,6 +47,7 @@ namespace Dark
             const TransformComponent* owner = world.get<TransformComponent>(e);
             if (!owner)
                 return;
+            Combat::HitVolumesComponent* limbs = world.get<Combat::HitVolumesComponent>(e);
             for (int i = 0; i < armor.count; ++i)
             {
                 const Combat::ArmorPiece& piece = armor.pieces[i];
@@ -54,6 +56,11 @@ namespace Dark
                     continue;
                 xf->position = Combat::armorPieceWorldPos(piece, owner->position, owner->rotation);
                 xf->rotation = owner->rotation;
+                const bool limb = piece.part == Combat::HitPart::RightArm || piece.part == Combat::HitPart::LeftArm || piece.part == Combat::HitPart::RightLeg
+                               || piece.part == Combat::HitPart::LeftLeg;
+                const Combat::HitSegment* seg = limb && limbs ? limbs->find(piece.part) : nullptr;
+                if (seg && seg->active)
+                    xf->position = (seg->a + seg->b) * 0.5f;
             }
         });
     }
@@ -76,7 +83,11 @@ namespace Dark
 
         const Math::Vector3f push{ broke.push.x * 4.0f, 3.0f, broke.push.z * 4.0f };
         physics.setBodyVelocity(physics.bodyOf(piece.visual), push, Math::Vector3f{ 6.0f, 2.0f, 4.0f });
-        if (const ItemDef* def = findItemDef(piece.name))
+        bool pairStillWorn = false;
+        for (int i = 0; i < armor->count; ++i)
+            pairStillWorn = pairStillWorn || (i != broke.index && armor->pieces[i].attached && armor->pieces[i].name && piece.name
+                                              && std::string_view(armor->pieces[i].name) == piece.name);
+        if (const ItemDef* def = pairStillWorn ? nullptr : findItemDef(piece.name))
         {
             world.emplace<ItemPickupComponent>(piece.visual, ItemPickupComponent{ { def, 1 } });
             piece.visual = {};

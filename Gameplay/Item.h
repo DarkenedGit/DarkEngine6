@@ -23,6 +23,8 @@ namespace Dark
         Head,
         Chest,
         Light,
+        Arms,
+        Legs,
         Count,
     };
 

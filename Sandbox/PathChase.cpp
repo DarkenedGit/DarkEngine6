@@ -187,7 +187,8 @@ void PathChase::tick(float dt, World& world, Input& input, Terrain::TerrainGrid&
 
     const Entity player = hostPawn.valid() ? hostPawn : m_walker;
     bindHunterGround(m_ai, m_ground, &terrain);
-    m_ai.tickHunters(world, terrain, playerInWater, dt, player, m_cubes.empty() ? nullptr : m_cubes.data(), static_cast<int>(m_cubes.size()));
+    const std::vector<Math::AABox3f>& solid = blockers();
+    m_ai.tickHunters(world, terrain, playerInWater, dt, player, solid.empty() ? nullptr : solid.data(), static_cast<int>(solid.size()));
 }
 
 

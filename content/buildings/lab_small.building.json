@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "id": "lab_small",
+  "kit": "facility",
+  "note": "Top-down plan. First row is the local z = 0 side. '+' corner post, '-' and '|' wall, 'D' door, 'W' window, '.' floor, space = open. Positions are metres from the plan's first corner: [x, z]. A prop's front faces -z before its yaw. 'O' closed door, 'L' locked door.",
+  "layout": [
+    "+-+W+",
+    "O.D.|",
+    "+ +-+",
+    "|.L.|",
+    "+-+W+"
+  ],
+  "props": [
+    {
+      "prop": "desk",
+      "pos": [
+        1.05,
+        9.5
+      ],
+      "yaw": 270,
+      "loot": [
+        {
+          "item": "research",
+          "count": 1
+        },
+        {
+          "item": "keycard_red",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "prop": "locker",
+      "pos": [
+        4.5,
+        11.4
+      ],
+      "yaw": 0
+    },
+    {
+      "prop": "cabinet",
+      "pos": [
+        11.55,
+        3.0
+      ],
+      "yaw": 90,
+      "loot": [
+        {
+          "item": "medkit",
+          "count": 1
+        },
+        {
+          "item": "research",
+          "count": 1
+        },
+        {
+          "item": "arm_guards",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "prop": "locker",
+      "pos": [
+        11.4,
+        10.0
+      ],
+      "yaw": 90
+    }
+  ],
+  "pickups": [
+    {
+      "item": "bio_sample",
+      "pos": [
+        8.5,
+        9.0
+      ]
+    }
+  ],
+  "guards": [
+    {
+      "pos": [
+        3.0,
+        3.0
+      ],
+      "patrol": [
+        [
+          3.0,
+          3.0
+        ],
+        [
+          3.0,
+          9.0
+        ],
+        [
+          3.0,
+          3.0
+        ],
+        [
+          9.0,
+          3.0
+        ]
+      ],
+      "squad": "lab"
+    }
+  ],
+  "cameras": [
+    {
+      "pos": [
+        -0.4,
+        6.5
+      ],
+      "height": 2.8,
+      "yaw": 270,
+      "sweep": 80,
+      "range": 14,
+      "circuit": "lab_cams"
+    }
+  ],
+  "powerBoxes": [
+    {
+      "pos": [
+        12.6,
+        6.0
+      ],
+      "circuit": "lab_cams"
+    }
+  ]
+}

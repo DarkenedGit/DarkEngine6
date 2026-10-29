@@ -1,3 +1,5 @@
+#include "Audio/SoundComponents.h"
+#include "Combat/ArmorPieces.h"
 #include "SandboxApp.h"
 
 #include "AI/AiComponents.h"
@@ -287,6 +289,95 @@ void SandboxApp::drawQuestHud()
     dl->AddText(ImVec2(c.x - ds.x * 0.5f, c.y + r + 2.0f), IM_COL32(240, 205, 110, 255), dist);
 }
 
+void SandboxApp::drawAlarm()
+{
+    if (m_alarmTime <= 0.0f)
+        return;
+    const ImGuiViewport* vp    = ImGui::GetMainViewport();
+    ImDrawList*          dl    = ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp));
+    ImFont*              font  = ImGui::GetFont();
+    const float          size  = ImGui::GetFontSize() * 2.2f;
+    const char*          text  = "ALARM";
+    const ImVec2         ts    = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text);
+    const int            pulse = static_cast<int>(160.0f + 95.0f * std::sin(m_alarmTime * 9.0f));
+    const ImVec2         at{ vp->Pos.x + (vp->Size.x - ts.x) * 0.5f, vp->Pos.y + 24.0f };
+    dl->AddText(font, size, ImVec2(at.x + 2.0f, at.y + 2.0f), IM_COL32(0, 0, 0, 200), text);
+    dl->AddText(font, size, at, IM_COL32(255, 60, 50, pulse), text);
+}
+
+void SandboxApp::drawUpgradeHint()
+{
+    const Entity              body = possessedBody();
+    const InventoryComponent* inv  = body.valid() ? world().get<InventoryComponent>(body) : nullptr;
+    if (!inv || m_showUpgrades)
+        return;
+    bool ready = false;
+    for (const UpgradeDef& up : m_upgradeDefs)
+        ready = ready || (std::find(m_ownedUpgrades.begin(), m_ownedUpgrades.end(), up.id) == m_ownedUpgrades.end() && canAfford(*inv, up));
+    if (!ready)
+        return;
+    const char*          text = "Upgrade ready  [K]";
+    const ImGuiViewport* vp   = ImGui::GetMainViewport();
+    ImDrawList*          dl   = ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp));
+    const ImVec2         ts   = ImGui::CalcTextSize(text);
+    const ImVec2         at{ vp->Pos.x + vp->Size.x - 28.0f - ts.x, vp->Pos.y + vp->Size.y - 130.0f };
+    dl->AddText(ImVec2(at.x + 1.0f, at.y + 1.0f), IM_COL32(0, 0, 0, 200), text);
+    dl->AddText(at, IM_COL32(150, 240, 170, 255), text);
+}
+
+void SandboxApp::drawUpgrades()
+{
+    ImGui::SetNextWindowSize(ImVec2(480.0f, 420.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Upgrades", &m_showUpgrades))
+    {
+        ImGui::End();
+        return;
+    }
+    const Entity        body = possessedBody();
+    InventoryComponent* inv  = body.valid() ? world().get<InventoryComponent>(body) : nullptr;
+    if (!inv)
+    {
+        ImGui::TextDisabled("No body to modify.");
+        ImGui::End();
+        return;
+    }
+    ImGui::TextWrapped("Spend stolen research and materials to modify yourself. Upgrades last for this session.");
+    ImGui::Text("You have: %d Research Data, %d Bio Material", heldCount(*inv, "research"), heldCount(*inv, "bio_material"));
+    ImGui::Separator();
+    for (const UpgradeDef& up : m_upgradeDefs)
+    {
+        ImGui::PushID(up.id.c_str());
+        const bool owned = std::find(m_ownedUpgrades.begin(), m_ownedUpgrades.end(), up.id) != m_ownedUpgrades.end();
+        ImGui::TextColored(owned ? ImVec4(0.47f, 0.90f, 0.55f, 1.0f) : ImVec4(0.94f, 0.80f, 0.43f, 1.0f), "%s%s", up.name.c_str(), owned ? "  (owned)" : "");
+        ImGui::TextWrapped("%s", up.description.c_str());
+        std::string cost;
+        for (const UpgradeCost& c : up.cost)
+        {
+            const ItemDef* def = findItemDef(c.item);
+            if (!cost.empty())
+                cost += ", ";
+            cost += std::format("{} {} ({} held)", c.count, def ? def->name : c.item.c_str(), heldCount(*inv, c.item));
+        }
+        ImGui::TextDisabled("Cost: %s", cost.c_str());
+        if (!owned)
+        {
+            const bool afford = canAfford(*inv, up);
+            ImGui::BeginDisabled(!afford);
+            if (ImGui::Button("Modify") && payFor(*inv, up))
+            {
+                m_ownedUpgrades.push_back(up.id);
+                applyUpgrades();
+                playSoundCue(world(), audio(), assets(), m_camera, "click");
+                DE_LOG_INFO("Upgrades: bought {}", up.name);
+            }
+            ImGui::EndDisabled();
+        }
+        ImGui::Separator();
+        ImGui::PopID();
+    }
+    ImGui::End();
+}
+
 void SandboxApp::drawJournal()
 {
     ImGui::SetNextWindowSize(ImVec2(440.0f, 360.0f), ImGuiCond_FirstUseEver);
@@ -424,31 +515,53 @@ void SandboxApp::drawArmorHud()
     if (!inv)
         return;
 
-    std::string worn;
-    for (int s = 0; s < static_cast<int>(EquipSlot::Count); ++s)
+    const Combat::ArmorPiecesComponent* pieces = world().get<Combat::ArmorPiecesComponent>(body);
+    if (!pieces || pieces->count == 0)
+        return;
+    struct Zone
     {
-        if (static_cast<EquipSlot>(s) == EquipSlot::Light)
+        const char*     name;
+        Combat::HitPart a;
+        Combat::HitPart b;
+    };
+    const Zone  zones[] = { { "Head", Combat::HitPart::Head, Combat::HitPart::Head },
+                            { "Chest", Combat::HitPart::Chest, Combat::HitPart::Chest },
+                            { "Arms", Combat::HitPart::RightArm, Combat::HitPart::LeftArm },
+                            { "Legs", Combat::HitPart::RightLeg, Combat::HitPart::LeftLeg } };
+    std::string text;
+    for (const Zone& z : zones)
+    {
+        int   worn = 0, intact = 0;
+        float absorb = 0.0f;
+        for (int i = 0; i < pieces->count; ++i)
+        {
+            const Combat::ArmorPiece& p = pieces->pieces[i];
+            if (p.part != z.a && p.part != z.b)
+                continue;
+            ++worn;
+            intact += p.attached ? 1 : 0;
+            absorb = p.absorb;
+        }
+        if (worn == 0)
             continue;
-        const ItemStack& eq = inv->equipped[s];
-        if (eq.empty())
-            continue;
-        if (!worn.empty())
-            worn += " + ";
-        worn += eq.def->name;
+        if (!text.empty())
+            text += "   ";
+        if (intact == 0)
+            text += std::format("{} broken", z.name);
+        else if (intact < worn)
+            text += std::format("{} -{:.0f}% (one broken)", z.name, absorb * 100.0f);
+        else
+            text += std::format("{} -{:.0f}%", z.name, absorb * 100.0f);
     }
-    if (worn.empty())
+    if (text.empty())
         return;
 
-    char text[160];
-    std::snprintf(text, sizeof(text), "%s  (-%.0f%% damage)", worn.c_str(),
-                  static_cast<double>(Combat::hyperbolicDamageReduction(equippedArmor(*inv)) * 100.0f));
-
     const ImGuiViewport* vp   = ImGui::GetMainViewport();
-    const ImVec2         size = ImGui::CalcTextSize(text);
+    const ImVec2         size = ImGui::CalcTextSize(text.c_str());
     const ImVec2         pos{ vp->Pos.x + vp->Size.x - 28.0f - size.x, vp->Pos.y + vp->Size.y - 56.0f - size.y };
     ImDrawList*          dl = ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp));
-    dl->AddText(ImVec2(pos.x + 1.0f, pos.y + 1.0f), IM_COL32(0, 0, 0, 200), text);
-    dl->AddText(pos, IM_COL32(150, 200, 255, 255), text);
+    dl->AddText(ImVec2(pos.x + 1.0f, pos.y + 1.0f), IM_COL32(0, 0, 0, 200), text.c_str());
+    dl->AddText(pos, IM_COL32(150, 200, 255, 255), text.c_str());
 }
 
 void SandboxApp::drawPickupLabels()
@@ -530,6 +643,41 @@ void SandboxApp::drawPickupLabels()
     {
         if (const TransformComponent* gxf = world().get<TransformComponent>(pick.e))
             prompt(gxf->position + Vector3f{ 0.0f, 0.6f, 0.0f }, "[G] Pick up body", IM_COL32(255, 220, 90, 255));
+    }
+    else if (pick.kind == InteractKind::Hide)
+    {
+        const TransformComponent* hxf = world().get<TransformComponent>(pick.e);
+        const HideSpotComponent*  hs  = world().get<HideSpotComponent>(pick.e);
+        if (hxf && hs)
+        {
+            const std::string text = "[G] Hide in " + hs->label;
+            prompt(hxf->position + Vector3f{ 0.0f, 2.4f, 0.0f }, text.c_str(), IM_COL32(255, 220, 90, 255));
+        }
+    }
+    else if (pick.kind == InteractKind::Door)
+    {
+        const DoorComponent* door = world().get<DoorComponent>(pick.e);
+        if (door)
+        {
+            const char* text = door->wantOpen ? "[G] Close door" : (door->lock.empty() ? "[G] Open door" : "[G] Locked door");
+            prompt(door->closedPos + Vector3f{ 0.0f, 1.0f, 0.0f }, text, IM_COL32(255, 220, 90, 255));
+        }
+    }
+    if (m_doorMsgTime > 0.0f && !m_doorMsg.empty())
+    {
+        const ImVec2 ts = ImGui::CalcTextSize(m_doorMsg.c_str());
+        const ImVec2 at{ vpPos.x + (vw - ts.x) * 0.5f, vpPos.y + vh - 220.0f };
+        dl->AddText(ImVec2(at.x + 1.0f, at.y + 1.0f), IM_COL32(0, 0, 0, 220), m_doorMsg.c_str());
+        dl->AddText(at, IM_COL32(255, 200, 120, 255), m_doorMsg.c_str());
+    }
+    if (m_hiddenIn.valid())
+    {
+        const HideSpotComponent* hs   = world().get<HideSpotComponent>(m_hiddenIn);
+        const std::string        text = "Hidden in " + (hs ? hs->label : std::string("hiding spot")) + "   [G] Step out";
+        const ImVec2             ts   = ImGui::CalcTextSize(text.c_str());
+        const ImVec2             at{ vpPos.x + (vw - ts.x) * 0.5f, vpPos.y + vh - 190.0f };
+        dl->AddText(ImVec2(at.x + 1.0f, at.y + 1.0f), IM_COL32(0, 0, 0, 220), text.c_str());
+        dl->AddText(at, IM_COL32(150, 220, 255, 255), text.c_str());
     }
 
     char name[96];

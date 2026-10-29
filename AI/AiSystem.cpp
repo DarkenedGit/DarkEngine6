@@ -705,6 +705,24 @@ namespace Dark
             else if (walkTo(v.ai->searchDest, 0.6f))
             {
                 v.ai->lookLeft = 1.5f;
+                int   spot  = -1;
+                float spotD = 12.0f * 12.0f;
+                for (size_t h = 0; h < m_hideSpots.size() && h < 32; ++h)
+                {
+                    const float d = Vector3f{ m_hideSpots[h].x - aw.noticePos.x, 0.0f, m_hideSpots[h].z - aw.noticePos.z }.MagnitudeSqrd();
+                    if ((v.ai->checkedHides & (1u << h)) == 0 && d < spotD)
+                    {
+                        spotD = d;
+                        spot  = static_cast<int>(h);
+                    }
+                }
+                if (spot >= 0)
+                {
+                    v.ai->checkedHides |= 1u << spot;
+                    v.ai->searchDest = m_hideSpots[static_cast<size_t>(spot)];
+                    v.ai->lookLeft   = 0.3f;
+                    break;
+                }
                 for (int tries = 0; tries < 8; ++tries)
                 {
                     const float a = std::fmod(m_time * 2.39f + static_cast<float>(tries) * 1.7f, 6.2831853f);
@@ -1597,6 +1615,9 @@ namespace Dark
                 }
                 else
                     v.ai->lostFor = 0.0f;
+                if (v.ai->aware.alertness == AI::Alertness::Calm)
+                    v.ai->checkedHides = 0;
+                v.ai->lastAlivePos = v.xf->position;
                 for (Entity other : m_scratch)
                 {
                     if (v.ai->aware.alertness == AI::Alertness::Alert)
@@ -2080,6 +2101,7 @@ namespace Dark
             stampPlanarVelocity();
         }
         dispatchSpotRadios(world, dt);
+        noticeMissing(world);
         m_noises.clear();
     }
 
@@ -2133,6 +2155,51 @@ namespace Dark
         if (squadA != 0 && squadA == squadB)
             return true;
         return withinAlertShare(a, b, m_aware.alertShareRadius);
+    }
+
+    void AiSystem::noticeMissing(World& world)
+    {
+        constexpr float kMissingSeconds = 30.0f;
+        for (Entity down : m_scratch)
+        {
+            AiAgentComponent*      dai = world.get<AiAgentComponent>(down);
+            const HealthComponent* dhp = dai ? world.get<HealthComponent>(down) : nullptr;
+            if (!dhp || dhp->health.alive() || dai->missingReported || dai->bodyFound || dai->deadFor < kMissingSeconds || entityIsWolf(world, down))
+                continue;
+            dai->missingReported = true;
+            Entity best{};
+            float  bestD = 40.0f * 40.0f;
+            for (Entity mate : m_scratch)
+            {
+                AiAgentComponent*         mai = mate.id() != down.id() ? world.get<AiAgentComponent>(mate) : nullptr;
+                const TransformComponent* mxf = mai ? world.get<TransformComponent>(mate) : nullptr;
+                const HealthComponent*    mhp = mai ? world.get<HealthComponent>(mate) : nullptr;
+                if (!mxf || !mhp || !mhp->health.alive() || entityIsWolf(world, mate) || mai->aware.alertness == AI::Alertness::Alert)
+                    continue;
+                const bool  squadMate = dai->squad != 0 && mai->squad == dai->squad;
+                const float d         = (mxf->position - dai->lastAlivePos).MagnitudeSqrd();
+                if (squadMate)
+                {
+                    if (!best.valid() || world.get<AiAgentComponent>(best)->squad != dai->squad || d < bestD)
+                    {
+                        best  = mate;
+                        bestD = d;
+                    }
+                }
+                else if ((!best.valid() || world.get<AiAgentComponent>(best)->squad != dai->squad) && d < bestD)
+                {
+                    best  = mate;
+                    bestD = d;
+                }
+            }
+            if (!best.valid())
+                continue;
+            AiAgentComponent* mai = world.get<AiAgentComponent>(best);
+            AI::alertToInvestigate(mai->aware, dai->lastAlivePos);
+            mai->aware.wary    = true;
+            mai->reportMissing = true;
+            DE_LOG_INFO(LogCategory::AI, "Guard {}: noticed guard {} is missing", best.id(), down.id());
+        }
     }
 
     void AiSystem::shareSuspicion(World& world, Entity caller, const Vector3f& where)

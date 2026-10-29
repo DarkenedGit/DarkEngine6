@@ -267,7 +267,7 @@ namespace Dark::Combat
             ArmorBreak unused{};
             ArmorBreak& broke = armorBreak ? *armorBreak : unused;
             dmg = absorbArmorHit(*armorPieces, *armorOwnerPos, *armorOwnerRot, ev.hitPoint, ev.hitDir, dmg, broke, ev.part,
-                                 armor != nullptr, ev.flags, ev.type);
+                                 armor != nullptr && armor->stats.armor > 0.0f, ev.flags, ev.type);
         }
 
         const bool ignoreArmor = (ev.flags & DamageFlags::IgnoresArmor) != 0 || isTrue(ev.type);
