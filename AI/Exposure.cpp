@@ -81,20 +81,20 @@ namespace Dark::AI
         float stance = crouched ? (moving ? aware.stanceCrouchWalk : aware.stanceCrouchStill) : (sprinting ? aware.stanceSprint : (moving ? aware.stanceWalk : aware.stanceStand));
         if (camouflage)
             stance *= aware.stanceCamouflage;
-        const float exposure = Math::Clamp((0.45f + 0.55f * level) * stance, 0.0f, 1.0f);
+        const float exposure = stealth->hidden ? 0.0f : Math::Clamp((0.45f + 0.55f * level) * stance * stealth->exposureScale, 0.0f, 1.0f);
         stealth->lightLevel  = level;
         stealth->exposure    = exposure;
         ai.setPlayerExposure(exposure);
-        ai.setPlayerMotion(Math::Clamp((speed - 0.15f) / 1.35f, 0.0f, 1.0f));
+        ai.setPlayerMotion(stealth->hidden ? 0.0f : Math::Clamp((speed - 0.15f) / 1.35f, 0.0f, 1.0f));
         const bool grounded = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch);
-        if (grounded && moving)
+        if (grounded && moving && !stealth->hidden)
         {
             stealth->strideLeft -= speed * dt;
             if (stealth->strideLeft <= 0.0f)
             {
                 stealth->strideLeft = crouched ? aware.strideCrouch : (sprinting ? aware.strideSprint : aware.strideWalk);
                 if (const TransformComponent* pxf = world.get<TransformComponent>(player))
-                    ai.addNoise(pxf->position, crouched ? stealth->settings.hearCrouchWalk : (sprinting ? stealth->settings.hearSprint : stealth->settings.hearWalk));
+                    ai.addNoise(pxf->position, (crouched ? stealth->settings.hearCrouchWalk : (sprinting ? stealth->settings.hearSprint : stealth->settings.hearWalk)) * stealth->noiseScale);
             }
         }
         return true;

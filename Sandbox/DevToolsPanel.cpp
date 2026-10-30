@@ -742,7 +742,7 @@ void SandboxApp::drawPickupLabels()
         if (const TransformComponent* gxf = world().get<TransformComponent>(pick.e))
             prompt(gxf->position + Vector3f{ 0.0f, 0.6f, 0.0f }, "[G] Pick up body", IM_COL32(255, 220, 90, 255));
     }
-    else if (pick.kind == InteractKind::Hide)
+    else if (pick.kind == PlayInteract::Hide)
     {
         const TransformComponent* hxf = world().get<TransformComponent>(pick.e);
         const HideSpotComponent*  hs  = world().get<HideSpotComponent>(pick.e);
@@ -752,7 +752,7 @@ void SandboxApp::drawPickupLabels()
             prompt(hxf->position + Vector3f{ 0.0f, 2.4f, 0.0f }, text.c_str(), IM_COL32(255, 220, 90, 255));
         }
     }
-    else if (pick.kind == InteractKind::Door)
+    else if (pick.kind == PlayInteract::Door)
     {
         const DoorComponent* door = world().get<DoorComponent>(pick.e);
         if (door)
