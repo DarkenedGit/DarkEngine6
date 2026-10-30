@@ -1,5 +1,7 @@
 #include "EditorApp.h"
 
+#include "Play/EnvironmentTick.h"
+
 #include "Editor/EditorInternals.h"
 #include "Editor/EditorObject.h"
 #include "Scene/SceneFile.h"
@@ -1098,25 +1100,16 @@ void EditorApp::onUpdate(float dt)
 
     tickParticleEmitters(world(), dt);
 
-    Audio::AudioListener lis{};
-    lis.distanceScale = 1.0f;
     if (m_sceneMode == SceneMode::Scene2D)
     {
-        lis.position = Vector3f(m_camera2D.GetPosition().x, m_camera2D.GetPosition().y, 0.0f);
-        lis.forward  = Vector3f(0.0f, 0.0f, 1.0f);
-        lis.up       = Vector3f(0.0f, 1.0f, 0.0f);
+        Audio::AudioListener lis{};
+        lis.distanceScale = 1.0f;
+        lis.position      = Vector3f(m_camera2D.GetPosition().x, m_camera2D.GetPosition().y, 0.0f);
+        lis.forward       = Vector3f(0.0f, 0.0f, 1.0f);
+        lis.up            = Vector3f(0.0f, 1.0f, 0.0f);
+        audio().setListener(lis);
     }
     else
-    {
-        lis.position = m_camera.GetPosition();
-        lis.forward  = m_camera.GetLook();
-        lis.up       = m_camera.GetUp();
-        if (m_playMode && skillCatalog().enabled())
-        {
-            if (const SkillComponent* sk = (m_playPlayer.valid() && world().alive(m_playPlayer)) ? world().get<SkillComponent>(m_playPlayer) : nullptr)
-                lis.distanceScale = skillScalar(SkillId::Hear, SkillScalar::HearScale, sk->level(SkillId::Hear));
-        }
-    }
-    audio().setListener(lis);
+        setViewAudioListener(audio(), m_camera, &world(), m_playPlayer, m_playMode && skillCatalog().enabled());
     m_scene.tickDecals(world(), dt);
 }

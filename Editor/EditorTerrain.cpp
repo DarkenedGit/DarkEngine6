@@ -1,5 +1,6 @@
 #include "EditorApp.h"
 
+#include "Play/EnvironmentTick.h"
 #include "Play/TerrainStream.h"
 
 #include "Assets/Image.h"
@@ -8,7 +9,6 @@
 #include "Editor/EditorInternals.h"
 #include "Math/MathHelper.h"
 #include "Scene/SceneFile.h"
-#include "Character/PlayerMotorComponent.h"
 #include "Terrain/FoliageFile.h"
 #include "Terrain/FoliageSpawn.h"
 #include "Terrain/TerrainTileFile.h"
@@ -737,97 +737,49 @@ void EditorApp::updateEditorGrass(float dt)
     }
 
     // Edit mode has no pawn. Stream around the view. Play mode uses the body so the shove matches the motor.
-    float x = m_camera.GetPosition().x;
-    float z = m_camera.GetPosition().z;
+    float             x = m_camera.GetPosition().x;
+    float             z = m_camera.GetPosition().z;
     GrassPlayerSample sample;
     if (m_playMode && m_playPlayer.valid())
-    {
-        if (const TransformComponent* xf = world().get<TransformComponent>(m_playPlayer))
-        {
-            x        = xf->position.x;
-            z        = xf->position.z;
-            sample.x = x;
-            sample.z = z;
-            if (const PlayerMotorComponent* pmc = world().get<PlayerMotorComponent>(m_playPlayer))
-            {
-                sample.velX                = pmc->motor.velocity().x;
-                sample.velZ                = pmc->motor.velocity().z;
-                const PlayerMoveState move = pmc->motor.state();
-                sample.shoving             = move == PlayerMoveState::Grounded || move == PlayerMoveState::Crouch || move == PlayerMoveState::Dodge;
-            }
-        }
-    }
+        fillGrassPlayerSample(world(), m_playPlayer, x, z, sample);
     m_grassField.update(m_terrain, x, z, m_grassWindSeconds, m_water.params().waterLevel, sample);
     tickLeaves(dt);
 }
 
 void EditorApp::tickLeaves(float dt)
 {
-    if (!m_terrain.valid() || !(dt > 0.0f))
-    {
-        m_leafRustle.stopAll(audio());
-        return;
-    }
-
-    m_leafSimSeconds += static_cast<double>(dt);
-    float treeTop = 12.0f;
-    const AssetRef<Model>& treeModel = m_foliagePrototypes.model(Terrain::FoliageKind::Tree);
-    if (treeModel && treeModel->bounds().Max.y > 0.05f)
-        treeTop = treeModel->bounds().Max.y;
-
-    const Vector3f cam = m_camera.GetPosition();
-    Frustum3f frustum(m_camera.GetCullViewProj());
-    Terrain::LeafField::Crown crowns[Terrain::LeafField::kMaxCrowns];
-    const int crownCount = gatherLeafCrowns(m_terrain, &m_foliage, cam, nullptr, treeTop, crowns, Terrain::LeafField::kMaxCrowns);
-
     Terrain::LeafField::Pond ponds[32];
-    int pondCount = 0;
+    int                      pondCount = 0;
     for (const EditorWaterSlot& slot : m_placedWater)
     {
         if (pondCount >= 32)
             break;
-        const Math::AABox3f& box = slot.body.bounds();
+        const Math::AABox3f&      box  = slot.body.bounds();
         Terrain::LeafField::Pond& pond = ponds[pondCount++];
-        pond.minX  = box.Min.x;
-        pond.maxX  = box.Max.x;
-        pond.minZ  = box.Min.z;
-        pond.maxZ  = box.Max.z;
-        pond.level = slot.body.params().waterLevel;
+        pond.minX                      = box.Min.x;
+        pond.maxX                      = box.Max.x;
+        pond.minZ                      = box.Min.z;
+        pond.maxZ                      = box.Max.z;
+        pond.level                     = slot.body.params().waterLevel;
     }
 
-    Terrain::LeafField::Step step;
-    step.dt          = dt;
-    step.simTime     = m_leafSimSeconds;
-    step.listenerX   = cam.x;
-    step.listenerY   = cam.y;
-    step.listenerZ   = cam.z;
-    step.cameraX     = cam.x;
-    step.cameraZ     = cam.z;
-    step.crowns      = crowns;
-    step.crownCount  = crownCount;
-    step.tryHeight   = [](float x, float z, float& y, void* user) {
-        return static_cast<const Terrain::TerrainGrid*>(user)->tryHeightAtWorld(x, z, y);
-    };
-    step.heightUser  = &m_terrain;
-    step.sampleNormal = [](float x, float z, float& nx, float& ny, float& nz, void* user) {
-        const Vector3f n = static_cast<const Terrain::TerrainGrid*>(user)->normalAtWorld(x, z);
-        nx = n.x;
-        ny = n.y;
-        nz = n.z;
-    };
-    step.normalUser  = &m_terrain;
-    step.lake        = m_water.chunksX() > 0;
-    step.lakeLevel   = m_water.params().waterLevel;
-    step.ponds       = ponds;
-    step.pondCount   = pondCount;
-    step.cellMetres  = m_terrain.cellSize();
-    step.inFrustum   = [](float x, float y, float z, void* user) {
-        return static_cast<const Frustum3f*>(user)->Contains(Vector3f(x, y, z));
-    };
-    step.frustumUser = &frustum;
-    m_leafField.setShedScale(m_leafShedScale);
-    m_leafField.step(step);
-    m_leafRustle.tick(audio(), assets(), crowns, crownCount, cam.x, cam.z, m_leafSimSeconds, dt);
+    const AssetRef<Model>& treeModel = m_foliagePrototypes.model(Terrain::FoliageKind::Tree);
+    FallingLeafTick        tick;
+    tick.field      = &m_leafField;
+    tick.rustle     = &m_leafRustle;
+    tick.terrain    = &m_terrain;
+    tick.foliage    = &m_foliage;
+    tick.treeModel  = treeModel ? treeModel.get() : nullptr;
+    tick.audio      = &audio();
+    tick.assets     = &assets();
+    tick.camera     = &m_camera;
+    tick.simSeconds = &m_leafSimSeconds;
+    tick.shedScale  = m_leafShedScale;
+    tick.lake       = m_water.chunksX() > 0;
+    tick.lakeLevel  = m_water.params().waterLevel;
+    tick.ponds      = ponds;
+    tick.pondCount  = pondCount;
+    stepFallingLeaves(tick, dt);
 }
 
 void EditorApp::syncTerrainLod()

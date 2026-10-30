@@ -1,6 +1,7 @@
 #include "SandboxApp.h"
 
 #include "Play/AttachedLights.h"
+#include "Play/EnvironmentTick.h"
 #include "Play/Carry.h"
 #include "Play/CharacterAttach.h"
 #include "Play/ContactGrind.h"
@@ -3097,55 +3098,21 @@ void SandboxApp::onSplashFinished()
 
 void SandboxApp::tickLeaves(float dt)
 {
-    if (!m_terrain.valid() || !(dt > 0.0f))
-    {
-        m_leafRustle.stopAll(audio());
-        return;
-    }
-
-    m_leafSimSeconds += static_cast<double>(dt);
-    float treeTop = 12.0f;
     const AssetRef<Model>& treeModel = m_foliagePrototypes.model(Terrain::FoliageKind::Tree);
-    if (treeModel && treeModel->bounds().Max.y > 0.05f)
-        treeTop = treeModel->bounds().Max.y;
-
-    const Vector3f cam = m_viewCamera.GetPosition();
-    Frustum3f frustum(m_viewCamera.GetCullViewProj());
-    Terrain::LeafField::Crown crowns[Terrain::LeafField::kMaxCrowns];
-    const int crownCount = gatherLeafCrowns(m_terrain, m_foliage.empty() ? nullptr : &m_foliage, cam, nullptr, treeTop, crowns,
-                                             Terrain::LeafField::kMaxCrowns);
-
-    Terrain::LeafField::Step step;
-    step.dt          = dt;
-    step.simTime     = m_leafSimSeconds;
-    step.listenerX   = cam.x;
-    step.listenerY   = cam.y;
-    step.listenerZ   = cam.z;
-    step.cameraX     = cam.x;
-    step.cameraZ     = cam.z;
-    step.crowns      = crowns;
-    step.crownCount  = crownCount;
-    step.tryHeight   = [](float x, float z, float& y, void* user) {
-        return static_cast<const Terrain::TerrainGrid*>(user)->tryHeightAtWorld(x, z, y);
-    };
-    step.heightUser  = &m_terrain;
-    step.sampleNormal = [](float x, float z, float& nx, float& ny, float& nz, void* user) {
-        const Vector3f n = static_cast<const Terrain::TerrainGrid*>(user)->normalAtWorld(x, z);
-        nx = n.x;
-        ny = n.y;
-        nz = n.z;
-    };
-    step.normalUser  = &m_terrain;
-    step.lake        = m_water.chunksX() > 0;
-    step.lakeLevel   = m_water.params().waterLevel;
-    step.cellMetres  = m_terrain.cellSize();
-    step.inFrustum   = [](float x, float y, float z, void* user) {
-        return static_cast<const Frustum3f*>(user)->Contains(Vector3f(x, y, z));
-    };
-    step.frustumUser = &frustum;
-    m_leafField.setShedScale(m_leafShedScale);
-    m_leafField.step(step);
-    m_leafRustle.tick(audio(), assets(), crowns, crownCount, cam.x, cam.z, m_leafSimSeconds, dt);
+    FallingLeafTick        tick;
+    tick.field      = &m_leafField;
+    tick.rustle     = &m_leafRustle;
+    tick.terrain    = &m_terrain;
+    tick.foliage    = m_foliage.empty() ? nullptr : &m_foliage;
+    tick.treeModel  = treeModel ? treeModel.get() : nullptr;
+    tick.audio      = &audio();
+    tick.assets     = &assets();
+    tick.camera     = &m_viewCamera;
+    tick.simSeconds = &m_leafSimSeconds;
+    tick.shedScale  = m_leafShedScale;
+    tick.lake       = m_water.chunksX() > 0;
+    tick.lakeLevel  = m_water.params().waterLevel;
+    stepFallingLeaves(tick, dt);
 }
 
 void SandboxApp::bindNpcDialogue(Entity npc, const std::string& scenePath)
@@ -3306,36 +3273,16 @@ void SandboxApp::onUpdate(float dt)
     m_grassWindSeconds = m_windClock.time;
     if (const Entity body = possessedBody(); body.valid())
     {
-        if (const TransformComponent* xf = world().get<TransformComponent>(body))
-        {
-            GrassPlayerSample sample;
-            sample.x = xf->position.x;
-            sample.z = xf->position.z;
-            if (const PlayerMotor* motor = localMotor())
-            {
-                sample.velX                = motor->velocity().x;
-                sample.velZ                = motor->velocity().z;
-                const PlayerMoveState move = motor->state();
-                sample.shoving             = move == PlayerMoveState::Grounded || move == PlayerMoveState::Crouch || move == PlayerMoveState::Dodge;
-            }
-            m_grassField.update(m_terrain, xf->position.x, xf->position.z, m_grassWindSeconds, m_water.params().waterLevel, sample);
-        }
+        float             x = 0.0f;
+        float             z = 0.0f;
+        GrassPlayerSample sample;
+        if (fillGrassPlayerSample(world(), body, x, z, sample))
+            m_grassField.update(m_terrain, x, z, m_grassWindSeconds, m_water.params().waterLevel, sample);
     }
     if (renderer().scenePath() == ScenePath::HybridDeferred)
         syncPlayerFlashlight(world(), possessedBody(), m_viewCamera.GetPosition(), m_viewCamera.GetLook(), m_viewCamera.GetRight(), m_viewCamera.GetUp(), m_offhand.lightOn);
 
-    AudioListener lis{};
-    lis.position = m_viewCamera.GetPosition();
-    lis.forward  = m_viewCamera.GetLook();
-    lis.up       = m_viewCamera.GetUp();
-    lis.distanceScale = 1.0f;
-    if (skillCatalog().enabled())
-    {
-        const Entity body = possessedBody();
-        if (const SkillComponent* sk = body.valid() ? world().get<SkillComponent>(body) : nullptr)
-            lis.distanceScale = skillScalar(SkillId::Hear, SkillScalar::HearScale, sk->level(SkillId::Hear));
-    }
-    audio().setListener(lis);
+    setViewAudioListener(audio(), m_viewCamera, &world(), possessedBody(), skillCatalog().enabled());
     tickSoundEmitters(world(), audio(), assets());
     m_scene.tickDecals(world(), dt);
 }
