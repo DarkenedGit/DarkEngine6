@@ -32,6 +32,9 @@
 #include "Render/Frustum3f.h"
 #include "Assets/Material.h"
 #include "Assets/Model.h"
+#include "Character/HealthComponent.h"
+#include "Gameplay/ThrowableBelt.h"
+#include "Weapons/WeaponLoadoutComponent.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
 #include "Sky/CloudVolume.h"
@@ -53,6 +56,136 @@
 using namespace Dark;
 using namespace Dark::EditorDetail;
 using namespace Math;
+
+WeaponLoadout* EditorApp::playWeapons()
+{
+    if (!m_playMode || !m_playPlayer.valid() || !world().alive(m_playPlayer))
+        return nullptr;
+    WeaponLoadoutComponent* wlc = world().get<WeaponLoadoutComponent>(m_playPlayer);
+    if (!wlc || !wlc->loadout)
+        return nullptr;
+    return wlc->loadout.get();
+}
+
+void EditorApp::drawPlayCrosshair(ID3D12GraphicsCommandList* cmd)
+{
+    if (!cmd || !m_playMode || !m_crosshair.isValid() || m_sceneMode != SceneMode::Scene3D)
+        return;
+    if (!m_playPlayer.valid() || !world().alive(m_playPlayer))
+        return;
+    const HealthComponent* hp = world().get<HealthComponent>(m_playPlayer);
+    if (!hp || !hp->health.alive())
+        return;
+
+    bool throwableSlot = false;
+    if (const ThrowableBeltComponent* carried = world().get<ThrowableBeltComponent>(m_playPlayer))
+        throwableSlot = carried->belt.any();
+
+    WeaponKind kind = WeaponKind::Melee;
+    if (const WeaponLoadout* weapons = playWeapons())
+        kind = weapons->activeKind();
+
+    const GpuScope hud(cmd, "HUD", ProfileColor::Hud);
+    m_crosshair.draw(cmd, renderer().width(), renderer().height(), kind, throwableSlot);
+}
+
+void EditorApp::submitPlayProjectiles(std::vector<int>& rejected)
+{
+    WeaponLoadout* weapons = playWeapons();
+    if (!weapons)
+        return;
+    GpuResourceCache& gpu    = renderer().gpuResources();
+    const auto        tracer = assets().getAs<Model>(m_tracerModelId);
+    if (!tracer || !tracer->hasOpaque() || !gpu.ensureModel(tracer))
+        return;
+    GpuModel* gm = gpu.model(tracer->id);
+    if (!gm)
+        return;
+
+    const float scale = weapons->projectile().desc().radius * 2.0f;
+    int         shot  = 0;
+    for (const LiveProjectile& s : weapons->projectile().live())
+    {
+        const int index = shot++;
+        if (!s.alive)
+            continue;
+        const Matrix4f worldMat = Matrix4f::ScaleMatrixXYZ(scale, scale, scale) * Matrix4f::TranslationMatrix(s.position.x, s.position.y, s.position.z);
+        const Matrix4f prev     = Matrix4f::ScaleMatrixXYZ(scale, scale, scale) * Matrix4f::TranslationMatrix(s.prevPosition.x, s.prevPosition.y, s.prevPosition.z);
+        if (!m_drawList.submitStaticModel(gpu, *gm, worldMat, StaticPopulation::Projectiles, false, tracer->bounds(), &prev))
+            rejected.push_back(index);
+    }
+}
+
+void EditorApp::drawPlayProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, const Matrix4f& prevViewProj, bool gbuffer, bool instanced,
+                                    const MeshForwardBatchConstants* forwardBatch, const MeshFrameConstants* forwardLit, const std::vector<int>* rejectedShots)
+{
+    WeaponLoadout* weapons = playWeapons();
+    const auto     model   = assets().getAs<Model>(m_tracerModelId);
+    if (!cmd || !weapons || !model || !model->hasOpaque())
+        return;
+
+    bool any = false;
+    for (const LiveProjectile& s : weapons->projectile().live())
+    {
+        if (s.alive)
+        {
+            any = true;
+            break;
+        }
+    }
+    if (!any)
+        return;
+
+    GpuResourceCache& gpu = renderer().gpuResources();
+    if (!instanced && !gpu.ensureModel(model))
+        return;
+
+    const GpuScope  projectiles(cmd, "Projectiles", ProfileColor::Projectiles);
+    const float     scale = weapons->projectile().desc().radius * 2.0f;
+    const DebugFill fill  = renderer().debugState().fill;
+    auto            drawShot = [&](const LiveProjectile& s) {
+        const Matrix4f worldMat = Matrix4f::ScaleMatrixXYZ(scale, scale, scale) * Matrix4f::TranslationMatrix(s.position.x, s.position.y, s.position.z);
+        if (gbuffer)
+            drawModelOpaqueGBuffer(cmd, gpu, m_meshPipeline, *model, worldMat, viewProj, prevViewProj, fill);
+        else if (forwardLit)
+            drawModelForward(cmd, gpu, m_meshPipeline, m_shadows, *model, false, worldMat, viewProj, *forwardLit, fill);
+    };
+
+    if (instanced)
+    {
+        if (gbuffer)
+            m_drawList.recordOpaque(cmd, gpu, ViewId{ 0 }, StaticPopulation::Projectiles);
+        else if (forwardBatch)
+            m_drawList.recordForward(cmd, gpu, ViewId{ 0 }, StaticPopulation::Projectiles, *forwardBatch, m_shadows.receiverCbvGpu());
+        if (!rejectedShots || rejectedShots->empty() || !gpu.ensureModel(model))
+            return;
+        int shot = 0;
+        for (const LiveProjectile& s : weapons->projectile().live())
+        {
+            const int index = shot++;
+            if (!s.alive)
+                continue;
+            bool rejected = false;
+            for (int r : *rejectedShots)
+            {
+                if (r == index)
+                {
+                    rejected = true;
+                    break;
+                }
+            }
+            if (rejected)
+                drawShot(s);
+        }
+        return;
+    }
+
+    for (const LiveProjectile& s : weapons->projectile().live())
+    {
+        if (s.alive)
+            drawShot(s);
+    }
+}
 
 void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 {
@@ -91,6 +224,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     std::unordered_set<EntityID> acceptedProp;
     std::unordered_set<EntityID> acceptedModel;
     std::unordered_set<EntityID> acceptedSkinned;
+    std::vector<int> rejectedShots;
     uint8_t shadowViewIndex = 1;
     if (instanceStatic)
     {
@@ -180,6 +314,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                     acceptedSkinned.insert(e.id());
             }
         });
+        submitPlayProjectiles(rejectedShots);
     }
 
     // A point light culls foliage once against its range sphere and redraws that list on each face.
@@ -711,6 +846,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                 ++draws;
             }
         });
+        drawPlayProjectiles(cmd, viewProj, prevViewProj, true, instanceColor, nullptr, nullptr, &rejectedShots);
         if (m_haveTerrain && m_terrain.valid())
         {
             const Frustum3f foliageFrustum(m_camera.GetCullViewProj());
@@ -776,6 +912,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                 drawModelForward(cmd, gpu, m_meshPipeline, m_shadows, *model, false, worldMat, viewProj, lit, fill);
             ++draws;
         });
+        drawPlayProjectiles(cmd, viewProj, prevViewProj, false, instanceForward, &forwardLighting, &lit, &rejectedShots);
     }
 
     if (deferred)
@@ -949,6 +1086,12 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         m_particleRenderer.draw(cmd, m_camera, *pe.runtime, pe.runtime->desc().additiveBlend, sprite);
         ++draws;
     });
+        if (WeaponLoadout* weapons = playWeapons())
+        {
+            const ParticleEmitter& impact = weapons->projectile().impactEmitter();
+            if (impact.aliveCount() > 0)
+                m_particleRenderer.draw(cmd, m_camera, impact, true);
+        }
         m_leafRenderer.draw(cmd, m_camera, m_leafField);
     }
 
@@ -1075,6 +1218,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     }
 
     m_scene.endCameraFrame(m_camera, viewProj);
+    drawPlayCrosshair(cmd);
     renderer().stats().drawCalls = draws;
     uint32_t tableCount = 0;
     const PassNode* table = deferred ? editorDeferredPasses(tableCount) : editorForwardPasses(tableCount);

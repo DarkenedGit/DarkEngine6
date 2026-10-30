@@ -386,6 +386,52 @@ namespace Dark
         switchPlayerWeapons(m_host);
     }
 
+    void stockPlayerKit(World& world, Entity player)
+    {
+        if (!player.valid() || !world.alive(player))
+            return;
+        if (!world.has<InventoryComponent>(player))
+            world.emplace<InventoryComponent>(player);
+        InventoryComponent* inv = world.get<InventoryComponent>(player);
+        if (!inv)
+            return;
+        const bool hadSword = hasItem(*inv, "sword");
+        const bool hadRifle = hasItem(*inv, "rifle");
+        if (!hadSword)
+        {
+            if (const ItemDef* def = findItemDef("sword"))
+                addItem(*inv, *def, 1);
+            else
+                DE_LOG_WARN("Play: sword is not in the item catalog");
+        }
+        if (!hadRifle)
+        {
+            if (const ItemDef* def = findItemDef("rifle"))
+                addItem(*inv, *def, 1);
+            else
+                DE_LOG_WARN("Play: rifle is not in the item catalog");
+        }
+        if (!hadSword && !hadRifle && countItem(*inv, "medkit") <= 0)
+        {
+            if (const ItemDef* med = findItemDef("medkit"))
+                addItem(*inv, *med, 2);
+            else
+                DE_LOG_WARN("Play: medkit is not in the item catalog");
+        }
+        ensurePlayerFlashlight(world, player);
+    }
+
+    void PlaySession::stockPlayer(Entity player)
+    {
+        pull();
+        World* world = m_host.world;
+        if (!world || !player.valid() || !world->alive(player))
+            return;
+        stockPlayerKit(*world, player);
+        if (m_host.pins && m_host.assets && m_host.renderer)
+            equipSword(*world, *m_host.pins, *m_host.assets, *m_host.renderer, player);
+    }
+
     void PlaySession::stockHunter(Entity hunter)
     {
         pull();

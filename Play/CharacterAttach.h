@@ -24,7 +24,8 @@ namespace Dark
         class TerrainGround;
     }
 
-    // Services a character attach needs. Physics, inventory, and proxy meshes stay with the caller.
+    // Services a character attach needs. Physics and proxy meshes stay with the caller.
+    // The player starter bag is PlaySession::stockPlayer.
     struct CharacterHost
     {
         World&                        world;

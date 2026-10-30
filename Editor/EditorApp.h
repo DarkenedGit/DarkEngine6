@@ -17,6 +17,8 @@
 #include "Render/Camera3D.h"
 #include "Render/Camera2D.h"
 #include "Assets/Material.h"
+#include "Render/CrosshairHud.h"
+#include "Render/MeshConstants.h"
 #include "Render/SpritePipeline.h"
 #include "Render/Texture2D.h"
 #include "Scene/SceneTypes.h"
@@ -61,6 +63,7 @@
 #include "Water/WaterBody.h"
 #include "Water/WaterStream.h"
 #include "Weapons/Weapon.h"
+#include "Weapons/WeaponLoadout.h"
 #include "Physics/PhysicsComponent.h"
 #include "Physics/PhysicsSurface.h"
 #include "Physics/PhysicsWorld.h"
@@ -188,6 +191,12 @@ private:
     Dark::Terrain::GroundContact groundContactAt(float x, float z) const;
     void   drawPlayHud();
     void   drawLoot();
+    void   ensurePlayReticle();
+    WeaponLoadout* playWeapons();
+    void   drawPlayCrosshair(ID3D12GraphicsCommandList* cmd);
+    void   submitPlayProjectiles(std::vector<int>& rejected);
+    void   drawPlayProjectiles(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, const Math::Matrix4f& prevViewProj, bool gbuffer, bool instanced,
+                               const MeshForwardBatchConstants* forwardBatch, const MeshFrameConstants* forwardLit, const std::vector<int>* rejectedShots);
     void   spawnPlayPickups();
     static void onPlayWeaponHitThunk(void* user, const Dark::WeaponHit& hit);
     void   onPlayWeaponHit(const Dark::WeaponHit& hit);
@@ -533,6 +542,9 @@ private:
     Physics::PhysicsBodyId         m_physicsGround = Physics::kNullPhysicsBody;
     Physics::FoliageCollisionSet   m_foliageCollision;
     bool                      m_playMode = false;
+    // Same reticle and gold tracer sphere Sandbox draws for a live rifle shot.
+    AssetID                   m_tracerModelId = NULL_ASSET;
+    CrosshairHud              m_crosshair;
     bool                      m_suspendLiveStamp = false;
     int                       m_liveStamp = 0;
     Dark::Save::SaveSystem    m_save;

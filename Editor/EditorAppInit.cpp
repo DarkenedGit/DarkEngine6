@@ -33,6 +33,7 @@
 #include "Render/GpuUpload.h"
 #include "Render/SkyPipeline.h"
 #include "Render/ScenePath.h"
+#include "Assets/Material.h"
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
@@ -66,6 +67,28 @@ void EditorApp::registerActions()
     DE_LOG_INFO(
         "Editor: F3 toggle 2D/3D | F2 particle UI | F4 animation UI | F8 HSM UI | F1 fill F6 lighting F7 shadows | F11 G-buffer | "
         "1-7 place type | P place | 6 Player 7 Hunter | F12 play | MMB/RMB pan (2D) | wheel zoom | Ctrl+S/O save/load | C color | Del delete | -forward");
+}
+
+void EditorApp::ensurePlayReticle()
+{
+    if (!m_crosshair.isValid() && !m_crosshair.create(renderer()))
+        DE_LOG_ERROR(LogCategory::Render, "EditorApp: crosshair failed");
+
+    if (m_tracerModelId != NULL_ASSET)
+        return;
+
+    MeshData tracerData;
+    if (!CreateSphere(tracerData, 0.5f, 8, 12))
+    {
+        DE_LOG_ERROR(LogCategory::Render, "EditorApp: projectile tracer mesh failed");
+        return;
+    }
+    AssetRef<Material> tracerMat = internSolidMaterial(assets(), 255, 196, 48, 255, "runtime:/editor/tracer-mat");
+    AssetRef<Model> tracerModel  = internAndUploadProceduralModel(renderer(), assets(), std::move(tracerData), tracerMat, "runtime:/editor/tracer");
+    if (tracerModel)
+        m_tracerModelId = tracerModel->id;
+    else
+        DE_LOG_ERROR(LogCategory::Render, "EditorApp: projectile tracer model failed");
 }
 
 void EditorApp::onInit()
@@ -162,6 +185,7 @@ void EditorApp::onInit()
         CreateSphere(data, 0.5f, 16, 24);
         m_sphereMesh = Mesh::Create(renderer(), data);
     }
+    ensurePlayReticle();
 
     {
         MeshData data;

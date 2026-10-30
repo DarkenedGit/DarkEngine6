@@ -500,7 +500,6 @@ void EditorApp::setPlayMode(bool play)
             else
                 DE_LOG_WARN(LogCategory::AI, "Guard barks: {}", barkError);
         }
-        ensurePlayerFlashlight(world(), m_playPlayer);
         // clearPlayArmor deletes loose pickups. Throwables are copied so they can come back. Quest pickups spawn after physics is live.
         const std::vector<ThrowablePickupSpot> authoredThrowables = captureThrowablePickups(world());
         ensurePlayGear();
@@ -584,6 +583,7 @@ void EditorApp::ensurePlayGear()
 {
     if (!m_playShield.valid() || !world().alive(m_playShield))
         m_playShield = spawnPlayerShield(world(), pins(), assets(), renderer());
+    m_play.stockPlayer(m_playPlayer);
     equipPlayArmor();
 }
 

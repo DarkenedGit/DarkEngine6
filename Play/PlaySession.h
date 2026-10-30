@@ -57,6 +57,10 @@ namespace Dark
     struct CrowModels;
     struct SpawnerRequest;
 
+    // Sword and rifle when those items are missing, then two medkits when the bag had neither weapon.
+    // A bag that already has a weapon keeps its medkit count. The flashlight is equipped when it is not already carried.
+    void stockPlayerKit(World& world, Entity player);
+
     inline constexpr float kPlayDeathSeconds      = 2.5f;
     inline constexpr float kPlaySpawnFocusSeconds = 1.75f;
     inline constexpr float kPlayJumpAttackBuffer  = 0.12f;
@@ -214,6 +218,8 @@ namespace Dark
 
         void onWeaponHit(const WeaponHit& hit);
         void switchWeapons();
+        // Sword, rifle, two medkits, the flashlight, and the sword mesh. Same kit for Sandbox and Editor Play.
+        void stockPlayer(Entity player);
         void stockHunter(Entity hunter);
 
         FacilityState&       facility() { return m_facility; }

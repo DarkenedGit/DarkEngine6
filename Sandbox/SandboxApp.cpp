@@ -81,7 +81,6 @@
 #include "Character/PlayerMotorComponent.h"
 #include "Character/ArmorView.h"
 #include "Character/ItemView.h"
-#include "Character/SwordView.h"
 #include "Character/ThrowableView.h"
 #include "Combat/ArmorComponent.h"
 #include "Gameplay/Inventory.h"
@@ -1269,16 +1268,7 @@ void SandboxApp::attachReplicaCombat(Entity e)
 void SandboxApp::attachLocalPlayer(Entity e)
 {
     attachReplicaCombat(e);
-    if (!world().has<InventoryComponent>(e))
-    {
-        InventoryComponent inv;
-        for (const char* id : { "sword", "rifle" })
-            addItem(inv, *findItemDef(id), 1);
-        addItem(inv, *findItemDef("medkit"), 2);
-        world().emplace<InventoryComponent>(e, inv);
-        ensurePlayerFlashlight(world(), e);
-    }
-    equipSword(world(), pins(), assets(), renderer(), e);
+    m_play.stockPlayer(e);
     if (!world().has<HudTagComponent>(e))
     {
         HudTagComponent hud{};
