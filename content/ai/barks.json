@@ -59,13 +59,34 @@
       "I hate the night shift.",
       "Why do they even need us out here?",
       "My feet are killing me."
+    ],
+    "missing": [
+      "Hey, where's Mike? Mike, come in.",
+      "Anyone seen Jensen? He missed his check-in.",
+      "He should be back by now. Going to look.",
+      "That's not like him. Checking his post."
     ]
   },
   "chats": [
-    [ "Quiet tonight.", "Too quiet, if you ask me." ],
-    [ "You hear what they keep in the north lab?", "Don't ask. I don't want to know." ],
-    [ "Did the power flicker earlier?", "Old wiring. Happens every week." ],
-    [ "When's your shift over?", "Not soon enough." ],
-    [ "Keep your eyes open.", "Always do." ]
+    [
+      "Quiet tonight.",
+      "Too quiet, if you ask me."
+    ],
+    [
+      "You hear what they keep in the north lab?",
+      "Don't ask. I don't want to know."
+    ],
+    [
+      "Did the power flicker earlier?",
+      "Old wiring. Happens every week."
+    ],
+    [
+      "When's your shift over?",
+      "Not soon enough."
+    ],
+    [
+      "Keep your eyes open.",
+      "Always do."
+    ]
   ]
 }

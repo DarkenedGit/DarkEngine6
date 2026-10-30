@@ -2743,33 +2743,27 @@
         0.4
       ],
       "pickup": "research_file"
-    },
-    {
-      "type": "cube",
-      "color": [
-        0.25,
-        0.85,
-        0.8,
-        1
-      ],
-      "position": [
-        -6,
-        0.3,
-        92
-      ],
-      "rotation": [
-        1,
-        0,
-        0,
-        0
-      ],
-      "scale": [
-        0.4,
-        0.4,
-        0.4
-      ],
-      "pickup": "bio_sample"
     }
   ],
-  "quest": "north_lab"
+  "quest": "north_lab",
+  "buildings": [
+    {
+      "id": "lab_small",
+      "position": [
+        4.0,
+        0.0,
+        -100.0
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "warehouse",
+      "position": [
+        -26.0,
+        0.0,
+        -110.0
+      ],
+      "yaw": 0
+    }
+  ]
 }

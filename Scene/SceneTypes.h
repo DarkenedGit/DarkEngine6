@@ -296,6 +296,7 @@ namespace Dark
 
         std::vector<Math::Vector2f> patrol;
         std::string                 squad;
+        bool                        block = true; // false keeps a solid-looking cube out of pathfinding and physics
 
         bool conceal = false;
         bool goal    = false;
@@ -500,6 +501,14 @@ namespace Dark
         AI::AwarenessSettings settings{};
     };
 
+    // A kit-built building placed in the scene: content/buildings/<id>.building.json.
+    struct SceneBuildingDesc
+    {
+        std::string    id;
+        Math::Vector3f position{};
+        float          yaw = 0.0f;
+    };
+
     struct SceneFileData
     {
         int         version = 2;
@@ -518,6 +527,7 @@ namespace Dark
         ExposureSceneDesc exposure;
         StealthSceneDesc  stealth;
         std::string       quest;
+        std::vector<SceneBuildingDesc> buildings;
         std::vector<SceneObjectData> objects;
     };
 

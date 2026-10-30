@@ -17,6 +17,8 @@ namespace Dark
         Loot,
         Power,
         Guard,
+        Hide,
+        Door,
     };
 
     enum class PlayInteract : uint8_t
@@ -25,6 +27,8 @@ namespace Dark
         Body,
         Power,
         Item,
+        Hide,
+        Door,
     };
 
     struct PlayInteractPick
@@ -48,6 +52,8 @@ namespace Dark
     inline constexpr float kInteractPowerRange   = 2.5f;
     inline constexpr float kInteractBodyRange    = 2.2f;
     inline constexpr float kGuardTakedownRange   = 2.5f;
+    inline constexpr float kInteractHideRange    = 2.0f;
+    inline constexpr float kInteractDoorRange    = 2.6f;
 
     void setInteractable(World& world, Entity e, InteractKind kind, float range);
     void clearInteractable(World& world, Entity e);

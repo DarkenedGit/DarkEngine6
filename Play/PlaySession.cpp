@@ -429,6 +429,8 @@ namespace Dark
         World* world = m_host.world;
         if (!world || !m_host.player.valid() || !m_host.pins || !m_host.physics || !m_host.audio || !m_host.assets)
             return;
+        if (m_host.onUse && m_host.onUse(m_host.user, pickInteract()))
+            return;
         if (carriedBody(*world).valid())
         {
             CarryView view{};
@@ -644,6 +646,8 @@ namespace Dark
         edges.right         = input->actionPressed("dodge_right");
         const bool sprintAllowed = canSteer && !jumpBusy && !m_host.uiKeys && m_rt.swingLock <= 0.0f;
         buildPlayMotorInput(motorIn, m_rt.crouchLatch, wish, flat, right, canSteer, jumpBusy, m_host.uiKeys, inAirCommit, jump, sprintAllowed, edges);
+        if (m_host.frozen)
+            motorIn = PlayerMotorInput{};
         const bool onGround = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch || motor->state() == PlayerMoveState::Dodge);
         const Terrain::GroundContact groundSurf = (onGround && m_host.groundContact) ? m_host.groundContact(m_host.user, xf->position.x, xf->position.z) : Terrain::GroundContact{};
         const float swingSlow = m_rt.blockRecoil > 0.0f ? 0.4f : (m_rt.swingLock <= 0.0f ? 1.0f : (m_rt.comboCount > 1 ? 0.45f : 0.8f));
@@ -974,7 +978,7 @@ namespace Dark
         Combat::ArmorComponent* armor = world->get<Combat::ArmorComponent>(m_host.player);
         if (!armor)
             armor = &world->emplace<Combat::ArmorComponent>(m_host.player);
-        armor->stats.armor = equippedArmor(*inv);
+        armor->stats.armor = 0.0f;
 
         bool changed = false;
         for (int s = 0; s < static_cast<int>(EquipSlot::Count); ++s)
@@ -990,15 +994,12 @@ namespace Dark
         if (!changed)
             return;
         removeArmor(*world, *m_host.pins, *m_host.physics, m_host.player);
-        const Combat::ArmorPiecesComponent all = Combat::makeHunterArmor();
-        Combat::ArmorPiecesComponent       worn;
-        for (int i = 0; i < all.count; ++i)
+        Combat::ArmorPiecesComponent worn;
+        for (const ItemStack& eq : inv->equipped)
         {
-            for (const ItemStack& eq : inv->equipped)
-            {
-                if (!eq.empty() && std::strcmp(eq.def->id, all.pieces[i].name) == 0)
-                    worn.pieces[worn.count++] = all.pieces[i];
-            }
+            if (eq.empty() || eq.def->type != ItemType::Armor)
+                continue;
+            worn.count += Combat::armorPiecesForItem(eq.def->id, eq.def->armor, worn.pieces + worn.count, Combat::ArmorPiecesComponent::kMaxPieces - worn.count);
         }
         if (worn.count > 0)
             equipArmorPieces(*world, *m_host.pins, *m_host.assets, *m_host.renderer, m_host.player, worn);
@@ -1050,7 +1051,7 @@ namespace Dark
                 for (int p = 0; p < armor->count; ++p)
                 {
                     const ItemDef* def = findItemDef(armor->pieces[p].name);
-                    if (armor->pieces[p].attached && def)
+                    if (armor->pieces[p].attached && def && !hasItem(contents, def->id))
                         addItem(contents, *def, 1);
                 }
             }

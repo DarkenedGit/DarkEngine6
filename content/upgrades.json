@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "note": "Body modifications bought with stolen research and materials. effect: breath (multiplier), quiet (footstep hearing range multiplier), health (+max HP), speed (walk and sprint multiplier), exposure (how visible you are, multiplier).",
+  "upgrades": [
+    { "id": "deep_lungs", "name": "Deep Lungs", "description": "Hold your breath 50% longer underwater.", "effect": "breath", "value": 1.5,
+      "cost": [ { "item": "research", "count": 2 }, { "item": "bio_material", "count": 1 } ] },
+    { "id": "soft_steps", "name": "Soft Steps", "description": "Guards hear your footsteps from 40% less far.", "effect": "quiet", "value": 0.6,
+      "cost": [ { "item": "research", "count": 3 } ] },
+    { "id": "tough_skin", "name": "Tough Skin", "description": "+25 maximum health.", "effect": "health", "value": 25.0,
+      "cost": [ { "item": "research", "count": 2 }, { "item": "bio_material", "count": 2 } ] },
+    { "id": "fast_legs", "name": "Fast Legs", "description": "Walk and sprint 10% faster.", "effect": "speed", "value": 1.1,
+      "cost": [ { "item": "research", "count": 3 }, { "item": "bio_material", "count": 1 } ] },
+    { "id": "dim_skin", "name": "Dim Skin", "description": "Guards take 25% longer to spot you.", "effect": "exposure", "value": 0.75,
+      "cost": [ { "item": "research", "count": 4 }, { "item": "bio_material", "count": 2 } ] }
+  ]
+}

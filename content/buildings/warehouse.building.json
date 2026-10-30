@@ -1,0 +1,186 @@
+{
+  "version": 1,
+  "id": "warehouse",
+  "kit": "facility",
+  "note": "Storage hall with shelf rows, a low cover wall, a server room (door) and a loading-bay arch on the far side. First row is local z = 0.",
+  "layout": [
+    "+-+-+-+",
+    "O. .h.W",
+    "+   +-+",
+    "|. .D.|",
+    "+-+A+-+"
+  ],
+  "props": [
+    {
+      "prop": "shelf",
+      "pos": [
+        4.0,
+        2.6
+      ],
+      "yaw": 0
+    },
+    {
+      "prop": "shelf",
+      "pos": [
+        8.5,
+        2.6
+      ],
+      "yaw": 0
+    },
+    {
+      "prop": "crate",
+      "pos": [
+        1.4,
+        10.4
+      ],
+      "yaw": 0
+    },
+    {
+      "prop": "crate",
+      "pos": [
+        2.6,
+        10.6
+      ],
+      "yaw": 0
+    },
+    {
+      "prop": "barrel",
+      "pos": [
+        10.8,
+        10.9
+      ],
+      "yaw": 0
+    },
+    {
+      "prop": "table",
+      "pos": [
+        15.0,
+        1.2
+      ],
+      "yaw": 180,
+      "loot": [
+        {
+          "item": "research",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "prop": "locker",
+      "pos": [
+        6.2,
+        11.4
+      ],
+      "yaw": 0
+    },
+    {
+      "prop": "server",
+      "pos": [
+        17.2,
+        7.6
+      ],
+      "yaw": 90
+    },
+    {
+      "prop": "server",
+      "pos": [
+        17.2,
+        10.4
+      ],
+      "yaw": 90
+    },
+    {
+      "prop": "terminal",
+      "pos": [
+        13.0,
+        11.4
+      ],
+      "yaw": 0,
+      "loot": [
+        {
+          "item": "research",
+          "count": 2
+        },
+        {
+          "item": "bio_material",
+          "count": 1
+        }
+      ]
+    }
+  ],
+  "pickups": [],
+  "guards": [
+    {
+      "pos": [
+        3.0,
+        6.0
+      ],
+      "patrol": [
+        [
+          3.0,
+          6.0
+        ],
+        [
+          10.0,
+          6.0
+        ],
+        [
+          10.0,
+          8.5
+        ],
+        [
+          3.0,
+          8.5
+        ]
+      ],
+      "squad": "wing"
+    },
+    {
+      "pos": [
+        14.5,
+        9.0
+      ],
+      "patrol": [
+        [
+          14.5,
+          9.0
+        ],
+        [
+          14.5,
+          4.5
+        ],
+        [
+          9.5,
+          4.5
+        ],
+        [
+          14.5,
+          4.5
+        ]
+      ],
+      "squad": "wing"
+    }
+  ],
+  "cameras": [
+    {
+      "pos": [
+        0.6,
+        0.6
+      ],
+      "height": 2.9,
+      "yaw": 45,
+      "sweep": 70,
+      "range": 16,
+      "circuit": "wing_cams"
+    }
+  ],
+  "powerBoxes": [
+    {
+      "pos": [
+        -0.6,
+        11.0
+      ],
+      "circuit": "wing_cams"
+    }
+  ]
+}

@@ -34,6 +34,10 @@ namespace Dark
         float                 lightLevel = 1.0f;
         float                 exposure   = 1.0f;
         float                 strideLeft = 0.0f;
+        // Set by the app each frame, not saved. Upgrades scale exposure and footstep range; hidden means unseen and silent.
+        float                 exposureScale = 1.0f;
+        float                 noiseScale    = 1.0f;
+        bool                  hidden        = false;
     };
 
     struct PreySense

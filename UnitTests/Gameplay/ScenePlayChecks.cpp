@@ -251,7 +251,7 @@ TEST(ScenePlay, StealthVolumesMatchInBothApps)
     EXPECT_EQ(scene.quest, "north_lab");
     const SpawnExpect file = expectOf(scene.objects);
     EXPECT_EQ(file.zones, 2);
-    EXPECT_EQ(file.pickups, 4);
+    EXPECT_EQ(file.pickups, 3);
     EXPECT_GT(file.powers, 0);
     EXPECT_GT(file.conceals, 0);
 

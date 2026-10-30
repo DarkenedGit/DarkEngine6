@@ -273,3 +273,24 @@ TEST(ArmorPiece, HunterArmorBindsHeadAndChest)
     EXPECT_EQ(armor.pieces[0].part, HitPart::Head);
     EXPECT_EQ(armor.pieces[1].part, HitPart::Chest);
 }
+
+TEST(ArmorPieces, LegGuardsCoverBothLegsOnly)
+{
+    ArmorPiecesComponent armor;
+    armor.count = armorPiecesForItem("leg_guards", 45.0f, armor.pieces, ArmorPiecesComponent::kMaxPieces);
+    ASSERT_EQ(armor.count, 2);
+    EXPECT_EQ(armor.pieces[0].part, HitPart::RightLeg);
+    EXPECT_EQ(armor.pieces[1].part, HitPart::LeftLeg);
+    ArmorBreak broke{};
+    const float onLeg = absorbArmorHit(armor, {}, Math::Quaternion::IDENTITY, {}, {}, 20.0f, broke, HitPart::LeftLeg);
+    EXPECT_NEAR(onLeg, 20.0f * 0.55f, 1.0e-4f);
+    const float onArm = absorbArmorHit(armor, {}, Math::Quaternion::IDENTITY, {}, {}, 20.0f, broke, HitPart::RightArm);
+    EXPECT_NEAR(onArm, 20.0f, 1.0e-4f);
+}
+
+TEST(ArmorPieces, GuardsWearLegGuards)
+{
+    const ArmorPiecesComponent armor = makeGuardArmor();
+    ASSERT_EQ(armor.count, 4);
+    EXPECT_EQ(armor.pieces[2].part, HitPart::RightLeg);
+}

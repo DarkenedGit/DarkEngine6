@@ -391,6 +391,13 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
     root["name"]    = scene.name.empty() ? "untitled" : scene.name;
     if (!scene.quest.empty())
         root["quest"] = scene.quest;
+    if (!scene.buildings.empty())
+    {
+        json list = json::array();
+        for (const SceneBuildingDesc& b : scene.buildings)
+            list.push_back(json{ { "id", b.id }, { "position", json::array({ b.position.x, b.position.y, b.position.z }) }, { "yaw", b.yaw } });
+        root["buildings"] = std::move(list);
+    }
     root["mode"]    = toString(scene.mode);
     if (scene.mode != SceneMode::Scene2D)
     {
@@ -654,6 +661,8 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             jo["dialogue"] = o.dialogue;
         if (!o.squad.empty())
             jo["squad"] = o.squad;
+        if (!o.block)
+            jo["block"] = false;
         if (!o.patrol.empty())
         {
             json points = json::array();
@@ -730,6 +739,19 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
     outScene.version = root.value("version", 1);
     outScene.name    = root.value("name", std::string("untitled"));
     jsonStringOr(root, "quest", outScene.quest, std::string(), "SceneFile");
+    if (root.contains("buildings") && root["buildings"].is_array())
+    {
+        for (const json& jb : root["buildings"])
+        {
+            SceneBuildingDesc b;
+            if (!jb.is_object() || !jsonStringOr(jb, "id", b.id, std::string(), "SceneFile") || b.id.empty())
+                continue;
+            jsonFloatOr(jb, "yaw", b.yaw, 0.0f, "SceneFile");
+            if (jb.contains("position"))
+                readVec3(jb["position"], b.position, nullptr, "buildings.position");
+            outScene.buildings.push_back(std::move(b));
+        }
+    }
     const std::string modeStr = root.value("mode", std::string("3d"));
     if (!tryParseSceneMode(modeStr, outScene.mode))
         outScene.mode = SceneMode::Scene3D;
@@ -1261,6 +1283,7 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
         jsonStringOr(jo, "circuit", o.circuit, std::string(), "SceneFile");
         jsonStringOr(jo, "zone", o.zone, std::string(), "SceneFile");
         jsonStringOr(jo, "squad", o.squad, std::string(), "SceneFile");
+        jsonBoolOr(jo, "block", o.block, true, "SceneFile");
         jsonStringOr(jo, "pickup", o.pickup, std::string(), "SceneFile");
         jsonIntOr(jo, "pickupCount", o.pickupCount, 1, "SceneFile");
         jsonStringOr(jo, "dialogue", o.dialogue, std::string(), "SceneFile");

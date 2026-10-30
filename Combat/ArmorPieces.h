@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string_view>
+
 #include "Combat/DamageEvent.h"
 #include "Combat/DamageTypes.h"
 #include "Combat/HitPart.h"
@@ -26,7 +28,7 @@ namespace Dark::Combat
     struct ArmorPiecesComponent
     {
         static constexpr const char* kTypeName = "ArmorPieces";
-        static constexpr int         kMaxPieces = 4;
+        static constexpr int         kMaxPieces = 8;
 
         ArmorPiece pieces[kMaxPieces]{};
         int        count = 0;
@@ -59,6 +61,48 @@ namespace Dark::Combat
         chest.maxHp       = 60.0f;
         chest.hp          = chest.maxHp;
 
+        return armor;
+    }
+
+    // The pieces one worn item puts on the body. Arm and leg guards cover both limbs, so they add two pieces.
+    // absorb is the share of a hit on that part the piece takes (item armor / 100).
+    inline int armorPiecesForItem(std::string_view itemId, float armorRating, ArmorPiece* out, int maxOut)
+    {
+        int  n   = 0;
+        auto add = [&](HitPart part, Math::Vector3f offset, Math::Vector3f half, float hp) {
+            if (n >= maxOut)
+                return;
+            ArmorPiece& p = out[n++];
+            p.name        = itemId == "helmet" ? "helmet" : itemId == "chest" ? "chest" : itemId == "arm_guards" ? "arm_guards" : "leg_guards";
+            p.part        = part;
+            p.offset      = offset;
+            p.halfExtents = half;
+            p.maxHp       = hp;
+            p.hp          = hp;
+            p.absorb      = armorRating > 0.0f ? (armorRating > 90.0f ? 0.9f : armorRating / 100.0f) : 0.5f;
+        };
+        if (itemId == "helmet")
+            add(HitPart::Head, { 0.0f, 0.75f, 0.0f }, { 0.18f, 0.16f, 0.18f }, 40.0f);
+        else if (itemId == "chest")
+            add(HitPart::Chest, { 0.0f, 0.35f, 0.0f }, { 0.26f, 0.24f, 0.16f }, 60.0f);
+        else if (itemId == "arm_guards")
+        {
+            add(HitPart::RightArm, { 0.30f, 0.35f, 0.0f }, { 0.07f, 0.17f, 0.07f }, 30.0f);
+            add(HitPart::LeftArm, { -0.30f, 0.35f, 0.0f }, { 0.07f, 0.17f, 0.07f }, 30.0f);
+        }
+        else if (itemId == "leg_guards")
+        {
+            add(HitPart::RightLeg, { 0.12f, -0.25f, 0.0f }, { 0.09f, 0.20f, 0.09f }, 35.0f);
+            add(HitPart::LeftLeg, { -0.12f, -0.25f, 0.0f }, { 0.09f, 0.20f, 0.09f }, 35.0f);
+        }
+        return n;
+    }
+
+    // Guards wear a helmet, a chest plate and leg guards.
+    inline ArmorPiecesComponent makeGuardArmor()
+    {
+        ArmorPiecesComponent armor = makeHunterArmor();
+        armor.count += armorPiecesForItem("leg_guards", 45.0f, armor.pieces + armor.count, ArmorPiecesComponent::kMaxPieces - armor.count);
         return armor;
     }
 

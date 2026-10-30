@@ -79,6 +79,7 @@ namespace Dark
             readLines(lines, "giveUp", b.giveUp);
             readLines(lines, "foundBody", b.foundBody);
             readLines(lines, "idle", b.idle);
+            readLines(lines, "missing", b.missing);
         }
         if (root.contains("chats") && root["chats"].is_array())
         {
@@ -243,11 +244,22 @@ namespace Dark
             AI::Alertness  now = AI::Alertness::Calm;
         };
         std::vector<Seen> guards;
+        std::vector<Entity> reporting;
         world.each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
             const TransformComponent* xf = world.get<TransformComponent>(e);
             if (xf && isGuard(world, e))
                 guards.push_back(Seen{ e, xf->position, ai.aware.alertness });
+            if (ai.reportMissing)
+            {
+                ai.reportMissing = false;
+                reporting.push_back(e);
+            }
         });
+        for (Entity e : reporting)
+        {
+            guardFor(e).last = AI::Alertness::Investigating;
+            say(e, pickLine(m_barks.missing));
+        }
 
         auto nearestBuddy = [&](const Seen& self, float range) {
             Entity best{};

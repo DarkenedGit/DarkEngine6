@@ -145,6 +145,7 @@ namespace Dark
         float*                    groundProbeY = nullptr;
         Physics::PhysicsBodyId*  groundIgnore  = nullptr;
         bool                      camouflage   = false;
+        bool                      frozen       = false; // hidden in a locker: no movement input
 
         // applyMouseLook gates the mouse. allowMouseButtons gates attack clicks.
         // uiMouse gates the shield mouse button the way Sandbox does (ImGui capture, not every open panel).
@@ -172,6 +173,8 @@ namespace Dark
         void (*onQuestNote)(void* user, const QuestNoteEvent& note)        = nullptr;
         void (*onDefenseText)(void* user, bool parried)                    = nullptr;
         void (*onLoot)(void* user, Entity loot)                            = nullptr;
+        // Runs first when the player presses use. Returning true means the app handled it (hide spots, doors).
+        bool (*onUse)(void* user, const PlayInteractPick& pick)            = nullptr;
         Entity (*spawnUnit)(void* user, Entity spawner, const SpawnerRequest& req) = nullptr;
         float (*heightAt)(void* user, float x, float z)                    = nullptr;
         Terrain::GroundContact (*groundContact)(void* user, float x, float z) = nullptr;

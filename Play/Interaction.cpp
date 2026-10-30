@@ -100,6 +100,16 @@ namespace Dark
                     consider(PlayInteract::Item, e, xf->position, mark.range);
                 return;
             }
+            if (mark.kind == InteractKind::Hide)
+            {
+                consider(PlayInteract::Hide, e, xf->position + Math::Vector3f{ 0.0f, 1.0f, 0.0f }, mark.range);
+                return;
+            }
+            if (mark.kind == InteractKind::Door)
+            {
+                consider(PlayInteract::Door, e, xf->position, mark.range);
+                return;
+            }
             if (mark.kind == InteractKind::Loot)
             {
                 const LootComponent* loot = world.get<LootComponent>(e);

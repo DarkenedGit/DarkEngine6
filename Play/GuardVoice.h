@@ -39,6 +39,7 @@ namespace Dark
         std::vector<std::string>                         giveUp;
         std::vector<std::string>                         foundBody;
         std::vector<std::string>                         idle;
+        std::vector<std::string>                         missing;
         std::vector<std::pair<std::string, std::string>> chats;
     };
 

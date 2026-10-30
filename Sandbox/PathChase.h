@@ -43,6 +43,14 @@ namespace Dark
 
         Entity walker() const { return m_walker; }
         const std::vector<Math::AABox3f>& cubes() const { return m_cubes; }
+        // Static cubes plus moving blockers such as shut doors. Not baked into pathfinding.
+        const std::vector<Math::AABox3f>& blockers() const { return m_hasDynamic ? m_all : m_cubes; }
+        void setDynamicBlockers(const std::vector<Math::AABox3f>& boxes)
+        {
+            m_hasDynamic = true;
+            m_all        = m_cubes;
+            m_all.insert(m_all.end(), boxes.begin(), boxes.end());
+        }
         void addObstacle(const Math::AABox3f& box) { m_levelCubes.push_back(box); }
         void setPlayerStart(const Math::Vector3f& pos)
         {
@@ -74,6 +82,8 @@ namespace Dark
         LinePipeline    m_lines;
         std::vector<Math::AABox3f> m_cubes;
         std::vector<Math::AABox3f> m_levelCubes;
+        std::vector<Math::AABox3f> m_all;
+        bool                       m_hasDynamic = false;
         Math::Vector3f             m_playerStart{};
         bool                       m_hasPlayerStart = false;
         std::vector<Entity>        m_hunters;

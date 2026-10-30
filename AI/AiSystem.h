@@ -73,6 +73,8 @@ namespace Dark
         // Impact call. Expired landings return without posting. Does not call addNoise.
         void postThrowableLanding(World& world, const ThrowableLanding& landing, float callDistance, const Math::AABox3f* cubes = nullptr, int cubeCount = 0);
         void forceAlert(World& world, Entity e, const Math::Vector3f& attackerPos);
+        // Where a searching guard stands to look into each hiding spot (locker fronts).
+        void setHideSpots(std::vector<Math::Vector3f> spots) { m_hideSpots = std::move(spots); }
         const PreySense& preySense() const { return m_prey; }
 
         void tickHunters(World& world, Terrain::TerrainGrid& terrain, bool playerInWater, float dt, Entity player, const Math::AABox3f* cubes = nullptr, int cubeCount = 0, const Math::Sphere3f* spheres = nullptr, int sphereCount = 0);
@@ -190,6 +192,8 @@ namespace Dark
         void dispatchSpotRadios(World& world, float dt);
         void shoutAlert(World& world, Entity caller, const Math::Vector3f& callerPos, const Math::Vector3f& playerPos);
         void shareSuspicion(World& world, Entity caller, const Math::Vector3f& where);
+        void noticeMissing(World& world);
+        std::vector<Math::Vector3f> m_hideSpots;
         std::vector<Math::AABox3f> m_conceal;
         AI::AwarenessSettings m_aware{};
         bool                  m_awareFromData = false;

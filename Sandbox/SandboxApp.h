@@ -19,6 +19,8 @@
 #include "Sky/Environment.h"
 #include "Gameplay/Inventory.h"
 #include "Gameplay/QuestRuntime.h"
+#include "Gameplay/Upgrades.h"
+#include "Scene/Building.h"
 #include "Physics/PhysicsWorld.h"
 #include "Physics/FoliageCollision.h"
 #include "Terrain/GrassField.h"
@@ -65,6 +67,7 @@
 #include "Ui/MainMenu.h"
 #include "Save/SaveSystem.h"
 
+#include <deque>
 #include <filesystem>
 #include <unordered_map>
 #include <unordered_set>
@@ -102,7 +105,7 @@ private:
     void drawPickupLabels();
     bool uiOpen() const
     {
-        return m_showDevTools || m_showInventory || m_showProfiler || m_showJournal || m_lootTarget.valid()
+        return m_showDevTools || m_showInventory || m_showProfiler || m_showJournal || m_showUpgrades || m_lootTarget.valid()
             || m_dialogue.choiceOpen() || m_dialogue.locksWorld();
     }
     void drawLoot();
@@ -273,6 +276,41 @@ private:
     };
     std::vector<QuestBanner>        m_questBanners;
     bool                            m_showJournal = false;
+    static bool onPlayUse(void* user, const Dark::PlayInteractPick& pick);
+    void         expandSceneBuildings(Dark::SceneFileData& scene);
+    void         spawnBuildingExtras();
+    void         enterHide(Dark::Entity spot);
+    void         leaveHide();
+    void         updateHide(float dt);
+    void         updateDoors(float dt);
+    void         useDoor(Dark::Entity door);
+    void         updateCameras(float dt);
+    void         raiseAlarm(const Dark::Math::Vector3f& at, const Dark::Math::Vector3f& playerPos);
+    void         drawAlarm();
+    void         applyUpgrades();
+    void         drawUpgrades();
+    void         drawUpgradeHint();
+    std::vector<Dark::BuildingContainer> m_buildingContainers;
+    std::vector<Dark::BuildingHideSpot>  m_buildingHides;
+    std::vector<Dark::BuildingDoor>      m_buildingDoors;
+    std::vector<Dark::BuildingCamera>    m_buildingCameras;
+    std::deque<std::string>              m_buildingLabels;
+    Dark::Entity                         m_hiddenIn{};
+    float                                m_hideFound   = 0.0f;
+    Dark::Entity                         m_hideWitness{};
+    std::string                          m_doorMsg;
+    float                                m_doorMsgTime = 0.0f;
+    float                                m_alarmTime   = 0.0f;
+    float                                m_alarmBeep   = 0.0f;
+    std::vector<Dark::UpgradeDef>        m_upgradeDefs;
+    std::vector<std::string>             m_ownedUpgrades;
+    Dark::UpgradeEffects                 m_upgradeFx;
+    Dark::Entity                         m_upgradeBody{};
+    float                                m_baseBreath   = 0.0f;
+    float                                m_baseWalk     = 0.0f;
+    float                                m_baseSprint   = 0.0f;
+    float                                m_baseMaxHp    = 0.0f;
+    bool                                 m_showUpgrades = false;
     float                           m_goalShown    = 0.0f;
     float&                          m_shieldBump;
     const char*                     m_defenseText  = "";
