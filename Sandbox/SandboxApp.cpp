@@ -480,7 +480,6 @@ void SandboxApp::fillPlayHost(void* user, PlayHost& host)
     host.groundProbeY = &app->m_groundProbeY;
     host.groundIgnore = &app->m_groundIgnore;
     host.camouflage   = app->m_camouflage;
-    host.frozen       = app->m_hiddenIn.valid();
 
     const bool ui    = app->uiOpen();
     const bool imgui = app->m_imgui.isReady();
@@ -491,7 +490,7 @@ void SandboxApp::fillPlayHost(void* user, PlayHost& host)
     host.uiMouse           = ui && imgui && app->m_imgui.wantCaptureMouse();
     host.chaseReady        = app->m_chaseOk;
 
-    const std::vector<AABox3f>& cubes = app->m_chase.blockers();
+    const std::vector<AABox3f>& cubes = app->m_chase.cubes();
     host.cubes      = cubes.empty() ? nullptr : cubes.data();
     host.cubeCount  = static_cast<int>(cubes.size());
     host.spheres    = nullptr;
@@ -505,7 +504,6 @@ void SandboxApp::fillPlayHost(void* user, PlayHost& host)
     host.onQuestNote   = &SandboxApp::onPlayQuestNote;
     host.onDefenseText = &SandboxApp::onPlayDefenseText;
     host.onLoot        = &SandboxApp::onPlayLoot;
-    host.onUse         = &SandboxApp::onPlayUse;
     host.spawnUnit     = &SandboxApp::onPlaySpawnUnit;
     host.heightAt      = &SandboxApp::onPlayHeight;
     host.groundContact = &SandboxApp::onPlayGroundContact;
@@ -630,429 +628,19 @@ void SandboxApp::expandSceneBuildings(SceneFileData& scene)
     m_buildingLabels.clear();
     m_buildingDoors.clear();
     m_buildingCameras.clear();
-    m_hiddenIn  = {};
-    m_alarmTime = 0.0f;
     Dark::expandSceneBuildings(scene, m_buildingContainers, m_buildingHides, &m_buildingDoors, &m_buildingCameras);
 }
 
 void SandboxApp::spawnBuildingExtras()
 {
-    std::vector<Vector3f> checkFrom;
-    for (const BuildingHideSpot& h : m_buildingHides)
-        checkFrom.push_back(h.pos + h.front * 0.85f);
-    m_chase.ai().setHideSpots(std::move(checkFrom));
-    for (const BuildingContainer& c : m_buildingContainers)
-    {
-        LootComponent loot;
-        m_buildingLabels.push_back(c.label);
-        loot.label = m_buildingLabels.back().c_str();
-        for (const BuildingLoot& l : c.loot)
-        {
-            if (const ItemDef* def = findItemDef(l.item))
-                addItem(loot.contents, *def, Math::Max(1, l.count));
-            else
-                DE_LOG_WARN("Building: unknown loot item '{}'", l.item);
-        }
-        if (itemCount(loot.contents) == 0)
-            continue;
-        const Entity e = world().createEntity();
-        world().emplace<TransformComponent>(e, c.pos, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
-        world().emplace<LootComponent>(e, loot);
-        setInteractable(world(), e, InteractKind::Loot, kInteractLootRange);
-    }
-    AssetRef<Model> doorModel = m_buildingDoors.empty() ? AssetRef<Model>{} : loadAndUploadModel(renderer(), assets(), "models/unit_cube.gltf");
-    AssetRef<Model> camModel = m_buildingCameras.empty() ? AssetRef<Model>{} : loadAndUploadModel(renderer(), assets(), "models/unit_cube.gltf");
-    for (const BuildingCamera& c : m_buildingCameras)
-    {
-        const Entity e = world().createEntity();
-        world().emplace<TransformComponent>(e, c.pos, Quaternion::IDENTITY, Vector3f{ 0.3f, 0.25f, 0.45f });
-        if (camModel)
-        {
-            ModelComponent mc{};
-            mc.modelAssetID = camModel->id;
-            setModelComponent(world(), pins(), assets(), e, mc);
-        }
-        const Entity lamp = world().createEntity();
-        world().emplace<TransformComponent>(lamp, c.pos, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
-        LocalLightComponent& beam = world().emplace<LocalLightComponent>(lamp);
-        beam.type                 = LocalLightType::Spot;
-        beam.color                = Vector3f{ 1.0f, 0.15f, 0.1f };
-        beam.intensity            = 900.0f;
-        beam.range                = c.range + 2.0f;
-        beam.innerConeDeg         = 18.0f;
-        beam.outerConeDeg         = 28.0f;
-        SecurityCameraComponent cam;
-        cam.def    = c;
-        cam.aimYaw = c.yaw;
-        cam.light  = lamp;
-        world().emplace<SecurityCameraComponent>(e, cam);
-    }
-    for (const BuildingDoor& d : m_buildingDoors)
-    {
-        const Entity e = world().createEntity();
-        world().emplace<TransformComponent>(e, d.center, Quaternion::IDENTITY, d.size);
-        if (doorModel)
-        {
-            ModelComponent mc{};
-            mc.modelAssetID = doorModel->id;
-            mc.castShadow   = true;
-            setModelComponent(world(), pins(), assets(), e, mc);
-        }
-        DoorComponent door;
-        door.closedPos = d.center;
-        door.size      = d.size;
-        door.lock      = d.lock;
-        world().emplace<DoorComponent>(e, door);
-        setInteractable(world(), e, InteractKind::Door, kInteractDoorRange);
-    }
-    for (const BuildingHideSpot& h : m_buildingHides)
-    {
-        const Entity e = world().createEntity();
-        world().emplace<TransformComponent>(e, h.pos, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
-        world().emplace<HideSpotComponent>(e, HideSpotComponent{ h.front, h.label });
-        setInteractable(world(), e, InteractKind::Hide, kInteractHideRange);
-    }
-}
-
-void SandboxApp::raiseAlarm(const Vector3f& at, const Vector3f& playerPos)
-{
-    const bool fresh = m_alarmTime <= 0.0f;
-    m_alarmTime      = 15.0f;
-    int called       = 0;
-    world().each<AiAgentComponent>([&](Entity g, AiAgentComponent&) {
-        const TagComponent*       tag = world().get<TagComponent>(g);
-        const TransformComponent* gxf = world().get<TransformComponent>(g);
-        const HealthComponent*    hp  = world().get<HealthComponent>(g);
-        if (!gxf || !hp || !hp->health.alive() || (tag && tag->name == "Wolf") || (gxf->position - at).MagnitudeSqrd() > 50.0f * 50.0f)
-            return;
-        m_chase.ai().forceAlert(world(), g, playerPos);
-        ++called;
-    });
-    if (fresh)
-        DE_LOG_INFO("Alarm: camera spotted the player, {} guard(s) alerted", called);
-}
-
-void SandboxApp::updateCameras(float dt)
-{
-    if (m_alarmTime > 0.0f)
-    {
-        m_alarmTime -= dt;
-        m_alarmBeep -= dt;
-        if (m_alarmBeep <= 0.0f)
-        {
-            m_alarmBeep = 0.6f;
-            if (AssetRef<Audio::SoundClip> tone = audio().createTone(assets(), 920.0f, 0.22f, 0.3f))
-                audio().play2D(tone, 0.6f);
-        }
-    }
-    const Entity              body = possessedBody();
-    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    const HealthComponent*    php  = body.valid() ? world().get<HealthComponent>(body) : nullptr;
-    const bool                visible = pxf && php && php->health.alive() && !m_hiddenIn.valid() && !m_playerSubmerged;
-    const PlayerStealthComponent* stealth = body.valid() ? world().get<PlayerStealthComponent>(body) : nullptr;
-    const float               exposure = stealth ? stealth->exposure : 1.0f;
-    const Vector3f            chest   = pxf ? pxf->position + Vector3f{ 0.0f, 0.6f, 0.0f } : Vector3f{};
-    world().each<SecurityCameraComponent>([&](Entity e, SecurityCameraComponent& cam) {
-        bool powered = true;
-        world().each<PowerBoxComponent>([&](Entity, PowerBoxComponent& box) {
-            if (!cam.def.circuit.empty() && box.circuit == cam.def.circuit && !box.on)
-                powered = false;
-        });
-        LocalLightComponent* beam = world().alive(cam.light) ? world().get<LocalLightComponent>(cam.light) : nullptr;
-        if (beam)
-            beam->enabled = powered;
-        if (!powered)
-        {
-            cam.seen = 0.0f;
-            return;
-        }
-        bool sees = false;
-        if (visible)
-        {
-            Vector3f    to   = chest - cam.def.pos;
-            const float dist = to.Magnitude();
-            if (dist > 0.5f && dist < cam.def.range)
-            {
-                to *= 1.0f / dist;
-                const float    rad = cam.aimYaw * 0.0174533f;
-                const Vector3f fwd{ std::sin(rad), -0.35f, std::cos(rad) };
-                const Vector3f flatFwd = Vector3f{ fwd.x, 0.0f, fwd.z };
-                const Vector3f flatTo  = Vector3f{ to.x, 0.0f, to.z };
-                const float    cosA    = flatFwd.Dot(flatTo) / Math::Max(1.0e-4f, flatFwd.Magnitude() * flatTo.Magnitude());
-                if (cosA > std::cos(28.0f * 0.0174533f))
-                {
-                    sees = true;
-                    const Ray3f ray{ cam.def.pos, to };
-                    for (const AABox3f& box : m_chase.blockers())
-                    {
-                        const Collision::RayHit3D hit = Collision::Intersect(ray, box);
-                        if (hit.hit && hit.t > 0.3f && hit.t < dist - 0.3f)
-                        {
-                            sees = false;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        if (sees && exposure > 0.08f)
-            cam.seen += dt * (0.7f + 1.3f * exposure);
-        else
-            cam.seen = Math::Max(0.0f, cam.seen - dt * 0.5f);
-        if (cam.seen >= 1.0f)
-        {
-            cam.seen = 0.0f;
-            raiseAlarm(cam.def.pos, pxf->position);
-        }
-        if (cam.seen <= 0.0f)
-            cam.phase += dt * 0.45f;
-        cam.aimYaw = cam.def.yaw + std::sin(cam.phase) * cam.def.sweep * 0.5f;
-        const float    rad = cam.aimYaw * 0.0174533f;
-        Vector3f       dir{ std::sin(rad), -0.35f, std::cos(rad) };
-        dir.Normalize();
-        const Quaternion look = Quaternion::FromLookRotation(dir, Vector3f::Y_AXIS);
-        if (TransformComponent* xf = world().get<TransformComponent>(e))
-            xf->rotation = look;
-        if (TransformComponent* lxf = world().alive(cam.light) ? world().get<TransformComponent>(cam.light) : nullptr)
-        {
-            lxf->position = cam.def.pos + dir * 0.3f;
-            lxf->rotation = look;
-        }
-        if (beam)
-            beam->intensity = cam.seen > 0.0f ? 900.0f + 2500.0f * cam.seen : 900.0f;
-    });
-}
-
-void SandboxApp::applyUpgrades()
-{
-    const Entity body  = possessedBody();
-    PlayerMotor* motor = localMotor();
-    if (!body.valid() || !motor)
-        return;
-    HealthComponent* hp = world().get<HealthComponent>(body);
-    if (body != m_upgradeBody)
-    {
-        m_upgradeBody = body;
-        m_baseBreath  = motor->settings().breathSeconds;
-        m_baseWalk    = motor->settings().walkSpeed;
-        m_baseSprint  = motor->settings().sprintSpeed;
-        m_baseMaxHp   = hp ? hp->health.maxHp() : 100.0f;
-    }
-    m_upgradeFx                     = combineUpgrades(m_upgradeDefs, m_ownedUpgrades);
-    if (PlayerStealthComponent* stealth = world().get<PlayerStealthComponent>(body))
-    {
-        stealth->exposureScale = m_upgradeFx.exposure;
-        stealth->noiseScale    = m_upgradeFx.quiet;
-        stealth->hidden        = m_hiddenIn.valid();
-    }
-    motor->settings().breathSeconds = m_baseBreath * m_upgradeFx.breath;
-    motor->settings().walkSpeed     = m_baseWalk * m_upgradeFx.speed;
-    motor->settings().sprintSpeed   = m_baseSprint * m_upgradeFx.speed;
-    const float wantMax             = m_baseMaxHp + m_upgradeFx.health;
-    if (hp && std::fabs(hp->health.maxHp() - wantMax) > 0.01f)
-    {
-        HealthSettings settings = hp->health.settings();
-        const float    gained   = wantMax - settings.maxHp;
-        const float    now      = hp->health.hp();
-        const float    since    = hp->health.timeSinceDamage();
-        settings.maxHp          = wantMax;
-        hp->health              = Health(settings);
-        hp->health.restore(Math::Clamp(now + Math::Max(0.0f, gained), 0.0f, wantMax), since);
-    }
-}
-
-void SandboxApp::useDoor(Entity e)
-{
-    DoorComponent* door = world().get<DoorComponent>(e);
-    if (!door)
-        return;
-    if (door->wantOpen)
-    {
-        door->wantOpen = false;
-        playSoundCue(world(), audio(), assets(), m_camera, "click");
-        return;
-    }
-    if (!door->lock.empty())
-    {
-        const Entity              body = possessedBody();
-        const InventoryComponent* inv  = body.valid() ? world().get<InventoryComponent>(body) : nullptr;
-        const ItemDef*            key  = findItemDef(door->lock);
-        if (!inv || !hasItem(*inv, door->lock))
-        {
-            m_doorMsg     = std::string("Locked. Needs a ") + (key ? key->name : door->lock.c_str());
-            m_doorMsgTime = 2.5f;
-            playSoundCue(world(), audio(), assets(), m_camera, "click");
-            return;
-        }
-        m_doorMsg     = std::string("Unlocked with the ") + (key ? key->name : door->lock.c_str());
-        m_doorMsgTime = 2.5f;
-        DE_LOG_INFO("Door: unlocked with {}", door->lock);
-        door->lock.clear();
-    }
-    door->wantOpen = true;
-    playSoundCue(world(), audio(), assets(), m_camera, "click");
-}
-
-void SandboxApp::updateDoors(float dt)
-{
-    if (m_doorMsgTime > 0.0f)
-        m_doorMsgTime -= dt;
-    bool                 any = false;
-    std::vector<AABox3f> shut;
-    world().each<DoorComponent>([&](Entity e, DoorComponent& door) {
-        any = true;
-        world().each<AiAgentComponent>([&](Entity g, AiAgentComponent&) {
-            const TransformComponent* gxf = world().get<TransformComponent>(g);
-            const HealthComponent*    hp  = world().get<HealthComponent>(g);
-            if (!door.wantOpen && gxf && hp && hp->health.alive()
-                && Vector3f{ gxf->position.x - door.closedPos.x, 0.0f, gxf->position.z - door.closedPos.z }.MagnitudeSqrd() < 2.2f * 2.2f)
-            {
-                door.wantOpen = true;
-                DE_LOG_INFO("Door: a guard opened a door");
-            }
-        });
-        const float target = door.wantOpen ? 1.0f : 0.0f;
-        door.open          = door.open < target ? Math::Min(target, door.open + dt * 2.0f) : Math::Max(target, door.open - dt * 2.0f);
-        const bool  alongX = door.size.x > door.size.z;
-        const float slide  = (alongX ? door.size.x : door.size.z) * 0.95f * door.open;
-        if (TransformComponent* xf = world().get<TransformComponent>(e))
-            xf->position = door.closedPos + (alongX ? Vector3f{ slide, 0.0f, 0.0f } : Vector3f{ 0.0f, 0.0f, slide });
-        if (door.open < 0.8f)
-            shut.push_back(AABox3f::FromCenterExtents(door.closedPos, door.size * 0.5f));
-    });
-    if (any)
-        m_chase.setDynamicBlockers(shut);
-}
-
-void SandboxApp::enterHide(Entity spot)
-{
-    const Entity        body = possessedBody();
-    TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    const TransformComponent* sxf = world().get<TransformComponent>(spot);
-    const HideSpotComponent*  hs  = world().get<HideSpotComponent>(spot);
-    if (!pxf || !sxf || !hs)
-        return;
-    m_hiddenIn    = spot;
-    m_hideFound   = 0.0f;
-    m_hideWitness = {};
-    float closest = 1.0e9f;
-    world().each<AiAgentComponent>([&](Entity g, AiAgentComponent& ai) {
-        const TagComponent*       tag = world().get<TagComponent>(g);
-        const TransformComponent* gxf = world().get<TransformComponent>(g);
-        const HealthComponent*    hp  = world().get<HealthComponent>(g);
-        if (!gxf || !hp || !hp->health.alive() || (tag && tag->name == "Wolf"))
-            return;
-        const float d          = (gxf->position - pxf->position).MagnitudeSqrd();
-        const bool  justLost   = ai.aware.alertness == AI::Alertness::Alert && ai.lostFor < 1.5f && d < 30.0f * 30.0f;
-        const bool  pointBlank = d < 4.0f * 4.0f && ai.aware.alertness != AI::Alertness::Calm;
-        if ((ai.aware.seesNow || justLost || pointBlank || d < 2.5f * 2.5f) && d < closest)
-        {
-            closest       = d;
-            m_hideWitness = g;
-        }
-    });
-    if (m_hideWitness.valid())
-        DE_LOG_INFO("Guard {}: saw the player hide", m_hideWitness.id());
-    pxf->position = Vector3f{ sxf->position.x, m_terrain.heightAtWorld(sxf->position.x, sxf->position.z) + 0.5f, sxf->position.z };
-    if (ModelComponent* mc = world().get<ModelComponent>(body))
-        mc->visible = false;
-    playSoundCue(world(), audio(), assets(), m_camera, "click");
-    DE_LOG_INFO("Player: hiding in {}", hs->label);
-}
-
-void SandboxApp::leaveHide()
-{
-    const Entity              spot = m_hiddenIn;
-    m_hiddenIn                     = {};
-    m_hideWitness                  = {};
-    const Entity              body = possessedBody();
-    TransformComponent*       pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    const TransformComponent* sxf  = world().alive(spot) ? world().get<TransformComponent>(spot) : nullptr;
-    const HideSpotComponent*  hs   = sxf ? world().get<HideSpotComponent>(spot) : nullptr;
-    if (pxf && sxf && hs)
-    {
-        const Vector3f out = sxf->position + hs->front;
-        pxf->position      = Vector3f{ out.x, m_terrain.heightAtWorld(out.x, out.z) + 0.5f, out.z };
-    }
-    if (ModelComponent* mc = body.valid() ? world().get<ModelComponent>(body) : nullptr)
-        mc->visible = true;
-    playSoundCue(world(), audio(), assets(), m_camera, "click");
-    DE_LOG_INFO("Player: left hiding spot");
-}
-
-void SandboxApp::updateHide(float dt)
-{
-    if (!m_hiddenIn.valid())
-        return;
-    const Entity              body = possessedBody();
-    TransformComponent*       pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    const TransformComponent* sxf  = world().alive(m_hiddenIn) ? world().get<TransformComponent>(m_hiddenIn) : nullptr;
-    if (!pxf || !sxf)
-    {
-        m_hiddenIn = {};
-        return;
-    }
-    pxf->position = Vector3f{ sxf->position.x, m_terrain.heightAtWorld(sxf->position.x, sxf->position.z) + 0.5f, sxf->position.z };
-    if (PlayerMotor* motor = localMotor())
-        motor->setHorizontalVelocity(0.0f, 0.0f);
-    Entity finder{};
-    world().each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
-        const TagComponent*       tag = world().get<TagComponent>(e);
-        const TransformComponent* gxf = world().get<TransformComponent>(e);
-        const HealthComponent*    hp  = world().get<HealthComponent>(e);
-        if (finder.valid() || !gxf || !hp || !hp->health.alive() || (tag && tag->name == "Wolf"))
-            return;
-        const bool hunting = ai.aware.alertness == AI::Alertness::Alert || ai.aware.alertness == AI::Alertness::Searching || ai.aware.alertness == AI::Alertness::Investigating;
-        if (hunting && Vector3f{ gxf->position.x - sxf->position.x, 0.0f, gxf->position.z - sxf->position.z }.MagnitudeSqrd() < 1.8f * 1.8f)
-            finder = e;
-    });
-    float catchAfter = 1.2f;
-    AiAgentComponent*         wai = m_hideWitness.valid() && world().alive(m_hideWitness) ? world().get<AiAgentComponent>(m_hideWitness) : nullptr;
-    const HealthComponent*    whp = wai ? world().get<HealthComponent>(m_hideWitness) : nullptr;
-    const TransformComponent* wxf = wai ? world().get<TransformComponent>(m_hideWitness) : nullptr;
-    const HideSpotComponent*  hs  = world().get<HideSpotComponent>(m_hiddenIn);
-    if (wai && whp && whp->health.alive() && wxf && hs)
-    {
-        wai->aware.alertness = AI::Alertness::Alert;
-        wai->aware.noticePos = sxf->position + hs->front;
-        wai->aware.heardOnly = false;
-        wai->aware.stateTime = 0.0f;
-        if (Vector3f{ wxf->position.x - sxf->position.x, 0.0f, wxf->position.z - sxf->position.z }.MagnitudeSqrd() < 2.2f * 2.2f)
-            finder = m_hideWitness;
-        catchAfter = 0.5f;
-    }
-    else
-        m_hideWitness = {};
-    m_hideFound = finder.valid() ? m_hideFound + dt : 0.0f;
-    if (m_hideFound < catchAfter)
-        return;
-    const Vector3f where = pxf->position;
-    leaveHide();
-    m_chase.ai().forceAlert(world(), finder, where);
-    DE_LOG_INFO("Guard: found the player hiding");
-}
-
-bool SandboxApp::onPlayUse(void* user, const PlayInteractPick& pick)
-{
-    auto* app = static_cast<SandboxApp*>(user);
-    if (!app)
-        return false;
-    if (app->m_hiddenIn.valid())
-    {
-        app->leaveHide();
-        return true;
-    }
-    if (pick.kind == PlayInteract::Hide)
-    {
-        app->enterHide(pick.e);
-        return true;
-    }
-    if (pick.kind == PlayInteract::Door)
-    {
-        app->useDoor(pick.e);
-        return true;
-    }
-    return false;
+    BuildingFixtureSpawn spawn;
+    spawn.world    = &world();
+    spawn.renderer = &renderer();
+    spawn.assets   = &assets();
+    spawn.pins     = &pins();
+    spawn.ai       = &m_chase.ai();
+    spawn.labels   = &m_buildingLabels;
+    spawnBuildingFixtures(spawn, m_buildingContainers, m_buildingHides, m_buildingDoors, m_buildingCameras);
 }
 
 void SandboxApp::startQuest(const std::string& id)
@@ -3331,13 +2919,13 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
     m_chaseOk = m_chase.init(renderer(), m_terrain, m_water, world(), pins(), assets());
     if (!m_sceneQuest.empty())
         startQuest(m_sceneQuest);
-    if (m_upgradeDefs.empty())
+    m_play.clearFacility();
+    if (m_play.facility().defs.empty())
     {
         std::string upgradeError;
-        if (!loadUpgrades(resolveContentFile("upgrades.json"), m_upgradeDefs, &upgradeError))
+        if (!loadUpgrades(resolveContentFile("upgrades.json"), m_play.facility().defs, &upgradeError))
             DE_LOG_WARN("Upgrades: {}", upgradeError);
     }
-    m_upgradeBody = {};
     if (m_chaseOk && m_chase.ai().awarenessEnabled())
     {
         GuardBarks  barks;
@@ -3692,10 +3280,6 @@ void SandboxApp::onUpdate(float dt)
         }
         m_play.tickWorld(dt);
         updateQuest(dt);
-        updateHide(dt);
-        updateDoors(dt);
-        updateCameras(dt);
-        applyUpgrades();
         m_blood.update(dt);
         tickParticleEmitters(world(), dt);
         updateWiggleAnim();

@@ -68,6 +68,7 @@
 #include "Save/SaveSystem.h"
 
 #include <atomic>
+#include <deque>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -516,6 +517,8 @@ private:
     Dark::PlaySession         m_play;
     Dark::GuardVoice          m_guardVoice;
     std::string               m_sceneQuest;
+    std::vector<Dark::SceneBuildingDesc> m_sceneBuildings;
+    std::deque<std::string>   m_buildingLabels;
     struct QuestBanner
     {
         std::string label;

@@ -80,6 +80,23 @@ namespace Dark
         {
             return host.cameraEntity.valid() ? host.cameraEntity : host.player;
         }
+
+        FacilityHost facilityHostOf(const PlayHost& host, const PlayRuntime& rt)
+        {
+            FacilityHost out;
+            out.world      = host.world;
+            out.ai         = host.ai;
+            out.audio      = host.audio;
+            out.assets     = host.assets;
+            out.player     = host.player;
+            out.listener   = listenerOf(host);
+            out.cubes      = host.cubes;
+            out.cubeCount  = host.cubeCount;
+            out.heightAt   = host.heightAt;
+            out.heightUser = host.user;
+            out.submerged  = rt.submerged;
+            return out;
+        }
     } // namespace
 
     int grantInventoryItem(World& world, Audio::AudioSystem& audio, AssetManager& assets, Entity listener, InventoryComponent& inv, const ItemStack& item)
@@ -427,9 +444,14 @@ namespace Dark
     void PlaySession::tryPickup()
     {
         World* world = m_host.world;
-        if (!world || !m_host.player.valid() || !m_host.pins || !m_host.physics || !m_host.audio || !m_host.assets)
+        if (!world || !m_host.player.valid())
             return;
-        if (m_host.onUse && m_host.onUse(m_host.user, pickInteract()))
+        const PlayInteractPick pick = pickInteract();
+        if (handleFacilityUse(m_facility, facilityHostOf(m_host, m_rt), pick))
+            return;
+        if (m_host.onUse && m_host.onUse(m_host.user, pick))
+            return;
+        if (!m_host.pins || !m_host.physics || !m_host.audio || !m_host.assets)
             return;
         if (carriedBody(*world).valid())
         {
@@ -442,7 +464,6 @@ namespace Dark
             dropCarriedBody(view);
             return;
         }
-        const PlayInteractPick pick = pickInteract();
         if (pick.kind == PlayInteract::Body)
         {
             takeCarriedBody(*world, m_host.player, pick.e, &PlaySession::onCarryHeight, this);
@@ -646,7 +667,7 @@ namespace Dark
         edges.right         = input->actionPressed("dodge_right");
         const bool sprintAllowed = canSteer && !jumpBusy && !m_host.uiKeys && m_rt.swingLock <= 0.0f;
         buildPlayMotorInput(motorIn, m_rt.crouchLatch, wish, flat, right, canSteer, jumpBusy, m_host.uiKeys, inAirCommit, jump, sprintAllowed, edges);
-        if (m_host.frozen)
+        if (m_host.frozen || m_facility.hiddenIn.valid())
             motorIn = PlayerMotorInput{};
         const bool onGround = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch || motor->state() == PlayerMoveState::Dodge);
         const Terrain::GroundContact groundSurf = (onGround && m_host.groundContact) ? m_host.groundContact(m_host.user, xf->position.x, xf->position.z) : Terrain::GroundContact{};
@@ -958,13 +979,25 @@ namespace Dark
         tickPlayerAttack(m_host, m_rt, dt, hooks);
     }
 
-    void PlaySession::lightAndExposure(float dt)
+    void PlaySession::lightAndExposure(float dt, const Math::AABox3f* cubes, int cubeCount)
     {
         World* world = m_host.world;
         if (!world || !m_host.ai || !m_host.chaseReady)
             return;
         const bool sprintDown = m_host.input && m_host.input->actionDown("sprint");
-        AI::tickPlayerExposure(*world, m_host.player, *m_host.ai, dt, sprintDown, m_host.camouflage, m_host.sunElevation, m_host.sunDir, m_host.cubes, m_host.cubeCount, m_host.muzzle);
+        AI::tickPlayerExposure(*world, m_host.player, *m_host.ai, dt, sprintDown, m_host.camouflage, m_host.sunElevation, m_host.sunDir, cubes, cubeCount, m_host.muzzle);
+    }
+
+    void PlaySession::clearFacility()
+    {
+        pull();
+        clearFacilitySession(m_facility, m_host.world, m_host.player);
+    }
+
+    void PlaySession::refreshUpgrades()
+    {
+        pull();
+        refreshFacilityUpgrades(m_facility, facilityHostOf(m_host, m_rt));
     }
 
     void PlaySession::applyArmor()
@@ -978,7 +1011,7 @@ namespace Dark
         Combat::ArmorComponent* armor = world->get<Combat::ArmorComponent>(m_host.player);
         if (!armor)
             armor = &world->emplace<Combat::ArmorComponent>(m_host.player);
-        armor->stats.armor = 0.0f;
+        armor->stats.armor = equippedArmor(*inv);
 
         bool changed = false;
         for (int s = 0; s < static_cast<int>(EquipSlot::Count); ++s)
@@ -1207,7 +1240,10 @@ namespace Dark
         if (WorldClockComponent* clock = m_host.session.valid() ? world->get<WorldClockComponent>(m_host.session) : nullptr)
             clock->playTimeSec += static_cast<double>(dt);
 
-        lightAndExposure(dt);
+        tickFacility(m_facility, facilityHostOf(m_host, m_rt), dt);
+        const Math::AABox3f* blocks     = m_facility.blocks;
+        const int            blockCount = m_facility.blockCount;
+        lightAndExposure(dt, blocks, blockCount);
         if (m_host.chaseReady && m_host.spawnUnit)
             tickSpawnerJobs(*world, dt, m_host.spawnUnit, m_host.user);
         if (m_host.chaseReady && m_host.crows && m_host.assets && m_host.pins && m_host.audio)
@@ -1220,7 +1256,7 @@ namespace Dark
             bindHunterGround(*m_host.ai, m_host.ground, m_host.terrain);
             m_host.ai->setJumpAttackHits(&PlaySession::onJumpHits, this);
             m_host.ai->setHunterCue(&PlaySession::onHunterCue, this);
-            m_host.ai->tickHunters(*world, *m_host.terrain, m_rt.submerged, dt, m_host.player, m_host.cubeCount > 0 ? m_host.cubes : nullptr, m_host.cubeCount,
+            m_host.ai->tickHunters(*world, *m_host.terrain, m_rt.submerged, dt, m_host.player, blockCount > 0 ? blocks : nullptr, blockCount,
                                    m_host.sphereCount > 0 ? m_host.spheres : nullptr, m_host.sphereCount);
         }
         if (m_host.chaseReady && m_host.guardVoice && m_host.audio && m_host.assets)

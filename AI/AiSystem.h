@@ -105,6 +105,7 @@ namespace Dark
         void interruptAttack(World& world, Entity e, float recover);
         void onHunterAttacked(World& world, Entity victim, const Math::Vector3f& playerPos);
         void onHunterKilled(World& world, Entity victim);
+        bool entityIsWolf(World& world, Entity e) const;
 
     private:
         struct View
@@ -144,7 +145,6 @@ namespace Dark
         void resolveJumpHits(World& world, const Combat::DamageEvent* events, int count);
         void walkableBackStep(Math::Vector3f& position, const Math::Vector3f& incomingXZ) const;
         bool packTokenBusy(World& world, Entity self) const;
-        bool entityIsWolf(World& world, Entity e) const;
         void guardMove(World& world, View& v, float dt, Terrain::TerrainGrid& terrain, float speed, const char* stepCue);
         int  wolfPackNear(World& world, Entity self) const;
         Math::Vector3f nudgeWolfPoint(const Math::Vector3f& islandAt, const Math::Vector3f& origin, const Math::Vector3f& ideal) const;

@@ -15,6 +15,8 @@ namespace Dark
 
         SceneObjectType type = SceneObjectType::Cube;
         float           color[4]{ 1.0f, 1.0f, 1.0f, 1.0f };
+        // Expanded from a placed building. The save writes the placement, not these objects.
+        bool            generated = false;
     };
 
     // Authored pose for Play/Stop. Written when entering Play; restored when stopping.

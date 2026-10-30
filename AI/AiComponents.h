@@ -78,11 +78,11 @@ namespace Dark
         bool                         carried     = false;
         bool                         passive     = false;
         float                        lostFor     = 0.0f;
-        uint32_t                     squad       = 0;
+        uint32_t                     squad       = 0; // 0 = no squad. Squad mates share alerts at any distance.
         Math::Vector3f               lastAlivePos{};
         bool                         missingReported = false;
         bool                         reportMissing   = false;
-        uint32_t                     checkedHides    = 0; // 0 = no squad. Squad mates share alerts at any distance.
+        std::vector<uint64_t>        checkedHides; // Hide spots this search already checked. Not saved.
         // This alert already radioed its first sighting. Cleared when the guard leaves Alert. Not saved.
         bool                         spotCalled  = false;
         // False until a movement file or the dev-tools speed slider writes walk and run.
@@ -99,6 +99,43 @@ namespace Dark
         Math::Vector3f               lurePoint{};
         Math::Vector3f               lureDest{};
     };
+
+    inline bool hideSpotChecked(const std::vector<uint64_t>& bits, size_t index)
+    {
+        const size_t word = index >> 6;
+        if (word >= bits.size())
+            return false;
+        return (bits[word] & (uint64_t{ 1 } << (index & 63u))) != 0;
+    }
+
+    inline void markHideSpotChecked(std::vector<uint64_t>& bits, size_t index)
+    {
+        const size_t word = index >> 6;
+        if (bits.size() <= word)
+            bits.resize(word + 1, 0);
+        bits[word] |= uint64_t{ 1 } << (index & 63u);
+    }
+
+    // Nearest unchecked hide within maxDistSq of origin, or -1. Distance is horizontal.
+    inline int nearestUncheckedHide(const std::vector<Math::Vector3f>& spots, const std::vector<uint64_t>& checked, const Math::Vector3f& origin, float maxDistSq)
+    {
+        int   spot  = -1;
+        float spotD = maxDistSq;
+        for (size_t h = 0; h < spots.size(); ++h)
+        {
+            if (hideSpotChecked(checked, h))
+                continue;
+            const float dx = spots[h].x - origin.x;
+            const float dz = spots[h].z - origin.z;
+            const float d  = dx * dx + dz * dz;
+            if (d < spotD)
+            {
+                spotD = d;
+                spot  = static_cast<int>(h);
+            }
+        }
+        return spot;
+    }
 
     struct PatrolComponent
     {

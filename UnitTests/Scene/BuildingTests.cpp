@@ -1,11 +1,13 @@
 #include "AI/Walkability.h"
 #include "Core/ContentRoots.h"
 #include "Scene/Building.h"
+#include "Scene/SceneFile.h"
 #include "Terrain/HeightMap.h"
 
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <filesystem>
 
 using namespace Dark;
 
@@ -209,4 +211,32 @@ TEST(Building, ShippedWarehouseGuardsReachEveryArea)
     for (const BuildingGuardDef& g : wing.guards)
         for (const Math::Vector2f& p : g.patrol)
             EXPECT_EQ(walk.islandWorld(4.0f + p.x, 4.0f + p.y), outside) << "patrol point " << p.x << "," << p.y;
+}
+
+TEST(Building, SceneFileKeepsBuildingsAndQuest)
+{
+    SceneFileData in;
+    in.name  = "stealth_test";
+    in.quest = "north_lab";
+    in.buildings.push_back(SceneBuildingDesc{ "lab_small", Math::Vector3f{ 4.0f, 0.0f, -100.0f }, 0.0f });
+    in.buildings.push_back(SceneBuildingDesc{ "warehouse", Math::Vector3f{ -26.0f, 0.0f, -110.0f }, 90.0f });
+
+    const std::filesystem::path path = std::filesystem::temp_directory_path() / "darkengine6_scene_buildings_ut.json";
+    std::string                 err;
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+    SceneFileData out;
+    ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+
+    EXPECT_EQ(out.quest, "north_lab");
+    ASSERT_EQ(out.buildings.size(), 2u);
+    EXPECT_EQ(out.buildings[0].id, "lab_small");
+    EXPECT_FLOAT_EQ(out.buildings[0].position.x, 4.0f);
+    EXPECT_FLOAT_EQ(out.buildings[0].position.z, -100.0f);
+    EXPECT_FLOAT_EQ(out.buildings[0].yaw, 0.0f);
+    EXPECT_EQ(out.buildings[1].id, "warehouse");
+    EXPECT_FLOAT_EQ(out.buildings[1].position.x, -26.0f);
+    EXPECT_FLOAT_EQ(out.buildings[1].position.z, -110.0f);
+    EXPECT_FLOAT_EQ(out.buildings[1].yaw, 90.0f);
 }

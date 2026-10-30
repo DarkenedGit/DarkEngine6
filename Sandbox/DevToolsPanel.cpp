@@ -291,7 +291,8 @@ void SandboxApp::drawQuestHud()
 
 void SandboxApp::drawAlarm()
 {
-    if (m_alarmTime <= 0.0f)
+    const float alarmTime = m_play.facility().alarmTime;
+    if (alarmTime <= 0.0f)
         return;
     const ImGuiViewport* vp    = ImGui::GetMainViewport();
     ImDrawList*          dl    = ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp));
@@ -299,7 +300,7 @@ void SandboxApp::drawAlarm()
     const float          size  = ImGui::GetFontSize() * 2.2f;
     const char*          text  = "ALARM";
     const ImVec2         ts    = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text);
-    const int            pulse = static_cast<int>(160.0f + 95.0f * std::sin(m_alarmTime * 9.0f));
+    const int            pulse = static_cast<int>(160.0f + 95.0f * std::sin(alarmTime * 9.0f));
     const ImVec2         at{ vp->Pos.x + (vp->Size.x - ts.x) * 0.5f, vp->Pos.y + 24.0f };
     dl->AddText(font, size, ImVec2(at.x + 2.0f, at.y + 2.0f), IM_COL32(0, 0, 0, 200), text);
     dl->AddText(font, size, at, IM_COL32(255, 60, 50, pulse), text);
@@ -312,8 +313,9 @@ void SandboxApp::drawUpgradeHint()
     if (!inv || m_showUpgrades)
         return;
     bool ready = false;
-    for (const UpgradeDef& up : m_upgradeDefs)
-        ready = ready || (std::find(m_ownedUpgrades.begin(), m_ownedUpgrades.end(), up.id) == m_ownedUpgrades.end() && canAfford(*inv, up));
+    const FacilityState& facility = m_play.facility();
+    for (const UpgradeDef& up : facility.defs)
+        ready = ready || (std::find(facility.owned.begin(), facility.owned.end(), up.id) == facility.owned.end() && canAfford(*inv, up));
     if (!ready)
         return;
     const char*          text = "Upgrade ready  [K]";
@@ -344,10 +346,11 @@ void SandboxApp::drawUpgrades()
     ImGui::TextWrapped("Spend stolen research and materials to modify yourself. Upgrades last for this session.");
     ImGui::Text("You have: %d Research Data, %d Bio Material", heldCount(*inv, "research"), heldCount(*inv, "bio_material"));
     ImGui::Separator();
-    for (const UpgradeDef& up : m_upgradeDefs)
+    FacilityState& facility = m_play.facility();
+    for (const UpgradeDef& up : facility.defs)
     {
         ImGui::PushID(up.id.c_str());
-        const bool owned = std::find(m_ownedUpgrades.begin(), m_ownedUpgrades.end(), up.id) != m_ownedUpgrades.end();
+        const bool owned = std::find(facility.owned.begin(), facility.owned.end(), up.id) != facility.owned.end();
         ImGui::TextColored(owned ? ImVec4(0.47f, 0.90f, 0.55f, 1.0f) : ImVec4(0.94f, 0.80f, 0.43f, 1.0f), "%s%s", up.name.c_str(), owned ? "  (owned)" : "");
         ImGui::TextWrapped("%s", up.description.c_str());
         std::string cost;
@@ -365,8 +368,8 @@ void SandboxApp::drawUpgrades()
             ImGui::BeginDisabled(!afford);
             if (ImGui::Button("Modify") && payFor(*inv, up))
             {
-                m_ownedUpgrades.push_back(up.id);
-                applyUpgrades();
+                facility.owned.push_back(up.id);
+                m_play.refreshUpgrades();
                 playSoundCue(world(), audio(), assets(), m_camera, "click");
                 DE_LOG_INFO("Upgrades: bought {}", up.name);
             }
@@ -761,16 +764,17 @@ void SandboxApp::drawPickupLabels()
             prompt(door->closedPos + Vector3f{ 0.0f, 1.0f, 0.0f }, text, IM_COL32(255, 220, 90, 255));
         }
     }
-    if (m_doorMsgTime > 0.0f && !m_doorMsg.empty())
+    const FacilityState& facility = m_play.facility();
+    if (facility.doorMsgTime > 0.0f && !facility.doorMsg.empty())
     {
-        const ImVec2 ts = ImGui::CalcTextSize(m_doorMsg.c_str());
+        const ImVec2 ts = ImGui::CalcTextSize(facility.doorMsg.c_str());
         const ImVec2 at{ vpPos.x + (vw - ts.x) * 0.5f, vpPos.y + vh - 220.0f };
-        dl->AddText(ImVec2(at.x + 1.0f, at.y + 1.0f), IM_COL32(0, 0, 0, 220), m_doorMsg.c_str());
-        dl->AddText(at, IM_COL32(255, 200, 120, 255), m_doorMsg.c_str());
+        dl->AddText(ImVec2(at.x + 1.0f, at.y + 1.0f), IM_COL32(0, 0, 0, 220), facility.doorMsg.c_str());
+        dl->AddText(at, IM_COL32(255, 200, 120, 255), facility.doorMsg.c_str());
     }
-    if (m_hiddenIn.valid())
+    if (facility.hiddenIn.valid())
     {
-        const HideSpotComponent* hs   = world().get<HideSpotComponent>(m_hiddenIn);
+        const HideSpotComponent* hs   = world().get<HideSpotComponent>(facility.hiddenIn);
         const std::string        text = "Hidden in " + (hs ? hs->label : std::string("hiding spot")) + "   [G] Step out";
         const ImVec2             ts   = ImGui::CalcTextSize(text.c_str());
         const ImVec2             at{ vpPos.x + (vw - ts.x) * 0.5f, vpPos.y + vh - 190.0f };

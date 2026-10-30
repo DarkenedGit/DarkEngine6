@@ -783,6 +783,9 @@ void EditorApp::clearScene()
     }
     m_selected = {};
     m_sceneQuest.clear();
+    m_sceneBuildings.clear();
+    m_buildingLabels.clear();
+    m_play.clearFacility();
     m_dragging = false;
     if (m_playMode)
         setPlayMode(false);

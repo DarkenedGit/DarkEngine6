@@ -2,6 +2,7 @@
 
 #include "Editor/EditorInternals.h"
 #include "Editor/EditorObject.h"
+#include "Scene/Building.h"
 #include "Scene/SceneFile.h"
 #include "Scene/SceneSpawn.h"
 #include "Editor/EditorFileDialog.h"
@@ -98,6 +99,8 @@ bool EditorApp::saveScene()
 
     std::vector<Entity> saved;
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
+        if (so.generated)
+            return;
         const auto* xf = world().get<TransformComponent>(e);
         if (!xf)
             return;
@@ -246,6 +249,8 @@ bool EditorApp::saveScene()
         }
     }
 
+    data.quest     = m_sceneQuest;
+    data.buildings = m_sceneBuildings;
     std::string err;
     if (!saveSceneToJson(m_scenePath, data, &err))
     {
@@ -271,7 +276,16 @@ bool EditorApp::loadScene()
     }
 
     clearScene();
-    m_sceneQuest = data.quest;
+    m_sceneQuest      = data.quest;
+    m_sceneBuildings  = data.buildings;
+    m_buildingLabels.clear();
+    const size_t authoredCount = data.objects.size();
+    std::vector<BuildingContainer> buildingContainers;
+    std::vector<BuildingHideSpot>  buildingHides;
+    std::vector<BuildingDoor>      buildingDoors;
+    std::vector<BuildingCamera>    buildingCameras;
+    if (data.mode != SceneMode::Scene2D)
+        expandSceneBuildings(data, buildingContainers, buildingHides, &buildingDoors, &buildingCameras);
     removeEditorTerrain();
     m_authoredWater = {};
     m_authoredExposure = {};
@@ -306,16 +320,24 @@ bool EditorApp::loadScene()
     std::vector<Entity> spawned;
     spawned.reserve(data.objects.size());
     m_suspendLiveStamp = true;
-    for (const SceneObjectData& d : data.objects)
+    for (size_t i = 0; i < data.objects.size(); ++i)
     {
+        const SceneObjectData& d = data.objects[i];
+        const bool generated = i >= authoredCount;
         ParticleEmitterDesc pdesc = makeDefaultParticleDesc();
         if (d.hasParticle)
             descFromSceneData(d, pdesc);
-        spawned.push_back(spawnObject(d.type, d.position, d.scale, d.rotation, d.color,
-                    d.type == SceneObjectType::ParticleEmitter ? &pdesc : nullptr, &d));
+        const Entity e = spawnObject(d.type, d.position, d.scale, d.rotation, d.color,
+                    d.type == SceneObjectType::ParticleEmitter ? &pdesc : nullptr, &d, !generated, true);
+        if (generated && e.valid())
+        {
+            if (EditorObjectComponent* so = world().get<EditorObjectComponent>(e))
+                so->generated = true;
+        }
+        spawned.push_back(e);
     }
     m_suspendLiveStamp = false;
-    for (size_t i = 0; i < data.objects.size() && i < spawned.size(); ++i)
+    for (size_t i = 0; i < authoredCount && i < spawned.size(); ++i)
     {
         if (!spawned[i].valid())
             continue;
@@ -333,6 +355,16 @@ bool EditorApp::loadScene()
         host.renderer    = &renderer();
         host.stampPrefix = "editor/scene";
         instantiateSceneObjects(data.objects.data(), static_cast<int>(data.objects.size()), host);
+    }
+    {
+        BuildingFixtureSpawn fixtures;
+        fixtures.world    = &world();
+        fixtures.renderer = &renderer();
+        fixtures.assets   = &assets();
+        fixtures.pins     = &pins();
+        fixtures.ai       = &m_ai;
+        fixtures.labels   = &m_buildingLabels;
+        spawnBuildingFixtures(fixtures, buildingContainers, buildingHides, buildingDoors, buildingCameras);
     }
     for (size_t i = 0; i < data.objects.size() && i < spawned.size(); ++i)
     {

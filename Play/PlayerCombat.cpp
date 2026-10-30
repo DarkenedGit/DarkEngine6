@@ -317,7 +317,7 @@ namespace Dark
             {
                 if (const TransformComponent* vxf = world->get<TransformComponent>(victim))
                 {
-                    const bool hasFlat = world->get<Combat::ArmorComponent>(victim) != nullptr;
+                    const bool hasFlat = Combat::usesFlatArmor(world->get<Combat::ArmorComponent>(victim));
                     damage = Combat::absorbArmorHit(*armor, vxf->position, vxf->rotation, hit.point, hit.direction, damage, broke, hit.part, hasFlat);
                 }
             }

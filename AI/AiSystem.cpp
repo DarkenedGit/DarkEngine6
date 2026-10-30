@@ -705,20 +705,10 @@ namespace Dark
             else if (walkTo(v.ai->searchDest, 0.6f))
             {
                 v.ai->lookLeft = 1.5f;
-                int   spot  = -1;
-                float spotD = 12.0f * 12.0f;
-                for (size_t h = 0; h < m_hideSpots.size() && h < 32; ++h)
-                {
-                    const float d = Vector3f{ m_hideSpots[h].x - aw.noticePos.x, 0.0f, m_hideSpots[h].z - aw.noticePos.z }.MagnitudeSqrd();
-                    if ((v.ai->checkedHides & (1u << h)) == 0 && d < spotD)
-                    {
-                        spotD = d;
-                        spot  = static_cast<int>(h);
-                    }
-                }
+                const int spot = nearestUncheckedHide(m_hideSpots, v.ai->checkedHides, aw.noticePos, 12.0f * 12.0f);
                 if (spot >= 0)
                 {
-                    v.ai->checkedHides |= 1u << spot;
+                    markHideSpotChecked(v.ai->checkedHides, static_cast<size_t>(spot));
                     v.ai->searchDest = m_hideSpots[static_cast<size_t>(spot)];
                     v.ai->lookLeft   = 0.3f;
                     break;
@@ -1616,7 +1606,7 @@ namespace Dark
                 else
                     v.ai->lostFor = 0.0f;
                 if (v.ai->aware.alertness == AI::Alertness::Calm)
-                    v.ai->checkedHides = 0;
+                    v.ai->checkedHides.clear();
                 v.ai->lastAlivePos = v.xf->position;
                 for (Entity other : m_scratch)
                 {
@@ -2166,7 +2156,6 @@ namespace Dark
             const HealthComponent* dhp = dai ? world.get<HealthComponent>(down) : nullptr;
             if (!dhp || dhp->health.alive() || dai->missingReported || dai->bodyFound || dai->deadFor < kMissingSeconds || entityIsWolf(world, down))
                 continue;
-            dai->missingReported = true;
             Entity best{};
             float  bestD = 40.0f * 40.0f;
             for (Entity mate : m_scratch)
@@ -2194,6 +2183,7 @@ namespace Dark
             }
             if (!best.valid())
                 continue;
+            dai->missingReported = true;
             AiAgentComponent* mai = world.get<AiAgentComponent>(best);
             AI::alertToInvestigate(mai->aware, dai->lastAlivePos);
             mai->aware.wary    = true;

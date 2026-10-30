@@ -18,7 +18,7 @@ namespace Dark
 
     void equipHunterArmor(World& world, AssetPinTable& pins, AssetManager& assets, Renderer& renderer, Entity hunter)
     {
-        equipArmorPieces(world, pins, assets, renderer, hunter, Combat::makeGuardArmor());
+        equipArmorPieces(world, pins, assets, renderer, hunter, Combat::makeHunterArmor());
     }
 
     void equipArmorPieces(World& world, AssetPinTable& pins, AssetManager& assets, Renderer& renderer, Entity owner,

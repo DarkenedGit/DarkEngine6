@@ -9,6 +9,7 @@
 #include "Gameplay/Inventory.h"
 #include "Gameplay/Item.h"
 #include "Gameplay/QuestRuntime.h"
+#include "Play/Facility.h"
 #include "Play/ImpactFx.h"
 #include "Play/Interaction.h"
 #include "Play/PlayerCombat.h"
@@ -173,7 +174,7 @@ namespace Dark
         void (*onQuestNote)(void* user, const QuestNoteEvent& note)        = nullptr;
         void (*onDefenseText)(void* user, bool parried)                    = nullptr;
         void (*onLoot)(void* user, Entity loot)                            = nullptr;
-        // Runs first when the player presses use. Returning true means the app handled it (hide spots, doors).
+        // Runs after facility use (doors and hiding). Returning true consumes the press.
         bool (*onUse)(void* user, const PlayInteractPick& pick)            = nullptr;
         Entity (*spawnUnit)(void* user, Entity spawner, const SpawnerRequest& req) = nullptr;
         float (*heightAt)(void* user, float x, float z)                    = nullptr;
@@ -215,6 +216,11 @@ namespace Dark
         void switchWeapons();
         void stockHunter(Entity hunter);
 
+        FacilityState&       facility() { return m_facility; }
+        const FacilityState& facility() const { return m_facility; }
+        void clearFacility();
+        void refreshUpgrades();
+
         PlayInteractPick pickInteract();
         Entity           takedownTarget();
         WeaponWorldQuery weaponQuery();
@@ -230,7 +236,7 @@ namespace Dark
         void tickCarry();
         void applyArmor();
         void lootHunters();
-        void lightAndExposure(float dt);
+        void lightAndExposure(float dt, const Math::AABox3f* cubes, int cubeCount);
         void characterAnims(float dt);
         void presentQuestNotes();
         float terrainHeight(float x, float z) const;
@@ -249,6 +255,7 @@ namespace Dark
         void*        m_user = nullptr;
         PlayHost     m_host{};
         PlayRuntime  m_rt{};
+        FacilityState m_facility{};
         Combat::CombatSystem m_combat{};
     };
 

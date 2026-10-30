@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
+#include "Combat/ArmorComponent.h"
 #include "Combat/ArmorPieces.h"
+#include "Gameplay/Item.h"
 
 using namespace Dark;
 using namespace Dark::Combat;
@@ -293,4 +295,33 @@ TEST(ArmorPieces, GuardsWearLegGuards)
     const ArmorPiecesComponent armor = makeGuardArmor();
     ASSERT_EQ(armor.count, 4);
     EXPECT_EQ(armor.pieces[2].part, HitPart::RightLeg);
+}
+
+TEST(ArmorPiece, ZeroRatingIsNotFlatArmor)
+{
+    EXPECT_FALSE(usesFlatArmor(nullptr));
+    ArmorComponent bare;
+    EXPECT_FALSE(usesFlatArmor(&bare));
+    bare.stats.armor = 25.0f;
+    EXPECT_TRUE(usesFlatArmor(&bare));
+}
+
+TEST(ArmorPiece, CatalogHelmetAndChestKeepTheirRatings)
+{
+    const ItemDef* helmet = findItemDef("helmet");
+    const ItemDef* chest  = findItemDef("chest");
+    ASSERT_NE(helmet, nullptr);
+    ASSERT_NE(chest, nullptr);
+    EXPECT_FLOAT_EQ(helmet->armor, 25.0f);
+    EXPECT_FLOAT_EQ(chest->armor, 40.0f);
+}
+
+TEST(ArmorPiece, HunterChestAbsorbsWhenTheFlatRatingIsZero)
+{
+    ArmorPiecesComponent armor = makeHunterArmor();
+    ArmorBreak           broke{};
+    const float          left = absorbArmorHit(armor, {}, {}, {}, {}, 100.0f, broke, HitPart::Chest, false);
+    EXPECT_NEAR(left, 20.0f, 1.0e-3f);
+    EXPECT_FLOAT_EQ(armor.pieces[1].hp, 0.0f);
+    EXPECT_FALSE(armor.pieces[1].attached);
 }

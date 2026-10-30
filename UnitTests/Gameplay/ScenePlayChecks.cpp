@@ -21,6 +21,7 @@
 #include "Play/Carry.h"
 #include "Play/Interaction.h"
 #include "Save/PersistentId.h"
+#include "Scene/Building.h"
 #include "Scene/SceneFile.h"
 #include "Scene/SceneSpawn.h"
 
@@ -273,6 +274,25 @@ TEST(ScenePlay, StealthVolumesMatchInBothApps)
     EXPECT_TRUE(hasProceduralKey(sandbox, "sandbox/level/power/0"));
     EXPECT_TRUE(hasProceduralKey(editor, "editor/scene/power/0"));
     EXPECT_NE(makeProceduralId("sandbox/level/power/0"), makeProceduralId("editor/scene/power/0"));
+}
+
+TEST(ScenePlay, StealthLabExpansionAddsOneBioSample)
+{
+    SceneFileData scene;
+    ASSERT_TRUE(loadScene("stealth_test.json", scene));
+    int authored = 0;
+    for (const SceneObjectData& object : scene.objects)
+        authored += object.pickup == "bio_sample" ? 1 : 0;
+    EXPECT_EQ(authored, 0);
+    EXPECT_EQ(expectOf(scene.objects).pickups, 3);
+
+    std::vector<BuildingContainer> containers;
+    std::vector<BuildingHideSpot>  hides;
+    EXPECT_GE(expandSceneBuildings(scene, containers, hides), 1);
+    int samples = 0;
+    for (const SceneObjectData& object : scene.objects)
+        samples += object.pickup == "bio_sample" ? 1 : 0;
+    EXPECT_EQ(samples, 1);
 }
 
 TEST(ScenePlay, StealthQuestReachAndCollect)
