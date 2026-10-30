@@ -72,6 +72,8 @@ namespace Dark
     public:
         void start(QuestDef def);
         void clear();
+        // Puts a saved quest back without the start and objective banners.
+        void restore(QuestDef def, const std::vector<ObjectiveState>& states);
 
         bool                  active() const { return m_active; }
         bool                  complete() const { return m_complete; }

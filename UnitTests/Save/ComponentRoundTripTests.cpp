@@ -7,6 +7,7 @@
 #include "Combat/HitVolumes.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
+#include "Save/ProgressComponents.h"
 
 using namespace Dark;
 
@@ -183,4 +184,65 @@ TEST(ComponentRoundTrip, HitVolumesTimersAndWeights)
         EXPECT_FLOAT_EQ(live->disableTimer[i], 0.0f);
         EXPECT_FLOAT_EQ(live->impactWeight[i], 0.0f);
     }
+}
+
+TEST(ComponentRoundTrip, QuestProgressRoundTrip)
+{
+    World world;
+    Entity e = world.createEntity();
+    QuestProgressComponent& quest = world.emplace<QuestProgressComponent>(e);
+    quest.id                      = "north_lab";
+    quest.rewardsGranted          = true;
+    quest.objectives.push_back(QuestObjectiveRecord{ 2, false });
+    quest.objectives.push_back(QuestObjectiveRecord{ 1, true });
+    stampProceduralId(world, e, "unit/quest");
+
+    Save::SaveSystem save;
+    const std::string json = capture(save, world);
+    nlohmann::ordered_json root;
+    ASSERT_TRUE(parseSave(json, root));
+    nlohmann::ordered_json* comp = nullptr;
+    ASSERT_TRUE(componentJson(root, "QuestProgress", comp));
+    EXPECT_EQ((*comp)["id"], "north_lab");
+    EXPECT_EQ((*comp)["rewardsGranted"], true);
+    ASSERT_TRUE((*comp)["objectives"].is_array());
+    ASSERT_EQ((*comp)["objectives"].size(), 2u);
+    EXPECT_EQ((*comp)["objectives"][0]["progress"], 2);
+    EXPECT_EQ((*comp)["objectives"][0]["done"], false);
+    EXPECT_EQ((*comp)["objectives"][1]["progress"], 1);
+    EXPECT_EQ((*comp)["objectives"][1]["done"], true);
+
+    quest.id.clear();
+    quest.rewardsGranted = false;
+    quest.objectives.clear();
+    ASSERT_EQ(save.applyPayloadText(world, json), Save::SaveResult::Ok);
+    EXPECT_EQ(quest.id, "north_lab");
+    EXPECT_TRUE(quest.rewardsGranted);
+    ASSERT_EQ(quest.objectives.size(), 2u);
+    EXPECT_EQ(quest.objectives[0].progress, 2);
+    EXPECT_FALSE(quest.objectives[0].done);
+    EXPECT_EQ(quest.objectives[1].progress, 1);
+    EXPECT_TRUE(quest.objectives[1].done);
+
+    quest.id.clear();
+    quest.rewardsGranted = false;
+    quest.objectives.clear();
+    const std::string omitted = capture(save, world);
+    nlohmann::ordered_json omittedRoot;
+    ASSERT_TRUE(parseSave(omitted, omittedRoot));
+    nlohmann::ordered_json* missing = nullptr;
+    EXPECT_FALSE(componentJson(omittedRoot, "QuestProgress", missing));
+
+    quest.id = "idle";
+    quest.objectives.push_back(QuestObjectiveRecord{ 0, false });
+    const std::string named = capture(save, world);
+    nlohmann::ordered_json namedRoot;
+    ASSERT_TRUE(parseSave(named, namedRoot));
+    nlohmann::ordered_json* idle = nullptr;
+    ASSERT_TRUE(componentJson(namedRoot, "QuestProgress", idle));
+    EXPECT_EQ((*idle)["id"], "idle");
+    EXPECT_EQ((*idle)["rewardsGranted"], false);
+    ASSERT_EQ((*idle)["objectives"].size(), 1u);
+    EXPECT_EQ((*idle)["objectives"][0]["progress"], 0);
+    EXPECT_EQ((*idle)["objectives"][0]["done"], false);
 }

@@ -7,6 +7,7 @@
 #include "Gameplay/Inventory.h"
 #include "Gameplay/PowerComponents.h"
 #include "Gameplay/QuestZone.h"
+#include "Save/ProgressComponents.h"
 
 #include <filesystem>
 
@@ -53,13 +54,40 @@ namespace Dark
     void QuestRuntime::start(QuestDef def)
     {
         m_rewardsGranted = false;
+        m_rewardBlocked  = false;
         m_tracker.start(std::move(def));
     }
 
     void QuestRuntime::clear()
     {
         m_rewardsGranted = false;
+        m_rewardBlocked  = false;
         m_tracker.clear();
+    }
+
+    bool QuestRuntime::importProgress(std::string_view id, bool rewardsGranted, const std::vector<ObjectiveState>& states)
+    {
+        if (id.empty())
+        {
+            clear();
+            return true;
+        }
+        QuestDef    def;
+        std::string error;
+        const std::filesystem::path path = findQuestFile(id);
+        if (path.empty() || !loadQuestFile(path, def, &error))
+        {
+            if (error.empty())
+                error = "file not found";
+            DE_LOG_ERROR("Quest: could not restore '{}': {}", id, error);
+            return false;
+        }
+        if (states.size() != def.objectives.size())
+            DE_LOG_WARN("Quest: saved '{}' has {} objectives, file has {}", id, states.size(), def.objectives.size());
+        m_tracker.restore(std::move(def), states);
+        m_rewardsGranted = rewardsGranted;
+        m_rewardBlocked  = false;
+        return true;
     }
 
     bool QuestRuntime::objectiveTarget(World& world, Entity player, Math::Vector3f& out) const
@@ -120,7 +148,9 @@ namespace Dark
         InventoryComponent* inv = player.valid() ? world.get<InventoryComponent>(player) : nullptr;
         if (!inv)
             return 0;
-        int granted = 0;
+        InventoryComponent trial = *inv;
+        int                granted = 0;
+        bool               blocked = false;
         for (const QuestReward& reward : m_tracker.def().rewards)
         {
             const ItemDef* def = findItemDef(reward.item);
@@ -129,28 +159,42 @@ namespace Dark
                 DE_LOG_WARN("Quest: unknown reward item '{}'", reward.item);
                 continue;
             }
-            const int added = addItem(*inv, *def, reward.count);
-            if (added <= 0)
+            const int added = addItem(trial, *def, reward.count);
+            if (added < reward.count)
             {
-                DE_LOG_INFO("Inventory: bag full");
-                continue;
+                blocked = true;
+                break;
             }
-            DE_LOG_INFO("Inventory: picked up {} x{}", def->name, added);
             const bool wearable = def->slot != EquipSlot::None && (def->type == ItemType::Armor || def->type == ItemType::Tool);
-            if (wearable && inv->equipped[static_cast<int>(def->slot)].empty())
+            if (wearable && trial.equipped[static_cast<int>(def->slot)].empty())
             {
                 for (int i = 0; i < InventoryComponent::kBagSize; ++i)
                 {
-                    if (inv->bag[i].def == def && equipItem(*inv, i))
-                    {
-                        DE_LOG_INFO("Inventory: wearing {}", def->name);
+                    if (trial.bag[i].def == def && equipItem(trial, i))
                         break;
-                    }
                 }
             }
             ++granted;
         }
+        if (blocked)
+        {
+            if (!m_rewardBlocked)
+                DE_LOG_INFO("Inventory: bag full");
+            m_rewardBlocked = true;
+            return 0;
+        }
+        *inv = trial;
         m_rewardsGranted = true;
+        m_rewardBlocked  = false;
+        for (const QuestReward& reward : m_tracker.def().rewards)
+        {
+            const ItemDef* def = findItemDef(reward.item);
+            if (!def)
+                continue;
+            DE_LOG_INFO("Inventory: picked up {} x{}", def->name, reward.count);
+            if (def->slot != EquipSlot::None && trial.equipped[static_cast<int>(def->slot)].def == def)
+                DE_LOG_INFO("Inventory: wearing {}", def->name);
+        }
         return granted;
     }
 
@@ -177,6 +221,31 @@ namespace Dark
                 continue;
             m_tracker.syncCollect(o.target, inv ? countItem(*inv, o.target) : 0);
         }
+    }
+
+    void writeQuestProgress(const QuestRuntime& quest, QuestProgressComponent& out)
+    {
+        out.id.clear();
+        out.rewardsGranted = quest.rewardsGranted();
+        out.objectives.clear();
+        if (!quest.active())
+            return;
+        out.id = quest.def().id;
+        out.objectives.reserve(quest.def().objectives.size());
+        for (size_t i = 0; i < quest.def().objectives.size(); ++i)
+        {
+            const ObjectiveState& state = quest.state(i);
+            out.objectives.push_back(QuestObjectiveRecord{ state.progress, state.done });
+        }
+    }
+
+    bool readQuestProgress(const QuestProgressComponent& in, QuestRuntime& quest)
+    {
+        std::vector<ObjectiveState> states;
+        states.reserve(in.objectives.size());
+        for (const QuestObjectiveRecord& row : in.objectives)
+            states.push_back(ObjectiveState{ row.progress, row.done });
+        return quest.importProgress(in.id, in.rewardsGranted, states);
     }
 
 } // namespace Dark

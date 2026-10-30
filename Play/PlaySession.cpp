@@ -1118,17 +1118,18 @@ namespace Dark
                 break;
             }
             DE_LOG_INFO("Quest: {} - {}", label, note.text);
-            if (note.kind == QuestNote::QuestDone)
-            {
-                const int granted = m_rt.quest.grantRewards(*world, m_host.player);
-                if (m_host.audio && m_host.assets)
-                {
-                    for (int i = 0; i < granted; ++i)
-                        playSoundCue(*world, *m_host.audio, *m_host.assets, listenerOf(m_host), "click");
-                }
-            }
             if (m_host.onQuestNote)
                 m_host.onQuestNote(m_host.user, note);
+        }
+        // QuestDone is one note. A full bag has to be able to pay on a later frame.
+        if (m_rt.quest.complete() && !m_rt.quest.rewardsGranted())
+        {
+            const int granted = m_rt.quest.grantRewards(*world, m_host.player);
+            if (m_host.audio && m_host.assets)
+            {
+                for (int i = 0; i < granted; ++i)
+                    playSoundCue(*world, *m_host.audio, *m_host.assets, listenerOf(m_host), "click");
+            }
         }
     }
 

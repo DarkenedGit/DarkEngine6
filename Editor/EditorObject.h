@@ -1,8 +1,11 @@
 #pragma once
 
+#include "ECS/Entity.h"
 #include "Math/Quaternion.h"
 #include "Math/Vector3f.h"
 #include "Scene/SceneTypes.h"
+
+#include <string>
 
 namespace Dark
 {
@@ -17,6 +20,12 @@ namespace Dark
         float           color[4]{ 1.0f, 1.0f, 1.0f, 1.0f };
         // Expanded from a placed building. The save writes the placement, not these objects.
         bool            generated = false;
+        // Scene pickup id. Play spawns the item once physics is live.
+        std::string     pickup;
+        int             pickupCount = 1;
+        // Runtime only. Not written to the scene file.
+        Entity          playPickup{};
+        bool            playPickupSpent = false;
     };
 
     // Authored pose for Play/Stop. Written when entering Play; restored when stopping.

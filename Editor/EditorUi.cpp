@@ -573,7 +573,10 @@ void EditorApp::drawEditorUi()
         if (!m_playMode)
             drawTranslateGizmos();
         if (m_playMode)
+        {
             drawPlayHud();
+            drawLoot();
+        }
     }
 
     drawStatusBar();
@@ -1041,7 +1044,6 @@ void EditorApp::onUpdate(float dt)
         applySkyToLights();
     }
     handleEditorCommands(dt);
-    window().setCursorCaptured(m_playMode && window().isFocused());
     if (m_playMode)
     {
         if (!m_playPlayer.valid() || !world().alive(m_playPlayer))
@@ -1052,6 +1054,12 @@ void EditorApp::onUpdate(float dt)
             m_play.tickCamera();
             m_play.tickWorld(dt);
             m_save.service(world());
+            if (m_defenseTextLeft > 0.0f)
+            {
+                m_defenseTextLeft -= dt;
+                if (m_defenseTextLeft < 0.0f)
+                    m_defenseTextLeft = 0.0f;
+            }
             if (!m_questBanners.empty())
             {
                 m_questBanners.front().timeLeft -= dt;
@@ -1065,6 +1073,7 @@ void EditorApp::onUpdate(float dt)
         updateCamera(dt);
         syncEditPhysics();
     }
+    window().setCursorCaptured(m_playMode && window().isFocused() && !m_lootTarget.valid());
     if (m_sceneMode != SceneMode::Scene2D)
     {
         m_water.tick(dt);

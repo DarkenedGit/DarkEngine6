@@ -5,6 +5,8 @@
 #include "Math/Vector3f.h"
 
 #include <cstdint>
+#include <string>
+#include <vector>
 
 namespace Dark
 {
@@ -53,6 +55,24 @@ namespace Dark
         float          spawnAge  = 0.0f;
         bool           hasSpawn  = false;
         Math::Vector3f spawn{};
+    };
+
+    struct QuestObjectiveRecord
+    {
+        int  progress = 0;
+        bool done     = false;
+    };
+
+    // Session-entity overlay for QuestRuntime. The quest file is reloaded by id on apply.
+    struct QuestProgressComponent
+    {
+        static constexpr const char* kTypeName    = "QuestProgress";
+        static constexpr uint16_t    kSaveVersion = 1;
+        static const PersistFns      kPersist;
+
+        std::string                     id;
+        bool                            rewardsGranted = false;
+        std::vector<QuestObjectiveRecord> objectives;
     };
 
 } // namespace Dark

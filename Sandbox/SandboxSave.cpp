@@ -13,6 +13,7 @@
 #include "ECS/Components.h"
 #include "Gameplay/HealthPack.h"
 #include "Gameplay/PowerSystem.h"
+#include "Gameplay/QuestRuntime.h"
 #include "Play/Carry.h"
 #include "Play/DialogueFacts.h"
 #include "Weapons/WeaponLoadoutComponent.h"
@@ -134,6 +135,8 @@ void SandboxApp::saveBeginLoad(void* user, World&)
     app->audio().stopAll();
     app->m_leafRustle.stopAll(app->audio());
     clearAllStatusFx(app->world(), &app->audio());
+    if (app->m_session.valid())
+        app->world().remove<QuestProgressComponent>(app->m_session);
     app->m_attackCharge.reset();
     app->m_blockCharge.reset();
     app->m_chargeWindup = {};
@@ -284,6 +287,13 @@ void SandboxApp::saveBeforeCapture(void* user, World& world)
         ai->token         = app->m_chase.ai().jumpAttackToken();
     }
     syncThrowableLoadout(world, body, app->m_throwFlights, ThrowableLoadoutSync::OntoRecord);
+    if (app->m_session.valid())
+    {
+        QuestProgressComponent* quest = world.get<QuestProgressComponent>(app->m_session);
+        if (!quest)
+            quest = &world.emplace<QuestProgressComponent>(app->m_session);
+        writeQuestProgress(app->m_quest, *quest);
+    }
 }
 
 void SandboxApp::saveAfterApply(void* user, World& world)
@@ -329,6 +339,11 @@ void SandboxApp::saveAfterApply(void* user, World& world)
     }
     app->pushPhysicsProgress();
     app->ensurePlayerStealth(body);
+    if (const QuestProgressComponent* quest = app->m_session.valid() ? world.get<QuestProgressComponent>(app->m_session) : nullptr)
+    {
+        if (!readQuestProgress(*quest, app->m_quest))
+            DE_LOG_WARN("Quest: saved progress for '{}' was not restored", quest->id);
+    }
     syncThrowableLoadout(world, body, app->m_throwFlights, ThrowableLoadoutSync::FromRecord);
     applyDisabledCircuits(world);
     syncCarriedAgents(world);

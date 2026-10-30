@@ -144,6 +144,41 @@ namespace Dark
         m_complete = false;
     }
 
+    void QuestTracker::restore(QuestDef def, const std::vector<ObjectiveState>& states)
+    {
+        m_def = std::move(def);
+        m_state.assign(m_def.objectives.size(), ObjectiveState{});
+        m_notes.clear();
+        m_active   = true;
+        m_complete = false;
+        for (size_t i = 0; i < m_state.size() && i < states.size(); ++i)
+        {
+            const int cap      = m_def.objectives[i].count;
+            int       progress = states[i].progress;
+            if (progress < 0)
+                progress = 0;
+            if (progress > cap)
+                progress = cap;
+            m_state[i].progress = progress;
+            m_state[i].done     = states[i].done || progress >= cap;
+        }
+        m_announced.assign(m_def.objectives.size(), false);
+        for (size_t i = 0; i < m_state.size(); ++i)
+        {
+            if (m_state[i].done || open(i))
+                m_announced[i] = true;
+        }
+        m_complete = true;
+        for (size_t i = 0; i < m_state.size(); ++i)
+        {
+            if (!m_def.objectives[i].optional && !m_state[i].done)
+            {
+                m_complete = false;
+                break;
+            }
+        }
+    }
+
     bool QuestTracker::open(size_t i) const
     {
         if (!m_active || i >= m_state.size() || m_state[i].done)

@@ -3,6 +3,7 @@
 #include "Gameplay/Inventory.h"
 #include "Gameplay/PowerComponents.h"
 #include "Gameplay/QuestRuntime.h"
+#include "Save/ProgressComponents.h"
 #include "Gameplay/QuestZone.h"
 #include "Play/Carry.h"
 #include "Math/Quaternion.h"
@@ -191,6 +192,97 @@ TEST(QuestRuntime, GrantRewardsOnce)
     EXPECT_TRUE(inv->equipped[static_cast<int>(EquipSlot::Head)].def);
     EXPECT_EQ(runtime.grantRewards(world, player), 0);
     EXPECT_EQ(countItem(*inv, "research"), 3);
+}
+
+TEST(QuestRuntime, FullBagDoesNotGrantRewards)
+{
+    const ItemDef* sword = findItemDef("sword");
+    ASSERT_NE(sword, nullptr);
+
+    QuestDef def;
+    def.id = "pay";
+    ObjectiveDef done;
+    done.type   = ObjectiveType::Event;
+    done.target = "done";
+    def.objectives.push_back(done);
+    def.rewards.push_back(QuestReward{ "research", 3 });
+
+    World world;
+    const Entity player = world.createEntity();
+    InventoryComponent inv;
+    for (int i = 0; i < InventoryComponent::kBagSize; ++i)
+        inv.bag[i] = { sword, 1 };
+    world.emplace<InventoryComponent>(player, inv);
+
+    QuestRuntime runtime;
+    runtime.start(std::move(def));
+    runtime.event("done");
+    EXPECT_TRUE(runtime.complete());
+    EXPECT_EQ(runtime.grantRewards(world, player), 0);
+    EXPECT_FALSE(runtime.rewardsGranted());
+    const InventoryComponent* held = world.get<InventoryComponent>(player);
+    ASSERT_NE(held, nullptr);
+    EXPECT_EQ(countItem(*held, "sword"), 20);
+    EXPECT_EQ(countItem(*held, "research"), 0);
+
+    world.get<InventoryComponent>(player)->bag[0] = {};
+    EXPECT_EQ(runtime.grantRewards(world, player), 1);
+    EXPECT_TRUE(runtime.rewardsGranted());
+    EXPECT_EQ(countItem(*held, "research"), 3);
+    EXPECT_EQ(countItem(*held, "sword"), 19);
+    EXPECT_EQ(runtime.grantRewards(world, player), 0);
+    EXPECT_EQ(countItem(*held, "research"), 3);
+}
+
+TEST(QuestRuntime, ImportKeepsProgressWithoutNotes)
+{
+    QuestRuntime runtime;
+    ASSERT_TRUE(runtime.start("north_lab"));
+    EXPECT_FALSE(runtime.takeNotes().empty());
+
+    QuestProgressComponent saved;
+    saved.id              = "north_lab";
+    saved.rewardsGranted  = false;
+    saved.objectives      = { { 1, true }, { 1, false }, { 0, false }, { 0, false } };
+    ASSERT_TRUE(readQuestProgress(saved, runtime));
+    EXPECT_TRUE(runtime.takeNotes().empty());
+    EXPECT_TRUE(runtime.active());
+    EXPECT_FALSE(runtime.complete());
+    EXPECT_FALSE(runtime.rewardsGranted());
+    EXPECT_TRUE(runtime.state(0).done);
+    EXPECT_EQ(runtime.state(1).progress, 1);
+    EXPECT_FALSE(runtime.state(1).done);
+    EXPECT_EQ(runtime.def().objectives.size(), 4u);
+
+    World world;
+    const Entity player = world.createEntity();
+    world.emplace<InventoryComponent>(player);
+    EXPECT_EQ(runtime.grantRewards(world, player), 0);
+
+    saved.objectives     = { { 1, true }, { 3, true }, { 1, true }, { 1, true }, { 9, true } };
+    saved.rewardsGranted = true;
+    ASSERT_TRUE(readQuestProgress(saved, runtime));
+    EXPECT_TRUE(runtime.takeNotes().empty());
+    EXPECT_TRUE(runtime.complete());
+    EXPECT_TRUE(runtime.rewardsGranted());
+    EXPECT_EQ(runtime.def().objectives.size(), 4u);
+    EXPECT_EQ(runtime.grantRewards(world, player), 0);
+
+    saved.rewardsGranted = false;
+    ASSERT_TRUE(readQuestProgress(saved, runtime));
+    EXPECT_TRUE(runtime.takeNotes().empty());
+    EXPECT_EQ(runtime.grantRewards(world, player), 2);
+    EXPECT_TRUE(runtime.rewardsGranted());
+    const InventoryComponent* inv = world.get<InventoryComponent>(player);
+    ASSERT_NE(inv, nullptr);
+    EXPECT_EQ(countItem(*inv, "research"), 3);
+    EXPECT_EQ(countItem(*inv, "bio_material"), 1);
+    EXPECT_EQ(runtime.grantRewards(world, player), 0);
+    EXPECT_EQ(countItem(*inv, "research"), 3);
+
+    ASSERT_TRUE(runtime.importProgress("", false, {}));
+    EXPECT_FALSE(runtime.active());
+    EXPECT_FALSE(runtime.rewardsGranted());
 }
 
 TEST(SceneSpawn, BoxesBecomeZoneCircuitConcealAndObstacle)

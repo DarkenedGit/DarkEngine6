@@ -171,6 +171,11 @@ bool EditorApp::saveScene()
             d.spawner    = spawner->desc;
             clampSpawnerDesc(d.spawner);
         }
+        if (!so.pickup.empty())
+        {
+            d.pickup      = so.pickup;
+            d.pickupCount = so.pickupCount > 0 ? so.pickupCount : 1;
+        }
         if (so.type == SceneObjectType::Model)
         {
             if (const ModelComponent* modelComp = world().get<ModelComponent>(e))

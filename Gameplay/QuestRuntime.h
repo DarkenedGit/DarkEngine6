@@ -37,11 +37,24 @@ namespace Dark
         bool objectiveTarget(World& world, Entity player, Math::Vector3f& out) const;
 
         // Adds def().rewards into the player inventory once the quest is complete. Returns how many reward lines were added.
+        // A full bag leaves the rewards ungranted so a later call can try again.
         int grantRewards(World& world, Entity player);
+
+        bool rewardsGranted() const { return m_rewardsGranted; }
+
+        // Reloads content/quests/<id>.quest.json and applies saved objective rows. No start banners.
+        // An empty id clears the quest. A missing file leaves the current quest in place.
+        bool importProgress(std::string_view id, bool rewardsGranted, const std::vector<ObjectiveState>& states);
 
     private:
         QuestTracker m_tracker;
         bool         m_rewardsGranted = false;
+        bool         m_rewardBlocked  = false;
     };
+
+    struct QuestProgressComponent;
+
+    void writeQuestProgress(const QuestRuntime& quest, QuestProgressComponent& out);
+    bool readQuestProgress(const QuestProgressComponent& in, QuestRuntime& quest);
 
 } // namespace Dark

@@ -1420,16 +1420,6 @@ bool SandboxApp::ownsWeapon(WeaponKind kind)
     return !inv || hasItem(*inv, id);
 }
 
-
-
-void SandboxApp::tickCrows(float dt)
-{
-    if (!m_chaseOk || dt < 0.0f)
-        return;
-    const Dark::Terrain::TerrainGrid* grid = m_terrain.valid() ? &m_terrain : nullptr;
-    Dark::simulateCrows(world(), grid, &m_crowModels, &assets(), &pins(), &audio(), dt);
-}
-
 Entity SandboxApp::spawnSpawnerUnit(Entity spawner, const SpawnerRequest& req)
 {
     if (!m_chaseOk)
@@ -1466,18 +1456,6 @@ Entity SandboxApp::spawnSpawnerUnit(Entity spawner, const SpawnerRequest& req)
     world().emplace<SpawnedUnitComponent>(hunter, mark);
     return hunter;
 }
-
-void SandboxApp::tickSpawners(float dt)
-{
-    if (!m_chaseOk || dt < 0.0f)
-        return;
-    tickSpawnerJobs(
-        world(), dt,
-        [](void* user, Entity spawner, const SpawnerRequest& req) { return static_cast<SandboxApp*>(user)->spawnSpawnerUnit(spawner, req); },
-        this);
-}
-
-
 
 void SandboxApp::dropInventoryItem(int bagIndex)
 {
@@ -3243,8 +3221,9 @@ void SandboxApp::tryBeginTalk()
 void SandboxApp::onUpdate(float dt)
 {
     m_frameDt = dt;
-    dt = m_play.scaleDt(dt);
     const bool menuFrame = m_menu.visible();
+    if (!menuFrame)
+        dt = m_play.scaleDt(dt);
     handleRuntimeCommands(dt);
     if (menuFrame || m_menu.visible())
     {

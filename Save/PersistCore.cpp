@@ -16,6 +16,7 @@
 #include "Save/SaveJson.h"
 #include "Save/SaveTypes.h"
 
+#include <string>
 #include <vector>
 
 namespace Dark
@@ -574,6 +575,54 @@ namespace Dark
                 motor.restoreClimb(stamina, ledgeY, wallDir);
         }
 
+        bool includeQuest(const void* component)
+        {
+            const auto& quest = *static_cast<const QuestProgressComponent*>(component);
+            return !quest.id.empty() || quest.rewardsGranted;
+        }
+
+        void writeQuestObjective(SaveWriter& item, int index, void* user)
+        {
+            const auto& rows = *static_cast<const std::vector<QuestObjectiveRecord>*>(user);
+            item.i32("progress", rows[static_cast<size_t>(index)].progress);
+            item.boolean("done", rows[static_cast<size_t>(index)].done);
+        }
+
+        void readQuestObjective(SaveReader& item, int, void* user)
+        {
+            auto& rows = *static_cast<std::vector<QuestObjectiveRecord>*>(user);
+            QuestObjectiveRecord row;
+            if (!item.i32("progress", row.progress, 0, 1000000) || !item.boolean("done", row.done))
+                return;
+            rows.push_back(row);
+        }
+
+        void captureQuest(const void* component, void* writer)
+        {
+            const auto& quest = *static_cast<const QuestProgressComponent*>(component);
+            auto&       out   = *static_cast<SaveWriter*>(writer);
+            out.string("id", quest.id);
+            out.boolean("rewardsGranted", quest.rewardsGranted);
+            out.arrayObjects("objectives", static_cast<int>(quest.objectives.size()), &writeQuestObjective, const_cast<std::vector<QuestObjectiveRecord>*>(&quest.objectives));
+        }
+
+        void applyQuest(void* component, void* reader, uint16_t)
+        {
+            auto& quest = *static_cast<QuestProgressComponent*>(component);
+            auto& in    = *static_cast<SaveReader*>(reader);
+            std::string id = quest.id;
+            bool        rewards = quest.rewardsGranted;
+            if (!in.string("id", id, 64) || !in.boolean("rewardsGranted", rewards))
+                return;
+            std::vector<QuestObjectiveRecord> rows;
+            int                               count = 0;
+            if (!in.arrayObjects("objectives", 32, count, &readQuestObjective, &rows) || in.failed() || count < 0)
+                return;
+            quest.id              = std::move(id);
+            quest.rewardsGranted  = rewards;
+            quest.objectives      = std::move(rows);
+        }
+
     const PersistFns TransformComponent::kPersist{ "Transform", TransformComponent::kSaveVersion, 10, nullptr, &captureTransform, &applyTransform, nullptr };
     const PersistFns HealthComponent::kPersist{ "Health", HealthComponent::kSaveVersion, 100, nullptr, &captureHealth, &applyHealth, nullptr };
     const PersistFns HitReactionComponent::kPersist{ "HitReaction", HitReactionComponent::kSaveVersion, 100, nullptr, &captureHit, &applyHit, nullptr };
@@ -587,6 +636,7 @@ namespace Dark
     const PersistFns RunProgressComponent::kPersist{ "RunProgress", RunProgressComponent::kSaveVersion, 100, nullptr, &captureRun, &applyRun, nullptr };
     const PersistFns PlayerMotorComponent::kPersist{ "PlayerMotor", PlayerMotorComponent::kSaveVersion, 100, nullptr, &captureMotor, &applyMotor, nullptr };
     const PersistFns PlayerStealthComponent::kPersist{ "PlayerStealth", PlayerStealthComponent::kSaveVersion, 100, nullptr, &captureStealth, &applyStealth, nullptr };
+    const PersistFns QuestProgressComponent::kPersist{ "QuestProgress", QuestProgressComponent::kSaveVersion, 100, includeQuest, &captureQuest, &applyQuest, nullptr };
 
     namespace
     {
@@ -607,6 +657,7 @@ namespace Dark
                 Save::bindPersist<RunProgressComponent>();
                 Save::bindPersist<PlayerMotorComponent>();
                 Save::bindPersist<PlayerStealthComponent>();
+                Save::bindPersist<QuestProgressComponent>();
             }
         };
 

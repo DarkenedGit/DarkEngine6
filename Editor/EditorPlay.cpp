@@ -28,6 +28,8 @@
 #include "Assets/Model.h"
 #include "Audio/SoundComponents.h"
 #include "Character/HealthComponent.h"
+#include "Character/ItemView.h"
+#include "Gameplay/Item.h"
 #include "Save/ProgressComponents.h"
 #include "Character/HitReaction.h"
 #include "Character/PlayerMotorComponent.h"
@@ -345,7 +347,8 @@ void EditorApp::fillPlayHost(void* user, PlayHost& host)
     host.groundIgnore = &app->m_playGroundIgnore;
     host.camouflage   = false;
 
-    const bool pointerFree = app->window().cursorCaptured() || !(app->m_imgui.isReady() && app->m_imgui.wantCaptureMouse());
+    const bool lootOpen    = app->m_lootTarget.valid();
+    const bool pointerFree = !lootOpen && (app->window().cursorCaptured() || !(app->m_imgui.isReady() && app->m_imgui.wantCaptureMouse()));
     host.applyMouseLook    = pointerFree;
     host.allowMouseButtons = pointerFree;
     host.uiMouse           = !pointerFree;
@@ -363,6 +366,8 @@ void EditorApp::fillPlayHost(void* user, PlayHost& host)
 
     host.preparePlayer = &EditorApp::onPlayPrepare;
     host.onQuestNote   = &EditorApp::onPlayQuestNote;
+    host.onDefenseText = &EditorApp::onPlayDefenseText;
+    host.onLoot        = &EditorApp::onPlayLoot;
     host.stepPhysics   = &EditorApp::onPlayStepPhysics;
     host.spawnUnit     = &EditorApp::onPlaySpawnUnit;
     host.heightAt      = &EditorApp::onPlayHeight;
@@ -394,6 +399,21 @@ void EditorApp::onPlayQuestNote(void* user, const QuestNoteEvent& note)
     }
     if (note.kind != QuestNote::NewObjective || app->m_questBanners.size() < 4)
         app->m_questBanners.push_back(std::move(banner));
+}
+
+void EditorApp::onPlayDefenseText(void* user, bool parried)
+{
+    auto* app = static_cast<EditorApp*>(user);
+    if (!app)
+        return;
+    app->m_defenseText     = parried ? "PARRY!" : "BLOCKED";
+    app->m_defenseTextLeft = 0.7f;
+}
+
+void EditorApp::onPlayLoot(void* user, Entity loot)
+{
+    if (auto* app = static_cast<EditorApp*>(user))
+        app->m_lootTarget = loot;
 }
 
 void EditorApp::onPlayPrepare(void* user)
@@ -481,7 +501,7 @@ void EditorApp::setPlayMode(bool play)
                 DE_LOG_WARN(LogCategory::AI, "Guard barks: {}", barkError);
         }
         ensurePlayerFlashlight(world(), m_playPlayer);
-        // clearPlayArmor inside ensurePlayGear deletes every pickup. Throwables are copied so they can come back.
+        // clearPlayArmor deletes loose pickups. Throwables are copied so they can come back. Quest pickups spawn after physics is live.
         const std::vector<ThrowablePickupSpot> authoredThrowables = captureThrowablePickups(world());
         ensurePlayGear();
         m_gizmoDragAxis    = EditorDetail::TranslateGizmoAxis::None;
@@ -491,6 +511,7 @@ void EditorApp::setPlayMode(bool play)
         rebuildPhysicsGround(); // pick up a terrain loaded since the last Play
         if (m_physics.valid())
             m_physics.pushPoses(world(), true);
+        spawnPlayPickups();
         respawnThrowablePickups(world(), pins(), assets(), renderer(), m_physics, authoredThrowables);
         if (const TransformComponent* start = world().get<TransformComponent>(m_playPlayer))
         {
@@ -531,12 +552,15 @@ void EditorApp::setPlayMode(bool play)
         clearAllStatusFx(world(), &audio());
         if (AnimGraphComponent* ag = m_playPlayer.valid() ? world().get<AnimGraphComponent>(m_playPlayer) : nullptr)
             ag->graph.player().setLowerBodyYaw(0.0f);
-        // clearPlayArmor deletes every pickup. Copy throwables, including throws still in the air, and put them back.
+        // clearPlayArmor deletes loose pickups. Copy throwables, including throws still in the air, and put them back.
         std::vector<ThrowablePickupSpot> keptThrowables = captureThrowablePickups(world());
         appendUnresolvedThrowableSpots(keptThrowables, m_play.throws());
         m_play.throws().clear();
         m_play.quest().clear();
         m_questBanners.clear();
+        m_lootTarget = {};
+        m_defenseText.clear();
+        m_defenseTextLeft = 0.0f;
         m_guardVoice.stop();
         m_play.resetPawn();
         destroyPlayGear();
@@ -589,10 +613,58 @@ void EditorApp::clearPlayArmor()
     for (Entity owner : owners)
         removeArmor(world(), pins(), m_physics, owner);
 
+    std::vector<Entity> keep;
+    world().each<EditorObjectComponent>([&](Entity, EditorObjectComponent& so) {
+        if (so.playPickup.valid() && world().alive(so.playPickup))
+            keep.push_back(so.playPickup);
+    });
     std::vector<Entity> pickups;
     world().each<ItemPickupComponent>([&](Entity e, ItemPickupComponent&) { pickups.push_back(e); });
     for (Entity pickup : pickups)
-        destroyPickup(world(), pins(), m_physics, pickup);
+    {
+        bool authored = false;
+        for (Entity kept : keep)
+        {
+            if (kept.id() == pickup.id())
+            {
+                authored = true;
+                break;
+            }
+        }
+        if (!authored)
+            destroyPickup(world(), pins(), m_physics, pickup);
+    }
+}
+
+void EditorApp::spawnPlayPickups()
+{
+    if (!m_physics.valid())
+        return;
+    world().each<EditorObjectComponent>([&](Entity marker, EditorObjectComponent& so) {
+        if (so.pickup.empty() || so.playPickupSpent)
+            return;
+        if (so.playPickup.valid() && world().alive(so.playPickup))
+            return;
+        if (so.playPickup.valid())
+        {
+            so.playPickup      = {};
+            so.playPickupSpent = true;
+            return;
+        }
+        const ItemDef* def = findItemDef(so.pickup);
+        if (!def)
+        {
+            DE_LOG_WARN("Editor: unknown pickup item '{}'", so.pickup);
+            return;
+        }
+        const TransformComponent* xf = world().get<TransformComponent>(marker);
+        if (!xf)
+            return;
+        const int count = so.pickupCount > 0 ? so.pickupCount : 1;
+        const Entity pickup = spawnItemPickup(world(), pins(), assets(), renderer(), m_physics, ItemStack{ def, count }, xf->position, Vector3f{});
+        if (pickup.valid())
+            so.playPickup = pickup;
+    });
 }
 
 
@@ -692,14 +764,6 @@ void EditorApp::destroySpawnedUnits(Entity onlySpawner)
     });
 }
 
-void EditorApp::tickCrows(float dt)
-{
-    if (!m_playMode || m_sceneMode != SceneMode::Scene3D || dt < 0.0f)
-        return;
-    const Terrain::TerrainGrid* grid = (m_haveTerrain && m_terrain.valid()) ? &m_terrain : nullptr;
-    simulateCrows(world(), grid, &m_crowModels, &assets(), &pins(), &audio(), dt);
-}
-
 Entity EditorApp::spawnSpawnerUnit(Entity spawner, const SpawnerRequest& req)
 {
     // No EditorObjectComponent and no persistent id. A play-mode scene save must not keep the army.
@@ -740,16 +804,6 @@ Entity EditorApp::spawnSpawnerUnit(Entity spawner, const SpawnerRequest& req)
     return e;
 }
 
-void EditorApp::tickSpawners(float dt)
-{
-    if (!m_playMode || m_sceneMode != SceneMode::Scene3D || dt < 0.0f)
-        return;
-    tickSpawnerJobs(
-        world(), dt,
-        [](void* user, Entity spawner, const SpawnerRequest& req) { return static_cast<EditorApp*>(user)->spawnSpawnerUnit(spawner, req); },
-        this);
-}
-
 void EditorApp::ensurePlayerStealth(Entity e)
 {
     if (!e.valid() || !world().alive(e) || world().has<PlayerStealthComponent>(e))
@@ -778,6 +832,23 @@ void EditorApp::drawPlayHud()
 {
     if (!m_playMode || !m_imgui.isReady())
         return;
+
+    if (m_defenseTextLeft > 0.0f && !m_defenseText.empty())
+    {
+        const float          a     = Math::Clamp(m_defenseTextLeft / 0.7f, 0.0f, 1.0f);
+        const bool           parry = m_defenseText.front() == 'P';
+        const ImGuiViewport* vp    = ImGui::GetMainViewport();
+        ImDrawList*          dl    = vp ? ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp)) : nullptr;
+        if (dl)
+        {
+            const float  size  = ImGui::GetFontSize() * (parry ? 2.2f : 1.7f);
+            const ImVec2 ts    = ImGui::GetFont()->CalcTextSizeA(size, FLT_MAX, 0.0f, m_defenseText.c_str());
+            const ImVec2 pos{ vp->Pos.x + (vp->Size.x - ts.x) * 0.5f, vp->Pos.y + vp->Size.y * 0.36f - (1.0f - a) * 18.0f };
+            const int    alpha = static_cast<int>(a * 255.0f);
+            dl->AddText(ImGui::GetFont(), size, ImVec2(pos.x + 2.0f, pos.y + 2.0f), IM_COL32(0, 0, 0, alpha * 3 / 4), m_defenseText.c_str());
+            dl->AddText(ImGui::GetFont(), size, pos, parry ? IM_COL32(255, 210, 70, alpha) : IM_COL32(170, 210, 255, alpha), m_defenseText.c_str());
+        }
+    }
 
     ImGui::SetNextWindowPos(ImVec2(16.0f, 48.0f), ImGuiCond_Always);
     ImGui::SetNextWindowBgAlpha(0.72f);
@@ -903,4 +974,55 @@ void EditorApp::drawPlayHud()
     const ImVec2 ds = ImGui::CalcTextSize(dist);
     dl->AddText(ImVec2(c.x - ds.x * 0.5f + 1.0f, c.y + r + 3.0f), IM_COL32(0, 0, 0, 200), dist);
     dl->AddText(ImVec2(c.x - ds.x * 0.5f, c.y + r + 2.0f), IM_COL32(240, 205, 110, 255), dist);
+}
+
+void EditorApp::drawLoot()
+{
+    if (!m_playMode || !m_lootTarget.valid() || !m_imgui.isReady())
+        return;
+    InventoryComponent*       inv  = m_playPlayer.valid() ? world().get<InventoryComponent>(m_playPlayer) : nullptr;
+    const TransformComponent* pxf  = m_playPlayer.valid() ? world().get<TransformComponent>(m_playPlayer) : nullptr;
+    LootComponent*            loot = world().alive(m_lootTarget) ? world().get<LootComponent>(m_lootTarget) : nullptr;
+    const TransformComponent* lxf  = loot ? world().get<TransformComponent>(m_lootTarget) : nullptr;
+    if (!inv || !pxf || !lxf || (lxf->position - pxf->position).MagnitudeSqrd() > 3.0f * 3.0f)
+    {
+        m_lootTarget = {};
+        return;
+    }
+
+    bool        open  = true;
+    const char* title = loot->label ? loot->label : "Loot";
+    ImGui::SetNextWindowSize(ImVec2(320.0f, 300.0f), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin(title, &open))
+    {
+        const bool takeAll = ImGui::Button("Take all");
+        ImGui::Separator();
+        for (int i = 0; i < InventoryComponent::kBagSize; ++i)
+        {
+            ItemStack& item = loot->contents.bag[i];
+            if (item.empty())
+                continue;
+            ImGui::PushID(i);
+            ImGui::Text("%s x%d (%s)", item.def->name, item.count, itemTypeName(item.def->type));
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Take") || takeAll)
+            {
+                item.count -= grantInventoryItem(world(), audio(), assets(), m_playPlayer, *inv, item);
+                if (item.count <= 0)
+                    item = {};
+            }
+            ImGui::PopID();
+        }
+        if (itemCount(loot->contents) == 0)
+            ImGui::TextUnformatted("Empty");
+    }
+    ImGui::End();
+
+    if (itemCount(loot->contents) == 0)
+    {
+        destroyPickup(world(), pins(), m_physics, m_lootTarget);
+        m_lootTarget = {};
+    }
+    else if (!open)
+        m_lootTarget = {};
 }

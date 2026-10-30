@@ -111,8 +111,6 @@ private:
     void drawLoot();
     int  giveItem(Dark::InventoryComponent& inv, const Dark::ItemStack& item);
     void stockHunter(Dark::Entity hunter);
-    void tickSpawners(float dt);
-    void tickCrows(float dt);
     void tickLeaves(float dt);
     Dark::Entity spawnSpawnerUnit(Dark::Entity spawner, const Dark::SpawnerRequest& req);
     void drawDefenseText();

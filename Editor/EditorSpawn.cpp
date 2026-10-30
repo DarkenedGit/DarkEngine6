@@ -293,6 +293,11 @@ Entity EditorApp::spawnObject(
     EditorObjectComponent so{};
     so.type = type;
     copyColor(so.color, color);
+    if (authored && !authored->pickup.empty())
+    {
+        so.pickup      = authored->pickup;
+        so.pickupCount = authored->pickupCount > 0 ? authored->pickupCount : 1;
+    }
 
     if (type == SceneObjectType::ParticleEmitter)
     {
