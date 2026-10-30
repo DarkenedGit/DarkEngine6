@@ -128,14 +128,15 @@ void EditorApp::saveBeginLoad(void* user, World&)
     app->audio().stopAll();
     app->m_leafRustle.stopAll(app->audio());
     clearAllStatusFx(app->world(), &app->audio());
-    app->m_attackCharge.reset();
-    app->m_blockCharge.reset();
-    app->m_chargeWindup = {};
-    app->m_fireQuick = false;
-    app->m_fireCharged = false;
-    app->m_jumpAttackBuffer = 0.0f;
-    app->m_offhand.reset();
-    app->m_playFootstepAcc = 0.0f;
+    PlayRuntime& rt = app->m_play.runtime();
+    rt.attackCharge.reset();
+    rt.blockCharge.reset();
+    rt.chargeWindup = {};
+    rt.fireQuick = false;
+    rt.fireCharged = false;
+    rt.jumpAttackBuffer = 0.0f;
+    rt.offhand.reset();
+    rt.footstepAcc = 0.0f;
 }
 
 void EditorApp::saveEndLoad(void* user, World& world)
@@ -202,11 +203,13 @@ void EditorApp::saveBeforeCapture(void* user, World& world)
     app->m_save.setWorldIdentity(app->m_scenePath.generic_string(), "", "");
     app->pullPhysicsVelocities();
     const Entity body = app->m_playPlayer;
+    const PlayRuntime& rt = app->m_play.runtime();
     Save::BodyLookState look;
-    look.yaw          = app->m_playLookYaw;
-    look.pitch        = app->m_playLookPitch;
-    look.lightOn      = app->m_offhand.lightOn;
-    look.lowerBodyYaw = app->m_playLowerBodyYaw;
+    look.yaw          = rt.lookYaw;
+    look.pitch        = rt.lookPitch;
+    look.lightOn      = rt.offhand.lightOn;
+    look.lowerBodyYaw = rt.lowerBodyYaw;
+    look.crouch       = rt.crouchLatch;
     Save::captureBodyLook(world, body, look);
     if (WorldClockComponent* clock = Save::sessionClock(world, app->m_session))
     {
@@ -222,7 +225,7 @@ void EditorApp::saveBeforeCapture(void* user, World& world)
         ai->packAttackGap = app->m_ai.packAttackGap();
         ai->token         = app->m_ai.jumpAttackToken();
     }
-    syncThrowableLoadout(world, body, app->m_throwFlights, ThrowableLoadoutSync::OntoRecord);
+    syncThrowableLoadout(world, body, app->m_play.throws(), ThrowableLoadoutSync::OntoRecord);
 }
 
 void EditorApp::saveAfterApply(void* user, World& world)
@@ -232,17 +235,19 @@ void EditorApp::saveAfterApply(void* user, World& world)
         return;
     restoreAuthoredSceneObjects(world);
     const Entity body = app->m_playPlayer;
+    PlayRuntime& rt = app->m_play.runtime();
     Save::BodyLookState look;
-    look.yaw          = app->m_playLookYaw;
-    look.pitch        = app->m_playLookPitch;
-    look.lightOn      = app->m_offhand.lightOn;
-    look.lowerBodyYaw = app->m_playLowerBodyYaw;
+    look.yaw          = rt.lookYaw;
+    look.pitch        = rt.lookPitch;
+    look.lightOn      = rt.offhand.lightOn;
+    look.lowerBodyYaw = rt.lowerBodyYaw;
+    look.crouch       = rt.crouchLatch;
     Save::restoreBodyLook(world, body, look);
-    app->m_playLookYaw      = look.yaw;
-    app->m_playLookPitch    = look.pitch;
-    app->m_offhand.lightOn  = look.lightOn;
-    app->m_playLowerBodyYaw = look.lowerBodyYaw;
-    app->m_crouchLatch      = look.crouch;
+    rt.lookYaw      = look.yaw;
+    rt.lookPitch    = look.pitch;
+    rt.offhand.lightOn = look.lightOn;
+    rt.lowerBodyYaw = look.lowerBodyYaw;
+    rt.crouchLatch  = look.crouch;
     if (const WorldClockComponent* clock = Save::sessionClock(world, app->m_session))
     {
         Save::SessionClockState clockState;
@@ -258,7 +263,7 @@ void EditorApp::saveAfterApply(void* user, World& world)
         app->m_ai.setJumpAttackToken(ai->token);
     }
     app->pushPhysicsProgress();
-    syncThrowableLoadout(world, body, app->m_throwFlights, ThrowableLoadoutSync::FromRecord);
+    syncThrowableLoadout(world, body, app->m_play.throws(), ThrowableLoadoutSync::FromRecord);
     applyDisabledCircuits(world);
     syncCarriedAgents(world);
 }

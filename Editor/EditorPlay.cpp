@@ -82,11 +82,6 @@
 using namespace Dark;
 using namespace Dark::Math;
 
-namespace
-{
-    constexpr float kJumpBuf = 0.12f;
-
-} // namespace
 
 bool EditorApp::attachEditorModel(Entity e, const char* gltfPath)
 {
@@ -310,20 +305,105 @@ void EditorApp::bakePlayWalkability()
         DE_LOG_WARN(LogCategory::AI, "Editor: walkability bake failed");
 }
 
-void EditorApp::playPowerClick(void* user)
+
+
+void EditorApp::fillPlayHost(void* user, PlayHost& host)
 {
     auto* app = static_cast<EditorApp*>(user);
     if (!app)
         return;
-    playSoundCue(app->world(), app->audio(), app->assets(), app->m_playPlayer, "click");
+    host.world    = &app->world();
+    host.renderer = &app->renderer();
+    host.scene    = &app->m_scene;
+    host.assets   = &app->assets();
+    host.pins     = &app->pins();
+    host.audio    = &app->audio();
+    host.physics  = app->m_physics.valid() ? &app->m_physics : nullptr;
+    host.ai       = &app->m_ai;
+    host.camera   = &app->m_camera;
+    host.input    = &app->input();
+    host.terrain  = &app->m_terrain;
+    host.ground   = &app->m_ground;
+    host.groundBody = app->m_physicsGround;
+    host.guardVoice = &app->m_guardVoice;
+    host.crows    = &app->m_crowModels;
+    host.foliageCollision = &app->m_foliageCollision;
+    host.foliage  = app->m_foliage.empty() ? nullptr : &app->m_foliage;
+
+    host.player  = app->m_playPlayer;
+    host.shield  = app->m_playShield;
+    host.session = app->m_session;
+
+    host.waterLevel   = app->m_water.chunksX() > 0 ? app->m_water.params().waterLevel : -1.0e9f;
+    host.sunElevation = app->m_env.sunElevation();
+    host.sunDir       = app->m_env.sunDir();
+    host.cloudTime    = app->m_cloudTime;
+
+    host.groundProbeY = &app->m_playGroundProbeY;
+    host.groundIgnore = &app->m_playGroundIgnore;
+    host.lightLevel   = &app->m_lightLevel;
+    host.exposure     = &app->m_exposure;
+    host.strideLeft   = &app->m_strideLeft;
+    host.stealth      = &app->m_stealth;
+    host.camouflage   = false;
+
+    const bool pointerFree = app->window().cursorCaptured() || !(app->m_imgui.isReady() && app->m_imgui.wantCaptureMouse());
+    host.applyMouseLook    = pointerFree;
+    host.allowMouseButtons = pointerFree;
+    host.uiMouse           = !pointerFree;
+    host.uiKeys            = app->m_imgui.isReady() && app->m_imgui.wantCaptureKeyboard();
+    host.chaseReady        = app->m_playMode;
+
+    host.cubes            = app->m_playCubes.empty() ? nullptr : app->m_playCubes.data();
+    host.cubeCount        = static_cast<int>(app->m_playCubes.size());
+    host.spheres          = app->m_playSpheres.empty() ? nullptr : app->m_playSpheres.data();
+    host.sphereCount      = static_cast<int>(app->m_playSpheres.size());
+    host.cubeEntities     = app->m_playCubeEntities.empty() ? nullptr : app->m_playCubeEntities.data();
+    host.cubeEntityCount  = static_cast<int>(app->m_playCubeEntities.size());
+    host.sphereEntities   = app->m_playSphereEntities.empty() ? nullptr : app->m_playSphereEntities.data();
+    host.sphereEntityCount = static_cast<int>(app->m_playSphereEntities.size());
+
+    host.preparePlayer = &EditorApp::onPlayPrepare;
+    host.stepPhysics   = &EditorApp::onPlayStepPhysics;
+    host.spawnUnit     = &EditorApp::onPlaySpawnUnit;
+    host.heightAt      = &EditorApp::onPlayHeight;
+    host.groundContact = &EditorApp::onPlayGroundContact;
+    host.user          = app;
 }
 
-float EditorApp::playCarryHeight(void* user, float x, float z)
+void EditorApp::onPlayPrepare(void* user)
+{
+    if (auto* app = static_cast<EditorApp*>(user))
+        app->ensurePlayPhysicsVolumes();
+}
+
+void EditorApp::onPlayStepPhysics(void* user, float dt)
+{
+    if (auto* app = static_cast<EditorApp*>(user))
+        app->simulatePhysics(dt);
+}
+
+Entity EditorApp::onPlaySpawnUnit(void* user, Entity spawner, const SpawnerRequest& req)
 {
     auto* app = static_cast<EditorApp*>(user);
-    if (app && app->m_haveTerrain && app->m_terrain.valid())
-        return app->m_terrain.heightAtWorld(x, z);
-    return 0.0f;
+    return app ? app->spawnSpawnerUnit(spawner, req) : Entity{};
+}
+
+float EditorApp::onPlayHeight(void* user, float x, float z)
+{
+    auto* app = static_cast<EditorApp*>(user);
+    return app ? app->playGroundHeight(x, z) : 0.0f;
+}
+
+Terrain::GroundContact EditorApp::onPlayGroundContact(void* user, float x, float z)
+{
+    auto* app = static_cast<EditorApp*>(user);
+    return app ? app->groundContactAt(x, z) : Terrain::GroundContact{};
+}
+
+void EditorApp::onPlayWeaponHit(const WeaponHit& hit)
+{
+    m_play.onWeaponHit(hit);
 }
 
 void EditorApp::setPlayMode(bool play)
@@ -347,8 +427,8 @@ void EditorApp::setPlayMode(bool play)
             gatherConcealVolumes(world(), conceal);
             m_ai.setConcealVolumes(std::move(conceal));
         }
-        m_ai.setJumpAttackHits(&EditorApp::onPlayJumpHitsThunk, this);
-        m_ai.setHunterCue(&EditorApp::onPlayHunterCueThunk, this);
+        m_play.bind(&EditorApp::fillPlayHost, this);
+        m_play.resetPawn();
         if (const TransformComponent* xf = world().get<TransformComponent>(m_playPlayer))
         {
             Vector3f toCam = m_camera.GetPosition() - xf->position;
@@ -357,22 +437,26 @@ void EditorApp::setPlayMode(bool play)
                 toCam.Normalize();
             else
                 toCam = Vector3f{ 0.0f, 0.0f, -1.0f };
-            m_playLookYaw   = std::atan2f(-toCam.x, -toCam.z);
-            m_playLookPitch = -0.25f;
+            m_play.runtime().lookYaw   = std::atan2f(-toCam.x, -toCam.z);
+            m_play.runtime().lookPitch = -0.25f;
         }
         clearAllStatusFx(world(), &audio());
         resetPlayCombat();
-        m_offhand.reset();
-        m_attackCharge.reset();
-        m_blockCharge.reset();
-        m_chargeWindup = {};
-        m_fireQuick   = false;
-        m_fireCharged = false;
+        m_play.quest().clear();
+        if (!m_sceneQuest.empty())
+            m_play.startQuest(m_sceneQuest);
+        {
+            GuardBarks  barks;
+            std::string barkError;
+            if (loadGuardBarks(resolveContentFile("ai/barks.json"), barks, &barkError))
+                m_guardVoice.start(std::move(barks));
+            else
+                DE_LOG_WARN(LogCategory::AI, "Guard barks: {}", barkError);
+        }
         ensurePlayerFlashlight(world(), m_playPlayer);
         // clearPlayArmor inside ensurePlayGear deletes every pickup. Throwables are copied so they can come back.
         const std::vector<ThrowablePickupSpot> authoredThrowables = captureThrowablePickups(world());
         ensurePlayGear();
-        m_jumpAttackBuffer = 0.0f;
         m_gizmoDragAxis    = EditorDetail::TranslateGizmoAxis::None;
         m_dragging         = false;
         m_playMode = true;
@@ -395,8 +479,8 @@ void EditorApp::setPlayMode(bool play)
             const ThrowableBeltComponent* belt         = world().get<ThrowableBeltComponent>(m_playPlayer);
             const int                     rockOnBelt   = belt ? belt->belt.count("rock") : 0;
             const int                     bottleOnBelt = belt ? belt->belt.count("bottle") : 0;
-            haveRock   = throwableAlreadyAccounted(haveRock, rockOnBelt, throwableIdInFlightOrLanding(m_throwFlights, "rock"));
-            haveBottle = throwableAlreadyAccounted(haveBottle, bottleOnBelt, throwableIdInFlightOrLanding(m_throwFlights, "bottle"));
+            haveRock   = throwableAlreadyAccounted(haveRock, rockOnBelt, throwableIdInFlightOrLanding(m_play.throws(), "rock"));
+            haveBottle = throwableAlreadyAccounted(haveBottle, bottleOnBelt, throwableIdInFlightOrLanding(m_play.throws(), "bottle"));
             stockMissingThrowablePickups(world(), pins(), assets(), renderer(), m_physics, start->position, haveRock, haveBottle);
         }
         window().setCursorCaptured(window().isFocused());
@@ -420,18 +504,14 @@ void EditorApp::setPlayMode(bool play)
         clearAllStatusFx(world(), &audio());
         if (AnimGraphComponent* ag = m_playPlayer.valid() ? world().get<AnimGraphComponent>(m_playPlayer) : nullptr)
             ag->graph.player().setLowerBodyYaw(0.0f);
-        m_playLowerBodyYaw = 0.0f;
         // clearPlayArmor deletes every pickup. Copy throwables, including throws still in the air, and put them back.
         std::vector<ThrowablePickupSpot> keptThrowables = captureThrowablePickups(world());
-        appendUnresolvedThrowableSpots(keptThrowables, m_throwFlights);
-        m_throwFlights.clear();
+        appendUnresolvedThrowableSpots(keptThrowables, m_play.throws());
+        m_play.throws().clear();
+        m_play.quest().clear();
+        m_guardVoice.stop();
+        m_play.resetPawn();
         destroyPlayGear();
-        m_offhand.reset();
-        m_attackCharge.reset();
-        m_blockCharge.reset();
-        m_chargeWindup = {};
-        m_fireQuick   = false;
-        m_fireCharged = false;
         respawnThrowablePickups(world(), pins(), assets(), renderer(), m_physics, keptThrowables);
         clearThrowablePlayVisuals(world(), pins());
         m_playMode   = false;
@@ -471,7 +551,7 @@ void EditorApp::equipPlayArmor()
             hunters.push_back(e);
     });
     for (Entity hunter : hunters)
-        equipHunterArmor(world(), pins(), assets(), renderer(), hunter);
+        m_play.stockHunter(hunter);
 }
 
 void EditorApp::clearPlayArmor()
@@ -487,44 +567,7 @@ void EditorApp::clearPlayArmor()
         destroyPickup(world(), pins(), m_physics, pickup);
 }
 
-void EditorApp::updatePlayCamera()
-{
-    const TransformComponent* xf = m_playPlayer.valid() ? world().get<TransformComponent>(m_playPlayer) : nullptr;
-    if (!xf)
-        return;
-    const PlayerMotor* motor = nullptr;
-    if (const PlayerMotorComponent* pmc = world().get<PlayerMotorComponent>(m_playPlayer))
-        motor = &pmc->motor;
-    const bool crouched = motor && motor->state() == PlayerMoveState::Crouch;
-    const float pose = motor ? motor->swimPose() : 0.0f;
-    const bool rayOk = m_haveTerrain && m_terrain.valid();
-    ShoulderView view = solveShoulderCamera(xf->position, m_playLookYaw, m_playLookPitch, crouched, 0.0f, 0.0f, false, 0.0f,
-                                            rayOk ? &shoulderTerrainRay : nullptr, rayOk ? &m_terrain : nullptr);
-    if (pose > 0.0f)
-    {
-        const ShoulderView swim = solveSwimCamera(xf->position, m_playLookYaw, rayOk ? &shoulderTerrainRay : nullptr, rayOk ? &m_terrain : nullptr);
-        view.eye = view.eye + (swim.eye - view.eye) * pose;
-        view.aim = view.aim + (swim.aim - view.aim) * pose;
-    }
-    m_camera.LookAt(view.eye, view.aim, Vector3f::Y_AXIS);
-}
 
-WeaponWorldQuery EditorApp::makePlayWeaponQuery()
-{
-    m_playWeaponTargets.gather(world(), m_playPlayer);
-
-    WeaponWorldQuery q{};
-    q.terrainUser = this;
-    q.raycastTerrain = [](void* user, const Ray3f& ray, float) -> Collision::RayHit3D {
-        return static_cast<EditorApp*>(user)->m_terrain.raycast(ray);
-    };
-    q.heightAt = [](void* user, float x, float z) {
-        return static_cast<EditorApp*>(user)->m_terrain.heightAtWorld(x, z);
-    };
-    m_playWeaponTargets.bind(q);
-    q.maxRange = 90.0f;
-    return q;
-}
 
 void EditorApp::onPlayWeaponHitThunk(void* user, const WeaponHit& hit)
 {
@@ -532,75 +575,9 @@ void EditorApp::onPlayWeaponHitThunk(void* user, const WeaponHit& hit)
         app->onPlayWeaponHit(hit);
 }
 
-void EditorApp::onPlayWeaponHit(const WeaponHit& hit)
-{
-    // Terrain hits are !hitTarget. The mark still lands; damage stays behind that gate.
-    spawnWeaponImpact(hit);
-    if (!hit.hitTarget || !hit.targetEntity.valid())
-        return;
-    Combat::DamageEvent ev = Combat::damageEventFromWeaponHit(hit, m_playPlayer);
-    Combat::ArmorBreak broke{};
-    Combat::ResolveResult r = m_combat.resolve(world(), ev, &broke);
-    if (broke.index >= 0)
-        knockOffArmor(world(), m_physics, hit.targetEntity, broke);
-    if (!r.applied)
-        return;
-    playSoundCueAt(world(), audio(), assets(), hit.targetEntity, "pain", hit.point);
-    if (world().has<AiAgentComponent>(hit.targetEntity))
-    {
-        const TransformComponent* px = m_playPlayer.valid() ? world().get<TransformComponent>(m_playPlayer) : nullptr;
-        m_ai.onHunterAttacked(world(), hit.targetEntity, px ? px->position : Vector3f{});
-        spawnLivingBloodDecal(hit.targetEntity, hit.point, hit.normal);
-        if (r.killed)
-        {
-            spawnDeathBloodDecal(hit.point, hit.normal);
-            m_ai.onHunterKilled(world(), hit.targetEntity);
-        }
-    }
-}
 
-void EditorApp::onPlayJumpHitsThunk(void* user, const Combat::DamageEvent* events, int count)
-{
-    if (auto* app = static_cast<EditorApp*>(user))
-        app->resolvePlayHits(events, count);
-}
 
-void EditorApp::onPlayHunterCueThunk(void* user, Entity hunter, const char* cue)
-{
-    auto* app = static_cast<EditorApp*>(user);
-    if (!app)
-        return;
-    playHunterCue(
-        app->world(), app->audio(), app->assets(), hunter, cue,
-        [](void* stepUser, Entity e, const char* stepCue) { return static_cast<EditorApp*>(stepUser)->isStepCue(e, stepCue); },
-        [](void* markUser, Entity e) { static_cast<EditorApp*>(markUser)->spawnHunterFootmark(e); }, user);
-}
 
-void EditorApp::resolvePlayHits(const Combat::DamageEvent* events, int count)
-{
-    if (count <= 0 || !events)
-        return;
-    Combat::resolveJumpAttackEvents(world(), m_combat, events, count);
-    for (int i = 0; i < count; ++i)
-    {
-        const Entity t = events[i].target;
-        if (!t.valid() || !world().alive(t))
-            continue;
-        playSoundCueAt(world(), audio(), assets(), t, "pain", events[i].hitPoint);
-        if (world().has<AiAgentComponent>(t))
-        {
-            const TransformComponent* px = m_playPlayer.valid() ? world().get<TransformComponent>(m_playPlayer) : nullptr;
-            m_ai.onHunterAttacked(world(), t, px ? px->position : Vector3f{});
-            spawnLivingBloodDecal(t, events[i].hitPoint, -events[i].hitDir);
-            if (HealthComponent* hp = world().get<HealthComponent>(t); hp && !hp->health.alive())
-            {
-                // Jump events have no surface normal. A flat hint keeps the stain on the height field.
-                spawnDeathBloodDecal(events[i].hitPoint, Vector3f(0.0f, 0.0f, 1.0f));
-                m_ai.onHunterKilled(world(), t);
-            }
-        }
-    }
-}
 
 ImpactFxHost EditorApp::impactHost()
 {
@@ -611,7 +588,7 @@ ImpactFxHost EditorApp::impactHost()
     host.terrain     = &m_terrain;
     host.ground      = &m_ground;
     host.contactGrid = (m_haveTerrain && m_terrain.valid()) ? &m_terrain : nullptr;
-    host.targets     = &m_playWeaponTargets;
+    host.targets     = &m_play.targets();
     return host;
 }
 
@@ -650,554 +627,9 @@ void EditorApp::spawnDeathBloodDecal(const Vector3f& point, const Vector3f& hitN
     Dark::spawnDeathBloodDecal(impactHost(), point, hitNormal);
 }
 
-bool EditorApp::releaseThrowable(bool charged)
-{
-    const Entity            body = m_playPlayer;
-    WeaponLoadoutComponent* wlc  = body.valid() ? world().get<WeaponLoadoutComponent>(body) : nullptr;
-    if (!wlc || !wlc->loadout || wlc->loadout->activeKind() != WeaponKind::Throwable)
-        return false;
-    ThrowableBelt&            belt = throwableBelt(world(), body);
-    const TransformComponent* xf   = world().get<TransformComponent>(body);
-    const WeaponFireRequest   req  = makeCameraFireRequest(m_camera.GetPosition(), m_camera.GetLook(), xf ? &xf->position : nullptr, 1.0f);
-    std::string               thrown;
-    if (!throwFromLoadout(m_throwFlights, *wlc->loadout, belt, req, body, charged, &thrown))
-        return false;
-    wlc->slot = wlc->loadout->slot();
-    DE_LOG_INFO("Throwable: threw {}", thrown);
-    return true;
-}
 
-void EditorApp::tickThrowableFlights(float dt)
-{
-    ThrowableFlightHost host;
-    host.world    = &world();
-    host.pins     = &pins();
-    host.assets   = &assets();
-    host.renderer = &renderer();
-    host.physics  = &m_physics;
-    host.audio    = &audio();
-    host.ai       = &m_ai;
-    host.solids.hasTerrain     = true;
-    host.solids.terrainUser    = this;
-    host.solids.raycastTerrain = [](void* user, const Ray3f& ray, float maxDistance) -> Collision::RayHit3D {
-        return static_cast<EditorApp*>(user)->m_terrain.raycast(ray, maxDistance);
-    };
-    host.solids.heightAt = [](void* user, float x, float z) { return static_cast<EditorApp*>(user)->m_terrain.heightAtWorld(x, z); };
-    host.solids.cubes       = m_playCubes.empty() ? nullptr : m_playCubes.data();
-    host.solids.cubeCount   = static_cast<int>(m_playCubes.size());
-    host.solids.spheres     = m_playSpheres.empty() ? nullptr : m_playSpheres.data();
-    host.solids.sphereCount = static_cast<int>(m_playSpheres.size());
-    tickThrowableFlightHost(m_throwFlights, dt, host);
-}
 
-bool EditorApp::firePlayLoadout(bool charged)
-{
-    const Entity body = m_playPlayer;
-    const TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    WeaponLoadoutComponent* wlc = body.valid() ? world().get<WeaponLoadoutComponent>(body) : nullptr;
-    if (!wlc || !wlc->loadout)
-        return false;
-    WeaponFireRequest req = makeCameraFireRequest(m_camera.GetPosition(), m_camera.GetLook(), xf ? &xf->position : nullptr,
-                                                  charged ? m_chargeSettings.attackDamageScale : 1.0f);
-    if (wlc->loadout->activeKind() == WeaponKind::Throwable)
-        return false;
-    const WeaponKind kind = wlc->loadout->activeKind();
-    if ((kind == WeaponKind::Melee || kind == WeaponKind::Projectile)
-        && Combat::hitVolumesBlockFire(world().get<Combat::HitVolumesComponent>(body)))
-        return false;
-    SkillComponent* skill = nullptr;
-    if (wlc->loadout->activeKind() == WeaponKind::Projectile)
-        skill = world().get<SkillComponent>(body);
-    applyShootSkill(req, skill);
-    if (!wlc->loadout->fire(req, makePlayWeaponQuery()))
-        return false;
-    if (skill)
-        noteShotXp(*skill, true);
-    if (AnimGraphComponent* ag = body.valid() ? world().get<AnimGraphComponent>(body) : nullptr)
-    {
-        if (kind == WeaponKind::Melee)
-            ag->graph.setTrigger("swing");
-        else if (kind == WeaponKind::Projectile)
-            ag->graph.setTrigger("shoot");
-    }
-    return true;
-}
 
-void EditorApp::updatePlay(float dt)
-{
-    if (!m_playMode || !m_playPlayer.valid() || !world().alive(m_playPlayer))
-    {
-        if (m_playMode)
-            setPlayMode(false);
-        return;
-    }
-
-    tickPower(world(), dt, &m_ai.walkability(), m_cloudTime, nullptr, &EditorApp::playPowerClick, this);
-    tickAttachedLights(world(), m_env.sunElevation());
-    tickThrowableFlights(dt);
-
-    Entity body = m_playPlayer;
-    if (WorldClockComponent* clock = m_session.valid() ? world().get<WorldClockComponent>(m_session) : nullptr)
-        clock->playTimeSec += static_cast<double>(dt);
-    TransformComponent* xf = world().get<TransformComponent>(body);
-    if (!xf)
-        return;
-
-    const bool uiKeys  = m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
-    const bool uiMouse = m_imgui.isReady() && m_imgui.wantCaptureMouse();
-    // Captured play matches the game: the cursor is hidden and clipped, so it is not an ImGui pointer.
-    // Pad pitch is negated here. The shared look step adds the value it is given.
-    accumulatePlayLook(m_playLookYaw, m_playLookPitch, static_cast<float>(input().mouseDeltaX()), static_cast<float>(input().mouseDeltaY()),
-                       window().cursorCaptured() || !uiMouse, input().actionAxis("look_x"), -input().actionAxis("look_y"), dt);
-
-    const float mx = uiKeys ? 0.0f : input().actionAxis("move_x");
-    const float mz = uiKeys ? 0.0f : input().actionAxis("move_z");
-    const PlayBasis basis = playBasis(m_playLookYaw, m_playLookPitch, mx, mz);
-    const Vector3f& flat  = basis.flat;
-    const Vector3f& right = basis.right;
-    const Vector3f& wish  = basis.wish;
-
-    HealthComponent* hpComp = world().get<HealthComponent>(body);
-    Health*          hp     = hpComp ? &hpComp->health : nullptr;
-    HitReactionComponent* hrComp = world().get<HitReactionComponent>(body);
-    HitReaction*          hitRx  = hrComp ? &hrComp->hit : nullptr;
-    PlayerMotorComponent* pmc    = world().get<PlayerMotorComponent>(body);
-    PlayerMotor*          motor  = pmc ? &pmc->motor : nullptr;
-    JumpAttackComponent*  jac    = world().get<JumpAttackComponent>(body);
-    Combat::JumpAttack*   jump   = jac ? &jac->jump : nullptr;
-    Combat::StatusEffectComponent* status = world().get<Combat::StatusEffectComponent>(body);
-    Combat::PoiseComponent*        poise  = world().get<Combat::PoiseComponent>(body);
-
-    if (status)
-        status->tick(dt);
-    SkillComponent* skills = world().get<SkillComponent>(body);
-    if (skills)
-        tickSkill(*skills, dt);
-    if (poise)
-        poise->tick(dt);
-    if (hp)
-        hp->tick(dt);
-    // Alive at entry. A contact kill later in this function still notes senses once.
-    const bool senseAlive = hp && hp->alive();
-
-    if (jump && (!hp || !hp->alive()))
-        jump->cancel(Combat::JumpAttackCancel::NoPound);
-
-    const bool ccLocked    = (hitRx && hitRx->stunned()) || (status && status->hasHardCc());
-    const bool jumpBusy    = jump && jump->busy();
-    const bool inAirCommit = jump && jump->inAirCommit();
-    const bool canSteer    = hp && hp->alive() && !ccLocked && !(jump && jump->phase() == Combat::JumpAttackPhase::Pound);
-    const bool pointerFree = window().cursorCaptured() || !uiMouse;
-    const Combat::HitVolumesComponent* partVolumes = world().get<Combat::HitVolumesComponent>(body);
-    const bool shieldBlocked = Combat::hitVolumesBlockShield(partVolumes);
-    const bool holdShield = canSteer && !shieldBlocked
-        && ((input().actionMouseDown("shield") && pointerFree) || (!uiKeys && input().actionDown("shield"))
-            || input().actionAxisHeld("shield"));
-    const bool carriesLight = flashlightEquipped(world().get<InventoryComponent>(body));
-    const bool toggleLight = carriesLight && canSteer && !uiKeys && input().actionPressed("flashlight");
-    if (canSteer && !uiKeys && input().actionPressed("pickup"))
-    {
-        const Entity box = nearestPowerBox(world(), xf->position, 2.5f);
-        const PowerBoxComponent* power = box.valid() ? world().get<PowerBoxComponent>(box) : nullptr;
-        if (power)
-            setPowerCircuit(world(), box, !power->on, true, &m_ai.walkability(), m_cloudTime, nullptr, &EditorApp::playPowerClick, this);
-        else
-        {
-            const Entity closest = findThrowablePickupNear(world(), xf->position, 2.2f);
-            if (closest.valid())
-            {
-                const ItemPickupComponent* picked = world().get<ItemPickupComponent>(closest);
-                const std::string          id = (picked && picked->item.def) ? picked->item.def->id : std::string{};
-                const CarryPickupResult    took = takeCarryPickup(world(), pins(), m_physics, closest, throwableBelt(world(), body), nullptr);
-                if (took.throwable)
-                {
-                    DE_LOG_INFO("Throwable: picked up {}", id);
-                    playSoundCue(world(), audio(), assets(), body, "click");
-                }
-            }
-        }
-    }
-    if (toggleLight)
-    {
-        if (SkillComponent* sk = world().get<SkillComponent>(body))
-            sk->seeArmed = true;
-    }
-    const bool attackDown = canSteer && !uiKeys && (input().actionDown("attack") || (pointerFree && input().actionMouseDown("attack")));
-    const bool airborneNow = motor && (motor->state() == PlayerMoveState::Jumping || motor->state() == PlayerMoveState::Falling);
-    WeaponAttackInput chargeQuery{};
-    chargeQuery.airborne = airborneNow;
-    chargeQuery.ccLocked = ccLocked;
-    chargeQuery.jumpBusy = jumpBusy;
-    if (const WeaponLoadoutComponent* held = world().get<WeaponLoadoutComponent>(body))
-    {
-        if (held->loadout)
-            classifyWeaponAttack(chargeQuery, held->loadout->activeKind());
-    }
-    const WeaponAttackDecision chargeDecision = decideWeaponAttack(chargeQuery);
-    Combat::DefenseComponent* defense = world().get<Combat::DefenseComponent>(body);
-    if (defense)
-        defense->tick(dt);
-    Combat::PlayerChargeInput chargeIn{};
-    chargeIn.dt              = dt;
-    chargeIn.attackDown      = attackDown;
-    chargeIn.canChargeAttack = canSteer && chargeDecision.allowCharge;
-    chargeIn.holdShield      = holdShield;
-    chargeIn.canHoldShield   = canSteer && !shieldBlocked;
-    chargeIn.chargedParryUp  = defense && defense->chargedParry && defense->inParryWindow();
-    Combat::PlayerChargeStep charge{};
-    Combat::stepPlayerCharge(m_attackCharge, m_blockCharge, m_chargeSettings, chargeIn, charge);
-    m_fireQuick   = charge.fireQuick;
-    m_fireCharged = charge.fireCharged;
-    const bool wasBlocking = m_offhand.shield.blocking();
-    m_offhand.tick(dt, charge.wantShield, toggleLight);
-    if (defense)
-    {
-        if (charge.openChargedParry)
-            Combat::openShieldParry(*defense, true, m_chargeSettings);
-        else if (!wasBlocking && m_offhand.shield.blocking() && !m_blockCharge.isCharged())
-            Combat::openShieldParry(*defense, false, m_chargeSettings);
-        Combat::syncShieldDefense(*defense, m_offhand.shield, m_playLookYaw);
-    }
-
-    PlayerMotorInput motorIn{};
-    PlayMotorEdges edges{};
-    edges.sprintDown    = input().actionDown("sprint");
-    edges.crouchPressed = input().actionPressed("crouch");
-    edges.crouchDown    = input().actionDown("crouch");
-    edges.jumpPressed   = input().actionPressed("jump");
-    edges.jumpDown      = input().actionDown("jump");
-    edges.forward       = input().actionPressed("dodge_forward");
-    edges.back          = input().actionPressed("dodge_back");
-    edges.left          = input().actionPressed("dodge_left");
-    edges.right         = input().actionPressed("dodge_right");
-    const bool sprintAllowed = canSteer && !jumpBusy && !uiKeys;
-    buildPlayMotorInput(motorIn, m_crouchLatch, wish, flat, right, canSteer, jumpBusy, uiKeys, inAirCommit, jump, sprintAllowed, edges);
-    const bool onGround = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch || motor->state() == PlayerMoveState::Dodge);
-    const Terrain::GroundContact groundSurf = (onGround && xf) ? groundContactAt(xf->position.x, xf->position.z) : Terrain::GroundContact{};
-    float speedScale        = (status ? status->moveSpeedScale() : 1.0f) * m_offhand.shield.speedScale() * (onGround ? groundSurf.moveSpeed : 1.0f);
-    if (partVolumes)
-        speedScale = Combat::hitVolumesSpeedScale(partVolumes, speedScale);
-    motorIn.speedScale = speedScale;
-    if (skills)
-    {
-        motorIn.runScale  = skillScalar(SkillId::Run, SkillScalar::RunScale, skills->level(SkillId::Run));
-        motorIn.swimScale = skillScalar(SkillId::Swim, SkillScalar::SwimScale, skills->level(SkillId::Swim));
-        motorIn.jumpScale = skillScalar(SkillId::Jump, SkillScalar::JumpScale, skills->level(SkillId::Jump));
-    }
-
-    m_playGroundProbeY = xf->position.y;
-    m_playGroundIgnore = m_physics.valid() ? m_physics.bodyOf(body) : Physics::kNullPhysicsBody;
-
-    PlayerGroundQuery ground{};
-    ground.user    = this;
-    ground.waterY  = -1.0e9f;
-    ground.heightAt = [](void* user, float x, float z) {
-        return static_cast<const EditorApp*>(user)->playGroundHeight(x, z);
-    };
-    const PlayWallProbe walls{ &m_physics, m_playGroundIgnore, m_physicsGround };
-    bindWallProbe(ground, walls);
-
-    const Vector3f before = xf->position;
-    PlayerMotorResult motorOut{};
-    if (motor)
-        motorOut = motor->tick(xf->position, motorIn, dt, ground);
-    Vector3f hitSlide{};
-    if (hitRx)
-    {
-        hitSlide = hitRx->tick(dt);
-        xf->position += hitSlide;
-    }
-    if (Combat::HitVolumesComponent* volumes = world().get<Combat::HitVolumesComponent>(body))
-        Combat::tickHitVolumes(*volumes, dt);
-
-    if (inAirCommit && jump && motor)
-    {
-        Vector3f vel = motor->velocity();
-        jump->applyAirSteering(vel, xf->position, flat, nullptr, false, dt);
-        motor->setHorizontalVelocity(vel.x, vel.z);
-        if (jump->phase() == Combat::JumpAttackPhase::Connected)
-        {
-            Entity tgt = jump->connectedTarget();
-            if (const TransformComponent* tx = tgt.valid() ? world().get<TransformComponent>(tgt) : nullptr)
-                jump->applyConnectSnap(xf->position, tx->position, dt);
-        }
-    }
-
-    ensurePlayPhysicsVolumes();
-    Physics::syncFoliageCollision(m_physics, m_foliageCollision, m_terrain, &m_foliage, xf->position.x, xf->position.z);
-
-    Vector3f delta{ xf->position.x - before.x, 0.0f, xf->position.z - before.z };
-    if (delta.MagnitudeSqrd() > 1.0e-10f && !motorOut.climbed)
-    {
-        auto livePhysics = [&](Entity solid) {
-            const PhysicsBodyComponent* body = world().get<PhysicsBodyComponent>(solid);
-            return body && body->valid && body->mode != PhysicsBodyMode::Static && m_physics.bodyValid(body->body);
-        };
-        Sphere3f ball{ Vector3f{ before.x, xf->position.y, before.z }, kPlayBodyRadius };
-        float bestT = 1.0f;
-        for (size_t i = 0; i < m_playCubes.size(); ++i)
-        {
-            if (i < m_playCubeEntities.size() && livePhysics(m_playCubeEntities[i]))
-                continue;
-            if (Dark::Collision::Intersects(ball, m_playCubes[i]))
-                continue;
-            const Dark::Collision::SweptHit3D hit = Dark::Collision::SweptIntersects(ball, delta, m_playCubes[i]);
-            if (hit.hit && hit.t < bestT)
-                bestT = hit.t;
-        }
-        for (size_t i = 0; i < m_playSpheres.size(); ++i)
-        {
-            if (i < m_playSphereEntities.size() && livePhysics(m_playSphereEntities[i]))
-                continue;
-            if (Dark::Collision::Intersects(ball, m_playSpheres[i]))
-                continue;
-            const Dark::Collision::SweptHit3D hit = Dark::Collision::SweptIntersects(ball, delta, m_playSpheres[i]);
-            if (hit.hit && hit.t < bestT)
-                bestT = hit.t;
-        }
-        // Origin sits groundOffset (0.5 m) above the feet. The capsule bottom is just above the floor.
-        bestT = tightenPlanarClip(m_physics, m_physics.bodyOf(body), m_physicsGround, Vector3f{ before.x, xf->position.y, before.z }, delta, bestT);
-        commitPlanarClip(xf->position, before, delta, bestT, dt, motor);
-    }
-    if (motor && skills)
-    {
-        MotorXpSample sample{};
-        sample.state        = motor->state();
-        sample.sprint       = motorIn.sprint;
-        sample.crouch       = motorIn.crouch;
-        sample.dodged       = motorOut.dodged;
-        sample.jumped       = motorOut.jumped;
-        sample.doubleJump   = motorOut.doubleJumped;
-        sample.jumpBusy     = jump && jump->busy();
-        sample.planarMetres = locomotionMetres(xf->position - before, hitSlide);
-        noteMotorXp(*skills, sample);
-    }
-
-    if (jump)
-        jump->tick(dt);
-    if (jump && motorOut.splashed)
-        jump->onSplashed();
-    else if (jump && motorOut.landed)
-    {
-        jump->onLanded(xf->position);
-        Combat::DamageEvent pound[8]{};
-        const int n = jump->tryPound(makePlayWeaponQuery(), xf->position, pound, 8);
-        if (n > 0)
-            resolvePlayHits(pound, n);
-    }
-    else if (jump && jump->phase() == Combat::JumpAttackPhase::Leap)
-    {
-        Combat::DamageEvent ev{};
-        if (jump->tryConnect(makePlayWeaponQuery(), xf->position, flat, ev))
-            resolvePlayHits(&ev, 1);
-    }
-    if (poise)
-        poise->hyperArmor = inAirCommit;
-
-    if (canSteer && flat.MagnitudeSqrd() > 1.0e-6f)
-        xf->rotation = Quaternion::FromLookRotation(flat, Vector3f::Y_AXIS);
-    if (canSteer && motor && motor->swimPose() > 1.0e-4f)
-        xf->rotation = swimBodyRotation(xf->rotation, motor->swimPose());
-    const bool blockStriking = defense && defense->chargedParry && defense->inParryWindow();
-    stepChargeWindup(m_chargeWindup, dt,
-        m_attackCharge.phase() != Combat::HoldChargePhase::Idle, m_attackCharge.heldSeconds(), m_chargeSettings.attackWindowSeconds,
-        m_blockCharge.phase() != Combat::HoldChargePhase::Idle, m_blockCharge.heldSeconds(), m_chargeSettings.blockWindowSeconds,
-        blockStriking);
-    if (TransformComponent* shieldXf = m_playShield.valid() ? world().get<TransformComponent>(m_playShield) : nullptr)
-        placePlayerShield(*shieldXf, *xf, m_offhand.shield.alpha(), m_chargeWindup.block, m_chargeWindup.blockStrike);
-
-    if (motorOut.jumped)
-        playSoundCue(world(), audio(), assets(), body, "jump");
-    if (motorOut.landed)
-        playSoundCue(world(), audio(), assets(), body, "land");
-    if (motorOut.landed)
-        m_playFootstepAcc = 0.0f;
-    const float stepSpeed = Vector3f{ xf->position.x - before.x, 0.0f, xf->position.z - before.z }.Magnitude() / Math::Max(dt, 1.0e-4f);
-    const bool  stepping  = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch) && stepSpeed > 2.0f;
-    if (stepping)
-    {
-        const Terrain::GroundContact stepGround = groundContactAt(xf->position.x, xf->position.z);
-        m_playFootstepAcc += dt * stepSpeed * 0.35f;
-        if (m_playFootstepAcc >= 1.0f)
-        {
-            m_playFootstepAcc = 0.0f;
-            const char* cue = (stepGround.cue && stepGround.cue[0]) ? stepGround.cue : "step";
-            Vector3f facing = flat;
-            if (facing.MagnitudeSqrd() <= 1.0e-6f)
-                facing = xf->rotation.Rotate(Vector3f::Z_AXIS);
-            spawnFootmark(xf->position, facing);
-            if (!playSoundCue(world(), audio(), assets(), body, cue))
-                playSoundCue(world(), audio(), assets(), body, "step");
-        }
-    }
-    else
-        m_playFootstepAcc = 0.0f;
-
-    if (AnimGraphComponent* ag = world().get<AnimGraphComponent>(body))
-    {
-        AimLocomotion aim{};
-        if (motor && !(hp && !hp->alive()))
-            aim = aimLocomotion(motor->velocity(), xf->rotation);
-        const bool crouched = motor && motor->state() == PlayerMoveState::Crouch;
-        if (crouched)
-        {
-            aim.strafe   = 0.0f;
-            aim.backward = false;
-        }
-        ag->graph.setBool("crouch", crouched);
-        const bool swimming = motor && motor->state() == PlayerMoveState::Swimming;
-        const bool standingUp = motor && motor->posture() == SwimPosture::Standing;
-        if (swimming || standingUp)
-        {
-            aim.strafe   = 0.0f;
-            aim.backward = false;
-            aim.lowerYaw = 0.0f;
-        }
-        ag->graph.setFloat("speed", aim.speed);
-        ag->graph.setFloat("strafe", aim.strafe);
-        ag->graph.setBool("backward", aim.backward);
-        ag->graph.setBool("swimming", swimming);
-        ag->graph.setBool("swimMove", motor && motor->swimPushing());
-        if (motorOut.splashed)
-            ag->graph.setTrigger("dive");
-        if (motorOut.stood)
-            ag->graph.setTrigger("standup");
-        m_playLowerBodyYaw = approachAngle(m_playLowerBodyYaw, aim.lowerYaw, 10.0f, dt);
-        ag->graph.player().setLowerBodyYaw(m_playLowerBodyYaw);
-        ag->graph.player().setChargeWindup(m_chargeWindup.attack, m_chargeWindup.block, m_chargeWindup.blockStrike);
-        const float playScale = (motor && motor->state() == PlayerMoveState::Dodge) ? motor->settings().dodgeAnimSpeed : 1.0f;
-        ag->graph.setPlaybackScale(playScale);
-    }
-
-    updatePlayCamera();
-    {
-        CarryView carry{};
-        carry.world      = &world();
-        carry.carrier    = body;
-        carry.look       = m_camera.GetLook();
-        carry.heightAt   = &EditorApp::playCarryHeight;
-        carry.heightUser = this;
-        const std::vector<AABox3f>& volumes = m_ai.concealVolumes();
-        carry.conceal      = volumes.empty() ? nullptr : volumes.data();
-        carry.concealCount = static_cast<int>(volumes.size());
-        tickCarriedBody(carry);
-    }
-    syncPlayerFlashlight(world(), body, m_camera.GetPosition(), m_camera.GetLook(), m_camera.GetRight(), m_camera.GetUp(), m_offhand.lightOn);
-
-    world().each<Combat::PoiseComponent>([&](Entity e, Combat::PoiseComponent& p) {
-        if (body.valid() && e.id() == body.id())
-            return;
-        p.tick(dt);
-    });
-
-    if (hp && hp->alive() && !inAirCommit)
-        applyContactGrind(world(), m_combat, body, xf->position, dt);
-
-    WeaponLoadoutComponent* wlc = world().get<WeaponLoadoutComponent>(body);
-    if (wlc && wlc->loadout)
-        wlc->loadout->tick(dt, makePlayWeaponQuery());
-
-    if (input().actionPressed("weapon_1") && wlc && wlc->loadout && wlc->loadout->selectMelee())
-        wlc->slot = wlc->loadout->slot();
-    if (input().actionPressed("weapon_2") && wlc && wlc->loadout && wlc->loadout->selectProjectile())
-        wlc->slot = wlc->loadout->slot();
-    if (input().actionPressed("weapon_3") && wlc && wlc->loadout && wlc->loadout->selectSlot(2, throwableBelt(world(), body)))
-        wlc->slot = wlc->loadout->slot();
-
-    if (m_jumpAttackBuffer > 0.0f)
-        m_jumpAttackBuffer = Math::Max(0.0f, m_jumpAttackBuffer - dt);
-
-    const bool attackPressed = input().actionPressed("attack") || (pointerFree && input().actionMousePressed("attack"));
-    const bool fireQuick     = m_fireQuick;
-    const bool fireCharged   = m_fireCharged;
-    m_fireQuick   = false;
-    m_fireCharged = false;
-    const bool airborne = motor && (motor->state() == PlayerMoveState::Jumping || motor->state() == PlayerMoveState::Falling);
-    WeaponAttackInput attackQuery{};
-    attackQuery.airborne      = airborne;
-    attackQuery.attackPressed = attackPressed;
-    attackQuery.jumpBuffered  = m_jumpAttackBuffer > 0.0f;
-    attackQuery.fireQuick     = fireQuick;
-    attackQuery.fireCharged   = fireCharged;
-    attackQuery.ccLocked      = ccLocked;
-    attackQuery.jumpBusy      = jumpBusy;
-    if (const WeaponLoadoutComponent* held = world().get<WeaponLoadoutComponent>(body))
-    {
-        if (held->loadout)
-            classifyWeaponAttack(attackQuery, held->loadout->activeKind());
-    }
-    const WeaponAttackDecision decision = decideWeaponAttack(attackQuery);
-    auto noteSenses = [&]() {
-        if (!senseAlive)
-            return;
-        if (SkillComponent* sk = world().get<SkillComponent>(body))
-        {
-            const bool foreign = audio().liveForeignSpatialVoices(body.id()) > 0;
-            notePlayerSenseXp(*sk, sk->seeArmed, m_offhand.lightOn, foreign, dt);
-        }
-    };
-    if (ccLocked || jumpBusy)
-    {
-        if (ccLocked)
-            m_jumpAttackBuffer = 0.0f;
-        noteSenses();
-        return;
-    }
-    auto tryBegin = [&]() -> bool {
-        if (!jump || !motor)
-            return false;
-        const float groundY     = m_terrain.heightAtWorld(xf->position.x, xf->position.z);
-        const float heightAbove = xf->position.y - groundY - motor->settings().groundOffset;
-        if (heightAbove < jump->def().minHeight && motor->airTime() < jump->def().minAirTime)
-            return false;
-        Combat::JumpAttackBegin req{};
-        req.attacker          = body;
-        req.position          = xf->position;
-        req.lookFlat          = flat;
-        req.velocity          = motor->velocity();
-        req.heightAboveGround = heightAbove;
-        req.airTime           = motor->airTime();
-        if (!jump->begin(req))
-            return false;
-        motor->clearJumpBuffer();
-        if (AnimGraphComponent* ag = world().get<AnimGraphComponent>(body))
-            ag->graph.setTrigger("jump_attack");
-        return true;
-    };
-    if (airborne)
-    {
-        if (decision.beginJumpAttack)
-        {
-            if (tryBegin())
-                m_jumpAttackBuffer = 0.0f;
-            else if (attackPressed)
-                m_jumpAttackBuffer = kJumpBuf;
-        }
-        if (decision.throwOnRelease)
-        {
-            m_jumpAttackBuffer = 0.0f;
-            releaseThrowable(fireCharged);
-        }
-        noteSenses();
-        return;
-    }
-    if (decision.throwOnRelease)
-    {
-        m_jumpAttackBuffer = 0.0f;
-        releaseThrowable(fireCharged);
-    }
-    else if (decision.fireLoadoutOnRelease)
-    {
-        m_jumpAttackBuffer = 0.0f;
-        firePlayLoadout(fireCharged);
-    }
-    else if (m_jumpAttackBuffer > 0.0f)
-    {
-        m_jumpAttackBuffer = 0.0f;
-        firePlayLoadout(false);
-    }
-    noteSenses();
-}
 
 Terrain::GroundContact EditorApp::groundContactAt(float x, float z) const
 {
@@ -1275,6 +707,8 @@ Entity EditorApp::spawnSpawnerUnit(Entity spawner, const SpawnerRequest& req)
     mark.spawner = spawner;
     mark.slot    = req.slot;
     world().emplace<SpawnedUnitComponent>(e, mark);
+    if (!wolf)
+        m_play.stockHunter(e);
     return e;
 }
 
@@ -1293,76 +727,7 @@ void EditorApp::applyAuthoredStealth()
     applySceneStealth(m_stealth, m_ai, m_authoredStealth);
 }
 
-void EditorApp::tickEditorHunters(float dt)
-{
-    if (m_sceneMode != SceneMode::Scene3D || dt <= 0.0f)
-        return;
-    Entity player = (m_playPlayer.valid() && world().alive(m_playPlayer)) ? m_playPlayer : findPlayPlayer();
-    if (!player.valid())
-        return;
-    if (const PlayerMotorComponent* pmc = world().get<PlayerMotorComponent>(player))
-        applyPreyFromMotor(m_ai, m_stealth, &pmc->motor, input().actionDown("sprint"));
-    if (!m_ai.walkability().valid())
-        bakePlayWalkability();
-    m_ai.setJumpAttackHits(&EditorApp::onPlayJumpHitsThunk, this);
-    m_ai.setHunterCue(&EditorApp::onPlayHunterCueThunk, this);
-    const Terrain::TerrainGrid* grid = (m_haveTerrain && m_terrain.valid()) ? &m_terrain : nullptr;
-    bindHunterGround(m_ai, &m_ground, grid);
-    m_ai.tickHunters(world(), m_terrain, false, dt, player, m_playCubes.empty() ? nullptr : m_playCubes.data(),
-                     static_cast<int>(m_playCubes.size()), m_playSpheres.empty() ? nullptr : m_playSpheres.data(),
-                     static_cast<int>(m_playSpheres.size()));
-}
 
-void EditorApp::updatePawnAnims()
-{
-    Entity player = (m_playPlayer.valid() && world().alive(m_playPlayer)) ? m_playPlayer : findPlayPlayer();
-    const TransformComponent* pxf = player.valid() ? world().get<TransformComponent>(player) : nullptr;
-    world().each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
-        AnimGraphComponent* ag = world().get<AnimGraphComponent>(e);
-        if (!ag)
-            return;
-        const HealthComponent* hp    = world().get<HealthComponent>(e);
-        const bool             alive = hp && hp->health.alive();
-        if (ag->graphDef)
-            ag->graph.setBool("dead", !alive);
-        TransformComponent* xf = world().get<TransformComponent>(e);
-        if (alive && xf)
-        {
-            Vector3f fwd = ai.forward;
-            fwd.y        = 0.0f;
-            if (fwd.MagnitudeSqrd() > 1.0e-6f)
-            {
-                fwd.Normalize();
-                xf->rotation = Quaternion::FromLookRotation(fwd, Vector3f::Y_AXIS);
-            }
-        }
-        if (!ag->graphDef)
-            return;
-        bool standoff = false;
-        if (alive && xf && pxf)
-        {
-            const float dx = xf->position.x - pxf->position.x;
-            const float dz = xf->position.z - pxf->position.z;
-            standoff       = (dx * dx + dz * dz) <= (2.25f * 2.25f);
-        }
-        const BrainComponent* brain = world().get<BrainComponent>(e);
-        const AI::Leaf        leaf  = (brain && brain->brain) ? brain->brain->leaf() : AI::Leaf::Wander;
-        LocomotionSample      loco{};
-        if (alive && xf)
-            loco = locomotionSample(ai.planarVelocity, xf->rotation);
-        ag->graph.setFloat("speed", loco.speed);
-        ag->graph.setFloat("strafe", loco.strafe);
-
-        if (alive && standoff && leaf == AI::Leaf::Chase)
-        {
-            const char* clip = ag->graph.player().clipName();
-            if (!clip
-                || (std::strcmp(clip, "SwingSword") != 0 && std::strcmp(clip, "Bite") != 0 && std::strcmp(clip, "Die") != 0
-                    && std::strcmp(clip, "Jump") != 0))
-                ag->graph.setTrigger("swing");
-        }
-    });
-}
 
 void EditorApp::drawPlayHud()
 {
@@ -1419,13 +784,14 @@ void EditorApp::drawPlayHud()
                 ++wolvesAlive;
         }
     });
-    const char* offhand = m_offhand.lightOn ? "Flashlight" : "Off hand stowed";
-    if (m_blockCharge.isCharged())
+    const PlayRuntime& rt = m_play.runtime();
+    const char* offhand = rt.offhand.lightOn ? "Flashlight" : "Off hand stowed";
+    if (rt.blockCharge.isCharged())
         offhand = "Shield charged";
-    else if (m_offhand.shield.blocking())
+    else if (rt.offhand.shield.blocking())
         offhand = "Shield up";
     ImGui::TextUnformatted(offhand);
-    if (m_attackCharge.isCharged())
+    if (rt.attackCharge.isCharged())
         ImGui::TextUnformatted("Attack charged");
     if (const PlayerMotorComponent* pmc = m_playPlayer.valid() ? world().get<PlayerMotorComponent>(m_playPlayer) : nullptr)
     {

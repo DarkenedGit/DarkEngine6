@@ -26,7 +26,7 @@ namespace Dark
         return grid->raycast(ray, maxDistance);
     }
 
-    // Third-person boom. shake and wetClamp are sandbox-owned; editor play passes zeros and wetClamp false.
+    // Third-person boom. PlaySession passes shake and wetClamp for both apps.
     // A null raycast skips the terrain shorten.
     inline ShoulderView solveShoulderCamera(const Math::Vector3f& feet, float yaw, float pitch, bool crouched, float shake, float shakeTime, bool wetClamp, float waterLevel,
                                             Collision::RayHit3D (*raycast)(void* user, const Math::Ray3f& ray, float maxDistance), void* rayUser)

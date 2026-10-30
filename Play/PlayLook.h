@@ -16,7 +16,7 @@ namespace Dark
         Math::Vector3f wish{ Math::Vect3f::ZERO };
     };
 
-    // Mouse is pixels. Pad yaw/pitch are already signed by the caller (editor negates pad pitch).
+    // Mouse is pixels. Pad yaw/pitch are already signed by the caller.
     inline void accumulatePlayLook(float& yaw, float& pitch, float mouseX, float mouseY, bool applyMouse, float padYaw, float padPitch, float dt)
     {
         constexpr float kMouseSens = 0.0045f;

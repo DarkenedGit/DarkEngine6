@@ -1020,6 +1020,8 @@ void EditorApp::drawInspector3D()
 
 void EditorApp::onUpdate(float dt)
 {
+    if (m_playMode)
+        dt = m_play.scaleDt(dt);
     const NetRole role = network().role();
     if (role == NetRole::Joining && m_lastNetRole != NetRole::Joining)
         discardLocalSceneForJoin();
@@ -1035,17 +1037,15 @@ void EditorApp::onUpdate(float dt)
     window().setCursorCaptured(m_playMode && window().isFocused());
     if (m_playMode)
     {
-        updatePlay(dt);
-        tickSpawners(dt);
-        tickCrows(dt);
-        tickEditorHunters(dt);
-        syncArmorVisuals(world());
-        Combat::harvestAndResolveDots(world(), m_combat);
-        tickStatusFx(world(), &audio(), &assets());
-        updatePawnAnims();
-        if (m_playMode)
-            simulatePhysics(dt);
-        m_save.service(world());
+        if (!m_playPlayer.valid() || !world().alive(m_playPlayer))
+            setPlayMode(false);
+        else
+        {
+            m_play.tickPawn(dt);
+            m_play.tickCamera();
+            m_play.tickWorld(dt);
+            m_save.service(world());
+        }
     }
     else
     {
@@ -1082,7 +1082,7 @@ void EditorApp::onUpdate(float dt)
         });
         tickAnimGraphs(world(), assets(), dt);
         if (m_playMode)
-            syncThrowableHands(world(), pins(), assets(), renderer());
+            m_play.tickHeldItems();
     }
 
     tickParticleEmitters(world(), dt);

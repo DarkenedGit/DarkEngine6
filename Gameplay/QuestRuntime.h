@@ -8,7 +8,7 @@ namespace Dark
 
     class World;
 
-    // Owns the quest tracker. Apps still draw banners from takeNotes().
+    // Owns the quest tracker. PlaySession takes notes, grants rewards, and forwards each note for banners.
     class QuestRuntime
     {
     public:

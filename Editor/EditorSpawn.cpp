@@ -782,6 +782,7 @@ void EditorApp::clearScene()
         }
     }
     m_selected = {};
+    m_sceneQuest.clear();
     m_dragging = false;
     if (m_playMode)
         setPlayMode(false);

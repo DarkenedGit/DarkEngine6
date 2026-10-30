@@ -196,8 +196,6 @@ bool tryCreateTerrainFromContent(Renderer& renderer, AssetManager& assets, const
     return material.create(renderer, desc, std::move(splatTex));
 }
 
-constexpr float kDeathSeconds           = 2.5f;
-constexpr float kSpawnFocusSeconds      = 1.75f;
 constexpr float kNightSightBlendSeconds = 0.5f;
 constexpr float kInfraredBlendSeconds   = 0.5f;
 constexpr float kUltravioletBlendSeconds = 0.5f;
@@ -399,6 +397,261 @@ void attachSandboxCubeModel(World& world, AssetPinTable& pins, AssetManager& ass
     setModelComponent(world, pins, assets, e, mc);
 }
 
+SandboxApp::SandboxApp(const Dark::AppConfig& cfg)
+    : Application(cfg)
+    , m_offhand(m_play.runtime().offhand)
+    , m_chargeSettings(m_play.runtime().chargeSettings)
+    , m_attackCharge(m_play.runtime().attackCharge)
+    , m_blockCharge(m_play.runtime().blockCharge)
+    , m_chargeWindup(m_play.runtime().chargeWindup)
+    , m_fireQuick(m_play.runtime().fireQuick)
+    , m_fireCharged(m_play.runtime().fireCharged)
+    , m_throwFlights(m_play.runtime().throws)
+    , m_hitStop(m_play.runtime().hitStop)
+    , m_shake(m_play.runtime().shake)
+    , m_shakeTime(m_play.runtime().shakeTime)
+    , m_swingCharged(m_play.runtime().swingCharged)
+    , m_swingLock(m_play.runtime().swingLock)
+    , m_comboWindow(m_play.runtime().comboWindow)
+    , m_comboStep(m_play.runtime().comboStep)
+    , m_comboCount(m_play.runtime().comboCount)
+    , m_faceYaw(m_play.runtime().faceYaw)
+    , m_faceLeft(m_play.runtime().faceLeft)
+    , m_blockRecoil(m_play.runtime().blockRecoil)
+    , m_quest(m_play.quest())
+    , m_shieldBump(m_play.runtime().shieldBump)
+    , m_weaponTargets(m_play.targets())
+    , m_groundProbeY(m_play.runtime().groundProbeY)
+    , m_lookYaw(m_play.runtime().lookYaw)
+    , m_lookPitch(m_play.runtime().lookPitch)
+    , m_lowerBodyYaw(m_play.runtime().lowerBodyYaw)
+    , m_playerWet(m_play.runtime().wet)
+    , m_playerSubmerged(m_play.runtime().submerged)
+    , m_swimDiveEdge(m_play.runtime().swimDiveEdge)
+    , m_swimStandEdge(m_play.runtime().swimStandEdge)
+    , m_underAmount(m_play.runtime().underAmount)
+    , m_footstepAcc(m_play.runtime().footstepAcc)
+    , m_playerSpawn(m_play.runtime().spawn)
+    , m_havePlayerSpawn(m_play.runtime().haveSpawn)
+    , m_playerDeadTimer(m_play.runtime().deadTimer)
+    , m_spawnAge(m_play.runtime().spawnAge)
+    , m_hurtSoundTimer(m_play.runtime().hurtTimer)
+    , m_jumpAttackBuffer(m_play.runtime().jumpAttackBuffer)
+    , m_crouchLatch(m_play.runtime().crouchLatch)
+{
+    m_play.bind(&SandboxApp::fillPlayHost, this);
+}
+
+void SandboxApp::fillPlayHost(void* user, PlayHost& host)
+{
+    auto* app = static_cast<SandboxApp*>(user);
+    if (!app)
+        return;
+    host.world     = &app->world();
+    host.renderer  = &app->renderer();
+    host.scene     = &app->m_scene;
+    host.assets    = &app->assets();
+    host.pins      = &app->pins();
+    host.audio     = &app->audio();
+    host.physics   = app->m_physics.valid() ? &app->m_physics : nullptr;
+    host.ai        = &app->m_chase.ai();
+    host.camera    = &app->m_viewCamera;
+    host.input     = &app->input();
+    host.terrain   = &app->m_terrain;
+    host.ground    = &app->m_ground;
+    host.groundBody = app->m_physicsGround;
+    host.guardVoice = &app->m_guardVoice;
+    host.crows     = &app->m_crowModels;
+    host.foliageCollision = &app->m_foliageCollision;
+    host.foliage   = app->m_foliage.empty() ? nullptr : &app->m_foliage;
+
+    host.player       = app->possessedBody();
+    host.shield       = app->m_shield;
+    host.cameraEntity = app->m_camera;
+    host.muzzle       = app->m_muzzle;
+    host.session      = app->m_session;
+
+    host.waterLevel   = app->m_water.params().waterLevel;
+    host.sunElevation = app->m_env.sunElevation();
+    host.sunDir       = app->m_env.sunDir();
+    host.cloudTime    = app->m_cloudTime;
+
+    host.groundProbeY = &app->m_groundProbeY;
+    host.groundIgnore = &app->m_groundIgnore;
+    host.lightLevel   = &app->m_lightLevel;
+    host.exposure     = &app->m_exposure;
+    host.strideLeft   = &app->m_strideLeft;
+    host.stealth      = &app->m_stealth;
+    host.camouflage   = app->m_camouflage;
+
+    const bool ui    = app->uiOpen();
+    const bool imgui = app->m_imgui.isReady();
+    host.uiKeys            = ui && imgui && app->m_imgui.wantCaptureKeyboard();
+    host.applyMouseLook    = !ui;
+    host.allowMouseButtons = !ui;
+    host.uiMouse           = ui && imgui && app->m_imgui.wantCaptureMouse();
+    host.chaseReady        = app->m_chaseOk;
+
+    const std::vector<AABox3f>& cubes = app->m_chase.cubes();
+    host.cubes      = cubes.empty() ? nullptr : cubes.data();
+    host.cubeCount  = static_cast<int>(cubes.size());
+    host.spheres    = nullptr;
+    host.sphereCount = 0;
+
+    host.stepPhysics   = &SandboxApp::stepPlayPhysics;
+    host.onMuzzle      = &SandboxApp::onPlayMuzzle;
+    host.onBloodBurst  = &SandboxApp::onPlayBloodBurst;
+    host.onBloodSplat  = &SandboxApp::onPlayBloodSplat;
+    host.onRespawn     = &SandboxApp::onPlayRespawn;
+    host.onQuestNote   = &SandboxApp::onPlayQuestNote;
+    host.onDefenseText = &SandboxApp::onPlayDefenseText;
+    host.onLoot        = &SandboxApp::onPlayLoot;
+    host.spawnUnit     = &SandboxApp::onPlaySpawnUnit;
+    host.heightAt      = &SandboxApp::onPlayHeight;
+    host.groundContact = &SandboxApp::onPlayGroundContact;
+    host.user          = app;
+}
+
+void SandboxApp::stepPlayPhysics(void* user, float dt)
+{
+    auto* app = static_cast<SandboxApp*>(user);
+    if (!app || !app->m_physics.valid())
+        return;
+    app->m_physics.pushPoses(app->world(), false);
+    app->m_physics.step(dt, app->world());
+    app->m_physics.writeDynamicPoses(app->world());
+}
+
+void SandboxApp::onPlayMuzzle(void* user)
+{
+    if (auto* app = static_cast<SandboxApp*>(user))
+        app->pulseMuzzle();
+}
+
+void SandboxApp::onPlayBloodBurst(void* user, const Vector3f& pos)
+{
+    if (auto* app = static_cast<SandboxApp*>(user))
+        app->spawnHunterBlood(pos);
+}
+
+void SandboxApp::onPlayBloodSplat(void* user, float x, float z)
+{
+    auto* app = static_cast<SandboxApp*>(user);
+    if (!app)
+        return;
+    app->m_bloodSplats.spawn(x, z, app->m_terrain.coarse());
+}
+
+void SandboxApp::onPlayRespawn(void* user)
+{
+    auto* app = static_cast<SandboxApp*>(user);
+    if (!app)
+        return;
+    app->m_nightSightOn  = false;
+    app->m_nightSight    = 0.0f;
+    app->m_infraredOn    = false;
+    app->m_infrared      = 0.0f;
+    app->m_ultravioletOn = false;
+    app->m_ultraviolet   = 0.0f;
+    app->m_echoOn        = false;
+    app->m_echo          = 0.0f;
+    app->m_echoHaveChirp = false;
+    app->m_echoCapture   = false;
+}
+
+void SandboxApp::onPlayQuestNote(void* user, const QuestNoteEvent& note)
+{
+    auto* app = static_cast<SandboxApp*>(user);
+    if (!app)
+        return;
+    const auto color = [](uint32_t r, uint32_t g, uint32_t b) { return 0xFF000000u | (b << 16) | (g << 8) | r; };
+    QuestBanner banner;
+    banner.text = note.text;
+    switch (note.kind)
+    {
+    case QuestNote::Started:
+        banner.label = "NEW QUEST";
+        banner.color = color(240, 205, 110);
+        break;
+    case QuestNote::NewObjective:
+        banner.label = "NEW OBJECTIVE";
+        banner.color = color(235, 235, 235);
+        break;
+    case QuestNote::ObjectiveDone:
+        banner.label = "OBJECTIVE COMPLETE";
+        banner.color = color(120, 230, 140);
+        break;
+    case QuestNote::QuestDone:
+        banner.label = "QUEST COMPLETE";
+        banner.color = color(240, 205, 110);
+        break;
+    }
+    if (note.kind != QuestNote::NewObjective || app->m_questBanners.size() < 4)
+        app->m_questBanners.push_back(std::move(banner));
+}
+
+void SandboxApp::onPlayDefenseText(void* user, bool parried)
+{
+    auto* app = static_cast<SandboxApp*>(user);
+    if (!app)
+        return;
+    app->m_defenseText     = parried ? "PARRY!" : "BLOCKED";
+    app->m_defenseTextLeft = 0.7f;
+}
+
+void SandboxApp::onPlayLoot(void* user, Entity loot)
+{
+    if (auto* app = static_cast<SandboxApp*>(user))
+        app->m_lootTarget = loot;
+}
+
+Entity SandboxApp::onPlaySpawnUnit(void* user, Entity spawner, const SpawnerRequest& req)
+{
+    auto* app = static_cast<SandboxApp*>(user);
+    return app ? app->spawnSpawnerUnit(spawner, req) : Entity{};
+}
+
+float SandboxApp::onPlayHeight(void* user, float x, float z)
+{
+    auto* app = static_cast<SandboxApp*>(user);
+    return app ? app->playerGroundHeight(x, z) : 0.0f;
+}
+
+Terrain::GroundContact SandboxApp::onPlayGroundContact(void* user, float x, float z)
+{
+    auto* app = static_cast<SandboxApp*>(user);
+    return app ? app->groundContactAt(x, z) : Terrain::GroundContact{};
+}
+
+void SandboxApp::startQuest(const std::string& id)
+{
+    m_play.startQuest(id);
+}
+
+void SandboxApp::updateQuest(float dt)
+{
+    if (m_questBanners.empty())
+        return;
+    m_questBanners.front().timeLeft -= dt;
+    if (m_questBanners.front().timeLeft <= 0.0f)
+        m_questBanners.erase(m_questBanners.begin());
+}
+
+int SandboxApp::giveItem(InventoryComponent& inv, const ItemStack& item)
+{
+    return grantInventoryItem(world(), audio(), assets(), m_camera, inv, item);
+}
+
+void SandboxApp::stockHunter(Entity hunter)
+{
+    m_play.stockHunter(hunter);
+}
+
+WeaponWorldQuery SandboxApp::makeWeaponQuery()
+{
+    return m_play.weaponQuery();
+}
+
 void SandboxApp::registerDefaultActions()
 {
     ActionMap& a = input().actions();
@@ -491,7 +744,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
     const bool uiKeys = uiOpen() && m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
     // Playing swaps after the charge step. Paused play never reaches that step, so it still swaps here.
     if (!uiKeys && m_gameplayPaused)
-        handleWeaponSwitch();
+        m_play.switchWeapons();
     // Dev tools and inventory become the keyboard-nav target, so WantCaptureKeyboard
     // is set and would swallow the same key that should close them. A text field still owns the key.
     const bool typing = m_imgui.isReady() && m_imgui.wantTextInput();
@@ -517,11 +770,6 @@ void SandboxApp::handleRuntimeCommands(float dt)
         m_showJournal = !m_showJournal;
         playSoundCue(world(), audio(), assets(), m_camera, "click");
     }
-    if (!uiKeys && input().actionPressed("pickup"))
-        pickUpNearestItem();
-    if (!uiKeys && input().actionPressed("takedown"))
-        tryTakedown();
-
     if (!uiKeys && input().actionPressed("camouflage"))
     {
         m_camouflage = !m_camouflage;
@@ -710,8 +958,8 @@ void SandboxApp::handleRuntimeCommands(float dt)
         updateFlyCamera(dt);
     else
     {
-        updatePossessed(dt);
-        updateShoulderCamera();
+        m_play.tickPawn(dt);
+        m_play.tickCamera();
     }
 
     if (m_gameplayPaused && !m_stepGameplay)
@@ -993,104 +1241,6 @@ bool SandboxApp::attachAnimatedCharacter(Entity e, const char* gltfPath)
     return result.attached && result.skinned;
 }
 
-void SandboxApp::updateCharacterAnims(float dt)
-{
-    const Entity body = possessedBody();
-    if (AnimGraphComponent* ag = body.valid() ? world().get<AnimGraphComponent>(body) : nullptr)
-    {
-        if (ag->graphDef)
-        {
-            AimLocomotion aim{};
-            const Health* hp = localHealth();
-            const TransformComponent* xf = world().get<TransformComponent>(body);
-            const bool alive = !(hp && !hp->alive());
-            const PlayerMotor* motor = localMotor();
-            if (xf && alive && motor)
-                aim = aimLocomotion(motor->velocity(), xf->rotation);
-            const bool crouched = motor && motor->state() == PlayerMoveState::Crouch;
-            if (crouched)
-            {
-                aim.strafe   = 0.0f;
-                aim.backward = false;
-            }
-            ag->graph.setBool("crouch", crouched);
-            ag->graph.setBool("climb", motor && motor->state() == PlayerMoveState::WallRun);
-            ag->graph.setBool("hang", motor && motor->state() == PlayerMoveState::Hang);
-            const bool swimming = motor && motor->state() == PlayerMoveState::Swimming;
-            const bool standingUp = motor && motor->posture() == SwimPosture::Standing;
-            if (swimming || standingUp)
-            {
-                aim.strafe    = 0.0f;
-                aim.backward  = false;
-                aim.lowerYaw  = 0.0f;
-            }
-            ag->graph.setFloat("speed", aim.speed);
-            ag->graph.setFloat("strafe", aim.strafe);
-            ag->graph.setBool("backward", aim.backward);
-            ag->graph.setBool("swimming", swimming);
-            ag->graph.setBool("swimMove", motor && motor->swimPushing());
-            if (m_swimDiveEdge)
-                ag->graph.setTrigger("dive");
-            if (m_swimStandEdge)
-                ag->graph.setTrigger("standup");
-            m_swimDiveEdge  = false;
-            m_swimStandEdge = false;
-            m_lowerBodyYaw = approachAngle(m_lowerBodyYaw, aim.lowerYaw, 10.0f, dt);
-            ag->graph.player().setLowerBodyYaw(m_lowerBodyYaw);
-            ag->graph.player().setChargeWindup(m_chargeWindup.attack, m_chargeWindup.block, m_chargeWindup.blockStrike);
-            ag->graph.player().setShieldGuard(m_offhand.shield.alpha());
-            const char* clip      = ag->graph.player().clipName();
-            const float playScale = (motor && motor->state() == PlayerMoveState::Dodge) ? motor->settings().dodgeAnimSpeed
-                                                                                        : locomotionPlaybackScale(clip ? clip : "", aim.speed);
-            ag->graph.setPlaybackScale(playScale);
-        }
-    }
-
-    world().each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
-        AnimGraphComponent* ag = world().get<AnimGraphComponent>(e);
-        if (!ag || !ag->graphDef)
-            return;
-        const HealthComponent* hp = world().get<HealthComponent>(e);
-        const bool alive = hp && hp->health.alive();
-        ag->graph.setBool("dead", !alive);
-
-        TransformComponent* xf = world().get<TransformComponent>(e);
-        if (alive && xf)
-        {
-            Vector3f fwd = ai.forward;
-            fwd.y        = 0.0f;
-            if (fwd.MagnitudeSqrd() > 1.0e-6f)
-            {
-                fwd.Normalize();
-                xf->rotation = Quaternion::FromLookRotation(fwd, Vector3f::Y_AXIS);
-            }
-        }
-
-        LocomotionSample loco{};
-        if (alive && xf)
-            loco = locomotionSample(ai.planarVelocity, xf->rotation);
-        ag->graph.setFloat("speed", loco.speed);
-        ag->graph.setFloat("strafe", loco.strafe);
-
-        const TagComponent* tag  = world().get<TagComponent>(e);
-        const bool          wolf = tag && tag->name == "Wolf";
-        const char*         clip = ag->graph.player().clipName();
-        if (!wolf)
-            ag->graph.setPlaybackScale(locomotionPlaybackScale(clip ? clip : "", loco.speed));
-        if (alive && ai.meleeWindup > 0.0f)
-        {
-            if (wolf || ai.meleeWindup < 0.12f)
-            {
-                if (!clip
-                    || (std::strcmp(clip, "SwingSword") != 0 && std::strcmp(clip, "Bite") != 0 && std::strcmp(clip, "Die") != 0
-                        && std::strcmp(clip, "Jump") != 0))
-                    ag->graph.setTrigger("swing");
-            }
-            else if (!clip || (std::strcmp(clip, "SwingWindup") != 0 && std::strcmp(clip, "SwingSword") != 0))
-                ag->graph.setTrigger("windup");
-        }
-    });
-}
 
 Health* SandboxApp::localHealth()
 {
@@ -1120,259 +1270,20 @@ WeaponLoadout* SandboxApp::localWeapons()
     return (wlc && wlc->loadout) ? wlc->loadout.get() : nullptr;
 }
 
-SandboxApp::InteractPick SandboxApp::pickInteract()
-{
-    InteractPick              best{};
-    const Entity              body = possessedBody();
-    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    if (!pxf || carriedBody(world()).valid())
-        return best;
-    const Vector3f eye  = m_viewCamera.GetPosition();
-    Vector3f       look = m_viewCamera.GetLook();
-    look.Normalize();
-    float bestAim  = 0.94f;
-    auto  consider = [&](InteractKind kind, Entity e, const Vector3f& at, float range) {
-        if (Vector3f{ at.x - pxf->position.x, 0.0f, at.z - pxf->position.z }.MagnitudeSqrd() > range * range)
-            return;
-        Vector3f to = at - eye;
-        if (to.MagnitudeSqrd() < 1.0e-6f)
-            return;
-        to.Normalize();
-        const float aim = look.Dot(to);
-        if (aim <= bestAim)
-            return;
-        bestAim = aim;
-        best    = InteractPick{ kind, e };
-    };
-    world().each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
-        const TagComponent*       tag = world().get<TagComponent>(e);
-        const TransformComponent* gxf = world().get<TransformComponent>(e);
-        const HealthComponent*    hp  = world().get<HealthComponent>(e);
-        if (gxf && hp && !hp->health.alive() && !ai.carried && !(tag && tag->name == "Wolf"))
-            consider(InteractKind::Body, e, gxf->position, 2.2f);
-    });
-    world().each<PowerBoxComponent>([&](Entity e, PowerBoxComponent& box) {
-        const TransformComponent* xf = world().get<TransformComponent>(e);
-        consider(InteractKind::Power, e, xf ? xf->position : box.pos, 2.5f);
-    });
-    world().each<ItemPickupComponent>([&](Entity e, ItemPickupComponent& pickup) {
-        if (const TransformComponent* ixf = world().get<TransformComponent>(e); ixf && !pickup.item.empty())
-            consider(InteractKind::Item, e, ixf->position, 2.2f);
-    });
-    world().each<LootComponent>([&](Entity e, LootComponent& loot) {
-        if (const TransformComponent* ixf = world().get<TransformComponent>(e); ixf && itemCount(loot.contents) > 0)
-            consider(InteractKind::Item, e, ixf->position, 2.2f);
-    });
-    return best;
-}
 
-void SandboxApp::powerClick(void* user)
-{
-    auto* app = static_cast<SandboxApp*>(user);
-    if (!app)
-        return;
-    playSoundCue(app->world(), app->audio(), app->assets(), app->m_camera, "click");
-}
 
-void SandboxApp::setCircuit(Entity breaker, bool on, bool alertGuards)
-{
-    setPowerCircuit(world(), breaker, on, alertGuards, &m_chase.ai().walkability(), m_cloudTime, &m_quest.tracker(), &SandboxApp::powerClick, this);
-}
 
-void SandboxApp::updatePower(float dt)
-{
-    tickPower(world(), dt, &m_chase.ai().walkability(), m_cloudTime, &m_quest.tracker(), &SandboxApp::powerClick, this);
-}
 
-Entity SandboxApp::takedownTarget()
-{
-    const Entity              body = possessedBody();
-    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    if (!pxf || carriedBody(world()).valid() || !m_chaseOk)
-        return {};
-    Entity best{};
-    float  bestD = 2.5f * 2.5f;
-    world().each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
-        const TagComponent*       tag = world().get<TagComponent>(e);
-        const TransformComponent* gxf = world().get<TransformComponent>(e);
-        const HealthComponent*    hp  = world().get<HealthComponent>(e);
-        if (!gxf || !hp || !hp->health.alive() || (tag && tag->name == "Wolf") || ai.aware.alertness == AI::Alertness::Alert)
-            return;
-        const Vector3f to{ pxf->position.x - gxf->position.x, 0.0f, pxf->position.z - gxf->position.z };
-        const float    d = to.MagnitudeSqrd();
-        Vector3f       fwd{ ai.forward.x, 0.0f, ai.forward.z };
-        if (d > bestD || d < 1.0e-6f || std::fabs(pxf->position.y - gxf->position.y) > 1.2f || fwd.MagnitudeSqrd() < 1.0e-6f)
-            return;
-        fwd.Normalize();
-        if (fwd.Dot(to * (1.0f / std::sqrt(d))) > -0.2f)
-            return;
-        best  = e;
-        bestD = d;
-    });
-    return best;
-}
 
-Entity SandboxApp::bodyNear()
-{
-    const Entity              body = possessedBody();
-    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    if (!pxf)
-        return {};
-    Entity best{};
-    float  bestD = 2.0f * 2.0f;
-    world().each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
-        const TagComponent*       tag = world().get<TagComponent>(e);
-        const TransformComponent* gxf = world().get<TransformComponent>(e);
-        const HealthComponent*    hp  = world().get<HealthComponent>(e);
-        if (!gxf || !hp || hp->health.alive() || ai.carried || (tag && tag->name == "Wolf"))
-            return;
-        const float d = Vector3f{ pxf->position.x - gxf->position.x, 0.0f, pxf->position.z - gxf->position.z }.MagnitudeSqrd();
-        if (d > bestD)
-            return;
-        best  = e;
-        bestD = d;
-    });
-    return best;
-}
 
-bool SandboxApp::tryTakedown()
-{
-    const Entity target = takedownTarget();
-    if (!target.valid())
-        return false;
-    m_chase.ai().applyHunterDamage(world(), target, 1.0e6f);
-    if (const TransformComponent* gxf = world().get<TransformComponent>(target))
-        playSoundCueAt(world(), audio(), assets(), target, "grunt", gxf->position);
-    DE_LOG_INFO("Player: takedown");
-    m_quest.event("takedown");
-    return true;
-}
 
-float SandboxApp::carryHeightAt(void* user, float x, float z)
-{
-    return static_cast<SandboxApp*>(user)->m_terrain.heightAtWorld(x, z);
-}
 
-void SandboxApp::carryHidden(void* user)
-{
-    static_cast<SandboxApp*>(user)->m_quest.event("body_hidden");
-}
 
-void SandboxApp::fillCarryView(CarryView& view)
-{
-    const std::vector<AABox3f>& volumes = m_chase.ai().concealVolumes();
-    view.world        = &world();
-    view.carrier      = possessedBody();
-    view.look         = m_viewCamera.GetLook();
-    view.heightAt     = &SandboxApp::carryHeightAt;
-    view.heightUser   = this;
-    view.conceal      = volumes.empty() ? nullptr : volumes.data();
-    view.concealCount = static_cast<int>(volumes.size());
-    view.onHidden     = &SandboxApp::carryHidden;
-    view.user         = this;
-}
 
-bool SandboxApp::toggleCarry(Entity target)
-{
-    CarryView view{};
-    fillCarryView(view);
-    if (carriedBody(world()).valid())
-    {
-        dropCarriedBody(view);
-        return true;
-    }
-    const Entity found = target.valid() ? target : bodyNear();
-    if (!found.valid())
-        return false;
-    if (!takeCarriedBody(world(), possessedBody(), found, &SandboxApp::carryHeightAt, this))
-        return false;
-    DE_LOG_INFO("Player: picked up body");
-    return true;
-}
 
-void SandboxApp::updateCarry()
-{
-    CarryView view{};
-    fillCarryView(view);
-    tickCarriedBody(view);
-}
 
-void SandboxApp::updateGuardFlashlights()
-{
-    tickAttachedLights(world(), m_env.sunElevation());
-}
 
-void SandboxApp::startQuest(const std::string& id)
-{
-    QuestDef    def;
-    std::string error;
-    if (!loadQuestFile(resolveContentFile(questVirtualPath(id)), def, &error))
-    {
-        DE_LOG_ERROR("Quest: could not load '{}': {}", id, error);
-        return;
-    }
-    DE_LOG_INFO("Quest: started '{}' ({} objectives)", def.title, def.objectives.size());
-    m_quest.start(std::move(def));
-}
 
-namespace
-{
-    constexpr uint32_t questColor(uint32_t r, uint32_t g, uint32_t b) { return 0xFF000000u | (b << 16) | (g << 8) | r; }
-} // namespace
-
-void SandboxApp::updateQuest(float dt)
-{
-    m_quest.tick(world(), possessedBody());
-    for (QuestNoteEvent& note : m_quest.takeNotes())
-    {
-        QuestBanner banner;
-        banner.text = note.text;
-        switch (note.kind)
-        {
-        case QuestNote::Started:
-            banner.label = "NEW QUEST";
-            banner.color = questColor(240, 205, 110);
-            break;
-        case QuestNote::NewObjective:
-            banner.label = "NEW OBJECTIVE";
-            banner.color = questColor(235, 235, 235);
-            break;
-        case QuestNote::ObjectiveDone:
-            banner.label = "OBJECTIVE COMPLETE";
-            banner.color = questColor(120, 230, 140);
-            break;
-        case QuestNote::QuestDone:
-            banner.label = "QUEST COMPLETE";
-            banner.color = questColor(240, 205, 110);
-            break;
-        }
-        DE_LOG_INFO("Quest: {} - {}", banner.label, banner.text);
-        if (note.kind == QuestNote::QuestDone)
-        {
-            const Entity        body = possessedBody();
-            InventoryComponent* inv  = body.valid() ? world().get<InventoryComponent>(body) : nullptr;
-            for (const QuestReward& reward : m_quest.def().rewards)
-            {
-                const ItemDef* def = findItemDef(reward.item);
-                if (!def)
-                {
-                    DE_LOG_WARN("Quest: unknown reward item '{}'", reward.item);
-                    continue;
-                }
-                if (inv)
-                    giveItem(*inv, ItemStack{ def, reward.count });
-            }
-        }
-        if (note.kind != QuestNote::NewObjective || m_questBanners.size() < 4)
-            m_questBanners.push_back(std::move(banner));
-    }
-    if (!m_questBanners.empty())
-    {
-        m_questBanners.front().timeLeft -= dt;
-        if (m_questBanners.front().timeLeft <= 0.0f)
-            m_questBanners.erase(m_questBanners.begin());
-    }
-}
 
 bool SandboxApp::questTarget(Vector3f& out)
 {
@@ -1426,510 +1337,11 @@ bool SandboxApp::questTarget(Vector3f& out)
     return found;
 }
 
-float SandboxApp::playerLightLevel()
-{
-    const Entity              body = possessedBody();
-    const TransformComponent* xf   = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    if (!xf)
-        return 1.0f;
-    const Vector3f chest{ xf->position.x, xf->position.y + 0.45f, xf->position.z };
 
-    float    sun   = Math::Clamp((m_env.sunElevation() + 0.05f) * 3.0f, 0.0f, 1.0f);
-    Vector3f toSun = m_env.sunDir();
-    if (sun > 0.0f && toSun.MagnitudeSqrd() > 1.0e-6f)
-    {
-        toSun.Normalize();
-        const Ray3f ray{ chest, toSun };
-        for (const AABox3f& box : m_chase.cubes())
-        {
-            const Collision::RayHit3D hit = Collision::Intersect(ray, box);
-            if (hit.hit && hit.t > 0.0f && hit.t < 80.0f)
-            {
-                sun *= 0.3f;
-                break;
-            }
-        }
-    }
 
-    float lamps = 0.0f;
-    world().each<LocalLightComponent>([&](Entity e, LocalLightComponent& light) {
-        if (!light.enabled || e == m_muzzle)
-            return;
-        //if (e == m_flashlight)
-        //{
-        //    lamps += 0.35f;
-        //    return;
-        //}
-        const TransformComponent* lxf = world().get<TransformComponent>(e);
-        if (!lxf || light.range <= 0.0f)
-            return;
-        Vector3f    to   = chest - lxf->position;
-        const float dist = to.Magnitude();
-        if (dist >= light.range)
-            return;
-        if (light.type == LocalLightType::Spot && dist > 1.0e-3f)
-        {
-            const Vector3f fwd = lxf->rotation.Rotate(Vector3f::Z_AXIS);
-            if (fwd.Dot(to * (1.0f / dist)) < std::cosf(light.outerConeDeg * 0.0174533f))
-                return;
-        }
-        const float f = 1.0f - dist / light.range;
-        lamps += f * f;
-    });
-    return Math::Clamp(0.12f + 0.88f * sun + lamps, 0.0f, 1.0f);
-}
 
-bool SandboxApp::boneWorldPos(Entity e, const char* bone, Vector3f& out)
-{
-    const TransformComponent* xf = world().get<TransformComponent>(e);
-    const AnimGraphComponent* ag = world().get<AnimGraphComponent>(e);
-    const Skeleton*           sk = ag ? ag->graph.skeleton() : nullptr;
-    if (!xf || !sk)
-        return false;
-    const AnimPose& pose = ag->graph.player().pose();
-    for (size_t j = 0; j < sk->joints.size() && j < pose.boneCount; ++j)
-    {
-        if (sk->joints[j].name == bone)
-        {
-            out = (pose.jointWorld[j] * makeWorldMatrix(*xf)).GetTranslation();
-            return true;
-        }
-    }
-    return false;
-}
 
-void SandboxApp::onPlayerDefended(Entity attacker, bool parried)
-{
-    faceHitTarget(attacker);
-    m_shieldBump      = 0.2f;
-    m_hitStop         = parried ? 0.1f : 0.05f;
-    m_shake           = parried ? 0.09f : 0.06f;
-    m_defenseText     = parried ? "PARRY!" : "BLOCKED";
-    m_defenseTextLeft = 0.7f;
-    playSoundCue(world(), audio(), assets(), possessedBody(), "impact");
-    if (!parried || !attacker.valid() || !world().has<AiAgentComponent>(attacker))
-        return;
-    const TransformComponent* axf = world().get<TransformComponent>(attacker);
-    const TransformComponent* pxf = possessedBody().valid() ? world().get<TransformComponent>(possessedBody()) : nullptr;
-    m_chase.ai().interruptAttack(world(), attacker, 1.2f);
-    if (axf && pxf)
-        m_chase.ai().applyHunterHitReaction(world(), attacker, Vector3f{ axf->position.x - pxf->position.x, 0.0f, axf->position.z - pxf->position.z });
-    if (AnimGraphComponent* aag = world().get<AnimGraphComponent>(attacker))
-        aag->graph.setTrigger("hit");
-}
 
-void SandboxApp::faceHitTarget(Entity target)
-{
-    const Entity              body = possessedBody();
-    const TransformComponent* xf   = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    const TransformComponent* txf  = world().get<TransformComponent>(target);
-    if (!xf || !txf)
-        return;
-    const float dx = txf->position.x - xf->position.x;
-    const float dz = txf->position.z - xf->position.z;
-    if (dx * dx + dz * dz < 1.0e-4f)
-        return;
-    m_faceYaw  = std::atan2f(dx, dz);
-    m_faceLeft = 0.15f;
-}
-
-void SandboxApp::updatePossessed(float dt)
-{
-    m_swimDiveEdge  = false;
-    m_swimStandEdge = false;
-    const Entity body = possessedBody();
-    SkillComponent* skills = body.valid() ? world().get<SkillComponent>(body) : nullptr;
-    if (skills)
-        tickSkill(*skills, dt);
-    const bool uiKeys = uiOpen() && m_imgui.isReady() && m_imgui.wantCaptureKeyboard();
-    TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    if (!xf)
-    {
-        if (!uiKeys)
-            handleWeaponSwitch();
-        return;
-    }
-
-    if (m_swingLock > 0.0f)
-        m_swingLock -= dt;
-    if (m_comboWindow > 0.0f)
-        m_comboWindow -= dt;
-    if (m_blockRecoil > 0.0f)
-        m_blockRecoil -= dt;
-    if (m_faceLeft > 0.0f)
-    {
-        m_faceLeft -= dt;
-        m_lookYaw = approachAngle(m_lookYaw, m_faceYaw, 12.0f, dt);
-    }
-    // mouseDeltaY is already up-positive; add it so mouse-up looks up.
-    accumulatePlayLook(m_lookYaw, m_lookPitch, static_cast<float>(input().mouseDeltaX()), static_cast<float>(input().mouseDeltaY()), !uiOpen(),
-                       input().actionAxis("look_yaw"), input().actionAxis("look_pitch"), dt);
-
-    const float mx = uiKeys ? 0.0f : input().actionAxis("move_x");
-    const float mz = uiKeys ? 0.0f : input().actionAxis("move_z");
-    const PlayBasis basis = playBasis(m_lookYaw, m_lookPitch, mx, mz);
-    const Vector3f& flat  = basis.flat;
-    const Vector3f& right = basis.right;
-    const Vector3f& wish  = basis.wish;
-
-    if (!m_havePlayerSpawn)
-    {
-        m_playerSpawn     = xf->position;
-        m_havePlayerSpawn = true;
-    }
-
-    Health*      hp    = localHealth();
-    HitReaction* hitRx = localHit();
-    PlayerMotor* motor = localMotor();
-    JumpAttackComponent* jac = body.valid() ? world().get<JumpAttackComponent>(body) : nullptr;
-    Combat::JumpAttack*  jump = jac ? &jac->jump : nullptr;
-    Combat::StatusEffectComponent* status = body.valid() ? world().get<Combat::StatusEffectComponent>(body) : nullptr;
-    Combat::PoiseComponent*        poise  = body.valid() ? world().get<Combat::PoiseComponent>(body) : nullptr;
-    if (jump && (!hp || !hp->alive()))
-        jump->cancel(Combat::JumpAttackCancel::NoPound);
-    const bool ccLocked   = (hitRx && hitRx->stunned()) || (status && status->hasHardCc());
-    const bool jumpBusy   = jump && jump->busy();
-    const bool inAirCommit = jump && jump->inAirCommit();
-    const bool canSteer   = hp && hp->alive() && !ccLocked && !(jump && jump->phase() == Combat::JumpAttackPhase::Pound);
-    const bool uiMouse = uiOpen() && m_imgui.isReady() && m_imgui.wantCaptureMouse();
-    const Combat::HitVolumesComponent* partVolumes = body.valid() ? world().get<Combat::HitVolumesComponent>(body) : nullptr;
-    const bool shieldBlocked = Combat::hitVolumesBlockShield(partVolumes);
-    const bool holdShield = canSteer && !shieldBlocked
-        && ((input().actionMouseDown("shield") && !uiMouse) || (!uiKeys && input().actionDown("shield"))
-            || input().actionAxisHeld("shield"));
-    const bool carriesLight = flashlightEquipped(body.valid() ? world().get<InventoryComponent>(body) : nullptr);
-    const bool toggleLight = carriesLight && canSteer && !uiKeys && input().actionPressed("flashlight");
-    if (toggleLight)
-    {
-        if (SkillComponent* sk = world().get<SkillComponent>(body))
-            sk->seeArmed = true;
-    }
-    const bool attackDown = canSteer && !uiKeys
-        && (input().actionDown("attack") || (!uiOpen() && input().actionMouseDown("attack")));
-    const bool airborneNow = motor && (motor->state() == PlayerMoveState::Jumping || motor->state() == PlayerMoveState::Falling);
-    WeaponAttackInput chargeQuery{};
-    chargeQuery.airborne = airborneNow;
-    chargeQuery.swimming = motor && motor->state() == PlayerMoveState::Swimming;
-    chargeQuery.ccLocked = ccLocked;
-    chargeQuery.jumpBusy = jumpBusy;
-    if (const WeaponLoadout* held = localWeapons())
-        classifyWeaponAttack(chargeQuery, held->activeKind());
-    const WeaponAttackDecision chargeDecision = decideWeaponAttack(chargeQuery);
-    Combat::DefenseComponent* defense = world().get<Combat::DefenseComponent>(body);
-    if (defense)
-        defense->tick(dt);
-    Combat::PlayerChargeInput chargeIn{};
-    chargeIn.dt              = dt;
-    chargeIn.attackDown      = attackDown;
-    chargeIn.canChargeAttack = canSteer && chargeDecision.allowCharge;
-    chargeIn.holdShield      = holdShield;
-    chargeIn.canHoldShield   = canSteer && !shieldBlocked;
-    chargeIn.chargedParryUp  = defense && defense->chargedParry && defense->inParryWindow();
-    Combat::PlayerChargeStep charge{};
-    Combat::stepPlayerCharge(m_attackCharge, m_blockCharge, m_chargeSettings, chargeIn, charge);
-    m_fireQuick   = charge.fireQuick;
-    m_fireCharged = charge.fireCharged;
-    if (!uiKeys)
-        handleWeaponSwitch();
-    const bool wasBlocking = m_offhand.shield.blocking();
-    m_offhand.tick(dt, charge.wantShield, toggleLight);
-    if (defense)
-    {
-        if (charge.openChargedParry)
-            Combat::openShieldParry(*defense, true, m_chargeSettings);
-        else if (!wasBlocking && m_offhand.shield.blocking() && !m_blockCharge.isCharged())
-            Combat::openShieldParry(*defense, false, m_chargeSettings);
-        Combat::syncShieldDefense(*defense, m_offhand.shield, m_lookYaw);
-    }
-
-    PlayerMotorInput motorIn{};
-    PlayMotorEdges edges{};
-    edges.sprintDown    = input().actionDown("sprint");
-    edges.crouchPressed = input().actionPressed("crouch");
-    edges.crouchDown    = input().actionDown("crouch");
-    edges.jumpPressed   = input().actionPressed("jump");
-    edges.jumpDown      = input().actionDown("jump");
-    edges.forward       = input().actionPressed("dodge_forward");
-    edges.back          = input().actionPressed("dodge_back");
-    edges.left          = input().actionPressed("dodge_left");
-    edges.right         = input().actionPressed("dodge_right");
-    const bool sprintAllowed = canSteer && !jumpBusy && !uiKeys && m_swingLock <= 0.0f;
-    buildPlayMotorInput(motorIn, m_crouchLatch, wish, flat, right, canSteer, jumpBusy, uiKeys, inAirCommit, jump, sprintAllowed, edges);
-    const bool onGround = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch || motor->state() == PlayerMoveState::Dodge);
-    const Terrain::GroundContact groundSurf = (onGround && xf) ? groundContactAt(xf->position.x, xf->position.z) : Terrain::GroundContact{};
-    const float swingSlow   = m_blockRecoil > 0.0f ? 0.4f : (m_swingLock <= 0.0f ? 1.0f : (m_comboCount > 1 ? 0.45f : 0.8f));
-    float speedScale        = (status ? status->moveSpeedScale() : 1.0f) * m_offhand.shield.speedScale() * (onGround ? groundSurf.moveSpeed : 1.0f) * swingSlow
-                            * (carriedBody(world()).valid() ? 0.6f : 1.0f);
-    if (partVolumes)
-        speedScale = Combat::hitVolumesSpeedScale(partVolumes, speedScale);
-    motorIn.speedScale = speedScale;
-    if (skills)
-    {
-        motorIn.runScale  = skillScalar(SkillId::Run, SkillScalar::RunScale, skills->level(SkillId::Run));
-        motorIn.swimScale = skillScalar(SkillId::Swim, SkillScalar::SwimScale, skills->level(SkillId::Swim));
-        motorIn.jumpScale = skillScalar(SkillId::Jump, SkillScalar::JumpScale, skills->level(SkillId::Jump));
-    }
-
-    m_groundProbeY = xf->position.y;
-    m_groundIgnore = m_physics.valid() ? m_physics.bodyOf(body) : Physics::kNullPhysicsBody;
-
-    PlayerGroundQuery ground{};
-    ground.user = this;
-    ground.waterY = m_water.params().waterLevel;
-    ground.heightAt = [](void* user, float x, float z) -> float {
-        return static_cast<const SandboxApp*>(user)->playerGroundHeight(x, z);
-    };
-    const PlayWallProbe walls{ &m_physics, m_groundIgnore, m_physicsGround };
-    bindWallProbe(ground, walls);
-
-    const Vector3f before = xf->position;
-    PlayerMotorResult motorOut{};
-    if (motor)
-        motorOut = motor->tick(xf->position, motorIn, dt, ground);
-    m_swimDiveEdge  = motorOut.splashed;
-    m_swimStandEdge = motorOut.stood;
-    if (jump && jump->inAirCommit() && motor && !motorOut.landed && !motorOut.splashed)
-    {
-        Vector3f vel = motor->velocity();
-        Vector3f targetPos{};
-        const Vector3f* targetPtr = nullptr;
-        bool            hasTarget = false;
-        if (jump->phase() == Combat::JumpAttackPhase::Connected && jump->connectedTarget().valid())
-        {
-            if (const TransformComponent* txf = world().get<TransformComponent>(jump->connectedTarget()))
-            {
-                targetPos = txf->position;
-                targetPtr = &targetPos;
-                hasTarget = true;
-            }
-        }
-        jump->applyAirSteering(vel, xf->position, flat, targetPtr, hasTarget, dt);
-        motor->setHorizontalVelocity(vel.x, vel.z);
-        xf->position.x = before.x + vel.x * dt;
-        xf->position.z = before.z + vel.z * dt;
-    }
-    if (jump && jump->phase() == Combat::JumpAttackPhase::Connected && !motorOut.landed && !motorOut.splashed)
-    {
-        if (const TransformComponent* txf = jump->connectedTarget().valid() ? world().get<TransformComponent>(jump->connectedTarget()) : nullptr)
-            jump->applyConnectSnap(xf->position, txf->position, dt);
-    }
-    Vector3f hitSlide{};
-    if (hitRx)
-    {
-        hitSlide = hitRx->tick(dt);
-        xf->position += hitSlide;
-    }
-    if (Combat::HitVolumesComponent* volumes = world().get<Combat::HitVolumesComponent>(body))
-        Combat::tickHitVolumes(*volumes, dt);
-
-    Physics::syncFoliageCollision(m_physics, m_foliageCollision, m_terrain, m_foliage.empty() ? nullptr : &m_foliage, xf->position.x, xf->position.z);
-
-    Vector3f delta{ xf->position.x - before.x, 0.0f, xf->position.z - before.z };
-    if (delta.MagnitudeSqrd() > 1.0e-10f && !motorOut.climbed)
-    {
-        Sphere3f ball{ Vector3f{ before.x, xf->position.y, before.z }, kPlayBodyRadius };
-        float    bestT = 1.0f;
-        for (const AABox3f& cube : m_chase.cubes())
-        {
-            if (Dark::Collision::Intersects(ball, cube))
-                continue;
-            const Dark::Collision::SweptHit3D hit = Dark::Collision::SweptIntersects(ball, delta, cube);
-            if (hit.hit && hit.t < bestT)
-                bestT = hit.t;
-        }
-        bestT = tightenPlanarClip(m_physics, m_groundIgnore, m_physicsGround, Vector3f{ before.x, xf->position.y, before.z }, delta, bestT);
-        commitPlanarClip(xf->position, before, delta, bestT, dt, motor);
-    }
-    if (motor && skills)
-    {
-        MotorXpSample sample{};
-        sample.state        = motor->state();
-        sample.sprint       = motorIn.sprint;
-        sample.crouch       = motorIn.crouch;
-        sample.dodged       = motorOut.dodged;
-        sample.jumped       = motorOut.jumped;
-        sample.doubleJump   = motorOut.doubleJumped;
-        sample.jumpBusy     = jump && jump->busy();
-        sample.planarMetres = locomotionMetres(xf->position - before, hitSlide);
-        noteMotorXp(*skills, sample);
-    }
-    if (motor && motor->state() == PlayerMoveState::Grounded)
-    {
-        m_groundProbeY = Math::Max(m_groundProbeY, xf->position.y);
-        xf->position.y = playerGroundHeight(xf->position.x, xf->position.z) + motor->settings().groundOffset;
-    }
-
-    m_playerWet       = motor && motor->state() == PlayerMoveState::Swimming;
-    m_playerSubmerged = motor && motor->submerged();
-    if (m_playerWet && hp && hp->alive() && motor->breath() <= 0.0f)
-        hp->applyDamage(8.0f * dt);
-
-    bool skipLandCue = false;
-    if (jump)
-    {
-        jump->tick(dt);
-        if (hp && hp->alive())
-        {
-            if (motorOut.splashed)
-                jump->onSplashed();
-            else if (motorOut.landed)
-            {
-                jump->onLanded(xf->position);
-                if (jump->phase() == Combat::JumpAttackPhase::Pound)
-                {
-                    Combat::DamageEvent poundEvents[8]{};
-                    const int n = jump->tryPound(makeWeaponQuery(), xf->position, poundEvents, 8);
-                    DE_LOG_INFO("Player: ground pound");
-                    // Optional pound cue; otherwise the motor land cue below is the fallback.
-                    if (playSoundCue(world(), audio(), assets(), body, "pound"))
-                        skipLandCue = true;
-                    resolveJumpAttackAndFx(poundEvents, n);
-                }
-            }
-            else if (jump->phase() == Combat::JumpAttackPhase::Leap)
-            {
-                Combat::DamageEvent connectEv{};
-                if (jump->tryConnect(makeWeaponQuery(), xf->position, flat, connectEv))
-                {
-                    DE_LOG_INFO("Player: pounce connect");
-                    playSoundCueFallback(world(), audio(), assets(), body, "pounce", "impact");
-                    resolveJumpAttackAndFx(&connectEv, 1);
-                }
-            }
-        }
-        if (poise)
-            poise->hyperArmor = jump->inAirCommit();
-    }
-
-    if (HsmGraphComponent* hsm = world().get<HsmGraphComponent>(body))
-    {
-        if (hsm->instance)
-        {
-            const uint8_t motorState = motor ? static_cast<uint8_t>(motor->state()) : 0;
-            syncPlayerHsm(*hsm->instance, motorState, hp && hp->alive());
-        }
-    }
-
-    if (canSteer && flat.MagnitudeSqrd() > 1.0e-6f)
-        xf->rotation = Quaternion::FromLookRotation(flat, Vector3f::Y_AXIS);
-    if (canSteer && motor && motor->swimPose() > 1.0e-4f)
-        xf->rotation = swimBodyRotation(xf->rotation, motor->swimPose());
-    const bool blockStriking = defense && defense->chargedParry && defense->inParryWindow();
-    stepChargeWindup(m_chargeWindup, dt,
-        m_attackCharge.phase() != Combat::HoldChargePhase::Idle, m_attackCharge.heldSeconds(), m_chargeSettings.attackWindowSeconds,
-        m_blockCharge.phase() != Combat::HoldChargePhase::Idle, m_blockCharge.heldSeconds(), m_chargeSettings.blockWindowSeconds,
-        blockStriking);
-    if (TransformComponent* shieldXf = m_shield.valid() ? world().get<TransformComponent>(m_shield) : nullptr)
-    {
-        Vector3f   grip{};
-        const bool inHand = boneWorldPos(body, "L_Hand", grip);
-        if (m_shieldBump > 0.0f)
-        {
-            m_shieldBump -= dt;
-            const float k = Math::Max(0.0f, m_shieldBump) / 0.2f;
-            grip += flat * (-0.1f * k) + right * (std::sinf(m_shieldBump * 120.0f) * 0.03f * k);
-        }
-        placePlayerShield(*shieldXf, *xf, m_offhand.shield.alpha(), m_chargeWindup.block, m_chargeWindup.blockStrike, inHand ? &grip : nullptr);
-    }
-
-    if (motorOut.jumped)
-        playSoundCue(world(), audio(), assets(), body, "jump");
-    if (motorOut.landed && !skipLandCue)
-        playSoundCue(world(), audio(), assets(), body, "land");
-    if (motorOut.splashed || motorOut.leapt)
-        playSoundCue(world(), audio(), assets(), body, "splash");
-    if (motorOut.landed || motorOut.splashed)
-        m_footstepAcc = 0.0f;
-
-    const float stepSpeed = Vector3f{ delta.x, 0.0f, delta.z }.Magnitude() / Math::Max(dt, 1.0e-4f);
-    const bool  stepping  = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Swimming) && stepSpeed > 2.0f;
-    if (stepping)
-    {
-        const float cadence = motor->state() == PlayerMoveState::Swimming ? 0.55f : 0.35f;
-        m_footstepAcc += dt * (stepSpeed * cadence);
-        if (m_footstepAcc >= 1.0f)
-        {
-            m_footstepAcc = 0.0f;
-            if (motor->state() == PlayerMoveState::Swimming)
-                playSoundCue(world(), audio(), assets(), body, "swim_step");
-            else
-            {
-                const Terrain::GroundContact stepGround = groundContactAt(xf->position.x, xf->position.z);
-                const char* cue = (stepGround.cue && stepGround.cue[0]) ? stepGround.cue : "step";
-                Vector3f facing = flat;
-                if (facing.MagnitudeSqrd() <= 1.0e-6f)
-                    facing = xf->rotation.Rotate(Vector3f::Z_AXIS);
-                spawnFootmark(xf->position, facing);
-                if (!playSoundCue(world(), audio(), assets(), body, cue))
-                    playSoundCue(world(), audio(), assets(), body, "step");
-            }
-        }
-    }
-    else
-        m_footstepAcc = 0.0f;
-
-    if (SoundEmitterComponent* se = world().get<SoundEmitterComponent>(body))
-        se->play = m_playerWet;
-}
-
-void SandboxApp::respawnPlayer()
-{
-    const Entity body = possessedBody();
-    if (TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr)
-        xf->position = m_playerSpawn;
-    if (PlayerMotor* motor = localMotor())
-        motor->reset();
-    m_lowerBodyYaw = 0.0f;
-    if (AnimGraphComponent* ag = body.valid() ? world().get<AnimGraphComponent>(body) : nullptr)
-        ag->graph.player().setLowerBodyYaw(0.0f);
-    if (Health* hp = localHealth())
-        hp->revive();
-    if (HitReaction* hit = localHit())
-    {
-        hit->reset();
-        if (Combat::HitVolumesComponent* volumes = world().get<Combat::HitVolumesComponent>(body))
-            Combat::clearHitPartState(*volumes);
-    }
-    if (JumpAttackComponent* jac = body.valid() ? world().get<JumpAttackComponent>(body) : nullptr)
-        jac->jump.cancel(Combat::JumpAttackCancel::ForceIdle);
-    if (Combat::StatusEffectComponent* st = body.valid() ? world().get<Combat::StatusEffectComponent>(body) : nullptr)
-        st->reset();
-    if (body.valid())
-        clearStatusFx(world(), &audio(), body);
-    if (Combat::PoiseComponent* poise = body.valid() ? world().get<Combat::PoiseComponent>(body) : nullptr)
-    {
-        poise->reset();
-        poise->hyperArmor = false;
-    }
-    m_playerWet         = false;
-    m_playerSubmerged   = false;
-    m_underAmount       = 0.0f;
-    m_nightSightOn      = false;
-    m_nightSight        = 0.0f;
-    m_infraredOn        = false;
-    m_infrared          = 0.0f;
-    m_ultravioletOn     = false;
-    m_ultraviolet       = 0.0f;
-    m_echoOn            = false;
-    m_echo              = 0.0f;
-    m_echoHaveChirp     = false;
-    m_echoCapture       = false;
-    m_playerDeadTimer   = 0.0f;
-    m_spawnAge          = 0.0f;
-    m_hurtSoundTimer    = 0.0f;
-    m_jumpAttackBuffer  = 0.0f;
-    m_offhand.reset();
-    if (SkillComponent* sk = body.valid() ? world().get<SkillComponent>(body) : nullptr)
-        sk->seeArmed = false;
-    m_attackCharge.reset();
-    m_blockCharge.reset();
-    m_chargeWindup = {};
-    m_fireQuick   = false;
-    m_fireCharged = false;
-    if (WeaponLoadout* w = localWeapons())
-        w->clear();
-    DE_LOG_INFO("Player: respawned");
-}
 
 TonemapSettings SandboxApp::playerPostFx()
 {
@@ -1948,7 +1360,7 @@ TonemapSettings SandboxApp::playerPostFx()
     Health* hpFx = localHealth();
     if (hpFx && !hpFx->alive())
     {
-        const float t    = Clamp(m_playerDeadTimer / kDeathSeconds, 0.0f, 1.0f);
+        const float t    = Clamp(m_playerDeadTimer / kPlayDeathSeconds, 0.0f, 1.0f);
         s.blur           = SmoothStep(0.0f, 0.55f, t);
         s.uniformBlur    = SmoothStep(0.0f, 0.70f, t);
         s.fade           = SmoothStep(0.30f, 1.00f, t);
@@ -1956,7 +1368,7 @@ TonemapSettings SandboxApp::playerPostFx()
         return s;
     }
 
-    const float u    = SmoothStep(0.0f, kSpawnFocusSeconds, m_spawnAge);
+    const float u    = SmoothStep(0.0f, kPlaySpawnFocusSeconds, m_spawnAge);
     s.blur           = 1.0f - u;
     s.uniformBlur    = 1.0f - u;
     s.fade           = 0.0f;
@@ -1979,85 +1391,7 @@ bool SandboxApp::ownsWeapon(WeaponKind kind)
     return !inv || hasItem(*inv, id);
 }
 
-void SandboxApp::pickUpNearestItem()
-{
-    if (carriedBody(world()).valid())
-    {
-        toggleCarry();
-        return;
-    }
-    const InteractPick pick = pickInteract();
-    if (pick.kind == InteractKind::Body)
-    {
-        toggleCarry(pick.e);
-        return;
-    }
-    if (pick.kind == InteractKind::Power)
-    {
-        const PowerBoxComponent* box = pick.e.valid() ? world().get<PowerBoxComponent>(pick.e) : nullptr;
-        if (box)
-            setCircuit(pick.e, !box->on, true);
-        return;
-    }
-    if (pick.kind != InteractKind::Item)
-        return;
-    const Entity              body = possessedBody();
-    InventoryComponent*       inv  = body.valid() ? world().get<InventoryComponent>(body) : nullptr;
-    const TransformComponent* xf   = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    if (!inv || !xf)
-        return;
-    const Entity e = pick.e;
-    if (e.valid() && world().has<LootComponent>(e))
-    {
-        m_lootTarget = e;
-        return;
-    }
-    ItemPickupComponent* pickup = e.valid() ? world().get<ItemPickupComponent>(e) : nullptr;
-    if (!pickup || pickup->item.empty() || !pickup->item.def)
-        return;
 
-    if (throwableCatalog().find(pickup->item.def->id))
-    {
-        const std::string id(pickup->item.def->id);
-        const CarryPickupResult took = takeCarryPickup(world(), pins(), m_physics, e, throwableBelt(world(), body), nullptr);
-        if (took.throwable)
-        {
-            DE_LOG_INFO("Throwable: picked up {}", id);
-            playSoundCue(world(), audio(), assets(), m_camera, "click");
-        }
-        return;
-    }
-
-    const int added = giveItem(*inv, pickup->item);
-    pickup->item.count -= added;
-    if (pickup->item.count <= 0)
-        destroyPickup(world(), pins(), m_physics, e);
-}
-
-int SandboxApp::giveItem(InventoryComponent& inv, const ItemStack& item)
-{
-    const int added = addItem(inv, *item.def, item.count);
-    if (added <= 0)
-    {
-        DE_LOG_INFO("Inventory: bag full");
-        return 0;
-    }
-    DE_LOG_INFO("Inventory: picked up {} x{}", item.def->name, added);
-    playSoundCue(world(), audio(), assets(), m_camera, "click");
-    const bool wearable = item.def->slot != EquipSlot::None && (item.def->type == ItemType::Armor || item.def->type == ItemType::Tool);
-    if (wearable && inv.equipped[static_cast<int>(item.def->slot)].empty())
-    {
-        for (int i = 0; i < InventoryComponent::kBagSize; ++i)
-        {
-            if (inv.bag[i].def == item.def && equipItem(inv, i))
-            {
-                DE_LOG_INFO("Inventory: wearing {}", item.def->name);
-                break;
-            }
-        }
-    }
-    return added;
-}
 
 void SandboxApp::tickCrows(float dt)
 {
@@ -2111,69 +1445,7 @@ void SandboxApp::tickSpawners(float dt)
         this);
 }
 
-void SandboxApp::stockHunter(Entity hunter)
-{
-    InventoryComponent inv;
-    addItem(inv, *findItemDef("medkit"), 1);
-    if (InventoryComponent* existing = world().get<InventoryComponent>(hunter))
-        *existing = inv;
-    else
-        world().emplace<InventoryComponent>(hunter, inv);
-    removeArmor(world(), pins(), m_physics, hunter);
-    equipHunterArmor(world(), pins(), assets(), renderer(), hunter);
-    equipSword(world(), pins(), assets(), renderer(), hunter);
-}
 
-void SandboxApp::updateHunterLoot()
-{
-    for (int i = 0; i < m_chase.hunterCount(); ++i)
-    {
-        const Entity            e  = m_chase.hunterEntity(i);
-        const HealthComponent*  hp = e.valid() ? world().get<HealthComponent>(e) : nullptr;
-        const TransformComponent* xf = e.valid() ? world().get<TransformComponent>(e) : nullptr;
-        if (!hp || !xf || !world().has<InventoryComponent>(e))
-            continue;
-
-        const bool dead    = !hp->health.alive();
-        const bool dropped = world().has<LootDroppedComponent>(e);
-        if (!dead && dropped)
-        {
-            world().remove<LootDroppedComponent>(e);
-            stockHunter(e);
-            continue;
-        }
-        // startScene restocks every hunter before a save puts this mark back on a corpse.
-        auto holdingLoot = [](const InventoryComponent& inv) {
-            if (itemCount(inv) > 0)
-                return true;
-            for (const ItemStack& stack : inv.equipped)
-                if (!stack.empty())
-                    return true;
-            return false;
-        };
-        const InventoryComponent* held = world().get<InventoryComponent>(e);
-        if (dropped && (!held || !holdingLoot(*held)))
-            continue;
-        if (!dead)
-            continue;
-        if (!dropped)
-            world().emplace<LootDroppedComponent>(e);
-        InventoryComponent contents = *world().get<InventoryComponent>(e);
-        *world().get<InventoryComponent>(e) = {};
-        if (const Combat::ArmorPiecesComponent* armor = world().get<Combat::ArmorPiecesComponent>(e))
-        {
-            for (int p = 0; p < armor->count; ++p)
-            {
-                const ItemDef* def = findItemDef(armor->pieces[p].name);
-                if (armor->pieces[p].attached && def)
-                    addItem(contents, *def, 1);
-            }
-        }
-        removeArmor(world(), pins(), m_physics, e);
-        const Vector3f bagPos{ xf->position.x, m_terrain.heightAtWorld(xf->position.x, xf->position.z) + 0.18f, xf->position.z };
-        spawnLootBag(world(), pins(), assets(), renderer(), bagPos, "Hunter loot", contents);
-    }
-}
 
 void SandboxApp::dropInventoryItem(int bagIndex)
 {
@@ -2196,204 +1468,15 @@ void SandboxApp::dropInventoryItem(int bagIndex)
     DE_LOG_INFO("Inventory: dropped {} x{}", item.def->name, item.count);
 }
 
-void SandboxApp::applyInventoryArmor()
-{
-    const Entity              body = possessedBody();
-    const InventoryComponent* inv  = body.valid() ? world().get<InventoryComponent>(body) : nullptr;
-    if (!inv)
-        return;
-    Combat::ArmorComponent* armor = world().get<Combat::ArmorComponent>(body);
-    if (!armor)
-        armor = &world().emplace<Combat::ArmorComponent>(body);
-    armor->stats.armor = equippedArmor(*inv);
 
-    bool changed = false;
-    for (int s = 0; s < static_cast<int>(EquipSlot::Count); ++s)
-    {
-        if (static_cast<EquipSlot>(s) == EquipSlot::Light)
-            continue;
-        if (m_wornArmor[s] != inv->equipped[s].def)
-        {
-            m_wornArmor[s] = inv->equipped[s].def;
-            changed        = true;
-        }
-    }
-    if (!changed)
-        return;
 
-    removeArmor(world(), pins(), m_physics, body);
-    const Combat::ArmorPiecesComponent all = Combat::makeHunterArmor();
-    Combat::ArmorPiecesComponent       worn;
-    for (int i = 0; i < all.count; ++i)
-    {
-        for (const ItemStack& eq : inv->equipped)
-        {
-            if (!eq.empty() && std::strcmp(eq.def->id, all.pieces[i].name) == 0)
-                worn.pieces[worn.count++] = all.pieces[i];
-        }
-    }
-    if (worn.count > 0)
-        equipArmorPieces(world(), pins(), assets(), renderer(), body, worn);
-}
-
-void SandboxApp::handleWeaponSwitch()
-{
-    WeaponLoadout* w = localWeapons();
-    if (!w)
-        return;
-    const Entity            body = possessedBody();
-    WeaponLoadoutComponent* wlc  = body.valid() ? world().get<WeaponLoadoutComponent>(body) : nullptr;
-    if (input().actionPressed("weapon_1") && ownsWeapon(WeaponKind::Melee) && w->selectMelee())
-    {
-        if (wlc)
-            wlc->slot = w->slot();
-        playSoundCue(world(), audio(), assets(), m_camera, "click");
-        DE_LOG_INFO("Player: weapon melee");
-    }
-    if (input().actionPressed("weapon_2") && ownsWeapon(WeaponKind::Projectile) && w->selectProjectile())
-    {
-        if (wlc)
-            wlc->slot = w->slot();
-        playSoundCue(world(), audio(), assets(), m_camera, "click");
-        DE_LOG_INFO("Player: weapon {}", w->projectile().name());
-    }
-    if (body.valid() && input().actionPressed("weapon_3") && w->selectSlot(2, throwableBelt(world(), body)))
-    {
-        if (wlc)
-            wlc->slot = w->slot();
-        playSoundCue(world(), audio(), assets(), m_camera, "click");
-        const std::string held(throwableBelt(world(), body).hand());
-        DE_LOG_INFO("Player: weapon {}", held);
-    }
-}
-
-WeaponWorldQuery SandboxApp::makeWeaponQuery()
-{
-    m_weaponTargets.gather(world(), possessedBody());
-
-    WeaponWorldQuery q{};
-    q.terrainUser = this;
-    q.raycastTerrain = [](void* user, const Ray3f& ray, float maxDistance) -> Collision::RayHit3D {
-        return static_cast<SandboxApp*>(user)->m_terrain.raycast(ray, maxDistance);
-    };
-    q.heightAt = [](void* user, float x, float z) {
-        return static_cast<SandboxApp*>(user)->m_terrain.heightAtWorld(x, z);
-    };
-    m_weaponTargets.bind(q);
-    q.maxRange = 90.0f;
-    return q;
-}
 
 void SandboxApp::onWeaponHitThunk(void* user, const WeaponHit& hit)
 {
     if (auto* app = static_cast<SandboxApp*>(user))
-        app->onWeaponHit(hit);
+        app->m_play.onWeaponHit(hit);
 }
 
-void SandboxApp::onWeaponHit(const WeaponHit& hit)
-{
-    // Terrain hits are !hitTarget. The mark still lands; damage stays behind that gate.
-    spawnWeaponImpact(hit);
-    if (!hit.hitTarget)
-        return;
-    Entity victim = hit.targetEntity;
-    if (!victim.valid())
-        victim = m_weaponTargets.entityAt(hit.targetIndex);
-    if (!victim.valid() || !world().alive(victim))
-        return;
-    HealthComponent* hp = world().get<HealthComponent>(victim);
-    const bool wasAlive = hp && hp->health.alive();
-    const TransformComponent* attackerXf = possessedBody().valid() ? world().get<TransformComponent>(possessedBody()) : nullptr;
-    const Vector3f knock = Combat::partKnockbackDirection(hit.part, attackerXf, hit.point, hit.direction);
-    auto spendPieces = [&](float damage) {
-        Combat::ArmorBreak broke{};
-        if (Combat::ArmorPiecesComponent* armor = world().get<Combat::ArmorPiecesComponent>(victim))
-        {
-            if (const TransformComponent* vxf = world().get<TransformComponent>(victim))
-            {
-                const bool hasFlat = world().get<Combat::ArmorComponent>(victim) != nullptr;
-                damage = Combat::absorbArmorHit(*armor, vxf->position, vxf->rotation, hit.point, hit.direction, damage, broke, hit.part, hasFlat);
-            }
-        }
-        if (broke.index >= 0)
-            knockOffArmor(world(), m_physics, victim, broke);
-        return damage;
-    };
-    auto noteIfAlive = [&]() {
-        const HealthComponent* after = world().get<HealthComponent>(victim);
-        if (!after || !after->health.alive())
-            return;
-        if (Combat::HitVolumesComponent* volumes = world().get<Combat::HitVolumesComponent>(victim))
-            Combat::noteLandedPartHit(*volumes, hit.part);
-    };
-    if (world().has<AiAgentComponent>(victim))
-    {
-        if (!m_chaseOk)
-            return;
-        const TransformComponent* playerXf = possessedBody().valid() ? world().get<TransformComponent>(possessedBody()) : nullptr;
-        const Vector3f            playerPos = playerXf ? playerXf->position : Vector3f{};
-        m_chase.ai().forceAlert(world(), victim, playerPos);
-        using MeleeResponse          = AiSystem::MeleeResponse;
-        const bool          melee    = hit.weapon == WeaponKind::Melee;
-        const MeleeResponse response = melee ? m_chase.ai().respondToMelee(world(), victim, playerPos) : MeleeResponse::Stagger;
-        if (response == MeleeResponse::Blocked)
-        {
-            faceHitTarget(victim);
-            m_hitStop     = 0.06f;
-            m_shake       = 0.07f;
-            m_blockRecoil = 0.55f;
-            playSoundCueAt(world(), audio(), assets(), victim, "impact", hit.point);
-            if (AnimGraphComponent* vag = world().get<AnimGraphComponent>(victim))
-                vag->graph.setTrigger("block");
-            if (AnimGraphComponent* pag = possessedBody().valid() ? world().get<AnimGraphComponent>(possessedBody()) : nullptr)
-                pag->graph.setTrigger("hit");
-            m_chase.ai().onHunterAttacked(world(), victim, playerPos);
-            return;
-        }
-        const float damage = spendPieces(hit.damage);
-        const bool damaged = m_chase.ai().applyHunterDamage(world(), victim, damage);
-        noteIfAlive();
-        if (!damaged)
-            return;
-        if (response == MeleeResponse::Stagger)
-            m_chase.ai().applyHunterHitReaction(world(), victim, knock);
-        if (melee)
-        {
-            faceHitTarget(victim);
-            const HealthComponent* after = world().get<HealthComponent>(victim);
-            if (AnimGraphComponent* vag = world().get<AnimGraphComponent>(victim); vag && after && after->health.alive() && response == MeleeResponse::Stagger)
-                vag->graph.setTrigger("hit");
-            const bool heavy = m_swingCharged || (hp && !hp->health.alive());
-            m_hitStop        = heavy ? 0.12f : 0.07f;
-            playSoundCueAt(world(), audio(), assets(), victim, "impact", hit.point);
-        }
-        playSoundCueAt(world(), audio(), assets(), victim, "pain", hit.point);
-        playSoundCueAt(world(), audio(), assets(), victim, "grunt", hit.point);
-        m_chase.ai().onHunterAttacked(world(), victim, playerPos);
-        spawnHunterBlood(hit.point);
-        spawnLivingBloodDecal(victim, hit.point, hit.normal);
-        hp = world().get<HealthComponent>(victim);
-        if (wasAlive && hp && !hp->health.alive())
-        {
-            spawnDeathBloodDecal(hit.point, hit.normal);
-            if (!deferredDecals())
-                m_bloodSplats.spawn(hit.point.x, hit.point.z, m_terrain.coarse());
-            m_chase.ai().onHunterKilled(world(), victim);
-        }
-        return;
-    }
-    if (!hp)
-        return;
-    const float damage = spendPieces(hit.damage);
-    const float before = hp->health.hp();
-    hp->health.applyDamage(damage);
-    noteIfAlive();
-    if (hp->health.hp() >= before)
-        return;
-    if (HitReactionComponent* hr = world().get<HitReactionComponent>(victim))
-        hr->hit.apply(knock);
-    playSoundCueAt(world(), audio(), assets(), victim, "pain", hit.point);
-}
 
 void SandboxApp::syncPlayerMode()
 {
@@ -2413,373 +1496,10 @@ void SandboxApp::syncPlayerMode()
     mode->reaperMode = m_reaperMode;
 }
 
-void SandboxApp::updateCombat(float dt)
-{
-    tickThrowableFlights(dt);
-    if (m_hurtSoundTimer > 0.0f)
-        m_hurtSoundTimer -= dt;
-    if (m_muzzleTimer > 0.0f)
-    {
-        m_muzzleTimer -= dt;
-        if (m_muzzleTimer <= 0.0f)
-        {
-            if (LocalLightComponent* light = m_muzzle.valid() ? world().get<LocalLightComponent>(m_muzzle) : nullptr)
-                light->enabled = false;
-        }
-        else if (TransformComponent* mxf = m_muzzle.valid() ? world().get<TransformComponent>(m_muzzle) : nullptr)
-            mxf->position = m_viewCamera.GetPosition() + m_viewCamera.GetLook() * 0.8f;
-    }
 
-    const Entity body = possessedBody();
-    if (Health* hpTick = localHealth())
-        hpTick->tick(dt);
-    if (Combat::StatusEffectComponent* st = body.valid() ? world().get<Combat::StatusEffectComponent>(body) : nullptr)
-        st->tick(dt);
-    const WeaponWorldQuery query = makeWeaponQuery();
-    if (WeaponLoadout* wTick = localWeapons())
-        wTick->tick(dt, query);
 
-    Health* hpCombat = localHealth();
-    if (!hpCombat || !hpCombat->alive())
-    {
-        m_fireQuick   = false;
-        m_fireCharged = false;
-        m_playerDeadTimer += dt;
-        if (m_playerDeadTimer >= kDeathSeconds)
-            respawnPlayer();
-        return;
-    }
 
-    constexpr float kJumpAttackBuffer = 0.12f;
-    const TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    JumpAttackComponent* jac = body.valid() ? world().get<JumpAttackComponent>(body) : nullptr;
-    Combat::JumpAttack*  jump = jac ? &jac->jump : nullptr;
-    Combat::StatusEffectComponent* status = body.valid() ? world().get<Combat::StatusEffectComponent>(body) : nullptr;
-    HitReaction* hitRx = localHit();
-    PlayerMotor* motor = localMotor();
-    const bool inAirCommit = jump && jump->inAirCommit();
-    const bool ccLocked    = (hitRx && hitRx->stunned()) || (status && status->hasHardCc());
-    const bool jumpBusy    = jump && jump->busy();
 
-    if (m_chaseOk && xf && !inAirCommit)
-    {
-        Combat::CombatSystem combat;
-        if (Combat::DefenseComponent* defense = world().get<Combat::DefenseComponent>(body))
-            Combat::syncShieldDefense(*defense, m_offhand.shield, m_lookYaw);
-        const ContactGrindResult grind = applyContactGrind(world(), combat, body, xf->position, dt);
-        if (grind.killed)
-        {
-            DE_LOG_INFO("Player: down");
-            playSoundCue(world(), audio(), assets(), possessedBody(), "death");
-        }
-        if (grind.damaged && m_hurtSoundTimer <= 0.0f)
-        {
-            playSoundCue(world(), audio(), assets(), possessedBody(), "pain");
-            m_hurtSoundTimer = 0.40f;
-            // Chip damage used to call apply(), which restarts stun from the last real
-            // hit's settings. A knockdown stun is longer than this 0.40s pulse, so a
-            // hunter in standoff refreshed the lock and input never came back.
-            if (HitReaction* hit = localHit())
-            {
-                if (!hit->stunned() && !hit->knockingBack())
-                    hit->nudge(grind.away, 0.35f, 0.08f);
-            }
-        }
-    }
-
-    if (m_jumpAttackBuffer > 0.0f)
-        m_jumpAttackBuffer = Math::Max(0.0f, m_jumpAttackBuffer - dt);
-
-    const bool attackPressed = input().actionPressed("attack") || (!uiOpen() && input().actionMousePressed("attack"));
-    const bool swimming = motor && motor->state() == PlayerMoveState::Swimming;
-    const bool airborne = motor && (motor->state() == PlayerMoveState::Jumping || motor->state() == PlayerMoveState::Falling);
-    const bool fireQuick = m_fireQuick;
-    const bool fireCharged = m_fireCharged;
-    m_fireQuick   = false;
-    m_fireCharged = false;
-    WeaponAttackInput attackQuery{};
-    attackQuery.airborne      = airborne;
-    attackQuery.swimming      = swimming;
-    attackQuery.attackPressed = attackPressed;
-    attackQuery.jumpBuffered  = m_jumpAttackBuffer > 0.0f;
-    attackQuery.fireQuick     = fireQuick;
-    attackQuery.fireCharged   = fireCharged;
-    attackQuery.ccLocked      = ccLocked;
-    attackQuery.jumpBusy      = jumpBusy;
-    if (const WeaponLoadout* held = localWeapons())
-        classifyWeaponAttack(attackQuery, held->activeKind());
-    const WeaponAttackDecision decision = decideWeaponAttack(attackQuery);
-
-    auto noteSenses = [&]() {
-        if (SkillComponent* sk = body.valid() ? world().get<SkillComponent>(body) : nullptr)
-        {
-            const bool foreign = audio().liveForeignSpatialVoices(body.id()) > 0;
-            notePlayerSenseXp(*sk, sk->seeArmed, m_offhand.lightOn, foreign, dt);
-        }
-    };
-
-    if (ccLocked || jumpBusy)
-    {
-        if (ccLocked)
-            m_jumpAttackBuffer = 0.0f;
-        noteSenses();
-        return;
-    }
-
-    if (swimming)
-    {
-        m_jumpAttackBuffer = 0.0f;
-        if (decision.throwOnRelease)
-            releaseThrowable(fireCharged);
-        else if (decision.fireLoadoutOnRelease)
-            firePossessedLoadout(fireCharged);
-        noteSenses();
-        return;
-    }
-
-    auto tryBeginJumpAttack = [&]() -> bool {
-        if (!jump || !xf || !motor)
-            return false;
-        const float groundY = m_terrain.heightAtWorld(xf->position.x, xf->position.z);
-        const float heightAbove = xf->position.y - groundY - motor->settings().groundOffset;
-        const bool  airOk = heightAbove >= jump->def().minHeight || motor->airTime() >= jump->def().minAirTime;
-        if (!airOk)
-            return false;
-        Vector3f lookFlat{ m_viewCamera.GetLook().x, 0.0f, m_viewCamera.GetLook().z };
-        if (lookFlat.MagnitudeSqrd() > 1.0e-6f)
-            lookFlat.Normalize();
-        else
-            lookFlat = Vector3f{ 0.0f, 0.0f, 1.0f };
-        Combat::JumpAttackBegin req{};
-        req.attacker          = body;
-        req.position          = xf->position;
-        req.lookFlat          = lookFlat;
-        req.velocity          = motor->velocity();
-        req.heightAboveGround = heightAbove;
-        req.airTime           = motor->airTime();
-        if (!jump->begin(req))
-            return false;
-        motor->clearJumpBuffer();
-        triggerJumpAttackAnim(world(), body);
-        DE_LOG_INFO("Player: jump attack");
-        return true;
-    };
-
-    if (airborne)
-    {
-        if (decision.beginJumpAttack)
-        {
-            if (tryBeginJumpAttack())
-                m_jumpAttackBuffer = 0.0f;
-            else if (attackPressed)
-                m_jumpAttackBuffer = kJumpAttackBuffer;
-        }
-        if (decision.throwOnRelease)
-        {
-            m_jumpAttackBuffer = 0.0f;
-            releaseThrowable(fireCharged);
-        }
-        noteSenses();
-        return;
-    }
-
-    if (decision.throwOnRelease)
-    {
-        m_jumpAttackBuffer = 0.0f;
-        releaseThrowable(fireCharged);
-    }
-    else if (decision.fireLoadoutOnRelease)
-    {
-        m_jumpAttackBuffer = 0.0f;
-        firePossessedLoadout(fireCharged);
-    }
-    else if (m_jumpAttackBuffer > 0.0f)
-    {
-        m_jumpAttackBuffer = 0.0f;
-        firePossessedLoadout(false);
-    }
-    noteSenses();
-}
-
-void SandboxApp::resolveJumpAttackAndFx(const Combat::DamageEvent* events, int count)
-{
-    if (count <= 0 || !events)
-        return;
-
-    struct Snap
-    {
-        Entity e{};
-        float  hp      = 0.0f;
-        bool   wasAlive = false;
-        bool   hunter  = false;
-    };
-    Snap snaps[8]{};
-    const int n = count < 8 ? count : 8;
-    for (int i = 0; i < n; ++i)
-    {
-        const Entity t = events[i].target;
-        snaps[i].e     = t;
-        if (!t.valid() || !world().alive(t))
-            continue;
-        snaps[i].hunter = world().has<AiAgentComponent>(t);
-        if (const HealthComponent* hp = world().get<HealthComponent>(t))
-        {
-            snaps[i].hp       = hp->health.hp();
-            snaps[i].wasAlive = hp->health.alive();
-        }
-    }
-
-    Combat::CombatSystem  combat;
-    Combat::ResolveResult results[8]{};
-    Combat::resolveJumpAttackEvents(world(), combat, events, count, count <= 8 ? results : nullptr);
-
-    const Entity player = possessedBody();
-    for (int i = 0; i < n; ++i)
-    {
-        if (player.valid() && snaps[i].e.id() == player.id() && (results[i].blocked || results[i].parried))
-            onPlayerDefended(events[i].source, results[i].parried);
-    }
-    const TransformComponent* playerXf = player.valid() ? world().get<TransformComponent>(player) : nullptr;
-    const Vector3f playerPos = playerXf ? playerXf->position : Vector3f{};
-    for (int i = 0; i < n; ++i)
-    {
-        if (!snaps[i].e.valid())
-            continue;
-        HealthComponent* hp = world().get<HealthComponent>(snaps[i].e);
-        if (!hp)
-            continue;
-        const bool damaged = hp->health.hp() < snaps[i].hp;
-        const bool killed  = snaps[i].wasAlive && !hp->health.alive();
-        if (!damaged && !killed)
-            continue;
-        if (!snaps[i].hunter && hp->health.alive() && !results[i].blocked)
-        {
-            if (player.valid() && snaps[i].e.id() == player.id())
-                m_shake = 0.08f;
-            if (AnimGraphComponent* ag = world().get<AnimGraphComponent>(snaps[i].e))
-                ag->graph.setTrigger("hit");
-        }
-        if (!snaps[i].hunter)
-        {
-            if (snaps[i].e.id() == player.id())
-                playSoundCue(world(), audio(), assets(), snaps[i].e, "pain");
-            continue;
-        }
-        playSoundCueAt(world(), audio(), assets(), snaps[i].e, "pain", events[i].hitPoint);
-        playSoundCueAt(world(), audio(), assets(), snaps[i].e, "grunt", events[i].hitPoint);
-        m_chase.ai().onHunterAttacked(world(), snaps[i].e, playerPos);
-        spawnHunterBlood(events[i].hitPoint);
-        spawnLivingBloodDecal(snaps[i].e, events[i].hitPoint, -events[i].hitDir);
-        if (killed)
-        {
-            // Jump events have no surface normal. A flat hint keeps the stain on the height field.
-            spawnDeathBloodDecal(events[i].hitPoint, Vector3f(0.0f, 0.0f, 1.0f));
-            if (!deferredDecals())
-                m_bloodSplats.spawn(events[i].hitPoint.x, events[i].hitPoint.z, m_terrain.coarse());
-            m_chase.ai().onHunterKilled(world(), snaps[i].e);
-        }
-    }
-}
-
-bool SandboxApp::releaseThrowable(bool charged)
-{
-    const Entity   body    = possessedBody();
-    WeaponLoadout* weapons = localWeapons();
-    if (!weapons || weapons->activeKind() != WeaponKind::Throwable || !body.valid())
-        return false;
-    ThrowableBelt&            belt = throwableBelt(world(), body);
-    const TransformComponent* xf   = world().get<TransformComponent>(body);
-    const WeaponFireRequest   req  = makeCameraFireRequest(m_viewCamera.GetPosition(), m_viewCamera.GetLook(), xf ? &xf->position : nullptr, 1.0f);
-    std::string               thrown;
-    if (!throwFromLoadout(m_throwFlights, *weapons, belt, req, body, charged, &thrown))
-        return false;
-    if (WeaponLoadoutComponent* wlc = world().get<WeaponLoadoutComponent>(body))
-        wlc->slot = weapons->slot();
-    DE_LOG_INFO("Player: threw {}", thrown);
-    return true;
-}
-
-void SandboxApp::tickThrowableFlights(float dt)
-{
-    ThrowableFlightHost host;
-    host.world    = &world();
-    host.pins     = &pins();
-    host.assets   = &assets();
-    host.renderer = &renderer();
-    host.physics  = &m_physics;
-    host.audio    = &audio();
-    host.ai       = &m_chase.ai();
-    host.solids.hasTerrain     = true;
-    host.solids.terrainUser    = this;
-    host.solids.raycastTerrain = [](void* user, const Ray3f& ray, float maxDistance) -> Collision::RayHit3D {
-        return static_cast<SandboxApp*>(user)->m_terrain.raycast(ray, maxDistance);
-    };
-    host.solids.heightAt = [](void* user, float x, float z) { return static_cast<SandboxApp*>(user)->m_terrain.heightAtWorld(x, z); };
-    const std::vector<AABox3f>& cubes = m_chase.cubes();
-    host.solids.cubes     = cubes.empty() ? nullptr : cubes.data();
-    host.solids.cubeCount = static_cast<int>(cubes.size());
-    tickThrowableFlightHost(m_throwFlights, dt, host);
-}
-
-bool SandboxApp::firePossessedLoadout(bool charged)
-{
-    const Entity body = possessedBody();
-    const TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    WeaponFireRequest req = makeCameraFireRequest(m_viewCamera.GetPosition(), m_viewCamera.GetLook(), xf ? &xf->position : nullptr,
-                                                  charged ? m_chargeSettings.attackDamageScale : 1.0f);
-
-    WeaponLoadout* wFire = localWeapons();
-    if (wFire && wFire->activeKind() == WeaponKind::Throwable)
-        return false;
-
-    SkillComponent* skill = nullptr;
-    if (wFire && wFire->activeKind() == WeaponKind::Projectile && body.valid())
-        skill = world().get<SkillComponent>(body);
-    applyShootSkill(req, skill);
-
-    const bool melee = wFire && wFire->activeKind() == WeaponKind::Melee;
-    const bool rifle = wFire && wFire->activeKind() == WeaponKind::Projectile;
-    if ((melee || rifle) && Combat::hitVolumesBlockFire(body.valid() ? world().get<Combat::HitVolumesComponent>(body) : nullptr))
-        return false;
-    if (melee && m_blockRecoil > 0.0f)
-        return false;
-
-    const WeaponWorldQuery query = makeWeaponQuery();
-    if (!wFire || !ownsWeapon(wFire->activeKind()) || !wFire->fire(req, query))
-        return false;
-    if (skill)
-        noteShotXp(*skill, true);
-    if (melee)
-    {
-        m_comboStep   = m_comboWindow > 0.0f ? 1 - m_comboStep : 0;
-        m_comboCount  = m_comboWindow > 0.0f ? m_comboCount + 1 : 1;
-        m_comboWindow = 0.9f;
-        m_swingLock   = 0.45f;
-    }
-    if (AnimGraphComponent* ag = body.valid() ? world().get<AnimGraphComponent>(body) : nullptr)
-    {
-        if (melee)
-            ag->graph.setTrigger(m_comboStep ? "swing2" : "swing");
-        else if (wFire->activeKind() == WeaponKind::Projectile)
-            ag->graph.setTrigger("shoot");
-    }
-    if (melee)
-    {
-        m_swingCharged = charged;
-        playSoundCue(world(), audio(), assets(), body, "swing");
-    }
-    else if (wFire && wFire->activeKind() == WeaponKind::Projectile)
-    {
-        pulseMuzzle();
-        const RecoilKick kick = wFire->projectile().takeRecoil();
-        m_lookYaw += kick.yaw;
-        m_lookPitch += kick.pitch;
-        m_lookYaw   = Math::WrapPi(m_lookYaw);
-        m_lookPitch = Math::Clamp(m_lookPitch, -0.96f, 0.96f);
-        updateShoulderCamera();
-    }
-    return true;
-}
 
 void SandboxApp::pulseMuzzle()
 {
@@ -3260,12 +1980,6 @@ void SandboxApp::placeHealthPacks()
     DE_LOG_INFO("SandboxApp: {} health packs", count);
 }
 
-void SandboxApp::updateHealthPacks(float dt)
-{
-    const int taken = tickHealthPacks(world(), possessedBody(), dt);
-    for (int i = 0; i < taken; ++i)
-        playSoundCue(world(), audio(), assets(), possessedBody(), "heal");
-}
 
 void SandboxApp::drawProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, MeshFrameConstants& cb, bool instanced, const std::vector<int>* rejectedShots)
 {
@@ -3398,31 +2112,6 @@ void SandboxApp::drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Ma
     }
 }
 
-void SandboxApp::updateShoulderCamera()
-{
-    const Entity body = possessedBody();
-    const TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    if (!xf)
-        return;
-
-    const PlayerMotor* motor = localMotor();
-    const bool crouched = motor && motor->state() == PlayerMoveState::Crouch;
-    const float pose    = motor ? motor->swimPose() : 0.0f;
-    const bool surface  = m_playerWet && motor && motor->depth() < 0.25f && pose < 0.05f;
-    ShoulderView view = solveShoulderCamera(xf->position, m_lookYaw, m_lookPitch, crouched, m_shake, m_shakeTime, surface, m_water.params().waterLevel, &shoulderTerrainRay, &m_terrain);
-    if (pose > 0.0f)
-    {
-        const ShoulderView swim = solveSwimCamera(xf->position, m_lookYaw, &shoulderTerrainRay, &m_terrain);
-        view.eye = view.eye + (swim.eye - view.eye) * pose;
-        view.aim = view.aim + (swim.aim - view.aim) * pose;
-    }
-    m_underAmount = underwaterAmount(m_playerWet, view.eye.y, m_water.params().waterLevel);
-
-    m_viewCamera.SetLens(1.04719755f, m_viewCamera.GetAspect(), m_viewCamera.GetNearZ(), m_viewCamera.GetFarZ());
-    m_viewCamera.LookAt(view.eye, view.aim, Vector3f{ 0.0f, 1.0f, 0.0f });
-    if (auto* cxf = world().get<TransformComponent>(m_camera))
-        cxf->position = m_viewCamera.GetPosition();
-}
 
 Entity SandboxApp::findPawn(ClientId owner)
 {
@@ -4277,20 +2966,6 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
     {
         addChaseObstaclesToPhysics();
         m_chase.ai().setHunterHitReactionSettings(defaultHunterHitReaction());
-        m_chase.ai().setJumpAttackHits(
-            [](void* user, const Combat::DamageEvent* events, int count) {
-                static_cast<SandboxApp*>(user)->resolveJumpAttackAndFx(events, count);
-            },
-            this);
-        m_chase.ai().setHunterCue(
-            [](void* user, Entity hunter, const char* cue) {
-                auto* app = static_cast<SandboxApp*>(user);
-                playHunterCue(
-                    app->world(), app->audio(), app->assets(), hunter, cue,
-                    [](void* stepUser, Entity e, const char* stepCue) { return static_cast<SandboxApp*>(stepUser)->isStepCue(e, stepCue); },
-                    [](void* markUser, Entity e) { static_cast<SandboxApp*>(markUser)->spawnHunterFootmark(e); }, user);
-            },
-            this);
     }
 
     if (m_chase.walker().valid())
@@ -4473,16 +3148,7 @@ void SandboxApp::tickLeaves(float dt)
 void SandboxApp::onUpdate(float dt)
 {
     m_frameDt = dt;
-    if (m_shake > 0.0f)
-    {
-        m_shakeTime += dt;
-        m_shake = Math::Max(0.0f, m_shake - dt * 0.5f);
-    }
-    if (m_hitStop > 0.0f)
-    {
-        m_hitStop -= dt;
-        dt *= 0.05f;
-    }
+    dt = m_play.scaleDt(dt);
     const bool menuFrame = m_menu.visible();
     handleRuntimeCommands(dt);
     if (menuFrame || m_menu.visible())
@@ -4500,74 +3166,26 @@ void SandboxApp::onUpdate(float dt)
     {
         syncPlayerMode();
         m_cloudTime += dt;
-        if (WorldClockComponent* clock = m_session.valid() ? world().get<WorldClockComponent>(m_session) : nullptr)
-            clock->playTimeSec += static_cast<double>(dt);
         m_env.tick(dt);
         m_water.tick(dt);
-        if (m_chaseOk)
+        if (m_muzzleTimer > 0.0f)
         {
-            applyPreyFromMotor(m_chase.ai(), m_stealth, localMotor(), input().actionDown("sprint"));
-            m_chase.ai().ensureAwarenessSettings();
-            const AI::AwarenessSettings& aware = m_chase.ai().awarenessSettings();
-            const PlayerMotor* motor = localMotor();
-            const float speed = motor ? Vector3f{ motor->velocity().x, 0.0f, motor->velocity().z }.Magnitude() : 0.0f;
-            const bool crouched = motor && motor->state() == PlayerMoveState::Crouch;
-            const bool moving = speed >= m_stealth.stillSpeed;
-            const bool sprinting = moving && !crouched && input().actionDown("sprint");
-            m_lightLevel = playerLightLevel();
-            float stance = crouched ? (moving ? aware.stanceCrouchWalk : aware.stanceCrouchStill)
-                                    : (sprinting ? aware.stanceSprint : (moving ? aware.stanceWalk : aware.stanceStand));
-            if (m_camouflage)
-                stance *= aware.stanceCamouflage;
-            m_exposure = Math::Clamp((0.45f + 0.55f * m_lightLevel) * stance, 0.0f, 1.0f);
-            m_chase.ai().setPlayerExposure(m_exposure);
-            m_chase.ai().setPlayerMotion(Math::Clamp((speed - 0.15f) / 1.35f, 0.0f, 1.0f));
-            const bool grounded = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch);
-            if (grounded && moving)
+            m_muzzleTimer -= dt;
+            if (m_muzzleTimer <= 0.0f)
             {
-                m_strideLeft -= speed * dt;
-                if (m_strideLeft <= 0.0f)
-                {
-                    m_strideLeft = crouched ? aware.strideCrouch : (sprinting ? aware.strideSprint : aware.strideWalk);
-                    if (const TransformComponent* pxf = possessedBody().valid() ? world().get<TransformComponent>(possessedBody()) : nullptr)
-                        m_chase.ai().addNoise(pxf->position, crouched ? m_stealth.hearCrouchWalk : (sprinting ? m_stealth.hearSprint : m_stealth.hearWalk));
-                }
+                if (LocalLightComponent* light = m_muzzle.valid() ? world().get<LocalLightComponent>(m_muzzle) : nullptr)
+                    light->enabled = false;
             }
-            tickSpawners(dt);
-            tickCrows(dt);
-            m_chase.tick(dt, world(), input(), m_terrain, possessedBody(), m_playerSubmerged);
-            if (const TransformComponent* pxf = possessedBody().valid() ? world().get<TransformComponent>(possessedBody()) : nullptr)
-                m_guardVoice.tick(world(), audio(), assets(), pxf->position, dt);
+            else if (TransformComponent* mxf = m_muzzle.valid() ? world().get<TransformComponent>(m_muzzle) : nullptr)
+                mxf->position = m_viewCamera.GetPosition() + m_viewCamera.GetLook() * 0.8f;
         }
-        updateCombat(dt);
-        syncArmorVisuals(world());
-        if (m_physics.valid())
-        {
-            m_physics.pushPoses(world(), false);
-            m_physics.step(dt, world());
-            m_physics.writeDynamicPoses(world());
-        }
-        Combat::CombatSystem combat;
-        Combat::harvestAndResolveDots(world(), combat);
-        tickStatusFx(world(), &audio(), &assets());
-        updateHealthPacks(dt);
-        applyInventoryArmor();
-        updateHunterLoot();
-        updatePower(dt);
+        m_play.tickWorld(dt);
         updateQuest(dt);
-        updateCarry();
-        updateGuardFlashlights();
         m_blood.update(dt);
         tickParticleEmitters(world(), dt);
-        if (Health* hpAlive = localHealth(); hpAlive && hpAlive->alive())
-            m_spawnAge += dt;
         updateWiggleAnim();
-        updateCharacterAnims(dt);
         tickAnimGraphs(world(), assets(), dt);
-        if (SwordComponent* sword = possessedBody().valid() ? world().get<SwordComponent>(possessedBody()) : nullptr)
-            sword->shown = localWeapons() && localWeapons()->activeKind() == WeaponKind::Melee && ownsWeapon(WeaponKind::Melee);
-        syncSwordVisuals(world());
-        syncThrowableHands(world(), pins(), assets(), renderer());
+        m_play.tickHeldItems();
         tickLeaves(dt);
         m_stepGameplay = false;
     }

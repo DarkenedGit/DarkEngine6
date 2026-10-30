@@ -271,6 +271,7 @@ bool EditorApp::loadScene()
     }
 
     clearScene();
+    m_sceneQuest = data.quest;
     removeEditorTerrain();
     m_authoredWater = {};
     m_authoredExposure = {};

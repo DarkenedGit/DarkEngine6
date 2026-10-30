@@ -47,6 +47,7 @@
 #include "Play/Carry.h"
 #include "Play/GuardVoice.h"
 #include "Play/ImpactFx.h"
+#include "Play/PlaySession.h"
 #include "Play/Spawner.h"
 #include "Play/Crow.h"
 #include "Play/WeaponTargets.h"
@@ -71,7 +72,7 @@ namespace Dark::Combat
 class SandboxApp : public Dark::Application
 {
 public:
-    using Application::Application;
+    explicit SandboxApp(const Dark::AppConfig& cfg);
 
     void onInit() override;
     void onSplashFinished() override;
@@ -101,14 +102,10 @@ private:
     void tickCrows(float dt);
     void tickLeaves(float dt);
     Dark::Entity spawnSpawnerUnit(Dark::Entity spawner, const Dark::SpawnerRequest& req);
-    void faceHitTarget(Dark::Entity target);
-    bool boneWorldPos(Dark::Entity e, const char* bone, Dark::Math::Vector3f& out);
-    void onPlayerDefended(Dark::Entity attacker, bool parried);
     void drawDefenseText();
     void drawTargetMarker();
     void drawGuardAwareness();
     void drawGuardSpeech();
-    float playerLightLevel();
     void drawStaminaBar();
     void startQuest(const std::string& id);
     void updateQuest(float dt);
@@ -116,23 +113,8 @@ private:
     void drawJournal();
     bool questTarget(Dark::Math::Vector3f& out);
     void drawBreathBar();
-    void setCircuit(Dark::Entity breaker, bool on, bool alertGuards);
-    void updatePower(float dt);
-    void updateGuardFlashlights();
-    static void powerClick(void* user);
-    static float carryHeightAt(void* user, float x, float z);
-    static void carryHidden(void* user);
-    void fillCarryView(Dark::CarryView& view);
-    Dark::Entity takedownTarget();
-    Dark::Entity bodyNear();
-    bool tryTakedown();
-    bool toggleCarry(Dark::Entity target = {});
-    void updateCarry();
-    void updateHunterLoot();
     bool ownsWeapon(Dark::WeaponKind kind);
-    void pickUpNearestItem();
     void dropInventoryItem(int bagIndex);
-    void applyInventoryArmor();
     void drawPauseOverlay();
     void drawNpcInfoOverlay();
     bool camouflageHides(Dark::Entity e);
@@ -143,13 +125,9 @@ private:
     void devToggleListen();
     void updateFlyCamera(float dt);
     void updatePawnMotion(float dt);
-    void updatePossessed(float dt);
-    void updateCombat(float dt);
     void syncPlayerMode();
-    void handleWeaponSwitch();
     Dark::WeaponWorldQuery makeWeaponQuery();
     static void onWeaponHitThunk(void* user, const Dark::WeaponHit& hit);
-    void onWeaponHit(const Dark::WeaponHit& hit);
     void drawProjectiles(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, Dark::MeshFrameConstants& cb, bool instanced = false, const std::vector<int>* rejectedShots = nullptr);
     void drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, const Dark::Math::Matrix4f& prevViewProj, bool instanced = false, const std::vector<int>* rejectedShots = nullptr);
     bool createSandboxModels();
@@ -168,11 +146,6 @@ private:
     void spawnWeaponImpact(const Dark::WeaponHit& hit);
     void spawnLivingBloodDecal(Dark::Entity victim, const Dark::Math::Vector3f& point, const Dark::Math::Vector3f& normal);
     void spawnDeathBloodDecal(const Dark::Math::Vector3f& point, const Dark::Math::Vector3f& normal);
-    void respawnPlayer();
-    void resolveJumpAttackAndFx(const Dark::Combat::DamageEvent* events, int count);
-    bool firePossessedLoadout(bool charged);
-    bool releaseThrowable(bool charged);
-    void tickThrowableFlights(float dt);
     void placeHealthPacks();
     void installSaveHost();
     void ensureSessionEntity();
@@ -189,8 +162,6 @@ private:
     static uint32_t savePeerCount(void* user);
     static void saveBeforeCapture(void* user, Dark::World& world);
     static void saveAfterApply(void* user, Dark::World& world);
-    void updateHealthPacks(float dt);
-    void updateShoulderCamera();
     Dark::TonemapSettings playerPostFx();
     Dark::Entity possessedBody();
     void spawnOwnedPawn(Dark::ClientId owner, float offsetX);
@@ -199,7 +170,6 @@ private:
     void attachReplicaCombat(Dark::Entity e);
     void attachLocalPlayer(Dark::Entity e);
     bool attachAnimatedCharacter(Dark::Entity e, const char* gltfPath);
-    void updateCharacterAnims(float dt);
     Dark::Health*         localHealth();
     Dark::HitReaction*    localHit();
     Dark::PlayerMotor*    localMotor();
@@ -213,6 +183,19 @@ private:
     void drawDebugOverlays(ID3D12GraphicsCommandList* cmd);
     void drawSkeletonOverlay(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj);
     bool createSkeletonLineBuffers();
+
+    static void fillPlayHost(void* user, Dark::PlayHost& host);
+    static void stepPlayPhysics(void* user, float dt);
+    static void onPlayMuzzle(void* user);
+    static void onPlayBloodBurst(void* user, const Dark::Math::Vector3f& pos);
+    static void onPlayBloodSplat(void* user, float x, float z);
+    static void onPlayRespawn(void* user);
+    static void onPlayQuestNote(void* user, const Dark::QuestNoteEvent& note);
+    static void onPlayDefenseText(void* user, bool parried);
+    static void onPlayLoot(void* user, Dark::Entity loot);
+    static Dark::Entity onPlaySpawnUnit(void* user, Dark::Entity spawner, const Dark::SpawnerRequest& req);
+    static float onPlayHeight(void* user, float x, float z);
+    static Dark::Terrain::GroundContact onPlayGroundContact(void* user, float x, float z);
 
     static bool onNetSpawn(Dark::World& world, Dark::Entity e, Dark::NetPrefab prefab, const Dark::TransformComponent& xf, uint32_t colorRgba8, void* user);
     static void onNetDespawn(Dark::World& world, Dark::Entity e, Dark::NetId id, void* user);
@@ -231,49 +214,37 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> m_skelLineIb[2];
     D3D12_VERTEX_BUFFER_VIEW  m_skelLineVbv[2]{};
     D3D12_INDEX_BUFFER_VIEW   m_skelLineIbv[2]{};
-    Dark::Entity                    m_shield;
-    Dark::Combat::OffhandState         m_offhand{};
-    Dark::Combat::PlayerChargeSettings m_chargeSettings{};
-    Dark::PlayerStealthSettings        m_stealth{};
-    Dark::Combat::HoldCharge           m_attackCharge{};
-    Dark::Combat::HoldCharge           m_blockCharge{};
-    Dark::ChargeWindup                 m_chargeWindup{};
-    bool                               m_fireQuick    = false;
-    bool                               m_fireCharged  = false;
-    Dark::ThrowableFlights             m_throwFlights;
-    Dark::Entity                    m_muzzle;
-    float                           m_muzzleTimer = 0.0f;
-    float                           m_hitStop      = 0.0f;
-    float                           m_shake        = 0.0f;
-    float                           m_shakeTime    = 0.0f;
-    bool                            m_swingCharged = false;
-    float                           m_swingLock    = 0.0f;
-    float                           m_comboWindow  = 0.0f;
-    int                             m_comboStep    = 0;
-    int                             m_comboCount   = 0;
-    float                           m_faceYaw      = 0.0f;
-    float                           m_faceLeft     = 0.0f;
-    float                           m_blockRecoil  = 0.0f;
+    Dark::Entity                        m_shield;
+    Dark::PlaySession                   m_play;
+    Dark::Combat::OffhandState&         m_offhand;
+    Dark::Combat::PlayerChargeSettings& m_chargeSettings;
+    Dark::PlayerStealthSettings         m_stealth{};
+    Dark::Combat::HoldCharge&           m_attackCharge;
+    Dark::Combat::HoldCharge&           m_blockCharge;
+    Dark::ChargeWindup&                 m_chargeWindup;
+    bool&                               m_fireQuick;
+    bool&                               m_fireCharged;
+    Dark::ThrowableFlights&             m_throwFlights;
+    Dark::Entity                        m_muzzle;
+    float                               m_muzzleTimer = 0.0f;
+    float&                              m_hitStop;
+    float&                              m_shake;
+    float&                              m_shakeTime;
+    bool&                               m_swingCharged;
+    float&                              m_swingLock;
+    float&                              m_comboWindow;
+    int&                                m_comboStep;
+    int&                                m_comboCount;
+    float&                              m_faceYaw;
+    float&                              m_faceLeft;
+    float&                              m_blockRecoil;
     bool                            m_demoScene    = true;
     bool                            m_sceneStarted = false;
     std::filesystem::path           m_loadedScenePath;
     float                           m_lightLevel   = 1.0f;
     float                           m_exposure     = 1.0f;
     float                           m_strideLeft   = 0.0f;
-    enum class InteractKind
-    {
-        None,
-        Body,
-        Power,
-        Item
-    };
-    struct InteractPick
-    {
-        InteractKind kind = InteractKind::None;
-        Dark::Entity e{};
-    };
-    InteractPick pickInteract();
-    Dark::QuestRuntime              m_quest;
+    Dark::QuestRuntime&             m_quest;
     Dark::GuardVoice                m_guardVoice;
     std::string                     m_sceneQuest;
     struct QuestBanner
@@ -286,7 +257,7 @@ private:
     std::vector<QuestBanner>        m_questBanners;
     bool                            m_showJournal = false;
     float                           m_goalShown    = 0.0f;
-    float                           m_shieldBump   = 0.0f;
+    float&                          m_shieldBump;
     const char*                     m_defenseText  = "";
     float                           m_defenseTextLeft = 0.0f;
     Dark::Camera3D          m_viewCamera;
@@ -305,7 +276,7 @@ private:
     Dark::PathChase                m_chase;
     bool                           m_chaseOk = false;
     Dark::CrowModels               m_crowModels{};
-    Dark::WeaponTargetList m_weaponTargets;
+    Dark::WeaponTargetList& m_weaponTargets;
 
     Dark::Terrain::TerrainGrid m_terrain;
     Dark::FoliagePrototypes                   m_foliagePrototypes;
@@ -327,7 +298,7 @@ private:
     Dark::Physics::PhysicsWorld  m_physics;
     Dark::Physics::PhysicsBodyId m_physicsGround = Dark::Physics::kNullPhysicsBody;
     Dark::Physics::FoliageCollisionSet m_foliageCollision;
-    float                        m_groundProbeY  = 0.0f;
+    float&                       m_groundProbeY;
     Dark::Physics::PhysicsBodyId m_groundIgnore  = Dark::Physics::kNullPhysicsBody;
 
     Dark::Terrain::TerrainGround m_ground;
@@ -367,7 +338,6 @@ private:
     bool          m_showInventory  = false;
     bool          m_showProfiler   = false;
     Dark::Entity  m_lootTarget{};
-    const Dark::ItemDef* m_wornArmor[static_cast<int>(Dark::EquipSlot::Count)]{};
     Dark::NpcInfoOverlaySettings m_npcInfo{};
     bool          m_camouflage     = false;
     bool          m_nightSightOn   = false;
@@ -387,22 +357,22 @@ private:
     ImGuiHost     m_imgui;
     Dark::MainMenu m_menu;
     char          m_joinHost[64]   = "127.0.0.1";
-    float         m_lookYaw        = 0.0f;
-    float         m_lookPitch      = 0.18f;
-    float         m_lowerBodyYaw   = 0.0f;
-    bool          m_playerWet       = false;
-    bool          m_playerSubmerged  = false;
-    bool          m_swimDiveEdge     = false;
-    bool          m_swimStandEdge    = false;
-    float         m_underAmount      = 0.0f;
-    float         m_footstepAcc    = 0.0f;
+    float&        m_lookYaw;
+    float&        m_lookPitch;
+    float&        m_lowerBodyYaw;
+    bool&         m_playerWet;
+    bool&         m_playerSubmerged;
+    bool&         m_swimDiveEdge;
+    bool&         m_swimStandEdge;
+    float&        m_underAmount;
+    float&        m_footstepAcc;
     Dark::HealthHud                  m_healthHud;
-    Dark::Math::Vector3f             m_playerSpawn{ 0.0f, 0.5f, 0.0f };
-    bool                             m_havePlayerSpawn = false;
-    float                            m_playerDeadTimer = 0.0f;
-    float                            m_spawnAge        = 0.0f;
-    float                            m_hurtSoundTimer    = 0.0f;
-    float                            m_jumpAttackBuffer  = 0.0f;
+    Dark::Math::Vector3f&            m_playerSpawn;
+    bool&                            m_havePlayerSpawn;
+    float&                           m_playerDeadTimer;
+    float&                           m_spawnAge;
+    float&                           m_hurtSoundTimer;
+    float&                           m_jumpAttackBuffer;
     Dark::CrosshairHud               m_crosshair;
     Dark::ParticleEmitter            m_blood;
     Dark::ParticleRenderer           m_particles;
@@ -412,5 +382,5 @@ private:
 
     Dark::Save::SaveSystem m_save;
     Dark::Entity           m_session{};
-    bool                   m_crouchLatch = false;
+    bool&                  m_crouchLatch;
 };

@@ -461,8 +461,8 @@ void SandboxApp::drawPickupLabels()
     const ImVec2              vpPos   = ImGui::GetMainViewport()->Pos;
     const Entity              body    = possessedBody();
     const TransformComponent* pxf     = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    const InteractPick        pick    = pickInteract();
-    const Entity              nearest = pick.kind == InteractKind::Item ? pick.e : Entity{};
+    const PlayInteractPick    pick    = m_play.pickInteract();
+    const Entity              nearest = pick.kind == PlayInteract::Item ? pick.e : Entity{};
 
     auto label = [&](Entity e, const char* name) {
         const TransformComponent* xf = world().get<TransformComponent>(e);
@@ -502,7 +502,7 @@ void SandboxApp::drawPickupLabels()
         const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(Vector3f(at.x, at.y + 1.0f, at.z), 1.0f);
         if (clip.w <= 1.0e-4f || clip.z / clip.w < 0.0f || clip.z / clip.w > 1.0f)
             return;
-        const bool   close = pick.kind == InteractKind::Power && pick.e == e;
+        const bool   close = pick.kind == PlayInteract::Power && pick.e == e;
         const char*  text  = close ? (box.on ? "[G] Cut power" : "[G] Restore power") : (box.on ? "Power box" : "Power box (off)");
         const ImVec2 ts    = ImGui::CalcTextSize(text);
         const ImVec2 pos{ vpPos.x + (clip.x / clip.w * 0.5f + 0.5f) * vw - ts.x * 0.5f, vpPos.y + (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * vh - ts.y };
@@ -521,12 +521,12 @@ void SandboxApp::drawPickupLabels()
     };
     if (pxf && carriedBody(world()).valid())
         prompt(pxf->position + Vector3f{ 0.0f, 1.4f, 0.0f }, "[G] Drop body", IM_COL32(255, 220, 90, 255));
-    else if (const Entity target = takedownTarget(); target.valid())
+    else if (const Entity target = m_play.takedownTarget(); target.valid())
     {
         if (const TransformComponent* gxf = world().get<TransformComponent>(target))
             prompt(gxf->position + Vector3f{ 0.0f, 1.2f, 0.0f }, "[E] Takedown", IM_COL32(255, 110, 90, 255));
     }
-    else if (pick.kind == InteractKind::Body)
+    else if (pick.kind == PlayInteract::Body)
     {
         if (const TransformComponent* gxf = world().get<TransformComponent>(pick.e))
             prompt(gxf->position + Vector3f{ 0.0f, 0.6f, 0.0f }, "[G] Pick up body", IM_COL32(255, 220, 90, 255));

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "type": "player",
-  "note": "Shared rows apply to Sandbox and Editor. app limits a row to one of them. scale -1 reverses a key or stick. threshold makes an axis a hold. Editor play still negates look_y.",
+  "note": "Shared rows apply to Sandbox and Editor. app limits a row to one of them. scale -1 reverses a key or stick. threshold makes an axis a hold. Play uses look_yaw and look_pitch. Edit mode still negates look_y.",
   "bindings": [
     { "action": "move_x", "key": "D", "scale": 1 },
     { "action": "move_x", "key": "A", "scale": -1 },
