@@ -478,6 +478,104 @@ void SandboxApp::drawGuardSpeech()
     }
 }
 
+void SandboxApp::drawDialogue()
+{
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    if (!vp)
+        return;
+    ImDrawList* dl = ImGui::GetBackgroundDrawList(const_cast<ImGuiViewport*>(vp));
+    ImFont*     font = ImGui::GetFont();
+    const float fs = ImGui::GetFontSize();
+    const float vw = static_cast<float>(renderer().width());
+    const float vh = static_cast<float>(renderer().height());
+
+    auto project = [&](const Vector3f& at, ImVec2& out) {
+        const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(at, 1.0f);
+        if (clip.w <= 1.0e-4f || clip.z / clip.w < 0.0f || clip.z / clip.w > 1.0f)
+            return false;
+        out.x = vp->Pos.x + (clip.x / clip.w * 0.5f + 0.5f) * vw;
+        out.y = vp->Pos.y + (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * vh;
+        return true;
+    };
+
+    if (m_dialogue.active() && !m_dialogue.subtitle().empty() && dl && font)
+    {
+        const Entity speaker = m_dialogue.speaker();
+        const TransformComponent* gxf = speaker.valid() && world().alive(speaker) ? world().get<TransformComponent>(speaker) : nullptr;
+        if (gxf)
+        {
+            ImVec2 at{};
+            if (project(Vector3f(gxf->position.x, gxf->position.y + 2.1f, gxf->position.z), at))
+            {
+                const char*  text = m_dialogue.subtitle().c_str();
+                const ImVec2 ts   = font->CalcTextSizeA(fs, 260.0f, 260.0f, text);
+                at.x -= ts.x * 0.5f;
+                at.y -= ts.y;
+                dl->AddRectFilled(ImVec2(at.x - 6.0f, at.y - 3.0f), ImVec2(at.x + ts.x + 6.0f, at.y + ts.y + 3.0f), IM_COL32(10, 14, 12, 200), 3.0f);
+                dl->AddText(font, fs, at, IM_COL32(255, 255, 255, 255), text, nullptr, 260.0f);
+            }
+        }
+        const std::string line = m_dialogue.speakerName() + ": " + m_dialogue.subtitle();
+        const float       size = fs * 1.15f;
+        const ImVec2      ts   = font->CalcTextSizeA(size, FLT_MAX, 0.0f, line.c_str());
+        const ImVec2      at{ vp->Pos.x + (vp->Size.x - ts.x) * 0.5f, vp->Pos.y + vp->Size.y - 150.0f };
+        dl->AddText(font, size, ImVec2(at.x + 1.5f, at.y + 1.5f), IM_COL32(0, 0, 0, 220), line.c_str());
+        dl->AddText(font, size, at, IM_COL32(235, 235, 210, 255), line.c_str());
+    }
+
+    if (!m_dialogue.active() && dl)
+    {
+        const Entity target = pickTalkTarget();
+        const TransformComponent* xf = target.valid() ? world().get<TransformComponent>(target) : nullptr;
+        if (xf)
+        {
+            ImVec2 at{};
+            if (project(Vector3f(xf->position.x, xf->position.y + 2.0f, xf->position.z), at))
+            {
+                const char*  text = "[T] Talk";
+                const ImVec2 ts   = ImGui::CalcTextSize(text);
+                at.x -= ts.x * 0.5f;
+                at.y -= ts.y;
+                dl->AddText(ImVec2(at.x + 1.0f, at.y + 1.0f), IM_COL32(0, 0, 0, 200), text);
+                dl->AddText(at, IM_COL32(255, 220, 90, 255), text);
+            }
+        }
+    }
+
+    if (!m_dialogue.choiceOpen() || !m_dialogue.graph())
+        return;
+    const DialogueNode* node = m_dialogue.graph()->findNode(m_dialogue.nodeId());
+    if (!node)
+        return;
+    ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y - 220.0f), ImGuiCond_Always, ImVec2(0.5f, 1.0f));
+    ImGui::SetNextWindowSize(ImVec2(420.0f, 0.0f), ImGuiCond_Always);
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
+    if (!ImGui::Begin("Dialogue", nullptr, flags))
+    {
+        ImGui::End();
+        return;
+    }
+    const std::vector<int>& indices = m_dialogue.choiceIndices();
+    int shown = static_cast<int>(indices.size());
+    if (shown > 8)
+        shown = 8;
+    for (int i = 0; i < shown; ++i)
+    {
+        const int choice = indices[static_cast<size_t>(i)];
+        if (choice < 0 || choice >= static_cast<int>(node->choices.size()))
+            continue;
+        const std::string& text = node->choices[static_cast<size_t>(choice)].text;
+        char label[160];
+        std::snprintf(label, sizeof(label), "%d  %s", i + 1, text.c_str());
+        if (ImGui::Selectable(label, i == m_dialogue.selected()))
+        {
+            m_dialogue.moveChoice(i - m_dialogue.selected());
+            m_dialogue.commitChoice();
+        }
+    }
+    ImGui::End();
+}
+
 void SandboxApp::drawStaminaBar()
 {
     const PlayerMotor* motor = localMotor();
@@ -574,8 +672,8 @@ void SandboxApp::drawPickupLabels()
     const ImVec2              vpPos   = ImGui::GetMainViewport()->Pos;
     const Entity              body    = possessedBody();
     const TransformComponent* pxf     = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    const InteractPick        pick    = pickInteract();
-    const Entity              nearest = pick.kind == InteractKind::Item ? pick.e : Entity{};
+    const PlayInteractPick    pick    = m_play.pickInteract();
+    const Entity              nearest = pick.kind == PlayInteract::Item ? pick.e : Entity{};
 
     auto label = [&](Entity e, const char* name) {
         const TransformComponent* xf = world().get<TransformComponent>(e);
@@ -615,7 +713,7 @@ void SandboxApp::drawPickupLabels()
         const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(Vector3f(at.x, at.y + 1.0f, at.z), 1.0f);
         if (clip.w <= 1.0e-4f || clip.z / clip.w < 0.0f || clip.z / clip.w > 1.0f)
             return;
-        const bool   close = pick.kind == InteractKind::Power && pick.e == e;
+        const bool   close = pick.kind == PlayInteract::Power && pick.e == e;
         const char*  text  = close ? (box.on ? "[G] Cut power" : "[G] Restore power") : (box.on ? "Power box" : "Power box (off)");
         const ImVec2 ts    = ImGui::CalcTextSize(text);
         const ImVec2 pos{ vpPos.x + (clip.x / clip.w * 0.5f + 0.5f) * vw - ts.x * 0.5f, vpPos.y + (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * vh - ts.y };
@@ -634,12 +732,12 @@ void SandboxApp::drawPickupLabels()
     };
     if (pxf && carriedBody(world()).valid())
         prompt(pxf->position + Vector3f{ 0.0f, 1.4f, 0.0f }, "[G] Drop body", IM_COL32(255, 220, 90, 255));
-    else if (const Entity target = takedownTarget(); target.valid())
+    else if (const Entity target = m_play.takedownTarget(); target.valid())
     {
         if (const TransformComponent* gxf = world().get<TransformComponent>(target))
             prompt(gxf->position + Vector3f{ 0.0f, 1.2f, 0.0f }, "[E] Takedown", IM_COL32(255, 110, 90, 255));
     }
-    else if (pick.kind == InteractKind::Body)
+    else if (pick.kind == PlayInteract::Body)
     {
         if (const TransformComponent* gxf = world().get<TransformComponent>(pick.e))
             prompt(gxf->position + Vector3f{ 0.0f, 0.6f, 0.0f }, "[G] Pick up body", IM_COL32(255, 220, 90, 255));
@@ -740,11 +838,10 @@ void SandboxApp::drawGuardAwareness()
     bool                anyoneSees = false;
 
     world().each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
-        const TagComponent*       tag = world().get<TagComponent>(e);
-        const HealthComponent*    hp  = world().get<HealthComponent>(e);
-        const TransformComponent* xf  = world().get<TransformComponent>(e);
-        const AI::AwarenessState& aw  = ai.aware;
-        if (!xf || !hp || !hp->health.alive() || (tag && tag->name == "Wolf"))
+        const HealthComponent*    hp = world().get<HealthComponent>(e);
+        const TransformComponent* xf = world().get<TransformComponent>(e);
+        const AI::AwarenessState& aw = ai.aware;
+        if (!xf || !hp || !hp->health.alive() || !isInteractGuard(world(), e))
             return;
         if (aw.alertness == AI::Alertness::Calm && aw.meter < 0.02f)
         {
@@ -865,7 +962,10 @@ void SandboxApp::drawGuardAwareness()
     }
 
     {
-        const float  e      = Math::Clamp(m_exposure, 0.0f, 1.0f);
+        float exposure = 1.0f;
+        if (const PlayerStealthComponent* stealth = localStealth())
+            exposure = stealth->exposure;
+        const float  e      = Math::Clamp(exposure, 0.0f, 1.0f);
         const ImVec2 c{ mid.x, vp.y + vh - 70.0f };
         const float  w      = 34.0f;
         const float  open   = 4.0f + 12.0f * e;
@@ -1804,19 +1904,25 @@ void SandboxApp::drawDevTools()
         {
             ImGui::SliderFloat("Crouch speed", &motor->settings().crouchSpeed, 0.5f, motor->settings().walkSpeed, "%.1f");
         }
-        ImGui::SliderFloat("Still speed", &m_stealth.stillSpeed, 0.05f, 2.0f, "%.2f");
-        ImGui::SliderFloat("Sight crouch walk", &m_stealth.sightCrouchWalk, 0.05f, 1.0f, "%.2f");
-        ImGui::SliderFloat("Sight crouch still", &m_stealth.sightCrouchStill, 0.05f, 1.0f, "%.2f");
-        ImGui::SliderFloat("Hear stand", &m_stealth.hearStand, 0.0f, 20.0f, "%.1f");
-        ImGui::SliderFloat("Hear walk", &m_stealth.hearWalk, 0.0f, 40.0f, "%.1f");
-        ImGui::SliderFloat("Hear sprint", &m_stealth.hearSprint, 0.0f, 50.0f, "%.1f");
-        ImGui::SliderFloat("Hear crouch walk", &m_stealth.hearCrouchWalk, 0.0f, 30.0f, "%.1f");
-        ImGui::SliderFloat("Hear crouch still", &m_stealth.hearCrouchStill, 0.0f, 20.0f, "%.1f");
-        ImGui::SliderFloat("Notice distance", &m_stealth.standoff, 0.2f, 6.0f, "%.2f");
-        ImGui::SliderFloat("Notice crouch walk", &m_stealth.standoffCrouchWalk, 0.1f, 6.0f, "%.2f");
-        ImGui::SliderFloat("Notice crouch still", &m_stealth.standoffCrouchStill, 0.1f, 6.0f, "%.2f");
-        ImGui::SliderFloat("Seen height stand", &m_stealth.standTargetHeight, 0.05f, 1.5f, "%.2f");
-        ImGui::SliderFloat("Seen height crouch", &m_stealth.crouchTargetHeight, 0.05f, 1.5f, "%.2f");
+        if (PlayerStealthComponent* stealth = localStealth())
+        {
+            PlayerStealthSettings& s = stealth->settings;
+            ImGui::SliderFloat("Still speed", &s.stillSpeed, 0.05f, 2.0f, "%.2f");
+            ImGui::SliderFloat("Sight crouch walk", &s.sightCrouchWalk, 0.05f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Sight crouch still", &s.sightCrouchStill, 0.05f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Hear stand", &s.hearStand, 0.0f, 20.0f, "%.1f");
+            ImGui::SliderFloat("Hear walk", &s.hearWalk, 0.0f, 40.0f, "%.1f");
+            ImGui::SliderFloat("Hear sprint", &s.hearSprint, 0.0f, 50.0f, "%.1f");
+            ImGui::SliderFloat("Hear crouch walk", &s.hearCrouchWalk, 0.0f, 30.0f, "%.1f");
+            ImGui::SliderFloat("Hear crouch still", &s.hearCrouchStill, 0.0f, 20.0f, "%.1f");
+            ImGui::SliderFloat("Notice distance", &s.standoff, 0.2f, 6.0f, "%.2f");
+            ImGui::SliderFloat("Notice crouch walk", &s.standoffCrouchWalk, 0.1f, 6.0f, "%.2f");
+            ImGui::SliderFloat("Notice crouch still", &s.standoffCrouchStill, 0.1f, 6.0f, "%.2f");
+            ImGui::SliderFloat("Seen height stand", &s.standTargetHeight, 0.05f, 1.5f, "%.2f");
+            ImGui::SliderFloat("Seen height crouch", &s.crouchTargetHeight, 0.05f, 1.5f, "%.2f");
+        }
+        else
+            ImGui::TextDisabled("No player");
         const PlayerMotor* shown = localMotor();
         ImGui::TextDisabled("%s", (shown && shown->state() == PlayerMoveState::Crouch) ? "crouching" : "standing");
     }

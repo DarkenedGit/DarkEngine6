@@ -1,6 +1,7 @@
 #include "Character/ArmorView.h"
 #include "Combat/HitVolumes.h"
 #include "Assets/AssetManager.h"
+#include "Play/Interaction.h"
 #include "Assets/Model.h"
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
@@ -90,6 +91,7 @@ namespace Dark
         if (const ItemDef* def = pairStillWorn ? nullptr : findItemDef(piece.name))
         {
             world.emplace<ItemPickupComponent>(piece.visual, ItemPickupComponent{ { def, 1 } });
+            setInteractable(world, piece.visual, InteractKind::Item, kInteractItemRange);
             piece.visual = {};
         }
         DE_LOG_INFO("Armor: {} knocked off", piece.name);

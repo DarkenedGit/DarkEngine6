@@ -95,6 +95,104 @@ TEST(QuestRuntime, CollectTracksHeldItems)
     EXPECT_TRUE(runtime.state(0).done);
 }
 
+TEST(QuestRuntime, StartIdLoadsTheQuestFile)
+{
+    QuestRuntime runtime;
+    runtime.start(reachQuest());
+    EXPECT_TRUE(runtime.active());
+    EXPECT_FALSE(runtime.start(""));
+    EXPECT_EQ(runtime.def().id, "reach");
+    EXPECT_FALSE(runtime.start("no_such_quest"));
+    EXPECT_EQ(runtime.def().id, "reach");
+    ASSERT_TRUE(runtime.start("north_lab"));
+    EXPECT_EQ(runtime.def().id, "north_lab");
+    EXPECT_EQ(runtime.def().objectives.size(), 4u);
+    EXPECT_EQ(runtime.def().rewards.size(), 2u);
+}
+
+TEST(QuestRuntime, ObjectiveTargetFindsZonePickupAndBreaker)
+{
+    World world;
+    const Entity player = world.createEntity();
+    world.emplace<TransformComponent>(player, Vector3f{ 0.0f, 0.0f, 0.0f }, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
+    const Entity zone = world.createEntity();
+    QuestZoneComponent area{};
+    area.zone = "gate";
+    area.box  = AABox3f{ Vector3f{ 8.0f, 0.0f, 2.0f }, Vector3f{ 12.0f, 2.0f, 6.0f } };
+    world.emplace<QuestZoneComponent>(zone, area);
+
+    QuestRuntime runtime;
+    runtime.start(reachQuest());
+    Vector3f target{};
+    ASSERT_TRUE(runtime.objectiveTarget(world, player, target));
+    EXPECT_FLOAT_EQ(target.x, 10.0f);
+    EXPECT_FLOAT_EQ(target.z, 4.0f);
+
+    ItemDef file;
+    file.id = "research_file";
+    const Entity nearPickup = world.createEntity();
+    world.emplace<TransformComponent>(nearPickup, Vector3f{ 2.0f, 0.0f, 0.0f }, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
+    world.emplace<ItemPickupComponent>(nearPickup, ItemPickupComponent{ ItemStack{ &file, 1 } });
+    const Entity farPickup = world.createEntity();
+    world.emplace<TransformComponent>(farPickup, Vector3f{ 30.0f, 0.0f, 0.0f }, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
+    world.emplace<ItemPickupComponent>(farPickup, ItemPickupComponent{ ItemStack{ &file, 1 } });
+    runtime.start(collectQuest());
+    ASSERT_TRUE(runtime.objectiveTarget(world, player, target));
+    EXPECT_FLOAT_EQ(target.x, 2.0f);
+
+    QuestDef power;
+    power.id = "power";
+    ObjectiveDef off;
+    off.type   = ObjectiveType::Event;
+    off.target = "power_off";
+    power.objectives.push_back(off);
+    const Entity live = world.createEntity();
+    world.emplace<TransformComponent>(live, Vector3f{ 4.0f, 1.0f, 0.0f }, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
+    PowerBoxComponent on{};
+    on.on  = true;
+    on.pos = Vector3f{ 4.0f, 1.0f, 0.0f };
+    world.emplace<PowerBoxComponent>(live, on);
+    const Entity dead = world.createEntity();
+    PowerBoxComponent offBox{};
+    offBox.on  = false;
+    offBox.pos = Vector3f{ 1.0f, 0.0f, 0.0f };
+    world.emplace<PowerBoxComponent>(dead, offBox);
+    runtime.start(std::move(power));
+    ASSERT_TRUE(runtime.objectiveTarget(world, player, target));
+    EXPECT_FLOAT_EQ(target.x, 4.0f);
+    EXPECT_FLOAT_EQ(target.y, 1.0f);
+}
+
+TEST(QuestRuntime, GrantRewardsOnce)
+{
+    QuestDef def;
+    def.id = "pay";
+    ObjectiveDef done;
+    done.type   = ObjectiveType::Event;
+    done.target = "done";
+    def.objectives.push_back(done);
+    def.rewards.push_back(QuestReward{ "research", 3 });
+    def.rewards.push_back(QuestReward{ "missing_item", 1 });
+    def.rewards.push_back(QuestReward{ "helmet", 1 });
+
+    QuestRuntime runtime;
+    runtime.start(std::move(def));
+    World world;
+    const Entity player = world.createEntity();
+    world.emplace<InventoryComponent>(player);
+    EXPECT_EQ(runtime.grantRewards(world, player), 0);
+
+    runtime.event("done");
+    EXPECT_TRUE(runtime.complete());
+    EXPECT_EQ(runtime.grantRewards(world, player), 2);
+    const InventoryComponent* inv = world.get<InventoryComponent>(player);
+    ASSERT_NE(inv, nullptr);
+    EXPECT_EQ(countItem(*inv, "research"), 3);
+    EXPECT_TRUE(inv->equipped[static_cast<int>(EquipSlot::Head)].def);
+    EXPECT_EQ(runtime.grantRewards(world, player), 0);
+    EXPECT_EQ(countItem(*inv, "research"), 3);
+}
+
 TEST(SceneSpawn, BoxesBecomeZoneCircuitConcealAndObstacle)
 {
     std::vector<SceneObjectData> objects(4);

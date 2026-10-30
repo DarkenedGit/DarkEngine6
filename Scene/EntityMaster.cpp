@@ -89,6 +89,7 @@ namespace Dark
         readString(root, "anim", parsed.anim);
         readString(root, "physics", parsed.physics);
         readString(root, "hsm", parsed.hsm);
+        readString(root, "dialogue", parsed.dialogue);
         out = std::move(parsed);
         return true;
     }

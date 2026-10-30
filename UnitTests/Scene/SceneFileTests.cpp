@@ -2464,7 +2464,7 @@ TEST(SceneFile, QuestTagsWrongTypeLogsAndKeepsDefaults)
   "name": "quest_tags",
   "quest": "north_lab",
   "objects": [
-    { "type": "cube", "conceal": true, "goal": true, "circuit": "power", "zone": "gate", "pickup": "rock", "pickupCount": 3 }
+    { "type": "cube", "conceal": true, "goal": true, "circuit": "power", "zone": "gate", "pickup": "rock", "pickupCount": 3, "dialogue": "dialogue/hunter_gate.dlg.json" }
   ]
 })";
     }
@@ -2480,6 +2480,14 @@ TEST(SceneFile, QuestTagsWrongTypeLogsAndKeepsDefaults)
     EXPECT_EQ(good.objects[0].zone, "gate");
     EXPECT_EQ(good.objects[0].pickup, "rock");
     EXPECT_EQ(good.objects[0].pickupCount, 3);
+    EXPECT_EQ(good.objects[0].dialogue, "dialogue/hunter_gate.dlg.json");
+
+    const auto roundPath = tempScenePath("darkengine6_scene_quest_tags_round_ut.json");
+    ASSERT_TRUE(saveSceneToJson(roundPath, good, &err)) << err;
+    SceneFileData round{};
+    ASSERT_TRUE(loadSceneFromJson(roundPath, round, &err)) << err;
+    ASSERT_EQ(round.objects.size(), 1u);
+    EXPECT_EQ(round.objects[0].dialogue, "dialogue/hunter_gate.dlg.json");
 
     const auto badPath = tempScenePath("darkengine6_scene_quest_tags_bad_ut.json");
     {
@@ -2490,7 +2498,7 @@ TEST(SceneFile, QuestTagsWrongTypeLogsAndKeepsDefaults)
   "name": "quest_tags_bad",
   "quest": 12,
   "objects": [
-    { "type": "cube", "conceal": "yes", "goal": 1, "circuit": true, "zone": 4, "pickup": false, "pickupCount": "two" }
+    { "type": "cube", "conceal": "yes", "goal": 1, "circuit": true, "zone": 4, "pickup": false, "pickupCount": "two", "dialogue": 1 }
   ]
 })";
     }
@@ -2517,6 +2525,7 @@ TEST(SceneFile, QuestTagsWrongTypeLogsAndKeepsDefaults)
     EXPECT_TRUE(bad.objects[0].zone.empty());
     EXPECT_TRUE(bad.objects[0].pickup.empty());
     EXPECT_EQ(bad.objects[0].pickupCount, 1);
+    EXPECT_TRUE(bad.objects[0].dialogue.empty());
 
     auto logged = [&logs](const char* key) {
         for (const std::string& line : logs)
@@ -2533,8 +2542,10 @@ TEST(SceneFile, QuestTagsWrongTypeLogsAndKeepsDefaults)
     EXPECT_TRUE(logged("\"zone\""));
     EXPECT_TRUE(logged("\"pickup\""));
     EXPECT_TRUE(logged("\"pickupCount\""));
+    EXPECT_TRUE(logged("\"dialogue\""));
 
     std::error_code ecRemove;
     std::filesystem::remove(goodPath, ecRemove);
     std::filesystem::remove(badPath, ecRemove);
+    std::filesystem::remove(roundPath, ecRemove);
 }

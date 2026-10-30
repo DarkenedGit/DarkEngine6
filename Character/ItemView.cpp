@@ -1,5 +1,6 @@
 #include "Character/ItemView.h"
 #include "Assets/AssetManager.h"
+#include "Play/Interaction.h"
 #include "Assets/Model.h"
 #include "Character/ThrowableView.h"
 #include "Core/EntityPins.h"
@@ -27,6 +28,7 @@ namespace Dark
             const Entity e = world.createEntity();
             world.emplace<TransformComponent>(e, position, Math::Quaternion::IDENTITY, Math::Vector3f{ 0.3f, 0.3f, 0.3f });
             world.emplace<ItemPickupComponent>(e, ItemPickupComponent{ item });
+            setInteractable(world, e, InteractKind::Item, kInteractItemRange);
             const std::string path   = throwableVisualModelPath(item.def->id);
             const bool        meshed = attachThrowableMesh(world, pins, assets, renderer, e, path, false);
             if (physics.valid())
@@ -60,6 +62,7 @@ namespace Dark
         mc.castShadow   = true;
         setModelComponent(world, pins, assets, e, mc);
         world.emplace<ItemPickupComponent>(e, ItemPickupComponent{ item });
+        setInteractable(world, e, InteractKind::Item, kInteractItemRange);
 
         if (physics.valid())
         {
@@ -87,6 +90,7 @@ namespace Dark
         mc.castShadow   = true;
         setModelComponent(world, pins, assets, e, mc);
         world.emplace<LootComponent>(e, LootComponent{ label, contents });
+        setInteractable(world, e, InteractKind::Loot, kInteractLootRange);
         return e;
     }
 

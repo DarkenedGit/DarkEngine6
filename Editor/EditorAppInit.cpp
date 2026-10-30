@@ -70,6 +70,7 @@ void EditorApp::registerActions()
 
 void EditorApp::onInit()
 {
+    m_play.bind(&EditorApp::fillPlayHost, this);
     m_water.params() = defaultWaterParams(0.0f);
     DE_LOG_INFO("EditorApp: init");
     m_ground.loadFromContent();

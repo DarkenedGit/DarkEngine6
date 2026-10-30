@@ -304,6 +304,7 @@ namespace Dark
         std::string zone;
         std::string pickup;
         int         pickupCount = 1;
+        std::string dialogue;
 
         // Unit spawner. Radius is metres on the ground, not the marker scale.
         bool        hasSpawner = false;

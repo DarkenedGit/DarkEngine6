@@ -1,17 +1,22 @@
 #include "Character/HealthComponent.h"
 #include "Core/Log.h"
 #include "Character/PlayerMotorComponent.h"
+#include "Character/PlayerStealth.h"
 #include "Character/SkillComponent.h"
 #include "Character/SkillId.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
 #include "Gameplay/Coin.h"
 #include "Gameplay/HealthPack.h"
+#include "Gameplay/Inventory.h"
+#include "Gameplay/Item.h"
 #include "Save/PersistentId.h"
 #include "Save/ProgressComponents.h"
 #include "Save/SaveBinding.h"
 #include "Save/SaveJson.h"
 #include "Save/SaveTypes.h"
+
+#include <vector>
 
 namespace Dark
 {
@@ -204,6 +209,126 @@ namespace Dark
             pack.respawnIn = respawn;
         }
 
+        struct ItemRow
+        {
+            std::string id;
+            int         count = 0;
+            int         slot  = -1;
+        };
+
+        bool includeInventory(const void* component)
+        {
+            const auto& inv = *static_cast<const InventoryComponent*>(component);
+            for (const ItemStack& stack : inv.bag)
+            {
+                if (!stack.empty())
+                    return true;
+            }
+            for (const ItemStack& stack : inv.equipped)
+            {
+                if (!stack.empty())
+                    return true;
+            }
+            return false;
+        }
+
+        void writeItem(SaveWriter& item, int index, void* user)
+        {
+            const auto& rows = *static_cast<const std::vector<ItemRow>*>(user);
+            const ItemRow& row = rows[static_cast<size_t>(index)];
+            item.string("id", row.id);
+            item.i32("count", row.count);
+            if (row.slot >= 0)
+                item.i32("slot", row.slot);
+        }
+
+        void readItem(SaveReader& item, int, void* user)
+        {
+            ItemRow row;
+            int slot = -1;
+            if (!item.string("id", row.id, Save::kMaxStringBytes) || !item.i32("count", row.count, 1, 100000) || !item.i32("slot", slot, -1, 7))
+                return;
+            row.slot = slot;
+            static_cast<std::vector<ItemRow>*>(user)->push_back(std::move(row));
+        }
+
+        void captureInventory(const void* component, void* writer)
+        {
+            const auto& inv = *static_cast<const InventoryComponent*>(component);
+            auto&       out = *static_cast<SaveWriter*>(writer);
+            std::vector<ItemRow> bag;
+            std::vector<ItemRow> equipped;
+            for (const ItemStack& stack : inv.bag)
+            {
+                if (!stack.empty() && stack.def->id)
+                    bag.push_back(ItemRow{ stack.def->id, stack.count, -1 });
+            }
+            for (int i = 0; i < static_cast<int>(EquipSlot::Count); ++i)
+            {
+                const ItemStack& stack = inv.equipped[i];
+                if (!stack.empty() && stack.def->id)
+                    equipped.push_back(ItemRow{ stack.def->id, stack.count, i });
+            }
+            out.arrayObjects("bag", static_cast<int>(bag.size()), writeItem, &bag);
+            out.arrayObjects("equipped", static_cast<int>(equipped.size()), writeItem, &equipped);
+        }
+
+        void applyInventory(void* component, void* reader, uint16_t)
+        {
+            auto& inv = *static_cast<InventoryComponent*>(component);
+            auto& in  = *static_cast<SaveReader*>(reader);
+            std::vector<ItemRow> bagRows;
+            std::vector<ItemRow> equippedRows;
+            int bagCount = -1;
+            int equippedCount = -1;
+            if (!in.arrayObjects("bag", InventoryComponent::kBagSize, bagCount, readItem, &bagRows))
+                return;
+            if (!in.arrayObjects("equipped", static_cast<int>(EquipSlot::Count), equippedCount, readItem, &equippedRows) || in.failed())
+                return;
+            if (bagCount < 0 && equippedCount < 0)
+                return;
+            ItemStack bag[InventoryComponent::kBagSize]{};
+            ItemStack equipped[static_cast<int>(EquipSlot::Count)]{};
+            int slot = 0;
+            for (const ItemRow& row : bagRows)
+            {
+                const ItemDef* def = findItemDef(row.id);
+                if (!def)
+                {
+                    DE_LOG_ERROR("Inventory: unknown item \"{}\"", row.id);
+                    continue;
+                }
+                if (slot >= InventoryComponent::kBagSize)
+                    break;
+                bag[slot++] = ItemStack{ def, row.count };
+            }
+            for (const ItemRow& row : equippedRows)
+            {
+                const ItemDef* def = findItemDef(row.id);
+                if (!def)
+                {
+                    DE_LOG_ERROR("Inventory: unknown item \"{}\"", row.id);
+                    continue;
+                }
+                int index = row.slot;
+                if (index < 0)
+                    index = static_cast<int>(def->slot);
+                if (index < 0 || index >= static_cast<int>(EquipSlot::Count) || def->slot == EquipSlot::None)
+                    continue;
+                equipped[index] = ItemStack{ def, row.count };
+            }
+            if (bagCount >= 0)
+            {
+                for (int i = 0; i < InventoryComponent::kBagSize; ++i)
+                    inv.bag[i] = bag[i];
+            }
+            if (equippedCount >= 0)
+            {
+                for (int i = 0; i < static_cast<int>(EquipSlot::Count); ++i)
+                    inv.equipped[i] = equipped[i];
+            }
+        }
+
         void captureCoin(const void* component, void* writer)
         {
             const auto& coin = *static_cast<const CoinComponent*>(component);
@@ -338,6 +463,62 @@ namespace Dark
             return stamina;
         }
 
+        void captureStealth(const void* component, void* writer)
+        {
+            const auto& stealth = *static_cast<const PlayerStealthComponent*>(component);
+            auto&       out     = *static_cast<SaveWriter*>(writer);
+            const PlayerStealthSettings& s = stealth.settings;
+            out.f32("stillSpeed", s.stillSpeed);
+            out.f32("sightCrouchWalk", s.sightCrouchWalk);
+            out.f32("sightCrouchStill", s.sightCrouchStill);
+            out.f32("hearStand", s.hearStand);
+            out.f32("hearWalk", s.hearWalk);
+            out.f32("hearSprint", s.hearSprint);
+            out.f32("hearCrouchWalk", s.hearCrouchWalk);
+            out.f32("hearCrouchStill", s.hearCrouchStill);
+            out.f32("standoff", s.standoff);
+            out.f32("standoffCrouchWalk", s.standoffCrouchWalk);
+            out.f32("standoffCrouchStill", s.standoffCrouchStill);
+            out.f32("standTargetHeight", s.standTargetHeight);
+            out.f32("crouchTargetHeight", s.crouchTargetHeight);
+            out.f32("lightLevel", stealth.lightLevel);
+            out.f32("exposure", stealth.exposure);
+            out.f32("strideLeft", stealth.strideLeft);
+        }
+
+        void applyStealth(void* component, void* reader, uint16_t)
+        {
+            auto& stealth = *static_cast<PlayerStealthComponent*>(component);
+            auto& in      = *static_cast<SaveReader*>(reader);
+            PlayerStealthSettings s = stealth.settings;
+            float light    = stealth.lightLevel;
+            float exposure = stealth.exposure;
+            float stride   = stealth.strideLeft;
+            const float hi = 1000.0f;
+            if (!in.f32("stillSpeed", s.stillSpeed, 0.0f, hi))
+                return;
+            if (!in.f32("sightCrouchWalk", s.sightCrouchWalk, 0.0f, hi) || !in.f32("sightCrouchStill", s.sightCrouchStill, 0.0f, hi))
+                return;
+            if (!in.f32("hearStand", s.hearStand, 0.0f, hi) || !in.f32("hearWalk", s.hearWalk, 0.0f, hi) || !in.f32("hearSprint", s.hearSprint, 0.0f, hi))
+                return;
+            if (!in.f32("hearCrouchWalk", s.hearCrouchWalk, 0.0f, hi) || !in.f32("hearCrouchStill", s.hearCrouchStill, 0.0f, hi))
+                return;
+            if (!in.f32("standoff", s.standoff, 0.0f, hi) || !in.f32("standoffCrouchWalk", s.standoffCrouchWalk, 0.0f, hi))
+                return;
+            if (!in.f32("standoffCrouchStill", s.standoffCrouchStill, 0.0f, hi))
+                return;
+            if (!in.f32("standTargetHeight", s.standTargetHeight, 0.0f, hi) || !in.f32("crouchTargetHeight", s.crouchTargetHeight, 0.0f, hi))
+                return;
+            if (!in.f32("lightLevel", light, 0.0f, 1.0f) || !in.f32("exposure", exposure, 0.0f, 1.0f))
+                return;
+            if (!in.f32("strideLeft", stride, -10.0f, hi))
+                return;
+            stealth.settings   = s;
+            stealth.lightLevel = light;
+            stealth.exposure   = exposure;
+            stealth.strideLeft = stride;
+        }
+
         void captureMotor(const void* component, void* writer)
         {
             const auto& motor = static_cast<const PlayerMotorComponent*>(component)->motor;
@@ -399,11 +580,13 @@ namespace Dark
     const PersistFns SkillComponent::kPersist{ "Skill", SkillComponent::kSaveVersion, 100, nullptr, &captureSkill, &applySkill, nullptr };
     const PersistFns HealthPackComponent::kPersist{ "HealthPack", HealthPackComponent::kSaveVersion, 100, nullptr, &capturePack, &applyPack, nullptr };
     const PersistFns CoinComponent::kPersist{ "Coin", CoinComponent::kSaveVersion, 100, nullptr, &captureCoin, &applyCoin, nullptr };
+    const PersistFns InventoryComponent::kPersist{ "Inventory", InventoryComponent::kSaveVersion, 100, includeInventory, &captureInventory, &applyInventory, nullptr };
     const PersistFns LookComponent::kPersist{ "Look", LookComponent::kSaveVersion, 100, nullptr, &captureLook, &applyLook, nullptr };
     const PersistFns WorldClockComponent::kPersist{ "WorldClock", WorldClockComponent::kSaveVersion, 100, nullptr, &captureClock, &applyClock, nullptr };
     const PersistFns AiClockComponent::kPersist{ "AiClock", AiClockComponent::kSaveVersion, 100, nullptr, &captureAiClock, &applyAiClock, &bindAiClock };
     const PersistFns RunProgressComponent::kPersist{ "RunProgress", RunProgressComponent::kSaveVersion, 100, nullptr, &captureRun, &applyRun, nullptr };
     const PersistFns PlayerMotorComponent::kPersist{ "PlayerMotor", PlayerMotorComponent::kSaveVersion, 100, nullptr, &captureMotor, &applyMotor, nullptr };
+    const PersistFns PlayerStealthComponent::kPersist{ "PlayerStealth", PlayerStealthComponent::kSaveVersion, 100, nullptr, &captureStealth, &applyStealth, nullptr };
 
     namespace
     {
@@ -417,11 +600,13 @@ namespace Dark
                 Save::bindPersist<SkillComponent>();
                 Save::bindPersist<HealthPackComponent>();
                 Save::bindPersist<CoinComponent>();
+                Save::bindPersist<InventoryComponent>();
                 Save::bindPersist<LookComponent>();
                 Save::bindPersist<WorldClockComponent>();
                 Save::bindPersist<AiClockComponent>();
                 Save::bindPersist<RunProgressComponent>();
                 Save::bindPersist<PlayerMotorComponent>();
+                Save::bindPersist<PlayerStealthComponent>();
             }
         };
 

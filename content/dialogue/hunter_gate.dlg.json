@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "id": "hunter_gate",
+  "pauseWorld": false,
+  "talkRange": 2.5,
+  "leash": 4,
+  "speaker": "Hunter",
+  "entry": "gate",
+  "refusal": [
+    { "id": "refuse_busy", "text": "Not now. Eyes up.", "once": false },
+    { "id": "refuse_later", "text": "Back off. This is not the time.", "once": false }
+  ],
+  "resume": [
+    { "id": "resume_gate", "text": "Right. The gate.", "once": false },
+    { "id": "resume_where", "text": "Where was I.", "once": false }
+  ],
+  "nodes": [
+    {
+      "id": "gate",
+      "x": 40,
+      "y": 80,
+      "lines": [
+        { "id": "gate_hold", "text": "Hold there. The gate stays shut until the yard is quiet.", "once": false },
+        { "id": "gate_quiet", "text": "You again. The yard is still not quiet.", "once": false }
+      ],
+      "choices": [
+        {
+          "id": "ask_why",
+          "text": "Why is it shut?",
+          "next": "why",
+          "once": false,
+          "conditions": [],
+          "effects": []
+        },
+        {
+          "id": "offer_file",
+          "text": "I have the research file.",
+          "next": "file",
+          "once": true,
+          "conditions": [
+            { "op": "item", "id": "research_file", "cmp": ">=", "value": 1 }
+          ],
+          "effects": [
+            { "op": "takeItem", "id": "research_file", "count": 1 },
+            { "op": "setFact", "key": "gate_file", "value": 1 }
+          ]
+        },
+        {
+          "id": "leave",
+          "text": "I'll leave you to it.",
+          "next": "",
+          "once": false,
+          "conditions": [],
+          "effects": []
+        }
+      ]
+    },
+    {
+      "id": "why",
+      "x": 320,
+      "y": 40,
+      "lines": [
+        { "id": "why_hunters", "text": "Because the last man through it did not come back.", "once": true },
+        { "id": "why_again", "text": "I already told you. Nobody came back.", "once": false }
+      ],
+      "choices": [
+        {
+          "id": "why_back",
+          "text": "Alright.",
+          "next": "gate",
+          "once": false,
+          "conditions": [],
+          "effects": []
+        }
+      ]
+    },
+    {
+      "id": "file",
+      "x": 320,
+      "y": 200,
+      "lines": [
+        { "id": "file_thanks", "text": "That is the page we were missing. I will remember this.", "once": true }
+      ],
+      "choices": [
+        {
+          "id": "file_done",
+          "text": "Then open it when you can.",
+          "next": "",
+          "once": false,
+          "conditions": [],
+          "effects": [
+            { "op": "questEvent", "name": "gate_file", "count": 1 }
+          ]
+        }
+      ]
+    }
+  ]
+}

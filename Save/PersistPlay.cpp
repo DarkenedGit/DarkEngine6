@@ -2,6 +2,8 @@
 #include "Gameplay/PowerComponents.h"
 #include "Play/AttachedLights.h"
 #include "Play/Carry.h"
+#include "Play/Interaction.h"
+#include "Core/Log.h"
 #include "Save/SaveBinding.h"
 #include "Save/SaveJson.h"
 #include "Save/SaveTypes.h"
@@ -209,12 +211,70 @@ namespace Dark
         vol.box.Max = max;
     }
 
+    static const char* interactKindName(InteractKind kind)
+    {
+        switch (kind)
+        {
+        case InteractKind::Loot:
+            return "Loot";
+        case InteractKind::Power:
+            return "Power";
+        case InteractKind::Guard:
+            return "Guard";
+        case InteractKind::Item:
+            break;
+        }
+        return "Item";
+    }
+
+    static bool parseInteractKind(const std::string& name, InteractKind& out)
+    {
+        if (name == "Item")
+            out = InteractKind::Item;
+        else if (name == "Loot")
+            out = InteractKind::Loot;
+        else if (name == "Power")
+            out = InteractKind::Power;
+        else if (name == "Guard")
+            out = InteractKind::Guard;
+        else
+            return false;
+        return true;
+    }
+
+    void captureInteract(const void* component, void* writer)
+    {
+        const auto& mark = *static_cast<const InteractableComponent*>(component);
+        auto&       out  = *static_cast<SaveWriter*>(writer);
+        out.string("kind", interactKindName(mark.kind));
+        out.f32("range", mark.range);
+    }
+
+    void applyInteract(void* component, void* reader, uint16_t)
+    {
+        auto& mark = *static_cast<InteractableComponent*>(component);
+        auto& in   = *static_cast<SaveReader*>(reader);
+        std::string kind = interactKindName(mark.kind);
+        float       range = mark.range;
+        if (!in.string("kind", kind, 16) || !in.f32("range", range, 0.0f, 1000.0f))
+            return;
+        InteractKind parsed = mark.kind;
+        if (!parseInteractKind(kind, parsed))
+        {
+            DE_LOG_WARN("Save: unknown interact kind '{}'", kind);
+            return;
+        }
+        mark.kind  = parsed;
+        mark.range = range;
+    }
+
     const PersistFns PowerBoxComponent::kPersist{ "PowerBox", PowerBoxComponent::kSaveVersion, 100, nullptr, &capturePower, &applyPower, &bindPower };
     const PersistFns CircuitMemberComponent::kPersist{ "CircuitMember", CircuitMemberComponent::kSaveVersion, 100, nullptr, &captureCircuit, &applyCircuit, nullptr };
     const PersistFns LootDroppedComponent::kPersist{ "LootDropped", LootDroppedComponent::kSaveVersion, 100, nullptr, &captureLoot, &applyLoot, nullptr };
     const PersistFns AttachedLightComponent::kPersist{ "AttachedLight", AttachedLightComponent::kSaveVersion, 100, nullptr, &captureAttached, &applyAttached, &bindAttached };
     const PersistFns CarriedByComponent::kPersist{ "CarriedBy", CarriedByComponent::kSaveVersion, 100, nullptr, &captureCarried, &applyCarried, &bindCarried };
     const PersistFns ConcealVolumeComponent::kPersist{ "ConcealVolume", ConcealVolumeComponent::kSaveVersion, 100, nullptr, &captureConceal, &applyConceal, nullptr };
+    const PersistFns InteractableComponent::kPersist{ "Interactable", InteractableComponent::kSaveVersion, 100, nullptr, &captureInteract, &applyInteract, nullptr };
 
     namespace
     {
@@ -228,6 +288,7 @@ namespace Dark
                 Save::bindPersist<AttachedLightComponent>();
                 Save::bindPersist<CarriedByComponent>();
                 Save::bindPersist<ConcealVolumeComponent>();
+                Save::bindPersist<InteractableComponent>();
             }
         };
 

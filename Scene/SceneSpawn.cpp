@@ -1,6 +1,7 @@
 #include "Scene/SceneSpawn.h"
 
 #include "Assets/AssetManager.h"
+#include "Play/Interaction.h"
 #include "Character/ItemView.h"
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
@@ -30,7 +31,7 @@ namespace Dark
             return type == SceneObjectType::PointLight || type == SceneObjectType::SpotLight;
         }
 
-        void spawnOne(World& world, const SceneObjectData& o, const SceneSpawnHost& host, int& powerStamp)
+        void spawnOne(World& world, const SceneObjectData& o, const SceneSpawnHost& host, int& powerStamp, int& pickupStamp)
         {
             const AABox3f bounds = AABox3f::FromCenterExtents(o.position, o.scale * 0.5f);
             const bool    cube   = o.type == SceneObjectType::Cube;
@@ -52,7 +53,11 @@ namespace Dark
                     return;
                 }
                 if (const ItemDef* def = findItemDef(o.pickup))
-                    spawnItemPickup(world, *host.pins, *host.assets, *host.renderer, *host.physics, ItemStack{ def, Math::Max(1, o.pickupCount) }, o.position, Vector3f{});
+                {
+                    const Entity pickup = spawnItemPickup(world, *host.pins, *host.assets, *host.renderer, *host.physics, ItemStack{ def, Math::Max(1, o.pickupCount) }, o.position, Vector3f{});
+                    if (pickup.valid() && host.stampPrefix && host.stampPrefix[0] != '\0')
+                        stampProceduralId(world, pickup, std::format("{}/pickup/{}", host.stampPrefix, pickupStamp++), "pickup");
+                }
                 else
                     DE_LOG_WARN("Scene: unknown pickup item '{}'", o.pickup);
                 return;
@@ -74,6 +79,7 @@ namespace Dark
                 box.pos     = o.position;
                 box.on      = true;
                 world.emplace<PowerBoxComponent>(e, box);
+                setInteractable(world, e, InteractKind::Power, kInteractPowerRange);
                 if (host.stampPrefix && host.stampPrefix[0] != '\0')
                     stampProceduralId(world, e, std::format("{}/power/{}", host.stampPrefix, powerStamp++), "power");
             }
@@ -102,9 +108,10 @@ namespace Dark
     {
         if (!host.world || !objects || count <= 0)
             return;
-        int powerStamp = 0;
+        int powerStamp  = 0;
+        int pickupStamp = 0;
         for (int i = 0; i < count; ++i)
-            spawnOne(*host.world, objects[i], host, powerStamp);
+            spawnOne(*host.world, objects[i], host, powerStamp, pickupStamp);
     }
 
 } // namespace Dark

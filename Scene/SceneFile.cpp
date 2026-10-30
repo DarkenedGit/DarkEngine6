@@ -657,6 +657,8 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             if (o.pickupCount != 1)
                 jo["pickupCount"] = o.pickupCount;
         }
+        if (!o.dialogue.empty())
+            jo["dialogue"] = o.dialogue;
         if (!o.squad.empty())
             jo["squad"] = o.squad;
         if (!o.block)
@@ -1284,6 +1286,7 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
         jsonBoolOr(jo, "block", o.block, true, "SceneFile");
         jsonStringOr(jo, "pickup", o.pickup, std::string(), "SceneFile");
         jsonIntOr(jo, "pickupCount", o.pickupCount, 1, "SceneFile");
+        jsonStringOr(jo, "dialogue", o.dialogue, std::string(), "SceneFile");
         if (jo.contains("patrol") && jo["patrol"].is_array())
         {
             for (const json& p : jo["patrol"])

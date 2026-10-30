@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ECS/Persist.h"
+
 namespace Dark
 {
     // How loud and visible the player is. Crouch walk is quieter than a normal walk.
@@ -19,6 +21,19 @@ namespace Dark
         float standoffCrouchStill   = 0.55f;
         float standTargetHeight     = 0.50f;
         float crouchTargetHeight    = 0.22f;
+    };
+
+    // Prey radii plus the exposure sample and footstep-noise timer. Both play sessions tick this.
+    struct PlayerStealthComponent
+    {
+        static constexpr const char* kTypeName    = "PlayerStealth";
+        static constexpr uint16_t    kSaveVersion = 1;
+        static const PersistFns      kPersist;
+
+        PlayerStealthSettings settings{};
+        float                 lightLevel = 1.0f;
+        float                 exposure   = 1.0f;
+        float                 strideLeft = 0.0f;
     };
 
     struct PreySense

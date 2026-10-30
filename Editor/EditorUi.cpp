@@ -106,6 +106,7 @@ void EditorApp::drawEditorUi()
             ImGui::MenuItem(ICON_FA_BOLT "  Particle Panel", "F2", &m_showParticlePanel);
             ImGui::MenuItem(ICON_FA_PLAY "  Animation Panel", "F4", &m_showAnimPanel);
             ImGui::MenuItem(ICON_FA_LIST "  HSM Panel", "F8", &m_showHsmPanel);
+            ImGui::MenuItem(ICON_FA_FILE "  Dialogue", "F9", &m_showDialoguePanel);
             ImGui::MenuItem(ICON_FA_VOLUME_HIGH "  Audio", nullptr, &m_showAudioPanel);
             ImGui::MenuItem(ICON_FA_FOLDER_OPEN "  Assets", "F10", &m_showAssetBrowser);
             ImGui::MenuItem(ICON_FA_CUBE "  Model Parts", nullptr, &m_showModelParts);
@@ -438,6 +439,10 @@ void EditorApp::drawEditorUi()
 
     if (m_showHsmPanel)
         m_hsmPanel.draw(assets(), &m_showHsmPanel);
+    if (ImGui::IsKeyPressed(ImGuiKey_F9, false) && !ImGui::GetIO().WantTextInput)
+        m_showDialoguePanel = !m_showDialoguePanel;
+    if (m_showDialoguePanel)
+        m_dialoguePanel.draw(&m_showDialoguePanel);
 
     m_audioPanel.draw(audio(), assets(), &m_showAudioPanel);
 
@@ -1020,6 +1025,8 @@ void EditorApp::drawInspector3D()
 
 void EditorApp::onUpdate(float dt)
 {
+    if (m_playMode)
+        dt = m_play.scaleDt(dt);
     const NetRole role = network().role();
     if (role == NetRole::Joining && m_lastNetRole != NetRole::Joining)
         discardLocalSceneForJoin();
@@ -1035,17 +1042,21 @@ void EditorApp::onUpdate(float dt)
     window().setCursorCaptured(m_playMode && window().isFocused());
     if (m_playMode)
     {
-        updatePlay(dt);
-        tickSpawners(dt);
-        tickCrows(dt);
-        tickEditorHunters(dt);
-        syncArmorVisuals(world());
-        Combat::harvestAndResolveDots(world(), m_combat);
-        tickStatusFx(world(), &audio(), &assets());
-        updatePawnAnims();
-        if (m_playMode)
-            simulatePhysics(dt);
-        m_save.service(world());
+        if (!m_playPlayer.valid() || !world().alive(m_playPlayer))
+            setPlayMode(false);
+        else
+        {
+            m_play.tickPawn(dt);
+            m_play.tickCamera();
+            m_play.tickWorld(dt);
+            m_save.service(world());
+            if (!m_questBanners.empty())
+            {
+                m_questBanners.front().timeLeft -= dt;
+                if (m_questBanners.front().timeLeft <= 0.0f)
+                    m_questBanners.erase(m_questBanners.begin());
+            }
+        }
     }
     else
     {
@@ -1082,7 +1093,7 @@ void EditorApp::onUpdate(float dt)
         });
         tickAnimGraphs(world(), assets(), dt);
         if (m_playMode)
-            syncThrowableHands(world(), pins(), assets(), renderer());
+            m_play.tickHeldItems();
     }
 
     tickParticleEmitters(world(), dt);

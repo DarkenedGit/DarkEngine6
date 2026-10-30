@@ -42,8 +42,7 @@ namespace Dark
     }
 
     // Built-in prey radii, then any hear overrides on the scene.
-    // Guard tuning starts from content/ai/awareness.json, then scene settings overlay authored keys.
-    inline void applySceneStealth(PlayerStealthSettings& stealth, AiSystem& ai, const StealthSceneDesc& scene)
+    inline void applyScenePrey(PlayerStealthSettings& stealth, const StealthSceneDesc& scene)
     {
         stealth = PlayerStealthSettings{};
         if (scene.hasHearStand)
@@ -56,12 +55,23 @@ namespace Dark
             stealth.hearCrouchWalk = scene.hearCrouchWalk;
         if (scene.hasHearCrouchStill)
             stealth.hearCrouchStill = scene.hearCrouchStill;
+    }
+
+    // Guard tuning starts from content/ai/awareness.json, then scene settings overlay authored keys.
+    inline void applySceneAwareness(AiSystem& ai, const StealthSceneDesc& scene)
+    {
         AI::AwarenessSettings aware{};
         AI::loadAwarenessSettings(aware);
         if (scene.hasSettings)
             AI::applyAwarenessMask(aware, scene.settings, scene.settingsMask);
         ai.setAwarenessSettings(aware);
         ai.setAwarenessEnabled(scene.awareness);
+    }
+
+    inline void applySceneStealth(PlayerStealthSettings& stealth, AiSystem& ai, const StealthSceneDesc& scene)
+    {
+        applyScenePrey(stealth, scene);
+        applySceneAwareness(ai, scene);
     }
 
     // Sandbox live values. PathChase::init and both apps set this so a later write cannot fight it.

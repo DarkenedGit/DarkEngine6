@@ -236,7 +236,8 @@ TEST(EntityInput, SandboxFileThenPlayerFile)
     EXPECT_TRUE(hasKey(map, "dev_tools", Key::M, 1.0f));
     EXPECT_TRUE(hasKey(map, "profiler", Key::P, 1.0f));
     EXPECT_TRUE(hasKey(map, "inventory", Key::I, 1.0f));
-    EXPECT_TRUE(hasKey(map, "anim_walk", Key::T, 1.0f));
+    EXPECT_TRUE(hasKey(map, "anim_walk", Key::Y, 1.0f));
+    EXPECT_TRUE(hasKey(map, "talk", Key::T, 1.0f));
     EXPECT_TRUE(hasButton(map, "anim_walk", GamepadButton::RightThumb, 1.0f));
     const std::vector<ActionMap::Binding>* climb = map.bindings("fly_climb");
     ASSERT_NE(climb, nullptr);

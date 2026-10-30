@@ -92,6 +92,11 @@ namespace Dark
         // Empty ref if the file is missing (not an error).
         AssetRef<class HsmGraphDef> tryLoadHsmGraph(const std::string& virtualPath);
 
+        AssetRef<class DialogueGraphDef> loadDialogueGraph(const std::string& virtualPath);
+        AssetRef<class DialogueGraphDef> loadDialogueGraphFile(const std::filesystem::path& absPath);
+        // Empty ref if the file is missing (not an error). A bad file logs and returns empty.
+        AssetRef<class DialogueGraphDef> tryLoadDialogueGraph(const std::string& virtualPath);
+
         AssetRef<class Audio::SoundClip> loadAudio(const std::string& virtualPath);
         AssetRef<class Audio::SoundClip> internSoundClip(AssetRef<class Audio::SoundClip> clip, const std::string& cacheKey = {});
         // Already interned clip for this key, or empty. Does not synthesize.
@@ -159,7 +164,8 @@ namespace Dark
             if (AssetRef<T> existing = findInternedLocked<T>(key, InternLookup::EraseMissing))
                 return existing;
             const AssetID id = allocID();
-            asset->id        = id;
+            // Derived graphs keep a string id. The numeric id lives on Asset.
+            static_cast<Asset&>(*asset).id = id;
             m_assets[id]     = asset;
             m_pathToID[key]  = id;
             return asset;

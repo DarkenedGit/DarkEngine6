@@ -21,6 +21,8 @@
 #include "Render/Texture2D.h"
 #include "Scene/SceneTypes.h"
 #include "Play/Crow.h"
+#include "Play/GuardVoice.h"
+#include "Play/PlaySession.h"
 #include "Editor/EditorObject.h"
 #include "Math/AABox2f.h"
 #include "Editor/EditorImGui.h"
@@ -28,6 +30,7 @@
 #include "Editor/ParticleEditorPanel.h"
 #include "Editor/AnimEditorPanel.h"
 #include "Editor/HsmEditorPanel.h"
+#include "Editor/DialogueEditorPanel.h"
 #include "Editor/AudioPreviewPanel.h"
 #include "Animation/AnimGraphComponent.h"
 #include "Particles/ParticleComponents.h"
@@ -42,7 +45,6 @@
 #include "Character/ItemView.h"
 #include "Combat/CombatSystem.h"
 #include "Animation/Locomotion.h"
-#include "Character/PlayerStealth.h"
 #include "Combat/HoldCharge.h"
 #include "Combat/Shield.h"
 #include "Play/ImpactFx.h"
@@ -180,25 +182,22 @@ private:
     void   resetPlayCombat();
     void   captureAuthoredPoses();
     void   restoreAuthoredPoses();
-    void   tickEditorHunters(float dt);
     void   tickSpawners(float dt);
     void   tickCrows(float dt);
     void   destroySpawnedUnits(Entity onlySpawner);
     Entity spawnSpawnerUnit(Entity spawner, const SpawnerRequest& req);
     Dark::Terrain::GroundContact groundContactAt(float x, float z) const;
-    void   updatePawnAnims();
-    void   updatePlay(float dt);
-    void   updatePlayCamera();
     void   drawPlayHud();
-    Dark::WeaponWorldQuery makePlayWeaponQuery();
-    void   resolvePlayHits(const Dark::Combat::DamageEvent* events, int count);
     static void onPlayWeaponHitThunk(void* user, const Dark::WeaponHit& hit);
     void   onPlayWeaponHit(const Dark::WeaponHit& hit);
-    static void onPlayJumpHitsThunk(void* user, const Dark::Combat::DamageEvent* events, int count);
-    static void onPlayHunterCueThunk(void* user, Dark::Entity hunter, const char* cue);
-    static void playPowerClick(void* user);
-    static float playCarryHeight(void* user, float x, float z);
     ImpactFxHost impactHost();
+    static void fillPlayHost(void* user, Dark::PlayHost& host);
+    static void onPlayQuestNote(void* user, const Dark::QuestNoteEvent& note);
+    static void onPlayPrepare(void* user);
+    static void onPlayStepPhysics(void* user, float dt);
+    static Dark::Entity onPlaySpawnUnit(void* user, Dark::Entity spawner, const Dark::SpawnerRequest& req);
+    static float onPlayHeight(void* user, float x, float z);
+    static Dark::Terrain::GroundContact onPlayGroundContact(void* user, float x, float z);
     bool   deferredDecals();
     bool   isStepCue(Entity e, const char* cue);
     void   spawnFootmark(const Math::Vector3f& bodyPos, const Math::Vector3f& facing);
@@ -206,9 +205,6 @@ private:
     void   spawnWeaponImpact(const WeaponHit& hit);
     void   spawnLivingBloodDecal(Entity victim, const Math::Vector3f& point, const Math::Vector3f& normal);
     void   spawnDeathBloodDecal(const Math::Vector3f& point, const Math::Vector3f& normal);
-    bool   firePlayLoadout(bool charged);
-    bool   releaseThrowable(bool charged);
-    void   tickThrowableFlights(float dt);
     void   ensurePlayGear();
     void   destroyPlayGear();
     void   equipPlayArmor();
@@ -270,6 +266,7 @@ private:
     void syncTerrainLod();
     void applyAuthoredGrass();
     void applyAuthoredStealth();
+    void ensurePlayerStealth(Dark::Entity e);
     void updateEditorGrass(float dt);
     void tickLeaves(float dt);
     void drawEditorGrass(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, const Math::Matrix4f& prevViewProj, const Frustum3f& frustum);
@@ -379,10 +376,12 @@ private:
     ParticleEditorPanel  m_particlePanel;
     AnimEditorPanel      m_animPanel;
     HsmEditorPanel       m_hsmPanel;
+    DialogueEditorPanel  m_dialoguePanel;
     AudioPreviewPanel    m_audioPanel;
     bool                 m_showParticlePanel = true;
     bool                 m_showAnimPanel     = true;
     bool                 m_showHsmPanel      = true;
+    bool                 m_showDialoguePanel = false;
     bool                 m_showAudioPanel    = false;
     bool                 m_showAssetBrowser  = true;
 
@@ -514,41 +513,34 @@ private:
     NetRole m_lastNetRole = NetRole::Idle;
 
     Dark::AiSystem            m_ai;
-    Dark::Combat::CombatSystem m_combat;
+    Dark::PlaySession         m_play;
+    Dark::GuardVoice          m_guardVoice;
+    std::string               m_sceneQuest;
+    struct QuestBanner
+    {
+        std::string label;
+        std::string text;
+        float       timeLeft = 3.5f;
+    };
+    std::vector<QuestBanner>  m_questBanners;
     Physics::PhysicsWorld          m_physics;
     Physics::PhysicsSurfaceCatalog m_surfaces;
     Physics::PhysicsBodyId         m_physicsGround = Physics::kNullPhysicsBody;
     Physics::FoliageCollisionSet   m_foliageCollision;
     bool                      m_playMode = false;
-    bool                      m_crouchLatch = false;
     bool                      m_suspendLiveStamp = false;
     int                       m_liveStamp = 0;
     Dark::Save::SaveSystem    m_save;
     Dark::Entity              m_session{};
     Dark::Entity              m_playPlayer{};
     CrowModels                m_crowModels{};
-    float                     m_playLookYaw   = 0.0f;
-    float                     m_playLookPitch = 0.0f;
-    float                     m_playLowerBodyYaw = 0.0f;
-    float                     m_jumpAttackBuffer = 0.0f;
     Dark::Entity              m_playShield{};
-    Dark::Combat::OffhandState         m_offhand{};
-    Dark::Combat::PlayerChargeSettings m_chargeSettings{};
-    Dark::PlayerStealthSettings        m_stealth{};
-    Dark::Combat::HoldCharge           m_attackCharge{};
-    Dark::Combat::HoldCharge           m_blockCharge{};
-    Dark::ChargeWindup                 m_chargeWindup{};
     Dark::Terrain::HeightMap           m_playGrid{};
     Dark::Terrain::TerrainGround       m_ground{};
-    float                              m_playFootstepAcc = 0.0f;
-    bool                               m_fireQuick   = false;
-    bool                               m_fireCharged = false;
-    Dark::ThrowableFlights             m_throwFlights;
     std::vector<Dark::Math::AABox3f> m_playCubes;
     std::vector<Dark::Math::Sphere3f> m_playSpheres;
     float                  m_playGroundProbeY = 0.0f;
     Physics::PhysicsBodyId m_playGroundIgnore = Physics::kNullPhysicsBody;
     std::vector<Dark::Entity>        m_playCubeEntities;
     std::vector<Dark::Entity>        m_playSphereEntities;
-    WeaponTargetList m_playWeaponTargets;
 };

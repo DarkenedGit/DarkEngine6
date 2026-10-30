@@ -229,6 +229,7 @@
         1.0,
         1.0
       ],
+      "dialogue": "dialogue/hunter_gate.dlg.json",
       "type": "hunter"
     },
     {
