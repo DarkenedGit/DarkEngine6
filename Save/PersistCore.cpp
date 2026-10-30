@@ -7,11 +7,15 @@
 #include "ECS/World.h"
 #include "Gameplay/Coin.h"
 #include "Gameplay/HealthPack.h"
+#include "Gameplay/Inventory.h"
+#include "Gameplay/Item.h"
 #include "Save/PersistentId.h"
 #include "Save/ProgressComponents.h"
 #include "Save/SaveBinding.h"
 #include "Save/SaveJson.h"
 #include "Save/SaveTypes.h"
+
+#include <vector>
 
 namespace Dark
 {
@@ -202,6 +206,126 @@ namespace Dark
                 return;
             pack.active    = active;
             pack.respawnIn = respawn;
+        }
+
+        struct ItemRow
+        {
+            std::string id;
+            int         count = 0;
+            int         slot  = -1;
+        };
+
+        bool includeInventory(const void* component)
+        {
+            const auto& inv = *static_cast<const InventoryComponent*>(component);
+            for (const ItemStack& stack : inv.bag)
+            {
+                if (!stack.empty())
+                    return true;
+            }
+            for (const ItemStack& stack : inv.equipped)
+            {
+                if (!stack.empty())
+                    return true;
+            }
+            return false;
+        }
+
+        void writeItem(SaveWriter& item, int index, void* user)
+        {
+            const auto& rows = *static_cast<const std::vector<ItemRow>*>(user);
+            const ItemRow& row = rows[static_cast<size_t>(index)];
+            item.string("id", row.id);
+            item.i32("count", row.count);
+            if (row.slot >= 0)
+                item.i32("slot", row.slot);
+        }
+
+        void readItem(SaveReader& item, int, void* user)
+        {
+            ItemRow row;
+            int slot = -1;
+            if (!item.string("id", row.id, Save::kMaxStringBytes) || !item.i32("count", row.count, 1, 100000) || !item.i32("slot", slot, -1, 7))
+                return;
+            row.slot = slot;
+            static_cast<std::vector<ItemRow>*>(user)->push_back(std::move(row));
+        }
+
+        void captureInventory(const void* component, void* writer)
+        {
+            const auto& inv = *static_cast<const InventoryComponent*>(component);
+            auto&       out = *static_cast<SaveWriter*>(writer);
+            std::vector<ItemRow> bag;
+            std::vector<ItemRow> equipped;
+            for (const ItemStack& stack : inv.bag)
+            {
+                if (!stack.empty() && stack.def->id)
+                    bag.push_back(ItemRow{ stack.def->id, stack.count, -1 });
+            }
+            for (int i = 0; i < static_cast<int>(EquipSlot::Count); ++i)
+            {
+                const ItemStack& stack = inv.equipped[i];
+                if (!stack.empty() && stack.def->id)
+                    equipped.push_back(ItemRow{ stack.def->id, stack.count, i });
+            }
+            out.arrayObjects("bag", static_cast<int>(bag.size()), writeItem, &bag);
+            out.arrayObjects("equipped", static_cast<int>(equipped.size()), writeItem, &equipped);
+        }
+
+        void applyInventory(void* component, void* reader, uint16_t)
+        {
+            auto& inv = *static_cast<InventoryComponent*>(component);
+            auto& in  = *static_cast<SaveReader*>(reader);
+            std::vector<ItemRow> bagRows;
+            std::vector<ItemRow> equippedRows;
+            int bagCount = -1;
+            int equippedCount = -1;
+            if (!in.arrayObjects("bag", InventoryComponent::kBagSize, bagCount, readItem, &bagRows))
+                return;
+            if (!in.arrayObjects("equipped", static_cast<int>(EquipSlot::Count), equippedCount, readItem, &equippedRows) || in.failed())
+                return;
+            if (bagCount < 0 && equippedCount < 0)
+                return;
+            ItemStack bag[InventoryComponent::kBagSize]{};
+            ItemStack equipped[static_cast<int>(EquipSlot::Count)]{};
+            int slot = 0;
+            for (const ItemRow& row : bagRows)
+            {
+                const ItemDef* def = findItemDef(row.id);
+                if (!def)
+                {
+                    DE_LOG_ERROR("Inventory: unknown item \"{}\"", row.id);
+                    continue;
+                }
+                if (slot >= InventoryComponent::kBagSize)
+                    break;
+                bag[slot++] = ItemStack{ def, row.count };
+            }
+            for (const ItemRow& row : equippedRows)
+            {
+                const ItemDef* def = findItemDef(row.id);
+                if (!def)
+                {
+                    DE_LOG_ERROR("Inventory: unknown item \"{}\"", row.id);
+                    continue;
+                }
+                int index = row.slot;
+                if (index < 0)
+                    index = static_cast<int>(def->slot);
+                if (index < 0 || index >= static_cast<int>(EquipSlot::Count) || def->slot == EquipSlot::None)
+                    continue;
+                equipped[index] = ItemStack{ def, row.count };
+            }
+            if (bagCount >= 0)
+            {
+                for (int i = 0; i < InventoryComponent::kBagSize; ++i)
+                    inv.bag[i] = bag[i];
+            }
+            if (equippedCount >= 0)
+            {
+                for (int i = 0; i < static_cast<int>(EquipSlot::Count); ++i)
+                    inv.equipped[i] = equipped[i];
+            }
         }
 
         void captureCoin(const void* component, void* writer)
@@ -399,6 +523,7 @@ namespace Dark
     const PersistFns SkillComponent::kPersist{ "Skill", SkillComponent::kSaveVersion, 100, nullptr, &captureSkill, &applySkill, nullptr };
     const PersistFns HealthPackComponent::kPersist{ "HealthPack", HealthPackComponent::kSaveVersion, 100, nullptr, &capturePack, &applyPack, nullptr };
     const PersistFns CoinComponent::kPersist{ "Coin", CoinComponent::kSaveVersion, 100, nullptr, &captureCoin, &applyCoin, nullptr };
+    const PersistFns InventoryComponent::kPersist{ "Inventory", InventoryComponent::kSaveVersion, 100, includeInventory, &captureInventory, &applyInventory, nullptr };
     const PersistFns LookComponent::kPersist{ "Look", LookComponent::kSaveVersion, 100, nullptr, &captureLook, &applyLook, nullptr };
     const PersistFns WorldClockComponent::kPersist{ "WorldClock", WorldClockComponent::kSaveVersion, 100, nullptr, &captureClock, &applyClock, nullptr };
     const PersistFns AiClockComponent::kPersist{ "AiClock", AiClockComponent::kSaveVersion, 100, nullptr, &captureAiClock, &applyAiClock, &bindAiClock };
@@ -417,6 +542,7 @@ namespace Dark
                 Save::bindPersist<SkillComponent>();
                 Save::bindPersist<HealthPackComponent>();
                 Save::bindPersist<CoinComponent>();
+                Save::bindPersist<InventoryComponent>();
                 Save::bindPersist<LookComponent>();
                 Save::bindPersist<WorldClockComponent>();
                 Save::bindPersist<AiClockComponent>();

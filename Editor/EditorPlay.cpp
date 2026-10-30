@@ -65,6 +65,7 @@
 #include "Math/Ray3f.h"
 #include "Math/Sphere3f.h"
 #include "Math/Vector3f.h"
+#include "Math/Vector4f.h"
 #include "Render/DecalBasis.h"
 #include "Render/GpuUpload.h"
 #include "Weapons/HittableComponent.h"
@@ -74,6 +75,7 @@
 #include <imgui.h>
 
 #include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <cstring>
 #include <memory>
@@ -364,11 +366,38 @@ void EditorApp::fillPlayHost(void* user, PlayHost& host)
     host.sphereEntityCount = static_cast<int>(app->m_playSphereEntities.size());
 
     host.preparePlayer = &EditorApp::onPlayPrepare;
+    host.onQuestNote   = &EditorApp::onPlayQuestNote;
     host.stepPhysics   = &EditorApp::onPlayStepPhysics;
     host.spawnUnit     = &EditorApp::onPlaySpawnUnit;
     host.heightAt      = &EditorApp::onPlayHeight;
     host.groundContact = &EditorApp::onPlayGroundContact;
     host.user          = app;
+}
+
+void EditorApp::onPlayQuestNote(void* user, const QuestNoteEvent& note)
+{
+    auto* app = static_cast<EditorApp*>(user);
+    if (!app)
+        return;
+    QuestBanner banner;
+    banner.text = note.text;
+    switch (note.kind)
+    {
+    case QuestNote::Started:
+        banner.label = "NEW QUEST";
+        break;
+    case QuestNote::NewObjective:
+        banner.label = "NEW OBJECTIVE";
+        break;
+    case QuestNote::ObjectiveDone:
+        banner.label = "OBJECTIVE COMPLETE";
+        break;
+    case QuestNote::QuestDone:
+        banner.label = "QUEST COMPLETE";
+        break;
+    }
+    if (note.kind != QuestNote::NewObjective || app->m_questBanners.size() < 4)
+        app->m_questBanners.push_back(std::move(banner));
 }
 
 void EditorApp::onPlayPrepare(void* user)
@@ -442,6 +471,7 @@ void EditorApp::setPlayMode(bool play)
         }
         clearAllStatusFx(world(), &audio());
         resetPlayCombat();
+        m_questBanners.clear();
         m_play.quest().clear();
         if (!m_sceneQuest.empty())
             m_play.startQuest(m_sceneQuest);
@@ -509,6 +539,7 @@ void EditorApp::setPlayMode(bool play)
         appendUnresolvedThrowableSpots(keptThrowables, m_play.throws());
         m_play.throws().clear();
         m_play.quest().clear();
+        m_questBanners.clear();
         m_guardVoice.stop();
         m_play.resetPawn();
         destroyPlayGear();
@@ -801,6 +832,61 @@ void EditorApp::drawPlayHud()
     ImGui::Text("Hunters  %d / %d", huntersAlive, hunters);
     if (wolves > 0)
         ImGui::Text("Wolves  %d / %d", wolvesAlive, wolves);
+    const QuestRuntime& quest = m_play.quest();
+    if (quest.active())
+    {
+        ImGui::Separator();
+        ImGui::TextUnformatted(quest.def().title.c_str());
+        if (quest.complete())
+            ImGui::TextUnformatted("Complete");
+        for (size_t i = 0; i < quest.def().objectives.size(); ++i)
+        {
+            const ObjectiveDef&   o  = quest.def().objectives[i];
+            const ObjectiveState& st = quest.state(i);
+            if (!st.done && !quest.open(i))
+                continue;
+            if (o.count > 1)
+                ImGui::Text("%s %s (%d/%d)", st.done ? "[x]" : "[ ]", o.text.c_str(), st.progress, o.count);
+            else
+                ImGui::Text("%s %s", st.done ? "[x]" : "[ ]", o.text.c_str());
+        }
+    }
+    if (!m_questBanners.empty())
+    {
+        const QuestBanner& banner = m_questBanners.front();
+        ImGui::Text("%s  %s", banner.label.c_str(), banner.text.c_str());
+    }
     ImGui::TextDisabled("RMB / V / LT shield    L light    F12 / Esc stop");
     ImGui::End();
+
+    Vector3f target;
+    const TransformComponent* pxf = m_playPlayer.valid() ? world().get<TransformComponent>(m_playPlayer) : nullptr;
+    if (!pxf || !quest.active() || quest.complete() || !quest.objectiveTarget(world(), m_playPlayer, target))
+        return;
+    const ImGuiViewport* vp   = ImGui::GetMainViewport();
+    ImDrawList*          dl   = ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp));
+    const Vector4f       clip = m_camera.GetViewProj() * Vector4f(Vector3f(target.x, target.y + 1.4f, target.z), 1.0f);
+    float                nx   = clip.w > 1.0e-4f ? clip.x / clip.w : -clip.x;
+    float                ny   = clip.w > 1.0e-4f ? clip.y / clip.w : -clip.y;
+    if (clip.w <= 1.0e-4f)
+    {
+        const float m = Math::Max(std::fabs(nx), std::fabs(ny));
+        nx            = m > 1.0e-6f ? nx / m : 0.0f;
+        ny            = m > 1.0e-6f ? ny / m : -1.0f;
+    }
+    const float edge = Math::Max(std::fabs(nx), std::fabs(ny));
+    if (edge > 0.9f)
+    {
+        nx *= 0.9f / edge;
+        ny *= 0.9f / edge;
+    }
+    const ImVec2 c{ vp->Pos.x + (nx * 0.5f + 0.5f) * vp->Size.x, vp->Pos.y + (1.0f - (ny * 0.5f + 0.5f)) * vp->Size.y };
+    const float  r = 9.0f;
+    dl->AddQuadFilled(ImVec2(c.x, c.y - r), ImVec2(c.x + r, c.y), ImVec2(c.x, c.y + r), ImVec2(c.x - r, c.y), IM_COL32(240, 205, 110, 230));
+    dl->AddQuad(ImVec2(c.x, c.y - r), ImVec2(c.x + r, c.y), ImVec2(c.x, c.y + r), ImVec2(c.x - r, c.y), IM_COL32(0, 0, 0, 200), 1.5f);
+    char         dist[24];
+    std::snprintf(dist, sizeof(dist), "%.0f m", static_cast<double>((target - pxf->position).Magnitude()));
+    const ImVec2 ds = ImGui::CalcTextSize(dist);
+    dl->AddText(ImVec2(c.x - ds.x * 0.5f + 1.0f, c.y + r + 3.0f), IM_COL32(0, 0, 0, 200), dist);
+    dl->AddText(ImVec2(c.x - ds.x * 0.5f, c.y + r + 2.0f), IM_COL32(240, 205, 110, 255), dist);
 }

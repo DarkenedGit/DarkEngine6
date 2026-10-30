@@ -106,6 +106,7 @@ void EditorApp::drawEditorUi()
             ImGui::MenuItem(ICON_FA_BOLT "  Particle Panel", "F2", &m_showParticlePanel);
             ImGui::MenuItem(ICON_FA_PLAY "  Animation Panel", "F4", &m_showAnimPanel);
             ImGui::MenuItem(ICON_FA_LIST "  HSM Panel", "F8", &m_showHsmPanel);
+            ImGui::MenuItem(ICON_FA_FILE "  Dialogue", "F9", &m_showDialoguePanel);
             ImGui::MenuItem(ICON_FA_VOLUME_HIGH "  Audio", nullptr, &m_showAudioPanel);
             ImGui::MenuItem(ICON_FA_FOLDER_OPEN "  Assets", "F10", &m_showAssetBrowser);
             ImGui::MenuItem(ICON_FA_CUBE "  Model Parts", nullptr, &m_showModelParts);
@@ -438,6 +439,10 @@ void EditorApp::drawEditorUi()
 
     if (m_showHsmPanel)
         m_hsmPanel.draw(assets(), &m_showHsmPanel);
+    if (ImGui::IsKeyPressed(ImGuiKey_F9, false) && !ImGui::GetIO().WantTextInput)
+        m_showDialoguePanel = !m_showDialoguePanel;
+    if (m_showDialoguePanel)
+        m_dialoguePanel.draw(&m_showDialoguePanel);
 
     m_audioPanel.draw(audio(), assets(), &m_showAudioPanel);
 
@@ -1045,6 +1050,12 @@ void EditorApp::onUpdate(float dt)
             m_play.tickCamera();
             m_play.tickWorld(dt);
             m_save.service(world());
+            if (!m_questBanners.empty())
+            {
+                m_questBanners.front().timeLeft -= dt;
+                if (m_questBanners.front().timeLeft <= 0.0f)
+                    m_questBanners.erase(m_questBanners.begin());
+            }
         }
     }
     else

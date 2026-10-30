@@ -16,6 +16,7 @@ namespace Dark
         std::string anim;
         std::string physics;
         std::string hsm;
+        std::string dialogue;
     };
 
     // "player" -> "entities/player.entity.json"

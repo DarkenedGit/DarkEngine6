@@ -64,7 +64,6 @@
 #include "Render/Camera3D.h"
 #include "Render/Underwater.h"
 #include "Save/ProgressComponents.h"
-#include "Scene/EntityMaster.h"
 #include "Terrain/TerrainGrid.h"
 #include "Weapons/WeaponLoadoutComponent.h"
 
@@ -170,17 +169,7 @@ namespace Dark
 
     void PlaySession::startQuest(std::string_view id)
     {
-        if (id.empty())
-            return;
-        QuestDef    def;
-        std::string error;
-        if (!loadQuestFile(resolveContentFile(questVirtualPath(id)), def, &error))
-        {
-            DE_LOG_ERROR("Quest: could not load '{}': {}", id, error);
-            return;
-        }
-        DE_LOG_INFO("Quest: started '{}' ({} objectives)", def.title, def.objectives.size());
-        m_rt.quest.start(std::move(def));
+        m_rt.quest.start(id);
     }
 
     float PlaySession::scaleDt(float dt)
@@ -1755,19 +1744,13 @@ namespace Dark
                 break;
             }
             DE_LOG_INFO("Quest: {} - {}", label, note.text);
-            if (note.kind == QuestNote::QuestDone && m_host.audio && m_host.assets)
+            if (note.kind == QuestNote::QuestDone)
             {
-                InventoryComponent* inv = m_host.player.valid() ? world->get<InventoryComponent>(m_host.player) : nullptr;
-                for (const QuestReward& reward : m_rt.quest.def().rewards)
+                const int granted = m_rt.quest.grantRewards(*world, m_host.player);
+                if (m_host.audio && m_host.assets)
                 {
-                    const ItemDef* def = findItemDef(reward.item);
-                    if (!def)
-                    {
-                        DE_LOG_WARN("Quest: unknown reward item '{}'", reward.item);
-                        continue;
-                    }
-                    if (inv)
-                        grantInventoryItem(*world, *m_host.audio, *m_host.assets, listenerOf(m_host), *inv, ItemStack{ def, reward.count });
+                    for (int i = 0; i < granted; ++i)
+                        playSoundCue(*world, *m_host.audio, *m_host.assets, listenerOf(m_host), "click");
                 }
             }
             if (m_host.onQuestNote)

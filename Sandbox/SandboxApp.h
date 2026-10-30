@@ -45,6 +45,11 @@
 #include "PathChase.h"
 #include "Terrain/TerrainGround.h"
 #include "Play/Carry.h"
+#include "Play/DialogueBinding.h"
+#include "Play/DialogueFacts.h"
+#include "Play/DialogueMemory.h"
+#include "Play/DialogueRuntime.h"
+#include "Play/DialogueSpeech.h"
 #include "Play/GuardVoice.h"
 #include "Play/ImpactFx.h"
 #include "Play/PlaySession.h"
@@ -94,7 +99,11 @@ private:
     void drawInventory();
     void drawArmorHud();
     void drawPickupLabels();
-    bool uiOpen() const { return m_showDevTools || m_showInventory || m_showProfiler || m_showJournal || m_lootTarget.valid(); }
+    bool uiOpen() const
+    {
+        return m_showDevTools || m_showInventory || m_showProfiler || m_showJournal || m_lootTarget.valid()
+            || m_dialogue.choiceOpen() || m_dialogue.locksWorld();
+    }
     void drawLoot();
     int  giveItem(Dark::InventoryComponent& inv, const Dark::ItemStack& item);
     void stockHunter(Dark::Entity hunter);
@@ -106,6 +115,10 @@ private:
     void drawTargetMarker();
     void drawGuardAwareness();
     void drawGuardSpeech();
+    void drawDialogue();
+    void tryBeginTalk();
+    Dark::Entity pickTalkTarget();
+    void bindNpcDialogue(Dark::Entity npc, const std::string& scenePath);
     void drawStaminaBar();
     void startQuest(const std::string& id);
     void updateQuest(float dt);
@@ -246,6 +259,10 @@ private:
     float                           m_strideLeft   = 0.0f;
     Dark::QuestRuntime&             m_quest;
     Dark::GuardVoice                m_guardVoice;
+    Dark::DialogueRuntime           m_dialogue;
+    Dark::DialogueSpeech            m_dialogueSpeech;
+    Dark::AssetRef<Dark::DialogueGraphDef> m_talkGraph;
+    Dark::Entity                    m_talkNpc{};
     std::string                     m_sceneQuest;
     struct QuestBanner
     {

@@ -486,9 +486,10 @@ void SandboxApp::fillPlayHost(void* user, PlayHost& host)
 
     const bool ui    = app->uiOpen();
     const bool imgui = app->m_imgui.isReady();
-    host.uiKeys            = ui && imgui && app->m_imgui.wantCaptureKeyboard();
-    host.applyMouseLook    = !ui;
-    host.allowMouseButtons = !ui;
+    const bool dialogueUi = app->m_dialogue.choiceOpen() || app->m_dialogue.locksWorld();
+    host.uiKeys            = (ui && imgui && app->m_imgui.wantCaptureKeyboard()) || dialogueUi;
+    host.applyMouseLook    = !ui && !dialogueUi;
+    host.allowMouseButtons = !ui && !dialogueUi;
     host.uiMouse           = ui && imgui && app->m_imgui.wantCaptureMouse();
     host.chaseReady        = app->m_chaseOk;
 
@@ -668,7 +669,7 @@ void SandboxApp::registerDefaultActions()
         "Input: quit(Esc/Back) pause(F3/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
         "possessed WASD/arrows/LS move, double-tap a direction to dodge, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, 1 melee  2 rifle, "
         "hold attack to charge, release to swing (tap = normal). Hold RMB/V/LT shield; hold longer then release to parry-slam. Ctrl crouch, C camouflage, G pickup / carry body, E takedown from behind, L flashlight, N night sight, H infrared, U ultraviolet, B echolocation, Shift/LB sprint, swim in water, "
-        "T/R3 walk the wiggle demo  F2 lighting  F5 quicksave  F9 quickload  M dev tools  P profiler  -forward linear albedo + sRGB encode (legacyUnormAlbedo restores old sampling)  -no-menu skip scene picker");
+        "Y/R3 walk the wiggle demo  T talk  F2 lighting  F5 quicksave  F9 quickload  M dev tools  P profiler  -forward linear albedo + sRGB encode (legacyUnormAlbedo restores old sampling)  -no-menu skip scene picker");
 }
 
 void SandboxApp::populateMainMenu()
@@ -889,8 +890,14 @@ void SandboxApp::handleRuntimeCommands(float dt)
 
     if (input().actionPressed("quit"))
     {
+        if (m_dialogue.active())
+        {
+            m_dialogue.interrupt(DialogueInterrupt::Cancel);
+            return;
+        }
         if (config().showMainMenu && m_menu.isReady() && network().role() == NetRole::Idle)
         {
+            m_dialogue.interrupt(DialogueInterrupt::Menu);
             m_menu.show();
             window().setCursorCaptured(false);
             return;
@@ -911,12 +918,22 @@ void SandboxApp::handleRuntimeCommands(float dt)
         DE_LOG_INFO("Sandbox: quickload {}", Save::toString(result));
     }
 
-    if (!uiKeys && input().actionPressed("pause"))
+    if (input().actionPressed("pause"))
     {
-        m_gameplayPaused = !m_gameplayPaused;
-        m_stepGameplay   = false;
-        playSoundCue(world(), audio(), assets(), m_camera, "click");
-        DE_LOG_INFO("Sandbox: gameplay paused = {}", m_gameplayPaused);
+        const bool dialogueWasOpen = m_dialogue.active();
+        if (!uiKeys || dialogueWasOpen)
+        {
+            if (dialogueWasOpen)
+                m_dialogue.interrupt(DialogueInterrupt::Pause);
+            const bool otherUi = m_showDevTools || m_showInventory || m_showProfiler || m_showJournal || m_lootTarget.valid();
+            if (!uiKeys || !otherUi)
+            {
+                m_gameplayPaused = !m_gameplayPaused;
+                m_stepGameplay   = false;
+                playSoundCue(world(), audio(), assets(), m_camera, "click");
+                DE_LOG_INFO("Sandbox: gameplay paused = {}", m_gameplayPaused);
+            }
+        }
     }
     if (!uiKeys && m_gameplayPaused && input().actionPressed("step"))
         m_stepGameplay = true;
@@ -953,13 +970,33 @@ void SandboxApp::handleRuntimeCommands(float dt)
         DE_LOG_INFO("Command: spin speed = {:.2f}", m_spinSpeed);
     }
 
-    window().setCursorCaptured(window().isFocused() && !uiOpen() && !m_menu.visible());
-    if (m_gameplayPaused)
-        updateFlyCamera(dt);
-    else
+    if (!typing && input().actionPressed("talk"))
     {
-        m_play.tickPawn(dt);
-        m_play.tickCamera();
+        if (m_dialogue.active())
+            m_dialogue.requestSkip();
+        else if (!uiKeys)
+            tryBeginTalk();
+    }
+    if (m_dialogue.choiceOpen())
+    {
+        if (input().keyPressed(Key::Up))
+            m_dialogue.moveChoice(-1);
+        if (input().keyPressed(Key::Down))
+            m_dialogue.moveChoice(1);
+        if (input().keyPressed(Key::Enter))
+            m_dialogue.commitChoice();
+    }
+
+    window().setCursorCaptured(window().isFocused() && !uiOpen() && !m_menu.visible());
+    if (!m_dialogue.locksWorld())
+    {
+        if (m_gameplayPaused)
+            updateFlyCamera(dt);
+        else
+        {
+            m_play.tickPawn(dt);
+            m_play.tickCamera();
+        }
     }
 
     if (m_gameplayPaused && !m_stepGameplay)
@@ -1287,54 +1324,7 @@ WeaponLoadout* SandboxApp::localWeapons()
 
 bool SandboxApp::questTarget(Vector3f& out)
 {
-    const int focus = m_quest.focus();
-    if (focus < 0)
-        return false;
-    const ObjectiveDef&       o    = m_quest.def().objectives[static_cast<size_t>(focus)];
-    const Entity              body = possessedBody();
-    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    if (!pxf)
-        return false;
-    if (o.type == ObjectiveType::Reach)
-    {
-        bool foundZone = false;
-        world().each<QuestZoneComponent>([&](Entity, QuestZoneComponent& zone) {
-            if (foundZone || zone.zone != o.target)
-                return;
-            out       = zone.box.Center();
-            foundZone = true;
-        });
-        return foundZone;
-    }
-    float best = 1.0e12f;
-    bool  found = false;
-    auto  consider = [&](const Vector3f& at) {
-        const float d = (at - pxf->position).MagnitudeSqrd();
-        if (d < best)
-        {
-            best  = d;
-            out   = at;
-            found = true;
-        }
-    };
-    if (o.type == ObjectiveType::Collect)
-    {
-        world().each<ItemPickupComponent>([&](Entity e, ItemPickupComponent& pickup) {
-            const TransformComponent* xf = world().get<TransformComponent>(e);
-            if (xf && pickup.item.def && o.target == pickup.item.def->id)
-                consider(xf->position);
-        });
-    }
-    else if (o.target == "power_off")
-    {
-        world().each<PowerBoxComponent>([&](Entity e, PowerBoxComponent& box) {
-            if (!box.on)
-                return;
-            const TransformComponent* xf = world().get<TransformComponent>(e);
-            consider(xf ? xf->position : box.pos);
-        });
-    }
-    return found;
+    return m_quest.objectiveTarget(world(), possessedBody(), out);
 }
 
 
@@ -1427,7 +1417,10 @@ Entity SandboxApp::spawnSpawnerUnit(Entity spawner, const SpawnerRequest& req)
     attachNpcVisual(host, hunter, wolf ? NpcKind::Wolf : NpcKind::Hunter, ModelAttach::AnimatedOnly);
     bindEntityPhysics(hunter, wolf ? "wolf" : "human");
     if (!wolf)
+    {
         stockHunter(hunter);
+        bindNpcDialogue(hunter, {});
+    }
     SpawnedUnitComponent mark{};
     mark.spawner = spawner;
     mark.slot    = req.slot;
@@ -2999,6 +2992,7 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
             stampProceduralId(world(), hunter, std::format("sandbox/level/{}/{}", wolf ? "wolf" : "hunter", stamp), wolf ? "wolf" : "hunter");
             if (!wolf)
             {
+                bindNpcDialogue(hunter, o.dialogue);
                 const Entity torch = world().createEntity();
                 world().emplace<TransformComponent>(torch, xf.position, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
                 AttachedLightComponent att{};
@@ -3145,6 +3139,95 @@ void SandboxApp::tickLeaves(float dt)
     m_leafRustle.tick(audio(), assets(), crowns, crownCount, cam.x, cam.z, m_leafSimSeconds, dt);
 }
 
+void SandboxApp::bindNpcDialogue(Entity npc, const std::string& scenePath)
+{
+    if (!npc.valid())
+        return;
+    std::string path = scenePath;
+    if (path.empty())
+        path = loadEntityMasterType("hunter").dialogue;
+    if (path.empty())
+        return;
+    DialogueBindingComponent binding;
+    binding.graph = std::move(path);
+    if (DialogueBindingComponent* existing = world().get<DialogueBindingComponent>(npc))
+        existing->graph = std::move(binding.graph);
+    else
+        world().emplace<DialogueBindingComponent>(npc, std::move(binding));
+    if (!world().get<DialogueMemoryComponent>(npc))
+        world().emplace<DialogueMemoryComponent>(npc);
+}
+
+Entity SandboxApp::pickTalkTarget()
+{
+    if (carriedBody(world()).valid())
+        return {};
+    const Entity player = possessedBody();
+    const TransformComponent* playerXf = player.valid() ? world().get<TransformComponent>(player) : nullptr;
+    if (!playerXf)
+        return {};
+    Vector3f look = m_viewCamera.GetLook();
+    if (look.MagnitudeSqrd() < 1.0e-6f)
+        return {};
+    look.Normalize();
+    const Vector3f camPos = m_viewCamera.GetPosition();
+
+    Entity best{};
+    float  bestDot = 0.94f;
+    world().each<DialogueBindingComponent>([&](Entity npc, DialogueBindingComponent& binding) {
+        if (binding.graph.empty() || npc == player)
+            return;
+        if (const AiAgentComponent* agent = world().get<AiAgentComponent>(npc); agent && agent->carried)
+            return;
+        const TransformComponent* npcXf = world().get<TransformComponent>(npc);
+        if (!npcXf)
+            return;
+        const Vector3f flat{ npcXf->position.x - playerXf->position.x, 0.0f, npcXf->position.z - playerXf->position.z };
+        float range = 2.5f;
+        if (const AssetRef<DialogueGraphDef> graph = assets().tryLoadDialogueGraph(binding.graph))
+            range = graph->talkRange;
+        if (flat.MagnitudeSqrd() > range * range)
+            return;
+        Vector3f to = npcXf->position - camPos;
+        const float len2 = to.MagnitudeSqrd();
+        if (len2 < 1.0e-6f)
+            return;
+        to *= 1.0f / std::sqrt(len2);
+        const float dot = look.Dot(to);
+        if (dot > bestDot)
+        {
+            bestDot = dot;
+            best    = npc;
+        }
+    });
+    return best;
+}
+
+void SandboxApp::tryBeginTalk()
+{
+    if (m_dialogue.active())
+        return;
+    const Entity npc = pickTalkTarget();
+    if (!npc.valid())
+        return;
+    const DialogueBindingComponent* binding = world().get<DialogueBindingComponent>(npc);
+    if (!binding || binding->graph.empty())
+        return;
+    AssetRef<DialogueGraphDef> loaded = assets().tryLoadDialogueGraph(binding->graph);
+    if (!loaded)
+        return;
+    m_talkGraph = std::move(loaded);
+    m_dialogue.setGraph(m_talkGraph.get());
+    m_dialogueSpeech.setServices(&assets(), &audio(), &world());
+    m_dialogueSpeech.startSynth();
+    m_dialogue.setAudio(m_dialogueSpeech.hook());
+    m_dialogue.setFacts(m_session.valid() ? world().get<DialogueFactsComponent>(m_session) : nullptr);
+    if (!m_dialogue.tryStart(world(), possessedBody(), npc, &m_quest))
+        return;
+    m_guardVoice.setSuppressed(npc, true, &audio());
+    m_talkNpc = npc;
+}
+
 void SandboxApp::onUpdate(float dt)
 {
     m_frameDt = dt;
@@ -3162,7 +3245,11 @@ void SandboxApp::onUpdate(float dt)
         m_leafRustle.stopAll(audio());
         return;
     }
-    if (!m_gameplayPaused || m_stepGameplay)
+    if (m_dialogue.locksWorld())
+    {
+        // This conversation waits. Pawns, barks, and the fly cam stay where they are.
+    }
+    else if (!m_gameplayPaused || m_stepGameplay)
     {
         syncPlayerMode();
         m_cloudTime += dt;
@@ -3192,6 +3279,15 @@ void SandboxApp::onUpdate(float dt)
     else
     {
         m_leafRustle.stopAll(audio());
+    }
+    m_dialogueSpeech.setServices(&assets(), &audio(), &world());
+    m_dialogue.setFacts(m_session.valid() ? world().get<DialogueFactsComponent>(m_session) : nullptr);
+    m_dialogue.setUiBlocked(m_showDevTools || m_showInventory || m_showProfiler || m_showJournal || m_lootTarget.valid());
+    m_dialogue.tick(world(), dt);
+    if (m_talkNpc.valid() && !m_dialogue.active())
+    {
+        m_guardVoice.setSuppressed(m_talkNpc, false, &audio());
+        m_talkNpc = {};
     }
     m_save.service(world());
     m_water.updateLod(m_viewCamera.GetPosition());
@@ -4386,7 +4482,7 @@ void SandboxApp::onRender()
     const Entity hudBody = possessedBody();
     const HudTagComponent* hudTag = hudBody.valid() ? world().get<HudTagComponent>(hudBody) : nullptr;
     const bool drawHealth = !m_menu.visible() && hudHp && hudTag && hudTag->kind == HudKind::HealthBar;
-    const bool drawCrosshair = !m_menu.visible() && hudHp && hudHp->alive() && !m_gameplayPaused;
+    const bool drawCrosshair = !m_menu.visible() && hudHp && hudHp->alive() && !m_gameplayPaused && !m_dialogue.locksWorld();
     if (drawHealth || drawCrosshair)
     {
         const GpuScope hud(cmd, "HUD", ProfileColor::Hud);
@@ -4421,6 +4517,7 @@ void SandboxApp::onRender()
         drawNpcInfoOverlay();
         drawGuardAwareness();
         drawGuardSpeech();
+        drawDialogue();
         drawArmorHud();
         drawStaminaBar();
         drawQuestHud();

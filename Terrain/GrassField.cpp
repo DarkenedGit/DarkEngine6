@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 
 namespace Dark::Terrain
@@ -22,6 +23,8 @@ namespace Dark::Terrain
         constexpr int kGrid        = 64;
         constexpr int kCandidates  = kGrid * kGrid;
         constexpr int kBaseKeep[4] = { 32, 16, 8, 5 };
+
+#include "GrassKeepRank.inc"
 
         uint32_t regionSlots(int lod)
         {
@@ -115,21 +118,27 @@ namespace Dark::Terrain
             return k;
         }
 
-        // 5 and 9 are odd, so each residue 0..31 covers 128 cells and every row and column
-        // holds the same count. The step sizes keep a threshold's runs short on both axes and both diagonals.
-        int keepRank(int i)
+        // (ix * 5 + iz * 9) & 31 is constant along (9, -5). Those gaps are empty corridors,
+        // and every tile repeated them, so a slope reads as ploughed lines. The table keeps
+        // 128 cells on each rank. A tile phase moves which ranks survive so the gaps do not line up.
+        int tilePhase(int tileX, int tileZ)
         {
-            const int ix = i & (kGrid - 1);
-            const int iz = i / kGrid;
-            return (ix * 5 + iz * 9) & 31;
+            uint32_t h = static_cast<uint32_t>(tileX) * 0x9E3779B1u ^ static_cast<uint32_t>(tileZ) * 0x85EBCA77u;
+            h ^= h >> 16;
+            return static_cast<int>(h & 31u);
         }
 
-        int countKept(const uint64_t* bits, int k)
+        int keepRank(int i, int phase)
+        {
+            return (static_cast<int>(kKeepRank[i]) + phase) & 31;
+        }
+
+        int countKept(const uint64_t* bits, int k, int phase)
         {
             int n = 0;
             for (int i = 0; i < kCandidates; ++i)
             {
-                if (keepRank(i) >= k)
+                if (keepRank(i, phase) >= k)
                     continue;
                 if (bitSet(bits, i))
                     ++n;
@@ -138,27 +147,27 @@ namespace Dark::Terrain
         }
 
         // Worst-case blades a threshold writes. A resident tile's kept blades are exact when k does not grow.
-        uint32_t slotsFor(int k, int oldK, uint32_t oldCount, const uint64_t* oldBits)
+        uint32_t slotsFor(int k, int oldK, uint32_t oldCount, const uint64_t* oldBits, int phase)
         {
             if (!oldBits)
                 return static_cast<uint32_t>(k) * 128u;
             if (k <= oldK)
-                return static_cast<uint32_t>(countKept(oldBits, k));
+                return static_cast<uint32_t>(countKept(oldBits, k, phase));
             return oldCount + static_cast<uint32_t>(k - oldK) * 128u;
         }
 
-        int fitKeep(int lod, float densityScale, uint32_t room, int oldK, uint32_t oldCount, const uint64_t* oldBits)
+        int fitKeep(int lod, float densityScale, uint32_t room, int oldK, uint32_t oldCount, const uint64_t* oldBits, int phase)
         {
             const int scaled = keepThreshold(lod, densityScale);
             const int floorK = kBaseKeep[lod];
-            if (slotsFor(scaled, oldK, oldCount, oldBits) <= room)
+            if (slotsFor(scaled, oldK, oldCount, oldBits, phase) <= room)
                 return scaled;
             // Above scale 1 the region may refuse the scaled predicate. Do not go under the scale-1 base.
             if (scaled > floorK)
             {
                 for (int k = scaled - 1; k >= floorK; --k)
                 {
-                    if (slotsFor(k, oldK, oldCount, oldBits) <= room)
+                    if (slotsFor(k, oldK, oldCount, oldBits, phase) <= room)
                         return k;
                 }
             }
@@ -751,11 +760,12 @@ namespace Dark::Terrain
         const uint32_t tileSeed = makeTileSeed(tileX, tileZ, m_params.seed);
         const float    originX  = tileOrigin(tileX);
         const float    originZ  = tileOrigin(tileZ);
+        const int      phase    = tilePhase(tileX, tileZ);
         uint32_t       oldIndex = 0;
 
         for (int i = 0; i < kCandidates; ++i)
         {
-            const int  rank = keepRank(i);
+            const int  rank = keepRank(i, phase);
             const bool pred = rank < newK;
             const bool was  = oldBits && bitSet(oldBits, i);
             if (was)
@@ -832,7 +842,7 @@ namespace Dark::Terrain
         }
 
         const uint32_t free = regionSlots(lod) - static_cast<uint32_t>(m_region[lod].blades.size());
-        const int      k    = fitKeep(lod, m_params.densityScale, free, -1, 0, nullptr);
+        const int      k    = fitKeep(lod, m_params.densityScale, free, -1, 0, nullptr, tilePhase(tileX, tileZ));
         if (k < 0)
         {
             warnFull(lod);
@@ -875,7 +885,7 @@ namespace Dark::Terrain
     {
         const Tile&    tile = m_tiles[index];
         const uint32_t free = regionSlots(newLod) - static_cast<uint32_t>(m_region[newLod].blades.size());
-        const int      k    = fitKeep(newLod, m_params.densityScale, free, tile.keepK, tile.count, tile.kept);
+        const int      k    = fitKeep(newLod, m_params.densityScale, free, tile.keepK, tile.count, tile.kept, tilePhase(tile.tileX, tile.tileZ));
         if (k < 0)
         {
             warnFull(newLod);
@@ -899,7 +909,7 @@ namespace Dark::Terrain
         const uint32_t used = static_cast<uint32_t>(m_region[tile.lod].blades.size());
         const uint32_t free = regionSlots(tile.lod) - used;
         const uint32_t room = free + tile.count;
-        const int      k    = fitKeep(tile.lod, m_params.densityScale, room, -1, 0, nullptr);
+        const int      k    = fitKeep(tile.lod, m_params.densityScale, room, -1, 0, nullptr, tilePhase(tile.tileX, tile.tileZ));
         if (k < 0)
         {
             warnFull(tile.lod);
@@ -926,7 +936,7 @@ namespace Dark::Terrain
         int k = keepThreshold(newLod, m_params.densityScale);
         if (k > tile.keepK)
             k = tile.keepK;
-        const int      need = countKept(tile.kept, k);
+        const int      need = countKept(tile.kept, k, tilePhase(tile.tileX, tile.tileZ));
         const uint32_t free = regionSlots(newLod) - static_cast<uint32_t>(m_region[newLod].blades.size());
         if (static_cast<uint32_t>(need) > free)
         {

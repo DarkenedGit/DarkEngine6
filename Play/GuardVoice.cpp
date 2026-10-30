@@ -174,6 +174,8 @@ namespace Dark
     {
         if (!m_barks.enabled || text.empty() || !guard.valid() || m_lines.size() > 12)
             return;
+        if (m_suppressed.contains(guard.id()))
+            return;
         Guard&            g   = guardFor(guard);
         const std::string key = std::format("speech:{}:{}:{}:{}", g.voice, g.pitch, g.rate, text);
         bool              asked = m_ready.contains(key);
@@ -185,6 +187,27 @@ namespace Dark
                 m_requests[id] = key;
         }
         m_lines.push_back(Line{ guard, after, text, key, delay, 0.0f, 0 });
+    }
+
+    void GuardVoice::setSuppressed(Entity speaker, bool suppressed, Audio::AudioSystem* audio)
+    {
+        if (!speaker.valid())
+            return;
+        if (!suppressed)
+        {
+            m_suppressed.erase(speaker.id());
+            return;
+        }
+        m_suppressed.insert(speaker.id());
+        const auto guard = m_guards.find(speaker.id());
+        if (guard != m_guards.end())
+        {
+            if (audio && guard->second.playing != 0)
+                audio->stop(guard->second.playing);
+            guard->second.playing = 0;
+        }
+        std::erase_if(m_lines, [&](const Line& line) { return line.guard.id() == speaker.id(); });
+        std::erase_if(m_subtitles, [&](const GuardSubtitle& subtitle) { return subtitle.speaker.id() == speaker.id(); });
     }
 
     void GuardVoice::tick(World& world, Audio::AudioSystem& audio, AssetManager& assets, const Math::Vector3f& listener, float dt)

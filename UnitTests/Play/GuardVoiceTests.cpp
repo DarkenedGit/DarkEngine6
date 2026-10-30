@@ -1,5 +1,11 @@
+#include "AI/AiComponents.h"
+#include "Assets/AssetManager.h"
+#include "Audio/AudioSystem.h"
 #include "Audio/SpeechSynth.h"
+#include "Character/HealthComponent.h"
 #include "Core/ContentRoots.h"
+#include "ECS/Components.h"
+#include "ECS/World.h"
 #include "Play/GuardVoice.h"
 
 #include <gtest/gtest.h>
@@ -44,6 +50,32 @@ TEST(GuardBarks, ShippedFileLoads)
         break;
     }
     EXPECT_TRUE(loaded);
+}
+
+TEST(GuardVoice, SuppressClearsQueuedSpeechWithoutAnotherTick)
+{
+    World world;
+    Entity guard = world.createEntity();
+    world.emplace<TransformComponent>(guard);
+    world.emplace<HealthComponent>(guard);
+    world.emplace<AiAgentComponent>(guard);
+
+    GuardBarks barks;
+    barks.alert = { "There!" };
+    GuardVoice voice;
+    voice.start(barks);
+    voice.say(guard, "Hold there.");
+
+    Audio::AudioSystem audio;
+    AssetManager assets;
+    voice.tick(world, audio, assets, {}, 0.1f);
+    ASSERT_FALSE(voice.subtitles().empty());
+
+    voice.setSuppressed(guard, true, &audio);
+    EXPECT_TRUE(voice.subtitles().empty());
+    voice.say(guard, "Still talking.");
+    voice.tick(world, audio, assets, {}, 0.1f);
+    EXPECT_TRUE(voice.subtitles().empty());
 }
 
 TEST(SpeechSynth, SpeaksALineToPcmWhenVoicesExist)

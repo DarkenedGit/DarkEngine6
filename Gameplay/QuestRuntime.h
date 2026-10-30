@@ -2,21 +2,25 @@
 
 #include "ECS/Entity.h"
 #include "Gameplay/Quest.h"
+#include "Math/Vector3f.h"
 
 namespace Dark
 {
 
     class World;
 
-    // Owns the quest tracker. PlaySession takes notes, grants rewards, and forwards each note for banners.
+    // Owns the quest tracker. Loads a quest file, grants its rewards once, and finds the focused objective in the world.
+    // PlaySession forwards each note for banners and plays the reward click.
     class QuestRuntime
     {
     public:
         QuestTracker&       tracker() { return m_tracker; }
         const QuestTracker& tracker() const { return m_tracker; }
 
-        void                      start(QuestDef def) { m_tracker.start(std::move(def)); }
-        void                      clear() { m_tracker.clear(); }
+        // content/quests/<id>.quest.json. An empty id or a missing file leaves the current quest in place.
+        bool                      start(std::string_view id);
+        void                      start(QuestDef def);
+        void                      clear();
         bool                      active() const { return m_tracker.active(); }
         bool                      complete() const { return m_tracker.complete(); }
         const QuestDef&           def() const { return m_tracker.def(); }
@@ -29,8 +33,15 @@ namespace Dark
         // Zone enter calls reach. Collect objectives follow the inventory count.
         void tick(World& world, Entity player);
 
+        // Reach is the zone center. Collect is the nearest matching pickup. "power_off" is the nearest breaker that is still on.
+        bool objectiveTarget(World& world, Entity player, Math::Vector3f& out) const;
+
+        // Adds def().rewards into the player inventory once the quest is complete. Returns how many reward lines were added.
+        int grantRewards(World& world, Entity player);
+
     private:
         QuestTracker m_tracker;
+        bool         m_rewardsGranted = false;
     };
 
 } // namespace Dark

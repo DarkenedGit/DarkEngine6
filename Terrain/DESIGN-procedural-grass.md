@@ -295,7 +295,7 @@ Nominal bands are the LOD a **new** tile is created at. Hysteresis then moves an
 | 2 | `40 < d <= 80` | `keepRank(i) < 8` | 1024 | 16 |
 | 3 | `80 < d <= 128` | `keepRank(i) < 5` | 640 | 10 |
 
-`keepRank(i) < 5` is a subset of `< 8`, `< 16`, and `< 32`. A promotion adds blades. A demotion filters blades that already exist. Survivors keep their XZ. `i = iz * 64 + ix` with `ix, iz` in `0 .. 63`, and `keepRank(i) = (ix * 5 + iz * 9) & 31`. Each residue `0 .. 31` is on 128 candidates, so open ground still yields 4096 / 2048 / 1024 / 640 blades. Both factors are odd, so every row and every column of the tile holds the same count and a threshold stays a short stipple.
+`keepRank(i) < 5` is a subset of `< 8`, `< 16`, and `< 32`. A promotion adds blades. A demotion filters blades that already exist. Survivors keep their XZ. `i = iz * 64 + ix` with `ix, iz` in `0 .. 63`. Each rank `0 .. 31` sits on 128 candidates, so open ground still yields 4096 / 2048 / 1024 / 640 blades. The cells are a hash order inside each 8×8 block, then shifted by a per-tile phase. `(ix * 5 + iz * 9) & 31` is not used: that mask is constant along (9, −5), and the same corridors repeated in every tile.
 
 Hysteresis edges are 0.85× and 1.15× the nominal band edges:
 

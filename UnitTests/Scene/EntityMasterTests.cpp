@@ -12,7 +12,8 @@ TEST(EntityMaster, ParseRoundTripFields)
         "gltf": "models/human.gltf",
         "anim": "models/human.anim.json",
         "physics": "models/human.physics.json",
-        "hsm": "ai/player.hsm.json"
+        "hsm": "ai/player.hsm.json",
+        "dialogue": "dialogue/hunter_gate.dlg.json"
     })";
     EntityMaster master;
     master.type = "keep";
@@ -22,6 +23,7 @@ TEST(EntityMaster, ParseRoundTripFields)
     EXPECT_EQ(master.anim, "models/human.anim.json");
     EXPECT_EQ(master.physics, "models/human.physics.json");
     EXPECT_EQ(master.hsm, "ai/player.hsm.json");
+    EXPECT_EQ(master.dialogue, "dialogue/hunter_gate.dlg.json");
     EXPECT_EQ(entityMasterVirtualPath("player"), "entities/player.entity.json");
 }
 

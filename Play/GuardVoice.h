@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -59,6 +60,8 @@ namespace Dark
         void reset();
         void tick(World& world, Audio::AudioSystem& audio, AssetManager& assets, const Math::Vector3f& listener, float dt);
         void say(Entity guard, const std::string& text, float delay = 0.0f, Entity after = {});
+        // Stops this speaker immediately. Clearing the flag does not replay a cut line.
+        void setSuppressed(Entity speaker, bool suppressed, Audio::AudioSystem* audio);
 
         const std::vector<GuardSubtitle>& subtitles() const { return m_subtitles; }
         bool                              speaking() const { return m_synth.running(); }
@@ -92,6 +95,7 @@ namespace Dark
         GuardBarks                                  m_barks;
         Audio::SpeechSynth                          m_synth;
         std::unordered_map<uint32_t, Guard>         m_guards;
+        std::unordered_set<uint32_t>                m_suppressed;
         std::unordered_map<uint64_t, std::string>   m_requests;
         std::unordered_map<std::string, AssetRef<Audio::SoundClip>> m_ready;
         std::vector<Line>                           m_lines;

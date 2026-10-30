@@ -4,6 +4,8 @@
 #include "Animation/AnimGraphJson.h"
 #include "AI/HsmGraph.h"
 #include "AI/HsmGraphJson.h"
+#include "Play/DialogueGraph.h"
+#include "Play/DialogueGraphJson.h"
 #include "Animation/AnimationSet.h"
 #include "Assets/GltfLoader.h"
 #include "Assets/Image.h"

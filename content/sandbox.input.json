@@ -49,7 +49,8 @@
     { "action": "profiler", "key": "P" },
     { "action": "inventory", "key": "I" },
     { "action": "journal", "key": "J" },
-    { "action": "anim_walk", "key": "T" },
-    { "action": "anim_walk", "button": "RightThumb" }
+    { "action": "anim_walk", "key": "Y" },
+    { "action": "anim_walk", "button": "RightThumb" },
+    { "action": "talk", "key": "T" }
   ]
 }

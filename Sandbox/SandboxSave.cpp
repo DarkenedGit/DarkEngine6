@@ -14,6 +14,7 @@
 #include "Gameplay/HealthPack.h"
 #include "Gameplay/PowerSystem.h"
 #include "Play/Carry.h"
+#include "Play/DialogueFacts.h"
 #include "Weapons/WeaponLoadoutComponent.h"
 #include "Math/Vector3f.h"
 #include "Network/Replication.h"
@@ -51,6 +52,12 @@ void SandboxApp::installSaveHost()
 void SandboxApp::ensureSessionEntity()
 {
     m_session = Save::ensureSessionEntity(world(), m_session);
+    if (m_session.valid() && !world().get<DialogueFactsComponent>(m_session))
+        world().emplace<DialogueFactsComponent>(m_session);
+    m_dialogue.setFacts(m_session.valid() ? world().get<DialogueFactsComponent>(m_session) : nullptr);
+    m_dialogueSpeech.setServices(&assets(), &audio(), &world());
+    m_dialogueSpeech.startSynth();
+    m_dialogue.setAudio(m_dialogueSpeech.hook());
 }
 
 void SandboxApp::ensurePlayerProgress(Entity e)
@@ -284,6 +291,9 @@ void SandboxApp::saveAfterApply(void* user, World& world)
     auto* app = static_cast<SandboxApp*>(user);
     if (!app)
         return;
+    if (app->m_session.valid() && !world.get<DialogueFactsComponent>(app->m_session))
+        world.emplace<DialogueFactsComponent>(app->m_session);
+    app->m_dialogue.setFacts(app->m_session.valid() ? world.get<DialogueFactsComponent>(app->m_session) : nullptr);
     const Entity body = app->possessedBody();
     Save::BodyLookState look;
     look.yaw          = app->m_lookYaw;

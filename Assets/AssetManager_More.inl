@@ -249,3 +249,61 @@
         DE_LOG_INFO("AssetManager: cached HsmGraph '{}' id={}", path.string(), interned->id);
         return interned;
     }
+
+    AssetRef<DialogueGraphDef> AssetManager::tryLoadDialogueGraph(const std::string& virtualPath)
+    {
+        if (resolve(virtualPath).empty())
+            return {};
+        return loadDialogueGraph(virtualPath);
+    }
+
+    AssetRef<DialogueGraphDef> AssetManager::loadDialogueGraph(const std::string& virtualPath)
+    {
+        const std::filesystem::path path = resolve(virtualPath);
+        if (path.empty())
+        {
+            DE_LOG_ERROR(LogCategory::AI, "AssetManager: dialogue graph not found '{}'", virtualPath);
+            return {};
+        }
+        AssetRef<DialogueGraphDef> graph = loadDialogueGraphFile(path);
+        if (graph && graph->sourcePath.empty())
+            graph->sourcePath = virtualPath;
+        return graph;
+    }
+
+    AssetRef<DialogueGraphDef> AssetManager::loadDialogueGraphFile(const std::filesystem::path& absPath)
+    {
+        std::error_code ec;
+        if (absPath.empty() || !std::filesystem::is_regular_file(absPath, ec) || ec)
+        {
+            DE_LOG_ERROR(LogCategory::AI, "AssetManager: dialogue graph file not found '{}'", absPath.string());
+            return {};
+        }
+        const std::filesystem::path canonical = std::filesystem::weakly_canonical(absPath, ec);
+        const std::filesystem::path path      = ec ? absPath : canonical;
+        const std::string           key       = ImageCache::normalizePath(path);
+        if (AssetRef<DialogueGraphDef> existing = tryGetInterned<DialogueGraphDef>(key))
+            return existing;
+
+        std::ifstream in(path, std::ios::binary);
+        if (!in)
+        {
+            DE_LOG_ERROR(LogCategory::AI, "AssetManager: cannot open dialogue graph '{}'", path.string());
+            return {};
+        }
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        const std::string text = ss.str();
+
+        auto graph = std::make_shared<DialogueGraphDef>();
+        if (!parseDialogueGraph(text, *graph))
+            return {};
+        graph->sourcePath = path.generic_string();
+
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (AssetRef<DialogueGraphDef> existing = findInternedLocked<DialogueGraphDef>(key))
+            return existing;
+        AssetRef<DialogueGraphDef> interned = internLoadedLocked<DialogueGraphDef>(key, graph);
+        DE_LOG_INFO(LogCategory::AI, "AssetManager: cached DialogueGraph '{}' id={}", path.string(), static_cast<const Asset&>(*interned).id);
+        return interned;
+    }

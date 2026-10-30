@@ -30,6 +30,7 @@
 #include "Editor/ParticleEditorPanel.h"
 #include "Editor/AnimEditorPanel.h"
 #include "Editor/HsmEditorPanel.h"
+#include "Editor/DialogueEditorPanel.h"
 #include "Editor/AudioPreviewPanel.h"
 #include "Animation/AnimGraphComponent.h"
 #include "Particles/ParticleComponents.h"
@@ -192,6 +193,7 @@ private:
     void   onPlayWeaponHit(const Dark::WeaponHit& hit);
     ImpactFxHost impactHost();
     static void fillPlayHost(void* user, Dark::PlayHost& host);
+    static void onPlayQuestNote(void* user, const Dark::QuestNoteEvent& note);
     static void onPlayPrepare(void* user);
     static void onPlayStepPhysics(void* user, float dt);
     static Dark::Entity onPlaySpawnUnit(void* user, Dark::Entity spawner, const Dark::SpawnerRequest& req);
@@ -374,10 +376,12 @@ private:
     ParticleEditorPanel  m_particlePanel;
     AnimEditorPanel      m_animPanel;
     HsmEditorPanel       m_hsmPanel;
+    DialogueEditorPanel  m_dialoguePanel;
     AudioPreviewPanel    m_audioPanel;
     bool                 m_showParticlePanel = true;
     bool                 m_showAnimPanel     = true;
     bool                 m_showHsmPanel      = true;
+    bool                 m_showDialoguePanel = false;
     bool                 m_showAudioPanel    = false;
     bool                 m_showAssetBrowser  = true;
 
@@ -512,6 +516,13 @@ private:
     Dark::PlaySession         m_play;
     Dark::GuardVoice          m_guardVoice;
     std::string               m_sceneQuest;
+    struct QuestBanner
+    {
+        std::string label;
+        std::string text;
+        float       timeLeft = 3.5f;
+    };
+    std::vector<QuestBanner>  m_questBanners;
     float                     m_lightLevel = 1.0f;
     float                     m_exposure   = 1.0f;
     float                     m_strideLeft = 0.0f;

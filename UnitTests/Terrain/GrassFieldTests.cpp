@@ -103,35 +103,50 @@ namespace
         return false;
     }
 
-    int longestCircularRun(const bool* line, int n)
+    int longestEmptyStep(const bool occupied[64][64], int dx, int dz)
     {
-        bool all  = true;
-        int  best = 0;
-        int  cur  = 0;
-        for (int i = 0; i < n; ++i)
+        int best = 0;
+        for (int ox = 0; ox < 64; ++ox)
         {
-            if (line[i])
+            for (int oz = 0; oz < 64; ++oz)
             {
-                ++cur;
-                if (cur > best)
-                    best = cur;
-            }
-            else
-            {
-                all = false;
-                cur = 0;
+                int run   = 0;
+                int local = 0;
+                for (int s = 0; s < 64; ++s)
+                {
+                    const int x = (ox + s * dx) & 63;
+                    const int z = (oz + s * dz) & 63;
+                    if (!occupied[z][x])
+                    {
+                        ++local;
+                        if (local > run)
+                            run = local;
+                    }
+                    else
+                        local = 0;
+                }
+                int head = 0;
+                while (head < 64 && !occupied[(oz + head * dz) & 63][(ox + head * dx) & 63])
+                    ++head;
+                if (head == 64)
+                    run = 64;
+                else
+                {
+                    int tail = 0;
+                    for (int s = 63; s >= 0; --s)
+                    {
+                        if (!occupied[(oz + s * dz) & 63][(ox + s * dx) & 63])
+                            ++tail;
+                        else
+                            break;
+                    }
+                    if (head + tail < 64 && head + tail > run)
+                        run = head + tail;
+                }
+                if (run > best)
+                    best = run;
             }
         }
-        if (all)
-            return n;
-        int head = 0;
-        while (head < n && line[head])
-            ++head;
-        int tail = 0;
-        while (tail < n && line[n - 1 - tail])
-            ++tail;
-        if (head + tail > best)
-            best = head + tail;
         return best;
     }
 } // namespace
@@ -460,14 +475,14 @@ TEST(GrassField, CoarseTilesAreScattered)
     {
         float    playerX;
         int      lod;
-        int      perLine;
-        int      maxGap;
+        int      perBlock;
+        int      maxFurrow;
         uint32_t blades;
     };
     const Band bands[] = {
-        { 24.0f, 1, 32, 4, kGrassLod1PerTile },
-        { 54.0f, 2, 16, 6, kGrassLod2PerTile },
-        { 104.0f, 3, 10, 8, kGrassLod3PerTile },
+        { 24.0f, 1, 32, 16, kGrassLod1PerTile },
+        { 54.0f, 2, 16, 32, kGrassLod2PerTile },
+        { 104.0f, 3, 10, 48, kGrassLod3PerTile },
     };
     constexpr int   kSide = 64;
     constexpr float kCell = kGrassTileMetres / static_cast<float>(kSide);
@@ -496,52 +511,21 @@ TEST(GrassField, CoarseTilesAreScattered)
             occupied[iz][ix] = true;
         }
 
-        int gap = 0;
-        for (int z = 0; z < kSide; ++z)
+        for (int bz = 0; bz < 8; ++bz)
         {
-            int  count = 0;
-            bool empty[kSide];
-            for (int x = 0; x < kSide; ++x)
+            for (int bx = 0; bx < 8; ++bx)
             {
-                count += occupied[z][x] ? 1 : 0;
-                empty[x] = !occupied[z][x];
+                int count = 0;
+                for (int z = 0; z < 8; ++z)
+                {
+                    for (int x = 0; x < 8; ++x)
+                        count += occupied[bz * 8 + z][bx * 8 + x] ? 1 : 0;
+                }
+                EXPECT_EQ(count, band.perBlock) << band.lod;
             }
-            EXPECT_EQ(count, band.perLine) << band.lod;
-            const int run = longestCircularRun(empty, kSide);
-            if (run > gap)
-                gap = run;
         }
-        for (int x = 0; x < kSide; ++x)
-        {
-            int  count = 0;
-            bool empty[kSide];
-            for (int z = 0; z < kSide; ++z)
-            {
-                count += occupied[z][x] ? 1 : 0;
-                empty[z] = !occupied[z][x];
-            }
-            EXPECT_EQ(count, band.perLine) << band.lod;
-            const int run = longestCircularRun(empty, kSide);
-            if (run > gap)
-                gap = run;
-        }
-        for (int d = 0; d < kSide; ++d)
-        {
-            bool emptyDiag[kSide];
-            bool emptyAnti[kSide];
-            for (int z = 0; z < kSide; ++z)
-            {
-                emptyDiag[z] = !occupied[z][(z + d) & (kSide - 1)];
-                emptyAnti[z] = !occupied[z][(d - z) & (kSide - 1)];
-            }
-            const int diag = longestCircularRun(emptyDiag, kSide);
-            const int anti = longestCircularRun(emptyAnti, kSide);
-            if (diag > gap)
-                gap = diag;
-            if (anti > gap)
-                gap = anti;
-        }
-        EXPECT_LE(gap, band.maxGap) << band.lod;
+        // (9, -5) is the furrow direction of the old linear mask. A full run is a corridor across the tile.
+        EXPECT_LE(longestEmptyStep(occupied, 9, -5), band.maxFurrow) << band.lod;
     }
 }
 

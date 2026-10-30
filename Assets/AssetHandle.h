@@ -22,6 +22,7 @@ namespace Dark
         AnimGraph,
         HsmGraph,
         CollisionShape,
+        DialogueGraph,
     };
 
     // Forward-declare base Asset
