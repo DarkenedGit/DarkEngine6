@@ -1,6 +1,7 @@
 #include "Play/CharacterAttach.h"
 
 #include "Play/CharacterAudio.h"
+#include "Play/Interaction.h"
 
 #include "AI/HsmGraph.h"
 #include "AI/HsmGraphComponent.h"
@@ -283,7 +284,10 @@ namespace Dark
             if (TagComponent* tag = host.world.get<TagComponent>(e))
                 tag->name = "Wolf";
             applySkillProfile(host.world, e, "wolf");
+            clearInteractable(host.world, e);
         }
+        else if (!host.world.has<InteractableComponent>(e))
+            setInteractable(host.world, e, InteractKind::Guard, kInteractBodyRange);
         attachHunterSounds(host.world, host.pins, host.assets, host.audio, e, host.ground);
         applyNpcMovementFile(host.world, e, wolf ? "wolf" : "hunter");
     }
@@ -309,8 +313,11 @@ namespace Dark
             applyPlayerMovementFile(motor.motor.settings());
         });
         world.each<AiAgentComponent>([&](Entity e, AiAgentComponent&) {
-            const TagComponent* tag = world.get<TagComponent>(e);
-            applyNpcMovementFile(world, e, tagIsWolf(tag) ? "wolf" : "hunter");
+            const TagComponent* tag  = world.get<TagComponent>(e);
+            const bool          wolf = tagIsWolf(tag);
+            applyNpcMovementFile(world, e, wolf ? "wolf" : "hunter");
+            if (!wolf && !world.has<InteractableComponent>(e))
+                setInteractable(world, e, InteractKind::Guard, kInteractBodyRange);
         });
     }
 

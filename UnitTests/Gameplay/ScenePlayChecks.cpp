@@ -19,10 +19,12 @@
 #include "Math/Quaternion.h"
 #include "Math/Vector3f.h"
 #include "Play/Carry.h"
+#include "Play/Interaction.h"
 #include "Save/PersistentId.h"
 #include "Scene/SceneFile.h"
 #include "Scene/SceneSpawn.h"
 
+#include <cstring>
 #include <filesystem>
 #include <string>
 
@@ -186,6 +188,8 @@ namespace
         world.emplace<AiAgentComponent>(e);
         if (tag)
             world.emplace<TagComponent>(e, TagComponent{ tag });
+        if (!tag || std::strcmp(tag, "Wolf") != 0)
+            setInteractable(world, e, InteractKind::Guard, kInteractBodyRange);
         return e;
     }
 

@@ -343,10 +343,6 @@ void EditorApp::fillPlayHost(void* user, PlayHost& host)
 
     host.groundProbeY = &app->m_playGroundProbeY;
     host.groundIgnore = &app->m_playGroundIgnore;
-    host.lightLevel   = &app->m_lightLevel;
-    host.exposure     = &app->m_exposure;
-    host.strideLeft   = &app->m_strideLeft;
-    host.stealth      = &app->m_stealth;
     host.camouflage   = false;
 
     const bool pointerFree = app->window().cursorCaptured() || !(app->m_imgui.isReady() && app->m_imgui.wantCaptureMouse());
@@ -449,6 +445,7 @@ void EditorApp::setPlayMode(bool play)
             DE_LOG_WARN("Editor: place a Player before Play (Create → Player, then F12)");
             return;
         }
+        applyAuthoredStealth();
         captureAuthoredPoses();
         bakePlayWalkability();
         {
@@ -753,9 +750,26 @@ void EditorApp::tickSpawners(float dt)
         this);
 }
 
+void EditorApp::ensurePlayerStealth(Entity e)
+{
+    if (!e.valid() || !world().alive(e) || world().has<PlayerStealthComponent>(e))
+        return;
+    PlayerStealthComponent& stealth = world().emplace<PlayerStealthComponent>(e);
+    applyScenePrey(stealth.settings, m_authoredStealth);
+}
+
 void EditorApp::applyAuthoredStealth()
 {
-    applySceneStealth(m_stealth, m_ai, m_authoredStealth);
+    applySceneAwareness(m_ai, m_authoredStealth);
+    const Entity player = (m_playPlayer.valid() && world().alive(m_playPlayer)) ? m_playPlayer : findPlayPlayer();
+    if (!player.valid() || !world().alive(player))
+        return;
+    if (!world().has<PlayerStealthComponent>(player))
+        world().emplace<PlayerStealthComponent>(player);
+    PlayerStealthComponent* stealth = world().get<PlayerStealthComponent>(player);
+    if (!stealth)
+        return;
+    applyScenePrey(stealth->settings, m_authoredStealth);
 }
 
 

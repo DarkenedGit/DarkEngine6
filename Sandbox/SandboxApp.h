@@ -30,6 +30,7 @@
 #include "Character/PlayerMotorComponent.h"
 #include "Animation/Locomotion.h"
 #include "Character/PlayerStealth.h"
+#include "Scene/SceneTypes.h"
 #include "Render/HealthHud.h"
 #include "Render/CrosshairHud.h"
 #include "Particles/ParticleEmitter.h"
@@ -182,6 +183,8 @@ private:
     void ensureLocalCube();
     void attachReplicaCombat(Dark::Entity e);
     void attachLocalPlayer(Dark::Entity e);
+    void ensurePlayerStealth(Dark::Entity e);
+    Dark::PlayerStealthComponent* localStealth();
     bool attachAnimatedCharacter(Dark::Entity e, const char* gltfPath);
     Dark::Health*         localHealth();
     Dark::HitReaction*    localHit();
@@ -231,7 +234,6 @@ private:
     Dark::PlaySession                   m_play;
     Dark::Combat::OffhandState&         m_offhand;
     Dark::Combat::PlayerChargeSettings& m_chargeSettings;
-    Dark::PlayerStealthSettings         m_stealth{};
     Dark::Combat::HoldCharge&           m_attackCharge;
     Dark::Combat::HoldCharge&           m_blockCharge;
     Dark::ChargeWindup&                 m_chargeWindup;
@@ -254,9 +256,7 @@ private:
     bool                            m_demoScene    = true;
     bool                            m_sceneStarted = false;
     std::filesystem::path           m_loadedScenePath;
-    float                           m_lightLevel   = 1.0f;
-    float                           m_exposure     = 1.0f;
-    float                           m_strideLeft   = 0.0f;
+    Dark::StealthSceneDesc          m_sceneStealth{};
     Dark::QuestRuntime&             m_quest;
     Dark::GuardVoice                m_guardVoice;
     Dark::DialogueRuntime           m_dialogue;

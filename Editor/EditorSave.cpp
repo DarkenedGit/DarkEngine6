@@ -263,6 +263,7 @@ void EditorApp::saveAfterApply(void* user, World& world)
         app->m_ai.setJumpAttackToken(ai->token);
     }
     app->pushPhysicsProgress();
+    app->ensurePlayerStealth(body);
     syncThrowableLoadout(world, body, app->m_play.throws(), ThrowableLoadoutSync::FromRecord);
     applyDisabledCircuits(world);
     syncCarriedAgents(world);

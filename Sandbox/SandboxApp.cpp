@@ -478,10 +478,6 @@ void SandboxApp::fillPlayHost(void* user, PlayHost& host)
 
     host.groundProbeY = &app->m_groundProbeY;
     host.groundIgnore = &app->m_groundIgnore;
-    host.lightLevel   = &app->m_lightLevel;
-    host.exposure     = &app->m_exposure;
-    host.strideLeft   = &app->m_strideLeft;
-    host.stealth      = &app->m_stealth;
     host.camouflage   = app->m_camouflage;
 
     const bool ui    = app->uiOpen();
@@ -1264,6 +1260,21 @@ void SandboxApp::attachLocalPlayer(Entity e)
     const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
     ensureLocalPlayerRig(host, e, &SandboxApp::onWeaponHitThunk, this);
     ensurePlayerProgress(e);
+    ensurePlayerStealth(e);
+}
+
+void SandboxApp::ensurePlayerStealth(Entity e)
+{
+    if (!e.valid() || !world().alive(e) || world().has<PlayerStealthComponent>(e))
+        return;
+    PlayerStealthComponent& stealth = world().emplace<PlayerStealthComponent>(e);
+    applyScenePrey(stealth.settings, m_sceneStealth);
+}
+
+PlayerStealthComponent* SandboxApp::localStealth()
+{
+    const Entity body = possessedBody();
+    return body.valid() ? world().get<PlayerStealthComponent>(body) : nullptr;
 }
 
 bool SandboxApp::attachAnimatedCharacter(Entity e, const char* gltfPath)
@@ -2302,9 +2313,7 @@ void SandboxApp::bindCharacterPhysics()
     for (int i = 0; i < m_chase.hunterCount(); ++i)
     {
         const Entity e = m_chase.hunterEntity(i);
-        const TagComponent* tag = e.valid() ? world().get<TagComponent>(e) : nullptr;
-        const bool wolf = tag && tag->name == "Wolf";
-        bindEntityPhysics(e, wolf ? "wolf" : "human");
+        bindEntityPhysics(e, isInteractGuard(world(), e) ? "human" : "wolf");
     }
 }
 
@@ -2469,7 +2478,8 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
                 DE_LOG_ERROR(LogCategory::Render, "SandboxApp: scene load failed ({}) — {}", scenePath.string(), err);
             else
                 DE_LOG_INFO(LogCategory::Render, "SandboxApp: scene {}", scenePath.string());
-            applySceneStealth(m_stealth, m_chase.ai(), sceneData.stealth);
+            m_sceneStealth = sceneData.stealth;
+            applySceneAwareness(m_chase.ai(), m_sceneStealth);
             m_sceneQuest = sceneData.quest;
             applySceneAtmosphere(m_env, sceneData);
             {
@@ -3060,9 +3070,8 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
         bindCharacterPhysics();
         for (int i = 0; i < m_chase.hunterCount(); ++i)
         {
-            const Entity        e   = m_chase.hunterEntity(i);
-            const TagComponent* tag = e.valid() ? world().get<TagComponent>(e) : nullptr;
-            if (!tag || tag->name != "Wolf")
+            const Entity e = m_chase.hunterEntity(i);
+            if (isInteractGuard(world(), e))
                 stockHunter(e);
         }
     }

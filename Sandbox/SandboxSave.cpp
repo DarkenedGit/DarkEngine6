@@ -328,6 +328,7 @@ void SandboxApp::saveAfterApply(void* user, World& world)
         app->m_chase.ai().setJumpAttackToken(ai->token);
     }
     app->pushPhysicsProgress();
+    app->ensurePlayerStealth(body);
     syncThrowableLoadout(world, body, app->m_throwFlights, ThrowableLoadoutSync::FromRecord);
     applyDisabledCircuits(world);
     syncCarriedAgents(world);

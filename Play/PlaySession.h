@@ -10,6 +10,8 @@
 #include "Gameplay/Item.h"
 #include "Gameplay/QuestRuntime.h"
 #include "Play/ImpactFx.h"
+#include "Play/Interaction.h"
+#include "Play/PlayerCombat.h"
 #include "Math/AABox3f.h"
 #include "Math/Sphere3f.h"
 #include "Math/Vector3f.h"
@@ -52,7 +54,6 @@ namespace Dark
     }
 
     struct CrowModels;
-    struct PlayerStealthSettings;
     struct SpawnerRequest;
 
     inline constexpr float kPlayDeathSeconds      = 2.5f;
@@ -109,20 +110,6 @@ namespace Dark
         const ItemDef*               wornArmor[static_cast<int>(EquipSlot::Count)]{};
     };
 
-    enum class PlayInteract : uint8_t
-    {
-        None,
-        Body,
-        Power,
-        Item,
-    };
-
-    struct PlayInteractPick
-    {
-        PlayInteract kind = PlayInteract::None;
-        Entity       e{};
-    };
-
     // Filled by the app at the start of each session call. Pointers are not owned.
     struct PlayHost
     {
@@ -157,10 +144,6 @@ namespace Dark
 
         float*                    groundProbeY = nullptr;
         Physics::PhysicsBodyId*  groundIgnore  = nullptr;
-        float*                    lightLevel   = nullptr;
-        float*                    exposure     = nullptr;
-        float*                    strideLeft   = nullptr;
-        PlayerStealthSettings*    stealth      = nullptr;
         bool                      camouflage   = false;
 
         // applyMouseLook gates the mouse. allowMouseButtons gates attack clicks.
@@ -237,14 +220,8 @@ namespace Dark
         void pull();
         ImpactFxHost impact();
         bool boneWorld(Entity e, const char* bone, Math::Vector3f& out) const;
-        void faceTarget(Entity target);
-        void onDefended(Entity attacker, bool parried);
         void respawn();
         void tickCombat(float dt);
-        bool fireLoadout(bool charged);
-        bool releaseThrow(bool charged);
-        void tickThrows(float dt);
-        void resolveJump(const Combat::DamageEvent* events, int count);
         void tryPickup();
         bool tryTakedown();
         void tickCarry();
@@ -253,10 +230,11 @@ namespace Dark
         void lightAndExposure(float dt);
         void characterAnims(float dt);
         void presentQuestNotes();
-        bool ownsWeapon(WeaponKind kind) const;
         float terrainHeight(float x, float z) const;
+        PlayerCombatHooks combatHooks();
 
         static void onJumpHits(void* user, const Combat::DamageEvent* events, int count);
+        static void onRefreshCamera(void* user);
         static void onHunterCue(void* user, Entity hunter, const char* cue);
         static void onPowerClick(void* user);
         static float onCarryHeight(void* user, float x, float z);

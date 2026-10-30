@@ -1,6 +1,7 @@
 #include "Weapons/ThrowableFlight.h"
 
 #include "Collision/Collision.h"
+#include "Play/Interaction.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
 #include "Gameplay/Inventory.h"
@@ -443,6 +444,7 @@ namespace Dark
         const Entity e = world.createEntity();
         world.emplace<TransformComponent>(e, position, Math::Quaternion::IDENTITY, Math::Vector3f{ 0.3f, 0.3f, 0.3f });
         world.emplace<ItemPickupComponent>(e, ItemPickupComponent{ ItemStack{ def, 1 } });
+        setInteractable(world, e, InteractKind::Item, kInteractItemRange);
         return e;
     }
 

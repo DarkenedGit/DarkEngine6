@@ -690,11 +690,10 @@ void SandboxApp::drawGuardAwareness()
     bool                anyoneSees = false;
 
     world().each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
-        const TagComponent*       tag = world().get<TagComponent>(e);
-        const HealthComponent*    hp  = world().get<HealthComponent>(e);
-        const TransformComponent* xf  = world().get<TransformComponent>(e);
-        const AI::AwarenessState& aw  = ai.aware;
-        if (!xf || !hp || !hp->health.alive() || (tag && tag->name == "Wolf"))
+        const HealthComponent*    hp = world().get<HealthComponent>(e);
+        const TransformComponent* xf = world().get<TransformComponent>(e);
+        const AI::AwarenessState& aw = ai.aware;
+        if (!xf || !hp || !hp->health.alive() || !isInteractGuard(world(), e))
             return;
         if (aw.alertness == AI::Alertness::Calm && aw.meter < 0.02f)
         {
@@ -815,7 +814,10 @@ void SandboxApp::drawGuardAwareness()
     }
 
     {
-        const float  e      = Math::Clamp(m_exposure, 0.0f, 1.0f);
+        float exposure = 1.0f;
+        if (const PlayerStealthComponent* stealth = localStealth())
+            exposure = stealth->exposure;
+        const float  e      = Math::Clamp(exposure, 0.0f, 1.0f);
         const ImVec2 c{ mid.x, vp.y + vh - 70.0f };
         const float  w      = 34.0f;
         const float  open   = 4.0f + 12.0f * e;
@@ -1754,19 +1756,25 @@ void SandboxApp::drawDevTools()
         {
             ImGui::SliderFloat("Crouch speed", &motor->settings().crouchSpeed, 0.5f, motor->settings().walkSpeed, "%.1f");
         }
-        ImGui::SliderFloat("Still speed", &m_stealth.stillSpeed, 0.05f, 2.0f, "%.2f");
-        ImGui::SliderFloat("Sight crouch walk", &m_stealth.sightCrouchWalk, 0.05f, 1.0f, "%.2f");
-        ImGui::SliderFloat("Sight crouch still", &m_stealth.sightCrouchStill, 0.05f, 1.0f, "%.2f");
-        ImGui::SliderFloat("Hear stand", &m_stealth.hearStand, 0.0f, 20.0f, "%.1f");
-        ImGui::SliderFloat("Hear walk", &m_stealth.hearWalk, 0.0f, 40.0f, "%.1f");
-        ImGui::SliderFloat("Hear sprint", &m_stealth.hearSprint, 0.0f, 50.0f, "%.1f");
-        ImGui::SliderFloat("Hear crouch walk", &m_stealth.hearCrouchWalk, 0.0f, 30.0f, "%.1f");
-        ImGui::SliderFloat("Hear crouch still", &m_stealth.hearCrouchStill, 0.0f, 20.0f, "%.1f");
-        ImGui::SliderFloat("Notice distance", &m_stealth.standoff, 0.2f, 6.0f, "%.2f");
-        ImGui::SliderFloat("Notice crouch walk", &m_stealth.standoffCrouchWalk, 0.1f, 6.0f, "%.2f");
-        ImGui::SliderFloat("Notice crouch still", &m_stealth.standoffCrouchStill, 0.1f, 6.0f, "%.2f");
-        ImGui::SliderFloat("Seen height stand", &m_stealth.standTargetHeight, 0.05f, 1.5f, "%.2f");
-        ImGui::SliderFloat("Seen height crouch", &m_stealth.crouchTargetHeight, 0.05f, 1.5f, "%.2f");
+        if (PlayerStealthComponent* stealth = localStealth())
+        {
+            PlayerStealthSettings& s = stealth->settings;
+            ImGui::SliderFloat("Still speed", &s.stillSpeed, 0.05f, 2.0f, "%.2f");
+            ImGui::SliderFloat("Sight crouch walk", &s.sightCrouchWalk, 0.05f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Sight crouch still", &s.sightCrouchStill, 0.05f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Hear stand", &s.hearStand, 0.0f, 20.0f, "%.1f");
+            ImGui::SliderFloat("Hear walk", &s.hearWalk, 0.0f, 40.0f, "%.1f");
+            ImGui::SliderFloat("Hear sprint", &s.hearSprint, 0.0f, 50.0f, "%.1f");
+            ImGui::SliderFloat("Hear crouch walk", &s.hearCrouchWalk, 0.0f, 30.0f, "%.1f");
+            ImGui::SliderFloat("Hear crouch still", &s.hearCrouchStill, 0.0f, 20.0f, "%.1f");
+            ImGui::SliderFloat("Notice distance", &s.standoff, 0.2f, 6.0f, "%.2f");
+            ImGui::SliderFloat("Notice crouch walk", &s.standoffCrouchWalk, 0.1f, 6.0f, "%.2f");
+            ImGui::SliderFloat("Notice crouch still", &s.standoffCrouchStill, 0.1f, 6.0f, "%.2f");
+            ImGui::SliderFloat("Seen height stand", &s.standTargetHeight, 0.05f, 1.5f, "%.2f");
+            ImGui::SliderFloat("Seen height crouch", &s.crouchTargetHeight, 0.05f, 1.5f, "%.2f");
+        }
+        else
+            ImGui::TextDisabled("No player");
         const PlayerMotor* shown = localMotor();
         ImGui::TextDisabled("%s", (shown && shown->state() == PlayerMoveState::Crouch) ? "crouching" : "standing");
     }

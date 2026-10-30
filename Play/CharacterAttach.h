@@ -64,11 +64,13 @@ namespace Dark
     // Movement speeds are re-read from entities/player.entity.movement.json. Crouch, dodge, and motor progress stay as they are.
     void ensureLocalPlayerRig(const CharacterHost& host, Entity e, WeaponHitFn hitFn, void* hitUser);
 
-    // Extents, wolf tag and skill, the hunter sound bank, and that type's movement file. Does not load a model.
+    // Extents, wolf tag and skill, hunter sounds, and that type's movement file. A hunter with no interact
+    // mark becomes a guard. A wolf loses that mark. Does not load a model.
     void configureNpc(const CharacterHost& host, Entity e, NpcKind kind);
 
     // Re-reads player, hunter, and wolf movement files onto bodies already in the world.
     // A missing file leaves that body on the speeds it already has. Wolf is the tag "Wolf" or "wolf".
+    // An agent that is not a wolf and has no interact mark becomes a guard, so an old save can still be taken down.
     void applyAuthoredMovement(World& world);
 
     // Model, then configureNpc. Extents and sounds are applied even when the model fails to load.

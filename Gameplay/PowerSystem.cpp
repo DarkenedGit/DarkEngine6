@@ -11,6 +11,7 @@
 #include "ECS/Components.h"
 #include "ECS/World.h"
 #include "Gameplay/PowerCheck.h"
+#include "Play/Interaction.h"
 
 #include <cmath>
 
@@ -82,10 +83,9 @@ namespace Dark
             return;
         float bestD = tune.alertRadius * tune.alertRadius;
         world.each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
-            const TagComponent*       tag = world.get<TagComponent>(e);
             const TransformComponent* gxf = world.get<TransformComponent>(e);
             const HealthComponent*    hp  = world.get<HealthComponent>(e);
-            if (!gxf || !hp || !hp->health.alive() || (tag && tag->name == "Wolf") || ai.aware.alertness == AI::Alertness::Alert)
+            if (!gxf || !hp || !hp->health.alive() || !isInteractGuard(world, e) || ai.aware.alertness == AI::Alertness::Alert)
                 return;
             const float d = Vector3f{ gxf->position.x - pos.x, 0.0f, gxf->position.z - pos.z }.MagnitudeSqrd();
             if (d > bestD)

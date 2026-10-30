@@ -72,7 +72,7 @@ namespace Dark::AI
         // Noise impulse is noiseBase + noiseFalloff * (1 - distance / range).
         float noiseBase    = 0.3f;
         float noiseFalloff = 0.5f;
-        // Sandbox exposure multipliers for the player's stance, then footstep spacing in meters.
+        // Exposure multipliers for the player's stance, then footstep spacing in meters.
         float stanceCrouchWalk = 0.55f;
         float stanceCrouchStill = 0.4f;
         float stanceSprint      = 1.3f;

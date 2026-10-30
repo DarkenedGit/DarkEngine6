@@ -45,7 +45,6 @@
 #include "Character/ItemView.h"
 #include "Combat/CombatSystem.h"
 #include "Animation/Locomotion.h"
-#include "Character/PlayerStealth.h"
 #include "Combat/HoldCharge.h"
 #include "Combat/Shield.h"
 #include "Play/ImpactFx.h"
@@ -267,6 +266,7 @@ private:
     void syncTerrainLod();
     void applyAuthoredGrass();
     void applyAuthoredStealth();
+    void ensurePlayerStealth(Dark::Entity e);
     void updateEditorGrass(float dt);
     void tickLeaves(float dt);
     void drawEditorGrass(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, const Math::Matrix4f& prevViewProj, const Frustum3f& frustum);
@@ -523,9 +523,6 @@ private:
         float       timeLeft = 3.5f;
     };
     std::vector<QuestBanner>  m_questBanners;
-    float                     m_lightLevel = 1.0f;
-    float                     m_exposure   = 1.0f;
-    float                     m_strideLeft = 0.0f;
     Physics::PhysicsWorld          m_physics;
     Physics::PhysicsSurfaceCatalog m_surfaces;
     Physics::PhysicsBodyId         m_physicsGround = Physics::kNullPhysicsBody;
@@ -538,7 +535,6 @@ private:
     Dark::Entity              m_playPlayer{};
     CrowModels                m_crowModels{};
     Dark::Entity              m_playShield{};
-    Dark::PlayerStealthSettings m_stealth{};
     Dark::Terrain::HeightMap           m_playGrid{};
     Dark::Terrain::TerrainGround       m_ground{};
     std::vector<Dark::Math::AABox3f> m_playCubes;

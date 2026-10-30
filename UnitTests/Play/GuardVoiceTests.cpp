@@ -7,6 +7,7 @@
 #include "ECS/Components.h"
 #include "ECS/World.h"
 #include "Play/GuardVoice.h"
+#include "Play/Interaction.h"
 
 #include <gtest/gtest.h>
 
@@ -59,6 +60,7 @@ TEST(GuardVoice, SuppressClearsQueuedSpeechWithoutAnotherTick)
     world.emplace<TransformComponent>(guard);
     world.emplace<HealthComponent>(guard);
     world.emplace<AiAgentComponent>(guard);
+    setInteractable(world, guard, InteractKind::Guard, kInteractBodyRange);
 
     GuardBarks barks;
     barks.alert = { "There!" };

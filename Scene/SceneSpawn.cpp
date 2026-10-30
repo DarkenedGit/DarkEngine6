@@ -1,6 +1,7 @@
 #include "Scene/SceneSpawn.h"
 
 #include "Assets/AssetManager.h"
+#include "Play/Interaction.h"
 #include "Character/ItemView.h"
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
@@ -78,6 +79,7 @@ namespace Dark
                 box.pos     = o.position;
                 box.on      = true;
                 world.emplace<PowerBoxComponent>(e, box);
+                setInteractable(world, e, InteractKind::Power, kInteractPowerRange);
                 if (host.stampPrefix && host.stampPrefix[0] != '\0')
                     stampProceduralId(world, e, std::format("{}/power/{}", host.stampPrefix, powerStamp++), "power");
             }

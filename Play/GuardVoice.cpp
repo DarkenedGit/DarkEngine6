@@ -7,6 +7,7 @@
 #include "Core/Log.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
+#include "Play/Interaction.h"
 
 #include <algorithm>
 #include <format>
@@ -41,9 +42,8 @@ namespace Dark
 
         bool isGuard(World& world, Entity e)
         {
-            const TagComponent*    tag = world.get<TagComponent>(e);
-            const HealthComponent* hp  = world.get<HealthComponent>(e);
-            return hp && hp->health.alive() && !(tag && tag->name == "Wolf");
+            const HealthComponent* hp = world.get<HealthComponent>(e);
+            return hp && hp->health.alive() && isInteractGuard(world, e);
         }
     } // namespace
 

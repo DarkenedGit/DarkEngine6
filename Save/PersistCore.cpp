@@ -1,6 +1,7 @@
 #include "Character/HealthComponent.h"
 #include "Core/Log.h"
 #include "Character/PlayerMotorComponent.h"
+#include "Character/PlayerStealth.h"
 #include "Character/SkillComponent.h"
 #include "Character/SkillId.h"
 #include "ECS/Components.h"
@@ -462,6 +463,62 @@ namespace Dark
             return stamina;
         }
 
+        void captureStealth(const void* component, void* writer)
+        {
+            const auto& stealth = *static_cast<const PlayerStealthComponent*>(component);
+            auto&       out     = *static_cast<SaveWriter*>(writer);
+            const PlayerStealthSettings& s = stealth.settings;
+            out.f32("stillSpeed", s.stillSpeed);
+            out.f32("sightCrouchWalk", s.sightCrouchWalk);
+            out.f32("sightCrouchStill", s.sightCrouchStill);
+            out.f32("hearStand", s.hearStand);
+            out.f32("hearWalk", s.hearWalk);
+            out.f32("hearSprint", s.hearSprint);
+            out.f32("hearCrouchWalk", s.hearCrouchWalk);
+            out.f32("hearCrouchStill", s.hearCrouchStill);
+            out.f32("standoff", s.standoff);
+            out.f32("standoffCrouchWalk", s.standoffCrouchWalk);
+            out.f32("standoffCrouchStill", s.standoffCrouchStill);
+            out.f32("standTargetHeight", s.standTargetHeight);
+            out.f32("crouchTargetHeight", s.crouchTargetHeight);
+            out.f32("lightLevel", stealth.lightLevel);
+            out.f32("exposure", stealth.exposure);
+            out.f32("strideLeft", stealth.strideLeft);
+        }
+
+        void applyStealth(void* component, void* reader, uint16_t)
+        {
+            auto& stealth = *static_cast<PlayerStealthComponent*>(component);
+            auto& in      = *static_cast<SaveReader*>(reader);
+            PlayerStealthSettings s = stealth.settings;
+            float light    = stealth.lightLevel;
+            float exposure = stealth.exposure;
+            float stride   = stealth.strideLeft;
+            const float hi = 1000.0f;
+            if (!in.f32("stillSpeed", s.stillSpeed, 0.0f, hi))
+                return;
+            if (!in.f32("sightCrouchWalk", s.sightCrouchWalk, 0.0f, hi) || !in.f32("sightCrouchStill", s.sightCrouchStill, 0.0f, hi))
+                return;
+            if (!in.f32("hearStand", s.hearStand, 0.0f, hi) || !in.f32("hearWalk", s.hearWalk, 0.0f, hi) || !in.f32("hearSprint", s.hearSprint, 0.0f, hi))
+                return;
+            if (!in.f32("hearCrouchWalk", s.hearCrouchWalk, 0.0f, hi) || !in.f32("hearCrouchStill", s.hearCrouchStill, 0.0f, hi))
+                return;
+            if (!in.f32("standoff", s.standoff, 0.0f, hi) || !in.f32("standoffCrouchWalk", s.standoffCrouchWalk, 0.0f, hi))
+                return;
+            if (!in.f32("standoffCrouchStill", s.standoffCrouchStill, 0.0f, hi))
+                return;
+            if (!in.f32("standTargetHeight", s.standTargetHeight, 0.0f, hi) || !in.f32("crouchTargetHeight", s.crouchTargetHeight, 0.0f, hi))
+                return;
+            if (!in.f32("lightLevel", light, 0.0f, 1.0f) || !in.f32("exposure", exposure, 0.0f, 1.0f))
+                return;
+            if (!in.f32("strideLeft", stride, -10.0f, hi))
+                return;
+            stealth.settings   = s;
+            stealth.lightLevel = light;
+            stealth.exposure   = exposure;
+            stealth.strideLeft = stride;
+        }
+
         void captureMotor(const void* component, void* writer)
         {
             const auto& motor = static_cast<const PlayerMotorComponent*>(component)->motor;
@@ -529,6 +586,7 @@ namespace Dark
     const PersistFns AiClockComponent::kPersist{ "AiClock", AiClockComponent::kSaveVersion, 100, nullptr, &captureAiClock, &applyAiClock, &bindAiClock };
     const PersistFns RunProgressComponent::kPersist{ "RunProgress", RunProgressComponent::kSaveVersion, 100, nullptr, &captureRun, &applyRun, nullptr };
     const PersistFns PlayerMotorComponent::kPersist{ "PlayerMotor", PlayerMotorComponent::kSaveVersion, 100, nullptr, &captureMotor, &applyMotor, nullptr };
+    const PersistFns PlayerStealthComponent::kPersist{ "PlayerStealth", PlayerStealthComponent::kSaveVersion, 100, nullptr, &captureStealth, &applyStealth, nullptr };
 
     namespace
     {
@@ -548,6 +606,7 @@ namespace Dark
                 Save::bindPersist<AiClockComponent>();
                 Save::bindPersist<RunProgressComponent>();
                 Save::bindPersist<PlayerMotorComponent>();
+                Save::bindPersist<PlayerStealthComponent>();
             }
         };
 
