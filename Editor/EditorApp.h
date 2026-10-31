@@ -191,6 +191,10 @@ private:
     Dark::Terrain::GroundContact groundContactAt(float x, float z) const;
     void   drawPlayHud();
     void   drawLoot();
+    void   drawUpgrades();
+    void   ensureUpgradeCatalog();
+    void   destroyBuildingFixtures();
+    void   resetBuildingFixtures();
     void   ensurePlayReticle();
     WeaponLoadout* playWeapons();
     void   drawPlayCrosshair(ID3D12GraphicsCommandList* cmd);
@@ -198,6 +202,7 @@ private:
     void   drawPlayProjectiles(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, const Math::Matrix4f& prevViewProj, bool gbuffer, bool instanced,
                                const MeshForwardBatchConstants* forwardBatch, const MeshFrameConstants* forwardLit, const std::vector<int>* rejectedShots);
     void   spawnPlayPickups();
+    void   releasePlayPickups();
     static void onPlayWeaponHitThunk(void* user, const Dark::WeaponHit& hit);
     void   onPlayWeaponHit(const Dark::WeaponHit& hit);
     ImpactFxHost impactHost();
@@ -530,6 +535,11 @@ private:
     std::string               m_sceneQuest;
     std::vector<Dark::SceneBuildingDesc> m_sceneBuildings;
     std::deque<std::string>   m_buildingLabels;
+    std::vector<BuildingContainer> m_buildingContainers;
+    std::vector<BuildingHideSpot>  m_buildingHides;
+    std::vector<BuildingDoor>      m_buildingDoors;
+    std::vector<BuildingCamera>    m_buildingCameras;
+    bool                      m_showUpgrades = false;
     struct QuestBanner
     {
         std::string label;

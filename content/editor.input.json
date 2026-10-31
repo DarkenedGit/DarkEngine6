@@ -24,6 +24,7 @@
     { "action": "type_hunter", "key": "Digit7" },
     { "action": "type_wolf", "key": "Digit8" },
     { "action": "play", "key": "F12" },
+    { "action": "upgrades", "key": "K" },
     { "action": "cycle_type", "key": "T" },
     { "action": "cycle_color", "key": "C" },
     { "action": "toggle_particle_ui", "key": "F2" },

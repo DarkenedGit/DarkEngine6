@@ -317,6 +317,7 @@ TEST(EntityInput, EditorFileThenPlayerFile)
     EXPECT_TRUE(hasKey(map, "type_hunter", Key::Digit7, 1.0f));
     EXPECT_TRUE(hasKey(map, "type_wolf", Key::Digit8, 1.0f));
     EXPECT_TRUE(hasKey(map, "play", Key::F12, 1.0f));
+    EXPECT_TRUE(hasKey(map, "upgrades", Key::K, 1.0f));
     EXPECT_TRUE(hasKey(map, "cycle_type", Key::T, 1.0f));
     EXPECT_TRUE(hasKey(map, "cycle_color", Key::C, 1.0f));
     EXPECT_TRUE(hasKey(map, "toggle_particle_ui", Key::F2, 1.0f));

@@ -285,12 +285,8 @@ bool EditorApp::loadScene()
     m_sceneBuildings  = data.buildings;
     m_buildingLabels.clear();
     const size_t authoredCount = data.objects.size();
-    std::vector<BuildingContainer> buildingContainers;
-    std::vector<BuildingHideSpot>  buildingHides;
-    std::vector<BuildingDoor>      buildingDoors;
-    std::vector<BuildingCamera>    buildingCameras;
     if (data.mode != SceneMode::Scene2D)
-        expandSceneBuildings(data, buildingContainers, buildingHides, &buildingDoors, &buildingCameras);
+        expandSceneBuildings(data, m_buildingContainers, m_buildingHides, &m_buildingDoors, &m_buildingCameras);
     removeEditorTerrain();
     m_authoredWater = {};
     m_authoredExposure = {};
@@ -369,7 +365,7 @@ bool EditorApp::loadScene()
         fixtures.pins     = &pins();
         fixtures.ai       = &m_ai;
         fixtures.labels   = &m_buildingLabels;
-        spawnBuildingFixtures(fixtures, buildingContainers, buildingHides, buildingDoors, buildingCameras);
+        spawnBuildingFixtures(fixtures, m_buildingContainers, m_buildingHides, m_buildingDoors, m_buildingCameras);
     }
     for (size_t i = 0; i < data.objects.size() && i < spawned.size(); ++i)
     {
@@ -430,6 +426,9 @@ void EditorApp::handleEditorCommands(float dt)
 
     const bool uiKey = m_imgui.wantCaptureKeyboard();
     const bool uiMouse = m_imgui.wantCaptureMouse();
+    const bool typing = m_imgui.isReady() && m_imgui.wantTextInput();
+    if (m_playMode && input().actionPressed("upgrades") && !typing && (!uiKey || m_showUpgrades))
+        m_showUpgrades = !m_showUpgrades;
 
     if (!uiKey && input().actionPressed("quit"))
     {

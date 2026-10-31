@@ -773,6 +773,7 @@ void EditorApp::clearScene()
 {
     if (netSceneLocked())
         return;
+    destroyBuildingFixtures();
     std::vector<Entity> ents;
     collectEditorEntities(ents);
     for (Entity e : ents)
@@ -789,6 +790,10 @@ void EditorApp::clearScene()
     m_selected = {};
     m_sceneQuest.clear();
     m_sceneBuildings.clear();
+    m_buildingContainers.clear();
+    m_buildingHides.clear();
+    m_buildingDoors.clear();
+    m_buildingCameras.clear();
     m_buildingLabels.clear();
     m_play.clearFacility();
     m_dragging = false;

@@ -30,6 +30,7 @@
 #include "Character/HealthComponent.h"
 #include "Character/ItemView.h"
 #include "Gameplay/Item.h"
+#include "Gameplay/Upgrades.h"
 #include "Save/ProgressComponents.h"
 #include "Character/HitReaction.h"
 #include "Character/PlayerMotorComponent.h"
@@ -75,6 +76,9 @@
 #include "Weapons/WeaponLoadoutComponent.h"
 
 #include <imgui.h>
+
+#include <algorithm>
+#include <format>
 
 #include <cmath>
 #include <cstdio>
@@ -347,8 +351,8 @@ void EditorApp::fillPlayHost(void* user, PlayHost& host)
     host.groundIgnore = &app->m_playGroundIgnore;
     host.camouflage   = false;
 
-    const bool lootOpen    = app->m_lootTarget.valid();
-    const bool pointerFree = !lootOpen && (app->window().cursorCaptured() || !(app->m_imgui.isReady() && app->m_imgui.wantCaptureMouse()));
+    const bool playUi      = app->m_lootTarget.valid() || app->m_showUpgrades;
+    const bool pointerFree = !playUi && (app->window().cursorCaptured() || !(app->m_imgui.isReady() && app->m_imgui.wantCaptureMouse()));
     host.applyMouseLook    = pointerFree;
     host.allowMouseButtons = pointerFree;
     host.uiMouse           = !pointerFree;
@@ -533,6 +537,8 @@ void EditorApp::setPlayMode(bool play)
         window().setCursorCaptured(window().isFocused());
         ensurePlaySession();
         installSaveHost();
+        ensureUpgradeCatalog();
+        m_play.refreshUpgrades();
         if (!world().has<LookComponent>(m_playPlayer))
             world().emplace<LookComponent>(m_playPlayer);
         if (!world().has<RunProgressComponent>(m_playPlayer))
@@ -563,6 +569,10 @@ void EditorApp::setPlayMode(bool play)
         m_guardVoice.stop();
         m_play.resetPawn();
         destroyPlayGear();
+        releasePlayPickups();
+        m_showUpgrades = false;
+        m_play.clearFacility();
+        resetBuildingFixtures();
         respawnThrowablePickups(world(), pins(), assets(), renderer(), m_physics, keptThrowables);
         clearThrowablePlayVisuals(world(), pins());
         m_playMode   = false;
@@ -665,6 +675,127 @@ void EditorApp::spawnPlayPickups()
         if (pickup.valid())
             so.playPickup = pickup;
     });
+}
+
+void EditorApp::destroyBuildingFixtures()
+{
+    std::vector<Entity> doomed;
+    world().each<SecurityCameraComponent>([&](Entity e, SecurityCameraComponent& cam) {
+        doomed.push_back(e);
+        if (cam.light.valid())
+            doomed.push_back(cam.light);
+    });
+    world().each<DoorComponent>([&](Entity e, DoorComponent&) { doomed.push_back(e); });
+    world().each<HideSpotComponent>([&](Entity e, HideSpotComponent&) { doomed.push_back(e); });
+    world().each<LootComponent>([&](Entity e, LootComponent&) {
+        if (!world().has<EditorObjectComponent>(e))
+            doomed.push_back(e);
+    });
+    for (Entity e : doomed)
+    {
+        if (!world().alive(e))
+            continue;
+        releasePhysicsBody(e);
+        onEntityRemoved(world(), e, &pins());
+        world().destroyEntity(e);
+    }
+}
+
+void EditorApp::resetBuildingFixtures()
+{
+    destroyBuildingFixtures();
+    m_buildingLabels.clear();
+    BuildingFixtureSpawn fixtures;
+    fixtures.world    = &world();
+    fixtures.renderer = &renderer();
+    fixtures.assets   = &assets();
+    fixtures.pins     = &pins();
+    fixtures.ai       = &m_ai;
+    fixtures.labels   = &m_buildingLabels;
+    spawnBuildingFixtures(fixtures, m_buildingContainers, m_buildingHides, m_buildingDoors, m_buildingCameras);
+}
+
+void EditorApp::ensureUpgradeCatalog()
+{
+    if (!m_play.facility().defs.empty())
+        return;
+    std::string upgradeError;
+    if (!loadUpgrades(resolveContentFile("upgrades.json"), m_play.facility().defs, &upgradeError))
+        DE_LOG_WARN("Upgrades: {}", upgradeError);
+}
+
+void EditorApp::drawUpgrades()
+{
+    if (!m_playMode || !m_showUpgrades || !m_imgui.isReady())
+        return;
+    InventoryComponent* inv = m_playPlayer.valid() ? world().get<InventoryComponent>(m_playPlayer) : nullptr;
+    ImGui::SetNextWindowSize(ImVec2(480.0f, 420.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Upgrades", &m_showUpgrades))
+    {
+        ImGui::End();
+        return;
+    }
+    if (!inv)
+    {
+        ImGui::TextDisabled("No body to modify.");
+        ImGui::End();
+        return;
+    }
+    ImGui::TextWrapped("Spend stolen research and materials to modify yourself. Upgrades last for this Play.");
+    ImGui::Text("You have: %d Research Data, %d Bio Material", heldCount(*inv, "research"), heldCount(*inv, "bio_material"));
+    ImGui::Separator();
+    FacilityState& facility = m_play.facility();
+    for (const UpgradeDef& up : facility.defs)
+    {
+        ImGui::PushID(up.id.c_str());
+        const bool owned = std::find(facility.owned.begin(), facility.owned.end(), up.id) != facility.owned.end();
+        ImGui::TextColored(owned ? ImVec4(0.47f, 0.90f, 0.55f, 1.0f) : ImVec4(0.94f, 0.80f, 0.43f, 1.0f), "%s%s", up.name.c_str(), owned ? "  (owned)" : "");
+        ImGui::TextWrapped("%s", up.description.c_str());
+        std::string cost;
+        for (const UpgradeCost& c : up.cost)
+        {
+            const ItemDef* def = findItemDef(c.item);
+            if (!cost.empty())
+                cost += ", ";
+            cost += std::format("{} {} ({} held)", c.count, def ? def->name : c.item.c_str(), heldCount(*inv, c.item));
+        }
+        ImGui::TextDisabled("Cost: %s", cost.c_str());
+        if (!owned)
+        {
+            const bool afford = canAfford(*inv, up);
+            ImGui::BeginDisabled(!afford);
+            if (ImGui::Button("Modify") && payFor(*inv, up))
+            {
+                facility.owned.push_back(up.id);
+                m_play.refreshUpgrades();
+                playSoundCue(world(), audio(), assets(), m_playPlayer, "click");
+                DE_LOG_INFO("Upgrades: bought {}", up.name);
+            }
+            ImGui::EndDisabled();
+        }
+        ImGui::Separator();
+        ImGui::PopID();
+    }
+    ImGui::End();
+}
+
+void EditorApp::releasePlayPickups()
+{
+    std::vector<Entity> markers;
+    world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
+        if (!so.pickup.empty() || so.playPickup.valid() || so.playPickupSpent)
+            markers.push_back(e);
+    });
+    for (Entity marker : markers)
+    {
+        EditorObjectComponent* so = world().get<EditorObjectComponent>(marker);
+        if (!so)
+            continue;
+        if (so->playPickup.valid() && world().alive(so->playPickup))
+            destroyPickup(world(), pins(), m_physics, so->playPickup);
+        so->playPickup      = {};
+        so->playPickupSpent = false;
+    }
 }
 
 

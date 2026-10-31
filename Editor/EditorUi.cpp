@@ -576,6 +576,7 @@ void EditorApp::drawEditorUi()
         {
             drawPlayHud();
             drawLoot();
+            drawUpgrades();
         }
     }
 
@@ -1073,7 +1074,7 @@ void EditorApp::onUpdate(float dt)
         updateCamera(dt);
         syncEditPhysics();
     }
-    window().setCursorCaptured(m_playMode && window().isFocused() && !m_lootTarget.valid());
+    window().setCursorCaptured(m_playMode && window().isFocused() && !m_lootTarget.valid() && !m_showUpgrades);
     if (m_sceneMode != SceneMode::Scene2D)
     {
         m_water.tick(dt);
