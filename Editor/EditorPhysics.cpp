@@ -340,14 +340,19 @@ void EditorApp::simulatePhysics(float dt)
         return;
 
     // The motor owns the player. Keep that pose even if a sidecar marked the body dynamic.
-    Vector3f   playerPos;
-    Quaternion playerRot;
+    Vector3f   visualPos{};
+    Vector3f   playerPos{};
+    Quaternion playerRot{};
     const bool holdPlayer = m_playMode && m_playPlayer.valid() && world().get<TransformComponent>(m_playPlayer) != nullptr;
     if (holdPlayer)
     {
         const TransformComponent* xf = world().get<TransformComponent>(m_playPlayer);
-        playerPos                    = xf->position;
+        visualPos                    = xf->position;
         playerRot                    = xf->rotation;
+        playerPos                    = visualPos;
+        // The visual root drops in a crouch. The kinematic capsule stays at the standing plant and does not shrink.
+        if (const PlayerMotorComponent* pmc = world().get<PlayerMotorComponent>(m_playPlayer))
+            playerPos.y += pmc->motor.crouchOffset();
     }
 
     // Leave the player body where it was last frame. moveKinematicTo sweeps it to the
@@ -368,7 +373,7 @@ void EditorApp::simulatePhysics(float dt)
         return;
     if (TransformComponent* xf = world().get<TransformComponent>(m_playPlayer))
     {
-        xf->position = playerPos;
+        xf->position = visualPos;
         xf->rotation = playerRot;
     }
     if (m_physics.isBound(m_playPlayer))

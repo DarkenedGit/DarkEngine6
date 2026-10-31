@@ -41,6 +41,7 @@ namespace Dark
     {
         float walkSpeed           = 3.6f;
         float crouchSpeed         = 1.6f; // slower than walkSpeed
+        float crouchDrop          = 0.26f; // root lowers this far; the crouch clip folds the legs up by the same amount
         float sprintSpeed         = 7.0f;
         float swimSpeed           = 5.0f;
         float airSpeed            = 1.2f;  // extra speed you can add along wish while airborne
@@ -157,6 +158,7 @@ namespace Dark
         SwimPosture                posture() const { return m_posture; }
         float                      swimPose() const { return m_pose; } // 0 upright, 1 flat
         bool                       swimPushing() const { return m_pushing; }
+        float                      crouchOffset() const { return m_crouchBlend * m_settings.crouchDrop; }
 
         void reset();
         void clearJumpBuffer();
@@ -171,6 +173,7 @@ namespace Dark
             m_didDoubleJump = didDoubleJump;
             m_dodgeLeft     = dodgeLeft;
             m_dodgeWish     = dodgeWish;
+            m_crouchBlend   = (state == PlayerMoveState::Crouch) ? 1.0f : 0.0f;
         }
 
         // Climb is separate so the older restoreProgress callers do not reset stamina.
@@ -210,6 +213,7 @@ namespace Dark
         void  enterWallRun(const Math::Vector3f& dir);
         void  climbOnto(Math::Vector3f& position, float topY, PlayerMotorResult& result);
         void  tickWall(Math::Vector3f& position, const PlayerMotorInput& in, float dt, const PlayerGroundQuery& ground, PlayerMotorResult& result);
+        void  approachCrouch(float dt);
 
         PlayerMotorSettings m_settings;
         PlayerMoveState     m_state          = PlayerMoveState::Grounded;
@@ -222,6 +226,7 @@ namespace Dark
         bool                m_pendingDouble  = false;
         MoveCardinal        m_lastTap        = MoveCardinal::None;
         float               m_tapAge         = 1.0f;
+        float               m_crouchBlend    = 0.0f;
         float               m_dodgeLeft      = 0.0f;
         Math::Vector3f      m_dodgeWish{ 0.0f, 0.0f, 0.0f };
         float               m_stamina        = 1.0f;

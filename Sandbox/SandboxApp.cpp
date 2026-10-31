@@ -515,6 +515,20 @@ void SandboxApp::stepPlayPhysics(void* user, float dt)
     if (!app || !app->m_physics.valid())
         return;
     app->m_physics.pushPoses(app->world(), false);
+    const Entity player = app->possessedBody();
+    if (player.valid() && app->m_physics.isBound(player))
+    {
+        if (const PlayerMotorComponent* pmc = app->world().get<PlayerMotorComponent>(player))
+        {
+            if (const TransformComponent* xf = app->world().get<TransformComponent>(player))
+            {
+                Vector3f bodyPos = xf->position;
+                bodyPos.y += pmc->motor.crouchOffset();
+                const Physics::PhysicsBodyId id = app->m_physics.bodyOf(player);
+                app->m_physics.setBodyPose(id, bodyPos, xf->rotation);
+            }
+        }
+    }
     app->m_physics.step(dt, app->world());
     app->m_physics.writeDynamicPoses(app->world());
 }

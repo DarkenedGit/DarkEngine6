@@ -260,6 +260,76 @@ void expectArmsHang(const char* relativePath)
     EXPECT_LT(rHand->restT.y, -0.1f);
 }
 
+void expectCrouchKeepsTheRoot(const char* relativePath)
+{
+    const auto gltf = findContentFile(relativePath);
+    ASSERT_FALSE(gltf.empty()) << relativePath;
+
+    GltfCpuModel cpu;
+    ASSERT_TRUE(parseGltfFile(gltf, cpu)) << relativePath;
+
+    const AnimationClip* crouch = nullptr;
+    const AnimationClip* walk   = nullptr;
+    for (const AnimationClip& clip : cpu.clips)
+    {
+        if (clip.name == "Crouch")
+            crouch = &clip;
+        else if (clip.name == "CrouchWalk")
+            walk = &clip;
+    }
+    ASSERT_NE(crouch, nullptr) << relativePath;
+    ASSERT_NE(walk, nullptr) << relativePath;
+
+    auto jointAt = [&](const AnimationClip& clip, float time, const char* name, Math::Vector3f& out) -> bool {
+        const uint32_t n = static_cast<uint32_t>(cpu.skeleton.joints.size());
+        if (n == 0 || n > AnimPose::kMaxBones)
+            return false;
+        Math::Vector3f   T[AnimPose::kMaxBones];
+        Math::Quaternion R[AnimPose::kMaxBones];
+        Math::Vector3f   S[AnimPose::kMaxBones];
+        if (!sampleClipLocal(clip, cpu.skeleton, time, T, R, S))
+            return false;
+        Math::Matrix4f worlds[AnimPose::kMaxBones];
+        localToJointWorlds(cpu.skeleton, T, R, S, worlds);
+        for (uint32_t i = 0; i < n; ++i)
+        {
+            if (cpu.skeleton.joints[i].name == name)
+            {
+                out = worlds[i].GetTranslation();
+                return true;
+            }
+        }
+        return false;
+    };
+
+    const AnimationClip* clips[2] = { crouch, walk };
+    for (const AnimationClip* clip : clips)
+    {
+        for (const AnimChannel& channel : clip->channels)
+        {
+            if (channel.path == AnimPath::Translation)
+                ADD_FAILURE() << relativePath << " " << clip->name << " still translates a joint";
+        }
+        Math::Vector3f hips{};
+        Math::Vector3f head{};
+        Math::Vector3f foot{};
+        ASSERT_TRUE(jointAt(*clip, clip->duration * 0.5f, "Hips", hips)) << clip->name;
+        ASSERT_TRUE(jointAt(*clip, clip->duration * 0.5f, "Head", head)) << clip->name;
+        ASSERT_TRUE(jointAt(*clip, clip->duration * 0.5f, "L_Foot", foot)) << clip->name;
+        EXPECT_NEAR(hips.y, 0.0f, 0.02f) << clip->name;
+        EXPECT_NEAR(hips.z, 0.0f, 0.02f) << clip->name;
+        EXPECT_GT(head.y, 0.60f) << clip->name;
+        EXPECT_GT(foot.y, -0.36f) << clip->name;
+        EXPECT_LT(foot.y, -0.15f) << clip->name;
+    }
+}
+
+TEST(HumanoidGltf, CrouchFoldsTheLegsUnderAFixedRoot)
+{
+    expectCrouchKeepsTheRoot("models/human.gltf");
+    expectCrouchKeepsTheRoot("models/skeleton.gltf");
+}
+
 TEST(HumanoidGltf, RestArmsHangAtTheSides)
 {
     expectArmsHang("models/human.gltf");

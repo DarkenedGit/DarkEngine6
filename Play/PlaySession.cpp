@@ -800,7 +800,9 @@ namespace Dark
                 const PhysicsBodyComponent* pb = world->get<PhysicsBodyComponent>(solid);
                 return pb && pb->valid && pb->mode != PhysicsBodyMode::Static && m_host.physics->bodyValid(pb->body);
             };
-            Math::Sphere3f ball{ Math::Vector3f{ before.x, xf->position.y, before.z }, kPlayBodyRadius };
+            // The crouch clip folds the legs and the motor lowers the root. The capsule stays standing size, planted at the standing height.
+            const float    bodyY = xf->position.y + (motor ? motor->crouchOffset() : 0.0f);
+            Math::Sphere3f ball{ Math::Vector3f{ before.x, bodyY, before.z }, kPlayBodyRadius };
             float          bestT = 1.0f;
             for (int i = 0; i < m_host.cubeCount; ++i)
             {
@@ -823,7 +825,7 @@ namespace Dark
                     bestT = swept.t;
             }
             if (m_host.physics)
-                bestT = tightenPlanarClip(*m_host.physics, ignore, m_host.groundBody, Math::Vector3f{ before.x, xf->position.y, before.z }, delta, bestT);
+                bestT = tightenPlanarClip(*m_host.physics, ignore, m_host.groundBody, Math::Vector3f{ before.x, bodyY, before.z }, delta, bestT);
             commitPlanarClip(xf->position, before, delta, bestT, dt, motor);
         }
         if (motor && skills)
@@ -839,12 +841,13 @@ namespace Dark
             sample.planarMetres = locomotionMetres(xf->position - before, hitSlide);
             noteMotorXp(*skills, sample);
         }
-        if (motor && motor->state() == PlayerMoveState::Grounded && m_host.heightAt)
+        if (motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch) && m_host.heightAt)
         {
-            m_rt.groundProbeY = Math::Max(m_rt.groundProbeY, xf->position.y);
+            const float plantY = xf->position.y + motor->crouchOffset();
+            m_rt.groundProbeY = Math::Max(m_rt.groundProbeY, plantY);
             if (m_host.groundProbeY && m_host.groundProbeY != &m_rt.groundProbeY)
                 *m_host.groundProbeY = m_rt.groundProbeY;
-            xf->position.y = m_host.heightAt(m_host.user, xf->position.x, xf->position.z) + motor->settings().groundOffset;
+            xf->position.y = m_host.heightAt(m_host.user, xf->position.x, xf->position.z) + motor->settings().groundOffset - motor->crouchOffset();
         }
 
         m_rt.wet       = motor && motor->state() == PlayerMoveState::Swimming;

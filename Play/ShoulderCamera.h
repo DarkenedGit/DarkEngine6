@@ -46,7 +46,9 @@ namespace Dark
     inline ShoulderView solveShoulderCamera(const Math::Vector3f& feet, float yaw, float pitch, bool crouched, float shake, float shakeTime, bool wetClamp, float waterLevel,
                                             Collision::RayHit3D (*raycast)(void* user, const Math::Ray3f& ray, float maxDistance), void* rayUser)
     {
-        const Math::Vector3f target{ feet.x, feet.y + (crouched ? 0.78f : 1.15f), feet.z };
+        // Crouch lowers the entity root in the motor. The pivot stays a standing height above that root.
+        (void)crouched;
+        const Math::Vector3f target{ feet.x, feet.y + 1.15f, feet.z };
         Math::Vector3f look{ std::sinf(yaw) * std::cosf(pitch), std::sinf(pitch), std::cosf(yaw) * std::cosf(pitch) };
         look.Normalize();
         Math::Vector3f right = look.Cross(Math::Vector3f{ 0.0f, 1.0f, 0.0f });

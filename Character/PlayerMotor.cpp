@@ -26,6 +26,7 @@ namespace Dark
         m_pendingDouble = false;
         m_lastTap       = MoveCardinal::None;
         m_tapAge        = 1.0f;
+        m_crouchBlend   = 0.0f;
         m_dodgeLeft     = 0.0f;
         m_dodgeWish     = Vect3f::ZERO;
         m_depth         = 0.0f;
@@ -36,6 +37,19 @@ namespace Dark
     void PlayerMotor::clearJumpBuffer()
     {
         m_jumpBuffer = 0.0f;
+    }
+
+    void PlayerMotor::approachCrouch(float dt)
+    {
+        const float target = (m_state == PlayerMoveState::Crouch) ? 1.0f : 0.0f;
+        constexpr float kBlend = 0.16f; // matches the Crouch blend in human.anim.json
+        if (dt <= 0.0f)
+            return;
+        const float step = dt / kBlend;
+        if (m_crouchBlend < target)
+            m_crouchBlend = Math::Min(target, m_crouchBlend + step);
+        else if (m_crouchBlend > target)
+            m_crouchBlend = Math::Max(target, m_crouchBlend - step);
     }
 
     void PlayerMotor::setHorizontalVelocity(float x, float z)
@@ -473,6 +487,7 @@ namespace Dark
         PlayerMotorResult result{};
         if (dt < 0.0f)
             dt = 0.0f;
+        approachCrouch(dt);
         const float speedScale = Math::Clamp(in.speedScale, 0.0f, 1.0f);
         const float runScale   = clampSkill(in.runScale, kRunScaleMin, kRunScaleMax);
         const float jumpScale  = clampSkill(in.jumpScale, kJumpScaleMin, kJumpScaleMax);
@@ -580,7 +595,7 @@ namespace Dark
                 m_state = PlayerMoveState::Grounded;
             moveHorizontal(position, moveWish, speed, dt, dodging ? 0.0f : m_settings.acceleration);
             groundY               = sampleGround(ground, position.x, position.z);
-            const float feetY     = groundY + m_settings.groundOffset;
+            const float feetY     = groundY + m_settings.groundOffset - m_settings.crouchDrop * m_crouchBlend;
 
             if (columnDeep(groundY, waterY))
             {

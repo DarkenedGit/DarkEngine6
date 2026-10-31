@@ -142,6 +142,24 @@ TEST(PlayerMotor, CrouchWalkIsSlowerThanWalk)
     EXPECT_EQ(crouched.state(), PlayerMoveState::Grounded);
 }
 
+TEST(PlayerMotor, CrouchLowersTheRootAndStandsBackUp)
+{
+    PlayerMotor motor;
+    Vector3f    pos{ 0.0f, 0.5f, 0.0f };
+    PlayerMotorInput in{};
+    in.crouch = true;
+    advance(motor, pos, in, 0.25f, flatQuery());
+    EXPECT_EQ(motor.state(), PlayerMoveState::Crouch);
+    EXPECT_NEAR(motor.crouchOffset(), motor.settings().crouchDrop, 1.0e-3f);
+    EXPECT_NEAR(pos.y, motor.settings().groundOffset - motor.settings().crouchDrop, 1.0e-3f);
+
+    in.crouch = false;
+    advance(motor, pos, in, 0.25f, flatQuery());
+    EXPECT_EQ(motor.state(), PlayerMoveState::Grounded);
+    EXPECT_NEAR(motor.crouchOffset(), 0.0f, 1.0e-3f);
+    EXPECT_NEAR(pos.y, motor.settings().groundOffset, 1.0e-3f);
+}
+
 TEST(PlayerStealth, StillCrouchIsQuieterThanCrouchWalk)
 {
     PlayerStealthSettings s{};

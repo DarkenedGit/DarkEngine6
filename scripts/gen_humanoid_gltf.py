@@ -450,52 +450,41 @@ def make_clips(include_die: bool):
         ]
         clips.append(("Die", dtm, die, {0: hips}))
 
-    # Crouch keeps the feet near the standing plant while the hips drop and the knees bend.
-    # CrouchWalk is that pose with a short opposite-leg cycle.
-    thigh = 1.05
-    knee = -1.55
-    foot = 0.55
-    hip_pitch = q_axis(1, 0, 0, 0.35)
-    crouch_rot = {
-        0: hip_pitch,
-        1: q_axis(1, 0, 0, 0.22),
-        2: q_axis(1, 0, 0, 0.12),
-        11: q_axis(1, 0, 0, thigh),
-        12: q_axis(1, 0, 0, knee),
-        13: q_axis(1, 0, 0, foot),
-        14: q_axis(1, 0, 0, thigh),
-        15: q_axis(1, 0, 0, knee),
-        16: q_axis(1, 0, 0, foot),
-    }
-    hip_drop = (0.0, -0.20, 0.06)
+    # Hips stay on the entity origin. The motor lowers that origin by crouchDrop
+    # (0.26 m) so the torso and the armor ride the root down. Only the legs fold,
+    # and the foot pitch cancels the squat so the sole stays flat. Standing sole
+    # is about y = -0.56; this pose puts it near y = -0.30.
+    thigh = -1.05
+    knee = 2.45
     ct = [0.0, 1.2]
-    crouch = {j: [q, q] for j, q in crouch_rot.items()}
-    clips.append(( "Crouch", ct, crouch, {0: [hip_drop, hip_drop]} ))
+    crouch = {
+        11: [q_axis(1, 0, 0, thigh)] * 2,
+        12: [q_axis(1, 0, 0, knee)] * 2,
+        13: [q_axis(1, 0, 0, -(thigh + knee))] * 2,
+        14: [q_axis(1, 0, 0, thigh)] * 2,
+        15: [q_axis(1, 0, 0, knee)] * 2,
+        16: [q_axis(1, 0, 0, -(thigh + knee))] * 2,
+    }
+    clips.append(clip_channels("Crouch", ct, crouch))
 
     wt = [0.0, 0.28, 0.56, 0.84, 1.12]
-    def crouch_swing(sign):
-        amp = 0.32
-        keys = [-amp, 0.0, amp, 0.0, -amp]
-        return [q_axis(1, 0, 0, thigh + sign * a) for a in keys]
+    amp = 0.22
 
-    def crouch_knee(sign):
-        amp = 0.28
-        keys = [amp, 0.0, -amp, 0.0, amp]
-        return [q_axis(1, 0, 0, knee + sign * a) for a in keys]
+    def crouch_thigh(sign):
+        return [q_axis(1, 0, 0, thigh + sign * a) for a in (-amp, 0.0, amp, 0.0, -amp)]
+
+    def crouch_foot(sign):
+        return [q_axis(1, 0, 0, -((thigh + sign * a) + knee)) for a in (-amp, 0.0, amp, 0.0, -amp)]
 
     walk_c = {
-        0: [hip_pitch] * 5,
-        1: [q_axis(1, 0, 0, 0.22)] * 5,
-        2: [q_axis(1, 0, 0, 0.12)] * 5,
-        11: crouch_swing(1.0),
-        12: crouch_knee(1.0),
-        13: [q_axis(1, 0, 0, foot)] * 5,
-        14: crouch_swing(-1.0),
-        15: crouch_knee(-1.0),
-        16: [q_axis(1, 0, 0, foot)] * 5,
+        11: crouch_thigh(1.0),
+        12: [q_axis(1, 0, 0, knee)] * 5,
+        13: crouch_foot(1.0),
+        14: crouch_thigh(-1.0),
+        15: [q_axis(1, 0, 0, knee)] * 5,
+        16: crouch_foot(-1.0),
     }
-    bob = [(0.0, -0.20 + y, 0.06) for y in (0.0, 0.025, 0.0, 0.025, 0.0)]
-    clips.append(( "CrouchWalk", wt, walk_c, {0: bob} ))
+    clips.append(clip_channels("CrouchWalk", wt, walk_c))
 
     # Swim clips move the limbs only. The entity pitch lays the body flat.
     def reach(a):

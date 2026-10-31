@@ -388,8 +388,8 @@ TEST(ShoulderCamera, BoomShortenAndWetClamp)
     EXPECT_NEAR(stand.aim.y, 1.15f, 1.0e-4f);
 
     const ShoulderView crouch = solveShoulderCamera(feet, 0.0f, 0.0f, true, 0.0f, 0.0f, false, 0.0f, nullptr, nullptr);
-    EXPECT_NEAR(crouch.eye.y, 1.06f, 1.0e-4f);
-    EXPECT_NEAR(crouch.aim.y, 0.78f, 1.0e-4f);
+    EXPECT_NEAR(crouch.eye.y, 1.43f, 1.0e-4f);
+    EXPECT_NEAR(crouch.aim.y, 1.15f, 1.0e-4f);
 
     const ShoulderView wet = solveShoulderCamera(feet, 0.0f, 0.0f, false, 0.0f, 0.0f, true, 5.0f, nullptr, nullptr);
     EXPECT_NEAR(wet.eye.y, 5.45f, 1.0e-4f);
