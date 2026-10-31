@@ -5,6 +5,8 @@
 #include "Character/HealthComponent.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
+#include "Physics/PhysicsBind.h"
+#include "Physics/PhysicsComponent.h"
 #include "Physics/PhysicsWorld.h"
 #include "Character/PlayerMotor.h"
 #include "Character/SkillComponent.h"
@@ -401,6 +403,64 @@ TEST(ShoulderCamera, BoomShortenAndWetClamp)
 
     const Collision::RayHit3D miss = shoulderTerrainRay(nullptr, Ray3f{}, 2.0f);
     EXPECT_FALSE(miss.hit);
+}
+
+TEST(ShoulderCamera, BoxAndCharacterShortenBoom)
+{
+    const Vector3f feet{ 0.0f, 0.0f, 0.0f };
+    const Vector3f focus{ 0.0f, 1.15f, 0.0f };
+    const ShoulderView open = solveShoulderCamera(feet, 0.0f, 0.0f, false, 0.0f, 0.0f, false, 0.0f, nullptr, nullptr);
+    const float openLen = (open.eye - focus).Magnitude();
+
+    Physics::PhysicsWorld phys;
+    Physics::PhysicsWorldDesc desc;
+    desc.enabled = true;
+    ASSERT_TRUE(phys.create(desc));
+
+    World ecs;
+    Entity player = ecs.createEntity();
+    TransformComponent playerXf;
+    playerXf.position = Vector3f(0.0f, 0.5f, 0.0f);
+    ecs.emplace<TransformComponent>(player, playerXf);
+    PhysicsComponent pawn;
+    pawn.mode          = PhysicsBodyMode::Kinematic;
+    pawn.shape         = PhysicsShapeKind::Capsule;
+    pawn.fixedRotation = true;
+    ecs.emplace<PhysicsComponent>(player, pawn);
+    ASSERT_TRUE(Physics::bindPhysicsEntity(phys, ecs, player));
+
+    ShoulderRayQuery query;
+    query.physics = &phys;
+    query.ignore  = phys.bodyOf(player);
+    const ShoulderView self = solveShoulderCamera(feet, 0.0f, 0.0f, false, 0.0f, 0.0f, false, 0.0f, &shoulderBoomRay, &query);
+    EXPECT_NEAR(self.eye.x, open.eye.x, 1.0e-3f);
+    EXPECT_NEAR(self.eye.y, open.eye.y, 1.0e-3f);
+    EXPECT_NEAR(self.eye.z, open.eye.z, 1.0e-3f);
+
+    Physics::PhysicsBoxDesc wall;
+    wall.position    = Vector3f(-0.21f, 1.29f, -1.2f);
+    wall.halfExtents = Vector3f(2.0f, 2.0f, 0.15f);
+    const Physics::PhysicsBodyId wallId = phys.createBox(wall);
+    ASSERT_NE(wallId, Physics::kNullPhysicsBody);
+    const ShoulderView blocked = solveShoulderCamera(feet, 0.0f, 0.0f, false, 0.0f, 0.0f, false, 0.0f, &shoulderBoomRay, &query);
+    const float blockedLen = (blocked.eye - focus).Magnitude();
+    EXPECT_LT(blockedLen, openLen - 0.4f);
+    EXPECT_GT(blockedLen, 0.27f);
+
+    phys.destroyBody(wallId);
+    Entity npc = ecs.createEntity();
+    TransformComponent npcXf;
+    npcXf.position = wall.position;
+    npcXf.scale    = Vector3f(4.0f, 4.0f, 0.3f);
+    ecs.emplace<TransformComponent>(npc, npcXf);
+    PhysicsComponent npcBody;
+    npcBody.mode          = PhysicsBodyMode::Kinematic;
+    npcBody.shape         = PhysicsShapeKind::Box;
+    npcBody.fixedRotation = true;
+    ecs.emplace<PhysicsComponent>(npc, npcBody);
+    ASSERT_TRUE(Physics::bindPhysicsEntity(phys, ecs, npc));
+    const ShoulderView character = solveShoulderCamera(feet, 0.0f, 0.0f, false, 0.0f, 0.0f, false, 0.0f, &shoulderBoomRay, &query);
+    EXPECT_LT((character.eye - focus).Magnitude(), openLen - 0.4f);
 }
 
 TEST(ContactGrind, ProximityDoesNotSpendParry)

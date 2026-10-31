@@ -126,6 +126,25 @@ namespace Dark::Physics
         };
         float clipMover(const MoverCast& cast) const;
 
+        // Closest solid shape along origin + direction * maxDistance. Direction is normalized
+        // here. Sensors, shapes the ray starts inside, and the ignore ids are skipped.
+        struct RayQuery
+        {
+            Math::Vector3f origin{ 0.0f, 0.0f, 0.0f };
+            Math::Vector3f direction{ 0.0f, 0.0f, 1.0f };
+            float          maxDistance = 0.0f;
+            PhysicsBodyId  ignore      = kNullPhysicsBody;
+            PhysicsBodyId  ignore2     = kNullPhysicsBody;
+        };
+        struct RayHit
+        {
+            bool           hit      = false;
+            float          distance = 0.0f;
+            Math::Vector3f point{ 0.0f, 0.0f, 0.0f };
+            Math::Vector3f normal{ 0.0f, 1.0f, 0.0f };
+        };
+        bool castRay(const RayQuery& query, RayHit& out) const;
+
         struct GroundProbe
         {
             Math::Vector3f from{0.0f, 0.0f, 0.0f};

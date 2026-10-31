@@ -8,8 +8,9 @@
 
 #include <box3d/box3d.h>
 
-#include <cstdint>
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <utility>
 #include <vector>
 
@@ -720,6 +721,35 @@ namespace Dark::Physics
             const PhysicsBodyId bodyId = b3StoreBodyId(b3Shape_GetBody(shape));
             return bodyId != ignore->id && bodyId != ignore->id2;
         }
+
+        struct RayClip
+        {
+            PhysicsBodyId  ignore  = kNullPhysicsBody;
+            PhysicsBodyId  ignore2 = kNullPhysicsBody;
+            bool           hit     = false;
+            float          fraction = 1.0f;
+            Math::Vector3f point{ 0.0f, 0.0f, 0.0f };
+            Math::Vector3f normal{ 0.0f, 1.0f, 0.0f };
+        };
+
+        float acceptCameraRay(b3ShapeId shapeId, b3Pos point, b3Vec3 normal, float fraction, uint64_t, int, int, void* context)
+        {
+            if (fraction <= 0.0f)
+                return -1.0f;
+            if (!b3Shape_IsValid(shapeId) || b3Shape_IsSensor(shapeId))
+                return -1.0f;
+            auto* clip = static_cast<RayClip*>(context);
+            if (!clip)
+                return -1.0f;
+            const PhysicsBodyId bodyId = b3StoreBodyId(b3Shape_GetBody(shapeId));
+            if ((clip->ignore != kNullPhysicsBody && bodyId == clip->ignore) || (clip->ignore2 != kNullPhysicsBody && bodyId == clip->ignore2))
+                return -1.0f;
+            clip->hit      = true;
+            clip->fraction = fraction;
+            clip->point    = fromB3Pos(point);
+            clip->normal   = fromB3(normal);
+            return fraction;
+        }
     }
 
     float PhysicsWorld::clipMover(const MoverCast& cast) const
@@ -784,6 +814,30 @@ namespace Dark::Physics
             return false;
 
         outSurfaceY = probe.from.y - std::max(fraction, 0.0f) * probe.maxDrop - probe.radius;
+        return true;
+    }
+
+    bool PhysicsWorld::castRay(const RayQuery& query, RayHit& out) const
+    {
+        out = {};
+        if (!valid() || query.maxDistance <= 1.0e-4f)
+            return false;
+        const float lenSq = query.direction.x * query.direction.x + query.direction.y * query.direction.y + query.direction.z * query.direction.z;
+        if (lenSq < 1.0e-10f)
+            return false;
+        const float          invLen = 1.0f / std::sqrt(lenSq);
+        const Math::Vector3f dir{ query.direction.x * invLen, query.direction.y * invLen, query.direction.z * invLen };
+
+        RayClip clip;
+        clip.ignore  = query.ignore;
+        clip.ignore2 = query.ignore2;
+        b3World_CastRay(loadWorld(m_id), toB3Pos(query.origin), toB3(dir * query.maxDistance), b3DefaultQueryFilter(), &acceptCameraRay, &clip);
+        if (!clip.hit)
+            return false;
+        out.hit      = true;
+        out.distance = clip.fraction * query.maxDistance;
+        out.point    = clip.point;
+        out.normal   = clip.normal;
         return true;
     }
 

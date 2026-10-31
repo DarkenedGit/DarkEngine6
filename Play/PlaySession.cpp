@@ -932,6 +932,35 @@ namespace Dark
             se->play = m_rt.wet;
     }
 
+    Collision::RayHit3D shoulderBoomRay(void* user, const Math::Ray3f& ray, float maxDistance)
+    {
+        Collision::RayHit3D best{};
+        const auto*         query = static_cast<const ShoulderRayQuery*>(user);
+        if (!query)
+            return best;
+        if (query->terrain)
+            best = shoulderTerrainRay(query->terrain, ray, maxDistance);
+        if (!query->physics || !query->physics->valid())
+            return best;
+
+        Physics::PhysicsWorld::RayQuery cast;
+        cast.origin      = ray.Origin;
+        cast.direction   = ray.Direction;
+        cast.maxDistance = maxDistance;
+        cast.ignore      = query->ignore;
+        Physics::PhysicsWorld::RayHit solid;
+        if (!query->physics->castRay(cast, solid))
+            return best;
+        if (!best.hit || solid.distance < best.t)
+        {
+            best.hit    = true;
+            best.t      = solid.distance;
+            best.point  = solid.point;
+            best.normal = solid.normal;
+        }
+        return best;
+    }
+
     void PlaySession::tickCamera()
     {
         pull();
@@ -947,12 +976,17 @@ namespace Dark
         const bool crouched = motor && motor->state() == PlayerMoveState::Crouch;
         const float pose    = motor ? motor->swimPose() : 0.0f;
         const bool surface  = m_rt.wet && motor && motor->depth() < 0.25f && pose < 0.05f;
-        const bool rayOk    = m_host.terrain != nullptr;
+        ShoulderRayQuery rays;
+        rays.terrain = m_host.terrain;
+        rays.physics = m_host.physics;
+        if (m_host.physics && m_host.player.valid())
+            rays.ignore = m_host.physics->bodyOf(m_host.player);
+        const bool rayOk = rays.terrain != nullptr || (rays.physics && rays.physics->valid());
         ShoulderView view = solveShoulderCamera(xf->position, m_rt.lookYaw, m_rt.lookPitch, crouched, m_rt.shake, m_rt.shakeTime, surface, m_host.waterLevel,
-                                                rayOk ? &shoulderTerrainRay : nullptr, rayOk ? m_host.terrain : nullptr);
+                                                rayOk ? &shoulderBoomRay : nullptr, rayOk ? &rays : nullptr);
         if (pose > 0.0f)
         {
-            const ShoulderView swim = solveSwimCamera(xf->position, m_rt.lookYaw, rayOk ? &shoulderTerrainRay : nullptr, rayOk ? m_host.terrain : nullptr);
+            const ShoulderView swim = solveSwimCamera(xf->position, m_rt.lookYaw, rayOk ? &shoulderBoomRay : nullptr, rayOk ? &rays : nullptr);
             view.eye = view.eye + (swim.eye - view.eye) * pose;
             view.aim = view.aim + (swim.aim - view.aim) * pose;
         }

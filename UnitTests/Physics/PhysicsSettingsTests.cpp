@@ -279,6 +279,74 @@ TEST(PhysicsSettings, MoverIgnoresOwnBody)
     EXPECT_GT(phys.clipMover(cast), 0.99f);
 }
 
+TEST(PhysicsSettings, CastRayHitsSolidsAndSkipsSelf)
+{
+    PhysicsWorld phys;
+    PhysicsWorldDesc desc;
+    desc.enabled = true;
+    ASSERT_TRUE(phys.create(desc));
+
+    Dark::Physics::PhysicsBoxDesc wall;
+    wall.position    = Vector3f(2.0f, 0.0f, 0.0f);
+    wall.halfExtents = Vector3f(0.5f, 0.5f, 0.5f);
+    const auto wallId = phys.createBox(wall);
+    ASSERT_NE(wallId, Dark::Physics::kNullPhysicsBody);
+
+    PhysicsWorld::RayQuery query;
+    query.origin      = Vector3f(0.0f, 0.0f, 0.0f);
+    query.direction   = Vector3f(1.0f, 0.0f, 0.0f);
+    query.maxDistance = 10.0f;
+    PhysicsWorld::RayHit hit;
+    ASSERT_TRUE(phys.castRay(query, hit));
+    EXPECT_NEAR(hit.distance, 1.5f, 0.05f);
+
+    query.ignore = wallId;
+    EXPECT_FALSE(phys.castRay(query, hit));
+
+    query.ignore = Dark::Physics::kNullPhysicsBody;
+    query.origin = wall.position;
+    EXPECT_FALSE(phys.castRay(query, hit));
+
+    phys.destroyBody(wallId);
+    wall.dynamic = true;
+    const auto dynamicId = phys.createBox(wall);
+    ASSERT_NE(dynamicId, Dark::Physics::kNullPhysicsBody);
+    query.origin = Vector3f(0.0f, 0.0f, 0.0f);
+    ASSERT_TRUE(phys.castRay(query, hit));
+    EXPECT_NEAR(hit.distance, 1.5f, 0.05f);
+
+    World ecs;
+    Entity sensor = ecs.createEntity();
+    TransformComponent sensorXf;
+    sensorXf.position = Vector3f(1.0f, 0.0f, 0.0f);
+    ecs.emplace<TransformComponent>(sensor, sensorXf);
+    PhysicsComponent sensorBody;
+    sensorBody.mode   = PhysicsBodyMode::Static;
+    sensorBody.shape  = PhysicsShapeKind::Box;
+    sensorBody.sensor = true;
+    ecs.emplace<PhysicsComponent>(sensor, sensorBody);
+    ASSERT_TRUE(bindPhysicsEntity(phys, ecs, sensor));
+    ASSERT_TRUE(phys.castRay(query, hit));
+    EXPECT_NEAR(hit.distance, 1.5f, 0.05f);
+    phys.destroyBody(dynamicId);
+
+    Entity npc = ecs.createEntity();
+    TransformComponent npcXf;
+    npcXf.position = Vector3f(4.0f, 0.0f, 0.0f);
+    ecs.emplace<TransformComponent>(npc, npcXf);
+    PhysicsComponent npcBody;
+    npcBody.mode          = PhysicsBodyMode::Kinematic;
+    npcBody.shape         = PhysicsShapeKind::Box;
+    npcBody.fixedRotation = true;
+    ecs.emplace<PhysicsComponent>(npc, npcBody);
+    ASSERT_TRUE(bindPhysicsEntity(phys, ecs, npc));
+    query.maxDistance = 3.2f;
+    EXPECT_FALSE(phys.castRay(query, hit));
+    query.maxDistance = 10.0f;
+    ASSERT_TRUE(phys.castRay(query, hit));
+    EXPECT_NEAR(hit.distance, 3.5f, 0.05f);
+}
+
 TEST(PhysicsSettings, DisabledBindRemovesBody)
 {
     PhysicsWorld phys;

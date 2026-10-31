@@ -5,12 +5,17 @@
 #include "Math/Quaternion.h"
 #include "Math/Ray3f.h"
 #include "Math/Vector3f.h"
+#include "Physics/PhysicsIds.h"
 #include "Terrain/TerrainGrid.h"
 
 #include <cmath>
 
 namespace Dark
 {
+    namespace Physics
+    {
+        class PhysicsWorld;
+    }
 
     struct ShoulderView
     {
@@ -26,8 +31,18 @@ namespace Dark
         return grid->raycast(ray, maxDistance);
     }
 
+    // Terrain heightfield plus solid Box3D shapes. The player body is `ignore` so the
+    // boom, which starts inside that capsule, keeps going until a tree, wall, rock, or other character.
+    struct ShoulderRayQuery
+    {
+        Terrain::TerrainGrid*  terrain = nullptr;
+        Physics::PhysicsWorld* physics = nullptr;
+        Physics::PhysicsBodyId ignore  = Physics::kNullPhysicsBody;
+    };
+    Collision::RayHit3D shoulderBoomRay(void* user, const Math::Ray3f& ray, float maxDistance);
+
     // Third-person boom. PlaySession passes shake and wetClamp for both apps.
-    // A null raycast skips the terrain shorten.
+    // A null raycast leaves the boom at full length.
     inline ShoulderView solveShoulderCamera(const Math::Vector3f& feet, float yaw, float pitch, bool crouched, float shake, float shakeTime, bool wetClamp, float waterLevel,
                                             Collision::RayHit3D (*raycast)(void* user, const Math::Ray3f& ray, float maxDistance), void* rayUser)
     {
