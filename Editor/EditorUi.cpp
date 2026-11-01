@@ -1068,15 +1068,7 @@ void EditorApp::onUpdate(float dt)
                 m_play.tickCamera();
                 m_play.tickWorld(dt);
             }
-            m_dialogueSpeech.setServices(&assets(), &audio(), &world());
-            m_dialogue.setFacts(m_session.valid() ? world().get<DialogueFactsComponent>(m_session) : nullptr);
-            m_dialogue.setUiBlocked(m_showUpgrades || m_lootTarget.valid());
-            m_dialogue.tick(world(), dt);
-            if (m_talkNpc.valid() && !m_dialogue.active())
-            {
-                m_guardVoice.setSuppressed(m_talkNpc, false, &audio());
-                m_talkNpc = {};
-            }
+            m_dialogue.tick(dt);
             m_save.service(world());
             if (m_defenseTextLeft > 0.0f)
             {

@@ -40,6 +40,7 @@ namespace Dark
 
         DialogueLineAudio hook();
         bool              acquire(const DialogueLine& line, Entity speaker, float waited, float& shown);
+        void              follow(Entity speaker);
 
     private:
         AssetRef<Audio::SoundClip> takeClip(const DialogueLine& line, Entity speaker, float& shown);

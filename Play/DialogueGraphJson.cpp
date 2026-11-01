@@ -47,6 +47,10 @@ namespace Dark
                 return fail(error, detail);
             if (!jsonStringOr(object, "clip", line.clip, {}, "Dialogue", &detail))
                 return fail(error, detail);
+            if (!jsonStringOr(object, "speaker", line.speaker, {}, "Dialogue", &detail))
+                return fail(error, detail);
+            if (line.speaker.size() > kMaxIdBytes)
+                return fail(error, "line speaker is too long");
             return true;
         }
 
@@ -66,17 +70,38 @@ namespace Dark
             return true;
         }
 
+        bool acceptCondition(const DialogueCondition& cond, std::string* error)
+        {
+            const bool needsCmp = cond.op == DialogueConditionOp::Fact || cond.op == DialogueConditionOp::Item;
+            const bool forbidsCmp = cond.op == DialogueConditionOp::QuestActive || cond.op == DialogueConditionOp::QuestComplete
+                                    || cond.op == DialogueConditionOp::Objective || cond.op == DialogueConditionOp::Alertness;
+            const char* name = dialogueConditionOpName(cond.op);
+            if (needsCmp && cond.cmp == DialogueCmp::None)
+                return fail(error, std::string(name) + " requires cmp");
+            if (forbidsCmp && cond.cmp != DialogueCmp::None)
+                return fail(error, std::string(name) + " does not use cmp");
+            if (cond.op == DialogueConditionOp::Health && !cond.hasAlive && cond.cmp == DialogueCmp::None)
+                return fail(error, "health requires alive or cmp");
+            return true;
+        }
+
         bool readCondition(const json& object, DialogueCondition& cond, std::string* error)
         {
             if (!object.is_object())
                 return fail(error, "condition is not an object");
             std::string detail;
-            if (!jsonStringOr(object, "op", cond.op, {}, "Dialogue", &detail) || cond.op.empty())
+            std::string opText;
+            std::string cmpText;
+            if (!jsonStringOr(object, "op", opText, {}, "Dialogue", &detail) || opText.empty())
                 return fail(error, detail.empty() ? "condition op is missing" : detail);
+            if (!parseDialogueConditionOp(opText, cond.op))
+                return fail(error, "unknown condition op \"" + opText + "\"");
             if (!jsonStringOr(object, "key", cond.key, {}, "Dialogue", &detail))
                 return fail(error, detail);
-            if (!jsonStringOr(object, "cmp", cond.cmp, {}, "Dialogue", &detail))
+            if (!jsonStringOr(object, "cmp", cmpText, {}, "Dialogue", &detail))
                 return fail(error, detail);
+            if (!parseDialogueCmp(cmpText, cond.cmp))
+                return fail(error, "unknown condition cmp \"" + cmpText + "\"");
             if (!jsonStringOr(object, "id", cond.key, cond.key, "Dialogue", &detail))
                 return fail(error, detail);
             if (!jsonStringOr(object, "name", cond.name, {}, "Dialogue", &detail))
@@ -112,7 +137,7 @@ namespace Dark
                     return fail(error, detail);
                 cond.hasDone = true;
             }
-            return true;
+            return acceptCondition(cond, error);
         }
 
         bool readEffect(const json& object, DialogueEffect& effect, std::string* error)
@@ -120,14 +145,22 @@ namespace Dark
             if (!object.is_object())
                 return fail(error, "effect is not an object");
             std::string detail;
-            if (!jsonStringOr(object, "op", effect.op, {}, "Dialogue", &detail) || effect.op.empty())
+            std::string opText;
+            if (!jsonStringOr(object, "op", opText, {}, "Dialogue", &detail) || opText.empty())
                 return fail(error, detail.empty() ? "effect op is missing" : detail);
+            if (!parseDialogueEffectOp(opText, effect.op))
+                return fail(error, "unknown effect op \"" + opText + "\"");
             if (!jsonStringOr(object, "key", effect.key, {}, "Dialogue", &detail))
                 return fail(error, detail);
             if (!jsonStringOr(object, "name", effect.name, {}, "Dialogue", &detail))
                 return fail(error, detail);
-            if (!jsonStringOr(object, "id", effect.name, effect.name, "Dialogue", &detail))
+            if (!jsonStringOr(object, "id", effect.key, effect.key, "Dialogue", &detail))
                 return fail(error, detail);
+            if ((effect.op == DialogueEffectOp::GiveItem || effect.op == DialogueEffectOp::TakeItem) && effect.key.empty() && !effect.name.empty())
+            {
+                effect.key = std::move(effect.name);
+                effect.name.clear();
+            }
             if (effect.key.size() > kMaxIdBytes || effect.name.size() > kMaxIdBytes)
                 return fail(error, "effect key is too long");
             if (object.contains("value"))
@@ -152,17 +185,19 @@ namespace Dark
             object["once"] = line.once;
             if (!line.clip.empty())
                 object["clip"] = line.clip;
+            if (!line.speaker.empty())
+                object["speaker"] = line.speaker;
             return object;
         }
 
         json conditionJson(const DialogueCondition& cond)
         {
             json object = json::object();
-            object["op"] = cond.op;
+            object["op"] = dialogueConditionOpName(cond.op);
             if (!cond.key.empty())
                 object["key"] = cond.key;
-            if (!cond.cmp.empty())
-                object["cmp"] = cond.cmp;
+            if (cond.cmp != DialogueCmp::None)
+                object["cmp"] = dialogueCmpName(cond.cmp);
             if (!cond.name.empty())
                 object["name"] = cond.name;
             if (!cond.who.empty())
@@ -181,14 +216,14 @@ namespace Dark
         json effectJson(const DialogueEffect& effect)
         {
             json object = json::object();
-            object["op"] = effect.op;
+            object["op"] = dialogueEffectOpName(effect.op);
             if (!effect.key.empty())
                 object["key"] = effect.key;
             if (!effect.name.empty())
                 object["name"] = effect.name;
-            if (effect.op == "setFact" || effect.op == "addFact")
+            if (effect.op == DialogueEffectOp::SetFact || effect.op == DialogueEffectOp::AddFact)
                 object["value"] = effect.value;
-            if (effect.hasCount || effect.op == "questEvent" || effect.op == "giveItem" || effect.op == "takeItem")
+            if (effect.hasCount || effect.op == DialogueEffectOp::QuestEvent || effect.op == DialogueEffectOp::GiveItem || effect.op == DialogueEffectOp::TakeItem)
                 object["count"] = effect.count;
             return object;
         }

@@ -10,6 +10,8 @@
 namespace Dark
 {
 
+    class World;
+
     struct DialogueLineMemory
     {
         std::vector<std::string> onceHeard;
@@ -53,6 +55,9 @@ namespace Dark
     bool                dialogueHeard(const DialogueLineMemory& memory, const std::string& id);
     void                rememberDialogueLine(DialogueLineMemory& memory, const DialogueLine& line);
     void                rememberDialogueChoice(DialogueLineMemory& memory, const std::string& choiceId);
+
+    // Drops resume bookmarks and heard lines. The component stays so a later talk can record again.
+    void clearDialogueMemory(World& world);
 
     DialogueEntryKind chooseDialogueEntry(bool graphOk, bool dead, bool alert, bool inCombat, bool bookmarkMatches);
 

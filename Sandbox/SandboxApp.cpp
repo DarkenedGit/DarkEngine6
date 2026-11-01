@@ -131,6 +131,12 @@ using namespace Math;
 using namespace Terrain;
 using namespace Audio;
 
+static float sandboxSceneGroundY(void* user, float x, float z)
+{
+    const TerrainGrid* terrain = static_cast<const TerrainGrid*>(user);
+    return terrain ? terrain->heightAtWorld(x, z) : 0.0f;
+}
+
 // SceneRenderer owns shared pipelines; keep existing call sites stable.
 #define m_meshPipeline m_scene.meshPipeline()
 #define m_meshTransparentPipeline m_scene.meshTransparentPipeline()
@@ -440,6 +446,25 @@ SandboxApp::SandboxApp(const Dark::AppConfig& cfg)
     , m_crouchLatch(m_play.runtime().crouchLatch)
 {
     m_play.bind(&SandboxApp::fillPlayHost, this);
+    m_dialogue.bind(&SandboxApp::fillDialogueHost, this);
+}
+
+void SandboxApp::fillDialogueHost(void* user, DialogueHost& host)
+{
+    auto* app = static_cast<SandboxApp*>(user);
+    if (!app)
+        return;
+    host.world      = &app->world();
+    host.assets     = &app->assets();
+    host.audio      = &app->audio();
+    host.guardVoice = &app->m_guardVoice;
+    host.quest      = &app->m_quest;
+    host.player     = app->possessedBody();
+    host.session    = app->m_session;
+    host.look       = app->m_viewCamera.GetLook();
+    host.cameraPos  = app->m_viewCamera.GetPosition();
+    host.enabled    = true;
+    host.uiBlocked  = app->m_showDevTools || app->m_showInventory || app->m_showProfiler || app->m_showJournal || app->m_lootTarget.valid();
 }
 
 void SandboxApp::fillPlayHost(void* user, PlayHost& host)
@@ -1012,7 +1037,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
         if (m_dialogue.active())
             m_dialogue.requestSkip();
         else if (!uiKeys)
-            tryBeginTalk();
+            m_dialogue.tryBegin();
     }
     if (m_dialogue.choiceOpen())
     {
@@ -2462,6 +2487,7 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
     if (m_sceneStarted)
         return true;
 
+    std::vector<SceneObjectData> sceneObjects;
     std::vector<SceneObjectData> scenePawns;
     std::vector<SceneObjectData> sceneBoxes;
     std::vector<SceneObjectData> sceneLights;
@@ -2734,6 +2760,7 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
             spawnCloudEntity(o.position, o.scale, desc);
             ++spawnedClouds;
         }
+        sceneObjects = sceneData.objects;
         if (spawnedClouds == 0)
         {
             CloudVolumeDesc desc{};
@@ -2891,7 +2918,7 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
         host.assets      = &assets();
         host.renderer    = &renderer();
         host.stampPrefix = "sandbox/level";
-        instantiateSceneObjects(sceneBoxes.data(), static_cast<int>(sceneBoxes.size()), host);
+        instantiateSceneObjects(sceneObjects.data(), static_cast<int>(sceneObjects.size()), host);
         spawnBuildingExtras();
         world().each<ObstacleVolumeComponent>([&](Entity, ObstacleVolumeComponent& block) { m_chase.addObstacle(block.box); });
         std::vector<AABox3f> conceal;
@@ -2954,12 +2981,7 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
         light.outerConeDeg = o.lightOuterDeg;
         light.enabled      = o.lightEnabled;
         light.castShadow   = o.lightCastShadow;
-        if (!o.circuit.empty())
-        {
-            CircuitMemberComponent member{};
-            member.circuit = o.circuit;
-            world().emplace<CircuitMemberComponent>(e, member);
-        }
+        applySceneActor(world(), e, o, nullptr, nullptr);
     }
     for (const SceneObjectData& o : sceneBoxes)
     {
@@ -3005,25 +3027,27 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
             xf.rotation = o.rotation;
             const bool zeroScale = o.scale.x == 0.0f && o.scale.y == 0.0f && o.scale.z == 0.0f;
             xf.scale = zeroScale ? Vector3f{ 1.0f, 1.0f, 1.0f } : o.scale;
-            xf.position.y = m_terrain.heightAtWorld(xf.position.x, xf.position.z) + 0.5f;
-            if (!m_chase.ai().walkability().walkableWorld(xf.position.x, xf.position.z))
-            {
-                DE_LOG_WARN(LogCategory::AI, "SandboxApp: scene {} at ({:.1f}, {:.1f}) is not walkable",
-                    wolf ? "wolf" : "hunter", xf.position.x, xf.position.z);
-            }
-
             const Entity hunter = m_chase.spawnListedHunter(world(), pins(), assets(), xf);
             if (!hunter.valid())
                 continue;
+            applySceneActor(world(), hunter, o, &sandboxSceneGroundY, &m_terrain);
+            const TransformComponent* placed = world().get<TransformComponent>(hunter);
+            const float placedX = placed ? placed->position.x : xf.position.x;
+            const float placedZ = placed ? placed->position.z : xf.position.z;
+            if (!m_chase.ai().walkability().walkableWorld(placedX, placedZ))
+            {
+                DE_LOG_WARN(LogCategory::AI, "SandboxApp: scene {} at ({:.1f}, {:.1f}) is not walkable",
+                    wolf ? "wolf" : "hunter", placedX, placedZ);
+            }
             const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
             attachNpcVisual(host, hunter, wolf ? NpcKind::Wolf : NpcKind::Hunter, ModelAttach::AnimatedOnly);
             const int stamp = wolf ? wolfStamp++ : hunterStamp++;
             stampProceduralId(world(), hunter, std::format("sandbox/level/{}/{}", wolf ? "wolf" : "hunter", stamp), wolf ? "wolf" : "hunter");
             if (!wolf)
             {
-                bindNpcDialogue(hunter, o.dialogue);
+                const Vector3f torchAt = placed ? placed->position : xf.position;
                 const Entity torch = world().createEntity();
-                world().emplace<TransformComponent>(torch, xf.position, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
+                world().emplace<TransformComponent>(torch, torchAt, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
                 AttachedLightComponent att{};
                 att.owner = hunter;
                 auto& beam        = world().emplace<LocalLightComponent>(torch);
@@ -3036,12 +3060,6 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
                 beam.enabled      = false;
                 world().emplace<AttachedLightComponent>(torch, att);
                 stampProceduralId(world(), torch, std::format("sandbox/level/torch/{}", stamp), "torch");
-                PatrolComponent patrol;
-                for (const Vector2f& p : o.patrol)
-                    patrol.points.push_back(Vector3f{ p.x, m_terrain.heightAtWorld(p.x, p.y), p.y });
-                world().emplace<PatrolComponent>(hunter, std::move(patrol));
-                if (AiAgentComponent* agent = world().get<AiAgentComponent>(hunter); agent && !o.squad.empty())
-                    agent->squad = static_cast<uint32_t>(std::hash<std::string>{}(o.squad) | 1u);
             }
         }
         DE_LOG_INFO(LogCategory::AI, "SandboxApp: {} scene pawn(s)", m_chase.hunterCount());
@@ -3152,76 +3170,6 @@ void SandboxApp::bindNpcDialogue(Entity npc, const std::string& scenePath)
         world().emplace<DialogueMemoryComponent>(npc);
 }
 
-Entity SandboxApp::pickTalkTarget()
-{
-    if (carriedBody(world()).valid())
-        return {};
-    const Entity player = possessedBody();
-    const TransformComponent* playerXf = player.valid() ? world().get<TransformComponent>(player) : nullptr;
-    if (!playerXf)
-        return {};
-    Vector3f look = m_viewCamera.GetLook();
-    if (look.MagnitudeSqrd() < 1.0e-6f)
-        return {};
-    look.Normalize();
-    const Vector3f camPos = m_viewCamera.GetPosition();
-
-    Entity best{};
-    float  bestDot = 0.94f;
-    world().each<DialogueBindingComponent>([&](Entity npc, DialogueBindingComponent& binding) {
-        if (binding.graph.empty() || npc == player)
-            return;
-        if (const AiAgentComponent* agent = world().get<AiAgentComponent>(npc); agent && agent->carried)
-            return;
-        const TransformComponent* npcXf = world().get<TransformComponent>(npc);
-        if (!npcXf)
-            return;
-        const Vector3f flat{ npcXf->position.x - playerXf->position.x, 0.0f, npcXf->position.z - playerXf->position.z };
-        float range = 2.5f;
-        if (const AssetRef<DialogueGraphDef> graph = assets().tryLoadDialogueGraph(binding.graph))
-            range = graph->talkRange;
-        if (flat.MagnitudeSqrd() > range * range)
-            return;
-        Vector3f to{ npcXf->position.x - camPos.x, npcXf->position.y + 1.1f - camPos.y, npcXf->position.z - camPos.z };
-        const float len2 = to.MagnitudeSqrd();
-        if (len2 < 1.0e-6f)
-            return;
-        to *= 1.0f / std::sqrt(len2);
-        const float dot = look.Dot(to);
-        if (dot > bestDot)
-        {
-            bestDot = dot;
-            best    = npc;
-        }
-    });
-    return best;
-}
-
-void SandboxApp::tryBeginTalk()
-{
-    if (m_dialogue.active())
-        return;
-    const Entity npc = pickTalkTarget();
-    if (!npc.valid())
-        return;
-    const DialogueBindingComponent* binding = world().get<DialogueBindingComponent>(npc);
-    if (!binding || binding->graph.empty())
-        return;
-    AssetRef<DialogueGraphDef> loaded = assets().tryLoadDialogueGraph(binding->graph);
-    if (!loaded)
-        return;
-    m_talkGraph = std::move(loaded);
-    m_dialogue.setGraph(m_talkGraph.get());
-    m_dialogueSpeech.setServices(&assets(), &audio(), &world());
-    m_dialogueSpeech.startSynth();
-    m_dialogue.setAudio(m_dialogueSpeech.hook());
-    m_dialogue.setFacts(m_session.valid() ? world().get<DialogueFactsComponent>(m_session) : nullptr);
-    if (!m_dialogue.tryStart(world(), possessedBody(), npc, &m_quest))
-        return;
-    m_guardVoice.setSuppressed(npc, true, &audio());
-    m_talkNpc = npc;
-}
-
 void SandboxApp::onUpdate(float dt)
 {
     m_frameDt = dt;
@@ -3275,15 +3223,7 @@ void SandboxApp::onUpdate(float dt)
     {
         m_leafRustle.stopAll(audio());
     }
-    m_dialogueSpeech.setServices(&assets(), &audio(), &world());
-    m_dialogue.setFacts(m_session.valid() ? world().get<DialogueFactsComponent>(m_session) : nullptr);
-    m_dialogue.setUiBlocked(m_showDevTools || m_showInventory || m_showProfiler || m_showJournal || m_lootTarget.valid());
-    m_dialogue.tick(world(), dt);
-    if (m_talkNpc.valid() && !m_dialogue.active())
-    {
-        m_guardVoice.setSuppressed(m_talkNpc, false, &audio());
-        m_talkNpc = {};
-    }
+    m_dialogue.tick(dt);
     m_save.service(world());
     m_water.updateLod(m_viewCamera.GetPosition());
     syncTerrainLod();

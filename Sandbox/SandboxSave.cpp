@@ -55,10 +55,10 @@ void SandboxApp::ensureSessionEntity()
     m_session = Save::ensureSessionEntity(world(), m_session);
     if (m_session.valid() && !world().get<DialogueFactsComponent>(m_session))
         world().emplace<DialogueFactsComponent>(m_session);
-    m_dialogue.setFacts(m_session.valid() ? world().get<DialogueFactsComponent>(m_session) : nullptr);
-    m_dialogueSpeech.setServices(&assets(), &audio(), &world());
-    m_dialogueSpeech.startSynth();
-    m_dialogue.setAudio(m_dialogueSpeech.hook());
+    m_dialogue.runtime().setFacts(m_session.valid() ? world().get<DialogueFactsComponent>(m_session) : nullptr);
+    m_dialogue.speech().setServices(&assets(), &audio(), &world());
+    m_dialogue.speech().startSynth();
+    m_dialogue.runtime().setAudio(m_dialogue.speech().hook());
 }
 
 void SandboxApp::ensurePlayerProgress(Entity e)
@@ -303,7 +303,7 @@ void SandboxApp::saveAfterApply(void* user, World& world)
         return;
     if (app->m_session.valid() && !world.get<DialogueFactsComponent>(app->m_session))
         world.emplace<DialogueFactsComponent>(app->m_session);
-    app->m_dialogue.setFacts(app->m_session.valid() ? world.get<DialogueFactsComponent>(app->m_session) : nullptr);
+    app->m_dialogue.runtime().setFacts(app->m_session.valid() ? world.get<DialogueFactsComponent>(app->m_session) : nullptr);
     const Entity body = app->possessedBody();
     Save::BodyLookState look;
     look.yaw          = app->m_lookYaw;

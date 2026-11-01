@@ -10,6 +10,28 @@
 #include <cstdio>
 #include <fstream>
 #include <sstream>
+#include <utility>
+
+namespace
+{
+    template <typename Op> bool comboOp(const char* label, Op& current, int count, const char* (*name)(Op))
+    {
+        if (!ImGui::BeginCombo(label, name(current)))
+            return false;
+        bool changed = false;
+        for (int i = 0; i < count; ++i)
+        {
+            const Op op = static_cast<Op>(i);
+            if (ImGui::Selectable(name(op), current == op))
+            {
+                current = op;
+                changed = true;
+            }
+        }
+        ImGui::EndCombo();
+        return changed;
+    }
+} // namespace
 
 void DialogueEditorPanel::loadPath(const std::filesystem::path& path)
 {
@@ -89,12 +111,16 @@ void DialogueEditorPanel::drawBank(const char* label, std::vector<Dark::Dialogue
         ImGui::PushID(i);
         char id[65]{};
         char text[241]{};
+        char speaker[65]{};
         std::snprintf(id, sizeof(id), "%s", line.id.c_str());
         std::snprintf(text, sizeof(text), "%s", line.text.c_str());
+        std::snprintf(speaker, sizeof(speaker), "%s", line.speaker.c_str());
         if (ImGui::InputText("Id", id, sizeof(id)))
             line.id = id;
         if (ImGui::InputText("Text", text, sizeof(text)))
             line.text = text;
+        if (ImGui::InputTextWithHint("Speaker", "graph speaker", speaker, sizeof(speaker)))
+            line.speaker = speaker;
         ImGui::Checkbox("Once", &line.once);
         if (ImGui::Button("Remove line"))
             bank.erase(bank.begin() + i);
@@ -178,23 +204,57 @@ void DialogueEditorPanel::drawNode()
 
     ImGui::SeparatorText("Conditions");
     if (ImGui::Button("Add condition") && choice.conditions.size() < 8)
-        choice.conditions.push_back(Dark::DialogueCondition{ "fact", "", "==", {}, {}, 0, true, false, true, false, false });
+    {
+        Dark::DialogueCondition created;
+        created.op = Dark::DialogueConditionOp::Fact;
+        created.cmp = Dark::DialogueCmp::Equal;
+        created.hasValue = true;
+        choice.conditions.push_back(std::move(created));
+    }
     for (int i = 0; i < static_cast<int>(choice.conditions.size()); ++i)
     {
         Dark::DialogueCondition& condition = choice.conditions[static_cast<size_t>(i)];
         ImGui::PushID(1000 + i);
-        char op[65]{};
+        comboOp("Op", condition.op, Dark::kDialogueConditionOpCount, Dark::dialogueConditionOpName);
+        const bool needsCmp = condition.op == Dark::DialogueConditionOp::Fact || condition.op == Dark::DialogueConditionOp::Item;
+        const bool forbidsCmp = condition.op == Dark::DialogueConditionOp::QuestActive || condition.op == Dark::DialogueConditionOp::QuestComplete
+                                || condition.op == Dark::DialogueConditionOp::Objective || condition.op == Dark::DialogueConditionOp::Alertness;
+        if (needsCmp && condition.cmp == Dark::DialogueCmp::None)
+            condition.cmp = Dark::DialogueCmp::Equal;
+        if (forbidsCmp)
+            condition.cmp = Dark::DialogueCmp::None;
+        if (condition.op == Dark::DialogueConditionOp::Health && condition.who != "player" && condition.who != "npc")
+            condition.who = "player";
+        if (condition.op == Dark::DialogueConditionOp::Health && condition.cmp == Dark::DialogueCmp::None && !condition.hasAlive)
+            condition.cmp = Dark::DialogueCmp::Greater;
         char key[65]{};
-        char cmp[16]{};
-        std::snprintf(op, sizeof(op), "%s", condition.op.c_str());
         std::snprintf(key, sizeof(key), "%s", condition.key.c_str());
-        std::snprintf(cmp, sizeof(cmp), "%s", condition.cmp.c_str());
-        if (ImGui::InputText("Op", op, sizeof(op)))
-            condition.op = op;
         if (ImGui::InputText("Key", key, sizeof(key)))
             condition.key = key;
-        if (ImGui::InputText("Cmp", cmp, sizeof(cmp)))
-            condition.cmp = cmp;
+        if (condition.op == Dark::DialogueConditionOp::Health && ImGui::BeginCombo("Who", condition.who.c_str()))
+        {
+            if (ImGui::Selectable("player", condition.who == "player"))
+                condition.who = "player";
+            if (ImGui::Selectable("npc", condition.who == "npc"))
+                condition.who = "npc";
+            ImGui::EndCombo();
+        }
+        if (!forbidsCmp)
+        {
+            const char* preview = condition.cmp == Dark::DialogueCmp::None ? "(none)" : Dark::dialogueCmpName(condition.cmp);
+            if (ImGui::BeginCombo("Cmp", preview))
+            {
+                if (!needsCmp && condition.hasAlive && ImGui::Selectable("(none)", condition.cmp == Dark::DialogueCmp::None))
+                    condition.cmp = Dark::DialogueCmp::None;
+                for (int cmpIndex = 1; cmpIndex < Dark::kDialogueCmpCount; ++cmpIndex)
+                {
+                    const auto cmp = static_cast<Dark::DialogueCmp>(cmpIndex);
+                    if (ImGui::Selectable(Dark::dialogueCmpName(cmp), condition.cmp == cmp))
+                        condition.cmp = cmp;
+                }
+                ImGui::EndCombo();
+            }
+        }
         if (ImGui::InputInt("Value", &condition.value))
             condition.hasValue = true;
         if (ImGui::Button("Remove condition"))
@@ -206,25 +266,49 @@ void DialogueEditorPanel::drawNode()
 
     ImGui::SeparatorText("Effects");
     if (ImGui::Button("Add effect") && choice.effects.size() < 8)
-        choice.effects.push_back(Dark::DialogueEffect{ "setFact", "", {}, 0, 1, false });
+    {
+        Dark::DialogueEffect created;
+        created.op = Dark::DialogueEffectOp::SetFact;
+        choice.effects.push_back(std::move(created));
+    }
     for (int i = 0; i < static_cast<int>(choice.effects.size()); ++i)
     {
         Dark::DialogueEffect& effect = choice.effects[static_cast<size_t>(i)];
         ImGui::PushID(2000 + i);
-        char op[65]{};
+        const Dark::DialogueEffectOp previous = effect.op;
+        if (comboOp("Op", effect.op, Dark::kDialogueEffectOpCount, Dark::dialogueEffectOpName) && effect.op != previous)
+        {
+            if (effect.op == Dark::DialogueEffectOp::GiveItem || effect.op == Dark::DialogueEffectOp::TakeItem)
+            {
+                if (effect.key.empty())
+                    effect.key = std::move(effect.name);
+                effect.name.clear();
+            }
+        }
         char key[65]{};
         char name[65]{};
-        std::snprintf(op, sizeof(op), "%s", effect.op.c_str());
         std::snprintf(key, sizeof(key), "%s", effect.key.c_str());
         std::snprintf(name, sizeof(name), "%s", effect.name.c_str());
-        if (ImGui::InputText("Op", op, sizeof(op)))
-            effect.op = op;
-        if (ImGui::InputText("Key", key, sizeof(key)))
-            effect.key = key;
-        if (ImGui::InputText("Name", name, sizeof(name)))
-            effect.name = name;
-        ImGui::InputInt("Value", &effect.value);
-        ImGui::InputInt("Count", &effect.count);
+        const bool item = effect.op == Dark::DialogueEffectOp::GiveItem || effect.op == Dark::DialogueEffectOp::TakeItem;
+        const bool quest = effect.op == Dark::DialogueEffectOp::QuestEvent;
+        if (item)
+        {
+            if (ImGui::InputText("Item", key, sizeof(key)))
+                effect.key = key;
+            ImGui::InputInt("Count", &effect.count);
+        }
+        else if (quest)
+        {
+            if (ImGui::InputText("Name", name, sizeof(name)))
+                effect.name = name;
+            ImGui::InputInt("Count", &effect.count);
+        }
+        else
+        {
+            if (ImGui::InputText("Key", key, sizeof(key)))
+                effect.key = key;
+            ImGui::InputInt("Value", &effect.value);
+        }
         if (ImGui::Button("Remove effect"))
             choice.effects.erase(choice.effects.begin() + i);
         ImGui::PopID();

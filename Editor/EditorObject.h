@@ -25,6 +25,8 @@ namespace Dark
         int             pickupCount = 1;
         // Content path of a dialogue graph, for example dialogue/hunter_gate.dlg.json.
         std::string     dialogue;
+        // Loaded scene record. Save starts here so fields the inspector does not edit are written back.
+        SceneObjectData source;
         // Runtime only. Not written to the scene file.
         Entity          playPickup{};
         bool            playPickupSpent = false;

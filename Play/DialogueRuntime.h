@@ -67,7 +67,7 @@ namespace Dark
         const std::string&         speakerName() const { return m_speakerName; }
         const std::vector<int>&    choiceIndices() const { return m_choiceIndex; }
         int                        selected() const { return m_selected; }
-        Entity                     speaker() const { return m_npc; }
+        Entity                     speaker() const { return m_lineSpeaker.valid() ? m_lineSpeaker : m_npc; }
         const std::string&         nodeId() const { return m_nodeId; }
         const DialogueGraphDef*    graph() const { return m_graph; }
 
@@ -81,6 +81,7 @@ namespace Dark
         void advance(World& world);
         void commitLine(World& world, float dt);
         bool blockedByWorld(World& world, DialogueInterrupt& reason) const;
+        Entity resolveLineSpeaker(World& world) const;
 
         const DialogueGraphDef* m_graph = nullptr;
         World*                   m_world = nullptr;
@@ -90,6 +91,7 @@ namespace Dark
         DialoguePhase           m_phase = DialoguePhase::Idle;
         Entity                  m_player{};
         Entity                  m_npc{};
+        Entity                  m_lineSpeaker{};
         std::string             m_nodeId;
         DialogueLine            m_line;
         bool                    m_hasLine     = false;

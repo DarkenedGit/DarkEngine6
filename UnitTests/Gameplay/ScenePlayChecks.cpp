@@ -102,7 +102,7 @@ namespace
                 ++e.conceals;
                 continue;
             }
-            if (cube && o.scale.y >= 0.3f && !o.goal)
+            if (cube && o.scale.y >= 0.3f && !o.goal && o.block)
                 ++e.obstacles;
         }
         return e;

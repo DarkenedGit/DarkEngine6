@@ -14,7 +14,7 @@ using namespace Dark;
 
 namespace
 {
-    DialogueCondition cond(const char* op, const char* key, const char* cmp, int value)
+    DialogueCondition cond(DialogueConditionOp op, const char* key, DialogueCmp cmp, int value)
     {
         DialogueCondition out;
         out.op = op;
@@ -48,8 +48,8 @@ TEST(DialogueQuery, BagCountIgnoresEquippedHelmet)
     DialogueGraphDef graph;
     DialogueQueryView view;
     view.inventory = &inv;
-    EXPECT_TRUE(dialogueConditionPasses(graph, cond("item", "medkit", ">=", 1), view));
-    EXPECT_FALSE(dialogueConditionPasses(graph, cond("item", "helmet", ">=", 1), view));
+    EXPECT_TRUE(dialogueConditionPasses(graph, cond(DialogueConditionOp::Item, "medkit", DialogueCmp::GreaterEqual, 1), view));
+    EXPECT_FALSE(dialogueConditionPasses(graph, cond(DialogueConditionOp::Item, "helmet", DialogueCmp::GreaterEqual, 1), view));
 }
 
 TEST(DialogueQuery, QuestCompleteUsesTheSettledFlag)
@@ -63,10 +63,10 @@ TEST(DialogueQuery, QuestCompleteUsesTheSettledFlag)
     DialogueQueryView view;
     view.quest = &quest;
     DialogueCondition active;
-    active.op = "questActive";
+    active.op = DialogueConditionOp::QuestActive;
     active.key = "gate";
     DialogueCondition done;
-    done.op = "questComplete";
+    done.op = DialogueConditionOp::QuestComplete;
     done.key = "gate";
     EXPECT_TRUE(dialogueConditionPasses(graph, active, view));
     EXPECT_FALSE(dialogueConditionPasses(graph, done, view));
@@ -76,18 +76,13 @@ TEST(DialogueQuery, QuestCompleteUsesTheSettledFlag)
     EXPECT_TRUE(dialogueConditionPasses(graph, done, view));
 }
 
-TEST(DialogueQuery, UnknownOpAndMissingHealthWhoHideTheChoice)
+TEST(DialogueQuery, MissingHealthWhoHidesTheChoice)
 {
     DialogueGraphDef graph;
     DialogueQueryView view;
-    DialogueCondition unknown;
-    unknown.op = "dice";
-    EXPECT_FALSE(dialogueConditionPasses(graph, unknown, view));
-    EXPECT_FALSE(graph.loggedOps.empty());
-
     DialogueCondition health;
-    health.op = "health";
-    health.cmp = ">";
+    health.op = DialogueConditionOp::Health;
+    health.cmp = DialogueCmp::Greater;
     health.value = 0;
     health.hasValue = true;
     EXPECT_FALSE(dialogueConditionPasses(graph, health, view));
@@ -98,6 +93,7 @@ TEST(DialogueQuery, UnknownOpAndMissingHealthWhoHideTheChoice)
     view.npcHealth = world.get<HealthComponent>(npc);
     health.who = "npc";
     EXPECT_TRUE(dialogueConditionPasses(graph, health, view));
+    EXPECT_FALSE(graph.loggedOps.empty());
 }
 
 TEST(DialogueQuery, TakeIsBagOnlyAndUnknownItemsDoNotThrow)
@@ -125,15 +121,39 @@ TEST(DialogueQuery, TakeIsBagOnlyAndUnknownItemsDoNotThrow)
     DialogueGraphDef graph;
     DialogueFactsComponent facts;
     DialogueEffect effect;
-    effect.op = "giveItem";
-    effect.name = "not_a_real_item";
+    effect.op = DialogueEffectOp::GiveItem;
+    effect.key = "not_a_real_item";
     effect.count = 1;
     applyDialogueEffects(graph, { effect }, &facts, &inv, nullptr);
     EXPECT_EQ(countBagItem(inv, "medkit"), 0);
 
-    effect.op = "setFact";
+    effect.op = DialogueEffectOp::SetFact;
     effect.key = "met";
     effect.value = 3;
     applyDialogueEffects(graph, { effect }, &facts, &inv, nullptr);
     EXPECT_EQ(facts.get("met"), 3);
+}
+
+TEST(DialogueQuery, ItemEffectsUseTheKey)
+{
+    InventoryComponent inv;
+    const ItemDef* medkit = findItemDef("medkit");
+    ASSERT_NE(medkit, nullptr);
+    ASSERT_EQ(addItem(inv, *medkit, 1), 1);
+
+    DialogueGraphDef graph;
+    DialogueEffect take;
+    take.op = DialogueEffectOp::TakeItem;
+    take.key = "medkit";
+    take.name = "not_the_item";
+    take.count = 1;
+    applyDialogueEffects(graph, { take }, nullptr, &inv, nullptr);
+    EXPECT_EQ(countBagItem(inv, "medkit"), 0);
+
+    DialogueEffect give;
+    give.op = DialogueEffectOp::GiveItem;
+    give.key = "medkit";
+    give.count = 1;
+    applyDialogueEffects(graph, { give }, nullptr, &inv, nullptr);
+    EXPECT_EQ(countBagItem(inv, "medkit"), 1);
 }

@@ -15,22 +15,18 @@ namespace Dark
 {
     namespace
     {
-        bool compareInt(const DialogueGraphDef& graph, const DialogueCondition& condition, int left)
+        bool compareInt(DialogueCmp cmp, int left, int right)
         {
-            const int right = condition.value;
-            if (condition.cmp == "==")
-                return left == right;
-            if (condition.cmp == "!=")
-                return left != right;
-            if (condition.cmp == "<")
-                return left < right;
-            if (condition.cmp == "<=")
-                return left <= right;
-            if (condition.cmp == ">")
-                return left > right;
-            if (condition.cmp == ">=")
-                return left >= right;
-            graph.noteUnknown(condition.cmp.empty() ? condition.op + " missing cmp" : condition.op + " cmp " + condition.cmp);
+            switch (cmp)
+            {
+            case DialogueCmp::Equal:        return left == right;
+            case DialogueCmp::NotEqual:     return left != right;
+            case DialogueCmp::Less:         return left < right;
+            case DialogueCmp::LessEqual:    return left <= right;
+            case DialogueCmp::Greater:      return left > right;
+            case DialogueCmp::GreaterEqual: return left >= right;
+            case DialogueCmp::None:         return false;
+            }
             return false;
         }
 
@@ -62,24 +58,22 @@ namespace Dark
 
     bool dialogueConditionPasses(const DialogueGraphDef& graph, const DialogueCondition& condition, const DialogueQueryView& view)
     {
-        if (condition.op == "fact")
+        switch (condition.op)
+        {
+        case DialogueConditionOp::Fact:
         {
             const int value = view.facts ? view.facts->get(condition.key) : 0;
-            return compareInt(graph, condition, value);
+            return compareInt(condition.cmp, value, condition.value);
         }
-        if (condition.op == "questActive")
-        {
+        case DialogueConditionOp::QuestActive:
             if (!view.quest || !view.quest->active())
                 return false;
             return condition.key.empty() || view.quest->def().id == condition.key;
-        }
-        if (condition.op == "questComplete")
-        {
+        case DialogueConditionOp::QuestComplete:
             if (!view.quest || !view.quest->complete())
                 return false;
             return condition.key.empty() || view.quest->def().id == condition.key;
-        }
-        if (condition.op == "objective")
+        case DialogueConditionOp::Objective:
         {
             if (!view.quest || !view.quest->active())
                 return false;
@@ -93,12 +87,12 @@ namespace Dark
             }
             return false;
         }
-        if (condition.op == "item")
+        case DialogueConditionOp::Item:
         {
             const int count = view.inventory ? countBagItem(*view.inventory, condition.key) : 0;
-            return compareInt(graph, condition, count);
+            return compareInt(condition.cmp, count, condition.value);
         }
-        if (condition.op == "alertness")
+        case DialogueConditionOp::Alertness:
         {
             AI::Alertness want = AI::Alertness::Calm;
             if (!parseAlertness(condition.name, want))
@@ -109,7 +103,7 @@ namespace Dark
             const AI::Alertness now = view.npc ? view.npc->aware.alertness : AI::Alertness::Calm;
             return now == want;
         }
-        if (condition.op == "health")
+        case DialogueConditionOp::Health:
         {
             bool whoOk = false;
             const HealthComponent* hp = healthFor(condition, view, whoOk);
@@ -118,87 +112,83 @@ namespace Dark
                 graph.noteUnknown("health who");
                 return false;
             }
-            if (!condition.hasAlive && condition.cmp.empty())
-            {
-                graph.noteUnknown("health");
+            if (!condition.hasAlive && condition.cmp == DialogueCmp::None)
                 return false;
-            }
             if (condition.hasAlive)
             {
                 const bool alive = hp && hp->health.alive();
                 if (alive != condition.alive)
                     return false;
             }
-            if (!condition.cmp.empty())
+            if (condition.cmp != DialogueCmp::None)
             {
                 const int value = hp ? static_cast<int>(std::lround(static_cast<double>(hp->health.hp()))) : 0;
-                if (!compareInt(graph, condition, value))
+                if (!compareInt(condition.cmp, value, condition.value))
                     return false;
             }
             return true;
         }
-        graph.noteUnknown(condition.op.empty() ? "condition" : condition.op);
+        }
         return false;
     }
 
     void applyDialogueEffects(const DialogueGraphDef& graph, const std::vector<DialogueEffect>& effects, DialogueFactsComponent* facts,
                               InventoryComponent* inventory, QuestRuntime* quest)
     {
+        (void)graph;
         for (const DialogueEffect& effect : effects)
         {
-            if (effect.op == "setFact" || effect.op == "addFact")
+            switch (effect.op)
             {
+            case DialogueEffectOp::SetFact:
+            case DialogueEffectOp::AddFact:
                 if (!facts)
                 {
-                    DE_LOG_WARN(LogCategory::AI, "Dialogue: {} \"{}\" has no fact store", effect.op, effect.key);
-                    continue;
+                    DE_LOG_WARN(LogCategory::AI, "Dialogue: {} \"{}\" has no fact store", dialogueEffectOpName(effect.op), effect.key);
+                    break;
                 }
-                if (effect.op == "setFact")
+                if (effect.op == DialogueEffectOp::SetFact)
                     facts->set(effect.key, effect.value);
                 else
                     facts->add(effect.key, effect.value);
-                continue;
-            }
-            if (effect.op == "questEvent")
-            {
+                break;
+            case DialogueEffectOp::QuestEvent:
                 if (!quest || !quest->active() || quest->complete())
                 {
                     DE_LOG_INFO(LogCategory::AI, "Dialogue: quest event \"{}\" ignored", effect.name);
-                    continue;
+                    break;
                 }
                 quest->event(effect.name, effect.count > 0 ? effect.count : 1);
-                continue;
-            }
-            if (effect.op == "giveItem" || effect.op == "takeItem")
-            {
+                break;
+            case DialogueEffectOp::GiveItem:
+            case DialogueEffectOp::TakeItem:
                 if (effect.count <= 0)
                 {
-                    DE_LOG_WARN(LogCategory::AI, "Dialogue: {} \"{}\" count {} changes nothing", effect.op, effect.name, effect.count);
-                    continue;
+                    DE_LOG_WARN(LogCategory::AI, "Dialogue: {} \"{}\" count {} changes nothing", dialogueEffectOpName(effect.op), effect.key, effect.count);
+                    break;
                 }
                 if (!inventory)
                 {
-                    DE_LOG_WARN(LogCategory::AI, "Dialogue: {} \"{}\" has no inventory", effect.op, effect.name);
-                    continue;
+                    DE_LOG_WARN(LogCategory::AI, "Dialogue: {} \"{}\" has no inventory", dialogueEffectOpName(effect.op), effect.key);
+                    break;
                 }
-                if (effect.op == "giveItem")
+                if (effect.op == DialogueEffectOp::GiveItem)
                 {
-                    const ItemDef* def = findItemDef(effect.name);
+                    const ItemDef* def = findItemDef(effect.key);
                     if (!def)
                     {
-                        DE_LOG_ERROR(LogCategory::AI, "Dialogue: unknown item \"{}\"", effect.name);
-                        continue;
+                        DE_LOG_ERROR(LogCategory::AI, "Dialogue: unknown item \"{}\"", effect.key);
+                        break;
                     }
                     const int added = addItem(*inventory, *def, effect.count);
                     if (added < effect.count)
-                        DE_LOG_WARN(LogCategory::AI, "Dialogue: giveItem \"{}\" added {} of {}", effect.name, added, effect.count);
-                    continue;
+                        DE_LOG_WARN(LogCategory::AI, "Dialogue: giveItem \"{}\" added {} of {}", effect.key, added, effect.count);
+                    break;
                 }
-                if (!tryRemoveItem(*inventory, effect.name, effect.count))
-                    DE_LOG_WARN(LogCategory::AI, "Dialogue: takeItem \"{}\" x{} was not in the bag", effect.name, effect.count);
-                continue;
+                if (!tryRemoveItem(*inventory, effect.key, effect.count))
+                    DE_LOG_WARN(LogCategory::AI, "Dialogue: takeItem \"{}\" x{} was not in the bag", effect.key, effect.count);
+                break;
             }
-            graph.noteUnknown(effect.op.empty() ? "effect" : effect.op);
         }
     }
 

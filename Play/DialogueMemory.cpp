@@ -1,6 +1,7 @@
 #include "Play/DialogueMemory.h"
 
 #include "Core/Log.h"
+#include "ECS/World.h"
 
 #include <algorithm>
 
@@ -105,6 +106,11 @@ namespace Dark
         if (open.size() > 1 && open[index]->id == previous)
             index = (index + 1) % open.size();
         return open[index];
+    }
+
+    void clearDialogueMemory(World& world)
+    {
+        world.each<DialogueMemoryComponent>([](Entity, DialogueMemoryComponent& memory) { memory = {}; });
     }
 
     DialogueEntryKind chooseDialogueEntry(bool graphOk, bool dead, bool alert, bool inCombat, bool bookmarkMatches)

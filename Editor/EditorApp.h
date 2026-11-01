@@ -23,8 +23,7 @@
 #include "Render/Texture2D.h"
 #include "Scene/SceneTypes.h"
 #include "Play/Crow.h"
-#include "Play/DialogueRuntime.h"
-#include "Play/DialogueSpeech.h"
+#include "Play/DialogueController.h"
 #include "Play/GuardVoice.h"
 #include "Play/PlaySession.h"
 #include "Editor/EditorObject.h"
@@ -192,8 +191,6 @@ private:
     Entity spawnSpawnerUnit(Entity spawner, const SpawnerRequest& req);
     Dark::Terrain::GroundContact groundContactAt(float x, float z) const;
     void   bindPlayDialogue();
-    Dark::Entity pickTalkTarget();
-    void   tryBeginTalk();
     void   drawPlayDialogue();
     void   drawPlayHud();
     void   drawLoot();
@@ -213,6 +210,7 @@ private:
     void   onPlayWeaponHit(const Dark::WeaponHit& hit);
     ImpactFxHost impactHost();
     static void fillPlayHost(void* user, Dark::PlayHost& host);
+    static void fillDialogueHost(void* user, Dark::DialogueHost& host);
     static void onPlayQuestNote(void* user, const Dark::QuestNoteEvent& note);
     static void onPlayDefenseText(void* user, bool parried);
     static void onPlayLoot(void* user, Dark::Entity loot);
@@ -270,6 +268,7 @@ private:
     void clearScene();
     bool saveScene();
     bool loadScene();
+    static float sceneGroundY(void* user, float x, float z);
     bool saveSceneWithDialog();
     bool loadSceneWithDialog(const std::filesystem::path& suggested);
     bool savePhysicsWithDialog(Entity e);
@@ -538,10 +537,7 @@ private:
     Dark::AiSystem            m_ai;
     Dark::PlaySession         m_play;
     Dark::GuardVoice          m_guardVoice;
-    Dark::DialogueRuntime     m_dialogue;
-    Dark::DialogueSpeech      m_dialogueSpeech;
-    Dark::AssetRef<Dark::DialogueGraphDef> m_talkGraph;
-    Dark::Entity              m_talkNpc{};
+    Dark::DialogueController  m_dialogue;
     std::string               m_sceneQuest;
     std::vector<Dark::SceneBuildingDesc> m_sceneBuildings;
     std::deque<std::string>   m_buildingLabels;

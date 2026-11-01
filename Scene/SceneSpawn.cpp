@@ -1,6 +1,9 @@
 #include "Scene/SceneSpawn.h"
 
 #include "Assets/AssetManager.h"
+#include "AI/AiComponents.h"
+#include "Play/DialogueBinding.h"
+#include "Play/DialogueMemory.h"
 #include "Play/Interaction.h"
 #include "Character/ItemView.h"
 #include "Core/EntityPins.h"
@@ -14,10 +17,13 @@
 #include "Play/Carry.h"
 #include "Render/Renderer.h"
 #include "Save/PersistentId.h"
+#include "Scene/EntityMaster.h"
 #include "Scene/SceneTypes.h"
 
 #include <format>
+#include <functional>
 #include <string>
+#include <utility>
 
 namespace Dark
 {
@@ -112,6 +118,74 @@ namespace Dark
         int pickupStamp = 0;
         for (int i = 0; i < count; ++i)
             spawnOne(*host.world, objects[i], host, powerStamp, pickupStamp);
+    }
+
+    void applySceneActor(World& world, Entity actor, const SceneObjectData& object, float (*heightAt)(void* user, float x, float z), void* heightUser)
+    {
+        if (!actor.valid() || !world.alive(actor))
+            return;
+
+        const bool light = object.type == SceneObjectType::PointLight || object.type == SceneObjectType::SpotLight;
+        if (light && !object.circuit.empty())
+        {
+            CircuitMemberComponent* member = world.get<CircuitMemberComponent>(actor);
+            if (!member)
+                member = &world.emplace<CircuitMemberComponent>(actor);
+            member->circuit = object.circuit;
+        }
+
+        const bool pawn = object.type == SceneObjectType::Hunter || object.type == SceneObjectType::Wolf;
+        if (pawn && heightAt)
+        {
+            if (TransformComponent* xf = world.get<TransformComponent>(actor))
+                xf->position.y = heightAt(heightUser, xf->position.x, xf->position.z) + 0.5f;
+        }
+        if (object.type != SceneObjectType::Hunter)
+            return;
+
+        std::string path = object.dialogue;
+        if (path.empty())
+            path = loadEntityMasterType("hunter").dialogue;
+        if (path.empty())
+        {
+            if (world.get<DialogueBindingComponent>(actor))
+                world.remove<DialogueBindingComponent>(actor);
+        }
+        else if (DialogueBindingComponent* existing = world.get<DialogueBindingComponent>(actor))
+            existing->graph = std::move(path);
+        else
+        {
+            DialogueBindingComponent binding;
+            binding.graph = std::move(path);
+            world.emplace<DialogueBindingComponent>(actor, std::move(binding));
+            if (!world.get<DialogueMemoryComponent>(actor))
+                world.emplace<DialogueMemoryComponent>(actor);
+        }
+        if (world.get<DialogueBindingComponent>(actor) && !world.get<DialogueMemoryComponent>(actor))
+            world.emplace<DialogueMemoryComponent>(actor);
+
+        if (object.patrol.empty())
+        {
+            if (world.get<PatrolComponent>(actor))
+                world.remove<PatrolComponent>(actor);
+        }
+        else
+        {
+            PatrolComponent patrol;
+            patrol.points.reserve(object.patrol.size());
+            for (const Math::Vector2f& p : object.patrol)
+            {
+                const float y = heightAt ? heightAt(heightUser, p.x, p.y) : 0.0f;
+                patrol.points.push_back(Math::Vector3f{ p.x, y, p.y });
+            }
+            if (PatrolComponent* existing = world.get<PatrolComponent>(actor))
+                *existing = std::move(patrol);
+            else
+                world.emplace<PatrolComponent>(actor, std::move(patrol));
+        }
+
+        if (AiAgentComponent* agent = world.get<AiAgentComponent>(actor))
+            agent->squad = object.squad.empty() ? 0u : static_cast<uint32_t>(std::hash<std::string>{}(object.squad) | 1u);
     }
 
 } // namespace Dark

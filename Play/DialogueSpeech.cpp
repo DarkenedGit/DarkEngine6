@@ -85,6 +85,16 @@ namespace Dark
             DE_LOG_WARN(LogCategory::AI, "Dialogue: play() returned 0 for \"{}\"", clip->key());
     }
 
+    void DialogueSpeech::follow(Entity speaker)
+    {
+        if (m_playing == 0 || !m_audio || !m_world || !speaker.valid())
+            return;
+        const TransformComponent* xf = m_world->get<TransformComponent>(speaker);
+        if (!xf)
+            return;
+        m_audio->setVoicePosition(m_playing, xf->position + Math::Vector3f{ 0.0f, 1.6f, 0.0f });
+    }
+
     AssetRef<Audio::SoundClip> DialogueSpeech::takeClip(const DialogueLine& line, Entity speaker, float& shown)
     {
         (void)speaker;

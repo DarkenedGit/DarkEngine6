@@ -49,10 +49,9 @@
 #include "Terrain/TerrainGround.h"
 #include "Play/Carry.h"
 #include "Play/DialogueBinding.h"
+#include "Play/DialogueController.h"
 #include "Play/DialogueFacts.h"
 #include "Play/DialogueMemory.h"
-#include "Play/DialogueRuntime.h"
-#include "Play/DialogueSpeech.h"
 #include "Play/GuardVoice.h"
 #include "Play/ImpactFx.h"
 #include "Play/PlaySession.h"
@@ -118,8 +117,6 @@ private:
     void drawGuardAwareness();
     void drawGuardSpeech();
     void drawDialogue();
-    void tryBeginTalk();
-    Dark::Entity pickTalkTarget();
     void bindNpcDialogue(Dark::Entity npc, const std::string& scenePath);
     void drawStaminaBar();
     void startQuest(const std::string& id);
@@ -202,6 +199,7 @@ private:
     bool createSkeletonLineBuffers();
 
     static void fillPlayHost(void* user, Dark::PlayHost& host);
+    static void fillDialogueHost(void* user, Dark::DialogueHost& host);
     static void stepPlayPhysics(void* user, float dt);
     static void onPlayMuzzle(void* user);
     static void onPlayBloodBurst(void* user, const Dark::Math::Vector3f& pos);
@@ -260,10 +258,7 @@ private:
     Dark::StealthSceneDesc          m_sceneStealth{};
     Dark::QuestRuntime&             m_quest;
     Dark::GuardVoice                m_guardVoice;
-    Dark::DialogueRuntime           m_dialogue;
-    Dark::DialogueSpeech            m_dialogueSpeech;
-    Dark::AssetRef<Dark::DialogueGraphDef> m_talkGraph;
-    Dark::Entity                    m_talkNpc{};
+    Dark::DialogueController        m_dialogue;
     std::string                     m_sceneQuest;
     struct QuestBanner
     {

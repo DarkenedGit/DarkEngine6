@@ -1,5 +1,7 @@
 #include "EditorApp.h"
 
+#include "Scene/SceneSpawn.h"
+
 #include "Editor/EditorInternals.h"
 #include "Editor/LocalLightAuthoring.h"
 #include "Gameplay/PowerComponents.h"
@@ -300,6 +302,9 @@ Entity EditorApp::spawnObject(
     }
     if (authored && !authored->dialogue.empty())
         so.dialogue = authored->dialogue;
+    if (authored)
+        so.source = *authored;
+    so.source.type = type;
 
     if (type == SceneObjectType::ParticleEmitter)
     {
@@ -399,12 +404,9 @@ Entity EditorApp::spawnObject(
     }
     if (type == SceneObjectType::Cube || type == SceneObjectType::Sphere)
         tryLoadModelPhysics(e);
-    if (authored && !authored->circuit.empty() && isLocalLightType(type))
-    {
-        CircuitMemberComponent member{};
-        member.circuit = authored->circuit;
-        world().emplace<CircuitMemberComponent>(e, member);
-    }
+    // Edit mode keeps the file position. Play applies terrain height after the pose is stored.
+    if (authored)
+        applySceneActor(world(), e, *authored, nullptr, nullptr);
     m_selected = e;
     if (registerNet && isReplicatedProp(type))
         network().registerEntity(world(), e, prefabFromType(type), ClientId::Host, packRgba8(so.color));

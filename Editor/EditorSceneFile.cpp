@@ -5,6 +5,7 @@
 #include "Scene/Building.h"
 #include "Scene/SceneFile.h"
 #include "Scene/SceneSpawn.h"
+#include "Gameplay/PowerComponents.h"
 #include "Editor/EditorFileDialog.h"
 #include "ECS/Components.h"
 #include "Network/Replication.h"
@@ -104,7 +105,8 @@ bool EditorApp::saveScene()
         const auto* xf = world().get<TransformComponent>(e);
         if (!xf)
             return;
-        SceneObjectData d{};
+        SceneObjectData d = so.source;
+        d.emissiveMeshIndex = -1;
         d.type     = so.type;
         d.position = xf->position;
         d.rotation = xf->rotation;
@@ -171,13 +173,11 @@ bool EditorApp::saveScene()
             d.spawner    = spawner->desc;
             clampSpawnerDesc(d.spawner);
         }
-        if (!so.pickup.empty())
-        {
-            d.pickup      = so.pickup;
-            d.pickupCount = so.pickupCount > 0 ? so.pickupCount : 1;
-        }
-        if (!so.dialogue.empty())
-            d.dialogue = so.dialogue;
+        d.pickup      = so.pickup;
+        d.pickupCount = so.pickup.empty() ? 1 : (so.pickupCount > 0 ? so.pickupCount : 1);
+        d.dialogue    = so.dialogue;
+        if (const CircuitMemberComponent* member = world().get<CircuitMemberComponent>(e))
+            d.circuit = member->circuit;
         if (so.type == SceneObjectType::Model)
         {
             if (const ModelComponent* modelComp = world().get<ModelComponent>(e))
@@ -400,9 +400,23 @@ bool EditorApp::loadScene()
         m_water.params() = sceneWaterParams(m_authoredWater, level);
         createEditorWaterSheet();
     }
+    // Same actor load as Sandbox, without baking terrain height into the saved transform.
+    for (size_t i = 0; i < data.objects.size() && i < spawned.size(); ++i)
+    {
+        if (spawned[i].valid())
+            applySceneActor(world(), spawned[i], data.objects[i], nullptr, nullptr);
+    }
     m_selected = {};
     DE_LOG_INFO("Editor: loaded {} objects", editorObjectCount());
     return true;
+}
+
+float EditorApp::sceneGroundY(void* user, float x, float z)
+{
+    const EditorApp* app = static_cast<const EditorApp*>(user);
+    if (!app || !app->m_haveTerrain || !app->m_terrain.valid())
+        return 0.0f;
+    return app->m_terrain.heightAtWorld(x, z);
 }
 
 void EditorApp::handleEditorCommands(float dt)
@@ -436,7 +450,7 @@ void EditorApp::handleEditorCommands(float dt)
         if (m_dialogue.active())
             m_dialogue.requestSkip();
         else if (!uiKey)
-            tryBeginTalk();
+            m_dialogue.tryBegin();
     }
     if (m_playMode && m_dialogue.choiceOpen() && !typing)
     {

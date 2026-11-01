@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ECS/Entity.h"
 #include "Math/AABox3f.h"
 
 namespace Dark
@@ -36,5 +37,9 @@ namespace Dark
     };
 
     void instantiateSceneObjects(const SceneObjectData* objects, int count, const SceneSpawnHost& host);
+
+    // Gameplay fields from one scene object: light circuit, hunter dialogue, patrol, and squad.
+    // heightAt supplies terrain Y for patrol points and hunter or wolf feet. Null leaves Y alone.
+    void applySceneActor(World& world, Entity actor, const SceneObjectData& object, float (*heightAt)(void* user, float x, float z), void* heightUser);
 
 } // namespace Dark

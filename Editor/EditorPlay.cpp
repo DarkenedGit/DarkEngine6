@@ -3,11 +3,12 @@
 #include "Play/AttachedLights.h"
 #include "Play/Carry.h"
 #include "Play/DialogueBinding.h"
-#include "Play/DialogueFacts.h"
+#include "Play/DialogueHud.h"
 #include "Play/DialogueMemory.h"
 #include "Play/CharacterAttach.h"
 #include "Play/ContactGrind.h"
 #include "Gameplay/PowerComponents.h"
+#include "Scene/SceneSpawn.h"
 #include "Gameplay/PowerSystem.h"
 #include "Play/HunterCue.h"
 #include "Play/ThrowableHost.h"
@@ -272,14 +273,21 @@ void EditorApp::bakePlayWalkability()
         const TransformComponent* xf = world().get<TransformComponent>(e);
         if (!xf)
             return;
+        const bool volume = !so.source.block || so.source.goal || so.source.conceal || !so.source.zone.empty() || !so.source.pickup.empty();
         if (so.type == SceneObjectType::Cube)
         {
+            if (volume)
+                return;
+            if (std::fabs(xf->scale.y) < 0.3f)
+                return;
             const Vector3f half{ 0.5f * std::fabs(xf->scale.x), 0.5f * std::fabs(xf->scale.y), 0.5f * std::fabs(xf->scale.z) };
             m_playCubes.push_back(AABox3f::FromCenterExtents(xf->position, half));
             m_playCubeEntities.push_back(e);
         }
         else if (so.type == SceneObjectType::Sphere)
         {
+            if (volume)
+                return;
             // Unit sphere mesh is radius 0.5, then scaled. Use the largest axis so a stretched sphere still blocks.
             const float radius = 0.5f * Math::Max(std::fabs(xf->scale.x), Math::Max(std::fabs(xf->scale.y), std::fabs(xf->scale.z)));
             if (radius > 1.0e-4f)
@@ -317,6 +325,24 @@ void EditorApp::bakePlayWalkability()
 }
 
 
+
+void EditorApp::fillDialogueHost(void* user, DialogueHost& host)
+{
+    auto* app = static_cast<EditorApp*>(user);
+    if (!app)
+        return;
+    host.world      = &app->world();
+    host.assets     = &app->assets();
+    host.audio      = &app->audio();
+    host.guardVoice = &app->m_guardVoice;
+    host.quest      = &app->m_play.quest();
+    host.player     = app->m_playPlayer;
+    host.session    = app->m_session;
+    host.look       = app->m_camera.GetLook();
+    host.cameraPos  = app->m_camera.GetPosition();
+    host.enabled    = app->m_playMode;
+    host.uiBlocked  = app->m_showUpgrades || app->m_lootTarget.valid();
+}
 
 void EditorApp::fillPlayHost(void* user, PlayHost& host)
 {
@@ -474,6 +500,13 @@ void EditorApp::setPlayMode(bool play)
         }
         applyAuthoredStealth();
         captureAuthoredPoses();
+        // Same actor load as the game. The pose was stored first, so Stop puts the file position back.
+        world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
+            SceneObjectData authored = so.source;
+            authored.type            = so.type;
+            authored.dialogue        = so.dialogue;
+            applySceneActor(world(), e, authored, &EditorApp::sceneGroundY, this);
+        });
         bakePlayWalkability();
         {
             std::vector<AABox3f> conceal;
@@ -481,6 +514,7 @@ void EditorApp::setPlayMode(bool play)
             m_ai.setConcealVolumes(std::move(conceal));
         }
         m_play.bind(&EditorApp::fillPlayHost, this);
+        m_dialogue.bind(&EditorApp::fillDialogueHost, this);
         m_play.resetPawn();
         if (const TransformComponent* xf = world().get<TransformComponent>(m_playPlayer))
         {
@@ -571,12 +605,8 @@ void EditorApp::setPlayMode(bool play)
         m_defenseText.clear();
         m_defenseTextLeft = 0.0f;
         m_guardVoice.stop();
-        if (m_talkNpc.valid())
-            m_guardVoice.setSuppressed(m_talkNpc, false, &audio());
-        m_dialogue.interrupt(DialogueInterrupt::Cancel);
-        m_dialogueSpeech.stop();
-        m_talkGraph = {};
-        m_talkNpc = {};
+        // Interrupt stores a resume bookmark. This Play is over, so the next one starts at the greeting.
+        m_dialogue.endPlay();
         m_play.resetPawn();
         destroyPlayGear();
         releasePlayPickups();
@@ -992,77 +1022,11 @@ void EditorApp::bindPlayDialogue()
             created.graph = std::move(path);
             world().emplace<DialogueBindingComponent>(e, std::move(created));
         }
-        if (!world().get<DialogueMemoryComponent>(e))
+        if (DialogueMemoryComponent* memory = world().get<DialogueMemoryComponent>(e))
+            *memory = {};
+        else
             world().emplace<DialogueMemoryComponent>(e);
     });
-}
-
-Entity EditorApp::pickTalkTarget()
-{
-    if (!m_playMode || carriedBody(world()).valid())
-        return {};
-    const TransformComponent* playerXf = m_playPlayer.valid() ? world().get<TransformComponent>(m_playPlayer) : nullptr;
-    if (!playerXf)
-        return {};
-    Vector3f look = m_camera.GetLook();
-    if (look.MagnitudeSqrd() < 1.0e-6f)
-        return {};
-    look.Normalize();
-    const Vector3f camPos = m_camera.GetPosition();
-
-    Entity best{};
-    float  bestDot = 0.94f;
-    world().each<DialogueBindingComponent>([&](Entity npc, DialogueBindingComponent& binding) {
-        if (binding.graph.empty() || npc == m_playPlayer)
-            return;
-        if (const AiAgentComponent* agent = world().get<AiAgentComponent>(npc); agent && agent->carried)
-            return;
-        const TransformComponent* npcXf = world().get<TransformComponent>(npc);
-        if (!npcXf)
-            return;
-        const Vector3f flat{ npcXf->position.x - playerXf->position.x, 0.0f, npcXf->position.z - playerXf->position.z };
-        float range = 2.5f;
-        if (const AssetRef<DialogueGraphDef> graph = assets().tryLoadDialogueGraph(binding.graph))
-            range = graph->talkRange;
-        if (flat.MagnitudeSqrd() > range * range)
-            return;
-        const Vector3f to{ npcXf->position.x - camPos.x, npcXf->position.y + 1.1f - camPos.y, npcXf->position.z - camPos.z };
-        const float len2 = to.MagnitudeSqrd();
-        if (len2 < 1.0e-6f)
-            return;
-        const float dot = look.Dot(to * (1.0f / std::sqrt(len2)));
-        if (dot > bestDot)
-        {
-            bestDot = dot;
-            best    = npc;
-        }
-    });
-    return best;
-}
-
-void EditorApp::tryBeginTalk()
-{
-    if (m_dialogue.active())
-        return;
-    const Entity npc = pickTalkTarget();
-    if (!npc.valid())
-        return;
-    const DialogueBindingComponent* binding = world().get<DialogueBindingComponent>(npc);
-    if (!binding || binding->graph.empty())
-        return;
-    AssetRef<DialogueGraphDef> loaded = assets().tryLoadDialogueGraph(binding->graph);
-    if (!loaded)
-        return;
-    m_talkGraph = std::move(loaded);
-    m_dialogue.setGraph(m_talkGraph.get());
-    m_dialogueSpeech.setServices(&assets(), &audio(), &world());
-    m_dialogueSpeech.startSynth();
-    m_dialogue.setAudio(m_dialogueSpeech.hook());
-    m_dialogue.setFacts(m_session.valid() ? world().get<DialogueFactsComponent>(m_session) : nullptr);
-    if (!m_dialogue.tryStart(world(), m_playPlayer, npc, &m_play.quest()))
-        return;
-    m_guardVoice.setSuppressed(npc, true, &audio());
-    m_talkNpc = npc;
 }
 
 void EditorApp::drawPlayDialogue()
@@ -1072,97 +1036,13 @@ void EditorApp::drawPlayDialogue()
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     if (!vp)
         return;
-    ImDrawList* dl = ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp));
-    ImFont*     font = ImGui::GetFont();
-    const float fs = ImGui::GetFontSize();
-    const float vw = vp->Size.x;
-    const float vh = vp->Size.y;
-
-    auto project = [&](const Vector3f& at, ImVec2& out) {
-        const Vector4f clip = m_camera.GetViewProj() * Vector4f(at, 1.0f);
-        if (clip.w <= 1.0e-4f || clip.z / clip.w < 0.0f || clip.z / clip.w > 1.0f)
-            return false;
-        out.x = vp->Pos.x + (clip.x / clip.w * 0.5f + 0.5f) * vw;
-        out.y = vp->Pos.y + (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * vh;
-        return true;
-    };
-
-    if (m_dialogue.active() && !m_dialogue.subtitle().empty() && dl && font)
-    {
-        const Entity speaker = m_dialogue.speaker();
-        const TransformComponent* gxf = speaker.valid() && world().alive(speaker) ? world().get<TransformComponent>(speaker) : nullptr;
-        if (gxf)
-        {
-            ImVec2 at{};
-            if (project(Vector3f(gxf->position.x, gxf->position.y + 2.1f, gxf->position.z), at))
-            {
-                const char*  text = m_dialogue.subtitle().c_str();
-                const ImVec2 ts   = font->CalcTextSizeA(fs, 260.0f, 260.0f, text);
-                at.x -= ts.x * 0.5f;
-                at.y -= ts.y;
-                dl->AddRectFilled(ImVec2(at.x - 6.0f, at.y - 3.0f), ImVec2(at.x + ts.x + 6.0f, at.y + ts.y + 3.0f), IM_COL32(10, 14, 12, 200), 3.0f);
-                dl->AddText(font, fs, at, IM_COL32(255, 255, 255, 255), text, nullptr, 260.0f);
-            }
-        }
-        const std::string line = m_dialogue.speakerName() + ": " + m_dialogue.subtitle();
-        const float       size = fs * 1.15f;
-        const ImVec2      ts   = font->CalcTextSizeA(size, FLT_MAX, 0.0f, line.c_str());
-        const ImVec2      at{ vp->Pos.x + (vp->Size.x - ts.x) * 0.5f, vp->Pos.y + vp->Size.y - 150.0f };
-        dl->AddText(font, size, ImVec2(at.x + 1.5f, at.y + 1.5f), IM_COL32(0, 0, 0, 220), line.c_str());
-        dl->AddText(font, size, at, IM_COL32(235, 235, 210, 255), line.c_str());
-    }
-
-    if (!m_dialogue.active() && dl)
-    {
-        const Entity target = pickTalkTarget();
-        const TransformComponent* xf = target.valid() ? world().get<TransformComponent>(target) : nullptr;
-        if (xf)
-        {
-            ImVec2 at{};
-            if (project(Vector3f(xf->position.x, xf->position.y + 2.0f, xf->position.z), at))
-            {
-                const char*  text = "[T] Talk";
-                const ImVec2 ts   = ImGui::CalcTextSize(text);
-                at.x -= ts.x * 0.5f;
-                at.y -= ts.y;
-                dl->AddText(ImVec2(at.x + 1.0f, at.y + 1.0f), IM_COL32(0, 0, 0, 200), text);
-                dl->AddText(at, IM_COL32(255, 220, 90, 255), text);
-            }
-        }
-    }
-
-    if (!m_dialogue.choiceOpen() || !m_dialogue.graph())
-        return;
-    const DialogueNode* node = m_dialogue.graph()->findNode(m_dialogue.nodeId());
-    if (!node)
-        return;
-    ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y - 220.0f), ImGuiCond_Always, ImVec2(0.5f, 1.0f));
-    ImGui::SetNextWindowSize(ImVec2(420.0f, 0.0f), ImGuiCond_Always);
-    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
-    if (!ImGui::Begin("PlayDialogue", nullptr, flags))
-    {
-        ImGui::End();
-        return;
-    }
-    const std::vector<int>& indices = m_dialogue.choiceIndices();
-    int shown = static_cast<int>(indices.size());
-    if (shown > 8)
-        shown = 8;
-    for (int i = 0; i < shown; ++i)
-    {
-        const int choice = indices[static_cast<size_t>(i)];
-        if (choice < 0 || choice >= static_cast<int>(node->choices.size()))
-            continue;
-        const std::string& text = node->choices[static_cast<size_t>(choice)].text;
-        char label[160];
-        std::snprintf(label, sizeof(label), "%d  %s", i + 1, text.c_str());
-        if (ImGui::Selectable(label, i == m_dialogue.selected()))
-        {
-            m_dialogue.moveChoice(i - m_dialogue.selected());
-            m_dialogue.commitChoice();
-        }
-    }
-    ImGui::End();
+    DialogueHudView view;
+    view.viewProj       = m_camera.GetViewProj();
+    view.list           = ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp));
+    view.projectWidth   = vp->Size.x;
+    view.projectHeight  = vp->Size.y;
+    view.windowName     = "PlayDialogue";
+    drawDialogueHud(m_dialogue, view);
 }
 
 void EditorApp::drawPlayHud()

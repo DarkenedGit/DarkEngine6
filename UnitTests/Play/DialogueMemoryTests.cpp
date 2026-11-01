@@ -1,5 +1,7 @@
 #include "Play/DialogueMemory.h"
 
+#include "ECS/World.h"
+
 #include <gtest/gtest.h>
 
 using namespace Dark;
@@ -41,6 +43,30 @@ TEST(DialogueMemory, EntryRouter)
     EXPECT_EQ(chooseDialogueEntry(true, false, false, true, true), DialogueEntryKind::Refusal);
     EXPECT_EQ(chooseDialogueEntry(true, false, false, false, true), DialogueEntryKind::Resume);
     EXPECT_EQ(chooseDialogueEntry(true, false, false, false, false), DialogueEntryKind::Greeting);
+}
+
+TEST(DialogueMemory, ClearDropsBookmarkAndOnceLines)
+{
+    World world;
+    const Entity npc = world.createEntity();
+    DialogueMemoryComponent& memory = world.emplace<DialogueMemoryComponent>(npc);
+    memory.bookmark.valid   = true;
+    memory.bookmark.graphId = "hunter_gate";
+    memory.bookmark.nodeId  = "gate";
+    memory.bookmark.pending = DialoguePending::Choice;
+    memory.lines.onceHeard.push_back("why_hunters");
+    memory.lines.onceHeard.push_back("offer_file");
+    memory.lines.cycleHeard.push_back("gate_hold");
+
+    clearDialogueMemory(world);
+
+    const DialogueMemoryComponent* after = world.get<DialogueMemoryComponent>(npc);
+    ASSERT_NE(after, nullptr);
+    EXPECT_FALSE(after->bookmark.valid);
+    EXPECT_TRUE(after->bookmark.graphId.empty());
+    EXPECT_TRUE(after->bookmark.nodeId.empty());
+    EXPECT_TRUE(after->lines.onceHeard.empty());
+    EXPECT_TRUE(after->lines.cycleHeard.empty());
 }
 
 TEST(DialogueMemory, OnceChoiceIsRememberedApartFromRepeatableLines)

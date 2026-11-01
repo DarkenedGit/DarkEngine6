@@ -15,6 +15,8 @@
 #include "Play/DialogueQuery.h"
 
 #include <cmath>
+#include <cctype>
+#include <limits>
 
 namespace Dark
 {
@@ -69,6 +71,20 @@ namespace Dark
         bool linePhase(DialoguePhase phase)
         {
             return phase == DialoguePhase::Resume || phase == DialoguePhase::NodeLine || phase == DialoguePhase::Refusal;
+        }
+
+        bool sameSpeaker(std::string_view a, std::string_view b)
+        {
+            if (a.size() != b.size())
+                return false;
+            for (size_t i = 0; i < a.size(); ++i)
+            {
+                const unsigned char ca = static_cast<unsigned char>(a[i]);
+                const unsigned char cb = static_cast<unsigned char>(b[i]);
+                if (std::tolower(ca) != std::tolower(cb))
+                    return false;
+            }
+            return true;
         }
     } // namespace
 
@@ -317,6 +333,7 @@ namespace Dark
 
         m_player = player;
         m_npc = npc;
+        m_lineSpeaker = npc;
         m_quest = quest;
         m_skip = false;
         m_commit = false;
@@ -372,6 +389,7 @@ namespace Dark
         m_move = 0;
         m_subtitle.clear();
         m_choiceIndex.clear();
+        m_lineSpeaker = {};
     }
 
     void DialogueRuntime::advance(World& world)
@@ -407,10 +425,11 @@ namespace Dark
             advance(world);
             return;
         }
+        m_lineSpeaker = resolveLineSpeaker(world);
         float shown = 2.5f;
         bool ready = true;
         if (m_audio.acquire)
-            ready = m_audio.acquire(m_audio.user, m_line, m_npc, m_waited + dt, shown);
+            ready = m_audio.acquire(m_audio.user, m_line, m_lineSpeaker, m_waited + dt, shown);
         if (!ready)
         {
             m_waited += dt;
@@ -419,19 +438,61 @@ namespace Dark
         m_committed = true;
         m_shownLeft = shown;
         m_subtitle = m_line.text;
-        m_speakerName = m_graph ? m_graph->speaker : std::string{};
+        if (!m_line.speaker.empty())
+            m_speakerName = m_line.speaker;
+        else
+            m_speakerName = m_graph ? m_graph->speaker : std::string{};
         if (DialogueMemoryComponent* memory = world.get<DialogueMemoryComponent>(m_npc))
             rememberDialogueLine(memory->lines, m_line);
         DE_LOG_INFO(LogCategory::AI, "Dialogue: line {} entity {}", m_line.id, m_npc.id());
     }
 
+    Entity DialogueRuntime::resolveLineSpeaker(World& world) const
+    {
+        const std::string& named = m_line.speaker;
+        if (named.empty())
+            return m_npc;
+        if (m_graph && sameSpeaker(named, m_graph->speaker))
+            return m_npc;
+        if (const TagComponent* tag = world.get<TagComponent>(m_npc))
+        {
+            if (sameSpeaker(named, tag->name))
+                return m_npc;
+        }
+        if (sameSpeaker(named, "player"))
+            return m_player.valid() ? m_player : m_npc;
+
+        Entity best{};
+        float bestDist = std::numeric_limits<float>::infinity();
+        bool found = false;
+        const TransformComponent* anchor = world.get<TransformComponent>(m_npc);
+        world.each<TagComponent>([&](Entity entity, TagComponent& tag) {
+            if (!sameSpeaker(tag.name, named))
+                return;
+            float dist = std::numeric_limits<float>::infinity();
+            if (anchor)
+            {
+                if (const TransformComponent* xf = world.get<TransformComponent>(entity))
+                {
+                    const float dx = xf->position.x - anchor->position.x;
+                    const float dz = xf->position.z - anchor->position.z;
+                    dist = dx * dx + dz * dz;
+                }
+            }
+            else
+                dist = 0.0f;
+            if (!found || dist < bestDist)
+            {
+                found = true;
+                best = entity;
+                bestDist = dist;
+            }
+        });
+        return found ? best : m_npc;
+    }
+
     bool DialogueRuntime::blockedByWorld(World& world, DialogueInterrupt& reason) const
     {
-        if (m_uiBlocked)
-        {
-            reason = DialogueInterrupt::Ui;
-            return true;
-        }
         if (entityDead(world, m_npc) || entityDead(world, m_player))
         {
             reason = DialogueInterrupt::Death;
@@ -474,6 +535,9 @@ namespace Dark
         if (!active())
             return;
         m_world = &world;
+        // A UI window holds the line. Death, combat, and distance wait until it closes.
+        if (m_uiBlocked)
+            return;
         DialogueInterrupt reason = DialogueInterrupt::Cancel;
         if (blockedByWorld(world, reason))
         {

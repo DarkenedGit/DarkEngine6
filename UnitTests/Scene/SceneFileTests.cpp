@@ -2464,7 +2464,7 @@ TEST(SceneFile, QuestTagsWrongTypeLogsAndKeepsDefaults)
   "name": "quest_tags",
   "quest": "north_lab",
   "objects": [
-    { "type": "cube", "conceal": true, "goal": true, "circuit": "power", "zone": "gate", "pickup": "rock", "pickupCount": 3, "dialogue": "dialogue/hunter_gate.dlg.json" }
+    { "type": "cube", "conceal": true, "goal": true, "circuit": "power", "zone": "gate", "pickup": "rock", "pickupCount": 3, "dialogue": "dialogue/hunter_gate.dlg.json", "squad": "gate", "block": false, "patrol": [[1, 2], [3, 4]] }
   ]
 })";
     }
@@ -2481,13 +2481,33 @@ TEST(SceneFile, QuestTagsWrongTypeLogsAndKeepsDefaults)
     EXPECT_EQ(good.objects[0].pickup, "rock");
     EXPECT_EQ(good.objects[0].pickupCount, 3);
     EXPECT_EQ(good.objects[0].dialogue, "dialogue/hunter_gate.dlg.json");
+    EXPECT_EQ(good.objects[0].squad, "gate");
+    EXPECT_FALSE(good.objects[0].block);
+    ASSERT_EQ(good.objects[0].patrol.size(), 2u);
+    EXPECT_FLOAT_EQ(good.objects[0].patrol[0].x, 1.0f);
+    EXPECT_FLOAT_EQ(good.objects[0].patrol[0].y, 2.0f);
+    EXPECT_FLOAT_EQ(good.objects[0].patrol[1].x, 3.0f);
+    EXPECT_FLOAT_EQ(good.objects[0].patrol[1].y, 4.0f);
 
     const auto roundPath = tempScenePath("darkengine6_scene_quest_tags_round_ut.json");
     ASSERT_TRUE(saveSceneToJson(roundPath, good, &err)) << err;
     SceneFileData round{};
     ASSERT_TRUE(loadSceneFromJson(roundPath, round, &err)) << err;
     ASSERT_EQ(round.objects.size(), 1u);
+    EXPECT_TRUE(round.objects[0].conceal);
+    EXPECT_TRUE(round.objects[0].goal);
+    EXPECT_EQ(round.objects[0].circuit, "power");
+    EXPECT_EQ(round.objects[0].zone, "gate");
+    EXPECT_EQ(round.objects[0].pickup, "rock");
+    EXPECT_EQ(round.objects[0].pickupCount, 3);
     EXPECT_EQ(round.objects[0].dialogue, "dialogue/hunter_gate.dlg.json");
+    EXPECT_EQ(round.objects[0].squad, "gate");
+    EXPECT_FALSE(round.objects[0].block);
+    ASSERT_EQ(round.objects[0].patrol.size(), 2u);
+    EXPECT_FLOAT_EQ(round.objects[0].patrol[0].x, 1.0f);
+    EXPECT_FLOAT_EQ(round.objects[0].patrol[0].y, 2.0f);
+    EXPECT_FLOAT_EQ(round.objects[0].patrol[1].x, 3.0f);
+    EXPECT_FLOAT_EQ(round.objects[0].patrol[1].y, 4.0f);
 
     const auto badPath = tempScenePath("darkengine6_scene_quest_tags_bad_ut.json");
     {
