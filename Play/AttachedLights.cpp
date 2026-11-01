@@ -5,6 +5,8 @@
 #include "ECS/Components.h"
 #include "ECS/World.h"
 
+#include <vector>
+
 namespace Dark
 {
     using namespace Math;
@@ -32,6 +34,33 @@ namespace Dark
             aim.Normalize();
             lxf->rotation = Quaternion::FromLookRotation(aim, Vector3f::Y_AXIS);
         });
+    }
+
+    Entity spawnGuardTorch(World& world, Entity owner, const Vector3f& at)
+    {
+        const Entity torch = world.createEntity();
+        world.emplace<TransformComponent>(torch, at, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
+        AttachedLightComponent att{};
+        att.owner         = owner;
+        auto& beam        = world.emplace<LocalLightComponent>(torch);
+        beam.type         = LocalLightType::Spot;
+        beam.color        = Vector3f{ 1.0f, 0.95f, 0.85f };
+        beam.intensity    = att.intensity;
+        beam.range        = att.range;
+        beam.innerConeDeg = att.innerConeDeg;
+        beam.outerConeDeg = att.outerConeDeg;
+        beam.enabled      = false;
+        beam.castShadow   = true;
+        world.emplace<AttachedLightComponent>(torch, att);
+        return torch;
+    }
+
+    void destroyGuardTorches(World& world)
+    {
+        std::vector<Entity> torches;
+        world.each<AttachedLightComponent>([&](Entity torch, AttachedLightComponent&) { torches.push_back(torch); });
+        for (Entity torch : torches)
+            world.destroyEntity(torch);
     }
 
 } // namespace Dark

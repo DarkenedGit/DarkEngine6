@@ -23,8 +23,11 @@
 #include "Math/Quaternion.h"
 #include "Math/Ray3f.h"
 #include "Render/GpuUpload.h"
+#include "Save/PersistentId.h"
+#include "Save/ProgressComponents.h"
 
 #include <cmath>
+#include <format>
 #include <vector>
 
 namespace Dark
@@ -583,6 +586,30 @@ namespace Dark
         applyFacilityUpgrades(state, host);
     }
 
+    void writeFacilityProgress(const FacilityState& state, FacilityProgressComponent& out)
+    {
+        out.upgrades  = state.owned;
+        out.alarmTime = state.alarmTime > 0.0f ? state.alarmTime : 0.0f;
+        out.hiddenIn  = state.hiddenIn;
+        out.hideFound = state.hideFound;
+    }
+
+    void readFacilityProgress(const FacilityProgressComponent& saved, FacilityState& state, World& world, Entity player)
+    {
+        state.owned         = saved.upgrades;
+        state.upgradesDirty = true;
+        state.alarmTime     = saved.alarmTime;
+        state.alarmBeep     = 0.0f;
+        const bool hidden   = saved.hiddenIn.valid() && world.alive(saved.hiddenIn) && world.has<HideSpotComponent>(saved.hiddenIn);
+        state.hiddenIn      = hidden ? saved.hiddenIn : Entity{};
+        state.hideFound     = hidden ? saved.hideFound : 0.0f;
+        state.hideWitness   = {};
+        if (ModelComponent* mc = player.valid() ? world.get<ModelComponent>(player) : nullptr)
+            mc->visible = !hidden;
+        if (PlayerStealthComponent* stealth = player.valid() ? world.get<PlayerStealthComponent>(player) : nullptr)
+            stealth->hidden = hidden;
+    }
+
     void spawnBuildingFixtures(const BuildingFixtureSpawn& spawn, const std::vector<BuildingContainer>& containers,
                                const std::vector<BuildingHideSpot>& hides, const std::vector<BuildingDoor>& doors,
                                const std::vector<BuildingCamera>& cameras)
@@ -598,6 +625,12 @@ namespace Dark
                 checkFrom.push_back(h.pos + h.front * 0.85f);
             spawn.ai->setHideSpots(std::move(checkFrom));
         }
+        const bool stamp = spawn.stampPrefix && spawn.stampPrefix[0] != '\0';
+        int        stampN[4]{};
+        auto       stampAs = [&](Entity e, int kind, const char* name) {
+            if (stamp)
+                stampProceduralId(*world, e, std::format("{}/{}/{}", spawn.stampPrefix, name, stampN[kind]++));
+        };
         std::deque<std::string>* labels = spawn.labels;
         for (const BuildingContainer& c : containers)
         {
@@ -619,6 +652,7 @@ namespace Dark
             world->emplace<TransformComponent>(e, c.pos, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
             world->emplace<LootComponent>(e, loot);
             setInteractable(*world, e, InteractKind::Loot, kInteractLootRange);
+            stampAs(e, 0, "container");
         }
 
         const bool canDraw = spawn.renderer && spawn.assets && spawn.pins;
@@ -648,6 +682,7 @@ namespace Dark
             cam.aimYaw = c.yaw;
             cam.light  = lamp;
             world->emplace<SecurityCameraComponent>(e, cam);
+            stampAs(e, 1, "camera");
         }
         for (const BuildingDoor& d : doors)
         {
@@ -666,6 +701,7 @@ namespace Dark
             door.lock      = d.lock;
             world->emplace<DoorComponent>(e, door);
             setInteractable(*world, e, InteractKind::Door, kInteractDoorRange);
+            stampAs(e, 2, "door");
         }
         for (const BuildingHideSpot& h : hides)
         {
@@ -673,6 +709,7 @@ namespace Dark
             world->emplace<TransformComponent>(e, h.pos, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
             world->emplace<HideSpotComponent>(e, HideSpotComponent{ h.front, h.label });
             setInteractable(*world, e, InteractKind::Hide, kInteractHideRange);
+            stampAs(e, 3, "hide");
         }
     }
 

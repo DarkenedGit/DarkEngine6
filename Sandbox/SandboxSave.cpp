@@ -136,7 +136,10 @@ void SandboxApp::saveBeginLoad(void* user, World&)
     app->m_leafRustle.stopAll(app->audio());
     clearAllStatusFx(app->world(), &app->audio());
     if (app->m_session.valid())
+    {
         app->world().remove<QuestProgressComponent>(app->m_session);
+        app->world().remove<FacilityProgressComponent>(app->m_session);
+    }
     app->m_attackCharge.reset();
     app->m_blockCharge.reset();
     app->m_chargeWindup = {};
@@ -293,6 +296,10 @@ void SandboxApp::saveBeforeCapture(void* user, World& world)
         if (!quest)
             quest = &world.emplace<QuestProgressComponent>(app->m_session);
         writeQuestProgress(app->m_quest, *quest);
+        FacilityProgressComponent* facility = world.get<FacilityProgressComponent>(app->m_session);
+        if (!facility)
+            facility = &world.emplace<FacilityProgressComponent>(app->m_session);
+        writeFacilityProgress(app->m_play.facility(), *facility);
     }
 }
 
@@ -345,6 +352,13 @@ void SandboxApp::saveAfterApply(void* user, World& world)
             DE_LOG_WARN("Quest: saved progress for '{}' was not restored", quest->id);
     }
     syncThrowableLoadout(world, body, app->m_throwFlights, ThrowableLoadoutSync::FromRecord);
+    {
+        const FacilityProgressComponent saved = app->m_session.valid() && world.get<FacilityProgressComponent>(app->m_session)
+                                                    ? *world.get<FacilityProgressComponent>(app->m_session)
+                                                    : FacilityProgressComponent{};
+        readFacilityProgress(saved, app->m_play.facility(), world, body);
+        app->m_play.refreshUpgrades();
+    }
     applyDisabledCircuits(world);
     syncCarriedAgents(world);
 }

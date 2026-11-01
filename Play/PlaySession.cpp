@@ -3,6 +3,7 @@
 #include "AI/AiComponents.h"
 #include "AI/Exposure.h"
 #include "AI/AiSystem.h"
+#include "Collision/Occlusion.h"
 #include "AI/HsmGraphComponent.h"
 #include "Animation/AnimGraphComponent.h"
 #include "Animation/Locomotion.h"
@@ -295,6 +296,12 @@ namespace Dark
         if (!self || !self->m_host.world || !self->m_host.audio || !self->m_host.assets)
             return;
         playSoundCue(*self->m_host.world, *self->m_host.audio, *self->m_host.assets, listenerOf(self->m_host), "click");
+    }
+
+    float PlaySession::audioOcclusion(void* user, const Math::Vector3f& listener, const Math::Vector3f& source)
+    {
+        const auto* self = static_cast<const PlaySession*>(user);
+        return self ? Collision::soundOcclusion(self->m_facility.blocks, self->m_facility.blockCount, listener, source) : 0.0f;
     }
 
     void PlaySession::onJumpHits(void* user, const Combat::DamageEvent* events, int count)
@@ -1094,6 +1101,8 @@ namespace Dark
     {
         pull();
         clearFacilitySession(m_facility, m_host.world, m_host.player);
+        if (m_host.audio)
+            m_host.audio->updateOcclusion(0.0f, nullptr, nullptr);
     }
 
     void PlaySession::refreshUpgrades()
@@ -1347,6 +1356,8 @@ namespace Dark
         const Math::AABox3f* blocks     = m_facility.blocks;
         const int            blockCount = m_facility.blockCount;
         lightAndExposure(dt, blocks, blockCount);
+        if (m_host.audio)
+            m_host.audio->updateOcclusion(dt, &PlaySession::audioOcclusion, this);
         if (m_host.chaseReady && m_host.spawnUnit)
             tickSpawnerJobs(*world, dt, m_host.spawnUnit, m_host.user);
         if (m_host.chaseReady && m_host.crows && m_host.assets && m_host.pins && m_host.audio)

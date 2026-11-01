@@ -254,6 +254,7 @@ namespace Dark
         PlayerCombatHooks combatHooks();
 
         static void onJumpHits(void* user, const Combat::DamageEvent* events, int count);
+        static float audioOcclusion(void* user, const Math::Vector3f& listener, const Math::Vector3f& source);
         static void onRefreshCamera(void* user);
         static void onHunterCue(void* user, Entity hunter, const char* cue);
         static void onPowerClick(void* user);

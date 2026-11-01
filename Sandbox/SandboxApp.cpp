@@ -678,6 +678,7 @@ void SandboxApp::spawnBuildingExtras()
     spawn.pins     = &pins();
     spawn.ai       = &m_chase.ai();
     spawn.labels   = &m_buildingLabels;
+    spawn.stampPrefix = "sandbox/level";
     spawnBuildingFixtures(spawn, m_buildingContainers, m_buildingHides, m_buildingDoors, m_buildingCameras);
 }
 
@@ -3045,20 +3046,7 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
             stampProceduralId(world(), hunter, std::format("sandbox/level/{}/{}", wolf ? "wolf" : "hunter", stamp), wolf ? "wolf" : "hunter");
             if (!wolf)
             {
-                const Vector3f torchAt = placed ? placed->position : xf.position;
-                const Entity torch = world().createEntity();
-                world().emplace<TransformComponent>(torch, torchAt, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
-                AttachedLightComponent att{};
-                att.owner = hunter;
-                auto& beam        = world().emplace<LocalLightComponent>(torch);
-                beam.type         = LocalLightType::Spot;
-                beam.color        = Vector3f{ 1.0f, 0.95f, 0.85f };
-                beam.intensity    = att.intensity;
-                beam.range        = att.range;
-                beam.innerConeDeg = att.innerConeDeg;
-                beam.outerConeDeg = att.outerConeDeg;
-                beam.enabled      = false;
-                world().emplace<AttachedLightComponent>(torch, att);
+                const Entity torch = spawnGuardTorch(world(), hunter, placed ? placed->position : xf.position);
                 stampProceduralId(world(), torch, std::format("sandbox/level/torch/{}", stamp), "torch");
             }
         }

@@ -71,6 +71,9 @@ namespace Dark::Audio
         uint32_t                   generation = 1;
         bool                       inUse      = false;
         bool                       music      = false;
+        float                      occlusion  = 0.0f;
+        float                      filterFreq = 1.0f;
+        bool                       occlusionFresh = false;
     };
 
     struct AudioSystem::Device
@@ -265,13 +268,14 @@ namespace Dark::Audio
             slot.voice->DestroyVoice();
             slot.voice = nullptr;
         }
-        const HRESULT hr = m_device->xaudio->CreateSourceVoice(&slot.voice, &fmt);
+        const HRESULT hr = m_device->xaudio->CreateSourceVoice(&slot.voice, &fmt, XAUDIO2_VOICE_USEFILTER);
         if (FAILED(hr) || !slot.voice)
         {
             DE_LOG_ERROR(LogCategory::Audio, "Audio: CreateSourceVoice failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
             return false;
         }
-        slot.format = fmt;
+        slot.format     = fmt;
+        slot.filterFreq = XAUDIO2_MAX_FILTER_FREQUENCY;
         return true;
     }
 
@@ -412,6 +416,8 @@ namespace Dark::Audio
         slot.desc.pitch  = clampf(desc.pitch, 0.5f, 2.0f);
         slot.inUse       = true;
         slot.music       = false;
+        slot.occlusion   = 0.0f;
+        slot.occlusionFresh = desc.spatial;
         ++slot.generation;
         if (slot.generation == 0)
             slot.generation = 1;
@@ -431,7 +437,7 @@ namespace Dark::Audio
             return 0;
         }
 
-        slot.voice->SetVolume(slot.desc.volume);
+        applyMix(slot);
         slot.voice->SetFrequencyRatio(slot.desc.pitch);
         if (slot.desc.spatial)
             apply3D(slot);
@@ -557,7 +563,58 @@ namespace Dark::Audio
         VoiceSlot& slot = *m_voices[static_cast<size_t>(index)];
         slot.desc.volume = clampf(volume, 0.0f, 1.0f);
         if (slot.inUse && slot.voice)
-            slot.voice->SetVolume(slot.desc.volume);
+            applyMix(slot);
+    }
+
+    float occludedGain(float occlusion)
+    {
+        return 1.0f - 0.7f * clampf(occlusion, 0.0f, 1.0f);
+    }
+
+    float occludedFilterFrequency(float occlusion, float sampleRate)
+    {
+        const float amount = clampf(occlusion, 0.0f, 1.0f);
+        if (amount <= 0.0f || sampleRate <= 0.0f)
+            return XAUDIO2_MAX_FILTER_FREQUENCY;
+        const float low = clampf(2.0f * std::sin(3.14159265f * 900.0f / sampleRate), 0.01f, XAUDIO2_MAX_FILTER_FREQUENCY);
+        return std::pow(low, amount);
+    }
+
+    float smoothOcclusion(float current, float target, float dt)
+    {
+        const float step = dt > 0.0f ? dt / 0.2f : 0.0f;
+        if (current < target)
+            return Math::Min(target, current + step);
+        return Math::Max(target, current - step);
+    }
+
+    void AudioSystem::applyMix(VoiceSlot& slot) const
+    {
+        if (!slot.voice)
+            return;
+        slot.voice->SetVolume(slot.desc.volume * occludedGain(slot.occlusion));
+        const float freq = occludedFilterFrequency(slot.occlusion, static_cast<float>(slot.format.nSamplesPerSec));
+        if (freq == slot.filterFreq)
+            return;
+        XAUDIO2_FILTER_PARAMETERS filter{ LowPassFilter, freq, 1.0f };
+        if (SUCCEEDED(slot.voice->SetFilterParameters(&filter)))
+            slot.filterFreq = freq;
+    }
+
+    void AudioSystem::updateOcclusion(float dt, OcclusionQuery query, void* user)
+    {
+        if (!m_valid)
+            return;
+        for (auto& ptr : m_voices)
+        {
+            if (!ptr || !ptr->inUse || ptr->music || !ptr->voice || !ptr->desc.spatial)
+                continue;
+            VoiceSlot&  slot   = *ptr;
+            const float target = query ? query(user, m_listener.position, slot.desc.position) : 0.0f;
+            slot.occlusion      = (slot.occlusionFresh || !query) ? target : smoothOcclusion(slot.occlusion, target, dt);
+            slot.occlusionFresh = false;
+            applyMix(slot);
+        }
     }
 
     void AudioSystem::tick()

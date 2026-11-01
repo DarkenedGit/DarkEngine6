@@ -13,7 +13,7 @@ namespace Dark
     namespace AI
     {
 
-        // Sun at the chest, darkened when a cube blocks the ray, plus nearby point and spot lamps.
+        // Sun at the chest, darkened when a cube blocks the ray, plus nearby point and spot lamps a cube does not hide.
         // ignoreLight skips one lamp (the muzzle flash).
         float sampleLightLevel(World& world, const Math::Vector3f& chest, float sunElevation, const Math::Vector3f& sunDir, const Math::AABox3f* cubes, int cubeCount, Entity ignoreLight);
 

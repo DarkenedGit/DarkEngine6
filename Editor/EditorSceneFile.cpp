@@ -367,6 +367,7 @@ bool EditorApp::loadScene()
         fixtures.pins     = &pins();
         fixtures.ai       = &m_ai;
         fixtures.labels   = &m_buildingLabels;
+        fixtures.stampPrefix = "editor/scene";
         spawnBuildingFixtures(fixtures, m_buildingContainers, m_buildingHides, m_buildingDoors, m_buildingCameras);
     }
     for (size_t i = 0; i < data.objects.size() && i < spawned.size(); ++i)

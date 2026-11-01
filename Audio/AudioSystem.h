@@ -41,6 +41,15 @@ namespace Dark::Audio
 
     using VoiceId = uint32_t; // 0 = invalid
 
+    // 0 = clear, 1 = behind walls.
+    using OcclusionQuery = float (*)(void* user, const Math::Vector3f& listener, const Math::Vector3f& source);
+
+    // Gain and XAudio2 low-pass setting for an occlusion amount. A blocked voice is quieter and muffled.
+    float occludedGain(float occlusion);
+    float occludedFilterFrequency(float occlusion, float sampleRate);
+    // Moves current toward target, a full swing in about 0.2 s.
+    float smoothOcclusion(float current, float target, float dt);
+
     class AudioSystem
     {
     public:
@@ -91,11 +100,16 @@ namespace Dark::Audio
         // Apply 3D and reclaim finished one-shots. Call once per frame after gameplay.
         void tick();
 
+        // Asks query about every live 3D voice and fades it toward the answer. A voice's first
+        // update snaps. A null query clears every voice.
+        void updateOcclusion(float dt, OcclusionQuery query, void* user);
+
     private:
         struct VoiceSlot;
 
         bool createDevice();
         void apply3D(VoiceSlot& slot) const;
+        void applyMix(VoiceSlot& slot) const;
         int  allocSlot(bool allowSteal);
         VoiceId makeId(int index) const;
         int  decodeIndex(VoiceId id) const;
