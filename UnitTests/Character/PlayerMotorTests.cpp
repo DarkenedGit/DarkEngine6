@@ -51,6 +51,148 @@ namespace
             motor.tick(pos, hold, 1.0f / 60.0f, ground);
         }
     }
+
+    // Horizontal stand-in for the 0.3 m wall capsule. A start overlap is not a hit,
+    // matching b3World_CastMover ignoring fraction 0.
+    struct WallSolid
+    {
+        float minX = 0.0f;
+        float maxX = 0.0f;
+        float minZ = 0.0f;
+        float maxZ = 0.0f;
+        float topY = 100.0f;
+        bool  roof = false;
+    };
+
+    struct WallWorld
+    {
+        WallSolid solids[3]{};
+        int       count = 0;
+    };
+
+    constexpr float kWallProbeRadius = 0.3f;
+
+    float pointBoxDist2(float px, float pz, const WallSolid& solid)
+    {
+        const float cx = px < solid.minX ? solid.minX : (px > solid.maxX ? solid.maxX : px);
+        const float cz = pz < solid.minZ ? solid.minZ : (pz > solid.maxZ ? solid.maxZ : pz);
+        const float dx = px - cx;
+        const float dz = pz - cz;
+        return dx * dx + dz * dz;
+    }
+
+    bool sweepCircle(float ox, float oz, float dx, float dz, float maxDist, const WallSolid& solid, float& outDist)
+    {
+        const float radius = kWallProbeRadius;
+        if (pointBoxDist2(ox, oz, solid) <= radius * radius)
+            return false;
+
+        float best = maxDist + 1.0f;
+        auto  take = [&](float t) {
+            if (t >= 0.0f && t <= maxDist && t < best)
+                best = t;
+        };
+
+        if (std::fabs(dx) > 1.0e-8f)
+        {
+            const float planes[2] = { solid.minX - radius, solid.maxX + radius };
+            for (float plane : planes)
+            {
+                const float t = (plane - ox) / dx;
+                const float z = oz + dz * t;
+                if (z >= solid.minZ && z <= solid.maxZ)
+                    take(t);
+            }
+        }
+        if (std::fabs(dz) > 1.0e-8f)
+        {
+            const float planes[2] = { solid.minZ - radius, solid.maxZ + radius };
+            for (float plane : planes)
+            {
+                const float t = (plane - oz) / dz;
+                const float x = ox + dx * t;
+                if (x >= solid.minX && x <= solid.maxX)
+                    take(t);
+            }
+        }
+
+        const float a = dx * dx + dz * dz;
+        if (a > 1.0e-12f)
+        {
+            const float cx[4] = { solid.minX, solid.maxX, solid.minX, solid.maxX };
+            const float cz[4] = { solid.minZ, solid.minZ, solid.maxZ, solid.maxZ };
+            for (int i = 0; i < 4; ++i)
+            {
+                const float fx   = ox - cx[i];
+                const float fz   = oz - cz[i];
+                const float b    = 2.0f * (fx * dx + fz * dz);
+                const float c    = fx * fx + fz * fz - radius * radius;
+                const float disc = b * b - 4.0f * a * c;
+                if (disc < 0.0f)
+                    continue;
+                const float root = std::sqrt(disc);
+                take((-b - root) / (2.0f * a));
+                take((-b + root) / (2.0f * a));
+            }
+        }
+
+        if (best > maxDist)
+            return false;
+        outDist = best;
+        return true;
+    }
+
+    bool castWall(void* user, const Vector3f& from, const Vector3f& dir, float maxDist, float& outDist)
+    {
+        auto* world = static_cast<WallWorld*>(user);
+        float best  = maxDist + 1.0f;
+        bool  hit   = false;
+        for (int i = 0; i < world->count; ++i)
+        {
+            const WallSolid& solid = world->solids[i];
+            if (from.y - 0.1f > solid.topY)
+                continue;
+            float dist = 0.0f;
+            if (sweepCircle(from.x, from.z, dir.x, dir.z, maxDist, solid, dist) && dist < best)
+            {
+                best = dist;
+                hit  = true;
+            }
+        }
+        if (!hit)
+            return false;
+        outDist = best;
+        return true;
+    }
+
+    bool roofAt(void* user, float x, float z, float, float& outTopY)
+    {
+        auto* world = static_cast<WallWorld*>(user);
+        for (int i = 0; i < world->count; ++i)
+        {
+            const WallSolid& solid = world->solids[i];
+            if (!solid.roof || x < solid.minX || x > solid.maxX || z < solid.minZ || z > solid.maxZ)
+                continue;
+            outTopY = solid.topY;
+            return true;
+        }
+        return false;
+    }
+
+    PlayerGroundQuery wallQuery(WallWorld& world)
+    {
+        PlayerGroundQuery query = flatQuery();
+        query.wallAt            = castWall;
+        query.ledgeAt           = roofAt;
+        query.wallUser          = &world;
+        return query;
+    }
+
+    void beginClimb(PlayerMotor& motor, PlayerMoveState state, const Vector3f& wallDir)
+    {
+        motor.restoreProgress(state, Vector3f{ 0.0f, 0.0f, 0.0f }, 0.0f, 0.0f, false, false, 0.0f, Vector3f{ 0.0f, 0.0f, 0.0f });
+        motor.restoreClimb(1.0f, 0.0f, wallDir);
+    }
 } // namespace
 
 TEST(ApproachSpeed, RampsUpDownAndSnapsWhenUnset)
@@ -1168,4 +1310,366 @@ TEST(PlayerMotor, OneMeterColumnKeepsTheCurrentMode)
     ASSERT_EQ(swimmer.state(), PlayerMoveState::Swimming);
     swimmer.tick(swimPos, PlayerMotorInput{}, 1.0f / 60.0f, line);
     EXPECT_EQ(swimmer.state(), PlayerMoveState::Swimming);
+}
+
+TEST(PlayerMotor, WallRunClimbsAWideFace)
+{
+    WallWorld world;
+    world.count          = 1;
+    world.solids[0]      = WallSolid{ -4.0f, 4.0f, 1.0f, 1.3f, 100.0f, false };
+    const PlayerGroundQuery query = wallQuery(world);
+
+    PlayerMotor motor;
+    beginClimb(motor, PlayerMoveState::WallRun, Vector3f{ 0.0f, 0.0f, 1.0f });
+    Vector3f         pos{ 0.0f, 1.0f, 0.65f };
+    PlayerMotorInput in;
+    in.wish = Vector3f{ 0.0f, 0.0f, 1.0f };
+    advance(motor, pos, in, 0.30f, query);
+
+    EXPECT_EQ(motor.state(), PlayerMoveState::WallRun);
+    EXPECT_GT(pos.y, 1.5f);
+    EXPECT_NEAR(pos.x, 0.0f, 1.0e-4f);
+    EXPECT_NEAR(pos.z, 0.65f, 1.0e-4f);
+}
+
+TEST(PlayerMotor, WallRunStrafeSlidesAlongTheFace)
+{
+    WallWorld world;
+    world.count     = 1;
+    world.solids[0] = WallSolid{ -4.0f, 4.0f, 1.0f, 1.3f, 100.0f, false };
+    const PlayerGroundQuery query = wallQuery(world);
+
+    PlayerMotor motor;
+    beginClimb(motor, PlayerMoveState::WallRun, Vector3f{ 0.0f, 0.0f, 1.0f });
+    Vector3f         pos{ 0.0f, 1.0f, 0.65f };
+    PlayerMotorInput in;
+    in.wish = Vector3f{ 1.0f, 0.0f, 0.0f };
+    advance(motor, pos, in, 0.30f, query);
+
+    EXPECT_EQ(motor.state(), PlayerMoveState::WallRun);
+    EXPECT_GT(pos.x, 0.8f);
+    EXPECT_NEAR(pos.y, 1.0f, 0.05f);
+    EXPECT_NEAR(pos.z, 0.65f, 0.05f);
+}
+
+TEST(PlayerMotor, WallRunBackClimbsDown)
+{
+    WallWorld world;
+    world.count     = 1;
+    world.solids[0] = WallSolid{ -4.0f, 4.0f, 1.0f, 1.3f, 100.0f, false };
+    const PlayerGroundQuery query = wallQuery(world);
+
+    PlayerMotor motor;
+    beginClimb(motor, PlayerMoveState::WallRun, Vector3f{ 0.0f, 0.0f, 1.0f });
+    Vector3f         pos{ 0.0f, 3.0f, 0.65f };
+    PlayerMotorInput in;
+    in.wish = Vector3f{ 0.0f, 0.0f, -1.0f };
+    advance(motor, pos, in, 0.30f, query);
+
+    EXPECT_EQ(motor.state(), PlayerMoveState::WallRun);
+    EXPECT_LT(pos.y, 2.2f);
+    EXPECT_NEAR(pos.x, 0.0f, 0.05f);
+    EXPECT_NEAR(pos.z, 0.65f, 0.05f);
+}
+
+TEST(PlayerMotor, WallRunStrafeUnderALedgeKeepsMoving)
+{
+    WallWorld world;
+    world.count     = 1;
+    world.solids[0] = WallSolid{ -4.0f, 4.0f, 1.0f, 1.3f, 2.0f, true };
+    const PlayerGroundQuery query = wallQuery(world);
+
+    PlayerMotor motor;
+    beginClimb(motor, PlayerMoveState::WallRun, Vector3f{ 0.0f, 0.0f, 1.0f });
+    Vector3f         pos{ 0.0f, 1.5f, 0.65f };
+    PlayerMotorInput in;
+    in.wish = Vector3f{ 1.0f, 0.0f, 0.0f };
+    advance(motor, pos, in, 0.20f, query);
+
+    EXPECT_EQ(motor.state(), PlayerMoveState::WallRun);
+    EXPECT_GT(pos.x, 0.4f);
+    EXPECT_NEAR(pos.y, 1.5f, 0.05f);
+}
+
+TEST(PlayerMotor, HangShimmySlidesAlongTheLedge)
+{
+    WallWorld world;
+    world.count     = 1;
+    world.solids[0] = WallSolid{ -4.0f, 4.0f, 1.0f, 1.3f, 100.0f, false };
+    const PlayerGroundQuery query = wallQuery(world);
+
+    PlayerMotor motor;
+    beginClimb(motor, PlayerMoveState::Hang, Vector3f{ 0.0f, 0.0f, 1.0f });
+    Vector3f         pos{ 0.0f, 2.0f, 0.65f };
+    PlayerMotorInput in;
+    in.wish = Vector3f{ -1.0f, 0.0f, 0.0f };
+    advance(motor, pos, in, 0.30f, query);
+
+    EXPECT_EQ(motor.state(), PlayerMoveState::Hang);
+    EXPECT_LT(pos.x, -0.8f);
+    EXPECT_NEAR(pos.y, 2.0f, 0.05f);
+    EXPECT_NEAR(pos.z, 0.65f, 0.05f);
+}
+
+TEST(PlayerMotor, WallRunNearTheEdgeStillClimbs)
+{
+    WallWorld world;
+    world.count     = 1;
+    world.solids[0] = WallSolid{ -2.0f, 0.0f, 1.0f, 1.3f, 100.0f, false };
+    const PlayerGroundQuery query = wallQuery(world);
+
+    PlayerMotor motor;
+    beginClimb(motor, PlayerMoveState::WallRun, Vector3f{ 0.0f, 0.0f, 1.0f });
+    Vector3f         pos{ 0.05f, 1.0f, 0.65f };
+    PlayerMotorInput in;
+    in.wish = Vector3f{ 0.0f, 0.0f, 1.0f };
+    advance(motor, pos, in, 0.30f, query);
+
+    EXPECT_EQ(motor.state(), PlayerMoveState::WallRun);
+    EXPECT_GT(pos.y, 1.5f);
+    EXPECT_NEAR(pos.x, 0.05f, 1.0e-3f);
+}
+
+TEST(PlayerMotor, WallRunPushOffTheEdgeLetsGo)
+{
+    WallWorld world;
+    world.count     = 1;
+    world.solids[0] = WallSolid{ -2.0f, 0.0f, 1.0f, 1.3f, 100.0f, false };
+    const PlayerGroundQuery query = wallQuery(world);
+
+    PlayerMotor motor;
+    beginClimb(motor, PlayerMoveState::WallRun, Vector3f{ 0.0f, 0.0f, 1.0f });
+    Vector3f         pos{ 0.05f, 2.0f, 0.65f };
+    PlayerMotorInput in;
+    in.wish = Vector3f{ 1.0f, 0.0f, 0.0f };
+    motor.tick(pos, in, 1.0f / 60.0f, query);
+
+    EXPECT_EQ(motor.state(), PlayerMoveState::Falling);
+    EXPECT_GT(pos.x, 0.20f);
+    advance(motor, pos, in, 0.20f, query);
+    EXPECT_NE(motor.state(), PlayerMoveState::WallRun);
+    EXPECT_NE(motor.state(), PlayerMoveState::Hang);
+    EXPECT_GT(pos.x, 0.50f);
+}
+
+TEST(PlayerMotor, WallRunOutsideCornerLetsGo)
+{
+    WallWorld world;
+    world.count     = 1;
+    world.solids[0] = WallSolid{ 0.0f, 4.0f, 0.0f, 4.0f, 100.0f, false };
+    const PlayerGroundQuery query = wallQuery(world);
+    const Vector3f into{ 0.70710678f, 0.0f, 0.70710678f };
+
+    PlayerMotor motor;
+    beginClimb(motor, PlayerMoveState::WallRun, into);
+    Vector3f         pos{ -0.25f, 3.0f, -0.25f };
+    PlayerMotorInput in;
+    in.wish = into;
+    motor.tick(pos, in, 1.0f / 60.0f, query);
+
+    EXPECT_EQ(motor.state(), PlayerMoveState::Falling);
+    EXPECT_LT(pos.x, -0.35f);
+    EXPECT_LT(pos.z, -0.35f);
+    advance(motor, pos, in, 0.25f, query);
+    EXPECT_NE(motor.state(), PlayerMoveState::WallRun);
+    EXPECT_NE(motor.state(), PlayerMoveState::Hang);
+}
+
+TEST(PlayerMotor, HangPushOffTheEdgeLetsGo)
+{
+    WallWorld world;
+    world.count     = 1;
+    world.solids[0] = WallSolid{ -2.0f, 0.0f, 1.0f, 1.3f, 100.0f, false };
+    const PlayerGroundQuery query = wallQuery(world);
+
+    PlayerMotor motor;
+    beginClimb(motor, PlayerMoveState::Hang, Vector3f{ 0.0f, 0.0f, 1.0f });
+    Vector3f         pos{ 0.05f, 2.0f, 0.65f };
+    PlayerMotorInput in;
+    in.wish = Vector3f{ 1.0f, 0.0f, 0.0f };
+    motor.tick(pos, in, 1.0f / 60.0f, query);
+
+    EXPECT_EQ(motor.state(), PlayerMoveState::Falling);
+    EXPECT_GT(pos.x, 0.20f);
+
+    PlayerMotor hold;
+    beginClimb(hold, PlayerMoveState::Hang, Vector3f{ 0.0f, 0.0f, 1.0f });
+    WallWorld wide;
+    wide.count     = 1;
+    wide.solids[0] = WallSolid{ -4.0f, 4.0f, 1.0f, 1.3f, 100.0f, false };
+    const PlayerGroundQuery face = wallQuery(wide);
+    Vector3f                   mid{ 0.0f, 2.0f, 0.65f };
+    advance(hold, mid, PlayerMotorInput{}, 0.20f, face);
+    EXPECT_EQ(hold.state(), PlayerMoveState::Hang);
+    EXPECT_NEAR(mid.x, 0.0f, 1.0e-4f);
+    EXPECT_NEAR(mid.z, 0.65f, 1.0e-4f);
+}
+
+TEST(PlayerMotor, MantleOntoAClearRoof)
+{
+    WallWorld world;
+    world.count     = 1;
+    world.solids[0] = WallSolid{ -4.0f, 4.0f, 1.0f, 1.3f, 2.0f, true };
+    const PlayerGroundQuery query = wallQuery(world);
+
+    PlayerMotor motor;
+    beginClimb(motor, PlayerMoveState::WallRun, Vector3f{ 0.0f, 0.0f, 1.0f });
+    Vector3f         pos{ 0.0f, 1.5f, 0.65f };
+    PlayerMotorInput in;
+    in.wish = Vector3f{ 0.0f, 0.0f, 1.0f };
+    const PlayerMotorResult result = motor.tick(pos, in, 1.0f / 60.0f, query);
+
+    EXPECT_TRUE(result.climbed);
+    EXPECT_EQ(motor.state(), PlayerMoveState::Grounded);
+    EXPECT_NEAR(pos.y, 2.5f, 1.0e-3f);
+    EXPECT_GT(pos.z, 1.3f);
+}
+
+TEST(PlayerMotor, MantleBesideATallerWallLetsGo)
+{
+    WallWorld world;
+    world.count     = 2;
+    world.solids[0] = WallSolid{ -4.0f, 4.0f, 1.0f, 1.3f, 2.0f, true };
+    world.solids[1] = WallSolid{ 0.55f, 1.2f, 1.2f, 4.0f, 30.0f, false };
+    const PlayerGroundQuery query = wallQuery(world);
+
+    PlayerMotor motor;
+    beginClimb(motor, PlayerMoveState::WallRun, Vector3f{ 0.0f, 0.0f, 1.0f });
+    Vector3f         pos{ 0.0f, 1.5f, 0.65f };
+    PlayerMotorInput in;
+    in.wish = Vector3f{ 0.0f, 0.0f, 1.0f };
+    const PlayerMotorResult result = motor.tick(pos, in, 1.0f / 60.0f, query);
+
+    EXPECT_FALSE(result.climbed);
+    EXPECT_EQ(motor.state(), PlayerMoveState::Falling);
+    EXPECT_LT(pos.z, 0.65f);
+}
+
+TEST(PlayerMotor, JumpBesideAWallDoesNotClimb)
+{
+    WallWorld world;
+    world.count     = 1;
+    world.solids[0] = WallSolid{ -4.0f, 4.0f, 1.0f, 1.3f, 100.0f, false };
+    const PlayerGroundQuery query = wallQuery(world);
+
+    PlayerMotor motor;
+    Vector3f    pos{ 0.0f, 0.5f, 0.65f };
+    PlayerMotorInput in;
+    in.jumpPressed = true;
+    in.wish        = Vector3f{ 0.0f, 0.0f, 1.0f };
+    const PlayerMotorResult result = motor.tick(pos, in, 1.0f / 60.0f, query);
+
+    EXPECT_TRUE(result.jumped);
+    EXPECT_EQ(motor.state(), PlayerMoveState::Jumping);
+    EXPECT_GT(motor.velocity().y, 0.0f);
+}
+
+TEST(PlayerMotor, AirborneWishDoesNotGrabAWall)
+{
+    WallWorld world;
+    world.count     = 1;
+    world.solids[0] = WallSolid{ -4.0f, 4.0f, 1.0f, 1.3f, 100.0f, false };
+    const PlayerGroundQuery query = wallQuery(world);
+
+    PlayerMotor motor;
+    motor.restoreProgress(PlayerMoveState::Falling, Vector3f{ 0.0f, -1.0f, 0.4f }, 0.2f, 0.0f, true, false, 0.0f, Vector3f{ 0.0f, 0.0f, 0.0f });
+    Vector3f         pos{ 0.0f, 2.0f, 0.65f };
+    PlayerMotorInput in;
+    in.wish = Vector3f{ 0.0f, 0.0f, 1.0f };
+    motor.tick(pos, in, 1.0f / 60.0f, query);
+
+    EXPECT_EQ(motor.state(), PlayerMoveState::Falling);
+
+    in.climbPressed = true;
+    motor.tick(pos, in, 1.0f / 60.0f, query);
+    EXPECT_EQ(motor.state(), PlayerMoveState::WallRun);
+}
+
+TEST(PlayerMotor, InteractStartsAWallClimb)
+{
+    WallWorld world;
+    world.count     = 1;
+    world.solids[0] = WallSolid{ -4.0f, 4.0f, 1.0f, 1.3f, 100.0f, false };
+    const PlayerGroundQuery query = wallQuery(world);
+
+    PlayerMotor motor;
+    Vector3f    pos{ 0.0f, 0.5f, 0.65f };
+    const ClimbGrab offer = motor.findClimbGrab(query, pos);
+    EXPECT_TRUE(offer.valid);
+    EXPECT_FALSE(offer.downward);
+
+    PlayerMotorInput in;
+    in.climbPressed = true;
+    in.wish         = Vector3f{ 0.0f, 0.0f, 1.0f };
+    motor.tick(pos, in, 1.0f / 60.0f, query);
+    EXPECT_EQ(motor.state(), PlayerMoveState::WallRun);
+    EXPECT_FALSE(motor.findClimbGrab(query, pos).valid);
+
+    in.climbPressed = false;
+    advance(motor, pos, in, 0.30f, query);
+    EXPECT_EQ(motor.state(), PlayerMoveState::WallRun);
+    EXPECT_GT(pos.y, 1.2f);
+}
+
+TEST(PlayerMotor, InteractOnTheLipClimbsDown)
+{
+    WallWorld world;
+    world.count     = 1;
+    world.solids[0] = WallSolid{ -4.0f, 4.0f, 1.0f, 1.3f, 3.5f, false };
+    const PlayerGroundQuery query = wallQuery(world);
+
+    PlayerMotor motor;
+    Vector3f    pos{ 0.0f, 4.0f, 1.15f };
+    const ClimbGrab offer = motor.findClimbGrab(query, pos);
+    EXPECT_TRUE(offer.valid);
+    EXPECT_TRUE(offer.downward);
+
+    PlayerMotorInput in;
+    in.climbPressed = true;
+    motor.tick(pos, in, 1.0f / 60.0f, query);
+    EXPECT_EQ(motor.state(), PlayerMoveState::WallRun);
+    EXPECT_LT(pos.y, 3.6f);
+    EXPECT_GT(pos.z, 1.6f);
+
+    in.climbPressed = false;
+    advance(motor, pos, in, 0.30f, query);
+    EXPECT_EQ(motor.state(), PlayerMoveState::WallRun);
+    EXPECT_LT(pos.y, 2.5f);
+
+    const float yBeforeSteer = pos.y;
+    in.wish = Vector3f{ 1.0f, 0.0f, 0.0f };
+    motor.tick(pos, in, 1.0f / 60.0f, query);
+    EXPECT_NEAR(motor.velocity().y, 0.0f, 0.05f);
+    EXPECT_GT(pos.y, yBeforeSteer - 0.05f);
+}
+
+TEST(PlayerMotor, WallDrainIsQuieterWhenNotClimbingUp)
+{
+    WallWorld world;
+    world.count     = 1;
+    world.solids[0] = WallSolid{ -8.0f, 8.0f, 1.0f, 1.3f, 100.0f, false };
+    const PlayerGroundQuery query = wallQuery(world);
+
+    auto remaining = [&](PlayerMoveState state, const Vector3f& wish, const Vector3f& pos0) {
+        PlayerMotor motor;
+        beginClimb(motor, state, Vector3f{ 0.0f, 0.0f, 1.0f });
+        Vector3f         pos = pos0;
+        PlayerMotorInput in;
+        in.wish = wish;
+        advance(motor, pos, in, 1.0f, query);
+        EXPECT_EQ(motor.state(), state);
+        return motor.stamina();
+    };
+
+    const float up   = remaining(PlayerMoveState::WallRun, Vector3f{ 0.0f, 0.0f, 1.0f }, Vector3f{ 0.0f, 2.0f, 0.65f });
+    const float side = remaining(PlayerMoveState::WallRun, Vector3f{ 1.0f, 0.0f, 0.0f }, Vector3f{ -2.0f, 2.0f, 0.65f });
+    const float idle = remaining(PlayerMoveState::WallRun, Vector3f{ 0.0f, 0.0f, 0.0f }, Vector3f{ 0.0f, 2.0f, 0.65f });
+    const float hang = remaining(PlayerMoveState::Hang, Vector3f{ 0.0f, 0.0f, 0.0f }, Vector3f{ 0.0f, 2.0f, 0.65f });
+
+    EXPECT_NEAR(up, 0.55f, 0.02f);
+    EXPECT_NEAR(side, 0.88f, 0.02f);
+    EXPECT_NEAR(idle, 0.97f, 0.02f);
+    EXPECT_NEAR(hang, 0.97f, 0.02f);
+    EXPECT_GT(idle, side);
+    EXPECT_GT(side, up);
 }

@@ -77,8 +77,9 @@ namespace Dark
         float wallRunSpeed        = 4.5f;
         float handReach           = 1.9f;
         float staminaRegen        = 0.35f;
-        float wallRunDrain        = 0.45f;
-        float hangDrain           = 0.08f;
+        float wallRunDrain        = 0.45f; // moving up the face
+        float wallSlideDrain      = 0.12f; // sideways or down
+        float hangDrain           = 0.03f; // still on the face, or hanging at a lip
         float wallJumpCost        = 0.12f;
         float diveSpeed           = 2.2f;
         float surfaceSpeed        = 2.8f;
@@ -99,6 +100,7 @@ namespace Dark
         bool           crouch           = false; // held; grounded only, and it wins over sprint
         bool           jumpPressed      = false; // edge this tick
         bool           jumpHeld         = false;
+        bool           climbPressed     = false; // interact edge; starts a climb up or down a wall
         bool           allowDoubleJump  = true;
         bool           allowJumpBuffer  = true; // land/coyote/grounded consume of m_jumpBuffer
         float          airControlScale  = 1.0f; // multiplies airSpeed/airAccel in applyAirControl
@@ -131,6 +133,15 @@ namespace Dark
         bool (*wallAt)(void* user, const Math::Vector3f& from, const Math::Vector3f& dir, float maxDist, float& outDist) = nullptr;
         bool (*ledgeAt)(void* user, float x, float z, float fromY, float& outTopY)                                   = nullptr;
         void* wallUser                                                                                              = nullptr;
+    };
+
+    // A wall the player can mount with the interact button.
+    struct ClimbGrab
+    {
+        bool           valid     = false;
+        bool           downward  = false; // standing on the lip, so the climb starts down the face
+        Math::Vector3f wallDir{ 0.0f, 0.0f, 1.0f };
+        Math::Vector3f point{ 0.0f, 0.0f, 0.0f }; // face point for the prompt
     };
 
     // Possessed-body locomotion: ground, swim, jump, and a timed double jump.
@@ -190,6 +201,9 @@ namespace Dark
 
         PlayerMotorResult tick(Math::Vector3f& position, const PlayerMotorInput& in, float dt, const PlayerGroundQuery& ground);
 
+        // Beside a face, or on top of one within about a metre of the lip. Empty when already climbing.
+        ClimbGrab findClimbGrab(const PlayerGroundQuery& ground, const Math::Vector3f& position) const;
+
     private:
         float sampleGround(const PlayerGroundQuery& ground, float x, float z) const;
         bool  columnDeep(float groundY, float waterY) const;
@@ -209,9 +223,16 @@ namespace Dark
         bool  findWall(const PlayerGroundQuery& ground, const Math::Vector3f& position, const Math::Vector3f& dir, float reach, float& dist) const;
         bool  findLedge(const PlayerGroundQuery& ground, const Math::Vector3f& position, const Math::Vector3f& dir, float wallDist, float& topY) const;
         bool  nearestWall(const PlayerGroundQuery& ground, const Math::Vector3f& position, const Math::Vector3f& wish, Math::Vector3f& dir) const;
+        bool  shoulderOnFace(const PlayerGroundQuery& ground, const Math::Vector3f& position, const Math::Vector3f& side, float centerDist, float reach) const;
+        bool  releasedByCorner(const PlayerGroundQuery& ground, const Math::Vector3f& position, const Math::Vector3f& wish, Math::Vector3f& shove) const;
+        bool  alignWallFace(const PlayerGroundQuery& ground, const Math::Vector3f& position);
+        void  slideOnWall(Math::Vector3f& position, const Math::Vector3f& wish, float dt, float intoScale, const PlayerGroundQuery& ground);
+        void  leaveWall(Math::Vector3f& position, const Math::Vector3f& shove);
         void  wallJump(const Math::Vector3f& awayFromWall, PlayerMotorResult& result);
         void  enterWallRun(const Math::Vector3f& dir);
-        void  climbOnto(Math::Vector3f& position, float topY, PlayerMotorResult& result);
+        void  beginClimb(Math::Vector3f& position, const ClimbGrab& grab);
+        float wallDrainRate(float into, float along) const;
+        void  climbOnto(Math::Vector3f& position, float topY, const PlayerGroundQuery& ground, PlayerMotorResult& result);
         void  tickWall(Math::Vector3f& position, const PlayerMotorInput& in, float dt, const PlayerGroundQuery& ground, PlayerMotorResult& result);
         void  approachCrouch(float dt);
 
@@ -233,6 +254,7 @@ namespace Dark
         float               m_wallCooldown   = 0.0f;
         float               m_ledgeY         = 0.0f;
         Math::Vector3f      m_wallDir{ 0.0f, 0.0f, 0.0f };
+        bool                m_autoDescend    = false;
         float               m_depth          = 0.0f;
         float               m_breath         = 1.0f;
         SwimPosture         m_posture        = SwimPosture::None;

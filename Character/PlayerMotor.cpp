@@ -31,6 +31,7 @@ namespace Dark
         m_dodgeWish     = Vect3f::ZERO;
         m_depth         = 0.0f;
         m_breath        = 1.0f;
+        m_autoDescend   = false;
         clearSwimPose();
     }
 
@@ -246,6 +247,7 @@ namespace Dark
         m_state         = PlayerMoveState::Grounded;
         m_velocity.y    = 0.0f;
         position.y      = groundY + m_settings.groundOffset;
+        m_autoDescend   = false;
         m_airTime       = 0.0f;
         m_coyote        = m_settings.coyoteTime;
         m_didFirstJump  = false;
@@ -294,6 +296,7 @@ namespace Dark
         m_didFirstJump  = false;
         m_didDoubleJump = false;
         m_pendingDouble = false;
+        m_autoDescend   = false;
     }
 
     void PlayerMotor::noteDodgeTap(const PlayerMotorInput& in, PlayerMotorResult& result)
@@ -364,6 +367,163 @@ namespace Dark
         return ground.ledgeAt(ground.wallUser, x, z, feetY + m_settings.handReach + 0.8f, topY) && topY > feetY + 0.4f;
     }
 
+    // Shoulder probes sit at the play-capsule radius. The wall cast itself is a
+    // 0.3 m capsule, so the center still hits for about that far past a vertical
+    // edge. A shoulder that misses, or lands much farther than the center, is
+    // not this face.
+    constexpr float kWallShoulder      = 0.45f;
+    constexpr float kWallShoulderSlack = 0.12f;
+    constexpr float kWallEdgePush      = 0.35f;
+    constexpr float kWallLeaveNudge    = 0.22f;
+    constexpr float kWallLandingReach  = 0.35f;
+    constexpr float kWallLipGrab       = 0.15f;
+
+    static Vector3f wallTangentOf(const Vector3f& wallDir)
+    {
+        Vector3f tangent{ -wallDir.z, 0.0f, wallDir.x };
+        if (tangent.MagnitudeSqrd() < 1.0e-6f)
+            return Vector3f{ 1.0f, 0.0f, 0.0f };
+        tangent.Normalize();
+        return tangent;
+    }
+
+    static Vector3f planarUnit(Vector3f dir)
+    {
+        dir.y = 0.0f;
+        if (dir.MagnitudeSqrd() < 1.0e-6f)
+            return Vector3f{ 0.0f, 0.0f, 1.0f };
+        dir.Normalize();
+        return dir;
+    }
+
+    bool PlayerMotor::shoulderOnFace(const PlayerGroundQuery& ground, const Vector3f& position, const Vector3f& side, float centerDist, float reach) const
+    {
+        float dist = 0.0f;
+        if (!findWall(ground, position + side * kWallShoulder, m_wallDir, reach, dist))
+            return false;
+        return dist <= centerDist + kWallShoulderSlack;
+    }
+
+    bool PlayerMotor::releasedByCorner(const PlayerGroundQuery& ground, const Vector3f& position, const Vector3f& wishIn, Vector3f& shove) const
+    {
+        const float reach = m_settings.wallReach + 0.3f;
+        float       centerDist = 0.0f;
+        if (!findWall(ground, position, m_wallDir, reach, centerDist))
+            return false;
+
+        const Vector3f tangent{ -m_wallDir.z, 0.0f, m_wallDir.x };
+        const bool     posFace = shoulderOnFace(ground, position, tangent, centerDist, reach);
+        const bool     negFace = shoulderOnFace(ground, position, -tangent, centerDist, reach);
+        const Vector3f wish{ wishIn.x, 0.0f, wishIn.z };
+        const float    along = wish.Dot(tangent);
+
+        if (!posFace && !negFace)
+        {
+            // A corner or post. Back off when the wish still points into it.
+            if (wish.MagnitudeSqrd() > 0.04f && wish.Dot(m_wallDir) < 0.5f)
+                shove = wish;
+            else
+                shove = -m_wallDir;
+            return true;
+        }
+        if (!posFace && along > kWallEdgePush)
+        {
+            shove = tangent;
+            return true;
+        }
+        if (!negFace && along < -kWallEdgePush)
+        {
+            shove = -tangent;
+            return true;
+        }
+        return false;
+    }
+
+    bool PlayerMotor::alignWallFace(const PlayerGroundQuery& ground, const Vector3f& position)
+    {
+        const Vector3f forward = planarUnit(m_wallDir);
+        const Vector3f tangent = wallTangentOf(forward);
+        const Vector3f samples[5] = {
+            forward,
+            planarUnit(forward + tangent * 0.5f),
+            planarUnit(forward - tangent * 0.5f),
+            planarUnit(forward + tangent),
+            planarUnit(forward - tangent),
+        };
+        const float reach    = m_settings.wallReach + 0.3f;
+        float       bestDist = reach + 1.0f;
+        Vector3f    best     = forward;
+        bool        found    = false;
+        for (const Vector3f& dir : samples)
+        {
+            float dist = 0.0f;
+            if (findWall(ground, position, dir, reach, dist) && dist < bestDist)
+            {
+                bestDist = dist;
+                best     = dir;
+                found    = true;
+            }
+        }
+        if (!found)
+            return false;
+        m_wallDir = best;
+        return true;
+    }
+
+    void PlayerMotor::slideOnWall(Vector3f& position, const Vector3f& wishIn, float dt, float intoScale, const PlayerGroundQuery& ground)
+    {
+        const Vector3f tangent = wallTangentOf(m_wallDir);
+        const Vector3f wish{ wishIn.x, 0.0f, wishIn.z };
+        float          along    = Math::Clamp(wish.Dot(tangent), -1.0f, 1.0f);
+        float          vertical = Math::Clamp(intoScale, -1.0f, 1.0f);
+        const float    mag2     = along * along + vertical * vertical;
+        if (mag2 > 1.0f)
+        {
+            const float inv = 1.0f / sqrtf(mag2);
+            along *= inv;
+            vertical *= inv;
+        }
+
+        const float speed = m_settings.wallRunSpeed * (0.6f + 0.4f * Math::Max(0.0f, m_stamina));
+        m_velocity         = tangent * (along * speed);
+        m_velocity.y       = vertical * speed;
+
+        if (intoScale < 0.0f)
+        {
+            const float groundY = sampleGround(ground, position.x, position.z);
+            const float floorY  = groundY + m_settings.groundOffset;
+            if (position.y + m_velocity.y * dt <= floorY)
+            {
+                position.x += m_velocity.x * dt;
+                position.z += m_velocity.z * dt;
+                enterGrounded(position, groundY);
+                m_velocity.x = tangent.x * along * speed;
+                m_velocity.z = tangent.z * along * speed;
+                return;
+            }
+        }
+
+        position.x += m_velocity.x * dt;
+        position.y += m_velocity.y * dt;
+        position.z += m_velocity.z * dt;
+    }
+
+    void PlayerMotor::leaveWall(Vector3f& position, const Vector3f& shoveIn)
+    {
+        Vector3f shove{ shoveIn.x, 0.0f, shoveIn.z };
+        if (shove.MagnitudeSqrd() < 1.0e-6f)
+            shove = Vector3f{ -m_wallDir.x, 0.0f, -m_wallDir.z };
+        if (shove.MagnitudeSqrd() < 1.0e-6f)
+            return;
+        shove.Normalize();
+        beginFalling();
+        m_velocity.x   = shove.x * m_settings.walkSpeed;
+        m_velocity.z   = shove.z * m_settings.walkSpeed;
+        position.x    += shove.x * kWallLeaveNudge;
+        position.z    += shove.z * kWallLeaveNudge;
+        m_wallCooldown = m_settings.wallJumpCooldown;
+    }
+
     bool PlayerMotor::nearestWall(const PlayerGroundQuery& ground, const Vector3f& position, const Vector3f& wish, Vector3f& dir) const
     {
         Vector3f ahead{ wish.x, 0.0f, wish.z };
@@ -397,6 +557,7 @@ namespace Dark
         m_didFirstJump  = true;
         m_didDoubleJump = false;
         m_wallCooldown  = m_settings.wallJumpCooldown;
+        m_autoDescend   = false;
         m_stamina       = Math::Max(0.0f, m_stamina - m_settings.wallJumpCost);
         m_jumpBuffer    = 0.0f;
         result.jumped   = true;
@@ -408,11 +569,91 @@ namespace Dark
         m_wallDir  = dir;
         m_state    = PlayerMoveState::WallRun;
         m_velocity = Vector3f{ 0.0f, m_settings.wallRunSpeed, 0.0f };
-        m_jumpBuffer = 0.0f;
+        m_jumpBuffer  = 0.0f;
+        m_autoDescend = false;
     }
 
-    void PlayerMotor::climbOnto(Vector3f& position, float topY, PlayerMotorResult& result)
+    void PlayerMotor::beginClimb(Vector3f& position, const ClimbGrab& grab)
     {
+        if (!grab.valid)
+            return;
+        enterWallRun(grab.wallDir);
+        if (!grab.downward)
+            return;
+        const Vector3f out{ -grab.wallDir.x, 0.0f, -grab.wallDir.z };
+        position.x      = grab.point.x + out.x * 0.40f;
+        position.z      = grab.point.z + out.z * 0.40f;
+        position.y     -= 0.70f;
+        m_autoDescend   = true;
+        m_velocity.y    = -m_settings.wallRunSpeed * 0.5f;
+    }
+
+    float PlayerMotor::wallDrainRate(float into, float along) const
+    {
+        if (into > 0.2f)
+            return m_settings.wallRunDrain;
+        if (into < -0.2f || along > 0.2f || along < -0.2f)
+            return m_settings.wallSlideDrain;
+        return m_settings.hangDrain;
+    }
+
+    ClimbGrab PlayerMotor::findClimbGrab(const PlayerGroundQuery& ground, const Vector3f& position) const
+    {
+        ClimbGrab grab{};
+        if (!ground.wallAt || m_stamina <= 0.15f)
+            return grab;
+        if (m_state == PlayerMoveState::WallRun || m_state == PlayerMoveState::Hang || m_state == PlayerMoveState::Swimming || m_state == PlayerMoveState::Dodge)
+            return grab;
+
+        const Vector3f dirs[8] = {
+            Vector3f{ 1.0f, 0.0f, 0.0f }, Vector3f{ -1.0f, 0.0f, 0.0f }, Vector3f{ 0.0f, 0.0f, 1.0f }, Vector3f{ 0.0f, 0.0f, -1.0f },
+            Vector3f{ 0.70710678f, 0.0f, 0.70710678f }, Vector3f{ 0.70710678f, 0.0f, -0.70710678f },
+            Vector3f{ -0.70710678f, 0.0f, 0.70710678f }, Vector3f{ -0.70710678f, 0.0f, -0.70710678f },
+        };
+        float best = 1.0e9f;
+        auto  take = [&](const Vector3f& from, const Vector3f& dir, float reach, bool downward) {
+            float dist = 0.0f;
+            if (!findWall(ground, from, dir, reach, dist) || dist >= best)
+                return;
+            best           = dist;
+            grab.valid     = true;
+            grab.downward  = downward;
+            grab.wallDir   = dir;
+            const Vector3f hit = from + dir * dist;
+            grab.point     = Vector3f{ hit.x, position.y + 0.35f, hit.z };
+        };
+
+        const float reach = m_settings.wallReach;
+        for (const Vector3f& dir : dirs)
+            take(position, dir, reach, false);
+        if (grab.valid)
+            return grab;
+
+        Vector3f low = position;
+        low.y -= 0.85f;
+        const float outward = reach + 0.25f;
+        for (const Vector3f& dir : dirs)
+            take(low + dir * outward, -dir, reach + 0.45f, true);
+        return grab;
+    }
+
+    void PlayerMotor::climbOnto(Vector3f& position, float topY, const PlayerGroundQuery& ground, PlayerMotorResult& result)
+    {
+        // Planting through a corner puts the body in the next face. A clear roof
+        // is open ahead and to either side; the wall we climbed stays behind.
+        const Vector3f landing{ position.x + m_wallDir.x * 0.8f, topY + m_settings.groundOffset, position.z + m_wallDir.z * 0.8f };
+        const Vector3f tangent{ -m_wallDir.z, 0.0f, m_wallDir.x };
+        const Vector3f dirs[3] = { m_wallDir, tangent, -tangent };
+        for (const Vector3f& dir : dirs)
+        {
+            float dist = 0.0f;
+            if (findWall(ground, landing, dir, kWallLandingReach, dist))
+            {
+                leaveWall(position, -m_wallDir);
+                return;
+            }
+        }
+
         position.x += m_wallDir.x * 0.8f;
         position.z += m_wallDir.z * 0.8f;
         position.y  = topY + m_settings.groundOffset;
@@ -428,12 +669,26 @@ namespace Dark
 
     void PlayerMotor::tickWall(Vector3f& position, const PlayerMotorInput& in, float dt, const PlayerGroundQuery& ground, PlayerMotorResult& result)
     {
-        const float into  = Vector3f{ in.wish.x, 0.0f, in.wish.z }.Dot(m_wallDir);
-        const float feetY = position.y - m_settings.groundOffset;
+        if (!alignWallFace(ground, position))
+        {
+            beginFalling();
+            return;
+        }
+
+        const Vector3f wish{ in.wish.x, 0.0f, in.wish.z };
+        const float    into  = wish.Dot(m_wallDir);
+        const float    feetY = position.y - m_settings.groundOffset;
 
         if (m_state == PlayerMoveState::Hang)
         {
-            m_stamina -= m_settings.hangDrain * dt;
+            Vector3f shove{};
+            if (releasedByCorner(ground, position, in.wish, shove))
+            {
+                leaveWall(position, shove);
+                return;
+            }
+            const float along = wish.Dot(wallTangentOf(m_wallDir));
+            m_stamina -= wallDrainRate(0.0f, along) * dt;
             if (in.crouch || m_stamina <= 0.0f)
             {
                 beginFalling();
@@ -445,7 +700,9 @@ namespace Dark
                 return;
             }
             if (in.jumpPressed || into > 0.5f)
-                climbOnto(position, m_ledgeY, result);
+                climbOnto(position, m_ledgeY, ground, result);
+            else
+                slideOnWall(position, wish, dt, 0.0f, ground);
             return;
         }
 
@@ -454,22 +711,36 @@ namespace Dark
             wallJump(-m_wallDir, result);
             return;
         }
-        m_stamina -= m_settings.wallRunDrain * dt;
+
+        Vector3f shove{};
+        if (releasedByCorner(ground, position, in.wish, shove))
+        {
+            leaveWall(position, shove);
+            return;
+        }
+
+        if (m_autoDescend && wish.MagnitudeSqrd() > 0.04f)
+            m_autoDescend = false;
+        const float along    = wish.Dot(wallTangentOf(m_wallDir));
+        const float moveInto = m_autoDescend ? -1.0f : into;
+        m_stamina -= wallDrainRate(moveInto, along) * dt;
 
         float wallDist = 0.0f;
         const bool wall = findWall(ground, position, m_wallDir, m_settings.wallReach + 0.3f, wallDist);
         float topY = 0.0f;
-        if (findLedge(ground, position, m_wallDir, wall ? wallDist : 0.3f, topY) && topY <= feetY + m_settings.handReach)
+        const bool ledge = findLedge(ground, position, m_wallDir, wall ? wallDist : 0.3f, topY) && topY <= feetY + m_settings.handReach;
+        if (ledge && into > 0.5f)
         {
             m_ledgeY = topY;
-            if (into > 0.5f)
-                climbOnto(position, topY, result);
-            else
-            {
-                m_state      = PlayerMoveState::Hang;
-                m_velocity   = Vector3f{ 0.0f, 0.0f, 0.0f };
-                position.y   = topY - m_settings.handReach + m_settings.groundOffset;
-            }
+            climbOnto(position, topY, ground, result);
+            return;
+        }
+        if (ledge && into > kWallLipGrab)
+        {
+            m_ledgeY   = topY;
+            m_state    = PlayerMoveState::Hang;
+            m_velocity = Vector3f{ 0.0f, 0.0f, 0.0f };
+            position.y = topY - m_settings.handReach + m_settings.groundOffset;
             return;
         }
         if (!wall || m_stamina <= 0.0f)
@@ -477,9 +748,7 @@ namespace Dark
             beginFalling();
             return;
         }
-        const float climb = m_settings.wallRunSpeed * (0.6f + 0.4f * Math::Max(0.0f, m_stamina));
-        m_velocity         = Vector3f{ 0.0f, climb, 0.0f };
-        position.y        += climb * dt;
+        slideOnWall(position, wish, dt, moveInto, ground);
     }
 
     PlayerMotorResult PlayerMotor::tick(Vector3f& position, const PlayerMotorInput& in, float dt, const PlayerGroundQuery& ground)
@@ -560,15 +829,14 @@ namespace Dark
                 return result;
             }
 
-            float wallDist = 0.0f;
-            if (in.jumpPressed && m_state != PlayerMoveState::Dodge && m_stamina > 0.15f && in.wish.MagnitudeSqrd() > 0.25f
-                && findWall(ground, position, Vector3f{ in.wish.x, 0.0f, in.wish.z }, m_settings.wallReach, wallDist))
+            if (in.climbPressed && m_state != PlayerMoveState::Dodge && m_stamina > 0.15f)
             {
-                Vector3f dir{ in.wish.x, 0.0f, in.wish.z };
-                dir.Normalize();
-                enterWallRun(dir);
-                result.jumped = true;
-                return result;
+                const ClimbGrab grab = findClimbGrab(ground, position);
+                if (grab.valid)
+                {
+                    beginClimb(position, grab);
+                    return result;
+                }
             }
 
             Vector3f moveWish = in.wish;
@@ -640,22 +908,22 @@ namespace Dark
             m_coyote = Math::Max(0.0f, m_coyote - dt);
 
         Vector3f wallDir{};
-        float    wallDist = 0.0f;
         if (!m_didFirstJump && m_jumpBuffer > 0.0f && m_coyote > 0.0f && in.allowJumpBuffer)
         {
             m_jumpBuffer = 0.0f;
             beginJump(jumpScale, result);
         }
+        else if (in.climbPressed && m_stamina > 0.15f)
+        {
+            const ClimbGrab grab = findClimbGrab(ground, position);
+            if (grab.valid)
+            {
+                beginClimb(position, grab);
+                return result;
+            }
+        }
         else if (in.jumpPressed && m_wallCooldown <= 0.0f && m_stamina > 0.0f && nearestWall(ground, position, in.wish, wallDir))
             wallJump(-wallDir, result);
-        else if (m_wallCooldown <= 0.0f && m_stamina > 0.15f && m_velocity.y > -8.0f && in.wish.MagnitudeSqrd() > 0.25f
-                 && findWall(ground, position, Vector3f{ in.wish.x, 0.0f, in.wish.z }, 0.5f, wallDist))
-        {
-            Vector3f dir{ in.wish.x, 0.0f, in.wish.z };
-            dir.Normalize();
-            enterWallRun(dir);
-            return result;
-        }
         else
             tryDoubleJump(in.jumpPressed, in.allowDoubleJump, jumpScale, result);
 

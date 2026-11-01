@@ -764,6 +764,8 @@ void SandboxApp::drawPickupLabels()
             prompt(door->closedPos + Vector3f{ 0.0f, 1.0f, 0.0f }, text, IM_COL32(255, 220, 90, 255));
         }
     }
+    if (const PlayRuntime& play = m_play.runtime(); play.climbOffer)
+        prompt(play.climbAt, play.climbDown ? "[G] Climb down" : "[G] Climb", IM_COL32(255, 220, 90, 255));
     const FacilityState& facility = m_play.facility();
     if (facility.doorMsgTime > 0.0f && !facility.doorMsg.empty())
     {

@@ -1075,6 +1075,31 @@ void EditorApp::drawPlayHud()
     ImGui::TextDisabled("RMB / V / LT shield    L light    F12 / Esc stop");
     ImGui::End();
 
+    if (rt.climbOffer)
+    {
+        const ImGuiViewport* cvp = ImGui::GetMainViewport();
+        ImDrawList*          cdl = cvp ? ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(cvp)) : nullptr;
+        if (cdl)
+        {
+            const Vector4f clip = m_camera.GetViewProj() * Vector4f(rt.climbAt, 1.0f);
+            if (clip.w > 1.0e-4f)
+            {
+                const float invW = 1.0f / clip.w;
+                const float ndcZ = clip.z * invW;
+                if (ndcZ >= 0.0f && ndcZ <= 1.0f)
+                {
+                    const char*  text = rt.climbDown ? "[E] Climb down" : "[E] Climb";
+                    const float  sx   = (clip.x * invW * 0.5f + 0.5f) * cvp->Size.x;
+                    const float  sy   = (1.0f - (clip.y * invW * 0.5f + 0.5f)) * cvp->Size.y;
+                    const ImVec2 ts   = ImGui::CalcTextSize(text);
+                    const ImVec2 pos{ cvp->Pos.x + sx - ts.x * 0.5f, cvp->Pos.y + sy - ts.y };
+                    cdl->AddText(ImVec2(pos.x + 1.0f, pos.y + 1.0f), IM_COL32(0, 0, 0, 200), text);
+                    cdl->AddText(pos, IM_COL32(255, 220, 90, 255), text);
+                }
+            }
+        }
+    }
+
     Vector3f target;
     const TransformComponent* pxf = m_playPlayer.valid() ? world().get<TransformComponent>(m_playPlayer) : nullptr;
     if (!pxf || !quest.active() || quest.complete() || !quest.objectiveTarget(world(), m_playPlayer, target))

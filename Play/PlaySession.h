@@ -101,6 +101,11 @@ namespace Dark
         float underAmount   = 0.0f;
         float groundProbeY  = 0.0f;
 
+        // Set while a wall face is in reach and nothing else owns the pickup button.
+        bool           climbOffer = false;
+        bool           climbDown  = false;
+        Math::Vector3f climbAt{ 0.0f, 0.0f, 0.0f };
+
         bool           haveSpawn = false;
         Math::Vector3f spawn{ 0.0f, 0.5f, 0.0f };
 
@@ -237,7 +242,7 @@ namespace Dark
         bool boneWorld(Entity e, const char* bone, Math::Vector3f& out) const;
         void respawn();
         void tickCombat(float dt);
-        void tryPickup();
+        bool tryPickup();
         bool tryTakedown();
         void tickCarry();
         void applyArmor();

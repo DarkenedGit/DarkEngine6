@@ -168,6 +168,9 @@ namespace Dark
         r.hitStop           = 0.0f;
         r.underAmount       = 0.0f;
         r.groundProbeY      = 0.0f;
+        r.climbOffer        = false;
+        r.climbDown         = false;
+        r.climbAt           = {};
         r.haveSpawn         = false;
         r.spawn             = {};
         r.lowerBodyYaw      = 0.0f;
@@ -487,18 +490,18 @@ namespace Dark
         return true;
     }
 
-    void PlaySession::tryPickup()
+    bool PlaySession::tryPickup()
     {
         World* world = m_host.world;
         if (!world || !m_host.player.valid())
-            return;
+            return false;
         const PlayInteractPick pick = pickInteract();
         if (handleFacilityUse(m_facility, facilityHostOf(m_host, m_rt), pick))
-            return;
+            return true;
         if (m_host.onUse && m_host.onUse(m_host.user, pick))
-            return;
+            return true;
         if (!m_host.pins || !m_host.physics || !m_host.audio || !m_host.assets)
-            return;
+            return false;
         if (carriedBody(*world).valid())
         {
             CarryView view{};
@@ -508,13 +511,13 @@ namespace Dark
             view.heightAt   = &PlaySession::onCarryHeight;
             view.heightUser = this;
             dropCarriedBody(view);
-            return;
+            return true;
         }
         if (pick.kind == PlayInteract::Body)
         {
             takeCarriedBody(*world, m_host.player, pick.e, &PlaySession::onCarryHeight, this);
             DE_LOG_INFO("Player: picked up body");
-            return;
+            return true;
         }
         if (pick.kind == PlayInteract::Power)
         {
@@ -524,23 +527,23 @@ namespace Dark
                 const AI::Walkability* walk = m_host.ai ? &m_host.ai->walkability() : nullptr;
                 setPowerCircuit(*world, pick.e, !box->on, true, walk, m_host.cloudTime, &m_rt.quest.tracker(), &PlaySession::onPowerClick, this);
             }
-            return;
+            return true;
         }
         if (pick.kind != PlayInteract::Item)
-            return;
+            return false;
         InventoryComponent* inv = world->get<InventoryComponent>(m_host.player);
         if (!inv)
-            return;
+            return false;
         const Entity e = pick.e;
         if (e.valid() && world->has<LootComponent>(e))
         {
             if (m_host.onLoot)
                 m_host.onLoot(m_host.user, e);
-            return;
+            return true;
         }
         ItemPickupComponent* pickup = e.valid() ? world->get<ItemPickupComponent>(e) : nullptr;
         if (!pickup || pickup->item.empty() || !pickup->item.def)
-            return;
+            return false;
         if (throwableCatalog().find(pickup->item.def->id))
         {
             const std::string       id   = std::string(pickup->item.def->id);
@@ -550,12 +553,13 @@ namespace Dark
                 DE_LOG_INFO("Throwable: picked up {}", id);
                 playSoundCue(*world, *m_host.audio, *m_host.assets, listenerOf(m_host), "click");
             }
-            return;
+            return true;
         }
         const int added = grantInventoryItem(*world, *m_host.audio, *m_host.assets, listenerOf(m_host), *inv, pickup->item);
         pickup->item.count -= added;
         if (pickup->item.count <= 0)
             destroyPickup(*world, *m_host.pins, *m_host.physics, e);
+        return true;
     }
 
     void PlaySession::tickCarry()
@@ -590,6 +594,8 @@ namespace Dark
 
         m_rt.swimDiveEdge  = false;
         m_rt.swimStandEdge = false;
+        m_rt.climbOffer    = false;
+        m_rt.climbDown     = false;
         const Entity    body   = m_host.player;
         SkillComponent* skills = body.valid() ? world->get<SkillComponent>(body) : nullptr;
         if (skills)
@@ -651,8 +657,9 @@ namespace Dark
             && ((input->actionMouseDown("shield") && !m_host.uiMouse) || (!m_host.uiKeys && input->actionDown("shield")) || input->actionAxisHeld("shield"));
         const bool carriesLight = flashlightEquipped(world->get<InventoryComponent>(body));
         const bool toggleLight  = carriesLight && canSteer && !m_host.uiKeys && input->actionPressed("flashlight");
+        bool       climbPressed = false;
         if (!m_host.uiKeys && input->actionPressed("pickup"))
-            tryPickup();
+            climbPressed = canSteer && !tryPickup();
         if (!m_host.uiKeys && input->actionPressed("takedown"))
             tryTakedown();
         if (toggleLight)
@@ -715,6 +722,8 @@ namespace Dark
         buildPlayMotorInput(motorIn, m_rt.crouchLatch, wish, flat, right, canSteer, jumpBusy, m_host.uiKeys, inAirCommit, jump, sprintAllowed, edges);
         if (m_host.frozen || m_facility.hiddenIn.valid())
             motorIn = PlayerMotorInput{};
+        else
+            motorIn.climbPressed = climbPressed;
         const bool onGround = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch || motor->state() == PlayerMoveState::Dodge);
         const Terrain::GroundContact groundSurf = (onGround && m_host.groundContact) ? m_host.groundContact(m_host.user, xf->position.x, xf->position.z) : Terrain::GroundContact{};
         const float swingSlow = m_rt.blockRecoil > 0.0f ? 0.4f : (m_rt.swingLock <= 0.0f ? 1.0f : (m_rt.comboCount > 1 ? 0.45f : 0.8f));
@@ -752,6 +761,16 @@ namespace Dark
             motorOut = motor->tick(xf->position, motorIn, dt, ground);
         m_rt.swimDiveEdge  = motorOut.splashed;
         m_rt.swimStandEdge = motorOut.stood;
+        if (motor && !m_host.frozen && !m_facility.hiddenIn.valid() && !carriedBody(*world).valid())
+        {
+            const ClimbGrab grab = motor->findClimbGrab(ground, xf->position);
+            if (grab.valid && pickInteract().kind == PlayInteract::None)
+            {
+                m_rt.climbOffer = true;
+                m_rt.climbDown  = grab.downward;
+                m_rt.climbAt    = grab.point;
+            }
+        }
         if (jump && jump->inAirCommit() && motor && !motorOut.landed && !motorOut.splashed)
         {
             Math::Vector3f vel = motor->velocity();
