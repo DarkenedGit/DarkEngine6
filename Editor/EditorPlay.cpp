@@ -1,4 +1,3 @@
-#include "Save/PersistentId.h"
 #include "EditorApp.h"
 
 #include "Play/AttachedLights.h"
@@ -1269,12 +1268,5 @@ void EditorApp::drawLoot()
     }
     ImGui::End();
 
-    if (itemCount(loot->contents) == 0)
-    {
-        if (!world().has<PersistentIdComponent>(m_lootTarget))
-            destroyPickup(world(), pins(), m_physics, m_lootTarget);
-        m_lootTarget = {};
-    }
-    else if (!open)
-        m_lootTarget = {};
+    settleLootTarget(world(), pins(), m_physics, m_lootTarget, open);
 }

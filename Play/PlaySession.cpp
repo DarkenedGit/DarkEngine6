@@ -1111,6 +1111,29 @@ namespace Dark
         refreshFacilityUpgrades(m_facility, facilityHostOf(m_host, m_rt));
     }
 
+    void PlaySession::forgetFacilitySave(World& world, Entity session)
+    {
+        if (session.valid())
+            world.remove<FacilityProgressComponent>(session);
+    }
+
+    void PlaySession::captureFacilitySave(World& world, Entity session)
+    {
+        if (!session.valid())
+            return;
+        FacilityProgressComponent* saved = world.get<FacilityProgressComponent>(session);
+        if (!saved)
+            saved = &world.emplace<FacilityProgressComponent>(session);
+        writeFacilityProgress(m_facility, *saved);
+    }
+
+    void PlaySession::applyFacilitySave(World& world, Entity session, Entity body)
+    {
+        const FacilityProgressComponent* saved = session.valid() ? world.get<FacilityProgressComponent>(session) : nullptr;
+        readFacilityProgress(saved ? *saved : FacilityProgressComponent{}, m_facility, world, body);
+        refreshUpgrades();
+    }
+
     void PlaySession::applyArmor()
     {
         World* world = m_host.world;

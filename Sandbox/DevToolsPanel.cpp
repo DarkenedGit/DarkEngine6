@@ -1,4 +1,3 @@
-#include "Save/PersistentId.h"
 #include "Audio/SoundComponents.h"
 #include "Combat/ArmorPieces.h"
 #include "SandboxApp.h"
@@ -1021,14 +1020,7 @@ void SandboxApp::drawLoot()
     }
     ImGui::End();
 
-    if (itemCount(loot->contents) == 0)
-    {
-        if (!world().has<PersistentIdComponent>(m_lootTarget))
-            destroyPickup(world(), pins(), m_physics, m_lootTarget);
-        m_lootTarget = {};
-    }
-    else if (!open)
-        m_lootTarget = {};
+    settleLootTarget(world(), pins(), m_physics, m_lootTarget, open);
 }
 
 void SandboxApp::drawNpcInfoOverlay()

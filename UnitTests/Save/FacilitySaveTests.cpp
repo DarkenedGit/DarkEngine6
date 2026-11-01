@@ -2,9 +2,12 @@
 
 #include "SaveTestWorld.h"
 
+#include "Core/AssetPinTable.h"
+#include "ECS/Components.h"
 #include "ECS/World.h"
 #include "Gameplay/Inventory.h"
 #include "Gameplay/Item.h"
+#include "Physics/PhysicsWorld.h"
 #include "Play/Facility.h"
 #include "Save/ProgressComponents.h"
 #include "Scene/Building.h"
@@ -128,4 +131,26 @@ TEST(FacilitySave, ReadingNoProgressClearsSession)
     EXPECT_TRUE(state.owned.empty());
     EXPECT_EQ(state.alarmTime, 0.0f);
     EXPECT_FALSE(state.hiddenIn.valid());
+}
+
+TEST(FacilitySave, EmptySavedContainerStaysAndLooseLootGoes)
+{
+    World                 world;
+    AssetPinTable         pins;
+    Physics::PhysicsWorld physics;
+    Entity                kept  = world.createEntity();
+    Entity                loose = world.createEntity();
+    world.emplace<TransformComponent>(kept);
+    world.emplace<TransformComponent>(loose);
+    world.emplace<LootComponent>(kept);
+    world.emplace<LootComponent>(loose);
+    stampProceduralId(world, kept, "unit/loot/kept");
+    Entity target = kept;
+    settleLootTarget(world, pins, physics, target, true);
+    EXPECT_FALSE(target.valid());
+    EXPECT_TRUE(world.alive(kept));
+    target = loose;
+    settleLootTarget(world, pins, physics, target, true);
+    EXPECT_FALSE(target.valid());
+    EXPECT_FALSE(world.alive(loose));
 }

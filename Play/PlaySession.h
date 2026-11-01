@@ -232,6 +232,11 @@ namespace Dark
         void clearFacility();
         void refreshUpgrades();
 
+        // Save hooks. FacilityProgress lives on the session entity.
+        void forgetFacilitySave(World& world, Entity session);
+        void captureFacilitySave(World& world, Entity session);
+        void applyFacilitySave(World& world, Entity session, Entity body);
+
         PlayInteractPick pickInteract();
         Entity           takedownTarget();
         WeaponWorldQuery weaponQuery();

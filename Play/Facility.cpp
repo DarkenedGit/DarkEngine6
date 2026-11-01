@@ -9,6 +9,7 @@
 #include "Audio/SoundComponents.h"
 #include "Character/Health.h"
 #include "Character/HealthComponent.h"
+#include "Character/ItemView.h"
 #include "Character/PlayerMotorComponent.h"
 #include "Character/PlayerStealth.h"
 #include "Collision/StaticCollision.h"
@@ -592,6 +593,24 @@ namespace Dark
         out.alarmTime = state.alarmTime > 0.0f ? state.alarmTime : 0.0f;
         out.hiddenIn  = state.hiddenIn;
         out.hideFound = state.hideFound;
+    }
+
+    void settleLootTarget(World& world, AssetPinTable& pins, Physics::PhysicsWorld& physics, Entity& target, bool windowOpen)
+    {
+        const LootComponent* loot = world.alive(target) ? world.get<LootComponent>(target) : nullptr;
+        if (!loot)
+        {
+            target = {};
+            return;
+        }
+        if (itemCount(loot->contents) == 0)
+        {
+            if (!world.has<PersistentIdComponent>(target))
+                destroyPickup(world, pins, physics, target);
+            target = {};
+        }
+        else if (!windowOpen)
+            target = {};
     }
 
     void readFacilityProgress(const FacilityProgressComponent& saved, FacilityState& state, World& world, Entity player)
