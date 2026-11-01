@@ -23,6 +23,8 @@
 #include "Render/Texture2D.h"
 #include "Scene/SceneTypes.h"
 #include "Play/Crow.h"
+#include "Play/DialogueRuntime.h"
+#include "Play/DialogueSpeech.h"
 #include "Play/GuardVoice.h"
 #include "Play/PlaySession.h"
 #include "Editor/EditorObject.h"
@@ -189,6 +191,10 @@ private:
     void   destroySpawnedUnits(Entity onlySpawner);
     Entity spawnSpawnerUnit(Entity spawner, const SpawnerRequest& req);
     Dark::Terrain::GroundContact groundContactAt(float x, float z) const;
+    void   bindPlayDialogue();
+    Dark::Entity pickTalkTarget();
+    void   tryBeginTalk();
+    void   drawPlayDialogue();
     void   drawPlayHud();
     void   drawLoot();
     void   drawUpgrades();
@@ -532,6 +538,10 @@ private:
     Dark::AiSystem            m_ai;
     Dark::PlaySession         m_play;
     Dark::GuardVoice          m_guardVoice;
+    Dark::DialogueRuntime     m_dialogue;
+    Dark::DialogueSpeech      m_dialogueSpeech;
+    Dark::AssetRef<Dark::DialogueGraphDef> m_talkGraph;
+    Dark::Entity              m_talkNpc{};
     std::string               m_sceneQuest;
     std::vector<Dark::SceneBuildingDesc> m_sceneBuildings;
     std::deque<std::string>   m_buildingLabels;

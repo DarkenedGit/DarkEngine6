@@ -61,7 +61,7 @@ bool EditorApp::saveSceneWithDialog()
         }
         return false;
     }
-    const std::filesystem::path suggested = m_scenePath.empty() ? defaultScenePath(m_sceneMode == SceneMode::Scene2D ? "level2d.json" : "level.json") : m_scenePath;
+    const std::filesystem::path suggested = m_scenePath.empty() ? defaultScenePath(m_sceneMode == SceneMode::Scene2D ? "level2d.json" : "untitled.json") : m_scenePath;
     std::filesystem::path       chosen;
     if (!pickEditorFile(window().nativeHandle(), true, L"Save Scene", L"Scene (*.json)\0*.json\0All files (*.*)\0*.*\0", L"json", suggested, chosen))
         return false;
@@ -176,6 +176,8 @@ bool EditorApp::saveScene()
             d.pickup      = so.pickup;
             d.pickupCount = so.pickupCount > 0 ? so.pickupCount : 1;
         }
+        if (!so.dialogue.empty())
+            d.dialogue = so.dialogue;
         if (so.type == SceneObjectType::Model)
         {
             if (const ModelComponent* modelComp = world().get<ModelComponent>(e))
@@ -429,6 +431,22 @@ void EditorApp::handleEditorCommands(float dt)
     const bool typing = m_imgui.isReady() && m_imgui.wantTextInput();
     if (m_playMode && input().actionPressed("upgrades") && !typing && (!uiKey || m_showUpgrades))
         m_showUpgrades = !m_showUpgrades;
+    if (m_playMode && !typing && input().actionPressed("talk"))
+    {
+        if (m_dialogue.active())
+            m_dialogue.requestSkip();
+        else if (!uiKey)
+            tryBeginTalk();
+    }
+    if (m_playMode && m_dialogue.choiceOpen() && !typing)
+    {
+        if (input().keyPressed(Key::Up))
+            m_dialogue.moveChoice(-1);
+        if (input().keyPressed(Key::Down))
+            m_dialogue.moveChoice(1);
+        if (input().keyPressed(Key::Enter))
+            m_dialogue.commitChoice();
+    }
 
     if (!uiKey && input().actionPressed("quit"))
     {

@@ -192,8 +192,9 @@ void EditorApp::newScene3D()
         return;
     m_ibl = IblSettings{};
     applySceneMode(SceneMode::Scene3D);
-    m_scenePath = defaultScenePath("level.json");
-    m_sceneName = "level";
+    m_scenePath.clear();
+    m_sceneName = "untitled";
+    m_save.setWorldIdentity("", "", "");
     clearScene();
     removeEditorTerrain();
     m_authoredWater = {};
@@ -207,6 +208,7 @@ void EditorApp::newScene3D()
     ensureGlobalLights();
     m_env.evaluate();
     applySkyToLights();
+    m_camera.LookAt(Vector3f(8.0f, 6.0f, -10.0f), Vector3f(0.0f, 0.0f, 0.0f), Vector3f(0.0f, 1.0f, 0.0f));
     DE_LOG_INFO("Editor: new 3D scene");
     resetFoliageAuthoring();
 }

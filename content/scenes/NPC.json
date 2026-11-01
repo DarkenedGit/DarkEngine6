@@ -1,0 +1,136 @@
+{
+  "environment": "env/studio_gradient.hdr",
+  "iblIntensity": 1.0,
+  "iblRotationRadY": 0.0,
+  "sky": {
+    "timeOfDay": 14.5,
+    "dayOfYear": 172.0,
+    "latitude": 47.6,
+    "timeScale": 0.0,
+    "weather": "partly",
+    "cloudCoverage": 0.35,
+    "turbidity": 2.4,
+    "windSpeed": 0.04,
+    "windDir": [1.0, 0.2],
+    "rain": 0.0
+  },
+  "fog": {
+    "auto": true,
+    "distanceScale": 0.1,
+    "heightScale": 0.1,
+    "valleyScale": 0.1,
+    "distanceDensity": 0.004,
+    "heightDensity": 0.0,
+    "valleyDensity": 0.012,
+    "heightFalloff": 0.06,
+    "valleyHeight": 8.0,
+    "color": [0.55, 0.62, 0.72]
+  },
+  "water": {
+    "level": -50.0,
+    "levelFraction": 0.38,
+    "chunkCells": 16,
+    "lodDistances": [40.0, 80.0, 160.0, 320.0, 640.0],
+    "flowDir": [1.0, 0.35],
+    "flowStrength": 0.85,
+    "steepness": 0.55,
+    "amplitudeScale": 1.0,
+    "speedScale": 1.0
+  },
+  "exposure": {
+    "auto": false,
+    "evBias": 0.0,
+    "maxEv": 1.5,
+    "adaptBright": 6.0,
+    "adaptDark": 1.0
+  },
+  "stealth": {
+    "awareness": true,
+    "hearStand": 0.0,
+    "hearWalk": 0.0,
+    "hearSprint": 0.0,
+    "hearCrouchWalk": 0.0,
+    "hearCrouchStill": 0.0,
+    "settings": {
+      "instantRange": 0.0,
+      "proximityRange": 0.0,
+      "suspiciousFillScale": 0.0,
+      "searchFillScale": 0.0,
+      "investigateAfter": 60.0
+    }
+  },
+  "mode": "3d",
+  "version": 2,
+  "name": "NPC",
+  "terrain": {
+    "bindLayout": 1,
+    "chunkCells": 16,
+    "heightFile": "NPC.height",
+    "grass": {
+      "enabled": false
+    },
+    "foliage": {
+      "dirtTreesPerM2": 0.0,
+      "dirtFlowersPerM2": 0.0,
+      "grassTreesPerM2": 0.0,
+      "grassFlowersPerM2": 0.0,
+      "rockPerM2": 0.0,
+      "grassPerM2": 0.0
+    }
+  },
+  "objects": [
+    {
+      "type": "ambient_light",
+      "color": [0.22, 0.22, 0.22, 1.0],
+      "position": [-4.0, 6.0, 4.0],
+      "rotation": [1.0, 0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0],
+      "light": {
+        "enabled": true,
+        "inner": 12.0,
+        "intensity": 1.0,
+        "outer": 25.0,
+        "range": 8.0,
+        "sourceRadius": 0.05
+      }
+    },
+    {
+      "type": "directional_light",
+      "color": [0.89, 0.71, 0.34, 1.0],
+      "position": [4.0, 8.0, -4.0],
+      "rotation": [0.33176908, -0.1907247, 0.80096149, 0.46045014],
+      "scale": [1.0, 1.0, 1.0],
+      "light": {
+        "enabled": true,
+        "inner": 12.0,
+        "intensity": 3.25,
+        "outer": 25.0,
+        "range": 8.0,
+        "sourceRadius": 0.05
+      }
+    },
+    {
+      "type": "cube",
+      "color": [0.42, 0.40, 0.36, 1.0],
+      "position": [0.0, 0.0, 0.0],
+      "rotation": [1.0, 0.0, 0.0, 0.0],
+      "scale": [28.0, 0.1, 28.0]
+    },
+    {
+      "type": "player",
+      "color": [0.35, 0.85, 0.72, 1.0],
+      "position": [0.0, 0.5, -5.0],
+      "rotation": [1.0, 0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0]
+    },
+    {
+      "type": "hunter",
+      "color": [0.85, 0.28, 0.22, 1.0],
+      "position": [0.0, 0.5, 1.5],
+      "rotation": [0.0, 0.0, 1.0, 0.0],
+      "scale": [1.0, 1.0, 1.0],
+      "dialogue": "dialogue/hunter_gate.dlg.json",
+      "patrol": [[0.0, 1.5]]
+    }
+  ]
+}

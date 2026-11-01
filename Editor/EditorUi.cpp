@@ -1,5 +1,6 @@
 #include "EditorApp.h"
 
+#include "Play/DialogueFacts.h"
 #include "Play/EnvironmentTick.h"
 
 #include "Editor/EditorInternals.h"
@@ -727,6 +728,16 @@ void EditorApp::drawInspector3D()
             ImGui::Text("Jump cooldown  %.2fs", static_cast<double>(jac->jump.cooldownLeft()));
         if (so->type == SceneObjectType::Player && ImGui::Button(ICON_FA_PLAY "  Play from here") && !m_playMode)
             togglePlayMode();
+        if (so->type == SceneObjectType::Hunter)
+        {
+            char dialoguePath[192];
+            std::snprintf(dialoguePath, sizeof(dialoguePath), "%s", so->dialogue.c_str());
+            ImGui::BeginDisabled(m_playMode);
+            if (ImGui::InputText("Dialogue", dialoguePath, sizeof(dialoguePath)))
+                so->dialogue = dialoguePath;
+            ImGui::EndDisabled();
+            ImGui::TextDisabled("Content path. Play, stand close, look at them, and press T.");
+        }
         ImGui::TextDisabled("F12 plays the scene. Place hunters or wolves, then Play to fight.");
     }
     else if (so->type == SceneObjectType::Model)
@@ -1051,9 +1062,21 @@ void EditorApp::onUpdate(float dt)
             setPlayMode(false);
         else
         {
-            m_play.tickPawn(dt);
-            m_play.tickCamera();
-            m_play.tickWorld(dt);
+            if (!m_dialogue.locksWorld())
+            {
+                m_play.tickPawn(dt);
+                m_play.tickCamera();
+                m_play.tickWorld(dt);
+            }
+            m_dialogueSpeech.setServices(&assets(), &audio(), &world());
+            m_dialogue.setFacts(m_session.valid() ? world().get<DialogueFactsComponent>(m_session) : nullptr);
+            m_dialogue.setUiBlocked(m_showUpgrades || m_lootTarget.valid());
+            m_dialogue.tick(world(), dt);
+            if (m_talkNpc.valid() && !m_dialogue.active())
+            {
+                m_guardVoice.setSuppressed(m_talkNpc, false, &audio());
+                m_talkNpc = {};
+            }
             m_save.service(world());
             if (m_defenseTextLeft > 0.0f)
             {

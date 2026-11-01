@@ -23,6 +23,8 @@ namespace Dark
         // Scene pickup id. Play spawns the item once physics is live.
         std::string     pickup;
         int             pickupCount = 1;
+        // Content path of a dialogue graph, for example dialogue/hunter_gate.dlg.json.
+        std::string     dialogue;
         // Runtime only. Not written to the scene file.
         Entity          playPickup{};
         bool            playPickupSpent = false;

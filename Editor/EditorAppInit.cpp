@@ -43,7 +43,6 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
-#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -103,9 +102,6 @@ void EditorApp::onInit()
     registerActions();
 
     m_ai.setHunterHitReactionSettings(defaultHunterHitReaction());
-
-    m_scenePath = defaultScenePath("level.json");
-    m_sceneName = "level";
 
     if (!renderer().enableSceneBuffers(config().scenePath))
         DE_LOG_ERROR(LogCategory::Render, "EditorApp: SceneBuffers enable failed; SwapChainForward");
@@ -282,22 +278,11 @@ void EditorApp::onInit()
     m_camera2D.SetOrthoHeight(16.0f);
     m_camera2D.SetClipPlanes(0.0f, 80.0f);
 
+    newScene3D();
     if (m_cliJoin)
-    {
-        applySceneMode(SceneMode::Scene3D);
         DE_LOG_INFO(LogCategory::Networking, "Editor: CLI join — starting with empty 3D scene");
-    }
-    else if (std::filesystem::exists(m_scenePath))
-        loadScene();
-    else
-        DE_LOG_INFO("EditorApp: no default scene at {}", m_scenePath.string());
     if (m_sceneMode == SceneMode::Scene3D)
-    {
-        ensureGlobalLights();
-        m_env.evaluate();
-        applySkyToLights();
         applyIbl();
-    }
 
     m_sfxPlace  = audio().loadOrBlip(assets(), "audio/place.wav", 620.0f, 0.09f, 0.4f);
     m_sfxDelete = audio().loadOrBlip(assets(), "audio/delete.wav", 300.0f, 0.12f, 0.4f);

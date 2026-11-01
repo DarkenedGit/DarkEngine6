@@ -137,7 +137,7 @@ build\bin\Debug\Editor.exe
 build\bin\Debug\VisualDebugger.exe -join 127.0.0.1
 ```
 
-Editor opens `content/scenes/level.json` by default. Sandbox builds its 3D level from the same file unless `-scene:` names another one.
+Editor opens a blank 3D scene: the grid on Y=0 at the origin, with no terrain. File → Open 3D Level still starts on `content/scenes/level.json`. Sandbox builds its 3D level from that file unless `-scene:` names another one.
 
 ### Command-line flags
 

@@ -3182,7 +3182,7 @@ Entity SandboxApp::pickTalkTarget()
             range = graph->talkRange;
         if (flat.MagnitudeSqrd() > range * range)
             return;
-        Vector3f to = npcXf->position - camPos;
+        Vector3f to{ npcXf->position.x - camPos.x, npcXf->position.y + 1.1f - camPos.y, npcXf->position.z - camPos.z };
         const float len2 = to.MagnitudeSqrd();
         if (len2 < 1.0e-6f)
             return;

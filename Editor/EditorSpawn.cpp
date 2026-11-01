@@ -298,6 +298,8 @@ Entity EditorApp::spawnObject(
         so.pickup      = authored->pickup;
         so.pickupCount = authored->pickupCount > 0 ? authored->pickupCount : 1;
     }
+    if (authored && !authored->dialogue.empty())
+        so.dialogue = authored->dialogue;
 
     if (type == SceneObjectType::ParticleEmitter)
     {
