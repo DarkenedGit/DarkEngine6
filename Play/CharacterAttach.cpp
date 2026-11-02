@@ -185,6 +185,7 @@ namespace Dark
             move.gravity         = settings.gravity;
             move.jumpSpeed       = settings.jumpSpeed;
             move.doubleJumpSpeed = settings.doubleJumpSpeed;
+            move.slideMinWallXZ  = settings.slideMinWallXZ;
             if (!loadEntityMovementType("player", move))
                 return;
             settings.walkSpeed       = move.walkSpeed;
@@ -193,6 +194,7 @@ namespace Dark
             settings.gravity         = move.gravity;
             settings.jumpSpeed       = move.jumpSpeed;
             settings.doubleJumpSpeed = move.doubleJumpSpeed;
+            settings.slideMinWallXZ  = move.slideMinWallXZ;
         }
 
         bool tagIsWolf(const TagComponent* tag)
@@ -229,6 +231,7 @@ namespace Dark
                 ai->runSpeed      = move.runSpeed;
                 ai->acceleration  = move.acceleration;
                 ai->authoredMove  = true;
+                ai->slideMinWallXZ = move.slideMinWallXZ;
             }
             if (jac)
             {

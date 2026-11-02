@@ -94,6 +94,29 @@ TEST(EntityMovement, AccelerationOmittedKeepsSeedAndNegativeIsIgnored)
     EXPECT_FLOAT_EQ(move.acceleration, 9.0f);
 }
 
+TEST(EntityMovement, SlideMinWallXZKeepsSeedAndRejectsOutOfRange)
+{
+    EntityMovement omitted;
+    ASSERT_TRUE(parseEntityMovement(R"({"version":1,"type":"player","walkSpeed":2})", omitted));
+    EXPECT_FLOAT_EQ(omitted.slideMinWallXZ, 0.5f);
+
+    EntityMovement loaded;
+    ASSERT_TRUE(parseEntityMovement(R"({"version":1,"type":"player","slideMinWallXZ":0.25})", loaded));
+    EXPECT_FLOAT_EQ(loaded.slideMinWallXZ, 0.25f);
+
+    EntityMovement legal;
+    ASSERT_TRUE(parseEntityMovement(R"({"version":1,"type":"player","slideMinWallXZ":1})", legal));
+    EXPECT_FLOAT_EQ(legal.slideMinWallXZ, 1.0f);
+
+    EntityMovement zero;
+    ASSERT_TRUE(parseEntityMovement(R"({"version":1,"type":"player","slideMinWallXZ":0})", zero));
+    EXPECT_FLOAT_EQ(zero.slideMinWallXZ, 0.5f);
+
+    EntityMovement high;
+    ASSERT_TRUE(parseEntityMovement(R"({"version":1,"type":"hunter","slideMinWallXZ":1.5})", high));
+    EXPECT_FLOAT_EQ(high.slideMinWallXZ, 0.5f);
+}
+
 TEST(EntityMovement, ContentFilesMatchCurrentFeel)
 {
     EntityMovement player;
@@ -103,6 +126,7 @@ TEST(EntityMovement, ContentFilesMatchCurrentFeel)
     player.jumpSpeed       = 1.0f;
     player.doubleJumpSpeed = 1.0f;
     player.gravity         = 1.0f;
+    player.slideMinWallXZ  = 0.25f;
     ASSERT_TRUE(loadEntityMovementType("player", player));
     EXPECT_EQ(player.type, "player");
     EXPECT_FLOAT_EQ(player.walkSpeed, 2.5f);
@@ -111,6 +135,7 @@ TEST(EntityMovement, ContentFilesMatchCurrentFeel)
     EXPECT_FLOAT_EQ(player.jumpHeight, 3.0f);
     EXPECT_FLOAT_EQ(player.doubleJumpSpeed, 12.0f);
     EXPECT_FLOAT_EQ(player.gravity, 9.8f);
+    EXPECT_FLOAT_EQ(player.slideMinWallXZ, 0.5f);
     EXPECT_NEAR(player.jumpSpeed, std::sqrt(2.0f * player.gravity * player.jumpHeight), 1.0e-5f);
     EXPECT_NEAR(player.doubleJumpHeight, (12.0f * 12.0f) / (2.0f * player.gravity), 1.0e-4f);
 
@@ -122,6 +147,7 @@ TEST(EntityMovement, ContentFilesMatchCurrentFeel)
     hunter.leapForwardSpeed    = 1.0f;
     hunter.leapForwardSpeedMax = 1.0f;
     hunter.gravity             = 1.0f;
+    hunter.slideMinWallXZ      = 0.25f;
     ASSERT_TRUE(loadEntityMovementType("hunter", hunter));
     EXPECT_FLOAT_EQ(hunter.walkSpeed, 2.5f);
     EXPECT_FLOAT_EQ(hunter.runSpeed, 6.0f);
@@ -130,6 +156,7 @@ TEST(EntityMovement, ContentFilesMatchCurrentFeel)
     EXPECT_FLOAT_EQ(hunter.leapForwardSpeed, 7.5f);
     EXPECT_FLOAT_EQ(hunter.leapForwardSpeedMax, 10.0f);
     EXPECT_FLOAT_EQ(hunter.gravity, 9.8f);
+    EXPECT_FLOAT_EQ(hunter.slideMinWallXZ, 0.5f);
     EXPECT_NEAR(hunter.jumpHeight, (5.0f * 5.0f) / (2.0f * hunter.gravity), 1.0e-4f);
 
     EntityMovement wolf;
@@ -140,6 +167,7 @@ TEST(EntityMovement, ContentFilesMatchCurrentFeel)
     wolf.leapForwardSpeed    = 1.0f;
     wolf.leapForwardSpeedMax = 1.0f;
     wolf.gravity             = 1.0f;
+    wolf.slideMinWallXZ      = 0.25f;
     ASSERT_TRUE(loadEntityMovementType("wolf", wolf));
     EXPECT_FLOAT_EQ(wolf.walkSpeed, 2.0f);
     EXPECT_FLOAT_EQ(wolf.runSpeed, 6.0f);
@@ -148,6 +176,7 @@ TEST(EntityMovement, ContentFilesMatchCurrentFeel)
     EXPECT_FLOAT_EQ(wolf.leapForwardSpeed, 10.0f);
     EXPECT_FLOAT_EQ(wolf.leapForwardSpeedMax, 12.0f);
     EXPECT_FLOAT_EQ(wolf.gravity, 9.8f);
+    EXPECT_FLOAT_EQ(wolf.slideMinWallXZ, 0.5f);
     EXPECT_NEAR(wolf.jumpHeight, (5.0f * 5.0f) / (2.0f * wolf.gravity), 1.0e-4f);
 }
 
@@ -162,11 +191,12 @@ TEST(EntityMovement, ApplyUsesContentFiles)
     motor.settings().jumpSpeed       = 1.0f;
     motor.settings().doubleJumpSpeed = 1.0f;
     motor.settings().crouchSpeed     = 1.1f;
+    motor.settings().slideMinWallXZ  = 0.25f;
     motor.setHorizontalVelocity(2.0f, 3.0f);
 
     Entity hunter = world.createEntity();
     world.emplace<TagComponent>(hunter, "hunter");
-    world.emplace<AiAgentComponent>(hunter);
+    world.emplace<AiAgentComponent>(hunter).slideMinWallXZ = 0.25f;
     auto& hjac = world.emplace<JumpAttackComponent>(hunter);
     Combat::JumpAttackDef hdef = hjac.jump.def();
     hdef.leapVerticalSpeed     = 1.0f;
@@ -178,7 +208,7 @@ TEST(EntityMovement, ApplyUsesContentFiles)
 
     Entity wolf = world.createEntity();
     world.emplace<TagComponent>(wolf, "Wolf");
-    world.emplace<AiAgentComponent>(wolf);
+    world.emplace<AiAgentComponent>(wolf).slideMinWallXZ = 0.25f;
     world.emplace<JumpAttackComponent>(wolf);
 
     applyAuthoredMovement(world);
@@ -190,6 +220,7 @@ TEST(EntityMovement, ApplyUsesContentFiles)
     EXPECT_FLOAT_EQ(motor.settings().doubleJumpSpeed, 12.0f);
     EXPECT_FLOAT_EQ(motor.settings().crouchSpeed, 1.1f);
     EXPECT_FLOAT_EQ(motor.settings().gravity, 9.8f);
+    EXPECT_FLOAT_EQ(motor.settings().slideMinWallXZ, 0.5f);
     EXPECT_FLOAT_EQ(motor.velocity().x, 2.0f);
     EXPECT_FLOAT_EQ(motor.velocity().z, 3.0f);
 
@@ -199,6 +230,7 @@ TEST(EntityMovement, ApplyUsesContentFiles)
     EXPECT_FLOAT_EQ(hai->walkSpeed, 2.5f);
     EXPECT_FLOAT_EQ(hai->runSpeed, 6.0f);
     EXPECT_FLOAT_EQ(hai->acceleration, 8.0f);
+    EXPECT_FLOAT_EQ(hai->slideMinWallXZ, 0.5f);
     const Combat::JumpAttackDef& applied = world.get<JumpAttackComponent>(hunter)->jump.def();
     EXPECT_FLOAT_EQ(applied.leapVerticalSpeed, 5.0f);
     EXPECT_FLOAT_EQ(applied.leapForwardSpeed, 7.5f);
@@ -212,6 +244,7 @@ TEST(EntityMovement, ApplyUsesContentFiles)
     EXPECT_FLOAT_EQ(wai->walkSpeed, 2.0f);
     EXPECT_FLOAT_EQ(wai->runSpeed, 6.0f);
     EXPECT_FLOAT_EQ(wai->acceleration, 8.0f);
+    EXPECT_FLOAT_EQ(wai->slideMinWallXZ, 0.5f);
     EXPECT_FLOAT_EQ(world.get<JumpAttackComponent>(wolf)->jump.def().leapVerticalSpeed, 5.0f);
     EXPECT_FLOAT_EQ(world.get<JumpAttackComponent>(wolf)->jump.def().leapForwardSpeed, 10.0f);
     EXPECT_FLOAT_EQ(world.get<JumpAttackComponent>(wolf)->jump.def().leapForwardSpeedMax, 12.0f);

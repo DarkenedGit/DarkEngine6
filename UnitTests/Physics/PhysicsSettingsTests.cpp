@@ -177,6 +177,158 @@ TEST(PhysicsSettings, MoverStopsAtBoxAndSlidesOnGround)
     EXPECT_GT(phys.clipMover(cast), 0.99f);
 }
 
+TEST(PhysicsSettings, MoverHitNormalOnlyWhenSeparated)
+{
+    PhysicsWorld phys;
+    PhysicsWorldDesc desc;
+    desc.enabled = true;
+    ASSERT_TRUE(phys.create(desc));
+
+    Dark::Physics::PhysicsBoxDesc ground;
+    ground.position    = Vector3f(0.0f, -1.0f, 0.0f);
+    ground.halfExtents = Vector3f(20.0f, 1.0f, 20.0f);
+    ASSERT_NE(phys.createBox(ground), Dark::Physics::kNullPhysicsBody);
+
+    Dark::Physics::PhysicsBoxDesc box;
+    box.position    = Vector3f(3.0f, 0.5f, 0.0f);
+    box.halfExtents = Vector3f(0.5f, 0.5f, 0.5f);
+    const auto nearId = phys.createBox(box);
+    ASSERT_NE(nearId, Dark::Physics::kNullPhysicsBody);
+
+    PhysicsWorld::MoverCast cast;
+    cast.origin      = Vector3f(0.0f, 0.5f, 0.0f);
+    cast.radius      = 0.45f;
+    cast.bottom      = -0.45f;
+    cast.top         = 1.35f;
+    cast.translation = Vector3f(5.0f, 0.0f, 0.0f);
+
+    const float blocked = phys.clipMover(cast);
+    const PhysicsWorld::MoverHit into = phys.clipMoverHit(cast);
+    EXPECT_FLOAT_EQ(into.fraction, blocked);
+    EXPECT_GT(into.fraction, 0.15f);
+    EXPECT_LT(into.fraction, 0.55f);
+    EXPECT_TRUE(into.hasNormal);
+    EXPECT_LT(into.normal.x, 0.0f);
+
+    cast.translation = Vector3f(0.0f, 0.0f, 3.0f);
+    const PhysicsWorld::MoverHit beside = phys.clipMoverHit(cast);
+    EXPECT_GT(beside.fraction, 0.99f);
+    EXPECT_FLOAT_EQ(beside.fraction, phys.clipMover(cast));
+    EXPECT_FALSE(beside.hasNormal);
+
+    // Closest hit keeps the near face. Ignoring that body reports the rotated neighbor.
+    cast.translation = Vector3f(5.0f, 0.0f, 0.0f);
+    const float faceX = box.position.x - box.halfExtents.x;
+    const float past  = PhysicsWorld::kMoverNormalPadMetres + 0.03f;
+    Dark::Physics::PhysicsBoxDesc other;
+    other.position    = Vector3f(faceX + past + 0.36f, 0.5f, 0.55f);
+    other.halfExtents = Vector3f(0.25f, 1.0f, 0.25f);
+    other.rotation    = Dark::Math::Quaternion::FromAxisAngle(Vector3f(0.0f, 1.0f, 0.0f), 45.0f * Dark::Math::DegToRad);
+    ASSERT_NE(phys.createBox(other), Dark::Physics::kNullPhysicsBody);
+
+    const PhysicsWorld::MoverHit both = phys.clipMoverHit(cast);
+    EXPECT_FLOAT_EQ(both.fraction, blocked);
+    EXPECT_TRUE(both.hasNormal);
+    EXPECT_LT(both.normal.x, -0.85f);
+    EXPECT_NEAR(both.normal.z, into.normal.z, 0.15f);
+
+    cast.ignore = nearId;
+    const PhysicsWorld::MoverHit farther = phys.clipMoverHit(cast);
+    EXPECT_LT(farther.fraction, 1.0f);
+    EXPECT_TRUE(farther.hasNormal);
+    EXPECT_GT(farther.fraction, both.fraction);
+    const float normalGap = farther.normal.z - both.normal.z;
+    EXPECT_TRUE(normalGap > 0.2f || normalGap < -0.2f);
+}
+
+TEST(PhysicsSettings, MoverHitEncroachDropsFartherNormal)
+{
+    PhysicsWorld phys;
+    PhysicsWorldDesc desc;
+    desc.enabled = true;
+    ASSERT_TRUE(phys.create(desc));
+
+    const float radius = 0.45f;
+    // 1 cm into the face: shape cast overlaps, mover cast still reports a fraction.
+    const float faceX = radius - 0.01f;
+    Dark::Physics::PhysicsBoxDesc nearBox;
+    nearBox.position    = Vector3f(faceX + 0.05f, 1.0f, 0.0f);
+    nearBox.halfExtents = Vector3f(0.05f, 2.0f, 2.0f);
+    const auto nearId = phys.createBox(nearBox);
+    ASSERT_NE(nearId, Dark::Physics::kNullPhysicsBody);
+
+    PhysicsWorld::MoverCast cast;
+    cast.origin      = Vector3f(0.0f, 1.0f, 0.0f);
+    cast.radius      = radius;
+    cast.bottom      = -radius;
+    cast.top         = 1.35f;
+    cast.translation = Vector3f(2.0f, 0.0f, 0.0f);
+
+    const float encroaching = phys.clipMover(cast);
+    const PhysicsWorld::MoverHit overlapped = phys.clipMoverHit(cast);
+    EXPECT_FLOAT_EQ(overlapped.fraction, encroaching);
+    EXPECT_GT(overlapped.fraction, 0.0f);
+    EXPECT_LT(overlapped.fraction * cast.translation.x, 0.02f);
+    EXPECT_FALSE(overlapped.hasNormal);
+
+    // Inside the mover distance plus pad, so a missing overlap flag would keep this normal.
+    const float farFace = radius + 0.001f;
+    Dark::Physics::PhysicsBoxDesc farBox;
+    farBox.position    = Vector3f(farFace + 0.5f, 1.0f, 0.0f);
+    farBox.halfExtents = Vector3f(0.5f, 2.0f, 2.0f);
+    ASSERT_NE(phys.createBox(farBox), Dark::Physics::kNullPhysicsBody);
+
+    const float withFar = phys.clipMover(cast);
+    const PhysicsWorld::MoverHit blocked = phys.clipMoverHit(cast);
+    EXPECT_FLOAT_EQ(blocked.fraction, withFar);
+    EXPECT_GT(blocked.fraction, 0.0f);
+    EXPECT_LT(blocked.fraction * cast.translation.x, 0.02f);
+    EXPECT_FALSE(blocked.hasNormal);
+
+    cast.ignore = nearId;
+    const PhysicsWorld::MoverHit onlyFar = phys.clipMoverHit(cast);
+    EXPECT_LT(onlyFar.fraction, 1.0f);
+    EXPECT_TRUE(onlyFar.hasNormal);
+    EXPECT_LT(onlyFar.normal.x, 0.0f);
+    EXPECT_GT(onlyFar.fraction, blocked.fraction);
+}
+
+TEST(PhysicsSettings, MoverHitEarlyOutHasNoNormal)
+{
+    PhysicsWorld phys;
+    PhysicsWorld::MoverCast cast;
+    cast.origin      = Vector3f(0.0f, 0.5f, 0.0f);
+    cast.radius      = 0.45f;
+    cast.bottom      = -0.45f;
+    cast.top         = 1.35f;
+    cast.translation = Vector3f(1.0f, 0.0f, 0.0f);
+    PhysicsWorld::MoverHit hit = phys.clipMoverHit(cast);
+    EXPECT_FLOAT_EQ(hit.fraction, 1.0f);
+    EXPECT_FLOAT_EQ(hit.fraction, phys.clipMover(cast));
+    EXPECT_FALSE(hit.hasNormal);
+
+    PhysicsWorldDesc desc;
+    desc.enabled = true;
+    ASSERT_TRUE(phys.create(desc));
+
+    Dark::Physics::PhysicsBoxDesc box;
+    box.position    = Vector3f(1.5f, 0.5f, 0.0f);
+    box.halfExtents = Vector3f(0.5f, 0.5f, 0.5f);
+    ASSERT_NE(phys.createBox(box), Dark::Physics::kNullPhysicsBody);
+
+    cast.translation = Vector3f(1.0e-6f, 0.0f, 0.0f);
+    hit = phys.clipMoverHit(cast);
+    EXPECT_FLOAT_EQ(hit.fraction, 1.0f);
+    EXPECT_FALSE(hit.hasNormal);
+
+    cast.radius      = 1.0e-5f;
+    cast.translation = Vector3f(2.0f, 0.0f, 0.0f);
+    hit = phys.clipMoverHit(cast);
+    EXPECT_FLOAT_EQ(hit.fraction, 1.0f);
+    EXPECT_FLOAT_EQ(hit.fraction, phys.clipMover(cast));
+    EXPECT_FALSE(hit.hasNormal);
+}
+
 TEST(PhysicsSettings, MoverDoesNotBlockDynamic)
 {
     PhysicsWorld phys;
@@ -197,6 +349,10 @@ TEST(PhysicsSettings, MoverDoesNotBlockDynamic)
     cast.top         = 1.35f;
     cast.translation = Vector3f(2.0f, 0.0f, 0.0f);
     EXPECT_GT(phys.clipMover(cast), 0.99f);
+    const PhysicsWorld::MoverHit hit = phys.clipMoverHit(cast);
+    EXPECT_GT(hit.fraction, 0.99f);
+    EXPECT_FLOAT_EQ(hit.fraction, phys.clipMover(cast));
+    EXPECT_FALSE(hit.hasNormal);
 }
 
 TEST(PhysicsSettings, KinematicSweepsDynamicBox)

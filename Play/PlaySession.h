@@ -22,6 +22,7 @@
 #include "Weapons/ThrowableFlight.h"
 #include "Weapons/Weapon.h"
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -118,6 +119,10 @@ namespace Dark
         WeaponTargetList             targets{};
         QuestRuntime                 quest{};
         const ItemDef*               wornArmor[static_cast<int>(EquipSlot::Count)]{};
+
+        uint32_t planarSubsteps     = 0;
+        uint32_t planarHardStops    = 0;
+        uint32_t planarShapeRejects = 0;
     };
 
     // Filled by the app at the start of each session call. Pointers are not owned.

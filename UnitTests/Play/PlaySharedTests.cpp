@@ -18,6 +18,7 @@
 #include "Play/HunterTick.h"
 #include "Play/PhysicsGround.h"
 #include "Play/PlayLook.h"
+#include "Collision/StaticCollision.h"
 #include "Play/PlayMotor.h"
 #include "Play/ShoulderCamera.h"
 #include "Play/WeaponFire.h"
@@ -321,32 +322,328 @@ TEST(PlayMotor, InputLatchAirAndClip)
     EXPECT_EQ(blocked.dodgeTap, MoveCardinal::None);
     EXPECT_FLOAT_EQ(blocked.airControlScale, 1.0f);
 
-    Physics::PhysicsWorld physics;
     PlayerMotorInput stopped{};
     bool             stoppedLatch = false;
     buildPlayMotorInput(stopped, stoppedLatch, basis.wish, basis.flat, basis.right, false, false, false, false, nullptr, false, edges);
     EXPECT_FLOAT_EQ(stopped.wish.x, 0.0f);
     EXPECT_FLOAT_EQ(stopped.wish.y, 0.0f);
     EXPECT_FLOAT_EQ(stopped.wish.z, 0.0f);
+}
 
-    EXPECT_FLOAT_EQ(tightenPlanarClip(physics, Physics::kNullPhysicsBody, Physics::kNullPhysicsBody, Vector3f{ 0.0f, 0.0f, 0.0f }, Vector3f{ 1.0f, 0.0f, 0.0f }, 0.4f), 0.4f);
+namespace
+{
+    PlanarContact wallAt(float t, const Vector3f& normal)
+    {
+        PlanarContact contact;
+        contact.hit       = true;
+        contact.t         = t;
+        contact.hasNormal = true;
+        contact.normal    = normal;
+        return contact;
+    }
+}
 
-    Vector3f position{ 0.0f, 0.0f, 0.0f };
-    Vector3f before{ 0.0f, 0.0f, 0.0f };
-    Vector3f delta{ 2.0f, 0.0f, 0.0f };
-    commitPlanarClip(position, before, delta, 0.5f, 1.0f, nullptr);
-    EXPECT_NEAR(position.x, 0.96f, 1.0e-5f);
-    EXPECT_FLOAT_EQ(position.z, 0.0f);
-
+TEST(PlayShared, HeadOnSlideStopsIntoVelocity)
+{
     PlayerMotor motor;
-    Vector3f    moved{ 0.0f, 5.0f, 0.0f };
-    Vector3f    start{ 1.0f, 5.0f, 2.0f };
-    Vector3f    step{ 2.0f, 0.0f, 0.0f };
-    commitPlanarClip(moved, start, step, 0.5f, 0.25f, &motor);
-    EXPECT_NEAR(moved.x, 1.96f, 1.0e-5f);
-    EXPECT_FLOAT_EQ(moved.y, 5.0f);
-    EXPECT_FLOAT_EQ(moved.z, 2.0f);
-    EXPECT_NEAR(motor.velocity().x, 3.84f, 1.0e-4f);
+    motor.setHorizontalVelocity(3.84f, 1.0f);
+    Vector3f       position{ 0.0f, 5.0f, 0.0f };
+    const Vector3f before = position;
+    Vector3f       delta{ 2.0f, 0.0f, 0.0f };
+    auto           sweep = [](const Vector3f&, const Vector3f&) { return wallAt(0.5f, Vector3f{ -1.0f, 0.0f, 0.0f }); };
+    slidePlanar(position, before, delta, 0.25f, &motor, 5.0f, 0.5f, sweep);
+    EXPECT_NEAR(position.x, 0.96f, 1.0e-4f);
+    EXPECT_FLOAT_EQ(position.y, 5.0f);
+    EXPECT_FLOAT_EQ(position.z, 0.0f);
+    EXPECT_NEAR(delta.x, 0.96f, 1.0e-4f);
+    EXPECT_NEAR(motor.velocity().x, 0.0f, 1.0e-4f);
+    EXPECT_NEAR(motor.velocity().z, 0.0f, 1.0e-4f);
+}
+
+TEST(PlayShared, DiagonalSlideKeepsTangent)
+{
+    PlayerMotor motor;
+    motor.setHorizontalVelocity(1.0f, 1.0f);
+    Vector3f       position{ 0.0f, 5.0f, 0.0f };
+    const Vector3f before = position;
+    Vector3f       delta{ 2.0f, 0.0f, 2.0f };
+    auto           sweep = [](const Vector3f&, const Vector3f& step) {
+        PlanarContact contact;
+        if (step.x > 1.0e-3f)
+            contact = wallAt(0.5f, Vector3f{ -1.0f, 0.0f, 0.0f });
+        return contact;
+    };
+    slidePlanar(position, before, delta, 0.25f, &motor, 5.0f, 0.5f, sweep);
+    EXPECT_NEAR(position.x, 0.96f, 1.0e-4f);
+    EXPECT_NEAR(position.z, 2.0f, 1.0e-4f);
+    EXPECT_FLOAT_EQ(position.y, 5.0f);
+    EXPECT_NEAR(motor.velocity().x, 0.0f, 1.0e-3f);
+    EXPECT_NEAR(motor.velocity().z, 8.0f, 1.0e-3f);
+}
+
+TEST(PlayShared, ClearStepDoesNotWriteMotor)
+{
+    PlayerMotor motor;
+    motor.setHorizontalVelocity(3.0f, 4.0f);
+    Vector3f       position{ 1.0f, 5.0f, 2.0f };
+    const Vector3f before = position;
+    Vector3f       delta{ 2.0f, 0.0f, 1.0f };
+    auto           sweep = [](const Vector3f&, const Vector3f&) { return PlanarContact{}; };
+    slidePlanar(position, before, delta, 0.25f, &motor, 5.0f, 0.5f, sweep);
+    EXPECT_NEAR(position.x, 3.0f, 1.0e-5f);
+    EXPECT_FLOAT_EQ(position.y, 5.0f);
+    EXPECT_NEAR(position.z, 3.0f, 1.0e-5f);
+    EXPECT_NEAR(delta.x, 2.0f, 1.0e-5f);
+    EXPECT_NEAR(delta.z, 1.0f, 1.0e-5f);
+    EXPECT_FLOAT_EQ(motor.velocity().x, 3.0f);
+    EXPECT_FLOAT_EQ(motor.velocity().z, 4.0f);
+}
+
+TEST(PlayShared, MinWallXZHardStopsOrProjects)
+{
+    const Vector3f normal{ -0.4f, std::sqrt(1.0f - 0.16f), 0.0f };
+    EXPECT_NEAR(normal.Magnitude(), 1.0f, 1.0e-5f);
+    EXPECT_NEAR(std::sqrt(normal.x * normal.x + normal.z * normal.z), 0.4f, 1.0e-5f);
+
+    auto sweep = [&](const Vector3f&, const Vector3f& step) {
+        PlanarContact contact;
+        if (step.x > 1.0e-3f)
+            contact = wallAt(0.5f, normal);
+        return contact;
+    };
+
+    PlayerMotor steep;
+    steep.setHorizontalVelocity(4.0f, 4.0f);
+    Vector3f       steepPos{ 0.0f, 5.0f, 0.0f };
+    const Vector3f steepBefore = steepPos;
+    Vector3f       steepDelta{ 2.0f, 0.0f, 2.0f };
+    slidePlanar(steepPos, steepBefore, steepDelta, 0.25f, &steep, 5.0f, 0.5f, sweep);
+    EXPECT_NEAR(steepPos.x, 0.96f, 1.0e-4f);
+    EXPECT_NEAR(steepPos.z, 0.96f, 1.0e-4f);
+    EXPECT_FLOAT_EQ(steepPos.y, 5.0f);
+    EXPECT_NEAR(steep.velocity().x, 0.0f, 1.0e-4f);
+    EXPECT_NEAR(steep.velocity().z, 0.0f, 1.0e-4f);
+
+    PlayerMotor shallow;
+    shallow.setHorizontalVelocity(4.0f, 4.0f);
+    Vector3f       shallowPos{ 0.0f, 5.0f, 0.0f };
+    const Vector3f shallowBefore = shallowPos;
+    Vector3f       shallowDelta{ 2.0f, 0.0f, 2.0f };
+    slidePlanar(shallowPos, shallowBefore, shallowDelta, 0.25f, &shallow, 5.0f, 0.25f, sweep);
+    EXPECT_NEAR(shallowPos.x, 0.96f, 1.0e-4f);
+    EXPECT_NEAR(shallowPos.z, 2.0f, 1.0e-4f);
+    EXPECT_FLOAT_EQ(shallowPos.y, 5.0f);
+    EXPECT_NEAR(shallow.velocity().z, 8.0f, 1.0e-3f);
+}
+
+TEST(PlayShared, OutsideCornerSlidesPast)
+{
+    const AABox3f  box{ Vector3f{ 1.0f, 0.0f, 1.0f }, Vector3f{ 3.0f, 8.0f, 3.0f } };
+    const Sphere3f startBall{ Vector3f{ 0.0f, 5.0f, 0.0f }, kPlayBodyRadius };
+    const Vector3f step{ 2.0f, 0.0f, 1.2f };
+    const PlanarContact corner = contactSphereSolid(startBall, step, box);
+    ASSERT_TRUE(corner.hit);
+    ASSERT_TRUE(corner.hasNormal);
+    EXPECT_GT(std::fabs(corner.normal.x), 1.0e-3f);
+    EXPECT_GT(std::fabs(corner.normal.z), 1.0e-3f);
+    EXPECT_NEAR(corner.normal.Magnitude(), 1.0f, 1.0e-4f);
+
+    const float    skinX = step.x * Math::Max(0.0f, corner.t - kPlanarSkinFraction);
+    Vector3f       position{ 0.0f, 5.0f, 0.0f };
+    const Vector3f before = position;
+    Vector3f       delta  = step;
+    auto           sweep  = [&](const Vector3f& origin, const Vector3f& sub) {
+        const Sphere3f ball{ origin, kPlayBodyRadius };
+        return contactSphereSolid(ball, sub, box);
+    };
+    slidePlanar(position, before, delta, 0.25f, nullptr, 5.0f, 0.5f, sweep);
+    EXPECT_GT(position.x, skinX + 0.05f);
+    EXPECT_FLOAT_EQ(position.y, 5.0f);
+    const Sphere3f endBall{ Vector3f{ position.x, 5.0f, position.z }, kPlayBodyRadius };
+    EXPECT_FALSE(Collision::Intersects(endBall, box));
+}
+
+TEST(PlayShared, SphereSolidNormalIsUnit)
+{
+    const Vector3f n{ 0.5f, std::sqrt(1.0f - 0.25f), 0.0f };
+    const float    sep = 0.45f + 0.45f;
+    const Sphere3f solid{ Vector3f{ 0.0f, 0.0f, 0.0f }, 0.45f };
+    const Vector3f contactCenter = n * sep;
+    const Sphere3f mover{ contactCenter + n, 0.45f };
+    const PlanarContact hit = contactSphereSolid(mover, n * -2.0f, solid);
+    ASSERT_TRUE(hit.hit);
+    ASSERT_TRUE(hit.hasNormal);
+    EXPECT_NEAR(hit.normal.Magnitude(), 1.0f, 1.0e-4f);
+    const float xz = std::sqrt(hit.normal.x * hit.normal.x + hit.normal.z * hit.normal.z);
+    EXPECT_GE(xz, 0.5f - 1.0e-4f);
+}
+
+TEST(PlayShared, PhysicsRejectDoesNotAddRest)
+{
+    PlanarContact host{};
+    Physics::PhysicsWorld::MoverHit phys;
+    phys.fraction  = 0.4f;
+    phys.hasNormal = false;
+    const PlanarContact rejected = preferPlanarContact(host, phys, 2.0f);
+    EXPECT_TRUE(rejected.hit);
+    EXPECT_FLOAT_EQ(rejected.t, 0.4f);
+    EXPECT_FALSE(rejected.hasNormal);
+
+    Vector3f       position{ 0.0f, 5.0f, 0.0f };
+    const Vector3f before = position;
+    Vector3f       delta{ 2.0f, 0.0f, 0.0f };
+    auto           sweep = [&](const Vector3f&, const Vector3f&) { return rejected; };
+    slidePlanar(position, before, delta, 0.25f, nullptr, 5.0f, 0.5f, sweep);
+    EXPECT_NEAR(position.x, 0.76f, 1.0e-4f);
+    EXPECT_LT(position.x, 1.0f);
+    EXPECT_FLOAT_EQ(position.y, 5.0f);
+
+    const PlanarContact hostHit = wallAt(0.8f, Vector3f{ -1.0f, 0.0f, 0.0f });
+    Physics::PhysicsWorld::MoverHit closer;
+    closer.fraction  = 0.47f;
+    closer.hasNormal = false;
+    const PlanarContact stopped = preferPlanarContact(hostHit, closer, 1.0f);
+    EXPECT_TRUE(stopped.hit);
+    EXPECT_FALSE(stopped.hasNormal);
+    EXPECT_FLOAT_EQ(stopped.t, 0.47f);
+}
+
+TEST(PlayShared, InsideCornerDropsThirdRemainder)
+{
+    Vector3f       position{ 0.0f, 5.0f, 0.0f };
+    const Vector3f before = position;
+    Vector3f       delta{ 2.0f, 0.0f, 2.0f };
+    int            hits = 0;
+    auto           sweep = [&](const Vector3f&, const Vector3f&) {
+        PlanarContact contact;
+        contact.hit       = true;
+        contact.t         = 0.5f;
+        contact.hasNormal = true;
+        if (hits == 0)
+            contact.normal = Vector3f{ -1.0f, 0.0f, 0.0f };
+        else if (hits == 1)
+            contact.normal = Vector3f{ -0.6f, 0.0f, -0.8f };
+        else
+            contact.normal = Vector3f{ 0.0f, 0.0f, -1.0f };
+        ++hits;
+        return contact;
+    };
+    slidePlanar(position, before, delta, 0.25f, nullptr, 5.0f, 0.5f, sweep);
+    EXPECT_EQ(hits, 3);
+    EXPECT_NEAR(position.x, 0.8354f, 1.0e-3f);
+    EXPECT_NEAR(position.z, 1.55265f, 1.0e-3f);
+    EXPECT_GT(position.x, 0.78f);
+    EXPECT_FLOAT_EQ(position.y, 5.0f);
+
+    const AABox3f  wallX{ Vector3f{ 1.40f, 4.0f, 0.0f }, Vector3f{ 2.2f, 6.0f, 3.0f } };
+    const AABox3f  wallZ{ Vector3f{ 0.0f, 4.0f, 2.20f }, Vector3f{ 2.0f, 6.0f, 3.0f } };
+    const Sphere3f body{ Vector3f{ position.x, position.y, position.z }, kPlayBodyRadius };
+    EXPECT_FALSE(Collision::Intersects(body, wallX));
+    EXPECT_FALSE(Collision::Intersects(body, wallZ));
+}
+
+TEST(PlayShared, DuplicateSolidKeepsHostCorner)
+{
+    const AABox3f  box{ Vector3f{ 1.0f, 0.0f, 1.0f }, Vector3f{ 3.0f, 8.0f, 3.0f } };
+    const Vector3f step{ 2.0f, 0.0f, 1.2f };
+    const Sphere3f startBall{ Vector3f{ 0.0f, 5.0f, 0.0f }, kPlayBodyRadius };
+    const PlanarContact host = contactSphereSolid(startBall, step, box);
+    ASSERT_TRUE(host.hit);
+    ASSERT_TRUE(host.hasNormal);
+
+    Physics::PhysicsWorld::MoverHit phys;
+    phys.hasNormal = false;
+    phys.fraction  = host.t - (0.01f / step.Magnitude());
+    const PlanarContact merged = preferPlanarContact(host, phys, step.Magnitude());
+    EXPECT_TRUE(merged.hit);
+    EXPECT_TRUE(merged.hasNormal);
+    EXPECT_NEAR(merged.normal.x, host.normal.x, 1.0e-5f);
+    EXPECT_NEAR(merged.normal.z, host.normal.z, 1.0e-5f);
+    EXPECT_NEAR(merged.t, phys.fraction, 1.0e-5f);
+
+    const PlanarContact laterHost = wallAt(0.40f, Vector3f{ -1.0f, 0.0f, 0.0f });
+    Physics::PhysicsWorld::MoverHit later;
+    later.fraction  = 0.405f;
+    later.hasNormal = false;
+    const PlanarContact shared = preferPlanarContact(laterHost, later, 1.0f);
+    EXPECT_TRUE(shared.hasNormal);
+    EXPECT_FLOAT_EQ(shared.t, 0.40f);
+    EXPECT_FLOAT_EQ(shared.normal.x, -1.0f);
+
+    const float    skinX = step.x * Math::Max(0.0f, host.t - kPlanarSkinFraction);
+    Vector3f       position{ 0.0f, 5.0f, 0.0f };
+    const Vector3f before = position;
+    Vector3f       delta  = step;
+    auto           sweep  = [&](const Vector3f& origin, const Vector3f& sub) {
+        const Sphere3f      ball{ origin, kPlayBodyRadius };
+        const PlanarContact face = contactSphereSolid(ball, sub, box);
+        Physics::PhysicsWorld::MoverHit cast;
+        cast.fraction  = 1.0f;
+        cast.hasNormal = false;
+        if (face.hit && face.t > 0.0f && face.t < 1.0f)
+        {
+            const float len = sub.Magnitude();
+            if (len > 1.0e-6f)
+                cast.fraction = Math::Max(0.0f, face.t - (0.01f / len));
+        }
+        return preferPlanarContact(face, cast, sub.Magnitude());
+    };
+    slidePlanar(position, before, delta, 0.25f, nullptr, 5.0f, 0.5f, sweep);
+    EXPECT_GT(position.x, skinX + 0.05f);
+    EXPECT_FLOAT_EQ(position.y, 5.0f);
+    const Sphere3f endBall{ Vector3f{ position.x, 5.0f, position.z }, kPlayBodyRadius };
+    EXPECT_FALSE(Collision::Intersects(endBall, box));
+}
+
+TEST(PlayShared, InvalidPhysicsKeepsHostHit)
+{
+    Physics::PhysicsWorld physics;
+    Physics::PhysicsWorld::MoverCast cast;
+    cast.origin      = Vector3f{ 0.0f, 0.0f, 0.0f };
+    cast.radius      = kPlayBodyRadius;
+    cast.bottom      = -kPlayBodyRadius;
+    cast.top         = 1.35f;
+    cast.translation = Vector3f{ 1.0f, 0.0f, 0.0f };
+    cast.ignore      = Physics::kNullPhysicsBody;
+    cast.ignore2     = Physics::kNullPhysicsBody;
+    cast.staticOnly  = true;
+    const Physics::PhysicsWorld::MoverHit phys = physics.clipMoverHit(cast);
+    EXPECT_FLOAT_EQ(phys.fraction, 1.0f);
+    EXPECT_FALSE(phys.hasNormal);
+
+    const PlanarContact host = wallAt(0.4f, Vector3f{ -1.0f, 0.0f, 0.0f });
+    const PlanarContact kept = preferPlanarContact(host, phys, cast.translation.Magnitude());
+    EXPECT_TRUE(kept.hit);
+    EXPECT_FLOAT_EQ(kept.t, 0.4f);
+    EXPECT_TRUE(kept.hasNormal);
+    EXPECT_FLOAT_EQ(kept.normal.x, -1.0f);
+}
+
+TEST(PlayShared, MixedHardStopZerosVelocity)
+{
+    PlayerMotor motor;
+    motor.setHorizontalVelocity(5.0f, 5.0f);
+    Vector3f       position{ 0.0f, 5.0f, 0.0f };
+    const Vector3f before = position;
+    Vector3f       delta{ 2.0f, 0.0f, 2.0f };
+    int            hits = 0;
+    auto           sweep = [&](const Vector3f&, const Vector3f&) {
+        PlanarContact contact;
+        contact.hit = true;
+        contact.t   = 0.5f;
+        if (hits == 0)
+        {
+            contact.hasNormal = true;
+            contact.normal    = Vector3f{ -1.0f, 0.0f, 0.0f };
+        }
+        ++hits;
+        return contact;
+    };
+    slidePlanar(position, before, delta, 0.25f, &motor, 5.0f, 0.5f, sweep);
+    EXPECT_GE(hits, 2);
+    EXPECT_FLOAT_EQ(position.y, 5.0f);
+    EXPECT_NEAR(motor.velocity().x, 0.0f, 1.0e-4f);
+    EXPECT_NEAR(motor.velocity().z, 0.0f, 1.0e-4f);
 }
 
 TEST(WeaponFire, CameraOriginAndShootSkill)

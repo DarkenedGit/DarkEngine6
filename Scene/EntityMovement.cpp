@@ -126,6 +126,12 @@ namespace Dark
         takeFloat(root, "walkSpeed", parsed.walkSpeed, false);
         takeFloat(root, "runSpeed", parsed.runSpeed, false);
         takeFloat(root, "acceleration", parsed.acceleration, false);
+        const float slideSeed = parsed.slideMinWallXZ;
+        if (takeFloat(root, "slideMinWallXZ", parsed.slideMinWallXZ, true) && parsed.slideMinWallXZ > 1.0f)
+        {
+            DE_LOG_WARN(LogCategory::Core, "EntityMovement: ignoring '{}'", "slideMinWallXZ");
+            parsed.slideMinWallXZ = slideSeed;
+        }
         takeFloat(root, "leapForwardSpeed", parsed.leapForwardSpeed, false);
         takeFloat(root, "leapForwardSpeedMax", parsed.leapForwardSpeedMax, false);
 

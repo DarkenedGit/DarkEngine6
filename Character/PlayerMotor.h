@@ -91,6 +91,7 @@ namespace Dark
         float breathRegen         = 0.5f;
         float leapDepth           = 0.3f;
         float waterLeapSpeed      = 9.0f;
+        float slideMinWallXZ      = 0.5f;
     };
 
     struct PlayerMotorInput

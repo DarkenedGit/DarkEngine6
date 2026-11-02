@@ -25,6 +25,7 @@ namespace Dark
         float       doubleJumpHeight    = 0.0f;
         float       leapForwardSpeed    = 0.0f;
         float       leapForwardSpeedMax = 0.0f;
+        float       slideMinWallXZ      = 0.5f;
     };
 
     // "player" -> "entities/player.entity.movement.json"

@@ -126,6 +126,17 @@ namespace Dark::Physics
         };
         float clipMover(const MoverCast& cast) const;
 
+        static inline constexpr float kMoverNormalPadMetres = 0.005f; // one B3_LINEAR_SLOP at 1 unit per metre
+
+        struct MoverHit
+        {
+            float          fraction  = 1.0f;
+            bool           hasNormal = false;
+            Math::Vector3f normal{ 0.0f, 0.0f, 0.0f };
+        };
+
+        MoverHit clipMoverHit(const MoverCast& cast) const;
+
         // Closest solid shape along origin + direction * maxDistance. Direction is normalized
         // here. Sensors, shapes the ray starts inside, and the ignore ids are skipped.
         struct RayQuery

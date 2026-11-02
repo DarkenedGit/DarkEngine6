@@ -181,6 +181,72 @@ namespace
             }
         }
     };
+
+    // Same radius as sweepSolids. The helper is anonymous, so the tick is the lock.
+    constexpr float kSweepRadius = 0.45f;
+
+    // Min.x is the face in front of a hunter at x = 8. Tall past the jump apex.
+    AABox3f leapFaceWall()
+    {
+        return AABox3f::FromCenterExtents(Vector3f{ 10.5f, 3.0f, 8.0f }, Vector3f{ 0.5f, 5.0f, 8.0f });
+    }
+
+    void tickWall(Harness& h, const AABox3f& wall)
+    {
+        h.ai.tickHunters(h.world, h.terrain, false, kDt, h.player, &wall, 1);
+    }
+
+    struct LeapAim
+    {
+        Entity e{};
+        float  vx = 0.0f;
+        float  vz = 0.0f;
+    };
+
+    // Homing off, so the takeoff aim stays the arc. True once Leap is against the face and still clear of it.
+    bool leapAgainstWall(Harness& h, float hunterX, float hunterZ, float playerX, float playerZ, const AABox3f& wall, LeapAim& out)
+    {
+        h.placePlayer(playerX, playerZ);
+        out.e = h.spawnHunterAt(hunterX, hunterZ);
+        if (!out.e.valid() || !h.jump(out.e))
+            return false;
+
+        auto def       = h.jump(out.e)->def();
+        def.homingRate = 0.0f;
+        h.jump(out.e)->setDef(def);
+        const float hang = 2.0f * def.leapVerticalSpeed / def.gravity;
+        if (!(hang > 0.0f))
+            return false;
+        out.vx = (playerX - hunterX) / hang;
+        out.vz = (playerZ - hunterZ) / hang;
+
+        const TransformComponent* spawned = h.world.get<TransformComponent>(out.e);
+        if (!spawned || !(spawned->position.x + kSweepRadius < wall.Min.x))
+            return false;
+
+        float prevX    = spawned->position.x;
+        bool  havePrev = false;
+        float t        = 0.0f;
+        while (t < 2.0f)
+        {
+            tickWall(h, wall);
+            t += kDt;
+            const TransformComponent*       xf   = h.world.get<TransformComponent>(out.e);
+            const Dark::Combat::JumpAttack* jump = h.jump(out.e);
+            if (!xf || !jump || jump->phase() != JumpAttackPhase::Leap)
+            {
+                havePrev = false;
+                continue;
+            }
+            const float dx = xf->position.x - prevX;
+            // Stopped against the face, still short of the box. The next ticks are the tangent.
+            if (havePrev && dx * dx < 1.0e-8f && xf->position.x + kSweepRadius > wall.Min.x - 0.05f && xf->position.x + kSweepRadius < wall.Min.x)
+                return true;
+            prevX    = xf->position.x;
+            havePrev = true;
+        }
+        return false;
+    }
 } // namespace
 
 TEST(HunterJumpAttack, SpawnUsesHunterDef)
@@ -583,4 +649,88 @@ TEST(HunterJumpAttack, LeapResolvesThroughCombatNotApplyHunterDamage)
     EXPECT_LT(h.world.get<HealthComponent>(h.player)->health.hp(), playerHp);
     EXPECT_NEAR(h.world.get<HealthComponent>(e)->health.hp(), hunterHp, 1.0e-3f);
     EXPECT_FALSE(h.world.get<HealthComponent>(e)->health.dead());
+}
+
+TEST(HunterJumpAttack, GlanceKeepsTangentAlongWall)
+{
+    Harness h;
+    ASSERT_TRUE(h.setup());
+    const AABox3f wall = leapFaceWall();
+    LeapAim       aim{};
+    ASSERT_TRUE(leapAgainstWall(h, 8.0f, 8.0f, 14.0f, 12.0f, wall, aim));
+    ASSERT_EQ(h.jump(aim.e)->phase(), JumpAttackPhase::Leap);
+
+    const TransformComponent* atWall = h.world.get<TransformComponent>(aim.e);
+    ASSERT_NE(atWall, nullptr);
+    const Vector3f against = atWall->position;
+    EXPECT_GT(against.y, wall.Min.y);
+    EXPECT_LT(against.y, wall.Max.y);
+    EXPECT_GT(against.z, wall.Min.z);
+    EXPECT_LT(against.z, wall.Max.z);
+
+    constexpr int kSlideFrames = 15;
+    for (int i = 0; i < kSlideFrames; ++i)
+        tickWall(h, wall);
+
+    TransformComponent*     xf    = h.world.get<TransformComponent>(aim.e);
+    const AiAgentComponent* agent = h.world.get<AiAgentComponent>(aim.e);
+    ASSERT_NE(xf, nullptr);
+    ASSERT_NE(agent, nullptr);
+    ASSERT_EQ(h.jump(aim.e)->phase(), JumpAttackPhase::Leap);
+
+    const float slidZ = aim.vz * static_cast<float>(kSlideFrames) * kDt;
+    EXPECT_NEAR(xf->position.x, against.x, 1.0e-3f);
+    EXPECT_NEAR(xf->position.z, against.z + slidZ, 1.0e-2f);
+    EXPECT_LT(xf->position.x + kSweepRadius, wall.Min.x);
+    EXPECT_GT(xf->position.z, against.z + 0.5f);
+
+    const Vector3f held = xf->position;
+    tickWall(h, wall);
+    const Vector3f step{ xf->position.x - held.x, 0.0f, xf->position.z - held.z };
+    EXPECT_NEAR(step.x, 0.0f, 1.0e-3f);
+    EXPECT_NEAR(step.z, aim.vz * kDt, 1.0e-3f);
+    EXPECT_NEAR(agent->planarVelocity.x, step.x / kDt, 1.0e-3f);
+    EXPECT_NEAR(agent->planarVelocity.z, step.z / kDt, 1.0e-3f);
+    // Sweep clips the body. The leap velocity stays, including the into-component.
+    EXPECT_NEAR(h.jump(aim.e)->velocity().x, aim.vx, 1.0e-3f);
+    EXPECT_NEAR(h.jump(aim.e)->velocity().z, aim.vz, 1.0e-3f);
+}
+
+TEST(HunterJumpAttack, HeadOnStopsShortOfWall)
+{
+    Harness h;
+    ASSERT_TRUE(h.setup());
+    const AABox3f wall = leapFaceWall();
+    LeapAim       aim{};
+    ASSERT_TRUE(leapAgainstWall(h, 8.0f, 8.0f, 14.0f, 8.0f, wall, aim));
+    ASSERT_EQ(h.jump(aim.e)->phase(), JumpAttackPhase::Leap);
+
+    const TransformComponent* atWall = h.world.get<TransformComponent>(aim.e);
+    ASSERT_NE(atWall, nullptr);
+    const Vector3f against = atWall->position;
+    EXPECT_NEAR(against.z, 8.0f, 1.0e-3f);
+    EXPECT_LT(against.x + kSweepRadius, wall.Min.x);
+    EXPECT_GT(against.x + kSweepRadius, wall.Min.x - 0.05f);
+
+    for (int i = 0; i < 6; ++i)
+        tickWall(h, wall);
+
+    TransformComponent*     xf    = h.world.get<TransformComponent>(aim.e);
+    const AiAgentComponent* agent = h.world.get<AiAgentComponent>(aim.e);
+    ASSERT_NE(xf, nullptr);
+    ASSERT_NE(agent, nullptr);
+    ASSERT_EQ(h.jump(aim.e)->phase(), JumpAttackPhase::Leap);
+    EXPECT_NEAR(xf->position.x, against.x, 1.0e-3f);
+    EXPECT_NEAR(xf->position.z, against.z, 1.0e-3f);
+    EXPECT_LT(xf->position.x + kSweepRadius, wall.Min.x);
+
+    const Vector3f held = xf->position;
+    tickWall(h, wall);
+    const Vector3f step{ xf->position.x - held.x, 0.0f, xf->position.z - held.z };
+    EXPECT_NEAR(step.x, 0.0f, 1.0e-4f);
+    EXPECT_NEAR(step.z, 0.0f, 1.0e-4f);
+    EXPECT_NEAR(agent->planarVelocity.x, 0.0f, 1.0e-3f);
+    EXPECT_NEAR(agent->planarVelocity.z, 0.0f, 1.0e-3f);
+    EXPECT_NEAR(h.jump(aim.e)->velocity().x, aim.vx, 1.0e-3f);
+    EXPECT_NEAR(h.jump(aim.e)->velocity().z, aim.vz, 1.0e-3f);
 }
