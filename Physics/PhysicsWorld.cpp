@@ -750,6 +750,41 @@ namespace Dark::Physics
             clip->normal   = fromB3(normal);
             return fraction;
         }
+
+        struct MoverShapeClip
+        {
+            MoverIgnore    ignore;
+            float          length     = 0.0f;
+            float          maxTravel  = 0.0f;
+            float          best       = 1.0f;
+            bool           sawOverlap = false;
+            bool           separated  = false;
+            Math::Vector3f normal{ 0.0f, 0.0f, 0.0f };
+        };
+
+        // -1 keeps walking. 0 would stop on whichever shape the tree visits first.
+        float acceptMoverNormal(b3ShapeId shapeId, b3Pos, b3Vec3 normal, float fraction, uint64_t, int, int, void* context)
+        {
+            auto* clip = static_cast<MoverShapeClip*>(context);
+            if (!clip || !acceptMoverShape(shapeId, &clip->ignore))
+                return -1.0f;
+            if (!std::isfinite(fraction) || fraction > 1.0f)
+                return -1.0f;
+            if (!(fraction > 0.0f))
+            {
+                clip->sawOverlap = true;
+                return -1.0f;
+            }
+            if (fraction * clip->length > clip->maxTravel)
+                return -1.0f;
+            if (clip->separated && !(fraction < clip->best))
+                return -1.0f;
+
+            clip->separated = true;
+            clip->best      = fraction;
+            clip->normal    = fromB3(normal);
+            return fraction;
+        }
     }
 
     float PhysicsWorld::clipMover(const MoverCast& cast) const
@@ -790,6 +825,63 @@ namespace Dark::Physics
         if (fraction > 1.0f)
             return 1.0f;
         return fraction;
+    }
+
+    PhysicsWorld::MoverHit PhysicsWorld::clipMoverHit(const MoverCast& cast) const
+    {
+        MoverHit hit;
+        hit.fraction = clipMover(cast);
+        if (hit.fraction >= 1.0f)
+            return hit;
+
+        float bottom = cast.bottom;
+        float top    = cast.top;
+        if (top < bottom)
+        {
+            const float swap = bottom;
+            bottom           = top;
+            top              = swap;
+        }
+        const float minSpan = bottom + 2.0f * cast.radius;
+        if (top < minSpan)
+            top = minSpan;
+
+        // b3ShapeProxy::points is borrowed for the cast.
+        b3Vec3 centers[2];
+        centers[0] = b3Vec3{ 0.0f, bottom + cast.radius, 0.0f };
+        centers[1] = b3Vec3{ 0.0f, top - cast.radius, 0.0f };
+
+        b3ShapeProxy proxy;
+        proxy.points = centers;
+        proxy.count  = 2;
+        proxy.radius = cast.radius;
+
+        const float length = std::sqrt(cast.translation.x * cast.translation.x + cast.translation.y * cast.translation.y + cast.translation.z * cast.translation.z);
+
+        MoverShapeClip clip;
+        clip.ignore.id         = cast.ignore;
+        clip.ignore.id2        = cast.ignore2;
+        clip.ignore.staticOnly = cast.staticOnly;
+        clip.length            = length;
+        clip.maxTravel         = hit.fraction * length + kMoverNormalPadMetres;
+
+        b3World_CastShape(loadWorld(m_id), toB3Pos(cast.origin), &proxy, toB3(cast.translation), b3DefaultQueryFilter(), &acceptMoverNormal, &clip);
+
+        if (clip.sawOverlap || !clip.separated)
+            return hit;
+
+        const Math::Vector3f& n = clip.normal;
+        if (!std::isfinite(n.x) || !std::isfinite(n.y) || !std::isfinite(n.z))
+            return hit;
+        const float normalLen = std::sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
+        if (!(normalLen > 1.0e-4f))
+            return hit;
+        if (!(cast.translation.Dot(n) < 0.0f))
+            return hit;
+
+        hit.hasNormal = true;
+        hit.normal    = n;
+        return hit;
     }
 
     bool PhysicsWorld::probeGround(const GroundProbe& probe, float& outSurfaceY) const
