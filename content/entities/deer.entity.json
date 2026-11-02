@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "deer",
+  "gltf": "models/AnimatedAnimals/Deer.gltf",
+  "anim": "models/AnimatedAnimals/Deer.anim.json",
+  "physics": "",
+  "hsm": ""
+}

@@ -2493,6 +2493,7 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
     std::vector<SceneObjectData> sceneBoxes;
     std::vector<SceneObjectData> sceneLights;
     std::vector<SceneObjectData> sceneSpawners;
+    std::vector<SceneObjectData> sceneModels;
     {
         auto sidecar = [](const std::filesystem::path& scenePath, const std::string& file) {
             if (file.empty())
@@ -2622,17 +2623,28 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
 
         if (!loadedScene)
         {
+            const bool bareGround = !sceneData.hasTerrain && sceneData.mode != SceneMode::Scene2D;
             HeightMap base;
-            HeightMap detail;
-            if (!base.createFbm(129, 129, 1337u, 6, 3.5f, 1.0f, 2.1f, 0.48f, 2.0f, 22.0f)
-                || !detail.createFbm(129, 129, 9001u, 3, 18.0f, 0.12f, 2.0f, 0.5f, 2.0f, 22.0f)
-                || !base.addLayer(detail, 1.0f))
+            const float extent = 128.0f * 2.0f;
+            bool heightOk = false;
+            if (bareGround)
+            {
+                // Samples start at 0, so world Y stays on the origin. The floor cube is the visible ground.
+                heightOk = base.create(129, 129, 2.0f, 1.0f);
+            }
+            else
+            {
+                HeightMap detail;
+                heightOk = base.createFbm(129, 129, 1337u, 6, 3.5f, 1.0f, 2.1f, 0.48f, 2.0f, 22.0f)
+                    && detail.createFbm(129, 129, 9001u, 3, 18.0f, 0.12f, 2.0f, 0.5f, 2.0f, 22.0f)
+                    && base.addLayer(detail, 1.0f);
+            }
+            if (!heightOk)
             {
                 DE_LOG_FATAL("SandboxApp: height map create failed");
                 requestQuit();
                 return false;
             }
-            const float extent = 128.0f * 2.0f;
             base.setOrigin(Vector3f{ -0.5f * extent, 0.0f, -0.5f * extent });
             if (!matSplat.generateFromHeight(base))
             {
@@ -2647,6 +2659,11 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
                 return false;
             }
             m_terrain.setWorkingSplat(SplatMap(matSplat));
+            if (bareGround)
+            {
+                m_showTerrain = false;
+                DE_LOG_INFO(LogCategory::Render, "SandboxApp: scene has no terrain; flat ground, mesh hidden");
+            }
         }
 
         const AABox3f terrainBox = m_terrain.bounds();
@@ -2656,6 +2673,8 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
             waterLevel = waterScene.level;
         else if (m_haveTerrainSea)
             waterLevel = m_terrainSeaLevel;
+        else if (!m_showTerrain)
+            waterLevel = -50.0f;
 
         if (worldEngine)
         {
@@ -2751,6 +2770,8 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
                 sceneBoxes.push_back(o);
             if (o.type == SceneObjectType::PointLight || o.type == SceneObjectType::SpotLight)
                 sceneLights.push_back(o);
+            if (o.type == SceneObjectType::Model)
+                sceneModels.push_back(o);
             if (o.type == SceneObjectType::Player)
                 m_chase.setPlayerStart(o.position);
             if (o.type != SceneObjectType::CloudVolume)
@@ -3051,6 +3072,41 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
             }
         }
         DE_LOG_INFO(LogCategory::AI, "SandboxApp: {} scene pawn(s)", m_chase.hunterCount());
+    }
+    if (!sceneModels.empty())
+    {
+        int attached   = 0;
+        int modelStamp = 0;
+        for (const SceneObjectData& o : sceneModels)
+        {
+            if (o.modelPath.empty())
+            {
+                DE_LOG_WARN(LogCategory::Render, "SandboxApp: scene model has no path");
+                continue;
+            }
+            const bool zeroScale = o.scale.x == 0.0f && o.scale.y == 0.0f && o.scale.z == 0.0f;
+            TransformComponent xf{};
+            xf.position = o.position;
+            xf.rotation = o.rotation;
+            xf.scale    = zeroScale ? Vector3f{ 1.0f, 1.0f, 1.0f } : o.scale;
+            const Entity e = world().createEntity();
+            const std::string name = std::filesystem::path(o.modelPath).stem().string();
+            world().emplace<TagComponent>(e, name.empty() ? std::string("Model") : name);
+            world().emplace<TransformComponent>(e, xf);
+            const Vector3f authoredScale = xf.scale;
+            if (!attachAnimatedCharacter(e, o.modelPath.c_str()))
+            {
+                onEntityRemoved(world(), e, &pins());
+                world().destroyEntity(e);
+                DE_LOG_WARN(LogCategory::Render, "SandboxApp: scene model '{}' did not attach", o.modelPath);
+                continue;
+            }
+            if (TransformComponent* placed = world().get<TransformComponent>(e))
+                placed->scale = authoredScale;
+            stampProceduralId(world(), e, std::format("sandbox/level/model/{}", modelStamp++), "model");
+            ++attached;
+        }
+        DE_LOG_INFO(LogCategory::Render, "SandboxApp: {} scene model(s)", attached);
     }
     if (!sceneSpawners.empty())
     {
@@ -3416,7 +3472,8 @@ void SandboxApp::onRender()
     // Opaque casters only — same set as G-buffer / forward color. Water, particles, blood, lines stay out.
     // A point light culls foliage once against its range sphere and redraws that list on each face.
     auto drawShadowCasters = [&](const Matrix4f& lightViewProj, const Frustum3f& casterFrustum, const Sphere3f* foliageSphere, bool beginFoliage) {
-        m_terrain.drawDepth(cmd, &casterFrustum);
+        if (m_showTerrain)
+            m_terrain.drawDepth(cmd, &casterFrustum);
         const bool recordThisView = instanceStatic && shadowViewIndex < kMaxStaticViews;
         const uint32_t skinView   = shadowViewIndex;
         if (recordThisView)
@@ -3675,7 +3732,8 @@ void SandboxApp::onRender()
     {
         {
             const GpuScope gbuffer(cmd, "GBuffer", ProfileColor::GBuffer);
-            m_terrain.drawGBuffer(cmd, m_terrainPipeline, m_terrainMaterial, m_viewCamera, &frustum, &renderer().debugState(), &prevViewProj);
+            if (m_showTerrain)
+                m_terrain.drawGBuffer(cmd, m_terrainPipeline, m_terrainMaterial, m_viewCamera, &frustum, &renderer().debugState(), &prevViewProj);
             if (m_grassPipeline.isValid() && m_grassField.params().enabled)
             {
                 const GpuScope      grassScope(cmd, "Grass", ProfileColor::Grass);
@@ -3909,9 +3967,12 @@ void SandboxApp::onRender()
             DE_LOG_INFO(LogCategory::Render, "SandboxApp: forward frame skips grass");
         }
         const GpuScope forward(cmd, "Forward Opaque", ProfileColor::ForwardOpaque);
-        m_terrain.draw(
-            cmd, m_terrainPipeline, m_terrainMaterial, m_viewCamera, &frustum, &m_env, &m_shadows,
-            &renderer().debugState());
+        if (m_showTerrain)
+        {
+            m_terrain.draw(
+                cmd, m_terrainPipeline, m_terrainMaterial, m_viewCamera, &frustum, &m_env, &m_shadows,
+                &renderer().debugState());
+        }
 
         m_meshPipeline.bind(cmd, fill);
         if (material && material->isValid())

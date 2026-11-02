@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "fox",
+  "gltf": "models/AnimatedAnimals/Fox.gltf",
+  "anim": "models/AnimatedAnimals/Fox.anim.json",
+  "physics": "",
+  "hsm": ""
+}

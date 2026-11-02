@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "horse",
+  "gltf": "models/AnimatedAnimals/Horse.gltf",
+  "anim": "models/AnimatedAnimals/Horse.anim.json",
+  "physics": "",
+  "hsm": ""
+}

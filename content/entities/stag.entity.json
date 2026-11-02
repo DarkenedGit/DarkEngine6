@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "stag",
+  "gltf": "models/AnimatedAnimals/Stag.gltf",
+  "anim": "models/AnimatedAnimals/Stag.anim.json",
+  "physics": "",
+  "hsm": ""
+}

@@ -33,9 +33,34 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <string_view>
 
 namespace Dark
 {
+    namespace
+    {
+        bool sameContentPath(std::string_view a, std::string_view b)
+        {
+            if (a.size() != b.size())
+                return false;
+            for (size_t i = 0; i < a.size(); ++i)
+            {
+                unsigned char ca = static_cast<unsigned char>(a[i]);
+                unsigned char cb = static_cast<unsigned char>(b[i]);
+                if (ca == '\\')
+                    ca = '/';
+                if (cb == '\\')
+                    cb = '/';
+                if (ca >= 'A' && ca <= 'Z')
+                    ca = static_cast<unsigned char>(ca - 'A' + 'a');
+                if (cb >= 'A' && cb <= 'Z')
+                    cb = static_cast<unsigned char>(cb - 'A' + 'a');
+                if (ca != cb)
+                    return false;
+            }
+            return true;
+        }
+    }
 
     ContentModelResult attachContentModel(const CharacterHost& host, Entity e, const char* gltfPath, ModelAttach mode)
     {
@@ -75,10 +100,13 @@ namespace Dark
             return result;
         }
 
-        const std::string modelStem   = std::filesystem::path(gltfPath).stem().string();
+        const std::string modelStem    = std::filesystem::path(gltfPath).stem().string();
         const EntityMaster modelMaster = loadEntityMasterType(modelStem);
+        // Two files can share a stem (models/wolf.gltf and AnimatedAnimals/Wolf.gltf).
+        // The master graph applies only when its gltf is the file being attached.
+        const bool masterForThisFile = !modelMaster.gltf.empty() && sameContentPath(modelMaster.gltf, gltfPath);
         AssetRef<AnimGraphDef> graph;
-        if (!modelMaster.anim.empty())
+        if (masterForThisFile && !modelMaster.anim.empty())
             graph = host.assets.loadAnimGraph(modelMaster.anim);
         if (!graph)
             graph = host.assets.tryLoadAnimGraphForModel(gltfPath);

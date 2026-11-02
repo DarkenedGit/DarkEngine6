@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "cow",
+  "gltf": "models/AnimatedAnimals/Cow.gltf",
+  "anim": "models/AnimatedAnimals/Cow.anim.json",
+  "physics": "",
+  "hsm": ""
+}

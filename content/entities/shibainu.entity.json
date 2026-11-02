@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "shibainu",
+  "gltf": "models/AnimatedAnimals/ShibaInu.gltf",
+  "anim": "models/AnimatedAnimals/ShibaInu.anim.json",
+  "physics": "",
+  "hsm": ""
+}

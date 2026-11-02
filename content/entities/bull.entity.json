@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "bull",
+  "gltf": "models/AnimatedAnimals/Bull.gltf",
+  "anim": "models/AnimatedAnimals/Bull.anim.json",
+  "physics": "",
+  "hsm": ""
+}

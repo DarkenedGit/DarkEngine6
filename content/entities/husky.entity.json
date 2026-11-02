@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "husky",
+  "gltf": "models/AnimatedAnimals/Husky.gltf",
+  "anim": "models/AnimatedAnimals/Husky.anim.json",
+  "physics": "",
+  "hsm": ""
+}

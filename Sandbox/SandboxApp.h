@@ -329,6 +329,9 @@ private:
     Dark::Terrain::GroundContact groundContactAt(float x, float z) const;
     float                     m_terrainSeaLevel = 0.0f;
     bool                      m_haveTerrainSea  = false;
+    // A scene with no terrain block still needs a height field for walking.
+    // The mesh stays hidden so the scene's floor is the visible ground.
+    bool                      m_showTerrain     = true;
     Dark::TerrainMaterial       m_terrainMaterial;
     Dark::WaterWorld            m_water;
     struct SandboxStream

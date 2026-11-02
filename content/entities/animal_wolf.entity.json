@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "animal_wolf",
+  "gltf": "models/AnimatedAnimals/Wolf.gltf",
+  "anim": "models/AnimatedAnimals/Wolf.anim.json",
+  "physics": "",
+  "hsm": ""
+}

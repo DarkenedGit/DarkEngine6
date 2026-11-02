@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "alpaca",
+  "gltf": "models/AnimatedAnimals/Alpaca.gltf",
+  "anim": "models/AnimatedAnimals/Alpaca.anim.json",
+  "physics": "",
+  "hsm": ""
+}

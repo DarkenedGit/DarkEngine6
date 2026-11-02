@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "donkey",
+  "gltf": "models/AnimatedAnimals/Donkey.gltf",
+  "anim": "models/AnimatedAnimals/Donkey.anim.json",
+  "physics": "",
+  "hsm": ""
+}
