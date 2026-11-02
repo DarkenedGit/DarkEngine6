@@ -27,6 +27,11 @@ namespace Dark
         class AudioSystem;
     }
 
+    namespace Physics
+    {
+        class PhysicsWorld;
+    }
+
     // Filled by PlaySession from the app host. Pointers are not owned.
     struct FacilityHost
     {
@@ -85,7 +90,18 @@ namespace Dark
         AssetPinTable*       pins     = nullptr;
         AiSystem*            ai       = nullptr;
         std::deque<std::string>* labels = nullptr;
+        // "sandbox/level" or "editor/scene". Doors, cameras, hide spots, and containers get "<prefix>/<kind>/<n>" so saves can find them.
+        const char*          stampPrefix = nullptr;
     };
+
+    struct FacilityProgressComponent;
+    void writeFacilityProgress(const FacilityState& state, FacilityProgressComponent& out);
+    // Puts saved upgrades, alarm, and hide back. The player is shown or hidden to match.
+    void readFacilityProgress(const FacilityProgressComponent& saved, FacilityState& state, World& world, Entity player);
+
+    // After the loot window draws. An empty loose pickup is removed; a saved building container stays so a load
+    // can refill it. target is cleared when the bag is empty or the window was closed.
+    void settleLootTarget(World& world, AssetPinTable& pins, Physics::PhysicsWorld& physics, Entity& target, bool windowOpen);
 
     void tickFacility(FacilityState& state, const FacilityHost& host, float dt);
     // Hide and door use. Returns true when the press was consumed.

@@ -653,11 +653,16 @@ void EditorApp::equipPlayArmor()
             hunters.push_back(e);
     });
     for (Entity hunter : hunters)
+    {
         m_play.stockHunter(hunter);
+        if (const TransformComponent* xf = world().get<TransformComponent>(hunter))
+            spawnGuardTorch(world(), hunter, xf->position);
+    }
 }
 
 void EditorApp::clearPlayArmor()
 {
+    destroyGuardTorches(world());
     std::vector<Entity> owners;
     world().each<Combat::ArmorPiecesComponent>([&](Entity e, Combat::ArmorPiecesComponent&) { owners.push_back(e); });
     for (Entity owner : owners)
@@ -752,6 +757,7 @@ void EditorApp::resetBuildingFixtures()
     fixtures.pins     = &pins();
     fixtures.ai       = &m_ai;
     fixtures.labels   = &m_buildingLabels;
+    fixtures.stampPrefix = "editor/scene";
     spawnBuildingFixtures(fixtures, m_buildingContainers, m_buildingHides, m_buildingDoors, m_buildingCameras);
 }
 
@@ -1262,11 +1268,5 @@ void EditorApp::drawLoot()
     }
     ImGui::End();
 
-    if (itemCount(loot->contents) == 0)
-    {
-        destroyPickup(world(), pins(), m_physics, m_lootTarget);
-        m_lootTarget = {};
-    }
-    else if (!open)
-        m_lootTarget = {};
+    settleLootTarget(world(), pins(), m_physics, m_lootTarget, open);
 }

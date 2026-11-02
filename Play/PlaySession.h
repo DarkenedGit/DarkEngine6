@@ -232,6 +232,11 @@ namespace Dark
         void clearFacility();
         void refreshUpgrades();
 
+        // Save hooks. FacilityProgress lives on the session entity.
+        void forgetFacilitySave(World& world, Entity session);
+        void captureFacilitySave(World& world, Entity session);
+        void applyFacilitySave(World& world, Entity session, Entity body);
+
         PlayInteractPick pickInteract();
         Entity           takedownTarget();
         WeaponWorldQuery weaponQuery();
@@ -254,6 +259,7 @@ namespace Dark
         PlayerCombatHooks combatHooks();
 
         static void onJumpHits(void* user, const Combat::DamageEvent* events, int count);
+        static float audioOcclusion(void* user, const Math::Vector3f& listener, const Math::Vector3f& source);
         static void onRefreshCamera(void* user);
         static void onHunterCue(void* user, Entity hunter, const char* cue);
         static void onPowerClick(void* user);

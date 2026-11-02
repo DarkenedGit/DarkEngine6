@@ -37,9 +37,12 @@ namespace Dark
         ItemStack item{};
     };
 
+    // Saved only when the entity has a persistent id (building containers). The label is not saved.
     struct LootComponent
     {
-        static constexpr const char* kTypeName = "Loot";
+        static constexpr const char* kTypeName    = "Loot";
+        static constexpr uint16_t    kSaveVersion = 1;
+        static const PersistFns      kPersist;
 
         const char*        label = "Loot";
         InventoryComponent contents{};

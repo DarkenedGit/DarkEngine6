@@ -2,6 +2,7 @@
 
 #include "ECS/Entity.h"
 #include "ECS/Persist.h"
+#include "Math/Vector3f.h"
 
 namespace Dark
 {
@@ -28,5 +29,9 @@ namespace Dark
 
     // nightOnly lights turn on when the sun elevation is below 0.15.
     void tickAttachedLights(World& world, float sunElevation);
+
+    // A shadowed spot that follows owner, so walls stop the beam.
+    Entity spawnGuardTorch(World& world, Entity owner, const Math::Vector3f& at);
+    void   destroyGuardTorches(World& world);
 
 } // namespace Dark

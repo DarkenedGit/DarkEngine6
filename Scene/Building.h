@@ -3,6 +3,7 @@
 #include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
 #include "ECS/Entity.h"
+#include "ECS/Persist.h"
 #include "Scene/SceneTypes.h"
 
 #include <filesystem>
@@ -121,7 +122,9 @@ namespace Dark
 
     struct SecurityCameraComponent
     {
-        static constexpr const char* kTypeName = "SecurityCamera";
+        static constexpr const char* kTypeName    = "SecurityCamera";
+        static constexpr uint16_t    kSaveVersion = 1;
+        static const PersistFns      kPersist;
 
         BuildingCamera def;
         float          phase = 0.0f;
@@ -147,7 +150,9 @@ namespace Dark
 
     struct DoorComponent
     {
-        static constexpr const char* kTypeName = "Door";
+        static constexpr const char* kTypeName    = "Door";
+        static constexpr uint16_t    kSaveVersion = 1;
+        static const PersistFns      kPersist;
 
         Math::Vector3f closedPos{};
         Math::Vector3f size{};

@@ -1020,13 +1020,7 @@ void SandboxApp::drawLoot()
     }
     ImGui::End();
 
-    if (itemCount(loot->contents) == 0)
-    {
-        destroyPickup(world(), pins(), m_physics, m_lootTarget);
-        m_lootTarget = {};
-    }
-    else if (!open)
-        m_lootTarget = {};
+    settleLootTarget(world(), pins(), m_physics, m_lootTarget, open);
 }
 
 void SandboxApp::drawNpcInfoOverlay()

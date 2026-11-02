@@ -3,6 +3,7 @@
 #include "AI/AiSystem.h"
 #include "Character/PlayerMotorComponent.h"
 #include "Character/PlayerStealth.h"
+#include "Collision/Occlusion.h"
 #include "Collision/StaticCollision.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
@@ -49,6 +50,8 @@ namespace Dark::AI
                 if (fwd.Dot(to * (1.0f / dist)) < std::cosf(light.outerConeDeg * 0.0174533f))
                     return;
             }
+            if (Collision::segmentBlocked(cubes, cubeCount, lxf->position, chest))
+                return;
             const float f = 1.0f - dist / light.range;
             lamps += f * f;
         });

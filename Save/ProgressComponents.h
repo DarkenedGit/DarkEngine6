@@ -57,6 +57,19 @@ namespace Dark
         Math::Vector3f spawn{};
     };
 
+    // Facility session state on the session entity: owned upgrades, the alarm, and the hide spot the player is in.
+    struct FacilityProgressComponent
+    {
+        static constexpr const char* kTypeName    = "FacilityProgress";
+        static constexpr uint16_t    kSaveVersion = 1;
+        static const PersistFns      kPersist;
+
+        std::vector<std::string> upgrades;
+        float                    alarmTime = 0.0f;
+        Entity                   hiddenIn{};
+        float                    hideFound = 0.0f;
+    };
+
     struct QuestObjectiveRecord
     {
         int  progress = 0;
