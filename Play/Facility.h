@@ -70,7 +70,7 @@ namespace Dark
         float                    baseMaxHp  = 0.0f;
         bool                     upgradesDirty = true;
 
-        // Hunter and camera solids. Points at the host cubes while every door is open enough.
+        // Hunter, camera, and player solids. Points at the host cubes while every door is open enough.
         const Math::AABox3f*     blocks     = nullptr;
         int                      blockCount = 0;
         std::vector<EntityID>    shutIds;
@@ -104,6 +104,8 @@ namespace Dark
     void settleLootTarget(World& world, AssetPinTable& pins, Physics::PhysicsWorld& physics, Entity& target, bool windowOpen);
 
     void tickFacility(FacilityState& state, const FacilityHost& host, float dt);
+    // Host cubes plus a DoorComponent box at closedPos while door.open < 0.8. Does not slide the leaf.
+    void publishDoorBlocks(FacilityState& state, const FacilityHost& host);
     // Hide and door use. Returns true when the press was consumed.
     bool handleFacilityUse(FacilityState& state, const FacilityHost& host, const PlayInteractPick& pick);
     // Restores motor and health bases, then drops owned upgrades, the alarm, and the hide.

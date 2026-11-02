@@ -140,7 +140,7 @@ namespace Dark
         std::vector<BuildingLoot> loot;
     };
 
-    // A sliding door leaf. The doorway stays open for pathfinding; the app blocks it while the door is shut.
+    // A sliding door leaf. The doorway stays open for pathfinding. publishDoorBlocks blocks it while the door is shut.
     struct BuildingDoor
     {
         Math::Vector3f center{};

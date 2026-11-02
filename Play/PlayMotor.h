@@ -193,15 +193,43 @@ namespace Dark
                 break;
             }
 
-            blocked = true;
+            Math::Vector3f n = contact.normal;
+            n.y              = 0.0f;
+            const float xzLen  = n.Magnitude();
+            const bool  planar = contact.hasNormal && (xzLen > 0.0f) && (xzLen >= minWallXZ);
+            if (planar)
+                n.Normalize();
+
+            // The climb probe is a 0.3 m capsule and the body is 0.45 m, so a wall
+            // you are on already contains the sweep center. t == 0 is that overlap.
+            // A step that does not push into the face still moves.
             if (!(contact.t > 0.0f))
             {
-                hardStop = true;
-                if constexpr (kPlanarSlideCounters)
+                if (!planar)
                 {
-                    if (counts)
-                        ++counts->hardStops;
+                    blocked  = true;
+                    hardStop = true;
+                    if constexpr (kPlanarSlideCounters)
+                    {
+                        if (counts)
+                            ++counts->hardStops;
+                    }
+                    break;
                 }
+                const float into = rest.Dot(n);
+                if (into < -1.0e-4f)
+                {
+                    blocked = true;
+                    rest -= n * into;
+                    if (planeCount < kPlanarSlideIterations)
+                        planes[planeCount++] = n;
+                    if (iter + 1 >= kPlanarSlideIterations)
+                        break;
+                    continue;
+                }
+                posX += rest.x;
+                posZ += rest.z;
+                applied += rest;
                 break;
             }
 
@@ -212,11 +240,9 @@ namespace Dark
             applied += advance;
             Math::Vector3f left = rest * (1.0f - keep);
 
-            Math::Vector3f n = contact.normal;
-            n.y              = 0.0f;
-            const float xzLen = n.Magnitude();
-            if (!contact.hasNormal || !(xzLen > 0.0f) || !(xzLen >= minWallXZ))
+            if (!planar)
             {
+                blocked  = true;
                 hardStop = true;
                 if constexpr (kPlanarSlideCounters)
                 {
@@ -226,9 +252,9 @@ namespace Dark
                 break;
             }
 
-            n.Normalize();
             if (!(rest.Dot(n) < 0.0f))
             {
+                blocked  = true;
                 hardStop = true;
                 if constexpr (kPlanarSlideCounters)
                 {
@@ -237,6 +263,8 @@ namespace Dark
                 }
                 break;
             }
+
+            blocked = true;
 
             const float intoLeft = left.Dot(n);
             left -= n * intoLeft;

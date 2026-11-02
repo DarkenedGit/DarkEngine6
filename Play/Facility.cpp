@@ -206,8 +206,6 @@ namespace Dark
                 guards.push_back(xf->position);
             });
 
-            std::vector<EntityID>    shutIds;
-            std::vector<Math::AABox3f> shutBoxes;
             world->each<DoorComponent>([&](Entity e, DoorComponent& door) {
                 bool guardCanOpen = false;
                 bool guardHolds   = false;
@@ -237,13 +235,8 @@ namespace Dark
                 const float slide  = (alongX ? door.size.x : door.size.z) * 0.95f * door.open;
                 if (TransformComponent* xf = world->get<TransformComponent>(e))
                     xf->position = door.closedPos + (alongX ? Vector3f{ slide, 0.0f, 0.0f } : Vector3f{ 0.0f, 0.0f, slide });
-                if (door.open < 0.8f)
-                {
-                    shutIds.push_back(e.id());
-                    shutBoxes.push_back(Math::AABox3f::FromCenterExtents(door.closedPos, door.size * 0.5f));
-                }
             });
-            publishBlocks(state, host, shutIds, shutBoxes);
+            publishDoorBlocks(state, host);
         }
 
         void leaveHide(FacilityState& state, const FacilityHost& host)
@@ -522,6 +515,23 @@ namespace Dark
         }
 
     } // namespace
+
+    void publishDoorBlocks(FacilityState& state, const FacilityHost& host)
+    {
+        std::vector<EntityID>      shutIds;
+        std::vector<Math::AABox3f> shutBoxes;
+        if (World* world = host.world)
+        {
+            world->each<DoorComponent>([&](Entity e, DoorComponent& door) {
+                if (door.open < 0.8f)
+                {
+                    shutIds.push_back(e.id());
+                    shutBoxes.push_back(Math::AABox3f::FromCenterExtents(door.closedPos, door.size * 0.5f));
+                }
+            });
+        }
+        publishBlocks(state, host, shutIds, shutBoxes);
+    }
 
     void tickFacility(FacilityState& state, const FacilityHost& host, float dt)
     {

@@ -646,6 +646,72 @@ TEST(PlayShared, MixedHardStopZerosVelocity)
     EXPECT_NEAR(motor.velocity().z, 0.0f, 1.0e-4f);
 }
 
+// Body radius 0.45, face at x = 1. The center at 0.70 is outside the solid and 0.15 m inside the expanded box.
+TEST(PlayShared, OverlappingWallStillMovesAway)
+{
+    const AABox3f  wall{ Vector3f{ 1.0f, 0.0f, -4.0f }, Vector3f{ 3.0f, 8.0f, 4.0f } };
+    const Vector3f start{ 0.70f, 5.0f, 0.0f };
+    const PlanarContact overlap = contactSphereSolid(Sphere3f{ start, kPlayBodyRadius }, Vector3f{ -1.0f, 0.0f, 0.0f }, wall);
+    ASSERT_TRUE(overlap.hit);
+    EXPECT_LE(overlap.t, 0.0f);
+    ASSERT_TRUE(overlap.hasNormal);
+    EXPECT_LT(overlap.normal.x, -0.5f);
+
+    PlayerMotor motor;
+    motor.setHorizontalVelocity(-4.0f, 1.5f);
+    Vector3f       position = start;
+    const Vector3f before   = position;
+    Vector3f       delta{ -1.0f, 0.0f, 0.0f };
+    auto           sweep = [&](const Vector3f& origin, const Vector3f& step) {
+        return contactSphereSolid(Sphere3f{ origin, kPlayBodyRadius }, step, wall);
+    };
+    slidePlanar(position, before, delta, 0.25f, &motor, 5.0f, 0.5f, sweep);
+    EXPECT_NEAR(position.x, -0.30f, 1.0e-3f);
+    EXPECT_NEAR(position.z, 0.0f, 1.0e-3f);
+    EXPECT_FLOAT_EQ(position.y, 5.0f);
+    EXPECT_NEAR(motor.velocity().x, -4.0f, 1.0e-3f);
+    EXPECT_NEAR(motor.velocity().z, 1.5f, 1.0e-3f);
+    EXPECT_FALSE(Collision::Intersects(Sphere3f{ Vector3f{ position.x, position.y, position.z }, kPlayBodyRadius }, wall));
+}
+
+TEST(PlayShared, OverlappingWallKeepsTheTangent)
+{
+    const AABox3f wall{ Vector3f{ 1.0f, 0.0f, -4.0f }, Vector3f{ 3.0f, 8.0f, 4.0f } };
+    PlayerMotor   motor;
+    motor.setHorizontalVelocity(1.0f, 6.0f);
+    Vector3f       position{ 0.70f, 5.0f, 0.0f };
+    const Vector3f before = position;
+    Vector3f       delta{ 0.25f, 0.0f, 1.5f };
+    auto           sweep = [&](const Vector3f& origin, const Vector3f& step) {
+        return contactSphereSolid(Sphere3f{ origin, kPlayBodyRadius }, step, wall);
+    };
+    slidePlanar(position, before, delta, 0.25f, &motor, 5.0f, 0.5f, sweep);
+    EXPECT_NEAR(position.x, 0.70f, 1.0e-3f);
+    EXPECT_NEAR(position.z, 1.5f, 1.0e-3f);
+    EXPECT_FLOAT_EQ(position.y, 5.0f);
+    EXPECT_NEAR(motor.velocity().x, 0.0f, 1.0e-3f);
+    EXPECT_NEAR(motor.velocity().z, 6.0f, 1.0e-3f);
+}
+
+TEST(PlayShared, OverlappingWallHeadOnDoesNotSink)
+{
+    const AABox3f wall{ Vector3f{ 1.0f, 0.0f, -4.0f }, Vector3f{ 3.0f, 8.0f, 4.0f } };
+    PlayerMotor   motor;
+    motor.setHorizontalVelocity(4.0f, 2.0f);
+    Vector3f       position{ 0.70f, 5.0f, 0.0f };
+    const Vector3f before = position;
+    Vector3f       delta{ 1.0f, 0.0f, 0.0f };
+    auto           sweep = [&](const Vector3f& origin, const Vector3f& step) {
+        return contactSphereSolid(Sphere3f{ origin, kPlayBodyRadius }, step, wall);
+    };
+    slidePlanar(position, before, delta, 0.25f, &motor, 5.0f, 0.5f, sweep);
+    EXPECT_NEAR(position.x, 0.70f, 1.0e-3f);
+    EXPECT_NEAR(position.z, 0.0f, 1.0e-3f);
+    EXPECT_FLOAT_EQ(position.y, 5.0f);
+    EXPECT_NEAR(motor.velocity().x, 0.0f, 1.0e-3f);
+    EXPECT_NEAR(motor.velocity().z, 0.0f, 1.0e-3f);
+}
+
 TEST(WeaponFire, CameraOriginAndShootSkill)
 {
     const WeaponFireRequest shot = makeCameraFireRequest(Vector3f{ 0.0f, 1.0f, 0.0f }, Vector3f{ 0.0f, 0.0f, 2.0f }, nullptr, 1.5f);

@@ -820,6 +820,8 @@ namespace Dark
         Math::Vector3f delta{ xf->position.x - before.x, 0.0f, xf->position.z - before.z };
         if (delta.MagnitudeSqrd() > 1.0e-10f && !motorOut.climbed)
         {
+            // Leaves stay out of host.cubes so a route can cross the doorway. The shut box is current open, not last frame.
+            publishDoorBlocks(m_facility, facilityHostOf(m_host, m_rt));
             auto liveDynamic = [&](Entity solid) {
                 if (!m_host.physics || !solid.valid())
                     return false;
@@ -850,6 +852,20 @@ namespace Dark
                     const PlanarContact hit = contactSphereSolid(ball, step, m_host.spheres[i]);
                     if (hit.hit && hit.t < host.t)
                         host = hit;
+                }
+                // A shut leaf is about 0.18 m thick, so the body overlaps it on contact. Skipping that overlap
+                // would drop the only solid the leaf has. t == 0 still keeps a step that is not into the face.
+                const int doorCount  = static_cast<int>(m_facility.shutIds.size());
+                const int solidCount = static_cast<int>(m_facility.solids.size());
+                if (doorCount > 0 && solidCount >= doorCount)
+                {
+                    const int begin = solidCount - doorCount;
+                    for (int i = begin; i < solidCount; ++i)
+                    {
+                        const PlanarContact hit = contactSphereSolid(ball, step, m_facility.solids[static_cast<size_t>(i)]);
+                        if (hit.hit && hit.t < host.t)
+                            host = hit;
+                    }
                 }
                 Physics::PhysicsWorld::MoverHit phys{};
                 phys.fraction = 1.0f;
