@@ -551,6 +551,38 @@ namespace Dark
             return true;
         }
 
+        // D3D culls after the Y-down viewport, so FrontCounterClockwise keeps clockwise
+        // triangles in Y-up space (the cross product opposes the outward normal).
+        // glTF fronts are counter-clockwise. Swap those index pairs or the near side is culled.
+        void windEngineFront(MeshData& mesh)
+        {
+            if (mesh.indices.size() < 3 || mesh.normals.size() != mesh.positions.size())
+                return;
+            double score = 0.0;
+            const size_t n = mesh.positions.size();
+            for (size_t i = 0; i + 2 < mesh.indices.size(); i += 3)
+            {
+                const uint32_t i0 = mesh.indices[i];
+                const uint32_t i1 = mesh.indices[i + 1];
+                const uint32_t i2 = mesh.indices[i + 2];
+                if (i0 >= n || i1 >= n || i2 >= n)
+                    continue;
+                const Math::Vector3f e1 = mesh.positions[i1] - mesh.positions[i0];
+                const Math::Vector3f e2 = mesh.positions[i2] - mesh.positions[i0];
+                const Math::Vector3f cr = e1.Cross(e2);
+                const Math::Vector3f nn = mesh.normals[i0] + mesh.normals[i1] + mesh.normals[i2];
+                score += static_cast<double>(cr.x) * nn.x + static_cast<double>(cr.y) * nn.y + static_cast<double>(cr.z) * nn.z;
+            }
+            if (score <= 0.0)
+                return;
+            for (size_t i = 0; i + 2 < mesh.indices.size(); i += 3)
+            {
+                const uint32_t first = mesh.indices[i];
+                mesh.indices[i]      = mesh.indices[i + 1];
+                mesh.indices[i + 1]  = first;
+            }
+        }
+
         bool extractPrimitive(const cgltf_primitive& gp, const Math::Matrix4f& localToRoot, const std::filesystem::path& gltfPath, const cgltf_data* data, bool skinned, uint32_t jointCount, bool& warnedJoints1, GltfCpuPrimitive& out)
         {
             if (gp.type != cgltf_primitive_type_triangles)
@@ -570,7 +602,8 @@ namespace Dark
                 return false;
             }
             const cgltf_accessor* nrmAcc = findAttr(gp, cgltf_attribute_type_normal);
-            if (!unpackVec3(nrmAcc, out.mesh.normals) || out.mesh.normals.size() != out.mesh.positions.size())
+            const bool authoredNormals = unpackVec3(nrmAcc, out.mesh.normals) && out.mesh.normals.size() == out.mesh.positions.size();
+            if (!authoredNormals)
                 detail::computeSmoothedNormals(out.mesh);
             const cgltf_accessor* uvAcc = findAttr(gp, cgltf_attribute_type_texcoord, 0);
             if (!unpackVec2(uvAcc, out.mesh.uvs) || out.mesh.uvs.size() != out.mesh.positions.size())
@@ -644,6 +677,9 @@ namespace Dark
                 const bool anyFactor = out.emissiveColor[0] > 0.0f || out.emissiveColor[1] > 0.0f || out.emissiveColor[2] > 0.0f;
                 out.emissiveScalar   = anyFactor ? 1.0f : 0.0f;
             }
+            // Generated normals follow the file winding, so a flip would reverse a mesh that was already clockwise.
+            if (authoredNormals)
+                windEngineFront(out.mesh);
             return true;
         }
 

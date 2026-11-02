@@ -277,7 +277,7 @@ namespace
         Vec3
     };
 
-    std::string makeTriGltfJson(TangentMode mode, const char* extraMaterialJson = nullptr)
+    std::string makeTriGltfJson(TangentMode mode, const char* extraMaterialJson = nullptr, bool clockwise = false)
     {
         std::vector<uint8_t> buf;
         appendF32(buf, 0); appendF32(buf, 0); appendF32(buf, 0);
@@ -320,7 +320,15 @@ namespace
             tanBytes = 36;
         }
         const uint32_t idxOffset = static_cast<uint32_t>(buf.size());
-        appendU16(buf, 0); appendU16(buf, 1); appendU16(buf, 2);
+        // (0,0,0) (1,0,0) (0,1,0) with normal +Z. 0,1,2 is counter-clockwise.
+        if (clockwise)
+        {
+            appendU16(buf, 0); appendU16(buf, 2); appendU16(buf, 1);
+        }
+        else
+        {
+            appendU16(buf, 0); appendU16(buf, 1); appendU16(buf, 2);
+        }
         const uint32_t total = static_cast<uint32_t>(buf.size());
         const std::string uri = "data:application/octet-stream;base64," + base64Encode(buf);
 
@@ -735,4 +743,31 @@ TEST(GltfLoader, CubeWithoutMapsLeavesBlobsEmpty)
     EXPECT_NEAR(p.emissiveColor[0], 0.0f, 1.0e-5f);
     EXPECT_NEAR(p.emissiveColor[1], 0.0f, 1.0e-5f);
     EXPECT_NEAR(p.emissiveColor[2], 0.0f, 1.0e-5f);
+}
+
+TEST(GltfLoader, FlipsCounterClockwiseNormalsToEngineFront)
+{
+    const auto path = writeTempGltf("ccw.gltf", makeTriGltfJson(TangentMode::None));
+    GltfCpuModel model;
+    ASSERT_TRUE(parseGltfFile(path, model));
+    ASSERT_EQ(model.primitives.size(), 1u);
+    const auto& idx = model.primitives[0].mesh.indices;
+    ASSERT_EQ(idx.size(), 3u);
+    EXPECT_EQ(idx[0], 1u);
+    EXPECT_EQ(idx[1], 0u);
+    EXPECT_EQ(idx[2], 2u);
+    EXPECT_NEAR(model.primitives[0].mesh.normals[0].z, 1.0f, 1.0e-5f);
+}
+
+TEST(GltfLoader, KeepsClockwiseNormalsAsEngineFront)
+{
+    const auto path = writeTempGltf("cw.gltf", makeTriGltfJson(TangentMode::None, nullptr, true));
+    GltfCpuModel model;
+    ASSERT_TRUE(parseGltfFile(path, model));
+    ASSERT_EQ(model.primitives.size(), 1u);
+    const auto& idx = model.primitives[0].mesh.indices;
+    ASSERT_EQ(idx.size(), 3u);
+    EXPECT_EQ(idx[0], 0u);
+    EXPECT_EQ(idx[1], 2u);
+    EXPECT_EQ(idx[2], 1u);
 }
