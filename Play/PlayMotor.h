@@ -3,7 +3,6 @@
 #include "Character/PlayerMotor.h"
 #include "Collision/SweptCollision.h"
 #include "Combat/JumpAttack.h"
-#include "Core/Log.h"
 #include "Math/MathHelper.h"
 #include "Math/Vector3f.h"
 #include "Physics/PhysicsWorld.h"
@@ -57,9 +56,9 @@ namespace Dark
         bool           hasNormal = false;
     };
 
-    inline constexpr float kPlanarSkinFraction    = 0.02f; // subtracted from t, not metres
+    inline constexpr float kPlanarSkinFraction    = 0.02f;
     inline constexpr int   kPlanarSlideIterations = 3;
-    inline constexpr float kPlanarMinWallXZ       = 0.5f; // seed only; the live cutoff is the argument
+    inline constexpr float kPlanarMinWallXZ       = 0.5f;
     inline constexpr float kSameSolidMetres       = 0.02f;
     inline constexpr bool  kPlanarSlideCounters   = false;
 
@@ -112,7 +111,6 @@ namespace Dark
         return out;
     }
 
-    // Positive gap means the capsule fraction is closer along the step than the sphere.
     inline PlanarContact preferPlanarContact(const PlanarContact& host, const Physics::PhysicsWorld::MoverHit& phys, float stepLength)
     {
         const bool hostHit = host.hit;
@@ -242,7 +240,6 @@ namespace Dark
 
             const float intoLeft = left.Dot(n);
             left -= n * intoLeft;
-            DE_ASSERT((n.x * n.x + n.z * n.z) > 0.0f);
             if (planeCount < kPlanarSlideIterations)
                 planes[planeCount++] = n;
 
