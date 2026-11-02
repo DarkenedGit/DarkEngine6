@@ -216,7 +216,7 @@ TEST(PhysicsSettings, MoverHitNormalOnlyWhenSeparated)
     EXPECT_FLOAT_EQ(beside.fraction, phys.clipMover(cast));
     EXPECT_FALSE(beside.hasNormal);
 
-    // Past the near face by more than the pad, still inside a 0.05 step fraction on this cast.
+    // Closest hit keeps the near face. Ignoring that body reports the rotated neighbor.
     cast.translation = Vector3f(5.0f, 0.0f, 0.0f);
     const float faceX = box.position.x - box.halfExtents.x;
     const float past  = PhysicsWorld::kMoverNormalPadMetres + 0.03f;
