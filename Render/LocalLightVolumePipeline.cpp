@@ -274,7 +274,7 @@ namespace Dark
 
     void LocalLightVolumePipeline::draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, LocalLightGpuList& gpuList, const Mesh& sphere,
                                         const Mesh& cone, const Camera3D& camera, const Math::Matrix4f& viewProj, const LightingConstants& lighting,
-                                        const LocalShadowSystem* localShadows) const
+                                        const LocalShadowSystem* localShadows, const Math::AABox3f* fogBoxes, int fogBoxCount) const
     {
         if (!cmd || !isValid() || !gpuList.isValid() || !sphere.valid() || !cone.valid())
             return;
@@ -289,8 +289,10 @@ namespace Dark
         in.nearZ      = camera.GetNearZ();
         in.viewportW  = renderer.width();
         in.viewportH  = renderer.height();
-        in.viewProj   = &viewProj;
+        in.viewProj     = &viewProj;
         in.localShadows = localShadows;
+        in.fogBoxes     = fogBoxes;
+        in.fogBoxCount  = fogBoxCount;
 
         LocalLightDrawLists lists{};
         if (!gatherLocalLights(world, in, lists) || lists.count == 0)

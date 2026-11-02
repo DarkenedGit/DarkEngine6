@@ -8,6 +8,10 @@
 
 namespace Dark
 {
+    namespace Math
+    {
+        class AABox3f;
+    }
 
     class Renderer;
     class Mesh;
@@ -73,7 +77,8 @@ namespace Dark
         // Gather + upload + instanced sphere/cone + inside fullscreen. Fog/camera copied from `lighting`.
         // Skips if pipeline, GPU list, or either volume mesh is invalid.
         void draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, LocalLightGpuList& gpuList, const Mesh& sphere, const Mesh& cone,
-                  const Camera3D& camera, const Math::Matrix4f& viewProj, const LightingConstants& lighting, const LocalShadowSystem* localShadows) const;
+                  const Camera3D& camera, const Math::Matrix4f& viewProj, const LightingConstants& lighting, const LocalShadowSystem* localShadows,
+                  const Math::AABox3f* fogBoxes, int fogBoxCount) const;
 
         bool isValid() const { return m_psoMesh != nullptr && m_psoFullscreen != nullptr; }
 

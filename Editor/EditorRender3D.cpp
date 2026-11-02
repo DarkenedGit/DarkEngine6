@@ -209,6 +209,13 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         && renderer().debugState().localLights
         && renderer().debugState().lightingActive();
     m_scene.localShadows().update(world(), m_camera, cameraCull, renderer().frameIndex(), selectLocalShadows);
+    if (m_playMode)
+    {
+        const FacilityState& facility = m_play.facility();
+        m_scene.setFogOccluders(facility.blocks, facility.blockCount);
+    }
+    else
+        m_scene.setFogOccluders(nullptr, 0);
     AABox3f sceneBounds = drawTerrain
         ? m_terrain.shadowBounds(m_camera)
         : AABox3f(Vector3f(-22.0f, -2.0f, -22.0f), Vector3f(22.0f, 16.0f, 22.0f));

@@ -38,6 +38,12 @@ Texture2D    gDepth      : register(t2);
 Texture2D    gHeightMap  : register(t6);
 SamplerState gHeightSamp : register(s0);
 
+struct GpuFogOccluder
+{
+    float4 bmin;
+    float4 bmax;
+};
+
 struct GpuLocalLight
 {
     float3 pos;
@@ -50,6 +56,11 @@ struct GpuLocalLight
     float  outerCos;
     float  sourceRadius;
     float  pad;
+    float  occluderCount;
+    float  occluderPad0;
+    float  occluderPad1;
+    float  occluderPad2;
+    GpuFogOccluder occluders[8]; // kMaxFogOccluders
 };
 
 StructuredBuffer<GpuLocalLight> gLights      : register(t4);
@@ -102,6 +113,63 @@ FogParams MakeFogParams()
     return p;
 }
 
+bool FogSlab(float origin, float delta, float mn, float mx, inout float t0, inout float t1)
+{
+    if (abs(delta) <= 1e-8f)
+        return origin >= mn && origin <= mx;
+    float inv = 1.0f / delta;
+    float a = (mn - origin) * inv;
+    float b = (mx - origin) * inv;
+    if (a > b)
+    {
+        float s = a;
+        a = b;
+        b = s;
+    }
+    t0 = max(t0, a);
+    t1 = min(t1, b);
+    return t0 <= t1;
+}
+
+// Same rule as fogBoxBlocks. A hit within 0.02 m of the light, or of the shaded point, stays clear.
+bool FogBoxBlocks(float3 from, float3 to, float4 bmin, float4 bmax)
+{
+    float3 delta = to - from;
+    float travel = length(delta);
+    if (travel < 1e-4f)
+        return false;
+    float t0 = 0.0f;
+    float t1 = 1.0f;
+    if (!FogSlab(from.x, delta.x, bmin.x, bmax.x, t0, t1))
+        return false;
+    if (!FogSlab(from.y, delta.y, bmin.y, bmax.y, t0, t1))
+        return false;
+    if (!FogSlab(from.z, delta.z, bmin.z, bmax.z, t0, t1))
+        return false;
+    float entry = t0 * travel;
+    return entry > 0.02f && (travel - entry) > 0.02f;
+}
+
+float BoxVisibility(GpuLocalLight light, float3 p)
+{
+    int n = (int)light.occluderCount;
+    if (n > 8)
+        n = 8;
+    [loop]
+    for (int i = 0; i < n; ++i)
+    {
+        if (FogBoxBlocks(light.pos, p, light.occluders[i].bmin, light.occluders[i].bmax))
+            return 0.0f;
+    }
+    return 1.0f;
+}
+
+float FogSampleShadow(GpuLocalLight light, float3 p)
+{
+    float s = light.pad >= 0.0f ? SampleLocalShadowTap(light, p) : 1.0f;
+    return s * BoxVisibility(light, p);
+}
+
 float LightAttenuation(GpuLocalLight light, float3 p)
 {
     float3 toLight = light.pos - p;
@@ -133,7 +201,7 @@ float3 LocalLightFogScatter(float3 cam, float3 worldPos, GpuLocalLight light, Fo
         float  d        = fp.fogDensity + FogHeightDensity(p.y, fp) + FogValleyDensity(p, terrainY, fp);
         // Clamp 1/d^2 so a sample at the light origin cannot dump candela into a solid ball.
         float  att      = min(LightAttenuation(light, p), 1.5f);
-        float  shadow   = SampleLocalShadowTap(light, p);
+        float  shadow   = FogSampleShadow(light, p);
         s += T * (d * dt) * albedo * light.color * att * shadow * 0.0015f;
         T *= exp(-d * dt);
     }
@@ -185,7 +253,7 @@ float4 PSMain(PSInput input) : SV_TARGET
 
     float3 v   = normalize(cameraPos - worldPos);
     int    faceId = 0;
-    float  shadow = SampleLocalShadow(light, worldPos, n, faceId);
+    float  shadow = SampleLocalShadow(light, worldPos, n, faceId) * BoxVisibility(light, worldPos);
     float  att = windowedDistanceAttenuation(d * d, light.invRange2);
     if (light.type >= 0.5f)
         att *= spotAngleAttenuation(cosTheta, light.innerCos, light.outerCos);

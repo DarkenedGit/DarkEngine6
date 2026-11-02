@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <vector>
 
 namespace Dark
@@ -172,10 +173,135 @@ namespace Dark
             return projectCornersToScissor(corners, 8, viewProj, viewportW, viewportH, outRect);
         }
 
+        float closestDistSq(const Vector3f& p, const AABox3f& box)
+        {
+            const float x = Clamp(p.x, box.Min.x, box.Max.x);
+            const float y = Clamp(p.y, box.Min.y, box.Max.y);
+            const float z = Clamp(p.z, box.Min.z, box.Max.z);
+            const float dx = p.x - x;
+            const float dy = p.y - y;
+            const float dz = p.z - z;
+            return dx * dx + dy * dy + dz * dz;
+        }
+
+        bool inFrontCone(const Vector3f& v, const Vector3f& dir, float outerCos)
+        {
+            const float d2 = v.MagnitudeSqrd();
+            if (d2 <= 1.0e-8f)
+                return false;
+            const float along = v.Dot(dir);
+            return along > 0.0f && along * along >= outerCos * outerCos * d2;
+        }
+
+        bool segmentOverlapsBox(const Vector3f& from, const Vector3f& to, const AABox3f& box)
+        {
+            const Vector3f delta     = to - from;
+            const float    origin[3] = { from.x, from.y, from.z };
+            const float    dir[3]    = { delta.x, delta.y, delta.z };
+            const float    mn[3]     = { box.Min.x, box.Min.y, box.Min.z };
+            const float    mx[3]     = { box.Max.x, box.Max.y, box.Max.z };
+            float          t0        = 0.0f;
+            float          t1        = 1.0f;
+            for (int a = 0; a < 3; ++a)
+            {
+                if (std::fabs(dir[a]) <= 1.0e-8f)
+                {
+                    if (origin[a] < mn[a] || origin[a] > mx[a])
+                        return false;
+                    continue;
+                }
+                float enter = (mn[a] - origin[a]) / dir[a];
+                float exit  = (mx[a] - origin[a]) / dir[a];
+                if (enter > exit)
+                {
+                    const float swap = enter;
+                    enter            = exit;
+                    exit             = swap;
+                }
+                if (enter > t0)
+                    t0 = enter;
+                if (exit < t1)
+                    t1 = exit;
+                if (t0 > t1)
+                    return false;
+            }
+            return true;
+        }
+
+        // Corners miss a wide door aimed at from close range: the 22° flashlight is narrower than the leaf.
+        // The closest point and the aim segment still hit that leaf.
+        bool spotCanSeeBox(const Vector3f& pos, const Vector3f& dir, float outerCos, float range, const AABox3f& box)
+        {
+            if (segmentOverlapsBox(pos, pos + dir * range, box))
+                return true;
+            Vector3f corners[8];
+            box.GetCorners(corners);
+            const float rangeSq = range * range;
+            for (const Vector3f& c : corners)
+            {
+                const Vector3f v = c - pos;
+                if (v.MagnitudeSqrd() <= rangeSq && inFrontCone(v, dir, outerCos))
+                    return true;
+            }
+            const Vector3f q(Clamp(pos.x, box.Min.x, box.Max.x), Clamp(pos.y, box.Min.y, box.Max.y), Clamp(pos.z, box.Min.z, box.Max.z));
+            return inFrontCone(q - pos, dir, outerCos);
+        }
+
+        void packFogOccluders(GpuLocalLight& gpu, const Vector3f& pos, const Vector3f& dir, bool spot, float range, float outerCos, const AABox3f* boxes, int count)
+        {
+            if (!boxes || count <= 0)
+                return;
+            struct Pick
+            {
+                int   index = 0;
+                float d2    = 0.0f;
+            };
+            Pick picks[kMaxFogOccluders];
+            int  n = 0;
+            for (int i = 0; i < count; ++i)
+            {
+                const AABox3f& box = boxes[i];
+                if (!box.IsValid() || !box.Intersects(Sphere3f(pos, range)))
+                    continue;
+                const float d2 = closestDistSq(pos, box);
+                if (d2 <= kFogOccluderSkin * kFogOccluderSkin)
+                    continue;
+                if (spot && !spotCanSeeBox(pos, dir, outerCos, range, box))
+                    continue;
+                if (n == kMaxFogOccluders && d2 >= picks[n - 1].d2)
+                    continue;
+                int at = n;
+                if (n < kMaxFogOccluders)
+                    ++n;
+                else
+                    at = kMaxFogOccluders - 1;
+                while (at > 0 && d2 < picks[at - 1].d2)
+                {
+                    picks[at] = picks[at - 1];
+                    --at;
+                }
+                picks[at].index = i;
+                picks[at].d2    = d2;
+            }
+            gpu.occluderCount = static_cast<float>(n);
+            for (int p = 0; p < n; ++p)
+            {
+                const AABox3f&     box = boxes[picks[p].index];
+                GpuFogOccluder&    dst = gpu.occluders[p];
+                dst.bmin[0] = box.Min.x;
+                dst.bmin[1] = box.Min.y;
+                dst.bmin[2] = box.Min.z;
+                dst.bmax[0] = box.Max.x;
+                dst.bmax[1] = box.Max.y;
+                dst.bmax[2] = box.Max.z;
+            }
+        }
+
         void packGpu(GpuLocalLight& gpu, const Vector3f& pos, const Vector3f& color, float intensity, float range,
                      const Vector3f& dir, bool spot, float innerDeg, float outerDeg, float sourceRadius,
                      const LocalShadowSystem* shadows, Entity lightEntity)
         {
+            std::memset(&gpu, 0, sizeof(gpu));
             gpu.pos[0] = pos.x;
             gpu.pos[1] = pos.y;
             gpu.pos[2] = pos.z;
@@ -215,6 +341,45 @@ namespace Dark
             }
         }
     } // namespace
+
+    bool fogBoxBlocks(const AABox3f& box, const Vector3f& from, const Vector3f& to)
+    {
+        const Vector3f delta  = to - from;
+        const float    travel = delta.Magnitude();
+        if (travel < 1.0e-4f)
+            return false;
+        const float origin[3] = { from.x, from.y, from.z };
+        const float dir[3]    = { delta.x, delta.y, delta.z };
+        const float mn[3]     = { box.Min.x, box.Min.y, box.Min.z };
+        const float mx[3]     = { box.Max.x, box.Max.y, box.Max.z };
+        float       t0        = 0.0f;
+        float       t1        = 1.0f;
+        for (int a = 0; a < 3; ++a)
+        {
+            if (std::fabs(dir[a]) <= 1.0e-8f)
+            {
+                if (origin[a] < mn[a] || origin[a] > mx[a])
+                    return false;
+                continue;
+            }
+            float enter = (mn[a] - origin[a]) / dir[a];
+            float exit  = (mx[a] - origin[a]) / dir[a];
+            if (enter > exit)
+            {
+                const float swap = enter;
+                enter            = exit;
+                exit             = swap;
+            }
+            if (enter > t0)
+                t0 = enter;
+            if (exit < t1)
+                t1 = exit;
+            if (t0 > t1)
+                return false;
+        }
+        const float entry = t0 * travel;
+        return entry > kFogOccluderSkin && (travel - entry) > kFogOccluderSkin;
+    }
 
     bool gatherLocalLights(World& world, const LocalLightCullInput& in, LocalLightDrawLists& out)
     {
@@ -260,6 +425,7 @@ namespace Dark
 
             Candidate c{};
             packGpu(c.gpu, pos, light.color, light.intensity, range, dir, isSpot, light.innerConeDeg, light.outerConeDeg, light.sourceRadius, in.localShadows, e);
+            packFogOccluders(c.gpu, pos, dir, isSpot, range, c.gpu.outerCos, in.fogBoxes, in.fogBoxCount);
             c.world    = isSpot ? makeSpotVolumeWorld(pos, dir, range, tanOuter) : makePointVolumeWorld(pos, range);
             c.score    = light.intensity / (dist * dist + 1.0f);
             c.tanOuter = tanOuter;

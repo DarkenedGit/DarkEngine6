@@ -111,6 +111,12 @@ Texture2D    gSsrColor   : register(t3);
 Texture2D    gDepth      : register(t4);
 SamplerState gSsrPoint   : register(s2);
 
+struct GpuFogOccluder
+{
+    float4 bmin;
+    float4 bmax;
+};
+
 struct GpuLocalLight
 {
     float3 pos;
@@ -123,6 +129,11 @@ struct GpuLocalLight
     float  outerCos;
     float  sourceRadius;
     float  pad;
+    float  occluderCount;
+    float  occluderPad0;
+    float  occluderPad1;
+    float  occluderPad2;
+    GpuFogOccluder occluders[8];
 };
 
 StructuredBuffer<GpuLocalLight> gLights : register(t0);

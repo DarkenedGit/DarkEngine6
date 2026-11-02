@@ -510,7 +510,20 @@ void SceneRenderer::drawLocalLights(
     const Math::Matrix4f&     viewProj,
     const LightingConstants&  lc)
 {
-    m_localLightVolumes.draw(cmd, renderer, world, m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, camera, viewProj, lc, &m_localShadows);
+    m_localLightVolumes.draw(cmd, renderer, world, m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, camera, viewProj, lc, &m_localShadows,
+                             m_fogOccluders, m_fogOccluderCount);
+}
+
+void SceneRenderer::setFogOccluders(const Math::AABox3f* boxes, int count)
+{
+    if (!boxes || count <= 0)
+    {
+        m_fogOccluders     = nullptr;
+        m_fogOccluderCount = 0;
+        return;
+    }
+    m_fogOccluders     = boxes;
+    m_fogOccluderCount = count;
 }
 
 void SceneRenderer::tickDecals(World& world, float dt)

@@ -60,7 +60,7 @@ namespace Dark
             return false;
         }
 
-        static_assert(sizeof(GpuLocalLight) == 64, "light stride");
+        static_assert(sizeof(GpuLocalLight) == 336, "light stride");
         static_assert(sizeof(Math::Matrix4f) == 64, "volumeWorld stride");
 
         m_lights      = CreateUploadBuffer(device, kLightStride * kFrameCount, "CreateCommittedResource local lights");

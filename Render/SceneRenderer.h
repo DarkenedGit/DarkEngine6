@@ -36,6 +36,10 @@
 
 namespace Dark
 {
+    namespace Math
+    {
+        class AABox3f;
+    }
 
 class Renderer;
 class World;
@@ -115,6 +119,11 @@ public:
         const Camera3D&           camera,
         const Math::Matrix4f&     viewProj,
         const LightingConstants&  lc);
+
+    // Walls and shut doors for unshadowed local-light fog. The pointer is only read during the next draw.
+    void setFogOccluders(const Math::AABox3f* boxes, int count);
+    const Math::AABox3f* fogOccluders() const { return m_fogOccluders; }
+    int                  fogOccluderCount() const { return m_fogOccluderCount; }
 
     void tickDecals(World& world, float dt);
     bool spawnDecal(const DecalSpawnDesc& desc, DecalId* outId = nullptr);
@@ -239,6 +248,8 @@ private:
     TaaPipeline              m_taa;
     ShadowSystem             m_shadows;
     LocalShadowSystem        m_localShadows;
+    const Math::AABox3f*     m_fogOccluders     = nullptr;
+    int                      m_fogOccluderCount = 0;
     DebugOverlay             m_debugOverlay;
 
     TerrainPipeline m_terrainPipeline;

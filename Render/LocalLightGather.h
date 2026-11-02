@@ -2,10 +2,12 @@
 
 #include "ECS/Components.h"
 #include "ECS/World.h"
+#include "Math/AABox3f.h"
 #include "Math/Matrix4f.h"
 #include "Math/Vector3f.h"
 #include "Render/Frustum3f.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <d3d12.h>
 
@@ -16,6 +18,15 @@ namespace Dark
 
     static constexpr uint32_t kMaxLocalLights     = 256;
     static constexpr uint32_t kWaterLocalLightMax = 8;
+    // Nearest walls a light can actually see. A farther wall can still leak.
+    static constexpr int   kMaxFogOccluders = 8;
+    static constexpr float kFogOccluderSkin = 0.02f;
+
+    struct GpuFogOccluder
+    {
+        float bmin[4];
+        float bmax[4];
+    };
 
     struct GpuLocalLight
     {
@@ -28,9 +39,17 @@ namespace Dark
         float innerCos;
         float outerCos;
         float sourceRadius;
-        float pad;
+        float pad; // shadow record, or -1
+        float occluderCount;
+        float occluderPad[3];
+        GpuFogOccluder occluders[kMaxFogOccluders];
     };
-    static_assert(sizeof(GpuLocalLight) == 64, "GpuLocalLight stride");
+    static_assert(sizeof(GpuLocalLight) == 336, "GpuLocalLight stride");
+    static_assert(offsetof(GpuLocalLight, occluderCount) == 64, "fog occluders follow the 64-byte light");
+
+    // True when `box` sits between `from` and `to`. A hit within kFogOccluderSkin of either end stays clear,
+    // so the face the light is touching and the face being shaded do not black out.
+    bool fogBoxBlocks(const Math::AABox3f& box, const Math::Vector3f& from, const Math::Vector3f& to);
 
     struct LocalLightCullInput
     {
@@ -44,6 +63,8 @@ namespace Dark
         uint32_t              viewportH  = 1600;
         const Math::Matrix4f* viewProj   = nullptr; // for scissor; required for inside path
         const LocalShadowSystem* localShadows = nullptr; // null → every pad is -1
+        const Math::AABox3f*  fogBoxes    = nullptr; // walls and shut doors; each light keeps the nearest few in its beam
+        int                   fogBoxCount = 0;
     };
 
     struct LocalLightDrawLists

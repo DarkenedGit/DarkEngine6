@@ -49,6 +49,8 @@ namespace Dark::Audio
     float occludedFilterFrequency(float occlusion, float sampleRate);
     // Moves current toward target, a full swing in about 0.2 s.
     float smoothOcclusion(float current, float target, float dt);
+    // Occlusion a voice starts at. A 2D voice, or a missing query, stays clear.
+    float startingOcclusion(bool spatial, OcclusionQuery query, void* user, const Math::Vector3f& listener, const Math::Vector3f& source);
 
     class AudioSystem
     {
@@ -101,7 +103,8 @@ namespace Dark::Audio
         void tick();
 
         // Asks query about every live 3D voice and fades it toward the answer. A voice's first
-        // update snaps. A null query clears every voice.
+        // update snaps. A null query clears every voice. play() keeps this query and uses it
+        // before the voice starts, so a sound begun later in the frame is already occluded.
         void updateOcclusion(float dt, OcclusionQuery query, void* user);
 
     private:
@@ -121,11 +124,13 @@ namespace Dark::Audio
         std::unique_ptr<Device> m_device;
         std::vector<std::unique_ptr<VoiceSlot>> m_voices;
 
-        AudioListener m_listener{};
-        float         m_masterVolume = 1.0f;
-        bool          m_valid        = false;
-        bool          m_comInited    = false;
-        VoiceId       m_musicId      = 0;
+        AudioListener  m_listener{};
+        OcclusionQuery m_occlusionQuery = nullptr;
+        void*          m_occlusionUser  = nullptr;
+        float          m_masterVolume   = 1.0f;
+        bool           m_valid          = false;
+        bool           m_comInited      = false;
+        VoiceId        m_musicId        = 0;
     };
 
 } // namespace Dark::Audio

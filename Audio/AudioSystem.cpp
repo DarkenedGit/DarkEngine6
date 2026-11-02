@@ -203,6 +203,8 @@ namespace Dark::Audio
         m_musicId = 0;
         m_valid   = false;
         m_comInited = false;
+        m_occlusionQuery = nullptr;
+        m_occlusionUser  = nullptr;
     }
 
     ::Dark::AssetRef<SoundClip> AudioSystem::loadWav(AssetManager& assets, const char* virtualPath)
@@ -414,10 +416,10 @@ namespace Dark::Audio
         slot.desc = desc;
         slot.desc.volume = clampf(desc.volume, 0.0f, 1.0f);
         slot.desc.pitch  = clampf(desc.pitch, 0.5f, 2.0f);
-        slot.inUse       = true;
-        slot.music       = false;
-        slot.occlusion   = 0.0f;
+        slot.inUse          = true;
+        slot.music          = false;
         slot.occlusionFresh = desc.spatial;
+        slot.occlusion      = startingOcclusion(desc.spatial, m_occlusionQuery, m_occlusionUser, m_listener.position, slot.desc.position);
         ++slot.generation;
         if (slot.generation == 0)
             slot.generation = 1;
@@ -588,6 +590,13 @@ namespace Dark::Audio
         return Math::Max(target, current - step);
     }
 
+    float startingOcclusion(bool spatial, OcclusionQuery query, void* user, const Vector3f& listener, const Vector3f& source)
+    {
+        if (!spatial || !query)
+            return 0.0f;
+        return clampf(query(user, listener, source), 0.0f, 1.0f);
+    }
+
     void AudioSystem::applyMix(VoiceSlot& slot) const
     {
         if (!slot.voice)
@@ -603,6 +612,8 @@ namespace Dark::Audio
 
     void AudioSystem::updateOcclusion(float dt, OcclusionQuery query, void* user)
     {
+        m_occlusionQuery = query;
+        m_occlusionUser  = user;
         if (!m_valid)
             return;
         for (auto& ptr : m_voices)

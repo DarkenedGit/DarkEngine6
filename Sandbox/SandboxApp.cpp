@@ -3891,6 +3891,10 @@ void SandboxApp::onRender()
         resolve.ssr          = &m_ssr;
         resolve.ssrEnv       = &m_env;
         resolve.lighting     = &lc;
+        {
+            const FacilityState& facility = m_play.facility();
+            m_scene.setFogOccluders(facility.blocks, facility.blockCount);
+        }
         m_scene.resolveDeferred(cmd, renderer(), world(), m_viewCamera, resolve);
 
         renderer().bindHdr(true);
@@ -4051,6 +4055,8 @@ void SandboxApp::onRender()
         in.viewportH  = renderer().height();
         in.viewProj      = &viewProj;
         in.localShadows  = &m_scene.localShadows();
+        in.fogBoxes      = m_scene.fogOccluders();
+        in.fogBoxCount   = m_scene.fogOccluderCount();
         LocalLightDrawLists lists{};
         if (gatherLocalLights(world(), in, lists) && lists.count > 0)
         {

@@ -77,6 +77,30 @@ TEST(Occlusion, OcclusionFadesInsteadOfJumping)
     EXPECT_FLOAT_EQ(Audio::smoothOcclusion(1.0f, 0.0f, 1.0f), 0.0f);
 }
 
+namespace
+{
+    float wallQuery(void*, const Vector3f& listener, const Vector3f& source)
+    {
+        return Collision::soundOcclusion(&kWall, 1, listener, source);
+    }
+
+    float overQuery(void*, const Vector3f&, const Vector3f&)
+    {
+        return 4.0f;
+    }
+}
+
+TEST(Occlusion, NewVoiceStartsOccludedWhenAQueryIsSet)
+{
+    const Vector3f ear{ 0.0f, 1.6f, 0.0f };
+    const Vector3f behind{ 9.0f, 1.6f, 0.0f };
+    EXPECT_FLOAT_EQ(Audio::startingOcclusion(true, wallQuery, nullptr, ear, behind), 1.0f);
+    EXPECT_FLOAT_EQ(Audio::startingOcclusion(true, wallQuery, nullptr, ear, Vector3f{ 0.0f, 1.6f, 9.0f }), 0.0f);
+    EXPECT_FLOAT_EQ(Audio::startingOcclusion(false, wallQuery, nullptr, ear, behind), 0.0f);
+    EXPECT_FLOAT_EQ(Audio::startingOcclusion(true, nullptr, nullptr, ear, behind), 0.0f);
+    EXPECT_FLOAT_EQ(Audio::startingOcclusion(true, overQuery, nullptr, ear, behind), 1.0f);
+}
+
 TEST(Occlusion, GuardTorchCastsShadowsAndIsCleanedUp)
 {
     World  world;

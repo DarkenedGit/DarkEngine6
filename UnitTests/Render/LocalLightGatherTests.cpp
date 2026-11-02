@@ -537,3 +537,91 @@ TEST(LocalLightGather, CreateNullDevicePadStaysMinusOne)
     ASSERT_EQ(out.count, 1u);
     EXPECT_FLOAT_EQ(out.lights[0].pad, -1.0f);
 }
+
+TEST(FogOccluders, BoxBetweenBlocksAndANearFaceDoesNot)
+{
+    const AABox3f wall = AABox3f::FromCenterExtents(Vector3f(0.0f, 1.0f, 2.0f), Vector3f(1.0f, 1.0f, 0.1f));
+    EXPECT_TRUE(fogBoxBlocks(wall, Vector3f(0.0f, 1.0f, 0.0f), Vector3f(0.0f, 1.0f, 5.0f)));
+    EXPECT_FALSE(fogBoxBlocks(wall, Vector3f(0.0f, 1.0f, 0.0f), Vector3f(0.0f, 1.0f, 1.0f)));
+    EXPECT_FALSE(fogBoxBlocks(wall, Vector3f(0.0f, 1.0f, 0.0f), Vector3f(0.0f, 1.0f, 1.9f)));
+    EXPECT_TRUE(fogBoxBlocks(wall, Vector3f(0.0f, 1.0f, 0.0f), Vector3f(0.0f, 1.0f, 2.2f)));
+    const AABox3f skin = AABox3f::FromCenterExtents(Vector3f(0.0f, 1.0f, 0.01f), Vector3f(1.0f, 1.0f, 0.005f));
+    EXPECT_FALSE(fogBoxBlocks(skin, Vector3f(0.0f, 1.0f, 0.0f), Vector3f(0.0f, 1.0f, 5.0f)));
+}
+
+TEST(LocalLightGather, UnshadowedSpotKeepsTheNearestForwardBoxes)
+{
+    World world;
+    addLight(world, Vector3f(0.0f, 1.0f, 0.0f), LocalLightType::Spot, 100.0f, 30.0f);
+
+    AABox3f boxes[10];
+    boxes[0] = AABox3f::FromCenterExtents(Vector3f(0.0f, 1.0f, -4.0f), Vector3f(1.0f, 1.0f, 0.15f));
+    for (int i = 1; i <= 9; ++i)
+        boxes[i] = AABox3f::FromCenterExtents(Vector3f(0.0f, 1.0f, static_cast<float>(i) + 1.0f), Vector3f(1.0f, 1.0f, 0.15f));
+
+    Camera3D cam;
+    Matrix4f viewProj;
+    Frustum3f frustum;
+    makeView(cam, viewProj, frustum);
+    LocalLightCullInput in = makeInput(frustum, viewProj);
+    in.fogBoxes            = boxes;
+    in.fogBoxCount         = 10;
+    LocalLightDrawLists out{};
+    ASSERT_TRUE(gatherLocalLights(world, in, out));
+    ASSERT_EQ(out.count, 1u);
+    EXPECT_FLOAT_EQ(out.lights[0].pad, -1.0f);
+    EXPECT_FLOAT_EQ(out.lights[0].occluderCount, static_cast<float>(kMaxFogOccluders));
+    EXPECT_NEAR(out.lights[0].occluders[0].bmin[2], 1.85f, 1.0e-3f);
+    EXPECT_LT(out.lights[0].occluders[kMaxFogOccluders - 1].bmin[2], 9.0f);
+}
+
+TEST(LocalLightGather, ShadowedLightStillKeepsTheDoor)
+{
+    World world;
+    Entity spot = addLight(world, Vector3f(0.0f, 1.0f, 0.0f), LocalLightType::Spot, 100.0f, 30.0f);
+    world.get<LocalLightComponent>(spot)->castShadow = true;
+    const AABox3f wall = AABox3f::FromCenterExtents(Vector3f(0.0f, 1.0f, 3.0f), Vector3f(1.0f, 1.0f, 0.15f));
+
+    Camera3D cam;
+    Matrix4f viewProj;
+    Frustum3f frustum;
+    makeView(cam, viewProj, frustum);
+    LocalShadowSystem shadows;
+    shadows.update(world, cam, frustum, 0, true);
+    EXPECT_GE(shadows.recordFor(spot), 0);
+
+    LocalLightCullInput in = makeInput(frustum, viewProj);
+    in.localShadows        = &shadows;
+    in.fogBoxes            = &wall;
+    in.fogBoxCount         = 1;
+    LocalLightDrawLists out{};
+    ASSERT_TRUE(gatherLocalLights(world, in, out));
+    ASSERT_EQ(out.count, 1u);
+    EXPECT_GE(out.lights[0].pad, 0.0f);
+    EXPECT_FLOAT_EQ(out.lights[0].occluderCount, 1.0f);
+    EXPECT_NEAR(out.lights[0].occluders[0].bmin[2], 2.85f, 1.0e-3f);
+}
+
+TEST(LocalLightGather, SpotKeepsTheDoorAheadOfANearSideWall)
+{
+    World world;
+    Entity spot = addLight(world, Vector3f(0.0f, 1.0f, 0.0f), LocalLightType::Spot, 100.0f, 30.0f);
+    world.get<LocalLightComponent>(spot)->outerConeDeg = 22.0f;
+
+    AABox3f boxes[2];
+    boxes[0] = AABox3f::FromCenterExtents(Vector3f(2.0f, 1.0f, 1.0f), Vector3f(0.3f, 1.0f, 0.3f));
+    boxes[1] = AABox3f::FromCenterExtents(Vector3f(0.0f, 1.0f, 4.0f), Vector3f(2.0f, 1.3f, 0.09f));
+
+    Camera3D cam;
+    Matrix4f viewProj;
+    Frustum3f frustum;
+    makeView(cam, viewProj, frustum);
+    LocalLightCullInput in = makeInput(frustum, viewProj);
+    in.fogBoxes            = boxes;
+    in.fogBoxCount         = 2;
+    LocalLightDrawLists out{};
+    ASSERT_TRUE(gatherLocalLights(world, in, out));
+    ASSERT_EQ(out.count, 1u);
+    EXPECT_FLOAT_EQ(out.lights[0].occluderCount, 1.0f);
+    EXPECT_NEAR(out.lights[0].occluders[0].bmin[2], 3.91f, 1.0e-3f);
+}
