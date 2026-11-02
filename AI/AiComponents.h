@@ -91,6 +91,7 @@ namespace Dark
         float                        walkSpeed     = 0.0f;
         float                        runSpeed      = 0.0f;
         float                        acceleration  = 0.0f; // m/s^2 toward walk and run. 0 snaps.
+        float                        slideMinWallXZ = 0.5f; // minimum |n.xz| of a unit contact normal after Y is zeroed
         // Throwable search. Not saved. lurePoint is a copied world position.
         bool                         lureSearch  = false;
         bool                         lureReached = false;

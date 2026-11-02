@@ -4,6 +4,7 @@
   "walkSpeed": 2.0,
   "runSpeed": 6.0,
   "acceleration": 8,
+  "slideMinWallXZ": 0.5,
   "gravity": 9.8,
   "jumpSpeed": 5.0,
   "leapForwardSpeed": 10.0,

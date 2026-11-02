@@ -24,6 +24,7 @@
 #include "Terrain/HeightMap.h"
 #include "Terrain/TerrainGrid.h"
 #include "Play/Crow.h"
+#include "Play/PlayMotor.h"
 #include "Play/Spawner.h"
 #include "Weapons/HittableComponent.h"
 #include "Weapons/Weapon.h"
@@ -158,37 +159,38 @@ namespace Dark
             return reach > 0.0f && dist < reach;
         }
 
-        void sweepSolids(Vector3f& position, const Vector3f& before, const Math::AABox3f* cubes, int cubeCount, const Math::Sphere3f* spheres, int sphereCount)
+        void sweepSolids(Vector3f& position, const Vector3f& before, const Math::AABox3f* cubes, int cubeCount, const Math::Sphere3f* spheres, int sphereCount, float minWallXZ)
         {
             if ((!cubes || cubeCount <= 0) && (!spheres || sphereCount <= 0))
                 return;
             Vector3f delta{ position.x - before.x, 0.0f, position.z - before.z };
             if (delta.MagnitudeSqrd() <= 1.0e-10f)
                 return;
-            Math::Sphere3f ball{ Vector3f{ before.x, position.y, before.z }, kSweepRadius };
-            float bestT = 1.0f;
-            if (cubes)
-            {
-                for (int i = 0; i < cubeCount; ++i)
+            const float sweepY = position.y;
+            auto        sweep  = [&](const Vector3f& origin, const Vector3f& step) -> PlanarContact {
+                PlanarContact        host{};
+                const Math::Sphere3f ball{ origin, kSweepRadius };
+                if (cubes)
                 {
-                    const Collision::SweptHit3D hit = Collision::SweptIntersects(ball, delta, cubes[i]);
-                    if (hit.hit && hit.t < bestT)
-                        bestT = hit.t;
+                    for (int i = 0; i < cubeCount; ++i)
+                    {
+                        const PlanarContact hit = contactSphereSolid(ball, step, cubes[i]);
+                        if (hit.hit && hit.t < host.t)
+                            host = hit;
+                    }
                 }
-            }
-            if (spheres)
-            {
-                for (int i = 0; i < sphereCount; ++i)
+                if (spheres)
                 {
-                    const Collision::SweptHit3D hit = Collision::SweptIntersects(ball, delta, spheres[i]);
-                    if (hit.hit && hit.t < bestT)
-                        bestT = hit.t;
+                    for (int i = 0; i < sphereCount; ++i)
+                    {
+                        const PlanarContact hit = contactSphereSolid(ball, step, spheres[i]);
+                        if (hit.hit && hit.t < host.t)
+                            host = hit;
+                    }
                 }
-            }
-            if (bestT < 1.0f)
-                delta *= Math::Max(0.0f, bestT - 0.02f);
-            position.x = before.x + delta.x;
-            position.z = before.z + delta.z;
+                return host;
+            };
+            slidePlanar(position, before, delta, 0.0f, nullptr, sweepY, minWallXZ, sweep, nullptr);
         }
     } // namespace
 
@@ -1014,7 +1016,7 @@ namespace Dark
 
         const Vector3f before  = v.xf->position;
         const bool     landed  = jump.stepFreefall(v.xf->position, dt, groundY);
-        sweepSolids(v.xf->position, before, cubes, cubeCount, spheres, sphereCount);
+        sweepSolids(v.xf->position, before, cubes, cubeCount, spheres, sphereCount, v.ai->slideMinWallXZ);
         if (m_walk.valid() && !m_walk.walkableWorld(v.xf->position.x, v.xf->position.z))
             walkableBackStep(v.xf->position, Vector3f{ v.xf->position.x - before.x, 0.0f, v.xf->position.z - before.z });
 
@@ -1433,7 +1435,7 @@ namespace Dark
                 jump->tickAutonomous(v.xf->position, dt, heightAt, &heightCtx, m_waterY, hasTarget ? &playerPos : nullptr, hasTarget, landed, splashed);
                 if (jump->phase() == Combat::JumpAttackPhase::Connected && !landed && !splashed && hasTarget)
                     jump->applyConnectSnap(v.xf->position, playerPos, dt);
-                sweepSolids(v.xf->position, before, cubes, cubeCount, spheres, sphereCount);
+                sweepSolids(v.xf->position, before, cubes, cubeCount, spheres, sphereCount, v.ai->slideMinWallXZ);
 
                 if (splashed)
                 {

@@ -25,6 +25,7 @@ namespace Dark
         float       doubleJumpHeight    = 0.0f;
         float       leapForwardSpeed    = 0.0f;
         float       leapForwardSpeedMax = 0.0f;
+        float       slideMinWallXZ      = 0.5f; // minimum |n.xz| of a unit contact normal after Y is zeroed
     };
 
     // "player" -> "entities/player.entity.movement.json"

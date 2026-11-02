@@ -1,9 +1,14 @@
 #pragma once
 
 #include "Character/PlayerMotor.h"
+#include "Collision/SweptCollision.h"
 #include "Combat/JumpAttack.h"
+#include "Core/Log.h"
+#include "Math/MathHelper.h"
 #include "Math/Vector3f.h"
 #include "Physics/PhysicsWorld.h"
+
+#include <cstdint>
 
 namespace Dark
 {
@@ -44,32 +49,230 @@ namespace Dark
         motorIn.dodgeTapWish = moveCardinalWish(motorIn.dodgeTap, flat, right);
     }
 
-    // Capsule against static physics after the app's own solid sweep. bottom is -radius so the feet clear the floor.
-    inline float tightenPlanarClip(const Physics::PhysicsWorld& physics, Physics::PhysicsBodyId ignoreBody, Physics::PhysicsBodyId groundBody, const Math::Vector3f& origin, const Math::Vector3f& delta, float bestT)
+    struct PlanarContact
     {
-        if (!physics.valid())
-            return bestT;
-        Physics::PhysicsWorld::MoverCast cast;
-        cast.origin      = origin;
-        cast.radius      = kPlayBodyRadius;
-        cast.bottom      = -kPlayBodyRadius;
-        cast.top         = 1.35f;
-        cast.translation = delta;
-        cast.ignore      = ignoreBody;
-        cast.ignore2     = groundBody;
-        cast.staticOnly  = true;
-        const float physicsT = physics.clipMover(cast);
-        return physicsT < bestT ? physicsT : bestT;
+        bool           hit       = false;
+        float          t         = 1.0f;
+        Math::Vector3f normal    = Math::Vector3f::ZERO;
+        bool           hasNormal = false;
+    };
+
+    inline constexpr float kPlanarSkinFraction    = 0.02f; // subtracted from t, not metres
+    inline constexpr int   kPlanarSlideIterations = 3;
+    inline constexpr float kPlanarMinWallXZ       = 0.5f; // seed only; the live cutoff is the argument
+    inline constexpr float kSameSolidMetres       = 0.02f;
+    inline constexpr bool  kPlanarSlideCounters   = false;
+
+    struct PlanarSlideCounts
+    {
+        uint32_t substeps  = 0;
+        uint32_t hardStops = 0;
+    };
+
+    inline PlanarContact contactSphereSolid(const Math::Sphere3f& sphere, const Math::Vector3f& step, const Math::AABox3f& box)
+    {
+        PlanarContact out;
+        const Collision::SweptHit3D swept = Collision::SweptIntersects(sphere, step, box);
+        if (!swept.hit)
+            return out;
+        out.hit = true;
+        out.t   = swept.t;
+        const Math::Vector3f center = sphere.Center + step * swept.t;
+        const Math::Vector3f closest{
+            Math::Clamp(center.x, box.Min.x, box.Max.x),
+            Math::Clamp(center.y, box.Min.y, box.Max.y),
+            Math::Clamp(center.z, box.Min.z, box.Max.z),
+        };
+        Math::Vector3f n = center - closest;
+        if (!(n.MagnitudeSqrd() > 0.0f))
+            return out;
+        n.Normalize();
+        out.normal    = n;
+        out.hasNormal = true;
+        return out;
     }
 
-    inline void commitPlanarClip(Math::Vector3f& position, const Math::Vector3f& before, Math::Vector3f& delta, float bestT, float dt, PlayerMotor* motor)
+    inline PlanarContact contactSphereSolid(const Math::Sphere3f& sphere, const Math::Vector3f& step, const Math::Sphere3f& solid)
     {
-        const float keep = bestT < 1.0f ? Math::Max(0.0f, bestT - 0.02f) : 1.0f;
-        delta *= keep;
-        position.x = before.x + delta.x;
-        position.z = before.z + delta.z;
-        if (dt > 1.0e-4f && motor && keep < 1.0f)
-            motor->setHorizontalVelocity(delta.x / dt, delta.z / dt);
+        PlanarContact out;
+        const Collision::SweptHit3D swept = Collision::SweptIntersects(sphere, step, solid);
+        if (!swept.hit)
+            return out;
+        out.hit = true;
+        out.t   = swept.t;
+        const Math::Vector3f center = sphere.Center + step * swept.t;
+        if (solid.Contains(center))
+            return out;
+        Math::Vector3f n = center - solid.Center;
+        if (!(n.MagnitudeSqrd() > 0.0f))
+            return out;
+        n.Normalize();
+        out.normal    = n;
+        out.hasNormal = true;
+        return out;
+    }
+
+    // Positive gap means the capsule fraction is closer along the step than the sphere.
+    inline PlanarContact preferPlanarContact(const PlanarContact& host, const Physics::PhysicsWorld::MoverHit& phys, float stepLength)
+    {
+        const bool hostHit = host.hit;
+        const bool physHit = phys.fraction < 1.0f;
+        if (!hostHit && !physHit)
+        {
+            PlanarContact miss;
+            miss.hit = false;
+            miss.t   = 1.0f;
+            return miss;
+        }
+        if (hostHit && physHit)
+        {
+            const float gapM = (host.t - phys.fraction) * stepLength;
+            if (gapM <= kSameSolidMetres)
+            {
+                PlanarContact out = host;
+                out.hit           = true;
+                out.t             = Math::Min(host.t, phys.fraction);
+                return out;
+            }
+            PlanarContact out;
+            out.hit = true;
+            out.t   = phys.fraction;
+            if (phys.hasNormal)
+            {
+                out.hasNormal = true;
+                out.normal    = phys.normal;
+            }
+            return out;
+        }
+        if (hostHit)
+        {
+            PlanarContact out = host;
+            out.hit           = true;
+            return out;
+        }
+        PlanarContact out;
+        out.hit = true;
+        out.t   = phys.fraction;
+        if (phys.hasNormal)
+        {
+            out.hasNormal = true;
+            out.normal    = phys.normal;
+        }
+        return out;
+    }
+
+    template <typename Sweep>
+    inline void slidePlanar(Math::Vector3f& position, const Math::Vector3f& before, Math::Vector3f& delta, float dt, PlayerMotor* motor, float sweepY, float minWallXZ, Sweep&& sweep,
+                            PlanarSlideCounts* counts = nullptr)
+    {
+        Math::Vector3f rest{ delta.x, 0.0f, delta.z };
+        float          posX     = before.x;
+        float          posZ     = before.z;
+        Math::Vector3f applied{ 0.0f, 0.0f, 0.0f };
+        bool           hardStop = false;
+        bool           blocked  = false;
+        Math::Vector3f planes[kPlanarSlideIterations];
+        int            planeCount = 0;
+
+        for (int iter = 0; iter < kPlanarSlideIterations; ++iter)
+        {
+            if (rest.MagnitudeSqrd() <= 1.0e-10f)
+                break;
+
+            const Math::Vector3f origin{ posX, sweepY, posZ };
+            const PlanarContact  contact = sweep(origin, rest);
+            if constexpr (kPlanarSlideCounters)
+            {
+                if (counts)
+                    ++counts->substeps;
+            }
+
+            if (!contact.hit || !(contact.t < 1.0f))
+            {
+                posX += rest.x;
+                posZ += rest.z;
+                applied += rest;
+                break;
+            }
+
+            blocked = true;
+            if (!(contact.t > 0.0f))
+            {
+                hardStop = true;
+                if constexpr (kPlanarSlideCounters)
+                {
+                    if (counts)
+                        ++counts->hardStops;
+                }
+                break;
+            }
+
+            const float          keep    = Math::Max(0.0f, contact.t - kPlanarSkinFraction);
+            const Math::Vector3f advance = rest * keep;
+            posX += advance.x;
+            posZ += advance.z;
+            applied += advance;
+            Math::Vector3f left = rest * (1.0f - keep);
+
+            Math::Vector3f n = contact.normal;
+            n.y              = 0.0f;
+            const float xzLen = n.Magnitude();
+            if (!contact.hasNormal || !(xzLen > 0.0f) || !(xzLen >= minWallXZ))
+            {
+                hardStop = true;
+                if constexpr (kPlanarSlideCounters)
+                {
+                    if (counts)
+                        ++counts->hardStops;
+                }
+                break;
+            }
+
+            n.Normalize();
+            if (!(rest.Dot(n) < 0.0f))
+            {
+                hardStop = true;
+                if constexpr (kPlanarSlideCounters)
+                {
+                    if (counts)
+                        ++counts->hardStops;
+                }
+                break;
+            }
+
+            const float intoLeft = left.Dot(n);
+            left -= n * intoLeft;
+            DE_ASSERT((n.x * n.x + n.z * n.z) > 0.0f);
+            if (planeCount < kPlanarSlideIterations)
+                planes[planeCount++] = n;
+
+            if (iter + 1 >= kPlanarSlideIterations)
+                break;
+            rest = left;
+        }
+
+        position.x = posX;
+        position.z = posZ;
+        delta.x    = applied.x;
+        delta.y    = 0.0f;
+        delta.z    = applied.z;
+
+        if (blocked && motor && dt > 1.0e-4f)
+        {
+            if (hardStop)
+            {
+                motor->setHorizontalVelocity(0.0f, 0.0f);
+                return;
+            }
+            Math::Vector3f v{ applied.x / dt, 0.0f, applied.z / dt };
+            for (int i = 0; i < planeCount; ++i)
+            {
+                const float into = v.Dot(planes[i]);
+                if (into < 0.0f)
+                    v -= planes[i] * into;
+            }
+            motor->setHorizontalVelocity(v.x, v.z);
+        }
     }
 
 } // namespace Dark

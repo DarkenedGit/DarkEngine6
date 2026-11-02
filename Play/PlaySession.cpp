@@ -827,32 +827,60 @@ namespace Dark
                 return pb && pb->valid && pb->mode != PhysicsBodyMode::Static && m_host.physics->bodyValid(pb->body);
             };
             // The crouch clip folds the legs and the motor lowers the root. The capsule stays standing size, planted at the standing height.
-            const float    bodyY = xf->position.y + (motor ? motor->crouchOffset() : 0.0f);
-            Math::Sphere3f ball{ Math::Vector3f{ before.x, bodyY, before.z }, kPlayBodyRadius };
-            float          bestT = 1.0f;
-            for (int i = 0; i < m_host.cubeCount; ++i)
+            const float bodyY = xf->position.y + (motor ? motor->crouchOffset() : 0.0f);
+            auto        sweep = [&](const Math::Vector3f& origin, const Math::Vector3f& step) -> PlanarContact {
+                PlanarContact  host{};
+                Math::Sphere3f ball{ origin, kPlayBodyRadius };
+                for (int i = 0; i < m_host.cubeCount; ++i)
+                {
+                    if (m_host.cubeEntities && i < m_host.cubeEntityCount && liveDynamic(m_host.cubeEntities[i]))
+                        continue;
+                    if (Collision::Intersects(ball, m_host.cubes[i]))
+                        continue;
+                    const PlanarContact hit = contactSphereSolid(ball, step, m_host.cubes[i]);
+                    if (hit.hit && hit.t < host.t)
+                        host = hit;
+                }
+                for (int i = 0; i < m_host.sphereCount; ++i)
+                {
+                    if (m_host.sphereEntities && i < m_host.sphereEntityCount && liveDynamic(m_host.sphereEntities[i]))
+                        continue;
+                    if (Collision::Intersects(ball, m_host.spheres[i]))
+                        continue;
+                    const PlanarContact hit = contactSphereSolid(ball, step, m_host.spheres[i]);
+                    if (hit.hit && hit.t < host.t)
+                        host = hit;
+                }
+                Physics::PhysicsWorld::MoverHit phys{};
+                phys.fraction = 1.0f;
+                if (m_host.physics)
+                {
+                    Physics::PhysicsWorld::MoverCast cast;
+                    cast.origin      = origin;
+                    cast.radius      = kPlayBodyRadius;
+                    cast.bottom      = -kPlayBodyRadius;
+                    cast.top         = 1.35f;
+                    cast.translation = step;
+                    cast.ignore      = ignore;
+                    cast.ignore2     = m_host.groundBody;
+                    cast.staticOnly  = true;
+                    phys             = m_host.physics->clipMoverHit(cast);
+                    if constexpr (kPlanarSlideCounters)
+                    {
+                        if (phys.fraction < 1.0f && !phys.hasNormal)
+                            ++m_rt.planarShapeRejects;
+                    }
+                }
+                return preferPlanarContact(host, phys, step.Magnitude());
+            };
+            PlanarSlideCounts slideCounts;
+            const float       minWallXZ = motor ? motor->settings().slideMinWallXZ : kPlanarMinWallXZ;
+            slidePlanar(xf->position, before, delta, dt, motor, bodyY, minWallXZ, sweep, kPlanarSlideCounters ? &slideCounts : nullptr);
+            if constexpr (kPlanarSlideCounters)
             {
-                if (m_host.cubeEntities && i < m_host.cubeEntityCount && liveDynamic(m_host.cubeEntities[i]))
-                    continue;
-                if (Collision::Intersects(ball, m_host.cubes[i]))
-                    continue;
-                const Collision::SweptHit3D hit = Collision::SweptIntersects(ball, delta, m_host.cubes[i]);
-                if (hit.hit && hit.t < bestT)
-                    bestT = hit.t;
+                m_rt.planarSubsteps += slideCounts.substeps;
+                m_rt.planarHardStops += slideCounts.hardStops;
             }
-            for (int i = 0; i < m_host.sphereCount; ++i)
-            {
-                if (m_host.sphereEntities && i < m_host.sphereEntityCount && liveDynamic(m_host.sphereEntities[i]))
-                    continue;
-                if (Collision::Intersects(ball, m_host.spheres[i]))
-                    continue;
-                const Collision::SweptHit3D swept = Collision::SweptIntersects(ball, delta, m_host.spheres[i]);
-                if (swept.hit && swept.t < bestT)
-                    bestT = swept.t;
-            }
-            if (m_host.physics)
-                bestT = tightenPlanarClip(*m_host.physics, ignore, m_host.groundBody, Math::Vector3f{ before.x, bodyY, before.z }, delta, bestT);
-            commitPlanarClip(xf->position, before, delta, bestT, dt, motor);
         }
         if (motor && skills)
         {
