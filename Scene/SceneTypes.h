@@ -268,6 +268,9 @@ namespace Dark
         bool  lightCastShadow    = false;
         float emissive           = 0.0f;
         int   emissiveMeshIndex  = -1; // objects[] index of glow-prop mesh; -1 = none
+        // Spot light only. A searchlight swings sweepDeg around its aim and raises the alarm on a player it lights.
+        bool  searchlight        = false;
+        float sweepDeg           = 60.0f;
 
         // Optional cloud volume payload (type == CloudVolume).
         bool  hasCloud              = false;

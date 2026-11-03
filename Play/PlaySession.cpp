@@ -1437,6 +1437,10 @@ namespace Dark
             bindHunterGround(*m_host.ai, m_host.ground, m_host.terrain);
             m_host.ai->setJumpAttackHits(&PlaySession::onJumpHits, this);
             m_host.ai->setHunterCue(&PlaySession::onHunterCue, this);
+            m_host.ai->setWaterLevel(m_host.waterLevel);
+            const PlayerMotorComponent* swimmer = m_host.player.valid() ? world->get<PlayerMotorComponent>(m_host.player) : nullptr;
+            m_host.ai->setPlayerDepth(swimmer ? swimmer->motor.depth() : 0.0f);
+            m_host.ai->setPlayerSwimming(swimmer && swimmer->motor.state() == PlayerMoveState::Swimming);
             m_host.ai->tickHunters(*world, *m_host.terrain, m_rt.submerged, dt, m_host.player, blockCount > 0 ? blocks : nullptr, blockCount,
                                    m_host.sphereCount > 0 ? m_host.spheres : nullptr, m_host.sphereCount);
         }

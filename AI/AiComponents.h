@@ -144,6 +144,9 @@ namespace Dark
         std::vector<Math::Vector3f>  points;
         int                          next     = 0;
         float                        waitLeft = 0.0f;
+        // Set while the guard waits at a stop beside water and looks down into it.
+        Math::Vector3f               peerDir{};
+        bool                         peering  = false;
     };
 
     struct BrainComponent

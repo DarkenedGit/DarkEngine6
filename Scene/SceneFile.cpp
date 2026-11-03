@@ -10,6 +10,7 @@
 
 #include "third_party/nlohmann/json.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <sstream>
@@ -593,6 +594,11 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             light["enabled"]      = o.lightEnabled;
             if (!isGlobalLightType(o.type))
                 light["castShadow"] = o.lightCastShadow;
+            if (o.type == SceneObjectType::SpotLight && o.searchlight)
+            {
+                light["searchlight"] = true;
+                light["sweep"]       = o.sweepDeg;
+            }
             jo["light"]           = std::move(light);
         }
         if (o.hasCloud || o.type == SceneObjectType::CloudVolume)
@@ -1210,6 +1216,10 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             // value() throws type_error.306 on a non-bool. A missing or mistyped key stays false.
             if (!isGlobalLightType(o.type) && light.contains("castShadow") && light["castShadow"].is_boolean())
                 o.lightCastShadow = light["castShadow"].get<bool>();
+            if (o.type == SceneObjectType::SpotLight && light.contains("searchlight") && light["searchlight"].is_boolean())
+                o.searchlight = light["searchlight"].get<bool>();
+            if (light.contains("sweep") && light["sweep"].is_number())
+                o.sweepDeg = std::clamp(light["sweep"].get<float>(), 0.0f, 340.0f);
         }
         else if (o.type == SceneObjectType::PointLight || o.type == SceneObjectType::SpotLight)
         {

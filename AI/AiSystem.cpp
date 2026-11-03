@@ -2,6 +2,7 @@
 
 #include "AI/HsmGraph.h"
 #include "AI/Sight.h"
+#include "AI/WaterPeek.h"
 #include "Character/PlayerMotor.h"
 #include "Character/SkillSense.h"
 #include "Character/SkillXp.h"
@@ -39,6 +40,13 @@ namespace Dark
 
     namespace
     {
+        constexpr float kPeerShown = 0.6f;
+
+        float terrainHeightAt(void* user, float x, float z)
+        {
+            return static_cast<Terrain::TerrainGrid*>(user)->heightAtWorld(x, z);
+        }
+
         constexpr float kHunterJumpMin     = 4.0f;
         constexpr float kHunterJumpMax     = 9.0f;
         constexpr float kLureSearchSeconds = 9.0f;
@@ -46,6 +54,7 @@ namespace Dark
         constexpr float kSweepRadius       = 0.45f;
         constexpr float kBackStepMeters    = 0.5f;
         constexpr int   kBackStepTries     = 8;
+        constexpr float kClimbOutRadius    = 12.0f;
         constexpr float kLookEps           = 1.0e-6f;
         // A sighting is called in once, after this delay, with the position from that first spot.
         constexpr float kSquadRadioDelay   = 0.6f;
@@ -677,12 +686,23 @@ namespace Dark
             if (patrol->waitLeft > 0.0f)
             {
                 patrol->waitLeft -= dt;
-                lookAround();
+                if (patrol->peering)
+                    turnTo(patrol->peerDir, 1.6f);
+                else
+                    lookAround();
                 if (patrol->waitLeft <= 0.0f)
-                    patrol->next = (patrol->next + 1) % static_cast<int>(patrol->points.size());
+                {
+                    patrol->peering = false;
+                    patrol->next    = (patrol->next + 1) % static_cast<int>(patrol->points.size());
+                }
             }
             else if (walkTo(patrol->points[static_cast<size_t>(patrol->next)], 0.32f + 0.08f * hash(1.0f)))
+            {
                 patrol->waitLeft = (1.5f + 3.0f * hash(static_cast<float>(patrol->next) + m_time * 0.37f)) * (aw.wary ? 1.8f : 1.0f);
+                patrol->peering  = AI::findWaterBeside(&terrainHeightAt, &terrain, v.xf->position, m_waterLevel, patrol->peerDir);
+                if (patrol->peering)
+                    patrol->waitLeft += 2.5f;
+            }
             break;
         }
         case AI::Alertness::Suspicious:
@@ -754,8 +774,23 @@ namespace Dark
         float step = speed * dt;
         if (step > dist)
             step = dist;
-        v.xf->position.x += d.x * step;
-        v.xf->position.z += d.z * step;
+        float nx = v.xf->position.x + d.x * step;
+        float nz = v.xf->position.z + d.z * step;
+        // A straight seek keeps to walkable ground, so a swimmer out of reach is watched from the bank instead of followed in.
+        if (m_walk.valid() && m_walk.walkableWorld(v.xf->position.x, v.xf->position.z) && !m_walk.walkableWorld(nx, nz))
+        {
+            if (m_walk.walkableWorld(nx, v.xf->position.z))
+                nz = v.xf->position.z;
+            else if (m_walk.walkableWorld(v.xf->position.x, nz))
+                nx = v.xf->position.x;
+            else
+            {
+                v.ai->forward = d;
+                return;
+            }
+        }
+        v.xf->position.x = nx;
+        v.xf->position.z = nz;
         v.xf->position.y = terrain.heightAtWorld(v.xf->position.x, v.xf->position.z) + 1.0f;
         v.ai->forward    = d;
         v.ai->givenUp    = false;
@@ -1083,6 +1118,22 @@ namespace Dark
                 position.x = x;
                 position.z = z;
                 return;
+            }
+        }
+        // A leap far into water lands past the back-step reach. Climb out at the nearest walkable ground instead.
+        for (float r = 1.0f; r <= kClimbOutRadius; r += 1.0f)
+        {
+            for (int s = 0; s < 16; ++s)
+            {
+                const float a = 6.2831853f * static_cast<float>(s) / 16.0f;
+                const float x = position.x + std::sin(a) * r;
+                const float z = position.z + std::cos(a) * r;
+                if (m_walk.walkableWorld(x, z))
+                {
+                    position.x = x;
+                    position.z = z;
+                    return;
+                }
             }
         }
     }
@@ -1534,7 +1585,9 @@ namespace Dark
                 const float    kRad    = 3.14159265f / 180.0f;
                 const bool     focus   = facing >= std::cos(m_aware.focusHalfDeg * kRad);
                 const bool     side    = !focus && facing >= std::cos(m_aware.sideHalfDeg * kRad) && dist <= m_aware.sideRange;
-                const bool     present = playerAlive && !playerInWater;
+                const PatrolComponent* peer     = playerInWater ? world.get<PatrolComponent>(e) : nullptr;
+                const bool             peerSees = peer && peer->peering && playerAlive && AI::peerSpotsSwimmer(v.xf->position, v.ai->forward, playerPos, m_playerDepth);
+                const bool             present  = playerAlive && (!playerInWater || peerSees);
                 const bool     crouchedPrey = m_prey.targetHeight < 0.4f;
 
                 float bodyShown = 0.0f;
@@ -1556,6 +1609,8 @@ namespace Dark
                         bodyShown += m_aware.bodyWeight[k] * shown;
                     }
                 }
+                if (peerSees)
+                    bodyShown = Math::Max(bodyShown, kPeerShown);
 
                 float    noise = 0.0f;
                 Vector3f noisePos{};
@@ -1804,7 +1859,7 @@ namespace Dark
             updateWolfApproach(world, v, leaf, sees, playerAlive, standoff, playerPos, playerForward, horiz, dt);
             // BackOff and Flank hold the bite until the wolf has reached its side. A notice inside pounce range must not leap straight in.
             const bool wolfCircling = v.ai->stalk == AI::WolfStalk::BackOff || v.ai->stalk == AI::WolfStalk::Flank;
-            const bool wantJump = !pattern && !wolfCircling && (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist) && sees && horiz >= kHunterJumpMin && horiz <= kHunterJumpMax;
+            const bool wantJump = !m_playerSwimming && !pattern && !wolfCircling && (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist) && sees && horiz >= kHunterJumpMin && horiz <= kHunterJumpMax;
             if (pattern && !wolfCircling && (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist) && sees && !pacing && !jumpBusy && (!duelist || lunging))
             {
                 const int attackIndex = AI::pickAttack(*pattern, horiz, v.ai->preferOtherAttack, v.ai->lastAttack);
@@ -1814,7 +1869,7 @@ namespace Dark
                     bool started = false;
                     if (move.kind == AI::AttackKind::Jump)
                     {
-                        if (jump && jump->phase() == Combat::JumpAttackPhase::Idle && jump->cooldownLeft() <= 0.0f && !packTokenBusy(world, e))
+                        if (!m_playerSwimming && jump && jump->phase() == Combat::JumpAttackPhase::Idle && jump->cooldownLeft() <= 0.0f && !packTokenBusy(world, e))
                         {
                             Combat::JumpAttackBegin req{};
                             req.attacker          = e;
