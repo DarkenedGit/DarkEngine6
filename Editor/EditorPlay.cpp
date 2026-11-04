@@ -726,8 +726,10 @@ void EditorApp::destroyBuildingFixtures()
 {
     std::vector<Entity> doomed;
     world().each<SecurityCameraComponent>([&](Entity e, SecurityCameraComponent& cam) {
-        doomed.push_back(e);
-        if (cam.light.valid())
+        // A searchlight is the placed spot. Leave it so Stop can restore the mount instead of deleting the light.
+        if (!world().has<EditorObjectComponent>(e))
+            doomed.push_back(e);
+        if (cam.light.valid() && cam.light != e && !world().has<EditorObjectComponent>(cam.light))
             doomed.push_back(cam.light);
     });
     world().each<DoorComponent>([&](Entity e, DoorComponent&) { doomed.push_back(e); });

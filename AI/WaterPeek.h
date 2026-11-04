@@ -11,7 +11,7 @@ namespace Dark::AI
     // True when water is within a few metres of at. outDir is the flat unit direction toward it.
     bool findWaterBeside(GroundHeightFn heightAt, void* user, const Math::Vector3f& at, float waterLevel, Math::Vector3f& outDir);
 
-    // A guard looking into the water sees a swimmer who is close, shallow, and in front of him.
+    // Close, shallow, and inside the forward cone. Walls, doors, cover, and bridges are tested by the hunter tick.
     bool peerSpotsSwimmer(const Math::Vector3f& guardPos, const Math::Vector3f& forward, const Math::Vector3f& playerPos, float playerDepth);
 
 } // namespace Dark::AI

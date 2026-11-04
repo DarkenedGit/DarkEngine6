@@ -235,6 +235,37 @@ TEST(Facility, WolfIsNotAHideWitnessAndACloseGuardPullsThePlayerOut)
     EXPECT_NEAR(world.get<TransformComponent>(player)->position.y, 0.5f, 1.0e-4f);
 }
 
+TEST(Facility, BuildingCameraLampSitsInFrontOfTheHousing)
+{
+    World    world;
+    AiSystem ai;
+    const Entity body = world.createEntity();
+    world.emplace<TransformComponent>(body, TransformComponent{});
+    const Entity lamp = world.createEntity();
+    TransformComponent lampXf{};
+    lampXf.position = Vector3f{ 0.0f, 3.0f, 0.0f };
+    world.emplace<TransformComponent>(lamp, lampXf);
+    world.emplace<LocalLightComponent>(lamp);
+    SecurityCameraComponent camera;
+    camera.def.pos         = Vector3f{ 0.0f, 3.0f, 0.0f };
+    camera.def.yaw         = 0.0f;
+    camera.def.drop        = 0.0f;
+    camera.def.sweep       = 0.0f;
+    camera.def.searchlight = false;
+    camera.aimYaw          = 0.0f;
+    camera.light           = lamp;
+    world.emplace<SecurityCameraComponent>(body, std::move(camera));
+
+    FacilityState state;
+    FacilityHost  host = hostFor(world, ai, Entity{});
+    tickFacility(state, host, 0.016f);
+    const TransformComponent* moved = world.get<TransformComponent>(lamp);
+    ASSERT_NE(moved, nullptr);
+    EXPECT_NEAR(moved->position.x, 0.0f, 1.0e-4f);
+    EXPECT_NEAR(moved->position.y, 3.0f, 1.0e-4f);
+    EXPECT_NEAR(moved->position.z, 0.3f, 1.0e-4f);
+}
+
 TEST(Facility, CameraAlarmAlertsHuntersAndSkipsWolves)
 {
     World    world;

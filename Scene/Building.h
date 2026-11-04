@@ -136,6 +136,10 @@ namespace Dark
         float          seen  = 0.0f;
         float          aimYaw = 0.0f;
         Entity         light{};
+        // Searchlight mount, taken from the spot before the sweep. Reset copies it back onto the transform.
+        bool             hasAuthoredPose = false;
+        Math::Vector3f   authoredPos{};
+        Math::Quaternion authoredRot{};
     };
 
     struct BuildingContainer

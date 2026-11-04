@@ -108,7 +108,7 @@ namespace Dark
     void publishDoorBlocks(FacilityState& state, const FacilityHost& host);
     // Hide and door use. Returns true when the press was consumed.
     bool handleFacilityUse(FacilityState& state, const FacilityHost& host, const PlayInteractPick& pick);
-    // Restores motor and health bases, then drops owned upgrades, the alarm, and the hide.
+    // Restores motor and health bases, puts searchlights back on their mounts, then drops owned upgrades, the alarm, and the hide.
     void clearFacilitySession(FacilityState& state, World* world, Entity player);
     void refreshFacilityUpgrades(FacilityState& state, const FacilityHost& host);
 

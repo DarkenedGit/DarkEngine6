@@ -478,7 +478,9 @@ namespace Dark
                     xf->rotation = look;
                 if (TransformComponent* lxf = world->alive(cam.light) ? world->get<TransformComponent>(cam.light) : nullptr)
                 {
-                    lxf->position = cam.def.pos + dir * 0.3f;
+                    // A building lamp sits 0.3 m in front of its housing. A searchlight is that light, so the push would walk the mount.
+                    if (!cam.def.searchlight)
+                        lxf->position = cam.def.pos + dir * 0.3f;
                     lxf->rotation = look;
                 }
                 if (beam)
@@ -574,8 +576,16 @@ namespace Dark
         restoreUpgradeBody(state, world);
         if (world)
         {
-            world->each<SecurityCameraComponent>([&](Entity, SecurityCameraComponent& cam) {
+            world->each<SecurityCameraComponent>([&](Entity e, SecurityCameraComponent& cam) {
                 cam.seen = 0.0f;
+                if (cam.hasAuthoredPose)
+                {
+                    if (TransformComponent* xf = world->get<TransformComponent>(e))
+                    {
+                        xf->position = cam.authoredPos;
+                        xf->rotation = cam.authoredRot;
+                    }
+                }
                 if (LocalLightComponent* beam = cam.def.searchlight && world->alive(cam.light) ? world->get<LocalLightComponent>(cam.light) : nullptr)
                     beam->intensity = cam.def.intensity;
             });

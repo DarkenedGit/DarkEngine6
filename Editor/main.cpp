@@ -18,7 +18,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR lpCmdLine, int)
     cfg.hostName    = "Editor";
     cfg.hostVersion = Dark::kEngineVersion;
 #if defined(_DEBUG)
-    cfg.showSplash = false;
+    cfg.showSplash = true;
 #else
     cfg.showSplash = true;
 #endif

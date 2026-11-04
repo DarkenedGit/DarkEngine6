@@ -12,6 +12,7 @@ content/models/NaturePack
 content/models/Grass
 content/models/RockMoss
 content/models/AnimatedAnimals
+content/textures/loading
 
 # Local Settings
 *.ini

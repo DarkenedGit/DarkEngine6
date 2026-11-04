@@ -147,6 +147,30 @@ namespace Dark
             return false;
         }
 
+        // The peer cone only knows distance and depth. This is the line from the eye to where the swimmer meets the air.
+        // Cubes carry walls and shut doors. Cover is the conceal list. A bridge is terrain the ray has to pass through.
+        bool swimmerBlocked(const AI::SightQuery& eyeQuery, const Vector3f& playerPos, float waterLevel, const Math::AABox3f* cubes, int cubeCount,
+                            const Math::AABox3f* cover, int coverCount)
+        {
+            float spotY = playerPos.y;
+            if (waterLevel > -1.0e8f && spotY < waterLevel)
+                spotY = waterLevel;
+            const Vector3f spot{ playerPos.x, spotY, playerPos.z };
+            if (sightBlocked(eyeQuery.eye, spot, cubes, cubeCount))
+                return true;
+            if (sightBlocked(eyeQuery.eye, spot, cover, coverCount))
+                return true;
+            if (!eyeQuery.heightMap || !eyeQuery.heightMap->valid())
+                return false;
+            AI::SightQuery los = eyeQuery;
+            los.target         = spot;
+            los.coneDeg        = 359.0f;
+            const float dist   = (spot - los.eye).Magnitude();
+            if (dist > los.range)
+                los.range = dist + 1.0f;
+            return !AI::sees(los);
+        }
+
         bool lureInRange(const Vector3f& eye, const Vector3f& feet, const Vector3f& point, float callDistance, float wallScale, const Math::AABox3f* cubes, int cubeCount)
         {
             if (!(callDistance > 0.0f))
@@ -1585,9 +1609,11 @@ namespace Dark
                 const float    kRad    = 3.14159265f / 180.0f;
                 const bool     focus   = facing >= std::cos(m_aware.focusHalfDeg * kRad);
                 const bool     side    = !focus && facing >= std::cos(m_aware.sideHalfDeg * kRad) && dist <= m_aware.sideRange;
-                const PatrolComponent* peer     = playerInWater ? world.get<PatrolComponent>(e) : nullptr;
-                const bool             peerSees = peer && peer->peering && playerAlive && AI::peerSpotsSwimmer(v.xf->position, v.ai->forward, playerPos, m_playerDepth);
-                const bool             present  = playerAlive && (!playerInWater || peerSees);
+                const PatrolComponent* peer = playerInWater ? world.get<PatrolComponent>(e) : nullptr;
+                bool                   peerSees = peer && peer->peering && playerAlive && AI::peerSpotsSwimmer(v.xf->position, v.ai->forward, playerPos, m_playerDepth);
+                if (peerSees && swimmerBlocked(q, playerPos, m_waterLevel, cubes, cubeCount, m_conceal.data(), static_cast<int>(m_conceal.size())))
+                    peerSees = false;
+                const bool present = playerAlive && (!playerInWater || peerSees);
                 const bool     crouchedPrey = m_prey.targetHeight < 0.4f;
 
                 float bodyShown = 0.0f;

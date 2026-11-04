@@ -7,6 +7,7 @@
 #include "Character/HealthComponent.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
+#include "Math/AABox3f.h"
 #include "Math/Quaternion.h"
 #include "Math/Vector3f.h"
 #include "Play/Facility.h"
@@ -22,6 +23,7 @@
 #include <cmath>
 #include <filesystem>
 #include <utility>
+#include <vector>
 
 using namespace Dark;
 using namespace Dark::Math;
@@ -89,7 +91,8 @@ namespace
         Entity               guard{};
         Entity               player{};
 
-        bool setup()
+        // bridge raises a deck over the canal from x = 18 to 22. The bed starts past it.
+        bool setup(bool bridge = false)
         {
             Terrain::HeightMap hm;
             if (!hm.create(65, 65, 1.0f, 1.0f))
@@ -98,7 +101,14 @@ namespace
             for (int z = 0; z < 65; ++z)
             {
                 for (int x = 0; x < 65; ++x)
-                    hm.setHeight(x, z, x >= 20 ? -2.0f : 0.0f);
+                {
+                    float h = x >= 20 ? -2.0f : 0.0f;
+                    if (bridge && x >= 18 && x < 22)
+                        h = 1.5f;
+                    else if (bridge && x >= 22)
+                        h = -2.0f;
+                    hm.setHeight(x, z, h);
+                }
             }
             if (!terrain.createFromHeightMap(std::move(hm), 64))
                 return false;
@@ -196,6 +206,76 @@ TEST(CanalWatch, SearchlightTakesItsAimFromTheSpot)
     EXPECT_EQ(world.get<SecurityCameraComponent>(e), nullptr);
 }
 
+TEST(CanalWatch, SearchlightStaysOnItsMountAndResetsItsAim)
+{
+    World        world;
+    AiSystem     ai;
+    const Entity e = addSearchlight(world, Vector3f{ 4.0f, 6.0f, -2.0f }, Vector3f{ 0.0f, -1.0f, 1.0f }, 120.0f);
+    const TransformComponent* before = world.get<TransformComponent>(e);
+    ASSERT_NE(before, nullptr);
+    const Vector3f   mount = before->position;
+    const Quaternion aim   = before->rotation;
+    const SecurityCameraComponent* cam = world.get<SecurityCameraComponent>(e);
+    ASSERT_NE(cam, nullptr);
+    EXPECT_TRUE(cam->hasAuthoredPose);
+    EXPECT_NEAR(cam->authoredPos.x, mount.x, 1.0e-4f);
+    EXPECT_NEAR(cam->authoredPos.y, mount.y, 1.0e-4f);
+    EXPECT_NEAR(cam->authoredPos.z, mount.z, 1.0e-4f);
+    const float yaw  = cam->def.yaw;
+    const float drop = cam->def.drop;
+
+    FacilityState state;
+    FacilityHost  host = hostFor(world, ai, Entity{});
+    for (int i = 0; i < 30; ++i)
+        tickFacility(state, host, 0.1f);
+
+    const TransformComponent* swung = world.get<TransformComponent>(e);
+    ASSERT_NE(swung, nullptr);
+    EXPECT_NEAR(swung->position.x, mount.x, 1.0e-4f);
+    EXPECT_NEAR(swung->position.y, mount.y, 1.0e-4f);
+    EXPECT_NEAR(swung->position.z, mount.z, 1.0e-4f);
+    const Vector3f swungAim = swung->rotation.Rotate(Vector3f::Z_AXIS);
+    const Vector3f restAim  = aim.Rotate(Vector3f::Z_AXIS);
+    EXPECT_GT((swungAim - restAim).Magnitude(), 0.2f);
+
+    clearFacilitySession(state, &world, Entity{});
+    const TransformComponent* restored = world.get<TransformComponent>(e);
+    ASSERT_NE(restored, nullptr);
+    EXPECT_NEAR(restored->position.x, mount.x, 1.0e-4f);
+    EXPECT_NEAR(restored->position.y, mount.y, 1.0e-4f);
+    EXPECT_NEAR(restored->position.z, mount.z, 1.0e-4f);
+    EXPECT_FLOAT_EQ(restored->rotation.w, aim.w);
+    EXPECT_FLOAT_EQ(restored->rotation.x, aim.x);
+    EXPECT_FLOAT_EQ(restored->rotation.y, aim.y);
+    EXPECT_FLOAT_EQ(restored->rotation.z, aim.z);
+
+    SceneObjectData again{};
+    again.type        = SceneObjectType::SpotLight;
+    again.searchlight = true;
+    again.sweepDeg    = 120.0f;
+    applySceneActor(world, e, again, nullptr, nullptr);
+    const SecurityCameraComponent* next = world.get<SecurityCameraComponent>(e);
+    ASSERT_NE(next, nullptr);
+    EXPECT_NEAR(next->def.pos.x, mount.x, 1.0e-4f);
+    EXPECT_NEAR(next->def.pos.y, mount.y, 1.0e-4f);
+    EXPECT_NEAR(next->def.pos.z, mount.z, 1.0e-4f);
+    EXPECT_NEAR(next->def.yaw, yaw, 0.05f);
+    EXPECT_NEAR(next->def.drop, drop, 0.02f);
+
+    for (int i = 0; i < 30; ++i)
+        tickFacility(state, host, 0.1f);
+    clearFacilitySession(state, &world, Entity{});
+    const TransformComponent* second = world.get<TransformComponent>(e);
+    ASSERT_NE(second, nullptr);
+    EXPECT_NEAR(second->position.x, mount.x, 1.0e-4f);
+    EXPECT_NEAR(second->position.y, mount.y, 1.0e-4f);
+    EXPECT_NEAR(second->position.z, mount.z, 1.0e-4f);
+    EXPECT_FLOAT_EQ(second->rotation.w, aim.w);
+    EXPECT_FLOAT_EQ(second->rotation.x, aim.x);
+    EXPECT_FLOAT_EQ(second->rotation.y, aim.y);
+    EXPECT_FLOAT_EQ(second->rotation.z, aim.z);
+}
+
 TEST(CanalWatch, SearchlightCatchesASurfaceSwimmerInItsPool)
 {
     World        world;
@@ -274,6 +354,54 @@ TEST(CanalWatch, GuardAtACanalStopPeersAndSpotsAShallowSwimmer)
     canal.ai.setPlayerDepth(1.4f);
     canal.tick(true, 3.0f);
     EXPECT_NE(canal.world.get<AiAgentComponent>(canal.guard)->aware.alertness, AI::Alertness::Calm);
+}
+
+void watchCanal(Canal& canal, const Vector3f& swimmer, float depth, const AABox3f* box, int boxCount)
+{
+    canal.world.get<TransformComponent>(canal.player)->position = swimmer;
+    canal.ai.setPlayerDepth(depth);
+    for (int i = 0; i < 60; ++i)
+        canal.ai.tickHunters(canal.world, canal.terrain, true, 0.05f, canal.player, box, boxCount);
+}
+
+TEST(CanalWatch, PeeringGuardDoesNotSeeASwimmerThroughAWallOrDoor)
+{
+    Canal canal;
+    ASSERT_TRUE(canal.setup());
+    ASSERT_TRUE(canal.reachPeer());
+    const AABox3f door = AABox3f::FromCenterExtents(Vector3f{ 19.0f, 1.0f, 16.0f }, Vector3f{ 0.15f, 1.4f, 2.0f });
+    watchCanal(canal, Vector3f{ 21.0f, -1.6f, 16.0f }, 1.4f, &door, 1);
+    EXPECT_EQ(canal.world.get<AiAgentComponent>(canal.guard)->aware.alertness, AI::Alertness::Calm);
+}
+
+TEST(CanalWatch, PeeringGuardDoesNotSeeASwimmerThroughCover)
+{
+    Canal canal;
+    ASSERT_TRUE(canal.setup());
+    ASSERT_TRUE(canal.reachPeer());
+    std::vector<AABox3f> cover;
+    cover.push_back(AABox3f::FromCenterExtents(Vector3f{ 19.0f, 0.6f, 16.0f }, Vector3f{ 0.4f, 1.2f, 2.0f }));
+    canal.ai.setConcealVolumes(std::move(cover));
+    watchCanal(canal, Vector3f{ 21.0f, -1.6f, 16.0f }, 1.4f, nullptr, 0);
+    EXPECT_EQ(canal.world.get<AiAgentComponent>(canal.guard)->aware.alertness, AI::Alertness::Calm);
+}
+
+TEST(CanalWatch, PeeringGuardDoesNotSeeASwimmerUnderABridge)
+{
+    Canal canal;
+    ASSERT_TRUE(canal.setup(true));
+    TransformComponent* gxf = canal.world.get<TransformComponent>(canal.guard);
+    ASSERT_NE(gxf, nullptr);
+    gxf->position = Vector3f{ 14.0f, 1.0f, 16.0f };
+    canal.world.get<AiAgentComponent>(canal.guard)->forward = Vector3f{ 1.0f, 0.0f, 0.0f };
+    PatrolComponent* patrol = canal.world.get<PatrolComponent>(canal.guard);
+    ASSERT_NE(patrol, nullptr);
+    patrol->waitLeft = 30.0f;
+    patrol->peering  = true;
+    patrol->peerDir  = Vector3f{ 1.0f, 0.0f, 0.0f };
+    watchCanal(canal, Vector3f{ 22.4f, -1.5f, 16.0f }, 1.2f, nullptr, 0);
+    EXPECT_TRUE(patrol->peering);
+    EXPECT_EQ(canal.world.get<AiAgentComponent>(canal.guard)->aware.alertness, AI::Alertness::Calm);
 }
 
 TEST(CanalWatch, DeepSwimmerStaysHiddenFromAPeeringGuard)

@@ -3,6 +3,7 @@
   "spinnerColor": [0.3137, 0.7843, 0.5333, 1],
   "host": {
     "image": "textures/loading/sandbox_logo.png",
-    "title": "Sandbox"
+    "title": "Sandbox",
+	"minSeconds": 4.0
   }
 }

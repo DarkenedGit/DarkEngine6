@@ -4,7 +4,7 @@
   "skipOnKey": true,
   "reducedMotion": false,
   "background": [0.0314, 0.0627, 0.0941, 1],
-  "spinnerColor": [0.2510, 0.6902, 0.9725, 1],
+  "spinnerColor": [0.2510, 0.6902, 0.9725, 0],
   "animation": "ring",
   "engine": {
     "image": "textures/loading/engine_logo.png",

@@ -149,6 +149,9 @@ namespace Dark
         cam.def.searchlight = true;
         cam.aimYaw          = cam.def.yaw;
         cam.light           = light;
+        cam.hasAuthoredPose = true;
+        cam.authoredPos     = pos;
+        cam.authoredRot     = xf ? xf->rotation : object.rotation;
         if (SecurityCameraComponent* existing = world.get<SecurityCameraComponent>(light))
             *existing = cam;
         else

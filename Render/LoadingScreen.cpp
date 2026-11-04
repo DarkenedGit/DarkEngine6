@@ -78,21 +78,6 @@ float4 PSMain(PSInput input) : SV_TARGET
 
     float4 color = lerp(background, logo, logo.a * fade);
 
-    float2 d = input.uv - 0.5;
-    if (reducedMotion > 0.5)
-    {
-        float breathe = 0.7 + 0.3 * (0.5 + 0.5 * sin(timeSec * 3.14159265));
-        float bar     = saturate(1.0 - abs(d.y) / 0.012) * step(abs(d.x), 0.08);
-        color.rgb += spinnerColor * bar * spinnerOpacity * breathe * fade;
-    }
-    else
-    {
-        float spin = frac(timeSec * 0.4);
-        float ring = saturate(1.0 - abs(length(d) - 0.08) / 0.012);
-        float arc  = step(frac(atan2(d.y, d.x) / 6.2831853 + spin), 0.65);
-        color.rgb += spinnerColor * ring * arc * spinnerOpacity * fade;
-    }
-
     color.a = 1.0;
     return color;
 }
@@ -303,11 +288,11 @@ float4 PSMain(PSInput input) : SV_TARGET
             if (!tex.createFromFile(renderer, path, Color::TextureUsage::Hud))
                 return false;
 
-            if (tex.width() > 1024 || tex.height() > 1024)
-            {
-                DE_LOG_WARN(LogCategory::Render, "LoadingScreen: logo '{}' is {}x{} (cap 1024), using 1x1", path.string(), tex.width(), tex.height());
-                return false;
-            }
+            //if (tex.width() > 1024 || tex.height() > 1024)
+            //{
+            //    DE_LOG_WARN(LogCategory::Render, "LoadingScreen: logo '{}' is {}x{} (cap 1024), using 1x1", path.string(), tex.width(), tex.height());
+            //    return false;
+            //}
 
             dest = std::move(tex);
             if (dest.resource() && resourceName)
