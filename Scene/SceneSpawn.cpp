@@ -17,9 +17,11 @@
 #include "Play/Carry.h"
 #include "Render/Renderer.h"
 #include "Save/PersistentId.h"
+#include "Scene/Building.h"
 #include "Scene/EntityMaster.h"
 #include "Scene/SceneTypes.h"
 
+#include <cmath>
 #include <format>
 #include <functional>
 #include <string>
@@ -120,10 +122,45 @@ namespace Dark
             spawnOne(*host.world, objects[i], host, powerStamp, pickupStamp);
     }
 
+    void applySearchlight(World& world, Entity light, const SceneObjectData& object)
+    {
+        const bool wanted = object.type == SceneObjectType::SpotLight && object.searchlight;
+        if (!wanted)
+        {
+            if (world.get<SecurityCameraComponent>(light))
+                world.remove<SecurityCameraComponent>(light);
+            return;
+        }
+        const TransformComponent*  xf   = world.get<TransformComponent>(light);
+        const LocalLightComponent* beam = world.get<LocalLightComponent>(light);
+        const Math::Vector3f       pos  = xf ? xf->position : object.position;
+        const Math::Vector3f       aim  = (xf ? xf->rotation : object.rotation).Rotate(Math::Vector3f::Z_AXIS);
+        const float                flat = std::sqrt(aim.x * aim.x + aim.z * aim.z);
+
+        SecurityCameraComponent cam;
+        cam.def.pos         = pos;
+        cam.def.yaw         = flat > 1.0e-3f ? std::atan2(aim.x, aim.z) * 57.29578f : 0.0f;
+        cam.def.drop        = flat > 1.0e-3f ? Math::Clamp(-aim.y / flat, -1.0f, 8.0f) : 8.0f;
+        cam.def.sweep       = Math::Clamp(object.sweepDeg, 0.0f, 340.0f);
+        cam.def.range       = beam ? beam->range : object.lightRange;
+        cam.def.cone        = beam ? beam->outerConeDeg : object.lightOuterDeg;
+        cam.def.intensity   = beam ? beam->intensity : object.lightIntensity;
+        cam.def.circuit     = object.circuit;
+        cam.def.searchlight = true;
+        cam.aimYaw          = cam.def.yaw;
+        cam.light           = light;
+        if (SecurityCameraComponent* existing = world.get<SecurityCameraComponent>(light))
+            *existing = cam;
+        else
+            world.emplace<SecurityCameraComponent>(light, cam);
+    }
+
     void applySceneActor(World& world, Entity actor, const SceneObjectData& object, float (*heightAt)(void* user, float x, float z), void* heightUser)
     {
         if (!actor.valid() || !world.alive(actor))
             return;
+        if (object.type == SceneObjectType::SpotLight)
+            applySearchlight(world, actor, object);
 
         const bool light = object.type == SceneObjectType::PointLight || object.type == SceneObjectType::SpotLight;
         if (light && !object.circuit.empty())

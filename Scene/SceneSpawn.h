@@ -40,6 +40,9 @@ namespace Dark
 
     // Gameplay fields from one scene object: light circuit, hunter dialogue, patrol, and squad.
     // heightAt supplies terrain Y for patrol points and hunter or wolf feet. Null leaves Y alone.
+    // A searchlight spot gets a sweeping SecurityCamera on its own entity. Unticking it removes the camera.
+    void applySearchlight(World& world, Entity light, const SceneObjectData& object);
+
     void applySceneActor(World& world, Entity actor, const SceneObjectData& object, float (*heightAt)(void* user, float x, float z), void* heightUser);
 
 } // namespace Dark

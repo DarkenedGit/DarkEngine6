@@ -64,6 +64,11 @@ namespace Dark
         void setConcealVolumes(std::vector<Math::AABox3f> volumes) { m_conceal = std::move(volumes); }
         const std::vector<Math::AABox3f>& concealVolumes() const { return m_conceal; }
         void setPlayerMotion(float motion) { m_playerMotion = motion; }
+        // Level water surface, and how far below it the player is. Guards at a canal stop look into the water.
+        void setWaterLevel(float y) { m_waterLevel = y; }
+        void setPlayerDepth(float depth) { m_playerDepth = depth; }
+        // A swimming player is not leapt at. The hunter would land in the water.
+        void setPlayerSwimming(bool swimming) { m_playerSwimming = swimming; }
         void addNoise(const Math::Vector3f& pos, float range)
         {
             if (m_noises.size() < 32)
@@ -172,6 +177,9 @@ namespace Dark
         Entity              m_duelToken{};
         bool                m_awarenessOn = false;
         float               m_playerExposure = 1.0f;
+        float               m_waterLevel     = -1.0e9f;
+        float               m_playerDepth    = 0.0f;
+        bool                m_playerSwimming = false;
         float               m_playerMotion   = 0.0f;
         struct Noise
         {

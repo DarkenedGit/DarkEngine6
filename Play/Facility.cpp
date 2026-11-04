@@ -432,11 +432,17 @@ namespace Dark
                     {
                         to *= 1.0f / dist;
                         const float    rad = cam.aimYaw * 0.0174533f;
-                        const Vector3f fwd{ std::sin(rad), -0.35f, std::cos(rad) };
-                        const Vector3f flatFwd{ fwd.x, 0.0f, fwd.z };
-                        const Vector3f flatTo{ to.x, 0.0f, to.z };
-                        const float    cosA = flatFwd.Dot(flatTo) / Math::Max(1.0e-4f, flatFwd.Magnitude() * flatTo.Magnitude());
-                        if (cosA > std::cos(28.0f * 0.0174533f))
+                        const Vector3f fwd{ std::sin(rad), -cam.def.drop, std::cos(rad) };
+                        float          cosA = 0.0f;
+                        if (cam.def.searchlight)
+                            cosA = fwd.Dot(to) / Math::Max(1.0e-4f, fwd.Magnitude());
+                        else
+                        {
+                            const Vector3f flatFwd{ fwd.x, 0.0f, fwd.z };
+                            const Vector3f flatTo{ to.x, 0.0f, to.z };
+                            cosA = flatFwd.Dot(flatTo) / Math::Max(1.0e-4f, flatFwd.Magnitude() * flatTo.Magnitude());
+                        }
+                        if (cosA > std::cos(cam.def.cone * 0.0174533f))
                         {
                             sees = true;
                             const Math::Ray3f ray{ cam.def.pos, to };
@@ -465,7 +471,7 @@ namespace Dark
                     cam.phase += dt * 0.45f;
                 cam.aimYaw = cam.def.yaw + std::sin(cam.phase) * cam.def.sweep * 0.5f;
                 const float rad = cam.aimYaw * 0.0174533f;
-                Vector3f    dir{ std::sin(rad), -0.35f, std::cos(rad) };
+                Vector3f    dir{ std::sin(rad), -cam.def.drop, std::cos(rad) };
                 dir.Normalize();
                 const Quaternion look = Quaternion::FromLookRotation(dir, Vector3f::Y_AXIS);
                 if (TransformComponent* xf = world->get<TransformComponent>(e))
@@ -476,7 +482,7 @@ namespace Dark
                     lxf->rotation = look;
                 }
                 if (beam)
-                    beam->intensity = cam.seen > 0.0f ? 900.0f + 2500.0f * cam.seen : 900.0f;
+                    beam->intensity = cam.seen > 0.0f ? cam.def.intensity + 2500.0f * cam.seen : cam.def.intensity;
             });
         }
 
@@ -566,6 +572,14 @@ namespace Dark
     void clearFacilitySession(FacilityState& state, World* world, Entity player)
     {
         restoreUpgradeBody(state, world);
+        if (world)
+        {
+            world->each<SecurityCameraComponent>([&](Entity, SecurityCameraComponent& cam) {
+                cam.seen = 0.0f;
+                if (LocalLightComponent* beam = cam.def.searchlight && world->alive(cam.light) ? world->get<LocalLightComponent>(cam.light) : nullptr)
+                    beam->intensity = cam.def.intensity;
+            });
+        }
         if (world && player.valid())
             showBody(*world, player, true);
         state.owned.clear();

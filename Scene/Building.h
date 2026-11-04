@@ -118,6 +118,11 @@ namespace Dark
         float          sweep = 60.0f;
         float          range = 14.0f;
         std::string    circuit;
+        // Aim slope below level, spot cone, and idle beam brightness. A searchlight tests the full 3D cone.
+        float          drop        = 0.35f;
+        float          cone        = 28.0f;
+        float          intensity   = 900.0f;
+        bool           searchlight = false;
     };
 
     struct SecurityCameraComponent

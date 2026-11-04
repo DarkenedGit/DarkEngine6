@@ -853,6 +853,12 @@ void EditorApp::drawInspector3D()
                     DegreesToRadians(eulerDeg[1]),
                     DegreesToRadians(eulerDeg[2]));
             }
+            ImGui::Checkbox("Searchlight", &so->source.searchlight);
+            if (so->source.searchlight)
+            {
+                ImGui::SliderFloat("Sweep (deg)", &so->source.sweepDeg, 0.0f, 180.0f);
+                ImGui::TextDisabled("Swings around this aim in Play and sounds the alarm when it lights the player.");
+            }
             if (ImGui::Button("Aim down"))
                 xf->rotation = defaultSpotRotation();
             ImGui::SameLine();
