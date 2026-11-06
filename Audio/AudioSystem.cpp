@@ -1,4 +1,5 @@
 #include "Audio/AudioSystem.h"
+#include "Audio/StreamQueue.h"
 #include "Assets/AssetManager.h"
 #include "Character/SkillSense.h"
 #include "Assets/TextureCache.h"
@@ -78,15 +79,37 @@ namespace Dark::Audio
 
     struct AudioSystem::Device
     {
+        // Outside m_voices so allocSlot and the 24-voice loops never see it.
+        struct StreamVoice
+        {
+            static constexpr uint32_t kPackets   = 8;
+            static constexpr uint32_t kMaxFrames = 960; // 20 ms at 48 kHz. Budget is 8 * 960 * stereo int16.
+            static_assert(kPackets * kMaxFrames * 2 * sizeof(int16_t) == 30720u);
+
+            IXAudio2SourceVoice* voice      = nullptr;
+            uint32_t             id         = 0;
+            uint32_t             nextId     = 1;
+            uint32_t             writeIndex = 0;
+            float                volume     = 1.0f;
+            bool                 paused     = false;
+            int16_t              packets[kPackets][kMaxFrames * 2]{};
+        };
+
         IXAudio2*               xaudio      = nullptr;
         IXAudio2MasteringVoice* master      = nullptr;
         X3DAUDIO_HANDLE         x3d{};
         UINT32                  dstChannels = 2;
         DWORD                   channelMask = SPEAKER_STEREO;
         bool                    x3dReady    = false;
+        StreamVoice             stream{};
 
         ~Device()
         {
+            if (stream.voice)
+            {
+                stream.voice->DestroyVoice();
+                stream.voice = nullptr;
+            }
             if (master)
             {
                 master->DestroyVoice();
@@ -512,7 +535,7 @@ namespace Dark::Audio
             slot.generation = 1;
     }
 
-    void AudioSystem::stopAll()
+    void AudioSystem::stopClipVoices()
     {
         for (int i = 0; i < static_cast<int>(m_voices.size()); ++i)
         {
@@ -529,6 +552,228 @@ namespace Dark::Audio
                 slot.generation = 1;
         }
         m_musicId = 0;
+    }
+
+    void AudioSystem::stopAll()
+    {
+        stopClipVoices();
+        if (m_device)
+            stopStream(m_device->stream.id);
+    }
+
+    bool AudioSystem::streamLive(StreamId id) const
+    {
+        return m_device && id != 0 && m_device->stream.id == id && m_device->stream.voice != nullptr;
+    }
+
+    StreamId AudioSystem::openStream(const StreamDesc& desc)
+    {
+        if (!m_valid || !m_device || !m_device->xaudio)
+        {
+            DE_LOG_ERROR(LogCategory::Audio, "Audio: stream open failed, device not ready");
+            return 0;
+        }
+
+        Device::StreamVoice& stream = m_device->stream;
+        if (stream.id != 0)
+        {
+            DE_LOG_ERROR(LogCategory::Audio, "Audio: stream already open");
+            return 0;
+        }
+
+        const StreamFormat& format = desc.format;
+        if (format.channels != 2 || format.bitsPerSample != 16
+            || format.sampleRate < XAUDIO2_MIN_SAMPLE_RATE
+            || format.sampleRate > XAUDIO2_MAX_SAMPLE_RATE)
+        {
+            DE_LOG_ERROR(LogCategory::Audio,
+                "Audio: stream format must be int16 stereo, {}-{} Hz (got {} ch, {} bits, {} Hz)",
+                static_cast<uint32_t>(XAUDIO2_MIN_SAMPLE_RATE),
+                static_cast<uint32_t>(XAUDIO2_MAX_SAMPLE_RATE),
+                format.channels,
+                format.bitsPerSample,
+                format.sampleRate);
+            return 0;
+        }
+
+        if (stream.voice)
+        {
+            stream.voice->DestroyVoice();
+            stream.voice = nullptr;
+        }
+
+        WAVEFORMATEX fmt{};
+        fmt.wFormatTag      = WAVE_FORMAT_PCM;
+        fmt.nChannels       = 2;
+        fmt.nSamplesPerSec  = format.sampleRate;
+        fmt.wBitsPerSample  = 16;
+        fmt.nBlockAlign     = 4;
+        fmt.nAvgBytesPerSec = format.sampleRate * fmt.nBlockAlign;
+
+        // No callback. A null send list routes to the existing mastering voice.
+        const HRESULT hr = m_device->xaudio->CreateSourceVoice(&stream.voice, &fmt);
+        if (FAILED(hr) || !stream.voice)
+        {
+            DE_LOG_ERROR(LogCategory::Audio, "Audio: stream CreateSourceVoice failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
+            if (stream.voice)
+            {
+                stream.voice->DestroyVoice();
+                stream.voice = nullptr;
+            }
+            return 0;
+        }
+
+        const float volume = clampf(desc.volume, 0.0f, 1.0f);
+        const HRESULT volHr = stream.voice->SetVolume(volume);
+        if (FAILED(volHr))
+        {
+            DE_LOG_ERROR(LogCategory::Audio, "Audio: stream SetVolume failed (HRESULT 0x{:08X})", static_cast<unsigned>(volHr));
+            stream.voice->DestroyVoice();
+            stream.voice = nullptr;
+            return 0;
+        }
+
+        const HRESULT startHr = stream.voice->Start(0);
+        if (FAILED(startHr))
+        {
+            DE_LOG_ERROR(LogCategory::Audio, "Audio: stream Start failed (HRESULT 0x{:08X})", static_cast<unsigned>(startHr));
+            stream.voice->DestroyVoice();
+            stream.voice = nullptr;
+            return 0;
+        }
+
+        if (stream.nextId == 0)
+            stream.nextId = 1;
+        const StreamId id = stream.nextId++;
+        if (stream.nextId == 0)
+            stream.nextId = 1;
+
+        stream.id         = id;
+        stream.volume     = volume;
+        stream.writeIndex = 0;
+        stream.paused     = false;
+        return id;
+    }
+
+    bool AudioSystem::submitStreamPcm(StreamId id, const int16_t* interleaved, uint32_t frameCount)
+    {
+        if (frameCount > 0 && !interleaved)
+        {
+            DE_ASSERT(interleaved != nullptr);
+            DE_LOG_ERROR(LogCategory::Audio, "Audio: stream submit rejected a null PCM buffer");
+            return false;
+        }
+        if (frameCount == 0 || !interleaved)
+            return false;
+        if (!streamLive(id))
+            return false;
+        if (frameCount > Device::StreamVoice::kMaxFrames)
+        {
+            DE_LOG_ERROR(LogCategory::Audio, "Audio: stream packet is {} frames, max is {}", frameCount, Device::StreamVoice::kMaxFrames);
+            return false;
+        }
+
+        Device::StreamVoice& stream = m_device->stream;
+        XAUDIO2_VOICE_STATE state{};
+        stream.voice->GetState(&state);
+        uint32_t advanced = stream.writeIndex;
+        if (!advanceStreamWriteIndex(Device::StreamVoice::kPackets, state.BuffersQueued, advanced))
+            return false;
+
+        const uint32_t bytes = frameCount * 2u * static_cast<uint32_t>(sizeof(int16_t));
+        std::memcpy(stream.packets[stream.writeIndex], interleaved, bytes);
+
+        XAUDIO2_BUFFER buf{};
+        buf.AudioBytes = bytes;
+        buf.pAudioData = reinterpret_cast<const BYTE*>(stream.packets[stream.writeIndex]);
+
+        const HRESULT hr = stream.voice->SubmitSourceBuffer(&buf);
+        if (FAILED(hr))
+        {
+            DE_LOG_ERROR(LogCategory::Audio, "Audio: stream SubmitSourceBuffer failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
+            return false;
+        }
+
+        stream.writeIndex = advanced;
+        return true;
+    }
+
+    void AudioSystem::pauseStream(StreamId id)
+    {
+        if (!streamLive(id))
+            return;
+        const HRESULT hr = m_device->stream.voice->Stop(0);
+        if (FAILED(hr))
+        {
+            DE_LOG_ERROR(LogCategory::Audio, "Audio: stream Stop failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
+            return;
+        }
+        m_device->stream.paused = true;
+    }
+
+    void AudioSystem::resumeStream(StreamId id)
+    {
+        if (!streamLive(id) || !m_device->stream.paused)
+            return;
+        const HRESULT hr = m_device->stream.voice->Start(0);
+        if (FAILED(hr))
+        {
+            DE_LOG_ERROR(LogCategory::Audio, "Audio: stream Start failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
+            return;
+        }
+        m_device->stream.paused = false;
+    }
+
+    void AudioSystem::stopStream(StreamId id)
+    {
+        if (!streamLive(id))
+            return;
+        Device::StreamVoice& stream = m_device->stream;
+        const HRESULT stopHr = stream.voice->Stop(0);
+        if (FAILED(stopHr))
+            DE_LOG_ERROR(LogCategory::Audio, "Audio: stream Stop failed (HRESULT 0x{:08X})", static_cast<unsigned>(stopHr));
+        const HRESULT flushHr = stream.voice->FlushSourceBuffers();
+        if (FAILED(flushHr))
+            DE_LOG_ERROR(LogCategory::Audio, "Audio: stream FlushSourceBuffers failed (HRESULT 0x{:08X})", static_cast<unsigned>(flushHr));
+        stream.voice->DestroyVoice();
+        stream.voice      = nullptr;
+        stream.id         = 0;
+        stream.writeIndex = 0;
+        stream.paused     = false;
+    }
+
+    void AudioSystem::setStreamVolume(StreamId id, float volume)
+    {
+        if (!streamLive(id))
+            return;
+        Device::StreamVoice& stream = m_device->stream;
+        stream.volume = clampf(volume, 0.0f, 1.0f);
+        const HRESULT hr = stream.voice->SetVolume(stream.volume);
+        if (FAILED(hr))
+            DE_LOG_ERROR(LogCategory::Audio, "Audio: stream SetVolume failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
+    }
+
+    uint32_t AudioSystem::streamBuffersQueued(StreamId id) const
+    {
+        if (!streamLive(id))
+            return 0;
+        XAUDIO2_VOICE_STATE state{};
+        m_device->stream.voice->GetState(&state);
+        return state.BuffersQueued;
+    }
+
+    uint64_t AudioSystem::streamSamplesPlayed(StreamId id) const
+    {
+        if (!streamLive(id))
+            return 0;
+        XAUDIO2_VOICE_STATE state{};
+        m_device->stream.voice->GetState(&state);
+        return state.SamplesPlayed;
+    }
+
+    bool AudioSystem::streamActive(StreamId id) const
+    {
+        return streamLive(id);
     }
 
     bool AudioSystem::isPlaying(VoiceId id) const

@@ -41,6 +41,21 @@ namespace Dark::Audio
 
     using VoiceId = uint32_t; // 0 = invalid
 
+    struct StreamFormat
+    {
+        uint32_t sampleRate    = 48000;
+        uint16_t channels      = 2;
+        uint16_t bitsPerSample = 16;
+    };
+
+    struct StreamDesc
+    {
+        float        volume = 1.0f;
+        StreamFormat format{};
+    };
+
+    using StreamId = uint32_t; // 0 invalid. Non-zero generation. One slot.
+
     // 0 = clear, 1 = behind walls.
     using OcclusionQuery = float (*)(void* user, const Math::Vector3f& listener, const Math::Vector3f& source);
 
@@ -87,8 +102,21 @@ namespace Dark::Audio
         void stopMusic();
 
         void stop(VoiceId id);
+        // Clip slots only. The streaming voice keeps playing.
+        void stopClipVoices();
         void stopAll();
         bool isPlaying(VoiceId id) const;
+
+        // One voice outside kMaxVoices, sent to the same mastering voice.
+        StreamId openStream(const StreamDesc& desc);
+        bool submitStreamPcm(StreamId id, const int16_t* interleaved, uint32_t frameCount);
+        void pauseStream(StreamId id); // Stop, keep queued buffers.
+        void resumeStream(StreamId id);
+        void stopStream(StreamId id); // Stop, flush, and the id dies.
+        void setStreamVolume(StreamId id, float volume);
+        uint32_t streamBuffersQueued(StreamId id) const;
+        uint64_t streamSamplesPlayed(StreamId id) const;
+        bool streamActive(StreamId id) const;
 
         void setMasterVolume(float volume);
         float masterVolume() const { return m_masterVolume; }
@@ -119,6 +147,7 @@ namespace Dark::Audio
         bool matches(VoiceId id, int index) const;
         bool voiceIdle(const VoiceSlot& slot) const;
         bool ensureVoice(VoiceSlot& slot, const SoundClip& clip);
+        bool streamLive(StreamId id) const;
 
         struct Device;
         std::unique_ptr<Device> m_device;
