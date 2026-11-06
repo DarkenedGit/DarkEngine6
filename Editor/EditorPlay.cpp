@@ -8,6 +8,7 @@
 #include "Play/CharacterAttach.h"
 #include "Play/ContactGrind.h"
 #include "Gameplay/PowerComponents.h"
+#include "Media/MovieCue.h"
 #include "Scene/SceneSpawn.h"
 #include "Gameplay/PowerSystem.h"
 #include "Play/HunterCue.h"
@@ -619,6 +620,7 @@ void EditorApp::setPlayMode(bool play)
         // Interrupt stores a resume bookmark. This Play is over, so the next one starts at the greeting.
         m_dialogue.endPlay();
         m_movie.close();
+        resetMovieCues(world());
         m_play.resetPawn();
         destroyPlayGear();
         releasePlayPickups();

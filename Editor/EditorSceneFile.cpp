@@ -3,6 +3,7 @@
 #include "Editor/EditorInternals.h"
 #include "Editor/EditorObject.h"
 #include "Scene/Building.h"
+#include "Media/MovieCue.h"
 #include "Scene/SceneFile.h"
 #include "Scene/SceneSpawn.h"
 #include "Gameplay/PowerComponents.h"
@@ -172,6 +173,15 @@ bool EditorApp::saveScene()
             d.hasSpawner = true;
             d.spawner    = spawner->desc;
             clampSpawnerDesc(d.spawner);
+        }
+        if (const MovieCueComponent* cue = world().get<MovieCueComponent>(e))
+        {
+            d.movie       = cue->path;
+            d.movieRadius = cue->radius;
+            d.movieLoop   = cue->loop;
+            so.source.movie       = cue->path;
+            so.source.movieRadius = cue->radius;
+            so.source.movieLoop   = cue->loop;
         }
         d.pickup      = so.pickup;
         d.pickupCount = so.pickup.empty() ? 1 : (so.pickupCount > 0 ? so.pickupCount : 1);

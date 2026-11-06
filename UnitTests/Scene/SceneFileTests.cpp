@@ -2569,3 +2569,110 @@ TEST(SceneFile, QuestTagsWrongTypeLogsAndKeepsDefaults)
     std::filesystem::remove(badPath, ecRemove);
     std::filesystem::remove(roundPath, ecRemove);
 }
+
+TEST(SceneFile, MovieRoundTrip)
+{
+    SceneObjectType parsed{};
+    EXPECT_TRUE(tryParseSceneObjectType("movie", parsed));
+    EXPECT_EQ(parsed, SceneObjectType::Movie);
+    EXPECT_FALSE(tryParseSceneObjectType("Movie", parsed));
+    EXPECT_STREQ(toString(SceneObjectType::Movie), "movie");
+    EXPECT_TRUE(isScene3DType(SceneObjectType::Movie));
+    EXPECT_FALSE(isScene2DType(SceneObjectType::Movie));
+    EXPECT_FALSE(isPawnType(SceneObjectType::Movie));
+    EXPECT_FALSE(usesModelBounds(SceneObjectType::Movie));
+
+    SceneFileData in{};
+    in.version = 3;
+    in.name    = "movie_cue";
+    in.mode    = SceneMode::Scene3D;
+    SceneObjectData movie{};
+    movie.type        = SceneObjectType::Movie;
+    movie.movie       = "movies/intro.mp4";
+    movie.movieRadius = 4.5f;
+    movie.movieLoop   = true;
+    movie.position    = Vector3f{ 1.0f, 2.0f, 3.0f };
+    in.objects.push_back(movie);
+    SceneObjectData plain{};
+    plain.type = SceneObjectType::Cube;
+    in.objects.push_back(plain);
+
+    const auto path = tempScenePath("darkengine6_scene_movie_round_ut.json");
+    std::string err;
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+    {
+        std::ifstream saved(path, std::ios::binary);
+        ASSERT_TRUE(static_cast<bool>(saved));
+        const std::string text((std::istreambuf_iterator<char>(saved)), std::istreambuf_iterator<char>());
+        EXPECT_NE(text.find("\"movie\":"), std::string::npos);
+        EXPECT_NE(text.find("movies/intro.mp4"), std::string::npos);
+        EXPECT_NE(text.find("\"movieRadius\""), std::string::npos);
+        EXPECT_NE(text.find("\"movieLoop\""), std::string::npos);
+        EXPECT_EQ(text.find("\"movieRadius\"", text.find("\"type\": \"cube\"")), std::string::npos);
+    }
+
+    SceneFileData out{};
+    ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
+    ASSERT_EQ(out.objects.size(), 2u);
+    EXPECT_EQ(out.objects[0].type, SceneObjectType::Movie);
+    EXPECT_EQ(out.objects[0].movie, "movies/intro.mp4");
+    EXPECT_NEAR(out.objects[0].movieRadius, 4.5f, 1.0e-4f);
+    EXPECT_TRUE(out.objects[0].movieLoop);
+    EXPECT_EQ(out.objects[1].type, SceneObjectType::Cube);
+    EXPECT_TRUE(out.objects[1].movie.empty());
+    EXPECT_NEAR(out.objects[1].movieRadius, 2.0f, 1.0e-5f);
+    EXPECT_FALSE(out.objects[1].movieLoop);
+
+    SceneFileData defaults{};
+    defaults.version = 3;
+    defaults.name    = "movie_defaults";
+    defaults.mode    = SceneMode::Scene3D;
+    SceneObjectData untouched{};
+    untouched.type = SceneObjectType::Movie;
+    defaults.objects.push_back(untouched);
+    const auto defaultPath = tempScenePath("darkengine6_scene_movie_defaults_ut.json");
+    ASSERT_TRUE(saveSceneToJson(defaultPath, defaults, &err)) << err;
+    {
+        std::ifstream saved(defaultPath, std::ios::binary);
+        ASSERT_TRUE(static_cast<bool>(saved));
+        const std::string text((std::istreambuf_iterator<char>(saved)), std::istreambuf_iterator<char>());
+        EXPECT_EQ(text.find("\"movie\":"), std::string::npos);
+        EXPECT_EQ(text.find("\"movieRadius\""), std::string::npos);
+        EXPECT_EQ(text.find("\"movieLoop\""), std::string::npos);
+    }
+    SceneFileData loadedDefaults{};
+    ASSERT_TRUE(loadSceneFromJson(defaultPath, loadedDefaults, &err)) << err;
+    ASSERT_EQ(loadedDefaults.objects.size(), 1u);
+    EXPECT_EQ(loadedDefaults.objects[0].type, SceneObjectType::Movie);
+    EXPECT_TRUE(loadedDefaults.objects[0].movie.empty());
+    EXPECT_NEAR(loadedDefaults.objects[0].movieRadius, 2.0f, 1.0e-5f);
+    EXPECT_FALSE(loadedDefaults.objects[0].movieLoop);
+
+    const auto rawPath = tempScenePath("darkengine6_scene_movie_raw_ut.json");
+    {
+        std::ofstream raw(rawPath, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(raw));
+        raw << R"({
+  "version": 2,
+  "name": "movie_raw",
+  "objects": [
+    { "type": "movie" },
+    { "type": "movie", "movie": "movies/a.mp4", "movieRadius": -3.5, "movieLoop": true }
+  ]
+})";
+    }
+    SceneFileData rawOut{};
+    ASSERT_TRUE(loadSceneFromJson(rawPath, rawOut, &err)) << err;
+    ASSERT_EQ(rawOut.objects.size(), 2u);
+    EXPECT_TRUE(rawOut.objects[0].movie.empty());
+    EXPECT_NEAR(rawOut.objects[0].movieRadius, 2.0f, 1.0e-5f);
+    EXPECT_FALSE(rawOut.objects[0].movieLoop);
+    EXPECT_EQ(rawOut.objects[1].movie, "movies/a.mp4");
+    EXPECT_FLOAT_EQ(rawOut.objects[1].movieRadius, 0.0f);
+    EXPECT_TRUE(rawOut.objects[1].movieLoop);
+
+    std::error_code ecRemove;
+    std::filesystem::remove(path, ecRemove);
+    std::filesystem::remove(defaultPath, ecRemove);
+    std::filesystem::remove(rawPath, ecRemove);
+}

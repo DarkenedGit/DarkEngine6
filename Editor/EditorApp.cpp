@@ -368,6 +368,8 @@ const Mesh* EditorApp::meshForType(SceneObjectType type) const
     case SceneObjectType::Spawn:
     case SceneObjectType::Cube:
     case SceneObjectType::Spawner:
+    case SceneObjectType::Movie:
+        return &m_cubeMesh;
     default:
         return &m_cubeMesh;
     }

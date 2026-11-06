@@ -665,6 +665,12 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
         }
         if (!o.dialogue.empty())
             jo["dialogue"] = o.dialogue;
+        if (!o.movie.empty())
+            jo["movie"] = o.movie;
+        if (o.movieRadius != 2.0f)
+            jo["movieRadius"] = o.movieRadius;
+        if (o.movieLoop)
+            jo["movieLoop"] = true;
         if (!o.squad.empty())
             jo["squad"] = o.squad;
         if (!o.block)
@@ -1297,6 +1303,11 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
         jsonStringOr(jo, "pickup", o.pickup, std::string(), "SceneFile");
         jsonIntOr(jo, "pickupCount", o.pickupCount, 1, "SceneFile");
         jsonStringOr(jo, "dialogue", o.dialogue, std::string(), "SceneFile");
+        jsonStringOr(jo, "movie", o.movie, std::string(), "SceneFile");
+        jsonFloatOr(jo, "movieRadius", o.movieRadius, 2.0f, "SceneFile");
+        if (!(o.movieRadius >= 0.0f))
+            o.movieRadius = 0.0f;
+        jsonBoolOr(jo, "movieLoop", o.movieLoop, false, "SceneFile");
         if (jo.contains("patrol") && jo["patrol"].is_array())
         {
             for (const json& p : jo["patrol"])

@@ -104,6 +104,8 @@ const char* iconForType(SceneObjectType type)
         return ICON_FA_CLOUD;
     case SceneObjectType::Spawner:
         return ICON_FA_FORWARD_STEP;
+    case SceneObjectType::Movie:
+        return ICON_FA_CUBE;
     default:
         return ICON_FA_CUBE;
     }
@@ -376,6 +378,7 @@ void EditorApp::drawAssetBrowser()
             drawPrimitive(SceneObjectType::Hunter, "Hunter");
             drawPrimitive(SceneObjectType::Wolf, "Wolf");
             drawPrimitive(SceneObjectType::Spawner, "Spawner");
+            drawPrimitive(SceneObjectType::Movie, "Movie");
             drawPrimitive(SceneObjectType::Water, "Water");
             drawPrimitive(SceneObjectType::Stream, "Stream");
             drawPrimitive(SceneObjectType::CloudVolume, "Cloud Volume");

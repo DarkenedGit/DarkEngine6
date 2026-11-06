@@ -46,6 +46,7 @@
 #include "Sky/CloudVolume.h"
 #include "Sky/Environment.h"
 
+#include "Media/MovieCue.h"
 #include "Media/MovieHud.h"
 
 #include <imgui.h>
@@ -257,6 +258,13 @@ void EditorApp::drawEditorUi()
                 }
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Places a spawner. Maintain replaces dead units. Waves wait for a timer or until the wave is dead.");
+                if (ImGui::MenuItem(ICON_FA_CUBE "  Movie", nullptr, false, createOk))
+                {
+                    m_placeType          = SceneObjectType::Movie;
+                    m_queuePlaceAtCursor = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Places a movie cue. The cube is a marker, not the screen.");
                 if (ImGui::MenuItem(ICON_FA_BOLT "  Glow Prop", nullptr, false, createOk))
                     m_queueGlowProp = true;
                 if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  Water", nullptr, false, createOk))
@@ -945,6 +953,28 @@ void EditorApp::drawInspector3D()
         }
         ImGui::TextDisabled("The cube is a marker. Radius is the spawn area, not the cube size.");
     }
+    else if (so->type == SceneObjectType::Movie)
+    {
+        ImGui::Separator();
+        ImGui::TextUnformatted("Movie");
+        if (MovieCueComponent* cue = world().get<MovieCueComponent>(m_selected))
+        {
+            ImGui::BeginDisabled(m_playMode);
+            if (cue->path.size() >= 260)
+                ImGui::TextWrapped("%s", cue->path.c_str());
+            else
+            {
+                char moviePath[260];
+                std::snprintf(moviePath, sizeof(moviePath), "%s", cue->path.c_str());
+                if (ImGui::InputText("Movie", moviePath, sizeof(moviePath)))
+                    cue->path = moviePath;
+            }
+            ImGui::DragFloat("Radius (m)", &cue->radius, 0.1f, 0.0f, 64.0f);
+            ImGui::Checkbox("Loop", &cue->loop);
+            ImGui::EndDisabled();
+            ImGui::TextDisabled("Fires once when the possessed pawn's XZ enters the radius during play. Fullscreen cutscene. The marker is not the screen.");
+        }
+    }
     else if (so->type == SceneObjectType::Water)
     {
         ImGui::Separator();
@@ -1052,6 +1082,8 @@ void EditorApp::drawInspector3D()
 void EditorApp::onUpdate(float dt)
 {
     m_movie.tick(dt);
+    if (m_playMode)
+        tickMovieCues(world(), m_movie, m_playPlayer);
     if (m_movie.blocksWorld() && !m_movieWasBlocking)
     {
         audio().stopMusic();

@@ -62,6 +62,7 @@ namespace Dark
         CloudVolume,
         Stream,
         Spawner,
+        Movie,
         Count
     };
 
@@ -72,7 +73,7 @@ namespace Dark
             || t == SceneObjectType::AmbientLight || t == SceneObjectType::DirectionalLight
             || t == SceneObjectType::Player || t == SceneObjectType::Hunter || t == SceneObjectType::Wolf
             || t == SceneObjectType::Model || t == SceneObjectType::Water || t == SceneObjectType::CloudVolume
-            || t == SceneObjectType::Stream || t == SceneObjectType::Spawner;
+            || t == SceneObjectType::Stream || t == SceneObjectType::Spawner || t == SceneObjectType::Movie;
     }
 
     inline bool isPawnType(SceneObjectType t)
@@ -117,6 +118,7 @@ namespace Dark
         case SceneObjectType::CloudVolume:     return "cloud_volume";
         case SceneObjectType::Stream:          return "stream";
         case SceneObjectType::Spawner:         return "spawner";
+        case SceneObjectType::Movie:           return "movie";
         default:                               return "unknown";
         }
     }
@@ -211,6 +213,11 @@ namespace Dark
         if (s == "spawner")
         {
             out = SceneObjectType::Spawner;
+            return true;
+        }
+        if (s == "movie")
+        {
+            out = SceneObjectType::Movie;
             return true;
         }
         return false;
@@ -308,6 +315,10 @@ namespace Dark
         std::string pickup;
         int         pickupCount = 1;
         std::string dialogue;
+
+        std::string movie;               // virtual path, same role as dialogue
+        float       movieRadius = 2.0f;  // metres, XZ disc, not the marker scale
+        bool        movieLoop   = false;
 
         // Unit spawner. Radius is metres on the ground, not the marker scale.
         bool        hasSpawner = false;

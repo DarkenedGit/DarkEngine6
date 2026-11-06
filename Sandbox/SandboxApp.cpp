@@ -12,6 +12,7 @@
 #include "Gameplay/PowerComponents.h"
 #include "Gameplay/PowerSystem.h"
 #include "Gameplay/QuestZone.h"
+#include "Media/MovieCue.h"
 #include "Scene/SceneSpawn.h"
 #include "Gameplay/PowerCheck.h"
 #include "Play/PhysicsGround.h"
@@ -2528,6 +2529,7 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
     std::vector<SceneObjectData> sceneBoxes;
     std::vector<SceneObjectData> sceneLights;
     std::vector<SceneObjectData> sceneSpawners;
+    std::vector<SceneObjectData> sceneMovies;
     std::vector<SceneObjectData> sceneModels;
     {
         auto sidecar = [](const std::filesystem::path& scenePath, const std::string& file) {
@@ -2801,6 +2803,8 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
                 scenePawns.push_back(o);
             if (o.type == SceneObjectType::Spawner)
                 sceneSpawners.push_back(o);
+            if (o.type == SceneObjectType::Movie)
+                sceneMovies.push_back(o);
             if (o.type == SceneObjectType::Cube)
                 sceneBoxes.push_back(o);
             if (o.type == SceneObjectType::PointLight || o.type == SceneObjectType::SpotLight)
@@ -3181,6 +3185,40 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
         }
         DE_LOG_INFO(LogCategory::AI, "SandboxApp: {} spawner(s)", sceneSpawners.size());
     }
+    if (!sceneMovies.empty())
+    {
+        AssetRef<Model> marker;
+        MeshData markerMesh;
+        if (CreateCube(markerMesh, 1.0f))
+        {
+            marker = internAndUploadProceduralModel(renderer(), assets(), std::move(markerMesh),
+                internSolidMaterial(assets(), 64, 115, 242, 255, "runtime:/scene/movie-mat"), "runtime:/scene/movie");
+        }
+        int movieStamp = 0;
+        for (const SceneObjectData& o : sceneMovies)
+        {
+            const bool zeroScale = o.scale.x == 0.0f && o.scale.y == 0.0f && o.scale.z == 0.0f;
+            const Vector3f scale = zeroScale ? Vector3f{ 0.8f, 0.8f, 0.8f } : o.scale;
+            TransformComponent xf{};
+            xf.rotation = o.rotation;
+            xf.scale    = scale;
+            xf.position = o.position;
+            xf.position.y = m_terrain.heightAtWorld(o.position.x, o.position.z) + 0.5f * std::fabs(scale.y);
+            const Entity e = world().createEntity();
+            world().emplace<TagComponent>(e, "Movie");
+            world().emplace<TransformComponent>(e, xf);
+            applyMovieCue(world(), e, o);
+            if (marker)
+            {
+                ModelComponent mc{};
+                mc.modelAssetID = marker->id;
+                mc.castShadow   = true;
+                setModelComponent(world(), pins(), assets(), e, mc);
+            }
+            stampProceduralId(world(), e, std::format("sandbox/level/movie/{}", movieStamp++), "movie");
+        }
+        DE_LOG_INFO(LogCategory::Media, "SandboxApp: {} movie cue(s)", sceneMovies.size());
+    }
     if (m_chaseOk)
     {
         bindCharacterPhysics();
@@ -3200,6 +3238,7 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
     ensureSessionEntity();
     installSaveHost();
     m_save.captureBaseline(world());
+    resetMovieCues(world());
     m_loadedScenePath = scenePath;
     m_sceneStarted    = true;
     return true;
@@ -3252,6 +3291,7 @@ void SandboxApp::bindNpcDialogue(Entity npc, const std::string& scenePath)
 void SandboxApp::onUpdate(float dt)
 {
     m_movie.tick(dt);
+    tickMovieCues(world(), m_movie, possessedBody());
     if (m_movie.blocksWorld() && !m_movieWasBlocking)
     {
         audio().stopMusic();
@@ -4751,6 +4791,7 @@ void SandboxApp::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
 
 void SandboxApp::onShutdown()
 {
+    resetMovieCues(world());
     m_guardVoice.stop();
     network().shutdown();
     renderer().waitForGpu();

@@ -8,6 +8,7 @@
 #include "Play/Carry.h"
 #include "Sky/Environment.h"
 #include "Editor/EditorObject.h"
+#include "Media/MovieCue.h"
 #include "Scene/SceneFile.h"
 #include "ECS/Components.h"
 #include "Network/Replication.h"
@@ -248,8 +249,9 @@ Entity EditorApp::spawnObject(
     const bool cloudType   = type == SceneObjectType::CloudVolume;
     const bool streamType  = type == SceneObjectType::Stream;
     const bool spawnerType = type == SceneObjectType::Spawner;
+    const bool movieType   = type == SceneObjectType::Movie;
     if (m_sceneMode == SceneMode::Scene3D && isScene3DType(type) && !emitterType && !lightType && !globalLight && !pawnType
-        && !modelType && !waterType && !cloudType && !streamType && !spawnerType && xf.position.y < 0.5f * xf.scale.y)
+        && !modelType && !waterType && !cloudType && !streamType && !spawnerType && !movieType && xf.position.y < 0.5f * xf.scale.y)
         xf.position.y = 0.5f * xf.scale.y;
     world().emplace<TransformComponent>(e, xf);
 
@@ -370,6 +372,12 @@ Entity EditorApp::spawnObject(
         world().emplace<SpawnerComponent>(e, spawner);
     }
 
+    if (movieType)
+    {
+        SceneObjectData defaults{};
+        applyMovieCue(world(), e, authored ? *authored : defaults);
+    }
+
     if (editorObject)
         world().emplace<EditorObjectComponent>(e, so);
     if (type == SceneObjectType::Player && !attachEditorPlayer(e))
@@ -472,6 +480,7 @@ Entity EditorApp::placeAtWorld(SceneObjectType type, Vector3f hit, const SceneOb
     defaultLightColor(lightCol);
     float pawnCol[4]{ 0.35f, 0.85f, 0.72f, 1.0f };
     float spawnerCol[4]{ 1.0f, 0.62f, 0.15f, 1.0f };
+    float movieCol[4]{ 0.25f, 0.45f, 0.95f, 1.0f };
     if (type == SceneObjectType::Hunter)
     {
         pawnCol[0] = 0.85f;
@@ -487,6 +496,8 @@ Entity EditorApp::placeAtWorld(SceneObjectType type, Vector3f hit, const SceneOb
     const float* col = isLocalLightType(type) ? lightCol : (isPawnType(type) ? pawnCol : kPalette[m_colorIndex % kPaletteCount]);
     if (type == SceneObjectType::Spawner)
         col = spawnerCol;
+    else if (type == SceneObjectType::Movie)
+        col = movieCol;
     Vector3f scale(1, 1, 1);
     if (isLocalLightType(type))
         hit.y += 1.5f;
@@ -509,6 +520,11 @@ Entity EditorApp::placeAtWorld(SceneObjectType type, Vector3f hit, const SceneOb
         hit.y = groundY + 32.0f;
     }
     else if (type == SceneObjectType::Spawner)
+    {
+        scale = Vector3f(0.8f, 0.8f, 0.8f);
+        hit.y = groundY + 0.5f * scale.y;
+    }
+    else if (type == SceneObjectType::Movie)
     {
         scale = Vector3f(0.8f, 0.8f, 0.8f);
         hit.y = groundY + 0.5f * scale.y;
@@ -738,7 +754,7 @@ void EditorApp::cyclePlaceType(int delta)
     const SceneObjectType types3D[] = {
         SceneObjectType::Cube, SceneObjectType::Sphere, SceneObjectType::ParticleEmitter,
         SceneObjectType::PointLight, SceneObjectType::SpotLight,
-        SceneObjectType::Player, SceneObjectType::Hunter, SceneObjectType::Wolf, SceneObjectType::Spawner, SceneObjectType::Water,
+        SceneObjectType::Player, SceneObjectType::Hunter, SceneObjectType::Wolf, SceneObjectType::Spawner, SceneObjectType::Movie, SceneObjectType::Water,
         SceneObjectType::Stream, SceneObjectType::CloudVolume
     };
     const SceneObjectType types2D[] = {
