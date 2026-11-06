@@ -1031,8 +1031,7 @@ namespace Dark
         {
             const HRESULT reported = FAILED(hr) ? hr : E_FAIL;
             DE_LOG_ERROR(LogCategory::Media, "Movie: ReadSample failed (HRESULT 0x{:08X})", static_cast<unsigned>(reported));
-            out.kind   = MovieReadKind::Error;
-            out.status = statusFromHr(reported);
+            out.kind = MovieReadKind::Error;
             noteDecode(std::chrono::duration<float, std::milli>(Clock::now() - t0).count(), out);
             return;
         }
@@ -1046,7 +1045,6 @@ namespace Dark
             {
                 DE_LOG_ERROR(LogCategory::Media, "Movie: frame size changed");
                 out.kind   = MovieReadKind::Error;
-                out.status = MovieStatus::DecodeError;
                 noteDecode(std::chrono::duration<float, std::milli>(Clock::now() - t0).count(), out);
                 return;
             }
@@ -1118,8 +1116,7 @@ namespace Dark
                 if (!copyHardware(sample.Get(), surface, fenceValue))
                 {
                     DE_LOG_ERROR(LogCategory::Media, "Movie: NV12 copy failed");
-                    out.kind   = MovieReadKind::Error;
-                    out.status = MovieStatus::DecodeError;
+                    out.kind = MovieReadKind::Error;
                     noteDecode(std::chrono::duration<float, std::milli>(Clock::now() - t0).count(), out);
                     return;
                 }
@@ -1131,8 +1128,7 @@ namespace Dark
                 if (FAILED(sample->ConvertToContiguousBuffer(&contiguous)) || !contiguous)
                 {
                     DE_LOG_ERROR(LogCategory::Media, "Movie: ConvertToContiguousBuffer failed");
-                    out.kind   = MovieReadKind::Error;
-                    out.status = MovieStatus::DecodeError;
+                    out.kind = MovieReadKind::Error;
                     noteDecode(std::chrono::duration<float, std::milli>(Clock::now() - t0).count(), out);
                     return;
                 }
@@ -1142,8 +1138,7 @@ namespace Dark
                 if (FAILED(contiguous->Lock(&data, &maxLen, &current)) || !data)
                 {
                     DE_LOG_ERROR(LogCategory::Media, "Movie: buffer lock failed");
-                    out.kind   = MovieReadKind::Error;
-                    out.status = MovieStatus::DecodeError;
+                    out.kind = MovieReadKind::Error;
                     noteDecode(std::chrono::duration<float, std::milli>(Clock::now() - t0).count(), out);
                     return;
                 }
@@ -1157,8 +1152,7 @@ namespace Dark
                 if (!packed)
                 {
                     DE_LOG_ERROR(LogCategory::Media, "Movie: frame stride is not supported");
-                    out.kind   = MovieReadKind::Error;
-                    out.status = MovieStatus::DecodeError;
+                    out.kind = MovieReadKind::Error;
                     noteDecode(std::chrono::duration<float, std::milli>(Clock::now() - t0).count(), out);
                     return;
                 }
@@ -1172,7 +1166,6 @@ namespace Dark
             {
                 DE_LOG_ERROR(LogCategory::Media, "Movie: ConvertToContiguousBuffer failed");
                 out.kind   = MovieReadKind::Error;
-                out.status = MovieStatus::DecodeError;
                 noteDecode(std::chrono::duration<float, std::milli>(Clock::now() - t0).count(), out);
                 return;
             }
@@ -1182,7 +1175,6 @@ namespace Dark
             if (FAILED(contiguous->Lock(&data, &maxLen, &current)))
             {
                 out.kind   = MovieReadKind::Error;
-                out.status = MovieStatus::DecodeError;
                 noteDecode(std::chrono::duration<float, std::milli>(Clock::now() - t0).count(), out);
                 return;
             }
@@ -1314,8 +1306,7 @@ namespace Dark
         out = MovieRead{};
         if (!m || !m->reader || !m->hasVideo)
         {
-            out.kind   = MovieReadKind::Error;
-            out.status = MovieStatus::DecodeError;
+            out.kind = MovieReadKind::Error;
             return;
         }
 

@@ -1003,8 +1003,6 @@ namespace Dark
             const bool streamsDone = m_videoEos && (!m_hasAudio || m_audioEos);
             if (streamsDone)
                 return Pump::Idle;
-            if (!canVideo && !canAudio)
-                return Pump::Continue;
             if (canVideo && canAudio)
                 readVideo = preferVideo;
             else

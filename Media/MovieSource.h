@@ -64,11 +64,10 @@ namespace Dark
 
     struct MovieRead
     {
-        MovieReadKind  kind      = MovieReadKind::None;
-        MovieStatus    status    = MovieStatus::Ok;
-        bool           hasSample = false;
-        bool           end       = false;
-        float          decodeMs  = 0.0f;
+        MovieReadKind kind      = MovieReadKind::None;
+        bool          hasSample = false;
+        bool          end       = false;
+        float         decodeMs  = 0.0f;
         MovieVideoView video;
         MovieAudioView audio;
     };
