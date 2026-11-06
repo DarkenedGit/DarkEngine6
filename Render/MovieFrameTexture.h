@@ -54,12 +54,13 @@ namespace Dark
         // Tight top-down BGRA, byteCount = width * height * 4. Software only.
         bool upload(const void* bgra, uint32_t byteCount);
 
-        // R8_UNORM plane 0 and R8G8_UNORM plane 1 into the reserved NV12 slots.
+        // R8_UNORM plane 0 and R8G8_UNORM plane 1. Stored in a non-shader-visible heap
+        // so the CPU handles are legal CopyDescriptors sources.
         bool placeNv12(uint32_t surface, ID3D12Resource* nv12);
         D3D12_CPU_DESCRIPTOR_HANDLE nv12PlaneCpu(uint32_t surface, uint32_t plane) const;
 
-        // ySrv and uvSrv are plane SRVs the caller created. Copied into this slot's
-        // table. decodeFenceComplete == false records nothing and changes no slot.
+        // ySrv and uvSrv must not be shader-visible; nv12PlaneCpu() is a legal source.
+        // Copied into this slot's shader-visible table. Incomplete decode records nothing.
         bool convertNv12(D3D12_CPU_DESCRIPTOR_HANDLE ySrv, D3D12_CPU_DESCRIPTOR_HANDLE uvSrv, uint32_t colorMode, uint32_t flip180, bool decodeFenceComplete);
 
         ID3D12Resource*             resource(uint32_t slot) const;
@@ -74,8 +75,8 @@ namespace Dark
 
         D3D12_CPU_DESCRIPTOR_HANDLE cpuAt(uint32_t index) const;
         D3D12_GPU_DESCRIPTOR_HANDLE gpuAt(uint32_t index) const;
+        D3D12_CPU_DESCRIPTOR_HANDLE nv12Cpu(uint32_t surface, uint32_t plane) const;
         uint32_t slotSrv(uint32_t slot) const;
-        uint32_t nv12Index(uint32_t surface, uint32_t plane) const;
         uint32_t dispatchIndex(uint32_t slot) const;
         void     clear();
 
@@ -86,10 +87,12 @@ namespace Dark
         D3D12_RESOURCE_STATES              m_state[kSlotCount]{};
         D3D12_PLACED_SUBRESOURCE_FOOTPRINT m_footprint{};
         ComPtr<ID3D12DescriptorHeap>       m_heap;
+        ComPtr<ID3D12DescriptorHeap>       m_nv12Heap;
         ComPtr<ID3D12RootSignature>        m_root;
         ComPtr<ID3D12PipelineState>        m_pso;
         D3D12_CPU_DESCRIPTOR_HANDLE        m_cpuStart{};
         D3D12_GPU_DESCRIPTOR_HANDLE        m_gpuStart{};
+        D3D12_CPU_DESCRIPTOR_HANDLE        m_nv12CpuStart{};
         UINT                               m_incr     = 0;
         uint32_t                           m_width    = 0;
         uint32_t                           m_height   = 0;

@@ -69,21 +69,41 @@ namespace Dark
             if (m_upload[i] && m_mapped[i])
                 m_upload[i]->Unmap(0, nullptr);
             m_mapped[i] = nullptr;
+        }
+
+        // COPY and DIRECT work may still reference these. Release waits in deferRelease.
+        if (m_renderer)
+        {
+            for (uint32_t i = 0; i < kSlotCount; ++i)
+            {
+                m_renderer->deferRelease(m_frame[i].Get());
+                m_renderer->deferRelease(m_upload[i].Get());
+            }
+            m_renderer->deferRelease(m_heap.Get());
+            m_renderer->deferRelease(m_nv12Heap.Get());
+            m_renderer->deferRelease(m_root.Get());
+            m_renderer->deferRelease(m_pso.Get());
+        }
+
+        for (uint32_t i = 0; i < kSlotCount; ++i)
+        {
             m_upload[i].Reset();
             m_frame[i].Reset();
             m_state[i] = D3D12_RESOURCE_STATE_COMMON;
         }
         m_heap.Reset();
+        m_nv12Heap.Reset();
         m_root.Reset();
         m_pso.Reset();
-        m_cpuStart = {};
-        m_gpuStart = {};
-        m_incr     = 0;
-        m_footprint = {};
-        m_width    = 0;
-        m_height   = 0;
-        m_hardware = false;
-        m_renderer = nullptr;
+        m_cpuStart     = {};
+        m_gpuStart     = {};
+        m_nv12CpuStart = {};
+        m_incr         = 0;
+        m_footprint    = {};
+        m_width        = 0;
+        m_height       = 0;
+        m_hardware     = false;
+        m_renderer     = nullptr;
     }
 
     D3D12_CPU_DESCRIPTOR_HANDLE MovieFrameTexture::cpuAt(uint32_t index) const
@@ -105,14 +125,16 @@ namespace Dark
         return slot * kPerSlotViews;
     }
 
-    uint32_t MovieFrameTexture::nv12Index(uint32_t surface, uint32_t plane) const
+    D3D12_CPU_DESCRIPTOR_HANDLE MovieFrameTexture::nv12Cpu(uint32_t surface, uint32_t plane) const
     {
-        return kSlotCount * kPerSlotViews + surface * 2u + plane;
+        D3D12_CPU_DESCRIPTOR_HANDLE h = m_nv12CpuStart;
+        h.ptr += static_cast<SIZE_T>(surface * 2u + plane) * static_cast<SIZE_T>(m_incr);
+        return h;
     }
 
     uint32_t MovieFrameTexture::dispatchIndex(uint32_t slot) const
     {
-        return kSlotCount * kPerSlotViews + kNv12Surfaces * 2u + slot * kDispatchViews;
+        return kSlotCount * kPerSlotViews + slot * kDispatchViews;
     }
 
     bool MovieFrameTexture::create(Renderer& renderer, uint32_t width, uint32_t height, bool hardware)
@@ -237,7 +259,7 @@ namespace Dark
             return false;
         }
 
-        const uint32_t descriptorCount = hardware ? (kSlotCount * kPerSlotViews + kNv12Surfaces * 2u + kSlotCount * kDispatchViews) : (kSlotCount * kPerSlotViews);
+        const uint32_t descriptorCount = hardware ? (kSlotCount * kPerSlotViews + kSlotCount * kDispatchViews) : (kSlotCount * kPerSlotViews);
         D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
         heapDesc.NumDescriptors = descriptorCount;
         heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -251,6 +273,22 @@ namespace Dark
         m_incr     = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         m_cpuStart = m_heap->GetCPUDescriptorHandleForHeapStart();
         m_gpuStart = m_heap->GetGPUDescriptorHandleForHeapStart();
+
+        if (hardware)
+        {
+            // Shader-visible heaps are illegal CopyDescriptors sources.
+            D3D12_DESCRIPTOR_HEAP_DESC cpuDesc{};
+            cpuDesc.NumDescriptors = kNv12Surfaces * 2u;
+            cpuDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+            cpuDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+            if (FailedHr(device->CreateDescriptorHeap(&cpuDesc, IID_PPV_ARGS(&m_nv12Heap)), "CreateDescriptorHeap (movie nv12 cpu)"))
+            {
+                clear();
+                return false;
+            }
+            m_nv12Heap->SetName(L"DE.MovieNv12CpuHeap");
+            m_nv12CpuStart = m_nv12Heap->GetCPUDescriptorHandleForHeapStart();
+        }
 
         for (uint32_t i = 0; i < kSlotCount; ++i)
         {
@@ -338,7 +376,7 @@ namespace Dark
 
     bool MovieFrameTexture::placeNv12(uint32_t surface, ID3D12Resource* nv12)
     {
-        if (!m_hardware || !m_heap || !m_renderer || surface >= kNv12Surfaces || !nv12)
+        if (!m_hardware || !m_nv12Heap || !m_renderer || surface >= kNv12Surfaces || !nv12)
         {
             DE_LOG_ERROR(LogCategory::Render, "MovieFrameTexture::placeNv12: invalid surface");
             return false;
@@ -369,16 +407,16 @@ namespace Dark
         uv.Format               = DXGI_FORMAT_R8G8_UNORM;
         uv.Texture2D.PlaneSlice = 1;
 
-        device->CreateShaderResourceView(nv12, &y, cpuAt(nv12Index(surface, 0)));
-        device->CreateShaderResourceView(nv12, &uv, cpuAt(nv12Index(surface, 1)));
+        device->CreateShaderResourceView(nv12, &y, nv12Cpu(surface, 0));
+        device->CreateShaderResourceView(nv12, &uv, nv12Cpu(surface, 1));
         return true;
     }
 
     D3D12_CPU_DESCRIPTOR_HANDLE MovieFrameTexture::nv12PlaneCpu(uint32_t surface, uint32_t plane) const
     {
-        if (!m_hardware || !m_heap || surface >= kNv12Surfaces || plane >= 2u)
+        if (!m_hardware || !m_nv12Heap || surface >= kNv12Surfaces || plane >= 2u)
             return {};
-        return cpuAt(nv12Index(surface, plane));
+        return nv12Cpu(surface, plane);
     }
 
     bool MovieFrameTexture::convertNv12(D3D12_CPU_DESCRIPTOR_HANDLE ySrv, D3D12_CPU_DESCRIPTOR_HANDLE uvSrv, uint32_t colorMode, uint32_t flip180, bool decodeFenceComplete)
