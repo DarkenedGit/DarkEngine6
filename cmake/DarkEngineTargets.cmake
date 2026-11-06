@@ -119,6 +119,7 @@ set(DE_ENGINE_REST_FOLDERS
     AI
     Animation
     Audio
+    Media
     Character
     Debug
     Input
