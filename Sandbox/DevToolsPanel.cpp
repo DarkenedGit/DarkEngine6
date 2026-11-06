@@ -12,6 +12,7 @@
 #include "Gameplay/PowerComponents.h"
 #include "Gameplay/QuestZone.h"
 #include "Play/Carry.h"
+#include "Media/MovieHud.h"
 #include "Play/DialogueHud.h"
 #include "Play/PlayerFlashlight.h"
 #include "Math/Vector4f.h"
@@ -494,6 +495,10 @@ void SandboxApp::drawDialogue()
     view.projectHeight = static_cast<float>(renderer().height());
     view.windowName    = "Dialogue";
     drawDialogueHud(m_dialogue, view);
+
+    MovieHudView movie;
+    movie.controls = false;
+    drawMovieHud(m_movie, movie);
 }
 
 void SandboxApp::drawStaminaBar()

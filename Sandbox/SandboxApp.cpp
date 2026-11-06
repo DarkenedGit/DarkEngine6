@@ -447,6 +447,17 @@ SandboxApp::SandboxApp(const Dark::AppConfig& cfg)
 {
     m_play.bind(&SandboxApp::fillPlayHost, this);
     m_dialogue.bind(&SandboxApp::fillDialogueHost, this);
+    m_movie.bind(&SandboxApp::fillMovieHost, this);
+}
+
+void SandboxApp::fillMovieHost(void* user, MovieHost& host)
+{
+    auto* app = static_cast<SandboxApp*>(user);
+    if (!app)
+        return;
+    host.renderer = &app->renderer();
+    host.audio    = &app->audio();
+    host.assets   = &app->assets();
 }
 
 void SandboxApp::fillDialogueHost(void* user, DialogueHost& host)
@@ -953,6 +964,11 @@ void SandboxApp::handleRuntimeCommands(float dt)
 
     if (input().actionPressed("quit"))
     {
+        if (m_movie.blocksWorld())
+        {
+            m_movie.stop();
+            return;
+        }
         if (m_dialogue.active())
         {
             m_dialogue.interrupt(DialogueInterrupt::Cancel);
@@ -981,7 +997,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
         DE_LOG_INFO("Sandbox: quickload {}", Save::toString(result));
     }
 
-    if (input().actionPressed("pause"))
+    if (input().actionPressed("pause") && !m_movie.blocksWorld())
     {
         const bool dialogueWasOpen = m_dialogue.active();
         if (!uiKeys || dialogueWasOpen)
@@ -1033,7 +1049,30 @@ void SandboxApp::handleRuntimeCommands(float dt)
         DE_LOG_INFO("Command: spin speed = {:.2f}", m_spinSpeed);
     }
 
-    if (!typing && input().actionPressed("talk"))
+    if (m_sceneStarted && !typing && input().keyPressed(Key::F8) && m_movie.state() == MoviePlayState::Closed)
+    {
+        audio().stopMusic();
+        audio().stopClipVoices();
+        if (m_movie.open("movies/sample.mp4") == MovieStatus::Ok)
+        {
+            audio().stopMusic();
+            audio().stopClipVoices();
+            m_movie.play();
+        }
+    }
+    if (m_sceneStarted && !typing && input().keyPressed(Key::F6))
+    {
+        if (m_movie.state() == MoviePlayState::Paused)
+            m_movie.play();
+        else
+            m_movie.pause();
+    }
+    if (m_sceneStarted && m_movie.blocksWorld() && !typing && input().keyPressed(Key::F7))
+        m_movie.seek(m_movie.stats().clockSeconds - 5.0);
+    if (m_sceneStarted && m_movie.blocksWorld() && !typing && input().keyPressed(Key::F10))
+        m_movie.seek(m_movie.stats().clockSeconds + 5.0);
+
+    if (!m_movie.blocksWorld() && !typing && input().actionPressed("talk"))
     {
         if (m_dialogue.active())
             m_dialogue.requestSkip();
@@ -1051,7 +1090,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
     }
 
     window().setCursorCaptured(window().isFocused() && !uiOpen() && !m_menu.visible());
-    if (!m_dialogue.locksWorld())
+    if (!m_dialogue.locksWorld() && !m_movie.blocksWorld())
     {
         if (m_gameplayPaused)
             updateFlyCamera(dt);
@@ -2823,7 +2862,7 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
                 continue;
             if (m_streams.size() >= 16)
                 break;
-            StreamDesc desc;
+            Dark::StreamDesc desc;
             desc.width        = o.streamWidth;
             desc.flowSpeed    = o.streamFlowSpeed;
             desc.bedClearance = 0.45f;
@@ -3216,11 +3255,25 @@ void SandboxApp::bindNpcDialogue(Entity npc, const std::string& scenePath)
 
 void SandboxApp::onUpdate(float dt)
 {
+    m_movie.tick(dt);
+    if (m_movie.blocksWorld() && !m_movieWasBlocking)
+    {
+        audio().stopMusic();
+        audio().stopClipVoices();
+    }
+    m_movieWasBlocking = m_movie.blocksWorld();
+
     m_frameDt = dt;
     const bool menuFrame = m_menu.visible();
     if (!menuFrame)
         dt = m_play.scaleDt(dt);
     handleRuntimeCommands(dt);
+    if (m_movie.blocksWorld() && !m_movieWasBlocking)
+    {
+        audio().stopMusic();
+        audio().stopClipVoices();
+    }
+    m_movieWasBlocking = m_movie.blocksWorld();
     if (menuFrame || m_menu.visible())
     {
         m_leafRustle.stopAll(audio());
@@ -3232,7 +3285,7 @@ void SandboxApp::onUpdate(float dt)
         m_leafRustle.stopAll(audio());
         return;
     }
-    if (m_dialogue.locksWorld())
+    if (m_dialogue.locksWorld() || m_movie.blocksWorld())
     {
         // This conversation waits. Pawns, barks, and the fly cam stay where they are.
     }
@@ -3267,7 +3320,8 @@ void SandboxApp::onUpdate(float dt)
     {
         m_leafRustle.stopAll(audio());
     }
-    m_dialogue.tick(dt);
+    if (!m_movie.blocksWorld())
+        m_dialogue.tick(dt);
     m_save.service(world());
     m_water.updateLod(m_viewCamera.GetPosition());
     syncTerrainLod();
@@ -3282,11 +3336,12 @@ void SandboxApp::onUpdate(float dt)
         if (fillGrassPlayerSample(world(), body, x, z, sample))
             m_grassField.update(m_terrain, x, z, m_grassWindSeconds, m_water.params().waterLevel, sample);
     }
-    if (renderer().scenePath() == ScenePath::HybridDeferred)
+    if (!m_movie.blocksWorld() && renderer().scenePath() == ScenePath::HybridDeferred)
         syncPlayerFlashlight(world(), possessedBody(), m_viewCamera.GetPosition(), m_viewCamera.GetLook(), m_viewCamera.GetRight(), m_viewCamera.GetUp(), m_offhand.lightOn);
 
     setViewAudioListener(audio(), m_viewCamera, &world(), possessedBody(), skillCatalog().enabled());
-    tickSoundEmitters(world(), audio(), assets());
+    if (!m_movie.blocksWorld())
+        tickSoundEmitters(world(), audio(), assets());
     m_scene.tickDecals(world(), dt);
 }
 
@@ -4451,8 +4506,9 @@ void SandboxApp::onRender()
     Health* hudHp = localHealth();
     const Entity hudBody = possessedBody();
     const HudTagComponent* hudTag = hudBody.valid() ? world().get<HudTagComponent>(hudBody) : nullptr;
-    const bool drawHealth = !m_menu.visible() && hudHp && hudTag && hudTag->kind == HudKind::HealthBar;
-    const bool drawCrosshair = !m_menu.visible() && hudHp && hudHp->alive() && !m_gameplayPaused && !m_dialogue.locksWorld();
+    const bool movieBlocks = m_movie.blocksWorld();
+    const bool drawHealth = !movieBlocks && !m_menu.visible() && hudHp && hudTag && hudTag->kind == HudKind::HealthBar;
+    const bool drawCrosshair = !movieBlocks && !m_menu.visible() && hudHp && hudHp->alive() && !m_gameplayPaused && !m_dialogue.locksWorld();
     if (drawHealth || drawCrosshair)
     {
         const GpuScope hud(cmd, "HUD", ProfileColor::Hud);
@@ -4477,10 +4533,14 @@ void SandboxApp::onRender()
 
     const bool ssaoTile = renderer().hasGBuffer() && renderer().debugState().ssaoDebug == 1;
     const bool ssrTile  = renderer().hasGBuffer() && renderer().debugState().ssrDebug != 0;
-    if (cmd && m_debugOverlay.isValid()
-        && (m_showShadowMaps || renderer().debugState().shadowMapTiles || m_showDepth || m_showGBuffer || m_showVelocity || ssaoTile || ssrTile))
-        markPass(PassId::Overlay);
-    drawDebugOverlays(cmd);
+    if (!movieBlocks)
+    {
+        if (cmd && m_debugOverlay.isValid()
+            && (m_showShadowMaps || renderer().debugState().shadowMapTiles || m_showDepth || m_showGBuffer || m_showVelocity || ssaoTile || ssrTile))
+            markPass(PassId::Overlay);
+        drawDebugOverlays(cmd);
+    }
+    m_movie.draw(renderer());
     m_menu.draw(renderer());
     if (m_imgui.isReady() && !m_menu.visible())
     {

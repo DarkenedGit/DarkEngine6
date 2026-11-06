@@ -446,7 +446,7 @@ void EditorApp::handleEditorCommands(float dt)
     const bool typing = m_imgui.isReady() && m_imgui.wantTextInput();
     if (m_playMode && input().actionPressed("upgrades") && !typing && (!uiKey || m_showUpgrades))
         m_showUpgrades = !m_showUpgrades;
-    if (m_playMode && !typing && input().actionPressed("talk"))
+    if (m_playMode && !m_movie.blocksWorld() && !typing && input().actionPressed("talk"))
     {
         if (m_dialogue.active())
             m_dialogue.requestSkip();
@@ -461,6 +461,12 @@ void EditorApp::handleEditorCommands(float dt)
             m_dialogue.moveChoice(1);
         if (input().keyPressed(Key::Enter))
             m_dialogue.commitChoice();
+    }
+
+    if (m_playMode && m_movie.blocksWorld() && input().actionPressed("quit"))
+    {
+        m_movie.stop();
+        return;
     }
 
     if (!uiKey && input().actionPressed("quit"))

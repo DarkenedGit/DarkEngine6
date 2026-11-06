@@ -1111,7 +1111,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         m_scene.applyPost(renderer(), cmd, viewProj, ts);
     }
 
-    if (renderer().hasSceneBuffers())
+    if (renderer().hasSceneBuffers() && !m_movie.blocksWorld())
     {
         const bool ssaoTile = renderer().debugState().ssaoDebug == 1;
         const bool ssrTile  = renderer().debugState().ssrDebug != 0;
@@ -1225,11 +1225,13 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     }
 
     m_scene.endCameraFrame(m_camera, viewProj);
-    drawPlayCrosshair(cmd);
+    if (!m_movie.blocksWorld())
+        drawPlayCrosshair(cmd);
     renderer().stats().drawCalls = draws;
     uint32_t tableCount = 0;
     const PassNode* table = deferred ? editorDeferredPasses(tableCount) : editorForwardPasses(tableCount);
     (void)passSequenceOk(table, tableCount, playedPasses, playedCount);
+    m_movie.draw(renderer());
 }
 
 void EditorApp::drawEditorGrass(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, const Matrix4f& prevViewProj, const Frustum3f& frustum)

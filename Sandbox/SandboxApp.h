@@ -49,6 +49,7 @@
 #include "Terrain/TerrainGround.h"
 #include "Play/Carry.h"
 #include "Play/DialogueBinding.h"
+#include "Media/MoviePlayer.h"
 #include "Play/DialogueController.h"
 #include "Play/DialogueFacts.h"
 #include "Play/DialogueMemory.h"
@@ -200,6 +201,7 @@ private:
 
     static void fillPlayHost(void* user, Dark::PlayHost& host);
     static void fillDialogueHost(void* user, Dark::DialogueHost& host);
+    static void fillMovieHost(void* user, Dark::MovieHost& host);
     static void stepPlayPhysics(void* user, float dt);
     static void onPlayMuzzle(void* user);
     static void onPlayBloodBurst(void* user, const Dark::Math::Vector3f& pos);
@@ -259,6 +261,8 @@ private:
     Dark::QuestRuntime&             m_quest;
     Dark::GuardVoice                m_guardVoice;
     Dark::DialogueController        m_dialogue;
+    Dark::MoviePlayer               m_movie;
+    bool                            m_movieWasBlocking = false;
     std::string                     m_sceneQuest;
     struct QuestBanner
     {

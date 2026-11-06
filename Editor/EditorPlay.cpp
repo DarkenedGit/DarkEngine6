@@ -326,6 +326,16 @@ void EditorApp::bakePlayWalkability()
 
 
 
+void EditorApp::fillMovieHost(void* user, MovieHost& host)
+{
+    auto* app = static_cast<EditorApp*>(user);
+    if (!app)
+        return;
+    host.renderer = &app->renderer();
+    host.audio    = &app->audio();
+    host.assets   = &app->assets();
+}
+
 void EditorApp::fillDialogueHost(void* user, DialogueHost& host)
 {
     auto* app = static_cast<EditorApp*>(user);
@@ -515,6 +525,7 @@ void EditorApp::setPlayMode(bool play)
         }
         m_play.bind(&EditorApp::fillPlayHost, this);
         m_dialogue.bind(&EditorApp::fillDialogueHost, this);
+        m_movie.bind(&EditorApp::fillMovieHost, this);
         m_play.resetPawn();
         if (const TransformComponent* xf = world().get<TransformComponent>(m_playPlayer))
         {
@@ -607,6 +618,7 @@ void EditorApp::setPlayMode(bool play)
         m_guardVoice.stop();
         // Interrupt stores a resume bookmark. This Play is over, so the next one starts at the greeting.
         m_dialogue.endPlay();
+        m_movie.close();
         m_play.resetPawn();
         destroyPlayGear();
         releasePlayPickups();

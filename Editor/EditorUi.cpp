@@ -46,6 +46,8 @@
 #include "Sky/CloudVolume.h"
 #include "Sky/Environment.h"
 
+#include "Media/MovieHud.h"
+
 #include <imgui.h>
 
 #include <cmath>
@@ -579,6 +581,9 @@ void EditorApp::drawEditorUi()
             drawLoot();
             drawUpgrades();
         }
+        MovieHudView movieView;
+        movieView.controls = true;
+        drawMovieHud(m_movie, movieView);
     }
 
     drawStatusBar();
@@ -1048,6 +1053,14 @@ void EditorApp::drawInspector3D()
 
 void EditorApp::onUpdate(float dt)
 {
+    m_movie.tick(dt);
+    if (m_movie.blocksWorld() && !m_movieWasBlocking)
+    {
+        audio().stopMusic();
+        audio().stopClipVoices();
+    }
+    m_movieWasBlocking = m_movie.blocksWorld();
+
     if (m_playMode)
         dt = m_play.scaleDt(dt);
     const NetRole role = network().role();
@@ -1068,13 +1081,14 @@ void EditorApp::onUpdate(float dt)
             setPlayMode(false);
         else
         {
-            if (!m_dialogue.locksWorld())
+            if (!m_dialogue.locksWorld() && !m_movie.blocksWorld())
             {
                 m_play.tickPawn(dt);
                 m_play.tickCamera();
                 m_play.tickWorld(dt);
             }
-            m_dialogue.tick(dt);
+            if (!m_movie.blocksWorld())
+                m_dialogue.tick(dt);
             m_save.service(world());
             if (m_defenseTextLeft > 0.0f)
             {
@@ -1095,17 +1109,20 @@ void EditorApp::onUpdate(float dt)
         updateCamera(dt);
         syncEditPhysics();
     }
-    window().setCursorCaptured(m_playMode && window().isFocused() && !m_lootTarget.valid() && !m_showUpgrades);
+    const bool movieHolds = m_playMode && m_movie.blocksWorld();
+    window().setCursorCaptured(m_playMode && window().isFocused() && !m_lootTarget.valid() && !m_showUpgrades && !movieHolds);
     if (m_sceneMode != SceneMode::Scene2D)
     {
-        m_water.tick(dt);
+        if (!movieHolds)
+            m_water.tick(dt);
         const bool terrainChanged = m_terrainHeightDirty;
         syncTerrainLod();
         syncPlacedWater(terrainChanged);
-        updateEditorGrass(dt);
+        if (!movieHolds)
+            updateEditorGrass(dt);
     }
 
-    if (m_sceneMode != SceneMode::Scene2D)
+    if (m_sceneMode != SceneMode::Scene2D && !movieHolds)
     {
         const Entity selected = m_selected;
         world().each<AnimGraphComponent>([&](Entity e, AnimGraphComponent& ag) {
@@ -1125,11 +1142,12 @@ void EditorApp::onUpdate(float dt)
             }
         });
         tickAnimGraphs(world(), assets(), dt);
-        if (m_playMode)
-            m_play.tickHeldItems();
     }
+    if (m_sceneMode != SceneMode::Scene2D && m_playMode && !m_movie.blocksWorld())
+        m_play.tickHeldItems();
 
-    tickParticleEmitters(world(), dt);
+    if (!movieHolds)
+        tickParticleEmitters(world(), dt);
 
     if (m_sceneMode == SceneMode::Scene2D)
     {

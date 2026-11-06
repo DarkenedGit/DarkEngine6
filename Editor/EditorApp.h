@@ -23,6 +23,7 @@
 #include "Render/Texture2D.h"
 #include "Scene/SceneTypes.h"
 #include "Play/Crow.h"
+#include "Media/MoviePlayer.h"
 #include "Play/DialogueController.h"
 #include "Play/GuardVoice.h"
 #include "Play/PlaySession.h"
@@ -211,6 +212,7 @@ private:
     ImpactFxHost impactHost();
     static void fillPlayHost(void* user, Dark::PlayHost& host);
     static void fillDialogueHost(void* user, Dark::DialogueHost& host);
+    static void fillMovieHost(void* user, Dark::MovieHost& host);
     static void onPlayQuestNote(void* user, const Dark::QuestNoteEvent& note);
     static void onPlayDefenseText(void* user, bool parried);
     static void onPlayLoot(void* user, Dark::Entity loot);
@@ -538,6 +540,8 @@ private:
     Dark::PlaySession         m_play;
     Dark::GuardVoice          m_guardVoice;
     Dark::DialogueController  m_dialogue;
+    Dark::MoviePlayer         m_movie;
+    bool                      m_movieWasBlocking = false;
     std::string               m_sceneQuest;
     std::vector<Dark::SceneBuildingDesc> m_sceneBuildings;
     std::deque<std::string>   m_buildingLabels;
