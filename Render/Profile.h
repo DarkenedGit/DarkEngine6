@@ -45,6 +45,7 @@ constexpr uint32_t Tonemap          = 0xFFFFFFFF;
 constexpr uint32_t Gtao             = 0xFF8D6E63;
 constexpr uint32_t Ssr              = 0xFF546E7A;
 constexpr uint32_t Hud              = 0xFFE53935;
+constexpr uint32_t Movie            = 0xFFAD1457;
 constexpr uint32_t ImGui            = 0xFF5C6BC0;
 constexpr uint32_t DebugOverlay     = 0xFF78909C;
 constexpr uint32_t Menu             = 0xFF8E24AA;
