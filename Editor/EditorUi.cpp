@@ -581,9 +581,7 @@ void EditorApp::drawEditorUi()
             drawLoot();
             drawUpgrades();
         }
-        MovieHudView movieView;
-        movieView.controls = true;
-        drawMovieHud(m_movie, movieView);
+        drawMovieHud(m_movie, true);
     }
 
     drawStatusBar();
@@ -1142,9 +1140,9 @@ void EditorApp::onUpdate(float dt)
             }
         });
         tickAnimGraphs(world(), assets(), dt);
+        if (m_playMode)
+            m_play.tickHeldItems();
     }
-    if (m_sceneMode != SceneMode::Scene2D && m_playMode && !m_movie.blocksWorld())
-        m_play.tickHeldItems();
 
     if (!movieHolds)
         tickParticleEmitters(world(), dt);

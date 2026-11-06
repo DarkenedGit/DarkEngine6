@@ -1054,11 +1054,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
         audio().stopMusic();
         audio().stopClipVoices();
         if (m_movie.open("movies/sample.mp4") == MovieStatus::Ok)
-        {
-            audio().stopMusic();
-            audio().stopClipVoices();
             m_movie.play();
-        }
     }
     if (m_sceneStarted && !typing && input().keyPressed(Key::F6))
     {

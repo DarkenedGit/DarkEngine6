@@ -495,10 +495,7 @@ void SandboxApp::drawDialogue()
     view.projectHeight = static_cast<float>(renderer().height());
     view.windowName    = "Dialogue";
     drawDialogueHud(m_dialogue, view);
-
-    MovieHudView movie;
-    movie.controls = false;
-    drawMovieHud(m_movie, movie);
+    drawMovieHud(m_movie);
 }
 
 void SandboxApp::drawStaminaBar()

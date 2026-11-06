@@ -11,11 +11,6 @@
 namespace Dark
 {
 
-    struct MovieHudView
-    {
-        bool controls = false;
-    };
-
     inline const char* moviePlayStateLabel(MoviePlayState state)
     {
         switch (state)
@@ -40,7 +35,7 @@ namespace Dark
         return "?";
     }
 
-    inline void drawMovieHud(MoviePlayer& movie, const MovieHudView& view)
+    inline void drawMovieHud(MoviePlayer& movie, bool controls = false)
     {
         if (movie.state() == MoviePlayState::Closed)
             return;
@@ -70,7 +65,7 @@ namespace Dark
         ImGui::Text("Underruns %u", stats.audioUnderruns);
         ImGui::Text("Decode %.2f ms", static_cast<double>(stats.decodeMsAvg));
 
-        if (view.controls && movie.blocksWorld())
+        if (controls && movie.blocksWorld())
         {
             if (movie.state() == MoviePlayState::Paused)
             {
