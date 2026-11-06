@@ -310,6 +310,10 @@ target_link_libraries(DarkEngine
         ole32
     PRIVATE
         psapi
+        mfplat
+        mfreadwrite
+        mfuuid
+        d3d11
 )
 
 # Box3D is added in the root CMakeLists after this file. Root appends
