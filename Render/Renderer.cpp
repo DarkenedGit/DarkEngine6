@@ -162,6 +162,11 @@ namespace Dark
                 WaitForSingleObjectEx(m_fenceEvent, INFINITE, FALSE);
             }
         }
+        if (m_texUpdateFence && m_texUpdateFenceValue > 0 && m_fenceEvent && m_texUpdateFence->GetCompletedValue() < m_texUpdateFenceValue)
+        {
+            m_texUpdateFence->SetEventOnCompletion(m_texUpdateFenceValue, m_fenceEvent);
+            WaitForSingleObjectEx(m_fenceEvent, INFINITE, FALSE);
+        }
         m_deferredGpu.clear();
         if (m_gpuResources)
         {
@@ -333,12 +338,50 @@ namespace Dark
         if (!checkHr(m_commandList->Close(), "CommandList Close (init)"))
             return false;
 
+        for (uint32_t i = 0; i < kFrameCount; ++i)
+        {
+            if (!checkHr(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COPY, IID_PPV_ARGS(&m_texUpdateCopyAlloc[i])), "CreateCommandAllocator (tex update copy)")
+                || !checkHr(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_texUpdateDirectAlloc[i])), "CreateCommandAllocator (tex update direct)"))
+                return false;
+            if (!checkHr(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_COPY, m_texUpdateCopyAlloc[i].Get(), nullptr, IID_PPV_ARGS(&m_texUpdateCopyList[i])),
+                         "CreateCommandList (tex update copy)"))
+                return false;
+            if (!checkHr(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_texUpdateDirectAlloc[i].Get(), nullptr, IID_PPV_ARGS(&m_texUpdateDirectList[i])),
+                         "CreateCommandList (tex update direct)"))
+            {
+                m_texUpdateCopyList[i]->Close();
+                return false;
+            }
+            // CreateCommandList returns a recording list. Close before any Reset.
+            if (!checkHr(m_texUpdateCopyList[i]->Close(), "TexUpdate copy list Close (init)"))
+            {
+                m_texUpdateDirectList[i]->Close();
+                return false;
+            }
+            if (!checkHr(m_texUpdateDirectList[i]->Close(), "TexUpdate direct list Close (init)"))
+                return false;
+
+            wchar_t listName[48];
+            swprintf_s(listName, L"DE.TexUpdateCopyAlloc%u", i);
+            nameObject(m_texUpdateCopyAlloc[i].Get(), listName);
+            swprintf_s(listName, L"DE.TexUpdateCopyList%u", i);
+            nameObject(m_texUpdateCopyList[i].Get(), listName);
+            swprintf_s(listName, L"DE.TexUpdateDirectAlloc%u", i);
+            nameObject(m_texUpdateDirectAlloc[i].Get(), listName);
+            swprintf_s(listName, L"DE.TexUpdateDirectList%u", i);
+            nameObject(m_texUpdateDirectList[i].Get(), listName);
+        }
+
         if (!checkHr(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)), "CreateFence"))
             return false;
         nameObject(m_fence.Get(), L"DE.FrameFence");
         if (!checkHr(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_copyFence)), "CreateFence (copy)"))
             return false;
         nameObject(m_copyFence.Get(), L"DE.CopyFence");
+        if (!checkHr(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_texUpdateFence)), "CreateFence (tex update)"))
+            return false;
+        nameObject(m_texUpdateFence.Get(), L"DE.TexUpdateFence");
+        m_texUpdateFenceValue = 0;
         // Match D3D12HelloFrameBuffering: fence starts at 0; the value we will
         // Signal after the first use of this back-buffer slot is 1.
         for (uint32_t i = 0; i < kFrameCount; ++i)
@@ -958,6 +1001,223 @@ namespace Dark
         m_commandQueue->ExecuteCommandLists(1, barrierLists);
         deferRelease(barrierAlloc.Get());
         deferRelease(barrierList.Get());
+        return true;
+    }
+
+    LUID Renderer::adapterLuid() const
+    {
+        if (!m_device)
+        {
+            LUID zero{};
+            return zero;
+        }
+        return m_device->GetAdapterLuid();
+    }
+
+    bool Renderer::signalTexUpdate(ID3D12CommandQueue* queue, const char* what)
+    {
+        if (!queue || !m_texUpdateFence)
+            return false;
+        const UINT64 value = m_texUpdateFenceValue + 1;
+        if (!checkHr(queue->Signal(m_texUpdateFence.Get(), value), what))
+            return false;
+        m_texUpdateFenceValue = value;
+        return true;
+    }
+
+    ID3D12GraphicsCommandList* Renderer::beginTexUpdateDirect()
+    {
+        if (!m_valid || !m_device || m_frameIndex >= kFrameCount)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "beginTexUpdateDirect: device not initialized");
+            return nullptr;
+        }
+        ID3D12CommandAllocator*    alloc = m_texUpdateDirectAlloc[m_frameIndex].Get();
+        ID3D12GraphicsCommandList* list  = m_texUpdateDirectList[m_frameIndex].Get();
+        if (!alloc || !list)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "beginTexUpdateDirect: list is not ready");
+            return nullptr;
+        }
+        // Closed in init, or by the previous execute. On a later visit moveToNextFrame
+        // has waited this slot, so the allocator is idle. Callers record once.
+        if (!checkHr(alloc->Reset(), "TexUpdate direct allocator Reset"))
+            return nullptr;
+        if (!checkHr(list->Reset(alloc, nullptr), "TexUpdate direct list Reset"))
+            return nullptr;
+        return list;
+    }
+
+    bool Renderer::executeTexUpdateDirect()
+    {
+        if (!m_valid || !m_commandQueue || !m_texUpdateFence || m_frameIndex >= kFrameCount)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "executeTexUpdateDirect: device not initialized");
+            return false;
+        }
+        ID3D12GraphicsCommandList* list = m_texUpdateDirectList[m_frameIndex].Get();
+        if (!list)
+            return false;
+        if (!checkHr(list->Close(), "TexUpdate direct Close"))
+            return false;
+        ID3D12CommandList* lists[] = { list };
+        m_commandQueue->ExecuteCommandLists(1, lists);
+        return signalTexUpdate(m_commandQueue.Get(), "TexUpdate direct Signal");
+    }
+
+    bool Renderer::submitTextureUpdate(ID3D12Resource* dst, D3D12_RESOURCE_STATES before, ID3D12Resource* upload, const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& footprint)
+    {
+        if (!m_valid || !m_device || !m_commandQueue || !m_copyQueue || !m_texUpdateFence)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "submitTextureUpdate: device not initialized");
+            return false;
+        }
+        if (!dst || !upload || footprint.Footprint.Width == 0 || footprint.Footprint.Height == 0 || footprint.Footprint.RowPitch == 0)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "submitTextureUpdate: invalid destination or footprint");
+            return false;
+        }
+        if (before != D3D12_RESOURCE_STATE_COMMON && before != D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "submitTextureUpdate: state must be COMMON or PIXEL_SHADER_RESOURCE");
+            return false;
+        }
+        if (m_frameIndex >= kFrameCount)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "submitTextureUpdate: bad frame slot");
+            return false;
+        }
+
+        const uint32_t             slot        = m_frameIndex;
+        ID3D12CommandAllocator*    copyAlloc   = m_texUpdateCopyAlloc[slot].Get();
+        ID3D12GraphicsCommandList* copyList    = m_texUpdateCopyList[slot].Get();
+        ID3D12CommandAllocator*    directAlloc = m_texUpdateDirectAlloc[slot].Get();
+        ID3D12GraphicsCommandList* directList  = m_texUpdateDirectList[slot].Get();
+        if (!copyAlloc || !copyList || !directAlloc || !directList)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "submitTextureUpdate: upload lists are not ready");
+            return false;
+        }
+
+        // Lists were closed in init or by the previous visit. Reset only here.
+        if (!checkHr(copyAlloc->Reset(), "TexUpdate copy allocator Reset"))
+            return false;
+        if (!checkHr(copyList->Reset(copyAlloc, nullptr), "TexUpdate copy list Reset"))
+            return false;
+        bool copyOpen = true;
+        if (!checkHr(directAlloc->Reset(), "TexUpdate direct allocator Reset"))
+        {
+            checkHr(copyList->Close(), "TexUpdate copy Close (cancel)");
+            return false;
+        }
+        if (!checkHr(directList->Reset(directAlloc, nullptr), "TexUpdate direct list Reset"))
+        {
+            checkHr(copyList->Close(), "TexUpdate copy Close (cancel)");
+            return false;
+        }
+        bool directOpen = true;
+
+        auto closeRecording = [&]()
+        {
+            if (copyOpen)
+            {
+                checkHr(copyList->Close(), "TexUpdate copy Close (cancel)");
+                copyOpen = false;
+            }
+            if (directOpen)
+            {
+                checkHr(directList->Close(), "TexUpdate direct Close (cancel)");
+                directOpen = false;
+            }
+        };
+
+        auto transition = [](ID3D12GraphicsCommandList* list, ID3D12Resource* resource, D3D12_RESOURCE_STATES stateBefore, D3D12_RESOURCE_STATES stateAfter)
+        {
+            D3D12_RESOURCE_BARRIER barrier{};
+            barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barrier.Transition.pResource   = resource;
+            barrier.Transition.StateBefore = stateBefore;
+            barrier.Transition.StateAfter  = stateAfter;
+            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            list->ResourceBarrier(1, &barrier);
+        };
+
+        const bool fromSrv = before == D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        if (fromSrv)
+        {
+            transition(directList, dst, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
+            if (!checkHr(directList->Close(), "TexUpdate direct pre Close"))
+            {
+                closeRecording();
+                return false;
+            }
+            directOpen = false;
+            ID3D12CommandList* preLists[] = { directList };
+            m_commandQueue->ExecuteCommandLists(1, preLists);
+            if (!signalTexUpdate(m_commandQueue.Get(), "TexUpdate pre Signal"))
+            {
+                closeRecording();
+                return false;
+            }
+            if (!checkHr(m_copyQueue->Wait(m_texUpdateFence.Get(), m_texUpdateFenceValue), "TexUpdate copy Wait"))
+            {
+                closeRecording();
+                return false;
+            }
+        }
+
+        transition(copyList, dst, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
+        D3D12_TEXTURE_COPY_LOCATION dstLoc{};
+        dstLoc.pResource        = dst;
+        dstLoc.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        dstLoc.SubresourceIndex = 0;
+        D3D12_TEXTURE_COPY_LOCATION srcLoc{};
+        srcLoc.pResource       = upload;
+        srcLoc.Type            = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        srcLoc.PlacedFootprint = footprint;
+        copyList->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, nullptr);
+        transition(copyList, dst, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COMMON);
+        if (!checkHr(copyList->Close(), "TexUpdate copy Close"))
+        {
+            closeRecording();
+            return false;
+        }
+        copyOpen = false;
+        ID3D12CommandList* copyLists[] = { copyList };
+        m_copyQueue->ExecuteCommandLists(1, copyLists);
+        if (!signalTexUpdate(m_copyQueue.Get(), "TexUpdate copy Signal"))
+        {
+            closeRecording();
+            return false;
+        }
+        if (!checkHr(m_commandQueue->Wait(m_texUpdateFence.Get(), m_texUpdateFenceValue), "TexUpdate graphics Wait"))
+        {
+            closeRecording();
+            return false;
+        }
+
+        if (fromSrv)
+        {
+            // The pre-copy record closed this list and is still on the GPU.
+            // Reset the list on the same allocator. Resetting the allocator is illegal
+            // until that execute finishes, and this path does not wait.
+            if (!checkHr(directList->Reset(directAlloc, nullptr), "TexUpdate direct list Reset"))
+            {
+                closeRecording();
+                return false;
+            }
+            directOpen = true;
+        }
+
+        transition(directList, dst, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        if (!checkHr(directList->Close(), "TexUpdate direct post Close"))
+        {
+            closeRecording();
+            return false;
+        }
+        directOpen = false;
+        ID3D12CommandList* postLists[] = { directList };
+        m_commandQueue->ExecuteCommandLists(1, postLists);
         return true;
     }
 

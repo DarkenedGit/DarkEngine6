@@ -73,6 +73,32 @@ namespace Dark
         // or upload; on false with queued, keep both alive via deferRelease.
         bool submitTextureCopies(ID3D12Resource* dst, ID3D12Resource* upload, const D3D12_PLACED_SUBRESOURCE_FOOTPRINT* footprints, UINT count, bool* queued = nullptr);
 
+        // Per-frame upload into a texture left in COMMON (first use of the slot) or
+        // PIXEL_SHADER_RESOURCE. Uses the persistent per-slot upload lists. Does not
+        // signal m_fenceValues, does not CreateCommandAllocator, and does not wait on the CPU.
+        bool submitTextureUpdate(ID3D12Resource* dst, D3D12_RESOURCE_STATES before, ID3D12Resource* upload, const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& footprint);
+
+        // Adapter the device was created on. Zero if the device is not up.
+        LUID adapterLuid() const;
+
+        // Reset the current slot's closed upload DIRECT allocator and list. The COPY
+        // list and m_commandList are not touched. One record after this; do not Reset again.
+        ID3D12GraphicsCommandList* beginTexUpdateDirect();
+
+        // Close the list beginTexUpdateDirect opened, execute it on the graphics queue,
+        // and signal m_texUpdateFence. Does not Reset the allocator.
+        bool executeTexUpdateDirect();
+
+        ID3D12Fence* texUpdateFence() const
+        {
+            return m_texUpdateFence.Get();
+        }
+        // Last value signaled on texUpdateFence. 0 if nothing has been signaled.
+        UINT64 texUpdateFenceValue() const
+        {
+            return m_texUpdateFenceValue;
+        }
+
         // Keep a resource/allocator/list until in-flight GPU work that used it is done.
         void deferRelease(IUnknown* obj);
         void pumpDeferredReleases();
@@ -193,6 +219,7 @@ namespace Dark
         bool createDepthResources();
         void updateViewport();
         bool moveToNextFrame();
+        bool signalTexUpdate(ID3D12CommandQueue* queue, const char* what);
         void closeProfileFrame();
         void ensureIblDummyResources();
         void ensureSsrDummyResources();
@@ -219,6 +246,12 @@ namespace Dark
         D3D12_RESOURCE_STATES             m_depthState = D3D12_RESOURCE_STATE_DEPTH_WRITE;
         ComPtr<ID3D12CommandAllocator>    m_commandAllocators[kFrameCount];
         ComPtr<ID3D12GraphicsCommandList> m_commandList;
+        ComPtr<ID3D12CommandAllocator>    m_texUpdateCopyAlloc[kFrameCount];
+        ComPtr<ID3D12GraphicsCommandList> m_texUpdateCopyList[kFrameCount];
+        ComPtr<ID3D12CommandAllocator>    m_texUpdateDirectAlloc[kFrameCount];
+        ComPtr<ID3D12GraphicsCommandList> m_texUpdateDirectList[kFrameCount];
+        ComPtr<ID3D12Fence>               m_texUpdateFence;
+        UINT64                            m_texUpdateFenceValue = 0;
         ComPtr<ID3D12Fence>               m_fence;
 
         UINT64 m_fenceValues[kFrameCount] = {};
