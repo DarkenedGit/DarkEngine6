@@ -179,9 +179,6 @@ bool EditorApp::saveScene()
             d.movie       = cue->path;
             d.movieRadius = cue->radius;
             d.movieLoop   = cue->loop;
-            so.source.movie       = cue->path;
-            so.source.movieRadius = cue->radius;
-            so.source.movieLoop   = cue->loop;
         }
         d.pickup      = so.pickup;
         d.pickupCount = so.pickup.empty() ? 1 : (so.pickupCount > 0 ? so.pickupCount : 1);
