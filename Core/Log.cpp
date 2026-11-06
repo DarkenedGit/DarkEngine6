@@ -202,6 +202,8 @@ namespace Dark
             return "Networking";
         case LogCategory::Debug:
             return "Debug";
+        case LogCategory::Media:
+            return "Media";
         default:
             return "?";
         }

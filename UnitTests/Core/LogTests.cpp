@@ -67,6 +67,7 @@ TEST_F(LogTest, CategoryNames)
     EXPECT_STREQ(Log::categoryName(LogCategory::Input), "Input");
     EXPECT_STREQ(Log::categoryName(LogCategory::Networking), "Networking");
     EXPECT_STREQ(Log::categoryName(LogCategory::Debug), "Debug");
+    EXPECT_STREQ(Log::categoryName(LogCategory::Media), "Media");
 }
 
 TEST_F(LogTest, CategoriesEnabledByDefault)
@@ -78,6 +79,7 @@ TEST_F(LogTest, CategoriesEnabledByDefault)
     EXPECT_TRUE(Log::isCategoryEnabled(LogCategory::Input));
     EXPECT_TRUE(Log::isCategoryEnabled(LogCategory::Networking));
     EXPECT_TRUE(Log::isCategoryEnabled(LogCategory::Debug));
+    EXPECT_TRUE(Log::isCategoryEnabled(LogCategory::Media));
     EXPECT_TRUE(Log::isCategoryEnabled(LogCategory::Core));
 }
 
@@ -135,10 +137,12 @@ TEST_F(LogTest, DisabledCategoryStillEmitsErrorAndFatal)
 TEST_F(LogTest, ResetFiltersReenablesCategories)
 {
     Log::setCategoryEnabled(LogCategory::Networking, false);
+    Log::setCategoryEnabled(LogCategory::Media, false);
     Log::setMinLevel(LogLevel::Error);
     Log::resetFilters();
 
     EXPECT_TRUE(Log::isCategoryEnabled(LogCategory::Networking));
+    EXPECT_TRUE(Log::isCategoryEnabled(LogCategory::Media));
     EXPECT_EQ(Log::minLevel(), LogLevel::Trace);
 
     DE_LOG_INFO(LogCategory::Networking, "net-visible");

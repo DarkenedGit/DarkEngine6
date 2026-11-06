@@ -25,6 +25,7 @@ namespace Dark
         Input,
         Networking,
         Debug,
+        Media,
         Count
     };
 
