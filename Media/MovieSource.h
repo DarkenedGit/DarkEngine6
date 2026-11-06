@@ -12,9 +12,8 @@ namespace Dark
 
     struct MovieSourceRequest
     {
-        std::wstring  absolutePath;
-        std::string   virtualPath;
-        int32_t adapterLow  = 0;
+        std::wstring absolutePath;
+        int32_t      adapterLow  = 0;
         int32_t adapterHigh = 0;
         void*   device      = nullptr;
     };
@@ -53,7 +52,6 @@ namespace Dark
         std::vector<std::vector<int16_t>> packets;
         double                            pts      = 0.0;
         double                            duration = 0.0;
-        bool                              end      = false;
     };
 
     enum class MovieReadKind : uint8_t
@@ -98,9 +96,7 @@ namespace Dark
         void read(bool preferVideo, uint32_t surface, MovieRead& out);
 
         MovieStatus setPosition(double seconds);
-        void        resetCarry();
 
-        bool hardware() const;
         void* nv12(uint32_t surface) const;
         void* decodeFence() const;
         const MovieSourceInfo& info() const;

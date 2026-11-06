@@ -110,8 +110,6 @@ namespace Dark
         {
             Open = 0,
             Seek,
-            Stop,
-            SetLoop,
             Shutdown,
         };
 
@@ -127,7 +125,6 @@ namespace Dark
             SlotState            state          = SlotState::Free;
             uint64_t             epoch          = 0;
             double               pts            = 0.0;
-            double               duration       = 0.0;
             uint32_t             surface        = 0;
             uint64_t             decodeFence    = 0;
             uint64_t             convertFence   = 0;
@@ -150,7 +147,6 @@ namespace Dark
             uint64_t      epoch       = 0;
             uint64_t      seekSerial  = 0;
             double        seconds     = 0.0;
-            bool          loop        = false;
             std::wstring  absolutePath;
             int32_t adapterLow  = 0;
             int32_t adapterHigh = 0;
@@ -160,9 +156,8 @@ namespace Dark
         struct WorkerEvent
         {
             EventKind   kind       = EventKind::PlayFailed;
-            uint64_t    serial     = 0;
-            double      pts        = 0.0;
-            MovieStatus status     = MovieStatus::DecodeError;
+            uint64_t serial = 0;
+            double   pts    = 0.0;
         };
 
         enum class Pump : uint8_t
@@ -184,7 +179,7 @@ namespace Dark
         Pump pumpOne(uint64_t generation, uint64_t epoch, bool& preferVideo, uint32_t& videos, double& audioSec, bool reportFailure);
         bool publishOpen(uint64_t generation, MovieStatus status, uint32_t videos, double audioSec);
         void postSeek(uint64_t generation, uint64_t serial, double pts, bool failed);
-        void postPlayFailed(MovieStatus status);
+        void postPlayFailed();
         void waitOpenAck(uint64_t generation);
         void consumeEvents();
         void beginSeek(double seconds, SeekIntent intent);
@@ -216,7 +211,9 @@ namespace Dark
         bool           m_loop       = false;
         float          m_volume     = 1.f;
 
-        bool     m_havePresented = false;
+        bool     m_havePresented      = false;
+        bool     m_presentedSlotValid = false;
+        uint32_t m_presentedSlot      = 0;
         bool     m_hardware      = false;
         bool     m_hasAudio      = false;
         bool     m_flip180       = false;

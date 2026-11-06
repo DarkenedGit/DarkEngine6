@@ -37,14 +37,6 @@ namespace Dark
         constexpr uint32_t kMaxH264Level = 52;
         constexpr uint32_t kPoolSurfaces = 3;
 
-        struct __declspec(uuid("9B7E4E00-342C-4106-A19F-4F2704F689F0")) ID3D10Multithread : IUnknown
-        {
-            virtual void STDMETHODCALLTYPE Enter() = 0;
-            virtual void STDMETHODCALLTYPE Leave() = 0;
-            virtual BOOL STDMETHODCALLTYPE SetMultithreadProtected(BOOL bMTProtect) = 0;
-            virtual BOOL STDMETHODCALLTYPE GetMultithreadProtected() = 0;
-        };
-
         std::mutex g_mfMutex;
         int        g_mfCount = 0;
 
@@ -131,7 +123,8 @@ namespace Dark
 
             IMFActivate** activates = nullptr;
             UINT32        count     = 0;
-            const HRESULT hr        = MFTEnumEx(MFT_CATEGORY_VIDEO_DECODER, MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER, &inInfo, &outInfo, &activates, &count);
+            const HRESULT hr        = MFTEnumEx(MFT_CATEGORY_VIDEO_DECODER,
+                MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER | MFT_ENUM_FLAG_LOCALMFT, &inInfo, &outInfo, &activates, &count);
             if (activates)
             {
                 for (UINT32 i = 0; i < count; ++i)
@@ -322,7 +315,7 @@ namespace Dark
             return false;
         }
 
-        ComPtr<ID3D10Multithread> multithread;
+        ComPtr<ID3D11Multithread> multithread;
         if (SUCCEEDED(device11->QueryInterface(IID_PPV_ARGS(&multithread))) && multithread)
             multithread->SetMultithreadProtected(TRUE);
 
@@ -507,7 +500,7 @@ namespace Dark
                     || sameGuid(sub, MFAudioFormat_PCM) || sameGuid(sub, MFAudioFormat_Float);
                 UINT32 channels = 0;
                 native->GetUINT32(MF_MT_AUDIO_NUM_CHANNELS, &channels);
-                if (!known || (channels != 0 && channels != 1 && channels != 2 && channels != 6))
+                if (!known || (channels != 1 && channels != 2 && channels != 6))
                 {
                     rejectedAudio = true;
                     continue;
@@ -1070,9 +1063,29 @@ namespace Dark
         out.end  = eos;
         out.kind = video ? MovieReadKind::Video : MovieReadKind::Audio;
 
+        auto takeRemainder = [&]() {
+            if (remainder.size() < 2)
+            {
+                remainder.clear();
+                return;
+            }
+            if ((remainder.size() % 2u) != 0)
+                remainder.pop_back();
+            if (remainder.size() >= 2)
+                out.audio.packets.push_back(std::move(remainder));
+            remainder.clear();
+        };
+
         if (!sample || (flags & static_cast<DWORD>(MF_SOURCE_READERF_STREAMTICK)) != 0)
         {
             out.hasSample = false;
+            if (!video && eos)
+            {
+                takeRemainder();
+                out.hasSample = !out.audio.packets.empty();
+                if (timestamp >= 0)
+                    out.audio.pts = static_cast<double>(timestamp) / 10000000.0;
+            }
             noteDecode(std::chrono::duration<float, std::milli>(Clock::now() - t0).count(), out);
             return;
         }
@@ -1195,18 +1208,12 @@ namespace Dark
                 noteDecode(std::chrono::duration<float, std::milli>(Clock::now() - t0).count(), out);
                 return;
             }
-            if (eos && remainder.size() >= 2)
-            {
-                if ((remainder.size() % 2u) != 0)
-                    remainder.pop_back();
-                out.audio.packets.push_back(std::move(remainder));
-                remainder.clear();
-            }
+            if (eos)
+                takeRemainder();
             if (duration <= 0.0 && info.sampleRate != 0)
                 duration = static_cast<double>(frames) / static_cast<double>(info.sampleRate);
             out.audio.pts      = pts;
             out.audio.duration = duration;
-            out.audio.end      = eos;
             out.hasSample      = !out.audio.packets.empty() || frames > 0;
             if (out.audio.packets.empty())
                 out.hasSample = false;
@@ -1354,17 +1361,6 @@ namespace Dark
         m->audioEnded = false;
         m->remainder.clear();
         return MovieStatus::Ok;
-    }
-
-    void MovieSource::resetCarry()
-    {
-        if (m)
-            m->remainder.clear();
-    }
-
-    bool MovieSource::hardware() const
-    {
-        return m && m->hardware;
     }
 
     void* MovieSource::nv12(uint32_t surface) const

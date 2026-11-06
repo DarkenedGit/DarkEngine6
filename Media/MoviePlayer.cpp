@@ -217,17 +217,17 @@ namespace Dark
         {
             for (auto it = m_commands.begin(); it != m_commands.end();)
             {
-                if (it->kind == CommandKind::Seek || it->kind == CommandKind::Stop || it->kind == CommandKind::SetLoop)
+                if (it->kind == CommandKind::Seek)
                     it = m_commands.erase(it);
                 else
                     ++it;
             }
         }
-        if (cmd.kind == CommandKind::Seek || cmd.kind == CommandKind::Stop)
+        if (cmd.kind == CommandKind::Seek)
         {
             for (Command& queued : m_commands)
             {
-                if (queued.kind == CommandKind::Seek || queued.kind == CommandKind::Stop)
+                if (queued.kind == CommandKind::Seek)
                 {
                     queued = std::move(cmd);
                     return;
@@ -239,21 +239,10 @@ namespace Dark
             auto drop = m_commands.end();
             for (auto it = m_commands.begin(); it != m_commands.end(); ++it)
             {
-                if (it->kind == CommandKind::Seek || it->kind == CommandKind::Stop)
+                if (it->kind == CommandKind::Seek)
                 {
                     drop = it;
                     break;
-                }
-            }
-            if (drop == m_commands.end())
-            {
-                for (auto it = m_commands.begin(); it != m_commands.end(); ++it)
-                {
-                    if (it->kind == CommandKind::SetLoop)
-                    {
-                        drop = it;
-                        break;
-                    }
                 }
             }
             if (drop != m_commands.end())
@@ -589,27 +578,37 @@ namespace Dark
             return;
         }
         const uint32_t queued = m_audio->streamBuffersQueued(m_stream);
+        bool           cpuQueued = false;
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             m_stats.audioBuffersQueued = queued;
+            for (const AudioPacket& packet : m_audioQueue)
+            {
+                if (packet.epoch == m_epoch && packet.pcm.size() >= 2)
+                    cpuQueued = true;
+            }
         }
         if (queued != 0)
         {
             m_feederArmed = false;
             return;
         }
+        if (!cpuQueued)
         {
+            m_feederArmed = false;
             std::lock_guard<std::mutex> lock(m_mutex);
             ++m_stats.audioUnderruns;
             if (m_stats.audioUnderruns == 1 || (m_stats.audioUnderruns % 64u) == 0)
                 DE_LOG_WARN(LogCategory::Media, "Movie: audio underrun");
+            return;
         }
         if (!m_feederArmed)
         {
             m_feederArmed = true;
             m_feederStart = now;
+            return;
         }
-        else if ((now - m_feederStart) >= kFeederSeconds && !m_feederAsserted)
+        if ((now - m_feederStart) >= kFeederSeconds && !m_feederAsserted)
         {
             m_feederAsserted = true;
             DE_ASSERT(false);
@@ -741,8 +740,10 @@ namespace Dark
                     m_stats.lastPresentPts = pts;
                 }
             }
-            m_havePresented = true;
-            m_lastPicture   = steadyNow();
+            m_havePresented      = true;
+            m_presentedSlot      = m_renderer->frameIndex();
+            m_presentedSlotValid = m_presentedSlot < MovieFrameTexture::kSlotCount;
+            m_lastPicture        = steadyNow();
             return;
         }
 
@@ -764,8 +765,10 @@ namespace Dark
             m_stats.lastPresentPts = pts;
         }
         m_cv.notify_all();
-        m_havePresented = true;
-        m_lastPicture   = steadyNow();
+        m_havePresented      = true;
+        m_presentedSlot      = m_renderer->frameIndex();
+        m_presentedSlotValid = m_presentedSlot < MovieFrameTexture::kSlotCount;
+        m_lastPicture        = steadyNow();
     }
 
     void MoviePlayer::tick(float dt)
@@ -803,6 +806,8 @@ namespace Dark
             m_pausedAccum  = 0.0;
             m_audioMaster  = false;
             m_stream       = 0;
+            if (m_state == MoviePlayState::Paused)
+                m_pauseBegan = now;
             if (!m_loggedWall)
             {
                 DE_LOG_WARN(LogCategory::Media, "Movie: audio stream unavailable, using the wall clock");
@@ -831,18 +836,11 @@ namespace Dark
         const double target   = evaluateMovieClock(clockIn).targetPts;
 
         if (m_state == MoviePlayState::Playing)
-        {
             presentFrame(target);
-            if (m_state == MoviePlayState::Playing && (steadyNow() - m_lastPicture) >= kStallSeconds)
-            {
-                enterFailed("Movie: no frame for 2s");
-                return;
-            }
-        }
 
+        bool videoEos = false;
         if (m_state == MoviePlayState::Playing)
         {
-            bool videoEos     = false;
             bool audioEos     = false;
             bool eosSubmitted = false;
             bool pendingVideo = false;
@@ -873,6 +871,12 @@ namespace Dark
                     m_state     = MoviePlayState::Ended;
                 }
             }
+        }
+
+        if (m_state == MoviePlayState::Playing && !videoEos && (steadyNow() - m_lastPicture) >= kStallSeconds)
+        {
+            enterFailed("Movie: no frame for 2s");
+            return;
         }
 
         {
@@ -906,10 +910,11 @@ namespace Dark
         MoviePresentMath::MovieLetterbox box{};
         if (!MoviePresentMath::letterbox(renderer.width(), renderer.height(), m_width, m_height, box))
             return;
-        const uint32_t slot = renderer.frameIndex();
-        if (slot >= MovieFrameTexture::kSlotCount)
+        if (!m_presentedSlotValid || m_presentedSlot >= MovieFrameTexture::kSlotCount)
             return;
-        const D3D12_GPU_DESCRIPTOR_HANDLE srv = m_frames->srvGpu(slot);
+        if (m_frames->state(m_presentedSlot) != D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
+            return;
+        const D3D12_GPU_DESCRIPTOR_HANDLE srv = m_frames->srvGpu(m_presentedSlot);
         if (srv.ptr == 0)
             return;
 
@@ -952,17 +957,15 @@ namespace Dark
         event.kind   = failed ? EventKind::SeekFailed : EventKind::SeekDone;
         event.serial = serial;
         event.pts    = pts;
-        event.status = failed ? MovieStatus::DecodeError : MovieStatus::Ok;
         m_events.push_back(event);
         m_cv.notify_all();
     }
 
-    void MoviePlayer::postPlayFailed(MovieStatus status)
+    void MoviePlayer::postPlayFailed()
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         WorkerEvent event;
-        event.kind   = EventKind::PlayFailed;
-        event.status = status;
+        event.kind = EventKind::PlayFailed;
         m_events.push_back(event);
         m_cv.notify_all();
     }
@@ -981,16 +984,13 @@ namespace Dark
         uint32_t surface   = 0;
         {
             std::unique_lock<std::mutex> lock(m_mutex);
-            while (!m_commands.empty() && m_commands.front().kind == CommandKind::SetLoop)
-                m_commands.pop_front();
             m_cv.wait(lock, [&] {
-                while (!m_commands.empty() && m_commands.front().kind == CommandKind::SetLoop)
-                    m_commands.pop_front();
                 if (m_shutdown || m_dropReader || m_liveGeneration != generation || !m_commands.empty())
                     return true;
-                const bool canVideo = !m_videoEos && findFreeSlot() >= 0;
-                const bool canAudio = m_hasAudio && !m_audioEos && m_audioQueue.size() < kAudioCap;
-                if (m_videoEos && !canAudio)
+                const bool canVideo    = !m_videoEos && findFreeSlot() >= 0;
+                const bool canAudio    = m_hasAudio && !m_audioEos && m_audioQueue.size() < kAudioCap;
+                const bool streamsDone = m_videoEos && (!m_hasAudio || m_audioEos);
+                if (streamsDone)
                     return true;
                 return canVideo || canAudio;
             });
@@ -998,10 +998,13 @@ namespace Dark
                 return Pump::Stop;
             if (!m_commands.empty())
                 return Pump::Command;
-            const bool canVideo = !m_videoEos && findFreeSlot() >= 0;
-            const bool canAudio = m_hasAudio && !m_audioEos && m_audioQueue.size() < kAudioCap;
-            if (!canVideo && !canAudio)
+            const bool canVideo    = !m_videoEos && findFreeSlot() >= 0;
+            const bool canAudio    = m_hasAudio && !m_audioEos && m_audioQueue.size() < kAudioCap;
+            const bool streamsDone = m_videoEos && (!m_hasAudio || m_audioEos);
+            if (streamsDone)
                 return Pump::Idle;
+            if (!canVideo && !canAudio)
+                return Pump::Continue;
             if (canVideo && canAudio)
                 readVideo = preferVideo;
             else
@@ -1037,8 +1040,7 @@ namespace Dark
             if (reportFailure)
             {
                 WorkerEvent event;
-                event.kind   = EventKind::PlayFailed;
-                event.status = read.status;
+                event.kind = EventKind::PlayFailed;
                 m_events.push_back(event);
                 m_cv.notify_all();
             }
@@ -1063,7 +1065,6 @@ namespace Dark
             slot.state          = SlotState::Queued;
             slot.epoch          = epoch;
             slot.pts            = read.video.pts;
-            slot.duration       = read.video.duration;
             slot.surface        = surface;
             slot.decodeFence    = read.video.fenceValue;
             slot.hardware       = read.video.hardware;
@@ -1075,14 +1076,17 @@ namespace Dark
         else if (read.kind == MovieReadKind::Audio)
         {
             const size_t count = read.audio.packets.size();
-            for (size_t i = 0; i < count; ++i)
+            size_t       last  = count;
+            while (last > 0 && read.audio.packets[last - 1].empty())
+                --last;
+            for (size_t i = 0; i < last; ++i)
             {
                 if (read.audio.packets[i].empty())
                     continue;
                 AudioPacket packet;
                 packet.pcm   = std::move(read.audio.packets[i]);
                 packet.epoch = epoch;
-                packet.end   = read.end && (i + 1 == count);
+                packet.end   = read.end && (i + 1 == last);
                 m_audioQueue.push_back(std::move(packet));
             }
             if (read.audio.duration > 0.0)
@@ -1270,12 +1274,10 @@ namespace Dark
                 std::lock_guard<std::mutex> lock(m_mutex);
                 if (m_shutdown || m_liveGeneration != cmd.generation || m_seekSerial != cmd.seekSerial)
                     return;
-                while (!m_commands.empty() && m_commands.front().kind == CommandKind::SetLoop)
-                    m_commands.pop_front();
                 if (!m_commands.empty())
                     return;
                 const bool canVideo = !m_videoEos && findFreeSlot() >= 0;
-                const bool canAudio = m_hasAudio && !m_audioEos;
+                const bool canAudio = m_hasAudio && !m_audioEos && m_audioQueue.size() < kAudioCap;
                 if (!canVideo && !canAudio)
                     break;
                 readVideo = canVideo && (prefer || !canAudio);
@@ -1293,7 +1295,7 @@ namespace Dark
             m_source->read(readVideo, surface, read);
             if (read.kind == MovieReadKind::Error)
             {
-                postPlayFailed(read.status);
+                postPlayFailed();
                 m_source->close();
                 return;
             }
@@ -1307,6 +1309,37 @@ namespace Dark
                     m_audioEos = true;
                 if (!m_source->info().hasAudio)
                     m_hasAudio = false;
+            }
+            if (read.kind == MovieReadKind::Audio)
+            {
+                const double endPts = read.audio.pts + read.audio.duration;
+                if (read.hasSample && endPts >= cmd.seconds - 0.0001)
+                {
+                    std::lock_guard<std::mutex> lock(m_mutex);
+                    if (m_epoch == cmd.epoch)
+                    {
+                        const size_t count = read.audio.packets.size();
+                        size_t       last  = count;
+                        while (last > 0 && read.audio.packets[last - 1].empty())
+                            --last;
+                        for (size_t i = 0; i < last; ++i)
+                        {
+                            if (read.audio.packets[i].empty())
+                                continue;
+                            AudioPacket packet;
+                            packet.pcm   = std::move(read.audio.packets[i]);
+                            packet.epoch = cmd.epoch;
+                            packet.end   = read.end && (i + 1 == last);
+                            m_audioQueue.push_back(std::move(packet));
+                        }
+                    }
+                }
+                else if (read.end && !read.hasSample)
+                {
+                    std::lock_guard<std::mutex> lock(m_mutex);
+                    m_eosSubmitted = true;
+                }
+                continue;
             }
             if (read.kind != MovieReadKind::Video || !read.hasSample)
             {
@@ -1334,7 +1367,6 @@ namespace Dark
                 slot.state          = SlotState::Queued;
                 slot.epoch          = cmd.epoch;
                 slot.pts            = read.video.pts;
-                slot.duration       = read.video.duration;
                 slot.surface        = surface;
                 slot.decodeFence    = read.video.fenceValue;
                 slot.hardware       = read.video.hardware;
@@ -1403,6 +1435,13 @@ namespace Dark
         }
 
         postSeek(cmd.generation, cmd.seekSerial, kept ? keptPts : cmd.seconds, false);
+        bool resume = false;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            resume = m_liveGeneration == cmd.generation && m_seekSerial == cmd.seekSerial && !m_shutdown && !m_dropReader;
+        }
+        if (resume)
+            decodeLoop(cmd.generation, cmd.epoch);
     }
 
     void MoviePlayer::workerMain()
@@ -1423,8 +1462,6 @@ namespace Dark
             {
                 std::unique_lock<std::mutex> lock(m_mutex);
                 m_cv.wait(lock, [&] { return m_shutdown || !m_commands.empty(); });
-                while (!m_commands.empty() && m_commands.front().kind == CommandKind::SetLoop)
-                    m_commands.pop_front();
                 if (m_commands.empty())
                     break;
                 cmd = std::move(m_commands.front());
@@ -1455,7 +1492,7 @@ namespace Dark
                 m_source = std::make_unique<MovieSource>();
             if (cmd.kind == CommandKind::Open)
                 runOpen(cmd);
-            else if (cmd.kind == CommandKind::Seek || cmd.kind == CommandKind::Stop)
+            else if (cmd.kind == CommandKind::Seek)
                 runSeek(cmd);
         }
 
@@ -1545,6 +1582,7 @@ namespace Dark
         ID3D12Fence*    adoptedFence = nullptr;
         {
             std::unique_lock<std::mutex> lock(m_mutex);
+            // 500 ms bounds the worker status. Texture create runs after the wait.
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(kOpenWaitSeconds);
             const bool posted   = m_cv.wait_until(lock, deadline, [&] {
                 return (m_openPosted && m_openGeneration == generation) || m_shutdown;
@@ -1590,8 +1628,9 @@ namespace Dark
                 m_sampleRate    = info.sampleRate != 0 ? info.sampleRate : 48000u;
                 m_duration      = info.durationSec;
                 m_frameDuration = info.frameDuration > 0.0 ? info.frameDuration : (1.0 / 30.0);
-                m_loggedWall    = false;
-                m_havePresented = false;
+                m_loggedWall         = false;
+                m_havePresented      = false;
+                m_presentedSlotValid = false;
                 m_seekOrigin    = 0.0;
             }
             m_openPosted = false;
@@ -1683,8 +1722,9 @@ namespace Dark
                 slot = VideoSlot{};
             m_stats = {};
         }
-        m_state         = MoviePlayState::Closed;
-        m_havePresented = false;
+        m_state              = MoviePlayState::Closed;
+        m_havePresented      = false;
+        m_presentedSlotValid = false;
         m_hasAudio      = false;
         m_hardware      = false;
         m_width         = 0;
