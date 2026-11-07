@@ -4755,6 +4755,9 @@ void SandboxApp::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
 
 void SandboxApp::onShutdown()
 {
+    // Join MovieDecode before the device and stopAll. LoadingScreen closes later.
+    m_movie.close();
+    jobs().shutdown();
     resetMovieCues(world());
     m_guardVoice.stop();
     network().shutdown();

@@ -132,6 +132,8 @@ void SandboxApp::saveBeginLoad(void* user, World&)
     auto* app = static_cast<SandboxApp*>(user);
     if (!app)
         return;
+    // The stream id must already be 0 before stopAll destroys voices.
+    app->m_movie.close();
     app->audio().stopAll();
     app->m_leafRustle.stopAll(app->audio());
     clearAllStatusFx(app->world(), &app->audio());

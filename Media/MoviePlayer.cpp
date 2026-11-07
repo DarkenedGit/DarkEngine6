@@ -4,6 +4,7 @@
 #include "Audio/AudioSystem.h"
 #include "Core/Log.h"
 #include "Media/MovieClock.h"
+#include "Media/MovieDecodePcm.h"
 #include "Media/MoviePath.h"
 #include "Media/MoviePresentMath.h"
 #include "Media/MovieSource.h"
@@ -31,6 +32,8 @@ namespace Dark
 
         constexpr uint32_t kVideoSlots           = 3;
         constexpr size_t   kAudioCap             = 8;
+        constexpr bool     kDecodeSubmitsPcm     = true;
+        static_assert(kAudioCap == kMovieAudioQueueCap);
         constexpr size_t   kCommandCap           = 8;
         constexpr int      kSeekDiscardFrames   = 120;
         constexpr double   kSeekDiscardSeconds  = 2.0;
@@ -78,14 +81,19 @@ namespace Dark
 
     void MoviePlayer::pull()
     {
-        m_renderer = nullptr;
-        m_audio    = nullptr;
-        if (!m_fill)
-            return;
-        MovieHost host;
-        m_fill(m_user, host);
-        m_renderer = host.renderer;
-        m_audio    = host.audio;
+        Renderer*           renderer = nullptr;
+        Audio::AudioSystem* audio    = nullptr;
+        if (m_fill)
+        {
+            MovieHost host;
+            m_fill(m_user, host);
+            renderer = host.renderer;
+            audio    = host.audio;
+        }
+        m_renderer = renderer;
+        // Decode reads m_audio under m_mutex. Do not call the host while holding it.
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_audio = audio;
     }
 
     float MoviePlayer::fadeOpacity() const
@@ -258,7 +266,9 @@ namespace Dark
         if (m_thread.joinable())
             return;
         m_shutdown = false;
-        m_thread   = std::thread([this] { workerMain(); });
+        // Written before the thread starts, cleared after join. Tick must not submit while this is set.
+        m_decodeSubmitsPcm = kDecodeSubmitsPcm;
+        m_thread           = std::thread([this] { workerMain(); });
     }
 
     void MoviePlayer::releaseNv12(Renderer* renderer, bool defer)
@@ -326,24 +336,39 @@ namespace Dark
     {
         if (m_state == MoviePlayState::Failed)
             return;
-        const uint32_t id = m_stream;
-        m_stream          = 0;
-        m_audioMaster     = false;
-        if (id != 0 && m_audio)
-            m_audio->stopStream(id);
-        m_state        = MoviePlayState::Failed;
-        m_seekDeadline = 0.0;
+        uint32_t            id    = 0;
+        Audio::AudioSystem* audio = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if (m_state == MoviePlayState::Failed)
+                return;
+            id            = m_stream;
+            m_stream      = 0;
+            m_audioMaster = false;
+            audio         = m_audio;
+            m_state       = MoviePlayState::Failed;
+            m_seekDeadline = 0.0;
+        }
+        if (id != 0 && audio)
+            audio->stopStream(id);
         if (message && message[0] != '\0')
             DE_LOG_ERROR(LogCategory::Media, "{}", message);
     }
 
     void MoviePlayer::openVoice()
     {
-        m_audioMaster = false;
-        m_stream      = 0;
-        if (!m_hasAudio)
+        Audio::AudioSystem* audio    = nullptr;
+        bool                hasAudio = false;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_stream      = 0;
+            m_audioMaster = false;
+            audio         = m_audio;
+            hasAudio      = m_hasAudio;
+        }
+        if (!hasAudio)
             return;
-        if (!m_audio)
+        if (!audio)
         {
             if (!m_loggedWall)
             {
@@ -354,12 +379,12 @@ namespace Dark
         }
 
         Audio::StreamDesc desc;
-        desc.volume              = m_volume;
-        desc.format.sampleRate   = m_sampleRate != 0 ? m_sampleRate : 48000u;
-        desc.format.channels     = 2;
+        desc.volume               = m_volume;
+        desc.format.sampleRate    = m_sampleRate != 0 ? m_sampleRate : 48000u;
+        desc.format.channels      = 2;
         desc.format.bitsPerSample = 16;
-        m_stream                 = m_audio->openStream(desc);
-        if (m_stream == 0)
+        const uint32_t id = audio->openStream(desc);
+        if (id == 0)
         {
             if (!m_loggedWall)
             {
@@ -368,9 +393,14 @@ namespace Dark
             }
             return;
         }
-        m_audio->setStreamVolume(m_stream, m_volume);
-        m_segmentBase = m_audio->streamSamplesPlayed(m_stream);
-        m_audioMaster = true;
+        audio->setStreamVolume(id, m_volume);
+        const uint64_t base = audio->streamSamplesPlayed(id);
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_stream      = id;
+            m_segmentBase = base;
+            m_audioMaster = true;
+        }
     }
 
     void MoviePlayer::startPlayback()
@@ -555,13 +585,14 @@ namespace Dark
             if (packet.pcm.size() < 2)
                 continue;
             const uint32_t frames = static_cast<uint32_t>(packet.pcm.size() / 2u);
-            if (!m_audio->submitStreamPcm(m_stream, packet.pcm.data(), frames))
+            bool           markEos = false;
+            if (!movieApplyPcmSubmit(m_audio->submitStreamPcm(m_stream, packet.pcm.data(), frames), packet.end, markEos))
             {
                 std::lock_guard<std::mutex> lock(m_mutex);
                 m_audioQueue.push_front(std::move(packet));
                 break;
             }
-            if (packet.end)
+            if (markEos)
             {
                 std::lock_guard<std::mutex> lock(m_mutex);
                 m_eosSubmitted = true;
@@ -570,23 +601,83 @@ namespace Dark
         m_cv.notify_all();
     }
 
+    void MoviePlayer::drainAudio()
+    {
+        if (!m_decodeSubmitsPcm)
+            return;
+
+        for (int n = 0; n < 8; ++n)
+        {
+            AudioPacket         packet;
+            Audio::AudioSystem* audio  = nullptr;
+            uint32_t            stream = 0;
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                bool dropped = false;
+                while (!m_audioQueue.empty() && m_audioQueue.front().epoch != m_epoch)
+                {
+                    m_audioQueue.pop_front();
+                    dropped = true;
+                }
+                if (m_audioQueue.empty() || m_stream == 0 || m_audio == nullptr)
+                {
+                    if (dropped)
+                        m_cv.notify_all();
+                    return;
+                }
+                audio  = m_audio;
+                stream = m_stream;
+                packet = std::move(m_audioQueue.front());
+                m_audioQueue.pop_front();
+                m_cv.notify_all();
+            }
+
+            if (packet.pcm.size() < 2)
+                continue;
+
+            const uint32_t frames  = static_cast<uint32_t>(packet.pcm.size() / 2u);
+            bool           markEos = false;
+            const bool     ok     = audio->submitStreamPcm(stream, packet.pcm.data(), frames);
+            if (!movieApplyPcmSubmit(ok, packet.end, markEos))
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                // Seek may have retired this epoch while SubmitSourceBuffer ran.
+                if (packet.epoch == m_epoch)
+                    m_audioQueue.push_front(std::move(packet));
+                m_cv.notify_all();
+                return;
+            }
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if (markEos && packet.epoch == m_epoch)
+                m_eosSubmitted = true;
+            m_cv.notify_all();
+        }
+    }
+
     void MoviePlayer::noteUnderrun(double now)
     {
-        if (m_state != MoviePlayState::Playing || !m_audioMaster || m_stream == 0 || !m_audio || m_eosSubmitted)
+        if (m_state != MoviePlayState::Playing || !m_audioMaster || m_stream == 0 || !m_audio)
         {
             m_feederArmed = false;
             return;
         }
         const uint32_t queued = m_audio->streamBuffersQueued(m_stream);
-        bool           cpuQueued = false;
+        bool           cpuQueued    = false;
+        bool           eosSubmitted = false;
         {
             std::lock_guard<std::mutex> lock(m_mutex);
+            eosSubmitted               = m_eosSubmitted;
             m_stats.audioBuffersQueued = queued;
             for (const AudioPacket& packet : m_audioQueue)
             {
                 if (packet.epoch == m_epoch && packet.pcm.size() >= 2)
                     cpuQueued = true;
             }
+        }
+        if (eosSubmitted)
+        {
+            m_feederArmed = false;
+            return;
         }
         if (queued != 0)
         {
@@ -805,7 +896,10 @@ namespace Dark
             m_wallAnchorAt = now;
             m_pausedAccum  = 0.0;
             m_audioMaster  = false;
-            m_stream       = 0;
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_stream = 0;
+            }
             if (m_state == MoviePlayState::Paused)
                 m_pauseBegan = now;
             if (!m_loggedWall)
@@ -815,7 +909,8 @@ namespace Dark
             }
         }
 
-        submitAudio();
+        if (!m_decodeSubmitsPcm)
+            submitAudio();
         noteUnderrun(now);
 
         double clockSec = 0.0;
@@ -984,11 +1079,13 @@ namespace Dark
 
     MoviePlayer::Pump MoviePlayer::pumpOne(uint64_t generation, uint64_t epoch, bool& preferVideo, uint32_t& videos, double& audioSec, bool reportFailure)
     {
+        drainAudio();
+
         bool     readVideo = true;
         uint32_t surface   = 0;
         {
             std::unique_lock<std::mutex> lock(m_mutex);
-            m_cv.wait(lock, [&] {
+            const auto ready = [&] {
                 if (m_shutdown || m_dropReader || m_liveGeneration != generation || !m_commands.empty())
                     return true;
                 const bool canVideo    = !m_videoEos && findFreeSlot() >= 0;
@@ -997,7 +1094,20 @@ namespace Dark
                 if (streamsDone)
                     return true;
                 return canVideo || canAudio;
-            });
+            };
+            if (!ready())
+            {
+                const bool stop        = m_shutdown || m_dropReader || m_liveGeneration != generation || !m_commands.empty();
+                const bool canVideo    = !m_videoEos && findFreeSlot() >= 0;
+                const bool canAudio    = m_hasAudio && !m_audioEos && m_audioQueue.size() < kAudioCap;
+                const bool streamsDone = m_videoEos && (!m_hasAudio || m_audioEos);
+                const bool audioAtCap  = m_decodeSubmitsPcm && movieAudioQueueAtCap(m_audioQueue.size());
+                const int  waitMs      = movieDecodeWaitMs(stop, canVideo, canAudio, audioAtCap, streamsDone);
+                if (waitMs > 0)
+                    m_cv.wait_for(lock, std::chrono::milliseconds(waitMs), ready);
+                else if (waitMs < 0)
+                    m_cv.wait(lock, ready);
+            }
             if (m_shutdown || m_dropReader || m_liveGeneration != generation)
                 return Pump::Stop;
             if (!m_commands.empty())
@@ -1007,6 +1117,9 @@ namespace Dark
             const bool streamsDone = m_videoEos && (!m_hasAudio || m_audioEos);
             if (streamsDone)
                 return Pump::Idle;
+            // Audio cap is still full after the timed wait. The next pump drains again.
+            if (!canVideo && !canAudio)
+                return Pump::Continue;
             if (canVideo && canAudio)
                 readVideo = preferVideo;
             else
@@ -1028,72 +1141,78 @@ namespace Dark
         m_source->read(readVideo, surface, read);
         const bool sourceAudio = m_source->info().hasAudio;
 
-        std::lock_guard<std::mutex> lock(m_mutex);
-        if (!sourceAudio)
-            m_hasAudio = false;
-        if (m_shutdown || m_dropReader || m_liveGeneration != generation)
-            return Pump::Stop;
-        if (m_epoch != epoch)
-            return Pump::Command;
-        if (read.kind != MovieReadKind::None)
-            m_stats.decodeMsAvg = read.decodeMs;
-        if (read.kind == MovieReadKind::Error)
+        bool pushedAudio = false;
         {
-            if (reportFailure)
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if (!sourceAudio)
+                m_hasAudio = false;
+            if (m_shutdown || m_dropReader || m_liveGeneration != generation)
+                return Pump::Stop;
+            if (m_epoch != epoch)
+                return Pump::Command;
+            if (read.kind != MovieReadKind::None)
+                m_stats.decodeMsAvg = read.decodeMs;
+            if (read.kind == MovieReadKind::Error)
             {
-                WorkerEvent event;
-                event.kind = EventKind::PlayFailed;
-                m_events.push_back(event);
-                m_cv.notify_all();
+                if (reportFailure)
+                {
+                    WorkerEvent event;
+                    event.kind = EventKind::PlayFailed;
+                    m_events.push_back(event);
+                    m_cv.notify_all();
+                }
+                return Pump::Fail;
             }
-            return Pump::Fail;
-        }
-        if (read.kind == MovieReadKind::Video && read.end)
-            m_videoEos = true;
-        if (read.kind == MovieReadKind::Audio && read.end)
-        {
-            m_audioEos = true;
+            if (read.kind == MovieReadKind::Video && read.end)
+                m_videoEos = true;
+            if (read.kind == MovieReadKind::Audio && read.end)
+            {
+                m_audioEos = true;
+                if (!read.hasSample)
+                    m_eosSubmitted = true;
+            }
             if (!read.hasSample)
-                m_eosSubmitted = true;
-        }
-        if (!read.hasSample)
-            return Pump::Continue;
-
-        if (read.kind == MovieReadKind::Video)
-        {
-            if (surface >= kVideoSlots || m_slot[surface].state != SlotState::Free)
                 return Pump::Continue;
-            VideoSlot& slot     = m_slot[surface];
-            slot.state          = SlotState::Queued;
-            slot.epoch          = epoch;
-            slot.pts            = read.video.pts;
-            slot.surface        = surface;
-            slot.decodeFence    = read.video.fenceValue;
-            slot.hardware       = read.video.hardware;
-            slot.bgra           = std::move(read.video.bgra);
-            slot.waitingConvert = false;
-            ++m_stats.framesDecoded;
-            ++videos;
-        }
-        else if (read.kind == MovieReadKind::Audio)
-        {
-            const size_t count = read.audio.packets.size();
-            size_t       last  = count;
-            while (last > 0 && read.audio.packets[last - 1].empty())
-                --last;
-            for (size_t i = 0; i < last; ++i)
+
+            if (read.kind == MovieReadKind::Video)
             {
-                if (read.audio.packets[i].empty())
-                    continue;
-                AudioPacket packet;
-                packet.pcm   = std::move(read.audio.packets[i]);
-                packet.epoch = epoch;
-                packet.end   = read.end && (i + 1 == last);
-                m_audioQueue.push_back(std::move(packet));
+                if (surface >= kVideoSlots || m_slot[surface].state != SlotState::Free)
+                    return Pump::Continue;
+                VideoSlot& slot     = m_slot[surface];
+                slot.state          = SlotState::Queued;
+                slot.epoch          = epoch;
+                slot.pts            = read.video.pts;
+                slot.surface        = surface;
+                slot.decodeFence    = read.video.fenceValue;
+                slot.hardware       = read.video.hardware;
+                slot.bgra           = std::move(read.video.bgra);
+                slot.waitingConvert = false;
+                ++m_stats.framesDecoded;
+                ++videos;
             }
-            if (read.audio.duration > 0.0)
-                audioSec += read.audio.duration;
+            else if (read.kind == MovieReadKind::Audio)
+            {
+                const size_t count = read.audio.packets.size();
+                size_t       last  = count;
+                while (last > 0 && read.audio.packets[last - 1].empty())
+                    --last;
+                for (size_t i = 0; i < last; ++i)
+                {
+                    if (read.audio.packets[i].empty())
+                        continue;
+                    AudioPacket packet;
+                    packet.pcm   = std::move(read.audio.packets[i]);
+                    packet.epoch = epoch;
+                    packet.end   = read.end && (i + 1 == last);
+                    m_audioQueue.push_back(std::move(packet));
+                    pushedAudio = true;
+                }
+                if (read.audio.duration > 0.0)
+                    audioSec += read.audio.duration;
+            }
         }
+        if (pushedAudio)
+            drainAudio();
         return Pump::Continue;
     }
 
@@ -1315,6 +1434,7 @@ namespace Dark
             if (read.kind == MovieReadKind::Audio)
             {
                 const double endPts = read.audio.pts + read.audio.duration;
+                bool         pushed = false;
                 if (read.hasSample && endPts >= cmd.seconds - 0.0001)
                 {
                     std::lock_guard<std::mutex> lock(m_mutex);
@@ -1333,6 +1453,7 @@ namespace Dark
                             packet.epoch = cmd.epoch;
                             packet.end   = read.end && (i + 1 == last);
                             m_audioQueue.push_back(std::move(packet));
+                            pushed = true;
                         }
                     }
                 }
@@ -1341,6 +1462,8 @@ namespace Dark
                     std::lock_guard<std::mutex> lock(m_mutex);
                     m_eosSubmitted = true;
                 }
+                if (pushed)
+                    drainAudio();
                 continue;
             }
             if (read.kind != MovieReadKind::Video || !read.hasSample)
@@ -1702,7 +1825,8 @@ namespace Dark
             }
             m_cv.notify_all();
             m_thread.join();
-            m_shutdown = false;
+            m_shutdown         = false;
+            m_decodeSubmitsPcm = false;
         }
 
         const uint32_t id = m_stream;

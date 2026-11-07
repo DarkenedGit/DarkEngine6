@@ -15,6 +15,8 @@
 namespace Dark
 {
 
+    struct MovieDecodePcmTestAccess;
+
     class Renderer;
     class AssetManager;
     class MovieFrameTexture;
@@ -56,6 +58,8 @@ namespace Dark
     // One movie. IMFSourceReader stays on the decode thread. Does not own the host.
     class MoviePlayer
     {
+        friend struct MovieDecodePcmTestAccess;
+
     public:
         MoviePlayer();
         ~MoviePlayer();
@@ -190,6 +194,7 @@ namespace Dark
         void presentFrame(double targetPts);
         void reclaimSlots(Renderer& renderer);
         void submitAudio();
+        void drainAudio();
         void releaseNv12(Renderer* renderer, bool defer);
         bool adoptGpu(Renderer& renderer);
         int  findFreeSlot() const; // Caller holds m_mutex.
@@ -221,6 +226,7 @@ namespace Dark
         bool     m_videoEos      = false;
         bool     m_audioEos      = false;
         bool     m_eosSubmitted  = false;
+        bool     m_decodeSubmitsPcm = false; // true only while MovieDecode is the PCM submitter
         bool     m_loggedWall    = false;
         bool     m_feederArmed   = false;
         bool     m_feederAsserted = false;

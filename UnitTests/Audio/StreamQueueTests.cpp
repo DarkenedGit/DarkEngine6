@@ -27,3 +27,10 @@ TEST(StreamQueue, WriteIndexAdvancesOnlyWhenFree)
     EXPECT_TRUE(advanceStreamWriteIndex(8, 7, writeIndex));
     EXPECT_EQ(writeIndex, 0u);
 }
+
+TEST(StreamQueue, SubmitFlagsAreNotEndOfStream)
+{
+    // XAUDIO2_END_OF_STREAM is 0x40. Clip play sets it. The stream submit must not.
+    EXPECT_EQ(streamSubmitBufferFlags(), 0u);
+    EXPECT_EQ(streamSubmitBufferFlags() & 0x40u, 0u);
+}

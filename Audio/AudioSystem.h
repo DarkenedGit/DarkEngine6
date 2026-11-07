@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -148,9 +149,12 @@ namespace Dark::Audio
         bool voiceIdle(const VoiceSlot& slot) const;
         bool ensureVoice(VoiceSlot& slot, const SoundClip& clip);
         bool streamLive(StreamId id) const;
+        void stopStreamLocked(StreamId id); // Caller holds m_streamMutex.
 
         struct Device;
         std::unique_ptr<Device> m_device;
+        // Stream voice, write index, SubmitSourceBuffer, and GetState. Not held with MoviePlayer::m_mutex.
+        mutable std::mutex m_streamMutex;
         std::vector<std::unique_ptr<VoiceSlot>> m_voices;
 
         AudioListener  m_listener{};

@@ -420,6 +420,9 @@ bool EditorApp::groundHitFromMouse(Vector3f& outPoint)
 
 void EditorApp::onShutdown()
 {
+    // Join MovieDecode before the device and stopAll. LoadingScreen closes later.
+    m_movie.close();
+    jobs().shutdown();
     Physics::destroyFoliageCollision(m_physics, m_foliageCollision);
     m_physics.destroy();
     m_physicsGround = Physics::kNullPhysicsBody;

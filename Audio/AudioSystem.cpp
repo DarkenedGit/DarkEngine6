@@ -4,6 +4,7 @@
 #include "Character/SkillSense.h"
 #include "Assets/TextureCache.h"
 #include "Core/Log.h"
+#include "Core/MainThread.h"
 #include "Math/MathHelper.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -207,6 +208,8 @@ namespace Dark::Audio
     void AudioSystem::shutdown()
     {
         stopAll();
+        // Submit may still be leaving the stream mutex. Destroy the device only after it drops that lock.
+        std::lock_guard<std::mutex> lock(m_streamMutex);
         if (m_device)
         {
             for (auto& slot : m_voices)
@@ -422,6 +425,7 @@ namespace Dark::Audio
 
     VoiceId AudioSystem::play(const ::Dark::AssetRef<SoundClip>& clip, const PlayDesc& desc)
     {
+        assertMainThread();
         if (!m_valid || !clip || !clip->valid() || !m_device)
             return 0;
 
@@ -501,6 +505,7 @@ namespace Dark::Audio
 
     void AudioSystem::setMusic(const ::Dark::AssetRef<SoundClip>& clip, float volume)
     {
+        assertMainThread();
         stopMusic();
         if (!clip)
             return;
@@ -556,9 +561,11 @@ namespace Dark::Audio
 
     void AudioSystem::stopAll()
     {
+        assertMainThread();
         stopClipVoices();
+        std::lock_guard<std::mutex> lock(m_streamMutex);
         if (m_device)
-            stopStream(m_device->stream.id);
+            stopStreamLocked(m_device->stream.id);
     }
 
     bool AudioSystem::streamLive(StreamId id) const
@@ -574,6 +581,7 @@ namespace Dark::Audio
             return 0;
         }
 
+        std::lock_guard<std::mutex> lock(m_streamMutex);
         Device::StreamVoice& stream = m_device->stream;
         if (stream.id != 0)
         {
@@ -665,13 +673,15 @@ namespace Dark::Audio
         }
         if (frameCount == 0 || !interleaved)
             return false;
-        if (!streamLive(id))
-            return false;
         if (frameCount > Device::StreamVoice::kMaxFrames)
         {
             DE_LOG_ERROR(LogCategory::Audio, "Audio: stream packet is {} frames, max is {}", frameCount, Device::StreamVoice::kMaxFrames);
             return false;
         }
+
+        std::lock_guard<std::mutex> lock(m_streamMutex);
+        if (!streamLive(id))
+            return false;
 
         Device::StreamVoice& stream = m_device->stream;
         XAUDIO2_VOICE_STATE state{};
@@ -686,6 +696,7 @@ namespace Dark::Audio
         XAUDIO2_BUFFER buf{};
         buf.AudioBytes = bytes;
         buf.pAudioData = reinterpret_cast<const BYTE*>(stream.packets[stream.writeIndex]);
+        buf.Flags      = streamSubmitBufferFlags();
 
         const HRESULT hr = stream.voice->SubmitSourceBuffer(&buf);
         if (FAILED(hr))
@@ -700,6 +711,7 @@ namespace Dark::Audio
 
     void AudioSystem::pauseStream(StreamId id)
     {
+        std::lock_guard<std::mutex> lock(m_streamMutex);
         if (!streamLive(id))
             return;
         const HRESULT hr = m_device->stream.voice->Stop(0);
@@ -713,6 +725,7 @@ namespace Dark::Audio
 
     void AudioSystem::resumeStream(StreamId id)
     {
+        std::lock_guard<std::mutex> lock(m_streamMutex);
         if (!streamLive(id) || !m_device->stream.paused)
             return;
         const HRESULT hr = m_device->stream.voice->Start(0);
@@ -725,6 +738,12 @@ namespace Dark::Audio
     }
 
     void AudioSystem::stopStream(StreamId id)
+    {
+        std::lock_guard<std::mutex> lock(m_streamMutex);
+        stopStreamLocked(id);
+    }
+
+    void AudioSystem::stopStreamLocked(StreamId id)
     {
         if (!streamLive(id))
             return;
@@ -744,6 +763,7 @@ namespace Dark::Audio
 
     void AudioSystem::setStreamVolume(StreamId id, float volume)
     {
+        std::lock_guard<std::mutex> lock(m_streamMutex);
         if (!streamLive(id))
             return;
         Device::StreamVoice& stream = m_device->stream;
@@ -755,6 +775,7 @@ namespace Dark::Audio
 
     uint32_t AudioSystem::streamBuffersQueued(StreamId id) const
     {
+        std::lock_guard<std::mutex> lock(m_streamMutex);
         if (!streamLive(id))
             return 0;
         XAUDIO2_VOICE_STATE state{};
@@ -764,6 +785,7 @@ namespace Dark::Audio
 
     uint64_t AudioSystem::streamSamplesPlayed(StreamId id) const
     {
+        std::lock_guard<std::mutex> lock(m_streamMutex);
         if (!streamLive(id))
             return 0;
         XAUDIO2_VOICE_STATE state{};
@@ -773,6 +795,7 @@ namespace Dark::Audio
 
     bool AudioSystem::streamActive(StreamId id) const
     {
+        std::lock_guard<std::mutex> lock(m_streamMutex);
         return streamLive(id);
     }
 
@@ -875,6 +898,7 @@ namespace Dark::Audio
 
     void AudioSystem::tick()
     {
+        assertMainThread();
         if (!m_valid)
             return;
         for (auto& ptr : m_voices)

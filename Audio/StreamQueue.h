@@ -21,4 +21,10 @@ namespace Dark::Audio
         return true;
     }
 
+    // Clip play sets XAUDIO2_END_OF_STREAM (0x40). A stream packet must not, or the voice stops.
+    inline uint32_t streamSubmitBufferFlags()
+    {
+        return 0;
+    }
+
 } // namespace Dark::Audio
