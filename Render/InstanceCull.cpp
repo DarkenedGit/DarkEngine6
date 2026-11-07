@@ -132,6 +132,76 @@ namespace Dark
         return m_device && m_root && m_compact && m_argsPso && m_heap && m_indices[0] && m_indices[1] && m_counters[0] && m_counters[1];
     }
 
+    bool InstanceCull::depthSetReady() const
+    {
+        if (!m_depthHeap || !m_depthCpuHeap || !m_depthIndices[0] || !m_depthIndices[1] || !m_depthCounters[0] || !m_depthCounters[1])
+            return false;
+        if (m_depthIndices[0].Get() == m_indices[0].Get() || m_depthIndices[1].Get() == m_indices[1].Get())
+            return false;
+        if (m_depthCounters[0].Get() == m_counters[0].Get() || m_depthCounters[1].Get() == m_counters[1].Get())
+            return false;
+        return true;
+    }
+
+    void InstanceCull::createDepthSet(ID3D12Device* device)
+    {
+        m_depthHeap.Reset();
+        m_depthCpuHeap.Reset();
+        m_depthIndices[0].Reset();
+        m_depthIndices[1].Reset();
+        m_depthCounters[0].Reset();
+        m_depthCounters[1].Reset();
+        if (!device)
+            return;
+
+        D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
+        heapDesc.NumDescriptors = kFrameSlots * kMaxStaticViews;
+        heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_depthHeap)), "CreateDescriptorHeap (instance cull depth)"))
+        {
+            m_depthHeap.Reset();
+            DE_LOG_WARN(LogCategory::Render, "InstanceCull: depth set unavailable; shadow worker stays on the camera set");
+            return;
+        }
+        heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+        if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_depthCpuHeap)), "CreateDescriptorHeap (instance cull depth CPU)"))
+        {
+            m_depthHeap.Reset();
+            m_depthCpuHeap.Reset();
+            DE_LOG_WARN(LogCategory::Render, "InstanceCull: depth set unavailable; shadow worker stays on the camera set");
+            return;
+        }
+        m_depthGpuCpuStart = m_depthHeap->GetCPUDescriptorHandleForHeapStart();
+        m_depthCpuStart    = m_depthCpuHeap->GetCPUDescriptorHandleForHeapStart();
+        m_depthGpuStart    = m_depthHeap->GetGPUDescriptorHandleForHeapStart();
+
+        const UINT64 indexBytes   = static_cast<UINT64>(kMaxStaticViews) * kMaxStaticItems * sizeof(uint32_t);
+        const UINT64 counterBytes = static_cast<UINT64>(kMaxStaticViews) * kMaxBatches * sizeof(uint32_t);
+        m_depthIndices[0]  = createUavBuffer(device, indexBytes, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, "CreateCommittedResource (draw list cull depth indices 0)");
+        m_depthIndices[1]  = createUavBuffer(device, indexBytes, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, "CreateCommittedResource (draw list cull depth indices 1)");
+        m_depthCounters[0] = createUavBuffer(device, counterBytes, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, "CreateCommittedResource (draw list cull depth counters 0)");
+        m_depthCounters[1] = createUavBuffer(device, counterBytes, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, "CreateCommittedResource (draw list cull depth counters 1)");
+        if (!m_depthIndices[0] || !m_depthIndices[1] || !m_depthCounters[0] || !m_depthCounters[1]
+            || m_depthIndices[0].Get() == m_indices[0].Get() || m_depthCounters[0].Get() == m_counters[0].Get())
+        {
+            m_depthHeap.Reset();
+            m_depthCpuHeap.Reset();
+            m_depthIndices[0].Reset();
+            m_depthIndices[1].Reset();
+            m_depthCounters[0].Reset();
+            m_depthCounters[1].Reset();
+            DE_LOG_WARN(LogCategory::Render, "InstanceCull: depth set unavailable; shadow worker stays on the camera set");
+            return;
+        }
+        m_depthIndices[0]->SetName(L"DrawListCullIndicesDepth0");
+        m_depthIndices[1]->SetName(L"DrawListCullIndicesDepth1");
+        m_depthCounters[0]->SetName(L"DrawListBatchCountersDepth0");
+        m_depthCounters[1]->SetName(L"DrawListBatchCountersDepth1");
+        m_depthIndexState[0] = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        m_depthIndexState[1] = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    }
+
     bool InstanceCull::createShaderVisibleHeap(ID3D12Device* device)
     {
         // ClearUnorderedAccessViewUint reads a CPU descriptor and clears through a GPU one.
@@ -183,6 +253,12 @@ namespace Dark
         m_indices[1].Reset();
         m_counters[0].Reset();
         m_counters[1].Reset();
+        m_depthHeap.Reset();
+        m_depthCpuHeap.Reset();
+        m_depthIndices[0].Reset();
+        m_depthIndices[1].Reset();
+        m_depthCounters[0].Reset();
+        m_depthCounters[1].Reset();
         if (!device)
             return false;
         static_assert(Renderer::kFrameCount == kFrameSlots, "cull frame slots");
@@ -246,15 +322,21 @@ namespace Dark
         if (!createShaderVisibleHeap(device) || !createBuffers(device))
             return false;
 
+        createDepthSet(device);
         m_device = device;
         return true;
     }
 
-    D3D12_GPU_VIRTUAL_ADDRESS InstanceCull::indexAddress(uint32_t frameSlot, uint32_t viewIndex) const
+    D3D12_GPU_VIRTUAL_ADDRESS InstanceCull::indexAddress(uint32_t frameSlot, uint32_t viewIndex, CullResourceSet set) const
     {
-        if (frameSlot >= kFrameSlots || viewIndex >= kMaxStaticViews || !m_indices[frameSlot])
+        if (frameSlot >= kFrameSlots || viewIndex >= kMaxStaticViews)
             return 0;
-        return m_indices[frameSlot]->GetGPUVirtualAddress() + static_cast<UINT64>(viewIndex) * kMaxStaticItems * sizeof(uint32_t);
+        if (set == CullResourceSet::Depth && !depthSetReady())
+            return 0;
+        ID3D12Resource* indices = (set == CullResourceSet::Depth) ? m_depthIndices[frameSlot].Get() : m_indices[frameSlot].Get();
+        if (!indices)
+            return 0;
+        return indices->GetGPUVirtualAddress() + static_cast<UINT64>(viewIndex) * kMaxStaticItems * sizeof(uint32_t);
     }
 
     ID3D12Resource* InstanceCull::indexResource(uint32_t frameSlot) const
@@ -264,9 +346,11 @@ namespace Dark
         return m_indices[frameSlot].Get();
     }
 
-    bool InstanceCull::dispatch(ID3D12GraphicsCommandList* cmd, uint32_t frameSlot, D3D12_GPU_VIRTUAL_ADDRESS aabbVA, D3D12_GPU_VIRTUAL_ADDRESS gbufferRecordsVA, D3D12_GPU_VIRTUAL_ADDRESS depthRecordsVA, ID3D12Resource* args, D3D12_RESOURCE_STATES& argState, const CullViewDesc* views, uint32_t viewCount)
+    bool InstanceCull::dispatch(ID3D12GraphicsCommandList* cmd, uint32_t frameSlot, D3D12_GPU_VIRTUAL_ADDRESS aabbVA, D3D12_GPU_VIRTUAL_ADDRESS gbufferRecordsVA, D3D12_GPU_VIRTUAL_ADDRESS depthRecordsVA, ID3D12Resource* args, D3D12_RESOURCE_STATES& argState, const CullViewDesc* views, uint32_t viewCount, CullResourceSet set)
     {
         if (!cmd || !isReady() || !args || !views || viewCount == 0 || frameSlot >= kFrameSlots)
+            return false;
+        if (set == CullResourceSet::Depth && !depthSetReady())
             return false;
 
         bool any = false;
@@ -278,7 +362,9 @@ namespace Dark
         if (!any)
             return false;
 
-        const D3D12_RESOURCE_STATES indexBefore = m_indexState[frameSlot];
+        const bool depth = set == CullResourceSet::Depth;
+        D3D12_RESOURCE_STATES& indexState = (depth ? m_depthIndexState : m_indexState)[frameSlot];
+        const D3D12_RESOURCE_STATES indexBefore = indexState;
         if (!computable(argState) || !indexComputable(indexBefore))
         {
             static bool logged = false;
@@ -290,8 +376,10 @@ namespace Dark
             return false;
         }
 
-        ID3D12Resource* indices  = m_indices[frameSlot].Get();
-        ID3D12Resource* counters = m_counters[frameSlot].Get();
+        ID3D12Resource* indices  = (depth ? m_depthIndices[frameSlot] : m_indices[frameSlot]).Get();
+        ID3D12Resource* counters = (depth ? m_depthCounters[frameSlot] : m_counters[frameSlot]).Get();
+        if (!indices || !counters)
+            return false;
         if (argState != D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
         {
             transitionBuffer(cmd, args, argState, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -300,10 +388,14 @@ namespace Dark
         if (indexBefore != D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
         {
             transitionBuffer(cmd, indices, indexBefore, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-            m_indexState[frameSlot] = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+            indexState = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
         }
 
-        ID3D12DescriptorHeap* heaps[] = { m_heap.Get() };
+        ID3D12DescriptorHeap* heap = depth ? m_depthHeap.Get() : m_heap.Get();
+        D3D12_CPU_DESCRIPTOR_HANDLE gpuCpuStart = depth ? m_depthGpuCpuStart : m_gpuCpuStart;
+        D3D12_CPU_DESCRIPTOR_HANDLE cpuStart    = depth ? m_depthCpuStart : m_cpuStart;
+        D3D12_GPU_DESCRIPTOR_HANDLE gpuStart    = depth ? m_depthGpuStart : m_gpuStart;
+        ID3D12DescriptorHeap* heaps[] = { heap };
         cmd->SetDescriptorHeaps(1, heaps);
         cmd->SetComputeRootSignature(m_root.Get());
         cmd->SetComputeRootShaderResourceView(kRootAabbs, aabbVA);
@@ -318,9 +410,9 @@ namespace Dark
                 continue;
 
             const UINT descriptor = frameSlot * kMaxStaticViews + view.viewIndex;
-            D3D12_CPU_DESCRIPTOR_HANDLE gpuCpu = m_gpuCpuStart;
-            D3D12_CPU_DESCRIPTOR_HANDLE cpu    = m_cpuStart;
-            D3D12_GPU_DESCRIPTOR_HANDLE gpu    = m_gpuStart;
+            D3D12_CPU_DESCRIPTOR_HANDLE gpuCpu = gpuCpuStart;
+            D3D12_CPU_DESCRIPTOR_HANDLE cpu    = cpuStart;
+            D3D12_GPU_DESCRIPTOR_HANDLE gpu    = gpuStart;
             gpuCpu.ptr += static_cast<SIZE_T>(descriptor) * m_increment;
             cpu.ptr += static_cast<SIZE_T>(descriptor) * m_increment;
             gpu.ptr += static_cast<UINT64>(descriptor) * m_increment;
@@ -378,8 +470,8 @@ namespace Dark
         cmd->ResourceBarrier(2, done);
         transitionBuffer(cmd, args, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
         transitionBuffer(cmd, indices, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        argState                = D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
-        m_indexState[frameSlot] = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        argState   = D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
+        indexState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         return true;
     }
 
@@ -403,6 +495,91 @@ namespace Dark
     {
         return m_device && m_root && m_compact && m_argsPso && m_heap && m_signature && m_uploadBytes
             && m_indices[0] && m_indices[1] && m_counters[0] && m_counters[1] && m_args[0] && m_args[1];
+    }
+
+    bool SkinnedInstanceCull::depthSetReady() const
+    {
+        if (!m_depthHeap || !m_depthCpuHeap)
+            return false;
+        for (uint32_t slot = 0; slot < kFrameSlots; ++slot)
+        {
+            if (!m_depthIndices[slot] || !m_depthCounters[slot] || !m_depthArgs[slot])
+                return false;
+            if (m_depthIndices[slot].Get() == m_indices[slot].Get() || m_depthArgs[slot].Get() == m_args[slot].Get())
+                return false;
+            if (m_depthCounters[slot].Get() == m_counters[slot].Get())
+                return false;
+        }
+        return true;
+    }
+
+    void SkinnedInstanceCull::createDepthSet(ID3D12Device* device)
+    {
+        m_depthHeap.Reset();
+        m_depthCpuHeap.Reset();
+        m_depthIndices[0].Reset();
+        m_depthIndices[1].Reset();
+        m_depthCounters[0].Reset();
+        m_depthCounters[1].Reset();
+        m_depthArgs[0].Reset();
+        m_depthArgs[1].Reset();
+        if (!device)
+            return;
+
+        D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
+        heapDesc.NumDescriptors = kFrameSlots * kMaxStaticViews;
+        heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_depthHeap)), "CreateDescriptorHeap (skinned cull depth)"))
+        {
+            m_depthHeap.Reset();
+            DE_LOG_WARN(LogCategory::Render, "SkinnedInstanceCull: depth set unavailable; shadow worker stays on the camera set");
+            return;
+        }
+        heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+        if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_depthCpuHeap)), "CreateDescriptorHeap (skinned cull depth CPU)"))
+        {
+            m_depthHeap.Reset();
+            m_depthCpuHeap.Reset();
+            DE_LOG_WARN(LogCategory::Render, "SkinnedInstanceCull: depth set unavailable; shadow worker stays on the camera set");
+            return;
+        }
+        m_depthGpuCpuStart = m_depthHeap->GetCPUDescriptorHandleForHeapStart();
+        m_depthCpuStart    = m_depthCpuHeap->GetCPUDescriptorHandleForHeapStart();
+        m_depthGpuStart    = m_depthHeap->GetGPUDescriptorHandleForHeapStart();
+
+        const UINT64 indexBytes   = static_cast<UINT64>(kMaxStaticViews) * kStride * sizeof(uint32_t);
+        const UINT64 counterBytes = static_cast<UINT64>(kMaxStaticViews) * kStride * sizeof(uint32_t);
+        const UINT64 argBytes     = static_cast<UINT64>(kMaxStaticViews) * kStride * sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
+        m_depthIndices[0]  = createUavBuffer(device, indexBytes, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, "CreateCommittedResource (skinned cull depth indices 0)");
+        m_depthIndices[1]  = createUavBuffer(device, indexBytes, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, "CreateCommittedResource (skinned cull depth indices 1)");
+        m_depthCounters[0] = createUavBuffer(device, counterBytes, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, "CreateCommittedResource (skinned cull depth counters 0)");
+        m_depthCounters[1] = createUavBuffer(device, counterBytes, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, "CreateCommittedResource (skinned cull depth counters 1)");
+        m_depthArgs[0]     = createUavBuffer(device, argBytes, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, "CreateCommittedResource (skinned cull depth args 0)");
+        m_depthArgs[1]     = createUavBuffer(device, argBytes, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, "CreateCommittedResource (skinned cull depth args 1)");
+        if (!depthSetReady())
+        {
+            m_depthHeap.Reset();
+            m_depthCpuHeap.Reset();
+            m_depthIndices[0].Reset();
+            m_depthIndices[1].Reset();
+            m_depthCounters[0].Reset();
+            m_depthCounters[1].Reset();
+            m_depthArgs[0].Reset();
+            m_depthArgs[1].Reset();
+            DE_LOG_WARN(LogCategory::Render, "SkinnedInstanceCull: depth set unavailable; shadow worker stays on the camera set");
+            return;
+        }
+        m_depthIndices[0]->SetName(L"DE.Skinned.CullIndicesDepth0");
+        m_depthIndices[1]->SetName(L"DE.Skinned.CullIndicesDepth1");
+        m_depthCounters[0]->SetName(L"DE.Skinned.CullCountersDepth0");
+        m_depthCounters[1]->SetName(L"DE.Skinned.CullCountersDepth1");
+        m_depthArgs[0]->SetName(L"DE.Skinned.CullArgsDepth0");
+        m_depthArgs[1]->SetName(L"DE.Skinned.CullArgsDepth1");
+        m_depthArgState[0]   = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        m_depthArgState[1]   = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        m_depthIndexState[0] = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        m_depthIndexState[1] = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
     }
 
     bool SkinnedInstanceCull::createShaderVisibleHeap(ID3D12Device* device)
@@ -473,6 +650,14 @@ namespace Dark
         m_counters[1].Reset();
         m_args[0].Reset();
         m_args[1].Reset();
+        m_depthHeap.Reset();
+        m_depthCpuHeap.Reset();
+        m_depthIndices[0].Reset();
+        m_depthIndices[1].Reset();
+        m_depthCounters[0].Reset();
+        m_depthCounters[1].Reset();
+        m_depthArgs[0].Reset();
+        m_depthArgs[1].Reset();
         if (m_upload && m_uploadBytes)
             m_upload->Unmap(0, nullptr);
         m_uploadBytes = nullptr;
@@ -551,6 +736,7 @@ namespace Dark
         if (!createShaderVisibleHeap(device) || !createBuffers(device))
             return false;
 
+        createDepthSet(device);
         m_device = device;
         return true;
     }
@@ -582,11 +768,16 @@ namespace Dark
         return true;
     }
 
-    D3D12_GPU_VIRTUAL_ADDRESS SkinnedInstanceCull::indexAddress(uint32_t frameSlot, uint32_t viewIndex) const
+    D3D12_GPU_VIRTUAL_ADDRESS SkinnedInstanceCull::indexAddress(uint32_t frameSlot, uint32_t viewIndex, CullResourceSet set) const
     {
-        if (frameSlot >= kFrameSlots || viewIndex >= kMaxStaticViews || !m_indices[frameSlot])
+        if (frameSlot >= kFrameSlots || viewIndex >= kMaxStaticViews)
             return 0;
-        return m_indices[frameSlot]->GetGPUVirtualAddress() + static_cast<UINT64>(viewIndex) * kStride * sizeof(uint32_t);
+        if (set == CullResourceSet::Depth && !depthSetReady())
+            return 0;
+        ID3D12Resource* indices = (set == CullResourceSet::Depth) ? m_depthIndices[frameSlot].Get() : m_indices[frameSlot].Get();
+        if (!indices)
+            return 0;
+        return indices->GetGPUVirtualAddress() + static_cast<UINT64>(viewIndex) * kStride * sizeof(uint32_t);
     }
 
     ID3D12Resource* SkinnedInstanceCull::indexResource(uint32_t frameSlot) const
@@ -596,10 +787,12 @@ namespace Dark
         return m_indices[frameSlot].Get();
     }
 
-    ID3D12Resource* SkinnedInstanceCull::argumentResource(uint32_t frameSlot) const
+    ID3D12Resource* SkinnedInstanceCull::argumentResource(uint32_t frameSlot, CullResourceSet set) const
     {
         if (frameSlot >= kFrameSlots)
             return nullptr;
+        if (set == CullResourceSet::Depth)
+            return m_depthArgs[frameSlot].Get();
         return m_args[frameSlot].Get();
     }
 
@@ -613,9 +806,11 @@ namespace Dark
         return (static_cast<UINT64>(viewIndex) * kStride + batchIndex) * sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
     }
 
-    bool SkinnedInstanceCull::dispatch(ID3D12GraphicsCommandList* cmd, uint32_t frameSlot, const CullViewDesc* views, uint32_t viewCount)
+    bool SkinnedInstanceCull::dispatch(ID3D12GraphicsCommandList* cmd, uint32_t frameSlot, const CullViewDesc* views, uint32_t viewCount, CullResourceSet set)
     {
         if (!cmd || !isReady() || !views || viewCount == 0 || frameSlot >= kFrameSlots)
+            return false;
+        if (set == CullResourceSet::Depth && !depthSetReady())
             return false;
 
         bool any = false;
@@ -631,8 +826,11 @@ namespace Dark
         if (base == 0)
             return false;
 
-        const D3D12_RESOURCE_STATES argBefore   = m_argState[frameSlot];
-        const D3D12_RESOURCE_STATES indexBefore = m_indexState[frameSlot];
+        const bool depth = set == CullResourceSet::Depth;
+        D3D12_RESOURCE_STATES& argState   = (depth ? m_depthArgState : m_argState)[frameSlot];
+        D3D12_RESOURCE_STATES& indexState = (depth ? m_depthIndexState : m_indexState)[frameSlot];
+        const D3D12_RESOURCE_STATES argBefore   = argState;
+        const D3D12_RESOURCE_STATES indexBefore = indexState;
         if (!computable(argBefore) || !indexComputable(indexBefore))
         {
             static bool logged = false;
@@ -644,21 +842,27 @@ namespace Dark
             return false;
         }
 
-        ID3D12Resource* indices  = m_indices[frameSlot].Get();
-        ID3D12Resource* counters = m_counters[frameSlot].Get();
-        ID3D12Resource* args     = m_args[frameSlot].Get();
+        ID3D12Resource* indices  = (depth ? m_depthIndices[frameSlot] : m_indices[frameSlot]).Get();
+        ID3D12Resource* counters = (depth ? m_depthCounters[frameSlot] : m_counters[frameSlot]).Get();
+        ID3D12Resource* args     = (depth ? m_depthArgs[frameSlot] : m_args[frameSlot]).Get();
+        if (!indices || !counters || !args)
+            return false;
         if (argBefore != D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
         {
             transitionBuffer(cmd, args, argBefore, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-            m_argState[frameSlot] = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+            argState = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
         }
         if (indexBefore != D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
         {
             transitionBuffer(cmd, indices, indexBefore, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-            m_indexState[frameSlot] = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+            indexState = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
         }
 
-        ID3D12DescriptorHeap* heaps[] = { m_heap.Get() };
+        ID3D12DescriptorHeap* heap = depth ? m_depthHeap.Get() : m_heap.Get();
+        D3D12_CPU_DESCRIPTOR_HANDLE gpuCpuStart = depth ? m_depthGpuCpuStart : m_gpuCpuStart;
+        D3D12_CPU_DESCRIPTOR_HANDLE cpuStart    = depth ? m_depthCpuStart : m_cpuStart;
+        D3D12_GPU_DESCRIPTOR_HANDLE gpuStart    = depth ? m_depthGpuStart : m_gpuStart;
+        ID3D12DescriptorHeap* heaps[] = { heap };
         cmd->SetDescriptorHeaps(1, heaps);
         cmd->SetComputeRootSignature(m_root.Get());
         cmd->SetComputeRootShaderResourceView(kRootAabbs, base);
@@ -673,9 +877,9 @@ namespace Dark
                 continue;
 
             const UINT descriptor = frameSlot * kMaxStaticViews + view.viewIndex;
-            D3D12_CPU_DESCRIPTOR_HANDLE gpuCpu = m_gpuCpuStart;
-            D3D12_CPU_DESCRIPTOR_HANDLE cpu    = m_cpuStart;
-            D3D12_GPU_DESCRIPTOR_HANDLE gpu    = m_gpuStart;
+            D3D12_CPU_DESCRIPTOR_HANDLE gpuCpu = gpuCpuStart;
+            D3D12_CPU_DESCRIPTOR_HANDLE cpu    = cpuStart;
+            D3D12_GPU_DESCRIPTOR_HANDLE gpu    = gpuStart;
             gpuCpu.ptr += static_cast<SIZE_T>(descriptor) * m_increment;
             cpu.ptr += static_cast<SIZE_T>(descriptor) * m_increment;
             gpu.ptr += static_cast<UINT64>(descriptor) * m_increment;
@@ -732,8 +936,8 @@ namespace Dark
         cmd->ResourceBarrier(2, done);
         transitionBuffer(cmd, args, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
         transitionBuffer(cmd, indices, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        m_argState[frameSlot]   = D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
-        m_indexState[frameSlot] = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        argState   = D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
+        indexState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         return true;
     }
 

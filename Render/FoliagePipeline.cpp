@@ -469,6 +469,15 @@ namespace Dark
         D3D12_GPU_DESCRIPTOR_HANDLE    gpu[FoliagePipeline::kCullFrameSlots]{};
         D3D12_RESOURCE_STATES          argState[FoliagePipeline::kCullFrameSlots]   = { D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS };
         D3D12_RESOURCE_STATES          indexState[FoliagePipeline::kCullFrameSlots] = { D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS };
+        ComPtr<ID3D12DescriptorHeap>   depthHeap;
+        ComPtr<ID3D12DescriptorHeap>   depthCpuHeap;
+        ComPtr<ID3D12Resource>         depthIndices[FoliagePipeline::kCullFrameSlots];
+        ComPtr<ID3D12Resource>         depthCounters[FoliagePipeline::kCullFrameSlots];
+        ComPtr<ID3D12Resource>         depthArgs[FoliagePipeline::kCullFrameSlots];
+        D3D12_CPU_DESCRIPTOR_HANDLE    depthCpu[FoliagePipeline::kCullFrameSlots]{};
+        D3D12_GPU_DESCRIPTOR_HANDLE    depthGpu[FoliagePipeline::kCullFrameSlots]{};
+        D3D12_RESOURCE_STATES          depthArgState[FoliagePipeline::kCullFrameSlots]   = { D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS };
+        D3D12_RESOURCE_STATES          depthIndexState[FoliagePipeline::kCullFrameSlots] = { D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS };
         bool                           ready = false;
     };
 
@@ -846,15 +855,20 @@ namespace Dark
                 m_renderer->deferRelease(m_cull->heap.Get());
                 m_renderer->deferRelease(m_cull->kinds.Get());
                 m_renderer->deferRelease(m_cull->cb.Get());
+                m_renderer->deferRelease(m_cull->depthHeap.Get());
                 for (uint32_t slot = 0; slot < kCullFrameSlots; ++slot)
                 {
                     m_renderer->deferRelease(m_cull->indices[slot].Get());
                     m_renderer->deferRelease(m_cull->counters[slot].Get());
                     m_renderer->deferRelease(m_cull->args[slot].Get());
+                    m_renderer->deferRelease(m_cull->depthIndices[slot].Get());
+                    m_renderer->deferRelease(m_cull->depthCounters[slot].Get());
+                    m_renderer->deferRelease(m_cull->depthArgs[slot].Get());
                 }
             }
         }
         m_cull.reset();
+        m_retained.clear();
         m_renderer = nullptr;
         m_haveGather   = false;
         m_sourceStamp  = 0;
@@ -1026,6 +1040,73 @@ namespace Dark
         cull->kinds->SetName(L"DE.Foliage.Kinds");
         cull->cb->SetName(L"DE.Foliage.CullConstants");
 
+        // Depth set failure leaves the camera cull working. The shadow worker refuses until it exists.
+        {
+            D3D12_DESCRIPTOR_HEAP_DESC depthHeapDesc{};
+            depthHeapDesc.NumDescriptors = kCullFrameSlots;
+            depthHeapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+            depthHeapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+            const bool heapOk = !FailedHr(device->CreateDescriptorHeap(&depthHeapDesc, IID_PPV_ARGS(&cull->depthHeap)), "CreateDescriptorHeap (foliage cull depth)");
+            depthHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+            const bool cpuOk = heapOk && !FailedHr(device->CreateDescriptorHeap(&depthHeapDesc, IID_PPV_ARGS(&cull->depthCpuHeap)), "CreateDescriptorHeap (foliage cull depth CPU)");
+            bool buffersOk = cpuOk;
+            if (buffersOk)
+            {
+                const UINT depthIncrement = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+                D3D12_CPU_DESCRIPTOR_HANDLE depthGpuCpu = cull->depthHeap->GetCPUDescriptorHandleForHeapStart();
+                D3D12_CPU_DESCRIPTOR_HANDLE depthCpu    = cull->depthCpuHeap->GetCPUDescriptorHandleForHeapStart();
+                D3D12_GPU_DESCRIPTOR_HANDLE depthGpu    = cull->depthHeap->GetGPUDescriptorHandleForHeapStart();
+                for (uint32_t slot = 0; slot < kCullFrameSlots; ++slot)
+                {
+                    cull->depthIndices[slot]  = createUav(device, indexBytes, "CreateCommittedResource (foliage cull depth indices)");
+                    cull->depthCounters[slot] = createUav(device, counterBytes, "CreateCommittedResource (foliage cull depth counters)");
+                    cull->depthArgs[slot]     = createUav(device, argBytes, "CreateCommittedResource (foliage cull depth args)");
+                    if (!cull->depthIndices[slot] || !cull->depthCounters[slot] || !cull->depthArgs[slot]
+                        || cull->depthIndices[slot].Get() == cull->indices[slot].Get()
+                        || cull->depthArgs[slot].Get() == cull->args[slot].Get())
+                    {
+                        buffersOk = false;
+                        break;
+                    }
+                    cull->depthCpu[slot] = depthCpu;
+                    cull->depthGpu[slot] = depthGpu;
+                    D3D12_UNORDERED_ACCESS_VIEW_DESC depthUav{};
+                    depthUav.Format              = DXGI_FORMAT_R32_UINT;
+                    depthUav.ViewDimension       = D3D12_UAV_DIMENSION_BUFFER;
+                    depthUav.Buffer.FirstElement = 0;
+                    depthUav.Buffer.NumElements  = kCullKindCount;
+                    device->CreateUnorderedAccessView(cull->depthCounters[slot].Get(), nullptr, &depthUav, depthGpuCpu);
+                    device->CreateUnorderedAccessView(cull->depthCounters[slot].Get(), nullptr, &depthUav, depthCpu);
+                    depthGpuCpu.ptr += depthIncrement;
+                    depthCpu.ptr += depthIncrement;
+                    depthGpu.ptr += depthIncrement;
+                    cull->depthArgState[slot]   = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+                    cull->depthIndexState[slot] = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+                }
+            }
+            if (!buffersOk)
+            {
+                cull->depthHeap.Reset();
+                cull->depthCpuHeap.Reset();
+                for (uint32_t slot = 0; slot < kCullFrameSlots; ++slot)
+                {
+                    cull->depthIndices[slot].Reset();
+                    cull->depthCounters[slot].Reset();
+                    cull->depthArgs[slot].Reset();
+                }
+                DE_LOG_WARN(LogCategory::Render, "FoliagePipeline: depth cull set unavailable; shadow worker stays on the camera set");
+            }
+            else
+            {
+                cull->depthIndices[0]->SetName(L"DE.Foliage.CullIndicesDepth0");
+                cull->depthIndices[1]->SetName(L"DE.Foliage.CullIndicesDepth1");
+                cull->depthCounters[0]->SetName(L"DE.Foliage.CullCountersDepth0");
+                cull->depthCounters[1]->SetName(L"DE.Foliage.CullCountersDepth1");
+                cull->depthArgs[0]->SetName(L"DE.Foliage.CullArgsDepth0");
+                cull->depthArgs[1]->SetName(L"DE.Foliage.CullArgsDepth1");
+            }
+        }
+
         cull->ready = true;
         m_cull      = std::move(cull);
         return true;
@@ -1050,11 +1131,31 @@ namespace Dark
         return m_cull->indices[frameSlot].Get();
     }
 
-    bool FoliagePipeline::recordCull(ID3D12GraphicsCommandList* cmd, uint32_t frameSlot, const FoliageCullDesc& desc)
+    bool FoliagePipeline::depthResourceSetReady() const
+    {
+        if (!m_cull || !m_cull->ready || !m_cull->depthHeap || !m_cull->depthCpuHeap)
+            return false;
+        for (uint32_t slot = 0; slot < kCullFrameSlots; ++slot)
+        {
+            if (!m_cull->depthIndices[slot] || !m_cull->depthCounters[slot] || !m_cull->depthArgs[slot])
+                return false;
+            if (m_cull->depthIndices[slot].Get() == m_cull->indices[slot].Get())
+                return false;
+            if (m_cull->depthArgs[slot].Get() == m_cull->args[slot].Get())
+                return false;
+            if (m_cull->depthCounters[slot].Get() == m_cull->counters[slot].Get())
+                return false;
+        }
+        return true;
+    }
+
+    bool FoliagePipeline::recordCull(ID3D12GraphicsCommandList* cmd, uint32_t frameSlot, const FoliageCullDesc& desc, CullResourceSet set)
     {
         if (!cmd || !cullReady() || frameSlot >= kCullFrameSlots || desc.worlds == 0 || desc.kinds == 0)
             return false;
         if (desc.viewIndex >= kCullViewsPerFrame || desc.instanceCount == 0)
+            return false;
+        if (set == CullResourceSet::Depth && !depthResourceSetReady())
             return false;
         for (uint32_t kind = 0; kind < kCullKindCount; ++kind)
         {
@@ -1063,7 +1164,10 @@ namespace Dark
         }
 
         FoliageCullGpu& cull = *m_cull;
-        if (!foliageArgWritable(cull.argState[frameSlot]) || !foliageIndexWritable(cull.indexState[frameSlot]))
+        const bool depth = set == CullResourceSet::Depth;
+        D3D12_RESOURCE_STATES& argState   = depth ? cull.depthArgState[frameSlot] : cull.argState[frameSlot];
+        D3D12_RESOURCE_STATES& indexState = depth ? cull.depthIndexState[frameSlot] : cull.indexState[frameSlot];
+        if (!foliageArgWritable(argState) || !foliageIndexWritable(indexState))
         {
             static bool logged = false;
             if (!logged)
@@ -1114,21 +1218,26 @@ namespace Dark
         const UINT64 cbOff = (static_cast<UINT64>(frameSlot) * kCullViewsPerFrame + desc.viewIndex) * kCullCbStride;
         std::memcpy(cull.cbMap + cbOff, &constants, sizeof(constants));
 
-        ID3D12Resource* indices  = cull.indices[frameSlot].Get();
-        ID3D12Resource* counters = cull.counters[frameSlot].Get();
-        ID3D12Resource* args     = cull.args[frameSlot].Get();
-        if (cull.argState[frameSlot] != D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+        ID3D12Resource* indices  = (depth ? cull.depthIndices[frameSlot] : cull.indices[frameSlot]).Get();
+        ID3D12Resource* counters = (depth ? cull.depthCounters[frameSlot] : cull.counters[frameSlot]).Get();
+        ID3D12Resource* args     = (depth ? cull.depthArgs[frameSlot] : cull.args[frameSlot]).Get();
+        if (!indices || !counters || !args)
+            return false;
+        if (argState != D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
         {
-            transitionBuffer(cmd, args, cull.argState[frameSlot], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-            cull.argState[frameSlot] = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+            transitionBuffer(cmd, args, argState, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            argState = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
         }
-        if (cull.indexState[frameSlot] != D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+        if (indexState != D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
         {
-            transitionBuffer(cmd, indices, cull.indexState[frameSlot], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-            cull.indexState[frameSlot] = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+            transitionBuffer(cmd, indices, indexState, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            indexState = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
         }
 
-        ID3D12DescriptorHeap* heaps[] = { cull.heap.Get() };
+        ID3D12DescriptorHeap* heap = depth ? cull.depthHeap.Get() : cull.heap.Get();
+        D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle = depth ? cull.depthGpu[frameSlot] : cull.gpu[frameSlot];
+        D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle = depth ? cull.depthCpu[frameSlot] : cull.cpu[frameSlot];
+        ID3D12DescriptorHeap* heaps[] = { heap };
         cmd->SetDescriptorHeaps(1, heaps);
         cmd->SetComputeRootSignature(cull.root.Get());
         cmd->SetComputeRootConstantBufferView(kCullConstants, cull.cbGpu + cbOff);
@@ -1139,7 +1248,7 @@ namespace Dark
         cmd->SetComputeRootUnorderedAccessView(kCullArgs, args->GetGPUVirtualAddress());
 
         const UINT zeros[4] = { 0, 0, 0, 0 };
-        cmd->ClearUnorderedAccessViewUint(cull.gpu[frameSlot], cull.cpu[frameSlot], counters, zeros, 0, nullptr);
+        cmd->ClearUnorderedAccessViewUint(gpuHandle, cpuHandle, counters, zeros, 0, nullptr);
         uavBarrier(cmd, counters);
 
         cmd->SetPipelineState(cull.compact.Get());
@@ -1158,8 +1267,8 @@ namespace Dark
         cmd->ResourceBarrier(2, done);
         transitionBuffer(cmd, args, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
         transitionBuffer(cmd, indices, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        cull.argState[frameSlot]   = D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
-        cull.indexState[frameSlot] = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        argState   = D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
+        indexState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         return true;
     }
 
@@ -1730,6 +1839,102 @@ namespace Dark
                 else
                     part.mesh.drawInstanced(cmd, count);
             });
+        }
+    }
+
+    void FoliagePipeline::clearRetainedDepth()
+    {
+        m_retained.clear();
+    }
+
+    uint32_t FoliagePipeline::sealDepthView()
+    {
+        if (!m_depthReady || !m_depthRenderer || !m_depthPrototypes)
+            return ~0u;
+        if (m_retained.size() >= kCullViewsPerFrame)
+            return ~0u;
+
+        RetainedFoliageDepth retained{};
+        retained.desc     = makeCullDesc(true);
+        retained.gpu      = m_depthCullPending && m_gpuCull && m_cull != nullptr;
+        retained.slot     = m_activeSlot;
+        retained.viewCb   = viewConstantAddress();
+        retained.worldVa  = m_worldGpu + static_cast<UINT64>(m_activeSlot) * kWorldStride;
+        retained.indexBase = m_indexGpu + (static_cast<UINT64>(m_activeSlot) * kViewsPerFrame + m_activeView) * kIndexViewStride;
+        GpuResourceCache& gpu = m_depthRenderer->gpuResources();
+        if (retained.gpu && !fillPartArgs(gpu, *m_depthPrototypes, true, retained.desc))
+            retained.gpu = false;
+        for (int kind = 0; kind < kKindCount; ++kind)
+        {
+            if (kind >= 0 && kind < 4)
+                retained.cpuCount[kind] = static_cast<uint32_t>(m_cpuIndex[kind].size());
+        }
+        for (int kind = 0; kind < kKindCount; ++kind)
+        {
+            if (kKindOrder[kind] == Terrain::FoliageKind::Grass)
+                continue;
+            const bool twoSided = kKindOrder[kind] == Terrain::FoliageKind::Tree || kKindOrder[kind] == Terrain::FoliageKind::Flower;
+            forKindParts(gpu, m_depthPrototypes->model(kKindOrder[kind]), true, retained.gpu, [&](const GpuModel::Part& part, const Model::Part* cpuPart, uint32_t partSlot) {
+                RetainedFoliagePart stored;
+                stored.mesh          = &part.mesh;
+                stored.material      = part.materialId;
+                stored.localToRoot   = partLocalToRoot(part.localToRoot, kKindOrder[kind]);
+                stored.kind          = static_cast<uint32_t>(kind);
+                stored.partSlot      = partSlot;
+                stored.twoSided      = twoSided;
+                if (cpuPart && cpuPart->material)
+                {
+                    stored.alphaCutoff   = cpuPart->material->alphaCutoff();
+                    stored.alphaModeMask = cpuPart->material->alphaMode() == MaterialAlphaMode::Mask ? 1.0f : 0.0f;
+                }
+                retained.parts.push_back(stored);
+            });
+        }
+
+        // The worker draws the snapshot. A later main-thread depth view must not cull this slot's camera set.
+        m_depthCullPending = false;
+        const uint32_t index = static_cast<uint32_t>(m_retained.size());
+        m_retained.push_back(std::move(retained));
+        return index;
+    }
+
+    void FoliagePipeline::drawRetainedDepth(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, const Math::Matrix4f& lightViewProj, uint32_t index)
+    {
+        if (!cmd || index >= m_retained.size() || !m_depthRoot || !m_depthPso)
+            return;
+        const RetainedFoliageDepth& retained = m_retained[index];
+        bool gpuDraw = retained.gpu && m_cull && depthResourceSetReady();
+        if (gpuDraw && !recordCull(cmd, retained.slot, retained.desc, CullResourceSet::Depth))
+            gpuDraw = false;
+
+        cmd->SetGraphicsRootSignature(m_depthRoot.Get());
+        cmd->SetGraphicsRootConstantBufferView(kDepthView, retained.viewCb);
+        cmd->SetPipelineState(m_depthPso.Get());
+        for (const RetainedFoliagePart& part : retained.parts)
+        {
+            if (!part.mesh || !part.mesh->valid() || part.kind >= 4)
+                continue;
+            const uint32_t count = gpuDraw ? retained.desc.kindResident[part.kind] : retained.cpuCount[part.kind];
+            if (!gpuDraw && count == 0)
+                continue;
+            cmd->SetPipelineState(part.twoSided && m_depthPsoTwoSided ? m_depthPsoTwoSided.Get() : m_depthPso.Get());
+            gpu.bindMaterial(cmd, part.material, kDepthMaterial);
+            FoliageDepthConstants cb{};
+            copyMatrix(cb.localToRoot, part.localToRoot);
+            copyMatrix(cb.lightWVP, lightViewProj);
+            cb.kindIndex     = static_cast<float>(part.kind);
+            cb.alphaCutoff   = part.alphaCutoff;
+            cb.alphaModeMask = part.alphaModeMask;
+            cmd->SetGraphicsRoot32BitConstants(kDepthConstants, static_cast<UINT>(sizeof(cb) / 4), &cb, 0);
+            cmd->SetGraphicsRootShaderResourceView(kDepthWorlds, retained.worldVa);
+            D3D12_GPU_VIRTUAL_ADDRESS indexVa = retained.indexBase + static_cast<UINT64>(part.kind) * kIndexKindStride;
+            if (gpuDraw)
+                indexVa = m_cull->depthIndices[retained.slot]->GetGPUVirtualAddress() + cullIndexByteOffset(retained.desc.viewIndex, part.kind);
+            cmd->SetGraphicsRootShaderResourceView(kDepthIndices, indexVa);
+            if (gpuDraw)
+                part.mesh->drawIndirect(cmd, m_cull->signature.Get(), m_cull->depthArgs[retained.slot].Get(), cullArgumentOffset(retained.desc.viewIndex, part.kind, part.partSlot));
+            else
+                part.mesh->drawInstanced(cmd, count);
         }
     }
 

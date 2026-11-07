@@ -1,7 +1,9 @@
 #pragma once
 
+#include "Assets/AssetHandle.h"
 #include "Math/Matrix4f.h"
 #include "Math/Sphere3f.h"
+#include "Render/CullResourceSet.h"
 #include "Render/Frustum3f.h"
 #include "Terrain/FoliageFile.h"
 #include "Terrain/WindTypes.h"
@@ -22,6 +24,7 @@ namespace Dark
     class Camera3D;
     class FoliagePrototypes;
     class GpuResourceCache;
+    class Mesh;
     struct FoliageCullGpu;
 
     // One compute cull. Worlds and kinds are the gathered instance buffers. Bounds are local model AABBs.
@@ -86,10 +89,11 @@ namespace Dark
         // Compute cull resources. Failure leaves the CPU index lists. create() calls this.
         bool createCull(ID3D12Device* device);
         bool cullReady() const;
+        bool depthResourceSetReady() const;
 
         // Clears this slot's four counters, compacts the gathered instances, then writes one
         // draw argument per opaque part. StartInstanceLocation stays 0. The kind base is the index-SRV offset.
-        bool recordCull(ID3D12GraphicsCommandList* cmd, uint32_t frameSlot, const FoliageCullDesc& desc);
+        bool recordCull(ID3D12GraphicsCommandList* cmd, uint32_t frameSlot, const FoliageCullDesc& desc, CullResourceSet set = CullResourceSet::Camera);
 
         ID3D12Resource* cullArgumentResource(uint32_t frameSlot) const;
         ID3D12Resource* cullIndexResource(uint32_t frameSlot) const;
@@ -158,6 +162,12 @@ namespace Dark
         // profileCull false skips GpuScope. The shadow list uses that. The camera list may profile.
         void drawPreparedDepth(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& lightViewProj, bool profileCull = true);
 
+        // Snapshots taken on main so the shadow worker does not read live foliage or prototype state.
+        void clearRetainedDepth();
+        uint32_t sealDepthView();
+        void drawRetainedDepth(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, const Math::Matrix4f& lightViewProj, uint32_t index);
+        uint32_t retainedDepthCount() const { return static_cast<uint32_t>(m_retained.size()); }
+
     private:
         bool prepare(
             Renderer& renderer,
@@ -184,6 +194,30 @@ namespace Dark
         FoliageCullDesc makeCullDesc(bool shadow) const;
         bool fillPartArgs(GpuResourceCache& gpu, FoliagePrototypes& prototypes, bool depth, FoliageCullDesc& desc);
         bool tryGpuCull(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, FoliagePrototypes& prototypes, bool depth, bool shadow, bool profile);
+
+        struct RetainedFoliagePart
+        {
+            const Mesh*    mesh          = nullptr;
+            AssetID        material      = NULL_ASSET;
+            Math::Matrix4f localToRoot   = Math::Matrix4f::IDENTITY;
+            float          alphaCutoff   = 0.5f;
+            float          alphaModeMask = 0.0f;
+            uint32_t       kind          = 0;
+            uint32_t       partSlot      = 0;
+            bool           twoSided      = false;
+        };
+
+        struct RetainedFoliageDepth
+        {
+            FoliageCullDesc           desc{};
+            uint32_t                  cpuCount[4]{};
+            D3D12_GPU_VIRTUAL_ADDRESS viewCb    = 0;
+            D3D12_GPU_VIRTUAL_ADDRESS worldVa   = 0;
+            D3D12_GPU_VIRTUAL_ADDRESS indexBase = 0;
+            uint32_t                  slot      = 0;
+            bool                      gpu       = false;
+            std::vector<RetainedFoliagePart> parts;
+        };
         bool writeViewConstants(const Camera3D& camera, const Math::Matrix4f* viewProj, const Math::Matrix4f* prevViewProj);
         D3D12_GPU_VIRTUAL_ADDRESS viewConstantAddress() const;
 
@@ -243,6 +277,7 @@ namespace Dark
         Renderer*          m_depthRenderer   = nullptr;
         Renderer*          m_renderer        = nullptr;
         std::unique_ptr<FoliageCullGpu> m_cull;
+        std::vector<RetainedFoliageDepth> m_retained;
         uint32_t           m_kindResident[4]{};
         uint32_t           m_kindValid[4]{};
         float              m_boundsMin[4][3]{};

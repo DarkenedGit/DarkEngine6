@@ -33,8 +33,8 @@ public:
         uint32_t frameIndex);
 
     // After beginFrame: render each cascade, then restore the scene targets.
-    void beginCapture(ID3D12GraphicsCommandList* cmd);
-    void beginCascade(ID3D12GraphicsCommandList* cmd, int cascade);
+    void beginCapture(ID3D12GraphicsCommandList* cmd, bool profile = true);
+    void beginCascade(ID3D12GraphicsCommandList* cmd, int cascade, bool profile = true);
     void endCapture(ID3D12GraphicsCommandList* cmd);
 
     void bindReceiverCbv(ID3D12GraphicsCommandList* cmd, UINT rootCbv) const;

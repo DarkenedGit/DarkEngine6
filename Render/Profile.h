@@ -108,6 +108,8 @@ const ProfileSnapshot& profileSnapshot();
 
 void profileCpuBegin(const char* name, uint32_t argb);
 void profileCpuEnd();
+// Main thread only. gpuMs stays negative. A full range array drops this sample and warns once per frame.
+void profileAppendCpuRange(const char* name, float cpuMs);
 void profileGpuBegin(ID3D12GraphicsCommandList* cmd, const char* name, uint32_t argb);
 void profileGpuEnd(ID3D12GraphicsCommandList* cmd);
 

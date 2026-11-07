@@ -707,10 +707,16 @@ namespace Dark
         return m_cull && m_cull->isReady();
     }
 
+    bool SkinnedInstanceBuffer::depthResourceSetReady() const
+    {
+        return m_cull && m_cull->depthSetReady();
+    }
+
     void SkinnedInstanceBuffer::beginFrame(uint32_t frameIndex)
     {
         m_frameIndex = frameIndex;
         m_culledMask = 0;
+        m_depthCulledMask.store(0, std::memory_order_relaxed);
         m_parts.clear();
         m_poseKeys.clear();
         m_compiled = false;
@@ -736,6 +742,7 @@ namespace Dark
         rebuildPoseKeys();
         m_compiled   = false;
         m_culledMask = 0;
+        m_depthCulledMask.store(0, std::memory_order_relaxed);
     }
 
     void SkinnedInstanceBuffer::rebuildPoseKeys()
@@ -801,6 +808,7 @@ namespace Dark
         std::memcpy(stored.color, part.color, sizeof(stored.color));
         m_parts.push_back(stored);
         m_culledMask = 0;
+        m_depthCulledMask.store(0, std::memory_order_relaxed);
         if (!known)
             m_poseKeys.push_back(part.pose);
         m_compiled = false;
@@ -1048,11 +1056,17 @@ namespace Dark
         indexVa   = 0;
         args      = nullptr;
         signature = nullptr;
-        if (!m_cull || viewIndex >= kMaxStaticViews || (m_culledMask & (1u << viewIndex)) == 0)
+        if (!m_cull || viewIndex >= kMaxStaticViews)
             return false;
+        const uint32_t bit = 1u << viewIndex;
+        // Depth bit first so a cascade record does not read the camera mask main is updating.
+        const bool depth = (m_depthCulledMask.load(std::memory_order_acquire) & bit) != 0;
+        if (!depth && (m_culledMask & bit) == 0)
+            return false;
+        const CullResourceSet set = depth ? CullResourceSet::Depth : CullResourceSet::Camera;
         const uint32_t slot = m_frameIndex % kFrameSlots;
-        indexVa             = m_cull->indexAddress(slot, viewIndex);
-        args                = m_cull->argumentResource(slot);
+        indexVa             = m_cull->indexAddress(slot, viewIndex, set);
+        args                = m_cull->argumentResource(slot, set);
         signature           = m_cull->signature();
         return indexVa != 0 && args != nullptr && signature != nullptr;
     }
@@ -1093,7 +1107,7 @@ namespace Dark
         return m_cull->upload(slot, aabbPtr, parts, gbPtr, gb, dbPtr, db);
     }
 
-    bool SkinnedInstanceBuffer::dispatchPreparedCull(ID3D12GraphicsCommandList* cmd, const CullViewDesc* views, uint32_t viewCount)
+    bool SkinnedInstanceBuffer::dispatchPreparedCull(ID3D12GraphicsCommandList* cmd, const CullViewDesc* views, uint32_t viewCount, CullResourceSet set)
     {
         if (!cmd || !cullReady() || !views || viewCount == 0)
             return false;
@@ -1126,15 +1140,19 @@ namespace Dark
             return false;
 
         const uint32_t slot = m_frameIndex % kFrameSlots;
-        if (!m_cull->dispatch(cmd, slot, local, localCount))
+        if (!m_cull->dispatch(cmd, slot, local, localCount, set))
             return false;
-        m_culledMask |= mask;
+        if (set == CullResourceSet::Depth)
+            m_depthCulledMask.fetch_or(mask, std::memory_order_release);
+        else
+            m_culledMask |= mask;
         return true;
     }
 
     bool SkinnedInstanceBuffer::dispatchCull(ID3D12GraphicsCommandList* cmd, const CullViewDesc* views, uint32_t viewCount)
     {
         m_culledMask = 0;
+        m_depthCulledMask.store(0, std::memory_order_relaxed);
         if (!cmd || !cullReady() || !views || viewCount == 0)
             return false;
         if (!uploadCullFrame())

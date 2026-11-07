@@ -217,11 +217,16 @@ struct DrawList::GpuUploads
     // One buffer per frame slot. A buffer has one state, and the other slot can still be queued.
     ComPtr<ID3D12CommandSignature> signature;
     ComPtr<ID3D12Resource> args[kUploadSlots];
+    ComPtr<ID3D12Resource> depthArgs[kUploadSlots];
     ComPtr<ID3D12Resource> argStaging;
     uint8_t* argStagingBytes = nullptr;
     ComPtr<ID3D12Resource> cullUpload;
     uint8_t* cullBytes = nullptr;
     mutable D3D12_RESOURCE_STATES argState[kUploadSlots] = {
+        D3D12_RESOURCE_STATE_COPY_DEST,
+        D3D12_RESOURCE_STATE_COPY_DEST,
+    };
+    mutable D3D12_RESOURCE_STATES depthArgState[kUploadSlots] = {
         D3D12_RESOURCE_STATE_COPY_DEST,
         D3D12_RESOURCE_STATE_COPY_DEST,
     };
@@ -449,6 +454,7 @@ bool DrawList::beginFrame(uint32_t frameIndex)
     m_frameIndex     = frameIndex;
     m_gpuCull        = false;
     m_cullDispatched.fill(false);
+    m_resourceSet.fill(CullResourceSet::Camera);
     m_items.clear();
     m_items.reserve(256);
     m_itemGBuffer.clear();
@@ -886,8 +892,12 @@ void DrawList::recordDepth(ID3D12GraphicsCommandList* cmd, ViewId view, const fl
     {
         if (!m_cullDispatched[view.index] || !m_cull || !indirectReady())
             return;
-        const D3D12_GPU_VIRTUAL_ADDRESS indexGpu = m_cull->indexAddress(frameSlot, view.index);
+        const CullResourceSet set = m_resourceSet[view.index];
+        const D3D12_GPU_VIRTUAL_ADDRESS indexGpu = m_cull->indexAddress(frameSlot, view.index, set);
         if (indexGpu == 0)
+            return;
+        ID3D12Resource* args = (set == CullResourceSet::Depth) ? m_gpu->depthArgs[frameSlot].Get() : m_gpu->args[frameSlot].Get();
+        if (!args)
             return;
         bool any = false;
         for (uint32_t i = 0; i < m_depth.size(); ++i)
@@ -915,7 +925,7 @@ void DrawList::recordDepth(ID3D12GraphicsCommandList* cmd, ViewId view, const fl
             cb.baseIndex = batch.itemBegin;
             m_gpu->pipeline.setDepthConstants(cmd, cb);
             const UINT64 argOffset = (static_cast<UINT64>(view.index) * kMaxBatches + i) * sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
-            batch.mesh->drawIndirect(cmd, m_gpu->signature.Get(), m_gpu->args[frameSlot].Get(), argOffset);
+            batch.mesh->drawIndirect(cmd, m_gpu->signature.Get(), args, argOffset);
         }
         return;
     }
@@ -934,6 +944,8 @@ void DrawList::recordDepth(ID3D12GraphicsCommandList* cmd, ViewId view, const fl
     const bool useIndirect   = m_indirect && indirectReady() && copyViewArgs(cmd, view);
     const D3D12_GPU_VIRTUAL_ADDRESS indexGpu = m_gpu->indices->GetGPUVirtualAddress()
         + (static_cast<UINT64>(frameSlot) * kMaxStaticViews + view.index) * kMaxStaticItems * sizeof(uint32_t);
+    const bool depthSet = m_resourceSet[view.index] == CullResourceSet::Depth;
+    ID3D12Resource* args = depthSet ? m_gpu->depthArgs[frameSlot].Get() : m_gpu->args[frameSlot].Get();
     m_gpu->pipeline.bindDepth(cmd);
     m_gpu->pipeline.setDepthBuffers(cmd, instanceGpu, indexGpu);
 
@@ -949,7 +961,8 @@ void DrawList::recordDepth(ID3D12GraphicsCommandList* cmd, ViewId view, const fl
         cb.baseIndex = batch.itemBegin;
         m_gpu->pipeline.setDepthConstants(cmd, cb);
         const UINT64 argOffset = (static_cast<UINT64>(view.index) * kMaxBatches + i) * sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
-        drawStaticBatch(*batch.mesh, cmd, useIndirect, m_gpu->signature.Get(), m_gpu->args[frameSlot].Get(), argOffset, slot.visible[i]);
+        const bool indirect = useIndirect && args != nullptr;
+        drawStaticBatch(*batch.mesh, cmd, indirect, m_gpu->signature.Get(), args, argOffset, slot.visible[i]);
     }
 }
 
@@ -1111,6 +1124,25 @@ bool DrawList::setupIndirect(ID3D12Device* device, GpuUploads& gpu)
     gpu.argStaging->SetName(L"DrawListIndirectStaging");
     gpu.argState[0] = D3D12_RESOURCE_STATE_COPY_DEST;
     gpu.argState[1] = D3D12_RESOURCE_STATE_COPY_DEST;
+
+    // Depth args are optional. A failed create keeps the camera set and the shadow worker refuses.
+    gpu.depthArgs[0] = createDefault(device, slotBytes, "CreateCommittedResource (draw list indirect depth 0)");
+    gpu.depthArgs[1] = createDefault(device, slotBytes, "CreateCommittedResource (draw list indirect depth 1)");
+    if (!gpu.depthArgs[0] || !gpu.depthArgs[1]
+        || gpu.depthArgs[0].Get() == gpu.args[0].Get()
+        || gpu.depthArgs[1].Get() == gpu.args[1].Get())
+    {
+        gpu.depthArgs[0].Reset();
+        gpu.depthArgs[1].Reset();
+        DE_LOG_WARN(LogCategory::Render, "DrawList: depth indirect args unavailable; shadow worker stays on the camera set");
+    }
+    else
+    {
+        gpu.depthArgs[0]->SetName(L"DrawListIndirectArgsDepth0");
+        gpu.depthArgs[1]->SetName(L"DrawListIndirectArgsDepth1");
+        gpu.depthArgState[0] = D3D12_RESOURCE_STATE_COPY_DEST;
+        gpu.depthArgState[1] = D3D12_RESOURCE_STATE_COPY_DEST;
+    }
     return true;
 }
 
@@ -1136,17 +1168,21 @@ bool DrawList::copyViewArgs(ID3D12GraphicsCommandList* cmd, ViewId view) const
     uint8_t* staging = m_gpu->argStagingBytes + srcOffset;
     std::memcpy(staging, slot.indirect.data(), static_cast<size_t>(copyBytes));
 
-    ID3D12Resource* dest = m_gpu->args[frameSlot].Get();
+    const bool depthSet = m_resourceSet[view.index] == CullResourceSet::Depth;
+    ID3D12Resource* dest = depthSet ? m_gpu->depthArgs[frameSlot].Get() : m_gpu->args[frameSlot].Get();
+    D3D12_RESOURCE_STATES& argState = depthSet ? m_gpu->depthArgState[frameSlot] : m_gpu->argState[frameSlot];
+    if (!dest)
+        return false;
     // This slot is copied once per view, and those records are not back to back.
-    if (m_gpu->argState[frameSlot] != D3D12_RESOURCE_STATE_COPY_DEST)
+    if (argState != D3D12_RESOURCE_STATE_COPY_DEST)
     {
-        transitionBuffer(cmd, dest, m_gpu->argState[frameSlot], D3D12_RESOURCE_STATE_COPY_DEST);
-        m_gpu->argState[frameSlot] = D3D12_RESOURCE_STATE_COPY_DEST;
+        transitionBuffer(cmd, dest, argState, D3D12_RESOURCE_STATE_COPY_DEST);
+        argState = D3D12_RESOURCE_STATE_COPY_DEST;
     }
     cmd->CopyBufferRegion(dest, dstOffset, m_gpu->argStaging.Get(), srcOffset, copyBytes);
     transitionBuffer(cmd, dest, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
-    m_gpu->argState[frameSlot] = D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
-    m_argsCopied[view.index]   = true;
+    argState                 = D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
+    m_argsCopied[view.index] = true;
     return true;
 }
 
@@ -1185,16 +1221,43 @@ bool DrawList::cullReady() const
     return m_cull && m_cull->isReady() && m_gpu && m_gpu->cullBytes != nullptr;
 }
 
-bool DrawList::dispatchCull(ID3D12GraphicsCommandList* cmd, const RenderPassKind* pass, bool profile)
+bool DrawList::depthResourceSetReady() const
+{
+    if (!m_gpu || !m_gpu->depthArgs[0] || !m_gpu->depthArgs[1])
+        return false;
+    if (m_gpu->depthArgs[0].Get() == m_gpu->args[0].Get() || m_gpu->depthArgs[1].Get() == m_gpu->args[1].Get())
+        return false;
+    if (m_cull && !m_cull->depthSetReady())
+        return false;
+    return true;
+}
+
+void DrawList::armResourceSet(uint32_t firstView, uint32_t endView, CullResourceSet set)
+{
+    if (firstView > kMaxStaticViews)
+        firstView = kMaxStaticViews;
+    if (endView > kMaxStaticViews)
+        endView = kMaxStaticViews;
+    for (uint32_t i = firstView; i < endView; ++i)
+        m_resourceSet[i] = set;
+}
+
+bool DrawList::dispatchCull(ID3D12GraphicsCommandList* cmd, const RenderPassKind* pass, bool profile, CullResourceSet set, uint32_t firstView, uint32_t endView)
 {
     if (!cmd || !m_gpuCull || !cullReady() || !m_gpu || !m_gpu->cullUpload)
+        return false;
+    if (set == CullResourceSet::Depth && !depthResourceSetReady())
+        return false;
+    if (endView > kMaxStaticViews)
+        endView = kMaxStaticViews;
+    if (firstView >= endView)
         return false;
 
     compile();
     CullViewDesc views[kMaxStaticViews];
     uint32_t viewCount = 0;
     const uint32_t itemCount = static_cast<uint32_t>(m_items.size());
-    for (uint32_t i = 0; i < kMaxStaticViews; ++i)
+    for (uint32_t i = firstView; i < endView; ++i)
     {
         const ViewSlot& slot = m_views[i];
         if (!slot.built || !slot.gpu)
@@ -1216,6 +1279,11 @@ bool DrawList::dispatchCull(ID3D12GraphicsCommandList* cmd, const RenderPassKind
 
     const uint32_t frameSlot = m_frameIndex % kUploadSlots;
     const D3D12_GPU_VIRTUAL_ADDRESS base = m_gpu->cullUpload->GetGPUVirtualAddress() + static_cast<UINT64>(frameSlot) * kCullSlotBytes;
+    const bool depthSet = set == CullResourceSet::Depth;
+    ID3D12Resource* args = depthSet ? m_gpu->depthArgs[frameSlot].Get() : m_gpu->args[frameSlot].Get();
+    D3D12_RESOURCE_STATES& argState = depthSet ? m_gpu->depthArgState[frameSlot] : m_gpu->argState[frameSlot];
+    if (!args)
+        return false;
     auto dispatch = [&]() {
         return m_cull->dispatch(
             cmd,
@@ -1223,10 +1291,11 @@ bool DrawList::dispatchCull(ID3D12GraphicsCommandList* cmd, const RenderPassKind
             base,
             base + kCullAabbBytes,
             base + kCullAabbBytes + kCullRecordBytes,
-            m_gpu->args[frameSlot].Get(),
-            m_gpu->argState[frameSlot],
+            args,
+            argState,
             views,
-            viewCount);
+            viewCount,
+            set);
     };
     bool ok = false;
     if (profile)
@@ -1240,7 +1309,10 @@ bool DrawList::dispatchCull(ID3D12GraphicsCommandList* cmd, const RenderPassKind
     if (!ok)
         return false;
     for (uint32_t i = 0; i < viewCount; ++i)
+    {
         m_cullDispatched[views[i].viewIndex] = true;
+        m_resourceSet[views[i].viewIndex]    = set;
+    }
     return true;
 }
 

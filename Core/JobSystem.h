@@ -74,6 +74,10 @@ namespace Dark
         bool enqueue(const JobDesc& desc);
         bool publishFrame(uint32_t frameIndex);
         bool joinRender(uint32_t frameIndex);
+        // True only for the frame publishFrame last accepted. A second publish clears writeMask.
+        bool frameIsPublished(uint32_t frameIndex);
+        // Outstanding queued or running render work for this slot.
+        bool renderBusy(uint32_t frameIndex);
         void setJobStallWarnMs(float ms);
         float jobStallWarnMs() const;
 

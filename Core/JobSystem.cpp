@@ -230,6 +230,18 @@ namespace Dark
         return true;
     }
 
+    bool JobSystem::frameIsPublished(uint32_t frameIndex)
+    {
+        std::lock_guard lock(m_mutex);
+        return m_hasPublished && frameIndex < kFrameSlots && m_publishedFrame == frameIndex;
+    }
+
+    bool JobSystem::renderBusy(uint32_t frameIndex)
+    {
+        std::lock_guard lock(m_mutex);
+        return outstandingLocked(frameIndex) > 0;
+    }
+
     void JobSystem::setJobStallWarnMs(float ms)
     {
         if (ms < 0.f)

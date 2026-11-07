@@ -30,6 +30,7 @@
 #endif
 
 #include "Core/Log.h"
+#include "Core/MainThread.h"
 
 #include <wrl/client.h>
 
@@ -90,6 +91,7 @@ uint64_t        g_sequence    = 0;
 uint64_t        g_frequency   = 0;
 bool            g_haveRing    = false;
 bool            g_collecting  = false;
+bool            g_appendWarned = false;
 bool            g_gpuReady    = false;
 FrameRecord*    g_frame       = nullptr;
 ID3D12GraphicsCommandList* g_cmd = nullptr;
@@ -278,8 +280,33 @@ void profileFrameBegin()
     g_collecting      = true;
     g_depth           = 0;
     g_overflow        = 0;
+    g_appendWarned    = false;
     g_activeSlot      = kNoSlot;
     g_cmd             = nullptr;
+}
+
+void profileAppendCpuRange(const char* name, float cpuMs)
+{
+    assertMainThread();
+    if (!g_collecting || g_frame == nullptr || name == nullptr || name[0] == '\0')
+        return;
+    if (g_frame->rangeCount >= kProfileMaxRanges)
+    {
+        if (!g_appendWarned)
+        {
+            g_appendWarned = true;
+            DE_LOG_WARN(LogCategory::Render, "Profile: CPU range dropped (range array full)");
+        }
+        return;
+    }
+
+    StoredRange& range = g_frame->ranges[g_frame->rangeCount++];
+    range              = {};
+    range.view.cpuMs   = cpuMs;
+    range.view.gpuMs   = -1.0f;
+    range.view.depth   = 0;
+    range.view.color   = 0;
+    copyName(range.view.name, name);
 }
 
 void profileFrameEnd(float dtSeconds)

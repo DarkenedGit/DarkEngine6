@@ -2,6 +2,7 @@
 
 #include "Render/RenderItem.h"
 #include "Render/Frustum3f.h"
+#include "Render/CullResourceSet.h"
 #include "Render/InstanceCull.h"
 
 #include <array>
@@ -53,9 +54,14 @@ public:
     void setGpuCull(bool enabled);
     bool gpuCullActive() const { return m_gpuCull; }
     bool cullReady() const;
+    // False until create() allocated a depth args buffer distinct from the camera set.
+    bool depthResourceSetReady() const;
+    void ensureCompiled() const { compile(); }
+    void armResourceSet(uint32_t firstView, uint32_t endView, CullResourceSet set);
     // pass null dispatches every built GPU view. A pass dispatches only that kind
     // and leaves other views' flags alone. profile false skips GpuScope (shadow list).
-    bool dispatchCull(ID3D12GraphicsCommandList* cmd, const RenderPassKind* pass = nullptr, bool profile = true);
+    // firstView/endView limit which view indices this list transitions.
+    bool dispatchCull(ID3D12GraphicsCommandList* cmd, const RenderPassKind* pass = nullptr, bool profile = true, CullResourceSet set = CullResourceSet::Camera, uint32_t firstView = 0, uint32_t endView = kMaxStaticViews);
 
     // Planes and pass kind for views built while the GPU cull is on.
     // batchCount and itemCount stay 0. The caller fills those for its own list.
@@ -134,6 +140,7 @@ private:
     bool     m_indirect   = true;
     bool     m_gpuCull    = false;
     std::array<bool, kMaxStaticViews> m_cullDispatched{};
+    std::array<CullResourceSet, kMaxStaticViews> m_resourceSet{};
     mutable std::array<bool, kMaxStaticViews> m_argsCopied{};
     std::unique_ptr<GpuUploads> m_gpu;
     std::unique_ptr<InstanceCull> m_cull;

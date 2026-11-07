@@ -212,13 +212,14 @@ void ShadowSystem::closeProfileCascade(ID3D12GraphicsCommandList* cmd)
     m_profileCascade = false;
 }
 
-void ShadowSystem::beginCapture(ID3D12GraphicsCommandList* cmd)
+void ShadowSystem::beginCapture(ID3D12GraphicsCommandList* cmd, bool profile)
 {
     if (!cmd || !m_resource)
         return;
     // The atlas is created in DEPTH_WRITE, so the first capture (and any capture
     // already in that state) skips the barrier but still records the cascades.
-    if (!m_profileShadows)
+    // profile false keeps the worker off profileCpuBegin and PIX.
+    if (profile && !m_profileShadows)
     {
         profileCpuBegin("Shadows", ProfileColor::Shadows);
         profileGpuBegin(cmd, "Shadows", ProfileColor::Shadows);
@@ -240,17 +241,20 @@ void ShadowSystem::beginCapture(ID3D12GraphicsCommandList* cmd)
     m_state[m_frame] = D3D12_RESOURCE_STATE_DEPTH_WRITE;
 }
 
-void ShadowSystem::beginCascade(ID3D12GraphicsCommandList* cmd, int cascade)
+void ShadowSystem::beginCascade(ID3D12GraphicsCommandList* cmd, int cascade, bool profile)
 {
     if (!cmd || cascade < 0 || cascade >= m_cascadeCount)
         return;
 
     closeProfileCascade(cmd);
-    char name[32];
-    std::snprintf(name, sizeof(name), "Shadow Cascade %d", cascade);
-    profileCpuBegin(name, ProfileColor::ShadowCascade);
-    profileGpuBegin(cmd, name, ProfileColor::ShadowCascade);
-    m_profileCascade = true;
+    if (profile)
+    {
+        char name[32];
+        std::snprintf(name, sizeof(name), "Shadow Cascade %d", cascade);
+        profileCpuBegin(name, ProfileColor::ShadowCascade);
+        profileGpuBegin(cmd, name, ProfileColor::ShadowCascade);
+        m_profileCascade = true;
+    }
 
     D3D12_VIEWPORT vp{};
     vp.Width    = static_cast<float>(m_settings.mapSize);

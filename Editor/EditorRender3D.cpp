@@ -71,7 +71,9 @@ namespace
 void EditorApp::drawPrimitiveShadowCasters(void* user, ID3D12GraphicsCommandList* cmd, const Matrix4f& lightViewProj, const Frustum3f& frustum, bool recordThisView)
 {
     auto* ctx = static_cast<EditorShadowUser*>(user);
-    if (!ctx || !ctx->app || !cmd)
+    if (!ctx || !ctx->app)
+        return;
+    if (!capturingShadowCasters() && !cmd)
         return;
     EditorApp& app = *ctx->app;
     app.world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
@@ -88,6 +90,11 @@ void EditorApp::drawPrimitiveShadowCasters(void* user, ID3D12GraphicsCommandList
             return;
         if (recordThisView && ctx->acceptedProp && ctx->acceptedProp->count(e.id()) != 0)
             return;
+        if (capturingShadowCasters())
+        {
+            pushShadowCaster(mesh, worldMat);
+            return;
+        }
         const Matrix4f wvp = worldMat * lightViewProj;
         app.m_shadows.pipeline().setWvp(cmd, wvp.m_afEntry);
         mesh->draw(cmd);
@@ -428,6 +435,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     shadowHost.foliageActive     = m_haveTerrain;
     shadowHost.acceptedModel     = &acceptedModel;
     shadowHost.acceptedSkinned   = &acceptedSkinned;
+    shadowHost.jobs              = &jobs();
     shadowHost.drawPrimitives    = &EditorApp::drawPrimitiveShadowCasters;
     EditorShadowUser shadowUser{ this, &acceptedProp };
     shadowHost.user = &shadowUser;

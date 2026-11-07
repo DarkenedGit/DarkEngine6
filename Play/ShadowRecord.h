@@ -18,6 +18,7 @@ namespace Dark
     class AssetManager;
     class Camera3D;
     class DrawList;
+    class JobSystem;
     class FoliagePipeline;
     class FoliagePrototypes;
     class GpuResourceCache;
@@ -38,6 +39,7 @@ namespace Dark
     struct ShadowCasterHost
     {
         Renderer*             renderer          = nullptr;
+        JobSystem*            jobs              = nullptr;
         World*                world             = nullptr;
         AssetManager*         assets            = nullptr;
         GpuResourceCache*     gpu               = nullptr;
@@ -69,6 +71,11 @@ namespace Dark
 
     // CreateCommittedResource for casters. Call on main before recordDirectionalShadows.
     void ensureDirectionalShadowModels(ShadowCasterHost& host);
+
+    // True while main is filling the caster array for the shadow worker.
+    // Primitive callbacks append mesh and world instead of drawing.
+    bool capturingShadowCasters();
+    void pushShadowCaster(const Mesh* mesh, const Math::Matrix4f& world);
 
     // One cascade or one local-light face. The caller picks the list.
     void recordShadowCasterView(

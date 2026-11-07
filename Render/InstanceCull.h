@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Render/CullResourceSet.h"
 #include "Render/RenderItem.h"
 
 #include <cstdint>
@@ -27,12 +28,14 @@ namespace Dark
     public:
         bool create(ID3D12Device* device);
         bool isReady() const;
+        bool depthSetReady() const;
 
         // Culls every view while the argument buffer, counters, and indices stay unordered,
         // then transitions arguments to INDIRECT_ARGUMENT and indices to NON_PIXEL_SHADER_RESOURCE.
-        bool dispatch(ID3D12GraphicsCommandList* cmd, uint32_t frameSlot, D3D12_GPU_VIRTUAL_ADDRESS aabbVA, D3D12_GPU_VIRTUAL_ADDRESS gbufferRecordsVA, D3D12_GPU_VIRTUAL_ADDRESS depthRecordsVA, ID3D12Resource* args, D3D12_RESOURCE_STATES& argState, const CullViewDesc* views, uint32_t viewCount);
+        // set selects which index and counter buffers this list transitions.
+        bool dispatch(ID3D12GraphicsCommandList* cmd, uint32_t frameSlot, D3D12_GPU_VIRTUAL_ADDRESS aabbVA, D3D12_GPU_VIRTUAL_ADDRESS gbufferRecordsVA, D3D12_GPU_VIRTUAL_ADDRESS depthRecordsVA, ID3D12Resource* args, D3D12_RESOURCE_STATES& argState, const CullViewDesc* views, uint32_t viewCount, CullResourceSet set = CullResourceSet::Camera);
 
-        D3D12_GPU_VIRTUAL_ADDRESS indexAddress(uint32_t frameSlot, uint32_t viewIndex) const;
+        D3D12_GPU_VIRTUAL_ADDRESS indexAddress(uint32_t frameSlot, uint32_t viewIndex, CullResourceSet set = CullResourceSet::Camera) const;
         ID3D12Resource*           indexResource(uint32_t frameSlot) const;
 
     private:
@@ -40,6 +43,7 @@ namespace Dark
 
         bool createShaderVisibleHeap(ID3D12Device* device);
         bool createBuffers(ID3D12Device* device);
+        void createDepthSet(ID3D12Device* device);
 
         ComPtr<ID3D12Device>         m_device;
         ComPtr<ID3D12RootSignature>  m_root;
@@ -56,6 +60,17 @@ namespace Dark
         D3D12_GPU_DESCRIPTOR_HANDLE  m_gpuStart{};
         UINT                         m_increment = 0;
         D3D12_RESOURCE_STATES        m_indexState[kFrameSlots] = {
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        };
+        ComPtr<ID3D12DescriptorHeap> m_depthHeap;
+        ComPtr<ID3D12DescriptorHeap> m_depthCpuHeap;
+        ComPtr<ID3D12Resource>       m_depthIndices[kFrameSlots];
+        ComPtr<ID3D12Resource>       m_depthCounters[kFrameSlots];
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_depthGpuCpuStart{};
+        D3D12_CPU_DESCRIPTOR_HANDLE  m_depthCpuStart{};
+        D3D12_GPU_DESCRIPTOR_HANDLE  m_depthGpuStart{};
+        D3D12_RESOURCE_STATES        m_depthIndexState[kFrameSlots] = {
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
         };
@@ -76,19 +91,21 @@ namespace Dark
 
         bool create(ID3D12Device* device);
         bool isReady() const;
+        bool depthSetReady() const;
 
         bool upload(uint32_t frameSlot, const MeshCullAabb* aabbs, uint32_t aabbCount, const GpuBatchRecord* gbuffer, uint32_t gbufferCount, const GpuBatchRecord* depth, uint32_t depthCount);
-        bool dispatch(ID3D12GraphicsCommandList* cmd, uint32_t frameSlot, const CullViewDesc* views, uint32_t viewCount);
+        bool dispatch(ID3D12GraphicsCommandList* cmd, uint32_t frameSlot, const CullViewDesc* views, uint32_t viewCount, CullResourceSet set = CullResourceSet::Camera);
 
-        D3D12_GPU_VIRTUAL_ADDRESS indexAddress(uint32_t frameSlot, uint32_t viewIndex) const;
+        D3D12_GPU_VIRTUAL_ADDRESS indexAddress(uint32_t frameSlot, uint32_t viewIndex, CullResourceSet set = CullResourceSet::Camera) const;
         ID3D12Resource*           indexResource(uint32_t frameSlot) const;
-        ID3D12Resource*           argumentResource(uint32_t frameSlot) const;
+        ID3D12Resource*           argumentResource(uint32_t frameSlot, CullResourceSet set = CullResourceSet::Camera) const;
         ID3D12CommandSignature*   signature() const;
         static UINT64             argumentOffset(uint32_t viewIndex, uint32_t batchIndex);
 
     private:
         bool createShaderVisibleHeap(ID3D12Device* device);
         bool createBuffers(ID3D12Device* device);
+        void createDepthSet(ID3D12Device* device);
         D3D12_GPU_VIRTUAL_ADDRESS slotBase(uint32_t frameSlot) const;
 
         ComPtr<ID3D12Device>              m_device;
@@ -114,6 +131,22 @@ namespace Dark
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
         };
         D3D12_RESOURCE_STATES             m_indexState[kFrameSlots] = {
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        };
+        ComPtr<ID3D12DescriptorHeap>      m_depthHeap;
+        ComPtr<ID3D12DescriptorHeap>      m_depthCpuHeap;
+        ComPtr<ID3D12Resource>            m_depthIndices[kFrameSlots];
+        ComPtr<ID3D12Resource>            m_depthCounters[kFrameSlots];
+        ComPtr<ID3D12Resource>            m_depthArgs[kFrameSlots];
+        D3D12_CPU_DESCRIPTOR_HANDLE       m_depthGpuCpuStart{};
+        D3D12_CPU_DESCRIPTOR_HANDLE       m_depthCpuStart{};
+        D3D12_GPU_DESCRIPTOR_HANDLE       m_depthGpuStart{};
+        D3D12_RESOURCE_STATES             m_depthArgState[kFrameSlots] = {
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        };
+        D3D12_RESOURCE_STATES             m_depthIndexState[kFrameSlots] = {
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
         };

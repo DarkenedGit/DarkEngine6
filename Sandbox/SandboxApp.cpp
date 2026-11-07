@@ -19,6 +19,7 @@
 #include "Play/PlayLook.h"
 #include "Play/PlayMotor.h"
 #include "Play/ShoulderCamera.h"
+#include "Play/FrameRecord.h"
 #include "Play/ShadowRecord.h"
 #include "Play/TerrainStream.h"
 #include "Terrain/TerrainLodFile.h"
@@ -1352,7 +1353,9 @@ bool SandboxApp::skipShadowModel(void* user, Entity e)
 void SandboxApp::drawPrimitiveShadowCasters(void* user, ID3D12GraphicsCommandList* cmd, const Matrix4f& lightViewProj, const Frustum3f& frustum, bool recordThisView)
 {
     auto* ctx = static_cast<SandboxShadowUser*>(user);
-    if (!ctx || !ctx->app || !cmd)
+    if (!ctx || !ctx->app)
+        return;
+    if (!capturingShadowCasters() && !cmd)
         return;
     SandboxApp& app = *ctx->app;
     app.world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
@@ -1374,6 +1377,11 @@ void SandboxApp::drawPrimitiveShadowCasters(void* user, ID3D12GraphicsCommandLis
             return;
         if (recordThisView && ctx->acceptedMesh && ctx->acceptedMesh->count(e.id()) != 0)
             return;
+        if (capturingShadowCasters())
+        {
+            pushShadowCaster(gpuMesh, worldMat);
+            return;
+        }
         drawShadowCaster(cmd, app.m_shadows.pipeline(), lightViewProj, worldMat, *gpuMesh);
     });
 }
@@ -3435,6 +3443,7 @@ void SandboxApp::onRender()
         requestQuit();
         return;
     }
+    frameNoteBeginFrame(jobs(), renderer().frameIndex());
 
     // The scene is still unbuilt while the start menu is waiting for a pick.
     // shadowBounds is safe on an empty grid; the water and post path is not.
@@ -3445,6 +3454,7 @@ void SandboxApp::onRender()
         m_menu.draw(renderer());
         if (m_imgui.isReady())
             m_imgui.render(renderer());
+        frameJoinRender(jobs(), renderer().frameIndex());
         renderer().endFrame();
         return;
     }
@@ -3672,6 +3682,7 @@ void SandboxApp::onRender()
     shadowHost.foliageActive     = true;
     shadowHost.acceptedModel     = &acceptedModel;
     shadowHost.acceptedSkinned   = &acceptedSkinned;
+    shadowHost.jobs              = &jobs();
     shadowHost.skipModel         = &SandboxApp::skipShadowModel;
     shadowHost.drawPrimitives    = &SandboxApp::drawPrimitiveShadowCasters;
     SandboxShadowUser shadowUser{ this, &acceptedMesh };
@@ -4581,6 +4592,7 @@ void SandboxApp::onRender()
     uint32_t tableCount = 0;
     const PassNode* table = deferred ? sandboxDeferredPasses(tableCount) : sandboxForwardPasses(tableCount);
     (void)passSequenceOk(table, tableCount, playedPasses, playedCount);
+    frameJoinRender(jobs(), renderer().frameIndex());
     renderer().endFrame();
 }
 

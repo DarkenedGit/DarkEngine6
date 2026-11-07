@@ -1,8 +1,10 @@
 #pragma once
 
+#include "Render/CullResourceSet.h"
 #include "Render/RenderItem.h"
 #include "Render/SkinningUploadRing.h"
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -79,6 +81,8 @@ public:
     void setUltraviolet(bool on);
     bool forwardReady() const;
     bool cullReady() const;
+    bool depthResourceSetReady() const;
+    void ensureCompiled() const { compile(); }
 
     void     beginFrame(uint32_t frameIndex);
     uint32_t mark() const;
@@ -107,8 +111,8 @@ public:
     bool dispatchCull(ID3D12GraphicsCommandList* cmd, const CullViewDesc* views, uint32_t viewCount);
     // One upload of the frame slot. Does not dispatch and does not change m_culledMask.
     bool uploadCullFrame();
-    // Dispatches these views and ORs m_culledMask. Does not upload and does not zero the mask.
-    bool dispatchPreparedCull(ID3D12GraphicsCommandList* cmd, const CullViewDesc* views, uint32_t viewCount);
+    // Dispatches these views and ORs the mask for set. Does not upload and does not zero the mask.
+    bool dispatchPreparedCull(ID3D12GraphicsCommandList* cmd, const CullViewDesc* views, uint32_t viewCount, CullResourceSet set = CullResourceSet::Camera);
     ID3D12Resource* cullArgumentResource(uint32_t frameSlot) const;
     ID3D12Resource* cullIndexResource(uint32_t frameSlot) const;
 
@@ -141,6 +145,8 @@ private:
 
     uint32_t                         m_frameIndex = 0;
     uint32_t                         m_culledMask = 0;
+    // Separate word so the shadow worker can OR depth views while main ORs the camera set.
+    std::atomic<uint32_t>            m_depthCulledMask{0};
     std::vector<Part>                m_parts;
     std::vector<const AnimPose*>     m_poseKeys;
     mutable bool                     m_compiled = false;

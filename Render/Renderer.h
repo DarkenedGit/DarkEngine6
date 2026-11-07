@@ -64,6 +64,11 @@ namespace Dark
         ID3D12GraphicsCommandList* beginShadowList();
         // Close only. endFrame is what submits [shadow, main].
         bool closeShadowList();
+        // No Reset. The shadow worker records with these after beginFrame waited the slot.
+        ID3D12GraphicsCommandList* shadowCommandList() const;
+        ID3D12CommandAllocator*    shadowCommandAllocator() const;
+        void noteShadowListReset();
+        void adoptClosedShadowList();
         // true if SUCCEEDED(hr), including DXGI_STATUS_OCCLUDED.
         bool present();
 

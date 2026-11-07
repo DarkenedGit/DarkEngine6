@@ -1,5 +1,7 @@
 #include "EditorApp.h"
 
+#include "Play/FrameRecord.h"
+
 #include "Editor/EditorInternals.h"
 #include "Editor/EditorObject.h"
 #include "Scene/SceneFile.h"
@@ -51,6 +53,7 @@ void EditorApp::onRender()
         requestQuit();
         return;
     }
+    frameNoteBeginFrame(jobs(), renderer().frameIndex());
     if (m_skinRing.isValid())
         m_skinRing.beginFrame(renderer().frameIndex());
     if (m_skinnedInstances.isValid())
@@ -71,6 +74,7 @@ void EditorApp::onRender()
         m_imgui.render(renderer());
     }
 
+    frameJoinRender(jobs(), renderer().frameIndex());
     renderer().endFrame();
 }
 

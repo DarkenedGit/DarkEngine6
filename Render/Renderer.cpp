@@ -856,6 +856,32 @@ namespace Dark
         return true;
     }
 
+    ID3D12GraphicsCommandList* Renderer::shadowCommandList() const
+    {
+        if (m_frameIndex >= kFrameCount)
+            return nullptr;
+        return m_shadowList[m_frameIndex].Get();
+    }
+
+    ID3D12CommandAllocator* Renderer::shadowCommandAllocator() const
+    {
+        if (m_frameIndex >= kFrameCount)
+            return nullptr;
+        return m_shadowAlloc[m_frameIndex].Get();
+    }
+
+    void Renderer::noteShadowListReset()
+    {
+        m_shadowListOpen     = true;
+        m_shadowListRecorded = false;
+    }
+
+    void Renderer::adoptClosedShadowList()
+    {
+        m_shadowListOpen     = false;
+        m_shadowListRecorded = true;
+    }
+
     bool Renderer::present()
     {
         if (!m_valid || !m_swapChain)

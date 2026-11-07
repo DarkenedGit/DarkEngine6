@@ -3,6 +3,7 @@
 #include "Core/MainThread.h"
 #include "Core/Version.h"
 #include "Input/InputCodes.h"
+#include "Play/FrameRecord.h"
 #include "Render/Profile.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -451,8 +452,10 @@ namespace Dark
             m_renderer.setClearColor(savedClear[0], savedClear[1], savedClear[2], savedClear[3]);
             return false;
         }
+        frameNoteBeginFrame(m_jobs, m_renderer.frameIndex());
         m_loading.draw(m_renderer, makeDrawState());
-        if (!m_renderer.endFrame() || !m_renderer.present())
+        const bool joined = frameJoinRender(m_jobs, m_renderer.frameIndex());
+        if (!joined || !m_renderer.endFrame() || !m_renderer.present())
         {
             DE_LOG_ERROR(LogCategory::Render, "Present failed; stopping");
             m_running        = false;
