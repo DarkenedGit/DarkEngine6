@@ -225,7 +225,7 @@ include(cmake/WinPixEventRuntime.cmake)
 #        `-- DarkGameplay  (Weapons/* + Gameplay/* + Combat/*; PUBLIC Foundation)
 #
 #   DarkEngine umbrella PUBLIC-links all layers and compiles the rest
-#   (AI Animation Audio Character Debug Input Particles Scene Sky Sprite
+#   (AI Animation Audio Character Debug Input Media Particles Scene Sky Sprite
 #    Terrain Water + Application/Window/MemoryTracker + content shaders).
 #
 #   Assets headers include Animation types; Animation/*.cpp stay in DarkEngine.

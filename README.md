@@ -13,7 +13,7 @@ This engine is still in progress. This README covers only what is in the tree to
 | `DarkRender` | static lib | `Render/*` + D3D12 / DXGI / `d3dcompiler`; PIX + NVTX markers when `DE_ENABLE_GPU_MARKERS` is on |
 | `DarkNet` | static lib | `Network/*` (`ws2_32`) |
 | `DarkGameplay` | static lib | `Weapons/*`, `Gameplay/*`, `Combat/*` |
-| `DarkEngine` | static lib | Umbrella: `AI`, `Animation`, `Audio`, `Character`, `Debug`, `Input`, `Particles`, `Physics`, `Play`, `Save`, `Scene`, `Sky`, `Sprite`, `Terrain`, `Water`, plus `Application` / `Window` / `MemoryTracker` and `Ui/MainMenu`. PUBLIC-links every layer; PRIVATE-links Box3D |
+| `DarkEngine` | static lib | Umbrella: `AI`, `Animation`, `Audio`, `Character`, `Debug`, `Input`, `Media`, `Particles`, `Physics`, `Play`, `Save`, `Scene`, `Sky`, `Sprite`, `Terrain`, `Water`, plus `Application` / `Window` / `MemoryTracker` and `Ui/MainMenu`. PUBLIC-links every layer; PRIVATE-links Box3D |
 | `Sandbox` | exe | 3D sample game (ImGui Dev Tools) |
 | `Sandbox2D` | exe | Side-scrolling 2D sample (Box2D) |
 | `Editor` | exe | ImGui editor (Win32 + DX12) with Play-in-editor |
@@ -26,7 +26,7 @@ Runtime HLSL lives in `content/shaders/`. It shows up in the IDE but is compiled
 
 ## What is in the tree
 
-- **Core**: `Application`, Win32 `Window`, logging (`DE_LOG_*` + `LogCategory`), paths and content roots, UUID, memory tracker, and type-checked JSON readers (`Core/Json.h`: `jsonStringOr` / `jsonBoolOr` / `jsonIntOr` / `jsonFloatOr` / `jsonDoubleOr`). These log and fall back on a wrong type instead of calling nlohmann `value()`, which aborts when exceptions are off. Configure generates `Core/Version.h` (git describe / commit when available).
+- **Core**: `Application`, Win32 `Window`, logging (`DE_LOG_*` + `LogCategory`: `Core`, `Render`, `Audio`, `Collision`, `AI`, `Input`, `Networking`, `Debug`, `Media`), paths and content roots, UUID, memory tracker, and type-checked JSON readers (`Core/Json.h`: `jsonStringOr` / `jsonBoolOr` / `jsonIntOr` / `jsonFloatOr` / `jsonDoubleOr`). These log and fall back on a wrong type instead of calling nlohmann `value()`, which aborts when exceptions are off. Configure generates `Core/Version.h` (git describe / commit when available).
 - **ECS**: `World` with generation-packed `EntityID` (slot + generation; `NULL_ENTITY` is 0), O(1) `alive()`, safe emplace over existing entities.
 - **Render**: a D3D12 renderer with two scene paths: `HybridDeferred` (G-buffer, fullscreen lighting, forward transparents) and `SwapChainForward` (`-forward`). It uses reverse-Z depth (`GREATER` compare). `SceneRenderer` is shared by Sandbox and Editor. Passes and systems in `Render/`:
   - Cascaded directional shadows (up to 3 cascades, `ShadowSystem`) and local-light shadows (`LocalShadowSystem`). Static and model shadow casters are culled against each shadow view's frustum.
@@ -39,7 +39,7 @@ Runtime HLSL lives in `content/shaders/`. It shows up in the IDE but is compiled
   - Static and skinned meshes, sprites, lines, particles, camouflage
   - Post: auto exposure, bloom, TAA, motion blur, tonemap. Sandbox echolocation (B) is a deferred chirp drawn in the post group before bloom, not its own pass. One 1/8-resolution snapshot per pulse (about 0.8 Hz) is held world-locked until the next pulse. The shell expands at 50 m/s. Both live in `content/render/echolocation.json`; Dev Tools can change them for the session. The picture is one hue on black. A hard near ping's leading edge can bloom; the held return stays under the threshold of 1.0. It is exclusive with infrared and ultraviolet, holds auto-exposure, resets TAA, and skips motion blur. Forward does not apply it.
   - Underwater view (`UnderwaterPipeline`, `content/shaders/Underwater.hlsl`): when the camera goes below the water level, a fullscreen pass copies HDR and fogs the scene by depth. The lake is then drawn again with front faces culled, so you see its surface from below as a ceiling. Its pass sits after particles and before post.
-  - Loading screen / boot splash, HUD (crosshair, health), debug overlay (G-buffer tiles)
+  - Loading screen / boot splash (image and movie playback), HUD (crosshair, health), debug overlay (G-buffer tiles)
 - **Draw submission** (`DrawList`, `RenderItem`, `InstancedMeshPipeline`, `SkinnedInstanceBuffer`, `InstanceCull`):
   - Static opaque meshes and models are batched and drawn instanced. Batches sort by population, mesh, alpha mask, then material (`BatchKey`).
   - Batches can be drawn with `ExecuteIndirect`. A compute pass (`InstanceCull.hlsl`) frustum-culls static instances per view (camera and shadow views) and writes the indirect arguments.
@@ -49,8 +49,9 @@ Runtime HLSL lives in `content/shaders/`. It shows up in the IDE but is compiled
 - **Pass order**: `Render/PassTable.*` lists the expected pass order for Sandbox and Editor, deferred and forward. Hosts check the passes they actually played against it and log once on a mismatch. The deferred order is: shadows, local shadows, G-buffer, decals, GTAO, SSR, deferred lighting, local light volumes, sky, SSR capture, water, clouds, camouflage (Sandbox) or editor grid and light gizmos (Editor), translucent, particles, underwater, post, overlay.
 - **Assets**: `AssetManager` / handles, texture cache, glTF load via cgltf (`GltfLoader`), animated glTF.
 - **Animation**: skeletons, clips, sampler, anim graph (`*.anim.json`), locomotion, anim notifies. Locomotion clip rate follows planar speed. Procedural layers add a directional hit flinch and a shield guard pose.
-- **AI**: hierarchical state machines loaded from JSON (`content/ai/*.hsm.json`), attack patterns, pathfinding, walkability, sight, wolf approach / flanking. An awareness meter (`AI/Awareness`) moves enemies through Calm, Suspicious, Investigating, Alert, and Searching from sight, motion, noise, and proximity. Per-type movement speeds come from `content/entities/*.entity.movement.json`.
-- **Play** (`Play/`): code shared by Sandbox play and Editor Play-in-editor: character attach for players and NPCs, character sound banks, play look and shoulder camera, motor input, physics ground height, terrain streaming, impact decals, weapon target queries, the player flashlight, crows, and spawners.
+- **AI**: hierarchical state machines loaded from JSON (`content/ai/*.hsm.json`), attack patterns, pathfinding, walkability, sight, wolf approach / flanking, water watch (`AI/WaterPeek`). An awareness meter (`AI/Awareness`) moves enemies through Calm, Suspicious, Investigating, Alert, and Searching from sight, motion, noise, and proximity. Per-type movement speeds come from `content/entities/*.entity.movement.json`.
+- **Media**: `MoviePlayer` decodes H.264 and MPEG-2 video (Media Foundation) into an XAudio2 voice and a GPU texture, with NV12-to-RGB conversion on upload. Movies are authored on scene nodes and played by the loading screen (`MoviePresentPipeline`). See `Media/MoviePlayer.h`.
+- **Play** (`Play/`): code shared by Sandbox play and Editor Play-in-editor: character attach for players and NPCs, character sound banks, play look and shoulder camera, motor input (planar slide along walls instead of stopping), physics ground height, terrain streaming, impact decals, weapon target queries, the player flashlight, crows, spawners, and facility hooks (doors, guards).
   - **Spawners**: placed level objects that spawn hunters, wolves, or crows (up to 16 slots). `Maintain` replaces dead units; `Waves` starts the next wave on a timer or when the current wave is dead. Spawned units are not saved; Stop Play removes them.
   - **Crows**: flock, perch in trees, forage on the ground, and flee from living hunters and the player with an alarm call. Dead crows fall to the ground.
 - **Physics**: Box3D wrapper (`third_party/box3d`, v0.1.0). Collision shapes are cooked from primitives, model `_col*` parts, or `*.collision.json` sidecars. Per-model `*.physics.json` settings. Surfaces load from `content/physics/surfaces.json`. Foliage trunks and rocks block the player. See `Physics/README.md` and `Collision/DESIGN-box3d.md`.
@@ -65,9 +66,9 @@ Runtime HLSL lives in `content/shaders/`. It shows up in the IDE but is compiled
   - **Procedural grass** (`Terrain/GrassField`, `GrassMesh`, `GrassWind`, `GrassBend`): blade tiles spawned around a point, four blade LODs, per-tile Perlin wind, and blades that bend around the player. Parameters (height, flexibility, density, wind, seed) are saved in the scene's `terrain.grass` block and can be changed in Sandbox Dev Tools under **Procedural grass**.
   - **LOD distances**: `content/terrain/lod.json` holds the terrain chunk LOD multiples and the grass LOD band distances (promote / demote, create / evict radius, fade). If the file is missing, built-in values are used and a warning is logged.
 - **Water**: water planes, multiple finite lakes (`WaterBody`), swells, and streams (`WaterStream`: ribbon meshes along a path; the Editor can trace one downhill to the lake). Streams are visual only; you cannot swim in them. The player can swim in lakes, and going under the surface switches to the underwater view (see Render). `Water/DESIGN-water-bodies.md` has its own status line.
-- **Scene**: JSON scene files under `content/scenes/` (`level.json`, `level2d.json`, `parkour_test.json`, `stealth_test.json`) that hold entities, terrain, grass, atmosphere, water, spawners, and exposure settings. Entity templates live in `content/entities/*.entity.json` (`EntityMaster`).
+- **Scene**: JSON scene files under `content/scenes/` (`level.json`, `level2d.json`, `parkour_test.json`, `stealth_test.json`) that hold entities, terrain, grass, atmosphere, water, spawners, movies, buildings (with doors, guards, props), and exposure settings. Entity templates live in `content/entities/*.entity.json` (`EntityMaster`).
 - **Save**: quick and manual saves through `SaveSystem` with atomic file writes. Saves go to `%LOCALAPPDATA%\DarkEngine6\Saves`. See `Save/DESIGN-save-load.md`.
-- **Audio**: XAudio2, WAV clips, sound emitters.
+- **Audio**: XAudio2, WAV clips, sound emitters, PCM streaming (used by `MoviePlayer`).
 - **Input**: keyboard, mouse, XInput gamepad, `ActionMap` bindings. Bindings load from JSON (see [Input files](#input-and-config-files)).
 - **Network**: UDP sockets, packets, reliability, replication, `NetworkSystem`, a fake transport for tests. The default game port is **26160** and UDP beacon discovery uses **26161**. `NetworkSystem` does not draw. Hosts attach `MeshComponent` (Editor also adds `EditorObjectComponent`) in `onNetSpawn` (see `Network/Replication.h`).
 - **Debug**: `DebugServer` / `DebugClient` over TCP (default port **26162**) and `PerfCounters` (per-slot frame timing plus a 240-frame history) for VisualDebugger.
@@ -256,16 +257,16 @@ Tests live under `UnitTests/<Module>/` (including `UnitTests/Play/`) and use Goo
 
 ```
 AI/ Animation/ Assets/ Audio/ Character/ Collision/ Combat/ Core/
-Debug/ ECS/ Gameplay/ Input/ Math/ Network/ Particles/ Physics/
-Render/ Save/ Scene/ Sky/ Sprite/ Terrain/ Water/ Weapons/
-Play/             play code shared by Sandbox and Editor Play (attach, camera, motor, spawners, crows, ...)
+Debug/ ECS/ Gameplay/ Input/ Math/ Media/ Network/ Particles/
+Physics/ Render/ Save/ Scene/ Sky/ Sprite/ Terrain/ Water/ Weapons/
+Play/             play code shared by Sandbox and Editor Play (attach, camera, motor, spawners, crows, facility, ...)
 Ui/               ImGui helpers (Editor / VisualDebugger / Sandbox) + MainMenu
 Sandbox/          3D sample
 Sandbox2D/        2D sample
 Editor/           ImGui editor
 VisualDebugger/   remote perf / debug viewer
 UnitTests/        GoogleTest suite, one folder per module
-content/          runtime data: shaders, scenes, entities, input files, models, terrain, ai, skills, audio, items, quests, ...
+content/          runtime data: shaders, scenes, entities, input files, models, terrain, ai, skills, audio, items, quests, movies, ...
 third_party/      box2d, box3d, cgltf, nlohmann, nvtx
 cmake/            compiler options, layered targets, content copy, Version.h, WinPixEventRuntime
 docs/plans/       feature plans and notes
@@ -282,7 +283,7 @@ Full rules are in [`AGENTS.md`](AGENTS.md). Short version:
 
 - No C++ exceptions in engine or sample code. Return `bool` / status, log, `DE_ASSERT`. Read JSON fields through `Core/Json.h` helpers rather than nlohmann `value()` / `get<T>()` on unchecked types. `scripts\check-no-exceptions.ps1` scans for violations.
 - **C++23**, MSVC-friendly, `.clang-format` (Allman, 4-space). `scripts\format-all.ps1` formats or checks the tree.
-- Log with `DE_LOG_INFO` / `WARN` / `ERROR` / `FATAL` from `Core/Log.h`, with a `LogCategory` first.
+- Log with `DE_LOG_INFO` / `WARN` / `ERROR` / `FATAL` from `Core/Log.h`, with a `LogCategory` first (`Core`, `Render`, `Audio`, `Collision`, `AI`, `Input`, `Networking`, `Debug`, `Media`).
 
 ## Sourcetrail
 
