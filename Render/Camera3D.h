@@ -74,6 +74,11 @@ namespace Dark
         // Orthographic: width/height in world units at the projection plane.
         void SetOrthographic(float width, float height, float nearZ, float farZ);
 
+        bool IsOrthographic() const
+        {
+            return m_Orthographic;
+        }
+
         // ── Orientation ───────────────────────────────────────────────────────
         void LookAt(const Math::Vector3f& pos, const Math::Vector3f& target, const Math::Vector3f& worldUp);
 
