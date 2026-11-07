@@ -27,3 +27,12 @@ TEST(RendererFence, DepthClearValueIsZero)
 {
     EXPECT_FLOAT_EQ(kDepthClear, 0.0f);
 }
+
+TEST(RendererFence, AllocatorResetUsesTheWaitedValue)
+{
+    // completed=3, waited=3, stored=4: the wait has happened and this frame's signal is waited+1.
+    EXPECT_TRUE(allocatorResetAllowed(3, 3, 4));
+    // completed >= stored is false here, so that comparison would reject a legal reset.
+    EXPECT_FALSE(3ull >= 4ull);
+    EXPECT_FALSE(allocatorResetAllowed(2, 3, 4));
+}

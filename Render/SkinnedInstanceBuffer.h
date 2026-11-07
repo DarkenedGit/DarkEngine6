@@ -103,7 +103,12 @@ public:
 
     // views are the static cull's planes and pass kind. Batch counts come from this list.
     // Records every skinned view while the skinned argument buffer stays unordered, then one transition.
+    // Zeros m_culledMask and uploads the frame slot. Do not call twice in one frame.
     bool dispatchCull(ID3D12GraphicsCommandList* cmd, const CullViewDesc* views, uint32_t viewCount);
+    // One upload of the frame slot. Does not dispatch and does not change m_culledMask.
+    bool uploadCullFrame();
+    // Dispatches these views and ORs m_culledMask. Does not upload and does not zero the mask.
+    bool dispatchPreparedCull(ID3D12GraphicsCommandList* cmd, const CullViewDesc* views, uint32_t viewCount);
     ID3D12Resource* cullArgumentResource(uint32_t frameSlot) const;
     ID3D12Resource* cullIndexResource(uint32_t frameSlot) const;
 

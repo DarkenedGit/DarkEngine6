@@ -155,7 +155,8 @@ namespace Dark
             const Frustum3f& casterFrustum,
             const Math::Sphere3f* casterSphere);
 
-        void drawPreparedDepth(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& lightViewProj);
+        // profileCull false skips GpuScope. The shadow list uses that. The camera list may profile.
+        void drawPreparedDepth(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& lightViewProj, bool profileCull = true);
 
     private:
         bool prepare(
@@ -182,7 +183,7 @@ namespace Dark
         void publishCpuIndices(FoliagePrototypes& prototypes);
         FoliageCullDesc makeCullDesc(bool shadow) const;
         bool fillPartArgs(GpuResourceCache& gpu, FoliagePrototypes& prototypes, bool depth, FoliageCullDesc& desc);
-        bool tryGpuCull(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, FoliagePrototypes& prototypes, bool depth, bool shadow);
+        bool tryGpuCull(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, FoliagePrototypes& prototypes, bool depth, bool shadow, bool profile);
         bool writeViewConstants(const Camera3D& camera, const Math::Matrix4f* viewProj, const Math::Matrix4f* prevViewProj);
         D3D12_GPU_VIRTUAL_ADDRESS viewConstantAddress() const;
 

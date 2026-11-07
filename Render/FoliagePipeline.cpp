@@ -1472,7 +1472,7 @@ namespace Dark
         return true;
     }
 
-    bool FoliagePipeline::tryGpuCull(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, FoliagePrototypes& prototypes, bool depth, bool shadow)
+    bool FoliagePipeline::tryGpuCull(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, FoliagePrototypes& prototypes, bool depth, bool shadow, bool profile)
     {
         if (!m_gpuCull || !m_cull)
             return false;
@@ -1484,10 +1484,13 @@ namespace Dark
             return false;
         }
         bool ok = false;
+        if (profile)
         {
             const GpuScope cullScope(cmd, "Foliage Cull", ProfileColor::Terrain);
             ok = recordCull(cmd, m_activeSlot, desc);
         }
+        else
+            ok = recordCull(cmd, m_activeSlot, desc);
         if (!ok)
         {
             publishCpuIndices(prototypes);
@@ -1602,7 +1605,7 @@ namespace Dark
 
         GpuResourceCache& gpu = renderer.gpuResources();
         if (m_gpuCull)
-            tryGpuCull(cmd, gpu, prototypes, false, false);
+            tryGpuCull(cmd, gpu, prototypes, false, false, true);
 
         cmd->SetGraphicsRootSignature(m_gbRoot.Get());
         cmd->SetGraphicsRootConstantBufferView(kGbView, viewConstantAddress());
@@ -1672,7 +1675,7 @@ namespace Dark
         return m_depthReady;
     }
 
-    void FoliagePipeline::drawPreparedDepth(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& lightViewProj)
+    void FoliagePipeline::drawPreparedDepth(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& lightViewProj, bool profileCull)
     {
         if (!cmd || !m_depthReady || !m_depthRenderer || !m_depthPrototypes)
             return;
@@ -1683,7 +1686,7 @@ namespace Dark
         if (m_depthCullPending)
         {
             m_depthCullPending = false;
-            tryGpuCull(cmd, gpu, prototypes, true, true);
+            tryGpuCull(cmd, gpu, prototypes, true, true, profileCull);
         }
         cmd->SetGraphicsRootSignature(m_depthRoot.Get());
         cmd->SetGraphicsRootConstantBufferView(kDepthView, viewConstantAddress());

@@ -28,8 +28,17 @@ namespace Dark
         uint32_t triangles = 0;
     };
 
+    // completed: fence value that satisfied the wait.
+    // waitedValue: m_fenceValues[slot] BEFORE the increment in moveToNextFrame.
+    // storedValue: m_fenceValues[slot] AFTER that increment (signaled by this frame's Present).
+    // Reset is legal when the wait has happened. completed >= storedValue is the wrong test.
+    inline bool allocatorResetAllowed(uint64_t completed, uint64_t waitedValue, uint64_t storedValue)
+    {
+        return completed >= waitedValue && storedValue == waitedValue + 1;
+    }
+
     // Native Direct3D 12 renderer: device, graphics queue, flip-model swap chain,
-    // double-buffered RTVs, depth buffer, and a single recording command list.
+    // double-buffered RTVs, depth buffer, the main command list, and one shadow list per slot.
     class Renderer
     {
     public:
@@ -45,6 +54,17 @@ namespace Dark
 
         bool beginFrame();
         bool endFrame();
+
+        // Off: one ExecuteCommandLists of m_commandList and the unfiltered cull.
+        // On by default. No second thread. Not a scene or config setting.
+        void setShadowSeparateList(bool enabled) { m_shadowSeparateList = enabled; }
+        bool shadowSeparateList() const { return m_shadowSeparateList; }
+
+        // Only Reset of this slot's shadow allocator. moveToNextFrame already waited it.
+        // Does not wait again and does not compare the post-increment fence value.
+        ID3D12GraphicsCommandList* beginShadowList();
+        // Close only. endFrame is what submits [shadow, main].
+        bool closeShadowList();
         // true if SUCCEEDED(hr), including DXGI_STATUS_OCCLUDED.
         bool present();
 
@@ -250,6 +270,8 @@ namespace Dark
         ComPtr<ID3D12GraphicsCommandList> m_texUpdateCopyList[kFrameCount];
         ComPtr<ID3D12CommandAllocator>    m_texUpdateDirectAlloc[kFrameCount];
         ComPtr<ID3D12GraphicsCommandList> m_texUpdateDirectList[kFrameCount];
+        ComPtr<ID3D12CommandAllocator>    m_shadowAlloc[kFrameCount];
+        ComPtr<ID3D12GraphicsCommandList> m_shadowList[kFrameCount];
         ComPtr<ID3D12Fence>               m_texUpdateFence;
         UINT64                            m_texUpdateFenceValue = 0;
         ComPtr<ID3D12Fence>               m_fence;
@@ -269,9 +291,12 @@ namespace Dark
 
         FrameStats       m_stats{};
         float            m_clearColor[4]{ UiPalette::kVoid.r, UiPalette::kVoid.g, UiPalette::kVoid.b, UiPalette::kVoid.a };
-        bool             m_valid           = false;
-        bool             m_vsync           = true;
-        bool             m_frameSubmitted  = false;
+        bool             m_valid               = false;
+        bool             m_vsync               = true;
+        bool             m_shadowSeparateList  = true;
+        bool             m_shadowListOpen      = false;
+        bool             m_shadowListRecorded  = false;
+        bool             m_frameSubmitted      = false;
         bool             m_profileFrame    = false;
         ScenePath        m_scenePath       = ScenePath::SwapChainForward;
         std::unique_ptr<SceneBuffers>     m_sceneBuffers;

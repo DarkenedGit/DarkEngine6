@@ -246,7 +246,7 @@ bool DrawList::create(ID3D12Device* device)
 {
     m_cull.reset();
     m_gpuCull        = false;
-    m_cullDispatched = false;
+    m_cullDispatched.fill(false);
     m_gpu.reset();
     if (!device)
     {
@@ -448,7 +448,7 @@ bool DrawList::beginFrame(uint32_t frameIndex)
 {
     m_frameIndex     = frameIndex;
     m_gpuCull        = false;
-    m_cullDispatched = false;
+    m_cullDispatched.fill(false);
     m_items.clear();
     m_items.reserve(256);
     m_itemGBuffer.clear();
@@ -696,7 +696,7 @@ void DrawList::recordOpaque(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gp
     if (slot.gpu)
     {
         // copyViewArgs would put the argument buffer back in COPY_DEST and overwrite the GPU counts.
-        if (!m_cullDispatched || !m_cull || !indirectReady())
+        if (!m_cullDispatched[view.index] || !m_cull || !indirectReady())
             return;
         const D3D12_GPU_VIRTUAL_ADDRESS indexGpu = m_cull->indexAddress(frameSlot, view.index);
         if (indexGpu == 0)
@@ -811,7 +811,7 @@ void DrawList::recordForward(ID3D12GraphicsCommandList* cmd, GpuResourceCache& g
 
     if (slot.gpu)
     {
-        if (!m_cullDispatched || !m_cull || !indirectReady())
+        if (!m_cullDispatched[view.index] || !m_cull || !indirectReady())
             return;
         const D3D12_GPU_VIRTUAL_ADDRESS indexGpu = m_cull->indexAddress(frameSlot, view.index);
         if (indexGpu == 0)
@@ -884,7 +884,7 @@ void DrawList::recordDepth(ID3D12GraphicsCommandList* cmd, ViewId view, const fl
     const D3D12_GPU_VIRTUAL_ADDRESS instanceGpu = m_gpu->instances->GetGPUVirtualAddress() + static_cast<UINT64>(frameSlot) * kMaxStaticItems * sizeof(MeshInstanceGpu);
     if (slot.gpu)
     {
-        if (!m_cullDispatched || !m_cull || !indirectReady())
+        if (!m_cullDispatched[view.index] || !m_cull || !indirectReady())
             return;
         const D3D12_GPU_VIRTUAL_ADDRESS indexGpu = m_cull->indexAddress(frameSlot, view.index);
         if (indexGpu == 0)
@@ -1185,7 +1185,7 @@ bool DrawList::cullReady() const
     return m_cull && m_cull->isReady() && m_gpu && m_gpu->cullBytes != nullptr;
 }
 
-bool DrawList::dispatchCull(ID3D12GraphicsCommandList* cmd)
+bool DrawList::dispatchCull(ID3D12GraphicsCommandList* cmd, const RenderPassKind* pass, bool profile)
 {
     if (!cmd || !m_gpuCull || !cullReady() || !m_gpu || !m_gpu->cullUpload)
         return false;
@@ -1198,6 +1198,8 @@ bool DrawList::dispatchCull(ID3D12GraphicsCommandList* cmd)
     {
         const ViewSlot& slot = m_views[i];
         if (!slot.built || !slot.gpu)
+            continue;
+        if (pass && slot.pass != *pass)
             continue;
         const uint32_t batches = (slot.pass == RenderPassKind::Depth) ? static_cast<uint32_t>(m_depth.size()) : static_cast<uint32_t>(m_gbuffer.size());
         if (batches == 0 || batches > kMaxBatches)
@@ -1214,19 +1216,40 @@ bool DrawList::dispatchCull(ID3D12GraphicsCommandList* cmd)
 
     const uint32_t frameSlot = m_frameIndex % kUploadSlots;
     const D3D12_GPU_VIRTUAL_ADDRESS base = m_gpu->cullUpload->GetGPUVirtualAddress() + static_cast<UINT64>(frameSlot) * kCullSlotBytes;
-    const GpuScope scope(cmd, "Instance Cull");
-    const bool ok = m_cull->dispatch(
-        cmd,
-        frameSlot,
-        base,
-        base + kCullAabbBytes,
-        base + kCullAabbBytes + kCullRecordBytes,
-        m_gpu->args[frameSlot].Get(),
-        m_gpu->argState[frameSlot],
-        views,
-        viewCount);
-    m_cullDispatched = ok;
-    return ok;
+    bool ok = false;
+    if (profile)
+    {
+        const GpuScope scope(cmd, "Instance Cull");
+        ok = m_cull->dispatch(
+            cmd,
+            frameSlot,
+            base,
+            base + kCullAabbBytes,
+            base + kCullAabbBytes + kCullRecordBytes,
+            m_gpu->args[frameSlot].Get(),
+            m_gpu->argState[frameSlot],
+            views,
+            viewCount);
+    }
+    else
+    {
+        ok = m_cull->dispatch(
+            cmd,
+            frameSlot,
+            base,
+            base + kCullAabbBytes,
+            base + kCullAabbBytes + kCullRecordBytes,
+            m_gpu->args[frameSlot].Get(),
+            m_gpu->argState[frameSlot],
+            views,
+            viewCount);
+    }
+    // A failed pass must not clear views an earlier pass already marked.
+    if (!ok)
+        return false;
+    for (uint32_t i = 0; i < viewCount; ++i)
+        m_cullDispatched[views[i].viewIndex] = true;
+    return true;
 }
 
 uint32_t DrawList::exportGpuViews(CullViewDesc* out, uint32_t capacity) const

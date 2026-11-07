@@ -131,6 +131,8 @@ private:
     void drawPauseOverlay();
     void drawNpcInfoOverlay();
     bool camouflageHides(Dark::Entity e);
+    static bool skipShadowModel(void* user, Dark::Entity e);
+    static void drawPrimitiveShadowCasters(void* user, ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& lightViewProj, const Dark::Frustum3f& frustum, bool recordThisView);
     void devNetHost();
     void devNetJoin(const Dark::Address& addr);
     void devNetDisconnect();

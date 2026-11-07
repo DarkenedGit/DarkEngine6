@@ -1,5 +1,7 @@
 #include "EditorApp.h"
 
+#include "Play/ShadowRecord.h"
+
 #include "Editor/EditorInternals.h"
 #include "Editor/EditorObject.h"
 #include "Scene/SceneFile.h"
@@ -56,6 +58,41 @@
 using namespace Dark;
 using namespace Dark::EditorDetail;
 using namespace Math;
+
+namespace
+{
+    struct EditorShadowUser
+    {
+        EditorApp* app = nullptr;
+        const std::unordered_set<EntityID>* acceptedProp = nullptr;
+    };
+}
+
+void EditorApp::drawPrimitiveShadowCasters(void* user, ID3D12GraphicsCommandList* cmd, const Matrix4f& lightViewProj, const Frustum3f& frustum, bool recordThisView)
+{
+    auto* ctx = static_cast<EditorShadowUser*>(user);
+    if (!ctx || !ctx->app || !cmd)
+        return;
+    EditorApp& app = *ctx->app;
+    app.world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
+        if (!isScene3DType(so.type))
+            return;
+        const auto* xf = app.world().get<TransformComponent>(e);
+        const Mesh* mesh = app.meshForType(so.type);
+        if (!xf || !mesh || !mesh->valid() || app.world().get<LocalLightComponent>(e))
+            return;
+        const Matrix4f worldMat = makeWorldMatrix(*xf);
+        // CreateCube(1) and CreateSphere(0.5) both occupy ±0.5.
+        const AABox3f local(Vector3f(-0.5f, -0.5f, -0.5f), Vector3f(0.5f, 0.5f, 0.5f));
+        if (!frustum.Intersects(local.Transformed(worldMat)))
+            return;
+        if (recordThisView && ctx->acceptedProp && ctx->acceptedProp->count(e.id()) != 0)
+            return;
+        const Matrix4f wvp = worldMat * lightViewProj;
+        app.m_shadows.pipeline().setWvp(cmd, wvp.m_afEntry);
+        mesh->draw(cmd);
+    });
+}
 
 WeaponLoadout* EditorApp::playWeapons()
 {
@@ -325,100 +362,6 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     }
 
     // A point light culls foliage once against its range sphere and redraws that list on each face.
-    auto drawShadowCasters = [&](const Matrix4f& lightViewProj, const Frustum3f& casterFrustum, const Sphere3f* foliageSphere, bool beginFoliage) {
-        if (drawTerrain)
-            m_terrain.drawDepth(cmd, &casterFrustum);
-        else if (m_showSolid && m_groundMesh.valid())
-        {
-            // CreateGroundPlane(40, 0, 10) is the ±20 square on Y=0.
-            const AABox3f ground(Vector3f(-20.0f, 0.0f, -20.0f), Vector3f(20.0f, 0.0f, 20.0f));
-            if (casterFrustum.Intersects(ground))
-                m_groundMesh.draw(cmd);
-        }
-        const bool recordThisView = instanceStatic && shadowViewIndex < kMaxStaticViews;
-        const uint32_t skinView   = shadowViewIndex;
-        if (recordThisView)
-        {
-            float lightVp[16];
-            copyMatrix(lightVp, lightViewProj);
-            const ViewId view{ shadowViewIndex };
-            if (!m_drawList.gpuCullActive())
-                m_drawList.buildView(casterFrustum, lightVp, lightVp, RenderPassKind::Depth, view);
-            m_drawList.recordDepth(cmd, view, lightVp);
-            ++shadowViewIndex;
-            m_shadows.pipeline().bind(cmd);
-        }
-        if (instanceSkinned)
-        {
-            float skinVp[16];
-            copyMatrix(skinVp, lightViewProj);
-            m_skinnedInstances.recordDepth(cmd, skinView, skinVp);
-            m_shadows.pipeline().bind(cmd);
-        }
-        world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
-            if (!isScene3DType(so.type))
-                return;
-            const auto* xf = world().get<TransformComponent>(e);
-            const Mesh* mesh = meshForType(so.type);
-            if (!xf || !mesh || !mesh->valid() || world().get<LocalLightComponent>(e))
-                return;
-            const Matrix4f worldMat = makeWorldMatrix(*xf);
-            // CreateCube(1) and CreateSphere(0.5) both occupy ±0.5.
-            const AABox3f local(Vector3f(-0.5f, -0.5f, -0.5f), Vector3f(0.5f, 0.5f, 0.5f));
-            if (!casterFrustum.Intersects(local.Transformed(worldMat)))
-                return;
-            if (recordThisView && acceptedProp.count(e.id()) != 0)
-                return;
-            const Matrix4f wvp = worldMat * lightViewProj;
-            m_shadows.pipeline().setWvp(cmd, wvp.m_afEntry);
-            mesh->draw(cmd);
-        });
-        world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
-            if (!mc.visible || !mc.castShadow)
-                return;
-            const auto* xf = world().get<TransformComponent>(e);
-            const auto model = assets().getAs<Model>(mc.modelAssetID);
-            if (!xf || !model || !model->valid())
-                return;
-            const Matrix4f worldMat = makeWorldMatrix(*xf);
-            if (model->bounds().IsValid() && !casterFrustum.Intersects(model->bounds().Transformed(worldMat)))
-                return;
-            if (!gpu.ensureModel(model))
-                return;
-            const bool accepted = recordThisView && acceptedModel.count(e.id()) != 0;
-            const bool skinnedListed = instanceSkinned && acceptedSkinned.count(e.id()) != 0;
-            if (model->skinned())
-            {
-                const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));
-                if (accepted && skinnedListed)
-                    return;
-                if (accepted)
-                {
-                    if (pose)
-                        drawSkinnedModelDepthSkinnedOnly(cmd, gpu, m_shadows.pipeline(), lightViewProj, m_skinnedShadowPipeline, m_skinRing, *model, *pose, worldMat);
-                    return;
-                }
-                if (skinnedListed)
-                {
-                    drawModelDepth(cmd, gpu, m_shadows.pipeline(), lightViewProj, *model, worldMat);
-                    return;
-                }
-                if (pose)
-                    drawSkinnedModelDepth(cmd, gpu, m_shadows.pipeline(), lightViewProj, m_skinnedShadowPipeline, m_skinRing, *model, *pose, worldMat);
-                else
-                    drawModelDepth(cmd, gpu, m_shadows.pipeline(), lightViewProj, *model, worldMat);
-            }
-            else if (!accepted)
-                drawModelDepth(cmd, gpu, m_shadows.pipeline(), lightViewProj, *model, worldMat);
-        });
-        if (m_haveTerrain && m_terrain.valid())
-        {
-            if (beginFoliage)
-                m_foliagePipeline.beginDepthView(renderer(), assets(), m_foliagePrototypes, m_terrain, &m_foliage, m_foliageDensity, m_camera, casterFrustum, foliageSphere);
-            m_foliagePipeline.drawPreparedDepth(cmd, lightViewProj);
-        }
-    };
-
     // Cull every static view before any of them draw. The argument buffer stays unordered until the last rewrite.
     const bool deferredEarly = renderer().scenePath() == ScenePath::HybridDeferred;
     const bool gpuCull       = instanceStatic && renderer().debugState().instancedIndirect && m_drawList.cullReady();
@@ -455,30 +398,41 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             copyMatrix(drawPrev, camPrev);
             m_drawList.buildView(Frustum3f(m_camera.GetCullViewProj()), drawVp, drawPrev, RenderPassKind::GBuffer, ViewId{ 0 });
         }
-        CullViewDesc skinViews[kMaxStaticViews];
-        const uint32_t skinViewCount = m_drawList.exportGpuViews(skinViews, kMaxStaticViews);
-        m_drawList.dispatchCull(cmd);
-        if (instanceSkinned)
-            m_skinnedInstances.dispatchCull(cmd, skinViews, skinViewCount);
     }
 
     if (m_shadows.isValid())
         markPass(PassId::Shadows);
-    if (m_shadows.isValid() && m_shadows.enabled())
-    {
-        m_shadows.beginCapture(cmd);
-        for (int i = 0; i < m_shadows.cascadeCount(); ++i)
-        {
-            m_shadows.beginCascade(cmd, i);
-            const Frustum3f casterFrustum(m_shadows.cascade(i).viewProj);
-            drawShadowCasters(m_shadows.cascade(i).viewProj, casterFrustum, nullptr, true);
-        }
-        m_shadows.endCapture(cmd);
-    }
-    else if (m_shadows.isValid())
-    {
-        m_shadows.endCapture(cmd);
-    }
+    ShadowCasterHost shadowHost{};
+    shadowHost.renderer          = &renderer();
+    shadowHost.world             = &world();
+    shadowHost.assets            = &assets();
+    shadowHost.gpu               = &gpu;
+    shadowHost.shadows           = &m_shadows;
+    shadowHost.drawList          = &m_drawList;
+    shadowHost.skinned           = &m_skinnedInstances;
+    shadowHost.skinnedShadow     = &m_skinnedShadowPipeline;
+    shadowHost.skinRing          = &m_skinRing;
+    shadowHost.terrain           = &m_terrain;
+    shadowHost.foliage           = &m_foliagePipeline;
+    shadowHost.foliagePrototypes = &m_foliagePrototypes;
+    shadowHost.foliageRecords    = &m_foliage;
+    shadowHost.foliageDensity    = &m_foliageDensity;
+    shadowHost.camera            = &m_camera;
+    shadowHost.ground            = &m_groundMesh;
+    // CreateGroundPlane(40, 0, 10) is the ±20 square on Y=0.
+    shadowHost.groundBounds      = AABox3f(Vector3f(-20.0f, 0.0f, -20.0f), Vector3f(20.0f, 0.0f, 20.0f));
+    shadowHost.drawTerrain       = drawTerrain;
+    shadowHost.allowGround       = m_showSolid;
+    shadowHost.instanceStatic    = instanceStatic;
+    shadowHost.instanceSkinned   = instanceSkinned;
+    shadowHost.foliageActive     = m_haveTerrain;
+    shadowHost.acceptedModel     = &acceptedModel;
+    shadowHost.acceptedSkinned   = &acceptedSkinned;
+    shadowHost.drawPrimitives    = &EditorApp::drawPrimitiveShadowCasters;
+    EditorShadowUser shadowUser{ this, &acceptedProp };
+    shadowHost.user = &shadowUser;
+    ensureDirectionalShadowModels(shadowHost);
+    recordDirectionalShadows(shadowHost, cmd, shadowViewIndex);
 
     LocalShadowSystem& localShadows = m_scene.localShadows();
     if (localShadows.faceCountThisFrame() > 0 || localShadows.isValid())
@@ -502,7 +456,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                     foliageSphere = &pointSphere;
                 }
             }
-            drawShadowCasters(face.viewProj, face.frustum, foliageSphere, face.firstFace);
+            recordShadowCasterView(shadowHost, cmd, face.viewProj, face.frustum, foliageSphere, face.firstFace, true, shadowViewIndex);
         }
         localShadows.endCapture(cmd);
     }

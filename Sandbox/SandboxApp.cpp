@@ -19,6 +19,7 @@
 #include "Play/PlayLook.h"
 #include "Play/PlayMotor.h"
 #include "Play/ShoulderCamera.h"
+#include "Play/ShadowRecord.h"
 #include "Play/TerrainStream.h"
 #include "Terrain/TerrainLodFile.h"
 #include "Play/WeaponFire.h"
@@ -1329,6 +1330,52 @@ bool SandboxApp::camouflageHides(Entity e)
         return false;
     const Entity body = possessedBody();
     return body.valid() && e.id() == body.id();
+}
+
+namespace
+{
+    struct SandboxShadowUser
+    {
+        SandboxApp* app = nullptr;
+        const std::unordered_set<EntityID>* acceptedMesh = nullptr;
+    };
+}
+
+bool SandboxApp::skipShadowModel(void* user, Entity e)
+{
+    auto* ctx = static_cast<SandboxShadowUser*>(user);
+    if (!ctx || !ctx->app)
+        return false;
+    return ctx->app->camouflageHides(e);
+}
+
+void SandboxApp::drawPrimitiveShadowCasters(void* user, ID3D12GraphicsCommandList* cmd, const Matrix4f& lightViewProj, const Frustum3f& frustum, bool recordThisView)
+{
+    auto* ctx = static_cast<SandboxShadowUser*>(user);
+    if (!ctx || !ctx->app || !cmd)
+        return;
+    SandboxApp& app = *ctx->app;
+    app.world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
+        if (app.world().has<ModelComponent>(e))
+            return;
+        if (!mc.castShadow)
+            return;
+        if (const HealthComponent* hp = app.world().get<HealthComponent>(e); hp && !hp->health.alive())
+            return;
+        const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, app.m_cubeMesh, app.m_crossMesh);
+        if (!gpuMesh)
+            return;
+        const TransformComponent* xf = app.world().get<TransformComponent>(e);
+        if (!xf)
+            return;
+        const Matrix4f worldMat = makeWorldMatrix(*xf);
+        const AABox3f local = sandboxPrimitiveBounds(mc.primitive);
+        if (local.IsValid() && !frustum.Intersects(local.Transformed(worldMat)))
+            return;
+        if (recordThisView && ctx->acceptedMesh && ctx->acceptedMesh->count(e.id()) != 0)
+            return;
+        drawShadowCaster(cmd, app.m_shadows.pipeline(), lightViewProj, worldMat, *gpuMesh);
+    });
 }
 
 void SandboxApp::attachReplicaCombat(Entity e)
@@ -3562,98 +3609,6 @@ void SandboxApp::onRender()
 
     // Opaque casters only — same set as G-buffer / forward color. Water, particles, blood, lines stay out.
     // A point light culls foliage once against its range sphere and redraws that list on each face.
-    auto drawShadowCasters = [&](const Matrix4f& lightViewProj, const Frustum3f& casterFrustum, const Sphere3f* foliageSphere, bool beginFoliage) {
-        if (m_showTerrain)
-            m_terrain.drawDepth(cmd, &casterFrustum);
-        const bool recordThisView = instanceStatic && shadowViewIndex < kMaxStaticViews;
-        const uint32_t skinView   = shadowViewIndex;
-        if (recordThisView)
-        {
-            float lightVp[16];
-            copyMatrix(lightVp, lightViewProj);
-            const ViewId view{ shadowViewIndex };
-            if (!m_drawList.gpuCullActive())
-                m_drawList.buildView(casterFrustum, lightVp, lightVp, RenderPassKind::Depth, view);
-            m_drawList.recordDepth(cmd, view, lightVp);
-            ++shadowViewIndex;
-            m_shadows.pipeline().bind(cmd);
-        }
-        if (instanceSkinned)
-        {
-            float skinVp[16];
-            copyMatrix(skinVp, lightViewProj);
-            m_skinnedInstances.recordDepth(cmd, skinView, skinVp);
-            m_shadows.pipeline().bind(cmd);
-        }
-        world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
-            if (world().has<ModelComponent>(e))
-                return;
-            if (!mc.castShadow)
-                return;
-            if (const HealthComponent* hp = world().get<HealthComponent>(e); hp && !hp->health.alive())
-                return;
-            const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, m_cubeMesh, m_crossMesh);
-            if (!gpuMesh)
-                return;
-            const TransformComponent* xf = world().get<TransformComponent>(e);
-            if (!xf)
-                return;
-            const Matrix4f worldMat = makeWorldMatrix(*xf);
-            const AABox3f local = sandboxPrimitiveBounds(mc.primitive);
-            if (local.IsValid() && !casterFrustum.Intersects(local.Transformed(worldMat)))
-                return;
-            if (recordThisView && acceptedMesh.count(e.id()) != 0)
-                return;
-            drawShadowCaster(cmd, m_shadows.pipeline(), lightViewProj, worldMat, *gpuMesh);
-        });
-        world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
-            if (!mc.visible || camouflageHides(e))
-                return;
-            if (!mc.castShadow)
-                return;
-            const TransformComponent* xf = world().get<TransformComponent>(e);
-            const auto model = assets().getAs<Model>(mc.modelAssetID);
-            if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->valid())
-                return;
-            const Matrix4f worldMat = makeWorldMatrix(*xf);
-            if (model->bounds().IsValid() && !casterFrustum.Intersects(model->bounds().Transformed(worldMat)))
-                return;
-            if (!gpu.ensureModel(model))
-                return;
-            const bool accepted = recordThisView && acceptedModel.count(e.id()) != 0;
-            const bool skinnedListed = instanceSkinned && acceptedSkinned.count(e.id()) != 0;
-            if (model->skinned())
-            {
-                const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));
-                if (accepted && skinnedListed)
-                    return;
-                if (accepted)
-                {
-                    if (pose)
-                        drawSkinnedModelDepthSkinnedOnly(cmd, gpu, m_shadows.pipeline(), lightViewProj, m_skinnedShadowPipeline, m_skinRing, *model, *pose, worldMat);
-                    return;
-                }
-                if (skinnedListed)
-                {
-                    drawModelDepth(cmd, gpu, m_shadows.pipeline(), lightViewProj, *model, worldMat);
-                    return;
-                }
-                if (pose)
-                    drawSkinnedModelDepth(cmd, gpu, m_shadows.pipeline(), lightViewProj, m_skinnedShadowPipeline, m_skinRing, *model, *pose, worldMat);
-                else
-                    drawModelDepth(cmd, gpu, m_shadows.pipeline(), lightViewProj, *model, worldMat);
-            }
-            else if (!accepted)
-                drawModelDepth(cmd, gpu, m_shadows.pipeline(), lightViewProj, *model, worldMat);
-        });
-        if (m_terrain.valid())
-        {
-            if (beginFoliage)
-                m_foliagePipeline.beginDepthView(renderer(), assets(), m_foliagePrototypes, m_terrain, m_foliage.empty() ? nullptr : &m_foliage, m_foliageDensity, m_viewCamera, casterFrustum, foliageSphere);
-            m_foliagePipeline.drawPreparedDepth(cmd, lightViewProj);
-        }
-    };
-
     // Cull every static view before any of them draw. The argument buffer stays unordered until the last rewrite.
     const bool deferredEarly = renderer().scenePath() == ScenePath::HybridDeferred;
     const bool gpuCull       = instanceStatic && renderer().debugState().instancedIndirect && m_drawList.cullReady();
@@ -3690,30 +3645,39 @@ void SandboxApp::onRender()
             copyMatrix(drawPrev, camPrev);
             m_drawList.buildView(Frustum3f(m_viewCamera.GetCullViewProj()), drawVp, drawPrev, RenderPassKind::GBuffer, ViewId{ 0 });
         }
-        CullViewDesc skinViews[kMaxStaticViews];
-        const uint32_t skinViewCount = m_drawList.exportGpuViews(skinViews, kMaxStaticViews);
-        m_drawList.dispatchCull(cmd);
-        if (instanceSkinned)
-            m_skinnedInstances.dispatchCull(cmd, skinViews, skinViewCount);
     }
 
     if (m_shadows.isValid())
         markPass(PassId::Shadows);
-    if (m_shadows.isValid() && m_shadows.enabled())
-    {
-        m_shadows.beginCapture(cmd);
-        for (int i = 0; i < m_shadows.cascadeCount(); ++i)
-        {
-            m_shadows.beginCascade(cmd, i);
-            const Frustum3f casterFrustum(m_shadows.cascade(i).viewProj);
-            drawShadowCasters(m_shadows.cascade(i).viewProj, casterFrustum, nullptr, true);
-        }
-        m_shadows.endCapture(cmd);
-    }
-    else if (m_shadows.isValid())
-    {
-        m_shadows.endCapture(cmd);
-    }
+    ShadowCasterHost shadowHost{};
+    shadowHost.renderer          = &renderer();
+    shadowHost.world             = &world();
+    shadowHost.assets            = &assets();
+    shadowHost.gpu               = &gpu;
+    shadowHost.shadows           = &m_shadows;
+    shadowHost.drawList          = &m_drawList;
+    shadowHost.skinned           = &m_skinnedInstances;
+    shadowHost.skinnedShadow     = &m_skinnedShadowPipeline;
+    shadowHost.skinRing          = &m_skinRing;
+    shadowHost.terrain           = &m_terrain;
+    shadowHost.foliage           = &m_foliagePipeline;
+    shadowHost.foliagePrototypes = &m_foliagePrototypes;
+    shadowHost.foliageRecords    = m_foliage.empty() ? nullptr : &m_foliage;
+    shadowHost.foliageDensity    = &m_foliageDensity;
+    shadowHost.camera            = &m_viewCamera;
+    shadowHost.drawTerrain       = m_showTerrain;
+    shadowHost.instanceStatic    = instanceStatic;
+    shadowHost.instanceSkinned   = instanceSkinned;
+    shadowHost.rejectTinyScale   = true;
+    shadowHost.foliageActive     = true;
+    shadowHost.acceptedModel     = &acceptedModel;
+    shadowHost.acceptedSkinned   = &acceptedSkinned;
+    shadowHost.skipModel         = &SandboxApp::skipShadowModel;
+    shadowHost.drawPrimitives    = &SandboxApp::drawPrimitiveShadowCasters;
+    SandboxShadowUser shadowUser{ this, &acceptedMesh };
+    shadowHost.user = &shadowUser;
+    ensureDirectionalShadowModels(shadowHost);
+    recordDirectionalShadows(shadowHost, cmd, shadowViewIndex);
 
     LocalShadowSystem& localShadows = m_scene.localShadows();
     if (localShadows.faceCountThisFrame() > 0 || localShadows.isValid())
@@ -3737,7 +3701,7 @@ void SandboxApp::onRender()
                     foliageSphere = &pointSphere;
                 }
             }
-            drawShadowCasters(face.viewProj, face.frustum, foliageSphere, face.firstFace);
+            recordShadowCasterView(shadowHost, cmd, face.viewProj, face.frustum, foliageSphere, face.firstFace, true, shadowViewIndex);
         }
         localShadows.endCapture(cmd);
     }

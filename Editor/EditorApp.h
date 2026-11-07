@@ -331,6 +331,7 @@ private:
     ParticleEmitterDesc makeDefaultParticleDesc() const;
 
     const Mesh* meshForType(SceneObjectType type) const;
+    static void drawPrimitiveShadowCasters(void* user, ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& lightViewProj, const Frustum3f& frustum, bool recordThisView);
     EditorObjectComponent* findObject(Entity e);
     uint32_t editorObjectCount();
     void collectEditorEntities(std::vector<Entity>& out);

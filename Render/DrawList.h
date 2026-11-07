@@ -53,7 +53,9 @@ public:
     void setGpuCull(bool enabled);
     bool gpuCullActive() const { return m_gpuCull; }
     bool cullReady() const;
-    bool dispatchCull(ID3D12GraphicsCommandList* cmd);
+    // pass null dispatches every built GPU view. A pass dispatches only that kind
+    // and leaves other views' flags alone. profile false skips GpuScope (shadow list).
+    bool dispatchCull(ID3D12GraphicsCommandList* cmd, const RenderPassKind* pass = nullptr, bool profile = true);
 
     // Planes and pass kind for views built while the GPU cull is on.
     // batchCount and itemCount stay 0. The caller fills those for its own list.
@@ -131,7 +133,7 @@ private:
     uint32_t m_frameIndex = 0;
     bool     m_indirect   = true;
     bool     m_gpuCull    = false;
-    bool     m_cullDispatched = false;
+    std::array<bool, kMaxStaticViews> m_cullDispatched{};
     mutable std::array<bool, kMaxStaticViews> m_argsCopied{};
     std::unique_ptr<GpuUploads> m_gpu;
     std::unique_ptr<InstanceCull> m_cull;

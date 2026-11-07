@@ -372,6 +372,23 @@ namespace Dark
             nameObject(m_texUpdateDirectList[i].Get(), listName);
         }
 
+        for (uint32_t i = 0; i < kFrameCount; ++i)
+        {
+            if (!checkHr(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_shadowAlloc[i])), "CreateCommandAllocator (shadow)"))
+                return false;
+            if (!checkHr(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_shadowAlloc[i].Get(), nullptr, IID_PPV_ARGS(&m_shadowList[i])),
+                    "CreateCommandList (shadow)"))
+                return false;
+            if (!checkHr(m_shadowList[i]->Close(), "Shadow list Close (init)"))
+                return false;
+
+            wchar_t shadowName[48];
+            swprintf_s(shadowName, L"DE.ShadowAllocator%u", i);
+            nameObject(m_shadowAlloc[i].Get(), shadowName);
+            swprintf_s(shadowName, L"DE.ShadowList%u", i);
+            nameObject(m_shadowList[i].Get(), shadowName);
+        }
+
         if (!checkHr(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)), "CreateFence"))
             return false;
         nameObject(m_fence.Get(), L"DE.FrameFence");
@@ -741,9 +758,23 @@ namespace Dark
     {
         if (!m_valid || !m_commandList || !m_commandQueue)
         {
+            if (m_shadowListOpen && m_frameIndex < kFrameCount && m_shadowList[m_frameIndex])
+                checkHr(m_shadowList[m_frameIndex]->Close(), "Shadow list Close (abandoned)");
+            m_shadowListOpen     = false;
+            m_shadowListRecorded = false;
             closeProfileFrame();
             DE_LOG_ERROR(LogCategory::Render, "Renderer::endFrame: device not initialized");
             return false;
+        }
+
+        if (m_shadowListOpen)
+        {
+            DE_ASSERT(!m_shadowListOpen);
+            DE_LOG_ERROR(LogCategory::Render, "Renderer::endFrame: shadow list was left open");
+            m_shadowListOpen     = false;
+            m_shadowListRecorded = false;
+            if (m_frameIndex < kFrameCount && m_shadowList[m_frameIndex])
+                checkHr(m_shadowList[m_frameIndex]->Close(), "Shadow list Close (abandoned)");
         }
 
         // RENDER_TARGET -> PRESENT
@@ -759,11 +790,69 @@ namespace Dark
         profileTimersResolve(m_commandList.Get());
 
         if (!checkHr(m_commandList->Close(), "CommandList Close"))
+        {
+            m_shadowListRecorded = false;
             return false;
+        }
 
-        ID3D12CommandList* lists[] = { m_commandList.Get() };
-        m_commandQueue->ExecuteCommandLists(1, lists);
+        // Shadow list first. Its depth cull stored the shared args/index state the main list continues.
+        ID3D12CommandList* lists[2]{};
+        UINT listCount = 0;
+        if (m_shadowListRecorded)
+        {
+            if (m_frameIndex < kFrameCount && m_shadowList[m_frameIndex])
+                lists[listCount++] = m_shadowList[m_frameIndex].Get();
+            m_shadowListRecorded = false;
+        }
+        lists[listCount++] = m_commandList.Get();
+        m_commandQueue->ExecuteCommandLists(listCount, lists);
         m_frameSubmitted = true;
+        return true;
+    }
+
+    ID3D12GraphicsCommandList* Renderer::beginShadowList()
+    {
+        if (!m_valid || !m_device || m_frameIndex >= kFrameCount)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "beginShadowList: device not initialized");
+            return nullptr;
+        }
+        if (m_shadowListOpen || m_shadowListRecorded)
+        {
+            DE_ASSERT(!m_shadowListOpen && !m_shadowListRecorded);
+            DE_LOG_ERROR(LogCategory::Render, "beginShadowList: slot was already reset this frame");
+            return nullptr;
+        }
+        ID3D12CommandAllocator*    alloc = m_shadowAlloc[m_frameIndex].Get();
+        ID3D12GraphicsCommandList* list  = m_shadowList[m_frameIndex].Get();
+        if (!alloc || !list)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "beginShadowList: list is not ready");
+            return nullptr;
+        }
+        // moveToNextFrame already waited this slot. The stored fence value is this
+        // frame's future Present signal, so it is not the reset test.
+        if (!checkHr(alloc->Reset(), "Shadow allocator Reset"))
+            return nullptr;
+        if (!checkHr(list->Reset(alloc, nullptr), "Shadow list Reset"))
+            return nullptr;
+        m_shadowListOpen = true;
+        return list;
+    }
+
+    bool Renderer::closeShadowList()
+    {
+        if (!m_shadowListOpen || m_frameIndex >= kFrameCount)
+        {
+            DE_ASSERT(m_shadowListOpen);
+            DE_LOG_ERROR(LogCategory::Render, "closeShadowList: list is not open");
+            return false;
+        }
+        ID3D12GraphicsCommandList* list = m_shadowList[m_frameIndex].Get();
+        m_shadowListOpen = false;
+        if (!list || !checkHr(list->Close(), "Shadow list Close"))
+            return false;
+        m_shadowListRecorded = true;
         return true;
     }
 

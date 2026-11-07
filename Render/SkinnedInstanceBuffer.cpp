@@ -1057,38 +1057,15 @@ namespace Dark
         return indexVa != 0 && args != nullptr && signature != nullptr;
     }
 
-    bool SkinnedInstanceBuffer::dispatchCull(ID3D12GraphicsCommandList* cmd, const CullViewDesc* views, uint32_t viewCount)
+    bool SkinnedInstanceBuffer::uploadCullFrame()
     {
-        m_culledMask = 0;
-        if (!cmd || !cullReady() || !views || viewCount == 0)
+        if (!cullReady())
             return false;
 
         compile();
         const uint32_t parts = static_cast<uint32_t>(m_cullAabbs.size());
         const uint32_t gb    = static_cast<uint32_t>(m_gbuffer.size());
         const uint32_t db    = static_cast<uint32_t>(m_depth.size());
-
-        CullViewDesc local[kMaxStaticViews];
-        uint32_t     localCount = 0;
-        uint32_t     mask       = 0;
-        for (uint32_t i = 0; i < viewCount && localCount < kMaxStaticViews; ++i)
-        {
-            if (views[i].viewIndex >= kMaxStaticViews)
-                continue;
-            const uint32_t batches = views[i].useDepthBatch != 0 ? db : gb;
-            if (batches == 0 || batches > SkinnedInstanceCull::kStride)
-                continue;
-            const uint32_t bit = 1u << views[i].viewIndex;
-            if ((mask & bit) != 0)
-                continue;
-            CullViewDesc desc = views[i];
-            desc.batchCount   = batches;
-            desc.itemCount    = parts;
-            local[localCount++] = desc;
-            mask |= bit;
-        }
-        if (localCount == 0)
-            return false;
 
         std::vector<GpuBatchRecord> gbuffer(gb);
         std::vector<GpuBatchRecord> depth(db);
@@ -1113,12 +1090,56 @@ namespace Dark
         const MeshCullAabb*   aabbPtr = m_cullAabbs.empty() ? nullptr : m_cullAabbs.data();
         const GpuBatchRecord* gbPtr   = gbuffer.empty() ? nullptr : gbuffer.data();
         const GpuBatchRecord* dbPtr   = depth.empty() ? nullptr : depth.data();
-        if (!m_cull->upload(slot, aabbPtr, parts, gbPtr, gb, dbPtr, db))
+        return m_cull->upload(slot, aabbPtr, parts, gbPtr, gb, dbPtr, db);
+    }
+
+    bool SkinnedInstanceBuffer::dispatchPreparedCull(ID3D12GraphicsCommandList* cmd, const CullViewDesc* views, uint32_t viewCount)
+    {
+        if (!cmd || !cullReady() || !views || viewCount == 0)
             return false;
+
+        compile();
+        const uint32_t parts = static_cast<uint32_t>(m_cullAabbs.size());
+        const uint32_t gb    = static_cast<uint32_t>(m_gbuffer.size());
+        const uint32_t db    = static_cast<uint32_t>(m_depth.size());
+
+        CullViewDesc local[kMaxStaticViews];
+        uint32_t     localCount = 0;
+        uint32_t     mask       = 0;
+        for (uint32_t i = 0; i < viewCount && localCount < kMaxStaticViews; ++i)
+        {
+            if (views[i].viewIndex >= kMaxStaticViews)
+                continue;
+            const uint32_t batches = views[i].useDepthBatch != 0 ? db : gb;
+            if (batches == 0 || batches > SkinnedInstanceCull::kStride)
+                continue;
+            const uint32_t bit = 1u << views[i].viewIndex;
+            if ((mask & bit) != 0)
+                continue;
+            CullViewDesc desc   = views[i];
+            desc.batchCount     = batches;
+            desc.itemCount      = parts;
+            local[localCount++] = desc;
+            mask |= bit;
+        }
+        if (localCount == 0)
+            return false;
+
+        const uint32_t slot = m_frameIndex % kFrameSlots;
         if (!m_cull->dispatch(cmd, slot, local, localCount))
             return false;
-        m_culledMask = mask;
+        m_culledMask |= mask;
         return true;
+    }
+
+    bool SkinnedInstanceBuffer::dispatchCull(ID3D12GraphicsCommandList* cmd, const CullViewDesc* views, uint32_t viewCount)
+    {
+        m_culledMask = 0;
+        if (!cmd || !cullReady() || !views || viewCount == 0)
+            return false;
+        if (!uploadCullFrame())
+            return false;
+        return dispatchPreparedCull(cmd, views, viewCount);
     }
 
     void SkinnedInstanceBuffer::recordGBuffer(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, StaticPopulation population, const float viewProj[16], const float prevViewProj[16]) const
