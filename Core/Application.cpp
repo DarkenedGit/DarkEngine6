@@ -497,7 +497,6 @@ namespace Dark
 
     void Application::run()
     {
-        // Win32 thread token. The scheduler is not started here.
         bindMainThread();
         if (!initOk())
             return;

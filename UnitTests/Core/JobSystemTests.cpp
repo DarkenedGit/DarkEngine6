@@ -104,6 +104,11 @@ struct Marker
     int value = 0;
 };
 
+struct UnbindMainThread
+{
+    ~UnbindMainThread() { unbindMainThread(); }
+};
+
 JobStatus gateJob(void* user)
 {
     static_cast<Gate*>(user)->wait();
@@ -198,10 +203,12 @@ TEST(JobSystem, EnqueueRejectsBeforeStartAndMainOnlyWrites)
     EXPECT_FALSE(jobs.enqueue(desc));
     EXPECT_FALSE(jobs.publishFrame(0));
     EXPECT_TRUE(jobs.joinRender(0));
+    EXPECT_FALSE(jobs.joinRender(2));
 
     jobs.start();
     EXPECT_TRUE(jobs.publishFrame(0));
     EXPECT_FALSE(jobs.publishFrame(2));
+    EXPECT_FALSE(jobs.joinRender(2));
     EXPECT_TRUE(jobs.joinRender(1));
 
     desc.fn = nullptr;
@@ -357,6 +364,26 @@ TEST(JobSystem, OverlappingRenderWritesRejected)
     jobs.shutdown();
 }
 
+TEST(JobSystem, RepublishWhileOutstandingRejectsOverlap)
+{
+    JobSystem jobs;
+    Gate      gate;
+    jobs.start();
+    ASSERT_TRUE(jobs.publishFrame(0));
+
+    JobDesc shadow = makeDesc("shadow-hold", JobLane::Render, gateJob, &gate);
+    shadow.writes  = AccessListShadow;
+    ASSERT_TRUE(jobs.enqueue(shadow));
+    ASSERT_TRUE(waitUntil([&] { return gate.popped.load() >= 1; }));
+
+    EXPECT_FALSE(jobs.publishFrame(0));
+    EXPECT_FALSE(jobs.enqueue(shadow));
+
+    gate.open();
+    EXPECT_TRUE(jobs.joinRender(0));
+    jobs.shutdown();
+}
+
 TEST(JobSystem, FailedJobIsLoggedAndNotReadyIsNot)
 {
     CaptureGuard     logs;
@@ -379,6 +406,7 @@ TEST(JobSystem, FailedJobIsLoggedAndNotReadyIsNot)
 
 TEST(JobSystem, MainThreadToken)
 {
+    UnbindMainThread unbind;
     assertMainThread();
     EXPECT_FALSE(isMainThread());
 

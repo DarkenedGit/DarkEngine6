@@ -30,6 +30,11 @@ namespace Dark
         state.bound.store(true, std::memory_order_release);
     }
 
+    inline void unbindMainThread()
+    {
+        MainThreadDetail::state().bound.store(false, std::memory_order_release);
+    }
+
     inline bool isMainThread()
     {
         MainThreadDetail::State& state = MainThreadDetail::state();

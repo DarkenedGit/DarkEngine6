@@ -75,25 +75,28 @@ namespace Dark
             return;
 
         m_stopping = false;
-        // Fixed lane sizes. hardware_concurrency is not a thread count.
+        // Set before the constructors. A later constructor failure must still be joinable from shutdown.
+        m_started = true;
         m_renderThread = std::thread([this] { renderMain(); });
         for (std::thread& thread : m_ioThreads)
             thread = std::thread([this] { ioMain(); });
-        m_started = true;
     }
 
     void JobSystem::shutdown()
     {
         {
             std::lock_guard lock(m_mutex);
-            if (!m_started)
+            bool live = m_started || m_renderThread.joinable();
+            for (const std::thread& thread : m_ioThreads)
+                live = live || thread.joinable();
+            if (!live)
                 return;
             m_stopping = true;
             flushPendingLocked();
         }
         m_cv.notify_all();
 
-        // Render lane first, then IO. Join waits out a job blocked inside fn.
+        // Join waits out a job blocked inside fn.
         if (m_renderThread.joinable())
             m_renderThread.join();
         for (std::thread& thread : m_ioThreads)
@@ -173,10 +176,12 @@ namespace Dark
             return false;
         if (frameIndex >= kFrameSlots)
             return false;
+        // In-flight jobs still own their write bits. A new publish of this slot waits until joinRender.
+        if (outstandingLocked(frameIndex) > 0)
+            return false;
 
-        // Slot N's allocator wait already happened. This does not touch a renderer.
-        m_hasPublished              = true;
-        m_publishedFrame            = frameIndex;
+        m_hasPublished                = true;
+        m_publishedFrame              = frameIndex;
         m_slots[frameIndex].writeMask = 0;
 
         for (const JobDesc& desc : m_pendingRender)
@@ -194,7 +199,7 @@ namespace Dark
     bool JobSystem::joinRender(uint32_t frameIndex)
     {
         if (frameIndex >= kFrameSlots)
-            return true;
+            return false;
 
         std::unique_lock lock(m_mutex);
         const auto       t0 = std::chrono::steady_clock::now();
