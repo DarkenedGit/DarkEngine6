@@ -88,6 +88,9 @@ set(DE_FOUNDATION_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/Core/ContentRoots.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Core/UUID.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Core/UUID.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Core/JobSystem.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Core/JobSystem.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Core/MainThread.h"
 )
 
 set(DE_ENGINE_CORE_SOURCES
@@ -236,6 +239,8 @@ include(cmake/WinPixEventRuntime.cmake)
 add_library(DarkFoundation STATIC ${DE_FOUNDATION_SOURCES})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${DE_FOUNDATION_SOURCES})
 de_engine_target_common(DarkFoundation)
+# IO workers call CoInitializeEx. Final exes also link ole32 via DarkEngine.
+target_link_libraries(DarkFoundation PRIVATE ole32)
 set_target_properties(DarkFoundation PROPERTIES FOLDER "Engine")
 
 add_library(DarkAssets STATIC ${DE_ASSETS_SOURCES})

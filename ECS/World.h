@@ -2,6 +2,7 @@
 #include "ECS/Entity.h"
 #include "ECS/Component.h"
 #include "ECS/Persist.h"
+#include "Core/MainThread.h"
 #include <unordered_map>
 #include <vector>
 #include <memory>
@@ -33,6 +34,7 @@ namespace Dark
     public:
         void insert(EntityID id, T comp)
         {
+            assertMainThread();
             auto it = m_sparse.find(id);
             if (it != m_sparse.end())
             {
@@ -123,6 +125,7 @@ namespace Dark
 
         template <typename T, typename... Args> T& emplace(Entity e, Args&&... args)
         {
+            assertMainThread();
             auto& pool = getOrCreatePool<T>();
             pool.insert(e.id(), T{ std::forward<Args>(args)... });
             return *pool.get(e.id());
@@ -130,6 +133,7 @@ namespace Dark
 
         template <typename T> void remove(Entity e)
         {
+            assertMainThread();
             if (auto* pool = getPool<T>())
                 pool->remove(e.id());
         }
@@ -142,6 +146,7 @@ namespace Dark
 
         template <typename T> T* get(Entity e)
         {
+            assertMainThread();
             auto* pool = getPool<T>();
             return pool ? pool->get(e.id()) : nullptr;
         }
@@ -169,6 +174,7 @@ namespace Dark
         // Single-component view — iterate entities that have T
         template <typename T, typename Fn> void each(Fn&& fn)
         {
+            assertMainThread();
             auto* pool = getPool<T>();
             if (!pool)
                 return;

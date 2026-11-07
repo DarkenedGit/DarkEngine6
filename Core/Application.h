@@ -1,5 +1,6 @@
 #pragma once
 #include "Core/Log.h"
+#include "Core/JobSystem.h"
 #include "Core/Window.h"
 #include "ECS/World.h"
 #include "Assets/AssetManager.h"
@@ -79,6 +80,7 @@ namespace Dark
         Input&         input()    { return m_input; }
         const Input&   input() const { return m_input; }
         Window&        window()   { return m_window; }
+        JobSystem&     jobs()     { return m_jobs; }
 
     private:
         void applyNetConfig();
@@ -105,6 +107,7 @@ namespace Dark
         DebugServer   m_debug;   // after network: debug TCP dies before game sockets / HWND
 
     private:
+        JobSystem     m_jobs;
         LoadingScreen m_loading;
         AppConfig     m_config;
         bool          m_running        = true;

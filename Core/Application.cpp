@@ -1,5 +1,6 @@
 #include "Core/Application.h"
 #include "Core/Log.h"
+#include "Core/MainThread.h"
 #include "Core/Version.h"
 #include "Input/InputCodes.h"
 #include "Render/Profile.h"
@@ -311,6 +312,8 @@ namespace Dark
 
     Application::~Application()
     {
+        // No-op until some host calls start(). Safe to repeat.
+        m_jobs.shutdown();
         if (m_loading.isReady())
             m_loading.shutdown(m_renderer);
         m_debug.shutdown();
@@ -494,6 +497,8 @@ namespace Dark
 
     void Application::run()
     {
+        // Win32 thread token. The scheduler is not started here.
+        bindMainThread();
         if (!initOk())
             return;
 
