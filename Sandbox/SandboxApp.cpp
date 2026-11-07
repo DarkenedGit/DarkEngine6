@@ -106,6 +106,7 @@
 #include "Combat/StatusDot.h"
 #include "Combat/StatusEffectComponent.h"
 #include "Particles/ParticleComponents.h"
+#include "Particles/ParticleScene.h"
 #include "Particles/ParticleTick.h"
 #include "Particles/StatusFxDriver.h"
 #include "Ui/HudTagComponent.h"
@@ -2813,6 +2814,8 @@ bool SandboxApp::startScene(const std::filesystem::path& scenePath)
                 sceneModels.push_back(o);
             if (o.type == SceneObjectType::Player)
                 m_chase.setPlayerStart(o.position);
+            if (o.type == SceneObjectType::ParticleEmitter)
+                spawnSceneParticleEmitter(world(), assets(), &pins(), o);
             if (o.type != SceneObjectType::CloudVolume)
                 continue;
             CloudVolumeDesc desc{};

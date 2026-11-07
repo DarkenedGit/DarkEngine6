@@ -263,6 +263,23 @@ namespace Dark
         int         renderMode    = 0; // ParticleEmitterDesc::RenderMode
         uint32_t    ribbonCount   = 1;
         float       ribbonUvScale = 1.0f;
+        int         simMode              = 0; // ParticleSimMode. Missing JSON is CPU.
+        int         collision            = 0; // ParticleCollisionReaction. Missing JSON is None.
+        float       restitution          = 0.45f;
+        float       friction             = 0.20f;
+        float       collisionThickness   = 0.35f;
+        float       collisionBias        = 0.04f;
+        float       restLifetime         = 0.20f;
+        uint32_t    maxSecondaryPerFrame = 512;
+        bool        hasSecondary         = false;
+        uint32_t    secondaryMaxParticles  = 4096;
+        float       secondaryLifetimeMin   = 0.1f;
+        float       secondaryLifetimeMax   = 0.25f;
+        float       secondaryStartSizeMin  = 0.02f;
+        float       secondaryStartSizeMax  = 0.06f;
+        float       secondaryRestLifetime  = 0.20f;
+        bool        secondaryAdditiveBlend = false;
+        int         secondaryCollision     = 2; // Stop. SpawnSecondary is stored as Stop.
 
         // Optional local-light payload (PointLight / SpotLight).
         bool  hasLight           = false;

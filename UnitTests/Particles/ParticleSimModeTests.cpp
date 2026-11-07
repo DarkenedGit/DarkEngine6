@@ -1,0 +1,451 @@
+#include <gtest/gtest.h>
+
+#include "Core/Log.h"
+#include "ECS/Components.h"
+#include "ECS/World.h"
+#include "Particles/ParticleComponents.h"
+#include "Particles/ParticleEmitter.h"
+#include "Particles/ParticleSpawn.h"
+#include "Particles/ParticleTick.h"
+
+#include <cmath>
+#include <cstring>
+#include <limits>
+
+using namespace Dark;
+using namespace Dark::Math;
+
+namespace
+{
+
+int g_ribbonLogs = 0;
+int g_overCapLogs = 0;
+
+void captureParticleLogs(LogLevel, LogCategory, const char* message)
+{
+    if (message == nullptr)
+        return;
+    if (std::strstr(message, "ribbon forces CPU") != nullptr)
+        ++g_ribbonLogs;
+    if (std::strstr(message, "no CPU pool") != nullptr)
+        ++g_overCapLogs;
+}
+
+struct LogCapture
+{
+    explicit LogCapture(Log::CaptureFn fn)
+        : m_fn(fn)
+    {
+        Log::addCapture(m_fn);
+    }
+    ~LogCapture()
+    {
+        Log::removeCapture(m_fn);
+    }
+    Log::CaptureFn m_fn;
+};
+
+ParticleEmitterDesc cpuMotionDesc()
+{
+    ParticleEmitterDesc desc{};
+    desc.maxParticles  = 32;
+    desc.emissionRate  = 10.0f;
+    desc.lifetime      = { 10.0f, 10.0f };
+    desc.startSpeed    = { 3.0f, 3.0f };
+    desc.direction     = Vector3f(1.0f, 0.0f, 0.0f);
+    desc.spreadDegrees = 0.0f;
+    desc.gravity       = Vector3f(0.0f, 0.0f, 0.0f);
+    desc.shape         = ParticleEmitterDesc::Shape::Point;
+    desc.looping       = true;
+    return desc;
+}
+
+const Particle* firstSpawned(const ParticleEmitter& emitter)
+{
+    for (const Particle& p : emitter.particles())
+    {
+        if (p.maxLife > 0.0f)
+            return &p;
+    }
+    return nullptr;
+}
+
+} // namespace
+
+TEST(ParticleSimMode, DefaultsAreCpuAndNoCollision)
+{
+    const ParticleEmitterDesc desc{};
+    EXPECT_EQ(desc.simMode, ParticleSimMode::Cpu);
+    EXPECT_EQ(desc.collision, ParticleCollisionReaction::None);
+    EXPECT_FLOAT_EQ(desc.collisionThickness, 0.35f);
+    EXPECT_FLOAT_EQ(desc.collisionBias, 0.04f);
+    EXPECT_FLOAT_EQ(desc.restitution, 0.45f);
+    EXPECT_FLOAT_EQ(desc.friction, 0.20f);
+    EXPECT_FLOAT_EQ(desc.restLifetime, 0.20f);
+    EXPECT_EQ(desc.maxSecondaryPerFrame, 512u);
+    EXPECT_FALSE(desc.hasSecondary);
+}
+
+TEST(ParticleSimMode, CpuSetDescClampsAndIntegratesOneEulerStep)
+{
+    ParticleEmitter emitter;
+    ParticleEmitterDesc desc = cpuMotionDesc();
+    desc.maxParticles = 150000;
+    desc.emissionRate = 40.0f;
+    emitter.setDesc(desc);
+    emitter.setTransform(Vector3f(5.0f, 6.0f, 7.0f));
+    EXPECT_EQ(emitter.desc().maxParticles, kMaxCpuParticles);
+    EXPECT_EQ(emitter.capacity(), kMaxCpuParticles);
+    EXPECT_EQ(emitter.desc().simMode, ParticleSimMode::Cpu);
+
+    const float dt = 0.1f;
+    emitter.update(dt);
+    EXPECT_GT(emitter.aliveCount(), 0u);
+    const Particle* spawned = firstSpawned(emitter);
+    ASSERT_NE(spawned, nullptr);
+    EXPECT_TRUE(spawned->alive);
+    EXPECT_NEAR(spawned->life, spawned->maxLife - dt, 1.0e-4f);
+    EXPECT_NEAR(spawned->position.x, 5.0f + 3.0f * dt, 1.0e-4f);
+    EXPECT_NEAR(spawned->position.y, 6.0f, 1.0e-4f);
+    EXPECT_NEAR(spawned->position.z, 7.0f, 1.0e-4f);
+}
+
+TEST(ParticleSimMode, CpuKillingStepDoesNotMove)
+{
+    ParticleEmitter emitter;
+    ParticleEmitterDesc desc = cpuMotionDesc();
+    desc.lifetime     = { 0.05f, 0.05f };
+    desc.emissionRate = 100.0f;
+    desc.startSpeed   = { 4.0f, 4.0f };
+    desc.direction    = Vector3f(0.0f, 1.0f, 0.0f);
+    emitter.setDesc(desc);
+    emitter.setTransform(Vector3f(5.0f, 6.0f, 7.0f));
+    emitter.update(0.05f);
+
+    EXPECT_EQ(emitter.aliveCount(), 0u);
+    const Particle* spawned = firstSpawned(emitter);
+    ASSERT_NE(spawned, nullptr);
+    EXPECT_FALSE(spawned->alive);
+    EXPECT_NEAR(spawned->position.x, 5.0f, 1.0e-4f);
+    EXPECT_NEAR(spawned->position.y, 6.0f, 1.0e-4f);
+    EXPECT_NEAR(spawned->position.z, 7.0f, 1.0e-4f);
+}
+
+TEST(ParticleSimMode, GpuSetDescAllocatesNoCpuVector)
+{
+    ParticleEmitter emitter;
+    ParticleEmitterDesc desc = cpuMotionDesc();
+    desc.simMode      = ParticleSimMode::Gpu;
+    desc.maxParticles = 200000;
+    desc.emissionRate = 10000.0f;
+    emitter.setDesc(desc);
+    EXPECT_EQ(emitter.desc().maxParticles, 200000u);
+    EXPECT_EQ(emitter.desc().simMode, ParticleSimMode::Gpu);
+    EXPECT_EQ(emitter.capacity(), 0u);
+
+    emitter.update(0.5f);
+    EXPECT_EQ(emitter.capacity(), 0u);
+    EXPECT_EQ(emitter.aliveCount(), 0u);
+    EXPECT_EQ(emitter.desc().simMode, ParticleSimMode::Gpu);
+}
+
+TEST(ParticleSimMode, GpuSetDescClampsZeroAndUpperBound)
+{
+    ParticleEmitter emitter;
+    ParticleEmitterDesc desc{};
+    desc.simMode      = ParticleSimMode::Gpu;
+    desc.maxParticles = 0;
+    emitter.setDesc(desc);
+    EXPECT_EQ(emitter.desc().maxParticles, 1u);
+    EXPECT_EQ(emitter.capacity(), 0u);
+
+    desc.maxParticles = 300000;
+    emitter.setDesc(desc);
+    EXPECT_EQ(emitter.desc().maxParticles, kMaxGpuParticlesPerEmitter);
+    EXPECT_EQ(emitter.capacity(), 0u);
+}
+
+TEST(ParticleSimMode, ForceCpuOnSmallGpuDescKeepsModeAndIntegrates)
+{
+    ParticleEmitter emitter;
+    ParticleEmitterDesc desc = cpuMotionDesc();
+    desc.simMode      = ParticleSimMode::Gpu;
+    desc.maxParticles = 512;
+    desc.emissionRate = 1000.0f;
+    desc.startSpeed   = { 0.0f, 0.0f };
+    desc.gravity      = Vector3f(0.0f, -10.0f, 0.0f);
+    emitter.setDesc(desc);
+    emitter.setTransform(Vector3f(1.0f, 2.0f, 3.0f));
+
+    const float dt = 0.1f;
+    emitter.update(dt, true);
+    EXPECT_GT(emitter.aliveCount(), 0u);
+    EXPECT_EQ(emitter.capacity(), 512u);
+    EXPECT_EQ(emitter.desc().simMode, ParticleSimMode::Gpu);
+    EXPECT_TRUE(emitter.forceCpu());
+    const Particle* spawned = firstSpawned(emitter);
+    ASSERT_NE(spawned, nullptr);
+    EXPECT_NEAR(spawned->velocity.y, -10.0f * dt, 1.0e-4f);
+    EXPECT_NEAR(spawned->position.x, 1.0f, 1.0e-4f);
+    EXPECT_NEAR(spawned->position.y, 2.0f + (-10.0f * dt) * dt, 1.0e-4f);
+    EXPECT_NEAR(spawned->position.z, 3.0f, 1.0e-4f);
+
+    ParticleEmitter stored;
+    stored.setDesc(desc);
+    stored.setForceCpu(true);
+    stored.setTransform(Vector3f(1.0f, 2.0f, 3.0f));
+    stored.update(dt);
+    EXPECT_GT(stored.aliveCount(), 0u);
+    EXPECT_EQ(stored.desc().simMode, ParticleSimMode::Gpu);
+}
+
+TEST(ParticleSimMode, ForceCpuFalseLeavesGpuAliveCountAtZero)
+{
+    ParticleEmitter emitter;
+    ParticleEmitterDesc desc = cpuMotionDesc();
+    desc.simMode      = ParticleSimMode::Gpu;
+    desc.maxParticles = 512;
+    desc.emissionRate = 1000.0f;
+    emitter.setDesc(desc);
+    emitter.setForceCpu(true);
+    emitter.update(0.1f, false);
+    EXPECT_FALSE(emitter.forceCpu());
+    EXPECT_EQ(emitter.aliveCount(), 0u);
+    EXPECT_EQ(emitter.capacity(), 0u);
+    EXPECT_EQ(emitter.desc().simMode, ParticleSimMode::Gpu);
+}
+
+TEST(ParticleSimMode, ForceCpuAboveCpuCapAllocatesNothing)
+{
+    g_overCapLogs = 0;
+    LogCapture capture(captureParticleLogs);
+
+    ParticleEmitter emitter;
+    ParticleEmitterDesc desc{};
+    desc.simMode      = ParticleSimMode::Gpu;
+    desc.maxParticles = 200000;
+    desc.emissionRate = 10000.0f;
+    emitter.setDesc(desc);
+    emitter.update(0.1f, true);
+    emitter.update(0.1f, true);
+    EXPECT_EQ(emitter.capacity(), 0u);
+    EXPECT_EQ(emitter.aliveCount(), 0u);
+    EXPECT_EQ(emitter.desc().simMode, ParticleSimMode::Gpu);
+    EXPECT_TRUE(emitter.forceCpu());
+    EXPECT_EQ(g_overCapLogs, 1);
+    emitter.emitBurst(4);
+    EXPECT_EQ(emitter.capacity(), 0u);
+    EXPECT_EQ(emitter.pendingBurst(), 0u);
+}
+
+TEST(ParticleSimMode, RibbonGpuSetDescBecomesCpu)
+{
+    g_ribbonLogs = 0;
+    LogCapture capture(captureParticleLogs);
+
+    ParticleEmitter emitter;
+    ParticleEmitterDesc desc{};
+    desc.simMode      = ParticleSimMode::Gpu;
+    desc.renderMode   = ParticleEmitterDesc::RenderMode::Ribbon;
+    desc.maxParticles = 32;
+    emitter.setDesc(desc);
+    emitter.setDesc(desc);
+    EXPECT_EQ(emitter.desc().simMode, ParticleSimMode::Cpu);
+    EXPECT_EQ(emitter.desc().renderMode, ParticleEmitterDesc::RenderMode::Ribbon);
+    EXPECT_EQ(emitter.capacity(), 32u);
+    EXPECT_EQ(g_ribbonLogs, 1);
+}
+
+TEST(ParticleSimMode, SpawnWindow)
+{
+    ParticleSpawnStep step = particleAdvanceSpawn(0.0f, 0.0f, 1.0f, 8u, 3u, 0u);
+    EXPECT_EQ(step.spawnCount, 0u);
+    EXPECT_EQ(step.head, 3u);
+    EXPECT_FLOAT_EQ(step.carry, 0.0f);
+    for (uint32_t slot = 0; slot < 8u; ++slot)
+        EXPECT_FALSE(particleSlotInSpawnWindow(slot, step.head, step.spawnCount, 8u));
+
+    step = particleAdvanceSpawn(0.0f, 8.0f, 1.0f, 8u, 1u, 0u);
+    EXPECT_EQ(step.spawnCount, 8u);
+    EXPECT_EQ(step.head, 1u);
+    EXPECT_FLOAT_EQ(step.carry, 0.0f);
+    for (uint32_t slot = 0; slot < 8u; ++slot)
+        EXPECT_TRUE(particleSlotInSpawnWindow(slot, step.head, step.spawnCount, 8u));
+
+    step = particleAdvanceSpawn(0.25f, 100.0f, 1.0f, 8u, 2u, 0u);
+    EXPECT_EQ(step.spawnCount, 8u);
+    EXPECT_EQ(step.head, 2u);
+    EXPECT_NEAR(step.carry, 0.25f, 1.0e-5f);
+    for (uint32_t slot = 0; slot < 8u; ++slot)
+        EXPECT_TRUE(particleSlotInSpawnWindow(slot, step.head, step.spawnCount, 8u));
+
+    step = particleAdvanceSpawn(0.4f, 3.0f, 0.5f, 0u, 7u, 4u);
+    EXPECT_EQ(step.head, 7u);
+    EXPECT_EQ(step.spawnCount, 0u);
+    EXPECT_FLOAT_EQ(step.carry, 0.0f);
+    EXPECT_FALSE(particleSlotInSpawnWindow(0u, 7u, 1u, 0u));
+
+    step = particleAdvanceSpawn(0.0f, 1.0f, 1.0f, 8u, 0u, 0xffffffffu);
+    EXPECT_EQ(step.spawnCount, 8u);
+    EXPECT_EQ(step.head, 0u);
+    EXPECT_FLOAT_EQ(step.carry, 0.0f);
+
+    step = particleAdvanceSpawn(0.0f, 2.0f, 1.0f, 8u, 3u, 0u);
+    EXPECT_EQ(step.spawnCount, 2u);
+    EXPECT_EQ(step.head, 5u);
+    EXPECT_TRUE(particleSlotInSpawnWindow(3u, step.head, step.spawnCount, 8u));
+    EXPECT_TRUE(particleSlotInSpawnWindow(4u, step.head, step.spawnCount, 8u));
+    EXPECT_FALSE(particleSlotInSpawnWindow(5u, step.head, step.spawnCount, 8u));
+    EXPECT_FALSE(particleSlotInSpawnWindow(2u, step.head, step.spawnCount, 8u));
+
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    step = particleAdvanceSpawn(nan, 1.0f, 1.0f, 4u, 2u, 1u);
+    EXPECT_EQ(step.head, 2u);
+    EXPECT_EQ(step.spawnCount, 0u);
+    EXPECT_FLOAT_EQ(step.carry, 0.0f);
+}
+
+TEST(ParticleSimMode, PoolDecisionTable)
+{
+    ParticlePoolDecision decision = particlePoolDecision(ParticleSimMode::Gpu, 200000u, false, true);
+    EXPECT_FALSE(decision.forceCpu);
+    EXPECT_FALSE(decision.recordGpuPool);
+
+    decision = particlePoolDecision(ParticleSimMode::Gpu, 512u, false, true);
+    EXPECT_TRUE(decision.forceCpu);
+    EXPECT_FALSE(decision.recordGpuPool);
+
+    decision = particlePoolDecision(ParticleSimMode::Gpu, kMaxCpuParticles, false, false);
+    EXPECT_TRUE(decision.forceCpu);
+    EXPECT_FALSE(decision.recordGpuPool);
+
+    decision = particlePoolDecision(ParticleSimMode::Gpu, kMaxCpuParticles + 1u, true, false);
+    EXPECT_FALSE(decision.forceCpu);
+    EXPECT_FALSE(decision.recordGpuPool);
+
+    decision = particlePoolDecision(ParticleSimMode::Gpu, 512u, true, true);
+    EXPECT_FALSE(decision.forceCpu);
+    EXPECT_TRUE(decision.recordGpuPool);
+
+    decision = particlePoolDecision(ParticleSimMode::Gpu, 200000u, true, true);
+    EXPECT_FALSE(decision.forceCpu);
+    EXPECT_TRUE(decision.recordGpuPool);
+
+    decision = particlePoolDecision(ParticleSimMode::Cpu, 512u, true, true);
+    EXPECT_FALSE(decision.forceCpu);
+    EXPECT_FALSE(decision.recordGpuPool);
+
+    decision = particlePoolDecision(ParticleSimMode::Cpu, 200000u, false, false);
+    EXPECT_FALSE(decision.forceCpu);
+    EXPECT_FALSE(decision.recordGpuPool);
+}
+
+TEST(ParticleSimMode, ClearSerialBurstAndClock)
+{
+    ParticleEmitter emitter;
+    ParticleEmitterDesc desc{};
+    desc.maxParticles = 8;
+    emitter.setDesc(desc);
+    emitter.emitBurst(2);
+    EXPECT_EQ(emitter.aliveCount(), 2u);
+
+    const uint32_t serial = emitter.emitCommand().clearSerial;
+    emitter.noteGpuClock(0.4f, 2.0f, true);
+    emitter.stop(false);
+    EXPECT_EQ(emitter.emitCommand().clearSerial, serial);
+    EXPECT_FALSE(emitter.emitCommand().playing);
+    EXPECT_FLOAT_EQ(emitter.emitCommand().emitCarry, 0.0f);
+    EXPECT_FLOAT_EQ(emitter.emitCommand().age, 2.0f);
+    EXPECT_EQ(emitter.aliveCount(), 2u);
+
+    emitter.stop(true);
+    EXPECT_EQ(emitter.emitCommand().clearSerial, serial + 1u);
+    EXPECT_EQ(emitter.aliveCount(), 0u);
+    EXPECT_EQ(emitter.pendingBurst(), 0u);
+
+    emitter.restart();
+    EXPECT_EQ(emitter.emitCommand().clearSerial, serial + 2u);
+    EXPECT_TRUE(emitter.isPlaying());
+    EXPECT_FLOAT_EQ(emitter.emitCommand().age, 0.0f);
+
+    ParticleEmitterDesc gpu = desc;
+    gpu.simMode = ParticleSimMode::Gpu;
+    gpu.maxParticles = 32;
+    emitter.setDesc(gpu);
+    EXPECT_EQ(emitter.capacity(), 0u);
+    emitter.emitBurst(5);
+    emitter.emitBurst(2);
+    EXPECT_EQ(emitter.pendingBurst(), 7u);
+    EXPECT_EQ(emitter.capacity(), 0u);
+    EXPECT_EQ(emitter.aliveCount(), 0u);
+    EXPECT_EQ(emitter.takeBurst(), 7u);
+    EXPECT_EQ(emitter.pendingBurst(), 0u);
+
+    emitter.setForceCpu(true);
+    emitter.emitBurst(3);
+    EXPECT_EQ(emitter.aliveCount(), 3u);
+    EXPECT_EQ(emitter.capacity(), 32u);
+    EXPECT_EQ(emitter.pendingBurst(), 0u);
+    EXPECT_EQ(emitter.desc().simMode, ParticleSimMode::Gpu);
+}
+
+TEST(ParticleSimMode, SubstepCount)
+{
+    EXPECT_EQ(particleSubstepCount(1.0f / 60.0f), 1u);
+    EXPECT_EQ(particleSubstepCount(1.0f / 30.0f), 2u);
+    EXPECT_EQ(particleSubstepCount(0.1f), 2u);
+}
+
+TEST(ParticleSimMode, ChildSpawnSecondaryIsStoredAsStop)
+{
+    ParticleEmitter emitter;
+    ParticleEmitterDesc desc{};
+    desc.hasSecondary = true;
+    desc.secondary.collision = ParticleCollisionReaction::SpawnSecondary;
+    desc.secondary.maxParticles = 1000000;
+    desc.maxSecondaryPerFrame = 9000;
+    emitter.setDesc(desc);
+    EXPECT_EQ(emitter.desc().secondary.collision, ParticleCollisionReaction::Stop);
+    EXPECT_EQ(emitter.desc().secondary.maxParticles, kMaxSecondaryParticles);
+    EXPECT_EQ(emitter.desc().maxSecondaryPerFrame, kMaxSecondaryPerFrameHard);
+}
+
+TEST(ParticleSimMode, GpuDescGenerationBumpsOnModeAndRepeatsDoNot)
+{
+    ParticleEmitter emitter;
+    const uint32_t before = emitter.gpuDescGeneration();
+    ParticleEmitterDesc desc{};
+    desc.simMode = ParticleSimMode::Gpu;
+    desc.maxParticles = 128;
+    emitter.setDesc(desc);
+    const uint32_t once = emitter.gpuDescGeneration();
+    EXPECT_GT(once, before);
+    emitter.setDesc(emitter.desc());
+    EXPECT_EQ(emitter.gpuDescGeneration(), once);
+}
+
+TEST(ParticleSimMode, TickStillUpdatesAndSkipsGpuIntegration)
+{
+    World world;
+    Entity e = world.createEntity();
+    TransformComponent xf{};
+    xf.position = Vector3f(4.0f, 0.0f, -1.0f);
+    world.emplace<TransformComponent>(e, xf);
+
+    ParticleEmitterComponent pe{};
+    pe.desc.simMode = ParticleSimMode::Gpu;
+    pe.desc.maxParticles = 200000;
+    pe.desc.emissionRate = 1000.0f;
+    pe.playing = true;
+    world.emplace<ParticleEmitterComponent>(e, std::move(pe));
+
+    tickParticleEmitters(world, 0.5f);
+    ParticleEmitterComponent* c = world.get<ParticleEmitterComponent>(e);
+    ASSERT_NE(c, nullptr);
+    ASSERT_NE(c->runtime, nullptr);
+    EXPECT_EQ(c->runtime->capacity(), 0u);
+    EXPECT_EQ(c->runtime->aliveCount(), 0u);
+    EXPECT_EQ(c->runtime->desc().simMode, ParticleSimMode::Gpu);
+    EXPECT_EQ(c->runtime->desc().maxParticles, 200000u);
+    EXPECT_NEAR(c->runtime->position().x, 4.0f, 1.0e-4f);
+}

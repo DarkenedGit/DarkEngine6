@@ -1,6 +1,7 @@
 #include "Editor/EditorInternals.h"
 
 #include "Collision/StaticCollision.h"
+#include "Particles/ParticleScene.h"
 #include "Math/AABox3f.h"
 #include "Math/MathHelper.h"
 #include "Math/Sphere3f.h"
@@ -287,57 +288,11 @@ namespace Dark::EditorDetail
 
     void descFromSceneData(const SceneObjectData& d, ParticleEmitterDesc& out)
     {
-        out = ParticleEmitterDesc{};
-        out.name            = d.particleName;
-        out.maxParticles    = d.maxParticles;
-        out.emissionRate    = d.emissionRate;
-        out.duration        = d.duration;
-        out.looping         = d.looping;
-        out.lifetime        = { d.lifetimeMin, d.lifetimeMax };
-        out.startSpeed      = { d.startSpeedMin, d.startSpeedMax };
-        out.startSize       = { d.startSizeMin, d.startSizeMax };
-        out.endSize         = { d.endSizeMin, d.endSizeMax };
-        copyColor(out.startColor, d.startColor);
-        copyColor(out.endColor, d.endColor);
-        out.gravity         = d.gravity;
-        out.direction       = d.direction;
-        out.spreadDegrees   = d.spreadDegrees;
-        out.shape           = static_cast<ParticleEmitterDesc::Shape>(d.shape);
-        out.shapeSize       = d.shapeSize;
-        out.additiveBlend   = d.additiveBlend;
-        out.simulationSpeed = d.simulationSpeed;
-        out.renderMode      = static_cast<ParticleEmitterDesc::RenderMode>(d.renderMode);
-        out.ribbonCount     = d.ribbonCount;
-        out.ribbonUvScale   = d.ribbonUvScale;
+        particleDescFromSceneData(d, out);
     }
 
     void sceneDataFromDesc(const ParticleEmitterDesc& src, SceneObjectData& d)
     {
-        d.hasParticle     = true;
-        d.particleName    = src.name;
-        d.maxParticles    = src.maxParticles;
-        d.emissionRate    = src.emissionRate;
-        d.duration        = src.duration;
-        d.looping         = src.looping;
-        d.lifetimeMin     = src.lifetime.min;
-        d.lifetimeMax     = src.lifetime.max;
-        d.startSpeedMin   = src.startSpeed.min;
-        d.startSpeedMax   = src.startSpeed.max;
-        d.startSizeMin    = src.startSize.min;
-        d.startSizeMax    = src.startSize.max;
-        d.endSizeMin      = src.endSize.min;
-        d.endSizeMax      = src.endSize.max;
-        copyColor(d.startColor, src.startColor);
-        copyColor(d.endColor, src.endColor);
-        d.gravity         = src.gravity;
-        d.direction       = src.direction;
-        d.spreadDegrees   = src.spreadDegrees;
-        d.shape           = static_cast<int>(src.shape);
-        d.shapeSize       = src.shapeSize;
-        d.additiveBlend   = src.additiveBlend;
-        d.simulationSpeed = src.simulationSpeed;
-        d.renderMode      = static_cast<int>(src.renderMode);
-        d.ribbonCount     = src.ribbonCount;
-        d.ribbonUvScale   = src.ribbonUvScale;
+        sceneDataFromParticleDesc(src, d);
     }
 } // namespace Dark::EditorDetail

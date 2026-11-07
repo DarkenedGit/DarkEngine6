@@ -4,9 +4,12 @@
 #include "Core/Log.h"
 #include "Math/MathDefines.h"
 #include "Math/MathHelper.h"
+#include "Particles/ParticleTypes.h"
 #include "Terrain/GrassTypes.h"
 #include "Terrain/TerrainTileFile.h"
 #include "Terrain/WindField.h"
+
+#include <cstdint>
 
 #include "third_party/nlohmann/json.hpp"
 
@@ -21,6 +24,65 @@ namespace
 {
 
 using json = nlohmann::json;
+
+bool readJsonInt(const json& object, const char* key, int& out)
+{
+    if (!object.contains(key))
+        return false;
+    const json& value = object[key];
+    if (!value.is_number_integer())
+        return false;
+    if (value.is_number_unsigned())
+    {
+        const uint64_t n = value.get<uint64_t>();
+        if (n > static_cast<uint64_t>(INT32_MAX))
+            return false;
+        out = static_cast<int>(n);
+        return true;
+    }
+    const int64_t n = value.get<int64_t>();
+    if (n < static_cast<int64_t>(INT32_MIN) || n > static_cast<int64_t>(INT32_MAX))
+        return false;
+    out = static_cast<int>(n);
+    return true;
+}
+
+bool readJsonU32(const json& object, const char* key, uint32_t& out)
+{
+    if (!object.contains(key))
+        return false;
+    const json& value = object[key];
+    if (!value.is_number_integer() || !value.is_number_unsigned())
+        return false;
+    const uint64_t n = value.get<uint64_t>();
+    if (n > static_cast<uint64_t>(UINT32_MAX))
+        return false;
+    out = static_cast<uint32_t>(n);
+    return true;
+}
+
+bool readJsonFloat(const json& object, const char* key, float& out)
+{
+    if (!object.contains(key) || !object[key].is_number())
+        return false;
+    out = object[key].get<float>();
+    return true;
+}
+
+bool readJsonBool(const json& object, const char* key, bool& out)
+{
+    if (!object.contains(key) || !object[key].is_boolean())
+        return false;
+    out = object[key].get<bool>();
+    return true;
+}
+
+int storedChildCollision(int collision)
+{
+    if (collision == static_cast<int>(ParticleCollisionReaction::SpawnSecondary))
+        return static_cast<int>(ParticleCollisionReaction::Stop);
+    return collision;
+}
 
 json vec2ToJson(const Math::Vector2f& v)
 {
@@ -579,6 +641,25 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             p["renderMode"]      = o.renderMode;
             p["ribbonCount"]     = o.ribbonCount;
             p["ribbonUvScale"]   = o.ribbonUvScale;
+            p["simMode"]         = o.simMode;
+            p["collision"]       = o.collision;
+            p["restitution"]     = o.restitution;
+            p["friction"]        = o.friction;
+            p["collisionThickness"] = o.collisionThickness;
+            p["collisionBias"]   = o.collisionBias;
+            p["restLifetime"]    = o.restLifetime;
+            p["maxSecondaryPerFrame"] = o.maxSecondaryPerFrame;
+            if (o.hasSecondary)
+            {
+                json secondary;
+                secondary["maxParticles"]  = o.secondaryMaxParticles;
+                secondary["lifetime"]      = json::array({ o.secondaryLifetimeMin, o.secondaryLifetimeMax });
+                secondary["startSize"]     = json::array({ o.secondaryStartSizeMin, o.secondaryStartSizeMax });
+                secondary["restLifetime"]  = o.secondaryRestLifetime;
+                secondary["additiveBlend"] = o.secondaryAdditiveBlend;
+                secondary["collision"]     = storedChildCollision(o.secondaryCollision);
+                p["secondary"]             = std::move(secondary);
+            }
             jo["particle"]       = std::move(p);
         }
 
@@ -1172,6 +1253,36 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             o.renderMode      = p.value("renderMode", 0);
             o.ribbonCount     = p.value("ribbonCount", 1u);
             o.ribbonUvScale   = p.value("ribbonUvScale", 1.0f);
+            readJsonInt(p, "simMode", o.simMode);
+            readJsonInt(p, "collision", o.collision);
+            readJsonFloat(p, "restitution", o.restitution);
+            readJsonFloat(p, "friction", o.friction);
+            readJsonFloat(p, "collisionThickness", o.collisionThickness);
+            readJsonFloat(p, "collisionBias", o.collisionBias);
+            readJsonFloat(p, "restLifetime", o.restLifetime);
+            readJsonU32(p, "maxSecondaryPerFrame", o.maxSecondaryPerFrame);
+            if (p.contains("secondary") && p["secondary"].is_object())
+            {
+                const json& secondary = p["secondary"];
+                o.hasSecondary = true;
+                readJsonU32(secondary, "maxParticles", o.secondaryMaxParticles);
+                readJsonFloat(secondary, "restLifetime", o.secondaryRestLifetime);
+                readJsonBool(secondary, "additiveBlend", o.secondaryAdditiveBlend);
+                if (readJsonInt(secondary, "collision", o.secondaryCollision))
+                    o.secondaryCollision = storedChildCollision(o.secondaryCollision);
+                if (secondary.contains("lifetime") && secondary["lifetime"].is_array() && secondary["lifetime"].size() >= 2
+                    && secondary["lifetime"][0].is_number() && secondary["lifetime"][1].is_number())
+                {
+                    o.secondaryLifetimeMin = secondary["lifetime"][0].get<float>();
+                    o.secondaryLifetimeMax = secondary["lifetime"][1].get<float>();
+                }
+                if (secondary.contains("startSize") && secondary["startSize"].is_array() && secondary["startSize"].size() >= 2
+                    && secondary["startSize"][0].is_number() && secondary["startSize"][1].is_number())
+                {
+                    o.secondaryStartSizeMin = secondary["startSize"][0].get<float>();
+                    o.secondaryStartSizeMax = secondary["startSize"][1].get<float>();
+                }
+            }
             if (p.contains("lifetime") && p["lifetime"].is_array() && p["lifetime"].size() >= 2)
             {
                 o.lifetimeMin = p["lifetime"][0].get<float>();
