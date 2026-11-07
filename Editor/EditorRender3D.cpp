@@ -362,7 +362,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     }
 
     // A point light culls foliage once against its range sphere and redraws that list on each face.
-    // Cull every static view before any of them draw. The argument buffer stays unordered until the last rewrite.
+    // Views are built here. recordDirectionalShadows dispatches them in execute order.
     const bool deferredEarly = renderer().scenePath() == ScenePath::HybridDeferred;
     const bool gpuCull       = instanceStatic && renderer().debugState().instancedIndirect && m_drawList.cullReady();
     if (gpuCull)

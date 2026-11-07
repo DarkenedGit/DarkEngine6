@@ -56,7 +56,6 @@ namespace Dark
         bool endFrame();
 
         // Off: one ExecuteCommandLists of m_commandList and the unfiltered cull.
-        // On by default. No second thread. Not a scene or config setting.
         void setShadowSeparateList(bool enabled) { m_shadowSeparateList = enabled; }
         bool shadowSeparateList() const { return m_shadowSeparateList; }
 

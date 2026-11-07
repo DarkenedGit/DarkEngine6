@@ -1216,34 +1216,26 @@ bool DrawList::dispatchCull(ID3D12GraphicsCommandList* cmd, const RenderPassKind
 
     const uint32_t frameSlot = m_frameIndex % kUploadSlots;
     const D3D12_GPU_VIRTUAL_ADDRESS base = m_gpu->cullUpload->GetGPUVirtualAddress() + static_cast<UINT64>(frameSlot) * kCullSlotBytes;
+    auto dispatch = [&]() {
+        return m_cull->dispatch(
+            cmd,
+            frameSlot,
+            base,
+            base + kCullAabbBytes,
+            base + kCullAabbBytes + kCullRecordBytes,
+            m_gpu->args[frameSlot].Get(),
+            m_gpu->argState[frameSlot],
+            views,
+            viewCount);
+    };
     bool ok = false;
     if (profile)
     {
         const GpuScope scope(cmd, "Instance Cull");
-        ok = m_cull->dispatch(
-            cmd,
-            frameSlot,
-            base,
-            base + kCullAabbBytes,
-            base + kCullAabbBytes + kCullRecordBytes,
-            m_gpu->args[frameSlot].Get(),
-            m_gpu->argState[frameSlot],
-            views,
-            viewCount);
+        ok = dispatch();
     }
     else
-    {
-        ok = m_cull->dispatch(
-            cmd,
-            frameSlot,
-            base,
-            base + kCullAabbBytes,
-            base + kCullAabbBytes + kCullRecordBytes,
-            m_gpu->args[frameSlot].Get(),
-            m_gpu->argState[frameSlot],
-            views,
-            viewCount);
-    }
+        ok = dispatch();
     // A failed pass must not clear views an earlier pass already marked.
     if (!ok)
         return false;
