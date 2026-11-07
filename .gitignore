@@ -13,6 +13,7 @@ content/models/Grass
 content/models/RockMoss
 content/models/AnimatedAnimals
 content/textures/loading
+content/movies
 
 # Local Settings
 *.ini

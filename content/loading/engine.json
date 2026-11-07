@@ -7,8 +7,9 @@
   "spinnerColor": [0.2510, 0.6902, 0.9725, 0],
   "animation": "ring",
   "engine": {
+    "movie": "movies/loading/engine_logo.mp4",
     "image": "textures/loading/engine_logo.png",
-    "minSeconds": 2.0,
+    "minSeconds": 4.0,
     "title": "DarkEngine6"
   },
   "host": {

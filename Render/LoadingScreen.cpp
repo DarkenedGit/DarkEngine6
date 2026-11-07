@@ -4,6 +4,9 @@
 #include "Render/ShaderCompile.h"
 #include "Core/Application.h"
 #include "Core/Log.h"
+#include "Media/MoviePath.h"
+#include "Media/MoviePlayer.h"
+#include "Media/MovieStatus.h"
 
 #include <d3dcompiler.h>
 
@@ -482,9 +485,23 @@ float4 PSMain(PSInput input) : SV_TARGET
         cmd->RSSetViewports(1, &renderer.viewport());
         cmd->RSSetScissorRects(1, &renderer.scissor());
 
-        cb.pass = 0.0f;
-        cmd->SetGraphicsRoot32BitConstants(kRootConstants, 16, &cb, 0);
-        cmd->DrawInstanced(3, 1, 0, 0);
+        const bool movieUp = movieCoversLogo();
+        if (!movieUp)
+        {
+            cb.pass = 0.0f;
+            cmd->SetGraphicsRoot32BitConstants(kRootConstants, 16, &cb, 0);
+            cmd->DrawInstanced(3, 1, 0, 0);
+        }
+        else if (m_movie)
+        {
+            m_movie->setVolume(state.fade);
+            m_movie->draw(renderer, state.fade);
+            cmd->SetGraphicsRootSignature(m_rootSignature.Get());
+            cmd->SetPipelineState(m_pso.Get());
+            cmd->SetDescriptorHeaps(1, heaps);
+            cmd->SetGraphicsRootDescriptorTable(kRootSrv, gpu);
+            cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        }
 
         const UINT fw = m_font.width();
         const UINT fh = m_font.height();
@@ -531,6 +548,7 @@ float4 PSMain(PSInput input) : SV_TARGET
 
     void LoadingScreen::shutdown(Renderer& renderer)
     {
+        closeMovie();
         if (renderer.device() && renderer.queue())
             renderer.waitForGpu();
 
@@ -555,6 +573,12 @@ float4 PSMain(PSInput input) : SV_TARGET
 
     void LoadingScreen::setPhase(LoadingPhase phase)
     {
+        const bool keepMovie = phase == LoadingPhase::FadeOut && m_movieOpen;
+        if (!keepMovie && phase != m_phase)
+        {
+            closeMovie();
+            m_movieFailed = false;
+        }
         m_phase      = phase;
         m_phaseStart = std::chrono::steady_clock::now();
         m_skipDwell  = false;
@@ -583,9 +607,138 @@ float4 PSMain(PSInput input) : SV_TARGET
             return 0.0f;
         }
 
+        // onInit can outlast minSeconds. Enter the pump once so the clip can open, then time the phase from playback.
+        if (m_movie && !m_movieOpen && !m_movieFailed && !activeMoviePath().empty())
+            return 0.05f;
+
+        float target = minSeconds;
+        const bool movie = m_movieOpen && m_movie != nullptr;
+        if (movie)
+        {
+            const double dur = m_movie->duration();
+            if (dur > static_cast<double>(target))
+                target = static_cast<float>(dur);
+        }
+
         const float elapsed = std::chrono::duration<float>(std::chrono::steady_clock::now() - m_phaseStart).count();
-        const float rem     = minSeconds - elapsed;
-        return rem > 0.0f ? rem : 0.0f;
+        if (elapsed < target)
+            return target - elapsed;
+        if (!movie)
+            return 0.0f;
+
+        const MoviePlayState st = m_movie->state();
+        const bool going = st == MoviePlayState::Ready || st == MoviePlayState::Playing || st == MoviePlayState::Paused || st == MoviePlayState::Seeking;
+        if (!going)
+            return 0.0f;
+
+        // Open spends time before the first picture. Hold the phase until the clip ends, with a cap.
+        const double dur = m_movie->duration();
+        const double cap = (dur > 0.0) ? (dur + 5.0) : (static_cast<double>(minSeconds) + 30.0);
+        if (static_cast<double>(elapsed) >= cap)
+            return 0.0f;
+        return 0.05f;
+    }
+
+    LoadingScreen::LoadingScreen() = default;
+
+    LoadingScreen::~LoadingScreen()
+    {
+        closeMovie();
+    }
+
+    void LoadingScreen::fillMovieHost(void* user, MovieHost& host)
+    {
+        auto* self = static_cast<LoadingScreen*>(user);
+        if (!self)
+            return;
+        host.renderer = self->m_movieRenderer;
+        host.audio    = self->m_movieAudio;
+        host.assets   = self->m_movieAssets;
+    }
+
+    void LoadingScreen::bindMovieServices(Renderer* renderer, Audio::AudioSystem* audio, AssetManager* assets)
+    {
+        m_movieRenderer = renderer;
+        m_movieAudio    = audio;
+        m_movieAssets   = assets;
+        if (!m_movie)
+        {
+            m_movie = std::make_unique<MoviePlayer>();
+            m_movie->bind(&LoadingScreen::fillMovieHost, this);
+        }
+    }
+
+    std::string LoadingScreen::activeMoviePath() const
+    {
+        if (m_phase == LoadingPhase::Engine)
+            return m_config.engine.movie;
+        if (m_phase == LoadingPhase::Host || m_phase == LoadingPhase::FadeOut)
+            return m_config.host.movie;
+        return {};
+    }
+
+    bool LoadingScreen::movieCoversLogo() const
+    {
+        if (!m_movieOpen || !m_movie)
+            return false;
+        if (m_movie->stats().framesPresented == 0)
+            return false;
+        const MoviePlayState st = m_movie->state();
+        return st == MoviePlayState::Ready || st == MoviePlayState::Playing || st == MoviePlayState::Paused || st == MoviePlayState::Seeking || st == MoviePlayState::Ended;
+    }
+
+    void LoadingScreen::closeMovie()
+    {
+        if (m_movie)
+            m_movie->close();
+        m_movieOpen = false;
+        m_moviePath.clear();
+    }
+
+    void LoadingScreen::tickMovie()
+    {
+        if (!m_movie)
+            return;
+
+        if (m_phase != LoadingPhase::Engine && m_phase != LoadingPhase::Host)
+        {
+            if (m_movieOpen)
+                m_movie->tick(0.0f);
+            return;
+        }
+
+        const std::string path = activeMoviePath();
+        if (m_movieOpen && m_moviePath == path)
+        {
+            m_movie->tick(0.0f);
+            return;
+        }
+
+        if (m_movieOpen)
+            closeMovie();
+        if (path.empty() || m_movieFailed)
+            return;
+
+        if (!movieExtensionAllowed(path.c_str()))
+        {
+            DE_LOG_WARN(LogCategory::Render, "LoadingScreen: '{}' is not a movie file", path);
+            m_movieFailed = true;
+            return;
+        }
+
+        if (m_movie->open(path.c_str()) != MovieStatus::Ok)
+        {
+            DE_LOG_WARN(LogCategory::Render, "LoadingScreen: movie '{}' did not open", path);
+            m_movieFailed = true;
+            return;
+        }
+
+        m_movie->setLoop(false);
+        m_movie->play();
+        m_movieOpen      = true;
+        m_moviePath      = path;
+        m_phaseStart     = std::chrono::steady_clock::now();
+        m_movie->tick(0.0f);
     }
 
     void LoadingScreen::tryLoadAssets(Renderer& renderer)

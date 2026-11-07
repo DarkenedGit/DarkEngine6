@@ -113,6 +113,7 @@ namespace Dark
             if (readFloat(obj, "minSeconds", ms))
                 dst.minSeconds = clampMinSeconds(ms);
             readString(obj, "title", dst.title);
+            readString(obj, "movie", dst.movie);
         }
 
         void mergeLegal(LoadingScreenConfig::Legal& dst, const json& obj)

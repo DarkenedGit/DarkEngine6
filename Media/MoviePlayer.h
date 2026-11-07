@@ -80,8 +80,8 @@ namespace Dark
         // dt is ignored. The clock is the stream voice, or steady_clock when there is no audio.
         void tick(float dt);
 
-        // Caller has already tonemapped. This pass does not.
-        void draw(Renderer& renderer);
+        // Caller has already tonemapped. This pass does not. opacity scales the picture (1 = full).
+        void draw(Renderer& renderer, float opacity = 1.f);
 
         bool           blocksWorld() const;
         MoviePlayState state() const;

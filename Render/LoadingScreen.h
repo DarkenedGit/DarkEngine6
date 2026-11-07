@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstdint>
 #include <d3d12.h>
+#include <memory>
 #include <string>
 #include <wrl/client.h>
 
@@ -13,7 +14,15 @@ namespace Dark
 {
 
     struct AppConfig;
+    struct MovieHost;
+    class AssetManager;
+    class MoviePlayer;
     class Renderer;
+
+    namespace Audio
+    {
+        class AudioSystem;
+    }
 
     using Microsoft::WRL::ComPtr;
 
@@ -56,6 +65,13 @@ namespace Dark
         static constexpr UINT kRootConstants = 0;
         static constexpr UINT kRootSrv       = 1;
 
+        LoadingScreen();
+        ~LoadingScreen();
+        LoadingScreen(const LoadingScreen&)            = delete;
+        LoadingScreen& operator=(const LoadingScreen&) = delete;
+        LoadingScreen(LoadingScreen&&)                 = delete;
+        LoadingScreen& operator=(LoadingScreen&&)      = delete;
+
         bool create(Renderer& renderer);
         void draw(Renderer& renderer, const LoadingDrawState& state);
         void shutdown(Renderer& renderer);
@@ -63,6 +79,8 @@ namespace Dark
 
         bool tryLoadConfig(const AppConfig& cfg);
         void tryLoadAssets(Renderer& renderer);
+        void bindMovieServices(Renderer* renderer, Audio::AudioSystem* audio, AssetManager* assets);
+        void tickMovie();
         void setPhase(LoadingPhase phase);
         void skipCurrentPhaseDwell();
         float remainingDwell() const;
@@ -87,6 +105,19 @@ namespace Dark
         std::chrono::steady_clock::time_point m_phaseStart{};
         bool                         m_skipDwell = false;
         bool                         m_triedAssets = false;
+
+        Renderer*                    m_movieRenderer = nullptr;
+        Audio::AudioSystem*          m_movieAudio    = nullptr;
+        AssetManager*                m_movieAssets   = nullptr;
+        std::unique_ptr<MoviePlayer> m_movie;
+        std::string                  m_moviePath;
+        bool                         m_movieOpen   = false;
+        bool                         m_movieFailed = false;
+
+        static void fillMovieHost(void* user, MovieHost& host);
+        std::string activeMoviePath() const;
+        bool        movieCoversLogo() const;
+        void        closeMovie();
     };
 
 } // namespace Dark

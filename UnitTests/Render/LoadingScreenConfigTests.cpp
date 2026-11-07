@@ -105,8 +105,20 @@ TEST(LoadingScreenConfig, HostImageOverlayDoesNotWipeMinSeconds)
     LoadingScreenConfig cfg{};
     ASSERT_TRUE(mergeLoadingScreenConfigJson(cfg, R"({ "host": { "image": "textures/loading/sandbox_logo.png" } })"));
     EXPECT_EQ(cfg.host.image, "textures/loading/sandbox_logo.png");
+    EXPECT_TRUE(cfg.host.movie.empty());
     EXPECT_FLOAT_EQ(cfg.host.minSeconds, 1.5f);
     EXPECT_FLOAT_EQ(cfg.engine.minSeconds, 2.0f);
+    EXPECT_EQ(cfg.engine.image, "textures/loading/engine_logo.png");
+}
+
+TEST(LoadingScreenConfig, HostMoviePlaysInsteadOfImage)
+{
+    LoadingScreenConfig cfg{};
+    ASSERT_TRUE(mergeLoadingScreenConfigJson(cfg, R"({ "host": { "movie": "movies/loading/sandbox_logo.mpeg", "minSeconds": 4.0 } })"));
+    EXPECT_EQ(cfg.host.movie, "movies/loading/sandbox_logo.mpeg");
+    EXPECT_TRUE(cfg.host.image.empty());
+    EXPECT_FLOAT_EQ(cfg.host.minSeconds, 4.0f);
+    EXPECT_TRUE(cfg.engine.movie.empty());
     EXPECT_EQ(cfg.engine.image, "textures/loading/engine_logo.png");
 }
 
@@ -157,7 +169,11 @@ TEST(LoadingScreenConfig, TryLoadConfigIsCpuOnly)
     EXPECT_TRUE(ls.tryLoadConfig(app));
     EXPECT_TRUE(ls.config().enabled);
     EXPECT_FLOAT_EQ(ls.config().engine.minSeconds, 2.0f);
-    EXPECT_FLOAT_EQ(ls.config().host.minSeconds, 1.5f);
+    std::filesystem::path hostJson;
+    if (resolveSplashAsset("loading/sandbox.json", hostJson))
+        EXPECT_FLOAT_EQ(ls.config().host.minSeconds, 4.0f);
+    else
+        EXPECT_FLOAT_EQ(ls.config().host.minSeconds, 1.5f);
     EXPECT_FALSE(ls.isReady());
 }
 
@@ -168,9 +184,16 @@ TEST(LoadingScreenConfig, LoadLayersDeepMergeHostImage)
     LoadingScreenConfig cfg;
     ASSERT_TRUE(loadLoadingScreenConfig(app, cfg));
     EXPECT_FLOAT_EQ(cfg.engine.minSeconds, 2.0f);
-    EXPECT_FLOAT_EQ(cfg.host.minSeconds, 1.5f);
 
     std::filesystem::path hostJson;
     if (resolveSplashAsset("loading/sandbox.json", hostJson))
+    {
+        EXPECT_FLOAT_EQ(cfg.host.minSeconds, 4.0f);
+        EXPECT_EQ(cfg.host.movie, "movies/loading/sandbox_logo.mp4");
         EXPECT_EQ(cfg.host.image, "textures/loading/sandbox_logo.png");
+    }
+    else
+    {
+        EXPECT_FLOAT_EQ(cfg.host.minSeconds, 1.5f);
+    }
 }

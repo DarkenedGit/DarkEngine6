@@ -407,6 +407,7 @@ namespace Dark
             m_renderer.resize(m_window.width(), m_window.height());
         m_input.updateDevices();
         m_audio.tick();
+        m_loading.tickMovie();
 
         if (m_window.shouldClose())
         {
@@ -512,6 +513,8 @@ namespace Dark
                 return;
             }
             splashCreated = m_loading.create(m_renderer);
+            if (splashCreated)
+                m_loading.bindMovieServices(&m_renderer, &m_audio, &m_assets);
 
             DE_LOG_INFO("LoadingScreen: engine phase ({:.2f}s min)", m_loading.config().engine.minSeconds);
             m_loading.setPhase(LoadingPhase::Engine);

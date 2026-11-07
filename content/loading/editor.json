@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "spinnerColor": [0.7843, 0.4706, 0.9725, 1],
   "host": {
+    "movie": "movies/loading/editor_logo.mp4",
     "image": "textures/loading/editor_logo.png",
     "title": "Editor"
   }

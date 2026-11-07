@@ -2,8 +2,9 @@
   "schemaVersion": 1,
   "spinnerColor": [0.3137, 0.7843, 0.5333, 1],
   "host": {
+    "movie": "movies/loading/sandbox_logo.mp4",
     "image": "textures/loading/sandbox_logo.png",
     "title": "Sandbox",
-	"minSeconds": 4.0
+    "minSeconds": 4.0
   }
 }

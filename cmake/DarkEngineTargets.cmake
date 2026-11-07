@@ -144,18 +144,25 @@ de_glob_folders(DE_GAMEPLAY_SOURCES ${DE_GAMEPLAY_FOLDERS})
 de_glob_folders(DE_ENGINE_REST_SOURCES ${DE_ENGINE_REST_FOLDERS})
 list(APPEND DE_ENGINE_REST_SOURCES ${DE_ENGINE_CORE_SOURCES})
 
-# GrassPipeline calls Terrain::buildGrassBladeMesh. DarkRender cannot link back
-# into DarkEngine, so this TU is compiled with the terrain objects.
+# These Render TUs call back into DarkEngine (terrain mesh, movie player).
+# DarkRender cannot link back, so they compile with the engine objects.
 set(_grass_pipeline_cpp "")
+set(_loading_screen_cpp "")
 foreach(_src IN LISTS DE_RENDER_SOURCES)
     get_filename_component(_name "${_src}" NAME)
     if(_name STREQUAL "GrassPipeline.cpp")
         set(_grass_pipeline_cpp "${_src}")
+    elseif(_name STREQUAL "LoadingScreen.cpp")
+        set(_loading_screen_cpp "${_src}")
     endif()
 endforeach()
 if(_grass_pipeline_cpp)
     list(REMOVE_ITEM DE_RENDER_SOURCES "${_grass_pipeline_cpp}")
     list(APPEND DE_ENGINE_REST_SOURCES "${_grass_pipeline_cpp}")
+endif()
+if(_loading_screen_cpp)
+    list(REMOVE_ITEM DE_RENDER_SOURCES "${_loading_screen_cpp}")
+    list(APPEND DE_ENGINE_REST_SOURCES "${_loading_screen_cpp}")
 endif()
 
 # Runtime HLSL lives under content/shaders (not a Shaders/ source folder).

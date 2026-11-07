@@ -18,6 +18,7 @@ namespace Dark
             std::string image;
             float       minSeconds = 0.0f;
             std::string title;
+            std::string movie; // virtual path; when set, played instead of image
         };
 
         struct Legal

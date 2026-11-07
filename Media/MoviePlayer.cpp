@@ -897,13 +897,17 @@ namespace Dark
         }
     }
 
-    void MoviePlayer::draw(Renderer& renderer)
+    void MoviePlayer::draw(Renderer& renderer, float opacityScale)
     {
         const bool show = m_havePresented && (m_state == MoviePlayState::Playing || m_state == MoviePlayState::Paused || m_state == MoviePlayState::Seeking
             || (m_state == MoviePlayState::Ended && fadeOpacity() > 0.f));
         if (!show || !m_present || !m_present->isValid() || !m_frames || !m_frames->valid())
             return;
-        const float opacity = m_state == MoviePlayState::Ended ? fadeOpacity() : 1.f;
+        if (opacityScale < 0.f)
+            opacityScale = 0.f;
+        if (opacityScale > 1.f)
+            opacityScale = 1.f;
+        const float opacity = (m_state == MoviePlayState::Ended ? fadeOpacity() : 1.f) * opacityScale;
         if (opacity <= 0.f)
             return;
 
