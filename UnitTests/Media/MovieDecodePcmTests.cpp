@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 
 #include "Audio/AudioSystem.h"
-#include "Media/MovieDecodePcm.h"
 #include "Media/MoviePlayer.h"
 
 #include <chrono>
@@ -44,6 +43,7 @@ struct Dark::MovieDecodePcmTestAccess
         player.m_shutdown         = false;
         player.m_dropReader       = false;
         player.m_eosSubmitted     = false;
+        player.m_streamDropped    = false;
         player.m_state            = MoviePlayState::Playing;
         player.m_commands.clear();
         player.m_audioQueue.clear();
@@ -74,6 +74,21 @@ struct Dark::MovieDecodePcmTestAccess
         return pump == MoviePlayer::Pump::Continue;
     }
 
+    static bool pumpIdle(MoviePlayer& player)
+    {
+        bool     prefer   = true;
+        uint32_t videos   = 0;
+        double   audioSec = 0.0;
+        const MoviePlayer::Pump pump = player.pumpOne(player.m_liveGeneration, player.m_epoch, prefer, videos, audioSec, false);
+        return pump == MoviePlayer::Pump::Idle;
+    }
+
+    static void markStreamsDone(MoviePlayer& player)
+    {
+        player.m_videoEos = true;
+        player.m_audioEos = true;
+    }
+
     static size_t queued(const MoviePlayer& player)
     {
         return player.m_audioQueue.size();
@@ -85,28 +100,6 @@ struct Dark::MovieDecodePcmTestAccess
     }
 
 };
-
-TEST(MovieDecodePcm, FailedSubmitIsNotEndOfStream)
-{
-    bool eos = false;
-    EXPECT_FALSE(movieApplyPcmSubmit(false, true, eos));
-    EXPECT_FALSE(eos);
-    EXPECT_TRUE(movieApplyPcmSubmit(true, false, eos));
-    EXPECT_FALSE(eos);
-    EXPECT_TRUE(movieApplyPcmSubmit(true, true, eos));
-    EXPECT_TRUE(eos);
-}
-
-TEST(MovieDecodePcm, WaitRetriesOnlyWhenAudioCapIsFull)
-{
-    EXPECT_EQ(movieDecodeWaitMs(false, false, false, false, false), -1);
-    EXPECT_EQ(movieDecodeWaitMs(false, true, false, true, false), 0);
-    EXPECT_EQ(movieDecodeWaitMs(false, false, true, false, false), 0);
-    EXPECT_EQ(movieDecodeWaitMs(true, false, false, true, false), 0);
-    EXPECT_EQ(movieDecodeWaitMs(false, false, false, true, false), kMovieAudioCapWaitMs);
-    EXPECT_TRUE(movieAudioQueueAtCap(kMovieAudioQueueCap));
-    EXPECT_FALSE(movieAudioQueueAtCap(kMovieAudioQueueCap - 1));
-}
 
 TEST(MovieDecodePcm, QueueFullSubmitIsNotEndOfStream)
 {
@@ -177,5 +170,43 @@ TEST(MovieDecodePcm, CapWasFullAndTickIsNotCalled)
 
     EXPECT_LT(MovieDecodePcmTestAccess::queued(player), 8u);
     EXPECT_FALSE(MovieDecodePcmTestAccess::eos(player));
+    audio.stopStream(id);
+}
+
+TEST(MovieDecodePcm, EndPacketSubmitsWhileTickIsNotCalled)
+{
+    Audio::AudioSystem audio;
+    if (!audio.create())
+        GTEST_SKIP() << "XAudio2 device is not available";
+    const Audio::StreamId id = audio.openStream(stereo48());
+    ASSERT_NE(id, 0u);
+    audio.pauseStream(id);
+
+    int16_t pcm[960 * 2] = {};
+    for (int i = 0; i < 8; ++i)
+        ASSERT_TRUE(audio.submitStreamPcm(id, pcm, 960)) << i;
+    ASSERT_FALSE(audio.submitStreamPcm(id, pcm, 960));
+
+    MoviePlayer player;
+    MovieDecodePcmTestAccess::arm(player, &audio, id);
+    MovieDecodePcmTestAccess::push(player, silence(960), true);
+    MovieDecodePcmTestAccess::markStreamsDone(player);
+
+    // No MoviePlayer::tick. Source EOS still has to submit the queued tail.
+    const auto started = std::chrono::steady_clock::now();
+    const bool idled = MovieDecodePcmTestAccess::pumpIdle(player);
+    const auto waitedMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+    EXPECT_FALSE(idled);
+    EXPECT_GE(waitedMs, 8);
+    EXPECT_EQ(MovieDecodePcmTestAccess::queued(player), 1u);
+    EXPECT_FALSE(MovieDecodePcmTestAccess::eos(player));
+
+    audio.resumeStream(id);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!MovieDecodePcmTestAccess::eos(player) && std::chrono::steady_clock::now() < deadline)
+        MovieDecodePcmTestAccess::pumpIdle(player);
+
+    EXPECT_TRUE(MovieDecodePcmTestAccess::eos(player));
+    EXPECT_EQ(MovieDecodePcmTestAccess::queued(player), 0u);
     audio.stopStream(id);
 }

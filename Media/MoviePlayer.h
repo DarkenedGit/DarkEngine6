@@ -225,8 +225,9 @@ namespace Dark
         bool     m_audioMaster   = false;
         bool     m_videoEos      = false;
         bool     m_audioEos      = false;
-        bool     m_eosSubmitted  = false;
+        bool     m_eosSubmitted     = false;
         bool     m_decodeSubmitsPcm = false; // true only while MovieDecode is the PCM submitter
+        bool     m_streamDropped    = false; // Voice for this epoch will not take PCM.
         bool     m_loggedWall    = false;
         bool     m_feederArmed   = false;
         bool     m_feederAsserted = false;

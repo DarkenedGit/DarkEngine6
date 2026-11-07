@@ -4,7 +4,6 @@
 #include "Audio/AudioSystem.h"
 #include "Core/Log.h"
 #include "Media/MovieClock.h"
-#include "Media/MovieDecodePcm.h"
 #include "Media/MoviePath.h"
 #include "Media/MoviePresentMath.h"
 #include "Media/MovieSource.h"
@@ -33,7 +32,8 @@ namespace Dark
         constexpr uint32_t kVideoSlots           = 3;
         constexpr size_t   kAudioCap             = 8;
         constexpr bool     kDecodeSubmitsPcm     = true;
-        static_assert(kAudioCap == kMovieAudioQueueCap);
+        // Shorter than one 20 ms packet. Wakes a full XAudio ring without a voice callback.
+        constexpr int      kAudioCapWaitMs       = 10;
         constexpr size_t   kCommandCap           = 8;
         constexpr int      kSeekDiscardFrames   = 120;
         constexpr double   kSeekDiscardSeconds  = 2.0;
@@ -342,15 +342,17 @@ namespace Dark
             std::lock_guard<std::mutex> lock(m_mutex);
             if (m_state == MoviePlayState::Failed)
                 return;
-            id            = m_stream;
-            m_stream      = 0;
-            m_audioMaster = false;
-            audio         = m_audio;
-            m_state       = MoviePlayState::Failed;
-            m_seekDeadline = 0.0;
+            id              = m_stream;
+            m_stream        = 0;
+            m_audioMaster   = false;
+            m_streamDropped = true;
+            audio           = m_audio;
+            m_state         = MoviePlayState::Failed;
+            m_seekDeadline  = 0.0;
         }
         if (id != 0 && audio)
             audio->stopStream(id);
+        m_cv.notify_all();
         if (message && message[0] != '\0')
             DE_LOG_ERROR(LogCategory::Media, "{}", message);
     }
@@ -370,6 +372,11 @@ namespace Dark
             return;
         if (!audio)
         {
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_streamDropped = true;
+            }
+            m_cv.notify_all();
             if (!m_loggedWall)
             {
                 DE_LOG_WARN(LogCategory::Media, "Movie: audio stream unavailable, using the wall clock");
@@ -386,6 +393,11 @@ namespace Dark
         const uint32_t id = audio->openStream(desc);
         if (id == 0)
         {
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_streamDropped = true;
+            }
+            m_cv.notify_all();
             if (!m_loggedWall)
             {
                 DE_LOG_WARN(LogCategory::Media, "Movie: audio stream unavailable, using the wall clock");
@@ -397,10 +409,13 @@ namespace Dark
         const uint64_t base = audio->streamSamplesPlayed(id);
         {
             std::lock_guard<std::mutex> lock(m_mutex);
-            m_stream      = id;
-            m_segmentBase = base;
-            m_audioMaster = true;
+            m_stream        = id;
+            m_segmentBase   = base;
+            m_audioMaster   = true;
+            m_streamDropped = false;
         }
+        // Decode may be waiting to submit preroll that arrived before the voice existed.
+        m_cv.notify_all();
     }
 
     void MoviePlayer::startPlayback()
@@ -447,10 +462,11 @@ namespace Dark
         uint32_t id = 0;
         {
             std::lock_guard<std::mutex> lock(m_mutex);
-            id            = m_stream;
-            m_stream      = 0;
-            m_audioMaster = false;
-            m_seekIntent  = intent;
+            id              = m_stream;
+            m_stream        = 0;
+            m_audioMaster   = false;
+            m_streamDropped = false;
+            m_seekIntent    = intent;
             ++m_seekSerial;
             m_epoch = ++m_epochSerial;
             m_videoEos     = false;
@@ -581,24 +597,25 @@ namespace Dark
                     break;
                 packet = std::move(m_audioQueue.front());
                 m_audioQueue.pop_front();
+                m_cv.notify_all();
             }
             if (packet.pcm.size() < 2)
                 continue;
             const uint32_t frames = static_cast<uint32_t>(packet.pcm.size() / 2u);
-            bool           markEos = false;
-            if (!movieApplyPcmSubmit(m_audio->submitStreamPcm(m_stream, packet.pcm.data(), frames), packet.end, markEos))
+            if (!m_audio->submitStreamPcm(m_stream, packet.pcm.data(), frames))
             {
                 std::lock_guard<std::mutex> lock(m_mutex);
                 m_audioQueue.push_front(std::move(packet));
-                break;
+                m_cv.notify_all();
+                return;
             }
-            if (markEos)
+            if (packet.end)
             {
                 std::lock_guard<std::mutex> lock(m_mutex);
                 m_eosSubmitted = true;
             }
+            m_cv.notify_all();
         }
-        m_cv.notify_all();
     }
 
     void MoviePlayer::drainAudio()
@@ -635,10 +652,9 @@ namespace Dark
             if (packet.pcm.size() < 2)
                 continue;
 
-            const uint32_t frames  = static_cast<uint32_t>(packet.pcm.size() / 2u);
-            bool           markEos = false;
+            const uint32_t frames = static_cast<uint32_t>(packet.pcm.size() / 2u);
             const bool     ok     = audio->submitStreamPcm(stream, packet.pcm.data(), frames);
-            if (!movieApplyPcmSubmit(ok, packet.end, markEos))
+            if (!ok)
             {
                 std::lock_guard<std::mutex> lock(m_mutex);
                 // Seek may have retired this epoch while SubmitSourceBuffer ran.
@@ -648,7 +664,7 @@ namespace Dark
                 return;
             }
             std::lock_guard<std::mutex> lock(m_mutex);
-            if (markEos && packet.epoch == m_epoch)
+            if (packet.end && packet.epoch == m_epoch)
                 m_eosSubmitted = true;
             m_cv.notify_all();
         }
@@ -898,8 +914,10 @@ namespace Dark
             m_audioMaster  = false;
             {
                 std::lock_guard<std::mutex> lock(m_mutex);
-                m_stream = 0;
+                m_stream        = 0;
+                m_streamDropped = true;
             }
+            m_cv.notify_all();
             if (m_state == MoviePlayState::Paused)
                 m_pauseBegan = now;
             if (!m_loggedWall)
@@ -1085,39 +1103,73 @@ namespace Dark
         uint32_t surface   = 0;
         {
             std::unique_lock<std::mutex> lock(m_mutex);
+            const auto dropAbandoned = [&] {
+                if (!m_streamDropped)
+                    return;
+                bool dropped = false;
+                for (auto it = m_audioQueue.begin(); it != m_audioQueue.end();)
+                {
+                    if (it->epoch == m_epoch)
+                    {
+                        it      = m_audioQueue.erase(it);
+                        dropped = true;
+                    }
+                    else
+                        ++it;
+                }
+                if (dropped)
+                    m_cv.notify_all();
+            };
+            const auto epochQueued = [&] {
+                for (const AudioPacket& packet : m_audioQueue)
+                {
+                    if (packet.epoch == m_epoch)
+                        return true;
+                }
+                return false;
+            };
+            const auto audioReadable = [&] {
+                return m_hasAudio && !m_audioEos && !m_streamDropped && m_audioQueue.size() < kAudioCap;
+            };
+            const auto streamsDone = [&] {
+                const bool audioFinished = !m_hasAudio || m_audioEos || m_streamDropped;
+                return m_videoEos && audioFinished;
+            };
             const auto ready = [&] {
                 if (m_shutdown || m_dropReader || m_liveGeneration != generation || !m_commands.empty())
                     return true;
-                const bool canVideo    = !m_videoEos && findFreeSlot() >= 0;
-                const bool canAudio    = m_hasAudio && !m_audioEos && m_audioQueue.size() < kAudioCap;
-                const bool streamsDone = m_videoEos && (!m_hasAudio || m_audioEos);
-                if (streamsDone)
+                if ((!m_videoEos && findFreeSlot() >= 0) || audioReadable())
                     return true;
-                return canVideo || canAudio;
+                // Source EOS with a packet still queued is not Idle. The tail still has to submit.
+                if (!streamsDone())
+                    return false;
+                return !epochQueued();
             };
+            dropAbandoned();
             if (!ready())
             {
-                const bool stop        = m_shutdown || m_dropReader || m_liveGeneration != generation || !m_commands.empty();
-                const bool canVideo    = !m_videoEos && findFreeSlot() >= 0;
-                const bool canAudio    = m_hasAudio && !m_audioEos && m_audioQueue.size() < kAudioCap;
-                const bool streamsDone = m_videoEos && (!m_hasAudio || m_audioEos);
-                const bool audioAtCap  = m_decodeSubmitsPcm && movieAudioQueueAtCap(m_audioQueue.size());
-                const int  waitMs      = movieDecodeWaitMs(stop, canVideo, canAudio, audioAtCap, streamsDone);
-                if (waitMs > 0)
-                    m_cv.wait_for(lock, std::chrono::milliseconds(waitMs), ready);
-                else if (waitMs < 0)
+                // Cap: a video slot is held and the CPU queue cannot grow. Tail: the ring is full after source EOS.
+                // A voice that is not open yet waits for openVoice instead of polling.
+                const bool waitingVoice = streamsDone() && epochQueued() && m_stream == 0;
+                const bool capWait      = m_decodeSubmitsPcm && m_audioQueue.size() >= kAudioCap && !waitingVoice;
+                const bool tailWait     = m_decodeSubmitsPcm && m_stream != 0 && streamsDone() && epochQueued();
+                if (capWait || tailWait)
+                    m_cv.wait_for(lock, std::chrono::milliseconds(kAudioCapWaitMs), ready);
+                else if (waitingVoice)
+                    m_cv.wait(lock, [&] { return ready() || m_stream != 0 || m_streamDropped; });
+                else
                     m_cv.wait(lock, ready);
             }
+            dropAbandoned();
             if (m_shutdown || m_dropReader || m_liveGeneration != generation)
                 return Pump::Stop;
             if (!m_commands.empty())
                 return Pump::Command;
-            const bool canVideo    = !m_videoEos && findFreeSlot() >= 0;
-            const bool canAudio    = m_hasAudio && !m_audioEos && m_audioQueue.size() < kAudioCap;
-            const bool streamsDone = m_videoEos && (!m_hasAudio || m_audioEos);
-            if (streamsDone)
+            const bool canVideo = !m_videoEos && findFreeSlot() >= 0;
+            const bool canAudio = audioReadable();
+            if (streamsDone() && !epochQueued())
                 return Pump::Idle;
-            // Audio cap is still full after the timed wait. The next pump drains again.
+            // Still blocked. The next pump drains again.
             if (!canVideo && !canAudio)
                 return Pump::Continue;
             if (canVideo && canAudio)
@@ -1691,6 +1743,7 @@ namespace Dark
             m_videoEos       = false;
             m_audioEos       = false;
             m_eosSubmitted   = false;
+            m_streamDropped  = false;
             m_stats          = {};
             m_seekOrigin     = 0.0;
             clearQueued();
@@ -1859,6 +1912,7 @@ namespace Dark
         m_videoEos      = false;
         m_audioEos      = false;
         m_eosSubmitted  = false;
+        m_streamDropped = false;
         m_seekDeadline  = 0.0;
     }
 
