@@ -22,6 +22,15 @@ namespace Dark
 
     using Microsoft::WRL::ComPtr;
 
+    // Counts CreateCommittedResource, Dispatch, and DrawInstanced when no device is up.
+    struct GpuParticleCreateRecord
+    {
+        int  committed  = 0;
+        int  dispatches = 0;
+        int  draws      = 0;
+        bool failCreate = false;
+    };
+
     // Scalar layout. HLSL ParticleGpu.hlsli uses the same fields, not float3.
     struct GpuParticle
     {
@@ -112,6 +121,7 @@ namespace Dark
         void     prepare(World& world, float dt);
         uint32_t poolCount() const;
         bool     simulateAndDraw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, World& world, AssetManager& assets, bool lateDepthWrite);
+        void     bindCreateRecordForTest(GpuParticleCreateRecord* record);
 
     private:
         struct Pool
@@ -129,6 +139,7 @@ namespace Dark
             bool                   submitted            = false;
             bool                   sawClearSerial       = false;
             bool                   hasSpawned           = false;
+            bool                   recorded             = false;
             Math::Vector3f         position{};
             Math::Quaternion       rotation = Math::Quaternion::IDENTITY;
             ComPtr<ID3D12Resource> particles[kFrameCount];
@@ -141,6 +152,7 @@ namespace Dark
             uint32_t               childCapacity = 0;
             int                    descSlot      = -1;
             bool                   childHeadCleared = false;
+            std::vector<uint8_t>   recordedBytes;
             D3D12_RESOURCE_STATES  state[kFrameCount] = { D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COMMON };
             D3D12_RESOURCE_STATES  eventState[kFrameCount] = { D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS };
             D3D12_RESOURCE_STATES  counterState[kFrameCount] = { D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS };
@@ -159,6 +171,7 @@ namespace Dark
         Pool* findPool(EntityID id);
         void  applyFallback(World& world, std::vector<FallbackRow>& accepted, std::vector<EntityID>& seen);
         bool  createBuffers(ID3D12Device* device, Pool& pool, const struct ParticleEmitterDesc& desc, uint32_t generation);
+        bool  hasLiveBuffers(const Pool& pool) const;
         bool  createGpuViews(ID3D12Device* device);
         void  destroyGpuViews();
         int   allocDescSlot();
@@ -169,21 +182,25 @@ namespace Dark
         void        recordClock(Pool& pool, class ParticleEmitter& emitter, float dt);
         bool        ensureDefaultSprite(Renderer& renderer, AssetManager& assets);
 
-        bool                   m_ready         = false;
-        Renderer*              m_renderer      = nullptr;
-        uint32_t               m_prepareEpoch  = 0;
-        uint32_t               m_consumedEpoch = 0;
-        uint32_t               m_drawnFrame    = ~0u;
-        bool                   m_loggedSprite  = false;
-        bool                   m_gpuParticlesEnabled = true;
-        ParticleGpuPipeline    m_pipeline;
-        std::vector<Pool>      m_pools;
-        std::vector<EntityID>  m_records;
-        std::vector<EntityID>  m_loggedRefusal;
-        std::vector<EntityID>  m_loggedPrewarm;
-        std::vector<EntityID>  m_loggedOrtho;
-        std::vector<EntityID>  m_createFailed;
-        AssetRef<Material>     m_billboardMat;
+        bool                     m_ready               = false;
+        Renderer*                m_renderer            = nullptr;
+        uint32_t                 m_prepareEpoch        = 0;
+        uint32_t                 m_consumedEpoch       = 0;
+        uint32_t                 m_drawnFrame          = ~0u;
+        bool                     m_loggedSprite        = false;
+        bool                     m_gpuParticlesEnabled = true;
+        GpuParticleCreateRecord* m_createRecord        = nullptr;
+        ParticleGpuPipeline      m_pipeline;
+        std::vector<Pool>        m_pools;
+        std::vector<EntityID>    m_records;
+        std::vector<EntityID>    m_loggedSlotCap;
+        std::vector<EntityID>    m_loggedFrozen;
+        std::vector<EntityID>    m_loggedFlagOff;
+        std::vector<EntityID>    m_loggedCreateFailed;
+        std::vector<EntityID>    m_loggedPrewarm;
+        std::vector<EntityID>    m_loggedOrtho;
+        std::vector<EntityID>    m_createFailed;
+        AssetRef<Material>       m_billboardMat;
         ComPtr<ID3D12DescriptorHeap> m_viewHeap;
         ComPtr<ID3D12DescriptorHeap> m_viewCpuHeap;
         ComPtr<ID3D12Resource>       m_dummyDepth;

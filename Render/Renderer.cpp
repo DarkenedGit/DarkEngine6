@@ -148,8 +148,20 @@ namespace Dark
         m_valid = initD3D12(window);
     }
 
+    Renderer::Renderer(RendererTestDevice)
+        : m_testShell(true)
+    {
+    }
+
+    void Renderer::setFrameIndexForTest(uint32_t frame)
+    {
+        m_frameIndex = frame;
+    }
+
     Renderer::~Renderer()
     {
+        if (m_testShell)
+            return;
         waitForGpu();
         profileTimersShutdown();
         if (m_copyQueue && m_copyFence)

@@ -20,6 +20,11 @@ namespace Dark
     class Texture2D;
     class GpuResourceCache;
 
+    // No device and no window. debugState() and frameIndex() stay usable.
+    struct RendererTestDevice
+    {
+    };
+
     using Microsoft::WRL::ComPtr;
 
     struct FrameStats
@@ -36,6 +41,7 @@ namespace Dark
         static constexpr uint32_t kFrameCount = 2;
 
         explicit Renderer(Window& window, bool vsync = true);
+        explicit Renderer(RendererTestDevice);
         ~Renderer();
 
         Renderer(const Renderer&)            = delete;
@@ -132,6 +138,7 @@ namespace Dark
         {
             return m_frameIndex;
         }
+        void setFrameIndexForTest(uint32_t frame);
 
         const FrameStats& stats() const
         {
@@ -274,6 +281,7 @@ namespace Dark
         FrameStats       m_stats{};
         float            m_clearColor[4]{ UiPalette::kVoid.r, UiPalette::kVoid.g, UiPalette::kVoid.b, UiPalette::kVoid.a };
         bool             m_valid           = false;
+        bool             m_testShell       = false;
         bool             m_vsync           = true;
         bool             m_frameSubmitted  = false;
         bool             m_profileFrame    = false;
