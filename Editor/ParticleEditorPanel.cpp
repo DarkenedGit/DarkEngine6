@@ -17,6 +17,26 @@ void ParticleEditorPanel::draw(Dark::ParticleEmitter& emitter, bool* open)
 
     Dark::ParticleEmitterDesc& d = emitter.desc();
 
+    // Copy first so setDesc can compare the previous capacity, mode, and child cap.
+    // The callback only bumps gpuDescGeneration; it does not destroy GPU resources.
+    auto finishDesc = [&emitter](Dark::ParticleEmitterDesc next)
+    {
+        if (next.renderMode == Dark::ParticleEmitterDesc::RenderMode::Ribbon && next.simMode == Dark::ParticleSimMode::Gpu)
+        {
+            next.simMode = Dark::ParticleSimMode::Cpu;
+        }
+        // setDesc's CPU arm clamps above 100000. Do it here so the panel does not hand it a value it rewrites.
+        if (next.simMode == Dark::ParticleSimMode::Cpu && next.maxParticles > Dark::kMaxCpuParticles)
+        {
+            next.maxParticles = Dark::kMaxCpuParticles;
+        }
+        emitter.setDesc(next);
+    };
+
+    const bool ribbon = d.renderMode == Dark::ParticleEmitterDesc::RenderMode::Ribbon;
+    if (ribbon && d.simMode == Dark::ParticleSimMode::Gpu)
+        finishDesc(d);
+
     char nameBuf[128]{};
 #if defined(_MSC_VER)
     strncpy_s(nameBuf, d.name.c_str(), _TRUNCATE);
@@ -48,14 +68,30 @@ void ParticleEditorPanel::draw(Dark::ParticleEmitter& emitter, bool* open)
         m_lastBurst      = static_cast<uint32_t>(m_burstCount);
     }
 
-    ImGui::Text("Alive: %u / %u", emitter.aliveCount(), emitter.capacity());
+    if (d.simMode == Dark::ParticleSimMode::Gpu && !emitter.forceCpu())
+        ImGui::Text("GPU capacity %u", d.maxParticles);
+    else
+        ImGui::Text("Alive: %u / %u", emitter.aliveCount(), emitter.capacity());
 
     ImGui::SeparatorText("Emission");
-    int maxP = static_cast<int>(d.maxParticles);
-    if (ImGui::SliderInt("Max particles", &maxP, 16, 8192))
+    const char* sims[] = { "CPU", "GPU" };
+    int         sim    = static_cast<int>(d.simMode);
+    ImGui::BeginDisabled(ribbon);
+    if (ImGui::Combo("Simulation", &sim, sims, 2))
     {
-        d.maxParticles = static_cast<uint32_t>(maxP);
-        emitter.setDesc(d); // rebuild pool
+        Dark::ParticleEmitterDesc next = d;
+        next.simMode                   = static_cast<Dark::ParticleSimMode>(sim);
+        finishDesc(next);
+    }
+    ImGui::EndDisabled();
+
+    int       maxP      = static_cast<int>(d.maxParticles);
+    const int maxSlider = (d.simMode == Dark::ParticleSimMode::Gpu) ? static_cast<int>(Dark::kMaxGpuParticlesPerEmitter) : 8192;
+    if (ImGui::SliderInt("Max particles", &maxP, 16, maxSlider))
+    {
+        Dark::ParticleEmitterDesc next = d;
+        next.maxParticles              = static_cast<uint32_t>(maxP);
+        finishDesc(next);
     }
     ImGui::DragFloat("Emission rate", &d.emissionRate, 1.0f, 0.0f, 2000.0f);
     ImGui::DragFloat("Duration (0=inf)", &d.duration, 0.05f, 0.0f, 60.0f);
@@ -78,7 +114,11 @@ void ParticleEditorPanel::draw(Dark::ParticleEmitter& emitter, bool* open)
     const char* modes[] = { "Billboard", "Ribbon" };
     int         mode    = static_cast<int>(d.renderMode);
     if (ImGui::Combo("Render mode", &mode, modes, 2))
-        d.renderMode = static_cast<Dark::ParticleEmitterDesc::RenderMode>(mode);
+    {
+        Dark::ParticleEmitterDesc next = d;
+        next.renderMode                = static_cast<Dark::ParticleEmitterDesc::RenderMode>(mode);
+        finishDesc(next);
+    }
     if (d.renderMode == Dark::ParticleEmitterDesc::RenderMode::Ribbon)
     {
         int ribbons = static_cast<int>(d.ribbonCount);
@@ -88,6 +128,69 @@ void ParticleEditorPanel::draw(Dark::ParticleEmitter& emitter, bool* open)
         ImGui::TextWrapped("Ribbon links particles in spawn order into a camera-facing strip. "
                            "Raise emission rate and lifetime for a longer trail; zero start speed "
                            "makes the strip follow the emitter.");
+    }
+
+    ImGui::SeparatorText("Collision");
+    const char* reactions[] = { "None", "Bounce", "Stop", "Spawn secondary" };
+    int         reaction    = static_cast<int>(d.collision);
+    if (ImGui::Combo("Collision", &reaction, reactions, 4))
+    {
+        Dark::ParticleEmitterDesc next = d;
+        next.collision                 = static_cast<Dark::ParticleCollisionReaction>(reaction);
+        if (next.collision == Dark::ParticleCollisionReaction::SpawnSecondary)
+            next.hasSecondary = true;
+        finishDesc(next);
+    }
+    if (d.simMode == Dark::ParticleSimMode::Cpu)
+        ImGui::TextUnformatted("CPU emitters do not collide");
+
+    if (ImGui::DragFloat("Restitution", &d.restitution, 0.01f, 0.0f, 1.0f))
+        finishDesc(d);
+    if (ImGui::DragFloat("Friction", &d.friction, 0.01f, 0.0f, 1.0f))
+        finishDesc(d);
+    if (ImGui::DragFloat("Thickness", &d.collisionThickness, 0.01f, 0.0f, 5.0f))
+        finishDesc(d);
+    if (ImGui::DragFloat("Bias", &d.collisionBias, 0.01f, 0.0f, 1.0f))
+        finishDesc(d);
+    if (ImGui::DragFloat("Rest lifetime", &d.restLifetime, 0.01f, 0.0f, 20.0f))
+        finishDesc(d);
+    int secondaryPerFrame = static_cast<int>(d.maxSecondaryPerFrame);
+    if (ImGui::DragInt("Max secondary per frame", &secondaryPerFrame, 1.0f, 0, static_cast<int>(Dark::kMaxSecondaryPerFrameHard)))
+    {
+        Dark::ParticleEmitterDesc next = d;
+        next.maxSecondaryPerFrame      = static_cast<uint32_t>(secondaryPerFrame);
+        finishDesc(next);
+    }
+
+    if (d.collision == Dark::ParticleCollisionReaction::SpawnSecondary)
+    {
+        ImGui::PushID("child");
+        ImGui::SeparatorText("Child");
+        int childCap = static_cast<int>(d.secondary.maxParticles);
+        if (ImGui::SliderInt("Capacity", &childCap, 1, static_cast<int>(Dark::kMaxSecondaryParticles)))
+        {
+            Dark::ParticleEmitterDesc next = d;
+            next.hasSecondary              = true;
+            next.secondary.maxParticles    = static_cast<uint32_t>(childCap);
+            finishDesc(next);
+        }
+
+        bool childEdited = false;
+        if (ImGui::DragFloatRange2("Lifetime", &d.secondary.lifetime.min, &d.secondary.lifetime.max, 0.01f, 0.0f, 20.0f))
+            childEdited = true;
+        if (ImGui::DragFloatRange2("Start size", &d.secondary.startSize.min, &d.secondary.startSize.max, 0.01f, 0.0f, 5.0f))
+            childEdited = true;
+        if (ImGui::DragFloat("Rest lifetime", &d.secondary.restLifetime, 0.01f, 0.0f, 20.0f))
+            childEdited = true;
+        if (ImGui::Checkbox("Additive blend", &d.secondary.additiveBlend))
+            childEdited = true;
+        if (childEdited)
+        {
+            Dark::ParticleEmitterDesc next = d;
+            next.hasSecondary              = true;
+            finishDesc(next);
+        }
+        ImGui::PopID();
     }
 
     ImGui::SeparatorText("Forces / direction");
