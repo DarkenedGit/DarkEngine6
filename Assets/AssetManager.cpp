@@ -144,6 +144,46 @@ namespace Dark
         return {};
     }
 
+    bool acceptJobPath(const AssetManager& assets, const std::filesystem::path& path)
+    {
+        if (path.empty())
+            return false;
+
+        std::filesystem::path absolute = path;
+        if (!absolute.is_absolute())
+        {
+            // resolve locks the mount mutex. Take that before copying the mount list.
+            absolute = assets.resolve(path.generic_string());
+            if (absolute.empty())
+                return false;
+        }
+
+        std::error_code ec;
+        const std::filesystem::path canonical = std::filesystem::weakly_canonical(absolute, ec);
+        if (ec)
+            return false;
+        const std::string norm = ImageCache::normalizePath(canonical);
+        if (norm.empty())
+            return false;
+
+        std::vector<std::filesystem::path> mounts;
+        {
+            std::lock_guard<std::mutex> lock(assets.m_mutex);
+            mounts = assets.m_mounts;
+        }
+        for (const std::filesystem::path& mount : mounts)
+        {
+            std::string prefix = ImageCache::normalizePath(mount);
+            if (prefix.empty())
+                continue;
+            if (prefix.back() != '/')
+                prefix.push_back('/');
+            if (norm.size() > prefix.size() && norm.compare(0, prefix.size(), prefix) == 0)
+                return true;
+        }
+        return false;
+    }
+
     AssetID AssetManager::registerAsset(AssetRef<Asset> asset, const std::string& cacheKey)
     {
         if (!asset)

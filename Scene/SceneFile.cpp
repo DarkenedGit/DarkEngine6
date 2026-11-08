@@ -1,4 +1,5 @@
 #include "Scene/SceneFile.h"
+#include "Assets/AssetManager.h"
 #include "Core/ContentRoots.h"
 #include "Core/Json.h"
 #include "Core/Log.h"
@@ -11,9 +12,13 @@
 #include "third_party/nlohmann/json.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <fstream>
+#include <memory>
+#include <mutex>
 #include <sstream>
+#include <unordered_map>
 
 namespace Dark
 {
@@ -70,6 +75,8 @@ void applyTypeLightDefaults(SceneObjectData& o)
     o.lightEnabled      = true;
 }
 
+bool jsonElemFloat(const json& value, float& out);
+
 bool readVec2(const json& j, Math::Vector2f& out, std::string* err, const char* field)
 {
     if (!j.is_array() || j.size() < 2)
@@ -78,8 +85,12 @@ bool readVec2(const json& j, Math::Vector2f& out, std::string* err, const char* 
             *err = std::string("expected array[2] for ") + field;
         return false;
     }
-    out.x = j[0].get<float>();
-    out.y = j[1].get<float>();
+    if (!jsonElemFloat(j[0], out.x) || !jsonElemFloat(j[1], out.y))
+    {
+        if (err)
+            *err = std::string("expected array[2] for ") + field;
+        return false;
+    }
     return true;
 }
 
@@ -91,9 +102,14 @@ bool readVec3(const json& j, Math::Vector3f& out, std::string* err, const char* 
             *err = std::string("expected array[2|3] for ") + field;
         return false;
     }
-    out.x = j[0].get<float>();
-    out.y = j[1].get<float>();
-    out.z = (j.size() >= 3) ? j[2].get<float>() : 0.0f;
+    float z = 0.0f;
+    if (!jsonElemFloat(j[0], out.x) || !jsonElemFloat(j[1], out.y) || (j.size() >= 3 && !jsonElemFloat(j[2], z)))
+    {
+        if (err)
+            *err = std::string("expected array[2|3] for ") + field;
+        return false;
+    }
+    out.z = (j.size() >= 3) ? z : 0.0f;
     return true;
 }
 
@@ -129,10 +145,12 @@ bool readQuat(const json& j, Math::Quaternion& out, std::string* err, const char
             *err = std::string("expected array[4] for ") + field;
         return false;
     }
-    out.w = j[0].get<float>();
-    out.x = j[1].get<float>();
-    out.y = j[2].get<float>();
-    out.z = j[3].get<float>();
+    if (!jsonElemFloat(j[0], out.w) || !jsonElemFloat(j[1], out.x) || !jsonElemFloat(j[2], out.y) || !jsonElemFloat(j[3], out.z))
+    {
+        if (err)
+            *err = std::string("expected array[4] for ") + field;
+        return false;
+    }
     return true;
 }
 
@@ -283,12 +301,13 @@ json stealthToJson(const StealthSceneDesc& stealth)
 
 void readStealthHear(const json& s, const char* key, bool& has, float& value)
 {
-    if (!s.contains(key) || !s[key].is_number())
+    if (!s.contains(key))
+        return;
+    float number = 0.0f;
+    if (!jsonFloatOr(s, key, number, 0.0f, "SceneFile"))
         return;
     has   = true;
-    value = s[key].get<float>();
-    if (value < 0.0f)
-        value = 0.0f;
+    value = number < 0.0f ? 0.0f : number;
 }
 
 bool readColor(const json& j, float out[4], std::string* err, const char* field)
@@ -299,10 +318,15 @@ bool readColor(const json& j, float out[4], std::string* err, const char* field)
             *err = std::string("expected array[3|4] for ") + field;
         return false;
     }
-    out[0] = j[0].get<float>();
-    out[1] = j[1].get<float>();
-    out[2] = j[2].get<float>();
-    out[3] = (j.size() >= 4) ? j[3].get<float>() : 1.0f;
+    float a = 1.0f;
+    if (!jsonElemFloat(j[0], out[0]) || !jsonElemFloat(j[1], out[1]) || !jsonElemFloat(j[2], out[2])
+        || (j.size() >= 4 && !jsonElemFloat(j[3], a)))
+    {
+        if (err)
+            *err = std::string("expected array[3|4] for ") + field;
+        return false;
+    }
+    out[3] = (j.size() >= 4) ? a : 1.0f;
     return true;
 }
 
@@ -372,6 +396,106 @@ void readWindKind(const json& object, Terrain::TreeWindParams& kind, const Terra
     jsonFloatOr(object, "bendFadeStart", kind.bendFadeStart, fallback.bendFadeStart, where);
     jsonFloatOr(object, "bendFadeEnd", kind.bendFadeEnd, fallback.bendFadeEnd, where);
     jsonFloatOr(object, "maxSwayMetres", kind.maxSwayMetres, fallback.maxSwayMetres, where);
+}
+
+bool jsonElemFloat(const json& value, float& out)
+{
+    if (const auto* number = value.get_ptr<const json::number_float_t*>())
+    {
+        if (!std::isfinite(static_cast<double>(*number)))
+            return false;
+        out = static_cast<float>(*number);
+        return true;
+    }
+    if (const auto* number = value.get_ptr<const json::number_integer_t*>())
+    {
+        out = static_cast<float>(*number);
+        return true;
+    }
+    if (const auto* number = value.get_ptr<const json::number_unsigned_t*>())
+    {
+        out = static_cast<float>(*number);
+        return true;
+    }
+    return false;
+}
+
+float jsonAt(const json& value)
+{
+    float out = 0.0f;
+    jsonElemFloat(value, out);
+    return out;
+}
+
+int jsonAtInt(const json& value)
+{
+    if (const auto* number = value.get_ptr<const json::number_integer_t*>())
+        return static_cast<int>(*number);
+    if (const auto* number = value.get_ptr<const json::number_unsigned_t*>())
+        return static_cast<int>(*number);
+    float out = 0.0f;
+    if (jsonElemFloat(value, out))
+        return static_cast<int>(out);
+    return 0;
+}
+
+bool jsonAtBool(const json& value)
+{
+    if (const auto* flag = value.get_ptr<const json::boolean_t*>())
+        return *flag;
+    return false;
+}
+
+std::string jsonAtString(const json& value)
+{
+    if (const auto* text = value.get_ptr<const json::string_t*>())
+        return *text;
+    return {};
+}
+
+float jsonF(const json& object, const char* key, float fallback)
+{
+    float out = fallback;
+    jsonFloatOr(object, key, out, fallback, "SceneFile");
+    return out;
+}
+
+int jsonI(const json& object, const char* key, int fallback)
+{
+    int out = fallback;
+    jsonIntOr(object, key, out, fallback, "SceneFile");
+    return out;
+}
+
+bool jsonB(const json& object, const char* key, bool fallback)
+{
+    bool out = fallback;
+    jsonBoolOr(object, key, out, fallback, "SceneFile");
+    return out;
+}
+
+std::string jsonS(const json& object, const char* key, const std::string& fallback)
+{
+    std::string out;
+    jsonStringOr(object, key, out, fallback, "SceneFile");
+    return out;
+}
+
+uint32_t jsonU(const json& object, const char* key, uint32_t fallback)
+{
+    double number = static_cast<double>(fallback);
+    if (!jsonDoubleOr(object, key, number, number, "SceneFile"))
+        return fallback;
+    if (!(number >= 0.0) || number > 4294967295.0)
+        return fallback;
+    return static_cast<uint32_t>(number);
+}
+
+const json& jsonObjectField(const json& object, const char* key, const json& empty)
+{
+    if (object.contains(key) && object[key].is_object())
+        return object[key];
+    return empty;
 }
 
 void copyWindFieldToGrass(const Terrain::WindSettings& wind, GrassSceneDesc& grass)
@@ -748,8 +872,8 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
         return false;
     }
 
-    outScene.version = root.value("version", 1);
-    outScene.name    = root.value("name", std::string("untitled"));
+    outScene.version = jsonI(root, "version", 1);
+    outScene.name    = jsonS(root, "name", std::string("untitled"));
     jsonStringOr(root, "quest", outScene.quest, std::string(), "SceneFile");
     if (root.contains("buildings") && root["buildings"].is_array())
     {
@@ -764,20 +888,18 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             outScene.buildings.push_back(std::move(b));
         }
     }
-    const std::string modeStr = root.value("mode", std::string("3d"));
+    const std::string modeStr = jsonS(root, "mode", std::string("3d"));
     if (!tryParseSceneMode(modeStr, outScene.mode))
         outScene.mode = SceneMode::Scene3D;
     if (outScene.mode != SceneMode::Scene2D)
     {
-        outScene.environment     = root.value("environment", std::string("env/studio_gradient.hdr"));
-        outScene.iblIntensity    = root.value("iblIntensity", 1.0f);
-        outScene.iblRotationRadY = root.value("iblRotationRadY", 0.0f);
+        outScene.environment     = jsonS(root, "environment", std::string("env/studio_gradient.hdr"));
+        outScene.iblIntensity    = jsonF(root, "iblIntensity", 1.0f);
+        outScene.iblRotationRadY = jsonF(root, "iblRotationRadY", 0.0f);
         if (root.contains("terrain") && root["terrain"].is_object())
         {
             const json& t = root["terrain"];
-            int bindLayout = TerrainSceneDesc::kBindLayoutV1;
-            if (t.contains("bindLayout") && t["bindLayout"].is_number())
-                bindLayout = t["bindLayout"].get<int>();
+            const int bindLayout = jsonI(t, "bindLayout", TerrainSceneDesc::kBindLayoutV1);
             if (bindLayout != TerrainSceneDesc::kBindLayoutV1)
             {
                 DE_LOG_ERROR("SceneFile: terrain bindLayout {} unknown", bindLayout);
@@ -786,29 +908,29 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             {
                 TerrainSceneDesc desc{};
                 desc.bindLayout     = bindLayout;
-                desc.chunkCells     = t.value("chunkCells", 16);
-                desc.heightBlendK   = t.value("heightBlendK", 0.5f);
-                desc.heightBlendT   = t.value("heightBlendT", 0.1f);
-                desc.triplanarSlope = t.value("triplanarSlope", 0.45f);
-                desc.heightFile     = t.value("heightFile", std::string());
-                desc.splatFile      = t.value("splatFile", std::string());
-                desc.source         = t.value("source", std::string());
-                desc.worldSize      = t.value("worldSize", 1024.0f);
-                desc.importHeight   = t.value("importHeight", 480.0f);
+                desc.chunkCells     = jsonI(t, "chunkCells", 16);
+                desc.heightBlendK   = jsonF(t, "heightBlendK", 0.5f);
+                desc.heightBlendT   = jsonF(t, "heightBlendT", 0.1f);
+                desc.triplanarSlope = jsonF(t, "triplanarSlope", 0.45f);
+                desc.heightFile     = jsonS(t, "heightFile", std::string());
+                desc.splatFile      = jsonS(t, "splatFile", std::string());
+                desc.source         = jsonS(t, "source", std::string());
+                desc.worldSize      = jsonF(t, "worldSize", 1024.0f);
+                desc.importHeight   = jsonF(t, "importHeight", 480.0f);
                 if (t.contains("grid") && t["grid"].is_object())
                 {
                     const json& g = t["grid"];
                     TerrainGridSceneDesc grid{};
-                    grid.tilesX       = g.value("tilesX", 4u);
-                    grid.tilesZ       = g.value("tilesZ", 4u);
-                    grid.tileCells    = g.value("tileCells", 512u);
-                    grid.cellSize     = g.value("cellSize", 1.0f);
-                    grid.heightScale  = g.value("heightScale", 80.0f);
-                    grid.seed         = g.value("seed", 1337u);
-                    grid.coarseFile   = g.value("coarseFile", std::string());
-                    grid.tileDir      = g.value("tileDir", std::string());
-                    grid.seaLevel     = g.value("seaLevel", 0.0f);
-                    grid.residentRing = g.value("residentRing", 5);
+                    grid.tilesX       = jsonU(g, "tilesX", 4u);
+                    grid.tilesZ       = jsonU(g, "tilesZ", 4u);
+                    grid.tileCells    = jsonU(g, "tileCells", 512u);
+                    grid.cellSize     = jsonF(g, "cellSize", 1.0f);
+                    grid.heightScale  = jsonF(g, "heightScale", 80.0f);
+                    grid.seed         = jsonU(g, "seed", 1337u);
+                    grid.coarseFile   = jsonS(g, "coarseFile", std::string());
+                    grid.tileDir      = jsonS(g, "tileDir", std::string());
+                    grid.seaLevel     = jsonF(g, "seaLevel", 0.0f);
+                    grid.residentRing = jsonI(g, "residentRing", 5);
                     if (g.contains("origin"))
                         readVec3(g["origin"], grid.origin, nullptr, "terrain.grid.origin");
                     if (grid.tilesX < 1u || grid.tilesX > Terrain::kMaxWorldTiles
@@ -826,42 +948,42 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                 {
                     const json& f = t["foliage"];
                     desc.foliage.present            = true;
-                    desc.foliage.seed               = f.value("seed", 1337u);
-                    desc.foliage.dirtTreesPerM2     = Math::Clamp(f.value("dirtTreesPerM2", 0.002f), 0.0f, 1.0f);
-                    desc.foliage.dirtFlowersPerM2   = Math::Clamp(f.value("dirtFlowersPerM2", 0.006f), 0.0f, 2.0f);
-                    desc.foliage.grassTreesPerM2    = Math::Clamp(f.value("grassTreesPerM2", 0.003f), 0.0f, 1.0f);
-                    desc.foliage.grassFlowersPerM2  = Math::Clamp(f.value("grassFlowersPerM2", 0.008f), 0.0f, 2.0f);
-                    desc.foliage.rockPerM2          = Math::Clamp(f.value("rockPerM2", 0.004f), 0.0f, 1.0f);
-                    desc.foliage.grassPerM2         = Math::Clamp(f.value("grassPerM2", 0.0f), 0.0f, 1.0f);
-                    desc.foliage.stale              = f.value("stale", false);
+                    desc.foliage.seed               = jsonU(f, "seed", 1337u);
+                    desc.foliage.dirtTreesPerM2     = Math::Clamp(jsonF(f, "dirtTreesPerM2", 0.002f), 0.0f, 1.0f);
+                    desc.foliage.dirtFlowersPerM2   = Math::Clamp(jsonF(f, "dirtFlowersPerM2", 0.006f), 0.0f, 2.0f);
+                    desc.foliage.grassTreesPerM2    = Math::Clamp(jsonF(f, "grassTreesPerM2", 0.003f), 0.0f, 1.0f);
+                    desc.foliage.grassFlowersPerM2  = Math::Clamp(jsonF(f, "grassFlowersPerM2", 0.008f), 0.0f, 2.0f);
+                    desc.foliage.rockPerM2          = Math::Clamp(jsonF(f, "rockPerM2", 0.004f), 0.0f, 1.0f);
+                    desc.foliage.grassPerM2         = Math::Clamp(jsonF(f, "grassPerM2", 0.0f), 0.0f, 1.0f);
+                    desc.foliage.stale              = jsonB(f, "stale", false);
                     {
                         float shed = 1.0f;
                         jsonFloatOr(f, "shedScale", shed, 1.0f, "SceneFile");
                         desc.foliage.shedScale = clampShedScale(shed);
                     }
-                    desc.foliage.treeModel          = f.value("treeModel", std::string("models/BirchTree/scene.gltf"));
-                    desc.foliage.flowerModel        = f.value("flowerModel", std::string("models/Dandelion/dandelion_01_2k.gltf"));
-                    desc.foliage.rockModel          = f.value("rockModel", std::string("models/RockMoss/rock_moss_set_01_2k.gltf"));
-                    desc.foliage.grassModel         = f.value("grassModel", std::string("models/Grass/grass_medium_01_2k.gltf"));
+                    desc.foliage.treeModel          = jsonS(f, "treeModel", std::string("models/BirchTree/scene.gltf"));
+                    desc.foliage.flowerModel        = jsonS(f, "flowerModel", std::string("models/Dandelion/dandelion_01_2k.gltf"));
+                    desc.foliage.rockModel          = jsonS(f, "rockModel", std::string("models/RockMoss/rock_moss_set_01_2k.gltf"));
+                    desc.foliage.grassModel         = jsonS(f, "grassModel", std::string("models/Grass/grass_medium_01_2k.gltf"));
                 }
                 if (t.contains("grass") && t["grass"].is_object())
                 {
                     const json& g = t["grass"];
                     const GrassSceneDesc fallback{};
-                    desc.grass.enabled          = g.value("enabled", fallback.enabled);
-                    desc.grass.heightMetres     = g.value("height", fallback.heightMetres);
-                    desc.grass.flexibility      = g.value("flexibility", fallback.flexibility);
-                    desc.grass.densityScale     = g.value("densityScale", fallback.densityScale);
-                    desc.grass.windBaseYaw      = g.value("windBaseYaw", fallback.windBaseYaw);
-                    desc.grass.windDeflection   = g.value("windDeflection", fallback.windDeflection);
-                    desc.grass.windTipMetres    = g.value("windTipMetres", fallback.windTipMetres);
-                    desc.grass.windSpatialFreq  = g.value("windSpatialFreq", fallback.windSpatialFreq);
-                    desc.grass.windTemporalFreq = g.value("windTemporalFreq", fallback.windTemporalFreq);
-                    desc.grass.faceEdge         = g.value("faceEdge", fallback.faceEdge);
-                    desc.grass.faceYaw          = g.value("faceYaw", fallback.faceYaw);
-                    desc.grass.faceLean         = g.value("faceLean", fallback.faceLean);
-                    desc.grass.faceSteep        = g.value("faceSteep", fallback.faceSteep);
-                    desc.grass.seed             = g.value("seed", fallback.seed);
+                    desc.grass.enabled          = jsonB(g, "enabled", fallback.enabled);
+                    desc.grass.heightMetres     = jsonF(g, "height", fallback.heightMetres);
+                    desc.grass.flexibility      = jsonF(g, "flexibility", fallback.flexibility);
+                    desc.grass.densityScale     = jsonF(g, "densityScale", fallback.densityScale);
+                    desc.grass.windBaseYaw      = jsonF(g, "windBaseYaw", fallback.windBaseYaw);
+                    desc.grass.windDeflection   = jsonF(g, "windDeflection", fallback.windDeflection);
+                    desc.grass.windTipMetres    = jsonF(g, "windTipMetres", fallback.windTipMetres);
+                    desc.grass.windSpatialFreq  = jsonF(g, "windSpatialFreq", fallback.windSpatialFreq);
+                    desc.grass.windTemporalFreq = jsonF(g, "windTemporalFreq", fallback.windTemporalFreq);
+                    desc.grass.faceEdge         = jsonF(g, "faceEdge", fallback.faceEdge);
+                    desc.grass.faceYaw          = jsonF(g, "faceYaw", fallback.faceYaw);
+                    desc.grass.faceLean         = jsonF(g, "faceLean", fallback.faceLean);
+                    desc.grass.faceSteep        = jsonF(g, "faceSteep", fallback.faceSteep);
+                    desc.grass.seed             = jsonU(g, "seed", fallback.seed);
                     clampGrassScene(desc.grass);
                 }
                 if (t.contains("wind") && t["wind"].is_object())
@@ -885,13 +1007,14 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                     if (w.contains("kinds") && w["kinds"].is_object())
                     {
                         const json& kinds = w["kinds"];
-                        readWindKind(kinds.value("tree", json::object()), settings.kind[static_cast<int>(Terrain::WindKind::Tree)],
+                        const json emptyKind = json::object();
+                        readWindKind(jsonObjectField(kinds, "tree", emptyKind), settings.kind[static_cast<int>(Terrain::WindKind::Tree)],
                             fallback.kind[static_cast<int>(Terrain::WindKind::Tree)], "SceneFile");
-                        readWindKind(kinds.value("flower", json::object()), settings.kind[static_cast<int>(Terrain::WindKind::Flower)],
+                        readWindKind(jsonObjectField(kinds, "flower", emptyKind), settings.kind[static_cast<int>(Terrain::WindKind::Flower)],
                             fallback.kind[static_cast<int>(Terrain::WindKind::Flower)], "SceneFile");
-                        readWindKind(kinds.value("rock", json::object()), settings.kind[static_cast<int>(Terrain::WindKind::Rock)],
+                        readWindKind(jsonObjectField(kinds, "rock", emptyKind), settings.kind[static_cast<int>(Terrain::WindKind::Rock)],
                             fallback.kind[static_cast<int>(Terrain::WindKind::Rock)], "SceneFile");
-                        readWindKind(kinds.value("grassTuft", json::object()), settings.kind[static_cast<int>(Terrain::WindKind::GrassTuft)],
+                        readWindKind(jsonObjectField(kinds, "grassTuft", emptyKind), settings.kind[static_cast<int>(Terrain::WindKind::GrassTuft)],
                             fallback.kind[static_cast<int>(Terrain::WindKind::GrassTuft)], "SceneFile");
                     }
                     Terrain::clampWindSettings(settings);
@@ -920,10 +1043,10 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                         if (!layers[i].is_object())
                             continue;
                         const json& layer = layers[i];
-                        desc.layers[i].albedo = layer.value("albedo", std::string());
-                        desc.layers[i].normal = layer.value("normal", std::string());
-                        desc.layers[i].orm    = layer.value("orm", std::string());
-                        desc.layers[i].tiling = layer.value("tiling", 8.0f);
+                        desc.layers[i].albedo = jsonS(layer, "albedo", std::string());
+                        desc.layers[i].normal = jsonS(layer, "normal", std::string());
+                        desc.layers[i].orm    = jsonS(layer, "orm", std::string());
+                        desc.layers[i].tiling = jsonF(layer, "tiling", 8.0f);
                         if (layer.contains("tint"))
                             readColor(layer["tint"], desc.layers[i].tint, nullptr, "terrain.layers.tint");
                     }
@@ -937,28 +1060,28 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             const json& s = root["sky"];
             SkySceneDesc sky{};
             sky.present       = true;
-            sky.weather       = s.value("weather", std::string("partly"));
+            sky.weather       = jsonS(s, "weather", std::string("partly"));
             const Sky::WeatherState preset = weatherPreset(sky.weather);
-            sky.timeOfDay     = s.value("timeOfDay", 16.2f);
-            sky.dayOfYear     = s.value("dayOfYear", 172.0f);
-            sky.latitude      = s.value("latitude", 47.6f);
-            sky.timeScale     = s.value("timeScale", 0.0f);
-            sky.cloudCoverage = s.value("cloudCoverage", preset.cloudCoverage);
-            sky.turbidity     = s.value("turbidity", preset.turbidity);
-            sky.windSpeed     = s.value("windSpeed", preset.windSpeed);
+            sky.timeOfDay     = jsonF(s, "timeOfDay", 16.2f);
+            sky.dayOfYear     = jsonF(s, "dayOfYear", 172.0f);
+            sky.latitude      = jsonF(s, "latitude", 47.6f);
+            sky.timeScale     = jsonF(s, "timeScale", 0.0f);
+            sky.cloudCoverage = jsonF(s, "cloudCoverage", preset.cloudCoverage);
+            sky.turbidity     = jsonF(s, "turbidity", preset.turbidity);
+            sky.windSpeed     = jsonF(s, "windSpeed", preset.windSpeed);
             sky.windDir[0]    = preset.windDir.x;
             sky.windDir[1]    = preset.windDir.y;
-            sky.rain          = s.value("rain", preset.rain);
+            sky.rain          = jsonF(s, "rain", preset.rain);
             if (s.contains("windDir") && s["windDir"].is_array() && s["windDir"].size() >= 2)
             {
-                sky.windDir[0] = s["windDir"][0].get<float>();
-                sky.windDir[1] = s["windDir"][1].get<float>();
+                sky.windDir[0] = jsonAt(s["windDir"][0]);
+                sky.windDir[1] = jsonAt(s["windDir"][1]);
             }
 
             Sky::CloudLayerDesc deck{};
-            deck.altitude     = s.value("cloudAltitude", 2000.0f);
-            deck.amount       = s.value("cloudAmount", 1.0f);
-            deck.windSpeedMps = s.value("cloudWindSpeedMps", 8.0f);
+            deck.altitude     = jsonF(s, "cloudAltitude", 2000.0f);
+            deck.amount       = jsonF(s, "cloudAmount", 1.0f);
+            deck.windSpeedMps = jsonF(s, "cloudWindSpeedMps", 8.0f);
             Sky::sanitizeCloudLayer(deck);
             sky.cloudAltitude     = deck.altitude;
             sky.cloudAmount       = deck.amount;
@@ -971,20 +1094,20 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             const json& f = root["fog"];
             FogSceneDesc fog{};
             fog.present         = true;
-            fog.autoFromWeather = f.value("auto", true);
-            fog.distanceScale   = f.value("distanceScale", 1.0f);
-            fog.heightScale     = f.value("heightScale", 1.0f);
-            fog.valleyScale     = f.value("valleyScale", 1.0f);
-            fog.distanceDensity = f.value("distanceDensity", 0.004f);
-            fog.heightDensity   = f.value("heightDensity", 0.0f);
-            fog.valleyDensity   = f.value("valleyDensity", 0.012f);
-            fog.heightFalloff   = f.value("heightFalloff", 0.06f);
-            fog.valleyHeight    = f.value("valleyHeight", 14.0f);
+            fog.autoFromWeather = jsonB(f, "auto", true);
+            fog.distanceScale   = jsonF(f, "distanceScale", 1.0f);
+            fog.heightScale     = jsonF(f, "heightScale", 1.0f);
+            fog.valleyScale     = jsonF(f, "valleyScale", 1.0f);
+            fog.distanceDensity = jsonF(f, "distanceDensity", 0.004f);
+            fog.heightDensity   = jsonF(f, "heightDensity", 0.0f);
+            fog.valleyDensity   = jsonF(f, "valleyDensity", 0.012f);
+            fog.heightFalloff   = jsonF(f, "heightFalloff", 0.06f);
+            fog.valleyHeight    = jsonF(f, "valleyHeight", 14.0f);
             if (f.contains("color") && f["color"].is_array() && f["color"].size() >= 3)
             {
-                fog.color[0] = f["color"][0].get<float>();
-                fog.color[1] = f["color"][1].get<float>();
-                fog.color[2] = f["color"][2].get<float>();
+                fog.color[0] = jsonAt(f["color"][0]);
+                fog.color[1] = jsonAt(f["color"][1]);
+                fog.color[2] = jsonAt(f["color"][2]);
             }
             outScene.fog = std::move(fog);
         }
@@ -994,21 +1117,21 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             WaterSceneDesc water{};
             water.present        = true;
             water.hasLevel       = w.contains("level") && w["level"].is_number();
-            water.level          = w.value("level", 0.0f);
-            water.levelFraction  = w.value("levelFraction", 0.38f);
-            water.chunkCells     = w.value("chunkCells", 16);
-            water.flowStrength   = w.value("flowStrength", 0.85f);
-            water.steepness      = w.value("steepness", 0.55f);
-            water.amplitudeScale = w.value("amplitudeScale", 1.0f);
-            water.speedScale     = w.value("speedScale", 1.0f);
-            water.flowSpeed      = w.value("flowSpeed", 0.4f);
-            water.foam           = w.value("foam", 1.0f);
-            water.foamWidthScale = Math::Clamp(w.value("foamWidthScale", 1.0f), 0.5f, 2.0f);
-            water.detail         = Math::Clamp(w.value("detail", 1.0f), 0.0f, 1.0f);
+            water.level          = jsonF(w, "level", 0.0f);
+            water.levelFraction  = jsonF(w, "levelFraction", 0.38f);
+            water.chunkCells     = jsonI(w, "chunkCells", 16);
+            water.flowStrength   = jsonF(w, "flowStrength", 0.85f);
+            water.steepness      = jsonF(w, "steepness", 0.55f);
+            water.amplitudeScale = jsonF(w, "amplitudeScale", 1.0f);
+            water.speedScale     = jsonF(w, "speedScale", 1.0f);
+            water.flowSpeed      = jsonF(w, "flowSpeed", 0.4f);
+            water.foam           = jsonF(w, "foam", 1.0f);
+            water.foamWidthScale = Math::Clamp(jsonF(w, "foamWidthScale", 1.0f), 0.5f, 2.0f);
+            water.detail         = Math::Clamp(jsonF(w, "detail", 1.0f), 0.0f, 1.0f);
             if (w.contains("flowDir") && w["flowDir"].is_array() && w["flowDir"].size() >= 2)
             {
-                water.flowDir[0] = w["flowDir"][0].get<float>();
-                water.flowDir[1] = w["flowDir"][1].get<float>();
+                water.flowDir[0] = jsonAt(w["flowDir"][0]);
+                water.flowDir[1] = jsonAt(w["flowDir"][1]);
             }
             if (w.contains("lodDistances") && w["lodDistances"].is_array())
             {
@@ -1018,7 +1141,7 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                 for (int i = 0; i < n; ++i)
                 {
                     if (lod[i].is_number())
-                        water.lodDistances[i] = lod[i].get<float>();
+                        water.lodDistances[i] = jsonAt(lod[i]);
                 }
             }
             if (w.contains("waves") && w["waves"].is_array())
@@ -1031,10 +1154,10 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                     if (!waves[i].is_object())
                         continue;
                     const json& wave = waves[i];
-                    water.waves[i].angleFromFlow = wave.value("angle", 0.0f);
-                    water.waves[i].frequency     = wave.value("frequency", 1.0f);
-                    water.waves[i].amplitude     = wave.value("amplitude", 0.1f);
-                    water.waves[i].speed         = wave.value("speed", 1.0f);
+                    water.waves[i].angleFromFlow = jsonF(wave, "angle", 0.0f);
+                    water.waves[i].frequency     = jsonF(wave, "frequency", 1.0f);
+                    water.waves[i].amplitude     = jsonF(wave, "amplitude", 0.1f);
+                    water.waves[i].speed         = jsonF(wave, "speed", 1.0f);
                 }
             }
             outScene.water = std::move(water);
@@ -1044,11 +1167,11 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             const json& e = root["exposure"];
             ExposureSceneDesc exposure{};
             exposure.present      = true;
-            exposure.autoExposure = e.value("auto", false);
-            exposure.evBias       = e.value("evBias", 0.0f);
-            exposure.maxEv        = e.value("maxEv", 1.5f);
-            exposure.adaptBright  = e.value("adaptBright", 6.0f);
-            exposure.adaptDark    = e.value("adaptDark", 1.0f);
+            exposure.autoExposure = jsonB(e, "auto", false);
+            exposure.evBias       = jsonF(e, "evBias", 0.0f);
+            exposure.maxEv        = jsonF(e, "maxEv", 1.5f);
+            exposure.adaptBright  = jsonF(e, "adaptBright", 6.0f);
+            exposure.adaptDark    = jsonF(e, "adaptDark", 1.0f);
             outScene.exposure     = std::move(exposure);
         }
         if (root.contains("stealth"))
@@ -1056,7 +1179,7 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             const json& s = root["stealth"];
             if (s.is_boolean())
             {
-                if (s.get<bool>())
+                if (jsonAtBool(s))
                 {
                     StealthSceneDesc stealth{};
                     stealth.present   = true;
@@ -1068,7 +1191,7 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             {
                 StealthSceneDesc stealth{};
                 stealth.present   = true;
-                stealth.awareness = s.contains("awareness") && s["awareness"].is_boolean() && s["awareness"].get<bool>();
+                stealth.awareness = s.contains("awareness") && s["awareness"].is_boolean() && jsonAtBool(s["awareness"]);
                 readStealthHear(s, "hearStand", stealth.hasHearStand, stealth.hearStand);
                 readStealthHear(s, "hearWalk", stealth.hasHearWalk, stealth.hearWalk);
                 readStealthHear(s, "hearSprint", stealth.hasHearSprint, stealth.hearSprint);
@@ -1123,7 +1246,7 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             continue;
 
         SceneObjectData o{};
-        const std::string typeStr = jo.value("type", std::string("cube"));
+        const std::string typeStr = jsonS(jo, "type", std::string("cube"));
         if (!tryParseSceneObjectType(typeStr, o.type))
         {
             DE_LOG_WARN("SceneFile: unknown type '{}' — skipped", typeStr);
@@ -1160,37 +1283,37 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
         {
             const json& p = jo["particle"];
             o.hasParticle     = true;
-            o.particleName    = p.value("name", std::string("Emitter"));
-            o.maxParticles    = p.value("maxParticles", 512u);
-            o.emissionRate    = p.value("emissionRate", 40.0f);
-            o.duration        = p.value("duration", 0.0f);
-            o.looping         = p.value("looping", true);
-            o.spreadDegrees   = p.value("spreadDegrees", 25.0f);
-            o.shape           = p.value("shape", 0);
-            o.additiveBlend   = p.value("additiveBlend", true);
-            o.simulationSpeed = p.value("simulationSpeed", 1.0f);
-            o.renderMode      = p.value("renderMode", 0);
-            o.ribbonCount     = p.value("ribbonCount", 1u);
-            o.ribbonUvScale   = p.value("ribbonUvScale", 1.0f);
+            o.particleName    = jsonS(p, "name", std::string("Emitter"));
+            o.maxParticles    = jsonU(p, "maxParticles", 512u);
+            o.emissionRate    = jsonF(p, "emissionRate", 40.0f);
+            o.duration        = jsonF(p, "duration", 0.0f);
+            o.looping         = jsonB(p, "looping", true);
+            o.spreadDegrees   = jsonF(p, "spreadDegrees", 25.0f);
+            o.shape           = jsonI(p, "shape", 0);
+            o.additiveBlend   = jsonB(p, "additiveBlend", true);
+            o.simulationSpeed = jsonF(p, "simulationSpeed", 1.0f);
+            o.renderMode      = jsonI(p, "renderMode", 0);
+            o.ribbonCount     = jsonU(p, "ribbonCount", 1u);
+            o.ribbonUvScale   = jsonF(p, "ribbonUvScale", 1.0f);
             if (p.contains("lifetime") && p["lifetime"].is_array() && p["lifetime"].size() >= 2)
             {
-                o.lifetimeMin = p["lifetime"][0].get<float>();
-                o.lifetimeMax = p["lifetime"][1].get<float>();
+                o.lifetimeMin = jsonAt(p["lifetime"][0]);
+                o.lifetimeMax = jsonAt(p["lifetime"][1]);
             }
             if (p.contains("startSpeed") && p["startSpeed"].is_array() && p["startSpeed"].size() >= 2)
             {
-                o.startSpeedMin = p["startSpeed"][0].get<float>();
-                o.startSpeedMax = p["startSpeed"][1].get<float>();
+                o.startSpeedMin = jsonAt(p["startSpeed"][0]);
+                o.startSpeedMax = jsonAt(p["startSpeed"][1]);
             }
             if (p.contains("startSize") && p["startSize"].is_array() && p["startSize"].size() >= 2)
             {
-                o.startSizeMin = p["startSize"][0].get<float>();
-                o.startSizeMax = p["startSize"][1].get<float>();
+                o.startSizeMin = jsonAt(p["startSize"][0]);
+                o.startSizeMax = jsonAt(p["startSize"][1]);
             }
             if (p.contains("endSize") && p["endSize"].is_array() && p["endSize"].size() >= 2)
             {
-                o.endSizeMin = p["endSize"][0].get<float>();
-                o.endSizeMax = p["endSize"][1].get<float>();
+                o.endSizeMin = jsonAt(p["endSize"][0]);
+                o.endSizeMax = jsonAt(p["endSize"][1]);
             }
             if (p.contains("startColor"))
                 readColor(p["startColor"], o.startColor, nullptr, "startColor");
@@ -1213,19 +1336,19 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             const json& light = jo["light"];
             applyTypeLightDefaults(o);
             o.hasLight          = true;
-            o.lightIntensity    = light.value("intensity", o.lightIntensity);
-            o.lightRange        = light.value("range", o.lightRange);
-            o.lightInnerDeg     = light.value("inner", o.lightInnerDeg);
-            o.lightOuterDeg     = light.value("outer", o.lightOuterDeg);
-            o.lightSourceRadius = light.value("sourceRadius", o.lightSourceRadius);
-            o.lightEnabled      = light.value("enabled", o.lightEnabled);
-            // value() throws type_error.306 on a non-bool. A missing or mistyped key stays false.
+            o.lightIntensity    = jsonF(light, "intensity", o.lightIntensity);
+            o.lightRange        = jsonF(light, "range", o.lightRange);
+            o.lightInnerDeg     = jsonF(light, "inner", o.lightInnerDeg);
+            o.lightOuterDeg     = jsonF(light, "outer", o.lightOuterDeg);
+            o.lightSourceRadius = jsonF(light, "sourceRadius", o.lightSourceRadius);
+            o.lightEnabled      = jsonB(light, "enabled", o.lightEnabled);
+            // A missing or mistyped key stays false. get<bool>() is not safe on the IO thread.
             if (!isGlobalLightType(o.type) && light.contains("castShadow") && light["castShadow"].is_boolean())
-                o.lightCastShadow = light["castShadow"].get<bool>();
+                o.lightCastShadow = jsonAtBool(light["castShadow"]);
             if (o.type == SceneObjectType::SpotLight && light.contains("searchlight") && light["searchlight"].is_boolean())
-                o.searchlight = light["searchlight"].get<bool>();
+                o.searchlight = jsonAtBool(light["searchlight"]);
             if (light.contains("sweep") && light["sweep"].is_number())
-                o.sweepDeg = std::clamp(light["sweep"].get<float>(), 0.0f, 340.0f);
+                o.sweepDeg = std::clamp(jsonAt(light["sweep"]), 0.0f, 340.0f);
         }
         else if (o.type == SceneObjectType::PointLight || o.type == SceneObjectType::SpotLight)
         {
@@ -1240,11 +1363,11 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
         }
 
         if (jo.contains("emissive") && jo["emissive"].is_number())
-            o.emissive = jo["emissive"].get<float>();
+            o.emissive = jsonAt(jo["emissive"]);
         if (jo.contains("emissiveMesh") && jo["emissiveMesh"].is_number_integer())
-            o.emissiveMeshIndex = jo["emissiveMesh"].get<int>();
+            o.emissiveMeshIndex = jsonAtInt(jo["emissiveMesh"]);
         if (jo.contains("model") && jo["model"].is_string())
-            o.modelPath = jo["model"].get<std::string>();
+            o.modelPath = jsonAtString(jo["model"]);
 
         if (jo.contains("cloud") && jo["cloud"].is_object())
         {
@@ -1254,39 +1377,39 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             {
                 if (cloud["shape"].is_string())
                 {
-                    const std::string s = cloud["shape"].get<std::string>();
+                    const std::string s = jsonAtString(cloud["shape"]);
                     if (s == "box" || s == "aabb")
                         o.cloudShape = 0;
                     else
                         o.cloudShape = 1;
                 }
                 else if (cloud["shape"].is_number_integer())
-                    o.cloudShape = cloud["shape"].get<int>() == 0 ? 0 : 1;
+                    o.cloudShape = jsonAtInt(cloud["shape"]) == 0 ? 0 : 1;
             }
-            o.cloudDensity         = cloud.value("density", o.cloudDensity);
-            o.cloudCoverage        = cloud.value("coverage", o.cloudCoverage);
-            o.cloudSoftness        = cloud.value("softness", o.cloudSoftness);
-            o.cloudAbsorption      = cloud.value("absorption", o.cloudAbsorption);
-            o.cloudScattering      = cloud.value("scattering", o.cloudScattering);
-            o.cloudAnisotropy      = cloud.value("anisotropy", o.cloudAnisotropy);
-            o.cloudNoiseScale      = cloud.value("noiseScale", o.cloudNoiseScale);
-            o.cloudDetailScale     = cloud.value("detailScale", o.cloudDetailScale);
-            o.cloudDetailStrength  = cloud.value("detailStrength", o.cloudDetailStrength);
-            o.cloudHeightFalloff   = cloud.value("heightFalloff", o.cloudHeightFalloff);
-            o.cloudSilverLining    = cloud.value("silverLining", o.cloudSilverLining);
-            o.cloudWindSpeed       = cloud.value("windSpeed", o.cloudWindSpeed);
-            o.cloudEnabled         = cloud.value("enabled", o.cloudEnabled);
+            o.cloudDensity         = jsonF(cloud, "density", o.cloudDensity);
+            o.cloudCoverage        = jsonF(cloud, "coverage", o.cloudCoverage);
+            o.cloudSoftness        = jsonF(cloud, "softness", o.cloudSoftness);
+            o.cloudAbsorption      = jsonF(cloud, "absorption", o.cloudAbsorption);
+            o.cloudScattering      = jsonF(cloud, "scattering", o.cloudScattering);
+            o.cloudAnisotropy      = jsonF(cloud, "anisotropy", o.cloudAnisotropy);
+            o.cloudNoiseScale      = jsonF(cloud, "noiseScale", o.cloudNoiseScale);
+            o.cloudDetailScale     = jsonF(cloud, "detailScale", o.cloudDetailScale);
+            o.cloudDetailStrength  = jsonF(cloud, "detailStrength", o.cloudDetailStrength);
+            o.cloudHeightFalloff   = jsonF(cloud, "heightFalloff", o.cloudHeightFalloff);
+            o.cloudSilverLining    = jsonF(cloud, "silverLining", o.cloudSilverLining);
+            o.cloudWindSpeed       = jsonF(cloud, "windSpeed", o.cloudWindSpeed);
+            o.cloudEnabled         = jsonB(cloud, "enabled", o.cloudEnabled);
             if (cloud.contains("albedo") && cloud["albedo"].is_array() && cloud["albedo"].size() >= 3)
             {
-                o.cloudAlbedo[0] = cloud["albedo"][0].get<float>();
-                o.cloudAlbedo[1] = cloud["albedo"][1].get<float>();
-                o.cloudAlbedo[2] = cloud["albedo"][2].get<float>();
+                o.cloudAlbedo[0] = jsonAt(cloud["albedo"][0]);
+                o.cloudAlbedo[1] = jsonAt(cloud["albedo"][1]);
+                o.cloudAlbedo[2] = jsonAt(cloud["albedo"][2]);
             }
             if (cloud.contains("windDir") && cloud["windDir"].is_array() && cloud["windDir"].size() >= 3)
             {
-                o.cloudWindDir[0] = cloud["windDir"][0].get<float>();
-                o.cloudWindDir[1] = cloud["windDir"][1].get<float>();
-                o.cloudWindDir[2] = cloud["windDir"][2].get<float>();
+                o.cloudWindDir[0] = jsonAt(cloud["windDir"][0]);
+                o.cloudWindDir[1] = jsonAt(cloud["windDir"][1]);
+                o.cloudWindDir[2] = jsonAt(cloud["windDir"][2]);
             }
         }
         else if (o.type == SceneObjectType::CloudVolume)
@@ -1313,7 +1436,7 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             for (const json& p : jo["patrol"])
             {
                 if (p.is_array() && p.size() >= 2 && p[0].is_number() && p[1].is_number())
-                    o.patrol.emplace_back(p[0].get<float>(), p[1].get<float>());
+                    o.patrol.emplace_back(jsonAt(p[0]), jsonAt(p[1]));
             }
         }
 
@@ -1355,7 +1478,7 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                     pointsOk = false;
                     break;
                 }
-                o.streamPoints.emplace_back(p[0].get<float>(), p[1].get<float>());
+                o.streamPoints.emplace_back(jsonAt(p[0]), jsonAt(p[1]));
             }
             if (!pointsOk || o.streamPoints.size() < 2)
             {
@@ -1363,8 +1486,8 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                 continue;
             }
             o.hasStream        = true;
-            o.streamWidth      = Math::Clamp(stream.value("width", 3.5f), 1.5f, 12.0f);
-            o.streamFlowSpeed  = stream.value("flowSpeed", 1.6f);
+            o.streamWidth      = Math::Clamp(jsonF(stream, "width", 3.5f), 1.5f, 12.0f);
+            o.streamFlowSpeed  = jsonF(stream, "flowSpeed", 1.6f);
             o.position.x       = o.streamPoints.front().x;
             o.position.z       = o.streamPoints.front().y;
             ++streamCount;
@@ -1563,6 +1686,193 @@ WaterParams sceneWaterParams(const WaterSceneDesc& water, float waterLevel)
         }
     }
     return params;
+}
+
+namespace
+{
+
+struct SceneLoadRecord
+{
+    std::filesystem::path path;
+    uint64_t              generation = 0;
+    std::atomic<bool>     finished{false};
+    std::atomic<bool>     superseded{false};
+    JobStatus             status = JobStatus::Failed;
+    SceneFileData         scene;
+    std::string           error;
+};
+
+struct SceneLoadTable
+{
+    std::mutex mutex;
+    uint64_t   current = 0;
+    std::unordered_map<uint64_t, std::shared_ptr<SceneLoadRecord>> records;
+};
+
+SceneLoadTable& sceneLoads()
+{
+    static SceneLoadTable table;
+    return table;
+}
+
+void sweepFinished(SceneLoadTable& table, uint64_t keep)
+{
+    for (auto it = table.records.begin(); it != table.records.end();)
+    {
+        if (it->first != keep && it->second && it->second->finished.load(std::memory_order_acquire))
+            it = table.records.erase(it);
+        else
+            ++it;
+    }
+}
+
+JobStatus runSceneLoad(void* user)
+{
+    auto* rec = static_cast<SceneLoadRecord*>(user);
+    SceneFileData scene;
+    std::string error;
+    const bool ok = loadSceneFromJson(rec->path, scene, &error);
+    if (rec->superseded.load(std::memory_order_acquire))
+        rec->status = JobStatus::Cancelled;
+    else if (ok)
+    {
+        rec->status = JobStatus::Ok;
+        rec->scene  = std::move(scene);
+    }
+    else
+    {
+        rec->status = JobStatus::Failed;
+        rec->error  = std::move(error);
+        rec->scene  = std::move(scene);
+    }
+    rec->finished.store(true, std::memory_order_release);
+    return rec->status;
+}
+
+} // namespace
+
+bool enqueueSceneLoad(JobSystem& jobs, const AssetManager& assets, const SceneLoadRequest& request)
+{
+    // Generation 0 is not a slot. Poll of an unknown id fails instead of succeeding.
+    if (request.generation == 0 || request.path.empty())
+        return false;
+    if (!acceptJobPath(assets, request.path))
+        return false;
+
+    auto rec = std::make_shared<SceneLoadRecord>();
+    rec->path       = request.path;
+    rec->generation = request.generation;
+
+    SceneLoadTable& table = sceneLoads();
+    {
+        std::lock_guard<std::mutex> lock(table.mutex);
+        const auto existing = table.records.find(request.generation);
+        // The worker still owns this generation. Do not replace the record.
+        if (existing != table.records.end() && existing->second && !existing->second->finished.load(std::memory_order_acquire))
+            return false;
+        table.records[request.generation] = rec;
+    }
+
+    JobDesc desc{};
+    desc.name       = "SceneLoad";
+    desc.lane       = JobLane::Io;
+    desc.stream     = JobStream::Scene;
+    desc.reads      = AccessFileRead;
+    desc.generation = request.generation;
+    desc.fn         = &runSceneLoad;
+    desc.user       = rec.get();
+    if (!jobs.enqueue(desc))
+    {
+        std::lock_guard<std::mutex> lock(table.mutex);
+        const auto it = table.records.find(request.generation);
+        if (it != table.records.end() && it->second.get() == rec.get() && !rec->finished.load(std::memory_order_acquire))
+            table.records.erase(it);
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(table.mutex);
+    table.current = request.generation;
+    for (auto& entry : table.records)
+    {
+        if (entry.first != request.generation && entry.second && !entry.second->finished.load(std::memory_order_acquire))
+            entry.second->superseded.store(true, std::memory_order_release);
+    }
+    sweepFinished(table, request.generation);
+    return true;
+}
+
+bool pollSceneLoad(JobSystem& jobs, uint64_t generation, SceneLoadResult& out)
+{
+    out = SceneLoadResult{};
+    if (generation == 0)
+    {
+        out.status = JobStatus::Failed;
+        out.error  = "unknown generation";
+        return false;
+    }
+
+    SceneLoadTable& table = sceneLoads();
+    std::shared_ptr<SceneLoadRecord> rec;
+    {
+        std::lock_guard<std::mutex> lock(table.mutex);
+        sweepFinished(table, generation);
+        const auto it = table.records.find(generation);
+        if (it == table.records.end() || !it->second)
+        {
+            out.status = JobStatus::Failed;
+            out.error  = "unknown generation";
+            return false;
+        }
+        rec = it->second;
+    }
+
+    if (!rec->finished.load(std::memory_order_acquire))
+    {
+        out.status = JobStatus::NotReady;
+        return false;
+    }
+
+    if (rec->status == JobStatus::Budget)
+    {
+        rec->finished.store(false, std::memory_order_release);
+        JobDesc desc{};
+        desc.name       = "SceneLoad";
+        desc.lane       = JobLane::Io;
+        desc.stream     = JobStream::Scene;
+        desc.reads      = AccessFileRead;
+        desc.generation = generation;
+        desc.fn         = &runSceneLoad;
+        desc.user       = rec.get();
+        if (!jobs.enqueue(desc))
+        {
+            rec->status = JobStatus::Failed;
+            rec->error  = "scheduler stopped";
+            rec->finished.store(true, std::memory_order_release);
+            out.status = JobStatus::Failed;
+            out.error  = rec->error;
+            return false;
+        }
+        out.status = JobStatus::NotReady;
+        return false;
+    }
+
+    if (rec->status != JobStatus::Ok && rec->status != JobStatus::Failed && rec->status != JobStatus::Cancelled)
+    {
+        out.status = JobStatus::Failed;
+        out.error  = "job returned NotReady";
+        return false;
+    }
+
+    out.status = rec->status;
+    out.scene  = std::move(rec->scene);
+    out.error  = std::move(rec->error);
+    {
+        std::lock_guard<std::mutex> lock(table.mutex);
+        const auto it = table.records.find(generation);
+        if (it != table.records.end() && it->second.get() == rec.get())
+            table.records.erase(it);
+    }
+    return true;
 }
 
 } // namespace Dark

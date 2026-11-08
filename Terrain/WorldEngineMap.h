@@ -53,15 +53,24 @@ bool loadWorldEngineDirectory(const std::filesystem::path& directory, const Worl
 // Linear ORM: R = AO, G = roughness, B = metal, A = 0.5. A flat white mask is ignored (metal 0, AO 1).
 bool buildWorldEngineOrmImage(const std::filesystem::path& roughnessPath, const std::filesystem::path& maskPath, Image& out);
 
+// CPU decode of the baked albedo and ORM. The GPU upload stays on the caller.
+struct WorldEngineCpuImages
+{
+    AssetRef<Image> diffuse;
+    AssetRef<Image> orm;
+};
+
 // Uploads the baked albedo + ORM and a splat texture. Shader uses kWorldEngineMacroBlend.
 // `splat` is the gameplay map (also bound; the macro shader does not blend with it).
+// `decoded` skips the file decode when the IO lane already produced both images.
 bool uploadWorldEngineMaterial(
     Renderer& renderer,
     AssetManager& assets,
     const SplatMap& splat,
     const WorldEngineMaps& maps,
     TerrainMaterial& material,
-    TerrainSurfaceDesc* outSurface);
+    TerrainSurfaceDesc* outSurface,
+    const WorldEngineCpuImages* decoded = nullptr);
 
 } // namespace Terrain
 } // namespace Dark

@@ -1647,60 +1647,73 @@ void SandboxApp::pulseMuzzle()
     m_muzzleTimer = 0.05f;
 }
 
-bool SandboxApp::createSandboxModels()
+bool SandboxApp::createSandboxModels(int step)
 {
-    MeshData cubeData;
-    if (!CreateCube(cubeData, 1.0f))
-        return false;
-    auto cubeMat = std::make_shared<Material>();
-    if (!cubeMat->createFromAlbedoPath(assets(), "textures/dark_engine_cube.png", /*fallback*/ 64, 166, 242, 255))
-        return false;
-    cubeMat = assets().internMaterial(cubeMat, "runtime:/sandbox/cube-mat");
-    AssetRef<Model> cubeModel = internAndUploadProceduralModel(renderer(), assets(), std::move(cubeData), cubeMat, "runtime:/sandbox/cube");
-    if (!cubeModel)
-        return false;
-    m_cubeModelId = cubeModel->id;
-
-    MeshData packData;
-    if (!CreateCross(packData, 1.0f, 0.30f, 0.22f))
-        return false;
-    AssetRef<Material> packMat = internSolidMaterial(assets(), 214, 28, 36, 255, "runtime:/sandbox/pack-mat");
-    AssetRef<Model> packModel  = internAndUploadProceduralModel(renderer(), assets(), std::move(packData), packMat, "runtime:/sandbox/pack");
-    if (!packModel)
-        return false;
-    m_packModelId = packModel->id;
-
-    MeshData lanternData;
-    if (!CreateCube(lanternData, 1.0f))
-        return false;
-    auto lanternMat = std::make_shared<Material>();
-    if (!lanternMat->createSolid(assets(), 220, 150, 60, 255))
-        return false;
-    lanternMat->setEmissive(1.0f);
-    lanternMat = assets().internMaterial(lanternMat, "runtime:/sandbox/lantern-mat");
-    if (!lanternMat || lanternMat->id == NULL_ASSET)
-        return false;
-    AssetRef<Model> lanternModel = internAndUploadProceduralModel(renderer(), assets(), std::move(lanternData), lanternMat, "runtime:/sandbox/lantern");
-    if (!lanternModel)
-        return false;
-    m_lanternModelId = lanternModel->id;
-
-    MeshData tracerData;
-    if (!CreateSphere(tracerData, 0.5f, 8, 12))
+    if (step == 0)
     {
-        DE_LOG_ERROR("SandboxApp: projectile tracer mesh failed");
+        MeshData cubeData;
+        if (!CreateCube(cubeData, 1.0f))
+            return false;
+        auto cubeMat = std::make_shared<Material>();
+        if (!cubeMat->createFromAlbedoPath(assets(), "textures/dark_engine_cube.png", /*fallback*/ 64, 166, 242, 255))
+            return false;
+        cubeMat = assets().internMaterial(cubeMat, "runtime:/sandbox/cube-mat");
+        AssetRef<Model> cubeModel = internAndUploadProceduralModel(renderer(), assets(), std::move(cubeData), cubeMat, "runtime:/sandbox/cube");
+        if (!cubeModel)
+            return false;
+        m_cubeModelId = cubeModel->id;
         return true;
     }
-    AssetRef<Material> tracerMat = internSolidMaterial(assets(), 255, 196, 48, 255, "runtime:/sandbox/tracer-mat");
-    AssetRef<Model> tracerModel  = internAndUploadProceduralModel(renderer(), assets(), std::move(tracerData), tracerMat, "runtime:/sandbox/tracer");
-    if (tracerModel)
-        m_tracerModelId = tracerModel->id;
-    else
-        DE_LOG_ERROR("SandboxApp: projectile tracer model failed");
+    if (step == 1)
+    {
+        MeshData packData;
+        if (!CreateCross(packData, 1.0f, 0.30f, 0.22f))
+            return false;
+        AssetRef<Material> packMat = internSolidMaterial(assets(), 214, 28, 36, 255, "runtime:/sandbox/pack-mat");
+        AssetRef<Model> packModel  = internAndUploadProceduralModel(renderer(), assets(), std::move(packData), packMat, "runtime:/sandbox/pack");
+        if (!packModel)
+            return false;
+        m_packModelId = packModel->id;
+        return true;
+    }
+    if (step == 2)
+    {
+        MeshData lanternData;
+        if (!CreateCube(lanternData, 1.0f))
+            return false;
+        auto lanternMat = std::make_shared<Material>();
+        if (!lanternMat->createSolid(assets(), 220, 150, 60, 255))
+            return false;
+        lanternMat->setEmissive(1.0f);
+        lanternMat = assets().internMaterial(lanternMat, "runtime:/sandbox/lantern-mat");
+        if (!lanternMat || lanternMat->id == NULL_ASSET)
+            return false;
+        AssetRef<Model> lanternModel = internAndUploadProceduralModel(renderer(), assets(), std::move(lanternData), lanternMat, "runtime:/sandbox/lantern");
+        if (!lanternModel)
+            return false;
+        m_lanternModelId = lanternModel->id;
+        return true;
+    }
+    if (step == 3)
+    {
+        MeshData tracerData;
+        if (!CreateSphere(tracerData, 0.5f, 8, 12))
+        {
+            DE_LOG_ERROR("SandboxApp: projectile tracer mesh failed");
+            return true;
+        }
+        AssetRef<Material> tracerMat = internSolidMaterial(assets(), 255, 196, 48, 255, "runtime:/sandbox/tracer-mat");
+        AssetRef<Model> tracerModel  = internAndUploadProceduralModel(renderer(), assets(), std::move(tracerData), tracerMat, "runtime:/sandbox/tracer");
+        if (tracerModel)
+            m_tracerModelId = tracerModel->id;
+        else
+            DE_LOG_ERROR("SandboxApp: projectile tracer model failed");
+        return true;
+    }
     return true;
 }
 
-void SandboxApp::spawnGltfDemo()
+void SandboxApp::spawnGltfDemo(int step)
 {
     auto spawn = [&](const char* virtualPath, const char* tag, float x, float z, float scale) {
         AssetRef<Model> model = loadAndUploadModel(renderer(), assets(), virtualPath);
@@ -1722,13 +1735,22 @@ void SandboxApp::spawnGltfDemo()
     };
 
     // Sit on the terrain next to the player cube at the origin (default camera looks here).
-    const EntityMaster cubeMaster = loadEntityMasterType("unit_cube");
-    const EntityMaster glassMaster = loadEntityMasterType("unit_glass");
-    const std::string  cubeGltf = cubeMaster.gltf.empty() ? std::string("models/unit_cube.gltf") : cubeMaster.gltf;
-    const std::string  glassGltf = glassMaster.gltf.empty() ? std::string("models/unit_glass.gltf") : glassMaster.gltf;
-    spawn(cubeGltf.c_str(), "GltfCube", 3.0f, 3.0f, 2.0f);
-    spawn(glassGltf.c_str(), "GltfGlass", 5.5f, 3.0f, 2.0f);
-    spawnAnimatedDemo();
+    if (step == 0)
+    {
+        const EntityMaster cubeMaster = loadEntityMasterType("unit_cube");
+        const std::string  cubeGltf = cubeMaster.gltf.empty() ? std::string("models/unit_cube.gltf") : cubeMaster.gltf;
+        spawn(cubeGltf.c_str(), "GltfCube", 3.0f, 3.0f, 2.0f);
+        return;
+    }
+    if (step == 1)
+    {
+        const EntityMaster glassMaster = loadEntityMasterType("unit_glass");
+        const std::string  glassGltf = glassMaster.gltf.empty() ? std::string("models/unit_glass.gltf") : glassMaster.gltf;
+        spawn(glassGltf.c_str(), "GltfGlass", 5.5f, 3.0f, 2.0f);
+        return;
+    }
+    if (step == 2)
+        spawnAnimatedDemo();
 }
 
 void SandboxApp::onWiggleNotify(void*, const AnimNotify& n)
@@ -2562,741 +2584,11 @@ void SandboxApp::onInit()
     if (!pumpBootFrame())
         return;
 
-    if (!loadAndBakeIbl(renderer(), assets(), m_ibl, m_iblImageId))
-        DE_LOG_INFO(LogCategory::Render, "SandboxApp: IBL off — using ambient");
-
     // Menu keys are polled in the main loop, after onInit returns. Load now only
     // when the picker will not be shown (-no-menu, net host, or menu GPU failed).
-    if (!m_menu.visible())
-    {
-        if (!startScene(defaultScenePath(sceneFileArg())))
-            return;
-    }
-}
-
-bool SandboxApp::startScene(const std::filesystem::path& scenePath)
-{
-    if (m_sceneStarted)
-        return true;
-
-    std::vector<SceneObjectData> sceneObjects;
-    std::vector<SceneObjectData> scenePawns;
-    std::vector<SceneObjectData> sceneBoxes;
-    std::vector<SceneObjectData> sceneLights;
-    std::vector<SceneObjectData> sceneSpawners;
-    std::vector<SceneObjectData> sceneMovies;
-    std::vector<SceneObjectData> sceneModels;
-    {
-        auto sidecar = [](const std::filesystem::path& scenePath, const std::string& file) {
-            if (file.empty())
-                return std::filesystem::path{};
-            const std::filesystem::path p(file);
-            if (p.is_absolute())
-                return p;
-            const std::filesystem::path parent = scenePath.has_parent_path() ? scenePath.parent_path() : std::filesystem::path{};
-            return parent / p;
-        };
-
-        bool loadedScene = false;
-        bool worldEngine = false;
-        Terrain::SplatMap matSplat;
-        Terrain::WorldEngineMaps worldMaps;
-        SceneFileData sceneData{};
-        {
-            std::string err;
-            if (!loadSceneFromJson(scenePath, sceneData, &err))
-                DE_LOG_ERROR(LogCategory::Render, "SandboxApp: scene load failed ({}) — {}", scenePath.string(), err);
-            else
-                DE_LOG_INFO(LogCategory::Render, "SandboxApp: scene {}", scenePath.string());
-            m_sceneStealth = sceneData.stealth;
-            applySceneAwareness(m_chase.ai(), m_sceneStealth);
-            m_sceneQuest = sceneData.quest;
-            applySceneAtmosphere(m_env, sceneData);
-            {
-                const ExposureSceneDesc exposure = sceneData.exposure.present ? sceneData.exposure : ExposureSceneDesc{};
-                m_autoExposure.mode        = exposure.autoExposure ? ExposureMode::Auto : ExposureMode::Manual;
-                m_autoExposure.evBias      = exposure.evBias;
-                m_autoExposure.maxEv       = exposure.maxEv;
-                m_autoExposure.adaptBright = exposure.adaptBright;
-                m_autoExposure.adaptDark   = exposure.adaptDark;
-                resetAutoExposure(m_autoExposureState);
-                DE_LOG_INFO(LogCategory::Render, "SandboxApp: exposure auto={}", exposure.autoExposure);
-            }
-            if (sceneData.mode != SceneMode::Scene2D && sceneData.hasTerrain)
-            {
-                if (!sceneData.terrain.source.empty())
-                {
-                    const std::filesystem::path dir = Terrain::resolveWorldEngineDirectory(sceneData.terrain.source);
-                    Terrain::WorldEngineLoadDesc importDesc{};
-                    importDesc.worldSizeMeters   = sceneData.terrain.worldSize > 1.0f ? sceneData.terrain.worldSize : 1024.0f;
-                    importDesc.heightRangeMeters = sceneData.terrain.importHeight > 0.0f ? sceneData.terrain.importHeight : 480.0f;
-                    const int chunkCells = sceneData.terrain.chunkCells > 0 ? sceneData.terrain.chunkCells : 64;
-                    if (!dir.empty()
-                        && Terrain::loadWorldEngineDirectory(dir, importDesc, worldMaps)
-                        && m_terrain.createFromHeightMap(std::move(worldMaps.height), chunkCells))
-                    {
-                        matSplat = worldMaps.splat;
-                        if (!m_terrain.setWorkingSplat(std::move(worldMaps.splat)))
-                            DE_LOG_WARN(LogCategory::Render, "SandboxApp: World Engine splat was not kept");
-                        loadedScene = true;
-                        worldEngine = true;
-                        DE_LOG_INFO(LogCategory::Render, "SandboxApp: loaded World Engine terrain '{}'", sceneData.terrain.source);
-                    }
-                    else
-                        DE_LOG_ERROR(LogCategory::Render, "SandboxApp: World Engine folder '{}' failed", sceneData.terrain.source);
-                }
-                else if (sceneData.terrain.hasGrid)
-                {
-                    TerrainGridDesc gridDesc{};
-                    gridDesc.tilesX       = sceneData.terrain.grid.tilesX;
-                    gridDesc.tilesZ       = sceneData.terrain.grid.tilesZ;
-                    gridDesc.tileCells    = sceneData.terrain.grid.tileCells;
-                    gridDesc.chunkCells   = sceneData.terrain.chunkCells > 0 ? sceneData.terrain.chunkCells : 64;
-                    gridDesc.cellSize     = sceneData.terrain.grid.cellSize;
-                    gridDesc.heightScale  = sceneData.terrain.grid.heightScale;
-                    gridDesc.origin       = sceneData.terrain.grid.origin;
-                    gridDesc.coarseFile   = sidecar(scenePath, sceneData.terrain.grid.coarseFile);
-                    gridDesc.tileDir      = sidecar(scenePath, sceneData.terrain.grid.tileDir);
-                    gridDesc.residentRing = sceneData.terrain.grid.residentRing;
-                    if (m_terrain.create(gridDesc))
-                    {
-                        loadedScene        = true;
-                        m_haveTerrainSea   = true;
-                        m_terrainSeaLevel  = sceneData.terrain.grid.seaLevel;
-                        DE_LOG_INFO(LogCategory::Render, "SandboxApp: streaming scene terrain {}x{} tiles", gridDesc.tilesX, gridDesc.tilesZ);
-                    }
-                    else
-                        DE_LOG_ERROR(LogCategory::Render, "SandboxApp: scene terrain.grid failed — FBM fallback");
-                }
-                else if (!sceneData.terrain.heightFile.empty())
-                {
-                    HeightMap height;
-                    if (height.loadBinary(sidecar(scenePath, sceneData.terrain.heightFile))
-                        && m_terrain.createFromHeightMap(std::move(height), sceneData.terrain.chunkCells > 0 ? sceneData.terrain.chunkCells : 16))
-                    {
-                        loadedScene = true;
-                        DE_LOG_INFO(LogCategory::Render, "SandboxApp: loaded legacy heightFile as 1-tile Grid");
-                    }
-                }
-            }
-        }
-
-        m_foliageDensity.dirtTreesPerM2    = sceneData.terrain.foliage.dirtTreesPerM2;
-        m_foliageDensity.dirtFlowersPerM2  = sceneData.terrain.foliage.dirtFlowersPerM2;
-        m_foliageDensity.grassTreesPerM2   = sceneData.terrain.foliage.grassTreesPerM2;
-        m_foliageDensity.grassFlowersPerM2 = sceneData.terrain.foliage.grassFlowersPerM2;
-        m_foliageDensity.rockPerM2         = sceneData.terrain.foliage.rockPerM2;
-        m_foliageDensity.grassPerM2        = sceneData.terrain.foliage.grassPerM2;
-        m_foliageDensity.seed              = sceneData.terrain.foliage.seed;
-        m_foliageDensity.treeModel         = sceneData.terrain.foliage.treeModel;
-        m_foliageDensity.flowerModel       = sceneData.terrain.foliage.flowerModel;
-        m_foliageDensity.rockModel         = sceneData.terrain.foliage.rockModel;
-        m_foliageDensity.grassModel        = sceneData.terrain.foliage.grassModel;
-        m_leafShedScale                    = sceneData.terrain.foliage.shedScale;
-
-        m_wind = sceneData.terrain.wind.settings;
-        clampWindSettings(m_wind);
-
-        const GrassSceneDesc& grassScene = sceneData.terrain.grass;
-        GrassParams           grassParams;
-        grassParams.enabled          = grassScene.enabled;
-        grassParams.heightMetres     = grassScene.heightMetres;
-        grassParams.flexibility      = grassScene.flexibility;
-        grassParams.densityScale     = grassScene.densityScale;
-        grassParams.windTipMetres    = grassScene.windTipMetres;
-        grassParams.faceEdge         = grassScene.faceEdge;
-        grassParams.faceYaw          = grassScene.faceYaw;
-        grassParams.faceLean         = grassScene.faceLean;
-        grassParams.faceSteep        = grassScene.faceSteep;
-        applyWindToGrass(m_wind, grassParams);
-        if (!m_grassPipeline.isValid())
-            grassParams.enabled = false;
-        m_grassField.setParams(grassParams);
-
-        if (!loadedScene)
-        {
-            const bool bareGround = !sceneData.hasTerrain && sceneData.mode != SceneMode::Scene2D;
-            HeightMap base;
-            const float extent = 128.0f * 2.0f;
-            bool heightOk = false;
-            if (bareGround)
-            {
-                // Samples start at 0, so world Y stays on the origin. The floor cube is the visible ground.
-                heightOk = base.create(129, 129, 2.0f, 1.0f);
-            }
-            else
-            {
-                HeightMap detail;
-                heightOk = base.createFbm(129, 129, 1337u, 6, 3.5f, 1.0f, 2.1f, 0.48f, 2.0f, 22.0f)
-                    && detail.createFbm(129, 129, 9001u, 3, 18.0f, 0.12f, 2.0f, 0.5f, 2.0f, 22.0f)
-                    && base.addLayer(detail, 1.0f);
-            }
-            if (!heightOk)
-            {
-                DE_LOG_FATAL("SandboxApp: height map create failed");
-                requestQuit();
-                return false;
-            }
-            base.setOrigin(Vector3f{ -0.5f * extent, 0.0f, -0.5f * extent });
-            if (!matSplat.generateFromHeight(base))
-            {
-                DE_LOG_FATAL("SandboxApp: splat generate failed");
-                requestQuit();
-                return false;
-            }
-            if (!m_terrain.createFromHeightMap(std::move(base), 16))
-            {
-                DE_LOG_FATAL("SandboxApp: terrain create failed");
-                requestQuit();
-                return false;
-            }
-            m_terrain.setWorkingSplat(SplatMap(matSplat));
-            if (bareGround)
-            {
-                m_showTerrain = false;
-                DE_LOG_INFO(LogCategory::Render, "SandboxApp: scene has no terrain; flat ground, mesh hidden");
-            }
-        }
-
-        const AABox3f terrainBox = m_terrain.bounds();
-        const WaterSceneDesc& waterScene = sceneData.water;
-        float waterLevel = Lerp(terrainBox.Min.y, terrainBox.Max.y, waterScene.levelFraction);
-        if (waterScene.hasLevel)
-            waterLevel = waterScene.level;
-        else if (m_haveTerrainSea)
-            waterLevel = m_terrainSeaLevel;
-        else if (!m_showTerrain)
-            waterLevel = -50.0f;
-
-        if (worldEngine)
-        {
-            const HeightMap* height = m_terrain.editableWorking();
-            const SplatMap*  splat  = m_terrain.editableWorkingSplat();
-            FoliageSpawnIn   spawnIn;
-            spawnIn.height    = height;
-            spawnIn.splat     = splat;
-            spawnIn.density   = m_foliageDensity;
-            spawnIn.tilesX    = m_terrain.tilesX();
-            spawnIn.tilesZ    = m_terrain.tilesZ();
-            const int cells   = m_terrain.tileCells();
-            spawnIn.tileCells = cells > 0 ? static_cast<uint32_t>(cells) : 0u;
-            spawnIn.cellSize  = m_terrain.cellSize();
-            spawnIn.origin    = m_terrain.origin();
-            spawnIn.seaLevel  = height ? height->origin().y : 0.0f;
-            FoliageWaterVolume lake;
-            lake.entireMap = true;
-            lake.surfaceY  = waterLevel;
-            spawnIn.water.push_back(lake);
-            FoliageSpawnOut spawned;
-            if (height && splat && spawnFoliage(spawnIn, spawned))
-                m_foliage.swap(spawned.records);
-            else
-                DE_LOG_WARN(LogCategory::Render, "SandboxApp: splat foliage spawn failed");
-        }
-
-        if (!matSplat.valid() && !matSplat.create(2, 2))
-        {
-            DE_LOG_FATAL("SandboxApp: dummy splat failed");
-            requestQuit();
-            return false;
-        }
-        if (worldEngine)
-        {
-            if (!Terrain::uploadWorldEngineMaterial(renderer(), assets(), matSplat, worldMaps, m_terrainMaterial, nullptr))
-            {
-                DE_LOG_FATAL("SandboxApp: World Engine material failed");
-                requestQuit();
-                return false;
-            }
-            DE_LOG_INFO(LogCategory::Render, "Terrain: World Engine albedo and roughness");
-        }
-        else if (tryCreateTerrainFromContent(renderer(), assets(), matSplat, m_terrainMaterial))
-            DE_LOG_INFO(LogCategory::Render, "Terrain: using content layer set");
-        else
-        {
-            DE_LOG_INFO(LogCategory::Render, "Terrain: checkers fallback");
-            if (!m_terrainMaterial.createDefault(renderer(), matSplat))
-            {
-                DE_LOG_FATAL("SandboxApp: terrain material create failed");
-                requestQuit();
-                return false;
-            }
-        }
-        m_terrainMaterial.setLayerSamplingRaw(renderer().device(), renderer().debugState().legacyUnormAlbedo);
-        if (!pumpBootFrame())
-            return false;
-        m_terrain.updateStreaming(Vector3f{ 0.0f, 50.0f, -80.0f }, &renderer(), &m_terrainMaterial);
-        if (!m_terrain.uploadCoarseHeightTexture(renderer()))
-        {
-            DE_LOG_FATAL("SandboxApp: coarse height texture upload failed");
-            requestQuit();
-            return false;
-        }
-        if (m_terrain.heightTexture().valid())
-        {
-            renderer().setHeightSrv(m_terrain.heightTexture().cpuHandle());
-            m_waterPipeline.setHeightSrv(renderer().device(), m_terrain.heightTexture().cpuHandle());
-        }
-        if (!pumpBootFrame())
-            return false;
-
-        auto spawnCloudEntity = [&](const Vector3f& pos, const Vector3f& scale, const CloudVolumeDesc& desc) {
-            Entity e = world().createEntity();
-            TransformComponent xf{};
-            xf.position = pos;
-            xf.scale    = scale;
-            world().emplace<TransformComponent>(e, xf);
-            CloudVolumeComponent cloud{};
-            cloud.desc = desc;
-            world().emplace<CloudVolumeComponent>(e, cloud);
-        };
-        uint32_t spawnedClouds = 0;
-        expandSceneBuildings(sceneData);
-        for (const SceneObjectData& o : sceneData.objects)
-        {
-            if (o.type == SceneObjectType::Hunter || o.type == SceneObjectType::Wolf)
-                scenePawns.push_back(o);
-            if (o.type == SceneObjectType::Spawner)
-                sceneSpawners.push_back(o);
-            if (o.type == SceneObjectType::Movie)
-                sceneMovies.push_back(o);
-            if (o.type == SceneObjectType::Cube)
-                sceneBoxes.push_back(o);
-            if (o.type == SceneObjectType::PointLight || o.type == SceneObjectType::SpotLight)
-                sceneLights.push_back(o);
-            if (o.type == SceneObjectType::Model)
-                sceneModels.push_back(o);
-            if (o.type == SceneObjectType::Player)
-                m_chase.setPlayerStart(o.position);
-            if (o.type != SceneObjectType::CloudVolume)
-                continue;
-            CloudVolumeDesc desc{};
-            if (o.hasCloud)
-                cloudDescFromSceneData(o, desc);
-            spawnCloudEntity(o.position, o.scale, desc);
-            ++spawnedClouds;
-        }
-        sceneObjects = sceneData.objects;
-        if (spawnedClouds == 0)
-        {
-            CloudVolumeDesc desc{};
-            spawnCloudEntity(Vector3f(0.0f, 36.0f, 0.0f), Vector3f(140.0f, 32.0f, 140.0f), desc);
-            ++spawnedClouds;
-        }
-        DE_LOG_INFO(LogCategory::Render, "SandboxApp: {} cloud volume(s)", spawnedClouds);
-
-        WaterDesc waterDesc;
-        waterDesc.chunkCells = waterScene.chunkCells > 0 ? waterScene.chunkCells : 16;
-        waterDesc.waterLevel = waterLevel;
-        const int lodCount = waterScene.lodDistanceCount < 1 ? 1 : (waterScene.lodDistanceCount > Terrain::kMaxLodLevels ? Terrain::kMaxLodLevels : waterScene.lodDistanceCount);
-        waterDesc.lodDistanceCount = lodCount;
-        for (int i = 0; i < lodCount; ++i)
-            waterDesc.lodDistances[i] = waterScene.lodDistances[i];
-        waterDesc.params = sceneWaterParams(waterScene, waterLevel);
-        if (!m_water.create(m_terrain.coarse(), waterDesc))
-        {
-            DE_LOG_FATAL("SandboxApp: water create failed");
-            requestQuit();
-            return false;
-        }
-        m_water.updateLod(Vector3f{ 0.0f, 50.0f, -80.0f });
-        if (!m_water.createGpu(renderer()))
-        {
-            DE_LOG_FATAL("SandboxApp: water GPU upload failed");
-            requestQuit();
-            return false;
-        }
-        if (!pumpBootFrame())
-            return false;
-        DE_LOG_INFO("SandboxApp: water level {:.2f}, {} wet chunks", waterLevel, m_water.wetChunkCount());
-
-        // Streams are visual only. cellWet and swimming a creek stay on the still lake.
-        for (const SceneObjectData& o : sceneData.objects)
-        {
-            if (o.type != SceneObjectType::Stream || !o.hasStream)
-                continue;
-            if (m_streams.size() >= 16)
-                break;
-            Dark::StreamDesc desc;
-            desc.width        = o.streamWidth;
-            desc.flowSpeed    = o.streamFlowSpeed;
-            desc.bedClearance = 0.45f;
-            desc.pointsXZ     = o.streamPoints;
-            MeshData cpu;
-            SandboxStream slot;
-            std::string err;
-            if (!buildStreamRibbon(m_terrain.coarse(), desc, waterLevel, cpu, &slot.bounds, &err))
-                continue;
-            if (!Mesh::tryCreate(renderer(), cpu, slot.mesh))
-            {
-                DE_LOG_ERROR(LogCategory::Render, "SandboxApp: stream upload failed");
-                continue;
-            }
-            slot.flowSpeed = o.streamFlowSpeed;
-            m_streams.push_back(std::move(slot));
-        }
-    }
-
-    MeshData cubeData;
-    CreateCube(cubeData, 1.0f);
-    m_cubeMesh = Mesh::Create(renderer(), cubeData);
-    if (!m_cubeMesh.valid())
-    {
-        DE_LOG_FATAL("SandboxApp: cube mesh upload failed");
-        requestQuit();
-        return false;
-    }
-    MeshData crossData;
-    if (!CreateCross(crossData, 1.0f, 0.30f, 0.22f) || !Mesh::tryCreate(renderer(), crossData, m_crossMesh))
-    {
-        DE_LOG_FATAL("SandboxApp: health pack mesh failed");
-        requestQuit();
-        return false;
-    }
-
-    if (!createSandboxModels())
-    {
-        DE_LOG_FATAL("SandboxApp: procedural models failed");
-        requestQuit();
-        return false;
-    }
-
-    if (!pumpBootFrame())
-        return false;
-
-    renderer().gpuResources().setShadowSrv(m_shadows.srvCpu());
-    renderer().setShadowSrv(m_shadows.srvCpu());
-    m_skyPipeline.setShadowSrv(renderer().device(), m_shadows.srvCpu());
-    m_waterPipeline.setShadowSrv(renderer().device(), m_shadows.srvCpu());
-    m_scene.localShadows().setDepthPipeline(&m_shadows.pipeline());
-    {
-        const LocalShadowSystem::CpuSrvs localSrvs = m_scene.localShadows().cpuSrvs();
-        renderer().setLocalShadowSrvs(localSrvs.arraySrv, localSrvs.recordsSrv);
-    }
-    // The glTF demo and the npc overlay belong to level.json, whichever way it was opened.
-    m_demoScene = scenePath.filename() == "level.json";
-    if (!m_demoScene)
-        m_npcInfo.enabled = false;
-    if (m_demoScene)
-        spawnGltfDemo();
-
-    const float aspect = (renderer().height() > 0) ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height()) : 1.0f;
-    m_viewCamera.SetLens(/*fovY*/ 1.04719755f /*60deg*/, aspect, 0.05f, 1.0e5f);
-    m_viewCamera.LookAt(Vector3f(0.0f, 48.0f, -86.0f), Vector3f(0.0f, 8.0f, 0.0f), Vector3f(0.0f, 1.0f, 0.0f));
-
-    m_camera = world().createEntity();
-    world().emplace<TagComponent>(m_camera, "Main Camera");
-    world().emplace<TransformComponent>(m_camera, m_viewCamera.GetPosition(), Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
-    world().emplace<CameraComponent>(m_camera, /* fovDeg */ 60.0f, /* near */ 0.5f, /* far */ 1.0e5f, /* primary */ true);
-    world().emplace<AudioListenerComponent>(m_camera);
-    attachCameraSounds(world(), pins(), assets(), audio(), m_camera);
-
-    const float groundY = m_terrain.heightAtWorld(0.0f, 0.0f) + 0.5f;
-    m_cube = world().createEntity();
-    world().emplace<TagComponent>(m_cube, "Cube");
-    world().emplace<TransformComponent>(m_cube, Vector3f{ 0.0f, groundY, 0.0f }, Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
-    attachSandboxCubeModel(world(), pins(), assets(), m_cube, m_cubeModelId);
-
-    network().setWantsPawn(true);
-    network().setSceneMode(0);
-    network().setPlayerName("Sandbox");
-    network().setSpawnCallback(&SandboxApp::onNetSpawn, this);
-    network().setDespawnCallback(&SandboxApp::onNetDespawn, this);
-    network().setPeerCallback(&SandboxApp::onNetPeer, this);
-    if (!network().registerEntity(world(), m_cube, NetPrefab::Cube))
-    {
-        onEntityRemoved(world(), m_cube, &pins());
-        world().destroyEntity(m_cube);
-        m_cube = {};
-        DE_LOG_ERROR(LogCategory::Networking, "Sandbox: failed to register init cube");
-    }
-
-    DE_LOG_INFO(
-        "SandboxApp: cube mesh {} verts / {} indices, aspect {:.3f}, cube model id={}, terrain {}x{} tiles",
-        m_cubeMesh.vertexCount(),
-        m_cubeMesh.indexCount(),
-        aspect,
-        m_cubeModelId,
-        m_terrain.tilesX(),
-        m_terrain.tilesZ());
-    DE_LOG_INFO(LogCategory::Networking, "Sandbox net: Sandbox.exe -host   and   Sandbox.exe -join 127.0.0.1");
-    DE_LOG_INFO(LogCategory::Networking, "Sandbox net: M opens Dev Tools (host / join / browse / debugger)");
-
-    createPhysicsWorld();
-
-    m_quest.clear();
-    m_questBanners.clear();
-    {
-        SceneSpawnHost host{};
-        host.world       = &world();
-        host.physics     = m_physics.valid() ? &m_physics : nullptr;
-        host.pins        = &pins();
-        host.assets      = &assets();
-        host.renderer    = &renderer();
-        host.stampPrefix = "sandbox/level";
-        instantiateSceneObjects(sceneObjects.data(), static_cast<int>(sceneObjects.size()), host);
-        spawnBuildingExtras();
-        world().each<ObstacleVolumeComponent>([&](Entity, ObstacleVolumeComponent& block) { m_chase.addObstacle(block.box); });
-        std::vector<AABox3f> conceal;
-        gatherConcealVolumes(world(), conceal);
-        m_chase.ai().setConcealVolumes(std::move(conceal));
-    }
-    m_chaseOk = m_chase.init(renderer(), m_terrain, m_water, world(), pins(), assets());
-    if (!m_sceneQuest.empty())
-        startQuest(m_sceneQuest);
-    m_play.clearFacility();
-    if (m_play.facility().defs.empty())
-    {
-        std::string upgradeError;
-        if (!loadUpgrades(resolveContentFile("upgrades.json"), m_play.facility().defs, &upgradeError))
-            DE_LOG_WARN("Upgrades: {}", upgradeError);
-    }
-    if (m_chaseOk && m_chase.ai().awarenessEnabled())
-    {
-        GuardBarks  barks;
-        std::string barkError;
-        if (loadGuardBarks(resolveContentFile("ai/barks.json"), barks, &barkError))
-            m_guardVoice.start(std::move(barks));
-        else
-            DE_LOG_WARN(LogCategory::AI, "Guard barks: {}", barkError);
-    }
-    uint32_t patchSeed = 1;
-    for (const SceneObjectData& o : sceneBoxes)
-    {
-        if (!o.conceal)
-            continue;
-        const uint8_t     r   = static_cast<uint8_t>(Math::Clamp(o.color[0], 0.0f, 1.0f) * 255.0f);
-        const uint8_t     g   = static_cast<uint8_t>(Math::Clamp(o.color[1], 0.0f, 1.0f) * 255.0f);
-        const uint8_t     b   = static_cast<uint8_t>(Math::Clamp(o.color[2], 0.0f, 1.0f) * 255.0f);
-        const std::string key = std::format("runtime:/scene/grass-{}", patchSeed);
-        const Entity e = world().createEntity();
-        world().emplace<TransformComponent>(e, Vector3f{ o.position.x, m_terrain.heightAtWorld(o.position.x, o.position.z), o.position.z }, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
-        AssetRef<Model> patch = internAndUploadProceduralModel(renderer(), assets(), makeGrassPatch(o.scale.x, o.scale.z, patchSeed++),
-                                                               internSolidMaterial(assets(), r, g, b, 255, "runtime:/scene/grass-mat"), key);
-        if (!patch)
-        {
-            world().destroyEntity(e);
-            continue;
-        }
-        ModelComponent mc{};
-        mc.modelAssetID = patch->id;
-        mc.castShadow   = true;
-        setModelComponent(world(), pins(), assets(), e, mc);
-    }
-    for (const SceneObjectData& o : sceneLights)
-    {
-        const Entity e = world().createEntity();
-        world().emplace<TagComponent>(e, "SceneLight");
-        world().emplace<TransformComponent>(e, o.position, o.rotation, Vector3f{ 1.0f, 1.0f, 1.0f });
-        auto& light        = world().emplace<LocalLightComponent>(e);
-        light.type         = o.type == SceneObjectType::SpotLight ? LocalLightType::Spot : LocalLightType::Point;
-        light.color        = Vector3f{ o.color[0], o.color[1], o.color[2] };
-        light.intensity    = o.lightIntensity;
-        light.range        = o.lightRange;
-        light.innerConeDeg = o.lightInnerDeg;
-        light.outerConeDeg = o.lightOuterDeg;
-        light.enabled      = o.lightEnabled;
-        light.castShadow   = o.lightCastShadow;
-        applySceneActor(world(), e, o, nullptr, nullptr);
-    }
-    for (const SceneObjectData& o : sceneBoxes)
-    {
-        if (o.conceal || !o.zone.empty() || !o.pickup.empty())
-            continue;
-        const uint8_t r = static_cast<uint8_t>(Math::Clamp(o.color[0], 0.0f, 1.0f) * 255.0f);
-        const uint8_t g = static_cast<uint8_t>(Math::Clamp(o.color[1], 0.0f, 1.0f) * 255.0f);
-        const uint8_t b = static_cast<uint8_t>(Math::Clamp(o.color[2], 0.0f, 1.0f) * 255.0f);
-        const std::string key = std::format("runtime:/scene/box-{:02x}{:02x}{:02x}", r, g, b);
-        MeshData          mesh;
-        if (!CreateCube(mesh, 1.0f))
-            continue;
-        AssetRef<Model> box = internAndUploadProceduralModel(renderer(), assets(), std::move(mesh), internSolidMaterial(assets(), r, g, b, 255, key + "-mat"), key);
-        if (!box)
-            continue;
-        const Entity e = world().createEntity();
-        world().emplace<TransformComponent>(e, o.position, o.rotation, o.scale);
-        ModelComponent mc{};
-        mc.modelAssetID = box->id;
-        mc.castShadow   = true;
-        setModelComponent(world(), pins(), assets(), e, mc);
-    }
-    if (!m_chaseOk)
-        DE_LOG_ERROR(LogCategory::AI, "SandboxApp: path chase init failed");
-    else
-    {
-        addChaseObstaclesToPhysics();
-        m_chase.ai().setHunterHitReactionSettings(defaultHunterHitReaction());
-    }
-
-    if (m_chase.walker().valid())
-        attachLocalPlayer(m_chase.walker());
-    m_shield = spawnPlayerShield(world(), pins(), assets(), renderer());
-    if (m_chaseOk)
-    {
-        int hunterStamp = 0;
-        int wolfStamp   = 0;
-        for (const SceneObjectData& o : scenePawns)
-        {
-            const bool wolf = o.type == SceneObjectType::Wolf;
-            TransformComponent xf{};
-            xf.position = o.position;
-            xf.rotation = o.rotation;
-            const bool zeroScale = o.scale.x == 0.0f && o.scale.y == 0.0f && o.scale.z == 0.0f;
-            xf.scale = zeroScale ? Vector3f{ 1.0f, 1.0f, 1.0f } : o.scale;
-            const Entity hunter = m_chase.spawnListedHunter(world(), pins(), assets(), xf);
-            if (!hunter.valid())
-                continue;
-            applySceneActor(world(), hunter, o, &sandboxSceneGroundY, &m_terrain);
-            const TransformComponent* placed = world().get<TransformComponent>(hunter);
-            const float placedX = placed ? placed->position.x : xf.position.x;
-            const float placedZ = placed ? placed->position.z : xf.position.z;
-            if (!m_chase.ai().walkability().walkableWorld(placedX, placedZ))
-            {
-                DE_LOG_WARN(LogCategory::AI, "SandboxApp: scene {} at ({:.1f}, {:.1f}) is not walkable",
-                    wolf ? "wolf" : "hunter", placedX, placedZ);
-            }
-            const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
-            attachNpcVisual(host, hunter, wolf ? NpcKind::Wolf : NpcKind::Hunter, ModelAttach::AnimatedOnly);
-            const int stamp = wolf ? wolfStamp++ : hunterStamp++;
-            stampProceduralId(world(), hunter, std::format("sandbox/level/{}/{}", wolf ? "wolf" : "hunter", stamp), wolf ? "wolf" : "hunter");
-            if (!wolf)
-            {
-                const Entity torch = spawnGuardTorch(world(), hunter, placed ? placed->position : xf.position);
-                stampProceduralId(world(), torch, std::format("sandbox/level/torch/{}", stamp), "torch");
-            }
-        }
-        DE_LOG_INFO(LogCategory::AI, "SandboxApp: {} scene pawn(s)", m_chase.hunterCount());
-    }
-    if (!sceneModels.empty())
-    {
-        int attached   = 0;
-        int modelStamp = 0;
-        for (const SceneObjectData& o : sceneModels)
-        {
-            if (o.modelPath.empty())
-            {
-                DE_LOG_WARN(LogCategory::Render, "SandboxApp: scene model has no path");
-                continue;
-            }
-            const bool zeroScale = o.scale.x == 0.0f && o.scale.y == 0.0f && o.scale.z == 0.0f;
-            TransformComponent xf{};
-            xf.position = o.position;
-            xf.rotation = o.rotation;
-            xf.scale    = zeroScale ? Vector3f{ 1.0f, 1.0f, 1.0f } : o.scale;
-            const Entity e = world().createEntity();
-            const std::string name = std::filesystem::path(o.modelPath).stem().string();
-            world().emplace<TagComponent>(e, name.empty() ? std::string("Model") : name);
-            world().emplace<TransformComponent>(e, xf);
-            const Vector3f authoredScale = xf.scale;
-            if (!attachAnimatedCharacter(e, o.modelPath.c_str()))
-            {
-                onEntityRemoved(world(), e, &pins());
-                world().destroyEntity(e);
-                DE_LOG_WARN(LogCategory::Render, "SandboxApp: scene model '{}' did not attach", o.modelPath);
-                continue;
-            }
-            if (TransformComponent* placed = world().get<TransformComponent>(e))
-                placed->scale = authoredScale;
-            stampProceduralId(world(), e, std::format("sandbox/level/model/{}", modelStamp++), "model");
-            ++attached;
-        }
-        DE_LOG_INFO(LogCategory::Render, "SandboxApp: {} scene model(s)", attached);
-    }
-    if (!sceneSpawners.empty())
-    {
-        AssetRef<Model> marker;
-        MeshData markerMesh;
-        if (CreateCube(markerMesh, 1.0f))
-        {
-            marker = internAndUploadProceduralModel(renderer(), assets(), std::move(markerMesh),
-                internSolidMaterial(assets(), 255, 158, 38, 255, "runtime:/scene/spawner-mat"), "runtime:/scene/spawner");
-        }
-        int spawnerStamp = 0;
-        for (const SceneObjectData& o : sceneSpawners)
-        {
-            const bool zeroScale = o.scale.x == 0.0f && o.scale.y == 0.0f && o.scale.z == 0.0f;
-            const Vector3f scale = zeroScale ? Vector3f{ 0.8f, 0.8f, 0.8f } : o.scale;
-            TransformComponent xf{};
-            xf.rotation = o.rotation;
-            xf.scale    = scale;
-            xf.position = o.position;
-            xf.position.y = m_terrain.heightAtWorld(o.position.x, o.position.z) + 0.5f * std::fabs(scale.y);
-            const Entity e = world().createEntity();
-            world().emplace<TagComponent>(e, "Spawner");
-            world().emplace<TransformComponent>(e, xf);
-            SpawnerComponent spawner{};
-            if (o.hasSpawner)
-                spawner.desc = o.spawner;
-            clampSpawnerDesc(spawner.desc);
-            world().emplace<SpawnerComponent>(e, spawner);
-            if (marker)
-            {
-                ModelComponent mc{};
-                mc.modelAssetID = marker->id;
-                mc.castShadow   = true;
-                setModelComponent(world(), pins(), assets(), e, mc);
-            }
-            stampProceduralId(world(), e, std::format("sandbox/level/spawner/{}", spawnerStamp++), "spawner");
-        }
-        DE_LOG_INFO(LogCategory::AI, "SandboxApp: {} spawner(s)", sceneSpawners.size());
-    }
-    if (!sceneMovies.empty())
-    {
-        AssetRef<Model> marker;
-        MeshData markerMesh;
-        if (CreateCube(markerMesh, 1.0f))
-        {
-            marker = internAndUploadProceduralModel(renderer(), assets(), std::move(markerMesh),
-                internSolidMaterial(assets(), 64, 115, 242, 255, "runtime:/scene/movie-mat"), "runtime:/scene/movie");
-        }
-        int movieStamp = 0;
-        for (const SceneObjectData& o : sceneMovies)
-        {
-            const bool zeroScale = o.scale.x == 0.0f && o.scale.y == 0.0f && o.scale.z == 0.0f;
-            const Vector3f scale = zeroScale ? Vector3f{ 0.8f, 0.8f, 0.8f } : o.scale;
-            TransformComponent xf{};
-            xf.rotation = o.rotation;
-            xf.scale    = scale;
-            xf.position = o.position;
-            xf.position.y = m_terrain.heightAtWorld(o.position.x, o.position.z) + 0.5f * std::fabs(scale.y);
-            const Entity e = world().createEntity();
-            world().emplace<TagComponent>(e, "Movie");
-            world().emplace<TransformComponent>(e, xf);
-            applyMovieCue(world(), e, o);
-            if (marker)
-            {
-                ModelComponent mc{};
-                mc.modelAssetID = marker->id;
-                mc.castShadow   = true;
-                setModelComponent(world(), pins(), assets(), e, mc);
-            }
-            stampProceduralId(world(), e, std::format("sandbox/level/movie/{}", movieStamp++), "movie");
-        }
-        DE_LOG_INFO(LogCategory::Media, "SandboxApp: {} movie cue(s)", sceneMovies.size());
-    }
-    if (m_chaseOk)
-    {
-        bindCharacterPhysics();
-        for (int i = 0; i < m_chase.hunterCount(); ++i)
-        {
-            const Entity e = m_chase.hunterEntity(i);
-            if (isInteractGuard(world(), e))
-                stockHunter(e);
-        }
-    }
-
-    placeHealthPacks();
-    if (const TransformComponent* start = m_chase.walker().valid() ? world().get<TransformComponent>(m_chase.walker()) : nullptr)
-        stockMissingThrowablePickups(world(), pins(), assets(), renderer(), m_physics, start->position, worldHasThrowablePickup(world(), "rock"),
-                                     worldHasThrowablePickup(world(), "bottle"));
-    spawnHybridLocalLights();
-    ensureSessionEntity();
-    installSaveHost();
-    m_save.captureBaseline(world());
-    resetMovieCues(world());
-    m_loadedScenePath = scenePath;
-    m_sceneStarted    = true;
-    return true;
+    prepareBoot(!m_menu.visible(), defaultScenePath(sceneFileArg()));
+    if (!bootSceneLoop())
+        return;
 }
 
 void SandboxApp::onSplashFinished()

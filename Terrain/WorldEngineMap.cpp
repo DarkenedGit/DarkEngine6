@@ -2,6 +2,7 @@
 
 #include "Assets/AssetManager.h"
 #include "Core/ContentRoots.h"
+#include "Core/Json.h"
 #include "Core/Log.h"
 #include "Math/Color.h"
 #include "Render/Renderer.h"
@@ -94,7 +95,9 @@ bool readChannelMap(const std::filesystem::path& directory, int outSrcToCanon[4]
         DE_LOG_ERROR(LogCategory::Render, "WorldEngine: surfaces.json is not an object ({})", path.string());
         return false;
     }
-    const int version = root.value("version", 1);
+    int version = 1;
+    if (!jsonIntOr(root, "version", version, 1, "WorldEngine"))
+        return false;
     if (version != 1)
     {
         DE_LOG_ERROR(LogCategory::Render, "WorldEngine: surfaces.json version {} unsupported", version);
@@ -109,12 +112,13 @@ bool readChannelMap(const std::filesystem::path& directory, int outSrcToCanon[4]
     const int n = channels.size() > 4 ? 4 : static_cast<int>(channels.size());
     for (int i = 0; i < n; ++i)
     {
-        if (!channels[i].is_string())
+        const auto* name = channels[i].get_ptr<const json::string_t*>();
+        if (!name)
             continue;
-        const int canon = canonicalSurface(channels[i].get<std::string>());
+        const int canon = canonicalSurface(*name);
         if (canon < 0)
         {
-            DE_LOG_WARN(LogCategory::Render, "WorldEngine: unknown surface '{}' — channel {} stays in place", channels[i].get<std::string>(), i);
+            DE_LOG_WARN(LogCategory::Render, "WorldEngine: unknown surface '{}' — channel {} stays in place", *name, i);
             continue;
         }
         outSrcToCanon[i] = canon;
@@ -454,7 +458,8 @@ bool uploadWorldEngineMaterial(
     const SplatMap& splat,
     const WorldEngineMaps& maps,
     TerrainMaterial& material,
-    TerrainSurfaceDesc* outSurface)
+    TerrainSurfaceDesc* outSurface,
+    const WorldEngineCpuImages* decoded)
 {
     if (!splat.valid())
     {
@@ -464,24 +469,34 @@ bool uploadWorldEngineMaterial(
     if (!material.createDefault(renderer, splat))
         return false;
 
-    AssetRef<Image> diffuse = assets.loadImageFile(maps.diffuse);
-    if (!diffuse || !diffuse->valid())
+    AssetRef<Image> diffuse;
+    AssetRef<Image> orm;
+    if (decoded && decoded->diffuse && decoded->diffuse->valid() && decoded->orm && decoded->orm->valid())
     {
-        DE_LOG_ERROR(LogCategory::Render, "WorldEngine: diffuse '{}' failed to load", maps.diffuse.string());
-        return false;
+        diffuse = decoded->diffuse;
+        orm     = decoded->orm;
+    }
+    else
+    {
+        diffuse = assets.loadImageFile(maps.diffuse);
+        if (!diffuse || !diffuse->valid())
+        {
+            DE_LOG_ERROR(LogCategory::Render, "WorldEngine: diffuse '{}' failed to load", maps.diffuse.string());
+            return false;
+        }
+
+        Image ormImage;
+        if (!buildWorldEngineOrmImage(maps.roughness, maps.mask, ormImage))
+            return false;
+        const std::string ormKey = std::string("worldengine-orm:") + maps.roughness.generic_string();
+        orm = assets.internImage(std::make_shared<Image>(std::move(ormImage)), ormKey);
+        if (!orm || !orm->valid())
+        {
+            DE_LOG_ERROR(LogCategory::Render, "WorldEngine: ORM intern failed");
+            return false;
+        }
     }
     diffuse->setColorSpace(Color::ColorSpace::sRGB);
-
-    Image ormImage;
-    if (!buildWorldEngineOrmImage(maps.roughness, maps.mask, ormImage))
-        return false;
-    const std::string ormKey = std::string("worldengine-orm:") + maps.roughness.generic_string();
-    AssetRef<Image> orm = assets.internImage(std::make_shared<Image>(std::move(ormImage)), ormKey);
-    if (!orm || !orm->valid())
-    {
-        DE_LOG_ERROR(LogCategory::Render, "WorldEngine: ORM intern failed");
-        return false;
-    }
 
     TerrainSurfaceDesc surface{};
     surface.params.heightBlendK   = kWorldEngineMacroBlend;

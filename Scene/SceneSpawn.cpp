@@ -112,12 +112,15 @@ namespace Dark
 
     } // namespace
 
-    void instantiateSceneObjects(const SceneObjectData* objects, int count, const SceneSpawnHost& host)
+    void instantiateSceneObjects(const SceneObjectData* objects, int count, const SceneSpawnHost& host,
+        int* powerStampIn, int* pickupStampIn)
     {
         if (!host.world || !objects || count <= 0)
             return;
-        int powerStamp  = 0;
-        int pickupStamp = 0;
+        int localPower  = 0;
+        int localPickup = 0;
+        int& powerStamp  = powerStampIn ? *powerStampIn : localPower;
+        int& pickupStamp = pickupStampIn ? *pickupStampIn : localPickup;
         for (int i = 0; i < count; ++i)
             spawnOne(*host.world, objects[i], host, powerStamp, pickupStamp);
     }

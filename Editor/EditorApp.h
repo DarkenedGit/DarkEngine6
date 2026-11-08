@@ -270,6 +270,8 @@ private:
     void clearScene();
     bool saveScene();
     bool loadScene();
+    bool applyLoadedScene(SceneFileData& data);
+    void pollSceneOpen();
     static float sceneGroundY(void* user, float x, float z);
     bool saveSceneWithDialog();
     bool loadSceneWithDialog(const std::filesystem::path& suggested);
@@ -437,6 +439,9 @@ private:
 
     std::filesystem::path m_scenePath;
     std::string           m_sceneName = "level";
+    bool                  m_sceneLoadPending     = false;
+    uint64_t              m_sceneGeneration      = 0;
+    uint64_t              m_sceneLoadGeneration  = 0;
 
     bool  m_showGrid    = true;
     bool  m_showSolid   = true;

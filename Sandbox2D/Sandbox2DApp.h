@@ -15,6 +15,7 @@
 #include "Audio/SoundClip.h"
 #include "Gameplay/Coin.h"
 #include "Gameplay/Platform.h"
+#include "Scene/SceneFile.h"
 #include "Ui/MainMenu.h"
 
 #include <box2d/box2d.h>
@@ -64,8 +65,11 @@ private:
     void populateMainMenu();
     void buildLevel();
     bool tryLoadLevel(const std::filesystem::path& path);
+    bool applyLevelData(const SceneFileData& data);
     void clearLevel();
     void enterScene(const Dark::MainMenuEntry& entry);
+    void finishEnteredLevel(const Dark::MainMenuEntry& entry, bool loaded);
+    void pollPendingLevel();
     void startDefaultScene();
     void resetPlayer();
     void updatePlayer(float dt);
@@ -148,6 +152,10 @@ private:
     uint32_t              m_score         = 0;
     bool                  m_showCollision = false;
     bool                  m_levelReady    = false;
+    bool                  m_levelLoadPending = false;
+    uint64_t              m_levelGeneration = 0;
+    uint64_t              m_levelLoadGeneration = 0;
+    Dark::MainMenuEntry   m_pendingEntry{};
     NetRole         m_netRole       = NetRole::Idle;
     Dark::MainMenu        m_menu;
     std::filesystem::path m_loadedScenePath;

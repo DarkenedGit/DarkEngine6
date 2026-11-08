@@ -41,6 +41,8 @@ namespace Dark
         bool        cliMenu       = false; // -menu (force picker)
         bool        cliForward    = false; // -forward (keep swap-chain forward 3D)
         ScenePath   scenePath     = ScenePath::SwapChainForward; // request; live path is Renderer::scenePath()
+        // Off keeps loadSceneFromJson on the caller and does not start the scheduler.
+        bool        asyncSceneLoad = true;
     };
 
     bool parseNetCommandLine(const char* lpCmdLine, AppConfig& cfg);

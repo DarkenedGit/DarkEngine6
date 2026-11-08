@@ -505,6 +505,9 @@ namespace Dark
             return;
 
         mountDefaultContentRoots();
+        // Scene and terrain CPU reads use the IO lane. The flag off leaves those reads on the caller.
+        if (m_config.asyncSceneLoad)
+            m_jobs.start();
         m_loading.tryLoadConfig(m_config);
         const bool splash  = shouldShowSplash();
         bool       onInitRan     = false;

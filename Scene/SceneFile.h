@@ -1,14 +1,18 @@
 #pragma once
 
+#include "Core/JobSystem.h"
 #include "Scene/SceneTypes.h"
 #include "Sky/Environment.h"
 #include "Water/WaterWaves.h"
 
+#include <cstdint>
 #include <filesystem>
 #include <string>
 
 namespace Dark
 {
+
+    class AssetManager;
 
     // JSON scene I/O (versioned). No exceptions — returns false + fills errorOut on failure.
     bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& scene, std::string* errorOut = nullptr);
@@ -27,5 +31,26 @@ namespace Dark
     // Resolve a default path: <authoring-content>/scenes/<name>.
     // Skips the content copy next to the executable when a source content/ directory exists.
     std::filesystem::path defaultScenePath(const std::filesystem::path& preferredName = "level.json");
+
+    struct SceneLoadRequest
+    {
+        std::filesystem::path path;
+        uint64_t              generation = 0;
+    };
+
+    struct SceneLoadResult
+    {
+        JobStatus     status = JobStatus::NotReady;
+        SceneFileData scene;
+        std::string   error;
+    };
+
+    // `assets` is required because mounts live on one AssetManager, not the process.
+    bool enqueueSceneLoad(JobSystem& jobs, const AssetManager& assets, const SceneLoadRequest& request);
+
+    // true: out.status is terminal (Ok, Failed, or Cancelled) and out is written.
+    // false and out.status == NotReady: poll again next pump.
+    // false and out.status == Failed: the scheduler is stopped or the generation is unknown.
+    bool pollSceneLoad(JobSystem& jobs, uint64_t generation, SceneLoadResult& out);
 
 } // namespace Dark

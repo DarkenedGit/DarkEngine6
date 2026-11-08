@@ -206,20 +206,10 @@ void Sandbox2DApp::buildLevel()
     addCoin(91.0f, 8.3f);
 }
 
-bool Sandbox2DApp::tryLoadLevel(const std::filesystem::path& path)
+bool Sandbox2DApp::applyLevelData(const SceneFileData& data)
 {
-    std::error_code ec;
-    if (path.empty() || !std::filesystem::exists(path, ec) || ec)
+    if (data.mode != SceneMode::Scene2D)
         return false;
-
-    SceneFileData data{};
-    std::string err;
-    if (!loadSceneFromJson(path, data, &err) || data.mode != SceneMode::Scene2D)
-    {
-        if (!err.empty())
-            DE_LOG_WARN("Sandbox2D: scene load skipped — {}", err);
-        return false;
-    }
 
     m_platforms.clear();
     clearCoins();
@@ -250,11 +240,27 @@ bool Sandbox2DApp::tryLoadLevel(const std::filesystem::path& path)
         return false;
 
     DE_LOG_INFO(
-        "Sandbox2D: loaded {} platforms, {} coins from {}",
+        "Sandbox2D: loaded {} platforms, {} coins",
         m_platforms.size(),
-        coinCount(),
-        path.string());
+        coinCount());
     return true;
+}
+
+bool Sandbox2DApp::tryLoadLevel(const std::filesystem::path& path)
+{
+    std::error_code ec;
+    if (path.empty() || !std::filesystem::exists(path, ec) || ec)
+        return false;
+
+    SceneFileData data{};
+    std::string err;
+    if (!loadSceneFromJson(path, data, &err))
+    {
+        if (!err.empty())
+            DE_LOG_WARN("Sandbox2D: scene load skipped — {}", err);
+        return false;
+    }
+    return applyLevelData(data);
 }
 
 void Sandbox2DApp::clearLevel()
@@ -280,32 +286,8 @@ void Sandbox2DApp::clearLevel()
     m_levelReady = false;
 }
 
-void Sandbox2DApp::enterScene(const MainMenuEntry& entry)
+void Sandbox2DApp::finishEnteredLevel(const MainMenuEntry& entry, bool loaded)
 {
-    if (entry.kind == MainMenuKind::Quit)
-        return;
-
-    if (m_levelReady)
-    {
-        if (entry.kind == MainMenuKind::BuiltIn && m_loadedScenePath.empty())
-        {
-            m_menu.hide();
-            return;
-        }
-        if (entry.kind == MainMenuKind::Scene && !entry.path.empty() && entry.path == m_loadedScenePath)
-        {
-            m_menu.hide();
-            return;
-        }
-    }
-
-    clearLevel();
-    bool loaded = false;
-    if (entry.kind == MainMenuKind::Scene && !entry.path.empty())
-        loaded = tryLoadLevel(entry.path);
-    if (!loaded)
-        buildLevel();
-
     m_loadedScenePath = loaded ? entry.path : std::filesystem::path{};
     if (!createPhysicsWorld())
     {
@@ -321,6 +303,76 @@ void Sandbox2DApp::enterScene(const MainMenuEntry& entry)
     m_levelReady = true;
     m_menu.hide();
     DE_LOG_INFO("Sandbox2D: entered '{}'", entry.title);
+}
+
+void Sandbox2DApp::pollPendingLevel()
+{
+    if (!m_levelLoadPending)
+        return;
+
+    SceneLoadResult result;
+    const bool terminal = pollSceneLoad(jobs(), m_levelLoadGeneration, result);
+    if (!terminal && result.status == JobStatus::NotReady)
+        return;
+
+    m_levelLoadPending = false;
+    const bool ok = terminal && result.status == JobStatus::Ok;
+    if (!ok && !result.error.empty())
+        DE_LOG_WARN("Sandbox2D: scene load skipped — {}", result.error);
+
+    clearLevel();
+    bool loaded = ok && applyLevelData(result.scene);
+    if (!loaded)
+        buildLevel();
+    finishEnteredLevel(m_pendingEntry, loaded);
+}
+
+void Sandbox2DApp::enterScene(const MainMenuEntry& entry)
+{
+    if (entry.kind == MainMenuKind::Quit)
+        return;
+
+    if (m_levelLoadPending && entry.kind == MainMenuKind::Scene && entry.path == m_pendingEntry.path)
+        return;
+
+    if (m_levelReady && !m_levelLoadPending)
+    {
+        if (entry.kind == MainMenuKind::BuiltIn && m_loadedScenePath.empty())
+        {
+            m_menu.hide();
+            return;
+        }
+        if (entry.kind == MainMenuKind::Scene && !entry.path.empty() && entry.path == m_loadedScenePath)
+        {
+            m_menu.hide();
+            return;
+        }
+    }
+
+    if (entry.kind == MainMenuKind::Scene && !entry.path.empty()
+        && config().asyncSceneLoad && acceptJobPath(assets(), entry.path))
+    {
+        const uint64_t generation = ++m_levelGeneration;
+        SceneLoadRequest request;
+        request.path       = entry.path;
+        request.generation = generation;
+        if (enqueueSceneLoad(jobs(), assets(), request))
+        {
+            m_pendingEntry         = entry;
+            m_levelLoadPending     = true;
+            m_levelLoadGeneration  = generation;
+            return;
+        }
+    }
+
+    m_levelLoadPending = false;
+    clearLevel();
+    bool loaded = false;
+    if (entry.kind == MainMenuKind::Scene && !entry.path.empty())
+        loaded = tryLoadLevel(entry.path);
+    if (!loaded)
+        buildLevel();
+    finishEnteredLevel(entry, loaded);
 }
 
 void Sandbox2DApp::startDefaultScene()
@@ -1113,6 +1165,8 @@ void Sandbox2DApp::onInit()
 
     if (m_menu.visible())
         DE_LOG_INFO("Sandbox2D: main menu ({} entries)  -no-menu skips to default scene", m_menu.entries().size());
+    else if (m_levelLoadPending)
+        DE_LOG_INFO("Sandbox2D: scene load queued");
     else
         DE_LOG_INFO(
             "Sandbox2D: {} platforms, {} coins, camera ortho height {:.1f}",
@@ -1211,6 +1265,7 @@ void Sandbox2DApp::updateCamera(float dt)
 
 void Sandbox2DApp::onUpdate(float dt)
 {
+    pollPendingLevel();
     if (m_menu.visible())
     {
         m_menu.update(input(), renderer().width(), renderer().height());

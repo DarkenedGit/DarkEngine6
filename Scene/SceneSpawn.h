@@ -36,7 +36,9 @@ namespace Dark
         const char*             stampPrefix = nullptr;
     };
 
-    void instantiateSceneObjects(const SceneObjectData* objects, int count, const SceneSpawnHost& host);
+    // powerStamp and pickupStamp persist across batches. Null starts each call at 0.
+    void instantiateSceneObjects(const SceneObjectData* objects, int count, const SceneSpawnHost& host,
+        int* powerStamp = nullptr, int* pickupStamp = nullptr);
 
     // Gameplay fields from one scene object: light circuit, hunter dialogue, patrol, and squad.
     // heightAt supplies terrain Y for patrol points and hunter or wolf feet. Null leaves Y alone.

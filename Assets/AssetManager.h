@@ -173,6 +173,11 @@ namespace Dark
 
         // Caller must hold m_mutex. Interns clips/skeleton names at modelKey + "#anims".
         AssetRef<class AnimationSet> internAnimationSetLocked(const std::string& modelKey, const struct GltfCpuModel& cpu);
+
+        friend bool acceptJobPath(const AssetManager& assets, const std::filesystem::path& path);
     };
+
+    // Mount is a prefix of the canonical file. resolve() does not reject "..".
+    bool acceptJobPath(const AssetManager& assets, const std::filesystem::path& path);
 
 } // namespace Dark

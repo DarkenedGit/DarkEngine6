@@ -67,6 +67,7 @@
 #include "Ui/MainMenu.h"
 #include "Save/SaveSystem.h"
 
+#include <cstdint>
 #include <deque>
 #include <filesystem>
 #include <unordered_map>
@@ -82,6 +83,7 @@ class SandboxApp : public Dark::Application
 {
 public:
     explicit SandboxApp(const Dark::AppConfig& cfg);
+    ~SandboxApp() override;
 
     void onInit() override;
     void onSplashFinished() override;
@@ -95,6 +97,31 @@ private:
     // Terrain, pawns, and the save baseline. Called once: from onInit when the
     // menu is skipped, or from the first menu confirm. A later confirm resumes.
     bool startScene(const std::filesystem::path& scenePath);
+
+    // One step of startScene, then the caller pumps. Editor and Sandbox2D do not use this.
+    enum class BootSlice : uint8_t
+    {
+        Ibl,
+        WaitScene,
+        WaitTerrainCpu,
+        TerrainMesh,
+        WaitFoliage,
+        TerrainMaterial,
+        PrimeStream,
+        CoarseHeight,
+        WaterCpu,
+        WaterGpu,
+        StreamRibbon,
+        PrimitiveMesh,
+        SandboxModel,
+        SpawnBatch,
+        Done,
+    };
+    void prepareBoot(bool runScene, const std::filesystem::path& scenePath);
+    void beginSceneAfterIbl(const std::filesystem::path& scenePath);
+    bool bootSceneLoop();
+    bool advanceBootSlice();
+    bool advanceSpawnBatch();
     void handleRuntimeCommands(float dt);
     void handleNetHotkeys();
     void applyNetRole();
@@ -145,8 +172,8 @@ private:
     static void onWeaponHitThunk(void* user, const Dark::WeaponHit& hit);
     void drawProjectiles(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, Dark::MeshFrameConstants& cb, bool instanced = false, const std::vector<int>* rejectedShots = nullptr);
     void drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, const Dark::Math::Matrix4f& prevViewProj, bool instanced = false, const std::vector<int>* rejectedShots = nullptr);
-    bool createSandboxModels();
-    void spawnGltfDemo();
+    bool createSandboxModels(int step);
+    void spawnGltfDemo(int step);
     void spawnAnimatedDemo();
     void updateWiggleAnim();
     static void onWiggleNotify(void* user, const Dark::AnimNotify& n);
@@ -416,4 +443,13 @@ private:
     Dark::Save::SaveSystem m_save;
     Dark::Entity           m_session{};
     bool&                  m_crouchLatch;
+
+    struct SandboxBootLoad;
+    // Raw pointer: the type is complete only in SandboxBoot.cpp, and the constructor lives here.
+    SandboxBootLoad* m_boot = nullptr;
+    BootSlice                        m_bootSlice = BootSlice::Done;
+
+    static Dark::JobStatus bootTerrainCpu(void* user);
+    static Dark::JobStatus bootFoliage(void* user);
+    static Dark::JobStatus bootWorldEngineDecode(void* user);
 };

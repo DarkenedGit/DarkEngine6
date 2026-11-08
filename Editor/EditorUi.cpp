@@ -1081,6 +1081,7 @@ void EditorApp::drawInspector3D()
 
 void EditorApp::onUpdate(float dt)
 {
+    pollSceneOpen();
     m_movie.tick(dt);
     if (m_playMode)
         tickMovieCues(world(), m_movie, m_playPlayer);
