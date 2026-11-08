@@ -197,11 +197,34 @@ namespace Dark
         bool                         m_descUsed[kMaxSecondaryPools] = {};
     };
 
+    // One dead-slot dispatch fills the write buffer. Later dispatches read the slot
+    // that dispatch wrote: the other buffer when the frame flipped, this buffer when
+    // a skipped frame left the latest copy here. A second reset drops those births.
+    struct GpuParticleBufferStep
+    {
+        bool reset   = false;
+        bool inPlace = true;
+    };
+
+    inline GpuParticleBufferStep gpuParticleBufferStep(uint32_t resetFramesRemaining, int lastSlot, uint32_t writeSlot)
+    {
+        const uint32_t slot      = writeSlot % GpuParticleSystem::kFrameCount;
+        const uint32_t otherSlot = (slot + 1u) % GpuParticleSystem::kFrameCount;
+        GpuParticleBufferStep step{};
+        step.reset   = resetFramesRemaining > 0 || lastSlot < 0;
+        step.inPlace = true;
+        if (!step.reset && lastSlot == static_cast<int>(otherSlot))
+            step.inPlace = false;
+        return step;
+    }
+
     // Null uses CreateCommittedResource. Op 0 is one committed buffer (false fails the create).
-    // Op 1 is Dispatch. Op 2 is DrawInstanced.
-    inline constexpr int kGpuParticleTestCommit   = 0;
-    inline constexpr int kGpuParticleTestDispatch = 1;
-    inline constexpr int kGpuParticleTestDraw     = 2;
+    // Op 1 is Dispatch. bytes bit 0 is reset, bit 1 is in-place. Op 2 is DrawInstanced.
+    inline constexpr int      kGpuParticleTestCommit   = 0;
+    inline constexpr int      kGpuParticleTestDispatch = 1;
+    inline constexpr int      kGpuParticleTestDraw     = 2;
+    inline constexpr uint64_t kGpuParticleTestReset    = 1;
+    inline constexpr uint64_t kGpuParticleTestInPlace  = 2;
     void setGpuParticleTestHook(bool (*fn)(void* user, int op, uint64_t bytes, ID3D12Resource** out), void* user);
 
 } // namespace Dark

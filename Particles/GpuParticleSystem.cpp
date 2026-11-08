@@ -575,7 +575,8 @@ namespace Dark
         pool.mapped               = mapped;
         pool.capacity             = capacity;
         pool.generation           = generation;
-        pool.resetFramesRemaining = kFrameCount;
+        // One dead fill. The next dispatch reads this slot through the ping-pong buffers.
+        pool.resetFramesRemaining = 1;
         pool.lastSlot             = -1;
         pool.submitted            = false;
         pool.hasSpawned           = false;
@@ -590,7 +591,7 @@ namespace Dark
         if (pool.sawClearSerial && command.clearSerial != pool.clearSerial)
         {
             pool.clearSerial          = command.clearSerial;
-            pool.resetFramesRemaining = kFrameCount;
+            pool.resetFramesRemaining = 1;
             if (command.prewarm && markOnce(m_loggedPrewarm, pool.entity))
                 DE_LOG_INFO(LogCategory::Render, "GPU particle prewarm ignored for '{}'", emitter.desc().name);
         }
@@ -1195,7 +1196,8 @@ namespace Dark
         auto dispatchIntegrate = [&](Pool& pool, ID3D12Resource* read, D3D12_RESOURCE_STATES& readState, ID3D12Resource* write, D3D12_RESOURCE_STATES& writeState, uint32_t capacity, bool inPlace, uint32_t spawnCount, uint32_t reset, uint32_t reaction, uint32_t useAttrib, uint32_t collide, uint32_t flags) {
             if (g_testHook)
             {
-                g_testHook(g_testHookUser, kGpuParticleTestDispatch, 0, nullptr);
+                const uint64_t tag = (reset != 0u ? kGpuParticleTestReset : 0ull) | (inPlace ? kGpuParticleTestInPlace : 0ull);
+                g_testHook(g_testHookUser, kGpuParticleTestDispatch, tag, nullptr);
                 return;
             }
             if (!read || !write || capacity == 0 || !m_dummyUav)
@@ -1255,11 +1257,9 @@ namespace Dark
                 if (!job.simulate || !job.pool || !job.emitter)
                     continue;
                 Pool& pool = *job.pool;
-                // A skipped frame can leave the latest copy in this slot. Reading the other slot would bring stale particles back.
-                const bool reset   = pool.resetFramesRemaining > 0 || pool.lastSlot < 0;
-                bool       inPlace = true;
-                if (!reset && pool.lastSlot == static_cast<int>(otherSlot))
-                    inPlace = false;
+                const GpuParticleBufferStep bufferStep = gpuParticleBufferStep(pool.resetFramesRemaining, pool.lastSlot, writeSlot);
+                const bool                  reset      = bufferStep.reset;
+                const bool                  inPlace    = bufferStep.inPlace;
 
                 // simDt is already clamped. Speed 1 keeps substepCount from scaling it again.
                 uint32_t steps = substepCount(pool.simDt, 1.0f);
@@ -1300,7 +1300,7 @@ namespace Dark
 
                 if (cmd && job.secondary)
                 {
-                    // Same reset as the parent so the first frames do not read an uninitialized child slot.
+                    // Same reset as the parent so that dispatch does not read an uninitialized child slot.
                     // Stop, no birth, child rest. Runs before consume so a newborn is not aged this frame.
                     ID3D12Resource* childWrite = pool.child[writeSlot].Get();
                     ID3D12Resource* childRead  = pool.child[inPlace ? writeSlot : otherSlot].Get();

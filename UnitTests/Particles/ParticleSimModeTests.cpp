@@ -119,10 +119,13 @@ Entity addGpuEmitter(World& world, uint32_t maxParticles, float emissionRate)
 
 struct ParticleHookCounts
 {
-    int  committed  = 0;
-    int  dispatches = 0;
-    int  draws      = 0;
-    bool failCreate = false;
+    int      committed          = 0;
+    int      dispatches         = 0;
+    int      resetDispatches    = 0;
+    int      preserveDispatches = 0;
+    int      draws              = 0;
+    uint64_t lastDispatchTag    = 0;
+    bool     failCreate         = false;
 };
 
 struct StubResource final : public ID3D12Resource
@@ -227,6 +230,11 @@ bool particleTestHook(void* user, int op, uint64_t bytes, ID3D12Resource** out)
     if (op == kGpuParticleTestDispatch)
     {
         ++counts->dispatches;
+        counts->lastDispatchTag = bytes;
+        if ((bytes & kGpuParticleTestReset) != 0)
+            ++counts->resetDispatches;
+        else
+            ++counts->preserveDispatches;
         return true;
     }
     if (op == kGpuParticleTestDraw)
@@ -796,6 +804,84 @@ TEST(ParticleSimMode, LaterRefusalStillLogsOnce)
     EXPECT_EQ(counts.committed, 0);
     EXPECT_FALSE(c->runtime->forceCpu());
     EXPECT_EQ(c->runtime->desc().simMode, ParticleSimMode::Gpu);
+}
+
+TEST(ParticleSimMode, BufferStepInitializesOnceThenReadsLastSlot)
+{
+    const GpuParticleBufferStep born = gpuParticleBufferStep(1u, -1, 0u);
+    EXPECT_TRUE(born.reset);
+    EXPECT_TRUE(born.inPlace);
+
+    const GpuParticleBufferStep kept = gpuParticleBufferStep(0u, 0, 1u);
+    EXPECT_FALSE(kept.reset);
+    EXPECT_FALSE(kept.inPlace);
+
+    const GpuParticleBufferStep skipped = gpuParticleBufferStep(0u, 0, 0u);
+    EXPECT_FALSE(skipped.reset);
+    EXPECT_TRUE(skipped.inPlace);
+
+    const GpuParticleBufferStep secondReset = gpuParticleBufferStep(1u, 0, 1u);
+    EXPECT_TRUE(secondReset.reset);
+    EXPECT_TRUE(secondReset.inPlace);
+}
+
+TEST(ParticleSimMode, BurstResetsOnceThenPreservesAcrossPingPong)
+{
+    World world;
+    Entity e = addGpuEmitter(world, 64u, 0.0f);
+    ParticleEmitterComponent* created = world.get<ParticleEmitterComponent>(e);
+    ASSERT_NE(created, nullptr);
+    ensureParticleRuntime(*created);
+    ASSERT_NE(created->runtime, nullptr);
+    created->runtime->emitBurst(8);
+
+    ParticleHookCounts counts;
+    GpuParticleSystem gpu;
+    ParticleHookGuard hook(&counts);
+    Renderer renderer(RendererTestDevice{});
+    renderer.debugState().gpuParticles = true;
+    Camera3D camera;
+    AssetManager assets;
+
+    const float dt = 1.0f / 60.0f;
+    gpu.applyIntegratorFallback(world, true);
+    gpu.prepare(world, dt);
+    ASSERT_TRUE(gpu.simulateAndDraw(nullptr, renderer, camera, world, assets, false));
+    EXPECT_EQ(counts.dispatches, 1);
+    EXPECT_EQ(counts.resetDispatches, 1);
+    EXPECT_EQ(counts.preserveDispatches, 0);
+    EXPECT_EQ(counts.lastDispatchTag, kGpuParticleTestReset | kGpuParticleTestInPlace);
+
+    renderer.setFrameIndexForTest(1);
+    gpu.prepare(world, dt);
+    ASSERT_TRUE(gpu.simulateAndDraw(nullptr, renderer, camera, world, assets, false));
+    EXPECT_EQ(counts.dispatches, 2);
+    EXPECT_EQ(counts.resetDispatches, 1);
+    EXPECT_EQ(counts.preserveDispatches, 1);
+    EXPECT_EQ(counts.lastDispatchTag, 0u);
+
+    ParticleEmitterComponent* live = world.get<ParticleEmitterComponent>(e);
+    ASSERT_NE(live, nullptr);
+    ASSERT_NE(live->runtime, nullptr);
+    live->runtime->stop(true);
+    live->runtime->play();
+    live->runtime->emitBurst(4);
+
+    renderer.setFrameIndexForTest(2);
+    gpu.prepare(world, dt);
+    ASSERT_TRUE(gpu.simulateAndDraw(nullptr, renderer, camera, world, assets, false));
+    EXPECT_EQ(counts.dispatches, 3);
+    EXPECT_EQ(counts.resetDispatches, 2);
+    EXPECT_EQ(counts.preserveDispatches, 1);
+    EXPECT_EQ(counts.lastDispatchTag, kGpuParticleTestReset | kGpuParticleTestInPlace);
+
+    renderer.setFrameIndexForTest(3);
+    gpu.prepare(world, dt);
+    ASSERT_TRUE(gpu.simulateAndDraw(nullptr, renderer, camera, world, assets, false));
+    EXPECT_EQ(counts.dispatches, 4);
+    EXPECT_EQ(counts.resetDispatches, 2);
+    EXPECT_EQ(counts.preserveDispatches, 2);
+    EXPECT_EQ(counts.lastDispatchTag, 0u);
 }
 
 TEST(ParticleSimMode, GpuSubstepCountClampsDt)
