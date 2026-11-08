@@ -931,22 +931,54 @@ namespace Dark
             submitAudio();
         noteUnderrun(now);
 
-        double clockSec = 0.0;
-        if (m_audioMaster && m_stream != 0 && m_audio)
-            clockSec = movieAudioSeconds(m_audio->streamSamplesPlayed(m_stream), m_segmentBase, m_sampleRate, m_seekOrigin);
-        else
+        bool audioDrained = false;
         {
-            clockSec = m_wallAnchor + (now - m_wallAnchorAt) - m_pausedAccum;
-            if (m_state == MoviePlayState::Paused)
-                clockSec -= now - m_pauseBegan;
+            bool audioEos     = false;
+            bool eosSubmitted = false;
+            bool audioQueued  = false;
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                audioEos     = m_audioEos;
+                eosSubmitted = m_eosSubmitted;
+                for (const AudioPacket& packet : m_audioQueue)
+                {
+                    if (packet.epoch == m_epoch)
+                        audioQueued = true;
+                }
+            }
+            uint32_t buffers = 0;
+            if (m_stream != 0 && m_audio)
+                buffers = m_audio->streamBuffersQueued(m_stream);
+            audioDrained = movieAudioDrained(audioEos, audioQueued, eosSubmitted, buffers);
+            // The voice stays open, so SamplesPlayed stops. Anchor once, then follow the wall clock.
+            if (audioDrained && m_audioMaster && m_stream != 0 && m_audio && m_audio->streamActive(m_stream)
+                && (m_state == MoviePlayState::Playing || m_state == MoviePlayState::Paused))
+            {
+                m_wallAnchor   = m_lastAudio;
+                m_wallAnchorAt = now;
+                m_pausedAccum  = 0.0;
+                m_audioMaster  = false;
+                if (m_state == MoviePlayState::Paused)
+                    m_pauseBegan = now;
+            }
         }
 
+        const bool useSamples = m_audioMaster && m_stream != 0 && m_audio && !audioDrained;
+        double     audioSec   = m_lastAudio;
+        if (useSamples)
+            audioSec = movieAudioSeconds(m_audio->streamSamplesPlayed(m_stream), m_segmentBase, m_sampleRate, m_seekOrigin);
+        double wallSec = m_wallAnchor + (now - m_wallAnchorAt) - m_pausedAccum;
+        if (m_state == MoviePlayState::Paused)
+            wallSec -= now - m_pauseBegan;
+
         MovieClockInput clockIn;
-        clockIn.audioMaster   = m_audioMaster && m_stream != 0;
-        clockIn.audioSeconds  = clockSec;
-        clockIn.wallSeconds   = clockSec;
+        clockIn.audioMaster   = useSamples;
+        clockIn.audioDrained  = audioDrained;
+        clockIn.audioSeconds  = audioSec;
+        clockIn.wallSeconds   = wallSec;
         clockIn.frameDuration = m_frameDuration > 0.0 ? m_frameDuration : (1.0 / 30.0);
         const double target   = evaluateMovieClock(clockIn).targetPts;
+        const double clockSec = useSamples ? audioSec : wallSec;
 
         if (m_state == MoviePlayState::Playing)
             presentFrame(target);
@@ -973,7 +1005,7 @@ namespace Dark
             uint32_t buffers = 0;
             if (m_stream != 0 && m_audio)
                 buffers = m_audio->streamBuffersQueued(m_stream);
-            const bool drained = !m_hasAudio || !m_audioMaster || (audioEos && !audioQueued && eosSubmitted && buffers == 0);
+            const bool drained = !m_hasAudio || !m_audioMaster || movieAudioDrained(audioEos, audioQueued, eosSubmitted, buffers);
             if (videoEos && !pendingVideo && drained)
             {
                 if (m_loop)

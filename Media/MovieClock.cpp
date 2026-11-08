@@ -16,9 +16,10 @@ namespace Dark
     MovieClockOutput evaluateMovieClock(const MovieClockInput& in)
     {
         MovieClockOutput out;
-        const double     clock = in.audioMaster ? in.audioSeconds : in.wallSeconds;
-        const double     lead  = in.audioMaster ? in.leadSeconds : 0.0;
-        out.targetPts          = clock - lead;
+        const bool       useAudio = in.audioMaster && !in.audioDrained;
+        const double     clock    = useAudio ? in.audioSeconds : in.wallSeconds;
+        const double     lead     = useAudio ? in.leadSeconds : 0.0;
+        out.targetPts             = clock - lead;
         return out;
     }
 

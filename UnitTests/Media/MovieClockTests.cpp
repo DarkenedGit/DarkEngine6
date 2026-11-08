@@ -20,6 +20,29 @@ TEST(MovieClock, AudioMasterUsesSamplesAndLead)
     EXPECT_DOUBLE_EQ(out.targetPts, 10.5 - kMovieAudioLeadSeconds);
 }
 
+TEST(MovieClock, DrainedAudioFollowsTheWallClock)
+{
+    EXPECT_TRUE(movieAudioDrained(true, false, true, 0u));
+    EXPECT_FALSE(movieAudioDrained(true, false, true, 1u));
+    EXPECT_FALSE(movieAudioDrained(true, true, true, 0u));
+    EXPECT_FALSE(movieAudioDrained(false, false, true, 0u));
+    EXPECT_FALSE(movieAudioDrained(true, false, false, 0u));
+
+    MovieClockInput in;
+    in.audioMaster   = true;
+    in.audioDrained  = true;
+    in.audioSeconds  = 4.0;
+    in.wallSeconds   = 4.0;
+    in.leadSeconds   = kMovieAudioLeadSeconds;
+    EXPECT_DOUBLE_EQ(evaluateMovieClock(in).targetPts, 4.0);
+
+    in.wallSeconds = 4.5;
+    EXPECT_DOUBLE_EQ(evaluateMovieClock(in).targetPts, 4.5);
+
+    in.audioDrained = false;
+    EXPECT_DOUBLE_EQ(evaluateMovieClock(in).targetPts, 4.0 - kMovieAudioLeadSeconds);
+}
+
 TEST(MovieClock, WallClockIgnoresLead)
 {
     MovieClockInput in;

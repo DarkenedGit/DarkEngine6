@@ -81,7 +81,7 @@ namespace Dark
         void setLoop(bool loop);
         void setVolume(float volume);
 
-        // dt is ignored. The clock is the stream voice, or steady_clock when there is no audio.
+        // dt is ignored. The clock is the stream voice until that voice drains, then steady_clock.
         void tick(float dt);
 
         // Caller has already tonemapped. This pass does not. opacity scales the picture (1 = full).
