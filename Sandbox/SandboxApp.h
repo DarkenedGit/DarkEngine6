@@ -37,6 +37,7 @@
 #include "Render/CrosshairHud.h"
 #include "Particles/ParticleEmitter.h"
 #include "Particles/ParticleRenderer.h"
+#include "Particles/GpuParticleSystem.h"
 #include "Particles/LeafRenderer.h"
 #include "Terrain/LeafField.h"
 #include "Terrain/LeafRustle.h"
@@ -407,6 +408,7 @@ private:
     Dark::CrosshairHud               m_crosshair;
     Dark::ParticleEmitter            m_blood;
     Dark::ParticleRenderer           m_particles;
+    Dark::GpuParticleSystem          m_gpuParticles;
     Dark::BloodSplatPool             m_bloodSplats;
 
     Dark::Mesh             m_crossMesh;

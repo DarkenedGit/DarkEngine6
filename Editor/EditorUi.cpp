@@ -1177,7 +1177,10 @@ void EditorApp::onUpdate(float dt)
     }
 
     if (!movieHolds)
+    {
         tickParticleEmitters(world(), dt);
+        m_gpuParticles.prepare(world(), dt);
+    }
 
     if (m_sceneMode == SceneMode::Scene2D)
     {

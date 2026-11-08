@@ -5,8 +5,12 @@
 #include "ECS/World.h"
 #include "Particles/ParticleComponents.h"
 #include "Particles/ParticleEmitter.h"
+#include "Particles/GpuParticleSystem.h"
 #include "Particles/ParticleSpawn.h"
 #include "Particles/ParticleTick.h"
+#include "Render/ShaderCompile.h"
+
+#include <wrl/client.h>
 
 #include <cmath>
 #include <cstring>
@@ -441,4 +445,32 @@ TEST(ParticleSimMode, TickStillUpdatesAndSkipsGpuIntegration)
     EXPECT_EQ(c->runtime->desc().simMode, ParticleSimMode::Gpu);
     EXPECT_EQ(c->runtime->desc().maxParticles, 200000u);
     EXPECT_NEAR(c->runtime->position().x, 4.0f, 1.0e-4f);
+}
+
+TEST(ParticleSimMode, GpuSubstepCountClampsDt)
+{
+    EXPECT_EQ(GpuParticleSystem::substepCount(1.0f / 60.0f, 1.0f), 1u);
+    EXPECT_EQ(GpuParticleSystem::substepCount(1.0f / 30.0f, 1.0f), 2u);
+    EXPECT_EQ(GpuParticleSystem::substepCount(0.1f, 1.0f), 2u);
+    EXPECT_NEAR(GpuParticleSystem::clampedDt(0.1f, 1.0f), GpuParticleSystem::kMaxDt, 1.0e-6f);
+    EXPECT_NEAR(GpuParticleSystem::clampedDt(1.0f / 60.0f, 1.0f), 1.0f / 60.0f, 1.0e-6f);
+    EXPECT_EQ(GpuParticleSystem::substepCount(1.0f / 120.0f, 2.0f), 1u);
+    EXPECT_EQ(GpuParticleSystem::substepCount(0.0f, 1.0f), 0u);
+}
+
+TEST(ParticleSimMode, GpuBillboardShadersCompile)
+{
+    Microsoft::WRL::ComPtr<ID3DBlob> csCopy;
+    Microsoft::WRL::ComPtr<ID3DBlob> csInPlace;
+    Microsoft::WRL::ComPtr<ID3DBlob> vs;
+    Microsoft::WRL::ComPtr<ID3DBlob> ps;
+    ASSERT_TRUE(compileShaderFromContent("shaders/ParticleSimulate.hlsl", "CSSimulate", "cs_5_0", csCopy));
+    ASSERT_TRUE(compileShaderFromContent("shaders/ParticleSimulate.hlsl", "CSInPlace", "cs_5_0", csInPlace));
+    D3D_SHADER_MACRO macros[2]{};
+    makeEncodeSrgbMacros(false, macros);
+    ASSERT_TRUE(compileShaderFromContent("shaders/ParticleBillboard.hlsl", "VSMain", "vs_5_0", vs, macros));
+    ASSERT_TRUE(compileShaderFromContent("shaders/Particle.hlsl", "PSMain", "ps_5_0", ps, macros));
+    makeEncodeSrgbMacros(true, macros);
+    ASSERT_TRUE(compileShaderFromContent("shaders/ParticleBillboard.hlsl", "VSMain", "vs_5_0", vs, macros));
+    ASSERT_TRUE(compileShaderFromContent("shaders/Particle.hlsl", "PSMain", "ps_5_0", ps, macros));
 }

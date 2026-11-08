@@ -162,6 +162,8 @@ void EditorApp::onInit()
         requestQuit();
         return;
     }
+    if (!m_gpuParticles.create(renderer()))
+        DE_LOG_ERROR(LogCategory::Render, "EditorApp: GPU particle system failed");
     if (!m_leafRenderer.create(renderer(), assets()))
         DE_LOG_ERROR(LogCategory::Render, "EditorApp: leaf renderer failed");
     if (!pumpBootFrame())
@@ -425,6 +427,7 @@ void EditorApp::onShutdown()
     m_physicsGround = Physics::kNullPhysicsBody;
     network().shutdown();
     m_imgui.shutdown(renderer());
+    m_gpuParticles.destroy(renderer());
     m_particleRenderer.destroy(renderer());
     m_leafRenderer.destroy(renderer());
     cancelFoliageSpawn();

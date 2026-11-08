@@ -33,8 +33,6 @@ namespace Dark
             out[3] = a[3] + (b[3] - a[3]) * t;
         }
 
-        constexpr float kParticleEmissiveGain = 4.0f;
-
     } // namespace
 
     bool ParticleRenderer::create(Renderer& renderer, AssetManager& assets)
@@ -147,6 +145,9 @@ namespace Dark
     void ParticleRenderer::draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera, const ParticleEmitter& emitter, bool additive,
                                 const Material* material)
     {
+        // GPU emitters that are not on the CPU fallback are drawn by GpuParticleSystem.
+        if (emitter.desc().simMode == ParticleSimMode::Gpu && !emitter.forceCpu())
+            return;
         if (!cmd || emitter.aliveCount() == 0)
             return;
         if (m_renderer)

@@ -167,6 +167,10 @@ namespace Dark
         void bindGBuffer();
         void bindHdr(bool bindDepth);
         void bindHdrDepthRead();
+        // OM only. HybridDeferred HDR target, read-only scene depth. No particle arguments.
+        void bindHdrDepthCompute();
+        // OM only. Keeps the swap-chain RTV. No particle arguments.
+        void bindSwapChainDepthCompute();
         void bindDecalTargets();
         void bindPostHdr();
         void bindHdrColorTarget();
