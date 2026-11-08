@@ -133,6 +133,7 @@ namespace Dark
 
         // Join is before endFrame, so main refills this only after the job returns.
         ShadowJob g_job;
+        uint32_t  g_kickedFrame = 0;
         std::vector<ShadowCaster>* g_capture = nullptr;
 
         void pushCaster(const Mesh* mesh, const Matrix4f& world, uint64_t bones)
@@ -450,6 +451,10 @@ namespace Dark
             }
 
             const uint32_t frame = host.renderer->frameIndex();
+            // A rejected kick leaves kicked set. The next frame may record; a live job may not.
+            const bool liveJob = host.jobs->renderBusy(0) || host.jobs->renderBusy(1);
+            if (g_job.kicked && g_kickedFrame != frame && !liveJob)
+                g_job.kicked = false;
             if (g_job.kicked || host.jobs->renderBusy(frame))
                 return true;
 
@@ -532,19 +537,22 @@ namespace Dark
                 host.drawList->armResourceSet(g_job.cascadeBegin, g_job.cascadeEnd, CullResourceSet::Depth);
             fillSkinDepth(host, g_job.cascadeBegin, g_job.cascadeEnd);
 
-            g_job.kicked = true;
-            JobDesc desc{};
-            desc.name   = "DirectionalShadows";
-            desc.lane   = JobLane::Render;
-            desc.writes = AccessListShadow;
-            desc.fn     = &shadowJobFn;
-            desc.user   = &g_job;
-            if (!host.jobs->enqueue(desc))
+            // frameJoinRender is the only kick. Enqueue here would record the list twice.
+            g_job.kicked      = true;
+            g_kickedFrame     = frame;
+            PassDesc pass{};
+            pass.name            = "DirectionalShadows";
+            pass.order           = 0;
+            pass.writes          = AccessListShadow;
+            pass.recordOffThread = true;
+            pass.record          = &shadowJobFn;
+            pass.user            = &g_job;
+            if (!registerFramePass(pass))
             {
                 if (host.jobs->renderBusy(frame))
                 {
                     g_job.kicked = false;
-                    DE_LOG_ERROR(LogCategory::Render, "DirectionalShadows enqueue rejected while the slot is busy");
+                    DE_LOG_ERROR(LogCategory::Render, "DirectionalShadows pass rejected while the slot is busy");
                     return true;
                 }
                 shadowJobFn(&g_job);
