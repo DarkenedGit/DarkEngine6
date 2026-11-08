@@ -389,13 +389,6 @@ TEST(ParticleSimMode, ClearSerialBurstAndClock)
     EXPECT_EQ(emitter.desc().simMode, ParticleSimMode::Gpu);
 }
 
-TEST(ParticleSimMode, SubstepCount)
-{
-    EXPECT_EQ(particleSubstepCount(1.0f / 60.0f), 1u);
-    EXPECT_EQ(particleSubstepCount(1.0f / 30.0f), 2u);
-    EXPECT_EQ(particleSubstepCount(0.1f), 2u);
-}
-
 TEST(ParticleSimMode, ChildSpawnSecondaryIsStoredAsStop)
 {
     ParticleEmitter emitter;

@@ -80,17 +80,4 @@ namespace Dark
         return decision;
     }
 
-    // dt is already simulationSpeed-scaled. Above 1/30 clamps; one step at or under 1/60, else two.
-    inline uint32_t particleSubstepCount(float dt)
-    {
-        constexpr float kMaxDt     = 1.0f / 30.0f;
-        constexpr float kSubstepDt = 1.0f / 60.0f;
-        float           clamped    = dt;
-        if (!(clamped <= kMaxDt))
-            clamped = kMaxDt;
-        if (!(clamped > kSubstepDt))
-            return 1u;
-        return 2u;
-    }
-
 } // namespace Dark
