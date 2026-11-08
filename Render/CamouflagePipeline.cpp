@@ -224,13 +224,13 @@ namespace Dark
         return true;
     }
 
-    void CamouflagePipeline::captureScene(ID3D12GraphicsCommandList* cmd, Renderer& renderer)
+    bool CamouflagePipeline::captureScene(ID3D12GraphicsCommandList* cmd, Renderer& renderer)
     {
         if (!cmd || !isValid() || !m_copy)
-            return;
+            return false;
         ID3D12Resource* hdr = renderer.hdr();
         if (!hdr)
-            return;
+            return false;
 
         cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
         renderer.transitionHdr(cmd, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -255,6 +255,7 @@ namespace Dark
             m_copyState = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
         }
         renderer.bindHdr(true);
+        return true;
     }
 
     bool CamouflagePipeline::bindDraw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, ID3D12PipelineState* pso) const
@@ -271,20 +272,22 @@ namespace Dark
         return true;
     }
 
-    void CamouflagePipeline::drawModel(ID3D12GraphicsCommandList* cmd, Renderer& renderer, GpuResourceCache& gpu, SkinningUploadRing& ring, const Model& model,
+    bool CamouflagePipeline::drawModel(ID3D12GraphicsCommandList* cmd, Renderer& renderer, GpuResourceCache& gpu, SkinningUploadRing& ring, const Model& model,
                                        const AnimPose* pose, const Math::Matrix4f& world, const Math::Matrix4f& viewProj, const Math::Vector3f& cameraPos,
                                        float time, DebugFill fill)
     {
         (void)fill;
         GpuModel* gm = gpu.model(model.id);
         if (!cmd || !isValid() || !gm || !gm->hasOpaque())
-            return;
+            return false;
         if (m_copy && (m_width != renderer.width() || m_height != renderer.height()))
             renderer.waitForGpu();
         if (!ensureCopy(renderer.device(), renderer.width(), renderer.height()))
-            return;
+            return false;
         const GpuScope camouflage(cmd, "Camouflage", ProfileColor::Camouflage);
-        captureScene(cmd, renderer);
+        // Depth is writable after this. A later skipped part does not undo that.
+        if (!captureScene(cmd, renderer))
+            return false;
 
         CamouflageConstants cb{};
         cb.cameraPos[0]  = cameraPos.x;
@@ -316,7 +319,7 @@ namespace Dark
                 if (!boundSkinned)
                 {
                     if (!bindDraw(cmd, renderer, m_psoSkinned.Get()))
-                        return;
+                        return true;
                     boundSkinned = true;
                     boundStatic  = false;
                 }
@@ -331,7 +334,7 @@ namespace Dark
                 if (!boundStatic)
                 {
                     if (!bindDraw(cmd, renderer, m_psoStatic.Get()))
-                        return;
+                        return true;
                     boundStatic  = true;
                     boundSkinned = false;
                 }
@@ -339,6 +342,7 @@ namespace Dark
                 part.mesh.draw(cmd);
             }
         }
+        return true;
     }
 
 } // namespace Dark

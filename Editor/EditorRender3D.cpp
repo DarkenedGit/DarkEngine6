@@ -1080,6 +1080,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     {
         markPass(PassId::Particles);
         const GpuScope particles(cmd, "Particles", ProfileColor::Particles);
+        // Editor does not run camouflage, so this frame's depth was not rewritten.
         m_gpuParticles.simulateAndDraw(cmd, renderer(), m_camera, world(), assets(), false);
         m_particleRenderer.beginFrame(renderer().frameIndex());
         world().each<ParticleEmitterComponent>([&](Entity, ParticleEmitterComponent& pe) {

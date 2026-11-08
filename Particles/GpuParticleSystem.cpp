@@ -34,43 +34,54 @@ namespace Dark
             return true;
         }
 
-        // Row-major, matches ParticleGpu.hlsli. Spawn count and reset are root constants, not this buffer.
-        struct GpuParticleConstants
-        {
-            float    viewProj[16];
-            float    cameraRight[4];
-            float    cameraUp[4];
-            float    baseColor[4];
-            float    gravity[4];
-            float    emitterPos[4];
-            float    emitterRot[4];
-            float    direction[4];
-            float    shapeSize[4];
-            float    lifeSpeed[4];
-            float    sizes[4];
-            uint32_t sim0[4];
-            uint32_t sim1[4];
-            float    sim2[4];
-        };
-        static_assert(sizeof(GpuParticleConstants) == 272, "gpu particle constants");
+        static_assert(sizeof(GpuParticleConstants) == 512, "gpu particle constants");
         static_assert(offsetof(GpuParticleConstants, sim0) == 224, "gpu particle sim0");
         static_assert(offsetof(GpuParticleConstants, sim2) == 256, "gpu particle sim2");
+        static_assert(offsetof(GpuParticleConstants, invViewProj) == 272, "gpu particle invViewProj");
+        static_assert(offsetof(GpuParticleConstants, child1) == 496, "gpu particle child1");
         static_assert(sizeof(GpuParticleConstants) <= GpuParticleSystem::kCbStride, "gpu particle cb stride");
+        static_assert(GpuParticleSystem::kMaxSecondaryPerFrameHard == kMaxSecondaryPerFrameHard, "secondary event cap");
+
+        constexpr uint32_t kCounterBytes = 256;
+        constexpr uint32_t kViewBase     = 2;
+        constexpr uint32_t kViewsPerPool = 3;
 
         uint32_t packRgba8(const float c[4])
         {
-            uint32_t packed = 0;
-            for (int i = 0; i < 4; ++i)
-            {
-                float v = c[i];
+            // particleBirthSample: R in bits 24..31, A in bits 0..7.
+            auto u8 = [](float v) -> uint32_t {
                 if (!std::isfinite(v) || v < 0.0f)
                     v = 0.0f;
                 if (v > 1.0f)
                     v = 1.0f;
-                const uint32_t byte = static_cast<uint32_t>(v * 255.0f + 0.5f);
-                packed |= byte << (i * 8);
-            }
-            return packed;
+                return static_cast<uint32_t>(v * 255.0f + 0.5f);
+            };
+            return (u8(c[0]) << 24) | (u8(c[1]) << 16) | (u8(c[2]) << 8) | u8(c[3]);
+        }
+
+        uint32_t floatBits(float value)
+        {
+            uint32_t bits = 0;
+            std::memcpy(&bits, &value, sizeof(bits));
+            return bits;
+        }
+
+        bool wantsSecondary(const ParticleEmitterDesc& desc)
+        {
+            return desc.collision == ParticleCollisionReaction::SpawnSecondary && desc.hasSecondary && desc.secondary.maxParticles > 0;
+        }
+
+        uint32_t secondarySlots(const ParticleEmitterDesc& desc)
+        {
+            return wantsSecondary(desc) ? desc.secondary.maxParticles : 0u;
+        }
+
+        bool secondaryMismatch(bool haveResources, uint32_t childCapacity, const ParticleEmitterDesc& desc)
+        {
+            const bool want = wantsSecondary(desc);
+            if (want != haveResources)
+                return true;
+            return want && childCapacity != desc.secondary.maxParticles;
         }
 
         ComPtr<ID3D12Resource> createDefaultBuffer(ID3D12Device* device, UINT64 bytes, D3D12_RESOURCE_STATES state, const char* what)
@@ -157,6 +168,62 @@ namespace Dark
             return false;
         }
 
+        ComPtr<ID3D12Resource> createDummyTexture(ID3D12Device* device, DXGI_FORMAT format, const char* what)
+        {
+            D3D12_HEAP_PROPERTIES heap{};
+            heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+            D3D12_RESOURCE_DESC desc{};
+            desc.Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+            desc.Width            = 1;
+            desc.Height           = 1;
+            desc.DepthOrArraySize = 1;
+            desc.MipLevels        = 1;
+            desc.Format           = format;
+            desc.SampleDesc       = { 1, 0 };
+            desc.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+            ComPtr<ID3D12Resource> res;
+            if (FailedHr(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(&res)), what))
+                return nullptr;
+            return res;
+        }
+
+        void createTextureSrv(ID3D12Device* device, ID3D12Resource* resource, DXGI_FORMAT format, D3D12_CPU_DESCRIPTOR_HANDLE dest)
+        {
+            D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+            srv.Format                  = format;
+            srv.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
+            srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            srv.Texture2D.MipLevels     = 1;
+            device->CreateShaderResourceView(resource, &srv, dest);
+        }
+
+        void createCounterUav(ID3D12Device* device, ID3D12Resource* resource, D3D12_CPU_DESCRIPTOR_HANDLE dest)
+        {
+            // One uint. The 256-byte allocation keeps the UAV on its own resource from the event buffer.
+            D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
+            uav.Format              = DXGI_FORMAT_R32_UINT;
+            uav.ViewDimension       = D3D12_UAV_DIMENSION_BUFFER;
+            uav.Buffer.NumElements  = 1;
+            device->CreateUnorderedAccessView(resource, nullptr, &uav, dest);
+        }
+
+        D3D12_CPU_DESCRIPTOR_HANDLE cpuAt(ID3D12DescriptorHeap* heap, uint32_t index, UINT increment)
+        {
+            D3D12_CPU_DESCRIPTOR_HANDLE handle = heap->GetCPUDescriptorHandleForHeapStart();
+            handle.ptr += static_cast<SIZE_T>(index) * increment;
+            return handle;
+        }
+
+        uint32_t counterDescIndex(int descSlot, uint32_t frameSlot)
+        {
+            return kViewBase + static_cast<uint32_t>(descSlot) * kViewsPerPool + frameSlot;
+        }
+
+        uint32_t headDescIndex(int descSlot)
+        {
+            return kViewBase + static_cast<uint32_t>(descSlot) * kViewsPerPool + 2u;
+        }
+
     } // namespace
 
     static_assert(GpuParticleSystem::kFrameCount == Renderer::kFrameCount, "particle slots follow the renderer frame count");
@@ -186,7 +253,7 @@ namespace Dark
 
     bool GpuParticleSystem::create(Renderer& renderer)
     {
-        if (m_ready && m_pipeline.isValid())
+        if (m_ready && m_pipeline.isValid() && m_viewHeap)
             return true;
 
         ID3D12Device* device = renderer.device();
@@ -196,8 +263,10 @@ namespace Dark
             m_ready = false;
             return false;
         }
-        if (!m_pipeline.create(device, renderer.sceneColorFormat()))
+        if (!m_pipeline.create(device, renderer.sceneColorFormat()) || !createGpuViews(device))
         {
+            destroyGpuViews();
+            m_pipeline.destroy();
             DE_LOG_ERROR(LogCategory::Render, "GpuParticleSystem: pipeline create failed; GPU emitters stay undrawn");
             m_ready = false;
             return false;
@@ -216,8 +285,10 @@ namespace Dark
         m_records.clear();
         m_loggedRefusal.clear();
         m_loggedPrewarm.clear();
+        m_loggedOrtho.clear();
         m_createFailed.clear();
         m_billboardMat = {};
+        destroyGpuViews();
         m_pipeline.destroy();
         m_ready         = false;
         m_renderer      = nullptr;
@@ -248,34 +319,194 @@ namespace Dark
         for (uint32_t slot = 0; slot < kFrameCount; ++slot)
         {
             pool.particles[slot].Reset();
-            pool.state[slot] = D3D12_RESOURCE_STATE_COMMON;
+            pool.events[slot].Reset();
+            pool.counters[slot].Reset();
+            pool.child[slot].Reset();
+            pool.state[slot]        = D3D12_RESOURCE_STATE_COMMON;
+            pool.eventState[slot]   = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+            pool.counterState[slot] = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+            pool.childState[slot]   = D3D12_RESOURCE_STATE_COMMON;
         }
+        pool.childHead.Reset();
+        pool.childHeadState   = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        pool.childHeadCleared = false;
+        pool.childCapacity    = 0;
+        if (pool.descSlot >= 0)
+            freeDescSlot(pool.descSlot);
+        pool.descSlot  = -1;
         pool.capacity  = 0;
         pool.submitted = false;
         pool.lastSlot  = -1;
     }
 
-    bool GpuParticleSystem::createBuffers(ID3D12Device* device, Pool& pool, uint32_t capacity, uint32_t generation)
+    bool GpuParticleSystem::createGpuViews(ID3D12Device* device)
     {
+        destroyGpuViews();
+        if (!device)
+            return false;
+
+        const UINT count = kViewBase + kMaxSecondaryPools * kViewsPerPool;
+        D3D12_DESCRIPTOR_HEAP_DESC gpuDesc{};
+        gpuDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        gpuDesc.NumDescriptors = count;
+        gpuDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        if (FailedHr(device->CreateDescriptorHeap(&gpuDesc, IID_PPV_ARGS(&m_viewHeap)), "CreateDescriptorHeap gpu particles"))
+            return false;
+
+        D3D12_DESCRIPTOR_HEAP_DESC cpuDesc = gpuDesc;
+        cpuDesc.Flags                      = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+        if (FailedHr(device->CreateDescriptorHeap(&cpuDesc, IID_PPV_ARGS(&m_viewCpuHeap)), "CreateDescriptorHeap gpu particle cpu"))
+        {
+            destroyGpuViews();
+            return false;
+        }
+        m_viewInc = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+        m_dummyDepth  = createDummyTexture(device, DXGI_FORMAT_R32_FLOAT, "CreateCommittedResource particle dummy depth");
+        m_dummyAttrib = createDummyTexture(device, DXGI_FORMAT_R8G8B8A8_UNORM, "CreateCommittedResource particle dummy attrib");
+        m_dummyUav    = createDefaultBuffer(device, kCounterBytes, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, "CreateCommittedResource particle dummy uav");
+        if (!m_dummyDepth || !m_dummyAttrib || !m_dummyUav)
+        {
+            destroyGpuViews();
+            return false;
+        }
+        m_dummyDepth->SetName(L"DE.Particle.DummyDepth");
+        m_dummyAttrib->SetName(L"DE.Particle.DummyAttrib");
+        m_dummyUav->SetName(L"DE.Particle.DummyUav");
+
+        // CPU heap slots are the copy sources. Shader-visible slots are seeded so a missed copy is still a valid SRV.
+        createTextureSrv(device, m_dummyDepth.Get(), DXGI_FORMAT_R32_FLOAT, cpuAt(m_viewCpuHeap.Get(), 0, m_viewInc));
+        createTextureSrv(device, m_dummyAttrib.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, cpuAt(m_viewCpuHeap.Get(), 1, m_viewInc));
+        createTextureSrv(device, m_dummyDepth.Get(), DXGI_FORMAT_R32_FLOAT, cpuAt(m_viewHeap.Get(), 0, m_viewInc));
+        createTextureSrv(device, m_dummyAttrib.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, cpuAt(m_viewHeap.Get(), 1, m_viewInc));
+        return true;
+    }
+
+    void GpuParticleSystem::destroyGpuViews()
+    {
+        m_dummyDepth.Reset();
+        m_dummyAttrib.Reset();
+        m_dummyUav.Reset();
+        m_viewHeap.Reset();
+        m_viewCpuHeap.Reset();
+        m_viewInc = 0;
+        for (uint32_t i = 0; i < kMaxSecondaryPools; ++i)
+            m_descUsed[i] = false;
+    }
+
+    int GpuParticleSystem::allocDescSlot()
+    {
+        for (uint32_t i = 0; i < kMaxSecondaryPools; ++i)
+        {
+            if (m_descUsed[i])
+                continue;
+            m_descUsed[i] = true;
+            return static_cast<int>(i);
+        }
+        return -1;
+    }
+
+    void GpuParticleSystem::freeDescSlot(int slot)
+    {
+        if (slot < 0 || static_cast<uint32_t>(slot) >= kMaxSecondaryPools)
+            return;
+        m_descUsed[slot] = false;
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE GpuParticleSystem::viewCpu(uint32_t index) const
+    {
+        // Non-shader-visible. ClearUnorderedAccessViewUint rejects a shader-visible CPU handle.
+        return cpuAt(m_viewCpuHeap.Get(), index, m_viewInc);
+    }
+
+    D3D12_GPU_DESCRIPTOR_HANDLE GpuParticleSystem::viewGpu(uint32_t index) const
+    {
+        D3D12_GPU_DESCRIPTOR_HANDLE handle = m_viewHeap->GetGPUDescriptorHandleForHeapStart();
+        handle.ptr += static_cast<UINT64>(index) * m_viewInc;
+        return handle;
+    }
+
+    bool GpuParticleSystem::createBuffers(ID3D12Device* device, Pool& pool, const ParticleEmitterDesc& desc, uint32_t generation)
+    {
+        const uint32_t capacity = desc.maxParticles;
         if (!device || capacity == 0 || capacity > kMaxParticlesPerEmitter)
             return false;
 
+        const bool     want     = wantsSecondary(desc);
+        const uint32_t childCap = want ? desc.secondary.maxParticles : 0u;
+        if (want && (childCap == 0 || childCap > kMaxSecondaryParticles || !m_viewHeap || !m_viewCpuHeap))
+            return false;
+
+        int newSlot = -1;
+        if (want)
+        {
+            newSlot = allocDescSlot();
+            if (newSlot < 0)
+                return false;
+        }
+
         const UINT64 particleBytes = static_cast<UINT64>(capacity) * sizeof(GpuParticle);
         ComPtr<ID3D12Resource> particles[kFrameCount];
+        ComPtr<ID3D12Resource> events[kFrameCount];
+        ComPtr<ID3D12Resource> counters[kFrameCount];
+        ComPtr<ID3D12Resource> child[kFrameCount];
+        ComPtr<ID3D12Resource> childHead;
         for (uint32_t slot = 0; slot < kFrameCount; ++slot)
         {
             particles[slot] = createDefaultBuffer(device, particleBytes, D3D12_RESOURCE_STATE_COMMON, "CreateCommittedResource gpu particles");
             if (!particles[slot])
+            {
+                freeDescSlot(newSlot);
                 return false;
+            }
+        }
+
+        if (want)
+        {
+            const UINT64 eventBytes = static_cast<UINT64>(kMaxSecondaryPerFrameHard) * sizeof(GpuSpawnEvent);
+            const UINT64 childBytes = static_cast<UINT64>(childCap) * sizeof(GpuParticle);
+            for (uint32_t slot = 0; slot < kFrameCount; ++slot)
+            {
+                events[slot]   = createDefaultBuffer(device, eventBytes, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, "CreateCommittedResource gpu particle events");
+                counters[slot] = createDefaultBuffer(device, kCounterBytes, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, "CreateCommittedResource gpu particle counter");
+                child[slot]    = createDefaultBuffer(device, childBytes, D3D12_RESOURCE_STATE_COMMON, "CreateCommittedResource gpu particle child");
+                if (!events[slot] || !counters[slot] || !child[slot])
+                {
+                    freeDescSlot(newSlot);
+                    return false;
+                }
+            }
+            childHead = createDefaultBuffer(device, kCounterBytes, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, "CreateCommittedResource gpu particle child head");
+            if (!childHead)
+            {
+                freeDescSlot(newSlot);
+                return false;
+            }
+
+            for (uint32_t slot = 0; slot < kFrameCount; ++slot)
+            {
+                const uint32_t index = counterDescIndex(newSlot, slot);
+                createCounterUav(device, counters[slot].Get(), cpuAt(m_viewHeap.Get(), index, m_viewInc));
+                createCounterUav(device, counters[slot].Get(), viewCpu(index));
+            }
+            const uint32_t headIndex = headDescIndex(newSlot);
+            createCounterUav(device, childHead.Get(), cpuAt(m_viewHeap.Get(), headIndex, m_viewInc));
+            createCounterUav(device, childHead.Get(), viewCpu(headIndex));
         }
 
         ComPtr<ID3D12Resource> cb = createUploadBuffer(device, static_cast<UINT64>(kCbStride) * kFrameCount, "CreateCommittedResource gpu particle cb");
         if (!cb)
+        {
+            freeDescSlot(newSlot);
             return false;
+        }
 
         uint8_t* mapped = nullptr;
         if (FailedHr(cb->Map(0, nullptr, reinterpret_cast<void**>(&mapped)), "Map gpu particle cb"))
+        {
+            freeDescSlot(newSlot);
             return false;
+        }
         std::memset(mapped, 0, static_cast<size_t>(kCbStride) * kFrameCount);
 
         if (pool.cb && pool.mapped)
@@ -283,12 +514,25 @@ namespace Dark
             pool.cb->Unmap(0, nullptr);
             pool.mapped = nullptr;
         }
+        if (pool.descSlot >= 0 && pool.descSlot != newSlot)
+            freeDescSlot(pool.descSlot);
 
         for (uint32_t slot = 0; slot < kFrameCount; ++slot)
         {
-            pool.particles[slot] = std::move(particles[slot]);
-            pool.state[slot]     = D3D12_RESOURCE_STATE_COMMON;
+            pool.particles[slot]    = std::move(particles[slot]);
+            pool.events[slot]       = std::move(events[slot]);
+            pool.counters[slot]     = std::move(counters[slot]);
+            pool.child[slot]        = std::move(child[slot]);
+            pool.state[slot]        = D3D12_RESOURCE_STATE_COMMON;
+            pool.eventState[slot]   = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+            pool.counterState[slot] = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+            pool.childState[slot]   = D3D12_RESOURCE_STATE_COMMON;
         }
+        pool.childHead            = std::move(childHead);
+        pool.childHeadState       = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        pool.childHeadCleared     = false;
+        pool.childCapacity        = childCap;
+        pool.descSlot             = newSlot;
         pool.cb                   = std::move(cb);
         pool.mapped               = mapped;
         pool.capacity             = capacity;
@@ -383,7 +627,8 @@ namespace Dark
             }
 
             const uint32_t cap    = desc.maxParticles;
-            const bool     slotOk = static_cast<uint64_t>(live) + static_cast<uint64_t>(cap) <= static_cast<uint64_t>(kMaxParticleSlotsTotal);
+            const uint32_t slots  = cap + secondarySlots(desc);
+            const bool     slotOk = static_cast<uint64_t>(live) + static_cast<uint64_t>(slots) <= static_cast<uint64_t>(kMaxParticleSlotsTotal);
             const ParticlePoolDecision decision = particlePoolDecision(desc.simMode, cap, true, slotOk);
             const bool createFailed = containsId(m_createFailed, id);
             const bool keepCpu      = createFailed && cap <= kMaxCpuParticles;
@@ -400,7 +645,7 @@ namespace Dark
                 return;
             }
 
-            live += cap;
+            live += slots;
             emitter.setForceCpu(keepCpu);
             FallbackRow row{};
             row.id         = id;
@@ -428,6 +673,7 @@ namespace Dark
         applyFallback(world, accepted, seen);
         std::erase_if(m_loggedRefusal, [&seen](EntityID id) { return !containsId(seen, id); });
         std::erase_if(m_loggedPrewarm, [&seen](EntityID id) { return !containsId(seen, id); });
+        std::erase_if(m_loggedOrtho, [&seen](EntityID id) { return !containsId(seen, id); });
         std::erase_if(m_createFailed, [&seen](EntityID id) { return !containsId(seen, id); });
 
         if (!m_ready || !m_renderer || !m_renderer->device())
@@ -455,7 +701,16 @@ namespace Dark
                 {
                     if (row.id != pool.entity)
                         continue;
-                    recreate = pool.generation != row.generation || pool.capacity != row.capacity || !pool.particles[0] || !pool.cb;
+                    bool secBad = false;
+                    if (ParticleEmitterComponent* pe = world.get<ParticleEmitterComponent>(Entity{ pool.entity }))
+                    {
+                        if (pe->runtime)
+                        {
+                            const bool have = pool.descSlot >= 0 && pool.events[0] && pool.child[0] && pool.counters[0] && pool.childHead;
+                            secBad          = secondaryMismatch(have, pool.childCapacity, pe->runtime->desc());
+                        }
+                    }
+                    recreate = pool.generation != row.generation || pool.capacity != row.capacity || !pool.particles[0] || !pool.cb || secBad;
                     break;
                 }
             }
@@ -496,7 +751,9 @@ namespace Dark
             ParticleEmitter& emitter = *pe->runtime;
 
             Pool*      pool    = findPool(row.id);
-            const bool missing = !pool || pool->generation != row.generation || pool->capacity != row.capacity || !pool->particles[0] || !pool->cb;
+            const bool haveSec = pool && pool->descSlot >= 0 && pool->events[0] && pool->child[0] && pool->counters[0] && pool->childHead;
+            const bool missing = !pool || pool->generation != row.generation || pool->capacity != row.capacity || !pool->particles[0] || !pool->cb
+                                 || secondaryMismatch(haveSec, pool ? pool->childCapacity : 0u, emitter.desc());
             if (!pool)
             {
                 Pool fresh{};
@@ -507,7 +764,7 @@ namespace Dark
             }
             if (missing)
             {
-                if (!pool || !createBuffers(device, *pool, row.capacity, row.generation))
+                if (!pool || !createBuffers(device, *pool, emitter.desc(), row.generation))
                 {
                     // Release once. A submitted pool already waited this frame; later frames have nothing to wait on.
                     if (markOnce(m_loggedRefusal, row.id))
@@ -522,7 +779,15 @@ namespace Dark
                     dropPool(row.id);
                     continue;
                 }
-                const uint64_t bytes = static_cast<uint64_t>(row.capacity) * sizeof(GpuParticle) * kFrameCount + static_cast<uint64_t>(kCbStride) * kFrameCount;
+                uint64_t bytes = static_cast<uint64_t>(row.capacity) * sizeof(GpuParticle) * kFrameCount + static_cast<uint64_t>(kCbStride) * kFrameCount;
+                if (wantsSecondary(emitter.desc()))
+                {
+                    const uint64_t childCap = emitter.desc().secondary.maxParticles;
+                    bytes += static_cast<uint64_t>(kMaxSecondaryPerFrameHard) * sizeof(GpuSpawnEvent) * kFrameCount;
+                    bytes += static_cast<uint64_t>(kCounterBytes) * kFrameCount;
+                    bytes += kCounterBytes;
+                    bytes += childCap * sizeof(GpuParticle) * kFrameCount;
+                }
                 DE_LOG_INFO(LogCategory::Render, "GpuParticleSystem: pool '{}' capacity {} bytes {} reaction {}", emitter.desc().name, row.capacity, static_cast<unsigned long long>(bytes),
                             static_cast<unsigned>(emitter.desc().collision));
             }
@@ -554,7 +819,6 @@ namespace Dark
 
     bool GpuParticleSystem::simulateAndDraw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, World& world, AssetManager& assets, bool lateDepthWrite)
     {
-        (void)lateDepthWrite;
         if (!cmd || !m_ready || !m_pipeline.isValid())
             return false;
         DE_ASSERT(cmd == renderer.commandList());
@@ -570,10 +834,14 @@ namespace Dark
         {
             Pool*                      pool      = nullptr;
             ParticleEmitter*           emitter   = nullptr;
-            bool                       simulate  = false;
-            bool                       drawable  = false;
-            bool                       additive  = true;
-            float                      base[4]   = { 1.0f, 1.0f, 1.0f, 1.0f };
+            bool                       simulate      = false;
+            bool                       drawable      = false;
+            bool                       additive      = true;
+            bool                       useAttrib     = false;
+            bool                       collide       = false;
+            bool                       secondary     = false;
+            bool                       childAdditive = false;
+            float                      base[4]       = { 1.0f, 1.0f, 1.0f, 1.0f };
             float                      emissive  = 0.0f;
             std::shared_ptr<Texture2D> tex;
         };
@@ -641,8 +909,9 @@ namespace Dark
         {
             uint32_t totalSlots = 0;
             for (const Pool& pool : m_pools)
-                totalSlots += pool.capacity;
+                totalSlots += pool.capacity + pool.childCapacity;
 
+            const bool ortho = camera.IsOrthographic();
             for (EntityID id : m_records)
             {
                 Pool* pool = findPool(id);
@@ -654,17 +923,26 @@ namespace Dark
                 ParticleEmitter& emitter = *pe->runtime;
                 if (emitter.desc().simMode != ParticleSimMode::Gpu)
                     continue;
-                const uint32_t cap    = pool->capacity;
-                const uint32_t others = totalSlots >= cap ? totalSlots - cap : 0u;
-                const bool     slotOk = static_cast<uint64_t>(others) + static_cast<uint64_t>(cap) <= static_cast<uint64_t>(kMaxParticleSlotsTotal);
+                const uint32_t mine   = pool->capacity + pool->childCapacity;
+                const uint32_t others = totalSlots >= mine ? totalSlots - mine : 0u;
+                const bool     slotOk = static_cast<uint64_t>(others) + static_cast<uint64_t>(mine) <= static_cast<uint64_t>(kMaxParticleSlotsTotal);
                 const ParticlePoolDecision decision = particlePoolDecision(emitter.desc().simMode, emitter.desc().maxParticles, true, slotOk);
                 if (emitter.forceCpu() || !decision.recordGpuPool)
                     continue;
 
+                const ParticleEmitterDesc& desc = emitter.desc();
                 Job job{};
                 job.pool     = pool;
                 job.emitter  = &emitter;
                 job.simulate = true;
+                const bool reacts = desc.collision != ParticleCollisionReaction::None;
+                // Orthographic skip: reverse-Z reconstruct is perspective. Integrate and draw still run.
+                job.collide = reacts && !ortho;
+                job.useAttrib = job.collide && desc.collision == ParticleCollisionReaction::Bounce && renderer.scenePath() == ScenePath::HybridDeferred && renderer.hasGBuffer() && !lateDepthWrite;
+                job.secondary = wantsSecondary(desc) && pool->descSlot >= 0 && pool->events[0] && pool->events[1] && pool->counters[0] && pool->counters[1] && pool->child[0] && pool->child[1] && pool->childHead;
+                job.childAdditive = desc.secondary.additiveBlend;
+                if (ortho && reacts && markOnce(m_loggedOrtho, id))
+                    DE_LOG_INFO(LogCategory::Render, "GpuParticleSystem: orthographic camera skips collision for '{}'", desc.name);
                 resolve(*pe, emitter, job);
                 jobs.push_back(std::move(job));
             }
@@ -681,9 +959,11 @@ namespace Dark
                 if (pe->runtime->desc().simMode != ParticleSimMode::Gpu || pe->runtime->forceCpu())
                     continue;
                 Job job{};
-                job.pool     = &pool;
-                job.emitter  = pe->runtime.get();
-                job.simulate = false;
+                job.pool          = &pool;
+                job.emitter       = pe->runtime.get();
+                job.simulate      = false;
+                job.secondary     = pool.childCapacity > 0 && pool.child[0] && pool.child[1] && pool.events[0];
+                job.childAdditive = pe->runtime->desc().secondary.additiveBlend;
                 resolve(*pe, *pe->runtime, job);
                 if (!job.drawable)
                     continue;
@@ -698,16 +978,25 @@ namespace Dark
             return true;
         }
 
-        // Depth test only. The compute root does not sample the depth buffer.
+        // Depth sample is this frame's R32_FLOAT. The binds stay transitions and OM only.
         if (renderer.hasSceneBuffers())
             renderer.bindHdrDepthCompute();
         else
             renderer.bindSwapChainDepthCompute();
 
+        bool anyAttrib = false;
+        for (const Job& job : jobs)
+        {
+            if (job.simulate && job.useAttrib)
+                anyAttrib = true;
+        }
+        if (anyAttrib)
+            renderer.transitionAttrib(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
         const uint32_t writeSlot = frame % kFrameCount;
         const uint32_t otherSlot = (writeSlot + 1u) % kFrameCount;
 
-        auto writeCb = [&](Pool& pool, const ParticleEmitter& emitter, const float base[4], float emissive, float substepDt) {
+        auto writeCb = [&](Pool& pool, const ParticleEmitter& emitter, const Job& job, float substepDt) {
             GpuParticleConstants constants{};
             const Math::Matrix4f  vp = camera.GetViewProj();
             std::memcpy(constants.viewProj, vp.m_afEntry, sizeof(constants.viewProj));
@@ -719,10 +1008,10 @@ namespace Dark
             constants.cameraUp[0]      = up.x;
             constants.cameraUp[1]      = up.y;
             constants.cameraUp[2]      = up.z;
-            constants.baseColor[0]     = base[0];
-            constants.baseColor[1]     = base[1];
-            constants.baseColor[2]     = base[2];
-            constants.baseColor[3]     = base[3];
+            constants.baseColor[0]     = job.base[0];
+            constants.baseColor[1]     = job.base[1];
+            constants.baseColor[2]     = job.base[2];
+            constants.baseColor[3]     = job.base[3];
 
             const ParticleEmitterDesc& desc = emitter.desc();
             constants.gravity[0]            = desc.gravity.x;
@@ -760,37 +1049,112 @@ namespace Dark
             constants.sim0[3] = shape;
             constants.sim1[0] = packRgba8(desc.startColor);
             constants.sim1[1] = packRgba8(desc.endColor);
-            constants.sim2[0] = emissive;
+            constants.sim2[0] = job.emissive;
             constants.sim2[1] = kParticleEmissiveGain;
             constants.sim2[2] = desc.spreadDegrees * (3.14159265f / 180.0f);
             constants.sim2[3] = substepDt;
+
+            const Math::Matrix4f invVp = vp.Inverse();
+            const Math::Matrix4f view  = camera.GetView();
+            std::memcpy(constants.invViewProj, invVp.m_afEntry, sizeof(constants.invViewProj));
+            std::memcpy(constants.view, view.m_afEntry, sizeof(constants.view));
+            const Math::Vector3f eye  = camera.GetPosition();
+            const Math::Vector3f look = camera.GetLook();
+            constants.cameraPos[0]  = eye.x;
+            constants.cameraPos[1]  = eye.y;
+            constants.cameraPos[2]  = eye.z;
+            constants.cameraLook[0] = look.x;
+            constants.cameraLook[1] = look.y;
+            constants.cameraLook[2] = look.z;
+            constants.collide0[0]   = camera.GetNearZ();
+            constants.collide0[1]   = static_cast<float>(renderer.width());
+            constants.collide0[2]   = static_cast<float>(renderer.height());
+            constants.collide0[3]   = desc.collisionBias;
+            constants.collide1[0]   = desc.collisionThickness;
+            constants.collide1[1]   = desc.restitution;
+            constants.collide1[2]   = desc.friction;
+            constants.collide1[3]   = desc.restLifetime;
+            uint32_t maxSecondary = 0;
+            if (job.secondary)
+            {
+                maxSecondary = desc.maxSecondaryPerFrame;
+                if (maxSecondary > kMaxSecondaryPerFrameHard)
+                    maxSecondary = kMaxSecondaryPerFrameHard;
+            }
+            constants.collide2[0] = static_cast<uint32_t>(desc.collision);
+            constants.collide2[1] = job.useAttrib ? 1u : 0u;
+            constants.collide2[2] = job.collide ? 1u : 0u;
+            constants.collide2[3] = maxSecondary;
+            constants.child0[0]   = desc.secondary.lifetime.min;
+            constants.child0[1]   = desc.secondary.lifetime.max;
+            constants.child0[2]   = desc.secondary.startSize.min;
+            constants.child0[3]   = desc.secondary.startSize.max;
+            constants.child1[0]   = pool.childCapacity;
+            constants.child1[1]   = floatBits(desc.secondary.restLifetime);
 
             uint8_t* dst = pool.mapped + static_cast<size_t>(writeSlot) * kCbStride;
             std::memset(dst, 0, kCbStride);
             std::memcpy(dst, &constants, sizeof(constants));
         };
 
-        auto dispatchStep = [&](Pool& pool, bool inPlace, uint32_t spawnCount, uint32_t reset) {
-            const uint32_t readSlot = inPlace ? writeSlot : otherSlot;
+        auto bindUavs = [&](Pool& pool) {
+            ID3D12Resource* events  = (pool.events[writeSlot]) ? pool.events[writeSlot].Get() : m_dummyUav.Get();
+            ID3D12Resource* counter = (pool.counters[writeSlot]) ? pool.counters[writeSlot].Get() : m_dummyUav.Get();
+            ID3D12Resource* head    = pool.childHead ? pool.childHead.Get() : m_dummyUav.Get();
+            cmd->SetComputeRootUnorderedAccessView(ParticleGpuPipeline::kSimEvents, events->GetGPUVirtualAddress());
+            cmd->SetComputeRootUnorderedAccessView(ParticleGpuPipeline::kSimCounter, counter->GetGPUVirtualAddress());
+            cmd->SetComputeRootUnorderedAccessView(ParticleGpuPipeline::kSimChildHead, head->GetGPUVirtualAddress());
+        };
+
+        auto dispatchIntegrate = [&](Pool& pool, ID3D12Resource* read, D3D12_RESOURCE_STATES& readState, ID3D12Resource* write, D3D12_RESOURCE_STATES& writeState, uint32_t capacity, bool inPlace, uint32_t spawnCount, uint32_t reset, uint32_t reaction, uint32_t useAttrib, uint32_t collide, uint32_t flags) {
+            if (!read || !write || capacity == 0 || !m_dummyUav)
+                return;
             if (!inPlace)
-                transitionResource(cmd, pool.particles[readSlot].Get(), pool.state[readSlot], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-            transitionResource(cmd, pool.particles[writeSlot].Get(), pool.state[writeSlot], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                transitionResource(cmd, read, readState, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            transitionResource(cmd, write, writeState, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
             // In-place reads and writes the current slot, so it must not also bind that buffer as an SRV.
-            DE_ASSERT(inPlace || pool.particles[readSlot].Get() != pool.particles[writeSlot].Get());
+            DE_ASSERT(inPlace || read != write);
             m_pipeline.bindSimulate(cmd, inPlace);
             const D3D12_GPU_VIRTUAL_ADDRESS cbAddr = pool.cb->GetGPUVirtualAddress() + static_cast<UINT64>(writeSlot) * kCbStride;
             cmd->SetComputeRootConstantBufferView(ParticleGpuPipeline::kSimCb, cbAddr);
             if (!inPlace)
-                cmd->SetComputeRootShaderResourceView(ParticleGpuPipeline::kSimPrev, pool.particles[readSlot]->GetGPUVirtualAddress());
-            cmd->SetComputeRootUnorderedAccessView(ParticleGpuPipeline::kSimCurr, pool.particles[writeSlot]->GetGPUVirtualAddress());
-            const uint32_t step[4] = { spawnCount, reset, 0u, 0u };
-            cmd->SetComputeRoot32BitConstants(ParticleGpuPipeline::kSimStep, 4, step, 0);
-            const UINT groups = static_cast<UINT>((pool.capacity + kThreads - 1u) / kThreads);
+                cmd->SetComputeRootShaderResourceView(ParticleGpuPipeline::kSimPrev, read->GetGPUVirtualAddress());
+            cmd->SetComputeRootUnorderedAccessView(ParticleGpuPipeline::kSimCurr, write->GetGPUVirtualAddress());
+            const uint32_t step[8] = { spawnCount, reset, capacity, reaction, useAttrib, collide, flags, 0u };
+            cmd->SetComputeRoot32BitConstants(ParticleGpuPipeline::kSimStep, 8, step, 0);
+            cmd->SetComputeRootDescriptorTable(ParticleGpuPipeline::kSimTextures, viewGpu(0));
+            bindUavs(pool);
+            const UINT groups = static_cast<UINT>((capacity + kThreads - 1u) / kThreads);
             cmd->Dispatch(groups, 1, 1);
         };
 
-        if (prepared)
+        auto barrierWrites = [&](Pool& pool, bool secondary, ID3D12Resource* particles) {
+            uavBarrier(cmd, particles);
+            if (!secondary)
+                return;
+            uavBarrier(cmd, pool.events[writeSlot].Get());
+            uavBarrier(cmd, pool.counters[writeSlot].Get());
+        };
+
+        if (prepared && m_viewHeap && renderer.device())
         {
+            D3D12_CPU_DESCRIPTOR_HANDLE depthSrc = renderer.depthSrvCpu();
+            if (depthSrc.ptr == 0)
+                depthSrc = viewCpu(0);
+            renderer.device()->CopyDescriptorsSimple(1, cpuAt(m_viewHeap.Get(), 0, m_viewInc), depthSrc, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+            D3D12_CPU_DESCRIPTOR_HANDLE attribSrc = viewCpu(1);
+            if (anyAttrib)
+            {
+                const D3D12_CPU_DESCRIPTOR_HANDLE real = renderer.attribSrvCpu();
+                if (real.ptr != 0)
+                    attribSrc = real;
+            }
+            renderer.device()->CopyDescriptorsSimple(1, cpuAt(m_viewHeap.Get(), 1, m_viewInc), attribSrc, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+            ID3D12DescriptorHeap* heaps[] = { m_viewHeap.Get() };
+            cmd->SetDescriptorHeaps(1, heaps);
+
             const GpuScope simScope(cmd, "GPU Particle Sim", ProfileColor::Particles);
             for (Job& job : jobs)
             {
@@ -812,15 +1176,72 @@ namespace Dark
                     h = pool.simDt * 0.5f;
                 else
                     h = pool.simDt;
-                writeCb(pool, *job.emitter, job.base, job.emissive, h);
-                dispatchStep(pool, inPlace, pool.spawnCount, reset ? 1u : 0u);
+                // One upload. The GPU reads this slot while later dispatches are recorded.
+                writeCb(pool, *job.emitter, job, h);
+
+                const uint32_t reaction = static_cast<uint32_t>(job.emitter->desc().collision);
+                const uint32_t collide  = job.collide ? 1u : 0u;
+                const uint32_t attrib   = job.useAttrib ? 1u : 0u;
+                if (job.secondary)
+                {
+                    transitionResource(cmd, pool.events[writeSlot].Get(), pool.eventState[writeSlot], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                    transitionResource(cmd, pool.counters[writeSlot].Get(), pool.counterState[writeSlot], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                    // This slot only. The other counter, childHead, and the event buffer stay.
+                    const UINT zeros[4] = { 0, 0, 0, 0 };
+                    const uint32_t index = counterDescIndex(pool.descSlot, writeSlot);
+                    cmd->ClearUnorderedAccessViewUint(viewGpu(index), viewCpu(index), pool.counters[writeSlot].Get(), zeros, 0, nullptr);
+                    uavBarrier(cmd, pool.counters[writeSlot].Get());
+                }
+
+                dispatchIntegrate(pool, pool.particles[inPlace ? writeSlot : otherSlot].Get(), pool.state[inPlace ? writeSlot : otherSlot], pool.particles[writeSlot].Get(), pool.state[writeSlot], pool.capacity, inPlace, pool.spawnCount, reset ? 1u : 0u, reaction, attrib, collide, 0u);
                 if (steps == 2)
                 {
-                    uavBarrier(cmd, pool.particles[writeSlot].Get());
+                    barrierWrites(pool, job.secondary, pool.particles[writeSlot].Get());
                     // Same spawn count rewrites the birth pose and skips Euler on the second substep.
-                    dispatchStep(pool, true, pool.spawnCount, 0u);
+                    dispatchIntegrate(pool, pool.particles[writeSlot].Get(), pool.state[writeSlot], pool.particles[writeSlot].Get(), pool.state[writeSlot], pool.capacity, true, pool.spawnCount, 0u, reaction, attrib, collide, 0u);
                 }
-                uavBarrier(cmd, pool.particles[writeSlot].Get());
+                barrierWrites(pool, job.secondary, pool.particles[writeSlot].Get());
+
+                if (job.secondary)
+                {
+                    // Same reset as the parent so the first frames do not read an uninitialized child slot.
+                    // Stop, no birth, child rest. Runs before consume so a newborn is not aged this frame.
+                    ID3D12Resource* childWrite = pool.child[writeSlot].Get();
+                    ID3D12Resource* childRead  = pool.child[inPlace ? writeSlot : otherSlot].Get();
+                    dispatchIntegrate(pool, childRead, pool.childState[inPlace ? writeSlot : otherSlot], childWrite, pool.childState[writeSlot], pool.childCapacity, inPlace, 0u, reset ? 1u : 0u, static_cast<uint32_t>(ParticleCollisionReaction::Stop), 0u, collide, 1u);
+                    if (steps == 2)
+                    {
+                        barrierWrites(pool, true, childWrite);
+                        dispatchIntegrate(pool, childWrite, pool.childState[writeSlot], childWrite, pool.childState[writeSlot], pool.childCapacity, true, 0u, 0u, static_cast<uint32_t>(ParticleCollisionReaction::Stop), 0u, collide, 1u);
+                    }
+                    barrierWrites(pool, true, childWrite);
+
+                    transitionResource(cmd, pool.childHead.Get(), pool.childHeadState, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                    if (!pool.childHeadCleared)
+                    {
+                        // Create leaves the head undefined. A per-frame clear would rewind the ring.
+                        const UINT zeros[4] = { 0, 0, 0, 0 };
+                        const uint32_t index = headDescIndex(pool.descSlot);
+                        cmd->ClearUnorderedAccessViewUint(viewGpu(index), viewCpu(index), pool.childHead.Get(), zeros, 0, nullptr);
+                        pool.childHeadCleared = true;
+                    }
+                    uavBarrier(cmd, pool.childHead.Get());
+
+                    m_pipeline.bindConsume(cmd);
+                    transitionResource(cmd, childWrite, pool.childState[writeSlot], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                    const D3D12_GPU_VIRTUAL_ADDRESS cbAddr = pool.cb->GetGPUVirtualAddress() + static_cast<UINT64>(writeSlot) * kCbStride;
+                    cmd->SetComputeRootConstantBufferView(ParticleGpuPipeline::kSimCb, cbAddr);
+                    cmd->SetComputeRootUnorderedAccessView(ParticleGpuPipeline::kSimCurr, childWrite->GetGPUVirtualAddress());
+                    const uint32_t step[8] = { 0u, 0u, kMaxSecondaryPerFrameHard, static_cast<uint32_t>(ParticleCollisionReaction::SpawnSecondary), 0u, collide, 1u, 0u };
+                    cmd->SetComputeRoot32BitConstants(ParticleGpuPipeline::kSimStep, 8, step, 0);
+                    cmd->SetComputeRootDescriptorTable(ParticleGpuPipeline::kSimTextures, viewGpu(0));
+                    bindUavs(pool);
+                    const UINT consumeGroups = (kMaxSecondaryPerFrameHard + kThreads - 1u) / kThreads;
+                    cmd->Dispatch(consumeGroups, 1, 1);
+                    uavBarrier(cmd, childWrite);
+                    transitionResource(cmd, childWrite, pool.childState[writeSlot], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                }
+
                 transitionResource(cmd, pool.particles[writeSlot].Get(), pool.state[writeSlot], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
                 if (pool.resetFramesRemaining > 0)
                     --pool.resetFramesRemaining;
@@ -831,6 +1252,23 @@ namespace Dark
 
         {
             const GpuScope drawScope(cmd, "GPU Particle Draw", ProfileColor::Particles);
+            auto drawBuffer = [&](Job& job, ID3D12Resource* particles, D3D12_RESOURCE_STATES& state, uint32_t capacity, bool additive) {
+                if (!particles || capacity == 0)
+                    return;
+                if (state == D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+                    uavBarrier(cmd, particles);
+                transitionResource(cmd, particles, state, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                m_pipeline.bindDraw(cmd, additive);
+                const D3D12_GPU_VIRTUAL_ADDRESS cbAddr = job.pool->cb->GetGPUVirtualAddress() + static_cast<UINT64>(writeSlot) * kCbStride;
+                cmd->SetGraphicsRootConstantBufferView(ParticleGpuPipeline::kDrawCb, cbAddr);
+                cmd->SetGraphicsRootShaderResourceView(ParticleGpuPipeline::kDrawParticles, particles->GetGPUVirtualAddress());
+                job.tex->bind(cmd, ParticleGpuPipeline::kDrawSprite);
+                // Root constant, not sim0.x, so a child draw cannot walk off the child buffer.
+                const uint32_t args[4] = { capacity, 0u, 0u, 0u };
+                cmd->SetGraphicsRoot32BitConstants(ParticleGpuPipeline::kDrawArgs, 4, args, 0);
+                cmd->DrawInstanced(6, capacity, 0, 0);
+            };
+
             for (Job& job : jobs)
             {
                 if (!job.drawable || !job.tex || !job.pool || !job.emitter)
@@ -840,17 +1278,10 @@ namespace Dark
                     continue;
                 const uint32_t particleSlot = static_cast<uint32_t>(pool.lastSlot);
                 if (!job.simulate)
-                    writeCb(pool, *job.emitter, job.base, job.emissive, 0.0f);
-                if (pool.state[particleSlot] == D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
-                    uavBarrier(cmd, pool.particles[particleSlot].Get());
-                transitionResource(cmd, pool.particles[particleSlot].Get(), pool.state[particleSlot], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-
-                m_pipeline.bindDraw(cmd, job.additive);
-                const D3D12_GPU_VIRTUAL_ADDRESS cbAddr = pool.cb->GetGPUVirtualAddress() + static_cast<UINT64>(writeSlot) * kCbStride;
-                cmd->SetGraphicsRootConstantBufferView(ParticleGpuPipeline::kDrawCb, cbAddr);
-                cmd->SetGraphicsRootShaderResourceView(ParticleGpuPipeline::kDrawParticles, pool.particles[particleSlot]->GetGPUVirtualAddress());
-                job.tex->bind(cmd, ParticleGpuPipeline::kDrawSprite);
-                cmd->DrawInstanced(6, pool.capacity, 0, 0);
+                    writeCb(pool, *job.emitter, job, 0.0f);
+                drawBuffer(job, pool.particles[particleSlot].Get(), pool.state[particleSlot], pool.capacity, job.additive);
+                if (job.secondary && pool.child[particleSlot] && pool.childCapacity > 0)
+                    drawBuffer(job, pool.child[particleSlot].Get(), pool.childState[particleSlot], pool.childCapacity, job.childAdditive);
             }
         }
 

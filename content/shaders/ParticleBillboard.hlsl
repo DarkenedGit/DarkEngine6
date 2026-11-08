@@ -11,6 +11,11 @@
 
 StructuredBuffer<GpuParticle> gParticles : register(t0);
 
+cbuffer GpuParticleDraw : register(b1)
+{
+    uint4 drawArgs; // x = instance capacity
+};
+
 struct PSInput
 {
     float4 position : SV_POSITION;
@@ -18,9 +23,10 @@ struct PSInput
     float4 color    : COLOR0;
 };
 
+// particleBirthSample packs R in bits 24..31 and A in bits 0..7.
 float4 unpackRgba8(uint packed)
 {
-    return float4(float(packed & 255u), float((packed >> 8u) & 255u), float((packed >> 16u) & 255u), float((packed >> 24u) & 255u)) * (1.0 / 255.0);
+    return float4(float((packed >> 24u) & 255u), float((packed >> 16u) & 255u), float((packed >> 8u) & 255u), float(packed & 255u)) * (1.0 / 255.0);
 }
 
 PSInput VSMain(uint vid : SV_VertexID, uint iid : SV_InstanceID)
@@ -29,7 +35,7 @@ PSInput VSMain(uint vid : SV_VertexID, uint iid : SV_InstanceID)
     o.position = float4(0, 0, 0, 1);
     o.uv = float2(0, 0);
     o.color = float4(0, 0, 0, 0);
-    if (iid >= sim0.x)
+    if (iid >= drawArgs.x)
         return o;
 
     GpuParticle p = gParticles[iid];

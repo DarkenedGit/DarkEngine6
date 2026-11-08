@@ -83,7 +83,14 @@ namespace Dark
             if (m_desc.secondary.maxParticles > kMaxSecondaryParticles)
                 m_desc.secondary.maxParticles = kMaxSecondaryParticles;
             if (m_desc.secondary.collision == ParticleCollisionReaction::SpawnSecondary)
+            {
                 m_desc.secondary.collision = ParticleCollisionReaction::Stop;
+                if (!m_loggedChildCoerce)
+                {
+                    m_loggedChildCoerce = true;
+                    DE_LOG_WARN(LogCategory::Render, "ParticleEmitter: secondary SpawnSecondary coerced to Stop");
+                }
+            }
         }
 
         m_desc.ribbonCount = clampRibbonCount(m_desc.ribbonCount);

@@ -4331,6 +4331,7 @@ void SandboxApp::onRender()
         m_scene.drawCloudVolumes(cmd, renderer(), world(), m_viewCamera, viewProj, cf);
     }
 
+    bool lateDepthWrite = false;
     if (m_camouflage && renderer().hasSceneBuffers() && m_scene.camouflage().isValid())
     {
         markPass(PassId::Camouflage);
@@ -4348,7 +4349,7 @@ void SandboxApp::onRender()
                 ag->prevWorld      = worldMat;
                 ag->prevWorldValid = true;
             }
-            m_scene.camouflage().drawModel(cmd, renderer(), gpu, m_skinRing, *model, pose, worldMat, viewProj, camPos, m_cloudTime, fill);
+            lateDepthWrite = m_scene.camouflage().drawModel(cmd, renderer(), gpu, m_skinRing, *model, pose, worldMat, viewProj, camPos, m_cloudTime, fill);
         }
     }
 
@@ -4421,7 +4422,7 @@ void SandboxApp::onRender()
     {
         markPass(PassId::Particles);
         const GpuScope particles(cmd, "Particles", ProfileColor::Particles);
-        m_gpuParticles.simulateAndDraw(cmd, renderer(), m_viewCamera, world(), assets(), false);
+        m_gpuParticles.simulateAndDraw(cmd, renderer(), m_viewCamera, world(), assets(), lateDepthWrite);
         m_particles.beginFrame(renderer().frameIndex());
     if (m_blood.aliveCount() > 0)
         m_particles.draw(cmd, m_viewCamera, m_blood, false);

@@ -137,6 +137,7 @@ namespace Dark
         uint32_t m_ribbonSeq[kMaxRibbonCount]{};
         bool     m_loggedRibbonDowngrade = false;
         bool     m_loggedGpuOverCap      = false;
+        bool     m_loggedChildCoerce     = false;
 
         std::mt19937 m_rng{ std::random_device{}() };
 

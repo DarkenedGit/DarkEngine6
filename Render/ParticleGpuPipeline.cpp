@@ -48,7 +48,14 @@ namespace Dark
         if (!device)
             return false;
 
-        D3D12_ROOT_PARAMETER simParams[4]{};
+        // t1 depth, t2 attrib. Particle buffers stay root views so the draw can switch heaps.
+        D3D12_DESCRIPTOR_RANGE simRange{};
+        simRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        simRange.NumDescriptors                    = 2;
+        simRange.BaseShaderRegister                = 1;
+        simRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+        D3D12_ROOT_PARAMETER simParams[8]{};
         simParams[kSimCb].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
         simParams[kSimCb].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
         simParams[kSimCb].Descriptor.ShaderRegister = 0;
@@ -61,10 +68,23 @@ namespace Dark
         simParams[kSimStep].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
         simParams[kSimStep].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
         simParams[kSimStep].Constants.ShaderRegister = 1;
-        simParams[kSimStep].Constants.Num32BitValues = 4;
+        simParams[kSimStep].Constants.Num32BitValues = 8;
+        simParams[kSimTextures].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        simParams[kSimTextures].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_ALL;
+        simParams[kSimTextures].DescriptorTable.NumDescriptorRanges = 1;
+        simParams[kSimTextures].DescriptorTable.pDescriptorRanges   = &simRange;
+        simParams[kSimEvents].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_UAV;
+        simParams[kSimEvents].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
+        simParams[kSimEvents].Descriptor.ShaderRegister = 1;
+        simParams[kSimCounter].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_UAV;
+        simParams[kSimCounter].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
+        simParams[kSimCounter].Descriptor.ShaderRegister = 2;
+        simParams[kSimChildHead].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_UAV;
+        simParams[kSimChildHead].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
+        simParams[kSimChildHead].Descriptor.ShaderRegister = 3;
 
         D3D12_ROOT_SIGNATURE_DESC simDesc{};
-        simDesc.NumParameters = 4;
+        simDesc.NumParameters = 8;
         simDesc.pParameters   = simParams;
 
         ComPtr<ID3DBlob> simBlob;
@@ -80,8 +100,10 @@ namespace Dark
 
         ComPtr<ID3DBlob> csCopy;
         ComPtr<ID3DBlob> csInPlace;
+        ComPtr<ID3DBlob> csConsume;
         if (!compileShaderFromContent("shaders/ParticleSimulate.hlsl", "CSSimulate", "cs_5_0", csCopy)
-            || !compileShaderFromContent("shaders/ParticleSimulate.hlsl", "CSInPlace", "cs_5_0", csInPlace))
+            || !compileShaderFromContent("shaders/ParticleSimulate.hlsl", "CSInPlace", "cs_5_0", csInPlace)
+            || !compileShaderFromContent("shaders/ParticleSimulate.hlsl", "CSConsume", "cs_5_0", csConsume))
         {
             destroy();
             return false;
@@ -101,6 +123,12 @@ namespace Dark
             destroy();
             return false;
         }
+        simPso.CS = { csConsume->GetBufferPointer(), csConsume->GetBufferSize() };
+        if (FailedHr(device->CreateComputePipelineState(&simPso, IID_PPV_ARGS(&m_simConsume)), "Particle GPU CSConsume PSO"))
+        {
+            destroy();
+            return false;
+        }
 
         D3D12_DESCRIPTOR_RANGE sprite{};
         sprite.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -108,7 +136,7 @@ namespace Dark
         sprite.BaseShaderRegister                = 0;
         sprite.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-        D3D12_ROOT_PARAMETER drawParams[3]{};
+        D3D12_ROOT_PARAMETER drawParams[4]{};
         drawParams[kDrawCb].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
         drawParams[kDrawCb].ShaderVisibility          = D3D12_SHADER_VISIBILITY_VERTEX;
         drawParams[kDrawCb].Descriptor.ShaderRegister = 0;
@@ -119,6 +147,10 @@ namespace Dark
         drawParams[kDrawSprite].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
         drawParams[kDrawSprite].DescriptorTable.NumDescriptorRanges = 1;
         drawParams[kDrawSprite].DescriptorTable.pDescriptorRanges   = &sprite;
+        drawParams[kDrawArgs].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        drawParams[kDrawArgs].ShaderVisibility          = D3D12_SHADER_VISIBILITY_VERTEX;
+        drawParams[kDrawArgs].Constants.ShaderRegister  = 1;
+        drawParams[kDrawArgs].Constants.Num32BitValues  = 4;
 
         D3D12_STATIC_SAMPLER_DESC samp{};
         samp.Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
@@ -130,7 +162,7 @@ namespace Dark
         samp.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
         D3D12_ROOT_SIGNATURE_DESC drawDesc{};
-        drawDesc.NumParameters     = 3;
+        drawDesc.NumParameters     = 4;
         drawDesc.pParameters       = drawParams;
         drawDesc.NumStaticSamplers = 1;
         drawDesc.pStaticSamplers   = &samp;
@@ -200,9 +232,18 @@ namespace Dark
         m_drawAdditive.Reset();
         m_drawAlpha.Reset();
         m_drawRoot.Reset();
+        m_simConsume.Reset();
         m_simCopy.Reset();
         m_simInPlace.Reset();
         m_simRoot.Reset();
+    }
+
+    void ParticleGpuPipeline::bindConsume(ID3D12GraphicsCommandList* cmd) const
+    {
+        if (!cmd || !m_simRoot)
+            return;
+        cmd->SetComputeRootSignature(m_simRoot.Get());
+        cmd->SetPipelineState(m_simConsume.Get());
     }
 
     void ParticleGpuPipeline::bindSimulate(ID3D12GraphicsCommandList* cmd, bool inPlace) const
