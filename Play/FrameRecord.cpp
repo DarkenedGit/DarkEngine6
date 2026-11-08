@@ -70,8 +70,18 @@ bool offThreadWritesOverlap(const PassDesc& pass, int ignore)
     return false;
 }
 
-void enqueueOffThreadPasses(JobSystem& jobs, uint32_t frameIndex)
+} // namespace
+
+void frameNoteBeginFrame(JobSystem& jobs, uint32_t frameIndex)
 {
+    // beginFrame already waited this slot. Starting the scheduler here would
+    // spawn threads on the splash path, which never kicks a render job.
+    jobs.publishFrame(frameIndex);
+}
+
+void kickFramePasses(JobSystem& jobs, uint32_t frameIndex)
+{
+    // The main list is still open. Starting here is what lets the worker overlap it.
     // The kick site has already published. An unpublished slot must not enqueue
     // onto whichever frame happens to be current.
     if (!jobs.frameIsPublished(frameIndex))
@@ -121,21 +131,6 @@ void enqueueOffThreadPasses(JobSystem& jobs, uint32_t frameIndex)
         // Queue rejected the row and nothing else owns the slot. Record on the caller so the list is still closed.
         row.desc.record(row.desc.user);
     }
-}
-
-} // namespace
-
-void frameNoteBeginFrame(JobSystem& jobs, uint32_t frameIndex)
-{
-    // beginFrame already waited this slot. Starting the scheduler here would
-    // spawn threads on the splash path, which never kicks a render job.
-    jobs.publishFrame(frameIndex);
-}
-
-void kickFramePasses(JobSystem& jobs, uint32_t frameIndex)
-{
-    // The main list is still open. Starting here is what lets the worker overlap it.
-    enqueueOffThreadPasses(jobs, frameIndex);
 }
 
 bool frameJoinRender(JobSystem& jobs, uint32_t frameIndex)
