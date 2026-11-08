@@ -19,6 +19,35 @@ namespace Dark
         }
     };
 
+    enum class ParticleSimMode : uint8_t
+    {
+        Cpu = 0, // default. Missing JSON.
+        Gpu = 1,
+    };
+
+    enum class ParticleCollisionReaction : uint8_t
+    {
+        None           = 0, // default. Missing JSON.
+        Bounce         = 1,
+        Stop           = 2,
+        SpawnSecondary = 3,
+    };
+
+    constexpr uint32_t kMaxCpuParticles           = 100000;
+    constexpr uint32_t kMaxGpuParticlesPerEmitter = 262144;
+    constexpr uint32_t kMaxSecondaryPerFrameHard  = 8192;
+    constexpr uint32_t kMaxSecondaryParticles     = 16384;
+
+    struct ParticleSecondaryDesc
+    {
+        uint32_t                  maxParticles  = 4096;
+        FloatRange                lifetime{ 0.1f, 0.25f };
+        FloatRange                startSize{ 0.02f, 0.06f };
+        float                     restLifetime  = 0.20f;
+        bool                      additiveBlend = false;
+        ParticleCollisionReaction collision     = ParticleCollisionReaction::Stop;
+    };
+
     // Authorable emitter definition (JSON-friendly, edited in the Editor UI).
     struct ParticleEmitterDesc
     {
@@ -64,6 +93,17 @@ namespace Dark
         // Independent camera-facing strips. New particles round-robin across ribbons.
         uint32_t ribbonCount   = 1;
         float    ribbonUvScale = 1.0f; // U tiling along the strip
+
+        ParticleSimMode           simMode              = ParticleSimMode::Cpu;
+        ParticleCollisionReaction collision            = ParticleCollisionReaction::None;
+        float                     restitution          = 0.45f;
+        float                     friction             = 0.20f;
+        float                     collisionThickness   = 0.35f;
+        float                     collisionBias        = 0.04f;
+        float                     restLifetime         = 0.20f;
+        uint32_t                  maxSecondaryPerFrame = 512;
+        bool                      hasSecondary         = false;
+        ParticleSecondaryDesc     secondary{};
     };
 
     constexpr uint32_t kMaxRibbonCount = 16;

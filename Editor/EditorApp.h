@@ -39,6 +39,7 @@
 #include "Animation/AnimGraphComponent.h"
 #include "Particles/ParticleComponents.h"
 #include "Particles/ParticleRenderer.h"
+#include "Particles/GpuParticleSystem.h"
 #include "Particles/LeafRenderer.h"
 #include "Terrain/LeafField.h"
 #include "Terrain/LeafRustle.h"
@@ -392,6 +393,7 @@ private:
     int                  m_panMouseY = 0;
 
     ParticleRenderer                           m_particleRenderer;
+    GpuParticleSystem                          m_gpuParticles;
     LeafRenderer                               m_leafRenderer;
     Terrain::LeafField                         m_leafField;
     Terrain::LeafRustleVoices                  m_leafRustle;

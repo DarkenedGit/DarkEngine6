@@ -148,8 +148,20 @@ namespace Dark
         m_valid = initD3D12(window);
     }
 
+    Renderer::Renderer(RendererTestDevice)
+        : m_testShell(true)
+    {
+    }
+
+    void Renderer::setFrameIndexForTest(uint32_t frame)
+    {
+        m_frameIndex = frame;
+    }
+
     Renderer::~Renderer()
     {
+        if (m_testShell)
+            return;
         waitForGpu();
         profileTimersShutdown();
         if (m_copyQueue && m_copyFence)
@@ -1511,6 +1523,45 @@ namespace Dark
 
         const D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_sceneBuffers->hdrRtv();
         D3D12_CPU_DESCRIPTOR_HANDLE       dsv = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
+        dsv.ptr += m_dsvDescriptorSize;
+        m_commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+    }
+
+    void Renderer::bindHdrDepthCompute()
+    {
+        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->valid() || !m_depthStencil || !m_dsvHeap)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "bindHdrDepthCompute: no SceneBuffers");
+            return;
+        }
+
+        // HDR RENDER_TARGET. Depth DEPTH_READ | PIXEL_SHADER_RESOURCE | NON_PIXEL_SHADER_RESOURCE, bound read-only.
+        m_sceneBuffers->transitionHdr(m_commandList.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+        transitionDepth(m_commandList.Get(), D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        m_commandList->RSSetViewports(1, &m_viewport);
+        m_commandList->RSSetScissorRects(1, &m_scissor);
+
+        const D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_sceneBuffers->hdrRtv();
+        D3D12_CPU_DESCRIPTOR_HANDLE       dsv = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
+        dsv.ptr += m_dsvDescriptorSize;
+        m_commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+    }
+
+    void Renderer::bindSwapChainDepthCompute()
+    {
+        if (!m_commandList || !m_depthStencil || !m_dsvHeap || !m_rtvHeap)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "bindSwapChainDepthCompute: no depth");
+            return;
+        }
+
+        transitionDepth(m_commandList.Get(), D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        m_commandList->RSSetViewports(1, &m_viewport);
+        m_commandList->RSSetScissorRects(1, &m_scissor);
+
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
+        rtv.ptr += static_cast<SIZE_T>(m_frameIndex) * m_rtvDescriptorSize;
+        D3D12_CPU_DESCRIPTOR_HANDLE dsv = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
         dsv.ptr += m_dsvDescriptorSize;
         m_commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
     }

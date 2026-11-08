@@ -20,6 +20,11 @@ namespace Dark
     class Texture2D;
     class GpuResourceCache;
 
+    // No device and no window. debugState() and frameIndex() stay usable.
+    struct RendererTestDevice
+    {
+    };
+
     using Microsoft::WRL::ComPtr;
 
     struct FrameStats
@@ -45,6 +50,7 @@ namespace Dark
         static constexpr uint32_t kFrameCount = 2;
 
         explicit Renderer(Window& window, bool vsync = true);
+        explicit Renderer(RendererTestDevice);
         ~Renderer();
 
         Renderer(const Renderer&)            = delete;
@@ -158,6 +164,7 @@ namespace Dark
         {
             return m_frameIndex;
         }
+        void setFrameIndexForTest(uint32_t frame);
 
         const FrameStats& stats() const
         {
@@ -193,6 +200,10 @@ namespace Dark
         void bindGBuffer();
         void bindHdr(bool bindDepth);
         void bindHdrDepthRead();
+        // OM only. HybridDeferred HDR target, read-only scene depth. No particle arguments.
+        void bindHdrDepthCompute();
+        // OM only. Keeps the swap-chain RTV. No particle arguments.
+        void bindSwapChainDepthCompute();
         void bindDecalTargets();
         void bindPostHdr();
         void bindHdrColorTarget();
@@ -298,6 +309,7 @@ namespace Dark
         FrameStats       m_stats{};
         float            m_clearColor[4]{ UiPalette::kVoid.r, UiPalette::kVoid.g, UiPalette::kVoid.b, UiPalette::kVoid.a };
         bool             m_valid               = false;
+        bool             m_testShell       = false;
         bool             m_vsync               = true;
         bool             m_shadowSeparateList  = true;
         bool             m_shadowListOpen      = false;

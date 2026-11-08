@@ -1,6 +1,7 @@
 #include "Particles/ParticleEmitter.h"
 #include "Particles/ParticleRibbon.h"
 #include "Math/MathDefines.h"
+#include "Core/Log.h"
 #include "Core/MemoryTracker.h"
 
 #include <cmath>
@@ -57,15 +58,67 @@ namespace Dark
 
     void ParticleEmitter::setDesc(const ParticleEmitterDesc& desc)
     {
+        const uint32_t        prevMax      = m_desc.maxParticles;
+        const ParticleSimMode prevMode     = m_desc.simMode;
+        const bool            prevChild    = m_desc.hasSecondary;
+        const uint32_t        prevChildCap = m_desc.secondary.maxParticles;
+
         m_desc = desc;
-        if (m_desc.maxParticles < 1)
-            m_desc.maxParticles = 1;
-        if (m_desc.maxParticles > 100000)
-            m_desc.maxParticles = 100000;
+        if (m_desc.renderMode == ParticleEmitterDesc::RenderMode::Ribbon && m_desc.simMode == ParticleSimMode::Gpu)
+        {
+            m_desc.simMode = ParticleSimMode::Cpu;
+            if (!m_loggedRibbonDowngrade)
+            {
+                m_loggedRibbonDowngrade = true;
+                DE_LOG_WARN(LogCategory::Render, "ParticleEmitter: ribbon forces CPU simulation");
+            }
+        }
+
+        if (m_desc.maxSecondaryPerFrame > kMaxSecondaryPerFrameHard)
+            m_desc.maxSecondaryPerFrame = kMaxSecondaryPerFrameHard;
+        if (m_desc.hasSecondary)
+        {
+            if (m_desc.secondary.maxParticles < 1)
+                m_desc.secondary.maxParticles = 1;
+            if (m_desc.secondary.maxParticles > kMaxSecondaryParticles)
+                m_desc.secondary.maxParticles = kMaxSecondaryParticles;
+            if (m_desc.secondary.collision == ParticleCollisionReaction::SpawnSecondary)
+            {
+                m_desc.secondary.collision = ParticleCollisionReaction::Stop;
+                if (!m_loggedChildCoerce)
+                {
+                    m_loggedChildCoerce = true;
+                    DE_LOG_WARN(LogCategory::Render, "ParticleEmitter: secondary SpawnSecondary coerced to Stop");
+                }
+            }
+        }
+
         m_desc.ribbonCount = clampRibbonCount(m_desc.ribbonCount);
         if (m_desc.ribbonUvScale <= 0.0f)
             m_desc.ribbonUvScale = 1.0f;
-        ensureCapacity();
+
+        if (m_desc.simMode == ParticleSimMode::Gpu)
+        {
+            if (m_desc.maxParticles < 1)
+                m_desc.maxParticles = 1;
+            if (m_desc.maxParticles > kMaxGpuParticlesPerEmitter)
+                m_desc.maxParticles = kMaxGpuParticlesPerEmitter;
+            m_particles.clear();
+            m_aliveCount = 0;
+            publishMemory();
+        }
+        else
+        {
+            if (m_desc.maxParticles < 1)
+                m_desc.maxParticles = 1;
+            if (m_desc.maxParticles > kMaxCpuParticles)
+                m_desc.maxParticles = kMaxCpuParticles;
+            ensureCapacity();
+        }
+
+        if (m_desc.maxParticles != prevMax || m_desc.simMode != prevMode || m_desc.hasSecondary != prevChild
+            || m_desc.secondary.maxParticles != prevChildCap)
+            ++m_gpuDescGeneration;
     }
 
     void ParticleEmitter::setTransform(const Vector3f& position, const Quaternion& rotation)
@@ -85,6 +138,8 @@ namespace Dark
         m_emitCarry = 0.0f;
         if (clearParticles)
         {
+            ++m_clearSerial;
+            m_burstPending = 0;
             for (Particle& p : m_particles)
                 p.alive = false;
             m_aliveCount = 0;
@@ -227,14 +282,75 @@ namespace Dark
 
     void ParticleEmitter::emitBurst(uint32_t count)
     {
+        if (m_desc.simMode == ParticleSimMode::Gpu && !m_forceCpu)
+        {
+            const uint64_t sum = static_cast<uint64_t>(m_burstPending) + static_cast<uint64_t>(count);
+            m_burstPending     = sum > 0xffffffffull ? 0xffffffffu : static_cast<uint32_t>(sum);
+            return;
+        }
+        // Same cap as update: a GPU desc above 100000 never gets a CPU vector.
+        if (m_desc.simMode == ParticleSimMode::Gpu && m_desc.maxParticles > kMaxCpuParticles)
+            return;
         ensureCapacity();
         for (uint32_t i = 0; i < count; ++i)
             spawnOne();
     }
 
+    uint32_t ParticleEmitter::takeBurst()
+    {
+        const uint32_t n = m_burstPending;
+        m_burstPending   = 0;
+        return n;
+    }
+
+    void ParticleEmitter::noteGpuClock(float emitCarry, float age, bool playing)
+    {
+        m_emitCarry = emitCarry;
+        m_age       = age;
+        m_playing   = playing;
+    }
+
     void ParticleEmitter::update(float dt)
     {
-        ensureCapacity();
+        update(dt, m_forceCpu);
+    }
+
+    void ParticleEmitter::update(float dt, bool forceCpu)
+    {
+        m_forceCpu = forceCpu;
+        if (m_desc.simMode == ParticleSimMode::Gpu && !m_forceCpu)
+            return;
+
+        if (m_desc.simMode == ParticleSimMode::Gpu && m_desc.maxParticles > kMaxCpuParticles)
+        {
+            if (!m_loggedGpuOverCap)
+            {
+                m_loggedGpuOverCap = true;
+                DE_LOG_WARN(LogCategory::Render, "ParticleEmitter: GPU emitter above {} has no CPU pool", kMaxCpuParticles);
+            }
+            if (!m_particles.empty() || m_aliveCount != 0)
+            {
+                m_particles.clear();
+                m_aliveCount = 0;
+                publishMemory();
+            }
+            return;
+        }
+
+        if (m_desc.simMode == ParticleSimMode::Gpu)
+        {
+            if (m_particles.size() != m_desc.maxParticles)
+            {
+                m_particles.assign(m_desc.maxParticles, Particle{});
+                m_aliveCount = 0;
+                publishMemory();
+            }
+        }
+        else
+        {
+            ensureCapacity();
+        }
+
         if (dt <= 0.0f)
             return;
 

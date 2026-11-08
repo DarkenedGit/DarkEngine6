@@ -108,6 +108,7 @@
 #include "Combat/StatusDot.h"
 #include "Combat/StatusEffectComponent.h"
 #include "Particles/ParticleComponents.h"
+#include "Particles/ParticleScene.h"
 #include "Particles/ParticleTick.h"
 #include "Particles/StatusFxDriver.h"
 #include "Ui/HudTagComponent.h"
@@ -2551,6 +2552,8 @@ void SandboxApp::onInit()
         DE_LOG_ERROR("SandboxApp: crosshair HUD failed");
     if (!m_particles.create(renderer(), assets()))
         DE_LOG_ERROR("SandboxApp: particle renderer failed");
+    if (!m_gpuParticles.create(renderer()))
+        DE_LOG_ERROR(LogCategory::Render, "SandboxApp: GPU particle system failed");
     if (!m_leafRenderer.create(renderer(), assets()))
         DE_LOG_ERROR(LogCategory::Render, "SandboxApp: leaf renderer failed");
     if (!m_bloodSplats.create(renderer()))
@@ -2715,7 +2718,9 @@ void SandboxApp::onUpdate(float dt)
         m_play.tickWorld(dt);
         updateQuest(dt);
         m_blood.update(dt);
+        m_gpuParticles.applyIntegratorFallback(world(), renderer().debugState().gpuParticles);
         tickParticleEmitters(world(), dt);
+        m_gpuParticles.prepare(world(), dt);
         updateWiggleAnim();
         tickAnimGraphs(world(), assets(), dt);
         m_play.tickHeldItems();
@@ -3614,6 +3619,7 @@ void SandboxApp::onRender()
         m_scene.drawCloudVolumes(cmd, renderer(), world(), m_viewCamera, viewProj, cf);
     }
 
+    bool lateDepthWrite = false;
     if (m_camouflage && renderer().hasSceneBuffers() && m_scene.camouflage().isValid())
     {
         markPass(PassId::Camouflage);
@@ -3631,7 +3637,7 @@ void SandboxApp::onRender()
                 ag->prevWorld      = worldMat;
                 ag->prevWorldValid = true;
             }
-            m_scene.camouflage().drawModel(cmd, renderer(), gpu, m_skinRing, *model, pose, worldMat, viewProj, camPos, m_cloudTime, fill);
+            lateDepthWrite = m_scene.camouflage().drawModel(cmd, renderer(), gpu, m_skinRing, *model, pose, worldMat, viewProj, camPos, m_cloudTime, fill);
         }
     }
 
@@ -3704,6 +3710,7 @@ void SandboxApp::onRender()
     {
         markPass(PassId::Particles);
         const GpuScope particles(cmd, "Particles", ProfileColor::Particles);
+        m_gpuParticles.simulateAndDraw(cmd, renderer(), m_viewCamera, world(), assets(), lateDepthWrite);
         m_particles.beginFrame(renderer().frameIndex());
     if (m_blood.aliveCount() > 0)
         m_particles.draw(cmd, m_viewCamera, m_blood, false);
@@ -4106,6 +4113,7 @@ void SandboxApp::onShutdown()
         w->projectile().setAudio(nullptr, nullptr);
         w->clear();
     }
+    m_gpuParticles.destroy(renderer());
     m_particles.destroy(renderer());
     m_leafRenderer.destroy(renderer());
     m_bloodSplats.destroy(renderer());

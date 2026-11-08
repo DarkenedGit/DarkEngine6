@@ -129,6 +129,8 @@ void EditorApp::drawEditorUi()
                 DE_LOG_INFO("Editor: instanced static = {}", renderer().debugState().instancedStatic);
             if (ImGui::MenuItem("Indirect static draws", nullptr, &renderer().debugState().instancedIndirect))
                 DE_LOG_INFO("Editor: indirect static draws = {}", renderer().debugState().instancedIndirect);
+            if (ImGui::MenuItem("GPU particles", nullptr, &renderer().debugState().gpuParticles))
+                DE_LOG_INFO("Editor: GPU particles = {}", renderer().debugState().gpuParticles);
             if (renderer().hasSceneBuffers())
             {
                 bool aces = renderer().debugState().aces;
@@ -1177,7 +1179,14 @@ void EditorApp::onUpdate(float dt)
             m_play.tickHeldItems();
     }
 
-    if (!movieHolds)
+    // Scene2D never calls simulateAndDraw. Leave the GPU clock and burst queue alone.
+    if (!movieHolds && m_sceneMode != SceneMode::Scene2D)
+    {
+        m_gpuParticles.applyIntegratorFallback(world(), renderer().debugState().gpuParticles);
+        tickParticleEmitters(world(), dt);
+        m_gpuParticles.prepare(world(), dt);
+    }
+    else if (!movieHolds)
         tickParticleEmitters(world(), dt);
 
     if (m_sceneMode == SceneMode::Scene2D)

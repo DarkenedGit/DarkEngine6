@@ -11,6 +11,15 @@
 namespace Dark
 {
 
+    struct ParticleEmitCommand
+    {
+        bool     playing = false;
+        float    age     = 0.0f;
+        float    emitCarry = 0.0f;
+        uint32_t clearSerial = 0;
+        bool     prewarm = false;
+    };
+
     // CPU particle emitter: spawn + integrate. Rendering is separate (ParticleRenderer).
     class ParticleEmitter
     {
@@ -50,8 +59,41 @@ namespace Dark
             return m_playing;
         }
 
-        // Advance simulation by dt seconds.
+        void setForceCpu(bool on)
+        {
+            m_forceCpu = on;
+        }
+        bool forceCpu() const
+        {
+            return m_forceCpu;
+        }
+
+        uint32_t gpuDescGeneration() const
+        {
+            return m_gpuDescGeneration;
+        }
+
+        ParticleEmitCommand emitCommand() const
+        {
+            ParticleEmitCommand cmd{};
+            cmd.playing     = m_playing;
+            cmd.age         = m_age;
+            cmd.emitCarry   = m_emitCarry;
+            cmd.clearSerial = m_clearSerial;
+            cmd.prewarm     = m_desc.prewarm;
+            return cmd;
+        }
+
+        uint32_t pendingBurst() const
+        {
+            return m_burstPending;
+        }
+        uint32_t takeBurst();
+        void     noteGpuClock(float emitCarry, float age, bool playing);
+
+        // No default on the bool: a false default would clear the stored bit on update(dt).
         void update(float dt);
+        void update(float dt, bool forceCpu);
 
         uint32_t aliveCount() const
         {
@@ -83,12 +125,19 @@ namespace Dark
         Math::Vector3f   m_position{ 0, 0, 0 };
         Math::Quaternion m_rotation = Math::Quaternion::IDENTITY;
 
-        bool     m_playing    = true;
-        float    m_emitCarry  = 0.0f;
-        float    m_age        = 0.0f;
-        uint32_t m_aliveCount = 0;
-        uint32_t m_nextRibbon = 0;
+        bool     m_playing     = true;
+        bool     m_forceCpu    = false;
+        float    m_emitCarry   = 0.0f;
+        float    m_age         = 0.0f;
+        uint32_t m_aliveCount  = 0;
+        uint32_t m_burstPending = 0;
+        uint32_t m_clearSerial = 0;
+        uint32_t m_gpuDescGeneration = 0;
+        uint32_t m_nextRibbon  = 0;
         uint32_t m_ribbonSeq[kMaxRibbonCount]{};
+        bool     m_loggedRibbonDowngrade = false;
+        bool     m_loggedGpuOverCap      = false;
+        bool     m_loggedChildCoerce     = false;
 
         std::mt19937 m_rng{ std::random_device{}() };
 

@@ -42,8 +42,9 @@ namespace Dark
 
         bool create(ID3D12Device* device, DXGI_FORMAT colorFormat);
         bool ensureCopy(ID3D12Device* device, uint32_t width, uint32_t height);
-        void captureScene(ID3D12GraphicsCommandList* cmd, Renderer& renderer);
-        void drawModel(ID3D12GraphicsCommandList* cmd, Renderer& renderer, GpuResourceCache& gpu, SkinningUploadRing& ring, const Model& model,
+        bool captureScene(ID3D12GraphicsCommandList* cmd, Renderer& renderer);
+        // True only after bindHdr(true) ran this call. False means depth was not rewritten.
+        bool drawModel(ID3D12GraphicsCommandList* cmd, Renderer& renderer, GpuResourceCache& gpu, SkinningUploadRing& ring, const Model& model,
                        const AnimPose* pose, const Math::Matrix4f& world, const Math::Matrix4f& viewProj, const Math::Vector3f& cameraPos, float time,
                        DebugFill fill = DebugFill::Solid);
 
