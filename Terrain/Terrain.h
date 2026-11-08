@@ -103,7 +103,8 @@ namespace Terrain
         // Depth-only casters. Caller binds ShadowPipeline and sets light WVP.
         // Pass the cascade clip frustum so chunks outside this slice are skipped
         // (otherwise every cascade is a sun's-eye view of the whole terrain).
-        void drawDepth(ID3D12GraphicsCommandList* cmd, const Frustum3f* casterFrustum = nullptr) const;
+        // profile false skips GpuScope. The shadow worker shares the CPU range stack with main.
+        void drawDepth(ID3D12GraphicsCommandList* cmd, const Frustum3f* casterFrustum = nullptr, bool profile = true) const;
 
         float heightAtWorld(float x, float z) const;
         bool tryHeightAtWorld(float x, float z, float& outY) const;

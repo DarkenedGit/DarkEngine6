@@ -128,7 +128,8 @@ public:
         const DebugRenderState* debug = nullptr,
         const Math::Matrix4f* prevViewProj = nullptr) const;
 
-    void drawDepth(ID3D12GraphicsCommandList* cmd, const Frustum3f* casterFrustum = nullptr) const;
+    // profile false skips GpuScope on each resident tile. The shadow worker passes false.
+    void drawDepth(ID3D12GraphicsCommandList* cmd, const Frustum3f* casterFrustum = nullptr, bool profile = true) const;
 
     bool valid() const { return m_valid; }
     int  residentCount() const;

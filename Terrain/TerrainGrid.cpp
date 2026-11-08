@@ -1355,7 +1355,7 @@ void TerrainGrid::drawGBuffer(
     }
 }
 
-void TerrainGrid::drawDepth(ID3D12GraphicsCommandList* cmd, const Frustum3f* casterFrustum) const
+void TerrainGrid::drawDepth(ID3D12GraphicsCommandList* cmd, const Frustum3f* casterFrustum, bool profile) const
 {
     if (!m_valid || !cmd)
         return;
@@ -1366,7 +1366,7 @@ void TerrainGrid::drawDepth(ID3D12GraphicsCommandList* cmd, const Frustum3f* cas
             const TileSlot& slot = m_slots[tz][tx];
             if (!slot.resident)
                 continue;
-            slot.world.drawDepth(cmd, casterFrustum);
+            slot.world.drawDepth(cmd, casterFrustum, profile);
         }
     }
 }

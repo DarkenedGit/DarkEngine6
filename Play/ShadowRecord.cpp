@@ -332,7 +332,7 @@ namespace Dark
                 const CascadeRecord& rec = job->cascades[i];
                 job->shadows->beginCascade(cmd, static_cast<int>(i), false);
                 if (rec.drawTerrain && job->terrain)
-                    job->terrain->drawDepth(cmd, &rec.frustum);
+                    job->terrain->drawDepth(cmd, &rec.frustum, false);
                 else
                     replayCasters(*job, cmd, rec.viewProj, rec.casterBegin, rec.groundEnd);
                 if (rec.recordStatic && job->drawList)

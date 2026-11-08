@@ -508,11 +508,12 @@ void TerrainWorld::drawGBuffer(
     }
 }
 
-void TerrainWorld::drawDepth(ID3D12GraphicsCommandList* cmd, const Frustum3f* casterFrustum) const
+void TerrainWorld::drawDepth(ID3D12GraphicsCommandList* cmd, const Frustum3f* casterFrustum, bool profile) const
 {
     if (!cmd)
         return;
-    const GpuScope depth(cmd, "Terrain Depth", ProfileColor::TerrainDepth);
+    // A null list makes GpuScope return before profileCpuBegin and PIXBeginEvent.
+    const GpuScope depth(profile ? cmd : nullptr, "Terrain Depth", ProfileColor::TerrainDepth);
     for (const TerrainChunk& c : m_chunks)
     {
         if (!c.gpu.valid())

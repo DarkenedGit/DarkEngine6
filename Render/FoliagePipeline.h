@@ -166,7 +166,6 @@ namespace Dark
         void clearRetainedDepth();
         uint32_t sealDepthView();
         void drawRetainedDepth(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, const Math::Matrix4f& lightViewProj, uint32_t index);
-        uint32_t retainedDepthCount() const { return static_cast<uint32_t>(m_retained.size()); }
 
     private:
         bool prepare(
