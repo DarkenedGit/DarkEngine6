@@ -95,7 +95,8 @@ private:
     void registerDefaultActions();
     void populateMainMenu();
     // Terrain, pawns, and the save baseline. Called once: from onInit when the
-    // menu is skipped, or from the first menu confirm. A later confirm resumes.
+    // menu is skipped, or from the first menu confirm. After the splash, confirm
+    // returns and onUpdate advances one slice per frame so Present runs between them.
     bool startScene(const std::filesystem::path& scenePath);
 
     // One step of startScene, then the caller pumps. Editor and Sandbox2D do not use this.
@@ -303,7 +304,8 @@ private:
     std::vector<QuestBanner>        m_questBanners;
     bool                            m_showJournal = false;
     void         expandSceneBuildings(Dark::SceneFileData& scene);
-    void         spawnBuildingExtras();
+    // False when the boot budget is spent and fixtures remain.
+    bool         spawnBuildingExtras(Dark::BuildingFixtureSpawn& spawn);
     void         drawAlarm();
     void         drawUpgrades();
     void         drawUpgradeHint();
@@ -448,6 +450,8 @@ private:
     // Raw pointer: the type is complete only in SandboxBoot.cpp, and the constructor lives here.
     SandboxBootLoad* m_boot = nullptr;
     BootSlice                        m_bootSlice = BootSlice::Done;
+    // Menu confirm after splash teardown. The main loop Presents between slices.
+    bool                             m_bootPolling = false;
 
     static Dark::JobStatus bootTerrainCpu(void* user);
     static Dark::JobStatus bootFoliage(void* user);

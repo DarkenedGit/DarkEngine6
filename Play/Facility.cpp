@@ -663,107 +663,179 @@ namespace Dark
             stealth->hidden = hidden;
     }
 
-    void spawnBuildingFixtures(const BuildingFixtureSpawn& spawn, const std::vector<BuildingContainer>& containers,
+    bool spawnBuildingFixtures(BuildingFixtureSpawn& spawn, const std::vector<BuildingContainer>& containers,
                                const std::vector<BuildingHideSpot>& hides, const std::vector<BuildingDoor>& doors,
                                const std::vector<BuildingCamera>& cameras)
     {
         World* world = spawn.world;
         if (!world)
-            return;
-        if (spawn.ai)
+            return true;
+        if (!spawn.aiReady)
         {
-            std::vector<Vector3f> checkFrom;
-            checkFrom.reserve(hides.size());
-            for (const BuildingHideSpot& h : hides)
-                checkFrom.push_back(h.pos + h.front * 0.85f);
-            spawn.ai->setHideSpots(std::move(checkFrom));
+            if (spawn.ai)
+            {
+                std::vector<Vector3f> checkFrom;
+                checkFrom.reserve(hides.size());
+                for (const BuildingHideSpot& h : hides)
+                    checkFrom.push_back(h.pos + h.front * 0.85f);
+                spawn.ai->setHideSpots(std::move(checkFrom));
+            }
+            spawn.aiReady = true;
         }
         const bool stamp = spawn.stampPrefix && spawn.stampPrefix[0] != '\0';
-        int        stampN[4]{};
         auto       stampAs = [&](Entity e, int kind, const char* name) {
             if (stamp)
-                stampProceduralId(*world, e, std::format("{}/{}/{}", spawn.stampPrefix, name, stampN[kind]++));
+                stampProceduralId(*world, e, std::format("{}/{}/{}", spawn.stampPrefix, name, spawn.stampN[kind]++));
         };
-        std::deque<std::string>* labels = spawn.labels;
-        for (const BuildingContainer& c : containers)
+        const bool sliced = spawn.sliceBudget > 0;
+        int        placed = 0;
+        auto       hit    = [&]() { return sliced && placed >= spawn.sliceBudget; };
+
+        AssetRef<Model> doorModel;
+        AssetRef<Model> camModel;
+        if (!sliced)
         {
-            if (!labels)
-                break;
-            LootComponent loot;
-            labels->push_back(c.label);
-            loot.label = labels->back().c_str();
-            for (const BuildingLoot& l : c.loot)
-            {
-                if (const ItemDef* def = findItemDef(l.item))
-                    addItem(loot.contents, *def, Math::Max(1, l.count));
-                else
-                    DE_LOG_WARN("Building: unknown loot item '{}'", l.item);
-            }
-            if (itemCount(loot.contents) == 0)
-                continue;
-            const Entity e = world->createEntity();
-            world->emplace<TransformComponent>(e, c.pos, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
-            world->emplace<LootComponent>(e, loot);
-            setInteractable(*world, e, InteractKind::Loot, kInteractLootRange);
-            stampAs(e, 0, "container");
+            const bool canDraw = spawn.renderer && spawn.assets && spawn.pins;
+            doorModel = (!canDraw || doors.empty()) ? AssetRef<Model>{} : loadAndUploadModel(*spawn.renderer, *spawn.assets, "models/unit_cube.gltf");
+            camModel  = (!canDraw || cameras.empty()) ? AssetRef<Model>{} : loadAndUploadModel(*spawn.renderer, *spawn.assets, "models/unit_cube.gltf");
+        }
+        else
+        {
+            doorModel = spawn.doorModel;
+            camModel  = spawn.camModel;
         }
 
-        const bool canDraw = spawn.renderer && spawn.assets && spawn.pins;
-        AssetRef<Model> doorModel = (!canDraw || doors.empty()) ? AssetRef<Model>{} : loadAndUploadModel(*spawn.renderer, *spawn.assets, "models/unit_cube.gltf");
-        AssetRef<Model> camModel = (!canDraw || cameras.empty()) ? AssetRef<Model>{} : loadAndUploadModel(*spawn.renderer, *spawn.assets, "models/unit_cube.gltf");
-        for (const BuildingCamera& c : cameras)
+        std::deque<std::string>* labels = spawn.labels;
+        if (spawn.phase <= 0)
         {
-            const Entity e = world->createEntity();
-            world->emplace<TransformComponent>(e, c.pos, Quaternion::IDENTITY, Vector3f{ 0.3f, 0.25f, 0.45f });
-            if (camModel)
+            for (size_t i = spawn.index; i < containers.size(); ++i)
             {
-                ModelComponent mc{};
-                mc.modelAssetID = camModel->id;
-                setModelComponent(*world, *spawn.pins, *spawn.assets, e, mc);
+                if (hit())
+                {
+                    spawn.index = i;
+                    spawn.phase = 0;
+                    return false;
+                }
+                if (!labels)
+                    break;
+                const BuildingContainer& c = containers[i];
+                LootComponent loot;
+                labels->push_back(c.label);
+                loot.label = labels->back().c_str();
+                for (const BuildingLoot& l : c.loot)
+                {
+                    if (const ItemDef* def = findItemDef(l.item))
+                        addItem(loot.contents, *def, Math::Max(1, l.count));
+                    else
+                        DE_LOG_WARN("Building: unknown loot item '{}'", l.item);
+                }
+                if (itemCount(loot.contents) == 0)
+                    continue;
+                const Entity e = world->createEntity();
+                world->emplace<TransformComponent>(e, c.pos, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
+                world->emplace<LootComponent>(e, loot);
+                setInteractable(*world, e, InteractKind::Loot, kInteractLootRange);
+                stampAs(e, 0, "container");
+                ++placed;
             }
-            const Entity lamp = world->createEntity();
-            world->emplace<TransformComponent>(lamp, c.pos, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
-            LocalLightComponent& beam = world->emplace<LocalLightComponent>(lamp);
-            beam.type                 = LocalLightType::Spot;
-            beam.color                = Vector3f{ 1.0f, 0.15f, 0.1f };
-            beam.intensity            = 900.0f;
-            beam.range                = c.range + 2.0f;
-            beam.innerConeDeg         = 18.0f;
-            beam.outerConeDeg         = 28.0f;
-            SecurityCameraComponent cam;
-            cam.def    = c;
-            cam.aimYaw = c.yaw;
-            cam.light  = lamp;
-            world->emplace<SecurityCameraComponent>(e, cam);
-            stampAs(e, 1, "camera");
+            spawn.phase = 1;
+            spawn.index = 0;
         }
-        for (const BuildingDoor& d : doors)
+        if (spawn.phase == 1)
         {
-            const Entity e = world->createEntity();
-            world->emplace<TransformComponent>(e, d.center, Quaternion::IDENTITY, d.size);
-            if (doorModel)
+            const bool canDraw = spawn.renderer && spawn.assets && spawn.pins;
+            for (size_t i = spawn.index; i < cameras.size(); ++i)
             {
-                ModelComponent mc{};
-                mc.modelAssetID = doorModel->id;
-                mc.castShadow   = true;
-                setModelComponent(*world, *spawn.pins, *spawn.assets, e, mc);
+                if (hit())
+                {
+                    spawn.index = i;
+                    spawn.phase = 1;
+                    return false;
+                }
+                const BuildingCamera& c = cameras[i];
+                const Entity e = world->createEntity();
+                world->emplace<TransformComponent>(e, c.pos, Quaternion::IDENTITY, Vector3f{ 0.3f, 0.25f, 0.45f });
+                if (camModel && canDraw)
+                {
+                    ModelComponent mc{};
+                    mc.modelAssetID = camModel->id;
+                    setModelComponent(*world, *spawn.pins, *spawn.assets, e, mc);
+                }
+                const Entity lamp = world->createEntity();
+                world->emplace<TransformComponent>(lamp, c.pos, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
+                LocalLightComponent& beam = world->emplace<LocalLightComponent>(lamp);
+                beam.type                 = LocalLightType::Spot;
+                beam.color                = Vector3f{ 1.0f, 0.15f, 0.1f };
+                beam.intensity            = 900.0f;
+                beam.range                = c.range + 2.0f;
+                beam.innerConeDeg         = 18.0f;
+                beam.outerConeDeg         = 28.0f;
+                SecurityCameraComponent cam;
+                cam.def    = c;
+                cam.aimYaw = c.yaw;
+                cam.light  = lamp;
+                world->emplace<SecurityCameraComponent>(e, cam);
+                stampAs(e, 1, "camera");
+                ++placed;
             }
-            DoorComponent door;
-            door.closedPos = d.center;
-            door.size      = d.size;
-            door.lock      = d.lock;
-            world->emplace<DoorComponent>(e, door);
-            setInteractable(*world, e, InteractKind::Door, kInteractDoorRange);
-            stampAs(e, 2, "door");
+            spawn.phase = 2;
+            spawn.index = 0;
         }
-        for (const BuildingHideSpot& h : hides)
+        if (spawn.phase == 2)
         {
-            const Entity e = world->createEntity();
-            world->emplace<TransformComponent>(e, h.pos, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
-            world->emplace<HideSpotComponent>(e, HideSpotComponent{ h.front, h.label });
-            setInteractable(*world, e, InteractKind::Hide, kInteractHideRange);
-            stampAs(e, 3, "hide");
+            const bool canDraw = spawn.renderer && spawn.assets && spawn.pins;
+            for (size_t i = spawn.index; i < doors.size(); ++i)
+            {
+                if (hit())
+                {
+                    spawn.index = i;
+                    spawn.phase = 2;
+                    return false;
+                }
+                const BuildingDoor& d = doors[i];
+                const Entity e = world->createEntity();
+                world->emplace<TransformComponent>(e, d.center, Quaternion::IDENTITY, d.size);
+                if (doorModel && canDraw)
+                {
+                    ModelComponent mc{};
+                    mc.modelAssetID = doorModel->id;
+                    mc.castShadow   = true;
+                    setModelComponent(*world, *spawn.pins, *spawn.assets, e, mc);
+                }
+                DoorComponent door;
+                door.closedPos = d.center;
+                door.size      = d.size;
+                door.lock      = d.lock;
+                world->emplace<DoorComponent>(e, door);
+                setInteractable(*world, e, InteractKind::Door, kInteractDoorRange);
+                stampAs(e, 2, "door");
+                ++placed;
+            }
+            spawn.phase = 3;
+            spawn.index = 0;
         }
+        if (spawn.phase == 3)
+        {
+            for (size_t i = spawn.index; i < hides.size(); ++i)
+            {
+                if (hit())
+                {
+                    spawn.index = i;
+                    spawn.phase = 3;
+                    return false;
+                }
+                const BuildingHideSpot& h = hides[i];
+                const Entity e = world->createEntity();
+                world->emplace<TransformComponent>(e, h.pos, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
+                world->emplace<HideSpotComponent>(e, HideSpotComponent{ h.front, h.label });
+                setInteractable(*world, e, InteractKind::Hide, kInteractHideRange);
+                stampAs(e, 3, "hide");
+                ++placed;
+            }
+            spawn.phase = 4;
+            spawn.index = 0;
+        }
+        return true;
     }
 
 } // namespace Dark

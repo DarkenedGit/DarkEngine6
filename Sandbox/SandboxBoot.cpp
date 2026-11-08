@@ -35,6 +35,7 @@
 #include <format>
 #include <memory>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -87,16 +88,6 @@ float sandboxBootGroundY(void* user, float x, float z)
 {
     const TerrainGrid* terrain = static_cast<const TerrainGrid*>(user);
     return terrain ? terrain->heightAtWorld(x, z) : 0.0f;
-}
-
-bool pathHasDotDot(const std::filesystem::path& path)
-{
-    for (const std::filesystem::path& part : path)
-    {
-        if (part == "..")
-            return true;
-    }
-    return false;
 }
 
 constexpr int kBootSpawnBatch = 32;
@@ -159,7 +150,6 @@ struct SandboxApp::SandboxBootLoad
     TerrainKind               kind = TerrainKind::None;
     bool                      terrainArmed = false;
     bool                      terrainRunning = false;
-    bool                      deferGridCreate = false;
     std::atomic<bool>         terrainFinished{ false };
     JobStatus                 terrainStatus = JobStatus::Failed;
     std::filesystem::path     worldDir;
@@ -235,6 +225,8 @@ struct SandboxApp::SandboxBootLoad
     bool                      moviesLogged = false;
     bool                      physicsBound = false;
     size_t                    stockCursor = 0;
+    int                       buildingModelStep = 0;
+    BuildingFixtureSpawn      fixtures{};
 };
 
 JobStatus SandboxApp::bootTerrainCpu(void* user)
@@ -307,7 +299,8 @@ void SandboxApp::prepareBoot(bool runScene, const std::filesystem::path& scenePa
 
 void SandboxApp::beginSceneAfterIbl(const std::filesystem::path& scenePath)
 {
-    if (!m_boot)
+    // Done still carries the last load's flags. A new record lets a failed load be requested again.
+    if (!m_boot || m_bootSlice == BootSlice::Done)
         prepareBoot(true, scenePath);
     m_boot->runScene  = true;
     m_boot->scenePath = scenePath;
@@ -330,10 +323,15 @@ bool SandboxApp::bootSceneLoop()
 
 bool SandboxApp::startScene(const std::filesystem::path& scenePath)
 {
-    if (m_sceneStarted)
+    if (m_sceneStarted || m_bootPolling)
         return true;
     beginSceneAfterIbl(scenePath);
-    return bootSceneLoop();
+    // onInit still has the splash, and pumpBootFrame Presents between slices.
+    // Menu confirm is after teardown, so the main loop presents between slices.
+    if (splashActive())
+        return bootSceneLoop();
+    m_bootPolling = true;
+    return true;
 }
 
 bool SandboxApp::advanceBootSlice()
@@ -377,15 +375,17 @@ bool SandboxApp::advanceBootSlice()
             HitchClock clock("WaitScene");
             std::string err;
             const bool ok = loadSceneFromJson(boot.scenePath, boot.scene, &err);
-            boot.sceneOk = ok;
             if (!ok)
             {
-                boot.scene.objects.clear();
-                boot.scene.buildings.clear();
+                // A failed parse can already hold terrain and atmosphere. That is not a scene.
+                boot.scene   = SceneFileData{};
+                boot.sceneOk = false;
                 DE_LOG_ERROR(LogCategory::Render, "SandboxApp: scene load failed ({}) — {}", boot.scenePath.string(), err);
+                m_bootSlice = BootSlice::Done;
+                return true;
             }
-            else
-                DE_LOG_INFO(LogCategory::Render, "SandboxApp: scene {}", boot.scenePath.string());
+            boot.sceneOk = true;
+            DE_LOG_INFO(LogCategory::Render, "SandboxApp: scene {}", boot.scenePath.string());
         }
         else if (boot.sceneRunning)
         {
@@ -393,17 +393,18 @@ bool SandboxApp::advanceBootSlice()
             const bool terminal = pollSceneLoad(jobs(), boot.sceneGeneration, result);
             if (!terminal && result.status == JobStatus::NotReady)
                 return true;
-            boot.scene        = std::move(result.scene);
-            boot.sceneOk      = terminal && result.status == JobStatus::Ok;
             boot.sceneRunning = false;
-            if (!boot.sceneOk)
+            if (!terminal || result.status != JobStatus::Ok)
             {
-                boot.scene.objects.clear();
-                boot.scene.buildings.clear();
+                boot.scene   = SceneFileData{};
+                boot.sceneOk = false;
                 DE_LOG_ERROR(LogCategory::Render, "SandboxApp: scene load failed ({}) — {}", boot.scenePath.string(), result.error);
+                m_bootSlice = BootSlice::Done;
+                return true;
             }
-            else
-                DE_LOG_INFO(LogCategory::Render, "SandboxApp: scene {}", boot.scenePath.string());
+            boot.scene   = std::move(result.scene);
+            boot.sceneOk = true;
+            DE_LOG_INFO(LogCategory::Render, "SandboxApp: scene {}", boot.scenePath.string());
         }
         m_bootSlice = BootSlice::WaitTerrainCpu;
         return true;
@@ -511,14 +512,20 @@ bool SandboxApp::advanceBootSlice()
                     boot.gridDesc.tileDir      = sidecar(boot.scene.terrain.grid.tileDir);
                     boot.gridDesc.residentRing = boot.scene.terrain.grid.residentRing;
                     boot.kind = SandboxBootLoad::TerrainKind::Grid;
-                    boot.heightPath = boot.gridDesc.coarseFile;
-                    // create() rejects a coarse path that contains "..". createFromCoarse does not.
-                    const bool keepOnMain = pathHasDotDot(boot.gridDesc.coarseFile) || !wantIo || !acceptJobPath(assets(), boot.gridDesc.coarseFile);
-                    if (keepOnMain)
-                        boot.deferGridCreate = true;
-                    else if (enqueueBootIo(jobs(), "TerrainCpu", &SandboxApp::bootTerrainCpu, m_boot))
+                    // create() rejects a ".." component and never reads the file. Canonicalize, then loadBinary.
+                    std::filesystem::path coarse = boot.gridDesc.coarseFile;
+                    if (!coarse.empty())
+                    {
+                        std::error_code ec;
+                        const std::filesystem::path canonical = std::filesystem::weakly_canonical(coarse, ec);
+                        if (!ec && !canonical.empty())
+                            coarse = canonical;
+                    }
+                    boot.heightPath = coarse;
+                    const bool accepted = !boot.heightPath.empty() && wantIo && acceptJobPath(assets(), boot.heightPath);
+                    if (accepted && enqueueBootIo(jobs(), "TerrainCpu", &SandboxApp::bootTerrainCpu, m_boot))
                         boot.terrainRunning = true;
-                    else
+                    else if (!boot.heightPath.empty())
                     {
                         HitchClock clock("WaitTerrainCpu");
                         const bool ok = boot.loadedHeight.loadBinary(boot.heightPath);
@@ -573,9 +580,7 @@ bool SandboxApp::advanceBootSlice()
         else if (boot.kind == SandboxBootLoad::TerrainKind::Grid)
         {
             bool ok = false;
-            if (boot.deferGridCreate)
-                ok = m_terrain.create(boot.gridDesc);
-            else if (boot.terrainStatus == JobStatus::Ok)
+            if (boot.terrainStatus == JobStatus::Ok)
                 ok = m_terrain.createFromCoarse(boot.gridDesc, std::move(boot.loadedHeight));
             if (ok)
             {
@@ -923,6 +928,11 @@ bool SandboxApp::advanceBootSlice()
         return true;
     }
     case BootSlice::SpawnBatch:
+        if (!boot.sceneOk)
+        {
+            m_bootSlice = BootSlice::Done;
+            return true;
+        }
         return advanceSpawnBatch();
     case BootSlice::Done:
         return true;
@@ -1091,9 +1101,33 @@ bool SandboxApp::advanceSpawnBatch()
             return true;
         }
         case SandboxBootLoad::SpawnPhase::Buildings:
-            spawnBuildingExtras();
+        {
+            if (boot.buildingModelStep == 0)
+            {
+                boot.buildingModelStep = 1;
+                if (!m_buildingDoors.empty())
+                {
+                    HitchClock clock("BuildingDoorModel");
+                    boot.fixtures.doorModel = loadAndUploadModel(renderer(), assets(), "models/unit_cube.gltf");
+                    return true;
+                }
+            }
+            if (boot.buildingModelStep == 1)
+            {
+                boot.buildingModelStep = 2;
+                if (!m_buildingCameras.empty())
+                {
+                    HitchClock clock("BuildingCameraModel");
+                    boot.fixtures.camModel = loadAndUploadModel(renderer(), assets(), "models/unit_cube.gltf");
+                    return true;
+                }
+            }
+            boot.fixtures.sliceBudget = kBootSpawnBatch;
+            if (!spawnBuildingExtras(boot.fixtures))
+                return true;
             boot.phase = SandboxBootLoad::SpawnPhase::Obstacles;
             return true;
+        }
         case SandboxBootLoad::SpawnPhase::Obstacles:
         {
             world().each<ObstacleVolumeComponent>([&](Entity, ObstacleVolumeComponent& block) { m_chase.addObstacle(block.box); });
@@ -1462,7 +1496,7 @@ bool SandboxApp::advanceSpawnBatch()
             resetMovieCues(world());
             m_loadedScenePath = boot.scenePath;
             m_bootSlice = BootSlice::Done;
-            if (boot.runScene)
+            if (boot.runScene && boot.sceneOk)
                 m_sceneStarted = true;
             return true;
         }

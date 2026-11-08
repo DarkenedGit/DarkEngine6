@@ -1728,25 +1728,46 @@ void sweepFinished(SceneLoadTable& table, uint64_t keep)
 
 JobStatus runSceneLoad(void* user)
 {
-    auto* rec = static_cast<SceneLoadRecord*>(user);
+    auto* raw = static_cast<SceneLoadRecord*>(user);
+    // The table drops its shared_ptr as soon as finished is set. This copy keeps the
+    // record alive until the function returns, so the release store is not a free.
+    std::shared_ptr<SceneLoadRecord> keep;
+    {
+        SceneLoadTable& table = sceneLoads();
+        std::lock_guard<std::mutex> lock(table.mutex);
+        for (const auto& entry : table.records)
+        {
+            if (entry.second && entry.second.get() == raw)
+            {
+                keep = entry.second;
+                break;
+            }
+        }
+    }
+    if (!keep)
+        return JobStatus::Failed;
+
+    SceneLoadRecord* rec = keep.get();
     SceneFileData scene;
     std::string error;
     const bool ok = loadSceneFromJson(rec->path, scene, &error);
+    JobStatus status = JobStatus::Failed;
     if (rec->superseded.load(std::memory_order_acquire))
-        rec->status = JobStatus::Cancelled;
+        status = JobStatus::Cancelled;
     else if (ok)
     {
-        rec->status = JobStatus::Ok;
-        rec->scene  = std::move(scene);
+        status     = JobStatus::Ok;
+        rec->scene = std::move(scene);
     }
     else
     {
-        rec->status = JobStatus::Failed;
-        rec->error  = std::move(error);
-        rec->scene  = std::move(scene);
+        status     = JobStatus::Failed;
+        rec->error = std::move(error);
+        rec->scene = std::move(scene);
     }
+    rec->status = status;
     rec->finished.store(true, std::memory_order_release);
-    return rec->status;
+    return status;
 }
 
 } // namespace

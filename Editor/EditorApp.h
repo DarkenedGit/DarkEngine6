@@ -439,6 +439,8 @@ private:
 
     std::filesystem::path m_scenePath;
     std::string           m_sceneName = "level";
+    // Chosen in the dialog. Published onto m_scenePath only when the load is applied.
+    std::filesystem::path m_pendingScenePath;
     bool                  m_sceneLoadPending     = false;
     uint64_t              m_sceneGeneration      = 0;
     uint64_t              m_sceneLoadGeneration  = 0;

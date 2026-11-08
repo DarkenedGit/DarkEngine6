@@ -81,9 +81,9 @@ bool EditorApp::loadSceneWithDialog(const std::filesystem::path& suggested)
     std::filesystem::path       chosen;
     if (!pickEditorFile(window().nativeHandle(), false, L"Load Scene", L"Scene (*.json)\0*.json\0All files (*.*)\0*.*\0", L"json", start, chosen))
         return false;
-    m_scenePath = chosen;
-    m_sceneName = chosen.stem().string();
-    m_save.setWorldIdentity(m_scenePath.generic_string(), "", "");
+    // Keep the previous path until the load is applied. A save in the gap must not
+    // write the old world into this file, and a failed load must not retarget saves.
+    m_pendingScenePath = chosen;
     return loadScene();
 }
 
@@ -280,14 +280,14 @@ bool EditorApp::loadScene()
 {
     if (netSceneLocked())
         return false;
-    m_save.setWorldIdentity(m_scenePath.generic_string(), "", "");
+    const std::filesystem::path path = m_pendingScenePath.empty() ? m_scenePath : m_pendingScenePath;
 
     // A newer click bumps the generation so a stale result is ignored.
-    if (config().asyncSceneLoad && acceptJobPath(assets(), m_scenePath))
+    if (config().asyncSceneLoad && acceptJobPath(assets(), path))
     {
         const uint64_t generation = ++m_sceneGeneration;
         SceneLoadRequest request;
-        request.path       = m_scenePath;
+        request.path       = path;
         request.generation = generation;
         if (enqueueSceneLoad(jobs(), assets(), request))
         {
@@ -300,8 +300,9 @@ bool EditorApp::loadScene()
     m_sceneLoadPending = false;
     SceneFileData data{};
     std::string err;
-    if (!loadSceneFromJson(m_scenePath, data, &err))
+    if (!loadSceneFromJson(path, data, &err))
     {
+        m_pendingScenePath.clear();
         DE_LOG_ERROR("Editor: load failed — {}", err);
         return false;
     }
@@ -320,6 +321,7 @@ void EditorApp::pollSceneOpen()
         if (result.status == JobStatus::NotReady)
             return;
         m_sceneLoadPending = false;
+        m_pendingScenePath.clear();
         DE_LOG_ERROR("Editor: scene load did not finish — {}", result.error);
         return;
     }
@@ -327,6 +329,7 @@ void EditorApp::pollSceneOpen()
     m_sceneLoadPending = false;
     if (result.status != JobStatus::Ok)
     {
+        m_pendingScenePath.clear();
         DE_LOG_ERROR("Editor: load failed — {}", result.error);
         return;
     }
@@ -335,6 +338,12 @@ void EditorApp::pollSceneOpen()
 
 bool EditorApp::applyLoadedScene(SceneFileData& data)
 {
+    if (!m_pendingScenePath.empty())
+    {
+        m_scenePath = std::move(m_pendingScenePath);
+        m_pendingScenePath.clear();
+        m_save.setWorldIdentity(m_scenePath.generic_string(), "", "");
+    }
     clearScene();
     m_sceneQuest      = data.quest;
     m_sceneBuildings  = data.buildings;

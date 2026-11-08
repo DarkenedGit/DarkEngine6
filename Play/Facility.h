@@ -19,6 +19,7 @@ namespace Dark
     class AiSystem;
     class AssetManager;
     class AssetPinTable;
+    class Model;
     class Renderer;
     class World;
 
@@ -92,6 +93,15 @@ namespace Dark
         std::deque<std::string>* labels = nullptr;
         // "sandbox/level" or "editor/scene". Doors, cameras, hide spots, and containers get "<prefix>/<kind>/<n>" so saves can find them.
         const char*          stampPrefix = nullptr;
+        // 0 spawns the whole set in this call, including both model uploads (editor and play).
+        // A positive budget is the boot cap. Those uploads are already in doorModel and camModel.
+        int                  sliceBudget = 0;
+        int                  phase       = 0;
+        size_t               index       = 0;
+        int                  stampN[4]{};
+        bool                 aiReady     = false;
+        AssetRef<Model>      doorModel;
+        AssetRef<Model>      camModel;
     };
 
     struct FacilityProgressComponent;
@@ -112,7 +122,8 @@ namespace Dark
     void clearFacilitySession(FacilityState& state, World* world, Entity player);
     void refreshFacilityUpgrades(FacilityState& state, const FacilityHost& host);
 
-    void spawnBuildingFixtures(const BuildingFixtureSpawn& spawn, const std::vector<BuildingContainer>& containers,
+    // False when sliceBudget stopped the call and fixtures remain. True when the set is done.
+    bool spawnBuildingFixtures(BuildingFixtureSpawn& spawn, const std::vector<BuildingContainer>& containers,
                                const std::vector<BuildingHideSpot>& hides, const std::vector<BuildingDoor>& doors,
                                const std::vector<BuildingCamera>& cameras);
 

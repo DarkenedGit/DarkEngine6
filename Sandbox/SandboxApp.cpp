@@ -683,9 +683,8 @@ void SandboxApp::expandSceneBuildings(SceneFileData& scene)
     Dark::expandSceneBuildings(scene, m_buildingContainers, m_buildingHides, &m_buildingDoors, &m_buildingCameras);
 }
 
-void SandboxApp::spawnBuildingExtras()
+bool SandboxApp::spawnBuildingExtras(BuildingFixtureSpawn& spawn)
 {
-    BuildingFixtureSpawn spawn;
     spawn.world    = &world();
     spawn.renderer = &renderer();
     spawn.assets   = &assets();
@@ -693,7 +692,7 @@ void SandboxApp::spawnBuildingExtras()
     spawn.ai       = &m_chase.ai();
     spawn.labels   = &m_buildingLabels;
     spawn.stampPrefix = "sandbox/level";
-    spawnBuildingFixtures(spawn, m_buildingContainers, m_buildingHides, m_buildingDoors, m_buildingCameras);
+    return spawnBuildingFixtures(spawn, m_buildingContainers, m_buildingHides, m_buildingDoors, m_buildingCameras);
 }
 
 void SandboxApp::startQuest(const std::string& id)
@@ -765,6 +764,25 @@ void SandboxApp::populateMainMenu()
 
 void SandboxApp::handleRuntimeCommands(float dt)
 {
+    // Splash teardown already ran. One slice here, then the main loop Presents.
+    if (m_bootPolling && m_bootSlice != BootSlice::Done)
+    {
+        if (!advanceBootSlice())
+        {
+            m_bootPolling = false;
+            return;
+        }
+        if (m_bootSlice == BootSlice::Done)
+        {
+            m_bootPolling = false;
+            if (m_sceneStarted)
+            {
+                playMusicCue(world(), audio(), assets(), m_camera, "music");
+                m_menu.hide();
+            }
+        }
+    }
+
     if (m_menu.visible())
     {
         window().setCursorCaptured(false);
@@ -776,6 +794,8 @@ void SandboxApp::handleRuntimeCommands(float dt)
             // confirming a different row does not tear the level down.
             if (!m_sceneStarted)
             {
+                if (m_bootPolling)
+                    break;
                 std::filesystem::path path = defaultScenePath(sceneFileArg());
                 if (const MainMenuEntry* e = m_menu.selected())
                 {
@@ -789,6 +809,9 @@ void SandboxApp::handleRuntimeCommands(float dt)
                     m_menu.hide();
                     return;
                 }
+                // The load is still crossing frames. Music waits until the scene starts.
+                if (!m_sceneStarted)
+                    break;
                 // Splash already finished without a camera, so the usual cue never played.
                 playMusicCue(world(), audio(), assets(), m_camera, "music");
             }
