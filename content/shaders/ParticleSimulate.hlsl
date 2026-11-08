@@ -1,6 +1,5 @@
 // GPU billboard integrate. Life is decremented before the Euler step.
 // Birth matches ParticleEmitter::spawnOne (Point / Box / Sphere and cone).
-// ParticleDepthCollision.h is not on this branch, so the sample lives here.
 // Depth is not sampled. Collision is ignored. No groupshared.
 #pragma pack_matrix(row_major)
 
@@ -52,7 +51,6 @@ bool slotInSpawn(uint slot)
 GpuParticle birthParticle(uint slot)
 {
     uint state = sim0.z ^ (slot * 0x9E3779B9u) ^ (sim0.y * 0x85EBCA6Bu);
-    hashNext(state);
 
     GpuParticle p = (GpuParticle)0;
     p.maxLife = lerp(lifeSpeed.x, lifeSpeed.y, hash01(state));

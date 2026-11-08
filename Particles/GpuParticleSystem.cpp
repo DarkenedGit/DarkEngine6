@@ -48,15 +48,13 @@ namespace Dark
             float    shapeSize[4];
             float    lifeSpeed[4];
             float    sizes[4];
-            float    startColor[4];
-            float    endColor[4];
             uint32_t sim0[4];
             uint32_t sim1[4];
             float    sim2[4];
         };
-        static_assert(sizeof(GpuParticleConstants) == 304, "gpu particle constants");
-        static_assert(offsetof(GpuParticleConstants, sim0) == 256, "gpu particle sim0");
-        static_assert(offsetof(GpuParticleConstants, sim2) == 288, "gpu particle sim2");
+        static_assert(sizeof(GpuParticleConstants) == 272, "gpu particle constants");
+        static_assert(offsetof(GpuParticleConstants, sim0) == 224, "gpu particle sim0");
+        static_assert(offsetof(GpuParticleConstants, sim2) == 256, "gpu particle sim2");
         static_assert(sizeof(GpuParticleConstants) <= GpuParticleSystem::kCbStride, "gpu particle cb stride");
 
         uint32_t packRgba8(const float c[4])
@@ -218,6 +216,7 @@ namespace Dark
         m_records.clear();
         m_loggedRefusal.clear();
         m_loggedPrewarm.clear();
+        m_createFailed.clear();
         m_billboardMat = {};
         m_pipeline.destroy();
         m_ready         = false;
@@ -231,16 +230,6 @@ namespace Dark
     GpuParticleSystem::Pool* GpuParticleSystem::findPool(EntityID id)
     {
         for (Pool& pool : m_pools)
-        {
-            if (pool.entity == id)
-                return &pool;
-        }
-        return nullptr;
-    }
-
-    const GpuParticleSystem::Pool* GpuParticleSystem::findPool(EntityID id) const
-    {
-        for (const Pool& pool : m_pools)
         {
             if (pool.entity == id)
                 return &pool;
@@ -373,23 +362,11 @@ namespace Dark
         return true;
     }
 
-    void GpuParticleSystem::prepare(World& world, float dt)
+    void GpuParticleSystem::applyFallback(World& world, std::vector<FallbackRow>& accepted, std::vector<EntityID>& seen)
     {
-        ++m_prepareEpoch;
-        m_records.clear();
-        if (!m_ready || !m_renderer || !m_renderer->device())
-            return;
-
-        struct Accept
-        {
-            EntityID id         = 0;
-            uint32_t capacity   = 0;
-            uint32_t generation = 0;
-        };
-
-        std::vector<Accept>   accepted;
-        std::vector<EntityID> seen;
-        uint32_t              live = 0;
+        accepted.clear();
+        seen.clear();
+        uint32_t live = 0;
 
         world.each<ParticleEmitterComponent>([&](Entity e, ParticleEmitterComponent& pe) {
             ensureParticleRuntime(pe);
@@ -400,39 +377,64 @@ namespace Dark
             ParticleEmitter&           emitter = *pe.runtime;
             const ParticleEmitterDesc& desc    = emitter.desc();
             if (desc.simMode != ParticleSimMode::Gpu)
-                return;
-
-            // The CPU arm already advanced this emitter. Do not also step the GPU clock.
-            if (emitter.forceCpu())
             {
-                (void)particlePoolDecision(desc.simMode, desc.maxParticles, true, false);
+                std::erase(m_createFailed, id);
                 return;
             }
 
             const uint32_t cap    = desc.maxParticles;
             const bool     slotOk = static_cast<uint64_t>(live) + static_cast<uint64_t>(cap) <= static_cast<uint64_t>(kMaxParticleSlotsTotal);
             const ParticlePoolDecision decision = particlePoolDecision(desc.simMode, cap, true, slotOk);
+            const bool createFailed = containsId(m_createFailed, id);
+            const bool keepCpu      = createFailed && cap <= kMaxCpuParticles;
+            const bool cpuAlready   = emitter.forceCpu();
             if (!decision.recordGpuPool)
             {
                 if (!slotOk && markOnce(m_loggedRefusal, id))
                 {
                     DE_LOG_ERROR(LogCategory::Render, "GpuParticleSystem: slot cap {} refused '{}' ({} live slots, {} requested)", kMaxParticleSlotsTotal, desc.name, live, cap);
                 }
-                if (decision.forceCpu && !emitter.forceCpu())
+                // Over the CPU cap both flags are false. Leave forceCpu; there is no CPU vector to run.
+                if (decision.forceCpu)
                     emitter.setForceCpu(true);
                 return;
             }
 
             live += cap;
-            Accept row{};
+            emitter.setForceCpu(keepCpu);
+            FallbackRow row{};
             row.id         = id;
             row.capacity   = cap;
             row.generation = emitter.gpuDescGeneration();
+            row.cpuAlready = cpuAlready;
             accepted.push_back(row);
         });
+    }
+
+    void GpuParticleSystem::syncCpuFallback(World& world)
+    {
+        std::vector<FallbackRow> accepted;
+        std::vector<EntityID>    seen;
+        applyFallback(world, accepted, seen);
+    }
+
+    void GpuParticleSystem::prepare(World& world, float dt)
+    {
+        ++m_prepareEpoch;
+        m_records.clear();
+
+        std::vector<FallbackRow> accepted;
+        std::vector<EntityID>    seen;
+        applyFallback(world, accepted, seen);
+        std::erase_if(m_loggedRefusal, [&seen](EntityID id) { return !containsId(seen, id); });
+        std::erase_if(m_loggedPrewarm, [&seen](EntityID id) { return !containsId(seen, id); });
+        std::erase_if(m_createFailed, [&seen](EntityID id) { return !containsId(seen, id); });
+
+        if (!m_ready || !m_renderer || !m_renderer->device())
+            return;
 
         auto isAccepted = [&accepted](EntityID id) {
-            for (const Accept& row : accepted)
+            for (const FallbackRow& row : accepted)
             {
                 if (row.id == id)
                     return true;
@@ -449,7 +451,7 @@ namespace Dark
             bool       recreate = false;
             if (!drop)
             {
-                for (const Accept& row : accepted)
+                for (const FallbackRow& row : accepted)
                 {
                     if (row.id != pool.entity)
                         continue;
@@ -474,15 +476,26 @@ namespace Dark
             ++i;
         }
 
+        auto dropPool = [this](EntityID id) {
+            for (size_t i = 0; i < m_pools.size(); ++i)
+            {
+                if (m_pools[i].entity != id)
+                    continue;
+                releasePool(m_pools[i]);
+                m_pools.erase(m_pools.begin() + static_cast<std::ptrdiff_t>(i));
+                return;
+            }
+        };
+
         ID3D12Device* device = m_renderer->device();
-        for (const Accept& row : accepted)
+        for (const FallbackRow& row : accepted)
         {
             ParticleEmitterComponent* pe = world.get<ParticleEmitterComponent>(Entity{ row.id });
             if (!pe || !pe->runtime)
                 continue;
             ParticleEmitter& emitter = *pe->runtime;
 
-            Pool* pool = findPool(row.id);
+            Pool*      pool    = findPool(row.id);
             const bool missing = !pool || pool->generation != row.generation || pool->capacity != row.capacity || !pool->particles[0] || !pool->cb;
             if (!pool)
             {
@@ -496,22 +509,17 @@ namespace Dark
             {
                 if (!pool || !createBuffers(device, *pool, row.capacity, row.generation))
                 {
+                    // Release once. A submitted pool already waited this frame; later frames have nothing to wait on.
                     if (markOnce(m_loggedRefusal, row.id))
                         DE_LOG_ERROR(LogCategory::Render, "GpuParticleSystem: pool create failed for '{}' capacity {}", emitter.desc().name, row.capacity);
-                    if (row.capacity <= kMaxCpuParticles && !emitter.forceCpu())
-                        emitter.setForceCpu(true);
-                    if (pool && pool->capacity == 0)
+                    if (row.capacity <= kMaxCpuParticles)
                     {
-                        for (size_t i = 0; i < m_pools.size(); ++i)
-                        {
-                            if (m_pools[i].entity == row.id)
-                            {
-                                releasePool(m_pools[i]);
-                                m_pools.erase(m_pools.begin() + static_cast<std::ptrdiff_t>(i));
-                                break;
-                            }
-                        }
+                        emitter.setForceCpu(true);
+                        markOnce(m_createFailed, row.id);
                     }
+                    else
+                        std::erase(m_createFailed, row.id);
+                    dropPool(row.id);
                     continue;
                 }
                 const uint64_t bytes = static_cast<uint64_t>(row.capacity) * sizeof(GpuParticle) * kFrameCount + static_cast<uint64_t>(kCbStride) * kFrameCount;
@@ -522,14 +530,15 @@ namespace Dark
             pool = findPool(row.id);
             if (!pool || !pool->particles[0] || !pool->cb)
                 continue;
+            std::erase(m_createFailed, row.id);
             if (pool->seed == 0)
                 pool->seed = row.id == 0 ? 1u : row.id;
+            // The CPU arm already integrated this frame. The next sync clears the bit before update.
+            if (row.cpuAlready || emitter.forceCpu())
+                continue;
             recordClock(*pool, emitter, dt);
             m_records.push_back(row.id);
         }
-
-        std::erase_if(m_loggedRefusal, [&seen](EntityID id) { return !containsId(seen, id); });
-        std::erase_if(m_loggedPrewarm, [&seen](EntityID id) { return !containsId(seen, id); });
     }
 
     uint32_t GpuParticleSystem::poolCount() const
@@ -736,19 +745,11 @@ namespace Dark
             constants.lifeSpeed[1]          = desc.lifetime.max;
             constants.lifeSpeed[2]          = desc.startSpeed.min;
             constants.lifeSpeed[3]          = desc.startSpeed.max;
-            constants.sizes[0]              = desc.startSize.min;
-            constants.sizes[1]              = desc.startSize.max;
-            constants.sizes[2]              = desc.endSize.min;
-            constants.sizes[3]              = desc.endSize.max;
-            constants.startColor[0]         = desc.startColor[0];
-            constants.startColor[1]         = desc.startColor[1];
-            constants.startColor[2]         = desc.startColor[2];
-            constants.startColor[3]         = desc.startColor[3];
-            constants.endColor[0]           = desc.endColor[0];
-            constants.endColor[1]           = desc.endColor[1];
-            constants.endColor[2]           = desc.endColor[2];
-            constants.endColor[3]           = desc.endColor[3];
-            uint32_t shape                  = 0;
+            constants.sizes[0] = desc.startSize.min;
+            constants.sizes[1] = desc.startSize.max;
+            constants.sizes[2] = desc.endSize.min;
+            constants.sizes[3] = desc.endSize.max;
+            uint32_t shape     = 0;
             if (desc.shape == ParticleEmitterDesc::Shape::Box)
                 shape = 1;
             else if (desc.shape == ParticleEmitterDesc::Shape::Sphere)
@@ -802,19 +803,22 @@ namespace Dark
                 if (!reset && pool.lastSlot == static_cast<int>(otherSlot))
                     inPlace = false;
 
-                uint32_t steps = 1;
-                float    h     = pool.simDt;
-                if (pool.simDt > kSubstepDt)
-                {
-                    steps = 2;
-                    h     = pool.simDt * 0.5f;
-                }
+                // simDt is already clamped. Speed 1 keeps substepCount from scaling it again.
+                uint32_t steps = substepCount(pool.simDt, 1.0f);
+                float    h     = 0.0f;
+                if (steps == 0)
+                    steps = 1;
+                else if (steps == 2)
+                    h = pool.simDt * 0.5f;
+                else
+                    h = pool.simDt;
                 writeCb(pool, *job.emitter, job.base, job.emissive, h);
                 dispatchStep(pool, inPlace, pool.spawnCount, reset ? 1u : 0u);
                 if (steps == 2)
                 {
                     uavBarrier(cmd, pool.particles[writeSlot].Get());
-                    dispatchStep(pool, true, 0u, 0u);
+                    // Same spawn count rewrites the birth pose and skips Euler on the second substep.
+                    dispatchStep(pool, true, pool.spawnCount, 0u);
                 }
                 uavBarrier(cmd, pool.particles[writeSlot].Get());
                 transitionResource(cmd, pool.particles[writeSlot].Get(), pool.state[writeSlot], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);

@@ -67,6 +67,8 @@ namespace Dark
 
         bool     create(Renderer& renderer);
         void     destroy(Renderer& renderer);
+        // Sets the CPU fallback bit before ParticleEmitter::update. prepare runs after that tick.
+        void     syncCpuFallback(World& world);
         void     prepare(World& world, float dt);
         uint32_t poolCount() const;
         bool     simulateAndDraw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, World& world, AssetManager& assets, bool lateDepthWrite);
@@ -94,9 +96,17 @@ namespace Dark
             D3D12_RESOURCE_STATES  state[kFrameCount] = { D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COMMON };
         };
 
-        Pool*       findPool(EntityID id);
-        const Pool* findPool(EntityID id) const;
-        bool        createBuffers(ID3D12Device* device, Pool& pool, uint32_t capacity, uint32_t generation);
+        struct FallbackRow
+        {
+            EntityID id         = 0;
+            uint32_t capacity   = 0;
+            uint32_t generation = 0;
+            bool     cpuAlready = false;
+        };
+
+        Pool* findPool(EntityID id);
+        void  applyFallback(World& world, std::vector<FallbackRow>& accepted, std::vector<EntityID>& seen);
+        bool  createBuffers(ID3D12Device* device, Pool& pool, uint32_t capacity, uint32_t generation);
         void        releasePool(Pool& pool);
         void        recordClock(Pool& pool, class ParticleEmitter& emitter, float dt);
         bool        ensureDefaultSprite(Renderer& renderer, AssetManager& assets);
@@ -112,6 +122,7 @@ namespace Dark
         std::vector<EntityID>  m_records;
         std::vector<EntityID>  m_loggedRefusal;
         std::vector<EntityID>  m_loggedPrewarm;
+        std::vector<EntityID>  m_createFailed;
         AssetRef<Material>     m_billboardMat;
     };
 

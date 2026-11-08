@@ -1176,11 +1176,15 @@ void EditorApp::onUpdate(float dt)
             m_play.tickHeldItems();
     }
 
-    if (!movieHolds)
+    // Scene2D never calls simulateAndDraw. Leave the GPU clock and burst queue alone.
+    if (!movieHolds && m_sceneMode != SceneMode::Scene2D)
     {
+        m_gpuParticles.syncCpuFallback(world());
         tickParticleEmitters(world(), dt);
         m_gpuParticles.prepare(world(), dt);
     }
+    else if (!movieHolds)
+        tickParticleEmitters(world(), dt);
 
     if (m_sceneMode == SceneMode::Scene2D)
     {

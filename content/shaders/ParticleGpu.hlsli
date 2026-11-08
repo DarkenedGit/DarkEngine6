@@ -14,7 +14,7 @@ struct GpuParticle
 
 // Offsets: viewProj 0, cameraRight 64, cameraUp 80, baseColor 96, gravity 112,
 // emitterPos 128, emitterRot 144, direction 160, shapeSize 176, lifeSpeed 192,
-// sizes 208, startColor 224, endColor 240, sim0 256, sim1 272, sim2 288. Total 304.
+// sizes 208, sim0 224, sim1 240, sim2 256. Total 272. Colors are packed in sim1.
 cbuffer GpuParticleCb : register(b0)
 {
     float4x4 viewProj;
@@ -27,9 +27,7 @@ cbuffer GpuParticleCb : register(b0)
     float4   direction;
     float4   shapeSize;
     float4   lifeSpeed; // life min/max, speed min/max
-    float4   sizes;     // start min/max, end min/max
-    float4   startColor;
-    float4   endColor;
+    float4   sizes; // start min/max, end min/max
     uint4    sim0; // capacity, head, seed, shape
     uint4    sim1; // packed color0, color1
     float4   sim2; // emissive, emissiveGain, spreadRad, substepDt

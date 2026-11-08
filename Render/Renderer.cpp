@@ -1520,7 +1520,7 @@ namespace Dark
             return;
         }
 
-        // Read-only DSV plus the SRV states a later compute Load needs. This call does not bind a descriptor.
+        // HDR RENDER_TARGET. Depth DEPTH_READ | PIXEL_SHADER_RESOURCE | NON_PIXEL_SHADER_RESOURCE, bound read-only.
         m_sceneBuffers->transitionHdr(m_commandList.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
         transitionDepth(m_commandList.Get(), D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         m_commandList->RSSetViewports(1, &m_viewport);
