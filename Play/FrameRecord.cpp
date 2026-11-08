@@ -72,8 +72,8 @@ bool offThreadWritesOverlap(const PassDesc& pass, int ignore)
 
 void enqueueOffThreadPasses(JobSystem& jobs, uint32_t frameIndex)
 {
-    // publishFrame already ran in frameNoteBeginFrame. Joining an unpublished
-    // slot must not enqueue onto whichever frame happens to be current.
+    // The kick site has already published. An unpublished slot must not enqueue
+    // onto whichever frame happens to be current.
     if (!jobs.frameIsPublished(frameIndex))
         return;
 
@@ -102,7 +102,7 @@ void enqueueOffThreadPasses(JobSystem& jobs, uint32_t frameIndex)
     for (int n = 0; n < count; ++n)
     {
         FramePassRow& row = g_passes[indices[n]];
-        // One arm per register. The shadow row re-arms only on frames the worker records.
+        // Disarm before the worker runs. A later join, a worker-off frame, and splash must not Reset again.
         row.armed = false;
         JobDesc job{};
         job.name   = row.desc.name;
@@ -132,10 +132,14 @@ void frameNoteBeginFrame(JobSystem& jobs, uint32_t frameIndex)
     jobs.publishFrame(frameIndex);
 }
 
+void kickFramePasses(JobSystem& jobs, uint32_t frameIndex)
+{
+    // The main list is still open. Starting here is what lets the worker overlap it.
+    enqueueOffThreadPasses(jobs, frameIndex);
+}
+
 bool frameJoinRender(JobSystem& jobs, uint32_t frameIndex)
 {
-    // One kick. Rows registered during record run here, then the join waits.
-    enqueueOffThreadPasses(jobs, frameIndex);
     const auto t0 = std::chrono::steady_clock::now();
     const bool ok = jobs.joinRender(frameIndex);
     const float waitedMs = elapsedMs(t0);

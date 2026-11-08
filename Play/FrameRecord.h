@@ -32,6 +32,10 @@ struct PassDesc
 // False if the table is full, two off-thread rows share write bits, or writes set a main-only bit.
 bool registerFramePass(const PassDesc& pass);
 
+// Enqueue armed off-thread rows and disarm them. Call while the main list is still recording
+// so the worker overlaps that work. frameJoinRender only waits.
+void kickFramePasses(JobSystem& jobs, uint32_t frameIndex);
+
 // Drops every row. Play does not call this; a test join must not call a dead user pointer.
 void resetFramePasses();
 

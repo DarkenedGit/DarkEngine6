@@ -25,11 +25,12 @@ struct ResetPasses
 
 struct Probe
 {
-    std::atomic<int>*   seq = nullptr;
-    std::thread::id     caller{};
-    std::atomic<int>    seen{-1};
-    std::atomic<int>    offCaller{0};
-    std::atomic<int>    ran{0};
+    std::atomic<int>* seq = nullptr;
+    std::thread::id   caller{};
+    std::atomic<int>  seen{-1};
+    std::atomic<int>  offCaller{0};
+    std::atomic<int>  started{0};
+    std::atomic<int>  ran{0};
 };
 
 struct CookBlob
@@ -48,8 +49,9 @@ JobStatus probeRecord(void* user)
     if (std::this_thread::get_id() != job->caller)
         job->offCaller.store(1, std::memory_order_relaxed);
     if (job->seq)
-        job->seen.store(job->seq->fetch_add(1, std::memory_order_acq_rel), std::memory_order_relaxed);
-    job->ran.store(1, std::memory_order_release);
+        job->seen.store(job->seq->fetch_add(1, std::memory_order_relaxed), std::memory_order_relaxed);
+    job->ran.store(1, std::memory_order_relaxed);
+    job->started.store(1, std::memory_order_release);
     return JobStatus::Ok;
 }
 
@@ -68,10 +70,10 @@ JobStatus cookBlob(void* user)
     return JobStatus::Ok;
 }
 
-bool waitReady(const CookBlob& blob)
+bool waitFlag(const std::atomic<int>& flag)
 {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-    while (blob.ready.load(std::memory_order_acquire) == 0)
+    while (flag.load(std::memory_order_acquire) == 0)
     {
         if (std::chrono::steady_clock::now() >= deadline)
             return false;
@@ -112,25 +114,34 @@ TEST(FramePass, JoinEnqueuesNoopWhenStarted)
     frameNoteBeginFrame(jobs, 0);
     EXPECT_TRUE(jobs.frameIsPublished(0));
 
-    // Registered late-first so the join must sort, not keep insertion order.
+    // Registered late-first so the kick must sort, not keep insertion order.
     ASSERT_TRUE(registerFramePass(makePass("late", 2, AccessNone, true, &late)));
     ASSERT_TRUE(registerFramePass(makePass("early", 0, AccessNone, true, &early)));
     ASSERT_TRUE(registerFramePass(makePass("main", 100, AccessNone, false, &mainRow)));
 
-    EXPECT_TRUE(frameJoinRender(jobs, 0));
-    EXPECT_EQ(early.ran.load(), 1);
-    EXPECT_EQ(late.ran.load(), 1);
+    kickFramePasses(jobs, 0);
+    ASSERT_TRUE(waitFlag(early.started));
+    ASSERT_TRUE(waitFlag(late.started));
     EXPECT_EQ(early.offCaller.load(), 1);
     EXPECT_EQ(late.offCaller.load(), 1);
     EXPECT_EQ(early.seen.load(), 0);
     EXPECT_EQ(late.seen.load(), 1);
+    EXPECT_EQ(mainRow.started.load(), 0);
+
+    EXPECT_TRUE(frameJoinRender(jobs, 0));
+    EXPECT_EQ(early.ran.load(), 1);
+    EXPECT_EQ(late.ran.load(), 1);
     EXPECT_EQ(mainRow.ran.load(), 0);
 
     early.ran.store(0);
+    early.started.store(0);
     EXPECT_TRUE(frameJoinRender(jobs, 0));
     EXPECT_EQ(early.ran.load(), 0);
+    EXPECT_EQ(early.started.load(), 0);
 
     ASSERT_TRUE(registerFramePass(makePass("early", 0, AccessNone, true, &early)));
+    kickFramePasses(jobs, 0);
+    ASSERT_TRUE(waitFlag(early.started));
     EXPECT_TRUE(frameJoinRender(jobs, 0));
     EXPECT_EQ(early.ran.load(), 1);
 
@@ -223,8 +234,8 @@ TEST(FramePass, SecondIoJobIsEnqueuePlusMainCommit)
     io.user = &second;
     ASSERT_TRUE(jobs.enqueue(io));
 
-    ASSERT_TRUE(waitReady(first));
-    ASSERT_TRUE(waitReady(second));
+    ASSERT_TRUE(waitFlag(first.ready));
+    ASSERT_TRUE(waitFlag(second.ready));
     first.committed  = first.result;
     second.committed = second.result;
     EXPECT_EQ(first.committed, 3);

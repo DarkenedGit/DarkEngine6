@@ -537,7 +537,6 @@ namespace Dark
                 host.drawList->armResourceSet(g_job.cascadeBegin, g_job.cascadeEnd, CullResourceSet::Depth);
             fillSkinDepth(host, g_job.cascadeBegin, g_job.cascadeEnd);
 
-            // frameJoinRender is the only kick. Enqueue here would record the list twice.
             g_job.kicked      = true;
             g_kickedFrame     = frame;
             PassDesc pass{};
@@ -556,6 +555,11 @@ namespace Dark
                     return true;
                 }
                 shadowJobFn(&g_job);
+            }
+            else
+            {
+                // The frame is already published. Start the worker before the rest of the main list.
+                kickFramePasses(*host.jobs, frame);
             }
             dispatchCameraSide(host, mainCmd, g_job.cascadeBegin, g_job.cascadeEnd, skinUploadOk);
             return true;
