@@ -28,7 +28,7 @@ namespace Dark
     // cpuHandle() is the sampling view: slot 1 _SRGB when present, else slot 0 UNORM.
     // Shader-visible heap is 1 slot matching cpuHandle(). Hud/Data have no sRGB view.
     // Loaded from common image formats via WIC (PNG, JPEG, BMP, etc.).
-    // Sampled uploads copy on the COPY queue and do not call waitForGpu.
+    // Sampled uploads copy on the graphics queue and do not call waitForGpu.
     // Albedo, normal, ORM, data, HUD, and IBL equirect images get a full mip chain.
     // Height, the BRDF LUT, fonts, and UAV targets stay one level.
     // Reloading deferReleases the previous resource. Dropping a texture the GPU
@@ -43,6 +43,10 @@ namespace Dark
 
         Texture2D(const Texture2D&)            = delete;
         Texture2D& operator=(const Texture2D&) = delete;
+
+        // Drop GPU objects after the queues that uploaded or sampled them have moved on.
+        // Empty is a no-op. Same contract as Mesh::deferRelease.
+        void deferRelease(Renderer& renderer);
 
         // Upload CPU pixels. Decode is Image (WIC lives there).
         bool createFromImage(Renderer& renderer, const Image& image, Color::TextureUsage usage);

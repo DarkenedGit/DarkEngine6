@@ -1047,10 +1047,6 @@ namespace Dark
         if (!m_device || !m_commandQueue || !dst || !upload || !footprints || count == 0 || count > 32)
             return false;
 
-        const bool          useCopy  = m_copyQueue && m_copyFence;
-        ID3D12CommandQueue* q        = useCopy ? m_copyQueue.Get() : m_commandQueue.Get();
-        const D3D12_COMMAND_LIST_TYPE listType = useCopy ? D3D12_COMMAND_LIST_TYPE_COPY : D3D12_COMMAND_LIST_TYPE_DIRECT;
-
         auto transition = [](ID3D12GraphicsCommandList* list, ID3D12Resource* resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after)
         {
             D3D12_RESOURCE_BARRIER barrier{};
@@ -1064,12 +1060,13 @@ namespace Dark
 
         ComPtr<ID3D12CommandAllocator>    alloc;
         ComPtr<ID3D12GraphicsCommandList> list;
-        if (!checkHr(m_device->CreateCommandAllocator(listType, IID_PPV_ARGS(&alloc)), "CreateCommandAllocator (texture copy)")
-            || !checkHr(m_device->CreateCommandList(0, listType, alloc.Get(), nullptr, IID_PPV_ARGS(&list)), "CreateCommandList (texture copy)"))
+        if (!checkHr(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc)), "CreateCommandAllocator (texture copy)")
+            || !checkHr(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc.Get(), nullptr, IID_PPV_ARGS(&list)), "CreateCommandList (texture copy)"))
             return false;
 
-        // COPY lists may only transition among COMMON / COPY_*. DIRECT keeps the
-        // texture in PIXEL_SHADER_RESOURCE because a graphics queue does not decay it.
+        // Graphics queue, not COPY. COPY lists must stay in COMMON (#1334 rejects
+        // COPY_DEST) and that upload did not leave texels a shader could sample.
+        // DIRECT does not decay, so the COPY_DEST barrier is legal. dst starts in COMMON.
         transition(list.Get(), dst, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
         for (UINT mip = 0; mip < count; ++mip)
         {
@@ -1084,38 +1081,16 @@ namespace Dark
             srcLoc.PlacedFootprint = footprints[mip];
             list->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, nullptr);
         }
-        transition(list.Get(), dst, D3D12_RESOURCE_STATE_COPY_DEST,
-                   useCopy ? D3D12_RESOURCE_STATE_COMMON : D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        transition(list.Get(), dst, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
         if (!checkHr(list->Close(), "Close texture copy list"))
             return false;
         ID3D12CommandList* lists[] = { list.Get() };
-        q->ExecuteCommandLists(1, lists);
+        m_commandQueue->ExecuteCommandLists(1, lists);
         if (queued)
             *queued = true;
         deferRelease(alloc.Get());
         deferRelease(list.Get());
-
-        if (!useCopy)
-            return true;
-
-        const UINT64 fenceValue = m_copyFenceValue++;
-        if (FAILED(m_copyQueue->Signal(m_copyFence.Get(), fenceValue)) || FAILED(m_commandQueue->Wait(m_copyFence.Get(), fenceValue)))
-            return false;
-
-        ComPtr<ID3D12CommandAllocator>    barrierAlloc;
-        ComPtr<ID3D12GraphicsCommandList> barrierList;
-        if (!checkHr(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&barrierAlloc)), "CreateCommandAllocator (texture barrier)")
-            || !checkHr(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, barrierAlloc.Get(), nullptr, IID_PPV_ARGS(&barrierList)), "CreateCommandList (texture barrier)"))
-            return false;
-
-        transition(barrierList.Get(), dst, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        if (!checkHr(barrierList->Close(), "Close texture barrier list"))
-            return false;
-        ID3D12CommandList* barrierLists[] = { barrierList.Get() };
-        m_commandQueue->ExecuteCommandLists(1, barrierLists);
-        deferRelease(barrierAlloc.Get());
-        deferRelease(barrierList.Get());
         return true;
     }
 
@@ -1182,7 +1157,7 @@ namespace Dark
 
     bool Renderer::submitTextureUpdate(ID3D12Resource* dst, D3D12_RESOURCE_STATES before, ID3D12Resource* upload, const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& footprint)
     {
-        if (!m_valid || !m_device || !m_commandQueue || !m_copyQueue || !m_texUpdateFence)
+        if (!m_valid || !m_device || !m_commandQueue || !m_texUpdateFence)
         {
             DE_LOG_ERROR(LogCategory::Render, "submitTextureUpdate: device not initialized");
             return false;
@@ -1204,47 +1179,20 @@ namespace Dark
         }
 
         const uint32_t             slot        = m_frameIndex;
-        ID3D12CommandAllocator*    copyAlloc   = m_texUpdateCopyAlloc[slot].Get();
-        ID3D12GraphicsCommandList* copyList    = m_texUpdateCopyList[slot].Get();
         ID3D12CommandAllocator*    directAlloc = m_texUpdateDirectAlloc[slot].Get();
         ID3D12GraphicsCommandList* directList  = m_texUpdateDirectList[slot].Get();
-        if (!copyAlloc || !copyList || !directAlloc || !directList)
+        if (!directAlloc || !directList)
         {
             DE_LOG_ERROR(LogCategory::Render, "submitTextureUpdate: upload lists are not ready");
             return false;
         }
 
-        // Lists were closed in init or by the previous visit. Reset only here.
-        if (!checkHr(copyAlloc->Reset(), "TexUpdate copy allocator Reset"))
-            return false;
-        if (!checkHr(copyList->Reset(copyAlloc, nullptr), "TexUpdate copy list Reset"))
-            return false;
-        bool copyOpen = true;
+        // Closed in init or by the previous visit. This slot's prior GPU work has
+        // finished: moveToNextFrame waited the graphics fence before the slot was reused.
         if (!checkHr(directAlloc->Reset(), "TexUpdate direct allocator Reset"))
-        {
-            checkHr(copyList->Close(), "TexUpdate copy Close (cancel)");
             return false;
-        }
         if (!checkHr(directList->Reset(directAlloc, nullptr), "TexUpdate direct list Reset"))
-        {
-            checkHr(copyList->Close(), "TexUpdate copy Close (cancel)");
             return false;
-        }
-        bool directOpen = true;
-
-        auto closeRecording = [&]()
-        {
-            if (copyOpen)
-            {
-                checkHr(copyList->Close(), "TexUpdate copy Close (cancel)");
-                copyOpen = false;
-            }
-            if (directOpen)
-            {
-                checkHr(directList->Close(), "TexUpdate direct Close (cancel)");
-                directOpen = false;
-            }
-        };
 
         auto transition = [](ID3D12GraphicsCommandList* list, ID3D12Resource* resource, D3D12_RESOURCE_STATES stateBefore, D3D12_RESOURCE_STATES stateAfter)
         {
@@ -1257,31 +1205,8 @@ namespace Dark
             list->ResourceBarrier(1, &barrier);
         };
 
-        const bool fromSrv = before == D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-        if (fromSrv)
-        {
-            transition(directList, dst, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
-            if (!checkHr(directList->Close(), "TexUpdate direct pre Close"))
-            {
-                closeRecording();
-                return false;
-            }
-            directOpen = false;
-            ID3D12CommandList* preLists[] = { directList };
-            m_commandQueue->ExecuteCommandLists(1, preLists);
-            if (!signalTexUpdate(m_commandQueue.Get(), "TexUpdate pre Signal"))
-            {
-                closeRecording();
-                return false;
-            }
-            if (!checkHr(m_copyQueue->Wait(m_texUpdateFence.Get(), m_texUpdateFenceValue), "TexUpdate copy Wait"))
-            {
-                closeRecording();
-                return false;
-            }
-        }
-
-        transition(copyList, dst, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
+        // Same graphics-queue rule as submitTextureCopies. before is COMMON or SRV.
+        transition(directList, dst, before, D3D12_RESOURCE_STATE_COPY_DEST);
         D3D12_TEXTURE_COPY_LOCATION dstLoc{};
         dstLoc.pResource        = dst;
         dstLoc.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
@@ -1290,50 +1215,13 @@ namespace Dark
         srcLoc.pResource       = upload;
         srcLoc.Type            = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
         srcLoc.PlacedFootprint = footprint;
-        copyList->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, nullptr);
-        transition(copyList, dst, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COMMON);
-        if (!checkHr(copyList->Close(), "TexUpdate copy Close"))
-        {
-            closeRecording();
+        directList->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, nullptr);
+        transition(directList, dst, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        if (!checkHr(directList->Close(), "TexUpdate direct Close"))
             return false;
-        }
-        copyOpen = false;
-        ID3D12CommandList* copyLists[] = { copyList };
-        m_copyQueue->ExecuteCommandLists(1, copyLists);
-        if (!signalTexUpdate(m_copyQueue.Get(), "TexUpdate copy Signal"))
-        {
-            closeRecording();
-            return false;
-        }
-        if (!checkHr(m_commandQueue->Wait(m_texUpdateFence.Get(), m_texUpdateFenceValue), "TexUpdate graphics Wait"))
-        {
-            closeRecording();
-            return false;
-        }
-
-        if (fromSrv)
-        {
-            // The pre-copy record closed this list and is still on the GPU.
-            // Reset the list on the same allocator. Resetting the allocator is illegal
-            // until that execute finishes, and this path does not wait.
-            if (!checkHr(directList->Reset(directAlloc, nullptr), "TexUpdate direct list Reset"))
-            {
-                closeRecording();
-                return false;
-            }
-            directOpen = true;
-        }
-
-        transition(directList, dst, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        if (!checkHr(directList->Close(), "TexUpdate direct post Close"))
-        {
-            closeRecording();
-            return false;
-        }
-        directOpen = false;
-        ID3D12CommandList* postLists[] = { directList };
-        m_commandQueue->ExecuteCommandLists(1, postLists);
-        return true;
+        ID3D12CommandList* lists[] = { directList };
+        m_commandQueue->ExecuteCommandLists(1, lists);
+        return signalTexUpdate(m_commandQueue.Get(), "TexUpdate direct Signal");
     }
 
     bool Renderer::hasSceneBuffers() const

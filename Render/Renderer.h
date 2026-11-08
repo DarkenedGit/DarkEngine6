@@ -90,16 +90,18 @@ namespace Dark
         // until pumpDeferredReleases (caller should deferRelease them).
         bool submitBufferCopies(ID3D12Resource* dstA, ID3D12Resource* srcA, uint64_t bytesA, ID3D12Resource* dstB, ID3D12Resource* srcB, uint64_t bytesB);
 
-        // Copy upload footprints into a texture created in COMMON. Prefers the
-        // COPY queue, then a graphics barrier to PIXEL_SHADER_RESOURCE. CPU does
-        // not stall. upload must stay alive until pumpDeferredReleases (caller
-        // should deferRelease it). *queued is set once the GPU may reference dst
-        // or upload; on false with queued, keep both alive via deferRelease.
+        // Copy upload footprints into a texture created in COMMON. Records on the
+        // graphics queue: COMMON → COPY_DEST, copy, then PIXEL_SHADER_RESOURCE.
+        // A COPY list rejects COPY_DEST (#1334) and did not leave sampled texels.
+        // CPU does not stall. upload must stay alive until pumpDeferredReleases
+        // (caller should deferRelease it). *queued is set once the GPU may reference
+        // dst or upload; on false with queued, keep both alive via deferRelease.
         bool submitTextureCopies(ID3D12Resource* dst, ID3D12Resource* upload, const D3D12_PLACED_SUBRESOURCE_FOOTPRINT* footprints, UINT count, bool* queued = nullptr);
 
         // Per-frame upload into a texture left in COMMON (first use of the slot) or
-        // PIXEL_SHADER_RESOURCE. Uses the persistent per-slot upload lists. Does not
-        // signal m_fenceValues, does not CreateCommandAllocator, and does not wait on the CPU.
+        // PIXEL_SHADER_RESOURCE. One graphics list: that state → COPY_DEST, copy,
+        // then PIXEL_SHADER_RESOURCE, then signal m_texUpdateFence. Does not signal
+        // m_fenceValues, does not CreateCommandAllocator, and does not wait on the CPU.
         bool submitTextureUpdate(ID3D12Resource* dst, D3D12_RESOURCE_STATES before, ID3D12Resource* upload, const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& footprint);
 
         // Adapter the device was created on. Zero if the device is not up.

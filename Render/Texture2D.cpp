@@ -149,6 +149,14 @@ namespace Dark
         return false;
     }
 
+    void Texture2D::deferRelease(Renderer& renderer)
+    {
+        renderer.deferRelease(m_resource.Get());
+        renderer.deferRelease(m_cpuSrvHeap.Get());
+        renderer.deferRelease(m_srvHeap.Get());
+        *this = Texture2D{};
+    }
+
     bool Texture2D::createFromImage(Renderer& renderer, const Image& image, Color::TextureUsage usage)
     {
         if (!image.valid() || !image.pixels())
@@ -503,7 +511,7 @@ namespace Dark
         D3D12_HEAP_PROPERTIES defaultHeap{};
         defaultHeap.Type = D3D12_HEAP_TYPE_DEFAULT;
 
-        // COMMON so the copy queue can promote it. The graphics barrier lands it in the SRV state.
+        // COMMON. submitTextureCopies transitions COPY_DEST, copies, then SRV.
         if (FailedHr(device->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &texDesc, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&m_resource)),
                      "CreateCommittedResource texture"))
         {

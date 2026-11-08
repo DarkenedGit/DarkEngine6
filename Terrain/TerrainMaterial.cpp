@@ -323,7 +323,7 @@ namespace Dark
         for (int i = 0; i < Terrain::kMaxTerrainLayers; ++i)
         {
             m_layers[i] = desc.layers[i];
-            m_albedoOwned[i] = Texture2D{};
+            m_albedoOwned[i].deferRelease(renderer);
             m_albedoSrv[i]   = nullptr;
             BindInternedMap(cache, desc.albedo[i], Color::TextureUsage::Albedo, i, "albedo", layerAlbedoSlot(static_cast<UINT>(i)), m_albedoGpu[i]);
             BindInternedMap(cache, desc.normal[i], Color::TextureUsage::Normal, i, "normal", layerNormalSlot(static_cast<UINT>(i)), m_normalGpu[i]);
@@ -361,7 +361,7 @@ namespace Dark
             m_layers[i] = desc.layers[i];
             BindInternedMap(cache, desc.albedo[i], Color::TextureUsage::Albedo, i, "albedo", layerAlbedoSlot(static_cast<UINT>(i)), m_albedoGpu[i]);
             if (m_albedoGpu[i] && m_albedoGpu[i]->valid())
-                m_albedoOwned[i] = Texture2D{};
+                m_albedoOwned[i].deferRelease(renderer);
             BindInternedMap(cache, desc.normal[i], Color::TextureUsage::Normal, i, "normal", layerNormalSlot(static_cast<UINT>(i)), m_normalGpu[i]);
             BindInternedMap(cache, desc.orm[i], Color::TextureUsage::Orm, i, "orm", layerOrmSlot(static_cast<UINT>(i)), m_ormGpu[i]);
         }
