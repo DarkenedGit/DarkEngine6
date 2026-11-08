@@ -17,15 +17,12 @@ void ParticleEditorPanel::draw(Dark::ParticleEmitter& emitter, bool* open)
 
     Dark::ParticleEmitterDesc& d = emitter.desc();
 
-    // Copy first so setDesc can compare the previous capacity, mode, and child cap.
-    // The callback only bumps gpuDescGeneration; it does not destroy GPU resources.
     auto finishDesc = [&emitter](Dark::ParticleEmitterDesc next)
     {
         if (next.renderMode == Dark::ParticleEmitterDesc::RenderMode::Ribbon && next.simMode == Dark::ParticleSimMode::Gpu)
         {
             next.simMode = Dark::ParticleSimMode::Cpu;
         }
-        // setDesc's CPU arm clamps above 100000. Do it here so the panel does not hand it a value it rewrites.
         if (next.simMode == Dark::ParticleSimMode::Cpu && next.maxParticles > Dark::kMaxCpuParticles)
         {
             next.maxParticles = Dark::kMaxCpuParticles;
@@ -115,9 +112,9 @@ void ParticleEditorPanel::draw(Dark::ParticleEmitter& emitter, bool* open)
     int         mode    = static_cast<int>(d.renderMode);
     if (ImGui::Combo("Render mode", &mode, modes, 2))
     {
-        Dark::ParticleEmitterDesc next = d;
-        next.renderMode                = static_cast<Dark::ParticleEmitterDesc::RenderMode>(mode);
-        finishDesc(next);
+        d.renderMode = static_cast<Dark::ParticleEmitterDesc::RenderMode>(mode);
+        if (d.renderMode == Dark::ParticleEmitterDesc::RenderMode::Ribbon && d.simMode == Dark::ParticleSimMode::Gpu)
+            finishDesc(d);
     }
     if (d.renderMode == Dark::ParticleEmitterDesc::RenderMode::Ribbon)
     {
@@ -135,32 +132,25 @@ void ParticleEditorPanel::draw(Dark::ParticleEmitter& emitter, bool* open)
     int         reaction    = static_cast<int>(d.collision);
     if (ImGui::Combo("Collision", &reaction, reactions, 4))
     {
-        Dark::ParticleEmitterDesc next = d;
-        next.collision                 = static_cast<Dark::ParticleCollisionReaction>(reaction);
-        if (next.collision == Dark::ParticleCollisionReaction::SpawnSecondary)
-            next.hasSecondary = true;
-        finishDesc(next);
+        d.collision = static_cast<Dark::ParticleCollisionReaction>(reaction);
+        if (d.collision == Dark::ParticleCollisionReaction::SpawnSecondary && !d.hasSecondary)
+        {
+            Dark::ParticleEmitterDesc next = d;
+            next.hasSecondary              = true;
+            finishDesc(next);
+        }
     }
     if (d.simMode == Dark::ParticleSimMode::Cpu)
         ImGui::TextUnformatted("CPU emitters do not collide");
 
-    if (ImGui::DragFloat("Restitution", &d.restitution, 0.01f, 0.0f, 1.0f))
-        finishDesc(d);
-    if (ImGui::DragFloat("Friction", &d.friction, 0.01f, 0.0f, 1.0f))
-        finishDesc(d);
-    if (ImGui::DragFloat("Thickness", &d.collisionThickness, 0.01f, 0.0f, 5.0f))
-        finishDesc(d);
-    if (ImGui::DragFloat("Bias", &d.collisionBias, 0.01f, 0.0f, 1.0f))
-        finishDesc(d);
-    if (ImGui::DragFloat("Rest lifetime", &d.restLifetime, 0.01f, 0.0f, 20.0f))
-        finishDesc(d);
+    ImGui::DragFloat("Restitution", &d.restitution, 0.01f, 0.0f, 1.0f);
+    ImGui::DragFloat("Friction", &d.friction, 0.01f, 0.0f, 1.0f);
+    ImGui::DragFloat("Thickness", &d.collisionThickness, 0.01f, 0.0f, 5.0f);
+    ImGui::DragFloat("Bias", &d.collisionBias, 0.01f, 0.0f, 1.0f);
+    ImGui::DragFloat("Rest lifetime", &d.restLifetime, 0.01f, 0.0f, 20.0f);
     int secondaryPerFrame = static_cast<int>(d.maxSecondaryPerFrame);
     if (ImGui::DragInt("Max secondary per frame", &secondaryPerFrame, 1.0f, 0, static_cast<int>(Dark::kMaxSecondaryPerFrameHard)))
-    {
-        Dark::ParticleEmitterDesc next = d;
-        next.maxSecondaryPerFrame      = static_cast<uint32_t>(secondaryPerFrame);
-        finishDesc(next);
-    }
+        d.maxSecondaryPerFrame = static_cast<uint32_t>(secondaryPerFrame);
 
     if (d.collision == Dark::ParticleCollisionReaction::SpawnSecondary)
     {
@@ -184,7 +174,7 @@ void ParticleEditorPanel::draw(Dark::ParticleEmitter& emitter, bool* open)
             childEdited = true;
         if (ImGui::Checkbox("Additive blend", &d.secondary.additiveBlend))
             childEdited = true;
-        if (childEdited)
+        if (childEdited && !d.hasSecondary)
         {
             Dark::ParticleEmitterDesc next = d;
             next.hasSecondary              = true;
