@@ -59,14 +59,9 @@ bool slotInSpawn(uint slot)
     return dist >= 1u && dist <= spawnCount;
 }
 
-uint birthSeed(uint slot)
-{
-    return sim0.z ^ (slot * 0x9E3779B9u) ^ (sim0.y * 0x85EBCA6Bu);
-}
-
 GpuParticle birthParticle(uint slot)
 {
-    uint seed = birthSeed(slot);
+    uint seed = sim0.z ^ (slot * 0x9E3779B9u) ^ (sim0.y * 0x85EBCA6Bu);
     uint state = seed == 0u ? 1u : seed;
 
     GpuParticle p = (GpuParticle)0;
@@ -137,13 +132,6 @@ GpuParticle birthParticle(uint slot)
     return p;
 }
 
-float dispatchRest()
-{
-    if ((stepFlags & 1u) != 0u)
-        return asfloat(child1.y);
-    return collide1.w;
-}
-
 void writePos(inout GpuParticle p, float3 pos)
 {
     p.position0 = pos.x;
@@ -162,7 +150,9 @@ void applyStop(inout GpuParticle p, float3 pos)
 {
     writePos(p, pos);
     writeVel(p, float3(0, 0, 0));
-    float restLife = dispatchRest();
+    float restLife = collide1.w;
+    if ((stepFlags & 1u) != 0u)
+        restLife = asfloat(child1.y);
     if (restLife <= 0.0)
     {
         p.flags = 0;

@@ -59,21 +59,9 @@ namespace Dark
             return (u8(c[0]) << 24) | (u8(c[1]) << 16) | (u8(c[2]) << 8) | u8(c[3]);
         }
 
-        uint32_t floatBits(float value)
-        {
-            uint32_t bits = 0;
-            std::memcpy(&bits, &value, sizeof(bits));
-            return bits;
-        }
-
         bool wantsSecondary(const ParticleEmitterDesc& desc)
         {
             return desc.collision == ParticleCollisionReaction::SpawnSecondary && desc.hasSecondary && desc.secondary.maxParticles > 0;
-        }
-
-        uint32_t secondarySlots(const ParticleEmitterDesc& desc)
-        {
-            return wantsSecondary(desc) ? desc.secondary.maxParticles : 0u;
         }
 
         bool secondaryMismatch(bool haveResources, uint32_t childCapacity, const ParticleEmitterDesc& desc)
@@ -627,7 +615,7 @@ namespace Dark
             }
 
             const uint32_t cap    = desc.maxParticles;
-            const uint32_t slots  = cap + secondarySlots(desc);
+            const uint32_t slots  = cap + (wantsSecondary(desc) ? desc.secondary.maxParticles : 0u);
             const bool     slotOk = static_cast<uint64_t>(live) + static_cast<uint64_t>(slots) <= static_cast<uint64_t>(kMaxParticleSlotsTotal);
             const ParticlePoolDecision decision = particlePoolDecision(desc.simMode, cap, true, slotOk);
             const bool createFailed = containsId(m_createFailed, id);
@@ -1090,7 +1078,9 @@ namespace Dark
             constants.child0[2]   = desc.secondary.startSize.min;
             constants.child0[3]   = desc.secondary.startSize.max;
             constants.child1[0]   = pool.childCapacity;
-            constants.child1[1]   = floatBits(desc.secondary.restLifetime);
+            uint32_t restBits      = 0;
+            std::memcpy(&restBits, &desc.secondary.restLifetime, sizeof(restBits));
+            constants.child1[1]   = restBits;
 
             uint8_t* dst = pool.mapped + static_cast<size_t>(writeSlot) * kCbStride;
             std::memset(dst, 0, kCbStride);
