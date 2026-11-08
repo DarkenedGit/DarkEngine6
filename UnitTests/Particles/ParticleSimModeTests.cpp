@@ -12,6 +12,8 @@
 
 #include <wrl/client.h>
 
+#include <charconv>
+#include <system_error>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -24,6 +26,11 @@ namespace
 
 int g_ribbonLogs = 0;
 int g_overCapLogs = 0;
+int g_poolCreates = 0;
+int g_committedLogs = 0;
+int g_frozenLogs = 0;
+int g_byteLogs = 0;
+char g_bytesNeedle[32] = {};
 
 void captureParticleLogs(LogLevel, LogCategory, const char* message)
 {
@@ -33,6 +40,20 @@ void captureParticleLogs(LogLevel, LogCategory, const char* message)
         ++g_ribbonLogs;
     if (std::strstr(message, "no CPU pool") != nullptr)
         ++g_overCapLogs;
+}
+
+void capturePoolLogs(LogLevel, LogCategory, const char* message)
+{
+    if (message == nullptr)
+        return;
+    if (std::strstr(message, "GpuParticleSystem: pool '") != nullptr)
+        ++g_poolCreates;
+    if (std::strstr(message, "CreateCommittedResource") != nullptr)
+        ++g_committedLogs;
+    if (std::strstr(message, "frozen") != nullptr)
+        ++g_frozenLogs;
+    if (g_bytesNeedle[0] != '\0' && std::strstr(message, g_bytesNeedle) != nullptr)
+        ++g_byteLogs;
 }
 
 struct LogCapture
@@ -445,6 +466,90 @@ TEST(ParticleSimMode, TickStillUpdatesAndSkipsGpuIntegration)
     EXPECT_EQ(c->runtime->desc().simMode, ParticleSimMode::Gpu);
     EXPECT_EQ(c->runtime->desc().maxParticles, 200000u);
     EXPECT_NEAR(c->runtime->position().x, 4.0f, 1.0e-4f);
+}
+
+TEST(ParticleSimMode, FlagOff512GpuDescRunsCpuEuler)
+{
+    World world;
+    Entity e = world.createEntity();
+    TransformComponent xf{};
+    xf.position = Vector3f(1.0f, 2.0f, 3.0f);
+    world.emplace<TransformComponent>(e, xf);
+
+    ParticleEmitterComponent pe{};
+    pe.desc               = cpuMotionDesc();
+    pe.desc.simMode       = ParticleSimMode::Gpu;
+    pe.desc.maxParticles  = 512;
+    pe.desc.emissionRate  = 1000.0f;
+    pe.desc.startSpeed    = { 0.0f, 0.0f };
+    pe.desc.gravity       = Vector3f(0.0f, -10.0f, 0.0f);
+    pe.playing            = true;
+    world.emplace<ParticleEmitterComponent>(e, std::move(pe));
+
+    GpuParticleSystem gpu;
+    const float dt = 0.1f;
+    gpu.applyIntegratorFallback(world, false);
+    tickParticleEmitters(world, dt);
+    gpu.prepare(world, dt);
+
+    ParticleEmitterComponent* c = world.get<ParticleEmitterComponent>(e);
+    ASSERT_NE(c, nullptr);
+    ASSERT_NE(c->runtime, nullptr);
+    EXPECT_GT(c->runtime->aliveCount(), 0u);
+    EXPECT_EQ(c->runtime->capacity(), 512u);
+    EXPECT_TRUE(c->runtime->forceCpu());
+    EXPECT_EQ(c->runtime->desc().simMode, ParticleSimMode::Gpu);
+    EXPECT_EQ(gpu.poolCount(), 0u);
+    const Particle* spawned = firstSpawned(*c->runtime);
+    ASSERT_NE(spawned, nullptr);
+    EXPECT_NEAR(spawned->velocity.y, -10.0f * dt, 1.0e-4f);
+    EXPECT_NEAR(spawned->position.x, 1.0f, 1.0e-4f);
+    EXPECT_NEAR(spawned->position.y, 2.0f + (-10.0f * dt) * dt, 1.0e-4f);
+    EXPECT_NEAR(spawned->position.z, 3.0f, 1.0e-4f);
+}
+
+TEST(ParticleSimMode, FlagOff200000CreatesNoPool)
+{
+    g_poolCreates   = 0;
+    g_committedLogs = 0;
+    g_frozenLogs    = 0;
+    g_byteLogs      = 0;
+    const uint64_t bytes = static_cast<uint64_t>(200000u) * sizeof(GpuParticle) * GpuParticleSystem::kFrameCount
+        + static_cast<uint64_t>(GpuParticleSystem::kCbStride) * GpuParticleSystem::kFrameCount;
+    const std::to_chars_result written = std::to_chars(g_bytesNeedle, g_bytesNeedle + sizeof(g_bytesNeedle) - 1, bytes);
+    ASSERT_EQ(written.ec, std::errc{});
+    *written.ptr = '\0';
+    LogCapture capture(capturePoolLogs);
+
+    World world;
+    Entity e = world.createEntity();
+    ParticleEmitterComponent pe{};
+    pe.desc.simMode      = ParticleSimMode::Gpu;
+    pe.desc.maxParticles = 200000;
+    pe.desc.emissionRate = 10000.0f;
+    pe.playing           = true;
+    world.emplace<ParticleEmitterComponent>(e, std::move(pe));
+
+    GpuParticleSystem gpu;
+    gpu.applyIntegratorFallback(world, false);
+    tickParticleEmitters(world, 0.1f);
+    gpu.prepare(world, 0.1f);
+    gpu.prepare(world, 0.1f);
+
+    ParticleEmitterComponent* c = world.get<ParticleEmitterComponent>(e);
+    ASSERT_NE(c, nullptr);
+    ASSERT_NE(c->runtime, nullptr);
+    EXPECT_EQ(c->runtime->capacity(), 0u);
+    EXPECT_EQ(c->runtime->aliveCount(), 0u);
+    EXPECT_FALSE(c->runtime->forceCpu());
+    EXPECT_EQ(c->runtime->desc().simMode, ParticleSimMode::Gpu);
+    EXPECT_EQ(c->runtime->desc().maxParticles, 200000u);
+    EXPECT_EQ(gpu.poolCount(), 0u);
+    EXPECT_EQ(g_poolCreates, 0);
+    EXPECT_EQ(g_committedLogs, 0);
+    EXPECT_EQ(g_frozenLogs, 1);
+    EXPECT_EQ(g_byteLogs, 1);
+    g_bytesNeedle[0] = '\0';
 }
 
 TEST(ParticleSimMode, GpuSubstepCountClampsDt)

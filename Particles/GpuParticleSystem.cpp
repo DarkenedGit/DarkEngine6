@@ -212,6 +212,12 @@ namespace Dark
             return kViewBase + static_cast<uint32_t>(descSlot) * kViewsPerPool + 2u;
         }
 
+        uint64_t particlePoolBytes(uint32_t capacity)
+        {
+            return static_cast<uint64_t>(capacity) * sizeof(GpuParticle) * GpuParticleSystem::kFrameCount
+                + static_cast<uint64_t>(GpuParticleSystem::kCbStride) * GpuParticleSystem::kFrameCount;
+        }
+
     } // namespace
 
     static_assert(GpuParticleSystem::kFrameCount == Renderer::kFrameCount, "particle slots follow the renderer frame count");
@@ -278,12 +284,13 @@ namespace Dark
         m_billboardMat = {};
         destroyGpuViews();
         m_pipeline.destroy();
-        m_ready         = false;
-        m_renderer      = nullptr;
-        m_prepareEpoch  = 0;
-        m_consumedEpoch = 0;
-        m_drawnFrame    = ~0u;
-        m_loggedSprite  = false;
+        m_ready               = false;
+        m_renderer            = nullptr;
+        m_gpuParticlesEnabled = true;
+        m_prepareEpoch        = 0;
+        m_consumedEpoch       = 0;
+        m_drawnFrame          = ~0u;
+        m_loggedSprite        = false;
     }
 
     GpuParticleSystem::Pool* GpuParticleSystem::findPool(EntityID id)
@@ -321,10 +328,11 @@ namespace Dark
         pool.childCapacity    = 0;
         if (pool.descSlot >= 0)
             freeDescSlot(pool.descSlot);
-        pool.descSlot  = -1;
-        pool.capacity  = 0;
-        pool.submitted = false;
-        pool.lastSlot  = -1;
+        pool.descSlot   = -1;
+        pool.capacity   = 0;
+        pool.submitted  = false;
+        pool.hasSpawned = false;
+        pool.lastSlot   = -1;
     }
 
     bool GpuParticleSystem::createGpuViews(ID3D12Device* device)
@@ -528,6 +536,7 @@ namespace Dark
         pool.resetFramesRemaining = kFrameCount;
         pool.lastSlot             = -1;
         pool.submitted            = false;
+        pool.hasSpawned           = false;
         if (pool.head >= capacity)
             pool.head = 0;
         return true;
@@ -573,6 +582,8 @@ namespace Dark
         pool.simDt      = used;
         pool.position   = emitter.position();
         pool.rotation   = emitter.rotation();
+        if (step.spawnCount > 0)
+            pool.hasSpawned = true;
         emitter.noteGpuClock(step.carry, age, playing);
     }
 
@@ -617,19 +628,33 @@ namespace Dark
             const uint32_t cap    = desc.maxParticles;
             const uint32_t slots  = cap + (wantsSecondary(desc) ? desc.secondary.maxParticles : 0u);
             const bool     slotOk = static_cast<uint64_t>(live) + static_cast<uint64_t>(slots) <= static_cast<uint64_t>(kMaxParticleSlotsTotal);
-            const ParticlePoolDecision decision = particlePoolDecision(desc.simMode, cap, true, slotOk);
+            const ParticlePoolDecision decision = particlePoolDecision(desc.simMode, cap, m_gpuParticlesEnabled, slotOk);
             const bool createFailed = containsId(m_createFailed, id);
             const bool keepCpu      = createFailed && cap <= kMaxCpuParticles;
             const bool cpuAlready   = emitter.forceCpu();
             if (!decision.recordGpuPool)
             {
-                if (!slotOk && markOnce(m_loggedRefusal, id))
+                const uint64_t bytes = particlePoolBytes(cap);
+                if (markOnce(m_loggedRefusal, id))
                 {
-                    DE_LOG_ERROR(LogCategory::Render, "GpuParticleSystem: slot cap {} refused '{}' ({} live slots, {} requested)", kMaxParticleSlotsTotal, desc.name, live, cap);
+                    if (!slotOk)
+                    {
+                        DE_LOG_ERROR(LogCategory::Render, "GpuParticleSystem: slot cap {} refused '{}' ({} live slots, {} requested, {} bytes)",
+                            kMaxParticleSlotsTotal, desc.name, live, cap, static_cast<unsigned long long>(bytes));
+                    }
+                    if (!decision.forceCpu)
+                    {
+                        DE_LOG_WARN(LogCategory::Render, "GpuParticleSystem: GPU emitter '{}' above {} frozen ({} bytes)",
+                            desc.name, kMaxCpuParticles, static_cast<unsigned long long>(bytes));
+                    }
+                    else if (!m_gpuParticlesEnabled)
+                    {
+                        DE_LOG_INFO(LogCategory::Render, "GpuParticleSystem: refused pool '{}' capacity {} bytes {}",
+                            desc.name, cap, static_cast<unsigned long long>(bytes));
+                    }
                 }
-                // Over the CPU cap both flags are false. Leave forceCpu; there is no CPU vector to run.
-                if (decision.forceCpu)
-                    emitter.setForceCpu(true);
+                // Fourth row stays false: no CPU vector. Third row is the only setForceCpu(true).
+                emitter.setForceCpu(decision.forceCpu);
                 return;
             }
 
@@ -644,8 +669,9 @@ namespace Dark
         });
     }
 
-    void GpuParticleSystem::syncCpuFallback(World& world)
+    void GpuParticleSystem::applyIntegratorFallback(World& world, bool gpuParticlesEnabled)
     {
+        m_gpuParticlesEnabled = gpuParticlesEnabled;
         std::vector<FallbackRow> accepted;
         std::vector<EntityID>    seen;
         applyFallback(world, accepted, seen);
@@ -756,7 +782,10 @@ namespace Dark
                 {
                     // Release once. A submitted pool already waited this frame; later frames have nothing to wait on.
                     if (markOnce(m_loggedRefusal, row.id))
-                        DE_LOG_ERROR(LogCategory::Render, "GpuParticleSystem: pool create failed for '{}' capacity {}", emitter.desc().name, row.capacity);
+                    {
+                        DE_LOG_ERROR(LogCategory::Render, "GpuParticleSystem: pool create failed for '{}' capacity {} bytes {}",
+                            emitter.desc().name, row.capacity, static_cast<unsigned long long>(particlePoolBytes(row.capacity)));
+                    }
                     if (row.capacity <= kMaxCpuParticles)
                     {
                         emitter.setForceCpu(true);
@@ -767,7 +796,7 @@ namespace Dark
                     dropPool(row.id);
                     continue;
                 }
-                uint64_t bytes = static_cast<uint64_t>(row.capacity) * sizeof(GpuParticle) * kFrameCount + static_cast<uint64_t>(kCbStride) * kFrameCount;
+                uint64_t bytes = particlePoolBytes(row.capacity);
                 if (wantsSecondary(emitter.desc()))
                 {
                     const uint64_t childCap = emitter.desc().secondary.maxParticles;
@@ -810,6 +839,8 @@ namespace Dark
         if (!cmd || !m_ready || !m_pipeline.isValid())
             return false;
         DE_ASSERT(cmd == renderer.commandList());
+        // Same flag prepare used, unless the checkbox moved after the tick. A leftover pool still has to miss this filter.
+        m_gpuParticlesEnabled = renderer.debugState().gpuParticles;
 
         const uint32_t frame    = renderer.frameIndex();
         const bool     prepared = m_prepareEpoch != m_consumedEpoch;
@@ -893,12 +924,19 @@ namespace Dark
         };
 
         std::vector<Job> jobs;
+        uint32_t totalSlots = 0;
+        for (const Pool& pool : m_pools)
+            totalSlots += pool.capacity + pool.childCapacity;
+
+        auto gpuPath = [&](const ParticleEmitter& emitter, uint32_t cap) {
+            const uint32_t others = totalSlots >= cap ? totalSlots - cap : 0u;
+            const bool slotOk = static_cast<uint64_t>(others) + static_cast<uint64_t>(cap) <= static_cast<uint64_t>(kMaxParticleSlotsTotal);
+            const ParticlePoolDecision decision = particlePoolDecision(emitter.desc().simMode, emitter.desc().maxParticles, m_gpuParticlesEnabled, slotOk);
+            return decision.recordGpuPool && !emitter.forceCpu();
+        };
+
         if (prepared)
         {
-            uint32_t totalSlots = 0;
-            for (const Pool& pool : m_pools)
-                totalSlots += pool.capacity + pool.childCapacity;
-
             const bool ortho = camera.IsOrthographic();
             for (EntityID id : m_records)
             {
@@ -909,13 +947,7 @@ namespace Dark
                 if (!pe || !pe->runtime)
                     continue;
                 ParticleEmitter& emitter = *pe->runtime;
-                if (emitter.desc().simMode != ParticleSimMode::Gpu)
-                    continue;
-                const uint32_t mine   = pool->capacity + pool->childCapacity;
-                const uint32_t others = totalSlots >= mine ? totalSlots - mine : 0u;
-                const bool     slotOk = static_cast<uint64_t>(others) + static_cast<uint64_t>(mine) <= static_cast<uint64_t>(kMaxParticleSlotsTotal);
-                const ParticlePoolDecision decision = particlePoolDecision(emitter.desc().simMode, emitter.desc().maxParticles, true, slotOk);
-                if (emitter.forceCpu() || !decision.recordGpuPool)
+                if (!gpuPath(emitter, pool->capacity + pool->childCapacity))
                     continue;
 
                 const ParticleEmitterDesc& desc = emitter.desc();
@@ -944,7 +976,7 @@ namespace Dark
                 ParticleEmitterComponent* pe = world.get<ParticleEmitterComponent>(Entity{ pool.entity });
                 if (!pe || !pe->runtime)
                     continue;
-                if (pe->runtime->desc().simMode != ParticleSimMode::Gpu || pe->runtime->forceCpu())
+                if (!gpuPath(*pe->runtime, pool.capacity + pool.childCapacity))
                     continue;
                 Job job{};
                 job.pool          = &pool;
@@ -1264,6 +1296,8 @@ namespace Dark
                 if (!job.drawable || !job.tex || !job.pool || !job.emitter)
                     continue;
                 Pool& pool = *job.pool;
+                if (!pool.hasSpawned)
+                    continue;
                 if (pool.lastSlot < 0 || !pool.particles[pool.lastSlot])
                     continue;
                 const uint32_t particleSlot = static_cast<uint32_t>(pool.lastSlot);

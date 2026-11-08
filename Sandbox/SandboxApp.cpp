@@ -3350,7 +3350,7 @@ void SandboxApp::onUpdate(float dt)
         m_play.tickWorld(dt);
         updateQuest(dt);
         m_blood.update(dt);
-        m_gpuParticles.syncCpuFallback(world());
+        m_gpuParticles.applyIntegratorFallback(world(), renderer().debugState().gpuParticles);
         tickParticleEmitters(world(), dt);
         m_gpuParticles.prepare(world(), dt);
         updateWiggleAnim();

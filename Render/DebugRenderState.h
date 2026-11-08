@@ -38,6 +38,7 @@ namespace Dark
         bool      shadowMapTiles    = false;
         bool      decalsEnabled     = false; // AND with HybridDeferred before any UAV. Struct stays false; hosts set the checkbox.
         int       decalsDebug       = 0;     // 0 off, 1 wire volumes
+        bool      gpuParticles      = true;  // Off: CPU Euler at or under 100000. Above that, no pool and no dispatch.
 
         bool lightingActive() const { return lighting && !showAlbedoLinear; }
 

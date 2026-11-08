@@ -107,8 +107,8 @@ namespace Dark
 
         bool     create(Renderer& renderer);
         void     destroy(Renderer& renderer);
-        // Sets the CPU fallback bit before ParticleEmitter::update. prepare runs after that tick.
-        void     syncCpuFallback(World& world);
+        // particlePoolDecision before the tick. prepare and simulateAndDraw use this flag.
+        void     applyIntegratorFallback(World& world, bool gpuParticlesEnabled);
         void     prepare(World& world, float dt);
         uint32_t poolCount() const;
         bool     simulateAndDraw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, World& world, AssetManager& assets, bool lateDepthWrite);
@@ -128,6 +128,7 @@ namespace Dark
             int                    lastSlot             = -1;
             bool                   submitted            = false;
             bool                   sawClearSerial       = false;
+            bool                   hasSpawned           = false;
             Math::Vector3f         position{};
             Math::Quaternion       rotation = Math::Quaternion::IDENTITY;
             ComPtr<ID3D12Resource> particles[kFrameCount];
@@ -174,6 +175,7 @@ namespace Dark
         uint32_t               m_consumedEpoch = 0;
         uint32_t               m_drawnFrame    = ~0u;
         bool                   m_loggedSprite  = false;
+        bool                   m_gpuParticlesEnabled = true;
         ParticleGpuPipeline    m_pipeline;
         std::vector<Pool>      m_pools;
         std::vector<EntityID>  m_records;
