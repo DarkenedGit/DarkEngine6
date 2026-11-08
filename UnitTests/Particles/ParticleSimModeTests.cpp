@@ -20,6 +20,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <new>
 
 using namespace Dark;
 using namespace Dark::Math;
@@ -115,6 +116,155 @@ Entity addGpuEmitter(World& world, uint32_t maxParticles, float emissionRate)
     world.emplace<ParticleEmitterComponent>(e, std::move(pe));
     return e;
 }
+
+struct ParticleHookCounts
+{
+    int  committed  = 0;
+    int  dispatches = 0;
+    int  draws      = 0;
+    bool failCreate = false;
+};
+
+struct StubResource final : public ID3D12Resource
+{
+    explicit StubResource(uint8_t* mem)
+        : m_mem(mem)
+    {
+    }
+
+    ~StubResource()
+    {
+        delete[] m_mem;
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override
+    {
+        if (!ppv)
+            return E_POINTER;
+        *ppv = nullptr;
+        if (riid == __uuidof(IUnknown) || riid == __uuidof(ID3D12Object) || riid == __uuidof(ID3D12DeviceChild) || riid == __uuidof(ID3D12Pageable) || riid == __uuidof(ID3D12Resource))
+        {
+            *ppv = static_cast<ID3D12Resource*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() override
+    {
+        return ++m_refs;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() override
+    {
+        const ULONG left = --m_refs;
+        if (left == 0)
+            delete this;
+        return left;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID, UINT*, void*) override
+    {
+        return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID, UINT, const void*) override
+    {
+        return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID, const IUnknown*) override
+    {
+        return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE SetName(LPCWSTR) override
+    {
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetDevice(REFIID, void** ppv) override
+    {
+        if (ppv)
+            *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+    HRESULT STDMETHODCALLTYPE Map(UINT, const D3D12_RANGE*, void** ppData) override
+    {
+        if (!ppData)
+            return E_POINTER;
+        *ppData = m_mem;
+        return S_OK;
+    }
+    void STDMETHODCALLTYPE Unmap(UINT, const D3D12_RANGE*) override
+    {
+    }
+    D3D12_RESOURCE_DESC STDMETHODCALLTYPE GetDesc() override
+    {
+        return {};
+    }
+    D3D12_GPU_VIRTUAL_ADDRESS STDMETHODCALLTYPE GetGPUVirtualAddress() override
+    {
+        return 0;
+    }
+    HRESULT STDMETHODCALLTYPE WriteToSubresource(UINT, const D3D12_BOX*, const void*, UINT, UINT) override
+    {
+        return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE ReadFromSubresource(void*, UINT, UINT, UINT, const D3D12_BOX*) override
+    {
+        return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE GetHeapProperties(D3D12_HEAP_PROPERTIES*, D3D12_HEAP_FLAGS*) override
+    {
+        return E_NOTIMPL;
+    }
+
+    ULONG    m_refs = 1;
+    uint8_t* m_mem  = nullptr;
+};
+
+bool particleTestHook(void* user, int op, uint64_t bytes, ID3D12Resource** out)
+{
+    ParticleHookCounts* counts = static_cast<ParticleHookCounts*>(user);
+    if (op == kGpuParticleTestDispatch)
+    {
+        ++counts->dispatches;
+        return true;
+    }
+    if (op == kGpuParticleTestDraw)
+    {
+        ++counts->draws;
+        return true;
+    }
+    if (op != kGpuParticleTestCommit || counts->failCreate || !out)
+        return false;
+    const size_t size = bytes == 0 ? 1u : static_cast<size_t>(bytes);
+    uint8_t* mem = new (std::nothrow) uint8_t[size];
+    if (!mem)
+        return false;
+    std::memset(mem, 0, size);
+    StubResource* resource = new (std::nothrow) StubResource(mem);
+    if (!resource)
+    {
+        delete[] mem;
+        return false;
+    }
+    *out = resource;
+    ++counts->committed;
+    return true;
+}
+
+struct ParticleHookGuard
+{
+    explicit ParticleHookGuard(ParticleHookCounts* counts)
+    {
+        setGpuParticleTestHook(&particleTestHook, counts);
+    }
+    ~ParticleHookGuard()
+    {
+        setGpuParticleTestHook(nullptr, nullptr);
+    }
+    ParticleHookGuard(const ParticleHookGuard&)            = delete;
+    ParticleHookGuard& operator=(const ParticleHookGuard&) = delete;
+};
 
 } // namespace
 
@@ -545,9 +695,9 @@ TEST(ParticleSimMode, FlagOff200000CreatesNoPool)
     World world;
     Entity e = addGpuEmitter(world, 200000u, 10000.0f);
 
-    GpuParticleCreateRecord record;
+    ParticleHookCounts counts;
     GpuParticleSystem gpu;
-    gpu.bindCreateRecordForTest(&record);
+    ParticleHookGuard hook(&counts);
     Renderer renderer(RendererTestDevice{});
     renderer.debugState().gpuParticles = true;
     Camera3D camera;
@@ -557,20 +707,20 @@ TEST(ParticleSimMode, FlagOff200000CreatesNoPool)
     tickParticleEmitters(world, 0.1f);
     gpu.prepare(world, 0.1f);
     const int committedOn = static_cast<int>(GpuParticleSystem::kFrameCount) + 1;
-    EXPECT_EQ(record.committed, committedOn);
+    EXPECT_EQ(counts.committed, committedOn);
     EXPECT_EQ(gpu.poolCount(), 1u);
     ASSERT_TRUE(gpu.simulateAndDraw(nullptr, renderer, camera, world, assets, false));
-    EXPECT_GT(record.dispatches, 0);
-    EXPECT_GT(record.draws, 0);
+    EXPECT_GT(counts.dispatches, 0);
+    EXPECT_GT(counts.draws, 0);
 
-    const int dispatches = record.dispatches;
-    const int draws      = record.draws;
+    const int dispatches = counts.dispatches;
+    const int draws      = counts.draws;
     renderer.debugState().gpuParticles = false;
     renderer.setFrameIndexForTest(1);
     ASSERT_TRUE(gpu.simulateAndDraw(nullptr, renderer, camera, world, assets, false));
-    EXPECT_EQ(record.dispatches, dispatches);
-    EXPECT_EQ(record.draws, draws);
-    EXPECT_EQ(record.committed, committedOn);
+    EXPECT_EQ(counts.dispatches, dispatches);
+    EXPECT_EQ(counts.draws, draws);
+    EXPECT_EQ(counts.committed, committedOn);
     EXPECT_EQ(gpu.poolCount(), 1u);
 
     gpu.applyIntegratorFallback(world, false);
@@ -586,16 +736,16 @@ TEST(ParticleSimMode, FlagOff200000CreatesNoPool)
     EXPECT_EQ(c->runtime->desc().simMode, ParticleSimMode::Gpu);
     EXPECT_EQ(c->runtime->desc().maxParticles, 200000u);
     EXPECT_EQ(gpu.poolCount(), 0u);
-    EXPECT_EQ(record.committed, committedOn);
-    EXPECT_EQ(record.dispatches, dispatches);
-    EXPECT_EQ(record.draws, draws);
+    EXPECT_EQ(counts.committed, committedOn);
+    EXPECT_EQ(counts.dispatches, dispatches);
+    EXPECT_EQ(counts.draws, draws);
     EXPECT_EQ(g_poolCreates, 1);
     EXPECT_EQ(g_committedLogs, 0);
     EXPECT_EQ(g_frozenLogs, 1);
     EXPECT_EQ(g_byteLogs, 2);
     ASSERT_TRUE(gpu.simulateAndDraw(nullptr, renderer, camera, world, assets, false));
-    EXPECT_EQ(record.dispatches, dispatches);
-    EXPECT_EQ(record.draws, draws);
+    EXPECT_EQ(counts.dispatches, dispatches);
+    EXPECT_EQ(counts.draws, draws);
     g_bytesNeedle[0] = '\0';
 }
 
@@ -609,9 +759,9 @@ TEST(ParticleSimMode, LaterRefusalStillLogsOnce)
 
     World world;
     Entity e = addGpuEmitter(world, 512u, 10.0f);
-    GpuParticleCreateRecord record;
+    ParticleHookCounts counts;
     GpuParticleSystem gpu;
-    gpu.bindCreateRecordForTest(&record);
+    ParticleHookGuard hook(&counts);
 
     gpu.applyIntegratorFallback(world, false);
     tickParticleEmitters(world, 0.1f);
@@ -620,15 +770,15 @@ TEST(ParticleSimMode, LaterRefusalStillLogsOnce)
     EXPECT_EQ(g_refusedLogs, 1);
     EXPECT_EQ(g_frozenLogs, 0);
     EXPECT_EQ(g_createFailedLogs, 0);
-    EXPECT_EQ(record.committed, 0);
+    EXPECT_EQ(counts.committed, 0);
 
-    record.failCreate = true;
+    counts.failCreate = true;
     gpu.applyIntegratorFallback(world, true);
     gpu.prepare(world, 0.1f);
     gpu.prepare(world, 0.1f);
     EXPECT_EQ(g_refusedLogs, 1);
     EXPECT_EQ(g_createFailedLogs, 1);
-    EXPECT_EQ(record.committed, 0);
+    EXPECT_EQ(counts.committed, 0);
 
     ParticleEmitterComponent* c = world.get<ParticleEmitterComponent>(e);
     ASSERT_NE(c, nullptr);
@@ -636,14 +786,14 @@ TEST(ParticleSimMode, LaterRefusalStillLogsOnce)
     ParticleEmitterDesc desc = c->runtime->desc();
     desc.maxParticles        = 200000u;
     c->runtime->setDesc(desc);
-    record.failCreate = false;
+    counts.failCreate = false;
     gpu.applyIntegratorFallback(world, false);
     gpu.prepare(world, 0.1f);
     gpu.prepare(world, 0.1f);
     EXPECT_EQ(g_refusedLogs, 1);
     EXPECT_EQ(g_createFailedLogs, 1);
     EXPECT_EQ(g_frozenLogs, 1);
-    EXPECT_EQ(record.committed, 0);
+    EXPECT_EQ(counts.committed, 0);
     EXPECT_FALSE(c->runtime->forceCpu());
     EXPECT_EQ(c->runtime->desc().simMode, ParticleSimMode::Gpu);
 }

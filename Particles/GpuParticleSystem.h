@@ -22,15 +22,6 @@ namespace Dark
 
     using Microsoft::WRL::ComPtr;
 
-    // Counts CreateCommittedResource, Dispatch, and DrawInstanced when no device is up.
-    struct GpuParticleCreateRecord
-    {
-        int  committed  = 0;
-        int  dispatches = 0;
-        int  draws      = 0;
-        bool failCreate = false;
-    };
-
     // Scalar layout. HLSL ParticleGpu.hlsli uses the same fields, not float3.
     struct GpuParticle
     {
@@ -121,7 +112,6 @@ namespace Dark
         void     prepare(World& world, float dt);
         uint32_t poolCount() const;
         bool     simulateAndDraw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, World& world, AssetManager& assets, bool lateDepthWrite);
-        void     bindCreateRecordForTest(GpuParticleCreateRecord* record);
 
     private:
         struct Pool
@@ -139,7 +129,6 @@ namespace Dark
             bool                   submitted            = false;
             bool                   sawClearSerial       = false;
             bool                   hasSpawned           = false;
-            bool                   recorded             = false;
             Math::Vector3f         position{};
             Math::Quaternion       rotation = Math::Quaternion::IDENTITY;
             ComPtr<ID3D12Resource> particles[kFrameCount];
@@ -152,7 +141,6 @@ namespace Dark
             uint32_t               childCapacity = 0;
             int                    descSlot      = -1;
             bool                   childHeadCleared = false;
-            std::vector<uint8_t>   recordedBytes;
             D3D12_RESOURCE_STATES  state[kFrameCount] = { D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COMMON };
             D3D12_RESOURCE_STATES  eventState[kFrameCount] = { D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS };
             D3D12_RESOURCE_STATES  counterState[kFrameCount] = { D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS };
@@ -189,7 +177,6 @@ namespace Dark
         uint32_t                 m_drawnFrame          = ~0u;
         bool                     m_loggedSprite        = false;
         bool                     m_gpuParticlesEnabled = true;
-        GpuParticleCreateRecord* m_createRecord        = nullptr;
         ParticleGpuPipeline      m_pipeline;
         std::vector<Pool>        m_pools;
         std::vector<EntityID>    m_records;
@@ -209,5 +196,12 @@ namespace Dark
         UINT                         m_viewInc = 0;
         bool                         m_descUsed[kMaxSecondaryPools] = {};
     };
+
+    // Null uses CreateCommittedResource. Op 0 is one committed buffer (false fails the create).
+    // Op 1 is Dispatch. Op 2 is DrawInstanced.
+    inline constexpr int kGpuParticleTestCommit   = 0;
+    inline constexpr int kGpuParticleTestDispatch = 1;
+    inline constexpr int kGpuParticleTestDraw     = 2;
+    void setGpuParticleTestHook(bool (*fn)(void* user, int op, uint64_t bytes, ID3D12Resource** out), void* user);
 
 } // namespace Dark

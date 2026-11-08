@@ -34,6 +34,23 @@ namespace Dark
             return true;
         }
 
+        bool (*g_testHook)(void* user, int op, uint64_t bytes, ID3D12Resource** out) = nullptr;
+        void* g_testHookUser = nullptr;
+
+        ComPtr<ID3D12Resource> hookedResource(UINT64 bytes)
+        {
+            ID3D12Resource* raw = nullptr;
+            if (!g_testHook(g_testHookUser, kGpuParticleTestCommit, bytes, &raw) || !raw)
+            {
+                if (raw)
+                    raw->Release();
+                return nullptr;
+            }
+            ComPtr<ID3D12Resource> res;
+            res.Attach(raw);
+            return res;
+        }
+
         static_assert(sizeof(GpuParticleConstants) == 512, "gpu particle constants");
         static_assert(offsetof(GpuParticleConstants, sim0) == 224, "gpu particle sim0");
         static_assert(offsetof(GpuParticleConstants, sim2) == 256, "gpu particle sim2");
@@ -74,6 +91,10 @@ namespace Dark
 
         ComPtr<ID3D12Resource> createDefaultBuffer(ID3D12Device* device, UINT64 bytes, D3D12_RESOURCE_STATES state, const char* what)
         {
+            if (g_testHook)
+                return hookedResource(bytes);
+            if (!device)
+                return nullptr;
             D3D12_HEAP_PROPERTIES heap{};
             heap.Type = D3D12_HEAP_TYPE_DEFAULT;
             D3D12_RESOURCE_DESC desc{};
@@ -94,6 +115,10 @@ namespace Dark
 
         ComPtr<ID3D12Resource> createUploadBuffer(ID3D12Device* device, UINT64 bytes, const char* what)
         {
+            if (g_testHook)
+                return hookedResource(bytes);
+            if (!device)
+                return nullptr;
             D3D12_HEAP_PROPERTIES heap{};
             heap.Type = D3D12_HEAP_TYPE_UPLOAD;
             D3D12_RESOURCE_DESC desc{};
@@ -223,6 +248,12 @@ namespace Dark
     static_assert(GpuParticleSystem::kFrameCount == Renderer::kFrameCount, "particle slots follow the renderer frame count");
     static_assert(GpuParticleSystem::kMaxParticlesPerEmitter == kMaxGpuParticlesPerEmitter, "gpu particle cap");
 
+    void setGpuParticleTestHook(bool (*fn)(void* user, int op, uint64_t bytes, ID3D12Resource** out), void* user)
+    {
+        g_testHook     = fn;
+        g_testHookUser = user;
+    }
+
     float GpuParticleSystem::clampedDt(float dt, float simulationSpeed)
     {
         if (!std::isfinite(dt) || !std::isfinite(simulationSpeed))
@@ -289,7 +320,6 @@ namespace Dark
         m_pipeline.destroy();
         m_ready               = false;
         m_renderer            = nullptr;
-        m_createRecord        = nullptr;
         m_gpuParticlesEnabled = true;
         m_prepareEpoch        = 0;
         m_consumedEpoch       = 0;
@@ -336,19 +366,13 @@ namespace Dark
         pool.capacity   = 0;
         pool.submitted  = false;
         pool.hasSpawned = false;
-        pool.recorded   = false;
-        pool.recordedBytes.clear();
         pool.mapped     = nullptr;
         pool.lastSlot   = -1;
     }
 
     bool GpuParticleSystem::hasLiveBuffers(const Pool& pool) const
     {
-        if (pool.capacity == 0 || pool.mapped == nullptr)
-            return false;
-        if (pool.recorded)
-            return true;
-        return pool.particles[0] != nullptr && pool.particles[1] != nullptr && pool.cb;
+        return pool.capacity > 0 && pool.mapped != nullptr && pool.particles[0] != nullptr && pool.particles[1] != nullptr && pool.cb;
     }
 
     bool GpuParticleSystem::createGpuViews(ID3D12Device* device)
@@ -443,36 +467,7 @@ namespace Dark
         const uint32_t capacity = desc.maxParticles;
         if (capacity == 0 || capacity > kMaxParticlesPerEmitter)
             return false;
-        if (m_createRecord)
-        {
-            if (m_createRecord->failCreate)
-                return false;
-            m_createRecord->committed += static_cast<int>(kFrameCount) + 1;
-            if (pool.cb && pool.mapped)
-            {
-                pool.cb->Unmap(0, nullptr);
-                pool.mapped = nullptr;
-            }
-            pool.cb.Reset();
-            for (uint32_t slot = 0; slot < kFrameCount; ++slot)
-            {
-                pool.particles[slot].Reset();
-                pool.state[slot] = D3D12_RESOURCE_STATE_COMMON;
-            }
-            pool.recordedBytes.assign(static_cast<size_t>(kCbStride) * kFrameCount, 0);
-            pool.mapped               = pool.recordedBytes.data();
-            pool.recorded             = true;
-            pool.capacity             = capacity;
-            pool.generation           = generation;
-            pool.resetFramesRemaining = kFrameCount;
-            pool.lastSlot             = -1;
-            pool.submitted            = false;
-            pool.hasSpawned           = false;
-            if (pool.head >= capacity)
-                pool.head = 0;
-            return true;
-        }
-        if (!device)
+        if (!device && !g_testHook)
             return false;
 
         const bool     want     = wantsSecondary(desc);
@@ -586,8 +581,6 @@ namespace Dark
         pool.hasSpawned           = false;
         if (pool.head >= capacity)
             pool.head = 0;
-        pool.recorded = false;
-        pool.recordedBytes.clear();
         return true;
     }
 
@@ -725,11 +718,6 @@ namespace Dark
         applyFallback(world, accepted, seen);
     }
 
-    void GpuParticleSystem::bindCreateRecordForTest(GpuParticleCreateRecord* record)
-    {
-        m_createRecord = record;
-    }
-
     void GpuParticleSystem::prepare(World& world, float dt)
     {
         ++m_prepareEpoch;
@@ -749,7 +737,7 @@ namespace Dark
         dropUnseen(m_loggedOrtho);
         dropUnseen(m_createFailed);
 
-        if (!m_createRecord && (!m_ready || !m_renderer || !m_renderer->device()))
+        if (!g_testHook && (!m_ready || !m_renderer || !m_renderer->device()))
             return;
 
         auto isAccepted = [&accepted](EntityID id) {
@@ -895,7 +883,7 @@ namespace Dark
 
     bool GpuParticleSystem::simulateAndDraw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, World& world, AssetManager& assets, bool lateDepthWrite)
     {
-        if (!m_createRecord)
+        if (!g_testHook)
         {
             if (!cmd || !m_ready || !m_pipeline.isValid())
                 return false;
@@ -927,7 +915,7 @@ namespace Dark
             std::shared_ptr<Texture2D> tex;
         };
 
-        if (!m_createRecord)
+        if (!g_testHook)
             ensureDefaultSprite(renderer, assets);
 
         auto noteSprite = [this]() {
@@ -987,7 +975,7 @@ namespace Dark
         };
 
         auto fillJob = [&](ParticleEmitterComponent& pe, ParticleEmitter& emitter, Job& job) {
-            if (m_createRecord)
+            if (g_testHook)
             {
                 job.additive = emitter.desc().additiveBlend;
                 job.drawable = true;
@@ -1072,7 +1060,7 @@ namespace Dark
         }
 
         // Depth sample is this frame's R32_FLOAT. The binds stay transitions and OM only.
-        if (!m_createRecord)
+        if (!g_testHook)
         {
             if (renderer.hasSceneBuffers())
                 renderer.bindHdrDepthCompute();
@@ -1205,9 +1193,9 @@ namespace Dark
         };
 
         auto dispatchIntegrate = [&](Pool& pool, ID3D12Resource* read, D3D12_RESOURCE_STATES& readState, ID3D12Resource* write, D3D12_RESOURCE_STATES& writeState, uint32_t capacity, bool inPlace, uint32_t spawnCount, uint32_t reset, uint32_t reaction, uint32_t useAttrib, uint32_t collide, uint32_t flags) {
-            if (m_createRecord)
+            if (g_testHook)
             {
-                ++m_createRecord->dispatches;
+                g_testHook(g_testHookUser, kGpuParticleTestDispatch, 0, nullptr);
                 return;
             }
             if (!read || !write || capacity == 0 || !m_dummyUav)
@@ -1239,7 +1227,7 @@ namespace Dark
             uavBarrier(cmd, pool.counters[writeSlot].Get());
         };
 
-        if (prepared && m_viewHeap && renderer.device())
+        if (prepared && cmd && m_viewHeap && renderer.device())
         {
             D3D12_CPU_DESCRIPTOR_HANDLE depthSrc = renderer.depthSrvCpu();
             if (depthSrc.ptr == 0)
@@ -1257,7 +1245,10 @@ namespace Dark
 
             ID3D12DescriptorHeap* heaps[] = { m_viewHeap.Get() };
             cmd->SetDescriptorHeaps(1, heaps);
+        }
 
+        if (prepared)
+        {
             const GpuScope simScope(cmd, "GPU Particle Sim", ProfileColor::Particles);
             for (Job& job : jobs)
             {
@@ -1285,7 +1276,7 @@ namespace Dark
                 const uint32_t reaction = static_cast<uint32_t>(job.emitter->desc().collision);
                 const uint32_t collide  = job.collide ? 1u : 0u;
                 const uint32_t attrib   = job.useAttrib ? 1u : 0u;
-                if (job.secondary)
+                if (cmd && job.secondary)
                 {
                     transitionResource(cmd, pool.events[writeSlot].Get(), pool.eventState[writeSlot], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
                     transitionResource(cmd, pool.counters[writeSlot].Get(), pool.counterState[writeSlot], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -1299,13 +1290,15 @@ namespace Dark
                 dispatchIntegrate(pool, pool.particles[inPlace ? writeSlot : otherSlot].Get(), pool.state[inPlace ? writeSlot : otherSlot], pool.particles[writeSlot].Get(), pool.state[writeSlot], pool.capacity, inPlace, pool.spawnCount, reset ? 1u : 0u, reaction, attrib, collide, 0u);
                 if (steps == 2)
                 {
-                    barrierWrites(pool, job.secondary, pool.particles[writeSlot].Get());
+                    if (cmd)
+                        barrierWrites(pool, job.secondary, pool.particles[writeSlot].Get());
                     // Same spawn count rewrites the birth pose and skips Euler on the second substep.
                     dispatchIntegrate(pool, pool.particles[writeSlot].Get(), pool.state[writeSlot], pool.particles[writeSlot].Get(), pool.state[writeSlot], pool.capacity, true, pool.spawnCount, 0u, reaction, attrib, collide, 0u);
                 }
-                barrierWrites(pool, job.secondary, pool.particles[writeSlot].Get());
+                if (cmd)
+                    barrierWrites(pool, job.secondary, pool.particles[writeSlot].Get());
 
-                if (job.secondary)
+                if (cmd && job.secondary)
                 {
                     // Same reset as the parent so the first frames do not read an uninitialized child slot.
                     // Stop, no birth, child rest. Runs before consume so a newborn is not aged this frame.
@@ -1345,7 +1338,8 @@ namespace Dark
                     transitionResource(cmd, childWrite, pool.childState[writeSlot], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
                 }
 
-                transitionResource(cmd, pool.particles[writeSlot].Get(), pool.state[writeSlot], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                if (cmd)
+                    transitionResource(cmd, pool.particles[writeSlot].Get(), pool.state[writeSlot], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
                 if (pool.resetFramesRemaining > 0)
                     --pool.resetFramesRemaining;
                 pool.lastSlot  = static_cast<int>(writeSlot);
@@ -1376,14 +1370,14 @@ namespace Dark
             {
                 if (!job.drawable || !job.pool || !job.emitter)
                     continue;
-                if (!job.tex && !m_createRecord)
+                if (!job.tex && !g_testHook)
                     continue;
                 Pool& pool = *job.pool;
                 if (!pool.hasSpawned)
                     continue;
-                if (m_createRecord)
+                if (g_testHook)
                 {
-                    ++m_createRecord->draws;
+                    g_testHook(g_testHookUser, kGpuParticleTestDraw, 0, nullptr);
                     continue;
                 }
                 if (pool.lastSlot < 0 || !pool.particles[pool.lastSlot])
