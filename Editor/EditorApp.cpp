@@ -190,6 +190,7 @@ void EditorApp::newScene3D()
 {
     if (netSceneLocked())
         return;
+    invalidatePendingSceneLoad();
     m_ibl = IblSettings{};
     applySceneMode(SceneMode::Scene3D);
     m_scenePath.clear();
@@ -217,6 +218,7 @@ void EditorApp::newScene2D()
 {
     if (netSceneLocked())
         return;
+    invalidatePendingSceneLoad();
     applySceneMode(SceneMode::Scene2D);
     m_scenePath = defaultScenePath("level2d.json");
     m_sceneName = "level2d";

@@ -293,6 +293,7 @@ bool EditorApp::loadScene()
         {
             m_sceneLoadPending    = true;
             m_sceneLoadGeneration = generation;
+            m_sceneLoadDocument   = m_documentGeneration;
             return true;
         }
     }
@@ -309,10 +310,27 @@ bool EditorApp::loadScene()
     return applyLoadedScene(data);
 }
 
+void EditorApp::invalidatePendingSceneLoad()
+{
+    ++m_documentGeneration;
+    m_sceneLoadPending = false;
+    m_pendingScenePath.clear();
+    if (m_sceneLoadGeneration != 0)
+        cancelSceneLoad(m_sceneLoadGeneration);
+    m_sceneLoadGeneration = 0;
+    m_sceneLoadDocument   = 0;
+}
+
 void EditorApp::pollSceneOpen()
 {
     if (!m_sceneLoadPending)
         return;
+    if (!sceneLoadMayApply(m_sceneLoadDocument, m_documentGeneration))
+    {
+        m_sceneLoadPending = false;
+        m_pendingScenePath.clear();
+        return;
+    }
 
     SceneLoadResult result;
     const bool terminal = pollSceneLoad(jobs(), m_sceneLoadGeneration, result);
@@ -331,6 +349,11 @@ void EditorApp::pollSceneOpen()
     {
         m_pendingScenePath.clear();
         DE_LOG_ERROR("Editor: load failed — {}", result.error);
+        return;
+    }
+    if (!sceneLoadMayApply(m_sceneLoadDocument, m_documentGeneration))
+    {
+        m_pendingScenePath.clear();
         return;
     }
     applyLoadedScene(result.scene);

@@ -273,6 +273,7 @@ private:
     bool loadScene();
     bool applyLoadedScene(SceneFileData& data);
     void pollSceneOpen();
+    void invalidatePendingSceneLoad();
     static float sceneGroundY(void* user, float x, float z);
     bool saveSceneWithDialog();
     bool loadSceneWithDialog(const std::filesystem::path& suggested);
@@ -446,6 +447,9 @@ private:
     bool                  m_sceneLoadPending     = false;
     uint64_t              m_sceneGeneration      = 0;
     uint64_t              m_sceneLoadGeneration  = 0;
+    // Bumped on New. A load records the value from when it started and applies only if it still matches.
+    uint64_t              m_documentGeneration   = 1;
+    uint64_t              m_sceneLoadDocument    = 0;
 
     bool  m_showGrid    = true;
     bool  m_showSolid   = true;

@@ -1876,6 +1876,13 @@ JobStatus runSceneLoad(void* user)
         rec->error = std::move(error);
         rec->scene = std::move(scene);
     }
+    // Cancel can land after the parse and before the publish.
+    if (rec->superseded.load(std::memory_order_acquire))
+    {
+        status     = JobStatus::Cancelled;
+        rec->scene = SceneFileData{};
+        rec->error.clear();
+    }
     rec->status = status;
     rec->finished.store(true, std::memory_order_release);
     return status;
@@ -1931,6 +1938,21 @@ bool enqueueSceneLoad(JobSystem& jobs, const AssetManager& assets, const SceneLo
     }
     sweepFinished(table, request.generation);
     return true;
+}
+
+void cancelSceneLoad(uint64_t generation)
+{
+    if (generation == 0)
+        return;
+
+    SceneLoadTable& table = sceneLoads();
+    std::lock_guard<std::mutex> lock(table.mutex);
+    const auto it = table.records.find(generation);
+    if (it == table.records.end() || !it->second)
+        return;
+    it->second->superseded.store(true, std::memory_order_release);
+    if (it->second->finished.load(std::memory_order_acquire))
+        table.records.erase(it);
 }
 
 bool pollSceneLoad(JobSystem& jobs, uint64_t generation, SceneLoadResult& out)

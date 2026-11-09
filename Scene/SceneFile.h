@@ -48,6 +48,15 @@ namespace Dark
     // `assets` is required because mounts live on one AssetManager, not the process.
     bool enqueueSceneLoad(JobSystem& jobs, const AssetManager& assets, const SceneLoadRequest& request);
 
+    // The load applies only when it still belongs to the document that was current when it started.
+    inline bool sceneLoadMayApply(uint64_t loadDocument, uint64_t documentGeneration)
+    {
+        return loadDocument != 0 && loadDocument == documentGeneration;
+    }
+
+    // Supersede this generation. A finished record is dropped. An in-flight load publishes Cancelled.
+    void cancelSceneLoad(uint64_t generation);
+
     // true: out.status is terminal (Ok, Failed, or Cancelled) and out is written.
     // false and out.status == NotReady: poll again next pump.
     // false and out.status == Failed: the scheduler is stopped or the generation is unknown.

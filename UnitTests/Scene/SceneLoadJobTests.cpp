@@ -107,6 +107,48 @@ TEST(SceneLoadJob, PollsMountedScene)
     jobs.shutdown();
 }
 
+TEST(SceneLoadJob, DocumentGenerationRejectsAStaleOpen)
+{
+    EXPECT_FALSE(sceneLoadMayApply(0, 0));
+    EXPECT_FALSE(sceneLoadMayApply(0, 1));
+    EXPECT_TRUE(sceneLoadMayApply(1, 1));
+    EXPECT_FALSE(sceneLoadMayApply(1, 2));
+    EXPECT_FALSE(sceneLoadMayApply(2, 1));
+}
+
+TEST(SceneLoadJob, CancelDropsAFinishedOrInFlightOpen)
+{
+    TempTree tree("dark-scene-cancel");
+    const std::filesystem::path tiny = tree.root / "content" / "scenes" / "tiny.json";
+    ASSERT_TRUE(writeScene(tiny));
+
+    AssetManager assets;
+    ASSERT_TRUE(assets.mountDirectory(tree.root / "content"));
+    ASSERT_TRUE(acceptJobPath(assets, tiny));
+
+    JobSystem jobs;
+    jobs.start();
+
+    SceneLoadRequest request;
+    request.path       = tiny;
+    request.generation = 7;
+    ASSERT_TRUE(enqueueSceneLoad(jobs, assets, request));
+    cancelSceneLoad(7);
+    cancelSceneLoad(0);
+
+    SceneLoadResult result;
+    for (int i = 0; i < 200 && result.status == JobStatus::NotReady; ++i)
+    {
+        pollSceneLoad(jobs, 7, result);
+        if (result.status == JobStatus::NotReady)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    EXPECT_TRUE(result.status == JobStatus::Cancelled || result.status == JobStatus::Failed);
+    EXPECT_NE(result.scene.name, "tiny");
+
+    jobs.shutdown();
+}
+
 TEST(SceneLoadJob, NotStartedEnqueueFails)
 {
     TempTree tree("dark-scene-stopped");
