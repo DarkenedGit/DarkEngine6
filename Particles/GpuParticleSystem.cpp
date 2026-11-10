@@ -303,9 +303,11 @@ namespace Dark
 
     void GpuParticleSystem::destroy(Renderer& renderer)
     {
+        // The heap and pipeline are destroyed here; a live frame still owns them.
+        // Pool buffers are not why this waits. prepare retires those with deferRelease.
         renderer.waitForGpu();
         for (Pool& pool : m_pools)
-            releasePool(pool);
+            relinquishPoolGpu(pool, false);
         m_pools.clear();
         m_records.clear();
         m_loggedSlotCap.clear();
@@ -339,29 +341,48 @@ namespace Dark
 
     void GpuParticleSystem::releasePool(Pool& pool)
     {
+        relinquishPoolGpu(pool, true);
+    }
+
+    void GpuParticleSystem::relinquishPoolGpu(Pool& pool, bool defer)
+    {
         if (pool.cb && pool.mapped)
         {
             pool.cb->Unmap(0, nullptr);
             pool.mapped = nullptr;
         }
-        pool.cb.Reset();
+
+        // A submitted pool may still be referenced by the frame in flight.
+        // Unsubmitted resources were never recorded, so they drop immediately.
+        const bool hold = defer && pool.submitted && m_renderer != nullptr;
+        auto drop = [&](ComPtr<ID3D12Resource>& resource) {
+            if (hold)
+                m_renderer->deferRelease(resource.Get());
+            resource.Reset();
+        };
+        drop(pool.cb);
         for (uint32_t slot = 0; slot < kFrameCount; ++slot)
         {
-            pool.particles[slot].Reset();
-            pool.events[slot].Reset();
-            pool.counters[slot].Reset();
-            pool.child[slot].Reset();
+            drop(pool.particles[slot]);
+            drop(pool.events[slot]);
+            drop(pool.counters[slot]);
+            drop(pool.child[slot]);
             pool.state[slot]        = D3D12_RESOURCE_STATE_COMMON;
             pool.eventState[slot]   = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
             pool.counterState[slot] = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
             pool.childState[slot]   = D3D12_RESOURCE_STATE_COMMON;
         }
-        pool.childHead.Reset();
+        drop(pool.childHead);
         pool.childHeadState   = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
         pool.childHeadCleared = false;
         pool.childCapacity    = 0;
         if (pool.descSlot >= 0)
-            freeDescSlot(pool.descSlot);
+        {
+            if (hold)
+                retireDescSlot(pool.descSlot);
+            else
+                freeDescSlot(pool.descSlot);
+        }
         pool.descSlot   = -1;
         pool.capacity   = 0;
         pool.submitted  = false;
@@ -428,6 +449,7 @@ namespace Dark
         m_viewInc = 0;
         for (uint32_t i = 0; i < kMaxSecondaryPools; ++i)
             m_descUsed[i] = false;
+        m_retiredDescSlots.clear();
     }
 
     int GpuParticleSystem::allocDescSlot()
@@ -447,6 +469,37 @@ namespace Dark
         if (slot < 0 || static_cast<uint32_t>(slot) >= kMaxSecondaryPools)
             return;
         m_descUsed[slot] = false;
+    }
+
+    void GpuParticleSystem::retireDescSlot(int slot)
+    {
+        if (slot < 0 || static_cast<uint32_t>(slot) >= kMaxSecondaryPools)
+            return;
+        if (!m_renderer)
+        {
+            freeDescSlot(slot);
+            return;
+        }
+        // Same delay as Renderer::deferRelease. The in-flight clear still reads this UAV.
+        RetiredDescSlot retired;
+        retired.slot       = slot;
+        retired.framesLeft = static_cast<int>(kFrameCount) + 1;
+        m_retiredDescSlots.push_back(retired);
+    }
+
+    void GpuParticleSystem::pumpRetiredDescSlots()
+    {
+        for (size_t i = 0; i < m_retiredDescSlots.size();)
+        {
+            if (--m_retiredDescSlots[i].framesLeft <= 0)
+            {
+                freeDescSlot(m_retiredDescSlots[i].slot);
+                m_retiredDescSlots[i] = m_retiredDescSlots.back();
+                m_retiredDescSlots.pop_back();
+            }
+            else
+                ++i;
+        }
     }
 
     D3D12_CPU_DESCRIPTOR_HANDLE GpuParticleSystem::viewCpu(uint32_t index) const
@@ -547,13 +600,8 @@ namespace Dark
         }
         std::memset(mapped, 0, static_cast<size_t>(kCbStride) * kFrameCount);
 
-        if (pool.cb && pool.mapped)
-        {
-            pool.cb->Unmap(0, nullptr);
-            pool.mapped = nullptr;
-        }
-        if (pool.descSlot >= 0 && pool.descSlot != newSlot)
-            freeDescSlot(pool.descSlot);
+        // Retire the old buffers. The in-flight frame still holds them through deferRelease.
+        relinquishPoolGpu(pool, true);
 
         for (uint32_t slot = 0; slot < kFrameCount; ++slot)
         {
@@ -722,6 +770,7 @@ namespace Dark
     void GpuParticleSystem::prepare(World& world, float dt)
     {
         ++m_prepareEpoch;
+        pumpRetiredDescSlots();
         m_records.clear();
 
         std::vector<FallbackRow> accepted;
@@ -749,38 +798,6 @@ namespace Dark
             }
             return false;
         };
-
-        bool needWait = false;
-        for (const Pool& pool : m_pools)
-        {
-            if (!pool.submitted)
-                continue;
-            const bool drop = !isAccepted(pool.entity);
-            bool       recreate = false;
-            if (!drop)
-            {
-                for (const FallbackRow& row : accepted)
-                {
-                    if (row.id != pool.entity)
-                        continue;
-                    bool secBad = false;
-                    if (ParticleEmitterComponent* pe = world.get<ParticleEmitterComponent>(Entity{ pool.entity }))
-                    {
-                        if (pe->runtime)
-                        {
-                            const bool have = pool.descSlot >= 0 && pool.events[0] && pool.child[0] && pool.counters[0] && pool.childHead;
-                            secBad          = secondaryMismatch(have, pool.childCapacity, pe->runtime->desc());
-                        }
-                    }
-                    recreate = pool.generation != row.generation || pool.capacity != row.capacity || !hasLiveBuffers(pool) || secBad;
-                    break;
-                }
-            }
-            if (drop || recreate)
-                needWait = true;
-        }
-        if (needWait && m_renderer)
-            m_renderer->waitForGpu();
 
         for (size_t i = 0; i < m_pools.size();)
         {
@@ -828,7 +845,7 @@ namespace Dark
             {
                 if (!pool || !createBuffers(device, *pool, emitter.desc(), row.generation))
                 {
-                    // Release once. A submitted pool already waited this frame; later frames have nothing to wait on.
+                    // Drop the pool. A submitted pool's buffers stay alive through deferRelease.
                     if (markOnce(m_loggedCreateFailed, row.id))
                     {
                         DE_LOG_ERROR(LogCategory::Render, "GpuParticleSystem: pool create failed for '{}' capacity {} bytes {}",

@@ -156,6 +156,14 @@ namespace Dark
             bool     cpuAlready = false;
         };
 
+        // Descriptor slots stay reserved until the in-flight UAV clear has finished.
+        // framesLeft matches Renderer::deferRelease (kFrameCount + 1 prepares).
+        struct RetiredDescSlot
+        {
+            int slot       = -1;
+            int framesLeft = 0;
+        };
+
         Pool* findPool(EntityID id);
         void  applyFallback(World& world, std::vector<FallbackRow>& accepted, std::vector<EntityID>& seen);
         bool  createBuffers(ID3D12Device* device, Pool& pool, const struct ParticleEmitterDesc& desc, uint32_t generation);
@@ -164,9 +172,12 @@ namespace Dark
         void  destroyGpuViews();
         int   allocDescSlot();
         void  freeDescSlot(int slot);
+        void  retireDescSlot(int slot);
+        void  pumpRetiredDescSlots();
         D3D12_CPU_DESCRIPTOR_HANDLE viewCpu(uint32_t index) const;
         D3D12_GPU_DESCRIPTOR_HANDLE viewGpu(uint32_t index) const;
         void        releasePool(Pool& pool);
+        void        relinquishPoolGpu(Pool& pool, bool defer);
         void        recordClock(Pool& pool, class ParticleEmitter& emitter, float dt);
         bool        ensureDefaultSprite(Renderer& renderer, AssetManager& assets);
 
@@ -195,6 +206,7 @@ namespace Dark
         ComPtr<ID3D12Resource>       m_dummyUav;
         UINT                         m_viewInc = 0;
         bool                         m_descUsed[kMaxSecondaryPools] = {};
+        std::vector<RetiredDescSlot> m_retiredDescSlots;
     };
 
     // One dead-slot dispatch fills the write buffer. Later dispatches read the slot
