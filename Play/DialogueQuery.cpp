@@ -54,6 +54,29 @@ namespace Dark
                 return nullptr;
             return condition.who == "player" ? view.playerHealth : view.npcHealth;
         }
+
+        bool takesAreCovered(const std::vector<DialogueEffect>& effects, const InventoryComponent* inventory, std::string& key, int& count)
+        {
+            for (const DialogueEffect& effect : effects)
+            {
+                if (effect.op != DialogueEffectOp::TakeItem || effect.count <= 0)
+                    continue;
+                int need = 0;
+                for (const DialogueEffect& other : effects)
+                {
+                    if (other.op == DialogueEffectOp::TakeItem && other.count > 0 && other.key == effect.key)
+                        need += other.count;
+                }
+                const int have = inventory ? countBagItem(*inventory, effect.key) : 0;
+                if (have < need)
+                {
+                    key   = effect.key;
+                    count = need;
+                    return false;
+                }
+            }
+            return true;
+        }
     } // namespace
 
     bool dialogueConditionPasses(const DialogueGraphDef& graph, const DialogueCondition& condition, const DialogueQueryView& view)
@@ -132,10 +155,17 @@ namespace Dark
         return false;
     }
 
-    void applyDialogueEffects(const DialogueGraphDef& graph, const std::vector<DialogueEffect>& effects, DialogueFactsComponent* facts,
+    bool applyDialogueEffects(const DialogueGraphDef& graph, const std::vector<DialogueEffect>& effects, DialogueFactsComponent* facts,
                               InventoryComponent* inventory, QuestRuntime* quest)
     {
         (void)graph;
+        std::string missingKey;
+        int         missingCount = 0;
+        if (!takesAreCovered(effects, inventory, missingKey, missingCount))
+        {
+            DE_LOG_WARN(LogCategory::AI, "Dialogue: takeItem \"{}\" x{} was not in the bag", missingKey, missingCount);
+            return false;
+        }
         for (const DialogueEffect& effect : effects)
         {
             switch (effect.op)
@@ -186,10 +216,14 @@ namespace Dark
                     break;
                 }
                 if (!tryRemoveItem(*inventory, effect.key, effect.count))
+                {
                     DE_LOG_WARN(LogCategory::AI, "Dialogue: takeItem \"{}\" x{} was not in the bag", effect.key, effect.count);
+                    return false;
+                }
                 break;
             }
         }
+        return true;
     }
 
 } // namespace Dark

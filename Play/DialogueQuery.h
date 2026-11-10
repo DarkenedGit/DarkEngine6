@@ -24,8 +24,9 @@ namespace Dark
     // False hides the choice. Unknown ops are logged once on the graph.
     bool dialogueConditionPasses(const DialogueGraphDef& graph, const DialogueCondition& condition, const DialogueQueryView& view);
 
-    // Unknown effects are skipped. A failed take or a short give does not stop the rest.
-    void applyDialogueEffects(const DialogueGraphDef& graph, const std::vector<DialogueEffect>& effects, DialogueFactsComponent* facts,
+    // Unknown effects are skipped. A short give applies the remaining effects.
+    // Every take is checked first. If the bag cannot cover them, no effect is applied.
+    bool applyDialogueEffects(const DialogueGraphDef& graph, const std::vector<DialogueEffect>& effects, DialogueFactsComponent* facts,
                               InventoryComponent* inventory, QuestRuntime* quest);
 
 } // namespace Dark

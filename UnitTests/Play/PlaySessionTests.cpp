@@ -134,3 +134,24 @@ TEST(PlaySession, OpenDoorLetsTheWalkThroughAndAShutDoorLetsYouBackUp)
     rig.play.tickPawn(1.0f);
     EXPECT_LT(rig.z(), 0.0f);
 }
+
+// The shut leaf is z = [1.91, 2.09]. A body at 1.98 is inside it and still walks back out.
+TEST(PlaySession, DoorClosedAroundTheBodyLetsYouStepOut)
+{
+    DoorWalk rig;
+    addShutDoor(rig, 0.0f);
+    rig.place(1.98f);
+    rig.hold(Key::S);
+    rig.play.tickPawn(1.0f);
+    EXPECT_LT(rig.z(), 1.4f);
+}
+
+TEST(PlaySession, DoorClosedAroundTheBodyDoesNotPushThrough)
+{
+    DoorWalk rig;
+    addShutDoor(rig, 0.0f);
+    rig.place(1.98f);
+    rig.hold(Key::W);
+    rig.play.tickPawn(1.0f);
+    EXPECT_NEAR(rig.z(), 1.98f, 0.05f);
+}

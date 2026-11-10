@@ -84,7 +84,28 @@ namespace Dark
         };
         Math::Vector3f n = center - closest;
         if (!(n.MagnitudeSqrd() > 0.0f))
+        {
+            // The center is inside the solid, so there is no face delta. The nearest face is the way out.
+            // A door that shuts around the body then slides along that face instead of hard-stopping every step.
+            const Math::Vector3f mid  = box.Center();
+            const Math::Vector3f half = box.Extents();
+            const Math::Vector3f d    = center - mid;
+            const float          ax   = d.x < 0.0f ? -d.x : d.x;
+            const float          ay   = d.y < 0.0f ? -d.y : d.y;
+            const float          az   = d.z < 0.0f ? -d.z : d.z;
+            const float          px   = half.x - ax;
+            const float          py   = half.y - ay;
+            const float          pz   = half.z - az;
+            if (px <= py && px <= pz)
+                n = Math::Vector3f{ d.x < 0.0f ? -1.0f : 1.0f, 0.0f, 0.0f };
+            else if (py <= pz)
+                n = Math::Vector3f{ 0.0f, d.y < 0.0f ? -1.0f : 1.0f, 0.0f };
+            else
+                n = Math::Vector3f{ 0.0f, 0.0f, d.z < 0.0f ? -1.0f : 1.0f };
+            out.normal    = n;
+            out.hasNormal = true;
             return out;
+        }
         n.Normalize();
         out.normal    = n;
         out.hasNormal = true;

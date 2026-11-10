@@ -2,6 +2,8 @@
 #include "Character/HealthComponent.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
+#include "Gameplay/Inventory.h"
+#include "Gameplay/Item.h"
 #include "Play/DialogueFacts.h"
 #include "Play/DialogueMemory.h"
 #include "Play/DialogueRuntime.h"
@@ -237,4 +239,94 @@ TEST(DialogueRuntime, ResumeAndRefusalLinesUseTheirOwnSpeaker)
     runtime.tick(talk.world, 0.05f);
     EXPECT_EQ(runtime.speaker().id(), talk.player.id());
     EXPECT_EQ(runtime.speakerName(), "Player");
+}
+
+TEST(DialogueRuntime, CommitRechecksConditions)
+{
+    DialogueGraphDef graph = gateGraph();
+    DialogueChoice& pay = graph.nodes[0].choices[0];
+    pay.id = "pay";
+    pay.once = true;
+    pay.text = "Pay";
+    DialogueCondition need;
+    need.op = DialogueConditionOp::Item;
+    need.key = "medkit";
+    need.cmp = DialogueCmp::GreaterEqual;
+    need.value = 1;
+    need.hasValue = true;
+    pay.conditions.push_back(need);
+    DialogueEffect fact;
+    fact.op = DialogueEffectOp::SetFact;
+    fact.key = "paid";
+    fact.value = 1;
+    pay.effects.push_back(fact);
+    DialogueChoice leave;
+    leave.id = "leave";
+    leave.text = "Bye";
+    graph.nodes[0].choices.push_back(leave);
+
+    Talk talk = makeTalk();
+    InventoryComponent& inv = talk.world.emplace<InventoryComponent>(talk.player);
+    const ItemDef* medkit = findItemDef("medkit");
+    ASSERT_NE(medkit, nullptr);
+    ASSERT_EQ(addItem(inv, *medkit, 1), 1);
+
+    DialogueRuntime runtime;
+    runtime.setGraph(&graph);
+    runtime.setFacts(talk.facts);
+    ASSERT_TRUE(runtime.tryStart(talk.world, talk.player, talk.npc, nullptr));
+    runtime.requestSkip();
+    runtime.tick(talk.world, 0.1f);
+    ASSERT_TRUE(runtime.choiceOpen());
+    ASSERT_EQ(runtime.choiceIndices().size(), 2u);
+
+    ASSERT_TRUE(tryRemoveItem(inv, "medkit", 1));
+    runtime.commitChoice();
+    runtime.tick(talk.world, 0.0f);
+
+    EXPECT_TRUE(runtime.choiceOpen());
+    ASSERT_EQ(runtime.choiceIndices().size(), 1u);
+    EXPECT_EQ(runtime.choiceIndices()[0], 1);
+    EXPECT_EQ(talk.facts->get("paid"), 0);
+    DialogueMemoryComponent* memory = talk.world.get<DialogueMemoryComponent>(talk.npc);
+    ASSERT_NE(memory, nullptr);
+    EXPECT_FALSE(dialogueHeard(memory->lines, "pay"));
+}
+
+TEST(DialogueRuntime, FailedTakeDoesNotGrantTheChoice)
+{
+    DialogueGraphDef graph = gateGraph();
+    DialogueChoice& pay = graph.nodes[0].choices[0];
+    pay.id = "pay";
+    pay.once = true;
+    pay.next.clear();
+    DialogueEffect take;
+    take.op = DialogueEffectOp::TakeItem;
+    take.key = "medkit";
+    take.count = 1;
+    DialogueEffect fact;
+    fact.op = DialogueEffectOp::SetFact;
+    fact.key = "paid";
+    fact.value = 1;
+    pay.effects.push_back(take);
+    pay.effects.push_back(fact);
+
+    Talk talk = makeTalk();
+    talk.world.emplace<InventoryComponent>(talk.player);
+    DialogueRuntime runtime;
+    runtime.setGraph(&graph);
+    runtime.setFacts(talk.facts);
+    ASSERT_TRUE(runtime.tryStart(talk.world, talk.player, talk.npc, nullptr));
+    runtime.requestSkip();
+    runtime.tick(talk.world, 0.1f);
+    ASSERT_TRUE(runtime.choiceOpen());
+
+    runtime.commitChoice();
+    runtime.tick(talk.world, 0.0f);
+
+    EXPECT_TRUE(runtime.choiceOpen());
+    EXPECT_EQ(talk.facts->get("paid"), 0);
+    DialogueMemoryComponent* memory = talk.world.get<DialogueMemoryComponent>(talk.npc);
+    ASSERT_NE(memory, nullptr);
+    EXPECT_FALSE(dialogueHeard(memory->lines, "pay"));
 }

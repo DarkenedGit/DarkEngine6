@@ -86,6 +86,30 @@ namespace Dark
             }
             return true;
         }
+
+        DialogueQueryView choiceView(World& world, Entity player, Entity npc, DialogueFactsComponent* facts, QuestRuntime* quest)
+        {
+            DialogueQueryView view;
+            view.facts        = facts;
+            view.inventory    = player.valid() ? world.get<InventoryComponent>(player) : nullptr;
+            view.playerHealth = player.valid() ? world.get<HealthComponent>(player) : nullptr;
+            view.npcHealth    = world.get<HealthComponent>(npc);
+            view.npc          = world.get<AiAgentComponent>(npc);
+            view.quest        = quest;
+            return view;
+        }
+
+        bool choiceLegal(const DialogueGraphDef& graph, const DialogueChoice& choice, const DialogueLineMemory& heard, const DialogueQueryView& view)
+        {
+            if (choice.once && dialogueHeard(heard, choice.id))
+                return false;
+            for (const DialogueCondition& condition : choice.conditions)
+            {
+                if (!dialogueConditionPasses(graph, condition, view))
+                    return false;
+            }
+            return true;
+        }
     } // namespace
 
     void DialogueRuntime::setGraph(const DialogueGraphDef* graph)
@@ -207,28 +231,11 @@ namespace Dark
             endConversation(world);
             return;
         }
-        DialogueQueryView view;
-        view.facts = m_facts;
-        view.inventory = m_player.valid() ? world.get<InventoryComponent>(m_player) : nullptr;
-        view.playerHealth = m_player.valid() ? world.get<HealthComponent>(m_player) : nullptr;
-        view.npcHealth = world.get<HealthComponent>(m_npc);
-        view.npc = world.get<AiAgentComponent>(m_npc);
-        view.quest = m_quest;
+        const DialogueQueryView view = choiceView(world, m_player, m_npc, m_facts, m_quest);
         for (int i = 0; i < static_cast<int>(node->choices.size()); ++i)
         {
             const DialogueChoice& choice = node->choices[static_cast<size_t>(i)];
-            if (choice.once && dialogueHeard(memory->lines, choice.id))
-                continue;
-            bool show = true;
-            for (const DialogueCondition& condition : choice.conditions)
-            {
-                if (!dialogueConditionPasses(*m_graph, condition, view))
-                {
-                    show = false;
-                    break;
-                }
-            }
-            if (show)
+            if (choiceLegal(*m_graph, choice, memory->lines, view))
                 m_choiceIndex.push_back(i);
         }
         if (m_choiceIndex.empty())
@@ -562,13 +569,18 @@ namespace Dark
                 return;
             }
             const DialogueChoice& choice = node->choices[static_cast<size_t>(m_choiceIndex[static_cast<size_t>(m_selected)])];
-            if (choice.once)
+            DialogueMemoryComponent* memory = world.get<DialogueMemoryComponent>(m_npc);
+            const DialogueQueryView view = choiceView(world, m_player, m_npc, m_facts, m_quest);
+            if (!memory || !choiceLegal(*m_graph, choice, memory->lines, view))
             {
-                if (DialogueMemoryComponent* memory = world.get<DialogueMemoryComponent>(m_npc))
-                    rememberDialogueChoice(memory->lines, choice.id);
+                beginChoice(world);
+                return;
             }
             InventoryComponent* bag = m_player.valid() ? world.get<InventoryComponent>(m_player) : nullptr;
-            applyDialogueEffects(*m_graph, choice.effects, m_facts, bag, m_quest);
+            if (!applyDialogueEffects(*m_graph, choice.effects, m_facts, bag, m_quest))
+                return;
+            if (choice.once)
+                rememberDialogueChoice(memory->lines, choice.id);
             if (choice.next.empty() || !m_graph->findNode(choice.next))
             {
                 endConversation(world);

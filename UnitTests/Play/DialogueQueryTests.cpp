@@ -157,3 +157,58 @@ TEST(DialogueQuery, ItemEffectsUseTheKey)
     applyDialogueEffects(graph, { give }, nullptr, &inv, nullptr);
     EXPECT_EQ(countBagItem(inv, "medkit"), 1);
 }
+
+TEST(DialogueQuery, FailedTakeAppliesNothing)
+{
+    InventoryComponent inv;
+    const ItemDef* medkit = findItemDef("medkit");
+    const ItemDef* helmet = findItemDef("helmet");
+    ASSERT_NE(medkit, nullptr);
+    ASSERT_NE(helmet, nullptr);
+
+    DialogueGraphDef graph;
+    DialogueFactsComponent facts;
+    DialogueEffect take;
+    take.op = DialogueEffectOp::TakeItem;
+    take.key = "medkit";
+    take.count = 1;
+    DialogueEffect fact;
+    fact.op = DialogueEffectOp::SetFact;
+    fact.key = "paid";
+    fact.value = 1;
+    DialogueEffect give;
+    give.op = DialogueEffectOp::GiveItem;
+    give.key = "helmet";
+    give.count = 1;
+
+    EXPECT_FALSE(applyDialogueEffects(graph, { take, fact, give }, &facts, &inv, nullptr));
+    EXPECT_EQ(facts.get("paid"), 0);
+    EXPECT_EQ(countBagItem(inv, "medkit"), 0);
+    EXPECT_EQ(countBagItem(inv, "helmet"), 0);
+
+    ASSERT_EQ(addItem(inv, *medkit, 1), 1);
+    EXPECT_FALSE(applyDialogueEffects(graph, { take, take, fact }, &facts, &inv, nullptr));
+    EXPECT_EQ(facts.get("paid"), 0);
+    EXPECT_EQ(countBagItem(inv, "medkit"), 1);
+
+    ASSERT_EQ(addItem(inv, *helmet, 1), 1);
+    int helmetSlot = -1;
+    for (int i = 0; i < InventoryComponent::kBagSize; ++i)
+    {
+        if (!inv.bag[i].empty() && inv.bag[i].def == helmet)
+            helmetSlot = i;
+    }
+    ASSERT_TRUE(equipItem(inv, helmetSlot));
+    DialogueEffect takeHelm;
+    takeHelm.op = DialogueEffectOp::TakeItem;
+    takeHelm.key = "helmet";
+    takeHelm.count = 1;
+    EXPECT_FALSE(applyDialogueEffects(graph, { takeHelm, fact }, &facts, &inv, nullptr));
+    EXPECT_EQ(facts.get("paid"), 0);
+    EXPECT_EQ(countItem(inv, "helmet"), 1);
+
+    EXPECT_TRUE(applyDialogueEffects(graph, { take, fact, give }, &facts, &inv, nullptr));
+    EXPECT_EQ(facts.get("paid"), 1);
+    EXPECT_EQ(countBagItem(inv, "medkit"), 0);
+    EXPECT_EQ(countBagItem(inv, "helmet"), 1);
+}

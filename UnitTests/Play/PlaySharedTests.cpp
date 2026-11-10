@@ -712,6 +712,33 @@ TEST(PlayShared, OverlappingWallHeadOnDoesNotSink)
     EXPECT_NEAR(motor.velocity().z, 0.0f, 1.0e-3f);
 }
 
+// Door half-thickness 0.09 m. The center at z = 1.98 is inside [1.91, 2.09]. The near face is -Z.
+TEST(PlayShared, CenterInsideADoorCanStepOut)
+{
+    const AABox3f  door = AABox3f::FromCenterExtents(Vector3f{ 0.0f, 1.3f, 2.0f }, Vector3f{ 2.0f, 1.3f, 0.09f });
+    const Vector3f start{ 0.0f, 1.3f, 1.98f };
+    const PlanarContact inside = contactSphereSolid(Sphere3f{ start, kPlayBodyRadius }, Vector3f{ 0.0f, 0.0f, -1.0f }, door);
+    ASSERT_TRUE(inside.hit);
+    EXPECT_LE(inside.t, 0.0f);
+    ASSERT_TRUE(inside.hasNormal);
+    EXPECT_LT(inside.normal.z, -0.5f);
+
+    PlayerMotor motor;
+    Vector3f    position = start;
+    Vector3f    delta{ 0.0f, 0.0f, -1.0f };
+    auto        sweep = [&](const Vector3f& origin, const Vector3f& step) {
+        return contactSphereSolid(Sphere3f{ origin, kPlayBodyRadius }, step, door);
+    };
+    slidePlanar(position, start, delta, 0.25f, &motor, start.y, 0.5f, sweep);
+    EXPECT_NEAR(position.z, 0.98f, 1.0e-3f);
+    EXPECT_NEAR(position.x, 0.0f, 1.0e-3f);
+
+    position = start;
+    delta    = Vector3f{ 0.0f, 0.0f, 1.0f };
+    slidePlanar(position, start, delta, 0.25f, &motor, start.y, 0.5f, sweep);
+    EXPECT_NEAR(position.z, start.z, 1.0e-3f);
+}
+
 TEST(WeaponFire, CameraOriginAndShootSkill)
 {
     const WeaponFireRequest shot = makeCameraFireRequest(Vector3f{ 0.0f, 1.0f, 0.0f }, Vector3f{ 0.0f, 0.0f, 2.0f }, nullptr, 1.5f);
