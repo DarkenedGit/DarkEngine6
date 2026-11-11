@@ -11,9 +11,33 @@ namespace Dark
 
     using Microsoft::WRL::ComPtr;
 
+    // B8G8R8A8_UNORM typed UAV store. Optional at feature level 11_0. Software
+    // copies never need it. The NV12 convert shader stores through this view.
+    inline bool movieBgraTypedUavStoreSupported(ID3D12Device* device)
+    {
+        if (!device)
+            return false;
+        D3D12_FEATURE_DATA_FORMAT_SUPPORT support{};
+        support.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        if (FAILED(device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support))))
+            return false;
+        const bool typed = (support.Support1 & D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW) != 0;
+        const bool store = (support.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE) != 0;
+        return typed && store;
+    }
+
+    // Software textures are sampled copies. Hardware conversion is the only UAV.
+    inline D3D12_RESOURCE_FLAGS movieFrameResourceFlags(bool hardware)
+    {
+        if (!hardware)
+            return D3D12_RESOURCE_FLAG_NONE;
+        return D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    }
+
     // Two B8G8R8A8_UNORM slots, one per swap-chain frame. Software upload writes
-    // the slot Renderer::frameIndex() names. Hardware convert is one dispatch on
-    // that slot's upload DIRECT list. No Media Foundation and no Media/.
+    // the slot Renderer::frameIndex() names and does not request a UAV. Hardware
+    // convert is one dispatch on that slot's upload DIRECT list, and only when
+    // movieBgraTypedUavStoreSupported is true. No Media Foundation and no Media/.
     class MovieFrameTexture
     {
     public:

@@ -122,7 +122,8 @@ namespace Dark
 
     uint32_t MovieFrameTexture::slotSrv(uint32_t slot) const
     {
-        return slot * kPerSlotViews;
+        // Hardware keeps an unused UAV beside the SRV. Software is one SRV per slot.
+        return m_hardware ? slot * kPerSlotViews : slot;
     }
 
     D3D12_CPU_DESCRIPTOR_HANDLE MovieFrameTexture::nv12Cpu(uint32_t surface, uint32_t plane) const
@@ -162,6 +163,13 @@ namespace Dark
         m_hardware = hardware;
         m_width    = width;
         m_height   = height;
+
+        if (hardware && !movieBgraTypedUavStoreSupported(device))
+        {
+            DE_LOG_ERROR(LogCategory::Render, "MovieFrameTexture::create: B8G8R8A8_UNORM typed UAV store is not supported");
+            clear();
+            return false;
+        }
 
         if (hardware)
         {
@@ -232,7 +240,7 @@ namespace Dark
         texDesc.Format           = DXGI_FORMAT_B8G8R8A8_UNORM;
         texDesc.SampleDesc       = { 1, 0 };
         texDesc.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-        texDesc.Flags            = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        texDesc.Flags            = movieFrameResourceFlags(hardware);
 
         D3D12_HEAP_PROPERTIES defaultHeap{};
         defaultHeap.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -259,7 +267,7 @@ namespace Dark
             return false;
         }
 
-        const uint32_t descriptorCount = hardware ? (kSlotCount * kPerSlotViews + kSlotCount * kDispatchViews) : (kSlotCount * kPerSlotViews);
+        const uint32_t descriptorCount = hardware ? (kSlotCount * kPerSlotViews + kSlotCount * kDispatchViews) : kSlotCount;
         D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
         heapDesc.NumDescriptors = descriptorCount;
         heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -293,9 +301,10 @@ namespace Dark
         for (uint32_t i = 0; i < kSlotCount; ++i)
         {
             CreateBgraSrv(device, m_frame[i].Get(), cpuAt(slotSrv(i)));
+            if (!hardware)
+                continue;
             CreateBgraUav(device, m_frame[i].Get(), cpuAt(slotSrv(i) + 1));
-            if (hardware)
-                CreateBgraUav(device, m_frame[i].Get(), cpuAt(dispatchIndex(i) + 2));
+            CreateBgraUav(device, m_frame[i].Get(), cpuAt(dispatchIndex(i) + 2));
         }
 
         if (!hardware)
