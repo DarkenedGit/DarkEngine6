@@ -202,6 +202,8 @@ public:
 
     const Math::Matrix4f& prevViewProj() const { return m_prevViewProj; }
     bool                  havePrevViewProj() const { return m_havePrevViewProj; }
+    // Camera cut or a replaced pose. The next frame has no TAA history and no previous view.
+    void                  discardTemporalHistory();
     bool                  hasWorldEnvironment() const { return m_haveWorldEnv; }
     bool                  isValid() const { return m_initialized; }
 

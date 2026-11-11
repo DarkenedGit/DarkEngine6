@@ -143,6 +143,8 @@ void EditorApp::saveBeginLoad(void* user, World&)
     rt.jumpAttackBuffer = 0.0f;
     rt.offhand.reset();
     rt.footstepAcc = 0.0f;
+    app->world().each<AnimGraphComponent>([](Entity, AnimGraphComponent& ag) { ag.prevWorldValid = false; });
+    app->m_scene.discardTemporalHistory();
 }
 
 void EditorApp::saveEndLoad(void* user, World& world)

@@ -2756,6 +2756,17 @@ void SandboxApp::onUpdate(float dt)
     m_scene.tickDecals(world(), dt);
 }
 
+void SandboxApp::dropDeadPrevWorlds()
+{
+    for (auto it = m_prevWorldByEntity.begin(); it != m_prevWorldByEntity.end();)
+    {
+        if (!world().alive(Entity{ it->first }))
+            it = m_prevWorldByEntity.erase(it);
+        else
+            ++it;
+    }
+}
+
 void SandboxApp::onRender()
 {
     if (!renderer().beginFrame())
@@ -2778,6 +2789,10 @@ void SandboxApp::onRender()
         renderer().endFrame();
         return;
     }
+
+    // A destroyed mesh keeps its last matrix until the slot is pruned. The id
+    // includes the generation, so a recycle misses, until that generation wraps.
+    dropDeadPrevWorlds();
 
     m_foliagePipeline.setWind(m_wind, m_windClock.time, m_windClock.prevTime);
 

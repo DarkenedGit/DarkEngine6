@@ -191,6 +191,7 @@ private:
     void spawnLivingBloodDecal(Dark::Entity victim, const Dark::Math::Vector3f& point, const Dark::Math::Vector3f& normal);
     void spawnDeathBloodDecal(const Dark::Math::Vector3f& point, const Dark::Math::Vector3f& normal);
     void placeHealthPacks();
+    void dropDeadPrevWorlds();
     void installSaveHost();
     void ensureSessionEntity();
     void ensurePlayerProgress(Dark::Entity e);

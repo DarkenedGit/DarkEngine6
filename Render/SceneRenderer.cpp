@@ -399,6 +399,12 @@ void SceneRenderer::endCameraFrame(Camera3D& camera, const Math::Matrix4f& viewP
     camera.ClearSubpixelJitter();
 }
 
+void SceneRenderer::discardTemporalHistory()
+{
+    m_havePrevViewProj = false;
+    m_taaHistoryValid  = false;
+}
+
 void SceneRenderer::applyGtao(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj,
                              const GtaoSettings& settings)
 {

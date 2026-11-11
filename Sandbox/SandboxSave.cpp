@@ -1,5 +1,6 @@
 #include "SandboxApp.h"
 
+#include "Animation/AnimGraphComponent.h"
 #include "Play/CharacterAttach.h"
 #include "Save/PlayClock.h"
 
@@ -149,6 +150,9 @@ void SandboxApp::saveBeginLoad(void* user, World&)
     app->m_offhand.reset();
     app->m_footstepAcc = 0.0f;
     app->m_hurtSoundTimer = 0.0f;
+    app->m_prevWorldByEntity.clear();
+    app->world().each<AnimGraphComponent>([](Entity, AnimGraphComponent& ag) { ag.prevWorldValid = false; });
+    app->m_scene.discardTemporalHistory();
 }
 
 void SandboxApp::saveEndLoad(void* user, World& world)

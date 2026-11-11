@@ -1361,8 +1361,22 @@ bool EditorApp::onFoliageProgress(float t, const char* phase, void* user)
         return false;
     app->m_foliageProgress.store(t);
     if (phase)
-        std::snprintf(app->m_foliagePhase, sizeof(app->m_foliagePhase), "%s", phase);
+        app->setFoliagePhase(phase);
     return !app->m_foliageCancel.load();
+}
+
+void EditorApp::setFoliagePhase(const char* phase)
+{
+    std::lock_guard<std::mutex> lock(m_foliagePhaseMutex);
+    std::snprintf(m_foliagePhase, sizeof(m_foliagePhase), "%s", phase ? phase : "");
+}
+
+void EditorApp::copyFoliagePhase(char* dst, size_t cap)
+{
+    if (!dst || cap == 0)
+        return;
+    std::lock_guard<std::mutex> lock(m_foliagePhaseMutex);
+    std::snprintf(dst, cap, "%s", m_foliagePhase);
 }
 
 void EditorApp::cancelFoliageSpawn()
@@ -1441,7 +1455,7 @@ void EditorApp::startFoliageSpawn()
     m_foliageOk = false;
     m_foliageProgress.store(0.0f);
     std::vector<Terrain::FoliageRecord>().swap(m_foliagePending);
-    std::snprintf(m_foliagePhase, sizeof(m_foliagePhase), "starting");
+    setFoliagePhase("starting");
     m_foliageRunning.store(true);
 
     m_foliageThread = std::thread([this, in]() {
@@ -1823,7 +1837,11 @@ void EditorApp::drawTerrainPanel()
             ImGui::TextDisabled("%s", m_terrainSource.c_str());
         ImGui::TextWrapped("Rock and snow are 0.75x move speed. Dirt and grass stay at full speed. Each surface plays its own footstep.");
         if (m_foliageRunning.load())
-            ImGui::Text("Placing trees from the splat... %s", m_foliagePhase);
+        {
+            char phase[64];
+            copyFoliagePhase(phase, sizeof(phase));
+            ImGui::Text("Placing trees from the splat... %s", phase);
+        }
         else if (m_foliageAuthored)
         {
             uint32_t trees = 0;

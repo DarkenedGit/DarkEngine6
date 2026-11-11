@@ -77,6 +77,7 @@
 #include <deque>
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -322,6 +323,8 @@ private:
     void cancelFoliageSpawn();
     void pollFoliageSpawn();
     static bool onFoliageProgress(float t, const char* phase, void* user);
+    void setFoliagePhase(const char* phase);
+    void copyFoliagePhase(char* dst, size_t cap);
     void clearFoliageInstances(const char* reason);
     void resetFoliageAuthoring();
     bool terrainBrushesLocked() const;
@@ -513,6 +516,7 @@ private:
     std::atomic<bool>                   m_foliageCancel{ false };
     std::atomic<bool>                   m_foliageDone{ false };
     std::atomic<float>                  m_foliageProgress{ 0.0f };
+    std::mutex                          m_foliagePhaseMutex;
     char                                m_foliagePhase[64]{};
     bool                                m_foliageOk = false;
     std::thread                         m_foliageThread;

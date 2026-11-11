@@ -17,6 +17,8 @@ namespace Dark
 
     namespace
     {
+        // Held across pushLog so shutdown can null the target before the server is destroyed.
+        std::mutex   g_logMutex;
         DebugServer* g_logTarget = nullptr;
 
         uint64_t nowMs()
@@ -97,21 +99,27 @@ namespace Dark
         m_listening  = true;
         Log::addCapture(&DebugServer::onLogCapture);
         m_captureInstalled = true;
-        g_logTarget        = this;
+        {
+            std::lock_guard<std::mutex> lock(g_logMutex);
+            g_logTarget = this;
+        }
         DE_LOG_INFO(LogCategory::Debug, "DebugServer: listening on TCP {}", m_bound.port);
         return true;
     }
 
     void DebugServer::shutdown()
     {
+        {
+            std::lock_guard<std::mutex> lock(g_logMutex);
+            if (g_logTarget == this)
+                g_logTarget = nullptr;
+        }
         closeClient();
         if (m_captureInstalled)
         {
             Log::removeCapture(&DebugServer::onLogCapture);
             m_captureInstalled = false;
         }
-        if (g_logTarget == this)
-            g_logTarget = nullptr;
         if (m_listener)
             m_listener->close();
         m_listener = nullptr;
@@ -132,6 +140,7 @@ namespace Dark
 
     void DebugServer::onLogCapture(LogLevel level, LogCategory category, const char* message)
     {
+        std::lock_guard<std::mutex> lock(g_logMutex);
         if (g_logTarget)
             g_logTarget->pushLog(level, category, message);
     }

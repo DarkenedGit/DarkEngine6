@@ -819,4 +819,5 @@ void EditorApp::clearScene()
     m_dragging = false;
     if (m_playMode)
         setPlayMode(false);
+    m_scene.discardTemporalHistory();
 }
