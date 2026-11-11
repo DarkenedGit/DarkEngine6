@@ -17,6 +17,7 @@
 namespace Dark
 {
 
+    class AssetManager;
     class Renderer;
     class Material;
     class Image;
@@ -49,6 +50,9 @@ namespace Dark
         bool ensureTexture(const AssetRef<Image>& image, Color::TextureUsage usage);
         bool ensureMaterial(const AssetRef<Material>& material);
         bool ensureModel(const AssetRef<Model>& model);
+        // Upload when the GPU copy is missing or stale. A current copy does not take an AssetRef.
+        bool retainMaterial(AssetManager& assets, const Material& material);
+        bool retainModel(AssetManager& assets, const Model& model);
         bool ensureIbl(const AssetRef<Image>& hdrEquirect);
 
         std::shared_ptr<Texture2D> texture(AssetID imageId) const;

@@ -59,6 +59,11 @@ namespace Dark
         Audio::VoiceId         m_playing = 0;
         uint64_t               m_request = 0;
         std::string            m_requestKey;
+        int                    m_keyVoice = 0;
+        int                    m_keyPitch = 0;
+        int                    m_keyRate  = 0;
+        std::string            m_keyLineId;
+        std::string            m_keyText;
         std::vector<std::string> m_synthWarned;
     };
 

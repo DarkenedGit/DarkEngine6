@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Application.h"
+#include "ECS/FrameEntitySet.h"
 #include "Render/DrawList.h"
 #include "Render/SkinnedInstanceBuffer.h"
 #include "Render/Mesh.h"
@@ -355,6 +356,10 @@ private:
 
     Mesh m_cubeMesh;
     DrawList m_drawList;
+    FrameEntitySet m_acceptedProp;
+    FrameEntitySet m_acceptedModel;
+    FrameEntitySet m_acceptedSkinned;
+    std::vector<int> m_rejectedShots;
     SkinnedInstanceBuffer m_skinnedInstances;
     Mesh m_sphereMesh;
     Mesh m_groundMesh;

@@ -2,6 +2,7 @@
 #include "Assets/AssetHandle.h"
 #include "Assets/ImageCache.h"
 
+#include <atomic>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -12,10 +13,32 @@
 namespace Dark
 {
 
+    class Model;
+    class Material;
+    class Image;
+    class AnimationSet;
+    class AnimGraphDef;
+    class HsmGraphDef;
+    class DialogueGraphDef;
+
     namespace Audio
     {
         class SoundClip;
     }
+
+    // Type tag for find<T>(). Unknown types stay None so a miss is a null, not a bad cast.
+    template <typename T> struct AssetTypeOf
+    {
+        static constexpr AssetType value = AssetType::None;
+    };
+    template <> struct AssetTypeOf<Model> { static constexpr AssetType value = AssetType::Model; };
+    template <> struct AssetTypeOf<Material> { static constexpr AssetType value = AssetType::Material; };
+    template <> struct AssetTypeOf<Image> { static constexpr AssetType value = AssetType::Texture2D; };
+    template <> struct AssetTypeOf<AnimationSet> { static constexpr AssetType value = AssetType::AnimationSet; };
+    template <> struct AssetTypeOf<AnimGraphDef> { static constexpr AssetType value = AssetType::AnimGraph; };
+    template <> struct AssetTypeOf<HsmGraphDef> { static constexpr AssetType value = AssetType::HsmGraph; };
+    template <> struct AssetTypeOf<DialogueGraphDef> { static constexpr AssetType value = AssetType::DialogueGraph; };
+    template <> struct AssetTypeOf<Audio::SoundClip> { static constexpr AssetType value = AssetType::Audio; };
 
     class AssetManager
     {
@@ -40,6 +63,18 @@ namespace Dark
         template <typename T> AssetRef<T> getAs(AssetID id) const
         {
             return std::dynamic_pointer_cast<T>(get(id));
+        }
+
+        // Non-owning. No lock, hash, refcount, or dynamic_cast.
+        // Valid until unload or collectGarbage. Render frames use this.
+        const Asset* findAsset(AssetID id) const;
+
+        template <typename T> const T* find(AssetID id) const
+        {
+            const Asset* asset = findAsset(id);
+            if (!asset || asset->type != AssetTypeOf<T>::value)
+                return nullptr;
+            return static_cast<const T*>(asset);
         }
 
         // Unload a specific asset
@@ -118,8 +153,20 @@ namespace Dark
             return m_nextID++;
         }
 
+        // Caller must hold m_mutex. Raw publish so find() does not take a second ref.
+        void publishLocked(AssetID id, Asset* asset);
+        void unpublishLocked(AssetID id);
+
         // Caller must hold m_mutex.
         void erasePathEntriesLocked(AssetID id);
+
+        struct AssetChunk;
+        static constexpr uint32_t kAssetChunkShift = 8;
+        static constexpr uint32_t kAssetChunkSize  = 1u << kAssetChunkShift;
+        static constexpr uint32_t kAssetMaxChunks  = 1024;
+
+        std::unique_ptr<AssetChunk> m_chunkOwner[kAssetMaxChunks];
+        std::atomic<AssetChunk*>    m_chunks[kAssetMaxChunks]{};
 
         // How findInternedLocked treats a path entry that does not yield T.
         enum class InternLookup : uint8_t
@@ -169,6 +216,7 @@ namespace Dark
             static_cast<Asset&>(*asset).id = id;
             m_assets[id]     = asset;
             m_pathToID[key]  = id;
+            publishLocked(id, m_assets[id].get());
             return asset;
         }
 

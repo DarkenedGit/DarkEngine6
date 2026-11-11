@@ -200,7 +200,7 @@ namespace Dark
                 if (host.skipModel && host.skipModel(host.user, e))
                     return;
                 const TransformComponent* xf = host.world->get<TransformComponent>(e);
-                const auto model = host.assets->getAs<Model>(mc.modelAssetID);
+                const Model* model = host.assets->find<Model>(mc.modelAssetID);
                 if (!xf || !model || !model->valid())
                     return;
                 if (host.rejectTinyScale && xf->scale.MagnitudeSqrd() < 1.0e-12f)
@@ -212,8 +212,8 @@ namespace Dark
                 GpuModel* gm = host.gpu->model(model->id);
                 if (!gm || !gm->hasOpaque())
                     return;
-                const bool accepted = recordThisView && host.acceptedModel && host.acceptedModel->count(e.id()) != 0;
-                const bool skinnedListed = host.instanceSkinned && host.acceptedSkinned && host.acceptedSkinned->count(e.id()) != 0;
+                const bool accepted = recordThisView && host.acceptedModel && host.acceptedModel->contains(e.id());
+                const bool skinnedListed = host.instanceSkinned && host.acceptedSkinned && host.acceptedSkinned->contains(e.id());
                 if (model->skinned())
                 {
                     const AnimPose* pose = skinnedPose(*model, host.world->get<AnimGraphComponent>(e));
@@ -591,10 +591,10 @@ namespace Dark
                 return;
             if (host.rejectTinyScale && xf->scale.MagnitudeSqrd() < 1.0e-12f)
                 return;
-            const auto model = host.assets->getAs<Model>(mc.modelAssetID);
+            const Model* model = host.assets->find<Model>(mc.modelAssetID);
             if (!model || !model->valid())
                 return;
-            host.gpu->ensureModel(model);
+            host.gpu->retainModel(*host.assets, *model);
         });
     }
 
@@ -649,7 +649,7 @@ namespace Dark
                 if (host.skipModel && host.skipModel(host.user, e))
                     return;
                 const TransformComponent* xf = host.world->get<TransformComponent>(e);
-                const auto model = host.assets->getAs<Model>(mc.modelAssetID);
+                const Model* model = host.assets->find<Model>(mc.modelAssetID);
                 if (!xf || !model || !model->valid())
                     return;
                 if (host.rejectTinyScale && xf->scale.MagnitudeSqrd() < 1.0e-12f)
@@ -657,10 +657,10 @@ namespace Dark
                 const Matrix4f worldMat = worldMatrix(*xf);
                 if (model->bounds().IsValid() && !frustum.Intersects(model->bounds().Transformed(worldMat)))
                     return;
-                if (!host.gpu->ensureModel(model))
+                if (!host.gpu->retainModel(*host.assets, *model))
                     return;
-                const bool accepted = recordThisView && host.acceptedModel && host.acceptedModel->count(e.id()) != 0;
-                const bool skinnedListed = host.instanceSkinned && host.acceptedSkinned && host.acceptedSkinned->count(e.id()) != 0;
+                const bool accepted = recordThisView && host.acceptedModel && host.acceptedModel->contains(e.id());
+                const bool skinnedListed = host.instanceSkinned && host.acceptedSkinned && host.acceptedSkinned->contains(e.id());
                 if (model->skinned())
                 {
                     const AnimPose* pose = skinnedPose(*model, host.world->get<AnimGraphComponent>(e));

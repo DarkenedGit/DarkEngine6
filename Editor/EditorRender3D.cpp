@@ -52,7 +52,6 @@
 #include <filesystem>
 #include <memory>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 using namespace Dark;
@@ -64,7 +63,7 @@ namespace
     struct EditorShadowUser
     {
         EditorApp* app = nullptr;
-        const std::unordered_set<EntityID>* acceptedProp = nullptr;
+        const FrameEntitySet* acceptedProp = nullptr;
     };
 }
 
@@ -88,7 +87,7 @@ void EditorApp::drawPrimitiveShadowCasters(void* user, ID3D12GraphicsCommandList
         const AABox3f local(Vector3f(-0.5f, -0.5f, -0.5f), Vector3f(0.5f, 0.5f, 0.5f));
         if (!frustum.Intersects(local.Transformed(worldMat)))
             return;
-        if (recordThisView && ctx->acceptedProp && ctx->acceptedProp->count(e.id()) != 0)
+        if (recordThisView && ctx->acceptedProp && ctx->acceptedProp->contains(e.id()))
             return;
         if (capturingShadowCasters())
         {
@@ -139,8 +138,8 @@ void EditorApp::submitPlayProjectiles(std::vector<int>& rejected)
     if (!weapons)
         return;
     GpuResourceCache& gpu    = renderer().gpuResources();
-    const auto        tracer = assets().getAs<Model>(m_tracerModelId);
-    if (!tracer || !tracer->hasOpaque() || !gpu.ensureModel(tracer))
+    const Model* tracer = assets().find<Model>(m_tracerModelId);
+    if (!tracer || !tracer->hasOpaque() || !gpu.retainModel(assets(), *tracer))
         return;
     GpuModel* gm = gpu.model(tracer->id);
     if (!gm)
@@ -164,7 +163,7 @@ void EditorApp::drawPlayProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix
                                     const MeshForwardBatchConstants* forwardBatch, const MeshFrameConstants* forwardLit, const std::vector<int>* rejectedShots)
 {
     WeaponLoadout* weapons = playWeapons();
-    const auto     model   = assets().getAs<Model>(m_tracerModelId);
+    const Model* model = assets().find<Model>(m_tracerModelId);
     if (!cmd || !weapons || !model || !model->hasOpaque())
         return;
 
@@ -181,7 +180,7 @@ void EditorApp::drawPlayProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix
         return;
 
     GpuResourceCache& gpu = renderer().gpuResources();
-    if (!instanced && !gpu.ensureModel(model))
+    if (!instanced && !gpu.retainModel(assets(), *model))
         return;
 
     const GpuScope  projectiles(cmd, "Projectiles", ProfileColor::Projectiles);
@@ -201,7 +200,7 @@ void EditorApp::drawPlayProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix
             m_drawList.recordOpaque(cmd, gpu, ViewId{ 0 }, StaticPopulation::Projectiles);
         else if (forwardBatch)
             m_drawList.recordForward(cmd, gpu, ViewId{ 0 }, StaticPopulation::Projectiles, *forwardBatch, m_shadows.receiverCbvGpu());
-        if (!rejectedShots || rejectedShots->empty() || !gpu.ensureModel(model))
+        if (!rejectedShots || rejectedShots->empty() || !gpu.retainModel(assets(), *model))
             return;
         int shot = 0;
         for (const LiveProjectile& s : weapons->projectile().live())
@@ -272,10 +271,14 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     const bool instanceStatic = m_drawList.gpuReady() && renderer().debugState().instancedStatic && renderer().debugState().fill == DebugFill::Solid;
     const bool instanceSkinned = instanceStatic && m_skinnedInstances.isValid()
         && (renderer().scenePath() == ScenePath::HybridDeferred || m_skinnedInstances.forwardReady());
-    std::unordered_set<EntityID> acceptedProp;
-    std::unordered_set<EntityID> acceptedModel;
-    std::unordered_set<EntityID> acceptedSkinned;
-    std::vector<int> rejectedShots;
+    m_acceptedProp.clear();
+    m_acceptedModel.clear();
+    m_acceptedSkinned.clear();
+    m_rejectedShots.clear();
+    FrameEntitySet& acceptedProp = m_acceptedProp;
+    FrameEntitySet& acceptedModel = m_acceptedModel;
+    FrameEntitySet& acceptedSkinned = m_acceptedSkinned;
+    std::vector<int>& rejectedShots = m_rejectedShots;
     uint8_t shadowViewIndex = 1;
     if (instanceStatic)
     {
@@ -316,10 +319,10 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             if (const MeshComponent* mc = world().get<MeshComponent>(e))
             {
                 emissive = mc->emissive;
-                if (auto mat = assets().getAs<Material>(mc->matAssetID))
+                if (const Material* mat = assets().find<Material>(mc->matAssetID))
                 {
-                    gpu.ensureMaterial(mat);
-                    surfaceMat    = mat.get();
+                    gpu.retainMaterial(assets(), *mat);
+                    surfaceMat    = mat;
                     item.material = mat->id;
                 }
             }
@@ -345,8 +348,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             if (!mc.visible)
                 return;
             const auto* xf = world().get<TransformComponent>(e);
-            const auto model = assets().getAs<Model>(mc.modelAssetID);
-            if (!xf || !model || !model->valid() || !model->hasOpaque() || !gpu.ensureModel(model))
+            const Model* model = assets().find<Model>(mc.modelAssetID);
+            if (!xf || !model || !model->valid() || !model->hasOpaque() || !gpu.retainModel(assets(), *model))
                 return;
             GpuModel* gm = gpu.model(model->id);
             if (!gm)
@@ -495,7 +498,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     }
 
     const DebugFill fill = renderer().debugState().fill;
-    auto drawMesh = [&](const Mesh& mesh, const Matrix4f& world, Material* material, float cr, float cg, float cb, float emissive = 0.0f) {
+    auto drawMesh = [&](const Mesh& mesh, const Matrix4f& world, const Material* material, float cr, float cg, float cb, float emissive = 0.0f) {
         m_meshPipeline.bind(cmd, fill);
         if (material && material->isValid())
             gpu.bindMaterial(cmd, *material, MeshPipeline::kRootAlbedoSrv);
@@ -744,17 +747,17 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             cb = cb * 0.55f + 0.20f * 0.45f;
         }
         float     emissive = 0.0f;
-        Material* material = m_propMaterial.get();
+        const Material* material = m_propMaterial.get();
         if (const MeshComponent* mc = world().get<MeshComponent>(e))
         {
             emissive = mc->emissive;
-            if (auto mat = assets().getAs<Material>(mc->matAssetID))
+            if (const Material* mat = assets().find<Material>(mc->matAssetID))
             {
-                gpu.ensureMaterial(mat);
-                material = mat.get();
+                gpu.retainMaterial(assets(), *mat);
+                material = mat;
             }
         }
-        if ((instanceColor || instanceForward) && acceptedProp.count(e.id()) != 0)
+        if ((instanceColor || instanceForward) && acceptedProp.contains(e.id()))
             return;
         drawMesh(*mesh, makeWorldMatrix(*xf), material, cr, cg, cb, emissive);
         ++draws;
@@ -778,11 +781,11 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             if (!mc.visible)
                 return;
             const auto* xf = world().get<TransformComponent>(e);
-            const auto model = assets().getAs<Model>(mc.modelAssetID);
-            if (!xf || !model || !model->hasOpaque() || !gpu.ensureModel(model))
+            const Model* model = assets().find<Model>(mc.modelAssetID);
+            if (!xf || !model || !model->hasOpaque() || !gpu.retainModel(assets(), *model))
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
-            const bool accepted = instanceColor && acceptedModel.count(e.id()) != 0;
+            const bool accepted = instanceColor && acceptedModel.contains(e.id());
             if (model->skinned())
             {
                 AnimGraphComponent* ag = world().get<AnimGraphComponent>(e);
@@ -797,7 +800,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                     ag->prevWorld = worldMat;
                     ag->prevWorldValid = true;
                 }
-                const bool skinnedListed = instanceSkinned && acceptedSkinned.count(e.id()) != 0;
+                const bool skinnedListed = instanceSkinned && acceptedSkinned.contains(e.id());
                 if (!(accepted && skinnedListed))
                 {
                     if (accepted)
@@ -850,8 +853,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             if (!mc.visible)
                 return;
             const auto* xf = world().get<TransformComponent>(e);
-            const auto model = assets().getAs<Model>(mc.modelAssetID);
-            if (!xf || !model || !model->hasOpaque() || !gpu.ensureModel(model))
+            const Model* model = assets().find<Model>(mc.modelAssetID);
+            if (!xf || !model || !model->hasOpaque() || !gpu.retainModel(assets(), *model))
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
             if (model->skinned())
@@ -865,8 +868,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                     ag->prevWorld = worldMat;
                     ag->prevWorldValid = true;
                 }
-                const bool accepted = instanceForward && acceptedModel.count(e.id()) != 0;
-                const bool skinnedListed = instanceSkinned && acceptedSkinned.count(e.id()) != 0;
+                const bool accepted = instanceForward && acceptedModel.contains(e.id());
+                const bool skinnedListed = instanceSkinned && acceptedSkinned.contains(e.id());
                 if (!(accepted && skinnedListed))
                 {
                     if (accepted)
@@ -877,7 +880,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                         drawSkinnedModelForward(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_shadows, m_skinRing, *model, false, *pose, worldMat, viewProj, lit, fill);
                 }
             }
-            else if (!(instanceForward && acceptedModel.count(e.id()) != 0))
+            else if (!(instanceForward && acceptedModel.contains(e.id())))
                 drawModelForward(cmd, gpu, m_meshPipeline, m_shadows, *model, false, worldMat, viewProj, lit, fill);
             ++draws;
         });
@@ -1004,8 +1007,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             if (!mc.visible)
                 return;
             const auto* xf = world().get<TransformComponent>(e);
-            const auto model = assets().getAs<Model>(mc.modelAssetID);
-            if (!xf || !model || !model->hasTranslucent() || !gpu.ensureModel(model))
+            const Model* model = assets().find<Model>(mc.modelAssetID);
+            if (!xf || !model || !model->hasTranslucent() || !gpu.retainModel(assets(), *model))
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
             if (model->skinned() && !skinnedPose(*model, world().get<AnimGraphComponent>(e)))
@@ -1022,8 +1025,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             const Entity e = translucentEntities[draw.user];
             const ModelComponent* mc = world().get<ModelComponent>(e);
             const auto* xf = world().get<TransformComponent>(e);
-            const auto model = (mc && xf) ? assets().getAs<Model>(mc->modelAssetID) : AssetRef<Model>{};
-            if (!xf || !model || !gpu.ensureModel(model))
+            const Model* model = (mc && xf) ? assets().find<Model>(mc->modelAssetID) : nullptr;
+            if (!xf || !model || !gpu.retainModel(assets(), *model))
                 continue;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
             if (model->skinned())
@@ -1049,10 +1052,10 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         if (!pe.runtime)
             return;
         const Material* sprite = nullptr;
-        if (AssetRef<Material> mat = assets().getAs<Material>(pe.matAssetID))
+        if (const Material* mat = assets().find<Material>(pe.matAssetID))
         {
-            gpu.ensureMaterial(mat);
-            sprite = mat.get();
+            gpu.retainMaterial(assets(), *mat);
+            sprite = mat;
         }
         m_particleRenderer.draw(cmd, m_camera, *pe.runtime, pe.runtime->desc().additiveBlend, sprite);
         ++draws;

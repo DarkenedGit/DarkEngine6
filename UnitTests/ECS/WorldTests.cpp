@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "ECS/Components.h"
+#include "ECS/FrameEntitySet.h"
 #include "ECS/World.h"
 
 using namespace Dark;
@@ -111,6 +112,26 @@ TEST(World, NullEntityNeverAlive)
     World world;
     EXPECT_FALSE(world.alive(Entity{}));
     EXPECT_FALSE(world.alive(Entity{ NULL_ENTITY }));
+}
+
+TEST(FrameEntitySet, ClearAndGenerationDoNotAlias)
+{
+    FrameEntitySet set;
+    const EntityID first = makeEntityID(3, 1);
+    const EntityID recycled = makeEntityID(3, 2);
+    EXPECT_FALSE(set.contains(NULL_ENTITY));
+    set.insert(NULL_ENTITY);
+    EXPECT_FALSE(set.contains(NULL_ENTITY));
+
+    set.insert(first);
+    EXPECT_TRUE(set.contains(first));
+    EXPECT_FALSE(set.contains(recycled));
+
+    set.clear();
+    EXPECT_FALSE(set.contains(first));
+    set.insert(recycled);
+    EXPECT_TRUE(set.contains(recycled));
+    EXPECT_FALSE(set.contains(first));
 }
 
 TEST(World, MeshComponentDefaultsPrimitiveNone)

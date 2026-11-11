@@ -1362,7 +1362,7 @@ namespace
     struct SandboxShadowUser
     {
         SandboxApp* app = nullptr;
-        const std::unordered_set<EntityID>* acceptedMesh = nullptr;
+        const FrameEntitySet* acceptedMesh = nullptr;
     };
 }
 
@@ -1399,7 +1399,7 @@ void SandboxApp::drawPrimitiveShadowCasters(void* user, ID3D12GraphicsCommandLis
         const AABox3f local = sandboxPrimitiveBounds(mc.primitive);
         if (local.IsValid() && !frustum.Intersects(local.Transformed(worldMat)))
             return;
-        if (recordThisView && ctx->acceptedMesh && ctx->acceptedMesh->count(e.id()) != 0)
+        if (recordThisView && ctx->acceptedMesh && ctx->acceptedMesh->contains(e.id()))
             return;
         if (capturingShadowCasters())
         {
@@ -1902,7 +1902,7 @@ void SandboxApp::drawSkeletonOverlay(ID3D12GraphicsCommandList* cmd, const Matri
         if (!mc.visible)
             return;
         const TransformComponent* xf = world().get<TransformComponent>(e);
-        const auto model = assets().getAs<Model>(mc.modelAssetID);
+        const Model* model = assets().find<Model>(mc.modelAssetID);
         if (!xf || !model || !model->skinned() || !model->skeleton())
             return;
         const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));
@@ -2161,7 +2161,7 @@ void SandboxApp::placeHealthPacks()
 void SandboxApp::drawProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, MeshFrameConstants& cb, bool instanced, const std::vector<int>* rejectedShots)
 {
     WeaponLoadout* w = localWeapons();
-    const auto model = assets().getAs<Model>(m_tracerModelId);
+    const Model* model = assets().find<Model>(m_tracerModelId);
     if (!cmd || !w || !model || !model->hasOpaque())
         return;
     bool any = false;
@@ -2177,7 +2177,7 @@ void SandboxApp::drawProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix4f&
         return;
 
     GpuResourceCache& gpu = renderer().gpuResources();
-    if (!instanced && !gpu.ensureModel(model))
+    if (!instanced && !gpu.retainModel(assets(), *model))
         return;
 
     const GpuScope projectiles(cmd, "Projectiles", ProfileColor::Projectiles);
@@ -2189,7 +2189,7 @@ void SandboxApp::drawProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix4f&
         MeshForwardBatchConstants lighting{};
         fillForwardLighting(lighting, cb);
         m_drawList.recordForward(cmd, gpu, ViewId{ 0 }, StaticPopulation::Projectiles, lighting, m_shadows.receiverCbvGpu());
-        if (!rejectedShots || rejectedShots->empty() || !gpu.ensureModel(model))
+        if (!rejectedShots || rejectedShots->empty() || !gpu.retainModel(assets(), *model))
             return;
         int shot = 0;
         for (const LiveProjectile& s : w->projectile().live())
@@ -2226,7 +2226,7 @@ void SandboxApp::drawProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix4f&
 void SandboxApp::drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, const Matrix4f& prevViewProj, bool instanced, const std::vector<int>* rejectedShots)
 {
     WeaponLoadout* w = localWeapons();
-    const auto model = assets().getAs<Model>(m_tracerModelId);
+    const Model* model = assets().find<Model>(m_tracerModelId);
     if (!cmd || !w || !model || !model->hasOpaque())
         return;
     bool any = false;
@@ -2242,14 +2242,14 @@ void SandboxApp::drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Ma
         return;
 
     GpuResourceCache& gpu = renderer().gpuResources();
-    if (!instanced && !gpu.ensureModel(model))
+    if (!instanced && !gpu.retainModel(assets(), *model))
         return;
 
     const GpuScope projectiles(cmd, "Projectiles", ProfileColor::Projectiles);
     if (instanced)
     {
         m_drawList.recordOpaque(cmd, gpu, ViewId{ 0 }, StaticPopulation::Projectiles);
-        if (!rejectedShots || rejectedShots->empty() || !gpu.ensureModel(model))
+        if (!rejectedShots || rejectedShots->empty() || !gpu.retainModel(assets(), *model))
             return;
         const float     radius = w->projectile().desc().radius;
         const float     scale  = radius * 2.0f;
@@ -2473,10 +2473,10 @@ void SandboxApp::bindEntityPhysics(Entity e, const char* entityType)
     }
     world().emplace<PhysicsComponent>(e, std::move(settings));
 
-    AssetRef<Model> model;
+    const Model* model = nullptr;
     if (const ModelComponent* mc = world().get<ModelComponent>(e))
-        model = assets().getAs<Model>(mc->modelAssetID);
-    if (!Physics::bindPhysicsEntity(m_physics, world(), e, model.get()))
+        model = assets().find<Model>(mc->modelAssetID);
+    if (!Physics::bindPhysicsEntity(m_physics, world(), e, model))
         DE_LOG_WARN(LogCategory::Collision, "SandboxApp: physics bind failed for '{}' #{}", entityType, e.id());
 }
 
@@ -2832,7 +2832,7 @@ void SandboxApp::onRender()
         const TransformComponent* xf = world().get<TransformComponent>(e);
         if (!xf)
             return;
-        const auto model = assets().getAs<Model>(mc.modelAssetID);
+        const Model* model = assets().find<Model>(mc.modelAssetID);
         if (!model || !model->bounds().IsValid())
             return;
         sceneBounds.ExpandToInclude(model->bounds().Transformed(makeWorldMatrix(*xf)));
@@ -2850,10 +2850,14 @@ void SandboxApp::onRender()
     const bool instanceStatic = m_drawList.gpuReady() && renderer().debugState().instancedStatic && renderer().debugState().fill == DebugFill::Solid;
     const bool instanceSkinned = instanceStatic && m_skinnedInstances.isValid()
         && (renderer().scenePath() == ScenePath::HybridDeferred || m_skinnedInstances.forwardReady());
-    std::unordered_set<EntityID> acceptedMesh;
-    std::unordered_set<EntityID> acceptedModel;
-    std::unordered_set<EntityID> acceptedSkinned;
-    std::vector<int> rejectedShots;
+    m_acceptedMesh.clear();
+    m_acceptedModel.clear();
+    m_acceptedSkinned.clear();
+    m_rejectedShots.clear();
+    FrameEntitySet& acceptedMesh = m_acceptedMesh;
+    FrameEntitySet& acceptedModel = m_acceptedModel;
+    FrameEntitySet& acceptedSkinned = m_acceptedSkinned;
+    std::vector<int>& rejectedShots = m_rejectedShots;
     uint8_t shadowViewIndex = 1;
     if (instanceStatic)
     {
@@ -2885,9 +2889,9 @@ void SandboxApp::onRender()
             item.color[3]   = 0.0f;
             item.material   = NULL_ASSET;
             float alphaModeMask = 0.0f;
-            if (auto mat = assets().getAs<Material>(mc.matAssetID))
+            if (const Material* mat = assets().find<Material>(mc.matAssetID))
             {
-                gpu.ensureMaterial(mat);
+                gpu.retainMaterial(assets(), *mat);
                 item.material = mc.matAssetID;
                 MeshGBufferConstants surface{};
                 applyMaterialSurface(*mat, surface);
@@ -2908,8 +2912,8 @@ void SandboxApp::onRender()
             if (!mc.visible || camouflageHides(e))
                 return;
             const TransformComponent* xf = world().get<TransformComponent>(e);
-            const auto model = assets().getAs<Model>(mc.modelAssetID);
-            if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->valid() || !model->hasOpaque() || !gpu.ensureModel(model))
+            const Model* model = assets().find<Model>(mc.modelAssetID);
+            if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->valid() || !model->hasOpaque() || !gpu.retainModel(assets(), *model))
                 return;
             GpuModel* gm = gpu.model(model->id);
             if (!gm)
@@ -2930,8 +2934,8 @@ void SandboxApp::onRender()
         });
         if (WeaponLoadout* w = localWeapons())
         {
-            const auto tracer = assets().getAs<Model>(m_tracerModelId);
-            if (tracer && tracer->hasOpaque() && gpu.ensureModel(tracer))
+            const Model* tracer = assets().find<Model>(m_tracerModelId);
+            if (tracer && tracer->hasOpaque() && gpu.retainModel(assets(), *tracer))
             {
                 if (GpuModel* gm = gpu.model(tracer->id))
                 {
@@ -3114,17 +3118,17 @@ void SandboxApp::onRender()
         m_skyPipeline.draw(cmd, renderer().frameIndex(), &m_shadows);
     }
 
-    AssetRef<Material> material;
+    const Material* material = nullptr;
     if (m_cube.valid())
     {
         if (auto* meshComp = world().get<MeshComponent>(m_cube))
-            material = assets().getAs<Material>(meshComp->matAssetID);
+            material = assets().find<Material>(meshComp->matAssetID);
         else if (const ModelComponent* mo = world().get<ModelComponent>(m_cube))
         {
-            if (const auto model = assets().getAs<Model>(mo->modelAssetID))
+            if (const Model* model = assets().find<Model>(mo->modelAssetID))
             {
                 if (const Model::Part* part = model->partAt(0))
-                    material = part->material;
+                    material = part->material.get();
             }
         }
     }
@@ -3212,14 +3216,14 @@ void SandboxApp::onRender()
             const TransformComponent* xf = world().get<TransformComponent>(e);
             if (!xf)
                 return;
-            if (auto mat = assets().getAs<Material>(mc.matAssetID))
+            if (const Material* mat = assets().find<Material>(mc.matAssetID))
             {
-                gpu.ensureMaterial(mat);
+                gpu.retainMaterial(assets(), *mat);
                 gpu.bindMaterial(cmd, *mat, MeshPipeline::kRootAlbedoSrv);
                 applyMaterialSurface(*mat, gcb);
             }
             const Matrix4f worldMat  = makeWorldMatrix(*xf);
-            if (instanceColor && acceptedMesh.count(e.id()) != 0)
+            if (instanceColor && acceptedMesh.contains(e.id()))
             {
                 m_prevWorldByEntity[e.id()] = worldMat;
                 return;
@@ -3252,11 +3256,11 @@ void SandboxApp::onRender()
             if (!mc.visible || camouflageHides(e))
                 return;
             const TransformComponent* xf = world().get<TransformComponent>(e);
-            const auto model = assets().getAs<Model>(mc.modelAssetID);
-            if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->hasOpaque() || !gpu.ensureModel(model))
+            const Model* model = assets().find<Model>(mc.modelAssetID);
+            if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->hasOpaque() || !gpu.retainModel(assets(), *model))
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
-            const bool accepted = instanceColor && acceptedModel.count(e.id()) != 0;
+            const bool accepted = instanceColor && acceptedModel.contains(e.id());
             if (model->skinned())
             {
                 AnimGraphComponent* ag = world().get<AnimGraphComponent>(e);
@@ -3271,7 +3275,7 @@ void SandboxApp::onRender()
                     ag->prevWorld = worldMat;
                     ag->prevWorldValid = true;
                 }
-                const bool skinnedListed = instanceSkinned && acceptedSkinned.count(e.id()) != 0;
+                const bool skinnedListed = instanceSkinned && acceptedSkinned.contains(e.id());
                 if (accepted && skinnedListed)
                     return;
                 if (accepted)
@@ -3437,11 +3441,11 @@ void SandboxApp::onRender()
             const TransformComponent* xf = world().get<TransformComponent>(e);
             if (!xf)
                 return;
-            if (instanceForward && acceptedMesh.count(e.id()) != 0)
+            if (instanceForward && acceptedMesh.contains(e.id()))
                 return;
-            if (auto mat = assets().getAs<Material>(mc.matAssetID))
+            if (const Material* mat = assets().find<Material>(mc.matAssetID))
             {
-                gpu.ensureMaterial(mat);
+                gpu.retainMaterial(assets(), *mat);
                 gpu.bindMaterial(cmd, *mat, MeshPipeline::kRootAlbedoSrv);
                 applyMaterialSurface(*mat, cb);
             }
@@ -3471,8 +3475,8 @@ void SandboxApp::onRender()
             if (!mc.visible || camouflageHides(e))
                 return;
             const TransformComponent* xf = world().get<TransformComponent>(e);
-            const auto model = assets().getAs<Model>(mc.modelAssetID);
-            if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->hasOpaque() || !gpu.ensureModel(model))
+            const Model* model = assets().find<Model>(mc.modelAssetID);
+            if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->hasOpaque() || !gpu.retainModel(assets(), *model))
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
             if (model->skinned())
@@ -3486,8 +3490,8 @@ void SandboxApp::onRender()
                     ag->prevWorld = worldMat;
                     ag->prevWorldValid = true;
                 }
-                const bool accepted = instanceForward && acceptedModel.count(e.id()) != 0;
-                const bool skinnedListed = instanceSkinned && acceptedSkinned.count(e.id()) != 0;
+                const bool accepted = instanceForward && acceptedModel.contains(e.id());
+                const bool skinnedListed = instanceSkinned && acceptedSkinned.contains(e.id());
                 if (accepted && skinnedListed)
                     return;
                 if (accepted)
@@ -3497,7 +3501,7 @@ void SandboxApp::onRender()
                 else
                     drawSkinnedModelForward(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_shadows, m_skinRing, *model, false, *pose, worldMat, viewProj, cb, fill);
             }
-            else if (!(instanceForward && acceptedModel.count(e.id()) != 0))
+            else if (!(instanceForward && acceptedModel.contains(e.id())))
                 drawModelForward(cmd, gpu, m_meshPipeline, m_shadows, *model, false, worldMat, viewProj, cb, fill);
         });
         }
@@ -3641,8 +3645,8 @@ void SandboxApp::onRender()
         const Entity body = possessedBody();
         const TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr;
         const ModelComponent* mc = body.valid() ? world().get<ModelComponent>(body) : nullptr;
-        const auto model = (mc && xf) ? assets().getAs<Model>(mc->modelAssetID) : AssetRef<Model>{};
-        if (xf && model && gpu.ensureModel(model))
+        const Model* model = (mc && xf) ? assets().find<Model>(mc->modelAssetID) : nullptr;
+        if (xf && model && gpu.retainModel(assets(), *model))
         {
             const Matrix4f worldMat = makeWorldMatrix(*xf);
             AnimGraphComponent* ag = world().get<AnimGraphComponent>(body);
@@ -3680,8 +3684,8 @@ void SandboxApp::onRender()
             if (!mc.visible || camouflageHides(e))
                 return;
             const TransformComponent* xf = world().get<TransformComponent>(e);
-            const auto model = assets().getAs<Model>(mc.modelAssetID);
-            if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->hasTranslucent() || !gpu.ensureModel(model))
+            const Model* model = assets().find<Model>(mc.modelAssetID);
+            if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->hasTranslucent() || !gpu.retainModel(assets(), *model))
                 return;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
             if (model->skinned() && !skinnedPose(*model, world().get<AnimGraphComponent>(e)))
@@ -3698,8 +3702,8 @@ void SandboxApp::onRender()
             const Entity e = translucentEntities[draw.user];
             const ModelComponent* mc = world().get<ModelComponent>(e);
             const TransformComponent* xf = world().get<TransformComponent>(e);
-            const auto model = (mc && xf) ? assets().getAs<Model>(mc->modelAssetID) : AssetRef<Model>{};
-            if (!xf || !model || !gpu.ensureModel(model))
+            const Model* model = (mc && xf) ? assets().find<Model>(mc->modelAssetID) : nullptr;
+            if (!xf || !model || !gpu.retainModel(assets(), *model))
                 continue;
             const Matrix4f worldMat = makeWorldMatrix(*xf);
             if (model->skinned())
@@ -3733,10 +3737,10 @@ void SandboxApp::onRender()
         if (!pe.runtime)
             return;
         const Material* sprite = nullptr;
-        if (AssetRef<Material> mat = assets().getAs<Material>(pe.matAssetID))
+        if (const Material* mat = assets().find<Material>(pe.matAssetID))
         {
-            gpu.ensureMaterial(mat);
-            sprite = mat.get();
+            gpu.retainMaterial(assets(), *mat);
+            sprite = mat;
         }
         m_particles.draw(cmd, m_viewCamera, *pe.runtime, pe.runtime->desc().additiveBlend, sprite);
     });

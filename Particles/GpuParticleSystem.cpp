@@ -953,15 +953,16 @@ namespace Dark
             job.drawable = false;
             job.tex.reset();
 
-            AssetRef<Material> held;
-            const Material*    bindMat = nullptr;
+            const Material* bindMat = nullptr;
             if (pe.matAssetID != NULL_ASSET)
             {
-                held = assets.getAs<Material>(pe.matAssetID);
-                if (held && held->isValid())
+                if (const Material* mat = assets.find<Material>(pe.matAssetID))
                 {
-                    renderer.gpuResources().ensureMaterial(held);
-                    bindMat = held.get();
+                    if (mat->isValid())
+                    {
+                        renderer.gpuResources().retainMaterial(assets, *mat);
+                        bindMat = mat;
+                    }
                 }
             }
             if (!bindMat && m_billboardMat && m_billboardMat->isValid())

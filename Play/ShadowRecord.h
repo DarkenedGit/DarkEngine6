@@ -6,8 +6,9 @@
 #include "Render/Frustum3f.h"
 #include "Terrain/FoliageFile.h"
 
+#include "ECS/FrameEntitySet.h"
+
 #include <cstdint>
-#include <unordered_set>
 #include <vector>
 
 struct ID3D12GraphicsCommandList;
@@ -62,8 +63,8 @@ namespace Dark
         bool                  instanceSkinned   = false;
         bool                  rejectTinyScale   = false;
         bool                  foliageActive     = false;
-        const std::unordered_set<EntityID>* acceptedModel   = nullptr;
-        const std::unordered_set<EntityID>* acceptedSkinned = nullptr;
+        const FrameEntitySet* acceptedModel   = nullptr;
+        const FrameEntitySet* acceptedSkinned = nullptr;
         bool (*skipModel)(void* user, Entity e) = nullptr;
         void (*drawPrimitives)(void* user, ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& lightViewProj, const Frustum3f& frustum, bool recordThisView) = nullptr;
         void* user = nullptr;

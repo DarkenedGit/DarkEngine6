@@ -1,4 +1,5 @@
 #include "Render/GpuResourceCache.h"
+#include "Assets/AssetManager.h"
 #include "Assets/Image.h"
 #include "Assets/Material.h"
 #include "Assets/Model.h"
@@ -291,6 +292,35 @@ namespace Dark
         else
             it->second.cpu = material;
         return true;
+    }
+
+    bool GpuResourceCache::retainMaterial(AssetManager& assets, const Material& material)
+    {
+        if (material.id == NULL_ASSET)
+            return false;
+        const AssetID albedoId = mapAssetId(material.albedo());
+        const AssetID normalId = mapAssetId(material.normalImage());
+        const AssetID ormId    = mapAssetId(material.ormImage());
+        const AssetID emisId   = mapAssetId(material.emissiveImage());
+        const AssetID uvId     = mapAssetId(material.uvImage());
+        const auto it = m_materials.find(material.id);
+        if (it != m_materials.end() && it->second.gpu && it->second.gpu->isValid())
+        {
+            const AssetID* ids = it->second.gpu->packedMapIds();
+            if (ids[GpuMaterial::kAlbedoSlot] == albedoId && ids[GpuMaterial::kNormalSlot] == normalId && ids[GpuMaterial::kOrmSlot] == ormId
+                && ids[GpuMaterial::kEmissiveSlot] == emisId && ids[GpuMaterial::kUvSlot] == uvId)
+                return true;
+        }
+        return ensureMaterial(assets.getAs<Material>(material.id));
+    }
+
+    bool GpuResourceCache::retainModel(AssetManager& assets, const Model& model)
+    {
+        if (model.id == NULL_ASSET)
+            return false;
+        if (GpuModel* existing = this->model(model.id); existing && existing->valid())
+            return true;
+        return ensureModel(assets.getAs<Model>(model.id));
     }
 
     bool GpuResourceCache::ensureModel(const AssetRef<Model>& model)

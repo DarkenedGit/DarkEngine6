@@ -68,6 +68,8 @@ namespace Dark
         m_playing = 0;
         m_request = 0;
         m_requestKey.clear();
+        m_keyLineId.clear();
+        m_keyText.clear();
     }
 
     DialogueLineAudio DialogueSpeech::hook()
@@ -153,7 +155,11 @@ namespace Dark
         const int      voice = static_cast<int>(h >> 7);
         const int      pitch = static_cast<int>((h >> 12) % 6) - 3;
         const int      rate  = static_cast<int>((h >> 17) % 3) - 1;
-        const std::string key = dialogueSynthCacheKey(voice, pitch, rate, line.id, line.text);
+        // The wait loop calls acquire every frame. Rebuild the key only when the line changes.
+        const bool reuseKey = m_request != 0 && m_keyVoice == voice && m_keyPitch == pitch && m_keyRate == rate && m_keyLineId == line.id
+            && m_keyText == line.text && !m_requestKey.empty();
+        const std::string built = reuseKey ? std::string{} : dialogueSynthCacheKey(voice, pitch, rate, line.id, line.text);
+        const std::string& key  = reuseKey ? m_requestKey : built;
 
         if (m_assets)
         {
@@ -177,8 +183,13 @@ namespace Dark
 
         if (m_request == 0 || m_requestKey != key)
         {
-            m_request = m_synth.request(line.text, voice, rate, pitch);
+            m_request    = m_synth.request(line.text, voice, rate, pitch);
             m_requestKey = key;
+            m_keyVoice   = voice;
+            m_keyPitch   = pitch;
+            m_keyRate    = rate;
+            m_keyLineId  = line.id;
+            m_keyText    = line.text;
             if (m_request == 0)
             {
                 warnSynth(m_synthWarned, line.id);

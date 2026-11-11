@@ -30,6 +30,39 @@ TEST(AssetManager, MountContentRootsIsIdempotent)
     EXPECT_EQ(second, 0);
 }
 
+TEST(AssetManager, FindPublishesWithoutASecondOwner)
+{
+    AssetManager mgr;
+    auto mat = std::make_shared<Material>();
+    const AssetID id = mgr.registerAsset(mat);
+    ASSERT_NE(id, NULL_ASSET);
+    const Material* found = mgr.find<Material>(id);
+    ASSERT_NE(found, nullptr);
+    EXPECT_EQ(found, mat.get());
+    EXPECT_EQ(mgr.find<Model>(id), nullptr);
+
+    mgr.unload(id);
+    EXPECT_EQ(mgr.find<Material>(id), nullptr);
+    EXPECT_EQ(mgr.findAsset(id), nullptr);
+    EXPECT_FALSE(mgr.get(id));
+}
+
+TEST(AssetManager, CollectGarbageUnpublishes)
+{
+    AssetManager mgr;
+    AssetID id = NULL_ASSET;
+    {
+        auto mat = std::make_shared<Material>();
+        id = mgr.registerAsset(mat);
+        ASSERT_NE(id, NULL_ASSET);
+        EXPECT_EQ(mgr.find<Material>(id), mat.get());
+    }
+    EXPECT_NE(mgr.find<Material>(id), nullptr);
+    mgr.collectGarbage();
+    EXPECT_EQ(mgr.find<Material>(id), nullptr);
+    EXPECT_FALSE(mgr.get(id));
+}
+
 TEST(AssetManager, RegisterAndGet)
 {
     AssetManager mgr;

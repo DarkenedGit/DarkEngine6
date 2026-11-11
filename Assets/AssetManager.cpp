@@ -23,6 +23,19 @@
 
 namespace Dark
 {
+    struct AssetManager::AssetChunk
+    {
+        struct Slot
+        {
+            std::atomic<Asset*> published{ nullptr };
+        };
+
+        Slot slots[AssetManager::kAssetChunkSize];
+    };
+}
+
+namespace Dark
+{
 
     AssetManager::AssetManager()  = default;
     AssetManager::~AssetManager() = default;
@@ -30,6 +43,65 @@ namespace Dark
     void AssetManager::erasePathEntriesLocked(AssetID id)
     {
         std::erase_if(m_pathToID, [id](const auto& kv) { return kv.second == id; });
+    }
+
+    void AssetManager::publishLocked(AssetID id, Asset* asset)
+    {
+        if (id == NULL_ASSET || asset == nullptr)
+            return;
+        const uint32_t index = static_cast<uint32_t>(id);
+        if (static_cast<AssetID>(index) != id)
+        {
+            DE_LOG_ERROR("AssetManager: id {} does not fit the publish table", id);
+            return;
+        }
+        const uint32_t chunkIndex = index >> kAssetChunkShift;
+        const uint32_t slot       = index & (kAssetChunkSize - 1u);
+        if (chunkIndex >= kAssetMaxChunks)
+        {
+            DE_LOG_ERROR("AssetManager: id {} exceeds the publish table", id);
+            return;
+        }
+        if (!m_chunkOwner[chunkIndex])
+        {
+            m_chunkOwner[chunkIndex] = std::unique_ptr<AssetChunk>(new AssetChunk());
+            m_chunks[chunkIndex].store(m_chunkOwner[chunkIndex].get(), std::memory_order_release);
+        }
+        m_chunkOwner[chunkIndex]->slots[slot].published.store(asset, std::memory_order_release);
+    }
+
+    void AssetManager::unpublishLocked(AssetID id)
+    {
+        if (id == NULL_ASSET)
+            return;
+        const uint32_t index = static_cast<uint32_t>(id);
+        if (static_cast<AssetID>(index) != id)
+            return;
+        const uint32_t chunkIndex = index >> kAssetChunkShift;
+        const uint32_t slot       = index & (kAssetChunkSize - 1u);
+        if (chunkIndex >= kAssetMaxChunks)
+            return;
+        AssetChunk* chunk = m_chunkOwner[chunkIndex].get();
+        if (!chunk)
+            return;
+        chunk->slots[slot].published.store(nullptr, std::memory_order_release);
+    }
+
+    const Asset* AssetManager::findAsset(AssetID id) const
+    {
+        if (id == NULL_ASSET)
+            return nullptr;
+        const uint32_t index = static_cast<uint32_t>(id);
+        if (static_cast<AssetID>(index) != id)
+            return nullptr;
+        const uint32_t chunkIndex = index >> kAssetChunkShift;
+        const uint32_t slot       = index & (kAssetChunkSize - 1u);
+        if (chunkIndex >= kAssetMaxChunks)
+            return nullptr;
+        AssetChunk* chunk = m_chunks[chunkIndex].load(std::memory_order_acquire);
+        if (!chunk)
+            return nullptr;
+        return chunk->slots[slot].published.load(std::memory_order_acquire);
     }
 
     bool AssetManager::mountDirectory(const std::filesystem::path& dir)
@@ -196,6 +268,7 @@ namespace Dark
         const AssetID id = allocID();
         asset->id        = id;
         m_assets[id]     = std::move(asset);
+        publishLocked(id, m_assets[id].get());
         if (!cacheKey.empty())
             m_pathToID[cacheKey] = id;
         DE_LOG_INFO("AssetManager: registered id={} type={}", id, static_cast<unsigned>(m_assets[id]->type));
@@ -229,6 +302,7 @@ namespace Dark
         const AssetID id = allocID();
         mat->id          = id;
         m_assets[id]     = mat;
+        publishLocked(id, m_assets[id].get());
         if (!cacheKey.empty())
             m_pathToID[cacheKey] = id;
         DE_LOG_INFO("AssetManager: interned material id={}", id);
@@ -263,6 +337,7 @@ namespace Dark
         const AssetID id = allocID();
         clip->id         = id;
         m_assets[id]     = clip;
+        publishLocked(id, m_assets[id].get());
         if (!cacheKey.empty())
             m_pathToID[cacheKey] = id;
         DE_LOG_INFO("AssetManager: interned audio id={}", id);
@@ -308,6 +383,7 @@ namespace Dark
     void AssetManager::unload(AssetID id)
     {
         std::lock_guard<std::mutex> lock(m_mutex);
+        unpublishLocked(id);
         m_assets.erase(id);
         erasePathEntriesLocked(id);
     }
@@ -324,7 +400,9 @@ namespace Dark
             {
                 if (it->second.use_count() == 1)
                 {
-                    removed.push_back(it->first);
+                    const AssetID id = it->first;
+                    unpublishLocked(id);
+                    removed.push_back(id);
                     it = m_assets.erase(it);
                 }
                 else

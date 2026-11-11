@@ -2,6 +2,7 @@
 #include <vector>
 #include <wrl/client.h>
 #include "Core/Application.h"
+#include "ECS/FrameEntitySet.h"
 #include "Animation/AnimNotify.h"
 #include "Network/Replication.h"
 #include "Assets/Model.h"
@@ -72,7 +73,6 @@
 #include <deque>
 #include <filesystem>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace Dark::Combat
@@ -323,6 +323,10 @@ private:
     float                           m_defenseTextLeft = 0.0f;
     Dark::Camera3D          m_viewCamera;
     std::unordered_map<Dark::EntityID, Dark::Math::Matrix4f> m_prevWorldByEntity;
+    Dark::FrameEntitySet m_acceptedMesh;
+    Dark::FrameEntitySet m_acceptedModel;
+    Dark::FrameEntitySet m_acceptedSkinned;
+    std::vector<int>     m_rejectedShots;
     Dark::Sky::Environment  m_env;
     Dark::IblSettings       m_ibl;
     Dark::GtaoSettings      m_ssao;
