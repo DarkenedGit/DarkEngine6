@@ -4,6 +4,7 @@
 #include "Core/Version.h"
 #include "Input/InputCodes.h"
 #include "Play/FrameRecord.h"
+#include "Render/GpuResourceCache.h"
 #include "Render/Profile.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -663,6 +664,46 @@ namespace Dark
         }
 
         onShutdown();
+    }
+
+    void Application::releaseUnreferencedAssets()
+    {
+        const size_t assetsBefore = m_assets.assetCount();
+        uint32_t gpuTextures = 0;
+        uint32_t gpuMaterials = 0;
+        uint32_t gpuModels = 0;
+        if (m_renderer.isValid())
+        {
+            const GpuResourceCache::Stats before = m_renderer.gpuResources().stats();
+            gpuTextures  = before.textures;
+            gpuMaterials = before.materials;
+            gpuModels    = before.models;
+        }
+
+        // Stop before GC so a voice's slot ref is not the only thing keeping a
+        // finished level's clips. Buffers XAudio2 has not ended stay in ClipKeep.
+        m_audio.stopClipVoices();
+        m_audio.tick();
+        m_assets.collectGarbage();
+        if (m_renderer.isValid())
+            m_renderer.gpuResources().collectUnused();
+
+        const size_t assetsAfter = m_assets.assetCount();
+        uint32_t textures = 0;
+        uint32_t materials = 0;
+        uint32_t models = 0;
+        if (m_renderer.isValid())
+        {
+            const GpuResourceCache::Stats after = m_renderer.gpuResources().stats();
+            textures  = gpuTextures > after.textures ? gpuTextures - after.textures : 0;
+            materials = gpuMaterials > after.materials ? gpuMaterials - after.materials : 0;
+            models    = gpuModels > after.models ? gpuModels - after.models : 0;
+        }
+        const size_t assetsFreed = assetsBefore > assetsAfter ? assetsBefore - assetsAfter : 0;
+        if (assetsFreed == 0 && textures == 0 && materials == 0 && models == 0)
+            return;
+        DE_LOG_INFO("Scene release: {} asset(s), GPU textures {}, materials {}, models {} (GPU frees over the next frames)",
+            assetsFreed, textures, materials, models);
     }
 
 } // namespace Dark

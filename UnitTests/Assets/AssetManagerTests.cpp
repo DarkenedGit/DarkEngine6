@@ -171,7 +171,6 @@ TEST(AssetManager, ModelHoldsAnimationSetAcrossGc)
 
     model.reset();
     mgr.collectGarbage();
-    mgr.collectGarbage();
     EXPECT_FALSE(mgr.get(setId));
     EXPECT_FALSE(mgr.get(modelId));
 }

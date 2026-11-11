@@ -18,10 +18,39 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <new>
 
 namespace Dark::Audio
 {
     using namespace Math;
+
+    struct ClipKeep;
+
+    // Friend of AudioSystem. The XAudio2 callback thread only queues the pointer.
+    void noteSourceBufferEnd(void* user, void* context)
+    {
+        if (!user || !context)
+            return;
+        static_cast<AudioSystem*>(user)->noteBufferEnd(context);
+    }
+
+    struct SourceBufferCallback : IXAudio2VoiceCallback
+    {
+        void (*fn)(void* user, void* context) = nullptr;
+        void* user                            = nullptr;
+
+        void OnVoiceProcessingPassStart(UINT32) override {}
+        void OnVoiceProcessingPassEnd() override {}
+        void OnStreamEnd() override {}
+        void OnBufferStart(void*) override {}
+        void OnBufferEnd(void* context) override
+        {
+            if (fn && context)
+                fn(user, context);
+        }
+        void OnLoopEnd(void*) override {}
+        void OnVoiceError(void*, HRESULT) override {}
+    };
 
     float clampf(float v, float lo, float hi)
     {
@@ -76,6 +105,13 @@ namespace Dark::Audio
         float                      occlusion  = 0.0f;
         float                      filterFreq = 1.0f;
         bool                       occlusionFresh = false;
+        ClipKeep*                  keep = nullptr;
+    };
+
+    struct ClipKeep
+    {
+        std::shared_ptr<SoundClip> clip;
+        int                        slotIndex = -1;
     };
 
     struct AudioSystem::Device
@@ -103,6 +139,11 @@ namespace Dark::Audio
         DWORD                   channelMask = SPEAKER_STEREO;
         bool                    x3dReady    = false;
         StreamVoice             stream{};
+        // Submitted clip buffers. OnBufferEnd only pushes to finished.
+        std::mutex              keepMutex;
+        std::vector<ClipKeep*>  keeps;
+        std::vector<ClipKeep*>  finished;
+        SourceBufferCallback    bufferCallback;
 
         ~Device()
         {
@@ -135,6 +176,8 @@ namespace Dark::Audio
     bool AudioSystem::createDevice()
     {
         m_device = std::make_unique<Device>();
+        m_device->bufferCallback.fn   = &noteSourceBufferEnd;
+        m_device->bufferCallback.user = this;
 
         HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         if (hr == S_OK || hr == S_FALSE)
@@ -205,6 +248,200 @@ namespace Dark::Audio
         shutdown();
     }
 
+    void AudioSystem::noteBufferEnd(void* context)
+    {
+        if (!context || !m_device)
+            return;
+        std::lock_guard<std::mutex> lock(m_device->keepMutex);
+        ClipKeep* keep = static_cast<ClipKeep*>(context);
+        bool live = false;
+        for (const ClipKeep* queued : m_device->keeps)
+            live = live || queued == keep;
+        if (!live)
+            return;
+        for (const ClipKeep* queued : m_device->finished)
+        {
+            if (queued == keep)
+                return;
+        }
+        m_device->finished.push_back(keep);
+    }
+
+    void AudioSystem::clearSlotKeep(void* keepPtr)
+    {
+        const ClipKeep* keep = static_cast<const ClipKeep*>(keepPtr);
+        if (!keep || keep->slotIndex < 0 || keep->slotIndex >= static_cast<int>(m_voices.size()))
+            return;
+        VoiceSlot* slot = m_voices[static_cast<size_t>(keep->slotIndex)].get();
+        if (slot && slot->keep == keep)
+            slot->keep = nullptr;
+    }
+
+    void* AudioSystem::claimKeep(void* keepPtr)
+    {
+        ClipKeep* keep = static_cast<ClipKeep*>(keepPtr);
+        if (!keep || !m_device)
+            return nullptr;
+        std::lock_guard<std::mutex> lock(m_device->keepMutex);
+        bool found = false;
+        for (size_t i = 0; i < m_device->keeps.size(); ++i)
+        {
+            if (m_device->keeps[i] != keep)
+                continue;
+            m_device->keeps[i] = m_device->keeps.back();
+            m_device->keeps.pop_back();
+            found = true;
+            break;
+        }
+        if (!found)
+            return nullptr;
+        for (size_t i = 0; i < m_device->finished.size(); ++i)
+        {
+            if (m_device->finished[i] != keep)
+                continue;
+            m_device->finished[i] = m_device->finished.back();
+            m_device->finished.pop_back();
+            break;
+        }
+        return keep;
+    }
+
+    void AudioSystem::drainFinishedClips()
+    {
+        if (!m_device)
+            return;
+        std::vector<ClipKeep*> done;
+        {
+            std::lock_guard<std::mutex> lock(m_device->keepMutex);
+            done.swap(m_device->finished);
+        }
+        for (ClipKeep* keep : done)
+        {
+            ClipKeep* claimed = static_cast<ClipKeep*>(claimKeep(keep));
+            if (!claimed)
+                continue;
+            clearSlotKeep(claimed);
+            delete claimed;
+        }
+    }
+
+    void AudioSystem::reclaimIdleKeeps()
+    {
+        if (!m_device)
+            return;
+        for (auto& ptr : m_voices)
+        {
+            if (!ptr || !ptr->keep || !ptr->voice)
+                continue;
+            XAUDIO2_VOICE_STATE state{};
+            ptr->voice->GetState(&state, XAUDIO2_VOICE_NOSAMPLESPLAYED);
+            if (state.BuffersQueued != 0)
+                continue;
+            ClipKeep* claimed = static_cast<ClipKeep*>(claimKeep(ptr->keep));
+            ptr->keep = nullptr;
+            if (!claimed)
+                continue;
+            delete claimed;
+        }
+    }
+
+    void AudioSystem::releaseKeepsFor(VoiceSlot* slot)
+    {
+        if (!m_device || !slot)
+            return;
+        int slotIndex = -1;
+        for (int i = 0; i < static_cast<int>(m_voices.size()); ++i)
+        {
+            if (m_voices[static_cast<size_t>(i)].get() == slot)
+            {
+                slotIndex = i;
+                break;
+            }
+        }
+        std::vector<ClipKeep*> drop;
+        {
+            std::lock_guard<std::mutex> lock(m_device->keepMutex);
+            for (size_t i = 0; i < m_device->keeps.size();)
+            {
+                ClipKeep* keep = m_device->keeps[i];
+                if (!keep || keep->slotIndex != slotIndex)
+                {
+                    ++i;
+                    continue;
+                }
+                drop.push_back(keep);
+                m_device->keeps[i] = m_device->keeps.back();
+                m_device->keeps.pop_back();
+            }
+            for (size_t i = 0; i < m_device->finished.size();)
+            {
+                bool doomed = false;
+                for (const ClipKeep* keep : drop)
+                    doomed = doomed || m_device->finished[i] == keep;
+                if (!doomed)
+                {
+                    ++i;
+                    continue;
+                }
+                m_device->finished[i] = m_device->finished.back();
+                m_device->finished.pop_back();
+            }
+        }
+        for (ClipKeep* keep : drop)
+            delete keep;
+        slot->keep = nullptr;
+    }
+
+    void AudioSystem::abandonUnsubmitted(void* keepPtr)
+    {
+        ClipKeep* claimed = static_cast<ClipKeep*>(claimKeep(keepPtr));
+        if (!claimed)
+            return;
+        clearSlotKeep(claimed);
+        delete claimed;
+    }
+
+    void AudioSystem::destroyAllKeeps()
+    {
+        if (!m_device)
+            return;
+        std::vector<ClipKeep*> all;
+        {
+            std::lock_guard<std::mutex> lock(m_device->keepMutex);
+            all.swap(m_device->keeps);
+            for (ClipKeep* keep : m_device->finished)
+            {
+                bool found = false;
+                for (const ClipKeep* kept : all)
+                    found = found || kept == keep;
+                if (!found)
+                    all.push_back(keep);
+            }
+            m_device->finished.clear();
+        }
+        for (auto& slot : m_voices)
+        {
+            if (slot)
+                slot->keep = nullptr;
+        }
+        for (ClipKeep* keep : all)
+            delete keep;
+    }
+
+    void AudioSystem::destroySlotVoice(VoiceSlot& slot)
+    {
+        if (slot.voice)
+        {
+            slot.voice->Stop(0);
+            slot.voice->FlushSourceBuffers();
+            slot.voice->DestroyVoice();
+            slot.voice = nullptr;
+        }
+        // DestroyVoice returns only after callbacks for this voice have finished.
+        releaseKeepsFor(&slot);
+        slot.clip.reset();
+    }
+
     void AudioSystem::shutdown()
     {
         stopAll();
@@ -216,13 +453,9 @@ namespace Dark::Audio
             {
                 if (!slot)
                     continue;
-                if (slot->voice)
-                {
-                    slot->voice->DestroyVoice();
-                    slot->voice = nullptr;
-                }
-                slot->clip.reset();
+                destroySlotVoice(*slot);
             }
+            destroyAllKeeps();
             m_voices.clear();
             m_device.reset();
         }
@@ -291,12 +524,9 @@ namespace Dark::Audio
         const WAVEFORMATEX fmt = makePcmFormat(clip);
         if (slot.voice && sameFormat(slot.format, fmt))
             return true;
-        if (slot.voice)
-        {
-            slot.voice->DestroyVoice();
-            slot.voice = nullptr;
-        }
-        const HRESULT hr = m_device->xaudio->CreateSourceVoice(&slot.voice, &fmt, XAUDIO2_VOICE_USEFILTER);
+        destroySlotVoice(slot);
+        const HRESULT hr = m_device->xaudio->CreateSourceVoice(
+            &slot.voice, &fmt, XAUDIO2_VOICE_USEFILTER, XAUDIO2_DEFAULT_FREQ_RATIO, &m_device->bufferCallback);
         if (FAILED(hr) || !slot.voice)
         {
             DE_LOG_ERROR(LogCategory::Audio, "Audio: CreateSourceVoice failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
@@ -451,11 +681,28 @@ namespace Dark::Audio
         if (slot.generation == 0)
             slot.generation = 1;
 
+        ClipKeep* keep = new (std::nothrow) ClipKeep;
+        if (!keep)
+        {
+            DE_LOG_ERROR(LogCategory::Audio, "Audio: out of memory holding a clip buffer");
+            slot.inUse = false;
+            slot.clip.reset();
+            return 0;
+        }
+        keep->clip = clip;
+        keep->slotIndex = index;
+        {
+            std::lock_guard<std::mutex> lock(m_device->keepMutex);
+            m_device->keeps.push_back(keep);
+        }
+        slot.keep = keep;
+
         XAUDIO2_BUFFER buf{};
         buf.AudioBytes = clip->byteSize();
         buf.pAudioData = reinterpret_cast<const BYTE*>(clip->samples());
         buf.Flags      = XAUDIO2_END_OF_STREAM;
         buf.LoopCount  = desc.loop ? XAUDIO2_LOOP_INFINITE : 0;
+        buf.pContext   = keep;
 
         const HRESULT hr = slot.voice->SubmitSourceBuffer(&buf);
         if (FAILED(hr))
@@ -463,6 +710,7 @@ namespace Dark::Audio
             DE_LOG_ERROR(LogCategory::Audio, "Audio: SubmitSourceBuffer failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
             slot.inUse = false;
             slot.clip.reset();
+            abandonUnsubmitted(keep);
             return 0;
         }
 
@@ -531,9 +779,13 @@ namespace Dark::Audio
             return;
         VoiceSlot& slot = *m_voices[static_cast<size_t>(index)];
         if (slot.voice)
+        {
             slot.voice->Stop(0);
+            slot.voice->FlushSourceBuffers();
+        }
         slot.inUse = false;
         slot.music = false;
+        // ClipKeep, not slot.clip, owns the PCM until OnBufferEnd is drained.
         slot.clip.reset();
         ++slot.generation;
         if (slot.generation == 0)
@@ -547,8 +799,11 @@ namespace Dark::Audio
             if (!m_voices[static_cast<size_t>(i)])
                 continue;
             VoiceSlot& slot = *m_voices[static_cast<size_t>(i)];
-            if (slot.voice && slot.inUse)
+            if (slot.voice && (slot.inUse || slot.keep))
+            {
                 slot.voice->Stop(0);
+                slot.voice->FlushSourceBuffers();
+            }
             slot.inUse = false;
             slot.music = false;
             slot.clip.reset();
@@ -899,6 +1154,8 @@ namespace Dark::Audio
     void AudioSystem::tick()
     {
         assertMainThread();
+        drainFinishedClips();
+        reclaimIdleKeeps();
         if (!m_valid)
             return;
         for (auto& ptr : m_voices)

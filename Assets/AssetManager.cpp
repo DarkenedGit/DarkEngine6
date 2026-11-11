@@ -314,8 +314,11 @@ namespace Dark
 
     void AssetManager::collectGarbage()
     {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        // Erasing a Model drops its AnimationSet ref during the walk. Another pass
+        // collects that set, and a third collects images the set or a material held.
+        for (int pass = 0; pass < 8; ++pass)
         {
-            std::lock_guard<std::mutex> lock(m_mutex);
             std::vector<AssetID> removed;
             for (auto it = m_assets.begin(); it != m_assets.end();)
             {
@@ -329,10 +332,12 @@ namespace Dark
                     ++it;
                 }
             }
+            if (removed.empty())
+                break;
             for (const AssetID id : removed)
                 erasePathEntriesLocked(id);
-            DE_LOG_TRACE("AssetManager: GC pass complete ({} assets remaining)", m_assets.size());
         }
+        DE_LOG_TRACE("AssetManager: GC pass complete ({} assets remaining)", m_assets.size());
     }
 
     size_t AssetManager::assetCount() const

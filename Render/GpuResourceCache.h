@@ -78,7 +78,10 @@ namespace Dark
         // Iterates interned materials only — not terrain splat / other packed heaps.
         void setAlbedoSamplingRaw(bool raw);
 
+        // Drop entries whose CPU asset is gone. A live renderer keeps the GPU
+        // objects for a few frames (tickRetired). No device destroys them now.
         void collectUnused();
+        void tickRetired();
         void clear();
 
         // Non-asset heaps (terrain). Pointer identity; caller unregisters before the heap moves/dies.
@@ -120,6 +123,17 @@ namespace Dark
 
         bool ensureDefaultMaps();
 
+        struct Retired
+        {
+            std::unique_ptr<GpuModel>    model;
+            std::unique_ptr<GpuMaterial> material;
+            std::shared_ptr<Texture2D>   texture;
+            std::unique_ptr<GpuIbl>      ibl;
+            int                          frames = 3;
+        };
+
+        void hold(Retired retired);
+
         Renderer*                   m_renderer = nullptr;
         D3D12_CPU_DESCRIPTOR_HANDLE m_shadowCpu{};
         bool                        m_albedoSamplingRaw = false;
@@ -134,6 +148,7 @@ namespace Dark
         std::unordered_map<AssetID, ModEntry> m_models;
         std::unordered_map<AssetID, IblEntry> m_ibl;
         std::vector<PackedSrvHeap*>           m_packedHeaps;
+        std::vector<Retired>                  m_retired;
         uint32_t                              m_shadowPatches = 0;
     };
 

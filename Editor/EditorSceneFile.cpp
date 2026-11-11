@@ -375,6 +375,7 @@ bool EditorApp::applyLoadedScene(SceneFileData& data)
     if (data.mode != SceneMode::Scene2D)
         expandSceneBuildings(data, m_buildingContainers, m_buildingHides, &m_buildingDoors, &m_buildingCameras);
     removeEditorTerrain();
+    releaseUnreferencedAssets();
     m_authoredWater = {};
     m_authoredExposure = {};
     m_authoredStealth = {};

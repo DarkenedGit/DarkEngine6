@@ -129,6 +129,8 @@ namespace Dark::Audio
         int liveForeignSpatialVoices(uint32_t selfId) const;
 
         // Apply 3D and reclaim finished one-shots. Call once per frame after gameplay.
+        // Also drops clip buffers XAudio2 has finished. stop() does not free those
+        // buffers; the PCM stays alive until this drain runs.
         void tick();
 
         // Asks query about every live 3D voice and fades it toward the answer. A voice's first
@@ -150,6 +152,18 @@ namespace Dark::Audio
         bool ensureVoice(VoiceSlot& slot, const SoundClip& clip);
         bool streamLive(StreamId id) const;
         void stopStreamLocked(StreamId id); // Caller holds m_streamMutex.
+        // XAudio2 reads SoundClip::samples() until OnBufferEnd. ClipKeep holds that ref.
+        friend void noteSourceBufferEnd(void* user, void* context);
+        void noteBufferEnd(void* context);
+        void drainFinishedClips();
+        void reclaimIdleKeeps();
+        // Removes keep from the live lists. Null when another path already claimed it.
+        void* claimKeep(void* keep);
+        void clearSlotKeep(void* keep);
+        void destroySlotVoice(VoiceSlot& slot);
+        void releaseKeepsFor(VoiceSlot* slot);
+        void abandonUnsubmitted(void* keep);
+        void destroyAllKeeps();
 
         struct Device;
         std::unique_ptr<Device> m_device;

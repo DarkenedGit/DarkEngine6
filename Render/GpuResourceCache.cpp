@@ -510,12 +510,45 @@ namespace Dark
         }
     }
 
+    void GpuResourceCache::hold(Retired retired)
+    {
+        const bool anything = retired.model || retired.material || retired.texture || retired.ibl;
+        if (!anything)
+            return;
+        // The previous frame's command list may still sample these. Same delay as GpuMeshRetire.
+        if (m_renderer && m_renderer->isValid())
+        {
+            retired.frames = GpuMeshRetire::kFrames;
+            m_retired.push_back(std::move(retired));
+            return;
+        }
+    }
+
+    void GpuResourceCache::tickRetired()
+    {
+        for (size_t i = 0; i < m_retired.size();)
+        {
+            if (--m_retired[i].frames <= 0)
+            {
+                m_retired[i] = std::move(m_retired.back());
+                m_retired.pop_back();
+            }
+            else
+                ++i;
+        }
+    }
+
     void GpuResourceCache::collectUnused()
     {
         for (auto it = m_models.begin(); it != m_models.end();)
         {
             if (it->second.cpu.expired())
+            {
+                Retired retired;
+                retired.model = std::move(it->second.gpu);
+                hold(std::move(retired));
                 it = m_models.erase(it);
+            }
             else
                 ++it;
         }
@@ -525,6 +558,9 @@ namespace Dark
             {
                 if (it->second.gpu)
                     unregisterPackedHeap(&it->second.gpu->packedHeap());
+                Retired retired;
+                retired.material = std::move(it->second.gpu);
+                hold(std::move(retired));
                 it = m_materials.erase(it);
             }
             else
@@ -535,14 +571,24 @@ namespace Dark
             const bool imageGone = it->second.cpu.expired();
             const bool onlyCache = it->second.gpu && it->second.gpu.use_count() == 1;
             if (imageGone && onlyCache)
+            {
+                Retired retired;
+                retired.texture = std::move(it->second.gpu);
+                hold(std::move(retired));
                 it = m_textures.erase(it);
+            }
             else
                 ++it;
         }
         for (auto it = m_ibl.begin(); it != m_ibl.end();)
         {
             if (it->second.cpu.expired())
+            {
+                Retired retired;
+                retired.ibl = std::move(it->second.gpu);
+                hold(std::move(retired));
                 it = m_ibl.erase(it);
+            }
             else
                 ++it;
         }
@@ -551,6 +597,7 @@ namespace Dark
     void GpuResourceCache::clear()
     {
         m_packedHeaps.clear();
+        m_retired.clear();
         m_models.clear();
         m_materials.clear();
         m_textures.clear();

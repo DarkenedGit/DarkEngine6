@@ -59,6 +59,13 @@ namespace Dark
 
         bool initOk() const { return m_window.nativeHandle() != nullptr && m_renderer.isValid(); }
         void run();
+
+        // Scene change, after the old entities, pins, and terrain are gone and
+        // before the next scene interns replacements. Stops one-shot voices, then
+        // drops interned assets nothing else references. GPU copies of those assets
+        // stay alive for a few frames so the in-flight draw can finish.
+        // A clip XAudio2 is still mixing stays interned until a later release.
+        void releaseUnreferencedAssets();
         void requestQuit() { m_running = false; }
 
         bool pumpBootFrame();

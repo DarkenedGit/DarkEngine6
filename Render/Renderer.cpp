@@ -629,6 +629,8 @@ namespace Dark
         }
 
         pumpDeferredReleases();
+        if (m_gpuResources)
+            m_gpuResources->tickRetired();
 
         // m_frameIndex was advanced in moveToNextFrame(), which already waited until
         // this slot's prior GPU work finished. Safe to reset its allocator now.

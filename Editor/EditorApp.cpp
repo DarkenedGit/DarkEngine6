@@ -198,6 +198,7 @@ void EditorApp::newScene3D()
     m_save.setWorldIdentity("", "", "");
     clearScene();
     removeEditorTerrain();
+    releaseUnreferencedAssets();
     m_authoredWater = {};
     m_authoredExposure = {};
     m_authoredStealth = {};
@@ -224,6 +225,7 @@ void EditorApp::newScene2D()
     m_sceneName = "level2d";
     clearScene();
     removeEditorTerrain();
+    releaseUnreferencedAssets();
     m_authoredStealth = {};
     m_authoredGrass = {};
     m_wind          = Terrain::defaultWindSettings();

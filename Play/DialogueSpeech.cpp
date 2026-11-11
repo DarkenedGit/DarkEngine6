@@ -6,9 +6,29 @@
 #include "ECS/World.h"
 
 #include <format>
+#include <string_view>
 
 namespace Dark
 {
+    namespace
+    {
+        uint64_t hashText(std::string_view text)
+        {
+            uint64_t hash = 14695981039346656037ull;
+            for (unsigned char c : text)
+            {
+                hash ^= c;
+                hash *= 1099511628211ull;
+            }
+            return hash;
+        }
+    } // namespace
+
+    std::string dialogueSynthCacheKey(int voice, int pitch, int rate, std::string_view lineId, std::string_view text)
+    {
+        return std::format("dlg:{}:{}:{}:{:016x}:{}", voice, pitch, rate, hashText(text), lineId);
+    }
+
     namespace
     {
         void warnSynth(std::vector<std::string>& warned, const std::string& lineId)
@@ -133,7 +153,7 @@ namespace Dark
         const int      voice = static_cast<int>(h >> 7);
         const int      pitch = static_cast<int>((h >> 12) % 6) - 3;
         const int      rate  = static_cast<int>((h >> 17) % 3) - 1;
-        const std::string key = std::format("dlg:{}:{}:{}:{}:{}", voice, pitch, rate, line.id, line.text);
+        const std::string key = dialogueSynthCacheKey(voice, pitch, rate, line.id, line.text);
 
         if (m_assets)
         {

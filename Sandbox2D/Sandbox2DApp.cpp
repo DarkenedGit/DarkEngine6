@@ -284,6 +284,7 @@ void Sandbox2DApp::clearLevel()
     clearCoins();
     destroyPhysics();
     m_levelReady = false;
+    releaseUnreferencedAssets();
 }
 
 void Sandbox2DApp::finishEnteredLevel(const MainMenuEntry& entry, bool loaded)

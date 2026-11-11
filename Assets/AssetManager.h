@@ -45,7 +45,8 @@ namespace Dark
         // Unload a specific asset
         void unload(AssetID id);
 
-        // Release all unreferenced assets (only manager holds a ref)
+        // Release assets only the manager still holds. Repeats so a parent drop
+        // (Model -> AnimationSet -> images) is collected in the same call.
         void collectGarbage();
 
         // Resolve virtual path → absolute path

@@ -136,6 +136,9 @@ namespace Dark
         m_guards.clear();
         m_lines.clear();
         m_subtitles.clear();
+        m_requests.clear();
+        // Pins every synthesized bark. Dropped here so a scene release can collect the PCM.
+        m_ready.clear();
         m_chatIn = 20.0f;
     }
 

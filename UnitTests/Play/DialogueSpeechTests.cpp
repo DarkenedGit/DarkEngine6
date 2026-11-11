@@ -12,6 +12,16 @@
 
 using namespace Dark;
 
+TEST(DialogueSpeech, SynthCacheKeyHashesTheLine)
+{
+    const std::string longLine = "A very long line that must not be stored whole in the asset map.";
+    const std::string key = dialogueSynthCacheKey(1, -2, 0, "greet", longLine);
+    EXPECT_EQ(key.find(longLine), std::string::npos);
+    EXPECT_EQ(key, dialogueSynthCacheKey(1, -2, 0, "greet", longLine));
+    EXPECT_NE(key, dialogueSynthCacheKey(1, -2, 0, "greet", "Different"));
+    EXPECT_NE(key, dialogueSynthCacheKey(1, -2, 0, "other", longLine));
+}
+
 TEST(DialogueSpeech, MissingWavDoesNotLoad)
 {
     DialogueSpeech speech;

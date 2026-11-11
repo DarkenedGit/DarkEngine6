@@ -8,6 +8,7 @@
 #include "Play/DialogueRuntime.h"
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Dark
@@ -15,6 +16,10 @@ namespace Dark
 
     class AssetManager;
     class World;
+
+    // Cache key for one synthesized line. The sentence is hashed so the intern
+    // entry does not store the line text. Same id and text reuse one clip.
+    std::string dialogueSynthCacheKey(int voice, int pitch, int rate, std::string_view lineId, std::string_view text);
 
     namespace Audio
     {
