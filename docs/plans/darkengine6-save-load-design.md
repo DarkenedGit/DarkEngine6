@@ -2,11 +2,11 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Draft rev 2 |
+| **Status** | Draft rev 2. The living copy is [`Save/DESIGN-save-load.md`](../../Save/DESIGN-save-load.md). |
 | **Date** | 2026-10-03 |
 | **Supersedes** | Rev 1 of this file (registry of serializers, scene-file v3 ids, host/systems blobs) |
 | **Tip baseline** | `78bd84ea9cddc86b80992ca38415ef2e37b4b520` (`main`, "Pix Profiling Enabled") |
-| **Proposed in-repo home** | Stay in `docs/plans/` until `Save/` exists. The first code PR moves it to `Save/DESIGN-save-load.md`, next to the code, same convention as `Combat/DESIGN-status-effects.md`. |
+| **Proposed in-repo home** | Moved. Edit `Save/DESIGN-save-load.md`. This file is the 2026-10-03 draft. `SandboxApp::m_lookYaw` and `m_offhand` in the body below are that snapshot. Those fields now live on `PlayRuntime`. |
 | **Depends on** | `ECS/World`, `ECS/Component.h`, `Core/UUID`, `Core/Paths`, `Scene/SceneFile` (read the start state only), `third_party/nlohmann/json.hpp`, `Core/Version.h`, `NetworkSystem::role()` |
 | **Out of this document** | No code. Phases below land as small sequential PRs. |
 

@@ -103,3 +103,63 @@ TEST(SpeechSynth, SpeaksALineToPcmWhenVoicesExist)
     EXPECT_GT(result.pcm.samples.size(), 4000u);
     EXPECT_EQ(result.pcm.sampleRate, 22050u);
 }
+
+TEST(SpeechSynth, CancelDropsAQueuedJobAndLeavesAStartedOne)
+{
+    Audio::SpeechSynth synth;
+    if (!synth.start())
+        GTEST_SKIP() << "no speech on this platform";
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+    if (!synth.running())
+    {
+        const uint64_t queued = synth.request("queued with no voice", 0, 0, 0);
+        const uint64_t other  = synth.request("also queued", 0, 0, 0);
+        ASSERT_NE(queued, 0u);
+        ASSERT_NE(other, 0u);
+        EXPECT_TRUE(synth.cancel(queued));
+        EXPECT_FALSE(synth.cancel(queued));
+        EXPECT_TRUE(synth.cancel(other));
+        Audio::SpeechResult result;
+        EXPECT_FALSE(synth.poll(result));
+        synth.stop();
+        return;
+    }
+
+    const uint64_t started = synth.request("This line is long enough that Speak is still running when the next request is cancelled.", 0, 0, 0);
+    ASSERT_NE(started, 0u);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    if (synth.cancel(started))
+    {
+        const uint64_t queued = synth.request("still sitting in the queue", 0, 0, 0);
+        ASSERT_NE(queued, 0u);
+        EXPECT_TRUE(synth.cancel(queued));
+        EXPECT_FALSE(synth.cancel(queued));
+        synth.stop();
+        return;
+    }
+
+    const uint64_t queued = synth.request("still sitting in the queue", 0, 0, 0);
+    ASSERT_NE(queued, 0u);
+    EXPECT_TRUE(synth.cancel(queued));
+    EXPECT_FALSE(synth.cancel(queued));
+
+    bool                sawStarted = false;
+    bool                sawQueued  = false;
+    Audio::SpeechResult result;
+    for (int i = 0; i < 200 && !sawStarted; ++i)
+    {
+        while (synth.poll(result))
+        {
+            if (result.id == started)
+                sawStarted = true;
+            if (result.id == queued)
+                sawQueued = true;
+        }
+        if (!sawStarted)
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    EXPECT_TRUE(sawStarted);
+    EXPECT_FALSE(sawQueued);
+    synth.stop();
+}

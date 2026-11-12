@@ -43,7 +43,7 @@ Deferred on purpose, and not started here:
 | R1 shadow worker | Stays off. `g_shadowWorker` defaults false. Tests may toggle it. Do not enable it and do not delete those tests. Turning it on still shares `DrawList`, `SkinnedInstanceBuffer`, and `FoliagePipeline` with the main thread. |
 | R3 descriptor heap `Reset` | Live callers run after `waitForGpu`. The mid-session repack paths have no callers. When one of those is revived, route the old heap through `deferRelease`. |
 | R4 12-bit generation ABA | After 4096 reuses of one slot, a stale `Entity` can pass `alive()`. Churn is low (projectiles are not entities). A 32/32 id or a FIFO free list with a minimum depth is a later change. |
-| R7 speech cancel | `Speak` is blocking. A finished-but-unwanted line still synthesizes after the dialogue timeout. `SPF_ASYNC` plus purge-before-speak is deferred. |
+| R7 speech cancel | Queue cancel landed in the second pass. `Speak` is still blocking, so a line already inside `Speak` finishes. `SPF_ASYNC` stays deferred. |
 | R8 one job condvar | `notify_all` wakes every waiter. Fine at today's load. Unused `JobStatus` fields stay. |
 | R9 log I/O under the mutex | `fputs` / `fflush` / `OutputDebugStringA` still run while the log mutex is held. A logger thread is deferred. |
 | Upload ring, D3D12MA, committed-resource strategy | One allocator and one list per upload, and 64 KB minimum committed allocations, stay as they are. |
@@ -65,7 +65,7 @@ All six divergences in §3.3, and all seven incidental findings in §6, are addr
 | 3.3.5 | Editor quest banners have no colour | `QuestBanner` and `makeQuestBanner` live in `Play/QuestBanner.h`. Started and QuestDone are `(240, 205, 110)`. NewObjective is `(235, 235, 235)`. ObjectiveDone is `(120, 230, 140)`. Packed as `IM_COL32` layout `0xFF000000 \| (b << 16) \| (g << 8) \| r`. Labels: NEW QUEST, NEW OBJECTIVE, OBJECTIVE COMPLETE, QUEST COMPLETE. Duration stays 3.5 s. The cap is unchanged (non-objective notes, or fewer than 4 banners). HUD drawing stays in each exe. The Editor draws with `ImGui::TextColored`. |
 | 3.3.6 / §5.4 prompts | Prompts hard-code key letters | `ActionMap::keyBracket` returns a label such as `[G]` from the first Key binding (letters, digits, F1–F12, Space, Esc, Enter, Tab, Shift, Ctrl, Alt). Anything else uses the fallback. Per-app default bindings stay. Climb uses the pickup action. Talk uses `talk`. The prompt string is built at the draw site so it outlives the ImGui call. Sandbox prompts rewired: item, power, drop body, takedown, pickup body, hide, doors, climb, step out. The Editor climb prompt uses the pickup key with fallback `[E]`. Unrelated editor keys were left alone. |
 | §6.5 | Hunter pounce defined twice | `hunterJumpDefFromPattern` overlays only `telegraphSeconds` (JSON windup) and `connectDamage` (JSON damage). `hunterJumpRanges` returns the JSON min/max, or 4 and 9 when no Jump move is loaded. Code-only numbers that stay: cooldown 3.5, ground offset 1, connect damage 22, pound damage 14, leap vertical 10, leap forward max 12, gravity 24, homing 1.5, knockdown duration 0.8, knockdown force 1. JSON `stunSeconds` (0.85) does not replace knockdown duration. JSON poise (16) does not replace connect poise. `attachHunter` loads attack patterns before `setDef`. A missing Jump move logs once and keeps the code numbers. `applyNpcMovementFile` may still overwrite gravity and leap afterward. Telegraph and damage survive that. |
-| §6.6 | Dead Sandbox aliases and CMake | Removed `Sandbox/CMakeLists.txt`. It was not `add_subdirectory`'d and listed only three sources. Removed 16 `SandboxApp` reference members that only aliased `PlayRuntime` and were unused outside their initializer: hit-stop, shake, shake time, swing charged, swing lock, combo window, combo step, combo count, face yaw, face left, block recoil, shield bump, player wet, player submerged, swim dive edge, swim stand edge. The remaining play references stay. |
+| §6.6 | Dead Sandbox aliases and CMake | Removed `Sandbox/CMakeLists.txt`. It was not `add_subdirectory`'d and listed only three sources. Removed 16 `SandboxApp` reference members that only aliased `PlayRuntime` and were unused outside their initializer: hit-stop, shake, shake time, swing charged, swing lock, combo window, combo step, combo count, face yaw, face left, block recoil, shield bump, player wet, player submerged, swim dive edge, swim stand edge. The other 23 play references stayed after this pass. The second pass removed them. See below. |
 | §6.7 | Defense timer decremented in draw | Both apps store `m_defenseParry`, set from `onPlayDefenseText` (`"PARRY!"` true, `"BLOCKED"` false). Sandbox ticks `m_defenseTextLeft` in the gameplay update beside the quest timer, using scaled gameplay dt, so it pauses with the game and during dialogue lock. The Editor already ticked in `EditorUi` and still does, including while dialogue is up. Draw no longer inspects the first character. Stop clears the flag. |
 
 ## Part B — recommendations
@@ -77,7 +77,7 @@ All six divergences in §3.3, and all seven incidental findings in §6, are addr
 | 3 | `ScenePlaySetup` | Deferred. |
 | 4 | `GameData`, items, statuses, cues as JSON | Deferred. |
 | 5 | `D3D12Util` and `FullscreenPass` | Deferred. |
-| 6 | `PlaySaveHost` and a full `PlayHud` | Partial. Banners, prompt labels, and the defense timer moved as described above. Save hosts stay per app. Upgrade and loot panels stay where they are. |
+| 6 | `PlaySaveHost` and a full `PlayHud` | Partial. Banners, prompt labels, and the defense timer moved as described above. Save hosts stay per app. Upgrade and loot panels stayed in the Sandbox exe. The second pass moved them into `SandboxHud`. They are still not a shared `PlayHud`. |
 | 7 | `render.json` and `user/settings.json` | Deferred. |
 | 8 | Module include cycle, `Frustum3f` to Math, loader registry | Deferred. |
 | 9 | `FrameComposer` | Deferred. Each app still submits its own frame. |
@@ -104,3 +104,23 @@ No in-game check was run with this change. Two things need a person in Editor Pl
 
 - The player body teleports. It should no longer push dynamic props. The visual pose is not restored after the physics step.
 - Blood burst, blood splat, and the muzzle flash should show on hit and on fire in Hybrid Deferred, and the muzzle light should go out on respawn and on Stop.
+
+## Second pass — Sandbox god files and queued speech
+
+Sandbox and Editor were confirmed working after the parity pass. This pass does not change play rules. It splits `SandboxApp` and drops speech jobs that have not started `Speak`.
+
+| What | Where it lives now |
+|---|---|
+| The 23 `PlayRuntime` reference aliases still named in §6.6 | Removed. Call sites use `m_play.runtime()`, `m_play.quest()`, and `m_play.targets()`. |
+| `netRoleName` and `pawnPaletteColor` | Once, in `Network/NetTypes.h`. Sandbox and Sandbox2D call them. Pawn spawn stays in each app, because the 2D and 3D prefabs differ. |
+| Queued speech | `SpeechSynth::cancel` removes a job that is still in the queue, under the existing mutex. `DialogueSpeech::acquire` cancels the previous id when the line changes, when a file clip is ready, and when the 4 second fallback gives up. A line already inside `Speak` still finishes. `stop()` is unchanged. No `SPF_ASYNC`. |
+| Demo content | `SandboxDemo`: origin cube, glTF samples, wiggle actor, skeleton lines, hybrid local lights, and the health packs placed at boot. |
+| 3D frame | `SandboxFrame`: the old `onRender` body, projectile draws, debug overlays, the draw list, skinned instances, `SceneRenderer`, the accepted-entity sets, rejected shots, and the previous-world map. `SandboxApp::onRender` calls `render()`. The Editor frame was not touched. |
+| Dev HUD | `SandboxHud`: the methods that were declared on `SandboxApp` and defined in `DevToolsPanel.cpp`, plus quest banners, defense text, the journal, the loot target, the upgrade panel, ImGui, and the main menu. `DevToolsPanel.cpp` is gone. |
+| Vision flags | `SandboxApp::SandboxVision`, still filled into `PlayHost` from Sandbox only. The Editor still hard-codes camouflage false. |
+
+`onUpdate` stays the Sandbox schedule. `tickLeaves` was not merged with the Editor.
+
+Still deferred, and not started here: `FrameComposer`, the `PlayHost` split, `ScenePlaySetup`, `GameData`, Editor vision modes, `D3D12Util`, and renderer modernization (bindless descriptors, DXC, D3D12MA, a render graph, a job pool, an asset cooker, Tracy, CI). Also still deferred: resize and particle-capacity `waitForGpu`, the shadow worker (R1), descriptor `Reset` (R3), generation width (R4), the job condvar (R8), log I/O under the mutex (R9), `SPF_ASYNC` speech, `Ui/` as a library, and `imgui_demo.cpp`.
+
+No in-game check was run for this split. Sandbox boot, play, the dev HUD, and one rendered frame still need a look. The move is the same calls in new types.

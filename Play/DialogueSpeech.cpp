@@ -165,6 +165,11 @@ namespace Dark
         {
             if (AssetRef<Audio::SoundClip> ready = m_assets->findAudio(key))
             {
+                if (m_request != 0)
+                {
+                    m_synth.cancel(m_request);
+                    m_request = 0;
+                }
                 if (ready->sampleRate() > 0)
                     shown = static_cast<float>(ready->frameCount()) / static_cast<float>(ready->sampleRate()) + 0.6f;
                 else
@@ -183,6 +188,8 @@ namespace Dark
 
         if (m_request == 0 || m_requestKey != key)
         {
+            if (m_request != 0)
+                m_synth.cancel(m_request);
             m_request    = m_synth.request(line.text, voice, rate, pitch);
             m_requestKey = key;
             m_keyVoice   = voice;
@@ -220,6 +227,8 @@ namespace Dark
         if (waited >= 4.0f)
         {
             warnSynth(m_synthWarned, line.id);
+            if (m_request != 0)
+                m_synth.cancel(m_request);
             m_request = 0;
             shown = 2.5f;
             return true;

@@ -67,7 +67,7 @@ namespace Dark
     inline constexpr float kPlayJumpAttackBuffer  = 0.12f;
 
     // Pawn, combat, and quest state for one play session.
-    // Sandbox aliases these fields for the process lifetime, so resetPawn writes them in place.
+    // Both apps read and write it through PlaySession::runtime(). resetPawn writes these fields in place.
     struct PlayRuntime
     {
         float lookYaw      = 0.0f;

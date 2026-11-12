@@ -1,5 +1,6 @@
 #include "Audio/SoundComponents.h"
 #include "Combat/ArmorPieces.h"
+#include "SandboxHud.h"
 #include "SandboxApp.h"
 
 #include "AI/AiComponents.h"
@@ -28,6 +29,7 @@
 #include "Network/NetTypes.h"
 #include "Math/MathDefines.h"
 #include "Render/DebugRenderState.h"
+#include "Render/GpuResourceCache.h"
 #include "Render/Profile.h"
 #include "Render/ScenePath.h"
 #include "Sky/Environment.h"
@@ -114,14 +116,20 @@ void applyDebugStatus(World& world, Entity body, Combat::StatusId id)
 
 } // namespace
 
-void SandboxApp::drawInventory()
+
+SandboxApp& SandboxHud::app() const
 {
-    const Entity        body = possessedBody();
-    InventoryComponent* inv  = body.valid() ? world().get<InventoryComponent>(body) : nullptr;
+    return *m_app;
+}
+
+void SandboxHud::drawInventory()
+{
+    const Entity        body = app().possessedBody();
+    InventoryComponent* inv  = body.valid() ? app().world().get<InventoryComponent>(body) : nullptr;
     if (!inv)
         return;
     ImGui::SetNextWindowSize(ImVec2(380.0f, 420.0f), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Inventory", &m_showInventory))
+    if (!ImGui::Begin("Inventory", &app().m_showInventory))
     {
         ImGui::End();
         return;
@@ -136,7 +144,7 @@ void SandboxApp::drawInventory()
         if (slot == EquipSlot::Light)
         {
             // L toggles the beam. The slot staying filled does not tell the panel that.
-            const bool on = !eq.empty() && m_offhand.lightOn;
+            const bool on = !eq.empty() && app().m_play.runtime().offhand.lightOn;
             ImGui::Text("%s: %s", equipSlotName(slot), on ? "equipped" : "unequipped");
             if (!eq.empty())
             {
@@ -176,7 +184,7 @@ void SandboxApp::drawInventory()
         {
             ImGui::SameLine();
             if (ImGui::SmallButton("Use"))
-                useItem(world(), body, *inv, i);
+                useItem(app().world(), body, *inv, i);
         }
         else if (item.def->type == ItemType::Armor || item.def->type == ItemType::Tool)
         {
@@ -186,21 +194,21 @@ void SandboxApp::drawInventory()
         }
         ImGui::SameLine();
         if (ImGui::SmallButton("Drop"))
-            dropInventoryItem(i);
+            app().dropInventoryItem(i);
         ImGui::PopID();
     }
     ImGui::End();
 }
 
-void SandboxApp::drawQuestHud()
+void SandboxHud::drawQuestHud()
 {
-    if (!m_quest.active())
+    if (!app().m_play.quest().active())
         return;
     const ImGuiViewport* vp   = ImGui::GetMainViewport();
     ImDrawList*          dl   = ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp));
     ImFont*              font = ImGui::GetFont();
     const float          fs   = ImGui::GetFontSize();
-    const QuestDef&      def  = m_quest.def();
+    const QuestDef&      def  = app().m_play.quest().def();
 
     const float width = 330.0f;
     const float x     = vp->Pos.x + vp->Size.x - 28.0f - width;
@@ -213,13 +221,13 @@ void SandboxApp::drawQuestHud()
     };
     std::vector<Line> lines;
     lines.push_back(Line{ def.title, IM_COL32(240, 205, 110, 255), fs * 1.2f });
-    if (m_quest.complete())
+    if (app().m_play.quest().complete())
         lines.push_back(Line{ "Complete. Press J for rewards.", IM_COL32(120, 230, 140, 255), fs });
     for (size_t i = 0; i < def.objectives.size(); ++i)
     {
         const ObjectiveDef&   o  = def.objectives[i];
-        const ObjectiveState& st = m_quest.state(i);
-        if (!st.done && !m_quest.open(i))
+        const ObjectiveState& st = app().m_play.quest().state(i);
+        if (!st.done && !app().m_play.quest().open(i))
             continue;
         std::string text = std::string(st.done ? "[x] " : "[ ] ") + o.text;
         if (o.count > 1)
@@ -261,11 +269,11 @@ void SandboxApp::drawQuestHud()
     }
 
     Vector3f target;
-    const Entity              body = possessedBody();
-    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    if (!pxf || m_quest.complete() || !questTarget(target))
+    const Entity              body = app().possessedBody();
+    const TransformComponent* pxf  = body.valid() ? app().world().get<TransformComponent>(body) : nullptr;
+    if (!pxf || app().m_play.quest().complete() || !app().questTarget(target))
         return;
-    const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(Vector3f(target.x, target.y + 1.4f, target.z), 1.0f);
+    const Vector4f clip = app().m_viewCamera.GetViewProj() * Vector4f(Vector3f(target.x, target.y + 1.4f, target.z), 1.0f);
     float          nx   = clip.w > 1.0e-4f ? clip.x / clip.w : -clip.x;
     float          ny   = clip.w > 1.0e-4f ? clip.y / clip.w : -clip.y;
     if (clip.w <= 1.0e-4f)
@@ -291,9 +299,9 @@ void SandboxApp::drawQuestHud()
     dl->AddText(ImVec2(c.x - ds.x * 0.5f, c.y + r + 2.0f), IM_COL32(240, 205, 110, 255), dist);
 }
 
-void SandboxApp::drawAlarm()
+void SandboxHud::drawAlarm()
 {
-    const float alarmTime = m_play.facility().alarmTime;
+    const float alarmTime = app().m_play.facility().alarmTime;
     if (alarmTime <= 0.0f)
         return;
     const ImGuiViewport* vp    = ImGui::GetMainViewport();
@@ -308,14 +316,14 @@ void SandboxApp::drawAlarm()
     dl->AddText(font, size, at, IM_COL32(255, 60, 50, pulse), text);
 }
 
-void SandboxApp::drawUpgradeHint()
+void SandboxHud::drawUpgradeHint()
 {
-    const Entity              body = possessedBody();
-    const InventoryComponent* inv  = body.valid() ? world().get<InventoryComponent>(body) : nullptr;
+    const Entity              body = app().possessedBody();
+    const InventoryComponent* inv  = body.valid() ? app().world().get<InventoryComponent>(body) : nullptr;
     if (!inv || m_showUpgrades)
         return;
     bool ready = false;
-    const FacilityState& facility = m_play.facility();
+    const FacilityState& facility = app().m_play.facility();
     for (const UpgradeDef& up : facility.defs)
         ready = ready || (std::find(facility.owned.begin(), facility.owned.end(), up.id) == facility.owned.end() && canAfford(*inv, up));
     if (!ready)
@@ -329,7 +337,7 @@ void SandboxApp::drawUpgradeHint()
     dl->AddText(at, IM_COL32(150, 240, 170, 255), text);
 }
 
-void SandboxApp::drawUpgrades()
+void SandboxHud::drawUpgrades()
 {
     ImGui::SetNextWindowSize(ImVec2(480.0f, 420.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Upgrades", &m_showUpgrades))
@@ -337,8 +345,8 @@ void SandboxApp::drawUpgrades()
         ImGui::End();
         return;
     }
-    const Entity        body = possessedBody();
-    InventoryComponent* inv  = body.valid() ? world().get<InventoryComponent>(body) : nullptr;
+    const Entity        body = app().possessedBody();
+    InventoryComponent* inv  = body.valid() ? app().world().get<InventoryComponent>(body) : nullptr;
     if (!inv)
     {
         ImGui::TextDisabled("No body to modify.");
@@ -348,7 +356,7 @@ void SandboxApp::drawUpgrades()
     ImGui::TextWrapped("Spend stolen research and materials to modify yourself. Upgrades last for this session.");
     ImGui::Text("You have: %d Research Data, %d Bio Material", heldCount(*inv, "research"), heldCount(*inv, "bio_material"));
     ImGui::Separator();
-    FacilityState& facility = m_play.facility();
+    FacilityState& facility = app().m_play.facility();
     for (const UpgradeDef& up : facility.defs)
     {
         ImGui::PushID(up.id.c_str());
@@ -371,8 +379,8 @@ void SandboxApp::drawUpgrades()
             if (ImGui::Button("Modify") && payFor(*inv, up))
             {
                 facility.owned.push_back(up.id);
-                m_play.refreshUpgrades();
-                playSoundCue(world(), audio(), assets(), m_camera, "click");
+                app().m_play.refreshUpgrades();
+                playSoundCue(app().world(), app().audio(), app().assets(), app().m_camera, "click");
                 DE_LOG_INFO("Upgrades: bought {}", up.name);
             }
             ImGui::EndDisabled();
@@ -383,7 +391,7 @@ void SandboxApp::drawUpgrades()
     ImGui::End();
 }
 
-void SandboxApp::drawJournal()
+void SandboxHud::drawJournal()
 {
     ImGui::SetNextWindowSize(ImVec2(440.0f, 360.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Journal", &m_showJournal))
@@ -391,15 +399,15 @@ void SandboxApp::drawJournal()
         ImGui::End();
         return;
     }
-    if (!m_quest.active())
+    if (!app().m_play.quest().active())
     {
         ImGui::TextDisabled("No quest in this level.");
         ImGui::End();
         return;
     }
-    const QuestDef& def = m_quest.def();
+    const QuestDef& def = app().m_play.quest().def();
     ImGui::TextColored(ImVec4(0.94f, 0.80f, 0.43f, 1.0f), "%s", def.title.c_str());
-    if (m_quest.complete())
+    if (app().m_play.quest().complete())
     {
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(0.47f, 0.90f, 0.55f, 1.0f), "(complete)");
@@ -411,8 +419,8 @@ void SandboxApp::drawJournal()
     for (size_t i = 0; i < def.objectives.size(); ++i)
     {
         const ObjectiveDef&   o  = def.objectives[i];
-        const ObjectiveState& st = m_quest.state(i);
-        const bool            open = m_quest.open(i);
+        const ObjectiveState& st = app().m_play.quest().state(i);
+        const bool            open = app().m_play.quest().open(i);
         if (!st.done && !open)
         {
             ImGui::TextDisabled("  ???");
@@ -425,7 +433,7 @@ void SandboxApp::drawJournal()
     if (!def.rewards.empty())
     {
         ImGui::Separator();
-        ImGui::TextUnformatted(m_quest.complete() ? "Rewards (received)" : "Rewards");
+        ImGui::TextUnformatted(app().m_play.quest().complete() ? "Rewards (received)" : "Rewards");
         for (const QuestReward& r : def.rewards)
         {
             const ItemDef* item = findItemDef(r.item);
@@ -435,24 +443,24 @@ void SandboxApp::drawJournal()
     ImGui::End();
 }
 
-void SandboxApp::drawGuardSpeech()
+void SandboxHud::drawGuardSpeech()
 {
-    const std::vector<GuardSubtitle>& subs = m_guardVoice.subtitles();
+    const std::vector<GuardSubtitle>& subs = app().m_guardVoice.subtitles();
     if (subs.empty())
         return;
     const ImGuiViewport*      vp   = ImGui::GetMainViewport();
     ImDrawList*               dl   = ImGui::GetBackgroundDrawList(const_cast<ImGuiViewport*>(vp));
     ImFont*                   font = ImGui::GetFont();
     const float               fs   = ImGui::GetFontSize();
-    const Entity              body = possessedBody();
-    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    const float               vw   = static_cast<float>(renderer().width());
-    const float               vh   = static_cast<float>(renderer().height());
+    const Entity              body = app().possessedBody();
+    const TransformComponent* pxf  = body.valid() ? app().world().get<TransformComponent>(body) : nullptr;
+    const float               vw   = static_cast<float>(app().renderer().width());
+    const float               vh   = static_cast<float>(app().renderer().height());
     const GuardSubtitle*      closest = nullptr;
     float                     closestD = 1.0e12f;
     for (const GuardSubtitle& sub : subs)
     {
-        const TransformComponent* gxf = world().alive(sub.speaker) ? world().get<TransformComponent>(sub.speaker) : nullptr;
+        const TransformComponent* gxf = app().world().alive(sub.speaker) ? app().world().get<TransformComponent>(sub.speaker) : nullptr;
         if (!gxf)
             continue;
         const float d = pxf ? (gxf->position - pxf->position).MagnitudeSqrd() : 0.0f;
@@ -463,7 +471,7 @@ void SandboxApp::drawGuardSpeech()
             closestD = d;
             closest  = &sub;
         }
-        const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(Vector3f(gxf->position.x, gxf->position.y + 2.1f, gxf->position.z), 1.0f);
+        const Vector4f clip = app().m_viewCamera.GetViewProj() * Vector4f(Vector3f(gxf->position.x, gxf->position.y + 2.1f, gxf->position.z), 1.0f);
         if (clip.w <= 1.0e-4f || clip.z / clip.w < 0.0f || clip.z / clip.w > 1.0f)
             continue;
         const int    a  = static_cast<int>(Math::Clamp(sub.timeLeft * 3.0f, 0.0f, 1.0f) * 255.0f);
@@ -483,26 +491,26 @@ void SandboxApp::drawGuardSpeech()
     }
 }
 
-void SandboxApp::drawDialogue()
+void SandboxHud::drawDialogue()
 {
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     if (!vp)
         return;
     DialogueHudView view;
-    view.viewProj      = m_viewCamera.GetViewProj();
+    view.viewProj      = app().m_viewCamera.GetViewProj();
     view.list          = ImGui::GetBackgroundDrawList(const_cast<ImGuiViewport*>(vp));
-    view.projectWidth  = static_cast<float>(renderer().width());
-    view.projectHeight = static_cast<float>(renderer().height());
+    view.projectWidth  = static_cast<float>(app().renderer().width());
+    view.projectHeight = static_cast<float>(app().renderer().height());
     view.windowName    = "Dialogue";
-    const std::string talkPrompt = input().actions().keyBracket("talk", "[T]") + " Talk";
+    const std::string talkPrompt = app().input().actions().keyBracket("talk", "[T]") + " Talk";
     view.talkPrompt    = talkPrompt.c_str();
-    drawDialogueHud(m_dialogue, view);
-    drawMovieHud(m_movie);
+    drawDialogueHud(app().m_dialogue, view);
+    drawMovieHud(app().m_movie);
 }
 
-void SandboxApp::drawStaminaBar()
+void SandboxHud::drawStaminaBar()
 {
-    const PlayerMotor* motor = localMotor();
+    const PlayerMotor* motor = app().localMotor();
     if (!motor || motor->stamina() >= 0.999f)
         return;
     const ImGuiViewport* vp  = ImGui::GetMainViewport();
@@ -515,9 +523,9 @@ void SandboxApp::drawStaminaBar()
     dl->AddRectFilled(min, ImVec2(min.x + w * s, max.y), s < 0.25f ? IM_COL32(230, 90, 60, 230) : IM_COL32(240, 210, 90, 230), 3.0f);
 }
 
-void SandboxApp::drawBreathBar()
+void SandboxHud::drawBreathBar()
 {
-    const PlayerMotor* motor = localMotor();
+    const PlayerMotor* motor = app().localMotor();
     if (!motor || motor->breath() >= 0.999f)
         return;
     const ImGuiViewport* vp = ImGui::GetMainViewport();
@@ -530,14 +538,14 @@ void SandboxApp::drawBreathBar()
     dl->AddRectFilled(min, ImVec2(min.x + w * b, max.y), b < 0.25f ? IM_COL32(230, 90, 60, 230) : IM_COL32(90, 180, 255, 230), 3.0f);
 }
 
-void SandboxApp::drawArmorHud()
+void SandboxHud::drawArmorHud()
 {
-    const Entity              body = possessedBody();
-    const InventoryComponent* inv  = body.valid() ? world().get<InventoryComponent>(body) : nullptr;
+    const Entity              body = app().possessedBody();
+    const InventoryComponent* inv  = body.valid() ? app().world().get<InventoryComponent>(body) : nullptr;
     if (!inv)
         return;
 
-    const Combat::ArmorPiecesComponent* pieces = world().get<Combat::ArmorPiecesComponent>(body);
+    const Combat::ArmorPiecesComponent* pieces = app().world().get<Combat::ArmorPiecesComponent>(body);
     if (!pieces || pieces->count == 0)
         return;
     struct Zone
@@ -586,30 +594,30 @@ void SandboxApp::drawArmorHud()
     dl->AddText(pos, IM_COL32(150, 200, 255, 255), text.c_str());
 }
 
-void SandboxApp::drawPickupLabels()
+void SandboxHud::drawPickupLabels()
 {
     ImDrawList* dl = ImGui::GetBackgroundDrawList(ImGui::GetMainViewport());
-    const float vw = static_cast<float>(renderer().width());
-    const float vh = static_cast<float>(renderer().height());
+    const float vw = static_cast<float>(app().renderer().width());
+    const float vh = static_cast<float>(app().renderer().height());
     if (!dl || vw < 1.0f || vh < 1.0f)
         return;
     const ImVec2              vpPos   = ImGui::GetMainViewport()->Pos;
-    const Entity              body    = possessedBody();
-    const TransformComponent* pxf     = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    const PlayInteractPick    pick    = m_play.pickInteract();
+    const Entity              body    = app().possessedBody();
+    const TransformComponent* pxf     = body.valid() ? app().world().get<TransformComponent>(body) : nullptr;
+    const PlayInteractPick    pick    = app().m_play.pickInteract();
     const Entity              nearest = pick.kind == PlayInteract::Item ? pick.e : Entity{};
-    const std::string         useKey  = input().actions().keyBracket("pickup", "[G]");
-    const std::string         takeKey = input().actions().keyBracket("takedown", "[E]");
+    const std::string         useKey  = app().input().actions().keyBracket("pickup", "[G]");
+    const std::string         takeKey = app().input().actions().keyBracket("takedown", "[E]");
     const std::string         usePrefix = useKey + " ";
 
     auto label = [&](Entity e, const char* name) {
-        const TransformComponent* xf = world().get<TransformComponent>(e);
+        const TransformComponent* xf = app().world().get<TransformComponent>(e);
         if (!xf)
             return;
         if (pxf && (xf->position - pxf->position).MagnitudeSqrd() > 15.0f * 15.0f)
             return;
 
-        const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(Vector3f(xf->position.x, xf->position.y + 0.5f, xf->position.z), 1.0f);
+        const Vector4f clip = app().m_viewCamera.GetViewProj() * Vector4f(Vector3f(xf->position.x, xf->position.y + 0.5f, xf->position.z), 1.0f);
         if (clip.w <= 1.0e-4f)
             return;
         const float invW = 1.0f / clip.w;
@@ -629,15 +637,15 @@ void SandboxApp::drawPickupLabels()
         dl->AddText(pos, canTake ? IM_COL32(255, 220, 90, 255) : IM_COL32(235, 235, 235, 255), text);
     };
 
-    world().each<PowerBoxComponent>([&](Entity e, PowerBoxComponent& box) {
+    app().world().each<PowerBoxComponent>([&](Entity e, PowerBoxComponent& box) {
         if (!pxf)
             return;
-        const TransformComponent* bxf = world().get<TransformComponent>(e);
+        const TransformComponent* bxf = app().world().get<TransformComponent>(e);
         const Vector3f            at  = bxf ? bxf->position : box.pos;
         const Vector3f            d{ at.x - pxf->position.x, 0.0f, at.z - pxf->position.z };
         if (d.MagnitudeSqrd() > 15.0f * 15.0f)
             return;
-        const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(Vector3f(at.x, at.y + 1.0f, at.z), 1.0f);
+        const Vector4f clip = app().m_viewCamera.GetViewProj() * Vector4f(Vector3f(at.x, at.y + 1.0f, at.z), 1.0f);
         if (clip.w <= 1.0e-4f || clip.z / clip.w < 0.0f || clip.z / clip.w > 1.0f)
             return;
         const bool        close = pick.kind == PlayInteract::Power && pick.e == e;
@@ -650,7 +658,7 @@ void SandboxApp::drawPickupLabels()
     });
 
     auto prompt = [&](const Vector3f& at, const char* text, ImU32 color) {
-        const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(at, 1.0f);
+        const Vector4f clip = app().m_viewCamera.GetViewProj() * Vector4f(at, 1.0f);
         if (clip.w <= 1.0e-4f || clip.z / clip.w < 0.0f || clip.z / clip.w > 1.0f)
             return;
         const ImVec2 ts = ImGui::CalcTextSize(text);
@@ -658,14 +666,14 @@ void SandboxApp::drawPickupLabels()
         dl->AddText(ImVec2(pos.x + 1.0f, pos.y + 1.0f), IM_COL32(0, 0, 0, 200), text);
         dl->AddText(pos, color, text);
     };
-    if (pxf && carriedBody(world()).valid())
+    if (pxf && carriedBody(app().world()).valid())
     {
         const std::string drop = useKey + " Drop body";
         prompt(pxf->position + Vector3f{ 0.0f, 1.4f, 0.0f }, drop.c_str(), IM_COL32(255, 220, 90, 255));
     }
-    else if (const Entity target = m_play.takedownTarget(); target.valid())
+    else if (const Entity target = app().m_play.takedownTarget(); target.valid())
     {
-        if (const TransformComponent* gxf = world().get<TransformComponent>(target))
+        if (const TransformComponent* gxf = app().world().get<TransformComponent>(target))
         {
             const std::string take = takeKey + " Takedown";
             prompt(gxf->position + Vector3f{ 0.0f, 1.2f, 0.0f }, take.c_str(), IM_COL32(255, 110, 90, 255));
@@ -673,7 +681,7 @@ void SandboxApp::drawPickupLabels()
     }
     else if (pick.kind == PlayInteract::Body)
     {
-        if (const TransformComponent* gxf = world().get<TransformComponent>(pick.e))
+        if (const TransformComponent* gxf = app().world().get<TransformComponent>(pick.e))
         {
             const std::string lift = useKey + " Pick up body";
             prompt(gxf->position + Vector3f{ 0.0f, 0.6f, 0.0f }, lift.c_str(), IM_COL32(255, 220, 90, 255));
@@ -681,8 +689,8 @@ void SandboxApp::drawPickupLabels()
     }
     else if (pick.kind == PlayInteract::Hide)
     {
-        const TransformComponent* hxf = world().get<TransformComponent>(pick.e);
-        const HideSpotComponent*  hs  = world().get<HideSpotComponent>(pick.e);
+        const TransformComponent* hxf = app().world().get<TransformComponent>(pick.e);
+        const HideSpotComponent*  hs  = app().world().get<HideSpotComponent>(pick.e);
         if (hxf && hs)
         {
             const std::string text = useKey + " Hide in " + hs->label;
@@ -691,19 +699,19 @@ void SandboxApp::drawPickupLabels()
     }
     else if (pick.kind == PlayInteract::Door)
     {
-        const DoorComponent* door = world().get<DoorComponent>(pick.e);
+        const DoorComponent* door = app().world().get<DoorComponent>(pick.e);
         if (door)
         {
             const std::string text = useKey + (door->wantOpen ? " Close door" : (door->lock.empty() ? " Open door" : " Locked door"));
             prompt(door->closedPos + Vector3f{ 0.0f, 1.0f, 0.0f }, text.c_str(), IM_COL32(255, 220, 90, 255));
         }
     }
-    if (const PlayRuntime& play = m_play.runtime(); play.climbOffer)
+    if (const PlayRuntime& play = app().m_play.runtime(); play.climbOffer)
     {
         const std::string climb = useKey + (play.climbDown ? " Climb down" : " Climb");
         prompt(play.climbAt, climb.c_str(), IM_COL32(255, 220, 90, 255));
     }
-    const FacilityState& facility = m_play.facility();
+    const FacilityState& facility = app().m_play.facility();
     if (facility.doorMsgTime > 0.0f && !facility.doorMsg.empty())
     {
         const ImVec2 ts = ImGui::CalcTextSize(facility.doorMsg.c_str());
@@ -713,7 +721,7 @@ void SandboxApp::drawPickupLabels()
     }
     if (facility.hiddenIn.valid())
     {
-        const HideSpotComponent* hs   = world().get<HideSpotComponent>(facility.hiddenIn);
+        const HideSpotComponent* hs   = app().world().get<HideSpotComponent>(facility.hiddenIn);
         const std::string        text = "Hidden in " + (hs ? hs->label : std::string("hiding spot")) + "   " + useKey + " Step out";
         const ImVec2             ts   = ImGui::CalcTextSize(text.c_str());
         const ImVec2             at{ vpPos.x + (vw - ts.x) * 0.5f, vpPos.y + vh - 190.0f };
@@ -722,7 +730,7 @@ void SandboxApp::drawPickupLabels()
     }
 
     char name[96];
-    world().each<ItemPickupComponent>([&](Entity e, ItemPickupComponent& pickup) {
+    app().world().each<ItemPickupComponent>([&](Entity e, ItemPickupComponent& pickup) {
         if (pickup.item.empty())
             return;
         if (pickup.item.count > 1)
@@ -731,7 +739,7 @@ void SandboxApp::drawPickupLabels()
             std::snprintf(name, sizeof(name), "%s", pickup.item.def->name);
         label(e, name);
     });
-    world().each<LootComponent>([&](Entity e, LootComponent& loot) {
+    app().world().each<LootComponent>([&](Entity e, LootComponent& loot) {
         const int n = itemCount(loot.contents);
         if (n == 0)
             return;
@@ -740,21 +748,21 @@ void SandboxApp::drawPickupLabels()
     });
 }
 
-void SandboxApp::drawGuardAwareness()
+void SandboxHud::drawGuardAwareness()
 {
     ImDrawList* dl = ImGui::GetBackgroundDrawList(ImGui::GetMainViewport());
-    const float vw = static_cast<float>(renderer().width());
-    const float vh = static_cast<float>(renderer().height());
+    const float vw = static_cast<float>(app().renderer().width());
+    const float vh = static_cast<float>(app().renderer().height());
     if (!dl || vw < 1.0f || vh < 1.0f)
         return;
     const ImVec2              vp   = ImGui::GetMainViewport()->Pos;
-    const Entity              body = possessedBody();
-    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
+    const Entity              body = app().possessedBody();
+    const TransformComponent* pxf  = body.valid() ? app().world().get<TransformComponent>(body) : nullptr;
     ImFont*                   font = ImGui::GetFont();
     const ImVec2              mid{ vp.x + vw * 0.5f, vp.y + vh * 0.5f };
 
     auto project = [&](const Vector3f& p, ImVec2& out) {
-        const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(p, 1.0f);
+        const Vector4f clip = app().m_viewCamera.GetViewProj() * Vector4f(p, 1.0f);
         if (clip.w <= 1.0e-4f)
             return false;
         const float invW = 1.0f / clip.w;
@@ -780,11 +788,11 @@ void SandboxApp::drawGuardAwareness()
     std::vector<Marker> markers;
     bool                anyoneSees = false;
 
-    world().each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
-        const HealthComponent*    hp = world().get<HealthComponent>(e);
-        const TransformComponent* xf = world().get<TransformComponent>(e);
+    app().world().each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
+        const HealthComponent*    hp = app().world().get<HealthComponent>(e);
+        const TransformComponent* xf = app().world().get<TransformComponent>(e);
         const AI::AwarenessState& aw = ai.aware;
-        if (!xf || !hp || !hp->health.alive() || !isInteractGuard(world(), e))
+        if (!xf || !hp || !hp->health.alive() || !isInteractGuard(app().world(), e))
             return;
         if (aw.alertness == AI::Alertness::Calm && aw.meter < 0.02f)
         {
@@ -816,7 +824,7 @@ void SandboxApp::drawGuardAwareness()
 
         if (pxf)
         {
-            const float rel   = Math::WrapPi(std::atan2(xf->position.x - pxf->position.x, xf->position.z - pxf->position.z) - m_lookYaw);
+            const float rel   = Math::WrapPi(std::atan2(xf->position.x - pxf->position.x, xf->position.z - pxf->position.z) - app().m_play.runtime().lookYaw);
             const float theta = rel - 1.5707963f;
             const float fill  = alert ? 1.0f : Math::Clamp(aw.meter, 0.0f, 1.0f);
             const int   alpha = static_cast<int>(110.0f + 145.0f * fill);
@@ -906,7 +914,7 @@ void SandboxApp::drawGuardAwareness()
 
     {
         float exposure = 1.0f;
-        if (const PlayerStealthComponent* stealth = localStealth())
+        if (const PlayerStealthComponent* stealth = app().localStealth())
             exposure = stealth->exposure;
         const float  e      = Math::Clamp(exposure, 0.0f, 1.0f);
         const ImVec2 c{ mid.x, vp.y + vh - 70.0f };
@@ -919,9 +927,9 @@ void SandboxApp::drawGuardAwareness()
     }
 
     bool inGoal = false;
-    if (pxf && !m_quest.active())
+    if (pxf && !app().m_play.quest().active())
     {
-        world().each<GoalVolumeComponent>([&](Entity, GoalVolumeComponent& goal) {
+        app().world().each<GoalVolumeComponent>([&](Entity, GoalVolumeComponent& goal) {
             if (inGoal)
                 return;
             const AABox3f& box = goal.box;
@@ -930,10 +938,10 @@ void SandboxApp::drawGuardAwareness()
         });
     }
     if (inGoal)
-        m_goalShown = 4.0f;
-    if (m_goalShown > 0.0f)
+        app().m_goalShown = 4.0f;
+    if (app().m_goalShown > 0.0f)
     {
-        m_goalShown -= m_frameDt;
+        app().m_goalShown -= app().m_frameDt;
         const char*  text = "OBJECTIVE COMPLETE";
         const float  size = ImGui::GetFontSize() * 2.6f;
         const ImVec2 ts   = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text);
@@ -943,7 +951,7 @@ void SandboxApp::drawGuardAwareness()
     }
 }
 
-void SandboxApp::drawDefenseText()
+void SandboxHud::drawDefenseText()
 {
     if (m_defenseTextLeft <= 0.0f || !m_defenseText || !m_defenseText[0])
         return;
@@ -959,32 +967,32 @@ void SandboxApp::drawDefenseText()
     dl->AddText(ImGui::GetFont(), size, pos, parry ? IM_COL32(255, 210, 70, alpha) : IM_COL32(170, 210, 255, alpha), m_defenseText);
 }
 
-void SandboxApp::drawTargetMarker()
+void SandboxHud::drawTargetMarker()
 {
-    const Entity              body = possessedBody();
-    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    WeaponLoadout*            w    = localWeapons();
+    const Entity              body = app().possessedBody();
+    const TransformComponent* pxf  = body.valid() ? app().world().get<TransformComponent>(body) : nullptr;
+    WeaponLoadout*            w    = app().localWeapons();
     if (!pxf)
         return;
 
-    if (!w || w->activeKind() != WeaponKind::Melee || !ownsWeapon(WeaponKind::Melee))
+    if (!w || w->activeKind() != WeaponKind::Melee || !app().ownsWeapon(WeaponKind::Melee))
         return;
     WeaponFireRequest req{};
     req.ownerPos               = pxf->position;
-    req.direction              = m_viewCamera.GetLook();
-    const WeaponWorldQuery q   = makeWeaponQuery();
+    req.direction              = app().m_viewCamera.GetLook();
+    const WeaponWorldQuery q   = app().makeWeaponQuery();
     const int              hit = w->melee().pickTarget(req, q);
     if (hit < 0 || !q.targetEntityAt)
         return;
     const Entity target = q.targetEntityAt(q.targetUser, hit);
-    const TransformComponent* xf = target.valid() && world().alive(target) ? world().get<TransformComponent>(target) : nullptr;
+    const TransformComponent* xf = target.valid() && app().world().alive(target) ? app().world().get<TransformComponent>(target) : nullptr;
     ImDrawList*               dl = ImGui::GetBackgroundDrawList(ImGui::GetMainViewport());
-    const float               vw = static_cast<float>(renderer().width());
-    const float               vh = static_cast<float>(renderer().height());
+    const float               vw = static_cast<float>(app().renderer().width());
+    const float               vh = static_cast<float>(app().renderer().height());
     if (!xf || !dl || vw < 1.0f || vh < 1.0f)
         return;
 
-    const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(Vector3f(xf->position.x, xf->position.y + 1.1f, xf->position.z), 1.0f);
+    const Vector4f clip = app().m_viewCamera.GetViewProj() * Vector4f(Vector3f(xf->position.x, xf->position.y + 1.1f, xf->position.z), 1.0f);
     if (clip.w <= 1.0e-4f)
         return;
     const float invW = 1.0f / clip.w;
@@ -999,13 +1007,13 @@ void SandboxApp::drawTargetMarker()
     dl->AddTriangleFilled(ImVec2(sx - r, sy - r), ImVec2(sx + r, sy - r), ImVec2(sx, sy), c);
 }
 
-void SandboxApp::drawLoot()
+void SandboxHud::drawLoot()
 {
-    const Entity              body = possessedBody();
-    InventoryComponent*       inv  = body.valid() ? world().get<InventoryComponent>(body) : nullptr;
-    const TransformComponent* pxf  = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    LootComponent*            loot = world().alive(m_lootTarget) ? world().get<LootComponent>(m_lootTarget) : nullptr;
-    const TransformComponent* lxf  = loot ? world().get<TransformComponent>(m_lootTarget) : nullptr;
+    const Entity              body = app().possessedBody();
+    InventoryComponent*       inv  = body.valid() ? app().world().get<InventoryComponent>(body) : nullptr;
+    const TransformComponent* pxf  = body.valid() ? app().world().get<TransformComponent>(body) : nullptr;
+    LootComponent*            loot = app().world().alive(m_lootTarget) ? app().world().get<LootComponent>(m_lootTarget) : nullptr;
+    const TransformComponent* lxf  = loot ? app().world().get<TransformComponent>(m_lootTarget) : nullptr;
     if (!inv || !pxf || !lxf || (lxf->position - pxf->position).MagnitudeSqrd() > 3.0f * 3.0f)
     {
         m_lootTarget = {};
@@ -1028,7 +1036,7 @@ void SandboxApp::drawLoot()
             ImGui::SameLine();
             if (ImGui::SmallButton("Take") || takeAll)
             {
-                item.count -= giveItem(*inv, item);
+                item.count -= app().giveItem(*inv, item);
                 if (item.count <= 0)
                     item = {};
             }
@@ -1039,57 +1047,57 @@ void SandboxApp::drawLoot()
     }
     ImGui::End();
 
-    settleLootTarget(world(), pins(), m_physics, m_lootTarget, open);
+    settleLootTarget(app().world(), app().pins(), app().m_physics, m_lootTarget, open);
 }
 
-void SandboxApp::drawNpcInfoOverlay()
+void SandboxHud::drawNpcInfoOverlay()
 {
-    if (!m_npcInfo.enabled || !m_imgui.isReady())
+    if (!app().m_npcInfo.enabled || !m_imgui.isReady())
         return;
-    if (!m_npcInfo.showState && !m_npcInfo.showHealth && !m_npcInfo.showTarget)
+    if (!app().m_npcInfo.showState && !app().m_npcInfo.showHealth && !app().m_npcInfo.showTarget)
         return;
 
     ImDrawList* dl = ImGui::GetBackgroundDrawList(ImGui::GetMainViewport());
     if (!dl)
         return;
 
-    const float vw = static_cast<float>(renderer().width());
-    const float vh = static_cast<float>(renderer().height());
+    const float vw = static_cast<float>(app().renderer().width());
+    const float vh = static_cast<float>(app().renderer().height());
     if (vw < 1.0f || vh < 1.0f)
         return;
     const ImGuiViewport* vp    = ImGui::GetMainViewport();
     const ImVec2         vpPos = vp ? vp->Pos : ImVec2(0.0f, 0.0f);
 
-    world().each<BrainComponent>([&](Entity e, BrainComponent& bc) {
+    app().world().each<BrainComponent>([&](Entity e, BrainComponent& bc) {
         if (!bc.brain)
             return;
-        const TransformComponent* xf = world().get<TransformComponent>(e);
+        const TransformComponent* xf = app().world().get<TransformComponent>(e);
         if (!xf)
             return;
 
         NpcInfoSample sample{};
         sample.state = bc.brain->graph().leafName();
-        if (const HealthComponent* hp = world().get<HealthComponent>(e))
+        if (const HealthComponent* hp = app().world().get<HealthComponent>(e))
         {
             sample.hasHealth = true;
             sample.hp        = hp->health.hp();
             sample.maxHp     = hp->health.maxHp();
         }
         const bool chasing = bc.brain->leaf() == AI::Leaf::Chase;
-        if (const AiAgentComponent* ai = world().get<AiAgentComponent>(e))
+        if (const AiAgentComponent* ai = app().world().get<AiAgentComponent>(e))
             sample.hasTarget = chasing || ai->hasLastSeen;
         else
             sample.hasTarget = chasing;
 
         char text[192];
-        if (formatNpcInfoBox(m_npcInfo, sample, text, static_cast<int>(sizeof(text))) <= 0)
+        if (formatNpcInfoBox(app().m_npcInfo, sample, text, static_cast<int>(sizeof(text))) <= 0)
             return;
 
         float head = 1.85f;
-        if (const HittableComponent* ht = world().get<HittableComponent>(e))
+        if (const HittableComponent* ht = app().world().get<HittableComponent>(e))
             head = ht->halfExtents.y * 2.0f * xf->scale.y + 0.45f;
         const Vector3f worldPos(xf->position.x, xf->position.y + head, xf->position.z);
-        const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(worldPos, 1.0f);
+        const Vector4f clip = app().m_viewCamera.GetViewProj() * Vector4f(worldPos, 1.0f);
         if (clip.w <= 1.0e-4f)
             return;
         const float invW = 1.0f / clip.w;
@@ -1112,14 +1120,14 @@ void SandboxApp::drawNpcInfoOverlay()
     });
 }
 
-void SandboxApp::drawProfiler()
+void SandboxHud::drawProfiler()
 {
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
     const ImVec2           display = ImGui::GetIO().DisplaySize;
     const float            height  = display.y > 240.0f ? display.y * 0.62f : 480.0f;
     ImGui::SetNextWindowPos(ImVec2(display.x - 16.0f, 16.0f), ImGuiCond_FirstUseEver, ImVec2(1.0f, 0.0f));
     ImGui::SetNextWindowSize(ImVec2(440.0f, height), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Profiler", &m_showProfiler, flags))
+    if (!ImGui::Begin("Profiler", &app().m_showProfiler, flags))
     {
         ImGui::End();
         return;
@@ -1182,7 +1190,7 @@ void SandboxApp::drawProfiler()
     ImGui::End();
 }
 
-void SandboxApp::drawPauseOverlay()
+void SandboxHud::drawPauseOverlay()
 {
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings
         | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
@@ -1192,56 +1200,56 @@ void SandboxApp::drawPauseOverlay()
     ImGui::End();
 }
 
-void SandboxApp::drawDevTools()
+void SandboxHud::drawDevTools()
 {
     ImGui::SetNextWindowSize(ImVec2(460.0f, 720.0f), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImVec2(28.0f, 28.0f), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Dev Tools", &m_showDevTools))
+    if (!ImGui::Begin("Dev Tools", &app().m_showDevTools))
     {
         ImGui::End();
         return;
     }
 
-    if (ImGui::Checkbox("Pause gameplay (fly cam)", &m_gameplayPaused))
+    if (ImGui::Checkbox("Pause gameplay (fly cam)", &app().m_gameplayPaused))
     {
-        m_stepGameplay = false;
-        DE_LOG_INFO("Sandbox: gameplay paused = {}", m_gameplayPaused);
+        app().m_stepGameplay = false;
+        DE_LOG_INFO("Sandbox: gameplay paused = {}", app().m_gameplayPaused);
     }
     ImGui::SameLine();
     ImGui::TextDisabled("F3");
-    ImGui::BeginDisabled(!m_gameplayPaused);
+    ImGui::BeginDisabled(!app().m_gameplayPaused);
     if (ImGui::Button(ICON_FA_FORWARD_STEP "  Step"))
-        m_stepGameplay = true;
+        app().m_stepGameplay = true;
     ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::TextDisabled("O");
-    ImGui::SliderFloat(ICON_FA_GAUGE_HIGH "  Fly speed (m/s)", &m_flySpeed, 1.0f, 400.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
+    ImGui::SliderFloat(ICON_FA_GAUGE_HIGH "  Fly speed (m/s)", &app().m_flySpeed, 1.0f, 400.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Free-fly camera while paused. Shift multiplies by 2.5.");
     ImGui::Separator();
-    if (ImGui::Checkbox("God Mode", &m_godMode))
+    if (ImGui::Checkbox("God Mode", &app().m_godMode))
     {
-        syncPlayerMode();
-        DE_LOG_INFO("Sandbox: god mode = {}", m_godMode);
+        app().syncPlayerMode();
+        DE_LOG_INFO("Sandbox: god mode = {}", app().m_godMode);
     }
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Player takes no damage and plays no hit reaction.");
-    if (ImGui::Checkbox("Reaper Mode", &m_reaperMode))
+    if (ImGui::Checkbox("Reaper Mode", &app().m_reaperMode))
     {
-        syncPlayerMode();
-        DE_LOG_INFO("Sandbox: reaper mode = {}", m_reaperMode);
+        app().syncPlayerMode();
+        DE_LOG_INFO("Sandbox: reaper mode = {}", app().m_reaperMode);
     }
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Player takes no damage and plays no hit reaction. Any entity that attacks the player dies.");
     ImGui::Separator();
 
-    DebugRenderState& dbg = renderer().debugState();
-    const float elevDeg   = m_env.sunElevation() * 57.2957795f;
+    DebugRenderState& dbg = app().renderer().debugState();
+    const float elevDeg   = app().m_env.sunElevation() * 57.2957795f;
 
-    ImGui::TextUnformatted(renderer().scenePath() == ScenePath::HybridDeferred ? "Path: hybrid deferred" : "Path: forward");
+    ImGui::TextUnformatted(app().renderer().scenePath() == ScenePath::HybridDeferred ? "Path: hybrid deferred" : "Path: forward");
     ImGui::SameLine(0.0f, 16.0f);
     ImGui::Text("%.0f fps", static_cast<double>(ImGui::GetIO().Framerate));
-    ImGui::Text("Draws %u  tris %u  sun %.1f deg", renderer().stats().drawCalls, renderer().stats().triangles, static_cast<double>(elevDeg));
+    ImGui::Text("Draws %u  tris %u  sun %.1f deg", app().renderer().stats().drawCalls, app().renderer().stats().triangles, static_cast<double>(elevDeg));
     ImGui::Separator();
 
     if (ImGui::CollapsingHeader("Rendering", ImGuiTreeNodeFlags_DefaultOpen))
@@ -1269,7 +1277,7 @@ void SandboxApp::drawDevTools()
             DE_LOG_INFO("Sandbox: lighting = {}", dbg.lighting);
         ImGui::SameLine();
         ImGui::TextDisabled("F2");
-        if (renderer().hasGBuffer())
+        if (app().renderer().hasGBuffer())
         {
             if (ImGui::Checkbox("Local lights", &dbg.localLights))
                 DE_LOG_INFO("Sandbox: local lights = {}", dbg.localLights);
@@ -1281,8 +1289,8 @@ void SandboxApp::drawDevTools()
         if (ImGui::Checkbox("Shadows", &shadows))
         {
             dbg.shadows = shadows;
-            m_scene.shadows().setDebugEnabled(shadows);
-            m_scene.localShadows().setDebugEnabled(shadows);
+            app().m_frame.scene().shadows().setDebugEnabled(shadows);
+            app().m_frame.scene().localShadows().setDebugEnabled(shadows);
             DE_LOG_INFO("Sandbox: shadows = {}", shadows);
         }
         if (ImGui::Checkbox("GPU particles", &dbg.gpuParticles))
@@ -1291,10 +1299,10 @@ void SandboxApp::drawDevTools()
             DE_LOG_INFO("Sandbox: instanced static = {}", dbg.instancedStatic);
         if (ImGui::Checkbox("Indirect static draws", &dbg.instancedIndirect))
             DE_LOG_INFO("Sandbox: indirect static draws = {}", dbg.instancedIndirect);
-        if (ImGui::Checkbox("Shadow map tiles", &m_showShadowMaps))
+        if (ImGui::Checkbox("Shadow map tiles", &app().m_showShadowMaps))
         {
-            dbg.shadowMapTiles = m_showShadowMaps;
-            DE_LOG_INFO("Sandbox: shadow map overlay = {}", m_showShadowMaps);
+            dbg.shadowMapTiles = app().m_showShadowMaps;
+            DE_LOG_INFO("Sandbox: shadow map overlay = {}", app().m_showShadowMaps);
         }
         {
             const char* shadowDbg[] = { "Off", "Shadow factor", "Face id" };
@@ -1304,38 +1312,38 @@ void SandboxApp::drawDevTools()
             if (ImGui::Combo("Local shadow", &mode, shadowDbg, 3))
                 dbg.localShadowDebug = mode;
         }
-        if (ImGui::Checkbox("Depth tile", &m_showDepth))
-            DE_LOG_INFO("Sandbox: depth overlay = {}", m_showDepth);
-        if (renderer().hasGBuffer())
+        if (ImGui::Checkbox("Depth tile", &app().m_showDepth))
+            DE_LOG_INFO("Sandbox: depth overlay = {}", app().m_showDepth);
+        if (app().renderer().hasGBuffer())
         {
-            if (ImGui::Checkbox("G-buffer tiles", &m_showGBuffer))
-                DE_LOG_INFO("Sandbox: G-buffer overlay = {}", m_showGBuffer);
-            if (ImGui::Checkbox("Velocity tile", &m_showVelocity))
-                DE_LOG_INFO("Sandbox: velocity overlay = {}", m_showVelocity);
+            if (ImGui::Checkbox("G-buffer tiles", &app().m_showGBuffer))
+                DE_LOG_INFO("Sandbox: G-buffer overlay = {}", app().m_showGBuffer);
+            if (ImGui::Checkbox("Velocity tile", &app().m_showVelocity))
+                DE_LOG_INFO("Sandbox: velocity overlay = {}", app().m_showVelocity);
         }
-        if (renderer().hasSceneBuffers())
+        if (app().renderer().hasSceneBuffers())
         {
             if (ImGui::Checkbox("ACES tonemap", &dbg.aces))
                 DE_LOG_INFO("Sandbox: ACES = {}", dbg.aces);
         }
         if (ImGui::Checkbox("Legacy UNORM albedo", &dbg.legacyUnormAlbedo))
         {
-            renderer().gpuResources().setAlbedoSamplingRaw(dbg.legacyUnormAlbedo);
-            if (m_terrainMaterial.isValid())
-                m_terrainMaterial.setLayerSamplingRaw(renderer().device(), dbg.legacyUnormAlbedo);
+            app().renderer().gpuResources().setAlbedoSamplingRaw(dbg.legacyUnormAlbedo);
+            if (app().m_terrainMaterial.isValid())
+                app().m_terrainMaterial.setLayerSamplingRaw(app().renderer().device(), dbg.legacyUnormAlbedo);
             DE_LOG_INFO("Sandbox: legacy UNORM albedo = {}", dbg.legacyUnormAlbedo);
         }
-        if (renderer().hasGBuffer())
+        if (app().renderer().hasGBuffer())
         {
             if (ImGui::Checkbox("Show albedo (linear)", &dbg.showAlbedoLinear))
                 DE_LOG_INFO("Sandbox: show albedo linear = {}", dbg.showAlbedoLinear);
             if (ImGui::Checkbox("Show albedo (raw UNORM)", &dbg.showAlbedoRaw))
             {
-                renderer().setLightingAlbedoRaw(dbg.showAlbedoRaw);
+                app().renderer().setLightingAlbedoRaw(dbg.showAlbedoRaw);
                 DE_LOG_INFO("Sandbox: show albedo raw = {}", dbg.showAlbedoRaw);
             }
         }
-        if (renderer().hasGBuffer())
+        if (app().renderer().hasGBuffer())
         {
             if (ImGui::Checkbox("Bloom", &dbg.bloom))
                 DE_LOG_INFO("Sandbox: bloom = {}", dbg.bloom);
@@ -1344,8 +1352,8 @@ void SandboxApp::drawDevTools()
             if (ImGui::Checkbox("Motion blur", &dbg.motionBlur))
                 DE_LOG_INFO("Sandbox: motion blur = {}", dbg.motionBlur);
         }
-        if (ImGui::Checkbox("Skeleton overlay", &m_showSkeleton))
-            DE_LOG_INFO("Sandbox: skeleton overlay = {}", m_showSkeleton);
+        if (ImGui::Checkbox("Skeleton overlay", &app().m_showSkeleton))
+            DE_LOG_INFO("Sandbox: skeleton overlay = {}", app().m_showSkeleton);
         if (ImGui::Checkbox("Decals", &dbg.decalsEnabled))
             DE_LOG_INFO("Sandbox: decals = {}", dbg.decalsEnabled);
         bool decalVolumes = dbg.decalsDebug != 0;
@@ -1355,14 +1363,14 @@ void SandboxApp::drawDevTools()
             DE_LOG_INFO("Sandbox: decal volumes = {}", dbg.decalsDebug);
         }
         {
-            const DecalFrameStats decalStats = m_scene.decalStats();
+            const DecalFrameStats decalStats = app().m_frame.scene().decalStats();
             ImGui::Text("Decals  alive %u  drawn %u  culled %u  inside %u  tris %u  recycle %u",
                 decalStats.alive, decalStats.drawn, decalStats.culled, decalStats.inside, decalStats.triangles, decalStats.recycleCount);
         }
         if (ImGui::Button("Drop burn"))
         {
-            const Vector3f cam = m_viewCamera.GetPosition();
-            Vector3f look = m_viewCamera.GetLook();
+            const Vector3f cam = app().m_viewCamera.GetPosition();
+            Vector3f look = app().m_viewCamera.GetLook();
             look.y = 0.0f;
             if (look.MagnitudeSqrd() < 1.0e-8f)
                 look = Vector3f(0.0f, 0.0f, 1.0f);
@@ -1373,55 +1381,55 @@ void SandboxApp::drawDevTools()
             DecalSpawnDesc burn;
             burn.kind     = DecalKind::Burn;
             burn.space    = DecalSpace::World;
-            burn.position = Vector3f(x, playerGroundHeight(x, z), z);
+            burn.position = Vector3f(x, app().playerGroundHeight(x, z), z);
             burn.axisY    = Vector3f(0.0f, 1.0f, 0.0f);
             burn.axisX    = look;
-            if (!m_scene.spawnDecal(burn))
+            if (!app().m_frame.scene().spawnDecal(burn))
                 DE_LOG_ERROR(LogCategory::Render, "Sandbox: drop burn failed");
             else
                 DE_LOG_INFO("Sandbox: drop burn");
         }
-        if (ImGui::Checkbox("Octopus camouflage", &m_camouflage))
-            DE_LOG_INFO("Sandbox: camouflage = {}", m_camouflage);
+        if (ImGui::Checkbox("Octopus camouflage", &app().m_vision.camouflage))
+            DE_LOG_INFO("Sandbox: camouflage = {}", app().m_vision.camouflage);
         ImGui::SameLine();
         ImGui::TextDisabled("C");
     }
 
     if (ImGui::CollapsingHeader("NPC info", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        if (ImGui::Checkbox("Show overlay", &m_npcInfo.enabled))
-            DE_LOG_INFO("Sandbox: NPC info overlay = {}", m_npcInfo.enabled);
-        ImGui::BeginDisabled(!m_npcInfo.enabled);
-        if (ImGui::Checkbox("AI state", &m_npcInfo.showState))
-            DE_LOG_INFO("Sandbox: NPC info state = {}", m_npcInfo.showState);
-        if (ImGui::Checkbox("Health", &m_npcInfo.showHealth))
-            DE_LOG_INFO("Sandbox: NPC info health = {}", m_npcInfo.showHealth);
-        if (ImGui::Checkbox("Has target", &m_npcInfo.showTarget))
-            DE_LOG_INFO("Sandbox: NPC info target = {}", m_npcInfo.showTarget);
+        if (ImGui::Checkbox("Show overlay", &app().m_npcInfo.enabled))
+            DE_LOG_INFO("Sandbox: NPC info overlay = {}", app().m_npcInfo.enabled);
+        ImGui::BeginDisabled(!app().m_npcInfo.enabled);
+        if (ImGui::Checkbox("AI state", &app().m_npcInfo.showState))
+            DE_LOG_INFO("Sandbox: NPC info state = {}", app().m_npcInfo.showState);
+        if (ImGui::Checkbox("Health", &app().m_npcInfo.showHealth))
+            DE_LOG_INFO("Sandbox: NPC info health = {}", app().m_npcInfo.showHealth);
+        if (ImGui::Checkbox("Has target", &app().m_npcInfo.showTarget))
+            DE_LOG_INFO("Sandbox: NPC info target = {}", app().m_npcInfo.showTarget);
         ImGui::EndDisabled();
         ImGui::TextDisabled("World-space box above hunters and wolves.");
     }
 
     if (ImGui::CollapsingHeader("Camera"))
     {
-        float nearZ = m_viewCamera.GetNearZ();
-        float farZ  = m_viewCamera.GetFarZ();
+        float nearZ = app().m_viewCamera.GetNearZ();
+        float farZ  = app().m_viewCamera.GetFarZ();
         bool  ch    = false;
         ch |= ImGui::SliderFloat("Near", &nearZ, 0.01f, 1.0f, "%.3f");
         ch |= ImGui::SliderFloat("Far", &farZ, 100.0f, 1.0e6f, "%.0f", ImGuiSliderFlags_Logarithmic);
         if (ch)
-            m_viewCamera.SetLens(m_viewCamera.GetFovY(), m_viewCamera.GetAspect(), nearZ, farZ);
+            app().m_viewCamera.SetLens(app().m_viewCamera.GetFovY(), app().m_viewCamera.GetAspect(), nearZ, farZ);
     }
 
-    if (renderer().hasGBuffer() && ImGui::CollapsingHeader("IBL", ImGuiTreeNodeFlags_DefaultOpen))
+    if (app().renderer().hasGBuffer() && ImGui::CollapsingHeader("IBL", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        DebugRenderState& iblDbg = renderer().debugState();
+        DebugRenderState& iblDbg = app().renderer().debugState();
         if (ImGui::Checkbox("Enabled", &iblDbg.iblEnabled))
             DE_LOG_INFO(LogCategory::Render, "Ibl: enabled={} debug={}", iblDbg.iblEnabled, iblDbg.iblDebug);
-        ImGui::SliderFloat("Intensity", &m_ibl.intensity, 0.0f, 4.0f, "%.2f");
-        float rotDeg = m_ibl.rotationRadY * RadToDeg;
+        ImGui::SliderFloat("Intensity", &app().m_ibl.intensity, 0.0f, 4.0f, "%.2f");
+        float rotDeg = app().m_ibl.rotationRadY * RadToDeg;
         if (ImGui::SliderFloat("Rotation", &rotDeg, -180.0f, 180.0f, "%.1f deg"))
-            m_ibl.rotationRadY = rotDeg * DegToRad;
+            app().m_ibl.rotationRadY = rotDeg * DegToRad;
         const char* debugViews[] = { "Off", "Irradiance", "Prefilter lod0", "LUT" };
         if (ImGui::Combo("Debug view", &iblDbg.iblDebug, debugViews, 4))
         {
@@ -1431,22 +1439,22 @@ void SandboxApp::drawDevTools()
                 iblDbg.iblDebug = 3;
             DE_LOG_INFO(LogCategory::Render, "Ibl: enabled={} debug={}", iblDbg.iblEnabled, iblDbg.iblDebug);
         }
-        ImGui::TextUnformatted(m_ibl.virtualPath.empty() ? "(off)" : m_ibl.virtualPath.c_str());
-        ImGui::TextDisabled("Bake %s", m_ibl.enabled ? "ready" : "off / failed");
+        ImGui::TextUnformatted(app().m_ibl.virtualPath.empty() ? "(off)" : app().m_ibl.virtualPath.c_str());
+        ImGui::TextDisabled("Bake %s", app().m_ibl.enabled ? "ready" : "off / failed");
     }
 
-    if (renderer().hasGBuffer() && ImGui::CollapsingHeader("SSAO", ImGuiTreeNodeFlags_DefaultOpen))
+    if (app().renderer().hasGBuffer() && ImGui::CollapsingHeader("SSAO", ImGuiTreeNodeFlags_DefaultOpen))
     {
         ImGui::PushID("SSAO");
-        DebugRenderState& ssaoDbg = renderer().debugState();
+        DebugRenderState& ssaoDbg = app().renderer().debugState();
         if (ImGui::Checkbox("Enabled", &ssaoDbg.ssaoEnabled))
         {
-            m_ssao.enabled = ssaoDbg.ssaoEnabled;
+            app().m_ssao.enabled = ssaoDbg.ssaoEnabled;
             DE_LOG_INFO(LogCategory::Render, "Ssao: enabled={} debug={}", ssaoDbg.ssaoEnabled, ssaoDbg.ssaoDebug);
         }
-        ImGui::SliderFloat("Intensity", &m_ssao.intensity, 0.0f, 1.0f, "%.2f");
-        ImGui::SliderFloat("Radius", &m_ssao.radius, 0.05f, 2.0f, "%.2f");
-        ImGui::SliderFloat("Power", &m_ssao.power, 0.5f, 4.0f, "%.2f");
+        ImGui::SliderFloat("Intensity", &app().m_ssao.intensity, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("Radius", &app().m_ssao.radius, 0.05f, 2.0f, "%.2f");
+        ImGui::SliderFloat("Power", &app().m_ssao.power, 0.5f, 4.0f, "%.2f");
         const char* ssaoDebugViews[] = { "Off", "SSAO factor" };
         if (ImGui::Combo("Debug view", &ssaoDbg.ssaoDebug, ssaoDebugViews, 2))
         {
@@ -1459,25 +1467,25 @@ void SandboxApp::drawDevTools()
         ImGui::PopID();
     }
 
-    if (ImGui::CollapsingHeader("SSR", renderer().hasGBuffer() ? ImGuiTreeNodeFlags_DefaultOpen : 0))
+    if (ImGui::CollapsingHeader("SSR", app().renderer().hasGBuffer() ? ImGuiTreeNodeFlags_DefaultOpen : 0))
     {
         ImGui::PushID("SSR");
-        if (!renderer().hasGBuffer())
+        if (!app().renderer().hasGBuffer())
         {
             ImGui::TextDisabled("HybridDeferred only");
         }
         else
         {
-            DebugRenderState& ssrDbg = renderer().debugState();
+            DebugRenderState& ssrDbg = app().renderer().debugState();
             if (ImGui::Checkbox("Enabled", &ssrDbg.ssrEnabled))
             {
-                m_ssr.enabled = ssrDbg.ssrEnabled;
+                app().m_ssr.enabled = ssrDbg.ssrEnabled;
                 DE_LOG_INFO(LogCategory::Render, "Ssr: enabled={} debug={}", ssrDbg.ssrEnabled, ssrDbg.ssrDebug);
             }
-            ImGui::SliderFloat("Max roughness", &m_ssr.maxRoughness, 0.05f, 1.0f, "%.2f");
-            ImGui::SliderFloat("Thickness", &m_ssr.thickness, 0.02f, 2.0f, "%.2f m");
-            ImGui::SliderFloat("Stride", &m_ssr.stride, 1.0f, 8.0f, "%.1f px");
-            ImGui::SliderFloat("Edge fade", &m_ssr.edgeFade, 0.0f, 0.25f, "%.2f");
+            ImGui::SliderFloat("Max roughness", &app().m_ssr.maxRoughness, 0.05f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Thickness", &app().m_ssr.thickness, 0.02f, 2.0f, "%.2f m");
+            ImGui::SliderFloat("Stride", &app().m_ssr.stride, 1.0f, 8.0f, "%.1f px");
+            ImGui::SliderFloat("Edge fade", &app().m_ssr.edgeFade, 0.0f, 0.25f, "%.2f");
             const char* ssrDebugViews[] = { "Off", "Radiance", "Confidence" };
             if (ImGui::Combo("Debug view", &ssrDbg.ssrDebug, ssrDebugViews, 3))
             {
@@ -1493,23 +1501,23 @@ void SandboxApp::drawDevTools()
 
     if (ImGui::CollapsingHeader("Sky", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        const Vector3f lc = m_env.lightColor();
+        const Vector3f lc = app().m_env.lightColor();
         ImGui::ColorButton("##light", ImVec4(lc.x, lc.y, lc.z, 1.0f), ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop, ImVec2(18.0f, 18.0f));
         ImGui::SameLine();
-        ImGui::Text("Light  ambient (%.2f, %.2f, %.2f)", static_cast<double>(m_env.ambientColor().x), static_cast<double>(m_env.ambientColor().y),
-                    static_cast<double>(m_env.ambientColor().z));
+        ImGui::Text("Light  ambient (%.2f, %.2f, %.2f)", static_cast<double>(app().m_env.ambientColor().x), static_cast<double>(app().m_env.ambientColor().y),
+                    static_cast<double>(app().m_env.ambientColor().z));
 
-        float tod = m_env.timeOfDay;
+        float tod = app().m_env.timeOfDay;
         if (ImGui::SliderFloat("Time of day", &tod, 0.0f, 23.99f, "%.2f h"))
         {
-            m_env.timeOfDay = tod;
-            m_env.evaluate();
+            app().m_env.timeOfDay = tod;
+            app().m_env.evaluate();
         }
-        bool animate = m_env.timeScale > 0.0f;
+        bool animate = app().m_env.timeScale > 0.0f;
         if (ImGui::Checkbox("Animate time", &animate))
         {
-            m_env.timeScale = animate ? 0.35f : 0.0f;
-            DE_LOG_INFO("Sky: time scale = {:.2f} h/s", m_env.timeScale);
+            app().m_env.timeScale = animate ? 0.35f : 0.0f;
+            DE_LOG_INFO("Sky: time scale = {:.2f} h/s", app().m_env.timeScale);
         }
 
         auto weatherBtn = [&](const char* label, const Sky::WeatherState& w, const ImVec4& col) {
@@ -1517,9 +1525,9 @@ void SandboxApp::drawDevTools()
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(col.x + 0.12f, col.y + 0.12f, col.z + 0.12f, 1.0f));
             if (ImGui::Button(label, ImVec2(92.0f, 28.0f)))
             {
-                m_env.weather = w;
-                m_env.cloudLayer.windSpeedMps = Sky::cloudWindSpeedMpsFor(w);
-                m_env.evaluate();
+                app().m_env.weather = w;
+                app().m_env.cloudLayer.windSpeedMps = Sky::cloudWindSpeedMpsFor(w);
+                app().m_env.evaluate();
                 DE_LOG_INFO("Sky: weather {}", label);
             }
             ImGui::PopStyleColor(2);
@@ -1531,40 +1539,40 @@ void SandboxApp::drawDevTools()
         weatherBtn("Overcast", Sky::WeatherState::Overcast(), ImVec4(0.38f, 0.40f, 0.42f, 1.0f));
         ImGui::SameLine();
         weatherBtn("Storm", Sky::WeatherState::Storm(), ImVec4(0.28f, 0.22f, 0.40f, 1.0f));
-        ImGui::Text("Cover %.0f%%  exposure %.2f", static_cast<double>(m_env.weather.cloudCoverage * 100.0f), static_cast<double>(m_env.exposure()));
+        ImGui::Text("Cover %.0f%%  exposure %.2f", static_cast<double>(app().m_env.weather.cloudCoverage * 100.0f), static_cast<double>(app().m_env.exposure()));
     }
 
-    if (renderer().hasGBuffer() && ImGui::CollapsingHeader("Exposure", ImGuiTreeNodeFlags_DefaultOpen))
+    if (app().renderer().hasGBuffer() && ImGui::CollapsingHeader("Exposure", ImGuiTreeNodeFlags_DefaultOpen))
     {
         ImGui::PushID("Exposure");
-        bool autoOn = m_autoExposure.mode == ExposureMode::Auto;
+        bool autoOn = app().m_autoExposure.mode == ExposureMode::Auto;
         if (ImGui::Checkbox("Auto", &autoOn))
         {
             const ExposureMode next = autoOn ? ExposureMode::Auto : ExposureMode::Manual;
-            if (next == ExposureMode::Auto && m_autoExposure.mode != ExposureMode::Auto)
+            if (next == ExposureMode::Auto && app().m_autoExposure.mode != ExposureMode::Auto)
             {
-                resetAutoExposure(m_autoExposureState);
-                m_scene.autoExposure().invalidateReadback();
+                resetAutoExposure(app().m_autoExposureState);
+                app().m_frame.scene().autoExposure().invalidateReadback();
             }
-            m_autoExposure.mode = next;
+            app().m_autoExposure.mode = next;
             DE_LOG_INFO(LogCategory::Render, "Exposure: auto={}", autoOn);
         }
         ImGui::BeginDisabled(!autoOn);
-        ImGui::SliderFloat("EV bias", &m_autoExposure.evBias, -2.0f, 2.0f, "%.2f");
-        ImGui::SliderFloat("Max EV", &m_autoExposure.maxEv, 0.0f, 3.0f, "%.2f");
-        ImGui::SliderFloat("Bright speed", &m_autoExposure.adaptBright, 0.0f, 20.0f, "%.2f /s");
-        ImGui::SliderFloat("Dark speed", &m_autoExposure.adaptDark, 0.0f, 20.0f, "%.2f /s");
+        ImGui::SliderFloat("EV bias", &app().m_autoExposure.evBias, -2.0f, 2.0f, "%.2f");
+        ImGui::SliderFloat("Max EV", &app().m_autoExposure.maxEv, 0.0f, 3.0f, "%.2f");
+        ImGui::SliderFloat("Bright speed", &app().m_autoExposure.adaptBright, 0.0f, 20.0f, "%.2f /s");
+        ImGui::SliderFloat("Dark speed", &app().m_autoExposure.adaptDark, 0.0f, 20.0f, "%.2f /s");
         ImGui::EndDisabled();
-        ImGui::Text("measured %.3f   EV %+.2f", static_cast<double>(m_autoExposureResult.measuredLuma), static_cast<double>(m_autoExposureResult.evCorrection));
-        ImGui::Text("artistic %.2f   final %.2f", static_cast<double>(m_env.exposure()), static_cast<double>(m_autoExposureResult.finalExposure));
+        ImGui::Text("measured %.3f   EV %+.2f", static_cast<double>(app().m_autoExposureResult.measuredLuma), static_cast<double>(app().m_autoExposureResult.evCorrection));
+        ImGui::Text("artistic %.2f   final %.2f", static_cast<double>(app().m_env.exposure()), static_cast<double>(app().m_autoExposureResult.finalExposure));
         ImGui::TextDisabled("Auto adds a small correction on the artistic exposure. Bright views fall faster than dark views rise.");
         ImGui::PopID();
     }
 
-    if (renderer().hasGBuffer() && ImGui::CollapsingHeader("Cloud LOD", ImGuiTreeNodeFlags_DefaultOpen))
+    if (app().renderer().hasGBuffer() && ImGui::CollapsingHeader("Cloud LOD", ImGuiTreeNodeFlags_DefaultOpen))
     {
         ImGui::PushID("CloudLOD");
-        CloudLodSettings& lod = m_cloudLod;
+        CloudLodSettings& lod = app().m_cloudLod;
         if (ImGui::Checkbox("Enabled", &lod.enabled))
             DE_LOG_INFO(LogCategory::Render, "Cloud LOD: enabled={}", lod.enabled);
         ImGui::BeginDisabled(!lod.enabled);
@@ -1586,62 +1594,62 @@ void SandboxApp::drawDevTools()
 
     if (ImGui::CollapsingHeader("Fog", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        const Vector3f fc = m_env.fogColor();
+        const Vector3f fc = app().m_env.fogColor();
         ImGui::ColorButton("##fogSwatch", ImVec4(fc.x, fc.y, fc.z, 1.0f), ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop, ImVec2(18.0f, 18.0f));
         ImGui::SameLine();
-        ImGui::Text("dist %.3f  height %.3f  valley %.3f", static_cast<double>(m_env.fogDensity()), static_cast<double>(m_env.heightFogDensity()),
-                    static_cast<double>(m_env.volumetricFogDensity()));
+        ImGui::Text("dist %.3f  height %.3f  valley %.3f", static_cast<double>(app().m_env.fogDensity()), static_cast<double>(app().m_env.heightFogDensity()),
+                    static_cast<double>(app().m_env.volumetricFogDensity()));
 
-        bool autoFog = m_env.fogAuto;
+        bool autoFog = app().m_env.fogAuto;
         if (ImGui::Checkbox("Auto from weather / time", &autoFog))
         {
-            m_env.fogAuto = autoFog;
+            app().m_env.fogAuto = autoFog;
             if (autoFog)
-                m_env.evaluate();
+                app().m_env.evaluate();
         }
 
-        if (m_env.fogAuto)
+        if (app().m_env.fogAuto)
         {
-            if (ImGui::SliderFloat("Distance scale", &m_env.fogDistanceScale, 0.0f, 6.0f, "%.2f"))
-                m_env.evaluate();
-            if (ImGui::SliderFloat("Height scale", &m_env.heightFogScale, 0.0f, 6.0f, "%.2f"))
-                m_env.evaluate();
-            if (ImGui::SliderFloat("Valley scale", &m_env.volumetricFogScale, 0.0f, 6.0f, "%.2f"))
-                m_env.evaluate();
+            if (ImGui::SliderFloat("Distance scale", &app().m_env.fogDistanceScale, 0.0f, 6.0f, "%.2f"))
+                app().m_env.evaluate();
+            if (ImGui::SliderFloat("Height scale", &app().m_env.heightFogScale, 0.0f, 6.0f, "%.2f"))
+                app().m_env.evaluate();
+            if (ImGui::SliderFloat("Valley scale", &app().m_env.volumetricFogScale, 0.0f, 6.0f, "%.2f"))
+                app().m_env.evaluate();
         }
         else
         {
-            float dist = m_env.fogDensity();
+            float dist = app().m_env.fogDensity();
             if (ImGui::SliderFloat("Distance density", &dist, 0.0f, 0.08f, "%.4f"))
-                m_env.setFogDensity(dist);
-            float height = m_env.heightFogDensity();
+                app().m_env.setFogDensity(dist);
+            float height = app().m_env.heightFogDensity();
             if (ImGui::SliderFloat("Height density", &height, 0.0f, 0.12f, "%.4f"))
-                m_env.setHeightFogDensity(height);
-            float valley = m_env.volumetricFogDensity();
+                app().m_env.setHeightFogDensity(height);
+            float valley = app().m_env.volumetricFogDensity();
             if (ImGui::SliderFloat("Valley density", &valley, 0.0f, 0.12f, "%.4f"))
-                m_env.setVolumetricFogDensity(valley);
+                app().m_env.setVolumetricFogDensity(valley);
             float col[3] = { fc.x, fc.y, fc.z };
             if (ImGui::ColorEdit3("Fog color", col, ImGuiColorEditFlags_Float))
-                m_env.setFogColor(Vector3f(col[0], col[1], col[2]));
+                app().m_env.setFogColor(Vector3f(col[0], col[1], col[2]));
         }
 
-        float falloff = m_env.heightFogFalloff();
+        float falloff = app().m_env.heightFogFalloff();
         if (ImGui::SliderFloat("Height falloff", &falloff, 0.01f, 0.25f, "%.3f"))
-            m_env.setHeightFogFalloff(falloff);
-        float slab = m_env.volumetricFogHeight();
+            app().m_env.setHeightFogFalloff(falloff);
+        float slab = app().m_env.volumetricFogHeight();
         if (ImGui::SliderFloat("Valley height (m)", &slab, 2.0f, 40.0f, "%.1f"))
-            m_env.setVolumetricFogHeight(slab);
+            app().m_env.setVolumetricFogHeight(slab);
 
         if (ImGui::Button("Reset fog"))
         {
-            m_env.resetFogTune();
+            app().m_env.resetFogTune();
             DE_LOG_INFO("Sky: fog tune reset");
         }
     }
 
     if (ImGui::CollapsingHeader("Water", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        WaterParams& wp = m_water.params();
+        WaterParams& wp = app().m_water.params();
         float baseAmp = 0.0f;
         for (int i = 0; i < kWaterWaveCount; ++i)
             baseAmp += wp.waves[i].amplitude;
@@ -1682,11 +1690,11 @@ void SandboxApp::drawDevTools()
 
     if (ImGui::CollapsingHeader("Procedural grass"))
     {
-        Terrain::GrassParams grass = m_grassField.params();
-        if (!m_grassPipeline.isValid())
+        Terrain::GrassParams grass = app().m_grassField.params();
+        if (!app().m_grassPipeline.isValid())
             grass.enabled = false;
         bool edited = false;
-        ImGui::BeginDisabled(!m_grassPipeline.isValid());
+        ImGui::BeginDisabled(!app().m_grassPipeline.isValid());
         edited |= ImGui::Checkbox("Enable", &grass.enabled);
         ImGui::EndDisabled();
         edited |= ImGui::SliderFloat("Height", &grass.heightMetres, 0.05f, 1.50f, "%.2f");
@@ -1705,23 +1713,23 @@ void SandboxApp::drawDevTools()
         edited |= ImGui::SliderFloat("Steep start", &grass.faceSteep, 0.0f, 0.95f, "%.2f");
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("How overhead the camera must be before the tip leans. 0 starts at the horizon. Saved values come from the scene file.");
-        if (!m_grassPipeline.isValid())
+        if (!app().m_grassPipeline.isValid())
             grass.enabled = false;
         if (edited)
-            m_grassField.setParams(grass);
+            app().m_grassField.setParams(grass);
         uint32_t bladeCount = 0;
         for (int lod = 0; lod < Terrain::kGrassLodCount; ++lod)
-            bladeCount += m_grassField.blades(lod).count;
-        ImGui::Text("Blades %u   tiles %u", bladeCount, m_grassField.residentTileCount());
+            bladeCount += app().m_grassField.blades(lod).count;
+        ImGui::Text("Blades %u   tiles %u", bladeCount, app().m_grassField.residentTileCount());
     }
 
     if (ImGui::CollapsingHeader("Falling leaves"))
-        ImGui::SliderFloat("Shed scale", &m_leafShedScale, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("Shed scale", &app().m_leafShedScale, 0.0f, 1.0f, "%.2f");
 
     if (ImGui::CollapsingHeader("Jump attack"))
     {
-        const Entity body = possessedBody();
-        const JumpAttackComponent* jac = body.valid() ? world().get<JumpAttackComponent>(body) : nullptr;
+        const Entity body = app().possessedBody();
+        const JumpAttackComponent* jac = body.valid() ? app().world().get<JumpAttackComponent>(body) : nullptr;
         if (!jac)
             ImGui::TextUnformatted("no JumpAttack");
         else
@@ -1731,9 +1739,9 @@ void SandboxApp::drawDevTools()
             ImGui::Text("connect window %.2fs", static_cast<double>(jump.connectWindowLeft()));
             ImGui::Text("pound radius %.1f m", static_cast<double>(jump.def().poundRadius));
         }
-        if (m_chaseOk)
+        if (app().m_chaseOk)
         {
-            const Entity token = m_chase.ai().jumpAttackToken();
+            const Entity token = app().m_chase.ai().jumpAttackToken();
             if (token.valid())
                 ImGui::Text("pack token %u", token.id());
             else
@@ -1741,9 +1749,9 @@ void SandboxApp::drawDevTools()
         }
     }
 
-    if (const Entity skillBody = possessedBody(); skillBody.valid())
+    if (const Entity skillBody = app().possessedBody(); skillBody.valid())
     {
-        if (const SkillComponent* sk = world().get<SkillComponent>(skillBody))
+        if (const SkillComponent* sk = app().world().get<SkillComponent>(skillBody))
         {
             if (ImGui::CollapsingHeader("Skills"))
             {
@@ -1767,8 +1775,8 @@ void SandboxApp::drawDevTools()
 
     if (ImGui::CollapsingHeader("Status"))
     {
-        const Entity body = possessedBody();
-        Combat::StatusEffectComponent* st = body.valid() ? world().get<Combat::StatusEffectComponent>(body) : nullptr;
+        const Entity body = app().possessedBody();
+        Combat::StatusEffectComponent* st = body.valid() ? app().world().get<Combat::StatusEffectComponent>(body) : nullptr;
         if (!st)
             ImGui::TextUnformatted("no StatusEffect");
         else
@@ -1789,27 +1797,27 @@ void SandboxApp::drawDevTools()
                 ImGui::TextDisabled("none");
 
             if (ImGui::Button("Apply Poison"))
-                applyDebugStatus(world(), body, Combat::StatusId::Poison);
+                applyDebugStatus(app().world(), body, Combat::StatusId::Poison);
             ImGui::SameLine();
             if (ImGui::Button("Apply Bleed"))
-                applyDebugStatus(world(), body, Combat::StatusId::Bleed);
+                applyDebugStatus(app().world(), body, Combat::StatusId::Bleed);
             ImGui::SameLine();
             if (ImGui::Button("Apply Ignite"))
-                applyDebugStatus(world(), body, Combat::StatusId::Ignite);
+                applyDebugStatus(app().world(), body, Combat::StatusId::Ignite);
             if (ImGui::Button("Apply Chill"))
-                applyDebugStatus(world(), body, Combat::StatusId::Chill);
+                applyDebugStatus(app().world(), body, Combat::StatusId::Chill);
             ImGui::SameLine();
             if (ImGui::Button("Apply Shock"))
-                applyDebugStatus(world(), body, Combat::StatusId::Shock);
+                applyDebugStatus(app().world(), body, Combat::StatusId::Shock);
             ImGui::SameLine();
             if (ImGui::Button("Apply Stun"))
-                applyDebugStatus(world(), body, Combat::StatusId::Stun);
+                applyDebugStatus(app().world(), body, Combat::StatusId::Stun);
         }
     }
 
     if (ImGui::CollapsingHeader("Hit reaction"))
     {
-        if (HitReaction* playerHit = localHit())
+        if (HitReaction* playerHit = app().localHit())
         {
             HitReactionSettings player = playerHit->settings();
             ImGui::TextUnformatted("Player");
@@ -1822,27 +1830,27 @@ void SandboxApp::drawDevTools()
                 ImGui::TextDisabled("stunned %.2fs", static_cast<double>(playerHit->stunRemaining()));
         }
 
-        if (m_chaseOk)
+        if (app().m_chaseOk)
         {
             ImGui::Separator();
-            HitReactionSettings hunter = m_chase.hunterHitReaction();
+            HitReactionSettings hunter = app().m_chase.hunterHitReaction();
             ImGui::TextUnformatted("Hunters");
             const bool chStun = ImGui::SliderFloat("Hunter stun (s)", &hunter.stunSeconds, 0.0f, 2.0f, "%.2f");
             const bool chKb   = ImGui::SliderFloat("Hunter knockback (m)", &hunter.knockbackDistance, 0.0f, 8.0f, "%.2f");
             const bool chTime = ImGui::SliderFloat("Hunter knockback time (s)", &hunter.knockbackSeconds, 0.0f, 1.0f, "%.2f");
             const bool chFlat = ImGui::Checkbox("Hunter horizontal only", &hunter.horizontalOnly);
             if (chStun || chKb || chTime || chFlat)
-                m_chase.setHunterHitReaction(hunter);
+                app().m_chase.setHunterHitReaction(hunter);
         }
     }
 
     if (ImGui::CollapsingHeader("Crouch"))
     {
-        if (PlayerMotor* motor = localMotor())
+        if (PlayerMotor* motor = app().localMotor())
         {
             ImGui::SliderFloat("Crouch speed", &motor->settings().crouchSpeed, 0.5f, motor->settings().walkSpeed, "%.1f");
         }
-        if (PlayerStealthComponent* stealth = localStealth())
+        if (PlayerStealthComponent* stealth = app().localStealth())
         {
             PlayerStealthSettings& s = stealth->settings;
             ImGui::SliderFloat("Still speed", &s.stillSpeed, 0.05f, 2.0f, "%.2f");
@@ -1861,14 +1869,14 @@ void SandboxApp::drawDevTools()
         }
         else
             ImGui::TextDisabled("No player");
-        const PlayerMotor* shown = localMotor();
+        const PlayerMotor* shown = app().localMotor();
         ImGui::TextDisabled("%s", (shown && shown->state() == PlayerMoveState::Crouch) ? "crouching" : "standing");
     }
 
-    if (m_chaseOk && ImGui::CollapsingHeader("Guard awareness"))
+    if (app().m_chaseOk && ImGui::CollapsingHeader("Guard awareness"))
     {
-        m_chase.ai().ensureAwarenessSettings();
-        AI::AwarenessSettings aware = m_chase.ai().awarenessSettings();
+        app().m_chase.ai().ensureAwarenessSettings();
+        AI::AwarenessSettings aware = app().m_chase.ai().awarenessSettings();
         bool ch = false;
         auto row = [&](const char* label, float& value, float lo, float hi, const char* fmt) {
             ch |= ImGui::SliderFloat(label, &value, lo, hi, fmt);
@@ -1930,38 +1938,38 @@ void SandboxApp::drawDevTools()
         row("Stride sprint", aware.strideSprint, 0.1f, 6.0f, "%.2f");
         row("Stride walk", aware.strideWalk, 0.1f, 6.0f, "%.2f");
         if (ch)
-            m_chase.ai().setAwarenessSettings(aware);
+            app().m_chase.ai().setAwarenessSettings(aware);
     }
 
     if (ImGui::CollapsingHeader("Shield"))
     {
-        Combat::ShieldSettings& shield = m_offhand.shield.settings();
+        Combat::ShieldSettings& shield = app().m_play.runtime().offhand.shield.settings();
         ImGui::SliderFloat("Raise time (s)", &shield.raiseSeconds, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Move speed while up", &shield.moveSpeedScale, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Block arc (deg)", &shield.blockArcDeg, 0.0f, 360.0f, "%.0f");
-        ImGui::SliderFloat("Attack charge window (s)", &m_chargeSettings.attackWindowSeconds, 0.0f, 1.5f, "%.2f");
-        ImGui::SliderFloat("Charged attack damage", &m_chargeSettings.attackDamageScale, 1.0f, 4.0f, "%.2f");
-        ImGui::SliderFloat("Block charge window (s)", &m_chargeSettings.blockWindowSeconds, 0.0f, 1.5f, "%.2f");
-        ImGui::SliderFloat("Parry stun (s)", &m_chargeSettings.parryStunSeconds, 0.1f, 3.0f, "%.2f");
-        ImGui::SliderFloat("Charged parry slam (s)", &m_chargeSettings.chargedParryStunSeconds, 0.2f, 3.0f, "%.2f");
+        ImGui::SliderFloat("Attack charge window (s)", &app().m_play.runtime().chargeSettings.attackWindowSeconds, 0.0f, 1.5f, "%.2f");
+        ImGui::SliderFloat("Charged attack damage", &app().m_play.runtime().chargeSettings.attackDamageScale, 1.0f, 4.0f, "%.2f");
+        ImGui::SliderFloat("Block charge window (s)", &app().m_play.runtime().chargeSettings.blockWindowSeconds, 0.0f, 1.5f, "%.2f");
+        ImGui::SliderFloat("Parry stun (s)", &app().m_play.runtime().chargeSettings.parryStunSeconds, 0.1f, 3.0f, "%.2f");
+        ImGui::SliderFloat("Charged parry slam (s)", &app().m_play.runtime().chargeSettings.chargedParryStunSeconds, 0.2f, 3.0f, "%.2f");
         ImGui::TextDisabled("%s   %s   %s",
-            m_offhand.shield.blocking() ? "shield up" : "shield down",
-            m_blockCharge.isCharged() ? "block charged" : "block tap",
-            m_attackCharge.isCharged() ? "attack charged" : "attack tap");
-        const bool carriesLight = flashlightEquipped(possessedBody().valid() ? world().get<InventoryComponent>(possessedBody()) : nullptr);
-        const char* lightLabel = !carriesLight ? "no flashlight" : (m_offhand.lightOn ? "flashlight on" : "flashlight off");
+            app().m_play.runtime().offhand.shield.blocking() ? "shield up" : "shield down",
+            app().m_play.runtime().blockCharge.isCharged() ? "block charged" : "block tap",
+            app().m_play.runtime().attackCharge.isCharged() ? "attack charged" : "attack tap");
+        const bool carriesLight = flashlightEquipped(app().possessedBody().valid() ? app().world().get<InventoryComponent>(app().possessedBody()) : nullptr);
+        const char* lightLabel = !carriesLight ? "no flashlight" : (app().m_play.runtime().offhand.lightOn ? "flashlight on" : "flashlight off");
         ImGui::TextDisabled("%s", lightLabel);
         ImGui::TextDisabled("Hold RMB, V, or left trigger. The flashlight turns off while the shield is in use.");
-        ImGui::TextDisabled("Night sight %s  (N)", m_nightSightOn ? "on" : "off");
-        ImGui::TextDisabled("Infrared %s  (H)", m_infraredOn ? "on" : "off");
-        ImGui::TextDisabled("Ultraviolet %s  (U)", m_ultravioletOn ? "on" : "off");
-        ImGui::TextDisabled("Echolocation %s  (B)", m_echoOn ? "on" : "off");
-        ImGui::SliderFloat("Refresh period (s)", &m_echoChirp.periodSeconds, Dark::EchoChirpSettings::kPeriodMin, Dark::EchoChirpSettings::kPeriodMax, "%.2f");
-        ImGui::SliderFloat("Shell speed (m/s)", &m_echoChirp.speedMetersPerSec, Dark::EchoChirpSettings::kSpeedMin, Dark::EchoChirpSettings::kSpeedMax, "%.1f");
-        ImGui::SliderFloat("Shell range (m)", &m_echoChirp.rangeMeters, Dark::EchoChirpSettings::kRangeMin, Dark::EchoChirpSettings::kRangeMax, "%.1f");
-        const float period = m_echoChirp.periodSeconds;
-        const float speed  = m_echoChirp.speedMetersPerSec;
-        const float range  = m_echoChirp.rangeMeters;
+        ImGui::TextDisabled("Night sight %s  (N)", app().m_vision.nightSightOn ? "on" : "off");
+        ImGui::TextDisabled("Infrared %s  (H)", app().m_vision.infraredOn ? "on" : "off");
+        ImGui::TextDisabled("Ultraviolet %s  (U)", app().m_vision.ultravioletOn ? "on" : "off");
+        ImGui::TextDisabled("Echolocation %s  (B)", app().m_vision.echoOn ? "on" : "off");
+        ImGui::SliderFloat("Refresh period (s)", &app().m_vision.echoChirp.periodSeconds, Dark::EchoChirpSettings::kPeriodMin, Dark::EchoChirpSettings::kPeriodMax, "%.2f");
+        ImGui::SliderFloat("Shell speed (m/s)", &app().m_vision.echoChirp.speedMetersPerSec, Dark::EchoChirpSettings::kSpeedMin, Dark::EchoChirpSettings::kSpeedMax, "%.1f");
+        ImGui::SliderFloat("Shell range (m)", &app().m_vision.echoChirp.rangeMeters, Dark::EchoChirpSettings::kRangeMin, Dark::EchoChirpSettings::kRangeMax, "%.1f");
+        const float period = app().m_vision.echoChirp.periodSeconds;
+        const float speed  = app().m_vision.echoChirp.speedMetersPerSec;
+        const float range  = app().m_vision.echoChirp.rangeMeters;
         const float hz     = period > 0.0f ? (1.0f / period) : 0.0f;
         const float travel = speed > 0.0f ? (range / speed) : 0.0f;
         ImGui::TextDisabled("%.2f Hz. %.0f m in %.2f s. content/render/echolocation.json is the startup value.", static_cast<double>(hz), static_cast<double>(range), static_cast<double>(travel));
@@ -1969,7 +1977,7 @@ void SandboxApp::drawDevTools()
 
     if (ImGui::CollapsingHeader("Rifle"))
     {
-        if (WeaponLoadout* w = localWeapons())
+        if (WeaponLoadout* w = app().localWeapons())
         {
             ProjectileWeaponDesc d = w->projectile().desc();
             float pitch = d.recoilPitchDeg;
@@ -1983,9 +1991,9 @@ void SandboxApp::drawDevTools()
         }
     }
 
-    if (m_chaseOk && ImGui::CollapsingHeader("Hunter pack"))
+    if (app().m_chaseOk && ImGui::CollapsingHeader("Hunter pack"))
     {
-        PathChase::PackSettings pack = m_chase.packSettings();
+        PathChase::PackSettings pack = app().m_chase.packSettings();
         bool ch = false;
         ch |= ImGui::SliderFloat("Help if ally within (m)", &pack.assistAllyRadius, 0.0f, 20.0f, "%.1f");
         ch |= ImGui::SliderFloat("Help sprint time (s)", &pack.assistSeconds, 0.5f, 12.0f, "%.1f");
@@ -1994,10 +2002,10 @@ void SandboxApp::drawDevTools()
         const bool runCh  = ImGui::SliderFloat("Sprint speed", &pack.sprintSpeed, 2.0f, 28.0f, "%.1f");
         const bool walkCh = ImGui::SliderFloat("Walk speed", &pack.walkSpeed, 1.0f, 16.0f, "%.1f");
         if (ch || runCh || walkCh)
-            m_chase.setPackSettings(pack);
+            app().m_chase.setPackSettings(pack);
         if (runCh || walkCh)
         {
-            world().each<AiAgentComponent>([&](Entity, AiAgentComponent& ai) {
+            app().world().each<AiAgentComponent>([&](Entity, AiAgentComponent& ai) {
                 if (!ai.authoredMove)
                 {
                     ai.walkSpeed    = pack.walkSpeed;
@@ -2015,43 +2023,43 @@ void SandboxApp::drawDevTools()
 
     if (ImGui::CollapsingHeader("Network", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        const NetRole role = network().role();
-        ImGui::Text("Role: %s   peers %u   rtt %.0f ms", roleLabel(role), network().peerCount(), static_cast<double>(network().rttMs(network().localClientId())));
+        const NetRole role = app().network().role();
+        ImGui::Text("Role: %s   peers %u   rtt %.0f ms", roleLabel(role), app().network().peerCount(), static_cast<double>(app().network().rttMs(app().network().localClientId())));
         if (ImGui::Button("Host", ImVec2(88.0f, 0.0f)))
-            devNetHost();
+            app().devNetHost();
         ImGui::SameLine();
         if (ImGui::Button("Disconnect", ImVec2(100.0f, 0.0f)))
-            devNetDisconnect();
+            app().devNetDisconnect();
         ImGui::SameLine();
         if (ImGui::Button("Browse LAN", ImVec2(100.0f, 0.0f)))
-            devNetBrowse();
+            app().devNetBrowse();
 
         ImGui::SetNextItemWidth(220.0f);
-        ImGui::InputText("##joinHost", m_joinHost, sizeof(m_joinHost));
+        ImGui::InputText("##joinHost", app().m_joinHost, sizeof(app().m_joinHost));
         ImGui::SameLine();
         if (ImGui::Button("Join"))
         {
             Address addr{};
             addr.port = kNetDefaultPort;
-            if (parseIPv4(m_joinHost, addr))
-                devNetJoin(addr);
+            if (parseIPv4(app().m_joinHost, addr))
+                app().devNetJoin(addr);
             else
-                DE_LOG_WARN(LogCategory::Networking, "Sandbox: bad join address '{}'", m_joinHost);
+                DE_LOG_WARN(LogCategory::Networking, "Sandbox: bad join address '{}'", app().m_joinHost);
         }
 
-        const uint32_t n = network().sessionCount();
-        if (m_netBrowsing)
+        const uint32_t n = app().network().sessionCount();
+        if (app().m_netBrowsing)
             ImGui::Text("LAN sessions: %u", n);
         for (uint32_t i = 0; i < n; ++i)
         {
             NetSessionInfo s{};
-            if (!network().sessionAt(i, s))
+            if (!app().network().sessionAt(i, s))
                 continue;
             char ip[48];
             formatIPv4(ip, sizeof(ip), s.address);
             ImGui::PushID(static_cast<int>(i));
             if (ImGui::Selectable(s.name[0] ? s.name : "(unnamed)"))
-                devNetJoin(s.address);
+                app().devNetJoin(s.address);
             ImGui::SameLine();
             ImGui::TextDisabled("%s  peers %u", ip, s.peerCount);
             ImGui::PopID();
@@ -2060,12 +2068,12 @@ void SandboxApp::drawDevTools()
 
     if (ImGui::CollapsingHeader("Debugger", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        const bool listening = debug().isListening();
+        const bool listening = app().debug().isListening();
         ImGui::Text("Visual Debugger: %s", listening ? "listening" : "off");
         if (listening)
-            ImGui::Text("TCP %u   client %s", debug().boundAddress().port, debug().hasClient() ? "connected" : "waiting");
+            ImGui::Text("TCP %u   client %s", app().debug().boundAddress().port, app().debug().hasClient() ? "connected" : "waiting");
         if (ImGui::Button(listening ? "Stop listen" : "Listen"))
-            devToggleListen();
+            app().devToggleListen();
         ImGui::SameLine();
         ImGui::TextDisabled("port %u", kDebugDefaultPort);
     }

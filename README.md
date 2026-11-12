@@ -51,7 +51,7 @@ Runtime HLSL lives in `content/shaders/`. It shows up in the IDE but is compiled
 - **Animation**: skeletons, clips, sampler, anim graph (`*.anim.json`), locomotion, anim notifies. Locomotion clip rate follows planar speed. Procedural layers add a directional hit flinch and a shield guard pose.
 - **AI**: hierarchical state machines loaded from JSON (`content/ai/*.hsm.json`), attack patterns, pathfinding, walkability, sight, wolf approach / flanking, water watch (`AI/WaterPeek`). An awareness meter (`AI/Awareness`) moves enemies through Calm, Suspicious, Investigating, Alert, and Searching from sight, motion, noise, and proximity. Per-type movement speeds come from `content/entities/*.entity.movement.json`.
 - **Media**: `MoviePlayer` decodes H.264 and MPEG-2 video (Media Foundation) into an XAudio2 voice and a GPU texture, with NV12-to-RGB conversion on upload. Movies are authored on scene nodes and played by the loading screen (`MoviePresentPipeline`). See `Media/MoviePlayer.h`.
-- **Play** (`Play/`): code shared by Sandbox play and Editor Play-in-editor: character attach for players and NPCs, character sound banks, play look and shoulder camera, motor input (planar slide along walls instead of stopping), physics ground height, terrain streaming, impact decals, weapon target queries, the player flashlight, crows, spawners, and facility hooks (doors, guards).
+- **Play** (`Play/`): code shared by Sandbox play and Editor Play-in-editor: character attach for players and NPCs, character sound banks, play look and shoulder camera, motor input (planar slide along walls instead of stopping), physics ground height, terrain streaming, impact decals, weapon target queries, the player flashlight, crows, spawners, and facility hooks (doors, guards). `PlaySession` holds one `PlayRuntime` for look, offhand, combat timers, throw flights, and the quest. Both apps read it through `runtime()`, `quest()`, and `targets()`. There are no `SandboxApp` aliases for those fields. The possessed body steps through `stepPossessedBody` (`Play/PlayBody.cpp`). Listed spawner units go through `spawnListedUnit` (`Play/SpawnListed.cpp`). Muzzle, blood, and respawn feedback are `PlayFeedback`. Quest banner text and colours are `Play/QuestBanner.h`. Walk obstacles are `Scene/WalkObstacles.h`.
   - **Spawners**: placed level objects that spawn hunters, wolves, or crows (up to 16 slots). `Maintain` replaces dead units; `Waves` starts the next wave on a timer or when the current wave is dead. Spawned units are not saved; Stop Play removes them.
   - **Crows**: flock, perch in trees, forage on the ground, and flee from living hunters and the player with an alarm call. Dead crows fall to the ground.
 - **Physics**: Box3D wrapper (`third_party/box3d`, v0.1.0). Collision shapes are cooked from primitives, model `_col*` parts, or `*.collision.json` sidecars. Per-model `*.physics.json` settings. Surfaces load from `content/physics/surfaces.json`. Foliage trunks and rocks block the player. See `Physics/README.md` and `Collision/DESIGN-box3d.md`.
@@ -68,9 +68,9 @@ Runtime HLSL lives in `content/shaders/`. It shows up in the IDE but is compiled
 - **Water**: water planes, multiple finite lakes (`WaterBody`), swells, and streams (`WaterStream`: ribbon meshes along a path; the Editor can trace one downhill to the lake). Streams are visual only; you cannot swim in them. The player can swim in lakes, and going under the surface switches to the underwater view (see Render). `Water/DESIGN-water-bodies.md` has its own status line.
 - **Scene**: JSON scene files under `content/scenes/` (`level.json`, `level2d.json`, `parkour_test.json`, `stealth_test.json`) that hold entities, terrain, grass, atmosphere, water, spawners, movies, buildings (with doors, guards, props), and exposure settings. Entity templates live in `content/entities/*.entity.json` (`EntityMaster`).
 - **Save**: quick and manual saves through `SaveSystem` with atomic file writes. Saves go to `%LOCALAPPDATA%\DarkEngine6\Saves`. See `Save/DESIGN-save-load.md`.
-- **Audio**: XAudio2, WAV clips, sound emitters, PCM streaming (used by `MoviePlayer`).
+- **Audio**: XAudio2, WAV clips, sound emitters, PCM streaming (used by `MoviePlayer`). `SpeechSynth` turns a line into PCM on a worker thread. `cancel` drops a job that is still queued. A `Speak` already in progress finishes. `DialogueSpeech` cancels the previous id when the line changes, when a file clip is ready, and when the 4 second fallback gives up.
 - **Input**: keyboard, mouse, XInput gamepad, `ActionMap` bindings. Bindings load from JSON (see [Input files](#input-and-config-files)).
-- **Network**: UDP sockets, packets, reliability, replication, `NetworkSystem`, a fake transport for tests. The default game port is **26160** and UDP beacon discovery uses **26161**. `NetworkSystem` does not draw. Hosts attach `MeshComponent` (Editor also adds `EditorObjectComponent`) in `onNetSpawn` (see `Network/Replication.h`).
+- **Network**: UDP sockets, packets, reliability, replication, `NetworkSystem`, a fake transport for tests. The default game port is **26160** and UDP beacon discovery uses **26161**. `NetworkSystem` does not draw. Hosts attach `MeshComponent` (Editor also adds `EditorObjectComponent`) in `onNetSpawn` (see `Network/Replication.h`). `netRoleName` and `pawnPaletteColor` live once in `Network/NetTypes.h`. Sandbox and Sandbox2D call them. Each app still spawns its own pawns.
 - **Debug**: `DebugServer` / `DebugClient` over TCP (default port **26162**) and `PerfCounters` (per-slot frame timing plus a 240-frame history) for VisualDebugger.
 - **Editor**: scene editing on ECS, translate gizmo, asset browser (F10), drag-and-drop placement, terrain Generate and World Engine import, foliage density panel, water bodies and a **Water** window (add lakes, swells, streams), spawner placement, cloud layer settings, local-light authoring, physics inspector, animation / HSM / particle editors, audio preview panel, network host/join, and Play-in-editor (F12). Procedural grass and water draw in edit mode as well as in Play.
 - **UI**: Dear ImGui **v1.91.8-docking** (fetched at configure time) plus shared `Ui/` styles for Editor, VisualDebugger, and Sandbox Dev Tools. `Ui/MainMenu` is a non-ImGui scene picker compiled into `DarkEngine`.
@@ -261,7 +261,7 @@ Debug/ ECS/ Gameplay/ Input/ Math/ Media/ Network/ Particles/
 Physics/ Render/ Save/ Scene/ Sky/ Sprite/ Terrain/ Water/ Weapons/
 Play/             play code shared by Sandbox and Editor Play (attach, camera, motor, spawners, crows, facility, ...)
 Ui/               ImGui helpers (Editor / VisualDebugger / Sandbox) + MainMenu
-Sandbox/          3D sample
+Sandbox/          3D sample. See the shell split below.
 Sandbox2D/        2D sample
 Editor/           ImGui editor
 VisualDebugger/   remote perf / debug viewer
@@ -276,6 +276,21 @@ AGENTS.md         rules for humans and coding agents
 ```
 
 Design docs live next to the code they describe (for example `Render/DESIGN-*.md`, `Terrain/DESIGN-*.md`, `Water/DESIGN-water-bodies.md`, `Combat/DESIGN-status-effects.md`, `Save/DESIGN-save-load.md`).
+
+The Sandbox shell is split. `SandboxApp` owns the window, the input map, `onUpdate`, the play host, and net pawn glue. `onRender` calls `SandboxFrame::render()`. `SandboxBoot.cpp` defines scene boot (`prepareBoot`, `startScene`, the spawn batches). `onInit` stays in `SandboxApp.cpp`.
+
+| File | Owns |
+|------|------|
+| `Sandbox/SandboxDemo.*` | Origin cube, glTF samples, wiggle actor, skeleton lines, hybrid local lights, health packs placed at boot |
+| `Sandbox/SandboxFrame.*` | The 3D frame: projectile draws, debug overlays, the draw list, skinned instances, `SceneRenderer`, accepted-entity sets, rejected shots, the previous-world map |
+| `Sandbox/SandboxHud.*` | Dev HUD that used to live in `DevToolsPanel.cpp`, plus quest banners, defense text, the journal, the loot target, the upgrade panel, ImGui, and the main menu |
+| `Sandbox/SandboxSave.cpp` | Sandbox save host |
+| `Sandbox/PathChase.*` | Boot nav helper |
+| `Sandbox/SandboxInternal.h` | File-scope helpers shared by those translation units, and the shadow-callback user |
+
+`DevToolsPanel.cpp` is gone. Vision flags are `SandboxApp::SandboxVision`, filled into `PlayHost` from Sandbox only. The Editor frame is still `Editor/EditorRender3D.cpp`. The Editor hard-codes camouflage false.
+
+Dated plans and `DESIGN-*.md` files cite `Sandbox/SandboxApp.cpp` and `Sandbox/DevToolsPanel.cpp` with the line numbers of their own date. This README is the current map. The record of the split is [docs/plans/2026-11-10-review-followup.md](docs/plans/2026-11-10-review-followup.md).
 
 ## Conventions
 

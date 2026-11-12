@@ -1,5 +1,7 @@
 # DarkEngine6 — App-to-Engine/ECS Migration Recommendations
 
+Status as of 2026-11-11: the line numbers below are commit `e1b59cb`. They are not the current tree. Sandbox has since been split. `SandboxApp` schedules the shell, `SandboxDemo` owns demo content, `SandboxFrame` owns the 3D frame, and `SandboxHud` replaced `DevToolsPanel.cpp`. Play look and combat state live on `PlayRuntime`. The current map is the README layout section. The record of that split is [2026-11-10-review-followup.md](2026-11-10-review-followup.md). This catalogue is the old survey, not a list of remaining work.
+
 Surveyed at `main` = `e1b59cb` via GitHub API (no clone, nothing built). Line numbers refer to that commit.
 Files read in full or by range: `Sandbox/SandboxApp.h` (423 lines), `Sandbox/SandboxApp.cpp` (6,167), `Sandbox/PathChase.h/.cpp` (91/317), `Sandbox/DevToolsPanel.cpp` (1,805), `Sandbox/SandboxSave.cpp` (319), `Editor/EditorPlay.cpp` (1,459), `ECS/World.h`, `ECS/Components.h`, `Render/PassTable.h`, `cmake/DarkEngineTargets.cmake`.
 

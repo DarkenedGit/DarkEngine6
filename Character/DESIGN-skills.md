@@ -13,6 +13,8 @@
 
 Implementation PRs must not commit `DESIGN-*.md`. The last PR copies this body in-tree and marks Status **Accepted**. That matches `Combat/DESIGN-status-effects.md`.
 
+File citations below are the 2026-10-02 tree. Player look and offhand now live on `PlayRuntime` (`Play/PlaySession.h`). The Sandbox dev HUD is `Sandbox/SandboxHud.cpp`. `DevToolsPanel.cpp` is gone. `m_lookYaw` / `m_offhand` in the sections below mean `PlayRuntime::lookYaw` and `PlayRuntime::offhand`.
+
 Namespace is `Dark`. New code is C++23, MSVC, Allman braces, 4-space indent. No C++ exceptions. JSON uses `nlohmann::json::parse(text.begin(), text.end(), nullptr, false)`.
 
 ---

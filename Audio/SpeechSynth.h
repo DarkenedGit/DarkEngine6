@@ -37,6 +37,9 @@ namespace Dark::Audio
 
         // rate is -10..10, pitch is -10..10. Returns 0 when the worker is not running.
         uint64_t request(std::string text, int voice, int rate, int pitch);
+        // Drops a job that has not started Speak. A line already inside Speak still finishes.
+        // Returns true when a queued job was removed.
+        bool     cancel(uint64_t id);
         bool     poll(SpeechResult& out);
 
     private:

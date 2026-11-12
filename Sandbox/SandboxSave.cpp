@@ -100,7 +100,7 @@ bool SandboxApp::saveCanSave(void* user, Save::SaveResult& why)
         why = Save::SaveResult::UnsafeMoment;
         return false;
     }
-    if (app->m_menu.visible() || app->m_playerDeadTimer > 0.0f)
+    if (app->m_hud.m_menu.visible() || app->m_play.runtime().deadTimer > 0.0f)
     {
         why = Save::SaveResult::UnsafeMoment;
         return false;
@@ -141,18 +141,18 @@ void SandboxApp::saveBeginLoad(void* user, World&)
     if (app->m_session.valid())
         app->world().remove<QuestProgressComponent>(app->m_session);
     app->m_play.forgetFacilitySave(app->world(), app->m_session);
-    app->m_attackCharge.reset();
-    app->m_blockCharge.reset();
-    app->m_chargeWindup = {};
-    app->m_fireQuick = false;
-    app->m_fireCharged = false;
-    app->m_jumpAttackBuffer = 0.0f;
-    app->m_offhand.reset();
-    app->m_footstepAcc = 0.0f;
-    app->m_hurtSoundTimer = 0.0f;
-    app->m_prevWorldByEntity.clear();
+    app->m_play.runtime().attackCharge.reset();
+    app->m_play.runtime().blockCharge.reset();
+    app->m_play.runtime().chargeWindup = {};
+    app->m_play.runtime().fireQuick = false;
+    app->m_play.runtime().fireCharged = false;
+    app->m_play.runtime().jumpAttackBuffer = 0.0f;
+    app->m_play.runtime().offhand.reset();
+    app->m_play.runtime().footstepAcc = 0.0f;
+    app->m_play.runtime().hurtTimer = 0.0f;
+    app->m_frame.prevWorldByEntity().clear();
     app->world().each<AnimGraphComponent>([](Entity, AnimGraphComponent& ag) { ag.prevWorldValid = false; });
-    app->m_scene.discardTemporalHistory();
+    app->m_frame.scene().discardTemporalHistory();
 }
 
 void SandboxApp::saveEndLoad(void* user, World& world)
@@ -193,10 +193,10 @@ Entity SandboxApp::saveRespawn(void* user, World& world, std::string_view archet
         Entity e = world.createEntity();
         world.emplace<TagComponent>(e, "HealthPack");
         world.emplace<TransformComponent>(e, xf);
-        if (app->m_packModelId != NULL_ASSET)
+        if (app->m_demo.packModelId() != NULL_ASSET)
         {
             ModelComponent mc{};
-            mc.modelAssetID = app->m_packModelId;
+            mc.modelAssetID = app->m_demo.packModelId();
             mc.castShadow   = true;
             setModelComponent(world, app->pins(), app->assets(), e, mc);
         }
@@ -267,17 +267,17 @@ void SandboxApp::saveBeforeCapture(void* user, World& world)
     app->pullPhysicsVelocities();
     const Entity body = app->possessedBody();
     Save::BodyLookState look;
-    look.yaw          = app->m_lookYaw;
-    look.pitch        = app->m_lookPitch;
-    look.lightOn      = app->m_offhand.lightOn;
-    look.lowerBodyYaw = app->m_lowerBodyYaw;
+    look.yaw          = app->m_play.runtime().lookYaw;
+    look.pitch        = app->m_play.runtime().lookPitch;
+    look.lightOn      = app->m_play.runtime().offhand.lightOn;
+    look.lowerBodyYaw = app->m_play.runtime().lowerBodyYaw;
     Save::captureBodyLook(world, body, look);
     if (RunProgressComponent* run = body.valid() ? world.get<RunProgressComponent>(body) : nullptr)
     {
-        run->deadTimer = app->m_playerDeadTimer;
-        run->spawnAge  = app->m_spawnAge;
-        run->hasSpawn  = app->m_havePlayerSpawn;
-        run->spawn     = app->m_playerSpawn;
+        run->deadTimer = app->m_play.runtime().deadTimer;
+        run->spawnAge  = app->m_play.runtime().spawnAge;
+        run->hasSpawn  = app->m_play.runtime().haveSpawn;
+        run->spawn     = app->m_play.runtime().spawn;
     }
     if (WorldClockComponent* clock = Save::sessionClock(world, app->m_session))
     {
@@ -293,13 +293,13 @@ void SandboxApp::saveBeforeCapture(void* user, World& world)
         ai->packAttackGap = app->m_chase.ai().packAttackGap();
         ai->token         = app->m_chase.ai().jumpAttackToken();
     }
-    syncThrowableLoadout(world, body, app->m_throwFlights, ThrowableLoadoutSync::OntoRecord);
+    syncThrowableLoadout(world, body, app->m_play.runtime().throws, ThrowableLoadoutSync::OntoRecord);
     if (app->m_session.valid())
     {
         QuestProgressComponent* quest = world.get<QuestProgressComponent>(app->m_session);
         if (!quest)
             quest = &world.emplace<QuestProgressComponent>(app->m_session);
-        writeQuestProgress(app->m_quest, *quest);
+        writeQuestProgress(app->m_play.quest(), *quest);
     }
     app->m_play.captureFacilitySave(world, app->m_session);
 }
@@ -314,22 +314,22 @@ void SandboxApp::saveAfterApply(void* user, World& world)
     app->m_dialogue.runtime().setFacts(app->m_session.valid() ? world.get<DialogueFactsComponent>(app->m_session) : nullptr);
     const Entity body = app->possessedBody();
     Save::BodyLookState look;
-    look.yaw          = app->m_lookYaw;
-    look.pitch        = app->m_lookPitch;
-    look.lightOn      = app->m_offhand.lightOn;
-    look.lowerBodyYaw = app->m_lowerBodyYaw;
+    look.yaw          = app->m_play.runtime().lookYaw;
+    look.pitch        = app->m_play.runtime().lookPitch;
+    look.lightOn      = app->m_play.runtime().offhand.lightOn;
+    look.lowerBodyYaw = app->m_play.runtime().lowerBodyYaw;
     Save::restoreBodyLook(world, body, look);
-    app->m_lookYaw         = look.yaw;
-    app->m_lookPitch       = look.pitch;
-    app->m_offhand.lightOn = look.lightOn;
-    app->m_lowerBodyYaw    = look.lowerBodyYaw;
-    app->m_crouchLatch     = look.crouch;
+    app->m_play.runtime().lookYaw         = look.yaw;
+    app->m_play.runtime().lookPitch       = look.pitch;
+    app->m_play.runtime().offhand.lightOn = look.lightOn;
+    app->m_play.runtime().lowerBodyYaw    = look.lowerBodyYaw;
+    app->m_play.runtime().crouchLatch     = look.crouch;
     if (const RunProgressComponent* run = body.valid() ? world.get<RunProgressComponent>(body) : nullptr)
     {
-        app->m_playerDeadTimer = run->deadTimer;
-        app->m_spawnAge        = run->spawnAge;
-        app->m_havePlayerSpawn = run->hasSpawn;
-        app->m_playerSpawn     = run->spawn;
+        app->m_play.runtime().deadTimer = run->deadTimer;
+        app->m_play.runtime().spawnAge        = run->spawnAge;
+        app->m_play.runtime().haveSpawn = run->hasSpawn;
+        app->m_play.runtime().spawn     = run->spawn;
     }
     if (const WorldClockComponent* clock = Save::sessionClock(world, app->m_session))
     {
@@ -349,10 +349,10 @@ void SandboxApp::saveAfterApply(void* user, World& world)
     app->ensurePlayerStealth(body);
     if (const QuestProgressComponent* quest = app->m_session.valid() ? world.get<QuestProgressComponent>(app->m_session) : nullptr)
     {
-        if (!readQuestProgress(*quest, app->m_quest))
+        if (!readQuestProgress(*quest, app->m_play.quest()))
             DE_LOG_WARN("Quest: saved progress for '{}' was not restored", quest->id);
     }
-    syncThrowableLoadout(world, body, app->m_throwFlights, ThrowableLoadoutSync::FromRecord);
+    syncThrowableLoadout(world, body, app->m_play.runtime().throws, ThrowableLoadoutSync::FromRecord);
     app->m_play.applyFacilitySave(world, app->m_session, body);
     applyDisabledCircuits(world);
     syncCarriedAgents(world);

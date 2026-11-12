@@ -7,12 +7,14 @@
 | **Date** | 2026-10-06 |
 | **Status** | Approved. Not implemented. |
 | **Priority** | The valley lake in `F:\BadWater.PNG` reads as a diagonal lattice, and the bank is a hard color change. |
-| **Area** | `Water/WaterWaves.*`, `Water/Water.cpp`, `Water/WaterBody.*`, `content/shaders/Water.hlsl`, `Render/WaterPipeline.*`, `Scene/SceneFile.*`, `Scene/SceneTypes.h`, `Editor/EditorTerrain.cpp`, `Editor/EditorUi.cpp`, `Sandbox/SandboxApp.cpp`, `Sandbox/DevToolsPanel.cpp`, `UnitTests/Water/WaterTests.cpp` |
+| **Area** | `Water/WaterWaves.*`, `Water/Water.cpp`, `Water/WaterBody.*`, `content/shaders/Water.hlsl`, `Render/WaterPipeline.*`, `Scene/SceneFile.*`, `Scene/SceneTypes.h`, `Editor/EditorTerrain.cpp`, `Editor/EditorUi.cpp`, `Sandbox/SandboxFrame.cpp`, `Sandbox/SandboxHud.cpp`, `UnitTests/Water/WaterTests.cpp` |
 | **Audience** | Engine, Sandbox, and Editor owners who already know the forward water pass |
 | **Depends on** | Landed water Gerstner pass, coarse geomipmap height field, graphics-queue SSR (`Render/DESIGN-reflections.md`), `SkyEvalParams` tail inside the water CBV. Does not change those contracts. |
 | **Does not** | FFT or `cs_5_0`. A new G-buffer. Planar reflections. Caustics, underwater camera, boat wake, spray particles. Nav or swim using animated height. Cloud redesign. SSR redesign. |
 
 No C++ exceptions. `bool` plus `DE_LOG_ERROR` / `DE_LOG_WARN` with `LogCategory`. `DE_ASSERT` for programmer errors. HLSL float literals keep a digit before the decimal (`0.0f`). Reverse-Z stays `D32_FLOAT` / `GREATER_EQUAL`. Do not reformat unrelated code.
+
+As of 2026-11-11, `Sandbox/DevToolsPanel.cpp` is `Sandbox/SandboxHud.cpp`. The frame that calls `m_water.draw` is `Sandbox/SandboxFrame.cpp`. `SandboxApp::onRender` only calls `SandboxFrame::render()`. Later sections that still name `DevToolsPanel.cpp` mean `SandboxHud.cpp`. A `SandboxApp.cpp` water draw means `SandboxFrame.cpp`. Line numbers in this design are from 2026-10-06.
 
 ---
 
@@ -28,7 +30,7 @@ This design keeps one closed-form surface for lakes and streams. Displacement st
 
 ### What the screenshot is
 
-`F:\BadWater.PNG` is Sandbox, not the editor. The overlay string is `DevToolsPanel.cpp` ("PAUSED  fly cam  WASD move  Q/Space up  Z/Ctrl down  Shift sprint  mouse look  O step  P resume"). Sandbox builds `WaterWorld` from the scene water block (`SandboxApp.cpp`, water create next to the terrain upload). `content/scenes/level.json` sets `water.level` to 100.4 on Hurricane Ridge: 1025×1025 samples, world size 1024 m, cell 1 m (`WorldEngineMapTests`). The shoreline follows the valley because `WaterWorld::chunkIsWet` keeps a chunk when any stepped height sample is below `waterLevel + maxWaveAmplitude`. It is not a rectangle.
+`F:\BadWater.PNG` is Sandbox, not the editor. The overlay is `SandboxHud::drawPauseOverlay`. The PNG text is the October string ("PAUSED  fly cam  WASD move  Q/Space up  Z/Ctrl down  Shift sprint  mouse look  O step  P resume"). The current overlay says F3 resume. Sandbox builds `WaterWorld` from the scene water block (water create next to the terrain upload, now reached from `SandboxBoot.cpp` / `SandboxFrame.cpp`). `content/scenes/level.json` sets `water.level` to 100.4 on Hurricane Ridge: 1025×1025 samples, world size 1024 m, cell 1 m (`WorldEngineMapTests`). The shoreline follows the valley because `WaterWorld::chunkIsWet` keeps a chunk when any stepped height sample is below `waterLevel + maxWaveAmplitude`. It is not a rectangle.
 
 The editor does not draw that sheet. `EditorApp::rebuildEditorWater` default-constructs `WaterWorld` and never calls `create`. `drawPlacedWater` draws only `SceneObjectType::Water` rectangles (`WaterBody`). No scene JSON in the tree has `"type": "water"`. The editor Water inspector sizes those rectangles (width / depth / Y). The Water Waves window scales amplitude and speed "for every placed water body."
 
@@ -728,7 +730,7 @@ Editor play bakes walkability at `waterLevel = -1.0e9f`. This design does not tu
 
 ## Key Decisions
 
-- **The screenshot is the Sandbox valley sheet.** The HUD matches `DevToolsPanel.cpp`, and the lake follows `WaterWorld` wet chunks on Hurricane Ridge at level 100.4. Placed `WaterBody` rectangles are a second path and are not in that shot.
+- **The screenshot is the Sandbox valley sheet.** The HUD is `SandboxHud::drawPauseOverlay`, and the lake follows `WaterWorld` wet chunks on Hurricane Ridge at level 100.4. Placed `WaterBody` rectangles are a second path and are not in that shot.
 - **The grid is the wave set first and the mesh second.** Octaves plus `flowStrength * 0.65` lock the crests; the PS lights that normal, so glints form rows. LOD and the 64-cell cap limit the silhouette but do not create those rows.
 - **Four displacement Gerstners stay in `waves[4]`.** New incommensurate wavelengths, lake pull `* 0.25`. A pixel-only detail spectrum breaks glints on coarse LOD. The silhouette remains the long swell. FFT and frame compute are rejected.
 - **Legacy `level.json` waves are detected and replaced in memory.** Any other saved quartet is kept. Missing keys do not change `flowStrength`'s stored meaning. Detail defaults on, including for custom quartets.

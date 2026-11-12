@@ -1,81 +1,65 @@
 #pragma once
+#include <cstdint>
+#include <deque>
+#include <filesystem>
+#include <string>
 #include <vector>
-#include <wrl/client.h>
+
 #include "Core/Application.h"
-#include "ECS/FrameEntitySet.h"
-#include "Animation/AnimNotify.h"
 #include "Network/Replication.h"
-#include "Assets/Model.h"
-#include "Render/DrawList.h"
-#include "Render/SkinnedInstanceBuffer.h"
+#include "Assets/AssetHandle.h"
 #include "Render/Mesh.h"
-#include "Render/LinePipeline.h"
-#include "Render/ModelDraw.h"
 #include "Render/FoliagePipeline.h"
 #include "Render/GrassPipeline.h"
 #include "Render/FoliagePrototypes.h"
-#include "Render/SceneRenderer.h"
 #include "Render/EchoChirpFile.h"
 #include "Render/Camera3D.h"
+#include "Render/DeferredLightingPipeline.h"
+#include "Render/GtaoPipeline.h"
+#include "Render/AutoExposure.h"
+#include "Render/TonemapPipeline.h"
+#include "Render/CloudVolumePipeline.h"
+#include "Render/HealthHud.h"
+#include "Render/CrosshairHud.h"
 #include "Sky/Environment.h"
 #include "Gameplay/Inventory.h"
-#include "Gameplay/QuestRuntime.h"
-#include "Gameplay/Upgrades.h"
+#include "Gameplay/Quest.h"
 #include "Scene/Building.h"
+#include "Scene/SceneTypes.h"
 #include "Physics/PhysicsWorld.h"
 #include "Physics/FoliageCollision.h"
 #include "Terrain/GrassField.h"
 #include "Terrain/WindField.h"
 #include "Terrain/TerrainGrid.h"
 #include "Terrain/TerrainMaterial.h"
+#include "Terrain/TerrainGround.h"
+#include "Terrain/LeafField.h"
+#include "Terrain/LeafRustle.h"
 #include "Water/Water.h"
 #include "Character/HealthComponent.h"
 #include "Character/PlayerMotorComponent.h"
-#include "Animation/Locomotion.h"
 #include "Character/PlayerStealth.h"
-#include "Scene/SceneTypes.h"
-#include "Render/HealthHud.h"
-#include "Render/CrosshairHud.h"
 #include "Particles/ParticleEmitter.h"
 #include "Particles/ParticleRenderer.h"
 #include "Particles/GpuParticleSystem.h"
 #include "Particles/LeafRenderer.h"
-#include "Terrain/LeafField.h"
-#include "Terrain/LeafRustle.h"
 #include "Particles/BloodSplatPool.h"
-#include "Combat/HoldCharge.h"
-#include "Combat/Shield.h"
+#include "Weapons/Weapon.h"
 #include "Weapons/WeaponLoadoutComponent.h"
-#include "Gameplay/HealthPack.h"
 #include "PathChase.h"
-#include "Terrain/TerrainGround.h"
-#include "Play/Carry.h"
-#include "Play/DialogueBinding.h"
+#include "SandboxDemo.h"
+#include "SandboxFrame.h"
+#include "SandboxHud.h"
 #include "Media/MoviePlayer.h"
 #include "Play/DialogueController.h"
-#include "Play/DialogueFacts.h"
-#include "Play/DialogueMemory.h"
 #include "Play/GuardVoice.h"
 #include "Play/ImpactFx.h"
 #include "Play/PlayFeedback.h"
 #include "Play/PlaySession.h"
-#include "Play/QuestBanner.h"
 #include "Play/Spawner.h"
 #include "Play/Crow.h"
-#include "Play/WeaponTargets.h"
-#include "Ui/HudTagComponent.h"
 #include "Ui/NpcInfoOverlay.h"
-#include "Weapons/HittableComponent.h"
-#include "Weapons/ThrowableFlight.h"
-#include "Ui/ImGuiHost.h"
-#include "Ui/MainMenu.h"
 #include "Save/SaveSystem.h"
-
-#include <cstdint>
-#include <deque>
-#include <filesystem>
-#include <unordered_map>
-#include <vector>
 
 namespace Dark::Combat
 {
@@ -129,37 +113,20 @@ private:
     void handleRuntimeCommands(float dt);
     void handleNetHotkeys();
     void applyNetRole();
-    void drawDevTools();
-    void drawProfiler();
-    void drawInventory();
-    void drawArmorHud();
-    void drawPickupLabels();
     bool uiOpen() const
     {
-        return m_showDevTools || m_showInventory || m_showProfiler || m_showJournal || m_showUpgrades || m_lootTarget.valid()
+        return m_showDevTools || m_showInventory || m_showProfiler || m_hud.m_showJournal || m_hud.m_showUpgrades || m_hud.m_lootTarget.valid()
             || m_dialogue.choiceOpen() || m_dialogue.locksWorld();
     }
-    void drawLoot();
     int  giveItem(Dark::InventoryComponent& inv, const Dark::ItemStack& item);
     void stockHunter(Dark::Entity hunter);
     void tickLeaves(float dt);
     Dark::Entity spawnSpawnerUnit(Dark::Entity spawner, const Dark::SpawnerRequest& req);
-    void drawDefenseText();
-    void drawTargetMarker();
-    void drawGuardAwareness();
-    void drawGuardSpeech();
-    void drawDialogue();
-    void drawStaminaBar();
     void startQuest(const std::string& id);
     void updateQuest(float dt);
-    void drawQuestHud();
-    void drawJournal();
     bool questTarget(Dark::Math::Vector3f& out);
-    void drawBreathBar();
     bool ownsWeapon(Dark::WeaponKind kind);
     void dropInventoryItem(int bagIndex);
-    void drawPauseOverlay();
-    void drawNpcInfoOverlay();
     bool camouflageHides(Dark::Entity e);
     static bool skipShadowModel(void* user, Dark::Entity e);
     static void drawPrimitiveShadowCasters(void* user, ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& lightViewProj, const Dark::Frustum3f& frustum, bool recordThisView);
@@ -173,14 +140,9 @@ private:
     void syncPlayerMode();
     Dark::WeaponWorldQuery makeWeaponQuery();
     static void onWeaponHitThunk(void* user, const Dark::WeaponHit& hit);
-    void drawProjectiles(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, Dark::MeshFrameConstants& cb, bool instanced = false, const std::vector<int>* rejectedShots = nullptr);
-    void drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, const Dark::Math::Matrix4f& prevViewProj, bool instanced = false, const std::vector<int>* rejectedShots = nullptr);
-    bool createSandboxModels(int step);
-    void spawnGltfDemo(int step);
-    void spawnAnimatedDemo();
-    void updateWiggleAnim();
-    static void onWiggleNotify(void* user, const Dark::AnimNotify& n);
-    void spawnHybridLocalLights();
+    friend class SandboxDemo;
+    friend class SandboxFrame;
+    friend class SandboxHud;
     void bindPlayFeedback();
     Dark::ImpactFxHost impactHost();
     bool deferredDecals();
@@ -190,8 +152,7 @@ private:
     void spawnWeaponImpact(const Dark::WeaponHit& hit);
     void spawnLivingBloodDecal(Dark::Entity victim, const Dark::Math::Vector3f& point, const Dark::Math::Vector3f& normal);
     void spawnDeathBloodDecal(const Dark::Math::Vector3f& point, const Dark::Math::Vector3f& normal);
-    void placeHealthPacks();
-    void dropDeadPrevWorlds();
+
     void installSaveHost();
     void ensureSessionEntity();
     void ensurePlayerProgress(Dark::Entity e);
@@ -227,9 +188,7 @@ private:
     void bindEntityPhysics(Dark::Entity e, const char* entityType);
     void bindCharacterPhysics();
     float playerGroundHeight(float x, float z) const;
-    void drawDebugOverlays(ID3D12GraphicsCommandList* cmd);
-    void drawSkeletonOverlay(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj);
-    bool createSkeletonLineBuffers();
+
 
     static void fillPlayHost(void* user, Dark::PlayHost& host);
     static void fillDialogueHost(void* user, Dark::DialogueHost& host);
@@ -250,28 +209,11 @@ private:
     static void onNetPeer(const Dark::NetPeerInfo& info, Dark::NetPeerEvent event, void* user);
 
     Dark::Entity m_camera;
-    Dark::Entity m_cube;
-    Dark::Entity m_wiggle;
 
-    Dark::Mesh    m_cubeMesh;
-    Dark::DrawList m_drawList;
-    Dark::SkinnedInstanceBuffer m_skinnedInstances;
-    Dark::SceneRenderer     m_scene;
-    Dark::LinePipeline        m_skelLinePipeline;
-    Microsoft::WRL::ComPtr<ID3D12Resource> m_skelLineVb[2];
-    Microsoft::WRL::ComPtr<ID3D12Resource> m_skelLineIb[2];
-    D3D12_VERTEX_BUFFER_VIEW  m_skelLineVbv[2]{};
-    D3D12_INDEX_BUFFER_VIEW   m_skelLineIbv[2]{};
+    SandboxDemo  m_demo;
+    SandboxFrame m_frame;
     Dark::Entity                        m_shield;
     Dark::PlaySession                   m_play;
-    Dark::Combat::OffhandState&         m_offhand;
-    Dark::Combat::PlayerChargeSettings& m_chargeSettings;
-    Dark::Combat::HoldCharge&           m_attackCharge;
-    Dark::Combat::HoldCharge&           m_blockCharge;
-    Dark::ChargeWindup&                 m_chargeWindup;
-    bool&                               m_fireQuick;
-    bool&                               m_fireCharged;
-    Dark::ThrowableFlights&             m_throwFlights;
     Dark::Entity                        m_muzzle;
     float                               m_muzzleTimer = 0.0f;
     Dark::PlayFeedback                  m_playFeedback{};
@@ -279,36 +221,21 @@ private:
     bool                            m_sceneStarted = false;
     std::filesystem::path           m_loadedScenePath;
     Dark::StealthSceneDesc          m_sceneStealth{};
-    Dark::QuestRuntime&             m_quest;
     Dark::GuardVoice                m_guardVoice;
     Dark::DialogueController        m_dialogue;
     Dark::MoviePlayer               m_movie;
     bool                            m_movieWasBlocking = false;
     std::string                     m_sceneQuest;
-    std::vector<Dark::QuestBanner>  m_questBanners;
-    bool                            m_showJournal = false;
     void         expandSceneBuildings(Dark::SceneFileData& scene);
     // False when the boot budget is spent and fixtures remain.
     bool         spawnBuildingExtras(Dark::BuildingFixtureSpawn& spawn);
-    void         drawAlarm();
-    void         drawUpgrades();
-    void         drawUpgradeHint();
     std::vector<Dark::BuildingContainer> m_buildingContainers;
     std::vector<Dark::BuildingHideSpot>  m_buildingHides;
     std::vector<Dark::BuildingDoor>      m_buildingDoors;
     std::vector<Dark::BuildingCamera>    m_buildingCameras;
     std::deque<std::string>              m_buildingLabels;
-    bool                                 m_showUpgrades = false;
     float                           m_goalShown    = 0.0f;
-    const char*                     m_defenseText  = "";
-    float                           m_defenseTextLeft = 0.0f;
-    bool                            m_defenseParry = false;
     Dark::Camera3D          m_viewCamera;
-    std::unordered_map<Dark::EntityID, Dark::Math::Matrix4f> m_prevWorldByEntity;
-    Dark::FrameEntitySet m_acceptedMesh;
-    Dark::FrameEntitySet m_acceptedModel;
-    Dark::FrameEntitySet m_acceptedSkinned;
-    std::vector<int>     m_rejectedShots;
     Dark::Sky::Environment  m_env;
     Dark::IblSettings       m_ibl;
     Dark::GtaoSettings      m_ssao;
@@ -323,7 +250,6 @@ private:
     Dark::PathChase                m_chase;
     bool                           m_chaseOk = false;
     Dark::CrowModels               m_crowModels{};
-    Dark::WeaponTargetList& m_weaponTargets;
 
     Dark::Terrain::TerrainGrid m_terrain;
     Dark::FoliagePrototypes                   m_foliagePrototypes;
@@ -345,7 +271,6 @@ private:
     Dark::Physics::PhysicsWorld  m_physics;
     Dark::Physics::PhysicsBodyId m_physicsGround = Dark::Physics::kNullPhysicsBody;
     Dark::Physics::FoliageCollisionSet m_foliageCollision;
-    float&                       m_groundProbeY;
     Dark::Physics::PhysicsBodyId m_groundIgnore  = Dark::Physics::kNullPhysicsBody;
 
     Dark::Terrain::TerrainGround m_ground;
@@ -365,10 +290,6 @@ private:
     };
     std::vector<SandboxStream> m_streams;
 
-    Dark::AssetID m_cubeModelId    = Dark::NULL_ASSET;
-    Dark::AssetID m_packModelId    = Dark::NULL_ASSET;
-    Dark::AssetID m_lanternModelId = Dark::NULL_ASSET;
-    Dark::AssetID m_tracerModelId  = Dark::NULL_ASSET;
     Dark::NetRole m_netRole        = Dark::NetRole::Idle;
     uint32_t      m_browseLogCount = ~0u;
     bool          m_netBrowsing    = false;
@@ -387,38 +308,29 @@ private:
     bool          m_showDevTools   = false;
     bool          m_showInventory  = false;
     bool          m_showProfiler   = false;
-    Dark::Entity  m_lootTarget{};
     Dark::NpcInfoOverlaySettings m_npcInfo{};
-    bool          m_camouflage     = false;
-    bool          m_nightSightOn   = false;
-    float         m_nightSight     = 0.0f;
-    bool          m_infraredOn     = false;
-    float         m_infrared       = 0.0f;
-    bool          m_ultravioletOn  = false;
-    float         m_ultraviolet    = 0.0f;
-    bool          m_echoOn         = false;
-    float         m_echo           = 0.0f;
-    float         m_echoChirpAge   = 0.0f;
-    bool          m_echoCapture    = false;
-    bool          m_echoHaveChirp  = false;
-    Dark::Math::Matrix4f m_echoChirpViewProj{};
-    Dark::Math::Vector3f m_echoChirpPos{ 0.0f, 0.0f, 0.0f };
-    Dark::EchoChirpSettings m_echoChirp{};
-    ImGuiHost     m_imgui;
-    Dark::MainMenu m_menu;
+    struct SandboxVision
+    {
+        bool                    camouflage    = false;
+        bool                    nightSightOn  = false;
+        float                   nightSight    = 0.0f;
+        bool                    infraredOn    = false;
+        float                   infrared      = 0.0f;
+        bool                    ultravioletOn = false;
+        float                   ultraviolet   = 0.0f;
+        bool                    echoOn        = false;
+        float                   echo          = 0.0f;
+        float                   echoChirpAge  = 0.0f;
+        bool                    echoCapture   = false;
+        bool                    echoHaveChirp = false;
+        Dark::Math::Matrix4f    echoChirpViewProj{};
+        Dark::Math::Vector3f    echoChirpPos{ 0.0f, 0.0f, 0.0f };
+        Dark::EchoChirpSettings echoChirp{};
+    };
+    SandboxVision m_vision;
+    SandboxHud    m_hud;
     char          m_joinHost[64]   = "127.0.0.1";
-    float&        m_lookYaw;
-    float&        m_lookPitch;
-    float&        m_lowerBodyYaw;
-    float&        m_underAmount;
-    float&        m_footstepAcc;
     Dark::HealthHud                  m_healthHud;
-    Dark::Math::Vector3f&            m_playerSpawn;
-    bool&                            m_havePlayerSpawn;
-    float&                           m_playerDeadTimer;
-    float&                           m_spawnAge;
-    float&                           m_hurtSoundTimer;
-    float&                           m_jumpAttackBuffer;
     Dark::CrosshairHud               m_crosshair;
     Dark::ParticleEmitter            m_blood;
     Dark::ParticleRenderer           m_particles;
@@ -429,7 +341,6 @@ private:
 
     Dark::Save::SaveSystem m_save;
     Dark::Entity           m_session{};
-    bool&                  m_crouchLatch;
 
     struct SandboxBootLoad;
     // Raw pointer: the type is complete only in SandboxBoot.cpp, and the constructor lives here.

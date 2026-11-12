@@ -142,6 +142,21 @@ namespace Dark::Audio
         return id;
     }
 
+    bool SpeechSynth::cancel(uint64_t id)
+    {
+        if (id == 0)
+            return false;
+        std::lock_guard<std::mutex> lock(m_mutex);
+        for (auto it = m_jobs.begin(); it != m_jobs.end(); ++it)
+        {
+            if (it->id != id)
+                continue;
+            m_jobs.erase(it);
+            return true;
+        }
+        return false;
+    }
+
     bool SpeechSynth::poll(SpeechResult& out)
     {
         std::lock_guard<std::mutex> lock(m_mutex);

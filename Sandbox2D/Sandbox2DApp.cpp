@@ -61,32 +61,6 @@ AABox2f playerBounds(const Vector2f& pos, const Vector2f& half)
     return AABox2f::FromCenterExtents(pos, half);
 }
 
-const char* netRoleName(NetRole role)
-{
-    switch (role)
-    {
-    case NetRole::Idle:
-        return "Idle";
-    case NetRole::Joining:
-        return "Joining";
-    case NetRole::Host:
-        return "Host";
-    case NetRole::Client:
-        return "Client";
-    default:
-        return "?";
-    }
-}
-
-uint32_t pawnPaletteColor(ClientId id)
-{
-    static constexpr uint32_t kPalette[8] = {
-        0x3DA6F2FFu, 0xE85D4CFFu, 0x5BD96CFFu, 0xF2C14EFFu, 0xC86BFFFFu, 0xF28C3CFFu, 0x4CD4E8FFu, 0xE8E8E8FFu,
-    };
-    const unsigned i = static_cast<unsigned>(id);
-    return kPalette[i < 8u ? i : 0u];
-}
-
 void unpackRgba8(uint32_t rgba, float out[4])
 {
     out[0] = static_cast<float>((rgba >> 24) & 0xFFu) / 255.0f;

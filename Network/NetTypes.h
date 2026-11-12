@@ -34,6 +34,27 @@ namespace Dark
         Client
     };
 
+    inline const char* netRoleName(NetRole role)
+    {
+        switch (role)
+        {
+        case NetRole::Idle:    return "Idle";
+        case NetRole::Joining: return "Joining";
+        case NetRole::Host:    return "Host";
+        case NetRole::Client:  return "Client";
+        default:               return "?";
+        }
+    }
+
+    inline uint32_t pawnPaletteColor(ClientId id)
+    {
+        static constexpr uint32_t kPalette[8] = {
+            0x3DA6F2FFu, 0xE85D4CFFu, 0x5BD96CFFu, 0xF2C14EFFu, 0xC86BFFFFu, 0xF28C3CFFu, 0x4CD4E8FFu, 0xE8E8E8FFu,
+        };
+        const unsigned i = static_cast<unsigned>(id);
+        return kPalette[i < 8u ? i : 0u];
+    }
+
     enum class ConnectRejectReason : uint8_t
     {
         Version = 1,

@@ -46,8 +46,8 @@ Adding `Coin` progress later is a `kPersist` on `CoinComponent` and a `.cpp` nex
 | Sandbox pawns and props are created in code (`SandboxApp::onInit`, `PathChase`), not from `level.json` | Those spawn sites stamp a persistent id, the same way they already `emplace` a transform. |
 | `Brain`, `WeaponLoadout`, and `HsmGraphInstance` sit behind `unique_ptr` and are not copied (`AI/AiComponents.h`, `Weapons/WeaponLoadoutComponent.h`) | Capture reads fields into JSON. Load calls a restore method on the live object. The pool is never memcpy'd. |
 | `LiveProjectile` lives in `ProjectileWeapon::m_shots` inside the loadout | The weapon component writes the shots. They are not entities and need no id. |
-| Look, offhand, cloud time, and the AI clock are still app or system members (`SandboxApp::m_lookYaw`, `m_lowerBodyYaw`, `m_offhand`, `m_cloudTime`; `EditorApp` has the same shape; `AiSystem::m_time`, `m_packAttackGap`, `m_jumpAttackToken`) | The walker cannot see them. Progress that should survive moves onto a component the walker already finds. See *State that is not a component*. |
-| `AnimPlayer::m_lowerBodyYaw` is private on the graph instance | `AnimGraph` save/load reads and writes it. The app member is a cache of that value, not a second source of truth. |
+| Look, offhand, and the spawn clock live on `PlayRuntime` (`PlaySession::runtime()`: `lookYaw`, `lookPitch`, `lowerBodyYaw`, `offhand`, `spawn`, `deadTimer`, `spawnAge`). Sandbox and Editor both use that struct. Cloud time is still `SandboxApp::m_cloudTime` and `EditorApp::m_cloudTime`. The AI clock is still `AiSystem::m_time`, `m_packAttackGap`, `m_jumpAttackToken`. None of these are components | The walker cannot see them. Progress that should survive moves onto a component the walker already finds. See *State that is not a component*. |
+| `AnimPlayer::m_lowerBodyYaw` is private on the graph instance | `AnimGraph` save/load reads and writes it. `PlayRuntime::lowerBodyYaw` is a cache of that value, not a second source of truth. |
 | `tickAnimGraphs` skips `dt == 0` | After overlay, the host evaluates the pose once without advancing time. |
 | `forEachPool` and `destroyEntity` already walk every pool | Save uses the same walk. Destroyed baseline entities are removed with the normal `destroyEntity` path (and `unregisterEntity` when `NetworkedComponent` is present). |
 | nlohmann `get<T>()` throws `type_error` unless `JSON_NOEXCEPTION` is set. The build does not set it. `SceneFile` still calls `get<float>()` in places. | `Save/` and every `loadProgress` go through `SaveReader`, which checks the type first. No exceptions (`AGENTS.md`). |
@@ -260,11 +260,11 @@ The walk sees pools only. These values are real progress or real clocks, and the
 | Today | New home |
 |---|---|
 | `AiSystem::m_time`, `m_packAttackGap`, `m_jumpAttackToken` | `AiClockComponent` on the session entity. `AiSystem` reads and writes that component. Wolf notice salt uses the persistent id's low bits instead of `EntityID`, which changes across a load when slots are recycled |
-| `SandboxApp` / `EditorApp` look yaw, look pitch | Fields on the player entity (a small `LookComponent`, or the motor if that stays the owner). The app reads them to aim the camera |
-| `m_lowerBodyYaw` | Already on `AnimPlayer`. `AnimGraph`'s opt-in writes it. The app member copies it out for the camera, it is not saved separately |
-| `m_cloudTime`, sky time-of-day, water time | One `WorldClockComponent` on the session entity, written by the same tick that advances those clocks today |
-| `m_offhand.lightOn` | A field on the player entity the offhand code already owns |
-| `m_playerSpawn`, dead timer, spawn age | The player entity or the session entity, whichever already owns that lifecycle |
+| `PlayRuntime::lookYaw`, `lookPitch` on each app's `PlaySession` | Fields on the player entity (a small `LookComponent`, or the motor if that stays the owner). The app reads them to aim the camera |
+| `PlayRuntime::lowerBodyYaw` | Already on `AnimPlayer`. `AnimGraph`'s opt-in writes it. The runtime field copies it out for the camera, it is not saved separately |
+| `SandboxApp::m_cloudTime` / `EditorApp::m_cloudTime`, sky time-of-day, water time | One `WorldClockComponent` on the session entity, written by the same tick that advances those clocks today |
+| `PlayRuntime::offhand.lightOn` | A field on the player entity the offhand code already owns |
+| `PlayRuntime::spawn`, `deadTimer`, `spawnAge` | The player entity or the session entity, whichever already owns that lifecycle |
 
 Reset on load, and not stored, because they are input edges or one-shots: attack and block charge, charge windup, fire latches, jump-attack buffer, shield-held phase, footstep accumulator, hurt-sound timer, `PlayerMotor` jump buffer.
 

@@ -16,7 +16,9 @@ When the same function, tick, query, load path, or rule shows up in `Sandbox/` a
 | Window, input bindings, and that app's presented frame | The app |
 | ImGui panels and HUD drawing | The exes. DarkEngine and UnitTests do not link Dear ImGui. A shared HUD is a header included only by the exes, as `Play/DialogueHud.h` is. The state it shows stays in the engine |
 | Authoring: gizmos, inspectors, asset browsers, graph editors, file dialogs | `Editor/` |
-| Sandbox demo content: the demo cube, the glTF demo, health packs placed at Sandbox boot | `Sandbox/` |
+| Sandbox demo content: the demo cube, the glTF demo, health packs placed at Sandbox boot | `Sandbox/SandboxDemo` |
+
+Sandbox's shell is split. `SandboxApp` schedules the host. `SandboxDemo` owns demo content. `SandboxFrame` owns the 3D frame, and `SandboxApp::onRender` calls `render()`. `SandboxHud` owns the dev HUD. `DevToolsPanel.cpp` is gone. The README layout section is the file map.
 
 Each app still submits its own render frame. Shared simulation is an input to that frame. Do not write a second simulation so the frames can differ.
 
@@ -104,6 +106,14 @@ If you touch a function that currently `throw`s, convert it to return-based erro
 
 Search your diff for: `\btry\b`, `\bcatch\b`, `\bthrow\b`, `std::runtime_error`, `std::exception`.  
 If any appear under engine, Sandbox, or Editor paths, remove them.
+
+## Includes follow the types
+
+When a refactor moves or deletes a member, a method, or a nested type, check that class header's `#include`s in the same change. Remove an include when the header no longer names a type from it: no base, member, parameter, or return type.
+
+A by-value member needs the complete type. A pointer or reference needs the type declared. Keep the header that defines the type the class still names. An umbrella header that only used to supply a moved type goes too.
+
+A `.cpp` that was compiling because the class header included that file gets its own `#include`. Rebuild the target that includes the header.
 
 ## Other standing conventions
 

@@ -1,4 +1,5 @@
 #include "SandboxApp.h"
+#include "SandboxInternal.h"
 
 #include "Assets/Image.h"
 #include "Assets/Material.h"
@@ -13,10 +14,12 @@
 #include "Math/MathHelper.h"
 #include "Media/MovieCue.h"
 #include "Play/AttachedLights.h"
+#include "Play/Carry.h"
 #include "Play/CharacterAttach.h"
 #include "Play/HunterTick.h"
 #include "Play/Interaction.h"
 #include "Render/AutoExposure.h"
+#include "Render/GpuResourceCache.h"
 #include "Render/GpuUpload.h"
 #include "Render/MeshGen.h"
 #include "Save/PersistentId.h"
@@ -43,11 +46,6 @@ using namespace Dark;
 using namespace Math;
 using namespace Terrain;
 using namespace Audio;
-
-bool tryCreateTerrainFromContent(Renderer& renderer, AssetManager& assets, const SplatMap& splat, TerrainMaterial& material);
-MeshData makeGrassPatch(float sizeX, float sizeZ, uint32_t seed);
-void attachCameraSounds(World& world, AssetPinTable& pins, AssetManager& assets, Audio::AudioSystem& audio, Entity camera);
-void attachSandboxCubeModel(World& world, AssetPinTable& pins, AssetManager& assets, Entity e, AssetID modelId);
 
 namespace
 {
@@ -793,7 +791,7 @@ bool SandboxApp::advanceBootSlice()
         if (m_terrain.heightTexture().valid())
         {
             renderer().setHeightSrv(m_terrain.heightTexture().cpuHandle());
-            m_scene.waterPipeline().setHeightSrv(renderer().device(), m_terrain.heightTexture().cpuHandle());
+            m_frame.scene().waterPipeline().setHeightSrv(renderer().device(), m_terrain.heightTexture().cpuHandle());
         }
         m_bootSlice = BootSlice::WaterCpu;
         return true;
@@ -868,8 +866,8 @@ bool SandboxApp::advanceBootSlice()
         {
             MeshData cubeData;
             CreateCube(cubeData, 1.0f);
-            m_cubeMesh = Mesh::Create(renderer(), cubeData);
-            if (!m_cubeMesh.valid())
+            m_demo.cubeMesh() = Mesh::Create(renderer(), cubeData);
+            if (!m_demo.cubeMesh().valid())
             {
                 DE_LOG_FATAL("SandboxApp: cube mesh upload failed");
                 requestQuit();
@@ -892,7 +890,7 @@ bool SandboxApp::advanceBootSlice()
     {
         if (boot.modelStep < 4)
         {
-            if (!createSandboxModels(boot.modelStep))
+            if (!m_demo.createSandboxModels(boot.modelStep))
             {
                 DE_LOG_FATAL("SandboxApp: procedural models failed");
                 requestQuit();
@@ -904,13 +902,13 @@ bool SandboxApp::advanceBootSlice()
         if (!boot.demoChecked)
         {
             boot.demoChecked = true;
-            renderer().gpuResources().setShadowSrv(m_scene.shadows().srvCpu());
-            renderer().setShadowSrv(m_scene.shadows().srvCpu());
-            m_scene.skyPipeline().setShadowSrv(renderer().device(), m_scene.shadows().srvCpu());
-            m_scene.waterPipeline().setShadowSrv(renderer().device(), m_scene.shadows().srvCpu());
-            m_scene.localShadows().setDepthPipeline(&m_scene.shadows().pipeline());
+            renderer().gpuResources().setShadowSrv(m_frame.scene().shadows().srvCpu());
+            renderer().setShadowSrv(m_frame.scene().shadows().srvCpu());
+            m_frame.scene().skyPipeline().setShadowSrv(renderer().device(), m_frame.scene().shadows().srvCpu());
+            m_frame.scene().waterPipeline().setShadowSrv(renderer().device(), m_frame.scene().shadows().srvCpu());
+            m_frame.scene().localShadows().setDepthPipeline(&m_frame.scene().shadows().pipeline());
             {
-                const LocalShadowSystem::CpuSrvs localSrvs = m_scene.localShadows().cpuSrvs();
+                const LocalShadowSystem::CpuSrvs localSrvs = m_frame.scene().localShadows().cpuSrvs();
                 renderer().setLocalShadowSrvs(localSrvs.arraySrv, localSrvs.recordsSrv);
             }
             m_demoScene = boot.scenePath.filename() == "level.json";
@@ -921,7 +919,7 @@ bool SandboxApp::advanceBootSlice()
             return true;
         }
         const int gltfStep = boot.modelStep - 4;
-        spawnGltfDemo(gltfStep);
+        m_demo.spawnGltfDemo(gltfStep);
         ++boot.modelStep;
         if (boot.modelStep >= 7)
             m_bootSlice = BootSlice::SpawnBatch;
@@ -1011,13 +1009,13 @@ bool SandboxApp::advanceSpawnBatch()
             return true;
         }
         case SandboxBootLoad::SpawnPhase::Shadow:
-            renderer().gpuResources().setShadowSrv(m_scene.shadows().srvCpu());
-            renderer().setShadowSrv(m_scene.shadows().srvCpu());
-            m_scene.skyPipeline().setShadowSrv(renderer().device(), m_scene.shadows().srvCpu());
-            m_scene.waterPipeline().setShadowSrv(renderer().device(), m_scene.shadows().srvCpu());
-            m_scene.localShadows().setDepthPipeline(&m_scene.shadows().pipeline());
+            renderer().gpuResources().setShadowSrv(m_frame.scene().shadows().srvCpu());
+            renderer().setShadowSrv(m_frame.scene().shadows().srvCpu());
+            m_frame.scene().skyPipeline().setShadowSrv(renderer().device(), m_frame.scene().shadows().srvCpu());
+            m_frame.scene().waterPipeline().setShadowSrv(renderer().device(), m_frame.scene().shadows().srvCpu());
+            m_frame.scene().localShadows().setDepthPipeline(&m_frame.scene().shadows().pipeline());
             {
-                const LocalShadowSystem::CpuSrvs localSrvs = m_scene.localShadows().cpuSrvs();
+                const LocalShadowSystem::CpuSrvs localSrvs = m_frame.scene().localShadows().cpuSrvs();
                 renderer().setLocalShadowSrvs(localSrvs.arraySrv, localSrvs.recordsSrv);
             }
             boot.phase = SandboxBootLoad::SpawnPhase::Camera;
@@ -1040,29 +1038,29 @@ bool SandboxApp::advanceSpawnBatch()
         {
             const float aspect = (renderer().height() > 0) ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height()) : 1.0f;
             const float groundY = m_terrain.heightAtWorld(0.0f, 0.0f) + 0.5f;
-            m_cube = world().createEntity();
-            world().emplace<TagComponent>(m_cube, "Cube");
-            world().emplace<TransformComponent>(m_cube, Vector3f{ 0.0f, groundY, 0.0f }, Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
-            attachSandboxCubeModel(world(), pins(), assets(), m_cube, m_cubeModelId);
+            m_demo.cube() = world().createEntity();
+            world().emplace<TagComponent>(m_demo.cube(), "Cube");
+            world().emplace<TransformComponent>(m_demo.cube(), Vector3f{ 0.0f, groundY, 0.0f }, Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
+            attachSandboxCubeModel(world(), pins(), assets(), m_demo.cube(), m_demo.cubeModelId());
             network().setWantsPawn(true);
             network().setSceneMode(0);
             network().setPlayerName("Sandbox");
             network().setSpawnCallback(&SandboxApp::onNetSpawn, this);
             network().setDespawnCallback(&SandboxApp::onNetDespawn, this);
             network().setPeerCallback(&SandboxApp::onNetPeer, this);
-            if (!network().registerEntity(world(), m_cube, NetPrefab::Cube))
+            if (!network().registerEntity(world(), m_demo.cube(), NetPrefab::Cube))
             {
-                onEntityRemoved(world(), m_cube, &pins());
-                world().destroyEntity(m_cube);
-                m_cube = {};
+                onEntityRemoved(world(), m_demo.cube(), &pins());
+                world().destroyEntity(m_demo.cube());
+                m_demo.cube() = {};
                 DE_LOG_ERROR(LogCategory::Networking, "Sandbox: failed to register init cube");
             }
             DE_LOG_INFO(
                 "SandboxApp: cube mesh {} verts / {} indices, aspect {:.3f}, cube model id={}, terrain {}x{} tiles",
-                m_cubeMesh.vertexCount(),
-                m_cubeMesh.indexCount(),
+                m_demo.cubeMesh().vertexCount(),
+                m_demo.cubeMesh().indexCount(),
                 aspect,
-                m_cubeModelId,
+                m_demo.cubeModelId(),
                 m_terrain.tilesX(),
                 m_terrain.tilesZ());
             DE_LOG_INFO(LogCategory::Networking, "Sandbox net: Sandbox.exe -host   and   Sandbox.exe -join 127.0.0.1");
@@ -1078,8 +1076,8 @@ bool SandboxApp::advanceSpawnBatch()
         {
             if (!boot.questCleared)
             {
-                m_quest.clear();
-                m_questBanners.clear();
+                m_play.quest().clear();
+                m_hud.m_questBanners.clear();
                 boot.questCleared = true;
             }
             if (boot.objectCursor < boot.scene.objects.size())
@@ -1151,7 +1149,7 @@ bool SandboxApp::advanceSpawnBatch()
                 if (!loadUpgrades(resolveContentFile("upgrades.json"), m_play.facility().defs, &upgradeError))
                     DE_LOG_WARN("Upgrades: {}", upgradeError);
             }
-            if (m_chaseOk && m_chase.ai().awarenessEnabled())
+            if (m_chaseOk)
             {
                 GuardBarks barks;
                 std::string barkError;
@@ -1474,7 +1472,7 @@ bool SandboxApp::advanceSpawnBatch()
             boot.phase = SandboxBootLoad::SpawnPhase::Packs;
             continue;
         case SandboxBootLoad::SpawnPhase::Packs:
-            placeHealthPacks();
+            m_demo.placeHealthPacks();
             boot.phase = SandboxBootLoad::SpawnPhase::Throwables;
             return true;
         case SandboxBootLoad::SpawnPhase::Throwables:
@@ -1486,7 +1484,7 @@ bool SandboxApp::advanceSpawnBatch()
             boot.phase = SandboxBootLoad::SpawnPhase::Hybrid;
             return true;
         case SandboxBootLoad::SpawnPhase::Hybrid:
-            spawnHybridLocalLights();
+            m_demo.spawnHybridLocalLights();
             boot.phase = SandboxBootLoad::SpawnPhase::Session;
             return true;
         case SandboxBootLoad::SpawnPhase::Session:

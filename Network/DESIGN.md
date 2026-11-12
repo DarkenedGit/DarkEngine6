@@ -9,6 +9,8 @@
 | **Audience** | Senior engine / gameplay engineers working in this repo |
 | **Scope** | Engine `Network/`, `Application` tick hook, Sandbox + **Sandbox2D** demos, Editor Host/Join UI, CLI `-host`/`-join`, LAN broadcast discovery, UnitTests. **No production implementation in this document.** |
 
+The Current state table below is the tree on 2026-08-23, before `Network/` was implemented. `SandboxApp::onRender` no longer draws only the origin cube. The 3D frame is `Sandbox/SandboxFrame.cpp`. The origin cube lives on `SandboxDemo`. `netRoleName` and `pawnPaletteColor` are in `Network/NetTypes.h`. Treat the rest of this document as the v1 design, not a map of today's files.
+
 ---
 
 ## Overview
