@@ -2,6 +2,7 @@
 
 #include "ECS/Components.h"
 #include "ECS/FrameEntitySet.h"
+#include "ECS/PoolIterate.h"
 #include "ECS/World.h"
 
 using namespace Dark;
@@ -132,6 +133,38 @@ TEST(FrameEntitySet, ClearAndGenerationDoNotAlias)
     set.insert(recycled);
     EXPECT_TRUE(set.contains(recycled));
     EXPECT_FALSE(set.contains(first));
+}
+
+TEST(World, EachNotesAMutationAndNestedReadsAreFine)
+{
+    poolIterateTrap() = false;
+    const uint32_t before = poolIterateViolations();
+    World world;
+    const Entity a = world.createEntity();
+    const Entity b = world.createEntity();
+    world.emplace<TagComponent>(a, "A");
+    world.emplace<TagComponent>(b, "B");
+    world.each<TagComponent>([&](Entity e, TagComponent&) { world.emplace<TagComponent>(e, "Replaced"); });
+    EXPECT_GT(poolIterateViolations(), before);
+    const uint32_t afterReplace = poolIterateViolations();
+    world.each<TagComponent>([&](Entity, TagComponent&) { world.remove<TagComponent>(b); });
+    EXPECT_GT(poolIterateViolations(), afterReplace);
+    const uint32_t afterRemove = poolIterateViolations();
+    world.each<TagComponent>([&](Entity e, TagComponent&) {
+        world.each<TagComponent>([&](Entity, TagComponent&) {});
+        world.emplace<TransformComponent>(e);
+    });
+    EXPECT_EQ(poolIterateViolations(), afterRemove);
+    EXPECT_NE(world.get<TransformComponent>(a), nullptr);
+    poolIterateTrap() = true;
+}
+
+TEST(World, SceneGenerationStartsAtOneAndBumps)
+{
+    World world;
+    EXPECT_EQ(world.generation(), 1u);
+    world.bumpGeneration();
+    EXPECT_EQ(world.generation(), 2u);
 }
 
 TEST(World, MeshComponentDefaultsPrimitiveNone)

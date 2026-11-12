@@ -10,11 +10,13 @@
 #include "Gameplay/PowerComponents.h"
 #include "Media/MovieCue.h"
 #include "Scene/SceneSpawn.h"
+#include "Scene/WalkObstacles.h"
 #include "Gameplay/PowerSystem.h"
 #include "Play/HunterCue.h"
 #include "Play/ThrowableHost.h"
 #include "Play/HunterTick.h"
 #include "Play/PhysicsGround.h"
+#include "Play/PlayFeedback.h"
 #include "Play/PlayLook.h"
 #include "Play/PlayMotor.h"
 #include "Play/ShoulderCamera.h"
@@ -274,28 +276,19 @@ void EditorApp::bakePlayWalkability()
         const TransformComponent* xf = world().get<TransformComponent>(e);
         if (!xf)
             return;
-        const bool volume = !so.source.block || so.source.goal || so.source.conceal || !so.source.zone.empty() || !so.source.pickup.empty();
+        AABox3f  box;
+        Sphere3f sphere;
+        if (!classifyWalkObstacle(so.type, xf->position, xf->scale, so.source.block, so.source.goal, so.source.conceal, !so.source.zone.empty(), !so.source.pickup.empty(), box, sphere))
+            return;
         if (so.type == SceneObjectType::Cube)
         {
-            if (volume)
-                return;
-            if (std::fabs(xf->scale.y) < 0.3f)
-                return;
-            const Vector3f half{ 0.5f * std::fabs(xf->scale.x), 0.5f * std::fabs(xf->scale.y), 0.5f * std::fabs(xf->scale.z) };
-            m_playCubes.push_back(AABox3f::FromCenterExtents(xf->position, half));
+            m_playCubes.push_back(box);
             m_playCubeEntities.push_back(e);
         }
         else if (so.type == SceneObjectType::Sphere)
         {
-            if (volume)
-                return;
-            // Unit sphere mesh is radius 0.5, then scaled. Use the largest axis so a stretched sphere still blocks.
-            const float radius = 0.5f * Math::Max(std::fabs(xf->scale.x), Math::Max(std::fabs(xf->scale.y), std::fabs(xf->scale.z)));
-            if (radius > 1.0e-4f)
-            {
-                m_playSpheres.push_back(Sphere3f(xf->position, radius));
-                m_playSphereEntities.push_back(e);
-            }
+            m_playSpheres.push_back(sphere);
+            m_playSphereEntities.push_back(e);
         }
     });
     const Terrain::HeightMap* height = nullptr;
@@ -316,12 +309,7 @@ void EditorApp::bakePlayWalkability()
         height = &m_playGrid;
         DE_LOG_INFO(LogCategory::AI, "Editor: no terrain — hunters path the ground grid");
     }
-    AI::WalkabilityDesc d;
-    d.heightMap   = height;
-    d.waterLevel  = -1.0e9f;
-    d.agentRadius = 0.8f;
-    setHunterBakeObstacles(d, m_playCubes.data(), static_cast<int>(m_playCubes.size()), m_playSpheres.data(), static_cast<int>(m_playSpheres.size()));
-    if (!m_ai.bake(d))
+    if (!bakeHunterWalk(m_ai, height, -1.0e9f, 0.8f, m_playCubes, m_playSpheres))
         DE_LOG_WARN(LogCategory::AI, "Editor: walkability bake failed");
 }
 
@@ -417,6 +405,26 @@ void EditorApp::fillPlayHost(void* user, PlayHost& host)
     host.heightAt      = &EditorApp::onPlayHeight;
     host.groundContact = &EditorApp::onPlayGroundContact;
     host.user          = app;
+    app->bindPlayFeedback();
+    installPlayFeedback(host, &app->m_playFeedback);
+}
+
+void EditorApp::bindPlayFeedback()
+{
+    m_playFeedback.world       = &world();
+    m_playFeedback.camera      = &m_camera;
+    m_playFeedback.muzzle      = &m_playMuzzle;
+    m_playFeedback.muzzleTimer = &m_playMuzzleTimer;
+    m_playFeedback.blood       = &m_blood;
+    m_playFeedback.splats      = &m_bloodSplats;
+    const Terrain::HeightMap* height = nullptr;
+    if (m_haveTerrain && m_terrain.valid() && m_terrain.coarse().valid())
+        height = &m_terrain.coarse();
+    else if (m_playGrid.valid())
+        height = &m_playGrid;
+    m_playFeedback.height      = height;
+    m_playFeedback.afterRespawn = nullptr;
+    m_playFeedback.afterUser   = nullptr;
 }
 
 void EditorApp::onPlayQuestNote(void* user, const QuestNoteEvent& note)
@@ -424,25 +432,8 @@ void EditorApp::onPlayQuestNote(void* user, const QuestNoteEvent& note)
     auto* app = static_cast<EditorApp*>(user);
     if (!app)
         return;
-    QuestBanner banner;
-    banner.text = note.text;
-    switch (note.kind)
-    {
-    case QuestNote::Started:
-        banner.label = "NEW QUEST";
-        break;
-    case QuestNote::NewObjective:
-        banner.label = "NEW OBJECTIVE";
-        break;
-    case QuestNote::ObjectiveDone:
-        banner.label = "OBJECTIVE COMPLETE";
-        break;
-    case QuestNote::QuestDone:
-        banner.label = "QUEST COMPLETE";
-        break;
-    }
     if (note.kind != QuestNote::NewObjective || app->m_questBanners.size() < 4)
-        app->m_questBanners.push_back(std::move(banner));
+        app->m_questBanners.push_back(makeQuestBanner(note));
 }
 
 void EditorApp::onPlayDefenseText(void* user, bool parried)
@@ -452,6 +443,7 @@ void EditorApp::onPlayDefenseText(void* user, bool parried)
         return;
     app->m_defenseText     = parried ? "PARRY!" : "BLOCKED";
     app->m_defenseTextLeft = 0.7f;
+    app->m_defenseParry    = parried;
 }
 
 void EditorApp::onPlayLoot(void* user, Entity loot)
@@ -558,6 +550,9 @@ void EditorApp::setPlayMode(bool play)
         ensurePlayGear();
         m_gizmoDragAxis    = EditorDetail::TranslateGizmoAxis::None;
         m_dragging         = false;
+        if (renderer().scenePath() == ScenePath::HybridDeferred)
+            ensurePlayMuzzle(world(), m_playMuzzle, m_playMuzzleTimer);
+        bindPlayFeedback();
         m_playMode = true;
         ensurePhysicsWorld();
         rebuildPhysicsGround(); // pick up a terrain loaded since the last Play
@@ -616,6 +611,8 @@ void EditorApp::setPlayMode(bool play)
         m_lootTarget = {};
         m_defenseText.clear();
         m_defenseTextLeft = 0.0f;
+        m_defenseParry    = false;
+        destroyPlayMuzzle(world(), m_playMuzzle, m_playMuzzleTimer);
         m_guardVoice.stop();
         // Interrupt stores a resume bookmark. This Play is over, so the next one starts at the greeting.
         m_dialogue.endPlay();
@@ -631,6 +628,7 @@ void EditorApp::setPlayMode(bool play)
         clearThrowablePlayVisuals(world(), pins());
         m_playMode   = false;
         m_playPlayer = {};
+        world().bumpGeneration();
         if (m_physics.valid())
             m_physics.pushPoses(world(), true);
         window().setCursorCaptured(false);
@@ -957,44 +955,46 @@ void EditorApp::destroySpawnedUnits(Entity onlySpawner)
     });
 }
 
+bool EditorApp::bindListedPhysics(void* user, Entity e, bool)
+{
+    auto* app = static_cast<EditorApp*>(user);
+    if (!app || !app->world().has<ModelComponent>(e))
+        return false;
+    app->tryLoadModelPhysics(e);
+    return true;
+}
+
+void EditorApp::proxyListedNpc(void* user, Entity e)
+{
+    auto* app = static_cast<EditorApp*>(user);
+    if (!app || !e.valid())
+        return;
+    MeshComponent mc{};
+    mc.matAssetID  = app->m_propMaterial ? app->m_propMaterial->id : NULL_ASSET;
+    mc.meshAssetID = NULL_ASSET;
+    setMeshComponent(app->world(), app->pins(), app->assets(), e, mc);
+    DE_LOG_WARN("Editor: npc using cube proxy");
+}
+
 Entity EditorApp::spawnSpawnerUnit(Entity spawner, const SpawnerRequest& req)
 {
     // No EditorObjectComponent and no persistent id. A play-mode scene save must not keep the army.
-    if (req.unit == SpawnerUnit::Crow)
-    {
-        const TransformComponent* home = world().get<TransformComponent>(spawner);
-        const float homeX = home ? home->position.x : req.x;
-        const float homeZ = home ? home->position.z : req.z;
-        const bool haveGround = m_haveTerrain && m_terrain.valid();
-        const float groundY = haveGround ? m_terrain.heightAtWorld(req.x, req.z) : 0.0f;
-        return spawnCrow(world(), renderer(), assets(), pins(), m_crowModels, haveGround ? &m_terrain : nullptr, spawner, req, groundY, homeX, homeZ);
-    }
-    const bool wolf = req.unit == SpawnerUnit::Wolf;
-    Entity e = world().createEntity();
-    world().emplace<TagComponent>(e, wolf ? "Wolf" : "Hunter");
-    TransformComponent xf{};
-    xf.position = Vector3f{ req.x, m_terrain.heightAtWorld(req.x, req.z) + 0.5f, req.z };
-    xf.scale    = Vector3f{ 1.0f, 1.0f, 1.0f };
-    world().emplace<TransformComponent>(e, xf);
-    const bool ok = wolf ? attachEditorWolf(e) : attachEditorHunter(e);
-    if (!ok || !world().alive(e))
-    {
-        if (world().alive(e))
-        {
-            releasePhysicsBody(e);
-            onEntityRemoved(world(), e, &pins());
-            world().destroyEntity(e);
-        }
-        DE_LOG_WARN(LogCategory::AI, "Editor: spawner failed to create a {}", wolf ? "wolf" : "hunter");
-        return {};
-    }
-    SpawnedUnitComponent mark{};
-    mark.spawner = spawner;
-    mark.slot    = req.slot;
-    world().emplace<SpawnedUnitComponent>(e, mark);
-    if (!wolf)
-        m_play.stockHunter(e);
-    return e;
+    ListedSpawnHost host{};
+    host.world            = &world();
+    host.renderer         = &renderer();
+    host.assets           = &assets();
+    host.pins             = &pins();
+    host.audio            = &audio();
+    host.ground           = &m_ground;
+    host.ai               = &m_ai;
+    host.crows            = &m_crowModels;
+    host.terrain          = (m_haveTerrain && m_terrain.valid()) ? &m_terrain : nullptr;
+    host.play             = &m_play;
+    host.allowStaticModel = true;
+    host.bindPhysics      = &EditorApp::bindListedPhysics;
+    host.onProxy          = &EditorApp::proxyListedNpc;
+    host.user             = this;
+    return spawnListedUnit(host, spawner, req);
 }
 
 void EditorApp::ensurePlayerStealth(Entity e)
@@ -1064,6 +1064,8 @@ void EditorApp::drawPlayDialogue()
     view.projectWidth   = vp->Size.x;
     view.projectHeight  = vp->Size.y;
     view.windowName     = "PlayDialogue";
+    const std::string talkPrompt = input().actions().keyBracket("talk", "[T]") + " Talk";
+    view.talkPrompt     = talkPrompt.c_str();
     drawDialogueHud(m_dialogue, view);
 }
 
@@ -1075,7 +1077,7 @@ void EditorApp::drawPlayHud()
     if (m_defenseTextLeft > 0.0f && !m_defenseText.empty())
     {
         const float          a     = Math::Clamp(m_defenseTextLeft / 0.7f, 0.0f, 1.0f);
-        const bool           parry = m_defenseText.front() == 'P';
+        const bool           parry = m_defenseParry;
         const ImGuiViewport* vp    = ImGui::GetMainViewport();
         ImDrawList*          dl    = vp ? ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp)) : nullptr;
         if (dl)
@@ -1178,7 +1180,7 @@ void EditorApp::drawPlayHud()
     if (!m_questBanners.empty())
     {
         const QuestBanner& banner = m_questBanners.front();
-        ImGui::Text("%s  %s", banner.label.c_str(), banner.text.c_str());
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(banner.color), "%s  %s", banner.label.c_str(), banner.text.c_str());
     }
     ImGui::TextDisabled("RMB / V / LT shield    L light    F12 / Esc stop");
     ImGui::End();
@@ -1196,7 +1198,8 @@ void EditorApp::drawPlayHud()
                 const float ndcZ = clip.z * invW;
                 if (ndcZ >= 0.0f && ndcZ <= 1.0f)
                 {
-                    const char*  text = rt.climbDown ? "[E] Climb down" : "[E] Climb";
+                    const std::string climb = input().actions().keyBracket("pickup", "[E]") + (rt.climbDown ? " Climb down" : " Climb");
+                    const char*       text  = climb.c_str();
                     const float  sx   = (clip.x * invW * 0.5f + 0.5f) * cvp->Size.x;
                     const float  sy   = (1.0f - (clip.y * invW * 0.5f + 0.5f)) * cvp->Size.y;
                     const ImVec2 ts   = ImGui::CalcTextSize(text);

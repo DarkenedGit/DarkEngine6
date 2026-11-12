@@ -69,6 +69,9 @@ namespace Dark
 
         const std::vector<Binding>* bindings(std::string_view action) const;
 
+        // First keyboard binding, as "[G]". fallback is used when the action has no key.
+        std::string keyBracket(std::string_view action, std::string_view fallback) const;
+
     private:
         std::unordered_map<std::string, std::vector<Binding>> m_map;
 

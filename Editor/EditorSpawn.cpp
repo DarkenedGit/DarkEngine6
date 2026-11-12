@@ -819,5 +819,6 @@ void EditorApp::clearScene()
     m_dragging = false;
     if (m_playMode)
         setPlayMode(false);
+    world().bumpGeneration();
     m_scene.discardTemporalHistory();
 }

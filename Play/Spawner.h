@@ -118,4 +118,45 @@ namespace Dark
     using SpawnerSpawnFn = Entity (*)(void* user, Entity spawner, const SpawnerRequest& req);
     void tickSpawnerJobs(World& world, float dt, SpawnerSpawnFn spawn, void* user);
 
+    class Renderer;
+    class AssetManager;
+    class AssetPinTable;
+    class AiSystem;
+    class PlaySession;
+    struct CrowModels;
+
+    namespace Audio
+    {
+        class AudioSystem;
+    }
+    namespace Terrain
+    {
+        class TerrainGround;
+        class TerrainGrid;
+    }
+
+    // Both shells spawn a listed unit through this. Physics binding and path-chase bookkeeping stay in the app.
+    // A null onProxy means a missing model still keeps the brain and the body. Editor passes a cube proxy.
+    struct ListedSpawnHost
+    {
+        World*                            world    = nullptr;
+        Renderer*                         renderer = nullptr;
+        AssetManager*                     assets   = nullptr;
+        AssetPinTable*                    pins     = nullptr;
+        Audio::AudioSystem*               audio    = nullptr;
+        const Terrain::TerrainGround*     ground   = nullptr;
+        AiSystem*                         ai       = nullptr;
+        CrowModels*                       crows    = nullptr;
+        const Terrain::TerrainGrid*       terrain  = nullptr;
+        PlaySession*                      play     = nullptr;
+        bool                              allowStaticModel = false;
+        bool (*bindPhysics)(void* user, Entity e, bool wolf) = nullptr;
+        void (*noteHunter)(void* user, Entity e)             = nullptr;
+        void (*onProxy)(void* user, Entity e)                = nullptr;
+        void* user = nullptr;
+    };
+
+    // Crow, hunter, or wolf. Hunters get a weapon stock and the hunter dialogue graph. No editor object and no persistent id.
+    Entity spawnListedUnit(const ListedSpawnHost& host, Entity spawner, const SpawnerRequest& req);
+
 } // namespace Dark

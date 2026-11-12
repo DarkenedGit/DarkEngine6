@@ -250,7 +250,7 @@ namespace Dark
         else if (wFire && wFire->activeKind() == WeaponKind::Projectile)
         {
             if (host.onMuzzle)
-                host.onMuzzle(host.user);
+                host.onMuzzle(playHookUser(host));
             const RecoilKick kick = wFire->projectile().takeRecoil();
             runtime.lookYaw += kick.yaw;
             runtime.lookPitch += kick.pitch;
@@ -377,14 +377,14 @@ namespace Dark
             playSoundCueAt(*world, *host.audio, *host.assets, victim, "grunt", hit.point);
             host.ai->onHunterAttacked(*world, victim, playerPos);
             if (host.onBloodBurst)
-                host.onBloodBurst(host.user, hit.point);
+                host.onBloodBurst(playHookUser(host), hit.point);
             spawnLivingBloodDecal(impactOf(host, runtime), victim, hit.point, hit.normal);
             hp = world->get<HealthComponent>(victim);
             if (wasAlive && hp && !hp->health.alive())
             {
                 spawnDeathBloodDecal(impactOf(host, runtime), hit.point, hit.normal);
                 if (!impactDecalsReady(impactOf(host, runtime)) && host.onBloodSplat)
-                    host.onBloodSplat(host.user, hit.point.x, hit.point.z);
+                    host.onBloodSplat(playHookUser(host), hit.point.x, hit.point.z);
                 host.ai->onHunterKilled(*world, victim);
             }
             return;
@@ -471,13 +471,13 @@ namespace Dark
             if (host.ai)
                 host.ai->onHunterAttacked(*world, snaps[i].e, playerPos);
             if (host.onBloodBurst)
-                host.onBloodBurst(host.user, events[i].hitPoint);
+                host.onBloodBurst(playHookUser(host), events[i].hitPoint);
             spawnLivingBloodDecal(impactOf(host, runtime), snaps[i].e, events[i].hitPoint, -events[i].hitDir);
             if (killed)
             {
                 spawnDeathBloodDecal(impactOf(host, runtime), events[i].hitPoint, Math::Vector3f(0.0f, 0.0f, 1.0f));
                 if (!impactDecalsReady(impactOf(host, runtime)) && host.onBloodSplat)
-                    host.onBloodSplat(host.user, events[i].hitPoint.x, events[i].hitPoint.z);
+                    host.onBloodSplat(playHookUser(host), events[i].hitPoint.x, events[i].hitPoint.z);
                 if (host.ai)
                     host.ai->onHunterKilled(*world, snaps[i].e);
             }

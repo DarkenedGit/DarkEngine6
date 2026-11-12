@@ -217,7 +217,8 @@ namespace Dark::Save
             Op                    op = Op::None;
             std::string           bytes;
             std::filesystem::path path;
-            SaveKind              kind = SaveKind::Manual;
+            SaveKind              kind     = SaveKind::Manual;
+            uint32_t              worldGen = 0;
         };
 
         struct Intent
@@ -1052,6 +1053,11 @@ namespace Dark::Save
             {
                 if (m->last != SaveResult::Ok)
                     DE_LOG_WARN("Save: read failed ({})", toString(m->last));
+                else if (world.generation() != finished.worldGen)
+                {
+                    DE_LOG_WARN("Save: dropped load, the scene changed while it was reading");
+                    m->last = SaveResult::SceneMismatch;
+                }
                 else
                 {
                     const SaveResult gate = m->allowLoad();
@@ -1095,9 +1101,10 @@ namespace Dark::Save
             m->ensureThread();
             {
                 std::lock_guard<std::mutex> lock(m->mu);
-                m->job.op    = Impl::Job::Op::Load;
-                m->job.path  = savesDirectory() / m->intent.fileName;
+                m->job.op       = Impl::Job::Op::Load;
+                m->job.path     = savesDirectory() / m->intent.fileName;
                 m->job.bytes.clear();
+                m->job.worldGen = world.generation();
                 m->hasJob    = true;
                 m->inflight  = true;
             }

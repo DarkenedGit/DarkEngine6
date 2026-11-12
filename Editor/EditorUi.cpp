@@ -1116,9 +1116,12 @@ void EditorApp::onUpdate(float dt)
         {
             if (!m_dialogue.locksWorld() && !m_movie.blocksWorld())
             {
+                bindPlayFeedback();
+                tickPlayMuzzle(m_playFeedback, dt);
                 m_play.tickPawn(dt);
                 m_play.tickCamera();
                 m_play.tickWorld(dt);
+                m_blood.update(dt);
             }
             if (!m_movie.blocksWorld())
                 m_dialogue.tick(dt);

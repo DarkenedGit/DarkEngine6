@@ -4,7 +4,10 @@
 #include "Character/HitReaction.h"
 #include "Character/PlayerMotor.h"
 #include "Scene/SceneTypes.h"
+#include "Terrain/HeightMap.h"
 #include "Terrain/TerrainGrid.h"
+
+#include <vector>
 
 namespace Dark
 {
@@ -92,6 +95,21 @@ namespace Dark
         desc.cubeCount   = desc.cubes ? cubeCount : 0;
         desc.spheres     = (spheres && sphereCount > 0) ? spheres : nullptr;
         desc.sphereCount = desc.spheres ? sphereCount : 0;
+    }
+
+    // Height map, water, and the obstacle lists the caller already gathered. Does not add an origin cube.
+    inline bool bakeHunterWalk(AiSystem& ai, const Terrain::HeightMap* height, float waterLevel, float agentRadius, const std::vector<Math::AABox3f>& cubes,
+                               const std::vector<Math::Sphere3f>& spheres)
+    {
+        if (!height || !height->valid())
+            return false;
+        AI::WalkabilityDesc desc;
+        desc.heightMap   = height;
+        desc.waterLevel  = waterLevel;
+        desc.agentRadius = agentRadius;
+        setHunterBakeObstacles(desc, cubes.empty() ? nullptr : cubes.data(), static_cast<int>(cubes.size()), spheres.empty() ? nullptr : spheres.data(),
+                               static_cast<int>(spheres.size()));
+        return ai.bake(desc);
     }
 
 } // namespace Dark

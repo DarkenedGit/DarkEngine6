@@ -28,6 +28,7 @@ namespace Dark
         float          projectWidth  = 0.0f;
         float          projectHeight = 0.0f;
         const char*    windowName    = "Dialogue";
+        const char*    talkPrompt    = "[T] Talk";
     };
 
     inline void drawDialogueHud(DialogueController& talk, const DialogueHudView& view)
@@ -86,7 +87,7 @@ namespace Dark
                 ImVec2 at{};
                 if (project(Math::Vector3f(xf->position.x, xf->position.y + 2.0f, xf->position.z), at))
                 {
-                    const char*  text = "[T] Talk";
+                    const char*  text = view.talkPrompt ? view.talkPrompt : "[T] Talk";
                     const ImVec2 ts   = ImGui::CalcTextSize(text);
                     at.x -= ts.x * 0.5f;
                     at.y -= ts.y;

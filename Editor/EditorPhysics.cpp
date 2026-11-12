@@ -1,6 +1,7 @@
 #include "EditorApp.h"
 
 #include "Play/PhysicsGround.h"
+#include "Play/PlayBody.h"
 
 #include "Assets/Model.h"
 #include "Character/PlayerMotorComponent.h"
@@ -339,49 +340,16 @@ void EditorApp::simulatePhysics(float dt)
     if (!m_physics.valid())
         return;
 
-    // The motor owns the player. Keep that pose even if a sidecar marked the body dynamic.
-    Vector3f   visualPos{};
-    Vector3f   playerPos{};
-    Quaternion playerRot{};
+    // Play teleports the possessed body to the motor pose. Edit mode has no player to hold.
     const bool holdPlayer = m_playMode && m_playPlayer.valid() && world().get<TransformComponent>(m_playPlayer) != nullptr;
     if (holdPlayer)
     {
-        const TransformComponent* xf = world().get<TransformComponent>(m_playPlayer);
-        visualPos                    = xf->position;
-        playerRot                    = xf->rotation;
-        playerPos                    = visualPos;
-        // The visual root drops in a crouch. The kinematic capsule stays at the standing plant and does not shrink.
-        if (const PlayerMotorComponent* pmc = world().get<PlayerMotorComponent>(m_playPlayer))
-            playerPos.y += pmc->motor.crouchOffset();
+        stepPossessedBody(m_physics, world(), m_playPlayer, dt);
+        return;
     }
-
-    // Leave the player body where it was last frame. moveKinematicTo sweeps it to the
-    // motor pose during the step, which is what shoves dynamic cubes and spheres.
-    m_physics.pushPoses(world(), false, holdPlayer ? m_playPlayer : Entity{});
-    if (holdPlayer && m_physics.isBound(m_playPlayer))
-    {
-        const Physics::PhysicsBodyId id = m_physics.bodyOf(m_playPlayer);
-        if (!m_physics.moveKinematicTo(id, playerPos, playerRot, dt))
-        {
-            m_physics.setBodyPose(id, playerPos, playerRot);
-            m_physics.clearBodyVelocity(id);
-        }
-    }
+    m_physics.pushPoses(world(), false);
     m_physics.step(dt, world());
     m_physics.writeDynamicPoses(world());
-    if (!holdPlayer)
-        return;
-    if (TransformComponent* xf = world().get<TransformComponent>(m_playPlayer))
-    {
-        xf->position = visualPos;
-        xf->rotation = playerRot;
-    }
-    if (m_physics.isBound(m_playPlayer))
-    {
-        const Physics::PhysicsBodyId id = m_physics.bodyOf(m_playPlayer);
-        m_physics.setBodyPose(id, playerPos, playerRot);
-        m_physics.clearBodyVelocity(id);
-    }
 }
 
 void EditorApp::drawPhysicsInspector(Entity e)

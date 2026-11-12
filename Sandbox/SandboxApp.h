@@ -57,7 +57,9 @@
 #include "Play/DialogueMemory.h"
 #include "Play/GuardVoice.h"
 #include "Play/ImpactFx.h"
+#include "Play/PlayFeedback.h"
 #include "Play/PlaySession.h"
+#include "Play/QuestBanner.h"
 #include "Play/Spawner.h"
 #include "Play/Crow.h"
 #include "Play/WeaponTargets.h"
@@ -147,7 +149,6 @@ private:
     void drawGuardAwareness();
     void drawGuardSpeech();
     void drawDialogue();
-    void bindNpcDialogue(Dark::Entity npc, const std::string& scenePath);
     void drawStaminaBar();
     void startQuest(const std::string& id);
     void updateQuest(float dt);
@@ -180,8 +181,7 @@ private:
     void updateWiggleAnim();
     static void onWiggleNotify(void* user, const Dark::AnimNotify& n);
     void spawnHybridLocalLights();
-    void pulseMuzzle();
-    void spawnHunterBlood(const Dark::Math::Vector3f& pos);
+    void bindPlayFeedback();
     Dark::ImpactFxHost impactHost();
     bool deferredDecals();
     bool isStepCue(Dark::Entity e, const char* cue);
@@ -235,14 +235,13 @@ private:
     static void fillDialogueHost(void* user, Dark::DialogueHost& host);
     static void fillMovieHost(void* user, Dark::MovieHost& host);
     static void stepPlayPhysics(void* user, float dt);
-    static void onPlayMuzzle(void* user);
-    static void onPlayBloodBurst(void* user, const Dark::Math::Vector3f& pos);
-    static void onPlayBloodSplat(void* user, float x, float z);
     static void onPlayRespawn(void* user);
     static void onPlayQuestNote(void* user, const Dark::QuestNoteEvent& note);
     static void onPlayDefenseText(void* user, bool parried);
     static void onPlayLoot(void* user, Dark::Entity loot);
     static Dark::Entity onPlaySpawnUnit(void* user, Dark::Entity spawner, const Dark::SpawnerRequest& req);
+    static bool bindListedPhysics(void* user, Dark::Entity e, bool wolf);
+    static void noteListedHunter(void* user, Dark::Entity e);
     static float onPlayHeight(void* user, float x, float z);
     static Dark::Terrain::GroundContact onPlayGroundContact(void* user, float x, float z);
 
@@ -275,17 +274,7 @@ private:
     Dark::ThrowableFlights&             m_throwFlights;
     Dark::Entity                        m_muzzle;
     float                               m_muzzleTimer = 0.0f;
-    float&                              m_hitStop;
-    float&                              m_shake;
-    float&                              m_shakeTime;
-    bool&                               m_swingCharged;
-    float&                              m_swingLock;
-    float&                              m_comboWindow;
-    int&                                m_comboStep;
-    int&                                m_comboCount;
-    float&                              m_faceYaw;
-    float&                              m_faceLeft;
-    float&                              m_blockRecoil;
+    Dark::PlayFeedback                  m_playFeedback{};
     bool                            m_demoScene    = true;
     bool                            m_sceneStarted = false;
     std::filesystem::path           m_loadedScenePath;
@@ -296,14 +285,7 @@ private:
     Dark::MoviePlayer               m_movie;
     bool                            m_movieWasBlocking = false;
     std::string                     m_sceneQuest;
-    struct QuestBanner
-    {
-        std::string label;
-        std::string text;
-        uint32_t    color    = 0xFFFFFFFFu;
-        float       timeLeft = 3.5f;
-    };
-    std::vector<QuestBanner>        m_questBanners;
+    std::vector<Dark::QuestBanner>  m_questBanners;
     bool                            m_showJournal = false;
     void         expandSceneBuildings(Dark::SceneFileData& scene);
     // False when the boot budget is spent and fixtures remain.
@@ -318,9 +300,9 @@ private:
     std::deque<std::string>              m_buildingLabels;
     bool                                 m_showUpgrades = false;
     float                           m_goalShown    = 0.0f;
-    float&                          m_shieldBump;
     const char*                     m_defenseText  = "";
     float                           m_defenseTextLeft = 0.0f;
+    bool                            m_defenseParry = false;
     Dark::Camera3D          m_viewCamera;
     std::unordered_map<Dark::EntityID, Dark::Math::Matrix4f> m_prevWorldByEntity;
     Dark::FrameEntitySet m_acceptedMesh;
@@ -428,10 +410,6 @@ private:
     float&        m_lookYaw;
     float&        m_lookPitch;
     float&        m_lowerBodyYaw;
-    bool&         m_playerWet;
-    bool&         m_playerSubmerged;
-    bool&         m_swimDiveEdge;
-    bool&         m_swimStandEdge;
     float&        m_underAmount;
     float&        m_footstepAcc;
     Dark::HealthHud                  m_healthHud;

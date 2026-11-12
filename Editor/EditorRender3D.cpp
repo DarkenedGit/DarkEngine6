@@ -1048,6 +1048,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         // Editor does not run camouflage, so this frame's depth was not rewritten.
         m_gpuParticles.simulateAndDraw(cmd, renderer(), m_camera, world(), assets(), false);
         m_particleRenderer.beginFrame(renderer().frameIndex());
+        if (m_blood.aliveCount() > 0)
+            m_particleRenderer.draw(cmd, m_camera, m_blood, false);
         world().each<ParticleEmitterComponent>([&](Entity, ParticleEmitterComponent& pe) {
         if (!pe.runtime)
             return;
@@ -1067,6 +1069,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                 m_particleRenderer.draw(cmd, m_camera, impact, true);
         }
         m_leafRenderer.draw(cmd, m_camera, m_leafField);
+        if (!deferredDecals())
+            m_bloodSplats.draw(cmd, m_camera);
     }
 
     {

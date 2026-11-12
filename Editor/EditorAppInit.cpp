@@ -162,6 +162,10 @@ void EditorApp::onInit()
         requestQuit();
         return;
     }
+    if (!m_bloodSplats.create(renderer()))
+        DE_LOG_ERROR("EditorApp: blood splat pool failed");
+    m_blood.setDesc(playBloodBurstDesc());
+    m_blood.stop(true);
     if (!m_gpuParticles.create(renderer()))
         DE_LOG_ERROR(LogCategory::Render, "EditorApp: GPU particle system failed");
     if (!m_leafRenderer.create(renderer(), assets()))
@@ -431,6 +435,7 @@ void EditorApp::onShutdown()
     network().shutdown();
     m_imgui.shutdown(renderer());
     m_gpuParticles.destroy(renderer());
+    m_bloodSplats.destroy(renderer());
     m_particleRenderer.destroy(renderer());
     m_leafRenderer.destroy(renderer());
     cancelFoliageSpawn();

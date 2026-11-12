@@ -2,6 +2,7 @@
 #include "ECS/Entity.h"
 #include "ECS/Component.h"
 #include "ECS/Persist.h"
+#include "ECS/PoolIterate.h"
 #include "Core/MainThread.h"
 #include <unordered_map>
 #include <vector>
@@ -35,6 +36,8 @@ namespace Dark
         void insert(EntityID id, T comp)
         {
             assertMainThread();
+            if (m_iterating != 0)
+                notePoolIterateViolation();
             auto it = m_sparse.find(id);
             if (it != m_sparse.end())
             {
@@ -50,6 +53,8 @@ namespace Dark
 
         void remove(EntityID id) override
         {
+            if (m_iterating != 0)
+                notePoolIterateViolation();
             auto it = m_sparse.find(id);
             if (it == m_sparse.end())
                 return;
@@ -99,14 +104,24 @@ namespace Dark
         {
             if (!fn)
                 return;
+            ++m_iterating;
             for (size_t i = 0; i < m_dense.size(); ++i)
                 fn(m_dense[i], &m_components[i], user);
+            --m_iterating;
+        }
+
+        void beginIterate() { ++m_iterating; }
+        void endIterate()
+        {
+            if (m_iterating > 0)
+                --m_iterating;
         }
 
         void setPersist(const PersistFns* fns) { m_persist = fns; }
 
     private:
         const PersistFns* m_persist = nullptr;
+        uint32_t          m_iterating = 0;
         std::unordered_map<EntityID, uint32_t> m_sparse;
         std::vector<EntityID>                  m_dense;
         std::vector<T>                         m_components;
@@ -171,17 +186,23 @@ namespace Dark
             }
         }
 
-        // Single-component view — iterate entities that have T
+        uint32_t generation() const { return m_sceneGeneration; }
+        void     bumpGeneration() { ++m_sceneGeneration; }
+
+        // Single-component view — iterate entities that have T.
+        // insert and remove on this pool while the callback runs are programmer errors.
         template <typename T, typename Fn> void each(Fn&& fn)
         {
             assertMainThread();
             auto* pool = getPool<T>();
             if (!pool)
                 return;
+            pool->beginIterate();
             auto& entities = pool->entities();
             auto& comps    = pool->components();
             for (size_t i = 0; i < entities.size(); ++i)
                 fn(Entity{ entities[i] }, comps[i]);
+            pool->endIterate();
         }
 
     private:
@@ -222,6 +243,7 @@ namespace Dark
         std::unordered_map<ComponentID, std::unique_ptr<IComponentPool>> m_pools;
         std::vector<EntityID>                                            m_free;        // free slot indices (not packed ids)
         std::vector<uint32_t>                                            m_generations; // per-slot generation; index 0 reserved
+        uint32_t                                                         m_sceneGeneration = 1;
     };
 
 } // namespace Dark

@@ -20,6 +20,7 @@
 #include "Scene/Building.h"
 #include "Scene/EntityMaster.h"
 #include "Scene/SceneTypes.h"
+#include "Scene/WalkObstacles.h"
 
 #include <cmath>
 #include <format>
@@ -42,7 +43,6 @@ namespace Dark
         void spawnOne(World& world, const SceneObjectData& o, const SceneSpawnHost& host, int& powerStamp, int& pickupStamp)
         {
             const AABox3f bounds = AABox3f::FromCenterExtents(o.position, o.scale * 0.5f);
-            const bool    cube   = o.type == SceneObjectType::Cube;
             if (!o.zone.empty())
             {
                 const Entity e = world.createEntity();
@@ -100,13 +100,24 @@ namespace Dark
                 world.emplace<ConcealVolumeComponent>(e, vol);
                 return;
             }
-            if (cube && o.scale.y >= 0.3f && !o.goal && o.block)
+            Math::AABox3f  walkBox;
+            Math::Sphere3f walkSphere;
+            if (classifyWalkObstacle(o.type, o.position, o.scale, o.block, o.goal, o.conceal, !o.zone.empty(), !o.pickup.empty(), walkBox, walkSphere))
             {
                 const Entity e = world.createEntity();
                 world.emplace<TransformComponent>(e, o.position, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
-                ObstacleVolumeComponent block{};
-                block.box = bounds;
-                world.emplace<ObstacleVolumeComponent>(e, block);
+                if (o.type == SceneObjectType::Sphere)
+                {
+                    ObstacleSphereComponent block{};
+                    block.sphere = walkSphere;
+                    world.emplace<ObstacleSphereComponent>(e, block);
+                }
+                else
+                {
+                    ObstacleVolumeComponent block{};
+                    block.box = walkBox;
+                    world.emplace<ObstacleVolumeComponent>(e, block);
+                }
             }
         }
 

@@ -1,4 +1,5 @@
 #include "AI/AiSystem.h"
+#include "AI/HunterJump.h"
 
 #include "AI/HsmGraph.h"
 #include "AI/Sight.h"
@@ -47,8 +48,6 @@ namespace Dark
             return static_cast<Terrain::TerrainGrid*>(user)->heightAtWorld(x, z);
         }
 
-        constexpr float kHunterJumpMin     = 4.0f;
-        constexpr float kHunterJumpMax     = 9.0f;
         constexpr float kLureSearchSeconds = 9.0f;
         constexpr float kLureSearchRadius  = 4.0f;
         constexpr float kSweepRadius       = 0.45f;
@@ -87,23 +86,6 @@ namespace Dark
             scales.seeCone  = skillScalar(SkillId::See, SkillScalar::SeeConeScale, seeLevel);
             scales.hear     = skillScalar(SkillId::Hear, SkillScalar::HearScale, hearLevel);
             return scales;
-        }
-
-        Combat::JumpAttackDef hunterJumpDef()
-        {
-            Combat::JumpAttackDef def{};
-            def.telegraphSeconds    = 0.40f;
-            def.cooldown            = 3.5f;
-            def.groundOffset        = 1.0f;
-            def.connectDamage       = 22.0f;
-            def.poundDamage         = 14.0f;
-            def.leapVerticalSpeed   = 10.0f;
-            def.leapForwardSpeedMax = 12.0f;
-            def.gravity             = 24.0f;
-            def.homingRate          = 1.5f;
-            def.knockdownDuration   = 0.8f;
-            def.knockdownForce      = 1.0f;
-            return def;
         }
 
         Vector3f flattenDir(const Vector3f& v, const Vector3f& fallback)
@@ -311,8 +293,9 @@ namespace Dark
             world.emplace<Combat::PoiseComponent>(e);
         if (!world.has<JumpAttackComponent>(e))
         {
+            ensureAttackPatterns();
             JumpAttackComponent jac{};
-            jac.jump.setDef(hunterJumpDef());
+            jac.jump.setDef(hunterJumpDefFromPattern(m_hunterAttacks.loaded ? &m_hunterAttacks : nullptr));
             world.emplace<JumpAttackComponent>(e, std::move(jac));
         }
         (void)pins;
@@ -1885,7 +1868,10 @@ namespace Dark
             updateWolfApproach(world, v, leaf, sees, playerAlive, standoff, playerPos, playerForward, horiz, dt);
             // BackOff and Flank hold the bite until the wolf has reached its side. A notice inside pounce range must not leap straight in.
             const bool wolfCircling = v.ai->stalk == AI::WolfStalk::BackOff || v.ai->stalk == AI::WolfStalk::Flank;
-            const bool wantJump = !m_playerSwimming && !pattern && !wolfCircling && (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist) && sees && horiz >= kHunterJumpMin && horiz <= kHunterJumpMax;
+            float jumpMin = 4.0f;
+            float jumpMax = 9.0f;
+            hunterJumpRanges(m_hunterAttacks.loaded ? &m_hunterAttacks : nullptr, jumpMin, jumpMax);
+            const bool wantJump = !m_playerSwimming && !pattern && !wolfCircling && (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist) && sees && horiz >= jumpMin && horiz <= jumpMax;
             if (pattern && !wolfCircling && (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist) && sees && !pacing && !jumpBusy && (!duelist || lunging))
             {
                 const int attackIndex = AI::pickAttack(*pattern, horiz, v.ai->preferOtherAttack, v.ai->lastAttack);

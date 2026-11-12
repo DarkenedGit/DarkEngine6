@@ -380,7 +380,7 @@ namespace Dark
                 wlc->loadout->clear();
         }
         if (m_host.onRespawn)
-            m_host.onRespawn(m_host.user);
+            m_host.onRespawn(playHookUser(m_host));
         DE_LOG_INFO("Player: respawned");
     }
 

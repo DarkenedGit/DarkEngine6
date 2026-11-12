@@ -4,6 +4,7 @@
 #include "Terrain/TerrainGround.h"
 #include "ECS/Entity.h"
 #include "Math/AABox3f.h"
+#include "Math/Sphere3f.h"
 #include "Math/Matrix4f.h"
 #include "Math/Vector3f.h"
 #include "Render/LinePipeline.h"
@@ -43,6 +44,7 @@ namespace Dark
 
         Entity walker() const { return m_walker; }
         const std::vector<Math::AABox3f>& cubes() const { return m_cubes; }
+        const std::vector<Math::Sphere3f>& spheres() const { return m_spheres; }
         // Static cubes plus moving blockers such as shut doors. Not baked into pathfinding.
         const std::vector<Math::AABox3f>& blockers() const { return m_hasDynamic ? m_all : m_cubes; }
         void setDynamicBlockers(const std::vector<Math::AABox3f>& boxes)
@@ -81,6 +83,7 @@ namespace Dark
         World*          m_world = nullptr;
         LinePipeline    m_lines;
         std::vector<Math::AABox3f> m_cubes;
+        std::vector<Math::Sphere3f> m_spheres;
         std::vector<Math::AABox3f> m_levelCubes;
         std::vector<Math::AABox3f> m_all;
         bool                       m_hasDynamic = false;

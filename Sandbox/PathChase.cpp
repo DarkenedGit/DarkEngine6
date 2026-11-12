@@ -1,6 +1,7 @@
 #include "PathChase.h"
 
 #include "Play/HunterTick.h"
+#include "Scene/WalkObstacles.h"
 
 #include "AI/AiComponents.h"
 #include "AI/Sight.h"
@@ -80,11 +81,17 @@ bool PathChase::createLineBuffers(Renderer& renderer)
 
 bool PathChase::bake(Terrain::TerrainGrid& terrain, WaterWorld& water)
 {
+    m_spheres.clear();
+    if (m_world)
+    {
+        std::vector<Math::AABox3f> cubes;
+        collectWalkObstacles(*m_world, cubes, m_spheres);
+    }
     AI::WalkabilityDesc d;
     d.heightMap   = &terrain.coarse();
     d.waterLevel  = water.params().waterLevel;
     d.agentRadius = m_agentR;
-    setHunterBakeObstacles(d, m_cubes.data(), static_cast<int>(m_cubes.size()), nullptr, 0);
+    setHunterBakeObstacles(d, m_cubes.data(), static_cast<int>(m_cubes.size()), m_spheres.data(), static_cast<int>(m_spheres.size()));
     return m_ai.bake(d);
 }
 
@@ -105,8 +112,6 @@ bool PathChase::init(Renderer& renderer, Terrain::TerrainGrid& terrain, WaterWor
 
     m_cubes.clear();
     m_hunters.clear();
-    const Vector3f origin = { 0.0f, terrain.heightAtWorld(0.0f, 0.0f) + 0.5f, 0.0f };
-    m_cubes.push_back(AABox3f::FromCenterExtents(origin, Vector3f{ 0.5f, 0.5f, 0.5f }));
     m_cubes.insert(m_cubes.end(), m_levelCubes.begin(), m_levelCubes.end());
 
     if (!bake(terrain, water))

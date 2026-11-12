@@ -2,6 +2,7 @@
 
 #include "ECS/Entity.h"
 #include "Math/AABox3f.h"
+#include "Math/Sphere3f.h"
 
 namespace Dark
 {
@@ -23,6 +24,14 @@ namespace Dark
         static constexpr const char* kTypeName = "ObstacleVolume";
 
         Math::AABox3f box{};
+    };
+
+    // Pathfinding block created from a scene sphere. Radius is half the longest scale axis.
+    struct ObstacleSphereComponent
+    {
+        static constexpr const char* kTypeName = "ObstacleSphere";
+
+        Math::Sphere3f sphere{};
     };
 
     // Pickup spawn uses the live physics world. A null physics pointer skips pickups.

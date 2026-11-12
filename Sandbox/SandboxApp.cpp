@@ -16,6 +16,7 @@
 #include "Scene/SceneSpawn.h"
 #include "Gameplay/PowerCheck.h"
 #include "Play/PhysicsGround.h"
+#include "Play/PlayBody.h"
 #include "Play/PlayLook.h"
 #include "Play/PlayMotor.h"
 #include "Play/ShoulderCamera.h"
@@ -417,28 +418,12 @@ SandboxApp::SandboxApp(const Dark::AppConfig& cfg)
     , m_fireQuick(m_play.runtime().fireQuick)
     , m_fireCharged(m_play.runtime().fireCharged)
     , m_throwFlights(m_play.runtime().throws)
-    , m_hitStop(m_play.runtime().hitStop)
-    , m_shake(m_play.runtime().shake)
-    , m_shakeTime(m_play.runtime().shakeTime)
-    , m_swingCharged(m_play.runtime().swingCharged)
-    , m_swingLock(m_play.runtime().swingLock)
-    , m_comboWindow(m_play.runtime().comboWindow)
-    , m_comboStep(m_play.runtime().comboStep)
-    , m_comboCount(m_play.runtime().comboCount)
-    , m_faceYaw(m_play.runtime().faceYaw)
-    , m_faceLeft(m_play.runtime().faceLeft)
-    , m_blockRecoil(m_play.runtime().blockRecoil)
     , m_quest(m_play.quest())
-    , m_shieldBump(m_play.runtime().shieldBump)
     , m_weaponTargets(m_play.targets())
     , m_groundProbeY(m_play.runtime().groundProbeY)
     , m_lookYaw(m_play.runtime().lookYaw)
     , m_lookPitch(m_play.runtime().lookPitch)
     , m_lowerBodyYaw(m_play.runtime().lowerBodyYaw)
-    , m_playerWet(m_play.runtime().wet)
-    , m_playerSubmerged(m_play.runtime().submerged)
-    , m_swimDiveEdge(m_play.runtime().swimDiveEdge)
-    , m_swimStandEdge(m_play.runtime().swimStandEdge)
     , m_underAmount(m_play.runtime().underAmount)
     , m_footstepAcc(m_play.runtime().footstepAcc)
     , m_playerSpawn(m_play.runtime().spawn)
@@ -530,16 +515,13 @@ void SandboxApp::fillPlayHost(void* user, PlayHost& host)
     host.chaseReady        = app->m_chaseOk;
 
     const std::vector<AABox3f>& cubes = app->m_chase.cubes();
-    host.cubes      = cubes.empty() ? nullptr : cubes.data();
-    host.cubeCount  = static_cast<int>(cubes.size());
-    host.spheres    = nullptr;
-    host.sphereCount = 0;
+    const std::vector<Sphere3f>& spheres = app->m_chase.spheres();
+    host.cubes       = cubes.empty() ? nullptr : cubes.data();
+    host.cubeCount   = static_cast<int>(cubes.size());
+    host.spheres     = spheres.empty() ? nullptr : spheres.data();
+    host.sphereCount = static_cast<int>(spheres.size());
 
     host.stepPhysics   = &SandboxApp::stepPlayPhysics;
-    host.onMuzzle      = &SandboxApp::onPlayMuzzle;
-    host.onBloodBurst  = &SandboxApp::onPlayBloodBurst;
-    host.onBloodSplat  = &SandboxApp::onPlayBloodSplat;
-    host.onRespawn     = &SandboxApp::onPlayRespawn;
     host.onQuestNote   = &SandboxApp::onPlayQuestNote;
     host.onDefenseText = &SandboxApp::onPlayDefenseText;
     host.onLoot        = &SandboxApp::onPlayLoot;
@@ -547,50 +529,29 @@ void SandboxApp::fillPlayHost(void* user, PlayHost& host)
     host.heightAt      = &SandboxApp::onPlayHeight;
     host.groundContact = &SandboxApp::onPlayGroundContact;
     host.user          = app;
+    app->bindPlayFeedback();
+    installPlayFeedback(host, &app->m_playFeedback);
 }
 
 void SandboxApp::stepPlayPhysics(void* user, float dt)
 {
     auto* app = static_cast<SandboxApp*>(user);
-    if (!app || !app->m_physics.valid())
-        return;
-    app->m_physics.pushPoses(app->world(), false);
-    const Entity player = app->possessedBody();
-    if (player.valid() && app->m_physics.isBound(player))
-    {
-        if (const PlayerMotorComponent* pmc = app->world().get<PlayerMotorComponent>(player))
-        {
-            if (const TransformComponent* xf = app->world().get<TransformComponent>(player))
-            {
-                Vector3f bodyPos = xf->position;
-                bodyPos.y += pmc->motor.crouchOffset();
-                const Physics::PhysicsBodyId id = app->m_physics.bodyOf(player);
-                app->m_physics.setBodyPose(id, bodyPos, xf->rotation);
-            }
-        }
-    }
-    app->m_physics.step(dt, app->world());
-    app->m_physics.writeDynamicPoses(app->world());
-}
-
-void SandboxApp::onPlayMuzzle(void* user)
-{
-    if (auto* app = static_cast<SandboxApp*>(user))
-        app->pulseMuzzle();
-}
-
-void SandboxApp::onPlayBloodBurst(void* user, const Vector3f& pos)
-{
-    if (auto* app = static_cast<SandboxApp*>(user))
-        app->spawnHunterBlood(pos);
-}
-
-void SandboxApp::onPlayBloodSplat(void* user, float x, float z)
-{
-    auto* app = static_cast<SandboxApp*>(user);
     if (!app)
         return;
-    app->m_bloodSplats.spawn(x, z, app->m_terrain.coarse());
+    stepPossessedBody(app->m_physics, app->world(), app->possessedBody(), dt);
+}
+
+void SandboxApp::bindPlayFeedback()
+{
+    m_playFeedback.world       = &world();
+    m_playFeedback.camera      = &m_viewCamera;
+    m_playFeedback.muzzle      = &m_muzzle;
+    m_playFeedback.muzzleTimer = &m_muzzleTimer;
+    m_playFeedback.blood       = &m_blood;
+    m_playFeedback.splats      = &m_bloodSplats;
+    m_playFeedback.height      = m_terrain.coarse().valid() ? &m_terrain.coarse() : nullptr;
+    m_playFeedback.afterRespawn = &SandboxApp::onPlayRespawn;
+    m_playFeedback.afterUser   = this;
 }
 
 void SandboxApp::onPlayRespawn(void* user)
@@ -615,30 +576,8 @@ void SandboxApp::onPlayQuestNote(void* user, const QuestNoteEvent& note)
     auto* app = static_cast<SandboxApp*>(user);
     if (!app)
         return;
-    const auto color = [](uint32_t r, uint32_t g, uint32_t b) { return 0xFF000000u | (b << 16) | (g << 8) | r; };
-    QuestBanner banner;
-    banner.text = note.text;
-    switch (note.kind)
-    {
-    case QuestNote::Started:
-        banner.label = "NEW QUEST";
-        banner.color = color(240, 205, 110);
-        break;
-    case QuestNote::NewObjective:
-        banner.label = "NEW OBJECTIVE";
-        banner.color = color(235, 235, 235);
-        break;
-    case QuestNote::ObjectiveDone:
-        banner.label = "OBJECTIVE COMPLETE";
-        banner.color = color(120, 230, 140);
-        break;
-    case QuestNote::QuestDone:
-        banner.label = "QUEST COMPLETE";
-        banner.color = color(240, 205, 110);
-        break;
-    }
     if (note.kind != QuestNote::NewObjective || app->m_questBanners.size() < 4)
-        app->m_questBanners.push_back(std::move(banner));
+        app->m_questBanners.push_back(makeQuestBanner(note));
 }
 
 void SandboxApp::onPlayDefenseText(void* user, bool parried)
@@ -648,6 +587,7 @@ void SandboxApp::onPlayDefenseText(void* user, bool parried)
         return;
     app->m_defenseText     = parried ? "PARRY!" : "BLOCKED";
     app->m_defenseTextLeft = 0.7f;
+    app->m_defenseParry    = parried;
 }
 
 void SandboxApp::onPlayLoot(void* user, Entity loot)
@@ -1565,41 +1505,44 @@ bool SandboxApp::ownsWeapon(WeaponKind kind)
     return !inv || hasItem(*inv, id);
 }
 
+bool SandboxApp::bindListedPhysics(void* user, Entity e, bool wolf)
+{
+    auto* app = static_cast<SandboxApp*>(user);
+    if (!app)
+        return false;
+    app->bindEntityPhysics(e, wolf ? "wolf" : "human");
+    return true;
+}
+
+void SandboxApp::noteListedHunter(void* user, Entity e)
+{
+    auto* app = static_cast<SandboxApp*>(user);
+    if (!app || !e.valid())
+        return;
+    if (PathAgentComponent* path = app->world().get<PathAgentComponent>(e))
+        path->repathAt = static_cast<float>(app->m_chase.hunterCount()) * (0.5f / 3.0f);
+    app->m_chase.addHunter(e);
+}
+
 Entity SandboxApp::spawnSpawnerUnit(Entity spawner, const SpawnerRequest& req)
 {
     if (!m_chaseOk)
         return {};
-    if (req.unit == SpawnerUnit::Crow)
-    {
-        const TransformComponent* home = world().get<TransformComponent>(spawner);
-        const float homeX = home ? home->position.x : req.x;
-        const float homeZ = home ? home->position.z : req.z;
-        const float groundY = m_terrain.valid() ? m_terrain.heightAtWorld(req.x, req.z) : 0.0f;
-        return Dark::spawnCrow(world(), renderer(), assets(), pins(), m_crowModels, m_terrain.valid() ? &m_terrain : nullptr, spawner, req, groundY, homeX, homeZ);
-    }
-    const bool wolf = req.unit == SpawnerUnit::Wolf;
-    TransformComponent xf{};
-    xf.position = Vector3f{ req.x, m_terrain.heightAtWorld(req.x, req.z) + 0.5f, req.z };
-    xf.scale    = Vector3f{ 1.0f, 1.0f, 1.0f };
-    const Entity hunter = m_chase.spawnListedHunter(world(), pins(), assets(), xf);
-    if (!hunter.valid())
-    {
-        DE_LOG_WARN(LogCategory::AI, "Sandbox: spawner failed to create a {}", wolf ? "wolf" : "hunter");
-        return {};
-    }
-    const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
-    attachNpcVisual(host, hunter, wolf ? NpcKind::Wolf : NpcKind::Hunter, ModelAttach::AnimatedOnly);
-    bindEntityPhysics(hunter, wolf ? "wolf" : "human");
-    if (!wolf)
-    {
-        stockHunter(hunter);
-        bindNpcDialogue(hunter, {});
-    }
-    SpawnedUnitComponent mark{};
-    mark.spawner = spawner;
-    mark.slot    = req.slot;
-    world().emplace<SpawnedUnitComponent>(hunter, mark);
-    return hunter;
+    ListedSpawnHost host{};
+    host.world     = &world();
+    host.renderer  = &renderer();
+    host.assets    = &assets();
+    host.pins      = &pins();
+    host.audio     = &audio();
+    host.ground    = &m_ground;
+    host.ai        = &m_chase.ai();
+    host.crows     = &m_crowModels;
+    host.terrain   = m_terrain.valid() ? &m_terrain : nullptr;
+    host.play      = &m_play;
+    host.bindPhysics = &SandboxApp::bindListedPhysics;
+    host.noteHunter  = &SandboxApp::noteListedHunter;
+    host.user        = this;
+    return spawnListedUnit(host, spawner, req);
 }
 
 void SandboxApp::dropInventoryItem(int bagIndex)
@@ -1655,21 +1598,6 @@ void SandboxApp::syncPlayerMode()
 
 
 
-
-void SandboxApp::pulseMuzzle()
-{
-    if (!m_muzzle.valid())
-        return;
-    if (TransformComponent* xf = world().get<TransformComponent>(m_muzzle))
-        xf->position = m_viewCamera.GetPosition() + m_viewCamera.GetLook() * 0.8f;
-    if (LocalLightComponent* light = world().get<LocalLightComponent>(m_muzzle))
-    {
-        light->enabled   = true;
-        light->intensity = 37699.0f; // 12000*π after Fd/π
-        light->range     = 6.0f;
-    }
-    m_muzzleTimer = 0.05f;
-}
 
 bool SandboxApp::createSandboxModels(int step)
 {
@@ -2054,12 +1982,6 @@ void SandboxApp::spawnHybridLocalLights()
         ++spawned;
     }
     DE_LOG_INFO("SandboxApp: muzzle ready, {} demo lanterns", spawned);
-}
-
-void SandboxApp::spawnHunterBlood(const Vector3f& pos)
-{
-    m_blood.setTransform(Vector3f{ pos.x, pos.y + 0.45f, pos.z });
-    m_blood.emitBurst(12);
 }
 
 ImpactFxHost SandboxApp::impactHost()
@@ -2558,34 +2480,8 @@ void SandboxApp::onInit()
         DE_LOG_ERROR(LogCategory::Render, "SandboxApp: leaf renderer failed");
     if (!m_bloodSplats.create(renderer()))
         DE_LOG_ERROR("SandboxApp: blood splat pool failed");
-    {
-        ParticleEmitterDesc blood{};
-        blood.name          = "Blood";
-        blood.maxParticles  = 128;
-        blood.emissionRate  = 0.0f;
-        blood.duration      = 0.0f;
-        blood.looping       = false;
-        blood.lifetime      = { 0.22f, 0.50f };
-        blood.startSpeed    = { 1.8f, 4.2f };
-        blood.startSize     = { 0.07f, 0.14f };
-        blood.endSize       = { 0.02f, 0.05f };
-        blood.startColor[0] = 0.72f;
-        blood.startColor[1] = 0.04f;
-        blood.startColor[2] = 0.06f;
-        blood.startColor[3] = 0.95f;
-        blood.endColor[0]   = 0.28f;
-        blood.endColor[1]   = 0.00f;
-        blood.endColor[2]   = 0.01f;
-        blood.endColor[3]   = 0.00f;
-        blood.gravity       = Vector3f{ 0.0f, -11.0f, 0.0f };
-        blood.direction     = Vector3f{ 0.0f, 1.0f, 0.0f };
-        blood.spreadDegrees = 75.0f;
-        blood.shape         = ParticleEmitterDesc::Shape::Sphere;
-        blood.shapeSize     = Vector3f{ 0.12f, 0.0f, 0.0f };
-        blood.additiveBlend = false;
-        m_blood.setDesc(blood);
-        m_blood.stop(true);
-    }
+    m_blood.setDesc(playBloodBurstDesc());
+    m_blood.stop(true);
     if (!pumpBootFrame())
         return;
     if (!pumpBootFrame())
@@ -2642,25 +2538,6 @@ void SandboxApp::tickLeaves(float dt)
     stepFallingLeaves(tick, dt);
 }
 
-void SandboxApp::bindNpcDialogue(Entity npc, const std::string& scenePath)
-{
-    if (!npc.valid())
-        return;
-    std::string path = scenePath;
-    if (path.empty())
-        path = loadEntityMasterType("hunter").dialogue;
-    if (path.empty())
-        return;
-    DialogueBindingComponent binding;
-    binding.graph = std::move(path);
-    if (DialogueBindingComponent* existing = world().get<DialogueBindingComponent>(npc))
-        existing->graph = std::move(binding.graph);
-    else
-        world().emplace<DialogueBindingComponent>(npc, std::move(binding));
-    if (!world().get<DialogueMemoryComponent>(npc))
-        world().emplace<DialogueMemoryComponent>(npc);
-}
-
 void SandboxApp::onUpdate(float dt)
 {
     m_movie.tick(dt);
@@ -2704,19 +2581,16 @@ void SandboxApp::onUpdate(float dt)
         m_cloudTime += dt;
         m_env.tick(dt);
         m_water.tick(dt);
-        if (m_muzzleTimer > 0.0f)
-        {
-            m_muzzleTimer -= dt;
-            if (m_muzzleTimer <= 0.0f)
-            {
-                if (LocalLightComponent* light = m_muzzle.valid() ? world().get<LocalLightComponent>(m_muzzle) : nullptr)
-                    light->enabled = false;
-            }
-            else if (TransformComponent* mxf = m_muzzle.valid() ? world().get<TransformComponent>(m_muzzle) : nullptr)
-                mxf->position = m_viewCamera.GetPosition() + m_viewCamera.GetLook() * 0.8f;
-        }
+        bindPlayFeedback();
+        tickPlayMuzzle(m_playFeedback, dt);
         m_play.tickWorld(dt);
         updateQuest(dt);
+        if (m_defenseTextLeft > 0.0f)
+        {
+            m_defenseTextLeft -= dt;
+            if (m_defenseTextLeft < 0.0f)
+                m_defenseTextLeft = 0.0f;
+        }
         m_blood.update(dt);
         m_gpuParticles.applyIntegratorFallback(world(), renderer().debugState().gpuParticles);
         tickParticleEmitters(world(), dt);

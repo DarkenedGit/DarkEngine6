@@ -38,8 +38,12 @@
 #include "Editor/DialogueEditorPanel.h"
 #include "Editor/AudioPreviewPanel.h"
 #include "Animation/AnimGraphComponent.h"
+#include "Particles/BloodSplatPool.h"
 #include "Particles/ParticleComponents.h"
+#include "Particles/ParticleEmitter.h"
 #include "Particles/ParticleRenderer.h"
+#include "Play/PlayFeedback.h"
+#include "Play/QuestBanner.h"
 #include "Particles/GpuParticleSystem.h"
 #include "Particles/LeafRenderer.h"
 #include "Terrain/LeafField.h"
@@ -193,8 +197,11 @@ private:
     void   restoreAuthoredPoses();
     void   destroySpawnedUnits(Entity onlySpawner);
     Entity spawnSpawnerUnit(Entity spawner, const SpawnerRequest& req);
+    static bool bindListedPhysics(void* user, Entity e, bool wolf);
+    static void proxyListedNpc(void* user, Entity e);
     Dark::Terrain::GroundContact groundContactAt(float x, float z) const;
     void   bindPlayDialogue();
+    void   bindPlayFeedback();
     void   drawPlayDialogue();
     void   drawPlayHud();
     void   drawLoot();
@@ -573,13 +580,7 @@ private:
     std::vector<BuildingDoor>      m_buildingDoors;
     std::vector<BuildingCamera>    m_buildingCameras;
     bool                      m_showUpgrades = false;
-    struct QuestBanner
-    {
-        std::string label;
-        std::string text;
-        float       timeLeft = 3.5f;
-    };
-    std::vector<QuestBanner>  m_questBanners;
+    std::vector<Dark::QuestBanner> m_questBanners;
     Physics::PhysicsWorld          m_physics;
     Physics::PhysicsSurfaceCatalog m_surfaces;
     Physics::PhysicsBodyId         m_physicsGround = Physics::kNullPhysicsBody;
@@ -596,8 +597,14 @@ private:
     Dark::Entity              m_lootTarget{};
     std::string               m_defenseText;
     float                     m_defenseTextLeft = 0.0f;
+    bool                      m_defenseParry    = false;
     CrowModels                m_crowModels{};
     Dark::Entity              m_playShield{};
+    Dark::Entity              m_playMuzzle{};
+    float                     m_playMuzzleTimer = 0.0f;
+    Dark::PlayFeedback        m_playFeedback{};
+    Dark::ParticleEmitter     m_blood;
+    Dark::BloodSplatPool      m_bloodSplats;
     Dark::Terrain::HeightMap           m_playGrid{};
     Dark::Terrain::TerrainGround       m_ground{};
     std::vector<Dark::Math::AABox3f> m_playCubes;

@@ -494,6 +494,8 @@ void SandboxApp::drawDialogue()
     view.projectWidth  = static_cast<float>(renderer().width());
     view.projectHeight = static_cast<float>(renderer().height());
     view.windowName    = "Dialogue";
+    const std::string talkPrompt = input().actions().keyBracket("talk", "[T]") + " Talk";
+    view.talkPrompt    = talkPrompt.c_str();
     drawDialogueHud(m_dialogue, view);
     drawMovieHud(m_movie);
 }
@@ -596,6 +598,9 @@ void SandboxApp::drawPickupLabels()
     const TransformComponent* pxf     = body.valid() ? world().get<TransformComponent>(body) : nullptr;
     const PlayInteractPick    pick    = m_play.pickInteract();
     const Entity              nearest = pick.kind == PlayInteract::Item ? pick.e : Entity{};
+    const std::string         useKey  = input().actions().keyBracket("pickup", "[G]");
+    const std::string         takeKey = input().actions().keyBracket("takedown", "[E]");
+    const std::string         usePrefix = useKey + " ";
 
     auto label = [&](Entity e, const char* name) {
         const TransformComponent* xf = world().get<TransformComponent>(e);
@@ -616,7 +621,7 @@ void SandboxApp::drawPickupLabels()
 
         const bool canTake = nearest.valid() && e.id() == nearest.id();
         char       text[112];
-        std::snprintf(text, sizeof(text), "%s%s", canTake ? "[G] " : "", name);
+        std::snprintf(text, sizeof(text), "%s%s", canTake ? usePrefix.c_str() : "", name);
 
         const ImVec2 ts = ImGui::CalcTextSize(text);
         const ImVec2 pos{ vpPos.x + sx - ts.x * 0.5f, vpPos.y + sy - ts.y };
@@ -635,8 +640,9 @@ void SandboxApp::drawPickupLabels()
         const Vector4f clip = m_viewCamera.GetViewProj() * Vector4f(Vector3f(at.x, at.y + 1.0f, at.z), 1.0f);
         if (clip.w <= 1.0e-4f || clip.z / clip.w < 0.0f || clip.z / clip.w > 1.0f)
             return;
-        const bool   close = pick.kind == PlayInteract::Power && pick.e == e;
-        const char*  text  = close ? (box.on ? "[G] Cut power" : "[G] Restore power") : (box.on ? "Power box" : "Power box (off)");
+        const bool        close = pick.kind == PlayInteract::Power && pick.e == e;
+        const std::string power = close ? (useKey + (box.on ? " Cut power" : " Restore power")) : std::string(box.on ? "Power box" : "Power box (off)");
+        const char*       text  = power.c_str();
         const ImVec2 ts    = ImGui::CalcTextSize(text);
         const ImVec2 pos{ vpPos.x + (clip.x / clip.w * 0.5f + 0.5f) * vw - ts.x * 0.5f, vpPos.y + (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * vh - ts.y };
         dl->AddText(ImVec2(pos.x + 1.0f, pos.y + 1.0f), IM_COL32(0, 0, 0, 200), text);
@@ -653,16 +659,25 @@ void SandboxApp::drawPickupLabels()
         dl->AddText(pos, color, text);
     };
     if (pxf && carriedBody(world()).valid())
-        prompt(pxf->position + Vector3f{ 0.0f, 1.4f, 0.0f }, "[G] Drop body", IM_COL32(255, 220, 90, 255));
+    {
+        const std::string drop = useKey + " Drop body";
+        prompt(pxf->position + Vector3f{ 0.0f, 1.4f, 0.0f }, drop.c_str(), IM_COL32(255, 220, 90, 255));
+    }
     else if (const Entity target = m_play.takedownTarget(); target.valid())
     {
         if (const TransformComponent* gxf = world().get<TransformComponent>(target))
-            prompt(gxf->position + Vector3f{ 0.0f, 1.2f, 0.0f }, "[E] Takedown", IM_COL32(255, 110, 90, 255));
+        {
+            const std::string take = takeKey + " Takedown";
+            prompt(gxf->position + Vector3f{ 0.0f, 1.2f, 0.0f }, take.c_str(), IM_COL32(255, 110, 90, 255));
+        }
     }
     else if (pick.kind == PlayInteract::Body)
     {
         if (const TransformComponent* gxf = world().get<TransformComponent>(pick.e))
-            prompt(gxf->position + Vector3f{ 0.0f, 0.6f, 0.0f }, "[G] Pick up body", IM_COL32(255, 220, 90, 255));
+        {
+            const std::string lift = useKey + " Pick up body";
+            prompt(gxf->position + Vector3f{ 0.0f, 0.6f, 0.0f }, lift.c_str(), IM_COL32(255, 220, 90, 255));
+        }
     }
     else if (pick.kind == PlayInteract::Hide)
     {
@@ -670,7 +685,7 @@ void SandboxApp::drawPickupLabels()
         const HideSpotComponent*  hs  = world().get<HideSpotComponent>(pick.e);
         if (hxf && hs)
         {
-            const std::string text = "[G] Hide in " + hs->label;
+            const std::string text = useKey + " Hide in " + hs->label;
             prompt(hxf->position + Vector3f{ 0.0f, 2.4f, 0.0f }, text.c_str(), IM_COL32(255, 220, 90, 255));
         }
     }
@@ -679,12 +694,15 @@ void SandboxApp::drawPickupLabels()
         const DoorComponent* door = world().get<DoorComponent>(pick.e);
         if (door)
         {
-            const char* text = door->wantOpen ? "[G] Close door" : (door->lock.empty() ? "[G] Open door" : "[G] Locked door");
-            prompt(door->closedPos + Vector3f{ 0.0f, 1.0f, 0.0f }, text, IM_COL32(255, 220, 90, 255));
+            const std::string text = useKey + (door->wantOpen ? " Close door" : (door->lock.empty() ? " Open door" : " Locked door"));
+            prompt(door->closedPos + Vector3f{ 0.0f, 1.0f, 0.0f }, text.c_str(), IM_COL32(255, 220, 90, 255));
         }
     }
     if (const PlayRuntime& play = m_play.runtime(); play.climbOffer)
-        prompt(play.climbAt, play.climbDown ? "[G] Climb down" : "[G] Climb", IM_COL32(255, 220, 90, 255));
+    {
+        const std::string climb = useKey + (play.climbDown ? " Climb down" : " Climb");
+        prompt(play.climbAt, climb.c_str(), IM_COL32(255, 220, 90, 255));
+    }
     const FacilityState& facility = m_play.facility();
     if (facility.doorMsgTime > 0.0f && !facility.doorMsg.empty())
     {
@@ -696,7 +714,7 @@ void SandboxApp::drawPickupLabels()
     if (facility.hiddenIn.valid())
     {
         const HideSpotComponent* hs   = world().get<HideSpotComponent>(facility.hiddenIn);
-        const std::string        text = "Hidden in " + (hs ? hs->label : std::string("hiding spot")) + "   [G] Step out";
+        const std::string        text = "Hidden in " + (hs ? hs->label : std::string("hiding spot")) + "   " + useKey + " Step out";
         const ImVec2             ts   = ImGui::CalcTextSize(text.c_str());
         const ImVec2             at{ vpPos.x + (vw - ts.x) * 0.5f, vpPos.y + vh - 190.0f };
         dl->AddText(ImVec2(at.x + 1.0f, at.y + 1.0f), IM_COL32(0, 0, 0, 220), text.c_str());
@@ -927,11 +945,10 @@ void SandboxApp::drawGuardAwareness()
 
 void SandboxApp::drawDefenseText()
 {
-    if (m_defenseTextLeft <= 0.0f)
+    if (m_defenseTextLeft <= 0.0f || !m_defenseText || !m_defenseText[0])
         return;
-    m_defenseTextLeft -= m_frameDt;
-    const float          a    = Math::Clamp(m_defenseTextLeft / 0.7f, 0.0f, 1.0f);
-    const bool           parry = m_defenseText[0] == 'P';
+    const float          a     = Math::Clamp(m_defenseTextLeft / 0.7f, 0.0f, 1.0f);
+    const bool           parry = m_defenseParry;
     const ImGuiViewport* vp   = ImGui::GetMainViewport();
     ImDrawList*          dl   = ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp));
     const float          size = ImGui::GetFontSize() * (parry ? 2.2f : 1.7f);

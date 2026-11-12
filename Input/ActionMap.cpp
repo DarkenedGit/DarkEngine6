@@ -126,6 +126,53 @@ namespace Dark
         return &it->second;
     }
 
+    namespace
+    {
+
+        std::string keyGlyph(Key key)
+        {
+            const uint16_t code = static_cast<uint16_t>(key);
+            if (code >= static_cast<uint16_t>('A') && code <= static_cast<uint16_t>('Z'))
+                return std::string(1, static_cast<char>(code));
+            if (code >= static_cast<uint16_t>('0') && code <= static_cast<uint16_t>('9'))
+                return std::string(1, static_cast<char>(code));
+            if (code >= static_cast<uint16_t>(Key::F1) && code <= static_cast<uint16_t>(Key::F12))
+                return "F" + std::to_string(static_cast<int>(code - static_cast<uint16_t>(Key::F1) + 1));
+            switch (key)
+            {
+            case Key::Space:         return "Space";
+            case Key::Escape:        return "Esc";
+            case Key::Enter:         return "Enter";
+            case Key::Tab:           return "Tab";
+            case Key::LeftShift:
+            case Key::RightShift:    return "Shift";
+            case Key::LeftControl:
+            case Key::RightControl:  return "Ctrl";
+            case Key::LeftAlt:
+            case Key::RightAlt:      return "Alt";
+            default:                 return {};
+            }
+        }
+
+    } // namespace
+
+    std::string ActionMap::keyBracket(std::string_view action, std::string_view fallback) const
+    {
+        const std::vector<Binding>* list = bindings(action);
+        if (!list)
+            return std::string(fallback);
+        for (const Binding& binding : *list)
+        {
+            if (binding.type != BindingType::Key)
+                continue;
+            const std::string glyph = keyGlyph(static_cast<Key>(binding.code));
+            if (glyph.empty())
+                break;
+            return "[" + glyph + "]";
+        }
+        return std::string(fallback);
+    }
+
     bool ActionMap::down(const Input& input, std::string_view action) const
     {
         const auto* list = bindings(action);

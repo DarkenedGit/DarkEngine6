@@ -193,8 +193,15 @@ namespace Dark
         Entity (*spawnUnit)(void* user, Entity spawner, const SpawnerRequest& req) = nullptr;
         float (*heightAt)(void* user, float x, float z)                    = nullptr;
         Terrain::GroundContact (*groundContact)(void* user, float x, float z) = nullptr;
-        void* user = nullptr;
+        void* user     = nullptr;
+        // Set by installPlayFeedback. Muzzle, blood, and respawn callbacks receive this, not user.
+        void* feedback = nullptr;
     };
+
+    inline void* playHookUser(const PlayHost& host)
+    {
+        return host.feedback ? host.feedback : host.user;
+    }
 
     // Shared Sandbox / Editor play tick. Does not own the world, and is never relocated.
     class PlaySession
