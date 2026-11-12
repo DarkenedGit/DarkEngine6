@@ -14,11 +14,14 @@
 #include "Character/SkillXp.h"
 #include "Combat/ArmorComponent.h"
 #include "Combat/ArmorPieces.h"
+#include "Combat/CombatSystem.h"
+#include "Combat/DefenseComponent.h"
 #include "Combat/HitVolumes.h"
 #include "Combat/JumpAttackComponent.h"
 #include "Combat/JumpAttackResolve.h"
 #include "Combat/PoiseComponent.h"
 #include "Combat/StatusEffectComponent.h"
+#include "Combat/WeaponHitAdapter.h"
 #include "Core/Log.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
@@ -31,6 +34,7 @@
 #include "Play/ThrowableHost.h"
 #include "Play/WeaponFire.h"
 #include "Render/Camera3D.h"
+#include "Scene/EntityCombat.h"
 #include "Terrain/TerrainGrid.h"
 #include "Weapons/WeaponLoadoutComponent.h"
 
@@ -80,7 +84,7 @@ namespace Dark
             if (dx * dx + dz * dz < 1.0e-4f)
                 return;
             runtime.faceYaw  = std::atan2f(dx, dz);
-            runtime.faceLeft = 0.15f;
+            runtime.faceLeft = entityCombatFor("player").faceSeconds;
         }
 
         void onDefended(PlayHost& host, PlayRuntime& runtime, Entity attacker, bool parried)
@@ -88,10 +92,11 @@ namespace Dark
             World* world = host.world;
             if (!world || !host.audio || !host.assets)
                 return;
+            const EntityCombat& combat = entityCombatFor("player");
             faceTarget(host, runtime, attacker);
             runtime.shieldBump = 0.2f;
-            runtime.hitStop    = parried ? 0.1f : 0.05f;
-            runtime.shake      = parried ? 0.09f : 0.06f;
+            runtime.hitStop    = parried ? combat.hitStopParry : combat.hitStopBlock;
+            runtime.shake      = parried ? combat.shakeParry : combat.shakeBlock;
             if (host.onDefenseText)
                 host.onDefenseText(host.user, parried);
             playSoundCue(*world, *host.audio, *host.assets, host.player, "impact");
@@ -99,7 +104,7 @@ namespace Dark
                 return;
             const TransformComponent* axf = world->get<TransformComponent>(attacker);
             const TransformComponent* pxf = host.player.valid() ? world->get<TransformComponent>(host.player) : nullptr;
-            host.ai->interruptAttack(*world, attacker, 1.2f);
+            host.ai->interruptAttack(*world, attacker, entityCombatFor("player").parryInterrupt);
             if (axf && pxf)
                 host.ai->applyHunterHitReaction(*world, attacker, Math::Vector3f{ axf->position.x - pxf->position.x, 0.0f, axf->position.z - pxf->position.z });
             if (AnimGraphComponent* aag = world->get<AnimGraphComponent>(attacker))
@@ -139,7 +144,11 @@ namespace Dark
         q.raycastTerrain = hooks.raycastTerrain;
         q.heightAt       = hooks.terrainHeight;
         runtime.targets.bind(q);
-        q.maxRange = 90.0f;
+        q.solids     = runtime.weaponBlocks;
+        q.solidCount = runtime.weaponBlockCount;
+        q.spheres    = host.sphereCount > 0 ? host.spheres : nullptr;
+        q.sphereCount = q.spheres ? host.sphereCount : 0;
+        q.maxRange   = entityCombatFor("player").weaponRange;
         return q;
     }
 
@@ -230,10 +239,11 @@ namespace Dark
             noteShotXp(*skill, true);
         if (melee)
         {
+            const EntityCombat& swing = entityCombatFor("player");
             runtime.comboStep   = runtime.comboWindow > 0.0f ? 1 - runtime.comboStep : 0;
             runtime.comboCount  = runtime.comboWindow > 0.0f ? runtime.comboCount + 1 : 1;
-            runtime.comboWindow = 0.9f;
-            runtime.swingLock   = 0.45f;
+            runtime.comboWindow = swing.comboWindow;
+            runtime.swingLock   = swing.swingLock;
         }
         if (AnimGraphComponent* ag = body.valid() ? world->get<AnimGraphComponent>(body) : nullptr)
         {
@@ -294,7 +304,7 @@ namespace Dark
         }
     }
 
-    void onPlayerWeaponHit(PlayHost& host, PlayRuntime& runtime, const WeaponHit& hit)
+    void onPlayerWeaponHit(PlayHost& host, PlayRuntime& runtime, Combat::CombatSystem& combat, const WeaponHit& hit)
     {
         World* world = host.world;
         if (!world || !host.audio || !host.assets)
@@ -307,31 +317,31 @@ namespace Dark
             victim = runtime.targets.entityAt(hit.targetIndex);
         if (!victim.valid() || !world->alive(victim))
             return;
-        HealthComponent*          hp         = world->get<HealthComponent>(victim);
-        const bool                wasAlive   = hp && hp->health.alive();
+        HealthComponent*          hp       = world->get<HealthComponent>(victim);
+        const bool                wasAlive = hp && hp->health.alive();
+        const float               beforeHp = hp ? hp->health.hp() : 0.0f;
         const TransformComponent* attackerXf = host.player.valid() ? world->get<TransformComponent>(host.player) : nullptr;
-        const Math::Vector3f      knock      = Combat::partKnockbackDirection(hit.part, attackerXf, hit.point, hit.direction);
-        auto                      spendPieces = [&](float damage) {
-            Combat::ArmorBreak broke{};
-            if (Combat::ArmorPiecesComponent* armor = world->get<Combat::ArmorPiecesComponent>(victim))
-            {
-                if (const TransformComponent* vxf = world->get<TransformComponent>(victim))
-                {
-                    const bool hasFlat = Combat::usesFlatArmor(world->get<Combat::ArmorComponent>(victim));
-                    damage = Combat::absorbArmorHit(*armor, vxf->position, vxf->rotation, hit.point, hit.direction, damage, broke, hit.part, hasFlat);
-                }
-            }
+        const Math::Vector3f      knock    = Combat::partKnockbackDirection(hit.part, attackerXf, hit.point, hit.direction);
+        const EntityCombat&       playerCombat = entityCombatFor("player");
+        const bool                melee    = hit.weapon == WeaponKind::Melee;
+
+        auto fillEvent = [&]() {
+            Combat::DamageEvent ev = Combat::damageEventFromWeaponHit(hit, host.player);
+            ev.skipHitReaction     = true;
+            ev.target              = victim;
+            ev.amount              = hit.damage;
+            ev.type                = melee ? Combat::DamageType::Slash : Combat::DamageType::Pierce;
+            if (const Combat::DefenseComponent* defense = host.player.valid() ? world->get<Combat::DefenseComponent>(host.player) : nullptr)
+                ev.teamSource = defense->team;
+            else
+                ev.teamSource = static_cast<uint8_t>(playerCombat.team);
+            return ev;
+        };
+        auto knockArmor = [&](const Combat::ArmorBreak& broke) {
             if (broke.index >= 0 && host.physics)
                 knockOffArmor(*world, *host.physics, victim, broke);
-            return damage;
         };
-        auto noteIfAlive = [&]() {
-            const HealthComponent* after = world->get<HealthComponent>(victim);
-            if (!after || !after->health.alive())
-                return;
-            if (Combat::HitVolumesComponent* volumes = world->get<Combat::HitVolumesComponent>(victim))
-                Combat::noteLandedPartHit(*volumes, hit.part);
-        };
+
         if (world->has<AiAgentComponent>(victim))
         {
             if (!host.ai)
@@ -340,14 +350,13 @@ namespace Dark
             const Math::Vector3f      playerPos = playerXf ? playerXf->position : Math::Vector3f{};
             host.ai->forceAlert(*world, victim, playerPos);
             using MeleeResponse          = AiSystem::MeleeResponse;
-            const bool          melee    = hit.weapon == WeaponKind::Melee;
             const MeleeResponse response = melee ? host.ai->respondToMelee(*world, victim, playerPos) : MeleeResponse::Stagger;
             if (response == MeleeResponse::Blocked)
             {
                 faceTarget(host, runtime, victim);
-                runtime.hitStop     = 0.06f;
-                runtime.shake       = 0.07f;
-                runtime.blockRecoil = 0.55f;
+                runtime.hitStop     = playerCombat.hitStopBlock;
+                runtime.shake       = playerCombat.shakeBlock;
+                runtime.blockRecoil = playerCombat.blockRecoil;
                 playSoundCueAt(*world, *host.audio, *host.assets, victim, "impact", hit.point);
                 if (AnimGraphComponent* vag = world->get<AnimGraphComponent>(victim))
                     vag->graph.setTrigger("block");
@@ -356,10 +365,14 @@ namespace Dark
                 host.ai->onHunterAttacked(*world, victim, playerPos);
                 return;
             }
-            const float damage  = spendPieces(hit.damage);
-            const bool  damaged = host.ai->applyHunterDamage(*world, victim, damage);
-            noteIfAlive();
-            if (!damaged)
+            Combat::ArmorBreak broke{};
+            const Combat::ResolveResult resolved = combat.resolve(*world, fillEvent(), &broke);
+            knockArmor(broke);
+            if (resolved.killed)
+                host.ai->noteHunterDown(*world, victim);
+            hp = world->get<HealthComponent>(victim);
+            const bool damaged = hp && hp->health.hp() < beforeHp;
+            if (!damaged && !resolved.killed)
                 return;
             if (response == MeleeResponse::Stagger)
                 host.ai->applyHunterHitReaction(*world, victim, knock);
@@ -369,8 +382,8 @@ namespace Dark
                 const HealthComponent* after = world->get<HealthComponent>(victim);
                 if (AnimGraphComponent* vag = world->get<AnimGraphComponent>(victim); vag && after && after->health.alive() && response == MeleeResponse::Stagger)
                     vag->graph.setTrigger("hit");
-                const bool heavy = runtime.swingCharged || (hp && !hp->health.alive());
-                runtime.hitStop  = heavy ? 0.12f : 0.07f;
+                const bool heavy = runtime.swingCharged || (wasAlive && hp && !hp->health.alive());
+                runtime.hitStop  = heavy ? playerCombat.hitStopHeavy : playerCombat.hitStopLight;
                 playSoundCueAt(*world, *host.audio, *host.assets, victim, "impact", hit.point);
             }
             playSoundCueAt(*world, *host.audio, *host.assets, victim, "pain", hit.point);
@@ -379,7 +392,6 @@ namespace Dark
             if (host.onBloodBurst)
                 host.onBloodBurst(playHookUser(host), hit.point);
             spawnLivingBloodDecal(impactOf(host, runtime), victim, hit.point, hit.normal);
-            hp = world->get<HealthComponent>(victim);
             if (wasAlive && hp && !hp->health.alive())
             {
                 spawnDeathBloodDecal(impactOf(host, runtime), hit.point, hit.normal);
@@ -391,11 +403,10 @@ namespace Dark
         }
         if (!hp)
             return;
-        const float damage = spendPieces(hit.damage);
-        const float before = hp->health.hp();
-        hp->health.applyDamage(damage);
-        noteIfAlive();
-        if (hp->health.hp() >= before)
+        Combat::ArmorBreak broke{};
+        combat.resolve(*world, fillEvent(), &broke);
+        knockArmor(broke);
+        if (!(hp->health.hp() < beforeHp))
             return;
         if (HitReactionComponent* hr = world->get<HitReactionComponent>(victim))
             hr->hit.apply(knock);
@@ -456,7 +467,7 @@ namespace Dark
             if (!snaps[i].hunter && hp->health.alive() && !results[i].blocked)
             {
                 if (player.valid() && snaps[i].e.id() == player.id())
-                    runtime.shake = 0.08f;
+                    runtime.shake = entityCombatFor("player").shakeHit;
                 if (AnimGraphComponent* ag = world->get<AnimGraphComponent>(snaps[i].e))
                     ag->graph.setTrigger("hit");
             }
@@ -468,7 +479,7 @@ namespace Dark
             }
             playSoundCueAt(*world, *host.audio, *host.assets, snaps[i].e, "pain", events[i].hitPoint);
             playSoundCueAt(*world, *host.audio, *host.assets, snaps[i].e, "grunt", events[i].hitPoint);
-            if (host.ai)
+            if (host.ai && player.valid() && events[i].source.valid() && events[i].source.id() == player.id())
                 host.ai->onHunterAttacked(*world, snaps[i].e, playerPos);
             if (host.onBloodBurst)
                 host.onBloodBurst(playHookUser(host), events[i].hitPoint);

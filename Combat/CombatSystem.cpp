@@ -16,6 +16,7 @@
 #include "ECS/Components.h"
 #include "ECS/World.h"
 #include "Math/MathHelper.h"
+#include "Scene/EntityCombat.h"
 
 
 namespace Dark::Combat
@@ -134,8 +135,9 @@ namespace Dark::Combat
         if (!ev.source.valid() || !world.alive(ev.source) || ev.source.id() == ev.target.id())
             return;
 
-        const float parryStun = (defense && defense->parryStunSeconds > 0.0f) ? defense->parryStunSeconds : 0.90f;
-        float       slamStun  = (defense && defense->chargedParryStunSeconds > 0.0f) ? defense->chargedParryStunSeconds : 1.80f;
+        const EntityCombat& parryCombat = entityCombatFor("player");
+        const float parryStun = (defense && defense->parryStunSeconds > 0.0f) ? defense->parryStunSeconds : parryCombat.parryStun;
+        float       slamStun  = (defense && defense->chargedParryStunSeconds > 0.0f) ? defense->chargedParryStunSeconds : parryCombat.chargedParryStun;
         if (slamStun <= parryStun)
             slamStun = parryStun + 0.50f;
 
@@ -149,7 +151,7 @@ namespace Dark::Combat
         if (StatusEffectComponent* st = world.get<StatusEffectComponent>(ev.source))
         {
             if (charged)
-                st->applyCc(CcCategory::Knockdown, dur, true, static_cast<uint8_t>(StatusId::Knockdown), 2.4f, ev.target);
+                st->applyCc(CcCategory::Knockdown, dur, true, static_cast<uint8_t>(StatusId::Knockdown), parryCombat.chargedParryKnockback, ev.target);
             else
                 st->applyCc(CcCategory::Stun, dur, true, static_cast<uint8_t>(StatusId::Stun), 1.0f, ev.target);
         }
@@ -159,8 +161,8 @@ namespace Dark::Combat
             HitReactionSettings saved = hr->hit.settings();
             HitReactionSettings slam = saved;
             slam.stunSeconds       = dur;
-            slam.knockbackDistance = charged ? 2.4f : 0.80f;
-            slam.knockbackSeconds  = charged ? 0.22f : 0.12f;
+            slam.knockbackDistance = charged ? parryCombat.chargedParryKnockback : parryCombat.parryKnockback;
+            slam.knockbackSeconds  = charged ? parryCombat.chargedParryKnockSeconds : parryCombat.parryKnockSeconds;
             slam.horizontalOnly    = true;
             hr->hit.setSettings(slam);
             hr->hit.apply(push);
@@ -292,6 +294,7 @@ namespace Dark::Combat
 
         const bool mappedKnockdown = (ev.flags & DamageFlags::Knockdown) != 0;
         const bool hadShock        = status && status->has(StatusId::Shock);
+        const EntityCombat& actorCombat = entityCombatFor("player");
         if (status && !r.blocked)
         {
             if (ev.statusId != 0)
@@ -302,18 +305,18 @@ namespace Dark::Combat
             {
                 CcCategory cat    = CcCategory::Root;
                 bool       hard   = false;
-                float      defDur = 0.8f;
+                float      defDur = actorCombat.ccRoot;
                 if (mappedKnockdown)
                 {
                     cat    = CcCategory::Knockdown;
                     hard   = true;
-                    defDur = 1.4f;
+                    defDur = actorCombat.ccKnockdown;
                 }
                 else if ((ev.flags & DamageFlags::HardCc) != 0)
                 {
                     cat    = CcCategory::Stun;
                     hard   = true;
-                    defDur = 1.2f;
+                    defDur = actorCombat.ccStun;
                 }
                 const float dur = ev.statusDuration > 0.0f ? ev.statusDuration : defDur;
                 r.ccDuration    = status->applyCc(cat, dur, hard, ev.statusId, ev.statusMagnitude, ev.source);
@@ -324,7 +327,7 @@ namespace Dark::Combat
         const float norm  = dmg / maxHp;
         r.severity        = severityFromNormalized(norm, poiseBroke, killed);
 
-        if (hitReaction && !r.blocked)
+        if (hitReaction && !r.blocked && !ev.skipHitReaction)
         {
             const Vector3f& reactionDir = knockDirection ? *knockDirection : ev.hitDir;
             const bool hyper        = poise && poise->hyperArmor;
@@ -337,8 +340,8 @@ namespace Dark::Combat
                 {
                     HitReactionSettings kd{};
                     kd.stunSeconds       = r.ccDuration;
-                    kd.knockbackDistance = ev.statusMagnitude > 0.0f ? ev.statusMagnitude : 2.4f;
-                    kd.knockbackSeconds  = 0.22f;
+                    kd.knockbackDistance = ev.statusMagnitude > 0.0f ? ev.statusMagnitude : actorCombat.chargedParryKnockback;
+                    kd.knockbackSeconds  = actorCombat.chargedParryKnockSeconds;
                     kd.horizontalOnly    = true;
                     hitReaction->setSettings(kd);
                     hitReaction->apply(reactionDir);
@@ -347,7 +350,7 @@ namespace Dark::Combat
             else if (shockApplied && !hyper)
             {
                 HitReactionSettings hitch{};
-                hitch.stunSeconds       = 0.25f;
+                hitch.stunSeconds       = actorCombat.shockHitch;
                 hitch.knockbackDistance = 0.0f;
                 hitch.knockbackSeconds  = 0.0f;
                 hitch.horizontalOnly    = true;

@@ -236,15 +236,15 @@ namespace Dark
 
     void ProjectileWeapon::restoreShots(const std::vector<LiveProjectile>& shots)
     {
-        m_shots.clear();
-        const size_t cap = m_desc.maxLive;
+        const size_t cap = m_desc.maxLive > 0 ? static_cast<size_t>(m_desc.maxLive) : 0;
+        m_shots.assign(cap, LiveProjectile{});
+        size_t slot = 0;
         for (const LiveProjectile& shot : shots)
         {
-            if (!shot.alive)
+            if (!shot.alive || slot >= cap)
                 continue;
-            if (m_shots.size() >= cap)
-                break;
-            m_shots.push_back(shot);
+            m_shots[slot] = shot;
+            ++slot;
         }
     }
 

@@ -9,8 +9,10 @@
 #include "Animation/Locomotion.h"
 #include "Audio/SoundComponents.h"
 #include "Character/ArmorView.h"
+#include "Character/DamageEntity.h"
 #include "Character/HealthComponent.h"
 #include "Character/HitReaction.h"
+#include "Character/PlayerStealth.h"
 #include "Character/ItemView.h"
 #include "Character/PlayerMotorComponent.h"
 #include "Character/ShieldView.h"
@@ -67,6 +69,7 @@
 #include "Render/Camera3D.h"
 #include "Render/Underwater.h"
 #include "Save/ProgressComponents.h"
+#include "Scene/EntityCombat.h"
 #include "Terrain/TerrainGrid.h"
 #include "Weapons/WeaponLoadoutComponent.h"
 
@@ -97,6 +100,59 @@ namespace Dark
             out.heightUser = host.user;
             out.submerged  = rt.submerged;
             return out;
+        }
+
+        void applyPlayerShieldSettings(PlayRuntime& runtime)
+        {
+            const EntityCombat& combat = entityCombatFor("player");
+            Combat::ShieldSettings shield;
+            shield.raiseSeconds   = combat.shieldRaise;
+            shield.moveSpeedScale = combat.shieldMoveScale;
+            shield.blockArcDeg    = combat.shieldArc;
+            runtime.offhand.shield.setSettings(shield);
+            runtime.chargeSettings.parryStunSeconds        = combat.parryStun;
+            runtime.chargeSettings.chargedParryStunSeconds = combat.chargedParryStun;
+        }
+
+        void publishWeaponBlocks(PlayRuntime& runtime, FacilityState& facility, const PlayHost& host)
+        {
+            publishDoorBlocks(facility, facilityHostOf(host, runtime));
+            runtime.weaponBlocks     = facility.blockCount > 0 ? facility.blocks : nullptr;
+            runtime.weaponBlockCount = runtime.weaponBlocks ? facility.blockCount : 0;
+        }
+
+        bool playerReadyForTakedown(const PlayHost& host, const FacilityState& facility)
+        {
+            World* world = host.world;
+            if (!world || !host.player.valid())
+                return false;
+            const HealthComponent* hp = world->get<HealthComponent>(host.player);
+            if (!hp || !hp->health.alive())
+                return false;
+            const PlayerMotorComponent* pmc = world->get<PlayerMotorComponent>(host.player);
+            if (!pmc)
+                return false;
+            const PlayerMoveState state = pmc->motor.state();
+            if (state != PlayerMoveState::Grounded && state != PlayerMoveState::Crouch)
+                return false;
+            if (facility.hiddenIn.valid())
+                return false;
+            if (const PlayerStealthComponent* stealth = world->get<PlayerStealthComponent>(host.player))
+            {
+                if (stealth->hidden)
+                    return false;
+            }
+            if (const HitReactionComponent* hr = world->get<HitReactionComponent>(host.player))
+            {
+                if (hr->hit.stunned())
+                    return false;
+            }
+            if (const Combat::StatusEffectComponent* st = world->get<Combat::StatusEffectComponent>(host.player))
+            {
+                if (st->hasHardCc())
+                    return false;
+            }
+            return true;
         }
     } // namespace
 
@@ -176,6 +232,7 @@ namespace Dark
         r.spawn             = {};
         r.lowerBodyYaw      = 0.0f;
         r.offhand.reset();
+        applyPlayerShieldSettings(r);
         r.attackCharge.reset();
         r.blockCharge.reset();
         r.chargeWindup = {};
@@ -367,6 +424,7 @@ namespace Dark
         m_rt.hurtTimer       = 0.0f;
         m_rt.jumpAttackBuffer = 0.0f;
         m_rt.offhand.reset();
+        applyPlayerShieldSettings(m_rt);
         if (SkillComponent* sk = body.valid() ? world->get<SkillComponent>(body) : nullptr)
             sk->seeArmed = false;
         m_rt.attackCharge.reset();
@@ -387,7 +445,7 @@ namespace Dark
     void PlaySession::onWeaponHit(const WeaponHit& hit)
     {
         pull();
-        onPlayerWeaponHit(m_host, m_rt, hit);
+        onPlayerWeaponHit(m_host, m_rt, m_combat, hit);
     }
 
     void PlaySession::switchWeapons()
@@ -478,9 +536,12 @@ namespace Dark
     {
         pull();
         World* world = m_host.world;
-        if (!world)
+        if (!world || !playerReadyForTakedown(m_host, m_facility))
             return {};
-        return findTakedownTarget(*world, m_host.player, m_host.chaseReady);
+        publishWeaponBlocks(m_rt, m_facility, m_host);
+        const EntityCombat& combat = entityCombatFor("player");
+        return findTakedownTarget(*world, m_host.player, m_host.chaseReady, combat.takedownRange, combat.takedownHeight, combat.takedownBackDot, m_rt.weaponBlocks,
+                                  m_rt.weaponBlockCount, m_host.sphereCount > 0 ? m_host.spheres : nullptr, m_host.sphereCount);
     }
 
     bool PlaySession::tryTakedown()
@@ -598,6 +659,7 @@ namespace Dark
         Input* input = m_host.input;
         if (!world || !input)
             return;
+        publishWeaponBlocks(m_rt, m_facility, m_host);
 
         m_rt.swimDiveEdge  = false;
         m_rt.swimStandEdge = false;
@@ -733,9 +795,10 @@ namespace Dark
             motorIn.climbPressed = climbPressed;
         const bool onGround = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch || motor->state() == PlayerMoveState::Dodge);
         const Terrain::GroundContact groundSurf = (onGround && m_host.groundContact) ? m_host.groundContact(m_host.user, xf->position.x, xf->position.z) : Terrain::GroundContact{};
-        const float swingSlow = m_rt.blockRecoil > 0.0f ? 0.4f : (m_rt.swingLock <= 0.0f ? 1.0f : (m_rt.comboCount > 1 ? 0.45f : 0.8f));
+        const EntityCombat& playerCombat = entityCombatFor("player");
+        const float swingSlow = m_rt.blockRecoil > 0.0f ? playerCombat.swingSlowRecoil : (m_rt.swingLock <= 0.0f ? 1.0f : (m_rt.comboCount > 1 ? playerCombat.swingSlowCombo : playerCombat.swingSlowSingle));
         float speedScale = (status ? status->moveSpeedScale() : 1.0f) * m_rt.offhand.shield.speedScale() * (onGround ? groundSurf.moveSpeed : 1.0f) * swingSlow
-                         * (carriedBody(*world).valid() ? 0.6f : 1.0f);
+                         * (carriedBody(*world).valid() ? playerCombat.carrySlow : 1.0f);
         if (partVolumes)
             speedScale = Combat::hitVolumesSpeedScale(partVolumes, speedScale);
         motorIn.speedScale = speedScale;
@@ -923,7 +986,7 @@ namespace Dark
         m_rt.wet       = motor && motor->state() == PlayerMoveState::Swimming;
         m_rt.submerged = motor && motor->submerged();
         if (m_rt.wet && hp && hp->alive() && motor->breath() <= 0.0f)
-            hp->applyDamage(8.0f * dt);
+            damageEntity(*world, body, playerCombat.drownDps * dt);
 
         bool skipLandCue = false;
         if (jump)
@@ -975,7 +1038,7 @@ namespace Dark
         const bool  stepping  = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Swimming) && stepSpeed > 2.0f;
         if (stepping)
         {
-            const float cadence = motor->state() == PlayerMoveState::Swimming ? 0.55f : 0.35f;
+            const float cadence = motor->state() == PlayerMoveState::Swimming ? playerCombat.footstepSwim : playerCombat.footstepWalk;
             m_rt.footstepAcc += dt * (stepSpeed * cadence);
             if (m_rt.footstepAcc >= 1.0f)
             {
@@ -1114,7 +1177,8 @@ namespace Dark
         {
             if (Combat::DefenseComponent* defense = world->get<Combat::DefenseComponent>(body))
                 Combat::syncShieldDefense(*defense, m_rt.offhand.shield, m_rt.lookYaw);
-            const ContactGrindResult grind = applyContactGrind(*world, m_combat, body, xf->position, dt);
+            const ContactGrindResult grind = applyContactGrind(*world, m_combat, body, xf->position, dt, m_rt.weaponBlocks, m_rt.weaponBlockCount,
+                                                                m_host.sphereCount > 0 ? m_host.spheres : nullptr, m_host.sphereCount);
             if (grind.killed)
             {
                 DE_LOG_INFO("Player: down");
@@ -1444,6 +1508,9 @@ namespace Dark
             m_host.ai->tickHunters(*world, *m_host.terrain, m_rt.submerged, dt, m_host.player, blockCount > 0 ? blocks : nullptr, blockCount,
                                    m_host.sphereCount > 0 ? m_host.spheres : nullptr, m_host.sphereCount);
         }
+        m_rt.weaponBlocks     = blockCount > 0 ? blocks : nullptr;
+        m_rt.weaponBlockCount = m_rt.weaponBlocks ? blockCount : 0;
+        world->each<Combat::PoiseComponent>([&](Entity, Combat::PoiseComponent& poise) { poise.tick(dt); });
         if (m_host.chaseReady && m_host.guardVoice && m_host.audio && m_host.assets)
         {
             if (const TransformComponent* pxf = m_host.player.valid() ? world->get<TransformComponent>(m_host.player) : nullptr)

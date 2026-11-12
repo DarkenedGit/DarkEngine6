@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include "Assets/AssetManager.h"
+#include "Audio/AudioSystem.h"
 #include "Input/Input.h"
 #include "Input/InputCodes.h"
 #include "Ui/MainMenu.h"
@@ -15,8 +17,6 @@ void pressKey(Input& in, Key key)
     in.onKeyUp(static_cast<uint16_t>(key));
     in.onKeyDown(static_cast<uint16_t>(key), false);
 }
-
-} // namespace
 
 TEST(MainMenu, ConfirmSceneAndQuit)
 {
@@ -96,6 +96,191 @@ TEST(MainMenu, MouseClickSelectsRow)
     in.onMouseButton(MouseButton::Left, true);
     menu.update(in, 1280, 720);
     EXPECT_EQ(menu.pollResult(), MainMenuResult::Confirm);
+    ASSERT_NE(menu.selected(), nullptr);
+    EXPECT_EQ(menu.selected()->id, "b.json");
+}
+
+void addThreeRows(MainMenu& menu)
+{
+    menu.addScene("a.json", "A", "a.json");
+    menu.addScene("b.json", "B", "b.json");
+    menu.addQuit();
+    menu.show();
+}
+
+bool bindMenuSounds(MainMenu& menu, Audio::AudioSystem& audio, AssetManager& assets)
+{
+    if (assets.mountContentRoots() <= 0)
+        return false;
+    return menu.loadSounds(audio, assets) && menu.hasSounds();
+}
+
+} // namespace
+
+TEST(MainMenu, LoadsUiSounds)
+{
+    AssetManager assets;
+    ASSERT_GT(assets.mountContentRoots(), 0);
+    const auto move   = assets.loadAudio("audio/UI/ui_move.wav");
+    const auto select = assets.loadAudio("audio/UI/ui_select.wav");
+    ASSERT_TRUE(move);
+    ASSERT_TRUE(select);
+    EXPECT_EQ(move->channels(), 1);
+    EXPECT_EQ(select->channels(), 1);
+    EXPECT_EQ(move->sampleRate(), 44100u);
+    EXPECT_EQ(select->sampleRate(), 44100u);
+    EXPECT_EQ(move->frameCount(), 1764u);
+    EXPECT_EQ(select->frameCount(), 3087u);
+
+    Audio::AudioSystem audio;
+    MainMenu           menu;
+    ASSERT_TRUE(menu.loadSounds(audio, assets));
+    EXPECT_TRUE(menu.hasSounds());
+}
+
+TEST(MainMenu, MoveAndSelectSounds)
+{
+    AssetManager       assets;
+    Audio::AudioSystem audio;
+    MainMenu           menu;
+    addThreeRows(menu);
+    ASSERT_TRUE(bindMenuSounds(menu, audio, assets));
+
+    Input in;
+    pressKey(in, Key::Down);
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.selectedIndex(), 1u);
+    EXPECT_EQ(menu.moveSoundCount(), 1u);
+    EXPECT_EQ(menu.selectSoundCount(), 0u);
+
+    in.beginFrame();
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.selectedIndex(), 1u);
+    EXPECT_EQ(menu.moveSoundCount(), 1u);
+
+    pressKey(in, Key::S);
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.selectedIndex(), 2u);
+    EXPECT_EQ(menu.moveSoundCount(), 2u);
+
+    pressKey(in, Key::Up);
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.selectedIndex(), 1u);
+    EXPECT_EQ(menu.moveSoundCount(), 3u);
+
+    pressKey(in, Key::W);
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.selectedIndex(), 0u);
+    EXPECT_EQ(menu.moveSoundCount(), 4u);
+
+    pressKey(in, Key::Up);
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.selectedIndex(), 2u);
+    EXPECT_EQ(menu.moveSoundCount(), 5u);
+
+    // Row centers at 1280x720 with three rows: row 0 is y=304, row 1 is y=370.
+    in.beginFrame();
+    in.onMouseMove(640, 304);
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.selectedIndex(), 0u);
+    EXPECT_EQ(menu.moveSoundCount(), 6u);
+
+    in.beginFrame();
+    in.onMouseMove(640, 370);
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.selectedIndex(), 1u);
+    EXPECT_EQ(menu.moveSoundCount(), 7u);
+
+    in.beginFrame();
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.selectedIndex(), 1u);
+    EXPECT_EQ(menu.moveSoundCount(), 7u);
+    EXPECT_EQ(menu.selectSoundCount(), 0u);
+
+    in.beginFrame();
+    in.onMouseMove(640, 304);
+    in.onMouseButton(MouseButton::Left, true);
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.pollResult(), MainMenuResult::Confirm);
+    EXPECT_EQ(menu.selectedIndex(), 0u);
+    EXPECT_EQ(menu.moveSoundCount(), 8u);
+    EXPECT_EQ(menu.selectSoundCount(), 1u);
+
+    pressKey(in, Key::Enter);
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.pollResult(), MainMenuResult::Confirm);
+    EXPECT_EQ(menu.moveSoundCount(), 8u);
+    EXPECT_EQ(menu.selectSoundCount(), 2u);
+
+    pressKey(in, Key::Space);
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.pollResult(), MainMenuResult::Confirm);
+    EXPECT_EQ(menu.selectSoundCount(), 3u);
+
+    pressKey(in, Key::Escape);
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.pollResult(), MainMenuResult::Quit);
+    EXPECT_EQ(menu.moveSoundCount(), 8u);
+    EXPECT_EQ(menu.selectSoundCount(), 3u);
+}
+
+TEST(MainMenu, SingleRowWrapIsSilent)
+{
+    AssetManager       assets;
+    Audio::AudioSystem audio;
+    MainMenu           menu;
+    menu.addQuit();
+    menu.show();
+    ASSERT_TRUE(bindMenuSounds(menu, audio, assets));
+
+    Input in;
+    pressKey(in, Key::Down);
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.selectedIndex(), 0u);
+    EXPECT_EQ(menu.moveSoundCount(), 0u);
+
+    pressKey(in, Key::Up);
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.moveSoundCount(), 0u);
+}
+
+TEST(MainMenu, HiddenMenuPlaysNothing)
+{
+    AssetManager       assets;
+    Audio::AudioSystem audio;
+    MainMenu           menu;
+    addThreeRows(menu);
+    ASSERT_TRUE(bindMenuSounds(menu, audio, assets));
+    menu.hide();
+
+    Input in;
+    pressKey(in, Key::Down);
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.selectedIndex(), 0u);
+    EXPECT_EQ(menu.moveSoundCount(), 0u);
+
+    pressKey(in, Key::Enter);
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.pollResult(), MainMenuResult::None);
+    EXPECT_EQ(menu.selectSoundCount(), 0u);
+}
+
+TEST(MainMenu, NavigationWithoutSounds)
+{
+    MainMenu menu;
+    addThreeRows(menu);
+    EXPECT_FALSE(menu.hasSounds());
+
+    Input in;
+    pressKey(in, Key::Down);
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.selectedIndex(), 1u);
+    EXPECT_EQ(menu.moveSoundCount(), 0u);
+
+    pressKey(in, Key::Enter);
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.pollResult(), MainMenuResult::Confirm);
+    EXPECT_EQ(menu.selectSoundCount(), 0u);
     ASSERT_NE(menu.selected(), nullptr);
     EXPECT_EQ(menu.selected()->id, "b.json");
 }

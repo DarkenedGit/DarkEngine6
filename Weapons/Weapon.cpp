@@ -261,7 +261,7 @@ namespace Dark
         return written;
     }
 
-    bool weaponPickCapsuleReach(const Combat::HitSegment* segments, int count, const Vector3f& origin, const Vector3f& lookFlat, float range, float minDot, WeaponPartContact& out)
+    bool weaponPickCapsuleReach(const Combat::HitSegment* segments, int count, const Vector3f& origin, const Vector3f& lookFlat, float range, float minDot, WeaponPartContact& out, float maxAbsVertical)
     {
         WeaponCapsuleSample samples[32];
         const int           n = weaponSampleActiveCapsules(segments, count, origin, samples, 32);
@@ -275,6 +275,8 @@ namespace Dark
         {
             const float dist = samples[i].horizontal;
             if (dist > range || dist < 1.0e-4f)
+                continue;
+            if (maxAbsVertical >= 0.0f && std::fabs(samples[i].vertical) > maxAbsVertical)
                 continue;
             Vector3f to{ samples[i].point.x - origin.x, 0.0f, samples[i].point.z - origin.z };
             to *= (1.0f / dist);
@@ -292,6 +294,8 @@ namespace Dark
         {
             const float dist = samples[i].horizontal;
             if (dist > range || dist < 1.0e-4f || dist > minDist + kWeaponPartTieMeters)
+                continue;
+            if (maxAbsVertical >= 0.0f && std::fabs(samples[i].vertical) > maxAbsVertical)
                 continue;
             Vector3f to{ samples[i].point.x - origin.x, 0.0f, samples[i].point.z - origin.z };
             to *= (1.0f / dist);
@@ -322,6 +326,80 @@ namespace Dark
             normal.Normalize();
         out.normal = normal;
         return true;
+    }
+
+    bool weaponSegmentBlocked(const AABox3f* boxes, int boxCount, const Sphere3f* spheres, int sphereCount, const Vector3f& from, const Vector3f& to)
+    {
+        Vector3f delta = to - from;
+        const float dist = delta.Magnitude();
+        if (dist < 1.0e-4f)
+            return false;
+        Vector3f dir = delta;
+        dir *= (1.0f / dist);
+        const Ray3f ray{ from, dir };
+        const float limit = dist - 0.05f;
+        if (limit <= 0.0f)
+            return false;
+        if (boxes && boxCount > 0)
+        {
+            for (int i = 0; i < boxCount; ++i)
+            {
+                const Collision::RayHit3D hit = Collision::Intersect(ray, boxes[i]);
+                if (hit.hit && hit.t >= 0.0f && hit.t < limit)
+                    return true;
+            }
+        }
+        if (spheres && sphereCount > 0)
+        {
+            for (int i = 0; i < sphereCount; ++i)
+            {
+                const Collision::RayHit3D hit = Collision::Intersect(ray, spheres[i]);
+                if (hit.hit && hit.t >= 0.0f && hit.t < limit)
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    namespace
+    {
+        bool takeCloserSolidRay(const WeaponWorldQuery& world, const Ray3f& ray, float& bestT, WeaponHit& out)
+        {
+            bool any = false;
+            if (world.solids && world.solidCount > 0)
+            {
+                for (int i = 0; i < world.solidCount; ++i)
+                {
+                    const Collision::RayHit3D hit = Collision::Intersect(ray, world.solids[i]);
+                    if (!hit.hit || hit.t < 0.0f || hit.t > bestT)
+                        continue;
+                    bestT         = hit.t;
+                    any           = true;
+                    out.point     = hit.point;
+                    out.normal    = hit.normal;
+                    out.part      = Combat::HitPart::None;
+                    fillHitTarget(out, world, -1);
+                    out.hitTarget = false;
+                }
+            }
+            if (world.spheres && world.sphereCount > 0)
+            {
+                for (int i = 0; i < world.sphereCount; ++i)
+                {
+                    const Collision::RayHit3D hit = Collision::Intersect(ray, world.spheres[i]);
+                    if (!hit.hit || hit.t < 0.0f || hit.t > bestT)
+                        continue;
+                    bestT         = hit.t;
+                    any           = true;
+                    out.point     = hit.point;
+                    out.normal    = hit.normal;
+                    out.part      = Combat::HitPart::None;
+                    fillHitTarget(out, world, -1);
+                    out.hitTarget = false;
+                }
+            }
+            return any;
+        }
     }
 
     bool weaponRaycastClosest(const WeaponWorldQuery& world, const Ray3f& ray, float maxDistance, WeaponHit& out)
@@ -362,6 +440,9 @@ namespace Dark
             fillHitTarget(out, world, i);
             out.hitTarget  = true;
         }
+
+        if (takeCloserSolidRay(world, ray, bestT, out))
+            any = true;
 
         const Collision::RayHit3D ground = weaponRaycastTerrain(world, ray, bestT);
         if (ground.hit && ground.t >= 0.0f && ground.t <= bestT)
@@ -424,6 +505,39 @@ namespace Dark
             best.part      = Combat::HitPart::None;
             fillHitTarget(best, world, i);
             best.hitTarget = true;
+        }
+
+        if (world.solids && world.solidCount > 0)
+        {
+            for (int i = 0; i < world.solidCount; ++i)
+            {
+                const Collision::SweptHit3D hit = Collision::SweptIntersects(ball, delta, world.solids[i]);
+                if (!hit.hit || hit.t < 0.0f || hit.t > bestT)
+                    continue;
+                bestT          = hit.t;
+                any            = true;
+                best.point     = hit.point;
+                best.normal    = hit.normal;
+                best.part      = Combat::HitPart::None;
+                fillHitTarget(best, world, -1);
+                best.hitTarget = false;
+            }
+        }
+        if (world.spheres && world.sphereCount > 0)
+        {
+            for (int i = 0; i < world.sphereCount; ++i)
+            {
+                const Collision::SweptHit3D hit = Collision::SweptIntersects(ball, delta, world.spheres[i]);
+                if (!hit.hit || hit.t < 0.0f || hit.t > bestT)
+                    continue;
+                bestT          = hit.t;
+                any            = true;
+                best.point     = hit.point;
+                best.normal    = hit.normal;
+                best.part      = Combat::HitPart::None;
+                fillHitTarget(best, world, -1);
+                best.hitTarget = false;
+            }
         }
 
         if (dist > 1.0e-6f)

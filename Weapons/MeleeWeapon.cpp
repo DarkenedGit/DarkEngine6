@@ -3,6 +3,8 @@
 #include "Combat/HitPart.h"
 #include "Math/MathDefines.h"
 
+#include <cmath>
+
 namespace Dark
 {
     using Math::Vector3f;
@@ -69,7 +71,9 @@ namespace Dark
             if (weaponCapsulesActive(segments, segmentCount))
             {
                 WeaponPartContact picked{};
-                if (!weaponPickCapsuleReach(segments, segmentCount, req.ownerPos, look, desc.range, desc.minDot, picked))
+                if (!weaponPickCapsuleReach(segments, segmentCount, req.ownerPos, look, desc.range, desc.minDot, picked, desc.maxVertical))
+                    return contact;
+                if (weaponSegmentBlocked(world.solids, world.solidCount, world.spheres, world.sphereCount, req.ownerPos, picked.point))
                     return contact;
                 contact.found  = true;
                 contact.part   = picked.part;
@@ -82,6 +86,10 @@ namespace Dark
 
             Vector3f center{};
             if (!weaponTargetCenter(world, index, center))
+                return contact;
+            if (desc.maxVertical >= 0.0f && std::fabs(center.y - req.ownerPos.y) > desc.maxVertical)
+                return contact;
+            if (weaponSegmentBlocked(world.solids, world.solidCount, world.spheres, world.sphereCount, req.ownerPos, center))
                 return contact;
             Vector3f to = center - req.ownerPos;
             to.y        = 0.0f;

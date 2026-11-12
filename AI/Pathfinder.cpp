@@ -201,13 +201,6 @@ namespace Dark::AI
                 const int nz = z + kDz[d];
                 if (!m_walk->edgeOk(x, z, nx, nz))
                     continue;
-                if (blockedByAgent(nx, nz, req, sx, sz) && !(nx == dx && nz == dz))
-                {
-                    // Occupied cells are high-cost, not walls, except we still skip
-                    // expanding through them when they are not the goal — fail-closed
-                    // if the only remaining path is through an agent.
-                    continue;
-                }
                 const int ni = nz * cellsX + nx;
                 if (closed[static_cast<size_t>(ni)])
                     continue;

@@ -24,6 +24,8 @@
 #include "Gameplay/ThrowableBelt.h"
 #include "Render/GpuUpload.h"
 #include "AI/AiComponents.h"
+#include "AI/HunterJump.h"
+#include "Scene/EntityCombat.h"
 #include "Scene/EntityMaster.h"
 #include "Scene/EntityMovement.h"
 #include "Weapons/HittableComponent.h"
@@ -269,13 +271,15 @@ namespace Dark
                 host.world.emplace<HsmGraphComponent>(e, std::move(hsm));
             }
         }
+        const EntityCombat& playerCombat = entityCombatFor("player");
         if (!host.world.has<WeaponLoadoutComponent>(e))
         {
             auto& wlc   = host.world.emplace<WeaponLoadoutComponent>(e);
             wlc.loadout = std::make_unique<WeaponLoadout>();
             wlc.loadout->setHitListener(hitFn, hitUser);
             MeleeWeaponDesc sword = wlc.loadout->melee().desc();
-            sword.hitDelay        = 0.12f;
+            sword.hitDelay        = playerCombat.swordHitDelay;
+            sword.maxVertical     = playerCombat.meleeVertical;
             sword.singleTarget    = true;
             wlc.loadout->melee().setDesc(sword);
             wlc.slot = wlc.loadout->slot();
@@ -286,17 +290,33 @@ namespace Dark
             host.world.emplace<ThrowableBeltComponent>(e);
         if (!host.world.has<JumpAttackComponent>(e))
         {
-            auto& jac                = host.world.emplace<JumpAttackComponent>(e);
+            auto& jac                 = host.world.emplace<JumpAttackComponent>(e);
             Combat::JumpAttackDef def = jac.jump.def();
-            def.telegraphSeconds     = 0.0f;
-            def.cooldown             = 1.25f;
-            def.connectFlags         = Combat::DamageFlags::CanBlock | Combat::DamageFlags::HardCc | Combat::DamageFlags::Knockdown;
+            def.telegraphSeconds      = 0.0f;
+            def.cooldown              = playerCombat.jumpCooldown;
+            def.teamFilter            = static_cast<uint8_t>(playerCombat.team);
+            def.connectDamage         = playerCombat.jumpConnectDamage;
+            def.connectPoise          = playerCombat.jumpConnectPoise;
+            def.poundDamage           = playerCombat.jumpPoundDamage;
+            def.poundPoise            = playerCombat.jumpPoundPoise;
+            def.knockdownDuration     = playerCombat.jumpKnockdown;
+            def.knockdownForce        = playerCombat.jumpKnockdownForce;
+            def.leapVerticalSpeed     = playerCombat.jumpLeapVertical;
+            def.homingRate            = playerCombat.jumpHoming;
+            def.connectFlags          = Combat::DamageFlags::CanBlock | Combat::DamageFlags::HardCc | Combat::DamageFlags::Knockdown;
             jac.jump.setDef(def);
         }
         if (!host.world.has<Combat::StatusEffectComponent>(e))
             host.world.emplace<Combat::StatusEffectComponent>(e);
         if (!host.world.has<Combat::PoiseComponent>(e))
-            host.world.emplace<Combat::PoiseComponent>(e);
+        {
+            Combat::PoiseComponent poise{};
+            poise.maxPoise    = playerCombat.poiseMax;
+            poise.regenPerSec = playerCombat.poiseRegen;
+            poise.regenDelay  = playerCombat.poiseRegenDelay;
+            poise.reset();
+            host.world.emplace<Combat::PoiseComponent>(e, poise);
+        }
         Combat::equipPlayerShield(host.world, e);
         attachPlayerSounds(host.world, host.pins, host.assets, host.audio, e, host.ground);
         applySkillProfile(host.world, e, "player");
@@ -314,6 +334,7 @@ namespace Dark
         {
             if (TagComponent* tag = host.world.get<TagComponent>(e))
                 tag->name = "Wolf";
+            applySpeciesCombat(host.world, e);
             applySkillProfile(host.world, e, "wolf");
             clearInteractable(host.world, e);
         }

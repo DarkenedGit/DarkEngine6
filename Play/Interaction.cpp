@@ -7,6 +7,8 @@
 #include "Gameplay/Inventory.h"
 #include "Gameplay/PowerComponents.h"
 #include "Play/Carry.h"
+#include "Scene/EntityCombat.h"
+#include "Weapons/Weapon.h"
 
 #include <cmath>
 
@@ -120,15 +122,19 @@ namespace Dark
         return best;
     }
 
-    Entity findTakedownTarget(World& world, Entity player, bool enabled)
+    Entity findTakedownTarget(World& world, Entity player, bool enabled, float range, float maxAbsDy, float backDot, const Math::AABox3f* solids, int solidCount,
+                              const Math::Sphere3f* spheres, int sphereCount)
     {
         if (!enabled || carriedBody(world).valid())
             return {};
         const TransformComponent* pxf = player.valid() ? world.get<TransformComponent>(player) : nullptr;
         if (!pxf)
             return {};
-        Entity best{};
-        float  bestD = kGuardTakedownRange * kGuardTakedownRange;
+        const float          reach = range > 0.0f ? range : kGuardTakedownRange;
+        const float          lift  = entityCombatFor("player").groundOffset;
+        const Math::Vector3f from{ pxf->position.x, pxf->position.y + lift, pxf->position.z };
+        Entity               best{};
+        float                bestD = reach * reach;
         world.each<InteractableComponent>([&](Entity e, InteractableComponent& mark) {
             if (mark.kind != InteractKind::Guard)
                 return;
@@ -140,10 +146,13 @@ namespace Dark
             const Math::Vector3f to{ pxf->position.x - gxf->position.x, 0.0f, pxf->position.z - gxf->position.z };
             const float          d = to.MagnitudeSqrd();
             Math::Vector3f       fwd{ ai->forward.x, 0.0f, ai->forward.z };
-            if (d > bestD || d < 1.0e-6f || std::fabs(pxf->position.y - gxf->position.y) > 1.2f || fwd.MagnitudeSqrd() < 1.0e-6f)
+            if (d > bestD || d < 1.0e-6f || std::fabs(pxf->position.y - gxf->position.y) > maxAbsDy || fwd.MagnitudeSqrd() < 1.0e-6f)
                 return;
             fwd.Normalize();
-            if (fwd.Dot(to * (1.0f / std::sqrt(d))) > -0.2f)
+            if (fwd.Dot(to * (1.0f / std::sqrt(d))) > backDot)
+                return;
+            const Math::Vector3f toPoint{ gxf->position.x, gxf->position.y + lift, gxf->position.z };
+            if (weaponSegmentBlocked(solids, solidCount, spheres, sphereCount, from, toPoint))
                 return;
             best  = e;
             bestD = d;

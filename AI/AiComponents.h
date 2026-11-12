@@ -99,6 +99,9 @@ namespace Dark
         uint32_t                     lureSalt    = 1;
         Math::Vector3f               lurePoint{};
         Math::Vector3f               lureDest{};
+        // Spawn pose. Respawn puts the unit back here. Not required in older saves.
+        bool                         hasHome = false;
+        Math::Vector3f               home{};
     };
 
     inline bool hideSpotChecked(const std::vector<uint64_t>& bits, size_t index)

@@ -274,7 +274,15 @@ def ambient(dur: float = 2.0, amp: float = 0.12) -> list[float]:
     return out
 
 
+def write_ui() -> None:
+    # Menu navigation and confirm. Kept apart from ui_click.wav, which Editor save still uses.
+    ui = ROOT / "UI"
+    write_mono(ui / "ui_move.wav", blip(980.0, 0.04, 0.28))
+    write_mono(ui / "ui_select.wav", mix(blip(1320.0, 0.07, 0.34), blip(1980.0, 0.045, 0.16)))
+
+
 def main() -> None:
+    write_ui()
     write_mono(ROOT / "ui_click.wav", blip(1400.0, 0.06, 0.35))
     write_mono(ROOT / "jump.wav", chirp(420.0, 780.0, 0.14, 0.5))
     write_mono(ROOT / "coin.wav", mix(blip(880.0, 0.16, 0.4), blip(1320.0, 0.12, 0.28)))

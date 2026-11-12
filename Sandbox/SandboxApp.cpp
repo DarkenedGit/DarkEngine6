@@ -1896,6 +1896,8 @@ void SandboxApp::onInit()
         m_hud.m_menu.show();
         DE_LOG_INFO("Sandbox: main menu ({} entries)", m_hud.m_menu.entries().size());
     }
+    if (!m_hud.m_menu.loadSounds(audio(), assets()))
+        DE_LOG_WARN(LogCategory::Audio, "SandboxApp: main menu sounds failed");
 
     if (!m_hud.m_imgui.init(window(), renderer(), "sandbox_imgui.ini", false, UiAccent::Sandbox))
         DE_LOG_WARN("SandboxApp: ImGui init failed — Dev Tools (M) disabled");

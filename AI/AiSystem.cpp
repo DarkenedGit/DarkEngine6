@@ -4,6 +4,7 @@
 #include "AI/HsmGraph.h"
 #include "AI/Sight.h"
 #include "AI/WaterPeek.h"
+#include "Character/DamageEntity.h"
 #include "Character/PlayerMotor.h"
 #include "Character/SkillSense.h"
 #include "Character/SkillXp.h"
@@ -12,6 +13,7 @@
 #include "Collision/StaticCollision.h"
 #include "Collision/SweptCollision.h"
 #include "Combat/CombatSystem.h"
+#include "Combat/DefenseComponent.h"
 #include "Combat/HitVolumes.h"
 #include "Combat/JumpAttackComponent.h"
 #include "Combat/JumpAttackResolve.h"
@@ -28,6 +30,8 @@
 #include "Play/Crow.h"
 #include "Play/PlayMotor.h"
 #include "Play/Spawner.h"
+#include "Play/WeaponTargets.h"
+#include "Scene/EntityCombat.h"
 #include "Weapons/HittableComponent.h"
 #include "Weapons/Weapon.h"
 
@@ -235,12 +239,13 @@ namespace Dark
         if (world.has<AiAgentComponent>(e))
             return true;
 
+        const EntityCombat& combat = entityCombatFor("hunter");
         if (!world.has<HealthComponent>(e))
         {
             HealthSettings hs;
-            hs.maxHp       = 48.0f;
-            hs.regenPerSec = 5.0f;
-            hs.regenDelay  = 4.0f;
+            hs.maxHp       = combat.healthMax;
+            hs.regenPerSec = combat.healthRegen;
+            hs.regenDelay  = combat.healthRegenDelay;
             HealthComponent hc{};
             hc.health = Health{ hs };
             world.emplace<HealthComponent>(e, std::move(hc));
@@ -263,6 +268,11 @@ namespace Dark
 
         AiAgentComponent ai{};
         ai.forward = Vect3f::Z_AXIS;
+        if (const TransformComponent* homeXf = world.get<TransformComponent>(e))
+        {
+            ai.hasHome = true;
+            ai.home    = homeXf->position;
+        }
         world.emplace<AiAgentComponent>(e, ai);
 
         if (!world.has<PathAgentComponent>(e))
@@ -290,7 +300,20 @@ namespace Dark
         if (!world.has<Combat::StatusEffectComponent>(e))
             world.emplace<Combat::StatusEffectComponent>(e);
         if (!world.has<Combat::PoiseComponent>(e))
-            world.emplace<Combat::PoiseComponent>(e);
+        {
+            Combat::PoiseComponent poise{};
+            poise.maxPoise    = combat.poiseMax;
+            poise.regenPerSec = combat.poiseRegen;
+            poise.regenDelay  = combat.poiseRegenDelay;
+            poise.reset();
+            world.emplace<Combat::PoiseComponent>(e, poise);
+        }
+        if (!world.has<Combat::DefenseComponent>(e))
+        {
+            Combat::DefenseComponent defense{};
+            defense.team = static_cast<uint8_t>(combat.team);
+            world.emplace<Combat::DefenseComponent>(e, defense);
+        }
         if (!world.has<JumpAttackComponent>(e))
         {
             ensureAttackPatterns();
@@ -386,7 +409,7 @@ namespace Dark
         }
     }
 
-    void AiSystem::releaseMelee(World& world, View& v, const AI::AttackPattern& pattern, Entity player, const Vector3f& playerPos)
+    void AiSystem::releaseMelee(World& world, View& v, const AI::AttackPattern& pattern, Entity player, const Vector3f& playerPos, const Math::AABox3f* cubes, int cubeCount, const Math::Sphere3f* spheres, int sphereCount)
     {
         v.ai->meleeWindup = 0.0f;
         const int index = v.ai->meleeAttack;
@@ -399,7 +422,8 @@ namespace Dark
         const float dx = playerPos.x - v.xf->position.x;
         const float dz = playerPos.z - v.xf->position.z;
         const float dist = std::sqrt(dx * dx + dz * dz);
-        const float reach = move.maxRange + 0.35f;
+        const EntityCombat& combat = entityCombatFor(entityIsWolf(world, v.e) ? "wolf" : "hunter");
+        const float reach = move.maxRange + combat.meleeReachPad;
 
         Vector3f        hitPoint = playerPos;
         Combat::HitPart part     = Combat::HitPart::None;
@@ -414,12 +438,16 @@ namespace Dark
         if (weaponCapsulesActive(segments, segmentCount))
         {
             WeaponPartContact contact{};
-            if (!weaponPickCapsuleReach(segments, segmentCount, v.xf->position, Vector3f{ dx, 0.0f, dz }, reach, -1.0f, contact))
+            if (!weaponPickCapsuleReach(segments, segmentCount, v.xf->position, Vector3f{ dx, 0.0f, dz }, reach, 0.0f, contact, combat.meleeVertical))
+                return;
+            if (weaponSegmentBlocked(cubes, cubeCount, spheres, sphereCount, v.xf->position, contact.point))
                 return;
             hitPoint = contact.point;
             part     = contact.part;
         }
-        else if (dist > reach)
+        else if (dist > reach || std::fabs(playerPos.y - v.xf->position.y) > combat.meleeVertical)
+            return;
+        else if (weaponSegmentBlocked(cubes, cubeCount, spheres, sphereCount, v.xf->position, playerPos))
             return;
 
         Combat::DamageEvent ev{};
@@ -435,6 +463,8 @@ namespace Dark
             ev.hitDir.Normalize();
         ev.flags           = Combat::DamageFlags::CanBlock | Combat::DamageFlags::CanParry | Combat::DamageFlags::HardCc;
         ev.statusDuration  = move.stunSeconds;
+        if (const Combat::DefenseComponent* defense = world.get<Combat::DefenseComponent>(v.e))
+            ev.teamSource = defense->team;
         resolveJumpHits(world, &ev, 1);
         DE_LOG_INFO(LogCategory::AI, "Hunter: melee {}", move.id);
     }
@@ -471,6 +501,11 @@ namespace Dark
                 continue;
             if (v.health->health.alive())
             {
+                if (!v.ai->hasHome)
+                {
+                    v.ai->hasHome = true;
+                    v.ai->home    = v.xf->position;
+                }
                 v.health->health.tick(dt);
                 continue;
             }
@@ -481,27 +516,15 @@ namespace Dark
             }
             cancelJumpAndToken(world, e, false);
             v.ai->deadFor += dt;
-            if (v.ai->deadFor < 8.0f || !m_walk.valid() || (m_awarenessOn && !entityIsWolf(world, e)))
+            const EntityCombat& combat = entityCombatFor(entityIsWolf(world, e) ? "wolf" : "hunter");
+            if (v.ai->deadFor < combat.respawnSeconds || !v.ai->hasHome || (m_awarenessOn && !entityIsWolf(world, e)))
                 continue;
 
-            std::mt19937                          rng{ static_cast<unsigned>((m_time + v.ai->deadFor) * 1000.0f) + 91u };
-            std::uniform_real_distribution<float> ux(-22.0f, 22.0f);
-            std::uniform_real_distribution<float> uz(-22.0f, 22.0f);
-            bool                                  placed = false;
-            for (int tries = 0; tries < 64; ++tries)
-            {
-                const float x = ux(rng);
-                const float z = uz(rng);
-                if (!m_walk.walkableWorld(x, z))
-                    continue;
-                v.xf->position = Vector3f{ x, 0.0f, z };
-                if (const Terrain::HeightMap* hm = m_walk.heightMap())
-                    v.xf->position.y = hm->heightAtWorld(x, z) + 1.0f;
-                placed = true;
-                break;
-            }
-            if (!placed)
-                continue;
+            v.xf->position = v.ai->home;
+            if (const Terrain::HeightMap* hm = m_walk.heightMap())
+                v.xf->position.y = hm->heightAtWorld(v.ai->home.x, v.ai->home.z) + combat.groundOffset;
+            else
+                v.xf->position.y = v.ai->home.y;
             v.health->health.revive();
             v.hit->hit.setSettings(m_hunterHit);
             v.hit->hit.reset();
@@ -510,6 +533,8 @@ namespace Dark
             cancelJumpAndToken(world, e, true);
             if (Combat::StatusEffectComponent* st = world.get<Combat::StatusEffectComponent>(e))
                 st->reset();
+            if (Combat::PoiseComponent* poise = world.get<Combat::PoiseComponent>(e))
+                poise->reset();
             v.ai->assistLeft  = 0.0f;
             v.ai->fleeLeft    = 0.0f;
             v.ai->deadFor     = 0.0f;
@@ -529,7 +554,7 @@ namespace Dark
         }
     }
 
-    void AiSystem::integrateHitReaction(View& v, float dt, Terrain::TerrainGrid& terrain)
+    void AiSystem::integrateHitReaction(World& world, View& v, float dt, Terrain::TerrainGrid& terrain)
     {
         const Vector3f d = v.hit->hit.tick(dt);
         if (d.MagnitudeSqrd() < 1.0e-10f)
@@ -552,7 +577,7 @@ namespace Dark
         else if (m_walk.walkableWorld(v.xf->position.x, nz))
             v.xf->position.z = nz;
 
-        v.xf->position.y = terrain.heightAtWorld(v.xf->position.x, v.xf->position.z) + 1.0f;
+        v.xf->position.y = terrain.heightAtWorld(v.xf->position.x, v.xf->position.z) + entityCombatFor(entityIsWolf(world, v.e) ? "wolf" : "hunter").groundOffset;
         Vector3f face{ d.x, 0.0f, d.z };
         if (face.MagnitudeSqrd() > 1.0e-8f)
         {
@@ -561,7 +586,7 @@ namespace Dark
         }
     }
 
-    void AiSystem::follow(View& v, float dt, Terrain::TerrainGrid& terrain, float speed)
+    void AiSystem::follow(World& world, View& v, float dt, Terrain::TerrainGrid& terrain, float speed)
     {
         if (v.ai->givenUp || v.path->path.points.empty())
             return;
@@ -587,7 +612,7 @@ namespace Dark
             v.xf->position.z = next.z;
             remain -= step;
         }
-        v.xf->position.y = terrain.heightAtWorld(v.xf->position.x, v.xf->position.z) + 1.0f;
+        v.xf->position.y = terrain.heightAtWorld(v.xf->position.x, v.xf->position.z) + entityCombatFor(entityIsWolf(world, v.e) ? "wolf" : "hunter").groundOffset;
     }
 
     void AiSystem::guardMove(World& world, View& v, float dt, Terrain::TerrainGrid& terrain, float speed, const char* stepCue)
@@ -645,9 +670,9 @@ namespace Dark
                 repath(world, v, goal.x, goal.z);
             }
             const Vector3f from = v.xf->position;
-            follow(v, dt, terrain, speed * pace);
+            follow(world, v, dt, terrain, speed * pace);
             if (!m_walk.valid() && (v.xf->position - from).MagnitudeSqrd() < 1.0e-10f)
-                seekToward(v, dt, terrain, speed * pace, goal.x, goal.z);
+                seekToward(world, v, dt, terrain, speed * pace, goal.x, goal.z);
             Vector3f moved{ v.xf->position.x - from.x, 0.0f, v.xf->position.z - from.z };
             if (moved.MagnitudeSqrd() < 1.0e-10f)
             {
@@ -705,7 +730,7 @@ namespace Dark
             }
             else if (walkTo(patrol->points[static_cast<size_t>(patrol->next)], 0.32f + 0.08f * hash(1.0f)))
             {
-                patrol->waitLeft = (1.5f + 3.0f * hash(static_cast<float>(patrol->next) + m_time * 0.37f)) * (aw.wary ? 1.8f : 1.0f);
+                patrol->waitLeft = (entityCombatFor(entityIsWolf(world, v.e) ? "wolf" : "hunter").patrolWait + 3.0f * hash(static_cast<float>(patrol->next) + m_time * 0.37f)) * (aw.wary ? 1.8f : 1.0f);
                 patrol->peering  = AI::findWaterBeside(&terrainHeightAt, &terrain, v.xf->position, m_waterLevel, patrol->peerDir);
                 if (patrol->peering)
                     patrol->waitLeft += 2.5f;
@@ -769,7 +794,7 @@ namespace Dark
         }
     }
 
-    void AiSystem::seekToward(View& v, float dt, Terrain::TerrainGrid& terrain, float speed, float destX, float destZ)
+    void AiSystem::seekToward(World& world, View& v, float dt, Terrain::TerrainGrid& terrain, float speed, float destX, float destZ)
     {
         Vector3f d{ destX - v.xf->position.x, 0.0f, destZ - v.xf->position.z };
         const float dist = d.Magnitude();
@@ -798,7 +823,7 @@ namespace Dark
         }
         v.xf->position.x = nx;
         v.xf->position.z = nz;
-        v.xf->position.y = terrain.heightAtWorld(v.xf->position.x, v.xf->position.z) + 1.0f;
+        v.xf->position.y = terrain.heightAtWorld(v.xf->position.x, v.xf->position.z) + entityCombatFor(entityIsWolf(world, v.e) ? "wolf" : "hunter").groundOffset;
         v.ai->forward    = d;
         v.ai->givenUp    = false;
     }
@@ -823,7 +848,7 @@ namespace Dark
         }
     }
 
-    void AiSystem::moveLureSearch(View& v, float dt, Terrain::TerrainGrid& terrain, float speed)
+    void AiSystem::moveLureSearch(World& world, View& v, float dt, Terrain::TerrainGrid& terrain, float speed)
     {
         constexpr float kArrive = 0.6f;
         const float dx = v.ai->lureDest.x - v.xf->position.x;
@@ -850,7 +875,7 @@ namespace Dark
                 v.ai->lureDest.z = v.ai->lurePoint.z + std::sin(ang) * rad;
             }
         }
-        seekToward(v, dt, terrain, speed, v.ai->lureDest.x, v.ai->lureDest.z);
+        seekToward(world, v, dt, terrain, speed, v.ai->lureDest.x, v.ai->lureDest.z);
     }
 
     void AiSystem::postThrowableLanding(World& world, const ThrowableLanding& landing, float callDistance, const Math::AABox3f* cubes, int cubeCount)
@@ -870,7 +895,8 @@ namespace Dark
                 return;
             if (brain->brain->leaf() == AI::Leaf::Chase)
                 return;
-            const Vector3f eye{ xf->position.x, xf->position.y + 0.5f, xf->position.z };
+            const float eyeLift = entityCombatFor(entityIsWolf(world, e) ? "wolf" : "hunter").eyeHeight;
+            const Vector3f eye{ xf->position.x, xf->position.y + eyeLift, xf->position.z };
             if (!lureInRange(eye, xf->position, point, callDistance, wall, cubes, cubeCount))
                 return;
             ai.lureSearch  = true;
@@ -900,20 +926,50 @@ namespace Dark
 
     void AiSystem::repath(World& world, View& v, float destX, float destZ)
     {
-        AI::AgentStamp stamps[8];
-        int            n = 0;
+        struct Near
+        {
+            float  d2 = 0.0f;
+            Entity e{};
+        };
+        Near closest[8]{};
+        int  n = 0;
         for (Entity other : m_scratch)
         {
-            if (other.id() == v.e.id() || n >= 8)
+            if (other.id() == v.e.id())
                 continue;
-            const TransformComponent* ox = world.get<TransformComponent>(other);
-            const PathAgentComponent* op = world.get<PathAgentComponent>(other);
-            if (!ox)
+            const AiAgentComponent*   oai = world.get<AiAgentComponent>(other);
+            const HealthComponent*    ohp = world.get<HealthComponent>(other);
+            const TransformComponent* ox  = world.get<TransformComponent>(other);
+            if (!oai || !ox || oai->carried || !ohp || !ohp->health.alive())
                 continue;
-            stamps[n].x      = ox->position.x;
-            stamps[n].z      = ox->position.z;
-            stamps[n].radius = op ? op->radius : m_agentR;
-            ++n;
+            const float dx = ox->position.x - v.xf->position.x;
+            const float dz = ox->position.z - v.xf->position.z;
+            const float d2 = dx * dx + dz * dz;
+            int slot = n;
+            if (n < 8)
+                ++n;
+            else
+            {
+                slot = 0;
+                for (int i = 1; i < 8; ++i)
+                {
+                    if (closest[i].d2 > closest[slot].d2)
+                        slot = i;
+                }
+                if (d2 >= closest[slot].d2)
+                    continue;
+            }
+            closest[slot].d2 = d2;
+            closest[slot].e  = other;
+        }
+        AI::AgentStamp stamps[8];
+        for (int i = 0; i < n; ++i)
+        {
+            const TransformComponent* ox = world.get<TransformComponent>(closest[i].e);
+            const PathAgentComponent* op = world.get<PathAgentComponent>(closest[i].e);
+            stamps[i].x      = ox->position.x;
+            stamps[i].z      = ox->position.z;
+            stamps[i].radius = op ? op->radius : m_agentR;
         }
         AI::PathRequest req;
         req.startX     = v.xf->position.x;
@@ -928,18 +984,20 @@ namespace Dark
             v.ai->givenUp = true;
             v.path->path.points.clear();
             v.path->waypoint = 0;
+            v.path->repathAt = m_time + entityCombatFor(entityIsWolf(world, v.e) ? "wolf" : "hunter").repathBackoff;
             return;
         }
         v.ai->givenUp    = false;
         v.path->path     = std::move(next);
         v.path->waypoint = 0;
-        v.path->repathAt = m_time + 0.5f;
+        v.path->repathAt = m_time + entityCombatFor(entityIsWolf(world, v.e) ? "wolf" : "hunter").repathBackoff;
     }
 
-    bool AiSystem::pickWanderDest(View& v)
+    bool AiSystem::pickWanderDest(World& world, View& v)
     {
+        const EntityCombat&                   combat = entityCombatFor(entityIsWolf(world, v.e) ? "wolf" : "hunter");
         std::mt19937                          rng{ static_cast<unsigned>(m_time * 1000.0f) + 17u };
-        std::uniform_real_distribution<float> off(-18.0f, 18.0f);
+        std::uniform_real_distribution<float> off(-combat.wanderRadius, combat.wanderRadius);
         const int                             island = m_walk.islandWorld(v.xf->position.x, v.xf->position.z);
         for (int tries = 0; tries < 48; ++tries)
         {
@@ -951,7 +1009,7 @@ namespace Dark
                 continue;
             const float dx = x - v.xf->position.x;
             const float dz = z - v.xf->position.z;
-            if (dx * dx + dz * dz < 16.0f)
+            if (dx * dx + dz * dz < combat.wanderMin * combat.wanderMin)
                 continue;
             v.ai->wanderDest = Vector3f{ x, 0.0f, z };
             return true;
@@ -959,7 +1017,7 @@ namespace Dark
         return false;
     }
 
-    bool AiSystem::pickFleeDest(View& v, const Vector3f& playerPos)
+    bool AiSystem::pickFleeDest(World& world, View& v, const Vector3f& playerPos)
     {
         Vector3f away{ v.xf->position.x - playerPos.x, 0.0f, v.xf->position.z - playerPos.z };
         if (away.MagnitudeSqrd() < 1.0e-6f)
@@ -970,9 +1028,11 @@ namespace Dark
         else
             away.Normalize();
         Vector3f    side{ -away.z, 0.0f, away.x };
-        const int   island     = m_walk.islandWorld(v.xf->position.x, v.xf->position.z);
-        const float dists[]    = { 14.0f, 18.0f, 10.0f, 22.0f, 8.0f };
-        const float laterals[] = { 0.0f, 4.0f, -4.0f, 8.0f, -8.0f };
+        const EntityCombat& combat = entityCombatFor(entityIsWolf(world, v.e) ? "wolf" : "hunter");
+        const float          half  = combat.fleeLateral * 0.5f;
+        const int            island = m_walk.islandWorld(v.xf->position.x, v.xf->position.z);
+        const float          dists[] = { combat.fleeMin + combat.fleeLateral * 0.75f, combat.fleeMax - half, combat.fleeMin + combat.fleeLateral * 0.25f, combat.fleeMax, combat.fleeMin };
+        const float          laterals[] = { 0.0f, half, -half, combat.fleeLateral, -combat.fleeLateral };
         for (float dist : dists)
         {
             for (float lat : laterals)
@@ -987,18 +1047,19 @@ namespace Dark
                 return true;
             }
         }
-        return pickWanderDest(v);
+        return pickWanderDest(world, v);
     }
 
-    bool AiSystem::hunterSeesPoint(const View& v, const Vector3f& worldPos) const
+    bool AiSystem::hunterSeesPoint(World& world, const View& v, const Vector3f& worldPos) const
     {
         const NpcSenseScales scales = npcSenseScales(v.skill);
         // Crouch is prey stealth. Packmate LOS keeps the prey scale at 1.
         const SenseQuery sight = scaleNpcSight(authoredSight(v.sight), 1.0f, scales.seeRange, scales.seeCone);
         AI::SightQuery q;
-        q.eye       = Vector3f{ v.xf->position.x, v.xf->position.y + 0.5f, v.xf->position.z };
+        const float eye = entityCombatFor(entityIsWolf(world, v.e) ? "wolf" : "hunter").eyeHeight;
+        q.eye       = Vector3f{ v.xf->position.x, v.xf->position.y + eye, v.xf->position.z };
         q.forward   = v.ai->forward;
-        q.target    = Vector3f{ worldPos.x, worldPos.y + 0.5f, worldPos.z };
+        q.target    = Vector3f{ worldPos.x, worldPos.y + eye, worldPos.z };
         q.coneDeg   = sight.coneDeg;
         q.range     = sight.range;
         q.heightMap = m_walk.heightMap();
@@ -1074,24 +1135,24 @@ namespace Dark
 
     void AiSystem::collectJumpTargets(World& world)
     {
+        WeaponTargetList gathered;
+        gathered.gather(world, {});
         m_jumpTargets.clear();
-        world.each<HittableComponent>([&](Entity e, HittableComponent&) {
-            const TransformComponent* xf = world.get<TransformComponent>(e);
-            if (!xf)
-                return;
-            const HealthComponent* hp = world.get<HealthComponent>(e);
-            JumpTargetScratch t{};
-            t.e      = e;
-            t.center = xf->position;
-            t.alive  = hp && hp->health.alive();
-            if (const Combat::HitVolumesComponent* volumes = world.get<Combat::HitVolumesComponent>(e))
+        m_jumpTargets.reserve(gathered.targets().size());
+        for (const WeaponTarget& src : gathered.targets())
+        {
+            JumpTargetScratch    t{};
+            t.e           = src.entity;
+            t.center      = src.center;
+            t.alive       = src.alive;
+            t.hasCapsules = src.hasCapsules;
+            if (src.hasCapsules)
             {
-                t.hasCapsules = true;
-                for (int i = 0; i < Combat::HitVolumesComponent::kSlotCount; ++i)
-                    t.segments[i] = volumes->segment[i];
+                for (int s = 0; s < Combat::HitVolumesComponent::kSlotCount; ++s)
+                    t.segments[s] = src.segments[s];
             }
             m_jumpTargets.push_back(t);
-        });
+        }
     }
 
     void AiSystem::resolveJumpHits(World& world, const Combat::DamageEvent* events, int count)
@@ -1435,12 +1496,39 @@ namespace Dark
                 *outCount = Combat::HitVolumesComponent::kSlotCount;
             return target.segments;
         };
+        jumpQuery.solids      = cubes;
+        jumpQuery.solidCount  = cubeCount;
+        jumpQuery.spheres     = spheres;
+        jumpQuery.sphereCount = sphereCount;
 
-        constexpr float kStandoff = 2.25f;
         ensureAttackPatterns();
         if (m_packAttackGap > 0.0f)
             m_packAttackGap = m_packAttackGap > dt ? m_packAttackGap - dt : 0.0f;
-        for (Entity e : m_scratch)
+        auto beginJumpTelegraph = [&](View& v, Combat::JumpAttack& jumpAttack) -> bool {
+            if (m_playerSwimming)
+                return false;
+            if (jumpAttack.phase() != Combat::JumpAttackPhase::Idle || jumpAttack.cooldownLeft() > 0.0f || packTokenBusy(world, v.e))
+                return false;
+            Combat::JumpAttackBegin req{};
+            req.attacker          = v.e;
+            req.position          = v.xf->position;
+            req.lookFlat          = flattenDir(Vector3f{ playerPos.x - v.xf->position.x, 0.0f, playerPos.z - v.xf->position.z }, v.ai->forward);
+            req.intendedTarget    = player;
+            req.intendedTargetPos = playerPos;
+            if (!jumpAttack.begin(req))
+                return false;
+            v.ai->forward     = req.lookFlat;
+            v.path->path.points.clear();
+            v.path->waypoint  = 0;
+            m_jumpAttackToken = v.e;
+            DE_LOG_INFO(LogCategory::AI, "Hunter: jump telegraph");
+            DE_LOG_INFO(LogCategory::AI, "Hunter: jump token grant");
+            if (m_hunterCueFn)
+                m_hunterCueFn(m_hunterCueUser, v.e, "grunt");
+            return true;
+        };
+        const std::vector<Entity> hunters = m_scratch;
+        for (Entity e : hunters)
         {
             View v{};
             if (!bind(world, e, v) || !v.health->health.alive())
@@ -1539,12 +1627,13 @@ namespace Dark
             if (Combat::HitVolumesComponent* volumes = world.get<Combat::HitVolumesComponent>(e))
                 Combat::tickHitVolumes(*volumes, dt);
             if (!(jump && jump->inAirCommit()))
-                integrateHitReaction(v, dt, terrain);
+                integrateHitReaction(world, v, dt, terrain);
 
             const float dx       = v.xf->position.x - playerPos.x;
             const float dz       = v.xf->position.z - playerPos.z;
             const float distSq   = dx * dx + dz * dz;
-            const float standoffR = m_prey.standoff > 0.0f ? m_prey.standoff : kStandoff;
+            const EntityCombat& agentCombat = entityCombatFor(entityIsWolf(world, e) ? "wolf" : "hunter");
+            const float standoffR = m_prey.standoff > 0.0f ? m_prey.standoff : agentCombat.duelStandoff;
             const bool  standoff = distSq <= standoffR * standoffR;
             const bool  guard      = m_awarenessOn && !entityIsWolf(world, e);
             const float sightScale = guard ? 1.0f : (m_prey.sightRangeScale > 0.0f ? m_prey.sightRangeScale : 1.0f);
@@ -1552,7 +1641,7 @@ namespace Dark
             const SenseQuery sight = scaleNpcSight(authoredSight(v.sight), sightScale, scales.seeRange, scales.seeCone);
 
             AI::SightQuery q;
-            q.eye       = Vector3f{ v.xf->position.x, v.xf->position.y + 0.5f, v.xf->position.z };
+            q.eye       = Vector3f{ v.xf->position.x, v.xf->position.y + agentCombat.eyeHeight, v.xf->position.z };
             q.forward   = v.ai->forward;
             q.target    = Vector3f{ playerPos.x, playerPos.y + m_prey.targetHeight, playerPos.z };
             q.coneDeg   = sight.coneDeg;
@@ -1712,7 +1801,7 @@ namespace Dark
                         const TransformComponent* mxf = mai ? world.get<TransformComponent>(mate) : nullptr;
                         const HealthComponent*    mhp = mai ? world.get<HealthComponent>(mate) : nullptr;
                         const bool squadMate = v.ai->squad != 0 && mai && mai->squad == v.ai->squad;
-                        if (!mxf || !mhp || !mhp->health.alive() || entityIsWolf(world, mate) || (!squadMate && (mxf->position - v.xf->position).MagnitudeSqrd() > 15.0f * 15.0f))
+                        if (!mxf || !mhp || !mhp->health.alive() || entityIsWolf(world, mate) || (!squadMate && (mxf->position - v.xf->position).MagnitudeSqrd() > agentCombat.bodyAlert * agentCombat.bodyAlert))
                             continue;
                         AI::alertToInvestigate(mai->aware, oxf->position);
                         mai->aware.wary = true;
@@ -1785,7 +1874,7 @@ namespace Dark
                     const float adz = ov.xf->position.z - playerPos.z;
                     if (adx * adx + adz * adz > allyR2)
                         continue;
-                    if (!hunterSeesPoint(v, ov.xf->position))
+                    if (!hunterSeesPoint(world, v, ov.xf->position))
                         continue;
                     beginAssist(v, playerPos);
                     break;
@@ -1827,7 +1916,7 @@ namespace Dark
                     v.ai->forward = face;
                 }
                 if (v.ai->meleeWindup <= 0.0f && pattern)
-                    releaseMelee(world, v, *pattern, player, playerPos);
+                    releaseMelee(world, v, *pattern, player, playerPos, cubes, cubeCount, spheres, sphereCount);
                 stampPlanarVelocity();
                 continue;
             }
@@ -1840,10 +1929,13 @@ namespace Dark
             const bool pacing = pattern && !AI::attackClockReady(AI::AttackClock{ v.ai->attackGap, v.ai->attackPause, v.ai->repositionLeft, v.ai->attackChain, v.ai->lastAttack, v.ai->preferOtherAttack }, m_packAttackGap);
             const bool jumpBusy = jump && jump->busy();
 
-            constexpr float kDuelEngage = 4.0f;
-            constexpr float kDuelRing   = 3.2f;
-            const bool duelist = pattern && !entityIsWolf(world, e) && leaf == AI::Leaf::Chase && sees && playerAlive && horiz < kDuelEngage;
-            auto duelPause = [&]() { return 1.5f + std::fmod(static_cast<float>(e.id()) * 0.618f + m_time * 7.31f, 1.0f) * 1.5f; };
+            const float duelEngage = agentCombat.duelEngage;
+            const float duelRing   = agentCombat.duelRing;
+            const bool duelist = pattern && !entityIsWolf(world, e) && leaf == AI::Leaf::Chase && sees && playerAlive && horiz < duelEngage;
+            auto duelPause = [&]() {
+                const float span = agentCombat.duelPauseMax - agentCombat.duelPauseMin;
+                return agentCombat.duelPauseMin + std::fmod(static_cast<float>(e.id()) * 0.618f + m_time * 7.31f, 1.0f) * (span > 0.0f ? span : 0.0f);
+            };
             if (duelist && !v.ai->inDuel)
                 v.ai->circleLeft = duelPause();
             v.ai->inDuel = duelist;
@@ -1870,7 +1962,7 @@ namespace Dark
             const bool wolfCircling = v.ai->stalk == AI::WolfStalk::BackOff || v.ai->stalk == AI::WolfStalk::Flank;
             float jumpMin = 4.0f;
             float jumpMax = 9.0f;
-            hunterJumpRanges(m_hunterAttacks.loaded ? &m_hunterAttacks : nullptr, jumpMin, jumpMax);
+            hunterJumpRanges(pattern, jumpMin, jumpMax);
             const bool wantJump = !m_playerSwimming && !pattern && !wolfCircling && (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist) && sees && horiz >= jumpMin && horiz <= jumpMax;
             if (pattern && !wolfCircling && (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist) && sees && !pacing && !jumpBusy && (!duelist || lunging))
             {
@@ -1881,27 +1973,8 @@ namespace Dark
                     bool started = false;
                     if (move.kind == AI::AttackKind::Jump)
                     {
-                        if (!m_playerSwimming && jump && jump->phase() == Combat::JumpAttackPhase::Idle && jump->cooldownLeft() <= 0.0f && !packTokenBusy(world, e))
-                        {
-                            Combat::JumpAttackBegin req{};
-                            req.attacker          = e;
-                            req.position          = v.xf->position;
-                            req.lookFlat          = flattenDir(Vector3f{ playerPos.x - v.xf->position.x, 0.0f, playerPos.z - v.xf->position.z }, v.ai->forward);
-                            req.intendedTarget    = player;
-                            req.intendedTargetPos = playerPos;
-                            if (jump->begin(req))
-                            {
-                                v.ai->forward = req.lookFlat;
-                                v.path->path.points.clear();
-                                v.path->waypoint = 0;
-                                m_jumpAttackToken = e;
-                                started = true;
-                                DE_LOG_INFO(LogCategory::AI, "Hunter: jump telegraph");
-                                DE_LOG_INFO(LogCategory::AI, "Hunter: jump token grant");
-                                if (m_hunterCueFn)
-                                    m_hunterCueFn(m_hunterCueUser, e, "grunt");
-                            }
-                        }
+                        if (jump && beginJumpTelegraph(v, *jump))
+                            started = true;
                     }
                     else if (!packTokenBusy(world, e) || m_jumpAttackToken.id() == e.id())
                     {
@@ -1930,26 +2003,8 @@ namespace Dark
             {
                 if (!jump)
                     DE_LOG_WARN(LogCategory::AI, "Hunter: jump attack wanted but JumpAttackComponent missing");
-                else if (jump->phase() == Combat::JumpAttackPhase::Idle && jump->cooldownLeft() <= 0.0f && !packTokenBusy(world, e))
-                {
-                    Combat::JumpAttackBegin req{};
-                    req.attacker          = e;
-                    req.position          = v.xf->position;
-                    req.lookFlat          = flattenDir(Vector3f{ playerPos.x - v.xf->position.x, 0.0f, playerPos.z - v.xf->position.z }, v.ai->forward);
-                    req.intendedTarget    = player;
-                    req.intendedTargetPos = playerPos;
-                    if (jump->begin(req))
-                    {
-                        v.ai->forward = req.lookFlat;
-                        v.path->path.points.clear();
-                        v.path->waypoint = 0;
-                        m_jumpAttackToken = e;
-                        DE_LOG_INFO(LogCategory::AI, "Hunter: jump telegraph");
-                        DE_LOG_INFO(LogCategory::AI, "Hunter: jump token grant");
-                        if (m_hunterCueFn)
-                            m_hunterCueFn(m_hunterCueUser, e, "grunt");
-                    }
-                }
+                else
+                    beginJumpTelegraph(v, *jump);
             }
 
             if (jump && jump->busy())
@@ -1976,7 +2031,7 @@ namespace Dark
             if (v.ai->lureSearch)
             {
                 const float lureSpeed = approachSpeed(currentPlanar, walk * pace, accel, dt);
-                moveLureSearch(v, dt, terrain, lureSpeed);
+                moveLureSearch(world, v, dt, terrain, lureSpeed);
                 stampPlanarVelocity();
                 continue;
             }
@@ -1995,8 +2050,8 @@ namespace Dark
                 away.y = 0.0f;
                 away.Normalize();
                 const Vector3f side{ -away.z * v.ai->circleDir, 0.0f, away.x * v.ai->circleDir };
-                const Vector3f dest = playerPos + away * kDuelRing + side * 2.0f;
-                seekToward(v, dt, terrain, approachSpeed(currentPlanar, speed * 0.35f, accel, dt), dest.x, dest.z);
+                const Vector3f dest = playerPos + away * duelRing + side * 2.0f;
+                seekToward(world, v, dt, terrain, approachSpeed(currentPlanar, speed * 0.35f, accel, dt), dest.x, dest.z);
                 v.ai->forward = flattenDir(Vector3f{ playerPos.x - v.xf->position.x, 0.0f, playerPos.z - v.xf->position.z }, v.ai->forward);
                 v.path->path.points.clear();
                 v.path->waypoint = 0;
@@ -2014,7 +2069,7 @@ namespace Dark
                 const bool arrived = v.path->path.points.empty() || v.path->waypoint >= static_cast<int>(v.path->path.points.size());
                 if (arrived)
                 {
-                    if (pickFleeDest(v, playerPos))
+                    if (pickFleeDest(world, v, playerPos))
                         repath(world, v, v.ai->wanderDest.x, v.ai->wanderDest.z);
                 }
                 else if (m_time >= v.path->repathAt)
@@ -2043,7 +2098,7 @@ namespace Dark
                         const float pdz = goal.z - v.xf->position.z;
                         if (pdx * pdx + pdz * pdz < 1.0f)
                         {
-                            patrol->waitLeft = 1.5f;
+                            patrol->waitLeft = agentCombat.patrolWait;
                             patrol->next = (patrol->next + 1) % count;
                         }
                         else
@@ -2060,7 +2115,7 @@ namespace Dark
                     const bool arrived = v.path->path.points.empty() || v.path->waypoint >= static_cast<int>(v.path->path.points.size());
                     if (arrived)
                     {
-                        if (pickWanderDest(v))
+                        if (pickWanderDest(world, v))
                             repath(world, v, v.ai->wanderDest.x, v.ai->wanderDest.z);
                     }
                     else if (m_time >= v.path->repathAt)
@@ -2069,12 +2124,12 @@ namespace Dark
             }
             else if (leaf == AI::Leaf::Chase)
             {
-                if (m_time >= v.path->repathAt || v.path->path.points.empty())
+                if (m_time >= v.path->repathAt)
                     repath(world, v, aimX, aimZ);
             }
             else if (leaf == AI::Leaf::Assist)
             {
-                if (m_time >= v.path->repathAt || v.path->path.points.empty())
+                if (m_time >= v.path->repathAt)
                     repath(world, v, v.ai->helpPos.x, v.ai->helpPos.z);
             }
 
@@ -2082,23 +2137,23 @@ namespace Dark
             const bool     holding = v.ai->attackPause > 0.0f;
             if (v.ai->repositionLeft > 0.0f)
             {
-                seekToward(v, dt, terrain, paced, v.ai->repositionDest.x, v.ai->repositionDest.z);
+                seekToward(world, v, dt, terrain, paced, v.ai->repositionDest.x, v.ai->repositionDest.z);
                 const float rdx = v.ai->repositionDest.x - v.xf->position.x;
                 const float rdz = v.ai->repositionDest.z - v.xf->position.z;
                 if (rdx * rdx + rdz * rdz < 0.36f)
                     v.ai->repositionLeft = 0.0f;
             }
             else if (!holding)
-                follow(v, dt, terrain, paced);
+                follow(world, v, dt, terrain, paced);
             Vector3f move{ v.xf->position.x - before.x, 0.0f, v.xf->position.z - before.z };
             if (move.MagnitudeSqrd() < 1.0e-8f && !holding && v.ai->repositionLeft <= 0.0f)
             {
                 if (leaf == AI::Leaf::Chase && playerAlive)
-                    seekToward(v, dt, terrain, paced, aimX, aimZ);
+                    seekToward(world, v, dt, terrain, paced, aimX, aimZ);
                 else if (leaf == AI::Leaf::Assist)
-                    seekToward(v, dt, terrain, paced, v.ai->helpPos.x, v.ai->helpPos.z);
+                    seekToward(world, v, dt, terrain, paced, v.ai->helpPos.x, v.ai->helpPos.z);
                 else if (leaf == AI::Leaf::Memory && v.ai->hasLastSeen)
-                    seekToward(v, dt, terrain, paced, wolfCircling ? aimX : v.ai->lastSeen.x, wolfCircling ? aimZ : v.ai->lastSeen.z);
+                    seekToward(world, v, dt, terrain, paced, wolfCircling ? aimX : v.ai->lastSeen.x, wolfCircling ? aimZ : v.ai->lastSeen.z);
                 else if (leaf == AI::Leaf::Wander && !m_walk.valid())
                 {
                     Vector3f toW{ v.ai->wanderDest.x - v.xf->position.x, 0.0f, v.ai->wanderDest.z - v.xf->position.z };
@@ -2107,7 +2162,7 @@ namespace Dark
                         v.ai->wanderDest.x = v.xf->position.x + ((static_cast<int>(m_time * 17.0f) & 1) ? 8.0f : -8.0f);
                         v.ai->wanderDest.z = v.xf->position.z + ((static_cast<int>(m_time * 13.0f) & 1) ? 6.0f : -6.0f);
                     }
-                    seekToward(v, dt, terrain, paced, v.ai->wanderDest.x, v.ai->wanderDest.z);
+                    seekToward(world, v, dt, terrain, paced, v.ai->wanderDest.x, v.ai->wanderDest.z);
                 }
                 else if (leaf == AI::Leaf::Wander)
                 {
@@ -2116,7 +2171,7 @@ namespace Dark
                         const int count = static_cast<int>(patrol->points.size());
                         const int index = (patrol->next >= 0 && patrol->next < count) ? patrol->next : 0;
                         const Vector3f& goal = patrol->points[static_cast<size_t>(index)];
-                        seekToward(v, dt, terrain, paced, goal.x, goal.z);
+                        seekToward(world, v, dt, terrain, paced, goal.x, goal.z);
                     }
                 }
                 move = Vector3f{ v.xf->position.x - before.x, 0.0f, v.xf->position.z - before.z };
@@ -2166,35 +2221,35 @@ namespace Dark
 
     bool AiSystem::applyHunterDamage(World& world, Entity e, float amount)
     {
-        HealthComponent* hp = world.get<HealthComponent>(e);
-        if (!hp)
-            return false;
-        const float before = hp->health.hp();
-        const bool  killed = hp->health.applyDamage(amount);
+        bool       killed  = false;
+        const bool damaged = damageEntity(world, e, amount, &killed);
         if (killed)
+            noteHunterDown(world, e);
+        return damaged;
+    }
+
+    void AiSystem::noteHunterDown(World& world, Entity e)
+    {
+        if (AiAgentComponent* ai = world.get<AiAgentComponent>(e))
+            ai->deadFor = 0.0f;
+        if (PathAgentComponent* path = world.get<PathAgentComponent>(e))
         {
-            if (AiAgentComponent* ai = world.get<AiAgentComponent>(e))
-                ai->deadFor = 0.0f;
-            if (PathAgentComponent* path = world.get<PathAgentComponent>(e))
-            {
-                path->path.points.clear();
-                path->waypoint = 0;
-            }
-            if (HitReactionComponent* hit = world.get<HitReactionComponent>(e))
-            {
-                hit->hit.reset();
-                if (Combat::HitVolumesComponent* volumes = world.get<Combat::HitVolumesComponent>(e))
-                    Combat::clearHitPartState(*volumes);
-            }
-            if (JumpAttackComponent* jac = world.get<JumpAttackComponent>(e))
-            {
-                if (jac->jump.busy())
-                    DE_LOG_INFO(LogCategory::AI, "Hunter: jump death-cancel");
-            }
-            cancelJumpAndToken(world, e, false);
-            DE_LOG_INFO(LogCategory::AI, "Hunter down");
+            path->path.points.clear();
+            path->waypoint = 0;
         }
-        return hp->health.hp() < before;
+        if (HitReactionComponent* hit = world.get<HitReactionComponent>(e))
+        {
+            hit->hit.reset();
+            if (Combat::HitVolumesComponent* volumes = world.get<Combat::HitVolumesComponent>(e))
+                Combat::clearHitPartState(*volumes);
+        }
+        if (JumpAttackComponent* jac = world.get<JumpAttackComponent>(e))
+        {
+            if (jac->jump.busy())
+                DE_LOG_INFO(LogCategory::AI, "Hunter: jump death-cancel");
+        }
+        cancelJumpAndToken(world, e, false);
+        DE_LOG_INFO(LogCategory::AI, "Hunter down");
     }
 
     void AiSystem::forceAlert(World& world, Entity e, const Vector3f& attackerPos)
@@ -2218,15 +2273,15 @@ namespace Dark
 
     void AiSystem::noticeMissing(World& world)
     {
-        constexpr float kMissingSeconds = 30.0f;
+        const EntityCombat& missing = entityCombatFor("hunter");
         for (Entity down : m_scratch)
         {
             AiAgentComponent*      dai = world.get<AiAgentComponent>(down);
             const HealthComponent* dhp = dai ? world.get<HealthComponent>(down) : nullptr;
-            if (!dhp || dhp->health.alive() || dai->missingReported || dai->bodyFound || dai->deadFor < kMissingSeconds || entityIsWolf(world, down))
+            if (!dhp || dhp->health.alive() || dai->missingReported || dai->bodyFound || dai->deadFor < missing.missingSeconds || entityIsWolf(world, down))
                 continue;
             Entity best{};
-            float  bestD = 40.0f * 40.0f;
+            float  bestD = missing.missingRange * missing.missingRange;
             for (Entity mate : m_scratch)
             {
                 AiAgentComponent*         mai = mate.id() != down.id() ? world.get<AiAgentComponent>(mate) : nullptr;
@@ -2345,12 +2400,13 @@ namespace Dark
                 m_duelToken = e;
         };
         const Vector3f to     = flattenDir(Vector3f{ attackerPos.x - xf->position.x, 0.0f, attackerPos.z - xf->position.z }, ai->forward);
+        const EntityCombat& combat = entityCombatFor("hunter");
         const bool     facing = to.Dot(flattenDir(ai->forward, to)) > 0.5f;
         const float    roll   = std::fmod(static_cast<float>(e.id()) * 0.37f + m_time * 5.13f, 1.0f);
         const bool     leftArmDown = Combat::hitVolumesBlockHunterBlock(world.get<Combat::HitVolumesComponent>(e));
-        if (!leftArmDown && facing && ai->meleeWindup <= 0.0f && (ai->guardLeft > 0.0f || roll < 0.35f))
+        if (!leftArmDown && facing && ai->meleeWindup <= 0.0f && (ai->guardLeft > 0.0f || roll < combat.blockChance))
         {
-            ai->guardLeft = 0.8f;
+            ai->guardLeft = combat.guardMin;
             counter();
             return MeleeResponse::Blocked;
         }
@@ -2360,15 +2416,15 @@ namespace Dark
         if (ai->hitWindow <= 0.0f)
             ai->hitsTaken = 0;
         ai->hitsTaken += 1;
-        ai->hitWindow = 1.5f;
-        if (ai->hitsTaken >= 3)
+        ai->hitWindow = combat.guardWindow;
+        if (ai->hitsTaken >= combat.poiseHits)
         {
             ai->hitsTaken = 0;
-            ai->guardLeft = 1.0f;
+            ai->guardLeft = combat.guardMax;
             counter();
             return MeleeResponse::Poise;
         }
-        interruptAttack(world, e, 0.7f);
+        interruptAttack(world, e, combat.guardRecover);
         return MeleeResponse::Stagger;
     }
 
@@ -2439,7 +2495,7 @@ namespace Dark
             View v{};
             if (!bind(world, e, v) || !v.health->health.alive())
                 continue;
-            if (!hunterSeesPoint(v, where))
+            if (!hunterSeesPoint(world, v, where))
                 continue;
             beginFlee(world, v);
             DE_LOG_INFO(LogCategory::AI, "Hunter fled after seeing a kill");

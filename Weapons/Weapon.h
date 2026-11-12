@@ -5,6 +5,7 @@
 #include "ECS/Entity.h"
 #include "Math/AABox3f.h"
 #include "Math/Ray3f.h"
+#include "Math/Sphere3f.h"
 #include "Math/Vector3f.h"
 
 #include <cstdint>
@@ -73,6 +74,12 @@ namespace Dark
         void*          targetUser = nullptr;
 
         float maxRange = 80.0f;
+
+        // Scene cubes, closed-door boxes, and spheres. A closer solid beats a target.
+        const Math::AABox3f*  solids      = nullptr;
+        int                   solidCount  = 0;
+        const Math::Sphere3f* spheres     = nullptr;
+        int                   sphereCount = 0;
     };
 
     struct WeaponFireRequest
@@ -100,7 +107,10 @@ namespace Dark
     bool weaponCapsulesActive(const Combat::HitSegment* segments, int count);
     int  weaponSampleActiveCapsules(const Combat::HitSegment* segments, int count, const Math::Vector3f& from, WeaponCapsuleSample* out, int outCap);
     // Nearest active shell point inside the horizontal reach and facing gate. Normal points toward origin.
-    bool weaponPickCapsuleReach(const Combat::HitSegment* segments, int count, const Math::Vector3f& origin, const Math::Vector3f& lookFlat, float range, float minDot, WeaponPartContact& out);
+    // maxAbsVertical < 0 keeps the old horizontal-only reach.
+    bool weaponPickCapsuleReach(const Combat::HitSegment* segments, int count, const Math::Vector3f& origin, const Math::Vector3f& lookFlat, float range, float minDot, WeaponPartContact& out, float maxAbsVertical = -1.0f);
+    // True when a solid sits on the open segment, not counting a hit at the endpoint.
+    bool weaponSegmentBlocked(const Math::AABox3f* boxes, int boxCount, const Math::Sphere3f* spheres, int sphereCount, const Math::Vector3f& from, const Math::Vector3f& to);
 
     class Weapon
     {

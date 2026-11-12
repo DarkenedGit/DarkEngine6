@@ -92,6 +92,8 @@ namespace Dark
             out.string("stalkSide", sideName(agent.stalkSide));
             out.vec3("stalkDest", agent.stalkDest);
             out.f32("stalkLeft", agent.stalkLeft);
+            out.boolean("hasHome", agent.hasHome);
+            out.vec3("home", agent.home);
         }
 
         void applyAgent(void* component, void* reader, uint16_t)
@@ -112,6 +114,8 @@ namespace Dark
             if (!in.boolean("preferOtherAttack", next.preferOtherAttack) || !in.boolean("givenUp", next.givenUp) || !in.vec3("repositionDest", next.repositionDest, Save::kMaxAbsPosition) || !in.boolean("hasLastSeen", next.hasLastSeen))
                 return;
             if (!in.string("stalk", stalk, 32) || !in.string("stalkSide", side, 32) || !in.vec3("stalkDest", next.stalkDest, Save::kMaxAbsPosition) || !in.f32("stalkLeft", next.stalkLeft, 0.0f, Save::kMaxTimerSeconds))
+                return;
+            if (!in.boolean("hasHome", next.hasHome) || !in.vec3("home", next.home, Save::kMaxAbsPosition))
                 return;
             if (!stalkFromName(stalk, next.stalk))
             {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Audio/SoundClip.h"
 #include "Core/UiPalette.h"
 #include "Math/Matrix4f.h"
 #include "Render/Mesh.h"
@@ -15,8 +16,14 @@
 namespace Dark
 {
 
+    class AssetManager;
     class Input;
     class Renderer;
+
+    namespace Audio
+    {
+        class AudioSystem;
+    }
 
     enum class MainMenuKind : uint8_t
     {
@@ -70,6 +77,12 @@ namespace Dark
         void            update(const Input& input, uint32_t viewW, uint32_t viewH);
         MainMenuResult  pollResult();
 
+        // audio/UI/ui_move.wav and audio/UI/ui_select.wav. A missing file uses a blip.
+        bool     loadSounds(Audio::AudioSystem& audio, AssetManager& assets);
+        bool     hasSounds() const { return m_moveClip != nullptr && m_selectClip != nullptr; }
+        uint32_t moveSoundCount() const { return m_moveSounds; }
+        uint32_t selectSoundCount() const { return m_selectSounds; }
+
         bool create(Renderer& renderer, UiAccent accent = UiAccent::Engine);
         void draw(Renderer& renderer);
         void shutdown(Renderer& renderer);
@@ -104,6 +117,8 @@ namespace Dark
         bool   hit(const Rect& r, float mx, float my) const;
         void   moveSelection(int delta);
         void   confirmSelection();
+        void   playMove();
+        void   playSelect();
         bool   ensureLabels(Renderer& renderer);
         const LabelGpu* findLabel(std::string_view text) const;
         void drawRect(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, const Rect& r, uint32_t viewH, float red, float green, float blue, float alpha) const;
@@ -116,6 +131,11 @@ namespace Dark
         size_t                     m_selected = 0;
         bool                       m_visible  = false;
         MainMenuResult             m_pending  = MainMenuResult::None;
+        Audio::AudioSystem*        m_audio    = nullptr;
+        AssetRef<Audio::SoundClip> m_moveClip;
+        AssetRef<Audio::SoundClip> m_selectClip;
+        uint32_t                   m_moveSounds   = 0;
+        uint32_t                   m_selectSounds = 0;
 
         SpritePipeline        m_pipe;
         Mesh                  m_quad;

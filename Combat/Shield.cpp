@@ -5,6 +5,7 @@
 #include "Combat/HoldCharge.h"
 #include "ECS/World.h"
 #include "Math/MathHelper.h"
+#include "Scene/EntityCombat.h"
 
 #include <cmath>
 
@@ -135,6 +136,11 @@ namespace Dark::Combat
             return;
         if (!world.has<DefenseComponent>(player))
             world.emplace<DefenseComponent>(player);
+        if (DefenseComponent* defense = world.get<DefenseComponent>(player))
+        {
+            if (defense->team == 0)
+                defense->team = static_cast<uint8_t>(entityCombatFor("player").team);
+        }
         ArmorComponent* armor = world.get<ArmorComponent>(player);
         if (!armor)
             armor = &world.emplace<ArmorComponent>(player);

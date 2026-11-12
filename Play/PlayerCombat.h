@@ -39,7 +39,7 @@ namespace Dark
     bool firePlayerLoadout(PlayHost& host, PlayRuntime& runtime, bool charged, const PlayerCombatHooks& hooks);
     void switchPlayerWeapons(PlayHost& host);
 
-    void onPlayerWeaponHit(PlayHost& host, PlayRuntime& runtime, const WeaponHit& hit);
+    void onPlayerWeaponHit(PlayHost& host, PlayRuntime& runtime, Combat::CombatSystem& combat, const WeaponHit& hit);
     void resolvePlayerJumpHits(PlayHost& host, PlayRuntime& runtime, Combat::CombatSystem& combat, const Combat::DamageEvent* events, int count);
 
     // Pound, pounce connect, and poise hyper-armor. True when the pound cue replaces the land cue.

@@ -123,6 +123,10 @@ namespace Dark
         uint32_t planarSubsteps     = 0;
         uint32_t planarHardStops    = 0;
         uint32_t planarShapeRejects = 0;
+
+        // Facility cubes plus a shut door. Refreshed before a weapon query. Locomotion keeps host.cubes.
+        const Math::AABox3f* weaponBlocks     = nullptr;
+        int                  weaponBlockCount = 0;
     };
 
     // Filled by the app at the start of each session call. Pointers are not owned.

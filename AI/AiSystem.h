@@ -97,6 +97,8 @@ namespace Dark
         void   setHunterCue(void (*fn)(void* user, Entity hunter, const char* cue), void* user);
 
         bool applyHunterDamage(World& world, Entity e, float amount);
+        // Death bookkeeping after hit points are already gone. Does not apply damage.
+        void noteHunterDown(World& world, Entity e);
         void applyHunterHitReaction(World& world, Entity e, const Math::Vector3f& hitDirection);
         enum class MeleeResponse : uint8_t
         {
@@ -129,22 +131,22 @@ namespace Dark
         bool bind(World& world, Entity e, View& v);
         void collectHunters(World& world);
         void tickHealthAndRespawn(World& world, float dt);
-        void integrateHitReaction(View& v, float dt, Terrain::TerrainGrid& terrain);
-        void follow(View& v, float dt, Terrain::TerrainGrid& terrain, float speed);
+        void integrateHitReaction(World& world, View& v, float dt, Terrain::TerrainGrid& terrain);
+        void follow(World& world, View& v, float dt, Terrain::TerrainGrid& terrain, float speed);
         void repath(World& world, View& v, float destX, float destZ);
-        bool pickWanderDest(View& v);
-        bool pickFleeDest(View& v, const Math::Vector3f& playerPos);
-        bool hunterSeesPoint(const View& v, const Math::Vector3f& worldPos) const;
+        bool pickWanderDest(World& world, View& v);
+        bool pickFleeDest(World& world, View& v, const Math::Vector3f& playerPos);
+        bool hunterSeesPoint(World& world, const View& v, const Math::Vector3f& worldPos) const;
         void beginAssist(View& v, const Math::Vector3f& helpPos);
         void beginFlee(World& world, View& v);
-        void seekToward(View& v, float dt, Terrain::TerrainGrid& terrain, float speed, float destX, float destZ);
-        void moveLureSearch(View& v, float dt, Terrain::TerrainGrid& terrain, float speed);
+        void seekToward(World& world, View& v, float dt, Terrain::TerrainGrid& terrain, float speed, float destX, float destZ);
+        void moveLureSearch(World& world, View& v, float dt, Terrain::TerrainGrid& terrain, float speed);
         void clearLureSearch(View& v, bool leaveAssist);
         void cancelJumpAndToken(World& world, Entity e, bool forceIdle);
         void fallDeadAgent(World& world, View& v, float dt, Terrain::TerrainGrid& terrain, const Math::AABox3f* cubes, int cubeCount, const Math::Sphere3f* spheres, int sphereCount);
         void ensureAttackPatterns();
         const AI::AttackPattern* attackPatternFor(World& world, Entity e) const;
-        void releaseMelee(World& world, View& v, const AI::AttackPattern& pattern, Entity player, const Math::Vector3f& playerPos);
+        void releaseMelee(World& world, View& v, const AI::AttackPattern& pattern, Entity player, const Math::Vector3f& playerPos, const Math::AABox3f* cubes, int cubeCount, const Math::Sphere3f* spheres, int sphereCount);
         void commitAttack(AiAgentComponent& ai, const AI::AttackPattern& pattern, int attackIndex, const Math::Vector3f& selfPos, const Math::Vector3f& playerPos);
         void collectJumpTargets(World& world);
         void resolveJumpHits(World& world, const Combat::DamageEvent* events, int count);

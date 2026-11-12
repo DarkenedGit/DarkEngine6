@@ -44,7 +44,8 @@ TEST(PlayerCombat, HitWithoutAudioLeavesHealth)
     hit.hitTarget    = true;
     hit.targetEntity = victim;
     hit.damage       = 25.0f;
-    onPlayerWeaponHit(host, runtime, hit);
+    Combat::CombatSystem combat;
+    onPlayerWeaponHit(host, runtime, combat, hit);
     EXPECT_FLOAT_EQ(world.get<HealthComponent>(victim)->health.hp(), 100.0f);
 }
 
@@ -65,7 +66,8 @@ TEST(PlayerCombat, NonAgentHitDealsDamageWithoutASoundBank)
     hit.targetEntity = victim;
     hit.damage       = 25.0f;
     hit.weapon       = WeaponKind::Projectile;
-    onPlayerWeaponHit(host, runtime, hit);
+    Combat::CombatSystem combat;
+    onPlayerWeaponHit(host, runtime, combat, hit);
     EXPECT_FLOAT_EQ(world.get<HealthComponent>(victim)->health.hp(), 75.0f);
 }
 

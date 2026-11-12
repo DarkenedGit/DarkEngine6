@@ -1,5 +1,7 @@
 #include "Ui/MainMenu.h"
 
+#include "Assets/AssetManager.h"
+#include "Audio/AudioSystem.h"
 #include "Core/Log.h"
 #include "Input/Input.h"
 #include "Math/Matrix4f.h"
@@ -83,6 +85,17 @@ namespace Dark
         constexpr float kPanelPad   = 28.0f;
         constexpr float kTitleGap   = 18.0f;
         constexpr float kHintGap    = 16.0f;
+
+        constexpr const char* kMenuMovePath   = "audio/UI/ui_move.wav";
+        constexpr const char* kMenuSelectPath = "audio/UI/ui_select.wav";
+        constexpr float       kMenuMoveHz     = 980.0f;
+        constexpr float       kMenuMoveSec    = 0.04f;
+        constexpr float       kMenuMoveAmp    = 0.28f;
+        constexpr float       kMenuMoveVol    = 0.35f;
+        constexpr float       kMenuSelectHz   = 1320.0f;
+        constexpr float       kMenuSelectSec  = 0.07f;
+        constexpr float       kMenuSelectAmp  = 0.34f;
+        constexpr float       kMenuSelectVol  = 0.55f;
     } // namespace
 
     void MainMenu::setTitle(std::string title)
@@ -216,6 +229,31 @@ namespace Dark
         if (!e)
             return;
         m_pending = (e->kind == MainMenuKind::Quit) ? MainMenuResult::Quit : MainMenuResult::Confirm;
+        playSelect();
+    }
+
+    bool MainMenu::loadSounds(Audio::AudioSystem& audio, AssetManager& assets)
+    {
+        m_audio      = &audio;
+        m_moveClip   = audio.loadOrBlip(assets, kMenuMovePath, kMenuMoveHz, kMenuMoveSec, kMenuMoveAmp);
+        m_selectClip = audio.loadOrBlip(assets, kMenuSelectPath, kMenuSelectHz, kMenuSelectSec, kMenuSelectAmp);
+        return m_moveClip != nullptr && m_selectClip != nullptr;
+    }
+
+    void MainMenu::playMove()
+    {
+        if (!m_audio || m_moveClip == nullptr)
+            return;
+        m_audio->play2D(m_moveClip, kMenuMoveVol, false);
+        ++m_moveSounds;
+    }
+
+    void MainMenu::playSelect()
+    {
+        if (!m_audio || m_selectClip == nullptr)
+            return;
+        m_audio->play2D(m_selectClip, kMenuSelectVol, false);
+        ++m_selectSounds;
     }
 
     bool MainMenu::hit(const Rect& r, float mx, float my) const
@@ -271,28 +309,33 @@ namespace Dark
         if (!m_visible)
             return;
 
+        const size_t before = m_selected;
+
         if (input.keyPressed(Key::Down) || input.keyPressed(Key::S) || input.buttonPressed(GamepadButton::DPadDown))
             moveSelection(1);
         if (input.keyPressed(Key::Up) || input.keyPressed(Key::W) || input.buttonPressed(GamepadButton::DPadUp))
             moveSelection(-1);
 
-        const Layout layout = computeLayout(viewW, viewH);
-        const float  mx     = static_cast<float>(input.mouseX());
-        const float  my     = static_cast<float>(input.mouseY());
+        bool         confirm = false;
+        const Layout layout  = computeLayout(viewW, viewH);
+        const float  mx      = static_cast<float>(input.mouseX());
+        const float  my      = static_cast<float>(input.mouseY());
         for (size_t i = 0; i < layout.rows.size(); ++i)
         {
-            if (hit(layout.rows[i], mx, my))
-            {
-                m_selected = i;
-                if (input.mousePressed(MouseButton::Left))
-                {
-                    confirmSelection();
-                    return;
-                }
-            }
+            if (!hit(layout.rows[i], mx, my))
+                continue;
+            m_selected = i;
+            if (input.mousePressed(MouseButton::Left))
+                confirm = true;
         }
 
-        if (input.keyPressed(Key::Enter) || input.keyPressed(Key::Space) || input.buttonPressed(GamepadButton::A))
+        if (!confirm && (input.keyPressed(Key::Enter) || input.keyPressed(Key::Space) || input.buttonPressed(GamepadButton::A)))
+            confirm = true;
+
+        // One move cue for the highlight that survives keys and the mouse this frame.
+        if (m_selected != before)
+            playMove();
+        if (confirm)
         {
             confirmSelection();
             return;
@@ -519,6 +562,9 @@ namespace Dark
         m_quad  = Mesh{};
         m_pipe  = SpritePipeline{};
         m_labelsDirty = true;
+        m_moveClip.reset();
+        m_selectClip.reset();
+        m_audio = nullptr;
     }
 
 } // namespace Dark

@@ -11,6 +11,7 @@ namespace Dark
         float       damage   = 16.0f;
         float       range    = 2.7f;
         float       minDot   = 0.25f;
+        float       maxVertical = 1.5f; // < 0 disables the vertical gate
         float       cooldown = 0.45f;
         float       hitDelay = 0.0f;
         bool        singleTarget = false;

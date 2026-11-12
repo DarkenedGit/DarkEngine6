@@ -41,6 +41,8 @@ namespace Dark::Combat
         uint8_t        statusId    = 0; // optional status payload
         float          statusMagnitude = 0.f;
         float          statusDuration  = 0.f;
+        // Weapon presentation still plays its own reaction. Resolve keeps armor, poise, teams, and god mode.
+        bool           skipHitReaction = false;
     };
 
 } // namespace Dark::Combat

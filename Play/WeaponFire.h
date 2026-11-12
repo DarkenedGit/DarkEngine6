@@ -3,6 +3,7 @@
 #include "Character/SkillCatalog.h"
 #include "Character/SkillComponent.h"
 #include "Math/Vector3f.h"
+#include "Scene/EntityCombat.h"
 #include "Weapons/Weapon.h"
 
 namespace Dark
@@ -17,7 +18,7 @@ namespace Dark
             req.direction.Normalize();
         else
             req.direction = Math::Vector3f{ 0.0f, 0.0f, 1.0f };
-        req.origin      = cameraPos + req.direction * 2.2f;
+        req.origin      = cameraPos + req.direction * entityCombatFor("player").muzzleOffset;
         req.ownerPos    = ownerPos ? *ownerPos : cameraPos;
         req.damageScale = damageScale;
         return req;

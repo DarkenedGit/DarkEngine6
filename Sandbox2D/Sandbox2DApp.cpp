@@ -1121,6 +1121,8 @@ void Sandbox2DApp::onInit()
     const bool menuGpu = m_menu.create(renderer(), UiAccent::Sandbox2D);
     if (!menuGpu)
         DE_LOG_ERROR(LogCategory::Render, "Sandbox2D: main menu GPU init failed");
+    if (!m_menu.loadSounds(audio(), assets()))
+        DE_LOG_WARN(LogCategory::Audio, "Sandbox2D: main menu sounds failed");
 
     network().setWantsPawn(true);
     network().setSceneMode(1);

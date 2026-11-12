@@ -2,6 +2,8 @@
 
 #include "ECS/Entity.h"
 #include "ECS/Persist.h"
+#include "Math/AABox3f.h"
+#include "Math/Sphere3f.h"
 #include "Math/Vector3f.h"
 
 namespace Dark
@@ -63,7 +65,9 @@ namespace Dark
     // A carried body yields no pick. Dead guards are bodies. Loot counts as an item.
     PlayInteractPick pickInteractable(World& world, Entity player, const Math::Vector3f& eye, const Math::Vector3f& look, float minAim = 0.94f);
 
-    // Nearest living guard the player stands behind. Alert guards and a carried body are skipped.
-    Entity findTakedownTarget(World& world, Entity player, bool enabled);
+    // Nearest living guard the player stands behind. Alert guards, a carried body, and a solid on the segment are skipped.
+    // Player stun, posture, and hiding stay with the caller. Tests pass the three-argument form.
+    Entity findTakedownTarget(World& world, Entity player, bool enabled, float range = kGuardTakedownRange, float maxAbsDy = 1.2f, float backDot = -0.2f,
+                              const Math::AABox3f* solids = nullptr, int solidCount = 0, const Math::Sphere3f* spheres = nullptr, int sphereCount = 0);
 
 } // namespace Dark

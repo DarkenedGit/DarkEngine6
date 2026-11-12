@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Combat/JumpAttackDef.h"
+#include "ECS/Entity.h"
 
 namespace Dark::AI
 {
@@ -10,11 +11,16 @@ namespace Dark::AI
 namespace Dark
 {
 
+    class World;
+
     // Built-in pounce. JSON overlays windup, connect damage, and the min/max range when a jump move is present.
     // Cooldown, pound, leap, gravity, homing, and knockdown stay on this def. A missing file keeps these numbers.
     Combat::JumpAttackDef hunterJumpDefFromPattern(const AI::AttackPattern* pattern);
 
     // Fallback is 4 m to 9 m. A loaded jump move replaces both ends. Does not log.
     void hunterJumpRanges(const AI::AttackPattern* pattern, float& minRange, float& maxRange);
+
+    // After the Wolf tag is written. Health and poise change only while still full. Hunters stay as attach left them.
+    void applySpeciesCombat(World& world, Entity e);
 
 } // namespace Dark
