@@ -156,14 +156,14 @@ void EditorApp::drawNetworkMenu()
 
     if (ImGui::MenuItem(ICON_FA_SERVER "  Host Session", "26160", false, hostOk))
         hostNetworkSession();
-    if (!hostOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    if (!hostOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
         ImGui::SetTooltip("Disconnect first");
 
     ImGui::SetNextItemWidth(180.0f);
     ImGui::InputText("Join IP", m_joinAddress, sizeof(m_joinAddress));
     if (ImGui::MenuItem(ICON_FA_PLUG "  Join", nullptr, false, joinOk))
         joinNetworkSession();
-    if (!joinOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    if (!joinOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
         ImGui::SetTooltip("Join requires an empty scene of the current mode");
 
     ImGui::Separator();
@@ -192,7 +192,7 @@ void EditorApp::drawNetworkMenu()
                           (ip >> 24) & 255u, (ip >> 16) & 255u, (ip >> 8) & 255u, ip & 255u, s.address.port);
             joinNetworkSession();
         }
-        if (!canClick && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        if (!canClick && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
         {
             if (s.sceneMode != wantMode)
                 ImGui::SetTooltip("Host scene mode does not match (switch to an empty %s scene)", s.sceneMode ? "2D" : "3D");

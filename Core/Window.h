@@ -27,6 +27,8 @@ namespace Dark
         float    dpiScale() const { return m_dpiScale; }
         // True if WM_SIZE changed the client area since the last call.
         bool     takeSizeChanged();
+        // True if WM_DPICHANGED wrote m_dpiScale since the last call.
+        bool     takeDpiChanged();
         bool     isMinimized() const { return m_minimized; }
         bool     isFocused() const { return m_focused; }
         void*    nativeHandle() const; // HWND on Win32
@@ -55,6 +57,7 @@ namespace Dark
         float    m_dpiScale = 1.0f;
         bool     m_closed = false;
         bool     m_sizeChanged = false;
+        bool     m_dpiChanged  = false;
         bool     m_minimized = false;
         bool     m_focused = true;
         bool     m_cursorCaptured = false;

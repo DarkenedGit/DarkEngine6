@@ -58,7 +58,7 @@ namespace Dark
         m_quad.draw(cmd);
     }
 
-    void CrosshairHud::draw(ID3D12GraphicsCommandList* cmd, uint32_t viewW, uint32_t viewH, WeaponKind active, bool throwableSlot) const
+    void CrosshairHud::draw(ID3D12GraphicsCommandList* cmd, uint32_t viewW, uint32_t viewH, WeaponKind active, bool throwableSlot, float dpiScale) const
     {
         if (!cmd || !isValid() || viewW < 8 || viewH < 8)
             return;
@@ -78,33 +78,34 @@ namespace Dark
 
         m_pipe.bind(cmd);
 
-        constexpr float arm   = 11.0f;
-        constexpr float thick = 2.0f;
-        constexpr float gap   = 5.0f;
+        const float dpi   = dpiScale > 0.1f ? dpiScale : 1.0f;
+        const float arm   = 11.0f * dpi;
+        const float thick = 2.0f * dpi;
+        const float gap   = 5.0f * dpi;
         drawRect(cmd, proj, cx - gap - arm * 0.5f, cy, arm, thick, accent.r, accent.g, accent.b, 0.92f);
         drawRect(cmd, proj, cx + gap + arm * 0.5f, cy, arm, thick, accent.r, accent.g, accent.b, 0.92f);
         drawRect(cmd, proj, cx, cy + gap + arm * 0.5f, thick, arm, accent.r, accent.g, accent.b, 0.92f);
         drawRect(cmd, proj, cx, cy - gap - arm * 0.5f, thick, arm, accent.r, accent.g, accent.b, 0.92f);
-        drawRect(cmd, proj, cx, cy, 2.0f, 2.0f, accent.r, accent.g, accent.b, 0.85f);
+        drawRect(cmd, proj, cx, cy, 2.0f * dpi, 2.0f * dpi, accent.r, accent.g, accent.b, 0.85f);
 
-        const float slotY = cy - 28.0f;
-        const float s     = 7.0f;
+        const float slotY = cy - 28.0f * dpi;
+        const float s     = 7.0f * dpi;
         const UiColor meleeCol = active == WeaponKind::Melee ? UiPalette::kText : dim;
         const UiColor gunCol   = active == WeaponKind::Projectile ? UiPalette::kWarn : dim;
         const float meleeA = active == WeaponKind::Melee ? 0.95f : 0.45f;
         const float gunA   = active == WeaponKind::Projectile ? 0.95f : 0.45f;
         if (!throwableSlot)
         {
-            drawRect(cmd, proj, cx - 10.0f, slotY, s, s, meleeCol.r, meleeCol.g, meleeCol.b, meleeA);
-            drawRect(cmd, proj, cx + 10.0f, slotY, s, s, gunCol.r, gunCol.g, gunCol.b, gunA);
+            drawRect(cmd, proj, cx - 10.0f * dpi, slotY, s, s, meleeCol.r, meleeCol.g, meleeCol.b, meleeA);
+            drawRect(cmd, proj, cx + 10.0f * dpi, slotY, s, s, gunCol.r, gunCol.g, gunCol.b, gunA);
             return;
         }
 
         const UiColor throwCol = active == WeaponKind::Throwable ? UiPalette::kOk : dim;
         const float throwA = active == WeaponKind::Throwable ? 0.95f : 0.45f;
-        drawRect(cmd, proj, cx - 18.0f, slotY, s, s, meleeCol.r, meleeCol.g, meleeCol.b, meleeA);
+        drawRect(cmd, proj, cx - 18.0f * dpi, slotY, s, s, meleeCol.r, meleeCol.g, meleeCol.b, meleeA);
         drawRect(cmd, proj, cx, slotY, s, s, gunCol.r, gunCol.g, gunCol.b, gunA);
-        drawRect(cmd, proj, cx + 18.0f, slotY, s, s, throwCol.r, throwCol.g, throwCol.b, throwA);
+        drawRect(cmd, proj, cx + 18.0f * dpi, slotY, s, s, throwCol.r, throwCol.g, throwCol.b, throwA);
     }
 
 } // namespace Dark

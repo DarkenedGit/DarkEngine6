@@ -4,6 +4,8 @@
 #include "Play/Carry.h"
 #include "Play/DialogueBinding.h"
 #include "Play/DialogueHud.h"
+#include "Ui/ImGuiGameChrome.h"
+#include "Ui/ImGuiTheme.h"
 #include "Play/DialogueMemory.h"
 #include "Play/CharacterAttach.h"
 #include "Play/ContactGrind.h"
@@ -790,15 +792,15 @@ void EditorApp::drawUpgrades()
         return;
     InventoryComponent* inv = m_playPlayer.valid() ? world().get<InventoryComponent>(m_playPlayer) : nullptr;
     ImGui::SetNextWindowSize(ImVec2(480.0f, 420.0f), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Upgrades", &m_showUpgrades))
+    if (!Dark::BeginGameCard("Upgrades", &m_showUpgrades, Dark::UiAccent::Editor))
     {
-        ImGui::End();
+        Dark::EndGameCard();
         return;
     }
     if (!inv)
     {
         ImGui::TextDisabled("No body to modify.");
-        ImGui::End();
+        Dark::EndGameCard();
         return;
     }
     ImGui::TextWrapped("Spend stolen research and materials to modify yourself. Upgrades last for this Play.");
@@ -809,7 +811,7 @@ void EditorApp::drawUpgrades()
     {
         ImGui::PushID(up.id.c_str());
         const bool owned = std::find(facility.owned.begin(), facility.owned.end(), up.id) != facility.owned.end();
-        ImGui::TextColored(owned ? ImVec4(0.47f, 0.90f, 0.55f, 1.0f) : ImVec4(0.94f, 0.80f, 0.43f, 1.0f), "%s%s", up.name.c_str(), owned ? "  (owned)" : "");
+        ImGui::TextColored(owned ? Dark::toImVec4(Dark::UiPalette::kOk) : Dark::toImVec4(Dark::UiPalette::kWarn), "%s%s", up.name.c_str(), owned ? "  (owned)" : "");
         ImGui::TextWrapped("%s", up.description.c_str());
         std::string cost;
         for (const UpgradeCost& c : up.cost)
@@ -836,7 +838,7 @@ void EditorApp::drawUpgrades()
         ImGui::Separator();
         ImGui::PopID();
     }
-    ImGui::End();
+    Dark::EndGameCard();
 }
 
 void EditorApp::releasePlayPickups()
@@ -1066,6 +1068,8 @@ void EditorApp::drawPlayDialogue()
     view.windowName     = "PlayDialogue";
     const std::string talkPrompt = input().actions().keyBracket("talk", "[T]") + " Talk";
     view.talkPrompt     = talkPrompt.c_str();
+    view.heading        = m_imgui.fonts().heading;
+    view.accent         = UiAccent::Editor;
     drawDialogueHud(m_dialogue, view);
 }
 
@@ -1082,22 +1086,22 @@ void EditorApp::drawPlayHud()
         ImDrawList*          dl    = vp ? ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp)) : nullptr;
         if (dl)
         {
-            const float  size  = ImGui::GetFontSize() * (parry ? 2.2f : 1.7f);
-            const ImVec2 ts    = ImGui::GetFont()->CalcTextSizeA(size, FLT_MAX, 0.0f, m_defenseText.c_str());
+            ImFont*      font = m_imgui.fonts().heading ? m_imgui.fonts().heading : ImGui::GetFont();
+            const float  size = font->FontSize * (parry ? 1.1f : 1.0f);
+            const ImVec2 ts   = font->CalcTextSizeA(size, FLT_MAX, 0.0f, m_defenseText.c_str());
             const ImVec2 pos{ vp->Pos.x + (vp->Size.x - ts.x) * 0.5f, vp->Pos.y + vp->Size.y * 0.36f - (1.0f - a) * 18.0f };
             const int    alpha = static_cast<int>(a * 255.0f);
-            dl->AddText(ImGui::GetFont(), size, ImVec2(pos.x + 2.0f, pos.y + 2.0f), IM_COL32(0, 0, 0, alpha * 3 / 4), m_defenseText.c_str());
-            dl->AddText(ImGui::GetFont(), size, pos, parry ? IM_COL32(255, 210, 70, alpha) : IM_COL32(170, 210, 255, alpha), m_defenseText.c_str());
+            dl->AddText(font, size, ImVec2(pos.x + 2.0f, pos.y + 2.0f), IM_COL32(0, 0, 0, alpha * 3 / 4), m_defenseText.c_str());
+            dl->AddText(font, size, pos, parry ? Dark::toImU32(Dark::UiPalette::kWarn, alpha) : Dark::toImU32(Dark::UiPalette::kInfo, alpha), m_defenseText.c_str());
         }
     }
 
     ImGui::SetNextWindowPos(ImVec2(16.0f, 48.0f), ImGuiCond_Always);
-    ImGui::SetNextWindowBgAlpha(0.72f);
-    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize
-        | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
-    if (!ImGui::Begin("##playhud", nullptr, flags))
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize
+        | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+    if (!Dark::BeginGameCard("##playhud", nullptr, Dark::UiAccent::Editor, flags))
     {
-        ImGui::End();
+        Dark::EndGameCard();
         return;
     }
     ImGui::TextUnformatted("PLAY");
@@ -1162,20 +1166,10 @@ void EditorApp::drawPlayHud()
     if (quest.active())
     {
         ImGui::Separator();
-        ImGui::TextUnformatted(quest.def().title.c_str());
-        if (quest.complete())
-            ImGui::TextUnformatted("Complete");
-        for (size_t i = 0; i < quest.def().objectives.size(); ++i)
-        {
-            const ObjectiveDef&   o  = quest.def().objectives[i];
-            const ObjectiveState& st = quest.state(i);
-            if (!st.done && !quest.open(i))
-                continue;
-            if (o.count > 1)
-                ImGui::Text("%s %s (%d/%d)", st.done ? "[x]" : "[ ]", o.text.c_str(), st.progress, o.count);
-            else
-                ImGui::Text("%s %s", st.done ? "[x]" : "[ ]", o.text.c_str());
-        }
+        std::vector<Dark::QuestHudLine> lines;
+        Dark::collectQuestLines(quest, lines);
+        for (const Dark::QuestHudLine& line : lines)
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(line.color), "%s", line.text.c_str());
     }
     if (!m_questBanners.empty())
     {
@@ -1183,7 +1177,7 @@ void EditorApp::drawPlayHud()
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(banner.color), "%s  %s", banner.label.c_str(), banner.text.c_str());
     }
     ImGui::TextDisabled("RMB / V / LT shield    L light    F12 / Esc stop");
-    ImGui::End();
+    Dark::EndGameCard();
 
     if (rt.climbOffer)
     {
@@ -1205,7 +1199,7 @@ void EditorApp::drawPlayHud()
                     const ImVec2 ts   = ImGui::CalcTextSize(text);
                     const ImVec2 pos{ cvp->Pos.x + sx - ts.x * 0.5f, cvp->Pos.y + sy - ts.y };
                     cdl->AddText(ImVec2(pos.x + 1.0f, pos.y + 1.0f), IM_COL32(0, 0, 0, 200), text);
-                    cdl->AddText(pos, IM_COL32(255, 220, 90, 255), text);
+                    cdl->AddText(pos, Dark::toImU32(Dark::UiPalette::kWarn), text);
                 }
             }
         }
@@ -1217,32 +1211,10 @@ void EditorApp::drawPlayHud()
     const TransformComponent* pxf = m_playPlayer.valid() ? world().get<TransformComponent>(m_playPlayer) : nullptr;
     if (!pxf || !quest.active() || quest.complete() || !quest.objectiveTarget(world(), m_playPlayer, target))
         return;
-    const ImGuiViewport* vp   = ImGui::GetMainViewport();
-    ImDrawList*          dl   = ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp));
-    const Vector4f       clip = m_camera.GetViewProj() * Vector4f(Vector3f(target.x, target.y + 1.4f, target.z), 1.0f);
-    float                nx   = clip.w > 1.0e-4f ? clip.x / clip.w : -clip.x;
-    float                ny   = clip.w > 1.0e-4f ? clip.y / clip.w : -clip.y;
-    if (clip.w <= 1.0e-4f)
-    {
-        const float m = Math::Max(std::fabs(nx), std::fabs(ny));
-        nx            = m > 1.0e-6f ? nx / m : 0.0f;
-        ny            = m > 1.0e-6f ? ny / m : -1.0f;
-    }
-    const float edge = Math::Max(std::fabs(nx), std::fabs(ny));
-    if (edge > 0.9f)
-    {
-        nx *= 0.9f / edge;
-        ny *= 0.9f / edge;
-    }
-    const ImVec2 c{ vp->Pos.x + (nx * 0.5f + 0.5f) * vp->Size.x, vp->Pos.y + (1.0f - (ny * 0.5f + 0.5f)) * vp->Size.y };
-    const float  r = 9.0f;
-    dl->AddQuadFilled(ImVec2(c.x, c.y - r), ImVec2(c.x + r, c.y), ImVec2(c.x, c.y + r), ImVec2(c.x - r, c.y), IM_COL32(240, 205, 110, 230));
-    dl->AddQuad(ImVec2(c.x, c.y - r), ImVec2(c.x + r, c.y), ImVec2(c.x, c.y + r), ImVec2(c.x - r, c.y), IM_COL32(0, 0, 0, 200), 1.5f);
-    char         dist[24];
-    std::snprintf(dist, sizeof(dist), "%.0f m", static_cast<double>((target - pxf->position).Magnitude()));
-    const ImVec2 ds = ImGui::CalcTextSize(dist);
-    dl->AddText(ImVec2(c.x - ds.x * 0.5f + 1.0f, c.y + r + 3.0f), IM_COL32(0, 0, 0, 200), dist);
-    dl->AddText(ImVec2(c.x - ds.x * 0.5f, c.y + r + 2.0f), IM_COL32(240, 205, 110, 255), dist);
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImDrawList*          dl = vp ? ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp)) : nullptr;
+    if (vp)
+        Dark::drawObjectiveDiamond(dl, vp->Pos, vp->Size, m_camera.GetViewProj(), target, pxf->position);
 }
 
 void EditorApp::drawLoot()
@@ -1262,7 +1234,7 @@ void EditorApp::drawLoot()
     bool        open  = true;
     const char* title = loot->label ? loot->label : "Loot";
     ImGui::SetNextWindowSize(ImVec2(320.0f, 300.0f), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin(title, &open))
+    if (Dark::BeginGameCard(title, &open, Dark::UiAccent::Editor))
     {
         const bool takeAll = ImGui::Button("Take all");
         ImGui::Separator();
@@ -1285,7 +1257,7 @@ void EditorApp::drawLoot()
         if (itemCount(loot->contents) == 0)
             ImGui::TextUnformatted("Empty");
     }
-    ImGui::End();
+    Dark::EndGameCard();
 
     settleLootTarget(world(), pins(), m_physics, m_lootTarget, open);
 }

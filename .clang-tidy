@@ -1,0 +1,67 @@
+# DarkEngine6 clang-tidy configuration
+#
+# Used by scripts/code-hygiene.ps1, clangd, and Visual Studio's clang-tidy
+# code analysis (Project > Properties > Code Analysis > Clang-Tidy).
+#
+# Needs LLVM 18 or newer (misc-include-cleaner's UnusedIncludes/MissingIncludes
+# options). Visual Studio's bundled LLVM (VC\Tools\Llvm) is usually new enough;
+# otherwise: winget install LLVM.LLVM
+#
+# The script's default "Includes" mode runs ONLY misc-include-cleaner and ignores
+# the Checks list below. "-Mode All" uses this whole list.
+
+Checks: >
+  -*,
+  misc-include-cleaner,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-exception-escape,
+  -bugprone-unchecked-optional-access,
+  performance-*,
+  -performance-enum-size,
+  modernize-use-override,
+  modernize-use-nullptr,
+  modernize-use-emplace,
+  modernize-use-equals-default,
+  modernize-loop-convert,
+  modernize-make-unique,
+  readability-redundant-smartptr-get,
+  readability-container-size-empty,
+  readability-misleading-indentation,
+  cppcoreguidelines-pro-type-member-init,
+  cppcoreguidelines-slicing
+
+# Report findings in engine headers too (engine top-level folders only).
+# clang-tidy regexes have no lookahead, so third-party code is kept out by the
+# script's --exclude-header-filter (LLVM 19+) as well.
+HeaderFilterRegex: '.*[\\/](AI|Animation|Assets|Audio|Character|Collision|Combat|Core|Debug|ECS|Editor|Gameplay|Input|Math|Media|Network|Particles|Physics|Play|Pref|Render|Sandbox|Sandbox2D|Save|Scene|Sky|Sprite|Terrain|Ui|UnitTests|VisualDebugger|Water|Weapons)[\\/][^\\/]*\.(h|hpp|inl)$'
+
+# Never treat findings as build errors here; the script decides pass/fail.
+WarningsAsErrors: ''
+
+FormatStyle: file
+
+CheckOptions:
+  # --- include cleaner ---------------------------------------------------
+  - key: misc-include-cleaner.UnusedIncludes
+    value: true
+  # Missing (transitive-only) includes are noisy at first. Turn on later with
+  # code-hygiene.ps1 -MissingIncludes, or set this to true once unused ones are clean.
+  - key: misc-include-cleaner.MissingIncludes
+    value: false
+  - key: misc-include-cleaner.DeduplicateFindings
+    value: true
+  # Umbrella / SDK headers that clang can't map symbols back to reliably.
+  # Includes of these are never reported as unused.
+  - key: misc-include-cleaner.IgnoreHeaders
+    value: 'windows\.h;Windows\.h;wrl/.*;d3d12\.h;d3dx12.*;dxgi.*;d3dcompiler\.h;xaudio2.*;x3daudio\.h;mfapi\.h;mfidl\.h;mfreadwrite\.h;winsock2\.h;ws2tcpip\.h;pix3\.h;WinPixEventRuntime/.*;nvtx3/.*;imgui.*\.h;gtest/.*;gmock/.*;nlohmann/.*;box2d/.*;box3d/.*;cgltf.*\.h;Core/Version\.h'
+
+  # --- bugprone / performance tuning ---------------------------------------
+  - key: performance-unnecessary-value-param.AllowedTypes
+    value: 'Microsoft::WRL::ComPtr;ComPtr'
+  - key: performance-move-const-arg.CheckTriviallyCopyableMove
+    value: false
+  - key: bugprone-unused-return-value.AllowCastToVoid
+    value: true

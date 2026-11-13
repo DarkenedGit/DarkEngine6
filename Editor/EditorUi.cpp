@@ -11,8 +11,10 @@
 #include "Core/ContentRoots.h"
 #include "Core/Log.h"
 #include "Core/UiPalette.h"
+#include "Editor/EditorTypeIcon.h"
 #include "Ui/Icons.h"
 #include "Ui/ImGuiTheme.h"
+#include "Ui/ImGuiWidgets.h"
 #include "Input/InputCodes.h"
 #include "Collision/StaticCollision.h"
 #include "Math/AABox3f.h"
@@ -93,22 +95,15 @@ void EditorApp::drawEditorUi()
                 loadSceneWithDialog(defaultScenePath("level.json"));
             if (ImGui::MenuItem(ICON_FA_FILE "  Open 2D Level...", nullptr, false, sceneOk))
                 loadSceneWithDialog(defaultScenePath("level2d.json"));
-            if (!sceneOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            if (!sceneOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
                 ImGui::SetTooltip("Disconnect before changing the scene");
             ImGui::Separator();
             if (ImGui::MenuItem(ICON_FA_RIGHT_FROM_BRACKET "  Quit", "Esc"))
                 requestQuit();
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("View"))
+        if (ImGui::BeginMenu("Panels"))
         {
-            bool mode2d = m_sceneMode == SceneMode::Scene2D;
-            if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  2D Scene", "F3", mode2d))
-            {
-                applySceneMode(mode2d ? SceneMode::Scene3D : SceneMode::Scene2D);
-                if (m_sceneMode == SceneMode::Scene3D)
-                    ensureGlobalLights();
-            }
             ImGui::MenuItem(ICON_FA_BOLT "  Particle Panel", "F2", &m_showParticlePanel);
             ImGui::MenuItem(ICON_FA_PLAY "  Animation Panel", "F4", &m_showAnimPanel);
             ImGui::MenuItem(ICON_FA_LIST "  HSM Panel", "F8", &m_showHsmPanel);
@@ -120,11 +115,25 @@ void EditorApp::drawEditorUi()
             ImGui::MenuItem(ICON_FA_LAYER_GROUP "  Terrain", nullptr, &m_showTerrainPanel);
             ImGui::MenuItem("Water", nullptr, &m_showWaterTools);
             ImGui::MenuItem("Wind", nullptr, &m_showWindPanel);
-            ImGui::SliderFloat(ICON_FA_GAUGE_HIGH "  Fly speed (m/s)", &m_moveSpeed, 1.0f, 400.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("WASD / climb. Shift still multiplies by 2.5. Default 8 for models.");
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Viewport"))
+        {
+            bool mode2d = m_sceneMode == SceneMode::Scene2D;
+            if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  2D Scene", "F3", mode2d))
+            {
+                applySceneMode(mode2d ? SceneMode::Scene3D : SceneMode::Scene2D);
+                if (m_sceneMode == SceneMode::Scene3D)
+                    ensureGlobalLights();
+            }
             ImGui::MenuItem(ICON_FA_EYE "  Grid", nullptr, &m_showGrid);
             ImGui::MenuItem(ICON_FA_CUBE "  Solid Ground", nullptr, &m_showSolid);
+            ImGui::SliderFloat(ICON_FA_GAUGE_HIGH "  Fly speed (m/s)", &m_moveSpeed, 1.0f, 400.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
+            ImGui::SetItemTooltip("WASD / climb. Shift still multiplies by 2.5. Default 8 for models.");
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Rendering"))
+        {
             if (ImGui::MenuItem("Instanced static meshes", nullptr, &renderer().debugState().instancedStatic))
                 DE_LOG_INFO("Editor: instanced static = {}", renderer().debugState().instancedStatic);
             if (ImGui::MenuItem("Indirect static draws", nullptr, &renderer().debugState().instancedIndirect))
@@ -258,15 +267,13 @@ void EditorApp::drawEditorUi()
                     m_placeType          = SceneObjectType::Spawner;
                     m_queuePlaceAtCursor = true;
                 }
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Places a spawner. Maintain replaces dead units. Waves wait for a timer or until the wave is dead.");
+                ImGui::SetItemTooltip("Places a spawner. Maintain replaces dead units. Waves wait for a timer or until the wave is dead.");
                 if (ImGui::MenuItem(ICON_FA_CUBE "  Movie", nullptr, false, createOk))
                 {
                     m_placeType          = SceneObjectType::Movie;
                     m_queuePlaceAtCursor = true;
                 }
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Places a movie cue. The cube is a marker, not the screen.");
+                ImGui::SetItemTooltip("Places a movie cue. The cube is a marker, not the screen.");
                 if (ImGui::MenuItem(ICON_FA_BOLT "  Glow Prop", nullptr, false, createOk))
                     m_queueGlowProp = true;
                 if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  Water", nullptr, false, createOk))
@@ -274,24 +281,21 @@ void EditorApp::drawEditorUi()
                     m_placeType          = SceneObjectType::Water;
                     m_queuePlaceAtCursor = true;
                 }
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Places a lake. Position Y is the surface. Width and depth are the footprint. Add several at different heights.");
+                ImGui::SetItemTooltip("Places a lake. Position Y is the surface. Width and depth are the footprint. Add several at different heights.");
                 if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  Stream", nullptr, false, createOk))
                 {
                     m_placeType          = SceneObjectType::Stream;
                     m_queuePlaceAtCursor = true;
                 }
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Places a stream ribbon. Follow downhill in the inspector to run it to the lake.");
+                ImGui::SetItemTooltip("Places a stream ribbon. Follow downhill in the inspector to run it to the lake.");
                 if (ImGui::MenuItem(ICON_FA_CLOUD "  Cloud Volume", nullptr, false, createOk))
                 {
                     m_placeType          = SceneObjectType::CloudVolume;
                     m_queuePlaceAtCursor = true;
                 }
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Places a volumetric cloud. Scale is the volume size. Looks correct from inside the volume.");
+                ImGui::SetItemTooltip("Places a volumetric cloud. Scale is the volume size. Looks correct from inside the volume.");
             }
-            if (!createOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            if (!createOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
                 ImGui::SetTooltip("Spectators cannot place or delete objects");
             ImGui::EndMenu();
         }
@@ -300,8 +304,7 @@ void EditorApp::drawEditorUi()
             const bool playOk = m_sceneMode == SceneMode::Scene3D && !netClientLocked();
             if (ImGui::MenuItem(m_playMode ? ICON_FA_PAUSE "  Stop Play" : ICON_FA_PLAY "  Play Scene", "F12", m_playMode, playOk))
                 togglePlayMode();
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Possess the Player. WASD move, mouse look, Space jump, LMB attack.");
+            ImGui::SetItemTooltip("Possess the Player. WASD move, mouse look, Space jump, LMB attack.");
             ImGui::EndMenu();
         }
         drawNetworkMenu();
@@ -309,83 +312,142 @@ void EditorApp::drawEditorUi()
         ImGui::EndMainMenuBar();
     }
 
+    {
+        const ImGuiViewport* barVp = ImGui::GetMainViewport();
+        const float          barH  = ImGui::GetFrameHeight();
+        if (barVp)
+        {
+            ImGui::SetNextWindowPos(barVp->WorkPos);
+            ImGui::SetNextWindowSize(ImVec2(barVp->WorkSize.x, barH));
+        }
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 2.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+        const ImGuiWindowFlags barFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize
+            | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoBringToFrontOnFocus;
+        if (ImGui::Begin("##editorToolbar", nullptr, barFlags))
+        {
+            const bool playOk = m_sceneMode == SceneMode::Scene3D && !netClientLocked();
+            ImGui::BeginDisabled(!playOk);
+            if (ImGui::Button(m_playMode ? ICON_FA_PAUSE "  Stop" : ICON_FA_PLAY "  Play"))
+                togglePlayMode();
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::BeginDisabled(m_playMode);
+            if (ImGui::Button(ICON_FA_FLOPPY_DISK "  Save"))
+                saveSceneWithDialog();
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (ImGui::Button(m_sceneMode == SceneMode::Scene2D ? "3D" : "2D"))
+            {
+                applySceneMode(m_sceneMode == SceneMode::Scene2D ? SceneMode::Scene3D : SceneMode::Scene2D);
+                if (m_sceneMode == SceneMode::Scene3D)
+                    ensureGlobalLights();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(m_showGrid ? ICON_FA_EYE "  Grid" : "Grid"))
+                m_showGrid = !m_showGrid;
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(140.0f);
+            ImGui::SliderFloat("Fly", &m_moveSpeed, 1.0f, 400.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
+            ImGui::SetItemTooltip("WASD / climb. Shift still multiplies by 2.5. Default 8 for models.");
+        }
+        ImGui::End();
+        ImGui::PopStyleVar(2);
+    }
+
     drawAssetBrowser();
 
-    beginPassthruDockSpace("EditorDockHost", ImGui::GetFrameHeight());
+    beginPassthruDockSpace("EditorDockHost", ImGui::GetFrameHeight(), ImGui::GetFrameHeight());
 
     if (m_sceneMode == SceneMode::Scene3D && renderer().hasGBuffer())
     {
-        ImGui::SetNextWindowSize(ImVec2(320.0f, 200.0f), ImGuiCond_FirstUseEver);
-        if (ImGui::Begin("IBL"))
+        ImGui::SetNextWindowSize(ImVec2(420.0f, 560.0f), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Lighting"))
         {
-            DebugRenderState& iblDbg = renderer().debugState();
-            if (ImGui::Checkbox("Enabled", &iblDbg.iblEnabled))
-                DE_LOG_INFO(LogCategory::Render, "Ibl: enabled={} debug={}", iblDbg.iblEnabled, iblDbg.iblDebug);
-            ImGui::SliderFloat("Intensity", &m_ibl.intensity, 0.0f, 4.0f, "%.2f");
-            float rotDeg = m_ibl.rotationRadY * Math::RadToDeg;
-            if (ImGui::SliderFloat("Rotation", &rotDeg, -180.0f, 180.0f, "%.1f deg"))
-                m_ibl.rotationRadY = rotDeg * Math::DegToRad;
-            const char* debugViews[] = { "Off", "Irradiance", "Prefilter lod0", "LUT" };
-            if (ImGui::Combo("Debug view", &iblDbg.iblDebug, debugViews, 4))
+            if (ImGui::BeginTabBar("##lighting"))
             {
-                if (iblDbg.iblDebug < 0)
-                    iblDbg.iblDebug = 0;
-                if (iblDbg.iblDebug > 3)
-                    iblDbg.iblDebug = 3;
-                DE_LOG_INFO(LogCategory::Render, "Ibl: enabled={} debug={}", iblDbg.iblEnabled, iblDbg.iblDebug);
-            }
-            ImGui::TextUnformatted(m_ibl.virtualPath.empty() ? "(off)" : m_ibl.virtualPath.c_str());
-            ImGui::TextDisabled("Bake %s", m_ibl.enabled ? "ready" : "off / failed");
-        }
-        ImGui::End();
-
-        drawSkyPanel();
-
-        ImGui::SetNextWindowSize(ImVec2(320.0f, 220.0f), ImGuiCond_FirstUseEver);
-        if (ImGui::Begin("SSAO"))
-        {
-            DebugRenderState& ssaoDbg = renderer().debugState();
-            if (ImGui::Checkbox("Enabled", &ssaoDbg.ssaoEnabled))
-            {
-                m_ssao.enabled = ssaoDbg.ssaoEnabled;
-                DE_LOG_INFO(LogCategory::Render, "Ssao: enabled={} debug={}", ssaoDbg.ssaoEnabled, ssaoDbg.ssaoDebug);
-            }
-            ImGui::SliderFloat("Intensity", &m_ssao.intensity, 0.0f, 1.0f, "%.2f");
-            ImGui::SliderFloat("Radius", &m_ssao.radius, 0.05f, 2.0f, "%.2f");
-            ImGui::SliderFloat("Power", &m_ssao.power, 0.5f, 4.0f, "%.2f");
-            const char* ssaoDebugViews[] = { "Off", "SSAO factor" };
-            if (ImGui::Combo("Debug view", &ssaoDbg.ssaoDebug, ssaoDebugViews, 2))
-            {
-                if (ssaoDbg.ssaoDebug < 0)
-                    ssaoDbg.ssaoDebug = 0;
-                if (ssaoDbg.ssaoDebug > 1)
-                    ssaoDbg.ssaoDebug = 1;
-                DE_LOG_INFO(LogCategory::Render, "Ssao: enabled={} debug={}", ssaoDbg.ssaoEnabled, ssaoDbg.ssaoDebug);
-            }
-        }
-        ImGui::End();
-
-        ImGui::SetNextWindowSize(ImVec2(320.0f, 280.0f), ImGuiCond_FirstUseEver);
-        if (ImGui::Begin("SSR"))
-        {
-            DebugRenderState& ssrDbg = renderer().debugState();
-            if (ImGui::Checkbox("Enabled", &ssrDbg.ssrEnabled))
-            {
-                m_ssr.enabled = ssrDbg.ssrEnabled;
-                DE_LOG_INFO(LogCategory::Render, "Ssr: enabled={} debug={}", ssrDbg.ssrEnabled, ssrDbg.ssrDebug);
-            }
-            ImGui::SliderFloat("Max roughness", &m_ssr.maxRoughness, 0.05f, 1.0f, "%.2f");
-            ImGui::SliderFloat("Thickness", &m_ssr.thickness, 0.02f, 2.0f, "%.2f m");
-            ImGui::SliderFloat("Stride", &m_ssr.stride, 1.0f, 8.0f, "%.1f px");
-            ImGui::SliderFloat("Edge fade", &m_ssr.edgeFade, 0.0f, 0.25f, "%.2f");
-            const char* ssrDebugViews[] = { "Off", "Radiance", "Confidence" };
-            if (ImGui::Combo("Debug view", &ssrDbg.ssrDebug, ssrDebugViews, 3))
-            {
-                if (ssrDbg.ssrDebug < 0)
-                    ssrDbg.ssrDebug = 0;
-                if (ssrDbg.ssrDebug > 2)
-                    ssrDbg.ssrDebug = 2;
-                DE_LOG_INFO(LogCategory::Render, "Ssr: enabled={} debug={}", ssrDbg.ssrEnabled, ssrDbg.ssrDebug);
+                if (ImGui::BeginTabItem("IBL"))
+                {
+                    DebugRenderState& iblDbg = renderer().debugState();
+                    const bool        props  = Dark::BeginPropTable("ibl");
+                    if (Dark::PropCheckbox("Enabled", &iblDbg.iblEnabled))
+                        DE_LOG_INFO(LogCategory::Render, "Ibl: enabled={} debug={}", iblDbg.iblEnabled, iblDbg.iblDebug);
+                    Dark::PropSlider("Intensity", &m_ibl.intensity, 0.0f, 4.0f, "%.2f");
+                    float rotDeg = m_ibl.rotationRadY * Math::RadToDeg;
+                    if (Dark::PropSlider("Rotation", &rotDeg, -180.0f, 180.0f, "%.1f deg"))
+                        m_ibl.rotationRadY = rotDeg * Math::DegToRad;
+                    const char* debugViews[] = { "Off", "Irradiance", "Prefilter lod0", "LUT" };
+                    if (Dark::PropCombo("Debug view", &iblDbg.iblDebug, debugViews, 4))
+                    {
+                        if (iblDbg.iblDebug < 0)
+                            iblDbg.iblDebug = 0;
+                        if (iblDbg.iblDebug > 3)
+                            iblDbg.iblDebug = 3;
+                        DE_LOG_INFO(LogCategory::Render, "Ibl: enabled={} debug={}", iblDbg.iblEnabled, iblDbg.iblDebug);
+                    }
+                    if (props)
+                        Dark::EndPropTable();
+                    ImGui::TextUnformatted(m_ibl.virtualPath.empty() ? "(off)" : m_ibl.virtualPath.c_str());
+                    ImGui::TextDisabled("Bake %s", m_ibl.enabled ? "ready" : "off / failed");
+                    ImGui::EndTabItem();
+                }
+                if (ImGui::BeginTabItem("SSAO"))
+                {
+                    DebugRenderState& ssaoDbg = renderer().debugState();
+                    const bool        props   = Dark::BeginPropTable("ssao");
+                    if (Dark::PropCheckbox("Enabled", &ssaoDbg.ssaoEnabled))
+                    {
+                        m_ssao.enabled = ssaoDbg.ssaoEnabled;
+                        DE_LOG_INFO(LogCategory::Render, "Ssao: enabled={} debug={}", ssaoDbg.ssaoEnabled, ssaoDbg.ssaoDebug);
+                    }
+                    Dark::PropSlider("Intensity", &m_ssao.intensity, 0.0f, 1.0f, "%.2f");
+                    Dark::PropSlider("Radius", &m_ssao.radius, 0.05f, 2.0f, "%.2f");
+                    Dark::PropSlider("Power", &m_ssao.power, 0.5f, 4.0f, "%.2f");
+                    const char* ssaoDebugViews[] = { "Off", "SSAO factor" };
+                    if (Dark::PropCombo("Debug view", &ssaoDbg.ssaoDebug, ssaoDebugViews, 2))
+                    {
+                        if (ssaoDbg.ssaoDebug < 0)
+                            ssaoDbg.ssaoDebug = 0;
+                        if (ssaoDbg.ssaoDebug > 1)
+                            ssaoDbg.ssaoDebug = 1;
+                        DE_LOG_INFO(LogCategory::Render, "Ssao: enabled={} debug={}", ssaoDbg.ssaoEnabled, ssaoDbg.ssaoDebug);
+                    }
+                    if (props)
+                        Dark::EndPropTable();
+                    ImGui::EndTabItem();
+                }
+                if (ImGui::BeginTabItem("SSR"))
+                {
+                    DebugRenderState& ssrDbg = renderer().debugState();
+                    const bool        props  = Dark::BeginPropTable("ssr");
+                    if (Dark::PropCheckbox("Enabled", &ssrDbg.ssrEnabled))
+                    {
+                        m_ssr.enabled = ssrDbg.ssrEnabled;
+                        DE_LOG_INFO(LogCategory::Render, "Ssr: enabled={} debug={}", ssrDbg.ssrEnabled, ssrDbg.ssrDebug);
+                    }
+                    Dark::PropSlider("Max roughness", &m_ssr.maxRoughness, 0.05f, 1.0f, "%.2f");
+                    Dark::PropSlider("Thickness", &m_ssr.thickness, 0.02f, 2.0f, "%.2f m");
+                    Dark::PropSlider("Stride", &m_ssr.stride, 1.0f, 8.0f, "%.1f px");
+                    Dark::PropSlider("Edge fade", &m_ssr.edgeFade, 0.0f, 0.25f, "%.2f");
+                    const char* ssrDebugViews[] = { "Off", "Radiance", "Confidence" };
+                    if (Dark::PropCombo("Debug view", &ssrDbg.ssrDebug, ssrDebugViews, 3))
+                    {
+                        if (ssrDbg.ssrDebug < 0)
+                            ssrDbg.ssrDebug = 0;
+                        if (ssrDbg.ssrDebug > 2)
+                            ssrDbg.ssrDebug = 2;
+                        DE_LOG_INFO(LogCategory::Render, "Ssr: enabled={} debug={}", ssrDbg.ssrEnabled, ssrDbg.ssrDebug);
+                    }
+                    if (props)
+                        Dark::EndPropTable();
+                    ImGui::EndTabItem();
+                }
+                if (ImGui::BeginTabItem("Sky"))
+                {
+                    drawSkyPanel();
+                    ImGui::EndTabItem();
+                }
+                ImGui::EndTabBar();
             }
         }
         ImGui::End();
@@ -482,7 +544,10 @@ void EditorApp::drawEditorUi()
                         modelName = fileName.c_str();
                     }
                 }
-                std::snprintf(label, sizeof(label), "%s##%u", modelName, e.id());
+                if (drawTypeIconImage(typeIconId(SceneObjectType::Model)))
+                    std::snprintf(label, sizeof(label), "%s##%u", modelName, e.id());
+                else
+                    std::snprintf(label, sizeof(label), "%s  %s##%u", iconForType(SceneObjectType::Model), modelName, e.id());
             }
             else
             {
@@ -495,7 +560,10 @@ void EditorApp::drawEditorUi()
                     name = "Point Light";
                 else if (so.type == SceneObjectType::SpotLight)
                     name = "Spot Light";
-                std::snprintf(label, sizeof(label), "%s##%u", name, e.id());
+                if (drawTypeIconImage(typeIconId(so.type)))
+                    std::snprintf(label, sizeof(label), "%s##%u", name, e.id());
+                else
+                    std::snprintf(label, sizeof(label), "%s  %s##%u", iconForType(so.type), name, e.id());
             }
             if (ImGui::Selectable(label, selected))
                 m_selected = e;
@@ -516,7 +584,10 @@ void EditorApp::drawEditorUi()
                 ? model->sourcePath().filename().string()
                 : std::string("glTF");
             char label[160];
-            std::snprintf(label, sizeof(label), "Model  %s##%u", name.c_str(), e.id());
+            if (drawTypeIconImage(typeIconId(SceneObjectType::Model)))
+                std::snprintf(label, sizeof(label), "%s##%u", name.c_str(), e.id());
+            else
+                std::snprintf(label, sizeof(label), "%s  %s##%u", iconForType(SceneObjectType::Model), name.c_str(), e.id());
             if (ImGui::Selectable(label, selected))
             {
                 m_selected           = e;
@@ -539,17 +610,17 @@ void EditorApp::drawEditorUi()
         ImGui::Text("MMB/RMB drag to pan, wheel to zoom, P to place.");
         float wmin[2] = { m_worldMin.x, m_worldMin.y };
         float wmax[2] = { m_worldMax.x, m_worldMax.y };
-        if (ImGui::DragFloat2("World min", wmin, 0.25f))
+        if (Dark::PropFloat2("World min", wmin, 0.25f))
         {
             m_worldMin = Vector2f(wmin[0], wmin[1]);
             rebuildGrid2D();
         }
-        if (ImGui::DragFloat2("World max", wmax, 0.25f))
+        if (Dark::PropFloat2("World max", wmax, 0.25f))
         {
             m_worldMax = Vector2f(wmax[0], wmax[1]);
             rebuildGrid2D();
         }
-        ImGui::SliderFloat("Snap", &m_gridSnap, 0.0f, 4.0f, "%.2f");
+        Dark::PropSlider("Snap", &m_gridSnap, 0.0f, 4.0f, "%.2f");
         ImGui::Separator();
         if (EditorObjectComponent* so = findObject(m_selected))
         {
@@ -558,17 +629,17 @@ void EditorApp::drawEditorUi()
                 ImGui::Text("Selected: %s", toString(so->type));
                 float pos[2] = { xf->position.x, xf->position.y };
                 float size[2] = { xf->scale.x, xf->scale.y };
-                if (ImGui::DragFloat2("Position", pos, 0.05f) && !netClientLocked())
+                if (Dark::PropFloat2("Position", pos, 0.05f) && !netClientLocked())
                 {
                     xf->position.x = pos[0];
                     xf->position.y = pos[1];
                 }
-                if (ImGui::DragFloat2("Size", size, 0.05f, 0.05f, 200.0f) && !netClientLocked())
+                if (Dark::PropFloat2("Size", size, 0.05f, 0.05f, 200.0f) && !netClientLocked())
                 {
                     xf->scale.x = Max(0.05f, size[0]);
                     xf->scale.y = Max(0.05f, size[1]);
                 }
-                ImGui::ColorEdit3("Tint", so->color);
+                Dark::PropColor3("Tint", so->color);
                 if (ImGui::Button(ICON_FA_TRASH "  Delete") && !netClientLocked())
                     deleteSelected();
             }
@@ -600,27 +671,20 @@ void EditorApp::drawEditorUi()
 
 void EditorApp::drawSkyPanel()
 {
-    ImGui::SetNextWindowSize(ImVec2(380.0f, 640.0f), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Sky"))
-    {
-        ImGui::End();
-        return;
-    }
-
     const Vector3f lc = m_env.lightColor();
     ImGui::ColorButton("##light", ImVec4(lc.x, lc.y, lc.z, 1.0f), ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop, ImVec2(18.0f, 18.0f));
     ImGui::SameLine();
     ImGui::Text("Sun  elev %.0f deg", static_cast<double>(RadiansToDegrees(m_env.sunElevation())));
 
     float tod = m_env.timeOfDay;
-    if (ImGui::SliderFloat("Time of day", &tod, 0.0f, 23.99f, "%.2f h"))
+    if (Dark::PropSlider("Time of day", &tod, 0.0f, 23.99f, "%.2f h"))
     {
         m_env.timeOfDay = tod;
         m_env.evaluate();
         applySkyToLights();
     }
     bool animate = m_env.timeScale > 0.0f;
-    if (ImGui::Checkbox("Animate time", &animate))
+    if (Dark::PropCheckbox("Animate time", &animate))
     {
         m_env.timeScale = animate ? 0.35f : 0.0f;
         DE_LOG_INFO("Sky: time scale = {:.2f} h/s", m_env.timeScale);
@@ -653,23 +717,21 @@ void EditorApp::drawSkyPanel()
     if (ImGui::CollapsingHeader("Clouds", ImGuiTreeNodeFlags_DefaultOpen))
     {
         Sky::CloudLayerDesc& cl = m_env.cloudLayer;
-        if (ImGui::SliderFloat("Coverage", &m_env.weather.cloudCoverage, 0.0f, 1.0f, "%.2f"))
+        if (Dark::PropSlider("Coverage", &m_env.weather.cloudCoverage, 0.0f, 1.0f, "%.2f"))
         {
             m_env.evaluate();
             applySkyToLights();
         }
-        if (ImGui::SliderFloat("Altitude (m)", &cl.altitude, 500.0f, 8000.0f, "%.0f"))
+        if (Dark::PropSlider("Altitude (m)", &cl.altitude, 500.0f, 8000.0f, "%.0f"))
             m_env.evaluate();
-        if (ImGui::SliderFloat("Amount", &cl.amount, 0.0f, 2.0f, "%.2f"))
+        if (Dark::PropSlider("Amount", &cl.amount, 0.0f, 2.0f, "%.2f"))
             m_env.evaluate();
-        ImGui::SliderFloat("Wind speed (m/s)", &cl.windSpeedMps, 0.0f, 20.0f, "%.1f");
-        ImGui::DragFloat2("Wind dir", &m_env.weather.windDir.x, 0.01f);
+        Dark::PropSlider("Wind speed (m/s)", &cl.windSpeedMps, 0.0f, 20.0f, "%.1f");
+        Dark::PropFloat2("Wind dir", &m_env.weather.windDir.x, 0.01f);
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
         ImGui::TextWrapped("Sky deck, drawn with the sky. A Cloud Volume is a separate object. It draws only when that volume is enabled and View → Cloud Volumes is on.");
         ImGui::PopStyleColor();
     }
-
-    ImGui::End();
 }
 
 void EditorApp::drawInspector3D()
@@ -690,14 +752,14 @@ void EditorApp::drawInspector3D()
         if (xf)
         {
             float pos[3] = { xf->position.x, xf->position.y, xf->position.z };
-            if (ImGui::DragFloat3("Position", pos, 0.05f))
+            if (Dark::PropFloat3("Position", pos, 0.05f))
             {
                 xf->position.x = pos[0];
                 xf->position.y = pos[1];
                 xf->position.z = pos[2];
             }
             float scale[3] = { xf->scale.x, xf->scale.y, xf->scale.z };
-            if (ImGui::DragFloat3("Scale", scale, 0.01f, 0.01f, 100.0f))
+            if (Dark::PropFloat3("Scale", scale, 0.01f, 0.01f, 100.0f))
             {
                 xf->scale.x = Max(0.01f, scale[0]);
                 xf->scale.y = Max(0.01f, scale[1]);
@@ -768,7 +830,7 @@ void EditorApp::drawInspector3D()
     }
     ImGui::BeginDisabled(locked);
     float pos[3] = { xf->position.x, xf->position.y, xf->position.z };
-    if (ImGui::DragFloat3("Position", pos, 0.05f))
+    if (Dark::PropFloat3("Position", pos, 0.05f))
     {
         xf->position.x = pos[0];
         xf->position.y = pos[1];
@@ -780,25 +842,25 @@ void EditorApp::drawInspector3D()
     {
         ImGui::Separator();
         ImGui::TextUnformatted("Ambient Light");
-        ImGui::Checkbox("Enabled", &amb->enabled);
-        if (ImGui::ColorEdit3("Color", &amb->color.x))
+        Dark::PropCheckbox("Enabled", &amb->enabled);
+        if (Dark::PropColor3("Color", &amb->color.x))
         {
             so->color[0] = amb->color.x;
             so->color[1] = amb->color.y;
             so->color[2] = amb->color.z;
         }
-        ImGui::DragFloat("Intensity", &amb->intensity, 0.01f, 0.0f, 8.0f);
+        Dark::PropFloat("Intensity", &amb->intensity, 0.01f, 0.0f, 8.0f);
         ImGui::TextDisabled("Fills the whole scene. Position is only a handle.");
     }
     else if (auto* sun = world().get<DirectionalLightComponent>(m_selected))
     {
         ImGui::Separator();
         ImGui::TextUnformatted("Directional Light");
-        ImGui::Checkbox("Enabled", &sun->enabled);
+        Dark::PropCheckbox("Enabled", &sun->enabled);
         ImGui::BeginDisabled();
-        ImGui::ColorEdit3("Color", &sun->color.x);
+        Dark::PropColor3("Color", &sun->color.x);
         ImGui::EndDisabled();
-        ImGui::DragFloat("Intensity", &sun->intensity, 0.01f, 0.0f, 8.0f);
+        Dark::PropFloat("Intensity", &sun->intensity, 0.01f, 0.0f, 8.0f);
         float pitch = 0.0f, yaw = 0.0f, roll = 0.0f;
         eulerXYZFromQuat(xf->rotation, pitch, yaw, roll);
         float eulerDeg[3] = {
@@ -807,7 +869,7 @@ void EditorApp::drawInspector3D()
             RadiansToDegrees(roll)
         };
         ImGui::BeginDisabled();
-        ImGui::DragFloat3("Euler (deg)", eulerDeg, 0.5f);
+        Dark::PropFloat3("Euler (deg)", eulerDeg, 0.5f);
         ImGui::EndDisabled();
         ImGui::TextDisabled("Direction and color follow Sky / time of day.");
     }
@@ -820,37 +882,37 @@ void EditorApp::drawInspector3D()
         {
             ImGui::Separator();
             ImGui::TextUnformatted("Nearby illumination");
-            ImGui::Checkbox("Enabled", &light->enabled);
-            if (ImGui::ColorEdit3("Light color", &light->color.x))
+            Dark::PropCheckbox("Enabled", &light->enabled);
+            if (Dark::PropColor3("Light color", &light->color.x))
             {
                 so->color[0] = light->color.x;
                 so->color[1] = light->color.y;
                 so->color[2] = light->color.z;
             }
-            ImGui::DragFloat("Intensity (cd)", &light->intensity, 10.0f, 0.0f, 50000.0f);
-            ImGui::SliderFloat("Range (m)", &light->range, 0.25f, 80.0f);
-            ImGui::Checkbox("Cast shadow", &light->castShadow);
+            Dark::PropFloat("Intensity (cd)", &light->intensity, 10.0f, 0.0f, 50000.0f);
+            Dark::PropSlider("Range (m)", &light->range, 0.25f, 80.0f);
+            Dark::PropCheckbox("Cast shadow", &light->castShadow);
             ImGui::TextDisabled("Point light on this emitter. Lights the ground and nearby meshes.");
         }
     }
     else if (auto* light = world().get<LocalLightComponent>(m_selected))
     {
         ImGui::Separator();
-        ImGui::Checkbox("Enabled", &light->enabled);
-        if (ImGui::ColorEdit3("Color", &light->color.x))
+        Dark::PropCheckbox("Enabled", &light->enabled);
+        if (Dark::PropColor3("Color", &light->color.x))
         {
             so->color[0] = light->color.x;
             so->color[1] = light->color.y;
             so->color[2] = light->color.z;
         }
-        ImGui::DragFloat("Intensity (cd)", &light->intensity, 10.0f, 0.0f, 50000.0f);
-        ImGui::SliderFloat("Range (m)", &light->range, 0.25f, 80.0f);
-        ImGui::Checkbox("Cast shadow", &light->castShadow);
+        Dark::PropFloat("Intensity (cd)", &light->intensity, 10.0f, 0.0f, 50000.0f);
+        Dark::PropSlider("Range (m)", &light->range, 0.25f, 80.0f);
+        Dark::PropCheckbox("Cast shadow", &light->castShadow);
         if (light->type == LocalLightType::Spot)
         {
-            if (ImGui::SliderFloat("Inner (deg)", &light->innerConeDeg, 0.0f, 80.0f) && light->innerConeDeg > light->outerConeDeg)
+            if (Dark::PropSlider("Inner (deg)", &light->innerConeDeg, 0.0f, 80.0f) && light->innerConeDeg > light->outerConeDeg)
                 light->outerConeDeg = light->innerConeDeg;
-            if (ImGui::SliderFloat("Outer (deg)", &light->outerConeDeg, 0.0f, 80.0f) && light->innerConeDeg > light->outerConeDeg)
+            if (Dark::PropSlider("Outer (deg)", &light->outerConeDeg, 0.0f, 80.0f) && light->innerConeDeg > light->outerConeDeg)
                 light->innerConeDeg = light->outerConeDeg;
             float pitch = 0.0f, yaw = 0.0f, roll = 0.0f;
             eulerXYZFromQuat(xf->rotation, pitch, yaw, roll);
@@ -859,17 +921,17 @@ void EditorApp::drawInspector3D()
                 RadiansToDegrees(yaw),
                 RadiansToDegrees(roll)
             };
-            if (ImGui::DragFloat3("Euler (deg)", eulerDeg, 0.5f))
+            if (Dark::PropFloat3("Euler (deg)", eulerDeg, 0.5f))
             {
                 xf->rotation = Quaternion::FromEulerXYZ(
                     DegreesToRadians(eulerDeg[0]),
                     DegreesToRadians(eulerDeg[1]),
                     DegreesToRadians(eulerDeg[2]));
             }
-            ImGui::Checkbox("Searchlight", &so->source.searchlight);
+            Dark::PropCheckbox("Searchlight", &so->source.searchlight);
             if (so->source.searchlight)
             {
-                ImGui::SliderFloat("Sweep (deg)", &so->source.sweepDeg, 0.0f, 180.0f);
+                Dark::PropSlider("Sweep (deg)", &so->source.sweepDeg, 0.0f, 180.0f);
                 ImGui::TextDisabled("Swings around this aim in Play and sounds the alarm when it lights the player.");
             }
             if (ImGui::Button("Aim down"))
@@ -886,7 +948,7 @@ void EditorApp::drawInspector3D()
                 xf->rotation      = Quaternion::FromLookRotation(dir, up);
             }
         }
-        ImGui::DragFloat("Source radius", &light->sourceRadius, 0.005f, 0.0f, 2.0f);
+        Dark::PropFloat("Source radius", &light->sourceRadius, 0.005f, 0.0f, 2.0f);
     }
     else if (so->type == SceneObjectType::Spawner)
     {
@@ -895,32 +957,35 @@ void EditorApp::drawInspector3D()
         if (SpawnerComponent* spawner = world().get<SpawnerComponent>(m_selected))
         {
             SpawnerDesc& d = spawner->desc;
-            ImGui::Checkbox("Enabled", &d.enabled);
+            Dark::PropCheckbox("Enabled", &d.enabled);
             int mode = static_cast<int>(d.mode);
-            if (ImGui::Combo("Mode", &mode, "Maintain\0Waves\0"))
+            const char* modes[] = { "Maintain", "Waves" };
+            if (Dark::PropCombo("Mode", &mode, modes, 2))
                 d.mode = static_cast<SpawnerMode>(mode);
             int unit = static_cast<int>(d.unit);
-            if (ImGui::Combo("Unit", &unit, "Hunter\0Wolf\0Crow\0"))
+            const char* units[] = { "Hunter", "Wolf", "Crow" };
+            if (Dark::PropCombo("Unit", &unit, units, 3))
                 d.unit = static_cast<SpawnerUnit>(unit);
             if (d.unit == SpawnerUnit::Crow)
                 ImGui::TextDisabled("Crows flock, perch in trees, or hop for food. A nearby hunter or the player makes them call and fly off.");
             int count = d.count;
             if (ImGui::SliderInt("Count", &count, 1, kSpawnerSlotCount))
                 d.count = count;
-            ImGui::DragFloat("Radius (m)", &d.radius, 0.1f, 0.0f, 64.0f, "%.1f");
+            Dark::PropFloat("Radius (m)", &d.radius, 0.1f, 0.0f, 64.0f, "%.1f");
             if (d.mode == SpawnerMode::Maintain)
             {
-                ImGui::DragFloat("Respawn delay", &d.respawnDelay, 0.05f, 0.0f, 60.0f, "%.2f s");
+                Dark::PropFloat("Respawn delay", &d.respawnDelay, 0.05f, 0.0f, 60.0f, "%.2f s");
                 ImGui::TextDisabled("Keeps Count units alive. Each death waits, then a new unit appears inside the radius.");
             }
             else
             {
                 int gate = static_cast<int>(d.gate);
-                if (ImGui::Combo("Next wave", &gate, "After time\0When cleared\0"))
+                const char* gates[] = { "After time", "When cleared" };
+                if (Dark::PropCombo("Next wave", &gate, gates, 2))
                     d.gate = static_cast<SpawnerWaveGate>(gate);
                 if (d.gate == SpawnerWaveGate::Time)
                 {
-                    ImGui::DragFloat("Wave interval", &d.waveInterval, 0.1f, 0.25f, 120.0f, "%.2f s");
+                    Dark::PropFloat("Wave interval", &d.waveInterval, 0.1f, 0.25f, 120.0f, "%.2f s");
                     ImGui::TextDisabled("Spawns Count units on the interval. Earlier units stay in the level.");
                 }
                 else
@@ -948,7 +1013,7 @@ void EditorApp::drawInspector3D()
                     ImGui::Text("Live %d / %d", live, d.count);
             }
         }
-        if (ImGui::ColorEdit3("Tint", so->color))
+        if (Dark::PropColor3("Tint", so->color))
         {
             if (AssetRef<Material> mat = ensureUniqueMeshMaterial(m_selected))
                 mat->setBaseColor(so->color[0], so->color[1], so->color[2], mat->baseColor()[3]);
@@ -971,8 +1036,8 @@ void EditorApp::drawInspector3D()
                 if (ImGui::InputText("Movie", moviePath, sizeof(moviePath)))
                     cue->path = moviePath;
             }
-            ImGui::DragFloat("Radius (m)", &cue->radius, 0.1f, 0.0f, 64.0f);
-            ImGui::Checkbox("Loop", &cue->loop);
+            Dark::PropFloat("Radius (m)", &cue->radius, 0.1f, 0.0f, 64.0f);
+            Dark::PropCheckbox("Loop", &cue->loop);
             ImGui::EndDisabled();
             ImGui::TextDisabled("Fires once when the possessed pawn's XZ enters the radius during play. Fullscreen cutscene. The marker is not the screen.");
         }
@@ -983,9 +1048,9 @@ void EditorApp::drawInspector3D()
         ImGui::TextUnformatted("Water body");
         float width = xf->scale.x;
         float depth = xf->scale.z;
-        if (ImGui::DragFloat("Width (m)", &width, 0.5f, 4.0f, 1024.0f, "%.1f"))
+        if (Dark::PropFloat("Width (m)", &width, 0.5f, 4.0f, 1024.0f, "%.1f"))
             xf->scale.x = Max(4.0f, width);
-        if (ImGui::DragFloat("Depth (m)", &depth, 0.5f, 4.0f, 1024.0f, "%.1f"))
+        if (Dark::PropFloat("Depth (m)", &depth, 0.5f, 4.0f, 1024.0f, "%.1f"))
             xf->scale.z = Max(4.0f, depth);
         ImGui::TextDisabled("Y is this lake's surface. Each water object is its own body.");
     }
@@ -996,9 +1061,9 @@ void EditorApp::drawInspector3D()
         if (StreamComponent* stream = world().get<StreamComponent>(m_selected))
         {
             float width = stream->width;
-            if (ImGui::DragFloat("Width (m)", &width, 0.1f, 1.5f, 12.0f, "%.1f"))
+            if (Dark::PropFloat("Width (m)", &width, 0.1f, 1.5f, 12.0f, "%.1f"))
                 stream->width = Clamp(width, 1.5f, 12.0f);
-            ImGui::SliderFloat("Flow", &stream->flowSpeed, 0.0f, 6.0f, "%.2f m/s");
+            Dark::PropSlider("Flow", &stream->flowSpeed, 0.0f, 6.0f, "%.2f m/s");
             if (ImGui::Button("Follow downhill") && !stream->points.empty() && m_haveTerrain && m_terrain.coarse().valid())
             {
                 const float lake = m_water.chunksX() > 0 ? m_water.params().waterLevel : m_terrainSeaLevel;
@@ -1023,43 +1088,44 @@ void EditorApp::drawInspector3D()
         if (CloudVolumeComponent* cloud = world().get<CloudVolumeComponent>(m_selected))
         {
             CloudVolumeDesc& d = cloud->desc;
-            ImGui::Checkbox("Enabled", &d.enabled);
+            Dark::PropCheckbox("Enabled", &d.enabled);
             int shape = (d.shape == CloudShape::Box) ? 0 : 1;
-            if (ImGui::Combo("Shape", &shape, "Box\0Ellipsoid\0"))
+            const char* shapes[] = { "Box", "Ellipsoid" };
+            if (Dark::PropCombo("Shape", &shape, shapes, 2))
                 d.shape = (shape == 0) ? CloudShape::Box : CloudShape::Ellipsoid;
             float size[3] = { xf->scale.x, xf->scale.y, xf->scale.z };
-            if (ImGui::DragFloat3("Size (m)", size, 0.5f, 4.0f, 2048.0f, "%.1f"))
+            if (Dark::PropFloat3("Size (m)", size, 0.5f, 4.0f, 2048.0f, "%.1f"))
             {
                 xf->scale.x = Max(4.0f, size[0]);
                 xf->scale.y = Max(4.0f, size[1]);
                 xf->scale.z = Max(4.0f, size[2]);
             }
             ImGui::TextDisabled("Width, height, depth of the volume. Position is the center.");
-            ImGui::SliderFloat("Density", &d.density, 0.0f, 4.0f, "%.2f");
-            ImGui::SliderFloat("Coverage", &d.coverage, 0.0f, 1.0f, "%.2f");
-            ImGui::SliderFloat("Softness", &d.softness, 0.02f, 1.0f, "%.2f");
-            ImGui::ColorEdit3("Albedo", &d.albedo.x);
-            ImGui::SliderFloat("Absorption", &d.absorption, 0.0f, 4.0f, "%.2f");
-            ImGui::SliderFloat("Scattering", &d.scattering, 0.0f, 4.0f, "%.2f");
-            ImGui::SliderFloat("Anisotropy", &d.anisotropy, -0.85f, 0.85f, "%.2f");
-            ImGui::SliderFloat("Silver lining", &d.silverLining, 0.0f, 3.0f, "%.2f");
-            ImGui::SliderFloat("Noise scale", &d.noiseScale, 0.01f, 0.25f, "%.3f");
-            ImGui::SliderFloat("Detail scale", &d.detailScale, 1.0f, 8.0f, "%.2f");
-            ImGui::SliderFloat("Detail strength", &d.detailStrength, 0.0f, 1.0f, "%.2f");
-            ImGui::SliderFloat("Height falloff", &d.heightFalloff, 0.0f, 1.0f, "%.2f");
-            ImGui::SliderFloat("Wind speed", &d.windSpeed, 0.0f, 8.0f, "%.2f");
-            ImGui::DragFloat3("Wind dir", &d.windDir.x, 0.01f);
+            Dark::PropSlider("Density", &d.density, 0.0f, 4.0f, "%.2f");
+            Dark::PropSlider("Coverage", &d.coverage, 0.0f, 1.0f, "%.2f");
+            Dark::PropSlider("Softness", &d.softness, 0.02f, 1.0f, "%.2f");
+            Dark::PropColor3("Albedo", &d.albedo.x);
+            Dark::PropSlider("Absorption", &d.absorption, 0.0f, 4.0f, "%.2f");
+            Dark::PropSlider("Scattering", &d.scattering, 0.0f, 4.0f, "%.2f");
+            Dark::PropSlider("Anisotropy", &d.anisotropy, -0.85f, 0.85f, "%.2f");
+            Dark::PropSlider("Silver lining", &d.silverLining, 0.0f, 3.0f, "%.2f");
+            Dark::PropSlider("Noise scale", &d.noiseScale, 0.01f, 0.25f, "%.3f");
+            Dark::PropSlider("Detail scale", &d.detailScale, 1.0f, 8.0f, "%.2f");
+            Dark::PropSlider("Detail strength", &d.detailStrength, 0.0f, 1.0f, "%.2f");
+            Dark::PropSlider("Height falloff", &d.heightFalloff, 0.0f, 1.0f, "%.2f");
+            Dark::PropSlider("Wind speed", &d.windSpeed, 0.0f, 8.0f, "%.2f");
+            Dark::PropFloat3("Wind dir", &d.windDir.x, 0.01f);
         }
     }
     else if (!isPawnType(so->type) && so->type != SceneObjectType::Model)
     {
-        if (ImGui::ColorEdit3("Tint", so->color))
+        if (Dark::PropColor3("Tint", so->color))
         {
             if (AssetRef<Material> mat = ensureUniqueMeshMaterial(m_selected))
                 mat->setBaseColor(so->color[0], so->color[1], so->color[2], mat->baseColor()[3]);
         }
         if (auto* mc = world().get<MeshComponent>(m_selected))
-            ImGui::SliderFloat("Emissive", &mc->emissive, 0.0f, 1.0f);
+            Dark::PropSlider("Emissive", &mc->emissive, 0.0f, 1.0f);
         if (world().get<MeshComponent>(m_selected) && ImGui::Button("Open Material"))
             m_showMaterialEditor = true;
     }
@@ -1070,7 +1136,7 @@ void EditorApp::drawInspector3D()
     {
         ImGui::BeginDisabled();
         ImGui::Button(ICON_FA_TRASH "  Delete");
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
             ImGui::SetTooltip("Ambient and directional lights are part of the scene");
         ImGui::EndDisabled();
     }

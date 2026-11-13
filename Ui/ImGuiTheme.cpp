@@ -54,7 +54,11 @@ namespace Dark
         style->WindowBorderSize  = 1.0f;
         style->ChildBorderSize   = 1.0f;
         style->PopupBorderSize   = 1.0f;
-        style->FrameBorderSize   = 0.0f;
+        style->FrameBorderSize      = 1.0f;
+        style->HoverDelayShort      = 0.20f;
+        style->HoverDelayNormal     = 0.50f;
+        style->SeparatorTextPadding = ImVec2(20.0f, 3.0f);
+        style->TabBarOverlineSize   = 2.0f;
         style->TabBorderSize     = 0.0f;
         style->WindowTitleAlign  = ImVec2(0.0f, 0.5f);
 
@@ -168,15 +172,19 @@ namespace Dark
         }
     }
 
-    void beginPassthruDockSpace(const char* hostName, float bottomReservePx)
+    void beginPassthruDockSpace(const char* hostName, float bottomReservePx, float topReservePx)
     {
         const ImGuiViewport* vp = ImGui::GetMainViewport();
         if (!vp || !hostName)
             return;
 
         const float reserve = bottomReservePx > 0.0f ? bottomReservePx : 0.0f;
-        ImGui::SetNextWindowPos(vp->WorkPos);
-        ImGui::SetNextWindowSize(ImVec2(vp->WorkSize.x, vp->WorkSize.y - reserve));
+        const float top     = topReservePx > 0.0f ? topReservePx : 0.0f;
+        float       height  = vp->WorkSize.y - reserve - top;
+        if (height < 1.0f)
+            height = 1.0f;
+        ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x, vp->WorkPos.y + top));
+        ImGui::SetNextWindowSize(ImVec2(vp->WorkSize.x, height));
         ImGui::SetNextWindowViewport(vp->ID);
         ImGui::SetNextWindowBgAlpha(0.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
@@ -187,7 +195,7 @@ namespace Dark
                                            ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoBackground;
         ImGui::Begin(hostName, nullptr, hostFlags);
 
-        const ImGuiID dockId = ImGui::GetID("EditorDock");
+        const ImGuiID dockId = ImGui::GetID("EditorDockV2");
         if (ImGui::DockBuilderGetNode(dockId) == nullptr)
         {
             ImGui::DockBuilderRemoveNode(dockId);
@@ -202,6 +210,7 @@ namespace Dark
             ImGui::DockBuilderDockWindow("Scene", dockLeft);
             ImGui::DockBuilderDockWindow("Assets", dockLeft);
             ImGui::DockBuilderDockWindow("Inspector", dockRight);
+            ImGui::DockBuilderDockWindow("Lighting", dockRight);
             ImGui::DockBuilderDockWindow("Particle System", dockRight);
             ImGui::DockBuilderDockWindow("2D Level", dockRight);
             ImGui::DockBuilderFinish(dockId);

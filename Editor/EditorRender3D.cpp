@@ -129,7 +129,7 @@ void EditorApp::drawPlayCrosshair(ID3D12GraphicsCommandList* cmd)
         kind = weapons->activeKind();
 
     const GpuScope hud(cmd, "HUD", ProfileColor::Hud);
-    m_crosshair.draw(cmd, renderer().width(), renderer().height(), kind, throwableSlot);
+    m_crosshair.draw(cmd, renderer().width(), renderer().height(), kind, throwableSlot, window().dpiScale());
 }
 
 void EditorApp::submitPlayProjectiles(std::vector<int>& rejected)

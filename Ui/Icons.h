@@ -30,3 +30,34 @@
 #define ICON_FA_LAYER_GROUP "\xef\x97\xbd"        // U+f5fd
 #define ICON_FA_GAUGE_HIGH "\xef\x98\xa5"         // U+f625
 #define ICON_FA_NETWORK_WIRED "\xef\x9b\xbf"      // U+f6ff
+
+// Every ICON_FA_* above. ImGuiHost decodes these into the atlas, so a new icon
+// is one macro plus one line here.
+#define DE_UI_ICON_STRINGS(X) \
+    X(ICON_FA_VOLUME_HIGH)    \
+    X(ICON_FA_LIST)           \
+    X(ICON_FA_PLAY)           \
+    X(ICON_FA_PAUSE)          \
+    X(ICON_FA_FORWARD_STEP)   \
+    X(ICON_FA_CIRCLE_PLUS)    \
+    X(ICON_FA_EYE)            \
+    X(ICON_FA_FOLDER)         \
+    X(ICON_FA_FOLDER_OPEN)    \
+    X(ICON_FA_CLOUD)          \
+    X(ICON_FA_FLOPPY_DISK)    \
+    X(ICON_FA_BOLT)           \
+    X(ICON_FA_LIGHTBULB)      \
+    X(ICON_FA_CIRCLE)         \
+    X(ICON_FA_FILE)           \
+    X(ICON_FA_BUG)            \
+    X(ICON_FA_CUBE)           \
+    X(ICON_FA_PLUG)           \
+    X(ICON_FA_TRASH)          \
+    X(ICON_FA_SERVER)         \
+    X(ICON_FA_RIGHT_FROM_BRACKET) \
+    X(ICON_FA_ROTATE_RIGHT)   \
+    X(ICON_FA_BROOM)          \
+    X(ICON_FA_MEMORY)         \
+    X(ICON_FA_LAYER_GROUP)    \
+    X(ICON_FA_GAUGE_HIGH)     \
+    X(ICON_FA_NETWORK_WIRED)

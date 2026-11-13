@@ -1,8 +1,16 @@
 Roboto-Medium.ttf
+Roboto-Bold.ttf
   Copyright 2011 Google Inc.
   Apache License 2.0
-  Bundled with Dear ImGui (misc/fonts/Roboto-Medium.ttf).
+  Medium is bundled with Dear ImGui (misc/fonts/Roboto-Medium.ttf).
+  Bold is from googlefonts/roboto src/hinted/Roboto-Bold.ttf.
   https://github.com/googlefonts/roboto
+
+Cousine-Regular.ttf
+  Copyright 2010 The Cousine Project Authors
+  SIL Open Font License 1.1
+  Copied from Dear ImGui misc/fonts/Cousine-Regular.ttf.
+  https://github.com/googlefonts/cousine
 
 fa-solid-900.ttf
   Font Awesome Free 6.7.2 by @fontawesome — https://fontawesome.com

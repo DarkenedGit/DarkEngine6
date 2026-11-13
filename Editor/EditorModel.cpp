@@ -18,6 +18,7 @@
 #include "Render/GpuResourceCache.h"
 #include "Render/GpuUpload.h"
 #include "Ui/Icons.h"
+#include "Ui/ImGuiWidgets.h"
 
 #include <imgui.h>
 
@@ -566,7 +567,7 @@ void EditorApp::drawMaterialPanel()
             renderer().gpuResources().ensureMaterial(interned);
     };
 
-    if (ImGui::ColorEdit4("Base Color", color))
+    if (Dark::PropColor4("Base Color", color))
     {
         AssetRef<Material> edit = uniqueForEdit();
         if (meshInstance)
@@ -584,19 +585,19 @@ void EditorApp::drawMaterialPanel()
 
     float metallic  = mat->metallic();
     float roughness = mat->roughness();
-    if (ImGui::SliderFloat("Metallic", &metallic, 0.0f, 1.0f))
+    if (Dark::PropSlider("Metallic", &metallic, 0.0f, 1.0f))
     {
         if (AssetRef<Material> edit = uniqueForEdit())
             edit->setMetallicRoughness(metallic, roughness);
     }
-    if (ImGui::SliderFloat("Roughness", &roughness, 0.0f, 1.0f))
+    if (Dark::PropSlider("Roughness", &roughness, 0.0f, 1.0f))
     {
         if (AssetRef<Material> edit = uniqueForEdit())
             edit->setMetallicRoughness(metallic, roughness);
     }
 
     float emissive = mat->emissive();
-    if (ImGui::SliderFloat("Emissive", &emissive, 0.0f, 4.0f))
+    if (Dark::PropSlider("Emissive", &emissive, 0.0f, 4.0f))
     {
         if (AssetRef<Material> edit = uniqueForEdit())
             edit->setEmissive(emissive);
@@ -613,8 +614,8 @@ void EditorApp::drawMaterialPanel()
             ImGui::PushID(id);
             ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted(label);
-            if (tooltip && ImGui::IsItemHovered())
-                ImGui::SetTooltip("%s", tooltip);
+            if (tooltip)
+                ImGui::SetItemTooltip("%s", tooltip);
             ImGui::SameLine();
             if (img && img->valid())
                 ImGui::Text("%ux%u", img->width(), img->height());
@@ -655,7 +656,7 @@ void EditorApp::drawMaterialPanel()
 
         drawMapSlot("normal", "Normal", mat->normalImage(), &Material::setNormalImage, "Tangent-space RGB normal map");
         float normalScale = mat->normalScale();
-        if (ImGui::SliderFloat("Normal Scale", &normalScale, 0.0f, 4.0f))
+        if (Dark::PropSlider("Normal Scale", &normalScale, 0.0f, 4.0f))
         {
             if (AssetRef<Material> edit = uniqueForEdit())
             {
@@ -666,7 +667,7 @@ void EditorApp::drawMaterialPanel()
 
         drawMapSlot("orm", "ORM", mat->ormImage(), &Material::setOrmImage, "Packed AO (R), Roughness (G), Metallic (B)");
         float ao = mat->ao();
-        if (ImGui::SliderFloat("AO", &ao, 0.0f, 1.0f))
+        if (Dark::PropSlider("AO", &ao, 0.0f, 1.0f))
         {
             if (AssetRef<Material> edit = uniqueForEdit())
             {
@@ -680,13 +681,13 @@ void EditorApp::drawMaterialPanel()
 
     int         mode    = static_cast<int>(mat->alphaMode());
     const char* modes[] = { "Opaque", "Mask", "Blend" };
-    if (ImGui::Combo("Alpha Mode", &mode, modes, 3))
+    if (Dark::PropCombo("Alpha Mode", &mode, modes, 3))
     {
         if (AssetRef<Material> edit = uniqueForEdit())
             edit->setAlphaMode(static_cast<MaterialAlphaMode>(mode));
     }
     float cutoff = mat->alphaCutoff();
-    if (ImGui::SliderFloat("Alpha Cutoff", &cutoff, 0.0f, 1.0f))
+    if (Dark::PropSlider("Alpha Cutoff", &cutoff, 0.0f, 1.0f))
     {
         if (AssetRef<Material> edit = uniqueForEdit())
         {

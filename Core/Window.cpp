@@ -269,7 +269,8 @@ namespace Dark
         case WM_DPICHANGED:
             if (self)
             {
-                self->m_dpiScale = dpiScaleFromDpi(static_cast<UINT>(HIWORD(wp)));
+                self->m_dpiScale   = dpiScaleFromDpi(static_cast<UINT>(HIWORD(wp)));
+                self->m_dpiChanged = true;
                 const RECT* suggested = reinterpret_cast<const RECT*>(lp);
                 if (suggested)
                 {
@@ -456,6 +457,13 @@ namespace Dark
     {
         const bool changed = m_sizeChanged;
         m_sizeChanged = false;
+        return changed;
+    }
+
+    bool Window::takeDpiChanged()
+    {
+        const bool changed = m_dpiChanged;
+        m_dpiChanged = false;
         return changed;
     }
 

@@ -480,6 +480,10 @@ private:
     // ImTextureID 0 = not loaded; callers fall back to text.
     Dark::Texture2D m_typeIcons[static_cast<size_t>(SceneObjectType::Count)];
     uint64_t        m_typeIconIds[static_cast<size_t>(SceneObjectType::Count)] = {};
+    Dark::Texture2D m_fileIcon;
+    Dark::Texture2D m_folderIcon;
+    uint64_t        m_fileIconId   = 0;
+    uint64_t        m_folderIconId = 0;
 
     Terrain::TerrainGrid          m_terrain;
     WaterWorld                    m_water;

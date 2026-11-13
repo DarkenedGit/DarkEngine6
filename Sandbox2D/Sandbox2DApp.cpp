@@ -1245,6 +1245,7 @@ void Sandbox2DApp::onUpdate(float dt)
     pollPendingLevel();
     if (m_menu.visible())
     {
+        m_menu.setDpiScale(window().dpiScale());
         m_menu.update(input(), renderer().width(), renderer().height());
         switch (m_menu.pollResult())
         {
@@ -1460,6 +1461,7 @@ void Sandbox2DApp::onRender()
     }
 
     renderer().stats().drawCalls = static_cast<uint32_t>(m_platforms.size() + coinCount() + m_remotePawns.size() + 6);
+    m_menu.setDpiScale(window().dpiScale());
     m_menu.draw(renderer());
     renderer().endFrame();
 }

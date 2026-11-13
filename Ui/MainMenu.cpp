@@ -184,6 +184,11 @@ namespace Dark
         m_selected = (index < m_entries.size()) ? index : (m_entries.size() - 1);
     }
 
+    void MainMenu::setDpiScale(float scale)
+    {
+        m_dpiScale = scale > 0.1f ? scale : 1.0f;
+    }
+
     void MainMenu::show()
     {
         m_visible = true;
@@ -208,6 +213,32 @@ namespace Dark
         const MainMenuResult r = m_pending;
         m_pending              = MainMenuResult::None;
         return r;
+    }
+
+    void MainMenu::moveTo(size_t index)
+    {
+        if (!m_visible || m_entries.empty())
+            return;
+        if (index >= m_entries.size())
+            index = m_entries.size() - 1;
+        if (index == m_selected)
+            return;
+        m_selected = index;
+        playMove();
+    }
+
+    void MainMenu::confirm()
+    {
+        if (!m_visible)
+            return;
+        confirmSelection();
+    }
+
+    void MainMenu::quit()
+    {
+        if (!m_visible)
+            return;
+        m_pending = MainMenuResult::Quit;
     }
 
     void MainMenu::moveSelection(int delta)
@@ -269,38 +300,47 @@ namespace Dark
         if (vw < 8.0f || vh < 8.0f)
             return layout;
 
+        const float  s       = m_dpiScale > 0.1f ? m_dpiScale : 1.0f;
+        const float  rowH    = kRowH * s;
+        const float  rowGap  = kRowGap * s;
+        const float  titleH  = kTitleH * s;
+        const float  hintH   = kHintH * s;
+        const float  panelPad = kPanelPad * s;
+        const float  titleGap = kTitleGap * s;
+        const float  hintGap  = kHintGap * s;
         const size_t rows = m_entries.size();
-        const float  rowsH = (rows == 0) ? 0.0f : (static_cast<float>(rows) * kRowH + static_cast<float>(rows - 1) * kRowGap);
-        const float  innerH = kTitleH + kTitleGap + rowsH + kHintGap + kHintH;
-        const float  panelH = innerH + kPanelPad * 2.0f;
-        const float  panelW = (kPanelW + kPanelPad * 2.0f > vw - 32.0f) ? (vw - 32.0f) : kPanelW;
+        const float  rowsH = (rows == 0) ? 0.0f : (static_cast<float>(rows) * rowH + static_cast<float>(rows - 1) * rowGap);
+        const float  innerH = titleH + titleGap + rowsH + hintGap + hintH;
+        const float  panelH = innerH + panelPad * 2.0f;
+        const float  panelW0 = kPanelW * s;
+        const float  panelW = (panelW0 + panelPad * 2.0f > vw - 32.0f * s) ? (vw - 32.0f * s) : panelW0;
 
         layout.panel.w = panelW;
         layout.panel.h = panelH;
         layout.panel.x = (vw - panelW) * 0.5f;
         layout.panel.y = (vh - panelH) * 0.5f;
 
-        layout.title.x = layout.panel.x + kPanelPad;
-        layout.title.y = layout.panel.y + kPanelPad;
-        layout.title.w = panelW - kPanelPad * 2.0f;
-        layout.title.h = kTitleH;
+        layout.title.x = layout.panel.x + panelPad;
+        layout.title.y = layout.panel.y + panelPad;
+        layout.title.w = panelW - panelPad * 2.0f;
+        layout.title.h = titleH;
 
-        float y = layout.title.y + layout.title.h + kTitleGap;
+        float y = layout.title.y + layout.title.h + titleGap;
         layout.rows.resize(rows);
         for (size_t i = 0; i < rows; ++i)
         {
             Rect& r = layout.rows[i];
-            r.x     = layout.panel.x + kPanelPad;
+            r.x     = layout.panel.x + panelPad;
             r.y     = y;
-            r.w     = panelW - kPanelPad * 2.0f;
-            r.h     = kRowH;
-            y += kRowH + kRowGap;
+            r.w     = panelW - panelPad * 2.0f;
+            r.h     = rowH;
+            y += rowH + rowGap;
         }
 
-        layout.hint.x = layout.panel.x + kPanelPad;
-        layout.hint.y = layout.panel.y + panelH - kPanelPad - kHintH;
-        layout.hint.w = panelW - kPanelPad * 2.0f;
-        layout.hint.h = kHintH;
+        layout.hint.x = layout.panel.x + panelPad;
+        layout.hint.y = layout.panel.y + panelH - panelPad - hintH;
+        layout.hint.w = panelW - panelPad * 2.0f;
+        layout.hint.h = hintH;
         return layout;
     }
 
@@ -512,11 +552,12 @@ namespace Dark
         drawRect(cmd, proj, screen, viewH, UiPalette::kVoid.r, UiPalette::kVoid.g, UiPalette::kVoid.b, 0.72f);
         drawRect(cmd, proj, layout.panel, viewH, UiPalette::kPanel.r, UiPalette::kPanel.g, UiPalette::kPanel.b, 0.94f);
 
+        const float dpi = m_dpiScale > 0.1f ? m_dpiScale : 1.0f;
         Rect titleBar = layout.panel;
-        titleBar.h    = 4.0f;
+        titleBar.h    = 4.0f * dpi;
         drawRect(cmd, proj, titleBar, viewH, accent.r, accent.g, accent.b, 1.0f);
 
-        drawLabel(cmd, proj, layout.title, viewH, m_title, UiPalette::kText, 2.5f);
+        drawLabel(cmd, proj, layout.title, viewH, m_title, UiPalette::kText, 2.5f * dpi);
 
         for (size_t i = 0; i < layout.rows.size(); ++i)
         {
@@ -541,16 +582,16 @@ namespace Dark
                     Rect subR = r;
                     subR.y    = r.y + r.h * 0.48f;
                     subR.h    = r.h * 0.42f;
-                    drawLabel(cmd, proj, titleR, viewH, e.title, label, 2.0f);
-                    drawLabel(cmd, proj, subR, viewH, e.subtitle, UiPalette::kTextMuted, 1.5f);
+                    drawLabel(cmd, proj, titleR, viewH, e.title, label, 2.0f * dpi);
+                    drawLabel(cmd, proj, subR, viewH, e.subtitle, UiPalette::kTextMuted, 1.5f * dpi);
                 }
                 else
-                    drawLabel(cmd, proj, titleR, viewH, e.title, label, 2.0f);
+                    drawLabel(cmd, proj, titleR, viewH, e.title, label, 2.0f * dpi);
             }
         }
 
         if (!m_hint.empty())
-            drawLabel(cmd, proj, layout.hint, viewH, m_hint, UiPalette::kTextMuted, 1.5f);
+            drawLabel(cmd, proj, layout.hint, viewH, m_hint, UiPalette::kTextMuted, 1.5f * dpi);
     }
 
     void MainMenu::shutdown(Renderer& renderer)

@@ -1604,8 +1604,7 @@ void EditorApp::drawWaterTools()
             m_authoredWater.hasLevel = true;
             m_authoredWater.level = level;
         }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Release to rebuild the sheet at this height.");
+        ImGui::SetItemTooltip("Release to rebuild the sheet at this height.");
         if (ImGui::IsItemDeactivatedAfterEdit())
             createEditorWaterSheet();
     }
@@ -1618,14 +1617,11 @@ void EditorApp::drawWaterTools()
         wp.flowDir = Vector2f(cosf(rad), sinf(rad));
         edited = true;
     }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Swell headings are measured from this direction.");
+    ImGui::SetItemTooltip("Swell headings are measured from this direction.");
     edited |= ImGui::SliderFloat("Wind pull", &wp.flowStrength, 0.0f, 1.0f, "%.2f");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("How hard the swells turn toward the wind. 0 leaves each heading as authored.");
+    ImGui::SetItemTooltip("How hard the swells turn toward the wind. 0 leaves each heading as authored.");
     edited |= ImGui::SliderFloat("Steepness", &wp.steepness, 0.0f, 1.0f, "%.2f");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("0 is a round sine. 1 pinches the crest.");
+    ImGui::SetItemTooltip("0 is a round sine. 1 pinches the crest.");
 
     float baseAmp = 0.0f;
     for (int i = 0; i < kWaterWaveCount; ++i)
@@ -1636,17 +1632,13 @@ void EditorApp::drawWaterTools()
         wp.amplitudeScale = baseAmp > 1.0e-5f ? heightM / baseAmp : 0.0f;
         edited = true;
     }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("How high the crests rise if every swell peaks together. The authored height is about %.2f m.", static_cast<double>(baseAmp));
+    ImGui::SetItemTooltip("How high the crests rise if every swell peaks together. The authored height is about %.2f m.", static_cast<double>(baseAmp));
     edited |= ImGui::SliderFloat("Wave speed", &wp.speedScale, 0.0f, 4.0f, "%.2fx");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("How fast the swells travel. 1 is the authored speed. 0 holds them still.");
+    ImGui::SetItemTooltip("How fast the swells travel. 1 is the authored speed. 0 holds them still.");
     edited |= ImGui::SliderFloat("Detail", &wp.detailAmount, 0.0f, 1.0f, "%.2f");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Fine ripples on the face. 0 leaves only the swells.");
+    ImGui::SetItemTooltip("Fine ripples on the face. 0 leaves only the swells.");
     edited |= ImGui::SliderFloat("Drift", &wp.flowSpeed, 0.0f, 6.0f, "%.2f m/s");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Scrolls the fine ripples and the foam along the wind.");
+    ImGui::SetItemTooltip("Scrolls the fine ripples and the foam along the wind.");
     edited |= ImGui::SliderFloat("Foam", &wp.foam, 0.0f, 1.0f, "%.2f");
     edited |= ImGui::SliderFloat("Foam width", &wp.foamWidthScale, 0.5f, 2.0f, "%.2f");
 
@@ -1689,8 +1681,7 @@ void EditorApp::drawWaterTools()
         wp = defaultWaterParams(level);
         edited = true;
     }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Restores the built-in swells, wind, steepness, foam, and detail. The lake height stays.");
+    ImGui::SetItemTooltip("Restores the built-in swells, wind, steepness, foam, and detail. The lake height stays.");
 
     bool legacy = wp.legacyPull;
     if (ImGui::Checkbox("Legacy wave set", &legacy))
@@ -1709,8 +1700,7 @@ void EditorApp::drawWaterTools()
         }
         edited = true;
     }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Session preview of the old octave swells. Reloading the scene restores the wind sea.");
+    ImGui::SetItemTooltip("Session preview of the old octave swells. Reloading the scene restores the wind sea.");
 
     if (edited)
         syncAuthored();
@@ -1805,11 +1795,9 @@ void EditorApp::drawTerrainPanel()
         }
     }
     ImGui::SliderFloat("World size (m)", &m_worldEngineSize, 128.0f, 8192.0f, "%.0f");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Width and depth of the heightfield, in meters.");
+    ImGui::SetItemTooltip("Width and depth of the heightfield, in meters.");
     ImGui::SliderFloat("Height range (m)", &m_worldEngineHeight, 20.0f, 4000.0f, "%.0f");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Meters from the lowest sample in the file to the highest. Valleys sit at Y = 0.");
+    ImGui::SetItemTooltip("Meters from the lowest sample in the file to the highest. Valleys sit at Y = 0.");
 
     if (ImGui::Button("Load terrain"))
     {
@@ -1858,22 +1846,17 @@ void EditorApp::drawTerrainPanel()
         ImGui::SeparatorText("Procedural grass");
         bool grassEdited = false;
         grassEdited |= ImGui::SliderFloat("Edge start", &m_authoredGrass.faceEdge, 0.0f, 1.0f, "%.2f");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Blades more edge-on than this turn toward the camera. 0 leaves them as they are.");
+        ImGui::SetItemTooltip("Blades more edge-on than this turn toward the camera. 0 leaves them as they are.");
         grassEdited |= ImGui::SliderFloat("Yaw blend", &m_authoredGrass.faceYaw, 0.0f, 1.0f, "%.2f");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("How far an edge-on blade turns toward the camera. 1 faces it fully.");
+        ImGui::SetItemTooltip("How far an edge-on blade turns toward the camera. 1 faces it fully.");
         grassEdited |= ImGui::SliderFloat("Tip lean", &m_authoredGrass.faceLean, 0.0f, 1.0f, "%.2f");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("How far the tip leans toward the camera when you look down, as a fraction of blade height.");
+        ImGui::SetItemTooltip("How far the tip leans toward the camera when you look down, as a fraction of blade height.");
         grassEdited |= ImGui::SliderFloat("Steep start", &m_authoredGrass.faceSteep, 0.0f, 0.95f, "%.2f");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("How overhead the camera must be before the tip leans. 0 starts at the horizon.");
+        ImGui::SetItemTooltip("How overhead the camera must be before the tip leans. 0 starts at the horizon.");
         if (grassEdited)
             applyAuthoredGrass();
         ImGui::SliderFloat("Leaf shed", &m_leafShedScale, 0.0f, 1.0f, "%.2f");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Share of the designed leaf rate. 0 sheds nothing. 1 is the full rate, still capped by the leaf pool.");
+        ImGui::SetItemTooltip("Share of the designed leaf rate. 0 sheds nothing. 1 is the full rate, still capped by the leaf pool.");
     }
     else
         ImGui::TextWrapped("No terrain in this level. Outdoor scenes use the grey ground plane until you load one.");
@@ -1906,8 +1889,7 @@ void EditorApp::drawWindPanel()
 
     ImGui::SeparatorText("Field");
     edited |= ImGui::SliderFloat("Strength", &m_wind.strength, 0.0f, 3.0f);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Scales the bend and the gust. Grass tip length stays as authored unless Grass follows strength is on.");
+    ImGui::SetItemTooltip("Scales the bend and the gust. Grass tip length stays as authored unless Grass follows strength is on.");
 
     float headingDeg = m_wind.headingRad * 180.0f / Math::Pi;
     if (ImGui::SliderFloat("Heading (deg)", &headingDeg, -180.0f, 180.0f))
@@ -1922,8 +1904,7 @@ void EditorApp::drawWindPanel()
     edited |= ImGui::SliderFloat("Gust strength", &m_wind.gustStrength, 0.0f, 1.0f);
     edited |= ImGui::SliderFloat("Gust freq", &m_wind.gustFreq, 0.0f, 2.0f);
     edited |= ImGui::Checkbox("Grass follows strength", &m_wind.grassFollowsStrength);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Multiplies the authored grass tip by strength when the field is applied. Dragging does not stack.");
+    ImGui::SetItemTooltip("Multiplies the authored grass tip by strength when the field is applied. Dragging does not stack.");
 
     int seedInt = static_cast<int>(m_wind.seed);
     if (ImGui::InputInt("Seed", &seedInt))
@@ -1949,8 +1930,7 @@ void EditorApp::drawWindPanel()
         ImGui::PushID(k);
         ImGui::Indent();
         edited |= ImGui::SliderFloat("Influence", &kind.influence, 0.0f, 3.0f);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("0 holds this kind still. Rocks start at 0.");
+        ImGui::SetItemTooltip("0 holds this kind still. Rocks start at 0.");
         edited |= ImGui::SliderFloat("Stiffness", &kind.stiffness, 0.25f, 8.0f);
         edited |= ImGui::SliderFloat("Main bend (m)", &kind.mainBendMetres, 0.0f, 3.0f);
         edited |= ImGui::SliderFloat("Branch amp", &kind.branchAmp, 0.0f, 0.5f);

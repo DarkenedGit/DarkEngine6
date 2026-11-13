@@ -682,7 +682,8 @@ void SandboxApp::handleRuntimeCommands(float dt)
     if (m_hud.m_menu.visible())
     {
         window().setCursorCaptured(false);
-        m_hud.m_menu.update(input(), renderer().width(), renderer().height());
+        if (!m_hud.m_imgui.isReady())
+            m_hud.m_menu.update(input(), renderer().width(), renderer().height());
         switch (m_hud.m_menu.pollResult())
         {
         case MainMenuResult::Confirm:
@@ -936,7 +937,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
             }
         }
     }
-    if (!uiKeys && m_gameplayPaused && input().actionPressed("step"))
+    if (!typing && m_gameplayPaused && input().actionPressed("step") && (!uiKeys || !m_showDevTools))
         m_stepGameplay = true;
 
     if (!uiKeys && input().actionPressed("reset"))
@@ -1058,8 +1059,11 @@ void SandboxApp::updateFlyCamera(float dt)
 {
     const bool uiKeys  = uiOpen() && m_hud.m_imgui.isReady() && m_hud.m_imgui.wantCaptureKeyboard();
     const bool uiMouse = uiOpen() && m_hud.m_imgui.isReady() && m_hud.m_imgui.wantCaptureMouse();
+    const bool typing  = m_hud.m_imgui.isReady() && m_hud.m_imgui.wantTextInput();
+    const bool pauseCard = m_gameplayPaused && !m_showDevTools && !m_showInventory && !m_showProfiler && !m_hud.m_showJournal && !m_hud.m_showUpgrades
+        && !m_hud.m_lootTarget.valid() && !typing;
 
-    if (!uiKeys)
+    if (!uiKeys || pauseCard)
     {
         const float forward = input().actionAxis("fly_forward");
         const float strafe  = input().actionAxis("fly_strafe");
@@ -1899,7 +1903,7 @@ void SandboxApp::onInit()
     if (!m_hud.m_menu.loadSounds(audio(), assets()))
         DE_LOG_WARN(LogCategory::Audio, "SandboxApp: main menu sounds failed");
 
-    if (!m_hud.m_imgui.init(window(), renderer(), "sandbox_imgui.ini", false, UiAccent::Sandbox))
+    if (!m_hud.m_imgui.init(window(), renderer(), "sandbox_imgui.ini", false, UiAccent::Sandbox, false))
         DE_LOG_WARN("SandboxApp: ImGui init failed — Dev Tools (M) disabled");
     if (!pumpBootFrame())
         return;

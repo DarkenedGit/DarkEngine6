@@ -35,6 +35,9 @@
 #include "Sky/Environment.h"
 
 #include "Ui/Icons.h"
+#include "Ui/ImGuiGameChrome.h"
+#include "Ui/ImGuiTheme.h"
+#include "Ui/ImGuiWidgets.h"
 
 #include <imgui.h>
 
@@ -129,9 +132,9 @@ void SandboxHud::drawInventory()
     if (!inv)
         return;
     ImGui::SetNextWindowSize(ImVec2(380.0f, 420.0f), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Inventory", &app().m_showInventory))
+    if (!Dark::BeginGameCard("Inventory", &app().m_showInventory, Dark::UiAccent::Sandbox))
     {
-        ImGui::End();
+        Dark::EndGameCard();
         return;
     }
 
@@ -197,7 +200,7 @@ void SandboxHud::drawInventory()
             app().dropInventoryItem(i);
         ImGui::PopID();
     }
-    ImGui::End();
+    Dark::EndGameCard();
 }
 
 void SandboxHud::drawQuestHud()
@@ -206,48 +209,15 @@ void SandboxHud::drawQuestHud()
         return;
     const ImGuiViewport* vp   = ImGui::GetMainViewport();
     ImDrawList*          dl   = ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp));
-    ImFont*              font = ImGui::GetFont();
-    const float          fs   = ImGui::GetFontSize();
-    const QuestDef&      def  = app().m_play.quest().def();
-
+    ImFont*              body = m_imgui.fonts().body ? m_imgui.fonts().body : ImGui::GetFont();
+    ImFont*              heading = m_imgui.fonts().heading ? m_imgui.fonts().heading : body;
+    const float          hs   = heading->FontSize;
     const float width = 330.0f;
     const float x     = vp->Pos.x + vp->Size.x - 28.0f - width;
-    float       y     = vp->Pos.y + 70.0f;
-    struct Line
-    {
-        std::string text;
-        ImU32       color;
-        float       size;
-    };
-    std::vector<Line> lines;
-    lines.push_back(Line{ def.title, IM_COL32(240, 205, 110, 255), fs * 1.2f });
-    if (app().m_play.quest().complete())
-        lines.push_back(Line{ "Complete. Press J for rewards.", IM_COL32(120, 230, 140, 255), fs });
-    for (size_t i = 0; i < def.objectives.size(); ++i)
-    {
-        const ObjectiveDef&   o  = def.objectives[i];
-        const ObjectiveState& st = app().m_play.quest().state(i);
-        if (!st.done && !app().m_play.quest().open(i))
-            continue;
-        std::string text = std::string(st.done ? "[x] " : "[ ] ") + o.text;
-        if (o.count > 1)
-            text += std::format(" ({}/{})", st.progress, o.count);
-        if (o.optional)
-            text += "  optional";
-        const ImU32 color = st.done ? IM_COL32(120, 200, 135, 200) : (o.optional ? IM_COL32(190, 190, 190, 235) : IM_COL32(245, 245, 245, 255));
-        lines.push_back(Line{ text, color, fs });
-    }
-    float height = 14.0f;
-    for (const Line& l : lines)
-        height += l.size + 6.0f;
-    dl->AddRectFilled(ImVec2(x - 12.0f, y - 10.0f), ImVec2(x + width, y + height), IM_COL32(10, 14, 12, 150), 4.0f);
-    dl->AddRectFilled(ImVec2(x - 12.0f, y - 10.0f), ImVec2(x - 9.0f, y + height), IM_COL32(240, 205, 110, 220));
-    for (const Line& l : lines)
-    {
-        dl->AddText(font, l.size, ImVec2(x + 1.0f, y + 1.0f), IM_COL32(0, 0, 0, 180), l.text.c_str(), nullptr, width - 8.0f);
-        dl->AddText(font, l.size, ImVec2(x, y), l.color, l.text.c_str(), nullptr, width - 8.0f);
-        y += l.size + 6.0f;
-    }
+    const float y     = vp->Pos.y + 70.0f;
+    std::vector<Dark::QuestHudLine> lines;
+    Dark::collectQuestLines(app().m_play.quest(), lines);
+    Dark::drawQuestPlate(dl, ImVec2(x, y), width, lines, body, heading);
 
     if (!m_questBanners.empty())
     {
@@ -255,48 +225,25 @@ void SandboxHud::drawQuestHud()
         const float        alpha = Math::Clamp(Math::Min(b.timeLeft, 3.5f - b.timeLeft) * 3.0f, 0.0f, 1.0f);
         const float        midX  = vp->Pos.x + vp->Size.x * 0.5f;
         const float        top   = vp->Pos.y + vp->Size.y * 0.16f;
-        const float        labelSize = fs * 1.1f;
-        const float        textSize   = fs * 2.0f;
-        const ImVec2       ls    = font->CalcTextSizeA(labelSize, FLT_MAX, 0.0f, b.label.c_str());
-        const ImVec2       ts    = font->CalcTextSizeA(textSize, FLT_MAX, 0.0f, b.text.c_str());
+        const float        labelSize = hs;
+        const float        textSize  = hs * 1.1f;
+        const ImVec2       ls    = heading->CalcTextSizeA(labelSize, FLT_MAX, 0.0f, b.label.c_str());
+        const ImVec2       ts    = heading->CalcTextSizeA(textSize, FLT_MAX, 0.0f, b.text.c_str());
         const int          a     = static_cast<int>(alpha * 255.0f);
         const ImU32        col   = (b.color & 0x00FFFFFFu) | (static_cast<ImU32>(a) << 24);
         dl->AddRectFilled(ImVec2(midX - Math::Max(ls.x, ts.x) * 0.5f - 24.0f, top - 10.0f), ImVec2(midX + Math::Max(ls.x, ts.x) * 0.5f + 24.0f, top + ls.y + ts.y + 16.0f),
-                          IM_COL32(10, 14, 12, static_cast<int>(alpha * 160.0f)), 4.0f);
-        dl->AddText(font, labelSize, ImVec2(midX - ls.x * 0.5f, top), col, b.label.c_str());
-        dl->AddText(font, textSize, ImVec2(midX - ts.x * 0.5f + 2.0f, top + ls.y + 6.0f), IM_COL32(0, 0, 0, a * 3 / 4), b.text.c_str());
-        dl->AddText(font, textSize, ImVec2(midX - ts.x * 0.5f, top + ls.y + 4.0f), IM_COL32(255, 255, 255, a), b.text.c_str());
+                          toImU32(UiPalette::kVoid, static_cast<int>(alpha * 160.0f)), 4.0f);
+        dl->AddText(heading, labelSize, ImVec2(midX - ls.x * 0.5f, top), col, b.label.c_str());
+        dl->AddText(heading, textSize, ImVec2(midX - ts.x * 0.5f + 2.0f, top + ls.y + 6.0f), IM_COL32(0, 0, 0, a * 3 / 4), b.text.c_str());
+        dl->AddText(heading, textSize, ImVec2(midX - ts.x * 0.5f, top + ls.y + 4.0f), toImU32(UiPalette::kText, a), b.text.c_str());
     }
 
     Vector3f target;
-    const Entity              body = app().possessedBody();
-    const TransformComponent* pxf  = body.valid() ? app().world().get<TransformComponent>(body) : nullptr;
+    const Entity              pawn = app().possessedBody();
+    const TransformComponent* pxf  = pawn.valid() ? app().world().get<TransformComponent>(pawn) : nullptr;
     if (!pxf || app().m_play.quest().complete() || !app().questTarget(target))
         return;
-    const Vector4f clip = app().m_viewCamera.GetViewProj() * Vector4f(Vector3f(target.x, target.y + 1.4f, target.z), 1.0f);
-    float          nx   = clip.w > 1.0e-4f ? clip.x / clip.w : -clip.x;
-    float          ny   = clip.w > 1.0e-4f ? clip.y / clip.w : -clip.y;
-    if (clip.w <= 1.0e-4f)
-    {
-        const float m = Math::Max(std::fabs(nx), std::fabs(ny));
-        nx = m > 1.0e-6f ? nx / m : 0.0f;
-        ny = m > 1.0e-6f ? ny / m : -1.0f;
-    }
-    const float edge = Math::Max(std::fabs(nx), std::fabs(ny));
-    if (edge > 0.9f)
-    {
-        nx *= 0.9f / edge;
-        ny *= 0.9f / edge;
-    }
-    const ImVec2 c{ vp->Pos.x + (nx * 0.5f + 0.5f) * vp->Size.x, vp->Pos.y + (1.0f - (ny * 0.5f + 0.5f)) * vp->Size.y };
-    const float  r = 9.0f;
-    dl->AddQuadFilled(ImVec2(c.x, c.y - r), ImVec2(c.x + r, c.y), ImVec2(c.x, c.y + r), ImVec2(c.x - r, c.y), IM_COL32(240, 205, 110, 230));
-    dl->AddQuad(ImVec2(c.x, c.y - r), ImVec2(c.x + r, c.y), ImVec2(c.x, c.y + r), ImVec2(c.x - r, c.y), IM_COL32(0, 0, 0, 200), 1.5f);
-    char         dist[24];
-    std::snprintf(dist, sizeof(dist), "%.0f m", static_cast<double>((target - pxf->position).Magnitude()));
-    const ImVec2 ds = ImGui::CalcTextSize(dist);
-    dl->AddText(ImVec2(c.x - ds.x * 0.5f + 1.0f, c.y + r + 3.0f), IM_COL32(0, 0, 0, 200), dist);
-    dl->AddText(ImVec2(c.x - ds.x * 0.5f, c.y + r + 2.0f), IM_COL32(240, 205, 110, 255), dist);
+    Dark::drawObjectiveDiamond(dl, vp->Pos, vp->Size, app().m_viewCamera.GetViewProj(), target, pxf->position);
 }
 
 void SandboxHud::drawAlarm()
@@ -306,14 +253,14 @@ void SandboxHud::drawAlarm()
         return;
     const ImGuiViewport* vp    = ImGui::GetMainViewport();
     ImDrawList*          dl    = ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp));
-    ImFont*              font  = ImGui::GetFont();
-    const float          size  = ImGui::GetFontSize() * 2.2f;
+    ImFont*              font  = m_imgui.fonts().heading ? m_imgui.fonts().heading : ImGui::GetFont();
+    const float          size  = font->FontSize * 1.1f;
     const char*          text  = "ALARM";
     const ImVec2         ts    = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text);
     const int            pulse = static_cast<int>(160.0f + 95.0f * std::sin(alarmTime * 9.0f));
     const ImVec2         at{ vp->Pos.x + (vp->Size.x - ts.x) * 0.5f, vp->Pos.y + 24.0f };
     dl->AddText(font, size, ImVec2(at.x + 2.0f, at.y + 2.0f), IM_COL32(0, 0, 0, 200), text);
-    dl->AddText(font, size, at, IM_COL32(255, 60, 50, pulse), text);
+    dl->AddText(font, size, at, toImU32(UiPalette::kDanger, pulse), text);
 }
 
 void SandboxHud::drawUpgradeHint()
@@ -334,15 +281,15 @@ void SandboxHud::drawUpgradeHint()
     const ImVec2         ts   = ImGui::CalcTextSize(text);
     const ImVec2         at{ vp->Pos.x + vp->Size.x - 28.0f - ts.x, vp->Pos.y + vp->Size.y - 130.0f };
     dl->AddText(ImVec2(at.x + 1.0f, at.y + 1.0f), IM_COL32(0, 0, 0, 200), text);
-    dl->AddText(at, IM_COL32(150, 240, 170, 255), text);
+    dl->AddText(at, toImU32(UiPalette::kOk), text);
 }
 
 void SandboxHud::drawUpgrades()
 {
     ImGui::SetNextWindowSize(ImVec2(480.0f, 420.0f), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Upgrades", &m_showUpgrades))
+    if (!Dark::BeginGameCard("Upgrades", &m_showUpgrades, Dark::UiAccent::Sandbox))
     {
-        ImGui::End();
+        Dark::EndGameCard();
         return;
     }
     const Entity        body = app().possessedBody();
@@ -350,7 +297,7 @@ void SandboxHud::drawUpgrades()
     if (!inv)
     {
         ImGui::TextDisabled("No body to modify.");
-        ImGui::End();
+        Dark::EndGameCard();
         return;
     }
     ImGui::TextWrapped("Spend stolen research and materials to modify yourself. Upgrades last for this session.");
@@ -361,7 +308,7 @@ void SandboxHud::drawUpgrades()
     {
         ImGui::PushID(up.id.c_str());
         const bool owned = std::find(facility.owned.begin(), facility.owned.end(), up.id) != facility.owned.end();
-        ImGui::TextColored(owned ? ImVec4(0.47f, 0.90f, 0.55f, 1.0f) : ImVec4(0.94f, 0.80f, 0.43f, 1.0f), "%s%s", up.name.c_str(), owned ? "  (owned)" : "");
+        ImGui::TextColored(owned ? Dark::toImVec4(Dark::UiPalette::kOk) : Dark::toImVec4(Dark::UiPalette::kWarn), "%s%s", up.name.c_str(), owned ? "  (owned)" : "");
         ImGui::TextWrapped("%s", up.description.c_str());
         std::string cost;
         for (const UpgradeCost& c : up.cost)
@@ -388,29 +335,29 @@ void SandboxHud::drawUpgrades()
         ImGui::Separator();
         ImGui::PopID();
     }
-    ImGui::End();
+    Dark::EndGameCard();
 }
 
 void SandboxHud::drawJournal()
 {
     ImGui::SetNextWindowSize(ImVec2(440.0f, 360.0f), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Journal", &m_showJournal))
+    if (!Dark::BeginGameCard("Journal", &m_showJournal, Dark::UiAccent::Sandbox))
     {
-        ImGui::End();
+        Dark::EndGameCard();
         return;
     }
     if (!app().m_play.quest().active())
     {
         ImGui::TextDisabled("No quest in this level.");
-        ImGui::End();
+        Dark::EndGameCard();
         return;
     }
     const QuestDef& def = app().m_play.quest().def();
-    ImGui::TextColored(ImVec4(0.94f, 0.80f, 0.43f, 1.0f), "%s", def.title.c_str());
+    ImGui::TextColored(Dark::toImVec4(Dark::UiPalette::kWarn), "%s", def.title.c_str());
     if (app().m_play.quest().complete())
     {
         ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.47f, 0.90f, 0.55f, 1.0f), "(complete)");
+        ImGui::TextColored(Dark::toImVec4(Dark::UiPalette::kOk), "(complete)");
     }
     if (!def.description.empty())
         ImGui::TextWrapped("%s", def.description.c_str());
@@ -427,7 +374,7 @@ void SandboxHud::drawJournal()
             continue;
         }
         const std::string progress = o.count > 1 ? std::format(" ({}/{})", st.progress, o.count) : std::string();
-        const ImVec4      color    = st.done ? ImVec4(0.47f, 0.80f, 0.53f, 1.0f) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+        const ImVec4      color    = st.done ? Dark::toImVec4(Dark::UiPalette::kOk) : Dark::toImVec4(Dark::UiPalette::kText);
         ImGui::TextColored(color, "%s %s%s%s", st.done ? "[x]" : "[ ]", o.text.c_str(), progress.c_str(), o.optional ? "  (optional)" : "");
     }
     if (!def.rewards.empty())
@@ -440,7 +387,7 @@ void SandboxHud::drawJournal()
             ImGui::BulletText("%s x%d", item ? item->name : r.item.c_str(), r.count);
         }
     }
-    ImGui::End();
+    Dark::EndGameCard();
 }
 
 void SandboxHud::drawGuardSpeech()
@@ -450,8 +397,9 @@ void SandboxHud::drawGuardSpeech()
         return;
     const ImGuiViewport*      vp   = ImGui::GetMainViewport();
     ImDrawList*               dl   = ImGui::GetBackgroundDrawList(const_cast<ImGuiViewport*>(vp));
-    ImFont*                   font = ImGui::GetFont();
-    const float               fs   = ImGui::GetFontSize();
+    ImFont*                   font = m_imgui.fonts().body ? m_imgui.fonts().body : ImGui::GetFont();
+    ImFont*                   heading = m_imgui.fonts().heading ? m_imgui.fonts().heading : font;
+    const float               fs   = font->FontSize;
     const Entity              body = app().possessedBody();
     const TransformComponent* pxf  = body.valid() ? app().world().get<TransformComponent>(body) : nullptr;
     const float               vw   = static_cast<float>(app().renderer().width());
@@ -477,17 +425,17 @@ void SandboxHud::drawGuardSpeech()
         const int    a  = static_cast<int>(Math::Clamp(sub.timeLeft * 3.0f, 0.0f, 1.0f) * 255.0f);
         const ImVec2 ts = font->CalcTextSizeA(fs, 260.0f, 260.0f, sub.text.c_str());
         const ImVec2 at{ vp->Pos.x + (clip.x / clip.w * 0.5f + 0.5f) * vw - ts.x * 0.5f, vp->Pos.y + (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * vh - ts.y };
-        dl->AddRectFilled(ImVec2(at.x - 6.0f, at.y - 3.0f), ImVec2(at.x + ts.x + 6.0f, at.y + ts.y + 3.0f), IM_COL32(10, 14, 12, a * 150 / 255), 3.0f);
-        dl->AddText(font, fs, at, IM_COL32(255, 255, 255, a), sub.text.c_str(), nullptr, 260.0f);
+        dl->AddRectFilled(ImVec2(at.x - 6.0f, at.y - 3.0f), ImVec2(at.x + ts.x + 6.0f, at.y + ts.y + 3.0f), toImU32(UiPalette::kVoid, a * 150 / 255), 3.0f);
+        dl->AddText(font, fs, at, toImU32(UiPalette::kText, a), sub.text.c_str(), nullptr, 260.0f);
     }
     if (closest)
     {
         const std::string line = "Guard: " + closest->text;
-        const float       size = fs * 1.15f;
-        const ImVec2      ts   = font->CalcTextSizeA(size, FLT_MAX, 0.0f, line.c_str());
+        const float       size = heading->FontSize;
+        const ImVec2      ts   = heading->CalcTextSizeA(size, FLT_MAX, 0.0f, line.c_str());
         const ImVec2      at{ vp->Pos.x + (vp->Size.x - ts.x) * 0.5f, vp->Pos.y + vp->Size.y - 150.0f };
-        dl->AddText(font, size, ImVec2(at.x + 1.5f, at.y + 1.5f), IM_COL32(0, 0, 0, 220), line.c_str());
-        dl->AddText(font, size, at, IM_COL32(235, 235, 210, 255), line.c_str());
+        dl->AddText(heading, size, ImVec2(at.x + 1.5f, at.y + 1.5f), IM_COL32(0, 0, 0, 220), line.c_str());
+        dl->AddText(heading, size, at, toImU32(UiPalette::kText), line.c_str());
     }
 }
 
@@ -504,6 +452,7 @@ void SandboxHud::drawDialogue()
     view.windowName    = "Dialogue";
     const std::string talkPrompt = app().input().actions().keyBracket("talk", "[T]") + " Talk";
     view.talkPrompt    = talkPrompt.c_str();
+    view.heading       = m_imgui.fonts().heading;
     drawDialogueHud(app().m_dialogue, view);
     drawMovieHud(app().m_movie);
 }
@@ -520,7 +469,7 @@ void SandboxHud::drawStaminaBar()
     const ImVec2         max{ min.x + w, min.y + 8.0f };
     const float          s   = Math::Clamp(motor->stamina(), 0.0f, 1.0f);
     dl->AddRectFilled(min, max, IM_COL32(0, 0, 0, 150), 3.0f);
-    dl->AddRectFilled(min, ImVec2(min.x + w * s, max.y), s < 0.25f ? IM_COL32(230, 90, 60, 230) : IM_COL32(240, 210, 90, 230), 3.0f);
+    dl->AddRectFilled(min, ImVec2(min.x + w * s, max.y), s < 0.25f ? toImU32(UiPalette::kDanger, 230) : toImU32(UiPalette::kWarn, 230), 3.0f);
 }
 
 void SandboxHud::drawBreathBar()
@@ -535,7 +484,7 @@ void SandboxHud::drawBreathBar()
     const ImVec2         max{ min.x + w, min.y + 8.0f };
     const float          b  = Math::Clamp(motor->breath(), 0.0f, 1.0f);
     dl->AddRectFilled(min, max, IM_COL32(0, 0, 0, 150), 3.0f);
-    dl->AddRectFilled(min, ImVec2(min.x + w * b, max.y), b < 0.25f ? IM_COL32(230, 90, 60, 230) : IM_COL32(90, 180, 255, 230), 3.0f);
+    dl->AddRectFilled(min, ImVec2(min.x + w * b, max.y), b < 0.25f ? toImU32(UiPalette::kDanger, 230) : toImU32(UiPalette::kInfo, 230), 3.0f);
 }
 
 void SandboxHud::drawArmorHud()
@@ -591,7 +540,7 @@ void SandboxHud::drawArmorHud()
     const ImVec2         pos{ vp->Pos.x + vp->Size.x - 28.0f - size.x, vp->Pos.y + vp->Size.y - 56.0f - size.y };
     ImDrawList*          dl = ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp));
     dl->AddText(ImVec2(pos.x + 1.0f, pos.y + 1.0f), IM_COL32(0, 0, 0, 200), text.c_str());
-    dl->AddText(pos, IM_COL32(150, 200, 255, 255), text.c_str());
+    dl->AddText(pos, toImU32(UiPalette::kInfo), text.c_str());
 }
 
 void SandboxHud::drawPickupLabels()
@@ -634,7 +583,7 @@ void SandboxHud::drawPickupLabels()
         const ImVec2 ts = ImGui::CalcTextSize(text);
         const ImVec2 pos{ vpPos.x + sx - ts.x * 0.5f, vpPos.y + sy - ts.y };
         dl->AddText(ImVec2(pos.x + 1.0f, pos.y + 1.0f), IM_COL32(0, 0, 0, 200), text);
-        dl->AddText(pos, canTake ? IM_COL32(255, 220, 90, 255) : IM_COL32(235, 235, 235, 255), text);
+        dl->AddText(pos, canTake ? toImU32(UiPalette::kWarn) : toImU32(UiPalette::kText), text);
     };
 
     app().world().each<PowerBoxComponent>([&](Entity e, PowerBoxComponent& box) {
@@ -654,7 +603,7 @@ void SandboxHud::drawPickupLabels()
         const ImVec2 ts    = ImGui::CalcTextSize(text);
         const ImVec2 pos{ vpPos.x + (clip.x / clip.w * 0.5f + 0.5f) * vw - ts.x * 0.5f, vpPos.y + (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * vh - ts.y };
         dl->AddText(ImVec2(pos.x + 1.0f, pos.y + 1.0f), IM_COL32(0, 0, 0, 200), text);
-        dl->AddText(pos, close ? IM_COL32(255, 220, 90, 255) : (box.on ? IM_COL32(150, 230, 150, 255) : IM_COL32(230, 120, 100, 255)), text);
+        dl->AddText(pos, close ? toImU32(UiPalette::kWarn) : (box.on ? toImU32(UiPalette::kOk) : toImU32(UiPalette::kDanger)), text);
     });
 
     auto prompt = [&](const Vector3f& at, const char* text, ImU32 color) {
@@ -669,14 +618,14 @@ void SandboxHud::drawPickupLabels()
     if (pxf && carriedBody(app().world()).valid())
     {
         const std::string drop = useKey + " Drop body";
-        prompt(pxf->position + Vector3f{ 0.0f, 1.4f, 0.0f }, drop.c_str(), IM_COL32(255, 220, 90, 255));
+        prompt(pxf->position + Vector3f{ 0.0f, 1.4f, 0.0f }, drop.c_str(), toImU32(UiPalette::kWarn));
     }
     else if (const Entity target = app().m_play.takedownTarget(); target.valid())
     {
         if (const TransformComponent* gxf = app().world().get<TransformComponent>(target))
         {
             const std::string take = takeKey + " Takedown";
-            prompt(gxf->position + Vector3f{ 0.0f, 1.2f, 0.0f }, take.c_str(), IM_COL32(255, 110, 90, 255));
+            prompt(gxf->position + Vector3f{ 0.0f, 1.2f, 0.0f }, take.c_str(), toImU32(UiPalette::kDanger));
         }
     }
     else if (pick.kind == PlayInteract::Body)
@@ -684,7 +633,7 @@ void SandboxHud::drawPickupLabels()
         if (const TransformComponent* gxf = app().world().get<TransformComponent>(pick.e))
         {
             const std::string lift = useKey + " Pick up body";
-            prompt(gxf->position + Vector3f{ 0.0f, 0.6f, 0.0f }, lift.c_str(), IM_COL32(255, 220, 90, 255));
+            prompt(gxf->position + Vector3f{ 0.0f, 0.6f, 0.0f }, lift.c_str(), toImU32(UiPalette::kWarn));
         }
     }
     else if (pick.kind == PlayInteract::Hide)
@@ -694,7 +643,7 @@ void SandboxHud::drawPickupLabels()
         if (hxf && hs)
         {
             const std::string text = useKey + " Hide in " + hs->label;
-            prompt(hxf->position + Vector3f{ 0.0f, 2.4f, 0.0f }, text.c_str(), IM_COL32(255, 220, 90, 255));
+            prompt(hxf->position + Vector3f{ 0.0f, 2.4f, 0.0f }, text.c_str(), toImU32(UiPalette::kWarn));
         }
     }
     else if (pick.kind == PlayInteract::Door)
@@ -703,13 +652,13 @@ void SandboxHud::drawPickupLabels()
         if (door)
         {
             const std::string text = useKey + (door->wantOpen ? " Close door" : (door->lock.empty() ? " Open door" : " Locked door"));
-            prompt(door->closedPos + Vector3f{ 0.0f, 1.0f, 0.0f }, text.c_str(), IM_COL32(255, 220, 90, 255));
+            prompt(door->closedPos + Vector3f{ 0.0f, 1.0f, 0.0f }, text.c_str(), toImU32(UiPalette::kWarn));
         }
     }
     if (const PlayRuntime& play = app().m_play.runtime(); play.climbOffer)
     {
         const std::string climb = useKey + (play.climbDown ? " Climb down" : " Climb");
-        prompt(play.climbAt, climb.c_str(), IM_COL32(255, 220, 90, 255));
+        prompt(play.climbAt, climb.c_str(), toImU32(UiPalette::kWarn));
     }
     const FacilityState& facility = app().m_play.facility();
     if (facility.doorMsgTime > 0.0f && !facility.doorMsg.empty())
@@ -717,7 +666,7 @@ void SandboxHud::drawPickupLabels()
         const ImVec2 ts = ImGui::CalcTextSize(facility.doorMsg.c_str());
         const ImVec2 at{ vpPos.x + (vw - ts.x) * 0.5f, vpPos.y + vh - 220.0f };
         dl->AddText(ImVec2(at.x + 1.0f, at.y + 1.0f), IM_COL32(0, 0, 0, 220), facility.doorMsg.c_str());
-        dl->AddText(at, IM_COL32(255, 200, 120, 255), facility.doorMsg.c_str());
+        dl->AddText(at, toImU32(UiPalette::kWarn), facility.doorMsg.c_str());
     }
     if (facility.hiddenIn.valid())
     {
@@ -726,7 +675,7 @@ void SandboxHud::drawPickupLabels()
         const ImVec2             ts   = ImGui::CalcTextSize(text.c_str());
         const ImVec2             at{ vpPos.x + (vw - ts.x) * 0.5f, vpPos.y + vh - 190.0f };
         dl->AddText(ImVec2(at.x + 1.0f, at.y + 1.0f), IM_COL32(0, 0, 0, 220), text.c_str());
-        dl->AddText(at, IM_COL32(150, 220, 255, 255), text.c_str());
+        dl->AddText(at, toImU32(UiPalette::kInfo), text.c_str());
     }
 
     char name[96];
@@ -758,7 +707,7 @@ void SandboxHud::drawGuardAwareness()
     const ImVec2              vp   = ImGui::GetMainViewport()->Pos;
     const Entity              body = app().possessedBody();
     const TransformComponent* pxf  = body.valid() ? app().world().get<TransformComponent>(body) : nullptr;
-    ImFont*                   font = ImGui::GetFont();
+    ImFont*                   font = m_imgui.fonts().heading ? m_imgui.fonts().heading : ImGui::GetFont();
     const ImVec2              mid{ vp.x + vw * 0.5f, vp.y + vh * 0.5f };
 
     auto project = [&](const Vector3f& p, ImVec2& out) {
@@ -773,10 +722,10 @@ void SandboxHud::drawGuardAwareness()
     };
     auto stateColor = [](AI::Alertness a, int alpha) {
         if (a == AI::Alertness::Alert)
-            return IM_COL32(235, 50, 40, alpha);
+            return toImU32(UiPalette::kDanger, alpha);
         if (a == AI::Alertness::Calm)
-            return IM_COL32(245, 245, 245, alpha);
-        return IM_COL32(255, 196, 40, alpha);
+            return toImU32(UiPalette::kText, alpha);
+        return toImU32(UiPalette::kWarn, alpha);
     };
 
     struct Marker
@@ -799,7 +748,7 @@ void SandboxHud::drawGuardAwareness()
             ImVec2 c;
             if (aw.wary && pxf && (xf->position - pxf->position).MagnitudeSqrd() <= 45.0f * 45.0f
                 && project(Vector3f(xf->position.x, xf->position.y + 1.3f, xf->position.z), c))
-                dl->AddCircle(c, 9.0f, IM_COL32(230, 180, 40, 150), 20, 2.5f);
+                dl->AddCircle(c, 9.0f, toImU32(UiPalette::kWarn, 150), 20, 2.5f);
             return;
         }
         const bool alert   = aw.alertness == AI::Alertness::Alert;
@@ -848,7 +797,7 @@ void SandboxHud::drawGuardAwareness()
         {
             const float fill = Math::Clamp(aw.meter, 0.0f, 1.0f);
             dl->AddCircle(c, r, IM_COL32(0, 0, 0, 170), 24, 6.0f);
-            dl->AddCircle(c, r, (curious || aw.wary) ? IM_COL32(120, 90, 20, 200) : IM_COL32(90, 90, 90, 160), 24, 4.0f);
+            dl->AddCircle(c, r, (curious || aw.wary) ? toImU32(UiPalette::kWarn, 200) : toImU32(UiPalette::kTextMuted, 160), 24, 4.0f);
             if (fill > 0.01f)
             {
                 dl->PathArcTo(c, r, -1.5707963f, -1.5707963f + fill * 6.2831853f, 24);
@@ -858,9 +807,9 @@ void SandboxHud::drawGuardAwareness()
         if (alert || curious)
         {
             const char*  icon = alert ? "!" : "?";
-            const float  size = ImGui::GetFontSize() * 1.3f;
+            const float  size = font->FontSize;
             const ImVec2 ts   = font->CalcTextSizeA(size, FLT_MAX, 0.0f, icon);
-            dl->AddText(font, size, ImVec2(c.x - ts.x * 0.5f, c.y - ts.y * 0.5f), alert ? IM_COL32(255, 255, 255, 255) : stateColor(aw.alertness, 255), icon);
+            dl->AddText(font, size, ImVec2(c.x - ts.x * 0.5f, c.y - ts.y * 0.5f), alert ? toImU32(UiPalette::kText) : stateColor(aw.alertness, 255), icon);
         }
     });
 
@@ -870,8 +819,8 @@ void SandboxHud::drawGuardAwareness()
             break;
         if (pxf && (Vector3f{ m.at.x - pxf->position.x, 0.0f, m.at.z - pxf->position.z }).MagnitudeSqrd() < 3.0f * 3.0f)
             continue;
-        const ImU32 fill = m.hunting ? IM_COL32(255, 196, 40, 70) : IM_COL32(255, 255, 255, 55);
-        const ImU32 edge = m.hunting ? IM_COL32(255, 196, 40, 220) : IM_COL32(255, 255, 255, 200);
+        const ImU32 fill = m.hunting ? toImU32(UiPalette::kWarn, 70) : toImU32(UiPalette::kText, 55);
+        const ImU32 edge = m.hunting ? toImU32(UiPalette::kWarn, 220) : toImU32(UiPalette::kText, 200);
         const float baseY = m.at.y - 0.5f;
         if (m.sound)
         {
@@ -888,7 +837,7 @@ void SandboxHud::drawGuardAwareness()
             ImVec2 c;
             if (project(Vector3f(m.at.x, baseY + 0.9f, m.at.z), c))
             {
-                const float  size = ImGui::GetFontSize() * 1.6f;
+                const float  size = font->FontSize;
                 const ImVec2 ts   = font->CalcTextSizeA(size, FLT_MAX, 0.0f, "?");
                 dl->AddText(font, size, ImVec2(c.x - ts.x * 0.5f, c.y - ts.y * 0.5f), edge, "?");
             }
@@ -920,7 +869,7 @@ void SandboxHud::drawGuardAwareness()
         const ImVec2 c{ mid.x, vp.y + vh - 70.0f };
         const float  w      = 34.0f;
         const float  open   = 4.0f + 12.0f * e;
-        const ImU32  col    = e > 0.6f ? IM_COL32(255, 220, 120, 230) : (e > 0.3f ? IM_COL32(230, 230, 230, 210) : IM_COL32(140, 150, 160, 180));
+        const ImU32  col    = e > 0.6f ? toImU32(UiPalette::kWarn, 230) : (e > 0.3f ? toImU32(UiPalette::kText, 210) : toImU32(UiPalette::kTextMuted, 180));
         dl->AddBezierQuadratic(ImVec2(c.x - w, c.y), ImVec2(c.x, c.y - open * 2.0f), ImVec2(c.x + w, c.y), col, 3.0f);
         dl->AddBezierQuadratic(ImVec2(c.x - w, c.y), ImVec2(c.x, c.y + open * 2.0f), ImVec2(c.x + w, c.y), col, 3.0f);
         dl->AddCircleFilled(c, 3.0f + 6.0f * e, col, 20);
@@ -943,11 +892,11 @@ void SandboxHud::drawGuardAwareness()
     {
         app().m_goalShown -= app().m_frameDt;
         const char*  text = "OBJECTIVE COMPLETE";
-        const float  size = ImGui::GetFontSize() * 2.6f;
+        const float  size = font->FontSize * 1.1f;
         const ImVec2 ts   = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text);
         const ImVec2 pos{ mid.x - ts.x * 0.5f, vp.y + vh * 0.28f };
         dl->AddText(font, size, ImVec2(pos.x + 2.0f, pos.y + 2.0f), IM_COL32(0, 0, 0, 200), text);
-        dl->AddText(font, size, pos, IM_COL32(120, 230, 140, 255), text);
+        dl->AddText(font, size, pos, toImU32(UiPalette::kOk), text);
     }
 }
 
@@ -959,12 +908,13 @@ void SandboxHud::drawDefenseText()
     const bool           parry = m_defenseParry;
     const ImGuiViewport* vp   = ImGui::GetMainViewport();
     ImDrawList*          dl   = ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp));
-    const float          size = ImGui::GetFontSize() * (parry ? 2.2f : 1.7f);
-    const ImVec2         ts   = ImGui::GetFont()->CalcTextSizeA(size, FLT_MAX, 0.0f, m_defenseText);
+    ImFont*              font = m_imgui.fonts().heading ? m_imgui.fonts().heading : ImGui::GetFont();
+    const float          size = font->FontSize * (parry ? 1.1f : 1.0f);
+    const ImVec2         ts   = font->CalcTextSizeA(size, FLT_MAX, 0.0f, m_defenseText);
     const ImVec2         pos{ vp->Pos.x + (vp->Size.x - ts.x) * 0.5f, vp->Pos.y + vp->Size.y * 0.36f - (1.0f - a) * 18.0f };
     const int            alpha = static_cast<int>(a * 255.0f);
-    dl->AddText(ImGui::GetFont(), size, ImVec2(pos.x + 2.0f, pos.y + 2.0f), IM_COL32(0, 0, 0, alpha * 3 / 4), m_defenseText);
-    dl->AddText(ImGui::GetFont(), size, pos, parry ? IM_COL32(255, 210, 70, alpha) : IM_COL32(170, 210, 255, alpha), m_defenseText);
+    dl->AddText(font, size, ImVec2(pos.x + 2.0f, pos.y + 2.0f), IM_COL32(0, 0, 0, alpha * 3 / 4), m_defenseText);
+    dl->AddText(font, size, pos, parry ? toImU32(UiPalette::kWarn, alpha) : toImU32(UiPalette::kInfo, alpha), m_defenseText);
 }
 
 void SandboxHud::drawTargetMarker()
@@ -1002,7 +952,7 @@ void SandboxHud::drawTargetMarker()
     const float  sx = vp.x + (clip.x * invW * 0.5f + 0.5f) * vw;
     const float  sy = vp.y + (1.0f - (clip.y * invW * 0.5f + 0.5f)) * vh;
     const float  r  = 6.0f;
-    const ImU32  c  = IM_COL32(255, 255, 255, 200);
+    const ImU32  c  = toImU32(UiPalette::kText, 200);
     dl->AddTriangleFilled(ImVec2(sx - r - 1.5f, sy - r - 1.5f), ImVec2(sx + r + 1.5f, sy - r - 1.5f), ImVec2(sx, sy + 1.5f), IM_COL32(0, 0, 0, 180));
     dl->AddTriangleFilled(ImVec2(sx - r, sy - r), ImVec2(sx + r, sy - r), ImVec2(sx, sy), c);
 }
@@ -1022,7 +972,7 @@ void SandboxHud::drawLoot()
 
     bool open = true;
     ImGui::SetNextWindowSize(ImVec2(320.0f, 300.0f), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin(loot->label, &open))
+    if (Dark::BeginGameCard(loot->label, &open, Dark::UiAccent::Sandbox))
     {
         const bool takeAll = ImGui::Button("Take all");
         ImGui::Separator();
@@ -1045,7 +995,7 @@ void SandboxHud::drawLoot()
         if (itemCount(loot->contents) == 0)
             ImGui::TextUnformatted("Empty");
     }
-    ImGui::End();
+    Dark::EndGameCard();
 
     settleLootTarget(app().world(), app().pins(), app().m_physics, m_lootTarget, open);
 }
@@ -1114,9 +1064,9 @@ void SandboxHud::drawNpcInfoOverlay()
         const ImVec2 p(vpPos.x + sx - ts.x * 0.5f, vpPos.y + sy - ts.y - 6.0f);
         const ImVec2 a(p.x - pad, p.y - pad);
         const ImVec2 b(p.x + ts.x + pad, p.y + ts.y + pad);
-        dl->AddRectFilled(a, b, IM_COL32(12, 14, 18, 210), 5.0f);
-        dl->AddRect(a, b, IM_COL32(220, 196, 72, 200), 5.0f, 0, 1.2f);
-        dl->AddText(p, IM_COL32(245, 245, 245, 255), text);
+        dl->AddRectFilled(a, b, toImU32(UiPalette::kPanel, 210), 5.0f);
+        dl->AddRect(a, b, toImU32(UiPalette::kWarn, 200), 5.0f, 0, 1.2f);
+        dl->AddText(p, toImU32(UiPalette::kText), text);
     });
 }
 
@@ -1134,6 +1084,8 @@ void SandboxHud::drawProfiler()
     }
 
     const ProfileSnapshot& snap = profileSnapshot();
+    if (ImFont* mono = m_imgui.fonts().mono)
+        ImGui::PushFont(mono);
     ImGui::Text("%.1f fps", static_cast<double>(snap.fps));
     ImGui::SameLine(0.0f, 16.0f);
     ImGui::Text("frame %.2f ms", static_cast<double>(snap.frameMs));
@@ -1187,17 +1139,40 @@ void SandboxHud::drawProfiler()
         }
         ImGui::EndTable();
     }
+    if (m_imgui.fonts().mono)
+        ImGui::PopFont();
     ImGui::End();
 }
 
 void SandboxHud::drawPauseOverlay()
 {
-    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings
-        | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x * 0.5f, 16.0f), ImGuiCond_Always, ImVec2(0.5f, 0.0f));
-    if (ImGui::Begin("##pausedBanner", nullptr, flags))
-        ImGui::TextUnformatted("PAUSED  fly cam  WASD move  Q/Space up  Z/Ctrl down  Shift sprint  mouse look  O step  F3 resume");
-    ImGui::End();
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    if (!vp)
+        return;
+    const ImVec4 dim = ImGui::GetStyleColorVec4(ImGuiCol_ModalWindowDimBg);
+    ImGui::GetBackgroundDrawList(const_cast<ImGuiViewport*>(vp))->AddRectFilled(vp->Pos, ImVec2(vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y), ImGui::ColorConvertFloat4ToU32(dim));
+    ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
+    if (!Dark::BeginGameCard("##paused", nullptr, Dark::UiAccent::Sandbox, flags))
+    {
+        Dark::EndGameCard();
+        return;
+    }
+    ImFont* heading = m_imgui.fonts().heading ? m_imgui.fonts().heading : ImGui::GetFont();
+    ImGui::PushFont(heading);
+    ImGui::TextUnformatted("Paused");
+    ImGui::PopFont();
+    ImGui::TextUnformatted("Fly cam   WASD move   Q/Space up   Z/Ctrl down   Shift sprint   mouse look");
+    ImGui::TextDisabled("O step    F3 resume");
+    if (ImGui::Button("Resume"))
+    {
+        app().m_gameplayPaused = false;
+        app().m_stepGameplay   = false;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(ICON_FA_FORWARD_STEP "  Step"))
+        app().m_stepGameplay = true;
+    Dark::EndGameCard();
 }
 
 void SandboxHud::drawDevTools()
@@ -1224,23 +1199,20 @@ void SandboxHud::drawDevTools()
     ImGui::SameLine();
     ImGui::TextDisabled("O");
     ImGui::SliderFloat(ICON_FA_GAUGE_HIGH "  Fly speed (m/s)", &app().m_flySpeed, 1.0f, 400.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Free-fly camera while paused. Shift multiplies by 2.5.");
+    ImGui::SetItemTooltip("Free-fly camera while paused. Shift multiplies by 2.5.");
     ImGui::Separator();
     if (ImGui::Checkbox("God Mode", &app().m_godMode))
     {
         app().syncPlayerMode();
         DE_LOG_INFO("Sandbox: god mode = {}", app().m_godMode);
     }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Player takes no damage and plays no hit reaction.");
+    ImGui::SetItemTooltip("Player takes no damage and plays no hit reaction.");
     if (ImGui::Checkbox("Reaper Mode", &app().m_reaperMode))
     {
         app().syncPlayerMode();
         DE_LOG_INFO("Sandbox: reaper mode = {}", app().m_reaperMode);
     }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Player takes no damage and plays no hit reaction. Any entity that attacks the player dies.");
+    ImGui::SetItemTooltip("Player takes no damage and plays no hit reaction. Any entity that attacks the player dies.");
     ImGui::Separator();
 
     DebugRenderState& dbg = app().renderer().debugState();
@@ -1252,6 +1224,10 @@ void SandboxHud::drawDevTools()
     ImGui::Text("Draws %u  tris %u  sun %.1f deg", app().renderer().stats().drawCalls, app().renderer().stats().triangles, static_cast<double>(elevDeg));
     ImGui::Separator();
 
+    if (ImGui::BeginTabBar("##devtabs"))
+    {
+        if (ImGui::BeginTabItem("Rendering"))
+        {
     if (ImGui::CollapsingHeader("Rendering", ImGuiTreeNodeFlags_DefaultOpen))
     {
         int fill = static_cast<int>(dbg.fill);
@@ -1279,27 +1255,27 @@ void SandboxHud::drawDevTools()
         ImGui::TextDisabled("F2");
         if (app().renderer().hasGBuffer())
         {
-            if (ImGui::Checkbox("Local lights", &dbg.localLights))
+            if (Dark::PropCheckbox("Local lights", &dbg.localLights))
                 DE_LOG_INFO("Sandbox: local lights = {}", dbg.localLights);
-            if (ImGui::Checkbox("Cloud volumes", &dbg.clouds))
+            if (Dark::PropCheckbox("Cloud volumes", &dbg.clouds))
                 DE_LOG_INFO("Sandbox: cloud volumes = {}", dbg.clouds);
         }
 
         bool shadows = dbg.shadows;
-        if (ImGui::Checkbox("Shadows", &shadows))
+        if (Dark::PropCheckbox("Shadows", &shadows))
         {
             dbg.shadows = shadows;
             app().m_frame.scene().shadows().setDebugEnabled(shadows);
             app().m_frame.scene().localShadows().setDebugEnabled(shadows);
             DE_LOG_INFO("Sandbox: shadows = {}", shadows);
         }
-        if (ImGui::Checkbox("GPU particles", &dbg.gpuParticles))
+        if (Dark::PropCheckbox("GPU particles", &dbg.gpuParticles))
             DE_LOG_INFO("Sandbox: GPU particles = {}", dbg.gpuParticles);
-        if (ImGui::Checkbox("Instanced static meshes", &dbg.instancedStatic))
+        if (Dark::PropCheckbox("Instanced static meshes", &dbg.instancedStatic))
             DE_LOG_INFO("Sandbox: instanced static = {}", dbg.instancedStatic);
-        if (ImGui::Checkbox("Indirect static draws", &dbg.instancedIndirect))
+        if (Dark::PropCheckbox("Indirect static draws", &dbg.instancedIndirect))
             DE_LOG_INFO("Sandbox: indirect static draws = {}", dbg.instancedIndirect);
-        if (ImGui::Checkbox("Shadow map tiles", &app().m_showShadowMaps))
+        if (Dark::PropCheckbox("Shadow map tiles", &app().m_showShadowMaps))
         {
             dbg.shadowMapTiles = app().m_showShadowMaps;
             DE_LOG_INFO("Sandbox: shadow map overlay = {}", app().m_showShadowMaps);
@@ -1309,24 +1285,24 @@ void SandboxHud::drawDevTools()
             int mode = dbg.localShadowDebug;
             if (mode < 0 || mode > 2)
                 mode = 0;
-            if (ImGui::Combo("Local shadow", &mode, shadowDbg, 3))
+            if (Dark::PropCombo("Local shadow", &mode, shadowDbg, 3))
                 dbg.localShadowDebug = mode;
         }
-        if (ImGui::Checkbox("Depth tile", &app().m_showDepth))
+        if (Dark::PropCheckbox("Depth tile", &app().m_showDepth))
             DE_LOG_INFO("Sandbox: depth overlay = {}", app().m_showDepth);
         if (app().renderer().hasGBuffer())
         {
-            if (ImGui::Checkbox("G-buffer tiles", &app().m_showGBuffer))
+            if (Dark::PropCheckbox("G-buffer tiles", &app().m_showGBuffer))
                 DE_LOG_INFO("Sandbox: G-buffer overlay = {}", app().m_showGBuffer);
-            if (ImGui::Checkbox("Velocity tile", &app().m_showVelocity))
+            if (Dark::PropCheckbox("Velocity tile", &app().m_showVelocity))
                 DE_LOG_INFO("Sandbox: velocity overlay = {}", app().m_showVelocity);
         }
         if (app().renderer().hasSceneBuffers())
         {
-            if (ImGui::Checkbox("ACES tonemap", &dbg.aces))
+            if (Dark::PropCheckbox("ACES tonemap", &dbg.aces))
                 DE_LOG_INFO("Sandbox: ACES = {}", dbg.aces);
         }
-        if (ImGui::Checkbox("Legacy UNORM albedo", &dbg.legacyUnormAlbedo))
+        if (Dark::PropCheckbox("Legacy UNORM albedo", &dbg.legacyUnormAlbedo))
         {
             app().renderer().gpuResources().setAlbedoSamplingRaw(dbg.legacyUnormAlbedo);
             if (app().m_terrainMaterial.isValid())
@@ -1335,9 +1311,9 @@ void SandboxHud::drawDevTools()
         }
         if (app().renderer().hasGBuffer())
         {
-            if (ImGui::Checkbox("Show albedo (linear)", &dbg.showAlbedoLinear))
+            if (Dark::PropCheckbox("Show albedo (linear)", &dbg.showAlbedoLinear))
                 DE_LOG_INFO("Sandbox: show albedo linear = {}", dbg.showAlbedoLinear);
-            if (ImGui::Checkbox("Show albedo (raw UNORM)", &dbg.showAlbedoRaw))
+            if (Dark::PropCheckbox("Show albedo (raw UNORM)", &dbg.showAlbedoRaw))
             {
                 app().renderer().setLightingAlbedoRaw(dbg.showAlbedoRaw);
                 DE_LOG_INFO("Sandbox: show albedo raw = {}", dbg.showAlbedoRaw);
@@ -1345,19 +1321,19 @@ void SandboxHud::drawDevTools()
         }
         if (app().renderer().hasGBuffer())
         {
-            if (ImGui::Checkbox("Bloom", &dbg.bloom))
+            if (Dark::PropCheckbox("Bloom", &dbg.bloom))
                 DE_LOG_INFO("Sandbox: bloom = {}", dbg.bloom);
-            if (ImGui::Checkbox("TAA", &dbg.taa))
+            if (Dark::PropCheckbox("TAA", &dbg.taa))
                 DE_LOG_INFO("Sandbox: TAA = {}", dbg.taa);
-            if (ImGui::Checkbox("Motion blur", &dbg.motionBlur))
+            if (Dark::PropCheckbox("Motion blur", &dbg.motionBlur))
                 DE_LOG_INFO("Sandbox: motion blur = {}", dbg.motionBlur);
         }
-        if (ImGui::Checkbox("Skeleton overlay", &app().m_showSkeleton))
+        if (Dark::PropCheckbox("Skeleton overlay", &app().m_showSkeleton))
             DE_LOG_INFO("Sandbox: skeleton overlay = {}", app().m_showSkeleton);
-        if (ImGui::Checkbox("Decals", &dbg.decalsEnabled))
+        if (Dark::PropCheckbox("Decals", &dbg.decalsEnabled))
             DE_LOG_INFO("Sandbox: decals = {}", dbg.decalsEnabled);
         bool decalVolumes = dbg.decalsDebug != 0;
-        if (ImGui::Checkbox("Decal volumes", &decalVolumes))
+        if (Dark::PropCheckbox("Decal volumes", &decalVolumes))
         {
             dbg.decalsDebug = decalVolumes ? 1 : 0;
             DE_LOG_INFO("Sandbox: decal volumes = {}", dbg.decalsDebug);
@@ -1395,43 +1371,17 @@ void SandboxHud::drawDevTools()
         ImGui::TextDisabled("C");
     }
 
-    if (ImGui::CollapsingHeader("NPC info", ImGuiTreeNodeFlags_DefaultOpen))
-    {
-        if (ImGui::Checkbox("Show overlay", &app().m_npcInfo.enabled))
-            DE_LOG_INFO("Sandbox: NPC info overlay = {}", app().m_npcInfo.enabled);
-        ImGui::BeginDisabled(!app().m_npcInfo.enabled);
-        if (ImGui::Checkbox("AI state", &app().m_npcInfo.showState))
-            DE_LOG_INFO("Sandbox: NPC info state = {}", app().m_npcInfo.showState);
-        if (ImGui::Checkbox("Health", &app().m_npcInfo.showHealth))
-            DE_LOG_INFO("Sandbox: NPC info health = {}", app().m_npcInfo.showHealth);
-        if (ImGui::Checkbox("Has target", &app().m_npcInfo.showTarget))
-            DE_LOG_INFO("Sandbox: NPC info target = {}", app().m_npcInfo.showTarget);
-        ImGui::EndDisabled();
-        ImGui::TextDisabled("World-space box above hunters and wolves.");
-    }
-
-    if (ImGui::CollapsingHeader("Camera"))
-    {
-        float nearZ = app().m_viewCamera.GetNearZ();
-        float farZ  = app().m_viewCamera.GetFarZ();
-        bool  ch    = false;
-        ch |= ImGui::SliderFloat("Near", &nearZ, 0.01f, 1.0f, "%.3f");
-        ch |= ImGui::SliderFloat("Far", &farZ, 100.0f, 1.0e6f, "%.0f", ImGuiSliderFlags_Logarithmic);
-        if (ch)
-            app().m_viewCamera.SetLens(app().m_viewCamera.GetFovY(), app().m_viewCamera.GetAspect(), nearZ, farZ);
-    }
-
     if (app().renderer().hasGBuffer() && ImGui::CollapsingHeader("IBL", ImGuiTreeNodeFlags_DefaultOpen))
     {
         DebugRenderState& iblDbg = app().renderer().debugState();
-        if (ImGui::Checkbox("Enabled", &iblDbg.iblEnabled))
+        if (Dark::PropCheckbox("Enabled", &iblDbg.iblEnabled))
             DE_LOG_INFO(LogCategory::Render, "Ibl: enabled={} debug={}", iblDbg.iblEnabled, iblDbg.iblDebug);
-        ImGui::SliderFloat("Intensity", &app().m_ibl.intensity, 0.0f, 4.0f, "%.2f");
+        Dark::PropSlider("Intensity", &app().m_ibl.intensity, 0.0f, 4.0f, "%.2f");
         float rotDeg = app().m_ibl.rotationRadY * RadToDeg;
-        if (ImGui::SliderFloat("Rotation", &rotDeg, -180.0f, 180.0f, "%.1f deg"))
+        if (Dark::PropSlider("Rotation", &rotDeg, -180.0f, 180.0f, "%.1f deg"))
             app().m_ibl.rotationRadY = rotDeg * DegToRad;
         const char* debugViews[] = { "Off", "Irradiance", "Prefilter lod0", "LUT" };
-        if (ImGui::Combo("Debug view", &iblDbg.iblDebug, debugViews, 4))
+        if (Dark::PropCombo("Debug view", &iblDbg.iblDebug, debugViews, 4))
         {
             if (iblDbg.iblDebug < 0)
                 iblDbg.iblDebug = 0;
@@ -1447,16 +1397,16 @@ void SandboxHud::drawDevTools()
     {
         ImGui::PushID("SSAO");
         DebugRenderState& ssaoDbg = app().renderer().debugState();
-        if (ImGui::Checkbox("Enabled", &ssaoDbg.ssaoEnabled))
+        if (Dark::PropCheckbox("Enabled", &ssaoDbg.ssaoEnabled))
         {
             app().m_ssao.enabled = ssaoDbg.ssaoEnabled;
             DE_LOG_INFO(LogCategory::Render, "Ssao: enabled={} debug={}", ssaoDbg.ssaoEnabled, ssaoDbg.ssaoDebug);
         }
-        ImGui::SliderFloat("Intensity", &app().m_ssao.intensity, 0.0f, 1.0f, "%.2f");
-        ImGui::SliderFloat("Radius", &app().m_ssao.radius, 0.05f, 2.0f, "%.2f");
-        ImGui::SliderFloat("Power", &app().m_ssao.power, 0.5f, 4.0f, "%.2f");
+        Dark::PropSlider("Intensity", &app().m_ssao.intensity, 0.0f, 1.0f, "%.2f");
+        Dark::PropSlider("Radius", &app().m_ssao.radius, 0.05f, 2.0f, "%.2f");
+        Dark::PropSlider("Power", &app().m_ssao.power, 0.5f, 4.0f, "%.2f");
         const char* ssaoDebugViews[] = { "Off", "SSAO factor" };
-        if (ImGui::Combo("Debug view", &ssaoDbg.ssaoDebug, ssaoDebugViews, 2))
+        if (Dark::PropCombo("Debug view", &ssaoDbg.ssaoDebug, ssaoDebugViews, 2))
         {
             if (ssaoDbg.ssaoDebug < 0)
                 ssaoDbg.ssaoDebug = 0;
@@ -1477,17 +1427,17 @@ void SandboxHud::drawDevTools()
         else
         {
             DebugRenderState& ssrDbg = app().renderer().debugState();
-            if (ImGui::Checkbox("Enabled", &ssrDbg.ssrEnabled))
+            if (Dark::PropCheckbox("Enabled", &ssrDbg.ssrEnabled))
             {
                 app().m_ssr.enabled = ssrDbg.ssrEnabled;
                 DE_LOG_INFO(LogCategory::Render, "Ssr: enabled={} debug={}", ssrDbg.ssrEnabled, ssrDbg.ssrDebug);
             }
-            ImGui::SliderFloat("Max roughness", &app().m_ssr.maxRoughness, 0.05f, 1.0f, "%.2f");
-            ImGui::SliderFloat("Thickness", &app().m_ssr.thickness, 0.02f, 2.0f, "%.2f m");
-            ImGui::SliderFloat("Stride", &app().m_ssr.stride, 1.0f, 8.0f, "%.1f px");
-            ImGui::SliderFloat("Edge fade", &app().m_ssr.edgeFade, 0.0f, 0.25f, "%.2f");
+            Dark::PropSlider("Max roughness", &app().m_ssr.maxRoughness, 0.05f, 1.0f, "%.2f");
+            Dark::PropSlider("Thickness", &app().m_ssr.thickness, 0.02f, 2.0f, "%.2f m");
+            Dark::PropSlider("Stride", &app().m_ssr.stride, 1.0f, 8.0f, "%.1f px");
+            Dark::PropSlider("Edge fade", &app().m_ssr.edgeFade, 0.0f, 0.25f, "%.2f");
             const char* ssrDebugViews[] = { "Off", "Radiance", "Confidence" };
-            if (ImGui::Combo("Debug view", &ssrDbg.ssrDebug, ssrDebugViews, 3))
+            if (Dark::PropCombo("Debug view", &ssrDbg.ssrDebug, ssrDebugViews, 3))
             {
                 if (ssrDbg.ssrDebug < 0)
                     ssrDbg.ssrDebug = 0;
@@ -1508,13 +1458,13 @@ void SandboxHud::drawDevTools()
                     static_cast<double>(app().m_env.ambientColor().z));
 
         float tod = app().m_env.timeOfDay;
-        if (ImGui::SliderFloat("Time of day", &tod, 0.0f, 23.99f, "%.2f h"))
+        if (Dark::PropSlider("Time of day", &tod, 0.0f, 23.99f, "%.2f h"))
         {
             app().m_env.timeOfDay = tod;
             app().m_env.evaluate();
         }
         bool animate = app().m_env.timeScale > 0.0f;
-        if (ImGui::Checkbox("Animate time", &animate))
+        if (Dark::PropCheckbox("Animate time", &animate))
         {
             app().m_env.timeScale = animate ? 0.35f : 0.0f;
             DE_LOG_INFO("Sky: time scale = {:.2f} h/s", app().m_env.timeScale);
@@ -1546,7 +1496,7 @@ void SandboxHud::drawDevTools()
     {
         ImGui::PushID("Exposure");
         bool autoOn = app().m_autoExposure.mode == ExposureMode::Auto;
-        if (ImGui::Checkbox("Auto", &autoOn))
+        if (Dark::PropCheckbox("Auto", &autoOn))
         {
             const ExposureMode next = autoOn ? ExposureMode::Auto : ExposureMode::Manual;
             if (next == ExposureMode::Auto && app().m_autoExposure.mode != ExposureMode::Auto)
@@ -1558,10 +1508,10 @@ void SandboxHud::drawDevTools()
             DE_LOG_INFO(LogCategory::Render, "Exposure: auto={}", autoOn);
         }
         ImGui::BeginDisabled(!autoOn);
-        ImGui::SliderFloat("EV bias", &app().m_autoExposure.evBias, -2.0f, 2.0f, "%.2f");
-        ImGui::SliderFloat("Max EV", &app().m_autoExposure.maxEv, 0.0f, 3.0f, "%.2f");
-        ImGui::SliderFloat("Bright speed", &app().m_autoExposure.adaptBright, 0.0f, 20.0f, "%.2f /s");
-        ImGui::SliderFloat("Dark speed", &app().m_autoExposure.adaptDark, 0.0f, 20.0f, "%.2f /s");
+        Dark::PropSlider("EV bias", &app().m_autoExposure.evBias, -2.0f, 2.0f, "%.2f");
+        Dark::PropSlider("Max EV", &app().m_autoExposure.maxEv, 0.0f, 3.0f, "%.2f");
+        Dark::PropSlider("Bright speed", &app().m_autoExposure.adaptBright, 0.0f, 20.0f, "%.2f /s");
+        Dark::PropSlider("Dark speed", &app().m_autoExposure.adaptDark, 0.0f, 20.0f, "%.2f /s");
         ImGui::EndDisabled();
         ImGui::Text("measured %.3f   EV %+.2f", static_cast<double>(app().m_autoExposureResult.measuredLuma), static_cast<double>(app().m_autoExposureResult.evCorrection));
         ImGui::Text("artistic %.2f   final %.2f", static_cast<double>(app().m_env.exposure()), static_cast<double>(app().m_autoExposureResult.finalExposure));
@@ -1573,13 +1523,13 @@ void SandboxHud::drawDevTools()
     {
         ImGui::PushID("CloudLOD");
         CloudLodSettings& lod = app().m_cloudLod;
-        if (ImGui::Checkbox("Enabled", &lod.enabled))
+        if (Dark::PropCheckbox("Enabled", &lod.enabled))
             DE_LOG_INFO(LogCategory::Render, "Cloud LOD: enabled={}", lod.enabled);
         ImGui::BeginDisabled(!lod.enabled);
-        ImGui::SliderFloat("Detail distance", &lod.detailDistance, 1.0f, 4000.0f, "%.0f m");
-        ImGui::SliderFloat("Fade distance", &lod.fadeDistance, 0.0f, 500.0f, "%.0f m");
-        ImGui::SliderFloat("Near step", &lod.nearStep, 0.5f, 64.0f, "%.1f m");
-        ImGui::SliderFloat("Far step", &lod.farStep, 0.5f, 256.0f, "%.1f m");
+        Dark::PropSlider("Detail distance", &lod.detailDistance, 1.0f, 4000.0f, "%.0f m");
+        Dark::PropSlider("Fade distance", &lod.fadeDistance, 0.0f, 500.0f, "%.0f m");
+        Dark::PropSlider("Near step", &lod.nearStep, 0.5f, 64.0f, "%.1f m");
+        Dark::PropSlider("Far step", &lod.farStep, 0.5f, 256.0f, "%.1f m");
         ImGui::SliderInt("Max near steps", &lod.maxNearSteps, 1, 64);
         ImGui::SliderInt("Max far steps", &lod.maxFarSteps, 1, 64);
         ImGui::SliderInt("Near light steps", &lod.nearLightSteps, 1, 8);
@@ -1601,7 +1551,7 @@ void SandboxHud::drawDevTools()
                     static_cast<double>(app().m_env.volumetricFogDensity()));
 
         bool autoFog = app().m_env.fogAuto;
-        if (ImGui::Checkbox("Auto from weather / time", &autoFog))
+        if (Dark::PropCheckbox("Auto from weather / time", &autoFog))
         {
             app().m_env.fogAuto = autoFog;
             if (autoFog)
@@ -1610,34 +1560,34 @@ void SandboxHud::drawDevTools()
 
         if (app().m_env.fogAuto)
         {
-            if (ImGui::SliderFloat("Distance scale", &app().m_env.fogDistanceScale, 0.0f, 6.0f, "%.2f"))
+            if (Dark::PropSlider("Distance scale", &app().m_env.fogDistanceScale, 0.0f, 6.0f, "%.2f"))
                 app().m_env.evaluate();
-            if (ImGui::SliderFloat("Height scale", &app().m_env.heightFogScale, 0.0f, 6.0f, "%.2f"))
+            if (Dark::PropSlider("Height scale", &app().m_env.heightFogScale, 0.0f, 6.0f, "%.2f"))
                 app().m_env.evaluate();
-            if (ImGui::SliderFloat("Valley scale", &app().m_env.volumetricFogScale, 0.0f, 6.0f, "%.2f"))
+            if (Dark::PropSlider("Valley scale", &app().m_env.volumetricFogScale, 0.0f, 6.0f, "%.2f"))
                 app().m_env.evaluate();
         }
         else
         {
             float dist = app().m_env.fogDensity();
-            if (ImGui::SliderFloat("Distance density", &dist, 0.0f, 0.08f, "%.4f"))
+            if (Dark::PropSlider("Distance density", &dist, 0.0f, 0.08f, "%.4f"))
                 app().m_env.setFogDensity(dist);
             float height = app().m_env.heightFogDensity();
-            if (ImGui::SliderFloat("Height density", &height, 0.0f, 0.12f, "%.4f"))
+            if (Dark::PropSlider("Height density", &height, 0.0f, 0.12f, "%.4f"))
                 app().m_env.setHeightFogDensity(height);
             float valley = app().m_env.volumetricFogDensity();
-            if (ImGui::SliderFloat("Valley density", &valley, 0.0f, 0.12f, "%.4f"))
+            if (Dark::PropSlider("Valley density", &valley, 0.0f, 0.12f, "%.4f"))
                 app().m_env.setVolumetricFogDensity(valley);
             float col[3] = { fc.x, fc.y, fc.z };
-            if (ImGui::ColorEdit3("Fog color", col, ImGuiColorEditFlags_Float))
+            if (Dark::PropColor3("Fog color", col, ImGuiColorEditFlags_Float))
                 app().m_env.setFogColor(Vector3f(col[0], col[1], col[2]));
         }
 
         float falloff = app().m_env.heightFogFalloff();
-        if (ImGui::SliderFloat("Height falloff", &falloff, 0.01f, 0.25f, "%.3f"))
+        if (Dark::PropSlider("Height falloff", &falloff, 0.01f, 0.25f, "%.3f"))
             app().m_env.setHeightFogFalloff(falloff);
         float slab = app().m_env.volumetricFogHeight();
-        if (ImGui::SliderFloat("Valley height (m)", &slab, 2.0f, 40.0f, "%.1f"))
+        if (Dark::PropSlider("Valley height (m)", &slab, 2.0f, 40.0f, "%.1f"))
             app().m_env.setVolumetricFogHeight(slab);
 
         if (ImGui::Button("Reset fog"))
@@ -1654,19 +1604,17 @@ void SandboxHud::drawDevTools()
         for (int i = 0; i < kWaterWaveCount; ++i)
             baseAmp += wp.waves[i].amplitude;
         float heightM = baseAmp * (wp.amplitudeScale > 0.0f ? wp.amplitudeScale : 0.0f);
-        if (ImGui::SliderFloat("Wave height", &heightM, 0.0f, 6.0f, "%.2f m"))
+        if (Dark::PropSlider("Wave height", &heightM, 0.0f, 6.0f, "%.2f m"))
             wp.amplitudeScale = baseAmp > 1.0e-5f ? heightM / baseAmp : 0.0f;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("How high the crests rise if every wave peaks together. The authored height is about %.2f m.", static_cast<double>(baseAmp));
-        ImGui::SliderFloat("Wave speed", &wp.speedScale, 0.0f, 4.0f, "%.2fx");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("How fast the waves travel. 1 is the authored speed. 0 holds them still.");
-        ImGui::SliderFloat("Drift", &wp.flowSpeed, 0.0f, 6.0f, "%.2f m/s");
-        ImGui::SliderFloat("Foam", &wp.foam, 0.0f, 1.0f, "%.2f");
-        ImGui::SliderFloat("Foam width", &wp.foamWidthScale, 0.5f, 2.0f, "%.2f");
-        ImGui::SliderFloat("Detail", &wp.detailAmount, 0.0f, 1.0f, "%.2f");
+        ImGui::SetItemTooltip("How high the crests rise if every wave peaks together. The authored height is about %.2f m.", static_cast<double>(baseAmp));
+        Dark::PropSlider("Wave speed", &wp.speedScale, 0.0f, 4.0f, "%.2fx");
+        ImGui::SetItemTooltip("How fast the waves travel. 1 is the authored speed. 0 holds them still.");
+        Dark::PropSlider("Drift", &wp.flowSpeed, 0.0f, 6.0f, "%.2f m/s");
+        Dark::PropSlider("Foam", &wp.foam, 0.0f, 1.0f, "%.2f");
+        Dark::PropSlider("Foam width", &wp.foamWidthScale, 0.5f, 2.0f, "%.2f");
+        Dark::PropSlider("Detail", &wp.detailAmount, 0.0f, 1.0f, "%.2f");
         bool legacy = wp.legacyPull;
-        if (ImGui::Checkbox("Legacy wave set", &legacy))
+        if (Dark::PropCheckbox("Legacy wave set", &legacy))
         {
             if (legacy)
             {
@@ -1695,24 +1643,20 @@ void SandboxHud::drawDevTools()
             grass.enabled = false;
         bool edited = false;
         ImGui::BeginDisabled(!app().m_grassPipeline.isValid());
-        edited |= ImGui::Checkbox("Enable", &grass.enabled);
+        edited |= Dark::PropCheckbox("Enable", &grass.enabled);
         ImGui::EndDisabled();
-        edited |= ImGui::SliderFloat("Height", &grass.heightMetres, 0.05f, 1.50f, "%.2f");
-        edited |= ImGui::SliderFloat("Flexibility", &grass.flexibility, 0.0f, 1.0f, "%.2f");
-        edited |= ImGui::SliderFloat("Density scale", &grass.densityScale, 0.0f, 1.5f, "%.2f");
-        edited |= ImGui::SliderFloat("Wind speed", &grass.windTemporalFreq, 0.0f, 1.0f, "%.2f /s");
-        edited |= ImGui::SliderFloat("Edge start", &grass.faceEdge, 0.0f, 1.0f, "%.2f");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Blades more edge-on than this turn toward the camera. 0 leaves them as they are.");
-        edited |= ImGui::SliderFloat("Yaw blend", &grass.faceYaw, 0.0f, 1.0f, "%.2f");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("How far an edge-on blade turns toward the camera. 1 faces it fully.");
-        edited |= ImGui::SliderFloat("Tip lean", &grass.faceLean, 0.0f, 1.0f, "%.2f");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("How far the tip leans toward the camera when you look down, as a fraction of blade height.");
-        edited |= ImGui::SliderFloat("Steep start", &grass.faceSteep, 0.0f, 0.95f, "%.2f");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("How overhead the camera must be before the tip leans. 0 starts at the horizon. Saved values come from the scene file.");
+        edited |= Dark::PropSlider("Height", &grass.heightMetres, 0.05f, 1.50f, "%.2f");
+        edited |= Dark::PropSlider("Flexibility", &grass.flexibility, 0.0f, 1.0f, "%.2f");
+        edited |= Dark::PropSlider("Density scale", &grass.densityScale, 0.0f, 1.5f, "%.2f");
+        edited |= Dark::PropSlider("Wind speed", &grass.windTemporalFreq, 0.0f, 1.0f, "%.2f /s");
+        edited |= Dark::PropSlider("Edge start", &grass.faceEdge, 0.0f, 1.0f, "%.2f");
+        ImGui::SetItemTooltip("Blades more edge-on than this turn toward the camera. 0 leaves them as they are.");
+        edited |= Dark::PropSlider("Yaw blend", &grass.faceYaw, 0.0f, 1.0f, "%.2f");
+        ImGui::SetItemTooltip("How far an edge-on blade turns toward the camera. 1 faces it fully.");
+        edited |= Dark::PropSlider("Tip lean", &grass.faceLean, 0.0f, 1.0f, "%.2f");
+        ImGui::SetItemTooltip("How far the tip leans toward the camera when you look down, as a fraction of blade height.");
+        edited |= Dark::PropSlider("Steep start", &grass.faceSteep, 0.0f, 0.95f, "%.2f");
+        ImGui::SetItemTooltip("How overhead the camera must be before the tip leans. 0 starts at the horizon. Saved values come from the scene file.");
         if (!app().m_grassPipeline.isValid())
             grass.enabled = false;
         if (edited)
@@ -1724,7 +1668,37 @@ void SandboxHud::drawDevTools()
     }
 
     if (ImGui::CollapsingHeader("Falling leaves"))
-        ImGui::SliderFloat("Shed scale", &app().m_leafShedScale, 0.0f, 1.0f, "%.2f");
+        Dark::PropSlider("Shed scale", &app().m_leafShedScale, 0.0f, 1.0f, "%.2f");
+
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Gameplay"))
+        {
+    if (ImGui::CollapsingHeader("NPC info", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        if (Dark::PropCheckbox("Show overlay", &app().m_npcInfo.enabled))
+            DE_LOG_INFO("Sandbox: NPC info overlay = {}", app().m_npcInfo.enabled);
+        ImGui::BeginDisabled(!app().m_npcInfo.enabled);
+        if (Dark::PropCheckbox("AI state", &app().m_npcInfo.showState))
+            DE_LOG_INFO("Sandbox: NPC info state = {}", app().m_npcInfo.showState);
+        if (Dark::PropCheckbox("Health", &app().m_npcInfo.showHealth))
+            DE_LOG_INFO("Sandbox: NPC info health = {}", app().m_npcInfo.showHealth);
+        if (Dark::PropCheckbox("Has target", &app().m_npcInfo.showTarget))
+            DE_LOG_INFO("Sandbox: NPC info target = {}", app().m_npcInfo.showTarget);
+        ImGui::EndDisabled();
+        ImGui::TextDisabled("World-space box above hunters and wolves.");
+    }
+
+    if (ImGui::CollapsingHeader("Camera"))
+    {
+        float nearZ = app().m_viewCamera.GetNearZ();
+        float farZ  = app().m_viewCamera.GetFarZ();
+        bool  ch    = false;
+        ch |= Dark::PropSlider("Near", &nearZ, 0.01f, 1.0f, "%.3f");
+        ch |= Dark::PropSlider("Far", &farZ, 100.0f, 1.0e6f, "%.0f", ImGuiSliderFlags_Logarithmic);
+        if (ch)
+            app().m_viewCamera.SetLens(app().m_viewCamera.GetFovY(), app().m_viewCamera.GetAspect(), nearZ, farZ);
+    }
 
     if (ImGui::CollapsingHeader("Jump attack"))
     {
@@ -1821,10 +1795,10 @@ void SandboxHud::drawDevTools()
         {
             HitReactionSettings player = playerHit->settings();
             ImGui::TextUnformatted("Player");
-            ImGui::SliderFloat("Player stun (s)", &player.stunSeconds, 0.0f, 2.0f, "%.2f");
-            ImGui::SliderFloat("Player knockback (m)", &player.knockbackDistance, 0.0f, 6.0f, "%.2f");
-            ImGui::SliderFloat("Player knockback time (s)", &player.knockbackSeconds, 0.0f, 1.0f, "%.2f");
-            ImGui::Checkbox("Player horizontal only", &player.horizontalOnly);
+            Dark::PropSlider("Player stun (s)", &player.stunSeconds, 0.0f, 2.0f, "%.2f");
+            Dark::PropSlider("Player knockback (m)", &player.knockbackDistance, 0.0f, 6.0f, "%.2f");
+            Dark::PropSlider("Player knockback time (s)", &player.knockbackSeconds, 0.0f, 1.0f, "%.2f");
+            Dark::PropCheckbox("Player horizontal only", &player.horizontalOnly);
             playerHit->setSettings(player);
             if (playerHit->stunned())
                 ImGui::TextDisabled("stunned %.2fs", static_cast<double>(playerHit->stunRemaining()));
@@ -1835,10 +1809,10 @@ void SandboxHud::drawDevTools()
             ImGui::Separator();
             HitReactionSettings hunter = app().m_chase.hunterHitReaction();
             ImGui::TextUnformatted("Hunters");
-            const bool chStun = ImGui::SliderFloat("Hunter stun (s)", &hunter.stunSeconds, 0.0f, 2.0f, "%.2f");
-            const bool chKb   = ImGui::SliderFloat("Hunter knockback (m)", &hunter.knockbackDistance, 0.0f, 8.0f, "%.2f");
-            const bool chTime = ImGui::SliderFloat("Hunter knockback time (s)", &hunter.knockbackSeconds, 0.0f, 1.0f, "%.2f");
-            const bool chFlat = ImGui::Checkbox("Hunter horizontal only", &hunter.horizontalOnly);
+            const bool chStun = Dark::PropSlider("Hunter stun (s)", &hunter.stunSeconds, 0.0f, 2.0f, "%.2f");
+            const bool chKb   = Dark::PropSlider("Hunter knockback (m)", &hunter.knockbackDistance, 0.0f, 8.0f, "%.2f");
+            const bool chTime = Dark::PropSlider("Hunter knockback time (s)", &hunter.knockbackSeconds, 0.0f, 1.0f, "%.2f");
+            const bool chFlat = Dark::PropCheckbox("Hunter horizontal only", &hunter.horizontalOnly);
             if (chStun || chKb || chTime || chFlat)
                 app().m_chase.setHunterHitReaction(hunter);
         }
@@ -1848,24 +1822,24 @@ void SandboxHud::drawDevTools()
     {
         if (PlayerMotor* motor = app().localMotor())
         {
-            ImGui::SliderFloat("Crouch speed", &motor->settings().crouchSpeed, 0.5f, motor->settings().walkSpeed, "%.1f");
+            Dark::PropSlider("Crouch speed", &motor->settings().crouchSpeed, 0.5f, motor->settings().walkSpeed, "%.1f");
         }
         if (PlayerStealthComponent* stealth = app().localStealth())
         {
             PlayerStealthSettings& s = stealth->settings;
-            ImGui::SliderFloat("Still speed", &s.stillSpeed, 0.05f, 2.0f, "%.2f");
-            ImGui::SliderFloat("Sight crouch walk", &s.sightCrouchWalk, 0.05f, 1.0f, "%.2f");
-            ImGui::SliderFloat("Sight crouch still", &s.sightCrouchStill, 0.05f, 1.0f, "%.2f");
-            ImGui::SliderFloat("Hear stand", &s.hearStand, 0.0f, 20.0f, "%.1f");
-            ImGui::SliderFloat("Hear walk", &s.hearWalk, 0.0f, 40.0f, "%.1f");
-            ImGui::SliderFloat("Hear sprint", &s.hearSprint, 0.0f, 50.0f, "%.1f");
-            ImGui::SliderFloat("Hear crouch walk", &s.hearCrouchWalk, 0.0f, 30.0f, "%.1f");
-            ImGui::SliderFloat("Hear crouch still", &s.hearCrouchStill, 0.0f, 20.0f, "%.1f");
-            ImGui::SliderFloat("Notice distance", &s.standoff, 0.2f, 6.0f, "%.2f");
-            ImGui::SliderFloat("Notice crouch walk", &s.standoffCrouchWalk, 0.1f, 6.0f, "%.2f");
-            ImGui::SliderFloat("Notice crouch still", &s.standoffCrouchStill, 0.1f, 6.0f, "%.2f");
-            ImGui::SliderFloat("Seen height stand", &s.standTargetHeight, 0.05f, 1.5f, "%.2f");
-            ImGui::SliderFloat("Seen height crouch", &s.crouchTargetHeight, 0.05f, 1.5f, "%.2f");
+            Dark::PropSlider("Still speed", &s.stillSpeed, 0.05f, 2.0f, "%.2f");
+            Dark::PropSlider("Sight crouch walk", &s.sightCrouchWalk, 0.05f, 1.0f, "%.2f");
+            Dark::PropSlider("Sight crouch still", &s.sightCrouchStill, 0.05f, 1.0f, "%.2f");
+            Dark::PropSlider("Hear stand", &s.hearStand, 0.0f, 20.0f, "%.1f");
+            Dark::PropSlider("Hear walk", &s.hearWalk, 0.0f, 40.0f, "%.1f");
+            Dark::PropSlider("Hear sprint", &s.hearSprint, 0.0f, 50.0f, "%.1f");
+            Dark::PropSlider("Hear crouch walk", &s.hearCrouchWalk, 0.0f, 30.0f, "%.1f");
+            Dark::PropSlider("Hear crouch still", &s.hearCrouchStill, 0.0f, 20.0f, "%.1f");
+            Dark::PropSlider("Notice distance", &s.standoff, 0.2f, 6.0f, "%.2f");
+            Dark::PropSlider("Notice crouch walk", &s.standoffCrouchWalk, 0.1f, 6.0f, "%.2f");
+            Dark::PropSlider("Notice crouch still", &s.standoffCrouchStill, 0.1f, 6.0f, "%.2f");
+            Dark::PropSlider("Seen height stand", &s.standTargetHeight, 0.05f, 1.5f, "%.2f");
+            Dark::PropSlider("Seen height crouch", &s.crouchTargetHeight, 0.05f, 1.5f, "%.2f");
         }
         else
             ImGui::TextDisabled("No player");
@@ -1879,7 +1853,7 @@ void SandboxHud::drawDevTools()
         AI::AwarenessSettings aware = app().m_chase.ai().awarenessSettings();
         bool ch = false;
         auto row = [&](const char* label, float& value, float lo, float hi, const char* fmt) {
-            ch |= ImGui::SliderFloat(label, &value, lo, hi, fmt);
+            ch |= Dark::PropSlider(label, &value, lo, hi, fmt);
         };
         ImGui::TextDisabled("Meter");
         row("Fill near", aware.fillNear, 0.0f, 10.0f, "%.2f");
@@ -1944,14 +1918,14 @@ void SandboxHud::drawDevTools()
     if (ImGui::CollapsingHeader("Shield"))
     {
         Combat::ShieldSettings& shield = app().m_play.runtime().offhand.shield.settings();
-        ImGui::SliderFloat("Raise time (s)", &shield.raiseSeconds, 0.0f, 1.0f, "%.2f");
-        ImGui::SliderFloat("Move speed while up", &shield.moveSpeedScale, 0.0f, 1.0f, "%.2f");
-        ImGui::SliderFloat("Block arc (deg)", &shield.blockArcDeg, 0.0f, 360.0f, "%.0f");
-        ImGui::SliderFloat("Attack charge window (s)", &app().m_play.runtime().chargeSettings.attackWindowSeconds, 0.0f, 1.5f, "%.2f");
-        ImGui::SliderFloat("Charged attack damage", &app().m_play.runtime().chargeSettings.attackDamageScale, 1.0f, 4.0f, "%.2f");
-        ImGui::SliderFloat("Block charge window (s)", &app().m_play.runtime().chargeSettings.blockWindowSeconds, 0.0f, 1.5f, "%.2f");
-        ImGui::SliderFloat("Parry stun (s)", &app().m_play.runtime().chargeSettings.parryStunSeconds, 0.1f, 3.0f, "%.2f");
-        ImGui::SliderFloat("Charged parry slam (s)", &app().m_play.runtime().chargeSettings.chargedParryStunSeconds, 0.2f, 3.0f, "%.2f");
+        Dark::PropSlider("Raise time (s)", &shield.raiseSeconds, 0.0f, 1.0f, "%.2f");
+        Dark::PropSlider("Move speed while up", &shield.moveSpeedScale, 0.0f, 1.0f, "%.2f");
+        Dark::PropSlider("Block arc (deg)", &shield.blockArcDeg, 0.0f, 360.0f, "%.0f");
+        Dark::PropSlider("Attack charge window (s)", &app().m_play.runtime().chargeSettings.attackWindowSeconds, 0.0f, 1.5f, "%.2f");
+        Dark::PropSlider("Charged attack damage", &app().m_play.runtime().chargeSettings.attackDamageScale, 1.0f, 4.0f, "%.2f");
+        Dark::PropSlider("Block charge window (s)", &app().m_play.runtime().chargeSettings.blockWindowSeconds, 0.0f, 1.5f, "%.2f");
+        Dark::PropSlider("Parry stun (s)", &app().m_play.runtime().chargeSettings.parryStunSeconds, 0.1f, 3.0f, "%.2f");
+        Dark::PropSlider("Charged parry slam (s)", &app().m_play.runtime().chargeSettings.chargedParryStunSeconds, 0.2f, 3.0f, "%.2f");
         ImGui::TextDisabled("%s   %s   %s",
             app().m_play.runtime().offhand.shield.blocking() ? "shield up" : "shield down",
             app().m_play.runtime().blockCharge.isCharged() ? "block charged" : "block tap",
@@ -1964,9 +1938,9 @@ void SandboxHud::drawDevTools()
         ImGui::TextDisabled("Infrared %s  (H)", app().m_vision.infraredOn ? "on" : "off");
         ImGui::TextDisabled("Ultraviolet %s  (U)", app().m_vision.ultravioletOn ? "on" : "off");
         ImGui::TextDisabled("Echolocation %s  (B)", app().m_vision.echoOn ? "on" : "off");
-        ImGui::SliderFloat("Refresh period (s)", &app().m_vision.echoChirp.periodSeconds, Dark::EchoChirpSettings::kPeriodMin, Dark::EchoChirpSettings::kPeriodMax, "%.2f");
-        ImGui::SliderFloat("Shell speed (m/s)", &app().m_vision.echoChirp.speedMetersPerSec, Dark::EchoChirpSettings::kSpeedMin, Dark::EchoChirpSettings::kSpeedMax, "%.1f");
-        ImGui::SliderFloat("Shell range (m)", &app().m_vision.echoChirp.rangeMeters, Dark::EchoChirpSettings::kRangeMin, Dark::EchoChirpSettings::kRangeMax, "%.1f");
+        Dark::PropSlider("Refresh period (s)", &app().m_vision.echoChirp.periodSeconds, Dark::EchoChirpSettings::kPeriodMin, Dark::EchoChirpSettings::kPeriodMax, "%.2f");
+        Dark::PropSlider("Shell speed (m/s)", &app().m_vision.echoChirp.speedMetersPerSec, Dark::EchoChirpSettings::kSpeedMin, Dark::EchoChirpSettings::kSpeedMax, "%.1f");
+        Dark::PropSlider("Shell range (m)", &app().m_vision.echoChirp.rangeMeters, Dark::EchoChirpSettings::kRangeMin, Dark::EchoChirpSettings::kRangeMax, "%.1f");
         const float period = app().m_vision.echoChirp.periodSeconds;
         const float speed  = app().m_vision.echoChirp.speedMetersPerSec;
         const float range  = app().m_vision.echoChirp.rangeMeters;
@@ -1983,8 +1957,8 @@ void SandboxHud::drawDevTools()
             float pitch = d.recoilPitchDeg;
             float yaw   = d.recoilYawDeg;
             bool  ch    = false;
-            ch |= ImGui::SliderFloat("Recoil pitch (deg)", &pitch, 0.0f, 15.0f, "%.2f");
-            ch |= ImGui::SliderFloat("Recoil yaw (deg)", &yaw, 0.0f, 8.0f, "%.2f");
+            ch |= Dark::PropSlider("Recoil pitch (deg)", &pitch, 0.0f, 15.0f, "%.2f");
+            ch |= Dark::PropSlider("Recoil yaw (deg)", &yaw, 0.0f, 8.0f, "%.2f");
             if (ch)
                 w->projectile().setRecoilDegrees(pitch, yaw);
             ImGui::TextDisabled("Kick after the shot. 0 = none.");
@@ -1995,12 +1969,12 @@ void SandboxHud::drawDevTools()
     {
         PathChase::PackSettings pack = app().m_chase.packSettings();
         bool ch = false;
-        ch |= ImGui::SliderFloat("Help if ally within (m)", &pack.assistAllyRadius, 0.0f, 20.0f, "%.1f");
-        ch |= ImGui::SliderFloat("Help sprint time (s)", &pack.assistSeconds, 0.5f, 12.0f, "%.1f");
-        ch |= ImGui::SliderFloat("Flee after witnessed kill (s)", &pack.fleeSeconds, 0.5f, 12.0f, "%.1f");
-        ch |= ImGui::SliderFloat("Attack yell range (m)", &pack.alertRange, 0.0f, 40.0f, "%.1f");
-        const bool runCh  = ImGui::SliderFloat("Sprint speed", &pack.sprintSpeed, 2.0f, 28.0f, "%.1f");
-        const bool walkCh = ImGui::SliderFloat("Walk speed", &pack.walkSpeed, 1.0f, 16.0f, "%.1f");
+        ch |= Dark::PropSlider("Help if ally within (m)", &pack.assistAllyRadius, 0.0f, 20.0f, "%.1f");
+        ch |= Dark::PropSlider("Help sprint time (s)", &pack.assistSeconds, 0.5f, 12.0f, "%.1f");
+        ch |= Dark::PropSlider("Flee after witnessed kill (s)", &pack.fleeSeconds, 0.5f, 12.0f, "%.1f");
+        ch |= Dark::PropSlider("Attack yell range (m)", &pack.alertRange, 0.0f, 40.0f, "%.1f");
+        const bool runCh  = Dark::PropSlider("Sprint speed", &pack.sprintSpeed, 2.0f, 28.0f, "%.1f");
+        const bool walkCh = Dark::PropSlider("Walk speed", &pack.walkSpeed, 1.0f, 16.0f, "%.1f");
         if (ch || runCh || walkCh)
             app().m_chase.setPackSettings(pack);
         if (runCh || walkCh)
@@ -2021,6 +1995,10 @@ void SandboxHud::drawDevTools()
         ImGui::TextDisabled("Session override. Authored in content/entities/*.entity.movement.json.");
     }
 
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Network"))
+        {
     if (ImGui::CollapsingHeader("Network", ImGuiTreeNodeFlags_DefaultOpen))
     {
         const NetRole role = app().network().role();
@@ -2079,6 +2057,11 @@ void SandboxHud::drawDevTools()
     }
 
     ImGui::Separator();
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+
     ImGui::TextDisabled("M hides this panel and recaptures the mouse.");
     ImGui::End();
 }

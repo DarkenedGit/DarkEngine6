@@ -185,6 +185,8 @@ de_glob_folder(DE_VISUALDEBUGGER_SOURCES VisualDebugger)
 # MainMenu is non-ImGui host UI (SpritePipeline). Keep it out of DarkRender and compile
 # it once into DarkEngine so Sandbox / Sandbox2D / UnitTests / Editor all link it without
 # pulling ImGuiHost into targets that do not use Dear ImGui.
+# Other Ui/*.cpp (ImGuiHost, ImGuiGameChrome, ImGuiWidgets) stay in DE_UI_SOURCES and link
+# only into Editor, Sandbox, and VisualDebugger.
 set(DE_MAINMENU_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/Ui/MainMenu.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Ui/MainMenu.h"

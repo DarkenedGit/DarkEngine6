@@ -60,7 +60,7 @@ namespace Dark
         m_quad.draw(cmd);
     }
 
-    void HealthHud::draw(ID3D12GraphicsCommandList* cmd, uint32_t viewW, uint32_t viewH, float ratio) const
+    void HealthHud::draw(ID3D12GraphicsCommandList* cmd, uint32_t viewW, uint32_t viewH, float ratio, float dpiScale) const
     {
         if (!cmd || !isValid() || viewW < 8 || viewH < 8)
             return;
@@ -69,10 +69,21 @@ namespace Dark
         const float h = static_cast<float>(viewH);
         const Matrix4f proj = Matrix4f::OrthographicOffCenterLHMatrix(0.0f, w, 0.0f, h, 0.0f, 1.0f);
 
-        const float barW   = 280.0f;
-        const float barH   = 22.0f;
-        const float pad    = 28.0f;
-        const float border = 3.0f;
+        const float dpi = dpiScale > 0.1f ? dpiScale : 1.0f;
+        float       barW   = 280.0f * dpi;
+        float       barH   = 22.0f * dpi;
+        const float pad    = 28.0f * dpi;
+        float       border = 3.0f * dpi;
+        const float maxW   = w - pad * 2.0f;
+        const float maxH   = h - pad * 2.0f;
+        if (maxW < 8.0f || maxH < 4.0f)
+            return;
+        if (barW > maxW)
+            barW = maxW;
+        if (barH > maxH)
+            barH = maxH;
+        if (border * 2.0f >= barH || border * 2.0f >= barW)
+            border = 1.0f;
         const float x0     = w - pad - barW;
         const float y0     = pad;
 

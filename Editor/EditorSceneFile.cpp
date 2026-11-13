@@ -831,15 +831,36 @@ void EditorApp::drawStatusBar()
     if (ImGui::Begin("##statusbar", nullptr, flags))
     {
         const std::string sceneName = m_scenePath.empty() ? std::string("(unsaved)") : m_scenePath.filename().string();
-        ImGui::AlignTextToFramePadding();
-        ImGui::Text("%s  |  %s  |  %d objects  |  place: %s  |  %s%s", sceneName.c_str(), m_sceneMode == SceneMode::Scene2D ? "2D" : "3D",
-                    static_cast<int>(editorObjectCount()), toString(m_placeType), netRoleLabel(network().role()),
-                    m_playMode ? "  |  PLAY" : "");
+        char left[512];
+        std::snprintf(left, sizeof(left), "%s  |  %s  |  %d objects  |  place: %s  |  %s%s", sceneName.c_str(),
+                      m_sceneMode == SceneMode::Scene2D ? "2D" : "3D", static_cast<int>(editorObjectCount()), toString(m_placeType),
+                      netRoleLabel(network().role()), m_playMode ? "  |  PLAY" : "");
         char fps[32];
         std::snprintf(fps, sizeof(fps), "%.0f fps", static_cast<double>(ImGui::GetIO().Framerate));
+        ImFont* mono = m_imgui.fonts().mono;
+        if (mono)
+            ImGui::PushFont(mono);
         const float fpsW = ImGui::CalcTextSize(fps).x;
+        if (mono)
+            ImGui::PopFont();
+        const float avail = ImGui::GetWindowWidth() - fpsW - 28.0f;
+        std::string shown(left);
+        while (shown.size() > 4 && ImGui::CalcTextSize(shown.c_str()).x > avail)
+            shown.pop_back();
+        if (shown.size() < std::strlen(left))
+        {
+            if (shown.size() > 3)
+                shown.resize(shown.size() - 3);
+            shown += "...";
+        }
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(shown.c_str());
+        if (mono)
+            ImGui::PushFont(mono);
         ImGui::SameLine(ImGui::GetWindowWidth() - fpsW - 16.0f);
         ImGui::TextUnformatted(fps);
+        if (mono)
+            ImGui::PopFont();
     }
     ImGui::End();
     ImGui::PopStyleColor();

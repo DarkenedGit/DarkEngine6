@@ -14,7 +14,7 @@ namespace Dark
     {
     public:
         bool create(Renderer& renderer);
-        void draw(ID3D12GraphicsCommandList* cmd, uint32_t viewW, uint32_t viewH, float ratio) const;
+        void draw(ID3D12GraphicsCommandList* cmd, uint32_t viewW, uint32_t viewH, float ratio, float dpiScale = 1.0f) const;
         bool isValid() const { return m_pipe.isValid() && m_quad.valid() && m_white.valid(); }
 
     private:

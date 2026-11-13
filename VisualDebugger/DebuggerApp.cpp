@@ -86,7 +86,7 @@ DebuggerApp::DebuggerApp(const AppConfig& cfg, Address autoJoin)
 void DebuggerApp::onInit()
 {
     renderer().setClearColor(UiPalette::kVoid.r, UiPalette::kVoid.g, UiPalette::kVoid.b, 1.0f);
-    if (!m_imgui.init(window(), renderer(), "debugger_imgui.ini", true, UiAccent::Engine))
+    if (!m_imgui.init(window(), renderer(), "debugger_imgui.ini", true, UiAccent::Engine, true))
         DE_LOG_ERROR(LogCategory::Debug, "VisualDebugger: ImGui init failed");
 
     if (m_autoJoin.ipv4 != 0)

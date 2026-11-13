@@ -2,6 +2,8 @@
 #include "SandboxApp.h"
 #include "SandboxInternal.h"
 
+#include "Ui/ImGuiGameChrome.h"
+
 #include "Play/AttachedLights.h"
 #include "Play/EnvironmentTick.h"
 #include "Play/Carry.h"
@@ -321,9 +323,13 @@ void SandboxFrame::render()
     // shadowBounds is safe on an empty grid; the water and post path is not.
     if (!app().m_sceneStarted)
     {
+        Dark::setGameNavEnabled(app().m_hud.m_menu.visible());
         if (app().m_hud.m_imgui.isReady())
             app().m_hud.m_imgui.beginFrame();
-        app().m_hud.m_menu.draw(app().renderer());
+        if (app().m_hud.m_imgui.isReady())
+            Dark::drawMainMenuImGui(app().m_hud.m_menu, app().m_hud.m_imgui.fonts());
+        else
+            app().m_hud.m_menu.draw(app().renderer());
         if (app().m_hud.m_imgui.isReady())
             app().m_hud.m_imgui.render(app().renderer());
         frameJoinRender(app().jobs(), app().renderer().frameIndex());
@@ -337,6 +343,7 @@ void SandboxFrame::render()
 
     app().m_foliagePipeline.setWind(app().m_wind, app().m_windClock.time, app().m_windClock.prevTime);
 
+    Dark::setGameNavEnabled(app().m_hud.m_menu.visible() || app().m_gameplayPaused);
     if (app().m_hud.m_imgui.isReady())
         app().m_hud.m_imgui.beginFrame();
 
@@ -1406,7 +1413,7 @@ void SandboxFrame::render()
     {
         const GpuScope hud(cmd, "HUD", ProfileColor::Hud);
         if (drawHealth)
-            app().m_healthHud.draw(cmd, app().renderer().width(), app().renderer().height(), hudHp->ratio());
+            app().m_healthHud.draw(cmd, app().renderer().width(), app().renderer().height(), hudHp->ratio(), app().window().dpiScale());
         if (drawCrosshair)
         {
             bool throwableSlot = false;
@@ -1416,7 +1423,7 @@ void SandboxFrame::render()
                     throwableSlot = carried->belt.any();
             }
             const WeaponKind hudKind = app().localWeapons() ? app().localWeapons()->activeKind() : WeaponKind::Melee;
-            app().m_crosshair.draw(cmd, app().renderer().width(), app().renderer().height(), hudKind, throwableSlot);
+            app().m_crosshair.draw(cmd, app().renderer().width(), app().renderer().height(), hudKind, throwableSlot, app().window().dpiScale());
         }
     }
 
@@ -1434,8 +1441,12 @@ void SandboxFrame::render()
         drawDebugOverlays(cmd);
     }
     app().m_movie.draw(app().renderer());
-    app().m_hud.m_menu.draw(app().renderer());
-    if (app().m_hud.m_imgui.isReady() && !app().m_hud.m_menu.visible())
+    if (app().m_hud.m_imgui.isReady() && app().m_hud.m_menu.visible())
+    {
+        Dark::drawMainMenuImGui(app().m_hud.m_menu, app().m_hud.m_imgui.fonts());
+        app().m_hud.m_imgui.render(app().renderer());
+    }
+    else if (app().m_hud.m_imgui.isReady() && !app().m_hud.m_menu.visible())
     {
         app().m_hud.drawNpcInfoOverlay();
         app().m_hud.drawGuardAwareness();
@@ -1466,11 +1477,8 @@ void SandboxFrame::render()
             app().m_hud.drawLoot();
         app().m_hud.m_imgui.render(app().renderer());
     }
-    else if (app().m_hud.m_imgui.isReady() && app().m_hud.m_menu.visible())
-    {
-        // ImGui frame was begun; submit an empty frame so the backend stays paired.
-        app().m_hud.m_imgui.render(app().renderer());
-    }
+    else
+        app().m_hud.m_menu.draw(app().renderer());
     uint32_t tableCount = 0;
     const PassNode* table = deferred ? sandboxDeferredPasses(tableCount) : sandboxForwardPasses(tableCount);
     (void)passSequenceOk(table, tableCount, playedPasses, playedCount);

@@ -82,6 +82,20 @@ void EditorApp::loadTypeIcons()
         if (m_typeIconIds[i] != 0)
             ++loaded;
     }
+
+    auto loadNamed = [&](const char* virt, Dark::Texture2D& tex, uint64_t& id) {
+        const std::filesystem::path path = assets().resolve(virt);
+        if (path.empty() || !tex.createFromFile(renderer(), path, Dark::Color::TextureUsage::Hud))
+        {
+            DE_LOG_WARN("EditorApp: missing UI icon '{}'", virt);
+            return;
+        }
+        id = m_imgui.addTexture(renderer(), tex);
+        if (id != 0)
+            ++loaded;
+    };
+    loadNamed("ui/icons/file.png", m_fileIcon, m_fileIconId);
+    loadNamed("ui/icons/folder.png", m_folderIcon, m_folderIconId);
     DE_LOG_INFO("EditorApp: {} UI icons loaded", loaded);
 }
 

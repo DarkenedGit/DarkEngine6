@@ -192,8 +192,7 @@ void AnimEditorPanel::draw(AnimGraphComponent& ag, AssetManager& assets, bool* o
     bool locked = ag.graph.stateLocked();
     if (ImGui::Checkbox("Lock state", &locked))
         ag.graph.setStateLocked(locked);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("When locked, picking a state walks the graph. Editing parameters unlocks and lets conditions drive transitions.");
+    ImGui::SetItemTooltip("When locked, picking a state walks the graph. Editing parameters unlocks and lets conditions drive transitions.");
 
     drawPlayback(ag);
     ImGui::Separator();

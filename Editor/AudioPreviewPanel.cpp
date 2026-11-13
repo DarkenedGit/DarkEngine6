@@ -177,8 +177,7 @@ void AudioPreviewPanel::draw(Audio::AudioSystem& audio, AssetManager& assets, bo
     ImGui::SameLine();
     if (ImGui::Checkbox("Spatial", &m_spatial) && audio.isPlaying(m_voice))
         playSelected(audio, assets);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Place the sound in front of the camera. Full volume inside 2 m, silent at 64 m.");
+    ImGui::SetItemTooltip("Place the sound in front of the camera. Full volume inside 2 m, silent at 64 m.");
 
     ImGui::BeginDisabled(!m_spatial);
     ImGui::SetNextItemWidth(-1.0f);

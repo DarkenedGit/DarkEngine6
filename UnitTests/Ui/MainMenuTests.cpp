@@ -100,6 +100,53 @@ TEST(MainMenu, MouseClickSelectsRow)
     EXPECT_EQ(menu.selected()->id, "b.json");
 }
 
+TEST(MainMenu, DpiScaleOneKeepsMouseHit)
+{
+    MainMenu menu;
+    menu.addScene("a.json", "A", "a.json");
+    menu.addScene("b.json", "B", "b.json");
+    menu.addQuit();
+    menu.show();
+    menu.setDpiScale(1.0f);
+
+    Input in;
+    in.beginFrame();
+    in.onMouseMove(640, 370);
+    in.onMouseButton(MouseButton::Left, true);
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.pollResult(), MainMenuResult::Confirm);
+    ASSERT_NE(menu.selected(), nullptr);
+    EXPECT_EQ(menu.selected()->id, "b.json");
+}
+
+TEST(MainMenu, DpiScaleEnlargesRows)
+{
+    MainMenu menu;
+    menu.addScene("a.json", "A", "a.json");
+    menu.addScene("b.json", "B", "b.json");
+    menu.addQuit();
+    menu.show();
+
+    Input miss;
+    miss.beginFrame();
+    miss.onMouseMove(1000, 380);
+    miss.onMouseButton(MouseButton::Left, true);
+    menu.update(miss, 1280, 720);
+    EXPECT_EQ(menu.pollResult(), MainMenuResult::None);
+    ASSERT_NE(menu.selected(), nullptr);
+    EXPECT_EQ(menu.selected()->id, "a.json");
+
+    menu.setDpiScale(2.0f);
+    Input hit;
+    hit.beginFrame();
+    hit.onMouseMove(1000, 380);
+    hit.onMouseButton(MouseButton::Left, true);
+    menu.update(hit, 1280, 720);
+    EXPECT_EQ(menu.pollResult(), MainMenuResult::Confirm);
+    ASSERT_NE(menu.selected(), nullptr);
+    EXPECT_EQ(menu.selected()->id, "b.json");
+}
+
 void addThreeRows(MainMenu& menu)
 {
     menu.addScene("a.json", "A", "a.json");

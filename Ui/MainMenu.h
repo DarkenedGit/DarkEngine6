@@ -56,6 +56,10 @@ namespace Dark
         void setTitle(std::string title);
         void setHint(std::string hint);
         void setAccent(UiAccent accent);
+        void setDpiScale(float scale);
+
+        const std::string& title() const { return m_title; }
+        const std::string& hint() const { return m_hint; }
 
         void clearEntries();
         void addScene(std::string id, std::string title, std::filesystem::path path, std::string subtitle = {});
@@ -76,6 +80,11 @@ namespace Dark
         // Keyboard (arrows/WASD, Enter, Esc), mouse, D-pad / A / B. view size is for hit tests.
         void            update(const Input& input, uint32_t viewW, uint32_t viewH);
         MainMenuResult  pollResult();
+
+        // ImGui hosts drive the highlight and confirm themselves. Sprite hosts keep update().
+        void moveTo(size_t index);
+        void confirm();
+        void quit();
 
         // audio/UI/ui_move.wav and audio/UI/ui_select.wav. A missing file uses a blip.
         bool     loadSounds(Audio::AudioSystem& audio, AssetManager& assets);
@@ -126,6 +135,7 @@ namespace Dark
 
         std::string                m_title = "DarkEngine6";
         std::string                m_hint  = "Arrows / WASD  Enter  Esc";
+        float                      m_dpiScale = 1.0f;
         UiAccent                   m_accent = UiAccent::Engine;
         std::vector<MainMenuEntry> m_entries;
         size_t                     m_selected = 0;

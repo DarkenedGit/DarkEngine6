@@ -240,6 +240,8 @@ add_custom_command(TARGET Sandbox2D POST_BUILD
 de_copy_pix_dll(Sandbox2D)
 
 # --- Dear ImGui (Editor UI) --------------------------------------------------------
+option(DE_ENABLE_FREETYPE "Build ImGui with FreeType (sharper UI fonts)" ON)
+
 include(FetchContent)
 FetchContent_Declare(
     imgui
@@ -269,6 +271,25 @@ target_include_directories(imgui_editor PUBLIC
 )
 target_compile_definitions(imgui_editor PUBLIC IMGUI_DEFINE_MATH_OPERATORS)
 target_link_libraries(imgui_editor PUBLIC d3d12 dxgi)
+
+if(DE_ENABLE_FREETYPE)
+    set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
+    set(FT_DISABLE_BZIP2 ON CACHE BOOL "" FORCE)
+    set(FT_DISABLE_PNG ON CACHE BOOL "" FORCE)
+    set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "" FORCE)
+    set(FT_DISABLE_BROTLI ON CACHE BOOL "" FORCE)
+    set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        freetype
+        GIT_REPOSITORY https://github.com/freetype/freetype.git
+        GIT_TAG        VER-2-13-3
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(freetype)
+    target_sources(imgui_editor PRIVATE ${imgui_SOURCE_DIR}/misc/freetype/imgui_freetype.cpp)
+    target_compile_definitions(imgui_editor PUBLIC IMGUI_ENABLE_FREETYPE)
+    target_link_libraries(imgui_editor PUBLIC freetype)
+endif()
 
 # Sandbox Dev Tools uses the same ImGui + Ui bootstrap as Editor.
 target_sources(Sandbox PRIVATE ${DE_UI_SOURCES})

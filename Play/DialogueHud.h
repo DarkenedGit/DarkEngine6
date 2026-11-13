@@ -12,6 +12,9 @@
 #include "Math/Vector3f.h"
 #include "Math/Vector4f.h"
 
+#include "Ui/ImGuiGameChrome.h"
+#include "Ui/ImGuiTheme.h"
+
 #include <imgui.h>
 
 #include <cfloat>
@@ -29,6 +32,8 @@ namespace Dark
         float          projectHeight = 0.0f;
         const char*    windowName    = "Dialogue";
         const char*    talkPrompt    = "[T] Talk";
+        ImFont*        heading       = nullptr;
+        UiAccent       accent        = UiAccent::Sandbox;
     };
 
     inline void drawDialogueHud(DialogueController& talk, const DialogueHudView& view)
@@ -66,16 +71,17 @@ namespace Dark
                     const ImVec2 ts   = font->CalcTextSizeA(fs, 260.0f, 260.0f, text);
                     at.x -= ts.x * 0.5f;
                     at.y -= ts.y;
-                    dl->AddRectFilled(ImVec2(at.x - 6.0f, at.y - 3.0f), ImVec2(at.x + ts.x + 6.0f, at.y + ts.y + 3.0f), IM_COL32(10, 14, 12, 200), 3.0f);
-                    dl->AddText(font, fs, at, IM_COL32(255, 255, 255, 255), text, nullptr, 260.0f);
+                    dl->AddRectFilled(ImVec2(at.x - 6.0f, at.y - 3.0f), ImVec2(at.x + ts.x + 6.0f, at.y + ts.y + 3.0f), toImU32(UiPalette::kVoid, 200), 3.0f);
+                    dl->AddText(font, fs, at, toImU32(UiPalette::kText), text, nullptr, 260.0f);
                 }
             }
+            ImFont*           head = view.heading ? view.heading : font;
             const std::string line = runtime.speakerName() + ": " + runtime.subtitle();
-            const float       size = fs * 1.15f;
-            const ImVec2      ts   = font->CalcTextSizeA(size, FLT_MAX, 0.0f, line.c_str());
+            const float       size = head->FontSize;
+            const ImVec2      ts   = head->CalcTextSizeA(size, FLT_MAX, 0.0f, line.c_str());
             const ImVec2      at{ vp->Pos.x + (vp->Size.x - ts.x) * 0.5f, vp->Pos.y + vp->Size.y - 150.0f };
-            dl->AddText(font, size, ImVec2(at.x + 1.5f, at.y + 1.5f), IM_COL32(0, 0, 0, 220), line.c_str());
-            dl->AddText(font, size, at, IM_COL32(235, 235, 210, 255), line.c_str());
+            dl->AddText(head, size, ImVec2(at.x + 1.5f, at.y + 1.5f), IM_COL32(0, 0, 0, 220), line.c_str());
+            dl->AddText(head, size, at, toImU32(UiPalette::kText), line.c_str());
         }
 
         if (!runtime.active() && dl)
@@ -92,7 +98,7 @@ namespace Dark
                     at.x -= ts.x * 0.5f;
                     at.y -= ts.y;
                     dl->AddText(ImVec2(at.x + 1.0f, at.y + 1.0f), IM_COL32(0, 0, 0, 200), text);
-                    dl->AddText(at, IM_COL32(255, 220, 90, 255), text);
+                    dl->AddText(at, toImU32(UiPalette::kWarn), text);
                 }
             }
         }
@@ -105,10 +111,10 @@ namespace Dark
         const char* windowName = view.windowName ? view.windowName : "Dialogue";
         ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y - 220.0f), ImGuiCond_Always, ImVec2(0.5f, 1.0f));
         ImGui::SetNextWindowSize(ImVec2(420.0f, 0.0f), ImGuiCond_Always);
-        const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
-        if (!ImGui::Begin(windowName, nullptr, flags))
+        const ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove;
+        if (!BeginGameCard(windowName, nullptr, view.accent, flags))
         {
-            ImGui::End();
+            EndGameCard();
             return;
         }
         const std::vector<int>& indices = runtime.choiceIndices();
@@ -129,7 +135,7 @@ namespace Dark
                 talk.commitChoice();
             }
         }
-        ImGui::End();
+        EndGameCard();
     }
 
 } // namespace Dark

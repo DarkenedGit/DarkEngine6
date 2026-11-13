@@ -6,6 +6,7 @@
 #include "Math/Ray3f.h"
 #include "Math/Vector2f.h"
 #include "Scene/SceneTypes.h"
+#include "Editor/EditorTypeIcon.h"
 #include "Ui/Icons.h"
 
 #include <imgui.h>
@@ -76,39 +77,6 @@ void beginAssetDrag(SceneObjectType type, const char* path, const char* preview,
 
     ImGui::TextUnformatted(preview ? preview : toString(type));
     ImGui::EndDragDropSource();
-}
-
-const char* iconForType(SceneObjectType type)
-{
-    switch (type)
-    {
-    case SceneObjectType::Sphere:
-    case SceneObjectType::Coin:
-        return ICON_FA_CIRCLE;
-    case SceneObjectType::ParticleEmitter:
-        return ICON_FA_BOLT;
-    case SceneObjectType::PointLight:
-    case SceneObjectType::SpotLight:
-        return ICON_FA_LIGHTBULB;
-    case SceneObjectType::Player:
-    case SceneObjectType::Spawn:
-        return ICON_FA_CIRCLE_PLUS;
-    case SceneObjectType::Hunter:
-    case SceneObjectType::Wolf:
-        return ICON_FA_BUG;
-    case SceneObjectType::Platform:
-    case SceneObjectType::Water:
-    case SceneObjectType::Stream:
-        return ICON_FA_LAYER_GROUP;
-    case SceneObjectType::CloudVolume:
-        return ICON_FA_CLOUD;
-    case SceneObjectType::Spawner:
-        return ICON_FA_FORWARD_STEP;
-    case SceneObjectType::Movie:
-        return ICON_FA_CUBE;
-    default:
-        return ICON_FA_CUBE;
-    }
 }
 } // namespace
 
@@ -347,10 +315,12 @@ void EditorApp::drawAssetBrowser()
     const std::string_view filter = m_assetFilter;
 
     auto drawPrimitive = [&](SceneObjectType type, const char* label) {
-        const char* icon = iconForType(type);
-        char        row[96];
-        std::snprintf(row, sizeof(row), "%s  %s", icon, label);
+        char row[96];
         ImGui::BeginDisabled(!createOk);
+        if (drawTypeIconImage(typeIconId(type)))
+            std::snprintf(row, sizeof(row), "%s", label);
+        else
+            std::snprintf(row, sizeof(row), "%s  %s", iconForType(type), label);
         ImGui::Selectable(row);
         if (createOk)
             beginAssetDrag(type, nullptr, label, typeIconId(type));
@@ -398,7 +368,10 @@ void EditorApp::drawAssetBrowser()
             if (entry.folder)
             {
                 char row[160];
-                std::snprintf(row, sizeof(row), "%s  %s", ICON_FA_FOLDER, entry.name.c_str());
+                if (drawTypeIconImage(m_folderIconId))
+                    std::snprintf(row, sizeof(row), "%s", entry.name.c_str());
+                else
+                    std::snprintf(row, sizeof(row), "%s  %s", ICON_FA_FOLDER, entry.name.c_str());
                 if (ImGui::Selectable(row))
                 {
                     if (!m_assetRelPath.empty())
@@ -413,7 +386,11 @@ void EditorApp::drawAssetBrowser()
             else
             {
                 char row[160];
-                std::snprintf(row, sizeof(row), "%s  %s", ICON_FA_CUBE, entry.name.c_str());
+                const uint64_t modelIcon = typeIconId(SceneObjectType::Model) != 0 ? typeIconId(SceneObjectType::Model) : m_fileIconId;
+                if (drawTypeIconImage(modelIcon))
+                    std::snprintf(row, sizeof(row), "%s", entry.name.c_str());
+                else
+                    std::snprintf(row, sizeof(row), "%s  %s", ICON_FA_CUBE, entry.name.c_str());
                 ImGui::BeginDisabled(!createOk);
                 ImGui::Selectable(row);
                 if (createOk)

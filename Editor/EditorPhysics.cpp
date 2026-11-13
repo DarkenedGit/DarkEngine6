@@ -15,6 +15,8 @@
 #include "Core/ContentRoots.h"
 #include "Editor/EditorFileDialog.h"
 
+#include "Ui/ImGuiWidgets.h"
+
 #include <imgui.h>
 
 #include <algorithm>
@@ -392,14 +394,15 @@ void EditorApp::drawPhysicsInspector(Entity e)
     }
 
     bool changed = false;
-    changed |= ImGui::Checkbox("Enabled", &phys->enabled);
+    changed |= Dark::PropCheckbox("Enabled", &phys->enabled);
 
     int body = 0;
     if (phys->mode == PhysicsBodyMode::Dynamic)
         body = 2;
     else if (phys->mode == PhysicsBodyMode::Kinematic || phys->mode == PhysicsBodyMode::Mover)
         body = 1;
-    if (ImGui::Combo("Body", &body, "Static\0Kinematic\0Dynamic\0"))
+    const char* bodies[] = { "Static", "Kinematic", "Dynamic" };
+    if (Dark::PropCombo("Body", &body, bodies, 3))
     {
         phys->mode = body == 2 ? PhysicsBodyMode::Dynamic : (body == 1 ? PhysicsBodyMode::Kinematic : PhysicsBodyMode::Static);
         changed    = true;
@@ -408,7 +411,8 @@ void EditorApp::drawPhysicsInspector(Entity e)
     int shape = static_cast<int>(phys->shape);
     if (shape < 0 || shape > 3)
         shape = 0;
-    if (ImGui::Combo("Shape", &shape, "Box\0Sphere\0Capsule\0Model\0"))
+    const char* shapes[] = { "Box", "Sphere", "Capsule", "Model" };
+    if (Dark::PropCombo("Shape", &shape, shapes, 4))
     {
         phys->shape = static_cast<PhysicsShapeKind>(shape);
         changed     = true;
@@ -418,20 +422,20 @@ void EditorApp::drawPhysicsInspector(Entity e)
     if (phys->shape == PhysicsShapeKind::Capsule)
         ImGui::TextDisabled("Capsule stands on the object origin and extends upward.");
 
-    changed |= ImGui::DragFloat("Density", &phys->density, 0.01f, 0.0f, 10000.0f, "%.3f");
+    changed |= Dark::PropFloat("Density", &phys->density, 0.01f, 0.0f, 10000.0f, "%.3f");
     if (const TransformComponent* xf = world().get<TransformComponent>(e))
     {
         const float mass = estimatedMass(*phys, xf->scale);
         if (mass > 0.0f)
             ImGui::Text("Mass  %.2f", static_cast<double>(mass));
     }
-    changed |= ImGui::DragFloat("Friction", &phys->friction, 0.01f, 0.0f, 5.0f, "%.3f");
-    changed |= ImGui::DragFloat("Restitution", &phys->restitution, 0.01f, 0.0f, 1.0f, "%.3f");
-    changed |= ImGui::DragFloat("Linear damping", &phys->linearDamping, 0.01f, 0.0f, 10.0f, "%.3f");
-    changed |= ImGui::DragFloat("Angular damping", &phys->angularDamping, 0.01f, 0.0f, 10.0f, "%.3f");
-    changed |= ImGui::DragFloat("Gravity scale", &phys->gravityScale, 0.01f, -2.0f, 5.0f, "%.2f");
-    changed |= ImGui::Checkbox("Sensor", &phys->sensor);
-    changed |= ImGui::Checkbox("Fixed rotation", &phys->fixedRotation);
+    changed |= Dark::PropFloat("Friction", &phys->friction, 0.01f, 0.0f, 5.0f, "%.3f");
+    changed |= Dark::PropFloat("Restitution", &phys->restitution, 0.01f, 0.0f, 1.0f, "%.3f");
+    changed |= Dark::PropFloat("Linear damping", &phys->linearDamping, 0.01f, 0.0f, 10.0f, "%.3f");
+    changed |= Dark::PropFloat("Angular damping", &phys->angularDamping, 0.01f, 0.0f, 10.0f, "%.3f");
+    changed |= Dark::PropFloat("Gravity scale", &phys->gravityScale, 0.01f, -2.0f, 5.0f, "%.2f");
+    changed |= Dark::PropCheckbox("Sensor", &phys->sensor);
+    changed |= Dark::PropCheckbox("Fixed rotation", &phys->fixedRotation);
 
     if (!m_surfaces.empty())
     {
@@ -449,7 +453,7 @@ void EditorApp::drawPhysicsInspector(Entity e)
         labels.reserve(names.size());
         for (const std::string& name : names)
             labels.push_back(name.c_str());
-        if (ImGui::Combo("Surface", &surfaceIndex, labels.data(), static_cast<int>(labels.size())))
+        if (Dark::PropCombo("Surface", &surfaceIndex, labels.data(), static_cast<int>(labels.size())))
         {
             if (surfaceIndex <= 0)
                 phys->surface.clear();
