@@ -6,6 +6,8 @@
 #include "Math/Ray3f.h"
 #include "Math/Vector3f.h"
 #include "Physics/PhysicsIds.h"
+#include "Play/PlayLean.h"
+#include "Play/PlayMotor.h"
 #include "Terrain/TerrainGrid.h"
 
 #include <cmath>
@@ -82,6 +84,71 @@ namespace Dark
         ShoulderView view;
         view.eye = eye;
         view.aim = target + look * 16.0f;
+        return view;
+    }
+
+    // Truck the solved eye and aim on play-right. The pivot stays put, so a side hit cannot shorten the boom.
+    inline ShoulderView leanShoulderEye(const ShoulderView& unleaned, const Math::Vector3f& pivot,
+                                        const Math::Vector3f& playRight, float lean,
+                                        Collision::RayHit3D (*raycast)(void* user, const Math::Ray3f& ray, float maxDistance), void* rayUser,
+                                        float& outLeanApplied)
+    {
+        if (lean == 0.0f)
+        {
+            outLeanApplied = 0.0f;
+            return unleaned;
+        }
+
+        const float reach          = kPlayBodyRadius + kCornerPeekPastMetres;
+        const float boomLateral    = (unleaned.eye - pivot).Dot(playRight);
+        const float desiredLateral = leanedLateral(boomLateral, lean, reach);
+        float       lateral        = desiredLateral;
+
+        if (!raycast)
+        {
+            outLeanApplied = lean;
+        }
+        else
+        {
+            const Math::Vector3f desiredEye = unleaned.eye + playRight * (desiredLateral - boomLateral);
+            const Math::Vector3f delta      = desiredEye - pivot;
+            const float          distance   = delta.Magnitude();
+            if (distance > 1.0e-3f)
+            {
+                const Math::Vector3f      dir = delta * (1.0f / distance);
+                const Collision::RayHit3D hit = raycast(rayUser, Math::Ray3f{ pivot, dir }, distance);
+                if (hit.hit && hit.t >= 0.0f && hit.t <= distance)
+                {
+                    const float hitLateral = (hit.point - pivot).Dot(playRight);
+                    float       allowed    = hitLateral - std::copysign(kCornerLeanSkinMetres, hitLateral);
+                    if ((allowed > 0.0f && desiredLateral < 0.0f) || (allowed < 0.0f && desiredLateral > 0.0f))
+                        allowed = 0.0f;
+
+                    // Do not pull inward of the unleaned boom. That would retract the eye.
+                    const float outward = desiredLateral - boomLateral;
+                    if (outward > 0.0f)
+                    {
+                        if (allowed < boomLateral)
+                            lateral = boomLateral;
+                        else if (allowed < desiredLateral)
+                            lateral = allowed;
+                    }
+                    else if (outward < 0.0f)
+                    {
+                        if (allowed > boomLateral)
+                            lateral = boomLateral;
+                        else if (allowed > desiredLateral)
+                            lateral = allowed;
+                    }
+                }
+            }
+            outLeanApplied = leanFractionForLateral(boomLateral, lateral, lean, reach);
+        }
+
+        const float  slide = lateral - boomLateral;
+        ShoulderView view;
+        view.eye = unleaned.eye + playRight * slide;
+        view.aim = unleaned.aim + playRight * slide;
         return view;
     }
 

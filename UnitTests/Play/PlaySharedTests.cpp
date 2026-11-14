@@ -261,6 +261,39 @@ namespace
         return hit;
     }
 
+    // Closer than the 0.12 m skin, so the solver stops on its 0.28 m minimum.
+    Collision::RayHit3D minBoomRay(void*, const Ray3f&, float)
+    {
+        Collision::RayHit3D hit;
+        hit.hit = true;
+        hit.t   = 0.10f;
+        return hit;
+    }
+
+    struct LateralPlane
+    {
+        float x = 0.0f;
+    };
+
+    Collision::RayHit3D lateralPlaneRay(void* user, const Ray3f& ray, float maxDistance)
+    {
+        Collision::RayHit3D hit;
+        const LateralPlane* plane = static_cast<const LateralPlane*>(user);
+        if (!plane)
+            return hit;
+        const float dx = ray.Direction.x;
+        if (dx == 0.0f)
+            return hit;
+        const float t = (plane->x - ray.Origin.x) / dx;
+        if (t < 0.0f || t > maxDistance)
+            return hit;
+        hit.hit    = true;
+        hit.t      = t;
+        hit.point  = ray.PointAt(t);
+        hit.normal = Vector3f{ dx > 0.0f ? -1.0f : 1.0f, 0.0f, 0.0f };
+        return hit;
+    }
+
 } // namespace
 
 TEST(PlayLook, MouseGateClampAndWish)
@@ -851,6 +884,123 @@ TEST(ShoulderCamera, BoxAndCharacterShortenBoom)
     ASSERT_TRUE(Physics::bindPhysicsEntity(phys, ecs, npc));
     const ShoulderView character = solveShoulderCamera(feet, 0.0f, 0.0f, false, 0.0f, 0.0f, false, 0.0f, &shoulderBoomRay, &query);
     EXPECT_LT((character.eye - focus).Magnitude(), openLen - 0.4f);
+}
+
+TEST(ShoulderCamera, RightLeanClearsTheBody)
+{
+    const Vector3f     feet{ 0.0f, 0.0f, 0.0f };
+    const Vector3f     pivot{ feet.x, feet.y + 1.15f, feet.z };
+    const Vector3f     playRight = playBasis(0.0f, 0.0f, 0.0f, 0.0f).right;
+    const ShoulderView stand     = solveShoulderCamera(feet, 0.0f, 0.0f, false, 0.0f, 0.0f, false, 0.0f, nullptr, nullptr);
+    EXPECT_NEAR(stand.eye.x, feet.x - 0.42f, 1.0e-4f);
+    EXPECT_NEAR(stand.eye.z, feet.z - 2.4f, 1.0e-4f);
+
+    float              applied = 1.0f;
+    const ShoulderView held    = leanShoulderEye(stand, pivot, playRight, 0.0f, nullptr, nullptr, applied);
+    EXPECT_FLOAT_EQ(applied, 0.0f);
+    EXPECT_FLOAT_EQ(held.eye.x, stand.eye.x);
+    EXPECT_FLOAT_EQ(held.eye.y, stand.eye.y);
+    EXPECT_FLOAT_EQ(held.eye.z, stand.eye.z);
+    EXPECT_FLOAT_EQ(held.aim.x, stand.aim.x);
+    EXPECT_FLOAT_EQ(held.aim.y, stand.aim.y);
+    EXPECT_FLOAT_EQ(held.aim.z, stand.aim.z);
+
+    const ShoulderView right = leanShoulderEye(stand, pivot, playRight, 1.0f, nullptr, nullptr, applied);
+    EXPECT_NEAR(right.eye.x, feet.x + 0.70f, 1.0e-4f);
+    EXPECT_FLOAT_EQ(right.eye.y, stand.eye.y);
+    EXPECT_NEAR(right.eye.z, feet.z - 2.4f, 1.0e-4f);
+    EXPECT_NEAR(right.aim.x - stand.aim.x, right.eye.x - stand.eye.x, 1.0e-5f);
+    EXPECT_FLOAT_EQ(right.aim.y, stand.aim.y);
+    EXPECT_FLOAT_EQ(right.aim.z, stand.aim.z);
+    EXPECT_FLOAT_EQ(applied, 1.0f);
+
+    const ShoulderView half = leanShoulderEye(stand, pivot, playRight, 0.5f, nullptr, nullptr, applied);
+    EXPECT_NEAR(half.eye.x, feet.x + 0.14f, 1.0e-4f);
+    EXPECT_FLOAT_EQ(half.eye.y, stand.eye.y);
+    EXPECT_FLOAT_EQ(half.eye.z, stand.eye.z);
+    EXPECT_FLOAT_EQ(applied, 0.5f);
+}
+
+TEST(ShoulderCamera, LeftLeanPassesTheUnleanedEye)
+{
+    const Vector3f     feet{ 0.0f, 0.0f, 0.0f };
+    const Vector3f     pivot{ feet.x, feet.y + 1.15f, feet.z };
+    const Vector3f     playRight = playBasis(0.0f, 0.0f, 0.0f, 0.0f).right;
+    const ShoulderView stand     = solveShoulderCamera(feet, 0.0f, 0.0f, false, 0.0f, 0.0f, false, 0.0f, nullptr, nullptr);
+
+    float              applied = 0.0f;
+    const ShoulderView left    = leanShoulderEye(stand, pivot, playRight, -1.0f, nullptr, nullptr, applied);
+    EXPECT_NEAR(left.eye.x, feet.x - 0.70f, 1.0e-4f);
+    EXPECT_LT(left.eye.x, stand.eye.x);
+    EXPECT_LT(left.eye.x, feet.x - kPlayBodyRadius);
+    EXPECT_FLOAT_EQ(left.eye.y, stand.eye.y);
+    EXPECT_NEAR(left.eye.z, feet.z - 2.4f, 1.0e-4f);
+    EXPECT_NEAR(left.aim.x - stand.aim.x, left.eye.x - stand.eye.x, 1.0e-5f);
+    EXPECT_FLOAT_EQ(left.aim.y, stand.aim.y);
+    EXPECT_FLOAT_EQ(left.aim.z, stand.aim.z);
+    EXPECT_FLOAT_EQ(applied, -1.0f);
+}
+
+TEST(ShoulderCamera, PlaneStopsAtSkin)
+{
+    const Vector3f     feet{ 0.0f, 0.0f, 0.0f };
+    const Vector3f     pivot{ feet.x, feet.y + 1.15f, feet.z };
+    const Vector3f     playRight = playBasis(0.0f, 0.0f, 0.0f, 0.0f).right;
+    const ShoulderView stand     = solveShoulderCamera(feet, 0.0f, 0.0f, false, 0.0f, 0.0f, false, 0.0f, nullptr, nullptr);
+
+    LateralPlane plane;
+    plane.x = feet.x + 0.45f;
+    float              applied = 0.0f;
+    const ShoulderView leaned  = leanShoulderEye(stand, pivot, playRight, 1.0f, &lateralPlaneRay, &plane, applied);
+    EXPECT_NEAR(leaned.eye.x, feet.x + 0.33f, 1.0e-4f);
+    EXPECT_FLOAT_EQ(leaned.eye.y, stand.eye.y);
+    EXPECT_FLOAT_EQ(leaned.eye.z, stand.eye.z);
+    EXPECT_NEAR(leaned.eye.z, feet.z - 2.4f, 1.0e-4f);
+    EXPECT_NEAR(leaned.aim.x - stand.aim.x, leaned.eye.x - stand.eye.x, 1.0e-5f);
+    EXPECT_FLOAT_EQ(leaned.aim.z, stand.aim.z);
+    EXPECT_NEAR(applied, 0.75f / 1.12f, 1.0e-3f);
+    EXPECT_GT(std::fabs(applied - 1.0f), 0.2f);
+}
+
+TEST(ShoulderCamera, LeftPlaneDoesNotRetract)
+{
+    const Vector3f     feet{ 0.0f, 0.0f, 0.0f };
+    const Vector3f     pivot{ feet.x, feet.y + 1.15f, feet.z };
+    const Vector3f     playRight = playBasis(0.0f, 0.0f, 0.0f, 0.0f).right;
+    const ShoulderView stand     = solveShoulderCamera(feet, 0.0f, 0.0f, false, 0.0f, 0.0f, false, 0.0f, nullptr, nullptr);
+
+    // Skin would sit at -0.33, inward of the unleaned eye. The eye stays on the boom.
+    LateralPlane plane;
+    plane.x = feet.x - 0.45f;
+    float              applied = 1.0f;
+    const ShoulderView leaned  = leanShoulderEye(stand, pivot, playRight, -1.0f, &lateralPlaneRay, &plane, applied);
+    EXPECT_FLOAT_EQ(leaned.eye.x, stand.eye.x);
+    EXPECT_FLOAT_EQ(leaned.eye.y, stand.eye.y);
+    EXPECT_FLOAT_EQ(leaned.eye.z, stand.eye.z);
+    EXPECT_NEAR(leaned.eye.x, feet.x - 0.42f, 1.0e-4f);
+    EXPECT_NEAR(leaned.eye.z, feet.z - 2.4f, 1.0e-4f);
+    EXPECT_FLOAT_EQ(leaned.aim.x, stand.aim.x);
+    EXPECT_FLOAT_EQ(leaned.aim.y, stand.aim.y);
+    EXPECT_FLOAT_EQ(leaned.aim.z, stand.aim.z);
+    EXPECT_FLOAT_EQ(applied, 0.0f);
+}
+
+TEST(ShoulderCamera, ShortenedBoomLeftLeanStillPasses)
+{
+    const Vector3f     feet{ 0.0f, 0.0f, 0.0f };
+    const Vector3f     pivot{ feet.x, feet.y + 1.15f, feet.z };
+    const Vector3f     playRight  = playBasis(0.0f, 0.0f, 0.0f, 0.0f).right;
+    const ShoulderView shortened = solveShoulderCamera(feet, 0.0f, 0.0f, false, 0.0f, 0.0f, false, 0.0f, &minBoomRay, nullptr);
+    EXPECT_NEAR((shortened.eye - pivot).Magnitude(), 0.28f, 1.0e-4f);
+
+    float              applied = 0.0f;
+    const ShoulderView leaned  = leanShoulderEye(shortened, pivot, playRight, -1.0f, nullptr, nullptr, applied);
+    EXPECT_NEAR(leaned.eye.x, feet.x - 0.70f, 1.0e-4f);
+    EXPECT_LT(leaned.eye.x, shortened.eye.x);
+    EXPECT_GT(std::fabs(leaned.eye.x - feet.x), std::fabs(shortened.eye.x - feet.x));
+    EXPECT_FLOAT_EQ(leaned.eye.y, shortened.eye.y);
+    EXPECT_FLOAT_EQ(leaned.eye.z, shortened.eye.z);
+    EXPECT_FLOAT_EQ(applied, -1.0f);
 }
 
 TEST(ContactGrind, ProximityDoesNotSpendParry)
