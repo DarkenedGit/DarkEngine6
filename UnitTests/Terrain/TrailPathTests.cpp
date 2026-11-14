@@ -643,3 +643,66 @@ TEST(TrailPath, DirtStampUniqueMaximum)
     ASSERT_NE(second.footstep, nullptr);
     EXPECT_STREQ(second.footstep, "audio/foot_dirt.wav");
 }
+
+TEST(TrailPath, AnimalOffsetDoesNotEnterBlockedCell)
+{
+    // Centre line from cell (0,0) to (13,5) misses cell (11,5) by about 0.3 m.
+    // The animal shift is up to 0.4 m and must not be stored once it enters that cell.
+    constexpr uint32_t kSamples = 57u;
+    HeightMap hm;
+    SplatMap splat;
+    ASSERT_TRUE(hm.createWorking(kSamples, kSamples, 1.0f, 1.0f));
+    hm.setOrigin(Vector3f{ 0.0f, 0.0f, 0.0f });
+    float* heights = hm.mutableSamples();
+    const size_t count = static_cast<size_t>(kSamples) * static_cast<size_t>(kSamples);
+    for (size_t i = 0; i < count; ++i)
+        heights[i] = 5.0f;
+    ASSERT_TRUE(splat.createWorking(kSamples, kSamples));
+    for (uint32_t z = 0; z < kSamples; ++z)
+    {
+        for (uint32_t x = 0; x < kSamples; ++x)
+            splat.setTexel(static_cast<int>(x), static_cast<int>(z), 0, 255, 0, 0);
+    }
+
+    FoliageWaterVolume blocked;
+    blocked.minX = 45.5f;
+    blocked.maxX = 46.5f;
+    blocked.minZ = 21.5f;
+    blocked.maxZ = 22.5f;
+    blocked.surfaceY = 8.0f;
+    std::vector<FoliageWaterVolume> water;
+    water.push_back(blocked);
+
+    TrailRouteIn route;
+    route.height = &hm;
+    route.splat = &splat;
+    route.water = &water;
+    route.seaLevel = -1000.0f;
+    route.kind = TrailKind::Animal;
+    route.seed = 4u;
+    route.startX = 2.0f;
+    route.startZ = 2.0f;
+    route.endX = 54.0f;
+    route.endZ = 22.0f;
+
+    std::vector<TrailPoint> points;
+    ASSERT_TRUE(findTrailRoute(route, points));
+    ASSERT_GE(points.size(), 2u);
+    for (size_t i = 1; i < points.size(); ++i)
+    {
+        const float dx = points[i].x - points[i - 1u].x;
+        const float dz = points[i].z - points[i - 1u].z;
+        const float mag = std::sqrt(dx * dx + dz * dz);
+        int steps = static_cast<int>(std::ceil(mag / 0.05f));
+        if (steps < 1)
+            steps = 1;
+        for (int s = 0; s <= steps; ++s)
+        {
+            const float t = static_cast<float>(s) / static_cast<float>(steps);
+            const float x = points[i - 1u].x + dx * t;
+            const float z = points[i - 1u].z + dz * t;
+            const bool inBlocked = x >= 44.0f && x < 48.0f && z >= 20.0f && z < 24.0f;
+            EXPECT_FALSE(inBlocked);
+        }
+    }
+}

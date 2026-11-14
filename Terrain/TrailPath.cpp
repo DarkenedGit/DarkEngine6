@@ -642,6 +642,94 @@ namespace Dark::Terrain
             return true;
         }
 
+        // A 0.4 m shift stays inside a 4 m cell, so the centre-to-centre test cannot see it.
+        bool worldSegmentBlocked(const TrailGrid& grid, const uint8_t* blocked, float wx0, float wz0, float wx1, float wz1)
+        {
+            const double cell = static_cast<double>(grid.cell);
+            if (!(cell > 0.0))
+                return true;
+
+            const double gx0 = (static_cast<double>(wx0) - static_cast<double>(grid.originX)) / cell;
+            const double gz0 = (static_cast<double>(wz0) - static_cast<double>(grid.originZ)) / cell;
+            const double gx1 = (static_cast<double>(wx1) - static_cast<double>(grid.originX)) / cell;
+            const double gz1 = (static_cast<double>(wz1) - static_cast<double>(grid.originZ)) / cell;
+            int x = static_cast<int>(std::floor(gx0));
+            int z = static_cast<int>(std::floor(gz0));
+            const int xEnd = static_cast<int>(std::floor(gx1));
+            const int zEnd = static_cast<int>(std::floor(gz1));
+            if (blockedCell(grid, blocked, x, z))
+                return true;
+            if (x == xEnd && z == zEnd)
+                return false;
+
+            const double dx = gx1 - gx0;
+            const double dz = gz1 - gz0;
+            const int stepX = dx > 0.0 ? 1 : (dx < 0.0 ? -1 : 0);
+            const int stepZ = dz > 0.0 ? 1 : (dz < 0.0 ? -1 : 0);
+            const double kInf = 1.0e30;
+            const double tDeltaX = stepX != 0 ? std::fabs(1.0 / dx) : kInf;
+            const double tDeltaZ = stepZ != 0 ? std::fabs(1.0 / dz) : kInf;
+            double tMaxX = kInf;
+            double tMaxZ = kInf;
+            if (stepX > 0)
+                tMaxX = (std::floor(gx0) + 1.0 - gx0) * tDeltaX;
+            else if (stepX < 0)
+                tMaxX = (gx0 - std::floor(gx0)) * tDeltaX;
+            if (stepZ > 0)
+                tMaxZ = (std::floor(gz0) + 1.0 - gz0) * tDeltaZ;
+            else if (stepZ < 0)
+                tMaxZ = (gz0 - std::floor(gz0)) * tDeltaZ;
+
+            const int guard = std::abs(xEnd - x) + std::abs(zEnd - z) + 4;
+            for (int n = 0; n < guard; ++n)
+            {
+                if (x == xEnd && z == zEnd)
+                    return false;
+                if (tMaxX < tMaxZ)
+                {
+                    if (tMaxX > 1.0)
+                        break;
+                    x += stepX;
+                    tMaxX += tDeltaX;
+                }
+                else if (tMaxZ < tMaxX)
+                {
+                    if (tMaxZ > 1.0)
+                        break;
+                    z += stepZ;
+                    tMaxZ += tDeltaZ;
+                }
+                else
+                {
+                    if (tMaxX > 1.0)
+                        break;
+                    if (blockedCell(grid, blocked, x + stepX, z) || blockedCell(grid, blocked, x, z + stepZ))
+                        return true;
+                    x += stepX;
+                    z += stepZ;
+                    tMaxX += tDeltaX;
+                    tMaxZ += tDeltaZ;
+                }
+                if (blockedCell(grid, blocked, x, z))
+                    return true;
+            }
+            return blockedCell(grid, blocked, xEnd, zEnd);
+        }
+
+        bool shiftedPolylineClear(const TrailGrid& grid, const uint8_t* blocked, const std::vector<TrailPoint>& points)
+        {
+            if (points.size() < 2)
+                return false;
+            for (size_t i = 1; i < points.size(); ++i)
+            {
+                const TrailPoint& a = points[i - 1u];
+                const TrailPoint& b = points[i];
+                if (worldSegmentBlocked(grid, blocked, a.x, a.z, b.x, b.z))
+                    return false;
+            }
+            return true;
+        }
+
         float heuristic(int x, int z, int goalX, int goalZ)
         {
             const int adx = std::abs(goalX - x);
@@ -836,7 +924,7 @@ namespace Dark::Terrain
             {
                 std::vector<TrailPoint> unshifted = points;
                 offsetAnimal(points, seed);
-                if (!polylineStaysClear(grid, blocked, points))
+                if (!shiftedPolylineClear(grid, blocked, points))
                     points.swap(unshifted);
             }
             return RouteStatus::Routed;
