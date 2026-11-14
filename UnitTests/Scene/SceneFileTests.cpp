@@ -7,6 +7,7 @@
 #include "Scene/SceneFile.h"
 #include "Terrain/FoliageFile.h"
 #include "Terrain/GrassTypes.h"
+#include "Terrain/TrailPath.h"
 #include "Terrain/LeafField.h"
 #include "Terrain/WindTypes.h"
 
@@ -1281,6 +1282,200 @@ TEST(SceneFile, TerrainFoliage_ClampDensities)
 
     std::error_code removeEc;
     std::filesystem::remove(path, removeEc);
+}
+
+TEST(SceneFile, TerrainFoliage_TrailsMissingLoadsEmpty)
+{
+    const auto path = tempScenePath("darkengine6_scene_terrain_trails_missing_ut.json");
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "notrails",
+  "mode": "3d",
+  "terrain": {
+    "bindLayout": 1,
+    "foliage": { "version": 1 },
+    "layers": []
+  },
+  "objects": []
+})";
+    }
+
+    SceneFileData data{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
+    EXPECT_EQ(data.version, 2);
+    EXPECT_TRUE(data.hasTerrain);
+    EXPECT_TRUE(data.terrain.foliage.present);
+    EXPECT_FALSE(data.terrain.trails.autoGenerate);
+    EXPECT_EQ(data.terrain.trails.maxAutoPaths, 12);
+    EXPECT_NEAR(data.terrain.trails.humanWidth, 1.6f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.trails.animalWidth, 0.8f, 1.0e-5f);
+    EXPECT_TRUE(data.terrain.trails.paths.empty());
+
+    std::error_code removeEc;
+    std::filesystem::remove(path, removeEc);
+}
+
+TEST(SceneFile, TerrainFoliage_TrailsMissingAuthoredAndClamp)
+{
+    const auto path = tempScenePath("darkengine6_scene_terrain_trails_authored_ut.json");
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "trails",
+  "mode": "3d",
+  "terrain": {
+    "bindLayout": 1,
+    "foliage": { "version": 1 },
+    "trails": {
+      "autoGenerate": true,
+      "maxAutoPaths": 99,
+      "humanWidth": 12.0,
+      "animalWidth": 0.0,
+      "paths": [
+        {
+          "kind": "human",
+          "width": 1.6,
+          "points": [[1.0, 2.0], [3.0, 4.0]]
+        },
+        {
+          "kind": "animal",
+          "width": 9.0,
+          "authored": false,
+          "closed": true,
+          "points": [[0.0, 0.0], [8.0, 1.0]]
+        },
+        {
+          "kind": "bird",
+          "width": 1.0,
+          "points": [[0.0, 0.0], [1.0, 1.0]]
+        },
+        {
+          "kind": "human",
+          "width": -2.0,
+          "authored": true,
+          "points": [[4.0, 5.0], [6.0, 7.0]]
+        }
+      ]
+    },
+    "layers": []
+  },
+  "objects": []
+})";
+    }
+
+    SceneFileData data{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
+    EXPECT_EQ(data.version, 2);
+    EXPECT_TRUE(data.terrain.foliage.present);
+    EXPECT_TRUE(data.terrain.trails.autoGenerate);
+    EXPECT_EQ(data.terrain.trails.maxAutoPaths, 64);
+    EXPECT_NEAR(data.terrain.trails.humanWidth, 8.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.trails.animalWidth, 0.8f, 1.0e-5f);
+    ASSERT_EQ(data.terrain.trails.paths.size(), 3u);
+    EXPECT_EQ(data.terrain.trails.paths[0].kind, Terrain::TrailKind::Human);
+    EXPECT_TRUE(data.terrain.trails.paths[0].authored);
+    EXPECT_NEAR(data.terrain.trails.paths[0].width, 1.6f, 1.0e-5f);
+    ASSERT_EQ(data.terrain.trails.paths[0].points.size(), 2u);
+    EXPECT_NEAR(data.terrain.trails.paths[0].points[0].x, 1.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.trails.paths[0].points[0].z, 2.0f, 1.0e-5f);
+    EXPECT_EQ(data.terrain.trails.paths[1].kind, Terrain::TrailKind::Animal);
+    EXPECT_FALSE(data.terrain.trails.paths[1].authored);
+    EXPECT_TRUE(data.terrain.trails.paths[1].closed);
+    EXPECT_NEAR(data.terrain.trails.paths[1].width, 8.0f, 1.0e-5f);
+    EXPECT_EQ(data.terrain.trails.paths[2].kind, Terrain::TrailKind::Human);
+    EXPECT_TRUE(data.terrain.trails.paths[2].authored);
+    EXPECT_NEAR(data.terrain.trails.paths[2].width, 1.6f, 1.0e-5f);
+
+    const auto negative = tempScenePath("darkengine6_scene_terrain_trails_negative_ut.json");
+    {
+        std::ofstream out(negative, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "trails_neg",
+  "mode": "3d",
+  "terrain": {
+    "bindLayout": 1,
+    "trails": { "maxAutoPaths": -4 },
+    "layers": []
+  },
+  "objects": []
+})";
+    }
+    SceneFileData neg{};
+    ASSERT_TRUE(loadSceneFromJson(negative, neg, &err)) << err;
+    EXPECT_FALSE(neg.terrain.trails.autoGenerate);
+    EXPECT_EQ(neg.terrain.trails.maxAutoPaths, 0);
+    EXPECT_TRUE(neg.terrain.trails.paths.empty());
+
+    SceneFileData round{};
+    round.version = 2;
+    round.name = "trail_round";
+    round.mode = SceneMode::Scene3D;
+    round.hasTerrain = true;
+    round.terrain.foliage.present = true;
+    round.terrain.trails.autoGenerate = false;
+    round.terrain.trails.maxAutoPaths = 4;
+    round.terrain.trails.humanWidth = 2.0f;
+    round.terrain.trails.animalWidth = 0.5f;
+    Terrain::TrailPath human;
+    human.kind = Terrain::TrailKind::Human;
+    human.width = 2.0f;
+    human.authored = true;
+    human.points.push_back(Terrain::TrailPoint{ 1.0f, 2.0f });
+    human.points.push_back(Terrain::TrailPoint{ 3.0f, 4.0f });
+    human.points.push_back(Terrain::TrailPoint{ 5.0f, 6.0f });
+    Terrain::TrailPath animal;
+    animal.kind = Terrain::TrailKind::Animal;
+    animal.width = 0.5f;
+    animal.authored = false;
+    animal.closed = true;
+    animal.points.push_back(Terrain::TrailPoint{ 0.0f, 0.0f });
+    animal.points.push_back(Terrain::TrailPoint{ 8.0f, 1.0f });
+    animal.points.push_back(Terrain::TrailPoint{ 8.0f, 4.0f });
+    round.terrain.trails.paths.push_back(human);
+    round.terrain.trails.paths.push_back(animal);
+
+    const auto saved = tempScenePath("darkengine6_scene_terrain_trails_round_ut.json");
+    ASSERT_TRUE(saveSceneToJson(saved, round, &err)) << err;
+    std::string text;
+    {
+        std::ifstream inFile(saved);
+        ASSERT_TRUE(static_cast<bool>(inFile));
+        text.assign((std::istreambuf_iterator<char>(inFile)), std::istreambuf_iterator<char>());
+    }
+    EXPECT_NE(text.find("\"version\": 2"), std::string::npos);
+    EXPECT_NE(text.find("\"version\": 1"), std::string::npos);
+    EXPECT_EQ(text.find("\"version\": 3"), std::string::npos);
+    EXPECT_NE(text.find("\"trails\""), std::string::npos);
+    EXPECT_NE(text.find("\"authored\": false"), std::string::npos);
+
+    SceneFileData loaded{};
+    ASSERT_TRUE(loadSceneFromJson(saved, loaded, &err)) << err;
+    EXPECT_EQ(loaded.version, 2);
+    EXPECT_FALSE(loaded.terrain.trails.autoGenerate);
+    EXPECT_EQ(loaded.terrain.trails.maxAutoPaths, 4);
+    EXPECT_NEAR(loaded.terrain.trails.humanWidth, 2.0f, 1.0e-5f);
+    EXPECT_NEAR(loaded.terrain.trails.animalWidth, 0.5f, 1.0e-5f);
+    ASSERT_EQ(loaded.terrain.trails.paths.size(), 2u);
+    EXPECT_TRUE(loaded.terrain.trails.paths[0].authored);
+    EXPECT_EQ(loaded.terrain.trails.paths[0].kind, Terrain::TrailKind::Human);
+    EXPECT_EQ(loaded.terrain.trails.paths[0].points.size(), 3u);
+    EXPECT_FALSE(loaded.terrain.trails.paths[1].authored);
+    EXPECT_TRUE(loaded.terrain.trails.paths[1].closed);
+    EXPECT_EQ(loaded.terrain.trails.paths[1].kind, Terrain::TrailKind::Animal);
+
+    std::error_code removeEc;
+    std::filesystem::remove(path, removeEc);
+    std::filesystem::remove(negative, removeEc);
+    std::filesystem::remove(saved, removeEc);
 }
 
 TEST(SceneFile, FoliageShedScale_RoundTripClampAndMissing)

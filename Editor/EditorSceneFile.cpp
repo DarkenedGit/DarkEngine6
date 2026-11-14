@@ -666,9 +666,10 @@ void EditorApp::handleEditorCommands(float dt)
                 cyclePlaceType(+1);
             if (input().actionPressed("cycle_color"))
                 cycleSelectedColor();
-            if (input().actionPressed("delete") && !netClientLocked())
+            const bool trailKeys = !typing && handleTrailKeys();
+            if (!trailKeys && input().actionPressed("delete") && !netClientLocked())
                 deleteSelected();
-            if (input().actionPressed("place") && !netClientLocked())
+            if (!trailKeys && input().actionPressed("place") && !netClientLocked())
                 placeAtCursor(m_placeType);
         }
     }
@@ -690,7 +691,11 @@ void EditorApp::handleEditorCommands(float dt)
         }
     }
 
-    if (!m_playMode && !uiMouse && input().mousePressed(MouseButton::Left))
+    if (!m_playMode && m_trailDraw && m_sceneMode == SceneMode::Scene3D)
+        handleTrailPointer(uiMouse);
+    const bool trailBlocksPick = !m_playMode && m_trailDraw && m_sceneMode == SceneMode::Scene3D;
+
+    if (!m_playMode && !uiMouse && !trailBlocksPick && input().mousePressed(MouseButton::Left))
     {
         m_lmbDownX = input().mouseX();
         m_lmbDownY = input().mouseY();
@@ -765,7 +770,7 @@ void EditorApp::handleEditorCommands(float dt)
         m_gizmoDragAxis = TranslateGizmoAxis::None;
     }
 
-    if (!uiMouse && m_dragging && m_selected.valid() && input().mouseDown(MouseButton::Left)
+    if (!uiMouse && !trailBlocksPick && m_dragging && m_selected.valid() && input().mouseDown(MouseButton::Left)
         && !netClientLocked())
     {
         if (m_sceneMode == SceneMode::Scene2D)

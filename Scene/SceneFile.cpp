@@ -8,6 +8,7 @@
 #include "Particles/ParticleTypes.h"
 #include "Terrain/GrassTypes.h"
 #include "Terrain/TerrainTileFile.h"
+#include "Terrain/TrailPath.h"
 #include "Terrain/WindField.h"
 
 #include <cstdint>
@@ -668,6 +669,7 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             f["rockModel"]         = scene.terrain.foliage.rockModel;
             f["grassModel"]        = scene.terrain.foliage.grassModel;
             t["foliage"]           = std::move(f);
+            t["trails"]            = Terrain::writeTrailSet(scene.terrain.trails);
             GrassSceneDesc grass = scene.terrain.grass;
             clampGrassScene(grass);
             json grassJson;
@@ -1063,6 +1065,10 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                     desc.foliage.rockModel          = jsonS(f, "rockModel", std::string("models/RockMoss/rock_moss_set_01_2k.gltf"));
                     desc.foliage.grassModel         = jsonS(f, "grassModel", std::string("models/Grass/grass_medium_01_2k.gltf"));
                 }
+                if (t.contains("trails") && t["trails"].is_object())
+                    Terrain::readTrailSet(t["trails"], desc.trails, nullptr);
+                else if (t.contains("trails"))
+                    DE_LOG_WARN(LogCategory::Render, "SceneFile: terrain.trails is not an object — trails left empty");
                 if (t.contains("grass") && t["grass"].is_object())
                 {
                     const json& g = t["grass"];

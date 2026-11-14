@@ -161,6 +161,13 @@ namespace Dark::Terrain
         {
             return in.onProgress != nullptr && !in.onProgress(t, phase, in.user);
         }
+
+        void rasterTrails(FoliageCover& cover, const FoliageSpawnIn& in)
+        {
+            const uint32_t seed = in.density.seed;
+            for (size_t i = 0; i < in.trails.size(); ++i)
+                rasterTrail(cover, in.trails[i], seed, static_cast<uint32_t>(i + 1u));
+        }
     } // namespace
 
     bool spawnFoliage(const FoliageSpawnIn& in, FoliageSpawnOut& out)
@@ -256,6 +263,15 @@ namespace Dark::Terrain
         if (!out.cover.create(static_cast<float>(widthM), static_cast<float>(depthM), in.origin.x, in.origin.z))
             return failSpawn(out);
         out.cover.clear(255, 255);
+        if (!in.trails.empty())
+        {
+            if (cancelled(in, 0.0f, "trails"))
+            {
+                DE_LOG_INFO(LogCategory::Render, "FoliageSpawn: cancelled");
+                return failSpawn(out);
+            }
+            rasterTrails(out.cover, in);
+        }
         if (cancelled(in, 0.0f, "cover"))
         {
             DE_LOG_INFO(LogCategory::Render, "FoliageSpawn: cancelled");
@@ -350,6 +366,8 @@ namespace Dark::Terrain
             else if (kind == FoliageKind::Grass)
                 minY = tuftMinNormalY;
             if (n.y < minY)
+                return;
+            if (parentPass && (kind == FoliageKind::Tree || kind == FoliageKind::Rock) && out.cover.sampleNearest(x, z).coverage == 0)
                 return;
 
             float fx = 0.0f;
@@ -559,6 +577,51 @@ namespace Dark::Terrain
         if (out.capped)
             DE_LOG_WARN(LogCategory::Render, "FoliageSpawn: cap thinned accepted {} to {}", out.accepted, cap);
         DE_LOG_INFO(LogCategory::Render, "FoliageSpawn: kept {} accepted {} capped {} seed {} trees {} flowers {} rocks {} grass {}", out.kept, out.accepted, out.capped ? 1 : 0, seed, nTree, nFlower, nRock, nGrass);
+        return true;
+    }
+
+    bool restampFoliageCover(const FoliageSpawnIn& in, const std::vector<FoliageRecord>& records, FoliageCover& cover)
+    {
+        cover.reset();
+        if (in.height == nullptr || !in.height->valid() || in.splat == nullptr || !in.splat->valid())
+            return false;
+        if (in.tilesX == 0 || in.tilesZ == 0 || in.tileCells == 0 || !(in.cellSize > 0.0f))
+            return false;
+
+        const uint64_t spanX = static_cast<uint64_t>(in.tilesX) * static_cast<uint64_t>(in.tileCells);
+        const uint64_t spanZ = static_cast<uint64_t>(in.tilesZ) * static_cast<uint64_t>(in.tileCells);
+        if (static_cast<uint64_t>(in.height->width()) < 1ull || static_cast<uint64_t>(in.height->height()) < 1ull)
+            return false;
+        if (static_cast<uint64_t>(in.height->width()) - 1ull != spanX || static_cast<uint64_t>(in.height->height()) - 1ull != spanZ)
+            return false;
+
+        const double widthM = static_cast<double>(spanX) * static_cast<double>(in.cellSize);
+        const double depthM = static_cast<double>(spanZ) * static_cast<double>(in.cellSize);
+        if (!(widthM > 0.0) || !(depthM > 0.0) || widthM > static_cast<double>(INT32_MAX) || depthM > static_cast<double>(INT32_MAX))
+            return false;
+        if (!cover.create(static_cast<float>(widthM), static_cast<float>(depthM), in.origin.x, in.origin.z))
+            return false;
+        cover.clear(255, 255);
+
+        if (!in.trails.empty())
+        {
+            if (cancelled(in, 0.0f, "trails"))
+            {
+                cover.reset();
+                return false;
+            }
+            rasterTrails(cover, in);
+        }
+        if (cancelled(in, 0.0f, "cover"))
+        {
+            cover.reset();
+            return false;
+        }
+        for (const FoliageRecord& rec : records)
+        {
+            if (rec.kind == static_cast<uint8_t>(FoliageKind::Tree))
+                stampTree(cover, rec, in);
+        }
         return true;
     }
 

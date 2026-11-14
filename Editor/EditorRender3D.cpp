@@ -1195,6 +1195,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         }
     }
 
+    drawTrailOverlay(cmd, viewProj);
     m_scene.endCameraFrame(m_camera, viewProj);
     if (!m_movie.blocksWorld())
         drawPlayCrosshair(cmd);

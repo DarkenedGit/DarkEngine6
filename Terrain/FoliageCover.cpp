@@ -2,6 +2,7 @@
 
 #include "Core/Log.h"
 #include "Terrain/FoliageFile.h"
+#include "Terrain/TerrainGen.h"
 
 #include <cmath>
 #include <cstddef>
@@ -54,6 +55,126 @@ namespace Dark::Terrain
             const double dz = static_cast<double>(z) - static_cast<double>(qz);
             const double r  = static_cast<double>(radius);
             return dx * dx + dz * dz <= r * r;
+        }
+
+        double distSqSegmentSegment(double ax, double az, double bx, double bz, double cx, double cz, double dx, double dz)
+        {
+            const double ux = bx - ax;
+            const double uz = bz - az;
+            const double vx = dx - cx;
+            const double vz = dz - cz;
+            const double wx = ax - cx;
+            const double wz = az - cz;
+            const double a  = ux * ux + uz * uz;
+            const double b  = ux * vx + uz * vz;
+            const double c  = vx * vx + vz * vz;
+            const double d  = ux * wx + uz * wz;
+            const double e  = vx * wx + vz * wz;
+            const double eps = 1.0e-12;
+            double denom = a * c - b * b;
+            double sN = 0.0;
+            double sD = denom;
+            double tN = 0.0;
+            double tD = denom;
+            if (denom < eps)
+            {
+                sN = 0.0;
+                sD = 1.0;
+                tN = e;
+                tD = c;
+            }
+            else
+            {
+                sN = b * e - c * d;
+                tN = a * e - b * d;
+                if (sN < 0.0)
+                {
+                    sN = 0.0;
+                    tN = e;
+                    tD = c;
+                }
+                else if (sN > sD)
+                {
+                    sN = sD;
+                    tN = e + b;
+                    tD = c;
+                }
+            }
+            if (tN < 0.0)
+            {
+                tN = 0.0;
+                if (-d < 0.0)
+                    sN = 0.0;
+                else if (-d > a)
+                    sN = sD;
+                else
+                {
+                    sN = -d;
+                    sD = a;
+                }
+            }
+            else if (tN > tD)
+            {
+                tN = tD;
+                if ((-d + b) < 0.0)
+                    sN = 0.0;
+                else if ((-d + b) > a)
+                    sN = sD;
+                else
+                {
+                    sN = -d + b;
+                    sD = a;
+                }
+            }
+            const double sc = (std::fabs(sN) < eps || std::fabs(sD) < eps) ? 0.0 : sN / sD;
+            const double tc = (std::fabs(tN) < eps || std::fabs(tD) < eps) ? 0.0 : tN / tD;
+            const double px = wx + ux * sc - vx * tc;
+            const double pz = wz + uz * sc - vz * tc;
+            return px * px + pz * pz;
+        }
+
+        bool pointInRect(double x, double z, double x0, double z0, double x1, double z1)
+        {
+            return x >= x0 && x <= x1 && z >= z0 && z <= z1;
+        }
+
+        double distSqSegmentRect(double ax, double az, double bx, double bz, double x0, double z0, double x1, double z1)
+        {
+            if (pointInRect(ax, az, x0, z0, x1, z1) || pointInRect(bx, bz, x0, z0, x1, z1))
+                return 0.0;
+            const double e0 = distSqSegmentSegment(ax, az, bx, bz, x0, z0, x1, z0);
+            const double e1 = distSqSegmentSegment(ax, az, bx, bz, x1, z0, x1, z1);
+            const double e2 = distSqSegmentSegment(ax, az, bx, bz, x1, z1, x0, z1);
+            const double e3 = distSqSegmentSegment(ax, az, bx, bz, x0, z1, x0, z0);
+            double best = e0;
+            if (e1 < best)
+                best = e1;
+            if (e2 < best)
+                best = e2;
+            if (e3 < best)
+                best = e3;
+            return best;
+        }
+
+        double distPointSegment(double px, double pz, double ax, double az, double bx, double bz)
+        {
+            const double abx = bx - ax;
+            const double abz = bz - az;
+            const double apx = px - ax;
+            const double apz = pz - az;
+            const double ab2 = abx * abx + abz * abz;
+            double t = 0.0;
+            if (ab2 > 1.0e-12)
+            {
+                t = (apx * abx + apz * abz) / ab2;
+                if (t < 0.0)
+                    t = 0.0;
+                if (t > 1.0)
+                    t = 1.0;
+            }
+            const double dx = px - (ax + abx * t);
+            const double dz = pz - (az + abz * t);
+            return std::sqrt(dx * dx + dz * dz);
         }
     } // namespace
 
@@ -473,6 +594,99 @@ namespace Dark::Terrain
                 const uint8_t coverage = roundByte(lerp(innerCoverage, outerCoverage, t));
                 const uint8_t height   = roundByte(lerp(innerHeight, outerHeight, t));
                 writeCell(cx, cz, coverage, height, minBlend);
+            }
+        }
+    }
+
+    void FoliageCover::stampTrail(const std::vector<Math::Vector2f>& samples, float coreRadiusM, float shoulderM, float edgeNoiseM, uint32_t edgeSeed, bool minBlend)
+    {
+        if (!m_valid || samples.size() < 2)
+            return;
+        if (!std::isfinite(coreRadiusM) || !std::isfinite(shoulderM) || !std::isfinite(edgeNoiseM))
+            return;
+        if (!(coreRadiusM >= 0.0f))
+            return;
+        if (!(shoulderM >= 0.0f))
+            shoulderM = 0.0f;
+        if (!(edgeNoiseM >= 0.0f))
+            edgeNoiseM = 0.0f;
+
+        constexpr uint8_t kShoulderHeightNear = 64;
+        constexpr uint8_t kShoulderHeightFar  = 140;
+        const float reach = coreRadiusM + shoulderM + edgeNoiseM;
+        const double coreR = static_cast<double>(coreRadiusM);
+
+        for (size_t i = 0; i + 1 < samples.size(); ++i)
+        {
+            const float ax = samples[i].x;
+            const float az = samples[i].y;
+            const float bx = samples[i + 1].x;
+            const float bz = samples[i + 1].y;
+            if (!std::isfinite(ax) || !std::isfinite(az) || !std::isfinite(bx) || !std::isfinite(bz))
+                continue;
+            const float sdx = bx - ax;
+            const float sdz = bz - az;
+            if (sdx * sdx + sdz * sdz < 1.0e-8f)
+                continue;
+
+            const float minX = ax < bx ? ax : bx;
+            const float maxX = ax > bx ? ax : bx;
+            const float minZ = az < bz ? az : bz;
+            const float maxZ = az > bz ? az : bz;
+            int c0x = static_cast<int>(std::floor((static_cast<double>(minX) - static_cast<double>(m_originX) - static_cast<double>(reach)) / static_cast<double>(kCoverCellSizeM))) - 1;
+            int c1x = static_cast<int>(std::floor((static_cast<double>(maxX) - static_cast<double>(m_originX) + static_cast<double>(reach)) / static_cast<double>(kCoverCellSizeM))) + 1;
+            int c0z = static_cast<int>(std::floor((static_cast<double>(minZ) - static_cast<double>(m_originZ) - static_cast<double>(reach)) / static_cast<double>(kCoverCellSizeM))) - 1;
+            int c1z = static_cast<int>(std::floor((static_cast<double>(maxZ) - static_cast<double>(m_originZ) + static_cast<double>(reach)) / static_cast<double>(kCoverCellSizeM))) + 1;
+            if (c0x < 0)
+                c0x = 0;
+            if (c0z < 0)
+                c0z = 0;
+            if (c1x >= m_cellsX)
+                c1x = m_cellsX - 1;
+            if (c1z >= m_cellsZ)
+                c1z = m_cellsZ - 1;
+
+            const double adx = static_cast<double>(ax);
+            const double adz = static_cast<double>(az);
+            const double bdx = static_cast<double>(bx);
+            const double bdz = static_cast<double>(bz);
+            for (int cz = c0z; cz <= c1z; ++cz)
+            {
+                const float z0 = m_originZ + static_cast<float>(cz) * kCoverCellSizeM;
+                const float z1 = z0 + kCoverCellSizeM;
+                for (int cx = c0x; cx <= c1x; ++cx)
+                {
+                    const float x0 = m_originX + static_cast<float>(cx) * kCoverCellSizeM;
+                    const float x1 = x0 + kCoverCellSizeM;
+                    const double hit = distSqSegmentRect(adx, adz, bdx, bdz, static_cast<double>(x0), static_cast<double>(z0), static_cast<double>(x1), static_cast<double>(z1));
+                    if (hit <= coreR * coreR)
+                    {
+                        writeCell(cx, cz, 0, 0, minBlend);
+                        continue;
+                    }
+
+                    const int qx = static_cast<int>(std::floor(static_cast<double>(x0)));
+                    const int qz = static_cast<int>(std::floor(static_cast<double>(z0)));
+                    const float n = hash21(qx, qz, edgeSeed);
+                    float outer = coreRadiusM + shoulderM + (n * 2.0f - 1.0f) * edgeNoiseM;
+                    if (outer < coreRadiusM)
+                        outer = coreRadiusM;
+                    if (!(hit <= static_cast<double>(outer) * static_cast<double>(outer)))
+                        continue;
+                    const double span = static_cast<double>(outer) - coreR;
+                    if (!(span > 1.0e-4))
+                        continue;
+                    const double tcx = static_cast<double>(m_originX) + (static_cast<double>(cx) + 0.5) * static_cast<double>(kCoverCellSizeM);
+                    const double tcz = static_cast<double>(m_originZ) + (static_cast<double>(cz) + 0.5) * static_cast<double>(kCoverCellSizeM);
+                    double t = (distPointSegment(tcx, tcz, adx, adz, bdx, bdz) - coreR) / span;
+                    if (t < 0.0)
+                        t = 0.0;
+                    if (t > 1.0)
+                        t = 1.0;
+                    const uint8_t coverage = roundByte(lerp(0.0, 255.0, t));
+                    const uint8_t height   = roundByte(lerp(kShoulderHeightNear, kShoulderHeightFar, t));
+                    writeCell(cx, cz, coverage, height, minBlend);
+                }
             }
         }
     }

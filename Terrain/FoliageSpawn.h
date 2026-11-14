@@ -4,6 +4,7 @@
 #include "Terrain/FoliageFile.h"
 #include "Terrain/HeightMap.h"
 #include "Terrain/SplatMap.h"
+#include "Terrain/TrailPath.h"
 
 #include <cstdint>
 #include <vector>
@@ -38,6 +39,7 @@ namespace Dark::Terrain
         void* user = nullptr;
         float treeExtentX = 0.0f;
         float treeExtentZ = 0.0f;
+        std::vector<TrailPath> trails;
     };
 
     struct FoliageSpawnOut
@@ -58,5 +60,7 @@ namespace Dark::Terrain
     };
 
     bool spawnFoliage(const FoliageSpawnIn& in, FoliageSpawnOut& out);
+    // Repaints cover from stored paths and the current trees. Does not plant or thin.
+    bool restampFoliageCover(const FoliageSpawnIn& in, const std::vector<FoliageRecord>& records, FoliageCover& cover);
 
 } // namespace Dark::Terrain

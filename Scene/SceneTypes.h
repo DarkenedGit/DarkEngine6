@@ -5,6 +5,7 @@
 #include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
 #include "Play/Spawner.h"
+#include "Terrain/TrailPath.h"
 #include "Terrain/WindTypes.h"
 
 #include <cstdint>
@@ -438,6 +439,7 @@ namespace Dark
         FoliageSceneDesc      foliage;
         GrassSceneDesc        grass;
         WindSceneDesc         wind;
+        Terrain::TrailSet     trails;
     };
 
     // Celestial clock and weather. Absent from a file means the Environment defaults.

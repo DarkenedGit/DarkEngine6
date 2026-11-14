@@ -683,6 +683,7 @@ bool SandboxApp::advanceBootSlice()
                     boot.foliageIn.height    = height;
                     boot.foliageIn.splat     = splat;
                     boot.foliageIn.density   = m_foliageDensity;
+                    boot.foliageIn.trails    = boot.scene.terrain.trails.paths;
                     boot.foliageIn.tilesX    = m_terrain.tilesX();
                     boot.foliageIn.tilesZ    = m_terrain.tilesZ();
                     const int cells = m_terrain.tileCells();

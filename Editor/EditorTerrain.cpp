@@ -11,6 +11,7 @@
 #include "Scene/SceneFile.h"
 #include "Terrain/FoliageFile.h"
 #include "Terrain/FoliageSpawn.h"
+#include "Terrain/TrailPath.h"
 #include "Terrain/TerrainTileFile.h"
 #include "Terrain/WorldEngineMap.h"
 #include "Water/WaterWaves.h"
@@ -785,6 +786,8 @@ void EditorApp::tickLeaves(float dt)
 void EditorApp::syncTerrainLod()
 {
     pollFoliageSpawn();
+    if (m_trailMeshDirty)
+        rebuildTrailMesh();
     if (!m_haveTerrain || !m_terrain.valid())
         return;
 
@@ -853,6 +856,7 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
         desc.grass                     = m_authoredGrass;
         desc.wind.present              = true;
         desc.wind.settings             = m_wind;
+        desc.trails                    = m_trails;
         data.hasTerrain = true;
         data.terrain    = std::move(desc);
         return;
@@ -915,6 +919,7 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
     desc.grass                     = m_authoredGrass;
     desc.wind.present              = true;
     desc.wind.settings             = m_wind;
+    desc.trails                    = m_trails;
     data.hasTerrain = true;
     data.terrain    = std::move(desc);
 }
@@ -1101,6 +1106,14 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
     const TerrainSceneDesc& desc = data.terrain;
     // fillTerrainSceneDesc rebuilds the block from live terrain, which has no grass params.
     m_authoredGrass = desc.grass;
+    m_trails = desc.trails;
+    clampTrailSet(m_trails);
+    m_trailDraw = false;
+    m_trailSelected = -1;
+    m_trailPoint = -1;
+    m_trailDragging = false;
+    m_trailMoved = false;
+    m_trailMeshDirty = true;
     m_wind          = desc.wind.settings;
     Terrain::clampWindSettings(m_wind);
     applyAuthoredGrass();
@@ -1398,6 +1411,7 @@ void EditorApp::resetFoliageAuthoring()
     m_foliageStale = false;
     m_foliageDensity = {};
     m_leafShedScale = 1.0f;
+    clearTrailAuthoring();
 }
 
 bool EditorApp::onFoliageProgress(float t, const char* phase, void* user)
@@ -1436,18 +1450,8 @@ void EditorApp::cancelFoliageSpawn()
     m_foliageDone.store(false);
 }
 
-void EditorApp::startFoliageSpawn()
+bool EditorApp::fillFoliageSpawnIn(FoliageSpawnIn& in)
 {
-    if (terrainBrushesLocked())
-        return;
-    if (m_foliageThread.joinable())
-    {
-        // Assigning a joinable std::thread calls std::terminate.
-        if (!m_foliageDone.load())
-            return;
-        m_foliageThread.join();
-    }
-
     const HeightMap* height = m_terrain.editableWorking();
     const SplatMap*  splat  = m_terrain.editableWorkingSplat();
     if (height == nullptr)
@@ -1459,9 +1463,9 @@ void EditorApp::startFoliageSpawn()
     else if (!splat->valid())
         DE_LOG_ERROR(LogCategory::Render, "Editor: foliage spawn refused — editableWorkingSplat() is invalid");
     if (height == nullptr || !height->valid() || splat == nullptr || !splat->valid())
-        return;
+        return false;
 
-    FoliageSpawnIn in;
+    in = FoliageSpawnIn{};
     in.height    = height;
     in.splat     = splat;
     in.density   = m_foliageDensity;
@@ -1473,6 +1477,7 @@ void EditorApp::startFoliageSpawn()
     in.origin    = m_terrain.origin();
     // Imported valleys sit at the height origin. The old sea level would skip the forest floor.
     in.seaLevel  = m_terrainSource.empty() ? m_terrainSeaLevel : m_terrain.origin().y;
+    in.trails    = m_trails.paths;
     if (m_water.chunksX() > 0)
     {
         FoliageWaterVolume sheet;
@@ -1513,7 +1518,19 @@ void EditorApp::startFoliageSpawn()
             in.treeExtentZ = extent.z;
         }
     }
+    return true;
+}
 
+void EditorApp::startFoliageSpawn()
+{
+    if (!acquireFoliageThread())
+        return;
+
+    FoliageSpawnIn in;
+    if (!fillFoliageSpawnIn(in))
+        return;
+
+    m_foliageCoverOnly = false;
     m_foliageCancel.store(false);
     m_foliageDone.store(false);
     m_foliageOk = false;
@@ -1581,17 +1598,27 @@ void EditorApp::pollFoliageSpawn()
     m_foliageDone.store(false);
     if (m_foliageOk)
     {
-        m_foliage.swap(m_foliagePending);
-        m_foliageAuthored = true;
-        m_foliageStale = false;
-        m_terrain.setWorkingCover(std::move(m_foliagePendingCover));
-        m_grassField.markAllDirty();
+        if (m_foliageCoverOnly)
+        {
+            // Cover-only success must not clear a stale forest or swap the tree set.
+            m_terrain.setWorkingCover(std::move(m_foliagePendingCover));
+            m_grassField.markAllDirty();
+        }
+        else
+        {
+            m_foliage.swap(m_foliagePending);
+            m_foliageAuthored = true;
+            m_foliageStale = false;
+            m_terrain.setWorkingCover(std::move(m_foliagePendingCover));
+            m_grassField.markAllDirty();
+        }
     }
     else if (m_foliageCancel.load())
         DE_LOG_INFO(LogCategory::Render, "Editor: foliage spawn cancelled - previous set kept");
     std::vector<Terrain::FoliageRecord>().swap(m_foliagePending);
     m_foliagePendingCover.reset();
     m_foliageOk = false;
+    m_foliageCoverOnly = false;
 }
 
 void EditorApp::drawWaterTools()
@@ -1875,8 +1902,12 @@ void EditorApp::drawTerrainPanel()
         const std::filesystem::path dir = resolveWorldEngineDirectory(m_worldEnginePath);
         if (dir.empty())
             DE_LOG_ERROR(LogCategory::Render, "Editor: terrain folder '{}' was not found", m_worldEnginePath);
-        else if (!loadWorldEngineTerrain(dir, m_worldEngineSize, m_worldEngineHeight))
-            DE_LOG_ERROR(LogCategory::Render, "Editor: failed to load '{}'", dir.string());
+        else
+        {
+            clearTrailAuthoring();
+            if (!loadWorldEngineTerrain(dir, m_worldEngineSize, m_worldEngineHeight))
+                DE_LOG_ERROR(LogCategory::Render, "Editor: failed to load '{}'", dir.string());
+        }
     }
 
     if (m_haveTerrain && m_terrain.valid())
@@ -1930,6 +1961,7 @@ void EditorApp::drawTerrainPanel()
             m_foliageStale = true;
         if (ImGui::Button("Place / Replace foliage"))
             startFoliageSpawn();
+        drawTrailHeader();
         ImGui::EndDisabled();
         ImGui::SeparatorText("Procedural grass");
         bool grassEdited = false;
