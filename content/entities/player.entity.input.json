@@ -23,6 +23,10 @@
     { "action": "pickup", "key": "G", "app": "sandbox" },
     { "action": "pickup", "key": "E", "app": "editor" },
     { "action": "takedown", "key": "E", "app": "sandbox" },
+    { "action": "lean_left", "key": "Q" },
+    { "action": "lean_right", "key": "E" },
+    { "action": "lean_left", "button": "DPadLeft" },
+    { "action": "lean_right", "button": "DPadRight" },
 
     { "action": "attack", "key": "F" },
     { "action": "attack", "button": "B" },

@@ -161,6 +161,12 @@ TEST(EntityInput, ContentFileFeedsSandboxAndEditor)
     EXPECT_FALSE(hasKey(sandbox, "crouch", Key::C, 1.0f));
     EXPECT_TRUE(hasKey(sandbox, "camouflage", Key::C, 1.0f));
     EXPECT_TRUE(hasKey(sandbox, "pickup", Key::G, 1.0f));
+    EXPECT_FALSE(hasKey(sandbox, "pickup", Key::E, 1.0f));
+    EXPECT_TRUE(hasKey(sandbox, "takedown", Key::E, 1.0f));
+    EXPECT_TRUE(hasKey(sandbox, "lean_left", Key::Q, 1.0f));
+    EXPECT_TRUE(hasButton(sandbox, "lean_left", GamepadButton::DPadLeft, 1.0f));
+    EXPECT_TRUE(hasKey(sandbox, "lean_right", Key::E, 1.0f));
+    EXPECT_TRUE(hasButton(sandbox, "lean_right", GamepadButton::DPadRight, 1.0f));
     EXPECT_TRUE(hasKey(sandbox, "night_sight", Key::N, 1.0f));
     EXPECT_TRUE(hasKey(sandbox, "infrared", Key::H, 1.0f));
     EXPECT_TRUE(hasKey(sandbox, "ultraviolet", Key::U, 1.0f));
@@ -178,6 +184,12 @@ TEST(EntityInput, ContentFileFeedsSandboxAndEditor)
     EXPECT_TRUE(hasKey(editor, "crouch", Key::X, 1.0f));
     EXPECT_FALSE(hasKey(editor, "camouflage", Key::C, 1.0f));
     EXPECT_FALSE(hasKey(editor, "pickup", Key::G, 1.0f));
+    EXPECT_TRUE(hasKey(editor, "pickup", Key::E, 1.0f));
+    EXPECT_FALSE(hasKey(editor, "takedown", Key::E, 1.0f));
+    EXPECT_TRUE(hasKey(editor, "lean_left", Key::Q, 1.0f));
+    EXPECT_TRUE(hasButton(editor, "lean_left", GamepadButton::DPadLeft, 1.0f));
+    EXPECT_TRUE(hasKey(editor, "lean_right", Key::E, 1.0f));
+    EXPECT_TRUE(hasButton(editor, "lean_right", GamepadButton::DPadRight, 1.0f));
     EXPECT_FALSE(hasKey(editor, "night_sight", Key::N, 1.0f));
     EXPECT_FALSE(hasKey(editor, "infrared", Key::H, 1.0f));
     EXPECT_FALSE(hasKey(editor, "ultraviolet", Key::U, 1.0f));
