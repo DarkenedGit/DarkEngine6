@@ -1676,11 +1676,9 @@ void EditorApp::pollFoliageSpawn()
                 m_trails.paths = std::move(m_foliagePendingTrails);
                 m_foliageStale = true;
                 m_trailMeshDirty = true;
-                if (m_trailSelected >= static_cast<int>(m_trails.paths.size()))
-                {
-                    m_trailSelected = -1;
-                    m_trailPoint = -1;
-                }
+                // The rebuilt list packs authored paths first, so the old index can name a different path.
+                m_trailSelected = -1;
+                m_trailPoint = -1;
             }
             m_terrain.setWorkingCover(std::move(m_foliagePendingCover));
             m_grassField.markAllDirty();
@@ -1691,11 +1689,8 @@ void EditorApp::pollFoliageSpawn()
             {
                 m_trails.paths = std::move(m_foliagePendingTrails);
                 m_trailMeshDirty = true;
-                if (m_trailSelected >= static_cast<int>(m_trails.paths.size()))
-                {
-                    m_trailSelected = -1;
-                    m_trailPoint = -1;
-                }
+                m_trailSelected = -1;
+                m_trailPoint = -1;
             }
             m_foliage.swap(m_foliagePending);
             m_foliageAuthored = true;

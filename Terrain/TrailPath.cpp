@@ -517,7 +517,9 @@ namespace Dark::Terrain
                     const float bed = height.heightAtWorld(wx, wz);
                     grid.bedY[slot] = bed;
                     float surface = seaLevel;
-                    const bool wet = !height.containsXZ(wx, wz) || wetAt(water, seaLevel, wx, wz, bed, surface);
+                    // A centre past the height edge is not water. Marking it wet would turn a dry neighbour into a shore.
+                    const bool inside = height.containsXZ(wx, wz);
+                    const bool wet = inside && wetAt(water, seaLevel, wx, wz, bed, surface);
                     grid.wet[slot] = wet ? 1u : 0u;
                     grid.surfaceY[slot] = surface;
 
@@ -540,8 +542,8 @@ namespace Dark::Terrain
                         scale = 1.0f;
                     const float slope = 1.0f + 4.0f * (1.0f - ny) * (1.0f - ny);
                     const float cost = slope * scale;
-                    const bool humanBlocked = wet || !(ny >= humanNy);
-                    const bool animalBlocked = wet || !(ny >= animalNy);
+                    const bool humanBlocked = !inside || wet || !(ny >= humanNy);
+                    const bool animalBlocked = !inside || wet || !(ny >= animalNy);
                     grid.blockedHuman[slot] = humanBlocked ? 1u : 0u;
                     grid.blockedAnimal[slot] = animalBlocked ? 1u : 0u;
                     grid.costHuman[slot] = humanBlocked ? 0.0f : cost;
@@ -831,7 +833,12 @@ namespace Dark::Terrain
             if (!polylineStaysClear(grid, blocked, points))
                 points.swap(pulled);
             if (kind == TrailKind::Animal)
+            {
+                std::vector<TrailPoint> unshifted = points;
                 offsetAnimal(points, seed);
+                if (!polylineStaysClear(grid, blocked, points))
+                    points.swap(unshifted);
+            }
             return RouteStatus::Routed;
         }
 

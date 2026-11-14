@@ -176,11 +176,8 @@ void EditorApp::clearGeneratedTrails()
     if (!removed)
         return;
     m_trails.paths.swap(kept);
-    if (m_trailSelected >= static_cast<int>(m_trails.paths.size()))
-    {
-        m_trailSelected = -1;
-        m_trailPoint = -1;
-    }
+    m_trailSelected = -1;
+    m_trailPoint = -1;
     noteTrailEdit();
     m_foliageStale = true;
     m_trailMeshDirty = true;
