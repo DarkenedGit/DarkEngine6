@@ -10,6 +10,20 @@
 namespace Dark::Terrain
 {
     class FoliageCover;
+    class HeightMap;
+    class SplatMap;
+
+    // Still water. entireMap is the level lake (every XZ). Otherwise the rectangle is one placed body.
+    // Trees, grass, and flowers whose bed is below surfaceY are not planted. Rocks are.
+    struct FoliageWaterVolume
+    {
+        float minX      = 0.0f;
+        float maxX      = 0.0f;
+        float minZ      = 0.0f;
+        float maxZ      = 0.0f;
+        float surfaceY  = 0.0f;
+        bool  entireMap = false;
+    };
 
     constexpr float kTrailHumanWidth       = 1.6f;
     constexpr float kTrailAnimalWidth      = 0.8f;
@@ -64,5 +78,58 @@ namespace Dark::Terrain
 
     nlohmann::json writeTrailSet(const TrailSet& set);
     bool readTrailSet(const nlohmann::json& object, TrailSet& out, std::string* error);
+
+    struct TrailPoiCell
+    {
+        int cx = 0;
+        int cz = 0;
+    };
+
+    struct TrailGenerateIn
+    {
+        const HeightMap*                         height       = nullptr;
+        const SplatMap*                          splat        = nullptr;
+        const std::vector<FoliageWaterVolume>*   water        = nullptr;
+        float                                    seaLevel     = 0.0f;
+        uint32_t                                 seed         = 0;
+        int                                      maxAutoPaths = kTrailMaxAutoPathsDefault;
+        float                                    humanWidth   = kTrailHumanWidth;
+        float                                    animalWidth  = kTrailAnimalWidth;
+        bool                                   (*onProgress)(float t, const char* phase, void* user) = nullptr;
+        void*                                    user         = nullptr;
+    };
+
+    struct TrailGenerateOut
+    {
+        std::vector<TrailPoiCell> water;
+        std::vector<TrailPoiCell> clearings;
+        std::vector<TrailPoiCell> forest;
+        std::vector<TrailPath>    generated;
+    };
+
+    struct TrailRouteIn
+    {
+        const HeightMap*                       height   = nullptr;
+        const SplatMap*                        splat    = nullptr;
+        const std::vector<FoliageWaterVolume>* water    = nullptr;
+        float                                  seaLevel = 0.0f;
+        TrailKind                              kind     = TrailKind::Human;
+        float                                  startX   = 0.0f;
+        float                                  startZ   = 0.0f;
+        float                                  endX     = 0.0f;
+        float                                  endZ     = 0.0f;
+        uint32_t                               seed     = 0;
+        bool                                 (*onProgress)(float t, const char* phase, void* user) = nullptr;
+        void*                                  user     = nullptr;
+    };
+
+    // Rebuilds authored == false. Cancel or a missing map leaves the set unchanged.
+    bool generateGameTrails(const TrailGenerateIn& in, TrailSet& set, TrailGenerateOut* out);
+
+    // One smoothed route. No route leaves points empty and returns true. Cancel returns false.
+    bool findTrailRoute(const TrailRouteIn& in, std::vector<TrailPoint>& points);
+
+    // Dirt disks, layer 0, amount 1. Cancel returns false; the caller discards a partial paint.
+    bool stampTrailDirt(const HeightMap& height, SplatMap& splat, const std::vector<TrailPath>& paths, bool (*onProgress)(float t, const char* phase, void* user) = nullptr, void* user = nullptr);
 
 } // namespace Dark::Terrain

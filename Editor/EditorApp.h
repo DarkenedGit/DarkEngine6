@@ -344,6 +344,9 @@ private:
     bool acquireFoliageThread();
     bool fillFoliageSpawnIn(Terrain::FoliageSpawnIn& in);
     void startCoverRestamp();
+    void startTrailGenerate();
+    void clearGeneratedTrails();
+    void startTrailSplat();
     void drawTrailHeader();
     bool handleTrailKeys();
     void handleTrailPointer(bool uiMouse);
@@ -545,6 +548,8 @@ private:
     std::vector<Terrain::FoliageRecord> m_foliage;
     std::vector<Terrain::FoliageRecord> m_foliagePending;
     Terrain::FoliageCover               m_foliagePendingCover;
+    std::vector<Terrain::TrailPath>     m_foliagePendingTrails;
+    Terrain::SplatMap                   m_foliagePendingSplat;
     bool                                m_foliageAuthored = false;
     bool                                m_foliageStale    = false;
     std::atomic<bool>                   m_foliageRunning{ false };
@@ -555,6 +560,8 @@ private:
     char                                m_foliagePhase[64]{};
     bool                                m_foliageOk = false;
     bool                                m_foliageCoverOnly = false;
+    bool                                m_foliageApplyTrails = false;
+    bool                                m_foliageSplat = false;
     std::thread                         m_foliageThread;
     uint32_t                            m_trailGeneration = 0;
     uint32_t                            m_foliageTrailGeneration = 0;

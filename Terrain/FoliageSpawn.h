@@ -11,18 +11,6 @@
 
 namespace Dark::Terrain
 {
-    // Still water. entireMap is the level lake (every XZ). Otherwise the rectangle is one placed body.
-    // Trees, grass, and flowers whose bed is below surfaceY are not planted. Rocks are.
-    struct FoliageWaterVolume
-    {
-        float minX      = 0.0f;
-        float maxX      = 0.0f;
-        float minZ      = 0.0f;
-        float maxZ      = 0.0f;
-        float surfaceY  = 0.0f;
-        bool  entireMap = false;
-    };
-
     struct FoliageSpawnIn
     {
         const HeightMap* height = nullptr;

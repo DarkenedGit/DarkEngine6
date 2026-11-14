@@ -82,6 +82,8 @@ void EditorApp::startCoverRestamp()
     m_foliageTrailGeneration = m_trailGeneration;
     std::vector<FoliageRecord> records = m_foliage;
     m_foliageCoverOnly = true;
+    m_foliageApplyTrails = false;
+    m_foliageSplat = false;
     m_foliageCancel.store(false);
     m_foliageDone.store(false);
     m_foliageOk = false;
@@ -96,6 +98,126 @@ void EditorApp::startCoverRestamp()
         const bool ok = restampFoliageCover(in, records, cover);
         if (ok)
             m_foliagePendingCover = std::move(cover);
+        m_foliageOk = ok;
+        m_foliageDone.store(true);
+    });
+}
+
+void EditorApp::startTrailGenerate()
+{
+    if (!acquireFoliageThread())
+        return;
+
+    FoliageSpawnIn in;
+    if (!fillFoliageSpawnIn(in))
+        return;
+
+    TrailSet trailSet = m_trails;
+    std::vector<FoliageRecord> records = m_foliage;
+    m_foliageTrailGeneration = m_trailGeneration;
+    m_foliageCoverOnly = true;
+    m_foliageApplyTrails = true;
+    m_foliageSplat = false;
+    m_foliageCancel.store(false);
+    m_foliageDone.store(false);
+    m_foliageOk = false;
+    m_foliageProgress.store(0.0f);
+    std::vector<FoliageRecord>().swap(m_foliagePending);
+    std::vector<TrailPath>().swap(m_foliagePendingTrails);
+    m_foliagePendingSplat = SplatMap{};
+    m_foliagePendingCover.reset();
+    setFoliagePhase("trails");
+    m_foliageRunning.store(true);
+
+    m_foliageThread = std::thread([this, in, trailSet, records]() mutable {
+        TrailGenerateIn gen;
+        gen.height       = in.height;
+        gen.splat        = in.splat;
+        gen.water        = &in.water;
+        gen.seaLevel     = in.seaLevel;
+        gen.seed         = in.density.seed;
+        gen.maxAutoPaths = trailSet.maxAutoPaths;
+        gen.humanWidth   = trailSet.humanWidth;
+        gen.animalWidth  = trailSet.animalWidth;
+        gen.onProgress   = in.onProgress;
+        gen.user         = in.user;
+        FoliageCover cover;
+        bool ok = generateGameTrails(gen, trailSet, nullptr);
+        if (ok)
+        {
+            in.trails = trailSet.paths;
+            ok = restampFoliageCover(in, records, cover);
+        }
+        if (ok)
+        {
+            m_foliagePendingTrails = std::move(trailSet.paths);
+            m_foliagePendingCover = std::move(cover);
+        }
+        m_foliageOk = ok;
+        m_foliageDone.store(true);
+    });
+}
+
+void EditorApp::clearGeneratedTrails()
+{
+    if (!acquireFoliageThread())
+        return;
+
+    std::vector<TrailPath> kept;
+    kept.reserve(m_trails.paths.size());
+    bool removed = false;
+    for (const TrailPath& path : m_trails.paths)
+    {
+        if (path.authored)
+            kept.push_back(path);
+        else
+            removed = true;
+    }
+    if (!removed)
+        return;
+    m_trails.paths.swap(kept);
+    if (m_trailSelected >= static_cast<int>(m_trails.paths.size()))
+    {
+        m_trailSelected = -1;
+        m_trailPoint = -1;
+    }
+    noteTrailEdit();
+    m_foliageStale = true;
+    m_trailMeshDirty = true;
+    startCoverRestamp();
+}
+
+void EditorApp::startTrailSplat()
+{
+    if (!acquireFoliageThread())
+        return;
+
+    HeightMap* height = m_terrain.editableWorking();
+    SplatMap* splat = m_terrain.editableWorkingSplat();
+    if (height == nullptr || splat == nullptr || !height->valid() || !splat->valid())
+        return;
+
+    SplatMap copy = *splat;
+    std::vector<TrailPath> paths = m_trails.paths;
+    m_foliageTrailGeneration = m_trailGeneration;
+    m_foliageCoverOnly = false;
+    m_foliageApplyTrails = false;
+    m_foliageSplat = true;
+    m_foliageCancel.store(false);
+    m_foliageDone.store(false);
+    m_foliageOk = false;
+    m_foliageProgress.store(0.0f);
+    std::vector<FoliageRecord>().swap(m_foliagePending);
+    std::vector<TrailPath>().swap(m_foliagePendingTrails);
+    m_foliagePendingSplat = SplatMap{};
+    m_foliagePendingCover.reset();
+    setFoliagePhase("splat");
+    m_foliageRunning.store(true);
+
+    m_foliageThread = std::thread([this, height, paths, copy = std::move(copy)]() mutable {
+        const bool ok = stampTrailDirt(*height, copy, paths, &EditorApp::onFoliageProgress, this);
+        if (ok)
+            m_foliagePendingSplat = std::move(copy);
         m_foliageOk = ok;
         m_foliageDone.store(true);
     });
@@ -328,8 +450,15 @@ void EditorApp::drawTrailHeader()
         if (ImGui::Button("Stop drawing"))
             finishTrailDraw();
     }
+    if (ImGui::Button("Generate game trails"))
+        startTrailGenerate();
+    if (ImGui::Button("Clear generated"))
+        clearGeneratedTrails();
     if (ImGui::Button("Re-stamp cover"))
         startCoverRestamp();
+    if (ImGui::Button("Stamp trails into splat"))
+        startTrailSplat();
+    ImGui::SetItemTooltip("Paints dirt along the trails. A grid scene writes it on the next save. World Engine imports still do not write the splat back; the paint lasts for this session only.");
 
     for (int i = 0; i < static_cast<int>(m_trails.paths.size()); ++i)
     {

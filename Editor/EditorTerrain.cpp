@@ -1466,9 +1466,13 @@ void EditorApp::cancelFoliageSpawn()
     m_foliageRunning.store(false);
     m_foliageDone.store(false);
     std::vector<Terrain::FoliageRecord>().swap(m_foliagePending);
+    std::vector<TrailPath>().swap(m_foliagePendingTrails);
+    m_foliagePendingSplat = SplatMap{};
     m_foliagePendingCover.reset();
     m_foliageOk = false;
     m_foliageCoverOnly = false;
+    m_foliageApplyTrails = false;
+    m_foliageSplat = false;
 }
 
 bool EditorApp::fillFoliageSpawnIn(FoliageSpawnIn& in)
@@ -1553,16 +1557,43 @@ void EditorApp::startFoliageSpawn()
 
     m_foliageTrailGeneration = m_trailGeneration;
     m_foliageCoverOnly = false;
+    m_foliageApplyTrails = m_trails.autoGenerate;
+    m_foliageSplat = false;
     m_foliageCancel.store(false);
     m_foliageDone.store(false);
     m_foliageOk = false;
     m_foliageProgress.store(0.0f);
     std::vector<Terrain::FoliageRecord>().swap(m_foliagePending);
+    std::vector<TrailPath>().swap(m_foliagePendingTrails);
+    m_foliagePendingSplat = SplatMap{};
     m_foliagePendingCover.reset();
     setFoliagePhase("starting");
     m_foliageRunning.store(true);
 
-    m_foliageThread = std::thread([this, in]() {
+    TrailSet trailSet = m_trails;
+    m_foliageThread = std::thread([this, in, trailSet]() mutable {
+        if (trailSet.autoGenerate)
+        {
+            TrailGenerateIn gen;
+            gen.height       = in.height;
+            gen.splat        = in.splat;
+            gen.water        = &in.water;
+            gen.seaLevel     = in.seaLevel;
+            gen.seed         = in.density.seed;
+            gen.maxAutoPaths = trailSet.maxAutoPaths;
+            gen.humanWidth   = trailSet.humanWidth;
+            gen.animalWidth  = trailSet.animalWidth;
+            gen.onProgress   = in.onProgress;
+            gen.user         = in.user;
+            if (!generateGameTrails(gen, trailSet, nullptr))
+            {
+                m_foliageOk = false;
+                m_foliageDone.store(true);
+                return;
+            }
+            in.trails = trailSet.paths;
+        }
+
         FoliageSpawnOut out;
         bool ok = spawnFoliage(in, out);
         if (ok)
@@ -1602,6 +1633,8 @@ void EditorApp::startFoliageSpawn()
         }
         if (ok)
         {
+            if (trailSet.autoGenerate)
+                m_foliagePendingTrails = std::move(trailSet.paths);
             m_foliagePending.swap(out.records);
             m_foliagePendingCover = std::move(out.cover);
         }
@@ -1620,20 +1653,50 @@ void EditorApp::pollFoliageSpawn()
     m_foliageDone.store(false);
     const bool trailsMoved = m_trailGeneration != m_foliageTrailGeneration;
     const bool coverOnly = m_foliageCoverOnly;
+    const bool applyTrails = m_foliageApplyTrails;
+    const bool splatJob = m_foliageSplat;
     const bool ok = m_foliageOk;
     const bool cancelled = m_foliageCancel.load();
     if (cancelled)
         DE_LOG_INFO(LogCategory::Render, "Editor: foliage spawn cancelled - previous set kept");
+    else if (ok && splatJob)
+    {
+        if (!m_terrain.setWorkingSplat(std::move(m_foliagePendingSplat)))
+            DE_LOG_ERROR(LogCategory::Render, "Editor: trail splat was not applied");
+        else if (!uploadTerrainSplatGpu())
+            DE_LOG_ERROR(LogCategory::Render, "Editor: trail splat upload failed");
+    }
     else if (ok && !trailsMoved)
     {
         if (coverOnly)
         {
             // Cover-only success must not clear a stale forest or swap the tree set.
+            if (applyTrails)
+            {
+                m_trails.paths = std::move(m_foliagePendingTrails);
+                m_foliageStale = true;
+                m_trailMeshDirty = true;
+                if (m_trailSelected >= static_cast<int>(m_trails.paths.size()))
+                {
+                    m_trailSelected = -1;
+                    m_trailPoint = -1;
+                }
+            }
             m_terrain.setWorkingCover(std::move(m_foliagePendingCover));
             m_grassField.markAllDirty();
         }
         else
         {
+            if (applyTrails)
+            {
+                m_trails.paths = std::move(m_foliagePendingTrails);
+                m_trailMeshDirty = true;
+                if (m_trailSelected >= static_cast<int>(m_trails.paths.size()))
+                {
+                    m_trailSelected = -1;
+                    m_trailPoint = -1;
+                }
+            }
             m_foliage.swap(m_foliagePending);
             m_foliageAuthored = true;
             m_foliageStale = false;
@@ -1641,17 +1704,21 @@ void EditorApp::pollFoliageSpawn()
             m_grassField.markAllDirty();
         }
     }
-    else if (ok && !coverOnly)
+    else if (ok && !coverOnly && !splatJob)
     {
         // Trails changed after this job copied them. Keep the trees and leave the forest stale.
         m_foliage.swap(m_foliagePending);
         m_foliageAuthored = true;
     }
     std::vector<Terrain::FoliageRecord>().swap(m_foliagePending);
+    std::vector<TrailPath>().swap(m_foliagePendingTrails);
+    m_foliagePendingSplat = SplatMap{};
     m_foliagePendingCover.reset();
     m_foliageOk = false;
     m_foliageCoverOnly = false;
-    if (ok && trailsMoved && !cancelled)
+    m_foliageApplyTrails = false;
+    m_foliageSplat = false;
+    if (ok && trailsMoved && !cancelled && !splatJob)
         startCoverRestamp();
 }
 

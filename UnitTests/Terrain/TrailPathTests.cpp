@@ -6,6 +6,7 @@
 #include "Terrain/FoliageSpawn.h"
 #include "Terrain/HeightMap.h"
 #include "Terrain/SplatMap.h"
+#include "Terrain/TerrainGround.h"
 #include "Terrain/TrailPath.h"
 
 #include <cmath>
@@ -222,4 +223,423 @@ TEST(TrailPath, TreesAndRocksSkipPathCore)
     }
     EXPECT_GT(trees, 0);
     EXPECT_GT(rocks, 0);
+}
+
+TEST(TrailPath, LeastCostAvoidsWaterAndSteep)
+{
+    constexpr uint32_t kSamples = 97u;
+    HeightMap hm;
+    SplatMap splat;
+    ASSERT_TRUE(hm.createWorking(kSamples, kSamples, 1.0f, 1.0f));
+    hm.setOrigin(Vector3f{ 0.0f, 0.0f, 0.0f });
+    float* heights = hm.mutableSamples();
+    for (uint32_t z = 0; z < kSamples; ++z)
+    {
+        for (uint32_t x = 0; x < kSamples; ++x)
+        {
+            float y = 5.0f;
+            if (x >= 32u && x <= 64u && z >= 56u)
+                y = 5.0f + static_cast<float>(x - 32u);
+            heights[static_cast<size_t>(z) * kSamples + x] = y;
+        }
+    }
+    ASSERT_TRUE(splat.createWorking(kSamples, kSamples));
+    for (uint32_t z = 0; z < kSamples; ++z)
+    {
+        for (uint32_t x = 0; x < kSamples; ++x)
+            splat.setTexel(static_cast<int>(x), static_cast<int>(z), 0, 255, 0, 0);
+    }
+
+    const Vector3f ridgeNormal = hm.normalAtWorld(48.0f, 80.0f);
+    EXPECT_LT(ridgeNormal.y, 0.80f);
+
+    FoliageWaterVolume lake;
+    lake.minX = 32.0f;
+    lake.maxX = 64.0f;
+    lake.minZ = 0.0f;
+    lake.maxZ = 40.0f;
+    lake.surfaceY = 8.0f;
+    std::vector<FoliageWaterVolume> water;
+    water.push_back(lake);
+
+    TrailRouteIn route;
+    route.height = &hm;
+    route.splat = &splat;
+    route.water = &water;
+    route.seaLevel = -1000.0f;
+    route.kind = TrailKind::Human;
+    route.seed = 11u;
+    route.startX = 14.0f;
+    route.startZ = 22.0f;
+    route.endX = 82.0f;
+    route.endZ = 22.0f;
+
+    std::vector<TrailPoint> points;
+    ASSERT_TRUE(findTrailRoute(route, points));
+    ASSERT_GE(points.size(), 2u);
+
+    bool crossedGap = false;
+    bool climbed = false;
+    for (size_t i = 1; i < points.size(); ++i)
+    {
+        const float dx = points[i].x - points[i - 1].x;
+        const float dz = points[i].z - points[i - 1].z;
+        const float mag = std::sqrt(dx * dx + dz * dz);
+        int steps = static_cast<int>(std::ceil(mag / 0.5f));
+        if (steps < 1)
+            steps = 1;
+        for (int s = 0; s <= steps; ++s)
+        {
+            const float t = static_cast<float>(s) / static_cast<float>(steps);
+            const float x = points[i - 1].x + dx * t;
+            const float z = points[i - 1].z + dz * t;
+            const bool inLake = x >= lake.minX && x <= lake.maxX && z >= lake.minZ && z <= lake.maxZ;
+            EXPECT_FALSE(inLake);
+            const Vector3f normal = hm.normalAtWorld(x, z);
+            EXPECT_GT(normal.y, 0.88f);
+            if (z > 40.0f)
+                climbed = true;
+            if (x > 36.0f && x < 60.0f && z > 40.0f && z < 56.0f)
+                crossedGap = true;
+        }
+    }
+    EXPECT_TRUE(climbed);
+    EXPECT_TRUE(crossedGap);
+
+    HeightMap sea;
+    SplatMap seaSplat;
+    ASSERT_TRUE(flatMap(sea, seaSplat, 17u, 0, 255, 0, 0));
+    uint8_t before[4] = {};
+    seaSplat.getTexel(4, 4, before);
+
+    TrailRouteIn flooded;
+    flooded.height = &sea;
+    flooded.splat = &seaSplat;
+    flooded.seaLevel = 100.0f;
+    flooded.kind = TrailKind::Human;
+    flooded.startX = 2.0f;
+    flooded.startZ = 2.0f;
+    flooded.endX = 12.0f;
+    flooded.endZ = 10.0f;
+    std::vector<TrailPoint> none;
+    ASSERT_TRUE(findTrailRoute(flooded, none));
+    EXPECT_TRUE(none.empty());
+
+    FoliageWaterVolume ocean;
+    ocean.entireMap = true;
+    ocean.surfaceY = 10.0f;
+    std::vector<FoliageWaterVolume> oceans;
+    oceans.push_back(ocean);
+    flooded.water = &oceans;
+    flooded.seaLevel = -100.0f;
+    ASSERT_TRUE(findTrailRoute(flooded, none));
+    EXPECT_TRUE(none.empty());
+
+    TrailSet set;
+    set.autoGenerate = true;
+    TrailGenerateIn gen;
+    gen.height = &sea;
+    gen.splat = &seaSplat;
+    gen.water = &oceans;
+    gen.seaLevel = -100.0f;
+    gen.seed = 3u;
+    gen.maxAutoPaths = 12;
+    gen.humanWidth = 1.6f;
+    gen.animalWidth = 0.8f;
+    ASSERT_TRUE(generateGameTrails(gen, set, nullptr));
+    EXPECT_TRUE(set.paths.empty());
+
+    FoliageCover cover;
+    ASSERT_TRUE(cover.create(16.0f, 16.0f, 0.0f, 0.0f));
+    cover.clear(255, 255);
+    for (const TrailPath& path : set.paths)
+        rasterTrail(cover, path, gen.seed, 1u);
+    const CoverSample bare = cover.sampleNearest(4.0f, 4.0f);
+    EXPECT_EQ(bare.coverage, 255);
+    EXPECT_EQ(bare.heightScale, 255);
+
+    ASSERT_TRUE(stampTrailDirt(sea, seaSplat, set.paths));
+    uint8_t after[4] = {};
+    seaSplat.getTexel(4, 4, after);
+    EXPECT_EQ(after[0], before[0]);
+    EXPECT_EQ(after[1], before[1]);
+    EXPECT_EQ(after[2], before[2]);
+    EXPECT_EQ(after[3], before[3]);
+}
+
+TEST(TrailPath, AuthoredPathsSurviveRegenerate)
+{
+    HeightMap hm;
+    SplatMap splat;
+    ASSERT_TRUE(flatMap(hm, splat, 17u, 0, 255, 0, 0));
+
+    TrailSet set;
+    set.autoGenerate = true;
+    set.maxAutoPaths = 12;
+    set.humanWidth = 1.6f;
+    set.animalWidth = 0.8f;
+
+    TrailPath authored;
+    authored.kind = TrailKind::Human;
+    authored.width = 1.6f;
+    authored.authored = true;
+    authored.points.push_back(TrailPoint{ 1.0f, 2.0f });
+    authored.points.push_back(TrailPoint{ 8.0f, 2.0f });
+    authored.points.push_back(TrailPoint{ 8.0f, 9.0f });
+
+    TrailPath oldGenerated;
+    oldGenerated.kind = TrailKind::Animal;
+    oldGenerated.width = 0.8f;
+    oldGenerated.authored = false;
+    oldGenerated.points.push_back(TrailPoint{ 4.0f, 4.0f });
+    oldGenerated.points.push_back(TrailPoint{ 6.0f, 6.0f });
+    set.paths.push_back(authored);
+    set.paths.push_back(oldGenerated);
+
+    TrailGenerateIn in;
+    in.height = &hm;
+    in.splat = &splat;
+    in.seaLevel = -10.0f;
+    in.seed = 7u;
+    in.maxAutoPaths = set.maxAutoPaths;
+    in.humanWidth = set.humanWidth;
+    in.animalWidth = set.animalWidth;
+    ASSERT_TRUE(generateGameTrails(in, set, nullptr));
+
+    const TrailPath* kept = nullptr;
+    for (const TrailPath& path : set.paths)
+    {
+        EXPECT_TRUE(path.authored);
+        EXPECT_EQ(kept, nullptr);
+        kept = &path;
+    }
+    ASSERT_NE(kept, nullptr);
+    ASSERT_EQ(kept->points.size(), 3u);
+    EXPECT_NEAR(kept->points[0].x, 1.0f, 1.0e-5f);
+    EXPECT_NEAR(kept->points[0].z, 2.0f, 1.0e-5f);
+    EXPECT_NEAR(kept->points[1].x, 8.0f, 1.0e-5f);
+    EXPECT_NEAR(kept->points[1].z, 2.0f, 1.0e-5f);
+    EXPECT_NEAR(kept->points[2].x, 8.0f, 1.0e-5f);
+    EXPECT_NEAR(kept->points[2].z, 9.0f, 1.0e-5f);
+    EXPECT_TRUE(set.autoGenerate);
+
+    const nlohmann::json saved = writeTrailSet(set);
+    TrailSet loaded;
+    std::string error;
+    ASSERT_TRUE(readTrailSet(saved, loaded, &error));
+    EXPECT_TRUE(loaded.autoGenerate);
+    const TrailPath* round = nullptr;
+    for (const TrailPath& path : loaded.paths)
+    {
+        if (!path.authored)
+            continue;
+        round = &path;
+    }
+    ASSERT_NE(round, nullptr);
+    ASSERT_EQ(round->points.size(), 3u);
+    EXPECT_NEAR(round->points[0].x, 1.0f, 1.0e-5f);
+    EXPECT_NEAR(round->points[0].z, 2.0f, 1.0e-5f);
+    EXPECT_NEAR(round->points[2].x, 8.0f, 1.0e-5f);
+    EXPECT_NEAR(round->points[2].z, 9.0f, 1.0e-5f);
+}
+
+TEST(TrailPath, PoiOrderIsDeterministic)
+{
+    constexpr uint32_t kSamples = 65u;
+    auto build = [](HeightMap& hm, SplatMap& splat) {
+        EXPECT_TRUE(hm.createWorking(kSamples, kSamples, 1.0f, 1.0f));
+        hm.setOrigin(Vector3f{ 0.0f, 0.0f, 0.0f });
+        float* heights = hm.mutableSamples();
+        for (uint32_t z = 0; z < kSamples; ++z)
+        {
+            for (uint32_t x = 0; x < kSamples; ++x)
+            {
+                const bool pond = x >= 8u && x <= 24u && z >= 8u && z <= 24u;
+                heights[static_cast<size_t>(z) * kSamples + x] = pond ? 4.0f : 5.0f;
+            }
+        }
+        EXPECT_TRUE(splat.createWorking(kSamples, kSamples));
+        for (uint32_t z = 0; z < kSamples; ++z)
+        {
+            for (uint32_t x = 0; x < kSamples; ++x)
+                splat.setTexel(static_cast<int>(x), static_cast<int>(z), 255, 0, 0, 0);
+        }
+        const int clearings[][2] = { { 12, 2 }, { 13, 4 }, { 12, 6 }, { 14, 8 }, { 12, 10 } };
+        for (const int (&cell)[2] : clearings)
+            splat.setTexel(cell[0] * 4 + 2, cell[1] * 4 + 2, 0, 255, 0, 0);
+        const int forest[][2] = { { 4, 14 }, { 8, 14 }, { 2, 13 }, { 6, 15 } };
+        for (const int (&cell)[2] : forest)
+        {
+            // sampleWeights divides by the channel sum, so grass has to share the texel to stay under 0.60.
+            splat.setTexel(cell[0] * 4 + 2, cell[1] * 4 + 2, 155, 100, 0, 0);
+        }
+    };
+
+    HeightMap hmA;
+    SplatMap splatA;
+    HeightMap hmB;
+    SplatMap splatB;
+    build(hmA, splatA);
+    build(hmB, splatB);
+
+    FoliageWaterVolume pond;
+    pond.minX = 8.0f;
+    pond.maxX = 24.0f;
+    pond.minZ = 8.0f;
+    pond.maxZ = 24.0f;
+    pond.surfaceY = 5.0f;
+    std::vector<FoliageWaterVolume> water;
+    water.push_back(pond);
+
+    auto run = [&](HeightMap& hm, SplatMap& splat, uint32_t seed, TrailGenerateOut& out) {
+        TrailSet set;
+        set.autoGenerate = true;
+        set.maxAutoPaths = 12;
+        set.humanWidth = kTrailHumanWidth;
+        set.animalWidth = kTrailAnimalWidth;
+        TrailGenerateIn in;
+        in.height = &hm;
+        in.splat = &splat;
+        in.water = &water;
+        in.seaLevel = -10.0f;
+        in.seed = seed;
+        in.maxAutoPaths = 12;
+        in.humanWidth = kTrailHumanWidth;
+        in.animalWidth = kTrailAnimalWidth;
+        ASSERT_TRUE(generateGameTrails(in, set, &out));
+    };
+
+    TrailGenerateOut first;
+    TrailGenerateOut second;
+    run(hmA, splatA, 5u, first);
+    run(hmB, splatB, 5u, second);
+
+    ASSERT_FALSE(first.water.empty());
+    ASSERT_FALSE(first.clearings.empty());
+    ASSERT_FALSE(first.forest.empty());
+    ASSERT_FALSE(first.generated.empty());
+    ASSERT_EQ(first.water.size(), second.water.size());
+    ASSERT_EQ(first.clearings.size(), second.clearings.size());
+    ASSERT_EQ(first.forest.size(), second.forest.size());
+    ASSERT_EQ(first.generated.size(), second.generated.size());
+    for (size_t i = 0; i < first.water.size(); ++i)
+    {
+        EXPECT_EQ(first.water[i].cx, second.water[i].cx);
+        EXPECT_EQ(first.water[i].cz, second.water[i].cz);
+    }
+    for (size_t i = 0; i < first.clearings.size(); ++i)
+    {
+        EXPECT_EQ(first.clearings[i].cx, second.clearings[i].cx);
+        EXPECT_EQ(first.clearings[i].cz, second.clearings[i].cz);
+    }
+    for (size_t i = 0; i < first.forest.size(); ++i)
+    {
+        EXPECT_EQ(first.forest[i].cx, second.forest[i].cx);
+        EXPECT_EQ(first.forest[i].cz, second.forest[i].cz);
+    }
+
+    bool seenAnimal = false;
+    bool anyAnimal = false;
+    for (size_t i = 0; i < first.generated.size(); ++i)
+    {
+        const TrailPath& a = first.generated[i];
+        const TrailPath& b = second.generated[i];
+        EXPECT_EQ(a.kind, b.kind);
+        EXPECT_FALSE(a.authored);
+        EXPECT_FALSE(b.authored);
+        if (a.kind == TrailKind::Animal)
+        {
+            seenAnimal = true;
+            anyAnimal = true;
+            EXPECT_NEAR(a.width, 0.8f, 1.0e-5f);
+        }
+        else
+        {
+            EXPECT_FALSE(seenAnimal);
+            EXPECT_NEAR(a.width, 1.6f, 1.0e-5f);
+        }
+        ASSERT_EQ(a.points.size(), b.points.size());
+        for (size_t p = 0; p < a.points.size(); ++p)
+        {
+            EXPECT_FLOAT_EQ(a.points[p].x, b.points[p].x);
+            EXPECT_FLOAT_EQ(a.points[p].z, b.points[p].z);
+        }
+    }
+    EXPECT_TRUE(anyAnimal);
+
+    HeightMap hmC;
+    SplatMap splatC;
+    build(hmC, splatC);
+    TrailGenerateOut otherSeed;
+    run(hmC, splatC, 99u, otherSeed);
+    ASSERT_EQ(otherSeed.water.size(), first.water.size());
+    for (size_t i = 0; i < first.water.size(); ++i)
+    {
+        EXPECT_EQ(first.water[i].cx, otherSeed.water[i].cx);
+        EXPECT_EQ(first.water[i].cz, otherSeed.water[i].cz);
+    }
+    bool animalMoved = false;
+    if (otherSeed.generated.size() == first.generated.size())
+    {
+        for (size_t i = 0; i < first.generated.size(); ++i)
+        {
+            if (first.generated[i].kind != TrailKind::Animal)
+                continue;
+            const TrailPath& a = first.generated[i];
+            const TrailPath& b = otherSeed.generated[i];
+            if (a.points.size() != b.points.size())
+            {
+                animalMoved = true;
+                continue;
+            }
+            for (size_t p = 0; p < a.points.size(); ++p)
+            {
+                if (a.points[p].x != b.points[p].x || a.points[p].z != b.points[p].z)
+                    animalMoved = true;
+            }
+        }
+    }
+    else
+        animalMoved = true;
+    EXPECT_TRUE(animalMoved);
+}
+
+TEST(TrailPath, DirtStampUniqueMaximum)
+{
+    HeightMap hm;
+    SplatMap splat;
+    ASSERT_TRUE(hm.create(8u, 8u, 1.0f, 1.0f));
+    hm.setOrigin(Vector3f{ 0.0f, 0.0f, 0.0f });
+    ASSERT_TRUE(splat.create(8u, 8u));
+    for (int z = 0; z < 8; ++z)
+    {
+        for (int x = 0; x < 8; ++x)
+            splat.setTexel(x, z, 0, 255, 0, 0);
+    }
+
+    splat.paintDisk(3.0f, 3.0f, 2.0f, 0, 1.0f);
+    uint8_t texel[4] = {};
+    splat.getTexel(3, 3, texel);
+    EXPECT_EQ(texel[0], 127);
+    EXPECT_EQ(texel[1], 128);
+    EXPECT_EQ(texel[2], 0);
+    EXPECT_EQ(texel[3], 0);
+
+    TerrainGround ground;
+    const GroundContact first = ground.at(&hm, &splat, 3.0f, 3.0f);
+    EXPECT_EQ(first.layer, 1);
+    ASSERT_NE(first.footstep, nullptr);
+    EXPECT_STREQ(first.footstep, "audio/foot_grass.wav");
+
+    splat.paintDisk(3.0f, 3.0f, 2.0f, 0, 1.0f);
+    splat.getTexel(3, 3, texel);
+    EXPECT_EQ(texel[0], 170);
+    EXPECT_EQ(texel[1], 85);
+    EXPECT_EQ(texel[2], 0);
+    EXPECT_EQ(texel[3], 0);
+
+    const GroundContact second = ground.at(&hm, &splat, 3.0f, 3.0f);
+    EXPECT_EQ(second.layer, 0);
+    ASSERT_NE(second.footstep, nullptr);
+    EXPECT_STREQ(second.footstep, "audio/foot_dirt.wav");
 }
