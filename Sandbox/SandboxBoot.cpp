@@ -441,6 +441,10 @@ bool SandboxApp::advanceBootSlice()
             m_foliageDensity.rockMaxPitchDeg   = boot.scene.terrain.foliage.rockMaxPitchDeg;
             m_foliageDensity.treeSpacingM      = boot.scene.terrain.foliage.treeSpacingM;
             m_foliageDensity.rockSpacingM      = boot.scene.terrain.foliage.rockSpacingM;
+            m_foliageDensity.patchStrength     = boot.scene.terrain.foliage.patchStrength;
+            m_foliageDensity.patchLargeM       = boot.scene.terrain.foliage.patchLargeM;
+            m_foliageDensity.patchMediumM      = boot.scene.terrain.foliage.patchMediumM;
+            m_foliageDensity.patchFineM        = boot.scene.terrain.foliage.patchFineM;
             m_foliageDensity.seed              = boot.scene.terrain.foliage.seed;
             m_foliageDensity.treeModel         = boot.scene.terrain.foliage.treeModel;
             m_foliageDensity.flowerModel       = boot.scene.terrain.foliage.flowerModel;

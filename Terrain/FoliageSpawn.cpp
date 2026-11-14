@@ -26,6 +26,20 @@ namespace Dark::Terrain
         constexpr uint32_t kSaltGrassJitterZ  = 0x5500u;
         constexpr uint32_t kSaltYaw           = 0x6000u;
         constexpr uint32_t kSaltScale         = 0x7000u;
+        constexpr uint32_t kSaltChild         = 0x8000u;
+        constexpr uint32_t kSaltChildRadius   = 0x8100u;
+        constexpr uint32_t kSaltChildKind     = 0x8200u;
+        constexpr uint32_t kSaltChildCount    = 0x8300u;
+        constexpr uint32_t kSaltChildScale    = 0x8400u;
+        constexpr uint32_t kSaltPebble        = 0x8600u;
+        constexpr uint32_t kSaltPebbleCount   = 0x8700u;
+        constexpr uint32_t kSaltPebbleLateral = 0x8800u;
+        constexpr uint32_t kSaltPebbleScale   = 0x8900u;
+        constexpr uint32_t kSaltPatchLarge    = 0x9000u;
+        constexpr uint32_t kSaltPatchMedium   = 0x9100u;
+        constexpr uint32_t kSaltPatchFine     = 0x9200u;
+        constexpr int      kMaxChildrenPerParent = 8;
+        constexpr float    kPebbleParentScale = 1.2f;
         constexpr float    kTreeRockJitter    = 0.45f;
         constexpr float    kFlowerJitter      = 0.12f;
         constexpr float    kFlowerOffsetX[kFlowerSlots] = { -0.25f, 0.25f };
@@ -120,7 +134,106 @@ namespace Dark::Terrain
             return false;
         }
 
-        void thinTo(std::vector<FoliageRecord>& recs, uint64_t keepCap)
+        struct TreeDisk
+        {
+            float trunk  = 0.0f;
+            float canopy = 0.0f;
+        };
+
+        struct ParentRef
+        {
+            int ix = 0;
+            int iz = 0;
+        };
+
+        int noiseCell(float v)
+        {
+            return static_cast<int>(std::floor(static_cast<double>(v)));
+        }
+
+        float fade(float t)
+        {
+            return t * t * (3.0f - 2.0f * t);
+        }
+
+        float valueNoise(float x, float z, float wavelength, uint32_t salt, uint32_t seed)
+        {
+            const float inv = 1.0f / wavelength;
+            const float fx  = x * inv;
+            const float fz  = z * inv;
+            const int   x0  = noiseCell(fx);
+            const int   z0  = noiseCell(fz);
+            const float tx  = fade(fx - static_cast<float>(x0));
+            const float tz  = fade(fz - static_cast<float>(z0));
+            const float v00 = hash21(x0, z0, seed ^ salt);
+            const float v10 = hash21(x0 + 1, z0, seed ^ salt);
+            const float v01 = hash21(x0, z0 + 1, seed ^ salt);
+            const float v11 = hash21(x0 + 1, z0 + 1, seed ^ salt);
+            const float a   = v00 + (v10 - v00) * tx;
+            const float b   = v01 + (v11 - v01) * tx;
+            return a + (b - a) * tz;
+        }
+
+        float fbm(float x, float z, float wavelength, uint32_t salt, uint32_t seed)
+        {
+            float amp  = 1.0f;
+            float sum  = 0.0f;
+            float norm = 0.0f;
+            float wl   = wavelength;
+            for (int oct = 0; oct < 3; ++oct)
+            {
+                sum += amp * valueNoise(x, z, wl, salt + static_cast<uint32_t>(oct) * 17u, seed);
+                norm += amp;
+                amp *= 0.5f;
+                wl *= 0.5f;
+            }
+            return norm > 0.0f ? sum / norm : 0.0f;
+        }
+
+        // 1 at a hashed cell seed, falling to 0 between the 3x3 neighbours.
+        float worleyGrove(float x, float z, float wavelength, uint32_t salt, uint32_t seed)
+        {
+            const float inv = 1.0f / wavelength;
+            const float fx  = x * inv;
+            const float fz  = z * inv;
+            const int   cx  = noiseCell(fx);
+            const int   cz  = noiseCell(fz);
+            float       best = 2.0f;
+            for (int dz = -1; dz <= 1; ++dz)
+            {
+                for (int dx = -1; dx <= 1; ++dx)
+                {
+                    const int   nx  = cx + dx;
+                    const int   nz  = cz + dz;
+                    const float px  = static_cast<float>(nx) + hash21(nx, nz, seed ^ salt);
+                    const float pz  = static_cast<float>(nz) + hash21(nx, nz, seed ^ (salt * 0x9E3779B9u + 0x85EBCA6Bu));
+                    const float ddx = fx - px;
+                    const float ddz = fz - pz;
+                    const float d   = std::sqrt(ddx * ddx + ddz * ddz);
+                    if (d < best)
+                        best = d;
+                }
+            }
+            const float u = best > 1.0f ? 1.0f : best;
+            return 1.0f - u;
+        }
+
+        TreeDisk treeDisk(const FoliageRecord& rec, float extentX, float extentZ)
+        {
+            TreeDisk disk;
+            disk.trunk  = 0.5f * rec.scale;
+            disk.canopy = 2.0f * rec.scale;
+            if (extentX > 0.0f && extentZ > 0.0f)
+            {
+                const float mn = extentX < extentZ ? extentX : extentZ;
+                const float mx = extentX > extentZ ? extentX : extentZ;
+                disk.trunk  = 0.25f * mn * rec.scale;
+                disk.canopy = 0.45f * mx * rec.scale;
+            }
+            return disk;
+        }
+
+        void thinPaired(std::vector<FoliageRecord>& recs, std::vector<ParentRef>& refs, uint64_t keepCap)
         {
             const uint64_t total = static_cast<uint64_t>(recs.size());
             if (keepCap >= total)
@@ -134,27 +247,23 @@ namespace Dark::Terrain
                 {
                     acc -= total;
                     if (write != i)
+                    {
                         recs[write] = recs[i];
+                        refs[write] = refs[i];
+                    }
                     ++write;
                 }
             }
             recs.resize(write);
+            refs.resize(write);
         }
 
         void stampTree(FoliageCover& cover, const FoliageRecord& rec, const FoliageSpawnIn& in)
         {
-            float trunk = 0.5f * rec.scale;
-            float outer = 2.0f * rec.scale;
-            if (in.treeExtentX > 0.0f && in.treeExtentZ > 0.0f)
-            {
-                const float mn = in.treeExtentX < in.treeExtentZ ? in.treeExtentX : in.treeExtentZ;
-                const float mx = in.treeExtentX > in.treeExtentZ ? in.treeExtentX : in.treeExtentZ;
-                trunk = 0.25f * mn * rec.scale;
-                outer = 0.45f * mx * rec.scale;
-            }
-            cover.stampDisk(rec.x, rec.z, trunk, 0, 0, true);
-            if (outer > trunk)
-                cover.stampSoftAnnulus(rec.x, rec.z, trunk, outer, 0, 255, kCanopyHeightByte, 255, true);
+            const TreeDisk disk = treeDisk(rec, in.treeExtentX, in.treeExtentZ);
+            cover.stampDisk(rec.x, rec.z, disk.trunk, 0, 0, true);
+            if (disk.canopy > disk.trunk)
+                cover.stampSoftAnnulus(rec.x, rec.z, disk.trunk, disk.canopy, 0, 255, kCanopyHeightByte, 255, true);
         }
 
         bool cancelled(const FoliageSpawnIn& in, float t, const char* phase)
@@ -246,6 +355,10 @@ namespace Dark::Terrain
         const float rockMaxPitchDeg  = Clamp(in.density.rockMaxPitchDeg, 0.0f, 89.0f);
         const float treeSpacingM     = Clamp(in.density.treeSpacingM, 0.0f, 16.0f);
         const float rockSpacingM     = Clamp(in.density.rockSpacingM, 0.0f, 16.0f);
+        const float patchStrength    = Clamp(in.density.patchStrength, 0.0f, 1.0f);
+        const float patchLargeM      = Clamp(in.density.patchLargeM, 60.0f, 120.0f);
+        const float patchMediumM     = Clamp(in.density.patchMediumM, 15.0f, 30.0f);
+        const float patchFineM       = Clamp(in.density.patchFineM, 2.0f, 6.0f);
         const float treeMaxLeanRad   = treeMaxLeanDeg * DegToRad;
         const float rockMaxPitchRad  = rockMaxPitchDeg * DegToRad;
         const uint32_t seed     = in.density.seed;
@@ -284,6 +397,7 @@ namespace Dark::Terrain
         const bool placeGrass   = grassPerM2 > 0.0f;
 
         std::vector<FoliageRecord> parents;
+        std::vector<ParentRef>     parentRefs;
         SpaceHash treeHash;
         SpaceHash rockHash;
         treeHash.spacing = treeSpacingM;
@@ -295,7 +409,7 @@ namespace Dark::Terrain
         uint64_t room    = cap;
         uint64_t acc     = 0;
 
-        auto pushRecord = [&](FoliageKind kind, int slot, float x, float z, int ix, int iz, float scale, std::vector<FoliageRecord>& dest)
+        auto pushRecord = [&](FoliageKind kind, int slot, float x, float z, int ix, int iz, float scale, std::vector<FoliageRecord>& dest, uint32_t extraSalt)
         {
             const bool     flower = kind == FoliageKind::Flower;
             const uint32_t slotU  = static_cast<uint32_t>(slot);
@@ -303,6 +417,7 @@ namespace Dark::Terrain
             uint32_t yawSalt = kSaltYaw + kindU;
             if (flower)
                 yawSalt += slotU * 16u;
+            yawSalt ^= extraSalt;
 
             FoliageRecord rec{};
             rec.x     = x;
@@ -334,6 +449,42 @@ namespace Dark::Terrain
                 }
             }
             dest.push_back(rec);
+        };
+
+        auto largeAt = [&](float x, float z) -> float
+        {
+            float pinned = -1.0f;
+            for (const FoliageLargeMaskDisk& disk : in.largeMaskDisks)
+            {
+                if (!(disk.radius > 0.0f))
+                    continue;
+                const float dx = x - disk.x;
+                const float dz = z - disk.z;
+                if (dx * dx + dz * dz <= disk.radius * disk.radius)
+                    pinned = Clamp(disk.mask, 0.0f, 1.0f);
+            }
+            if (pinned >= 0.0f)
+                return pinned;
+            return fbm(x, z, patchLargeM, kSaltPatchLarge, seed);
+        };
+
+        auto kindMask = [&](FoliageKind kind, float x, float z) -> float
+        {
+            const float large = largeAt(x, z);
+            float       mask  = 1.0f;
+            if (kind == FoliageKind::Tree)
+            {
+                const float medium = worleyGrove(x, z, patchMediumM, kSaltPatchMedium, seed);
+                mask = large * (0.35f + 0.65f * medium);
+            }
+            else if (kind == FoliageKind::Flower)
+            {
+                const float fine = fbm(x, z, patchFineM, kSaltPatchFine, seed);
+                mask = (1.0f - large) * (0.70f + 0.30f * fine) + large * fine * 0.15f;
+            }
+            else if (kind == FoliageKind::Grass)
+                mask = fbm(x, z, patchFineM, kSaltPatchFine, seed);
+            return Clamp(mask, 0.0f, 1.0f);
         };
 
         auto consider = [&](FoliageKind kind, int slot, float anchorX, float anchorZ, int ix, int iz, bool parentPass, SpaceHash* hash)
@@ -396,6 +547,9 @@ namespace Dark::Terrain
                 p *= static_cast<float>(out.cover.sampleBilinear(x, z).coverage) / 255.0f;
             }
 
+            if (patchStrength > 0.0f && p > 0.0f && kind != FoliageKind::Rock)
+                p *= Lerp(1.0f - patchStrength, 1.0f, kindMask(kind, x, z));
+
             bool accept = false;
             if (p >= 1.0f)
                 accept = true;
@@ -441,7 +595,8 @@ namespace Dark::Terrain
                     return;
                 if (hash != nullptr)
                     hash->insert(x, z, scale);
-                pushRecord(kind, slot, x, z, ix, iz, scale, parents);
+                pushRecord(kind, slot, x, z, ix, iz, scale, parents, 0u);
+                parentRefs.push_back(ParentRef{ ix, iz });
                 return;
             }
 
@@ -462,7 +617,7 @@ namespace Dark::Terrain
             }
             if (!keep)
                 return;
-            pushRecord(kind, slot, x, z, ix, iz, scale, out.records);
+            pushRecord(kind, slot, x, z, ix, iz, scale, out.records, 0u);
         };
 
         for (uint32_t cellZ = 0; cellZ < rows; ++cellZ)
@@ -491,13 +646,161 @@ namespace Dark::Terrain
 
         const uint64_t parentAccepted = static_cast<uint64_t>(parents.size());
         if (parentAccepted > cap)
-            thinTo(parents, cap);
+            thinPaired(parents, parentRefs, cap);
         out.records.swap(parents);
         for (const FoliageRecord& rec : out.records)
         {
             if (rec.kind == static_cast<uint8_t>(FoliageKind::Tree))
                 stampTree(out.cover, rec, in);
         }
+
+        const size_t parentCount = parentRefs.size();
+
+        auto noteChild = [&](FoliageKind kind, int slot, float x, float z, int ix, int iz, float scale, uint32_t extraSalt)
+        {
+            if (!writing)
+            {
+                ++counted;
+                return;
+            }
+            bool keep = true;
+            if (total > room)
+            {
+                acc += room;
+                if (acc >= total)
+                    acc -= total;
+                else
+                    keep = false;
+            }
+            if (!keep)
+                return;
+            pushRecord(kind, slot, x, z, ix, iz, scale, out.records, extraSalt);
+        };
+
+        auto hashedCount = [&](int ix, int iz, uint32_t salt, int lo, int hi) -> int
+        {
+            const int span = hi - lo + 1;
+            int       n    = lo;
+            if (span > 0)
+            {
+                const float h = hash21(ix, iz, seed ^ salt);
+                n += static_cast<int>(std::floor(h * static_cast<float>(span)));
+            }
+            if (n > hi)
+                n = hi;
+            if (n > kMaxChildrenPerParent)
+                n = kMaxChildrenPerParent;
+            return n;
+        };
+
+        // Child XZ is hashed from the parent cell and slot, not from how many records were kept.
+        auto emitChildren = [&]()
+        {
+            if (!(patchStrength > 0.0f) || parentCount == 0)
+                return;
+            for (size_t i = 0; i < parentCount; ++i)
+            {
+                const FoliageRecord parent = out.records[i];
+                if (parent.kind != static_cast<uint8_t>(FoliageKind::Tree))
+                    continue;
+                const ParentRef ref  = parentRefs[i];
+                const TreeDisk  disk = treeDisk(parent, in.treeExtentX, in.treeExtentZ);
+                float           inner = Clamp(disk.canopy * 0.6f, 1.5f, 4.0f);
+                float           outer = Clamp(disk.canopy * 1.3f, 1.5f, 4.0f);
+                if (outer < inner)
+                    outer = inner;
+                const int childCount = hashedCount(ref.ix, ref.iz, kSaltChildCount, 1, kMaxChildrenPerParent);
+                for (int slot = 0; slot < childCount; ++slot)
+                {
+                    const uint32_t    slotU  = static_cast<uint32_t>(slot);
+                    const float       kindH  = hash21(ref.ix, ref.iz, seed ^ (kSaltChildKind + slotU));
+                    const FoliageKind kind   = kindH < 0.45f ? FoliageKind::Flower : FoliageKind::Grass;
+                    const float       ang    = hash21(ref.ix, ref.iz, seed ^ (kSaltChild + slotU)) * TwoPi;
+                    const float       radH   = hash21(ref.ix, ref.iz, seed ^ (kSaltChildRadius + slotU));
+                    const float       radius = inner + radH * (outer - inner);
+                    const float       x      = parent.x + std::cos(ang) * radius;
+                    const float       z      = parent.z + std::sin(ang) * radius;
+                    if (!height->containsXZ(x, z))
+                        continue;
+                    const float bed = height->heightAtWorld(x, z);
+                    if (bed < seaLevel)
+                        continue;
+                    if (!in.water.empty() && coveredByWater(in.water, x, z, bed))
+                        continue;
+                    const Vector3f n = height->normalAtWorld(x, z);
+                    const float minY = kind == FoliageKind::Flower ? flowerMinNormalY : tuftMinNormalY;
+                    if (n.y < minY)
+                        continue;
+                    if (out.cover.sampleNearest(x, z).coverage == 0)
+                        continue;
+                    const double dx    = static_cast<double>(x) - static_cast<double>(parent.x);
+                    const double dz    = static_cast<double>(z) - static_cast<double>(parent.z);
+                    const double trunk = static_cast<double>(disk.trunk);
+                    if (dx * dx + dz * dz < trunk * trunk)
+                        continue;
+                    const float scaleMin = 0.80f;
+                    const float scaleMax = kind == FoliageKind::Grass ? 1.25f : 1.20f;
+                    const float scale    = scaleMin + hash21(ref.ix, ref.iz, seed ^ (kSaltChildScale + slotU)) * (scaleMax - scaleMin);
+                    noteChild(kind, slot, x, z, ref.ix, ref.iz, scale, kSaltChild + slotU);
+                }
+            }
+            for (size_t i = 0; i < parentCount; ++i)
+            {
+                const FoliageRecord parent = out.records[i];
+                if (parent.kind != static_cast<uint8_t>(FoliageKind::Rock) || parent.scale < kPebbleParentScale)
+                    continue;
+                const ParentRef ref = parentRefs[i];
+                const Vector3f slope = height->normalAtWorld(parent.x, parent.z);
+                const float    downhillX = -slope.x;
+                const float    downhillZ = -slope.z;
+                const float    len2 = downhillX * downhillX + downhillZ * downhillZ;
+                if (!(len2 > 1.0e-8f))
+                    continue;
+                const float invLen = 1.0f / std::sqrt(len2);
+                const float dirX   = downhillX * invLen;
+                const float dirZ   = downhillZ * invLen;
+                const float perpX  = -dirZ;
+                const float perpZ  = dirX;
+                const int   childCount = hashedCount(ref.ix, ref.iz, kSaltPebbleCount, 2, 5);
+                for (int slot = 0; slot < childCount; ++slot)
+                {
+                    const uint32_t slotU   = static_cast<uint32_t>(slot);
+                    const float    along   = 0.4f + hash21(ref.ix, ref.iz, seed ^ (kSaltPebble + slotU)) * 0.8f;
+                    const float    lateral = (hash21(ref.ix, ref.iz, seed ^ (kSaltPebbleLateral + slotU)) * 2.0f - 1.0f) * 0.12f;
+                    float          ox      = dirX * along + perpX * lateral;
+                    float          oz      = dirZ * along + perpZ * lateral;
+                    const float    olen    = std::sqrt(ox * ox + oz * oz);
+                    if (olen > 1.2f)
+                    {
+                        ox *= 1.2f / olen;
+                        oz *= 1.2f / olen;
+                    }
+                    else if (olen < 0.4f && olen > 0.0f)
+                    {
+                        ox *= 0.4f / olen;
+                        oz *= 0.4f / olen;
+                    }
+                    const float x = parent.x + ox;
+                    const float z = parent.z + oz;
+                    if (!height->containsXZ(x, z))
+                        continue;
+                    const float bed = height->heightAtWorld(x, z);
+                    if (bed < seaLevel)
+                        continue;
+                    if (!in.water.empty() && coveredByWater(in.water, x, z, bed))
+                        continue;
+                    const Vector3f cn = height->normalAtWorld(x, z);
+                    if (cn.y < rockMinNormalY)
+                        continue;
+                    if (out.cover.sampleNearest(x, z).coverage == 0)
+                        continue;
+                    float scale = 0.35f + hash21(ref.ix, ref.iz, seed ^ (kSaltPebbleScale + slotU)) * 0.40f;
+                    if (!(scale < parent.scale))
+                        scale = parent.scale * 0.5f;
+                    noteChild(FoliageKind::Rock, slot, x, z, ref.ix, ref.iz, scale, kSaltPebble + slotU);
+                }
+            }
+        };
 
         auto scanUnder = [&]() -> bool
         {
@@ -531,6 +834,7 @@ namespace Dark::Terrain
                         return false;
                 }
             }
+            emitChildren();
             return true;
         };
 

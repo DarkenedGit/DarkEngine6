@@ -386,6 +386,10 @@ namespace Dark
         float       rockMaxPitchDeg    = 30.0f;
         float       treeSpacingM       = 3.0f;
         float       rockSpacingM       = 0.0f;
+        float       patchStrength      = 0.0f;
+        float       patchLargeM        = 80.0f;
+        float       patchMediumM       = 22.0f;
+        float       patchFineM         = 4.0f;
         bool        stale              = false;
         float       shedScale          = 1.0f;
         std::string treeModel   = "models/BirchTree/scene.gltf";

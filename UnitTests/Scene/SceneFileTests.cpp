@@ -980,6 +980,10 @@ TEST(SceneFile, TerrainFoliage_RoundTrip)
     in.terrain.foliage.rockMaxPitchDeg    = 44.0f;
     in.terrain.foliage.treeSpacingM       = 5.5f;
     in.terrain.foliage.rockSpacingM       = 4.0f;
+    in.terrain.foliage.patchStrength      = 0.35f;
+    in.terrain.foliage.patchLargeM        = 100.0f;
+    in.terrain.foliage.patchMediumM       = 18.0f;
+    in.terrain.foliage.patchFineM         = 3.0f;
     in.terrain.foliage.stale              = true;
     in.terrain.foliage.treeModel          = "models/tree.gltf";
     in.terrain.foliage.flowerModel        = "models/flower.gltf";
@@ -1023,6 +1027,10 @@ TEST(SceneFile, TerrainFoliage_RoundTrip)
     EXPECT_NE(text.find("\"rockMaxPitchDeg\""), std::string::npos);
     EXPECT_NE(text.find("\"treeSpacingM\""), std::string::npos);
     EXPECT_NE(text.find("\"rockSpacingM\""), std::string::npos);
+    EXPECT_NE(text.find("\"patchStrength\""), std::string::npos);
+    EXPECT_NE(text.find("\"patchLargeM\""), std::string::npos);
+    EXPECT_NE(text.find("\"patchMediumM\""), std::string::npos);
+    EXPECT_NE(text.find("\"patchFineM\""), std::string::npos);
 
     SceneFileData out{};
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
@@ -1051,6 +1059,10 @@ TEST(SceneFile, TerrainFoliage_RoundTrip)
     EXPECT_NEAR(out.terrain.foliage.rockMaxPitchDeg, 44.0f, 1.0e-5f);
     EXPECT_NEAR(out.terrain.foliage.treeSpacingM, 5.5f, 1.0e-5f);
     EXPECT_NEAR(out.terrain.foliage.rockSpacingM, 4.0f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.patchStrength, 0.35f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.patchLargeM, 100.0f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.patchMediumM, 18.0f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.patchFineM, 3.0f, 1.0e-5f);
     EXPECT_TRUE(out.terrain.foliage.stale);
     EXPECT_EQ(out.terrain.foliage.treeModel, "models/tree.gltf");
     EXPECT_EQ(out.terrain.foliage.flowerModel, "models/flower.gltf");
@@ -1112,6 +1124,10 @@ TEST(SceneFile, TerrainFoliage_RoundTrip)
     EXPECT_NEAR(omittedOut.terrain.foliage.rockMaxPitchDeg, 30.0f, 1.0e-5f);
     EXPECT_NEAR(omittedOut.terrain.foliage.treeSpacingM, 3.0f, 1.0e-5f);
     EXPECT_NEAR(omittedOut.terrain.foliage.rockSpacingM, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(omittedOut.terrain.foliage.patchStrength, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(omittedOut.terrain.foliage.patchLargeM, 80.0f, 1.0e-5f);
+    EXPECT_NEAR(omittedOut.terrain.foliage.patchMediumM, 22.0f, 1.0e-5f);
+    EXPECT_NEAR(omittedOut.terrain.foliage.patchFineM, 4.0f, 1.0e-5f);
 
     std::error_code removeEc;
     std::filesystem::remove(path, removeEc);
@@ -1184,6 +1200,14 @@ TEST(SceneFile, TerrainFoliage_MissingKey_Defaults)
     EXPECT_NEAR(data.terrain.foliage.rockSpacingM, 0.0f, 1.0e-6f);
     EXPECT_NEAR(data.terrain.foliage.treeSpacingM, defaults.treeSpacingM, 1.0e-6f);
     EXPECT_NEAR(data.terrain.foliage.rockSpacingM, defaults.rockSpacingM, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.patchStrength, 0.0f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.patchLargeM, 80.0f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.patchMediumM, 22.0f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.patchFineM, 4.0f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.patchStrength, defaults.patchStrength, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.patchLargeM, defaults.patchLargeM, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.patchMediumM, defaults.patchMediumM, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.patchFineM, defaults.patchFineM, 1.0e-6f);
     EXPECT_EQ(data.terrain.foliage.treeModel, defaults.treeModel);
     EXPECT_EQ(data.terrain.foliage.flowerModel, defaults.flowerModel);
     EXPECT_EQ(data.terrain.foliage.rockModel, defaults.rockModel);
@@ -1228,6 +1252,10 @@ TEST(SceneFile, TerrainFoliage_ClampDensities)
       "rockMaxPitchDeg": 120.0,
       "treeSpacingM": 40.0,
       "rockSpacingM": -3.0,
+      "patchStrength": 5.0,
+      "patchLargeM": 500.0,
+      "patchMediumM": 100.0,
+      "patchFineM": 20.0,
       "treeModel": "models/oak.gltf",
       "grassModel": "models/Grass/custom.gltf",
       "notes": "ignored"
@@ -1265,11 +1293,44 @@ TEST(SceneFile, TerrainFoliage_ClampDensities)
     EXPECT_NEAR(data.terrain.foliage.rockMaxPitchDeg, 89.0f, 1.0e-5f);
     EXPECT_NEAR(data.terrain.foliage.treeSpacingM, 16.0f, 1.0e-5f);
     EXPECT_NEAR(data.terrain.foliage.rockSpacingM, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.patchStrength, 1.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.patchLargeM, 120.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.patchMediumM, 30.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.patchFineM, 6.0f, 1.0e-5f);
     EXPECT_EQ(data.terrain.foliage.treeModel, "models/oak.gltf");
     EXPECT_EQ(data.terrain.foliage.grassModel, "models/Grass/custom.gltf");
     const Terrain::FoliageDensity modelDefaults{};
     EXPECT_EQ(data.terrain.foliage.flowerModel, modelDefaults.flowerModel);
     EXPECT_EQ(data.terrain.foliage.rockModel, modelDefaults.rockModel);
+
+    const auto lowPath = tempScenePath("darkengine6_scene_terrain_foliage_clamp_low_ut.json");
+    {
+        std::ofstream lowFile(lowPath, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(lowFile));
+        lowFile << R"({
+  "version": 2,
+  "name": "foliage_clamp_low",
+  "mode": "3d",
+  "terrain": {
+    "bindLayout": 1,
+    "foliage": {
+      "version": 1,
+      "patchStrength": -1.0,
+      "patchLargeM": 10.0,
+      "patchMediumM": 1.0,
+      "patchFineM": 0.5
+    },
+    "layers": []
+  },
+  "objects": []
+})";
+    }
+    SceneFileData low{};
+    ASSERT_TRUE(loadSceneFromJson(lowPath, low, &err)) << err;
+    EXPECT_NEAR(low.terrain.foliage.patchStrength, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(low.terrain.foliage.patchLargeM, 60.0f, 1.0e-5f);
+    EXPECT_NEAR(low.terrain.foliage.patchMediumM, 15.0f, 1.0e-5f);
+    EXPECT_NEAR(low.terrain.foliage.patchFineM, 2.0f, 1.0e-5f);
 
     std::string text;
     {
@@ -1282,6 +1343,7 @@ TEST(SceneFile, TerrainFoliage_ClampDensities)
 
     std::error_code removeEc;
     std::filesystem::remove(path, removeEc);
+    std::filesystem::remove(lowPath, removeEc);
 }
 
 TEST(SceneFile, TerrainFoliage_TrailsMissingLoadsEmpty)
