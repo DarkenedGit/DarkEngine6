@@ -1108,6 +1108,7 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
     m_authoredGrass = desc.grass;
     m_trails = desc.trails;
     clampTrailSet(m_trails);
+    noteTrailEdit();
     m_trailDraw = false;
     m_trailSelected = -1;
     m_trailPoint = -1;
@@ -1448,6 +1449,10 @@ void EditorApp::cancelFoliageSpawn()
         m_foliageThread.join();
     m_foliageRunning.store(false);
     m_foliageDone.store(false);
+    std::vector<Terrain::FoliageRecord>().swap(m_foliagePending);
+    m_foliagePendingCover.reset();
+    m_foliageOk = false;
+    m_foliageCoverOnly = false;
 }
 
 bool EditorApp::fillFoliageSpawnIn(FoliageSpawnIn& in)
@@ -1530,6 +1535,7 @@ void EditorApp::startFoliageSpawn()
     if (!fillFoliageSpawnIn(in))
         return;
 
+    m_foliageTrailGeneration = m_trailGeneration;
     m_foliageCoverOnly = false;
     m_foliageCancel.store(false);
     m_foliageDone.store(false);
@@ -1596,9 +1602,15 @@ void EditorApp::pollFoliageSpawn()
         m_foliageThread.join();
     m_foliageRunning.store(false);
     m_foliageDone.store(false);
-    if (m_foliageOk)
+    const bool trailsMoved = m_trailGeneration != m_foliageTrailGeneration;
+    const bool coverOnly = m_foliageCoverOnly;
+    const bool ok = m_foliageOk;
+    const bool cancelled = m_foliageCancel.load();
+    if (cancelled)
+        DE_LOG_INFO(LogCategory::Render, "Editor: foliage spawn cancelled - previous set kept");
+    else if (ok && !trailsMoved)
     {
-        if (m_foliageCoverOnly)
+        if (coverOnly)
         {
             // Cover-only success must not clear a stale forest or swap the tree set.
             m_terrain.setWorkingCover(std::move(m_foliagePendingCover));
@@ -1613,12 +1625,18 @@ void EditorApp::pollFoliageSpawn()
             m_grassField.markAllDirty();
         }
     }
-    else if (m_foliageCancel.load())
-        DE_LOG_INFO(LogCategory::Render, "Editor: foliage spawn cancelled - previous set kept");
+    else if (ok && !coverOnly)
+    {
+        // Trails changed after this job copied them. Keep the trees and leave the forest stale.
+        m_foliage.swap(m_foliagePending);
+        m_foliageAuthored = true;
+    }
     std::vector<Terrain::FoliageRecord>().swap(m_foliagePending);
     m_foliagePendingCover.reset();
     m_foliageOk = false;
     m_foliageCoverOnly = false;
+    if (ok && trailsMoved && !cancelled)
+        startCoverRestamp();
 }
 
 void EditorApp::drawWaterTools()

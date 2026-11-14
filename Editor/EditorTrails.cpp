@@ -42,11 +42,15 @@ namespace
         pushLine(data, Vector3f(p.x, p.y, p.z - arm), Vector3f(p.x, p.y, p.z + arm), budget);
     }
 
-    LineMesh uploadLines(Renderer& renderer, const LineMeshData& data)
+    bool createLines(Renderer& renderer, const LineMeshData& data, LineMesh& out)
     {
         if (data.positions.empty() || data.indices.empty())
-            return {};
-        return LineMesh::Create(renderer, data);
+        {
+            out = {};
+            return true;
+        }
+        out = LineMesh::Create(renderer, data);
+        return out.valid();
     }
 }
 
@@ -75,6 +79,7 @@ void EditorApp::startCoverRestamp()
     if (!fillFoliageSpawnIn(in))
         return;
 
+    m_foliageTrailGeneration = m_trailGeneration;
     std::vector<FoliageRecord> records = m_foliage;
     m_foliageCoverOnly = true;
     m_foliageCancel.store(false);
@@ -96,9 +101,15 @@ void EditorApp::startCoverRestamp()
     });
 }
 
+void EditorApp::noteTrailEdit()
+{
+    ++m_trailGeneration;
+}
+
 void EditorApp::clearTrailAuthoring()
 {
     m_trails = {};
+    noteTrailEdit();
     m_trailDraw = false;
     m_trailSelected = -1;
     m_trailPoint = -1;
@@ -109,23 +120,43 @@ void EditorApp::clearTrailAuthoring()
 
 void EditorApp::finishTrailDraw()
 {
+    if (m_foliageRunning.load())
+        return;
+    bool dropped = false;
     if (m_trailSelected >= 0 && m_trailSelected < static_cast<int>(m_trails.paths.size()))
-        m_trails.paths[static_cast<size_t>(m_trailSelected)].authored = true;
+    {
+        TrailPath& path = m_trails.paths[static_cast<size_t>(m_trailSelected)];
+        if (path.points.size() < 2)
+        {
+            m_trails.paths.erase(m_trails.paths.begin() + m_trailSelected);
+            dropped = true;
+        }
+        else
+            path.authored = true;
+    }
+    m_trailSelected = -1;
+    m_trailPoint = -1;
     m_trailDraw = false;
     m_trailDragging = false;
     m_trailMoved = false;
-    m_foliageStale = true;
     m_trailMeshDirty = true;
+    if (!dropped)
+        return;
+    noteTrailEdit();
+    m_foliageStale = true;
     startCoverRestamp();
 }
 
 void EditorApp::deleteTrailPoint()
 {
+    if (m_foliageRunning.load())
+        return;
     if (m_trailSelected < 0 || m_trailSelected >= static_cast<int>(m_trails.paths.size()))
         return;
     TrailPath& path = m_trails.paths[static_cast<size_t>(m_trailSelected)];
-    if (m_trailPoint >= 0 && m_trailPoint < static_cast<int>(path.points.size()))
-        path.points.erase(path.points.begin() + m_trailPoint);
+    if (m_trailPoint < 0 || m_trailPoint >= static_cast<int>(path.points.size()))
+        return;
+    path.points.erase(path.points.begin() + m_trailPoint);
     if (path.points.empty())
     {
         m_trails.paths.erase(m_trails.paths.begin() + m_trailSelected);
@@ -137,6 +168,7 @@ void EditorApp::deleteTrailPoint()
         m_trailPoint = static_cast<int>(path.points.size()) - 1;
     m_trailDragging = false;
     m_trailMoved = false;
+    noteTrailEdit();
     m_foliageStale = true;
     m_trailMeshDirty = true;
     startCoverRestamp();
@@ -144,14 +176,14 @@ void EditorApp::deleteTrailPoint()
 
 bool EditorApp::handleTrailKeys()
 {
-    if (m_playMode || m_sceneMode != SceneMode::Scene3D)
+    if (m_playMode || m_sceneMode != SceneMode::Scene3D || !m_trailDraw)
         return false;
-    const bool point = m_trailSelected >= 0 && m_trailPoint >= 0;
-    if (!m_trailDraw && !point)
-        return false;
+    // The job already copied the trails. Swallow the keys so object delete does not run either.
+    if (m_foliageRunning.load())
+        return true;
 
     bool used = false;
-    if (m_trailDraw && input().keyPressed(Key::Enter))
+    if (input().keyPressed(Key::Enter))
     {
         finishTrailDraw();
         used = true;
@@ -161,7 +193,7 @@ bool EditorApp::handleTrailKeys()
         deleteTrailPoint();
         used = true;
     }
-    if (m_trailDraw && input().actionPressed("place"))
+    if (input().actionPressed("place"))
         used = true;
     return used;
 }
@@ -203,6 +235,7 @@ void EditorApp::handleTrailPointer(bool uiMouse)
             created.authored = true;
             created.width = clampTrailWidth(m_trails.humanWidth, kTrailHumanWidth);
             m_trails.paths.push_back(std::move(created));
+            noteTrailEdit();
             m_trailSelected = static_cast<int>(m_trails.paths.size()) - 1;
             m_trailPoint = -1;
         }
@@ -229,6 +262,7 @@ void EditorApp::handleTrailPointer(bool uiMouse)
         else
         {
             path.points.push_back(TrailPoint{ hit.x, hit.z });
+            noteTrailEdit();
             m_trailPoint = static_cast<int>(path.points.size()) - 1;
             m_trailDragging = true;
             m_trailMoved = true;
@@ -249,6 +283,7 @@ void EditorApp::handleTrailPointer(bool uiMouse)
             return;
         path.points[static_cast<size_t>(m_trailPoint)].x = hit.x;
         path.points[static_cast<size_t>(m_trailPoint)].z = hit.z;
+        noteTrailEdit();
         m_trailMoved = true;
         m_trailMeshDirty = true;
     }
@@ -273,6 +308,7 @@ void EditorApp::drawTrailHeader()
             created.authored = true;
             created.width = clampTrailWidth(m_trails.humanWidth, kTrailHumanWidth);
             m_trails.paths.push_back(std::move(created));
+            noteTrailEdit();
             m_trailSelected = static_cast<int>(m_trails.paths.size()) - 1;
             m_trailPoint = -1;
         }
@@ -316,6 +352,7 @@ void EditorApp::drawTrailHeader()
         const float stored = path.kind == TrailKind::Animal ? m_trails.animalWidth : m_trails.humanWidth;
         const float def = path.kind == TrailKind::Animal ? kTrailAnimalWidth : kTrailHumanWidth;
         path.width = clampTrailWidth(stored, def);
+        noteTrailEdit();
         m_foliageStale = true;
         m_trailMeshDirty = true;
         startCoverRestamp();
@@ -325,6 +362,7 @@ void EditorApp::drawTrailHeader()
     if (ImGui::SliderFloat("Width", &path.width, 0.05f, kTrailWidthMax, "%.2f"))
     {
         path.width = clampTrailWidth(path.width, fallback);
+        noteTrailEdit();
         m_foliageStale = true;
         m_trailMeshDirty = true;
     }
@@ -332,9 +370,21 @@ void EditorApp::drawTrailHeader()
         startCoverRestamp();
     if (ImGui::Checkbox("Closed", &path.closed))
     {
+        noteTrailEdit();
         m_foliageStale = true;
         m_trailMeshDirty = true;
         startCoverRestamp();
+    }
+    if (m_trailPoint >= 0 && ImGui::Button("Delete point"))
+    {
+        deleteTrailPoint();
+        return;
+    }
+    if (ImGui::Button("Deselect"))
+    {
+        m_trailSelected = -1;
+        m_trailPoint = -1;
+        m_trailMeshDirty = true;
     }
 }
 
@@ -342,20 +392,13 @@ void EditorApp::rebuildTrailMesh()
 {
     if (!m_trailMeshDirty)
         return;
-    m_trailMeshDirty = false;
-
-    if (m_trailCenter.valid() || m_trailRibbon.valid() || m_trailPick.valid())
-        renderer().waitForGpu();
-    m_trailCenter = {};
-    m_trailRibbon = {};
-    m_trailPick = {};
-
-    if (!m_showTrails || !m_haveTerrain || !m_terrain.valid() || m_trails.paths.empty())
-        return;
 
     LineMeshData center;
     LineMeshData ribbon;
     LineMeshData picks;
+    const bool draw = m_showTrails && m_haveTerrain && m_terrain.valid() && !m_trails.paths.empty();
+    if (draw)
+    {
     int centerBudget = kTrailMeshVerts;
     int ribbonBudget = kTrailMeshVerts;
     int pickBudget = kTrailMeshVerts;
@@ -398,10 +441,31 @@ void EditorApp::rebuildTrailMesh()
             pushLine(ribbon, lift(samples[i - 1].x - side.x, samples[i - 1].y - side.y), lift(samples[i].x - side.x, samples[i].y - side.y), ribbonBudget);
         }
     }
+    }
 
-    m_trailCenter = uploadLines(renderer(), center);
-    m_trailRibbon = uploadLines(renderer(), ribbon);
-    m_trailPick = uploadLines(renderer(), picks);
+    LineMesh nextCenter;
+    LineMesh nextRibbon;
+    LineMesh nextPick;
+    if (!createLines(renderer(), center, nextCenter) || !createLines(renderer(), ribbon, nextRibbon) || !createLines(renderer(), picks, nextPick))
+    {
+        if (nextCenter.valid())
+            nextCenter.deferRelease(renderer());
+        if (nextRibbon.valid())
+            nextRibbon.deferRelease(renderer());
+        if (nextPick.valid())
+            nextPick.deferRelease(renderer());
+        return;
+    }
+
+    auto install = [&](LineMesh& slot, LineMesh& next) {
+        if (slot.valid())
+            slot.deferRelease(renderer());
+        slot = std::move(next);
+    };
+    install(m_trailCenter, nextCenter);
+    install(m_trailRibbon, nextRibbon);
+    install(m_trailPick, nextPick);
+    m_trailMeshDirty = false;
 }
 
 void EditorApp::drawTrailOverlay(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj)

@@ -980,6 +980,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     {
         drawLightGizmos();
     }
+    drawTrailOverlay(cmd, viewProj);
     {
         LinePipeline& volumeLines = m_linePipeline3D.isValid() ? m_linePipeline3D : m_linePipeline;
         m_scene.drawDecalVolumes(cmd, renderer(), volumeLines, viewProj);
@@ -1195,7 +1196,6 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         }
     }
 
-    drawTrailOverlay(cmd, viewProj);
     m_scene.endCameraFrame(m_camera, viewProj);
     if (!m_movie.blocksWorld())
         drawPlayCrosshair(cmd);

@@ -350,6 +350,7 @@ private:
     void finishTrailDraw();
     void deleteTrailPoint();
     void clearTrailAuthoring();
+    void noteTrailEdit();
     void rebuildTrailMesh();
     void drawTrailOverlay(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj);
     bool terrainBrushesLocked() const;
@@ -555,6 +556,8 @@ private:
     bool                                m_foliageOk = false;
     bool                                m_foliageCoverOnly = false;
     std::thread                         m_foliageThread;
+    uint32_t                            m_trailGeneration = 0;
+    uint32_t                            m_foliageTrailGeneration = 0;
     Terrain::TrailSet                   m_trails{};
     bool                                m_showTrails = true;
     bool                                m_trailDraw = false;

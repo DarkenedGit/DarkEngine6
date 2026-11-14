@@ -107,4 +107,11 @@ namespace Dark
             cmd->IASetIndexBuffer(&m_ibv);
             cmd->DrawIndexedInstanced(m_indexCount, 1, 0, 0, 0);
         }
+
+        void LineMesh::deferRelease(Renderer& renderer)
+        {
+            renderer.deferRelease(m_vb.Get());
+            renderer.deferRelease(m_ib.Get());
+            *this = LineMesh{};
+        }
 } // namespace Dark::Render
