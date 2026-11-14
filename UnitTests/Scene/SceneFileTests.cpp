@@ -1068,6 +1068,8 @@ TEST(SceneFile, TerrainFoliage_RoundTrip)
     EXPECT_EQ(out.terrain.foliage.flowerModel, "models/flower.gltf");
     EXPECT_EQ(out.terrain.foliage.rockModel, "models/rock.gltf");
     EXPECT_EQ(out.terrain.foliage.grassModel, "models/Grass/grass_medium_01_2k.gltf");
+    ASSERT_EQ(out.terrain.foliage.trees.size(), in.terrain.foliage.trees.size());
+    EXPECT_EQ(out.terrain.foliage.trees[0].path, in.terrain.foliage.trees[0].path);
     EXPECT_TRUE(out.terrain.grass.enabled);
     EXPECT_NEAR(out.terrain.grass.heightMetres, 0.80f, 1.0e-5f);
     EXPECT_NEAR(out.terrain.grass.flexibility, 0.25f, 1.0e-5f);
@@ -1133,6 +1135,103 @@ TEST(SceneFile, TerrainFoliage_RoundTrip)
     std::filesystem::remove(path, removeEc);
     std::filesystem::remove(path2d, removeEc);
     std::filesystem::remove(omitted, removeEc);
+}
+
+TEST(SceneFile, TerrainFoliage_SpeciesListRoundTrip)
+{
+    const auto path = tempScenePath("darkengine6_scene_foliage_species_ut.json");
+    {
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(file));
+        file << R"({
+  "version": 2,
+  "name": "species",
+  "mode": "3d",
+  "terrain": {
+    "bindLayout": 1,
+    "foliage": {
+      "version": 1,
+      "trees": [
+        { "path": "models/a.gltf", "weight": 3.0, "scaleMin": 0.7, "scaleMax": 1.6, "worldScale": false },
+        { "path": "models/b.gltf", "weight": 1.0, "scaleMin": 0.9, "scaleMax": 1.1, "worldScale": true }
+      ]
+    },
+    "layers": []
+  },
+  "objects": []
+})";
+    }
+
+    SceneFileData data{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
+    EXPECT_EQ(data.version, 2);
+    ASSERT_EQ(data.terrain.foliage.trees.size(), 2u);
+    EXPECT_EQ(data.terrain.foliage.trees[0].path, "models/a.gltf");
+    EXPECT_NEAR(data.terrain.foliage.trees[0].weight, 3.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.trees[0].scaleMin, 0.7f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.trees[0].scaleMax, 1.6f, 1.0e-5f);
+    EXPECT_FALSE(data.terrain.foliage.trees[0].worldScale);
+    EXPECT_EQ(data.terrain.foliage.trees[1].path, "models/b.gltf");
+    EXPECT_NEAR(data.terrain.foliage.trees[1].weight, 1.0f, 1.0e-5f);
+    EXPECT_TRUE(data.terrain.foliage.trees[1].worldScale);
+
+    const auto saved = tempScenePath("darkengine6_scene_foliage_species_saved_ut.json");
+    ASSERT_TRUE(saveSceneToJson(saved, data, &err)) << err;
+    std::string text;
+    {
+        std::ifstream inFile(saved);
+        ASSERT_TRUE(static_cast<bool>(inFile));
+        text.assign((std::istreambuf_iterator<char>(inFile)), std::istreambuf_iterator<char>());
+    }
+    EXPECT_NE(text.find("\"version\": 2"), std::string::npos);
+    EXPECT_NE(text.find("\"version\": 1"), std::string::npos);
+    EXPECT_EQ(text.find("\"version\": 3"), std::string::npos);
+
+    SceneFileData again{};
+    ASSERT_TRUE(loadSceneFromJson(saved, again, &err)) << err;
+    ASSERT_EQ(again.terrain.foliage.trees.size(), 2u);
+    EXPECT_EQ(again.terrain.foliage.trees[0].path, "models/a.gltf");
+    EXPECT_NEAR(again.terrain.foliage.trees[0].weight, 3.0f, 1.0e-5f);
+    EXPECT_EQ(again.terrain.foliage.trees[1].path, "models/b.gltf");
+    EXPECT_NEAR(again.terrain.foliage.trees[1].weight, 1.0f, 1.0e-5f);
+    EXPECT_TRUE(again.terrain.foliage.trees[1].worldScale);
+
+    std::error_code removeEc;
+    std::filesystem::remove(path, removeEc);
+    std::filesystem::remove(saved, removeEc);
+}
+
+TEST(SceneFile, TerrainFoliage_LegacyTreeModelOneEntry)
+{
+    const auto path = tempScenePath("darkengine6_scene_foliage_legacy_model_ut.json");
+    {
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(file));
+        file << R"({
+  "version": 2,
+  "name": "legacy_tree",
+  "mode": "3d",
+  "terrain": {
+    "bindLayout": 1,
+    "foliage": { "version": 1, "treeModel": "models/oak.gltf" },
+    "layers": []
+  },
+  "objects": []
+})";
+    }
+
+    SceneFileData data{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
+    EXPECT_EQ(data.version, 2);
+    EXPECT_EQ(data.terrain.foliage.treeModel, "models/oak.gltf");
+    ASSERT_EQ(data.terrain.foliage.trees.size(), 1u);
+    EXPECT_EQ(data.terrain.foliage.trees[0].path, "models/oak.gltf");
+    EXPECT_NEAR(data.terrain.foliage.trees[0].weight, 1.0f, 1.0e-5f);
+
+    std::error_code removeEc;
+    std::filesystem::remove(path, removeEc);
 }
 
 TEST(SceneFile, TerrainFoliage_MissingKey_Defaults)

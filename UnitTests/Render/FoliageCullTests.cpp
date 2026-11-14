@@ -138,7 +138,7 @@ static_assert(sizeof(Matrix4f) == 64u, "foliage world rows");
 
 const IndexedArgs* argAt(const uint8_t* bytes, uint32_t view, uint32_t kind, uint32_t part)
 {
-    return reinterpret_cast<const IndexedArgs*>(bytes + FoliagePipeline::cullArgumentOffset(view, kind, part));
+    return reinterpret_cast<const IndexedArgs*>(bytes + FoliagePipeline::cullArgumentOffset(view, kind, 0, part));
 }
 
 void expectArg(const IndexedArgs& arg, uint32_t indexCount, uint32_t instanceCount)
@@ -165,13 +165,23 @@ TEST(FoliageCull, ShadersCompile)
 {
     ComPtr<ID3DBlob> compact;
     ComPtr<ID3DBlob> args;
+    ComPtr<ID3DBlob> prefix;
+    ComPtr<ID3DBlob> scatter;
     ASSERT_TRUE(compileShaderFromContent("shaders/FoliageCull.hlsl", "CSCompact", "cs_5_0", compact));
+    ASSERT_TRUE(compileShaderFromContent("shaders/FoliageCull.hlsl", "CSPrefix", "cs_5_0", prefix));
+    ASSERT_TRUE(compileShaderFromContent("shaders/FoliageCull.hlsl", "CSScatter", "cs_5_0", scatter));
     ASSERT_TRUE(compileShaderFromContent("shaders/FoliageCull.hlsl", "CSArgs", "cs_5_0", args));
     UINT compactBytes = 0;
+    UINT prefixBytes  = 0;
+    UINT scatterBytes = 0;
     UINT argBytes     = 0;
     ASSERT_TRUE(cbufferBytes(compact.Get(), "FoliageCullConstants", compactBytes));
+    ASSERT_TRUE(cbufferBytes(prefix.Get(), "FoliageCullConstants", prefixBytes));
+    ASSERT_TRUE(cbufferBytes(scatter.Get(), "FoliageCullConstants", scatterBytes));
     ASSERT_TRUE(cbufferBytes(args.Get(), "FoliageCullConstants", argBytes));
     EXPECT_EQ(compactBytes, FoliagePipeline::kCullConstantBytes);
+    EXPECT_EQ(prefixBytes, FoliagePipeline::kCullConstantBytes);
+    EXPECT_EQ(scatterBytes, FoliagePipeline::kCullConstantBytes);
     EXPECT_EQ(argBytes, FoliagePipeline::kCullConstantBytes);
 
     ComPtr<ID3DBlob> foliageVs;

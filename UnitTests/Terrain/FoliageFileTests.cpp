@@ -193,7 +193,7 @@ TEST(FoliageFile, RoundTrip_TreeFlowerRock)
     EXPECT_EQ(raw[1], static_cast<uint8_t>('E'));
     EXPECT_EQ(raw[2], static_cast<uint8_t>('F'));
     EXPECT_EQ(raw[3], static_cast<uint8_t>('L'));
-    EXPECT_EQ(raw[4], 1);
+    EXPECT_EQ(raw[4], static_cast<uint8_t>(kFoliageVersion));
     EXPECT_EQ(raw[8], 4);
     EXPECT_EQ(raw[12], 5);
     EXPECT_EQ(raw[16], 3);
@@ -201,9 +201,9 @@ TEST(FoliageFile, RoundTrip_TreeFlowerRock)
         EXPECT_EQ(raw[static_cast<size_t>(i)], 0);
     for (int rec = 0; rec < 3; ++rec)
     {
-        EXPECT_EQ(raw[32u + static_cast<size_t>(rec) * 32u + 29u], 0);
-        EXPECT_EQ(raw[32u + static_cast<size_t>(rec) * 32u + 30u], 0);
-        EXPECT_EQ(raw[32u + static_cast<size_t>(rec) * 32u + 31u], 0);
+        EXPECT_EQ(raw[32u + static_cast<size_t>(rec) * 32u + 29u], recs[rec].pad[0]);
+        EXPECT_EQ(raw[32u + static_cast<size_t>(rec) * 32u + 30u], recs[rec].pad[1]);
+        EXPECT_EQ(raw[32u + static_cast<size_t>(rec) * 32u + 31u], recs[rec].pad[2]);
     }
 
     std::vector<FoliageRecord> loaded(1);
@@ -219,10 +219,70 @@ TEST(FoliageFile, RoundTrip_TreeFlowerRock)
         EXPECT_FLOAT_EQ(loaded[static_cast<size_t>(i)].pitch, recs[i].pitch);
         EXPECT_FLOAT_EQ(loaded[static_cast<size_t>(i)].tiltYaw, recs[i].tiltYaw);
         EXPECT_EQ(loaded[static_cast<size_t>(i)].kind, recs[i].kind);
-        EXPECT_EQ(loaded[static_cast<size_t>(i)].pad[0], 0);
-        EXPECT_EQ(loaded[static_cast<size_t>(i)].pad[1], 0);
-        EXPECT_EQ(loaded[static_cast<size_t>(i)].pad[2], 0);
+        EXPECT_EQ(loaded[static_cast<size_t>(i)].pad[0], recs[i].pad[0]);
+        EXPECT_EQ(loaded[static_cast<size_t>(i)].pad[1], recs[i].pad[1]);
+        EXPECT_EQ(loaded[static_cast<size_t>(i)].pad[2], recs[i].pad[2]);
     }
+}
+
+TEST(FoliageFile, V1LoadsAsVariantZero)
+{
+    TempDir dir("v1_variant");
+    ASSERT_FALSE(dir.path.empty());
+    const auto path = dir.path / "t_01_02.foliage.bin";
+
+    uint8_t bytes[64]{};
+    fillHeader(bytes, kFoliageMagic, 1u, 1, 2, 1);
+    bytes[32 + 28] = static_cast<uint8_t>(FoliageKind::Tree);
+    bytes[32 + 29] = 4;
+    bytes[32 + 30] = 0x1F;
+    bytes[32 + 31] = 0xAB;
+    ASSERT_TRUE(writeFile(path, bytes, sizeof(bytes)));
+
+    std::vector<FoliageRecord> loaded(1);
+    ASSERT_TRUE(loadFoliageTile(path, 1, 2, loaded));
+    ASSERT_EQ(loaded.size(), 1u);
+    EXPECT_EQ(loaded[0].kind, static_cast<uint8_t>(FoliageKind::Tree));
+    EXPECT_EQ(loaded[0].pad[0], 0);
+    EXPECT_EQ(loaded[0].pad[1], 0);
+    EXPECT_EQ(loaded[0].pad[2], 0);
+
+    ASSERT_TRUE(saveFoliageTile(path, 1, 2, loaded.data(), static_cast<uint32_t>(loaded.size())));
+    const std::vector<uint8_t> raw = readAll(path);
+    ASSERT_EQ(raw.size(), 64u);
+    EXPECT_EQ(raw[4], static_cast<uint8_t>(kFoliageVersion));
+    EXPECT_EQ(raw[32 + 29], 0);
+    EXPECT_EQ(raw[32 + 30], 0);
+    EXPECT_EQ(raw[32 + 31], 0);
+}
+
+TEST(FoliageFile, V2RoundTripsVariantAndTint)
+{
+    TempDir dir("v2_tint");
+    ASSERT_FALSE(dir.path.empty());
+    const auto path = dir.path / "t_02_03.foliage.bin";
+
+    FoliageRecord rec{};
+    rec.x      = 1.0f;
+    rec.kind   = static_cast<uint8_t>(FoliageKind::Flower);
+    rec.pad[0] = 3;
+    rec.pad[1] = 0x3C;
+    rec.pad[2] = 0x91;
+    ASSERT_TRUE(saveFoliageTile(path, 2, 3, &rec, 1));
+
+    const std::vector<uint8_t> raw = readAll(path);
+    ASSERT_EQ(raw.size(), 64u);
+    EXPECT_EQ(raw[4], static_cast<uint8_t>(kFoliageVersion));
+    EXPECT_EQ(raw[32 + 29], 3);
+    EXPECT_EQ(raw[32 + 30], 0x3C);
+    EXPECT_EQ(raw[32 + 31], 0x91);
+
+    std::vector<FoliageRecord> loaded;
+    ASSERT_TRUE(loadFoliageTile(path, 2, 3, loaded));
+    ASSERT_EQ(loaded.size(), 1u);
+    EXPECT_EQ(loaded[0].pad[0], 3);
+    EXPECT_EQ(loaded[0].pad[1], 0x3C);
+    EXPECT_EQ(loaded[0].pad[2], 0x91);
 }
 
 TEST(FoliageFile, CountZero)
@@ -264,6 +324,14 @@ TEST(FoliageFile, RejectsBadMagicVersionAndTile)
 
     const auto versionPath = dir.path / "bad_version.bin";
     fillHeader(header, kFoliageMagic, 99u, 1, 2, 0);
+    ASSERT_TRUE(writeFile(versionPath, header, sizeof(header)));
+    expectLoadFails(versionPath, 1, 2);
+
+    fillHeader(header, kFoliageMagic, 0u, 1, 2, 0);
+    ASSERT_TRUE(writeFile(versionPath, header, sizeof(header)));
+    expectLoadFails(versionPath, 1, 2);
+
+    fillHeader(header, kFoliageMagic, 3u, 1, 2, 0);
     ASSERT_TRUE(writeFile(versionPath, header, sizeof(header)));
     expectLoadFails(versionPath, 1, 2);
 

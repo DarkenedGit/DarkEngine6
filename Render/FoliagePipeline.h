@@ -45,6 +45,9 @@ namespace Dark
         uint32_t                  viewIndex  = 0;
         uint32_t                  partCount[4]{};
         uint32_t                  indexCount[4][8]{};
+        uint32_t                  variantPartCount[4][8]{};
+        uint32_t                  variantIndexCount[4][8][8]{};
+        D3D12_GPU_VIRTUAL_ADDRESS variantInfo = 0;
     };
 
     namespace Terrain
@@ -61,12 +64,15 @@ namespace Dark
         static constexpr UINT kGbWorlds    = 2;
         static constexpr UINT kGbIndices   = 3;
         static constexpr UINT kGbView      = 4;
+        static constexpr UINT kGbKinds     = 5;
+        static constexpr UINT kGbPrefix    = 6;
 
         static constexpr UINT kDepthConstants = 0;
         static constexpr UINT kDepthWorlds    = 1;
         static constexpr UINT kDepthIndices   = 2;
         static constexpr UINT kDepthMaterial  = 3;
         static constexpr UINT kDepthView      = 4;
+        static constexpr UINT kDepthPrefix    = 5;
 
         static constexpr uint32_t kCullFrameSlots    = 2;
         static constexpr uint32_t kCullViewsPerFrame = 8;
@@ -91,16 +97,19 @@ namespace Dark
         bool cullReady() const;
         bool depthResourceSetReady() const;
 
-        // Clears this slot's four counters, compacts the gathered instances, then writes one
-        // draw argument per opaque part. StartInstanceLocation stays 0. The kind base is the index-SRV offset.
+        // Counts variants, prefixes them inside the kind span, scatters indices, then writes
+        // one draw argument per variant part. StartInstanceLocation holds that prefix.
         bool recordCull(ID3D12GraphicsCommandList* cmd, uint32_t frameSlot, const FoliageCullDesc& desc, CullResourceSet set = CullResourceSet::Camera);
 
         ID3D12Resource* cullArgumentResource(uint32_t frameSlot) const;
         ID3D12Resource* cullIndexResource(uint32_t frameSlot) const;
 
-        static UINT64 cullArgumentOffset(uint32_t view, uint32_t kind, uint32_t part)
+        static UINT64 cullArgumentOffset(uint32_t view, uint32_t kind, uint32_t variant, uint32_t part)
         {
-            return (static_cast<UINT64>(view) * kCullKindCount * kCullPartsPerKind + static_cast<UINT64>(kind) * kCullPartsPerKind + part)
+            return ((static_cast<UINT64>(view) * kCullKindCount * Terrain::kMaxFoliageVariants
+                        + static_cast<UINT64>(kind) * Terrain::kMaxFoliageVariants + variant)
+                       * kCullPartsPerKind
+                   + part)
                 * sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
         }
 
@@ -112,7 +121,7 @@ namespace Dark
         bool isValid() const
         {
             return m_gbPso != nullptr && m_gbPsoTwoSided != nullptr && m_depthPso != nullptr && m_depthPsoTwoSided != nullptr
-                && m_worldMap != nullptr && m_indexMap != nullptr && m_viewMap != nullptr;
+                && m_worldMap != nullptr && m_indexMap != nullptr && m_viewMap != nullptr && m_kindMap != nullptr && m_cpuPrefixMap != nullptr;
         }
 
         // editorRecords non-null: that vector, kept only where the tile is resident.
@@ -182,7 +191,8 @@ namespace Dark
         void ensureDrawSet(
             const Terrain::TerrainGrid& grid,
             const std::vector<Terrain::FoliageRecord>* editorRecords,
-            const Camera3D& camera);
+            const Camera3D& camera,
+            const FoliagePrototypes& prototypes);
         void binEditorRecords(const Terrain::TerrainGrid& grid, const std::vector<Terrain::FoliageRecord>& records);
         void uploadWorlds(uint32_t frameSlot);
         void uploadKinds(uint32_t frameSlot);
@@ -190,6 +200,7 @@ namespace Dark
         void snapshotKindBounds(FoliagePrototypes& prototypes);
         bool buildCpuIndices(FoliagePrototypes& prototypes);
         void publishCpuIndices(FoliagePrototypes& prototypes);
+        void writeCpuIndexSpan();
         FoliageCullDesc makeCullDesc(bool shadow) const;
         bool fillPartArgs(GpuResourceCache& gpu, FoliagePrototypes& prototypes, bool depth, FoliageCullDesc& desc);
         bool tryGpuCull(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, FoliagePrototypes& prototypes, bool depth, bool shadow, bool profile);
@@ -202,14 +213,16 @@ namespace Dark
             float          alphaCutoff   = 0.5f;
             float          alphaModeMask = 0.0f;
             uint32_t       kind          = 0;
+            uint32_t       variant       = 0;
             uint32_t       partSlot      = 0;
+            bool           worldScale    = false;
             bool           twoSided      = false;
         };
 
         struct RetainedFoliageDepth
         {
             FoliageCullDesc           desc{};
-            uint32_t                  cpuCount[4]{};
+            uint32_t                  cpuCount[4][8]{};
             D3D12_GPU_VIRTUAL_ADDRESS viewCb    = 0;
             D3D12_GPU_VIRTUAL_ADDRESS worldVa   = 0;
             D3D12_GPU_VIRTUAL_ADDRESS indexBase = 0;
@@ -235,20 +248,26 @@ namespace Dark
         ComPtr<ID3D12Resource>      m_worlds;
         ComPtr<ID3D12Resource>      m_indices;
         ComPtr<ID3D12Resource>      m_viewCb;
+        ComPtr<ID3D12Resource>      m_kinds;
+        ComPtr<ID3D12Resource>      m_cpuPrefix;
         uint8_t*                    m_worldMap = nullptr;
         uint8_t*                    m_indexMap = nullptr;
         uint8_t*                    m_viewMap  = nullptr;
+        uint8_t*                    m_kindMap  = nullptr;
+        uint8_t*                    m_cpuPrefixMap = nullptr;
         D3D12_GPU_VIRTUAL_ADDRESS   m_worldGpu = 0;
         D3D12_GPU_VIRTUAL_ADDRESS   m_indexGpu = 0;
         D3D12_GPU_VIRTUAL_ADDRESS   m_viewGpu  = 0;
+        D3D12_GPU_VIRTUAL_ADDRESS   m_kindGpu  = 0;
+        D3D12_GPU_VIRTUAL_ADDRESS   m_cpuPrefixGpu = 0;
         Terrain::WindSettings       m_wind{};
         double                      m_windTime     = 0.0;
         double                      m_windPrevTime = 0.0;
         float                       m_sway[4]{};
 
         std::vector<Math::Matrix4f> m_cpuWorlds;
-        std::vector<uint8_t>        m_cpuKinds;
-        std::vector<uint32_t>       m_cpuIndex[static_cast<int>(Terrain::FoliageKind::Count)];
+        std::vector<uint32_t>       m_cpuKinds;
+        std::vector<uint32_t>       m_cpuIndex[static_cast<int>(Terrain::FoliageKind::Count)][Terrain::kMaxFoliageVariants];
 
         const Terrain::FoliageRecord* m_binnedData  = nullptr;
         size_t                        m_binnedCount = 0;

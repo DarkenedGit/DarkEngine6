@@ -36,6 +36,8 @@ cbuffer FoliageView : register(b1)
 
 StructuredBuffer<FoliageWorld> gWorlds  : register(t4);
 StructuredBuffer<uint>         gIndices : register(t5);
+StructuredBuffer<uint>         gKinds   : register(t6);
+StructuredBuffer<uint>         gPrefix  : register(t7);
 
 Texture2D    gAlbedo   : register(t0);
 Texture2D    gNormal   : register(t1);
@@ -62,11 +64,34 @@ struct PSInput
     float4 currClip  : TEXCOORD1;
     float4 prevClip  : TEXCOORD2;
     float4 tangentWS : TANGENT;
+    float3 tint      : TEXCOORD3;
 };
+
+float3 foliageTint(uint packed)
+{
+    uint rgb = packed >> 16u;
+    if (rgb == 0u)
+        return float3(1.0, 1.0, 1.0);
+    float r = (float)((rgb >> 11u) & 31u) / 31.0;
+    float g = (float)((rgb >> 5u) & 63u) / 63.0;
+    float b = (float)(rgb & 31u) / 31.0;
+    return float3(r, g, b);
+}
+
+uint foliageInstance(uint iid)
+{
+    // SV_InstanceID does not include StartInstanceLocation on this shader model.
+    uint variant = (uint)kindPad;
+    if (variant >= 8u)
+        variant = 0u;
+    uint kind = (uint)kindIndex;
+    return iid + gPrefix[kind * 8u + variant];
+}
 
 PSInput VSMain(VSInput input)
 {
-    float4x4 world      = FoliageWorldMatrix(gWorlds[gIndices[input.iid]]);
+    uint     src        = foliageInstance(input.iid);
+    float4x4 world      = FoliageWorldMatrix(gWorlds[gIndices[src]]);
     float4x4 localWorld = mul(localToRoot, world);
     float4   wp         = mul(float4(input.position, 1.0f), localWorld);
     float3   pos        = wp.xyz;
@@ -89,6 +114,7 @@ PSInput VSMain(VSInput input)
     o.normalWS  = mul(float4(input.normal, 0.0f), localWorld).xyz;
     o.tangentWS = float4(mul(float4(input.tangent.xyz, 0.0f), localWorld).xyz, input.tangent.w);
     o.uv        = input.uv;
+    o.tint      = foliageTint(gKinds[src]);
     return o;
 }
 
@@ -98,7 +124,7 @@ GBufferOut PSMain(PSInput input, bool isFront : SV_IsFrontFace)
     if (alphaModeMask > 0.5f)
         clip(albedoS.a - alphaCutoff);
 
-    float3 albedo = albedoS.rgb * color.rgb;
+    float3 albedo = albedoS.rgb * color.rgb * input.tint;
     float3 n      = ApplyNormalMap(input.normalWS, input.tangentWS, input.uv);
     if (!isFront)
         n = -n;

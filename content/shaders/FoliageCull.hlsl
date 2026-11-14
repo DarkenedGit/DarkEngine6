@@ -1,12 +1,14 @@
-// Foliage visibility. CSCompact is one thread per gathered instance. CSArgs writes one
-// draw argument per opaque part. Root UAVs are structured. Kinds keep separate spans.
-// gIndices[SV_InstanceID] still starts at zero for that kind. StartInstanceLocation stays 0.
+// Foliage visibility. CSCompact counts one thread per gathered instance. A prefix and a
+// scatter then pack variants into the kind's existing 65536 span. CSArgs writes one
+// draw per kind, variant, and opaque part. SM5 SV_InstanceID ignores StartInstanceLocation,
+// so the value is the prefix and the vertex shader adds gPrefix itself.
 #pragma pack_matrix(row_major)
 
 #include "FoliageWorld.hlsli"
 
-// Match FoliagePipeline::kCullKindCount, kCullPartsPerKind, kGrassKindIndex, and kMaxFoliageDraw.
+// Match FoliagePipeline::kCullKindCount, kCullPartsPerKind, kGrassKindIndex, kMaxFoliageVariants, and kMaxFoliageDraw.
 static const uint kKindCount    = 4;
+static const uint kVariants     = 8;
 static const uint kPartsPerKind = 8;
 static const uint kGrassKind    = 3;
 static const uint kMaxInstances = 65536;
@@ -29,10 +31,13 @@ cbuffer FoliageCullConstants : register(b0)
 
 StructuredBuffer<FoliageWorld> gWorlds  : register(t0);
 StructuredBuffer<uint>         gKinds   : register(t1);
+StructuredBuffer<uint>         gVariant : register(t2);
 // Structured, not RWBuffer. A root UAV cannot bind a typed buffer. Stride is still 4.
 RWStructuredBuffer<uint>       gIndices  : register(u0);
 RWStructuredBuffer<uint>       gCounters : register(u1);
 RWStructuredBuffer<uint>       gArgs     : register(u2);
+RWStructuredBuffer<uint>       gPrefix   : register(u3);
+RWStructuredBuffer<uint>       gCursor   : register(u4);
 
 uint residentOf(uint kind)
 {
@@ -123,6 +128,25 @@ bool boundsVisible(uint kind, FoliageWorld rows)
     return true;
 }
 
+bool visibleInstance(uint id, out uint kind, out uint variant)
+{
+    uint packed = gKinds[id];
+    kind = packed & 0xFFu;
+    if (kind >= kKindCount)
+        return false;
+    variant = (packed >> 8u) & 0xFFu;
+    if (variant >= kVariants)
+        variant = 0u;
+    // Shadow views still draw trees, flowers, and rocks. Grass tufts are not casters.
+    if (shadowView != 0 && kind == kGrassKind)
+        return false;
+    if (boundsMin[kind].w == 0.0)
+        return false;
+    if (!boundsVisible(kind, gWorlds[id]))
+        return false;
+    return true;
+}
+
 [numthreads(64, 1, 1)]
 void CSCompact(uint3 id : SV_DispatchThreadID)
 {
@@ -133,51 +157,99 @@ void CSCompact(uint3 id : SV_DispatchThreadID)
     if (id.x >= instanceCount)
         return;
 
-    uint kind = gKinds[id.x];
-    if (kind >= kKindCount)
+    uint kind;
+    uint variant;
+    if (!visibleInstance(id.x, kind, variant))
         return;
-    // Shadow views still draw trees, flowers, and rocks. Grass tufts are not casters.
-    if (shadowView != 0 && kind == kGrassKind)
-        return;
-    if (boundsMin[kind].w == 0.0)
-        return;
-    if (!boundsVisible(kind, gWorlds[id.x]))
-        return;
-
     uint slot;
-    InterlockedAdd(gCounters[kind], 1, slot);
-    uint cap = residentOf(kind);
-    if (slot < cap)
-        gIndices[(viewIndex * kKindCount + kind) * kMaxInstances + slot] = id.x;
+    InterlockedAdd(gCounters[kind * kVariants + variant], 1, slot);
+}
+
+[numthreads(4, 1, 1)]
+void CSPrefix(uint3 id : SV_DispatchThreadID)
+{
+    // Live read of every constant so FXC does not shrink this cbuffer below 432 bytes.
+    uint keep = tail.x | tail.y | tail.z | tail.w | viewIndex | instanceCount | useSphere | shadowView
+        | kindResident.x | partCount.x | indexCount[0].x
+        | asuint(planes[0].x) | asuint(sphere.x) | asuint(boundsMin[0].w) | asuint(boundsMax[0].w);
+    if (keep == 0xFFFFFFFFu || id.x >= kKindCount)
+        return;
+    uint sum = 0;
+    [unroll]
+    for (uint variant = 0; variant < kVariants; ++variant)
+    {
+        uint slot = id.x * kVariants + variant;
+        gPrefix[slot] = sum;
+        sum += gCounters[slot];
+    }
 }
 
 [numthreads(64, 1, 1)]
-void CSArgs(uint3 id : SV_DispatchThreadID)
+void CSScatter(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= kKindCount)
+    uint keep = tail.x | tail.y | tail.z | tail.w | instanceCount | viewIndex | useSphere | shadowView
+        | kindResident.x | partCount.x | indexCount[0].x
+        | asuint(planes[0].x) | asuint(sphere.x) | asuint(boundsMin[0].w) | asuint(boundsMax[0].w);
+    if (keep == 0xFFFFFFFFu)
+        return;
+    if (id.x >= instanceCount)
         return;
 
-    uint count = gCounters[id.x];
-    uint cap   = residentOf(id.x);
+    uint kind;
+    uint variant;
+    if (!visibleInstance(id.x, kind, variant))
+        return;
+    uint counter = kind * kVariants + variant;
+    uint local;
+    InterlockedAdd(gCursor[counter], 1, local);
+    uint cap = residentOf(kind);
+    if (local < cap)
+    {
+        uint kindBase = (viewIndex * kKindCount + kind) * kMaxInstances;
+        gIndices[kindBase + gPrefix[counter] + local] = id.x;
+    }
+}
+
+[numthreads(32, 1, 1)]
+void CSArgs(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= kKindCount * kVariants)
+        return;
+
+    uint kind    = id.x >> 3;
+    uint variant = id.x & 7u;
+    uint count   = gCounters[id.x];
+    uint cap     = residentOf(kind);
     if (count > cap)
         count = cap;
-    if (shadowView != 0 && id.x == kGrassKind)
+    if (shadowView != 0 && kind == kGrassKind)
         count = 0;
-    // tail is the last constant. Reading it keeps this cbuffer at 432 bytes so it matches CSCompact.
-    uint keep = tail.x | tail.y | tail.z | tail.w | partsOf(id.x) | viewIndex;
+    // tail, partsOf, and partIndexCount stay live so the reflected cbuffer remains 432 bytes.
+    uint legacy = partsOf(kind) | partIndexCount(kind, 0);
+    uint infoBase = id.x * 9u;
+    uint parts = gVariant[infoBase];
+    uint keep = tail.x | tail.y | tail.z | tail.w | legacy | parts | viewIndex;
     if (keep == 0xFFFFFFFFu)
         count = 0;
-
-    uint parts = partsOf(id.x);
     if (parts > kPartsPerKind)
         parts = kPartsPerKind;
-    for (uint part = 0; part < parts; ++part)
+
+    uint prefix = gPrefix[id.x];
+    [unroll]
+    for (uint part = 0; part < kPartsPerKind; ++part)
     {
-        uint base = (viewIndex * kKindCount * kPartsPerKind + id.x * kPartsPerKind + part) * 5;
-        gArgs[base + 0] = partIndexCount(id.x, part);
-        gArgs[base + 1] = count;
+        uint base = ((viewIndex * kKindCount * kVariants + kind * kVariants + variant) * kPartsPerKind + part) * 5u;
+        uint indexCount = 0;
+        uint instances = 0;
+        if (part < parts)
+        {
+            indexCount = gVariant[infoBase + 1u + part];
+            instances = count;
+        }
+        gArgs[base + 0] = indexCount;
+        gArgs[base + 1] = instances;
         gArgs[base + 2] = 0;
         gArgs[base + 3] = 0;
-        gArgs[base + 4] = 0;
+        gArgs[base + 4] = prefix;
     }
 }

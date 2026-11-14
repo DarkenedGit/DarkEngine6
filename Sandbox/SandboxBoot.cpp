@@ -450,6 +450,10 @@ bool SandboxApp::advanceBootSlice()
             m_foliageDensity.flowerModel       = boot.scene.terrain.foliage.flowerModel;
             m_foliageDensity.rockModel         = boot.scene.terrain.foliage.rockModel;
             m_foliageDensity.grassModel        = boot.scene.terrain.foliage.grassModel;
+            m_foliageDensity.trees             = boot.scene.terrain.foliage.trees;
+            m_foliageDensity.flowers           = boot.scene.terrain.foliage.flowers;
+            m_foliageDensity.rocks             = boot.scene.terrain.foliage.rocks;
+            m_foliageDensity.tufts             = boot.scene.terrain.foliage.tufts;
             m_leafShedScale                    = boot.scene.terrain.foliage.shedScale;
             m_wind = boot.scene.terrain.wind.settings;
             clampWindSettings(m_wind);

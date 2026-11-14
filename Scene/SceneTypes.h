@@ -5,6 +5,7 @@
 #include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
 #include "Play/Spawner.h"
+#include "Terrain/FoliageFile.h"
 #include "Terrain/TrailPath.h"
 #include "Terrain/WindTypes.h"
 
@@ -396,6 +397,10 @@ namespace Dark
         std::string flowerModel = "models/Dandelion/dandelion_01_2k.gltf";
         std::string rockModel   = "models/RockMoss/rock_moss_set_01_2k.gltf";
         std::string grassModel  = "models/Grass/grass_medium_01_2k.gltf";
+        std::vector<Terrain::FoliageSpecies> trees   = Terrain::defaultTreeSpecies();
+        std::vector<Terrain::FoliageSpecies> flowers = Terrain::defaultFlowerSpecies();
+        std::vector<Terrain::FoliageSpecies> rocks   = Terrain::defaultRockSpecies();
+        std::vector<Terrain::FoliageSpecies> tufts   = Terrain::defaultTuftSpecies();
     };
 
     struct GrassSceneDesc

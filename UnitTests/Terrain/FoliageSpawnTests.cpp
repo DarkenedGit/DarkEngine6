@@ -292,8 +292,8 @@ TEST(FoliageSpawn, PureGrassPlacesTreesAndFlowersOnly)
     EXPECT_FLOAT_EQ(out.records[0].pitch, 0.0f);
     EXPECT_FLOAT_EQ(out.records[0].tiltYaw, 0.0f);
     EXPECT_FLOAT_EQ(out.records[0].y, 4.0f);
-    EXPECT_GE(out.records[0].scale, 0.85f);
-    EXPECT_LE(out.records[0].scale, 1.15f);
+    EXPECT_GE(out.records[0].scale, 0.70f);
+    EXPECT_LE(out.records[0].scale, 1.60f);
     EXPECT_NEAR(out.records[0].x, 0.5f, 0.45f);
     EXPECT_NEAR(out.records[0].z, 0.5f, 0.45f);
     expectPadAndYaw(out.records[0]);
@@ -1308,7 +1308,11 @@ TEST(FoliageSpawn, UnderstoryLandsInAnnulus)
         EXPECT_TRUE(rec.kind == static_cast<uint8_t>(FoliageKind::Flower) || rec.kind == static_cast<uint8_t>(FoliageKind::Grass));
         EXPECT_FLOAT_EQ(rec.pitch, 0.0f);
         EXPECT_FLOAT_EQ(rec.tiltYaw, 0.0f);
-        expectPadAndYaw(rec);
+        EXPECT_EQ(rec.pad[0], 1);
+        EXPECT_EQ(rec.pad[1], 0);
+        EXPECT_EQ(rec.pad[2], 0);
+        EXPECT_GE(rec.yaw, 0.0f);
+        EXPECT_LE(rec.yaw, Dark::Math::TwoPi);
         const double dx = static_cast<double>(rec.x) - static_cast<double>(tree.x);
         const double dz = static_cast<double>(rec.z) - static_cast<double>(tree.z);
         const double dist = std::sqrt(dx * dx + dz * dz);
@@ -1410,4 +1414,75 @@ TEST(FoliageSpawn, PebblesFollowDownslope)
     ASSERT_TRUE(spawnFoliage(in, quiet));
     EXPECT_EQ(quiet.records.size(), 1u);
     EXPECT_GE(quiet.records[0].scale, 1.2f);
+}
+
+TEST(FoliageSpawn, SpawnPicksWeightedVariants)
+{
+    HeightMap hm;
+    SplatMap  splat;
+    ASSERT_TRUE(makeMap(hm, splat, 17, 17, 1.0f, 1.0f, 2.0f, Dark::Math::Vector3f{ 0.0f, 0.0f, 0.0f }, 0, 255, 0, 0));
+    FoliageSpawnIn in = baseIn(hm, splat, 1, 1, 16);
+    in.density.grassTreesPerM2 = 1.0f;
+    in.density.treeSpacingM    = 0.0f;
+    in.density.trees           = {
+        FoliageSpecies{ "models/a.gltf", 3.0f, 1.0f, 1.0f, false },
+        FoliageSpecies{ "models/b.gltf", 1.0f, 1.0f, 1.0f, false },
+    };
+
+    FoliageSpawnOut first;
+    FoliageSpawnOut second;
+    ASSERT_TRUE(spawnFoliage(in, first));
+    ASSERT_TRUE(spawnFoliage(in, second));
+    expectSameRecords(first, second);
+
+    int heavy = 0;
+    int light = 0;
+    ASSERT_EQ(first.records.size(), second.records.size());
+    for (size_t i = 0; i < first.records.size(); ++i)
+    {
+        EXPECT_EQ(first.records[i].pad[0], second.records[i].pad[0]);
+        EXPECT_EQ(first.records[i].pad[1], 0);
+        EXPECT_EQ(first.records[i].pad[2], 0);
+        if (first.records[i].kind != static_cast<uint8_t>(FoliageKind::Tree))
+            continue;
+        if (first.records[i].pad[0] == 0)
+            ++heavy;
+        else if (first.records[i].pad[0] == 1)
+            ++light;
+        else
+            ADD_FAILURE() << "variant " << static_cast<int>(first.records[i].pad[0]);
+    }
+    EXPECT_GT(heavy, 0);
+    EXPECT_GT(light, 0);
+    EXPECT_GT(heavy, light);
+    const double ratio = static_cast<double>(heavy) / static_cast<double>(light);
+    EXPECT_GT(ratio, 1.5);
+    EXPECT_LT(ratio, 6.0);
+}
+
+TEST(FoliageSpawn, TreeScaleUsesWiderRange)
+{
+    HeightMap hm;
+    SplatMap  splat;
+    ASSERT_TRUE(makeMap(hm, splat, 9, 9, 1.0f, 1.0f, 2.0f, Dark::Math::Vector3f{ 0.0f, 0.0f, 0.0f }, 0, 255, 0, 0));
+    FoliageSpawnIn in = baseIn(hm, splat, 1, 1, 8);
+    in.density.grassTreesPerM2 = 1.0f;
+    in.density.treeSpacingM    = 0.0f;
+
+    FoliageSpawnOut out;
+    ASSERT_TRUE(spawnFoliage(in, out));
+    int trees = 0;
+    bool outsideOld = false;
+    for (const FoliageRecord& rec : out.records)
+    {
+        if (rec.kind != static_cast<uint8_t>(FoliageKind::Tree))
+            continue;
+        EXPECT_GE(rec.scale, 0.70f);
+        EXPECT_LE(rec.scale, 1.60f);
+        if (rec.scale < 0.85f || rec.scale > 1.15f)
+            outsideOld = true;
+        ++trees;
+    }
+    EXPECT_GT(trees, 8);
+    EXPECT_TRUE(outsideOld);
 }

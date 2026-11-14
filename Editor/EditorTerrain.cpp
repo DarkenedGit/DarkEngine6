@@ -857,6 +857,10 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
         desc.foliage.flowerModel       = m_foliageDensity.flowerModel;
         desc.foliage.rockModel         = m_foliageDensity.rockModel;
         desc.foliage.grassModel        = m_foliageDensity.grassModel;
+        desc.foliage.trees             = m_foliageDensity.trees;
+        desc.foliage.flowers           = m_foliageDensity.flowers;
+        desc.foliage.rocks             = m_foliageDensity.rocks;
+        desc.foliage.tufts             = m_foliageDensity.tufts;
         desc.grass                     = m_authoredGrass;
         desc.wind.present              = true;
         desc.wind.settings             = m_wind;
@@ -924,6 +928,10 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
     desc.foliage.flowerModel       = m_foliageDensity.flowerModel;
     desc.foliage.rockModel         = m_foliageDensity.rockModel;
     desc.foliage.grassModel        = m_foliageDensity.grassModel;
+    desc.foliage.trees             = m_foliageDensity.trees;
+    desc.foliage.flowers           = m_foliageDensity.flowers;
+    desc.foliage.rocks             = m_foliageDensity.rocks;
+    desc.foliage.tufts             = m_foliageDensity.tufts;
     desc.grass                     = m_authoredGrass;
     desc.wind.present              = true;
     desc.wind.settings             = m_wind;
@@ -1163,6 +1171,10 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
         m_foliageDensity.flowerModel       = desc.foliage.flowerModel;
         m_foliageDensity.rockModel         = desc.foliage.rockModel;
         m_foliageDensity.grassModel        = desc.foliage.grassModel;
+        m_foliageDensity.trees             = desc.foliage.trees;
+        m_foliageDensity.flowers           = desc.foliage.flowers;
+        m_foliageDensity.rocks             = desc.foliage.rocks;
+        m_foliageDensity.tufts             = desc.foliage.tufts;
         m_foliageStale                     = desc.foliage.stale;
         m_leafShedScale                    = desc.foliage.shedScale;
         if (!loadWorldEngineTerrain(dir, worldSize, relief))
@@ -1283,6 +1295,10 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
     m_foliageDensity.flowerModel       = desc.foliage.flowerModel;
     m_foliageDensity.rockModel         = desc.foliage.rockModel;
     m_foliageDensity.grassModel        = desc.foliage.grassModel;
+    m_foliageDensity.trees             = desc.foliage.trees;
+    m_foliageDensity.flowers           = desc.foliage.flowers;
+    m_foliageDensity.rocks             = desc.foliage.rocks;
+    m_foliageDensity.tufts             = desc.foliage.tufts;
     m_foliageStale                     = desc.foliage.stale;
     m_leafShedScale                    = desc.foliage.shedScale;
 
@@ -2059,6 +2075,7 @@ void EditorApp::drawTerrainPanel()
             m_foliageStale = true;
         if (ImGui::Button("Place / Replace foliage"))
             startFoliageSpawn();
+        ImGui::TextDisabled("Re-place after the species list changes. An old variant draws as the first species.");
         drawTrailHeader();
         ImGui::EndDisabled();
         ImGui::SeparatorText("Procedural grass");

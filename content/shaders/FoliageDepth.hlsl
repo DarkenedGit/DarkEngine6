@@ -29,6 +29,7 @@ cbuffer FoliageView : register(b1)
 
 StructuredBuffer<FoliageWorld> gWorlds  : register(t4);
 StructuredBuffer<uint>         gIndices : register(t5);
+StructuredBuffer<uint>         gPrefix  : register(t7);
 
 Texture2D    gAlbedo : register(t0);
 SamplerState gSamp   : register(s0);
@@ -49,7 +50,12 @@ struct PSInput
 
 PSInput VSMain(VSInput input)
 {
-    float4x4 world      = FoliageWorldMatrix(gWorlds[gIndices[input.iid]]);
+    // SV_InstanceID does not include StartInstanceLocation on this shader model.
+    uint variant = (uint)depthPad;
+    if (variant >= 8u)
+        variant = 0u;
+    uint src = input.iid + gPrefix[((uint)kindIndex) * 8u + variant];
+    float4x4 world      = FoliageWorldMatrix(gWorlds[gIndices[src]]);
     float4x4 localWorld = mul(localToRoot, world);
     float4   wp         = mul(float4(input.position, 1.0f), localWorld);
     float3   pos        = wp.xyz;

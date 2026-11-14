@@ -35,6 +35,9 @@ namespace Dark::Terrain
         constexpr uint32_t kSaltPebbleCount   = 0x8700u;
         constexpr uint32_t kSaltPebbleLateral = 0x8800u;
         constexpr uint32_t kSaltPebbleScale   = 0x8900u;
+        constexpr uint32_t kSaltVariant       = 0xA100u;
+        constexpr const char* kFernPath       = "models/NaturePack/glTF/Fern_1.gltf";
+        constexpr const char* kBushPath       = "models/NaturePack/glTF/Bush_Common.gltf";
         constexpr uint32_t kSaltPatchLarge    = 0x9000u;
         constexpr uint32_t kSaltPatchMedium   = 0x9100u;
         constexpr uint32_t kSaltPatchFine     = 0x9200u;
@@ -417,7 +420,122 @@ namespace Dark::Terrain
         uint64_t room    = cap;
         uint64_t acc     = 0;
 
-        auto pushRecord = [&](FoliageKind kind, int slot, float x, float z, int ix, int iz, float scale, std::vector<FoliageRecord>& dest, uint32_t extraSalt)
+        const FoliageDensity& density = in.density;
+
+        auto speciesList = [&](FoliageKind kind) -> const std::vector<FoliageSpecies>&
+        {
+            if (kind == FoliageKind::Flower)
+                return density.flowers;
+            if (kind == FoliageKind::Rock)
+                return density.rocks;
+            if (kind == FoliageKind::Grass)
+                return density.tufts;
+            return density.trees;
+        };
+
+        auto speciesIndex = [&](FoliageKind kind, const char* path) -> int
+        {
+            const std::vector<FoliageSpecies>& list = speciesList(kind);
+            const uint32_t n = static_cast<uint32_t>(list.size()) < kMaxFoliageVariants ? static_cast<uint32_t>(list.size()) : kMaxFoliageVariants;
+            for (uint32_t i = 0; i < n; ++i)
+            {
+                if (list[i].path == path && list[i].weight > 0.0f)
+                    return static_cast<int>(i);
+            }
+            return -1;
+        };
+
+        auto weightedVariant = [&](FoliageKind kind, int slot, int ix, int iz, bool meadow) -> uint8_t
+        {
+            const std::vector<FoliageSpecies>& list = speciesList(kind);
+            const uint32_t n = static_cast<uint32_t>(list.size()) < kMaxFoliageVariants ? static_cast<uint32_t>(list.size()) : kMaxFoliageVariants;
+            const char* skip = nullptr;
+            if (meadow && kind == FoliageKind::Flower)
+                skip = kFernPath;
+            else if (meadow && kind == FoliageKind::Grass)
+                skip = kBushPath;
+            float sum = 0.0f;
+            for (uint32_t i = 0; i < n; ++i)
+            {
+                if (!(list[i].weight > 0.0f))
+                    continue;
+                if (skip != nullptr && list[i].path == skip)
+                    continue;
+                sum += list[i].weight;
+            }
+            const bool skipped = sum > 0.0f;
+            if (!skipped)
+            {
+                sum = 0.0f;
+                for (uint32_t i = 0; i < n; ++i)
+                {
+                    if (list[i].weight > 0.0f)
+                        sum += list[i].weight;
+                }
+            }
+            if (!(sum > 0.0f))
+                return 0;
+            const uint32_t salt = kSaltVariant + static_cast<uint32_t>(kind) * 16u + static_cast<uint32_t>(slot);
+            float pick = hash21(ix, iz, seed ^ salt) * sum;
+            float acc  = 0.0f;
+            uint8_t last = 0;
+            for (uint32_t i = 0; i < n; ++i)
+            {
+                if (!(list[i].weight > 0.0f))
+                    continue;
+                if (skipped && skip != nullptr && list[i].path == skip)
+                    continue;
+                last = static_cast<uint8_t>(i);
+                acc += list[i].weight;
+                if (pick < acc)
+                    return last;
+            }
+            return last;
+        };
+
+        auto scaleInRange = [](float u, float lo, float hi) -> float
+        {
+            if (!(hi > lo))
+                return lo;
+            float s = lo + u * (hi - lo);
+            if (hi / lo > 1.5f && lo > 0.0f)
+                s = lo * std::exp(u * std::log(hi / lo));
+            if (s < lo)
+                s = lo;
+            if (s > hi)
+                s = hi;
+            return s;
+        };
+
+        auto kindScale = [&](FoliageKind kind, int ix, int iz, uint32_t scaleSalt, uint8_t variant) -> float
+        {
+            float scaleMin = 0.70f;
+            float scaleMax = 1.60f;
+            if (kind == FoliageKind::Flower)
+            {
+                scaleMin = 0.80f;
+                scaleMax = 1.20f;
+            }
+            else if (kind == FoliageKind::Rock)
+            {
+                scaleMin = 0.60f;
+                scaleMax = 1.80f;
+            }
+            else if (kind == FoliageKind::Grass)
+            {
+                scaleMin = 0.80f;
+                scaleMax = 1.25f;
+            }
+            const std::vector<FoliageSpecies>& list = speciesList(kind);
+            if (variant < list.size() && list[variant].scaleMax > list[variant].scaleMin && list[variant].scaleMin > 0.0f)
+            {
+                scaleMin = list[variant].scaleMin;
+                scaleMax = list[variant].scaleMax;
+            }
+            return scaleInRange(hash21(ix, iz, seed ^ scaleSalt), scaleMin, scaleMax);
+        };
+
+        auto pushRecord = [&](FoliageKind kind, int slot, float x, float z, int ix, int iz, float scale, std::vector<FoliageRecord>& dest, uint32_t extraSalt, uint8_t variant)
         {
             const bool     flower = kind == FoliageKind::Flower;
             const uint32_t slotU  = static_cast<uint32_t>(slot);
@@ -434,6 +552,7 @@ namespace Dark::Terrain
             rec.yaw   = hash21(ix, iz, seed ^ yawSalt) * TwoPi;
             rec.scale = scale;
             rec.kind  = static_cast<uint8_t>(kind);
+            rec.pad[0] = variant;
             const Vector3f n = height->normalAtWorld(x, z);
             if (kind == FoliageKind::Tree)
             {
@@ -576,27 +695,11 @@ namespace Dark::Terrain
             if (!accept)
                 return;
 
-            float scaleMin = 0.85f;
-            float scaleMax = 1.15f;
-            if (kind == FoliageKind::Flower)
-            {
-                scaleMin = 0.80f;
-                scaleMax = 1.20f;
-            }
-            else if (kind == FoliageKind::Rock)
-            {
-                scaleMin = 0.60f;
-                scaleMax = 1.80f;
-            }
-            else if (kind == FoliageKind::Grass)
-            {
-                scaleMin = 0.80f;
-                scaleMax = 1.25f;
-            }
             uint32_t scaleSalt = kSaltScale + kindU;
             if (flower)
                 scaleSalt += slotU * 16u;
-            const float scale = scaleMin + hash21(ix, iz, seed ^ scaleSalt) * (scaleMax - scaleMin);
+            const uint8_t variant = weightedVariant(kind, slot, ix, iz, true);
+            const float scale = kindScale(kind, ix, iz, scaleSalt, variant);
 
             if (parentPass)
             {
@@ -604,7 +707,7 @@ namespace Dark::Terrain
                     return;
                 if (hash != nullptr)
                     hash->insert(x, z, scale);
-                pushRecord(kind, slot, x, z, ix, iz, scale, parents, 0u);
+                pushRecord(kind, slot, x, z, ix, iz, scale, parents, 0u, variant);
                 parentRefs.push_back(ParentRef{ ix, iz });
                 return;
             }
@@ -626,7 +729,7 @@ namespace Dark::Terrain
             }
             if (!keep)
                 return;
-            pushRecord(kind, slot, x, z, ix, iz, scale, out.records, 0u);
+            pushRecord(kind, slot, x, z, ix, iz, scale, out.records, 0u, variant);
         };
 
         for (uint32_t cellZ = 0; cellZ < rows; ++cellZ)
@@ -665,7 +768,7 @@ namespace Dark::Terrain
 
         const size_t parentCount = parentRefs.size();
 
-        auto noteChild = [&](FoliageKind kind, int slot, float x, float z, int ix, int iz, float scale, uint32_t extraSalt)
+        auto noteChild = [&](FoliageKind kind, int slot, float x, float z, int ix, int iz, float scale, uint32_t extraSalt, uint8_t variant)
         {
             if (!writing)
             {
@@ -683,7 +786,7 @@ namespace Dark::Terrain
             }
             if (!keep)
                 return;
-            pushRecord(kind, slot, x, z, ix, iz, scale, out.records, extraSalt);
+            pushRecord(kind, slot, x, z, ix, iz, scale, out.records, extraSalt, variant);
         };
 
         auto hashedCount = [&](int ix, int iz, uint32_t salt, int lo, int hi) -> int
@@ -747,10 +850,10 @@ namespace Dark::Terrain
                     const double trunk = static_cast<double>(disk.trunk);
                     if (dx * dx + dz * dz < trunk * trunk)
                         continue;
-                    const float scaleMin = 0.80f;
-                    const float scaleMax = kind == FoliageKind::Grass ? 1.25f : 1.20f;
-                    const float scale    = scaleMin + hash21(ref.ix, ref.iz, seed ^ (kSaltChildScale + slotU)) * (scaleMax - scaleMin);
-                    noteChild(kind, slot, x, z, ref.ix, ref.iz, scale, kSaltChild + slotU);
+                    const int forced = speciesIndex(kind, kind == FoliageKind::Flower ? kFernPath : kBushPath);
+                    const uint8_t variant = forced >= 0 ? static_cast<uint8_t>(forced) : 0;
+                    const float scale = kindScale(kind, ref.ix, ref.iz, kSaltChildScale + slotU, variant);
+                    noteChild(kind, slot, x, z, ref.ix, ref.iz, scale, kSaltChild + slotU, variant);
                 }
             }
             for (size_t i = 0; i < parentCount; ++i)
@@ -806,7 +909,7 @@ namespace Dark::Terrain
                     float scale = 0.35f + hash21(ref.ix, ref.iz, seed ^ (kSaltPebbleScale + slotU)) * 0.40f;
                     if (!(scale < parent.scale))
                         scale = parent.scale * 0.5f;
-                    noteChild(FoliageKind::Rock, slot, x, z, ref.ix, ref.iz, scale, kSaltPebble + slotU);
+                    noteChild(FoliageKind::Rock, slot, x, z, ref.ix, ref.iz, scale, kSaltPebble + slotU, 0);
                 }
             }
         };

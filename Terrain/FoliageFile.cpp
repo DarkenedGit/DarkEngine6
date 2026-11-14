@@ -76,13 +76,7 @@ namespace Dark::Terrain
         out.write(reinterpret_cast<const char*>(&reserved0), sizeof(reserved0));
         out.write(reinterpret_cast<const char*>(&reserved1), sizeof(reserved1));
         for (uint32_t i = 0; i < count; ++i)
-        {
-            FoliageRecord rec = records[i];
-            rec.pad[0]        = 0;
-            rec.pad[1]        = 0;
-            rec.pad[2]        = 0;
-            out.write(reinterpret_cast<const char*>(&rec), sizeof(rec));
-        }
+            out.write(reinterpret_cast<const char*>(&records[i]), sizeof(records[i]));
         out.flush();
         if (!out)
         {
@@ -157,7 +151,8 @@ namespace Dark::Terrain
             DE_LOG_ERROR("FoliageFile: '{}' magic {:08X} mismatch", path.string(), magic);
             return false;
         }
-        if (version != kFoliageVersion)
+        // v1 bins predate variant and tint. Anything else is not a foliage tile.
+        if (version != 1u && version != kFoliageVersion)
         {
             DE_LOG_ERROR("FoliageFile: '{}' version {} mismatch", path.string(), version);
             return false;
@@ -197,6 +192,12 @@ namespace Dark::Terrain
                 out.clear();
                 DE_LOG_ERROR("FoliageFile: '{}' kind {} rejected", path.string(), kind);
                 return false;
+            }
+            if (version == 1u)
+            {
+                out[i].pad[0] = 0;
+                out[i].pad[1] = 0;
+                out[i].pad[2] = 0;
             }
         }
         return true;
