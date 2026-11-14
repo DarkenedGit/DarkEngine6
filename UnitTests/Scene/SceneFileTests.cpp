@@ -971,6 +971,12 @@ TEST(SceneFile, TerrainFoliage_RoundTrip)
     in.terrain.foliage.grassFlowersPerM2  = 1.25f;
     in.terrain.foliage.rockPerM2          = 0.125f;
     in.terrain.foliage.grassPerM2         = 0.4f;
+    in.terrain.foliage.treeMinNormalY     = 0.91f;
+    in.terrain.foliage.flowerMinNormalY   = 0.75f;
+    in.terrain.foliage.tuftMinNormalY     = 0.66f;
+    in.terrain.foliage.rockMinNormalY     = 0.33f;
+    in.terrain.foliage.treeMaxLeanDeg     = 12.0f;
+    in.terrain.foliage.rockMaxPitchDeg    = 44.0f;
     in.terrain.foliage.stale              = true;
     in.terrain.foliage.treeModel          = "models/tree.gltf";
     in.terrain.foliage.flowerModel        = "models/flower.gltf";
@@ -1006,6 +1012,12 @@ TEST(SceneFile, TerrainFoliage_RoundTrip)
     EXPECT_NE(text.find("\"flowerModel\": \"models/flower.gltf\""), std::string::npos);
     EXPECT_NE(text.find("\"rockModel\": \"models/rock.gltf\""), std::string::npos);
     EXPECT_NE(text.find("\"grassModel\": \"models/Grass/grass_medium_01_2k.gltf\""), std::string::npos);
+    EXPECT_NE(text.find("\"treeMinNormalY\""), std::string::npos);
+    EXPECT_NE(text.find("\"flowerMinNormalY\""), std::string::npos);
+    EXPECT_NE(text.find("\"tuftMinNormalY\""), std::string::npos);
+    EXPECT_NE(text.find("\"rockMinNormalY\""), std::string::npos);
+    EXPECT_NE(text.find("\"treeMaxLeanDeg\""), std::string::npos);
+    EXPECT_NE(text.find("\"rockMaxPitchDeg\""), std::string::npos);
 
     SceneFileData out{};
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
@@ -1026,6 +1038,12 @@ TEST(SceneFile, TerrainFoliage_RoundTrip)
     EXPECT_NEAR(out.terrain.foliage.grassFlowersPerM2, 1.25f, 1.0e-5f);
     EXPECT_NEAR(out.terrain.foliage.rockPerM2, 0.125f, 1.0e-5f);
     EXPECT_NEAR(out.terrain.foliage.grassPerM2, 0.4f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.treeMinNormalY, 0.91f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.flowerMinNormalY, 0.75f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.tuftMinNormalY, 0.66f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.rockMinNormalY, 0.33f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.treeMaxLeanDeg, 12.0f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.rockMaxPitchDeg, 44.0f, 1.0e-5f);
     EXPECT_TRUE(out.terrain.foliage.stale);
     EXPECT_EQ(out.terrain.foliage.treeModel, "models/tree.gltf");
     EXPECT_EQ(out.terrain.foliage.flowerModel, "models/flower.gltf");
@@ -1059,9 +1077,37 @@ TEST(SceneFile, TerrainFoliage_RoundTrip)
     EXPECT_EQ(text2d.find("\"grass\""), std::string::npos);
     EXPECT_NE(text2d.find("\"version\": 2"), std::string::npos);
 
+    const auto omitted = tempScenePath("darkengine6_scene_terrain_foliage_slope_omitted_ut.json");
+    {
+        std::ofstream file(omitted, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(file));
+        file << R"({
+  "version": 2,
+  "name": "slope_omitted",
+  "mode": "3d",
+  "terrain": {
+    "bindLayout": 1,
+    "foliage": { "version": 1, "seed": 7 },
+    "layers": []
+  },
+  "objects": []
+})";
+    }
+    SceneFileData omittedOut{};
+    ASSERT_TRUE(loadSceneFromJson(omitted, omittedOut, &err)) << err;
+    EXPECT_EQ(omittedOut.version, 2);
+    EXPECT_TRUE(omittedOut.terrain.foliage.present);
+    EXPECT_NEAR(omittedOut.terrain.foliage.treeMinNormalY, 0.87f, 1.0e-5f);
+    EXPECT_NEAR(omittedOut.terrain.foliage.flowerMinNormalY, 0.82f, 1.0e-5f);
+    EXPECT_NEAR(omittedOut.terrain.foliage.tuftMinNormalY, 0.82f, 1.0e-5f);
+    EXPECT_NEAR(omittedOut.terrain.foliage.rockMinNormalY, 0.40f, 1.0e-5f);
+    EXPECT_NEAR(omittedOut.terrain.foliage.treeMaxLeanDeg, 7.0f, 1.0e-5f);
+    EXPECT_NEAR(omittedOut.terrain.foliage.rockMaxPitchDeg, 30.0f, 1.0e-5f);
+
     std::error_code removeEc;
     std::filesystem::remove(path, removeEc);
     std::filesystem::remove(path2d, removeEc);
+    std::filesystem::remove(omitted, removeEc);
 }
 
 TEST(SceneFile, TerrainFoliage_MissingKey_Defaults)
@@ -1119,6 +1165,12 @@ TEST(SceneFile, TerrainFoliage_MissingKey_Defaults)
     EXPECT_NEAR(data.terrain.foliage.grassFlowersPerM2, defaults.grassFlowersPerM2, 1.0e-6f);
     EXPECT_NEAR(data.terrain.foliage.rockPerM2, defaults.rockPerM2, 1.0e-6f);
     EXPECT_NEAR(data.terrain.foliage.grassPerM2, defaults.grassPerM2, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.treeMinNormalY, 0.87f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.flowerMinNormalY, 0.82f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.tuftMinNormalY, 0.82f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.rockMinNormalY, 0.40f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.treeMaxLeanDeg, 7.0f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.rockMaxPitchDeg, 30.0f, 1.0e-6f);
     EXPECT_EQ(data.terrain.foliage.treeModel, defaults.treeModel);
     EXPECT_EQ(data.terrain.foliage.flowerModel, defaults.flowerModel);
     EXPECT_EQ(data.terrain.foliage.rockModel, defaults.rockModel);
@@ -1155,6 +1207,12 @@ TEST(SceneFile, TerrainFoliage_ClampDensities)
       "grassFlowersPerM2": 1e20,
       "rockPerM2": -2.5,
       "grassPerM2": 8.0,
+      "treeMinNormalY": 3.0,
+      "flowerMinNormalY": -1.0,
+      "tuftMinNormalY": 4.0,
+      "rockMinNormalY": -0.2,
+      "treeMaxLeanDeg": 40.0,
+      "rockMaxPitchDeg": 120.0,
       "treeModel": "models/oak.gltf",
       "grassModel": "models/Grass/custom.gltf",
       "notes": "ignored"
@@ -1184,6 +1242,12 @@ TEST(SceneFile, TerrainFoliage_ClampDensities)
     EXPECT_NEAR(data.terrain.foliage.grassFlowersPerM2, 2.0f, 1.0e-5f);
     EXPECT_NEAR(data.terrain.foliage.rockPerM2, 0.0f, 1.0e-5f);
     EXPECT_NEAR(data.terrain.foliage.grassPerM2, 1.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.treeMinNormalY, 1.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.flowerMinNormalY, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.tuftMinNormalY, 1.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.rockMinNormalY, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.treeMaxLeanDeg, 15.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.rockMaxPitchDeg, 89.0f, 1.0e-5f);
     EXPECT_EQ(data.terrain.foliage.treeModel, "models/oak.gltf");
     EXPECT_EQ(data.terrain.foliage.grassModel, "models/Grass/custom.gltf");
     const Terrain::FoliageDensity modelDefaults{};

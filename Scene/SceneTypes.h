@@ -377,6 +377,12 @@ namespace Dark
         float       grassFlowersPerM2  = 0.008f;
         float       rockPerM2          = 0.004f;
         float       grassPerM2         = 0.0f;
+        float       treeMinNormalY     = 0.87f;
+        float       flowerMinNormalY   = 0.82f;
+        float       tuftMinNormalY     = 0.82f;
+        float       rockMinNormalY     = 0.40f;
+        float       treeMaxLeanDeg     = 7.0f;
+        float       rockMaxPitchDeg    = 30.0f;
         bool        stale              = false;
         float       shedScale          = 1.0f;
         std::string treeModel   = "models/BirchTree/scene.gltf";

@@ -836,6 +836,12 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
         desc.foliage.grassFlowersPerM2 = m_foliageDensity.grassFlowersPerM2;
         desc.foliage.rockPerM2         = m_foliageDensity.rockPerM2;
         desc.foliage.grassPerM2        = m_foliageDensity.grassPerM2;
+        desc.foliage.treeMinNormalY    = m_foliageDensity.treeMinNormalY;
+        desc.foliage.flowerMinNormalY  = m_foliageDensity.flowerMinNormalY;
+        desc.foliage.tuftMinNormalY    = m_foliageDensity.tuftMinNormalY;
+        desc.foliage.rockMinNormalY    = m_foliageDensity.rockMinNormalY;
+        desc.foliage.treeMaxLeanDeg    = m_foliageDensity.treeMaxLeanDeg;
+        desc.foliage.rockMaxPitchDeg   = m_foliageDensity.rockMaxPitchDeg;
         desc.foliage.stale             = m_foliageStale;
         desc.foliage.shedScale         = m_leafShedScale;
         desc.foliage.treeModel         = m_foliageDensity.treeModel;
@@ -890,6 +896,12 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
     desc.foliage.grassFlowersPerM2 = m_foliageDensity.grassFlowersPerM2;
     desc.foliage.rockPerM2         = m_foliageDensity.rockPerM2;
     desc.foliage.grassPerM2        = m_foliageDensity.grassPerM2;
+    desc.foliage.treeMinNormalY    = m_foliageDensity.treeMinNormalY;
+    desc.foliage.flowerMinNormalY  = m_foliageDensity.flowerMinNormalY;
+    desc.foliage.tuftMinNormalY    = m_foliageDensity.tuftMinNormalY;
+    desc.foliage.rockMinNormalY    = m_foliageDensity.rockMinNormalY;
+    desc.foliage.treeMaxLeanDeg    = m_foliageDensity.treeMaxLeanDeg;
+    desc.foliage.rockMaxPitchDeg   = m_foliageDensity.rockMaxPitchDeg;
     desc.foliage.stale             = m_foliageStale;
     desc.foliage.shedScale         = m_leafShedScale;
     desc.foliage.treeModel         = m_foliageDensity.treeModel;
@@ -1095,6 +1107,12 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
         m_foliageDensity.grassFlowersPerM2 = desc.foliage.grassFlowersPerM2;
         m_foliageDensity.rockPerM2         = desc.foliage.rockPerM2;
         m_foliageDensity.grassPerM2        = desc.foliage.grassPerM2;
+        m_foliageDensity.treeMinNormalY    = desc.foliage.treeMinNormalY;
+        m_foliageDensity.flowerMinNormalY  = desc.foliage.flowerMinNormalY;
+        m_foliageDensity.tuftMinNormalY    = desc.foliage.tuftMinNormalY;
+        m_foliageDensity.rockMinNormalY    = desc.foliage.rockMinNormalY;
+        m_foliageDensity.treeMaxLeanDeg    = desc.foliage.treeMaxLeanDeg;
+        m_foliageDensity.rockMaxPitchDeg   = desc.foliage.rockMaxPitchDeg;
         m_foliageDensity.seed              = desc.foliage.seed;
         m_foliageDensity.treeModel         = desc.foliage.treeModel;
         m_foliageDensity.flowerModel       = desc.foliage.flowerModel;
@@ -1203,6 +1221,12 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
     m_foliageDensity.grassFlowersPerM2 = desc.foliage.grassFlowersPerM2;
     m_foliageDensity.rockPerM2         = desc.foliage.rockPerM2;
     m_foliageDensity.grassPerM2        = desc.foliage.grassPerM2;
+    m_foliageDensity.treeMinNormalY    = desc.foliage.treeMinNormalY;
+    m_foliageDensity.flowerMinNormalY  = desc.foliage.flowerMinNormalY;
+    m_foliageDensity.tuftMinNormalY    = desc.foliage.tuftMinNormalY;
+    m_foliageDensity.rockMinNormalY    = desc.foliage.rockMinNormalY;
+    m_foliageDensity.treeMaxLeanDeg    = desc.foliage.treeMaxLeanDeg;
+    m_foliageDensity.rockMaxPitchDeg   = desc.foliage.rockMaxPitchDeg;
     m_foliageDensity.seed              = desc.foliage.seed;
     m_foliageDensity.treeModel         = desc.foliage.treeModel;
     m_foliageDensity.flowerModel       = desc.foliage.flowerModel;
@@ -1394,6 +1418,13 @@ void EditorApp::startFoliageSpawn()
 {
     if (terrainBrushesLocked())
         return;
+    if (m_foliageThread.joinable())
+    {
+        // Assigning a joinable std::thread calls std::terminate.
+        if (!m_foliageDone.load())
+            return;
+        m_foliageThread.join();
+    }
 
     const HeightMap* height = m_terrain.editableWorking();
     const SplatMap*  splat  = m_terrain.editableWorkingSplat();
@@ -1843,6 +1874,20 @@ void EditorApp::drawTerrainPanel()
             }
             ImGui::Text("Trees follow grass and dirt. Grass tufts follow the grass layer. %u trees, %u grass.", trees, grass);
         }
+        bool slopeEdited = false;
+        slopeEdited |= ImGui::SliderFloat("Tree min normal Y", &m_foliageDensity.treeMinNormalY, 0.0f, 1.0f, "%.2f");
+        slopeEdited |= ImGui::SliderFloat("Flower min normal Y", &m_foliageDensity.flowerMinNormalY, 0.0f, 1.0f, "%.2f");
+        slopeEdited |= ImGui::SliderFloat("Tuft min normal Y", &m_foliageDensity.tuftMinNormalY, 0.0f, 1.0f, "%.2f");
+        slopeEdited |= ImGui::SliderFloat("Rock min normal Y", &m_foliageDensity.rockMinNormalY, 0.0f, 1.0f, "%.2f");
+        slopeEdited |= ImGui::SliderFloat("Tree max lean (deg)", &m_foliageDensity.treeMaxLeanDeg, 0.0f, 15.0f, "%.0f");
+        ImGui::SetItemTooltip("Caps how far a tree tilts with the slope. 0 stays upright.");
+        slopeEdited |= ImGui::SliderFloat("Rock max pitch (deg)", &m_foliageDensity.rockMaxPitchDeg, 0.0f, 89.0f, "%.0f");
+        if (slopeEdited)
+            m_foliageStale = true;
+        ImGui::BeginDisabled(m_foliageRunning.load());
+        if (ImGui::Button("Place / Replace foliage"))
+            startFoliageSpawn();
+        ImGui::EndDisabled();
         ImGui::SeparatorText("Procedural grass");
         bool grassEdited = false;
         grassEdited |= ImGui::SliderFloat("Edge start", &m_authoredGrass.faceEdge, 0.0f, 1.0f, "%.2f");

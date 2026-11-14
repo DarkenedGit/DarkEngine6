@@ -10,7 +10,7 @@
 namespace Dark::Terrain
 {
     // Still water. entireMap is the level lake (every XZ). Otherwise the rectangle is one placed body.
-    // Trees and grass whose terrain height is below surfaceY are not planted. Flowers and rocks are.
+    // Trees, grass, and flowers whose bed is below surfaceY are not planted. Rocks are.
     struct FoliageWaterVolume
     {
         float minX      = 0.0f;

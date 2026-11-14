@@ -32,6 +32,12 @@ namespace Dark::Terrain
         float       grassFlowersPerM2  = 0.008f;
         float       rockPerM2          = 0.004f;
         float       grassPerM2         = 0.0f; // grass layer only; 0 keeps old scenes unchanged
+        float       treeMinNormalY     = 0.87f;
+        float       flowerMinNormalY   = 0.82f;
+        float       tuftMinNormalY     = 0.82f;
+        float       rockMinNormalY     = 0.40f;
+        float       treeMaxLeanDeg     = 7.0f;
+        float       rockMaxPitchDeg    = 30.0f;
         uint32_t    seed               = 1337u;
         std::string treeModel   = "models/BirchTree/scene.gltf";
         std::string flowerModel = "models/Dandelion/dandelion_01_2k.gltf";

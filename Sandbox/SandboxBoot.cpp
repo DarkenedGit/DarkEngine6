@@ -30,6 +30,7 @@
 #include "Terrain/FoliageSpawn.h"
 #include "Terrain/SplatMap.h"
 #include "Terrain/WorldEngineMap.h"
+#include "Water/WaterBody.h"
 #include "Water/WaterStream.h"
 
 #include <atomic>
@@ -432,6 +433,12 @@ bool SandboxApp::advanceBootSlice()
             m_foliageDensity.grassFlowersPerM2 = boot.scene.terrain.foliage.grassFlowersPerM2;
             m_foliageDensity.rockPerM2         = boot.scene.terrain.foliage.rockPerM2;
             m_foliageDensity.grassPerM2        = boot.scene.terrain.foliage.grassPerM2;
+            m_foliageDensity.treeMinNormalY    = boot.scene.terrain.foliage.treeMinNormalY;
+            m_foliageDensity.flowerMinNormalY  = boot.scene.terrain.foliage.flowerMinNormalY;
+            m_foliageDensity.tuftMinNormalY    = boot.scene.terrain.foliage.tuftMinNormalY;
+            m_foliageDensity.rockMinNormalY    = boot.scene.terrain.foliage.rockMinNormalY;
+            m_foliageDensity.treeMaxLeanDeg    = boot.scene.terrain.foliage.treeMaxLeanDeg;
+            m_foliageDensity.rockMaxPitchDeg   = boot.scene.terrain.foliage.rockMaxPitchDeg;
             m_foliageDensity.seed              = boot.scene.terrain.foliage.seed;
             m_foliageDensity.treeModel         = boot.scene.terrain.foliage.treeModel;
             m_foliageDensity.flowerModel       = boot.scene.terrain.foliage.flowerModel;
@@ -685,6 +692,24 @@ bool SandboxApp::advanceBootSlice()
                     lake.entireMap = true;
                     lake.surfaceY  = boot.waterLevel;
                     boot.foliageIn.water.push_back(lake);
+                    for (const SceneObjectData& object : boot.scene.objects)
+                    {
+                        if (object.type != SceneObjectType::Water)
+                            continue;
+                        float minX = 0.0f;
+                        float maxX = 0.0f;
+                        float minZ = 0.0f;
+                        float maxZ = 0.0f;
+                        if (!placedWaterFootprint(object.position.x, object.position.z, object.scale.x, object.scale.z, minX, maxX, minZ, maxZ))
+                            continue;
+                        FoliageWaterVolume pond;
+                        pond.minX     = minX;
+                        pond.maxX     = maxX;
+                        pond.minZ     = minZ;
+                        pond.maxZ     = maxZ;
+                        pond.surfaceY = object.position.y;
+                        boot.foliageIn.water.push_back(pond);
+                    }
                     boot.foliageArmed = true;
                     // Working height and splat stay put until this job finishes. Streaming starts later.
                     if (config().asyncSceneLoad && enqueueBootIo(jobs(), "FoliageSpawn", &SandboxApp::bootFoliage, m_boot))

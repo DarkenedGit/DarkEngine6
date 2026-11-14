@@ -118,6 +118,14 @@ namespace Dark::Terrain
         const float grassFlowers = Math::Clamp(in.density.grassFlowersPerM2, 0.0f, 2.0f);
         const float rockPerM2    = Math::Clamp(in.density.rockPerM2, 0.0f, 1.0f);
         const float grassPerM2   = Math::Clamp(in.density.grassPerM2, 0.0f, 1.0f);
+        const float treeMinNormalY   = Clamp(in.density.treeMinNormalY, 0.0f, 1.0f);
+        const float flowerMinNormalY = Clamp(in.density.flowerMinNormalY, 0.0f, 1.0f);
+        const float tuftMinNormalY   = Clamp(in.density.tuftMinNormalY, 0.0f, 1.0f);
+        const float rockMinNormalY   = Clamp(in.density.rockMinNormalY, 0.0f, 1.0f);
+        const float treeMaxLeanDeg   = Clamp(in.density.treeMaxLeanDeg, 0.0f, 15.0f);
+        const float rockMaxPitchDeg  = Clamp(in.density.rockMaxPitchDeg, 0.0f, 89.0f);
+        const float treeMaxLeanRad   = treeMaxLeanDeg * DegToRad;
+        const float rockMaxPitchRad  = rockMaxPitchDeg * DegToRad;
         const uint32_t seed     = in.density.seed;
         const float seaLevel    = in.seaLevel;
         const HeightMap* height = in.height;
@@ -153,6 +161,17 @@ namespace Dark::Terrain
                 if (coveredByWater(in.water, x, z, height->heightAtWorld(x, z)))
                     return;
             }
+
+            const Vector3f n = height->normalAtWorld(x, z);
+            float minY = rockMinNormalY;
+            if (kind == FoliageKind::Tree)
+                minY = treeMinNormalY;
+            else if (kind == FoliageKind::Flower)
+                minY = flowerMinNormalY;
+            else if (kind == FoliageKind::Grass)
+                minY = tuftMinNormalY;
+            if (n.y < minY)
+                return;
 
             float fx = 0.0f;
             float fz = 0.0f;
@@ -242,13 +261,24 @@ namespace Dark::Terrain
             rec.yaw   = hash21(ix, iz, seed ^ yawSalt) * TwoPi;
             rec.scale = scaleMin + hash21(ix, iz, seed ^ scaleSalt) * (scaleMax - scaleMin);
             rec.kind  = static_cast<uint8_t>(kind);
-            if (kind == FoliageKind::Rock)
+            if (kind == FoliageKind::Tree)
             {
-                const Vector3f n = height->normalAtWorld(x, z);
+                if (treeMaxLeanDeg > 0.0f && !(n.y > 0.999f))
+                {
+                    const float slope = acosf(Clamp(n.y, -1.0f, 1.0f));
+                    rec.pitch = slope < treeMaxLeanRad ? slope : treeMaxLeanRad;
+                    if (rec.pitch != 0.0f)
+                        rec.tiltYaw = atan2f(n.x, n.z);
+                }
+            }
+            else if (kind == FoliageKind::Rock)
+            {
                 if (!(n.y > 0.999f))
                 {
                     rec.pitch   = acosf(Clamp(n.y, -1.0f, 1.0f));
                     rec.tiltYaw = atan2f(n.x, n.z);
+                    if (rec.pitch > rockMaxPitchRad)
+                        rec.pitch = rockMaxPitchRad;
                 }
             }
 

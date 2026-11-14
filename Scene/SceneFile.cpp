@@ -653,6 +653,12 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             f["grassFlowersPerM2"] = scene.terrain.foliage.grassFlowersPerM2;
             f["rockPerM2"]         = scene.terrain.foliage.rockPerM2;
             f["grassPerM2"]        = scene.terrain.foliage.grassPerM2;
+            f["treeMinNormalY"]    = scene.terrain.foliage.treeMinNormalY;
+            f["flowerMinNormalY"]  = scene.terrain.foliage.flowerMinNormalY;
+            f["tuftMinNormalY"]    = scene.terrain.foliage.tuftMinNormalY;
+            f["rockMinNormalY"]    = scene.terrain.foliage.rockMinNormalY;
+            f["treeMaxLeanDeg"]    = scene.terrain.foliage.treeMaxLeanDeg;
+            f["rockMaxPitchDeg"]   = scene.terrain.foliage.rockMaxPitchDeg;
             f["stale"]             = scene.terrain.foliage.stale;
             f["shedScale"] = clampShedScale(scene.terrain.foliage.shedScale);
             f["treeModel"]         = scene.terrain.foliage.treeModel;
@@ -1036,6 +1042,12 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                     desc.foliage.grassFlowersPerM2  = Math::Clamp(jsonF(f, "grassFlowersPerM2", 0.008f), 0.0f, 2.0f);
                     desc.foliage.rockPerM2          = Math::Clamp(jsonF(f, "rockPerM2", 0.004f), 0.0f, 1.0f);
                     desc.foliage.grassPerM2         = Math::Clamp(jsonF(f, "grassPerM2", 0.0f), 0.0f, 1.0f);
+                    desc.foliage.treeMinNormalY     = Math::Clamp(jsonF(f, "treeMinNormalY", 0.87f), 0.0f, 1.0f);
+                    desc.foliage.flowerMinNormalY   = Math::Clamp(jsonF(f, "flowerMinNormalY", 0.82f), 0.0f, 1.0f);
+                    desc.foliage.tuftMinNormalY     = Math::Clamp(jsonF(f, "tuftMinNormalY", 0.82f), 0.0f, 1.0f);
+                    desc.foliage.rockMinNormalY     = Math::Clamp(jsonF(f, "rockMinNormalY", 0.40f), 0.0f, 1.0f);
+                    desc.foliage.treeMaxLeanDeg     = Math::Clamp(jsonF(f, "treeMaxLeanDeg", 7.0f), 0.0f, 15.0f);
+                    desc.foliage.rockMaxPitchDeg    = Math::Clamp(jsonF(f, "rockMaxPitchDeg", 30.0f), 0.0f, 89.0f);
                     desc.foliage.stale              = jsonB(f, "stale", false);
                     {
                         float shed = 1.0f;
