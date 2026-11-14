@@ -26,7 +26,7 @@ Runtime HLSL lives in `content/shaders/`. It shows up in the IDE but is compiled
 
 ## What is in the tree
 
-- **Core**: `Application`, Win32 `Window`, logging (`DE_LOG_*` + `LogCategory`: `Core`, `Render`, `Audio`, `Collision`, `AI`, `Input`, `Networking`, `Debug`, `Media`), paths and content roots, UUID, memory tracker, and type-checked JSON readers (`Core/Json.h`: `jsonStringOr` / `jsonBoolOr` / `jsonIntOr` / `jsonFloatOr` / `jsonDoubleOr`). These log and fall back on a wrong type instead of calling nlohmann `value()`, which aborts when exceptions are off. Configure generates `Core/Version.h` (git describe / commit when available).
+- **Core**: `Application`, Win32 `Window`, logging (`DE_LOG_*` + `LogCategory`: `Core`, `Render`, `Audio`, `Collision`, `AI`, `Input`, `Networking`, `Debug`, `Media`), paths and content roots, UUID, memory tracker, and type-checked JSON readers (`Core/Json.h`: `jsonStringOr` / `jsonBoolOr` / `jsonIntOr` / `jsonFloatOr` / `jsonDoubleOr`). These log and fall back on a wrong type instead of calling nlohmann `value()`, which aborts when exceptions are off. Configure generates `Core/Version.h` (git describe / commit when available). `Application::releaseUnreferencedAssets()` runs garbage collection between levels (Editor scene new/load, Sandbox2D level clear), calling `AssetManager::collectGarbage()` and `GpuResourceCache::collectUnused()` to free unreferenced assets and GPU resources.
 - **ECS**: `World` with generation-packed `EntityID` (slot + generation; `NULL_ENTITY` is 0), O(1) `alive()`, safe emplace over existing entities.
 - **Render**: a D3D12 renderer with two scene paths: `HybridDeferred` (G-buffer, fullscreen lighting, forward transparents) and `SwapChainForward` (`-forward`). It uses reverse-Z depth (`GREATER` compare). `SceneRenderer` is shared by Sandbox and Editor. Passes and systems in `Render/`:
   - Cascaded directional shadows (up to 3 cascades, `ShadowSystem`) and local-light shadows (`LocalShadowSystem`). Static and model shadow casters are culled against each shadow view's frustum.
@@ -73,7 +73,8 @@ Runtime HLSL lives in `content/shaders/`. It shows up in the IDE but is compiled
 - **Network**: UDP sockets, packets, reliability, replication, `NetworkSystem`, a fake transport for tests. The default game port is **26160** and UDP beacon discovery uses **26161**. `NetworkSystem` does not draw. Hosts attach `MeshComponent` (Editor also adds `EditorObjectComponent`) in `onNetSpawn` (see `Network/Replication.h`). `netRoleName` and `pawnPaletteColor` live once in `Network/NetTypes.h`. Sandbox and Sandbox2D call them. Each app still spawns its own pawns.
 - **Debug**: `DebugServer` / `DebugClient` over TCP (default port **26162**) and `PerfCounters` (per-slot frame timing plus a 240-frame history) for VisualDebugger.
 - **Editor**: scene editing on ECS, translate gizmo, asset browser (F10), drag-and-drop placement, terrain Generate and World Engine import, foliage density panel, water bodies and a **Water** window (add lakes, swells, streams), spawner placement, cloud layer settings, local-light authoring, physics inspector, animation / HSM / particle editors, audio preview panel, network host/join, and Play-in-editor (F12). Procedural grass and water draw in edit mode as well as in Play.
-- **UI**: Dear ImGui **v1.91.8-docking** (fetched at configure time) plus shared `Ui/` styles for Editor, VisualDebugger, and Sandbox Dev Tools. `Ui/MainMenu` is a non-ImGui scene picker compiled into `DarkEngine`.
+- **Particles**: GPU particle system (`Particles/GpuParticleSystem`) with compute-based integration, CPU fallback integrator when GPU particles are disabled (toggled via Dev Tools or Editor View menu), and billboard rendering. Emitters are ECS components. The CPU integrator runs when `GpuParticleSystem::applyIntegratorFallback` is called with `gpuParticlesEnabled = false`, allowing particles to continue updating even when the GPU compute path is turned off.
+- **UI**: Dear ImGui **v1.91.8-docking** (fetched at configure time) with optional FreeType font rendering, built as static lib `imgui_editor` linked by Sandbox, Editor, and VisualDebugger. Shared `Ui/` styles and components for ImGui hosts. `Ui/MainMenu` is a scene picker compiled into `DarkEngine` that provides both a CPU menu (keyboard, mouse, gamepad navigation) and an optional GPU sprite overlay (`SpritePipeline` with bitmap font). The main menu appears in Sandbox on boot (unless `-host` / `-join` / `-no-menu` / `DE_NO_MENU` skips it) and can be reopened with Esc. Menu sounds (`content/audio/UI/ui_move.wav`, `ui_select.wav`) are loaded at init and play on navigation and selection.
 
 ## Requirements
 
@@ -110,6 +111,7 @@ Executables land in `build/bin/<Config>/`. On each build, `content/` is copied n
 | `DE_ENABLE_ASSERTS` | `ON` | Enables `DE_ASSERT` |
 | `DE_BUILD_TESTS` | `ON` | Builds `UnitTests` and registers CTest tests |
 | `DE_ENABLE_GPU_MARKERS` | `ON` | PIX + NVTX markers; downloads WinPixEventRuntime at configure time |
+| `DE_ENABLE_FREETYPE` | `ON` | Builds ImGui with FreeType for sharper UI fonts; fetches FreeType at configure time |
 
 Example: `cmake -S . -B ./build -DDE_ENABLE_GPU_MARKERS=OFF`.
 
@@ -123,6 +125,7 @@ Example: `cmake -S . -B ./build -DDE_ENABLE_GPU_MARKERS=OFF`.
 | nlohmann/json | vendored, `third_party/nlohmann` |
 | NVTX 3 (headers only) | vendored, `third_party/nvtx` |
 | Dear ImGui v1.91.8-docking | `FetchContent` at configure |
+| FreeType VER-2-13-3 | `FetchContent` at configure (when `DE_ENABLE_FREETYPE=ON`, default ON) |
 | GoogleTest v1.15.2 | `FetchContent` at configure (tests only) |
 | WinPixEventRuntime 1.0.240308001 | NuGet download at configure (SHA-256 checked), into `build/_deps/` |
 
