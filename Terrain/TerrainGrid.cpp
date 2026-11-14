@@ -1483,29 +1483,49 @@ bool TerrainGrid::directoryHasCover(const std::filesystem::path& dir)
 {
     if (m_coverScanValid && m_coverScanDir == dir)
         return m_coverSome;
-    m_coverScanValid = true;
-    m_coverScanDir   = dir;
-    m_coverSome      = false;
     if (dir.empty())
-        return false;
-    std::error_code ec;
-    if (!std::filesystem::exists(dir, ec) || ec)
-        return false;
-    std::filesystem::directory_iterator it(dir, ec);
-    const std::filesystem::directory_iterator end;
-    for (; !ec && it != end; it.increment(ec))
     {
+        m_coverScanValid = true;
+        m_coverScanDir   = dir;
+        m_coverSome      = false;
+        return false;
+    }
+
+    std::error_code ec;
+    const bool present = std::filesystem::exists(dir, ec);
+    if (ec)
+        return false;
+    // A directory that is not there yet can appear before the next tile load.
+    if (!present)
+        return false;
+
+    std::filesystem::directory_iterator it(dir, ec);
+    if (ec)
+        return false;
+
+    bool some = false;
+    const std::filesystem::directory_iterator end;
+    for (; it != end; it.increment(ec))
+    {
+        if (ec)
+            return false;
         std::error_code fileEc;
         if (!it->is_regular_file(fileEc) || fileEc)
             continue;
         const std::string name = it->path().filename().string();
         if (name.ends_with(".cover.bin"))
         {
-            m_coverSome = true;
+            some = true;
             break;
         }
     }
-    return m_coverSome;
+    if (ec)
+        return false;
+
+    m_coverScanValid = true;
+    m_coverScanDir   = dir;
+    m_coverSome      = some;
+    return some;
 }
 
 void TerrainGrid::warnMissingCover()

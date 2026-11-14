@@ -501,20 +501,20 @@ namespace Dark::Terrain
             tz1 = tz0;
     }
 
-    bool FoliageCover::save(const std::filesystem::path& path, int tileX, int tileZ) const
+    CoverSaveResult FoliageCover::save(const std::filesystem::path& path, int tileX, int tileZ) const
     {
         const Tile* tile = tileAt(tileX, tileZ);
         if (!tile || !tile->texels || tile->cellsX <= 0 || tile->cellsZ <= 0)
         {
             DE_LOG_ERROR(LogCategory::Render, "FoliageCover: '{}' tile {},{} missing", path.string(), tileX, tileZ);
-            return false;
+            return CoverSaveResult::Failed;
         }
         const uint64_t payload = static_cast<uint64_t>(tile->cellsX) * static_cast<uint64_t>(tile->cellsZ) * 2ull;
         const uint64_t bytes   = static_cast<uint64_t>(sizeof(CoverHeader)) + payload;
         if (bytes > kMaxFoliageSidecarBytes)
         {
             DE_LOG_ERROR(LogCategory::Render, "FoliageCover: '{}' exceeds kMaxFoliageSidecarBytes; wrote nothing", path.string());
-            return false;
+            return CoverSaveResult::Refused;
         }
 
         std::error_code ec;
@@ -524,7 +524,7 @@ namespace Dark::Terrain
             if (ec)
             {
                 DE_LOG_ERROR(LogCategory::Render, "FoliageCover: failed to create directory for '{}' ({})", path.string(), ec.message());
-                return false;
+                return CoverSaveResult::Failed;
             }
         }
 
@@ -532,7 +532,7 @@ namespace Dark::Terrain
         if (!out)
         {
             DE_LOG_ERROR(LogCategory::Render, "FoliageCover: failed to open '{}' for write", path.string());
-            return false;
+            return CoverSaveResult::Failed;
         }
 
         CoverHeader header;
@@ -551,10 +551,13 @@ namespace Dark::Terrain
         out.flush();
         if (!out)
         {
+            out.close();
+            std::error_code removeEc;
+            std::filesystem::remove(path, removeEc);
             DE_LOG_ERROR(LogCategory::Render, "FoliageCover: failed while writing '{}'", path.string());
-            return false;
+            return CoverSaveResult::Failed;
         }
-        return true;
+        return CoverSaveResult::Ok;
     }
 
     bool FoliageCover::rejectLoad(const std::filesystem::path& path, int expectTileX, int expectTileZ)

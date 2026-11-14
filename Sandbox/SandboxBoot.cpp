@@ -697,9 +697,8 @@ bool SandboxApp::advanceBootSlice()
                         const Vector3f extent = treeModel->bounds().Size();
                         if (extent.x > 0.0f && extent.z > 0.0f)
                         {
-                            boot.foliageIn.treeExtentX   = extent.x;
-                            boot.foliageIn.treeExtentZ   = extent.z;
-                            boot.foliageIn.hasTreeBounds = true;
+                            boot.foliageIn.treeExtentX = extent.x;
+                            boot.foliageIn.treeExtentZ = extent.z;
                         }
                     }
                     FoliageWaterVolume lake;

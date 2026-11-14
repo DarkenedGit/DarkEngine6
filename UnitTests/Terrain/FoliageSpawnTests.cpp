@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
 using namespace Dark::Terrain;
@@ -70,17 +71,21 @@ namespace
         in.density.treeSpacingM    = 0.0f;
         in.density.rockSpacingM    = 0.0f;
         in.density.seed            = 1337u;
-        in.buildCover              = false;
         return in;
     }
 
     void expectCleared(const FoliageSpawnOut& out)
     {
         EXPECT_TRUE(out.records.empty());
-        EXPECT_FALSE(out.cover.valid());
         EXPECT_EQ(out.accepted, 0u);
         EXPECT_EQ(out.kept, 0u);
         EXPECT_FALSE(out.capped);
+    }
+
+    void expectFailed(const FoliageSpawnOut& out)
+    {
+        expectCleared(out);
+        EXPECT_FALSE(out.cover.valid());
     }
 
     void expectPadAndYaw(const FoliageRecord& rec)
@@ -94,6 +99,7 @@ namespace
 
     struct ProgressProbe
     {
+        int   coverTicks    = 0;
         int   countRows     = 0;
         int   keepRows      = 0;
         int   keepSeen      = 0;
@@ -109,6 +115,12 @@ namespace
         EXPECT_LE(t, 1.0f);
         if (t > probe->maxT)
             probe->maxT = t;
+        if (phase != nullptr && std::strcmp(phase, "cover") == 0)
+        {
+            ++probe->coverTicks;
+            EXPECT_FLOAT_EQ(t, 0.0f);
+            return true;
+        }
         if (phase != nullptr && phase[0] == 'c')
         {
             ++probe->countRows;
@@ -139,63 +151,63 @@ TEST(FoliageSpawn, RejectsBadInputs)
     FoliageSpawnIn in = baseIn(hm, splat, 4, 2, 1);
     in.height         = nullptr;
     EXPECT_FALSE(spawnFoliage(in, out));
-    expectCleared(out);
+    expectFailed(out);
 
     in         = baseIn(hm, splat, 4, 2, 1);
     in.splat   = nullptr;
     out.records.push_back(FoliageRecord{});
     EXPECT_FALSE(spawnFoliage(in, out));
-    expectCleared(out);
+    expectFailed(out);
 
     HeightMap invalid;
     in        = baseIn(hm, splat, 4, 2, 1);
     in.height = &invalid;
     EXPECT_FALSE(spawnFoliage(in, out));
-    expectCleared(out);
+    expectFailed(out);
 
     SplatMap invalidSplat;
     in       = baseIn(hm, splat, 4, 2, 1);
     in.splat = &invalidSplat;
     EXPECT_FALSE(spawnFoliage(in, out));
-    expectCleared(out);
+    expectFailed(out);
 
     in           = baseIn(hm, splat, 4, 2, 1);
     in.tileCells = 0;
     EXPECT_FALSE(spawnFoliage(in, out));
-    expectCleared(out);
+    expectFailed(out);
 
     in        = baseIn(hm, splat, 4, 2, 1);
     in.tilesX = 0;
     EXPECT_FALSE(spawnFoliage(in, out));
-    expectCleared(out);
+    expectFailed(out);
 
     in        = baseIn(hm, splat, 4, 2, 1);
     in.tilesZ = 0;
     EXPECT_FALSE(spawnFoliage(in, out));
-    expectCleared(out);
+    expectFailed(out);
 
     in           = baseIn(hm, splat, 4, 2, 1);
     in.cellSize  = 0.0f;
     EXPECT_FALSE(spawnFoliage(in, out));
-    expectCleared(out);
+    expectFailed(out);
 
     in          = baseIn(hm, splat, 4, 2, 1);
     in.cellSize = 2.0f;
     EXPECT_FALSE(spawnFoliage(in, out));
-    expectCleared(out);
+    expectFailed(out);
 
     in            = baseIn(hm, splat, 4, 2, 1);
     in.origin.y   = 3.0f;
     EXPECT_FALSE(spawnFoliage(in, out));
-    expectCleared(out);
+    expectFailed(out);
 
     in           = baseIn(hm, splat, 1, 1, 3);
     EXPECT_FALSE(spawnFoliage(in, out));
-    expectCleared(out);
+    expectFailed(out);
 
     in        = baseIn(hm, splat, 4, 1, 1);
     EXPECT_FALSE(spawnFoliage(in, out));
-    expectCleared(out);
+    expectFailed(out);
 
     in = baseIn(hm, splat, 4, 2, 1);
     in.density.grassTreesPerM2 = 1.0f;
@@ -220,29 +232,36 @@ TEST(FoliageSpawn, PureGrassPlacesTreesAndFlowersOnly)
 
     FoliageSpawnOut out;
     ASSERT_TRUE(spawnFoliage(in, out));
-    ASSERT_EQ(out.records.size(), 2u);
-    EXPECT_EQ(out.accepted, 2u);
-    EXPECT_EQ(out.kept, 2u);
+    ASSERT_EQ(out.records.size(), 1u);
+    EXPECT_EQ(out.accepted, 1u);
+    EXPECT_EQ(out.kept, 1u);
     EXPECT_FALSE(out.capped);
     EXPECT_EQ(out.records[0].kind, static_cast<uint8_t>(FoliageKind::Tree));
-    EXPECT_EQ(out.records[1].kind, static_cast<uint8_t>(FoliageKind::Flower));
     EXPECT_FLOAT_EQ(out.records[0].pitch, 0.0f);
     EXPECT_FLOAT_EQ(out.records[0].tiltYaw, 0.0f);
-    EXPECT_FLOAT_EQ(out.records[1].pitch, 0.0f);
-    EXPECT_FLOAT_EQ(out.records[1].tiltYaw, 0.0f);
     EXPECT_FLOAT_EQ(out.records[0].y, 4.0f);
-    EXPECT_FLOAT_EQ(out.records[1].y, 4.0f);
     EXPECT_GE(out.records[0].scale, 0.85f);
     EXPECT_LE(out.records[0].scale, 1.15f);
-    EXPECT_GE(out.records[1].scale, 0.80f);
-    EXPECT_LE(out.records[1].scale, 1.20f);
     EXPECT_NEAR(out.records[0].x, 0.5f, 0.45f);
     EXPECT_NEAR(out.records[0].z, 0.5f, 0.45f);
-    EXPECT_NEAR(out.records[1].x, 0.25f, 0.12f);
-    EXPECT_NEAR(out.records[1].z, 0.5f, 0.12f);
-    EXPECT_LT(out.records[1].x, 0.5f);
     expectPadAndYaw(out.records[0]);
-    expectPadAndYaw(out.records[1]);
+    EXPECT_EQ(out.cover.sampleNearest(out.records[0].x, out.records[0].z).coverage, 0);
+
+    in.density.dirtTreesPerM2  = 0.0f;
+    in.density.grassTreesPerM2 = 0.0f;
+    in.density.rockPerM2       = 0.0f;
+    ASSERT_TRUE(spawnFoliage(in, out));
+    ASSERT_EQ(out.records.size(), 1u);
+    EXPECT_EQ(out.records[0].kind, static_cast<uint8_t>(FoliageKind::Flower));
+    EXPECT_FLOAT_EQ(out.records[0].pitch, 0.0f);
+    EXPECT_FLOAT_EQ(out.records[0].tiltYaw, 0.0f);
+    EXPECT_FLOAT_EQ(out.records[0].y, 4.0f);
+    EXPECT_GE(out.records[0].scale, 0.80f);
+    EXPECT_LE(out.records[0].scale, 1.20f);
+    EXPECT_NEAR(out.records[0].x, 0.25f, 0.12f);
+    EXPECT_NEAR(out.records[0].z, 0.5f, 0.12f);
+    EXPECT_LT(out.records[0].x, 0.5f);
+    expectPadAndYaw(out.records[0]);
 }
 
 TEST(FoliageSpawn, PureRockPlacesRocksOnly)
@@ -412,11 +431,10 @@ TEST(FoliageSpawn, FlowerSlotsFollowRate)
     in.density.grassFlowersPerM2 = 5.0f;
     in.density.grassTreesPerM2   = 5.0f;
     ASSERT_TRUE(spawnFoliage(in, out));
-    ASSERT_EQ(out.records.size(), 3u);
+    ASSERT_EQ(out.records.size(), 1u);
     EXPECT_EQ(out.records[0].kind, static_cast<uint8_t>(FoliageKind::Tree));
-    EXPECT_EQ(out.records[1].kind, static_cast<uint8_t>(FoliageKind::Flower));
-    EXPECT_EQ(out.records[2].kind, static_cast<uint8_t>(FoliageKind::Flower));
-    EXPECT_EQ(out.accepted, 3u);
+    EXPECT_EQ(out.accepted, 1u);
+    EXPECT_EQ(out.cover.sampleNearest(out.records[0].x, out.records[0].z).coverage, 0);
 }
 
 TEST(FoliageSpawn, SameSeedRepeats)
@@ -459,7 +477,6 @@ TEST(FoliageSpawn, LatticeIsOneMetreNotSamples)
     FoliageSpawnIn in = baseIn(hm, splat, 1, 1, 128);
     in.density.grassTreesPerM2 = 1.0f;
     in.density.treeSpacingM    = 0.0f;
-    in.buildCover              = false;
 
     FoliageSpawnOut out;
     ASSERT_TRUE(spawnFoliage(in, out));
@@ -472,11 +489,11 @@ TEST(FoliageSpawn, LatticeIsOneMetreNotSamples)
 
     in.tileCells = 512;
     EXPECT_FALSE(spawnFoliage(in, out));
-    expectCleared(out);
+    expectFailed(out);
 
     in.tileCells = 0;
     EXPECT_FALSE(spawnFoliage(in, out));
-    expectCleared(out);
+    expectFailed(out);
 
     ASSERT_TRUE(makeMap(hm, splat, 2, 2, 1.5f, 1.0f, 1.0f, Dark::Math::Vector3f{ 0.0f, 0.0f, 0.0f }, 0, 255, 0, 0));
     in = baseIn(hm, splat, 1, 1, 1);
@@ -652,16 +669,19 @@ TEST(FoliageSpawn, ProgressAndCancel)
     FoliageSpawnOut out;
     out.records.push_back(FoliageRecord{});
     ASSERT_TRUE(spawnFoliage(in, out));
+    EXPECT_EQ(probe.coverTicks, 4);
     EXPECT_EQ(probe.countRows, 3);
     EXPECT_EQ(probe.keepRows, 3);
     EXPECT_FLOAT_EQ(probe.maxT, 1.0f);
     EXPECT_EQ(out.records.size(), 9u);
+    EXPECT_TRUE(out.cover.valid());
 
     probe                 = {};
     probe.cancelAfterKeep = 1;
     out.records.push_back(FoliageRecord{});
     EXPECT_FALSE(spawnFoliage(in, out));
-    expectCleared(out);
+    expectFailed(out);
+    EXPECT_EQ(probe.coverTicks, 4);
     EXPECT_EQ(probe.countRows, 3);
     EXPECT_GE(probe.keepRows, 1);
 }
@@ -675,10 +695,9 @@ TEST(FoliageSpawn, CapSpreadsAcrossMap)
     ASSERT_TRUE(makeMap(hm, splat, kSamples, kSamples, 1.0f, 1.0f, 1.0f, Dark::Math::Vector3f{ 0.0f, 0.0f, 0.0f }, 0, 255, 0, 0));
 
     FoliageSpawnIn in = baseIn(hm, splat, 1, 1, kCells);
-    in.density.grassTreesPerM2   = 1.0f;
     in.density.grassFlowersPerM2 = 2.0f;
+    in.density.grassPerM2        = 1.0f;
     in.density.treeSpacingM      = 0.0f;
-    in.buildCover                = false;
     in.seaLevel                  = 0.0f;
 
     FoliageSpawnOut out;
@@ -708,7 +727,7 @@ TEST(FoliageSpawn, CapSpreadsAcrossMap)
             maxZ = rec.z;
         if (rec.kind == static_cast<uint8_t>(FoliageKind::Rock))
             ++rocks;
-        else if (rec.kind != static_cast<uint8_t>(FoliageKind::Tree) && rec.kind != static_cast<uint8_t>(FoliageKind::Flower))
+        else if (rec.kind != static_cast<uint8_t>(FoliageKind::Flower) && rec.kind != static_cast<uint8_t>(FoliageKind::Grass))
             ++other;
     }
     EXPECT_TRUE(low);
@@ -754,11 +773,9 @@ TEST(FoliageSpawn, TreesAndGrassSkipWaterVolumes)
     ASSERT_TRUE(makeMap(hm, splat, 9, 9, 1.0f, 1.0f, 1.0f, Dark::Math::Vector3f{ 0.0f, 0.0f, 0.0f }, 0, 255, 0, 0));
 
     FoliageSpawnIn in = baseIn(hm, splat, 1, 1, 8);
-    in.density.grassTreesPerM2   = 1.0f;
-    in.density.grassFlowersPerM2 = 2.0f;
-    in.density.grassPerM2        = 1.0f;
+    in.density.grassTreesPerM2 = 1.0f;
     // Covers cell columns 0 and 1 after ±0.45 m jitter. Column 2 starts at x = 2.05.
-    // Flower jitter is tighter, and a bed under surfaceY is rejected with the trees.
+    // A bed under surfaceY is rejected. Trees are spawned alone so the trunk mask is not what removes them.
     FoliageWaterVolume pond;
     pond.minX     = -1.0f;
     pond.maxX     = 2.0f;
@@ -769,22 +786,25 @@ TEST(FoliageSpawn, TreesAndGrassSkipWaterVolumes)
 
     FoliageSpawnOut out;
     ASSERT_TRUE(spawnFoliage(in, out));
+    ASSERT_EQ(out.records.size(), 48u);
+    for (const FoliageRecord& rec : out.records)
+    {
+        EXPECT_EQ(rec.kind, static_cast<uint8_t>(FoliageKind::Tree));
+        EXPECT_GT(rec.x, 2.0f);
+        EXPECT_FLOAT_EQ(rec.y, 1.0f);
+    }
 
-    uint32_t trees = 0;
+    in.density.grassTreesPerM2   = 0.0f;
+    in.density.grassFlowersPerM2 = 2.0f;
+    in.density.grassPerM2        = 1.0f;
+    ASSERT_TRUE(spawnFoliage(in, out));
     uint32_t flowers = 0;
     uint32_t grass = 0;
-    uint32_t rocks = 0;
     uint32_t flowersInPond = 0;
     for (const FoliageRecord& rec : out.records)
     {
         const auto kind = static_cast<FoliageKind>(rec.kind);
-        if (kind == FoliageKind::Tree)
-        {
-            ++trees;
-            EXPECT_GT(rec.x, 2.0f);
-            EXPECT_FLOAT_EQ(rec.y, 1.0f);
-        }
-        else if (kind == FoliageKind::Grass)
+        if (kind == FoliageKind::Grass)
         {
             ++grass;
             EXPECT_GT(rec.x, 2.0f);
@@ -797,24 +817,28 @@ TEST(FoliageSpawn, TreesAndGrassSkipWaterVolumes)
                 ++flowersInPond;
         }
         else
-            ++rocks;
+            ADD_FAILURE() << "unexpected kind " << static_cast<int>(rec.kind);
     }
-    EXPECT_EQ(trees, 48u);
     EXPECT_EQ(grass, 48u);
     EXPECT_EQ(flowers, 96u);
-    EXPECT_EQ(rocks, 0u);
     EXPECT_EQ(flowersInPond, 0u);
 
     FoliageSpawnIn shore = baseIn(hm, splat, 1, 1, 8);
     shore.density.grassTreesPerM2 = 1.0f;
-    shore.density.grassPerM2      = 1.0f;
     FoliageWaterVolume atBed;
     atBed.entireMap = true;
     atBed.surfaceY  = 1.0f;
     shore.water.push_back(atBed);
     FoliageSpawnOut shoreOut;
     ASSERT_TRUE(spawnFoliage(shore, shoreOut));
-    EXPECT_EQ(shoreOut.records.size(), 128u);
+    EXPECT_EQ(shoreOut.records.size(), 64u);
+
+    shore.density.grassTreesPerM2 = 0.0f;
+    shore.density.grassPerM2      = 1.0f;
+    ASSERT_TRUE(spawnFoliage(shore, shoreOut));
+    EXPECT_EQ(shoreOut.records.size(), 64u);
+    for (const FoliageRecord& rec : shoreOut.records)
+        EXPECT_EQ(rec.kind, static_cast<uint8_t>(FoliageKind::Grass));
 
     FoliageSpawnIn flooded = in;
     flooded.water.clear();
@@ -912,11 +936,10 @@ TEST(FoliageSpawn, TreesRespectMinSpacing)
     in.density.grassTreesPerM2 = 1.0f;
     in.density.treeSpacingM    = 3.0f;
     in.density.seed            = 1337u;
-    in.buildCover              = false;
 
     FoliageSpawnOut a;
     ASSERT_TRUE(spawnFoliage(in, a));
-    EXPECT_FALSE(a.cover.valid());
+    EXPECT_TRUE(a.cover.valid());
     ASSERT_GT(a.records.size(), 8u);
 
     for (size_t i = 0; i < a.records.size(); ++i)
@@ -952,11 +975,9 @@ TEST(FoliageSpawn, FlowersAndTuftsAvoidTrunkCore)
     in.density.grassTreesPerM2   = 1.0f;
     in.density.grassFlowersPerM2 = 2.0f;
     in.density.grassPerM2        = 1.0f;
-    in.density.treeSpacingM      = 16.0f;
-    in.buildCover                = true;
-    in.hasTreeBounds             = true;
-    in.treeExtentX               = 8.0f;
-    in.treeExtentZ               = 8.0f;
+    in.density.treeSpacingM = 16.0f;
+    in.treeExtentX          = 8.0f;
+    in.treeExtentZ          = 8.0f;
 
     FoliageSpawnOut out;
     ASSERT_TRUE(spawnFoliage(in, out));

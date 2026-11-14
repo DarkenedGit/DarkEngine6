@@ -1066,7 +1066,10 @@ bool EditorApp::saveTerrainSidecars(const std::filesystem::path& scenePath) cons
         for (int tz = 0; tz < cover->tilesZ(); ++tz)
         {
             for (int tx = 0; tx < cover->tilesX(); ++tx)
-                cover->save(tileCoverPath(tileDirPath, tx, tz), tx, tz);
+            {
+                if (cover->save(tileCoverPath(tileDirPath, tx, tz), tx, tz) == CoverSaveResult::Failed)
+                    return false;
+            }
         }
     }
 
@@ -1506,9 +1509,8 @@ void EditorApp::startFoliageSpawn()
         const Vector3f extent = treeModel->bounds().Size();
         if (extent.x > 0.0f && extent.z > 0.0f)
         {
-            in.treeExtentX   = extent.x;
-            in.treeExtentZ   = extent.z;
-            in.hasTreeBounds = true;
+            in.treeExtentX = extent.x;
+            in.treeExtentZ = extent.z;
         }
     }
 

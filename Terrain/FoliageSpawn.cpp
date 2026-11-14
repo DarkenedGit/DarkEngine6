@@ -145,7 +145,7 @@ namespace Dark::Terrain
         {
             float trunk = 0.5f * rec.scale;
             float outer = 2.0f * rec.scale;
-            if (in.hasTreeBounds && in.treeExtentX > 0.0f && in.treeExtentZ > 0.0f)
+            if (in.treeExtentX > 0.0f && in.treeExtentZ > 0.0f)
             {
                 const float mn = in.treeExtentX < in.treeExtentZ ? in.treeExtentX : in.treeExtentZ;
                 const float mx = in.treeExtentX > in.treeExtentZ ? in.treeExtentX : in.treeExtentZ;
@@ -253,16 +253,13 @@ namespace Dark::Terrain
             return true;
         }
 
-        if (in.buildCover)
+        if (!out.cover.create(static_cast<float>(widthM), static_cast<float>(depthM), in.origin.x, in.origin.z))
+            return failSpawn(out);
+        out.cover.clear(255, 255);
+        if (cancelled(in, 0.0f, "cover"))
         {
-            if (!out.cover.create(static_cast<float>(widthM), static_cast<float>(depthM), in.origin.x, in.origin.z))
-                return failSpawn(out);
-            out.cover.clear(255, 255);
-            if (cancelled(in, 0.0f, "cover"))
-            {
-                DE_LOG_INFO(LogCategory::Render, "FoliageSpawn: cancelled");
-                return failSpawn(out);
-            }
+            DE_LOG_INFO(LogCategory::Render, "FoliageSpawn: cancelled");
+            return failSpawn(out);
         }
 
         const bool placeTrees   = dirtTrees > 0.0f || grassTrees > 0.0f;
@@ -374,7 +371,7 @@ namespace Dark::Terrain
             else
                 p = rockPerM2 * w[2];
 
-            if (in.buildCover && (flower || grass))
+            if (flower || grass)
             {
                 if (out.cover.sampleNearest(x, z).coverage == 0)
                     return;
@@ -467,7 +464,7 @@ namespace Dark::Terrain
                 if (placeRocks)
                     consider(FoliageKind::Rock, 0, centreX, centreZ, ix, iz, true, rockSpacingM > 0.0f ? &rockHash : nullptr);
             }
-            if (in.buildCover && cancelled(in, 0.0f, "cover"))
+            if (cancelled(in, 0.0f, "cover"))
             {
                 DE_LOG_INFO(LogCategory::Render, "FoliageSpawn: cancelled");
                 return failSpawn(out);
@@ -478,13 +475,10 @@ namespace Dark::Terrain
         if (parentAccepted > cap)
             thinTo(parents, cap);
         out.records.swap(parents);
-        if (in.buildCover)
+        for (const FoliageRecord& rec : out.records)
         {
-            for (const FoliageRecord& rec : out.records)
-            {
-                if (rec.kind == static_cast<uint8_t>(FoliageKind::Tree))
-                    stampTree(out.cover, rec, in);
-            }
+            if (rec.kind == static_cast<uint8_t>(FoliageKind::Tree))
+                stampTree(out.cover, rec, in);
         }
 
         auto scanUnder = [&]() -> bool

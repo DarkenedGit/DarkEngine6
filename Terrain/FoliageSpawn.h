@@ -36,10 +36,8 @@ namespace Dark::Terrain
         std::vector<FoliageWaterVolume> water;
         bool (*onProgress)(float t, const char* phase, void* user) = nullptr;
         void* user = nullptr;
-        float treeExtentX   = 0.0f;
-        float treeExtentZ   = 0.0f;
-        bool  hasTreeBounds = false;
-        bool  buildCover    = true;
+        float treeExtentX = 0.0f;
+        float treeExtentZ = 0.0f;
     };
 
     struct FoliageSpawnOut

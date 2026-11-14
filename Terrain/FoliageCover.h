@@ -17,6 +17,14 @@ namespace Dark::Terrain
         uint8_t heightScale = 255;
     };
 
+    // Refused leaves any previous file in place. Failed is an open or write error.
+    enum class CoverSaveResult : uint8_t
+    {
+        Ok,
+        Refused,
+        Failed
+    };
+
     // 1 m cells, one payload per 512 m tile. Move-only; payloads are nothrow allocations.
     class FoliageCover
     {
@@ -53,7 +61,7 @@ namespace Dark::Terrain
         void stampDisk(float x, float z, float radiusM, uint8_t coverage, uint8_t heightScale, bool minBlend);
         void stampSoftAnnulus(float x, float z, float innerM, float outerM, uint8_t innerCoverage, uint8_t outerCoverage, uint8_t innerHeight, uint8_t outerHeight, bool minBlend);
 
-        bool save(const std::filesystem::path& path, int tileX, int tileZ) const;
+        CoverSaveResult save(const std::filesystem::path& path, int tileX, int tileZ) const;
         bool load(const std::filesystem::path& path, int expectTileX, int expectTileZ);
 
         // Inclusive tile range overlapped by the world rect [x0, x1) x [z0, z1).

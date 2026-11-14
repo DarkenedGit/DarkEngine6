@@ -93,7 +93,7 @@ TEST(FoliageCover, CoverRoundTrip)
     TempDir dir("round");
     ASSERT_FALSE(dir.path.empty());
     const auto path = dir.path / "t_00_00.cover.bin";
-    ASSERT_TRUE(src.save(path, 0, 0));
+    ASSERT_EQ(src.save(path, 0, 0), CoverSaveResult::Ok);
 
     std::vector<uint8_t> bytes = readAll(path);
     ASSERT_EQ(bytes.size(), 40u + 16u * 16u * 2u);
@@ -127,7 +127,7 @@ TEST(FoliageCover, CoverRoundTrip)
     EXPECT_EQ(dst.sampleNearest(4.5f, 4.5f).coverage, 255);
     EXPECT_EQ(dst.sampleNearest(4.5f, 4.5f).heightScale, 255);
 
-    ASSERT_TRUE(src.save(path, 0, 0));
+    ASSERT_EQ(src.save(path, 0, 0), CoverSaveResult::Ok);
     bytes = readAll(path);
     ASSERT_GT(bytes.size(), 50u);
     ASSERT_TRUE(writeFile(path, bytes.data(), 50u));
@@ -137,7 +137,7 @@ TEST(FoliageCover, CoverRoundTrip)
     EXPECT_EQ(dst.sampleNearest(4.5f, 4.5f).coverage, 255);
     EXPECT_EQ(dst.sampleNearest(4.5f, 4.5f).heightScale, 255);
 
-    ASSERT_TRUE(src.save(path, 0, 0));
+    ASSERT_EQ(src.save(path, 0, 0), CoverSaveResult::Ok);
     bytes = readAll(path);
     bytes[8] = 1;
     ASSERT_TRUE(writeFile(path, bytes.data(), bytes.size()));
@@ -147,7 +147,7 @@ TEST(FoliageCover, CoverRoundTrip)
     EXPECT_EQ(dst.sampleNearest(4.5f, 4.5f).coverage, 255);
     EXPECT_EQ(dst.sampleNearest(4.5f, 4.5f).heightScale, 255);
 
-    ASSERT_TRUE(src.save(path, 0, 0));
+    ASSERT_EQ(src.save(path, 0, 0), CoverSaveResult::Ok);
     bytes = readAll(path);
     const float wrongCell = 2.0f;
     std::memcpy(bytes.data() + 24, &wrongCell, sizeof(wrongCell));
@@ -160,7 +160,7 @@ TEST(FoliageCover, CoverRoundTrip)
     EXPECT_EQ(dst.sampleNearest(4.5f, 4.5f).heightScale, 255);
     EXPECT_EQ(dst.sampleNearest(1.5f, 1.5f).coverage, 255);
 
-    ASSERT_TRUE(src.save(path, 0, 0));
+    ASSERT_EQ(src.save(path, 0, 0), CoverSaveResult::Ok);
     ASSERT_TRUE(dst.load(path, 0, 0));
     EXPECT_EQ(dst.sampleNearest(3.2f, 4.2f).coverage, 0);
     EXPECT_EQ(dst.sampleNearest(14.5f, 14.5f).coverage, 255);
