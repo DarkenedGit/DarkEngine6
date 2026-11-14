@@ -1248,7 +1248,8 @@ void EditorApp::onUpdate(float dt)
                 ag.graph.setPreviewSpeedScale(1.0f);
             }
         });
-        tickAnimGraphs(world(), assets(), dt);
+        if (!(m_playMode && m_dialogue.locksWorld()))
+            tickAnimGraphs(world(), assets(), dt);
         if (m_playMode)
             m_play.tickHeldItems();
     }

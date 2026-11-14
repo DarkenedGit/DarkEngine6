@@ -250,7 +250,10 @@ namespace Dark
             if (melee)
                 ag->graph.setTrigger(runtime.comboStep ? "swing2" : "swing");
             else if (wFire->activeKind() == WeaponKind::Projectile)
+            {
                 ag->graph.setTrigger("shoot");
+                runtime.leanClipBlock = true;
+            }
         }
         if (melee)
         {

@@ -155,3 +155,38 @@ TEST(PlaySession, DoorClosedAroundTheBodyDoesNotPushThrough)
     rig.play.tickPawn(1.0f);
     EXPECT_NEAR(rig.z(), 1.98f, 0.05f);
 }
+
+// The session already built for the door walks. Sprint is the motor bit, not the raw key.
+TEST(PlaySession, SprintAppliedFollowsMotorInput)
+{
+    DoorWalk rig;
+    rig.input.actions().bindKeyAsAxis("sprint", Key::LeftShift, 1.0f);
+    rig.input.actions().bindKeyAsAxis("lean_left", Key::Q, 1.0f);
+    rig.input.onKeyDown(static_cast<uint16_t>(Key::LeftShift), false);
+    rig.play.tickPawn(0.016f);
+    EXPECT_TRUE(rig.play.runtime().sprintApplied);
+
+    rig.input.onKeyDown(static_cast<uint16_t>(Key::Q), false);
+    rig.play.tickPawn(0.05f);
+    EXPECT_FALSE(rig.play.runtime().sprintApplied);
+    EXPECT_LT(rig.play.runtime().lean, -0.2f);
+
+    rig.input.onKeyUp(static_cast<uint16_t>(Key::Q));
+    rig.play.tickPawn(0.016f);
+    EXPECT_TRUE(rig.play.runtime().sprintApplied);
+    EXPECT_LT(rig.play.runtime().lean, 0.0f);
+
+    rig.play.runtime().lean             = 0.4f;
+    rig.play.runtime().leanApplied      = -0.2f;
+    rig.play.runtime().leanRightBlocked = true;
+    rig.play.runtime().leanClipBlock    = true;
+    rig.play.runtime().leanSawShoot     = true;
+    rig.play.runtime().sprintApplied    = true;
+    rig.play.resetPawn();
+    EXPECT_FLOAT_EQ(rig.play.runtime().lean, 0.0f);
+    EXPECT_FLOAT_EQ(rig.play.runtime().leanApplied, 0.0f);
+    EXPECT_FALSE(rig.play.runtime().leanRightBlocked);
+    EXPECT_FALSE(rig.play.runtime().leanClipBlock);
+    EXPECT_FALSE(rig.play.runtime().leanSawShoot);
+    EXPECT_FALSE(rig.play.runtime().sprintApplied);
+}

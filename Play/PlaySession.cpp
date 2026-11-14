@@ -60,6 +60,7 @@
 #include "Play/HunterTick.h"
 #include "Play/PhysicsGround.h"
 #include "Play/PlayerFlashlight.h"
+#include "Play/PlayLean.h"
 #include "Play/PlayLook.h"
 #include "Play/PlayMotor.h"
 #include "Play/ShoulderCamera.h"
@@ -203,6 +204,12 @@ namespace Dark
         r.footstepAcc       = 0.0f;
         r.jumpAttackBuffer  = 0.0f;
         r.swingLock         = 0.0f;
+        r.lean              = 0.0f;
+        r.leanApplied       = 0.0f;
+        r.leanRightBlocked  = false;
+        r.leanClipBlock     = false;
+        r.leanSawShoot      = false;
+        r.sprintApplied     = false;
         r.comboWindow       = 0.0f;
         r.blockRecoil       = 0.0f;
         r.faceYaw           = 0.0f;
@@ -727,10 +734,15 @@ namespace Dark
         const bool carriesLight = flashlightEquipped(world->get<InventoryComponent>(body));
         const bool toggleLight  = carriesLight && canSteer && !m_host.uiKeys && input->actionPressed("flashlight");
         bool       climbPressed = false;
+        bool       pickupTook   = false;
+        bool       takedownTook = false;
         if (!m_host.uiKeys && input->actionPressed("pickup"))
-            climbPressed = canSteer && !tryPickup();
+        {
+            pickupTook   = tryPickup();
+            climbPressed = canSteer && !pickupTook;
+        }
         if (!m_host.uiKeys && input->actionPressed("takedown"))
-            tryTakedown();
+            takedownTook = tryTakedown();
         if (toggleLight)
         {
             if (SkillComponent* sk = world->get<SkillComponent>(body))
@@ -787,12 +799,26 @@ namespace Dark
         edges.back          = input->actionPressed("dodge_back");
         edges.left          = input->actionPressed("dodge_left");
         edges.right         = input->actionPressed("dodge_right");
+        const bool leanRightHeld = input->actionDown("lean_right");
+        if (!leanRightHeld)
+            m_rt.leanRightBlocked = false;
+        else if (pickupTook || takedownTook)
+            m_rt.leanRightBlocked = true;
+        const bool leanLeftDown  = !m_host.uiKeys && input->actionDown("lean_left");
+        const bool leanRightDown = !m_host.uiKeys && leanRightHeld && !m_rt.leanRightBlocked;
+        const bool leanStance    = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch);
+        const bool leanAllowed   = leanStance && canSteer && !jumpBusy && m_rt.swingLock <= 0.0f && !m_rt.leanClipBlock && !m_host.uiKeys && !m_host.frozen
+                                && !m_facility.hiddenIn.valid();
+        const float leanTarget   = cornerLeanTarget(leanLeftDown, leanRightDown, leanAllowed);
         const bool sprintAllowed = canSteer && !jumpBusy && !m_host.uiKeys && m_rt.swingLock <= 0.0f;
         buildPlayMotorInput(motorIn, m_rt.crouchLatch, wish, flat, right, canSteer, jumpBusy, m_host.uiKeys, inAirCommit, jump, sprintAllowed, edges);
+        if (leanTarget != 0.0f)
+            motorIn.sprint = false;
         if (m_host.frozen || m_facility.hiddenIn.valid())
             motorIn = PlayerMotorInput{};
         else
             motorIn.climbPressed = climbPressed;
+        m_rt.sprintApplied = motorIn.sprint;
         const bool onGround = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch || motor->state() == PlayerMoveState::Dodge);
         const Terrain::GroundContact groundSurf = (onGround && m_host.groundContact) ? m_host.groundContact(m_host.user, xf->position.x, xf->position.z) : Terrain::GroundContact{};
         const EntityCombat& playerCombat = entityCombatFor("player");
@@ -829,6 +855,7 @@ namespace Dark
         PlayerMotorResult    motorOut{};
         if (motor)
             motorOut = motor->tick(xf->position, motorIn, dt, ground);
+        m_rt.lean         = stepCornerLean(m_rt.lean, leanTarget, dt);
         m_rt.swimDiveEdge  = motorOut.splashed;
         m_rt.swimStandEdge = motorOut.stood;
         if (motor && !m_host.frozen && !m_facility.hiddenIn.valid() && !carriedBody(*world).valid())
@@ -1120,6 +1147,11 @@ namespace Dark
         const bool rayOk = rays.terrain != nullptr || (rays.physics && rays.physics->valid());
         ShoulderView view = solveShoulderCamera(xf->position, m_rt.lookYaw, m_rt.lookPitch, crouched, m_rt.shake, m_rt.shakeTime, surface, m_host.waterLevel,
                                                 rayOk ? &shoulderBoomRay : nullptr, rayOk ? &rays : nullptr);
+        const Math::Vector3f pivot{ xf->position.x, xf->position.y + 1.15f, xf->position.z };
+        const Math::Vector3f playRight = playBasis(m_rt.lookYaw, 0.0f, 0.0f, 0.0f).right;
+        float leanApplied = m_rt.lean;
+        view = leanShoulderEye(view, pivot, playRight, m_rt.lean, rayOk ? &shoulderBoomRay : nullptr, rayOk ? &rays : nullptr, leanApplied);
+        m_rt.leanApplied = leanApplied;
         if (pose > 0.0f)
         {
             const ShoulderView swim = solveSwimCamera(xf->position, m_rt.lookYaw, rayOk ? &shoulderBoomRay : nullptr, rayOk ? &rays : nullptr);
@@ -1201,7 +1233,7 @@ namespace Dark
         World* world = m_host.world;
         if (!world || !m_host.ai || !m_host.chaseReady)
             return;
-        const bool sprintDown = m_host.input && m_host.input->actionDown("sprint");
+        const bool sprintDown = m_rt.sprintApplied;
         AI::tickPlayerExposure(*world, m_host.player, *m_host.ai, dt, sprintDown, m_host.camouflage, m_host.sunElevation, m_host.sunDir, cubes, cubeCount, m_host.muzzle);
     }
 
@@ -1425,6 +1457,15 @@ namespace Dark
                 ag->graph.player().setLowerBodyYaw(m_rt.lowerBodyYaw);
                 ag->graph.player().setChargeWindup(m_rt.chargeWindup.attack, m_rt.chargeWindup.block, m_rt.chargeWindup.blockStrike);
                 ag->graph.player().setShieldGuard(m_rt.offhand.shield.alpha());
+                const char* stateName = ag->graph.currentStateName();
+                if (stateName && std::strcmp(stateName, "Shoot") == 0)
+                    m_rt.leanSawShoot = true;
+                else if (m_rt.leanSawShoot)
+                {
+                    m_rt.leanClipBlock = false;
+                    m_rt.leanSawShoot  = false;
+                }
+                ag->graph.player().setCornerLean(m_rt.leanApplied);
                 const char* clip      = ag->graph.player().clipName();
                 const float playScale = (motor && motor->state() == PlayerMoveState::Dodge) ? motor->settings().dodgeAnimSpeed
                                                                                             : locomotionPlaybackScale(clip ? clip : "", aim.speed);

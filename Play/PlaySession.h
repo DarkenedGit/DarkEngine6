@@ -74,6 +74,12 @@ namespace Dark
         float lookPitch    = 0.18f;
         float lowerBodyYaw = 0.0f;
         bool  crouchLatch  = false;
+        float lean             = 0.0f; // smoothed intent, -1 left, +1 right
+        float leanApplied      = 0.0f; // after the eye clamp
+        bool  leanRightBlocked = false;
+        bool  leanClipBlock    = false;
+        bool  leanSawShoot     = false;
+        bool  sprintApplied    = false;
 
         float footstepAcc      = 0.0f;
         float jumpAttackBuffer = 0.0f;

@@ -1065,7 +1065,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
         if (role == NetRole::Host)
         {
             constexpr float kTurnRate = 1.8f; // rad/s
-            const float     yawCmd    = input().actionAxis("yaw");
+            const float     yawCmd    = m_gameplayPaused ? input().actionAxis("yaw") : 0.0f;
             const float     pitchCmd  = input().actionAxis("pitch");
             if (yawCmd != 0.0f || pitchCmd != 0.0f)
             {
