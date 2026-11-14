@@ -275,10 +275,11 @@ namespace Dark::Terrain
             {
                 if (!(n.y > 0.999f))
                 {
-                    rec.pitch   = acosf(Clamp(n.y, -1.0f, 1.0f));
-                    rec.tiltYaw = atan2f(n.x, n.z);
+                    rec.pitch = acosf(Clamp(n.y, -1.0f, 1.0f));
                     if (rec.pitch > rockMaxPitchRad)
                         rec.pitch = rockMaxPitchRad;
+                    if (rec.pitch != 0.0f)
+                        rec.tiltYaw = atan2f(n.x, n.z);
                 }
             }
 

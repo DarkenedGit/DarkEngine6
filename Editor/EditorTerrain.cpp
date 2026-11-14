@@ -1874,6 +1874,8 @@ void EditorApp::drawTerrainPanel()
             }
             ImGui::Text("Trees follow grass and dirt. Grass tufts follow the grass layer. %u trees, %u grass.", trees, grass);
         }
+        // A drag during place would be cleared as fresh against the densities captured at start.
+        ImGui::BeginDisabled(m_foliageRunning.load());
         bool slopeEdited = false;
         slopeEdited |= ImGui::SliderFloat("Tree min normal Y", &m_foliageDensity.treeMinNormalY, 0.0f, 1.0f, "%.2f");
         slopeEdited |= ImGui::SliderFloat("Flower min normal Y", &m_foliageDensity.flowerMinNormalY, 0.0f, 1.0f, "%.2f");
@@ -1884,7 +1886,6 @@ void EditorApp::drawTerrainPanel()
         slopeEdited |= ImGui::SliderFloat("Rock max pitch (deg)", &m_foliageDensity.rockMaxPitchDeg, 0.0f, 89.0f, "%.0f");
         if (slopeEdited)
             m_foliageStale = true;
-        ImGui::BeginDisabled(m_foliageRunning.load());
         if (ImGui::Button("Place / Replace foliage"))
             startFoliageSpawn();
         ImGui::EndDisabled();

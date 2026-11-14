@@ -499,8 +499,6 @@ TEST(FoliageSpawn, TreesRejectedOn45DegGrassRamp)
     ASSERT_TRUE(spawnFoliage(in, out));
     EXPECT_EQ(out.accepted, 0u);
     EXPECT_TRUE(out.records.empty());
-    for (const FoliageRecord& rec : out.records)
-        EXPECT_NE(rec.kind, static_cast<uint8_t>(FoliageKind::Tree));
 }
 
 TEST(FoliageSpawn, GentleSlopeTreesOptionalLean)
@@ -577,6 +575,18 @@ TEST(FoliageSpawn, RockPitchIsClamped)
     ASSERT_TRUE(spawnFoliage(in, steep));
     EXPECT_EQ(steep.accepted, 0u);
     EXPECT_TRUE(steep.records.empty());
+
+    in.density.rockMinNormalY  = 0.40f;
+    in.density.rockMaxPitchDeg = 0.0f;
+    FoliageSpawnOut upright;
+    ASSERT_TRUE(spawnFoliage(in, upright));
+    ASSERT_EQ(upright.records.size(), 9u);
+    for (const FoliageRecord& rec : upright.records)
+    {
+        EXPECT_EQ(rec.kind, static_cast<uint8_t>(FoliageKind::Rock));
+        EXPECT_FLOAT_EQ(rec.pitch, 0.0f);
+        EXPECT_FLOAT_EQ(rec.tiltYaw, 0.0f);
+    }
 }
 
 TEST(FoliageSpawn, FlowersAndTuftsFollowTheirThreshold)
