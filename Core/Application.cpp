@@ -240,6 +240,10 @@ namespace Dark
                 cfg.cliNoMenu = true;
             else if (tokenEq(tok, "-menu"))
                 cfg.cliMenu = true;
+            else if (tokenEq(tok, "-debug-levels"))
+                cfg.cliDebugLevels = true;
+            else if (tokenEq(tok, "-no-debug-levels"))
+                cfg.cliNoDebugLevels = true;
             else if (tokenEq(tok, "-forward"))
                 cfg.cliForward = true;
         }
@@ -292,6 +296,24 @@ namespace Dark
         if (cfg.netHost || cfg.netJoin.ipv4 != 0 || cfg.netJoin.port != 0)
             return false;
         return cfg.showMainMenu;
+    }
+
+    bool shouldShowDebugLevelJump(const AppConfig& cfg)
+    {
+        char*  env = nullptr;
+        size_t len = 0;
+        if (_dupenv_s(&env, &len, "DE_NO_DEBUG_LEVELS") == 0 && env && env[0] != '\0')
+        {
+            free(env);
+            return false;
+        }
+        free(env);
+
+        if (cfg.cliNoDebugLevels)
+            return false;
+        if (cfg.cliDebugLevels)
+            return true;
+        return cfg.debugLevelJump;
     }
 
     Application::Application(const AppConfig& cfg)

@@ -39,9 +39,25 @@ namespace Dark
         Quit
     };
 
+    // Front page, or a page opened from it. Esc on a subpage returns to Front.
+    enum class MainMenuPage : uint8_t
+    {
+        Front = 0,
+        Settings,
+        Credits
+    };
+
+    // Action rows are the front menu. Level rows are the debug jump list.
+    enum class MainMenuRole : uint8_t
+    {
+        Action = 0,
+        Level
+    };
+
     struct MainMenuEntry
     {
         MainMenuKind          kind = MainMenuKind::Scene;
+        MainMenuRole          role = MainMenuRole::Action;
         std::string           id;
         std::string           title;
         std::string           subtitle;
@@ -62,7 +78,7 @@ namespace Dark
         const std::string& hint() const { return m_hint; }
 
         void clearEntries();
-        void addScene(std::string id, std::string title, std::filesystem::path path, std::string subtitle = {});
+        void addScene(std::string id, std::string title, std::filesystem::path path, std::string subtitle = {}, MainMenuRole role = MainMenuRole::Action);
         void addBuiltIn(std::string id, std::string title, std::string subtitle = {});
         void addQuit(std::string title = "Quit");
 
@@ -76,6 +92,10 @@ namespace Dark
         const std::vector<MainMenuEntry>& entries() const { return m_entries; }
         const MainMenuEntry*              selected() const;
         size_t                            selectedIndex() const { return m_selected; }
+
+        // Level focus is the debug jump column. Action focus is the front menu.
+        bool levelFocus() const { return m_levelFocus; }
+        void setLevelFocus(bool on);
 
         // Keyboard (arrows/WASD, Enter, Esc), mouse, D-pad / A / B. view size is for hit tests.
         void            update(const Input& input, uint32_t viewW, uint32_t viewH);
@@ -126,6 +146,7 @@ namespace Dark
         bool   hit(const Rect& r, float mx, float my) const;
         void   moveSelection(int delta);
         void   confirmSelection();
+        void   adopt(size_t index);
         void   playMove();
         void   playSelect();
         bool   ensureLabels(Renderer& renderer);
@@ -138,8 +159,11 @@ namespace Dark
         float                      m_dpiScale = 1.0f;
         UiAccent                   m_accent = UiAccent::Engine;
         std::vector<MainMenuEntry> m_entries;
-        size_t                     m_selected = 0;
-        bool                       m_visible  = false;
+        size_t                     m_selected    = 0;
+        size_t                     m_actionIndex = 0;
+        size_t                     m_levelIndex  = 0;
+        bool                       m_levelFocus  = false;
+        bool                       m_visible     = false;
         MainMenuResult             m_pending  = MainMenuResult::None;
         Audio::AudioSystem*        m_audio    = nullptr;
         AssetRef<Audio::SoundClip> m_moveClip;

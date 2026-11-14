@@ -2,9 +2,11 @@
 
 #include "ECS/Entity.h"
 #include "Play/QuestBanner.h"
+#include "Render/Texture2D.h"
 #include "Ui/ImGuiHost.h"
 #include "Ui/MainMenu.h"
 
+#include <cstdint>
 #include <vector>
 
 class SandboxApp;
@@ -36,6 +38,8 @@ public:
     void drawAlarm();
     void drawUpgrades();
     void drawUpgradeHint();
+    void drawMainMenu();
+    void loadMenuBackground();
 
     std::vector<Dark::QuestBanner> m_questBanners;
     bool                           m_showJournal      = false;
@@ -46,6 +50,9 @@ public:
     Dark::Entity                   m_lootTarget{};
     ImGuiHost                      m_imgui;
     Dark::MainMenu                 m_menu;
+    Dark::MainMenuPage             m_menuPage = Dark::MainMenuPage::Front;
+    Dark::Texture2D                m_menuBackground;
+    uint64_t                       m_menuBackgroundId = 0;
 
 private:
     SandboxApp& app() const;

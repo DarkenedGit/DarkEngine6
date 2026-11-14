@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Ui/ImGuiHost.h"
+#include "Ui/MainMenu.h"
 
 #include "Math/Matrix4f.h"
 #include "Math/Vector3f.h"
@@ -12,13 +13,21 @@
 
 namespace Dark
 {
-    class MainMenu;
     class QuestRuntime;
 
+    // Passed by the host each frame. page and masterVolume are optional.
+    // Level-role entries draw on the right when the page is Front.
+    struct MainMenuChrome
+    {
+        uint64_t      background   = 0;
+        MainMenuPage* page         = nullptr;
+        float*        masterVolume = nullptr;
+    };
+
     // ImGui-only game chrome. Do not include this from a DarkEngine translation unit.
-    // cancelHides: Esc / B / Back calls hide() (resume). Otherwise those keys quit.
-    // The frame the card appears ignores those keys, so the key that opened it does not also close it.
-    void drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts, bool cancelHides = false);
+    // cancelHides: Esc / B / Back calls hide() (resume) on the front page. Otherwise those keys quit.
+    // On Settings or Credits they return to the front page. The frame the window appears ignores them.
+    void drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts, bool cancelHides = false, const MainMenuChrome& chrome = {});
     void setGameNavEnabled(bool enabled);
 
     // Centered or caller-positioned card. Always pair with EndGameCard, even when Begin returns false.

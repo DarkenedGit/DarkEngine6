@@ -53,6 +53,8 @@ TEST(ParseAppCommandLine, EmptyAndNullLeaveFlags)
     EXPECT_FALSE(a.cliSplash);
     EXPECT_FALSE(a.cliNoMenu);
     EXPECT_FALSE(a.cliMenu);
+    EXPECT_FALSE(a.cliDebugLevels);
+    EXPECT_FALSE(a.cliNoDebugLevels);
     EXPECT_FALSE(a.cliForward);
     EXPECT_EQ(a.scenePath, ScenePath::SwapChainForward);
     EXPECT_FALSE(a.showSplash);
@@ -319,6 +321,74 @@ TEST(ShouldShowMainMenu, HostFlagOn)
     AppConfig cfg{};
     cfg.showMainMenu = true;
     EXPECT_TRUE(shouldShowMainMenu(cfg));
+}
+
+TEST(ParseAppCommandLine, DebugLevels)
+{
+    AppConfig cfg{};
+    ASSERT_TRUE(parseAppCommandLine("-debug-levels", cfg));
+    EXPECT_TRUE(cfg.cliDebugLevels);
+    EXPECT_FALSE(cfg.cliNoDebugLevels);
+}
+
+TEST(ParseAppCommandLine, NoDebugLevels)
+{
+    AppConfig cfg{};
+    ASSERT_TRUE(parseAppCommandLine("-no-debug-levels", cfg));
+    EXPECT_TRUE(cfg.cliNoDebugLevels);
+    EXPECT_FALSE(cfg.cliDebugLevels);
+}
+
+TEST(ShouldShowDebugLevelJump, HostFlagOn)
+{
+    EnvRestore restore("DE_NO_DEBUG_LEVELS");
+    setEnv("DE_NO_DEBUG_LEVELS", "");
+
+    AppConfig cfg{};
+    cfg.debugLevelJump = true;
+    EXPECT_TRUE(shouldShowDebugLevelJump(cfg));
+}
+
+TEST(ShouldShowDebugLevelJump, DefaultOff)
+{
+    EnvRestore restore("DE_NO_DEBUG_LEVELS");
+    setEnv("DE_NO_DEBUG_LEVELS", "");
+
+    AppConfig cfg{};
+    EXPECT_FALSE(shouldShowDebugLevelJump(cfg));
+}
+
+TEST(ShouldShowDebugLevelJump, CliForcesOn)
+{
+    EnvRestore restore("DE_NO_DEBUG_LEVELS");
+    setEnv("DE_NO_DEBUG_LEVELS", "");
+
+    AppConfig cfg{};
+    cfg.cliDebugLevels = true;
+    EXPECT_TRUE(shouldShowDebugLevelJump(cfg));
+}
+
+TEST(ShouldShowDebugLevelJump, CliNoBeatsCliYes)
+{
+    EnvRestore restore("DE_NO_DEBUG_LEVELS");
+    setEnv("DE_NO_DEBUG_LEVELS", "");
+
+    AppConfig cfg{};
+    cfg.debugLevelJump   = true;
+    cfg.cliDebugLevels   = true;
+    cfg.cliNoDebugLevels = true;
+    EXPECT_FALSE(shouldShowDebugLevelJump(cfg));
+}
+
+TEST(ShouldShowDebugLevelJump, EnvBeatsCli)
+{
+    EnvRestore restore("DE_NO_DEBUG_LEVELS");
+    setEnv("DE_NO_DEBUG_LEVELS", "1");
+
+    AppConfig cfg{};
+    cfg.debugLevelJump  = true;
+    cfg.cliDebugLevels  = true;
+    EXPECT_FALSE(shouldShowDebugLevelJump(cfg));
 }
 
 TEST(ShouldShowMainMenu, DefaultOff)

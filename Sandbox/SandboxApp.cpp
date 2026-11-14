@@ -636,26 +636,37 @@ void SandboxApp::registerDefaultActions()
         "Input: quit(Esc/Back) pause(F3/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
         "possessed WASD/arrows/LS move, double-tap a direction to dodge, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, 1 melee  2 rifle, "
         "hold attack to charge, release to swing (tap = normal). Hold RMB/V/LT shield; hold longer then release to parry-slam. Ctrl crouch, C camouflage, G pickup / carry body, E takedown from behind, L flashlight, N night sight, H infrared, U ultraviolet, B echolocation, Shift/LB sprint, swim in water, "
-        "Y/R3 walk the wiggle demo  T talk  F2 lighting  F5 quicksave  F9 quickload  M dev tools  P profiler  -forward linear albedo + sRGB encode (legacyUnormAlbedo restores old sampling)  -no-menu skip scene picker");
+        "Y/R3 walk the wiggle demo  T talk  F2 lighting  F5 quicksave  F9 quickload  M dev tools  P profiler  -forward linear albedo + sRGB encode (legacyUnormAlbedo restores old sampling)  -no-menu skip the front menu  -no-debug-levels hides jump to level");
 }
 
 void SandboxApp::populateMainMenu()
 {
     m_hud.m_menu.clearEntries();
-    m_hud.m_menu.setTitle(config().hostName ? config().hostName : "Sandbox");
+    m_hud.m_menu.setTitle("CRISPER");
     m_hud.m_menu.setAccent(UiAccent::Sandbox);
+    m_hud.m_menuPage = MainMenuPage::Front;
+    m_hud.m_menu.addBuiltIn("continue", "CONTINUE", "SECTOR 04 - QUARANTINE PERIMETER");
+    m_hud.m_menu.addBuiltIn("new_game", "NEW GAME");
+    m_hud.m_menu.addBuiltIn("settings", "SETTINGS");
+    m_hud.m_menu.addBuiltIn("credits", "CREDITS");
+    m_hud.m_menu.addQuit("QUIT");
     // Sandbox is the 3D host. level2d.json stays on the Sandbox2D menu.
-    const auto scenes = listSceneFiles(SceneMode::Scene3D);
-    if (scenes.empty())
-        m_hud.m_menu.addBuiltIn("sandbox", "Play", "Default sandbox");
-    else
+    if (shouldShowDebugLevelJump(config()))
     {
+        const auto scenes = listSceneFiles(SceneMode::Scene3D);
         for (const SceneFileInfo& s : scenes)
-            m_hud.m_menu.addScene(s.fileName, s.displayName, s.path, s.fileName);
+            m_hud.m_menu.addScene(s.fileName, s.displayName, s.path, s.fileName, MainMenuRole::Level);
     }
-    m_hud.m_menu.addQuit();
-    if (!m_hud.m_menu.selectById(sceneFileArg()))
-        m_hud.m_menu.selectById(std::filesystem::path(sceneFileArg()).filename().string());
+    const std::string sceneArg = sceneFileArg();
+    bool jumped = false;
+    if (sceneArg != "level.json")
+    {
+        jumped = m_hud.m_menu.selectById(sceneArg) || m_hud.m_menu.selectById(std::filesystem::path(sceneArg).filename().string());
+        if (jumped && m_hud.m_menu.selected() && m_hud.m_menu.selected()->role != MainMenuRole::Level)
+            jumped = false;
+    }
+    if (!jumped)
+        m_hud.m_menu.selectById("continue");
 }
 
 void SandboxApp::handleRuntimeCommands(float dt)
@@ -687,18 +698,32 @@ void SandboxApp::handleRuntimeCommands(float dt)
         switch (m_hud.m_menu.pollResult())
         {
         case MainMenuResult::Confirm:
-            // The 3D world is built once. Esc brings this menu back as a pause;
-            // confirming a different row does not tear the level down.
+        {
+            // The 3D world is built once. Esc brings this menu back;
+            // confirming a different level does not tear the session down.
+            const MainMenuEntry* picked = m_hud.m_menu.selected();
+            if (picked && picked->id == "settings")
+            {
+                m_hud.m_menuPage = MainMenuPage::Settings;
+                break;
+            }
+            if (picked && picked->id == "credits")
+            {
+                m_hud.m_menuPage = MainMenuPage::Credits;
+                break;
+            }
             if (!m_sceneStarted)
             {
                 if (m_bootPolling)
                     break;
                 std::filesystem::path path = defaultScenePath(sceneFileArg());
-                if (const MainMenuEntry* e = m_hud.m_menu.selected())
+                if (picked)
                 {
-                    if (e->kind == MainMenuKind::Scene && !e->path.empty())
-                        path = e->path;
-                    else if (e->kind == MainMenuKind::BuiltIn)
+                    if (picked->id == "new_game")
+                        path = defaultScenePath("level.json");
+                    else if (picked->kind == MainMenuKind::Scene && !picked->path.empty())
+                        path = picked->path;
+                    else if (picked->kind == MainMenuKind::BuiltIn && picked->id != "continue")
                         path = defaultScenePath("level.json");
                 }
                 if (!startScene(path))
@@ -712,15 +737,22 @@ void SandboxApp::handleRuntimeCommands(float dt)
                 // Splash already finished without a camera, so the usual cue never played.
                 playMusicCue(world(), audio(), assets(), m_camera, "music");
             }
-            else if (const MainMenuEntry* picked = m_hud.m_menu.selected())
+            else if (picked && picked->id == "new_game")
+            {
+                DE_LOG_INFO("Sandbox: already in '{}'; staying in this session", m_loadedScenePath.filename().string());
+                break;
+            }
+            else if (picked)
             {
                 const bool otherScene = picked->kind == MainMenuKind::Scene && !picked->path.empty()
                     && picked->path.filename() != m_loadedScenePath.filename();
                 if (otherScene)
                     DE_LOG_INFO("Sandbox: already in '{}'; staying in this scene", m_loadedScenePath.filename().string());
             }
+            m_hud.m_menuPage = MainMenuPage::Front;
             m_hud.m_menu.hide();
             break;
+        }
         case MainMenuResult::Quit:
             DE_LOG_INFO("Command: quit");
             requestQuit();
@@ -900,6 +932,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
         if (config().showMainMenu && m_hud.m_menu.isReady() && network().role() == NetRole::Idle)
         {
             m_dialogue.interrupt(DialogueInterrupt::Menu);
+            m_hud.m_menuPage = MainMenuPage::Front;
             m_hud.m_menu.show();
             window().setCursorCaptured(false);
             return;
@@ -1898,13 +1931,15 @@ void SandboxApp::onInit()
     else if (shouldShowMainMenu(config()))
     {
         m_hud.m_menu.show();
-        DE_LOG_INFO("Sandbox: main menu ({} entries)", m_hud.m_menu.entries().size());
+        DE_LOG_INFO("Sandbox: main menu ({} entries), jump-to-level {}", m_hud.m_menu.entries().size(), shouldShowDebugLevelJump(config()) ? "on" : "off");
     }
     if (!m_hud.m_menu.loadSounds(audio(), assets()))
         DE_LOG_WARN(LogCategory::Audio, "SandboxApp: main menu sounds failed");
 
     if (!m_hud.m_imgui.init(window(), renderer(), "sandbox_imgui.ini", false, UiAccent::Sandbox, false))
         DE_LOG_WARN("SandboxApp: ImGui init failed — Dev Tools (M) disabled");
+    else
+        m_hud.loadMenuBackground();
     if (!pumpBootFrame())
         return;
 
@@ -2057,6 +2092,8 @@ void SandboxApp::onShutdown()
     m_hud.m_menu.shutdown(renderer());
     m_frame.scene().shutdown();
     m_hud.m_imgui.shutdown(renderer());
+    m_hud.m_menuBackground   = Dark::Texture2D{};
+    m_hud.m_menuBackgroundId = 0;
     m_water = WaterWorld{};
     m_terrainMaterial = TerrainMaterial{};
     Physics::destroyFoliageCollision(m_physics, m_foliageCollision);

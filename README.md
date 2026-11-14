@@ -150,7 +150,8 @@ Editor opens a blank 3D scene: the grid on Y=0 at the origin, with no terrain. F
 | `-join <ipv4>` | VisualDebugger | Connect to a host's debug server (default port 26162) |
 | `-scene:<file>` | Sandbox | Load `content/scenes/<file>` instead of `level.json` (colon form only) |
 | `-forward` | Sandbox, Editor | Use the forward swap-chain path instead of hybrid deferred |
-| `-menu` / `-no-menu` | Sandbox, Sandbox2D | Force the scene-picker main menu on or off. Env `DE_NO_MENU` also turns it off, and `-host` / `-join` skip it. |
+| `-menu` / `-no-menu` | Sandbox, Sandbox2D | Force the main menu on or off. Env `DE_NO_MENU` also turns it off, and `-host` / `-join` skip it. |
+| `-debug-levels` / `-no-debug-levels` | Sandbox | Show or hide the right-side jump-to-level list. Sandbox defaults to on. Env `DE_NO_DEBUG_LEVELS` also hides it. |
 | `-splash` / `-no-splash` | all | Force the boot splash on or off |
 
 ### Input and config files

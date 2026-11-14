@@ -39,6 +39,9 @@ namespace Dark
         bool        cliSplash     = false; // -splash
         bool        cliNoMenu     = false; // -no-menu (skip picker, load default scene)
         bool        cliMenu       = false; // -menu (force picker)
+        bool        debugLevelJump    = false; // Sandbox opt-in: right-side scene list on the front menu
+        bool        cliDebugLevels    = false; // -debug-levels (force that list)
+        bool        cliNoDebugLevels  = false; // -no-debug-levels (hide that list)
         bool        cliForward    = false; // -forward (keep swap-chain forward 3D)
         ScenePath   scenePath     = ScenePath::SwapChainForward; // request; live path is Renderer::scenePath()
         // Off keeps loadSceneFromJson on the caller and does not start the scheduler.
@@ -49,6 +52,7 @@ namespace Dark
     bool parseAppCommandLine(const char* lpCmdLine, AppConfig& cfg);
     bool shouldShowSplash(const AppConfig& cfg, bool jsonEnabled);
     bool shouldShowMainMenu(const AppConfig& cfg);
+    bool shouldShowDebugLevelJump(const AppConfig& cfg);
     void applyDeferredScenePath(AppConfig& cfg, ScenePath whenEnabled);
 
     class Application

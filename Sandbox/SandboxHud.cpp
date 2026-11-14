@@ -35,6 +35,8 @@
 #include "Sky/Environment.h"
 
 #include "Ui/Icons.h"
+
+#include <filesystem>
 #include "Ui/ImGuiGameChrome.h"
 #include "Ui/ImGuiTheme.h"
 #include "Ui/ImGuiWidgets.h"
@@ -123,6 +125,33 @@ void applyDebugStatus(World& world, Entity body, Combat::StatusId id)
 SandboxApp& SandboxHud::app() const
 {
     return *m_app;
+}
+
+void SandboxHud::loadMenuBackground()
+{
+    if (!m_imgui.isReady() || m_menuBackgroundId != 0)
+        return;
+    const std::filesystem::path path = app().assets().resolve("ui/menu/crisper_bg.jpg");
+    if (path.empty() || !m_menuBackground.createFromFile(app().renderer(), path, Dark::Color::TextureUsage::Hud))
+    {
+        DE_LOG_WARN(LogCategory::Render, "Sandbox: main menu background missing (ui/menu/crisper_bg.jpg)");
+        return;
+    }
+    m_menuBackgroundId = m_imgui.addTexture(app().renderer(), m_menuBackground);
+    if (m_menuBackgroundId == 0)
+        DE_LOG_WARN(LogCategory::Render, "Sandbox: main menu background was not registered with ImGui");
+}
+
+void SandboxHud::drawMainMenu()
+{
+    float volume = app().audio().masterVolume();
+    Dark::MainMenuChrome chrome;
+    chrome.background   = m_menuBackgroundId;
+    chrome.page         = &m_menuPage;
+    chrome.masterVolume = &volume;
+    Dark::drawMainMenuImGui(m_menu, m_imgui.fonts(), app().m_sceneStarted, chrome);
+    if (volume != app().audio().masterVolume())
+        app().audio().setMasterVolume(volume);
 }
 
 void SandboxHud::drawInventory()

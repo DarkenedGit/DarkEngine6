@@ -183,7 +183,9 @@ namespace
         const float body    = kUiFontBodyPx * dpi;
         const float heading = kUiFontHeadingPx * dpi;
         const float mono    = kUiFontMonoPx * dpi;
-        const float display = kUiFontDisplayPx * dpi;
+        const float display   = kUiFontDisplayPx * dpi;
+        const float menuTitle = kUiFontMenuTitlePx * dpi;
+        const float menuItem  = kUiFontMenuItemPx * dpi;
         UiFonts     fonts{};
 
         fonts.body = addFace(io, "fonts/Roboto-Medium.ttf", "C:\\Windows\\Fonts\\segoeui.ttf", body);
@@ -195,6 +197,8 @@ namespace
             fonts.heading    = fonts.body;
             fonts.mono       = fonts.body;
             fonts.display    = fonts.body;
+            fonts.menuTitle  = fonts.body;
+            fonts.menuItem   = fonts.body;
             DE_LOG_WARN("ImGuiHost: using ProggyClean (no UI TTF found)");
             return fonts;
         }
@@ -221,7 +225,13 @@ namespace
             fonts.display = fonts.heading;
             DE_LOG_WARN("ImGuiHost: display face missing, display uses heading");
         }
-        DE_LOG_INFO("ImGuiHost: UI font body {:.1f}px + heading {:.1f}px + mono {:.1f}px + display {:.1f}px + icons", body, heading, mono, display);
+        fonts.menuTitle = addFace(io, "fonts/Roboto-Bold.ttf", "C:\\Windows\\Fonts\\segoeuib.ttf", menuTitle);
+        if (!fonts.menuTitle)
+            fonts.menuTitle = fonts.display;
+        fonts.menuItem = addFace(io, "fonts/Roboto-Bold.ttf", "C:\\Windows\\Fonts\\segoeuib.ttf", menuItem);
+        if (!fonts.menuItem)
+            fonts.menuItem = fonts.heading;
+        DE_LOG_INFO("ImGuiHost: UI font body {:.1f}px + heading {:.1f}px + mono {:.1f}px + display {:.1f}px + menu {:.1f}/{:.1f}px + icons", body, heading, mono, display, menuTitle, menuItem);
         return fonts;
     }
 

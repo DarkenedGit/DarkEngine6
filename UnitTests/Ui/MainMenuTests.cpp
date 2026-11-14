@@ -147,6 +147,36 @@ TEST(MainMenu, DpiScaleEnlargesRows)
     EXPECT_EQ(menu.selected()->id, "b.json");
 }
 
+TEST(MainMenu, LevelJumpFocus)
+{
+    MainMenu menu;
+    menu.addBuiltIn("continue", "CONTINUE");
+    menu.addQuit("QUIT");
+    menu.addScene("level.json", "Level", "level.json");
+    menu.addScene("parkour_test.json", "Parkour", "parkour_test.json", "", MainMenuRole::Level);
+    EXPECT_EQ(menu.entries()[2].role, MainMenuRole::Action);
+    EXPECT_EQ(menu.entries()[3].role, MainMenuRole::Level);
+    menu.show();
+    EXPECT_FALSE(menu.levelFocus());
+
+    ASSERT_TRUE(menu.selectById("parkour_test.json"));
+    EXPECT_TRUE(menu.levelFocus());
+    ASSERT_NE(menu.selected(), nullptr);
+    EXPECT_EQ(menu.selected()->id, "parkour_test.json");
+
+    menu.setLevelFocus(false);
+    EXPECT_FALSE(menu.levelFocus());
+    ASSERT_NE(menu.selected(), nullptr);
+    EXPECT_EQ(menu.selected()->id, "continue");
+
+    menu.setLevelFocus(true);
+    EXPECT_TRUE(menu.levelFocus());
+    EXPECT_EQ(menu.selected()->id, "parkour_test.json");
+
+    menu.setLevelFocus(true);
+    EXPECT_EQ(menu.selected()->id, "parkour_test.json");
+}
+
 void addThreeRows(MainMenu& menu)
 {
     menu.addScene("a.json", "A", "a.json");

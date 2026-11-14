@@ -125,13 +125,17 @@ namespace Dark
     {
         m_entries.clear();
         m_selected    = 0;
+        m_actionIndex = 0;
+        m_levelIndex  = 0;
+        m_levelFocus  = false;
         m_labelsDirty = true;
     }
 
-    void MainMenu::addScene(std::string id, std::string title, std::filesystem::path path, std::string subtitle)
+    void MainMenu::addScene(std::string id, std::string title, std::filesystem::path path, std::string subtitle, MainMenuRole role)
     {
         MainMenuEntry e{};
         e.kind     = MainMenuKind::Scene;
+        e.role     = role;
         e.id       = std::move(id);
         e.title    = title.empty() ? e.id : std::move(title);
         e.subtitle = std::move(subtitle);
@@ -161,13 +165,30 @@ namespace Dark
         m_labelsDirty = true;
     }
 
+    void MainMenu::adopt(size_t index)
+    {
+        m_selected = index;
+        if (index >= m_entries.size())
+            return;
+        if (m_entries[index].role == MainMenuRole::Level)
+        {
+            m_levelFocus = true;
+            m_levelIndex = index;
+        }
+        else
+        {
+            m_levelFocus  = false;
+            m_actionIndex = index;
+        }
+    }
+
     bool MainMenu::selectById(std::string_view id)
     {
         for (size_t i = 0; i < m_entries.size(); ++i)
         {
             if (m_entries[i].id == id)
             {
-                m_selected = i;
+                adopt(i);
                 return true;
             }
         }
@@ -178,10 +199,52 @@ namespace Dark
     {
         if (m_entries.empty())
         {
-            m_selected = 0;
+            m_selected    = 0;
+            m_actionIndex = 0;
+            m_levelFocus  = false;
             return;
         }
-        m_selected = (index < m_entries.size()) ? index : (m_entries.size() - 1);
+        adopt((index < m_entries.size()) ? index : (m_entries.size() - 1));
+    }
+
+    void MainMenu::setLevelFocus(bool on)
+    {
+        if (on)
+        {
+            size_t target = static_cast<size_t>(-1);
+            if (m_levelIndex < m_entries.size() && m_entries[m_levelIndex].role == MainMenuRole::Level)
+                target = m_levelIndex;
+            else
+            {
+                for (size_t i = 0; i < m_entries.size(); ++i)
+                {
+                    if (m_entries[i].role == MainMenuRole::Level)
+                    {
+                        target = i;
+                        break;
+                    }
+                }
+            }
+            if (target == static_cast<size_t>(-1))
+                return;
+            if (m_levelFocus && m_selected == target)
+                return;
+            const bool changed = m_selected != target;
+            adopt(target);
+            if (changed && m_visible)
+                playMove();
+            return;
+        }
+
+        if (!m_levelFocus)
+            return;
+        size_t target = 0;
+        if (m_actionIndex < m_entries.size() && m_entries[m_actionIndex].role != MainMenuRole::Level)
+            target = m_actionIndex;
+        const bool changed = m_selected != target;
+        adopt(target);
+        if (changed && m_visible)
+            playMove();
     }
 
     void MainMenu::setDpiScale(float scale)
@@ -223,7 +286,7 @@ namespace Dark
             index = m_entries.size() - 1;
         if (index == m_selected)
             return;
-        m_selected = index;
+        adopt(index);
         playMove();
     }
 
@@ -251,7 +314,7 @@ namespace Dark
             idx += n;
         while (idx >= n)
             idx -= n;
-        m_selected = static_cast<size_t>(idx);
+        adopt(static_cast<size_t>(idx));
     }
 
     void MainMenu::confirmSelection()
@@ -364,7 +427,7 @@ namespace Dark
         {
             if (!hit(layout.rows[i], mx, my))
                 continue;
-            m_selected = i;
+            adopt(i);
             if (input.mousePressed(MouseButton::Left))
                 confirm = true;
         }
