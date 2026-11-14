@@ -401,7 +401,13 @@ namespace Dark
             xf->position = m_rt.spawn;
         if (PlayerMotorComponent* pmc = body.valid() ? world->get<PlayerMotorComponent>(body) : nullptr)
             pmc->motor.reset();
-        m_rt.lowerBodyYaw = 0.0f;
+        m_rt.lowerBodyYaw      = 0.0f;
+        m_rt.lean              = 0.0f;
+        m_rt.leanApplied       = 0.0f;
+        m_rt.leanRightBlocked  = false;
+        m_rt.leanClipBlock     = false;
+        m_rt.leanSawShoot      = false;
+        m_rt.sprintApplied     = false;
         if (AnimGraphComponent* ag = body.valid() ? world->get<AnimGraphComponent>(body) : nullptr)
             ag->graph.player().setLowerBodyYaw(0.0f);
         if (HealthComponent* hc = body.valid() ? world->get<HealthComponent>(body) : nullptr)

@@ -603,7 +603,10 @@ void EditorApp::setPlayMode(bool play)
         resetPlayCombat();
         clearAllStatusFx(world(), &audio());
         if (AnimGraphComponent* ag = m_playPlayer.valid() ? world().get<AnimGraphComponent>(m_playPlayer) : nullptr)
+        {
             ag->graph.player().setLowerBodyYaw(0.0f);
+            ag->graph.player().setCornerLean(0.0f);
+        }
         // clearPlayArmor deletes loose pickups. Copy throwables, including throws still in the air, and put them back.
         std::vector<ThrowablePickupSpot> keptThrowables = captureThrowablePickups(world());
         appendUnresolvedThrowableSpots(keptThrowables, m_play.throws());
