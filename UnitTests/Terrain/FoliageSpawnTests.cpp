@@ -9,6 +9,13 @@
 #include <cstring>
 #include <vector>
 
+namespace Dark::Terrain
+{
+    bool spawnFoliageForcedLargeMask(const FoliageSpawnIn& in, FoliageSpawnOut& out,
+        float x0, float z0, float radius0, float mask0,
+        float x1, float z1, float radius1, float mask1);
+}
+
 using namespace Dark::Terrain;
 
 namespace
@@ -1111,9 +1118,8 @@ TEST(FoliageSpawn, PatchMaskZeroStrengthMatchesBaseline)
     in.density.patchLargeM   = 60.0f;
     in.density.patchMediumM  = 30.0f;
     in.density.patchFineM    = 2.0f;
-    in.largeMaskDisks[0]     = FoliageLargeMaskDisk{ 16.0f, 16.0f, 80.0f, 0.0f };
     FoliageSpawnOut masked;
-    ASSERT_TRUE(spawnFoliage(in, masked));
+    ASSERT_TRUE(spawnFoliageForcedLargeMask(in, masked, 16.0f, 16.0f, 80.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
     expectSameRecords(baseline, masked);
 
     for (size_t i = 0; i < baseline.records.size(); ++i)
@@ -1135,7 +1141,6 @@ TEST(FoliageSpawn, PatchMaskZeroStrengthMatchesBaseline)
     treesOnly.density.grassFlowersPerM2 = 0.0f;
     treesOnly.density.grassPerM2        = 0.0f;
     treesOnly.density.patchStrength     = 0.0f;
-    treesOnly.largeMaskDisks[0]         = FoliageLargeMaskDisk{};
     FoliageSpawnOut trees;
     ASSERT_TRUE(spawnFoliage(treesOnly, trees));
     EXPECT_GT(countKind(trees.records, FoliageKind::Tree), 0);
@@ -1235,11 +1240,9 @@ TEST(FoliageSpawn, ForestMeadowSplitIsSeedStable)
     forced.density.treeSpacingM      = 3.0f;
     forced.density.patchStrength     = 1.0f;
     forced.density.seed              = 1337u;
-    forced.largeMaskDisks[0]         = FoliageLargeMaskDisk{ 45.0f, 90.0f, 40.0f, 0.0f };
-    forced.largeMaskDisks[1]         = FoliageLargeMaskDisk{ 135.0f, 90.0f, 40.0f, 1.0f };
 
     FoliageSpawnOut split;
-    ASSERT_TRUE(spawnFoliage(forced, split));
+    ASSERT_TRUE(spawnFoliageForcedLargeMask(forced, split, 45.0f, 90.0f, 40.0f, 0.0f, 135.0f, 90.0f, 40.0f, 1.0f));
     EXPECT_EQ(countKindInDisk(split.records, FoliageKind::Tree, 45.0f, 90.0f, 40.0f), 0);
     EXPECT_GT(countKindInDisk(split.records, FoliageKind::Tree, 135.0f, 90.0f, 40.0f), 0);
     const int meadowFlowers = countKindInDisk(split.records, FoliageKind::Flower, 45.0f, 90.0f, 32.0f);
@@ -1263,13 +1266,11 @@ TEST(FoliageSpawn, UnderstoryLandsInAnnulus)
         in.density.treeSpacingM    = 16.0f;
         in.density.patchStrength   = 1.0f;
         in.density.seed            = seed;
-        in.largeMaskDisks[0]       = FoliageLargeMaskDisk{ 20.0f, 20.0f, 100.0f, 0.0f };
-        in.largeMaskDisks[1]       = FoliageLargeMaskDisk{ 20.0f, 20.0f, 3.0f, 1.0f };
         in.treeExtentX             = 1.0f;
         in.treeExtentZ             = 1.0f;
 
         FoliageSpawnOut probe;
-        ASSERT_TRUE(spawnFoliage(in, probe));
+        ASSERT_TRUE(spawnFoliageForcedLargeMask(in, probe, 20.0f, 20.0f, 100.0f, 0.0f, 20.0f, 20.0f, 3.0f, 1.0f));
         if (countKind(probe.records, FoliageKind::Tree) != 1)
             continue;
         const FoliageRecord* probed = nullptr;
@@ -1283,7 +1284,7 @@ TEST(FoliageSpawn, UnderstoryLandsInAnnulus)
         const float extent = 3.0f / (0.45f * probed->scale);
         in.treeExtentX     = extent;
         in.treeExtentZ     = extent;
-        ASSERT_TRUE(spawnFoliage(in, kept));
+        ASSERT_TRUE(spawnFoliageForcedLargeMask(in, kept, 20.0f, 20.0f, 100.0f, 0.0f, 20.0f, 20.0f, 3.0f, 1.0f));
         if (countKind(kept.records, FoliageKind::Flower) + countKind(kept.records, FoliageKind::Grass) > 0)
         {
             for (const FoliageRecord& rec : kept.records)
@@ -1329,12 +1330,10 @@ TEST(FoliageSpawn, UnderstoryLandsInAnnulus)
     steep.density.patchStrength   = 1.0f;
     steep.density.seed            = 1337u;
     steep.seaLevel                = -1.0f;
-    steep.largeMaskDisks[0]       = FoliageLargeMaskDisk{ 20.0f, 20.0f, 100.0f, 0.0f };
-    steep.largeMaskDisks[1]       = FoliageLargeMaskDisk{ 20.0f, 20.0f, 3.0f, 1.0f };
     steep.treeExtentX             = 6.0f;
     steep.treeExtentZ             = 6.0f;
     FoliageSpawnOut rampOut;
-    ASSERT_TRUE(spawnFoliage(steep, rampOut));
+    ASSERT_TRUE(spawnFoliageForcedLargeMask(steep, rampOut, 20.0f, 20.0f, 100.0f, 0.0f, 20.0f, 20.0f, 3.0f, 1.0f));
     EXPECT_GT(countKind(rampOut.records, FoliageKind::Tree), 0);
     EXPECT_EQ(countKind(rampOut.records, FoliageKind::Flower), 0);
     EXPECT_EQ(countKind(rampOut.records, FoliageKind::Grass), 0);

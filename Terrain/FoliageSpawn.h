@@ -23,15 +23,6 @@ namespace Dark::Terrain
         bool  entireMap = false;
     };
 
-    // Pins the large forest/meadow mask inside a world-space disk.
-    struct FoliageLargeMaskDisk
-    {
-        float x      = 0.0f;
-        float z      = 0.0f;
-        float radius = 0.0f;
-        float mask   = 0.0f;
-    };
-
     struct FoliageSpawnIn
     {
         const HeightMap* height = nullptr;
@@ -49,8 +40,6 @@ namespace Dark::Terrain
         float treeExtentX = 0.0f;
         float treeExtentZ = 0.0f;
         std::vector<TrailPath> trails;
-        // radius <= 0 keeps the hashed large mask. A later disk overrides an earlier one.
-        FoliageLargeMaskDisk largeMaskDisks[2]{};
     };
 
     struct FoliageSpawnOut

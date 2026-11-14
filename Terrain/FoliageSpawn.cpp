@@ -146,6 +146,14 @@ namespace Dark::Terrain
             int iz = 0;
         };
 
+        struct LargeMaskPin
+        {
+            float x      = 0.0f;
+            float z      = 0.0f;
+            float radius = 0.0f;
+            float mask   = 0.0f;
+        };
+
         int noiseCell(float v)
         {
             return static_cast<int>(std::floor(static_cast<double>(v)));
@@ -279,7 +287,7 @@ namespace Dark::Terrain
         }
     } // namespace
 
-    bool spawnFoliage(const FoliageSpawnIn& in, FoliageSpawnOut& out)
+    bool spawnFoliageImpl(const FoliageSpawnIn& in, FoliageSpawnOut& out, const LargeMaskPin pins[2])
     {
         using namespace Math;
 
@@ -454,8 +462,9 @@ namespace Dark::Terrain
         auto largeAt = [&](float x, float z) -> float
         {
             float pinned = -1.0f;
-            for (const FoliageLargeMaskDisk& disk : in.largeMaskDisks)
+            for (int i = 0; i < 2; ++i)
             {
+                const LargeMaskPin& disk = pins[i];
                 if (!(disk.radius > 0.0f))
                     continue;
                 const float dx = x - disk.x;
@@ -882,6 +891,23 @@ namespace Dark::Terrain
             DE_LOG_WARN(LogCategory::Render, "FoliageSpawn: cap thinned accepted {} to {}", out.accepted, cap);
         DE_LOG_INFO(LogCategory::Render, "FoliageSpawn: kept {} accepted {} capped {} seed {} trees {} flowers {} rocks {} grass {}", out.kept, out.accepted, out.capped ? 1 : 0, seed, nTree, nFlower, nRock, nGrass);
         return true;
+    }
+
+    bool spawnFoliage(const FoliageSpawnIn& in, FoliageSpawnOut& out)
+    {
+        const LargeMaskPin none[2]{};
+        return spawnFoliageImpl(in, out, none);
+    }
+
+    bool spawnFoliageForcedLargeMask(const FoliageSpawnIn& in, FoliageSpawnOut& out,
+        float x0, float z0, float radius0, float mask0,
+        float x1, float z1, float radius1, float mask1)
+    {
+        const LargeMaskPin pins[2] = {
+            LargeMaskPin{ x0, z0, radius0, mask0 },
+            LargeMaskPin{ x1, z1, radius1, mask1 },
+        };
+        return spawnFoliageImpl(in, out, pins);
     }
 
     bool restampFoliageCover(const FoliageSpawnIn& in, const std::vector<FoliageRecord>& records, FoliageCover& cover)
