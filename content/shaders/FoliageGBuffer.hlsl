@@ -114,7 +114,7 @@ PSInput VSMain(VSInput input)
     o.normalWS  = mul(float4(input.normal, 0.0f), localWorld).xyz;
     o.tangentWS = float4(mul(float4(input.tangent.xyz, 0.0f), localWorld).xyz, input.tangent.w);
     o.uv        = input.uv;
-    o.tint      = foliageTint(gKinds[src]);
+    o.tint      = foliageTint(gKinds[gIndices[src]]);
     return o;
 }
 

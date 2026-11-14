@@ -527,7 +527,7 @@ namespace Dark::Terrain
                 scaleMax = 1.25f;
             }
             const std::vector<FoliageSpecies>& list = speciesList(kind);
-            if (variant < list.size() && list[variant].scaleMax > list[variant].scaleMin && list[variant].scaleMin > 0.0f)
+            if (variant < list.size() && list[variant].scaleMin > 0.0f && list[variant].scaleMax >= list[variant].scaleMin)
             {
                 scaleMin = list[variant].scaleMin;
                 scaleMax = list[variant].scaleMax;

@@ -2188,7 +2188,6 @@ namespace Dark
                     stored.kind          = static_cast<uint32_t>(kind);
                     stored.variant       = variant;
                     stored.partSlot      = partSlot;
-                    stored.worldScale    = worldScale;
                     stored.twoSided      = twoSided;
                     if (cpuPart && cpuPart->material)
                     {

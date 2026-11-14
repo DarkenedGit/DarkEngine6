@@ -215,7 +215,6 @@ namespace Dark
             uint32_t       kind          = 0;
             uint32_t       variant       = 0;
             uint32_t       partSlot      = 0;
-            bool           worldScale    = false;
             bool           twoSided      = false;
         };
 
