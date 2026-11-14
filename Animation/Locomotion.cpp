@@ -91,6 +91,46 @@ namespace Dark
 		add(neck, Math::Vector3f::Z_AXIS, -0.20f * side);
 	}
 
+	void applyCornerLean(const Skeleton& skeleton, Math::Quaternion* localR, uint32_t count, float lean, float shoulderScale)
+	{
+		if (!localR || count == 0 || fabsf(lean) < 1.0e-4f)
+			return;
+		const int32_t spine = findJoint(skeleton, "Spine");
+		if (spine < 0)
+			return;
+
+		const float scale = Math::Clamp(shoulderScale, 0.0f, 1.0f);
+		auto add = [&](int32_t joint, const Math::Vector3f& axis, float radians) {
+			if (joint < 0 || static_cast<uint32_t>(joint) >= count || fabsf(radians) < 1.0e-4f)
+				return;
+			localR[joint] = Math::Quaternion::FromAxisAngle(axis, radians) * localR[joint];
+		};
+
+		constexpr float kSpineZ = -0.40f;
+		constexpr float kSpineY = 0.20f;
+		constexpr float kChestZ = -0.35f;
+		constexpr float kChestY = 0.30f;
+		constexpr float kNeckZ  = 0.45f;
+		constexpr float kNeckY  = 0.15f;
+		constexpr float kHeadZ  = 0.25f;
+		constexpr float kArmZ   = 0.20f;
+
+		const int32_t chest = findJoint(skeleton, "Chest");
+		const int32_t neck  = findJoint(skeleton, "Neck");
+		const int32_t head  = findJoint(skeleton, "Head");
+		add(spine, Math::Vector3f::Z_AXIS, kSpineZ * lean);
+		add(spine, Math::Vector3f::Y_AXIS, kSpineY * lean);
+		add(chest, Math::Vector3f::Z_AXIS, kChestZ * lean);
+		add(chest, Math::Vector3f::Y_AXIS, kChestY * lean);
+		add(neck, Math::Vector3f::Z_AXIS, kNeckZ * lean);
+		add(neck, Math::Vector3f::Y_AXIS, kNeckY * lean);
+		add(head, Math::Vector3f::Z_AXIS, kHeadZ * lean);
+
+		// Right lean abducts L_UpperArm toward +X. Left lean mirrors that angle onto R_UpperArm.
+		const int32_t arm = findJoint(skeleton, lean > 0.0f ? "L_UpperArm" : "R_UpperArm");
+		add(arm, Math::Vector3f::Z_AXIS, kArmZ * lean * scale);
+	}
+
 	void applyPartImpact(const Skeleton& skeleton, Math::Quaternion* localR, uint32_t count, const PartImpactWeights& impact)
 	{
 		if (!localR || count == 0)

@@ -195,6 +195,17 @@ namespace Dark
 			m_rootMotionDelta = Vector3f::ZERO;
 	}
 
+	void AnimPlayer::setCornerLean(float lean)
+	{
+		if (!std::isfinite(lean))
+		{
+			DE_ASSERT(std::isfinite(lean));
+			m_cornerLean = 0.0f;
+			return;
+		}
+		m_cornerLean = Clamp(lean, -1.0f, 1.0f);
+	}
+
 	void AnimPlayer::stop()
 	{
 		m_playing = false;
@@ -293,6 +304,8 @@ namespace Dark
 			return;
 
 		const uint32_t n = static_cast<uint32_t>(m_skel->joints.size());
+		const float shoulderHold = Max(m_chargeAttack, Max(m_chargeBlock, m_shieldGuard));
+		const float shoulderScale = Clamp(1.0f - shoulderHold, 0.0f, 1.0f);
 		Vector3f inT[AnimPose::kMaxBones];
 		Quaternion inR[AnimPose::kMaxBones];
 		Vector3f inS[AnimPose::kMaxBones];
@@ -301,6 +314,7 @@ namespace Dark
 		{
 			sampleClipOrRest(nullptr, 0.0f, inT, inR, inS);
 			applyLocomotionYawSplit(*m_skel, inR, n, m_lowerBodyYaw);
+			applyCornerLean(*m_skel, inR, n, m_cornerLean, shoulderScale);
 			applyChargeWindup(*m_skel, inR, n, ChargeWindup{ m_chargeAttack, m_chargeBlock, m_chargeStrike });
 			applyHitFlinch(*m_skel, inR, n, m_flinchForward, m_flinchSide);
 			applyPartImpact(*m_skel, inR, n, m_partImpact);
@@ -400,6 +414,7 @@ namespace Dark
 		}
 
 		applyLocomotionYawSplit(*m_skel, R, n, m_lowerBodyYaw);
+		applyCornerLean(*m_skel, R, n, m_cornerLean, shoulderScale);
 		applyChargeWindup(*m_skel, R, n, ChargeWindup{ m_chargeAttack, m_chargeBlock, m_chargeStrike });
 		applyHitFlinch(*m_skel, R, n, m_flinchForward, m_flinchSide);
 		applyPartImpact(*m_skel, R, n, m_partImpact);

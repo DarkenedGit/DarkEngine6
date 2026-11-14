@@ -108,6 +108,9 @@ namespace Dark
 
 	void applyHitFlinch(const Skeleton& skeleton, Math::Quaternion* localR, uint32_t count, float forward, float side);
 
+	// Waist-up bend. Positive leans right. shoulderScale 0 keeps that bend and skips both upper arms.
+	void applyCornerLean(const Skeleton& skeleton, Math::Quaternion* localR, uint32_t count, float lean, float shoulderScale);
+
 	// Slot order matches the seven hit parts: head, right arm, left arm, right leg, left leg, chest, waist.
 	struct PartImpactWeights
 	{

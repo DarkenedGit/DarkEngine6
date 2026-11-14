@@ -381,6 +381,62 @@ namespace
 		for (uint32_t i = 0; i < static_cast<uint32_t>(sk.joints.size()); ++i)
 			R[i] = Quaternion::IDENTITY;
 	}
+
+	void expectIdentity(const Quaternion& q)
+	{
+		EXPECT_NEAR(q.w, 1.0f, 1.0e-4f);
+		EXPECT_NEAR(q.x, 0.0f, 1.0e-4f);
+		EXPECT_NEAR(q.y, 0.0f, 1.0e-4f);
+		EXPECT_NEAR(q.z, 0.0f, 1.0e-4f);
+	}
+
+	// Spine and Chest rest along +Y so a local Z roll moves the chest off the axis.
+	Skeleton cornerLeanSkeleton(bool withSpine)
+	{
+		Skeleton sk;
+		sk.meshWorld = Matrix4f();
+		auto add = [&](const char* name, int parent, Vector3f t) {
+			Joint j;
+			j.name = name;
+			j.parent = parent;
+			j.restT = t;
+			j.restR = Quaternion::IDENTITY;
+			j.restS = Vector3f(1.0f, 1.0f, 1.0f);
+			j.inverseBind = Matrix4f();
+			sk.joints.push_back(j);
+		};
+
+		add("Hips", -1, Vector3f(0.0f, 0.0f, 0.0f));
+		int chestParent = 0;
+		if (withSpine)
+		{
+			add("Spine", 0, Vector3f(0.0f, 0.18f, 0.0f));
+			chestParent = 1;
+		}
+		add("Chest", chestParent, Vector3f(0.0f, 0.18f, 0.0f));
+		const int chest = static_cast<int>(sk.joints.size()) - 1;
+		add("Neck", chest, Vector3f(0.0f, 0.16f, 0.0f));
+		const int neck = static_cast<int>(sk.joints.size()) - 1;
+		add("Head", neck, Vector3f(0.0f, 0.14f, 0.0f));
+		add("L_UpperArm", chest, Vector3f(0.16f, 0.0f, 0.0f));
+		add("R_UpperArm", chest, Vector3f(-0.16f, 0.0f, 0.0f));
+		add("L_UpperLeg", 0, Vector3f(0.0f, 0.0f, 0.0f));
+		const int lUpper = static_cast<int>(sk.joints.size()) - 1;
+		add("L_LowerLeg", lUpper, Vector3f(0.0f, 0.0f, 0.0f));
+		const int lLower = static_cast<int>(sk.joints.size()) - 1;
+		add("L_Foot", lLower, Vector3f(0.0f, 0.0f, 0.0f));
+		add("R_UpperLeg", 0, Vector3f(0.0f, 0.0f, 0.0f));
+		const int rUpper = static_cast<int>(sk.joints.size()) - 1;
+		add("R_LowerLeg", rUpper, Vector3f(0.0f, 0.0f, 0.0f));
+		const int rLower = static_cast<int>(sk.joints.size()) - 1;
+		add("R_Foot", rLower, Vector3f(0.0f, 0.0f, 0.0f));
+
+		const int n = static_cast<int>(sk.joints.size());
+		sk.fkOrder.resize(static_cast<size_t>(n));
+		for (int i = 0; i < n; ++i)
+			sk.fkOrder[static_cast<size_t>(i)] = static_cast<uint32_t>(i);
+		return sk;
+	}
 }
 
 TEST(PartImpact, RightArmTwistsThatArmAndSpineFlinchStillApplies)
@@ -434,4 +490,80 @@ TEST(PartImpact, MissingHeadJointLeavesThePoseUnchanged)
 	applyPartImpact(sk, R, static_cast<uint32_t>(sk.joints.size()), impact);
 	for (uint32_t i = 0; i < static_cast<uint32_t>(sk.joints.size()); ++i)
 		EXPECT_NEAR(R[i].w, 1.0f, 1.0e-4f);
+}
+
+TEST(CornerLean, PoseUsesHumanBoneLengths)
+{
+	const Skeleton sk = cornerLeanSkeleton(true);
+	const uint32_t n = static_cast<uint32_t>(sk.joints.size());
+	const int hips = jointIndex(sk, "Hips");
+	const int chest = jointIndex(sk, "Chest");
+	const int head = jointIndex(sk, "Head");
+	const int leftArm = jointIndex(sk, "L_UpperArm");
+	const int rightArm = jointIndex(sk, "R_UpperArm");
+	const int legs[] = {
+		jointIndex(sk, "L_UpperLeg"),
+		jointIndex(sk, "L_LowerLeg"),
+		jointIndex(sk, "L_Foot"),
+		jointIndex(sk, "R_UpperLeg"),
+		jointIndex(sk, "R_LowerLeg"),
+		jointIndex(sk, "R_Foot"),
+	};
+	ASSERT_GE(hips, 0);
+	ASSERT_GE(chest, 0);
+	ASSERT_GE(head, 0);
+	ASSERT_GE(leftArm, 0);
+	ASSERT_GE(rightArm, 0);
+
+	Quaternion R[16];
+	identityLocals(sk, R);
+	applyCornerLean(sk, R, n, 1.0f, 1.0f);
+
+	Vector3f T[16];
+	Vector3f S[16];
+	for (uint32_t i = 0; i < n; ++i)
+	{
+		T[i] = sk.joints[static_cast<size_t>(i)].restT;
+		S[i] = Vector3f(1.0f, 1.0f, 1.0f);
+	}
+	AnimPose pose{};
+	localToPalette(sk, T, R, S, pose);
+	EXPECT_GT(pose.jointWorld[chest].GetTranslation().x, 0.05f);
+	EXPECT_GT(pose.jointWorld[head].GetTranslation().x, 0.0f);
+
+	expectIdentity(R[hips]);
+	for (int leg : legs)
+	{
+		ASSERT_GE(leg, 0);
+		expectIdentity(R[leg]);
+	}
+	EXPECT_LT(R[leftArm].w, 0.999f);
+	expectIdentity(R[rightArm]);
+
+	identityLocals(sk, R);
+	applyCornerLean(sk, R, n, 1.0f, 0.0f);
+	expectIdentity(R[leftArm]);
+	expectIdentity(R[rightArm]);
+	localToPalette(sk, T, R, S, pose);
+	EXPECT_GT(pose.jointWorld[chest].GetTranslation().x, 0.05f);
+
+	identityLocals(sk, R);
+	applyCornerLean(sk, R, n, -1.0f, 1.0f);
+	localToPalette(sk, T, R, S, pose);
+	EXPECT_LT(pose.jointWorld[chest].GetTranslation().x, -0.05f);
+	EXPECT_LT(pose.jointWorld[head].GetTranslation().x, 0.0f);
+	expectIdentity(R[leftArm]);
+	EXPECT_LT(R[rightArm].w, 0.999f);
+	expectIdentity(R[hips]);
+	for (int leg : legs)
+		expectIdentity(R[leg]);
+
+	const Skeleton missing = cornerLeanSkeleton(false);
+	ASSERT_EQ(jointIndex(missing, "Spine"), -1);
+	const uint32_t missingCount = static_cast<uint32_t>(missing.joints.size());
+	Quaternion kept[16];
+	identityLocals(missing, kept);
+	applyCornerLean(missing, kept, missingCount, 1.0f, 1.0f);
+	for (uint32_t i = 0; i < missingCount; ++i)
+		expectIdentity(kept[i]);
 }

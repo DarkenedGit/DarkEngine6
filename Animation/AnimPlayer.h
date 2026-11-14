@@ -29,6 +29,9 @@ namespace Dark
 		// Radians added to Hips and removed from Spine. 0 leaves the clip unchanged.
 		void setLowerBodyYaw(float radians) { m_lowerBodyYaw = radians; }
 		float lowerBodyYaw() const { return m_lowerBodyYaw; }
+		// -1 leans left, +1 leans right.
+		void setCornerLean(float lean);
+		float cornerLean() const { return m_cornerLean; }
 		float speed() const { return m_speed; }
 		int loopOverride() const { return m_loopOverride; }
 		// 0..1. Attack and block cock the weapon arm back; blockStrike drives it forward.
@@ -88,6 +91,7 @@ namespace Dark
 		bool                m_applyRootMotion = false;
 		bool                m_rootPrimed = false;
 		float               m_lowerBodyYaw = 0.0f;
+		float               m_cornerLean = 0.0f;
 		float               m_chargeAttack = 0.0f;
 		float               m_chargeBlock = 0.0f;
 		float               m_chargeStrike = 0.0f;
