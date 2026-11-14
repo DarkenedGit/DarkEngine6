@@ -312,14 +312,15 @@ void EditorApp::drawEditorUi()
         ImGui::EndMainMenuBar();
     }
 
+    const float toolbarH = ImGui::GetFrameHeight() + 4.0f;
     {
         const ImGuiViewport* barVp = ImGui::GetMainViewport();
-        const float          barH  = ImGui::GetFrameHeight();
         if (barVp)
         {
             ImGui::SetNextWindowPos(barVp->WorkPos);
-            ImGui::SetNextWindowSize(ImVec2(barVp->WorkSize.x, barH));
+            ImGui::SetNextWindowSize(ImVec2(barVp->WorkSize.x, toolbarH));
         }
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(0.0f, 0.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 2.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
         const ImGuiWindowFlags barFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize
@@ -352,16 +353,16 @@ void EditorApp::drawEditorUi()
             ImGui::SetItemTooltip("WASD / climb. Shift still multiplies by 2.5. Default 8 for models.");
         }
         ImGui::End();
-        ImGui::PopStyleVar(2);
+        ImGui::PopStyleVar(3);
     }
 
     drawAssetBrowser();
 
-    beginPassthruDockSpace("EditorDockHost", ImGui::GetFrameHeight(), ImGui::GetFrameHeight());
+    beginPassthruDockSpace("EditorDockHost", ImGui::GetFrameHeight(), toolbarH);
 
     if (m_sceneMode == SceneMode::Scene3D && renderer().hasGBuffer())
     {
-        ImGui::SetNextWindowSize(ImVec2(420.0f, 560.0f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(uiPx(420.0f), uiPx(560.0f)), ImGuiCond_FirstUseEver);
         if (ImGui::Begin("Lighting"))
         {
             if (ImGui::BeginTabBar("##lighting"))
@@ -605,8 +606,11 @@ void EditorApp::drawEditorUi()
     drawWaterTools();
     drawWindPanel();
 
-    if (m_sceneMode == SceneMode::Scene2D && ImGui::Begin("2D Level"))
+    if (m_sceneMode == SceneMode::Scene2D)
     {
+        const bool levelOpen = ImGui::Begin("2D Level");
+        if (levelOpen)
+        {
         ImGui::Text("MMB/RMB drag to pan, wheel to zoom, P to place.");
         float wmin[2] = { m_worldMin.x, m_worldMin.y };
         float wmax[2] = { m_worldMax.x, m_worldMax.y };
@@ -647,6 +651,7 @@ void EditorApp::drawEditorUi()
         else
         {
             ImGui::TextUnformatted("No selection. Click an object or press P to place.");
+        }
         }
         ImGui::End();
     }
@@ -693,7 +698,7 @@ void EditorApp::drawSkyPanel()
     auto weatherBtn = [&](const char* label, const Sky::WeatherState& w, const ImVec4& col) {
         ImGui::PushStyleColor(ImGuiCol_Button, col);
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(col.x + 0.12f, col.y + 0.12f, col.z + 0.12f, 1.0f));
-        if (ImGui::Button(label, ImVec2(72.0f, 28.0f)))
+        if (ImGui::Button(label, ImVec2(uiPx(72.0f), uiPx(28.0f))))
         {
             m_env.weather = w;
             m_env.cloudLayer.windSpeedMps = Sky::cloudWindSpeedMpsFor(w);
@@ -729,7 +734,7 @@ void EditorApp::drawSkyPanel()
         Dark::PropSlider("Wind speed (m/s)", &cl.windSpeedMps, 0.0f, 20.0f, "%.1f");
         Dark::PropFloat2("Wind dir", &m_env.weather.windDir.x, 0.01f);
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        ImGui::TextWrapped("Sky deck, drawn with the sky. A Cloud Volume is a separate object. It draws only when that volume is enabled and View → Cloud Volumes is on.");
+        ImGui::TextWrapped("Sky deck, drawn with the sky. A Cloud Volume is a separate object. It draws only when that volume is enabled and Rendering → Cloud Volumes is on.");
         ImGui::PopStyleColor();
     }
 }

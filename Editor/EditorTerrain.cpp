@@ -1527,7 +1527,7 @@ void EditorApp::drawWaterTools()
 {
     if (!m_showWaterTools)
         return;
-    ImGui::SetNextWindowSize(ImVec2(380.0f, 640.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(uiPx(380.0f), uiPx(640.0f)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Water", &m_showWaterTools))
     {
         ImGui::End();
@@ -1868,7 +1868,7 @@ void EditorApp::drawWindPanel()
 {
     if (!m_showWindPanel)
         return;
-    ImGui::SetNextWindowSize(ImVec2(450.0f, 700.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(uiPx(450.0f), uiPx(700.0f)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Wind", &m_showWindPanel))
     {
         ImGui::End();

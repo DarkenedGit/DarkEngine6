@@ -327,7 +327,7 @@ void SandboxFrame::render()
         if (app().m_hud.m_imgui.isReady())
             app().m_hud.m_imgui.beginFrame();
         if (app().m_hud.m_imgui.isReady())
-            Dark::drawMainMenuImGui(app().m_hud.m_menu, app().m_hud.m_imgui.fonts());
+            Dark::drawMainMenuImGui(app().m_hud.m_menu, app().m_hud.m_imgui.fonts(), app().m_sceneStarted);
         else
             app().m_hud.m_menu.draw(app().renderer());
         if (app().m_hud.m_imgui.isReady())
@@ -1443,7 +1443,7 @@ void SandboxFrame::render()
     app().m_movie.draw(app().renderer());
     if (app().m_hud.m_imgui.isReady() && app().m_hud.m_menu.visible())
     {
-        Dark::drawMainMenuImGui(app().m_hud.m_menu, app().m_hud.m_imgui.fonts());
+        Dark::drawMainMenuImGui(app().m_hud.m_menu, app().m_hud.m_imgui.fonts(), app().m_sceneStarted);
         app().m_hud.m_imgui.render(app().renderer());
     }
     else if (app().m_hud.m_imgui.isReady() && !app().m_hud.m_menu.visible())

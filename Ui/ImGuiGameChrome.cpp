@@ -14,6 +14,8 @@
 
 void Dark::setGameNavEnabled(bool enabled)
 {
+    if (ImGui::GetCurrentContext() == nullptr)
+        return;
     ImGuiIO& io = ImGui::GetIO();
     if (enabled)
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
@@ -21,10 +23,12 @@ void Dark::setGameNavEnabled(bool enabled)
         io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
 }
 
-bool Dark::BeginGameCard(const char* name, bool* open, UiAccent accent, ImGuiWindowFlags extra)
+bool Dark::BeginGameCard(const char* name, bool* open, UiAccent accent, ImGuiWindowFlags extra, const char* title)
 {
+    const float rounding = uiPx(6.0f);
+    const float stripH   = uiPx(4.0f);
     ImGui::PushStyleColor(ImGuiCol_WindowBg, toImVec4(UiPalette::kPanel.withAlpha(0.96f)));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, rounding);
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings | extra;
     const bool             shown = ImGui::Begin(name, open, flags);
     if (shown)
@@ -32,8 +36,56 @@ bool Dark::BeginGameCard(const char* name, bool* open, UiAccent accent, ImGuiWin
         const ImVec2 origin = ImGui::GetWindowPos();
         const float  width  = ImGui::GetWindowWidth();
         const ImU32  strip  = toImU32(UiPalette::accent(accent));
-        ImGui::GetWindowDrawList()->AddRectFilled(origin, ImVec2(origin.x + width, origin.y + 4.0f), strip);
-        ImGui::Dummy(ImVec2(0.0f, 2.0f));
+        ImGui::GetWindowDrawList()->AddRectFilled(origin, ImVec2(origin.x + width, origin.y + stripH), strip, rounding, ImDrawFlags_RoundCornersTop);
+        ImGui::Dummy(ImVec2(0.0f, stripH + uiPx(2.0f)));
+
+        const char* shownTitle = title;
+        if (!shownTitle && open && name && name[0] != '#')
+            shownTitle = name;
+        if (shownTitle && shownTitle[0] != '\0')
+        {
+            ImFont* heading = uiHeadingFont();
+            if (heading)
+                ImGui::PushFont(heading);
+            const float  btn      = ImGui::GetFrameHeight();
+            const bool   canClose = open != nullptr;
+            const float  closeW   = canClose ? btn : 0.0f;
+            const float  rowW     = ImGui::GetContentRegionAvail().x;
+            const float  dragW    = rowW > closeW ? rowW - closeW : 0.0f;
+            const ImVec2 rowPos   = ImGui::GetCursorScreenPos();
+            const bool   canMove  = (extra & ImGuiWindowFlags_NoMove) == 0;
+            if (canMove)
+            {
+                ImGui::InvisibleButton("##carddrag", ImVec2(dragW, btn));
+                if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+                {
+                    const ImVec2 p = ImGui::GetWindowPos();
+                    const ImVec2 d = ImGui::GetIO().MouseDelta;
+                    ImGui::SetWindowPos(ImVec2(p.x + d.x, p.y + d.y));
+                }
+            }
+            else
+                ImGui::Dummy(ImVec2(dragW, btn));
+
+            ImFont*         font = ImGui::GetFont();
+            const float     textY = rowPos.y + (btn - font->FontSize) * 0.5f;
+            ImDrawList*     dl    = ImGui::GetWindowDrawList();
+            const float     textR = rowPos.x + dragW - uiPx(4.0f);
+            dl->PushClipRect(rowPos, ImVec2(textR > rowPos.x ? textR : rowPos.x + dragW, rowPos.y + btn), true);
+            dl->AddText(font, font->FontSize, ImVec2(rowPos.x, textY), toImU32(UiPalette::kText), shownTitle);
+            dl->PopClipRect();
+
+            if (canClose)
+            {
+                ImGui::SameLine(0.0f, 0.0f);
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+                if (ImGui::Button(ICON_FA_XMARK "##cardclose", ImVec2(btn, btn)))
+                    *open = false;
+                ImGui::PopStyleColor();
+            }
+            if (heading)
+                ImGui::PopFont();
+        }
     }
     return shown;
 }
@@ -45,7 +97,7 @@ void Dark::EndGameCard()
     ImGui::PopStyleColor();
 }
 
-void Dark::drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts)
+void Dark::drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts, bool cancelHides)
 {
     if (!menu.visible())
         return;
@@ -58,14 +110,17 @@ void Dark::drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts)
     ImGui::GetBackgroundDrawList(const_cast<ImGuiViewport*>(vp))->AddRectFilled(vp->Pos, ImVec2(vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y), ImGui::ColorConvertFloat4ToU32(dim));
 
     ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(560.0f, 0.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(uiPx(560.0f), 0.0f), ImGuiCond_Always);
     ImGui::SetNextWindowFocus();
-    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize;
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoNavInputs;
     if (!BeginGameCard("##mainmenu", nullptr, UiAccent::Sandbox, flags))
     {
         EndGameCard();
         return;
     }
+
+    if (ImGui::IsWindowAppearing())
+        ImGui::SetNavCursorVisible(true);
 
     ImFont* heading = fonts.heading ? fonts.heading : ImGui::GetFont();
     ImFont* body    = fonts.body ? fonts.body : ImGui::GetFont();
@@ -87,13 +142,15 @@ void Dark::drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts)
         }
     };
 
+    const ImVec2 mouseDelta = ImGui::GetIO().MouseDelta;
+    const bool   mouseMoved = mouseDelta.x != 0.0f || mouseDelta.y != 0.0f;
     ImGui::PushFont(body);
     for (size_t i = 0; i < menu.entries().size(); ++i)
     {
         const Dark::MainMenuEntry& entry    = menu.entries()[i];
         const bool                 selected = i == menu.selectedIndex();
         const float                line     = ImGui::GetTextLineHeight();
-        const float                rowH     = entry.subtitle.empty() ? 0.0f : line * 2.35f;
+        const float                rowH     = entry.subtitle.empty() ? ImGui::GetFrameHeight() * 1.6f : line * 2.35f;
         ImGui::PushID(static_cast<int>(i));
         const ImVec2 rowPos = ImGui::GetCursorScreenPos();
         if (ImGui::Selectable("##row", selected, ImGuiSelectableFlags_None, ImVec2(0.0f, rowH)))
@@ -101,11 +158,14 @@ void Dark::drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts)
             menu.moveTo(i);
             menu.confirm();
         }
-        if (ImGui::IsItemFocused() && !selected)
+        if (selected)
+            ImGui::SetItemDefaultFocus();
+        if (mouseMoved && ImGui::IsItemHovered())
             menu.moveTo(i);
 
-        const float textX = rowPos.x + ImGui::GetStyle().FramePadding.x;
-        const float textY = rowPos.y + ImGui::GetStyle().FramePadding.y;
+        const float blockH = entry.subtitle.empty() ? line : line + line * 1.15f;
+        const float textX  = rowPos.x + ImGui::GetStyle().FramePadding.x;
+        const float textY  = rowPos.y + (rowH - blockH) * 0.5f;
         char        label[192];
         std::snprintf(label, sizeof(label), "%s  %s", iconForKind(entry.kind), entry.title.c_str());
         const ImU32 textCol = entry.kind == MainMenuKind::Quit ? toImU32(UiPalette::kDanger) : toImU32(UiPalette::kText);
@@ -122,10 +182,32 @@ void Dark::drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts)
     ImGui::PopStyleColor();
     ImGui::PopFont();
 
-    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !menu.entries().empty())
     {
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight) || ImGui::IsKeyPressed(ImGuiKey_GamepadBack))
-            menu.quit();
+        const bool appearing = ImGui::IsWindowAppearing();
+        int        delta     = 0;
+        if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) || ImGui::IsKeyPressed(ImGuiKey_S) || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown))
+            delta += 1;
+        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow) || ImGui::IsKeyPressed(ImGuiKey_W) || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp))
+            delta -= 1;
+        if (delta != 0)
+        {
+            const int n   = static_cast<int>(menu.entries().size());
+            int       idx = static_cast<int>(menu.selectedIndex()) + delta;
+            idx %= n;
+            if (idx < 0)
+                idx += n;
+            menu.moveTo(static_cast<size_t>(idx));
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_Space) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown))
+            menu.confirm();
+        if (!appearing && (ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight) || ImGui::IsKeyPressed(ImGuiKey_GamepadBack)))
+        {
+            if (cancelHides)
+                menu.hide();
+            else
+                menu.quit();
+        }
     }
 
     EndGameCard();

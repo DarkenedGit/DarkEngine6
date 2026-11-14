@@ -3,6 +3,7 @@
 // Font Awesome 6 Free Solid subset. Load with content/fonts/fa-solid-900.ttf (see ImGuiHost).
 // Codepoints from https://github.com/juliettef/IconFontCppHeaders (IconsFontAwesome6.h).
 
+#define ICON_FA_XMARK "\xef\x80\x8d"              // U+f00d
 #define ICON_FA_VOLUME_HIGH "\xef\x80\xa8"        // U+f028
 #define ICON_FA_LIST "\xef\x80\xba"               // U+f03a
 #define ICON_FA_PLAY "\xef\x81\x8b"               // U+f04b
@@ -34,6 +35,7 @@
 // Every ICON_FA_* above. ImGuiHost decodes these into the atlas, so a new icon
 // is one macro plus one line here.
 #define DE_UI_ICON_STRINGS(X) \
+    X(ICON_FA_XMARK)          \
     X(ICON_FA_VOLUME_HIGH)    \
     X(ICON_FA_LIST)           \
     X(ICON_FA_PLAY)           \

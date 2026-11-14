@@ -38,6 +38,22 @@ struct ImGuiHost::Impl
 
 namespace
 {
+
+    struct PublishedUi
+    {
+        float   dpi = 1.0f;
+        UiFonts fonts{};
+    };
+
+    PublishedUi g_publishedUi;
+
+    void publishUi(float dpi, const UiFonts& fonts)
+    {
+        g_publishedUi.dpi   = dpi > 0.1f ? dpi : 1.0f;
+        g_publishedUi.fonts = fonts;
+    }
+
+
     constexpr UINT kSrvHeapSize = 64; // slot 0 = font atlas; 1.. = addTexture()
 
     bool MessageHook(void* hwnd, unsigned msg, unsigned long long wParam, long long lParam, void*)
@@ -163,8 +179,11 @@ namespace
 
     UiFonts loadUiFonts(ImGuiIO& io, float dpiScale)
     {
-        const float dpi  = dpiScale > 0.1f ? dpiScale : 1.0f;
-        const float body = kUiFontBodyPx * dpi;
+        const float dpi     = dpiScale > 0.1f ? dpiScale : 1.0f;
+        const float body    = kUiFontBodyPx * dpi;
+        const float heading = kUiFontHeadingPx * dpi;
+        const float mono    = kUiFontMonoPx * dpi;
+        const float display = kUiFontDisplayPx * dpi;
         UiFonts     fonts{};
 
         fonts.body = addFace(io, "fonts/Roboto-Medium.ttf", "C:\\Windows\\Fonts\\segoeui.ttf", body);
@@ -175,16 +194,14 @@ namespace
             fonts.body       = io.Fonts->AddFontDefault(&def);
             fonts.heading    = fonts.body;
             fonts.mono       = fonts.body;
+            fonts.display    = fonts.body;
             DE_LOG_WARN("ImGuiHost: using ProggyClean (no UI TTF found)");
             return fonts;
         }
         mergeIconFont(io, body);
         io.FontDefault = fonts.body;
 
-#ifdef IMGUI_ENABLE_FREETYPE
-        const float heading = kUiFontHeadingPx * dpi;
-        const float mono    = kUiFontMonoPx * dpi;
-        fonts.heading       = addFace(io, "fonts/Roboto-Bold.ttf", nullptr, heading);
+        fonts.heading = addFace(io, "fonts/Roboto-Bold.ttf", "C:\\Windows\\Fonts\\segoeuib.ttf", heading);
         if (fonts.heading)
             mergeIconFont(io, heading);
         else
@@ -198,22 +215,32 @@ namespace
             fonts.mono = fonts.body;
             DE_LOG_WARN("ImGuiHost: mono face missing, mono uses body");
         }
-#else
-        fonts.heading = fonts.body;
-        fonts.mono    = fonts.body;
-#endif
-#ifdef IMGUI_ENABLE_FREETYPE
-        const float logHeading = heading;
-        const float logMono    = mono;
-#else
-        const float logHeading = body;
-        const float logMono    = body;
-#endif
-        DE_LOG_INFO("ImGuiHost: UI font body {:.1f}px + heading {:.1f}px + mono {:.1f}px + icons", body, logHeading, logMono);
+        fonts.display = addFace(io, "fonts/Roboto-Bold.ttf", "C:\\Windows\\Fonts\\segoeuib.ttf", display);
+        if (!fonts.display)
+        {
+            fonts.display = fonts.heading;
+            DE_LOG_WARN("ImGuiHost: display face missing, display uses heading");
+        }
+        DE_LOG_INFO("ImGuiHost: UI font body {:.1f}px + heading {:.1f}px + mono {:.1f}px + display {:.1f}px + icons", body, heading, mono, display);
         return fonts;
     }
 
 } // namespace
+
+float uiDpiScale()
+{
+    return g_publishedUi.dpi;
+}
+
+float uiPx(float designPx)
+{
+    return designPx * g_publishedUi.dpi;
+}
+
+ImFont* uiHeadingFont()
+{
+    return g_publishedUi.fonts.heading;
+}
 
 uint64_t ImGuiHost::addTexture(Dark::Renderer& renderer, const Dark::Texture2D& texture)
 {
@@ -305,6 +332,7 @@ bool ImGuiHost::init(Dark::Window& window, Dark::Renderer& renderer, const char*
     if (m_impl->dpiScale > 1.01f)
         style.ScaleAllSizes(m_impl->dpiScale);
     m_fonts = loadUiFonts(io, m_impl->dpiScale);
+    publishUi(m_impl->dpiScale, m_fonts);
     DE_LOG_INFO("ImGuiHost: dpi scale {:.2f}", m_impl->dpiScale);
 
     if (!ImGui_ImplWin32_Init(m_hwnd))
@@ -357,6 +385,7 @@ void ImGuiHost::shutdown(Dark::Renderer& renderer)
         return;
 
     renderer.waitForGpu();
+    publishUi(1.0f, {});
     if (m_viewports)
         ImGui::DestroyPlatformWindows();
     ImGui_ImplDX12_Shutdown();
@@ -395,6 +424,7 @@ void ImGuiHost::syncDpi()
     ImGuiIO& io = ImGui::GetIO();
     io.Fonts->Clear();
     m_fonts = loadUiFonts(io, next);
+    publishUi(next, m_fonts);
     ImGui_ImplDX12_InvalidateDeviceObjects();
     if (!ImGui_ImplDX12_CreateDeviceObjects())
         DE_LOG_ERROR(Dark::LogCategory::Render, "ImGuiHost: font rebuild failed");

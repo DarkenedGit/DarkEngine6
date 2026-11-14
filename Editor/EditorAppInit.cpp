@@ -172,7 +172,7 @@ void EditorApp::onInit()
         DE_LOG_ERROR(LogCategory::Render, "EditorApp: leaf renderer failed");
     if (!pumpBootFrame())
         return;
-    if (!m_imgui.init(window(), renderer(), "editor_imgui.ini", true, UiAccent::Editor, true))
+    if (!m_imgui.init(window(), renderer(), "editor_imgui.ini", true, UiAccent::Editor, false))
     {
         DE_LOG_WARN("EditorApp: ImGui init failed — particle UI disabled");
     }

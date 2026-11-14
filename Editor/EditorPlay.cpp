@@ -791,7 +791,7 @@ void EditorApp::drawUpgrades()
     if (!m_playMode || !m_showUpgrades || !m_imgui.isReady())
         return;
     InventoryComponent* inv = m_playPlayer.valid() ? world().get<InventoryComponent>(m_playPlayer) : nullptr;
-    ImGui::SetNextWindowSize(ImVec2(480.0f, 420.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(uiPx(480.0f), uiPx(420.0f)), ImGuiCond_FirstUseEver);
     if (!Dark::BeginGameCard("Upgrades", &m_showUpgrades, Dark::UiAccent::Editor))
     {
         Dark::EndGameCard();
@@ -1086,8 +1086,8 @@ void EditorApp::drawPlayHud()
         ImDrawList*          dl    = vp ? ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp)) : nullptr;
         if (dl)
         {
-            ImFont*      font = m_imgui.fonts().heading ? m_imgui.fonts().heading : ImGui::GetFont();
-            const float  size = font->FontSize * (parry ? 1.1f : 1.0f);
+            ImFont*      font = m_imgui.fonts().display ? m_imgui.fonts().display : (m_imgui.fonts().heading ? m_imgui.fonts().heading : ImGui::GetFont());
+            const float  size = font->FontSize;
             const ImVec2 ts   = font->CalcTextSizeA(size, FLT_MAX, 0.0f, m_defenseText.c_str());
             const ImVec2 pos{ vp->Pos.x + (vp->Size.x - ts.x) * 0.5f, vp->Pos.y + vp->Size.y * 0.36f - (1.0f - a) * 18.0f };
             const int    alpha = static_cast<int>(a * 255.0f);
@@ -1096,7 +1096,10 @@ void EditorApp::drawPlayHud()
         }
     }
 
-    ImGui::SetNextWindowPos(ImVec2(16.0f, 48.0f), ImGuiCond_Always);
+    const ImGuiViewport* hudVp = ImGui::GetMainViewport();
+    const float          toolbarH = ImGui::GetFrameHeight() + 4.0f;
+    if (hudVp)
+        ImGui::SetNextWindowPos(ImVec2(hudVp->WorkPos.x + uiPx(16.0f), hudVp->WorkPos.y + toolbarH + uiPx(8.0f)), ImGuiCond_Always);
     const ImGuiWindowFlags flags = ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize
         | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
     if (!Dark::BeginGameCard("##playhud", nullptr, Dark::UiAccent::Editor, flags))
@@ -1233,7 +1236,7 @@ void EditorApp::drawLoot()
 
     bool        open  = true;
     const char* title = loot->label ? loot->label : "Loot";
-    ImGui::SetNextWindowSize(ImVec2(320.0f, 300.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(uiPx(320.0f), uiPx(300.0f)), ImGuiCond_FirstUseEver);
     if (Dark::BeginGameCard(title, &open, Dark::UiAccent::Editor))
     {
         const bool takeAll = ImGui::Button("Take all");

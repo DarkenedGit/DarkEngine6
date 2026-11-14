@@ -331,3 +331,63 @@ TEST(MainMenu, NavigationWithoutSounds)
     ASSERT_NE(menu.selected(), nullptr);
     EXPECT_EQ(menu.selected()->id, "b.json");
 }
+
+TEST(MainMenu, ShowKeepsPreselectedRow)
+{
+    MainMenu menu;
+    menu.addBuiltIn("play", "Play");
+    menu.addScene("level.json", "Level", "level.json");
+    menu.addQuit();
+    ASSERT_TRUE(menu.selectById("level.json"));
+    menu.show();
+    EXPECT_EQ(menu.selectedIndex(), 1u);
+    ASSERT_NE(menu.selected(), nullptr);
+    EXPECT_EQ(menu.selected()->id, "level.json");
+}
+
+TEST(MainMenu, MoveToConfirmAndQuit)
+{
+    MainMenu menu;
+    menu.addScene("a.json", "A", "a.json");
+    menu.addScene("b.json", "B", "b.json");
+    menu.addQuit();
+
+    menu.moveTo(1);
+    menu.confirm();
+    menu.quit();
+    EXPECT_EQ(menu.selectedIndex(), 0u);
+    EXPECT_EQ(menu.pollResult(), MainMenuResult::None);
+
+    menu.show();
+    EXPECT_EQ(menu.selectedIndex(), 0u);
+    menu.moveTo(0);
+    EXPECT_EQ(menu.selectedIndex(), 0u);
+    menu.moveTo(2);
+    EXPECT_EQ(menu.selectedIndex(), 2u);
+    menu.confirm();
+    EXPECT_EQ(menu.pollResult(), MainMenuResult::Quit);
+    EXPECT_EQ(menu.pollResult(), MainMenuResult::None);
+
+    menu.show();
+    menu.moveTo(1);
+    EXPECT_EQ(menu.selectedIndex(), 1u);
+    menu.confirm();
+    EXPECT_EQ(menu.pollResult(), MainMenuResult::Confirm);
+    ASSERT_NE(menu.selected(), nullptr);
+    EXPECT_EQ(menu.selected()->id, "b.json");
+
+    menu.show();
+    menu.moveTo(99);
+    EXPECT_EQ(menu.selectedIndex(), 2u);
+    menu.quit();
+    EXPECT_EQ(menu.pollResult(), MainMenuResult::Quit);
+
+    menu.show();
+    menu.moveTo(1);
+    menu.hide();
+    EXPECT_FALSE(menu.visible());
+    EXPECT_EQ(menu.pollResult(), MainMenuResult::None);
+    menu.confirm();
+    menu.quit();
+    EXPECT_EQ(menu.pollResult(), MainMenuResult::None);
+}

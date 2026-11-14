@@ -79,7 +79,7 @@ namespace Dark
             const std::string line = runtime.speakerName() + ": " + runtime.subtitle();
             const float       size = head->FontSize;
             const ImVec2      ts   = head->CalcTextSizeA(size, FLT_MAX, 0.0f, line.c_str());
-            const ImVec2      at{ vp->Pos.x + (vp->Size.x - ts.x) * 0.5f, vp->Pos.y + vp->Size.y - 150.0f };
+            const ImVec2      at{ vp->Pos.x + (vp->Size.x - ts.x) * 0.5f, vp->Pos.y + vp->Size.y - uiPx(150.0f) };
             dl->AddText(head, size, ImVec2(at.x + 1.5f, at.y + 1.5f), IM_COL32(0, 0, 0, 220), line.c_str());
             dl->AddText(head, size, at, toImU32(UiPalette::kText), line.c_str());
         }
@@ -109,8 +109,8 @@ namespace Dark
         if (!node)
             return;
         const char* windowName = view.windowName ? view.windowName : "Dialogue";
-        ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y - 220.0f), ImGuiCond_Always, ImVec2(0.5f, 1.0f));
-        ImGui::SetNextWindowSize(ImVec2(420.0f, 0.0f), ImGuiCond_Always);
+        ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y - uiPx(220.0f)), ImGuiCond_Always, ImVec2(0.5f, 1.0f));
+        ImGui::SetNextWindowSize(ImVec2(uiPx(420.0f), 0.0f), ImGuiCond_Always);
         const ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove;
         if (!BeginGameCard(windowName, nullptr, view.accent, flags))
         {

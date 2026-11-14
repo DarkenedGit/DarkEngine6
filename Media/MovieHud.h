@@ -6,6 +6,8 @@
 
 #include "Media/MoviePlayer.h"
 
+#include "Ui/ImGuiHost.h"
+
 #include <imgui.h>
 
 namespace Dark
@@ -45,7 +47,7 @@ namespace Dark
             return;
 
         const MovieStats stats = movie.stats();
-        ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x - 280.0f, vp->Pos.y + 48.0f), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+        ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x - uiPx(280.0f), vp->Pos.y + uiPx(48.0f)), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
         ImGui::SetNextWindowBgAlpha(0.72f);
         const ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings
             | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;

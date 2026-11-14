@@ -1,6 +1,7 @@
 #include "Editor/AudioPreviewPanel.h"
 
 #include "Ui/Icons.h"
+#include "Ui/ImGuiHost.h"
 
 #include <imgui.h>
 
@@ -119,7 +120,7 @@ void AudioPreviewPanel::draw(Audio::AudioSystem& audio, AssetManager& assets, bo
         return;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(460.0f, 560.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(uiPx(460.0f), uiPx(560.0f)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Audio", open))
     {
         ImGui::End();

@@ -17,13 +17,20 @@ class Window;
 constexpr float kUiFontBodyPx    = 15.0f;
 constexpr float kUiFontHeadingPx = 20.0f;
 constexpr float kUiFontMonoPx    = 14.0f;
+constexpr float kUiFontDisplayPx = 32.0f;
 
 struct UiFonts
 {
     ImFont* body    = nullptr;
     ImFont* heading = nullptr;
     ImFont* mono    = nullptr;
+    ImFont* display = nullptr;
 };
+
+// Scale published by the live ImGuiHost. Design pixels stay constant; uiPx grows them with the window DPI.
+float uiDpiScale();
+float uiPx(float designPx);
+ImFont* uiHeadingFont();
 
 // Thin Dear ImGui bootstrap (Win32 + D3D12) shared by Editor, Sandbox, and VisualDebugger.
 class ImGuiHost

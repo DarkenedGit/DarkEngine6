@@ -822,6 +822,7 @@ void EditorApp::drawStatusBar()
     const float          h  = ImGui::GetFrameHeight();
     ImGui::SetNextWindowPos(ImVec2(vp->Pos.x, vp->Pos.y + vp->Size.y - h));
     ImGui::SetNextWindowSize(ImVec2(vp->Size.x, h));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(0.0f, 0.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 0.0f));
@@ -831,38 +832,43 @@ void EditorApp::drawStatusBar()
     if (ImGui::Begin("##statusbar", nullptr, flags))
     {
         const std::string sceneName = m_scenePath.empty() ? std::string("(unsaved)") : m_scenePath.filename().string();
-        char left[512];
-        std::snprintf(left, sizeof(left), "%s  |  %s  |  %d objects  |  place: %s  |  %s%s", sceneName.c_str(),
-                      m_sceneMode == SceneMode::Scene2D ? "2D" : "3D", static_cast<int>(editorObjectCount()), toString(m_placeType),
-                      netRoleLabel(network().role()), m_playMode ? "  |  PLAY" : "");
+        char info[384];
+        std::snprintf(info, sizeof(info), "%s  |  %d objects  |  place: %s  |  %s%s", m_sceneMode == SceneMode::Scene2D ? "2D" : "3D",
+                      static_cast<int>(editorObjectCount()), toString(m_placeType), netRoleLabel(network().role()), m_playMode ? "  |  PLAY" : "");
         char fps[32];
         std::snprintf(fps, sizeof(fps), "%.0f fps", static_cast<double>(ImGui::GetIO().Framerate));
         ImFont* mono = m_imgui.fonts().mono;
         if (mono)
             ImGui::PushFont(mono);
-        const float fpsW = ImGui::CalcTextSize(fps).x;
+        const float fpsW = ImGui::CalcTextSize(fps).x + uiPx(12.0f);
         if (mono)
             ImGui::PopFont();
-        const float avail = ImGui::GetWindowWidth() - fpsW - 28.0f;
-        std::string shown(left);
-        while (shown.size() > 4 && ImGui::CalcTextSize(shown.c_str()).x > avail)
-            shown.pop_back();
-        if (shown.size() < std::strlen(left))
+
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(uiPx(8.0f), 0.0f));
+        if (ImGui::BeginTable("##statuscols", 3, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoPadOuterX))
         {
-            if (shown.size() > 3)
-                shown.resize(shown.size() - 3);
-            shown += "...";
+            ImGui::TableSetupColumn("scene", ImGuiTableColumnFlags_WidthStretch, 0.34f);
+            ImGui::TableSetupColumn("info", ImGuiTableColumnFlags_WidthStretch, 0.66f);
+            ImGui::TableSetupColumn("fps", ImGuiTableColumnFlags_WidthFixed, fpsW);
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(sceneName.c_str());
+            ImGui::TableSetColumnIndex(1);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(info);
+            ImGui::TableSetColumnIndex(2);
+            if (mono)
+                ImGui::PushFont(mono);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(fps);
+            if (mono)
+                ImGui::PopFont();
+            ImGui::EndTable();
         }
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted(shown.c_str());
-        if (mono)
-            ImGui::PushFont(mono);
-        ImGui::SameLine(ImGui::GetWindowWidth() - fpsW - 16.0f);
-        ImGui::TextUnformatted(fps);
-        if (mono)
-            ImGui::PopFont();
+        ImGui::PopStyleVar();
     }
     ImGui::End();
     ImGui::PopStyleColor();
-    ImGui::PopStyleVar(3);
+    ImGui::PopStyleVar(4);
 }

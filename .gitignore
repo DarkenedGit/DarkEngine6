@@ -1,4 +1,6 @@
 build/
+__pycache__/
+*.pyc
 Saves/
 build-sourcetrail/
 third_party/box2d/build/

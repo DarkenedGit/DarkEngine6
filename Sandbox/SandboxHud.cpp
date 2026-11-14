@@ -131,7 +131,7 @@ void SandboxHud::drawInventory()
     InventoryComponent* inv  = body.valid() ? app().world().get<InventoryComponent>(body) : nullptr;
     if (!inv)
         return;
-    ImGui::SetNextWindowSize(ImVec2(380.0f, 420.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(uiPx(380.0f), uiPx(420.0f)), ImGuiCond_FirstUseEver);
     if (!Dark::BeginGameCard("Inventory", &app().m_showInventory, Dark::UiAccent::Sandbox))
     {
         Dark::EndGameCard();
@@ -212,9 +212,9 @@ void SandboxHud::drawQuestHud()
     ImFont*              body = m_imgui.fonts().body ? m_imgui.fonts().body : ImGui::GetFont();
     ImFont*              heading = m_imgui.fonts().heading ? m_imgui.fonts().heading : body;
     const float          hs   = heading->FontSize;
-    const float width = 330.0f;
-    const float x     = vp->Pos.x + vp->Size.x - 28.0f - width;
-    const float y     = vp->Pos.y + 70.0f;
+    const float width = uiPx(330.0f);
+    const float x     = vp->Pos.x + vp->Size.x - uiPx(28.0f) - width;
+    const float y     = vp->Pos.y + uiPx(70.0f);
     std::vector<Dark::QuestHudLine> lines;
     Dark::collectQuestLines(app().m_play.quest(), lines);
     Dark::drawQuestPlate(dl, ImVec2(x, y), width, lines, body, heading);
@@ -225,15 +225,16 @@ void SandboxHud::drawQuestHud()
         const float        alpha = Math::Clamp(Math::Min(b.timeLeft, 3.5f - b.timeLeft) * 3.0f, 0.0f, 1.0f);
         const float        midX  = vp->Pos.x + vp->Size.x * 0.5f;
         const float        top   = vp->Pos.y + vp->Size.y * 0.16f;
-        const float        labelSize = hs;
-        const float        textSize  = hs * 1.1f;
-        const ImVec2       ls    = heading->CalcTextSizeA(labelSize, FLT_MAX, 0.0f, b.label.c_str());
+        ImFont*            display   = m_imgui.fonts().display ? m_imgui.fonts().display : heading;
+        const float        labelSize = display->FontSize;
+        const float        textSize  = hs;
+        const ImVec2       ls    = display->CalcTextSizeA(labelSize, FLT_MAX, 0.0f, b.label.c_str());
         const ImVec2       ts    = heading->CalcTextSizeA(textSize, FLT_MAX, 0.0f, b.text.c_str());
         const int          a     = static_cast<int>(alpha * 255.0f);
         const ImU32        col   = (b.color & 0x00FFFFFFu) | (static_cast<ImU32>(a) << 24);
         dl->AddRectFilled(ImVec2(midX - Math::Max(ls.x, ts.x) * 0.5f - 24.0f, top - 10.0f), ImVec2(midX + Math::Max(ls.x, ts.x) * 0.5f + 24.0f, top + ls.y + ts.y + 16.0f),
                           toImU32(UiPalette::kVoid, static_cast<int>(alpha * 160.0f)), 4.0f);
-        dl->AddText(heading, labelSize, ImVec2(midX - ls.x * 0.5f, top), col, b.label.c_str());
+        dl->AddText(display, labelSize, ImVec2(midX - ls.x * 0.5f, top), col, b.label.c_str());
         dl->AddText(heading, textSize, ImVec2(midX - ts.x * 0.5f + 2.0f, top + ls.y + 6.0f), IM_COL32(0, 0, 0, a * 3 / 4), b.text.c_str());
         dl->AddText(heading, textSize, ImVec2(midX - ts.x * 0.5f, top + ls.y + 4.0f), toImU32(UiPalette::kText, a), b.text.c_str());
     }
@@ -253,12 +254,12 @@ void SandboxHud::drawAlarm()
         return;
     const ImGuiViewport* vp    = ImGui::GetMainViewport();
     ImDrawList*          dl    = ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp));
-    ImFont*              font  = m_imgui.fonts().heading ? m_imgui.fonts().heading : ImGui::GetFont();
-    const float          size  = font->FontSize * 1.1f;
+    ImFont*              font  = m_imgui.fonts().display ? m_imgui.fonts().display : (m_imgui.fonts().heading ? m_imgui.fonts().heading : ImGui::GetFont());
+    const float          size  = font->FontSize;
     const char*          text  = "ALARM";
     const ImVec2         ts    = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text);
     const int            pulse = static_cast<int>(160.0f + 95.0f * std::sin(alarmTime * 9.0f));
-    const ImVec2         at{ vp->Pos.x + (vp->Size.x - ts.x) * 0.5f, vp->Pos.y + 24.0f };
+    const ImVec2         at{ vp->Pos.x + (vp->Size.x - ts.x) * 0.5f, vp->Pos.y + uiPx(24.0f) };
     dl->AddText(font, size, ImVec2(at.x + 2.0f, at.y + 2.0f), IM_COL32(0, 0, 0, 200), text);
     dl->AddText(font, size, at, toImU32(UiPalette::kDanger, pulse), text);
 }
@@ -286,7 +287,7 @@ void SandboxHud::drawUpgradeHint()
 
 void SandboxHud::drawUpgrades()
 {
-    ImGui::SetNextWindowSize(ImVec2(480.0f, 420.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(uiPx(480.0f), uiPx(420.0f)), ImGuiCond_FirstUseEver);
     if (!Dark::BeginGameCard("Upgrades", &m_showUpgrades, Dark::UiAccent::Sandbox))
     {
         Dark::EndGameCard();
@@ -340,7 +341,7 @@ void SandboxHud::drawUpgrades()
 
 void SandboxHud::drawJournal()
 {
-    ImGui::SetNextWindowSize(ImVec2(440.0f, 360.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(uiPx(440.0f), uiPx(360.0f)), ImGuiCond_FirstUseEver);
     if (!Dark::BeginGameCard("Journal", &m_showJournal, Dark::UiAccent::Sandbox))
     {
         Dark::EndGameCard();
@@ -891,12 +892,13 @@ void SandboxHud::drawGuardAwareness()
     if (app().m_goalShown > 0.0f)
     {
         app().m_goalShown -= app().m_frameDt;
-        const char*  text = "OBJECTIVE COMPLETE";
-        const float  size = font->FontSize * 1.1f;
-        const ImVec2 ts   = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text);
+        const char*  text    = "OBJECTIVE COMPLETE";
+        ImFont*      banner  = m_imgui.fonts().display ? m_imgui.fonts().display : font;
+        const float  size    = banner->FontSize;
+        const ImVec2 ts      = banner->CalcTextSizeA(size, FLT_MAX, 0.0f, text);
         const ImVec2 pos{ mid.x - ts.x * 0.5f, vp.y + vh * 0.28f };
-        dl->AddText(font, size, ImVec2(pos.x + 2.0f, pos.y + 2.0f), IM_COL32(0, 0, 0, 200), text);
-        dl->AddText(font, size, pos, toImU32(UiPalette::kOk), text);
+        dl->AddText(banner, size, ImVec2(pos.x + 2.0f, pos.y + 2.0f), IM_COL32(0, 0, 0, 200), text);
+        dl->AddText(banner, size, pos, toImU32(UiPalette::kOk), text);
     }
 }
 
@@ -908,8 +910,8 @@ void SandboxHud::drawDefenseText()
     const bool           parry = m_defenseParry;
     const ImGuiViewport* vp   = ImGui::GetMainViewport();
     ImDrawList*          dl   = ImGui::GetForegroundDrawList(const_cast<ImGuiViewport*>(vp));
-    ImFont*              font = m_imgui.fonts().heading ? m_imgui.fonts().heading : ImGui::GetFont();
-    const float          size = font->FontSize * (parry ? 1.1f : 1.0f);
+    ImFont*              font = m_imgui.fonts().display ? m_imgui.fonts().display : (m_imgui.fonts().heading ? m_imgui.fonts().heading : ImGui::GetFont());
+    const float          size = font->FontSize;
     const ImVec2         ts   = font->CalcTextSizeA(size, FLT_MAX, 0.0f, m_defenseText);
     const ImVec2         pos{ vp->Pos.x + (vp->Size.x - ts.x) * 0.5f, vp->Pos.y + vp->Size.y * 0.36f - (1.0f - a) * 18.0f };
     const int            alpha = static_cast<int>(a * 255.0f);
@@ -971,7 +973,7 @@ void SandboxHud::drawLoot()
     }
 
     bool open = true;
-    ImGui::SetNextWindowSize(ImVec2(320.0f, 300.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(uiPx(320.0f), uiPx(300.0f)), ImGuiCond_FirstUseEver);
     if (Dark::BeginGameCard(loot->label, &open, Dark::UiAccent::Sandbox))
     {
         const bool takeAll = ImGui::Button("Take all");
@@ -1073,10 +1075,12 @@ void SandboxHud::drawNpcInfoOverlay()
 void SandboxHud::drawProfiler()
 {
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
-    const ImVec2           display = ImGui::GetIO().DisplaySize;
-    const float            height  = display.y > 240.0f ? display.y * 0.62f : 480.0f;
-    ImGui::SetNextWindowPos(ImVec2(display.x - 16.0f, 16.0f), ImGuiCond_FirstUseEver, ImVec2(1.0f, 0.0f));
-    ImGui::SetNextWindowSize(ImVec2(440.0f, height), ImGuiCond_FirstUseEver);
+    const ImGuiViewport*   hudVp   = ImGui::GetMainViewport();
+    const ImVec2           origin  = hudVp ? hudVp->WorkPos : ImVec2(0.0f, 0.0f);
+    const ImVec2           work    = hudVp ? hudVp->WorkSize : ImGui::GetIO().DisplaySize;
+    const float            height  = work.y > 240.0f ? work.y * 0.62f : uiPx(480.0f);
+    ImGui::SetNextWindowPos(ImVec2(origin.x + work.x - uiPx(16.0f), origin.y + uiPx(16.0f)), ImGuiCond_FirstUseEver, ImVec2(1.0f, 0.0f));
+    ImGui::SetNextWindowSize(ImVec2(uiPx(440.0f), height), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Profiler", &app().m_showProfiler, flags))
     {
         ImGui::End();
@@ -1103,8 +1107,8 @@ void SandboxHud::drawProfiler()
     if (ImGui::BeginTable("pix_groups", 3, tableFlags, ImVec2(0.0f, ImGui::GetContentRegionAvail().y)))
     {
         ImGui::TableSetupColumn("PIX group", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("CPU ms", ImGuiTableColumnFlags_WidthFixed, 72.0f);
-        ImGui::TableSetupColumn("GPU ms", ImGuiTableColumnFlags_WidthFixed, 72.0f);
+        ImGui::TableSetupColumn("CPU ms", ImGuiTableColumnFlags_WidthFixed, uiPx(72.0f));
+        ImGui::TableSetupColumn("GPU ms", ImGuiTableColumnFlags_WidthFixed, uiPx(72.0f));
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableHeadersRow();
 
@@ -1177,8 +1181,10 @@ void SandboxHud::drawPauseOverlay()
 
 void SandboxHud::drawDevTools()
 {
-    ImGui::SetNextWindowSize(ImVec2(460.0f, 720.0f), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowPos(ImVec2(28.0f, 28.0f), ImGuiCond_FirstUseEver);
+    const ImGuiViewport* toolsVp = ImGui::GetMainViewport();
+    const ImVec2         toolsAt = toolsVp ? toolsVp->WorkPos : ImVec2(0.0f, 0.0f);
+    ImGui::SetNextWindowSize(ImVec2(uiPx(460.0f), uiPx(720.0f)), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(toolsAt.x + uiPx(28.0f), toolsAt.y + uiPx(28.0f)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Dev Tools", &app().m_showDevTools))
     {
         ImGui::End();
