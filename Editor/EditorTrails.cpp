@@ -134,6 +134,13 @@ void EditorApp::finishTrailDraw()
         else
             path.authored = true;
     }
+    // Enter is handled before mouse-up, which is what used to stamp this stroke.
+    if (!dropped && m_trailGeneration != m_foliageTrailGeneration)
+    {
+        m_foliageStale = true;
+        m_trailMeshDirty = true;
+        startCoverRestamp();
+    }
     m_trailSelected = -1;
     m_trailPoint = -1;
     m_trailDraw = false;
