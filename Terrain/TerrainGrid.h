@@ -7,6 +7,7 @@
 #include "Math/Vector3f.h"
 #include "Render/PackedSrvHeap.h"
 #include "Render/Texture2D.h"
+#include "Terrain/FoliageCover.h"
 #include "Terrain/FoliageFile.h"
 #include "Terrain/SplatMap.h"
 #include "Terrain/Terrain.h"
@@ -75,6 +76,13 @@ public:
     const HeightMap* editableWorking() const;
     SplatMap*        editableWorkingSplat();
     const SplatMap*  editableWorkingSplat() const;
+    FoliageCover*       editableWorkingCover();
+    const FoliageCover* editableWorkingCover() const;
+    void                setWorkingCover(FoliageCover cover);
+    // Height-tile index. Null when that slot is not resident or has no cover index.
+    const FoliageCover* residentCover(int tileX, int tileZ) const;
+    // Fills the working mask from cover indices. A missing file does not fail the height load.
+    void loadWorkingCoverFiles(const std::filesystem::path& dir);
     bool boxFilterCoarseFromWorking();
     // Copy working samples/splat into overlapping resident tiles; box-filter coarse.
     void applyWorkingRect(int x0, int z0, int x1, int z1, bool heights, bool splat);
@@ -170,6 +178,7 @@ private:
         Texture2D        splatTexture;
         SplatMap         splat;
         std::vector<FoliageRecord> foliage;
+        FoliageCover     cover;
         GpuResourceCache* cache = nullptr;
         bool             resident             = false;
         bool             missingLogged        = false;
@@ -184,6 +193,9 @@ private:
     bool inRing(int tx, int tz, int cx, int cz) const;
     bool inPinRing(int tx, int tz) const;
     bool loadFineTile(int tx, int tz);
+    bool directoryHasCover(const std::filesystem::path& dir);
+    void warnMissingCover();
+    void loadCoverFile(FoliageCover& cover, const std::filesystem::path& dir, int tx, int tz);
     bool sliceWorkingTile(int tx, int tz);
     bool copyWorkingTileHeight(int tx, int tz, HeightMap& out) const;
     bool copyWorkingTileSplat(int tx, int tz, SplatMap& out) const;
@@ -218,6 +230,11 @@ private:
     Texture2D m_heightTexture;
     HeightMap m_working;
     SplatMap  m_workingSplat;
+    FoliageCover m_workingCover;
+    bool      m_coverMissingLogged = false;
+    bool      m_coverScanValid     = false;
+    bool      m_coverSome          = false;
+    std::filesystem::path m_coverScanDir;
     bool      m_pinActive = false;
     int       m_pinTx     = 0;
     int       m_pinTz     = 0;

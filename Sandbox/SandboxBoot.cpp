@@ -439,6 +439,8 @@ bool SandboxApp::advanceBootSlice()
             m_foliageDensity.rockMinNormalY    = boot.scene.terrain.foliage.rockMinNormalY;
             m_foliageDensity.treeMaxLeanDeg    = boot.scene.terrain.foliage.treeMaxLeanDeg;
             m_foliageDensity.rockMaxPitchDeg   = boot.scene.terrain.foliage.rockMaxPitchDeg;
+            m_foliageDensity.treeSpacingM      = boot.scene.terrain.foliage.treeSpacingM;
+            m_foliageDensity.rockSpacingM      = boot.scene.terrain.foliage.rockSpacingM;
             m_foliageDensity.seed              = boot.scene.terrain.foliage.seed;
             m_foliageDensity.treeModel         = boot.scene.terrain.foliage.treeModel;
             m_foliageDensity.flowerModel       = boot.scene.terrain.foliage.flowerModel;
@@ -688,6 +690,18 @@ bool SandboxApp::advanceBootSlice()
                     boot.foliageIn.cellSize  = m_terrain.cellSize();
                     boot.foliageIn.origin    = m_terrain.origin();
                     boot.foliageIn.seaLevel  = height->origin().y;
+                    m_foliagePrototypes.sync(renderer(), assets(), m_foliageDensity);
+                    const AssetRef<Model>& treeModel = m_foliagePrototypes.model(FoliageKind::Tree);
+                    if (treeModel && treeModel->bounds().IsValid())
+                    {
+                        const Vector3f extent = treeModel->bounds().Size();
+                        if (extent.x > 0.0f && extent.z > 0.0f)
+                        {
+                            boot.foliageIn.treeExtentX   = extent.x;
+                            boot.foliageIn.treeExtentZ   = extent.z;
+                            boot.foliageIn.hasTreeBounds = true;
+                        }
+                    }
                     FoliageWaterVolume lake;
                     lake.entireMap = true;
                     lake.surfaceY  = boot.waterLevel;
@@ -753,7 +767,11 @@ bool SandboxApp::advanceBootSlice()
                 && boot.foliageFinished.load(std::memory_order_acquire)
                 && boot.foliageStatus == JobStatus::Ok;
             if (foliageOk)
+            {
                 m_foliage.swap(boot.foliageOut.records);
+                m_terrain.setWorkingCover(std::move(boot.foliageOut.cover));
+                m_grassField.markAllDirty();
+            }
             else
                 DE_LOG_WARN(LogCategory::Render, "SandboxApp: splat foliage spawn failed");
         }

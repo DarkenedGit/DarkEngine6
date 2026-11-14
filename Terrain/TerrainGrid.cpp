@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -100,6 +101,11 @@ void TerrainGrid::reset()
     m_heightTexture      = Texture2D{};
     m_working            = HeightMap{};
     m_workingSplat       = SplatMap{};
+    m_workingCover.reset();
+    m_coverMissingLogged = false;
+    m_coverScanValid     = false;
+    m_coverSome          = false;
+    m_coverScanDir.clear();
     m_pinActive          = false;
     m_pinTx              = 0;
     m_pinTz              = 0;
@@ -733,6 +739,32 @@ bool TerrainGrid::loadFineTile(int tx, int tz)
         else
             slot.foliageMissingLogged = false;
     }
+    {
+        const float extentX = m_worldMaxX - m_origin.x;
+        const float extentZ = m_worldMaxZ - m_origin.z;
+        FoliageCover cover;
+        if (cover.createIndex(extentX, extentZ, m_origin.x, m_origin.z))
+        {
+            if (!directoryHasCover(m_tileDir))
+                warnMissingCover();
+            else
+            {
+                const float x0 = m_origin.x + static_cast<float>(tx) * m_tileWorld;
+                const float z0 = m_origin.z + static_cast<float>(tz) * m_tileWorld;
+                int cx0 = 0;
+                int cz0 = 0;
+                int cx1 = 0;
+                int cz1 = 0;
+                cover.overlappingTiles(x0, z0, x0 + m_tileWorld, z0 + m_tileWorld, cx0, cz0, cx1, cz1);
+                for (int cz = cz0; cz <= cz1; ++cz)
+                {
+                    for (int cx = cx0; cx <= cx1; ++cx)
+                        loadCoverFile(cover, m_tileDir, cx, cz);
+                }
+                slot.cover = std::move(cover);
+            }
+        }
+    }
     slot.resident          = true;
     slot.firstGpuApplyDone = false;
     slot.heapPacked        = false;
@@ -786,6 +818,7 @@ void TerrainGrid::evictFineTile(int tx, int tz)
     deferDestroyGpu({}, std::move(slot.splatTexture));
     slot.splat = SplatMap{};
     std::vector<FoliageRecord>().swap(slot.foliage);
+    slot.cover.reset();
     slot.resident          = false;
     slot.firstGpuApplyDone = false;
 }
@@ -1419,6 +1452,106 @@ const std::vector<FoliageRecord>* TerrainGrid::residentFoliage(int tileX, int ti
     if (!isResident(tileX, tileZ))
         return nullptr;
     return &m_slots[tileZ][tileX].foliage;
+}
+
+FoliageCover* TerrainGrid::editableWorkingCover()
+{
+    return m_workingCover.valid() ? &m_workingCover : nullptr;
+}
+
+const FoliageCover* TerrainGrid::editableWorkingCover() const
+{
+    return m_workingCover.valid() ? &m_workingCover : nullptr;
+}
+
+void TerrainGrid::setWorkingCover(FoliageCover cover)
+{
+    m_workingCover = std::move(cover);
+}
+
+const FoliageCover* TerrainGrid::residentCover(int tileX, int tileZ) const
+{
+    if (!isResident(tileX, tileZ))
+        return nullptr;
+    const FoliageCover& cover = m_slots[tileZ][tileX].cover;
+    if (!cover.valid())
+        return nullptr;
+    return &cover;
+}
+
+bool TerrainGrid::directoryHasCover(const std::filesystem::path& dir)
+{
+    if (m_coverScanValid && m_coverScanDir == dir)
+        return m_coverSome;
+    m_coverScanValid = true;
+    m_coverScanDir   = dir;
+    m_coverSome      = false;
+    if (dir.empty())
+        return false;
+    std::error_code ec;
+    if (!std::filesystem::exists(dir, ec) || ec)
+        return false;
+    std::filesystem::directory_iterator it(dir, ec);
+    const std::filesystem::directory_iterator end;
+    for (; !ec && it != end; it.increment(ec))
+    {
+        std::error_code fileEc;
+        if (!it->is_regular_file(fileEc) || fileEc)
+            continue;
+        const std::string name = it->path().filename().string();
+        if (name.ends_with(".cover.bin"))
+        {
+            m_coverSome = true;
+            break;
+        }
+    }
+    return m_coverSome;
+}
+
+void TerrainGrid::warnMissingCover()
+{
+    if (m_coverMissingLogged)
+        return;
+    m_coverMissingLogged = true;
+    DE_LOG_WARN(LogCategory::Render, "TerrainGrid: missing cover");
+}
+
+void TerrainGrid::loadCoverFile(FoliageCover& cover, const std::filesystem::path& dir, int tx, int tz)
+{
+    const std::filesystem::path path = tileCoverPath(dir, tx, tz);
+    std::error_code ec;
+    if (!std::filesystem::exists(path, ec) || ec)
+    {
+        DE_LOG_ERROR(LogCategory::Render, "FoliageCover: bare disks in ({},{}) were not restored", tx, tz);
+        return;
+    }
+    cover.load(path, tx, tz);
+}
+
+void TerrainGrid::loadWorkingCoverFiles(const std::filesystem::path& dir)
+{
+    m_workingCover.reset();
+    const HeightMap* height = editableWorking();
+    if (!height || !height->valid() || height->width() < 2u || height->height() < 2u)
+        return;
+    const float extentX = static_cast<float>(height->width() - 1u) * height->cellSize();
+    const float extentZ = static_cast<float>(height->height() - 1u) * height->cellSize();
+    if (!(extentX > 0.0f) || !(extentZ > 0.0f))
+        return;
+    if (!directoryHasCover(dir))
+    {
+        warnMissingCover();
+        return;
+    }
+    FoliageCover cover;
+    if (!cover.create(extentX, extentZ, height->origin().x, height->origin().z))
+        return;
+    for (int tz = 0; tz < cover.tilesZ(); ++tz)
+    {
+        for (int tx = 0; tx < cover.tilesX(); ++tx)
+            loadCoverFile(cover, dir, tx, tz);
+    }
+    m_workingCover = std::move(cover);
 }
 
 const TerrainWorld* TerrainGrid::residentWorld(int tileX, int tileZ) const

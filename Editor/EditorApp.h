@@ -62,6 +62,7 @@
 #include "Weapons/ThrowableFlight.h"
 #include "Combat/DamageEvent.h"
 #include "Math/AABox3f.h"
+#include "Terrain/FoliageCover.h"
 #include "Terrain/FoliageFile.h"
 #include "Terrain/TerrainGround.h"
 #include "Terrain/TerrainGrid.h"
@@ -526,6 +527,7 @@ private:
     Terrain::FoliageDensity             m_foliageDensity{};
     std::vector<Terrain::FoliageRecord> m_foliage;
     std::vector<Terrain::FoliageRecord> m_foliagePending;
+    Terrain::FoliageCover               m_foliagePendingCover;
     bool                                m_foliageAuthored = false;
     bool                                m_foliageStale    = false;
     std::atomic<bool>                   m_foliageRunning{ false };

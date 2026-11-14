@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Terrain/FoliageCover.h"
 #include "Terrain/FoliageFile.h"
 #include "Terrain/HeightMap.h"
 #include "Terrain/SplatMap.h"
@@ -35,11 +36,24 @@ namespace Dark::Terrain
         std::vector<FoliageWaterVolume> water;
         bool (*onProgress)(float t, const char* phase, void* user) = nullptr;
         void* user = nullptr;
+        float treeExtentX   = 0.0f;
+        float treeExtentZ   = 0.0f;
+        bool  hasTreeBounds = false;
+        bool  buildCover    = true;
     };
 
     struct FoliageSpawnOut
     {
+        FoliageSpawnOut()  = default;
+        ~FoliageSpawnOut() = default;
+
+        FoliageSpawnOut(const FoliageSpawnOut&)            = delete;
+        FoliageSpawnOut& operator=(const FoliageSpawnOut&) = delete;
+        FoliageSpawnOut(FoliageSpawnOut&&) noexcept            = default;
+        FoliageSpawnOut& operator=(FoliageSpawnOut&&) noexcept = default;
+
         std::vector<FoliageRecord> records;
+        FoliageCover               cover;
         uint64_t                   accepted = 0;
         uint32_t                   kept     = 0;
         bool                       capped   = false;

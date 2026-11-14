@@ -380,6 +380,7 @@ TEST(FoliageFile, RejectsKind)
 TEST(FoliageFile, FileName)
 {
     EXPECT_EQ(tileFoliageFileName(1, 2), "t_01_02.foliage.bin");
+    EXPECT_EQ(tileCoverFileName(1, 2), "t_01_02.cover.bin");
 }
 
 TEST(FoliageFile, FlagsIgnored)

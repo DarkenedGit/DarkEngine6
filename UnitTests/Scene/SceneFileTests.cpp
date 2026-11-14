@@ -977,6 +977,8 @@ TEST(SceneFile, TerrainFoliage_RoundTrip)
     in.terrain.foliage.rockMinNormalY     = 0.33f;
     in.terrain.foliage.treeMaxLeanDeg     = 12.0f;
     in.terrain.foliage.rockMaxPitchDeg    = 44.0f;
+    in.terrain.foliage.treeSpacingM       = 5.5f;
+    in.terrain.foliage.rockSpacingM       = 4.0f;
     in.terrain.foliage.stale              = true;
     in.terrain.foliage.treeModel          = "models/tree.gltf";
     in.terrain.foliage.flowerModel        = "models/flower.gltf";
@@ -1018,6 +1020,8 @@ TEST(SceneFile, TerrainFoliage_RoundTrip)
     EXPECT_NE(text.find("\"rockMinNormalY\""), std::string::npos);
     EXPECT_NE(text.find("\"treeMaxLeanDeg\""), std::string::npos);
     EXPECT_NE(text.find("\"rockMaxPitchDeg\""), std::string::npos);
+    EXPECT_NE(text.find("\"treeSpacingM\""), std::string::npos);
+    EXPECT_NE(text.find("\"rockSpacingM\""), std::string::npos);
 
     SceneFileData out{};
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
@@ -1044,6 +1048,8 @@ TEST(SceneFile, TerrainFoliage_RoundTrip)
     EXPECT_NEAR(out.terrain.foliage.rockMinNormalY, 0.33f, 1.0e-5f);
     EXPECT_NEAR(out.terrain.foliage.treeMaxLeanDeg, 12.0f, 1.0e-5f);
     EXPECT_NEAR(out.terrain.foliage.rockMaxPitchDeg, 44.0f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.treeSpacingM, 5.5f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.rockSpacingM, 4.0f, 1.0e-5f);
     EXPECT_TRUE(out.terrain.foliage.stale);
     EXPECT_EQ(out.terrain.foliage.treeModel, "models/tree.gltf");
     EXPECT_EQ(out.terrain.foliage.flowerModel, "models/flower.gltf");
@@ -1103,6 +1109,8 @@ TEST(SceneFile, TerrainFoliage_RoundTrip)
     EXPECT_NEAR(omittedOut.terrain.foliage.rockMinNormalY, 0.40f, 1.0e-5f);
     EXPECT_NEAR(omittedOut.terrain.foliage.treeMaxLeanDeg, 7.0f, 1.0e-5f);
     EXPECT_NEAR(omittedOut.terrain.foliage.rockMaxPitchDeg, 30.0f, 1.0e-5f);
+    EXPECT_NEAR(omittedOut.terrain.foliage.treeSpacingM, 3.0f, 1.0e-5f);
+    EXPECT_NEAR(omittedOut.terrain.foliage.rockSpacingM, 0.0f, 1.0e-5f);
 
     std::error_code removeEc;
     std::filesystem::remove(path, removeEc);
@@ -1171,6 +1179,10 @@ TEST(SceneFile, TerrainFoliage_MissingKey_Defaults)
     EXPECT_NEAR(data.terrain.foliage.rockMinNormalY, 0.40f, 1.0e-6f);
     EXPECT_NEAR(data.terrain.foliage.treeMaxLeanDeg, 7.0f, 1.0e-6f);
     EXPECT_NEAR(data.terrain.foliage.rockMaxPitchDeg, 30.0f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.treeSpacingM, 3.0f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.rockSpacingM, 0.0f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.treeSpacingM, defaults.treeSpacingM, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.rockSpacingM, defaults.rockSpacingM, 1.0e-6f);
     EXPECT_EQ(data.terrain.foliage.treeModel, defaults.treeModel);
     EXPECT_EQ(data.terrain.foliage.flowerModel, defaults.flowerModel);
     EXPECT_EQ(data.terrain.foliage.rockModel, defaults.rockModel);
@@ -1213,6 +1225,8 @@ TEST(SceneFile, TerrainFoliage_ClampDensities)
       "rockMinNormalY": -0.2,
       "treeMaxLeanDeg": 40.0,
       "rockMaxPitchDeg": 120.0,
+      "treeSpacingM": 40.0,
+      "rockSpacingM": -3.0,
       "treeModel": "models/oak.gltf",
       "grassModel": "models/Grass/custom.gltf",
       "notes": "ignored"
@@ -1248,6 +1262,8 @@ TEST(SceneFile, TerrainFoliage_ClampDensities)
     EXPECT_NEAR(data.terrain.foliage.rockMinNormalY, 0.0f, 1.0e-5f);
     EXPECT_NEAR(data.terrain.foliage.treeMaxLeanDeg, 15.0f, 1.0e-5f);
     EXPECT_NEAR(data.terrain.foliage.rockMaxPitchDeg, 89.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.treeSpacingM, 16.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.rockSpacingM, 0.0f, 1.0e-5f);
     EXPECT_EQ(data.terrain.foliage.treeModel, "models/oak.gltf");
     EXPECT_EQ(data.terrain.foliage.grassModel, "models/Grass/custom.gltf");
     const Terrain::FoliageDensity modelDefaults{};

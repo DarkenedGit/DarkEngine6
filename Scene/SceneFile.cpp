@@ -659,6 +659,8 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             f["rockMinNormalY"]    = scene.terrain.foliage.rockMinNormalY;
             f["treeMaxLeanDeg"]    = scene.terrain.foliage.treeMaxLeanDeg;
             f["rockMaxPitchDeg"]   = scene.terrain.foliage.rockMaxPitchDeg;
+            f["treeSpacingM"]      = scene.terrain.foliage.treeSpacingM;
+            f["rockSpacingM"]      = scene.terrain.foliage.rockSpacingM;
             f["stale"]             = scene.terrain.foliage.stale;
             f["shedScale"] = clampShedScale(scene.terrain.foliage.shedScale);
             f["treeModel"]         = scene.terrain.foliage.treeModel;
@@ -1048,6 +1050,8 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                     desc.foliage.rockMinNormalY     = Math::Clamp(jsonF(f, "rockMinNormalY", 0.40f), 0.0f, 1.0f);
                     desc.foliage.treeMaxLeanDeg     = Math::Clamp(jsonF(f, "treeMaxLeanDeg", 7.0f), 0.0f, 15.0f);
                     desc.foliage.rockMaxPitchDeg    = Math::Clamp(jsonF(f, "rockMaxPitchDeg", 30.0f), 0.0f, 89.0f);
+                    desc.foliage.treeSpacingM       = Math::Clamp(jsonF(f, "treeSpacingM", 3.0f), 0.0f, 16.0f);
+                    desc.foliage.rockSpacingM       = Math::Clamp(jsonF(f, "rockSpacingM", 0.0f), 0.0f, 16.0f);
                     desc.foliage.stale              = jsonB(f, "stale", false);
                     {
                         float shed = 1.0f;

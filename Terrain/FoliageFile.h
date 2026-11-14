@@ -38,6 +38,8 @@ namespace Dark::Terrain
         float       rockMinNormalY     = 0.40f;
         float       treeMaxLeanDeg     = 7.0f;
         float       rockMaxPitchDeg    = 30.0f;
+        float       treeSpacingM       = 3.0f;
+        float       rockSpacingM       = 0.0f;
         uint32_t    seed               = 1337u;
         std::string treeModel   = "models/BirchTree/scene.gltf";
         std::string flowerModel = "models/Dandelion/dandelion_01_2k.gltf";

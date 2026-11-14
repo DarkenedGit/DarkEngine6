@@ -310,6 +310,12 @@ namespace Dark::Terrain
         clearInteraction();
     }
 
+    void GrassField::markAllDirty()
+    {
+        for (Tile& tile : m_tiles)
+            tile.dirty = true;
+    }
+
     void GrassField::clearInteraction()
     {
         for (int i = 0; i < kGrassInteractorSlots; ++i)
@@ -745,6 +751,22 @@ namespace Dark::Terrain
         out.y         = surfaceY + normal.y * kRootLiftMetres;
         out.z         = worldZ + normal.z * kRootLiftMetres;
         out.heightMul = Math::Lerp(0.70f, kGrassHeightMulMax, hash21(i, 3, tileSeed));
+        const FoliageCover* cover = nullptr;
+        if (working)
+            cover = grid.editableWorkingCover();
+        else
+        {
+            int coverTx = 0;
+            int coverTz = 0;
+            terrainTileOf(grid, worldX, worldZ, coverTx, coverTz);
+            cover = grid.residentCover(coverTx, coverTz);
+        }
+        if (cover != nullptr && cover->valid())
+        {
+            if (cover->sampleNearest(worldX, worldZ).coverage == 0)
+                return false;
+            out.heightMul *= static_cast<float>(cover->sampleBilinear(worldX, worldZ).heightScale) / 255.0f;
+        }
         out.flexMul   = Math::Lerp(0.80f, 1.20f, hash21(i, 4, tileSeed));
         out.phase     = hash21(i, 5, tileSeed) * 2.0f - 1.0f;
         out.yaw       = hash21(i, 6, tileSeed) * Math::TwoPi;

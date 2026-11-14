@@ -4,6 +4,7 @@
 #include "Math/Vector3f.h"
 #include "Render/Camera3D.h"
 #include "Render/Frustum3f.h"
+#include "Terrain/FoliageCover.h"
 #include "Terrain/GrassBend.h"
 #include "Terrain/GrassField.h"
 #include "Terrain/TerrainLodFile.h"
@@ -1021,4 +1022,65 @@ TEST(GrassField, VisibleTilesUseRootHeight)
     EXPECT_EQ(highDraws[0].lod, 0);
     EXPECT_EQ(highDraws[0].begin, 0u);
     EXPECT_EQ(highDraws[0].count, field.blades(0).count);
+}
+
+TEST(GrassField, GrassFieldReadsCover)
+{
+    TerrainGrid open;
+    ASSERT_TRUE(makeGrid(open, 9, Vector3f(0.0f, 0.0f, 0.0f), 0.0f, 0, 255, 0, 0, true));
+    GrassField plain;
+    enable(plain, 1337u);
+    plain.update(open, 4.0f, 4.0f, 2.0, -1000.0f);
+    EXPECT_EQ(bladeTotal(plain), kGrassLod0PerTile);
+    EXPECT_EQ(open.editableWorkingCover(), nullptr);
+
+    TerrainGrid grid;
+    ASSERT_TRUE(makeGrid(grid, 9, Vector3f(0.0f, 0.0f, 0.0f), 0.0f, 0, 255, 0, 0, true));
+    GrassField field;
+    enable(field, 1337u);
+    field.update(grid, 4.0f, 4.0f, 0.0, -1000.0f);
+    EXPECT_EQ(bladeTotal(field), kGrassLod0PerTile);
+
+    FoliageCover cover;
+    ASSERT_TRUE(cover.create(8.0f, 8.0f, 0.0f, 0.0f));
+    EXPECT_FLOAT_EQ(cover.cellSize(), 1.0f);
+    cover.stampSoftAnnulus(4.0f, 4.0f, 1.0f, 3.0f, 0, 200, 0, 64, true);
+    EXPECT_EQ(cover.sampleNearest(4.0f, 4.0f).coverage, 0);
+    EXPECT_EQ(cover.sampleNearest(4.0f, 4.0f).heightScale, 0);
+    grid.setWorkingCover(std::move(cover));
+    const FoliageCover* mask = grid.editableWorkingCover();
+    ASSERT_NE(mask, nullptr);
+
+    field.update(grid, 4.0f, 4.0f, 1.0, -1000.0f);
+    EXPECT_EQ(bladeTotal(field), kGrassLod0PerTile);
+
+    field.markAllDirty();
+    field.update(grid, 4.0f, 4.0f, 2.0, -1000.0f);
+    const GrassField::BladeSpan span = field.tileBlades(0, 0);
+    ASSERT_NE(span.data, nullptr);
+    EXPECT_LT(span.count, kGrassLod0PerTile);
+    EXPECT_EQ(bladeTotal(field), span.count);
+
+    bool shortBlade = false;
+    bool fullBlade  = false;
+    for (uint32_t i = 0; i < span.count; ++i)
+    {
+        const GrassBlade& blade = span.data[i];
+        const CoverSample hard  = mask->sampleNearest(blade.x, blade.z);
+        EXPECT_NE(hard.coverage, 0);
+        const CoverSample soft = mask->sampleBilinear(blade.x, blade.z);
+        if (soft.heightScale <= 64)
+        {
+            EXPECT_LT(blade.heightMul, 0.70f);
+            shortBlade = true;
+        }
+        if (soft.heightScale == 255)
+        {
+            EXPECT_GE(blade.heightMul, 0.70f);
+            EXPECT_LE(blade.heightMul, 1.30f);
+            fullBlade = true;
+        }
+    }
+    EXPECT_TRUE(shortBlade);
+    EXPECT_TRUE(fullBlade);
 }

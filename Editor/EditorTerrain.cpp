@@ -842,6 +842,8 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
         desc.foliage.rockMinNormalY    = m_foliageDensity.rockMinNormalY;
         desc.foliage.treeMaxLeanDeg    = m_foliageDensity.treeMaxLeanDeg;
         desc.foliage.rockMaxPitchDeg   = m_foliageDensity.rockMaxPitchDeg;
+        desc.foliage.treeSpacingM      = m_foliageDensity.treeSpacingM;
+        desc.foliage.rockSpacingM      = m_foliageDensity.rockSpacingM;
         desc.foliage.stale             = m_foliageStale;
         desc.foliage.shedScale         = m_leafShedScale;
         desc.foliage.treeModel         = m_foliageDensity.treeModel;
@@ -902,6 +904,8 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
     desc.foliage.rockMinNormalY    = m_foliageDensity.rockMinNormalY;
     desc.foliage.treeMaxLeanDeg    = m_foliageDensity.treeMaxLeanDeg;
     desc.foliage.rockMaxPitchDeg   = m_foliageDensity.rockMaxPitchDeg;
+    desc.foliage.treeSpacingM      = m_foliageDensity.treeSpacingM;
+    desc.foliage.rockSpacingM      = m_foliageDensity.rockSpacingM;
     desc.foliage.stale             = m_foliageStale;
     desc.foliage.shedScale         = m_leafShedScale;
     desc.foliage.treeModel         = m_foliageDensity.treeModel;
@@ -1056,6 +1060,16 @@ bool EditorApp::saveTerrainSidecars(const std::filesystem::path& scenePath) cons
         }
     }
 
+    const FoliageCover* cover = m_terrain.editableWorkingCover();
+    if (cover != nullptr && cover->valid())
+    {
+        for (int tz = 0; tz < cover->tilesZ(); ++tz)
+        {
+            for (int tx = 0; tx < cover->tilesX(); ++tx)
+                cover->save(tileCoverPath(tileDirPath, tx, tz), tx, tz);
+        }
+    }
+
     const uint64_t tileCount = static_cast<uint64_t>(m_terrain.tilesX()) * m_terrain.tilesZ();
     if (tileCount <= 1ull)
     {
@@ -1113,6 +1127,8 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
         m_foliageDensity.rockMinNormalY    = desc.foliage.rockMinNormalY;
         m_foliageDensity.treeMaxLeanDeg    = desc.foliage.treeMaxLeanDeg;
         m_foliageDensity.rockMaxPitchDeg   = desc.foliage.rockMaxPitchDeg;
+        m_foliageDensity.treeSpacingM      = desc.foliage.treeSpacingM;
+        m_foliageDensity.rockSpacingM      = desc.foliage.rockSpacingM;
         m_foliageDensity.seed              = desc.foliage.seed;
         m_foliageDensity.treeModel         = desc.foliage.treeModel;
         m_foliageDensity.flowerModel       = desc.foliage.flowerModel;
@@ -1227,6 +1243,8 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
     m_foliageDensity.rockMinNormalY    = desc.foliage.rockMinNormalY;
     m_foliageDensity.treeMaxLeanDeg    = desc.foliage.treeMaxLeanDeg;
     m_foliageDensity.rockMaxPitchDeg   = desc.foliage.rockMaxPitchDeg;
+    m_foliageDensity.treeSpacingM      = desc.foliage.treeSpacingM;
+    m_foliageDensity.rockSpacingM      = desc.foliage.rockSpacingM;
     m_foliageDensity.seed              = desc.foliage.seed;
     m_foliageDensity.treeModel         = desc.foliage.treeModel;
     m_foliageDensity.flowerModel       = desc.foliage.flowerModel;
@@ -1358,6 +1376,7 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
     }
     m_foliage.swap(gathered);
     m_foliageAuthored = anyFoliageFile;
+    m_terrain.loadWorkingCoverFiles(foliageDir);
 
     rebuildEditorWater();
     return true;
@@ -1480,12 +1499,25 @@ void EditorApp::startFoliageSpawn()
     });
     in.onProgress = &EditorApp::onFoliageProgress;
     in.user       = this;
+    m_foliagePrototypes.sync(renderer(), assets(), in.density);
+    const AssetRef<Model>& treeModel = m_foliagePrototypes.model(FoliageKind::Tree);
+    if (treeModel && treeModel->bounds().IsValid())
+    {
+        const Vector3f extent = treeModel->bounds().Size();
+        if (extent.x > 0.0f && extent.z > 0.0f)
+        {
+            in.treeExtentX   = extent.x;
+            in.treeExtentZ   = extent.z;
+            in.hasTreeBounds = true;
+        }
+    }
 
     m_foliageCancel.store(false);
     m_foliageDone.store(false);
     m_foliageOk = false;
     m_foliageProgress.store(0.0f);
     std::vector<Terrain::FoliageRecord>().swap(m_foliagePending);
+    m_foliagePendingCover.reset();
     setFoliagePhase("starting");
     m_foliageRunning.store(true);
 
@@ -1528,7 +1560,10 @@ void EditorApp::startFoliageSpawn()
             }
         }
         if (ok)
+        {
             m_foliagePending.swap(out.records);
+            m_foliagePendingCover = std::move(out.cover);
+        }
         m_foliageOk = ok;
         m_foliageDone.store(true);
     });
@@ -1547,10 +1582,13 @@ void EditorApp::pollFoliageSpawn()
         m_foliage.swap(m_foliagePending);
         m_foliageAuthored = true;
         m_foliageStale = false;
+        m_terrain.setWorkingCover(std::move(m_foliagePendingCover));
+        m_grassField.markAllDirty();
     }
     else if (m_foliageCancel.load())
         DE_LOG_INFO(LogCategory::Render, "Editor: foliage spawn cancelled - previous set kept");
     std::vector<Terrain::FoliageRecord>().swap(m_foliagePending);
+    m_foliagePendingCover.reset();
     m_foliageOk = false;
 }
 
@@ -1884,6 +1922,8 @@ void EditorApp::drawTerrainPanel()
         slopeEdited |= ImGui::SliderFloat("Tree max lean (deg)", &m_foliageDensity.treeMaxLeanDeg, 0.0f, 15.0f, "%.0f");
         ImGui::SetItemTooltip("Caps how far a tree tilts with the slope. 0 stays upright.");
         slopeEdited |= ImGui::SliderFloat("Rock max pitch (deg)", &m_foliageDensity.rockMaxPitchDeg, 0.0f, 89.0f, "%.0f");
+        slopeEdited |= ImGui::SliderFloat("Tree spacing (m)", &m_foliageDensity.treeSpacingM, 0.0f, 16.0f, "%.1f");
+        slopeEdited |= ImGui::SliderFloat("Rock spacing (m)", &m_foliageDensity.rockSpacingM, 0.0f, 16.0f, "%.1f");
         if (slopeEdited)
             m_foliageStale = true;
         if (ImGui::Button("Place / Replace foliage"))
