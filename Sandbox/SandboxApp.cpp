@@ -677,6 +677,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
         if (!advanceBootSlice())
         {
             m_bootPolling = false;
+            m_hud.m_menu.clearLoading();
             return;
         }
         if (m_bootSlice == BootSlice::Done)
@@ -687,6 +688,8 @@ void SandboxApp::handleRuntimeCommands(float dt)
                 playMusicCue(world(), audio(), assets(), m_camera, "music");
                 m_hud.m_menu.hide();
             }
+            else
+                m_hud.m_menu.clearLoading();
         }
     }
 
@@ -731,9 +734,13 @@ void SandboxApp::handleRuntimeCommands(float dt)
                     m_hud.m_menu.hide();
                     return;
                 }
-                // The load is still crossing frames. Music waits until the scene starts.
+                // Slices still run. The menu stays on the picked row and ignores input until Done.
                 if (!m_sceneStarted)
+                {
+                    if (m_bootPolling)
+                        m_hud.m_menu.setLoading(picked ? picked->title : std::string{});
                     break;
+                }
                 // Splash already finished without a camera, so the usual cue never played.
                 playMusicCue(world(), audio(), assets(), m_camera, "music");
             }

@@ -368,6 +368,9 @@ void Dark::drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts, bool cancelHi
     const float primaryW = vp->Size.x * 0.40f;
     const bool  levels   = anyLevel(menu);
     const bool  front    = page == MainMenuPage::Front;
+    const bool  locked   = menu.loading();
+    if (locked)
+        ImGui::BeginDisabled();
 
     auto hitRow = [&](const char* id, ImVec2 pos, ImVec2 size, size_t index, bool canFocus) {
         ImGui::SetCursorScreenPos(pos);
@@ -411,7 +414,9 @@ void Dark::drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts, bool cancelHi
             }
 
             int alpha = 215;
-            if (menu.levelFocus())
+            if (locked)
+                alpha = lit ? 255 : 80;
+            else if (menu.levelFocus())
                 alpha = 150;
             else if (lit)
                 alpha = 255;
@@ -454,7 +459,10 @@ void Dark::drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts, bool cancelHi
             const float listH   = natural < maxH ? natural : (maxH > rowH ? maxH : rowH);
             ImGui::SetCursorScreenPos(ImVec2(levelX, headY));
             ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-            ImGui::BeginChild("##leveljump", ImVec2(levelW, listH), ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoNavInputs);
+            ImGuiWindowFlags listFlags = ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoNavInputs;
+            if (locked)
+                listFlags |= ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
+            ImGui::BeginChild("##leveljump", ImVec2(levelW, listH), ImGuiChildFlags_None, listFlags);
             ImDrawList* listDl = ImGui::GetWindowDrawList();
             const float namePx = headPx * 1.2f;
             int         shown  = 0;
@@ -480,7 +488,7 @@ void Dark::drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts, bool cancelHi
                 }
                 const ImVec2 rowMin = ImGui::GetItemRectMin();
                 const bool   lit    = i == menu.selectedIndex() && menu.levelFocus();
-                const int    alpha  = lit ? 255 : (menu.levelFocus() ? 170 : 130);
+                const int    alpha  = locked ? (lit ? 255 : 70) : (lit ? 255 : (menu.levelFocus() ? 170 : 130));
                 if (lit)
                     listDl->AddLine(ImVec2(rowMin.x, rowMin.y + rowH * 0.5f), ImVec2(rowMin.x + uiPx(12.0f), rowMin.y + rowH * 0.5f), IM_COL32(150, 236, 230, 230), 2.0f);
                 listDl->PushClipRect(rowMin, ImVec2(rowMin.x + levelW - uiPx(4.0f), rowMin.y + rowH), true);
@@ -537,18 +545,18 @@ void Dark::drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts, bool cancelHi
         const bool back = ImGui::InvisibleButton("##menu_back", ImVec2(primaryW, backH));
         const bool backHot = ImGui::IsItemHovered();
         drawTracked(dl, itemFont, itemPx * 0.72f, ImVec2(vp->Pos.x + marginX, y), backHot ? white : muted, "BACK", itemTrack);
-        if (back)
+        if (!locked && back)
             setPage(MainMenuPage::Front);
     }
 
     const bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
     const bool backKey = ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight) || ImGui::IsKeyPressed(ImGuiKey_GamepadBack);
-    if (focused && !front)
+    if (!locked && focused && !front)
     {
         if (!appearing && backKey)
             setPage(MainMenuPage::Front);
     }
-    else if (focused && front && !menu.entries().empty())
+    else if (!locked && focused && front && !menu.entries().empty())
     {
         const MainMenuRole column = menu.levelFocus() ? MainMenuRole::Level : MainMenuRole::Action;
         int                delta  = 0;
@@ -571,6 +579,21 @@ void Dark::drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts, bool cancelHi
             else
                 menu.quit();
         }
+    }
+    if (locked)
+        ImGui::EndDisabled();
+
+    if (locked)
+    {
+        const std::string name = upperAscii(menu.loadingLabel());
+        const float statusPx = subPx * 1.2f;
+        float statusY = screenMax.y - uiPx(48.0f) - (name.empty() ? statusPx : statusPx * 2.5f);
+        if (!name.empty())
+        {
+            drawTracked(dl, itemFont, statusPx, ImVec2(titleX, statusY), white, name.c_str(), subTrack);
+            statusY += statusPx * 1.35f;
+        }
+        drawTracked(dl, itemFont, statusPx * 0.85f, ImVec2(titleX, statusY), IM_COL32(150, 236, 230, 230), "LOADING", subTrack);
     }
 
     ImGui::End();

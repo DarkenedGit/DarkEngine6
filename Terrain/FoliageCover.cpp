@@ -47,6 +47,15 @@ namespace Dark::Terrain
             return a + (b - a) * t;
         }
 
+        double smooth01(double t)
+        {
+            if (t <= 0.0)
+                return 0.0;
+            if (t >= 1.0)
+                return 1.0;
+            return t * t * (3.0 - 2.0 * t);
+        }
+
         bool squareHitsDisk(float x0, float z0, float x1, float z1, float x, float z, float radius)
         {
             const float qx = x < x0 ? x0 : (x > x1 ? x1 : x);
@@ -593,6 +602,50 @@ namespace Dark::Terrain
                     t = 1.0;
                 const uint8_t coverage = roundByte(lerp(innerCoverage, outerCoverage, t));
                 const uint8_t height   = roundByte(lerp(innerHeight, outerHeight, t));
+                writeCell(cx, cz, coverage, height, minBlend);
+            }
+        }
+    }
+
+    void FoliageCover::stampRadialFalloff(float x, float z, float radiusM, uint8_t innerHeight, uint8_t outerHeight, bool minBlend)
+    {
+        if (!m_valid || !(radiusM > 0.0f) || !std::isfinite(x) || !std::isfinite(z) || !std::isfinite(radiusM))
+            return;
+
+        const double lx = static_cast<double>(x) - static_cast<double>(m_originX);
+        const double lz = static_cast<double>(z) - static_cast<double>(m_originZ);
+        const double r  = static_cast<double>(radiusM);
+        int c0x = static_cast<int>(std::floor((lx - r) / static_cast<double>(kCoverCellSizeM))) - 1;
+        int c1x = static_cast<int>(std::floor((lx + r) / static_cast<double>(kCoverCellSizeM))) + 1;
+        int c0z = static_cast<int>(std::floor((lz - r) / static_cast<double>(kCoverCellSizeM))) - 1;
+        int c1z = static_cast<int>(std::floor((lz + r) / static_cast<double>(kCoverCellSizeM))) + 1;
+        if (c0x < 0)
+            c0x = 0;
+        if (c0z < 0)
+            c0z = 0;
+        if (c1x >= m_cellsX)
+            c1x = m_cellsX - 1;
+        if (c1z >= m_cellsZ)
+            c1z = m_cellsZ - 1;
+
+        for (int cz = c0z; cz <= c1z; ++cz)
+        {
+            const float z0 = m_originZ + static_cast<float>(cz) * kCoverCellSizeM;
+            const float z1 = z0 + kCoverCellSizeM;
+            for (int cx = c0x; cx <= c1x; ++cx)
+            {
+                const float x0 = m_originX + static_cast<float>(cx) * kCoverCellSizeM;
+                const float x1 = x0 + kCoverCellSizeM;
+                if (!squareHitsDisk(x0, z0, x1, z1, x, z, radiusM))
+                    continue;
+                const double tcx  = static_cast<double>(m_originX) + (static_cast<double>(cx) + 0.5) * static_cast<double>(kCoverCellSizeM);
+                const double tcz  = static_cast<double>(m_originZ) + (static_cast<double>(cz) + 0.5) * static_cast<double>(kCoverCellSizeM);
+                const double dx   = tcx - static_cast<double>(x);
+                const double dz   = tcz - static_cast<double>(z);
+                const double dist = std::sqrt(dx * dx + dz * dz);
+                const double t    = smooth01(dist / r);
+                const uint8_t height = roundByte(lerp(innerHeight, outerHeight, t));
+                const uint8_t coverage = atCell(cx, cz).coverage;
                 writeCell(cx, cz, coverage, height, minBlend);
             }
         }

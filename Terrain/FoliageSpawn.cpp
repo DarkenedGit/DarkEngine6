@@ -46,8 +46,6 @@ namespace Dark::Terrain
         constexpr float    kTreeRockJitter    = 0.45f;
         constexpr float    kFlowerJitter      = 0.12f;
         constexpr float    kFlowerOffsetX[kFlowerSlots] = { -0.25f, 0.25f };
-        constexpr uint8_t  kCanopyHeightByte  = 89;
-
         struct SpacePoint
         {
             float x     = 0.0f;
@@ -244,6 +242,91 @@ namespace Dark::Terrain
             return disk;
         }
 
+        // Flowers and tufts used to skip a coverage-0 trunk disk. Trees no longer punch that hole,
+        // so the same radius is tested against the kept trees.
+        struct TrunkGrid
+        {
+            struct Point
+            {
+                float x     = 0.0f;
+                float z     = 0.0f;
+                float trunk = 0.0f;
+            };
+
+            float cell = 1.0f;
+            std::unordered_map<uint64_t, std::vector<Point>> cells;
+
+            static uint64_t key(int x, int z)
+            {
+                return (static_cast<uint64_t>(static_cast<uint32_t>(x)) << 32) | static_cast<uint32_t>(z);
+            }
+
+            bool cellOf(float world, int& out) const
+            {
+                const double q = static_cast<double>(world) / static_cast<double>(cell);
+                if (q < static_cast<double>(INT32_MIN) || q > static_cast<double>(INT32_MAX))
+                    return false;
+                out = static_cast<int>(std::floor(q));
+                return true;
+            }
+
+            void build(const std::vector<FoliageRecord>& records, float extentX, float extentZ)
+            {
+                cells.clear();
+                float maxTrunk = 0.0f;
+                std::vector<Point> points;
+                points.reserve(records.size());
+                for (const FoliageRecord& rec : records)
+                {
+                    if (rec.kind != static_cast<uint8_t>(FoliageKind::Tree))
+                        continue;
+                    const float trunk = treeDisk(rec, extentX, extentZ).trunk;
+                    if (!(trunk > 0.0f) || !std::isfinite(rec.x) || !std::isfinite(rec.z))
+                        continue;
+                    if (trunk > maxTrunk)
+                        maxTrunk = trunk;
+                    points.push_back(Point{ rec.x, rec.z, trunk });
+                }
+                cell = maxTrunk > 1.0f ? maxTrunk : 1.0f;
+                for (const Point& point : points)
+                {
+                    int hx = 0;
+                    int hz = 0;
+                    if (!cellOf(point.x, hx) || !cellOf(point.z, hz))
+                        continue;
+                    cells[key(hx, hz)].push_back(point);
+                }
+            }
+
+            bool inside(float x, float z) const
+            {
+                if (cells.empty())
+                    return false;
+                int hx = 0;
+                int hz = 0;
+                if (!cellOf(x, hx) || !cellOf(z, hz))
+                    return false;
+                for (int dz = -1; dz <= 1; ++dz)
+                {
+                    for (int dx = -1; dx <= 1; ++dx)
+                    {
+                        const auto it = cells.find(key(hx + dx, hz + dz));
+                        if (it == cells.end())
+                            continue;
+                        for (const Point& point : it->second)
+                        {
+                            const double ddx = static_cast<double>(x) - static_cast<double>(point.x);
+                            const double ddz = static_cast<double>(z) - static_cast<double>(point.z);
+                            const double radius = static_cast<double>(point.trunk);
+                            if (ddx * ddx + ddz * ddz < radius * radius)
+                                return true;
+                        }
+                    }
+                }
+                return false;
+            }
+        };
+
         void thinPaired(std::vector<FoliageRecord>& recs, std::vector<ParentRef>& refs, uint64_t keepCap)
         {
             const uint64_t total = static_cast<uint64_t>(recs.size());
@@ -272,9 +355,11 @@ namespace Dark::Terrain
         void stampTree(FoliageCover& cover, const FoliageRecord& rec, const FoliageSpawnIn& in)
         {
             const TreeDisk disk = treeDisk(rec, in.treeExtentX, in.treeExtentZ);
-            cover.stampDisk(rec.x, rec.z, disk.trunk, 0, 0, true);
-            if (disk.canopy > disk.trunk)
-                cover.stampSoftAnnulus(rec.x, rec.z, disk.trunk, disk.canopy, 0, 255, kCanopyHeightByte, 255, true);
+            // A coverage-0 disk deletes every 1 m cell it touches, which reads as a square hole.
+            // Height eases from the trunk to the canopy edge. Grass bilinear-samples that bowl.
+            // Trails already wrote coverage 0; this stamp does not touch coverage, so they stay bare.
+            if (disk.canopy > 0.0f)
+                cover.stampRadialFalloff(rec.x, rec.z, disk.canopy, 0, 255, true);
         }
 
         bool cancelled(const FoliageSpawnIn& in, float t, const char* phase)
@@ -596,6 +681,8 @@ namespace Dark::Terrain
             return fbm(x, z, patchLargeM, kSaltPatchLarge, seed);
         };
 
+        TrunkGrid trunks;
+
         auto kindMask = [&](FoliageKind kind, float x, float z) -> float
         {
             const float large = largeAt(x, z);
@@ -671,6 +758,8 @@ namespace Dark::Terrain
             if (flower || grass)
             {
                 if (out.cover.sampleNearest(x, z).coverage == 0)
+                    return;
+                if (trunks.inside(x, z))
                     return;
                 p *= static_cast<float>(out.cover.sampleBilinear(x, z).coverage) / 255.0f;
             }
@@ -765,6 +854,7 @@ namespace Dark::Terrain
             if (rec.kind == static_cast<uint8_t>(FoliageKind::Tree))
                 stampTree(out.cover, rec, in);
         }
+        trunks.build(out.records, in.treeExtentX, in.treeExtentZ);
 
         const size_t parentCount = parentRefs.size();
 

@@ -323,7 +323,7 @@ void SandboxFrame::render()
     // shadowBounds is safe on an empty grid; the water and post path is not.
     if (!app().m_sceneStarted)
     {
-        Dark::setGameNavEnabled(app().m_hud.m_menu.visible());
+        Dark::setGameNavEnabled(app().m_hud.m_menu.visible() && !app().m_hud.m_menu.loading());
         if (app().m_hud.m_imgui.isReady())
             app().m_hud.m_imgui.beginFrame();
         if (app().m_hud.m_imgui.isReady())

@@ -89,6 +89,13 @@ namespace Dark
         void hide();
         bool visible() const { return m_visible; }
 
+        // Keeps the current row and drops keyboard, mouse, and quit until clearLoading(), show(), or hide().
+        // An empty label uses the selected entry title.
+        void setLoading(std::string label);
+        void clearLoading();
+        bool loading() const { return m_loading; }
+        const std::string& loadingLabel() const { return m_loadingLabel; }
+
         const std::vector<MainMenuEntry>& entries() const { return m_entries; }
         const MainMenuEntry*              selected() const;
         size_t                            selectedIndex() const { return m_selected; }
@@ -144,6 +151,7 @@ namespace Dark
 
         Layout computeLayout(uint32_t viewW, uint32_t viewH) const;
         bool   hit(const Rect& r, float mx, float my) const;
+        bool   acceptsInput() const { return m_visible && !m_loading; }
         void   moveSelection(int delta);
         void   confirmSelection();
         void   adopt(size_t index);
@@ -164,6 +172,8 @@ namespace Dark
         size_t                     m_levelIndex  = 0;
         bool                       m_levelFocus  = false;
         bool                       m_visible     = false;
+        bool                       m_loading     = false;
+        std::string                m_loadingLabel;
         MainMenuResult             m_pending  = MainMenuResult::None;
         Audio::AudioSystem*        m_audio    = nullptr;
         AssetRef<Audio::SoundClip> m_moveClip;

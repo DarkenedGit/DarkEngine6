@@ -184,6 +184,8 @@ namespace Dark
 
     bool MainMenu::selectById(std::string_view id)
     {
+        if (m_loading)
+            return false;
         for (size_t i = 0; i < m_entries.size(); ++i)
         {
             if (m_entries[i].id == id)
@@ -197,6 +199,8 @@ namespace Dark
 
     void MainMenu::setSelected(size_t index)
     {
+        if (m_loading)
+            return;
         if (m_entries.empty())
         {
             m_selected    = 0;
@@ -209,6 +213,8 @@ namespace Dark
 
     void MainMenu::setLevelFocus(bool on)
     {
+        if (m_loading)
+            return;
         if (on)
         {
             size_t target = static_cast<size_t>(-1);
@@ -256,11 +262,34 @@ namespace Dark
     {
         m_visible = true;
         m_pending = MainMenuResult::None;
+        clearLoading();
     }
 
     void MainMenu::hide()
     {
         m_visible = false;
+        m_pending = MainMenuResult::None;
+        clearLoading();
+    }
+
+    void MainMenu::setLoading(std::string label)
+    {
+        if (label.empty())
+        {
+            if (const MainMenuEntry* entry = selected())
+                label = entry->title;
+        }
+        m_loading      = true;
+        m_loadingLabel = std::move(label);
+        m_pending      = MainMenuResult::None;
+    }
+
+    void MainMenu::clearLoading()
+    {
+        if (!m_loading && m_loadingLabel.empty())
+            return;
+        m_loading = false;
+        m_loadingLabel.clear();
         m_pending = MainMenuResult::None;
     }
 
@@ -273,6 +302,11 @@ namespace Dark
 
     MainMenuResult MainMenu::pollResult()
     {
+        if (m_loading)
+        {
+            m_pending = MainMenuResult::None;
+            return MainMenuResult::None;
+        }
         const MainMenuResult r = m_pending;
         m_pending              = MainMenuResult::None;
         return r;
@@ -280,7 +314,7 @@ namespace Dark
 
     void MainMenu::moveTo(size_t index)
     {
-        if (!m_visible || m_entries.empty())
+        if (!acceptsInput() || m_entries.empty())
             return;
         if (index >= m_entries.size())
             index = m_entries.size() - 1;
@@ -292,14 +326,14 @@ namespace Dark
 
     void MainMenu::confirm()
     {
-        if (!m_visible)
+        if (!acceptsInput())
             return;
         confirmSelection();
     }
 
     void MainMenu::quit()
     {
-        if (!m_visible)
+        if (!acceptsInput())
             return;
         m_pending = MainMenuResult::Quit;
     }
@@ -409,7 +443,7 @@ namespace Dark
 
     void MainMenu::update(const Input& input, uint32_t viewW, uint32_t viewH)
     {
-        if (!m_visible)
+        if (!acceptsInput())
             return;
 
         const size_t before = m_selected;
@@ -504,6 +538,7 @@ namespace Dark
 
         add(m_title);
         add(m_hint);
+        add("Loading");
         for (const MainMenuEntry& e : m_entries)
         {
             add(e.title);
@@ -653,7 +688,9 @@ namespace Dark
             }
         }
 
-        if (!m_hint.empty())
+        if (m_loading)
+            drawLabel(cmd, proj, layout.hint, viewH, "Loading", UiPalette::kTextMuted, 1.5f * dpi);
+        else if (!m_hint.empty())
             drawLabel(cmd, proj, layout.hint, viewH, m_hint, UiPalette::kTextMuted, 1.5f * dpi);
     }
 

@@ -336,6 +336,8 @@ void Sandbox2DApp::enterScene(const MainMenuEntry& entry)
             m_pendingEntry         = entry;
             m_levelLoadPending     = true;
             m_levelLoadGeneration  = generation;
+            if (m_menu.visible())
+                m_menu.setLoading(entry.title);
             return;
         }
     }

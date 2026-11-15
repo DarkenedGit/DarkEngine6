@@ -2,6 +2,7 @@
 
 #include "Terrain/FoliageCover.h"
 
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -209,4 +210,58 @@ TEST(FoliageCover, StampCrossesTileBoundary)
     EXPECT_EQ(cover.sampleNearest(516.5f, 10.25f).coverage, 255);
     EXPECT_EQ(cover.sampleNearest(516.5f, 10.25f).heightScale, 255);
     EXPECT_EQ(cover.sampleNearest(590.5f, 590.5f).coverage, 255);
+}
+
+TEST(FoliageCover, RadialFalloffIsRound)
+{
+    FoliageCover cover;
+    ASSERT_TRUE(cover.create(32.0f, 32.0f, 0.0f, 0.0f));
+    cover.stampRadialFalloff(16.5f, 16.5f, 0.0f, 0, 255, true);
+    EXPECT_EQ(cover.sampleNearest(16.5f, 16.5f).heightScale, 255);
+
+    cover.stampRadialFalloff(16.5f, 16.5f, 6.0f, 0, 255, true);
+
+    const CoverSample centre = cover.sampleBilinear(16.5f, 16.5f);
+    EXPECT_EQ(centre.coverage, 255);
+    EXPECT_EQ(centre.heightScale, 0);
+    EXPECT_EQ(cover.sampleNearest(17.5f, 16.5f).heightScale, 19);
+    EXPECT_EQ(cover.sampleNearest(19.5f, 16.5f).heightScale, 128);
+    EXPECT_EQ(cover.sampleNearest(19.5f, 16.5f).coverage, 255);
+
+    // Same radius in every direction, including the diagonals. A square hole would not.
+    uint8_t lo = 255;
+    uint8_t hi = 0;
+    for (int k = 0; k < 8; ++k)
+    {
+        const double ang = static_cast<double>(k) * 0.7853981633974483;
+        const float  x   = 16.5f + static_cast<float>(std::cos(ang) * 3.0);
+        const float  z   = 16.5f + static_cast<float>(std::sin(ang) * 3.0);
+        const CoverSample sample = cover.sampleBilinear(x, z);
+        EXPECT_EQ(sample.coverage, 255);
+        if (sample.heightScale < lo)
+            lo = sample.heightScale;
+        if (sample.heightScale > hi)
+            hi = sample.heightScale;
+    }
+    EXPECT_LE(static_cast<int>(hi) - static_cast<int>(lo), 40);
+    EXPECT_NEAR(static_cast<int>(lo) + static_cast<int>(hi), 256, 60);
+
+    // The corner of the bounding square sits outside the circle and stays full height.
+    const CoverSample axis = cover.sampleBilinear(21.5f, 16.5f);
+    const CoverSample corner = cover.sampleBilinear(21.5f, 21.5f);
+    EXPECT_EQ(axis.coverage, 255);
+    EXPECT_LT(axis.heightScale, 255);
+    EXPECT_EQ(corner.coverage, 255);
+    EXPECT_EQ(corner.heightScale, 255);
+    EXPECT_EQ(cover.sampleBilinear(16.5f + 8.0f, 16.5f).heightScale, 255);
+
+    // A bare trail core stays bare when a tree bowl is stamped over it.
+    FoliageCover trail;
+    ASSERT_TRUE(trail.create(32.0f, 32.0f, 0.0f, 0.0f));
+    trail.stampDisk(16.5f, 16.5f, 1.25f, 0, 0, true);
+    trail.stampRadialFalloff(16.5f, 16.5f, 6.0f, 0, 255, true);
+    EXPECT_EQ(trail.sampleNearest(16.5f, 16.5f).coverage, 0);
+    EXPECT_EQ(trail.sampleNearest(16.5f, 16.5f).heightScale, 0);
+    EXPECT_EQ(trail.sampleNearest(19.5f, 16.5f).coverage, 255);
+    EXPECT_EQ(trail.sampleNearest(19.5f, 16.5f).heightScale, 128);
 }

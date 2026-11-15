@@ -284,9 +284,9 @@ TEST(FoliageSpawn, PureGrassPlacesTreesAndFlowersOnly)
 
     FoliageSpawnOut out;
     ASSERT_TRUE(spawnFoliage(in, out));
-    ASSERT_EQ(out.records.size(), 1u);
-    EXPECT_EQ(out.accepted, 1u);
-    EXPECT_EQ(out.kept, 1u);
+    ASSERT_GE(out.records.size(), 1u);
+    EXPECT_EQ(out.accepted, static_cast<uint64_t>(out.records.size()));
+    EXPECT_EQ(out.kept, static_cast<uint32_t>(out.records.size()));
     EXPECT_FALSE(out.capped);
     EXPECT_EQ(out.records[0].kind, static_cast<uint8_t>(FoliageKind::Tree));
     EXPECT_FLOAT_EQ(out.records[0].pitch, 0.0f);
@@ -297,7 +297,17 @@ TEST(FoliageSpawn, PureGrassPlacesTreesAndFlowersOnly)
     EXPECT_NEAR(out.records[0].x, 0.5f, 0.45f);
     EXPECT_NEAR(out.records[0].z, 0.5f, 0.45f);
     expectPadAndYaw(out.records[0]);
-    EXPECT_EQ(out.cover.sampleNearest(out.records[0].x, out.records[0].z).coverage, 0);
+    const double trunk = 0.5 * static_cast<double>(out.records[0].scale);
+    for (size_t i = 1; i < out.records.size(); ++i)
+    {
+        EXPECT_EQ(out.records[i].kind, static_cast<uint8_t>(FoliageKind::Flower));
+        const double dx = static_cast<double>(out.records[i].x) - static_cast<double>(out.records[0].x);
+        const double dz = static_cast<double>(out.records[i].z) - static_cast<double>(out.records[0].z);
+        EXPECT_GE(dx * dx + dz * dz, trunk * trunk - 1.0e-4);
+    }
+    const CoverSample trunkCover = out.cover.sampleNearest(out.records[0].x, out.records[0].z);
+    EXPECT_EQ(trunkCover.coverage, 255);
+    EXPECT_LT(trunkCover.heightScale, 128);
 
     in.density.dirtTreesPerM2  = 0.0f;
     in.density.grassTreesPerM2 = 0.0f;
@@ -483,10 +493,20 @@ TEST(FoliageSpawn, FlowerSlotsFollowRate)
     in.density.grassFlowersPerM2 = 5.0f;
     in.density.grassTreesPerM2   = 5.0f;
     ASSERT_TRUE(spawnFoliage(in, out));
-    ASSERT_EQ(out.records.size(), 1u);
+    ASSERT_GE(out.records.size(), 1u);
     EXPECT_EQ(out.records[0].kind, static_cast<uint8_t>(FoliageKind::Tree));
-    EXPECT_EQ(out.accepted, 1u);
-    EXPECT_EQ(out.cover.sampleNearest(out.records[0].x, out.records[0].z).coverage, 0);
+    EXPECT_EQ(out.accepted, static_cast<uint64_t>(out.records.size()));
+    const double trunk = 0.5 * static_cast<double>(out.records[0].scale);
+    for (size_t i = 1; i < out.records.size(); ++i)
+    {
+        EXPECT_EQ(out.records[i].kind, static_cast<uint8_t>(FoliageKind::Flower));
+        const double dx = static_cast<double>(out.records[i].x) - static_cast<double>(out.records[0].x);
+        const double dz = static_cast<double>(out.records[i].z) - static_cast<double>(out.records[0].z);
+        EXPECT_GE(dx * dx + dz * dz, trunk * trunk - 1.0e-4);
+    }
+    const CoverSample trunkCover = out.cover.sampleNearest(out.records[0].x, out.records[0].z);
+    EXPECT_EQ(trunkCover.coverage, 255);
+    EXPECT_LT(trunkCover.heightScale, 128);
 }
 
 TEST(FoliageSpawn, SameSeedRepeats)
@@ -1043,11 +1063,10 @@ TEST(FoliageSpawn, FlowersAndTuftsAvoidTrunkCore)
     }
     ASSERT_EQ(trees, 1);
     ASSERT_NE(tree, nullptr);
-    EXPECT_EQ(out.cover.sampleNearest(tree->x, tree->z).coverage, 0);
+    EXPECT_EQ(out.cover.sampleNearest(tree->x, tree->z).coverage, 255);
+    EXPECT_LT(out.cover.sampleBilinear(tree->x, tree->z).heightScale, 128);
 
     const double trunk = 0.25 * 8.0 * static_cast<double>(tree->scale);
-    int          ring = 0;
-    int          outside = 0;
     int          flowers = 0;
     int          tufts = 0;
     for (const FoliageRecord& rec : out.records)
@@ -1063,39 +1082,9 @@ TEST(FoliageSpawn, FlowersAndTuftsAvoidTrunkCore)
         const double dx = static_cast<double>(rec.x) - static_cast<double>(tree->x);
         const double dz = static_cast<double>(rec.z) - static_cast<double>(tree->z);
         EXPECT_GE(dx * dx + dz * dz, trunk * trunk - 1.0e-4);
-        const CoverSample soft = out.cover.sampleBilinear(rec.x, rec.z);
-        if (soft.coverage > 0 && soft.coverage < 255)
-            ++ring;
-        else if (soft.coverage == 255)
-            ++outside;
     }
     EXPECT_GT(flowers, 0);
     EXPECT_GT(tufts, 0);
-    EXPECT_GT(ring, 0);
-    EXPECT_GT(outside, 0);
-
-    int ringCells = 0;
-    int outsideCells = 0;
-    for (int z = 0; z < 32; ++z)
-    {
-        for (int x = 0; x < 32; ++x)
-        {
-            const float wx = (static_cast<float>(x) + 0.5f) * 0.25f;
-            const float wz = (static_cast<float>(z) + 0.5f) * 0.25f;
-            const CoverSample sample = out.cover.sampleBilinear(wx, wz);
-            if (sample.coverage == 0)
-                continue;
-            if (sample.coverage < 255)
-                ++ringCells;
-            else
-                ++outsideCells;
-        }
-    }
-    ASSERT_GT(ringCells, 0);
-    ASSERT_GT(outsideCells, 0);
-    const double ringDensity = static_cast<double>(ring) / static_cast<double>(ringCells);
-    const double outsideDensity = static_cast<double>(outside) / static_cast<double>(outsideCells);
-    EXPECT_LT(ringDensity, outsideDensity);
 }
 
 TEST(FoliageSpawn, PatchMaskZeroStrengthMatchesBaseline)

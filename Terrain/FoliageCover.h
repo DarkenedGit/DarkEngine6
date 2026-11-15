@@ -63,6 +63,8 @@ namespace Dark::Terrain
 
         void stampDisk(float x, float z, float radiusM, uint8_t coverage, uint8_t heightScale, bool minBlend);
         void stampSoftAnnulus(float x, float z, float innerM, float outerM, uint8_t innerCoverage, uint8_t outerCoverage, uint8_t innerHeight, uint8_t outerHeight, bool minBlend);
+        // Height eases from innerHeight at the centre to outerHeight at radiusM. Coverage is not written.
+        void stampRadialFalloff(float x, float z, float radiusM, uint8_t innerHeight, uint8_t outerHeight, bool minBlend);
         // samples: Vector2f::y is world z. Core radius is fixed; edgeSeed only moves the shoulder.
         void stampTrail(const std::vector<Math::Vector2f>& samples, float coreRadiusM, float shoulderM, float edgeNoiseM, uint32_t edgeSeed, bool minBlend);
 

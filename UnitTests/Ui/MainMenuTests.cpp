@@ -421,3 +421,56 @@ TEST(MainMenu, MoveToConfirmAndQuit)
     menu.quit();
     EXPECT_EQ(menu.pollResult(), MainMenuResult::None);
 }
+
+TEST(MainMenu, LoadingKeepsRowAndDropsInput)
+{
+    MainMenu menu;
+    menu.addScene("parkour_test.json", "Parkour", "parkour_test.json", "", MainMenuRole::Level);
+    menu.addBuiltIn("continue", "Continue");
+    menu.addQuit();
+    menu.show();
+    menu.setLevelFocus(true);
+    EXPECT_TRUE(menu.levelFocus());
+
+    menu.setLoading("");
+    EXPECT_TRUE(menu.loading());
+    EXPECT_EQ(menu.loadingLabel(), "Parkour");
+    EXPECT_EQ(menu.selectedIndex(), 0u);
+
+    Input in;
+    pressKey(in, Key::Down);
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.selectedIndex(), 0u);
+    EXPECT_EQ(menu.pollResult(), MainMenuResult::None);
+
+    pressKey(in, Key::Enter);
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.pollResult(), MainMenuResult::None);
+
+    pressKey(in, Key::Escape);
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.pollResult(), MainMenuResult::None);
+
+    menu.moveTo(1);
+    menu.setSelected(1);
+    EXPECT_FALSE(menu.selectById("continue"));
+    menu.setLevelFocus(false);
+    menu.confirm();
+    menu.quit();
+    EXPECT_EQ(menu.selectedIndex(), 0u);
+    EXPECT_TRUE(menu.levelFocus());
+    EXPECT_EQ(menu.pollResult(), MainMenuResult::None);
+
+    menu.clearLoading();
+    EXPECT_FALSE(menu.loading());
+    EXPECT_TRUE(menu.loadingLabel().empty());
+    pressKey(in, Key::Escape);
+    menu.update(in, 1280, 720);
+    EXPECT_EQ(menu.pollResult(), MainMenuResult::Quit);
+
+    menu.show();
+    menu.setLoading("Parkour");
+    menu.hide();
+    EXPECT_FALSE(menu.loading());
+    EXPECT_FALSE(menu.visible());
+}
