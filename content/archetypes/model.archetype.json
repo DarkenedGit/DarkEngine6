@@ -1,0 +1,7 @@
+{
+  "id": "core:model",
+  "version": 1,
+  "editor": { "label": "Model", "category": "Props", "icon": "cube", "modes": ["3d"] },
+  "components": { "Model": {} },
+  "behaviors": [ { "name": "model" } ]
+}

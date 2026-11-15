@@ -1,0 +1,7 @@
+{
+  "id": "core:particle_emitter",
+  "version": 1,
+  "editor": { "label": "Particle Emitter", "category": "Effects", "icon": "bolt", "modes": ["3d"] },
+  "components": { "ParticleEmitter": {} },
+  "behaviors": []
+}

@@ -1,6 +1,7 @@
 #include "Play/Spawner.h"
 
 #include "AI/AiSystem.h"
+#include "Content/ArchetypeSpawn.h"
 #include "Core/Log.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
@@ -51,7 +52,53 @@ namespace Dark
         if (!host.world || !host.renderer || !host.assets || !host.pins)
             return {};
         World& world = *host.world;
-        if (req.unit == SpawnerUnit::Crow)
+        std::string_view bare = req.unitArchetype;
+        const auto colon = bare.rfind(':');
+        if (colon != std::string_view::npos)
+            bare = bare.substr(colon + 1);
+        const bool builtinUnit = req.unitArchetype.empty() || bare == "hunter" || bare == "enemy" || bare == "wolf" || bare == "crow";
+        if (!builtinUnit)
+        {
+            if (!host.audio || !host.ground)
+                return {};
+            ArchetypeSpawnHost spawn{};
+            spawn.world    = host.world;
+            spawn.assets   = host.assets;
+            spawn.pins     = host.pins;
+            spawn.renderer = host.renderer;
+            spawn.audio    = host.audio;
+            spawn.ground   = host.ground;
+            spawn.ai       = host.ai;
+            spawn.user     = const_cast<ListedSpawnHost*>(&host);
+            spawn.ensureMesh = [](void* user, Entity entity) {
+                auto* listed = static_cast<ListedSpawnHost*>(user);
+                if (listed && listed->onProxy)
+                    listed->onProxy(listed->user, entity);
+                return true;
+            };
+            ArchetypeSpawnPose pose{};
+            pose.position = Math::Vector3f{ req.x, listedGroundY(host, req.x, req.z) + 0.5f, req.z };
+            pose.scale    = Math::Vector3f{ 1.0f, 1.0f, 1.0f };
+            ContentError err;
+            const Entity e = instantiateArchetype(spawn, req.unitArchetype, pose, {}, &err);
+            if (!e.valid())
+            {
+                DE_LOG_WARN(LogCategory::AI, "Spawner: archetype '{}' failed ({})", req.unitArchetype, err.message);
+                return {};
+            }
+            if (host.noteHunter)
+                host.noteHunter(host.user, e);
+            if (host.bindPhysics)
+                host.bindPhysics(host.user, e, false);
+            SpawnedUnitComponent mark{};
+            mark.spawner = spawner;
+            mark.slot    = req.slot;
+            world.emplace<SpawnedUnitComponent>(e, mark);
+            return e;
+        }
+        const bool crow = req.unit == SpawnerUnit::Crow || bare == "crow";
+        const bool wolf = req.unit == SpawnerUnit::Wolf || bare == "wolf";
+        if (crow)
         {
             if (!host.crows)
                 return {};
@@ -63,7 +110,6 @@ namespace Dark
 
         if (!host.ai || !host.audio || !host.ground || !host.play)
             return {};
-        const bool         wolf = req.unit == SpawnerUnit::Wolf;
         TransformComponent xf{};
         xf.position = Math::Vector3f{ req.x, listedGroundY(host, req.x, req.z) + 0.5f, req.z };
         xf.scale    = Math::Vector3f{ 1.0f, 1.0f, 1.0f };

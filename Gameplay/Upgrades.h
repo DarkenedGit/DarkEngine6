@@ -17,6 +17,14 @@ namespace Dark
     };
 
     // content/upgrades.json. effect is one of: breath, quiet, health, speed, exposure.
+    // op is "mul" or "add". stat is a registered name such as "speed" or "move.speed".
+    struct StatMod
+    {
+        std::string stat;
+        std::string op = "mul";
+        float       value = 1.0f;
+    };
+
     struct UpgradeDef
     {
         std::string              id;
@@ -24,6 +32,7 @@ namespace Dark
         std::string              description;
         std::string              effect;
         float                    value = 1.0f;
+        std::vector<StatMod>     mods;
         std::vector<UpgradeCost> cost;
     };
 
@@ -43,7 +52,10 @@ namespace Dark
         float health   = 0.0f;
         float speed    = 1.0f;
         float exposure = 1.0f;
+        // Stats that are not one of the five fields above, after stacking.
+        std::vector<StatMod> extra;
     };
     UpgradeEffects combineUpgrades(const std::vector<UpgradeDef>& defs, const std::vector<std::string>& owned);
+    float          combinedStat(const UpgradeEffects& effects, std::string_view stat);
 
 } // namespace Dark

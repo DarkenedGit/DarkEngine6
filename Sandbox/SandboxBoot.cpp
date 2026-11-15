@@ -1,6 +1,9 @@
 #include "SandboxApp.h"
 #include "SandboxInternal.h"
 
+#include "Content/ArchetypeSpawn.h"
+#include "Content/ContentDb.h"
+
 #include "Assets/Image.h"
 #include "Assets/Material.h"
 #include "Assets/Model.h"
@@ -124,6 +127,7 @@ struct SandboxApp::SandboxBootLoad
         Shield,
         Pawns,
         Models,
+        Archetypes,
         SpawnerMarker,
         Spawners,
         MovieMarker,
@@ -194,6 +198,7 @@ struct SandboxApp::SandboxBootLoad
     std::vector<SceneObjectData> spawners;
     std::vector<SceneObjectData> movies;
     std::vector<SceneObjectData> models;
+    std::vector<SceneObjectData> archetypes;
     std::vector<SceneObjectData> clouds;
     size_t                    cloudCursor = 0;
     uint32_t                  spawnedClouds = 0;
@@ -209,6 +214,7 @@ struct SandboxApp::SandboxBootLoad
     int                       wolfStamp = 0;
     bool                      pawnsLogged = false;
     size_t                    modelCursor = 0;
+    size_t                    archetypeCursor = 0;
     int                       modelStamp = 0;
     int                       modelsAttached = 0;
     bool                      modelsLogged = false;
@@ -989,6 +995,36 @@ bool SandboxApp::advanceBootSlice()
     return false;
 }
 
+Dark::Entity SandboxApp::spawnAuthoredArchetype(const Dark::SceneObjectData& object)
+{
+    if (object.archetype.empty())
+        return {};
+    ArchetypeSpawnHost host{};
+    host.world      = &world();
+    host.assets     = &assets();
+    host.pins       = &pins();
+    host.renderer   = &renderer();
+    host.audio      = &audio();
+    host.ground     = &m_ground;
+    host.ai         = m_chaseOk ? const_cast<AiSystem*>(&m_chase.ai()) : nullptr;
+    host.ensureMesh = [](void*, Entity) { return true; };
+    host.user       = this;
+    ArchetypeSpawnPose pose{};
+    pose.position = object.position;
+    pose.rotation = object.rotation;
+    const bool zeroScale = object.scale.x == 0.0f && object.scale.y == 0.0f && object.scale.z == 0.0f;
+    pose.scale    = zeroScale ? Vector3f{ 1.0f, 1.0f, 1.0f } : object.scale;
+    ContentError err;
+    const Entity e = instantiateArchetype(host, object.archetype, pose, object.overridesJson, &err);
+    if (!e.valid())
+    {
+        DE_LOG_WARN(LogCategory::AI, "Sandbox: archetype '{}' failed ({})", object.archetype, err.message);
+        return {};
+    }
+    stampProceduralId(world(), e, std::format("sandbox/level/archetype/{}", e.id()), object.archetype);
+    return e;
+}
+
 bool SandboxApp::advanceSpawnBatch()
 {
     SandboxBootLoad& boot = *m_boot;
@@ -1015,6 +1051,13 @@ bool SandboxApp::advanceSpawnBatch()
             }
             for (const SceneObjectData& o : boot.scene.objects)
             {
+                if (o.placeholder)
+                    continue;
+                if (o.dataDriven)
+                {
+                    boot.archetypes.push_back(o);
+                    continue;
+                }
                 if (o.type == SceneObjectType::Hunter || o.type == SceneObjectType::Wolf)
                     boot.pawns.push_back(o);
                 if (o.type == SceneObjectType::Spawner)
@@ -1386,6 +1429,15 @@ bool SandboxApp::advanceSpawnBatch()
             {
                 DE_LOG_INFO(LogCategory::Render, "SandboxApp: {} scene model(s)", boot.modelsAttached);
                 boot.modelsLogged = true;
+            }
+            boot.phase = SandboxBootLoad::SpawnPhase::Archetypes;
+            continue;
+        case SandboxBootLoad::SpawnPhase::Archetypes:
+            while (boot.archetypeCursor < boot.archetypes.size())
+            {
+                const SceneObjectData& o = boot.archetypes[boot.archetypeCursor++];
+                spawnAuthoredArchetype(o);
+                return true;
             }
             boot.phase = SandboxBootLoad::SpawnPhase::SpawnerMarker;
             continue;

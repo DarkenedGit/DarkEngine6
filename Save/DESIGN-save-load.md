@@ -14,7 +14,7 @@
 
 A save records **progress of a run**. It is the state of the simulation after the player has moved, fought, looted, and left things dead or moved.
 
-`SceneFile` / `level.json` is a different file with a different job. It is the level editor's authored **starting point**: what Play and a new game build before anyone has played. Scene JSON stays version 2. The save system never writes it, never upgrades it, and never stores meshes, terrain, entity masters, `*.hsm.json`, or `*.anim.json`.
+`SceneFile` / `level.json` is a different file with a different job. It is the level editor's authored **starting point**: what Play and a new game build before anyone has played. Scene files are version 1, 2, or 3. The save system never writes one, never upgrades one, and never stores meshes, terrain, entity masters, `*.hsm.json`, or `*.anim.json`.
 
 Load means: build that starting point the way a new game already does, then **overlay** the progress file on top.
 
@@ -219,7 +219,7 @@ namespace Dark
         static constexpr const char* kTypeName = "PersistentId";
         UUID          id{ 0ull };          // 0 = unset. Reuse Core/UUID
         PersistOrigin origin = PersistOrigin::Authored;
-        char          archetype[24]{};     // Spawned only. Entity-master / spawn name ("wolf", "hunter")
+        std::string   archetype;           // Content id ("core:wolf", "better_wolves:howler"). Not length-capped.
     };
 
     // FNV-1a 64. Top bit set so a procedural id is distinct from a random UUID in files.
@@ -315,6 +315,7 @@ struct SaveHost
 | `savedAtUtc` | Sort key |
 | `playTimeSec` | From `WorldClockComponent` when that component is present |
 | `scene` | `{ "path", "hash", "procedural" }`. `path` is a content-relative virtual path, empty when the host is fully procedural. `hash` is FNV-1a 64 of the scene bytes, or empty. `procedural` is a host layout tag such as `"sandbox.pathchase.v1"`, or empty when the world came only from the scene |
+| `packages` | Enabled content packages at save time: `{ "id", "version" }` each. Load warns when a listed id is not loaded. A spawned entity whose archetype is not in the loaded set is skipped and logged. The integrity hash does not cover this list |
 | `thumbnail` | `null` until a later sidecar exists |
 | `counts` | `{ "entities", "components" }` for the UI and a sanity check |
 | `payload` | The progress document below |
@@ -333,6 +334,7 @@ A scene `hash` mismatch logs and continues: the level was edited after the save,
   "savedAtUtc": "2026-10-03T06:01:05Z",
   "playTimeSec": 1834.25,
   "scene": { "path": "", "hash": "", "procedural": "sandbox.pathchase.v1" },
+  "packages": [ { "id": "core", "version": "6.0.0" } ],
   "thumbnail": null,
   "counts": { "entities": 4, "components": 11 },
   "payload": {

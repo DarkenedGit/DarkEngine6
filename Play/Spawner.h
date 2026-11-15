@@ -3,6 +3,7 @@
 #include "ECS/Entity.h"
 
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 namespace Dark
@@ -46,6 +47,8 @@ namespace Dark
         int             maxWaves     = 0; // 0 = no limit
         bool            enabled      = true;
         uint32_t        seed         = 1;
+        // Empty uses `unit`. A namespaced or unknown id spawns that archetype.
+        std::string     unitArchetype;
     };
 
     struct SpawnerSlot
@@ -69,6 +72,7 @@ namespace Dark
     struct SpawnerRequest
     {
         SpawnerUnit unit = SpawnerUnit::Hunter;
+        std::string unitArchetype;
         int         slot = 0;
         float       x    = 0.0f;
         float       z    = 0.0f;

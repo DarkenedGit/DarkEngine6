@@ -1,5 +1,7 @@
 #include "EditorApp.h"
 
+#include "Content/ContentDb.h"
+
 #include "Play/DialogueFacts.h"
 #include "Play/EnvironmentTick.h"
 
@@ -110,6 +112,7 @@ void EditorApp::drawEditorUi()
             ImGui::MenuItem(ICON_FA_FILE "  Dialogue", "F9", &m_showDialoguePanel);
             ImGui::MenuItem(ICON_FA_VOLUME_HIGH "  Audio", nullptr, &m_showAudioPanel);
             ImGui::MenuItem(ICON_FA_FOLDER_OPEN "  Assets", "F10", &m_showAssetBrowser);
+            ImGui::MenuItem("Content", nullptr, &m_showContentReport);
             ImGui::MenuItem(ICON_FA_CUBE "  Model Parts", nullptr, &m_showModelParts);
             ImGui::MenuItem(ICON_FA_CUBE "  Material", nullptr, &m_showMaterialEditor);
             ImGui::MenuItem(ICON_FA_LAYER_GROUP "  Terrain", nullptr, &m_showTerrainPanel);
@@ -207,16 +210,19 @@ void EditorApp::drawEditorUi()
                 if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  Platform", "1+P", false, createOk))
                 {
                     m_placeType          = SceneObjectType::Platform;
+                    m_placeArchetype.clear();
                     m_queuePlaceAtCursor = true;
                 }
                 if (ImGui::MenuItem(ICON_FA_CIRCLE "  Coin", "2+P", false, createOk))
                 {
                     m_placeType          = SceneObjectType::Coin;
+                    m_placeArchetype.clear();
                     m_queuePlaceAtCursor = true;
                 }
                 if (ImGui::MenuItem(ICON_FA_CIRCLE_PLUS "  Player Spawn", "3+P", false, createOk))
                 {
                     m_placeType          = SceneObjectType::Spawn;
+                    m_placeArchetype.clear();
                     m_queuePlaceAtCursor = true;
                 }
             }
@@ -225,52 +231,62 @@ void EditorApp::drawEditorUi()
                 if (ImGui::MenuItem(ICON_FA_CUBE "  Cube", "1+P", false, createOk))
                 {
                     m_placeType            = SceneObjectType::Cube;
-                    m_queuePlaceAtCursor   = true;
+                    m_placeArchetype.clear();
+                    m_queuePlaceAtCursor = true;
                 }
                 if (ImGui::MenuItem(ICON_FA_CIRCLE "  Sphere", "2+P", false, createOk))
                 {
                     m_placeType            = SceneObjectType::Sphere;
-                    m_queuePlaceAtCursor   = true;
+                    m_placeArchetype.clear();
+                    m_queuePlaceAtCursor = true;
                 }
                 if (ImGui::MenuItem(ICON_FA_BOLT "  Particle Emitter", "3+P", false, createOk))
                 {
                     m_placeType            = SceneObjectType::ParticleEmitter;
-                    m_queuePlaceAtCursor   = true;
+                    m_placeArchetype.clear();
+                    m_queuePlaceAtCursor = true;
                 }
                 if (ImGui::MenuItem(ICON_FA_LIGHTBULB "  Point Light", "4+P", false, createOk))
                 {
                     m_placeType            = SceneObjectType::PointLight;
-                    m_queuePlaceAtCursor   = true;
+                    m_placeArchetype.clear();
+                    m_queuePlaceAtCursor = true;
                 }
                 if (ImGui::MenuItem(ICON_FA_LIGHTBULB "  Spot Light", "5+P", false, createOk))
                 {
                     m_placeType            = SceneObjectType::SpotLight;
-                    m_queuePlaceAtCursor   = true;
+                    m_placeArchetype.clear();
+                    m_queuePlaceAtCursor = true;
                 }
                 if (ImGui::MenuItem(ICON_FA_CIRCLE_PLUS "  Player", "6+P", false, createOk))
                 {
                     m_placeType            = SceneObjectType::Player;
-                    m_queuePlaceAtCursor   = true;
+                    m_placeArchetype.clear();
+                    m_queuePlaceAtCursor = true;
                 }
                 if (ImGui::MenuItem(ICON_FA_BUG "  Hunter", "7+P", false, createOk))
                 {
                     m_placeType            = SceneObjectType::Hunter;
-                    m_queuePlaceAtCursor   = true;
+                    m_placeArchetype.clear();
+                    m_queuePlaceAtCursor = true;
                 }
                 if (ImGui::MenuItem(ICON_FA_BUG "  Wolf", "8+P", false, createOk))
                 {
                     m_placeType            = SceneObjectType::Wolf;
-                    m_queuePlaceAtCursor   = true;
+                    m_placeArchetype.clear();
+                    m_queuePlaceAtCursor = true;
                 }
                 if (ImGui::MenuItem(ICON_FA_FORWARD_STEP "  Spawner", nullptr, false, createOk))
                 {
                     m_placeType          = SceneObjectType::Spawner;
+                    m_placeArchetype.clear();
                     m_queuePlaceAtCursor = true;
                 }
                 ImGui::SetItemTooltip("Places a spawner. Maintain replaces dead units. Waves wait for a timer or until the wave is dead.");
                 if (ImGui::MenuItem(ICON_FA_CUBE "  Movie", nullptr, false, createOk))
                 {
                     m_placeType          = SceneObjectType::Movie;
+                    m_placeArchetype.clear();
                     m_queuePlaceAtCursor = true;
                 }
                 ImGui::SetItemTooltip("Places a movie cue. The cube is a marker, not the screen.");
@@ -279,21 +295,44 @@ void EditorApp::drawEditorUi()
                 if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  Water", nullptr, false, createOk))
                 {
                     m_placeType          = SceneObjectType::Water;
+                    m_placeArchetype.clear();
                     m_queuePlaceAtCursor = true;
                 }
                 ImGui::SetItemTooltip("Places a lake. Position Y is the surface. Width and depth are the footprint. Add several at different heights.");
                 if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  Stream", nullptr, false, createOk))
                 {
                     m_placeType          = SceneObjectType::Stream;
+                    m_placeArchetype.clear();
                     m_queuePlaceAtCursor = true;
                 }
                 ImGui::SetItemTooltip("Places a stream ribbon. Follow downhill in the inspector to run it to the lake.");
                 if (ImGui::MenuItem(ICON_FA_CLOUD "  Cloud Volume", nullptr, false, createOk))
                 {
                     m_placeType          = SceneObjectType::CloudVolume;
+                    m_placeArchetype.clear();
                     m_queuePlaceAtCursor = true;
                 }
                 ImGui::SetItemTooltip("Places a volumetric cloud. Scale is the volume size. Looks correct from inside the volume.");
+            }
+            ImGui::Separator();
+            const char* modeName = (m_sceneMode == SceneMode::Scene2D) ? "2d" : "3d";
+            for (const Archetype& archetype : archetypes())
+            {
+                SceneObjectType legacy{};
+                if (legacySceneTypeForId(archetype.name, legacy) || archetype.name == "core:crow")
+                    continue;
+                if (!archetypeVisibleInMode(archetype, modeName))
+                    continue;
+                const std::string shown = archetype.editor.category.empty()
+                    ? archetype.editor.label
+                    : archetype.editor.category + " / " + archetype.editor.label;
+                const std::string label = std::string(iconForContentName(archetype.editor.icon)) + "  " + shown;
+                const char* shortcut = archetype.editor.hotkey.empty() ? nullptr : archetype.editor.hotkey.c_str();
+                if (ImGui::MenuItem(label.c_str(), shortcut, false, createOk))
+                {
+                    m_placeArchetype     = archetype.name;
+                    m_queuePlaceAtCursor = true;
+                }
             }
             if (!createOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
                 ImGui::SetTooltip("Spectators cannot place or delete objects");
@@ -357,6 +396,7 @@ void EditorApp::drawEditorUi()
     }
 
     drawAssetBrowser();
+    drawContentReport();
 
     beginPassthruDockSpace("EditorDockHost", ImGui::GetFrameHeight(), toolbarH);
 
@@ -483,6 +523,7 @@ void EditorApp::drawEditorUi()
                 if (ImGui::Button(ICON_FA_BOLT "  Create Emitter at Cursor") && !netClientLocked())
                 {
                     m_placeType          = SceneObjectType::ParticleEmitter;
+                    m_placeArchetype.clear();
                     m_queuePlaceAtCursor = true;
                 }
                 ImGui::Separator();
@@ -533,7 +574,18 @@ void EditorApp::drawEditorUi()
             const bool selected = m_selected.valid() && m_selected.id() == e.id();
             ImGui::PushID(static_cast<int>(e.id()));
             char label[160];
-            if (so.type == SceneObjectType::Model)
+            if (so.source.placeholder || so.source.dataDriven)
+            {
+                const Archetype* arch = so.source.archetype.empty() ? nullptr : findArchetype(so.source.archetype);
+                const char* icon = so.source.placeholder
+                    ? ICON_FA_XMARK
+                    : iconForContentName(arch ? std::string_view(arch->editor.icon) : std::string_view{});
+                const std::string shown = so.source.placeholder
+                    ? std::string("Missing")
+                    : (arch && !arch->editor.label.empty() ? arch->editor.label : so.source.archetype);
+                std::snprintf(label, sizeof(label), "%s  %s##%u", icon, shown.c_str(), e.id());
+            }
+            else if (so.type == SceneObjectType::Model)
             {
                 const char* modelName = "model";
                 std::string  fileName;
@@ -739,6 +791,32 @@ void EditorApp::drawSkyPanel()
     }
 }
 
+void EditorApp::drawContentReport()
+{
+    if (!m_showContentReport)
+        return;
+    if (!ImGui::Begin("Content", &m_showContentReport))
+    {
+        ImGui::End();
+        return;
+    }
+    ImGui::TextUnformatted("Packages");
+    for (const ContentPackage& package : contentPackages())
+    {
+        ImGui::BulletText("%s  %s%s", package.id.c_str(), package.version.c_str(), package.enabled ? "" : "  (disabled)");
+    }
+    if (contentPackages().empty())
+        ImGui::TextDisabled("No packages loaded.");
+    if (!contentIssues().empty())
+    {
+        ImGui::Separator();
+        ImGui::TextUnformatted("Issues");
+        for (const ContentIssue& issue : contentIssues())
+            ImGui::TextWrapped("%s: %s", issue.packageId.c_str(), issue.message.c_str());
+    }
+    ImGui::End();
+}
+
 void EditorApp::drawInspector3D()
 {
     if (!ImGui::Begin("Inspector"))
@@ -800,6 +878,19 @@ void EditorApp::drawInspector3D()
     const bool locked   = netClientLocked();
     const bool envLight = isGlobalLightType(so->type);
     ImGui::Text("Selected: %s", toString(so->type));
+    if (so->source.placeholder)
+        ImGui::TextWrapped("This object is kept and written back unchanged.");
+    else if (so->source.dataDriven)
+    {
+        ImGui::Text("Archetype: %s", so->source.archetype.c_str());
+        if (const Archetype* archetype = findArchetype(so->source.archetype))
+        {
+            for (const ArchetypeBehavior& behavior : archetype->behaviors)
+                ImGui::BulletText("%s", behavior.name.c_str());
+        }
+        if (HealthComponent* hp = world().get<HealthComponent>(m_selected))
+            ImGui::Text("HP  %.0f / %.0f", static_cast<double>(hp->health.hp()), static_cast<double>(hp->health.maxHp()));
+    }
     if (so->type == SceneObjectType::Player || so->type == SceneObjectType::Hunter || so->type == SceneObjectType::Wolf)
     {
         if (HealthComponent* hp = world().get<HealthComponent>(m_selected))

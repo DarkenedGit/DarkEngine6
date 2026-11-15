@@ -117,7 +117,8 @@ namespace Dark
         p.prefab     = static_cast<uint8_t>(nc.prefab);
         p.owner      = static_cast<uint8_t>(nc.owner);
         p.flags      = nc.replicateTransform ? 1u : 0u;
-        p.colorRgba8 = nc.colorRgba8;
+        p.colorRgba8     = nc.colorRgba8;
+        p.archetypeIndex = nc.archetypeIndex;
         if (const TransformComponent* xf = world.get<TransformComponent>(e))
         {
             p.px = xf->position.x;
@@ -217,7 +218,7 @@ namespace Dark
             world.destroyEntity(e);
     }
 
-    bool NetworkSystem::registerEntity(World& world, Entity e, NetPrefab prefab, ClientId owner, uint32_t colorRgba8)
+    bool NetworkSystem::registerEntity(World& world, Entity e, NetPrefab prefab, ClientId owner, uint32_t colorRgba8, uint16_t archetypeIndex)
     {
         bindWorld(world);
         if (m_role != NetRole::Idle && m_role != NetRole::Host)
@@ -242,6 +243,7 @@ namespace Dark
         nc.netId              = NULL_NET_ID;
         nc.owner              = owner;
         nc.prefab             = prefab;
+        nc.archetypeIndex     = archetypeIndex;
         nc.colorRgba8         = colorRgba8;
         nc.replicateTransform = true;
 

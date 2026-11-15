@@ -184,6 +184,7 @@ namespace
             case SceneObjectType::Cube:   return "cube";
             case SceneObjectType::Sphere: return "sphere";
             case SceneObjectType::Player: return "player";
+            case SceneObjectType::Hunter: return "hunter";
             case SceneObjectType::Wolf:   return "wolf";
             case SceneObjectType::Stream:
             case SceneObjectType::Spawner: break;

@@ -342,6 +342,13 @@ namespace Dark
         // Unit spawner. Radius is metres on the ground, not the marker scale.
         bool        hasSpawner = false;
         SpawnerDesc spawner{};
+
+        // Archetype id ("core:wolf"). placeholder objects keep rawJson and are written back unchanged.
+        bool        placeholder = false;
+        bool        dataDriven  = false;
+        std::string archetype;
+        std::string rawJson;
+        std::string overridesJson;
     };
 
     // World-level terrain JSON DTO. Not a SceneObjectType. Paths are virtual or sidecar filenames.

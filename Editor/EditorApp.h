@@ -166,6 +166,12 @@ private:
 
     Entity placeAtCursor(SceneObjectType type);
     Entity placeAtWorld(SceneObjectType type, Math::Vector3f hit, const SceneObjectData* authored = nullptr);
+    Entity placeArchetypeAtCursor();
+    Entity placeArchetypeAtWorld(const std::string& archetypeId, Math::Vector3f hit, const SceneObjectData* authored = nullptr);
+    Entity spawnAuthoredArchetype(const SceneObjectData& authored, bool select);
+    Entity spawnPlaceholder(const SceneObjectData& authored);
+    static bool ensureArchetypeMesh(void* user, Dark::Entity entity);
+    void   drawContentReport();
     Entity placeGlowProp();
     void   loadTypeIcons();
     uint64_t typeIconId(SceneObjectType type) const;
@@ -452,6 +458,9 @@ private:
     bool                 m_showAssetBrowser  = true;
 
     SceneObjectType m_placeType  = SceneObjectType::Cube;
+    std::string     m_placeArchetype;
+    bool            m_showContentReport = false;
+    float           m_contentPoll       = 0.0f;
     float           m_cloudTime  = 0.0f;
     bool                  m_queuePlaceAtCursor = false;
     bool                  m_queueGlowProp      = false;

@@ -1,0 +1,7 @@
+{
+  "id": "core:spawn",
+  "version": 1,
+  "editor": { "label": "Player Spawn", "category": "2D", "icon": "circle-plus", "modes": ["2d"] },
+  "components": {},
+  "behaviors": []
+}

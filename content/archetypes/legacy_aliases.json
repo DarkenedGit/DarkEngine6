@@ -1,0 +1,15 @@
+{
+  "aliases": {
+    "enemy": "core:hunter",
+    "gltf": "core:model",
+    "emitter": "core:particle_emitter",
+    "particle": "core:particle_emitter",
+    "player_spawn": "core:spawn",
+    "ambient": "core:ambient_light",
+    "directional": "core:directional_light",
+    "sun": "core:directional_light",
+    "cloud": "core:cloud_volume",
+    "clouds": "core:cloud_volume",
+    "crow": "core:crow"
+  }
+}

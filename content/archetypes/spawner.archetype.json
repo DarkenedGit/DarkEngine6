@@ -1,0 +1,7 @@
+{
+  "id": "core:spawner",
+  "version": 1,
+  "editor": { "label": "Spawner", "category": "Gameplay", "icon": "forward", "modes": ["3d"] },
+  "components": { "Spawner": {} },
+  "behaviors": [ { "name": "spawner", "params": { "unit": "core:hunter" } } ]
+}

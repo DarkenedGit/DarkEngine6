@@ -37,7 +37,9 @@ namespace Dark
         void setWantsPawn(bool wants);
         void setPlayerName(const char* name);
 
-        uint8_t sceneMode() const { return m_sceneMode; }
+        uint8_t  sceneMode() const { return m_sceneMode; }
+        void     setContentHash(uint64_t hash) { m_contentHash = hash; }
+        uint64_t contentHash() const { return m_contentHash; }
         bool    wantsPawn() const { return m_wantsPawn != 0; }
 
         bool host(uint16_t port = kNetDefaultPort); // Idle only. Injected ITransport: skip bind, ignore port.
@@ -62,7 +64,7 @@ namespace Dark
         // If tagged count == 32 → false.
         // Idle: emplace with netId=0. host() assigns ids.
         // Host: assign NetId, queue Spawn if peers exist.
-        bool registerEntity(World& world, Entity e, NetPrefab prefab, ClientId owner = ClientId::Host, uint32_t colorRgba8 = 0xFFFFFFFFu);
+        bool registerEntity(World& world, Entity e, NetPrefab prefab, ClientId owner = ClientId::Host, uint32_t colorRgba8 = 0xFFFFFFFFu, uint16_t archetypeIndex = 0);
         // Unmap, Host-queue Despawn if netId!=0, NetDespawnFn, destroyEntity.
         // No-op if !has<NetworkedComponent>. Apps do not also destroyEntity.
         void unregisterEntity(World& world, Entity e);
@@ -233,6 +235,7 @@ namespace Dark
         uint16_t m_rawSeq       = 0;
         uint8_t  m_sceneMode    = 0;
         uint8_t  m_wantsPawn    = 1;
+        uint64_t m_contentHash  = 0;
         char     m_name[32]{};
         UUID     m_playerId{ 0ull };
         Address  m_serverAddr{};

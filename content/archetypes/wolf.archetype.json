@@ -1,0 +1,13 @@
+{
+  "id": "core:wolf",
+  "version": 1,
+  "editor": { "label": "Wolf", "category": "Creatures", "icon": "bug", "modes": ["3d"], "matchModel": "wolf" },
+  "components": {
+    "Model": { "gltf": "models/wolf.gltf", "anim": "models/wolf.anim.json" },
+    "Physics": { "file": "models/wolf.physics.json" },
+    "Combat": { "attacks": "ai/wolf.attacks.json" },
+    "Health": { "max": 60 }
+  },
+  "behaviors": [ { "name": "ai.wolf" } ],
+  "net": { "replicate": true }
+}

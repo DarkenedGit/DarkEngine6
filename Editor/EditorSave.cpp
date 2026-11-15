@@ -18,6 +18,7 @@
 #include "Save/HostSync.h"
 #include "Save/PersistentId.h"
 #include "Save/ProgressComponents.h"
+#include "Content/ContentDb.h"
 #include "Scene/SceneTypes.h"
 #include "Weapons/WeaponLoadoutComponent.h"
 
@@ -41,7 +42,7 @@ namespace
             if (id.origin != PersistOrigin::Authored || world.has<EditorObjectComponent>(e))
                 return;
             SceneObjectType type{};
-            if (!tryParseSceneObjectType(id.archetype, type))
+            if (!legacySceneTypeForId(id.archetype, type))
                 return;
             EditorObjectComponent so{};
             so.type     = type;
@@ -162,7 +163,23 @@ Entity EditorApp::saveRespawn(void* user, World&, std::string_view archetype, co
     if (!app)
         return {};
     SceneObjectType type{};
-    if (!tryParseSceneObjectType(archetype, type) || skipStampType(type))
+    if (!legacySceneTypeForId(archetype, type))
+    {
+        if (contentHasArchetype(archetype))
+        {
+            SceneObjectData authored{};
+            authored.archetype   = std::string(archetype);
+            authored.dataDriven  = true;
+            authored.type        = SceneObjectType::Model;
+            authored.position    = pose.position;
+            authored.rotation    = pose.rotation;
+            authored.scale       = pose.scale;
+            return app->spawnAuthoredArchetype(authored, false);
+        }
+        DE_LOG_WARN("Save: editor has no respawn for '{}'", archetype);
+        return {};
+    }
+    if (skipStampType(type))
     {
         DE_LOG_WARN("Save: editor has no respawn for '{}'", archetype);
         return {};

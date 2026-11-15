@@ -1,0 +1,7 @@
+{
+  "id": "core:spot_light",
+  "version": 1,
+  "editor": { "label": "Spot Light", "category": "Lights", "icon": "lightbulb", "modes": ["3d"] },
+  "components": { "LocalLight": {} },
+  "behaviors": [ { "name": "light.searchlight" } ]
+}

@@ -1,0 +1,7 @@
+{
+  "id": "core",
+  "version": "6.0.0",
+  "engine": ">=6.0",
+  "depends": [],
+  "loadAfter": []
+}

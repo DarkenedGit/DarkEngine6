@@ -1,0 +1,7 @@
+{
+  "id": "core:crow",
+  "version": 1,
+  "editor": { "label": "Crow", "category": "Creatures", "icon": "crow", "modes": ["3d"], "matchModel": "crow" },
+  "components": {},
+  "behaviors": []
+}

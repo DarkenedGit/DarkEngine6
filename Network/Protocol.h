@@ -24,15 +24,16 @@ namespace Dark
         Beacon         = 10
     };
 
-    constexpr uint32_t kConnectRequestBytes = 44;
+    constexpr uint32_t kConnectRequestBytes = 52;
     constexpr uint32_t kConnectAcceptBytes  = 20;
 
     struct ConnectRequestPayload
     {
         char     name[32]{};
         uint64_t playerId  = 0;
-        uint8_t  wantsPawn = 0;
-        uint8_t  sceneMode = 0;
+        uint8_t  wantsPawn   = 0;
+        uint8_t  sceneMode   = 0;
+        uint64_t contentHash = 0;
     };
 
     struct ConnectAcceptPayload
@@ -62,14 +63,14 @@ namespace Dark
 
     inline bool writeConnectRequest(PacketWriter& w, const ConnectRequestPayload& p)
     {
-        return w.writeBytes(p.name, 32) && writeU64LE(w, p.playerId) && w.writeU8(p.wantsPawn) && w.writeU8(p.sceneMode) && w.writeU8(0) && w.writeU8(0);
+        return w.writeBytes(p.name, 32) && writeU64LE(w, p.playerId) && w.writeU8(p.wantsPawn) && w.writeU8(p.sceneMode) && w.writeU8(0) && w.writeU8(0) && writeU64LE(w, p.contentHash);
     }
 
     inline bool readConnectRequest(PacketReader& r, ConnectRequestPayload& p)
     {
         uint8_t pad0 = 0;
         uint8_t pad1 = 0;
-        if (!r.readBytes(p.name, 32) || !readU64LE(r, p.playerId) || !r.readU8(p.wantsPawn) || !r.readU8(p.sceneMode) || !r.readU8(pad0) || !r.readU8(pad1))
+        if (!r.readBytes(p.name, 32) || !readU64LE(r, p.playerId) || !r.readU8(p.wantsPawn) || !r.readU8(p.sceneMode) || !r.readU8(pad0) || !r.readU8(pad1) || !readU64LE(r, p.contentHash))
             return false;
         p.name[31] = 0;
         return true;
@@ -127,7 +128,7 @@ namespace Dark
         return true;
     }
 
-    constexpr uint32_t kSpawnBytes     = 52;
+    constexpr uint32_t kSpawnBytes     = 54;
     constexpr uint32_t kDespawnBytes   = 4;
     constexpr uint32_t kPawnStateBytes = 32;
     constexpr uint32_t kSnapshotHeaderBytes = 8;
@@ -149,7 +150,8 @@ namespace Dark
         float    sx         = 1.f;
         float    sy         = 1.f;
         float    sz         = 1.f;
-        uint32_t colorRgba8 = 0xFFFFFFFFu;
+        uint32_t colorRgba8     = 0xFFFFFFFFu;
+        uint16_t archetypeIndex = 0;
     };
 
     struct PawnStatePayload
@@ -167,14 +169,14 @@ namespace Dark
     inline bool writeSpawn(PacketWriter& w, const SpawnPayload& p)
     {
         return w.writeU32(p.netId) && w.writeU8(p.prefab) && w.writeU8(p.owner) && w.writeU8(p.flags) && w.writeU8(0) && w.writeF32(p.px) && w.writeF32(p.py) && w.writeF32(p.pz) && w.writeF32(p.qw) &&
-               w.writeF32(p.qx) && w.writeF32(p.qy) && w.writeF32(p.qz) && w.writeF32(p.sx) && w.writeF32(p.sy) && w.writeF32(p.sz) && w.writeU32(p.colorRgba8);
+               w.writeF32(p.qx) && w.writeF32(p.qy) && w.writeF32(p.qz) && w.writeF32(p.sx) && w.writeF32(p.sy) && w.writeF32(p.sz) && w.writeU32(p.colorRgba8) && w.writeU16(p.archetypeIndex);
     }
 
     inline bool readSpawn(PacketReader& r, SpawnPayload& p)
     {
         uint8_t pad = 0;
         return r.readU32(p.netId) && r.readU8(p.prefab) && r.readU8(p.owner) && r.readU8(p.flags) && r.readU8(pad) && r.readF32(p.px) && r.readF32(p.py) && r.readF32(p.pz) && r.readF32(p.qw) &&
-               r.readF32(p.qx) && r.readF32(p.qy) && r.readF32(p.qz) && r.readF32(p.sx) && r.readF32(p.sy) && r.readF32(p.sz) && r.readU32(p.colorRgba8);
+               r.readF32(p.qx) && r.readF32(p.qy) && r.readF32(p.qz) && r.readF32(p.sx) && r.readF32(p.sy) && r.readF32(p.sz) && r.readU32(p.colorRgba8) && r.readU16(p.archetypeIndex);
     }
 
     inline bool writeDespawn(PacketWriter& w, uint32_t netId)

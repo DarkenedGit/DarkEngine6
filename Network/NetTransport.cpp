@@ -120,8 +120,9 @@ namespace Dark
         ConnectRequestPayload p{};
         std::memcpy(p.name, m_name, 32);
         p.playerId  = static_cast<uint64_t>(m_playerId);
-        p.wantsPawn = m_wantsPawn;
-        p.sceneMode = m_sceneMode;
+        p.wantsPawn   = m_wantsPawn;
+        p.sceneMode   = m_sceneMode;
+        p.contentHash = m_contentHash;
 
         uint8_t      buf[kConnectRequestBytes];
         PacketWriter w;

@@ -147,6 +147,13 @@ de_glob_folders(DE_GAMEPLAY_SOURCES ${DE_GAMEPLAY_FOLDERS})
 de_glob_folders(DE_ENGINE_REST_SOURCES ${DE_ENGINE_REST_FOLDERS})
 list(APPEND DE_ENGINE_REST_SOURCES ${DE_ENGINE_CORE_SOURCES})
 
+# Content/*.cpp lives in the game content tree. Glob only the top level so shaders are not compiled as engine sources.
+file(GLOB DE_CONTENT_CODE_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/Content/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Content/*.h"
+)
+list(APPEND DE_ENGINE_REST_SOURCES ${DE_CONTENT_CODE_SOURCES})
+
 # These Render TUs call back into DarkEngine (terrain mesh, movie player).
 # DarkRender cannot link back, so they compile with the engine objects.
 set(_grass_pipeline_cpp "")

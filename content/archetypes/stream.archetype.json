@@ -1,0 +1,7 @@
+{
+  "id": "core:stream",
+  "version": 1,
+  "editor": { "label": "Stream", "category": "Environment", "icon": "water", "modes": ["3d"] },
+  "components": { "Stream": {} },
+  "behaviors": []
+}

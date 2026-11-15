@@ -16,6 +16,7 @@ namespace Dark
         NetId     netId              = NULL_NET_ID; // 0 until host() if registered while Idle
         ClientId  owner              = ClientId::Host;
         NetPrefab prefab             = NetPrefab::Unknown;
+        uint16_t  archetypeIndex     = 0;
         uint32_t  colorRgba8         = 0xFFFFFFFFu;
         bool      replicateTransform = true;
     };

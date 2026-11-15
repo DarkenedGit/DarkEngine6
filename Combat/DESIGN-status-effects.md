@@ -734,7 +734,7 @@ Mandatory PR3 test: two-entity World, poison on A, stun on B, `tick` both, `harv
 | --- | --- | --- |
 | `Combat/StatusId.h` | DarkGameplay | `CcCategory` + DR constants (moved) + `StatusId` + CC↔id maps |
 | `Combat/StatusDef.h` | DarkGameplay | POD def + stack enum + particle preset enum |
-| `Combat/StatusCatalog.cpp` | DarkGameplay | `kStatusCatalog[]`, `statusDef()` |
+| `Combat/StatusCatalog.cpp` | DarkGameplay | `kStatusCatalog[]`, `statusDef()`. `content/combat/statuses.json` overlays name, duration, magnitude, tick damage, tick interval, and max stacks. A name that is not in the compiled catalog is logged and does not add a status |
 | `Combat/StatusEffectComponent.h` | DarkGameplay | grow component (header-only math, like today) |
 | `Combat/StatusDot.cpp/.h` | DarkGameplay | `harvestAndResolveDots` |
 | `Combat/StatusFxEvent.h` | DarkGameplay | event POD + `IStatusFx` + drain |

@@ -1,0 +1,13 @@
+{
+  "statuses": [
+    { "id": "Stun", "name": "Stun", "duration": 1.2, "magnitude": 1, "tickDamage": 0, "tickInterval": 1, "maxStacks": 1 },
+    { "id": "Root", "name": "Root", "duration": 0.8, "magnitude": 1, "tickDamage": 0, "tickInterval": 1, "maxStacks": 1 },
+    { "id": "Fear", "name": "Fear", "duration": 1.0, "magnitude": 1, "tickDamage": 0, "tickInterval": 1, "maxStacks": 1 },
+    { "id": "Knockdown", "name": "Knockdown", "duration": 1.4, "magnitude": 1, "tickDamage": 0, "tickInterval": 1, "maxStacks": 1 },
+    { "id": "Poison", "name": "Poison", "duration": 8, "magnitude": 1, "tickDamage": 4, "tickInterval": 1, "maxStacks": 1 },
+    { "id": "Bleed", "name": "Bleed", "duration": 6, "magnitude": 1, "tickDamage": 2, "tickInterval": 1, "maxStacks": 1 },
+    { "id": "Ignite", "name": "Ignite", "duration": 6, "magnitude": 1, "tickDamage": 2, "tickInterval": 1, "maxStacks": 1 },
+    { "id": "Chill", "name": "Chill", "duration": 6, "magnitude": 0.5, "tickDamage": 0, "tickInterval": 1, "maxStacks": 1 },
+    { "id": "Shock", "name": "Shock", "duration": 3, "magnitude": 1, "tickDamage": 0, "tickInterval": 1, "maxStacks": 1 }
+  ]
+}

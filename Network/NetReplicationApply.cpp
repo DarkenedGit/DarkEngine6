@@ -112,6 +112,7 @@ namespace Dark
         nc.netId              = p.netId;
         nc.owner              = static_cast<ClientId>(p.owner);
         nc.prefab             = static_cast<NetPrefab>(p.prefab);
+        nc.archetypeIndex     = p.archetypeIndex;
         nc.colorRgba8         = p.colorRgba8;
         nc.replicateTransform = (p.flags & 1u) != 0u;
         world.emplace<NetworkedComponent>(e, nc);

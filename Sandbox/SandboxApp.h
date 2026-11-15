@@ -122,6 +122,7 @@ private:
     void stockHunter(Dark::Entity hunter);
     void tickLeaves(float dt);
     Dark::Entity spawnSpawnerUnit(Dark::Entity spawner, const Dark::SpawnerRequest& req);
+    Dark::Entity spawnAuthoredArchetype(const Dark::SceneObjectData& object);
     void startQuest(const std::string& id);
     void updateQuest(float dt);
     bool questTarget(Dark::Math::Vector3f& out);

@@ -1,5 +1,8 @@
 #include "Core/Application.h"
+#include "Combat/StatusDef.h"
+#include "Content/ContentDb.h"
 #include "Core/Log.h"
+#include "Gameplay/Item.h"
 #include "Core/MainThread.h"
 #include "Core/Version.h"
 #include "Input/InputCodes.h"
@@ -367,7 +370,13 @@ namespace Dark
 
     void Application::mountDefaultContentRoots()
     {
+        loadContentDatabase();
+        reloadItemCatalog();
+        Combat::reloadStatusCatalog();
+        for (const std::filesystem::path& overlay : contentOverlayRoots())
+            m_assets.mountDirectory(overlay);
         m_assets.mountContentRoots();
+        m_network.setContentHash(contentSetHash());
     }
 
     bool Application::shouldShowSplash() const

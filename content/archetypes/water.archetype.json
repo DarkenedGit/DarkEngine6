@@ -1,0 +1,7 @@
+{
+  "id": "core:water",
+  "version": 1,
+  "editor": { "label": "Water", "category": "Environment", "icon": "water", "modes": ["3d"] },
+  "components": {},
+  "behaviors": []
+}

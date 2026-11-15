@@ -13,7 +13,7 @@ This engine is still in progress. This README covers only what is in the tree to
 | `DarkRender` | static lib | `Render/*` + D3D12 / DXGI / `d3dcompiler`; PIX + NVTX markers when `DE_ENABLE_GPU_MARKERS` is on |
 | `DarkNet` | static lib | `Network/*` (`ws2_32`) |
 | `DarkGameplay` | static lib | `Weapons/*`, `Gameplay/*`, `Combat/*` |
-| `DarkEngine` | static lib | Umbrella: `AI`, `Animation`, `Audio`, `Character`, `Debug`, `Input`, `Media`, `Particles`, `Physics`, `Play`, `Save`, `Scene`, `Sky`, `Sprite`, `Terrain`, `Water`, plus `Application` / `Window` / `MemoryTracker` and `Ui/MainMenu`. PUBLIC-links every layer; PRIVATE-links Box3D |
+| `DarkEngine` | static lib | Umbrella: `AI`, `Animation`, `Audio`, `Character`, `Debug`, `Input`, `Media`, `Particles`, `Physics`, `Play`, `Save`, `Scene`, `Sky`, `Sprite`, `Terrain`, `Water`, the content database (`content/Content*.cpp`, top-level only), plus `Application` / `Window` / `MemoryTracker` and `Ui/MainMenu`. PUBLIC-links every layer; PRIVATE-links Box3D |
 | `Sandbox` | exe | 3D sample game (ImGui Dev Tools) |
 | `Sandbox2D` | exe | Side-scrolling 2D sample (Box2D) |
 | `Editor` | exe | ImGui editor (Win32 + DX12) with Play-in-editor |
@@ -52,13 +52,13 @@ Runtime HLSL lives in `content/shaders/`. It shows up in the IDE but is compiled
 - **AI**: hierarchical state machines loaded from JSON (`content/ai/*.hsm.json`), attack patterns, pathfinding, walkability, sight, wolf approach / flanking, water watch (`AI/WaterPeek`). An awareness meter (`AI/Awareness`) moves enemies through Calm, Suspicious, Investigating, Alert, and Searching from sight, motion, noise, and proximity. Per-type movement speeds come from `content/entities/*.entity.movement.json`.
 - **Media**: `MoviePlayer` decodes H.264 and MPEG-2 video (Media Foundation) into an XAudio2 voice and a GPU texture, with NV12-to-RGB conversion on upload. Movies are authored on scene nodes and played by the loading screen (`MoviePresentPipeline`). See `Media/MoviePlayer.h`.
 - **Play** (`Play/`): code shared by Sandbox play and Editor Play-in-editor: character attach for players and NPCs, character sound banks, play look and shoulder camera, motor input (planar slide along walls instead of stopping), physics ground height, terrain streaming, impact decals, weapon target queries, the player flashlight, crows, spawners, and facility hooks (doors, guards). `PlaySession` holds one `PlayRuntime` for look, offhand, combat timers, throw flights, and the quest. Both apps read it through `runtime()`, `quest()`, and `targets()`. There are no `SandboxApp` aliases for those fields. The possessed body steps through `stepPossessedBody` (`Play/PlayBody.cpp`). Listed spawner units go through `spawnListedUnit` (`Play/SpawnListed.cpp`). Muzzle, blood, and respawn feedback are `PlayFeedback`. Quest banner text and colours are `Play/QuestBanner.h`. Walk obstacles are `Scene/WalkObstacles.h`.
-  - **Spawners**: placed level objects that spawn hunters, wolves, or crows (up to 16 slots). `Maintain` replaces dead units; `Waves` starts the next wave on a timer or when the current wave is dead. Spawned units are not saved; Stop Play removes them.
+  - **Spawners**: placed level objects that spawn units (up to 16 slots). `unit` is an archetype id. `hunter`, `wolf`, and `crow` (a bare name or a `core:` id) use the built-in spawn path. Any other id is spawned from its archetype. `Maintain` replaces dead units; `Waves` starts the next wave on a timer or when the current wave is dead. Spawned units are not saved; Stop Play removes them.
   - **Crows**: flock, perch in trees, forage on the ground, and flee from living hunters and the player with an alarm call. Dead crows fall to the ground.
 - **Physics**: Box3D wrapper (`third_party/box3d`, v0.1.0). Collision shapes are cooked from primitives, model `_col*` parts, or `*.collision.json` sidecars. Per-model `*.physics.json` settings. Surfaces load from `content/physics/surfaces.json`. Foliage trunks and rocks block the player. See `Physics/README.md` and `Collision/DESIGN-box3d.md`.
 - **Collision**: collision query code in `Collision/` (separate from the Box3D wrapper in `Physics/`).
 - **Character**: player motor (walk, sprint, crouch, swim, jump, double jump, dodge, wall climb, ledge hang and climb-up, wall jump), health, hit reactions with directional knockback, shield, stealth, and six skills (`Shoot`, `Swim`, `Run`, `Jump`, `Hear`, `See`) with use-based XP (`content/skills/*.json`, `Character/DESIGN-skills.md`). Ground movement accelerates between stop, walk, and run; wall climbing and hanging use a stamina pool. Speeds, acceleration, gravity, and jump values load from `content/entities/<type>.entity.movement.json`.
-- **Combat / Gameplay / Weapons**: `CombatSystem` (damage resolve, status effects, DoT ticks), status catalog (`Poison`, `Bleed`, `Ignite`, `Chill`, `Shock`, `Stun`), jump attacks, charged attacks, knockdown. Armor pieces (`Combat/ArmorPieces`) absorb hits and break off. `PlayerModeComponent` adds God and Reaper dev switches (both off by default, not saved). See `Combat/DESIGN-status-effects.md`.
-  - **Inventory** (`Gameplay/Inventory`, `Gameplay/Item`): a 20-slot bag plus Head, Chest, and Light equip slots. Items come from a built-in table (sword, rifle, medkit, helmet, chest plate, flashlight). Weapon switching needs the weapon in the bag, and the flashlight works while it is equipped. Items on the ground show a label and are picked up with G.
+- **Combat / Gameplay / Weapons**: `CombatSystem` (damage resolve, status effects, DoT ticks), status catalog (`Poison`, `Bleed`, `Ignite`, `Chill`, `Shock`, `Stun`, plus crowd-control rows), jump attacks, charged attacks, knockdown. The compiled catalog is the set of status ids. `content/combat/statuses.json` overlays name, duration, magnitude, tick damage, tick interval, and max stacks. A name that is not in the catalog is logged and does not add an effect. Armor pieces (`Combat/ArmorPieces`) absorb hits and break off. `PlayerModeComponent` adds God and Reaper dev switches (both off by default, not saved). See `Combat/DESIGN-status-effects.md`.
+  - **Inventory** (`Gameplay/Inventory`, `Gameplay/Item`): a 20-slot bag plus Head, Chest, Arms, Legs, and Light equip slots. The catalog is `content/items/*.items.json` (sword, rifle, medkit, armor, keycard, flashlight, quest items, resources). `type` and `slot` are strings. If no item file is found, the compiled table is used. A new game grants `content/player/loadout.json` (sword, rifle, two medkits). Weapon switching needs the weapon in the bag, and the flashlight works while it is equipped. Items on the ground show a label and are picked up with G.
   - **Loot**: dead hunters drop a loot bag with their items and armor. G opens the nearest bag so you can take items.
   - **Throwables** (`Gameplay/ThrowableCatalog`, `Gameplay/ThrowableBelt`, `Weapons/ThrowableFlight`, `Character/ThrowableView`): throwable types come from `content/items/throwables.json`, which sets weight, throw distance, impact sound, call distance, and model. The shipped types are `rock` and `bottle`. Picked-up throwables go onto a belt that keeps a count per type, selected as weapon 3. You can throw while in the air or charge a throw by holding before release. A throw flies on an arc and lands as a pickup you can grab again. The model shows in the hand, in flight, and on the ground. When one lands, nearby NPCs within its call distance come to search the spot. Belt counts and throws still in flight are saved with the loadout (`Save/PersistCombat.cpp`).
   - **Quests** (`Gameplay/Quest`): data-driven quests in `content/quests/<id>.quest.json`, with `reach` (scene zone), `collect` (item and count), and `event` objectives (`power_off`, `takedown`, `body_hidden`), which can run in sequence, plus rewards. Sandbox shows banners for a new quest, a new objective, and completion, and opens a journal with J. Scenes can place quest zones and pickups (`zone`, `pickup`, `pickupCount` fields). The sample quest is `north_lab`, played in `stealth_test.json`. Quest progress is not saved yet.
@@ -66,15 +66,105 @@ Runtime HLSL lives in `content/shaders/`. It shows up in the IDE but is compiled
   - **Procedural grass** (`Terrain/GrassField`, `GrassMesh`, `GrassWind`, `GrassBend`): blade tiles spawned around a point, four blade LODs, per-tile Perlin wind, and blades that bend around the player. Parameters (height, flexibility, density, wind, seed) are saved in the scene's `terrain.grass` block and can be changed in Sandbox Dev Tools under **Procedural grass**.
   - **LOD distances**: `content/terrain/lod.json` holds the terrain chunk LOD multiples and the grass LOD band distances (promote / demote, create / evict radius, fade). If the file is missing, built-in values are used and a warning is logged.
 - **Water**: water planes, multiple finite lakes (`WaterBody`), swells, and streams (`WaterStream`: ribbon meshes along a path; the Editor can trace one downhill to the lake). Streams are visual only; you cannot swim in them. The player can swim in lakes, and going under the surface switches to the underwater view (see Render). `Water/DESIGN-water-bodies.md` has its own status line.
-- **Scene**: JSON scene files under `content/scenes/` (`level.json`, `level2d.json`, `parkour_test.json`, `stealth_test.json`) that hold entities, terrain, grass, atmosphere, water, spawners, movies, buildings (with doors, guards, props), and exposure settings. Entity templates live in `content/entities/*.entity.json` (`EntityMaster`).
-- **Save**: quick and manual saves through `SaveSystem` with atomic file writes. Saves go to `%LOCALAPPDATA%\DarkEngine6\Saves`. See `Save/DESIGN-save-load.md`.
+- **Scene**: JSON scene files under `content/scenes/` (`level.json`, `level2d.json`, `parkour_test.json`, `stealth_test.json`) that hold entities, terrain, grass, atmosphere, water, spawners, movies, buildings (with doors, guards, props), and exposure settings. Readers accept version 1, 2, and 3. The Editor writes version 3. Each object has an `archetype` id. See [Content](#content).
+- **Save**: quick and manual saves through `SaveSystem` with atomic file writes. Saves go to `%LOCALAPPDATA%\DarkEngine6\Saves`. The root lists the enabled content packages (id and version). Load warns when a listed package is not loaded. Spawned-entity archetype ids are full strings. The payload hash does not cover the package list. See `Save/DESIGN-save-load.md`.
 - **Audio**: XAudio2, WAV clips, sound emitters, PCM streaming (used by `MoviePlayer`). `SpeechSynth` turns a line into PCM on a worker thread. `cancel` drops a job that is still queued. A `Speak` already in progress finishes. `DialogueSpeech` cancels the previous id when the line changes, when a file clip is ready, and when the 4 second fallback gives up.
 - **Input**: keyboard, mouse, XInput gamepad, `ActionMap` bindings. Bindings load from JSON (see [Input files](#input-and-config-files)).
-- **Network**: UDP sockets, packets, reliability, replication, `NetworkSystem`, a fake transport for tests. The default game port is **26160** and UDP beacon discovery uses **26161**. `NetworkSystem` does not draw. Hosts attach `MeshComponent` (Editor also adds `EditorObjectComponent`) in `onNetSpawn` (see `Network/Replication.h`). `netRoleName` and `pawnPaletteColor` live once in `Network/NetTypes.h`. Sandbox and Sandbox2D call them. Each app still spawns its own pawns.
+- **Network**: UDP sockets, packets, reliability, replication, `NetworkSystem`, a fake transport for tests. Protocol version is **2**. The default game port is **26160** and UDP beacon discovery uses **26161**. Connect carries a hash of the enabled archetypes. A different hash is refused (`ConnectRejectReason::Content`). Hash 0 on both sides still connects. A spawn carries a session archetype index. Index 0 is the legacy `NetPrefab` and does not replicate extra component fields. `NetworkSystem` does not draw. Hosts attach `MeshComponent` (Editor also adds `EditorObjectComponent`) in `onNetSpawn` (see `Network/Replication.h`). `netRoleName` and `pawnPaletteColor` live once in `Network/NetTypes.h`. Sandbox and Sandbox2D call them. Each app still spawns its own pawns.
 - **Debug**: `DebugServer` / `DebugClient` over TCP (default port **26162**) and `PerfCounters` (per-slot frame timing plus a 240-frame history) for VisualDebugger.
-- **Editor**: scene editing on ECS, translate gizmo, asset browser (F10), drag-and-drop placement, terrain Generate and World Engine import, foliage density panel, water bodies and a **Water** window (add lakes, swells, streams), spawner placement, cloud layer settings, local-light authoring, physics inspector, animation / HSM / particle editors, audio preview panel, network host/join, and Play-in-editor (F12). Procedural grass and water draw in edit mode as well as in Play.
+- **Editor**: scene editing on ECS, translate gizmo, asset browser (F10), drag-and-drop placement, terrain Generate and World Engine import, foliage density panel, water bodies and a **Water** window (add lakes, swells, streams), spawner placement, cloud layer settings, local-light authoring, physics inspector, animation / HSM / particle editors, audio preview panel, network host/join, and Play-in-editor (F12). The Create menu and the asset palette list archetypes that are not one of the legacy scene types. Panels → Content lists loaded packages and load errors. While the Editor is not in Play it reloads changed content about once a second. Placed entities stay as they are until the scene is loaded again. Procedural grass and water draw in edit mode as well as in Play.
 - **Particles**: GPU particle system (`Particles/GpuParticleSystem`) with compute-based integration, CPU fallback integrator when GPU particles are disabled (toggled via Dev Tools or Editor View menu), and billboard rendering. Emitters are ECS components. The CPU integrator runs when `GpuParticleSystem::applyIntegratorFallback` is called with `gpuParticlesEnabled = false`, allowing particles to continue updating even when the GPU compute path is turned off.
 - **UI**: Dear ImGui **v1.91.8-docking** (fetched at configure time) with optional FreeType font rendering, built as static lib `imgui_editor` linked by Sandbox, Editor, and VisualDebugger. Shared `Ui/` styles and components for ImGui hosts. `Ui/MainMenu` is a scene picker compiled into `DarkEngine` that provides both a CPU menu (keyboard, mouse, gamepad navigation) and an optional GPU sprite overlay (`SpritePipeline` with bitmap font). The main menu appears in Sandbox on boot (unless `-host` / `-join` / `-no-menu` / `DE_NO_MENU` skips it) and can be reopened with Esc. Menu sounds (`content/audio/UI/ui_move.wav`, `ui_select.wav`) are loaded at init and play on navigation and selection.
+
+## Content
+
+Archetypes, items, statuses, the starting loadout, and mods load at startup from `content/` and from mod folders. `Application` builds the content database, reloads the item and status catalogs, and stores the content hash on `NetworkSystem`. The Editor reloads the same set when a watched file changes and Play is off.
+
+### Packages
+
+`content/package.json` is the `core` package. Its id is forced to `core` (version `6.0.0`, engine `>=6.0`). A mod is a folder with its own `package.json`:
+
+| Folder | Role |
+|--------|------|
+| `<exe>/mods/<id>/` | Shipped or loose mods next to the executable |
+| `<cwd>/mods/<id>/` | Mods next to the working directory |
+| `%LOCALAPPDATA%/DarkEngine6/mods/<id>/` | Local mods. This folder is scanned last, so a repeated package id here replaces an earlier copy |
+
+`depends` and `loadAfter` set load order. A cycle is logged and that package is left out. A later package replaces a whole archetype record that uses the same id. The log names the package that won.
+
+`mods.json` is `{ "enable": ["some_mod"] }`. The first file found beside the exe, beside the working directory, or in `%LOCALAPPDATA%/DarkEngine6/` is the filter. `core` stays enabled. With no file, every discovered package loads.
+
+`engine` may be empty, or `>=` with a major of 6 or less. `>=7` is rejected. Any other text is logged and the package still loads.
+
+Asset lookup checks enabled mod roots first, later packages first, then the usual content roots. The exe-adjacent `content/` is still the first of those roots and is replaced on every build. Scene and terrain saves go to the repo `content/` through `authoringContentRoot()`.
+
+### Archetypes
+
+Files are `content/archetypes/*.archetype.json`. An id with no package prefix is stored as `core:<id>`.
+
+```json
+{
+  "id": "core:wolf",
+  "version": 1,
+  "base": "",
+  "editor": { "label": "Wolf", "category": "Creatures", "icon": "bug", "hotkey": "", "modes": ["3d"], "matchModel": "wolf" },
+  "components": {
+    "Model": { "gltf": "models/wolf.gltf", "anim": "models/wolf.anim.json" },
+    "Physics": { "file": "models/wolf.physics.json" },
+    "Combat": { "attacks": "ai/wolf.attacks.json" },
+    "Health": { "max": 60 }
+  },
+  "behaviors": [ { "name": "ai.wolf" } ],
+  "net": { "replicate": true }
+}
+```
+
+Registered components: `Model` (`gltf`, `anim`), `Physics` (`file`), `Combat` (`attacks`), `Health` (`max`), `Dialogue` (`graph`). `Mesh`, `LocalLight`, `ParticleEmitter`, `CloudVolume`, `Stream`, `Spawner`, `Movie`, `Pickup`, and `Tag` are accepted and stored. They do not load GPU assets at parse time. An unknown component disables that archetype.
+
+Behaviors run once at spawn. They attach components. They are not tick systems.
+
+| Behavior | What it attaches |
+|----------|------------------|
+| `prop.solid` | A mesh for a solid prop |
+| `model` | The archetype model |
+| `ai.animal` | A wolf-kind body on the existing entity, from `Model` |
+| `ai.wolf` | Same body path, wolf kind, health from `Health` or 60 |
+| `ai.hunter` | Hunter kind, health from `Health` or 100 |
+| `player.controller` | The local player rig, health from `Health` or 200 |
+| `spawner` | `SpawnerComponent`. Params `unit` is the archetype id to spawn |
+| `light.searchlight`, `pickup` | Accepted. Spawn does not add extra components |
+
+`base` copies the parent's components and behaviors, then the child's same-named entries replace them. A missing base or a cycle disables the child. Empty `editor` fields (icon, hotkey, category, modes, `matchModel`) are copied from the base.
+
+The 19 scene types and crow have explicit archetype files. `content/archetypes/legacy_aliases.json` maps old names (`enemy` → `core:hunter`, `gltf` → `core:model`, `emitter` / `particle` → `core:particle_emitter`, and the light and cloud aliases). `content/entities/*.entity.json` still loads. A type that has no archetype file yet becomes one. Types outside the legacy set get `ai.animal`. A file that already has an archetype is left alone. `*.entity.combat.json` is not an entity master.
+
+Editor and Sandbox still spawn those legacy types through the existing place and boot paths. A scene object whose archetype is not one of them is spawned with `instantiateArchetype` (`Content/ArchetypeSpawn.h`). Sandbox2D keeps the legacy 2D types.
+
+`editor.icon` uses a Font Awesome name already in the UI atlas (`cube`, `circle`, `bolt`, `bug`, `cloud`, `lightbulb`, `layer-group`, `forward`, and a few aliases such as `sun` and `water`). `editor.hotkey` is one character (`9`, `a`). It selects that place brush. Keys 1–8 stay the legacy place types. `matchModel` is the glTF stem the asset browser uses when a drop is not a legacy pawn. The Create menu and the palette show archetypes that are not the legacy types, filtered by `modes` (`3d` or `2d`). An empty `modes` list is shown in both. Panels → Content lists packages and load errors.
+
+### Scenes
+
+Each saved object has `archetype` (`core:cube`, `core:hunter`, a mod id, …). `overrides` is an optional object. Its keys replace that archetype's component params at spawn. An unknown type or an unknown archetype is kept, drawn as a missing placeholder, and written back unchanged. Buildings write `core:cube` for boxes and pickups and `core:hunter` for guards.
+
+A spawner's `unit` string is the archetype id. Known unit names stay short in the file (`hunter`, `wolf`, `crow`). Any other id is written as authored.
+
+### Items, statuses, upgrades, loadout
+
+| File | Role |
+|------|------|
+| `content/items/*.items.json` | Item catalog. `type` is `weapon`, `consumable`, `armor`, `key`, `tool`, `quest`, or `resource`. `slot` is `none`, `head`, `chest`, `arms`, `legs`, or `light`. A later file with the same id replaces that row |
+| `content/items/throwables.json` | Throwable belt (`rock`, `bottle`). Separate from the item catalog |
+| `content/player/loadout.json` | New-game grants. The shipped file is sword 1, rifle 1, medkit 2 |
+| `content/combat/statuses.json` | Tunes the compiled status rows. It does not add status effects |
+| `content/upgrades.json` | Body upgrades. Each row may use `effect` plus `value`, or a `mods` array of `{ "stat", "op", "value" }` (`op` is `mul` or `add`). `body.health` adds, `move.speed` multiplies. The shipped rows use `effect`: `breath`, `quiet`, `health`, `speed`, `exposure` |
+
+JSON under `content/` is UTF-8 without a BOM.
+
+### Network and saves
+
+The connect packet carries `contentSetHash()`, a hash of the enabled archetypes (name, version, components, behaviors, replicate flag). Peers must match. A spawn's `archetypeIndex` is the session's 1-based list of replicated archetypes. Index 0 means the legacy prefab only.
+
+A save root has `packages`: `{ "id", "version" }` for each enabled package. Load warns when one is missing. A spawned entity whose archetype is not loaded is skipped and logged. The integrity hash covers the payload only.
 
 ## Requirements
 
@@ -207,7 +297,7 @@ Gamepad defaults are in the same files (for example A jump, B attack, LT shield,
 
 ### Editor keys
 
-From `content/editor.input.json`: F12 Play, P place, Delete / Backspace delete, 1–8 select the place type (cube, sphere, particle, point light, spot light, player, hunter, wolf), `[` / `]` select previous / next, G grid, F solid ground, Tab snap, F2 / F4 / F8 / F10 particle / animation / HSM / asset panels, F3 2D/3D scene mode, F1 / F6 / F7 / F11 debug fill / lighting / shadows / G-buffer, F5 or Ctrl+S save scene, F9 or Ctrl+O load scene, Shift+F5 / Shift+F9 quick save / load. Right-mouse look, middle-mouse pan, wheel zoom, left-click picking, and the Shift camera boost are in code.
+From `content/editor.input.json`: F12 Play, P place, Delete / Backspace delete, 1–8 select the place type (cube, sphere, particle, point light, spot light, player, hunter, wolf), `[` / `]` select previous / next, G grid, F solid ground, Tab snap, F2 / F4 / F8 / F10 particle / animation / HSM / asset panels, F3 2D/3D scene mode, F1 / F6 / F7 / F11 debug fill / lighting / shadows / G-buffer, F5 or Ctrl+S save scene, F9 or Ctrl+O load scene, Shift+F5 / Shift+F9 quick save / load. An archetype `editor.hotkey` selects that brush. Right-mouse look, middle-mouse pan, wheel zoom, left-click picking, and the Shift camera boost are in code.
 
 ### Boot splash
 
@@ -270,7 +360,7 @@ Sandbox2D/        2D sample
 Editor/           ImGui editor
 VisualDebugger/   remote perf / debug viewer
 UnitTests/        GoogleTest suite, one folder per module
-content/          runtime data: shaders, scenes, entities, input files, models, terrain, ai, skills, audio, items, quests, movies, ...
+content/          runtime data and the content database. Top-level Content*.cpp is compiled into DarkEngine. Subfolders are data: shaders, scenes, archetypes, entities, input files, models, terrain, ai, skills, audio, items, quests, movies, ...
 third_party/      box2d, box3d, cgltf, nlohmann, nvtx
 cmake/            compiler options, layered targets, content copy, Version.h, WinPixEventRuntime
 docs/plans/       feature plans and notes
@@ -312,6 +402,7 @@ Full rules are in [`AGENTS.md`](AGENTS.md). Short version:
 ## Roadmap (planned, not implemented)
 
 - **Shader compiler:** move from FXC / SM 5.0 to DXC / SM 6.x. Today all shaders go through `D3DCompile`.
+- **Scripted behaviors:** Lua or Luau behaviors on archetypes. Mods today are data only (archetypes, items, statuses, loadouts, upgrades). A new component, status effect, or upgrade verb is still C++.
 - Open design drafts in the tree cover more work, for example `Render/DESIGN-pbr-roadmap.md`, `Render/DESIGN-color-management.md`, and `Audio/DESIGN-audio-system.md`. Check each doc's status line before assuming its state.
 
 ## License

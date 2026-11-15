@@ -31,6 +31,11 @@ namespace Dark
             sendReject(src, ConnectRejectReason::Mode);
             return;
         }
+        if (req.contentHash != m_contentHash)
+        {
+            sendReject(src, ConnectRejectReason::Content);
+            return;
+        }
 
         const ClientId id = allocateClientId();
         if (id == ClientId::Invalid)

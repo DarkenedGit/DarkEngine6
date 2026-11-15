@@ -1,4 +1,5 @@
 #include "Scene/SceneFile.h"
+#include "Content/ContentDb.h"
 #include "Assets/AssetManager.h"
 #include "Core/ContentRoots.h"
 #include "Core/Json.h"
@@ -182,9 +183,17 @@ void readSpawnerBlock(const json& j, SpawnerDesc& desc)
     SpawnerMode mode{};
     if (jsonStringOr(j, "mode", text, std::string(), "SceneFile") && tryParseSpawnerMode(text, mode))
         desc.mode = mode;
-    SpawnerUnit unit{};
-    if (jsonStringOr(j, "unit", text, std::string(), "SceneFile") && tryParseSpawnerUnit(text, unit))
-        desc.unit = unit;
+    if (jsonStringOr(j, "unit", text, std::string(), "SceneFile") && !text.empty())
+    {
+        desc.unitArchetype = text;
+        std::string_view bare = text;
+        const auto colon = text.rfind(':');
+        if (colon != std::string::npos)
+            bare = std::string_view(text).substr(colon + 1);
+        SpawnerUnit unit{};
+        if (tryParseSpawnerUnit(bare, unit))
+            desc.unit = unit;
+    }
     SpawnerWaveGate gate{};
     if (jsonStringOr(j, "gate", text, std::string(), "SceneFile") && tryParseSpawnerWaveGate(text, gate))
         desc.gate = gate;
@@ -765,8 +774,18 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
     json arr = json::array();
     for (const SceneObjectData& o : scene.objects)
     {
+        if (o.placeholder && !o.rawJson.empty())
+        {
+            const json raw = json::parse(o.rawJson, nullptr, false);
+            if (!raw.is_discarded() && raw.is_object())
+            {
+                arr.push_back(raw);
+                continue;
+            }
+        }
         json jo;
-        jo["type"]     = toString(o.type);
+        jo["type"]      = toString(o.type);
+        jo["archetype"] = o.archetype.empty() ? (std::string("core:") + toString(o.type)) : o.archetype;
         jo["position"] = vec3ToJson(o.position);
         jo["rotation"] = quatToJson(o.rotation);
         jo["scale"]    = vec3ToJson(o.scale);
@@ -875,7 +894,20 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
         {
             json spawner;
             spawner["mode"]          = toString(o.spawner.mode);
-            spawner["unit"]          = toString(o.spawner.unit);
+            {
+                std::string unitName = toString(o.spawner.unit);
+                if (!o.spawner.unitArchetype.empty())
+                {
+                    std::string_view bare = o.spawner.unitArchetype;
+                    const auto colon = o.spawner.unitArchetype.rfind(':');
+                    if (colon != std::string::npos)
+                        bare = std::string_view(o.spawner.unitArchetype).substr(colon + 1);
+                    SpawnerUnit parsed{};
+                    if (!tryParseSpawnerUnit(bare, parsed))
+                        unitName = o.spawner.unitArchetype;
+                }
+                spawner["unit"] = std::move(unitName);
+            }
             spawner["gate"]          = toString(o.spawner.gate);
             spawner["count"]         = o.spawner.count;
             spawner["radius"]        = o.spawner.radius;
@@ -925,6 +957,24 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             jo["emissive"] = o.emissive;
         if (o.emissiveMeshIndex >= 0)
             jo["emissiveMesh"] = o.emissiveMeshIndex;
+        if (!o.overridesJson.empty())
+        {
+            const json overlay = json::parse(o.overridesJson, nullptr, false);
+            if (!overlay.is_discarded())
+                jo["overrides"] = overlay;
+        }
+        if (!o.rawJson.empty())
+        {
+            const json raw = json::parse(o.rawJson, nullptr, false);
+            if (!raw.is_discarded() && raw.is_object())
+            {
+                for (auto it = raw.begin(); it != raw.end(); ++it)
+                {
+                    if (!jo.contains(it.key()))
+                        jo[it.key()] = it.value();
+                }
+            }
+        }
 
         arr.push_back(std::move(jo));
     }
@@ -1429,11 +1479,38 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             continue;
 
         SceneObjectData o{};
-        const std::string typeStr = jsonS(jo, "type", std::string("cube"));
-        if (!tryParseSceneObjectType(typeStr, o.type))
+        const std::string typeStr = jsonS(jo, "type", std::string());
+        const bool typeParsed = !typeStr.empty() && tryParseSceneObjectType(typeStr, o.type);
+        if (!typeParsed)
         {
-            DE_LOG_WARN("SceneFile: unknown type '{}' — skipped", typeStr);
-            continue;
+            std::string arch = jsonS(jo, "archetype", std::string());
+            if (arch.empty())
+                arch = typeStr.empty() ? std::string("cube") : typeStr;
+            o.archetype = canonicalContentId(arch);
+            SceneObjectType legacy{};
+            if (legacySceneTypeForId(o.archetype, legacy))
+                o.type = legacy;
+            else if (contentHasArchetype(o.archetype))
+            {
+                o.dataDriven = true;
+                o.type       = SceneObjectType::Model;
+            }
+            else
+            {
+                o.placeholder = true;
+                o.type        = SceneObjectType::Model;
+                o.rawJson     = jo.dump();
+                std::string ignored;
+                if (jo.contains("position") && jo["position"].is_array())
+                    readVec3(jo["position"], o.position, &ignored, "position");
+                if (jo.contains("rotation") && jo["rotation"].is_array())
+                    readQuat(jo["rotation"], o.rotation, &ignored, "rotation");
+                if (jo.contains("scale") && jo["scale"].is_array())
+                    readVec3(jo["scale"], o.scale, &ignored, "scale");
+                outScene.objects.push_back(std::move(o));
+                DE_LOG_WARN("SceneFile: unknown type '{}' kept as a placeholder", arch);
+                continue;
+            }
         }
 
         std::string err;
@@ -1721,6 +1798,21 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             o.scale.y = 1.0f;
         if (o.scale.z == 0.0f)
             o.scale.z = 1.0f;
+
+        if (o.archetype.empty())
+        {
+            const std::string authored = jsonS(jo, "archetype", std::string());
+            o.archetype = authored.empty() ? (std::string("core:") + toString(o.type)) : canonicalContentId(authored);
+        }
+        if (jo.contains("overrides"))
+            o.overridesJson = jo["overrides"].dump();
+        if (!o.placeholder)
+        {
+            SceneObjectType legacy{};
+            if (!legacySceneTypeForId(o.archetype, legacy) && contentHasArchetype(o.archetype))
+                o.dataDriven = true;
+            o.rawJson = jo.dump();
+        }
 
         outScene.objects.push_back(o);
     }

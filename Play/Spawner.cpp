@@ -66,6 +66,7 @@ namespace
             return written;
         SpawnerRequest& req = out[written];
         req.unit            = desc.unit;
+        req.unitArchetype   = desc.unitArchetype;
         req.slot            = slot;
         req.seed            = desc.seed == 0u ? 1u : desc.seed;
         sampleDisc(runtime, originX, originZ, desc.radius, req.x, req.z);

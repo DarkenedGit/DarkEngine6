@@ -1,0 +1,7 @@
+{
+  "id": "core:point_light",
+  "version": 1,
+  "editor": { "label": "Point Light", "category": "Lights", "icon": "lightbulb", "modes": ["3d"] },
+  "components": { "LocalLight": {} },
+  "behaviors": [ { "name": "light.searchlight" } ]
+}

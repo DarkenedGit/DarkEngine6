@@ -1,0 +1,8 @@
+{
+  "id": "core:coin",
+  "version": 1,
+  "editor": { "label": "Coin", "category": "2D", "icon": "circle", "modes": ["2d"] },
+  "components": { "Pickup": {} },
+  "behaviors": [ { "name": "pickup" } ],
+  "net": { "replicate": true }
+}

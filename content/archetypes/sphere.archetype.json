@@ -1,0 +1,8 @@
+{
+  "id": "core:sphere",
+  "version": 1,
+  "editor": { "label": "Sphere", "category": "Props", "icon": "circle", "modes": ["3d"], "matchModel": "sphere" },
+  "components": { "Physics": { "file": "entities/sphere.physics.json" } },
+  "behaviors": [ { "name": "prop.solid" } ],
+  "net": { "replicate": true }
+}

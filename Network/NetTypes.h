@@ -59,7 +59,8 @@ namespace Dark
     {
         Version = 1,
         Full    = 2,
-        Mode    = 3
+        Mode    = 3,
+        Content = 4
     };
 
     enum class NetPrefab : uint8_t
@@ -99,7 +100,7 @@ namespace Dark
     using NetPeerFn = void (*)(const NetPeerInfo& info, NetPeerEvent event, void* user);
 
     constexpr uint32_t kNetMagic            = 0x314E4544u;
-    constexpr uint8_t  kNetProtocolVersion  = 1;
+    constexpr uint8_t  kNetProtocolVersion  = 2;
     constexpr uint8_t  kNetHeaderSize       = 24;
     constexpr uint16_t kNetDefaultPort      = 26160;
     constexpr uint16_t kNetBeaconPort       = 26161;

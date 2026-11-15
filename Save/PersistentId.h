@@ -4,6 +4,7 @@
 #include "ECS/Entity.h"
 
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 namespace Dark
@@ -23,7 +24,7 @@ namespace Dark
 
         UUID          id{ 0ull };
         PersistOrigin origin = PersistOrigin::Authored;
-        char          archetype[24]{};
+        std::string   archetype;
     };
 
     UUID makeProceduralId(std::string_view key);

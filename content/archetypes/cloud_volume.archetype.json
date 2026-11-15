@@ -1,0 +1,7 @@
+{
+  "id": "core:cloud_volume",
+  "version": 1,
+  "editor": { "label": "Cloud Volume", "category": "Environment", "icon": "cloud", "modes": ["3d"] },
+  "components": { "CloudVolume": {} },
+  "behaviors": []
+}

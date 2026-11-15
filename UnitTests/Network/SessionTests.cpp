@@ -96,6 +96,76 @@ namespace
     }
 } // namespace
 
+TEST(Protocol, ConnectAndSpawnRoundTripNewFields)
+{
+    ConnectRequestPayload connect{};
+    connect.wantsPawn   = 1;
+    connect.sceneMode   = 0;
+    connect.contentHash = 0x1122334455667788ull;
+    uint8_t cbuf[kConnectRequestBytes];
+    PacketWriter cw;
+    ASSERT_TRUE(cw.begin(cbuf, sizeof(cbuf)));
+    ASSERT_TRUE(writeConnectRequest(cw, connect));
+    EXPECT_EQ(cw.size(), kConnectRequestBytes);
+    PacketReader cr;
+    ASSERT_TRUE(cr.begin(cbuf, cw.size()));
+    ConnectRequestPayload connectOut{};
+    ASSERT_TRUE(readConnectRequest(cr, connectOut));
+    EXPECT_EQ(connectOut.contentHash, connect.contentHash);
+
+    SpawnPayload spawn{};
+    spawn.netId          = 7;
+    spawn.prefab         = 1;
+    spawn.archetypeIndex = 42;
+    spawn.px             = 1.5f;
+    uint8_t sbuf[kSpawnBytes];
+    PacketWriter sw;
+    ASSERT_TRUE(sw.begin(sbuf, sizeof(sbuf)));
+    ASSERT_TRUE(writeSpawn(sw, spawn));
+    EXPECT_EQ(sw.size(), kSpawnBytes);
+    PacketReader sr;
+    ASSERT_TRUE(sr.begin(sbuf, sw.size()));
+    SpawnPayload spawnOut{};
+    ASSERT_TRUE(readSpawn(sr, spawnOut));
+    EXPECT_EQ(spawnOut.netId, 7u);
+    EXPECT_EQ(spawnOut.archetypeIndex, 42);
+    EXPECT_FLOAT_EQ(spawnOut.px, 1.5f);
+}
+
+TEST(Session, ContentHashMismatchRejects)
+{
+    FakeHub       hub;
+    FakeTransport tHost(hub, kHostAddr);
+    FakeTransport tClient(hub, kClientAddr);
+    NetworkSystem host;
+    NetworkSystem client;
+    host.setTransport(&tHost);
+    client.setTransport(&tClient);
+    host.setContentHash(1);
+    client.setContentHash(2);
+
+    World w;
+    EXPECT_FALSE(handshake(host, client, w));
+    EXPECT_EQ(host.peerCount(), 0u);
+    EXPECT_EQ(client.role(), NetRole::Idle);
+}
+
+TEST(Session, MatchingContentHashConnects)
+{
+    FakeHub       hub;
+    FakeTransport tHost(hub, kHostAddr);
+    FakeTransport tClient(hub, kClientAddr);
+    NetworkSystem host;
+    NetworkSystem client;
+    host.setTransport(&tHost);
+    client.setTransport(&tClient);
+    host.setContentHash(9);
+    client.setContentHash(9);
+
+    World w;
+    EXPECT_TRUE(handshake(host, client, w));
+}
+
 TEST(Session, HandshakeWithoutRealBind)
 {
     FakeHub       hub;

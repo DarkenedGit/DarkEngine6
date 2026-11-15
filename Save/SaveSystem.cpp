@@ -1,4 +1,5 @@
 #include "Save/SaveSystem.h"
+#include "Content/ContentDb.h"
 
 #include "Core/Log.h"
 #include "Core/Version.h"
@@ -190,8 +191,6 @@ namespace Dark::Save
                     if (readText(*it, "origin", origin))
                         tryParsePersistOrigin(origin, row.origin);
                     readText(*it, "archetype", row.archetype);
-                    if (row.archetype.size() > 23)
-                        row.archetype.resize(23);
                     row.components = findChild(*it, "components");
                     if (row.components && !row.components->is_object())
                         return SaveResult::BadFormat;
@@ -467,6 +466,17 @@ namespace Dark::Save
             scene["hash"]        = sceneHash;
             scene["procedural"]  = procedural;
             root["scene"] = std::move(scene);
+            nlohmann::ordered_json packages = nlohmann::ordered_json::array();
+            for (const ContentPackage& package : contentPackages())
+            {
+                if (!package.enabled)
+                    continue;
+                nlohmann::ordered_json row = nlohmann::ordered_json::object();
+                row["id"]      = package.id;
+                row["version"] = package.version;
+                packages.push_back(std::move(row));
+            }
+            root["packages"] = std::move(packages);
             root["thumbnail"] = nullptr;
             nlohmann::ordered_json counts = nlohmann::ordered_json::object();
             counts["entities"]   = static_cast<int>(order.size());
@@ -526,6 +536,26 @@ namespace Dark::Save
                 return SaveResult::SceneMismatch;
             if (!fileHash.empty() && !sceneHash.empty() && fileHash != sceneHash)
                 DE_LOG_WARN("Save: scene hash differs; continuing");
+            if (const auto* packages = findChild(root, "packages"); packages && packages->is_array() && !contentPackages().empty())
+            {
+                for (auto it = packages->begin(); it != packages->end(); ++it)
+                {
+                    if (!it->is_object())
+                        continue;
+                    std::string id;
+                    readText(*it, "id", id);
+                    if (id.empty())
+                        continue;
+                    bool found = false;
+                    for (const ContentPackage& package : contentPackages())
+                    {
+                        if (package.enabled && package.id == id)
+                            found = true;
+                    }
+                    if (!found)
+                        DE_LOG_WARN("Save: package '{}' is not loaded; its entities stay as placeholders", id);
+                }
+            }
 
             const auto* payload = findChild(root, "payload");
             if (!payload || !payload->is_object())

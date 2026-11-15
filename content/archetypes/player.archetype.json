@@ -1,0 +1,12 @@
+{
+  "id": "core:player",
+  "version": 1,
+  "editor": { "label": "Player", "category": "Creatures", "icon": "user", "modes": ["3d"], "matchModel": "human" },
+  "components": {
+    "Model": { "gltf": "models/human.gltf", "anim": "models/human.anim.json" },
+    "Physics": { "file": "models/human.physics.json" },
+    "Health": { "max": 200 }
+  },
+  "behaviors": [ { "name": "player.controller" } ],
+  "net": { "replicate": true }
+}

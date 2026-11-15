@@ -1,0 +1,8 @@
+{
+  "id": "core:platform",
+  "version": 1,
+  "editor": { "label": "Platform", "category": "2D", "icon": "layer-group", "modes": ["2d"] },
+  "components": { "Mesh": {} },
+  "behaviors": [ { "name": "prop.solid" } ],
+  "net": { "replicate": true }
+}

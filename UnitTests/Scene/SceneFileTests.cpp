@@ -430,12 +430,23 @@ TEST(SceneFile, V1FileStillLoadsAndSkipsUnknownKeepsKnownLights)
     std::string err;
     ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
     EXPECT_EQ(data.version, 1);
-    ASSERT_EQ(data.objects.size(), 2u);
+    ASSERT_EQ(data.objects.size(), 3u);
     EXPECT_EQ(data.objects[0].type, SceneObjectType::Cube);
-    EXPECT_EQ(data.objects[1].type, SceneObjectType::PointLight);
-    EXPECT_TRUE(data.objects[1].hasLight);
-    EXPECT_NEAR(data.objects[1].lightIntensity, 1885.0f, 1.0e-4f);
-    EXPECT_NEAR(data.objects[1].position.x, 4.0f, 1.0e-4f);
+    EXPECT_TRUE(data.objects[1].placeholder);
+    EXPECT_EQ(data.objects[1].archetype, "core:not_a_real_type");
+    EXPECT_NE(data.objects[1].rawJson.find("not_a_real_type"), std::string::npos);
+    EXPECT_EQ(data.objects[2].type, SceneObjectType::PointLight);
+    EXPECT_TRUE(data.objects[2].hasLight);
+    EXPECT_NEAR(data.objects[2].lightIntensity, 1885.0f, 1.0e-4f);
+    EXPECT_NEAR(data.objects[2].position.x, 4.0f, 1.0e-4f);
+
+    ASSERT_TRUE(saveSceneToJson(path, data, &err)) << err;
+    SceneFileData again{};
+    ASSERT_TRUE(loadSceneFromJson(path, again, &err)) << err;
+    ASSERT_EQ(again.objects.size(), 3u);
+    EXPECT_TRUE(again.objects[1].placeholder);
+    EXPECT_NE(again.objects[1].rawJson.find("not_a_real_type"), std::string::npos);
+    EXPECT_EQ(again.objects[2].type, SceneObjectType::PointLight);
 
     std::error_code ec;
     std::filesystem::remove(path, ec);

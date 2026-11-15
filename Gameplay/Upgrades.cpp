@@ -35,8 +35,25 @@ namespace Dark
                 || !jsonStringOr(ju, "description", up.description, std::string(), "Upgrades", error)
                 || !jsonStringOr(ju, "effect", up.effect, std::string(), "Upgrades", error) || !jsonFloatOr(ju, "value", up.value, 1.0f, "Upgrades", error))
                 return false;
-            if (up.id.empty() || up.effect.empty())
-                return fail(error, "every upgrade needs an id and an effect");
+            if (ju.contains("mods") && ju["mods"].is_array())
+            {
+                for (const json& jm : ju["mods"])
+                {
+                    if (!jm.is_object())
+                        return fail(error, "upgrade mod is not an object");
+                    StatMod mod;
+                    if (!jsonStringOr(jm, "stat", mod.stat, std::string(), "Upgrades", error) || !jsonStringOr(jm, "op", mod.op, std::string("mul"), "Upgrades", error)
+                        || !jsonFloatOr(jm, "value", mod.value, 1.0f, "Upgrades", error))
+                        return false;
+                    if (mod.stat.empty())
+                        return fail(error, "upgrade mod needs a stat");
+                    if (mod.op != "mul" && mod.op != "add")
+                        return fail(error, "upgrade mod op must be mul or add");
+                    up.mods.push_back(std::move(mod));
+                }
+            }
+            if (up.id.empty() || (up.effect.empty() && up.mods.empty()))
+                return fail(error, "every upgrade needs an id and an effect or mods");
             if (ju.contains("cost") && ju["cost"].is_array())
             {
                 for (const json& jc : ju["cost"])
@@ -103,6 +120,60 @@ namespace Dark
         return true;
     }
 
+    namespace
+    {
+        float* knownStat(UpgradeEffects& fx, std::string_view stat)
+        {
+            if (stat == "breath")
+                return &fx.breath;
+            if (stat == "quiet")
+                return &fx.quiet;
+            if (stat == "health" || stat == "body.health")
+                return &fx.health;
+            if (stat == "speed" || stat == "move.speed")
+                return &fx.speed;
+            if (stat == "exposure" || stat == "move.exposure")
+                return &fx.exposure;
+            return nullptr;
+        }
+
+        void applyMod(UpgradeEffects& fx, const StatMod& mod)
+        {
+            if (float* slot = knownStat(fx, mod.stat))
+            {
+                if (mod.op == "add")
+                    *slot += mod.value;
+                else
+                    *slot *= mod.value;
+                return;
+            }
+            for (StatMod& extra : fx.extra)
+            {
+                if (extra.stat != mod.stat)
+                    continue;
+                if (mod.op == "add")
+                    extra.value += mod.value;
+                else
+                    extra.value *= mod.value;
+                extra.op = mod.op;
+                return;
+            }
+            StatMod extra = mod;
+            if (extra.op.empty())
+                extra.op = "mul";
+            fx.extra.push_back(std::move(extra));
+        }
+
+        StatMod modFromEffect(const UpgradeDef& up)
+        {
+            StatMod mod;
+            mod.stat  = up.effect;
+            mod.value = up.value;
+            mod.op    = (up.effect == "health") ? "add" : "mul";
+            return mod;
+        }
+    }
+
     UpgradeEffects combineUpgrades(const std::vector<UpgradeDef>& defs, const std::vector<std::string>& owned)
     {
         UpgradeEffects fx;
@@ -110,18 +181,35 @@ namespace Dark
         {
             if (std::find(owned.begin(), owned.end(), up.id) == owned.end())
                 continue;
-            if (up.effect == "breath")
-                fx.breath *= up.value;
-            else if (up.effect == "quiet")
-                fx.quiet *= up.value;
-            else if (up.effect == "health")
-                fx.health += up.value;
-            else if (up.effect == "speed")
-                fx.speed *= up.value;
-            else if (up.effect == "exposure")
-                fx.exposure *= up.value;
+            if (!up.mods.empty())
+            {
+                for (const StatMod& mod : up.mods)
+                    applyMod(fx, mod);
+            }
+            else if (!up.effect.empty())
+                applyMod(fx, modFromEffect(up));
         }
         return fx;
+    }
+
+    float combinedStat(const UpgradeEffects& effects, std::string_view stat)
+    {
+        if (stat == "breath")
+            return effects.breath;
+        if (stat == "quiet")
+            return effects.quiet;
+        if (stat == "health" || stat == "body.health")
+            return effects.health;
+        if (stat == "speed" || stat == "move.speed")
+            return effects.speed;
+        if (stat == "exposure" || stat == "move.exposure")
+            return effects.exposure;
+        for (const StatMod& extra : effects.extra)
+        {
+            if (extra.stat == stat)
+                return extra.value;
+        }
+        return stat == "health" || stat == "body.health" ? 0.0f : 1.0f;
     }
 
 } // namespace Dark

@@ -32,6 +32,7 @@
 #include "Combat/JumpAttackResolve.h"
 #include "Combat/StatusEffectComponent.h"
 #include "Core/Log.h"
+#include "Gameplay/Item.h"
 #include "ECS/Components.h"
 #include "Gameplay/HealthPack.h"
 #include "Gameplay/Inventory.h"
@@ -476,28 +477,28 @@ namespace Dark
         InventoryComponent* inv = world.get<InventoryComponent>(player);
         if (!inv)
             return;
+        std::vector<LoadoutGrant> grants;
+        if (!loadStartingLoadout(grants))
+        {
+            grants.push_back(LoadoutGrant{ "sword", 1 });
+            grants.push_back(LoadoutGrant{ "rifle", 1 });
+            grants.push_back(LoadoutGrant{ "medkit", 2 });
+        }
         const bool hadSword = hasItem(*inv, "sword");
         const bool hadRifle = hasItem(*inv, "rifle");
-        if (!hadSword)
+        for (const LoadoutGrant& grant : grants)
         {
-            if (const ItemDef* def = findItemDef("sword"))
-                addItem(*inv, *def, 1);
+            if (grant.id == "medkit")
+            {
+                if (hadSword || hadRifle || countItem(*inv, "medkit") > 0)
+                    continue;
+            }
+            else if (countItem(*inv, grant.id) > 0)
+                continue;
+            if (const ItemDef* def = findItemDef(grant.id))
+                addItem(*inv, *def, grant.count);
             else
-                DE_LOG_WARN("Play: sword is not in the item catalog");
-        }
-        if (!hadRifle)
-        {
-            if (const ItemDef* def = findItemDef("rifle"))
-                addItem(*inv, *def, 1);
-            else
-                DE_LOG_WARN("Play: rifle is not in the item catalog");
-        }
-        if (!hadSword && !hadRifle && countItem(*inv, "medkit") <= 0)
-        {
-            if (const ItemDef* med = findItemDef("medkit"))
-                addItem(*inv, *med, 2);
-            else
-                DE_LOG_WARN("Play: medkit is not in the item catalog");
+                DE_LOG_WARN("Play: '{}' is not in the item catalog", grant.id);
         }
         ensurePlayerFlashlight(world, player);
     }

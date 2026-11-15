@@ -3,23 +3,11 @@
 #include "ECS/World.h"
 #include "Save/SaveTypes.h"
 
-#include <cstring>
 #include <format>
 #include <string>
 
 namespace Dark
 {
-    namespace
-    {
-        void copyArchetype(char (&dst)[24], std::string_view src)
-        {
-            const size_t n = src.size() < 23 ? src.size() : 23;
-            if (n > 0)
-                std::memcpy(dst, src.data(), n);
-            dst[n] = '\0';
-        }
-    } // namespace
-
     UUID makeProceduralId(std::string_view key)
     {
         uint64_t hash = Save::fnv1a64(key.data(), key.size());
@@ -33,7 +21,7 @@ namespace Dark
         PersistentIdComponent& slot     = existing ? *existing : world.emplace<PersistentIdComponent>(e);
         slot.id                         = id;
         slot.origin                     = origin;
-        copyArchetype(slot.archetype, archetype);
+        slot.archetype.assign(archetype.data(), archetype.size());
         return slot;
     }
 

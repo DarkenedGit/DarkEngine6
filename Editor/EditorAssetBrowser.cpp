@@ -1,5 +1,6 @@
 #include "EditorApp.h"
 
+#include "Content/ContentDb.h"
 #include "Core/ContentRoots.h"
 #include "Core/Log.h"
 #include "Editor/EditorInternals.h"
@@ -123,6 +124,7 @@ void EditorApp::flushQueuedAssetPlace()
 {
     SceneObjectData authored{};
     SceneObjectType type = m_queueAssetType;
+    std::string matchedArchetype;
     if (m_queueAssetModel[0])
     {
         authored.modelPath = m_queueAssetModel;
@@ -130,7 +132,19 @@ void EditorApp::flushQueuedAssetPlace()
         if (tryPawnTypeForModelPath(m_queueAssetModel, pawn))
             type = pawn;
         else
+        {
+            const size_t slash = std::string_view(m_queueAssetModel).find_last_of("/\\");
+            const std::string_view file = slash == std::string_view::npos ? std::string_view(m_queueAssetModel) : std::string_view(m_queueAssetModel).substr(slash + 1);
+            const size_t dot = file.find_last_of('.');
+            const std::string_view stem = dot == std::string_view::npos ? file : file.substr(0, dot);
+            if (const Archetype* match = archetypeMatchingModelStem(stem))
+            {
+                SceneObjectType legacy{};
+                if (!legacySceneTypeForId(match->name, legacy))
+                    matchedArchetype = match->name;
+            }
             type = SceneObjectType::Model;
+        }
     }
 
     if (m_sceneMode == SceneMode::Scene2D)
@@ -182,6 +196,12 @@ void EditorApp::flushQueuedAssetPlace()
     if (!ok)
     {
         DE_LOG_WARN("Editor: asset place failed (no ground hit)");
+        return;
+    }
+    if (!matchedArchetype.empty())
+    {
+        authored.modelPath = m_queueAssetModel;
+        placeArchetypeAtWorld(matchedArchetype, hit, &authored);
         return;
     }
     const SceneObjectData* authoredPtr = authored.modelPath.empty() ? nullptr : &authored;
@@ -352,6 +372,34 @@ void EditorApp::drawAssetBrowser()
             drawPrimitive(SceneObjectType::Water, "Water");
             drawPrimitive(SceneObjectType::Stream, "Stream");
             drawPrimitive(SceneObjectType::CloudVolume, "Cloud Volume");
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Archetypes"))
+    {
+        const char* modeName = (m_sceneMode == SceneMode::Scene2D) ? "2d" : "3d";
+        for (const Archetype& archetype : archetypes())
+        {
+            SceneObjectType legacy{};
+            if (legacySceneTypeForId(archetype.name, legacy) || archetype.name == "core:crow")
+                continue;
+            if (!archetypeVisibleInMode(archetype, modeName))
+                continue;
+            const std::string label = archetype.editor.label.empty() ? archetype.name : archetype.editor.label;
+            char row[192];
+            std::snprintf(row, sizeof(row), "%s  %s", iconForContentName(archetype.editor.icon), label.c_str());
+            ImGui::BeginDisabled(!createOk);
+            ImGui::PushID(archetype.name.c_str());
+            if (ImGui::Selectable(row))
+            {
+            }
+            if (createOk && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+            {
+                m_placeArchetype = archetype.name;
+                m_queuePlaceAtCursor = true;
+            }
+            ImGui::PopID();
+            ImGui::EndDisabled();
         }
     }
 

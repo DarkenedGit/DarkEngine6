@@ -1,0 +1,17 @@
+{
+  "items": [
+    { "id": "sword", "name": "Sword", "type": "weapon", "slot": "none", "maxStack": 1, "heal": 0, "armor": 0 },
+    { "id": "rifle", "name": "Rifle", "type": "weapon", "slot": "none", "maxStack": 1, "heal": 0, "armor": 0 },
+    { "id": "medkit", "name": "Medkit", "type": "consumable", "slot": "none", "maxStack": 5, "heal": 50, "armor": 0 },
+    { "id": "helmet", "name": "Helmet", "type": "armor", "slot": "head", "maxStack": 1, "heal": 0, "armor": 25 },
+    { "id": "chest", "name": "Chest Plate", "type": "armor", "slot": "chest", "maxStack": 1, "heal": 0, "armor": 40 },
+    { "id": "arm_guards", "name": "Arm Guards", "type": "armor", "slot": "arms", "maxStack": 1, "heal": 0, "armor": 40 },
+    { "id": "leg_guards", "name": "Leg Guards", "type": "armor", "slot": "legs", "maxStack": 1, "heal": 0, "armor": 45 },
+    { "id": "keycard_red", "name": "Red Keycard", "type": "key", "slot": "none", "maxStack": 1, "heal": 0, "armor": 0 },
+    { "id": "flashlight", "name": "Flashlight", "type": "tool", "slot": "light", "maxStack": 1, "heal": 0, "armor": 0 },
+    { "id": "research_file", "name": "Research File", "type": "quest", "slot": "none", "maxStack": 10, "heal": 0, "armor": 0 },
+    { "id": "bio_sample", "name": "Bio-Sample", "type": "quest", "slot": "none", "maxStack": 10, "heal": 0, "armor": 0 },
+    { "id": "research", "name": "Research Data", "type": "resource", "slot": "none", "maxStack": 99, "heal": 0, "armor": 0 },
+    { "id": "bio_material", "name": "Bio Material", "type": "resource", "slot": "none", "maxStack": 99, "heal": 0, "armor": 0 }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "items": [
+    { "id": "sword", "count": 1 },
+    { "id": "rifle", "count": 1 },
+    { "id": "medkit", "count": 2 }
+  ]
+}

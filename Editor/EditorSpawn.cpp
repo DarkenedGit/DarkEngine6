@@ -1,5 +1,7 @@
 #include "EditorApp.h"
 
+#include "Content/ArchetypeSpawn.h"
+#include "Content/ContentDb.h"
 #include "Scene/SceneSpawn.h"
 
 #include "Editor/EditorInternals.h"
@@ -556,6 +558,152 @@ Entity EditorApp::placeAtWorld(SceneObjectType type, Vector3f hit, const SceneOb
     return e;
 }
 
+bool EditorApp::ensureArchetypeMesh(void* user, Entity entity)
+{
+    auto* app = static_cast<EditorApp*>(user);
+    if (!app || !entity.valid() || !app->world().alive(entity))
+        return false;
+    MeshComponent mc{};
+    mc.matAssetID  = app->m_propMaterial ? app->m_propMaterial->id : NULL_ASSET;
+    mc.meshAssetID = NULL_ASSET;
+    setMeshComponent(app->world(), app->pins(), app->assets(), entity, mc);
+    return true;
+}
+
+Entity EditorApp::spawnAuthoredArchetype(const SceneObjectData& authored, bool select)
+{
+    if (netClientLocked() || authored.archetype.empty())
+        return {};
+    ArchetypeSpawnHost host{};
+    host.world      = &world();
+    host.assets     = &assets();
+    host.pins       = &pins();
+    host.renderer   = &renderer();
+    host.audio      = &audio();
+    host.ground     = &m_ground;
+    host.ai         = &m_ai;
+    host.ensureMesh = &EditorApp::ensureArchetypeMesh;
+    host.user       = this;
+    ArchetypeSpawnPose pose{};
+    pose.position = authored.position;
+    pose.rotation = authored.rotation;
+    const bool zeroScale = authored.scale.x == 0.0f && authored.scale.y == 0.0f && authored.scale.z == 0.0f;
+    pose.scale    = zeroScale ? Vector3f{ 1.0f, 1.0f, 1.0f } : authored.scale;
+    pose.color[0] = 0.15f;
+    pose.color[1] = 0.75f;
+    pose.color[2] = 0.72f;
+    pose.color[3] = 1.0f;
+    ContentError err;
+    const Entity e = instantiateArchetype(host, authored.archetype, pose, authored.overridesJson, &err);
+    if (!e.valid())
+    {
+        DE_LOG_WARN("Editor: archetype '{}' failed ({})", authored.archetype, err.message);
+        return {};
+    }
+    EditorObjectComponent so{};
+    so.type     = SceneObjectType::Model;
+    so.color[0] = pose.color[0];
+    so.color[1] = pose.color[1];
+    so.color[2] = pose.color[2];
+    so.color[3] = pose.color[3];
+    so.source            = authored;
+    so.source.type       = SceneObjectType::Model;
+    so.source.dataDriven = true;
+    so.source.archetype  = authored.archetype;
+    world().emplace<EditorObjectComponent>(e, so);
+    if (select)
+        m_selected = e;
+    if (const Archetype* arch = findArchetype(authored.archetype); arch && arch->replicate)
+        network().registerEntity(world(), e, NetPrefab::Unknown, ClientId::Host, packRgba8(so.color), replicationIndex(arch->name));
+    if (!m_suspendLiveStamp)
+    {
+        if (m_playMode)
+            stampSpawned(world(), e, authored.archetype);
+        else
+            stampProceduralId(world(), e, std::format("editor/live/{}", m_liveStamp++), authored.archetype);
+    }
+    DE_LOG_INFO("Editor: spawn archetype {} #{}", authored.archetype, e.id());
+    return e;
+}
+
+Entity EditorApp::spawnPlaceholder(const SceneObjectData& authored)
+{
+    float col[4] = { 1.0f, 0.15f, 0.75f, 1.0f };
+    Vector3f scale = authored.scale;
+    if (scale.x == 0.0f && scale.y == 0.0f && scale.z == 0.0f)
+        scale = Vector3f{ 1.0f, 1.0f, 1.0f };
+    const Entity e = spawnObject(SceneObjectType::Cube, authored.position, scale, authored.rotation, col, nullptr, &authored, false, true);
+    if (!e.valid())
+        return {};
+    if (EditorObjectComponent* so = world().get<EditorObjectComponent>(e))
+    {
+        so->source             = authored;
+        so->source.placeholder = true;
+        if (!authored.rawJson.empty())
+            so->source.rawJson = authored.rawJson;
+        if (!authored.archetype.empty())
+            so->source.archetype = authored.archetype;
+    }
+    if (TagComponent* tag = world().get<TagComponent>(e))
+        tag->name = "Missing";
+    return e;
+}
+
+Entity EditorApp::placeArchetypeAtWorld(const std::string& archetypeId, Vector3f hit, const SceneObjectData* authored)
+{
+    if (archetypeId.empty())
+        return {};
+    if (m_gridSnap > 0.0f)
+    {
+        hit.x = snap(hit.x, m_gridSnap);
+        hit.z = snap(hit.z, m_gridSnap);
+    }
+    bool lift = false;
+    if (const Archetype* arch = findArchetype(archetypeId))
+    {
+        for (const ArchetypeBehavior& behavior : arch->behaviors)
+        {
+            if (behavior.name.rfind("ai.", 0) == 0 || behavior.name.rfind("player.", 0) == 0)
+                lift = true;
+        }
+    }
+    if (lift)
+        hit.y += 0.5f;
+    SceneObjectData local{};
+    if (authored)
+        local = *authored;
+    local.archetype   = archetypeId;
+    local.dataDriven  = true;
+    local.type        = SceneObjectType::Model;
+    local.position    = hit;
+    local.rotation    = Quaternion::IDENTITY;
+    if (local.scale.x == 0.0f && local.scale.y == 0.0f && local.scale.z == 0.0f)
+        local.scale = Vector3f{ 1.0f, 1.0f, 1.0f };
+    const Entity e = spawnAuthoredArchetype(local, true);
+    if (!e.valid())
+        return {};
+    if (const TransformComponent* xf = world().get<TransformComponent>(e))
+        audio().play3D(m_sfxPlace, xf->position, 0.65f);
+    return e;
+}
+
+Entity EditorApp::placeArchetypeAtCursor()
+{
+    Vector3f hit{};
+    bool ok = groundHitFromMouse(hit);
+    if (!ok)
+    {
+        Ray3f ray(m_camera.GetPosition(), m_camera.GetLook());
+        ok = groundHitFromRay(ray, hit);
+    }
+    if (!ok)
+    {
+        DE_LOG_WARN("Editor: place failed (no ground hit)");
+        return {};
+    }
+    return placeArchetypeAtWorld(m_placeArchetype, hit, nullptr);
+}
+
 Entity EditorApp::placeGlowProp()
 {
     if (m_sceneMode == SceneMode::Scene2D)
@@ -770,6 +918,7 @@ void EditorApp::cyclePlaceType(int delta)
             idx = i;
     idx = ((idx + delta) % n + n) % n;
     m_placeType = types[idx];
+    m_placeArchetype.clear();
     DE_LOG_INFO("Editor: place type = {}", toString(m_placeType));
 }
 

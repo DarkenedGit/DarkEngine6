@@ -1,0 +1,7 @@
+{
+  "id": "core:ambient_light",
+  "version": 1,
+  "editor": { "label": "Ambient Light", "category": "Lights", "icon": "sun", "modes": ["3d"] },
+  "components": {},
+  "behaviors": []
+}

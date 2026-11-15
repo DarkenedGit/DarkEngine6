@@ -53,5 +53,7 @@ namespace Dark::Combat
     };
 
     const StatusDef* statusDef(StatusId id);
+    // Overlays content/combat/statuses.json onto the compiled catalog. Safe to call more than once.
+    void             reloadStatusCatalog();
 
 } // namespace Dark::Combat

@@ -1,0 +1,7 @@
+{
+  "id": "core:directional_light",
+  "version": 1,
+  "editor": { "label": "Directional Light", "category": "Lights", "icon": "sun", "modes": ["3d"] },
+  "components": {},
+  "behaviors": []
+}

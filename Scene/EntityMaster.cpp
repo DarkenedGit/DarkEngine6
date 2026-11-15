@@ -1,4 +1,5 @@
 #include "Scene/EntityMaster.h"
+#include "Content/ContentDb.h"
 #include "Core/ContentRoots.h"
 #include "Core/Log.h"
 
@@ -6,6 +7,7 @@
 
 #include <fstream>
 #include <sstream>
+#include <unordered_map>
 
 namespace Dark
 {
@@ -14,6 +16,12 @@ namespace Dark
         using json = nlohmann::json;
 
         constexpr std::uintmax_t kMaxJsonBytes = 64u * 1024u;
+
+        std::unordered_map<std::string, EntityMaster>& entityMasterCache()
+        {
+            static std::unordered_map<std::string, EntityMaster> cache;
+            return cache;
+        }
 
         bool readString(const json& obj, const char* key, std::string& out)
         {
@@ -118,6 +126,15 @@ namespace Dark
         if (relative.empty())
             return {};
         const std::filesystem::path rel{ std::string(relative) };
+        for (const std::filesystem::path& root : contentOverlayRoots())
+        {
+            if (root.empty())
+                continue;
+            const std::filesystem::path path = root / rel;
+            std::error_code             ec;
+            if (std::filesystem::is_regular_file(path, ec) && !ec)
+                return path;
+        }
         for (const std::filesystem::path& root : contentRootCandidates())
         {
             if (root.empty())
@@ -139,12 +156,26 @@ namespace Dark
         return root / rel;
     }
 
+    void clearEntityMasterCache()
+    {
+        entityMasterCache().clear();
+    }
+
     EntityMaster loadEntityMaster(std::string_view virtualPath)
     {
+        if (virtualPath.empty())
+            return {};
+        const std::string key(virtualPath);
+        std::unordered_map<std::string, EntityMaster>& cache = entityMasterCache();
+        const auto it = cache.find(key);
+        if (it != cache.end())
+            return it->second;
+
         EntityMaster master;
         const std::filesystem::path path = resolveContentFile(virtualPath);
-        if (path.empty() || !loadEntityMasterFile(path, master))
-            return {};
+        if (!path.empty())
+            loadEntityMasterFile(path, master);
+        cache.emplace(key, master);
         return master;
     }
 

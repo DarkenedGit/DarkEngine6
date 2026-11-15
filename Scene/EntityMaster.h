@@ -29,6 +29,7 @@ namespace Dark
     // First content root that contains the virtual path. Empty master (type empty) on failure.
     EntityMaster loadEntityMaster(std::string_view virtualPath);
     EntityMaster loadEntityMasterType(std::string_view typeName);
+    void         clearEntityMasterCache();
 
     // Existing file under a content root, or empty.
     std::filesystem::path resolveContentFile(std::string_view relative);

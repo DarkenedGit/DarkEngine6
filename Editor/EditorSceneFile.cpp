@@ -1,6 +1,9 @@
 #include "EditorApp.h"
 
+#include "Combat/StatusDef.h"
+#include "Content/ContentDb.h"
 #include "Editor/EditorInternals.h"
+#include "Gameplay/Item.h"
 #include "Editor/EditorObject.h"
 #include "Scene/Building.h"
 #include "Media/MovieCue.h"
@@ -416,7 +419,13 @@ bool EditorApp::applyLoadedScene(SceneFileData& data)
         ParticleEmitterDesc pdesc = makeDefaultParticleDesc();
         if (d.hasParticle)
             descFromSceneData(d, pdesc);
-        const Entity e = spawnObject(d.type, d.position, d.scale, d.rotation, d.color,
+        Entity e{};
+        if (d.placeholder)
+            e = spawnPlaceholder(d);
+        else if (d.dataDriven)
+            e = spawnAuthoredArchetype(d, false);
+        else
+            e = spawnObject(d.type, d.position, d.scale, d.rotation, d.color,
                     d.type == SceneObjectType::ParticleEmitter ? &pdesc : nullptr, &d, !generated, true);
         if (generated && e.valid())
         {
@@ -508,11 +517,31 @@ float EditorApp::sceneGroundY(void* user, float x, float z)
 
 void EditorApp::handleEditorCommands(float dt)
 {
+    if (!m_playMode)
+    {
+        m_contentPoll += dt;
+        if (m_contentPoll >= 1.0f)
+        {
+            m_contentPoll = 0.0f;
+            if (pollContentChanges())
+            {
+                reloadItemCatalog();
+                Combat::reloadStatusCatalog();
+                network().setContentHash(contentSetHash());
+                DE_LOG_INFO("Editor: content reloaded");
+            }
+        }
+    }
     if (m_queuePlaceAtCursor)
     {
         m_queuePlaceAtCursor = false;
         if (!netClientLocked())
-            placeAtCursor(m_placeType);
+        {
+            if (!m_placeArchetype.empty())
+                placeArchetypeAtCursor();
+            else
+                placeAtCursor(m_placeType);
+        }
     }
     if (m_queueGlowProp)
     {
@@ -647,21 +676,69 @@ void EditorApp::handleEditorCommands(float dt)
         if (!m_playMode)
         {
             if (input().actionPressed("type_cube"))
+            {
                 m_placeType = (m_sceneMode == SceneMode::Scene2D) ? SceneObjectType::Platform : SceneObjectType::Cube;
+                m_placeArchetype.clear();
+            }
             if (input().actionPressed("type_sphere"))
+            {
                 m_placeType = (m_sceneMode == SceneMode::Scene2D) ? SceneObjectType::Coin : SceneObjectType::Sphere;
+                m_placeArchetype.clear();
+            }
             if (input().actionPressed("type_particle"))
+            {
                 m_placeType = (m_sceneMode == SceneMode::Scene2D) ? SceneObjectType::Spawn : SceneObjectType::ParticleEmitter;
+                m_placeArchetype.clear();
+            }
             if (m_sceneMode != SceneMode::Scene2D && input().actionPressed("type_point_light"))
+            {
                 m_placeType = SceneObjectType::PointLight;
+                m_placeArchetype.clear();
+            }
             if (m_sceneMode != SceneMode::Scene2D && input().actionPressed("type_spot_light"))
+            {
                 m_placeType = SceneObjectType::SpotLight;
+                m_placeArchetype.clear();
+            }
             if (m_sceneMode != SceneMode::Scene2D && input().actionPressed("type_player"))
+            {
                 m_placeType = SceneObjectType::Player;
+                m_placeArchetype.clear();
+            }
             if (m_sceneMode != SceneMode::Scene2D && input().actionPressed("type_hunter"))
+            {
                 m_placeType = SceneObjectType::Hunter;
+                m_placeArchetype.clear();
+            }
             if (m_sceneMode != SceneMode::Scene2D && input().actionPressed("type_wolf"))
+            {
                 m_placeType = SceneObjectType::Wolf;
+                m_placeArchetype.clear();
+            }
+            if (!typing && !netClientLocked())
+            {
+                const char* modeName = (m_sceneMode == SceneMode::Scene2D) ? "2d" : "3d";
+                for (const Archetype& archetype : archetypes())
+                {
+                    SceneObjectType legacy{};
+                    if (legacySceneTypeForId(archetype.name, legacy) || archetype.name == "core:crow")
+                        continue;
+                    if (!archetypeVisibleInMode(archetype, modeName) || archetype.editor.hotkey.size() != 1)
+                        continue;
+                    const unsigned char ch = static_cast<unsigned char>(archetype.editor.hotkey[0]);
+                    Key key = Key::Unknown;
+                    if (ch >= '0' && ch <= '9')
+                        key = static_cast<Key>(ch);
+                    else if (ch >= 'a' && ch <= 'z')
+                        key = static_cast<Key>(ch - 'a' + 'A');
+                    else if (ch >= 'A' && ch <= 'Z')
+                        key = static_cast<Key>(ch);
+                    if (key == Key::Unknown || !input().keyPressed(key))
+                        continue;
+                    m_placeArchetype = archetype.name;
+                    break;
+                }
+            }
             if (input().actionPressed("cycle_type"))
                 cyclePlaceType(+1);
             if (input().actionPressed("cycle_color"))
@@ -670,7 +747,12 @@ void EditorApp::handleEditorCommands(float dt)
             if (!trailKeys && input().actionPressed("delete") && !netClientLocked())
                 deleteSelected();
             if (!trailKeys && input().actionPressed("place") && !netClientLocked())
-                placeAtCursor(m_placeType);
+            {
+                if (!m_placeArchetype.empty())
+                    placeArchetypeAtCursor();
+                else
+                    placeAtCursor(m_placeType);
+            }
         }
     }
 
@@ -839,7 +921,7 @@ void EditorApp::drawStatusBar()
         const std::string sceneName = m_scenePath.empty() ? std::string("(unsaved)") : m_scenePath.filename().string();
         char info[384];
         std::snprintf(info, sizeof(info), "%s  |  %d objects  |  place: %s  |  %s%s", m_sceneMode == SceneMode::Scene2D ? "2D" : "3D",
-                      static_cast<int>(editorObjectCount()), toString(m_placeType), netRoleLabel(network().role()), m_playMode ? "  |  PLAY" : "");
+                      static_cast<int>(editorObjectCount()), m_placeArchetype.empty() ? toString(m_placeType) : m_placeArchetype.c_str(), netRoleLabel(network().role()), m_playMode ? "  |  PLAY" : "");
         char fps[32];
         std::snprintf(fps, sizeof(fps), "%.0f fps", static_cast<double>(ImGui::GetIO().Framerate));
         ImFont* mono = m_imgui.fonts().mono;

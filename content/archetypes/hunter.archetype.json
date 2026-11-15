@@ -1,0 +1,14 @@
+{
+  "id": "core:hunter",
+  "version": 1,
+  "editor": { "label": "Hunter", "category": "Creatures", "icon": "bug", "modes": ["3d"], "matchModel": "skeleton" },
+  "components": {
+    "Model": { "gltf": "models/skeleton.gltf", "anim": "models/skeleton.anim.json" },
+    "Physics": { "file": "models/human.physics.json" },
+    "Combat": { "attacks": "ai/hunter.attacks.json" },
+    "Health": { "max": 100 },
+    "Dialogue": { "graph": "dialogue/hunter_gate.dlg.json" }
+  },
+  "behaviors": [ { "name": "ai.hunter" } ],
+  "net": { "replicate": true }
+}

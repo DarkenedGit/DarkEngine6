@@ -1,0 +1,7 @@
+{
+  "id": "core:movie",
+  "version": 1,
+  "editor": { "label": "Movie", "category": "Gameplay", "icon": "film", "modes": ["3d"] },
+  "components": { "Movie": {} },
+  "behaviors": []
+}
