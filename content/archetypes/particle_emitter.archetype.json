@@ -14,5 +14,5 @@
       "enabled": true
     }
   },
-  "behaviors": [ { "name": "light.searchlight" }, { "name": "particle.emit" } ]
+  "behaviors": [ { "name": "light.local" }, { "name": "particle.emit" } ]
 }

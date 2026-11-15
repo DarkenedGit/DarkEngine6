@@ -5,7 +5,8 @@
   "components": {
     "Model": { "gltf": "models/human.gltf", "anim": "models/human.anim.json" },
     "Physics": { "file": "models/human.physics.json" },
-    "Health": { "max": 200, "regen": 10, "regenDelay": 3.5 }
+    "Health": { "max": 200, "regen": 10, "regenDelay": 3.5 },
+    "Combat": { "profile": "entities/player.entity.combat.json" }
   },
   "behaviors": [ { "name": "player.controller" } ],
   "net": { "replicate": true }

@@ -1,7 +1,7 @@
 {
   "id": "core:cloud_volume",
   "version": 1,
-  "editor": { "label": "Cloud Volume", "category": "Environment", "icon": "cloud", "modes": ["3d"] },
+  "editor": { "label": "Cloud Volume", "category": "Environment", "icon": "cloud", "modes": ["3d"], "tooltip": "Places a volumetric cloud. Scale is the volume size. Looks correct from inside the volume." },
   "components": { "CloudVolume": {} },
   "behaviors": [ { "name": "cloud.volume" } ]
 }

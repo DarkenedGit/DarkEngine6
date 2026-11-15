@@ -11,6 +11,7 @@
 #include "Combat/JumpAttackComponent.h"
 #include "Combat/PlayerMode.h"
 #include "Combat/PoiseComponent.h"
+#include "Combat/StatusDef.h"
 #include "Combat/StatusEffectComponent.h"
 #include "Combat/StatusId.h"
 #include "ECS/Components.h"
@@ -135,7 +136,7 @@ namespace Dark::Combat
         if (!ev.source.valid() || !world.alive(ev.source) || ev.source.id() == ev.target.id())
             return;
 
-        const EntityCombat& parryCombat = entityCombatFor("player");
+        const EntityCombat& parryCombat = entityCombatProfile(world, ev.target);
         const float parryStun = (defense && defense->parryStunSeconds > 0.0f) ? defense->parryStunSeconds : parryCombat.parryStun;
         float       slamStun  = (defense && defense->chargedParryStunSeconds > 0.0f) ? defense->chargedParryStunSeconds : parryCombat.chargedParryStun;
         if (slamStun <= parryStun)
@@ -294,7 +295,7 @@ namespace Dark::Combat
 
         const bool mappedKnockdown = (ev.flags & DamageFlags::Knockdown) != 0;
         const bool hadShock        = status && status->has(StatusId::Shock);
-        const EntityCombat& actorCombat = entityCombatFor("player");
+        const EntityCombat& actorCombat = combatProfileForId("core:player");
         if (status && !r.blocked)
         {
             if (ev.statusId != 0)
@@ -303,22 +304,24 @@ namespace Dark::Combat
             }
             else if ((ev.flags & (DamageFlags::SoftCc | DamageFlags::HardCc | DamageFlags::Knockdown)) != 0)
             {
-                CcCategory cat    = CcCategory::Root;
-                bool       hard   = false;
-                float      defDur = actorCombat.ccRoot;
+                CcCategory cat        = CcCategory::Root;
+                bool       hard       = false;
+                StatusId   durationId = StatusId::Root;
                 if (mappedKnockdown)
                 {
-                    cat    = CcCategory::Knockdown;
-                    hard   = true;
-                    defDur = actorCombat.ccKnockdown;
+                    cat        = CcCategory::Knockdown;
+                    hard       = true;
+                    durationId = StatusId::Knockdown;
                 }
                 else if ((ev.flags & DamageFlags::HardCc) != 0)
                 {
-                    cat    = CcCategory::Stun;
-                    hard   = true;
-                    defDur = actorCombat.ccStun;
+                    cat        = CcCategory::Stun;
+                    hard       = true;
+                    durationId = StatusId::Stun;
                 }
-                const float dur = ev.statusDuration > 0.0f ? ev.statusDuration : defDur;
+                const StatusDef* row = statusDef(durationId);
+                const float catalogDur = row ? row->defaultDuration : 0.0f;
+                const float dur = ev.statusDuration > 0.0f ? ev.statusDuration : catalogDur;
                 r.ccDuration    = status->applyCc(cat, dur, hard, ev.statusId, ev.statusMagnitude, ev.source);
             }
         }

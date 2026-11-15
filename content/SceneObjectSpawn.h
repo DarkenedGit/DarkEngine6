@@ -67,6 +67,8 @@ namespace Dark
     void sceneWriteLight(SceneObjectData& object, const SceneLightFields& light);
 
     std::string sceneModelPath(const SceneObjectData& object);
+    // Model.gltf on the loaded archetype. Empty when the database has no such path.
+    std::string archetypeModelPath(std::string_view archetypeId);
     void        sceneWriteModelPath(SceneObjectData& object, std::string path);
     float       sceneEmissive(const SceneObjectData& object);
     void        sceneWriteEmissive(SceneObjectData& object, float emissive);

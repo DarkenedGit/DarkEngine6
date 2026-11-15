@@ -237,7 +237,7 @@ TEST(Spawner, MaintainReplacesACrow)
 {
     SpawnerDesc desc{};
     desc.mode         = SpawnerMode::Maintain;
-    desc.unit         = SpawnerUnit::Crow;
+    desc.unitArchetype = "crow";
     desc.count        = 1;
     desc.radius       = 0.0f;
     desc.respawnDelay = 0.0f;
@@ -246,17 +246,12 @@ TEST(Spawner, MaintainReplacesACrow)
     bool alive[kSpawnerSlotCount]{};
     SpawnerRequest reqs[kSpawnerSlotCount];
 
-    SpawnerUnit parsed = SpawnerUnit::Hunter;
-    ASSERT_TRUE(tryParseSpawnerUnit("crow", parsed));
-    EXPECT_EQ(parsed, SpawnerUnit::Crow);
-    EXPECT_STREQ(toString(SpawnerUnit::Crow), "crow");
-
     ASSERT_EQ(tickSpawner(desc, runtime, 0.0f, 0.0f, 0.0f, alive, reqs, kSpawnerSlotCount), 1);
-    EXPECT_EQ(reqs[0].unit, SpawnerUnit::Crow);
+    EXPECT_EQ(reqs[0].unitArchetype, "crow");
     EXPECT_EQ(reqs[0].seed, 99u);
     alive[0] = false;
     ASSERT_EQ(tickSpawner(desc, runtime, 0.0f, 0.0f, 0.0f, alive, reqs, kSpawnerSlotCount), 1);
-    EXPECT_EQ(reqs[0].unit, SpawnerUnit::Crow);
+    EXPECT_EQ(reqs[0].unitArchetype, "crow");
     EXPECT_EQ(reqs[0].slot, 0);
     EXPECT_EQ(reqs[0].seed, 99u);
 }

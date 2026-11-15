@@ -18,6 +18,7 @@ namespace Dark
     class AssetPinTable;
     class Renderer;
     class AiSystem;
+    struct CrowModels;
 
     namespace Audio
     {
@@ -26,6 +27,7 @@ namespace Dark
     namespace Terrain
     {
         class TerrainGround;
+        class TerrainGrid;
     }
 
     // Services a behavior may use. Null services mean that behavior cannot run.
@@ -48,6 +50,14 @@ namespace Dark
         // Scene models in Sandbox refuse a glTF that has no skeleton.
         bool modelAnimatedOnly = false;
         void* user = nullptr;
+        // ai.crow reads these. A null flock means that behavior cannot attach.
+        CrowModels*                 crows       = nullptr;
+        const Terrain::TerrainGrid* crowTerrain = nullptr;
+        bool                        crowHomeSet = false;
+        float                       crowHomeX   = 0.0f;
+        float                       crowHomeZ   = 0.0f;
+        uint32_t                    crowSeed    = 1;
+        int                         crowSlot    = 0;
     };
 
     struct EditorMeta
@@ -58,6 +68,7 @@ namespace Dark
         std::string              hotkey;
         std::vector<std::string> modes;
         std::string              matchModel;
+        std::string              tooltip;
         bool                     hasDefaultScale = false;
         float                    defaultScale[3]{ 1.0f, 1.0f, 1.0f };
         bool                     hasDefaultColor = false;
@@ -161,6 +172,8 @@ namespace Dark
     const std::vector<ContentIssue>& contentIssues();
 
     bool        contentHasArchetype(std::string_view idOrShort);
+    // False until loadContentDatabase succeeds. Distinct from a missing id.
+    bool        contentDatabaseLoaded();
     const Archetype* archetypeMatchingModelStem(std::string_view stem);
 
     uint64_t           contentSetHash();

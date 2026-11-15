@@ -15,6 +15,7 @@
 #include "Gameplay/QuestZone.h"
 #include "Media/MovieCue.h"
 #include "Scene/SceneSpawn.h"
+#include "Content/SceneObjectSpawn.h"
 #include "Gameplay/PowerCheck.h"
 #include "Play/PhysicsGround.h"
 #include "Play/PlayBody.h"
@@ -1345,9 +1346,11 @@ void SandboxApp::attachReplicaCombat(Entity e)
     if (!e.valid() || !world().alive(e))
         return;
     ensureHumanoidBody(world(), e, archetypeHealthSettings("core:player"), Vector3f{ 0.35f, 0.7f, 0.35f });
-    const EntityMaster playerMaster = loadEntityMasterType("player");
-    const std::string  playerGltf = playerMaster.gltf.empty() ? std::string("models/human.gltf") : playerMaster.gltf;
-    attachAnimatedCharacter(e, playerGltf.c_str());
+    const std::string playerGltf = archetypeModelPath("core:player");
+    if (playerGltf.empty())
+        DE_LOG_WARN(LogCategory::Core, "Play: 'core:player' has no Model path");
+    else
+        attachAnimatedCharacter(e, playerGltf.c_str());
 }
 
 void SandboxApp::attachLocalPlayer(Entity e)
@@ -1819,21 +1822,24 @@ void SandboxApp::bindEntityPhysics(Entity e, const char* entityType)
     if (!m_physics.valid() || !e.valid() || !world().alive(e))
         return;
 
-    const EntityMaster master = loadEntityMasterType(entityType);
-    if (master.physics.empty())
+    if (!world().has<PhysicsComponent>(e))
     {
-        DE_LOG_WARN(LogCategory::Collision, "SandboxApp: '{}' has no physics card", entityType);
-        return;
-    }
+        const EntityMaster master = loadEntityMasterType(entityType);
+        if (master.physics.empty())
+        {
+            DE_LOG_WARN(LogCategory::Collision, "SandboxApp: '{}' has no physics card", entityType);
+            return;
+        }
 
-    const std::filesystem::path file = resolveContentFile(master.physics);
-    PhysicsComponent settings;
-    if (file.empty() || !Physics::loadPhysicsSettingsFile(file, settings))
-    {
-        DE_LOG_WARN(LogCategory::Collision, "SandboxApp: physics card '{}' for '{}' missing or invalid", master.physics, entityType);
-        return;
+        const std::filesystem::path file = resolveContentFile(master.physics);
+        PhysicsComponent settings;
+        if (file.empty() || !Physics::loadPhysicsSettingsFile(file, settings))
+        {
+            DE_LOG_WARN(LogCategory::Collision, "SandboxApp: physics card '{}' for '{}' missing or invalid", master.physics, entityType);
+            return;
+        }
+        world().emplace<PhysicsComponent>(e, std::move(settings));
     }
-    world().emplace<PhysicsComponent>(e, std::move(settings));
 
     const Model* model = nullptr;
     if (const ModelComponent* mc = world().get<ModelComponent>(e))

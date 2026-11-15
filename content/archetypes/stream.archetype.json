@@ -1,7 +1,7 @@
 {
   "id": "core:stream",
   "version": 1,
-  "editor": { "label": "Stream", "category": "Environment", "icon": "water", "modes": ["3d"] },
+  "editor": { "label": "Stream", "category": "Environment", "icon": "water", "modes": ["3d"], "tooltip": "Places a stream ribbon. Follow downhill in the inspector to run it to the lake." },
   "components": { "Stream": { "width": 3.5, "flowSpeed": 1.6 } },
   "behaviors": [ { "name": "stream.ribbon" } ]
 }

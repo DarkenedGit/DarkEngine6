@@ -122,6 +122,11 @@ namespace Dark
     // pins is required to change the pose mesh. A null pin table leaves the current mesh in place.
     void simulateCrows(World& world, const Terrain::TerrainGrid* terrain, CrowModels* models, AssetManager* assets, AssetPinTable* pins, Audio::AudioSystem* audio, float dt);
 
+    // Fills an existing entity with the flock brain, pose mesh, health, and hittable body.
+    // A failed model upload leaves the entity unchanged and returns false.
+    bool attachCrowBody(World& world, Renderer& renderer, AssetManager& assets, AssetPinTable& pins, CrowModels& models,
+        const Terrain::TerrainGrid* terrain, Entity entity, float x, float z, float groundY, float homeX, float homeZ, uint32_t seed, int slot);
+
     // No persistent id and no editor object. A failed model upload returns a null entity.
     // The pose mesh is pinned on the entity so destroy/unpin matches a normal model.
     Entity spawnCrow(World& world, Renderer& renderer, AssetManager& assets, AssetPinTable& pins, CrowModels& models,

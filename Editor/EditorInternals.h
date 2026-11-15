@@ -57,7 +57,6 @@ namespace Dark::EditorDetail
     uint32_t packRgba8(const float c[4]);
     void unpackRgba8(uint32_t rgba, float out[4]);
     void defaultLightColor(float out[4]);
-    void fillDefaultLocalLight(LocalLightComponent& light, std::string_view kind);
     Math::Quaternion defaultDirectionalRotation();
     Math::Vector3f directionalLightDir(const TransformComponent& xf);
     Entity glowMeshOf(World& world, Entity e);

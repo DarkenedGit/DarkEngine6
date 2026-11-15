@@ -1,7 +1,9 @@
 #include "Ui/ImGuiGameChrome.h"
 
+#include "Core/Log.h"
 #include "Gameplay/QuestRuntime.h"
 #include "Math/MathHelper.h"
+#include "Scene/ControlGuide.h"
 #include "Ui/Icons.h"
 #include "Ui/ImGuiTheme.h"
 #include "Ui/MainMenu.h"
@@ -289,6 +291,210 @@ std::string upperAscii(std::string_view text)
     return out;
 }
 
+struct SettingsPage
+{
+    ImDrawList*          dl           = nullptr;
+    const ImGuiViewport* vp           = nullptr;
+    ImFont*              itemFont     = nullptr;
+    ImFont*              bodyFont     = nullptr;
+    float                marginX      = 0.0f;
+    float                itemPx       = 0.0f;
+    float                subPx        = 0.0f;
+    float                subTrack     = 0.0f;
+    ImU32                muted        = 0;
+    bool                 locked       = false;
+    float*               masterVolume = nullptr;
+};
+
+const Dark::ControlGuide* settingsControls()
+{
+    static Dark::ControlGuide guide;
+    static bool               ready  = false;
+    static bool               logged = false;
+    if (!ready)
+    {
+        Dark::ControlGuide next;
+        if (Dark::loadSandboxControlGuide(next))
+        {
+            guide = std::move(next);
+            ready = true;
+        }
+        else if (!logged)
+        {
+            logged = true;
+            DE_LOG_ERROR(Dark::LogCategory::Input, "Settings: could not load the control lists");
+        }
+    }
+    return ready ? &guide : nullptr;
+}
+
+void drawListHeading(ImDrawList* dl, ImFont* font, float headPx, ImVec2 pos, float width, const char* text)
+{
+    const float track = headPx * 0.18f;
+    drawTracked(dl, font, headPx, pos, IM_COL32(186, 198, 208, 220), text, track);
+    const float lineY = pos.y + headPx * 1.25f;
+    const float lineW = width < uiPx(160.0f) ? width : width * 0.55f;
+    if (dl)
+        dl->AddLine(ImVec2(pos.x, lineY), ImVec2(pos.x + lineW, lineY), IM_COL32(120, 210, 206, 90), 1.0f);
+}
+
+void drawControlList(const char* id, ImVec2 pos, ImVec2 size, const std::vector<Dark::ControlRow>& rows, ImFont* font, bool locked)
+{
+    if (size.x < 8.0f || size.y < 8.0f)
+        return;
+    ImGui::SetCursorScreenPos(pos);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, ImVec4(0.55f, 0.90f, 0.88f, 0.35f));
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, ImVec4(0.55f, 0.90f, 0.88f, 0.65f));
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabActive, ImVec4(0.75f, 1.0f, 0.96f, 0.85f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, uiPx(8.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarRounding, uiPx(4.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(uiPx(4.0f), uiPx(3.0f)));
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoNavInputs;
+    if (locked)
+        flags |= ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
+    ImGui::BeginChild(id, size, ImGuiChildFlags_None, flags);
+    if (font)
+        ImGui::PushFont(font);
+    const ImVec4 keyCol(0.73f, 0.93f, 0.90f, 0.95f);
+    const ImVec4 whatCol(0.91f, 0.93f, 0.94f, 0.92f);
+    if (ImGui::BeginTable("##rows", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_PadOuterX))
+    {
+        ImGui::TableSetupColumn("keys", ImGuiTableColumnFlags_WidthStretch, 0.46f);
+        ImGui::TableSetupColumn("what", ImGuiTableColumnFlags_WidthStretch, 0.54f);
+        for (const Dark::ControlRow& row : rows)
+        {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + ImGui::GetContentRegionAvail().x);
+            ImGui::PushStyleColor(ImGuiCol_Text, keyCol);
+            ImGui::TextUnformatted(row.keys.c_str());
+            ImGui::PopStyleColor();
+            ImGui::PopTextWrapPos();
+            ImGui::TableNextColumn();
+            ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + ImGui::GetContentRegionAvail().x);
+            ImGui::PushStyleColor(ImGuiCol_Text, whatCol);
+            ImGui::TextUnformatted(row.what.c_str());
+            ImGui::PopStyleColor();
+            ImGui::PopTextWrapPos();
+        }
+        ImGui::EndTable();
+    }
+    if (font)
+        ImGui::PopFont();
+    ImGui::EndChild();
+    ImGui::PopStyleVar(4);
+    ImGui::PopStyleColor(5);
+}
+
+float drawSettingsBody(const SettingsPage& page, float y)
+{
+    const float backH  = page.itemPx * 1.15f;
+    const float backY  = page.vp->Pos.y + page.vp->Size.y - uiPx(36.0f) - backH;
+    const float gap    = uiPx(36.0f);
+    float       rightW = page.vp->Size.x * 0.28f;
+    if (rightW < uiPx(280.0f))
+        rightW = uiPx(280.0f);
+    if (rightW > uiPx(520.0f))
+        rightW = uiPx(520.0f);
+    const float rightX  = page.vp->Pos.x + page.vp->Size.x - rightW - page.vp->Size.x * 0.04f;
+    const float leftX   = page.vp->Pos.x + page.marginX;
+    float       leftW   = uiPx(640.0f);
+    const float maxLeft = rightX - gap - leftX;
+    if (leftW > maxLeft)
+        leftW = maxLeft;
+    const bool sideBySide = leftW >= uiPx(220.0f);
+
+    float gameW = sideBySide ? leftW : page.vp->Size.x - page.marginX * 2.0f;
+    if (gameW < uiPx(180.0f))
+        gameW = uiPx(180.0f);
+    const float gameX   = leftX;
+    const float engineX = sideBySide ? rightX : leftX;
+    const float engineW = sideBySide ? rightW : gameW;
+
+    const float volumeLabelY = y;
+    drawTracked(page.dl, page.itemFont, page.subPx, ImVec2(gameX, y), page.muted, "MASTER VOLUME", page.subTrack);
+    y += page.subPx * 1.8f;
+    float sliderH = 0.0f;
+    if (page.masterVolume)
+    {
+        float percent = *page.masterVolume * 100.0f;
+        ImGui::SetCursorScreenPos(ImVec2(gameX, y));
+        ImFont* font = page.bodyFont ? page.bodyFont : page.itemFont;
+        if (font)
+            ImGui::PushFont(font);
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(1.0f, 1.0f, 1.0f, 0.08f));
+        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(1.0f, 1.0f, 1.0f, 0.14f));
+        ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(1.0f, 1.0f, 1.0f, 0.18f));
+        ImGui::PushStyleColor(ImGuiCol_SliderGrab, ImVec4(0.55f, 0.90f, 0.88f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, ImVec4(0.75f, 1.0f, 0.96f, 1.0f));
+        float sliderW = uiPx(360.0f);
+        if (sliderW > gameW)
+            sliderW = gameW;
+        ImGui::SetNextItemWidth(sliderW);
+        if (ImGui::SliderFloat("##master", &percent, 0.0f, 100.0f, "%.0f%%"))
+            *page.masterVolume = percent / 100.0f;
+        sliderH = ImGui::GetFrameHeight();
+        ImGui::PopStyleColor(5);
+        if (font)
+            ImGui::PopFont();
+    }
+    const float volumeBottom = y + sliderH;
+
+    const Dark::ControlGuide* guide      = settingsControls();
+    const float               headPx     = page.itemPx * 0.38f;
+    const float               headH      = headPx * 1.25f + uiPx(10.0f);
+    const float               listBottom = backY - uiPx(12.0f);
+    if (!guide)
+    {
+        const float noteY = volumeBottom + page.itemPx * 0.6f;
+        drawTracked(page.dl, page.itemFont, page.subPx, ImVec2(gameX, noteY), page.muted, "CONTROLS COULD NOT BE LOADED", page.subTrack);
+        return backY > noteY + page.subPx ? backY : noteY + page.subPx * 2.0f;
+    }
+
+    auto listHeight = [](float top, float bottom)
+    {
+        float height = bottom - top;
+        if (height < uiPx(48.0f))
+            height = uiPx(48.0f);
+        return height;
+    };
+
+    if (sideBySide)
+    {
+        const float engineHeadY = volumeLabelY - page.itemPx * 1.6f;
+        drawListHeading(page.dl, page.itemFont, headPx, ImVec2(engineX, engineHeadY), engineW, "ENGINE");
+        const float engineListY  = engineHeadY + headH;
+        const float engineBottom = page.vp->Pos.y + page.vp->Size.y - uiPx(28.0f);
+        drawControlList("##engine_controls", ImVec2(engineX, engineListY), ImVec2(engineW, listHeight(engineListY, engineBottom)), guide->engine, page.bodyFont, page.locked);
+
+        const float gameHeadY = volumeBottom + page.itemPx * 0.45f;
+        drawListHeading(page.dl, page.itemFont, headPx, ImVec2(gameX, gameHeadY), gameW, "GAME");
+        const float gameListY = gameHeadY + headH;
+        drawControlList("##game_controls", ImVec2(gameX, gameListY), ImVec2(gameW, listHeight(gameListY, listBottom)), guide->game, page.bodyFont, page.locked);
+    }
+    else
+    {
+        const float gameHeadY = volumeBottom + page.itemPx * 0.45f;
+        drawListHeading(page.dl, page.itemFont, headPx, ImVec2(gameX, gameHeadY), gameW, "GAME");
+        const float gameListY = gameHeadY + headH;
+        const float half      = (listBottom - gameHeadY) * 0.5f;
+        float       gameH     = half - headH;
+        if (gameH < uiPx(48.0f))
+            gameH = uiPx(48.0f);
+        drawControlList("##game_controls", ImVec2(gameX, gameListY), ImVec2(gameW, gameH), guide->game, page.bodyFont, page.locked);
+
+        const float engineHeadY = gameListY + gameH + uiPx(8.0f);
+        drawListHeading(page.dl, page.itemFont, headPx, ImVec2(engineX, engineHeadY), engineW, "ENGINE");
+        const float engineListY = engineHeadY + headH;
+        drawControlList("##engine_controls", ImVec2(engineX, engineListY), ImVec2(engineW, listHeight(engineListY, listBottom)), guide->engine, page.bodyFont, page.locked);
+    }
+
+    return backY;
+}
+
 } // namespace
 
 void Dark::drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts, bool cancelHides, const MainMenuChrome& chrome)
@@ -508,26 +714,19 @@ void Dark::drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts, bool cancelHi
         y += itemPx * 1.6f;
         if (page == MainMenuPage::Settings)
         {
-            drawTracked(dl, itemFont, subPx, ImVec2(vp->Pos.x + marginX, y), muted, "MASTER VOLUME", subTrack);
-            y += subPx * 1.8f;
-            if (chrome.masterVolume)
-            {
-                float percent = *chrome.masterVolume * 100.0f;
-                ImGui::SetCursorScreenPos(ImVec2(vp->Pos.x + marginX, y));
-                ImGui::PushFont(bodyFont);
-                ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(1.0f, 1.0f, 1.0f, 0.08f));
-                ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(1.0f, 1.0f, 1.0f, 0.14f));
-                ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(1.0f, 1.0f, 1.0f, 0.18f));
-                ImGui::PushStyleColor(ImGuiCol_SliderGrab, ImVec4(0.55f, 0.90f, 0.88f, 1.0f));
-                ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, ImVec4(0.75f, 1.0f, 0.96f, 1.0f));
-                ImGui::SetNextItemWidth(uiPx(360.0f));
-                if (ImGui::SliderFloat("##master", &percent, 0.0f, 100.0f, "%.0f%%"))
-                    *chrome.masterVolume = percent / 100.0f;
-                const float sliderH = ImGui::GetFrameHeight();
-                ImGui::PopStyleColor(5);
-                ImGui::PopFont();
-                y += sliderH + itemPx;
-            }
+            SettingsPage settings;
+            settings.dl           = dl;
+            settings.vp           = vp;
+            settings.itemFont     = itemFont;
+            settings.bodyFont     = bodyFont;
+            settings.marginX      = marginX;
+            settings.itemPx       = itemPx;
+            settings.subPx        = subPx;
+            settings.subTrack     = subTrack;
+            settings.muted        = muted;
+            settings.locked       = locked;
+            settings.masterVolume = chrome.masterVolume;
+            y                     = drawSettingsBody(settings, y);
         }
         else
         {

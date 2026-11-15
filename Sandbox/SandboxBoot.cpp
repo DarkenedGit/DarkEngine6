@@ -6,6 +6,8 @@
 #include "Content/ArchetypeSpawn.h"
 #include "Content/ContentDb.h"
 #include "Content/SceneObjectSpawn.h"
+#include "Network/ArchetypeNet.h"
+#include "Play/SpawnHost.h"
 
 #include "Assets/Image.h"
 #include "Assets/Material.h"
@@ -77,6 +79,29 @@ struct HitchClock
             DE_LOG_WARN("SandboxApp: boot slice {} took {:.1f} ms", name, ms);
     }
 };
+
+uint32_t sceneReplicaColor(const float color[4])
+{
+    auto channel = [](float v) -> uint32_t {
+        if (v < 0.0f)
+            v = 0.0f;
+        if (v > 1.0f)
+            v = 1.0f;
+        return static_cast<uint32_t>(v * 255.0f + 0.5f);
+    };
+    return (channel(color[0]) << 24) | (channel(color[1]) << 16) | (channel(color[2]) << 8) | channel(color[3]);
+}
+
+void registerSceneReplica(NetworkSystem& network, World& world, Entity entity, std::string_view archetypeId, const float color[4])
+{
+    if (!entity.valid())
+        return;
+    NetPrefab prefab = NetPrefab::Unknown;
+    uint16_t index = 0;
+    if (!archetypeNetRegistration(archetypeId, prefab, index))
+        return;
+    network.registerEntity(world, entity, prefab, ClientId::Host, sceneReplicaColor(color), index);
+}
 
 bool enqueueBootIo(JobSystem& jobs, const char* name, JobStatus (*fn)(void*), void* user)
 {
@@ -225,6 +250,7 @@ struct SandboxApp::SandboxBootLoad
     size_t                    modelCursor = 0;
     size_t                    archetypeCursor = 0;
     int                       modelStamp = 0;
+    int                       archetypeStamp = 0;
     int                       modelsAttached = 0;
     bool                      modelsLogged = false;
     bool                      spawnerMarkerReady = false;
@@ -1070,19 +1096,22 @@ Dark::Entity SandboxApp::spawnAuthoredArchetype(const Dark::SceneObjectData& obj
         return {};
     if (zeroScale(placed.scale))
         placed.scale = Vector3f{ 1.0f, 1.0f, 1.0f };
-    ArchetypeSpawnHost host{};
-    host.world           = &world();
-    host.assets          = &assets();
-    host.pins            = &pins();
-    host.renderer        = &renderer();
-    host.audio           = &audio();
-    host.ground          = &m_ground;
-    host.ai              = m_chaseOk ? const_cast<AiSystem*>(&m_chase.ai()) : nullptr;
-    host.ensurePrimitive = &SandboxApp::ensureScenePrimitive;
-    host.ensureMarker    = &SandboxApp::ensureSceneMarker;
-    host.onWeaponHit     = &SandboxApp::onWeaponHitThunk;
-    host.weaponHitUser   = this;
-    host.user            = this;
+    SpawnServices services;
+    services.world           = &world();
+    services.assets          = &assets();
+    services.pins            = &pins();
+    services.renderer        = &renderer();
+    services.audio           = &audio();
+    services.ground          = &m_ground;
+    services.ai              = m_chaseOk ? const_cast<AiSystem*>(&m_chase.ai()) : nullptr;
+    services.ensurePrimitive = &SandboxApp::ensureScenePrimitive;
+    services.ensureMarker    = &SandboxApp::ensureSceneMarker;
+    services.onWeaponHit     = &SandboxApp::onWeaponHitThunk;
+    services.weaponHitUser   = this;
+    services.user            = this;
+    services.crows           = &m_crowModels;
+    services.crowTerrain     = &m_terrain;
+    const ArchetypeSpawnHost host = makeSpawnHost(services);
     ContentError err;
     const Entity e = instantiateSceneObject(host, placed, &err);
     if (!e.valid())
@@ -1090,7 +1119,11 @@ Dark::Entity SandboxApp::spawnAuthoredArchetype(const Dark::SceneObjectData& obj
         DE_LOG_WARN(LogCategory::AI, "Sandbox: archetype '{}' failed ({})", placed.archetype, err.message);
         return {};
     }
-    stampProceduralId(world(), e, std::format("sandbox/level/archetype/{}", e.id()), placed.archetype);
+    registerSceneReplica(network(), world(), e, placed.archetype, placed.color);
+    int stamp = 0;
+    if (m_boot)
+        stamp = m_boot->archetypeStamp++;
+    stampProceduralId(world(), e, std::format("sandbox/level/archetype/{}", stamp), placed.archetype);
     return e;
 }
 
@@ -1108,21 +1141,23 @@ bool SandboxApp::advanceSpawnBatch()
         world().emplace<CloudVolumeComponent>(e, cloud);
     };
     auto sceneHost = [&](bool animatedOnly) {
-        ArchetypeSpawnHost host{};
-        host.world             = &world();
-        host.assets            = &assets();
-        host.pins              = &pins();
-        host.renderer          = &renderer();
-        host.audio             = &audio();
-        host.ground            = &m_ground;
-        host.ai                = m_chaseOk ? const_cast<AiSystem*>(&m_chase.ai()) : nullptr;
-        host.ensurePrimitive   = &SandboxApp::ensureScenePrimitive;
-        host.ensureMarker      = &SandboxApp::ensureSceneMarker;
-        host.onWeaponHit       = &SandboxApp::onWeaponHitThunk;
-        host.weaponHitUser     = this;
-        host.modelAnimatedOnly = animatedOnly;
-        host.user              = this;
-        return host;
+        SpawnServices services;
+        services.world             = &world();
+        services.assets            = &assets();
+        services.pins              = &pins();
+        services.renderer          = &renderer();
+        services.audio             = &audio();
+        services.ground            = &m_ground;
+        services.ai                = m_chaseOk ? const_cast<AiSystem*>(&m_chase.ai()) : nullptr;
+        services.ensurePrimitive   = &SandboxApp::ensureScenePrimitive;
+        services.ensureMarker      = &SandboxApp::ensureSceneMarker;
+        services.onWeaponHit       = &SandboxApp::onWeaponHitThunk;
+        services.weaponHitUser     = this;
+        services.modelAnimatedOnly = animatedOnly;
+        services.user              = this;
+        services.crows             = &m_crowModels;
+        services.crowTerrain       = &m_terrain;
+        return makeSpawnHost(services);
     };
 
     for (int guard = 0; guard < 64; ++guard)
@@ -1199,7 +1234,10 @@ bool SandboxApp::advanceSpawnBatch()
                 if (!e.valid())
                     DE_LOG_WARN(LogCategory::Render, "SandboxApp: cloud failed ({})", err.message);
                 else
+                {
+                    registerSceneReplica(network(), world(), e, o.archetype, o.color);
                     ++boot.spawnedClouds;
+                }
                 ++spawned;
             }
             if (spawned > 0)
@@ -1312,7 +1350,7 @@ bool SandboxApp::advanceSpawnBatch()
                 if (!m_buildingDoors.empty())
                 {
                     HitchClock clock("BuildingDoorModel");
-                    boot.fixtures.doorModel = loadAndUploadModel(renderer(), assets(), "models/unit_cube.gltf");
+                    boot.fixtures.doorModel = loadAndUploadModel(renderer(), assets(), kUnitCubeModel);
                     return true;
                 }
             }
@@ -1322,7 +1360,7 @@ bool SandboxApp::advanceSpawnBatch()
                 if (!m_buildingCameras.empty())
                 {
                     HitchClock clock("BuildingCameraModel");
-                    boot.fixtures.camModel = loadAndUploadModel(renderer(), assets(), "models/unit_cube.gltf");
+                    boot.fixtures.camModel = loadAndUploadModel(renderer(), assets(), kUnitCubeModel);
                     return true;
                 }
             }
@@ -1406,7 +1444,10 @@ bool SandboxApp::advanceSpawnBatch()
                 if (!e.valid())
                     DE_LOG_WARN(LogCategory::Render, "SandboxApp: light failed ({})", err.message);
                 else
+                {
+                    registerSceneReplica(network(), world(), e, placed.archetype, placed.color);
                     applySceneActor(world(), e, o, nullptr, nullptr);
+                }
                 ++spawned;
             }
             if (spawned > 0)
@@ -1424,6 +1465,8 @@ bool SandboxApp::advanceSpawnBatch()
                 const Entity e = instantiateSceneObject(sceneHost(false), o, &err);
                 if (!e.valid())
                     DE_LOG_WARN(LogCategory::Render, "SandboxApp: scene prop failed ({})", err.message);
+                else
+                    registerSceneReplica(network(), world(), e, o.archetype, o.color);
                 return true;
             }
             boot.phase = SandboxBootLoad::SpawnPhase::ChasePhysics;
@@ -1462,6 +1505,7 @@ bool SandboxApp::advanceSpawnBatch()
                     DE_LOG_WARN(LogCategory::AI, "SandboxApp: scene {} failed ({})", wolf ? "wolf" : "hunter", err.message);
                     return true;
                 }
+                registerSceneReplica(network(), world(), hunter, placedObject.archetype, placedObject.color);
                 if (PathAgentComponent* path = world().get<PathAgentComponent>(hunter))
                     path->repathAt = static_cast<float>(m_chase.hunterCount()) * (0.5f / 3.0f);
                 m_chase.addHunter(hunter);
@@ -1511,6 +1555,7 @@ bool SandboxApp::advanceSpawnBatch()
                     DE_LOG_WARN(LogCategory::Render, "SandboxApp: scene model '{}' did not attach ({})", modelPath, err.message);
                     return true;
                 }
+                registerSceneReplica(network(), world(), e, placedObject.archetype, placedObject.color);
                 if (TransformComponent* placed = world().get<TransformComponent>(e))
                     placed->scale = authoredScale;
                 stampProceduralId(world(), e, std::format("sandbox/level/model/{}", boot.modelStamp++), "model");
@@ -1567,7 +1612,10 @@ bool SandboxApp::advanceSpawnBatch()
                 if (!e.valid())
                     DE_LOG_WARN(LogCategory::AI, "SandboxApp: spawner failed ({})", err.message);
                 else
+                {
+                    registerSceneReplica(network(), world(), e, placedObject.archetype, placedObject.color);
                     stampProceduralId(world(), e, std::format("sandbox/level/spawner/{}", boot.spawnerStamp++), "spawner");
+                }
                 ++spawned;
             }
             if (spawned > 0)
@@ -1614,7 +1662,10 @@ bool SandboxApp::advanceSpawnBatch()
                 if (!e.valid())
                     DE_LOG_WARN(LogCategory::Media, "SandboxApp: movie failed ({})", err.message);
                 else
+                {
+                    registerSceneReplica(network(), world(), e, placedObject.archetype, placedObject.color);
                     stampProceduralId(world(), e, std::format("sandbox/level/movie/{}", boot.movieStamp++), "movie");
+                }
                 ++spawned;
             }
             if (spawned > 0)

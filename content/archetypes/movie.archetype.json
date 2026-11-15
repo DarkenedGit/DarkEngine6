@@ -1,7 +1,7 @@
 {
   "id": "core:movie",
   "version": 1,
-  "editor": { "label": "Movie", "category": "Gameplay", "icon": "film", "modes": ["3d"] },
+  "editor": { "label": "Movie", "category": "Gameplay", "icon": "film", "modes": ["3d"], "tooltip": "Places a movie cue. The cube is a marker, not the screen." },
   "components": { "Movie": { "path": "", "radius": 2.0, "loop": false } },
   "behaviors": [ { "name": "movie.cue" } ]
 }

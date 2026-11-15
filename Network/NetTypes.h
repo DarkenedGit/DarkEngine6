@@ -3,6 +3,7 @@
 #include "Core/UUID.h"
 
 #include <cstdint>
+#include <string_view>
 
 namespace Dark
 {
@@ -73,6 +74,19 @@ namespace Dark
         Coin       = 5,
         Player2D   = 6
     };
+
+    inline NetPrefab prefabFromName(std::string_view name)
+    {
+        if (name == "sphere")
+            return NetPrefab::Sphere;
+        if (name == "platform")
+            return NetPrefab::Platform;
+        if (name == "coin")
+            return NetPrefab::Coin;
+        if (name == "cube")
+            return NetPrefab::Cube;
+        return NetPrefab::Unknown;
+    }
 
     enum class NetPeerEvent : uint8_t
     {

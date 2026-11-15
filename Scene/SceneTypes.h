@@ -6,6 +6,7 @@
 #include "Math/Vector3f.h"
 #include "Terrain/FoliageFile.h"
 #include "Terrain/TrailPath.h"
+#include "Sky/Environment.h"
 #include "Terrain/WindTypes.h"
 
 #include <cstdint>
@@ -169,7 +170,7 @@ namespace Dark
     struct SkySceneDesc
     {
         bool        present       = false;
-        float       timeOfDay     = 16.2f; // hours, [0, 24)
+        float       timeOfDay     = Sky::kDefaultTimeOfDay; // hours, [0, 24)
         float       dayOfYear     = 172.0f;
         float       latitude      = 47.6f; // degrees
         float       timeScale     = 0.0f;  // hours advanced per real second; 0 holds the clock

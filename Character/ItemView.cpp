@@ -51,7 +51,7 @@ namespace Dark
             return e;
         }
 
-        AssetRef<Model> cube = loadAndUploadModel(renderer, assets, "models/unit_cube.gltf");
+        AssetRef<Model> cube = loadAndUploadModel(renderer, assets, kUnitCubeModel);
         if (!cube)
             return {};
 
@@ -79,7 +79,7 @@ namespace Dark
     Entity spawnLootBag(World& world, AssetPinTable& pins, AssetManager& assets, Renderer& renderer, const Math::Vector3f& position,
                         const char* label, const InventoryComponent& contents)
     {
-        AssetRef<Model> cube = loadAndUploadModel(renderer, assets, "models/unit_cube.gltf");
+        AssetRef<Model> cube = loadAndUploadModel(renderer, assets, kUnitCubeModel);
         if (!cube || itemCount(contents) == 0)
             return {};
 

@@ -1,8 +1,11 @@
 #include "Sandbox2DApp.h"
 
 #include "Collision/Collision.h"
+#include "Content/ArchetypeParams.h"
 #include "Content/ContentDb.h"
 #include "Content/SceneObjectSpawn.h"
+#include "Network/ArchetypeNet.h"
+#include "Play/SpawnHost.h"
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "ECS/Components.h"
@@ -198,8 +201,9 @@ bool Sandbox2DApp::applyLevelData(const SceneFileData& data)
         bool spawned = false;
         if (sceneIsDataDriven(o))
         {
-            ArchetypeSpawnHost host{};
-            host.world = &world();
+            SpawnServices services;
+            services.world = &world();
+            const ArchetypeSpawnHost host = makeSpawnHost(services);
             ContentError err;
             const Entity e = instantiateSceneObject(host, o, &err);
             if (!e.valid())
@@ -686,6 +690,14 @@ void Sandbox2DApp::resetPlayer()
 
 void Sandbox2DApp::registerLevelEntities()
 {
+    NetPrefab platformPrefab = NetPrefab::Platform;
+    uint16_t platformIndex = 0;
+    if (!archetypeNetRegistration("core:platform", platformPrefab, platformIndex))
+    {
+        platformPrefab = NetPrefab::Platform;
+        platformIndex  = 0;
+    }
+
     for (Platform& p : m_platforms)
     {
         if (p.entity.valid() && world().alive(p.entity) && world().has<NetworkedComponent>(p.entity))
@@ -699,7 +711,7 @@ void Sandbox2DApp::registerLevelEntities()
         xf.scale    = Vector3f(s.x, s.y, 1.0f);
         world().emplace<TagComponent>(e, "Platform");
         world().emplace<TransformComponent>(e, xf);
-        if (!network().registerEntity(world(), e, NetPrefab::Platform))
+        if (!network().registerEntity(world(), e, platformPrefab, ClientId::Host, 0xFFFFFFFFu, platformIndex))
         {
             onEntityRemoved(world(), e, &pins());
             world().destroyEntity(e);
@@ -717,7 +729,20 @@ void Sandbox2DApp::registerLevelEntities()
     {
         if (e.valid() && world().alive(e) && world().has<NetworkedComponent>(e))
             continue;
-        if (!network().registerEntity(world(), e, NetPrefab::Coin))
+        std::string coinId = "core:coin";
+        if (const ArchetypeParamsComponent* params = world().get<ArchetypeParamsComponent>(e))
+        {
+            if (!params->archetype.empty())
+                coinId = params->archetype;
+        }
+        NetPrefab coinPrefab = NetPrefab::Coin;
+        uint16_t coinIndex = 0;
+        if (!archetypeNetRegistration(coinId, coinPrefab, coinIndex))
+        {
+            coinPrefab = NetPrefab::Coin;
+            coinIndex  = 0;
+        }
+        if (!network().registerEntity(world(), e, coinPrefab, ClientId::Host, 0xFFFFFFFFu, coinIndex))
         {
             onEntityRemoved(world(), e, &pins());
             world().destroyEntity(e);

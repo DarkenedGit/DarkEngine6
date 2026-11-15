@@ -2,6 +2,9 @@
   "id": "core:crow",
   "version": 1,
   "editor": { "label": "Crow", "category": "Creatures", "icon": "crow", "modes": ["3d"], "matchModel": "crow" },
-  "components": {},
-  "behaviors": []
+  "components": {
+    "Model": { "gltf": "runtime:/creature/crow-folded" },
+    "Health": { "max": 12, "regen": 0 }
+  },
+  "behaviors": [ { "name": "ai.crow" } ]
 }

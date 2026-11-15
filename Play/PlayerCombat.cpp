@@ -84,7 +84,7 @@ namespace Dark
             if (dx * dx + dz * dz < 1.0e-4f)
                 return;
             runtime.faceYaw  = std::atan2f(dx, dz);
-            runtime.faceLeft = entityCombatFor("player").faceSeconds;
+            runtime.faceLeft = entityCombatProfile(*world, host.player).faceSeconds;
         }
 
         void onDefended(PlayHost& host, PlayRuntime& runtime, Entity attacker, bool parried)
@@ -92,7 +92,7 @@ namespace Dark
             World* world = host.world;
             if (!world || !host.audio || !host.assets)
                 return;
-            const EntityCombat& combat = entityCombatFor("player");
+            const EntityCombat& combat = host.player.valid() ? entityCombatProfile(*world, host.player) : combatProfileForId("core:player");
             faceTarget(host, runtime, attacker);
             runtime.shieldBump = 0.2f;
             runtime.hitStop    = parried ? combat.hitStopParry : combat.hitStopBlock;
@@ -104,7 +104,7 @@ namespace Dark
                 return;
             const TransformComponent* axf = world->get<TransformComponent>(attacker);
             const TransformComponent* pxf = host.player.valid() ? world->get<TransformComponent>(host.player) : nullptr;
-            host.ai->interruptAttack(*world, attacker, entityCombatFor("player").parryInterrupt);
+            host.ai->interruptAttack(*world, attacker, combat.parryInterrupt);
             if (axf && pxf)
                 host.ai->applyHunterHitReaction(*world, attacker, Math::Vector3f{ axf->position.x - pxf->position.x, 0.0f, axf->position.z - pxf->position.z });
             if (AnimGraphComponent* aag = world->get<AnimGraphComponent>(attacker))
@@ -148,7 +148,7 @@ namespace Dark
         q.solidCount = runtime.weaponBlockCount;
         q.spheres    = host.sphereCount > 0 ? host.spheres : nullptr;
         q.sphereCount = q.spheres ? host.sphereCount : 0;
-        q.maxRange   = entityCombatFor("player").weaponRange;
+        q.maxRange   = (host.player.valid() ? entityCombatProfile(*host.world, host.player) : combatProfileForId("core:player")).weaponRange;
         return q;
     }
 
@@ -186,7 +186,8 @@ namespace Dark
             return false;
         ThrowableBelt&            belt = throwableBelt(*world, host.player);
         const TransformComponent* xf   = world->get<TransformComponent>(host.player);
-        const WeaponFireRequest   req  = makeCameraFireRequest(host.camera->GetPosition(), host.camera->GetLook(), xf ? &xf->position : nullptr, 1.0f);
+        const float               muzzle = entityCombatProfile(*world, host.player).muzzleOffset;
+        const WeaponFireRequest   req  = makeCameraFireRequest(host.camera->GetPosition(), host.camera->GetLook(), xf ? &xf->position : nullptr, 1.0f, muzzle);
         std::string               thrown;
         if (!throwFromLoadout(runtime.throws, *weapons, belt, req, host.player, charged, &thrown))
             return false;
@@ -214,8 +215,9 @@ namespace Dark
             return false;
         const Entity              body = host.player;
         const TransformComponent* xf   = body.valid() ? world->get<TransformComponent>(body) : nullptr;
+        const float               muzzle = body.valid() ? entityCombatProfile(*world, body).muzzleOffset : combatProfileForId("core:player").muzzleOffset;
         WeaponFireRequest         req  = makeCameraFireRequest(host.camera->GetPosition(), host.camera->GetLook(), xf ? &xf->position : nullptr,
-                                                               charged ? runtime.chargeSettings.attackDamageScale : 1.0f);
+                                                               charged ? runtime.chargeSettings.attackDamageScale : 1.0f, muzzle);
         WeaponLoadout*            wFire = loadoutOf(*world, body);
         if (wFire && wFire->activeKind() == WeaponKind::Throwable)
             return false;
@@ -239,7 +241,7 @@ namespace Dark
             noteShotXp(*skill, true);
         if (melee)
         {
-            const EntityCombat& swing = entityCombatFor("player");
+            const EntityCombat& swing = entityCombatProfile(*world, body);
             runtime.comboStep   = runtime.comboWindow > 0.0f ? 1 - runtime.comboStep : 0;
             runtime.comboCount  = runtime.comboWindow > 0.0f ? runtime.comboCount + 1 : 1;
             runtime.comboWindow = swing.comboWindow;
@@ -325,7 +327,7 @@ namespace Dark
         const float               beforeHp = hp ? hp->health.hp() : 0.0f;
         const TransformComponent* attackerXf = host.player.valid() ? world->get<TransformComponent>(host.player) : nullptr;
         const Math::Vector3f      knock    = Combat::partKnockbackDirection(hit.part, attackerXf, hit.point, hit.direction);
-        const EntityCombat&       playerCombat = entityCombatFor("player");
+        const EntityCombat&       playerCombat = host.player.valid() ? entityCombatProfile(*world, host.player) : combatProfileForId("core:player");
         const bool                melee    = hit.weapon == WeaponKind::Melee;
 
         auto fillEvent = [&]() {
@@ -470,7 +472,7 @@ namespace Dark
             if (!snaps[i].hunter && hp->health.alive() && !results[i].blocked)
             {
                 if (player.valid() && snaps[i].e.id() == player.id())
-                    runtime.shake = entityCombatFor("player").shakeHit;
+                    runtime.shake = entityCombatProfile(*world, player).shakeHit;
                 if (AnimGraphComponent* ag = world->get<AnimGraphComponent>(snaps[i].e))
                     ag->graph.setTrigger("hit");
             }

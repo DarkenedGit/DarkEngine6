@@ -1,7 +1,7 @@
 {
   "id": "core:water",
   "version": 1,
-  "editor": { "label": "Water", "category": "Environment", "icon": "water", "modes": ["3d"] },
+  "editor": { "label": "Water", "category": "Environment", "icon": "water", "modes": ["3d"], "tooltip": "Places a lake. Position Y is the surface. Width and depth are the footprint. Add several at different heights." },
   "components": { "Water": {} },
   "behaviors": [ { "name": "water.volume" } ]
 }

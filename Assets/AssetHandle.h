@@ -8,6 +8,9 @@ namespace Dark
     using AssetID                = uint64_t;
     constexpr AssetID NULL_ASSET = 0;
 
+    // Procedural stand-in when a view has no authored mesh.
+    inline constexpr const char* kUnitCubeModel = "models/unit_cube.gltf";
+
     enum class AssetType : uint8_t
     {
         None = 0,

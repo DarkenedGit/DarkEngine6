@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Assets/AssetHandle.h"
 #include "ECS/Entity.h"
 #include "Weapons/Weapon.h"
 
@@ -17,7 +18,6 @@ namespace Dark
     class World;
 
     inline constexpr const char* kThrowableHandJoint = "R_Hand";
-    inline constexpr const char* kThrowableUnitCube  = "models/unit_cube.gltf";
 
     // Pure hand decision shared by sandbox and editor play. Shown only for WeaponKind::Throwable
     // with a catalog model that is not the unit cube. The joint is always R_Hand.

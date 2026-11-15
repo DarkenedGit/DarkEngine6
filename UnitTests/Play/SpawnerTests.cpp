@@ -45,7 +45,7 @@ TEST(Spawner, MaintainFillsThenReplacesAfterDelay)
     ASSERT_EQ(tickSpawner(desc, runtime, 3.0f, 4.0f, 0.0f, alive, reqs, kSpawnerSlotCount), 2);
     EXPECT_EQ(reqs[0].slot, 0);
     EXPECT_EQ(reqs[1].slot, 1);
-    EXPECT_EQ(reqs[0].unit, SpawnerUnit::Hunter);
+    EXPECT_EQ(reqs[0].unitArchetype, "hunter");
     EXPECT_NEAR(reqs[0].x, 3.0f, 1.0e-4f);
     EXPECT_NEAR(reqs[0].z, 4.0f, 1.0e-4f);
     EXPECT_TRUE(runtime.slots[0].tracked);
@@ -110,13 +110,13 @@ TEST(Spawner, WaveWaitsForIntervalWhileUnitsLive)
     desc.count        = 1;
     desc.waveInterval = 4.0f;
     desc.radius       = 0.0f;
-    desc.unit         = SpawnerUnit::Wolf;
+    desc.unitArchetype = "wolf";
     SpawnerRuntime runtime{};
     bool alive[kSpawnerSlotCount]{};
     SpawnerRequest reqs[kSpawnerSlotCount];
 
     ASSERT_EQ(tickSpawner(desc, runtime, 1.0f, 2.0f, 0.0f, alive, reqs, kSpawnerSlotCount), 1);
-    EXPECT_EQ(reqs[0].unit, SpawnerUnit::Wolf);
+    EXPECT_EQ(reqs[0].unitArchetype, "wolf");
     EXPECT_EQ(runtime.wavesSpawned, 1);
 
     fillAlive(alive, true);

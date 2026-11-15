@@ -5,7 +5,7 @@
   "components": {
     "Model": { "gltf": "models/skeleton.gltf", "anim": "models/skeleton.anim.json" },
     "Physics": { "file": "models/human.physics.json" },
-    "Combat": { "attacks": "ai/hunter.attacks.json" },
+    "Combat": { "attacks": "ai/hunter.attacks.json", "profile": "entities/hunter.entity.combat.json" },
     "Health": { "max": 48, "regen": 5, "regenDelay": 4 },
     "Dialogue": { "graph": "dialogue/hunter_gate.dlg.json" }
   },

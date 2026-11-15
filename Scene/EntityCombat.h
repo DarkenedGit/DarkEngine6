@@ -1,11 +1,15 @@
 #pragma once
 
+#include "ECS/Entity.h"
+
 #include <filesystem>
 #include <string>
 #include <string_view>
 
 namespace Dark
 {
+
+    class World;
 
     // Combat numbers for one entity type. A successful parse keeps any field the json omits.
     // Callers seed with entityCombatDefault so a missing file keeps today's feel.
@@ -70,9 +74,6 @@ namespace Dark
         float chargedParryKnockback     = 2.4f;
         float parryKnockSeconds         = 0.12f;
         float chargedParryKnockSeconds  = 0.22f;
-        float ccRoot                    = 0.8f;
-        float ccStun                    = 1.2f;
-        float ccKnockdown               = 1.4f;
         float shockHitch                = 0.25f;
 
         float hitStopLight   = 0.07f;
@@ -111,6 +112,14 @@ namespace Dark
         float repathBackoff = 0.5f;
     };
 
+    // Archetype id whose combat profile this entity uses. The table owns the record.
+    struct CombatProfileComponent
+    {
+        static constexpr const char* kTypeName = "CombatProfile";
+
+        std::string archetype;
+    };
+
     EntityCombat entityCombatDefault(std::string_view typeName);
 
     std::string entityCombatVirtualPath(std::string_view typeName);
@@ -120,7 +129,17 @@ namespace Dark
     bool loadEntityCombatFile(const std::filesystem::path& path, EntityCombat& inOut);
     bool loadEntityCombatType(std::string_view typeName, EntityCombat& inOut);
 
-    // Seeds the default, then overlays the content file. Later calls return the same record.
-    const EntityCombat& entityCombatFor(std::string_view typeName);
+    // Drops every loaded profile. The next lookup reads the file again.
+    void clearCombatProfileTable();
+
+    // Loads Combat.profile for the archetype, or entities/<name>.entity.combat.json
+    // for player, hunter, and wolf when the component omits the path.
+    const EntityCombat& combatProfileForId(std::string_view archetypeId);
+
+    // The entity's stored profile. A wolf tag wins. A missing component uses the
+    // archetype params, then a player motor, then the hunter profile.
+    const EntityCombat& entityCombatProfile(World& world, Entity entity);
+
+    void assignCombatProfile(World& world, Entity entity, std::string_view archetypeId);
 
 } // namespace Dark

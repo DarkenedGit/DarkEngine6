@@ -10,12 +10,16 @@
 #include "Gameplay/Platform.h"
 #include "Media/MovieCue.h"
 #include "Particles/ParticleComponents.h"
+#include "Particles/ParticleEmitterJson.h"
 #include "Physics/PhysicsComponent.h"
 #include "Physics/PhysicsFile.h"
 #include "Play/CharacterAttach.h"
+#include "Play/Crow.h"
 #include "Play/Spawner.h"
 #include "Content/SceneObjectSpawn.h"
+#include "Scene/EntityCombat.h"
 #include "Scene/EntityMaster.h"
+#include "Terrain/TerrainGrid.h"
 #include "Scene/SceneSpawn.h"
 #include "Scene/SceneTypes.h"
 #include "Sky/CloudVolume.h"
@@ -35,6 +39,8 @@ namespace Dark
     namespace
     {
         using json = nlohmann::json;
+
+        void loadPhysicsCard(World& world, Entity entity, const std::string& file);
 
         ArchetypeParamsComponent& paramsOf(World& world, Entity entity)
         {
@@ -81,42 +87,6 @@ namespace Dark
             if (it != object.end() && it->is_boolean())
                 return it->get<bool>();
             return fallback;
-        }
-
-        void jsonColor(const json& object, const char* key, float out[4])
-        {
-            const auto it = object.find(key);
-            if (it == object.end() || !it->is_array())
-                return;
-            for (size_t i = 0; i < 4 && i < it->size(); ++i)
-            {
-                if ((*it)[i].is_number())
-                    out[i] = (*it)[i].get<float>();
-            }
-        }
-
-        void jsonVec3(const json& object, const char* key, Math::Vector3f& out)
-        {
-            const auto it = object.find(key);
-            if (it == object.end() || !it->is_array() || it->size() < 3)
-                return;
-            if ((*it)[0].is_number())
-                out.x = (*it)[0].get<float>();
-            if ((*it)[1].is_number())
-                out.y = (*it)[1].get<float>();
-            if ((*it)[2].is_number())
-                out.z = (*it)[2].get<float>();
-        }
-
-        void jsonRange(const json& object, const char* key, float& minValue, float& maxValue)
-        {
-            const auto it = object.find(key);
-            if (it == object.end() || !it->is_array() || it->size() < 2)
-                return;
-            if ((*it)[0].is_number())
-                minValue = (*it)[0].get<float>();
-            if ((*it)[1].is_number())
-                maxValue = (*it)[1].get<float>();
         }
 
         bool readModel(World& world, Entity entity, std::string_view jsonText, ContentError& err)
@@ -331,14 +301,20 @@ namespace Dark
         {
             if (!characterReady(host, err))
                 return false;
+            const ArchetypeParamsComponent* params = host.world->get<ArchetypeParamsComponent>(entity);
+            if (params && !params->archetype.empty())
+                assignCombatProfile(*host.world, entity, params->archetype);
+            else
+                assignCombatProfile(*host.world, entity, kind == NpcKind::Wolf ? "core:wolf" : "core:hunter");
             if (host.ai && !host.ai->attachHunter(*host.world, entity, *host.pins, *host.assets))
             {
                 err.message = "ai brain failed to attach";
                 return false;
             }
             const CharacterHost character{ *host.world, *host.renderer, *host.assets, *host.pins, *host.audio, *host.ground };
-            const ArchetypeParamsComponent* params = host.world->get<ArchetypeParamsComponent>(entity);
             ensureHumanoidBody(*host.world, entity, bodyHealth(params), Math::Vector3f{ 0.35f, 0.7f, 0.35f });
+            if (params)
+                loadPhysicsCard(*host.world, entity, params->physicsFile);
             attachListedModel(host, entity, character);
             configureNpc(character, entity, kind);
             return true;
@@ -378,7 +354,13 @@ namespace Dark
                 return false;
             const CharacterHost character{ *host.world, *host.renderer, *host.assets, *host.pins, *host.audio, *host.ground };
             const ArchetypeParamsComponent* params = host.world->get<ArchetypeParamsComponent>(entity);
+            if (params && !params->archetype.empty())
+                assignCombatProfile(*host.world, entity, params->archetype);
+            else
+                assignCombatProfile(*host.world, entity, "core:player");
             ensureHumanoidBody(*host.world, entity, bodyHealth(params), Math::Vector3f{ 0.35f, 0.7f, 0.35f });
+            if (params)
+                loadPhysicsCard(*host.world, entity, params->physicsFile);
             attachListedModel(host, entity, character);
             ensureLocalPlayerRig(character, entity, host.onWeaponHit, host.weaponHitUser);
             return true;
@@ -428,47 +410,9 @@ namespace Dark
 
         void fillSpawner(const json& object, SpawnerDesc& desc)
         {
-            if (object.contains("mode") && object["mode"].is_string())
-            {
-                SpawnerMode mode{};
-                if (tryParseSpawnerMode(object["mode"].get<std::string>(), mode))
-                    desc.mode = mode;
-            }
-            if (object.contains("unit") && object["unit"].is_string())
-            {
-                const std::string text = object["unit"].get<std::string>();
-                if (!text.empty())
-                {
-                    desc.unitArchetype = text;
-                    std::string_view bare = text;
-                    const auto colon = text.rfind(':');
-                    if (colon != std::string::npos)
-                        bare = std::string_view(text).substr(colon + 1);
-                    SpawnerUnit unit{};
-                    if (tryParseSpawnerUnit(bare, unit))
-                        desc.unit = unit;
-                }
-            }
-            if (object.contains("gate") && object["gate"].is_string())
-            {
-                SpawnerWaveGate gate{};
-                if (tryParseSpawnerWaveGate(object["gate"].get<std::string>(), gate))
-                    desc.gate = gate;
-            }
-            desc.count        = jsonInt(object, "count", desc.count);
-            desc.radius       = jsonFloat(object, "radius", desc.radius);
-            desc.respawnDelay = jsonFloat(object, "respawnDelay", desc.respawnDelay);
-            desc.waveInterval = jsonFloat(object, "waveInterval", desc.waveInterval);
-            desc.maxWaves     = jsonInt(object, "maxWaves", desc.maxWaves);
-            desc.enabled      = jsonBool(object, "enabled", desc.enabled);
-            const auto seed = object.find("seed");
-            if (seed != object.end() && seed->is_number())
-            {
-                const double value = seed->get<double>();
-                if (value >= 1.0 && value <= 4294967295.0)
-                    desc.seed = static_cast<uint32_t>(value);
-            }
-            clampSpawnerDesc(desc);
+            SceneObjectData probe;
+            sceneSetComponentJson(probe, "Spawner", object.dump());
+            sceneReadSpawner(probe, desc);
         }
 
         bool attachSpawnerBehavior(const ArchetypeSpawnHost& host, Entity entity, std::string_view paramsJson, ContentError& err)
@@ -505,11 +449,6 @@ namespace Dark
         {
             const bool spot = object.contains("kind") && object["kind"].is_string() && object["kind"].get<std::string>() == "spot";
             light.type = spot ? LocalLightType::Spot : LocalLightType::Point;
-            if (spot)
-            {
-                light.intensity = 2513.0f;
-                light.range     = 16.0f;
-            }
             light.intensity    = jsonFloat(object, "intensity", light.intensity);
             light.range        = jsonFloat(object, "range", light.range);
             light.innerConeDeg = jsonFloat(object, "inner", light.innerConeDeg);
@@ -582,8 +521,8 @@ namespace Dark
             if (!readObject(params ? std::string_view(params->ambientJson) : std::string_view{}, object, err, "AmbientLight"))
                 return false;
             AmbientLightComponent ambient{};
-            ambient.intensity = jsonFloat(object, "intensity", 1.0f);
-            ambient.enabled   = jsonBool(object, "enabled", true);
+            ambient.intensity = jsonFloat(object, "intensity", ambient.intensity);
+            ambient.enabled   = jsonBool(object, "enabled", ambient.enabled);
             if (params)
                 ambient.color = Math::Vector3f{ params->color[0], params->color[1], params->color[2] };
             host.world->emplace<AmbientLightComponent>(entity, ambient);
@@ -602,57 +541,12 @@ namespace Dark
             if (!readObject(params ? std::string_view(params->directionalJson) : std::string_view{}, object, err, "DirectionalLight"))
                 return false;
             DirectionalLightComponent sun{};
-            sun.intensity = jsonFloat(object, "intensity", Math::Pi);
-            sun.enabled   = jsonBool(object, "enabled", true);
+            sun.intensity = jsonFloat(object, "intensity", sun.intensity);
+            sun.enabled   = jsonBool(object, "enabled", sun.enabled);
             if (params)
                 sun.color = Math::Vector3f{ params->color[0], params->color[1], params->color[2] };
             host.world->emplace<DirectionalLightComponent>(entity, sun);
             return true;
-        }
-
-        void fillParticle(const json& object, ParticleEmitterDesc& desc)
-        {
-            if (object.contains("name") && object["name"].is_string())
-                desc.name = object["name"].get<std::string>();
-            desc.maxParticles    = static_cast<uint32_t>(jsonInt(object, "maxParticles", static_cast<int>(desc.maxParticles)));
-            desc.emissionRate    = jsonFloat(object, "emissionRate", desc.emissionRate);
-            desc.duration        = jsonFloat(object, "duration", desc.duration);
-            desc.looping         = jsonBool(object, "looping", desc.looping);
-            jsonRange(object, "lifetime", desc.lifetime.min, desc.lifetime.max);
-            jsonRange(object, "startSpeed", desc.startSpeed.min, desc.startSpeed.max);
-            jsonRange(object, "startSize", desc.startSize.min, desc.startSize.max);
-            jsonRange(object, "endSize", desc.endSize.min, desc.endSize.max);
-            jsonColor(object, "startColor", desc.startColor);
-            jsonColor(object, "endColor", desc.endColor);
-            jsonVec3(object, "gravity", desc.gravity);
-            jsonVec3(object, "direction", desc.direction);
-            desc.spreadDegrees   = jsonFloat(object, "spreadDegrees", desc.spreadDegrees);
-            desc.shape           = static_cast<ParticleEmitterDesc::Shape>(jsonInt(object, "shape", static_cast<int>(desc.shape)));
-            jsonVec3(object, "shapeSize", desc.shapeSize);
-            desc.additiveBlend   = jsonBool(object, "additiveBlend", desc.additiveBlend);
-            desc.simulationSpeed = jsonFloat(object, "simulationSpeed", desc.simulationSpeed);
-            desc.renderMode      = static_cast<ParticleEmitterDesc::RenderMode>(jsonInt(object, "renderMode", static_cast<int>(desc.renderMode)));
-            desc.ribbonCount     = static_cast<uint32_t>(jsonInt(object, "ribbonCount", static_cast<int>(desc.ribbonCount)));
-            desc.ribbonUvScale   = jsonFloat(object, "ribbonUvScale", desc.ribbonUvScale);
-            desc.simMode         = static_cast<ParticleSimMode>(jsonInt(object, "simMode", static_cast<int>(desc.simMode)));
-            desc.collision       = static_cast<ParticleCollisionReaction>(jsonInt(object, "collision", static_cast<int>(desc.collision)));
-            desc.restitution     = jsonFloat(object, "restitution", desc.restitution);
-            desc.friction        = jsonFloat(object, "friction", desc.friction);
-            desc.collisionThickness   = jsonFloat(object, "collisionThickness", desc.collisionThickness);
-            desc.collisionBias        = jsonFloat(object, "collisionBias", desc.collisionBias);
-            desc.restLifetime         = jsonFloat(object, "restLifetime", desc.restLifetime);
-            desc.maxSecondaryPerFrame = static_cast<uint32_t>(jsonInt(object, "maxSecondaryPerFrame", static_cast<int>(desc.maxSecondaryPerFrame)));
-            const auto secondary = object.find("secondary");
-            if (secondary != object.end() && secondary->is_object())
-            {
-                desc.hasSecondary = true;
-                desc.secondary.maxParticles = static_cast<uint32_t>(jsonInt(*secondary, "maxParticles", static_cast<int>(desc.secondary.maxParticles)));
-                jsonRange(*secondary, "lifetime", desc.secondary.lifetime.min, desc.secondary.lifetime.max);
-                jsonRange(*secondary, "startSize", desc.secondary.startSize.min, desc.secondary.startSize.max);
-                desc.secondary.restLifetime  = jsonFloat(*secondary, "restLifetime", desc.secondary.restLifetime);
-                desc.secondary.additiveBlend = jsonBool(*secondary, "additiveBlend", desc.secondary.additiveBlend);
-                desc.secondary.collision     = static_cast<ParticleCollisionReaction>(jsonInt(*secondary, "collision", static_cast<int>(desc.secondary.collision)));
-            }
         }
 
         bool attachParticle(const ArchetypeSpawnHost& host, Entity entity, std::string_view, ContentError& err)
@@ -667,7 +561,7 @@ namespace Dark
             if (!readObject(params ? std::string_view(params->particleJson) : std::string_view{}, object, err, "ParticleEmitter"))
                 return false;
             ParticleEmitterDesc desc{};
-            fillParticle(object, desc);
+            particleFromJson(object, desc, "Particle");
             ParticleEmitterComponent emitter;
             emitter.desc    = desc;
             emitter.playing = true;
@@ -690,36 +584,6 @@ namespace Dark
             return true;
         }
 
-        void fillCloud(const json& object, CloudVolumeDesc& desc)
-        {
-            if (object.contains("shape"))
-            {
-                if (object["shape"].is_string())
-                {
-                    CloudShape shape{};
-                    if (tryParseCloudShape(object["shape"].get<std::string>(), shape))
-                        desc.shape = shape;
-                }
-                else if (object["shape"].is_number() && object["shape"].get<int>() == 0)
-                    desc.shape = CloudShape::Box;
-            }
-            desc.density        = jsonFloat(object, "density", desc.density);
-            desc.coverage       = jsonFloat(object, "coverage", desc.coverage);
-            desc.softness       = jsonFloat(object, "softness", desc.softness);
-            desc.absorption     = jsonFloat(object, "absorption", desc.absorption);
-            desc.scattering     = jsonFloat(object, "scattering", desc.scattering);
-            desc.anisotropy     = jsonFloat(object, "anisotropy", desc.anisotropy);
-            desc.noiseScale     = jsonFloat(object, "noiseScale", desc.noiseScale);
-            desc.detailScale    = jsonFloat(object, "detailScale", desc.detailScale);
-            desc.detailStrength = jsonFloat(object, "detailStrength", desc.detailStrength);
-            desc.heightFalloff  = jsonFloat(object, "heightFalloff", desc.heightFalloff);
-            desc.silverLining   = jsonFloat(object, "silverLining", desc.silverLining);
-            desc.windSpeed      = jsonFloat(object, "windSpeed", desc.windSpeed);
-            desc.enabled        = jsonBool(object, "enabled", desc.enabled);
-            jsonVec3(object, "albedo", desc.albedo);
-            jsonVec3(object, "windDir", desc.windDir);
-        }
-
         bool attachCloud(const ArchetypeSpawnHost& host, Entity entity, std::string_view, ContentError& err)
         {
             if (!host.world)
@@ -731,8 +595,10 @@ namespace Dark
             json object;
             if (!readObject(params ? std::string_view(params->cloudJson) : std::string_view{}, object, err, "CloudVolume"))
                 return false;
+            SceneObjectData probe;
+            sceneSetComponentJson(probe, "CloudVolume", object.dump());
             CloudVolumeComponent cloud{};
-            fillCloud(object, cloud.desc);
+            cloudDescFromSceneData(probe, cloud.desc);
             host.world->emplace<CloudVolumeComponent>(entity, cloud);
             return true;
         }
@@ -748,20 +614,10 @@ namespace Dark
             json object;
             if (!readObject(params ? std::string_view(params->streamJson) : std::string_view{}, object, err, "Stream"))
                 return false;
+            SceneObjectData probe;
+            sceneSetComponentJson(probe, "Stream", object.dump());
             StreamComponent stream;
-            stream.width     = jsonFloat(object, "width", stream.width);
-            stream.flowSpeed = jsonFloat(object, "flowSpeed", stream.flowSpeed);
-            const auto points = object.find("points");
-            if (points != object.end() && points->is_array())
-            {
-                for (const json& point : *points)
-                {
-                    if (!point.is_array() || point.size() < 2 || !point[0].is_number() || !point[1].is_number())
-                        continue;
-                    stream.points.emplace_back(point[0].get<float>(), point[1].get<float>());
-                }
-            }
-            if (stream.points.size() < 2)
+            if (!sceneReadStream(probe, stream.width, stream.flowSpeed, stream.points))
             {
                 const TransformComponent* xf = host.world->get<TransformComponent>(entity);
                 const float x = xf ? xf->position.x : 0.0f;
@@ -840,6 +696,31 @@ namespace Dark
             return true;
         }
 
+        bool attachCrowBehavior(const ArchetypeSpawnHost& host, Entity entity, std::string_view, ContentError& err)
+        {
+            if (!characterReady(host, err))
+                return false;
+            if (!host.crows)
+            {
+                err.message = "crow needs flock models";
+                return false;
+            }
+            const TransformComponent* xf = host.world->get<TransformComponent>(entity);
+            const float x = xf ? xf->position.x : 0.0f;
+            const float z = xf ? xf->position.z : 0.0f;
+            float groundY = xf ? xf->position.y : 0.0f;
+            if (host.crowTerrain && host.crowTerrain->valid())
+                groundY = host.crowTerrain->heightAtWorld(x, z);
+            const float homeX = host.crowHomeSet ? host.crowHomeX : x;
+            const float homeZ = host.crowHomeSet ? host.crowHomeZ : z;
+            if (!attachCrowBody(*host.world, *host.renderer, *host.assets, *host.pins, *host.crows, host.crowTerrain, entity, x, z, groundY, homeX, homeZ, host.crowSeed, host.crowSlot))
+            {
+                err.message = "crow model is not ready";
+                return false;
+            }
+            return true;
+        }
+
         bool attachSpawnPoint(const ArchetypeSpawnHost& host, Entity entity, std::string_view, ContentError& err)
         {
             if (!host.world)
@@ -874,6 +755,17 @@ namespace Dark
                 base[it.key()] = it.value();
             return base.dump();
         }
+
+        bool attachLocalLightAlias(const ArchetypeSpawnHost& host, Entity entity, std::string_view params, ContentError& err)
+        {
+            static bool noted = false;
+            if (!noted)
+            {
+                noted = true;
+                DE_LOG_WARN(LogCategory::Core, "Content: behavior 'light.searchlight' is 'light.local'");
+            }
+            return attachLocalLight(host, entity, params, err);
+        }
     } // namespace
 
     void registerBuiltinContent()
@@ -903,8 +795,10 @@ namespace Dark
         registerBehavior(BehaviorInfo{ "ai.animal", &attachAnimal });
         registerBehavior(BehaviorInfo{ "ai.wolf", &attachAnimal });
         registerBehavior(BehaviorInfo{ "ai.hunter", &attachHunter });
+        registerBehavior(BehaviorInfo{ "ai.crow", &attachCrowBehavior });
         registerBehavior(BehaviorInfo{ "player.controller", &attachPlayer });
-        registerBehavior(BehaviorInfo{ "light.searchlight", &attachLocalLight });
+        registerBehavior(BehaviorInfo{ "light.local", &attachLocalLight });
+        registerBehavior(BehaviorInfo{ "light.searchlight", &attachLocalLightAlias });
         registerBehavior(BehaviorInfo{ "light.ambient", &attachAmbient });
         registerBehavior(BehaviorInfo{ "light.directional", &attachDirectional });
         registerBehavior(BehaviorInfo{ "particle.emit", &attachParticle });
@@ -1003,6 +897,23 @@ namespace Dark
                 return {};
             }
         }
+        return entity;
+    }
+
+    Entity respawnSavedArchetype(const ArchetypeSpawnHost& host, std::string_view archetypeId, const ArchetypeSpawnPose& pose)
+    {
+        if (!contentHasArchetype(archetypeId))
+        {
+            DE_LOG_WARN("Save: no respawn for '{}'", archetypeId);
+            return {};
+        }
+        ArchetypeSpawnPose placed = pose;
+        if (placed.scale.x == 0.0f && placed.scale.y == 0.0f && placed.scale.z == 0.0f)
+            placed.scale = { 1.0f, 1.0f, 1.0f };
+        ContentError err;
+        const Entity entity = instantiateArchetype(host, archetypeId, placed, {}, &err);
+        if (!entity.valid())
+            DE_LOG_WARN("Save: respawn '{}' failed ({})", archetypeId, err.message);
         return entity;
     }
 

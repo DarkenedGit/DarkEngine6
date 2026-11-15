@@ -1,8 +1,15 @@
 #include "Sky/Environment.h"
+#include "Core/Json.h"
+#include "Core/Log.h"
 #include "Math/MathDefines.h"
 #include "Math/MathHelper.h"
+#include "Scene/EntityMaster.h"
 
 #include <cmath>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
 
 namespace Dark
 {
@@ -59,43 +66,99 @@ Vector3f SunColorAt(float elev, float turb)
     return SaturateColor((noonSun * (1.0f - warm) + duskSun * warm) * (1.35f * extinction * dayF));
 }
 
+struct NamedWeather
+{
+    std::string  name;
+    WeatherState state;
+};
+
+const std::vector<NamedWeather>& weatherRows()
+{
+    static const std::vector<NamedWeather> rows = [] {
+        std::vector<NamedWeather> loaded;
+        const std::filesystem::path path = resolveContentFile("env/weather.json");
+        if (path.empty())
+        {
+            DE_LOG_WARN(LogCategory::Render, "Weather: env/weather.json is missing");
+            return loaded;
+        }
+        std::ifstream in(path, std::ios::binary);
+        if (!in)
+        {
+            DE_LOG_WARN(LogCategory::Render, "Weather: env/weather.json is missing");
+            return loaded;
+        }
+        std::ostringstream text;
+        text << in.rdbuf();
+        const nlohmann::json root = nlohmann::json::parse(text.str(), nullptr, false);
+        if (root.is_discarded() || !root.is_object())
+        {
+            DE_LOG_WARN(LogCategory::Render, "Weather: env/weather.json did not load");
+            return loaded;
+        }
+        const auto presets = root.find("presets");
+        if (presets == root.end() || !presets->is_array())
+        {
+            DE_LOG_WARN(LogCategory::Render, "Weather: env/weather.json did not load");
+            return loaded;
+        }
+        for (const nlohmann::json& row : *presets)
+        {
+            if (!row.is_object())
+                continue;
+            std::string name;
+            jsonStringOr(row, "name", name, std::string(), "Weather");
+            if (name.empty())
+                continue;
+            WeatherState state;
+            jsonFloatOr(row, "coverage", state.cloudCoverage, state.cloudCoverage, "Weather");
+            jsonFloatOr(row, "turbidity", state.turbidity, state.turbidity, "Weather");
+            jsonFloatOr(row, "wind", state.windSpeed, state.windSpeed, "Weather");
+            jsonFloatOr(row, "rain", state.rain, state.rain, "Weather");
+            loaded.push_back(NamedWeather{ std::move(name), state });
+        }
+        if (loaded.empty())
+            DE_LOG_WARN(LogCategory::Render, "Weather: env/weather.json did not load");
+        return loaded;
+    }();
+    return rows;
+}
+
+WeatherState weatherFromFile(const char* name)
+{
+    const WeatherState* partly = nullptr;
+    for (const NamedWeather& row : weatherRows())
+    {
+        if (row.name == name)
+            return row.state;
+        if (row.name == "partly")
+            partly = &row.state;
+    }
+    if (partly)
+        return *partly;
+    return {};
+}
+
 } // namespace
 
 WeatherState WeatherState::Clear()
 {
-    WeatherState w;
-    w.cloudCoverage = 0.05f;
-    w.turbidity     = 1.6f;
-    w.rain          = 0.0f;
-    return w;
+    return weatherFromFile("clear");
 }
 
 WeatherState WeatherState::PartlyCloudy()
 {
-    WeatherState w;
-    w.cloudCoverage = 0.35f;
-    w.turbidity     = 2.4f;
-    w.rain          = 0.0f;
-    return w;
+    return weatherFromFile("partly");
 }
 
 WeatherState WeatherState::Overcast()
 {
-    WeatherState w;
-    w.cloudCoverage = 0.82f;
-    w.turbidity     = 3.8f;
-    w.rain          = 0.15f;
-    return w;
+    return weatherFromFile("overcast");
 }
 
 WeatherState WeatherState::Storm()
 {
-    WeatherState w;
-    w.cloudCoverage = 0.96f;
-    w.turbidity     = 5.5f;
-    w.rain          = 0.85f;
-    w.windSpeed     = 0.10f;
-    return w;
+    return weatherFromFile("storm");
 }
 
 void Environment::sunMoonDirections(

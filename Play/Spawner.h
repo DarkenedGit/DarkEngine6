@@ -18,13 +18,6 @@ namespace Dark
         Waves
     };
 
-    enum class SpawnerUnit : uint8_t
-    {
-        Hunter = 0,
-        Wolf,
-        Crow
-    };
-
     // Waves only. Time starts the next wave on a timer and leaves earlier units in the level.
     // Cleared starts the next wave once every unit from the current wave is dead.
     enum class SpawnerWaveGate : uint8_t
@@ -38,7 +31,6 @@ namespace Dark
     struct SpawnerDesc
     {
         SpawnerMode     mode         = SpawnerMode::Maintain;
-        SpawnerUnit     unit         = SpawnerUnit::Hunter;
         SpawnerWaveGate gate         = SpawnerWaveGate::Cleared;
         int             count        = 3;
         float           radius       = 6.0f;
@@ -47,8 +39,8 @@ namespace Dark
         int             maxWaves     = 0; // 0 = no limit
         bool            enabled      = true;
         uint32_t        seed         = 1;
-        // Empty uses `unit`. A namespaced or unknown id spawns that archetype.
-        std::string     unitArchetype;
+        // Bare hunter, wolf, and crow resolve through aliases at spawn.
+        std::string     unitArchetype = "hunter";
     };
 
     struct SpawnerSlot
@@ -71,8 +63,7 @@ namespace Dark
 
     struct SpawnerRequest
     {
-        SpawnerUnit unit = SpawnerUnit::Hunter;
-        std::string unitArchetype;
+        std::string unitArchetype = "hunter";
         int         slot = 0;
         float       x    = 0.0f;
         float       z    = 0.0f;
@@ -98,10 +89,8 @@ namespace Dark
     };
 
     const char* toString(SpawnerMode mode);
-    const char* toString(SpawnerUnit unit);
     const char* toString(SpawnerWaveGate gate);
     bool        tryParseSpawnerMode(std::string_view text, SpawnerMode& out);
-    bool        tryParseSpawnerUnit(std::string_view text, SpawnerUnit& out);
     bool        tryParseSpawnerWaveGate(std::string_view text, SpawnerWaveGate& out);
 
     void clampSpawnerDesc(SpawnerDesc& desc);

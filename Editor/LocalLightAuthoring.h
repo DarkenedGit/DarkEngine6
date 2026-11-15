@@ -8,7 +8,7 @@ namespace Dark
 {
 
 // Shared authored fields. Cone degrees stay with the point/spot spawn site.
-// The emitter site overwrites color after this call. fillDefaultLocalLight does not call it.
+// The emitter site overwrites color after this call.
 inline void copyAuthoredLocalLight(LocalLightComponent& light, const SceneObjectData& authored)
 {
     light.intensity    = sceneLightFloat(authored, "intensity", light.intensity);

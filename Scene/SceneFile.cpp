@@ -1013,7 +1013,7 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             sky.present       = true;
             sky.weather       = jsonS(s, "weather", std::string("partly"));
             const Sky::WeatherState preset = weatherPreset(sky.weather);
-            sky.timeOfDay     = jsonF(s, "timeOfDay", 16.2f);
+            sky.timeOfDay     = jsonF(s, "timeOfDay", Sky::kDefaultTimeOfDay);
             sky.dayOfYear     = jsonF(s, "dayOfYear", 172.0f);
             sky.latitude      = jsonF(s, "latitude", 47.6f);
             sky.timeScale     = jsonF(s, "timeScale", 0.0f);

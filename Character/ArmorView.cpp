@@ -26,7 +26,7 @@ namespace Dark
     {
         if (!owner.valid() || !world.alive(owner))
             return;
-        AssetRef<Model> cube = loadAndUploadModel(renderer, assets, "models/unit_cube.gltf");
+        AssetRef<Model> cube = loadAndUploadModel(renderer, assets, kUnitCubeModel);
 
         for (int i = 0; cube && i < armor.count; ++i)
         {

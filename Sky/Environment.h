@@ -9,6 +9,8 @@ namespace Dark
 namespace Sky
 {
 
+inline constexpr float kDefaultTimeOfDay = 16.2f;
+
 // Cloud / haze / rain knobs. Coverage is the master weather slider.
 struct WeatherState
 {
@@ -29,7 +31,7 @@ struct WeatherState
 class Environment
 {
 public:
-    float           timeOfDay  = 15.5f; // hours, [0, 24)
+    float           timeOfDay  = kDefaultTimeOfDay; // hours, [0, 24)
     float           dayOfYear  = 172.0f; // 1..365
     float           latitude   = 47.6f;  // degrees
     float           timeScale  = 0.0f;   // hours advanced per real second

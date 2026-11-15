@@ -2,6 +2,6 @@
   "id": "core:directional_light",
   "version": 1,
   "editor": { "label": "Directional Light", "category": "Lights", "icon": "sun", "modes": ["3d"] },
-  "components": { "DirectionalLight": {} },
+  "components": { "DirectionalLight": { "intensity": 3.141592653589793 } },
   "behaviors": [ { "name": "light.directional" } ]
 }

@@ -14,5 +14,5 @@
       "castShadow": false
     }
   },
-  "behaviors": [ { "name": "light.searchlight" } ]
+  "behaviors": [ { "name": "light.local" } ]
 }

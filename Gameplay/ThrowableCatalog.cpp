@@ -25,35 +25,6 @@ namespace Dark
         constexpr std::uintmax_t kMaxJsonBytes         = 64u * 1024u;
         constexpr int            kThrowableFileVersion = 1;
 
-        constexpr std::string_view kRockModel    = "models/NaturePack/glTF/Rock_Medium_1.gltf";
-        constexpr std::string_view kBottleModel  = "models/unit_glass.gltf";
-        constexpr std::string_view kRockImpact   = "audio/foot_rock.wav";
-        constexpr std::string_view kBottleImpact = "audio/splash.wav";
-
-        ThrowableDef builtinRock()
-        {
-            ThrowableDef def;
-            def.id            = "rock";
-            def.weight        = 2.0f;
-            def.throwDistance = 10.0f;
-            def.impactSound   = kRockImpact;
-            def.callDistance  = 6.0f;
-            def.model         = kRockModel;
-            return def;
-        }
-
-        ThrowableDef builtinBottle()
-        {
-            ThrowableDef def;
-            def.id            = "bottle";
-            def.weight        = 0.5f;
-            def.throwDistance = 11.0f;
-            def.impactSound   = kBottleImpact;
-            def.callDistance  = 16.0f;
-            def.model         = kBottleModel;
-            return def;
-        }
-
         bool jsonToDouble(const json& v, double& out)
         {
             if (const auto* f = v.get_ptr<const json::number_float_t*>())
@@ -252,11 +223,7 @@ namespace Dark
         }
     } // namespace
 
-    ThrowableCatalog::ThrowableCatalog()
-    {
-        m_items.push_back(builtinRock());
-        m_items.push_back(builtinBottle());
-    }
+    ThrowableCatalog::ThrowableCatalog() = default;
 
     bool ThrowableCatalog::parse(std::string_view jsonText)
     {
@@ -310,8 +277,9 @@ namespace Dark
         bool             ok   = false;
         if (file.state == ContentFile::Missing)
         {
-            DE_LOG_WARN(LogCategory::Core, "ThrowableCatalog: items/throwables.json missing; keeping built-in rock and bottle");
-            ok = true;
+            m_items.clear();
+            DE_LOG_WARN(LogCategory::Core, "ThrowableCatalog: items/throwables.json is missing");
+            ok = false;
         }
         else if (file.state != ContentFile::Ok)
         {
@@ -352,6 +320,7 @@ namespace Dark
     ThrowableCatalog& throwableCatalog()
     {
         static ThrowableCatalog catalog;
+        catalog.loadFromContent();
         return catalog;
     }
 

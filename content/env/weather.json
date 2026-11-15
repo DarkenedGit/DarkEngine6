@@ -1,0 +1,8 @@
+{
+  "presets": [
+    { "name": "clear", "coverage": 0.05, "turbidity": 1.6, "wind": 0.04, "rain": 0.0 },
+    { "name": "partly", "coverage": 0.35, "turbidity": 2.4, "wind": 0.04, "rain": 0.0 },
+    { "name": "overcast", "coverage": 0.82, "turbidity": 3.8, "wind": 0.04, "rain": 0.15 },
+    { "name": "storm", "coverage": 0.96, "turbidity": 5.5, "wind": 0.10, "rain": 0.85 }
+  ]
+}

@@ -696,8 +696,8 @@ namespace Dark
         if (!sliced)
         {
             const bool canDraw = spawn.renderer && spawn.assets && spawn.pins;
-            doorModel = (!canDraw || doors.empty()) ? AssetRef<Model>{} : loadAndUploadModel(*spawn.renderer, *spawn.assets, "models/unit_cube.gltf");
-            camModel  = (!canDraw || cameras.empty()) ? AssetRef<Model>{} : loadAndUploadModel(*spawn.renderer, *spawn.assets, "models/unit_cube.gltf");
+            doorModel = (!canDraw || doors.empty()) ? AssetRef<Model>{} : loadAndUploadModel(*spawn.renderer, *spawn.assets, kUnitCubeModel);
+            camModel  = (!canDraw || cameras.empty()) ? AssetRef<Model>{} : loadAndUploadModel(*spawn.renderer, *spawn.assets, kUnitCubeModel);
         }
         else
         {

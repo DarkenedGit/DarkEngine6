@@ -131,7 +131,7 @@ namespace Dark
         if (!pxf)
             return {};
         const float          reach = range > 0.0f ? range : kGuardTakedownRange;
-        const float          lift  = entityCombatFor("player").groundOffset;
+        const float          lift  = entityCombatProfile(world, player).groundOffset;
         const Math::Vector3f from{ pxf->position.x, pxf->position.y + lift, pxf->position.z };
         Entity               best{};
         float                bestD = reach * reach;

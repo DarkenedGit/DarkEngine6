@@ -58,7 +58,7 @@ namespace Dark
     {
         if (!owner.valid() || !world.alive(owner) || world.has<SwordComponent>(owner))
             return;
-        AssetRef<Model> cube = loadAndUploadModel(renderer, assets, "models/unit_cube.gltf");
+        AssetRef<Model> cube = loadAndUploadModel(renderer, assets, kUnitCubeModel);
         if (!cube)
             return;
         SwordComponent sword{};

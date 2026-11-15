@@ -128,9 +128,11 @@ bool EditorApp::attachEditorPlayer(Entity e)
     const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
     ensureLocalPlayerRig(host, e, &EditorApp::onPlayWeaponHitThunk, this);
 
-    const EntityMaster playerMaster = loadEntityMasterType("player");
-    const std::string  playerGltf = playerMaster.gltf.empty() ? std::string("models/human.gltf") : playerMaster.gltf;
-    attachEditorModel(e, playerGltf.c_str());
+    const std::string playerGltf = archetypeModelPath("core:player");
+    if (playerGltf.empty())
+        DE_LOG_WARN(LogCategory::Core, "Play: 'core:player' has no Model path");
+    else
+        attachEditorModel(e, playerGltf.c_str());
     return true;
 }
 

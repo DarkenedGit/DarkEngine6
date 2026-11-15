@@ -10,6 +10,7 @@
 #include "Editor/LocalLightAuthoring.h"
 #include "Gameplay/PowerComponents.h"
 #include "Play/Carry.h"
+#include "Play/SpawnHost.h"
 #include "Sky/Environment.h"
 #include "Editor/EditorObject.h"
 #include "Media/MovieCue.h"
@@ -449,21 +450,23 @@ Entity EditorApp::placeAtWorld(std::string_view archetypeId, Vector3f hit, const
 
 ArchetypeSpawnHost EditorApp::archetypeHost()
 {
-    ArchetypeSpawnHost host{};
-    host.world               = &world();
-    host.assets              = &assets();
-    host.pins                = &pins();
-    host.renderer            = &renderer();
-    host.audio               = &audio();
-    host.ground              = &m_ground;
-    host.ai                  = &m_ai;
-    host.ensureMesh          = &EditorApp::ensureArchetypeMesh;
-    host.ensurePrimitive     = &EditorApp::ensureArchetypePrimitive;
-    host.bindParticleMaterial = &EditorApp::bindArchetypeParticles;
-    host.onWeaponHit         = &EditorApp::onPlayWeaponHitThunk;
-    host.weaponHitUser       = this;
-    host.user                = this;
-    return host;
+    SpawnServices services;
+    services.world                = &world();
+    services.assets               = &assets();
+    services.pins                 = &pins();
+    services.renderer             = &renderer();
+    services.audio                = &audio();
+    services.ground               = &m_ground;
+    services.ai                   = &m_ai;
+    services.ensureMesh           = &EditorApp::ensureArchetypeMesh;
+    services.ensurePrimitive      = &EditorApp::ensureArchetypePrimitive;
+    services.bindParticleMaterial = &EditorApp::bindArchetypeParticles;
+    services.onWeaponHit          = &EditorApp::onPlayWeaponHitThunk;
+    services.weaponHitUser        = this;
+    services.user                 = this;
+    services.crows                = &m_crowModels;
+    services.crowTerrain          = &m_terrain;
+    return makeSpawnHost(services);
 }
 
 bool EditorApp::ensureArchetypeMesh(void* user, Entity entity)

@@ -18,6 +18,7 @@
 #include "Save/HostSync.h"
 #include "Save/PersistentId.h"
 #include "Save/ProgressComponents.h"
+#include "Content/ArchetypeSpawn.h"
 #include "Content/ContentDb.h"
 #include "Scene/SceneTypes.h"
 #include "Weapons/WeaponLoadoutComponent.h"
@@ -163,23 +164,28 @@ Entity EditorApp::saveRespawn(void* user, World&, std::string_view archetype, co
     auto* app = static_cast<EditorApp*>(user);
     if (!app)
         return {};
-    if (!contentHasArchetype(archetype))
-    {
-        DE_LOG_WARN("Save: editor has no respawn for '{}'", archetype);
-        return {};
-    }
     if (skipStampArchetype(archetype))
     {
         DE_LOG_WARN("Save: editor has no respawn for '{}'", archetype);
         return {};
     }
-    float col[4] = { 0.8f, 0.8f, 0.8f, 1.0f };
-    const Entity previous = app->m_selected;
-    const bool suspended = app->m_suspendLiveStamp;
-    app->m_suspendLiveStamp = true;
-    const Entity e = app->spawnObject(archetype, pose.position, pose.scale, pose.rotation, col, nullptr, nullptr, false, false);
-    app->m_suspendLiveStamp = suspended;
-    app->m_selected = previous;
+    ArchetypeSpawnPose placed{};
+    placed.position = pose.position;
+    placed.rotation = pose.rotation;
+    placed.scale    = pose.scale;
+    placed.color[0] = 0.8f;
+    placed.color[1] = 0.8f;
+    placed.color[2] = 0.8f;
+    placed.color[3] = 1.0f;
+    const Entity e = respawnSavedArchetype(app->archetypeHost(), archetype, placed);
+    if (!e.valid())
+        return {};
+    SceneObjectData probe{};
+    probe.archetype = std::string(archetype);
+    if (app->world().has<PhysicsComponent>(e))
+        app->rebuildPhysicsBody(e);
+    else if (sceneHasBehavior(probe, "model") || editorPawn(probe))
+        app->tryLoadModelPhysics(e);
     return e;
 }
 

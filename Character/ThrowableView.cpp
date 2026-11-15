@@ -207,7 +207,7 @@ namespace Dark
     std::string throwableVisualModelPath(std::string_view itemId)
     {
         const ThrowableDef* def = throwableCatalog().find(itemId);
-        if (!def || def->model.empty() || def->model == kThrowableUnitCube)
+        if (!def || def->model.empty() || def->model == kUnitCubeModel)
             return {};
         return def->model;
     }
@@ -216,7 +216,7 @@ namespace Dark
     {
         ThrowableMeshChoice choice;
         choice.allowThrow = true;
-        if (modelPath.empty() || modelPath == kThrowableUnitCube)
+        if (modelPath.empty() || modelPath == kUnitCubeModel)
             return choice;
         choice.attachMesh = modelFileExists(modelPath);
         return choice;

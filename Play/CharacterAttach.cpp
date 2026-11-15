@@ -26,6 +26,7 @@
 #include "AI/AiComponents.h"
 #include "AI/HunterJump.h"
 #include "Content/ContentDb.h"
+#include "Content/SceneObjectSpawn.h"
 #include "Core/Json.h"
 #include "Scene/EntityCombat.h"
 #include "Scene/EntityMaster.h"
@@ -369,7 +370,7 @@ namespace Dark
                 host.world.emplace<HsmGraphComponent>(e, std::move(hsm));
             }
         }
-        const EntityCombat& playerCombat = entityCombatFor("player");
+        const EntityCombat& playerCombat = entityCombatProfile(host.world, e);
         if (!host.world.has<WeaponLoadoutComponent>(e))
         {
             auto& wlc   = host.world.emplace<WeaponLoadoutComponent>(e);
@@ -444,15 +445,15 @@ namespace Dark
 
     ContentModelResult attachNpcVisual(const CharacterHost& host, Entity e, NpcKind kind, ModelAttach mode)
     {
-        const char* path = "models/skeleton.gltf";
-        std::string wolfGltf;
-        if (kind == NpcKind::Wolf)
+        const char* archetypeId = kind == NpcKind::Wolf ? "core:wolf" : "core:hunter";
+        const std::string path = archetypeModelPath(archetypeId);
+        if (path.empty())
         {
-            const EntityMaster wolfMaster = loadEntityMasterType("wolf");
-            wolfGltf = wolfMaster.gltf.empty() ? std::string("models/wolf.gltf") : wolfMaster.gltf;
-            path     = wolfGltf.c_str();
+            DE_LOG_WARN(LogCategory::Core, "Play: '{}' has no Model path", archetypeId);
+            configureNpc(host, e, kind);
+            return {};
         }
-        const ContentModelResult result = attachContentModel(host, e, path, mode);
+        const ContentModelResult result = attachContentModel(host, e, path.c_str(), mode);
         configureNpc(host, e, kind);
         return result;
     }

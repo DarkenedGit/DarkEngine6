@@ -9,8 +9,9 @@
 namespace Dark
 {
 
-    // Camera shot: look is normalized, origin sits 2.2 m along it, and a zero look becomes +Z.
-    inline WeaponFireRequest makeCameraFireRequest(const Math::Vector3f& cameraPos, const Math::Vector3f& cameraLook, const Math::Vector3f* ownerPos, float damageScale)
+    // Camera shot: look is normalized, origin sits along it, and a zero look becomes +Z.
+    // A negative muzzleOffset reads the player combat profile.
+    inline WeaponFireRequest makeCameraFireRequest(const Math::Vector3f& cameraPos, const Math::Vector3f& cameraLook, const Math::Vector3f* ownerPos, float damageScale, float muzzleOffset = -1.0f)
     {
         WeaponFireRequest req{};
         req.direction = cameraLook;
@@ -18,9 +19,10 @@ namespace Dark
             req.direction.Normalize();
         else
             req.direction = Math::Vector3f{ 0.0f, 0.0f, 1.0f };
-        req.origin      = cameraPos + req.direction * entityCombatFor("player").muzzleOffset;
-        req.ownerPos    = ownerPos ? *ownerPos : cameraPos;
-        req.damageScale = damageScale;
+        const float muzzle = muzzleOffset >= 0.0f ? muzzleOffset : combatProfileForId("core:player").muzzleOffset;
+        req.origin         = cameraPos + req.direction * muzzle;
+        req.ownerPos       = ownerPos ? *ownerPos : cameraPos;
+        req.damageScale    = damageScale;
         return req;
     }
 

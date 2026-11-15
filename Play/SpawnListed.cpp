@@ -2,14 +2,16 @@
 
 #include "AI/AiSystem.h"
 #include "Content/ArchetypeSpawn.h"
+#include "Content/ContentDb.h"
+#include "Content/ContentId.h"
 #include "Core/Log.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
 #include "Play/CharacterAttach.h"
-#include "Play/Crow.h"
 #include "Play/DialogueBinding.h"
 #include "Play/DialogueMemory.h"
 #include "Play/PlaySession.h"
+#include "Play/SpawnHost.h"
 #include "Scene/EntityMaster.h"
 #include "Terrain/TerrainGrid.h"
 
@@ -47,89 +49,68 @@ namespace Dark
 
     } // namespace
 
+    std::string resolveListedArchetype(std::string_view unitArchetype)
+    {
+        const std::string_view text = unitArchetype.empty() ? std::string_view("hunter") : unitArchetype;
+        if (const Archetype* archetype = findArchetype(text))
+            return archetype->name;
+        return canonicalContentId(text);
+    }
+
     Entity spawnListedUnit(const ListedSpawnHost& host, Entity spawner, const SpawnerRequest& req)
     {
-        if (!host.world || !host.renderer || !host.assets || !host.pins)
+        if (!host.world || !host.renderer || !host.assets || !host.pins || !host.audio || !host.ground)
             return {};
         World& world = *host.world;
-        std::string_view bare = req.unitArchetype;
-        const auto colon = bare.rfind(':');
-        if (colon != std::string_view::npos)
-            bare = bare.substr(colon + 1);
-        const bool builtinUnit = req.unitArchetype.empty() || bare == "hunter" || bare == "enemy" || bare == "wolf" || bare == "crow";
-        if (!builtinUnit)
-        {
-            if (!host.audio || !host.ground)
-                return {};
-            ArchetypeSpawnHost spawn{};
-            spawn.world    = host.world;
-            spawn.assets   = host.assets;
-            spawn.pins     = host.pins;
-            spawn.renderer = host.renderer;
-            spawn.audio    = host.audio;
-            spawn.ground   = host.ground;
-            spawn.ai       = host.ai;
-            spawn.user     = const_cast<ListedSpawnHost*>(&host);
-            spawn.ensureMesh = [](void* user, Entity entity) {
-                auto* listed = static_cast<ListedSpawnHost*>(user);
-                if (listed && listed->onProxy)
-                    listed->onProxy(listed->user, entity);
-                return true;
-            };
-            ArchetypeSpawnPose pose{};
-            pose.position = Math::Vector3f{ req.x, listedGroundY(host, req.x, req.z) + 0.5f, req.z };
-            pose.scale    = Math::Vector3f{ 1.0f, 1.0f, 1.0f };
-            ContentError err;
-            const Entity e = instantiateArchetype(spawn, req.unitArchetype, pose, {}, &err);
-            if (!e.valid())
-            {
-                DE_LOG_WARN(LogCategory::AI, "Spawner: archetype '{}' failed ({})", req.unitArchetype, err.message);
-                return {};
-            }
-            if (host.noteHunter)
-                host.noteHunter(host.user, e);
-            if (host.bindPhysics)
-                host.bindPhysics(host.user, e, false);
-            SpawnedUnitComponent mark{};
-            mark.spawner = spawner;
-            mark.slot    = req.slot;
-            world.emplace<SpawnedUnitComponent>(e, mark);
-            return e;
-        }
-        const bool crow = req.unit == SpawnerUnit::Crow || bare == "crow";
-        const bool wolf = req.unit == SpawnerUnit::Wolf || bare == "wolf";
-        if (crow)
-        {
-            if (!host.crows)
-                return {};
-            const TransformComponent* home  = world.get<TransformComponent>(spawner);
-            const float               homeX = home ? home->position.x : req.x;
-            const float               homeZ = home ? home->position.z : req.z;
-            return spawnCrow(world, *host.renderer, *host.assets, *host.pins, *host.crows, host.terrain, spawner, req, listedGroundY(host, req.x, req.z), homeX, homeZ);
-        }
-
-        if (!host.ai || !host.audio || !host.ground || !host.play)
+        const std::string archetypeId = resolveListedArchetype(req.unitArchetype);
+        const bool crow = archetypeId == "core:crow";
+        const bool wolf = archetypeId == "core:wolf";
+        const bool hunter = archetypeId == "core:hunter";
+        if (crow && !host.crows)
             return {};
-        TransformComponent xf{};
-        xf.position = Math::Vector3f{ req.x, listedGroundY(host, req.x, req.z) + 0.5f, req.z };
-        xf.scale    = Math::Vector3f{ 1.0f, 1.0f, 1.0f };
-        const Entity e = host.ai->spawnHunter(world, *host.pins, *host.assets, xf);
+        if (!crow && (!host.ai || !host.play))
+            return {};
+
+        const TransformComponent* home = world.get<TransformComponent>(spawner);
+        SpawnServices services;
+        services.world      = host.world;
+        services.assets     = host.assets;
+        services.pins       = host.pins;
+        services.renderer   = host.renderer;
+        services.audio      = host.audio;
+        services.ground     = host.ground;
+        services.ai         = host.ai;
+        services.user       = const_cast<ListedSpawnHost*>(&host);
+        services.modelAnimatedOnly = !host.allowStaticModel;
+        services.crows      = host.crows;
+        services.crowTerrain = host.terrain;
+        services.crowHomeSet = true;
+        services.crowHomeX  = home ? home->position.x : req.x;
+        services.crowHomeZ  = home ? home->position.z : req.z;
+        services.crowSeed   = req.seed == 0u ? 1u : req.seed;
+        services.crowSlot   = req.slot;
+        services.ensureMesh = [](void* user, Entity entity) {
+            auto* listed = static_cast<ListedSpawnHost*>(user);
+            if (listed && listed->onProxy)
+                listed->onProxy(listed->user, entity);
+            return true;
+        };
+        const ArchetypeSpawnHost spawn = makeSpawnHost(services);
+        ArchetypeSpawnPose pose{};
+        pose.position = Math::Vector3f{ req.x, listedGroundY(host, req.x, req.z) + (crow ? 0.0f : 0.5f), req.z };
+        pose.scale    = Math::Vector3f{ 1.0f, 1.0f, 1.0f };
+        ContentError err;
+        const Entity e = instantiateArchetype(spawn, archetypeId, pose, {}, &err);
         if (!e.valid())
         {
-            DE_LOG_WARN(LogCategory::AI, "Spawner: failed to create a {}", wolf ? "wolf" : "hunter");
+            DE_LOG_WARN(LogCategory::AI, "Spawner: archetype '{}' failed ({})", archetypeId, err.message);
             return {};
         }
-        if (host.noteHunter)
+        if (!crow && host.noteHunter)
             host.noteHunter(host.user, e);
-
-        const CharacterHost character{ world, *host.renderer, *host.assets, *host.pins, *host.audio, *host.ground };
-        const ContentModelResult visual = attachNpcVisual(character, e, wolf ? NpcKind::Wolf : NpcKind::Hunter,
-                                                          host.allowStaticModel ? ModelAttach::AllowStatic : ModelAttach::AnimatedOnly);
-        if (!visual.attached && host.onProxy)
-            host.onProxy(host.user, e);
-        if (host.bindPhysics)
+        if (!crow && host.bindPhysics)
             host.bindPhysics(host.user, e, wolf);
-        if (!wolf)
+        if (hunter && host.play)
         {
             host.play->stockHunter(e);
             bindListedNpcDialogue(world, e);
@@ -137,7 +118,8 @@ namespace Dark
         SpawnedUnitComponent mark{};
         mark.spawner = spawner;
         mark.slot    = req.slot;
-        world.emplace<SpawnedUnitComponent>(e, mark);
+        if (!world.has<SpawnedUnitComponent>(e))
+            world.emplace<SpawnedUnitComponent>(e, mark);
         return e;
     }
 

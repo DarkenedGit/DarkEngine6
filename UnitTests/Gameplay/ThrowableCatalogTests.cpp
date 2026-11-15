@@ -14,13 +14,6 @@ using namespace Dark;
 namespace
 {
 
-    constexpr float kBuiltinRockWeight          = 2.0f;
-    constexpr float kBuiltinRockThrowDistance   = 10.0f;
-    constexpr float kBuiltinRockCallDistance    = 6.0f;
-    constexpr float kBuiltinBottleWeight        = 0.5f;
-    constexpr float kBuiltinBottleThrowDistance = 11.0f;
-    constexpr float kBuiltinBottleCallDistance  = 16.0f;
-
     constexpr float kSampleRockWeight          = 0.75f;
     constexpr float kSampleRockThrowDistance   = 12.0f;
     constexpr float kSampleRockCallDistance    = 8.0f;
@@ -203,15 +196,11 @@ namespace
         EXPECT_EQ(def.model, model);
     }
 
-    void expectBuiltin(const ThrowableCatalog& cat)
+    void expectEmpty(const ThrowableCatalog& cat)
     {
-        const ThrowableDef* rock   = cat.find("rock");
-        const ThrowableDef* bottle = cat.find("bottle");
-        ASSERT_NE(rock, nullptr);
-        ASSERT_NE(bottle, nullptr);
-        expectDef(*rock, "rock", kBuiltinRockWeight, kBuiltinRockThrowDistance, kRockImpact, kBuiltinRockCallDistance, kRockModel);
-        expectDef(*bottle, "bottle", kBuiltinBottleWeight, kBuiltinBottleThrowDistance, kBottleImpact, kBuiltinBottleCallDistance, kBottleModel);
-        EXPECT_EQ(cat.items().size(), 2u);
+        EXPECT_EQ(cat.find("rock"), nullptr);
+        EXPECT_EQ(cat.find("bottle"), nullptr);
+        EXPECT_TRUE(cat.items().empty());
     }
 
     void expectDistinct(const ThrowableCatalog& cat)
@@ -236,18 +225,18 @@ TEST(ThrowableCatalog, FileLoadsWeightDistanceSoundCallAndModel)
     expectDistinct(cat);
 }
 
-TEST(ThrowableCatalog, MissingFileKeepsBuiltinRockAndBottle)
+TEST(ThrowableCatalog, MissingFileLeavesTheCatalogEmpty)
 {
     ContentGuard guard;
     ASSERT_TRUE(guard.hideAll("throwables.json"));
 
     ThrowableCatalog cat;
-    ASSERT_TRUE(cat.loadFromContent());
-    expectBuiltin(cat);
+    EXPECT_FALSE(cat.loadFromContent());
+    expectEmpty(cat);
 
     ASSERT_TRUE(guard.writeOverFirstHidden("throwables.json", kDistinct));
-    EXPECT_TRUE(cat.loadFromContent());
-    expectBuiltin(cat);
+    EXPECT_FALSE(cat.loadFromContent());
+    expectEmpty(cat);
 }
 
 TEST(ThrowableCatalog, BrokenFileKeepsCatalogAlreadyLoaded)
@@ -258,11 +247,11 @@ TEST(ThrowableCatalog, BrokenFileKeepsCatalogAlreadyLoaded)
 
         ThrowableCatalog cat;
         EXPECT_FALSE(cat.loadFromContent());
-        expectBuiltin(cat);
+        expectEmpty(cat);
 
         guard.restoreAll();
         EXPECT_FALSE(cat.loadFromContent());
-        expectBuiltin(cat);
+        expectEmpty(cat);
     }
 
     ThrowableCatalog loaded;

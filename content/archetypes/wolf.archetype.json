@@ -5,7 +5,7 @@
   "components": {
     "Model": { "gltf": "models/wolf.gltf", "anim": "models/wolf.anim.json" },
     "Physics": { "file": "models/wolf.physics.json" },
-    "Combat": { "attacks": "ai/wolf.attacks.json" },
+    "Combat": { "attacks": "ai/wolf.attacks.json", "profile": "entities/wolf.entity.combat.json" },
     "Health": { "max": 48, "regen": 5, "regenDelay": 4 }
   },
   "behaviors": [ { "name": "ai.wolf" } ],

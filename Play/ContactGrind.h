@@ -44,9 +44,7 @@ namespace Dark
             const TransformComponent* hxf = world.get<TransformComponent>(e);
             if (!hp || !hp->health.alive() || !hxf || ai.passive)
                 return;
-            const TagComponent* tag = world.get<TagComponent>(e);
-            const bool          wolf = tag && tag->name == "Wolf";
-            const EntityCombat& agent = entityCombatFor(wolf ? "wolf" : "hunter");
+            const EntityCombat& agent = entityCombatProfile(world, e);
             const float         reach = agent.contactStandoff;
             const float         reach2 = reach * reach;
             const float         dx = hxf->position.x - playerPos.x;

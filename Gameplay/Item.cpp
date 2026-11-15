@@ -18,22 +18,6 @@ namespace Dark
     {
         using json = nlohmann::json;
 
-        const ItemDef kItems[] = {
-            { "sword", "Sword", ItemType::Weapon, EquipSlot::None, 1, 0.0f, 0.0f },
-            { "rifle", "Rifle", ItemType::Weapon, EquipSlot::None, 1, 0.0f, 0.0f },
-            { "medkit", "Medkit", ItemType::Consumable, EquipSlot::None, 5, 50.0f, 0.0f },
-            { "helmet", "Helmet", ItemType::Armor, EquipSlot::Head, 1, 0.0f, 25.0f },
-            { "chest", "Chest Plate", ItemType::Armor, EquipSlot::Chest, 1, 0.0f, 40.0f },
-            { "arm_guards", "Arm Guards", ItemType::Armor, EquipSlot::Arms, 1, 0.0f, 40.0f },
-            { "leg_guards", "Leg Guards", ItemType::Armor, EquipSlot::Legs, 1, 0.0f, 45.0f },
-            { "keycard_red", "Red Keycard", ItemType::Key, EquipSlot::None, 1, 0.0f, 0.0f },
-            { "flashlight", "Flashlight", ItemType::Tool, EquipSlot::Light, 1, 0.0f, 0.0f },
-            { "research_file", "Research File", ItemType::Quest, EquipSlot::None, 10, 0.0f, 0.0f },
-            { "bio_sample", "Bio-Sample", ItemType::Quest, EquipSlot::None, 10, 0.0f, 0.0f },
-            { "research", "Research Data", ItemType::Resource, EquipSlot::None, 99, 0.0f, 0.0f },
-            { "bio_material", "Bio Material", ItemType::Resource, EquipSlot::None, 99, 0.0f, 0.0f },
-        };
-
         struct OwnedItem
         {
             std::string id;
@@ -203,7 +187,7 @@ namespace Dark
             scan(*it);
         catalogLoaded() = true;
         if (files == 0)
-            DE_LOG_INFO(LogCategory::Core, "Items: no items json found, using the compiled catalog");
+            DE_LOG_WARN(LogCategory::Core, "Items: no items json found");
     }
 
     bool loadStartingLoadout(std::vector<LoadoutGrant>& out)
@@ -243,11 +227,7 @@ namespace Dark
             if (row && row->id == id)
                 return &row->def;
         }
-        for (const ItemDef& def : kItems)
-        {
-            if (id == def.id)
-                return &def;
-        }
+        DE_LOG_WARN(LogCategory::Core, "Items: '{}' is not in the catalog", std::string(id));
         return nullptr;
     }
 

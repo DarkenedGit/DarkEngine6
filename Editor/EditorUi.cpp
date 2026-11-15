@@ -232,16 +232,8 @@ void EditorApp::drawEditorUi()
                     m_placeArchetype     = archetype->name;
                     m_queuePlaceAtCursor = true;
                 }
-                if (archetype->name == "core:spawner")
-                    ImGui::SetItemTooltip("Places a spawner. Maintain replaces dead units. Waves wait for a timer or until the wave is dead.");
-                else if (archetype->name == "core:movie")
-                    ImGui::SetItemTooltip("Places a movie cue. The cube is a marker, not the screen.");
-                else if (archetype->name == "core:water")
-                    ImGui::SetItemTooltip("Places a lake. Position Y is the surface. Width and depth are the footprint. Add several at different heights.");
-                else if (archetype->name == "core:stream")
-                    ImGui::SetItemTooltip("Places a stream ribbon. Follow downhill in the inspector to run it to the lake.");
-                else if (archetype->name == "core:cloud_volume")
-                    ImGui::SetItemTooltip("Places a volumetric cloud. Scale is the volume size. Looks correct from inside the volume.");
+                if (!archetype->editor.tooltip.empty())
+                    ImGui::SetItemTooltip("%s", archetype->editor.tooltip.c_str());
             }
             if (m_sceneMode != SceneMode::Scene2D && ImGui::MenuItem(ICON_FA_BOLT "  Glow Prop", nullptr, false, createOk))
                 m_queueGlowProp = true;
@@ -945,11 +937,18 @@ void EditorApp::drawInspector3D()
             const char* modes[] = { "Maintain", "Waves" };
             if (Dark::PropCombo("Mode", &mode, modes, 2))
                 d.mode = static_cast<SpawnerMode>(mode);
-            int unit = static_cast<int>(d.unit);
-            const char* units[] = { "Hunter", "Wolf", "Crow" };
-            if (Dark::PropCombo("Unit", &unit, units, 3))
-                d.unit = static_cast<SpawnerUnit>(unit);
-            if (d.unit == SpawnerUnit::Crow)
+            const char* unitLabels[] = { "Hunter", "Wolf", "Crow" };
+            int unit = 0;
+            if (d.unitArchetype == "wolf" || d.unitArchetype == "core:wolf")
+                unit = 1;
+            else if (d.unitArchetype == "crow" || d.unitArchetype == "core:crow")
+                unit = 2;
+            if (Dark::PropCombo("Unit", &unit, unitLabels, 3))
+            {
+                const char* unitIds[] = { "hunter", "wolf", "crow" };
+                d.unitArchetype = unitIds[unit];
+            }
+            if (d.unitArchetype == "crow" || d.unitArchetype == "core:crow")
                 ImGui::TextDisabled("Crows flock, perch in trees, or hop for food. A nearby hunter or the player makes them call and fly off.");
             int count = d.count;
             if (ImGui::SliderInt("Count", &count, 1, kSpawnerSlotCount))

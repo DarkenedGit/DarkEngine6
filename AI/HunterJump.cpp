@@ -39,7 +39,7 @@ namespace Dark
 
         Combat::JumpAttackDef hunterJumpBase()
         {
-            return jumpDefFromCombat(entityCombatFor("hunter"));
+            return jumpDefFromCombat(combatProfileForId("core:hunter"));
         }
 
         const AI::AttackMove* jumpMove(const AI::AttackPattern* pattern)
@@ -68,7 +68,7 @@ namespace Dark
     Combat::JumpAttackDef hunterJumpDefFromPattern(const AI::AttackPattern* pattern)
     {
         const bool            wolf = pattern && pattern->id == "wolf";
-        Combat::JumpAttackDef def  = jumpDefFromCombat(entityCombatFor(wolf ? "wolf" : "hunter"));
+        Combat::JumpAttackDef def  = jumpDefFromCombat(combatProfileForId(wolf ? "core:wolf" : "core:hunter"));
         const AI::AttackMove* jump = jumpMove(pattern);
         if (!jump)
         {
@@ -101,7 +101,7 @@ namespace Dark
         if (JumpAttackComponent* jac = world.get<JumpAttackComponent>(e))
             jac->jump.setDef(hunterJumpDefFromPattern(wolfAttacks.loaded ? &wolfAttacks : nullptr));
 
-        const EntityCombat& combat = entityCombatFor("wolf");
+        const EntityCombat& combat = entityCombatProfile(world, e);
         if (Combat::PoiseComponent* poise = world.get<Combat::PoiseComponent>(e))
         {
             if (poise->poise + 1.0e-3f >= poise->maxPoise)

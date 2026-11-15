@@ -64,13 +64,10 @@ namespace Dark
 
     inline bool editorShownInMode(const SceneObjectData& object, std::string_view mode)
     {
-        const std::string id = sceneArchetypeId(object);
-        if (const Archetype* archetype = findArchetype(id))
-            return archetypeVisibleInMode(*archetype, mode);
-        const auto colon = id.rfind(':');
-        const std::string bare = (colon == std::string::npos) ? id : id.substr(colon + 1);
-        const bool twoD = bare == "platform" || bare == "coin" || bare == "spawn";
-        return mode == "2d" ? twoD : !twoD;
+        const Archetype* archetype = findArchetype(sceneArchetypeId(object));
+        if (!archetype)
+            return false;
+        return archetypeVisibleInMode(*archetype, mode);
     }
 
     inline std::string editorArchetypeLabel(std::string_view id)
@@ -86,19 +83,6 @@ namespace Dark
             return "Object";
         const auto colon = id.rfind(':');
         return colon == std::string_view::npos ? std::string(id) : std::string(id.substr(colon + 1));
-    }
-
-    inline NetPrefab prefabFromName(std::string_view name)
-    {
-        if (name == "sphere")
-            return NetPrefab::Sphere;
-        if (name == "platform")
-            return NetPrefab::Platform;
-        if (name == "coin")
-            return NetPrefab::Coin;
-        if (name == "cube")
-            return NetPrefab::Cube;
-        return NetPrefab::Unknown;
     }
 
     inline bool isNetPrefabName(std::string_view name)

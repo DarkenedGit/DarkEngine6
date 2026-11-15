@@ -65,7 +65,6 @@ namespace
         if (written >= outCapacity)
             return written;
         SpawnerRequest& req = out[written];
-        req.unit            = desc.unit;
         req.unitArchetype   = desc.unitArchetype;
         req.slot            = slot;
         req.seed            = desc.seed == 0u ? 1u : desc.seed;
@@ -106,15 +105,6 @@ namespace
         return mode == SpawnerMode::Waves ? "waves" : "maintain";
     }
 
-    const char* toString(SpawnerUnit unit)
-    {
-        if (unit == SpawnerUnit::Wolf)
-            return "wolf";
-        if (unit == SpawnerUnit::Crow)
-            return "crow";
-        return "hunter";
-    }
-
     const char* toString(SpawnerWaveGate gate)
     {
         return gate == SpawnerWaveGate::Time ? "time" : "cleared";
@@ -130,26 +120,6 @@ namespace
         if (text == "waves" || text == "wave")
         {
             out = SpawnerMode::Waves;
-            return true;
-        }
-        return false;
-    }
-
-    bool tryParseSpawnerUnit(std::string_view text, SpawnerUnit& out)
-    {
-        if (text == "hunter" || text == "enemy")
-        {
-            out = SpawnerUnit::Hunter;
-            return true;
-        }
-        if (text == "wolf")
-        {
-            out = SpawnerUnit::Wolf;
-            return true;
-        }
-        if (text == "crow")
-        {
-            out = SpawnerUnit::Crow;
             return true;
         }
         return false;
@@ -185,6 +155,8 @@ namespace
             desc.maxWaves = 0;
         if (desc.seed == 0u)
             desc.seed = 1u;
+        if (desc.unitArchetype.empty())
+            desc.unitArchetype = "hunter";
     }
 
     void resetSpawnerRuntime(SpawnerRuntime& runtime)

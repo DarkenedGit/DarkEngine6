@@ -1,5 +1,7 @@
 #include "Play/Crow.h"
 
+#include "Content/ArchetypeParams.h"
+
 #include "Assets/AssetManager.h"
 #include "Assets/Material.h"
 #include "Assets/Model.h"
@@ -1007,28 +1009,36 @@ namespace
         }
     }
 
-    Entity spawnCrow(World& world, Renderer& renderer, AssetManager& assets, AssetPinTable& pins, CrowModels& models,
-        const Terrain::TerrainGrid* terrain, Entity spawner, const SpawnerRequest& req, float groundY, float homeX, float homeZ)
+    bool attachCrowBody(World& world, Renderer& renderer, AssetManager& assets, AssetPinTable& pins, CrowModels& models,
+        const Terrain::TerrainGrid* terrain, Entity entity, float x, float z, float groundY, float homeX, float homeZ, uint32_t seed, int slot)
     {
+        if (!entity.valid() || !world.alive(entity))
+            return false;
         if (!ensureCrowModels(renderer, assets, models))
         {
             DE_LOG_WARN(LogCategory::AI, "Crow: spawner skipped a crow because the model is not ready");
-            return {};
+            return false;
         }
 
         std::vector<CrowPerch> perches;
         if (terrain)
             gatherCrowPerches(*terrain, homeX, homeZ, 40.0f, perches);
 
-        Entity e = world.createEntity();
-        world.emplace<TagComponent>(e, "Crow");
+        if (TagComponent* tag = world.get<TagComponent>(entity))
+            tag->name = "Crow";
+        else
+            world.emplace<TagComponent>(entity, "Crow");
 
         CrowComponent crow;
-        const uint32_t seed = req.seed == 0u ? 1u : req.seed;
-        initCrow(crow.brain, req.x, req.z, groundY, homeX, homeZ, seed, req.slot, perches.empty() ? nullptr : perches.data(), static_cast<int>(perches.size()));
-        world.emplace<CrowComponent>(e, crow);
+        initCrow(crow.brain, x, z, groundY, homeX, homeZ, seed == 0u ? 1u : seed, slot, perches.empty() ? nullptr : perches.data(), static_cast<int>(perches.size()));
+        if (CrowComponent* existing = world.get<CrowComponent>(entity))
+            *existing = crow;
+        else
+            world.emplace<CrowComponent>(entity, crow);
 
         TransformComponent xf;
+        if (const TransformComponent* current = world.get<TransformComponent>(entity))
+            xf = *current;
         xf.position = crow.brain.position;
         xf.scale    = Math::Vector3f{ 1.0f, 1.0f, 1.0f };
         const float cp = std::cos(crow.brain.pitch);
@@ -1036,25 +1046,54 @@ namespace
         xf.rotation = Math::Quaternion::FromLookRotation(
             Math::Vector3f{ std::sin(crow.brain.yaw) * cp, sp, std::cos(crow.brain.yaw) * cp },
             Math::Vector3f{ 0.0f, 1.0f, 0.0f });
-        world.emplace<TransformComponent>(e, xf);
+        if (TransformComponent* current = world.get<TransformComponent>(entity))
+            *current = xf;
+        else
+            world.emplace<TransformComponent>(entity, xf);
 
         ModelComponent model;
         model.modelAssetID = poseModel(models, crow.brain.wingPose);
         model.castShadow   = true;
         model.visible      = true;
-        setModelComponent(world, pins, assets, e, model);
+        setModelComponent(world, pins, assets, entity, model);
 
         HealthSettings settings;
         settings.maxHp       = 12.0f;
         settings.regenPerSec = 0.0f;
-        HealthComponent health;
-        health.health = Health(settings);
-        world.emplace<HealthComponent>(e, health);
+        if (const ArchetypeParamsComponent* params = world.get<ArchetypeParamsComponent>(entity))
+        {
+            if (params->healthMax >= 0.0f)
+            {
+                settings.maxHp = params->healthMax;
+                if (params->healthRegen >= 0.0f)
+                    settings.regenPerSec = params->healthRegen;
+            }
+        }
+        if (!world.has<HealthComponent>(entity))
+        {
+            HealthComponent health;
+            health.health = Health(settings);
+            world.emplace<HealthComponent>(entity, health);
+        }
 
-        HittableComponent hittable;
-        hittable.halfExtents = Math::Vector3f{ 0.28f, 0.2f, 0.34f };
-        world.emplace<HittableComponent>(e, hittable);
+        if (!world.has<HittableComponent>(entity))
+        {
+            HittableComponent hittable;
+            hittable.halfExtents = Math::Vector3f{ 0.28f, 0.2f, 0.34f };
+            world.emplace<HittableComponent>(entity, hittable);
+        }
+        return true;
+    }
 
+    Entity spawnCrow(World& world, Renderer& renderer, AssetManager& assets, AssetPinTable& pins, CrowModels& models,
+        const Terrain::TerrainGrid* terrain, Entity spawner, const SpawnerRequest& req, float groundY, float homeX, float homeZ)
+    {
+        Entity e = world.createEntity();
+        if (!attachCrowBody(world, renderer, assets, pins, models, terrain, e, req.x, req.z, groundY, homeX, homeZ, req.seed, req.slot))
+        {
+            world.destroyEntity(e);
+            return {};
+        }
         SpawnedUnitComponent mark;
         mark.spawner = spawner;
         mark.slot    = req.slot;

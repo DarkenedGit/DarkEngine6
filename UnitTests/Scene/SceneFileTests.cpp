@@ -2556,7 +2556,7 @@ TEST_F(SceneFile, SpawnerRoundTrip)
     spawner.position  = Vector3f(12.0f, 0.5f, -6.0f);
     SpawnerDesc authored;
     authored.mode         = SpawnerMode::Waves;
-    authored.unit         = SpawnerUnit::Wolf;
+    authored.unitArchetype = "wolf";
     authored.gate         = SpawnerWaveGate::Time;
     authored.count        = 4;
     authored.radius       = 9.5f;
@@ -2579,7 +2579,7 @@ TEST_F(SceneFile, SpawnerRoundTrip)
     SpawnerDesc loaded;
     ASSERT_TRUE(sceneReadSpawner(out.objects[0], loaded));
     EXPECT_EQ(loaded.mode, SpawnerMode::Waves);
-    EXPECT_EQ(loaded.unit, SpawnerUnit::Wolf);
+    EXPECT_EQ(loaded.unitArchetype, "wolf");
     EXPECT_EQ(loaded.gate, SpawnerWaveGate::Time);
     EXPECT_EQ(loaded.count, 4);
     EXPECT_NEAR(loaded.radius, 9.5f, 1.0e-4f);
@@ -2629,7 +2629,7 @@ TEST_F(SceneFile, SpawnerMistypedFieldsKeepDefaults)
     SpawnerDesc loaded;
     ASSERT_TRUE(sceneReadSpawner(data.objects[0], loaded));
     EXPECT_EQ(loaded.mode, SpawnerMode::Maintain);
-    EXPECT_EQ(loaded.unit, SpawnerUnit::Hunter);
+    EXPECT_EQ(loaded.unitArchetype, "hunter");
     EXPECT_EQ(loaded.gate, SpawnerWaveGate::Cleared);
     EXPECT_EQ(loaded.count, 3);
     EXPECT_NEAR(loaded.radius, 6.0f, 1.0e-4f);
@@ -3118,7 +3118,7 @@ TEST_F(SceneFile, ComponentOverridesRoundTrip)
     spawner.archetype = "core:spawner";
     SpawnerDesc spawnerDesc;
     spawnerDesc.mode  = SpawnerMode::Waves;
-    spawnerDesc.unit  = SpawnerUnit::Wolf;
+    spawnerDesc.unitArchetype = "wolf";
     spawnerDesc.count = 4;
     spawnerDesc.seed  = 99;
     sceneWriteSpawner(spawner, spawnerDesc);
@@ -3183,7 +3183,7 @@ TEST_F(SceneFile, ComponentOverridesRoundTrip)
     EXPECT_NEAR(out.objects[2].position.z, 2.0f, 1.0e-4f);
     SpawnerDesc loadedSpawner;
     ASSERT_TRUE(sceneReadSpawner(out.objects[3], loadedSpawner));
-    EXPECT_EQ(loadedSpawner.unit, SpawnerUnit::Wolf);
+    EXPECT_EQ(loadedSpawner.unitArchetype, "wolf");
     EXPECT_EQ(loadedSpawner.mode, SpawnerMode::Waves);
     EXPECT_EQ(loadedSpawner.count, 4);
     EXPECT_EQ(loadedSpawner.seed, 99u);
@@ -3294,7 +3294,7 @@ TEST_F(SceneFile, OldPayloadKeysDoNotWin)
     SpawnerDesc loaded;
     ASSERT_TRUE(sceneReadSpawner(data.objects[1], loaded));
     EXPECT_EQ(loaded.mode, SpawnerMode::Waves);
-    EXPECT_EQ(loaded.unit, SpawnerUnit::Wolf);
+    EXPECT_EQ(loaded.unitArchetype, "wolf");
     EXPECT_EQ(loaded.count, 6);
     EXPECT_EQ(loaded.seed, 99u);
     EXPECT_NE(data.objects[0].overridesJson.find("LocalLight"), std::string::npos);

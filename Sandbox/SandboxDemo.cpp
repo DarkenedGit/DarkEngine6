@@ -121,7 +121,7 @@ void SandboxDemo::spawnGltfDemo(int step)
     if (step == 0)
     {
         const EntityMaster cubeMaster = loadEntityMasterType("unit_cube");
-        const std::string  cubeGltf = cubeMaster.gltf.empty() ? std::string("models/unit_cube.gltf") : cubeMaster.gltf;
+        const std::string  cubeGltf = cubeMaster.gltf.empty() ? std::string(kUnitCubeModel) : cubeMaster.gltf;
         spawn(cubeGltf.c_str(), "GltfCube", 3.0f, 3.0f, 2.0f);
         return;
     }

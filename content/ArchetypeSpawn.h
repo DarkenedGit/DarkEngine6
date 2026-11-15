@@ -22,4 +22,8 @@ namespace Dark
     Entity instantiateArchetype(const ArchetypeSpawnHost& host, std::string_view archetypeId, const ArchetypeSpawnPose& pose,
                                 std::string_view overridesJson, ContentError* err = nullptr);
 
+    // Spawns a saved archetype at pose. An unknown id logs and returns an invalid entity.
+    // A scale of (0, 0, 0) becomes (1, 1, 1). Bare names such as hunter resolve to the archetype id.
+    Entity respawnSavedArchetype(const ArchetypeSpawnHost& host, std::string_view archetypeId, const ArchetypeSpawnPose& pose);
+
 } // namespace Dark

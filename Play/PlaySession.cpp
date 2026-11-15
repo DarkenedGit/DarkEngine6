@@ -104,9 +104,9 @@ namespace Dark
             return out;
         }
 
-        void applyPlayerShieldSettings(PlayRuntime& runtime)
+        void applyPlayerShieldSettings(PlayRuntime& runtime, World* world, Entity player)
         {
-            const EntityCombat& combat = entityCombatFor("player");
+            const EntityCombat& combat = (world && player.valid()) ? entityCombatProfile(*world, player) : combatProfileForId("core:player");
             Combat::ShieldSettings shield;
             shield.raiseSeconds   = combat.shieldRaise;
             shield.moveSpeedScale = combat.shieldMoveScale;
@@ -200,6 +200,7 @@ namespace Dark
 
     void PlaySession::resetPawn()
     {
+        pull();
         PlayRuntime& r = m_rt;
         r.crouchLatch       = false;
         r.footstepAcc       = 0.0f;
@@ -240,7 +241,7 @@ namespace Dark
         r.spawn             = {};
         r.lowerBodyYaw      = 0.0f;
         r.offhand.reset();
-        applyPlayerShieldSettings(r);
+        applyPlayerShieldSettings(r, m_host.world, m_host.player);
         r.attackCharge.reset();
         r.blockCharge.reset();
         r.chargeWindup = {};
@@ -438,7 +439,7 @@ namespace Dark
         m_rt.hurtTimer       = 0.0f;
         m_rt.jumpAttackBuffer = 0.0f;
         m_rt.offhand.reset();
-        applyPlayerShieldSettings(m_rt);
+        applyPlayerShieldSettings(m_rt, world, body);
         if (SkillComponent* sk = body.valid() ? world->get<SkillComponent>(body) : nullptr)
             sk->seeArmed = false;
         m_rt.attackCharge.reset();
@@ -479,11 +480,7 @@ namespace Dark
             return;
         std::vector<LoadoutGrant> grants;
         if (!loadStartingLoadout(grants))
-        {
-            grants.push_back(LoadoutGrant{ "sword", 1 });
-            grants.push_back(LoadoutGrant{ "rifle", 1 });
-            grants.push_back(LoadoutGrant{ "medkit", 2 });
-        }
+            DE_LOG_WARN("Play: player/loadout.json did not load");
         const bool hadSword = hasItem(*inv, "sword");
         const bool hadRifle = hasItem(*inv, "rifle");
         for (const LoadoutGrant& grant : grants)
@@ -553,7 +550,7 @@ namespace Dark
         if (!world || !playerReadyForTakedown(m_host, m_facility))
             return {};
         publishWeaponBlocks(m_rt, m_facility, m_host);
-        const EntityCombat& combat = entityCombatFor("player");
+        const EntityCombat& combat = entityCombatProfile(*world, m_host.player);
         return findTakedownTarget(*world, m_host.player, m_host.chaseReady, combat.takedownRange, combat.takedownHeight, combat.takedownBackDot, m_rt.weaponBlocks,
                                   m_rt.weaponBlockCount, m_host.sphereCount > 0 ? m_host.spheres : nullptr, m_host.sphereCount);
     }
@@ -828,7 +825,7 @@ namespace Dark
         m_rt.sprintApplied = motorIn.sprint;
         const bool onGround = motor && (motor->state() == PlayerMoveState::Grounded || motor->state() == PlayerMoveState::Crouch || motor->state() == PlayerMoveState::Dodge);
         const Terrain::GroundContact groundSurf = (onGround && m_host.groundContact) ? m_host.groundContact(m_host.user, xf->position.x, xf->position.z) : Terrain::GroundContact{};
-        const EntityCombat& playerCombat = entityCombatFor("player");
+        const EntityCombat& playerCombat = entityCombatProfile(*world, body);
         const float swingSlow = m_rt.blockRecoil > 0.0f ? playerCombat.swingSlowRecoil : (m_rt.swingLock <= 0.0f ? 1.0f : (m_rt.comboCount > 1 ? playerCombat.swingSlowCombo : playerCombat.swingSlowSingle));
         float speedScale = (status ? status->moveSpeedScale() : 1.0f) * m_rt.offhand.shield.speedScale() * (onGround ? groundSurf.moveSpeed : 1.0f) * swingSlow
                          * (carriedBody(*world).valid() ? playerCombat.carrySlow : 1.0f);

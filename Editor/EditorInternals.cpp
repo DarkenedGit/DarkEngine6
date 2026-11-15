@@ -85,27 +85,6 @@ namespace Dark::EditorDetail
         out[3] = 1.00f;
     }
 
-    void fillDefaultLocalLight(LocalLightComponent& light, std::string_view kind)
-    {
-        light              = LocalLightComponent{};
-        light.type         = (kind == "spot") ? LocalLightType::Spot : LocalLightType::Point;
-        light.color        = Vector3f(1.0f, 0.92f, 0.75f);
-        light.innerConeDeg = 12.0f;
-        light.outerConeDeg = 25.0f;
-        light.sourceRadius = 0.05f;
-        light.enabled      = true;
-        if (light.type == LocalLightType::Spot)
-        {
-            light.intensity = 2513.0f; // 800*π; JSON 800 stays
-            light.range     = 16.0f;
-        }
-        else
-        {
-            light.intensity = 1885.0f; // 600*π; JSON 600 stays
-            light.range     = 8.0f;
-        }
-    }
-
     Entity glowMeshOf(World& world, Entity e)
     {
         if (const auto* light = world.get<LocalLightComponent>(e))

@@ -187,3 +187,46 @@ TEST(ItemCatalog, JsonMatchesTheCompiledRows)
     EXPECT_EQ(grants[2].id, "medkit");
     EXPECT_EQ(grants[2].count, 2);
 }
+
+TEST(ContentDb, LaterPackageReplacesAndOmitsAliases)
+{
+    const auto core = tempRoot("darkengine6_alias_core");
+    const auto mod  = tempRoot("darkengine6_alias_mod");
+    writeFile(core / "package.json", R"({ "id": "core", "version": "1.0.0", "engine": ">=6.0" })");
+    writeFile(mod / "package.json", R"({ "id": "mod", "version": "1.0.0", "engine": ">=6.0" })");
+    writeFile(core / "archetypes" / "hunter.archetype.json", R"({
+        "id": "core:hunter",
+        "components": { "Tag": {} },
+        "behaviors": []
+    })");
+    writeFile(core / "archetypes" / "wolf.archetype.json", R"({
+        "id": "core:wolf",
+        "components": { "Tag": {} },
+        "behaviors": []
+    })");
+    writeFile(core / "archetypes" / "legacy_aliases.json", R"({
+        "aliases": {
+            "enemy": "core:hunter",
+            "ghost": "core:wolf"
+        }
+    })");
+    writeFile(mod / "archetypes" / "legacy_aliases.json", R"({
+        "aliases": {
+            "enemy": "core:wolf",
+            "ghost": null
+        }
+    })");
+
+    ContentError err;
+    ASSERT_TRUE(loadContentPackagesForTest({ core, mod }, &err)) << err.message;
+    const Archetype* enemy = findArchetype("enemy");
+    ASSERT_NE(enemy, nullptr);
+    EXPECT_EQ(enemy->name, "core:wolf");
+    EXPECT_EQ(findArchetype("ghost"), nullptr);
+    EXPECT_NE(findArchetype("core:wolf"), nullptr);
+
+    resetContentDatabase();
+    std::error_code ec;
+    std::filesystem::remove_all(core, ec);
+    std::filesystem::remove_all(mod, ec);
+}

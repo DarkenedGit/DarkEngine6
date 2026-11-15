@@ -6,6 +6,7 @@
 #include "Core/Paths.h"
 #include "ECS/World.h"
 #include "Save/SaveTypes.h"
+#include "Scene/EntityCombat.h"
 #include "Scene/EntityMaster.h"
 
 #include "third_party/nlohmann/json.hpp"
@@ -96,47 +97,6 @@ namespace Dark
             if (from.empty() || to.empty())
                 return;
             gDb.aliases[std::string(from)] = std::string(to);
-        }
-
-        void seedLegacyAliases()
-        {
-            const char* rows[][2] = {
-                { "cube", "core:cube" },
-                { "sphere", "core:sphere" },
-                { "particle_emitter", "core:particle_emitter" },
-                { "emitter", "core:particle_emitter" },
-                { "particle", "core:particle_emitter" },
-                { "platform", "core:platform" },
-                { "coin", "core:coin" },
-                { "spawn", "core:spawn" },
-                { "player_spawn", "core:spawn" },
-                { "point_light", "core:point_light" },
-                { "spot_light", "core:spot_light" },
-                { "ambient_light", "core:ambient_light" },
-                { "ambient", "core:ambient_light" },
-                { "directional_light", "core:directional_light" },
-                { "directional", "core:directional_light" },
-                { "sun", "core:directional_light" },
-                { "player", "core:player" },
-                { "hunter", "core:hunter" },
-                { "enemy", "core:hunter" },
-                { "wolf", "core:wolf" },
-                { "model", "core:model" },
-                { "gltf", "core:model" },
-                { "water", "core:water" },
-                { "cloud_volume", "core:cloud_volume" },
-                { "cloud", "core:cloud_volume" },
-                { "clouds", "core:cloud_volume" },
-                { "stream", "core:stream" },
-                { "spawner", "core:spawner" },
-                { "movie", "core:movie" },
-                { "crow", "core:crow" },
-            };
-            for (const auto& row : rows)
-            {
-                rememberAlias(row[0], row[1]);
-                rememberAlias(row[1], row[1]);
-            }
         }
 
         bool engineAccepted(const std::string& spec, const std::string& packageId)
@@ -238,6 +198,7 @@ namespace Dark
                 out.editor.icon       = jsonString(editor, "icon");
                 out.editor.hotkey     = jsonString(editor, "hotkey");
                 out.editor.matchModel = jsonString(editor, "matchModel");
+                out.editor.tooltip    = jsonString(editor, "tooltip");
                 readStringList(editor, "modes", out.editor.modes);
                 const auto scale = editor.find("defaultScale");
                 if (scale != editor.end() && scale->is_array() && scale->size() >= 3)
@@ -357,9 +318,20 @@ namespace Dark
             }
             for (auto it = rootJson["aliases"].begin(); it != rootJson["aliases"].end(); ++it)
             {
-                if (!it.value().is_string())
+                if (it.value().is_null())
+                {
+                    gDb.aliases.erase(it.key());
                     continue;
-                rememberAlias(it.key(), canonicalContentId(it.value().get<std::string>()));
+                }
+                const auto* alias = it.value().get_ptr<const json::string_t*>();
+                if (!alias)
+                    continue;
+                if (alias->empty())
+                {
+                    gDb.aliases.erase(it.key());
+                    continue;
+                }
+                rememberAlias(it.key(), canonicalContentId(*alias));
             }
         }
 
@@ -539,6 +511,8 @@ namespace Dark
                         archetype.editor.category = base.editor.category;
                     if (archetype.editor.matchModel.empty())
                         archetype.editor.matchModel = base.editor.matchModel;
+                    if (archetype.editor.tooltip.empty())
+                        archetype.editor.tooltip = base.editor.tooltip;
                     if (archetype.editor.modes.empty())
                         archetype.editor.modes = base.editor.modes;
                     if (!archetype.editor.hasDefaultScale && base.editor.hasDefaultScale)
@@ -887,7 +861,6 @@ namespace Dark
             gDb.replication.clear();
             gDb.overlays.clear();
             gDb.setHash = 0;
-            seedLegacyAliases();
             packages = orderPackages(std::move(packages));
             applyEnableList(packages);
             std::unordered_map<uint64_t, std::string> taken;
@@ -989,6 +962,7 @@ namespace Dark
     bool reloadContentDatabase(ContentError* err)
     {
         clearEntityMasterCache();
+        clearCombatProfileTable();
         return loadContentDatabase(err);
     }
 
@@ -1022,6 +996,7 @@ namespace Dark
     {
         gDb = Database{};
         clearEntityMasterCache();
+        clearCombatProfileTable();
     }
 
     bool loadContentPackagesForTest(const std::vector<std::filesystem::path>& rootsInOrder, ContentError* err)
@@ -1047,7 +1022,6 @@ namespace Dark
             registerBuiltinContent();
             gDb.builtins = true;
         }
-        seedLegacyAliases();
         std::unordered_map<uint64_t, std::string> taken;
         for (ContentPackage& package : packages)
         {
@@ -1113,6 +1087,11 @@ namespace Dark
     bool contentHasArchetype(std::string_view idOrShort)
     {
         return findArchetype(idOrShort) != nullptr;
+    }
+
+    bool contentDatabaseLoaded()
+    {
+        return gDb.loaded;
     }
 
     const Archetype* archetypeMatchingModelStem(std::string_view stem)

@@ -1,7 +1,7 @@
 {
   "id": "core:spawner",
   "version": 1,
-  "editor": { "label": "Spawner", "category": "Gameplay", "icon": "forward", "modes": ["3d"] },
+  "editor": { "label": "Spawner", "category": "Gameplay", "icon": "forward", "modes": ["3d"], "tooltip": "Places a spawner. Maintain replaces dead units. Waves wait for a timer or until the wave is dead." },
   "components": {
     "Spawner": {
       "mode": "maintain",

@@ -139,7 +139,7 @@ namespace Dark::Combat
         if (DefenseComponent* defense = world.get<DefenseComponent>(player))
         {
             if (defense->team == 0)
-                defense->team = static_cast<uint8_t>(entityCombatFor("player").team);
+                defense->team = static_cast<uint8_t>(entityCombatProfile(world, player).team);
         }
         ArmorComponent* armor = world.get<ArmorComponent>(player);
         if (!armor)

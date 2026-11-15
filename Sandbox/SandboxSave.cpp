@@ -2,10 +2,14 @@
 
 #include "Animation/AnimGraphComponent.h"
 #include "Play/CharacterAttach.h"
+#include "Play/SpawnHost.h"
 #include "Save/PlayClock.h"
 
+#include "AI/AiComponents.h"
 #include "AI/AiSystem.h"
+#include "Assets/Model.h"
 #include "Audio/SoundComponents.h"
+#include "Content/ArchetypeSpawn.h"
 #include "Character/HealthComponent.h"
 #include "Character/PlayerMotorComponent.h"
 #include "Combat/JumpAttackComponent.h"
@@ -21,7 +25,10 @@
 #include "Math/Vector3f.h"
 #include "Network/Replication.h"
 #include "Particles/StatusFxDriver.h"
+#include "Physics/PhysicsBind.h"
 #include "Physics/PhysicsBodyComponent.h"
+#include "Physics/PhysicsComponent.h"
+#include "Play/Interaction.h"
 #include "Save/HostSync.h"
 #include "Save/PersistentId.h"
 #include "Save/ProgressComponents.h"
@@ -175,19 +182,6 @@ Entity SandboxApp::saveRespawn(void* user, World& world, std::string_view archet
     xf.rotation = pose.rotation;
     xf.scale    = pose.scale.x == 0.0f && pose.scale.y == 0.0f && pose.scale.z == 0.0f ? Vector3f{ 1.0f, 1.0f, 1.0f } : pose.scale;
 
-    if (archetype == "hunter" || archetype == "wolf")
-    {
-        Entity e = app->m_chase.ai().spawnHunter(world, app->pins(), app->assets(), xf);
-        if (!e.valid())
-            return {};
-        const bool wolf = archetype == "wolf";
-        const CharacterHost host{ world, app->renderer(), app->assets(), app->pins(), app->audio(), app->m_ground };
-        attachNpcVisual(host, e, wolf ? NpcKind::Wolf : NpcKind::Hunter, ModelAttach::AnimatedOnly);
-        app->bindEntityPhysics(e, wolf ? "wolf" : "human");
-        app->m_chase.addHunter(e);
-        return e;
-    }
-
     if (archetype == "healthpack")
     {
         Entity e = world.createEntity();
@@ -229,8 +223,43 @@ Entity SandboxApp::saveRespawn(void* user, World& world, std::string_view archet
         return e;
     }
 
-    DE_LOG_WARN("Save: sandbox has no respawn for '{}'", archetype);
-    return {};
+    SpawnServices services;
+    services.world           = &world;
+    services.assets          = &app->assets();
+    services.pins            = &app->pins();
+    services.renderer        = &app->renderer();
+    services.audio           = &app->audio();
+    services.ground          = &app->m_ground;
+    services.ai              = app->m_chaseOk ? const_cast<AiSystem*>(&app->m_chase.ai()) : nullptr;
+    services.ensurePrimitive = &SandboxApp::ensureScenePrimitive;
+    services.ensureMarker    = &SandboxApp::ensureSceneMarker;
+    services.onWeaponHit     = &SandboxApp::onWeaponHitThunk;
+    services.weaponHitUser   = app;
+    services.user            = app;
+    services.crows           = &app->m_crowModels;
+    services.crowTerrain     = &app->m_terrain;
+    const ArchetypeSpawnHost host = makeSpawnHost(services);
+    ArchetypeSpawnPose placed{};
+    placed.position = xf.position;
+    placed.rotation = xf.rotation;
+    placed.scale    = xf.scale;
+    const Entity e = respawnSavedArchetype(host, archetype, placed);
+    if (!e.valid())
+        return {};
+    if (world.has<AiAgentComponent>(e))
+    {
+        app->bindEntityPhysics(e, isInteractGuard(world, e) ? "human" : "wolf");
+        noteListedHunter(app, e);
+    }
+    else if (world.has<PhysicsComponent>(e) && app->m_physics.valid())
+    {
+        const Model* model = nullptr;
+        if (const ModelComponent* mc = world.get<ModelComponent>(e))
+            model = app->assets().find<Model>(mc->modelAssetID);
+        if (!Physics::bindPhysicsEntity(app->m_physics, world, e, model))
+            DE_LOG_WARN(LogCategory::Collision, "Sandbox: respawn physics bind failed for '{}' #{}", archetype, e.id());
+    }
+    return e;
 }
 
 void SandboxApp::saveDestroy(void* user, World& world, Entity e)

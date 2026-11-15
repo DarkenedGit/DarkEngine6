@@ -5,7 +5,9 @@
 
 #include "Assets/Model.h"
 #include "Character/PlayerMotorComponent.h"
+#include "Core/Json.h"
 #include "Core/Log.h"
+#include "Content/SceneObjectSpawn.h"
 #include "ECS/Components.h"
 #include "Physics/PhysicsBind.h"
 #include "Physics/PhysicsComponent.h"
@@ -176,21 +178,28 @@ void EditorApp::rebuildPhysicsBody(Entity e)
 
 namespace
 {
+    bool physicsFileKey(std::string_view key)
+    {
+        return key.find('/') != std::string_view::npos || key.find('\\') != std::string_view::npos || key.ends_with(".json");
+    }
+
     std::string entityTypeKey(const EditorObjectComponent* so, const Model* model)
     {
         if (so)
         {
-            const std::string id = sceneArchetypeId(so->source);
-            const auto colon = id.rfind(':');
-            const std::string bare = (colon == std::string::npos) ? id : id.substr(colon + 1);
-            if (bare == "cube" || bare == "sphere" || bare == "player" || bare == "hunter" || bare == "wolf")
-                return bare;
+            const nlohmann::json parsed = nlohmann::json::parse(sceneMergedComponent(so->source, "Physics"), nullptr, false);
+            std::string file;
+            if (!parsed.is_discarded() && parsed.is_object())
+                jsonStringOr(parsed, "file", file, std::string(), "Editor");
+            if (!file.empty())
+                return file;
         }
         if (model && !model->sourcePath().empty())
             return model->sourcePath().stem().string();
         return {};
     }
-}
+
+} // namespace
 
 void EditorApp::tryLoadModelPhysics(Entity e)
 {
@@ -200,13 +209,21 @@ void EditorApp::tryLoadModelPhysics(Entity e)
     const Model*    model = modelForPhysics(e, held);
     const EditorObjectComponent* so = findObject(e);
     const std::string typeKey = entityTypeKey(so, model);
-    const EntityMaster master = typeKey.empty() ? EntityMaster{} : loadEntityMasterType(typeKey);
     PhysicsComponent loaded;
     bool             loadedFile = false;
-    if (!master.physics.empty())
+    if (physicsFileKey(typeKey))
     {
-        const std::filesystem::path file = resolveContentFile(master.physics);
+        const std::filesystem::path file = resolveContentFile(typeKey);
         loadedFile = !file.empty() && Physics::loadPhysicsSettingsFile(file, loaded);
+    }
+    else if (!typeKey.empty())
+    {
+        const EntityMaster master = loadEntityMasterType(typeKey);
+        if (!master.physics.empty())
+        {
+            const std::filesystem::path file = resolveContentFile(master.physics);
+            loadedFile = !file.empty() && Physics::loadPhysicsSettingsFile(file, loaded);
+        }
     }
     if (!loadedFile && model && !model->sourcePath().empty())
         loadedFile = Physics::loadPhysicsSettingsForModel(model->sourcePath(), loaded);
@@ -223,6 +240,8 @@ std::filesystem::path EditorApp::physicsFileSuggestion(Entity e)
     const Model*    model = modelForPhysics(e, held);
     const EditorObjectComponent* so = findObject(e);
     const std::string typeKey = entityTypeKey(so, model);
+    if (physicsFileKey(typeKey))
+        return authoringContentFile(typeKey);
     if (!typeKey.empty())
     {
         const EntityMaster master = loadEntityMasterType(typeKey);

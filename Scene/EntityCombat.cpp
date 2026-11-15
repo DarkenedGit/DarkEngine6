@@ -1,13 +1,22 @@
 #include "Scene/EntityCombat.h"
 
+#include "Character/PlayerMotorComponent.h"
+#include "Content/ArchetypeParams.h"
+#include "Content/ContentDb.h"
+#include "Content/ContentId.h"
+#include "Core/Json.h"
 #include "Core/Log.h"
+#include "ECS/Components.h"
+#include "ECS/World.h"
 #include "Scene/EntityMaster.h"
 
 #include "third_party/nlohmann/json.hpp"
 
 #include <cmath>
+#include <deque>
 #include <fstream>
 #include <sstream>
+#include <unordered_map>
 
 namespace Dark
 {
@@ -136,9 +145,6 @@ namespace Dark
             takeFloat(root, "chargedParryKnockback", parsed.chargedParryKnockback, false);
             takeFloat(root, "parryKnockSeconds", parsed.parryKnockSeconds, false);
             takeFloat(root, "chargedParryKnockSeconds", parsed.chargedParryKnockSeconds, false);
-            takeFloat(root, "ccRoot", parsed.ccRoot, false);
-            takeFloat(root, "ccStun", parsed.ccStun, false);
-            takeFloat(root, "ccKnockdown", parsed.ccKnockdown, false);
             takeFloat(root, "shockHitch", parsed.shockHitch, false);
             takeFloat(root, "hitStopLight", parsed.hitStopLight, false);
             takeFloat(root, "hitStopHeavy", parsed.hitStopHeavy, false);
@@ -272,24 +278,109 @@ namespace Dark
         return true;
     }
 
-    const EntityCombat& entityCombatFor(std::string_view typeName)
+    namespace
     {
-        static EntityCombat hunter = entityCombatDefault("hunter");
-        static EntityCombat wolf   = entityCombatDefault("wolf");
-        static EntityCombat player = entityCombatDefault("player");
-        static bool         loaded = false;
-        if (!loaded)
+        std::deque<EntityCombat> gCombatProfiles;
+        std::unordered_map<uint64_t, size_t> gCombatIndex;
+
+        std::string bareArchetypeName(std::string_view id)
         {
-            loaded = true;
-            loadEntityCombatType("hunter", hunter);
-            loadEntityCombatType("wolf", wolf);
-            loadEntityCombatType("player", player);
+            const auto colon = id.rfind(':');
+            if (colon == std::string_view::npos)
+                return std::string(id);
+            return std::string(id.substr(colon + 1));
         }
-        if (typeName == "wolf")
-            return wolf;
-        if (typeName == "player")
-            return player;
-        return hunter;
+
+        std::string profilePathFor(std::string_view archetypeId, std::string& bare)
+        {
+            bare = bareArchetypeName(archetypeId);
+            std::string path;
+            if (const Archetype* archetype = findArchetype(archetypeId))
+            {
+                bare = bareArchetypeName(archetype->name);
+                for (const ArchetypeComponent& component : archetype->components)
+                {
+                    if (component.name != "Combat")
+                        continue;
+                    const nlohmann::json parsed = nlohmann::json::parse(component.paramsJson.empty() ? "{}" : component.paramsJson, nullptr, false);
+                    if (!parsed.is_discarded() && parsed.is_object())
+                        jsonStringOr(parsed, "profile", path, std::string(), "EntityCombat");
+                    break;
+                }
+            }
+            if (path.empty() && (bare == "player" || bare == "hunter" || bare == "wolf"))
+                path = "entities/" + bare + ".entity.combat.json";
+            return path;
+        }
+
+        bool tagIsWolfName(const TagComponent* tag)
+        {
+            return tag && (tag->name == "Wolf" || tag->name == "wolf");
+        }
+
+        bool tagIsPlayerName(const TagComponent* tag)
+        {
+            return tag && (tag->name == "Player" || tag->name == "player");
+        }
+
+    } // namespace
+
+    void clearCombatProfileTable()
+    {
+        gCombatProfiles.clear();
+        gCombatIndex.clear();
+    }
+
+    const EntityCombat& combatProfileForId(std::string_view archetypeId)
+    {
+        const std::string canonical = canonicalContentId(archetypeId.empty() ? std::string_view("hunter") : archetypeId);
+        const ContentId id = hashContentId(canonical);
+        const auto found = gCombatIndex.find(id.hash);
+        if (found != gCombatIndex.end())
+            return gCombatProfiles[found->second];
+
+        std::string bare;
+        const std::string path = profilePathFor(canonical, bare);
+        const std::string seed = (bare == "player" || bare == "hunter" || bare == "wolf") ? bare : std::string("hunter");
+        EntityCombat combat = entityCombatDefault(seed);
+        if (!path.empty())
+        {
+            const std::filesystem::path file = resolveContentFile(path);
+            if (!file.empty())
+                loadEntityCombatFile(file, combat);
+        }
+        gCombatProfiles.push_back(std::move(combat));
+        const size_t index = gCombatProfiles.size() - 1;
+        gCombatIndex.emplace(id.hash, index);
+        return gCombatProfiles[index];
+    }
+
+    const EntityCombat& entityCombatProfile(World& world, Entity entity)
+    {
+        std::string id;
+        const TagComponent* tag = entity.valid() ? world.get<TagComponent>(entity) : nullptr;
+        if (tagIsWolfName(tag))
+            id = "core:wolf";
+        else if (const CombatProfileComponent* stored = entity.valid() ? world.get<CombatProfileComponent>(entity) : nullptr)
+            id = stored->archetype;
+        else if (const ArchetypeParamsComponent* params = entity.valid() ? world.get<ArchetypeParamsComponent>(entity) : nullptr)
+            id = params->archetype;
+        else if (entity.valid() && (world.has<PlayerMotorComponent>(entity) || tagIsPlayerName(tag)))
+            id = "core:player";
+        if (id.empty())
+            id = "core:hunter";
+        return combatProfileForId(id);
+    }
+
+    void assignCombatProfile(World& world, Entity entity, std::string_view archetypeId)
+    {
+        if (!entity.valid() || !world.alive(entity) || archetypeId.empty())
+            return;
+        const std::string canonical = canonicalContentId(archetypeId);
+        if (CombatProfileComponent* stored = world.get<CombatProfileComponent>(entity))
+            stored->archetype = canonical;
+        else
+            world.emplace<CombatProfileComponent>(entity, CombatProfileComponent{ canonical });
     }
 
 } // namespace Dark
