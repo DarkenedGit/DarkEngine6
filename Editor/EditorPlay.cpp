@@ -124,7 +124,7 @@ bool EditorApp::attachEditorPlayer(Entity e)
     if (!e.valid() || !world().alive(e))
         return false;
 
-    ensureHumanoidBody(world(), e, 200.0f, Vector3f{ 0.35f, 0.7f, 0.35f });
+    ensureHumanoidBody(world(), e, archetypeHealthSettings("core:player"), Vector3f{ 0.35f, 0.7f, 0.35f });
     const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
     ensureLocalPlayerRig(host, e, &EditorApp::onPlayWeaponHitThunk, this);
 
@@ -138,6 +138,8 @@ bool EditorApp::attachEditorNpc(Entity e, NpcKind kind, const char* proxyWarn)
 {
     if (!m_ai.attachHunter(world(), e, pins(), assets()))
         return false;
+    const char* archetypeId = kind == NpcKind::Wolf ? "core:wolf" : "core:hunter";
+    ensureHumanoidBody(world(), e, archetypeHealthSettings(archetypeId), Vector3f{ 0.35f, 0.7f, 0.35f });
     const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
     const bool haveModel = world().has<ModelComponent>(e) && world().get<ModelComponent>(e)->modelAssetID != NULL_ASSET;
     if (haveModel)

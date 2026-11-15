@@ -444,6 +444,11 @@ namespace Dark
                     physics["file"] = master.physics;
                     archetype.components.push_back(ArchetypeComponent{ "Physics", physics.dump() });
                 }
+                json health = json::object();
+                health["max"]        = 48.0;
+                health["regen"]      = 5.0;
+                health["regenDelay"] = 4.0;
+                archetype.components.push_back(ArchetypeComponent{ "Health", health.dump() });
                 archetype.behaviors.push_back(ArchetypeBehavior{ "ai.animal", "{}" });
                 adopt(std::move(archetype), taken);
             }

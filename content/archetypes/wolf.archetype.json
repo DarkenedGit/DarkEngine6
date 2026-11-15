@@ -6,7 +6,7 @@
     "Model": { "gltf": "models/wolf.gltf", "anim": "models/wolf.anim.json" },
     "Physics": { "file": "models/wolf.physics.json" },
     "Combat": { "attacks": "ai/wolf.attacks.json" },
-    "Health": { "max": 60 }
+    "Health": { "max": 48, "regen": 5, "regenDelay": 4 }
   },
   "behaviors": [ { "name": "ai.wolf" } ],
   "net": { "replicate": true }

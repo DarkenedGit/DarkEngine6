@@ -26,6 +26,8 @@ namespace Dark
 
     // Archetype params with the bag's object for that component laid on top. "{}" when neither has it.
     std::string sceneMergedComponent(const SceneObjectData& object, std::string_view component);
+    // Archetype params for one component. "{}" when that archetype does not list it.
+    std::string sceneArchetypeComponentJson(const SceneObjectData& object, std::string_view component);
     // True when the archetype lists the component or the bag stores an object for it.
     bool sceneCarriesComponent(const SceneObjectData& object, std::string_view component);
     void sceneSetComponentJson(SceneObjectData& object, std::string_view component, std::string_view jsonText);
@@ -79,6 +81,21 @@ namespace Dark
 
     bool sceneReadSpawner(const SceneObjectData& object, SpawnerDesc& desc);
     void sceneWriteSpawner(SceneObjectData& object, const SpawnerDesc& desc);
+
+    // Writes live keys that differ from archetypeJson. Equal keys are removed.
+    // Keys already stored and absent from liveJson stay. A null live value removes that key.
+    // An empty result removes the component object.
+    void sceneWriteComponentDiff(SceneObjectData& object, std::string_view component, std::string_view liveJson, std::string_view archetypeJson);
+
+    // Editor save. Omitted archetype keys compare against the component default, so an unedited
+    // placement does not gain a component object. Searchlight, sweep, and circuit stay on the bag.
+    void sceneWriteLightDiff(SceneObjectData& object, const SceneLightFields& light);
+    void sceneWriteParticleDiff(SceneObjectData& object, const ParticleEmitterDesc& desc);
+    void sceneWriteStreamDiff(SceneObjectData& object, float width, float flowSpeed, const std::vector<Math::Vector2f>& points);
+    void sceneWriteSpawnerDiff(SceneObjectData& object, const SpawnerDesc& desc);
+    void sceneWriteMovieDiff(SceneObjectData& object, std::string path, float radius, bool loop);
+    void sceneWriteModelDiff(SceneObjectData& object, std::string path);
+    void sceneWriteEmissiveDiff(SceneObjectData& object, float emissive);
 
     // Placement markers. Absent keys use the file defaults (block true, pickupCount 1, emissive mesh -1).
     bool                        sceneConceal(const SceneObjectData& object);

@@ -88,9 +88,6 @@ namespace Dark
 
         void overlay(const json& root, EntityCombat& parsed)
         {
-            takeFloat(root, "healthMax", parsed.healthMax, false);
-            takeFloat(root, "healthRegen", parsed.healthRegen, false);
-            takeFloat(root, "healthRegenDelay", parsed.healthRegenDelay, false);
             takeFloat(root, "poiseMax", parsed.poiseMax, false);
             takeFloat(root, "poiseRegen", parsed.poiseRegen, false);
             takeFloat(root, "poiseRegenDelay", parsed.poiseRegenDelay, false);
@@ -183,9 +180,6 @@ namespace Dark
         combat.type = std::string(typeName);
         if (typeName == "player")
         {
-            combat.healthMax         = 100.0f;
-            combat.healthRegen       = 0.0f;
-            combat.healthRegenDelay  = 0.0f;
             combat.team              = 1;
             combat.jumpCooldown      = 1.25f;
             combat.jumpConnectDamage = 32.0f;
@@ -273,7 +267,7 @@ namespace Dark
             DE_LOG_ERROR(LogCategory::Core, "EntityCombat: '{}' type is '{}'", path.string(), parsed.type);
             return false;
         }
-        DE_LOG_INFO(LogCategory::Core, "EntityCombat: {} hp {} team {}", parsed.type, parsed.healthMax, parsed.team);
+        DE_LOG_INFO(LogCategory::Core, "EntityCombat: {} team {}", parsed.type, parsed.team);
         inOut = std::move(parsed);
         return true;
     }

@@ -2,7 +2,6 @@
   "version": 1,
   "type": "player",
   "team": 1,
-  "healthMax": 100,
   "poiseMax": 100,
   "poiseRegen": 25,
   "poiseRegenDelay": 1.5,

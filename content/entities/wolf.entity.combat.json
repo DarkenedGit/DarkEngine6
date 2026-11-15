@@ -1,9 +1,6 @@
 {
   "version": 1,
   "type": "wolf",
-  "healthMax": 48,
-  "healthRegen": 5,
-  "healthRegenDelay": 4,
   "poiseMax": 100,
   "poiseRegen": 25,
   "poiseRegenDelay": 1.5,

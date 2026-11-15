@@ -114,5 +114,7 @@ namespace Dark
     struct SceneObjectData;
     void cloudDescFromSceneData(const SceneObjectData& d, CloudVolumeDesc& out);
     void sceneDataFromCloudDesc(const CloudVolumeDesc& src, SceneObjectData& d);
+    // Editor save. Writes cloud keys that differ from the archetype. An unedited volume writes nothing.
+    void sceneWriteCloudDiff(SceneObjectData& object, const CloudVolumeDesc& src);
 
 } // namespace Dark

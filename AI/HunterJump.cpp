@@ -102,17 +102,6 @@ namespace Dark
             jac->jump.setDef(hunterJumpDefFromPattern(wolfAttacks.loaded ? &wolfAttacks : nullptr));
 
         const EntityCombat& combat = entityCombatFor("wolf");
-        if (HealthComponent* hc = world.get<HealthComponent>(e))
-        {
-            if (hc->health.alive() && hc->health.hp() + 1.0e-3f >= hc->health.maxHp())
-            {
-                HealthSettings hs = hc->health.settings();
-                hs.maxHp          = combat.healthMax;
-                hs.regenPerSec    = combat.healthRegen;
-                hs.regenDelay     = combat.healthRegenDelay;
-                hc->health        = Health{ hs };
-            }
-        }
         if (Combat::PoiseComponent* poise = world.get<Combat::PoiseComponent>(e))
         {
             if (poise->poise + 1.0e-3f >= poise->maxPoise)

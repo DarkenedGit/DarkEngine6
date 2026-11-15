@@ -1344,7 +1344,7 @@ void SandboxApp::attachReplicaCombat(Entity e)
 {
     if (!e.valid() || !world().alive(e))
         return;
-    ensureHumanoidBody(world(), e, 200.0f, Vector3f{ 0.35f, 0.7f, 0.35f });
+    ensureHumanoidBody(world(), e, archetypeHealthSettings("core:player"), Vector3f{ 0.35f, 0.7f, 0.35f });
     const EntityMaster playerMaster = loadEntityMasterType("player");
     const std::string  playerGltf = playerMaster.gltf.empty() ? std::string("models/human.gltf") : playerMaster.gltf;
     attachAnimatedCharacter(e, playerGltf.c_str());

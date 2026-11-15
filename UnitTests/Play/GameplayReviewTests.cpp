@@ -23,6 +23,7 @@
 #include "Math/AABox3f.h"
 #include "Math/Ray3f.h"
 #include "Math/Sphere3f.h"
+#include "Play/CharacterAttach.h"
 #include "Play/ContactGrind.h"
 #include "Play/Facility.h"
 #include "Play/Interaction.h"
@@ -138,18 +139,16 @@ TEST(GameplayReview, CombatFilesKeepSeedsAndLoadSidecars)
 {
     EntityCombat bad = entityCombatDefault("player");
     EXPECT_FALSE(parseEntityCombat("{", bad));
-    EXPECT_FLOAT_EQ(bad.healthMax, 100.0f);
     EXPECT_EQ(bad.team, 1);
 
     EntityCombat partial = entityCombatDefault("hunter");
     partial.team = 7;
-    ASSERT_TRUE(parseEntityCombat(R"({"version":1,"type":"hunter","healthMax":11})", partial));
-    EXPECT_FLOAT_EQ(partial.healthMax, 11.0f);
+    ASSERT_TRUE(parseEntityCombat(R"({"version":1,"type":"hunter","healthMax":11,"poiseMax":40})", partial));
+    EXPECT_FLOAT_EQ(partial.poiseMax, 40.0f);
     EXPECT_EQ(partial.team, 7);
 
     EntityCombat hunter = entityCombatDefault("hunter");
     ASSERT_TRUE(loadEntityCombatType("hunter", hunter));
-    EXPECT_FLOAT_EQ(hunter.healthMax, 48.0f);
     EXPECT_FLOAT_EQ(hunter.respawnSeconds, 8.0f);
     EXPECT_EQ(hunter.team, 2);
     EXPECT_FLOAT_EQ(hunter.jumpKnockdown, 0.8f);
@@ -164,10 +163,27 @@ TEST(GameplayReview, CombatFilesKeepSeedsAndLoadSidecars)
     EntityCombat player = entityCombatDefault("player");
     ASSERT_TRUE(loadEntityCombatType("player", player));
     EXPECT_EQ(player.team, 1);
-    EXPECT_FLOAT_EQ(player.healthMax, 100.0f);
     EXPECT_FLOAT_EQ(player.drownDps, 8.0f);
     EXPECT_FLOAT_EQ(player.jumpConnectDamage, 32.0f);
     EXPECT_FLOAT_EQ(player.weaponRange, 90.0f);
+}
+
+TEST(GameplayReview, ArchetypeHealthIsTheBody)
+{
+    const HealthSettings player = archetypeHealthSettings("core:player");
+    EXPECT_FLOAT_EQ(player.maxHp, 200.0f);
+    EXPECT_FLOAT_EQ(player.regenPerSec, 10.0f);
+    EXPECT_FLOAT_EQ(player.regenDelay, 3.5f);
+
+    const HealthSettings hunter = archetypeHealthSettings("core:hunter");
+    EXPECT_FLOAT_EQ(hunter.maxHp, 48.0f);
+    EXPECT_FLOAT_EQ(hunter.regenPerSec, 5.0f);
+    EXPECT_FLOAT_EQ(hunter.regenDelay, 4.0f);
+
+    const HealthSettings wolf = archetypeHealthSettings("core:wolf");
+    EXPECT_FLOAT_EQ(wolf.maxHp, 48.0f);
+    EXPECT_FLOAT_EQ(wolf.regenPerSec, 5.0f);
+    EXPECT_FLOAT_EQ(wolf.regenDelay, 4.0f);
 }
 
 TEST(GameplayReview, WolfPounceKeepsCombatKnockdownAndPoise)

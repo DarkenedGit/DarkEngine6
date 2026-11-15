@@ -172,7 +172,7 @@ TEST(CharacterAttach, HumanoidBodySetsHpOnce)
 {
     World world;
     Entity fresh = world.createEntity();
-    ensureHumanoidBody(world, fresh, 200.0f, Vector3f{ 0.35f, 0.7f, 0.35f });
+    ensureHumanoidBody(world, fresh, HealthSettings{ 200.0f }, Vector3f{ 0.35f, 0.7f, 0.35f });
 
     HealthComponent* health = world.get<HealthComponent>(fresh);
     ASSERT_NE(health, nullptr);
@@ -188,19 +188,19 @@ TEST(CharacterAttach, HumanoidBodySetsHpOnce)
 
     health->health.applyDamage(40.0f);
     hit->halfExtents.y = 3.0f;
-    ensureHumanoidBody(world, fresh, 50.0f, Vector3f{ 9.0f, 9.0f, 9.0f });
+    ensureHumanoidBody(world, fresh, HealthSettings{ 50.0f }, Vector3f{ 9.0f, 9.0f, 9.0f });
     EXPECT_FLOAT_EQ(health->health.hp(), 160.0f);
     EXPECT_FLOAT_EQ(health->health.maxHp(), 200.0f);
     EXPECT_NEAR(hit->halfExtents.y, 3.0f, 1.0e-5f);
 
     Entity kept = world.createEntity();
     world.emplace<HealthComponent>(kept);
-    ensureHumanoidBody(world, kept, 200.0f, Vector3f{ 0.35f, 0.7f, 0.35f });
+    ensureHumanoidBody(world, kept, HealthSettings{ 200.0f }, Vector3f{ 0.35f, 0.7f, 0.35f });
     ASSERT_NE(world.get<HealthComponent>(kept), nullptr);
     EXPECT_FLOAT_EQ(world.get<HealthComponent>(kept)->health.maxHp(), 100.0f);
     EXPECT_NEAR(world.get<HittableComponent>(kept)->halfExtents.y, 0.7f, 1.0e-5f);
 
-    ensureHumanoidBody(world, Entity{}, 200.0f, Vector3f{ 1.0f, 1.0f, 1.0f });
+    ensureHumanoidBody(world, Entity{}, HealthSettings{ 200.0f }, Vector3f{ 1.0f, 1.0f, 1.0f });
 }
 
 TEST(PhysicsGround, InvalidWorldKeepsTerrainAndRejectsHeightField)

@@ -25,9 +25,16 @@
 #include "Render/GpuUpload.h"
 #include "AI/AiComponents.h"
 #include "AI/HunterJump.h"
+#include "Content/ContentDb.h"
+#include "Core/Json.h"
 #include "Scene/EntityCombat.h"
 #include "Scene/EntityMaster.h"
 #include "Scene/EntityMovement.h"
+
+#include "third_party/nlohmann/json.hpp"
+
+#include <fstream>
+#include <sstream>
 #include "Weapons/HittableComponent.h"
 #include "Weapons/MeleeWeapon.h"
 #include "Weapons/WeaponLoadoutComponent.h"
@@ -142,18 +149,109 @@ namespace Dark
         return result;
     }
 
-    void ensureHumanoidBody(World& world, Entity e, float maxHp, const Math::Vector3f& halfExtents)
+    namespace
+    {
+
+        void noteMissingHealth(std::string_view id)
+        {
+            static std::string seen[8];
+            static int         count = 0;
+            for (int i = 0; i < count; ++i)
+            {
+                if (seen[i] == id)
+                    return;
+            }
+            if (count < 8)
+                seen[count++] = std::string(id);
+            DE_LOG_WARN(LogCategory::Core, "Health: '{}' has no Health component, using defaults", id);
+        }
+
+        bool applyHealthObject(const nlohmann::json& object, HealthSettings& settings)
+        {
+            if (!object.is_object())
+                return false;
+            bool  any   = false;
+            float maxHp = settings.maxHp;
+            if (object.contains("max") && jsonFloatOr(object, "max", maxHp, settings.maxHp, "Health"))
+            {
+                settings.maxHp = maxHp;
+                any            = true;
+            }
+            float regen = settings.regenPerSec;
+            if (object.contains("regen") && jsonFloatOr(object, "regen", regen, settings.regenPerSec, "Health"))
+            {
+                settings.regenPerSec = regen;
+                any                  = true;
+            }
+            float delay = settings.regenDelay;
+            if (object.contains("regenDelay") && jsonFloatOr(object, "regenDelay", delay, settings.regenDelay, "Health"))
+            {
+                settings.regenDelay = delay;
+                any                 = true;
+            }
+            return any;
+        }
+
+        bool healthFromArchetype(const Archetype& archetype, HealthSettings& settings)
+        {
+            for (const ArchetypeComponent& entry : archetype.components)
+            {
+                if (entry.name != "Health")
+                    continue;
+                const nlohmann::json parsed = nlohmann::json::parse(entry.paramsJson.empty() ? "{}" : entry.paramsJson, nullptr, false);
+                return applyHealthObject(parsed, settings);
+            }
+            return false;
+        }
+
+        bool healthFromArchetypeFile(std::string_view archetypeId, HealthSettings& settings)
+        {
+            const auto colon = archetypeId.rfind(':');
+            const std::string_view bare = colon == std::string_view::npos ? archetypeId : archetypeId.substr(colon + 1);
+            if (bare.empty())
+                return false;
+            const std::filesystem::path path = resolveContentFile(std::string("archetypes/") + std::string(bare) + ".archetype.json");
+            if (path.empty())
+                return false;
+            std::ifstream in(path, std::ios::binary);
+            if (!in)
+                return false;
+            std::ostringstream ss;
+            ss << in.rdbuf();
+            const nlohmann::json root = nlohmann::json::parse(ss.str(), nullptr, false);
+            if (root.is_discarded() || !root.is_object() || !root.contains("components") || !root["components"].is_object())
+                return false;
+            const nlohmann::json& components = root["components"];
+            if (!components.contains("Health"))
+                return false;
+            return applyHealthObject(components["Health"], settings);
+        }
+
+    } // namespace
+
+    HealthSettings archetypeHealthSettings(std::string_view archetypeId)
+    {
+        HealthSettings settings;
+        if (const Archetype* archetype = findArchetype(archetypeId))
+        {
+            if (!healthFromArchetype(*archetype, settings))
+                noteMissingHealth(archetypeId.empty() ? std::string_view("entity") : archetypeId);
+            return settings;
+        }
+        if (!healthFromArchetypeFile(archetypeId, settings))
+            noteMissingHealth(archetypeId.empty() ? std::string_view("entity") : archetypeId);
+        return settings;
+    }
+
+    void ensureHumanoidBody(World& world, Entity e, const HealthSettings& hp, const Math::Vector3f& halfExtents)
     {
         if (!world.alive(e))
             return;
 
         if (!world.has<HealthComponent>(e))
         {
-            HealthSettings playerHp;
-            playerHp.maxHp       = maxHp;
-            playerHp.regenPerSec = 10.0f;
             HealthComponent hc{};
-            hc.health = Health{ playerHp };
+            hc.health = Health{ hp };
             world.emplace<HealthComponent>(e, std::move(hc));
         }
         if (!world.has<HitReactionComponent>(e))

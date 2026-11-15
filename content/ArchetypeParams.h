@@ -17,7 +17,9 @@ namespace Dark
         std::string combatAttacks;
         std::string dialogue;
         std::string hsm;
-        float       healthMax = -1.0f;
+        float       healthMax        = -1.0f;
+        float       healthRegen      = -1.0f;
+        float       healthRegenDelay = -1.0f;
         bool        replicate = false;
 
         // Component params after the spawn override is merged. Empty means that component was not read.

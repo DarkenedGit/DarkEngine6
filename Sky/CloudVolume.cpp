@@ -246,7 +246,7 @@ namespace Dark
             readCloudVec(cloud["windDir"], out.windDir);
     }
 
-    void sceneDataFromCloudDesc(const CloudVolumeDesc& src, SceneObjectData& d)
+    static nlohmann::json cloudVolumeJson(const CloudVolumeDesc& src)
     {
         nlohmann::json cloud;
         cloud["shape"]          = toString(src.shape);
@@ -265,7 +265,25 @@ namespace Dark
         cloud["albedo"]         = nlohmann::json::array({ src.albedo.x, src.albedo.y, src.albedo.z });
         cloud["windDir"]        = nlohmann::json::array({ src.windDir.x, src.windDir.y, src.windDir.z });
         cloud["enabled"]        = src.enabled;
-        sceneSetComponentJson(d, "CloudVolume", cloud.dump());
+        return cloud;
+    }
+
+    void sceneDataFromCloudDesc(const CloudVolumeDesc& src, SceneObjectData& d)
+    {
+        sceneSetComponentJson(d, "CloudVolume", cloudVolumeJson(src).dump());
+    }
+
+    void sceneWriteCloudDiff(SceneObjectData& object, const CloudVolumeDesc& src)
+    {
+        const nlohmann::json live = cloudVolumeJson(src);
+        nlohmann::json baseline   = cloudVolumeJson(CloudVolumeDesc{});
+        const nlohmann::json archetype = nlohmann::json::parse(sceneArchetypeComponentJson(object, "CloudVolume"), nullptr, false);
+        if (!archetype.is_discarded() && archetype.is_object())
+        {
+            for (auto it = archetype.begin(); it != archetype.end(); ++it)
+                baseline[it.key()] = it.value();
+        }
+        sceneWriteComponentDiff(object, "CloudVolume", live.dump(), baseline.dump());
     }
 
 } // namespace Dark

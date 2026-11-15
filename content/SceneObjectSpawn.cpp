@@ -3,7 +3,10 @@
 #include "Content/ContentDb.h"
 #include "Core/Json.h"
 #include "Core/Log.h"
+#include "ECS/Components.h"
 #include "Math/MathDefines.h"
+#include "Media/MovieCue.h"
+#include "Water/WaterStream.h"
 
 #include "third_party/nlohmann/json.hpp"
 
@@ -440,6 +443,92 @@ namespace Dark
             return text;
         }
 
+        double doubleAt(const json& value)
+        {
+            if (const auto* number = value.get_ptr<const json::number_float_t*>())
+                return *number;
+            if (const auto* number = value.get_ptr<const json::number_integer_t*>())
+                return static_cast<double>(*number);
+            if (const auto* number = value.get_ptr<const json::number_unsigned_t*>())
+                return static_cast<double>(*number);
+            return 0.0;
+        }
+
+        bool jsonSame(const json& a, const json& b)
+        {
+            if (a.is_number() && b.is_number())
+            {
+                const double da = doubleAt(a);
+                const double db = doubleAt(b);
+                if (da == db)
+                    return true;
+                // Archetype decimals and live floats meet at float precision (0.05).
+                if (a.is_number_float() || b.is_number_float())
+                    return static_cast<float>(da) == static_cast<float>(db);
+                return false;
+            }
+            if (a.is_array() && b.is_array())
+            {
+                if (a.size() != b.size())
+                    return false;
+                for (size_t i = 0; i < a.size(); ++i)
+                {
+                    if (!jsonSame(a[i], b[i]))
+                        return false;
+                }
+                return true;
+            }
+            if (a.is_object() && b.is_object())
+            {
+                if (a.size() != b.size())
+                    return false;
+                for (auto it = a.begin(); it != a.end(); ++it)
+                {
+                    if (!b.contains(it.key()) || !jsonSame(it.value(), b[it.key()]))
+                        return false;
+                }
+                return true;
+            }
+            if (a.is_boolean() && b.is_boolean())
+                return boolAt(a, false) == boolAt(b, true);
+            if (a.is_string() && b.is_string())
+            {
+                const auto* left  = a.get_ptr<const json::string_t*>();
+                const auto* right = b.get_ptr<const json::string_t*>();
+                return left && right && *left == *right;
+            }
+            return a.is_null() && b.is_null();
+        }
+
+        json parseObject(std::string_view text)
+        {
+            if (text.empty())
+                return json::object();
+            json parsed = json::parse(std::string(text), nullptr, false);
+            if (parsed.is_discarded() || !parsed.is_object())
+                return json::object();
+            return parsed;
+        }
+
+        // Component defaults, then archetype params. An omitted archetype key keeps the default.
+        json diffBaseline(const SceneObjectData& object, std::string_view component, json defaults)
+        {
+            if (!defaults.is_object())
+                defaults = json::object();
+            const json archetype = parseObject(sceneArchetypeComponentJson(object, component));
+            for (auto it = archetype.begin(); it != archetype.end(); ++it)
+                defaults[it.key()] = it.value();
+            return defaults;
+        }
+
+        json pointListJson(const std::vector<Math::Vector2f>& points)
+        {
+            json encoded = json::array();
+            for (const Math::Vector2f& point : points)
+                encoded.push_back(json::array({ point.x, point.y }));
+            return encoded;
+        }
+
     } // namespace
 
     bool sceneIsPlaceholder(const SceneObjectData& object)
@@ -456,6 +545,19 @@ namespace Dark
     {
         const json merged = mergedComponent(object, component);
         return merged.empty() ? std::string("{}") : merged.dump();
+    }
+
+    std::string sceneArchetypeComponentJson(const SceneObjectData& object, std::string_view component)
+    {
+        if (const Archetype* archetype = findArchetype(sceneArchetypeId(object)))
+        {
+            for (const ArchetypeComponent& entry : archetype->components)
+            {
+                if (entry.name == component)
+                    return entry.paramsJson.empty() ? std::string("{}") : entry.paramsJson;
+            }
+        }
+        return "{}";
     }
 
     bool sceneCarriesComponent(const SceneObjectData& object, std::string_view component)
@@ -813,6 +915,166 @@ namespace Dark
         SpawnerDesc clamped = desc;
         clampSpawnerDesc(clamped);
         writeComponent(object, "Spawner", spawnerJson(clamped));
+    }
+
+    void sceneWriteComponentDiff(SceneObjectData& object, std::string_view component, std::string_view liveJson, std::string_view archetypeJson)
+    {
+        if (component.empty())
+            return;
+        const json live = json::parse(liveJson.empty() ? std::string("{}") : std::string(liveJson), nullptr, false);
+        if (live.is_discarded() || !live.is_object())
+        {
+            DE_LOG_ERROR(LogCategory::Core, "SceneObject: \"{}\" diff is not an object", std::string(component));
+            return;
+        }
+        const json archetype = parseObject(archetypeJson);
+        json bag = loadBag(object);
+        json* host = componentHost(bag);
+        if (!host)
+            return;
+        const std::string key(component);
+        json result = json::object();
+        if (host->contains(key) && (*host)[key].is_object())
+            result = (*host)[key];
+        for (auto it = live.begin(); it != live.end(); ++it)
+        {
+            if (it.value().is_null())
+            {
+                result.erase(it.key());
+                continue;
+            }
+            if (archetype.contains(it.key()) && jsonSame(archetype[it.key()], it.value()))
+                result.erase(it.key());
+            else
+                result[it.key()] = it.value();
+        }
+        if (result.empty())
+            host->erase(key);
+        else
+            (*host)[key] = std::move(result);
+        if (bagIsRaw(bag) && bag.contains("overrides") && bag["overrides"].is_object() && bag["overrides"].empty())
+            bag.erase("overrides");
+        storeBag(object, bag);
+    }
+
+    void sceneWriteLightDiff(SceneObjectData& object, const SceneLightFields& light)
+    {
+        const std::string kind = light.kind.empty() ? std::string("point") : light.kind;
+        json live = json::object();
+        json defaults = json::object();
+        const char* component = "LocalLight";
+        if (kind == "ambient")
+        {
+            component = "AmbientLight";
+            const AmbientLightComponent defaultsComp{};
+            defaults["intensity"] = defaultsComp.intensity;
+            defaults["enabled"]   = defaultsComp.enabled;
+            live["intensity"]     = light.intensity;
+            live["enabled"]       = light.enabled;
+        }
+        else if (kind == "directional")
+        {
+            component = "DirectionalLight";
+            const DirectionalLightComponent defaultsComp{};
+            defaults["intensity"] = defaultsComp.intensity;
+            defaults["enabled"]   = defaultsComp.enabled;
+            live["intensity"]     = light.intensity;
+            live["enabled"]       = light.enabled;
+        }
+        else
+        {
+            const LocalLightComponent defaultsComp{};
+            defaults["kind"]         = "point";
+            defaults["intensity"]    = defaultsComp.intensity;
+            defaults["range"]        = defaultsComp.range;
+            defaults["inner"]        = defaultsComp.innerConeDeg;
+            defaults["outer"]        = defaultsComp.outerConeDeg;
+            defaults["sourceRadius"] = defaultsComp.sourceRadius;
+            defaults["enabled"]      = defaultsComp.enabled;
+            defaults["castShadow"]   = defaultsComp.castShadow;
+            live["kind"]             = kind == "spot" ? "spot" : "point";
+            live["intensity"]        = light.intensity;
+            live["range"]            = light.range;
+            live["inner"]            = light.innerDeg;
+            live["outer"]            = light.outerDeg;
+            live["sourceRadius"]     = light.sourceRadius;
+            live["enabled"]          = light.enabled;
+            live["castShadow"]       = light.castShadow;
+        }
+        sceneWriteComponentDiff(object, component, live.dump(), diffBaseline(object, component, std::move(defaults)).dump());
+    }
+
+    void sceneWriteParticleDiff(SceneObjectData& object, const ParticleEmitterDesc& desc)
+    {
+        json live = particleJson(desc);
+        if (!desc.hasSecondary)
+            live["secondary"] = nullptr;
+        const json defaults = particleJson(ParticleEmitterDesc{});
+        sceneWriteComponentDiff(object, "ParticleEmitter", live.dump(), diffBaseline(object, "ParticleEmitter", defaults).dump());
+    }
+
+    void sceneWriteStreamDiff(SceneObjectData& object, float width, float flowSpeed, const std::vector<Math::Vector2f>& points)
+    {
+        if (!(width >= 1.5f))
+            width = 1.5f;
+        if (width > 12.0f)
+            width = 12.0f;
+        json live = json::object();
+        live["width"]     = width;
+        live["flowSpeed"] = flowSpeed;
+        live["points"]    = pointListJson(points);
+        const StreamComponent defaultsComp{};
+        json defaults = json::object();
+        defaults["width"]     = defaultsComp.width;
+        defaults["flowSpeed"] = defaultsComp.flowSpeed;
+        defaults["points"]    = json::array();
+        sceneWriteComponentDiff(object, "Stream", live.dump(), diffBaseline(object, "Stream", std::move(defaults)).dump());
+    }
+
+    void sceneWriteSpawnerDiff(SceneObjectData& object, const SpawnerDesc& desc)
+    {
+        SpawnerDesc clamped = desc;
+        clampSpawnerDesc(clamped);
+        const json live     = spawnerJson(clamped);
+        const json defaults = spawnerJson(SpawnerDesc{});
+        sceneWriteComponentDiff(object, "Spawner", live.dump(), diffBaseline(object, "Spawner", defaults).dump());
+    }
+
+    void sceneWriteMovieDiff(SceneObjectData& object, std::string path, float radius, bool loop)
+    {
+        if (!(radius >= 0.0f))
+            radius = 0.0f;
+        json live = json::object();
+        live["path"]   = std::move(path);
+        live["radius"] = radius;
+        live["loop"]   = loop;
+        const MovieCueComponent defaultsComp{};
+        json defaults = json::object();
+        defaults["path"]   = defaultsComp.path;
+        defaults["radius"] = defaultsComp.radius;
+        defaults["loop"]   = defaultsComp.loop;
+        sceneWriteComponentDiff(object, "Movie", live.dump(), diffBaseline(object, "Movie", std::move(defaults)).dump());
+    }
+
+    void sceneWriteModelDiff(SceneObjectData& object, std::string path)
+    {
+        // An empty path clears the gltf override. anim and any other Model key stay.
+        json live = json::object();
+        if (path.empty())
+            live["gltf"] = nullptr;
+        else
+            live["gltf"] = std::move(path);
+        sceneWriteComponentDiff(object, "Model", live.dump(), diffBaseline(object, "Model", json::object()).dump());
+    }
+
+    void sceneWriteEmissiveDiff(SceneObjectData& object, float emissive)
+    {
+        json live = json::object();
+        live["emissive"] = emissive;
+        const MeshComponent defaultsComp{};
+        json defaults = json::object();
+        defaults["emissive"] = defaultsComp.emissive;
+        sceneWriteComponentDiff(object, "Mesh", live.dump(), diffBaseline(object, "Mesh", std::move(defaults)).dump());
     }
 
     bool sceneConceal(const SceneObjectData& object)

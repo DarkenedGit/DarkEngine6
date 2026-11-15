@@ -331,7 +331,7 @@ TEST(HitVolume, PlayerSetupEmplaces)
 {
     World  world;
     Entity e = world.createEntity();
-    ensureHumanoidBody(world, e, 200.0f, Vector3f{ 0.35f, 0.7f, 0.35f });
+    ensureHumanoidBody(world, e, HealthSettings{ 200.0f }, Vector3f{ 0.35f, 0.7f, 0.35f });
 
     HitVolumesComponent* volumes = world.get<HitVolumesComponent>(e);
     ASSERT_NE(volumes, nullptr);
@@ -343,7 +343,7 @@ TEST(HitVolume, PlayerSetupEmplaces)
     }
 
     volumes->disableTimer[hitPartIndex(HitPart::Chest)] = 2.0f;
-    ensureHumanoidBody(world, e, 50.0f, Vector3f{ 9.0f, 9.0f, 9.0f });
+    ensureHumanoidBody(world, e, HealthSettings{ 50.0f }, Vector3f{ 9.0f, 9.0f, 9.0f });
     EXPECT_FLOAT_EQ(world.get<HitVolumesComponent>(e)->disableTimer[hitPartIndex(HitPart::Chest)], 2.0f);
 }
 

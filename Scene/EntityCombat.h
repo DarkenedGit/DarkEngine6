@@ -14,10 +14,6 @@ namespace Dark
         int         version = 1;
         std::string type;
 
-        float healthMax        = 48.0f;
-        float healthRegen      = 5.0f;
-        float healthRegenDelay = 4.0f;
-
         float poiseMax        = 100.0f;
         float poiseRegen      = 25.0f;
         float poiseRegenDelay = 1.5f;

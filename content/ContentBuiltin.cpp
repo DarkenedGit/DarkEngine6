@@ -157,9 +157,13 @@ namespace Dark
             json object;
             if (!readObject(jsonText, object, err, "Health"))
                 return false;
-            const auto it = object.find("max");
-            if (it != object.end() && it->is_number())
-                paramsOf(world, entity).healthMax = it->get<float>();
+            ArchetypeParamsComponent& params = paramsOf(world, entity);
+            if (object.contains("max") && object["max"].is_number())
+                params.healthMax = jsonFloat(object, "max", params.healthMax);
+            if (object.contains("regen") && object["regen"].is_number())
+                params.healthRegen = jsonFloat(object, "regen", params.healthRegen);
+            if (object.contains("regenDelay") && object["regenDelay"].is_number())
+                params.healthRegenDelay = jsonFloat(object, "regenDelay", params.healthRegenDelay);
             return true;
         }
 
@@ -307,6 +311,22 @@ namespace Dark
                 host.ensureMesh(host.user, entity);
         }
 
+        HealthSettings bodyHealth(const ArchetypeParamsComponent* params)
+        {
+            if (params && params->healthMax >= 0.0f)
+            {
+                HealthSettings settings;
+                settings.maxHp = params->healthMax;
+                if (params->healthRegen >= 0.0f)
+                    settings.regenPerSec = params->healthRegen;
+                if (params->healthRegenDelay >= 0.0f)
+                    settings.regenDelay = params->healthRegenDelay;
+                return settings;
+            }
+            const std::string_view id = params ? std::string_view(params->archetype) : std::string_view{};
+            return archetypeHealthSettings(id);
+        }
+
         bool attachKind(const ArchetypeSpawnHost& host, Entity entity, NpcKind kind, ContentError& err)
         {
             if (!characterReady(host, err))
@@ -318,8 +338,7 @@ namespace Dark
             }
             const CharacterHost character{ *host.world, *host.renderer, *host.assets, *host.pins, *host.audio, *host.ground };
             const ArchetypeParamsComponent* params = host.world->get<ArchetypeParamsComponent>(entity);
-            const float hp = (params && params->healthMax > 0.0f) ? params->healthMax : (kind == NpcKind::Wolf ? 60.0f : 100.0f);
-            ensureHumanoidBody(*host.world, entity, hp, Math::Vector3f{ 0.35f, 0.7f, 0.35f });
+            ensureHumanoidBody(*host.world, entity, bodyHealth(params), Math::Vector3f{ 0.35f, 0.7f, 0.35f });
             attachListedModel(host, entity, character);
             configureNpc(character, entity, kind);
             return true;
@@ -359,8 +378,7 @@ namespace Dark
                 return false;
             const CharacterHost character{ *host.world, *host.renderer, *host.assets, *host.pins, *host.audio, *host.ground };
             const ArchetypeParamsComponent* params = host.world->get<ArchetypeParamsComponent>(entity);
-            const float hp = (params && params->healthMax > 0.0f) ? params->healthMax : 200.0f;
-            ensureHumanoidBody(*host.world, entity, hp, Math::Vector3f{ 0.35f, 0.7f, 0.35f });
+            ensureHumanoidBody(*host.world, entity, bodyHealth(params), Math::Vector3f{ 0.35f, 0.7f, 0.35f });
             attachListedModel(host, entity, character);
             ensureLocalPlayerRig(character, entity, host.onWeaponHit, host.weaponHitUser);
             return true;

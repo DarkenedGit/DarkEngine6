@@ -3,6 +3,7 @@
 #include "Content/ContentDb.h"
 #include "Content/SceneObjectSpawn.h"
 #include "Core/ContentRoots.h"
+#include "Core/Json.h"
 #include "Sky/CloudVolume.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
@@ -3343,4 +3344,115 @@ TEST_F(SceneFile, CustomOverrideSurvivesRoundTrip)
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
+}
+
+TEST_F(SceneFile, EditorSaveKeepsDiffsAndUnknownKeys)
+{
+    using json = nlohmann::json;
+
+    SceneObjectData model;
+    model.archetype     = "core:model";
+    model.overridesJson = R"({"Model":{"gltf":"models/custom.gltf","anim":"models/custom.anim.json"}})";
+    sceneWriteModelDiff(model, "models/custom.gltf");
+    json modelBag = json::parse(model.overridesJson, nullptr, false);
+    ASSERT_TRUE(modelBag.is_object());
+    ASSERT_TRUE(modelBag.contains("Model") && modelBag["Model"].is_object());
+    const auto* modelGltf = modelBag["Model"]["gltf"].get_ptr<const json::string_t*>();
+    const auto* modelAnim = modelBag["Model"]["anim"].get_ptr<const json::string_t*>();
+    ASSERT_NE(modelGltf, nullptr);
+    ASSERT_NE(modelAnim, nullptr);
+    EXPECT_EQ(*modelGltf, "models/custom.gltf");
+    EXPECT_EQ(*modelAnim, "models/custom.anim.json");
+
+    SceneFileData saved{};
+    saved.version = 3;
+    saved.name    = "ut_editor_diff";
+    saved.objects.push_back(model);
+    const auto path = tempScenePath("darkengine6_editor_diff_ut.json");
+    std::string err;
+    ASSERT_TRUE(saveSceneToJson(path, saved, &err)) << err;
+    SceneFileData loaded{};
+    ASSERT_TRUE(loadSceneFromJson(path, loaded, &err)) << err;
+    ASSERT_EQ(loaded.objects.size(), 1u);
+    EXPECT_NE(loaded.objects[0].overridesJson.find("models/custom.anim.json"), std::string::npos);
+    EXPECT_NE(loaded.objects[0].overridesJson.find("models/custom.gltf"), std::string::npos);
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+
+    SceneObjectData playerProbe;
+    playerProbe.archetype = "core:player";
+    const json playerModel = json::parse(sceneArchetypeComponentJson(playerProbe, "Model"), nullptr, false);
+    const auto* playerGltf = playerModel.is_object() && playerModel.contains("gltf") ? playerModel["gltf"].get_ptr<const json::string_t*>() : nullptr;
+    ASSERT_NE(playerGltf, nullptr);
+    SceneObjectData player;
+    player.archetype     = "core:player";
+    player.overridesJson = std::string(R"({"Model":{"gltf":")") + *playerGltf + R"(","anim":"models/custom.anim.json"}})";
+    sceneWriteModelDiff(player, *playerGltf);
+    json playerBag = json::parse(player.overridesJson, nullptr, false);
+    ASSERT_TRUE(playerBag.contains("Model") && playerBag["Model"].is_object());
+    EXPECT_FALSE(playerBag["Model"].contains("gltf"));
+    const auto* playerAnim = playerBag["Model"]["anim"].get_ptr<const json::string_t*>();
+    ASSERT_NE(playerAnim, nullptr);
+    EXPECT_EQ(*playerAnim, "models/custom.anim.json");
+
+    SceneObjectData point;
+    point.archetype = "core:point_light";
+    SceneLightFields fields;
+    fields.kind         = "point";
+    fields.intensity    = sceneLightFloat(point, "intensity", 0.0f);
+    fields.range        = sceneLightFloat(point, "range", 0.0f);
+    fields.innerDeg     = sceneLightFloat(point, "inner", 0.0f);
+    fields.outerDeg     = sceneLightFloat(point, "outer", 0.0f);
+    fields.sourceRadius = sceneLightFloat(point, "sourceRadius", 0.0f);
+    fields.enabled      = sceneLightBool(point, "enabled", false);
+    fields.castShadow   = sceneLightBool(point, "castShadow", true);
+    sceneWriteLightDiff(point, fields);
+    EXPECT_EQ(point.overridesJson.find("LocalLight"), std::string::npos);
+
+    fields.intensity = sceneLightFloat(point, "intensity", 0.0f) + 25.0f;
+    sceneWriteLightDiff(point, fields);
+    json lightBag = json::parse(point.overridesJson, nullptr, false);
+    ASSERT_TRUE(lightBag.contains("LocalLight") && lightBag["LocalLight"].is_object());
+    EXPECT_EQ(lightBag["LocalLight"].size(), 1u);
+    EXPECT_TRUE(lightBag["LocalLight"].contains("intensity"));
+
+    SceneObjectData spot;
+    spot.archetype     = "core:spot_light";
+    spot.overridesJson = R"({"LocalLight":{"searchlight":true,"sweep":40.0,"circuit":"gate"}})";
+    SceneLightFields spotFields;
+    spotFields.kind         = "spot";
+    spotFields.intensity    = sceneLightFloat(spot, "intensity", 0.0f);
+    spotFields.range        = sceneLightFloat(spot, "range", 0.0f);
+    spotFields.innerDeg     = sceneLightFloat(spot, "inner", 0.0f);
+    spotFields.outerDeg     = sceneLightFloat(spot, "outer", 0.0f);
+    spotFields.sourceRadius = sceneLightFloat(spot, "sourceRadius", 0.0f);
+    spotFields.enabled      = sceneLightBool(spot, "enabled", false);
+    spotFields.castShadow   = sceneLightBool(spot, "castShadow", true);
+    sceneWriteLightDiff(spot, spotFields);
+    json spotBag = json::parse(spot.overridesJson, nullptr, false);
+    ASSERT_TRUE(spotBag.contains("LocalLight") && spotBag["LocalLight"].is_object());
+    const auto* searchlight = spotBag["LocalLight"]["searchlight"].get_ptr<const json::boolean_t*>();
+    const auto* circuit     = spotBag["LocalLight"]["circuit"].get_ptr<const json::string_t*>();
+    ASSERT_NE(searchlight, nullptr);
+    ASSERT_NE(circuit, nullptr);
+    EXPECT_TRUE(*searchlight);
+    EXPECT_EQ(*circuit, "gate");
+    float sweep = 0.0f;
+    EXPECT_TRUE(jsonFloatOr(spotBag["LocalLight"], "sweep", sweep, 0.0f, "EditorSaveDiff"));
+    EXPECT_NEAR(sweep, 40.0f, 1.0e-4f);
+    EXPECT_FALSE(spotBag["LocalLight"].contains("intensity"));
+
+    SceneObjectData emitter;
+    emitter.archetype = "core:particle_emitter";
+    sceneWriteParticleDiff(emitter, ParticleEmitterDesc{});
+    EXPECT_EQ(emitter.overridesJson.find("ParticleEmitter"), std::string::npos);
+    ParticleEmitterDesc edited{};
+    edited.emissionRate = 12.0f;
+    sceneWriteParticleDiff(emitter, edited);
+    json emitterBag = json::parse(emitter.overridesJson, nullptr, false);
+    ASSERT_TRUE(emitterBag.contains("ParticleEmitter") && emitterBag["ParticleEmitter"].is_object());
+    EXPECT_EQ(emitterBag["ParticleEmitter"].size(), 1u);
+    float rate = 0.0f;
+    EXPECT_TRUE(jsonFloatOr(emitterBag["ParticleEmitter"], "emissionRate", rate, 0.0f, "EditorSaveDiff"));
+    EXPECT_NEAR(rate, 12.0f, 1.0e-3f);
 }

@@ -1,10 +1,12 @@
 #pragma once
 
+#include "Character/Health.h"
 #include "ECS/Entity.h"
 #include "Math/Vector3f.h"
 #include "Weapons/Weapon.h"
 
 #include <cstdint>
+#include <string_view>
 
 namespace Dark
 {
@@ -58,8 +60,11 @@ namespace Dark
     // Does not skip an entity that already has a model. Callers keep that early-out.
     ContentModelResult attachContentModel(const CharacterHost& host, Entity e, const char* gltfPath, ModelAttach mode);
 
+    // Health from an archetype's Health component. A missing component logs once and returns HealthSettings{}.
+    HealthSettings archetypeHealthSettings(std::string_view archetypeId);
+
     // Adds health, hit reaction, a hittable, and posed hit volumes only when each one is missing.
-    void ensureHumanoidBody(World& world, Entity e, float maxHp, const Math::Vector3f& halfExtents);
+    void ensureHumanoidBody(World& world, Entity e, const HealthSettings& hp, const Math::Vector3f& halfExtents);
 
     // Motor, HSM, weapons, throwable belt, shield, sounds, and the player skill profile. Melee timing is set only when the loadout is created.
     // Movement speeds are re-read from entities/player.entity.movement.json. Crouch, dodge, and motor progress stay as they are.

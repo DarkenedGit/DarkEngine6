@@ -121,10 +121,11 @@ bool EditorApp::saveScene()
         if (ParticleEmitterComponent* pe = world().get<ParticleEmitterComponent>(e))
         {
             if (pe->runtime)
-                sceneDataFromDesc(pe->runtime->desc(), d);
+                sceneWriteParticleDiff(d, pe->runtime->desc());
             else
-                sceneDataFromDesc(pe->desc, d);
+                sceneWriteParticleDiff(d, pe->desc);
         }
+        // Searchlight, sweep, and circuit stay on the copied bag. They are not light-component fields.
         if (const auto* light = world().get<LocalLightComponent>(e))
         {
             SceneLightFields fields;
@@ -136,10 +137,7 @@ bool EditorApp::saveScene()
             fields.sourceRadius = light->sourceRadius;
             fields.enabled      = light->enabled;
             fields.castShadow   = light->castShadow;
-            fields.searchlight  = sceneSearchlight(so.source);
-            fields.sweepDeg     = sceneSweepDeg(so.source);
-            fields.circuit      = circuit;
-            sceneWriteLight(d, fields);
+            sceneWriteLightDiff(d, fields);
             d.color[0] = light->color.x;
             d.color[1] = light->color.y;
             d.color[2] = light->color.z;
@@ -150,7 +148,7 @@ bool EditorApp::saveScene()
             fields.kind      = "directional";
             fields.intensity = dir->intensity;
             fields.enabled   = dir->enabled;
-            sceneWriteLight(d, fields);
+            sceneWriteLightDiff(d, fields);
             d.color[0] = dir->color.x;
             d.color[1] = dir->color.y;
             d.color[2] = dir->color.z;
@@ -161,18 +159,18 @@ bool EditorApp::saveScene()
             fields.kind      = "ambient";
             fields.intensity = amb->intensity;
             fields.enabled   = amb->enabled;
-            sceneWriteLight(d, fields);
+            sceneWriteLightDiff(d, fields);
             d.color[0] = amb->color.x;
             d.color[1] = amb->color.y;
             d.color[2] = amb->color.z;
         }
         if (const auto* mc = world().get<MeshComponent>(e))
-            sceneWriteEmissive(d, mc->emissive);
+            sceneWriteEmissiveDiff(d, mc->emissive);
         if (const CloudVolumeComponent* cloud = world().get<CloudVolumeComponent>(e))
-            sceneDataFromCloudDesc(cloud->desc, d);
+            sceneWriteCloudDiff(d, cloud->desc);
         if (const StreamComponent* stream = world().get<StreamComponent>(e))
         {
-            sceneWriteStream(d, stream->width, stream->flowSpeed, stream->points);
+            sceneWriteStreamDiff(d, stream->width, stream->flowSpeed, stream->points);
             if (!stream->points.empty())
             {
                 d.position.x = stream->points.front().x;
@@ -180,13 +178,9 @@ bool EditorApp::saveScene()
             }
         }
         if (const SpawnerComponent* spawner = world().get<SpawnerComponent>(e))
-        {
-            SpawnerDesc desc = spawner->desc;
-            clampSpawnerDesc(desc);
-            sceneWriteSpawner(d, desc);
-        }
+            sceneWriteSpawnerDiff(d, spawner->desc);
         if (const MovieCueComponent* cue = world().get<MovieCueComponent>(e))
-            sceneWriteMovie(d, cue->path, cue->radius, cue->loop);
+            sceneWriteMovieDiff(d, cue->path, cue->radius, cue->loop);
         sceneSetString(d, "pickup", so.pickup);
         sceneSetInt(d, "pickupCount", so.pickup.empty() ? 1 : (so.pickupCount > 0 ? so.pickupCount : 1));
         sceneSetString(d, "dialogue", so.dialogue);
@@ -202,7 +196,7 @@ bool EditorApp::saveScene()
                     modelPath = virt.empty() ? model->sourcePath().generic_string() : virt;
                 }
             }
-            sceneWriteModelPath(d, std::move(modelPath));
+            sceneWriteModelDiff(d, std::move(modelPath));
         }
         data.objects.push_back(d);
         saved.push_back(e);

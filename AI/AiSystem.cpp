@@ -27,6 +27,7 @@
 #include "Math/Sphere3f.h"
 #include "Terrain/HeightMap.h"
 #include "Terrain/TerrainGrid.h"
+#include "Play/CharacterAttach.h"
 #include "Play/Crow.h"
 #include "Play/PlayMotor.h"
 #include "Play/Spawner.h"
@@ -240,16 +241,6 @@ namespace Dark
             return true;
 
         const EntityCombat& combat = entityCombatFor("hunter");
-        if (!world.has<HealthComponent>(e))
-        {
-            HealthSettings hs;
-            hs.maxHp       = combat.healthMax;
-            hs.regenPerSec = combat.healthRegen;
-            hs.regenDelay  = combat.healthRegenDelay;
-            HealthComponent hc{};
-            hc.health = Health{ hs };
-            world.emplace<HealthComponent>(e, std::move(hc));
-        }
         if (!world.has<HitReactionComponent>(e))
         {
             HitReactionComponent hr{};
@@ -337,6 +328,7 @@ namespace Dark
             world.destroyEntity(e);
             return {};
         }
+        ensureHumanoidBody(world, e, archetypeHealthSettings("core:hunter"), Math::Vector3f{ 0.35f, 0.7f, 0.35f });
         return e;
     }
 
