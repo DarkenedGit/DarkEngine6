@@ -158,3 +158,44 @@ TEST(FoliageShowcase, RockKeepsOneBoulder)
     EXPECT_LT(spanX, 8.0f);
     EXPECT_LT(spanZ, 8.0f);
 }
+
+TEST(FoliageShowcase, ShowcaseExtractsMultipleClusters)
+{
+    auto plant = [](const char* name, float x, float y, float z) {
+        Model::Part part;
+        part.name = name;
+        part.mesh.positions.push_back(Math::Vector3f(0.0f, 0.0f, 0.0f));
+        part.mesh.positions.push_back(Math::Vector3f(0.1f, 0.4f, 0.0f));
+        part.mesh.positions.push_back(Math::Vector3f(0.0f, 0.4f, 0.1f));
+        part.mesh.indices = { 0, 1, 2 };
+        part.localToRoot = Math::Matrix4f::TranslationMatrix(x, y, z);
+        return part;
+    };
+
+    std::vector<Model::Part> parts;
+    parts.push_back(plant("near_a", 0.0f, 1.0f, 0.0f));
+    parts.push_back(plant("near_b", 0.05f, 1.2f, 0.0f));
+    parts.push_back(plant("LOD1_dropped", 0.0f, 1.0f, 0.0f));
+    parts.push_back(plant("far", 2.0f, 0.5f, 0.0f));
+
+    std::vector<std::vector<Model::Part>> clusters;
+    ASSERT_TRUE(makeFoliageShowcaseClusters(parts, clusters));
+    ASSERT_EQ(clusters.size(), 2u);
+    EXPECT_EQ(clusters[0].size(), 2u);
+    EXPECT_EQ(clusters[1].size(), 1u);
+    for (const std::vector<Model::Part>& cluster : clusters)
+    {
+        for (const Model::Part& part : cluster)
+            EXPECT_EQ(part.name.find("LOD1"), std::string::npos) << part.name;
+        float minY = 0.0f;
+        float maxY = 0.0f;
+        float spanX = 0.0f;
+        float spanZ = 0.0f;
+        measure(cluster, minY, maxY, spanX, spanZ);
+        EXPECT_NEAR(minY, 0.0f, 0.02f);
+    }
+
+    std::vector<Model::Part> single;
+    ASSERT_TRUE(makeFoliageShowcaseParts(parts, single));
+    EXPECT_EQ(single.size(), 2u);
+}

@@ -35,6 +35,13 @@ inline std::string tileFoliageFileName(int tileX, int tileZ)
     return buf;
 }
 
+inline std::string tileCoverFileName(int tileX, int tileZ)
+{
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "t_%02d_%02d.cover.bin", tileX, tileZ);
+    return buf;
+}
+
 inline std::filesystem::path tileHeightPath(const std::filesystem::path& tileDir, int tileX, int tileZ)
 {
     return tileDir / tileHeightFileName(tileX, tileZ);
@@ -43,6 +50,11 @@ inline std::filesystem::path tileHeightPath(const std::filesystem::path& tileDir
 inline std::filesystem::path tileSplatPath(const std::filesystem::path& tileDir, int tileX, int tileZ)
 {
     return tileDir / tileSplatFileName(tileX, tileZ);
+}
+
+inline std::filesystem::path tileCoverPath(const std::filesystem::path& tileDir, int tileX, int tileZ)
+{
+    return tileDir / tileCoverFileName(tileX, tileZ);
 }
 
 } // namespace Dark::Terrain

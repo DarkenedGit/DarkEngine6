@@ -30,6 +30,7 @@
 #include "Terrain/FoliageSpawn.h"
 #include "Terrain/SplatMap.h"
 #include "Terrain/WorldEngineMap.h"
+#include "Water/WaterBody.h"
 #include "Water/WaterStream.h"
 
 #include <atomic>
@@ -432,11 +433,27 @@ bool SandboxApp::advanceBootSlice()
             m_foliageDensity.grassFlowersPerM2 = boot.scene.terrain.foliage.grassFlowersPerM2;
             m_foliageDensity.rockPerM2         = boot.scene.terrain.foliage.rockPerM2;
             m_foliageDensity.grassPerM2        = boot.scene.terrain.foliage.grassPerM2;
+            m_foliageDensity.treeMinNormalY    = boot.scene.terrain.foliage.treeMinNormalY;
+            m_foliageDensity.flowerMinNormalY  = boot.scene.terrain.foliage.flowerMinNormalY;
+            m_foliageDensity.tuftMinNormalY    = boot.scene.terrain.foliage.tuftMinNormalY;
+            m_foliageDensity.rockMinNormalY    = boot.scene.terrain.foliage.rockMinNormalY;
+            m_foliageDensity.treeMaxLeanDeg    = boot.scene.terrain.foliage.treeMaxLeanDeg;
+            m_foliageDensity.rockMaxPitchDeg   = boot.scene.terrain.foliage.rockMaxPitchDeg;
+            m_foliageDensity.treeSpacingM      = boot.scene.terrain.foliage.treeSpacingM;
+            m_foliageDensity.rockSpacingM      = boot.scene.terrain.foliage.rockSpacingM;
+            m_foliageDensity.patchStrength     = boot.scene.terrain.foliage.patchStrength;
+            m_foliageDensity.patchLargeM       = boot.scene.terrain.foliage.patchLargeM;
+            m_foliageDensity.patchMediumM      = boot.scene.terrain.foliage.patchMediumM;
+            m_foliageDensity.patchFineM        = boot.scene.terrain.foliage.patchFineM;
             m_foliageDensity.seed              = boot.scene.terrain.foliage.seed;
             m_foliageDensity.treeModel         = boot.scene.terrain.foliage.treeModel;
             m_foliageDensity.flowerModel       = boot.scene.terrain.foliage.flowerModel;
             m_foliageDensity.rockModel         = boot.scene.terrain.foliage.rockModel;
             m_foliageDensity.grassModel        = boot.scene.terrain.foliage.grassModel;
+            m_foliageDensity.trees             = boot.scene.terrain.foliage.trees;
+            m_foliageDensity.flowers           = boot.scene.terrain.foliage.flowers;
+            m_foliageDensity.rocks             = boot.scene.terrain.foliage.rocks;
+            m_foliageDensity.tufts             = boot.scene.terrain.foliage.tufts;
             m_leafShedScale                    = boot.scene.terrain.foliage.shedScale;
             m_wind = boot.scene.terrain.wind.settings;
             clampWindSettings(m_wind);
@@ -674,6 +691,7 @@ bool SandboxApp::advanceBootSlice()
                     boot.foliageIn.height    = height;
                     boot.foliageIn.splat     = splat;
                     boot.foliageIn.density   = m_foliageDensity;
+                    boot.foliageIn.trails    = boot.scene.terrain.trails.paths;
                     boot.foliageIn.tilesX    = m_terrain.tilesX();
                     boot.foliageIn.tilesZ    = m_terrain.tilesZ();
                     const int cells = m_terrain.tileCells();
@@ -681,10 +699,39 @@ bool SandboxApp::advanceBootSlice()
                     boot.foliageIn.cellSize  = m_terrain.cellSize();
                     boot.foliageIn.origin    = m_terrain.origin();
                     boot.foliageIn.seaLevel  = height->origin().y;
+                    m_foliagePrototypes.sync(renderer(), assets(), m_foliageDensity);
+                    const AssetRef<Model>& treeModel = m_foliagePrototypes.model(FoliageKind::Tree);
+                    if (treeModel && treeModel->bounds().IsValid())
+                    {
+                        const Vector3f extent = treeModel->bounds().Size();
+                        if (extent.x > 0.0f && extent.z > 0.0f)
+                        {
+                            boot.foliageIn.treeExtentX = extent.x;
+                            boot.foliageIn.treeExtentZ = extent.z;
+                        }
+                    }
                     FoliageWaterVolume lake;
                     lake.entireMap = true;
                     lake.surfaceY  = boot.waterLevel;
                     boot.foliageIn.water.push_back(lake);
+                    for (const SceneObjectData& object : boot.scene.objects)
+                    {
+                        if (object.type != SceneObjectType::Water)
+                            continue;
+                        float minX = 0.0f;
+                        float maxX = 0.0f;
+                        float minZ = 0.0f;
+                        float maxZ = 0.0f;
+                        if (!placedWaterFootprint(object.position.x, object.position.z, object.scale.x, object.scale.z, minX, maxX, minZ, maxZ))
+                            continue;
+                        FoliageWaterVolume pond;
+                        pond.minX     = minX;
+                        pond.maxX     = maxX;
+                        pond.minZ     = minZ;
+                        pond.maxZ     = maxZ;
+                        pond.surfaceY = object.position.y;
+                        boot.foliageIn.water.push_back(pond);
+                    }
                     boot.foliageArmed = true;
                     // Working height and splat stay put until this job finishes. Streaming starts later.
                     if (config().asyncSceneLoad && enqueueBootIo(jobs(), "FoliageSpawn", &SandboxApp::bootFoliage, m_boot))
@@ -728,7 +775,11 @@ bool SandboxApp::advanceBootSlice()
                 && boot.foliageFinished.load(std::memory_order_acquire)
                 && boot.foliageStatus == JobStatus::Ok;
             if (foliageOk)
+            {
                 m_foliage.swap(boot.foliageOut.records);
+                m_terrain.setWorkingCover(std::move(boot.foliageOut.cover));
+                m_grassField.markAllDirty();
+            }
             else
                 DE_LOG_WARN(LogCategory::Render, "SandboxApp: splat foliage spawn failed");
         }

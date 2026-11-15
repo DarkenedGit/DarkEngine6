@@ -5,6 +5,8 @@
 #include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
 #include "Play/Spawner.h"
+#include "Terrain/FoliageFile.h"
+#include "Terrain/TrailPath.h"
 #include "Terrain/WindTypes.h"
 
 #include <cstdint>
@@ -377,12 +379,28 @@ namespace Dark
         float       grassFlowersPerM2  = 0.008f;
         float       rockPerM2          = 0.004f;
         float       grassPerM2         = 0.0f;
+        float       treeMinNormalY     = 0.87f;
+        float       flowerMinNormalY   = 0.82f;
+        float       tuftMinNormalY     = 0.82f;
+        float       rockMinNormalY     = 0.40f;
+        float       treeMaxLeanDeg     = 7.0f;
+        float       rockMaxPitchDeg    = 30.0f;
+        float       treeSpacingM       = 3.0f;
+        float       rockSpacingM       = 0.0f;
+        float       patchStrength      = 0.0f;
+        float       patchLargeM        = 80.0f;
+        float       patchMediumM       = 22.0f;
+        float       patchFineM         = 4.0f;
         bool        stale              = false;
         float       shedScale          = 1.0f;
         std::string treeModel   = "models/BirchTree/scene.gltf";
         std::string flowerModel = "models/Dandelion/dandelion_01_2k.gltf";
         std::string rockModel   = "models/RockMoss/rock_moss_set_01_2k.gltf";
         std::string grassModel  = "models/Grass/grass_medium_01_2k.gltf";
+        std::vector<Terrain::FoliageSpecies> trees   = Terrain::defaultTreeSpecies();
+        std::vector<Terrain::FoliageSpecies> flowers = Terrain::defaultFlowerSpecies();
+        std::vector<Terrain::FoliageSpecies> rocks   = Terrain::defaultRockSpecies();
+        std::vector<Terrain::FoliageSpecies> tufts   = Terrain::defaultTuftSpecies();
     };
 
     struct GrassSceneDesc
@@ -430,6 +448,7 @@ namespace Dark
         FoliageSceneDesc      foliage;
         GrassSceneDesc        grass;
         WindSceneDesc         wind;
+        Terrain::TrailSet     trails;
     };
 
     // Celestial clock and weather. Absent from a file means the Environment defaults.

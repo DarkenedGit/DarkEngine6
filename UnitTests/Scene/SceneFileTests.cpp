@@ -7,6 +7,7 @@
 #include "Scene/SceneFile.h"
 #include "Terrain/FoliageFile.h"
 #include "Terrain/GrassTypes.h"
+#include "Terrain/TrailPath.h"
 #include "Terrain/LeafField.h"
 #include "Terrain/WindTypes.h"
 
@@ -971,6 +972,18 @@ TEST(SceneFile, TerrainFoliage_RoundTrip)
     in.terrain.foliage.grassFlowersPerM2  = 1.25f;
     in.terrain.foliage.rockPerM2          = 0.125f;
     in.terrain.foliage.grassPerM2         = 0.4f;
+    in.terrain.foliage.treeMinNormalY     = 0.91f;
+    in.terrain.foliage.flowerMinNormalY   = 0.75f;
+    in.terrain.foliage.tuftMinNormalY     = 0.66f;
+    in.terrain.foliage.rockMinNormalY     = 0.33f;
+    in.terrain.foliage.treeMaxLeanDeg     = 12.0f;
+    in.terrain.foliage.rockMaxPitchDeg    = 44.0f;
+    in.terrain.foliage.treeSpacingM       = 5.5f;
+    in.terrain.foliage.rockSpacingM       = 4.0f;
+    in.terrain.foliage.patchStrength      = 0.35f;
+    in.terrain.foliage.patchLargeM        = 100.0f;
+    in.terrain.foliage.patchMediumM       = 18.0f;
+    in.terrain.foliage.patchFineM         = 3.0f;
     in.terrain.foliage.stale              = true;
     in.terrain.foliage.treeModel          = "models/tree.gltf";
     in.terrain.foliage.flowerModel        = "models/flower.gltf";
@@ -1006,6 +1019,18 @@ TEST(SceneFile, TerrainFoliage_RoundTrip)
     EXPECT_NE(text.find("\"flowerModel\": \"models/flower.gltf\""), std::string::npos);
     EXPECT_NE(text.find("\"rockModel\": \"models/rock.gltf\""), std::string::npos);
     EXPECT_NE(text.find("\"grassModel\": \"models/Grass/grass_medium_01_2k.gltf\""), std::string::npos);
+    EXPECT_NE(text.find("\"treeMinNormalY\""), std::string::npos);
+    EXPECT_NE(text.find("\"flowerMinNormalY\""), std::string::npos);
+    EXPECT_NE(text.find("\"tuftMinNormalY\""), std::string::npos);
+    EXPECT_NE(text.find("\"rockMinNormalY\""), std::string::npos);
+    EXPECT_NE(text.find("\"treeMaxLeanDeg\""), std::string::npos);
+    EXPECT_NE(text.find("\"rockMaxPitchDeg\""), std::string::npos);
+    EXPECT_NE(text.find("\"treeSpacingM\""), std::string::npos);
+    EXPECT_NE(text.find("\"rockSpacingM\""), std::string::npos);
+    EXPECT_NE(text.find("\"patchStrength\""), std::string::npos);
+    EXPECT_NE(text.find("\"patchLargeM\""), std::string::npos);
+    EXPECT_NE(text.find("\"patchMediumM\""), std::string::npos);
+    EXPECT_NE(text.find("\"patchFineM\""), std::string::npos);
 
     SceneFileData out{};
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
@@ -1026,11 +1051,25 @@ TEST(SceneFile, TerrainFoliage_RoundTrip)
     EXPECT_NEAR(out.terrain.foliage.grassFlowersPerM2, 1.25f, 1.0e-5f);
     EXPECT_NEAR(out.terrain.foliage.rockPerM2, 0.125f, 1.0e-5f);
     EXPECT_NEAR(out.terrain.foliage.grassPerM2, 0.4f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.treeMinNormalY, 0.91f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.flowerMinNormalY, 0.75f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.tuftMinNormalY, 0.66f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.rockMinNormalY, 0.33f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.treeMaxLeanDeg, 12.0f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.rockMaxPitchDeg, 44.0f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.treeSpacingM, 5.5f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.rockSpacingM, 4.0f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.patchStrength, 0.35f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.patchLargeM, 100.0f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.patchMediumM, 18.0f, 1.0e-5f);
+    EXPECT_NEAR(out.terrain.foliage.patchFineM, 3.0f, 1.0e-5f);
     EXPECT_TRUE(out.terrain.foliage.stale);
     EXPECT_EQ(out.terrain.foliage.treeModel, "models/tree.gltf");
     EXPECT_EQ(out.terrain.foliage.flowerModel, "models/flower.gltf");
     EXPECT_EQ(out.terrain.foliage.rockModel, "models/rock.gltf");
     EXPECT_EQ(out.terrain.foliage.grassModel, "models/Grass/grass_medium_01_2k.gltf");
+    ASSERT_EQ(out.terrain.foliage.trees.size(), in.terrain.foliage.trees.size());
+    EXPECT_EQ(out.terrain.foliage.trees[0].path, in.terrain.foliage.trees[0].path);
     EXPECT_TRUE(out.terrain.grass.enabled);
     EXPECT_NEAR(out.terrain.grass.heightMetres, 0.80f, 1.0e-5f);
     EXPECT_NEAR(out.terrain.grass.flexibility, 0.25f, 1.0e-5f);
@@ -1059,9 +1098,140 @@ TEST(SceneFile, TerrainFoliage_RoundTrip)
     EXPECT_EQ(text2d.find("\"grass\""), std::string::npos);
     EXPECT_NE(text2d.find("\"version\": 2"), std::string::npos);
 
+    const auto omitted = tempScenePath("darkengine6_scene_terrain_foliage_slope_omitted_ut.json");
+    {
+        std::ofstream file(omitted, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(file));
+        file << R"({
+  "version": 2,
+  "name": "slope_omitted",
+  "mode": "3d",
+  "terrain": {
+    "bindLayout": 1,
+    "foliage": { "version": 1, "seed": 7 },
+    "layers": []
+  },
+  "objects": []
+})";
+    }
+    SceneFileData omittedOut{};
+    ASSERT_TRUE(loadSceneFromJson(omitted, omittedOut, &err)) << err;
+    EXPECT_EQ(omittedOut.version, 2);
+    EXPECT_TRUE(omittedOut.terrain.foliage.present);
+    EXPECT_NEAR(omittedOut.terrain.foliage.treeMinNormalY, 0.87f, 1.0e-5f);
+    EXPECT_NEAR(omittedOut.terrain.foliage.flowerMinNormalY, 0.82f, 1.0e-5f);
+    EXPECT_NEAR(omittedOut.terrain.foliage.tuftMinNormalY, 0.82f, 1.0e-5f);
+    EXPECT_NEAR(omittedOut.terrain.foliage.rockMinNormalY, 0.40f, 1.0e-5f);
+    EXPECT_NEAR(omittedOut.terrain.foliage.treeMaxLeanDeg, 7.0f, 1.0e-5f);
+    EXPECT_NEAR(omittedOut.terrain.foliage.rockMaxPitchDeg, 30.0f, 1.0e-5f);
+    EXPECT_NEAR(omittedOut.terrain.foliage.treeSpacingM, 3.0f, 1.0e-5f);
+    EXPECT_NEAR(omittedOut.terrain.foliage.rockSpacingM, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(omittedOut.terrain.foliage.patchStrength, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(omittedOut.terrain.foliage.patchLargeM, 80.0f, 1.0e-5f);
+    EXPECT_NEAR(omittedOut.terrain.foliage.patchMediumM, 22.0f, 1.0e-5f);
+    EXPECT_NEAR(omittedOut.terrain.foliage.patchFineM, 4.0f, 1.0e-5f);
+
     std::error_code removeEc;
     std::filesystem::remove(path, removeEc);
     std::filesystem::remove(path2d, removeEc);
+    std::filesystem::remove(omitted, removeEc);
+}
+
+TEST(SceneFile, TerrainFoliage_SpeciesListRoundTrip)
+{
+    const auto path = tempScenePath("darkengine6_scene_foliage_species_ut.json");
+    {
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(file));
+        file << R"({
+  "version": 2,
+  "name": "species",
+  "mode": "3d",
+  "terrain": {
+    "bindLayout": 1,
+    "foliage": {
+      "version": 1,
+      "trees": [
+        { "path": "models/a.gltf", "weight": 3.0, "scaleMin": 0.7, "scaleMax": 1.6, "worldScale": false },
+        { "path": "models/b.gltf", "weight": 1.0, "scaleMin": 0.9, "scaleMax": 1.1, "worldScale": true }
+      ]
+    },
+    "layers": []
+  },
+  "objects": []
+})";
+    }
+
+    SceneFileData data{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
+    EXPECT_EQ(data.version, 2);
+    ASSERT_EQ(data.terrain.foliage.trees.size(), 2u);
+    EXPECT_EQ(data.terrain.foliage.trees[0].path, "models/a.gltf");
+    EXPECT_NEAR(data.terrain.foliage.trees[0].weight, 3.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.trees[0].scaleMin, 0.7f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.trees[0].scaleMax, 1.6f, 1.0e-5f);
+    EXPECT_FALSE(data.terrain.foliage.trees[0].worldScale);
+    EXPECT_EQ(data.terrain.foliage.trees[1].path, "models/b.gltf");
+    EXPECT_NEAR(data.terrain.foliage.trees[1].weight, 1.0f, 1.0e-5f);
+    EXPECT_TRUE(data.terrain.foliage.trees[1].worldScale);
+
+    const auto saved = tempScenePath("darkengine6_scene_foliage_species_saved_ut.json");
+    ASSERT_TRUE(saveSceneToJson(saved, data, &err)) << err;
+    std::string text;
+    {
+        std::ifstream inFile(saved);
+        ASSERT_TRUE(static_cast<bool>(inFile));
+        text.assign((std::istreambuf_iterator<char>(inFile)), std::istreambuf_iterator<char>());
+    }
+    EXPECT_NE(text.find("\"version\": 2"), std::string::npos);
+    EXPECT_NE(text.find("\"version\": 1"), std::string::npos);
+    EXPECT_EQ(text.find("\"version\": 3"), std::string::npos);
+
+    SceneFileData again{};
+    ASSERT_TRUE(loadSceneFromJson(saved, again, &err)) << err;
+    ASSERT_EQ(again.terrain.foliage.trees.size(), 2u);
+    EXPECT_EQ(again.terrain.foliage.trees[0].path, "models/a.gltf");
+    EXPECT_NEAR(again.terrain.foliage.trees[0].weight, 3.0f, 1.0e-5f);
+    EXPECT_EQ(again.terrain.foliage.trees[1].path, "models/b.gltf");
+    EXPECT_NEAR(again.terrain.foliage.trees[1].weight, 1.0f, 1.0e-5f);
+    EXPECT_TRUE(again.terrain.foliage.trees[1].worldScale);
+
+    std::error_code removeEc;
+    std::filesystem::remove(path, removeEc);
+    std::filesystem::remove(saved, removeEc);
+}
+
+TEST(SceneFile, TerrainFoliage_LegacyTreeModelOneEntry)
+{
+    const auto path = tempScenePath("darkengine6_scene_foliage_legacy_model_ut.json");
+    {
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(file));
+        file << R"({
+  "version": 2,
+  "name": "legacy_tree",
+  "mode": "3d",
+  "terrain": {
+    "bindLayout": 1,
+    "foliage": { "version": 1, "treeModel": "models/oak.gltf" },
+    "layers": []
+  },
+  "objects": []
+})";
+    }
+
+    SceneFileData data{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
+    EXPECT_EQ(data.version, 2);
+    EXPECT_EQ(data.terrain.foliage.treeModel, "models/oak.gltf");
+    ASSERT_EQ(data.terrain.foliage.trees.size(), 1u);
+    EXPECT_EQ(data.terrain.foliage.trees[0].path, "models/oak.gltf");
+    EXPECT_NEAR(data.terrain.foliage.trees[0].weight, 1.0f, 1.0e-5f);
+
+    std::error_code removeEc;
+    std::filesystem::remove(path, removeEc);
 }
 
 TEST(SceneFile, TerrainFoliage_MissingKey_Defaults)
@@ -1119,6 +1289,24 @@ TEST(SceneFile, TerrainFoliage_MissingKey_Defaults)
     EXPECT_NEAR(data.terrain.foliage.grassFlowersPerM2, defaults.grassFlowersPerM2, 1.0e-6f);
     EXPECT_NEAR(data.terrain.foliage.rockPerM2, defaults.rockPerM2, 1.0e-6f);
     EXPECT_NEAR(data.terrain.foliage.grassPerM2, defaults.grassPerM2, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.treeMinNormalY, 0.87f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.flowerMinNormalY, 0.82f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.tuftMinNormalY, 0.82f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.rockMinNormalY, 0.40f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.treeMaxLeanDeg, 7.0f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.rockMaxPitchDeg, 30.0f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.treeSpacingM, 3.0f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.rockSpacingM, 0.0f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.treeSpacingM, defaults.treeSpacingM, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.rockSpacingM, defaults.rockSpacingM, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.patchStrength, 0.0f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.patchLargeM, 80.0f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.patchMediumM, 22.0f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.patchFineM, 4.0f, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.patchStrength, defaults.patchStrength, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.patchLargeM, defaults.patchLargeM, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.patchMediumM, defaults.patchMediumM, 1.0e-6f);
+    EXPECT_NEAR(data.terrain.foliage.patchFineM, defaults.patchFineM, 1.0e-6f);
     EXPECT_EQ(data.terrain.foliage.treeModel, defaults.treeModel);
     EXPECT_EQ(data.terrain.foliage.flowerModel, defaults.flowerModel);
     EXPECT_EQ(data.terrain.foliage.rockModel, defaults.rockModel);
@@ -1155,6 +1343,18 @@ TEST(SceneFile, TerrainFoliage_ClampDensities)
       "grassFlowersPerM2": 1e20,
       "rockPerM2": -2.5,
       "grassPerM2": 8.0,
+      "treeMinNormalY": 3.0,
+      "flowerMinNormalY": -1.0,
+      "tuftMinNormalY": 4.0,
+      "rockMinNormalY": -0.2,
+      "treeMaxLeanDeg": 40.0,
+      "rockMaxPitchDeg": 120.0,
+      "treeSpacingM": 40.0,
+      "rockSpacingM": -3.0,
+      "patchStrength": 5.0,
+      "patchLargeM": 500.0,
+      "patchMediumM": 100.0,
+      "patchFineM": 20.0,
       "treeModel": "models/oak.gltf",
       "grassModel": "models/Grass/custom.gltf",
       "notes": "ignored"
@@ -1184,11 +1384,52 @@ TEST(SceneFile, TerrainFoliage_ClampDensities)
     EXPECT_NEAR(data.terrain.foliage.grassFlowersPerM2, 2.0f, 1.0e-5f);
     EXPECT_NEAR(data.terrain.foliage.rockPerM2, 0.0f, 1.0e-5f);
     EXPECT_NEAR(data.terrain.foliage.grassPerM2, 1.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.treeMinNormalY, 1.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.flowerMinNormalY, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.tuftMinNormalY, 1.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.rockMinNormalY, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.treeMaxLeanDeg, 15.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.rockMaxPitchDeg, 89.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.treeSpacingM, 16.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.rockSpacingM, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.patchStrength, 1.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.patchLargeM, 120.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.patchMediumM, 30.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.foliage.patchFineM, 6.0f, 1.0e-5f);
     EXPECT_EQ(data.terrain.foliage.treeModel, "models/oak.gltf");
     EXPECT_EQ(data.terrain.foliage.grassModel, "models/Grass/custom.gltf");
     const Terrain::FoliageDensity modelDefaults{};
     EXPECT_EQ(data.terrain.foliage.flowerModel, modelDefaults.flowerModel);
     EXPECT_EQ(data.terrain.foliage.rockModel, modelDefaults.rockModel);
+
+    const auto lowPath = tempScenePath("darkengine6_scene_terrain_foliage_clamp_low_ut.json");
+    {
+        std::ofstream lowFile(lowPath, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(lowFile));
+        lowFile << R"({
+  "version": 2,
+  "name": "foliage_clamp_low",
+  "mode": "3d",
+  "terrain": {
+    "bindLayout": 1,
+    "foliage": {
+      "version": 1,
+      "patchStrength": -1.0,
+      "patchLargeM": 10.0,
+      "patchMediumM": 1.0,
+      "patchFineM": 0.5
+    },
+    "layers": []
+  },
+  "objects": []
+})";
+    }
+    SceneFileData low{};
+    ASSERT_TRUE(loadSceneFromJson(lowPath, low, &err)) << err;
+    EXPECT_NEAR(low.terrain.foliage.patchStrength, 0.0f, 1.0e-5f);
+    EXPECT_NEAR(low.terrain.foliage.patchLargeM, 60.0f, 1.0e-5f);
+    EXPECT_NEAR(low.terrain.foliage.patchMediumM, 15.0f, 1.0e-5f);
+    EXPECT_NEAR(low.terrain.foliage.patchFineM, 2.0f, 1.0e-5f);
 
     std::string text;
     {
@@ -1201,6 +1442,201 @@ TEST(SceneFile, TerrainFoliage_ClampDensities)
 
     std::error_code removeEc;
     std::filesystem::remove(path, removeEc);
+    std::filesystem::remove(lowPath, removeEc);
+}
+
+TEST(SceneFile, TerrainFoliage_TrailsMissingLoadsEmpty)
+{
+    const auto path = tempScenePath("darkengine6_scene_terrain_trails_missing_ut.json");
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "notrails",
+  "mode": "3d",
+  "terrain": {
+    "bindLayout": 1,
+    "foliage": { "version": 1 },
+    "layers": []
+  },
+  "objects": []
+})";
+    }
+
+    SceneFileData data{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
+    EXPECT_EQ(data.version, 2);
+    EXPECT_TRUE(data.hasTerrain);
+    EXPECT_TRUE(data.terrain.foliage.present);
+    EXPECT_FALSE(data.terrain.trails.autoGenerate);
+    EXPECT_EQ(data.terrain.trails.maxAutoPaths, 12);
+    EXPECT_NEAR(data.terrain.trails.humanWidth, 1.6f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.trails.animalWidth, 0.8f, 1.0e-5f);
+    EXPECT_TRUE(data.terrain.trails.paths.empty());
+
+    std::error_code removeEc;
+    std::filesystem::remove(path, removeEc);
+}
+
+TEST(SceneFile, TerrainFoliage_TrailsMissingAuthoredAndClamp)
+{
+    const auto path = tempScenePath("darkengine6_scene_terrain_trails_authored_ut.json");
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "trails",
+  "mode": "3d",
+  "terrain": {
+    "bindLayout": 1,
+    "foliage": { "version": 1 },
+    "trails": {
+      "autoGenerate": true,
+      "maxAutoPaths": 99,
+      "humanWidth": 12.0,
+      "animalWidth": 0.0,
+      "paths": [
+        {
+          "kind": "human",
+          "width": 1.6,
+          "points": [[1.0, 2.0], [3.0, 4.0]]
+        },
+        {
+          "kind": "animal",
+          "width": 9.0,
+          "authored": false,
+          "closed": true,
+          "points": [[0.0, 0.0], [8.0, 1.0]]
+        },
+        {
+          "kind": "bird",
+          "width": 1.0,
+          "points": [[0.0, 0.0], [1.0, 1.0]]
+        },
+        {
+          "kind": "human",
+          "width": -2.0,
+          "authored": true,
+          "points": [[4.0, 5.0], [6.0, 7.0]]
+        }
+      ]
+    },
+    "layers": []
+  },
+  "objects": []
+})";
+    }
+
+    SceneFileData data{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
+    EXPECT_EQ(data.version, 2);
+    EXPECT_TRUE(data.terrain.foliage.present);
+    EXPECT_TRUE(data.terrain.trails.autoGenerate);
+    EXPECT_EQ(data.terrain.trails.maxAutoPaths, 64);
+    EXPECT_NEAR(data.terrain.trails.humanWidth, 8.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.trails.animalWidth, 0.8f, 1.0e-5f);
+    ASSERT_EQ(data.terrain.trails.paths.size(), 3u);
+    EXPECT_EQ(data.terrain.trails.paths[0].kind, Terrain::TrailKind::Human);
+    EXPECT_TRUE(data.terrain.trails.paths[0].authored);
+    EXPECT_NEAR(data.terrain.trails.paths[0].width, 1.6f, 1.0e-5f);
+    ASSERT_EQ(data.terrain.trails.paths[0].points.size(), 2u);
+    EXPECT_NEAR(data.terrain.trails.paths[0].points[0].x, 1.0f, 1.0e-5f);
+    EXPECT_NEAR(data.terrain.trails.paths[0].points[0].z, 2.0f, 1.0e-5f);
+    EXPECT_EQ(data.terrain.trails.paths[1].kind, Terrain::TrailKind::Animal);
+    EXPECT_FALSE(data.terrain.trails.paths[1].authored);
+    EXPECT_TRUE(data.terrain.trails.paths[1].closed);
+    EXPECT_NEAR(data.terrain.trails.paths[1].width, 8.0f, 1.0e-5f);
+    EXPECT_EQ(data.terrain.trails.paths[2].kind, Terrain::TrailKind::Human);
+    EXPECT_TRUE(data.terrain.trails.paths[2].authored);
+    EXPECT_NEAR(data.terrain.trails.paths[2].width, 1.6f, 1.0e-5f);
+
+    const auto negative = tempScenePath("darkengine6_scene_terrain_trails_negative_ut.json");
+    {
+        std::ofstream out(negative, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "trails_neg",
+  "mode": "3d",
+  "terrain": {
+    "bindLayout": 1,
+    "trails": { "maxAutoPaths": -4 },
+    "layers": []
+  },
+  "objects": []
+})";
+    }
+    SceneFileData neg{};
+    ASSERT_TRUE(loadSceneFromJson(negative, neg, &err)) << err;
+    EXPECT_FALSE(neg.terrain.trails.autoGenerate);
+    EXPECT_EQ(neg.terrain.trails.maxAutoPaths, 0);
+    EXPECT_TRUE(neg.terrain.trails.paths.empty());
+
+    SceneFileData round{};
+    round.version = 2;
+    round.name = "trail_round";
+    round.mode = SceneMode::Scene3D;
+    round.hasTerrain = true;
+    round.terrain.foliage.present = true;
+    round.terrain.trails.autoGenerate = false;
+    round.terrain.trails.maxAutoPaths = 4;
+    round.terrain.trails.humanWidth = 2.0f;
+    round.terrain.trails.animalWidth = 0.5f;
+    Terrain::TrailPath human;
+    human.kind = Terrain::TrailKind::Human;
+    human.width = 2.0f;
+    human.authored = true;
+    human.points.push_back(Terrain::TrailPoint{ 1.0f, 2.0f });
+    human.points.push_back(Terrain::TrailPoint{ 3.0f, 4.0f });
+    human.points.push_back(Terrain::TrailPoint{ 5.0f, 6.0f });
+    Terrain::TrailPath animal;
+    animal.kind = Terrain::TrailKind::Animal;
+    animal.width = 0.5f;
+    animal.authored = false;
+    animal.closed = true;
+    animal.points.push_back(Terrain::TrailPoint{ 0.0f, 0.0f });
+    animal.points.push_back(Terrain::TrailPoint{ 8.0f, 1.0f });
+    animal.points.push_back(Terrain::TrailPoint{ 8.0f, 4.0f });
+    round.terrain.trails.paths.push_back(human);
+    round.terrain.trails.paths.push_back(animal);
+
+    const auto saved = tempScenePath("darkengine6_scene_terrain_trails_round_ut.json");
+    ASSERT_TRUE(saveSceneToJson(saved, round, &err)) << err;
+    std::string text;
+    {
+        std::ifstream inFile(saved);
+        ASSERT_TRUE(static_cast<bool>(inFile));
+        text.assign((std::istreambuf_iterator<char>(inFile)), std::istreambuf_iterator<char>());
+    }
+    EXPECT_NE(text.find("\"version\": 2"), std::string::npos);
+    EXPECT_NE(text.find("\"version\": 1"), std::string::npos);
+    EXPECT_EQ(text.find("\"version\": 3"), std::string::npos);
+    EXPECT_NE(text.find("\"trails\""), std::string::npos);
+    EXPECT_NE(text.find("\"authored\": false"), std::string::npos);
+
+    SceneFileData loaded{};
+    ASSERT_TRUE(loadSceneFromJson(saved, loaded, &err)) << err;
+    EXPECT_EQ(loaded.version, 2);
+    EXPECT_FALSE(loaded.terrain.trails.autoGenerate);
+    EXPECT_EQ(loaded.terrain.trails.maxAutoPaths, 4);
+    EXPECT_NEAR(loaded.terrain.trails.humanWidth, 2.0f, 1.0e-5f);
+    EXPECT_NEAR(loaded.terrain.trails.animalWidth, 0.5f, 1.0e-5f);
+    ASSERT_EQ(loaded.terrain.trails.paths.size(), 2u);
+    EXPECT_TRUE(loaded.terrain.trails.paths[0].authored);
+    EXPECT_EQ(loaded.terrain.trails.paths[0].kind, Terrain::TrailKind::Human);
+    EXPECT_EQ(loaded.terrain.trails.paths[0].points.size(), 3u);
+    EXPECT_FALSE(loaded.terrain.trails.paths[1].authored);
+    EXPECT_TRUE(loaded.terrain.trails.paths[1].closed);
+    EXPECT_EQ(loaded.terrain.trails.paths[1].kind, Terrain::TrailKind::Animal);
+
+    std::error_code removeEc;
+    std::filesystem::remove(path, removeEc);
+    std::filesystem::remove(negative, removeEc);
+    std::filesystem::remove(saved, removeEc);
 }
 
 TEST(SceneFile, FoliageShedScale_RoundTripClampAndMissing)

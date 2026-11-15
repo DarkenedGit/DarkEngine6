@@ -8,6 +8,7 @@
 #include "Particles/ParticleTypes.h"
 #include "Terrain/GrassTypes.h"
 #include "Terrain/TerrainTileFile.h"
+#include "Terrain/TrailPath.h"
 #include "Terrain/WindField.h"
 
 #include <cstdint>
@@ -653,13 +654,45 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             f["grassFlowersPerM2"] = scene.terrain.foliage.grassFlowersPerM2;
             f["rockPerM2"]         = scene.terrain.foliage.rockPerM2;
             f["grassPerM2"]        = scene.terrain.foliage.grassPerM2;
+            f["treeMinNormalY"]    = scene.terrain.foliage.treeMinNormalY;
+            f["flowerMinNormalY"]  = scene.terrain.foliage.flowerMinNormalY;
+            f["tuftMinNormalY"]    = scene.terrain.foliage.tuftMinNormalY;
+            f["rockMinNormalY"]    = scene.terrain.foliage.rockMinNormalY;
+            f["treeMaxLeanDeg"]    = scene.terrain.foliage.treeMaxLeanDeg;
+            f["rockMaxPitchDeg"]   = scene.terrain.foliage.rockMaxPitchDeg;
+            f["treeSpacingM"]      = scene.terrain.foliage.treeSpacingM;
+            f["rockSpacingM"]      = scene.terrain.foliage.rockSpacingM;
+            f["patchStrength"]     = scene.terrain.foliage.patchStrength;
+            f["patchLargeM"]       = scene.terrain.foliage.patchLargeM;
+            f["patchMediumM"]      = scene.terrain.foliage.patchMediumM;
+            f["patchFineM"]        = scene.terrain.foliage.patchFineM;
             f["stale"]             = scene.terrain.foliage.stale;
             f["shedScale"] = clampShedScale(scene.terrain.foliage.shedScale);
             f["treeModel"]         = scene.terrain.foliage.treeModel;
             f["flowerModel"]       = scene.terrain.foliage.flowerModel;
             f["rockModel"]         = scene.terrain.foliage.rockModel;
             f["grassModel"]        = scene.terrain.foliage.grassModel;
+            auto writeSpecies = [](json& dst, const char* key, const std::vector<Terrain::FoliageSpecies>& list)
+            {
+                json arr = json::array();
+                for (const Terrain::FoliageSpecies& species : list)
+                {
+                    json item;
+                    item["path"]       = species.path;
+                    item["weight"]     = species.weight;
+                    item["scaleMin"]   = species.scaleMin;
+                    item["scaleMax"]   = species.scaleMax;
+                    item["worldScale"] = species.worldScale;
+                    arr.push_back(std::move(item));
+                }
+                dst[key] = std::move(arr);
+            };
+            writeSpecies(f, "trees", scene.terrain.foliage.trees);
+            writeSpecies(f, "flowers", scene.terrain.foliage.flowers);
+            writeSpecies(f, "rocks", scene.terrain.foliage.rocks);
+            writeSpecies(f, "tufts", scene.terrain.foliage.tufts);
             t["foliage"]           = std::move(f);
+            t["trails"]            = Terrain::writeTrailSet(scene.terrain.trails);
             GrassSceneDesc grass = scene.terrain.grass;
             clampGrassScene(grass);
             json grassJson;
@@ -1036,6 +1069,18 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                     desc.foliage.grassFlowersPerM2  = Math::Clamp(jsonF(f, "grassFlowersPerM2", 0.008f), 0.0f, 2.0f);
                     desc.foliage.rockPerM2          = Math::Clamp(jsonF(f, "rockPerM2", 0.004f), 0.0f, 1.0f);
                     desc.foliage.grassPerM2         = Math::Clamp(jsonF(f, "grassPerM2", 0.0f), 0.0f, 1.0f);
+                    desc.foliage.treeMinNormalY     = Math::Clamp(jsonF(f, "treeMinNormalY", 0.87f), 0.0f, 1.0f);
+                    desc.foliage.flowerMinNormalY   = Math::Clamp(jsonF(f, "flowerMinNormalY", 0.82f), 0.0f, 1.0f);
+                    desc.foliage.tuftMinNormalY     = Math::Clamp(jsonF(f, "tuftMinNormalY", 0.82f), 0.0f, 1.0f);
+                    desc.foliage.rockMinNormalY     = Math::Clamp(jsonF(f, "rockMinNormalY", 0.40f), 0.0f, 1.0f);
+                    desc.foliage.treeMaxLeanDeg     = Math::Clamp(jsonF(f, "treeMaxLeanDeg", 7.0f), 0.0f, 15.0f);
+                    desc.foliage.rockMaxPitchDeg    = Math::Clamp(jsonF(f, "rockMaxPitchDeg", 30.0f), 0.0f, 89.0f);
+                    desc.foliage.treeSpacingM       = Math::Clamp(jsonF(f, "treeSpacingM", 3.0f), 0.0f, 16.0f);
+                    desc.foliage.rockSpacingM       = Math::Clamp(jsonF(f, "rockSpacingM", 0.0f), 0.0f, 16.0f);
+                    desc.foliage.patchStrength      = Math::Clamp(jsonF(f, "patchStrength", 0.0f), 0.0f, 1.0f);
+                    desc.foliage.patchLargeM        = Math::Clamp(jsonF(f, "patchLargeM", 80.0f), 60.0f, 120.0f);
+                    desc.foliage.patchMediumM       = Math::Clamp(jsonF(f, "patchMediumM", 22.0f), 15.0f, 30.0f);
+                    desc.foliage.patchFineM         = Math::Clamp(jsonF(f, "patchFineM", 4.0f), 2.0f, 6.0f);
                     desc.foliage.stale              = jsonB(f, "stale", false);
                     {
                         float shed = 1.0f;
@@ -1046,7 +1091,64 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                     desc.foliage.flowerModel        = jsonS(f, "flowerModel", std::string("models/Dandelion/dandelion_01_2k.gltf"));
                     desc.foliage.rockModel          = jsonS(f, "rockModel", std::string("models/RockMoss/rock_moss_set_01_2k.gltf"));
                     desc.foliage.grassModel         = jsonS(f, "grassModel", std::string("models/Grass/grass_medium_01_2k.gltf"));
+                    auto readSpecies = [&](const char* key, const std::string& legacy, std::vector<Terrain::FoliageSpecies>& dst)
+                    {
+                        // A missing array is the old single model string. A present array replaces the struct default.
+                        if (!f.contains(key) || !f[key].is_array())
+                        {
+                            dst.clear();
+                            if (!legacy.empty())
+                                dst.push_back(Terrain::FoliageSpecies{ legacy, 1.0f, 0.0f, 0.0f, false });
+                            return;
+                        }
+                        std::vector<Terrain::FoliageSpecies> parsed;
+                        for (const json& item : f[key])
+                        {
+                            if (!item.is_object())
+                                continue;
+                            Terrain::FoliageSpecies species;
+                            species.path       = jsonS(item, "path", std::string());
+                            species.weight     = jsonF(item, "weight", 1.0f);
+                            species.scaleMin   = jsonF(item, "scaleMin", 0.0f);
+                            species.scaleMax   = jsonF(item, "scaleMax", 0.0f);
+                            species.worldScale = jsonB(item, "worldScale", false);
+                            if (!(species.weight > 0.0f) || species.path.empty())
+                                continue;
+                            parsed.push_back(std::move(species));
+                        }
+                        if (parsed.size() > Terrain::kMaxFoliageVariants)
+                        {
+                            std::vector<uint32_t> order(parsed.size());
+                            for (uint32_t i = 0; i < static_cast<uint32_t>(order.size()); ++i)
+                                order[i] = i;
+                            std::stable_sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b)
+                            {
+                                return parsed[a].weight > parsed[b].weight;
+                            });
+                            std::vector<uint8_t> keep(parsed.size(), 0);
+                            for (uint32_t i = 0; i < Terrain::kMaxFoliageVariants; ++i)
+                                keep[order[i]] = 1;
+                            std::vector<Terrain::FoliageSpecies> capped;
+                            capped.reserve(Terrain::kMaxFoliageVariants);
+                            for (uint32_t i = 0; i < static_cast<uint32_t>(parsed.size()); ++i)
+                            {
+                                if (keep[i] != 0)
+                                    capped.push_back(std::move(parsed[i]));
+                            }
+                            DE_LOG_WARN("SceneFile: foliage {} kept the {} highest weights", key, Terrain::kMaxFoliageVariants);
+                            parsed = std::move(capped);
+                        }
+                        dst = std::move(parsed);
+                    };
+                    readSpecies("trees", desc.foliage.treeModel, desc.foliage.trees);
+                    readSpecies("flowers", desc.foliage.flowerModel, desc.foliage.flowers);
+                    readSpecies("rocks", desc.foliage.rockModel, desc.foliage.rocks);
+                    readSpecies("tufts", desc.foliage.grassModel, desc.foliage.tufts);
                 }
+                if (t.contains("trails") && t["trails"].is_object())
+                    Terrain::readTrailSet(t["trails"], desc.trails, nullptr);
+                else if (t.contains("trails"))
+                    DE_LOG_WARN(LogCategory::Render, "SceneFile: terrain.trails is not an object — trails left empty");
                 if (t.contains("grass") && t["grass"].is_object())
                 {
                     const json& g = t["grass"];

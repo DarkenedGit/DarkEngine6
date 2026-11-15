@@ -11,6 +11,7 @@
 #include "Scene/SceneFile.h"
 #include "Terrain/FoliageFile.h"
 #include "Terrain/FoliageSpawn.h"
+#include "Terrain/TrailPath.h"
 #include "Terrain/TerrainTileFile.h"
 #include "Terrain/WorldEngineMap.h"
 #include "Water/WaterWaves.h"
@@ -785,6 +786,8 @@ void EditorApp::tickLeaves(float dt)
 void EditorApp::syncTerrainLod()
 {
     pollFoliageSpawn();
+    if (m_trailMeshDirty)
+        rebuildTrailMesh();
     if (!m_haveTerrain || !m_terrain.valid())
         return;
 
@@ -836,15 +839,32 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
         desc.foliage.grassFlowersPerM2 = m_foliageDensity.grassFlowersPerM2;
         desc.foliage.rockPerM2         = m_foliageDensity.rockPerM2;
         desc.foliage.grassPerM2        = m_foliageDensity.grassPerM2;
+        desc.foliage.treeMinNormalY    = m_foliageDensity.treeMinNormalY;
+        desc.foliage.flowerMinNormalY  = m_foliageDensity.flowerMinNormalY;
+        desc.foliage.tuftMinNormalY    = m_foliageDensity.tuftMinNormalY;
+        desc.foliage.rockMinNormalY    = m_foliageDensity.rockMinNormalY;
+        desc.foliage.treeMaxLeanDeg    = m_foliageDensity.treeMaxLeanDeg;
+        desc.foliage.rockMaxPitchDeg   = m_foliageDensity.rockMaxPitchDeg;
+        desc.foliage.treeSpacingM      = m_foliageDensity.treeSpacingM;
+        desc.foliage.rockSpacingM      = m_foliageDensity.rockSpacingM;
+        desc.foliage.patchStrength     = m_foliageDensity.patchStrength;
+        desc.foliage.patchLargeM       = m_foliageDensity.patchLargeM;
+        desc.foliage.patchMediumM      = m_foliageDensity.patchMediumM;
+        desc.foliage.patchFineM        = m_foliageDensity.patchFineM;
         desc.foliage.stale             = m_foliageStale;
         desc.foliage.shedScale         = m_leafShedScale;
         desc.foliage.treeModel         = m_foliageDensity.treeModel;
         desc.foliage.flowerModel       = m_foliageDensity.flowerModel;
         desc.foliage.rockModel         = m_foliageDensity.rockModel;
         desc.foliage.grassModel        = m_foliageDensity.grassModel;
+        desc.foliage.trees             = m_foliageDensity.trees;
+        desc.foliage.flowers           = m_foliageDensity.flowers;
+        desc.foliage.rocks             = m_foliageDensity.rocks;
+        desc.foliage.tufts             = m_foliageDensity.tufts;
         desc.grass                     = m_authoredGrass;
         desc.wind.present              = true;
         desc.wind.settings             = m_wind;
+        desc.trails                    = m_trails;
         data.hasTerrain = true;
         data.terrain    = std::move(desc);
         return;
@@ -890,15 +910,32 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
     desc.foliage.grassFlowersPerM2 = m_foliageDensity.grassFlowersPerM2;
     desc.foliage.rockPerM2         = m_foliageDensity.rockPerM2;
     desc.foliage.grassPerM2        = m_foliageDensity.grassPerM2;
+    desc.foliage.treeMinNormalY    = m_foliageDensity.treeMinNormalY;
+    desc.foliage.flowerMinNormalY  = m_foliageDensity.flowerMinNormalY;
+    desc.foliage.tuftMinNormalY    = m_foliageDensity.tuftMinNormalY;
+    desc.foliage.rockMinNormalY    = m_foliageDensity.rockMinNormalY;
+    desc.foliage.treeMaxLeanDeg    = m_foliageDensity.treeMaxLeanDeg;
+    desc.foliage.rockMaxPitchDeg   = m_foliageDensity.rockMaxPitchDeg;
+    desc.foliage.treeSpacingM      = m_foliageDensity.treeSpacingM;
+    desc.foliage.rockSpacingM      = m_foliageDensity.rockSpacingM;
+    desc.foliage.patchStrength     = m_foliageDensity.patchStrength;
+    desc.foliage.patchLargeM       = m_foliageDensity.patchLargeM;
+    desc.foliage.patchMediumM      = m_foliageDensity.patchMediumM;
+    desc.foliage.patchFineM        = m_foliageDensity.patchFineM;
     desc.foliage.stale             = m_foliageStale;
     desc.foliage.shedScale         = m_leafShedScale;
     desc.foliage.treeModel         = m_foliageDensity.treeModel;
     desc.foliage.flowerModel       = m_foliageDensity.flowerModel;
     desc.foliage.rockModel         = m_foliageDensity.rockModel;
     desc.foliage.grassModel        = m_foliageDensity.grassModel;
+    desc.foliage.trees             = m_foliageDensity.trees;
+    desc.foliage.flowers           = m_foliageDensity.flowers;
+    desc.foliage.rocks             = m_foliageDensity.rocks;
+    desc.foliage.tufts             = m_foliageDensity.tufts;
     desc.grass                     = m_authoredGrass;
     desc.wind.present              = true;
     desc.wind.settings             = m_wind;
+    desc.trails                    = m_trails;
     data.hasTerrain = true;
     data.terrain    = std::move(desc);
 }
@@ -1044,6 +1081,19 @@ bool EditorApp::saveTerrainSidecars(const std::filesystem::path& scenePath) cons
         }
     }
 
+    const FoliageCover* cover = m_terrain.editableWorkingCover();
+    if (cover != nullptr && cover->valid())
+    {
+        for (int tz = 0; tz < cover->tilesZ(); ++tz)
+        {
+            for (int tx = 0; tx < cover->tilesX(); ++tx)
+            {
+                if (cover->save(tileCoverPath(tileDirPath, tx, tz), tx, tz) == CoverSaveResult::Failed)
+                    return false;
+            }
+        }
+    }
+
     const uint64_t tileCount = static_cast<uint64_t>(m_terrain.tilesX()) * m_terrain.tilesZ();
     if (tileCount <= 1ull)
     {
@@ -1072,6 +1122,15 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
     const TerrainSceneDesc& desc = data.terrain;
     // fillTerrainSceneDesc rebuilds the block from live terrain, which has no grass params.
     m_authoredGrass = desc.grass;
+    m_trails = desc.trails;
+    clampTrailSet(m_trails);
+    noteTrailEdit();
+    m_trailDraw = false;
+    m_trailSelected = -1;
+    m_trailPoint = -1;
+    m_trailDragging = false;
+    m_trailMoved = false;
+    m_trailMeshDirty = true;
     m_wind          = desc.wind.settings;
     Terrain::clampWindSettings(m_wind);
     applyAuthoredGrass();
@@ -1095,11 +1154,27 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
         m_foliageDensity.grassFlowersPerM2 = desc.foliage.grassFlowersPerM2;
         m_foliageDensity.rockPerM2         = desc.foliage.rockPerM2;
         m_foliageDensity.grassPerM2        = desc.foliage.grassPerM2;
+        m_foliageDensity.treeMinNormalY    = desc.foliage.treeMinNormalY;
+        m_foliageDensity.flowerMinNormalY  = desc.foliage.flowerMinNormalY;
+        m_foliageDensity.tuftMinNormalY    = desc.foliage.tuftMinNormalY;
+        m_foliageDensity.rockMinNormalY    = desc.foliage.rockMinNormalY;
+        m_foliageDensity.treeMaxLeanDeg    = desc.foliage.treeMaxLeanDeg;
+        m_foliageDensity.rockMaxPitchDeg   = desc.foliage.rockMaxPitchDeg;
+        m_foliageDensity.treeSpacingM      = desc.foliage.treeSpacingM;
+        m_foliageDensity.rockSpacingM      = desc.foliage.rockSpacingM;
+        m_foliageDensity.patchStrength     = desc.foliage.patchStrength;
+        m_foliageDensity.patchLargeM       = desc.foliage.patchLargeM;
+        m_foliageDensity.patchMediumM      = desc.foliage.patchMediumM;
+        m_foliageDensity.patchFineM        = desc.foliage.patchFineM;
         m_foliageDensity.seed              = desc.foliage.seed;
         m_foliageDensity.treeModel         = desc.foliage.treeModel;
         m_foliageDensity.flowerModel       = desc.foliage.flowerModel;
         m_foliageDensity.rockModel         = desc.foliage.rockModel;
         m_foliageDensity.grassModel        = desc.foliage.grassModel;
+        m_foliageDensity.trees             = desc.foliage.trees;
+        m_foliageDensity.flowers           = desc.foliage.flowers;
+        m_foliageDensity.rocks             = desc.foliage.rocks;
+        m_foliageDensity.tufts             = desc.foliage.tufts;
         m_foliageStale                     = desc.foliage.stale;
         m_leafShedScale                    = desc.foliage.shedScale;
         if (!loadWorldEngineTerrain(dir, worldSize, relief))
@@ -1203,11 +1278,27 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
     m_foliageDensity.grassFlowersPerM2 = desc.foliage.grassFlowersPerM2;
     m_foliageDensity.rockPerM2         = desc.foliage.rockPerM2;
     m_foliageDensity.grassPerM2        = desc.foliage.grassPerM2;
+    m_foliageDensity.treeMinNormalY    = desc.foliage.treeMinNormalY;
+    m_foliageDensity.flowerMinNormalY  = desc.foliage.flowerMinNormalY;
+    m_foliageDensity.tuftMinNormalY    = desc.foliage.tuftMinNormalY;
+    m_foliageDensity.rockMinNormalY    = desc.foliage.rockMinNormalY;
+    m_foliageDensity.treeMaxLeanDeg    = desc.foliage.treeMaxLeanDeg;
+    m_foliageDensity.rockMaxPitchDeg   = desc.foliage.rockMaxPitchDeg;
+    m_foliageDensity.treeSpacingM      = desc.foliage.treeSpacingM;
+    m_foliageDensity.rockSpacingM      = desc.foliage.rockSpacingM;
+    m_foliageDensity.patchStrength     = desc.foliage.patchStrength;
+    m_foliageDensity.patchLargeM       = desc.foliage.patchLargeM;
+    m_foliageDensity.patchMediumM      = desc.foliage.patchMediumM;
+    m_foliageDensity.patchFineM        = desc.foliage.patchFineM;
     m_foliageDensity.seed              = desc.foliage.seed;
     m_foliageDensity.treeModel         = desc.foliage.treeModel;
     m_foliageDensity.flowerModel       = desc.foliage.flowerModel;
     m_foliageDensity.rockModel         = desc.foliage.rockModel;
     m_foliageDensity.grassModel        = desc.foliage.grassModel;
+    m_foliageDensity.trees             = desc.foliage.trees;
+    m_foliageDensity.flowers           = desc.foliage.flowers;
+    m_foliageDensity.rocks             = desc.foliage.rocks;
+    m_foliageDensity.tufts             = desc.foliage.tufts;
     m_foliageStale                     = desc.foliage.stale;
     m_leafShedScale                    = desc.foliage.shedScale;
 
@@ -1334,6 +1425,7 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
     }
     m_foliage.swap(gathered);
     m_foliageAuthored = anyFoliageFile;
+    m_terrain.loadWorkingCoverFiles(foliageDir);
 
     rebuildEditorWater();
     return true;
@@ -1352,6 +1444,7 @@ void EditorApp::resetFoliageAuthoring()
     m_foliageStale = false;
     m_foliageDensity = {};
     m_leafShedScale = 1.0f;
+    clearTrailAuthoring();
 }
 
 bool EditorApp::onFoliageProgress(float t, const char* phase, void* user)
@@ -1388,13 +1481,18 @@ void EditorApp::cancelFoliageSpawn()
         m_foliageThread.join();
     m_foliageRunning.store(false);
     m_foliageDone.store(false);
+    std::vector<Terrain::FoliageRecord>().swap(m_foliagePending);
+    std::vector<TrailPath>().swap(m_foliagePendingTrails);
+    m_foliagePendingSplat = SplatMap{};
+    m_foliagePendingCover.reset();
+    m_foliageOk = false;
+    m_foliageCoverOnly = false;
+    m_foliageApplyTrails = false;
+    m_foliageSplat = false;
 }
 
-void EditorApp::startFoliageSpawn()
+bool EditorApp::fillFoliageSpawnIn(FoliageSpawnIn& in)
 {
-    if (terrainBrushesLocked())
-        return;
-
     const HeightMap* height = m_terrain.editableWorking();
     const SplatMap*  splat  = m_terrain.editableWorkingSplat();
     if (height == nullptr)
@@ -1406,9 +1504,9 @@ void EditorApp::startFoliageSpawn()
     else if (!splat->valid())
         DE_LOG_ERROR(LogCategory::Render, "Editor: foliage spawn refused — editableWorkingSplat() is invalid");
     if (height == nullptr || !height->valid() || splat == nullptr || !splat->valid())
-        return;
+        return false;
 
-    FoliageSpawnIn in;
+    in = FoliageSpawnIn{};
     in.height    = height;
     in.splat     = splat;
     in.density   = m_foliageDensity;
@@ -1420,6 +1518,7 @@ void EditorApp::startFoliageSpawn()
     in.origin    = m_terrain.origin();
     // Imported valleys sit at the height origin. The old sea level would skip the forest floor.
     in.seaLevel  = m_terrainSource.empty() ? m_terrainSeaLevel : m_terrain.origin().y;
+    in.trails    = m_trails.paths;
     if (m_water.chunksX() > 0)
     {
         FoliageWaterVolume sheet;
@@ -1449,16 +1548,68 @@ void EditorApp::startFoliageSpawn()
     });
     in.onProgress = &EditorApp::onFoliageProgress;
     in.user       = this;
+    m_foliagePrototypes.sync(renderer(), assets(), in.density);
+    const AssetRef<Model>& treeModel = m_foliagePrototypes.model(FoliageKind::Tree);
+    if (treeModel && treeModel->bounds().IsValid())
+    {
+        const Vector3f extent = treeModel->bounds().Size();
+        if (extent.x > 0.0f && extent.z > 0.0f)
+        {
+            in.treeExtentX = extent.x;
+            in.treeExtentZ = extent.z;
+        }
+    }
+    return true;
+}
 
+void EditorApp::startFoliageSpawn()
+{
+    if (!acquireFoliageThread())
+        return;
+
+    FoliageSpawnIn in;
+    if (!fillFoliageSpawnIn(in))
+        return;
+
+    m_foliageTrailGeneration = m_trailGeneration;
+    m_foliageCoverOnly = false;
+    m_foliageApplyTrails = m_trails.autoGenerate;
+    m_foliageSplat = false;
     m_foliageCancel.store(false);
     m_foliageDone.store(false);
     m_foliageOk = false;
     m_foliageProgress.store(0.0f);
     std::vector<Terrain::FoliageRecord>().swap(m_foliagePending);
+    std::vector<TrailPath>().swap(m_foliagePendingTrails);
+    m_foliagePendingSplat = SplatMap{};
+    m_foliagePendingCover.reset();
     setFoliagePhase("starting");
     m_foliageRunning.store(true);
 
-    m_foliageThread = std::thread([this, in]() {
+    TrailSet trailSet = m_trails;
+    m_foliageThread = std::thread([this, in, trailSet]() mutable {
+        if (trailSet.autoGenerate)
+        {
+            TrailGenerateIn gen;
+            gen.height       = in.height;
+            gen.splat        = in.splat;
+            gen.water        = &in.water;
+            gen.seaLevel     = in.seaLevel;
+            gen.seed         = in.density.seed;
+            gen.maxAutoPaths = trailSet.maxAutoPaths;
+            gen.humanWidth   = trailSet.humanWidth;
+            gen.animalWidth  = trailSet.animalWidth;
+            gen.onProgress   = in.onProgress;
+            gen.user         = in.user;
+            if (!generateGameTrails(gen, trailSet, nullptr))
+            {
+                m_foliageOk = false;
+                m_foliageDone.store(true);
+                return;
+            }
+            in.trails = trailSet.paths;
+        }
+
         FoliageSpawnOut out;
         bool ok = spawnFoliage(in, out);
         if (ok)
@@ -1497,7 +1648,12 @@ void EditorApp::startFoliageSpawn()
             }
         }
         if (ok)
+        {
+            if (trailSet.autoGenerate)
+                m_foliagePendingTrails = std::move(trailSet.paths);
             m_foliagePending.swap(out.records);
+            m_foliagePendingCover = std::move(out.cover);
+        }
         m_foliageOk = ok;
         m_foliageDone.store(true);
     });
@@ -1511,16 +1667,70 @@ void EditorApp::pollFoliageSpawn()
         m_foliageThread.join();
     m_foliageRunning.store(false);
     m_foliageDone.store(false);
-    if (m_foliageOk)
+    const bool trailsMoved = m_trailGeneration != m_foliageTrailGeneration;
+    const bool coverOnly = m_foliageCoverOnly;
+    const bool applyTrails = m_foliageApplyTrails;
+    const bool splatJob = m_foliageSplat;
+    const bool ok = m_foliageOk;
+    const bool cancelled = m_foliageCancel.load();
+    if (cancelled)
+        DE_LOG_INFO(LogCategory::Render, "Editor: foliage spawn cancelled - previous set kept");
+    else if (ok && splatJob)
     {
+        if (!m_terrain.setWorkingSplat(std::move(m_foliagePendingSplat)))
+            DE_LOG_ERROR(LogCategory::Render, "Editor: trail splat was not applied");
+        else if (!uploadTerrainSplatGpu())
+            DE_LOG_ERROR(LogCategory::Render, "Editor: trail splat upload failed");
+    }
+    else if (ok && !trailsMoved)
+    {
+        if (coverOnly)
+        {
+            // Cover-only success must not clear a stale forest or swap the tree set.
+            if (applyTrails)
+            {
+                m_trails.paths = std::move(m_foliagePendingTrails);
+                m_foliageStale = true;
+                m_trailMeshDirty = true;
+                // The rebuilt list packs authored paths first, so the old index can name a different path.
+                m_trailSelected = -1;
+                m_trailPoint = -1;
+            }
+            m_terrain.setWorkingCover(std::move(m_foliagePendingCover));
+            m_grassField.markAllDirty();
+        }
+        else
+        {
+            if (applyTrails)
+            {
+                m_trails.paths = std::move(m_foliagePendingTrails);
+                m_trailMeshDirty = true;
+                m_trailSelected = -1;
+                m_trailPoint = -1;
+            }
+            m_foliage.swap(m_foliagePending);
+            m_foliageAuthored = true;
+            m_foliageStale = false;
+            m_terrain.setWorkingCover(std::move(m_foliagePendingCover));
+            m_grassField.markAllDirty();
+        }
+    }
+    else if (ok && !coverOnly && !splatJob)
+    {
+        // Trails changed after this job copied them. Keep the trees and leave the forest stale.
         m_foliage.swap(m_foliagePending);
         m_foliageAuthored = true;
-        m_foliageStale = false;
     }
-    else if (m_foliageCancel.load())
-        DE_LOG_INFO(LogCategory::Render, "Editor: foliage spawn cancelled - previous set kept");
     std::vector<Terrain::FoliageRecord>().swap(m_foliagePending);
+    std::vector<TrailPath>().swap(m_foliagePendingTrails);
+    m_foliagePendingSplat = SplatMap{};
+    m_foliagePendingCover.reset();
     m_foliageOk = false;
+    m_foliageCoverOnly = false;
+    m_foliageApplyTrails = false;
+    m_foliageSplat = false;
+    if (ok && trailsMoved && !cancelled && !splatJob)
+        startCoverRestamp();
 }
 
 void EditorApp::drawWaterTools()
@@ -1804,8 +2014,12 @@ void EditorApp::drawTerrainPanel()
         const std::filesystem::path dir = resolveWorldEngineDirectory(m_worldEnginePath);
         if (dir.empty())
             DE_LOG_ERROR(LogCategory::Render, "Editor: terrain folder '{}' was not found", m_worldEnginePath);
-        else if (!loadWorldEngineTerrain(dir, m_worldEngineSize, m_worldEngineHeight))
-            DE_LOG_ERROR(LogCategory::Render, "Editor: failed to load '{}'", dir.string());
+        else
+        {
+            clearTrailAuthoring();
+            if (!loadWorldEngineTerrain(dir, m_worldEngineSize, m_worldEngineHeight))
+                DE_LOG_ERROR(LogCategory::Render, "Editor: failed to load '{}'", dir.string());
+        }
     }
 
     if (m_haveTerrain && m_terrain.valid())
@@ -1843,6 +2057,27 @@ void EditorApp::drawTerrainPanel()
             }
             ImGui::Text("Trees follow grass and dirt. Grass tufts follow the grass layer. %u trees, %u grass.", trees, grass);
         }
+        // A drag during place would be cleared as fresh against the densities captured at start.
+        ImGui::BeginDisabled(m_foliageRunning.load());
+        bool slopeEdited = false;
+        slopeEdited |= ImGui::SliderFloat("Tree min normal Y", &m_foliageDensity.treeMinNormalY, 0.0f, 1.0f, "%.2f");
+        slopeEdited |= ImGui::SliderFloat("Flower min normal Y", &m_foliageDensity.flowerMinNormalY, 0.0f, 1.0f, "%.2f");
+        slopeEdited |= ImGui::SliderFloat("Tuft min normal Y", &m_foliageDensity.tuftMinNormalY, 0.0f, 1.0f, "%.2f");
+        slopeEdited |= ImGui::SliderFloat("Rock min normal Y", &m_foliageDensity.rockMinNormalY, 0.0f, 1.0f, "%.2f");
+        slopeEdited |= ImGui::SliderFloat("Tree max lean (deg)", &m_foliageDensity.treeMaxLeanDeg, 0.0f, 15.0f, "%.0f");
+        ImGui::SetItemTooltip("Caps how far a tree tilts with the slope. 0 stays upright.");
+        slopeEdited |= ImGui::SliderFloat("Rock max pitch (deg)", &m_foliageDensity.rockMaxPitchDeg, 0.0f, 89.0f, "%.0f");
+        slopeEdited |= ImGui::SliderFloat("Tree spacing (m)", &m_foliageDensity.treeSpacingM, 0.0f, 16.0f, "%.1f");
+        slopeEdited |= ImGui::SliderFloat("Rock spacing (m)", &m_foliageDensity.rockSpacingM, 0.0f, 16.0f, "%.1f");
+        slopeEdited |= ImGui::SliderFloat("Patch strength", &m_foliageDensity.patchStrength, 0.0f, 1.0f, "%.2f");
+        ImGui::SetItemTooltip("0 keeps the even forest. Grove wavelengths stay in the scene file.");
+        if (slopeEdited)
+            m_foliageStale = true;
+        if (ImGui::Button("Place / Replace foliage"))
+            startFoliageSpawn();
+        ImGui::TextDisabled("Re-place after the species list changes. An old variant draws as the first species.");
+        drawTrailHeader();
+        ImGui::EndDisabled();
         ImGui::SeparatorText("Procedural grass");
         bool grassEdited = false;
         grassEdited |= ImGui::SliderFloat("Edge start", &m_authoredGrass.faceEdge, 0.0f, 1.0f, "%.2f");

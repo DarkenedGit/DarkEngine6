@@ -22,6 +22,9 @@ namespace Dark
 
         void draw(ID3D12GraphicsCommandList* cmd) const;
 
+        // Create returns before the copy finishes, and a draw may still reference the buffers.
+        void deferRelease(Renderer& renderer);
+
         bool valid() const
         {
             return m_vb != nullptr && m_indexCount > 0;

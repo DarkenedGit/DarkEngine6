@@ -62,6 +62,7 @@
 #include "Weapons/ThrowableFlight.h"
 #include "Combat/DamageEvent.h"
 #include "Math/AABox3f.h"
+#include "Terrain/FoliageCover.h"
 #include "Terrain/FoliageFile.h"
 #include "Terrain/TerrainGround.h"
 #include "Terrain/TerrainGrid.h"
@@ -91,6 +92,11 @@
 namespace Dark
 {
     enum class NpcKind : uint8_t;
+}
+
+namespace Dark::Terrain
+{
+    struct FoliageSpawnIn;
 }
 
 using namespace Dark;
@@ -335,6 +341,21 @@ private:
     void copyFoliagePhase(char* dst, size_t cap);
     void clearFoliageInstances(const char* reason);
     void resetFoliageAuthoring();
+    bool acquireFoliageThread();
+    bool fillFoliageSpawnIn(Terrain::FoliageSpawnIn& in);
+    void startCoverRestamp();
+    void startTrailGenerate();
+    void clearGeneratedTrails();
+    void startTrailSplat();
+    void drawTrailHeader();
+    bool handleTrailKeys();
+    void handleTrailPointer(bool uiMouse);
+    void finishTrailDraw();
+    void deleteTrailPoint();
+    void clearTrailAuthoring();
+    void noteTrailEdit();
+    void rebuildTrailMesh();
+    void drawTrailOverlay(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj);
     bool terrainBrushesLocked() const;
     AssetRef<Model> selectedModel();
     const Model::Part* selectedModelPart();
@@ -526,6 +547,9 @@ private:
     Terrain::FoliageDensity             m_foliageDensity{};
     std::vector<Terrain::FoliageRecord> m_foliage;
     std::vector<Terrain::FoliageRecord> m_foliagePending;
+    Terrain::FoliageCover               m_foliagePendingCover;
+    std::vector<Terrain::TrailPath>     m_foliagePendingTrails;
+    Terrain::SplatMap                   m_foliagePendingSplat;
     bool                                m_foliageAuthored = false;
     bool                                m_foliageStale    = false;
     std::atomic<bool>                   m_foliageRunning{ false };
@@ -535,7 +559,23 @@ private:
     std::mutex                          m_foliagePhaseMutex;
     char                                m_foliagePhase[64]{};
     bool                                m_foliageOk = false;
+    bool                                m_foliageCoverOnly = false;
+    bool                                m_foliageApplyTrails = false;
+    bool                                m_foliageSplat = false;
     std::thread                         m_foliageThread;
+    uint32_t                            m_trailGeneration = 0;
+    uint32_t                            m_foliageTrailGeneration = 0;
+    Terrain::TrailSet                   m_trails{};
+    bool                                m_showTrails = true;
+    bool                                m_trailDraw = false;
+    int                                 m_trailSelected = -1;
+    int                                 m_trailPoint = -1;
+    bool                                m_trailDragging = false;
+    bool                                m_trailMoved = false;
+    bool                                m_trailMeshDirty = true;
+    LineMesh                            m_trailCenter;
+    LineMesh                            m_trailRibbon;
+    LineMesh                            m_trailPick;
     FoliagePrototypes                   m_foliagePrototypes;
     FoliagePipeline                     m_foliagePipeline;
     GrassPipeline                       m_grassPipeline;

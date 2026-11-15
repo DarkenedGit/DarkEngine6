@@ -1,26 +1,16 @@
 #pragma once
 
+#include "Terrain/FoliageCover.h"
 #include "Terrain/FoliageFile.h"
 #include "Terrain/HeightMap.h"
 #include "Terrain/SplatMap.h"
+#include "Terrain/TrailPath.h"
 
 #include <cstdint>
 #include <vector>
 
 namespace Dark::Terrain
 {
-    // Still water. entireMap is the level lake (every XZ). Otherwise the rectangle is one placed body.
-    // Trees and grass whose terrain height is below surfaceY are not planted. Flowers and rocks are.
-    struct FoliageWaterVolume
-    {
-        float minX      = 0.0f;
-        float maxX      = 0.0f;
-        float minZ      = 0.0f;
-        float maxZ      = 0.0f;
-        float surfaceY  = 0.0f;
-        bool  entireMap = false;
-    };
-
     struct FoliageSpawnIn
     {
         const HeightMap* height = nullptr;
@@ -35,16 +25,30 @@ namespace Dark::Terrain
         std::vector<FoliageWaterVolume> water;
         bool (*onProgress)(float t, const char* phase, void* user) = nullptr;
         void* user = nullptr;
+        float treeExtentX = 0.0f;
+        float treeExtentZ = 0.0f;
+        std::vector<TrailPath> trails;
     };
 
     struct FoliageSpawnOut
     {
+        FoliageSpawnOut()  = default;
+        ~FoliageSpawnOut() = default;
+
+        FoliageSpawnOut(const FoliageSpawnOut&)            = delete;
+        FoliageSpawnOut& operator=(const FoliageSpawnOut&) = delete;
+        FoliageSpawnOut(FoliageSpawnOut&&) noexcept            = default;
+        FoliageSpawnOut& operator=(FoliageSpawnOut&&) noexcept = default;
+
         std::vector<FoliageRecord> records;
+        FoliageCover               cover;
         uint64_t                   accepted = 0;
         uint32_t                   kept     = 0;
         bool                       capped   = false;
     };
 
     bool spawnFoliage(const FoliageSpawnIn& in, FoliageSpawnOut& out);
+    // Repaints cover from stored paths and the current trees. Does not plant or thin.
+    bool restampFoliageCover(const FoliageSpawnIn& in, const std::vector<FoliageRecord>& records, FoliageCover& cover);
 
 } // namespace Dark::Terrain

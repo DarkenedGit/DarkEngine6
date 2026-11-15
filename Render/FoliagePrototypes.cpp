@@ -105,45 +105,6 @@ namespace Dark
                 return assets.loadModelFile(asPath);
             return assets.loadModel(path);
         }
-
-        AssetRef<Model> showcaseModel(Renderer& renderer, AssetManager& assets, const std::string& path, const char* label)
-        {
-            AssetRef<Model> src = loadCpuModel(assets, path);
-            if (!src)
-                return {};
-
-            std::vector<Model::Part> all;
-            all.reserve(src->opaque().size() + src->translucent().size());
-            for (const Model::Part& part : src->opaque())
-                all.push_back(part);
-            for (const Model::Part& part : src->translucent())
-                all.push_back(part);
-
-            std::vector<Model::Part> kept;
-            if (!makeFoliageShowcaseParts(all, kept))
-            {
-                DE_LOG_ERROR(LogCategory::Render, "FoliagePrototypes: {} showcase kept nothing from '{}'", label, path);
-                return {};
-            }
-
-            std::string names;
-            for (const Model::Part& part : kept)
-            {
-                if (!names.empty())
-                    names += ", ";
-                names += part.name;
-            }
-            DE_LOG_INFO(LogCategory::Render, "FoliagePrototypes: {} showcase {}", label, names);
-
-            auto model = std::make_shared<Model>();
-            if (!model->createFromParts(std::move(kept)))
-            {
-                DE_LOG_ERROR(LogCategory::Render, "FoliagePrototypes: {} showcase build failed", label);
-                return {};
-            }
-            const std::string cacheKey = std::string("runtime:/foliage/showcase/") + label + "/" + path;
-            return registerAndUploadModel(renderer, assets, model, cacheKey);
-        }
     } // namespace
 
     bool makeFoliageShowcaseParts(const std::vector<Model::Part>& parts, std::vector<Model::Part>& out)
@@ -217,14 +178,106 @@ namespace Dark
         return true;
     }
 
+    bool makeFoliageShowcaseClusters(const std::vector<Model::Part>& parts, std::vector<std::vector<Model::Part>>& out)
+    {
+        out.clear();
+        std::vector<uint8_t> used(parts.size(), 0);
+        constexpr float kCluster = 0.25f;
+        const float     kClusterSq = kCluster * kCluster;
+        auto eligible = [&](size_t index) {
+            if (used[index] != 0)
+                return false;
+            const Model::Part& part = parts[index];
+            return !part.skinned && !part.mesh.positions.empty() && !part.mesh.indices.empty() && !parkedLodName(part.name);
+        };
+        while (true)
+        {
+            const Model::Part* best = nullptr;
+            float              bestD = 0.0f;
+            size_t             bestIndex = 0;
+            for (size_t i = 0; i < parts.size(); ++i)
+            {
+                if (!eligible(i))
+                    continue;
+                const Vector4f row = parts[i].localToRoot.GetRow(3);
+                const float    d   = row.x * row.x + row.z * row.z;
+                if (!best || d < bestD)
+                {
+                    best      = &parts[i];
+                    bestD     = d;
+                    bestIndex = i;
+                }
+            }
+            if (!best)
+                break;
+            (void)bestIndex;
+
+            const Vector4f origin = best->localToRoot.GetRow(3);
+            std::vector<Model::Part> cluster;
+            for (size_t i = 0; i < parts.size(); ++i)
+            {
+                if (!eligible(i))
+                    continue;
+                const Vector4f row = parts[i].localToRoot.GetRow(3);
+                const float    dx  = row.x - origin.x;
+                const float    dy  = row.y - origin.y;
+                const float    dz  = row.z - origin.z;
+                if (dx * dx + dy * dy + dz * dz > kClusterSq)
+                    continue;
+                used[i] = 1;
+                Model::Part copy = parts[i];
+                copy.localToRoot.SetRow(3, Vector3f(dx, dy, dz));
+                copy.translucent = false;
+                copy.skinned     = false;
+                if (copy.material && copy.material->alphaMode() == MaterialAlphaMode::Blend)
+                {
+                    copy.material->setAlphaMode(MaterialAlphaMode::Mask);
+                    copy.material->setAlphaCutoff(0.5f);
+                }
+                cluster.push_back(std::move(copy));
+            }
+            if (cluster.empty())
+                break;
+
+            float minY = 0.0f;
+            bool  any  = false;
+            for (const Model::Part& part : cluster)
+            {
+                for (const Vector3f& p : part.mesh.positions)
+                {
+                    const Vector4f wp = part.localToRoot * Vector4f(p.x, p.y, p.z, 1.0f);
+                    if (!any || wp.y < minY)
+                        minY = wp.y;
+                    any = true;
+                }
+            }
+            if (any)
+            {
+                for (Model::Part& part : cluster)
+                {
+                    const Vector4f row = part.localToRoot.GetRow(3);
+                    part.localToRoot.SetRow(3, Vector3f(row.x, row.y - minY, row.z));
+                }
+            }
+            out.push_back(std::move(cluster));
+        }
+        return !out.empty();
+    }
+
     bool FoliagePrototypes::create(Renderer& renderer, AssetManager& assets)
     {
         for (int i = 0; i < kKinds; ++i)
         {
             m_proto[i].reset();
-            m_override[i].reset();
-            m_path[i].clear();
-            m_logged[i] = false;
+            m_sig[i].clear();
+            m_count[i] = 0;
+            for (int v = 0; v < kVariants; ++v)
+            {
+                m_variant[i][v].reset();
+                m_ready[i][v]      = false;
+                m_worldScale[i][v] = false;
+                m_logged[i][v]     = false;
+            }
         }
 
         AssetRef<Material> trunkMat  = internSolidMaterial(assets, 118, 78, 38, 255, "runtime:/foliage/tree-trunk-mat");
@@ -358,57 +411,202 @@ namespace Dark
 
     void FoliagePrototypes::sync(Renderer& renderer, AssetManager& assets, const Terrain::FoliageDensity& density)
     {
-        const std::string* paths[kKinds] = { &density.treeModel, &density.flowerModel, &density.rockModel, &density.grassModel };
-        for (int i = 0; i < kKinds; ++i)
+        const std::vector<Terrain::FoliageSpecies>* lists[kKinds] = { &density.trees, &density.flowers, &density.rocks, &density.tufts };
+        const std::string* legacy[kKinds] = { &density.treeModel, &density.flowerModel, &density.rockModel, &density.grassModel };
+        const char* labels[kKinds] = { "tree", "flower", "rock", "grass" };
+        constexpr uint32_t kMaxParts = 8;
+
+        auto warnOnce = [&](int kind, int variant, const std::string& path, const char* why)
         {
-            if (*paths[i] == m_path[i])
+            if (m_logged[kind][variant])
+                return;
+            m_logged[kind][variant] = true;
+            if (why != nullptr)
+                DE_LOG_WARN(LogCategory::Render, "Foliage: species '{}' dropped ({})", path, why);
+            else
+                DE_LOG_WARN(LogCategory::Render, "Foliage: '{}' is missing, has no opaque parts, or is skinned — using the procedural prototype", path);
+        };
+
+        auto storeParts = [&](int kind, int variant, std::vector<Model::Part> parts, const std::string& path, const std::string& cacheKey, bool worldScale)
+        {
+            if (parts.size() > kMaxParts)
+            {
+                warnOnce(kind, variant, path, "more than 8 opaque parts");
+                return;
+            }
+            auto model = std::make_shared<Model>();
+            if (!model->createFromParts(std::move(parts)))
+            {
+                warnOnce(kind, variant, path, nullptr);
+                return;
+            }
+            AssetRef<Model> uploaded = registerAndUploadModel(renderer, assets, model, cacheKey);
+            if (!uploaded || !uploaded->hasOpaque() || uploaded->skinned())
+            {
+                warnOnce(kind, variant, path, nullptr);
+                return;
+            }
+            m_variant[kind][variant]   = std::move(uploaded);
+            m_ready[kind][variant]     = true;
+            m_worldScale[kind][variant] = worldScale;
+        };
+
+        for (int kind = 0; kind < kKinds; ++kind)
+        {
+            const bool grass = kind == static_cast<int>(Terrain::FoliageKind::Grass);
+            const bool legacyTuft = grass && lists[kind]->empty() && !legacy[kind]->empty();
+            std::vector<Terrain::FoliageSpecies> use = *lists[kind];
+            if (use.empty() && !legacy[kind]->empty())
+            {
+                Terrain::FoliageSpecies one;
+                one.path   = *legacy[kind];
+                one.weight = 1.0f;
+                use.push_back(std::move(one));
+            }
+            if (use.size() > static_cast<size_t>(kVariants))
+                use.resize(static_cast<size_t>(kVariants));
+
+            std::string sig;
+            sig.push_back(legacyTuft ? 'L' : 'S');
+            for (const Terrain::FoliageSpecies& species : use)
+            {
+                sig.push_back('\n');
+                sig += species.path;
+                sig.push_back(species.worldScale ? '1' : '0');
+            }
+            if (sig == m_sig[kind])
                 continue;
-            m_path[i] = *paths[i];
-            m_override[i].reset();
-            m_logged[i] = false;
-            if (m_path[i].empty())
+            m_sig[kind] = std::move(sig);
+            m_count[kind] = static_cast<uint8_t>(use.size());
+            for (int v = 0; v < kVariants; ++v)
+            {
+                m_variant[kind][v].reset();
+                m_ready[kind][v]       = false;
+                m_worldScale[kind][v]  = false;
+                m_logged[kind][v]      = false;
+            }
+            if (use.empty())
                 continue;
 
-            AssetRef<Model> loaded;
-            if (i == static_cast<int>(Terrain::FoliageKind::Grass))
+            if (legacyTuft)
             {
-                loaded = loadOverride(renderer, assets, m_path[i]);
-                const std::string tuftKey = std::string("runtime:/foliage/grass-tuft/") + m_path[i];
+                AssetRef<Model> loaded = loadOverride(renderer, assets, use[0].path);
+                const std::string tuftKey = std::string("runtime:/foliage/grass-tuft/") + use[0].path;
                 if (AssetRef<Model> tuft = grassTuft(renderer, assets, loaded, tuftKey))
                     loaded = std::move(tuft);
-            }
-            else
-            {
-                const char* label = "tree";
-                if (i == static_cast<int>(Terrain::FoliageKind::Flower))
-                    label = "flower";
-                else if (i == static_cast<int>(Terrain::FoliageKind::Rock))
-                    label = "rock";
-                loaded = showcaseModel(renderer, assets, m_path[i], label);
-            }
-            if (!loaded || !loaded->hasOpaque() || loaded->skinned())
-            {
-                if (!m_logged[i])
+                if (!loaded || !loaded->hasOpaque() || loaded->skinned())
                 {
-                    DE_LOG_WARN(LogCategory::Render, "Foliage: '{}' is missing, has no opaque parts, or is skinned — using the procedural prototype", m_path[i]);
-                    m_logged[i] = true;
+                    warnOnce(kind, 0, use[0].path, nullptr);
+                    continue;
+                }
+                m_variant[kind][0]    = std::move(loaded);
+                m_ready[kind][0]      = true;
+                m_worldScale[kind][0] = use[0].worldScale;
+                m_count[kind]         = 1;
+                continue;
+            }
+
+            const bool expand = grass && use.size() == 1;
+            if (expand)
+            {
+                AssetRef<Model> src = loadCpuModel(assets, use[0].path);
+                std::vector<std::vector<Model::Part>> clusters;
+                if (src)
+                {
+                    std::vector<Model::Part> all;
+                    all.reserve(src->opaque().size() + src->translucent().size());
+                    for (const Model::Part& part : src->opaque())
+                        all.push_back(part);
+                    for (const Model::Part& part : src->translucent())
+                        all.push_back(part);
+                    makeFoliageShowcaseClusters(all, clusters);
+                }
+                if (clusters.empty())
+                {
+                    warnOnce(kind, 0, use[0].path, nullptr);
+                    m_count[kind] = 1;
+                    continue;
+                }
+                if (clusters.size() > static_cast<size_t>(kVariants))
+                {
+                    DE_LOG_WARN(LogCategory::Render, "Foliage: species '{}' dropped extra clusters past {}", use[0].path, kVariants);
+                    clusters.resize(static_cast<size_t>(kVariants));
+                }
+                m_count[kind] = static_cast<uint8_t>(clusters.size());
+                for (size_t v = 0; v < clusters.size(); ++v)
+                {
+                    const std::string cacheKey = std::string("runtime:/foliage/showcase/") + labels[kind] + "/" + std::to_string(v) + "/" + use[0].path;
+                    storeParts(kind, static_cast<int>(v), std::move(clusters[v]), use[0].path, cacheKey, use[0].worldScale);
                 }
                 continue;
             }
-            m_override[i] = std::move(loaded);
+
+            for (size_t v = 0; v < use.size(); ++v)
+            {
+                AssetRef<Model> src = loadCpuModel(assets, use[v].path);
+                std::vector<std::vector<Model::Part>> clusters;
+                if (src)
+                {
+                    std::vector<Model::Part> all;
+                    all.reserve(src->opaque().size() + src->translucent().size());
+                    for (const Model::Part& part : src->opaque())
+                        all.push_back(part);
+                    for (const Model::Part& part : src->translucent())
+                        all.push_back(part);
+                    makeFoliageShowcaseClusters(all, clusters);
+                }
+                if (clusters.empty())
+                {
+                    warnOnce(kind, static_cast<int>(v), use[v].path, nullptr);
+                    continue;
+                }
+                const std::string cacheKey = std::string("runtime:/foliage/showcase/") + labels[kind] + "/" + std::to_string(v) + "/" + use[v].path;
+                storeParts(kind, static_cast<int>(v), std::move(clusters[0]), use[v].path, cacheKey, use[v].worldScale);
+            }
         }
     }
 
     const AssetRef<Model>& FoliagePrototypes::model(Terrain::FoliageKind kind) const
     {
+        return model(kind, 0);
+    }
+
+    const AssetRef<Model>& FoliagePrototypes::model(Terrain::FoliageKind kind, uint8_t variant) const
+    {
         const int i = static_cast<int>(kind);
-        if (i < 0 || i >= kKinds)
+        if (i < 0 || i >= kKinds || variant >= kVariants)
             return emptyModel();
-        if (m_override[i] && m_override[i]->hasOpaque() && !m_override[i]->skinned())
-            return m_override[i];
-        if (m_proto[i])
+        if (m_ready[i][variant] && m_variant[i][variant] && m_variant[i][variant]->hasOpaque() && !m_variant[i][variant]->skinned())
+            return m_variant[i][variant];
+        if (variant == 0 && m_proto[i])
             return m_proto[i];
         return emptyModel();
+    }
+
+    uint32_t FoliagePrototypes::loadedCount(Terrain::FoliageKind kind) const
+    {
+        const int i = static_cast<int>(kind);
+        if (i < 0 || i >= kKinds)
+            return 0;
+        return m_count[i];
+    }
+
+    bool FoliagePrototypes::variantReady(Terrain::FoliageKind kind, uint8_t variant) const
+    {
+        const int i = static_cast<int>(kind);
+        if (i < 0 || i >= kKinds || variant >= kVariants)
+            return false;
+        if (m_ready[i][variant])
+            return true;
+        return variant == 0 && static_cast<bool>(m_proto[i]);
+    }
+
+    bool FoliagePrototypes::worldScale(Terrain::FoliageKind kind, uint8_t variant) const
+    {
+        const int i = static_cast<int>(kind);
+        if (i < 0 || i >= kKinds || variant >= kVariants)
+            return false;
+        return m_worldScale[i][variant];
     }
 
 } // namespace Dark

@@ -63,6 +63,7 @@ namespace Dark::Terrain
         const GrassParams& params() const { return m_params; }
 
         void reset();
+        void markAllDirty();
         void update(const TerrainGrid& grid, float playerX, float playerZ, double playTimeSec, float waterLevel, const GrassPlayerSample& player = {});
 
         static void tileIndex(float worldX, float worldZ, int& tileX, int& tileZ);
