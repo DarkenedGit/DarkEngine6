@@ -116,6 +116,7 @@
 #include "Particles/ParticleScene.h"
 #include "Particles/ParticleTick.h"
 #include "Particles/StatusFxDriver.h"
+#include "Play/CombatHud.h"
 #include "Ui/HudTagComponent.h"
 #include "Weapons/HittableComponent.h"
 #include "Animation/SkeletonDebug.h"
@@ -1407,25 +1408,8 @@ void SandboxFrame::render()
     const Entity hudBody = app().possessedBody();
     const HudTagComponent* hudTag = hudBody.valid() ? app().world().get<HudTagComponent>(hudBody) : nullptr;
     const bool movieBlocks = app().m_movie.blocksWorld();
-    const bool drawHealth = !movieBlocks && !app().m_hud.m_menu.visible() && hudHp && hudTag && hudTag->kind == HudKind::HealthBar;
-    const bool drawCrosshair = !movieBlocks && !app().m_hud.m_menu.visible() && hudHp && hudHp->alive() && !app().m_gameplayPaused && !app().m_dialogue.locksWorld();
-    if (drawHealth || drawCrosshair)
-    {
-        const GpuScope hud(cmd, "HUD", ProfileColor::Hud);
-        if (drawHealth)
-            app().m_healthHud.draw(cmd, app().renderer().width(), app().renderer().height(), hudHp->ratio(), app().window().dpiScale());
-        if (drawCrosshair)
-        {
-            bool throwableSlot = false;
-            if (hudBody.valid())
-            {
-                if (const ThrowableBeltComponent* carried = app().world().get<ThrowableBeltComponent>(hudBody))
-                    throwableSlot = carried->belt.any();
-            }
-            const WeaponKind hudKind = app().localWeapons() ? app().localWeapons()->activeKind() : WeaponKind::Melee;
-            app().m_crosshair.draw(cmd, app().renderer().width(), app().renderer().height(), hudKind, throwableSlot, app().window().dpiScale());
-        }
-    }
+    const bool showHealth = !movieBlocks && !app().m_hud.m_menu.visible() && hudHp && hudTag && hudTag->kind == HudKind::HealthBar;
+    const bool showCrosshair = !movieBlocks && !app().m_hud.m_menu.visible() && hudHp && hudHp->alive() && !app().m_gameplayPaused && !app().m_dialogue.locksWorld();
 
     app().renderer().stats().drawCalls = app().m_terrain.lastDrawCalls() + app().m_water.lastDrawCalls() + meshDraws + 1;
     app().renderer().stats().triangles =
@@ -1453,6 +1437,19 @@ void SandboxFrame::render()
         app().m_hud.drawGuardSpeech();
         app().m_hud.drawDialogue();
         app().m_hud.drawArmorHud();
+        if (showHealth)
+            drawHealthBar(hudHp->ratio());
+        if (showCrosshair)
+        {
+            bool throwableSlot = false;
+            if (hudBody.valid())
+            {
+                if (const ThrowableBeltComponent* carried = app().world().get<ThrowableBeltComponent>(hudBody))
+                    throwableSlot = carried->belt.any();
+            }
+            const WeaponKind hudKind = app().localWeapons() ? app().localWeapons()->activeKind() : WeaponKind::Melee;
+            drawCrosshair(hudKind, throwableSlot);
+        }
         app().m_hud.drawStaminaBar();
         app().m_hud.drawQuestHud();
         app().m_hud.drawUpgradeHint();

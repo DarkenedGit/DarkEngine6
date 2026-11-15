@@ -110,28 +110,6 @@ WeaponLoadout* EditorApp::playWeapons()
     return wlc->loadout.get();
 }
 
-void EditorApp::drawPlayCrosshair(ID3D12GraphicsCommandList* cmd)
-{
-    if (!cmd || !m_playMode || !m_crosshair.isValid() || m_sceneMode != SceneMode::Scene3D)
-        return;
-    if (!m_playPlayer.valid() || !world().alive(m_playPlayer))
-        return;
-    const HealthComponent* hp = world().get<HealthComponent>(m_playPlayer);
-    if (!hp || !hp->health.alive())
-        return;
-
-    bool throwableSlot = false;
-    if (const ThrowableBeltComponent* carried = world().get<ThrowableBeltComponent>(m_playPlayer))
-        throwableSlot = carried->belt.any();
-
-    WeaponKind kind = WeaponKind::Melee;
-    if (const WeaponLoadout* weapons = playWeapons())
-        kind = weapons->activeKind();
-
-    const GpuScope hud(cmd, "HUD", ProfileColor::Hud);
-    m_crosshair.draw(cmd, renderer().width(), renderer().height(), kind, throwableSlot, window().dpiScale());
-}
-
 void EditorApp::submitPlayProjectiles(std::vector<int>& rejected)
 {
     WeaponLoadout* weapons = playWeapons();
@@ -1197,8 +1175,6 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     }
 
     m_scene.endCameraFrame(m_camera, viewProj);
-    if (!m_movie.blocksWorld())
-        drawPlayCrosshair(cmd);
     renderer().stats().drawCalls = draws;
     uint32_t tableCount = 0;
     const PassNode* table = deferred ? editorDeferredPasses(tableCount) : editorForwardPasses(tableCount);

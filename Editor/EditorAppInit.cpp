@@ -70,9 +70,6 @@ void EditorApp::registerActions()
 
 void EditorApp::ensurePlayReticle()
 {
-    if (!m_crosshair.isValid() && !m_crosshair.create(renderer()))
-        DE_LOG_ERROR(LogCategory::Render, "EditorApp: crosshair failed");
-
     if (m_tracerModelId != NULL_ASSET)
         return;
 

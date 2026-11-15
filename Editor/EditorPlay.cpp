@@ -3,6 +3,7 @@
 #include "Play/AttachedLights.h"
 #include "Play/Carry.h"
 #include "Play/DialogueBinding.h"
+#include "Play/CombatHud.h"
 #include "Play/DialogueHud.h"
 #include "Ui/ImGuiGameChrome.h"
 #include "Ui/ImGuiTheme.h"
@@ -1083,6 +1084,23 @@ void EditorApp::drawPlayHud()
 {
     if (!m_playMode || !m_imgui.isReady())
         return;
+
+    if (!m_movie.blocksWorld())
+    {
+        const HealthComponent* hp = m_playPlayer.valid() ? world().get<HealthComponent>(m_playPlayer) : nullptr;
+        if (hp)
+            drawHealthBar(hp->health.ratio());
+        if (hp && hp->health.alive() && !m_dialogue.locksWorld())
+        {
+            bool throwableSlot = false;
+            if (const ThrowableBeltComponent* carried = world().get<ThrowableBeltComponent>(m_playPlayer))
+                throwableSlot = carried->belt.any();
+            WeaponKind kind = WeaponKind::Melee;
+            if (const WeaponLoadout* weapons = playWeapons())
+                kind = weapons->activeKind();
+            drawCrosshair(kind, throwableSlot);
+        }
+    }
 
     if (m_defenseTextLeft > 0.0f && !m_defenseText.empty())
     {

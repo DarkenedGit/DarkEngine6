@@ -1908,10 +1908,6 @@ void SandboxApp::onInit()
             DE_LOG_ERROR(LogCategory::Render, "SandboxApp: skeleton line buffers failed");
     }
 
-    if (!m_healthHud.create(renderer()))
-        DE_LOG_ERROR("SandboxApp: health HUD failed");
-    if (!m_crosshair.create(renderer()))
-        DE_LOG_ERROR("SandboxApp: crosshair HUD failed");
     if (!m_particles.create(renderer(), assets()))
         DE_LOG_ERROR("SandboxApp: particle renderer failed");
     if (!m_gpuParticles.create(renderer()))

@@ -19,8 +19,6 @@
 #include "Render/AutoExposure.h"
 #include "Render/TonemapPipeline.h"
 #include "Render/CloudVolumePipeline.h"
-#include "Render/HealthHud.h"
-#include "Render/CrosshairHud.h"
 #include "Sky/Environment.h"
 #include "Gameplay/Inventory.h"
 #include "Gameplay/Quest.h"
@@ -333,8 +331,6 @@ private:
     SandboxVision m_vision;
     SandboxHud    m_hud;
     char          m_joinHost[64]   = "127.0.0.1";
-    Dark::HealthHud                  m_healthHud;
-    Dark::CrosshairHud               m_crosshair;
     Dark::ParticleEmitter            m_blood;
     Dark::ParticleRenderer           m_particles;
     Dark::GpuParticleSystem          m_gpuParticles;
